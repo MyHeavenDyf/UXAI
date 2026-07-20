@@ -38,16 +38,22 @@ export function capabilityLabel(id: StudioCapability) {
 }
 
 export function styleModelLabel(id: string) {
-  return STUDIO_STYLE_MODELS.find((item) => item.id === id)?.label ?? "千问"
+  return STUDIO_STYLE_MODELS.find((item) => item.id === styleModelId(id))?.label ?? "千问"
+}
+
+export function styleModelId(value?: string) {
+  return STUDIO_STYLE_MODELS.find((item) => item.id === value || item.label === value)?.id
 }
 
 export function styleModelRequiresSeedreamPermission(id: string) {
-  return STUDIO_STYLE_MODELS.find((item) => item.id === id || item.label === id)?.requiresSeedreamPermission === true
+  return STUDIO_STYLE_MODELS.find((item) => item.id === styleModelId(id))?.requiresSeedreamPermission === true
 }
 
 export function referenceImageLimit(styleModel: string) {
-  const model = STUDIO_STYLE_MODELS.find((item) => item.id === styleModel || item.label === styleModel)
-  return model?.id === "seedream-5-lite" || model?.id === "qwen" ? 3 : 1
+  const model = STUDIO_STYLE_MODELS.find((item) => item.id === styleModelId(styleModel))
+  if (model?.id === "seedream-5-lite") return 4
+  if (model?.id === "qwen") return 3
+  return 1
 }
 
 export function imageToolLabel(id: StudioImageTool) {

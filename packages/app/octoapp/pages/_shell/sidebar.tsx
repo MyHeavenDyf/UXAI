@@ -22,6 +22,7 @@ import {
   IconAsset, IconAsset1,
   IconSettings, IconSettings1,
 } from "./icons"
+import { Icon } from "@opencode-ai/ui/icon"
 import { ProjectInfo } from "@/components/project-info"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
@@ -270,7 +271,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
             class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
           >
             <span class="flex items-center gap-[12px] min-w-0">
-              <img src="/insightIcon.svg" alt="" style={{ width: "20px", height: "20px" }} />
+              <Icon name="tab-cowork" size="normal" style={{ color: "rgba(10,89,247,1)" }} />
               <span class="text-[12px] leading-[20px] select-none truncate" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
                 Octo Insight
               </span>

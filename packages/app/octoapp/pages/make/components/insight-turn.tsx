@@ -1164,7 +1164,7 @@ const stateStatus = state.status as string | undefined
                   </span>
                 </Show>
                 <Show when={task.status === "error"}>
-                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium" style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444" }}>
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium" style={{ background: "rgba(0,0,0,0.05)", color: "rgba(0,0,0,0.6)" }}>
                     错误
                   </span>
                 </Show>

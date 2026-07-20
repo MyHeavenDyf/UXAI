@@ -99,8 +99,6 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
     return list
   }
 
-  const hasError = () => !!domains.error || !!productLines.error || !!allProducts.error
-
   const safeDomains = () => {
     try { return domains() ?? [] } catch { return [] }
   }
@@ -255,8 +253,7 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
           </Suspense>
         </Show>
         <Show when={!isSearching()}>
-          <Show when={hasError()} fallback={
-            <div style={{ display: "flex" }}>
+          <div style={{ display: "flex" }}>
               <div style={{ width: "calc(33.33% - 3px)", "border-right": "1px solid rgba(0,0,0,0.08)", }}>
                 <div style={{ "font-size": "14px", "font-weight": 600, color: "#191919", "margin-bottom": "8px", padding: "0 8px" }}>领域</div>
                 <Suspense fallback={<div style={emptyHintStyle}>加载中...</div>}>
@@ -370,9 +367,6 @@ export function ProjectProductSelectPanel(props: PanelProps): JSX.Element {
                 </Show>
               </div>
             </div>
-          }>
-            <ErrorContent onRetry={() => refetchDomains()} />
-          </Show>
         </Show>
       </ErrorBoundary>
     </div>

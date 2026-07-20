@@ -8,6 +8,7 @@ import { ActionBar } from "./action-bar"
 import { TableRenderer } from "./table-renderer"
 import { MindmapRenderer } from "./mindmap-renderer"
 import { HtmlRenderer } from "./html-renderer"
+import { ImageRenderer } from "./image-renderer"
 import { SourceCodeView } from "./source-code-view"
 import { IllustrationResultEmpty, fileTypeIconUrl } from "../../icons/illustrations"
 import { extractTableMarkdown } from "../../utils/markdown-table"
@@ -15,6 +16,7 @@ import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
 import { defaultFilename as defaultLocalFilename } from "../../utils/local-file"
 import { ensureLocalMarkdownFile } from "../../utils/local-resource"
+import { openFileLocally, revealFileInFolder, NO_APP_HINT } from "../../utils/local-file-ops"
 import { MarkdownEditor } from "../markdown-editor"
 import { MarkdownPreview } from "../markdown-editor/markdown-preview"
 import { langFromPath, canOpenLocally } from "../../utils/write-output"
@@ -104,7 +106,7 @@ export function ResultViewer(props: {
                 onEdit={() => setEditingId(tab().id)}
               />
               <div class="flex-1 overflow-hidden">
-                <TabBody tab={tab()} onCacheContent={props.onCacheContent} />
+                <TabBody tab={tab()} onCacheContent={props.onCacheContent} refreshKey={props.refreshKey} />
               </div>
             </div>
           )}
@@ -135,9 +137,16 @@ export function ResultViewer(props: {
 function TabBody(props: {
   tab: ResultTab
   onCacheContent?: (id: string, content: string) => void
+  refreshKey?: number
 }): JSX.Element {
   return (
     <Switch fallback={<TabContent tab={props.tab} />}>
+      {/* image 模式(filePath:local:// 协议读盘渲染 / uri:直接加载):
+           不走 PathTabBody 的 sdk.client.file.read(那是文本读法,会把二进制当 UTF-8 解,内容损坏)。
+           也不走 UriTabBody 的 fetch+text(同样损坏二进制)。 */}
+      <Match when={props.tab.type === "image" && (props.tab.filePath || props.tab.uri)}>
+        <ImageRenderer filePath={props.tab.filePath} uri={props.tab.uri} refreshKey={props.refreshKey} />
+      </Match>
       {/* path 模式(路径 C,write 文本产物):走 SDK file.read 读盘取最新内容,不复用快照。
           见 output-renderers.md §2.6.3。file 类型(表格/office/二进制)不读盘,直接 fallback 到
           TabContent → FileFallback(本地 openPath / showItemInFolder)。 */}
@@ -187,7 +196,13 @@ function PathTabBody(props: {
   return (
     <Show
       when={!resource.error}
-      fallback={<PathErrorFallback tab={props.tab} error={resource.error} onRetry={() => refetch()} />}
+      fallback={
+        // refetch 期间 error 不清空(Solid resource 语义),不包 loading 态错误页会纹丝不动,
+        // 用户分不清「没点上」还是「又失败了」。三个 TabBody 的错误兜底同此。
+        <Show when={!resource.loading} fallback={<ResourceLoading />}>
+          <PathErrorFallback tab={props.tab} error={resource.error} onRetry={() => refetch()} />
+        </Show>
+      }
     >
       <Show when={!resource.loading} fallback={<ResourceLoading />}>
         <TabContent tab={{ ...props.tab, content: resource() ?? "" }} />
@@ -216,14 +231,16 @@ function UriTabBody(props: {
     <Show
       when={!resource.error}
       fallback={
-        <ResourceErrorFallback
-          tab={props.tab}
-          error={resource.error}
-          onRetry={() => {
-            tracker.interaction({ module: "insight", name: "result-retry", extend: JSON.stringify({ tabType: props.tab.type }) })
-            void refetch()
-          }}
-        />
+        <Show when={!resource.loading} fallback={<ResourceLoading />}>
+          <ResourceErrorFallback
+            tab={props.tab}
+            error={resource.error}
+            onRetry={() => {
+              tracker.interaction({ module: "insight", name: "result-retry", extend: JSON.stringify({ tabType: props.tab.type }) })
+              void refetch()
+            }}
+          />
+        </Show>
       }
     >
       <Show when={!resource.loading} fallback={<ResourceLoading />}>
@@ -271,14 +288,16 @@ function UriMarkdownTabBody(props: {
     <Show
       when={!resource.error}
       fallback={
-        <ResourceErrorFallback
-          tab={props.tab}
-          error={resource.error}
-          onRetry={() => {
-            tracker.interaction({ module: "insight", name: "result-retry", extend: JSON.stringify({ tabType: props.tab.type }) })
-            void refetch()
-          }}
-        />
+        <Show when={!resource.loading} fallback={<ResourceLoading />}>
+          <ResourceErrorFallback
+            tab={props.tab}
+            error={resource.error}
+            onRetry={() => {
+              tracker.interaction({ module: "insight", name: "result-retry", extend: JSON.stringify({ tabType: props.tab.type }) })
+              void refetch()
+            }}
+          />
+        </Show>
       }
     >
       <Show when={!resource.loading} fallback={<ResourceLoading />}>
@@ -384,7 +403,15 @@ function ResourceErrorFallback(props: {
         <Show when={props.tab.uri}>
           <button
             type="button"
-            onClick={() => navigator.clipboard.writeText(props.tab.uri!).catch(console.error)}
+            onClick={() =>
+              navigator.clipboard.writeText(props.tab.uri!).then(
+                () => showToast({ description: "已复制到剪贴板", variant: "success", duration: 2000 }),
+                (err) => {
+                  console.error("[octo:resource] copy-link-failed", { err })
+                  showToast({ title: "复制失败", description: "请重试或手动选择文本复制", variant: "error" })
+                },
+              )
+            }
             class="px-3 py-1 text-xs rounded"
             style={{ border: "1px solid var(--octo-border-default)", color: "var(--octo-text-primary)" }}
           >
@@ -426,7 +453,7 @@ function PathErrorFallback(props: {
 // spec: docs/specs/ui/output-renderers.md §6.A,决策: ADR-009。
 //
 // 返回桌面壳缺失的 API 方法名列表(便于 toast 给用户精确报错 + 知会开发团队补壳)。
-// SOT: packages/app/src/pages/insight/lib/electron-api.ts;handoff 同步清单见 docs/intranet-handoff.md §1.6。
+// SOT: ../../lib/electron-api.ts 的 DesktopApi;handoff 同步清单见 octo-agent 文档仓 docs/intranet-handoff.md §4。
 type ApiKey = "openPath" | "saveFilePicker" | "downloadResource" | "downloadResourceToTemp" | "showItemInFolder"
 function missingDesktopApi(required: ApiKey[]): string[] {
   const api = getDesktopApi()
@@ -466,21 +493,9 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     if (openBusy()) return
     tracker.interaction({ module: "insight", name: "file-open-in-app", extend: JSON.stringify({ fileType: trackFileType() }) })
     if (isPath()) {
-      const missing = missingDesktopApi(["openPath"])
-      if (missing.length > 0) { notifyMissingApi(missing); return }
-      const api = getDesktopApi()!
       setOpenBusy(true)
-      const filePath = props.tab.filePath!
-      console.log("[octo:path] open-local", { filePath })
       try {
-        const openResult = (await api.openPath!(filePath)) as unknown as string | undefined
-        if (typeof openResult === "string" && openResult.length > 0) {
-          console.error("[octo:path] open-failed", { filePath, reason: openResult })
-          showToast({ title: "唤起本地应用失败", description: "请安装对应应用或在系统设置中关联打开方式", variant: "error" })
-        }
-      } catch (err) {
-        console.error("[octo:path] open-failed", { filePath, err })
-        showToast({ title: "无法打开文件", description: err instanceof Error ? err.message : String(err), variant: "error" })
+        await openFileLocally(props.tab.filePath!)
       } finally {
         setOpenBusy(false)
       }
@@ -497,13 +512,14 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     const fname = defaultFilename()
     console.log("[octo:office] download-start", {
       uri: props.tab.uri,
-      namespace: props.tab.id,
+      namespace: props.tab.uri,
       filename: fname,
       mime: props.tab.mimeType,
       mode: "to-temp",
     })
     try {
-      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.id, fname, projectDir() || undefined, params.id)
+      // 幂等键传 uri(资源身份),不传 tab.id —— 见 utils/local-resource.ts 文件头。
+      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.uri, fname, projectDir() || undefined, params.id)
       console.log("[octo:office] download-ok", { localPath })
       console.log("[octo:office] open-path", { localPath })
       // shell.openPath 返回值约定: 空字符串 = 成功,非空 = 错误说明。
@@ -511,11 +527,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
       const openResult = (await api.openPath!(localPath)) as unknown as string | undefined
       if (typeof openResult === "string" && openResult.length > 0) {
         console.error("[octo:office] open-failed", { localPath, reason: openResult })
-        showToast({
-          title: "唤起本地应用失败",
-          description: "请安装 Excel / WPS 或在系统设置中关联打开方式",
-          variant: "error",
-        })
+        showToast({ title: "无法打开文件", description: NO_APP_HINT, variant: "error" })
       }
     } catch (err) {
       console.error("[octo:office] open-failed", { uri: props.tab.uri, err })
@@ -570,17 +582,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     if (revealBusy()) return
     tracker.interaction({ module: "insight", name: "file-reveal-folder", extend: JSON.stringify({ fileType: trackFileType() }) })
     if (isPath()) {
-      const missing = missingDesktopApi(["showItemInFolder"])
-      if (missing.length > 0) { notifyMissingApi(missing); return }
-      const api = getDesktopApi()!
-      const filePath = props.tab.filePath!
-      console.log("[octo:path] reveal-local", { filePath })
-      try {
-        api.showItemInFolder!(filePath)
-      } catch (err) {
-        console.error("[octo:path] reveal-failed", { filePath, err })
-        showToast({ title: "无法定位文件", description: err instanceof Error ? err.message : String(err), variant: "error" })
-      }
+      await revealFileInFolder(props.tab.filePath!)
       return
     }
     if (!props.tab.uri) return
@@ -592,11 +594,12 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     const api = getDesktopApi()!
     setRevealBusy(true)
     const fname = defaultFilename()
-    console.log("[octo:office] reveal-start", { uri: props.tab.uri, namespace: props.tab.id, filename: fname })
+    console.log("[octo:office] reveal-start", { uri: props.tab.uri, namespace: props.tab.uri, filename: fname })
     try {
-      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.id, fname, projectDir() || undefined, params.id)
+      // 幂等键传 uri(资源身份),不传 tab.id —— 见 utils/local-resource.ts 文件头。
+      const localPath = await api.downloadResourceToTemp!(props.tab.uri, props.tab.uri, fname, projectDir() || undefined, params.id)
       console.log("[octo:office] reveal-show", { localPath })
-      api.showItemInFolder!(localPath)
+      await revealFileInFolder(localPath)
     } catch (err) {
       console.error("[octo:office] reveal-failed", { uri: props.tab.uri, err })
       showToast({
@@ -654,7 +657,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
               type="button"
               onClick={() => void handleRevealInFolder()}
               disabled={revealBusy()}
-              style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "1px solid var(--octo-border-default, #e5e7eb)", background: "rgba(243,243,243,1)", color: "rgba(10,89,247,1)", "font-size": "13px", cursor: revealBusy() ? "not-allowed" : "pointer", opacity: revealBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
+              style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "1px solid rgba(243,243,243,1)", background: "rgba(243,243,243,1)", color: "rgba(10,89,247,1)", "font-size": "13px", cursor: revealBusy() ? "not-allowed" : "pointer", opacity: revealBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
             >
               <img src={folderBlueUrl} width={14} height={12} alt="" aria-hidden="true" />
               {revealBusy() ? "定位中…" : "文件夹打开"}
@@ -665,7 +668,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
                 type="button"
                 onClick={() => void handleSaveAs()}
                 disabled={downloadBusy()}
-                style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "1px solid var(--octo-border-default, #e5e7eb)", background: "rgba(243,243,243,1)", color: "rgba(10,89,247,1)", "font-size": "13px", cursor: downloadBusy() ? "not-allowed" : "pointer", opacity: downloadBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
+                style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "1px solid rgba(243,243,243,1)", background: "rgba(243,243,243,1)", color: "rgba(10,89,247,1)", "font-size": "13px", cursor: downloadBusy() ? "not-allowed" : "pointer", opacity: downloadBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
               >
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
                   <path d="M8 2v8M5 7.5l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>

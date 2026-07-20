@@ -32,6 +32,7 @@ import {
   STUDIO_ASPECT_RATIOS,
   capabilityLabel,
   referenceImageLimit,
+  styleModelId,
   styleModelLabel,
   styleModelRequiresSeedreamPermission,
 } from "./studio/data"
@@ -61,6 +62,7 @@ import { StudioCutoutEditor, StudioHDEditor } from "./studio/studio-editors-basi
 import { StudioInpaintEditor } from "./studio/studio-inpaint-editor"
 import { StudioOutpaintEditor } from "./studio/studio-outpaint-editor"
 import { StudioVideoRiskDialog } from "./studio/studio-video-risk-dialog"
+import { STUDIO_FILTER_STATE_KEY_PREFIX } from "./studio/studio-file-manager"
 import type { MaterialWordBook } from "./studio/MaterialMenu"
 import {
   createBlobUrlFromDataUrl,
@@ -90,6 +92,7 @@ import {
 } from "./studio/studio-shared"
 import { createStudioSessionData } from "./studio/studio-session-data"
 import { createSessionThumbnailStore, type ThumbnailMap } from "./studio/session-thumbnail"
+import { getArtifactRelativePath, getArtifactServeUrl } from "./make/utils/artifact-file-api"
 
 type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
 const STUDIO_REGENERATE_DISPLAY_PROMPT = "再次生成"
@@ -138,7 +141,14 @@ export default function StudioPage() {
   let studioPageRef!: HTMLDivElement
 
   onMount(() => { tracker.page({ module: "studio", name: "studio-page" }) })
-  onCleanup(() => { toaster.clear() })
+  onCleanup(() => {
+    toaster.clear()
+    // 离开 studio 页面时清除所有 session 的筛选状态
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i)
+      if (key?.startsWith(STUDIO_FILTER_STATE_KEY_PREFIX)) localStorage.removeItem(key)
+    }
+  })
 
   const projectDir = useProjectDir({ mode: "config" })
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: true })
@@ -223,10 +233,17 @@ export default function StudioPage() {
   const [selectedImageId, setSelectedImageId] = createSignal<string>()
   const [deletedImageIds, setDeletedImageIds] = createSignal<Set<string>>(new Set())
   const processedAutoAddResults = new Set<string>()
-  const [showStudioCanvas, setShowStudioCanvas] = createSignal(false)
+  const [studioViewPref, setStudioViewPref] = persisted(
+    Persist.global("studio.view.preference"),
+    createStore({ mode: "file-manager" as "canvas" | "file-manager" }),
+  )
+  const [showStudioCanvas, setShowStudioCanvas] = createSignal(true)
   const [showStudioDetails, setShowStudioDetails] = createSignal(false)
-  const [showFileManager, setShowFileManager] = createSignal(false)
+  const [showFileManager, setShowFileManager] = createSignal(true)
   const [fileManagerDetailView, setFileManagerDetailView] = createSignal(false)
+  // 记录文件管理详情页当前查看的 resultId / imageId，从 canvas 切回时恢复
+  let fileManagerDetailResultId: string | undefined
+  let fileManagerDetailImageId: string | undefined
   const [fileManagerGenPending, setFileManagerGenPending] = createSignal(false)
   const [canvasTabImages, setCanvasTabImages] = createSignal<StudioImage[]>([])
   const [canvasTabLabels, setCanvasTabLabels] = createSignal<Record<string, string>>({})
@@ -806,6 +823,17 @@ export default function StudioPage() {
     const r2 = filtered.length === r.images.length ? r : { ...r, images: filtered }
     return r2.images.length > 0 ? r2 : undefined
   })
+  // Keep showFileManager in sync with the persisted preference.
+  // Falls back to file manager when the current session has no generated images.
+  createEffect(() => {
+    const hasImages = (canvasResult()?.images.length ?? 0) > 0
+    if (!hasImages) {
+      setShowFileManager(true)
+      return
+    }
+    setShowFileManager(studioViewPref.mode !== "canvas")
+  })
+
   const effectiveStatus = createMemo<StudioGenerationStatus>(() => {
     // isBusy 最优先，确保正在生成时显示 loading，而非被旧 result 的缓存图片掩盖
     if (isBusy()) return "running"
@@ -889,6 +917,7 @@ export default function StudioPage() {
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(false)
         setShowFileManager(false)
+        setStudioViewPref("mode", "canvas")
         setMode("preview")
         return
       }
@@ -904,12 +933,15 @@ export default function StudioPage() {
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(false)
         setShowFileManager(false)
+        setStudioViewPref("mode", "canvas")
         setMode("preview")
       }
     })
   }
 
   function selectFileManagerMedia(input: { resultID: string; imageID: string }) {
+    fileManagerDetailResultId = input.resultID
+    fileManagerDetailImageId = input.imageID
     batch(() => {
       setShowStudioCanvas(true)
       setShowFileManager(true)
@@ -924,11 +956,8 @@ export default function StudioPage() {
   }
 
   function backFromFileManagerDetail() {
-    batch(() => {
-      setFileManagerDetailView(false)
-      setSelectedResultId(undefined)
-      setSelectedImageId(undefined)
-    })
+    setFileManagerGenPending(false)
+    setFileManagerDetailView(false)
   }
 
   function selectCanvasTab(id: string) {
@@ -942,6 +971,7 @@ export default function StudioPage() {
       setWorkspaceImage(undefined)
       setWorkspaceUploadRequested(false)
       setShowFileManager(false)
+      setStudioViewPref("mode", "canvas")
       setMode("preview")
     })
   }
@@ -968,9 +998,13 @@ export default function StudioPage() {
           .find((r) => r?.images.some((img) => img.id === nextId))
         if (turn) setSelectedResultId(turn.id)
       } else {
-        // 最后一个 tab：隐藏 canvas 和 details
-        // 注意：不清空 selectedImageId，否则 auto-show effect 会重新创建 tab
-        setShowStudioCanvas(false)
+        // 最后一个 tab：切换到文件管理，清除选中避免 fallback 重新创建 tab
+        setSelectedResultId(undefined)
+        setSelectedImageId(undefined)
+        setShowStudioCanvas(true)
+        setShowFileManager(true)
+        setFileManagerDetailView(false)
+        setStudioViewPref("mode", "file-manager")
       }
     })
   }
@@ -1083,7 +1117,19 @@ export default function StudioPage() {
         setDeletedImageIds(new Set<string>())
         setSelectedImageId(undefined)
         setSelectedResultId(undefined)
-        setShowStudioCanvas(false)
+        // 无图片数据时直接显示文件管理，避免展示空 canvas / 生成中 loading
+        const hasImages = (() => {
+          const turns = buildStudioTurns({
+            messages: id ? dataStore.message[id] ?? [] : [],
+            parts: dataStore.part,
+            currentSessionID: id,
+          })
+          const latest = [...turns].reverse().find((t) => (t.result?.images.length ?? 0) > 0)
+          return (latest?.result?.images.length ?? 0) > 0
+        })()
+        const prefFileManager = !hasImages || studioViewPref.mode !== "canvas"
+        setShowStudioCanvas(true)
+        setShowFileManager(prefFileManager)
         setFileManagerDetailView(false)
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(preserveEditorEntry)
@@ -1106,6 +1152,7 @@ export default function StudioPage() {
     return isActionBusy() || Boolean(item?.capability === "video.generate" && !canGenerateVideo()) || Boolean(resultRequiresSeedreamPermission(item) && !canUseSeedream())
   }
   const hasVideoFrames = createMemo(() => hasVideoFrameAssets(videoFrames))
+  const hasInvalidVideoFrames = createMemo(() => Boolean(videoFrames.last && !videoFrames.first))
   const videoQualityLocked = createMemo(() => Boolean(videoFrames.first && videoFrames.last))
   createEffect(() => {
     if (videoQualityLocked()) setVideoQualityMode("pro")
@@ -1117,7 +1164,7 @@ export default function StudioPage() {
     (capability() !== "image.generate" || canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel())) &&
     (
       capability() === "video.generate"
-        ? prompt().trim().length > 0 || hasVideoFrames()
+        ? !hasInvalidVideoFrames() && (prompt().trim().length > 0 || hasVideoFrames())
         : prompt().trim().length > 0
     ),
   )
@@ -1430,9 +1477,16 @@ export default function StudioPage() {
     })
   }
 
+  function resolveStudioImageFetchUrl(url: string) {
+    if (url.startsWith("data:image/") || /^https?:\/\//i.test(url)) return url
+    const artifact = getArtifactRelativePath(url)
+    if (!artifact) return url
+    return getArtifactServeUrl(globalSDK.url, projectDir(), artifact.sessionId, artifact.relativePath)
+  }
+
   async function resolveImageUrlDataUrl(url: string) {
     if (url.startsWith("data:image/")) return url
-    const response = await fetch(url)
+    const response = await fetch(resolveStudioImageFetchUrl(url))
     if (!response.ok) throw new Error(`Unable to load selected image. status=${response.status}`)
     const blob = await response.blob()
     if (!blob.type.startsWith("image/")) throw new Error(`Selected media is not an image. content-type=${blob.type || "unknown"}`)
@@ -1879,7 +1933,13 @@ export default function StudioPage() {
       setAspectRatio("16:9")
     }
     if (value !== "video.generate") clearVideoFrames()
-    if (value !== "image.generate") setAssets([])
+    if (value !== "image.generate") {
+      setAssets([])
+      // 切换到非图片生成模式时清空自定义尺寸，避免带入视频/编辑模式
+      setIsCustomStore(false)
+      setCustomWidth(0)
+      setCustomHeight(0)
+    }
     if (workspaceModeForCapability(value)) {
       createEditorEntry(value)
       return
@@ -2050,7 +2110,6 @@ export default function StudioPage() {
     const restoredFirstFrame =
       stringValue(extra, "firstFrame") ??
       referenceImages[0] ??
-      referenceImages[1] ??
       dataUrlFromBase64(stringValue(args, "image"))
     return {
       first: restoredFirstFrame,
@@ -2100,7 +2159,7 @@ export default function StudioPage() {
         effectivePrompt,
         referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
         extra: { ...(extra ?? {}), skipPromptRefine: true },
-        styleModel: stringValue(input, "styleModel"),
+        styleModel: styleModelId(stringValue(input, "styleModel")),
         aspectRatio: nextAspectRatio,
         count: nextCount,
         width: result.width,
@@ -2135,7 +2194,7 @@ export default function StudioPage() {
     return {
       capability: result.capability,
       prompt: stringValue(input, "prompt") ?? result.displayPrompt ?? result.prompt,
-      styleModel: stringValue(input, "styleModel") ?? result.styleModel ?? result.model,
+      styleModel: styleModelId(stringValue(input, "styleModel") ?? result.styleModel ?? result.model),
       aspectRatio: nextAspectRatio,
       count: nextCount,
       width: result.width,
@@ -2157,6 +2216,7 @@ export default function StudioPage() {
     }
     if (
       draft.capability === "image.generate" &&
+      draft.styleModel &&
       styleModelRequiresSeedreamPermission(draft.styleModel) &&
       !canUseSeedream()
     ) {
@@ -2635,7 +2695,8 @@ export default function StudioPage() {
             first: videoFrames.first?.dataUrl,
             last: videoFrames.last?.dataUrl,
           }
-    const nextHasVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.first || nextVideoFrames.last)
+    const nextHasInvalidVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.last && !nextVideoFrames.first)
+    const nextHasVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.first)
     const text = (overrides?.prompt ?? prompt()).trim() || (
       nextCapability === "image.upscale"
         ? "将当前图片变清晰，提升分辨率和细节"
@@ -2649,13 +2710,13 @@ export default function StudioPage() {
               ? "根据首尾帧生成自然连贯的视频"
             : ""
     )
-    if (!text || isActionBusy()) return
+    if (!text || isActionBusy() || nextHasInvalidVideoFrames) return
     const currentToken = ++generationToken
     const previousPrompt = prompt()
     const previousAssets = assets()
     const previousVideoFrames = { first: videoFrames.first, last: videoFrames.last }
     const videoReferenceImages = [
-      nextVideoFrames.first ?? nextVideoFrames.last,
+      nextVideoFrames.first,
       nextVideoFrames.first ? nextVideoFrames.last : undefined,
     ].filter((item): item is string => Boolean(item))
     const referenceImages = overrides?.referenceImages ?? (
@@ -2694,7 +2755,7 @@ export default function StudioPage() {
           videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
           duration: nextVideoDuration,
           mode: nextVideoQualityMode,
-          firstFrame: nextVideoFrames.first ?? nextVideoFrames.last,
+          firstFrame: nextVideoFrames.first,
           lastFrame: nextVideoFrames.first ? nextVideoFrames.last : undefined,
         }
         : {}),
@@ -3671,11 +3732,14 @@ if (!headerTitle.pendingRename) return
               onSelectImage={selectCanvasTab}
               onDeleteImage={(id) => {
                 batch(() => {
-                  // fallback 模式（无 tabs）：只有一个关闭按钮，删除全部图片隐藏 canvas 和 details
-                  setShowStudioCanvas(false)
+                  // fallback 模式（无 tabs）：切换到文件管理
+                  setShowFileManager(true)
+                  setFileManagerDetailView(false)
+                  setStudioViewPref("mode", "file-manager")
                   const allIds = result()?.images.map((img) => img.id) ?? []
                   setDeletedImageIds(new Set(allIds))
                   setSelectedImageId(undefined)
+                  setSelectedResultId(undefined)
                 })
               }}
               onCloseTab={closeCanvasTab}
@@ -3691,9 +3755,26 @@ if (!headerTitle.pendingRename) return
               showFileManagerTab={true}
               onFileManagerClick={() => {
                 if (fileManagerDetailView()) {
-                  backFromFileManagerDetail()
+                  if (showFileManager()) {
+                    // 当前在详情页 → 返回网格视图
+                    backFromFileManagerDetail()
+                  } else {
+                    // 从 canvas 切回来 → 恢复之前的详情视图及选中项
+                    if (fileManagerDetailResultId && fileManagerDetailImageId) {
+                      setSelectedResultId(fileManagerDetailResultId)
+                      setSelectedImageId(fileManagerDetailImageId)
+                    }
+                    setShowFileManager(true)
+                    setStudioViewPref("mode", "file-manager")
+                  }
+                } else if (canvasTabImages().length === 0) {
+                  // 无图片 tab，保持在文件管理，不切换
                 } else {
-                  setShowFileManager((v) => !v)
+                  setShowFileManager((v) => {
+                    const next = !v
+                    setStudioViewPref("mode", next ? "file-manager" : "canvas")
+                    return next
+                  })
                 }
               }}
               showFileManager={showFileManager()}
@@ -3707,10 +3788,11 @@ if (!headerTitle.pendingRename) return
               }}
               studioCenterWidth={studioCenterWidth()}
               showStudioCenter={showStudioCenter()}
-              hideFileManagerFilter={studioLeftOverlayOpen()}
+              hideFileManagerFilter={studioLeftOverlayOpen() || fileManagerDetailView()}
               turns={displayTurns()}
               canGenerateVideo={canGenerateVideo()}
               sessionID={params.id}
+              fileManagerGenPending={fileManagerGenPending()}
             >
               <Show when={showStudioCanvas() && canvasResult()?.images.length && canvasWidth() >= 700}>
                 <div class="studio-details-wrapper" classList={{ expanded: showStudioDetails() }}>
@@ -3733,6 +3815,7 @@ if (!headerTitle.pendingRename) return
                           batch(() => {
                             setShowStudioCanvas(true)
                             setShowFileManager(false)
+                            setStudioViewPref("mode", "canvas")
                             if (r && canvasTabImages().some((tabImg) => r.images.some((img) => img.id === tabImg.id))) {
                               // 已有 tab → 只切选中
                               setSelectedImageId(id)
