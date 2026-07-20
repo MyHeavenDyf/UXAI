@@ -2,6 +2,7 @@ import { batch, createEffect, createMemo, createSignal, For, onCleanup, Show, ty
 import { Portal } from "solid-js/web"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import type { StudioTurnData } from "./turns"
+import emptyPng from "../insight/icons/empty.png"
 
 type FileFilterTab = "all" | "image" | "video"
 
@@ -535,11 +536,7 @@ export function StudioFileManager(props: {
       <ScrollView class="studio-file-manager-body">
         <Show when={!tabEmpty()} fallback={
           <div class="studio-file-manager-empty">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="none" aria-hidden="true" style={{ "margin-bottom": "12px" }}>
-              <rect x="6" y="8" width="36" height="32" rx="4" stroke="rgba(0,0,0,0.15)" stroke-width="2" fill="none" />
-              <circle cx="17" cy="19" r="3" stroke="rgba(0,0,0,0.15)" stroke-width="2" fill="none" />
-              <path d="M6 32l8-8 6 6 8-8 14 14" stroke="rgba(0,0,0,0.15)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
+            <img src={emptyPng} style={{ width: "150px", height: "150px", "margin-bottom": "12px" }} alt="" draggable={false} />
             <span class="studio-file-manager-empty-text">{emptyText()}</span>
           </div>
         }>
