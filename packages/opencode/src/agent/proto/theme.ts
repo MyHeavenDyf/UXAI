@@ -3,7 +3,7 @@
  *
  * ## 整体架构
  *
- * proto agent 的 prompt 模板（如 proto_triage.txt）中包含 `{VAR_NAME}` 形式的占位符，
+ * proto agent 的 prompt 模板（如 proto_triage.md）中包含 `{VAR_NAME}` 形式的占位符，
  * 需要在运行时替换为实际内容。替换有两个层级：
  *
  * 1. **静态替换（staticData）**：在模块加载时完成，用 `index.ts` 中的 `staticData` 替换
@@ -12,8 +12,8 @@
  *    新增的 `ATTITUDE` 和 `POEM` 也已加入 staticData，因此静态替换后它们也会被替换。
  *
  * 2. **动态替换（theme overrides）**：在运行时，根据 session 选用的"设计主题"，从
- *    `~/.config/octo/design/{theme}/` 目录加载 override 文件（如 `POEM.txt`、
- *    `COMPONENTS_CATALOG.txt`），覆盖 staticData 中的默认值。override 优先级高于
+ *    `~/.config/octo/design/{theme}/` 目录加载 override 文件（如 `POEM.md`、
+ *    `COMPONENTS_CATALOG.md`），覆盖 staticData 中的默认值。override 优先级高于
  *    staticData，使得同一个 agent 在不同主题下可以使用不同的设计知识。
  *
  * ## 主题的来源
@@ -79,8 +79,8 @@ function designDir(theme: string) {
 const filesCache = new Map<string, Record<string, string> | undefined>()
 
 /**
- * 从 ~/.config/octo/design/{theme}/ 加载所有 .txt override 文件。
- * 文件名去掉 .txt 后缀即为占位符变量名（如 `POEM.txt` → key `"POEM"`），
+ * 从 ~/.config/octo/design/{theme}/ 加载所有 .md override 文件。
+ * 文件名去掉 .md 后缀即为占位符变量名（如 `POEM.md` → key `"POEM"`），
  * 文件内容为替换值。这些值会覆盖 staticData 中的同名默认值。
  */
 async function loadThemeOverrides(theme: string): Promise<Record<string, string> | undefined> {
@@ -96,8 +96,8 @@ async function loadThemeOverrides(theme: string): Promise<Record<string, string>
 
   const overrides: Record<string, string> = {}
   for (const entry of entries) {
-    if (!entry.endsWith(".txt")) continue
-    const varName = path.basename(entry, ".txt")
+    if (!entry.endsWith(".md")) continue
+    const varName = path.basename(entry, ".md")
     const filePath = path.join(dir, entry)
     try {
       const content = readFileSync(filePath, "utf-8")

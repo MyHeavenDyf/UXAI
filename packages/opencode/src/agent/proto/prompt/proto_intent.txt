@@ -104,7 +104,7 @@
 ```
 
 ## 前端组件目录(Ant Design React Components)
-{COMPONENTS_CATALOG}
+{component_usage}
 
 ## 核心约束
 
@@ -139,20 +139,17 @@
    - **通用图片类:** 统一使用 `/image.jpg`.
    - **背景图类:** 统一使用 `/background.jpg`.
 
-5. **组件使用指南**
-{COMPONENTS_USAGE}
-
-6. **交互形式内聚约束**：
+5. **交互形式内聚约束**：
 优先使用页面内布局区域完成交互。表单编辑、详情展示尽量采用行内展开、侧边平铺或分步表单实现；
 在确保极简现代体验的前提下，仅在必要时（如强打断操作）允许在蓝图声明模态弹窗或抽屉。
 
-7. **模块划分约束**：
+6. **模块划分约束**：
   - 表格分页组件已经默认跟随在表格组件中，无需再单独设定
   - 针对整个界面的筛选等操作，通常放在头部导航中，而不是单独放在主体区域中作为一个单独的卡片
   - Side-by-side buttons must share identical structures (All-Text, All-Icon, or All-Icon+Text). Mixing structures within a single row is prohibited to maintain visual parity.
   - 业务数据指标卡片、表格模块等需要标题，在UI上显示该区域名称，在数据 data 中需有显性的包含`cardTitle`的字段。（导航栏、侧边菜单等不需要标题的无需该字段）
 
-8. **模块模板约束**：
+7. **模块模板约束**：
    - 如果用户输入中包含「已有的模块模板」列表，其中每个模板必须作为独立的一个 section 出现在 sections 中，不可遗漏任何一个。
    - 对于使用了模块模板的 section，添加 `patternPath` 字段，值为该模板的 patternPath，且不生成 `data` 字段（模块内容将由模板直接提供）。
    - 对于使用了模块模板的 section，仍需生成 description、layout、elements 字段。

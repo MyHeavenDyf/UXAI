@@ -1,5 +1,5 @@
 import COMPONENTS_CATALOG from "./prompt/stastics/COMPONENTS_CATALOG.txt"
-import COMPONENTS_USAGE from "./prompt/stastics/COMPONENTS_USAGE.txt"
+import component_usage from "./prompt/stastics/COMPONENTS_USAGE.txt"
 import DESIGN_SYSTEM_PROMPT_DEFAULT from "./prompt/stastics/DESIGN_SYSTEM_PROMPT.txt"
 import A2UI_JSON_PROTOCOL_RAW from "./prompt/stastics/A2UI_JSON_PROTOCOL.txt"
 import A2UI_SCHEMA from "./prompt/stastics/A2UI_SCHEMA.txt"
@@ -10,8 +10,6 @@ import LIST_EXAMPLE from "./prompt/stastics/LIST_EXAMPLE.txt"
 import TABS_EXAMPLE from "./prompt/stastics/TABS_EXAMPLE.txt"
 import FORM_EXAMPLE from "./prompt/stastics/FORM_EXAMPLE.txt"
 import OP_PROMPT from "./prompt/stastics/OP_PROMPT.txt"
-import ATTITUDE from "./prompt/stastics/ATTITUDE.txt"
-import POEM from "./prompt/stastics/POEM.txt"
 
 import _RAW_INTENT from "./prompt/proto_intent.txt"
 import _RAW_INTENT_AUDIT from "./prompt/proto_intent_audit.txt"
@@ -29,7 +27,7 @@ import _RAW_REPLANNER from "./prompt/proto_replanner.txt"
 
 const _staticData: Record<string, string> = {
   COMPONENTS_CATALOG,
-  COMPONENTS_USAGE,
+  component_usage,
   DESIGN_SYSTEM_PROMPT: DESIGN_SYSTEM_PROMPT_DEFAULT,
   A2UI_SCHEMA,
   HTML5_SCHEMA,
@@ -39,8 +37,6 @@ const _staticData: Record<string, string> = {
   TABS_EXAMPLE,
   FORM_EXAMPLE,
   OP_PROMPT,
-  ATTITUDE,
-  POEM,
 }
 
 export const staticData = _staticData
