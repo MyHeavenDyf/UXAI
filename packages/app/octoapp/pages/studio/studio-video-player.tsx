@@ -33,29 +33,31 @@ export function StudioVideoPlayer(props: {
   function updatePosition() {
     cancelAnimationFrame(positionFrame)
     positionFrame = requestAnimationFrame(() => {
-      if (!anchorRef) return
-      const parent = anchorRef.parentElement
-      if (!parent) return
-      const style = getComputedStyle(parent)
-      const availableWidth = Math.max(0, parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight))
-      const availableHeight = Math.max(0, parent.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom))
-      // 父容器尺寸未就绪时跳过，等 ResizeObserver 下次触发
-      if (availableWidth <= 0 || availableHeight <= 0) return
-      // 容器比视频宽 → 高度撑满；容器比视频高 → 宽度撑满
-      const width = availableWidth / availableHeight > mediaRatio()
-        ? availableHeight * mediaRatio()
-        : availableWidth
-      const height = width / mediaRatio()
-      anchorRef.style.width = `${width}px`
-      anchorRef.style.height = `${height}px`
-      const rect = anchorRef.getBoundingClientRect()
-      const mountRect = props.mount().getBoundingClientRect()
-      setPosition({
-        top: rect.top - mountRect.top,
-        left: rect.left - mountRect.left,
-        width: rect.width,
-        height: rect.height,
-        visible: rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth,
+      // 双重 rAF：确保在 layout 完成后再测量，避免拿到 stale 尺寸
+      requestAnimationFrame(() => {
+        if (!anchorRef) return
+        const parent = anchorRef.parentElement
+        if (!parent) return
+        const style = getComputedStyle(parent)
+        const availableWidth = Math.max(0, parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight))
+        const availableHeight = Math.max(0, parent.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom))
+        if (availableWidth <= 0 || availableHeight <= 0) return
+        // 容器比视频宽 → 高度撑满；容器比视频高 → 宽度撑满
+        const width = availableWidth / availableHeight > mediaRatio()
+          ? availableHeight * mediaRatio()
+          : availableWidth
+        const height = width / mediaRatio()
+        anchorRef.style.width = `${width}px`
+        anchorRef.style.height = `${height}px`
+        const rect = anchorRef.getBoundingClientRect()
+        const mountRect = props.mount().getBoundingClientRect()
+        setPosition({
+          top: rect.top - mountRect.top,
+          left: rect.left - mountRect.left,
+          width: rect.width,
+          height: rect.height,
+          visible: rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth,
+        })
       })
     })
   }
@@ -106,15 +108,30 @@ export function StudioVideoPlayer(props: {
   }
 
   onMount(() => {
+    const mountEl = props.mount()
     const observer = new ResizeObserver(updatePosition)
     observer.observe(anchorRef)
-    if (anchorRef.parentElement) observer.observe(anchorRef.parentElement)
-    observer.observe(props.mount())
+    // 向上遍历所有祖先元素，确保详情面板展开/收起等任何布局变化都能触发 resize
+    let el: HTMLElement | null = anchorRef.parentElement
+    while (el) {
+      observer.observe(el)
+      el = el.parentElement
+    }
+    observer.observe(mountEl)
+    // MutationObserver：监听 class/style 变化及元素增删（如详情面板展开/收起），触发位置更新
+    const mutationObserver = new MutationObserver(() => updatePosition())
+    mutationObserver.observe(mountEl, {
+      attributes: true,
+      attributeFilter: ["class", "style"],
+      childList: true,
+      subtree: true,
+    })
     window.addEventListener("resize", updatePosition)
     document.addEventListener("scroll", updatePosition, true)
     updatePosition()
     onCleanup(() => {
       observer.disconnect()
+      mutationObserver.disconnect()
       window.removeEventListener("resize", updatePosition)
       document.removeEventListener("scroll", updatePosition, true)
       cancelAnimationFrame(positionFrame)
