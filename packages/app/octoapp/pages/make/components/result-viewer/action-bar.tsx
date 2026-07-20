@@ -335,6 +335,7 @@ export function ActionBar(props: {
     onCommentToggle?: () => void
     onArchiveToggle?: () => void
     onFocusModeToggle?: () => void
+    onCanvasToDesign?: () => void
   }): JSX.Element {
   async function handleDownload() {
     if (props.tab.type === "deck") {
@@ -425,12 +426,12 @@ export function ActionBar(props: {
             </For>
           </div>
         )}
-        {showViewport() && props.onInspectToggle && (
+        {showViewport() && props.onEditToggle && (
           <button
             type="button"
             class="octo-action-btn"
-            classList={{ "octo-viewport-btn-active": !!props.inspecting }}
-            onClick={props.onInspectToggle}
+            classList={{ "octo-viewport-btn-active": !!props.editing }}
+            onClick={props.onEditToggle}
             title="局部修改"
           >
             <IconLocalModify size={16} />
@@ -449,12 +450,11 @@ export function ActionBar(props: {
             <span>框选编辑</span>
           </button>
         )}
-        {showViewport() && props.onEditToggle && (
+        {showViewport() && props.onCanvasToDesign && (
           <button
             type="button"
             class="octo-action-btn"
-            classList={{ "octo-viewport-btn-active": !!props.editing }}
-            onClick={props.onEditToggle}
+            onClick={props.onCanvasToDesign}
             title="画布编辑"
           >
             <IconCanvasEdit size={16} />

@@ -1,6 +1,7 @@
 import { createMemo, createSignal, createEffect, Show, Switch, Match, For } from "solid-js"
 import type { JSX } from "solid-js"
 import { Markdown } from "@opencode-ai/ui/markdown"
+import { showToast } from "@opencode-ai/ui/toast"
 import type { ResultTab } from "./tab-store"
 import type { ViewportPreset, PaletteId, InspectTarget } from "./html-renderer"
 import { TabBar } from "./tab-bar"
@@ -25,6 +26,9 @@ import { artifactFileToOutputCard, type ArtifactFile, getArtifactRelativePath } 
 import { saveArtifactContent } from "../../utils/artifact-auto-save"
 import type { OutputCard } from "../insight-turn"
 import { tracker } from "@/utils/tracker"
+import { createC2DZip } from "../../utils/canvas-to-design"
+import { uploadZip } from "@/utils/useZipTransport"
+import { useProjectSelection } from "@/hooks/use-project-selection"
 
 function extractCodeBlock(text: string, lang: string): string {
   const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
@@ -85,6 +89,7 @@ export function ResultViewer(props: {
   onFilesRefresh?: () => void
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
+  const projectSelection = useProjectSelection()
   const activeTab = createMemo(() =>
     props.tabs.find((t) => t.id === props.activeId) ?? null
   )
@@ -99,6 +104,68 @@ export function ResultViewer(props: {
   const [commenting, setCommenting] = createSignal(false)
   const [archiving, setArchiving] = createSignal(false)
   const [refreshKey, setRefreshKey] = createSignal(0)
+
+  const handleCanvasToDesign = async () => {
+    const tab = activeTab()
+    if (!tab || tab.type !== "html") {
+      showToast({ title: "请先打开HTML文件" })
+      return
+    }
+
+    try {
+      showToast({ title: "生成ZIP文件..." })
+      
+      const htmlContent = extractCodeBlock(tab.content, "html")
+      const zipBlob = await createC2DZip({
+        htmlContent,
+        htmlFilePath: tab.filePath || "",
+        tabTitle: tab.title
+      })
+
+      const isLoggedIn = !!localStorage.getItem('uiplusToken')
+      
+      if (!isLoggedIn) {
+        const fileName = `${tab.title}-c2d.zip`
+        const url = URL.createObjectURL(zipBlob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = fileName
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+        showToast({ title: "生成完成", description: "ZIP文件已下载" })
+        return
+      }
+
+      showToast({ title: "上传中..." })
+      
+      const result = await uploadZip(zipBlob, {
+        containerId: "root",
+        deathDay: 7,
+        limitTimes: 1
+      }, projectSelection())
+
+      if (!result.webview) {
+        showToast({ title: "创建失败" })
+        return
+      }
+
+      showToast({
+        title: "创建成功",
+        description: `传送码: ${result.code}`
+      })
+
+      result.onMessage('render-complete', () => {
+        showToast({ title: "渲染完成" })
+      })
+    } catch (err) {
+      showToast({
+        title: "上传失败",
+        description: err instanceof Error ? err.message : String(err)
+      })
+    }
+  }
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
 
@@ -237,68 +304,55 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
             return (
               <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
                 <Show when={tabType !== "design-plan"}>
-                <ActionBar
-                  tab={tab}
-                  mode={canToggle ? htmlMode() : undefined}
-                  onModeChange={canToggle ? () => toggleHtmlMode(tabId) : undefined}
-                  viewport={viewport()}
-                  onViewportChange={setViewport}
-                  palette={palette()}
-                  onPaletteChange={setPalette}
-inspecting={inspecting()}
-onInspectToggle={htmlMode() === "edit" ? undefined : () => {
-                      const nextInspecting = !inspecting()
-                      setInspecting(nextInspecting)
-                      tracker.interaction({ module: "design", name: "toggle-inspect-mode", extend: JSON.stringify({ action: nextInspecting ? "open" : "close" }) })
-                      if (nextInspecting && editing()) setEditing(false)
-                      if (nextInspecting && drawing()) setDrawing(false)
-                      if (nextInspecting && commenting()) setCommenting(false)
-                      if (nextInspecting && archiving()) setArchiving(false)
-                    }}
+<ActionBar
+                   tab={tab}
+                   mode={canToggle ? htmlMode() : undefined}
+                   onModeChange={canToggle ? () => toggleHtmlMode(tabId) : undefined}
+                   viewport={viewport()}
+                   onViewportChange={setViewport}
+                   palette={palette()}
+                   onPaletteChange={setPalette}
                    editing={editing()}
-onEditToggle={htmlMode() === "edit" ? undefined : () => {
-                      const nextEditing = !editing()
-                      setEditing(nextEditing)
-                      tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
-                      if (nextEditing && inspecting()) setInspecting(false)
-                      if (nextEditing && drawing()) setDrawing(false)
-                      if (nextEditing && commenting()) setCommenting(false)
-                      if (nextEditing && archiving()) setArchiving(false)
-                    }}
+                   onEditToggle={htmlMode() === "edit" ? undefined : () => {
+                     const nextEditing = !editing()
+                     setEditing(nextEditing)
+                     tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
+                     if (nextEditing && drawing()) setDrawing(false)
+                     if (nextEditing && commenting()) setCommenting(false)
+                     if (nextEditing && archiving()) setArchiving(false)
+                   }}
                    drawing={drawing()}
-onDrawToggle={htmlMode() === "edit" ? undefined : () => {
-                      const nextDrawing = !drawing()
-                      setDrawing(nextDrawing)
-                      tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
-                      if (nextDrawing && inspecting()) setInspecting(false)
-                      if (nextDrawing && editing()) setEditing(false)
-                      if (nextDrawing && commenting()) setCommenting(false)
-                      if (nextDrawing && archiving()) setArchiving(false)
-                    }}
-commenting={commenting()}
-                    onCommentToggle={htmlMode() === "edit" ? undefined : () => {
-                      const nextCommenting = !commenting()
-                      setCommenting(nextCommenting)
-                      tracker.interaction({ module: "design", name: "toggle-comment-mode", extend: JSON.stringify({ action: nextCommenting ? "open" : "close" }) })
-                      if (nextCommenting && inspecting()) setInspecting(false)
-                      if (nextCommenting && editing()) setEditing(false)
-                      if (nextCommenting && drawing()) setDrawing(false)
-                      if (nextCommenting && archiving()) setArchiving(false)
-                    }}
-                    archiving={archiving()}
-                    onArchiveToggle={htmlMode() === "edit" ? undefined : () => {
-                      const nextArchiving = !archiving()
-                      setArchiving(nextArchiving)
-                      tracker.interaction({ module: "design", name: "toggle-archive-mode", extend: JSON.stringify({ action: nextArchiving ? "open" : "close" }) })
-                      if (nextArchiving && inspecting()) setInspecting(false)
-                      if (nextArchiving && editing()) setEditing(false)
-                      if (nextArchiving && drawing()) setDrawing(false)
-                      if (nextArchiving && commenting()) setCommenting(false)
-                    }}
-                   onRefresh={handleRefresh}
-                  focusMode={props.focusMode}
-                  onFocusModeToggle={tabType !== "design-plan" ? props.onFocusModeToggle : undefined}
-                />
+                   onDrawToggle={htmlMode() === "edit" ? undefined : () => {
+                     const nextDrawing = !drawing()
+                     setDrawing(nextDrawing)
+                     tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
+                     if (nextDrawing && editing()) setEditing(false)
+                     if (nextDrawing && commenting()) setCommenting(false)
+                     if (nextDrawing && archiving()) setArchiving(false)
+                   }}
+                   commenting={commenting()}
+                   onCommentToggle={htmlMode() === "edit" ? undefined : () => {
+                     const nextCommenting = !commenting()
+                     setCommenting(nextCommenting)
+                     tracker.interaction({ module: "design", name: "toggle-comment-mode", extend: JSON.stringify({ action: nextCommenting ? "open" : "close" }) })
+                     if (nextCommenting && editing()) setEditing(false)
+                     if (nextCommenting && drawing()) setDrawing(false)
+                     if (nextCommenting && archiving()) setArchiving(false)
+                   }}
+                   archiving={archiving()}
+                   onArchiveToggle={htmlMode() === "edit" ? undefined : () => {
+                     const nextArchiving = !archiving()
+                     setArchiving(nextArchiving)
+                     tracker.interaction({ module: "design", name: "toggle-archive-mode", extend: JSON.stringify({ action: nextArchiving ? "open" : "close" }) })
+                     if (nextArchiving && editing()) setEditing(false)
+                     if (nextArchiving && drawing()) setDrawing(false)
+                     if (nextArchiving && commenting()) setCommenting(false)
+}}
+                    onCanvasToDesign={handleCanvasToDesign}
+                    onRefresh={handleRefresh}
+                   focusMode={props.focusMode}
+                   onFocusModeToggle={tabType !== "design-plan" ? props.onFocusModeToggle : undefined}
+                 />
                 </Show>
                 <div class="flex-1 min-h-0 overflow-hidden">
                   <Switch
