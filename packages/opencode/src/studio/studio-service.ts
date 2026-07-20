@@ -20,6 +20,7 @@ import { ModelID, ProviderID } from "@/provider/schema"
 import { Provider } from "@/provider/provider"
 import { Auth } from "@/auth"
 import { Plugin } from "@/plugin"
+import { Config } from "@/config/config"
 import { ProviderTransform } from "@/provider/transform"
 import { SyncEvent } from "@/sync"
 import { Identifier } from "@/id/id"
@@ -351,7 +352,8 @@ function promptRefineFallback(input: StudioGenerationRequest, previous?: StudioG
   }
 }
 
-function isStudioPromptConnectedProvider(provider: Provider.Info) {
+function isStudioPromptConnectedProvider(provider: Provider.Info, disabledProviders: Set<string>) {
+  if (provider.id !== "w3" && disabledProviders.has(provider.id)) return false
   return provider.id === "w3" ||
     Boolean(provider.key) ||
     provider.source === "env" ||
@@ -359,9 +361,11 @@ function isStudioPromptConnectedProvider(provider: Provider.Info) {
     Boolean((provider.options as Record<string, unknown>)?.apiKey)
 }
 
-function firstStudioPromptConnectedModel(providers: Record<string, Provider.Info>) {
+function firstStudioPromptConnectedModel(providers: Record<string, Provider.Info>, disabledProviders: Set<string>) {
   const defaults = Provider.defaultModelIDs(providers)
-  for (const provider of Object.values(providers).filter(isStudioPromptConnectedProvider)) {
+  for (const provider of Object.values(providers).filter((item) =>
+    isStudioPromptConnectedProvider(item, disabledProviders),
+  )) {
     const configured = defaults[provider.id]
     if (configured && provider.models[configured]) {
       return {
@@ -391,6 +395,7 @@ function sessionPromptRefineModel(session: typeof SessionTable.$inferSelect): St
 const selectStudioPromptRefineModel = Effect.fn("Studio.selectPromptRefineModel")(function* (
   provider: Provider.Interface,
   session: typeof SessionTable.$inferSelect,
+  disabledProviders: Set<string>,
 ) {
   const sessionModel = sessionPromptRefineModel(session)
   if (sessionModel) {
@@ -398,7 +403,7 @@ const selectStudioPromptRefineModel = Effect.fn("Studio.selectPromptRefineModel"
     if (resolved._tag === "Some") return sessionModel
   }
 
-  const connectedModel = firstStudioPromptConnectedModel(yield* provider.list())
+  const connectedModel = firstStudioPromptConnectedModel(yield* provider.list(), disabledProviders)
   if (connectedModel) {
     const resolved = yield* provider.getModel(connectedModel.providerID, connectedModel.modelID).pipe(Effect.option)
     if (resolved._tag === "Some") {
@@ -514,6 +519,7 @@ function isAbortError(error: unknown) {
 const studioPromptProviderRuntime = makeRuntime(Provider.Service, Provider.defaultLayer)
 const studioPromptAuthRuntime = makeRuntime(Auth.Service, Auth.defaultLayer)
 const studioPromptPluginRuntime = makeRuntime(Plugin.Service, Plugin.defaultLayer)
+const studioPromptConfigRuntime = makeRuntime(Config.Service, Config.defaultLayer)
 
 const mergeOptions = (target: Record<string, any>, source: Record<string, any> | undefined): Record<string, any> =>
   mergeDeep(target, source ?? {}) as Record<string, any>
@@ -589,7 +595,12 @@ async function refineStudioPrompt(
   try {
     const result = await studioPromptProviderRuntime.runPromise((provider) =>
       Effect.gen(function* () {
-        const selected = yield* selectStudioPromptRefineModel(provider, session)
+        const config = yield* Effect.promise(() => studioPromptConfigRuntime.runPromise((service) => service.get()))
+        const selected = yield* selectStudioPromptRefineModel(
+          provider,
+          session,
+          new Set(config.disabled_providers ?? []),
+        )
         const resolved = yield* provider.getModel(selected.providerID, selected.modelID)
         const providerInfo = yield* provider.getProvider(selected.providerID)
         const language = yield* provider.getLanguage(resolved)
