@@ -134,6 +134,7 @@ export function InsightTurn(props: {
   messageID: string
   status: SessionStatus
   pipelineBusy: boolean
+  errorCallId?: string
 }): JSX.Element {
   const data = useData()
   const partStore = data.store.part as Record<string, { type: string; text?: string }[]>
@@ -193,24 +194,15 @@ export function InsightTurn(props: {
   })
 
   const showUserInput = createMemo(() =>
-    userText().endsWith("请分析用户需求中尚未明确的维度，输出缺失维度的选项清单。")
-    || userText().startsWith("[用户修改请求]:")
+    userText().startsWith("[用户修改请求]:")
   )
 
   // 用户输入卡片展示的精简文本：从完整 prompt 中提取用户实际输入部分
   const userInputDisplay = createMemo(() => {
     const text = userText()
-    // 首次输入: "[用户的需求:] ===...\n{用户输入}\n\n请分析..."
-    if (text.endsWith("请分析用户需求中尚未明确的维度，输出缺失维度的选项清单。")) {
-      const m = text.match(/\] *=+\s*([\s\S]*?)\s*\n+请分析用户需求/)
-      return m?.[1]?.trim() ?? text
-    }
     // 修改/分诊: "[用户修改请求]: {用户输入}\n\n[当前..." 或 "[用户修改请求]: ===\n{用户输入}\n\n[JSON..."
-    if (text.startsWith("[用户修改请求]:")) {
-      const m = text.match(/^\[用户修改请求\]:\s*(?:=+\s*\n)?([\s\S]*?)\n+\[/)
-      return m?.[1]?.trim() ?? text
-    }
-    return text
+    const m = text.match(/^\[用户修改请求\]:\s*(?:=+\s*\n)?([\s\S]*?)\n+\[/)
+    return m?.[1]?.trim() ?? text
   })
 
   // 提取 reasoning 内容（包括 DeepSeek 的 <think> 标签）
@@ -266,11 +258,15 @@ export function InsightTurn(props: {
           input: input ?? undefined,
           output: hasOutput ? (state.output as string) : undefined,
           filePath: filePath || undefined,
+          error: isError ? stateError : undefined,
         }
       })
   })
 
-  const hasError = createMemo(() => toolCalls().some((c) => c.status === "error"))
+  const hasError = createMemo(() =>
+    toolCalls().some((c) => c.status === "error") ||
+    (!!props.errorCallId && props.errorCallId === props.sessionID),
+  )
   const fileOpsEntries = createMemo(() => deriveFileOps(toolCalls()))
 
   // ── NEW: prose text (stripped of artifacts and <think> tags) ──
@@ -498,8 +494,8 @@ export function InsightTurn(props: {
           <div
             class="mx-3 mb-1 captured-card-btn"
             classList={{
-              generating: assistantGenerating(),
-              error: !assistantGenerating() && hasError(),
+              generating: assistantGenerating() && !hasError(),
+              error: hasError(),
             }}
           >
             <div
@@ -526,7 +522,7 @@ export function InsightTurn(props: {
                   </svg>
                 </span>
               </div>
-              <Show when={!assistantGenerating() && hasError()} fallback={
+              <Show when={hasError()} fallback={
                 <Show when={assistantGenerating()} fallback={
                   <span class="gc-done-badge">完成</span>
                 }>
@@ -559,7 +555,7 @@ export function InsightTurn(props: {
             }}
             class="mx-3 mb-2 px-3 py-2 rounded-md text-xs leading-relaxed overflow-auto reasoning-text"
           >
-            <Show when={assistantGenerating()}>
+            <Show when={assistantGenerating() && !hasError()}>
               <div class="text-[12px] text-[#999] reasoning-text-tip">思考中...</div>
             </Show>
             <For each={reasoningTexts()}>
@@ -587,10 +583,10 @@ export function InsightTurn(props: {
               }}
               class="mx-3 mb-2 px-3 py-2 rounded-md text-xs leading-relaxed overflow-auto prose-text"
             >
-              <Show when={assistantGenerating()}>
+              <Show when={assistantGenerating() && !hasError()}>
                 <div class="text-[12px] text-[#999] reasoning-text-tip">思考中...</div>
               </Show>
-              <Markdown text={proseText()} streaming={assistantGenerating()} />
+              <Markdown text={proseText()} streaming={assistantGenerating() && !hasError()} />
             </div>
           }>
             <pre
@@ -601,9 +597,9 @@ export function InsightTurn(props: {
                 })
               }}
               class="prose-json-pre mx-3 mb-2"
-              classList={{ completed: !assistantGenerating() }}
+              classList={{ completed: !assistantGenerating() || hasError() }}
             >
-              <Show when={assistantGenerating()}>
+              <Show when={assistantGenerating() && !hasError()}>
                 <div class="text-[12px] text-[#999] prose-text-tip">输出中...</div>
               </Show>
               {proseText()}

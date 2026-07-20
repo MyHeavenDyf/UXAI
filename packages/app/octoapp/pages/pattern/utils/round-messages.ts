@@ -16,6 +16,8 @@ export interface Round {
   items: RoundItem[]
   cancelled: boolean
   error?: string
+  errorAgent?: string
+  errorCallId?: string
 }
 
 /**

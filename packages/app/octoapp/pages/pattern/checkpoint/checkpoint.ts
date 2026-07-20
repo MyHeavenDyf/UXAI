@@ -44,7 +44,7 @@ export async function clearCheckpoint(dir: string, sessionId: string): Promise<v
 
 // ─── 统一 Checkpoint 类型 ───
 
-export type CheckpointStage = "intent_confirm" | "block_matching" | "intent_create" | "planner_create" | "modules_create"
+export type CheckpointStage = "intent_confirm" | "block_matching" | "pattern_page" | "intent_create" | "planner_create" | "modules_create"
 
 export type ModuleCheckpoint = {
   sectionId: string
@@ -67,7 +67,7 @@ export type Checkpoint = {
 
   /** root session ID */
   rootSessionId: string
-  
+
   /** checkpoint 创建时间 */
   createdAt: number
 
@@ -77,6 +77,8 @@ export type Checkpoint = {
   blockMatches?: PatternMatchItem[]
   /** 用户选中的 block 外层信息，传给 intent 和 planner */
   patterns?: any[]
+  /** 页面级 pattern 匹配结果 */
+  patternPageResult?: { matches: any[] }
   /** 意图扩展结果 */
   intentResult?: { intent_description: Record<string, unknown> }
   /** 布局规划结果 */
