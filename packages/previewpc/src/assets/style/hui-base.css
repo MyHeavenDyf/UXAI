@@ -28,9 +28,9 @@
   --color-bg-mask: rgb(from var(--gray-30) r g b / 0.3);
   /* 填充色 */
   --color-fill-disabled: var(--gray-10);
-  --color-hover: var(--gray-90);
-  --color-fill-disabled-subtle: var(--gray-90);
-  --color-fill: var(--gray-90);
+  --color-hover: rgb(from var(--gray-90) r g b / 0.05);
+  --color-fill-disabled-subtle: rgb(from var(--gray-90) r g b / 0.05);
+  --color-fill: rgb(from var(--gray-90) r g b / 0.05);
   --color-select: var(--brand-5);
   --color-fill-subtle: var(--gray-0);
 
@@ -39,7 +39,7 @@
   --color-icon-secondary: var(--gray-50);
   --color-icon-tertiary: var(--gray-40);
   --color-icon-placeholder: var(--gray-30);
-  --color-icon-disabled: var(--gray-30);
+  --color-icon-disabled: var(--gray-20);
   --color-icon-inverse: var(--gray-0);
   --color-icon-hover: var(--brand-40);
   --color-icon-focus: var(--brand-50);
@@ -125,7 +125,7 @@
   /* 特殊场景 */
   --color-scrollbar: var(--gray-10);
   --color-scrollbar-hover: var(--gray-30);
-  --color-card-gray-disabled: var(--gray-30);
+  --color-card-gray-disabled: rgb(from var(--gray-30) r g b / 0.05);
   --color-card-white-disabled: rgb(from var(--gray-0) r g b / 0.5);
   --color-sidenav-bg: rgb(from var(--gray-5) r g b / 0.5);
   --color-table-header: rgb(from var(--gray-90) r g b / 0.05);
@@ -154,7 +154,7 @@
   --color-table-sticky-header: var(--gray-5);
   /* 标签配色 */
   --color-tag-text-purple: var(--purple-60);
-  --color-tag-bg-purple: rgb(from var(--purple-0) r g b / 0.6);
+  --color-tag-bg-purple: rgb(from var(--purple-10) r g b / 0.6);
   --color-tag-text-cyan: var(--cyan-80);
   --color-tag-bg-cyan: rgb(from var(--cyan-60) r g b / 0.15);
   --color-tag-text-rose: var(--rose-60);
