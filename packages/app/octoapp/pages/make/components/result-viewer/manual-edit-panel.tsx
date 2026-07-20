@@ -282,7 +282,7 @@ export function ManualEditPanel(props: {
                 }
               >
                 <div class="manual-edit-delete-confirm">
-                  <span>Delete element?</span>
+                  <span>删除?</span>
                   <button
                     type="button"
                     class="manual-edit-footer-btn danger"

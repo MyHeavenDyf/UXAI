@@ -192,6 +192,7 @@ export function HtmlRenderer(props: {
   const [archiveDialogOpen, setArchiveDialogOpen] = createSignal(false)
   const [archiveSuccessOpen, setArchiveSuccessOpen] = createSignal(false)
   const [archiveSuccessPath, setArchiveSuccessPath] = createSignal("")
+  const [saving, setSaving] = createSignal(false)
   
   // Pending style storage for Cancel/Save logic
   let manualEditPendingStyle: { id: string; styles: ManualEditStyles; label: string } | null = null
@@ -486,7 +487,6 @@ createEffect(() => {
     if (result.ok) {
       const cleanSource = cleanBridgeContent(result.source)
       await props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
-      props.onRefreshNeeded?.()
       if (hasChanges) {
         pushHistory(cleanSource, description)
       }
@@ -1152,7 +1152,7 @@ return (
               <iframe
                 ref={iframeRef}
                 src={shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined)}
-                srcdoc={shouldUseLocalUrl() || shouldUseServeUrl() ? undefined : srcdoc()}
+                {...(!shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
                 sandbox="allow-scripts"
                 style={{
                   width: `${VIEWPORT_DIMS[props.viewport!].width}px`,
@@ -1166,7 +1166,7 @@ return (
               <iframe
                 ref={iframeRef}
                 src={shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined)}
-                srcdoc={shouldUseLocalUrl() || shouldUseServeUrl() ? undefined : srcdoc()}
+                {...(!shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
                 sandbox="allow-scripts"
                 class="w-full h-full border-0"
                 style={{ "min-height": "200px" }}
@@ -1247,7 +1247,7 @@ return (
                 selectedTarget={editTarget()}
                 draft={editDraft()}
                 error={null}
-                busy={false}
+                busy={saving()}
                 floatingStyle={editPanelPosition() ?? undefined}
                 onDraftChange={(newDraft) => {
                   const target = editTarget()
@@ -1306,16 +1306,24 @@ onApplyPatch={async (patch: ManualEditPatch, label: string) => {
                     reader.readAsDataURL(file)
                   })
                 }}
-                onError={(message) => console.error("[Edit] Error:", message)}
+onError={(message) => console.error("[Edit] Error:", message)}
 onSaveDraft={async () => {
-                   const ok = await flushManualEditStyleSave()
-                   if (ok) {
-                    tracker.interaction({ module: "design", name: "save-edit-changes" })
-                     setEditTarget(null)
-                     manualEditPendingStyle = null
-                     manualEditPendingText = null
-                   }
-                 }}
+                    if (saving()) return
+                    setSaving(true)
+                    try {
+                      const ok = await flushManualEditStyleSave()
+                      if (ok) {
+                        tracker.interaction({ module: "design", name: "save-edit-changes" })
+                        setEditTarget(null)
+                        manualEditPendingStyle = null
+                        manualEditPendingText = null
+                      } else {
+                        showToast({ title: "保存失败", description: "无法保存样式修改，请重试" })
+                      }
+                    } finally {
+                      setSaving(false)
+                    }
+                  }}
                 onCancelDraft={() => {
                   cancelManualEditStyleDraft()
                   setEditTarget(null)
@@ -1324,16 +1332,22 @@ onSaveDraft={async () => {
                   setEditDraft(emptyManualEditDraft(props.content))
                 }}
 onExit={async () => {
-  const ok = await flushManualEditStyleSave()
-  if (!ok) {
-    showToast({ 
-      title: "样式未保存", 
-      description: "目标元素在HTML中不存在，修改已丢失" 
-    })
+  if (saving()) return
+  setSaving(true)
+  try {
+    const ok = await flushManualEditStyleSave()
+    if (!ok) {
+      showToast({ 
+        title: "样式未保存", 
+        description: "目标元素在HTML中不存在，修改已丢失" 
+      })
+    }
+    setEditTarget(null)
+    manualEditPendingStyle = null
+    manualEditPendingText = null
+  } finally {
+    setSaving(false)
   }
-  setEditTarget(null)
-  manualEditPendingStyle = null
-  manualEditPendingText = null
 }}
 onFloatingPositionChange={setEditPanelPosition}
                />

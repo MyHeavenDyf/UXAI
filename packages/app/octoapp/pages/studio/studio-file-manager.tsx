@@ -19,6 +19,30 @@ const SIZE_OPTIONS = [
   { label: "4K", desc: "(长边≥4000)" },
 ]
 
+export const STUDIO_FILTER_STATE_KEY_PREFIX = "octo:studio:file-manager:filter-state:v2:"
+
+type PersistedFilterSnapshot = { source: string[]; ratio: string[]; size: string[] }
+
+function readFilterState(sessionID: string): { activeTab: FileFilterTab; tabs: Record<string, PersistedFilterSnapshot> } | null {
+  try {
+    const raw = localStorage.getItem(STUDIO_FILTER_STATE_KEY_PREFIX + sessionID)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
+    const obj = parsed as Record<string, unknown>
+    if (typeof obj.activeTab !== "string" || !obj.tabs || typeof obj.tabs !== "object") return null
+    return { activeTab: obj.activeTab as FileFilterTab, tabs: obj.tabs as Record<string, PersistedFilterSnapshot> }
+  } catch {
+    return null
+  }
+}
+
+function writeFilterState(sessionID: string, state: { activeTab: FileFilterTab; tabs: Record<string, PersistedFilterSnapshot> }) {
+  try {
+    localStorage.setItem(STUDIO_FILTER_STATE_KEY_PREFIX + sessionID, JSON.stringify(state))
+  } catch { /* noop */ }
+}
+
 const SOURCE_TO_CAPABILITY: Record<string, string> = {
   "图片生成": "image.generate",
   "视频生成": "video.generate",
@@ -29,7 +53,19 @@ const SOURCE_TO_CAPABILITY: Record<string, string> = {
 }
 
 function getRatioCategory(item: FileManagerMedia): string | null {
-  // 优先用 aspectRatio 字段，避免编辑后的微小像素偏差导致误判
+  // 自定义尺寸直接用实际宽高判断，避免 aspectRatio 仍是默认值导致误判
+  if (item.isCustom) {
+    const w = item.width
+    const h = item.height
+    if (w && h) {
+      const maxDim = Math.max(w, h)
+      if (Math.abs(w - h) / maxDim <= 0.01) return "正方形"
+      if (w > h) return "横版"
+      if (h > w) return "竖版"
+    }
+    return null
+  }
+  // 非自定义优先用 aspectRatio 字段，避免编辑后的微小像素偏差导致误判
   const ratio = item.aspectRatio
   if (ratio) {
     if (ratio === "1:1") return "正方形"
@@ -39,7 +75,6 @@ function getRatioCategory(item: FileManagerMedia): string | null {
   const w = item.width
   const h = item.height
   if (w && h) {
-    // 容差 1%：宽高差在 1% 以内视为正方形
     const maxDim = Math.max(w, h)
     if (Math.abs(w - h) / maxDim <= 0.01) return "正方形"
     if (w > h) return "横版"
@@ -87,6 +122,7 @@ type FileManagerMedia = {
   width?: number
   height?: number
   aspectRatio?: string
+  isCustom?: boolean
   capability?: string
   duration?: string
   createdAt: number
@@ -137,6 +173,7 @@ function extractMediaFromTurns(turns: StudioTurnData[]): FileManagerMedia[] {
         width: image.width ?? turn.result?.width,
         height: image.height ?? turn.result?.height,
         aspectRatio: turn.result?.aspectRatio,
+        isCustom: turn.result?.isCustom,
         capability: turn.result?.capability ?? turn.editCapability,
         duration: turn.result?.duration,
         createdAt: turn.createdAt,
@@ -197,16 +234,64 @@ export function StudioFileManager(props: {
   const [confirmedRatio, setConfirmedRatio] = createSignal<Set<string>>(new Set<string>())
   const [confirmedSize, setConfirmedSize] = createSignal<Set<string>>(new Set<string>())
 
-  // 每个 tab 保留独立的筛选记录（同一 session 内有效）
+  // 每个 tab 保留独立的筛选记录（同一 session 内有效，且持久化到 localStorage）
   type SavedFilterSnapshot = { source: Set<string>; ratio: Set<string>; size: Set<string> }
   const savedTabFilters = new Map<FileFilterTab, SavedFilterSnapshot>()
   let lastSessionID: string | undefined
 
+  // 初始化：从 localStorage 恢复当前 session 的筛选状态
+  {
+    const sid = props.sessionID
+    if (sid) {
+      lastSessionID = sid
+      const saved = readFilterState(sid)
+      if (saved) {
+        setActiveFilter(saved.activeTab)
+        for (const [tabKey, snap] of Object.entries(saved.tabs)) {
+          savedTabFilters.set(tabKey as FileFilterTab, {
+            source: new Set<string>(snap.source),
+            ratio: new Set<string>(snap.ratio),
+            size: new Set<string>(snap.size),
+          })
+        }
+        const active = savedTabFilters.get(saved.activeTab)
+        if (active) {
+          batch(() => {
+            setConfirmedSource(new Set(active.source))
+            setConfirmedRatio(new Set(active.ratio))
+            setConfirmedSize(new Set(active.size))
+            for (const v of active.source) sourceFilter.toggle(v)
+            for (const v of active.ratio) ratioFilter.toggle(v)
+            for (const v of active.size) sizeFilter.toggle(v)
+          })
+        }
+      }
+    }
+  }
+
+  function persistCurrentState() {
+    const sid = props.sessionID
+    if (!sid) return
+    const tabs: Record<string, PersistedFilterSnapshot> = {}
+    for (const [tabKey, snap] of savedTabFilters) {
+      tabs[tabKey] = {
+        source: Array.from(snap.source),
+        ratio: Array.from(snap.ratio),
+        size: Array.from(snap.size),
+      }
+    }
+    writeFilterState(sid, { activeTab: activeFilter(), tabs })
+  }
+
   createEffect(() => {
     const sid = props.sessionID
     if (sid !== lastSessionID) {
+      // 清理旧 session 的持久化筛选记录
+      if (lastSessionID) {
+        try { localStorage.removeItem(STUDIO_FILTER_STATE_KEY_PREFIX + lastSessionID) } catch { /* noop */ }
+      }
       lastSessionID = sid
-      // 切换 session → 清空所有 tab 的筛选记录
+      // 切换 session → 清空所有 tab 的筛选记录（新 session 从头开始）
       savedTabFilters.clear()
       setActiveFilter("all")
       batch(() => {
@@ -251,6 +336,7 @@ export function StudioFileManager(props: {
     saveCurrentTabFilters()
     setActiveFilter(tab)
     loadTabFilters(tab)
+    persistCurrentState()
   }
 
   function syncLiveFromConfirmed() {
@@ -274,6 +360,7 @@ export function StudioFileManager(props: {
       setConfirmedSize(size)
     })
     savedTabFilters.set(activeFilter(), { source, ratio, size })
+    persistCurrentState()
     setShowFilter(false)
   }
 

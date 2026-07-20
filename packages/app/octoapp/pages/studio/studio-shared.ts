@@ -152,6 +152,7 @@ export function isVideoMedia(image?: StudioImage) {
 
 export function getImageOrientation(image?: StudioImage): "portrait" | "landscape" | "" {
   if (!image?.width || !image?.height) return ""
+  if (image.width === image.height) return ""
   return image.height > image.width ? "portrait" : "landscape"
 }
 

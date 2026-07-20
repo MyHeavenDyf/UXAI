@@ -22,6 +22,8 @@ import { AzureAuthPlugin } from "./azure"
 import { ModelHeadersPlugin } from "./model-headers"
 // octo 自有 server 插件:MCP 工具执行前注入精确 S3 URL(见 ../agent/octo-upload-inject.ts)
 import { OctoUploadInjectPlugin } from "../agent/octo-upload-inject"
+// octo 自有 server 插件:insight 会话 write 相对落点重定向到会话 outputs/(见 ../agent/octo-outputs-redirect.ts)
+import { OctoOutputsRedirectPlugin } from "../agent/octo-outputs-redirect"
 import { Effect, Layer, Context, Stream } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
@@ -69,6 +71,7 @@ const INTERNAL_PLUGINS: PluginInstance[] = [
   AzureAuthPlugin,
   ModelHeadersPlugin,
   OctoUploadInjectPlugin,
+  OctoOutputsRedirectPlugin,
 ]
 
 function isServerPlugin(value: unknown): value is PluginInstance {
