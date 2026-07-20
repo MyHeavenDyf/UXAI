@@ -93,7 +93,7 @@ const CAPTURE_SCRIPT = `(async function() {
     if (ct && PIXSO_COMPS.indexOf(ct) !== -1) {
       var id = ct || node.getAttribute('id') || '';
       var cls = node.getAttribute('class') || '';
-      node.setAttribute('class', cls + ' OCTO_C2D_ID2211_' + id);
+      node.setAttribute('class', cls + ' OCTO_C2D_ID_' + id);
     }
     for (var i = 0; i < node.children.length; i++) tagComponents(node.children[i]);
   }
