@@ -266,7 +266,6 @@ createEffect(() => {
     if (result.ok) {
       const cleanSource = cleanBridgeContent(result.source)
       await props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
-      props.onRefreshNeeded?.()
       if (hasChanges) {
         pushHistory(cleanSource, description)
       }
@@ -758,7 +757,7 @@ return (
               <iframe
                 ref={iframeRef}
                 src={shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined)}
-                srcdoc={shouldUseLocalUrl() || shouldUseServeUrl() ? undefined : srcdoc()}
+                {...(!shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
                 sandbox="allow-scripts"
                 style={{
                   width: `${VIEWPORT_DIMS[props.viewport!].width}px`,
@@ -772,7 +771,7 @@ return (
               <iframe
                 ref={iframeRef}
                 src={shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined)}
-                srcdoc={shouldUseLocalUrl() || shouldUseServeUrl() ? undefined : srcdoc()}
+                {...(!shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
                 sandbox="allow-scripts"
                 class="w-full h-full border-0"
                 style={{ "min-height": "200px" }}

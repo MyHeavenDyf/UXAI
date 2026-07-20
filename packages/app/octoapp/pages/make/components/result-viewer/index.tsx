@@ -221,9 +221,9 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
         </Show>
 
         <Show when={props.viewMode === "tabs"}>
-          <Show when={activeTab()} keyed>
-            {(tab) => {
-              const tabId = tab.id
+          <Show when={activeTab()?.id} keyed>
+            {(tabId) => {
+              const tab = props.tabs.find(t => t.id === tabId)!
               const tabType = tab.type
             const canToggle = canToggleMode(tab)
             const htmlMode = createMemo(() => getHtmlMode(tabId))
