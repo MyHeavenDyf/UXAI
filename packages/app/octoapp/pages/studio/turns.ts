@@ -295,6 +295,30 @@ function normalizeAspectRatio(value?: string): StudioAspectRatio {
   return "3:4"
 }
 
+const STUDIO_ASPECT_RATIO_CANDIDATES: { key: StudioAspectRatio; value: number }[] = [
+  { key: "1:1", value: 1 },
+  { key: "4:3", value: 4 / 3 },
+  { key: "3:2", value: 3 / 2 },
+  { key: "16:9", value: 16 / 9 },
+  { key: "3:4", value: 3 / 4 },
+  { key: "2:3", value: 2 / 3 },
+  { key: "9:16", value: 9 / 16 },
+]
+
+function closestStudioAspectRatio(w: number, h: number): StudioAspectRatio {
+  const ratio = w / h
+  let best = STUDIO_ASPECT_RATIO_CANDIDATES[0]
+  let bestDist = Math.abs(ratio - best.value)
+  for (let i = 1; i < STUDIO_ASPECT_RATIO_CANDIDATES.length; i++) {
+    const dist = Math.abs(ratio - STUDIO_ASPECT_RATIO_CANDIDATES[i].value)
+    if (dist < bestDist) {
+      best = STUDIO_ASPECT_RATIO_CANDIDATES[i]
+      bestDist = dist
+    }
+  }
+  return best.key
+}
+
 function toolInput(part?: Extract<Part, { type: "tool" }>) {
   const state = part?.state as Record<string, unknown> | undefined
   const input = state?.input
@@ -411,7 +435,19 @@ function buildResult(input: {
   const inputRecord = toolInput(activeTool)
   const requestRecord = toolRequest(activeTool)
   const capability = normalizeCapability(stringField(output, "capability") ?? stringField(inputRecord, "capability"))
-  const aspectRatio = normalizeAspectRatio(stringField(output, "aspectRatio") ?? stringField(inputRecord, "aspectRatio"))
+  const isEdit = isStudioEditorCapability(capability)
+  // For edit results (inpaint/outpaint/cutout/upscale), the tool output/input typically
+  // does not carry an aspectRatio. Derive it from the actual output pixel dimensions so the
+  // file-manager ratio filter works correctly instead of defaulting to "3:4".
+  const rawAspectRatio = stringField(output, "aspectRatio") ?? stringField(inputRecord, "aspectRatio")
+  const aspectRatio: StudioAspectRatio = (() => {
+    if (rawAspectRatio) return normalizeAspectRatio(rawAspectRatio)
+    if (!isEdit) return normalizeAspectRatio(undefined)
+    const outW = numberField(output, "width") ?? numberField(recordField(output, "response"), "width")
+    const outH = numberField(output, "height") ?? numberField(recordField(output, "response"), "height")
+    if (outW && outH) return closestStudioAspectRatio(outW, outH)
+    return "1:1" // neutral fallback for edits (most preserve the input aspect ratio)
+  })()
   const extra = recordField(inputRecord, "extra")
   const size = recordField(inputRecord, "target_size")
   const width = size ? numberField(size, "width") : numberField(inputRecord, "width") ?? numberField(extra, "width")

@@ -826,6 +826,8 @@ export default function StudioPage() {
   // Keep showFileManager in sync with the persisted preference.
   // Falls back to file manager when the current session has no generated images.
   createEffect(() => {
+    // 生成中时保持不变，避免文件管理覆盖 canvas 的 loading 状态
+    if (isBusy()) return
     const hasImages = (canvasResult()?.images.length ?? 0) > 0
     if (!hasImages) {
       setShowFileManager(true)
@@ -2770,7 +2772,7 @@ export default function StudioPage() {
     setMode("preview")
     setSending(true)
     setStatus("submitting")
-    if (!overrides?.useRestoredInputs && !fileManagerDetailView()) setSelectedResultId(undefined)
+    if (!overrides?.useRestoredInputs && !fileManagerDetailView() && !selectedImage()) setSelectedResultId(undefined)
     if (fileManagerDetailView()) setFileManagerGenPending(true)
     setPendingResult({
       id: `studio_pending_${Date.now()}`,
