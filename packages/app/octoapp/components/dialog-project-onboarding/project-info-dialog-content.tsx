@@ -44,7 +44,10 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
     if (!options.length) return
     setTimeout(() => { versionCloseGuard = false }, 0)
     const current = store.version
-    if (!current) return
+    if (!current) {
+      setStore("version", options[0] ? { ...options[0] } : undefined)
+      return
+    }
     if (!options.some((v) => v.id === current.id)) setStore("version", undefined)
   })
 
@@ -62,7 +65,7 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
     if (store.version || !store.product) return
     const options = safeVersionOptions()
     if (!options.length) return
-    setStore("version", options[0])
+    setStore("version", { ...options[0] })
   })
 
   async function autoSelectFirstAvailable() {
@@ -96,7 +99,6 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
     const newIsTop = !version.isTop
     const fn = newIsTop ? topVersion : cancelTopVersion
     fn(version.baseTeam).then(() => {
-      setStore("version", "isTop", newIsTop)
       mutateVersions(prev => {
         const updated = prev?.map(v => v.id === version.id ? { ...v, isTop: newIsTop } : v)
         return updated?.sort((a, b) => {
@@ -104,6 +106,10 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
           return a.sort - b.sort
         })
       })
+      if (store.version?.id === version.id) {
+        const updated = safeVersionOptions().find(v => v.id === version.id)
+        if (updated) setStore("version", { ...updated })
+      }
       pinActionActive = false
     }).catch(() => {
       pinActionActive = false
@@ -176,7 +182,7 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
           setStore("productLine", data.productLine)
           setStore("product", data.product)
           setStore("version", undefined)
-          setVersionFetchProductId(undefined)
+          setVersionFetchProductId(data.product?.id)
         }}
       />
       <Select
@@ -199,13 +205,14 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
           if (open) {
             versionCloseGuard = true
             setVersionFetchProductId(store.product?.id)
+            setTimeout(() => { versionCloseGuard = false }, 0)
           }
           setVersionPopoverOpen(open)
         }}
         onSelect={(o) => {
           if (pinActionActive) return
           userInteracted = true
-          o && setStore("version", o)
+          o && setStore("version", { ...o })
         }}
       />
     </div>
