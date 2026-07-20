@@ -58,6 +58,9 @@ import { installConsoleObjectSerializer } from "@/pages/insight/lib/console-seri
 if (!import.meta.env.DEV) installConsoleObjectSerializer()
 import { MakeSidebar } from "@/pages/make/sidebar"
 import { PatternSidebar } from "@/pages/pattern/modules/sidebar/sidebar"
+import { InsightSidebar } from "@/pages/insight/sidebar"
+import { ProjectInfo } from "@/components/project-info"
+import { SidebarFooter } from "@/pages/insight/components/sidebar-footer"
 import { ResponsiveSidebarLayout } from "@/components/responsive-sidebar-layout"
 import { CollapsedSidebarIcons } from "@/components/collapsed-sidebar-icons"
 import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
@@ -285,12 +288,29 @@ function MakeSidebarLayout(props: ParentProps) {
   )
 }
 
+// insight 侧栏在 /skills 上的复用壳:与 /insight 用同一个自包含的 InsightSidebar
+// (自管宽度/拖拽/持久化 octo:insight:sidebar-width),故此处只摆布局、不重复 resize 逻辑。
+// 见 InsightPage 主体同款结构(pages/insight/index.tsx)。
+// 注意:不加 data-cowork-area——那是旧 _shell/OctoSidebar 的属性,cowork.css 针对它有一坨
+// 样式覆盖(如滚动区 padding 改 8px 16px),套到 InsightSidebar 上会让 /skills 与 /insight
+// 的间距/选中样式不一致(InsightSidebar 自带样式,不吃 cowork.css)。
+function InsightSidebarLayout(props: ParentProps) {
+  return (
+    <div class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
+      <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
+      <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
+        {props.children}
+      </div>
+    </div>
+  )
+}
+
 function SkillsSidebarLayout(props: ParentProps) {
   const layout = useLayout()
   const source = layout.sidebarSource.get()
   return source === "make"
     ? <MakeSidebarLayout>{props.children}</MakeSidebarLayout>
-    : <OctoSidebarLayout>{props.children}</OctoSidebarLayout>
+    : <InsightSidebarLayout>{props.children}</InsightSidebarLayout>
 }
 
 function AppShellProviders(props: ParentProps) {

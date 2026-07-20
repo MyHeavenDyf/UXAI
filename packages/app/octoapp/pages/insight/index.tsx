@@ -26,6 +26,7 @@ import { INSIGHT_AGENT } from "@/constants/agent"
 import { Identifier } from "@/utils/id"
 import { same } from "@/utils/same"
 import { Icon } from "@opencode-ai/ui/icon"
+import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
 import { LocalProvider, useLocal } from "@/context/local"
@@ -51,12 +52,14 @@ import {
   type McpSelection,
 } from "./store/mcp-trigger"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
+import { NewSessionView } from "@/components/session"
 import { uploadFile, validateFile, formatUploadsForPrompt, parseUploadedFiles, isImageFile, isTextInlineFile, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
 import { encodeFilePath } from "../../context/file/path"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { getDesktopApi } from "./lib/electron-api"
 import { copyLastError, recordError, setBeaconContext } from "./lib/error-beacon"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
 import { tracker } from "@/utils/tracker"
 import { linkToOutputType } from "./utils/resource-link"
@@ -609,42 +612,72 @@ function InsightContent() {
   // panelVisible = 有会话 且 未手动收起(v2:不再要求 tabs.length>0——文件管理常驻,
   // 进入会话就有内容可看,不必等第一个产物 tab 打开)。无会话时聊天居中铺满。
   const [panelCollapsed, setPanelCollapsed] = createSignal(false)
-  const panelVisible = createMemo(() => !!params.id && !panelCollapsed())
 
-  // 动画三态:
-  //   panelMounted   —— 面板是否在 DOM(可见时挂载,收起动画播完才卸载,保证滑出可见)
-  //   panelExpanded  —— 驱动聊天列宽度的目标态(滑入时延一帧置真,从 100% 过渡到 chatWidth)
-  //   panelAnimating —— 仅切换期间为真;开启 width transition。拖拽分隔线不触发本 effect,
-  //                     故 transition 关闭,分隔线跟手不滞后。
-  const PANEL_ANIM_MS = 280
-  const [panelMounted, setPanelMounted] = createSignal(false)
-  const [panelExpanded, setPanelExpanded] = createSignal(false)
-  const [panelAnimating, setPanelAnimating] = createSignal(false)
-  let panelExitTimer: ReturnType<typeof setTimeout> | undefined
-  let panelAnimEndTimer: ReturnType<typeof setTimeout> | undefined
+  // ── 响应式布局(对齐 Claude;草案,待设计确认)────────────────────────────────
+  // 全局窗口 minWidth 已降到 600(见 packages/desktop windows.ts)。窗口变窄时:
+  //   1) 先挤压聊天列,右侧面板守住 PANEL_MIN(effectiveChatWidth 钳制实现);
+  //   2) 可用宽(对话↔面板容器)< CHAT_MIN+PANEL_MIN → 收起右侧面板,顶栏按钮唤出右侧抽屉(无遮罩);
+  //   3) 窗口 < 侧栏宽(296)+CHAT_MIN → 收起左侧栏,汉堡唤出左侧抽屉(无遮罩)。
+  // 断点动态(随侧栏拖拽自适应),不用固定 media-query 数值,避免与最小宽互相打架。
+  const CHAT_MIN = 450
+  const PANEL_MIN = 480
+  const [containerWidth, setContainerWidth] = createSignal(0) // 对话↔面板容器实测宽(≈ 窗口 − 侧栏)
+  const [sidebarOverlayOpen, setSidebarOverlayOpen] = createSignal(false)
+  const [panelOverlayOpen, setPanelOverlayOpen] = createSignal(false)
 
-  // v2(SPEC-INS-014 §10)不再 defer:panelVisible 现在只依赖 params.id,已有会话时挂载
-  // 组件那一刻就是 true(不像旧版靠"tabs 从空到非空"制造一次真实变化)——defer:true 会吃掉
-  // 这个"首次就是 true"的初始值,导致 panelMounted 永远不被置真、面板整个不渲染。
-  createEffect(on(panelVisible, (show) => {
-    if (panelExitTimer) { clearTimeout(panelExitTimer); panelExitTimer = undefined }
-    setPanelAnimating(true)
-    if (show) {
-      setPanelMounted(true)
-      // 双 rAF:确保面板先以 width:0(聊天 100%)落地一帧,再过渡到展开宽,首次也有滑入
-      requestAnimationFrame(() => requestAnimationFrame(() => setPanelExpanded(true)))
-    } else {
-      setPanelExpanded(false)
-      panelExitTimer = setTimeout(() => setPanelMounted(false), PANEL_ANIM_MS)
+  const observePageArea = (el: HTMLDivElement) => {
+    const ro = new ResizeObserver((entries) => {
+      // 忽略 0 宽:切到别的模块时本页被隐藏(display:none)会量到 0,
+      // 不能让它污染 containerWidth → 保留最后已知宽,切回来不闪。
+      for (const e of entries) if (e.contentRect.width > 0) setContainerWidth(e.contentRect.width)
+    })
+    ro.observe(el)
+    onCleanup(() => ro.disconnect())
+  }
+
+  // 右侧面板:可用宽不足以同时容纳「聊天最小 + 面板最小」时收起
+  const responsivePanelCollapsed = createMemo(() => containerWidth() > 0 && containerWidth() < CHAT_MIN + PANEL_MIN)
+  createEffect(on(responsivePanelCollapsed, (c) => { if (!c) setPanelOverlayOpen(false) }))
+
+  // 左侧栏:窗口 < 侧栏宽 + 聊天最小(296 + 450 ≈ 746)时收起
+  const [responsiveSidebarHidden, setResponsiveSidebarHidden] = createSignal(false)
+  createEffect(() => {
+    const mql = window.matchMedia("(max-width: 745px)")
+    const update = () => {
+      setResponsiveSidebarHidden(mql.matches)
+      if (!mql.matches) setSidebarOverlayOpen(false)
     }
-    // 动画窗口结束后关掉 animating,使后续拖拽无 transition
-    if (panelAnimEndTimer) clearTimeout(panelAnimEndTimer)
-    panelAnimEndTimer = setTimeout(() => setPanelAnimating(false), PANEL_ANIM_MS + 30)
-  }))
+    update()
+    mql.addEventListener("change", update)
+    onCleanup(() => mql.removeEventListener("change", update))
+  })
+
+  // 导航切换会话时关闭两个抽屉
+  createEffect(on(() => params.id, () => { setSidebarOverlayOpen(false); setPanelOverlayOpen(false) }))
+
+  const panelVisible = createMemo(() => !!params.id && !panelCollapsed() && !responsivePanelCollapsed())
+
+  // 聊天列有效宽:在 [CHAT_MIN, 容器宽 − PANEL_MIN] 内钳制用户拖拽宽,保证面板恒 ≥ PANEL_MIN → 窄屏先挤聊天
+  const effectiveChatWidth = createMemo(() => {
+    const cw = containerWidth()
+    if (cw <= 0) return chatWidth()
+    return Math.max(CHAT_MIN, Math.min(chatWidth(), cw - PANEL_MIN))
+  })
+
+  // 两个抽屉互斥(<746 时左右都收起,可能同时被唤起 → 开一个自动关另一个,避免透明点击层跨容器叠加)
+  const toggleSidebarDrawer = () => { setPanelOverlayOpen(false); setSidebarOverlayOpen((v) => !v) }
+  const togglePanelDrawer = () => { setSidebarOverlayOpen(false); setPanelOverlayOpen((v) => !v) }
+
+  // 面板挂载/聊天宽度直接跟 panelVisible(无过渡动画)。
+  // 旧版的 panelMounted/panelExpanded/panelAnimating + 双 rAF 动画状态机已移除:
+  // 它与响应式 containerWidth 会在"切走→切回/快速改宽"时竞态(漏取消的 rAF 把 expanded
+  // 拉回 true 却已卸载面板 → 右侧灰底)。鲁棒性优先,去掉动画,状态无从 desync。
 
   /** 打开/激活产物时统一清掉手动收起态,确保面板滑入(即便之前被收起) */
   function revealPanel() {
     if (panelCollapsed()) setPanelCollapsed(false)
+    // 窄屏收起态(面板不 inline)下打开产物 → 唤起右侧抽屉,避免"点了卡片没反应"的不可用
+    if (responsivePanelCollapsed()) { setSidebarOverlayOpen(false); setPanelOverlayOpen(true) }
   }
 
   // 打开产物 tab 后统一切到 tabs 视图并展开面板。viewMode 默认停在「文件管理」(files),
@@ -658,9 +691,12 @@ function InsightContent() {
   // SPEC-INS-014 §10:文件管理面板里点文件 → 复用 tabStore.openTab 的 (filePath,type) 去重逻辑
   // (重复打开同一文件只会激活已有 tab),再切回 tabs 视图、确保面板展开可见。
   function openFileFromManager(file: InsightFileEntry) {
+    // extToOutputType 已将 png/jpg/gif/svg 等映射到 "image"(走 ImageRenderer),
+    // psd/ai/sketch/fig 等不可浏览器渲染的归 "file"(走 FileFallback),其余分流到 file/code。
     const type = extToOutputType(file.name)
     // fileName / mimeType 必须带上:FileFallback 的类型图标按这两者派生(fileTypeIconUrl),
     // 缺失会让 xlsx/docx 等一律落到「其他」兜底图标(title 只用于标签页文案,不参与图标)。
+    const mime = mimeForName(file.name)
     tabStore.openTab({
       id: crypto.randomUUID(),
       title: file.name,
@@ -668,15 +704,15 @@ function InsightContent() {
       source: "path",
       filePath: file.path,
       fileName: file.name,
-      mimeType: mimeForName(file.name),
+      mimeType: mime,
       createdAt: new Date(),
     })
     focusResultTabs()
   }
 
   // SPEC-INS-014 §10.1:文件管理面板操作回调(对齐 Design)。
-  /** 添加至会话区:作为已就绪(path 已落盘)附件加入输入区,发送时进 [附件] 清单。 */
-  function addInsightFileToSession(file: InsightFile) {
+  /** 添加至会话区:作为已就绪附件加入输入区。图片走 ③ S3 上传(拿 url),非图片带 path 进 [附件] 清单。 */
+  async function addInsightFileToSession(file: InsightFile) {
     if (attachments().some((a) => a.path === file.path)) {
       showToast({ title: "已添加", description: file.name })
       return
@@ -685,15 +721,41 @@ function InsightContent() {
       showToast({ title: "附件数量已达上限", description: `最多 ${MAX_ATTACHMENTS} 个附件` })
       return
     }
+    const id = crypto.randomUUID()
+    // 图片必须走 ③ vision FilePart{url:S3}:发送时 imageFiles 过滤要求 url,而文件管理里的图片只有本地 path。
+    // 先读盘 → 构造 File → 复用输入框选图那条 doImageUpload 链路(含 uploading 态 / 失败重试 / S3 上传拿 url)。
+    // 不这么做,图片会同时漏出 imageFiles(无 url)和 localFiles(isImageFile 被排除)两个分流 → 静默丢失。
+    if (file.kind === "image") {
+      const api = getDesktopApi()
+      const buffer = typeof api?.readFileBuffer === "function" ? await api.readFileBuffer(file.path) : null
+      if (!buffer) {
+        console.warn("[octo:upload] add-to-session read image failed", { path: file.path })
+        showToast({ title: "添加失败", description: "无法读取图片文件，请重试", variant: "error" })
+        return
+      }
+      const imgFile = new File([buffer], file.name, { type: file.mime || "image/png" })
+      filesById.set(id, imgFile) // 重试用(retryUpload 从 filesById 取原 File 重传)
+      setAttachments((prev) => [...prev, {
+        id,
+        filename: file.name,
+        mime: file.mime || "image/png",
+        size: file.size,
+        status: "uploading",
+        path: file.path, // 供去重(a.path === file.path)与删文件后按路径清附件;imageFiles 分流只认 url
+        // 图片给 local:// 缩略图(附件条 FileTypeIcon 有 previewUrl 时渲染缩略图)。
+        previewUrl: pathToLocalUrl(file.path),
+      }])
+      void doImageUpload(id, imgFile) // 成功 → done + url;失败 → error + 可重试
+      return
+    }
+    // 非图片(已落盘):直接作为已就绪附件进 [附件] 清单(给 ②extract_document 拿路径 / ④MCP 引用)。
     setAttachments((prev) => [...prev, {
-      id: crypto.randomUUID(),
+      id,
       filename: file.name,
       mime: file.mime || "application/octet-stream",
       size: file.size,
       status: "done",
       path: file.path,
-      // 图片给 local:// 缩略图(附件条 FileTypeIcon 有 previewUrl 时渲染缩略图)。
-      previewUrl: file.kind === "image" ? pathToLocalUrl(file.path) : undefined,
     }])
     showToast({ title: "已添加附件", description: file.name, variant: "success", duration: 2000 })
   }
@@ -953,15 +1015,9 @@ function InsightContent() {
     const cleanTextPart: TextPartInput = { type: "text", text }
     const parts: Array<TextPartInput | FilePartInput> = [cleanTextPart]
     if (uploadBlock) parts.push({ type: "text", text: uploadBlock, synthetic: true })
-    // [输出目录]:synthetic 提示模型把"生成/导出文档"的 write 产物落到 insight/<sessionId>/outputs/,
-    // 使其出现在文件管理"生成文件"段(模型无此提示时只回文本,文件管理表格看不到)。
-    {
-      const baseDir = projectDir()
-      if (baseDir) {
-        const outputsDir = `${baseDir.replace(/\\/g, "/")}/insight/${sessionId}/outputs/`
-        parts.push({ type: "text", text: `[输出目录] 生成/导出文档时,用 write 工具写入此目录:${outputsDir}`, synthetic: true })
-      }
-    }
+    // 落点重定向:write 产物进 insight/<sessionId>/outputs/ 由服务端插件 octo-outputs-redirect 确定性完成
+    // (相对路径 → 会话 outputs/,只对 octo_insight 会话生效)。此前这里每轮注入 `[输出目录] 绝对路径`
+    // synthetic 指令纠偏,弱模型会把它当当前任务复述(空问候"你好"也触发、把路径暴露给用户),故删除。
     // SPEC-INS-017 chip turn:模板(功能指令 + 文件名 + 迁入的 MCP 仪式段落)与机器可读声明段,
     // 均为 synthetic(气泡不显示、模型可见;声明由 server 端 octo-upload-inject 读取并强制对齐文件参数)。
     // 注意顺序:必须在 [附件] 清单之后 —— InsightTurn 按 "[附件]" 头定位清单渲染文件卡片。
@@ -1822,6 +1878,27 @@ function InsightContent() {
     return attachments().some((a) => a.status === "uploading")
   }
 
+  // ResultViewer 渲染在两处复用:常态 inline(收起按钮=手动收起)与窄屏抽屉(收起按钮=关抽屉)。
+  // 二者按宽度互斥挂载(抽屉仅在 responsivePanelCollapsed 时可开,此时 inline 的 panelVisible 恒为 false)。
+  const renderResultViewer = (onCollapse: () => void) => (
+    <ResultViewer
+      tabs={tabStore.tabs()}
+      activeId={tabStore.activeId()}
+      onActivate={handleActivateTab}
+      onClose={handleCloseTab}
+      onCacheContent={tabStore.cacheContent}
+      onCollapse={onCollapse}
+      onSetViewMode={tabStore.setViewMode}
+      viewMode={resultViewMode()}
+      onViewModeChange={setResultViewMode}
+      onOpenLocalFile={openFileFromManager}
+      onAddToSession={addInsightFileToSession}
+      onCloseTabsByPath={closeTabsByPath}
+      onRemoveAttachmentsByPath={removeAttachmentsByPath}
+      refreshKey={filesRefreshKey()}
+    />
+  )
+
   return (
     <DataProvider
       data={sync.data}
@@ -1844,22 +1921,32 @@ function InsightContent() {
             与 _shell/sidebar.tsx + make/sidebar.tsx 同一实例,onboarding 元数据持久化共用)。
             octo-agent 同位置注入的是同事 fcd100b 那套简版 ProjectInfo(在 project-selector/),
             两仓注入物不同但 InsightSidebar 接口相同,不影响同步。*/}
-        <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
+        <Show when={!responsiveSidebarHidden()}>
+          <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
+        </Show>
+        {/* 窄屏(<746px)左侧栏抽屉:无可见遮罩(对齐 Claude),经汉堡唤出,贴左侧。
+            透明点击层兜住抽屉外点击 → 点空白/导航/再点汉堡都关闭。 */}
+        <Show when={responsiveSidebarHidden() && sidebarOverlayOpen()}>
+          <div class="absolute inset-0 z-20" onClick={() => setSidebarOverlayOpen(false)} />
+          <div class="absolute left-0 top-0 bottom-0 z-30" style={{ "box-shadow": "8px 0 24px rgba(0,0,0,0.12)" }}>
+            <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
+          </div>
+        </Show>
 
-        {/* 对话↔任务面板区(data-page 作用域;拖拽分隔线相对它左边缘绝对定位,故侧栏必须在它之外) */}
-        <div class="flex-1 min-w-0 flex overflow-hidden relative" data-page="insight">
+        {/* 对话↔任务面板区(data-page 作用域;拖拽分隔线相对它左边缘绝对定位,故侧栏必须在它之外)
+            ref 观测容器实测宽 → 驱动 responsivePanelCollapsed / effectiveChatWidth */}
+        <div ref={observePageArea} class="flex-1 min-w-0 flex overflow-hidden relative" data-page="insight">
 
         {/* ── 左栏：对话面板 ────
-             展开态:固定 chatWidth,可拖拽分隔。收起态:撑满 100%,内容居中 reading-width。
-             宽度在 chatWidth ↔ 100% 间过渡;任务面板 flex:1 跟随重排自然伸缩(SPEC-INS-009 §3)。
-             panelAnimating 仅切换期间为真 → 拖拽分隔线时无 transition,跟手不滞后。 */}
+             面板可见时:宽度 = effectiveChatWidth(用户拖拽宽,被容器宽钳制;窄屏先挤聊天、面板守 480)。
+             面板不可见(收起/无会话)时:撑满 100%,内容居中 reading-width。任务面板 flex:1 跟随重排。
+             无 width 过渡动画(直接跟 panelVisible),分隔线拖拽跟手。 */}
         <div
           class="flex flex-col overflow-hidden relative"
           style={{
-            width: panelExpanded() ? `${chatWidth()}px` : "100%",
+            width: panelVisible() ? `${effectiveChatWidth()}px` : "100%",
             flex: "0 0 auto",
             "min-width": "0",
-            transition: panelAnimating() ? `width ${PANEL_ANIM_MS}ms ease` : "none",
             background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-surface-page)",
             outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
           }}
@@ -1867,6 +1954,17 @@ function InsightContent() {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
+            <Show when={responsiveSidebarHidden() && !(params.id && userMessages().length > 0)}>
+              <button
+                type="button"
+                onClick={toggleSidebarDrawer}
+                title="侧栏"
+                class="absolute top-3 left-3 z-10 flex items-center justify-center size-8 rounded-md transition-colors"
+                style={{ color: "var(--octo-text-secondary)", background: sidebarOverlayOpen() ? "var(--octo-surface-hover)" : "transparent" }}
+              >
+                <Icon name="menu" class="size-5" />
+              </button>
+            </Show>
             <Show
               when={params.id && userMessages().length > 0}
               fallback={
@@ -1881,29 +1979,9 @@ function InsightContent() {
                   }
                 >
                 <div class="size-full flex flex-col items-center justify-center px-8 py-10 overflow-y-auto">
-                  <IllustrationInsightEmpty width={166} height={166} />
-                  <div
-                    style={{
-                      "margin-top": "12px",
-                      "font-size": "36px",
-                      "font-weight": "600",
-                      "line-height": "1.2",
-                      color: "var(--octo-text-strong)",
-                    }}
-                  >
-                    Octo Insight
-                  </div>
-                  <div
-                    style={{
-                      "margin-top": "8px",
-                      "font-size": "16px",
-                      color: "var(--octo-text-secondary)",
-                    }}
-                  >
-                    AI辅助用户洞察研究
-                  </div>
+                  <NewSessionView worktree="" title="Octo Insight" subtitle="AI辅助用户洞察研究" />
 
-                  <div style={{ "margin-top": "80px", width: "100%", "max-width": "800px" }}>
+                  <div style={{ width: "100%", "max-width": "800px" }}>
                     <div
                       class="rounded-[24px] transition-all duration-300 relative group flex flex-col overflow-hidden"
                       style={{
@@ -1937,7 +2015,7 @@ function InsightContent() {
                         onKeyDown={handleKeyDown}
                         onPaste={handlePaste}
                         placeholder={mcpSelection()?.preset.placeholder ?? "请描述您的需求..."}
-                        class="octo-input-scroll w-full resize-none px-4 pt-3 bg-transparent text-sm outline-none relative z-10"
+                        class="octo-input-scroll w-full resize-none px-4 pt-4 pb-0 bg-transparent text-sm outline-none relative z-10"
                         style={{
                           color: "var(--octo-text-primary)",
                           "font-family": "var(--octo-font)",
@@ -1947,7 +2025,7 @@ function InsightContent() {
                         }}
                       />
 
-                      <div class="flex items-center gap-2 px-2.5 pb-2.5 relative z-10">
+                      <div class="flex items-center gap-2 px-4 pb-4 relative z-10">
                         <input
                           ref={fileInputRef!}
                           type="file"
@@ -2004,16 +2082,21 @@ function InsightContent() {
                           onClick={() => stopping() ? void handleAbort() : void handleSubmit("button")}
                           disabled={sendDisabled()}
                           title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isWorking() ? "LLM 响应中,发送会进入排队" : undefined))}
-                          class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
+                          class="flex-shrink-0 ml-auto"
                           style={{
-                            opacity: sendDisabled() ? 0.4 : 1,
-                            filter: sendDisabled() ? "grayscale(0.5)" : "none",
+                            "width": "32px",
+                            "height": "32px",
+                            "border-radius": "50%",
+                            "background-image": stopping() ? "url(/pauseIcon.svg)" : "url(/IconSend-blue.svg)",
+                            "background-size": "48.4px auto",
+                            "background-position": "-8px -3.5px",
+                            "background-repeat": "no-repeat",
+                            "background-color": "transparent",
+                            "border": "none",
+                            "opacity": sendDisabled() ? "0.6" : "1",
+                            "cursor": sendDisabled() ? "not-allowed" : "pointer",
                           }}
-                        >
-                          <Show when={stopping()} fallback={<IconSendBlue width={40} height={40} />}>
-                            <IconStopBlue width={40} height={40} />
-                          </Show>
-                        </button>
+                        />
                       </div>
                     </div>
                   </div>
@@ -2024,62 +2107,75 @@ function InsightContent() {
               {/* 对话面板顶部标题栏（会话标题 + 改名 + 删除） */}
               {/* 收起态唤回浮标：放进 header 行内，与三点菜单同行，避免绝对定位遮挡三点按钮 */}
               <ConversationHeader
-                panelBadge={
-                  !!params.id && panelCollapsed() && !panelAnimating()
-                    ? (
-                      <button
-                        type="button"
-                        onClick={() => setPanelCollapsed(false)}
-                        title="展开面板"
-                        class="flex shrink-0 items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-medium transition-colors"
-                        style={{
-                          background: "var(--octo-surface-page)",
-                          color: "var(--octo-text-secondary)",
-                          border: "1px solid var(--octo-border-divider)",
-                          "box-shadow": "0 1px 3px rgba(0,0,0,0.06)",
-                        }}
-                      >
-                        <Icon name="chevron-left" class="size-3 opacity-70" />
-                        {tabStore.tabs().length > 0 ? `产出 (${tabStore.tabs().length})` : "文件"}
-                      </button>
-                    )
-                    : undefined
-                }
+                sidebarToggle={responsiveSidebarHidden() ? (
+                  <button
+                    type="button"
+                    onClick={toggleSidebarDrawer}
+                    title="侧栏"
+                    class="flex items-center justify-center size-6 rounded-md transition-colors"
+                    style={{ color: "var(--octo-text-secondary)", background: sidebarOverlayOpen() ? "var(--octo-surface-hover)" : "transparent" }}
+                  >
+                    <Icon name="menu" class="size-4" />
+                  </button>
+                ) : undefined}
+                panelToggle={!!params.id ? (
+                  <button
+                    type="button"
+                    onClick={() => { if (responsivePanelCollapsed()) togglePanelDrawer(); else setPanelCollapsed((v) => !v) }}
+                    title="文件面板"
+                    class="flex items-center justify-center size-6 rounded-md transition-colors hover:bg-black/5 active:bg-black/10"
+                    style={{ color: "var(--octo-text-secondary)" }}
+                  >
+                    {/* 统一面板开关(对齐 Claude):所有宽度都可开合——宽屏 inline 收/显、窄屏抽屉。
+                        图标实心=面板当前展开、描边=已收起。 */}
+                    <Icon name={(responsivePanelCollapsed() ? panelOverlayOpen() : !panelCollapsed()) ? "layout-right-full" : "layout-right"} class="size-4" />
+                  </button>
+                ) : undefined}
               />
 
               {/* 消息列表（autoScroll 挂在 scrollRef 容器，contentRef 挂在内容 div） */}
-              <div
-                class="flex-1 overflow-y-auto min-h-0"
-                ref={(el) => {
-                  scrollContainerEl = el
-                  autoScroll.scrollRef(el)
-                }}
-                onScroll={autoScroll.handleScroll}
-                onMouseUp={autoScroll.handleInteraction}
-              >
-                <div
-                  ref={autoScroll.contentRef}
-                  class="py-3 flex flex-col gap-0 w-full mx-auto"
-                  style={{ "max-width": "800px" }}
+              <div class="relative flex-1 min-h-0">
+                <ScrollView
+                  class="h-full"
+                  style={{ background: "var(--octo-surface-page)", padding: "0 12px" }}
+                  viewportRef={(el) => {
+                    scrollContainerEl = el
+                    autoScroll.scrollRef(el)
+                  }}
+                  onScroll={autoScroll.handleScroll}
+                  onMouseUp={autoScroll.handleInteraction}
                 >
-                  <For each={userMessageIDs()}>
-                    {(msgID) => (
-                      <InsightTurn
-                        sessionID={params.id!}
-                        messageID={msgID}
-                        status={sessionStatus()}
-                        active={isBusy()}
-                        onOpenResult={handleOpenResult}
-                        taskCards={taskCardsByAnchor().get(msgID) ?? []}
-                        onTaskRefresh={handleTaskRefresh}
-                        onTaskStop={handleTaskStop}
-                        onTaskOpenResult={handleTaskOpenResult}
-                        resolveTaskLinks={(taskId) => taskCards().get(taskId)?.resourceLinks}
-                        onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
-                      />
-                    )}
-                  </For>
-                </div>
+                  <div
+                    ref={autoScroll.contentRef}
+                    class="py-3 flex flex-col gap-0 w-full mx-auto"
+                    style={{ "max-width": "800px" }}
+                  >
+                    <For each={userMessageIDs()}>
+                      {(msgID) => (
+                        <InsightTurn
+                          sessionID={params.id!}
+                          messageID={msgID}
+                          status={sessionStatus()}
+                          active={isBusy()}
+                          onOpenResult={handleOpenResult}
+                          taskCards={taskCardsByAnchor().get(msgID) ?? []}
+                          onTaskRefresh={handleTaskRefresh}
+                          onTaskStop={handleTaskStop}
+                          onTaskOpenResult={handleTaskOpenResult}
+                          resolveTaskLinks={(taskId) => taskCards().get(taskId)?.resourceLinks}
+                          onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
+                        />
+                      )}
+                    </For>
+                  </div>
+                </ScrollView>
+                <div
+                  class="absolute bottom-0 left-0 right-0 pointer-events-none z-[1]"
+                  style={{
+                    height: "24px",
+                    background: "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%)",
+                  }}
+                />
               </div>
 
               {/* 输入区(居中 reading-width,与消息列表对齐) */}
@@ -2147,7 +2243,7 @@ function InsightContent() {
                     onKeyDown={handleKeyDown}
                     onPaste={handlePaste}
                     placeholder={mcpSelection()?.preset.placeholder ?? "请描述您的需求..."}
-                    class="octo-input-scroll w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
+                    class="octo-input-scroll w-full resize-none px-4 pt-4 pb-0 bg-transparent text-sm outline-none relative z-10"
                     style={{
                       color: "var(--octo-text-primary)",
                       "font-family": "var(--octo-font)",
@@ -2157,7 +2253,7 @@ function InsightContent() {
                     }}
                   />
 
-                  <div class="flex items-center gap-2 px-2.5 pb-2.5 relative z-10">
+                  <div class="flex items-center gap-2 px-4 pb-4 relative z-10">
                     <input
                       ref={fileInputRef!}
                       type="file"
@@ -2214,16 +2310,21 @@ function InsightContent() {
                       onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
                       disabled={sendDisabled()}
                       title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isWorking() ? "LLM 响应中,发送会进入排队" : undefined))}
-                      class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
+                      class="flex-shrink-0 ml-auto"
                       style={{
-                        opacity: sendDisabled() ? 0.4 : 1,
-                        filter: sendDisabled() ? "grayscale(0.5)" : "none",
+                        "width": "32px",
+                        "height": "32px",
+                        "border-radius": "50%",
+                        "background-image": stopping() ? "url(/pauseIcon.svg)" : "url(/IconSend-blue.svg)",
+                        "background-size": "48.4px auto",
+                        "background-position": "-8px -3.5px",
+                        "background-repeat": "no-repeat",
+                        "background-color": "transparent",
+                        "border": "none",
+                        "opacity": sendDisabled() ? "0.6" : "1",
+                        "cursor": sendDisabled() ? "not-allowed" : "pointer",
                       }}
-                    >
-                      <Show when={stopping()} fallback={<IconSendBlue width={40} height={40} />}>
-                        <IconStopBlue width={40} height={40} />
-                      </Show>
-                    </button>
+                    />
                   </div>
                 </div>
               </div>
@@ -2232,13 +2333,12 @@ function InsightContent() {
         </div>
 
         {/* ── 任务面板:有产物且未收起时挂载;收起动画播完才卸载(SPEC-INS-009) ── */}
-        <Show when={panelMounted()}>
-          {/* 聊天/结果 拖拽分隔线（半侧贴边胶囊）—— 仅在动画结束的展开稳态显示,避免滑动中错位
+        <Show when={panelVisible()}>
+          {/* 聊天/结果 拖拽分隔线（半侧贴边胶囊）
               top/bottom 缩进 20px：避免与 Windows classic 滚动条两端箭头（~17px）热区重合 */}
-          <Show when={panelExpanded() && !panelAnimating()}>
           <div
             class="absolute flex items-center justify-center group"
-            style={{ top: "20px", bottom: "20px", left: `${chatWidth() - 10}px`, width: "20px", cursor: "col-resize", "z-index": 10 }}
+            style={{ top: "20px", bottom: "20px", left: `${effectiveChatWidth() - 4}px`, width: "8px", cursor: "col-resize", "z-index": 10 }}
             onPointerDown={handleDividerPointerDown}
           >
             {/* 拖拽手柄视觉胶囊已隐藏(dev-yfy d8bc3d4):保留热区与拖拽手感,仅去掉胶囊视觉
@@ -2259,25 +2359,21 @@ function InsightContent() {
               />
             </div> */}
           </div>
-          </Show>
 
-          {/* 中栏：ResultViewer(flex:1 跟随聊天列宽度重排,收起时被挤到 0 并裁切) */}
-          <ResultViewer
-            tabs={tabStore.tabs()}
-            activeId={tabStore.activeId()}
-            onActivate={handleActivateTab}
-            onClose={handleCloseTab}
-            onCacheContent={tabStore.cacheContent}
-            onCollapse={() => setPanelCollapsed(true)}
-            onSetViewMode={tabStore.setViewMode}
-            viewMode={resultViewMode()}
-            onViewModeChange={setResultViewMode}
-            onOpenLocalFile={openFileFromManager}
-            onAddToSession={addInsightFileToSession}
-            onCloseTabsByPath={closeTabsByPath}
-            onRemoveAttachmentsByPath={removeAttachmentsByPath}
-            refreshKey={filesRefreshKey()}
-          />
+          {/* 中栏：ResultViewer(flex:1 跟随聊天列宽度重排) */}
+          {renderResultViewer(() => setPanelCollapsed(true))}
+        </Show>
+
+        {/* 窄屏收起后的右侧面板抽屉:无可见遮罩(对齐 Claude),经顶栏按钮唤出,贴右侧滑出(480 宽,守住内容不折叠);
+            盖在聊天右侧、左侧聊天仍可见。透明点击层兜住抽屉外点击 → 点空白/切会话/再点按钮都关闭。 */}
+        <Show when={responsivePanelCollapsed() && panelOverlayOpen()}>
+          <div class="absolute inset-0 z-20" onClick={() => setPanelOverlayOpen(false)} />
+          <div
+            class="absolute right-0 top-0 bottom-0 z-30 flex"
+            style={{ width: `${PANEL_MIN}px`, "max-width": "100%", background: "var(--octo-surface-page)", "box-shadow": "-8px 0 24px rgba(0,0,0,0.12)" }}
+          >
+            {renderResultViewer(() => setPanelOverlayOpen(false))}
+          </div>
         </Show>
         </div>
       </div>

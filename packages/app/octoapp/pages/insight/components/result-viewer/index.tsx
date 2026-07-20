@@ -8,6 +8,7 @@ import { ActionBar } from "./action-bar"
 import { TableRenderer } from "./table-renderer"
 import { MindmapRenderer } from "./mindmap-renderer"
 import { HtmlRenderer } from "./html-renderer"
+import { ImageRenderer } from "./image-renderer"
 import { SourceCodeView } from "./source-code-view"
 import { IllustrationResultEmpty, fileTypeIconUrl } from "../../icons/illustrations"
 import { extractTableMarkdown } from "../../utils/markdown-table"
@@ -105,7 +106,7 @@ export function ResultViewer(props: {
                 onEdit={() => setEditingId(tab().id)}
               />
               <div class="flex-1 overflow-hidden">
-                <TabBody tab={tab()} onCacheContent={props.onCacheContent} />
+                <TabBody tab={tab()} onCacheContent={props.onCacheContent} refreshKey={props.refreshKey} />
               </div>
             </div>
           )}
@@ -136,9 +137,16 @@ export function ResultViewer(props: {
 function TabBody(props: {
   tab: ResultTab
   onCacheContent?: (id: string, content: string) => void
+  refreshKey?: number
 }): JSX.Element {
   return (
     <Switch fallback={<TabContent tab={props.tab} />}>
+      {/* image 模式(filePath:local:// 协议读盘渲染 / uri:直接加载):
+           不走 PathTabBody 的 sdk.client.file.read(那是文本读法,会把二进制当 UTF-8 解,内容损坏)。
+           也不走 UriTabBody 的 fetch+text(同样损坏二进制)。 */}
+      <Match when={props.tab.type === "image" && (props.tab.filePath || props.tab.uri)}>
+        <ImageRenderer filePath={props.tab.filePath} uri={props.tab.uri} refreshKey={props.refreshKey} />
+      </Match>
       {/* path 模式(路径 C,write 文本产物):走 SDK file.read 读盘取最新内容,不复用快照。
           见 output-renderers.md §2.6.3。file 类型(表格/office/二进制)不读盘,直接 fallback 到
           TabContent → FileFallback(本地 openPath / showItemInFolder)。 */}
@@ -649,7 +657,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
               type="button"
               onClick={() => void handleRevealInFolder()}
               disabled={revealBusy()}
-              style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "1px solid var(--octo-border-default, #e5e7eb)", background: "rgba(243,243,243,1)", color: "rgba(10,89,247,1)", "font-size": "13px", cursor: revealBusy() ? "not-allowed" : "pointer", opacity: revealBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
+              style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "1px solid rgba(243,243,243,1)", background: "rgba(243,243,243,1)", color: "rgba(10,89,247,1)", "font-size": "13px", cursor: revealBusy() ? "not-allowed" : "pointer", opacity: revealBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
             >
               <img src={folderBlueUrl} width={14} height={12} alt="" aria-hidden="true" />
               {revealBusy() ? "定位中…" : "文件夹打开"}
@@ -660,7 +668,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
                 type="button"
                 onClick={() => void handleSaveAs()}
                 disabled={downloadBusy()}
-                style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "1px solid var(--octo-border-default, #e5e7eb)", background: "rgba(243,243,243,1)", color: "rgba(10,89,247,1)", "font-size": "13px", cursor: downloadBusy() ? "not-allowed" : "pointer", opacity: downloadBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
+                style={{ height: "32px", padding: "0 16px", "border-radius": "4px", border: "1px solid rgba(243,243,243,1)", background: "rgba(243,243,243,1)", color: "rgba(10,89,247,1)", "font-size": "13px", cursor: downloadBusy() ? "not-allowed" : "pointer", opacity: downloadBusy() ? 0.5 : 1, display: "flex", "align-items": "center", gap: "6px" }}
               >
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
                   <path d="M8 2v8M5 7.5l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>

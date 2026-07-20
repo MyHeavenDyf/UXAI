@@ -1136,6 +1136,13 @@ export function MessageTimeline(props: {
             </div>
           </div>
         </ScrollView>
+        <div
+          class="absolute bottom-0 left-0 right-0 pointer-events-none z-[1]"
+          style={{
+            height: "24px",
+            background: "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%)",
+          }}
+        />
       </div>
     </Show>
   )

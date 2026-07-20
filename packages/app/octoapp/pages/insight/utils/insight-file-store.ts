@@ -174,10 +174,14 @@ export function createInsightFileStore(sessionId: string) {
     sortKey: saved.sortKey ?? DEFAULT_SORT_KEY,
     sortDir: saved.sortDir ?? DEFAULT_SORT_DIR,
     kindFilter: new Set(saved.kindFilter ?? []),
-    groupMode: saved.groupMode ?? "modified",
+    groupMode: saved.groupMode ?? "kind",
     loading: false,
     error: null,
   })
+
+  // 右侧预览面板的目标文件:对齐 make/utils/artifact-file-store.ts 的 previewFile 信号模式。
+  // 与批量多选(selected Set)不同,这是单文件预览目标;在切路径 / 删文件时自动清空,避免悬空预览。
+  const [previewFile, setPreviewFile] = createSignal<InsightFile | null>(null)
 
   // 跨午夜时"今天/昨天"分桶会漂移:到下一个零点重算一次 dayBoundary,触发 modifiedGroups 重新分桶。
   const [dayBoundary, setDayBoundary] = createSignal(Date.now())
@@ -211,9 +215,10 @@ export function createInsightFileStore(sessionId: string) {
   // 改筛选条件后清掉已选(被筛掉的行不该继续算在选中里)
   createEffect(on(() => store.kindFilter, () => setStore("selected", new Set()), { defer: true }))
 
-  // 切换文件夹路径:清选中(旧路径的选中不再适用)。
+  // 切换文件夹路径:清选中(旧路径的选中不再适用)+ 清预览(旧路径下的预览文件不再可见)。
   createEffect(on(() => store.currentPath, () => {
     setStore("selected", new Set())
+    setPreviewFile(null)
   }, { defer: true }))
 
   createEffect(on(
@@ -273,6 +278,8 @@ export function createInsightFileStore(sessionId: string) {
   return {
     store,
     setStore,
+    previewFile,
+    setPreviewFile,
     uploaded,
     generated,
     kindCounts,
@@ -345,6 +352,7 @@ export function createInsightFileStore(sessionId: string) {
       const nextSelected = new Set(store.selected)
       nextSelected.delete(path)
       setStore("selected", nextSelected)
+      if (previewFile()?.path === path) setPreviewFile(null)
     },
     navigateToFolder(folder: InsightFile) {
       if (!folder.isFolder) return

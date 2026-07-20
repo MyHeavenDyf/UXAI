@@ -728,8 +728,8 @@ export function registerIpcHandlers(deps: Deps) {
         ? JSON.parse(readFileSync(skillConfigPath, "utf-8"))
         : {}
       configJson['skill'] = config
-      mkdirSync(dirname(skillsConfigPath), { recursive: true })
-      writeFileSync(skillsConfigPath, JSON.stringify(configJson, null, 2), "utf-8")
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, JSON.stringify(configJson, null, 2), "utf-8")
       // syncSkillConfig()
 
       return { success: true, skillName }

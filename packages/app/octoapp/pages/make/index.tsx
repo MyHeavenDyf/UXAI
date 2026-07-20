@@ -378,13 +378,14 @@ const sessionMessagesLoaded = createMemo(() => {
       
       if (detail.action === 'send' && !sending()) {
         const sessionId = params.id
-        if (sessionId) {
+        const modelKey = activeModelKey()
+        if (sessionId && modelKey) {
           if (detail.file) {
             const file = detail.file
             const id = crypto.randomUUID()
             const previewUrl = URL.createObjectURL(file)
             filesById.set(id, file)
-            
+
             setAttachments(prev => [...prev, {
               id,
               filename: file.name,
@@ -394,13 +395,13 @@ const sessionMessagesLoaded = createMemo(() => {
               source: 'external',
               previewUrl
             }])
-            
+
             try {
               const result = await uploadFile(file)
-              setAttachments(prev => prev.map(a => 
+              setAttachments(prev => prev.map(a =>
                 a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
               ))
-              await sendMessage(sessionId, messageText)
+              await sendMessage(sessionId, messageText, modelKey)
               setAttachments([])
               setPrompt("")
             } catch (err) {
@@ -411,9 +412,13 @@ const sessionMessagesLoaded = createMemo(() => {
               setPrompt(messageText)
             }
           } else {
-            await sendMessage(sessionId, messageText)
-            setAttachments([])
-            setPrompt("")
+            await new Promise(resolve => setTimeout(resolve, 100))
+            const att = attachments().find(a => a.id === filesById.keys().next().value)
+            if (att?.status === 'done' || attachments().length === 0) {
+              await sendMessage(sessionId, messageText, modelKey)
+              setAttachments([])
+              setPrompt("")
+            }
           }
         }
       } else if (detail.action === 'queue') {
@@ -722,28 +727,45 @@ const sessionMessagesLoaded = createMemo(() => {
     onCleanup(() => document.removeEventListener("mousedown", handler))
   })
 
-  // ── Skills Config (from skills.json) ──
-  type SkillsConfigEntry = { description?: string; import?: boolean; type?: string }
-  type SkillsConfig = Record<string, SkillsConfigEntry>
+  // ── Skills Config (from skill_config.json) ──
+  type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
+  type PanelSkill = {
+    label: string
+    description?: string
+    path?: string
+    enable?: boolean
+    id?: number
+  }
+  type SkillConfig = {
+    skill?: Record<string, SkillConfigEntry>
+    agent?: Record<string, string[]>
+    panel?: {
+      octo_insight?: PanelSkill[]
+      octo_make?: PanelSkill[]
+      octo_studio?: PanelSkill[]
+      common?: PanelSkill[]
+    }
+  }
 
-  const [skillsConfig, setSkillsConfig] = createSignal<SkillsConfig>({})
+  const [skillConfig, setSkillConfig] = createSignal<SkillConfig>({})
   const [skillsLoading, setSkillsLoading] = createSignal(false)
   const [skillsMenuState, setSkillsMenuState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [skillsMenuIndex, setSkillsMenuIndex] = createSignal(0)
   const [skillToolCalls, setSkillToolCalls] = createSignal<ToolCallInfo[]>([])
+  const [pendingSkill, setPendingSkill] = createSignal<{ name: string; content: string } | null>(null)
 
-  async function loadSkillsConfig() {
+  async function loadSkillConfig() {
     if (skillsLoading()) return
     setSkillsLoading(true)
 
     try {
-      const api = (window as unknown as { api?: { getSkillsConfig?: () => Promise<SkillsConfig> } }).api
-      const config = await api?.getSkillsConfig?.()
+      const api = (window as unknown as { api?: { getSkillConfig?: () => Promise<SkillConfig> } }).api
+      const config = await api?.getSkillConfig?.()
       if (config) {
-        setSkillsConfig(config)
+        setSkillConfig(config)
       }
     } catch (err) {
-      console.error("[MakePage] Failed to load skills config:", err)
+      console.error("[MakePage] Failed to load skill config:", err)
     } finally {
       setSkillsLoading(false)
     }
@@ -822,23 +844,18 @@ const sessionMessagesLoaded = createMemo(() => {
     )
   })
 
-  // Filter active skills (import !== false + type match)
+  // Get active skills from panel.octo_make array
   const activeSkills = createMemo(() => {
-    const config = skillsConfig()
-    const list: Array<{ name: string; description: string }> = []
+    const config = skillConfig()
+    const panelSkills = config.panel?.octo_make ?? []
 
-    for (const [name, entry] of Object.entries(config)) {
-      if (entry.import === false) continue
-      if (!entry.type) continue
-      if (entry.type !== "common" && entry.type !== "octo_make") continue
-
-      list.push({
-        name,
-        description: entry.description ?? "",
-      })
-    }
-
-    return list.sort((a, b) => a.name.localeCompare(b.name))
+    return panelSkills
+      .filter(skill => skill.enable !== false)
+      .map(skill => ({
+        name: skill.label,
+        description: skill.description ?? "",
+        path: skill.path ?? `skill/${skill.label}/SKILL.md`
+      }))
   })
 
   // Filter skills by search query
@@ -853,6 +870,21 @@ const sessionMessagesLoaded = createMemo(() => {
       skill.name.toLowerCase().includes(lowerQuery) ||
       skill.description.toLowerCase().includes(lowerQuery)
     )
+  })
+
+  // Skills menu ESC close (global listener, works regardless of focus)
+  createEffect(() => {
+    if (!skillsMenuState()) return
+
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault()
+        setSkillsMenuState(null)
+      }
+    }
+
+    window.addEventListener("keydown", handler)
+    onCleanup(() => window.removeEventListener("keydown", handler))
   })
 
   const DS_KEY_PREFIX = "octo:make:design-system:"
@@ -995,11 +1027,12 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 用户点击 [确认开始生成] → 自动发送隐藏指令 */
   function handleConfirmPlan(identifier?: string) {
     const sid = params.id
-    if (!sid) return
+    const modelKey = activeModelKey()
+    if (!sid || !modelKey) return
     if (planButtonDisabled()) return   // 防重复
     setOptimisticConfirmed(true)
     const cmd = identifier ? `[confirm-plan ${identifier}]` : `[confirm-plan]`
-    sendMessage(sid, cmd).catch((err) => {
+    sendMessage(sid, cmd, modelKey).catch((err) => {
       console.error("[MakePage] confirm plan failed", err)
       // 发送失败时回滚乐观锁,允许重试
       setOptimisticConfirmed(false)
@@ -1030,10 +1063,11 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 用户点 [进入] → 发送 [enter-plan],agent 据此输出设计方案 artifact */
   function handleEnterPlan() {
     const sid = params.id
-    if (!sid) return
+    const modelKey = activeModelKey()
+    if (!sid || !modelKey) return
     if (optimisticIntentResolved()) return
     setOptimisticIntentResolved(true)
-    sendMessage(sid, "[enter-plan]").catch((err) => {
+    sendMessage(sid, "[enter-plan]", modelKey).catch((err) => {
       console.error("[MakePage] enter plan failed", err)
       setOptimisticIntentResolved(false)
     })
@@ -1042,10 +1076,11 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 用户点 [直接执行] → 发送 [skip-plan],agent 跳过方案直接生成 HTML */
   function handleSkipPlan() {
     const sid = params.id
-    if (!sid) return
+    const modelKey = activeModelKey()
+    if (!sid || !modelKey) return
     if (optimisticIntentResolved()) return
     setOptimisticIntentResolved(true)
-    sendMessage(sid, "[skip-plan]").catch((err) => {
+    sendMessage(sid, "[skip-plan]", modelKey).catch((err) => {
       console.error("[MakePage] skip plan failed", err)
       setOptimisticIntentResolved(false)
     })
@@ -1132,7 +1167,7 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
-  async function sendMessage(sessionId: string, text: string) {
+  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }) {
     try {
       const done = attachments().filter(a => a.status === "done")
       
@@ -1306,7 +1341,22 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 提交 prompt：自动创建 session → 发送消息 */
   async function handleSubmit() {
     const text = prompt().trim()
-    if (!text || sending() || !activeModelKey()) return
+    if (sending() || !activeModelKey()) return
+    // 在异步操作前捕获 model key，避免后续被其他 effect 修改
+    const capturedModelKey = activeModelKey()
+    if (!capturedModelKey) return
+    
+    // 捕获待发送技能
+    const skill = pendingSkill()
+    setPendingSkill(null)
+    
+    // 构建消息：技能内容 + 用户文本
+    const messageText = skill
+      ? `<skill_content name="${skill.name}">\n${skill.content}\n</skill_content>\n\n${text}`
+      : text
+    
+    if (!messageText.trim()) return
+    
     setSending(true)
     setPrompt("")
     const submitSessionId = params.id
@@ -1326,7 +1376,16 @@ if (dsId) {
         navigate(`/make/${session.id}`)
         sid = session.id
       }
-      await sendMessage(sid, text)
+      await sendMessage(sid, messageText, capturedModelKey)
+      
+      // 发送成功后追踪技能使用
+      if (skill) {
+        tracker.interaction({ 
+          module: "design", 
+          name: "skill-used", 
+          extend: JSON.stringify({ skillName: skill.name }) 
+        })
+      }
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
     } finally {
@@ -1476,7 +1535,7 @@ if (dsId) {
       setSlashState(null)
       setMentionState(null)
 
-      loadSkillsConfig()
+      loadSkillConfig()
       return
     }
 
@@ -1517,7 +1576,7 @@ if (dsId) {
     if (cmd.trigger === "skills") {
       setSkillsMenuState({ query: "", cursor: replaced.length })
       setSkillsMenuIndex(0)
-      loadSkillsConfig()
+      loadSkillConfig()
     }
 
     // Focus textarea and position cursor at end
@@ -1527,42 +1586,47 @@ if (dsId) {
     })
   }
 
-  /** Pick a skill from skills menu and insert into prompt */
+  /** Pick a skill from skills menu and add to pending */
   async function pickSkillFromMenu(skill: { name: string; description: string }) {
     const state = skillsMenuState()
     if (!state) return
 
-    const ta = textareaRef
-
-    setSkillToolCalls(prev => [...prev, {
-      name: "skill",
-      status: "running",
-      input: { name: skill.name }
-    }])
-
-    const api = (window as unknown as { api?: { getSkillContent?: (name: string) => Promise<any> } }).api
-    const result = await api?.getSkillContent?.(skill.name)
-
-    if (!result?.success) {
-      console.error("[MakePage] Failed to load skill:", result?.error)
-      setSkillToolCalls(prev => prev.filter(c => c.input?.name !== skill.name))
-      return
-    }
-
-    setSkillToolCalls(prev => prev.map(c => 
-      c.input?.name === skill.name 
-        ? { ...c, status: "done", output: result.content }
-        : c
-    ))
-
-    const before = prompt()
-    setPrompt(before.replace(/^\/skills(?:\s+[^\s]*)?/, ""))
+    // Clear previous pending skill
+    setPendingSkill(null)
     setSkillsMenuState(null)
 
-    requestAnimationFrame(() => {
-      ta.focus()
-      ta.setSelectionRange(ta.value.length, ta.value.length)
-    })
+    // Clear /skills text from prompt
+    const before = prompt()
+    setPrompt(before.replace(/^\/skills(?:\s+[^\s]*)?/, ""))
+
+    try {
+      // Load skill content
+      const api = (window as unknown as { api?: { getSkillContent?: (name: string) => Promise<any> } }).api
+      const result = await api?.getSkillContent?.(skill.name)
+
+      if (!result?.success) {
+        console.error("[MakePage] Failed to load skill:", result?.error)
+        return
+      }
+
+      // Store pending skill
+      setPendingSkill({
+        name: skill.name,
+        content: result.content
+      })
+
+      // Focus textarea
+      requestAnimationFrame(() => {
+        textareaRef.focus()
+      })
+    } catch (err) {
+      console.error("[MakePage] Failed to load skill:", err)
+    }
+  }
+
+  /** Remove pending skill */
+  function removePendingSkill() {
+    setPendingSkill(null)
   }
 
   /** Pick a Design Files file and add as attachment */
@@ -2145,8 +2209,27 @@ if (dsId) {
                        setPrompt(starter.prompt)
                      }}
                    />
-                  <div
-                    class="rounded-[24px] flex flex-col transition-all duration-300 relative group"
+
+{/* Pending skill tag */}
+                    <Show when={pendingSkill()}>
+                      {(skill) => (
+                        <div class="flex items-center gap-2 px-4 pt-3">
+                          <div class="flex items-center gap-1 px-2 py-1 bg-[#f1f1f1] rounded-full text-xs text-black/60">
+                            <span>{skill().name}</span>
+                            <button
+                              type="button"
+                              onClick={removePendingSkill}
+                              class="hover:text-black/80"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </Show>
+
+                   <div
+                     class="rounded-[24px] flex flex-col transition-all duration-300 relative group"
                     style={{
                       border: "1px solid transparent",
                       background: `
@@ -2375,8 +2458,9 @@ if (dsId) {
              </Show>
            }>
               {/* 消息列表 */}
+              <div class="relative flex-1 min-h-0">
               <ScrollView
-                class="flex-1 min-h-0"
+                class="h-full"
                 style={{ background: "#fff", padding: "0 12px", }}
                 viewportRef={autoScroll.scrollRef}
                 onScroll={autoScroll.handleScroll}
@@ -2410,6 +2494,14 @@ if (dsId) {
                   </For>
                 </div>
               </ScrollView>
+              <div
+                class="absolute bottom-0 left-0 right-0 pointer-events-none z-[1]"
+                style={{
+                  height: "24px",
+                  background: "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%)",
+                }}
+              />
+              </div>
 
               {/* 输入区 */}
               <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
@@ -2456,6 +2548,24 @@ if (dsId) {
                     setPrompt(starter.prompt)
                   }}
                 />
+
+                {/* Pending skill tag */}
+                <Show when={pendingSkill()}>
+                  {(skill) => (
+                    <div class="flex items-center gap-2 px-4 pt-3">
+                      <div class="flex items-center gap-1 px-2 py-1 bg-[#f1f1f1] rounded-full text-xs text-black/60">
+                        <span>{skill().name}</span>
+                        <button
+                          type="button"
+                          onClick={removePendingSkill}
+                          class="hover:text-black/80"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </Show>
 
                 <div
                   class="rounded-[16px] transition-all duration-300 relative group"
