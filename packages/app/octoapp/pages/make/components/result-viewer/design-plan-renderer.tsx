@@ -1,20 +1,23 @@
-import { Markdown } from "@opencode-ai/ui/markdown"
 import { Button } from "@opencode-ai/ui/button"
-import { Show, createEffect, createSignal, on } from "solid-js"
+import { Show, createEffect, createSignal, on, onCleanup } from "solid-js"
 import type { JSX } from "solid-js"
 import { IconCardPlan } from "../../icons"
+import { Markdown } from "@opencode-ai/ui/markdown"
+import Vditor from "vditor"
+import "vditor/dist/index.css"
+import { useTheme } from "@opencode-ai/ui/theme/context"
+
+// Vditor 资源本地化路径
+const VDITOR_LOCAL_CDN = "/vendor/vditor"
 
 /**
  * Renderer for `type="design-plan"` artifacts.
  *
- * Shows the plan as Markdown (no iframe, no syntax highlighting — just
- * readable text). Header buttons:
+ * Shows the plan as Markdown. Header buttons:
  *   preview mode: [编辑] [调整方案] [确认开始生成]
  *   edit mode:    [取消] [保存]
  *
- * 编辑后通过 onContentChange 传回父组件,父组件走 persistTabChanges →
- * snapshotStore + autoSaveArtifact 双层持久化。刷新/切换 session 后,
- * 通过 snapshotStore.restoreLatestByTabId 恢复用户编辑版本。
+ * 编辑使用 Vditor Markdown 编辑器。
  */
 export function DesignPlanRenderer(props: {
   content: string
@@ -24,25 +27,118 @@ export function DesignPlanRenderer(props: {
   onConfirm: () => void
   onAdjust: () => void
   onContentChange?: (content: string) => void
+  onBackToStrategy?: () => void
 }): JSX.Element {
-  const [isEditing, setIsEditing] = createSignal(false)
-  const [draft, setDraft] = createSignal(props.content)
+  const theme = useTheme()
+  const isDark = () => theme.mode() === "dark"
 
-  // 非编辑模式下,content 更新(agent 迭代方案) → 同步 draft
-  // 编辑模式下,保留用户的未保存修改
+  const [isEditing, setIsEditing] = createSignal(false)
+  // 使用 draft 作为显示内容，保存后立即更新 draft
+  const [draft, setDraft] = createSignal(props.content)
+  let editorRef: HTMLDivElement | undefined
+  let vditorInstance: Vditor | undefined
+
+  // content 更新时同步 draft（仅在非编辑模式）
   createEffect(on(() => props.content, (c) => {
     if (!isEditing()) setDraft(c)
   }))
 
+  const initEditor = () => {
+    if (!editorRef) return
+    if (vditorInstance) return
+
+    vditorInstance = new Vditor(editorRef, {
+      mode: "sv",  // 分屏模式：左侧编辑、右侧预览
+      value: draft(),
+      theme: isDark() ? "dark" : "classic",
+      cdn: VDITOR_LOCAL_CDN,
+      cache: { enable: false },
+      toolbar: [
+        "emoji",
+        "headings",
+        "bold",
+        "italic",
+        "strike",
+        "link",
+        "|",
+        "list",
+        "ordered-list",
+        "check",
+        "outdent",
+        "indent",
+        "|",
+        "quote",
+        "line",
+        "code",
+        "inline-code",
+        "insert-before",
+        "insert-after",
+        "|",
+        "table",
+        "|",
+        "undo",
+        "redo",
+        "|",
+        "edit-mode",
+        "code-theme",
+        "content-theme",
+        "outline",
+        "preview",
+        "export",
+      ],
+      toolbarConfig: { pin: true },
+      preview: {
+        theme: { current: isDark() ? "dark" : "light", path: `${VDITOR_LOCAL_CDN}/dist/css/content-theme` },
+        hljs: { style: isDark() ? "native" : "github" },
+      },
+      input: (val) => {
+        setDraft(val)
+      },
+      after: () => {
+        // 编辑器初始化完成
+      },
+    })
+  }
+
+  const destroyEditor = () => {
+    if (vditorInstance) {
+      vditorInstance.destroy()
+      vditorInstance = undefined
+    }
+  }
+
   const handleSave = () => {
-    props.onContentChange?.(draft())
+    const value = vditorInstance?.getValue() ?? draft()
+    // 先更新本地 draft，确保预览立即显示新内容
+    setDraft(value)
+    props.onContentChange?.(value)
     setIsEditing(false)
+    destroyEditor()
   }
 
   const handleCancel = () => {
     setDraft(props.content)
     setIsEditing(false)
+    destroyEditor()
   }
+
+  const handleEdit = () => {
+    setIsEditing(true)
+    requestAnimationFrame(() => {
+      initEditor()
+    })
+  }
+
+  // 主题切换
+  createEffect(() => {
+    const dark = isDark()
+    if (!isEditing() || !vditorInstance) return
+    vditorInstance.setTheme(dark ? "dark" : "classic", dark ? "dark" : "light", dark ? "native" : "github")
+  })
+
+  onCleanup(() => {
+    destroyEditor()
+  })
 
   return (
     <div class="flex flex-col h-full overflow-hidden" style={{ background: "var(--octo-surface-page)" }}>
@@ -81,8 +177,16 @@ export function DesignPlanRenderer(props: {
               </>
             }
           >
-            <Button variant="ghost" size="small" onClick={() => setIsEditing(true)}>
+            <Button variant="ghost" size="small" onClick={handleEdit} disabled={props.confirmed}>
               编辑
+            </Button>
+            <Button
+              variant="ghost"
+              size="small"
+              onClick={props.onBackToStrategy}
+              disabled={props.confirmed}
+            >
+              上一步
             </Button>
             <Button
               variant="ghost"
@@ -103,29 +207,27 @@ export function DesignPlanRenderer(props: {
           </Show>
         </div>
       </div>
-      <div class="flex-1 overflow-y-auto" style={{ padding: "24px" }}>
+      <div class="flex-1 overflow-hidden" style={{ padding: isEditing() ? "0" : "24px" }}>
         <Show
           when={!isEditing()}
           fallback={
-            <textarea
-              value={draft()}
-              onInput={(e) => setDraft(e.currentTarget.value)}
-              class="w-full h-full resize-none outline-none p-3 rounded-[8px] text-[14px]"
+            <div
+              ref={editorRef}
+              class="w-full h-full"
               style={{
-                "font-family": "var(--octo-font)",
-                background: "rgba(0,0,0,0.02)",
-                border: "1px solid rgba(0,0,0,0.08)",
-                color: "var(--octo-text-primary)",
-                "min-height": "400px",
+                "border-radius": "8px",
+                overflow: "hidden",
               }}
             />
           }
         >
-          <div
-            class="prose prose-sm max-w-none"
-            style={{ color: "var(--octo-text-primary)" }}
-          >
-            <Markdown text={props.content || "_方案生成中…_"} />
+          <div class="overflow-y-auto h-full">
+            <div
+              class="prose prose-sm max-w-none"
+              style={{ color: "var(--octo-text-primary)" }}
+            >
+              <Markdown text={draft() || "_方案生成中…_"} />
+            </div>
           </div>
         </Show>
       </div>

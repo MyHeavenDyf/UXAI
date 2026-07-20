@@ -507,23 +507,38 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 两步走工作流：当前阶段 */
   const [planPhase, setPlanPhase] = createSignal<"strategy" | "generate">("strategy")
 
+  // 用于跟踪用户是否手动切换了 phase，防止 effect 自动切回
+  const [userChangedPhase, setUserChangedPhase] = createSignal(false)
+
   /** 策略表单数据（从子 agent artifact 中扫描 + 用户手动编辑） */
   const [manualStrategyFormData, setManualStrategyFormData] = createSignal<Partial<StrategyFormData>>({})
 
   const strategyFormData = createMemo(() => {
-    const planSid = activePlanSessionId()
-    if (!planSid) {
-      return { ...EMPTY_STRATEGY_FORM }
+    // 优先从活跃的子 session 获取
+    const activePlanSid = activePlanSessionId()
+    if (activePlanSid) {
+      const messages = sync.data.message?.[activePlanSid]
+      const parts = sync.data.part
+      const scanned = scanStrategyFields(messages, parts)
+      const manual = manualStrategyFormData()
+      return { ...EMPTY_STRATEGY_FORM, ...scanned, ...manual }
     }
-
-    const messages = sync.data.message?.[planSid]
-    const parts = sync.data.part
-
-    const scanned = scanStrategyFields(messages, parts)
-
-    const manual = manualStrategyFormData()
-    const result = { ...EMPTY_STRATEGY_FORM, ...scanned, ...manual }
-    return result
+    // 对于已确认的 session，从 childSessionIDs 中找第一个有数据的
+    const childIds = childSessionIDs()
+    if (childIds.size > 0) {
+      for (const childId of childIds) {
+        const messages = sync.data.message?.[childId]
+        const parts = sync.data.part
+        const scanned = scanStrategyFields(messages, parts)
+        const manual = manualStrategyFormData()
+        const result = { ...EMPTY_STRATEGY_FORM, ...scanned, ...manual }
+        // 如果有实际数据，返回
+        if (Object.values(result).some(v => v)) {
+          return result
+        }
+      }
+    }
+    return { ...EMPTY_STRATEGY_FORM }
   })
 
   /**
@@ -574,11 +589,15 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!sid) return []
     // 始终包含主 session 的消息
     const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter((m) => m.role === "user")
-    // plan 模式时额外追加子 session 的用户消息
-    const planSid = activePlanSessionId()
-    if (resultViewMode() === "plan" && planSid) {
-      const childMsgs = ((sync.data.message?.[planSid] ?? []) as Message[]).filter((m) => m.role === "user")
-      return [...mainMsgs, ...childMsgs]
+    // 追加所有子 session 的用户消息（不受 resultViewMode 影响）
+    const childIds = childSessionIDs()
+    if (childIds.size > 0) {
+      const allChildMsgs: Message[] = []
+      for (const childId of childIds) {
+        const childMsgs = ((sync.data.message?.[childId] ?? []) as Message[]).filter((m) => m.role === "user")
+        allChildMsgs.push(...childMsgs)
+      }
+      return [...mainMsgs, ...allChildMsgs]
     }
     return mainMsgs
   })
@@ -975,16 +994,32 @@ const sessionMessagesLoaded = createMemo(() => {
   // 方案 artifact 从子 session 的消息流中提取（如果存在子 session），
   // 否则回退到主 session（兼容旧流程）。
   const planCard = createMemo(() => {
-    const planSid = activePlanSessionId() || params.id
-    if (!planSid) return null
-    return scanDesignPlanFromMessages(sync.data.message?.[planSid], sync.data.part, planSid)
+    // 优先从活跃的子 session 扫描，否则从 childSessionIDs 中找第一个有 design-plan 的
+    const activePlanSid = activePlanSessionId()
+    if (activePlanSid) {
+      const card = scanDesignPlanFromMessages(sync.data.message?.[activePlanSid], sync.data.part, activePlanSid)
+      if (card) return card
+    }
+    // 对于已确认的 session，activePlanSessionId 为 null，需要从 childSessionIDs 中找
+    const childIds = childSessionIDs()
+    if (childIds.size > 0) {
+      for (const childId of childIds) {
+        const card = scanDesignPlanFromMessages(sync.data.message?.[childId], sync.data.part, childId)
+        if (card) return card
+      }
+    }
+    // 回退到主 session（兼容旧流程）
+    const mainSid = params.id
+    if (!mainSid) return null
+    return scanDesignPlanFromMessages(sync.data.message?.[mainSid], sync.data.part, mainSid)
   })
 
   const planConfirmed = createMemo(() => {
-    const planSid = activePlanSessionId() || params.id
-    if (!planSid) return false
     const ident = planCard()?.artifactIdentifier
     if (!ident) return false
+    // 从 planCard 对应的 session 检测确认状态
+    const planSid = planCard()?.id?.split(":")[1] || activePlanSessionId() || params.id
+    if (!planSid) return false
     return isPlanConfirmed(sync.data.message?.[planSid], sync.data.part, ident)
   })
 
@@ -1005,6 +1040,35 @@ const sessionMessagesLoaded = createMemo(() => {
     }
   }, { defer: true }))
 
+  // 当子 session 消息流中出现 design-plan artifact 或 strategy-complete 标记时，
+  // 自动将 planPhase 切换到 generate 阶段（用于跨重启恢复后 sync.data 异步加载完成的场景）
+  // 注意：只在用户没有手动切换 phase 时才自动切换
+  createEffect(on(
+    () => {
+      const planSid = activePlanSessionId()
+      if (!planSid) return null
+      // 如果用户手动切换了 phase，不自动切换
+      if (userChangedPhase()) return null
+      const currentPhase = planPhase()
+      // 如果已经是 generate 阶段，不需要再检测
+      if (currentPhase === "generate") return null
+      const msgs = sync.data.message?.[planSid]
+      if (!msgs) return null
+      for (const m of msgs) {
+        if (m.role !== "assistant") continue
+        const text = (sync.data.part?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
+        if (text?.includes('type="text/design-plan"') || text?.includes("[strategy-complete]")) {
+          return "generate"
+        }
+      }
+      return null
+    },
+    (phase) => {
+      if (phase === "generate") setPlanPhase("generate")
+    },
+    { defer: true }
+  ))
+
   /** 用户点击 [策略生成] → 把表单数据发给子 agent，切换到第二阶段 */
   function handleGenerateStrategy() {
     const planSid = activePlanSessionId()
@@ -1014,10 +1078,17 @@ const sessionMessagesLoaded = createMemo(() => {
     sendMessage(planSid, prompt).catch((err) => {
       console.error("[MakePage] generate strategy failed", err)
     })
+    setUserChangedPhase(false)  // 重置手动切换标记
     setPlanPhase("generate")
   }
 
-  /** 用户点击 [确认开始生成] → 向子 session 发送确认指令，然后结束子 agent 回到主 agent */
+  /** 用户点击 [上一步] → 返回策略准备阶段 */
+  function handleBackToStrategy() {
+    setUserChangedPhase(true)  // 标记用户手动切换
+    setPlanPhase("strategy")
+  }
+
+  /** 用户点击 [确认开始生成] → 向子 session 发送确认指令，结束子 agent 回到主会话 */
   function handleConfirmPlan(identifier?: string) {
     const planSid = activePlanSessionId()
     if (!planSid) return
@@ -1029,22 +1100,19 @@ const sessionMessagesLoaded = createMemo(() => {
       // 发送失败时回滚乐观锁,允许重试
       setOptimisticConfirmed(false)
     })
-    // 确认后结束子 agent 状态，清理缓存，切回 tabs 模式
+    // 确认后标记子 session 已结束，回到主会话
+    // 保留子 session 的记录（不清理 childSessionIDs），确保对话栏中的历史消息持续显示
     const endedSid = params.id
     if (endedSid) {
       localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + endedSid)
       delete _planChildSessionCache[endedSid]
-    }
-    if (planSid) {
-      loadedChildSessions.delete(planSid)
-      setChildSessionIDs((prev) => { const next = new Set(prev); next.delete(planSid); return next })
     }
     setPlanEndedForSession(params.id ?? null)
     setActivePlanSessionId(null)
     setPlanParentSessionId(null)
     setHasChildPlanSession(false)
     setManualStrategyFormData({})
-    setResultViewMode("tabs")
+    setResultViewMode("files")
     setPlanPhase("strategy")
   }
 
@@ -1054,7 +1122,7 @@ const sessionMessagesLoaded = createMemo(() => {
     requestAnimationFrame(() => textareaRef?.focus())
   }
 
-  /** 用户点击 [结束子agent] → 归档子 session + 中止运行 + 清理状态,切回 tabs 模式 */
+  /** 用户点击 [结束子agent] → 归档子 session + 中止运行 + 清理状态 */
   function handleEndPlan() {
     const currentChildId = activePlanSessionId()
     if (currentChildId) {
@@ -1062,15 +1130,14 @@ const sessionMessagesLoaded = createMemo(() => {
       sdk.client.session.abort({ sessionID: currentChildId }).catch(() => {})
       // 归档子 session,使其不被 session.list() 检测到,跨重启不再进入 plan 模式
       sdk.client.session.update({ sessionID: currentChildId, time: { archived: Date.now() } }).catch(() => {})
-      loadedChildSessions.delete(currentChildId)
-      setChildSessionIDs((prev) => { const next = new Set(prev); next.delete(currentChildId); return next })
+      // 注意：不清理 childSessionIDs，保留子 session 的历史消息显示
     }
     const endedSid = params.id
     setActivePlanSessionId(null)
     setPlanParentSessionId(null)
     setHasChildPlanSession(false)
     setManualStrategyFormData({})
-    setResultViewMode("tabs")
+    setResultViewMode("files")
     setPlanPhase("strategy")
     setSending(false)
     // 清除缓存，防止下次进入时误恢复
@@ -1166,6 +1233,7 @@ const sessionMessagesLoaded = createMemo(() => {
       // 4. 切换到 plan 模式（此时子 session 还没有消息，但 UI 已就绪）
       setResultViewMode("plan")
       setPlanPhase("strategy")
+      setUserChangedPhase(false)  // 重置手动切换标记
       setManualStrategyFormData({})
 
       // 5. 同步子 session 数据并发送 prompt（async，不阻塞 UI）
@@ -1233,10 +1301,14 @@ const sessionMessagesLoaded = createMemo(() => {
           _planChildSessionCache[prevSid] = activePlanSessionId()!
           localStorage.setItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + prevSid, activePlanSessionId()!)
         }
+        // 清理前一个 session 的子 session 记录
+        setChildSessionIDs(new Set<string>())
+        loadedChildSessions.clear()
         setActivePlanSessionId(null)
         setHasChildPlanSession(false)
         setResultViewMode("files")
         setPlanPhase("strategy")
+        setUserChangedPhase(false)  // 重置手动切换标记
         setManualStrategyFormData({})
         setPhase2Pending(false)
       }
@@ -1265,10 +1337,38 @@ const sessionMessagesLoaded = createMemo(() => {
           setChildSessionIDs((prev) => { const next = new Set(prev); next.add(restoredPlanSid); return next })
           sync.session.sync(restoredPlanSid).catch(() => {})
         }
-        setActivePlanSessionId(restoredPlanSid)
-        setHasChildPlanSession(true)
-        // 有子 session 就直接进入 plan 模式,无论 planCard 是否存在
-        setResultViewMode("plan")
+        // 检测子 session 是否已被确认
+        // 已确认的子 session 只保留历史记录，不恢复为活跃状态
+        const childMessages = sync.data.message?.[restoredPlanSid]
+        const childParts = sync.data.part
+
+        // 扫描 design-plan artifact
+        const planArtifact = scanDesignPlanFromMessages(childMessages, childParts, restoredPlanSid)
+        const planIdent = planArtifact?.artifactIdentifier
+
+        // 使用 isPlanConfirmed 检测确认状态（包括 [confirm-plan] 和 text/html artifact）
+        const isConfirmed = planIdent ? isPlanConfirmed(childMessages, childParts, planIdent) : false
+
+        // 检测子 session 消息流中是否已有 design-plan artifact 或 strategy-complete 标记
+        const hasDesignPlan = childMessages?.some((m: any) => {
+          if (m.role !== "assistant") return false
+          const text = (childParts?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
+          return text?.includes('type="text/design-plan"') || text?.includes("[strategy-complete]")
+        })
+
+        if (isConfirmed) {
+          // 已确认：只保留历史记录，不设为活跃
+          setHasChildPlanSession(false)
+          setPlanEndedForSession(newSid)
+          // 设置 planPhase 为 generate，以便用户点击 tab 时正确显示第二阶段内容
+          setPlanPhase(hasDesignPlan ? "generate" : "strategy")
+        } else {
+          // 未确认：恢复为活跃状态
+          setActivePlanSessionId(restoredPlanSid)
+          setHasChildPlanSession(true)
+          setResultViewMode("plan")
+          setPlanPhase(hasDesignPlan ? "generate" : "strategy")
+        }
       }
       setMentionState(null)
       setSlashState(null)
@@ -1284,13 +1384,46 @@ const sessionMessagesLoaded = createMemo(() => {
           loadedChildSessions.add(childId)
           setChildSessionIDs((prev) => { const next = new Set(prev); next.add(childId); return next })
           sync.session.sync(childId).catch(() => {})
-          setActivePlanSessionId(childId)
+          // 检测子 session 是否已被确认（需要等 sync 完成后检测消息流）
+          // 先设为 hasChildPlanSession，让后续 effect 检测确认状态
           setHasChildPlanSession(true)
-          // 有子 session 就直接进入 plan 模式,不需要等 sync 完成再判断
+          setActivePlanSessionId(childId)
           setResultViewMode("plan")
+          setPlanPhase("strategy")
         })
       }
     },
+  ))
+
+  // 当子 session 消息流更新时检测确认状态（异步恢复后的延迟检测）
+  createEffect(on(
+    () => {
+      const planSid = activePlanSessionId()
+      if (!planSid) return null
+      // 依赖子 session 的消息流
+      return sync.data.message?.[planSid]
+    },
+    (messages) => {
+      if (!messages) return
+      const planSid = activePlanSessionId()
+      if (!planSid) return
+      const mainSid = params.id
+      if (!mainSid) return
+
+      // 使用 isPlanConfirmed 检测是否已确认（包括 [confirm-plan] 标记和 text/html artifact）
+      const ident = planCard()?.artifactIdentifier
+      const isConfirmed = isPlanConfirmed(messages, sync.data.part, ident)
+
+      if (isConfirmed) {
+        // 已确认：清理活跃状态，保留历史记录
+        setHasChildPlanSession(false)
+        setPlanEndedForSession(mainSid)
+        setActivePlanSessionId(null)
+        setResultViewMode("files")
+        // 注意：不重置 planPhase，保留为 "generate" 以便用户查看时能正确显示第二阶段
+        // setPlanPhase("strategy")
+      }
+    }
   ))
 
     // 设计方案(design-plan)显示策略:plan 不再自动占用右侧 ResultViewer。
@@ -1304,9 +1437,10 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 处理 ResultViewer 内容编辑保存 */
   async function handleContentChange(tabId: string, content: string) {
+    // 先更新 tabStore
     tabStore.updateTabContent(tabId, content)
     const tab = tabStore.tabs().find((t) => t.id === tabId)
-    
+
     if (tab) {
       await persistTabChanges(tab, {
         sessionId: params.id!,
@@ -1316,6 +1450,18 @@ const sessionMessagesLoaded = createMemo(() => {
         snapshotStore: snapshotStore,
         refreshSnapshots: refreshSnapshots,
       })
+    }
+
+    // 如果是 design-plan 类型，还需要发送消息给子 agent 更新内容
+    if (tab?.type === "design-plan" && tab.artifactIdentifier) {
+      const planSid = activePlanSessionId()
+      if (planSid) {
+        // 发送更新指令让子 agent 重新输出更新后的 plan
+        const updatePrompt = `[update-plan ${tab.artifactIdentifier}]\n\n${content}`
+        sendMessage(planSid, updatePrompt).catch((err) => {
+          console.error("[MakePage] update plan failed", err)
+        })
+      }
     }
   }
 
@@ -2502,7 +2648,7 @@ if (dsId) {
                 onMouseUp={autoScroll.handleInteraction}
               >
                 <div ref={autoScroll.contentRef} class="py-3 flex flex-col gap-0">
-                    {/* 进入设计规划子 agent 的提示卡片 */}
+                    {/* 进入设计规划子 agent 的提示卡片 - 只在 plan 模式下显示 */}
                     <Show when={resultViewMode() === "plan" && activePlanSessionId()}>
                       <div
                         class="flex items-center justify-between gap-2 px-4 py-2 mx-3 rounded-lg mb-2"
@@ -2570,15 +2716,6 @@ if (dsId) {
                   <PlanEntryBanner
                     onEnter={handleEnterPlan}
                     onSkip={handleSkipPlan}
-                  />
-                </Show>
-
-                {/* Plan banner - 设计方案已确认横条。只在确认后才显示 */}
-                <Show when={planCard() && planConfirmed()}>
-                  <PlanBanner
-                    plan={planCard()}
-                    confirmed={true}
-                    onView={handleViewPlan}
                   />
                 </Show>
 
@@ -2924,6 +3061,7 @@ if (dsId) {
                   setManualStrategyFormData((prev) => ({ ...prev, [field]: value }))
                 }}
                 onGenerateStrategy={handleGenerateStrategy}
+                onBackToStrategy={handleBackToStrategy}
                 isGenerating={false}
               />
             </div>

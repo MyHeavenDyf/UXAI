@@ -95,6 +95,8 @@ export function ResultViewer(props: {
   onStrategyFieldChange?: (field: keyof StrategyFormData, value: string) => void
   /** 策略生成按钮回调 */
   onGenerateStrategy?: () => void
+  /** 返回策略准备阶段回调 */
+  onBackToStrategy?: () => void
   /** 策略是否正在生成中 */
   isGenerating?: boolean
 }): JSX.Element {
@@ -267,6 +269,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                     props.onContentChange(plan().id, content)
                   }
                 }}
+                onBackToStrategy={() => props.onBackToStrategy?.()}
               />
             </div>
           )}
