@@ -1,20 +1,22 @@
 import type { AssistantMessage, Message } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
-import { useData } from "@opencode-ai/ui/context"
-import { createMemo, For, Show } from "solid-js"
+import { useData, useI18n, I18nProvider, type UiI18n } from "@opencode-ai/ui/context"
+import { createEffect, createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
+import { useProjectDir } from "@/hooks/use-project-dir"
+import { materializeUriCardToOutputs } from "../utils/local-resource"
 import { OutputEntryCard } from "./output-entry-card"
 import { scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
 import { isMindmapJSON } from "../utils/mindmap-adapter"
 import { findResourceLinks, linkToOutputType, type ResourceLink } from "../utils/resource-link"
-import { findWriteCards, basename } from "../utils/write-output"
-import { readTaskInfo, type TaskCardEntry } from "../utils/task-detect"
+import { findWriteCards } from "../utils/write-output"
+import { readTaskInfo, type TaskCardEntry, type TaskInfo } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
 import { parseUploadedFiles } from "../lib/upload"
 import { fileTypeIconUrl } from "../icons/illustrations"
 
-export type OutputCardType = "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "code"
+export type OutputCardType = "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "code" | "image"
 
 export type OutputCard = {
   id: string
@@ -30,10 +32,42 @@ export type OutputCard = {
   createdAt: Date
 }
 
+// eager 落地去重(SPEC-INS-014 v4):记已触发落盘的 uri 卡 id,避免同一卡在 memo 反复重算 / 多 turn 实例
+// 重挂时重复发 IPC(主进程本身按 card.id 幂等,这层只是省无谓 IPC)。card.id 全局唯一(含 messageID)。
+const eagerMaterializedCardIds = new Set<string>()
+
+// write 工具产物不再出卡(路径 C 退役,见 output-renderers.md §2.6):文件已在磁盘,由独立扫盘的
+// 文件管理面板呈现/预览。此 set 只用于「write 完成 → 通知文件管理刷新」的去重(按 messageID:filePath),
+// 避免 memo 重算 / 多 turn 实例重挂时重复发刷新。
+const refreshedWritePaths = new Set<string>()
+
 // 路径 B 嗅探规则:table / mindmap / json / html 互相独立,允许同时命中
 // (典型:内网 mindmap MCP 返回的 JSON 既符合 plainJSON 又符合 mindmap shape → 出双卡)
 // 详见 docs/specs/ui/output-renderers.md §2。直接在 outputCards memo 内顺序判断,
 // 不再走"按优先级取一个"的旧路径。
+
+// 工具调用过程的显示名映射(SPEC-INS-021 §4):上游 SessionTurn 用 i18n 键取工具标题
+// (message-part.tsx getToolInfo),这里给面向研究员的人话覆盖,不动上游实现——只在本组件
+// 子树内生效,其余键透传外层 i18n。extract_document 是自研工具,title 已在工具侧直接中文化。
+const TOOL_TITLE_OVERRIDES: Record<string, string> = {
+  "ui.tool.read": "读取文件",
+  "ui.tool.grep": "检索内容",
+  "ui.tool.glob": "查找文件",
+  "ui.messagePart.title.write": "写入产物",
+  "ui.tool.agent": "子任务分析",
+  "ui.tool.agent.default": "子任务分析",
+}
+
+function withInsightToolTitles(outer: UiI18n): UiI18n {
+  return {
+    locale: outer.locale,
+    t: (key, params) => {
+      // extract_document 无专属渲染器,走 GenericTool 的「调用了 `<tool>`」模板;此处按参数特例
+      if (key === "ui.basicTool.called" && params?.tool === "extract_document") return "提取文档正文"
+      return TOOL_TITLE_OVERRIDES[key] ?? outer.t(key, params)
+    },
+  }
+}
 
 
 export function InsightTurn(props: {
@@ -54,8 +88,11 @@ export function InsightTurn(props: {
    * 这里据 task_id 换回最初那批文件,保证每次查询回答下方挂的都是同一批产物(spec: task-card.md 重复查询不重生成)。
    */
   resolveTaskLinks?: (taskId: string) => ResourceLink[] | undefined
+  /** 生成文件落盘后通知刷新文件管理表格 */
+  onFilesRefresh?: () => void
 }): JSX.Element {
   const data = useData()
+  const i18n = useI18n()
 
   // 取该用户消息之后的第一条 assistant 消息
   const assistantMsg = createMemo((): AssistantMessage | undefined => {
@@ -108,10 +145,19 @@ export function InsightTurn(props: {
   })
 
   // 图片附件(③):从本 turn 的图片 FilePart(type=file + mime=image/*) 取 url 渲染缩略图。
+  // 按 url 去重:同一张图的 optimistic FilePart(本地 part id)与 server 回传 FilePart(server part id)
+  // 因 id 不同无法在 sync 层互相替换,会并存于同一 messageID 的 part 数组;两者 url 相同(同一 S3 对象),
+  // 按 url 去重即只显示一张(用户真的粘两张不同图时 url 不同,不会被误合并)。
   const inputImages = createMemo((): Array<{ filename: string; url: string }> => {
-    return turnParts()
-      .filter((p) => p.type === "file" && typeof p.mime === "string" && p.mime.startsWith("image/") && typeof p.url === "string")
-      .map((p) => ({ filename: p.filename ?? "image", url: p.url! }))
+    const seen = new Set<string>()
+    const out: Array<{ filename: string; url: string }> = []
+    for (const p of turnParts()) {
+      if (p.type !== "file" || typeof p.mime !== "string" || !p.mime.startsWith("image/") || typeof p.url !== "string") continue
+      if (seen.has(p.url)) continue
+      seen.add(p.url)
+      out.push({ filename: p.filename ?? "image", url: p.url })
+    }
+    return out
   })
 
   // 本轮是否是最新的（最后一条）用户消息 —— 仅对最新轮次显示生成中占位
@@ -148,23 +194,28 @@ export function InsightTurn(props: {
     //   - 其他(key_findings / search_reports / run_*_analysis 等)→ 按 mimeType 路由
     // 详见 output-renderers.md §1 视图切换 / §2.5.2 + mcp-contract.md §business_type
     //
-    // get_task_result 重复查询 turn 优先换回该任务「首次确定的产物链接」:
-    // 用户每次「查询任务 X 进度」都会重调 get_task_result,server 可能每次返回一批新 URI(i,j…);
-    // 若直接用本 turn 原始 links,会让最新查询回答下方挂出"又重新生成"的新文件。改为按 task_id
-    // 取最初那批(x,y),保证每次查询回答下方挂的都是同一批原始产物。非任务结果(无 task_id)走原 links。
-    const taskId = parts.reduce<string | undefined>((acc, part) => acc ?? readTaskInfo(part)?.taskId, undefined)
-    const canonical = taskId ? props.resolveTaskLinks?.(taskId) : undefined
+    // get_task_result 重复查询:优先换回该任务「首次确定的产物链接」——用户每次「查询任务 X 进度」
+    // 都会重调 get_task_result,server 可能每次返回一批新 URI;按 task_id 取最初那批,保证每次查询
+    // 回答下方挂的都是同一批原始产物,而非"又重新生成"的新文件。
+    //
+    // ⚠️ 只在本 turn 真正观测到该任务 completed 时才回填(问题2修复):readTaskInfo 对「处理中」的
+    // get_task_result 也会返回 taskId,若不 gate,最终产物卡会被回填到每一次「处理中」查询回答下方
+    // (跨 turn 聚合的 resolveTaskLinks 一旦任务完成就恒返回那批产物)。gate 在 completed 上 →
+    // 产物卡只出现在真正查到结果的那一次 turn。非任务结果(无 completed task)走本 turn 原始 links。
+    const completedTask = parts.reduce<TaskInfo | undefined>((acc, part) => {
+      if (acc) return acc
+      const info = readTaskInfo(part)
+      return info?.status === "completed" ? info : undefined
+    }, undefined)
+    const canonical = completedTask ? props.resolveTaskLinks?.(completedTask.taskId) : undefined
     const links = canonical && canonical.length > 0 ? canonical : findResourceLinks(parts)
-    // ── 路径 C:write 工具产物(强契约,零嗅探,见 output-renderers.md §2.6)──
-    // 与路径 A 并列追加(来源不重叠:A 来自 MCP resource_link,C 来自本地 write tool part)。
-    // 内容在本地磁盘,出卡阶段只带 filePath,点开时由 PathTabBody 走 SDK file.read 读盘。
-    const writes = findWriteCards(parts)
-    if (links.length > 0 || writes.length > 0) {
-      console.log("[octo:card] resource_links + writes (no task)", {
+    // 路径 C(write 工具产物出卡)已退役:write 产物都在本地磁盘,由独立扫盘的「文件管理」面板
+    // 呈现与预览,无需在对话流再塞一张冗余卡;脚本执行产生的真交付物(docx/xlsx 等)同样去文件管理里找。
+    // 「write 完成 → 文件管理刷新」由下方独立 effect 处理(与出卡解耦)。详见 output-renderers.md §2.6。
+    if (links.length > 0) {
+      console.log("[octo:card] resource_links (no task)", {
         linkCount: links.length,
-        writeCount: writes.length,
         links: links.map((l) => ({ mime: l.mimeType, name: l.name, uri: l.uri, business_type: l.business_type })),
-        writes: writes.map((w) => ({ filePath: w.filePath, type: w.type })),
         msgID: props.messageID,
       })
       const linkCards: OutputCard[] = links.map((link, idx) => ({
@@ -178,19 +229,7 @@ export function InsightTurn(props: {
         description: link.description,
         createdAt: msgDate,
       }))
-      const writeCards: OutputCard[] = writes.map((w, idx) => {
-        const name = basename(w.filePath)
-        return {
-          id: `card-${props.messageID}-write-${idx}`,
-          title: name,
-          type: w.type,
-          source: "path" as const,
-          filePath: w.filePath,
-          fileName: name,   // 供入口卡图标按扩展名命中 + 下载默认文件名
-          createdAt: msgDate,
-        }
-      })
-      return [...linkCards, ...writeCards]
+      return linkCards
     }
 
     // ── 路径 B:自由文本嗅探(规则收紧版,spec §2.1)──
@@ -277,6 +316,39 @@ export function InsightTurn(props: {
   // 业界对照:Claude.ai Artifacts / ChatGPT Canvas / Cursor 均保留对话原貌,不抹掉。
   // 历史 ADR-010 路线 A(CSS suppress)已作废,详见 docs/specs/ui/output-renderers.md §0。
 
+  // eager 落地(SPEC-INS-014 v4):本 turn 路径 A 的 MCP `uri` 产物卡「出卡即落」进 outputs,不等点开;
+  // path 源(write 工具产物)已在磁盘,只需通知文件管理表格刷新即可拉到(对齐 make 的 autoSaveArtifact)。
+  // (任务产物走 index.tsx 的 taskCards effect;此处覆盖非任务的直接 resource_link。)inline 卡不落
+  // (对话附加预览,前端不搬运)。dedup 跨 turn 实例共享,card.id 全局唯一(含 messageID)。
+  const eagerProjectDir = useProjectDir()
+  createEffect(() => {
+    const dir = eagerProjectDir()
+    for (const card of outputCards()) {
+      if (eagerMaterializedCardIds.has(card.id)) continue
+      // 路径 C 退役后 outputCards 不再有 path 源卡;这里只落地路径 A 的 uri 产物(inline 卡不落)。
+      if (card.source !== "uri" || !card.uri) continue
+      if (!dir || !props.sessionID) continue
+      eagerMaterializedCardIds.add(card.id)
+      void materializeUriCardToOutputs(card, dir, props.sessionID).then(() => props.onFilesRefresh?.())
+    }
+  })
+
+  // write 工具产物不出卡(路径 C 退役),但仍需在写入完成后通知文件管理刷新——否则新文件要用户
+  // 手点刷新才出现。findWriteCards 复用作「本 turn 有哪些 write 产物」的探针,按 messageID:filePath
+  // 去重只发一次。turnAssistantParts 先读以稳定 SolidJS 依赖追踪;生成中不扫,turn 落定后再刷。
+  createEffect(() => {
+    const parts = turnAssistantParts()
+    if (showGenerating()) return
+    let fresh = false
+    for (const w of findWriteCards(parts)) {
+      const key = `${props.messageID}:${w.filePath}`
+      if (refreshedWritePaths.has(key)) continue
+      refreshedWritePaths.add(key)
+      fresh = true
+    }
+    if (fresh) props.onFilesRefresh?.()
+  })
+
   return (
     <div class="flex flex-col mb-4">
       {/* 用户附件(贴合用户气泡上方,右对齐)——非图片走文件卡片,图片走缩略图,替代在气泡里暴露裸路径/URL */}
@@ -303,13 +375,16 @@ export function InsightTurn(props: {
         </div>
       </Show>
 
-      <SessionTurn
-        sessionID={props.sessionID}
-        messageID={props.messageID}
-        status={props.status}
-        active={props.active || (props.status.type === "retry" && isLatestTurn())}
-        classes={{ root: "px-3" }}
-      />
+      {/* I18nProvider 薄包一层:仅覆盖工具标题键(TOOL_TITLE_OVERRIDES),把过程展示换成人话 */}
+      <I18nProvider value={withInsightToolTitles(i18n)}>
+        <SessionTurn
+          sessionID={props.sessionID}
+          messageID={props.messageID}
+          status={props.status}
+          active={props.active || (props.status.type === "retry" && isLatestTurn())}
+          classes={{ root: "px-3" }}
+        />
+      </I18nProvider>
 
       <Show when={showGenerating()}>
         <div

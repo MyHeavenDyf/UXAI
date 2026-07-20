@@ -76,11 +76,6 @@ export function ChartInput(props: ChartInputProps): JSX.Element {
       />
       <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
         <div class="flex items-center gap-1 min-w-0">
-          <DesignSystemPicker
-            selected={props.selectedDesignSystem}
-            onSelect={props.onSelectDesignSystem}
-            disabled={props.designSystemLocked}
-          />
           <input
             ref={fileInputRef}
             type="file"
@@ -98,6 +93,11 @@ export function ChartInput(props: ChartInputProps): JSX.Element {
           >
             <Icon name="plus" class="size-5" />
           </button>
+          <DesignSystemPicker
+            selected={props.selectedDesignSystem}
+            onSelect={props.onSelectDesignSystem}
+            disabled={props.designSystemLocked}
+          />
           <ModelSelectorPopover
             model={props.model}
             triggerAs="button"

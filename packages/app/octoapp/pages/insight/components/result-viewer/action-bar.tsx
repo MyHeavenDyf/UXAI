@@ -6,7 +6,7 @@ import { isToggleType } from "./tab-store"
 import { IconActionCopy, IconActionDownload, IconActionOpen, IconActionFolder } from "../../icons"
 import { parseMarkdownTable, tableToCSV, extractTableMarkdown } from "../../utils/markdown-table"
 import { stripCodeFence } from "../../utils/detect"
-import { isMindmapJSON } from "../../utils/mindmap-adapter"
+import { isMindmapJSON, uxrJsonToOctoWhiteboard } from "../../utils/mindmap-adapter"
 import { getDesktopApi } from "../../lib/electron-api"
 import { ensureLocalMarkdownFile } from "../../utils/local-resource"
 import { openFileLocally, revealFileInFolder } from "../../utils/local-file-ops"
@@ -43,19 +43,17 @@ function sanitizeFilename(name: string): string {
 // uri md 卡「文件夹」:SPEC-INS-014 v2 后 uri md 产物落在可见的 insight/<sessionId>/outputs,
 // 先命中/落地本地工作副本(与预览、编辑同一份),再在文件管理器定位。
 async function revealUriLocal(tab: ResultTab, dir: string, sessionId: string) {
-  const api = getDesktopApi()
-  if (typeof api?.showItemInFolder !== "function") {
-    showToast({ title: "桌面端能力缺失", description: "缺少 window.api.showItemInFolder", variant: "error" })
-    return
-  }
+  let path: string
   try {
-    const { path } = await ensureLocalMarkdownFile(tab, dir, sessionId)
-    console.log("[octo:office] reveal-show", { localPath: path })
-    api.showItemInFolder(path)
+    path = (await ensureLocalMarkdownFile(tab, dir, sessionId)).path
   } catch (err) {
     console.error("[octo:office] reveal-failed", { uri: tab.uri, err })
     showToast({ title: "无法定位文件", description: err instanceof Error ? err.message : String(err), variant: "error" })
+    return
   }
+  console.log("[octo:office] reveal-show", { localPath: path })
+  // 落地成功不代表还在:本地工作副本也可能被用户从磁盘移走,故定位仍走带存在性校验的共享实现。
+  await revealFileInFolder(path)
 }
 
 // uri 源「另存为」:始终从 url 重新拉 MCP 原始版本(不取本地工作副本/编辑后内容),
@@ -91,6 +89,26 @@ async function tableToXlsx(md: string, filename: string) {
 
 type DownloadOption = { label: string; format: string; onClick: () => void }
 
+// 思维导图 → Octo 内网白板导入 JSON:转换后另存为 <base>_octo.json,与「原始格式」的 <base>.json 不撞名。
+// 内容违约(非导图 shape)理论上到不了这里(仅 mindmap 卡 / 嗅探为导图的 json 卡给此项),兜底给专业文案。
+function downloadOctoWhiteboard(content: string, base: string) {
+  const octo = uxrJsonToOctoWhiteboard(stripCodeFence(content), base)
+  if (!octo) {
+    showToast({ title: "转换失败", description: "当前内容不是有效的思维导图结构,无法转换为 Octo 白板格式", variant: "error" })
+    return
+  }
+  downloadBlob(JSON.stringify(octo, null, 2), `${base}_octo.json`, "application/json;charset=utf-8")
+}
+
+function octoWhiteboardOption(base: string, content: string): DownloadOption {
+  return {
+    label: "Octo 白板格式",
+    format: "octo-whiteboard",
+    onClick: () => downloadOctoWhiteboard(content, base),
+  }
+}
+
+// 单格式类型的原生下载统一命名「原始格式」;思维导图额外挂「Octo 白板格式」。table 保留多格式导出不动。
 function downloadOptions(tab: ResultTab): DownloadOption[] {
   const base = sanitizeFilename(tab.fileName?.replace(/\.[^.]+$/, "") || tab.title)
   const content = tab.content ?? ""
@@ -121,7 +139,7 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
     case "html":
       return [
         {
-          label: "HTML (.html)",
+          label: "原始格式",
           format: "html",
           onClick: () =>
             downloadBlob(stripCodeFence(content), `${base}.html`, "text/html;charset=utf-8"),
@@ -130,27 +148,31 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
     case "mindmap":
       return [
         {
-          label: "JSON (.json)",
+          label: "原始格式",
           format: "json",
           onClick: () =>
             downloadBlob(stripCodeFence(content), `${base}.json`, "application/json;charset=utf-8"),
         },
+        octoWhiteboardOption(base, content),
       ]
     case "json":
       return [
         {
-          label: "JSON (.json)",
+          label: "原始格式",
           format: "json",
           onClick: () =>
             downloadBlob(stripCodeFence(content), `${base}.json`, "application/json;charset=utf-8"),
         },
+        // json 卡内容恰为思维导图 shape(路径 A application/json / 路径 C .json 文件)时,也提供 Octo 白板导出——
+        // 与「渲染成 markmap」的判定同源(isMindmapJSON),口径一致。
+        ...(isMindmapJSON(content) ? [octoWhiteboardOption(base, content)] : []),
       ]
     case "code": {
       // 代码/纯文本(路径 C):保留原始文件名与扩展名下载
       const name = sanitizeFilename(tab.fileName || `${base}.txt`)
       return [
         {
-          label: `下载 (${name})`,
+          label: "原始格式",
           format: name.split(".").pop() || "txt",
           onClick: () => downloadBlob(content, name, "text/plain;charset=utf-8"),
         },
@@ -159,7 +181,7 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
     default:
       return [
         {
-          label: "Markdown (.md)",
+          label: "原始格式",
           format: "md",
           onClick: () => downloadBlob(content, `${base}.md`, "text/markdown;charset=utf-8"),
         },
@@ -217,7 +239,7 @@ export function ActionBar(props: {
               方便用 Typora / VSCode 等原生应用打开编辑。见 output-renderers.md §2.6.8。 */}
           <Show when={props.tab.source === "path" && props.tab.filePath}>
             <ActionBtn icon={<IconActionOpen size={14} />} label="本地打开" onClick={() => openFileLocally(props.tab.filePath!)} />
-            <ActionBtn icon={<IconActionFolder size={14} />} label="文件夹" onClick={() => revealFileInFolder(props.tab.filePath!)} />
+            <ActionBtn icon={<IconActionFolder size={14} />} label="文件夹" onClick={() => void revealFileInFolder(props.tab.filePath!)} />
           </Show>
           <Show when={canEdit()}>
             <ActionBtn
@@ -311,7 +333,7 @@ function DownloadMenu(props: { tab: ResultTab; disabled?: boolean }): JSX.Elemen
   // 其余类型沿用按当前内容导出/转格式。
   const options = (): DownloadOption[] =>
     props.tab.source === "uri" && props.tab.type === "markdown"
-      ? [{ label: "另存为", format: "original", onClick: () => void downloadOriginal(props.tab, projectDir() || "") }]
+      ? [{ label: "原始格式", format: "original", onClick: () => void downloadOriginal(props.tab, projectDir() || "") }]
       : downloadOptions(props.tab)
 
   return (

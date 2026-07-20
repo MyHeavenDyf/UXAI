@@ -2,6 +2,7 @@ import { extractJson } from '../../utils/json-parser';
 import { runChildSession } from '../run-child-session';
 import { logAgentParsed } from "../../utils/debug-log"
 import { PLANNER_CREATE_FORMAT } from "./schema"
+import { agentThrow } from "../../utils/error-msg"
 
 const AGENT_NAME = "proto_planner_create"
 
@@ -55,7 +56,7 @@ export default async function proto_planner_create(input: ProtoPlannerCreateInpu
   const plannerJson = extractJson(plannerResult.text)
   if (!plannerJson) {
     logAgentParsed(plannerResult.childSessionId, { error: "Failed to parse JSON", raw: plannerResult.text })
-    throw new Error("----- Planner Create did not return valid JSON -----")
+    agentThrow(AGENT_NAME, plannerResult.childSessionId, "Planner Create did not return valid JSON")
   }
   const returnValue = {
     "layout_planner": plannerJson,

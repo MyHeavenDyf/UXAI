@@ -289,14 +289,14 @@ export function TitleBar(props: TitleBarProps) {
           </div>
 
           {/* 按钮 5：主题切换 */}
-          <button 
+          {/* <button 
             class="pattern-action-btn" 
             title={isDarkMode() ? "切换为浅色模式" : "切换为深色模式"} 
             onClick={toggleThemeMode}
           >
             {isDarkMode() ? <IconSun size={16} /> : <IconMoon size={16} />}
             <span>{isDarkMode() ? "浅色" : "深色"}</span>
-          </button>
+          </button> */}
 
           {/* 下载前的垂直分割线 */}
           <div class="btn-vertical-divider" style={{ height: "10px", margin: "0 8px" }} />
@@ -325,9 +325,9 @@ export function TitleBar(props: TitleBarProps) {
           </button>
 
           {/* 按钮 8：文本 */}
-          <button class="pattern-text-btn" title="文本" onClick={() => props.onText?.()}>
+          {/* <button class="pattern-text-btn" title="文本" onClick={() => props.onText?.()}>
             归档
-          </button>
+          </button> */}
         </div>
       </div>
     </div>

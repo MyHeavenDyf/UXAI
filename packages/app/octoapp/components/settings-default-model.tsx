@@ -17,10 +17,8 @@ export const SettingsDefaultModel: Component = () => {
   const providers = useProviders()
 
   const validModel = (model: { providerID: string; modelID: string }) => {
-    const provider = providers.all().find((item) => item.id === model.providerID)
-    if (!provider?.models[model.modelID]) return false
     const connected = new Set(providers.connected().map((item) => item.id))
-    return connected.has(model.providerID)
+    return !!models.find(model) && connected.has(model.providerID) && models.visible(model)
   }
 
   const currentModelKey = createMemo(() => {
@@ -40,7 +38,7 @@ export const SettingsDefaultModel: Component = () => {
       if (configured && validModel({ providerID: provider.id, modelID: configured }))
         return { providerID: provider.id, modelID: configured }
 
-      const first = Object.values(provider.models)[0]
+      const first = models.list().find((model) => model.provider.id === provider.id)
       if (first && validModel({ providerID: provider.id, modelID: first.id }))
         return { providerID: provider.id, modelID: first.id }
     }

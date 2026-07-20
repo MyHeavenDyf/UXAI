@@ -13,6 +13,7 @@ export interface AnnotationEventDetail {
   file: File | null
   note: string
   action: 'queue' | 'send'
+  tabContext?: { title: string; filePath?: string }
   ack?: (result: { ok: boolean; message?: string }) => void
 }
 
@@ -21,6 +22,7 @@ interface Props {
   active?: boolean
   onActiveChange?: (active: boolean) => void
   sendDisabled?: boolean
+  tabContext?: { title: string; filePath?: string }
 }
 
 const STROKE_COLOR = '#ff3b30'
@@ -538,6 +540,7 @@ export function DrawOverlay(props: Props): JSX.Element {
           file,
           note: note().trim(),
           action,
+          tabContext: props.tabContext,
           ack: finish,
         }
 

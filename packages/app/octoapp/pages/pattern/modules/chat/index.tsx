@@ -39,6 +39,8 @@ function RoundCard(props: {
   startTime: number
   endTime?: number
   error?: string
+  errorAgent?: string
+  errorCallId?: string
   needsConfirm: boolean
   confirmText?: { title: string; subtitle: string } | null
   pauseMs: number
@@ -56,6 +58,8 @@ function RoundCard(props: {
         canPreview={done() && !cancelled() && !props.error}
         cancelled={cancelled()}
         error={props.error}
+        errorAgent={props.errorAgent}
+        errorCallId={props.errorCallId}
         needsConfirm={props.needsConfirm}
         confirmText={props.confirmText}
         onRetry={props.onRetry}
@@ -333,6 +337,7 @@ export function ChatPanel(props: {
                               messageID={item.messageID}
                               status={props.sessionStatus}
                               pipelineBusy={props.pipelineBusy}
+                              errorCallId={round().errorCallId}
                             />
                           )}
                         </For>
@@ -344,6 +349,8 @@ export function ChatPanel(props: {
                           startTime={round().startTime}
                           endTime={round().endTime}
                           error={round().error}
+                          errorAgent={round().errorAgent}
+                          errorCallId={round().errorCallId}
                           needsConfirm={props.needsConfirm}
                           confirmText={props.confirmText}
                           pauseMs={props.pauseMs}

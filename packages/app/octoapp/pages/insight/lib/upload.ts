@@ -60,7 +60,7 @@ export class UploadError extends Error {
   }
 }
 
-function getExt(filename: string): string {
+export function getExt(filename: string): string {
   const dot = filename.lastIndexOf(".")
   // 与 Node path.parse / Python os.path.splitext 一致：开头的点不算扩展名分隔符，
   // 即 ".txt" / ".env" 视为「没有扩展名的隐藏文件」(dot===0)，而非 "txt" 扩展名。

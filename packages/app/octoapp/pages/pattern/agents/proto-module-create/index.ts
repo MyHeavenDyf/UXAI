@@ -2,8 +2,8 @@ import { extractJson } from '../../utils/json-parser';
 import { runChildSession } from '../run-child-session';
 import { logAgentParsed } from "../../utils/debug-log";
 import { MODULE_CREATE_FORMAT } from "./schema";
-import { readPatternFile, readPatternAssets, saveUploadImage, replacePatternAssetPaths } from '../../utils/pattern-resource'
-
+import { readPatternFile, readPatternAssets, saveUploadImage, replacePatternAssetPaths } from '../../utils/pattern-resource';
+import { agentThrow } from "../../utils/error-msg";
 
 const AGENT_NAME = "proto_module_create";
 
@@ -87,7 +87,7 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
   const moduleJson = extractJson(moduleResult.text)
   if (!moduleJson) {
     logAgentParsed(moduleResult.childSessionId, { error: "Failed to parse JSON", raw: moduleResult.text })
-    throw new Error("----- Module JSON did not return valid JSON -----")
+    agentThrow(AGENT_NAME, moduleResult.childSessionId, "Module JSON did not return valid JSON")
   }
   const returnValue = {
     "ui_json": moduleJson,

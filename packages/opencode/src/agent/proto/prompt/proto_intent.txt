@@ -132,15 +132,12 @@
     - 在Mock图表数据时，针对尺寸较大的图表，非常鼓励额外增加多个系列数据，来丰富图表的表达.
     - 在Mock图表数据时，针对线形图、柱状图的图表，数据的走势需要有波动性，来模拟更加真实的场景.
    
-4.**媒体资源URL可渲染:** JSON数据中的静态资源必须使用公开可访问的占位图服务链接，禁止编造不存在的域名路径。
-  - **图标类:** 统一使用Lucide Icon.
-  - **LOGO类:** 统一使用Lucide Icon.
-  - **头像类:** 统一使用randomuser: `https://randomuser.me/api/portraits/{men|women}/{1-99}.jpg` （如 `https://randomuser.me/api/portraits/women/44.jpg`）.
-  - **通用图片类:** 统一使用 `https://fpoimg.com/{width}x{height}?gradient={hex_start},{hex_end}&text_color={text_hex}&text=IMAGE` 来生成占位图，按场景选择尺寸、渐变色(不要使用灰、白)和文字，例如：
-    - 封面/Banner (`1920x600`): `https://fpoimg.com/1920x600?gradient=FF512F,DD2476&text_color=ffffff&text=IMAGE`
-    - 卡片缩略图 (`800x600`): `https://fpoimg.com/800x600?gradient=00C6FF,0072FF&text_color=ffffff&text=IMAGE`
-    - 商品图/详情图 (`1200x1200`): `https://fpoimg.com/1200x1200?gradient=11998E,38EF7D&text_color=ffffff&text=IMAGE`
-    - 小图 (`200x200`): `https://fpoimg.com/200x200?gradient=B224EF,7579FF&text_color=ffffff&text=IMAGE`
+4.**媒体资源URL可渲染:** JSON数据中的静态资源必须使用以下本地资源路径，禁止编造不存在的路径或使用外部网络图片。
+   - **图标类:** 统一使用Lucide Icon.
+   - **LOGO类:** 统一使用Lucide Icon.
+   - **头像类:** 统一使用 `/user.png`.
+   - **通用图片类:** 统一使用 `/image.jpg`.
+   - **背景图类:** 统一使用 `/background.jpg`.
 
 5. **组件使用指南**
 {COMPONENTS_USAGE}

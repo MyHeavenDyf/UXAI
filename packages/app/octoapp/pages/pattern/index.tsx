@@ -26,7 +26,7 @@ import { appendPatternVersion, updatePatternVersion, listPatternVersions, type V
 import { saveCheckpoint, loadCheckpoint, clearCheckpoint } from "./checkpoint/checkpoint"
 import { restoreSession } from "./checkpoint/session-restore"
 import { logStartSession, clearDebugLog, saveDebugSnapshot } from "./utils/debug-log"
-import { classifyAIError, saveProtoError, loadProtoError, clearProtoError } from "./utils/error-msg"
+import { classifyAIError, saveProtoError, loadProtoError, clearProtoError, type ProtoError } from "./utils/error-msg"
 import { autoRenameSession } from "./utils/rename"
 import { groupRounds } from "./utils/round-messages"
 import { createSplitDrag } from "./utils/drag-split"
@@ -154,8 +154,8 @@ function PatternContent() {
             // 加载持久化的 workflow 错误
             const errDir = patternHistoryDir()
             if (errDir) {
-              void loadProtoError(errDir, id).then((errTitle) => {
-                if (errTitle && params.id === id) setSessionErrors((prev) => ({ ...prev, [id]: errTitle }))
+              void loadProtoError(errDir, id).then((protoErr) => {
+                if (protoErr && params.id === id) setSessionErrors((prev) => ({ ...prev, [id]: protoErr }))
               })
             }
             // 滚动到底部
@@ -179,7 +179,7 @@ function PatternContent() {
 
               switch (result.type) {
                 case "pipeline_error": {
-                  setSessionErrors(prev => ({ ...prev, [id]: "生成异常，请重试" }))
+                  setSessionErrors(prev => ({ ...prev, [id]: { title: "生成异常，请重试" } }))
                   return
                 }
                 case "intent_confirm": {
@@ -263,7 +263,7 @@ function PatternContent() {
     return result.sort((a, b) => (a.time?.created ?? 0) - (b.time?.created ?? 0))
   })
 
-  const [sessionErrors, setSessionErrors] = createSignal<Record<string, string>>({})
+  const [sessionErrors, setSessionErrors] = createSignal<Record<string, ProtoError>>({})
   // per-session 暂停计时（需求确认 / 线框审查等待期间不计时）
   const [pauseMs, setPauseMs] = createSignal<Record<string, number>>({})
   const [pauseStart, setPauseStart] = createSignal<Record<string, number | undefined>>({})
@@ -291,9 +291,9 @@ function PatternContent() {
       (mid) => sync.data.part[mid] as Array<Record<string, unknown>> | undefined,
     )
     // 运行时 workflow 错误
-    const error = sessionErrors()[id]
-    if (error && rounds.length > 0) {
-      rounds[rounds.length - 1] = { ...rounds[rounds.length - 1], error }
+    const protoErr = sessionErrors()[id]
+    if (protoErr && rounds.length > 0) {
+      rounds[rounds.length - 1] = { ...rounds[rounds.length - 1], error: protoErr.title, errorAgent: protoErr.agentLabel, errorCallId: protoErr.agentCallId }
     }
     return rounds
   })
@@ -467,7 +467,7 @@ function PatternContent() {
       const error = classifyAIError(err)
       if (error.title) {
         const sid = params.id
-        if (sid) setSessionErrors((prev) => ({ ...prev, [sid]: error.title }))
+        if (sid) setSessionErrors((prev) => ({ ...prev, [sid]: { title: error.title, agentLabel: error.agentLabel, agentCallId: error.agentCallId } }))
         showToast({ title: error.title, description: error.description })
       }
     }
@@ -476,15 +476,16 @@ function PatternContent() {
   async function handleWorkflowError(err: unknown, sessionId: string, label: string) {
     console.error(`[PatternPage] ${label} failed`, err)
     void saveDebugSnapshot(patternHistoryDir(), sessionId, "error", { error: String(err instanceof Error ? err.message : err) })
+    await sdk.client.session.abort({ sessionID: sessionId }).catch(() => { })
     for (const childID of childSessionIDs()) {
       await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
     }
     const error = classifyAIError(err)
     if (error.title) {
-      setSessionErrors((prev) => ({ ...prev, [sessionId]: error.title }))
+      setSessionErrors((prev) => ({ ...prev, [sessionId]: { title: error.title, agentLabel: error.agentLabel, agentCallId: error.agentCallId } }))
       showToast({ title: error.title, description: error.description })
       const errDir = patternHistoryDir()
-      if (errDir) void saveProtoError(errDir, sessionId, error.title)
+      if (errDir) void saveProtoError(errDir, sessionId, { title: error.title, agentLabel: error.agentLabel, agentCallId: error.agentCallId })
     }
   }
 
