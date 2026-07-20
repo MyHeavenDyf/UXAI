@@ -379,13 +379,6 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
       // ── 以下为原按需上传路径(非 chip turn / 声明工具不匹配),机制不变 ──
       if (!hasFileRef(output.args)) return
 
-      const endpoint = process.env.OCTO_UPLOAD_ENDPOINT
-      if (!endpoint) {
-        // 没配端点 → 无法按需上传。抛错让工具失败、错误回灌模型,而非把本地路径喂给 MCP(必 404)。
-        console.error(`${LOG} OCTO_UPLOAD_ENDPOINT 未配置,无法按需上传`, { tool: input.tool })
-        throw new Error("上传服务未配置 (OCTO_UPLOAD_ENDPOINT)，无法处理文件参数")
-      }
-
       if (refToPath.size === 0) {
         console.warn(`${LOG} args 含文件名形态串但 session 无 [附件] 区块,保持原值`, {
           tool: input.tool,
@@ -398,6 +391,18 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
       const referenced = new Set<string>()
       collectRefs(output.args, new Set(refToPath.keys()), referenced)
       if (referenced.size === 0) return
+
+      // endpoint 检查必须在「确认真有要上传的引用」之后:此前它排在 hasFileRef 预筛之后的最前面,
+      // 外网(未配置 OCTO_UPLOAD_ENDPOINT)任何参数里出现文档扩展名结尾字符串的工具调用——
+      // read/bash 贴 .md 路径、write 落盘 .md 产物——都被误杀在这里,根本走不到下面两个
+      // "无需上传就放行"的早退(2026-07-11 外网复现:贴 .md 路径,read/bash 连环失败「上传服务未配置」,
+      // 也遮蔽了 external_directory 权限询问)。语义不变:真要上传而没配 endpoint,仍响亮失败。
+      const endpoint = process.env.OCTO_UPLOAD_ENDPOINT
+      if (!endpoint) {
+        // 没配端点 → 无法按需上传。抛错让工具失败、错误回灌模型,而非把本地路径喂给 MCP(必 404)。
+        console.error(`${LOG} OCTO_UPLOAD_ENDPOINT 未配置,无法按需上传`, { tool: input.tool })
+        throw new Error("上传服务未配置 (OCTO_UPLOAD_ENDPOINT)，无法处理文件参数")
+      }
 
       // 逐个按需上传(缓存按本地路径命中,文件名/路径指向同一文件只传一次),建「引用 → url」表。
       // 任一失败即上抛 → 工具调用失败、错误回灌模型。

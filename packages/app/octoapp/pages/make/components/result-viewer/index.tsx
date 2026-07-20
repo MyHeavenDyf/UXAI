@@ -66,7 +66,7 @@ export function ResultViewer(props: {
   activeId: string | null
   onActivate: (id: string) => void
   onClose: (id: string) => void
-  onContentChange?: (id: string, content: string) => void
+  onContentChange?: (id: string, content: string) => Promise<void>
   sessionId?: string
   onOpenArtifact?: (card: OutputCard) => void
   viewMode: "tabs" | "files"
@@ -133,7 +133,7 @@ export function ResultViewer(props: {
     setRefreshKey((prev) => prev + 1)
   }
 
-const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: string; prop: string; value: string }>) => {
+const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId: string; prop: string; value: string }>) => {
     const tab = props.tabs.find(t => t.id === tabId)
     if (!tab || overrides.length === 0) return
 
@@ -164,7 +164,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
       ? "```html\n" + cleanHtml + "\n```"
       : cleanHtml
 
-    props.onContentChange?.(tabId, finalContent)
+    await props.onContentChange?.(tabId, finalContent)
   }
 
   const handleOpenArtifactFile = (file: ArtifactFile) => {
@@ -221,9 +221,9 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
         </Show>
 
         <Show when={props.viewMode === "tabs"}>
-          <Show when={activeTab()} keyed>
-            {(tab) => {
-              const tabId = tab.id
+          <Show when={activeTab()?.id} keyed>
+            {(tabId) => {
+              const tab = props.tabs.find(t => t.id === tabId)!
               const tabType = tab.type
             const canToggle = canToggleMode(tab)
             const htmlMode = createMemo(() => getHtmlMode(tabId))
@@ -242,17 +242,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                   palette={palette()}
                   onPaletteChange={setPalette}
                   inspecting={inspecting()}
-                  onInspectToggle={htmlMode() === "edit" ? undefined : () => {
-                    const nextInspecting = !inspecting()
-                    setInspecting(nextInspecting)
-                    tracker.interaction({ module: "design", name: "toggle-inspect-mode", extend: JSON.stringify({ action: nextInspecting ? "open" : "close" }) })
-                    if (nextInspecting && editing()) {
-                      setEditing(false)
-                    }
-                    if (nextInspecting && drawing()) {
-                      setDrawing(false)
-                    }
-                  }}
+                  onInspectToggle={undefined}
                   editing={editing()}
                   onEditToggle={htmlMode() === "edit" ? undefined : () => {
                     const nextEditing = !editing()
@@ -279,7 +269,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                   }}
                   onRefresh={handleRefresh}
                   focusMode={props.focusMode}
-                  onFocusModeToggle={tabType !== "html" && tabType !== "design-plan" ? props.onFocusModeToggle : undefined}
+                  onFocusModeToggle={tabType !== "design-plan" ? props.onFocusModeToggle : undefined}
                 />
                 </Show>
                 <div class="flex-1 min-h-0 overflow-hidden">
@@ -315,7 +305,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                         inspectPanel={true}
                         onInspectTarget={setInspectTarget}
                         onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
-                        onContentChange={(content) => props.onContentChange?.(tabId, content)}
+                        onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
                         refreshKey={refreshKey()}
                         filePath={tab.filePath}
                         sessionId={tab.sessionId ?? props.sessionId}
@@ -327,6 +317,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                           await saveArtifactContent(tab.filePath, html)
                         }}
                         onRefreshNeeded={handleRefresh}
+                        tabTitle={tab.title}
                       />
                     </Match>
                     <Match when={tabType === "deck"}>
@@ -349,7 +340,7 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                         confirmed={props.isPlanConfirmed?.() ?? false}
                         onConfirm={() => props.onConfirmPlan?.(tab.artifactIdentifier)}
                         onAdjust={() => props.onAdjustPlan?.()}
-                        onContentChange={(content) => props.onContentChange?.(tabId, content)}
+                        onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
                       />
                     </Match>
                     <Match when={tabType === "local-file"}>

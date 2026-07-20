@@ -123,6 +123,9 @@ export function createSessionThumbnailStore(input: {
     // potential issues with per-call client creation
     const client = input.globalSDK.client
 
+    // Track sessions that had no image for delayed retry (message persistence may lag)
+    const retrySessionIDs: string[] = []
+
     // Process in batches of 5 to avoid overwhelming the API
     const BATCH_SIZE = 5
     for (let i = 0; i < stale.length; i += BATCH_SIZE) {
@@ -142,8 +145,10 @@ export function createSessionThumbnailStore(input: {
                 url,
                 updatedAt: session.time.updated ?? Date.now(),
               })
+              setVersion((v) => v + 1)
             } else {
-              console.log(`[Thumbnail] No image found in session ${session.id}`)
+              console.log(`[Thumbnail] No image found in session ${session.id}, scheduling retry`)
+              retrySessionIDs.push(session.id)
             }
           } catch (err) {
             console.error(`[Thumbnail] Failed to load thumbnail for session ${session.id}`, err)
@@ -153,6 +158,27 @@ export function createSessionThumbnailStore(input: {
     }
 
     setLoading(false)
+
+    // Delayed retry for sessions whose messages may not have been persisted yet.
+    // This handles the race where session.updated fires before message storage commits.
+    if (retrySessionIDs.length > 0) {
+      setTimeout(async () => {
+        for (const sessionID of retrySessionIDs) {
+          try {
+            const result = await client.session.messages({ sessionID })
+            const items = (result.data ?? []) as Array<{ info: Message; parts: Part[] }>
+            const url = extractFirstImageFromMessages(items)
+            if (url) {
+              console.log(`[Thumbnail] Retry found thumbnail for session ${sessionID}`)
+              setPersistedThumbnails(sessionID, { url, updatedAt: Date.now() })
+              setVersion((v) => v + 1)
+            }
+          } catch (err) {
+            console.error(`[Thumbnail] Retry failed for session ${sessionID}`, err)
+          }
+        }
+      }, 3000)
+    }
   }
 
   return {

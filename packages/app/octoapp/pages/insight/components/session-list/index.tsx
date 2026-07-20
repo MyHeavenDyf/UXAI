@@ -56,6 +56,21 @@ export function InsightSessionList(): JSX.Element {
   // 用户选了项目目录后 insight 仍查 home dir 而看不到自己历史对话的 directory 飘移 bug。
   const projectDir = useProjectDir()
 
+  // 抗抖 dir 解析(照搬旧 _shell/sidebar.tsx 的成熟写法)。projectDir() 依赖的
+  // server.projects.last() 在 bootstrap 完成后响应式链会断,裸依赖它的 resource 若在
+  // bootstrap 窗口内挂载并拉到空,之后不会自动重跑。/insight 靠 session 事件触发 refetch
+  // 兜底而掩盖了;/skills 复用本组件后独立空闲、无事件,就会卡在「暂无对话」。
+  // 两个 effect:① 直接读(有值即锁);② 用可靠的 globalSync.data.ready 做触发,bootstrap
+  // 落定时补读一次 projectDir()。resource 与 limit 重置都改吃 resolvedDir()。
+  const [resolvedDir, setResolvedDir] = createSignal<string>()
+  createEffect(() => { const d = projectDir(); if (d) setResolvedDir(d) })
+  createEffect(() => {
+    if (!globalSync.data.ready) {
+      const d = projectDir()
+      if (d) setResolvedDir(d)
+    }
+  })
+
   // ── 服务端分页(SPEC-INS-013)────────────────────────────────────────────
   // 走 insight 专用端点 /insight/sessions:服务端**先按 agent=octo_insight 过滤再分页**,
   // 修「会话超 100 条后最早 insight 对话看不到」(根因:旧共享 session.list「先 limit 100 再前端
@@ -64,10 +79,10 @@ export function InsightSessionList(): JSX.Element {
   const FIRST_PAGE = 100
   const PAGE_STEP = 100
   const [limit, setLimit] = createSignal(FIRST_PAGE)
-  createEffect(on(projectDir, () => setLimit(FIRST_PAGE), { defer: true }))
+  createEffect(on(resolvedDir, () => setLimit(FIRST_PAGE), { defer: true }))
 
   const [sessions, { refetch }] = createResource(
-    () => ({ dir: projectDir(), limit: limit() }),
+    () => ({ dir: resolvedDir() ?? "", limit: limit() }),
     async ({ dir, limit: lim }, info): Promise<{ items: Session[]; total: number }> => {
       if (!dir) return { items: [], total: 0 }
       try {
@@ -164,12 +179,22 @@ export function InsightSessionList(): JSX.Element {
     setRenamingId(sessionId)
   }
 
+  // session.update / session.delete 必须走**带 directory 的 client**:裸 globalSDK.client 不带
+  // x-opencode-directory,请求落到 server 默认目录实例,回来的 session.updated/deleted SSE 也就
+  // 挂在那个目录名下 → globalSync 找不到本目录的 child store,对话区顶部(读 sync.session.get)
+  // 的标题不会跟着变,只有刷新才同步。本列表自己看着"生效"是因为它靠事件触发 refetch 重拉 DB,
+  // 与事件的 directory 无关,掩盖了这个 bug。与 chat / pattern 侧栏的 createClient 用法对齐。
+  function clientFor(sessionId: string) {
+    const directory = sessionList.find((s) => s.id === sessionId)?.directory ?? projectDir()
+    return directory ? globalSDK.createClient({ directory }) : globalSDK.client
+  }
+
   async function handleRenameConfirm(sessionId: string) {
     const next = renameDraft().trim()
     setRenamingId(null)
     if (!next) return
     try {
-      await globalSDK.client.session.update({ sessionID: sessionId, title: next })
+      await clientFor(sessionId).session.update({ sessionID: sessionId, title: next })
       tracker.interaction({ module: "insight", name: "session-rename", extend: JSON.stringify({ entry: "menu" }) })
     } catch (err) {
       console.error("[insight:session-list] rename failed", err)
@@ -178,7 +203,7 @@ export function InsightSessionList(): JSX.Element {
 
   async function handleDelete(sessionId: string) {
     try {
-      await globalSDK.client.session.delete({ sessionID: sessionId })
+      await clientFor(sessionId).session.delete({ sessionID: sessionId })
       tracker.interaction({ module: "insight", name: "session-delete", extend: JSON.stringify({ entry: "menu" }) })
       if (layout.lastSessionPerTab.cowork()?.id === sessionId) layout.lastSessionPerTab.clearCowork()
       if (activeSessionId() === sessionId) navigate("/insight")

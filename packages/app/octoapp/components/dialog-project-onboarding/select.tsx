@@ -178,9 +178,9 @@ export function Select<T>(props: SelectProps<T> & Omit<ButtonProps, "children">)
           [local.class ?? ""]: !!local.class,
         }}
       >
-        <Kobalte.Value<T> data-slot="select-select-trigger-value" class={local.valueClass}>
-          {(state) => {
-            const selected = state.selectedOption() ?? local.current
+        <Kobalte.Value<T> data-slot="select-select-trigger-value" class={local.valueClass} style={{ color: props.disabled ? "rgba(0,0,0,0.3)" : local.current ? "#191919" : "#AEAEAE" }}>
+          {() => {
+            const selected = local.current
             if (!selected) return local.placeholder || ""
             if (local.label) return local.label(selected)
             return selected as string
