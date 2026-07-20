@@ -5,13 +5,14 @@ import { createEffect, createResource, createSignal, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import type { Domain, ProductLine, Product, Version } from "@/network/types"
 
-import { fetchVersions, topVersion, cancelTopVersion } from "@/network/pipelineRequest"
+import { fetchDomains, fetchProductLines, fetchProducts, fetchVersions, topVersion, cancelTopVersion } from "@/network/pipelineRequest"
 interface ProjectInfoDialogContentProps {
   domain?: Domain
   productLine?: ProductLine
   product?: Product
   version?: Version
   disabled?: boolean
+  shouldAutoSelect?: boolean
   onSelectionChange?: (data: { domain?: Domain; productLine?: ProductLine; product?: Product; version?: Version }) => void
 }
 
@@ -27,6 +28,9 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
   const [versionFetchProductId, setVersionFetchProductId] = createSignal<number | undefined>(undefined)
   let pinActionActive = false
   let versionCloseGuard = false
+  // 用户一旦手动操作，就中止自动选中链，避免在途接口返回后覆盖用户已选的项
+  let userInteracted = false
+  let autoSelectStarted = false
 
   const [versionOptions, { refetch: refetchVersions, mutate: mutateVersions }] = createResource(() =>  versionFetchProductId() ?? undefined, fetchVersions)
 
@@ -40,9 +44,51 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
     if (!options.length) return
     setTimeout(() => { versionCloseGuard = false }, 0)
     const current = store.version
-    if (!current) return
+    if (!current) {
+      setStore("version", options[0] ? { ...options[0] } : undefined)
+      return
+    }
     if (!options.some((v) => v.id === current.id)) setStore("version", undefined)
   })
+
+  // 新用户（无历史选择）自动级联选中第一个可用的领域/产品线/产品/版本
+  createEffect(() => {
+    if (!props.shouldAutoSelect) return
+    if (autoSelectStarted) return
+    autoSelectStarted = true
+    void autoSelectFirstAvailable()
+  })
+
+  // 自动选中模式下，版本列表返回后自动选第一个；复用 versionOptions resource，不再单独发一次请求
+  createEffect(() => {
+    if (!props.shouldAutoSelect || userInteracted) return
+    if (store.version || !store.product) return
+    const options = safeVersionOptions()
+    if (!options.length) return
+    setStore("version", { ...options[0] })
+  })
+
+  async function autoSelectFirstAvailable() {
+    try {
+      const domains = await fetchDomains()
+      if (userInteracted || !domains?.length) return
+      const firstDomain = domains[0]
+      setStore("domain", firstDomain)
+      const productLines = await fetchProductLines(firstDomain.id)
+      if (userInteracted || !productLines?.length) return
+      const firstProductLine = productLines[0]
+      setStore("productLine", firstProductLine)
+      const products = await fetchProducts(firstProductLine.id)
+      if (userInteracted || !products?.length) return
+      const firstAvailable = products.find(p => !(p.isSecret && !p.isProductMember))
+      if (!firstAvailable) return
+      setStore("product", firstAvailable)
+      // 触发版本列表加载，版本第一项由上面的 effect 在 resource 返回后自动选中
+      setVersionFetchProductId(firstAvailable.id)
+    } catch {
+      // 接口失败时静默降级，保持未选中状态，由用户手动选择
+    }
+  }
 
   createEffect(() => {
     props.onSelectionChange?.({ domain: store.domain, productLine: store.productLine, product: store.product, version: store.version })
@@ -53,7 +99,6 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
     const newIsTop = !version.isTop
     const fn = newIsTop ? topVersion : cancelTopVersion
     fn(version.baseTeam).then(() => {
-      setStore("version", "isTop", newIsTop)
       mutateVersions(prev => {
         const updated = prev?.map(v => v.id === version.id ? { ...v, isTop: newIsTop } : v)
         return updated?.sort((a, b) => {
@@ -61,6 +106,10 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
           return a.sort - b.sort
         })
       })
+      if (store.version?.id === version.id) {
+        const updated = safeVersionOptions().find(v => v.id === version.id)
+        if (updated) setStore("version", { ...updated })
+      }
       pinActionActive = false
     }).catch(() => {
       pinActionActive = false
@@ -128,11 +177,12 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
         product={store.product}
         disabled={props.disabled}
         onProductConfirm={(data) => {
+          userInteracted = true
           setStore("domain", data.domain)
           setStore("productLine", data.productLine)
           setStore("product", data.product)
           setStore("version", undefined)
-          setVersionFetchProductId(undefined)
+          setVersionFetchProductId(data.product?.id)
         }}
       />
       <Select
@@ -155,12 +205,14 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
           if (open) {
             versionCloseGuard = true
             setVersionFetchProductId(store.product?.id)
+            setTimeout(() => { versionCloseGuard = false }, 0)
           }
           setVersionPopoverOpen(open)
         }}
         onSelect={(o) => {
           if (pinActionActive) return
-          o && setStore("version", o)
+          userInteracted = true
+          o && setStore("version", { ...o })
         }}
       />
     </div>

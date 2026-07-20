@@ -12,6 +12,7 @@ import { splitOnQuestionForms, type FormSegment, type QuestionForm } from "../ut
 import { QuickBriefFormView } from "./quick-brief-form"
 import './quick-brief-form.css'
 import { autoSaveArtifact } from "../utils/artifact-auto-save"
+import { parseUploadedFiles } from "../../insight/lib/upload"
 
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
@@ -83,39 +84,6 @@ function decodeDataUrl(url: string): string {
   } catch {
     return url
   }
-}
-
-function detectCard(text: string): { type: OutputCardType; title: string } | null {
-  const heading = (t: string) => t.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim()
-
-  if (/```tsx\b/i.test(text) || /```jsx\b/i.test(text) || /^import\s+React/i.test(text)) {
-    return { type: "react-component", title: heading(text) ?? "React 组件" }
-  }
-  if (/```mermaid\b/i.test(text)) {
-    return { type: "diagram", title: heading(text) ?? "流程图" }
-  }
-  if (/```html/i.test(text) || /<!DOCTYPE\s+html/i.test(text) || /<html[\s>]/i.test(text) || /<script[\s>]/i.test(text)) {
-    if (/<div[^>]*class=["']slide["']/.test(text) || /\.slide\b/.test(text)) {
-      return { type: "deck", title: heading(text) ?? "幻灯片" }
-    }
-    return { type: "html", title: heading(text) ?? "HTML 原型" }
-  }
-  if (/<svg[\s>]/i.test(text) || /```svg\b/i.test(text)) {
-    return { type: "svg", title: heading(text) ?? "SVG 图形" }
-  }
-  if (isMarkdownTable(text)) {
-    return { type: "table", title: heading(text) ?? "分析结果" }
-  }
-  if (/```json/i.test(text)) {
-    return { type: "json", title: heading(text) ?? "JSON 数据" }
-  }
-  if (/```(tsx?|jsx?|python|css|yaml|toml|rust|go|java|sh|bash)\b/i.test(text)) {
-    return { type: "code-snippet", title: heading(text) ?? "代码片段" }
-  }
-  if (text.trim().length > 200) {
-    return { type: "markdown", title: heading(text) ?? "分析报告" }
-  }
-  return null
 }
 
 function getToolEndTime(state: Record<string, unknown> | undefined): number {
@@ -552,9 +520,30 @@ export function InsightTurn(props: {
     return raw.trim()
   })
 
-  const userAttachments = createMemo(() => {
+  // FilePart entries (images with S3 URL)
+  const userFileParts = createMemo(() => {
     const parts = partStore?.[props.messageID] ?? []
     return parts.filter((p) => p.type === "file") as Array<{ type: "file"; mime?: string; filename?: string; url?: string }>
+  })
+
+  // Synthetic [附件] manifest (local file references)
+  const userInputManifest = createMemo((): Array<{ filename: string; path: string }> => {
+    const parts = partStore?.[props.messageID] ?? []
+    const block = parts.find(
+      (p) => p.type === "text" && (p as { synthetic?: boolean }).synthetic && typeof (p as { text?: string }).text === "string" && (p as { text?: string }).text!.startsWith("[附件]")
+    )
+    if (!block) return []
+    return parseUploadedFiles((block as { text: string }).text)
+  })
+
+  // Merged attachments for display
+  const userAttachments = createMemo(() => {
+    const files = userFileParts()
+    const locals = userInputManifest()
+    return [
+      ...files.map(f => ({ filename: f.filename ?? "file", url: f.url as string | undefined, mime: f.mime, isLocal: false })),
+      ...locals.map(l => ({ filename: l.filename, url: undefined as string | undefined, mime: "application/octet-stream", isLocal: true })),
+    ]
   })
 
   // Collect ALL assistant messages between this user message and the next user message.
@@ -941,8 +930,8 @@ const stateStatus = state.status as string | undefined
   })
 
   // ── output cards (final, after generation, multiple) ──
+  // 只有 <artifact> 标签才会生成卡片
   const outputCards = createMemo((): OutputCard[] => {
-    // 中断时不创建卡片，避免显示不完整内容
     if (isAborted()) return []
     
     const parts = assistantParts()
@@ -954,70 +943,9 @@ const stateStatus = state.status as string | undefined
       return { ...card, content: repairTruncatedHtml(card.content), truncated: true }
     }
 
-    // ── 优先级 1：write / edit tool（HTML 文件写入或编辑） ──
-    for (const p of [...parts].reverse()) {
-      if (p.type !== "tool") continue
-      const state = (p as Record<string, unknown>).state as Record<string, unknown> | undefined
-      if (!state) continue
-
-      const toolTs = getToolEndTime(state)
-
-      // attachments
-      const attachments = state.attachments as Array<{ mime?: string; url?: string; filename?: string }> | undefined
-      if (attachments) {
-        for (const att of attachments) {
-          if (att.mime === "text/html" && att.url) {
-            const html = decodeDataUrl(att.url)
-            if (html.length > 10) {
-              return [maybeRepair({
-                id: `card-${props.messageID}-html`,
-                title: att.filename?.replace(/\.html?$/i, "") ?? "HTML 原型",
-                type: "html",
-                content: html,
-                createdAt: new Date(toolTs),
-              })]
-            }
-          }
-        }
-      }
-
-      // input (write/edit tool — 检测 HTML 文件)
-      const input = state.input as Record<string, unknown> | undefined
-      if (input) {
-        // write tool uses `content`, edit tool uses `newString`
-        const content = (input.content ?? input.newString ?? input.text ?? input.data) as string | undefined
-        const filePath = (input.path ?? input.filepath ?? input.filePath ?? "") as string
-        if (content && content.length > 10) {
-          const artifacts = parseAllArtifactsFromText(content)
-          if (artifacts.length > 0) {
-            return artifacts.map((a, i) => ({
-              ...a,
-              id: `card-${props.messageID}-artifact-${i}`,
-              filePath: filePath || undefined,
-              createdAt: new Date(toolTs),
-            }))
-          }
-
-          if (/```html/i.test(content) || /<!DOCTYPE\s+html/i.test(content) || /<html[\s>]/i.test(content) || /\.html?$/i.test(filePath)) {
-            return [maybeRepair({
-              id: `card-${props.messageID}-html`,
-              title: content.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? filePath.split(/[/\\]/).pop()?.replace(/\.html?$/i, "") ?? "HTML 原型",
-              type: "html",
-              content,
-              filePath: filePath || undefined,
-              createdAt: new Date(toolTs),
-            })]
-          }
-        }
-      }
-    }
-
-    // ── 优先级 2：text parts（含 artifact 标签，支持多个） ──
-    // 多条 assistant 消息时，HTML artifact 可能不在最后一个 text part，
-    // 所以要先扫描所有 text part 找 artifact 标签
+    // 扫描所有 text part 找 artifact 标签
     const allTextParts = parts.filter((p) => p.type === "text") as Array<{ type: "text"; text?: string }>
 
-    // 优先从所有 text part 中找 artifact 标签（按 reverse 顺序，最近的优先）
     for (const textPart of [...allTextParts].reverse()) {
       if (typeof textPart.text !== "string") continue
       const text = textPart.text.trim()
@@ -1031,121 +959,6 @@ const stateStatus = state.status as string | undefined
           createdAt: new Date(ts),
         }))
       }
-    }
-
-// 没有 artifact 标签，fallback 到最后一个 text part 用 detectCard 检测
-    const lastTextPart = allTextParts[allTextParts.length - 1]
-    if (lastTextPart && typeof lastTextPart.text === "string") {
-      const text = lastTextPart.text.trim()
-      if (text.length > 0) {
-        const ts = getTextPartTime(lastTextPart as Record<string, unknown>)
-        const info = detectCard(text)
-        // if (info) return [{ id: `card-${props.messageID}`, ...info, content: lastTextPart.text, createdAt: new Date(ts) }]
-
-        // Before falling back to markdown, check if subtask artifacts exist for assembly
-        const stForText = subtasks()
-        const subArtForText = stForText.flatMap((t) => t.artifactOutputs)
-        // if (subArtForText.length === 0) {
-        //   return [{
-        //     id: `card-${props.messageID}-text`,
-        //     title: text.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? text.split("\n")[0]?.slice(0, 40) ?? "AI 产出",
-        //     type: "markdown",
-        //     content: lastTextPart.text,
-        //     createdAt: new Date(ts),
-        //   }]
-        // }
-      }
-    }
-
-    // ── 优先级 3：任何 tool output（聚合所有 tool 输出） ──
-    const allToolOutput: string[] = []
-    let latestToolTs = 0
-    for (const p of parts) {
-      if (p.type !== "tool") continue
-      const state = (p as Record<string, unknown>).state as Record<string, unknown> | undefined
-      if (!state) continue
-      const output = state.output as string | undefined
-      if (output && output.trim().length > 0 && output.trim() !== "No files found") allToolOutput.push(output.trim())
-      const ts = getToolEndTime(state)
-      if (ts > latestToolTs) latestToolTs = ts
-    }
-    if (allToolOutput.length > 0) {
-      // When subtasks have artifact outputs, skip priority 3 entirely —
-      // priority 4 will assemble them into a complete page.
-      const stForTools = subtasks()
-      const hasSubArtifacts = stForTools.some((t) => t.artifactOutputs.length > 0)
-      if (!hasSubArtifacts) {
-        const content = allToolOutput.join("\n\n")
-        const ts = latestToolTs || Date.now()
-        const artifacts = parseAllArtifactsFromText(content)
-        if (artifacts.length > 0) {
-          return artifacts.map((a, i) => ({
-            ...a,
-            id: `card-${props.messageID}-artifact-${i}`,
-            createdAt: new Date(ts),
-          }))
-        }
-
-        const info = detectCard(content)
-        if (info) return [{ id: `card-${props.messageID}-tools`, ...info, content, createdAt: new Date(ts) }]
-
-        return [{
-          id: `card-${props.messageID}-tools-fallback`,
-          title: content.split("\n")[0]?.slice(0, 40) ?? "工具产出",
-          type: "markdown",
-          content,
-          createdAt: new Date(ts),
-        }]
-      }
-    }
-
-    // ── 优先级 4：子任务 artifact 自动组装 ──
-    const st = subtasks()
-    const subArtifacts = st.flatMap((t) => t.artifactOutputs)
-    if (subArtifacts.length > 0) {
-      const subtaskTs = st.reduce((max, t) => Math.max(max, t.completedAt ?? 0), 0) || Date.now()
-      // Check if any subtask artifact is a full HTML document — use it directly
-      const fullDoc = subArtifacts.find((a) => /<!DOCTYPE\s+html/i.test(a.content) || /<html[\s>]/i.test(a.content))
-      if (fullDoc) {
-        return [maybeRepair({
-          id: `card-${props.messageID}-composed-from-subtask`,
-          title: "完整页面（组装）",
-          type: "html",
-          content: fullDoc.content,
-          artifactIdentifier: fullDoc.identifier + "-composed",
-          createdAt: new Date(subtaskTs),
-        })]
-      }
-      // Assemble HTML fragments into a full page
-      const styles = subArtifacts.map((a) => {
-        const matches = a.content.match(/<style[^>]*>([\s\S]*?)<\/style>/gi)
-        return matches ? matches.map((m) => m.replace(/<\/?style[^>]*>/gi, "")).join("\n") : ""
-      }).filter(Boolean).join("\n")
-      const bodies = subArtifacts.map((a) =>
-        a.content.replace(/<style[\s\S]*?<\/style>/gi, "").trim()
-      ).filter(Boolean).join("\n")
-      const assembled = `<!DOCTYPE html>
-        <html lang="zh-CN">
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>页面预览</title>
-            <style>
-            ${styles}
-            </style>
-          </head>
-          <body>
-            ${bodies}
-          </body>
-        </html>`
-      return [maybeRepair({
-        id: `card-${props.messageID}-composed-auto`,
-        title: "完整页面（自动组装）",
-        type: "html",
-        content: assembled,
-        artifactIdentifier: "auto-composed",
-        createdAt: new Date(subtaskTs),
-      })]
     }
 
     return []
@@ -1213,14 +1026,20 @@ const stateStatus = state.status as string | undefined
                       "max-width": "200px",
                     }}
                   >
-                    <Show when={att.mime?.startsWith("image/")}>
+                    <Show when={att.url && att.mime?.startsWith("image/")}>
                       <img
                         src={att.url}
-                        alt={att.filename || "attachment"}
+                        alt={att.filename}
                         style={{ "max-width": "32px", "max-height": "32px", "border-radius": "4px", "object-fit": "cover" }}
                       />
                     </Show>
-                    <span class="truncate">{att.filename || "attachment"}</span>
+                    <Show when={!att.url || !att.mime?.startsWith("image/")}>
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" style={{ "flex-shrink": "0" }}>
+                        <path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.6L13.4 2z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M13 2v6h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </Show>
+                    <span class="truncate">{att.filename}</span>
                   </div>
                 )}
               </For>
@@ -1345,7 +1164,7 @@ const stateStatus = state.status as string | undefined
                   </span>
                 </Show>
                 <Show when={task.status === "error"}>
-                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium" style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444" }}>
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium" style={{ background: "rgba(0,0,0,0.05)", color: "rgba(0,0,0,0.6)" }}>
                     错误
                   </span>
                 </Show>

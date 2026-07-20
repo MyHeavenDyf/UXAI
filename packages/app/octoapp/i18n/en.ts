@@ -1033,4 +1033,8 @@ export const dict = {
   "designFiles.timePrevious7Days": "Previous 7 Days",
   "designFiles.timePrevious30Days": "Previous 30 Days",
   "designFiles.timeOlder": "Older",
+
+  "mcp.toast.reconnecting.title": "MCP disconnected, reconnecting...",
+  "mcp.toast.reconnected.title": "MCP reconnected successfully",
+  "mcp.toast.reconnectFailed.title": "MCP reconnection failed",
 }

@@ -1,7 +1,7 @@
 import { Toast as Kobalte, toaster } from "@kobalte/core/toast"
 import type { ToastRootProps, ToastCloseButtonProps, ToastTitleProps, ToastDescriptionProps } from "@kobalte/core/toast"
 import type { ComponentProps, JSX } from "solid-js"
-import { Show } from "solid-js"
+import { onCleanup, Show } from "solid-js"
 import { Portal } from "solid-js/web"
 import { useI18n } from "../context/i18n"
 import { Icon, type IconProps } from "./icon"
@@ -115,9 +115,20 @@ export interface ToastOptions {
   actions?: ToastAction[]
 }
 
+const activeToastKeys = new Set<string>()
+
+function toastKey(opts: ToastOptions): string {
+  return `${opts.title ?? ""}::${opts.description ?? ""}`
+}
+
 export function showToast(options: ToastOptions | string) {
   const opts = typeof options === "string" ? { description: options } : options
-  return toaster.show((props) => (
+  const key = toastKey(opts)
+  if (activeToastKeys.has(key)) return -1
+  activeToastKeys.add(key)
+  return toaster.show((props) => {
+    onCleanup(() => { activeToastKeys.delete(key) })
+    return (
     <Toast
       toastId={props.toastId}
       duration={opts.duration}
@@ -154,7 +165,8 @@ export function showToast(options: ToastOptions | string) {
       </Toast.Content>
       <Toast.CloseButton />
     </Toast>
-  ))
+  )
+  })
 }
 
 export interface ToastPromiseOptions<T, U = unknown> {
