@@ -350,7 +350,7 @@ export function OctoSidebar(props: { width: number }): JSX.Element {
                             />
                           </Show>
                         <Show when={isWorking() || hasPermissions() || hasError() || unseenCount() > 0}>
-                          <div class="shrink-0 size-6 flex items-center justify-center">
+                          <div class="shrink-0 size-6 flex items-center justify-center absolute left-[12px]">
                             <Switch>
                               <Match when={isWorking()}>
                                 <Spinner class="size-[15px]" />
