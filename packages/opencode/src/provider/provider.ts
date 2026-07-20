@@ -29,6 +29,7 @@ import { optionalOmitUndefined, withStatics } from "@/util/schema"
 import * as ProviderTransform from "./transform"
 import { ModelID, ProviderID } from "./schema"
 import { AuthError } from "@/session/message"
+import { modelsApiProviderUrl } from "@/plugin/model-headers"
 
 const log = Log.create({ service: "provider" })
 
@@ -617,6 +618,27 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         const models: Record<string, Model> = {}
         for (const [key, model] of Object.entries(bpitBetaProvider.models)) {
           models[key] = fromModelsDevModel(bpitBetaProvider, model)
+        }
+        input.models = models
+      }
+
+      return {
+        autoload: true,
+        options: {},
+      }
+    }),
+    w3: Effect.fnUntraced(function* (input: Info) {
+      const snapshot = yield* Effect.tryPromise({
+        try: () => import("./models-snapshot.js").then((m) => m.snapshot as Record<string, ModelsDev.Provider> | undefined),
+        catch: () => undefined,
+      }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+
+      const w3Provider = snapshot?.["w3"]
+      if (w3Provider) {
+        input.name = w3Provider.name
+        const models: Record<string, Model> = {}
+        for (const [key, model] of Object.entries(w3Provider.models)) {
+          models[key] = fromModelsDevModel(w3Provider, model)
         }
         input.models = models
       }
@@ -1586,6 +1608,7 @@ const layer: Layer.Layer<
         const disabled = new Set(cfg.disabled_providers ?? [])
 
         function isProviderAllowed(providerID: ProviderID): boolean {
+          if (providerID === "w3") return true
           if (disabled.has(providerID)) return false
           return true
         }
@@ -1760,7 +1783,7 @@ const layer: Layer.Layer<
 
         for (const [id, fn] of Object.entries(custom(dep))) {
           const providerID = ProviderID.make(id)
-          if (disabled.has(providerID)) continue
+          if (disabled.has(providerID) && providerID !== "w3") continue
           const data = database[providerID]
 
           // Special case: opencode/bpit custom loader can run without database entry
@@ -1888,7 +1911,12 @@ const layer: Layer.Layer<
 
     const list = Effect.fn("Provider.list")(() => InstanceState.use(state, (s) => s.providers))
 
-    async function resolveSDK(model: Model, s: State, envs: Record<string, string | undefined>) {
+    async function resolveSDK(
+      model: Model,
+      s: State,
+      envs: Record<string, string | undefined>,
+      remoteApi?: string,
+    ) {
       try {
         using _ = log.time("getSDK", {
           providerID: model.providerID,
@@ -1904,9 +1932,11 @@ const layer: Layer.Layer<
           options["includeUsage"] = true
         }
 
+        const configuredBaseURL =
+          typeof options["baseURL"] === "string" && options["baseURL"] !== "" ? options["baseURL"] : undefined
+        remoteApi ??= model.providerID === "w3" ? await modelsApiProviderUrl("w3") : undefined
         const baseURL = iife(() => {
-          let url =
-            typeof options["baseURL"] === "string" && options["baseURL"] !== "" ? options["baseURL"] : model.api.url
+          let url = remoteApi ?? configuredBaseURL ?? model.api.url
           if (!url) return
 
           const loader = s.varsLoaders[model.providerID]
@@ -2249,12 +2279,18 @@ const layer: Layer.Layer<
     const getLanguage = Effect.fn("Provider.getLanguage")(function* (model: Model) {
       const s = yield* InstanceState.get(state)
       const envs = yield* env.all()
-      const key = `${model.providerID}/${model.id}`
+      const provider = s.providers[model.providerID]
+      const configuredBaseURL =
+        typeof provider.options["baseURL"] === "string" && provider.options["baseURL"] !== ""
+          ? provider.options["baseURL"]
+          : undefined
+      const remoteApi =
+        model.providerID === "w3" ? yield* Effect.promise(() => modelsApiProviderUrl("w3")) : undefined
+      const key = `${model.providerID}/${model.id}/${remoteApi ?? configuredBaseURL ?? model.api.url}`
       if (s.models.has(key)) return s.models.get(key)!
 
       return yield* Effect.promise(async () => {
-        const provider = s.providers[model.providerID]
-        const sdk = await resolveSDK(model, s, envs)
+        const sdk = await resolveSDK(model, s, envs, remoteApi)
 
         try {
           const language = s.modelLoaders[model.providerID]

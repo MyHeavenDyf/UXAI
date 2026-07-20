@@ -17,7 +17,7 @@ export type ModifyElementData = {
   /** 文本内容（如为文本元素） */
   textContent: string
   /** 组件属性键值对 */
-  componentProps: Record<string, string>
+  componentProps: Record<string, string | boolean>
   /** 操作标签，用于版本记录摘要 */
   tag?: string
   /** 是否保存到版本历史 */
@@ -163,7 +163,7 @@ export async function handleModifyElement(
         for (const key of Object.keys(data.componentProps)) {
           const pv = (el.props as Record<string, unknown>)?.[key]
           if (pv && typeof pv === "object" && !Array.isArray(pv) && (pv as Record<string, unknown>).path) {
-            bindings.push({ path: (pv as Record<string, unknown>).path as string, newValue: data.componentProps[key] })
+            bindings.push({ path: (pv as Record<string, unknown>).path as string, newValue: String(data.componentProps[key]) })
           }
         }
       }
@@ -237,22 +237,23 @@ export async function handleModifyElement(
   }
 
 
-  function mergePropsSafe(target: Record<string, unknown>, source: Record<string, string>, before: Record<string, unknown>, skipBindings: boolean) {
+  function mergePropsSafe(target: Record<string, unknown>, source: Record<string, string | boolean>, before: Record<string, unknown>, skipBindings: boolean) {
     for (const key of Object.keys(source)) {
       const prev = before[key]
+      const val = source[key]
       if (skipBindings && prev && typeof prev === "object" && !Array.isArray(prev) && (prev as Record<string, unknown>).path) continue
-      if (typeof prev === "boolean") {
-        target[key] = source[key] === "true"
+      if (typeof prev === "boolean" && typeof val === "string") {
+        target[key] = val === "true"
       } else if (typeof prev === "number") {
-        const n = Number(source[key])
-        target[key] = isNaN(n) ? source[key] : n
+        const n = Number(val)
+        target[key] = isNaN(n) ? val : n
       } else {
-        target[key] = source[key]
+        target[key] = val
       }
     }
   }
 
-  function applyStateBindings(beforeProps: Record<string, unknown>, componentProps: Record<string, string>) {
+  function applyStateBindings(beforeProps: Record<string, unknown>, componentProps: Record<string, string | boolean>) {
     const state = (doc as any).state
     if (!state || typeof state !== "object") return
     for (const key of Object.keys(componentProps)) {
@@ -330,7 +331,7 @@ export async function handleModifyElement(
         // 生成版本摘要：优先使用 tag > componentProps.value > 属性键列表 > "快速修改"
         const summary = (
           data.tag ||
-          data.componentProps?.value ||
+          String(data.componentProps?.value ?? "") ||
           Object.keys(data.componentProps || {}).join(",") ||
           "快速修改"
         ).slice(0, 80)

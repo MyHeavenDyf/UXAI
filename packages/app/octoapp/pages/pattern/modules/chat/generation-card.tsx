@@ -6,12 +6,17 @@ export function GenerationCard(props: {
   canPreview: boolean
   cancelled: boolean
   error?: string
+  errorAgent?: string
+  errorCallId?: string
   needsConfirm: boolean
   confirmText?: { title: string; subtitle: string } | null
   onRetry?: () => void
 }): JSX.Element {
   const cardState = () => {
-    if (props.error) return { title: props.error, subtitle: "生成异常，请重试", badge: "gc-error-badge", badgeText: "失败" } as const
+    if (props.error) {
+      const parts = [props.errorAgent, "生成异常，请重试"].filter(Boolean)
+      return { title: props.error, subtitle: parts.join(" · "), badge: "gc-error-badge", badgeText: "失败" } as const
+    }
     if (props.needsConfirm && props.confirmText) return { title: props.confirmText.title, subtitle: props.confirmText.subtitle, badge: "gc-confirm-badge", badgeText: "待确认" } as const
     if (props.generating) return { title: "正在执行中", subtitle: "请稍候…", badge: "gc-gen-badge", badgeText: "生成中" } as const
     if (props.cancelled) return { title: "已取消", subtitle: "生成已中断", badge: "gc-cancel-badge", badgeText: "取消" } as const

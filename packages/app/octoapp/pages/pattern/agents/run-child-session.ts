@@ -4,6 +4,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { getResultFromMessages, extractJson } from '../utils/json-parser'
 import { logAgentCall } from "../utils/debug-log"
 import { validateSchema } from "../utils/schema-validator"
+import { type AgentError } from "../utils/error-msg"
 
 export type RunChildSessionInput = {
   sync?: any
@@ -38,6 +39,14 @@ export async function runChildSession(input: RunChildSessionInput): Promise<{ te
     fileParts, // 文件附件
   } = input
 
+  const tagError = (err: unknown, sessionId: string) => {
+    if (err instanceof Error) {
+      const e = err as AgentError
+      if (!e.agentName) e.agentName = agent
+      if (!e.agentCallId) e.agentCallId = sessionId
+    }
+  }
+
   try {
     let childSession: Session | undefined
     if (isRoot) {
@@ -68,8 +77,10 @@ export async function runChildSession(input: RunChildSessionInput): Promise<{ te
       parentSessionID,
       promptText,
       schema,
+      tagError,
     })
   } catch (err) {
+    tagError(err, parentSessionID)
     const message = err instanceof Error ? err.message : String(err)
     console.error(`[runChildSession] ${agent} 执行失败:`, message)
     return { text: "", childSessionId: parentSessionID, error: message }
@@ -89,8 +100,9 @@ async function processAgentResult(params: {
   childSessionID: string
   parentSessionID: string
   schema?: Record<string, unknown>
+  tagError: (err: unknown, sessionId: string) => void
 }): Promise<{ text: string; childSessionId: string; error?: string }> {
-  const { sync, client, agent, isRoot, extra, modelKey, fileParts, onSessionCreated, promptText, childSessionID, parentSessionID, schema } = params
+  const { sync, client, agent, isRoot, extra, modelKey, fileParts, onSessionCreated, promptText, childSessionID, parentSessionID, schema, tagError } = params
 
   if (sync?.session?.sync) await sync.session.sync(childSessionID)
   if (onSessionCreated && !isRoot) onSessionCreated(childSessionID)
@@ -107,20 +119,27 @@ async function processAgentResult(params: {
   })
 
   const stopWatch = watchRetryStatus(sync, childSessionID)
-  const result = await getResultFromMessages(sync, childSessionID, knownIds)
-  if (!result) throw new Error(`[${agent}] 模型未返回有效内容`)
-  const sessionId = isRoot ? parentSessionID : childSessionID
-  const cleaned = extractJson(result)
-  if (schema && cleaned) validateSchema(cleaned, schema, agent)
-  logAgentCall(agent, sessionId, promptText, cleaned ? JSON.stringify(cleaned, null, 2) : result)
+  try {
+    const result = await getResultFromMessages(sync, childSessionID, knownIds)
+    if (!result) throw new Error(`[${agent}] 模型未返回有效内容`)
+    const sessionId = isRoot ? parentSessionID : childSessionID
+    const cleaned = extractJson(result)
+    if (schema && cleaned) validateSchema(cleaned, schema, agent)
+    logAgentCall(agent, sessionId, promptText, cleaned ? JSON.stringify(cleaned, null, 2) : result)
 
-  const messageError = extractMessageError(sync, childSessionID, knownIds)
-  if (messageError) {
-    console.error(`[runChildSession] ${agent} 模型返回了错误:`, messageError)
-    return { text: result, childSessionId: sessionId, error: messageError }
+    const messageError = extractMessageError(sync, childSessionID, knownIds)
+    if (messageError) {
+      console.error(`[runChildSession] ${agent} 模型返回了错误:`, messageError)
+      return { text: result, childSessionId: sessionId, error: messageError }
+    }
+
+    return { text: result, childSessionId: sessionId }
+  } catch (err) {
+    tagError(err, isRoot ? parentSessionID : childSessionID)
+    throw err
+  } finally {
+    stopWatch()
   }
-
-  return { text: result, childSessionId: sessionId }
 }
 
 function extractMessageError(

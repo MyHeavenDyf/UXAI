@@ -6,7 +6,7 @@ import type { ElementRect, ContainerSize, ModifyElementData } from "./types"
 import {
   TEXT_ELEMENTS, LABEL_MAP, COMPONENT_ENUMS, ENUM_DEFAULTS, COMPONENT_PROPS,
   TW_FONT_SIZES, FW_TO_TW,
-  GRID_POSITIONS,
+  GRID_POSITIONS, BOOL_PROP_KEY_SET,
 } from "./constants"
 import { isTailwindToken, normalizeCssKeys, toHex } from "./utils"
 import { parseClass, type ParsedClassInfo } from "./class-parser"
@@ -1195,14 +1195,18 @@ export function PropertyEditorPopup(props: {
       c.match(/^(w|min-w|max-w|h|min-h|max-h)-/) && !c.startsWith('!') ? '!' + c : c
     ).join(' ')
 
-    const componentProps: Record<string, string> = {}
+    const componentProps: Record<string, string | boolean> = {}
     if (!isTextElement()) {
       for (const key of propKeys()) {
         if (key === 'className') continue
         const val = (editProps as Record<string, string>)[key]
         const isEnum = getEnumOptions(key).length > 0
         const hasRaw = (rawProps as Record<string, string>)[key] !== undefined
-        if (isEnum || val || hasRaw) componentProps[key] = val
+        if (isEnum || val || hasRaw) {
+          componentProps[key] = BOOL_PROP_KEY_SET.has(key)
+            ? val === 'true'
+            : val
+        }
       }
     }
 
@@ -1241,7 +1245,7 @@ export function PropertyEditorPopup(props: {
     if (editText() !== beforeText) changed.push({ prop: 'textContent', before: beforeText, after: editText() })
     for (const key of Object.keys(componentProps)) {
       const bv = (beforeProps[key] ?? '').toString()
-      if (componentProps[key] !== bv) changed.push({ prop: key, before: bv, after: componentProps[key] ?? '' })
+      if (componentProps[key] !== bv) changed.push({ prop: key, before: bv, after: String(componentProps[key] ?? '') })
     }
     logAgentCall('quick-modify', props.elementId, { className, componentProps, textContent: editText(), changed }, confirmData)
     props.onConfirm(confirmData)

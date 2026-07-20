@@ -13,6 +13,7 @@
 //                         opencode 按 user.tools[key] !== false 过滤本 turn 模型可见工具集
 //                         (packages/opencode/src/session/llm.ts resolveTools,上游原生机制,零服务端改动)。
 //                         非 chip turn:5 个业务工具全 false;chip turn:只放行选中那一个。
+//                         task 一律 false(SPEC-INS-021 §1:内部编排原语,不经用户提示词触发)。
 //   2. buildChipTemplate  chip 注入模板(spec §4):解析模式指令 + 迁入的 MCP 仪式段落(长任务规则 /
 //                         get_task_result 仪式 / 结果回复格式 / 文件引用铁律)。文件以会话 [附件]
 //                         区块为准(不在模板里复述清单,避免两处漂移)。
@@ -62,13 +63,19 @@ export type McpSelection = {
 export function buildToolGate(selectedTool?: string): Record<string, boolean> {
   const gate: Record<string, boolean> = {}
   for (const tool of MCP_BUSINESS_TOOLS) gate[mcpToolKey(tool)] = tool === selectedTool
+  // task 恒关、不分 chip 与否(SPEC-INS-021 §1 追加):task 是内部编排原语,不是用户能力入口——
+  // 用户 turn 里模型自发起子代理对用研场景零收益(token/时延/弱模型跑偏),子会话还会被点成
+  // "侧栏没有记录的对话"。agent 权限层保持 allow(白名单管常驻底线,turn 级由此 gate 管);
+  // 018 多文档分治那类**我们编排的 turn** 由构造方显式放行(届时给本函数加参数下发 task=true)。
+  gate["task"] = false
   if (selectedTool) {
     // chip turn 顺手关掉即兴逃生口(2026-07-07 内网验证教训):该 turn 的职责是一次**直接**工具
-    // 调用,task 子代理 / shell 在本 turn 没有正当用途,却是弱模型在 MCP 工具缺失(如内网连接故障)
+    // 调用,shell / webfetch 在本 turn 没有正当用途,却是弱模型在 MCP 工具缺失(如内网连接故障)
     // 时的模拟通道——实测出现过委托 task 子代理、用 shell 裸调 MCP HTTP、进而编造 task_id。
-    // 非 chip turn 不动(task 为后续多文档分治保留)。
-    gate["task"] = false
+    // (webfetch/websearch 非 chip turn 常驻可用,SPEC-INS-021 §1;bash 已在 agent 权限层常驻
+    // deny,此处再关一道无害。)
     gate["bash"] = false // shell 工具注册键(tool/shell/id.ts ToolID),显示名 Shell,含 pwsh/cmd 变体
+    gate["webfetch"] = false
   }
   return gate
 }
