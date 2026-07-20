@@ -47,8 +47,11 @@ import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
 import emptyFolderPng from "../../icons/empty_folder.png"
 import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload } from "../../icons/design-files-icons"
+import { ALLOWED_EXT, getExt } from "../../lib/upload"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { FileManagerToolbar } from "./toolbar"
 import { Breadcrumb } from "./breadcrumb"
+import { PreviewPane } from "./preview-pane"
 
 export function InsightFileManager(props: {
   refreshKey?: number
@@ -372,6 +375,7 @@ function FileManagerInner(props: {
     try {
       const result = await deleteInsightBatch(sdk.url, sdk.directory, paths)
       for (const path of paths) fileStore.deleteFile(path)
+      if (fileStore.previewFile() && paths.includes(fileStore.previewFile()!.path)) fileStore.setPreviewFile(null)
       fileStore.clearSelection()
       props.onCloseTabsByPath?.(paths)
       props.onRemoveAttachmentsByPath?.(paths)
@@ -383,6 +387,12 @@ function FileManagerInner(props: {
   }
 
   // ── 预览 / 打开 ────────────────────────────────────────────────
+  // 单击文件 → 右侧预览面板(对齐 make design-files-panel handlePreview)。
+  function handlePreview(file: InsightFile) {
+    if (file.isFolder) return
+    fileStore.setPreviewFile(file)
+    tracker.interaction({ module: "insight", name: "files-preview-file" })
+  }
   function handleOpenFile(file: InsightFile) {
     props.onOpenFile(file)
     tracker.interaction({ module: "insight", name: "files-open-in-tab" })
@@ -496,6 +506,7 @@ function FileManagerInner(props: {
                     onHeaderSort={handleHeaderSort}
                     onSelectAllPage={handleSelectAllPage}
                     onOpen={handleOpenFile}
+                    onPreview={handlePreview}
                     onAddToSession={props.onAddToSession ? handleAddToSession : undefined}
                     onDownload={handleDownload}
                     onDelete={handleDelete}
@@ -508,6 +519,20 @@ function FileManagerInner(props: {
           </Match>
         </Switch>
       </div>
+
+      {/* 右侧预览面板:单击文件行触发(对齐 make design-files-panel.tsx 的同款布局)。 */}
+      <Show when={fileStore.previewFile()}>
+        {(file) => (
+          <PreviewPane
+            file={file()}
+            sdkUrl={sdk.url}
+            sdkDirectory={sdk.directory || ""}
+            onClose={() => fileStore.setPreviewFile(null)}
+            onOpen={() => handleOpenFile(file())}
+            onDownload={() => handleDownload(file())}
+          />
+        )}
+      </Show>
     </div>
   )
 }
@@ -518,6 +543,7 @@ function FileTable(props: {
   onHeaderSort: (key: SortKey) => void
   onSelectAllPage: () => void
   onOpen: (file: InsightFile) => void
+  onPreview: (file: InsightFile) => void
   onAddToSession?: (file: InsightFile) => void
   onDownload: (file: InsightFile) => void
   onDelete: (file: InsightFile) => void
@@ -565,15 +591,15 @@ function FileTable(props: {
         <Show when={props.fileStore.isTopLevel()}>
           <SectionHeaderRow title="生成文件" collapsed={store().collapsedGenerated} onToggle={() => props.fileStore.toggleGeneratedSection()} />
           <Show when={!store().collapsedGenerated}>
-            <GroupedRows computed={props.fileStore.generated} fileStore={props.fileStore} onOpen={props.onOpen} onDownload={props.onDownload} onOpenInExplorer={props.onOpenInExplorer} />
+            <GroupedRows computed={props.fileStore.generated} fileStore={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onDownload={props.onDownload} onOpenInExplorer={props.onOpenInExplorer} />
           </Show>
           <SectionHeaderRow title="上传文件" collapsed={store().collapsedUploaded} onToggle={() => props.fileStore.toggleUploadedSection()} />
           <Show when={!store().collapsedUploaded}>
-            <GroupedRows computed={props.fileStore.uploaded} fileStore={props.fileStore} onOpen={props.onOpen} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />
+            <GroupedRows computed={props.fileStore.uploaded} fileStore={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />
           </Show>
         </Show>
         <Show when={!props.fileStore.isTopLevel()}>
-          <GroupedRows computed={props.fileStore.uploaded} fileStore={props.fileStore} onOpen={props.onOpen} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />
+          <GroupedRows computed={props.fileStore.uploaded} fileStore={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />
         </Show>
       </tbody>
     </table>
@@ -598,6 +624,7 @@ function GroupedRows(props: {
   computed: ReturnType<typeof createInsightFileStore>["uploaded"]
   fileStore: ReturnType<typeof createInsightFileStore>
   onOpen: (file: InsightFile) => void
+  onPreview: (file: InsightFile) => void
   onAddToSession?: (file: InsightFile) => void
   onDownload: (file: InsightFile) => void
   onDelete?: (file: InsightFile) => void
@@ -612,7 +639,7 @@ function GroupedRows(props: {
           {([kind, files]) => (
             <>
               <SubGroupHeaderRow label={kindLabel(kind)} />
-              <For each={files}>{(file) => <FileRow file={file} selected={props.fileStore.store.selected.has(file.path)} store={props.fileStore} onOpen={props.onOpen} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />}</For>
+              <For each={files}>{(file) => <FileRow file={file} selected={props.fileStore.store.selected.has(file.path)} store={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />}</For>
             </>
           )}
         </For>
@@ -623,7 +650,7 @@ function GroupedRows(props: {
             <>
               <SubGroupHeaderRow label={MODIFIED_SECTION_LABELS[section]} />
               <For each={props.computed.modifiedGroups()[section]}>
-                {(file) => <FileRow file={file} selected={props.fileStore.store.selected.has(file.path)} store={props.fileStore} onOpen={props.onOpen} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />}
+                {(file) => <FileRow file={file} selected={props.fileStore.store.selected.has(file.path)} store={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />}
               </For>
             </>
           )}
@@ -650,6 +677,7 @@ function FileRow(props: {
   selected: boolean
   store: ReturnType<typeof createInsightFileStore>
   onOpen: (file: InsightFile) => void
+  onPreview: (file: InsightFile) => void
   onAddToSession?: (file: InsightFile) => void
   onDownload: (file: InsightFile) => void
   onDelete?: (file: InsightFile) => void
@@ -659,14 +687,18 @@ function FileRow(props: {
   const [menuOpen, setMenuOpen] = createSignal(false)
   const [imageError, setImageError] = createSignal(false)
 
-  // 双击:文件夹 → 进入下一层;文件 → 在标签页中打开(对齐菜单"在标签页中打开"操作项)。
-  // 埋点统一收口在 handleOpenFile,这里不再重复上报 files-open-in-tab。
-  const handleDblClick = () => {
+  // 单击:文件夹 → 进入下一层;文件 → 右侧预览面板(对齐 make design-files-panel FileRow 的 onClick)。
+  // 复选框 / 菜单触发器自行 stopPropagation,不会误触发本行 onClick。
+  // 在标签页中打开 → 由行尾 `…` 菜单的"在标签页中打开"项触发(对齐 Design 同款交互,无双击打开)。
+  // 埋点统一收口在 handlePreview / handleOpenFile,这里只做行为路由。
+  const handleClick = (e: MouseEvent) => {
+    if (e.target instanceof HTMLInputElement) return
+    if (e.target instanceof HTMLButtonElement) return
     if (props.file.isFolder) {
       props.onNavigateFolder?.(props.file)
       tracker.interaction({ module: "insight", name: "files-navigate-folder" })
     } else {
-      props.onOpen(props.file)
+      props.onPreview(props.file)
     }
   }
 
@@ -676,7 +708,7 @@ function FileRow(props: {
       style={{ background: props.selected ? "var(--octo-brand-a8)" : "transparent", height: "78px" }}
       onMouseEnter={(e) => { if (!props.selected) e.currentTarget.style.background = "var(--octo-brand-a8)" }}
       onMouseLeave={(e) => { if (!props.selected) e.currentTarget.style.background = "transparent" }}
-      onDblClick={handleDblClick}
+      onClick={handleClick}
     >
       <td style={{ width: "48px", "min-width": "48px", "max-width": "48px", padding: "12px 16px", "box-sizing": "border-box", "vertical-align": "middle", "border-bottom": "1px solid var(--octo-border-divider)" }}>
         {/* 文件夹不参与批量选择(archive 不递归目录,批量删按文件口径),不显示复选框 */}
@@ -686,7 +718,6 @@ function FileRow(props: {
             checked={props.selected}
             onChange={() => props.store.toggleFileSelection(props.file.path)}
             onClick={(e) => e.stopPropagation()}
-            onDblClick={(e) => e.stopPropagation()}
             style={{ width: "16px", height: "16px", "border-radius": "2px", border: "1px solid var(--octo-border-input)", cursor: "pointer", "vertical-align": "middle", "accent-color": "var(--octo-brand)" }}
           />
         </Show>
@@ -716,7 +747,7 @@ function FileRow(props: {
             as="button"
             type="button"
             onClick={(e) => e.stopPropagation()}
-            class="flex items-center justify-center size-7 rounded-[4px] transition-colors hover:bg-[var(--octo-surface-hover)]"
+            class="flex items-center justify-center size-7 rounded-[4px] transition-colors hover:bg-[var(--octo-surface-hover)] outline-none"
             classList={{ "bg-[var(--octo-surface-hover)]": menuOpen() }}
             style={{ color: "var(--octo-text-secondary)" }}
           >
@@ -729,7 +760,12 @@ function FileRow(props: {
             >
               {/* 五项操作(对齐 Design):添加至会话区 / 在标签页中打开 / 打开所在文件夹 / 下载 / 删除 */}
               <Show when={props.onAddToSession && !props.file.isFolder}>
-                <MenuItem label="添加至会话区" onClick={() => { props.onAddToSession!(props.file); setMenuOpen(false) }} />
+                <MenuItem
+                  label="添加至会话区"
+                  disabled={!ALLOWED_EXT.includes(getExt(props.file.name) as (typeof ALLOWED_EXT)[number])}
+                  disabledHint="当前会话不支持上传该文件格式"
+                  onClick={() => { props.onAddToSession!(props.file); setMenuOpen(false) }}
+                />
                 <MenuDivider />
               </Show>
               <Show when={!props.file.isFolder}>
@@ -751,17 +787,30 @@ function FileRow(props: {
   )
 }
 
-function MenuItem(props: { label: string; onClick: () => void; danger?: boolean }): JSX.Element {
-  return (
+function MenuItem(props: { label: string; onClick: () => void; danger?: boolean; disabled?: boolean; disabledHint?: string }): JSX.Element {
+  const inner = (
     <button
       type="button"
-      onClick={props.onClick}
-      class="w-full h-[36px] px-3 rounded-[8px] text-left text-[14px] leading-[22px] hover:bg-[var(--octo-surface-hover)] transition-colors"
-      style={{ color: props.danger ? "var(--octo-danger, #dc2626)" : "var(--octo-text-primary)", "margin-bottom": props.danger ? "4px" : undefined }}
+      onClick={props.disabled ? undefined : props.onClick}
+      disabled={props.disabled}
+      class="w-full h-[36px] px-3 rounded-[8px] text-left text-[14px] leading-[22px] transition-colors outline-none"
+      classList={{
+        "hover:bg-[var(--octo-surface-hover)]": !props.disabled,
+        "cursor-not-allowed": props.disabled,
+      }}
+      style={{ color: props.danger ? "var(--octo-danger, #dc2626)" : props.disabled ? "var(--octo-text-disabled, #BFBFBF)" : "var(--octo-text-primary)", "margin-bottom": props.danger ? "4px" : undefined }}
     >
       {props.label}
     </button>
   )
+  if (props.disabled && props.disabledHint) {
+    return (
+      <Tooltip placement="left" value={props.disabledHint} contentStyle={{ "white-space": "nowrap", "max-width": "none", "z-index": "60" }}>
+        {inner}
+      </Tooltip>
+    )
+  }
+  return inner
 }
 
 function MenuDivider(): JSX.Element {

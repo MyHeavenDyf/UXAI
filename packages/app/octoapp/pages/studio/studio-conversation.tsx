@@ -392,7 +392,7 @@ export function StudioResultCanvas(props: {
               </For>
             </div>
             <div class="studio-canvas-body">
-              <Show when={props.showFileManager && !props.fileManagerDetailView}>
+              <div style={{ display: props.showFileManager && !props.fileManagerDetailView ? "contents" : "none" }}>
                 <StudioFileManager
                   studioCenterWidth={props.studioCenterWidth}
                   showStudioCenter={props.showStudioCenter}
@@ -402,7 +402,7 @@ export function StudioResultCanvas(props: {
                   onSelectMedia={props.onFileManagerSelectMedia}
                   sessionID={props.sessionID}
                 />
-              </Show>
+              </div>
               <Show when={!props.showFileManager || (props.showFileManager && props.fileManagerDetailView)}>
                 <div style="display:flex;flex-direction:column;flex:1;min-height:0;">
                 <Show when={props.showFileManager && props.fileManagerDetailView}>
@@ -665,7 +665,7 @@ export function StudioDetails(props: {
           <InfoRow label="时长" value={props.result.duration ? `${props.result.duration}秒` : "-"} />
         </Show>
         <Show when={!isVideoResult() && !isEditResult()}>
-          <InfoRow label="分辨率" value={props.image?.width && props.image.height ? `${props.image.width} x ${props.image.height}` : "-"} />
+          <InfoRow label="分辨率" value={props.image?.width && props.image?.height ? `${props.image.width} x ${props.image.height}` : "-"} />
         </Show>
         <InfoRow label="数量" value={`${props.result.images.length}`} />
         <InfoRow label="当前" value={`${Math.max(props.result.images.findIndex((item) => item.id === (props.selectedImageId ?? props.result.images[0]?.id)) + 1, 1)}/${props.result.images.length}`} />

@@ -21,7 +21,7 @@ function tabLocalPath(t: ResultTab): string | undefined {
   return t.source === "uri" ? materializedLocalPath(t.id) : undefined
 }
 
-export type ResultTabType = "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "code"
+export type ResultTabType = "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "code" | "image"
 
 /** 视图模式:preview=渲染态(markmap/表格/iframe/markdown),source=原始代码态。仅 toggle 类型有意义 */
 export type TabViewMode = "preview" | "source"
