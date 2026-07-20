@@ -1,10 +1,6 @@
 # Button 按钮使用规范
 
-### 用途
-
-按钮用于触发命令和操作，不用于纯信息展示。
-
-### Props
+## Props
 
 - `types`: `filled | outlined | text | link | icon`
 - `color`: `default | primary | danger`
