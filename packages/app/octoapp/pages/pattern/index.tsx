@@ -1,5 +1,5 @@
 import "./assets/style/pattern-tokens.css"
-import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
+import type { Message, Session, SessionStatus, UserMessage } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { showToast, Toast } from "@opencode-ai/ui/toast"
@@ -17,6 +17,8 @@ import { useNavigate, useParams } from "@solidjs/router"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider, useLocal } from "@/context/local"
+import { useTabModel } from "@/hooks/use-tab-model"
+import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { useLayout } from "@/context/layout"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { type Attachment } from "./modules/chat/attachment-bar"
@@ -77,6 +79,7 @@ function PatternContent() {
   const sync = useSync()
   const layout = useLayout()
   const local = useLocal()
+  useTabModel("pattern")
 
   onMount(() => { tracker.page({ module: "prototype", name: "pattern-page" }) })
 
@@ -252,6 +255,54 @@ function PatternContent() {
     }
     return result.sort((a, b) => (a.time?.created ?? 0) - (b.time?.created ?? 0))
   })
+
+  // Sync session model from user messages (same as insight/session pages).
+  const lastUserMessage = createMemo(() => {
+    const msg = userMessages().at(-1)
+    if (!msg || msg.role !== "user") return undefined
+    return msg as UserMessage | undefined
+  })
+
+  createEffect(
+    on(
+      () => lastUserMessage()?.id,
+      () => {
+        const msg = lastUserMessage()
+        if (!msg?.model) return
+        syncSessionModel(local, msg)
+        local.model.set(
+          { providerID: msg.model.providerID, modelID: msg.model.modelID },
+          { recent: true },
+        )
+      },
+    ),
+  )
+
+  // Populate saved.session[session] when messages are already loaded on session switch.
+  createEffect(
+    on(
+      () => params.id,
+      (id) => {
+        if (!id) return
+        const messages = (sync.data.message[id] ?? []) as Message[]
+        const lastUser = [...messages].reverse().find((m) => m.role === "user") as UserMessage | undefined
+        if (!lastUser?.model) return
+        local.session.restore({
+          sessionID: id,
+          agent: lastUser.agent ?? "",
+          model: {
+            providerID: lastUser.model.providerID,
+            modelID: lastUser.model.modelID,
+            variant: lastUser.model.variant,
+          },
+        })
+        local.model.set(
+          { providerID: lastUser.model.providerID, modelID: lastUser.model.modelID },
+          { recent: true },
+        )
+      },
+    ),
+  )
 
   const [sessionErrors, setSessionErrors] = createSignal<Record<string, string>>({})
   // per-session 暂停计时（需求确认 / 线框审查等待期间不计时）

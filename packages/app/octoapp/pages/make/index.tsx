@@ -3,6 +3,7 @@ import "./components/starter-cards.css"
 import "./components/slash-popover.css"
 import "./components/mention-popover.css"
 import { FEATURED_STARTERS } from "./utils/starter-prompts"
+import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import {
   fetchArtifactList,
   fetchArtifactContent,
@@ -48,6 +49,7 @@ import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 
 import { LocalProvider, useLocal } from "@/context/local"
+import { useTabModel } from "@/hooks/use-tab-model"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
@@ -150,6 +152,7 @@ function MakeContent() {
   const projectDir = useProjectDir()
 
   const local = useLocal()
+  useTabModel("make")
   const currentModel = () => local.model.current()
 
   createEffect(
@@ -161,7 +164,7 @@ function MakeContent() {
         if (!providerID || !modelID) return
         const cur = currentModel()
         if (cur && cur.provider.id === providerID && cur.id === modelID) return
-        local.model.set({ providerID, modelID }, { recent: true })
+        local.model.set({ providerID, modelID })
       },
       { defer: true },
     ),
@@ -199,7 +202,7 @@ function MakeContent() {
       () => params.id,
       (id, prevId) => {
         if (!id && prevId && lastSessionModel) {
-          local.model.set(lastSessionModel, { recent: true })
+          local.model.set(lastSessionModel)
         }
       },
     ),
@@ -577,6 +580,23 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!id) return []
     return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
   })
+
+  const lastUserMessage = createMemo(() => userMessages().at(-1))
+
+  createEffect(
+    on(
+      () => lastUserMessage()?.id,
+      () => {
+        const msg = lastUserMessage()
+        if (!msg) return
+        syncSessionModel(local, msg as any)
+        // Sync tab key so new conversations inherit this session's model.
+        if ((msg as any).model?.providerID && (msg as any).model?.modelID) {
+          local.model.set((msg as any).model, { recent: true })
+        }
+      },
+    ),
+  )
 
   const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
 
@@ -1365,6 +1385,7 @@ const sessionMessagesLoaded = createMemo(() => {
 const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
       const session = result.data as Session | undefined
       if (!session) return
+      local.session.promote(sdk.directory, session.id)
       const dsId = selectedDesignSystem()
 if (dsId) {
           localStorage.setItem(DS_KEY_PREFIX + session.id, dsId)
