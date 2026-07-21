@@ -269,6 +269,37 @@ export const COMPONENT_ENUMS: Record<string, EnumOption[]> = {
   ],
 }
 
+const BOOL_FALSE_FIRST = { label: '否', value: 'false' }
+const BOOL_TRUE_FIRST = { label: '是', value: 'true' }
+
+const BOOL_PAIR = [BOOL_FALSE_FIRST, BOOL_TRUE_FIRST]
+
+const BOOLEAN_KEYS = ['disabled', 'readonly', 'required', 'closable', 'dot', 'showZero', 'checked'] as const
+
+const BOOL_PROP_COMPONENTS: Record<string, string[]> = {
+  Input: ['disabled', 'readonly'],
+  InputNumber: ['disabled'],
+  TextArea: ['disabled'],
+  Select: ['disabled'],
+  DatePicker: ['disabled'],
+  TimePicker: ['disabled'],
+  Switch: ['disabled'],
+  Tag: ['closable'],
+  Badge: ['dot', 'showZero'],
+  Checkbox: ['checked', 'disabled'],
+  Radio: ['checked', 'disabled'],
+}
+
+for (const [component, keys] of Object.entries(BOOL_PROP_COMPONENTS)) {
+  for (const key of keys) {
+    COMPONENT_ENUMS[`${component}.${key}`] = BOOL_PAIR
+  }
+}
+
+const BOOL_PROP_KEY_SET = new Set<string>(BOOLEAN_KEYS)
+
+export { BOOL_PROP_KEY_SET }
+
 export const ENUM_DEFAULTS: Record<string, string> = {
   'Button.size': 'medium',
   'Button.iconPlacement': 'start',
@@ -283,28 +314,30 @@ export const COMPONENT_PROPS: Record<string, string[]> = {
   img: ['url', 'alt', 'preview', 'className'],
   Tabs: ['activeKey', 'types', 'tabPlacement', 'size', 'className'],
   Table: ['rowKey', 'rowClassName', 'className'],
-  Badge: ['color', 'status', 'className'],
+  Badge: ['color', 'status', 'showZero', 'dot', 'className'],
   Carousel: ['dotPlacement', 'className'],
   Collapse: ['expandIcon', 'expandIconPlacement', 'size', 'className'],
   Divider: ['orientation', 'size', 'titlePlacement', 'variant', 'className'],
   Segmented: ['orientation', 'size', 'className'],
-  Tag: ['size', 'variant', 'closeIcon', 'className'],
+  Tag: ['size', 'variant', 'closable', 'closeIcon', 'className'],
   Timeline: ['mode', 'orientation', 'variant', 'className'],
   TimelineItem: ['placement', 'className'],
-  DatePicker: ['picker', 'size', 'format', 'className'],
-  Input: ['size', 'prefix', 'suffix', 'className'],
-  InputNumber: ['size', 'className'],
+  DatePicker: ['picker', 'size', 'format', 'disabled', 'className'],
+  Input: ['size', 'prefix', 'suffix', 'disabled', 'readonly', 'className'],
+  InputNumber: ['size', 'disabled', 'className'],
   RadioGroup: ['orientation', 'optionType', 'size', 'className'],
   Rate: ['size', 'className'],
-  Select: ['size', 'mode', 'className'],
+  Select: ['size', 'mode', 'disabled', 'className'],
   Slider: ['orientation', 'className'],
-  Switch: ['size', 'checkedChildren', 'unCheckedChildren', 'className'],
-  TextArea: ['size', 'className'],
-  TimePicker: ['size', 'format', 'className'],
+  Switch: ['size', 'checkedChildren', 'unCheckedChildren', 'disabled', 'className'],
+  TextArea: ['size', 'disabled', 'className'],
+  TimePicker: ['size', 'format', 'disabled', 'className'],
   Dropdown: ['placement', 'className'],
   Menu: ['mode', 'className'],
   Steps: ['types', 'variant', 'orientation', 'status', 'size', 'className'],
   Progress: ['status', 'strokeColor', 'size', 'className'],
+  Checkbox: ['checked', 'disabled', 'className'],
+  Radio: ['checked', 'disabled', 'className'],
 }
 
 export const TW_FONT_SIZES: Record<string, number> = {

@@ -9,6 +9,7 @@ import CARD_EXAMPLE from "./prompt/stastics/CARD_EXAMPLE.txt"
 import LIST_EXAMPLE from "./prompt/stastics/LIST_EXAMPLE.txt"
 import TABS_EXAMPLE from "./prompt/stastics/TABS_EXAMPLE.txt"
 import FORM_EXAMPLE from "./prompt/stastics/FORM_EXAMPLE.txt"
+import OP_PROMPT from "./prompt/stastics/OP_PROMPT.txt"
 
 import _PROMPT_PROTO_INTENT from "./prompt/proto_intent.txt"
 import _PROMPT_PROTO_INTENT_AUDIT from "./prompt/proto_intent_audit.txt"
@@ -21,6 +22,9 @@ import _PROMPT_PROTO_PATTERN_PAGE from "./prompt/proto_pattern_page.txt"
 import _PROMPT_PROTO_PATTERN_BLOCK from "./prompt/proto_pattern_block.txt"
 import _PROMPT_PROTO_INTENT_CONFIRM from "./prompt/proto_intent_confirm.txt"
 import _PROMPT_PROTO_WFRAMES from "./prompt/proto_wireframes.txt"
+import _PROMPT_PROTO_MODIFY from "./prompt/proto_modify.txt"
+import _PROMPT_PROTO_REPLANNER from "./prompt/proto_replanner.txt"
+
 const data = {
   COMPONENTS_CATALOG,
   COMPONENTS_USAGE,
@@ -32,6 +36,7 @@ const data = {
   LIST_EXAMPLE,
   TABS_EXAMPLE,
   FORM_EXAMPLE,
+  OP_PROMPT,
 }
 
 function formatPrompt(template) {
@@ -53,3 +58,5 @@ export const PROMPT_PROTO_PATTERN_PAGE = formatPrompt(_PROMPT_PROTO_PATTERN_PAGE
 export const PROMPT_PROTO_PATTERN_BLOCK = formatPrompt(_PROMPT_PROTO_PATTERN_BLOCK)
 export const PROMPT_PROTO_INTENT_CONFIRM = formatPrompt(_PROMPT_PROTO_INTENT_CONFIRM)
 export const PROMPT_PROTO_WFRAMES = formatPrompt(_PROMPT_PROTO_WFRAMES)
+export const PROMPT_PROTO_MODIFY = formatPrompt(_PROMPT_PROTO_MODIFY)
+export const PROMPT_PROTO_REPLANNER = formatPrompt(_PROMPT_PROTO_REPLANNER)

@@ -1,6 +1,7 @@
 import { extractJson } from '../../utils/json-parser';
 import { runChildSession } from "../run-child-session"
 import { logAgentParsed } from "../../utils/debug-log"
+import { PLANNER_MODIFY_FORMAT } from "./schema"
 
 const AGENT_NAME = "proto_planner_modify"
 
@@ -73,7 +74,8 @@ export default async function proto_planner_modify(ctx: PlannerModifyContext): P
     client: sdk.client,
     prompt: humanMessage,
     directory: sdk.directory,
-    parentSessionID: rootSession
+    parentSessionID: rootSession,
+    schema: PLANNER_MODIFY_FORMAT.schema,
   })
   console.log("----- 布局修改Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 modify json

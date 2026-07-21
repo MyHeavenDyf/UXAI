@@ -9,9 +9,10 @@ export function isTailwindToken(cls: string): boolean {
 }
 
 export function _px(cls: string, prefix: string): number | null {
-  const m = cls.match(new RegExp(`${prefix}-\\[(\\d+)px\\]`))
+  const m = cls.match(new RegExp(`^${prefix}-\\[(\\d+)px\\]$`))
   if (m) return Number(m[1])
-  const n = Number(cls.startsWith(`${prefix}-`) ? cls.slice(prefix.length + 1) : '')
+  if (!cls.startsWith(`${prefix}-`)) return null
+  const n = Number(cls.slice(prefix.length + 1))
   if (!isNaN(n)) {
     const px = n * 4
     if ([0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64].includes(px)) return px

@@ -127,7 +127,6 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
   }
 
   const hasDirectory = createMemo(() => directory().length > 0)
-  const canConfirm = createMemo(() => hasDirectory() && !!selections.product && !!selections.version)
 
   return (
     <Portal>
@@ -200,11 +199,11 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         <button
           type="button"
           onClick={handleConfirm}
-          disabled={!canConfirm()}
+          disabled={!hasDirectory()}
           class="w-full h-[40px] rounded-md text-[14px] font-medium text-white"
           style={{
-            background: canConfirm() ? "#0a59f7" : "var(--octo-surface-disabled, #D1D5DB)",
-            cursor: canConfirm() ? "pointer" : "not-allowed",
+            background: hasDirectory() ? "#0a59f7" : "var(--octo-surface-disabled, #D1D5DB)",
+            cursor: hasDirectory() ? "pointer" : "not-allowed",
             color: "#fff",
           }}
         >
