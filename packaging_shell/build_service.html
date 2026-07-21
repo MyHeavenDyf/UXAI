@@ -149,9 +149,9 @@
           <article class="card">
             <div class="card-head"><h2>新建打包任务</h2><p>任务串行执行；结束后会自动清除本次任务产生的全部 Git 改动。</p></div>
             <form id="build-form" class="card-body">
-              <div class="field"><label for="baseBranch">基础代码分支</label><select id="baseBranch" name="baseBranch" required><option value="">正在读取本地分支...</option></select></div>
+              <div class="field"><label for="baseBranch">基础代码分支（当前本地项目）</label><div class="branch-row"><select id="baseBranch" name="baseBranch" required><option value="">正在读取本地分支...</option></select><button id="refresh-local-branches" class="secondary" type="button">刷新</button></div></div>
               <div class="field">
-                <label for="branch">下载分支</label>
+                <label for="branch">下载分支（MyHeavenDyf/UXAI）</label>
                 <div class="branch-row"><input id="branch" name="branch" list="remote-branch-options" placeholder="搜索并选择远端分支" autocomplete="off" required /><datalist id="remote-branch-options"></datalist><button id="refresh-branches" class="secondary" type="button">刷新</button></div>
               </div>
               <div class="field"><label for="version">应用版本</label><input id="version" name="version" value="0.1.0" placeholder="例如 0.3.11" required /></div>
@@ -296,7 +296,10 @@
         button.disabled = true
         button.classList.add("loading")
         button.textContent = "刷新中"
-        const response = await fetch(`/api/git/remote-branches${force ? "?refresh=1" : ""}`).catch(() => undefined)
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 23_000)
+        const response = await fetch(`/api/git/remote-branches${force ? "?refresh=1" : ""}`, { signal: controller.signal }).catch(() => undefined)
+        clearTimeout(timeout)
         button.disabled = false
         button.classList.remove("loading")
         button.textContent = "刷新"
@@ -311,7 +314,25 @@
         app.remoteBranches = result.branches
         $("branch").placeholder = "搜索并选择远端分支"
         renderRemoteBranches()
+        if (result.warning) return toast(result.warning, true)
         if (force) toast(`刷新成功，已获取 ${result.branches.length} 个远端分支`)
+      }
+
+      async function refreshLocalBranches() {
+        const button = $("refresh-local-branches")
+        button.disabled = true
+        button.classList.add("loading")
+        button.textContent = "刷新中"
+        const response = await fetch("/api/git").catch(() => undefined)
+        button.disabled = false
+        button.classList.remove("loading")
+        button.textContent = "刷新"
+        if (!response) return toast("本地分支刷新失败", true)
+        const result = await response.json()
+        if (!response.ok) return toast(result.error || "本地分支刷新失败", true)
+        app.git = result.git
+        renderGit()
+        toast(`刷新成功，已获取 ${result.git.branches.length} 个本地分支`)
       }
 
       function render() { renderJobs(); renderDetail(); renderGit() }
@@ -343,6 +364,7 @@
       })
 
       $("refresh-branches").addEventListener("click", () => refreshRemoteBranches(true).catch(() => toast("远端分支刷新失败", true)))
+      $("refresh-local-branches").addEventListener("click", () => refreshLocalBranches().catch(() => toast("本地分支刷新失败", true)))
 
       $("switch-branch").addEventListener("click", async () => {
         const branch = $("local-branch").value
@@ -378,7 +400,6 @@
 
       refresh().catch(() => toast("无法读取打包服务状态", true))
       refreshRemoteBranches().catch(() => toast("远端分支读取失败", true))
-      setInterval(() => fetch("/api/git").then((response) => response.json()).then((result) => { app.git = result.git; renderGit() }).catch(() => {}), 10000)
     </script>
   </body>
 </html>

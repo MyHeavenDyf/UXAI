@@ -20,7 +20,10 @@ BUILD_SERVICE_PORT=9000 bash packaging_shell/start_build_service.sh
 
 ## 页面能力
 
-- 为每个任务选择本地基础代码分支和 Git 远端下载分支，填写应用版本和构建环境。
+- 基础代码分支始终来自 `packaging_shell` 所在的当前本地 Git 项目。
+- 基础代码分支不定时轮询，需要时可通过页面刷新按钮立即重新读取。
+- 下载分支始终来自固定仓库 `https://github.com/MyHeavenDyf/UXAI.git`，不受当前项目 `origin` 配置影响。
+- 为每个任务选择基础代码分支和下载分支，填写应用版本和构建环境。
 - 构建环境仅支持 `beta` 和 `prod`。
 - 多人提交的任务按顺序串行执行。
 - 实时查看构建日志和任务状态。

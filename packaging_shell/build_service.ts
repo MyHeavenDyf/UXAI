@@ -20,6 +20,7 @@ type Job = {
 }
 
 const rootDir = path.resolve(import.meta.dir, "..")
+const sourceRepository = "https://github.com/MyHeavenDyf/UXAI.git"
 const artifactsRoot = path.join(import.meta.dir, "artifacts")
 const jobsFile = path.join(artifactsRoot, "jobs.json")
 const retentionMs = 3 * 24 * 60 * 60 * 1000
@@ -178,20 +179,39 @@ async function remoteBranches(force = false) {
   }
 
   const subprocess = Bun.spawn(
-    ["git", "-c", "http.proxy=", "-c", "https.proxy=", "ls-remote", "--heads", "origin"],
+    ["git", "-c", "http.proxy=", "-c", "https.proxy=", "ls-remote", "--heads", sourceRepository],
     { cwd: rootDir, stdout: "pipe", stderr: "pipe", env: processEnv() },
   )
-  const timeout = setTimeout(() => subprocess.kill(), 20_000)
-  const [stdout, stderr, exitCode] = await Promise.all([
+  const completion = Promise.all([
     new Response(subprocess.stdout).text(),
     new Response(subprocess.stderr).text(),
     subprocess.exited,
+  ]).then(([stdout, stderr, exitCode]) => ({ timedOut: false as const, stdout, stderr, exitCode }))
+  const timeout = { id: undefined as ReturnType<typeof setTimeout> | undefined }
+  const result = await Promise.race([
+    completion,
+    new Promise<{ timedOut: true }>((resolve) => {
+      timeout.id = setTimeout(() => {
+        subprocess.kill(9)
+        resolve({ timedOut: true })
+      }, 20_000)
+    }),
   ])
-  clearTimeout(timeout)
-  if (exitCode !== 0) return { error: stderr.trim() || "无法读取 Git 远端分支" }
+  if (timeout.id) clearTimeout(timeout.id)
+  if (result.timedOut) {
+    if (state.remoteBranches.branches.length) {
+      return {
+        branches: state.remoteBranches.branches,
+        fetchedAt: state.remoteBranches.fetchedAt,
+        warning: "固定仓库连接超时，当前显示上次成功获取的分支列表",
+      }
+    }
+    return { error: `连接 ${sourceRepository} 超时` }
+  }
+  if (result.exitCode !== 0) return { error: result.stderr.trim() || `无法读取 ${sourceRepository} 的分支` }
 
   state.remoteBranches = {
-    branches: stdout
+    branches: result.stdout
       .split("\n")
       .map((line) => line.split("\trefs/heads/")[1])
       .filter((branch): branch is string => Boolean(branch))
@@ -472,7 +492,7 @@ const server = Bun.serve({
     if (request.method === "GET" && url.pathname === "/api/git") return json({ git: await gitState() })
     if (request.method === "GET" && url.pathname === "/api/git/remote-branches") {
       const result = await remoteBranches(url.searchParams.get("refresh") === "1")
-      return "error" in result ? json(result, 502) : json(result)
+      return "error" in result ? json(result, 504) : json({ ...result, repository: sourceRepository })
     }
     if (request.method === "POST" && url.pathname === "/api/git/switch") return switchBranch(request)
     if (request.method === "POST" && url.pathname === "/api/jobs") return createJob(request)
