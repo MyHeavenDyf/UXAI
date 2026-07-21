@@ -88,7 +88,7 @@ bash packaging_shell/start_local_build_cluster.sh
 - 存在运行中或排队中的任务时禁止切换分支。
 - 只允许切换到打包机已有的本地分支。
 - 任务开始后产生的 Git 改动会通过 `git reset --hard HEAD` 和 `git clean -fd` 自动清理；`packaging_shell` 服务目录与 Git 已忽略的缓存、产物目录会保留。
-- 下载源码和安装依赖时从项目根目录 `.env.proxy`（或 `merge-option/.env.proxy`）读取 `HW_USER`、`HW_PASS`，通过内网代理访问外部资源。
+- 获取远端分支、下载源码和安装依赖时，从项目根目录 `.env.proxy`（或 `merge-option/.env.proxy`）读取 `HW_USER`、`HW_PASS`，通过内网代理访问外部资源。
 - 构建前设置 `NODE_TLS_REJECT_UNAUTHORIZED=0` 并执行 `bun install`；脚本不会主动打印代理账号和密码。
 
 ## 运行要求

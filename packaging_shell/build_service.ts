@@ -255,15 +255,55 @@ async function gitState() {
   }
 }
 
+function proxyConfigValue(content: string, key: string) {
+  const line = content
+    .split("\n")
+    .map((value) => value.trim())
+    .find((value) => new RegExp(`^(?:export\\s+)?${key}\\s*=`).test(value))
+  if (!line) return ""
+  const value = line.slice(line.indexOf("=") + 1).trim()
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    return value.slice(1, -1)
+  }
+  return value
+}
+
+async function proxyProcessEnv() {
+  const configured = Bun.env.PACKAGING_PROXY_ENV_FILE
+  const primary = configured || path.join(rootDir, ".env.proxy")
+  const fallback = path.join(rootDir, "merge-option", ".env.proxy")
+  const file = !configured && !(await Bun.file(primary).exists()) && (await Bun.file(fallback).exists()) ? fallback : primary
+  if (!(await Bun.file(file).exists())) return { error: `未找到代理配置文件: ${file}` }
+  const content = await Bun.file(file).text()
+  const user = proxyConfigValue(content, "HW_USER")
+  const password = proxyConfigValue(content, "HW_PASS")
+  if (!user || !password) return { error: `${file} 中缺少 HW_USER 或 HW_PASS` }
+  const host = proxyConfigValue(content, "HW_PROXY_HOST") || "proxyhk.huawei.com:8080"
+  const proxy = `http://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}`
+  const env = processEnv()
+  env.http_proxy = proxy
+  env.https_proxy = proxy
+  env.HTTP_PROXY = proxy
+  env.HTTPS_PROXY = proxy
+  env.NO_PROXY = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
+  env.no_proxy = env.NO_PROXY
+  env.GIT_TERMINAL_PROMPT = "0"
+  return { env }
+}
+
 async function remoteBranches(force = false) {
   if (!force && state.remoteBranches.branches.length && Date.now() - state.remoteBranches.fetchedAt < 60_000) {
     return { branches: state.remoteBranches.branches, fetchedAt: state.remoteBranches.fetchedAt }
   }
 
-  const subprocess = Bun.spawn(
-    ["git", "-c", "http.proxy=", "-c", "https.proxy=", "ls-remote", "--heads", sourceRepository],
-    { cwd: rootDir, stdout: "pipe", stderr: "pipe", env: processEnv() },
-  )
+  const proxy = await proxyProcessEnv()
+  if ("error" in proxy) return { error: proxy.error }
+  const subprocess = Bun.spawn(["git", "ls-remote", "--heads", sourceRepository], {
+    cwd: rootDir,
+    stdout: "pipe",
+    stderr: "pipe",
+    env: proxy.env,
+  })
   const completion = Promise.all([
     new Response(subprocess.stdout).text(),
     new Response(subprocess.stderr).text(),
