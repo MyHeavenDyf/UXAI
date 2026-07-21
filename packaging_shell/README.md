@@ -60,6 +60,8 @@ bash packaging_shell/start_local_build_cluster.sh
 
 模拟模式会设置 `BUILD_ALLOW_CROSS_TARGET=1`，用于测试任务分发和尝试跨平台构建。实际部署到三台电脑时不要设置该变量，各节点会拒绝与本机平台不一致的任务。
 
+本机模拟集群的三个节点共用 `UXAI/.env.proxy`，不需要把代理密码复制到两个测试项目。实际部署到三台电脑时，每台构建机都需要在自己的项目根目录准备 `.env.proxy`。
+
 ## 页面能力
 
 - 基础代码分支始终来自 `packaging_shell` 所在的当前本地 Git 项目。
@@ -86,7 +88,8 @@ bash packaging_shell/start_local_build_cluster.sh
 - 存在运行中或排队中的任务时禁止切换分支。
 - 只允许切换到打包机已有的本地分支。
 - 任务开始后产生的 Git 改动会通过 `git reset --hard HEAD` 和 `git clean -fd` 自动清理；`packaging_shell` 服务目录与 Git 已忽略的缓存、产物目录会保留。
-- 构建任务强制使用直连模式，不读取代理账号和密码。
+- 下载源码和安装依赖时从项目根目录 `.env.proxy`（或 `merge-option/.env.proxy`）读取 `HW_USER`、`HW_PASS`，通过内网代理访问外部资源。
+- 构建前设置 `NODE_TLS_REJECT_UNAUTHORIZED=0` 并执行 `bun install`；脚本不会主动打印代理账号和密码。
 
 ## 运行要求
 

@@ -2,14 +2,46 @@
 
 # Build and package desktop app tailored for current OS and Architecture
 
-# 强制直连，不读取 .env.proxy，也不继承当前终端中的代理配置。
-unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
-unset npm_config_proxy npm_config_https_proxy NPM_CONFIG_PROXY NPM_CONFIG_HTTPS_PROXY
-unset NODE_TLS_REJECT_UNAUTHORIZED
-export no_proxy="*"
-export NO_PROXY="*"
+# 从项目配置加载内网代理。
+PROJECT_ROOT="${PACKAGING_PROJECT_ROOT:-$(pwd)}"
+ENV_FILE="${PACKAGING_PROXY_ENV_FILE:-$PROJECT_ROOT/.env.proxy}"
+if [ -z "$PACKAGING_PROXY_ENV_FILE" ] && [ ! -f "$ENV_FILE" ] && [ -f "$PROJECT_ROOT/merge-option/.env.proxy" ]; then
+    ENV_FILE="$PROJECT_ROOT/merge-option/.env.proxy"
+fi
 
-echo "🌐 已启用直连模式（不使用代理）"
+if [ ! -f "$ENV_FILE" ]; then
+    echo "❌ 未找到 .env.proxy 配置文件！"
+    exit 1
+fi
+
+set -a
+. "$ENV_FILE"
+set +a
+
+if [ -z "$HW_USER" ] || [ -z "$HW_PASS" ]; then
+    echo "❌ $ENV_FILE 中缺少 HW_USER 或 HW_PASS"
+    exit 1
+fi
+
+PROXY_HOST="${HW_PROXY_HOST:-proxyhk.huawei.com:8080}"
+NO_PROXY_VAL="localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
+HW_USER_ENCODED="$(bun -e 'process.stdout.write(encodeURIComponent(Bun.env.HW_USER || ""))')"
+HW_PASS_ENCODED="$(bun -e 'process.stdout.write(encodeURIComponent(Bun.env.HW_PASS || ""))')"
+PROXY_URL="http://${HW_USER_ENCODED}:${HW_PASS_ENCODED}@${PROXY_HOST}"
+
+export http_proxy="$PROXY_URL"
+export https_proxy="$PROXY_URL"
+export HTTP_PROXY="$PROXY_URL"
+export HTTPS_PROXY="$PROXY_URL"
+export npm_config_proxy="$PROXY_URL"
+export npm_config_https_proxy="$PROXY_URL"
+export NPM_CONFIG_PROXY="$PROXY_URL"
+export NPM_CONFIG_HTTPS_PROXY="$PROXY_URL"
+export no_proxy="$NO_PROXY_VAL"
+export NO_PROXY="$NO_PROXY_VAL"
+export NODE_TLS_REJECT_UNAUTHORIZED=0
+
+echo "🌐 已加载代理配置文件 ($ENV_FILE)"
 
 # ========================================================
 # 🧠 1. 宽容处理：缺参数就默认为 beta
@@ -58,6 +90,13 @@ case "$BUILD_TARGET" in
 esac
 
 echo "🎯 构建机探测完成 -> 系统: $OS_TYPE, 架构: $ARCH_TYPE，目标平台: $BUILD_TARGET"
+
+echo "📦 NODE_TLS_REJECT_UNAUTHORIZED 已设置，开始安装项目依赖..."
+bun install
+if [ $? -ne 0 ]; then
+    echo "❌ bun install 执行失败，构建已终止！"
+    exit 1
+fi
 
 # 校验通过后再删除旧产物，避免发错构建机的任务影响现有安装包。
 if [ -d "packages/desktop/dist" ]; then
