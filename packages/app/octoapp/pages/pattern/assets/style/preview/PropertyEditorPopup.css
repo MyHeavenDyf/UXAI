@@ -11,7 +11,7 @@
 
 .property-editor-popup {
   position: absolute;
-  z-index: 200;
+  z-index: 203;
   width: 240px;
   max-height: 560px;
   background: #ffffff;

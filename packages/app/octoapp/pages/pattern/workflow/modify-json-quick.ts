@@ -17,7 +17,7 @@ export type ModifyElementData = {
   /** 文本内容（如为文本元素） */
   textContent: string
   /** 组件属性键值对 */
-  componentProps: Record<string, string>
+  componentProps: Record<string, string | boolean>
   /** 操作标签，用于版本记录摘要 */
   tag?: string
   /** 是否保存到版本历史 */
@@ -82,23 +82,36 @@ function buildParentMap(elements: { id: string; children?: unknown }[]) {
   return map
 }
 
-function findListDataPath(
+function resolveDataPath(
   elementId: string,
   elements: { id: string; props?: Record<string, unknown>; children?: unknown }[],
   parentMap: Map<string, string>,
-) {
+  indices: number[],
+): string[] | null {
   let current = elementId
+  let idx = 0
+  const segments: string[][] = []
   while (true) {
     const parentId = parentMap.get(current)
-    if (!parentId) return null
+    if (!parentId) break
     const parent = elements.find((e) => e.id === parentId)
-    if (!parent) return null
+    if (!parent) break
     if (parent.children && typeof parent.children === "object" && !Array.isArray(parent.children)) {
-      const path = (parent.children as Record<string, unknown>).path
-      if (typeof path === "string") return path
+      const p = (parent.children as Record<string, unknown>).path
+      if (typeof p === "string") {
+        const parts = p.replace(/^\//, "").split("/").filter(Boolean)
+        const seg: string[] = []
+        for (const part of parts) seg.push(part)
+        const ii = indices.length - 1 - idx
+        if (ii >= 0) seg.push(String(indices[ii]))
+        segments.unshift(seg)
+        idx++
+      }
     }
     current = parentId
   }
+  if (segments.length === 0) return null
+  return segments.flat()
 }
 
 /**
@@ -150,14 +163,14 @@ export async function handleModifyElement(
         for (const key of Object.keys(data.componentProps)) {
           const pv = (el.props as Record<string, unknown>)?.[key]
           if (pv && typeof pv === "object" && !Array.isArray(pv) && (pv as Record<string, unknown>).path) {
-            bindings.push({ path: (pv as Record<string, unknown>).path as string, newValue: data.componentProps[key] })
+            bindings.push({ path: (pv as Record<string, unknown>).path as string, newValue: String(data.componentProps[key]) })
           }
         }
       }
       if (bindings.length > 0) {
         const parentMap = buildParentMap(elements)
-        const listDataPath = findListDataPath(baseId, elements, parentMap)
-        if (listDataPath) {
+        const segments = resolveDataPath(baseId, elements, parentMap, indices)
+        if (segments) {
           const modules = ctx.getLastModules()
           const owningModule = modules.find((mod) =>
             (mod as Record<string, unknown>).elements &&
@@ -165,26 +178,34 @@ export async function handleModifyElement(
             ((mod as Record<string, unknown>).elements as { id: string }[]).some((e) => e.id === baseId)
           ) as Record<string, unknown> | undefined
           if (owningModule?.state) {
-            const state = owningModule.state as Record<string, unknown>
-            const dataPath = listDataPath.replace(/^\//, "")
-            const raw = state[dataPath]
-            if (raw && Array.isArray(raw) && indices[0] < raw.length) {
-              const arr = [...raw] as Record<string, unknown>[]
-              const item = { ...arr[indices[0]] }
+            let target: unknown = owningModule.state
+            const steps = segments.length - 2
+            for (let i = 0; i < steps; i += 2) {
+              const key = segments[i]
+              const idx = Number(segments[i + 1])
+              const arr = (target as Record<string, unknown>)[key]
+              if (!Array.isArray(arr) || idx >= arr.length) { target = undefined; break }
+              target = (arr as unknown[])[idx]
+            }
+            if (target) {
+              const arrName = segments[segments.length - 2]
+              const itemIdx = Number(segments[segments.length - 1])
+              const arr = [...((target as Record<string, unknown>)[arrName] as unknown[])]
+              const item = { ...(arr[itemIdx] as Record<string, unknown>) }
               for (const b of bindings) {
                 const pathParts = b.path.replace(/^\//, "").split("/")
-                let target: Record<string, unknown> = item
-                for (let i = 0; i < pathParts.length - 1; i++) {
-                  const k = pathParts[i]
-                  if (!target[k] || typeof target[k] !== "object") target[k] = {}
-                  target = target[k] as Record<string, unknown>
+                let t: Record<string, unknown> = item
+                for (let j = 0; j < pathParts.length - 1; j++) {
+                  const k = pathParts[j]
+                  if (!t[k] || typeof t[k] !== "object") t[k] = {}
+                  t = t[k] as Record<string, unknown>
                 }
-                if (target[pathParts[pathParts.length - 1]] !== b.newValue) {
-                  target[pathParts[pathParts.length - 1]] = b.newValue
+                if (t[pathParts[pathParts.length - 1]] !== b.newValue) {
+                  t[pathParts[pathParts.length - 1]] = b.newValue
                 }
               }
-              arr[indices[0]] = item
-              state[dataPath] = arr
+              arr[itemIdx] = item
+              ;(target as Record<string, unknown>)[arrName] = arr
 
               if (owningModule?.elements) {
                 const modEl = (owningModule.elements as { id: string; props?: Record<string, unknown> }[]).find((e) => e.id === baseId)
@@ -216,22 +237,23 @@ export async function handleModifyElement(
   }
 
 
-  function mergePropsSafe(target: Record<string, unknown>, source: Record<string, string>, before: Record<string, unknown>, skipBindings: boolean) {
+  function mergePropsSafe(target: Record<string, unknown>, source: Record<string, string | boolean>, before: Record<string, unknown>, skipBindings: boolean) {
     for (const key of Object.keys(source)) {
       const prev = before[key]
+      const val = source[key]
       if (skipBindings && prev && typeof prev === "object" && !Array.isArray(prev) && (prev as Record<string, unknown>).path) continue
-      if (typeof prev === "boolean") {
-        target[key] = source[key] === "true"
+      if (typeof prev === "boolean" && typeof val === "string") {
+        target[key] = val === "true"
       } else if (typeof prev === "number") {
-        const n = Number(source[key])
-        target[key] = isNaN(n) ? source[key] : n
+        const n = Number(val)
+        target[key] = isNaN(n) ? val : n
       } else {
-        target[key] = source[key]
+        target[key] = val
       }
     }
   }
 
-  function applyStateBindings(beforeProps: Record<string, unknown>, componentProps: Record<string, string>) {
+  function applyStateBindings(beforeProps: Record<string, unknown>, componentProps: Record<string, string | boolean>) {
     const state = (doc as any).state
     if (!state || typeof state !== "object") return
     for (const key of Object.keys(componentProps)) {
@@ -254,7 +276,7 @@ export async function handleModifyElement(
   }
 
   if (!found) {
-    const baseElementId = data.elementId.replace(/:\d+$/, "")
+    const baseElementId = parsed?.baseId ?? data.elementId.replace(/:\d+$/, "")
     for (const el of (doc as any).elements) {
       if (el.id === baseElementId) {
         found = true
@@ -270,17 +292,18 @@ export async function handleModifyElement(
   }
 
   if (found && (data.className || Object.keys(data.componentProps ?? {}).length > 0)) {
-    const baseElementId = data.elementId.replace(/:\d+$/, "")
+    const baseElementId = parsed?.baseId ?? data.elementId.replace(/:\d+$/, "")
     for (const el of (doc as any).elements) {
       if (el.id === baseElementId) {
         el.props = el.props || {}
         if (data.className) el.props.className = data.className
-        if (data.componentProps) mergePropsSafe(el.props, data.componentProps, (beforeProps as Record<string, unknown>) ?? (el.props as Record<string, unknown>), false)
-        if (data.componentProps) applyStateBindings((beforeProps as Record<string, unknown>) ?? (el.props as Record<string, unknown>), data.componentProps)
+        if (data.componentProps) mergePropsSafe(el.props, data.componentProps, (beforeProps as Record<string, unknown>) ?? (el.props as Record<string, unknown>), true)
+        if (data.componentProps && !parsed) applyStateBindings((beforeProps as Record<string, unknown>) ?? (el.props as Record<string, unknown>), data.componentProps)
         break
       }
     }
   }
+  debugger
   console.log("[Pattern] element modify diff:", {
     elementId: data.elementId,
     found,
@@ -308,7 +331,7 @@ export async function handleModifyElement(
         // 生成版本摘要：优先使用 tag > componentProps.value > 属性键列表 > "快速修改"
         const summary = (
           data.tag ||
-          data.componentProps?.value ||
+          String(data.componentProps?.value ?? "") ||
           Object.keys(data.componentProps || {}).join(",") ||
           "快速修改"
         ).slice(0, 80)

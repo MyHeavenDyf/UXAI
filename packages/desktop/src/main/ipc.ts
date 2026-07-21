@@ -36,6 +36,7 @@ import { convertTailwindToCSS } from "./tailwind-to-css"
 import { convertCssToTailwind } from "./tailwind-from-css"
 import { previewDistDir, getUploadsDir, setUploadsDir } from "./preview-server"
 import { pipelineRequest } from "../network/pipelineRequest"
+import { codeToHtml } from "./page-capture"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -487,6 +488,34 @@ export function registerIpcHandlers(deps: Deps) {
     } catch {
       return null
     }
+  })
+
+  ipcMain.handle("list-directory", async (_event: IpcMainInvokeEvent, dirPath: string) => {
+    const results: Array<{ path: string; type: 'file' | 'directory'; size?: number }> = []
+    
+    if (!existsSync(dirPath)) return results
+    
+    function walk(currentPath: string, basePath: string) {
+      const entries = readdirSync(currentPath, { withFileTypes: true })
+      for (const entry of entries) {
+        const fullPath = join(currentPath, entry.name)
+        const relativePath = fullPath.slice(basePath.length).replace(/^[\/\\]/, '')
+        
+        if (entry.isDirectory()) {
+          walk(fullPath, basePath)
+        } else {
+          const stat = statSync(fullPath)
+          results.push({ 
+            path: relativePath, 
+            type: 'file',
+            size: stat.size
+          })
+        }
+      }
+    }
+    
+    walk(dirPath, dirPath)
+    return results
   })
 
   ipcMain.handle("delete-file", async (_event: IpcMainInvokeEvent, path: string) => {
@@ -1002,6 +1031,17 @@ export function registerIpcHandlers(deps: Deps) {
       await rm(extractDir, { recursive: true, force: true }).catch(() => { })
     }
   })
+  // 页面资源捕获(CDP):创建隐藏窗口加载指定 URL,拦截全部网络响应,将所有资源(CSS/JS/图片/字体)内联为 data URI,生成单个自包含 HTML 文件。
+  ipcMain.handle(
+    "capture-page",
+    async (
+      _event: IpcMainInvokeEvent,
+      opts: { url: string; theme?: "light" | "dark"; waitForMs?: number },
+    ) => {
+      return codeToHtml(opts)
+    },
+  )
+
   // Pipeline API IPC — renderer 通过 window.api.pipelineRequest 调用, 主进程用 net.fetch 请求真实接口(绕 CORS)
   ipcMain.handle("pipeline-request", (_event: IpcMainInvokeEvent, url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) =>
     pipelineRequest(url, method, uiplusToken, body, headers))

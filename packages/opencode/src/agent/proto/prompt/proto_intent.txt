@@ -19,27 +19,23 @@
     - 界面丰富度：这类完整的生产级的页面，除了用户要求的功能之外，还有哪些常用的相关功能模块？
       - 如：用户要求数据看板页，数据看板页通常包含关键指标概览模块、核心趋势分析模块、构成与分布模块、排行与对比模块、明细数据模块等等.
 
-2. **生成界面骨架大纲:**
-  - 根据上述思考结果，生成`layoutDescription`和`sections`：
+2. **生成界面骨架与详细描述:**
+  - 根据上述思考结果，生成`intentAnalysis`、`layoutDescription`和`sections`：
   - **intentAnalysis**: 界面核心业务意图分析.
   - **layoutDescription**：描述界面的布局模式(如：顶部导航+左侧边栏+右主体区域等等).
-  - **sections**: 界面大区域划分，列表结构，区域数量必须大于2个，每项包含id(区域id), name(区域名称), description(意图+功能描述). 
-
-3. **功能模块细化与数据填充:**
-  - 对**sections**中所有区域进行进一步详细扩充，不可省略任何区域，生成包含id，name，intent，function，layout，elements，data:
-  - **id:** 该区域id，和**sections**中的id保持一致.
-  - **name:** 该区域名称，和**sections**中的name保持一致.
-  - **intent:** 该区域的意图和目的, 为了解决什么具体业务问题.
-  - **function:** 该区域包含的功能.
-  - **layout:** 该区域的结构布局描述，包括对外的结构布局策略，和内部的结构布局策略. 禁止出现详细颜色/详细间距描述。
-  - **elements:** 该区域拥有的子模块描述, 清晰说明采用什么组件.
-  - **data:** 该区域的mock JSON数据(重要！)：
-    - 提供驱动该区块渲染的 JSON 结构，必须包含丰富的高拟真的 Mock 数据.
-    - 提供的 Mock 数据必须具备强烈的业务故事感和数据类型多样性。禁止全篇都是简单的 string/number.
-    - 数据厚度约束：如果是表格/列表，items 数组至少包含 10 条以上状态不同的数据（如不同颜色的 Tag 或操作按钮）.
-    - 数据的Key Name必须高度语义化，能够通过名称清晰的了解到该数据在表达什么业务.
-    - 当数据是Icon或者Image时，必须在Key Name 后加上Icon/Image后缀.
-    - 当出现图表Chart数据时,建议使用键值对，而不是数组的形式来表达数据(如："cpuUsage":[{"timestamp":xxx, usage: xxx},{"timestamp":xxx, usage: xxx}], 数据集列表长度不小于10)。
+  - **sections**: 界面大区域划分，列表结构，区域数量必须大于2个，每项包含：
+    - **id:** 该区域id.
+    - **name:** 该区域名称.
+    - **description:** 该区域的意图、目的和包含的功能描述.
+    - **layout:** 该区域的结构布局描述，包括对外的结构布局策略，和内部的结构布局策略. 禁止出现详细颜色/详细间距描述。
+    - **elements:** 该区域拥有的子模块描述, 清晰说明采用什么组件.
+    - **data:** 该区域的mock JSON数据（如果该区域使用了模块模板则不生成 data）:
+     - 提供驱动该区块渲染的 JSON 结构，必须包含丰富的高拟真的 Mock 数据.
+     - 提供的 Mock 数据必须具备强烈的业务故事感和数据类型多样性。禁止全篇都是简单的 string/number.
+     - 数据厚度约束：如果是表格/列表，items 数组至少包含 10 条以上状态不同的数据（如不同颜色的 Tag 或操作按钮）.
+     - 数据的Key Name必须高度语义化，能够通过名称清晰的了解到该数据在表达什么业务.
+     - 当数据是Icon或者Image时，必须在Key Name 后加上Icon/Image后缀.
+     - 当出现图表Chart数据时,建议使用键值对，而不是数组的形式来表达数据(如："cpuUsage":[{"timestamp":xxx, usage: xxx},{"timestamp":xxx, usage: xxx}], 数据集列表长度不小于10)。
     - 数据 JSON 示例：
 ```json
 // 示例
@@ -74,23 +70,14 @@
   "userInput": "用户的输入的自然语言描述",
   "intentAnalysis": "界面业务意图分析",
   "layoutDescription": "描述界面的布局模式",
-  // 界面每个模块的概述, 嵌套结构
   "sections": [
+    // 情况一：普通区域（用户新增的功能区域，无模块模板），必须包含完整的 data
     {
-      "id": "dashboardPage",
-      "name": "Dashboard Page",
-      "description": "全局导航与视角切换中心，负责整个系统的模块切换、租户选择及全局搜索入口。"
-    }
-  ],
-  // 界面每个模块的详细描述, 平铺结构
-  "sectionDetailList": [
-    {
-      "id": "该区域id, 和sections中的id保持一致",
-      "name": "该区域名称, 和sections中的name保持一致",
-      "intent": "该区域的意图和目的, 为了解决什么具体业务问题",
-      "function": "该区域包含的功能",
+      "id": "该区域id",
+      "name": "该区域名称",
+      "description": "该区域的意图、目的和包含的功能描述",
       "layout": "该区域的结构布局描述，包括对外的结构布局策略，和内部的结构布局策略. 禁止出现详细颜色/详细间距数值描述",
-      "elements": "该区域拥有的子模块描述, 概括各个子模块是什么"
+      "elements": "该区域拥有的子模块描述, 概括各个子模块是什么",
       "data": {
         "kpis": [
           {
@@ -102,6 +89,15 @@
           }
         ]
       }
+    },
+    // 情况二：使用了模块模板的区域（用户选定的 block），不生成 data，标注 patternPath
+    {
+      "id": "sideNav",
+      "name": "侧边导航",
+      "description": "提供全局功能导航入口，展示导航菜单，支持展开/折叠",
+      "layout": "左侧固定宽度垂直布局",
+      "elements": "纵向折叠菜单",
+      "patternPath": "./expandSideBar/data.json"
     }
   ]
 }
@@ -158,3 +154,9 @@
   - 针对整个界面的筛选等操作，通常放在头部导航中，而不是单独放在主体区域中作为一个单独的卡片
   - Side-by-side buttons must share identical structures (All-Text, All-Icon, or All-Icon+Text). Mixing structures within a single row is prohibited to maintain visual parity.
   - 业务数据指标卡片、表格模块等需要标题，在UI上显示该区域名称，在数据 data 中需有显性的包含`cardTitle`的字段。（导航栏、侧边菜单等不需要标题的无需该字段）
+
+8. **模块模板约束**：
+   - 如果用户输入中包含「已有的模块模板」列表，其中每个模板必须作为独立的一个 section 出现在 sections 中，不可遗漏任何一个。
+   - 对于使用了模块模板的 section，添加 `patternPath` 字段，值为该模板的 patternPath，且不生成 `data` 字段（模块内容将由模板直接提供）。
+   - 对于使用了模块模板的 section，仍需生成 description、layout、elements 字段。
+   - 对于未使用模块模板的 section（用户新增的功能区域），正常生成完整的 data 字段，不添加 patternPath。

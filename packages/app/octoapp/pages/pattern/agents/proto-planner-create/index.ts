@@ -1,6 +1,7 @@
 import { extractJson } from '../../utils/json-parser';
 import { runChildSession } from '../run-child-session';
 import { logAgentParsed } from "../../utils/debug-log"
+import { PLANNER_CREATE_FORMAT } from "./schema"
 
 const AGENT_NAME = "proto_planner_create"
 
@@ -17,22 +18,24 @@ type ProtoPlannerCreateInput = {
   userInput: string
   // 页面意图
   intentDescription: string
+  // 额外补充信息
+  extra?: Record<string, unknown>
   // 子 session 创建回调
   onSessionCreated?: (childSessionID: string) => void
 }
 
 export default async function proto_planner_create(input: ProtoPlannerCreateInput) {
-  const { 
-    sdk, 
-    sync, 
-    modelKey, 
-    userInput, 
-    rootSession, 
-    intentDescription, 
-    onSessionCreated 
+  const {
+    sdk,
+    sync,
+    modelKey,
+    userInput,
+    rootSession,
+    intentDescription,
+    onSessionCreated
   } = input
-  // 组装输入提示词
-  const humanMessage = buildHumanMessage(intentDescription)
+  const patterns = input.extra?.patterns as any[] | undefined
+  const humanMessage = buildHumanMessage(intentDescription, patterns)
   console.log("----- 布局规划Agent开始执行 ----- ");
   const startTime = Date.now()
   // 执行 Agent
@@ -45,6 +48,7 @@ export default async function proto_planner_create(input: ProtoPlannerCreateInpu
     prompt: humanMessage,
     sync,
     onSessionCreated,
+    schema: PLANNER_CREATE_FORMAT.schema,
   })
   console.log("----- 布局规划Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 planner json
@@ -61,14 +65,24 @@ export default async function proto_planner_create(input: ProtoPlannerCreateInpu
   return returnValue
 }
 
-// 组装布局规划的输入文本
-function buildHumanMessage(intentDescription: string){
-  let humanMessage: string;
-  humanMessage = `请根据以下页面蓝图，设计外壳布局并指定下一步细化模块：
+function buildHumanMessage(intentDescription: string, patterns?: any[]){
+  let patternSection = "";
+  if (patterns && patterns.length > 0) {
+    const rootContainers = patterns.map(p => ({
+      patternPath: p.patternPath,
+      rootContainer: p.rootContainer,
+    }))
+    patternSection = `
+
+  [模块模板的根容器信息:] ==================================
+  对于 blueprint 中带有 patternPath 的 section，必须直接使用下面对应的 rootContainer 作为 slot 容器（包括 id、component、className），不要自行生成或修改这些容器的属性。
+
+  ${JSON.stringify(rootContainers, null, 2)}`;
+  }
+  return `请根据以下页面蓝图，设计外壳布局并指定下一步细化模块：
   [Page Blue_print:] ==================================
 
-  ${intentDescription}
+  ${intentDescription}${patternSection}
   `;
-  return humanMessage;
 }
 
