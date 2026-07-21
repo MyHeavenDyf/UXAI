@@ -1,15 +1,16 @@
-import COMPONENTS_CATALOG from "./prompt/stastics/COMPONENTS_CATALOG.txt"
-import component_usage from "./prompt/stastics/COMPONENTS_USAGE.txt"
-import DESIGN_SYSTEM_PROMPT_DEFAULT from "./prompt/stastics/DESIGN_SYSTEM_PROMPT.txt"
-import A2UI_JSON_PROTOCOL_RAW from "./prompt/stastics/A2UI_JSON_PROTOCOL.txt"
-import A2UI_SCHEMA from "./prompt/stastics/A2UI_SCHEMA.txt"
-import HTML5_SCHEMA from "./prompt/stastics/HTML5_SCHEMA.txt"
-import HTML_EXAMPLE from "./prompt/stastics/HTML_EXAMPLE.txt"
-import CARD_EXAMPLE from "./prompt/stastics/CARD_EXAMPLE.txt"
-import LIST_EXAMPLE from "./prompt/stastics/LIST_EXAMPLE.txt"
-import TABS_EXAMPLE from "./prompt/stastics/TABS_EXAMPLE.txt"
-import FORM_EXAMPLE from "./prompt/stastics/FORM_EXAMPLE.txt"
-import OP_PROMPT from "./prompt/stastics/OP_PROMPT.txt"
+import component_usage from "./prompt/stastics/component_usage.md"
+import a2ui_json_protocol_raw from "./prompt/stastics/a2ui_json_protocol.md"
+import a2ui_schema from "./prompt/stastics/a2ui_schema.md"
+import html5_schema from "./prompt/stastics/html5_schema.md"
+import html_example from "./prompt/stastics/html_example.md"
+import card_example from "./prompt/stastics/card_example.md"
+import list_example from "./prompt/stastics/list_example.md"
+import tabs_example from "./prompt/stastics/tabs_example.md"
+import form_example from "./prompt/stastics/form_example.md"
+import op_prompt from "./prompt/stastics/op_prompt.md"
+import brand_guide from "./prompt/stastics/brand_guide.md"
+import responsive_adaptive from "./prompt/stastics/responsive_adaptive.md"
+import design_system from "./prompt/stastics/design_system.md"
 
 import _RAW_INTENT from "./prompt/proto_intent.txt"
 import _RAW_INTENT_AUDIT from "./prompt/proto_intent_audit.txt"
@@ -26,17 +27,18 @@ import _RAW_MODIFY from "./prompt/proto_modify.txt"
 import _RAW_REPLANNER from "./prompt/proto_replanner.txt"
 
 const _staticData: Record<string, string> = {
-  COMPONENTS_CATALOG,
   component_usage,
-  DESIGN_SYSTEM_PROMPT: DESIGN_SYSTEM_PROMPT_DEFAULT,
-  A2UI_SCHEMA,
-  HTML5_SCHEMA,
-  HTML_EXAMPLE,
-  CARD_EXAMPLE,
-  LIST_EXAMPLE,
-  TABS_EXAMPLE,
-  FORM_EXAMPLE,
-  OP_PROMPT,
+  a2ui_schema,
+  html5_schema,
+  html_example,
+  card_example,
+  list_example,
+  tabs_example,
+  form_example,
+  op_prompt,
+  brand_guide,
+  responsive_adaptive,
+  design_system,  
 }
 
 export const staticData = _staticData
@@ -46,7 +48,7 @@ export function formatPrompt(template: string, overrides?: Record<string, string
   return template.replace(/\{(\w+)\}/g, (match, key) => merged[key] ?? match)
 }
 
-_staticData.A2UI_JSON_PROTOCOL = formatPrompt(A2UI_JSON_PROTOCOL_RAW)
+_staticData.a2ui_json_protocol = formatPrompt(a2ui_json_protocol_raw)
 
 export const PROMPT_PROTO_INTENT = formatPrompt(_RAW_INTENT)
 export const PROMPT_PROTO_INTENT_AUDIT = formatPrompt(_RAW_INTENT_AUDIT)
@@ -78,7 +80,7 @@ export const RAW_TEMPLATES: Record<string, string> = {
   proto_replanner: _RAW_REPLANNER,
 }
 
-export const DEFAULT_DESIGN_SYSTEM_PROMPT = DESIGN_SYSTEM_PROMPT_DEFAULT
-export const DEFAULT_COMPONENTS_CATALOG = COMPONENTS_CATALOG
-
+export const DEFAULT_DESIGN_SYSTEM = design_system
+export const DEFAULT_COMPONENT_USAGE = component_usage
+  
 export * as Proto from "."

@@ -97,5 +97,5 @@ AS Loop Syntax, `Tab/TabItem`, `Steps/StepItem`, `Table/TableRow`, `Collapse/Col
 ------
 
 # A2UI STRUCTURE SCHEMA
-{A2UI_SCHEMA}
+{a2ui_schema}
 

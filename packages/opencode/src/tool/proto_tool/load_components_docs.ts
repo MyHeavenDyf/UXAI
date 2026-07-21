@@ -57,6 +57,10 @@ function designSystemDir(id: string) {
   return path.join(homedir(), ".config", "octo", "prototype", id, "components")
 }
 
+function designDir(id: string) {
+  return path.join(homedir(), ".config", "octo", "prototype", id, "design")
+}
+
 export const Parameters = Schema.Struct({
   components: Schema.Array(Schema.String).annotate({
     description: '组件名称数组，例如 ["Table", "Tabs", "Button"]',
@@ -102,6 +106,7 @@ function indexComponentFiles(dir: string): Map<string, string> {
 // 按目录缓存文件路径映射，避免重复文件系统扫描
 const apiMapCache = new Map<string, Map<string, string>>()
 const exampleMapCache = new Map<string, Map<string, string>>()
+const designCompMapCache = new Map<string, Map<string, string>>()
 
 function getApiMap(apiDir: string) {
   if (!apiMapCache.has(apiDir)) apiMapCache.set(apiDir, indexComponentFiles(apiDir))
@@ -111,6 +116,11 @@ function getApiMap(apiDir: string) {
 function getExampleMap(exampleDir: string) {
   if (!exampleMapCache.has(exampleDir)) exampleMapCache.set(exampleDir, indexComponentFiles(exampleDir))
   return exampleMapCache.get(exampleDir)!
+}
+
+function getDesignCompMap(designCompDir: string) {
+  if (!designCompMapCache.has(designCompDir)) designCompMapCache.set(designCompDir, indexComponentFiles(designCompDir))
+  return designCompMapCache.get(designCompDir)!
 }
 
 type JsonSchema = Record<string, unknown>
@@ -353,8 +363,10 @@ export const LoadComponentsDocsTool = Tool.define(
           const ds = designSystem || (ctx.extra?.designSystem as string) || "default"
           const resolvedDs = ds === "default" ? "ICT3.1" : ds
           const baseDir = designSystemDir(resolvedDs)
+          const dDir = designDir(resolvedDs)
           const apiDir = path.join(baseDir, "api")
           const exampleDir = path.join(baseDir, "example")
+          const designCompDir = path.join(dDir, "components")
           log.info(`[load_components_docs] 请求组件: [${components.join(", ")}]，设计系统: ${ds} → ${resolvedDs}，目录: ${apiDir}`)
 
           // 发现当前设计系统下的可用组件和父子关系
@@ -369,6 +381,7 @@ export const LoadComponentsDocsTool = Tool.define(
 
           const apiMap = getApiMap(apiDir)
           const exampleMap = getExampleMap(exampleDir)
+          const designCompMap = getDesignCompMap(designCompDir)
 
           for (const comp of expanded) {
             if (!allComponents.includes(comp)) {
@@ -391,6 +404,16 @@ export const LoadComponentsDocsTool = Tool.define(
           log.info(`[load_components_docs] 有效组件: [${validComps.join(", ")}]，共 ${apiSchemas.length} 个 schema`)
 
           const resultParts: string[] = []
+
+          // 加载所有组件的 design/components 设计规范
+          const designParts: string[] = []
+          for (const comp of validComps) {
+            const designFile = designCompMap.get(comp.toLowerCase())
+            if (!designFile) continue
+            const content = yield* Effect.promise(() => readFile(designFile, "utf-8"))
+            designParts.push(content)
+          }
+          if (designParts.length > 0) resultParts.push(`# 前端组件视觉应用规范\n\n${designParts.join("\n\n---\n\n")}`)
 
           // 将 API schema 渲染为紧凑 Markdown
           if (apiSchemas.length > 0) {

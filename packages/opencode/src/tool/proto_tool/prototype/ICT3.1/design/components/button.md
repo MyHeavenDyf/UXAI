@@ -1,4 +1,4 @@
-# Button 按钮使用规范
+# button 按钮使用规范
 
 ## Props
 
