@@ -2,17 +2,51 @@ import { createMemo, createSignal, createEffect, on, onMount, onCleanup, Show } 
 import type { JSX } from "solid-js"
 import { buildSrcdoc, annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { cleanBridgeContent } from "../../utils/bridge-cleaner"
-import { getArtifactServeUrl, getArtifactRelativePath, pathToLocalUrl, isElectronDesktop } from "../../utils/artifact-file-api"
+import { getArtifactServeUrl, getArtifactRelativePath, pathToLocalUrl, isElectronDesktop, extractCommentFilePath } from "../../utils/artifact-file-api"
+import { directoryHeader } from "@/utils/headers"
+import { getDesktopApi } from "../../lib/electron-api"
 import { PreviewOverlay } from "../preview-overlay"
 import { InspectPanel } from "./inspect-panel"
 import { ManualEditPanel, emptyManualEditDraft, type ManualEditDraft } from "./manual-edit-panel"
 import { DrawOverlay } from "./draw-overlay"
+import { CommentHoverTooltip } from "./comment-hover-tooltip"
+import { CommentPopover, type FileComment } from "./comment-popover"
+import { ArchiveDialog, type ArchiveConfirmData } from "@/components/dialog-archive"
+import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
+import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion } from "../../utils/archive-utils"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
 import { showToast } from "@opencode-ai/ui/toast"
 import { tracker } from "@/utils/tracker"
 import "./inspect-panel.css"
 import "./manual-edit-panel.css"
+
+// Helper: Extract artifact filename from absolute or relative path
+function getArtifactFilename(filePath: string | undefined): string {
+  if (!filePath) return ''
+  // Handle both Windows (D:\path\file.html) and Unix (/path/file.html) paths
+  const parts = filePath.split(/[/\\]/)
+  return parts[parts.length - 1] || ''
+}
+
+// Helper: Get commenter info from localStorage.userInfo
+function getCommenterInfo(): { commenterName: string; commenterAccount: string; commenterAvatar: string } {
+  try {
+    const userInfoStr = localStorage.getItem("userInfo")
+    if (!userInfoStr) {
+      return { commenterName: "用户名", commenterAccount: "", commenterAvatar: "" }
+    }
+    const obj = JSON.parse(userInfoStr)
+    const nickName = obj.nickName || "用户名"
+    const account = obj.account || ""
+    const avatarUrl = account
+      ? `https://octo.hdesign.huawei.com/w3lab/rest/yellowpage/face/${account.replace(/[^\d]/g, '')}/120?ts=${Date.now()}`
+      : ""
+    return { commenterName: nickName, commenterAccount: account, commenterAvatar: avatarUrl }
+  } catch {
+    return { commenterName: "用户名", commenterAccount: "", commenterAvatar: "" }
+  }
+}
 
 // History management for Undo/Redo
 interface HistoryState {
@@ -93,13 +127,17 @@ export function HtmlRenderer(props: {
   inspecting?: boolean
   editing?: boolean
   drawing?: boolean
+  commenting?: boolean
+  archiving?: boolean
   onDrawActiveChange?: (active: boolean) => void
+  onResetArchiving?: () => void
   inspectPanel?: boolean
   onInspectTarget?: (target: InspectTarget | null) => void
   onSaveOverrides?: (overrides: Array<{ elementId: string; prop: string; value: string }>) => void
   onContentChange?: (content: string) => Promise<void>
   refreshKey?: number
   filePath?: string
+  commentFilePath?: string
   sessionId?: string
   sdkUrl?: string
   sdkDirectory?: string
@@ -116,6 +154,44 @@ export function HtmlRenderer(props: {
   const [editStyleVersion, setEditStyleVersion] = createSignal(0)
   const [editPanelPosition, setEditPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
   const [inspectPanelPosition, setInspectPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
+  const [commentHoverTarget, setCommentHoverTarget] = createSignal<{
+    elementId: string | null
+    tag: string
+    selector: string
+    text: string
+    position: { x: number; y: number; w: number; h: number }
+    htmlHint: string
+    label: string
+    note?: string
+    pinPosition?: { left: number; top: number; width: number; height: number }
+  } | null>(null)
+  const [commentTarget, setCommentTarget] = createSignal<{
+    elementId: string | null
+    tag: string
+    selector: string
+    text: string
+    position: { x: number; y: number; w: number; h: number }
+    htmlHint: string
+    label: string
+    hoverPoint?: { x: number; y: number }
+  } | null>(null)
+  const [editingComment, setEditingComment] = createSignal<FileComment | null>(null)
+  const [savedComments, setSavedComments] = createSignal<FileComment[]>([])
+  const [commentReadOnly, setCommentReadOnly] = createSignal(false)
+  const sortedComments = createMemo(() => {
+    const all = savedComments()
+    return [...all].sort((a, b) => a.createdAt - b.createdAt)
+  })
+  const currentCommentIndex = createMemo(() => {
+    const comment = editingComment()
+    if (!comment) return -1
+    return sortedComments().findIndex(c => c.id === comment.id)
+  })
+  const [commentPanelPosition, setCommentPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
+  const [externalClickSignal, setExternalClickSignal] = createSignal(0)
+  const [archiveDialogOpen, setArchiveDialogOpen] = createSignal(false)
+  const [archiveSuccessOpen, setArchiveSuccessOpen] = createSignal(false)
+  const [archiveSuccessPath, setArchiveSuccessPath] = createSignal("")
   const [saving, setSaving] = createSignal(false)
   
   // Pending style storage for Cancel/Save logic
@@ -175,6 +251,102 @@ export function HtmlRenderer(props: {
     return false
 }
   
+  // Sync archiving prop with dialog state
+  createEffect(() => {
+    setArchiveDialogOpen(props.archiving ?? false)
+  })
+  
+  // Handle archive confirm
+  async function handleArchiveConfirm(data: ArchiveConfirmData): Promise<void> {
+    const overlay = document.querySelector('.archive-dialog-overlay') as HTMLElement | null
+    const collisionOverlay = document.querySelector('.archive-collision-overlay') as HTMLElement | null
+    
+    try {
+      if (!iframeRef) {
+        showToast({ title: "归档失败", description: "无法获取页面内容" })
+        return
+      }
+      
+      if (overlay) {
+        overlay.style.visibility = 'hidden'
+      }
+      if (collisionOverlay) {
+        collisionOverlay.style.visibility = 'hidden'
+      }
+      
+      const screenshotBlob = await capturePageScreenshot(iframeRef)
+      
+      if (overlay) {
+        overlay.style.visibility = 'visible'
+      }
+      
+      const comments = savedComments()
+      const htmlContent = extractHtmlContent(props.content)
+      
+      const zipBlob = await createArchiveZip({
+        comments,
+        screenshotBlob,
+        htmlContent,
+        htmlFileName: getArtifactFilename(props.filePath),
+        htmlFilePath: props.filePath || "",
+        sessionId: props.sessionId || "",
+        projectDir: props.sdkDirectory || ""
+      })
+      
+      const isLoggedIn = !!localStorage.getItem("uiplusToken")
+      
+      if (isLoggedIn) {
+        const fileName = getArtifactFilename(props.filePath).replace(/\.html?$/i, "")
+        
+        let uploadResult: { success: boolean }
+        
+        if (data.isOverwrite && data.existingDeliverableId && data.existingDocId) {
+          await uploadCover(data.existingDeliverableId, screenshotBlob)
+          uploadResult = await uploadVersion(data.existingDocId, zipBlob)
+        } else {
+          const newDeliverable = await createDeliverable(data.teamId, fileName)
+          await uploadCover(newDeliverable.deliverableId, screenshotBlob)
+          uploadResult = await uploadVersion(newDeliverable.uniqueId, zipBlob)
+        }
+        
+        if (!uploadResult.success) {
+          throw new Error("归档上传失败")
+        }
+        
+        const pathStr = buildArchivePath({
+          spaceType: data.spaceType,
+          productName: data.productName,
+          versionDeliveryName: data.versionDeliveryName,
+          folderName: data.folderName
+        })
+        setArchiveSuccessPath(pathStr)
+        setArchiveSuccessOpen(true)
+        showToast({ title: "归档成功" })
+      } else {
+        const fileName = `${getArtifactFilename(props.filePath).replace(/\.html?$/i, "")}-archive.zip`
+        const url = URL.createObjectURL(zipBlob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = fileName
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+        showToast({ title: "归档完成", description: "ZIP文件已下载" })
+      }
+    } catch (err) {
+      if (overlay) {
+        overlay.style.visibility = 'visible'
+      }
+      if (collisionOverlay) {
+        collisionOverlay.style.visibility = 'visible'
+      }
+      console.error("[Archive] Failed:", err)
+      showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
+      throw err
+    }
+  }
+  
 // ★ Cache annotated HTML when content changes (ensure element IDs match)
 createEffect(on(() => props.content, () => {
   const html = extractHtmlContent(props.content)
@@ -207,6 +379,55 @@ createEffect(() => {
       top: padding
     })
   }
+})
+
+// Initialize floating position on first comment
+createEffect(() => {
+  if (props.commenting && commentTarget() && !commentPanelPosition()) {
+    const canvasWidth = iframeRef?.parentElement?.getBoundingClientRect()?.width || 800
+    const panelWidth = 340
+    const padding = 12
+    setCommentPanelPosition({
+      left: Math.max(padding, canvasWidth - panelWidth - padding),
+      top: padding
+    })
+  }
+})
+
+// Load comments when file path or session ID changes
+createEffect(() => {
+  if (!props.filePath || !props.sessionId) return
+  
+  const loadComments = async () => {
+    if (!props.sdkUrl || !props.sdkDirectory || !props.sessionId) return
+    
+    try {
+      const commentFilePath = props.commentFilePath || extractCommentFilePath(props.filePath || '', props.sessionId || '')
+      const res = await fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath=${encodeURIComponent(commentFilePath)}`, {
+        headers: { ...directoryHeader(props.sdkDirectory) }
+      })
+      if (!res.ok) {
+        if (res.status === 404) {
+          setSavedComments([])
+          return
+        }
+        throw new Error(`Load comments failed: ${res.status}`)
+      }
+      
+      const data = await res.json()
+      const comments: FileComment[] = data.comments || []
+      setSavedComments(comments)
+      
+      iframeRef?.contentWindow?.postMessage(
+        { type: "od:comment-saved-pins", comments },
+        "*"
+      )
+    } catch (err) {
+      console.error('[Comment] Load failed:', err)
+    }
+  }
+  
+  loadComments()
 })
   
   // Flush pending styles to HTML (Save button) - uses iframe snapshot for ID match
@@ -424,6 +645,7 @@ createEffect(() => {
       inspectBridge: true,
       editBridge: true,
       snapshotBridge: true,
+      commentBridge: true,
       annotateElements: true,
     }) + (key > 0 ? `<script data-refresh-key="${key}"></script>` : "")
   })
@@ -518,97 +740,240 @@ createEffect(() => {
     onCleanup(() => window.removeEventListener("message", handleMessage))
   })
 
-  // Listen to edit messages from iframe
-  createEffect(() => {
-    const iframe = iframeRef
-    if (!iframe || !props.editing) return
+// Listen to edit messages from iframe
+createEffect(() => {
+  const iframe = iframeRef
+  if (!iframe || !props.editing) return
 
-    const handleMessage = (e: MessageEvent) => {
-      if (e.source !== iframe.contentWindow) return
-      const d = e.data
-      if (!d || typeof d !== "object") return
+  const handleMessage = (e: MessageEvent) => {
+    if (e.source !== iframe.contentWindow) return
+    const d = e.data
+    if (!d || typeof d !== "object") return
 
-      // ★ Handle in-place text edit commit
-      if (d.type === "od-edit-text-commit") {
-        const id = String(d.id)
-        const value = String(d.value)
+    // ★ Handle in-place text edit commit
+    if (d.type === "od-edit-text-commit") {
+      const id = String(d.id)
+      const value = String(d.value)
+      
+      // ★ Use iframe snapshot for ID match
+      void (async () => {
+        const html = await getIframeSnapshot()
         
-        // ★ Use iframe snapshot for ID match
-        void (async () => {
-          const html = await getIframeSnapshot()
-          
-          // Apply text patch
-          const result = applyManualEditPatch(html, {
-            id: id,
-            kind: 'set-text',
-            value: value
-          })
-          
-          if (result.ok) {
-            const cleanSource = cleanBridgeContent(result.source)
-            props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
-            pushHistory(cleanSource, `Edit text in-place`)
-            console.log("[Edit] In-place text edit saved:", id, value.slice(0, 50))
-          } else {
-            console.error("[Edit] In-place text edit failed:", result.error)
-          }
-        })()
-        return
-      }
-
-      // ★ Handle focus transfer request from in-place editing
-      if (d.type === "od:edit-focus-transfer") {
-        // Move focus to outer document (enable HTML undo/redo)
-        iframeRef?.blur()
-        window.focus()
-        console.log('[Edit] Focus transferred to parent window')
-        return
-      }
-
-      if (d.type === "od:edit-selected") {
-        const target: ManualEditTarget = d.target
-        
-        // Save previous element's pending changes before switching
-        const prevId = editTarget()?.id
-        if (prevId && prevId !== target.id) {
-          if (manualEditPendingStyle?.id === prevId || manualEditPendingText?.id === prevId) {
-            const flushOk = flushManualEditStyleSave()
-            if (!flushOk) {
-              console.error("[Edit] Failed to flush pending changes before switch")
-              return
-            }
-          }
-        }
-        
-        setEditTarget(target)
-        manualEditPendingStyle = null
-        manualEditPendingText = null
-        
-        // Initialize draft from target + source
-        const html = extractHtmlContent(props.content)
-        const fields = readManualEditFields(html, target.id)
-        setEditDraft({
-          text: fields.text ?? target.fields.text ?? target.text,
-          href: fields.href ?? target.fields.href ?? '',
-          src: fields.src ?? target.fields.src ?? '',
-          alt: fields.alt ?? target.fields.alt ?? '',
-          styles: inspectorManualEditStyles(target, html),
-          attributesText: JSON.stringify(readManualEditAttributes(html, target.id), null, 2),
-          outerHtml: readManualEditOuterHtml(html, target.id) || target.outerHtml,
-          fullSource: html,
+        // Apply text patch
+        const result = applyManualEditPatch(html, {
+          id: id,
+          kind: 'set-text',
+          value: value
         })
         
-        // Send selected-target message to set persistent outline
-        iframe.contentWindow?.postMessage(
-          { type: "od:edit-selected-target", id: target.id },
-          "*"
-        )
+        if (result.ok) {
+          const cleanSource = cleanBridgeContent(result.source)
+          props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
+          pushHistory(cleanSource, `Edit text in-place`)
+          console.log("[Edit] In-place text edit saved:", id, value.slice(0, 50))
+        } else {
+          console.error("[Edit] In-place text edit failed:", result.error)
+        }
+      })()
+      return
+    }
+
+    // ★ Handle focus transfer request from in-place editing
+    if (d.type === "od:edit-focus-transfer") {
+      // Move focus to outer document (enable HTML undo/redo)
+      iframeRef?.blur()
+      window.focus()
+      console.log('[Edit] Focus transferred to parent window')
+      return
+    }
+
+    if (d.type === "od:edit-selected") {
+      const target: ManualEditTarget = d.target
+      
+      // Save previous element's pending changes before switching
+      const prevId = editTarget()?.id
+      if (prevId && prevId !== target.id) {
+        if (manualEditPendingStyle?.id === prevId || manualEditPendingText?.id === prevId) {
+          const flushOk = flushManualEditStyleSave()
+          if (!flushOk) {
+            console.error("[Edit] Failed to flush pending changes before switch")
+            return
+          }
+        }
+      }
+      
+      setEditTarget(target)
+      manualEditPendingStyle = null
+      manualEditPendingText = null
+      
+      // Initialize draft from target + source
+      const html = extractHtmlContent(props.content)
+      const fields = readManualEditFields(html, target.id)
+      setEditDraft({
+        text: fields.text ?? target.fields.text ?? target.text,
+        href: fields.href ?? target.fields.href ?? '',
+        src: fields.src ?? target.fields.src ?? '',
+        alt: fields.alt ?? target.fields.alt ?? '',
+        styles: inspectorManualEditStyles(target, html),
+        attributesText: JSON.stringify(readManualEditAttributes(html, target.id), null, 2),
+        outerHtml: readManualEditOuterHtml(html, target.id) || target.outerHtml,
+        fullSource: html,
+      })
+      
+      // Send selected-target message to set persistent outline
+      iframe.contentWindow?.postMessage(
+        { type: "od:edit-selected-target", id: target.id },
+        "*"
+      )
+    }
+  }
+
+  window.addEventListener("message", handleMessage)
+  onCleanup(() => window.removeEventListener("message", handleMessage))
+})
+
+// Listen to comment messages from iframe (always registered, not dependent on props.commenting)
+createEffect(() => {
+  const iframe = iframeRef
+  if (!iframe) return
+
+  const handleMessage = (e: MessageEvent) => {
+    if (e.source !== iframe.contentWindow) return
+    const d = e.data
+    if (!d || typeof d !== "object") return
+
+    if (d.type === "od:comment-request-pins") {
+      const comments = savedComments()
+      iframeRef?.contentWindow?.postMessage(
+        { type: "od:comment-saved-pins", comments },
+        "*"
+      )
+    }
+
+    if (d.type === "od:comment-pin-hover") {
+      const commentId = d.commentId
+      const comment = savedComments().find(c => c.id === commentId)
+      if (comment) {
+        setCommentHoverTarget({
+          elementId: comment.elementId,
+          tag: comment.elementId.split('-')[0] || 'div',
+          selector: comment.selector,
+          text: comment.text,
+          position: comment.position,
+          htmlHint: comment.htmlHint,
+          label: comment.label,
+          note: comment.note,
+          pinPosition: d.position,
+        })
       }
     }
 
-    window.addEventListener("message", handleMessage)
-    onCleanup(() => window.removeEventListener("message", handleMessage))
-  })
+    if (d.type === "od:comment-pin-leave") {
+      setCommentHoverTarget(null)
+    }
+
+    if (d.type === "od:comment-external-click") {
+      setExternalClickSignal(prev => prev + 1)
+    }
+
+    if (d.type === "od:comment-target") {
+      setCommentTarget({
+        elementId: d.elementId || null,
+        tag: d.tag,
+        selector: d.selector,
+        text: d.text,
+        position: d.position,
+        htmlHint: d.htmlHint,
+        label: d.label,
+        hoverPoint: d.hoverPoint,
+      })
+      setEditingComment(null)
+      setCommentReadOnly(false)
+      setCommentHoverTarget(null)
+    }
+
+    if (d.type === "od:comment-pin-click") {
+      const commentId = d.commentId
+      const comment = savedComments().find(c => c.id === commentId)
+      if (comment) {
+        setEditingComment(comment)
+        setCommentReadOnly(true)
+        const bounds = iframeRef?.getBoundingClientRect()
+        setCommentTarget({
+          elementId: comment.elementId,
+          tag: comment.elementId.split('-')[0] || 'div',
+          selector: comment.selector,
+          text: comment.text,
+          position: comment.position,
+          htmlHint: comment.htmlHint,
+          label: comment.label,
+          hoverPoint: {
+            x: comment.position.x * (bounds?.width || 800),
+            y: comment.position.y * (bounds?.height || 600)
+          },
+        })
+      }
+    }
+  }
+
+  window.addEventListener("message", handleMessage)
+  onCleanup(() => window.removeEventListener("message", handleMessage))
+})
+
+  // Switch to previous/next pin in sorted order
+  const switchToPrevPin = () => {
+    const sorted = sortedComments()
+    const idx = currentCommentIndex()
+    if (idx <= 0) return
+    const prevComment = sorted[idx - 1]
+    setEditingComment(prevComment)
+    setCommentReadOnly(true)
+    const bounds = iframeRef?.getBoundingClientRect()
+    setCommentTarget({
+      elementId: prevComment.elementId,
+      tag: prevComment.elementId.split('-')[0] || 'div',
+      selector: prevComment.selector,
+      text: prevComment.text,
+      position: prevComment.position,
+      htmlHint: prevComment.htmlHint,
+      label: prevComment.label,
+      hoverPoint: {
+        x: prevComment.position.x * (bounds?.width || 800),
+        y: prevComment.position.y * (bounds?.height || 600)
+      },
+    })
+    iframeRef?.contentWindow?.postMessage({
+      type: 'od:comment-set-active',
+      elementId: prevComment.elementId
+    }, '*')
+  }
+
+  const switchToNextPin = () => {
+    const sorted = sortedComments()
+    const idx = currentCommentIndex()
+    if (idx < 0 || idx >= sorted.length - 1) return
+    const nextComment = sorted[idx + 1]
+    setEditingComment(nextComment)
+    setCommentReadOnly(true)
+    const bounds = iframeRef?.getBoundingClientRect()
+    setCommentTarget({
+      elementId: nextComment.elementId,
+      tag: nextComment.elementId.split('-')[0] || 'div',
+      selector: nextComment.selector,
+      text: nextComment.text,
+      position: nextComment.position,
+      htmlHint: nextComment.htmlHint,
+      label: nextComment.label,
+      hoverPoint: {
+        x: nextComment.position.x * (bounds?.width || 800),
+        y: nextComment.position.y * (bounds?.height || 600)
+      },
+    })
+    iframeRef?.contentWindow?.postMessage({
+      type: 'od:comment-set-active',
+      elementId: nextComment.elementId
+    }, '*')
+  }
 
   // Send edit-mode toggle to iframe
   createEffect(() => {
@@ -623,17 +988,40 @@ createEffect(() => {
     }
   })
 
-  // Send inspect-mode toggle to iframe
+// Send inspect-mode toggle to iframe
   createEffect(() => {
     if (iframeRef && props.mode === "preview") {
       iframeRef.contentWindow?.postMessage(
         { type: "od:inspect-mode", enabled: !!props.inspecting },
         "*"
       )
-      // Clear inspect target when inspecting mode is turned off
       if (!props.inspecting) {
         setInspectTarget(null)
         props.onInspectTarget?.(null)
+      }
+    }
+  })
+  
+  // Send comment-mode toggle to iframe
+  createEffect(() => {
+    if (iframeRef && props.mode === "preview") {
+      iframeRef.contentWindow?.postMessage(
+        { type: "od:comment-mode", enabled: !!props.commenting },
+        "*"
+      )
+      // 评论模式开启时，主动发送评论数据
+      if (props.commenting) {
+        const comments = savedComments()
+        iframeRef.contentWindow?.postMessage(
+          { type: "od:comment-saved-pins", comments },
+          "*"
+        )
+      }
+      if (!props.commenting) {
+        setCommentHoverTarget(null)
+        setCommentTarget(null)
+        setEditingComment(null)
+        iframeRef.contentWindow?.postMessage({ type: 'od:comment-clear' }, '*')
       }
     }
   })
@@ -655,6 +1043,13 @@ createEffect(() => {
       if (props.inspecting) {
         iframe.contentWindow?.postMessage(
           { type: "od:inspect-mode", enabled: true },
+          "*"
+        )
+      }
+      // Re-send comment mode if still commenting
+      if (props.commenting) {
+        iframe.contentWindow?.postMessage(
+          { type: "od:comment-mode", enabled: true },
           "*"
         )
       }
@@ -955,10 +1350,476 @@ onExit={async () => {
   }
 }}
 onFloatingPositionChange={setEditPanelPosition}
-              />
-            </Show>
-        </DrawOverlay>
-      ) : (
+               />
+             </Show>
+             <Show when={props.commenting && commentHoverTarget()}>
+               <CommentHoverTooltip
+                 target={commentHoverTarget()!}
+                 iframeBounds={iframeRef?.getBoundingClientRect() ? { width: iframeRef.getBoundingClientRect().width, height: iframeRef.getBoundingClientRect().height } : { width: 800, height: 600 }}
+               />
+             </Show>
+<Show when={props.commenting && (commentTarget() || editingComment())}>
+<CommentPopover
+                  iframeBounds={iframeRef?.getBoundingClientRect() ? { width: iframeRef.getBoundingClientRect().width, height: iframeRef.getBoundingClientRect().height } : { width: 800, height: 600 }}
+                  target={editingComment() ? {
+                    elementId: editingComment()!.elementId,
+                    selector: editingComment()!.selector,
+                    label: editingComment()!.label,
+                    text: editingComment()!.text,
+                    position: editingComment()!.position,
+                    htmlHint: editingComment()!.htmlHint,
+                    hoverPoint: editingComment()!.hoverPoint || (() => {
+                      const bounds = iframeRef?.getBoundingClientRect()
+                      return {
+                        x: editingComment()!.position.x * (bounds?.width || 800),
+                        y: editingComment()!.position.y * (bounds?.height || 600)
+                      }
+                    })(),
+                  } : {
+                    elementId: commentTarget()!.elementId,
+                    selector: commentTarget()!.selector,
+                    label: commentTarget()!.label,
+                    text: commentTarget()!.text,
+                    position: commentTarget()!.position,
+                    htmlHint: commentTarget()!.htmlHint,
+                    hoverPoint: commentTarget()!.hoverPoint,
+                  }}
+comment={editingComment()}
+  externalClickSignal={externalClickSignal()}
+  allComments={sortedComments()}
+  readOnly={commentReadOnly()}
+  onPrevPin={switchToPrevPin}
+  onNextPin={switchToNextPin}
+onSave={(note, attachments, pendingFiles) => {
+                      const existing = editingComment()
+                      const target = commentTarget()
+                     
+                      const commenterInfo = existing ? {
+                        commenterName: existing.commenterName,
+                        commenterAccount: existing.commenterAccount,
+                        commenterAvatar: existing.commenterAvatar,
+                      } : getCommenterInfo()
+
+const comment: FileComment = {
+                         id: existing?.id || `comment-${Date.now()}`,
+                         filePath: props.filePath || '',
+                         elementId: existing?.elementId || target?.elementId || '',
+                         selector: existing?.selector || target?.selector || '',
+                         label: existing?.label || target?.label || '',
+                         text: existing?.text || target?.text || '',
+                         position: existing?.position || target?.position || { x: 0, y: 0, w: 0, h: 0 },
+                         htmlHint: existing?.htmlHint || target?.htmlHint || '',
+                         note,
+                         attachments,
+                         createdAt: existing?.createdAt || Date.now(),
+                         updatedAt: Date.now(),
+                         commenterName: commenterInfo.commenterName,
+                         commenterAccount: commenterInfo.commenterAccount,
+                         commenterAvatar: commenterInfo.commenterAvatar,
+                       }
+                    
+                    // Save to backend API
+                    if (!props.sdkUrl || !props.sdkDirectory) {
+                      showToast({ title: "保存失败", description: "缺少 SDK 配置" })
+                      return
+                    }
+                    
+fetch(`${props.sdkUrl}/comment/file`, {
+                        method: 'POST',
+                        headers: { 
+                          'Content-Type': 'application/json',
+                          ...directoryHeader(props.sdkDirectory)
+                        },
+body: JSON.stringify({
+                             sessionId: props.sessionId,
+                             commentFilePath: props.commentFilePath || extractCommentFilePath(comment.filePath, props.sessionId || ''),
+                             comment: {
+                              id: comment.id,
+                              filePath: comment.filePath,
+                             elementId: comment.elementId,
+                             selector: comment.selector,
+                             label: comment.label,
+                             text: comment.text,
+                             position: comment.position,
+                             htmlHint: comment.htmlHint,
+                             note: comment.note,
+                             attachments: comment.attachments || [],
+                             createdAt: comment.createdAt,
+                             updatedAt: comment.updatedAt,
+                             commenterName: comment.commenterName,
+                             commenterAccount: comment.commenterAccount,
+                             commenterAvatar: comment.commenterAvatar,
+                           }
+                         })
+                      })
+                     .then(res => {
+                       console.log('[Comment] First save response status:', res.status)
+                      if (!res.ok) throw new Error(`Save comment failed: ${res.status}`)
+                      return res.json()
+                    })
+                    .then(async data => {
+                      if (!data.ok) throw new Error('Save comment failed')
+                      
+                      // Batch upload pending files
+                      if (pendingFiles && pendingFiles.length > 0) {
+                        const api = getDesktopApi()
+                        if (!api?.getPathForFile) {
+                          showToast({ title: "附件添加失败", description: "需要在 Electron 环境中运行" })
+                        } else {
+                          try {
+                            const uploadPromises = pendingFiles.map(async file => {
+                              const sourceFilePath = api.getPathForFile!(file)
+                              
+                              const uploadRes = await fetch(`${props.sdkUrl}/comment/file/attachment`, {
+                                method: 'POST',
+                                headers: { 
+                                  'Content-Type': 'application/json',
+                                  ...directoryHeader(props.sdkDirectory!)
+                                },
+                                body: JSON.stringify({
+                                  sessionId: props.sessionId!,
+                                  commentFilePath: extractCommentFilePath(comment.filePath, props.sessionId || ''),
+                                  commentId: comment.id,
+                                  sourceFilePath,
+                                  filename: file.name,
+                                  mime: file.type,
+                                  size: file.size,
+                                })
+                              })
+                              
+                              if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`)
+                              
+                              const uploadData = await uploadRes.json()
+                              if (!uploadData.ok || !uploadData.attachment) throw new Error('Upload failed')
+                              
+                              return uploadData.attachment
+                            })
+                            
+                            const uploadedAttachments = await Promise.all(uploadPromises)
+                            
+                            console.log('[Comment] Uploaded attachments:', uploadedAttachments)
+                            
+                            // Update comment with all attachments
+                            const allAttachments = [...(comment.attachments || []), ...uploadedAttachments]
+                            
+                            console.log('[Comment] All attachments for second save:', allAttachments)
+                            
+await fetch(`${props.sdkUrl}/comment/file`, {
+                               method: 'POST',
+                               headers: { 
+                                 'Content-Type': 'application/json',
+                                 ...directoryHeader(props.sdkDirectory!)
+                               },
+body: JSON.stringify({
+                                  sessionId: props.sessionId,
+                                  commentFilePath: props.commentFilePath || extractCommentFilePath(comment.filePath, props.sessionId || ''),
+                                  comment: {
+                                   ...comment,
+                                   filePath: comment.filePath,
+                                   attachments: allAttachments,
+                                   updatedAt: Date.now(),
+                                 }
+                               })
+                             })
+                            .then(res => {
+                              console.log('[Comment] Second save response status:', res.status)
+                              if (!res.ok) throw new Error(`Second save failed: ${res.status}`)
+                              return res.json()
+                            })
+                            .then(data => {
+                              console.log('[Comment] Second save response data:', data)
+                              if (!data.ok) throw new Error('Second save failed')
+                            })
+                            
+                            showToast({ title: "评论已保存", description: `添加了 ${uploadedAttachments.length} 个附件` })
+                          } catch (uploadErr) {
+                            console.error('[Comment] Upload attachments error:', uploadErr)
+                            showToast({ title: "附件添加失败", description: "评论已保存，但部分附件添加失败" })
+                          }
+                        }
+                      } else {
+                        showToast({ title: "评论已保存" })
+                      }
+                      
+// Reload comments to get server-generated ID
+                        fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath=${encodeURIComponent(props.commentFilePath || extractCommentFilePath(comment.filePath, props.sessionId || ''))}`, {
+                         headers: { ...directoryHeader(props.sdkDirectory!) }
+                       })
+                        .then(res => res.json())
+ .then(serverData => {
+                           const serverComments: FileComment[] = serverData.comments || []
+                           setSavedComments(serverComments)
+                           
+                           iframeRef?.contentWindow?.postMessage(
+                            { type: "od:comment-saved-pins", comments: serverComments },
+                            "*"
+                          )
+                          
+ setCommentTarget(null)
+                           setEditingComment(null)
+                           setExternalClickSignal(0)
+                           iframeRef?.contentWindow?.postMessage({ type: 'od:comment-clear' }, '*')
+                          tracker.interaction({ module: "design", name: "save-comment" })
+                        })
+                   })
+                   .catch(err => {
+                     console.error('[Comment] Save failed:', err)
+                     showToast({ title: "保存失败", description: "无法保存评论到后端" })
+                   })
+                 }}
+                 onDelete={() => {
+                   const commentId = editingComment()?.id
+                   if (!commentId) return
+                   
+                   if (!props.sdkUrl || !props.sdkDirectory) {
+                     showToast({ title: "删除失败", description: "缺少 SDK 配置" })
+                     return
+                   }
+                   
+// Delete from backend API
+                     fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath=${encodeURIComponent(props.commentFilePath || extractCommentFilePath(props.filePath || '', props.sessionId || ''))}&commentId=${commentId}`, {
+                      method: 'DELETE',
+                      headers: { ...directoryHeader(props.sdkDirectory) }
+                    })
+                   .then(res => {
+                     if (!res.ok) throw new Error(`Delete comment failed: ${res.status}`)
+                     return res.json()
+                   })
+                   .then(data => {
+                     if (!data.ok) throw new Error('Delete comment failed')
+                     
+                     setSavedComments(prev => prev.filter(c => c.id !== commentId))
+                     iframeRef?.contentWindow?.postMessage(
+                       { type: "od:comment-saved-pins", comments: savedComments() },
+                       "*"
+                     )
+setCommentTarget(null)
+                      setEditingComment(null)
+                      iframeRef?.contentWindow?.postMessage({ type: 'od:comment-clear' }, '*')
+                      showToast({ title: "评论已删除" })
+                     tracker.interaction({ module: "design", name: "delete-comment" })
+                   })
+                   .catch(err => {
+                     console.error('[Comment] Delete failed:', err)
+                     showToast({ title: "删除失败", description: "无法删除评论" })
+                   })
+                 }}
+onClose={() => {
+                     setCommentTarget(null)
+                     setEditingComment(null)
+                     setExternalClickSignal(0)
+                     iframeRef?.contentWindow?.postMessage({ type: 'od:comment-clear' }, '*')
+                   }}
+onUploadAttachment={(file) => {
+                     const existingComment = editingComment()
+                     
+                     if (!existingComment) {
+                       showToast({ title: "请先保存评论", description: "新评论需要先保存才能添加附件" })
+                       return
+                     }
+                     
+                     const api = getDesktopApi()
+                     if (!api?.getPathForFile) {
+                       showToast({ title: "不支持", description: "需要在 Electron 环境中运行" })
+                       return
+                     }
+                     
+                     const sourceFilePath = api.getPathForFile(file)
+                     
+                     fetch(`${props.sdkUrl}/comment/file/attachment`, {
+                       method: 'POST',
+                       headers: { 
+                         'Content-Type': 'application/json',
+                         ...directoryHeader(props.sdkDirectory!)
+                       },
+body: JSON.stringify({
+                           sessionId: props.sessionId!,
+                           commentFilePath: props.commentFilePath || extractCommentFilePath(props.filePath || '', props.sessionId || ''),
+                           commentId: existingComment.id,
+                          sourceFilePath,
+                          filename: file.name,
+                          mime: file.type,
+                          size: file.size,
+                        })
+                     })
+                     .then(res => {
+                       if (!res.ok) throw new Error(`Upload failed: ${res.status}`)
+                       return res.json()
+                     })
+.then(data => {
+                        if (!data.ok || !data.attachment) throw new Error('Upload failed')
+                        
+const updatedComment = {
+                           ...existingComment,
+                           attachments: [...(existingComment.attachments || []), data.attachment],
+                           updatedAt: Date.now(),
+                         }
+                         
+                         setEditingComment(updatedComment)
+                         
+                         fetch(`${props.sdkUrl}/comment/file`, {
+                           method: 'POST',
+                           headers: { 'Content-Type': 'application/json', ...directoryHeader(props.sdkDirectory!) },
+                           body: JSON.stringify({
+                             sessionId: props.sessionId,
+                             commentFilePath: props.commentFilePath || extractCommentFilePath(updatedComment.filePath, props.sessionId || ''),
+                             comment: updatedComment
+                           })
+                         })
+                         .then(res => {
+                           if (!res.ok) throw new Error(`Auto-save failed: ${res.status}`)
+                           return res.json()
+                         })
+                         .then(saveData => {
+                           if (!saveData.ok) throw new Error('Auto-save failed')
+                           
+                           fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath=${encodeURIComponent(props.commentFilePath || extractCommentFilePath(updatedComment.filePath, props.sessionId || ''))}`, {
+                            headers: { ...directoryHeader(props.sdkDirectory!) }
+                          })
+                          .then(res => res.json())
+                          .then(serverData => {
+                            const serverComments: FileComment[] = serverData.comments || []
+                            setSavedComments(serverComments)
+                            
+                            iframeRef?.contentWindow?.postMessage(
+                              { type: "od:comment-saved-pins", comments: serverComments },
+                              "*"
+                            )
+                            
+                            showToast({ title: "附件添加成功", description: file.name })
+                          })
+                          .catch(reloadErr => {
+                            console.error('[Comment] Reload error:', reloadErr)
+                            showToast({ title: "附件添加成功（数据同步失败）", description: reloadErr.message })
+                          })
+                        })
+                        .catch(saveErr => {
+                          console.error('[Comment] Auto-save error:', saveErr)
+                          showToast({ title: "附件添加成功（评论同步失败）", description: saveErr.message })
+                        })
+                      })
+                     .catch(err => {
+                       console.error('[Comment] Upload error:', err)
+                       showToast({ title: "附件添加失败", description: err.message })
+                     })
+                   }}
+onDeleteAttachment={(attachmentId) => {
+                     const existingComment = editingComment()
+                     
+console.log('[Comment] Delete attachment request:', {
+                        attachmentId,
+                        sessionId: props.sessionId,
+                        filePath: getArtifactFilename(props.filePath),
+                        commentId: existingComment?.id,
+                        existingComment: existingComment,
+                      })
+                      
+                      if (!existingComment) {
+                        showToast({ title: "删除失败", description: "评论不存在" })
+                        return
+}
+                      
+                       fetch(`${props.sdkUrl}/comment/file/attachment/${attachmentId}?sessionId=${props.sessionId}&commentFilePath=${encodeURIComponent(extractCommentFilePath(props.filePath || '', props.sessionId || ''))}&commentId=${existingComment.id}`, {
+                        method: 'DELETE',
+                        headers: { ...directoryHeader(props.sdkDirectory!) }
+                      })
+                     .then(res => {
+                       console.log('[Comment] Delete response status:', res.status)
+                       if (!res.ok) throw new Error(`Delete failed: ${res.status}`)
+                       return res.json()
+                     })
+.then(data => {
+                        console.log('[Comment] Delete response data:', data)
+                        if (!data.ok) throw new Error('Delete failed')
+                        
+                        // Update editingComment's attachments
+                        const currentAttachments = existingComment.attachments || []
+                        const newAttachments = currentAttachments.filter(a => a.id !== attachmentId)
+                        
+                        const updatedComment = {
+                          ...existingComment,
+                          attachments: newAttachments,
+                          updatedAt: Date.now(),
+                        }
+                        
+                        setEditingComment(updatedComment)
+                        
+// Auto-save comment after attachment deletion
+                         fetch(`${props.sdkUrl}/comment/file`, {
+                           method: 'POST',
+                           headers: { 
+                             'Content-Type': 'application/json',
+                             ...directoryHeader(props.sdkDirectory!)
+                           },
+                           body: JSON.stringify({
+                             sessionId: props.sessionId,
+                             commentFilePath: props.commentFilePath || extractCommentFilePath(updatedComment.filePath, props.sessionId || ''),
+                             comment: {
+                               ...updatedComment,
+                               filePath: getArtifactFilename(updatedComment.filePath),
+                             }
+                           })
+                         })
+                        .then(res => {
+                          if (!res.ok) throw new Error(`Auto-save failed: ${res.status}`)
+                          return res.json()
+                        })
+.then(saveData => {
+                           if (!saveData.ok) throw new Error('Auto-save failed')
+                           console.log('[Comment] Auto-save after delete success')
+                           
+fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath=${encodeURIComponent(props.commentFilePath || extractCommentFilePath(updatedComment.filePath, props.sessionId || ''))}`, {
+                              headers: { ...directoryHeader(props.sdkDirectory!) }
+                            })
+                           .then(res => res.json())
+                           .then(serverData => {
+                             const serverComments: FileComment[] = serverData.comments || []
+                             setSavedComments(serverComments)
+                             
+                             iframeRef?.contentWindow?.postMessage(
+                               { type: "od:comment-saved-pins", comments: serverComments },
+                               "*"
+                             )
+                             
+                             showToast({ title: "附件删除成功" })
+                           })
+                           .catch(reloadErr => {
+                             console.error('[Comment] Reload error:', reloadErr)
+                             showToast({ title: "附件删除成功（数据同步失败）", description: reloadErr.message })
+                           })
+                         })
+                        .catch(saveErr => {
+                          console.error('[Comment] Auto-save error:', saveErr)
+                          showToast({ title: "附件删除成功（评论同步失败）", description: saveErr.message })
+                        })
+                      })
+                     .catch(err => {
+                       console.error('[Comment] Delete error:', err)
+                       showToast({ title: "附件删除失败", description: err.message })
+                     })
+}}
+                />
+              </Show>
+              <Show when={archiveDialogOpen()}>
+                <ArchiveDialog
+                  open={archiveDialogOpen()}
+                  onClose={() => setArchiveDialogOpen(false)}
+                  onResetArchiving={props.onResetArchiving}
+                  onConfirm={handleArchiveConfirm}
+                  sessionId={props.sessionId || ""}
+                  filePath={props.filePath || ""}
+                  tabTitle={getArtifactFilename(props.filePath)}
+                />
+              </Show>
+              <Show when={archiveSuccessOpen()}>
+                <DialogArchiveSuccess
+                  open={archiveSuccessOpen()}
+                  onClose={() => setArchiveSuccessOpen(false)}
+                  archivePath={archiveSuccessPath()}
+                />
+              </Show>
+          </DrawOverlay>
+       ) : (
         <textarea
           value={extractHtmlContent(props.content)}
           onInput={(e) => props.onContentChange?.(e.currentTarget.value)}
