@@ -25,7 +25,7 @@ export function FileManagerToolbar(props: ToolbarProps): JSX.Element {
   const [uploadOpen, setUploadOpen] = createSignal(false)
   const store = () => props.fileStore.store
   const hasSelection = createMemo(() => store().selected.size > 0)
-  const deletableCount = createMemo(() => props.fileStore.selectedUploadedFiles().length)
+  const deletableCount = createMemo(() => store().selected.size)
 
   const filterButtonText = createMemo(() => {
     const size = store().kindFilter.size
@@ -148,7 +148,7 @@ export function FileManagerToolbar(props: ToolbarProps): JSX.Element {
             <IconDownload size={16} />
             <span>下载 ({store().selected.size})</span>
           </button>
-          {/* 删除只作用于"已上传"段(生成产物不可删);计数与实际删除数一致,无可删项则不显示 */}
+          {/* 批量删除作用于全部选中文件(上传+生成);无可删项则不显示 */}
           <Show when={deletableCount() > 0}>
             <button
               type="button"

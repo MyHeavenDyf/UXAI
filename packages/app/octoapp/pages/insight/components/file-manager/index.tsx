@@ -363,7 +363,7 @@ function FileManagerInner(props: {
   }
 
   function handleBatchDelete() {
-    const files = fileStore.selectedUploadedFiles()
+    const files = Array.from(store().selected)
     if (files.length === 0) return
     showDeleteDialog(
       <span class="text-[14px] leading-[22px]" style={{ color: "var(--octo-text-primary)" }}>确定删除选中的 {files.length} 个文件?</span>,
@@ -591,7 +591,7 @@ function FileTable(props: {
         <Show when={props.fileStore.isTopLevel()}>
           <SectionHeaderRow title="生成文件" collapsed={store().collapsedGenerated} onToggle={() => props.fileStore.toggleGeneratedSection()} />
           <Show when={!store().collapsedGenerated}>
-            <GroupedRows computed={props.fileStore.generated} fileStore={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onDownload={props.onDownload} onOpenInExplorer={props.onOpenInExplorer} />
+            <GroupedRows computed={props.fileStore.generated} fileStore={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onOpenInExplorer={props.onOpenInExplorer} />
           </Show>
           <SectionHeaderRow title="上传文件" collapsed={store().collapsedUploaded} onToggle={() => props.fileStore.toggleUploadedSection()} />
           <Show when={!store().collapsedUploaded}>
