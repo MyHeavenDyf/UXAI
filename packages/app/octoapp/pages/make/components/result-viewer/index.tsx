@@ -414,7 +414,6 @@ const applyInspectOverrides = (tabId: string, overrides: Array<{ elementId: stri
                         artifactIdentifier={tab.artifactIdentifier}
                         confirmed={props.isPlanConfirmed?.() ?? false}
                         onConfirm={() => props.onConfirmPlan?.(tab.artifactIdentifier)}
-                        onAdjust={() => props.onAdjustPlan?.()}
                         onContentChange={(content) => props.onContentChange?.(tabId, content)}
                       />
                     </Match>
