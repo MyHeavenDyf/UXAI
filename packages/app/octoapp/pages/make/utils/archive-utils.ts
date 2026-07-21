@@ -248,7 +248,7 @@ export function buildArchivePath(data: {
   return parts.join(" - ")
 }
 
-const getArchiveBaseUrl = () => import.meta.env.VITE_OCTO_BASE_URL || ""
+export const getArchiveBaseUrl = () => import.meta.env.VITE_OCTO_BASE_URL || ""
 
 const getArchiveAuthHeaders = () => ({
   "Content-Type": "application/json"

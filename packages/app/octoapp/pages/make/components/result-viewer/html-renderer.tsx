@@ -13,7 +13,7 @@ import { CommentHoverTooltip } from "./comment-hover-tooltip"
 import { CommentPopover, type FileComment } from "./comment-popover"
 import { ArchiveDialog, type ArchiveConfirmData } from "@/components/dialog-archive"
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
-import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion } from "../../utils/archive-utils"
+import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl } from "../../utils/archive-utils"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -197,6 +197,7 @@ export function HtmlRenderer(props: {
   const [archiveDialogOpen, setArchiveDialogOpen] = createSignal(false)
   const [archiveSuccessOpen, setArchiveSuccessOpen] = createSignal(false)
   const [archiveSuccessPath, setArchiveSuccessPath] = createSignal("")
+  const [archiveSuccessUniqueId, setArchiveSuccessUniqueId] = createSignal("")
   const [saving, setSaving] = createSignal(false)
   
   // Pending style storage for Cancel/Save logic
@@ -304,14 +305,17 @@ export function HtmlRenderer(props: {
         const fileName = getArtifactFilename(props.filePath).replace(/\.html?$/i, "")
         
         let uploadResult: { success: boolean }
+        let uniqueId: string = ""
         
         if (data.isOverwrite && data.existingDeliverableId && data.existingDocId) {
           await uploadCover(data.existingDeliverableId, screenshotBlob)
           uploadResult = await uploadVersion(data.existingDocId, zipBlob)
+          uniqueId = data.existingDocId
         } else {
           const newDeliverable = await createDeliverable(data.teamId, fileName)
           await uploadCover(newDeliverable.deliverableId, screenshotBlob)
           uploadResult = await uploadVersion(newDeliverable.uniqueId, zipBlob)
+          uniqueId = newDeliverable.uniqueId
         }
         
         if (!uploadResult.success) {
@@ -325,6 +329,7 @@ export function HtmlRenderer(props: {
           folderName: data.folderName
         })
         setArchiveSuccessPath(pathStr)
+        setArchiveSuccessUniqueId(uniqueId)
         setArchiveSuccessOpen(true)
         showToast({ title: "归档成功" })
       } else {
@@ -1854,6 +1859,11 @@ fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath
                   open={archiveSuccessOpen()}
                   onClose={() => setArchiveSuccessOpen(false)}
                   archivePath={archiveSuccessPath()}
+                  shareLink={`${getArchiveBaseUrl()}/developerPreview/designAgent/index.html?uniqueId=${archiveSuccessUniqueId()}`}
+                  onViewClick={() => {
+                    const url = `${getArchiveBaseUrl()}/developerPreview/designAgent/index.html?uniqueId=${archiveSuccessUniqueId()}`
+                    getDesktopApi()?.openLink?.(url)
+                  }}
                 />
               </Show>
           </DrawOverlay>
