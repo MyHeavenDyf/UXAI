@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, useAttrs, watch } from "vue"
+import { computed, ref, useAttrs, watch } from "vue"
 import { ElSegmented } from "element-plus"
 import type { SegmentedNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
@@ -24,17 +24,16 @@ const attrs = useAttrs()
 
 const elSegmentedRef = ref<any>()
 
-onMounted(() => {
+const applyPickerAttrs = () => {
   const wrapper = (elSegmentedRef.value as any)?.$el
-  if (wrapper instanceof HTMLElement) {
-    if (attrs['id'] != null)
-      wrapper.setAttribute('id', String(attrs['id']))
-    if (attrs['dom-picker-component'] != null)
-      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
-    if (attrs['data-element-props'] != null)
-      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
-  }
-})
+  if (!(wrapper instanceof HTMLElement)) return
+  if (attrs['id'] != null)
+    wrapper.setAttribute('id', String(attrs['id']))
+  if (attrs['dom-picker-component'] != null)
+    wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+  if (attrs['data-element-props'] != null)
+    wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+}
 
 const id = computed(() => node.id)
 const className = computed(() => properties.className || "")
@@ -78,6 +77,10 @@ watch(
   },
   { immediate: true },
 )
+
+// ElSegmented 根 div 用 v-if="options.length" 控制渲染，resolvedOptions 异步更新，
+// onMounted 时 $el 还是注释节点，需在 options 就绪、DOM 更新后再挂属性
+watch(resolvedOptions, applyPickerAttrs, { flush: 'post', immediate: true })
 
 
 const initvalue = computed(() => {
