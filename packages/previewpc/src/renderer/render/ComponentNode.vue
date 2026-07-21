@@ -57,7 +57,7 @@ const bindProps = computed(() => {
     }
     propsObj[key] = rPorp
   }
-  propsObj['dom-picker-id'] = props.node.id
+  propsObj.id = props.node.id
   propsObj['dom-picker-component'] = nodeType.value
   propsObj['data-element-props'] = elementPropsJson.value
   return propsObj
@@ -82,7 +82,7 @@ const bindProps = computed(() => {
       </component>
     </template>
     <template v-else-if="Component">
-      <component :is="Component" :node="node" :surfaceId="surfaceId" :dom-picker-id="node.id" :dom-picker-component="nodeType" :data-element-props="elementPropsJson" />
+      <component :is="Component" :node="node" :surfaceId="surfaceId" :id="node.id" :dom-picker-component="nodeType" :data-element-props="elementPropsJson" />
     </template>
   </template>
 </template>

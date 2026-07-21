@@ -1,5 +1,6 @@
 @import "./ContextMenu.css";
 @import "./PropertyEditorPopup.css";
+@import "./annotation.css";
 
 /* ==========================================================================
    1. 基础容器与大页面布局
@@ -33,7 +34,7 @@
   background: #ffffff;
   border-radius: 8px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
-  width: 560px;
+  width: 660px;
   max-width: 90%;
   pointer-events: auto;
 }

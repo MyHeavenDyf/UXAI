@@ -1,6 +1,8 @@
 import { extractJson } from '../../utils/json-parser'
 import { runChildSession } from '../run-child-session'
 import { logAgentParsed } from '../../utils/debug-log'
+import { INTENT_CONFIRM_FORMAT } from './schema'
+import { agentThrow } from '../../utils/error-msg'
 
 const AGENT_NAME = "proto_intent_confirm"
 
@@ -26,6 +28,7 @@ type ProtoIntentConfirmInput = {
 
 export default async function proto_intent_confirm(input: ProtoIntentConfirmInput): Promise<IntentConfirmResult> {
   const { sdk, sync, modelKey, rootSession, userInput, onSessionCreated } = input
+
   const humanMessage = buildHumanMessage(userInput)
 
   const result = await runChildSession({
@@ -37,11 +40,12 @@ export default async function proto_intent_confirm(input: ProtoIntentConfirmInpu
     prompt: humanMessage,
     directory: sdk.directory,
     parentSessionID: rootSession,
+    schema: INTENT_CONFIRM_FORMAT.schema,
   })
   const json = extractJson(result.text)
   if (!json) {
     logAgentParsed(result.childSessionId, { error: "Failed to parse JSON", raw: result.text })
-    throw new Error("----- Intent Confirm did not return valid JSON -----")
+    agentThrow(AGENT_NAME, result.childSessionId, "Intent Confirm did not return valid JSON")
   }
   const returnValue: IntentConfirmResult = {
     options: json as Record<string, IntentConfirmDimension>,

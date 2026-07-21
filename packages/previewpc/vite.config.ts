@@ -2,10 +2,13 @@ import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 import testFilesPlugin from './vite-plugin-test-files'
-import { createReadStream, mkdirSync } from 'node:fs'
+import fileProtocolPlugin from './vite-plugin-single-file'
+import previewDataPlugin from './vite-plugin-preview-data'
+import { createReadStream, existsSync, mkdirSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { extname, join, resolve } from 'node:path'
 import { fileURLToPath,URL } from 'url'
+
 
 const MIME: Record<string, string> = {
   ".png": "image/png",
@@ -45,15 +48,26 @@ function uploadsPlugin() {
   }
 }
 
+
+
 export default defineConfig(({ mode }) => {
   const rootEnv = loadEnv(mode, __dirname + '/..', '')
   return {
+    base: './',
     plugins: [
       tailwindcss(),
       vue(),
       testFilesPlugin(),
       uploadsPlugin(),
+      fileProtocolPlugin(),
+      previewDataPlugin(fileURLToPath(new URL('./src/jsonStorage/data.json', import.meta.url))),
     ],
+    define: {
+      // 检查 node_modules 中是否存在@hui/icon-plus-vue，注入为布尔值
+      __HAS_ICONPLUS__: JSON.stringify(
+        existsSync(resolve(__dirname, 'node_modules/@hui/icon-plus-vue'))
+      ),
+    },
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -64,9 +78,17 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: parseInt(rootEnv.VUE_FRONTEND_PORT || '51856'),
+      proxy: {
+        '/iconPlus': {
+          target: 'https://octo-beta.hdesign.huawei.com/',
+          changeOrigin: true,
+          secure: false,
+        }
+      }
     },
     build: {
       outDir: '../previewdist',
+      emptyOutDir: true,
       chunkSizeWarningLimit: 5000,
       rollupOptions: {
         onLog(level, log, handler) {

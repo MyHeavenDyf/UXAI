@@ -13,7 +13,6 @@
  * config             配置对象
  * registry           ComponentRegistry 实例
  * targetLib          目标组件库名（如 "eview-react"）
- * tailwindAdapter    样式转换适配器实例（{ convert } 接口），由 src/tailwind/ 工厂创建
  *
  * === 数据流字段（按步骤写入）===
  *
@@ -33,7 +32,6 @@ export class PipelineContext {
   config: Record<string, any>;
   registry: ComponentRegistry;
   targetLib: string;
-  tailwindAdapter: any;
   pagesSourceData: any;
   pagesData: any[];
   resolvedPages: any[];
@@ -57,7 +55,6 @@ export class PipelineContext {
     this.config = config;
     this.registry = registry;
     this.targetLib = config.targetLib || 'eview-react';
-    this.tailwindAdapter = config.tailwindAdapter || null;
 
     // API 模式：直接从内存传入的数据（ReadPages 会优先使用）
     this.pagesSourceData = pagesSourceData;

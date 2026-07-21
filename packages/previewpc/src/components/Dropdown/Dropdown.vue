@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed } from "vue"
+import { computed, onMounted, ref, useAttrs, watch } from "vue"
+import type { Component } from "vue"
 import { ElDropdown, ElDropdownMenu, ElDropdownItem } from "element-plus"
 import type { DropdownNode } from "../types"
 import { useA2UIComponent, type A2UIComponentProps } from "../../renderer"
 
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
-import { getLucideIconComponentRef } from "../Icon/IconBase"
+import { getIconComponentRef } from "../Icon/IconBase"
 
 const triggerEnum = {
   click: "click",
@@ -25,6 +26,24 @@ const placementEnum = {
 const props = defineProps<A2UIComponentProps<DropdownNode>>()
 const { properties } = props.node
 const { resolveValue } = useA2UIComponent(props.node, props.surfaceId)
+
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
+const elDropdownRef = ref<InstanceType<typeof ElDropdown>>()
+
+onMounted(() => {
+  const wrapper = (elDropdownRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const id = computed(() => props.node.id)
 const className = computed(() => properties.className)
@@ -52,10 +71,28 @@ const items = computed(() => {
     }
   })
 })
+
+// ---- 异步图标解析 ----
+const resolvedDropdownIcons = ref<Record<string | number, { component: Component | null; props: Record<string, any> } | null>>({})
+
+watch(
+  items,
+  async (newItems) => {
+    const map: Record<string | number, any> = {}
+    await Promise.all(newItems.map(async (item: any) => {
+      if (item.icon) {
+        map[item.key] = await getIconComponentRef(item.icon, { size: 14 })
+      }
+    }))
+    resolvedDropdownIcons.value = map
+  },
+  { immediate: true, deep: true },
+)
 </script>
 
 <template>
   <ElDropdown
+    ref="elDropdownRef"
     :id="id"
     :class="className"
     :placement="placement"
@@ -73,10 +110,10 @@ const items = computed(() => {
       <ElDropdownMenu>
         <ElDropdownItem v-for="item in items" :key="item.key">
           <component
-            v-if="item.icon"
+            v-if="item.icon && resolvedDropdownIcons[item.key]"
             class="mr-1"
-            :is="getLucideIconComponentRef(item.icon)"
-            :size="14"
+            :is="resolvedDropdownIcons[item.key]?.component"
+            v-bind="resolvedDropdownIcons[item.key]?.props ?? {}"
           />
           {{ item.label }}
         </ElDropdownItem>

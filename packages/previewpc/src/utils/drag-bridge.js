@@ -9,11 +9,11 @@
  *   parent -> iframe:  { type: "DRAG_MODE", enabled: true|false, siblingMap?: Record<string,string[]> }
  *   iframe -> parent:  { type: "DRAG_REORDER", elementId, targetSiblingId, position: "before"|"after" }
  *
- * Uses the A2UI renderer's `dom-picker-id` attribute (= A2UI element id)
+ * Uses the A2UI renderer's `id` attribute (= A2UI element id)
  * which is always present on every rendered element.
  */
 ;(function () {
-  var ATTR = "dom-picker-id"
+  var ATTR = "id"
   var ACTIVE_ATTR = "data-dom-picker-active"
   var LONG_PRESS_MS = 300
   var dragMode = false
@@ -100,6 +100,17 @@
   // 当前 dom-picker 选中（冻结）的元素，只有它可以被拖拽
   function selectedEl() {
     return document.querySelector("[" + ACTIVE_ATTR + "]")
+  }
+
+  function draggable(target) {
+    if (!target || !target.closest) return null
+    var first = target.closest("[" + ATTR + "]")
+    var el = first
+    while (el) {
+      if (getSibs(el).length > 1) return el
+      el = el.parentElement ? el.parentElement.closest("[" + ATTR + "]") : null
+    }
+    return first
   }
 
   function orderedSibs(sibs, dir) {
@@ -222,11 +233,16 @@
 
   function onDown(e) {
     if (!dragMode || e.button !== 0) return
-    // 只允许拖拽当前 dom-picker 选中的元素
-    var el = selectedEl()
+    // 如果有冻结的选中元素，只允许拖拽它；否则拖拽指针下的任意可拖拽元素
+    var sel = selectedEl()
+    var el
+    if (sel) {
+      if (e.target !== sel && !sel.contains(e.target)) return
+      el = sel
+    } else {
+      el = draggable(e.target)
+    }
     if (!el) return
-    // 按下点必须落在选中元素范围内，否则交给点击逻辑（切换选中）
-    if (e.target !== el && !el.contains(e.target)) return
     e.preventDefault()
     e.stopPropagation()
     dragEl = el

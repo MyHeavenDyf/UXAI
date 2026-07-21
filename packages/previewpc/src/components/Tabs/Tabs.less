@@ -27,7 +27,7 @@
 }
 
 .el-tabs__active-bar {
-  background-color: var(--text-primary-active);
+  background-color: var(--brand-50);
 }
 
 .el-tabs__item {
@@ -36,15 +36,15 @@
   font-size: 16px;
 
   &:not(.is-active):not(.is-disabled):hover {
-    color: var(--text-primary-hover);
+    color: var(--color-brand-hover);
   }
 
   &.is-disabled {
-    color: var(--text-disabled);
+    color: var(--color-text-disabled);
   }
 
   &.is-active {
-    color: var(--text-primary-active);
+    color: var(--brand-50);
   }
 
   .is-icon-close {
@@ -54,7 +54,7 @@
 
     &:hover {
       background-color: transparent;
-      color: var(--text-primary-hover);
+      color: var(--color-brand-hover);
     }
   }
 }
@@ -166,7 +166,7 @@
 
       &:not(.is-active) {
         border: none;
-        background-color: rgb(from var(--neutral-300) r g b / 0.05);
+        background-color: rgb(from var(--gray-30) r g b / 0.05);
       }
 
       &.is-active {
@@ -190,17 +190,17 @@
   .el-tabs__item {
     .lucide,
     .is-icon-close {
-      color: var(--neutral-300);
+      color: var(--gray-30);
     }
     .is-icon-close :hover {
-      color: var(--neutral-100);
+      color: var(--gray-10);
     }
 
     &.is-disabled {
       .lucide,
       .is-icon-close,
       .is-icon-close:hover {
-        color: var(--text-disabled);
+        color: var(--color-text-disabled);
       }
     }
 
@@ -208,7 +208,7 @@
       .lucide,
       .is-icon-close,
       .is-icon-close:hover {
-        color: var(--text-primary-active);
+        color: var(--brand-30);
       }
     }
   }
@@ -217,7 +217,7 @@
     background-color: rgba(147, 147, 147, 0.05);
 
     &.is-active {
-      background:  var(--neutral-800);
+      background:  var(--gray-80);
     }
   }
   

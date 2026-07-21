@@ -429,7 +429,6 @@
         "buttonCardTitle",
         "buttonRowColors",
         "buttonRowSizes",
-        "buttonRowShapes",
         "buttonRowTypes",
         "buttonRowIcons"
       ]
@@ -564,64 +563,6 @@
       }
     },
     {
-      "id": "buttonRowShapes",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-2"
-      },
-      "children": [
-        "buttonRowShapesLabel",
-        "buttonRowShapesContent"
-      ]
-    },
-    {
-      "id": "buttonRowShapesLabel",
-      "component": "span",
-      "props": {
-        "value": "形状变体",
-        "className": "text-sm text-on-surface-variant"
-      }
-    },
-    {
-      "id": "buttonRowShapesContent",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-3 flex-wrap"
-      },
-      "children": [
-        "btnShapeDefault",
-        "btnShapeRound",
-        "btnShapeCircle"
-      ]
-    },
-    {
-      "id": "btnShapeDefault",
-      "component": "Button",
-      "props": {
-        "value": "默认形状",
-        "color": "primary",
-        "shape": "default"
-      }
-    },
-    {
-      "id": "btnShapeRound",
-      "component": "Button",
-      "props": {
-        "value": "圆角按钮",
-        "color": "primary",
-        "shape": "round"
-      }
-    },
-    {
-      "id": "btnShapeCircle",
-      "component": "Button",
-      "props": {
-        "icon": "search",
-        "color": "primary",
-        "shape": "circle"
-      }
-    },
-    {
       "id": "buttonRowTypes",
       "component": "div",
       "props": {
@@ -696,7 +637,8 @@
       "children": [
         "btnIconStart",
         "btnIconEnd",
-        "btnIconOnly"
+        "btnIconOnly",
+        "btnShapeCircle"
       ]
     },
     {
@@ -723,8 +665,18 @@
       "id": "btnIconOnly",
       "component": "Button",
       "props": {
-        "icon": "plus",
+        "icon": "search",
         "color": "primary"
+      }
+    },
+    {
+      "id": "btnShapeCircle",
+      "component": "Button",
+      "props": {
+        "icon": "search",
+        "color": "primary",
+        "shape": "circle",
+        "size": "small"
       }
     },
     {
@@ -762,10 +714,13 @@
       },
       "children": [
         "tagCardTitle",
-        "tagRowColors",
-        "tagRowVariants",
+        "tagRowDefault",
         "tagRowSizes",
-        "tagRowIcons"
+        "tagRowIcons",
+        "tagRowTypes2.0",
+        "tagRowTypes",
+        "tagRowColors",
+        "tagRowDarkColors"
       ]
     },
     {
@@ -777,36 +732,32 @@
       }
     },
     {
-      "id": "tagRowColors",
+      "id": "tagRowDefault",
       "component": "div",
       "props": {
         "className": "flex flex-col gap-2"
       },
       "children": [
-        "tagRowColorsLabel",
-        "tagRowColorsContent"
+        "tagRowDefaultLabel",
+        "tagRowDefaultContent"
       ]
     },
     {
-      "id": "tagRowColorsLabel",
+      "id": "tagRowDefaultLabel",
       "component": "span",
       "props": {
-        "value": "颜色变体",
+        "value": "默认标签",
         "className": "text-sm text-on-surface-variant"
       }
     },
     {
-      "id": "tagRowColorsContent",
+      "id": "tagRowDefaultContent",
       "component": "div",
       "props": {
         "className": "flex items-center gap-3 flex-wrap"
       },
       "children": [
-        "tagDefault",
-        "tagSuccess",
-        "tagProcessing",
-        "tagWarning",
-        "tagError"
+        "tagDefault"
       ]
     },
     {
@@ -818,17 +769,176 @@
       }
     },
     {
+      "id": "tagRowTypes2.0",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tagRowTypesLabel2.0",
+        "tagRowTypesContent2.0"
+      ]
+    },
+    {
+      "id": "tagRowTypesLabel2.0",
+      "component": "span",
+      "props": {
+        "value": "2.0告警色(color)",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tagRowTypesContent2.0",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "tagPrimary2.0",
+        "tagSuccess2.0",
+        "tagError2.0",
+        "tagProcessing2.0",
+        "tagWarning2.0",
+        "tagInfo2.0",
+        "tagSuccess2.0_Dark"
+      ]
+    },
+    {
+      "id": "tagPrimary2.0",
+      "component": "Tag",
+      "props": {
+        "variant": "solid",
+        "value": "计划中",
+        "color": "#4eaff5"
+      }
+    },
+    {
+      "id": "tagSuccess2.0",
+      "component": "Tag",
+      "props": {
+        "variant": "solid",
+        "value": "已完成(明亮主题)",
+        "color": "#5ccbb1"
+      }
+    },
+    {
+      "id": "tagSuccess2.0_Dark",
+      "component": "Tag",
+      "props": {
+        "variant": "solid",
+        "value": "已完成(暗黑主题)",
+        "color": "#51b59e"
+      }
+    },
+    {
+      "id": "tagError2.0",
+      "component": "Tag",
+      "props": {
+        "variant": "solid",
+        "value": "发生错误",
+        "color": "#e54545"
+      }
+    },
+    {
+      "id": "tagProcessing2.0",
+      "component": "Tag",
+      "props": {
+        "variant": "solid",
+        "value": "进行中",
+        "color": "#ff8000"
+      }
+    },
+    {
+      "id": "tagWarning2.0",
+      "component": "Tag",
+      "props": {
+        "variant": "solid",
+        "value": "待开始",
+        "color": "#ffbb33"
+      }
+    },
+    {
+      "id": "tagInfo2.0",
+      "component": "Tag",
+      "props": {
+        "variant": "solid",
+        "value": "关机",
+        "color": "#999999"
+      }
+    },
+    {
+      "id": "tagRowTypes",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tagRowTypesLabel",
+        "tagRowTypesContent"
+      ]
+    },
+    {
+      "id": "tagRowTypesLabel",
+      "component": "span",
+      "props": {
+        "value": "3.0告警色(variant)",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tagRowTypesContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "tagPrimary",
+        "tagSuccess",
+        "tagError",
+        "tagProcessing",
+        "tagWarning",
+        "tagInfo",
+        "filledText",
+        "tagPrimary2",
+        "tagSuccess2",
+        "tagError2",
+        "tagProcessing2",
+        "tagWarning2",
+        "tagInfo2"
+      ]
+    },
+    {
+      "id": "tagPrimary",
+      "component": "Tag",
+      "props": {
+        "variant": "solid",
+        "value": "计划中",
+        "color": "primary"
+      }
+    },
+    {
       "id": "tagSuccess",
       "component": "Tag",
       "props": {
-        "value": "成功",
+        "variant": "solid",
+        "value": "已完成",
         "color": "success"
+      }
+    },
+    {
+      "id": "tagError",
+      "component": "Tag",
+      "props": {
+        "variant": "solid",
+        "value": "发生错误",
+        "color": "error"
       }
     },
     {
       "id": "tagProcessing",
       "component": "Tag",
       "props": {
+        "variant": "solid",
         "value": "进行中",
         "color": "processing"
       }
@@ -837,74 +947,74 @@
       "id": "tagWarning",
       "component": "Tag",
       "props": {
-        "value": "警告",
+        "variant": "solid",
+        "value": "待开始",
         "color": "warning"
       }
     },
     {
-      "id": "tagError",
+      "id": "tagInfo",
       "component": "Tag",
       "props": {
-        "value": "错误",
-        "color": "error"
+        "variant": "solid",
+        "value": "关机",
+        "color": "info"
       }
     },
     {
-      "id": "tagRowVariants",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-2"
-      },
-      "children": [
-        "tagRowVariantsLabel",
-        "tagRowVariantsContent"
-      ]
-    },
-    {
-      "id": "tagRowVariantsLabel",
+      "id": "filledText",
       "component": "span",
       "props": {
-        "value": "样式变体",
+        "value": "filled 形态：",
         "className": "text-sm text-on-surface-variant"
       }
     },
     {
-      "id": "tagRowVariantsContent",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-3 flex-wrap"
-      },
-      "children": [
-        "tagFilled",
-        "tagOutlined",
-        "tagSolid"
-      ]
-    },
-    {
-      "id": "tagFilled",
+      "id": "tagPrimary2",
       "component": "Tag",
       "props": {
-        "value": "filled",
-        "color": "processing",
-        "variant": "filled"
+        "value": "计划中",
+        "color": "primary"
       }
     },
     {
-      "id": "tagOutlined",
+      "id": "tagSuccess2",
       "component": "Tag",
       "props": {
-        "value": "outlined",
-        "color": "success",
-        "variant": "outlined"
+        "value": "已完成",
+        "color": "success"
       }
     },
     {
-      "id": "tagSolid",
+      "id": "tagError2",
       "component": "Tag",
       "props": {
-        "value": "solid",
-        "color": "processing",
-        "variant": "solid"
+        "value": "发生错误",
+        "color": "error"
+      }
+    },
+    {
+      "id": "tagProcessing2",
+      "component": "Tag",
+      "props": {
+        "value": "进行中",
+        "color": "processing"
+      }
+    },
+    {
+      "id": "tagWarning2",
+      "component": "Tag",
+      "props": {
+        "value": "待开始",
+        "color": "warning"
+      }
+    },
+    {
+      "id": "tagInfo2",
+      "component": "Tag",
+      "props": {
+        "value": "关机",
+        "color": "info"
       }
     },
     {
@@ -943,7 +1053,7 @@
       "component": "Tag",
       "props": {
         "value": "大标签",
-        "color": "success",
+        "color": "default",
         "size": "large"
       }
     },
@@ -952,7 +1062,7 @@
       "component": "Tag",
       "props": {
         "value": "中标签",
-        "color": "success",
+        "color": "default",
         "size": "medium"
       }
     },
@@ -961,7 +1071,7 @@
       "component": "Tag",
       "props": {
         "value": "小标签",
-        "color": "success",
+        "color": "default",
         "size": "small"
       }
     },
@@ -1000,7 +1110,7 @@
       "component": "Tag",
       "props": {
         "value": "在线",
-        "color": "success",
+        "color": "default",
         "icon": "check-circle"
       }
     },
@@ -1009,8 +1119,325 @@
       "component": "Tag",
       "props": {
         "value": "可关闭",
-        "color": "processing",
+        "color": "default",
+        "icon": "check-circle",
         "closable": true
+      }
+    },
+    {
+      "id": "tagRowColors",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tagRowColorsLabel",
+        "tagRowColorsContent"
+      ]
+    },
+    {
+      "id": "tagRowColorsLabel",
+      "component": "span",
+      "props": {
+        "value": "彩色标签-明亮主题(暗黑主题忽略)",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tagRowColorsContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "tagColor1",
+        "tagColor2",
+        "tagColor3",
+        "tagColor4",
+        "tagColor5",
+        "tagColor6",
+        "tagColor7",
+        "tagColor8",
+        "tagColor9",
+        "tagColor10",
+        "tagColor11",
+        "tagColor12",
+        "tagColor13"
+      ]
+    },
+    {
+      "id": "tagColor1",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#1f55b5",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagColor2",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#036142",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagColor3",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#614500",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagColor4",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#954304",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagColor5",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#c7000b",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagColor6",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#393939",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagColor7",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#281675",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagColor8",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#9f1c8d",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagColor9",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#036142",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagColor10",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#c40054",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagColor11",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#094c57",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagColor12",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#8a2ebc",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagColor13",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#004ea8",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagRowDarkColors",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tagRowDarkColorsLabel",
+        "tagRowDarkColorsContent"
+      ]
+    },
+    {
+      "id": "tagRowDarkColorsLabel",
+      "component": "span",
+      "props": {
+        "value": "彩色标签-暗黑主题(明亮主题忽略)",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tagRowDarkColorsContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "tagDarkColor1",
+        "tagDarkColor2",
+        "tagDarkColor3",
+        "tagDarkColor4",
+        "tagDarkColor5",
+        "tagDarkColor6",
+        "tagDarkColor7",
+        "tagDarkColor8",
+        "tagDarkColor9",
+        "tagDarkColor10",
+        "tagDarkColor11",
+        "tagDarkColor12",
+        "tagDarkColor13"
+      ]
+    },
+    {
+      "id": "tagDarkColor1",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#8ca3fa",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagDarkColor2",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#36c18d",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagDarkColor3",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#fcc800",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagDarkColor4",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#f69e39",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagDarkColor5",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#e7434a",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagDarkColor6",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#aeaeae",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagDarkColor7",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#a89ff9",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagDarkColor8",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#eb74df",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagDarkColor9",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#36c18d",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagDarkColor10",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#f470ab",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagDarkColor11",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#55ccd9",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagDarkColor12",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#cb8efb",
+        "variant": "filled"
+      }
+    },
+    {
+      "id": "tagDarkColor13",
+      "component": "Tag",
+      "props": {
+        "value": "状态标签",
+        "color": "#5ca2e9",
+        "variant": "filled"
       }
     },
     {
@@ -1077,10 +1504,9 @@
     },
     {
       "id": "badgeCountBtn",
-      "component": "Button",
+      "component": "div",
       "props": {
-        "value": "消息",
-        "shape": "round"
+        "className": "bg-[#f2f2f2] rounded-sm w-8 h-8"
       }
     },
     {
@@ -1096,10 +1522,9 @@
     },
     {
       "id": "badgeOverflowBtn",
-      "component": "Button",
+      "component": "div",
       "props": {
-        "value": "通知",
-        "shape": "round"
+        "className": "bg-[#f2f2f2] rounded-sm w-8 h-8"
       }
     },
     {
@@ -1115,10 +1540,9 @@
     },
     {
       "id": "badgeZeroBtn",
-      "component": "Button",
+      "component": "div",
       "props": {
-        "value": "邮件",
-        "shape": "round"
+        "className": "bg-[#f2f2f2] rounded-sm w-8 h-8"
       }
     },
     {
@@ -1163,10 +1587,9 @@
     },
     {
       "id": "badgeDotBtn",
-      "component": "Button",
+      "component": "div",
       "props": {
-        "value": "新功能",
-        "shape": "round"
+        "className": "bg-[#f2f2f2] rounded-sm w-8 h-8"
       }
     },
     {
@@ -1195,11 +1618,8 @@
         "className": "flex items-center gap-6 flex-wrap"
       },
       "children": [
-        "badgeStatusSuccess",
-        "badgeStatusProcessing",
         "badgeStatusError",
-        "badgeStatusWarning",
-        "badgeStatusDefault"
+        "badgeStatusProcessing"
       ]
     },
     {
@@ -1215,10 +1635,9 @@
     },
     {
       "id": "badgeStatusSuccessText",
-      "component": "span",
+      "component": "div",
       "props": {
-        "value": "成功",
-        "className": "text-sm text-on-surface"
+        "className": "bg-[#f2f2f2] rounded-sm w-8 h-8"
       }
     },
     {
@@ -1234,10 +1653,9 @@
     },
     {
       "id": "badgeStatusProcessingText",
-      "component": "span",
+      "component": "div",
       "props": {
-        "value": "进行中",
-        "className": "text-sm text-on-surface"
+        "className": "bg-[#f2f2f2] rounded-sm w-8 h-8"
       }
     },
     {
@@ -1253,10 +1671,9 @@
     },
     {
       "id": "badgeStatusErrorText",
-      "component": "span",
+      "component": "div",
       "props": {
-        "value": "错误",
-        "className": "text-sm text-on-surface"
+        "className": "bg-[#f2f2f2] rounded-sm w-8 h-8"
       }
     },
     {
@@ -1272,10 +1689,9 @@
     },
     {
       "id": "badgeStatusWarningText",
-      "component": "span",
+      "component": "div",
       "props": {
-        "value": "警告",
-        "className": "text-sm text-on-surface"
+        "className": "bg-[#f2f2f2] rounded-sm w-8 h-8"
       }
     },
     {
@@ -1291,10 +1707,9 @@
     },
     {
       "id": "badgeStatusDefaultText",
-      "component": "span",
+      "component": "div",
       "props": {
-        "value": "默认",
-        "className": "text-sm text-on-surface"
+        "className": "bg-[#f2f2f2] rounded-sm w-8 h-8"
       }
     },
     {
@@ -2750,6 +3165,7 @@
       "component": "TextArea",
       "props": {
         "value": "这是一个多行文本输入框的示例内容，可以输入较长的文本。",
+        "maxLength": 1000,
         "placeholder": "请输入内容"
       }
     },
@@ -2777,6 +3193,7 @@
       "component": "TextArea",
       "props": {
         "value": "自适应高度的文本域，会根据内容自动调整高度。",
+        "maxLength": 100,
         "autoSize": true
       }
     },
@@ -4487,8 +4904,7 @@
           },
           {
             "title": "年龄",
-            "dataIndex": "age",
-            "align": "center"
+            "dataIndex": "age"
           },
           {
             "title": "部门",
@@ -4628,7 +5044,6 @@
           {
             "title": "年龄",
             "dataIndex": "age",
-            "align": "center",
             "minWidth": 80
           },
           {

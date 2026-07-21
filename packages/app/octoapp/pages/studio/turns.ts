@@ -1,5 +1,6 @@
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import type { StudioAspectRatio, StudioCapability, StudioGenerationResult } from "./types"
+import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioInputImage } from "./types"
+import { getDefaultDimensions } from "./studio-shared"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
@@ -13,9 +14,14 @@ export type StudioTurnData = {
   toolError?: string
   toolName?: string
   toolRunning?: boolean
+  inputImages?: StudioInputImage[]
   result?: StudioGenerationResult
   createdAt: number
   isLatest: boolean
+}
+
+type StudioTurnFallback = StudioGenerationResult & {
+  inputImages?: StudioInputImage[]
 }
 
 function sortMessages(messages: Message[]) {
@@ -204,6 +210,44 @@ function recordField(record: Record<string, unknown> | undefined, key: string) {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 }
 
+function stringArrayField(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is string => typeof item === "string" && item.length > 0)
+}
+
+function inputImageRef(value: unknown) {
+  if (typeof value !== "string") return
+  const trimmed = value.trim()
+  if (!trimmed || /^data:video\//i.test(trimmed)) return
+  return trimmed
+}
+
+export function buildStudioInputImages(input: {
+  capability: StudioCapability
+  referenceImages?: unknown
+  sourceImage?: unknown
+  extra?: Record<string, unknown>
+}) {
+  const referenceImages = stringArrayField(input.referenceImages)
+    .map(inputImageRef)
+    .filter((item): item is string => Boolean(item))
+  const images = (() => {
+    if (input.capability === "image.generate" || input.capability === "image.fusion") return referenceImages
+    if (input.capability === "video.generate") {
+      return [
+        inputImageRef(input.extra?.firstFrame),
+        inputImageRef(input.extra?.lastFrame),
+        ...referenceImages,
+      ].filter((item): item is string => Boolean(item))
+    }
+    return [inputImageRef(input.sourceImage)].filter((item): item is string => Boolean(item))
+  })()
+  return Array.from(new Set(images)).map((url, index) => ({
+    id: `studio_input_img_${index}`,
+    url,
+  }))
+}
+
 function studioProgress(part?: Extract<Part, { type: "tool" }>) {
   const state = part?.state as Record<string, unknown> | undefined
   const studio = recordField(recordField(state, "metadata"), "studio")
@@ -219,6 +263,7 @@ function studioProgress(part?: Extract<Part, { type: "tool" }>) {
         ? status
         : "running",
     rawStatus: studio?.rawStatus as number | string | undefined,
+    taskId: stringField(studio, "taskId"),
     progress: numberField(studio, "progress") ?? 0,
     order: numberField(studio, "order"),
   } as const
@@ -367,6 +412,11 @@ function buildResult(input: {
   const requestRecord = toolRequest(activeTool)
   const capability = normalizeCapability(stringField(output, "capability") ?? stringField(inputRecord, "capability"))
   const aspectRatio = normalizeAspectRatio(stringField(output, "aspectRatio") ?? stringField(inputRecord, "aspectRatio"))
+  const extra = recordField(inputRecord, "extra")
+  const size = recordField(inputRecord, "target_size")
+  const width = size ? numberField(size, "width") : numberField(inputRecord, "width") ?? numberField(extra, "width")
+  const height = size ? numberField(size, "height") : numberField(inputRecord, "height") ?? numberField(extra, "height")
+  const isCustom = Boolean(inputRecord?.isCustom) || Boolean(extra?.isCustom) || Boolean(width && height)
   const model = stringField(output, "model") ?? stringField(inputRecord, "styleModel") ?? activeTool?.tool ?? "image-generation-tool"
   const prompt = stringField(inputRecord, "effectivePrompt") ??
     stringField(inputRecord, "refinedPrompt") ??
@@ -376,10 +426,17 @@ function buildResult(input: {
   const progress = studioProgress(running)
   const failure = studioProgress(errored)
   const failureStatus = failure.status === "create_failed" ? "create_failed" : "failed"
+  const inputImages = buildStudioInputImages({
+    capability,
+    referenceImages: inputRecord?.referenceImages,
+    sourceImage: inputRecord?.sourceImage,
+    extra: recordField(inputRecord, "extra"),
+  })
   return {
     id: `studio_${completed?.id ?? input.messageID}`,
     userText: displayPrompt || extractUserDemand(input.userText),
     assistantText: input.assistantText,
+    inputImages,
     toolTitle: media.length > 0
       ? capability === "video.generate" ? "视频生成完成" : "图片生成完成"
       : running
@@ -408,6 +465,9 @@ function buildResult(input: {
           model,
           styleModel: stringField(inputRecord, "styleModel"),
           aspectRatio,
+          width,
+          height,
+          isCustom: isCustom || undefined,
           videoMode: stringField(output, "videoMode") as StudioGenerationResult["videoMode"],
           duration: stringField(output, "duration") as StudioGenerationResult["duration"],
           videoQualityMode: stringField(output, "videoQualityMode") as StudioGenerationResult["videoQualityMode"],
@@ -417,8 +477,8 @@ function buildResult(input: {
             url: item.url,
             thumbnailUrl: item.url,
             remoteUrl: item.url,
-            width: numberField(output, "width"),
-            height: numberField(output, "height"),
+            width: numberField(output, "width") ?? numberField(recordField(output, "response"), "width") ?? width ?? getDefaultDimensions(stringField(inputRecord, "styleModel"), aspectRatio)?.width,
+            height: numberField(output, "height") ?? numberField(recordField(output, "response"), "height") ?? height ?? getDefaultDimensions(stringField(inputRecord, "styleModel"), aspectRatio)?.height,
           })),
           progress: numberField(output, "progress") ?? 100,
           order: numberField(output, "order"),
@@ -459,6 +519,7 @@ function buildResult(input: {
               prompt,
               displayPrompt,
               provider: resolveProvider(errored.tool),
+              taskId: failure.taskId,
               model,
               aspectRatio,
               images: [],
@@ -477,7 +538,7 @@ function buildResult(input: {
   }
 }
 
-export function buildStudioTurns(input: { messages: Message[]; parts: Record<string, Part[]>; fallback?: StudioGenerationResult; currentSessionID?: string }) {
+export function buildStudioTurns(input: { messages: Message[]; parts: Record<string, Part[]>; fallback?: StudioTurnFallback; currentSessionID?: string }): StudioTurnData[] {
   const messages = sortMessages(input.messages)
   const turns = messages
     .filter((message) => message.role === "user")
@@ -546,10 +607,11 @@ export function buildStudioTurns(input: { messages: Message[]; parts: Record<str
       }`,
       toolName: input.fallback.provider,
       toolRunning: fallbackGenerating,
+      inputImages: input.fallback.inputImages,
       result: input.fallback,
       createdAt: input.fallback.createdAt,
       isLatest: true,
-    },
+    } satisfies StudioTurnData,
   ]
 }
 
@@ -560,7 +622,7 @@ function resolveProvider(toolName?: string) {
   return "mock"
 }
 
-export function latestStudioTurn(input: { messages: Message[]; parts: Record<string, Part[]>; fallback?: StudioGenerationResult }) {
+export function latestStudioTurn(input: { messages: Message[]; parts: Record<string, Part[]>; fallback?: StudioTurnFallback }) {
   const turns = buildStudioTurns(input)
   return turns[turns.length - 1]
 }
@@ -572,7 +634,7 @@ export function buildStudioTurnSummary(turn: StudioTurnData) {
 export function buildStudioConversationContext(input: {
   messages: Message[]
   parts: Record<string, Part[]>
-  fallback?: StudioGenerationResult
+  fallback?: StudioTurnFallback
 }) {
   const turns = buildStudioTurns(input)
   const lastSuccessful = [...turns].reverse().find((turn) => (turn.result?.images.length ?? 0) > 0)

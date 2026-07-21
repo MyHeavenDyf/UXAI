@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { computed } from "vue"
+import { computed, onMounted, ref, useAttrs } from "vue"
 import { ElBadge } from "element-plus"
 import type { BadgeNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
 import './Badge.less'
+
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
 
 const statusEnum = {
   success: "success",
@@ -19,6 +23,20 @@ const props = defineProps<A2UIComponentProps<BadgeNode>>()
 const { node, surfaceId } = props
 const properties = node.properties
 const { resolveValue } = useA2UIComponent(node, surfaceId)
+
+const elBadgeRef = ref<InstanceType<typeof ElBadge>>()
+
+onMounted(() => {
+  const wrapper = (elBadgeRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const id = computed(() => node.id)
 const className = computed(() => node.properties.className)
@@ -39,6 +57,7 @@ const children = computed(() => properties.children ?? [])
 </script>
 <template>
   <ElBadge
+    ref="elBadgeRef"
     :id="id"
     :class="className"
     :type="status"

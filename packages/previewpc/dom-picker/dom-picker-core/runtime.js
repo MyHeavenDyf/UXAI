@@ -1,5 +1,5 @@
 const ATTRIBUTE_NAME = 'data-dom-picker-source'
-const PICKER_ID_ATTR = 'dom-picker-id'
+const PICKER_ID_ATTR = 'id'
 const PICKER_COMPONENT_ATTR = 'dom-picker-component'
 const OVERLAY_ID = 'dom-picker-overlay'
 const ACTIVE_ATTR = 'data-dom-picker-active'
@@ -178,7 +178,7 @@ export function installDomPicker(options = {}) {
 
   const applyActiveMarker = () => {
     document.querySelectorAll(`[${ACTIVE_ATTR}]`).forEach((el) => {
-      if (el !== activeElement) el.removeAttribute(ACTIVE_ATTR)
+      el.removeAttribute(ACTIVE_ATTR)
     })
     if (frozen && activeElement) {
       activeElement.setAttribute(ACTIVE_ATTR, '')
@@ -198,11 +198,11 @@ export function installDomPicker(options = {}) {
       }
     }
 
-    const pickerElement = target.closest(`[${PICKER_ID_ATTR}]`)
+    const pickerElement = target.closest(`[id]`)
     if (pickerElement) {
       return {
         element: pickerElement,
-        location: pickerElement.getAttribute(PICKER_ID_ATTR) || '',
+        location: pickerElement.getAttribute('id') || '',
       }
     }
 
@@ -221,7 +221,7 @@ export function installDomPicker(options = {}) {
   const handleClick = async (event) => {
     if (disabled) return
     if (frozen) {
-      window.parent.postMessage({ type: 'DOM_PICKER_CLOSE_MENU' }, '*')
+      window.parent.postMessage({ type: 'DOM_PICKER_CLOSE_PANELS' }, '*')
       event.preventDefault()
       event.stopPropagation()
       return
@@ -247,7 +247,7 @@ export function installDomPicker(options = {}) {
     window.parent.postMessage(
       {
         type: 'DOM_PICKER_QUICK_FIX',
-        domPickerId: location,
+        id: location,
         domPickerComponent: element.getAttribute(PICKER_COMPONENT_ATTR) || '',
         domPickerClass: element.getAttribute('class') || '',
         elementProps: element.getAttribute('data-element-props') || '',
@@ -287,7 +287,7 @@ export function installDomPicker(options = {}) {
     window.parent.postMessage(
       {
         type: 'DOM_PICKER_CONTEXT_MENU',
-        domPickerId: resolvedTarget.location,
+        id: resolvedTarget.location,
         domPickerComponent: resolvedTarget.element.getAttribute(PICKER_COMPONENT_ATTR) || '',
         domPickerClass: resolvedTarget.element.getAttribute('class') || '',
         elementProps: resolvedTarget.element.getAttribute('data-element-props') || '',
@@ -330,7 +330,7 @@ export function installDomPicker(options = {}) {
     window.parent.postMessage(
       {
         type: 'DOM_PICKER_QUICK_FIX',
-        domPickerId: resolved.location,
+        id: resolved.location,
         domPickerComponent: resolved.element.getAttribute(PICKER_COMPONENT_ATTR) || '',
         domPickerClass: resolved.element.getAttribute('class') || '',
         elementProps: resolved.element.getAttribute('data-element-props') || '',
@@ -345,7 +345,10 @@ export function installDomPicker(options = {}) {
   window.addEventListener('message', (event) => {
     if (event.data.type === 'DOM_PICKER_UNFREEZE') {
       frozen = false
+      activeElement = null
+      activeLocation = ''
       applyActiveMarker()
+      updateOverlay(overlay, null)
       if (resizeObserver) resizeObserver.disconnect()
     }
     if (event.data.type === 'DOM_PICKER_TOGGLE') {
@@ -366,10 +369,10 @@ export function installDomPicker(options = {}) {
     if (activeElement && document.body.contains(activeElement)) return
 
     requestAnimationFrame(() => {
-      const allPickerElements = document.querySelectorAll(`[${PICKER_ID_ATTR}]`)
+      const allPickerElements = document.querySelectorAll(`[id]`)
       let newElement = null
       for (const el of allPickerElements) {
-        if (el.getAttribute(PICKER_ID_ATTR) === activeLocation) {
+        if ((el.getAttribute('id') || '') === activeLocation) {
           newElement = el
           break
         }

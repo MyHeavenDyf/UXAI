@@ -61,7 +61,7 @@ type LastSessionPerTab = {
   lastChatDir?: string
 }
 
-type SidebarSource = "cowork" | "make"
+type SidebarSource = "cowork" | "make" | "pattern"
 
 export type LocalProject = Partial<Project> & { worktree: string; expanded: boolean }
 

@@ -55,7 +55,8 @@ import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { directoryHeader } from "@/utils/headers"
-import { AttachmentBar, type Attachment } from "./components/attachment-bar"
+import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
+import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, UploadError } from "../insight/lib/upload"
 import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
 import { type ToolCallInfo } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
@@ -69,7 +70,7 @@ import { PlanEntryBanner } from "./components/result-viewer/plan-entry-banner"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
-import IconHost from "@/pages/_shell/icons/IconHost.svg"
+import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Icon } from "@opencode-ai/ui/icon"
 import { loadDesignSystem } from "./utils/design-system-loader"
@@ -363,40 +364,97 @@ const sessionMessagesLoaded = createMemo(() => {
     const handleAnnotation = async (e: Event) => {
       const detail = (e as CustomEvent<AnnotationEventDetail>).detail
       
-      // Convert File to Attachment (synchronously)
-      if (detail.file) {
-        const file = detail.file
-        const dataUrl = await new Promise<string>((resolve) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(reader.result as string)
-          reader.readAsDataURL(file)
-        })
-        
-        const att: Attachment = {
-          id: crypto.randomUUID(),
-          filename: file.name,
-          mime: 'image/png',
-          dataUrl
+      let contextMessage = ""
+      if (detail.tabContext?.title) {
+        contextMessage = `[当前页面: ${detail.tabContext.title}]`
+        if (detail.tabContext.filePath) {
+          contextMessage += `\n[文件路径: ${detail.tabContext.filePath}]`
         }
-        setAttachments(prev => [...prev, att])
+        contextMessage += "\n\n"
       }
+      const messageText = contextMessage + (detail.note || "")
       
-      // Build message text (note only)
-      const messageText = detail.note || ""
-      
-      // Send immediately if requested and not busy
       if (detail.action === 'send' && !sending()) {
         const sessionId = params.id
-        if (sessionId) {
-          await sendMessage(sessionId, messageText)
+        const modelKey = activeModelKey()
+        if (sessionId && modelKey) {
+          if (detail.file) {
+            const file = detail.file
+            const id = crypto.randomUUID()
+            const previewUrl = URL.createObjectURL(file)
+            filesById.set(id, file)
+
+            setAttachments(prev => [...prev, {
+              id,
+              filename: file.name,
+              mime: 'image/png',
+              size: file.size,
+              status: 'uploading',
+              source: 'external',
+              previewUrl
+            }])
+
+            try {
+              const result = await uploadFile(file)
+              setAttachments(prev => prev.map(a =>
+                a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
+              ))
+              await sendMessage(sessionId, messageText, modelKey)
+              setAttachments([])
+              setPrompt("")
+            } catch (err) {
+              const message = err instanceof UploadError ? err.message : '上传失败'
+              setAttachments(prev => prev.map(a =>
+                a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
+              ))
+              setPrompt(messageText)
+            }
+          } else {
+            await new Promise(resolve => setTimeout(resolve, 100))
+            const att = attachments().find(a => a.id === filesById.keys().next().value)
+            if (att?.status === 'done' || attachments().length === 0) {
+              await sendMessage(sessionId, messageText, modelKey)
+              setAttachments([])
+              setPrompt("")
+            }
+          }
+        }
+      } else if (detail.action === 'queue') {
+        if (detail.file) {
+          const file = detail.file
+          const id = crypto.randomUUID()
+          const previewUrl = URL.createObjectURL(file)
+          filesById.set(id, file)
           
-          // Clear attachments after send
-          setAttachments([])
-          setPrompt("")
+          setAttachments(prev => [...prev, {
+            id,
+            filename: file.name,
+            mime: 'image/png',
+            size: file.size,
+            status: 'uploading',
+            source: 'external',
+            previewUrl
+          }])
+          
+          uploadFile(file)
+            .then(result => {
+              setAttachments(prev => prev.map(a => 
+                a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
+              ))
+            })
+            .catch(err => {
+              const message = err instanceof UploadError ? err.message : '上传失败'
+              setAttachments(prev => prev.map(a =>
+                a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
+              ))
+            })
+        }
+        
+        if (messageText) {
+          setPrompt(prev => prev ? prev + "\n" + messageText : messageText)
         }
       }
       
-      // Acknowledge success
       if (detail.ack) {
         detail.ack({ ok: true })
       }
@@ -601,6 +659,8 @@ const sessionMessagesLoaded = createMemo(() => {
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
+  const filesById = new Map<string, File>()
+  const maxAttachments = () => attachments().length >= 5
   let sendingNavigation = false
   const [isDragOver, setIsDragOver] = createSignal(false)
 
@@ -665,28 +725,45 @@ const sessionMessagesLoaded = createMemo(() => {
     onCleanup(() => document.removeEventListener("mousedown", handler))
   })
 
-  // ── Skills Config (from skills.json) ──
-  type SkillsConfigEntry = { description?: string; import?: boolean; type?: string }
-  type SkillsConfig = Record<string, SkillsConfigEntry>
+  // ── Skills Config (from skill_config.json) ──
+  type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
+  type PanelSkill = {
+    label: string
+    description?: string
+    path?: string
+    enable?: boolean
+    id?: number
+  }
+  type SkillConfig = {
+    skill?: Record<string, SkillConfigEntry>
+    agent?: Record<string, string[]>
+    panel?: {
+      octo_insight?: PanelSkill[]
+      octo_make?: PanelSkill[]
+      octo_studio?: PanelSkill[]
+      common?: PanelSkill[]
+    }
+  }
 
-  const [skillsConfig, setSkillsConfig] = createSignal<SkillsConfig>({})
+  const [skillConfig, setSkillConfig] = createSignal<SkillConfig>({})
   const [skillsLoading, setSkillsLoading] = createSignal(false)
   const [skillsMenuState, setSkillsMenuState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [skillsMenuIndex, setSkillsMenuIndex] = createSignal(0)
   const [skillToolCalls, setSkillToolCalls] = createSignal<ToolCallInfo[]>([])
+  const [pendingSkill, setPendingSkill] = createSignal<{ name: string; content: string } | null>(null)
 
-  async function loadSkillsConfig() {
+  async function loadSkillConfig() {
     if (skillsLoading()) return
     setSkillsLoading(true)
 
     try {
-      const api = (window as unknown as { api?: { getSkillsConfig?: () => Promise<SkillsConfig> } }).api
-      const config = await api?.getSkillsConfig?.()
+      const api = (window as unknown as { api?: { getSkillConfig?: () => Promise<SkillConfig> } }).api
+      const config = await api?.getSkillConfig?.()
       if (config) {
-        setSkillsConfig(config)
+        setSkillConfig(config)
       }
     } catch (err) {
-      console.error("[MakePage] Failed to load skills config:", err)
+      console.error("[MakePage] Failed to load skill config:", err)
     } finally {
       setSkillsLoading(false)
     }
@@ -765,23 +842,18 @@ const sessionMessagesLoaded = createMemo(() => {
     )
   })
 
-  // Filter active skills (import !== false + type match)
+  // Get active skills from panel.octo_make array
   const activeSkills = createMemo(() => {
-    const config = skillsConfig()
-    const list: Array<{ name: string; description: string }> = []
+    const config = skillConfig()
+    const panelSkills = config.panel?.octo_make ?? []
 
-    for (const [name, entry] of Object.entries(config)) {
-      if (entry.import === false) continue
-      if (!entry.type) continue
-      if (entry.type !== "common" && entry.type !== "octo_make") continue
-
-      list.push({
-        name,
-        description: entry.description ?? "",
-      })
-    }
-
-    return list.sort((a, b) => a.name.localeCompare(b.name))
+    return panelSkills
+      .filter(skill => skill.enable !== false)
+      .map(skill => ({
+        name: skill.label,
+        description: skill.description ?? "",
+        path: skill.path ?? `skill/${skill.label}/SKILL.md`
+      }))
   })
 
   // Filter skills by search query
@@ -796,6 +868,21 @@ const sessionMessagesLoaded = createMemo(() => {
       skill.name.toLowerCase().includes(lowerQuery) ||
       skill.description.toLowerCase().includes(lowerQuery)
     )
+  })
+
+  // Skills menu ESC close (global listener, works regardless of focus)
+  createEffect(() => {
+    if (!skillsMenuState()) return
+
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault()
+        setSkillsMenuState(null)
+      }
+    }
+
+    window.addEventListener("keydown", handler)
+    onCleanup(() => window.removeEventListener("keydown", handler))
   })
 
   const DS_KEY_PREFIX = "octo:make:design-system:"
@@ -937,11 +1024,12 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 用户点击 [确认开始生成] → 自动发送隐藏指令 */
   function handleConfirmPlan(identifier?: string) {
     const sid = params.id
-    if (!sid) return
+    const modelKey = activeModelKey()
+    if (!sid || !modelKey) return
     if (planButtonDisabled()) return   // 防重复
     setOptimisticConfirmed(true)
     const cmd = identifier ? `[confirm-plan ${identifier}]` : `[confirm-plan]`
-    sendMessage(sid, cmd).catch((err) => {
+    sendMessage(sid, cmd, modelKey).catch((err) => {
       console.error("[MakePage] confirm plan failed", err)
       // 发送失败时回滚乐观锁,允许重试
       setOptimisticConfirmed(false)
@@ -972,10 +1060,11 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 用户点 [进入] → 发送 [enter-plan],agent 据此输出设计方案 artifact */
   function handleEnterPlan() {
     const sid = params.id
-    if (!sid) return
+    const modelKey = activeModelKey()
+    if (!sid || !modelKey) return
     if (optimisticIntentResolved()) return
     setOptimisticIntentResolved(true)
-    sendMessage(sid, "[enter-plan]").catch((err) => {
+    sendMessage(sid, "[enter-plan]", modelKey).catch((err) => {
       console.error("[MakePage] enter plan failed", err)
       setOptimisticIntentResolved(false)
     })
@@ -984,10 +1073,11 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 用户点 [直接执行] → 发送 [skip-plan],agent 跳过方案直接生成 HTML */
   function handleSkipPlan() {
     const sid = params.id
-    if (!sid) return
+    const modelKey = activeModelKey()
+    if (!sid || !modelKey) return
     if (optimisticIntentResolved()) return
     setOptimisticIntentResolved(true)
-    sendMessage(sid, "[skip-plan]").catch((err) => {
+    sendMessage(sid, "[skip-plan]", modelKey).catch((err) => {
       console.error("[MakePage] skip plan failed", err)
       setOptimisticIntentResolved(false)
     })
@@ -1074,14 +1164,23 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
-  async function sendMessage(sessionId: string, text: string) {
+  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }) {
     try {
-      const fileParts: FilePartInput[] = attachments().map((a) => ({
+      const done = attachments().filter(a => a.status === "done")
+      
+      // 本地文件 → [附件] 清单
+      const localFiles = done.filter(a => a.source === "local" && a.path)
+      const localManifest = localFiles.map(a => ({ filename: a.filename, path: a.path! }))
+      
+      // 外部文件 → FilePart
+      const externalFiles = done.filter(a => a.source === "external")
+      const fileParts: FilePartInput[] = externalFiles.map(a => ({
         type: "file",
         mime: a.mime,
         filename: a.filename,
-        url: a.dataUrl,
+        url: a.url ?? a.dataUrl!,
       }))
+      
       let promptText = text
 
       const loadedSkills = skillToolCalls()
@@ -1199,6 +1298,12 @@ const sessionMessagesLoaded = createMemo(() => {
       }
 
       const textPart: TextPartInput = { type: "text", text: promptText }
+      
+      // 本地文件清单 (synthetic)
+      const manifestPart = localManifest.length > 0 
+        ? { type: "text" as const, text: formatUploadsForPrompt(localManifest), synthetic: true as const }
+        : null
+      
       const modelKey = activeModelKey()
       if (!modelKey) {
         setAttachments([])
@@ -1207,13 +1312,21 @@ const sessionMessagesLoaded = createMemo(() => {
       tracker.interaction({
         module: "design",
         name: "send-message",
-        extend: JSON.stringify({ hasAttachment: fileParts.length > 0, designSystem: dsId ?? null }),
+        extend: JSON.stringify({ 
+          hasAttachment: fileParts.length > 0 || localManifest.length > 0, 
+          designSystem: dsId ?? null 
+        }),
       })
+      
+      const parts: Array<TextPartInput | FilePartInput> = [textPart]
+      if (manifestPart) parts.push(manifestPart)
+      parts.push(...fileParts)
+      
       await sdk.client.session.prompt({
         sessionID: sessionId,
         agent: "octo_make",
         ...(modelKey ? { model: modelKey } : {}),
-        parts: [textPart, ...fileParts],
+        parts,
       })
       setAttachments([])
     } catch (err) {
@@ -1225,7 +1338,22 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 提交 prompt：自动创建 session → 发送消息 */
   async function handleSubmit() {
     const text = prompt().trim()
-    if (!text || sending() || !activeModelKey()) return
+    if (sending() || !activeModelKey()) return
+    // 在异步操作前捕获 model key，避免后续被其他 effect 修改
+    const capturedModelKey = activeModelKey()
+    if (!capturedModelKey) return
+    
+    // 捕获待发送技能
+    const skill = pendingSkill()
+    setPendingSkill(null)
+    
+    // 构建消息：技能内容 + 用户文本
+    const messageText = skill
+      ? `<skill_content name="${skill.name}">\n${skill.content}\n</skill_content>\n\n${text}`
+      : text
+    
+    if (!messageText.trim()) return
+    
     setSending(true)
     setPrompt("")
     const submitSessionId = params.id
@@ -1245,7 +1373,16 @@ if (dsId) {
         navigate(`/make/${session.id}`)
         sid = session.id
       }
-      await sendMessage(sid, text)
+      await sendMessage(sid, messageText, capturedModelKey)
+      
+      // 发送成功后追踪技能使用
+      if (skill) {
+        tracker.interaction({ 
+          module: "design", 
+          name: "skill-used", 
+          extend: JSON.stringify({ skillName: skill.name }) 
+        })
+      }
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
     } finally {
@@ -1395,7 +1532,7 @@ if (dsId) {
       setSlashState(null)
       setMentionState(null)
 
-      loadSkillsConfig()
+      loadSkillConfig()
       return
     }
 
@@ -1436,7 +1573,7 @@ if (dsId) {
     if (cmd.trigger === "skills") {
       setSkillsMenuState({ query: "", cursor: replaced.length })
       setSkillsMenuIndex(0)
-      loadSkillsConfig()
+      loadSkillConfig()
     }
 
     // Focus textarea and position cursor at end
@@ -1446,42 +1583,47 @@ if (dsId) {
     })
   }
 
-  /** Pick a skill from skills menu and insert into prompt */
+  /** Pick a skill from skills menu and add to pending */
   async function pickSkillFromMenu(skill: { name: string; description: string }) {
     const state = skillsMenuState()
     if (!state) return
 
-    const ta = textareaRef
-
-    setSkillToolCalls(prev => [...prev, {
-      name: "skill",
-      status: "running",
-      input: { name: skill.name }
-    }])
-
-    const api = (window as unknown as { api?: { getSkillContent?: (name: string) => Promise<any> } }).api
-    const result = await api?.getSkillContent?.(skill.name)
-
-    if (!result?.success) {
-      console.error("[MakePage] Failed to load skill:", result?.error)
-      setSkillToolCalls(prev => prev.filter(c => c.input?.name !== skill.name))
-      return
-    }
-
-    setSkillToolCalls(prev => prev.map(c => 
-      c.input?.name === skill.name 
-        ? { ...c, status: "done", output: result.content }
-        : c
-    ))
-
-    const before = prompt()
-    setPrompt(before.replace(/^\/skills(?:\s+[^\s]*)?/, ""))
+    // Clear previous pending skill
+    setPendingSkill(null)
     setSkillsMenuState(null)
 
-    requestAnimationFrame(() => {
-      ta.focus()
-      ta.setSelectionRange(ta.value.length, ta.value.length)
-    })
+    // Clear /skills text from prompt
+    const before = prompt()
+    setPrompt(before.replace(/^\/skills(?:\s+[^\s]*)?/, ""))
+
+    try {
+      // Load skill content
+      const api = (window as unknown as { api?: { getSkillContent?: (name: string) => Promise<any> } }).api
+      const result = await api?.getSkillContent?.(skill.name)
+
+      if (!result?.success) {
+        console.error("[MakePage] Failed to load skill:", result?.error)
+        return
+      }
+
+      // Store pending skill
+      setPendingSkill({
+        name: skill.name,
+        content: result.content
+      })
+
+      // Focus textarea
+      requestAnimationFrame(() => {
+        textareaRef.focus()
+      })
+    } catch (err) {
+      console.error("[MakePage] Failed to load skill:", err)
+    }
+  }
+
+  /** Remove pending skill */
+  function removePendingSkill() {
+    setPendingSkill(null)
   }
 
   /** Pick a Design Files file and add as attachment */
@@ -1507,44 +1649,29 @@ if (dsId) {
     })
   }
 
-  /** Add artifact file to session attachments (独立函数，不依赖 mentionState) */
-  async function addArtifactToSession(file: ArtifactFile) {
-    // Check if already added
+  /** Add artifact file to session attachments (仅记录路径，不发内容) */
+  function addArtifactToSession(file: ArtifactFile) {
     if (attachments().some(a => a.path === file.path)) {
       showToast({ title: "已添加", description: file.name })
       return
     }
 
-    // Check attachment limit
     if (maxAttachments()) {
       showToast({ title: "附件数量已达上限", description: "最多添加 5 个附件" })
       return
     }
 
-    // Load file content
-    try {
-      const content = await fetchArtifactContent(globalSDK.url, sdk.directory ?? "", file.path)
-      const mime = getMimeForKind(file.kind)
-      const dataUrl = (file.kind === "image" || file.kind === "svg")
-        ? `data:${mime};base64,${content.content}`
-        : `data:${mime};base64,${btoa(unescape(encodeURIComponent(content.content)))}`
-
-      setAttachments(prev => [...prev, {
-        id: crypto.randomUUID(),
-        filename: file.name,
-        mime,
-        dataUrl,
-        path: file.path,
-        kind: file.kind,
-      }])
-      showToast({ title: "已添加附件", description: file.name })
-    } catch (err) {
-      showToast({
-        title: "添加失败",
-        description: err instanceof Error ? err.message : String(err),
-        variant: "error",
-      })
-    }
+    setAttachments(prev => [...prev, {
+      id: crypto.randomUUID(),
+      filename: file.name,
+      mime: file.mime || getMimeForKind(file.kind),
+      size: file.size,
+      status: 'done',
+      source: 'local',
+      path: file.path,
+      kind: file.kind,
+    }])
+    showToast({ title: "已添加附件", description: file.name })
   }
 
   function getMimeForKind(kind: ArtifactFileKind): string {
@@ -1569,89 +1696,167 @@ if (dsId) {
 
   let fileInputRef!: HTMLInputElement
 
-  /** 添加文件附件（最多 5 个） */
-  function addAttachments(files: File[]) {
+  function handleAddFiles(files: File[], method: "picker" | "drop" | "paste") {
     const slots = 5 - attachments().length
+    if (files.length > slots) {
+      showToast({ title: "最多添加5个附件" })
+    }
     const toAdd = files.slice(0, slots)
     for (const file of toAdd) {
-      const reader = new FileReader()
-      reader.onload = (ev) => {
-        const dataUrl = ev.target?.result as string
-        setAttachments((prev) => [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            filename: file.name,
-            mime: file.type || "application/octet-stream",
-            dataUrl,
-          },
-        ])
+      tracker.interaction({ 
+        module: "design", 
+        name: "add-attachment", 
+        extend: JSON.stringify({ method, filename: file.name }) 
+      })
+      
+      if (isImageFile(file.name)) {
+        addImageAttachment(file)
+      } else {
+        addDataUrlAttachment(file)
       }
-      reader.readAsDataURL(file)
-    }
-    if (toAdd.length > 0) {
-      tracker.interaction({ module: "design", name: "add-attachment", extend: JSON.stringify({ count: toAdd.length }) })
     }
   }
 
-  /** 移除附件 */
+  async function addImageAttachment(file: File) {
+    const id = crypto.randomUUID()
+    const previewUrl = URL.createObjectURL(file)
+    filesById.set(id, file)
+    
+    setAttachments(prev => [...prev, {
+      id,
+      filename: file.name,
+      mime: file.type || 'image/png',
+      size: file.size,
+      status: 'uploading',
+      source: 'external',
+      previewUrl
+    }])
+    
+    try {
+      const result = await uploadFile(file)
+      setAttachments(prev => prev.map(a => 
+        a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
+      ))
+    } catch (err) {
+      const message = err instanceof UploadError ? err.message : '上传失败'
+      setAttachments(prev => prev.map(a =>
+        a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
+      ))
+    }
+  }
+
+  function addDataUrlAttachment(file: File) {
+    const id = crypto.randomUUID()
+    filesById.set(id, file)
+    
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      setAttachments(prev => [...prev, {
+        id,
+        filename: file.name,
+        mime: file.type || 'application/octet-stream',
+        size: file.size,
+        status: 'done',
+        source: 'external',
+        dataUrl: ev.target?.result as string
+      }])
+    }
+    reader.readAsDataURL(file)
+  }
+
+  function handlePaste(e: ClipboardEvent) {
+    const files = Array.from(e.clipboardData?.items ?? [])
+      .filter(item => item.kind === "file")
+      .map(item => item.getAsFile())
+      .filter((file): file is File => Boolean(file))
+    if (files.length === 0) return
+    e.preventDefault()
+    handleAddFiles(files, "paste")
+  }
+
+  function retryUpload(id: string) {
+    const file = filesById.get(id)
+    const att = attachments().find(a => a.id === id)
+    if (!file || !att) return
+    
+    setAttachments(prev => prev.map(a => 
+      a.id === id ? { ...a, status: 'uploading' as const, error: undefined } : a
+    ))
+    
+    uploadFile(file)
+      .then(result => {
+        setAttachments(prev => prev.map(a => 
+          a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
+        ))
+      })
+      .catch(err => {
+        const message = err instanceof UploadError ? err.message : '上传失败'
+        setAttachments(prev => prev.map(a =>
+          a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
+        ))
+      })
+  }
+
   function removeAttachment(id: string) {
-    setAttachments((prev) => prev.filter((a) => a.id !== id))
+    const att = attachments().find(a => a.id === id)
+    if (att?.previewUrl) URL.revokeObjectURL(att.previewUrl)
+    filesById.delete(id)
+    setAttachments(prev => prev.filter(a => a.id !== id))
   }
 
-  /** 根据文件路径移除附件（用于删除文件时清理） */
   function removeAttachmentsByPath(paths: string[]) {
     const normalizedPaths = new Set(paths.map(p => p.replace(/\\/g, "/")))
-    setAttachments((prev) => prev.filter((a) => {
+    setAttachments(prev => prev.filter(a => {
       if (!a.path) return true
       return !normalizedPaths.has(a.path.replace(/\\/g, "/"))
     }))
   }
 
-  /** 根据文件路径重命名附件（用于重命名文件时更新） */
   function renameAttachmentPath(oldPath: string, newPath: string, newFilename: string) {
     const normalizedOld = oldPath.replace(/\\/g, "/")
-    setAttachments((prev) => prev.map((a) => {
+    setAttachments(prev => prev.map(a => {
       if (!a.path || a.path.replace(/\\/g, "/") !== normalizedOld) return a
       return { ...a, path: newPath, filename: newFilename }
     }))
   }
 
-  /** 文件选择回调 */
   function handleFileInputChange(e: Event) {
     const input = e.currentTarget as HTMLInputElement
     if (input.files?.length) {
-      addAttachments(Array.from(input.files))
+      handleAddFiles(Array.from(input.files), "picker")
       input.value = ""
     }
   }
 
-  /** 拖拽悬停 */
   function handleDragOver(e: DragEvent) {
     e.preventDefault()
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"
     setIsDragOver(true)
   }
 
-  /** 拖拽离开 */
   function handleDragLeave() {
     setIsDragOver(false)
   }
 
-  /** 拖拽放置 → 添加文件附件 */
   function handleDrop(e: DragEvent) {
     e.preventDefault()
     setIsDragOver(false)
     const files = Array.from(e.dataTransfer?.files ?? [])
-    if (files.length > 0) addAttachments(files)
+    if (files.length > 0) handleAddFiles(files, "drop")
   }
 
   /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
   async function handleOpenResult(card: OutputCard) {
     setResultViewMode("tabs")
     
+    // URL 类型：跳过文件推断和加载
+    const isUrl = card.filePath?.match(/^https?:\/\//i)
+    
+    // 标记：内容是否从文件加载（用于跳过不必要的持久化）
+    let contentLoadedFromFile = false
+    
     // ★ Step -1: 如果 card.filePath 不存在（artifact 标签来源），尝试推断 filePath
-    if (!card.filePath && projectDir() && params.id) {
+    if (!isUrl && !card.filePath && projectDir() && params.id) {
       const saveable = ["html", "deck", "svg", "markdown-document", "markdown", "code-snippet"]
       if (saveable.includes(card.type)) {
         const inferred = await inferArtifactFilePath(card.title, card.type, params.id!, projectDir()!)
@@ -1668,10 +1873,10 @@ if (dsId) {
       }
     }
     
-    // ★ Step 0: 如果已有匹配的 tab（local-file 或 html），直接激活
+    // ★ Step 0: 如果已有匹配的 tab，直接激活
     if (card.filePath) {
       const existingTab = tabStore.tabs().find(t => {
-        if (t.type === "local-file") return t.absoluteFilePath === card.filePath
+        if (t.type === "html" && isUrl) return t.filePath === card.filePath
         if (t.type === "html" || t.type === "svg") return t.filePath === card.filePath
         if (["image", "video", "audio", "pdf", "text"].includes(t.type)) return t.filePath === card.filePath
         return false
@@ -1683,7 +1888,7 @@ if (dsId) {
     }
     
     // ★ Step 1: 从文件加载内容（编辑已保存到文件）
-    if (card.filePath) {
+    if (card.filePath && !isUrl) {
       const skipContentLoad = ["image", "video", "audio", "pdf", "svg"].includes(card.type)
       if (!skipContentLoad) {
         try {
@@ -1694,6 +1899,7 @@ if (dsId) {
             const data = await response.json()
             if (data.content && typeof data.content === "string") {
               card = { ...card, content: data.content }
+              contentLoadedFromFile = true
               console.log("[MakePage] Loaded from file:", card.filePath)
             }
           }
@@ -1711,7 +1917,8 @@ if (dsId) {
     
     if (tab) {
       const shouldPersist = !["image", "video", "audio", "pdf", "text"].includes(tab.type)
-      if (shouldPersist) {
+      // 跳过从文件加载的内容（已存在于文件中，无需重复持久化）
+      if (shouldPersist && !isUrl && tab.content && !contentLoadedFromFile) {
         await persistTabChanges(tab, {
           sessionId: params.id!,
           projectDir: projectDir(),
@@ -1724,31 +1931,48 @@ if (dsId) {
     }
   }
 
+  function inferOutputType(filePath: string): OutputCardType {
+    const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
+    if (ext === 'html' || ext === 'htm') return 'html'
+    if (ext === 'svg') return 'svg'
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'].includes(ext)) return 'image'
+    if (ext === 'pdf') return 'pdf'
+    if (['mp4', 'webm', 'mov', 'avi', 'mkv'].includes(ext)) return 'video'
+    if (['mp3', 'wav', 'ogg', 'flac', 'm4a'].includes(ext)) return 'audio'
+    if (ext === 'md' || ext === 'markdown') return 'markdown'
+    if (ext === 'json') return 'json'
+    if (['ts', 'tsx', 'js', 'jsx', 'css', 'scss', 'less', 'py', 'go', 'rs', 'java', 'c', 'cpp', 'h'].includes(ext)) return 'code-snippet'
+    return 'text'
+  }
+
   function handleOpenLocalFile(filePath: string) {
-    // Check if it's a URL
+    const dir = projectDir()
+
+    // URL 处理
     if (/^https?:\/\//i.test(filePath)) {
+      const tabId = `local-file-${filePath.replace(/[/\\:?#&=]/g, '-')}`
       let title: string
       try {
         const url = new URL(filePath)
         const pathSegments = url.pathname.split('/').filter(Boolean)
-        const lastSegment = pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : ''
-        title = lastSegment ? `${url.host}/${lastSegment}` : url.host
+        title = pathSegments.length > 0 ? `${url.host}/${pathSegments[pathSegments.length - 1]}` : url.host
       } catch {
         title = filePath
       }
 
-      const tabId = `local-file-${filePath.replace(/[/\\:?#&=]/g, '-')}`
-      tabStore.openLocalFileTab({
+      handleOpenResult({
         id: tabId,
         title,
-        absoluteFilePath: filePath,
+        type: 'html',
+        content: '',
+        filePath,
         createdAt: new Date(),
       })
       tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "url" }) })
       return
     }
 
-    const dir = projectDir()
+    // 本地文件处理
     const normalizedPath = filePath.replace(/\\/g, '/')
     const isAbsolute = /^([A-Za-z]:[/\\]|\/)/.test(filePath)
 
@@ -1767,14 +1991,17 @@ if (dsId) {
     absolutePath = absolutePath.replace(/\/+/g, '/')
 
     const tabId = `local-file-${absolutePath.replace(/[/\\:]/g, '-')}`
+    const type = inferOutputType(filePath)
 
-    tabStore.openLocalFileTab({
+    handleOpenResult({
       id: tabId,
       title: filePath.split(/[/\\]/).pop() ?? filePath,
-      absoluteFilePath: absolutePath,
+      type,
+      content: '',
+      filePath: absolutePath,
       createdAt: new Date(),
     })
-    tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "local" }) })
+    tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "local", ext: filePath.split('.').pop() }) })
   }
 
   /** Handle `/skills <name>` command: inject skill name into prompt */
@@ -1843,7 +2070,6 @@ if (dsId) {
   }
 
   const inputDisabled = () => sending() || isBusy() || !activeModelKey() || !!questionRequest() || !!permissionRequest()
-  const maxAttachments = () => attachments().length >= 5
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
@@ -1970,7 +2196,7 @@ if (dsId) {
                 </div>
               }>
                 <div class="flex-1 flex flex-col items-center justify-center min-h-0 px-6 py-6">
-                  <ChatEmptyState />
+                  <NewSessionView worktree="" title="Octo Design" subtitle="描述需求，开始生成原型" />
                 <div class="w-full max-w-[800px]">
                   {/* 预置提示词按钮:放在输入框白卡片之外,视觉层级:辅助操作浮在输入框上方 */}
 <StarterCards
@@ -1980,8 +2206,27 @@ if (dsId) {
                        setPrompt(starter.prompt)
                      }}
                    />
-                  <div
-                    class="rounded-[24px] flex flex-col transition-all duration-300 relative group"
+
+{/* Pending skill tag */}
+                    <Show when={pendingSkill()}>
+                      {(skill) => (
+                        <div class="flex items-center gap-2 px-4 pt-3">
+                          <div class="flex items-center gap-1 px-2 py-1 bg-[#f1f1f1] rounded-full text-xs text-black/60">
+                            <span>{skill().name}</span>
+                            <button
+                              type="button"
+                              onClick={removePendingSkill}
+                              class="hover:text-black/80"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </Show>
+
+                   <div
+                     class="rounded-[24px] flex flex-col transition-all duration-300 relative group"
                     style={{
                       border: "1px solid transparent",
                       background: `
@@ -2003,7 +2248,7 @@ if (dsId) {
                       <div class="slash-popover">
                         <div class="slash-popover-head">
                           <span class="slash-popover-title">命令</span>
-                          <span class="slash-popover-hint">↑↓ 选择 · Enter/Tab 确认 · Esc 关闭</span>
+                          <span class="slash-popover-hint">Esc 关闭</span>
                         </div>
                         <For each={filteredSlash()}>
                           {(cmd, i) => {
@@ -2038,7 +2283,7 @@ if (dsId) {
                           <Show when={skillsLoading()}>
                             <span class="slash-popover-loading">加载中...</span>
                           </Show>
-                          <span class="slash-popover-hint">↑↓ 选择 · Enter/Tab 确认 · Esc 关闭</span>
+                          <span class="slash-popover-hint">Esc 关闭</span>
                         </div>
                         <div class="slash-popover-body">
                           <Show when={!skillsLoading() && filteredSkills().length === 0}>
@@ -2121,12 +2366,14 @@ if (dsId) {
                     <AttachmentBar
                       attachments={attachments()}
                       onRemove={removeAttachment}
+                      onRetry={retryUpload}
                     />
 
                     <textarea
                       ref={textareaRef}
                       value={prompt()}
                       onInput={handleInput}
+                      onPaste={handlePaste}
                       onCompositionStart={handleCompositionStart}
                       onCompositionEnd={handleCompositionEnd}
                       onKeyDown={handleKeyDown}
@@ -2208,8 +2455,9 @@ if (dsId) {
              </Show>
            }>
               {/* 消息列表 */}
+              <div class="relative flex-1 min-h-0">
               <ScrollView
-                class="flex-1 min-h-0"
+                class="h-full"
                 style={{ background: "#fff", padding: "0 12px", }}
                 viewportRef={autoScroll.scrollRef}
                 onScroll={autoScroll.handleScroll}
@@ -2243,6 +2491,14 @@ if (dsId) {
                   </For>
                 </div>
               </ScrollView>
+              <div
+                class="absolute bottom-0 left-0 right-0 pointer-events-none z-[1]"
+                style={{
+                  height: "24px",
+                  background: "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%)",
+                }}
+              />
+              </div>
 
               {/* 输入区 */}
               <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
@@ -2290,6 +2546,24 @@ if (dsId) {
                   }}
                 />
 
+                {/* Pending skill tag */}
+                <Show when={pendingSkill()}>
+                  {(skill) => (
+                    <div class="flex items-center gap-2 px-4 pt-3">
+                      <div class="flex items-center gap-1 px-2 py-1 bg-[#f1f1f1] rounded-full text-xs text-black/60">
+                        <span>{skill().name}</span>
+                        <button
+                          type="button"
+                          onClick={removePendingSkill}
+                          class="hover:text-black/80"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </Show>
+
                 <div
                   class="rounded-[16px] transition-all duration-300 relative group"
                   style={{
@@ -2312,7 +2586,7 @@ if (dsId) {
                     <div class="slash-popover">
                       <div class="slash-popover-head">
                         <span class="slash-popover-title">命令</span>
-                        <span class="slash-popover-hint">↑↓ 选择 · Enter/Tab 确认 · Esc 关闭</span>
+                        <span class="slash-popover-hint">Esc 关闭</span>
                       </div>
                       <For each={filteredSlash()}>
                         {(cmd, i) => {
@@ -2347,7 +2621,7 @@ if (dsId) {
                         <Show when={skillsLoading()}>
                           <span class="slash-popover-loading">加载中...</span>
                         </Show>
-                        <span class="slash-popover-hint">↑↓ 选择 · Enter/Tab 确认 · Esc 关闭</span>
+                        <span class="slash-popover-hint">Esc 关闭</span>
                       </div>
                       <div class="slash-popover-body">
                         <Show when={!skillsLoading() && filteredSkills().length === 0}>
@@ -2430,12 +2704,14 @@ if (dsId) {
                   <AttachmentBar
                     attachments={attachments()}
                     onRemove={removeAttachment}
+                    onRetry={retryUpload}
                   />
 
                   <textarea
                     ref={textareaRef}
                     value={prompt()}
                     onInput={handleInput}
+                    onPaste={handlePaste}
                     onKeyDown={handleKeyDown}
                     placeholder="输入指令，按 Enter 发送…"
                     rows={3}
@@ -2626,19 +2902,6 @@ if (dsId) {
   )
 }
 
-function ChatEmptyState(): JSX.Element {
-  return (
-    <div class="flex flex-col items-center gap-6 text-center pb-20 px-6">
-      <img src={IconHost} width={166} height={166} alt="" draggable={false} style={{ "flex-shrink": "0" }} />
-      <div class="flex flex-col items-center gap-2">
-        <div style={{ color: "rgba(0, 0, 0, 0.9)", "font-size": "36px", "font-weight": "600", "line-height": "42px" }}>Octo Design</div>
-        <div style={{ color: "rgba(0, 0, 0, 0.6)", "font-size": "16px", "line-height": "24px" }}>
-          描述需求，开始生成原型
-        </div>
-      </div>
-    </div>
-  )
-}
 
 function MakeDialogDeleteSession(props: { sessionID: string; name: string; onDelete: (id: string) => Promise<void> }): JSX.Element {
   const language = useLanguage()

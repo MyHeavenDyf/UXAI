@@ -11,7 +11,6 @@ export interface TransformerConfig {
   preserveOutput: boolean;
   steps: string[];
   targetLib?: string;
-  tailwindAdapter?: any;
 }
 
 const defaultConfig: TransformerConfig = {

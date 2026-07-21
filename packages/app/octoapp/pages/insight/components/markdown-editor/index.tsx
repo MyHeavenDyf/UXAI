@@ -10,6 +10,7 @@ import { defaultFilename, ensureMarkdownExt } from "../../utils/local-file"
 import { ensureLocalMarkdownFile } from "../../utils/local-resource"
 import { interceptExternalLink } from "../../utils/external-link"
 import { usePlatform } from "@/context/platform"
+import { useParams } from "@solidjs/router"
 
 // 无边框窗口(titleBarStyle:"hidden")macOS 在左上画红绿灯,留出避让宽度(与 _shell/topbar 一致)
 const TRAFFIC_LIGHT_INSET = 80
@@ -142,6 +143,7 @@ export function MarkdownEditor(props: {
   const theme = useTheme()
   const isDark = () => theme.mode() === "dark"
   const platform = usePlatform()
+  const params = useParams<{ id?: string }>()
   const isMac = () => platform.platform === "desktop" && platform.os === "macos"
   // Windows 无边框窗口的最小化/最大化/关闭(titleBarOverlay)在右上角,顶栏右侧留出避让,
   // 否则关闭 ✕ 会和原生控件位置重合(与 _shell/titlebar 的 windowsControlsBaseWidth 一致)。
@@ -241,7 +243,7 @@ export function MarkdownEditor(props: {
     editorEl?.addEventListener("click", interceptExternalLink, true)
     void (async () => {
       try {
-        const { path, persistent: isPersistent } = await ensureLocalMarkdownFile(props.tab, props.projectDir)
+        const { path, persistent: isPersistent } = await ensureLocalMarkdownFile(props.tab, props.projectDir, params.id ?? "")
         targetPath = path
         setPersistent(isPersistent)
         console.log("[octo:mdedit] open", { tabId: props.tab.id, source: props.tab.source, path, persistent: isPersistent })

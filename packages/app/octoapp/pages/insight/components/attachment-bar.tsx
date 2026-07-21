@@ -10,8 +10,9 @@ export type Attachment = {
   mime: string
   size: number
   status: AttachmentStatus
-  // 非图片(SPEC-INS-015 ②④)：status=done 且成功导入 worktree 时,本地 insight/sources 绝对路径
-  // (进 [附件] 清单,插件按需上传 S3)。降级(无 projectDir/非桌面)→ done 但无 path,不进清单。
+  // 非图片(SPEC-INS-015 ②④)：status=done 且成功导入 worktree 时,本地 insight/uploads(预会话)
+  // 或 insight/<sessionId>/uploads(发送后)绝对路径(进 [附件] 清单,插件按需上传 S3)。
+  // 降级(无 projectDir/非桌面)→ done 但无 path,不进清单。
   path?: string
   // 图片(③)：status=done 时的 S3 url(发送时产出 vision FilePart{url})。
   url?: string

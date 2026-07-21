@@ -1,21 +1,39 @@
 <script setup lang="ts">
-import { ref, watch, computed } from "vue"
+import { ref, watch, computed, onMounted, useAttrs } from "vue"
 import { ElSwitch } from "element-plus"
 import type { SwitchNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import "./Switch.less"
-import { getLucideIconComponentRef } from "../Icon/IconBase"
+import { useIconComponentRef } from "../Icon/IconBase"
 
 const sizeEnum = {
   medium: "default",
   small: "small",
 }
 
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
 const props = defineProps<A2UIComponentProps<SwitchNode>>()
 const { node, surfaceId } = props
 const { properties } = props.node
 const { resolveValue, setValue } = useA2UIComponent(node, surfaceId)
+
+const elSwitchRef = ref<InstanceType<typeof ElSwitch>>()
+
+onMounted(() => {
+  const wrapper = (elSwitchRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const id = computed(() => node.id)
 
@@ -25,16 +43,17 @@ const size = computed(() => {
 
 const checkedChildren = computed(() => properties.checkedChildren)
 const unCheckedChildren = computed(() => properties.unCheckedChildren)
-const checkedChildrenIcon = computed(() =>{
-  const iconname = resolveValue(properties.checkedChildrenIcon) as string
-  return iconname ? getLucideIconComponentRef(iconname) : null
-})
-const unCheckedChildrenIcon = computed(() =>{
-  const iconname = resolveValue(properties.unCheckedChildrenIcon) as string
-  return iconname ? getLucideIconComponentRef(iconname) : null
-})
 
-const initVal = computed(() => resolveValue(properties.value) as boolean)
+// ---- 异步图标解析 ----
+const checkedIconName = computed(() => resolveValue(properties.checkedChildrenIcon) as string | undefined)
+const checkedIconRef = useIconComponentRef(checkedIconName)
+const checkedChildrenIcon = computed(() => checkedIconRef.value?.component ?? null)
+
+const uncheckedIconName = computed(() => resolveValue(properties.unCheckedChildrenIcon) as string | undefined)
+const uncheckedIconRef = useIconComponentRef(uncheckedIconName)
+const unCheckedChildrenIcon = computed(() => uncheckedIconRef.value?.component ?? null)
+
+const initVal = computed(() => resolveValue(properties.value) as boolean ?? false)
 const value = ref(initVal.value)
 watch(
   () => initVal.value,
@@ -53,6 +72,7 @@ const onSwitch = (val: string | number | boolean) => {
 
 <template>
   <ElSwitch
+    ref="elSwitchRef"
     :id="id"
     v-model="value"
     inline-prompt

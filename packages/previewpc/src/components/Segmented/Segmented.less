@@ -1,14 +1,14 @@
 .el-segmented {
-  --el-segmented-color: var(--text-secondary);
+  --el-segmented-color: var(--color-text-secondary);
   --el-segmented-bg-color: rgba(25, 25, 25, 0.05);
   --el-segmented-padding: 2px 0 2px 2px;
   --el-segmented-item-selected-color: var(--el-color-white);
   --el-segmented-item-selected-bg-color: var(--el-color-primary);
   --el-segmented-item-selected-disabled-bg-color: var(--el-color-primary-light-5);
-  --el-segmented-item-hover-color: var(--text-default);
+  --el-segmented-item-hover-color: var(--color-text-primary);
   --el-segmented-item-hover-bg-color: var(--el-segmented-bg-color);
   --el-segmented-item-active-bg-color: var(--el-segmented-bg-color);
-  --el-segmented-item-disabled-color: var(--text-disabled);
+  --el-segmented-item-disabled-color: var(--color-text-disabled);
 }
 
 .el-segmented  {
@@ -22,7 +22,7 @@
 .el-segmented--small .el-segmented__item-selected,
 .el-segmented--large .el-segmented__item-selected {
   &:hover {
-    background-color:var(--primary-400);
+    background-color:var(--brand-40);
   }
 }
 
@@ -69,10 +69,10 @@
 
 .theme-dark {
   .el-segmented {
-    --el-segmented-color: var(--text-secondary);
-    --el-segmented-bg-color: rgb(from var(--neutral-50) r g b / 0.2);
-    --el-segmented-item-hover-bg-color: var(--primary-400);
-    --el-segmented-item-active-bg-color: var(--primary-400);
+    --el-segmented-color: var(--color-text-secondary);
+    --el-segmented-bg-color: rgb(from var(--gray-05) r g b / 0.2);
+    --el-segmented-item-hover-bg-color: var(--brand-40);
+    --el-segmented-item-active-bg-color: var(--brand-40);
     --el-segmented-item-selected-bg-color: var(--el-color-primary);
     --el-segmented-item-selected-disabled-bg-color: var(--el-color-primary-light-5);
   }

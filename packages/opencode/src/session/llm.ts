@@ -9,6 +9,7 @@ import { ProviderTransform } from "@/provider/transform"
 import { Config } from "@/config/config"
 import { InstanceState } from "@/effect/instance-state"
 import type { Agent } from "@/agent/agent"
+import { ProtoTheme } from "@/agent/proto/theme"
 import type { MessageV2 } from "./message-v2"
 import { Plugin } from "@/plugin"
 import { SystemPrompt } from "./system"
@@ -99,12 +100,14 @@ const live: Layer.Layer<
 
       // TODO: move this to a proper hook
       const isOpenaiOauth = item.id === "openai" && info?.type === "oauth"
-
+      const resolvedPrompt = ProtoTheme.hasTemplate(input.agent.name)
+        ? yield* ProtoTheme.resolvePromptForSession(input.agent.name, input.sessionID)
+        : undefined
       const system: string[] = []
       system.push(
         [
           // use agent prompt otherwise provider prompt
-          ...(input.agent.prompt ? [input.agent.prompt] : SystemPrompt.provider(input.model)),
+          ...(resolvedPrompt ?? input.agent.prompt ? [resolvedPrompt ?? input.agent.prompt] : SystemPrompt.provider(input.model)),
           // any custom prompt passed into this call
           ...input.system,
           // any custom prompt from last user message
@@ -157,6 +160,16 @@ const live: Layer.Layer<
               ),
               ...input.messages,
             ]
+      const requestMessages = (() => {
+        if (input.model.providerID !== "w3") return messages
+
+        const currentTurn = messages.findLastIndex((message) => message.role === "user")
+        if (currentTurn === -1) return messages
+        return [
+          ...messages.slice(0, currentTurn).filter((message) => message.role === "system"),
+          ...messages.slice(currentTurn),
+        ]
+      })()
 
       const params = yield* plugin.trigger(
         "chat.params",
@@ -386,7 +399,7 @@ const live: Layer.Layer<
           ...headers,
         },
         maxRetries: input.retries ?? 0,
-        messages,
+        messages: requestMessages,
         model: wrapLanguageModel({
           model: language,
           middleware: [

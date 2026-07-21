@@ -26,6 +26,7 @@ import { INSIGHT_AGENT } from "@/constants/agent"
 import { Identifier } from "@/utils/id"
 import { same } from "@/utils/same"
 import { Icon } from "@opencode-ai/ui/icon"
+import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
 import { LocalProvider, useLocal } from "@/context/local"
@@ -37,23 +38,37 @@ import { InsightSidebar } from "./sidebar"
 import { SidebarFooter } from "./components/sidebar-footer"
 import { ProjectInfo } from "@/components/project-info"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
-import { PresetPrompts } from "./components/preset-prompts"
+import { InsightPermissionDock } from "./components/permission-dock"
+import { McpChip } from "./components/mcp-chip"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
-import { PRESET_PROMPTS, type PresetPrompt } from "./store/preset-prompts"
+import { materializeUriCardToOutputs } from "./utils/local-resource"
+import { PRESET_PROMPTS } from "./store/preset-prompts"
+import {
+  buildChipDeclaration,
+  buildChipTemplate,
+  buildToolGate,
+  mcpToolKey,
+  type McpSelection,
+} from "./store/mcp-trigger"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
-import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, isTextInlineFile, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
+import { NewSessionView } from "@/components/session"
+import { uploadFile, validateFile, formatUploadsForPrompt, parseUploadedFiles, isImageFile, isTextInlineFile, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
 import { encodeFilePath } from "../../context/file/path"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { getDesktopApi } from "./lib/electron-api"
 import { copyLastError, recordError, setBeaconContext } from "./lib/error-beacon"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { aggregateTaskCards, readTaskInfo, toolDisplayName, type TaskCardEntry } from "./utils/task-detect"
 import { tracker } from "@/utils/tracker"
 import { linkToOutputType } from "./utils/resource-link"
 import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
 import { showToast } from "@opencode-ai/ui/toast"
+import { extToOutputType } from "./utils/write-output"
+import type { InsightFile, InsightFileEntry } from "./utils/insight-file-api"
+import { mimeForName, pathToLocalUrl } from "./utils/insight-file-api"
 
 // 稳定空数组:作为 userMessages memo 的初值与无 id 时的返回,配合 equals:same 避免每帧吐新空数组
 const EMPTY_MESSAGES: Message[] = []
@@ -140,6 +155,14 @@ function readLastSession(): { dir: string; id: string } | undefined {
   } catch { /* 历史格式/损坏 → 视为无记录 */ }
   return undefined
 }
+// SPEC-INS-014 §4.1.2(v2 会话隔离新增):判断附件本地路径是否还落在预会话落地区
+// insight/uploads/(而非已经 rename 进 insight/<sessionId>/uploads/)——发送时用来决定要不要挪。
+function isPendingUploadPath(path: string): boolean {
+  const segs = path.split(/[\\/]/)
+  const i = segs.lastIndexOf("insight")
+  return i !== -1 && segs[i + 1] === "uploads"
+}
+
 // 每次整页加载只恢复一次(模块级,页面 reload 时自然重置);避免 keyed 重挂导致重复跳转。
 let didBootRestore = false
 // 上次挂载 InsightContent 时的目录:keyed 重挂时与之对比,检测"用户切了项目目录"。
@@ -147,7 +170,7 @@ let didBootRestore = false
 let lastInsightDir: string | undefined
 
 // §SPEC-INS-011 §9.5:整页崩兜底 UI。组件体在错误被捕获那一刻执行一次 → 记 boundary beacon;
-// 「复制错误」= lastError(),让用户在崩溃态(console 够不着)也能一键带出 → 粘给 Claude 定位。
+// 「复制错误」= lastError(),让用户在崩溃态(console 够不着)也能一键带出,用于问题排查。
 function InsightCrashFallback(props: { error: unknown }) {
   recordError("boundary", props.error)
   const [copied, setCopied] = createSignal(false)
@@ -155,7 +178,7 @@ function InsightCrashFallback(props: { error: unknown }) {
   const onCopy = () => {
     copyLastError(1)
     setCopied(true)
-    showToast({ title: "错误信息已复制", description: "可粘贴给排查方 / Claude 定位" })
+    showToast({ title: "错误信息已复制" })
   }
   return (
     <div style={{ padding: "32px", display: "flex", "flex-direction": "column", gap: "12px", "max-width": "640px", margin: "0 auto" }}>
@@ -262,8 +285,11 @@ function InsightContent() {
     void sdk.client.session
       .get({ sessionID: bootSaved.id })
       .then((r: { data?: unknown }) => {
-        if (r?.data) navigate(`/insight/${bootSaved.id}`, { replace: true })
-        else localStorage.removeItem(LAST_SESSION_KEY) // 已删 → 留首页 + 清记录
+        const session = r?.data as Session | undefined
+        // parentID 有值 = task 子会话:不恢复(SPEC-INS-021 §1 追加)。导航拦截之外的兜底——
+        // 历史遗留记录 / 直接 URL 仍可能把子会话写进 LAST_SESSION_KEY,恢复进去就是"没有记录的对话"。
+        if (session && !session.parentID) navigate(`/insight/${bootSaved.id}`, { replace: true })
+        else localStorage.removeItem(LAST_SESSION_KEY) // 已删/子会话 → 留首页 + 清记录
       })
       .catch(() => { /* 网络/未知错误:不跳,保持首页,记录留待下次 */ })
   })
@@ -457,16 +483,58 @@ function InsightContent() {
         outputParsed: parsedOutput,
       })
     }
+
+    // SPEC-INS-017 §5:本地解析失败埋点(extract_document 按失败原因分布,本地线缺口输入)
+    for (const p of toolParts) {
+      if (!p.tool || !(p.tool === "extract_document" || p.tool.endsWith("_extract_document"))) continue
+      const meta = (p.state?.metadata ?? {}) as { error?: string; chars?: number }
+      const reason = meta.error ?? (meta.chars === 0 ? "empty-text" : undefined)
+      if (reason) {
+        tracker.interaction({ module: "insight", name: "extract-failure", extend: JSON.stringify({ reason }) })
+      }
+    }
+
+    // SPEC-INS-017 §5:chip turn 工具调用结果对账(是否调用/成败;「args 是否被插件矫正」在
+    // server 端 [octo:inject] chip-declaration 日志,前端拿不到,两处合看)
+    if (pendingChipResult) {
+      const pending = pendingChipResult
+      pendingChipResult = null
+      const uIdx = messages.findIndex((m) => m.id === pending.messageID)
+      if (uIdx >= 0) {
+        const states: string[] = []
+        for (let i = uIdx + 1; i < messages.length; i++) {
+          const m = messages[i]
+          if (m.role === "user") break
+          if (m.role !== "assistant") continue
+          const mParts = (sync.data.part[m.id] ?? []) as Array<Part & { tool?: string; state?: { status?: string } }>
+          for (const p of mParts) {
+            if (p.type === "tool" && p.tool === pending.toolKey) states.push(p.state?.status ?? "unknown")
+          }
+        }
+        const called = states.length > 0
+        // not-called 不一定是失败:调用与否归模型判断(可能在向用户要材料/确认分桶/回应别的意图),
+        // 埋点原样上报,命中率结论交给内网评测(结合用户是否复述"你调一下"看)。激活态不做任何自动清除。
+        const status = states.includes("error") ? "error" : called ? "completed" : "not-called"
+        console.log("[octo:chip] chip-result", { functionId: pending.functionId, toolKey: pending.toolKey, called, status })
+        tracker.interaction({
+          module: "insight",
+          name: "mcp-chip-result",
+          extend: JSON.stringify({ functionId: pending.functionId, called, status }),
+        })
+      }
+    }
   }, { defer: true }))
 
   const [prompt, setPrompt] = createSignal("")
   // 输入法合成态:macOS 上「确认候选」的 Enter keydown 先于 compositionend 触发,
   // 此时 event.isComposing 在部分 Chromium 版本已是 false 会漏判,故另用手动信号兜底
   const [composing, setComposing] = createSignal(false)
-  // 记录当前输入框文本「来自哪个预置胶囊」,用于把 preset 点击 → 实际发送的漏斗打通。
-  // 点胶囊时 set;输入框被清空(发送后 / 用户手动清空)时由下方 effect 解除关联,避免误把后续新文本算到该预置头上。
-  const [activePreset, setActivePreset] = createSignal<{ id: string; text: string } | null>(null)
-  createEffect(() => { if (prompt() === "") setActivePreset(null) })
+  // MCP「研究工具」chip 选择(SPEC-INS-017):非空 = 解析模式开启——若模型发起 MCP 业务调用,
+  // 只能是所选工具(范围限制);是否调用由模型按用户消息判断。纯常驻:只有手动 × 才取消,
+  // 无任何自动清除副作用(重复提交由模板判断规则 + 查询仪式防,非客户端状态机)。
+  const [mcpSelection, setMcpSelection] = createSignal<McpSelection | null>(null)
+  // chip turn 结果对账记录:chip 发送后记 user messageID,busy→idle 时对账工具调用结果(spec §5 埋点)。
+  let pendingChipResult: { messageID: string; functionId: string; toolKey: string } | null = null
   // queue:busy 期间用户继续发送,先入队,idle 后按 FIFO 逐条自动 flush(SPEC-INS-007 §3.3.3)
   // 多容量:入队 push 追加(不再覆盖);abort 时清空当前 session 队列。
   // 存储提到模块级(utils/send-queue):按 sessionID 分桶,跨 session 且跨顶层 tab
@@ -531,43 +599,179 @@ function InsightContent() {
 
   const tabStore = createTabStore()
 
-  // ── 任务面板按需弹出 + 过渡动画 (SPEC-INS-009) ────────────────
+  // SPEC-INS-014 §10:tabs/files 页面级切换,默认 files——进入会话就有"文件管理"可看,
+  // 不必等第一个产物 tab 打开(Make 模块同款默认)。
+  const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files">("files")
+
+  // 文件管理表格外部刷新触发:对话上传文件落地会话目录(insight/<sid>/uploads/)后递增,
+  // 驱动 ResultViewer → InsightFileManager 的 refreshKey effect 重拉文件列表(对齐 make 模块的 filesRefreshKey)。
+  const [filesRefreshKey, setFilesRefreshKey] = createSignal(0)
+
+  // ── 任务面板按需弹出 + 过渡动画 (SPEC-INS-009;v2 常驻可见改动见 SPEC-INS-014 §10) ────
   // panelCollapsed:用户手动收起(保留 tab,仅隐藏容器);与"无产物"区分两种收起来源。
-  // panelVisible = 有已打开产物 且 未手动收起。无产物时聊天居中铺满,有产物才 split。
+  // panelVisible = 有会话 且 未手动收起(v2:不再要求 tabs.length>0——文件管理常驻,
+  // 进入会话就有内容可看,不必等第一个产物 tab 打开)。无会话时聊天居中铺满。
   const [panelCollapsed, setPanelCollapsed] = createSignal(false)
-  const panelVisible = createMemo(() => tabStore.tabs().length > 0 && !panelCollapsed())
 
-  // 动画三态:
-  //   panelMounted   —— 面板是否在 DOM(可见时挂载,收起动画播完才卸载,保证滑出可见)
-  //   panelExpanded  —— 驱动聊天列宽度的目标态(滑入时延一帧置真,从 100% 过渡到 chatWidth)
-  //   panelAnimating —— 仅切换期间为真;开启 width transition。拖拽分隔线不触发本 effect,
-  //                     故 transition 关闭,分隔线跟手不滞后。
-  const PANEL_ANIM_MS = 280
-  const [panelMounted, setPanelMounted] = createSignal(false)
-  const [panelExpanded, setPanelExpanded] = createSignal(false)
-  const [panelAnimating, setPanelAnimating] = createSignal(false)
-  let panelExitTimer: ReturnType<typeof setTimeout> | undefined
-  let panelAnimEndTimer: ReturnType<typeof setTimeout> | undefined
+  // ── 响应式布局(对齐 Claude;草案,待设计确认)────────────────────────────────
+  // 全局窗口 minWidth 已降到 600(见 packages/desktop windows.ts)。窗口变窄时:
+  //   1) 先挤压聊天列,右侧面板守住 PANEL_MIN(effectiveChatWidth 钳制实现);
+  //   2) 可用宽(对话↔面板容器)< CHAT_MIN+PANEL_MIN → 收起右侧面板,顶栏按钮唤出右侧抽屉(无遮罩);
+  //   3) 窗口 < 侧栏宽(296)+CHAT_MIN → 收起左侧栏,汉堡唤出左侧抽屉(无遮罩)。
+  // 断点动态(随侧栏拖拽自适应),不用固定 media-query 数值,避免与最小宽互相打架。
+  const CHAT_MIN = 450
+  const PANEL_MIN = 480
+  const [containerWidth, setContainerWidth] = createSignal(0) // 对话↔面板容器实测宽(≈ 窗口 − 侧栏)
+  const [sidebarOverlayOpen, setSidebarOverlayOpen] = createSignal(false)
+  const [panelOverlayOpen, setPanelOverlayOpen] = createSignal(false)
 
-  createEffect(on(panelVisible, (show) => {
-    if (panelExitTimer) { clearTimeout(panelExitTimer); panelExitTimer = undefined }
-    setPanelAnimating(true)
-    if (show) {
-      setPanelMounted(true)
-      // 双 rAF:确保面板先以 width:0(聊天 100%)落地一帧,再过渡到展开宽,首次也有滑入
-      requestAnimationFrame(() => requestAnimationFrame(() => setPanelExpanded(true)))
-    } else {
-      setPanelExpanded(false)
-      panelExitTimer = setTimeout(() => setPanelMounted(false), PANEL_ANIM_MS)
+  const observePageArea = (el: HTMLDivElement) => {
+    const ro = new ResizeObserver((entries) => {
+      // 忽略 0 宽:切到别的模块时本页被隐藏(display:none)会量到 0,
+      // 不能让它污染 containerWidth → 保留最后已知宽,切回来不闪。
+      for (const e of entries) if (e.contentRect.width > 0) setContainerWidth(e.contentRect.width)
+    })
+    ro.observe(el)
+    onCleanup(() => ro.disconnect())
+  }
+
+  // 右侧面板:可用宽不足以同时容纳「聊天最小 + 面板最小」时收起
+  const responsivePanelCollapsed = createMemo(() => containerWidth() > 0 && containerWidth() < CHAT_MIN + PANEL_MIN)
+  createEffect(on(responsivePanelCollapsed, (c) => { if (!c) setPanelOverlayOpen(false) }))
+
+  // 左侧栏:窗口 < 侧栏宽 + 聊天最小(296 + 450 ≈ 746)时收起
+  const [responsiveSidebarHidden, setResponsiveSidebarHidden] = createSignal(false)
+  createEffect(() => {
+    const mql = window.matchMedia("(max-width: 745px)")
+    const update = () => {
+      setResponsiveSidebarHidden(mql.matches)
+      if (!mql.matches) setSidebarOverlayOpen(false)
     }
-    // 动画窗口结束后关掉 animating,使后续拖拽无 transition
-    if (panelAnimEndTimer) clearTimeout(panelAnimEndTimer)
-    panelAnimEndTimer = setTimeout(() => setPanelAnimating(false), PANEL_ANIM_MS + 30)
-  }, { defer: true }))
+    update()
+    mql.addEventListener("change", update)
+    onCleanup(() => mql.removeEventListener("change", update))
+  })
+
+  // 导航切换会话时关闭两个抽屉
+  createEffect(on(() => params.id, () => { setSidebarOverlayOpen(false); setPanelOverlayOpen(false) }))
+
+  const panelVisible = createMemo(() => !!params.id && !panelCollapsed() && !responsivePanelCollapsed())
+
+  // 聊天列有效宽:在 [CHAT_MIN, 容器宽 − PANEL_MIN] 内钳制用户拖拽宽,保证面板恒 ≥ PANEL_MIN → 窄屏先挤聊天
+  const effectiveChatWidth = createMemo(() => {
+    const cw = containerWidth()
+    if (cw <= 0) return chatWidth()
+    return Math.max(CHAT_MIN, Math.min(chatWidth(), cw - PANEL_MIN))
+  })
+
+  // 两个抽屉互斥(<746 时左右都收起,可能同时被唤起 → 开一个自动关另一个,避免透明点击层跨容器叠加)
+  const toggleSidebarDrawer = () => { setPanelOverlayOpen(false); setSidebarOverlayOpen((v) => !v) }
+  const togglePanelDrawer = () => { setSidebarOverlayOpen(false); setPanelOverlayOpen((v) => !v) }
+
+  // 面板挂载/聊天宽度直接跟 panelVisible(无过渡动画)。
+  // 旧版的 panelMounted/panelExpanded/panelAnimating + 双 rAF 动画状态机已移除:
+  // 它与响应式 containerWidth 会在"切走→切回/快速改宽"时竞态(漏取消的 rAF 把 expanded
+  // 拉回 true 却已卸载面板 → 右侧灰底)。鲁棒性优先,去掉动画,状态无从 desync。
 
   /** 打开/激活产物时统一清掉手动收起态,确保面板滑入(即便之前被收起) */
   function revealPanel() {
     if (panelCollapsed()) setPanelCollapsed(false)
+    // 窄屏收起态(面板不 inline)下打开产物 → 唤起右侧抽屉,避免"点了卡片没反应"的不可用
+    if (responsivePanelCollapsed()) { setSidebarOverlayOpen(false); setPanelOverlayOpen(true) }
+  }
+
+  // 打开产物 tab 后统一切到 tabs 视图并展开面板。viewMode 默认停在「文件管理」(files),
+  // 若只 revealPanel 不切 viewMode,tab 虽已加入却不显示——用户点对话产物卡片后仍停在文件管理
+  // 空态、看不到内容(SPEC-INS-014 §10 引入 viewMode 后的回归)。凡"打开+激活 tab"都走这里。
+  function focusResultTabs() {
+    setResultViewMode("tabs")
+    revealPanel()
+  }
+
+  // SPEC-INS-014 §10:文件管理面板里点文件 → 复用 tabStore.openTab 的 (filePath,type) 去重逻辑
+  // (重复打开同一文件只会激活已有 tab),再切回 tabs 视图、确保面板展开可见。
+  function openFileFromManager(file: InsightFileEntry) {
+    // extToOutputType 已将 png/jpg/gif/svg 等映射到 "image"(走 ImageRenderer),
+    // psd/ai/sketch/fig 等不可浏览器渲染的归 "file"(走 FileFallback),其余分流到 file/code。
+    const type = extToOutputType(file.name)
+    // fileName / mimeType 必须带上:FileFallback 的类型图标按这两者派生(fileTypeIconUrl),
+    // 缺失会让 xlsx/docx 等一律落到「其他」兜底图标(title 只用于标签页文案,不参与图标)。
+    const mime = mimeForName(file.name)
+    tabStore.openTab({
+      id: crypto.randomUUID(),
+      title: file.name,
+      type,
+      source: "path",
+      filePath: file.path,
+      fileName: file.name,
+      mimeType: mime,
+      createdAt: new Date(),
+    })
+    focusResultTabs()
+  }
+
+  // SPEC-INS-014 §10.1:文件管理面板操作回调(对齐 Design)。
+  /** 添加至会话区:作为已就绪附件加入输入区。图片走 ③ S3 上传(拿 url),非图片带 path 进 [附件] 清单。 */
+  async function addInsightFileToSession(file: InsightFile) {
+    if (attachments().some((a) => a.path === file.path)) {
+      showToast({ title: "已添加", description: file.name })
+      return
+    }
+    if (maxAttachments()) {
+      showToast({ title: "附件数量已达上限", description: `最多 ${MAX_ATTACHMENTS} 个附件` })
+      return
+    }
+    const id = crypto.randomUUID()
+    // 图片必须走 ③ vision FilePart{url:S3}:发送时 imageFiles 过滤要求 url,而文件管理里的图片只有本地 path。
+    // 先读盘 → 构造 File → 复用输入框选图那条 doImageUpload 链路(含 uploading 态 / 失败重试 / S3 上传拿 url)。
+    // 不这么做,图片会同时漏出 imageFiles(无 url)和 localFiles(isImageFile 被排除)两个分流 → 静默丢失。
+    if (file.kind === "image") {
+      const api = getDesktopApi()
+      const buffer = typeof api?.readFileBuffer === "function" ? await api.readFileBuffer(file.path) : null
+      if (!buffer) {
+        console.warn("[octo:upload] add-to-session read image failed", { path: file.path })
+        showToast({ title: "添加失败", description: "无法读取图片文件，请重试", variant: "error" })
+        return
+      }
+      const imgFile = new File([buffer], file.name, { type: file.mime || "image/png" })
+      filesById.set(id, imgFile) // 重试用(retryUpload 从 filesById 取原 File 重传)
+      setAttachments((prev) => [...prev, {
+        id,
+        filename: file.name,
+        mime: file.mime || "image/png",
+        size: file.size,
+        status: "uploading",
+        path: file.path, // 供去重(a.path === file.path)与删文件后按路径清附件;imageFiles 分流只认 url
+        // 图片给 local:// 缩略图(附件条 FileTypeIcon 有 previewUrl 时渲染缩略图)。
+        previewUrl: pathToLocalUrl(file.path),
+      }])
+      void doImageUpload(id, imgFile) // 成功 → done + url;失败 → error + 可重试
+      return
+    }
+    // 非图片(已落盘):直接作为已就绪附件进 [附件] 清单(给 ②extract_document 拿路径 / ④MCP 引用)。
+    setAttachments((prev) => [...prev, {
+      id,
+      filename: file.name,
+      mime: file.mime || "application/octet-stream",
+      size: file.size,
+      status: "done",
+      path: file.path,
+    }])
+    showToast({ title: "已添加附件", description: file.name, variant: "success", duration: 2000 })
+  }
+
+  /** 按路径关闭 ResultViewer tab(删除文件后清理已打开的同路径 tab)。 */
+  function closeTabsByPath(paths: string[]) {
+    const set = new Set(paths.map((p) => p.replace(/\\/g, "/")))
+    for (const tab of tabStore.tabs()) {
+      if (tab.filePath && set.has(tab.filePath.replace(/\\/g, "/"))) tabStore.closeTab(tab.id)
+    }
+  }
+
+  /** 按路径移除输入区附件(删除文件后清理已添加的同路径附件)。 */
+  function removeAttachmentsByPath(paths: string[]) {
+    const set = new Set(paths.map((p) => p.replace(/\\/g, "/")))
+    setAttachments((prev) => prev.filter((a) => !a.path || !set.has(a.path.replace(/\\/g, "/"))))
   }
 
   /** 切 tab:仅在切到不同 tab 时打点(避免重复点击当前 tab 也计数) */
@@ -579,12 +783,15 @@ function InsightContent() {
     tabStore.activate(id)
   }
 
-  /** 关 tab:若关掉的是最后一个,复位 collapsed 以便下次产物干净滑入 */
+  /** 关 tab:若关掉的是最后一个,复位 collapsed 以便下次产物干净滑入,并落回文件视图(SPEC-INS-014 §10) */
   function handleCloseTab(id: string) {
     const tab = tabStore.tabs().find((t) => t.id === id)
     tracker.interaction({ module: "insight", name: "result-tab-close", extend: JSON.stringify({ tabType: tab?.type }) })
     tabStore.closeTab(id)
-    if (tabStore.tabs().length === 0) setPanelCollapsed(false)
+    if (tabStore.tabs().length === 0) {
+      setPanelCollapsed(false)
+      setResultViewMode("files")
+    }
   }
 
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
@@ -600,6 +807,7 @@ function InsightContent() {
   createEffect(on(() => params.id, () => {
     tabStore.reset()
     setPanelCollapsed(false)
+    setResultViewMode("files")
     autoOpenedTaskIds.clear()
     lastTaskSnapshot = new Map()
     if (sendingNavigation) {
@@ -609,6 +817,7 @@ function InsightContent() {
       filesById.clear()
       setAttachments([])
       setPrompt("")
+      setMcpSelection(null)
     }
     console.log("[octo:task] session switched, view state reset (refresh cooldown preserved)", { sessionID: params.id })
   }, { defer: true }))
@@ -656,6 +865,16 @@ function InsightContent() {
   ))
 
   // ── session 操作 ──────────────────────────────────────────
+
+  // task 子会话不是用户级对话(SPEC-INS-021 §1 追加):它不在侧栏列表里,跳进去就是
+  // "没有记录的对话"。所有会话导航入口(task 卡片点击 / href / 刷新恢复)都经此判定拦截,
+  // 过程仍由 turn 内联的 task 卡片透明展示(§4),只是不 fork 出第二个对话入口。
+  function isChildSession(sessionID: string): boolean {
+    const sessions = sync.data.session as Session[]
+    const match = Binary.search(sessions, sessionID, (s) => s.id)
+    const target = match.found ? sessions[match.index] : undefined
+    return !!target?.parentID
+  }
 
   async function createAndNavigate(): Promise<string | undefined> {
     const dir = projectDir()
@@ -738,7 +957,17 @@ function InsightContent() {
    *   - consumeAttachments=false(刷新/终止/follow-up 按钮 inject):不消费附件,保留用户正在选的附件状态
    * spec: docs/specs/ui/task-card.md §6.1 + docs/specs/ui/insight-prompt-redesign.md §3.2
    */
-  async function doSendPrompt(sessionId: string, text: string, opts: { consumeAttachments: boolean; source: string }) {
+  async function doSendPrompt(
+    sessionId: string,
+    text: string,
+    opts: {
+      consumeAttachments: boolean
+      source: string
+      /** SPEC-INS-017 chip turn:注入 [MCP解析模式] 模板 + [MCP声明],tools gate 只放行所选工具。
+       *  text 参数即用户键入原文(空输入不可发送,气泡文案 = user_prompt 原文,无回落) */
+      chip?: { selection: McpSelection }
+    },
+  ) {
     // SPEC-INS-015 文件传参路由:发送时按「文件类 × 用途」分流(spec docs/specs/infra/insight-file-passing.md)。
     const done = opts.consumeAttachments ? attachments().filter((a) => a.status === "done") : []
     // 非图片(已导入 worktree、有本地 path):进 [附件] 清单(给 ②extract_document 拿路径 / ④MCP 引用)。
@@ -747,19 +976,62 @@ function InsightContent() {
     // 图片(已 change 即传拿到 S3 url):走 ③ vision FilePart{url},不进 [附件] 清单。
     const imageFiles = done.filter((a) => isImageFile(a.filename) && a.url)
 
+    // SPEC-INS-014 §4.1.2(v2 新增):发送前把还落在预会话落地区(insight/uploads/)的附件
+    // rename 进真实会话目录(insight/<sessionId>/uploads/)——此时 sessionId 已经 resolve。
+    // rename 是本地文件系统原子操作,失败(源文件在拷贝完成后被删/移动,极少见)不阻断发送,
+    // 该附件在 [附件] 清单里退化为指向预会话区的旧路径,仍可读。
+    const movedPaths = new Map<string, string>()
+    {
+      const api = getDesktopApi()
+      const baseDir = projectDir()
+      if (baseDir && typeof api?.movePendingUploadToSession === "function") {
+        await Promise.all(
+          localFiles
+            .filter((a) => a.path && isPendingUploadPath(a.path))
+            .map(async (a) => {
+              try {
+                const newPath = await api.movePendingUploadToSession!(a.path!, baseDir, sessionId)
+                movedPaths.set(a.id, newPath)
+              } catch (err) {
+                console.warn("[octo:worktree] upload-move failed, keep pending path", { id: a.id, path: a.path, err })
+              }
+            }),
+        )
+        if (movedPaths.size > 0) {
+          setAttachments((prev) => prev.map((x) => (movedPaths.has(x.id) ? { ...x, path: movedPaths.get(x.id) } : x)))
+        }
+      }
+    }
+    const resolvedPath = (a: Attachment) => movedPaths.get(a.id) ?? a.path!
+
+    // 文件已落地 insight/<sessionId>/uploads/:通知文件管理表格重拉,避免后续上传不刷新(挂载只刷一次的回归)。
+    if (movedPaths.size > 0) setFilesRefreshKey(k => k + 1)
+
     // [附件] 清单:独立 synthetic text part(server toModelMessages 不过滤 → 模型可见;上游气泡不渲染
     // synthetic;InsightTurn 解析渲染成文件卡片)。清单只给文件名+本地路径,**不触发上传**。
     const uploadBlock = formatUploadsForPrompt(
-      localFiles.map((a) => ({ filename: a.filename, path: a.path! })),
+      localFiles.map((a) => ({ filename: a.filename, path: resolvedPath(a) })),
     )
     const cleanTextPart: TextPartInput = { type: "text", text }
     const parts: Array<TextPartInput | FilePartInput> = [cleanTextPart]
     if (uploadBlock) parts.push({ type: "text", text: uploadBlock, synthetic: true })
+    // 落点重定向:write 产物进 insight/<sessionId>/outputs/ 由服务端插件 octo-outputs-redirect 确定性完成
+    // (相对路径 → 会话 outputs/,只对 octo_insight 会话生效)。此前这里每轮注入 `[输出目录] 绝对路径`
+    // synthetic 指令纠偏,弱模型会把它当当前任务复述(空问候"你好"也触发、把路径暴露给用户),故删除。
+    // SPEC-INS-017 chip turn:模板(功能指令 + 文件名 + 迁入的 MCP 仪式段落)与机器可读声明段,
+    // 均为 synthetic(气泡不显示、模型可见;声明由 server 端 octo-upload-inject 读取并强制对齐文件参数)。
+    // 注意顺序:必须在 [附件] 清单之后 —— InsightTurn 按 "[附件]" 头定位清单渲染文件卡片。
+    const chipTemplate = opts.chip ? buildChipTemplate(opts.chip.selection, text) : undefined
+    const chipDeclaration = opts.chip ? buildChipDeclaration(opts.chip.selection, text) : undefined
+    if (chipTemplate && chipDeclaration) {
+      parts.push({ type: "text", text: chipTemplate, synthetic: true })
+      parts.push({ type: "text", text: chipDeclaration, synthetic: true })
+    }
     // ① txt/md → FilePart(file://, text/plain):opencode 组 prompt 时自动 Read 内联正文给本地模型读。
     //   (office 不走此路 —— FilePart 二进制会被 base64,② 由模型调 extract_document 读。)
     for (const a of localFiles) {
       if (!isTextInlineFile(a.filename)) continue
-      parts.push({ type: "file", mime: "text/plain", url: `file://${encodeFilePath(a.path!)}`, filename: a.filename })
+      parts.push({ type: "file", mime: "text/plain", url: `file://${encodeFilePath(resolvedPath(a))}`, filename: a.filename })
     }
     // ③ 图片 → vision FilePart{url:S3}:交多模态模型看(非多模态由 opencode stripMedia 换占位)。
     const imageParts: FilePartInput[] = imageFiles.map((a) => ({
@@ -809,6 +1081,18 @@ function InsightContent() {
         synthetic: true,
       } as Part)
     }
+    // chip 模板/声明镜像进 optimistic:与 server 回传同构,替换无闪烁(气泡本就不渲染 synthetic)
+    for (const t of [chipTemplate, chipDeclaration]) {
+      if (!t) continue
+      optimisticParts.push({
+        id: Identifier.ascending("part"),
+        sessionID: sessionId,
+        messageID,
+        type: "text",
+        text: t,
+        synthetic: true,
+      } as Part)
+    }
     // 图片 FilePart 也写入 optimistic → 缩略图乐观即显(InsightTurn 从图片 part 渲染);
     // server 回传同构,替换后无闪烁。txt/md FilePart 不入(InsightTurn 不从 part 渲染它们,由 [附件] 卡片覆盖)。
     for (const p of imageParts) {
@@ -834,7 +1118,7 @@ function InsightContent() {
       text: text.length > 120 ? `${text.slice(0, 120)}…` : text,
       textLen: text.length,
       attachmentsCount: done.length,
-      localFiles: localFiles.map((a) => ({ name: a.filename, path: a.path })),
+      localFiles: localFiles.map((a) => ({ name: a.filename, path: resolvedPath(a) })),
       images: imageFiles.map((a) => ({ name: a.filename, url: a.url })),
     })
     // 完整 text 单独 dump(不截断),便于内网把怪 case 粘到外网定位
@@ -843,7 +1127,22 @@ function InsightContent() {
       messageID,
       cleanText: text,         // 用户可见文本
       uploadBlock,             // synthetic 上传块(喂给 LLM,气泡不显示)
+      chipTemplate,            // SPEC-INS-017 chip 注入模板(非 chip turn 为 undefined)
+      chipDeclaration,         // SPEC-INS-017 机器可读声明段
     })
+
+    // turn 级工具 gate(SPEC-INS-017 §3 方案 A):每次发送都带,非 chip turn 隐藏全部 MCP 业务工具,
+    // chip turn 只放行所选那一个。服务端会把它转成 session.permission,逐 turn 覆盖。
+    const toolGate = buildToolGate(opts.chip?.selection.preset.expectedTool)
+    if (opts.chip) {
+      console.log("[octo:chip] chip-send", {
+        sessionID: sessionId,
+        messageID,
+        functionId: opts.chip.selection.preset.id,
+        textLen: text.length,
+        toolGate,
+      })
+    }
 
     // 回灌 send 记录到 debug-observer 环形缓冲（§SPEC-INS-011）
     insightDebug.recordSend({
@@ -880,7 +1179,16 @@ function InsightContent() {
         model,
         parts,
         messageID,
+        tools: toolGate,
       })
+      // chip turn 结果对账登记(spec §5:chip turn 工具调用结果):busy→idle 时消费
+      if (opts.chip) {
+        pendingChipResult = {
+          messageID,
+          functionId: opts.chip.selection.preset.id,
+          toolKey: mcpToolKey(opts.chip.selection.preset.expectedTool),
+        }
+      }
       console.log("[octo:prompt] sent (async)", {
         messageID,
         sessionID: sessionId,
@@ -899,8 +1207,8 @@ function InsightContent() {
     }
   }
 
-  function sendMessage(sessionId: string, text: string) {
-    return doSendPrompt(sessionId, text, { consumeAttachments: true, source: "user" })
+  function sendMessage(sessionId: string, text: string, chip?: { selection: McpSelection }) {
+    return doSendPrompt(sessionId, text, { consumeAttachments: true, source: chip ? "mcp-chip" : "user", chip })
   }
 
   /** 任务卡片"刷新 / 终止 / follow-up"按钮通过本函数 inject prompt;不消费附件状态 */
@@ -908,8 +1216,67 @@ function InsightContent() {
     return doSendPrompt(sessionId, text, { consumeAttachments: false, source })
   }
 
+  // ── MCP chip(SPEC-INS-017)─────────────────────────────────
+  // 可引用文件 = 会话历史所有 [附件] 清单聚合 + 本次待发送的非图片附件(按文件名去重)。
+  // 名集与 server 端 octo-upload-inject 的引用键表同源(清单文件名),声明只写这些名 → 插件必精确命中。
+  const mcpCandidateFiles = createMemo((): string[] => {
+    const seen = new Set<string>()
+    const names: string[] = []
+    const add = (name: string) => {
+      if (name && !seen.has(name)) {
+        seen.add(name)
+        names.push(name)
+      }
+    }
+    for (const m of userMessages()) {
+      const parts = (sync.data.part[m.id] ?? []) as Array<{ type?: string; synthetic?: boolean; text?: string }>
+      for (const p of parts) {
+        if (p.type !== "text" || !p.synthetic || typeof p.text !== "string" || !p.text.startsWith("[附件]")) continue
+        for (const f of parseUploadedFiles(p.text)) add(f.filename)
+      }
+    }
+    for (const a of attachments()) {
+      if (a.status === "done" && !isImageFile(a.filename) && a.path) add(a.filename)
+    }
+    return names
+  })
+
+  function handleMcpSelect(sel: McpSelection) {
+    setMcpSelection(sel)
+    console.log("[octo:chip] chip-select", {
+      functionId: sel.preset.id,
+      candidateCount: mcpCandidateFiles().length,
+    })
+    // spec §5 chip 点击:功能 + 所选文件 token 估算。客户端估算只覆盖本次待发送附件(有字节数);
+    // 历史轮文件客户端拿不到大小,不计入 —— 精确值以 server 端 [octo:extract] 为准。
+    const pendingBytes = attachments()
+      .filter((a) => a.status === "done" && !isImageFile(a.filename) && a.path)
+      .reduce((sum, a) => sum + a.size, 0)
+    tracker.interaction({
+      module: "insight",
+      name: "mcp-chip-select",
+      extend: JSON.stringify({
+        functionId: sel.preset.id,
+        fileCount: mcpCandidateFiles().length,
+        pendingBytes,
+        tokenEstimate: Math.round(pendingBytes / 4),
+      }),
+    })
+    requestAnimationFrame(() => textareaRef?.focus())
+  }
+
+  function handleMcpClear() {
+    const sel = mcpSelection()
+    if (!sel) return
+    setMcpSelection(null)
+    console.log("[octo:chip] chip-clear", { functionId: sel.preset.id })
+    tracker.interaction({ module: "insight", name: "mcp-chip-clear", extend: JSON.stringify({ functionId: sel.preset.id }) })
+  }
+
   async function handleSubmit(trigger: "button" | "enter" = "button") {
     const text = prompt().trim()
+    const chipSel = mcpSelection()
+    // 空输入一律不可发送(与业界一致,chip 选中也不豁免):气泡与 user_prompt 恒为用户原话
     if (!text || hasUploadingAttachments()) return
 
     // 未选模型时提示并中止,与 chat 一致(prompt-input/submit.ts handleSubmit);输入内容保留不清空
@@ -926,11 +1293,13 @@ function InsightContent() {
       return
     }
 
+    // ── chip turn(SPEC-INS-017):不设文件门槛——缺材料由模型在对话里向用户索取(我们做的是
+    // Agent 不是表单);多角色分桶归模型(拿不准时先向用户确认)。chip 是常驻模式,busy 时照常
+    // 入队,flush 时按当时的 chip 状态携带(见 flushQueueHead),无需特殊拦截。──
+    const chipPayload = chipSel ? { selection: chipSel } : undefined
+
     // welcome 入口(无会话或会话尚无用户消息)vs 对话内继续追问,用 source 区分
     const source = params.id && userMessages().length > 0 ? "conversation" : "welcome"
-    // 若本条文本源自某预置胶囊,带上 presetId(打通「点胶囊→实际发送」漏斗);presetEdited 标记用户是否改过预置文案。
-    // 非预置来源时 presetId/presetEdited 为 undefined,JSON.stringify 自动剔除。
-    const ap = activePreset()
     tracker.interaction({
       module: "insight",
       name: "message-send",
@@ -939,12 +1308,12 @@ function InsightContent() {
         source,
         attachmentCount: attachments().length,
         textLength: text.length,
-        presetId: ap?.id,
-        presetEdited: ap ? text !== ap.text.trim() : undefined,
+        mcpFunction: chipPayload?.selection.preset.id,
       }),
     })
 
     setPrompt("")
+    // chip 不随发送复位(纯常驻,对齐 GPT/Gemini 工具模式,只手动 × 取消)
 
     // busy/retry 时入队(SPEC-INS-007 §3.3.3):FIFO 多容量,push 追加,idle 后逐条 flush
     if (isWorking()) {
@@ -961,7 +1330,7 @@ function InsightContent() {
       if (!sid) { sendingNavigation = false; return }
     }
     autoScroll.forceScrollToBottom()
-    await sendMessage(sid, text)
+    await sendMessage(sid, text, chipPayload)
   }
 
   // idle 时 flush 当前 session 队首一条(SPEC-INS-007 §3.3.3)。
@@ -974,7 +1343,9 @@ function InsightContent() {
     const [next, ...rest] = q
     setQueueFor(sid, () => rest)
     console.log("[octo:queue] flushing", { sessionID: sid, len: next.length, remaining: rest.length })
-    void sendMessage(sid, next)
+    // chip 是常驻模式:按 flush 那一刻的选择态携带(队列只存文本;发出那一刻输入框是什么模式就是什么模式)
+    const chipSel = mcpSelection()
+    void sendMessage(sid, next, chipSel ? { selection: chipSel } : undefined)
   }
 
   // busy → idle 那一刻自动 flush 队首
@@ -1014,23 +1385,8 @@ function InsightContent() {
   // 输入框空 + AI 忙(含 retry)→ 发送键变为停止键;retry 期间同样可点终止
   const stopping = createMemo(() => isWorking() && !prompt().trim() && !hasUploadingAttachments())
 
-  function handlePresetClick(preset: PresetPrompt, from: "welcome" | "conversation") {
-    setPrompt(preset.text)
-    setActivePreset({ id: preset.id, text: preset.text })
-    console.log("[octo:preset] click", { id: preset.id, expectedTool: preset.expectedTool })
-    // 按 presetId 分开打点,支持后续对每个胶囊功能单独统计点击量;source 区分 welcome/conversation
-    tracker.interaction({
-      module: "insight",
-      name: "preset-click",
-      extend: JSON.stringify({ presetId: preset.id, source: from }),
-    })
-    requestAnimationFrame(() => {
-      textareaRef?.focus()
-      // 光标移到文末,便于用户继续编辑
-      const len = preset.text.length
-      try { textareaRef?.setSelectionRange(len, len) } catch { /* noop */ }
-    })
-  }
+  // 发送键禁用:空输入或附件上传中(chip 选中不豁免——空输入一律不可发送,与业界一致)
+  const sendDisabled = createMemo(() => !stopping() && (!prompt().trim() || hasUploadingAttachments()))
 
   // 输入法合成态:macOS 上「确认候选」的 Enter keydown 先于 compositionend 触发,
   // 此时 event.isComposing 在部分 Chromium 版本已是 false 会漏判,故另用手动信号兜底
@@ -1113,7 +1469,8 @@ function InsightContent() {
           ...prev,
           { id, filename: file.name, mime, size: file.size, status: "uploading" },
         ])
-        // 非图片不 eager 上传:只拷进 insight/sources(本地副本)。done 带 path,发送时进 [附件] 清单;
+        // 非图片不 eager 上传:只拷进 insight/uploads(预会话落地区本地副本,SPEC-INS-014 §4.1.2)。
+        // done 带 path,发送时进 [附件] 清单 + rename 进 insight/<sessionId>/uploads(见 doSendPrompt);
         // 插件在模型调 MCP 时才按需上传(④)。
         void doImport(id, rawFile, file.name)
       }
@@ -1121,7 +1478,7 @@ function InsightContent() {
   }
 
   // ③ 图片:change 即传 S3。成功 → done + url(发送时产出 vision FilePart{url});失败 → retriable。
-  // 不拷进 sources、不进 [附件] 清单——图片只供模型"看",不参与本地读 / MCP。
+  // 不拷进 uploads、不进 [附件] 清单——图片只供模型"看",不参与本地读 / MCP。
   async function doImageUpload(id: string, file: File) {
     try {
       const result = await uploadFile(file)
@@ -1143,7 +1500,7 @@ function InsightContent() {
     }
   }
 
-  // 把源文件导入 worktree 的 insight/sources/(SPEC-INS-014 §4.1 磁盘流式拷贝,原样不转格式),
+  // 把源文件导入 worktree 的 insight/uploads/(SPEC-INS-014 §4.1 磁盘流式拷贝,原样不转格式,预会话落地区),
   // 拿到本地绝对路径写进附件(SPEC-INS-015:供 [本地文件] 注入块,插件按需上传 S3)。
   //   - 成功:status=done + path
   //   - 真失败(copyFileToWorktree 抛错):status=error + retriable,chip 显示重试
@@ -1187,7 +1544,8 @@ function InsightContent() {
     }
   }
 
-  // 把源文件拷贝进 worktree 的 insight/sources/(磁盘流式拷贝,原样不转格式),返回本地绝对路径。
+  // 把源文件拷贝进 worktree 的 insight/uploads/(预会话落地区,磁盘流式拷贝,原样不转格式),返回本地绝对路径。
+  // 不需要 sessionId——选中时可能还没有真实会话(欢迎页);发送时统一由 doSendPrompt rename 进真会话目录(§4.1.2)。
   //   - 无 projectDir / 非桌面端(无 getPathForFile / copyFileToWorktree)/ 拿不到真实路径 → 返回 null(降级)
   //   - copyFileToWorktree 抛错(真失败)→ 向上抛,由 doImport 转成可重试错误
   async function copySourceToWorktree(filename: string, srcFile: File): Promise<string | null> {
@@ -1293,14 +1651,21 @@ function InsightContent() {
     addAttachments(files, "paste")
   }
 
-  function handleOpenResult(card: OutputCard) {
+  async function handleOpenResult(card: OutputCard) {
     tracker.interaction({
       module: "insight",
       name: "result-card-open",
       extend: JSON.stringify({ cardType: card.type }),
     })
+    if (card.source === "path" && card.filePath) {
+      const api = getDesktopApi()
+      if (api?.readFileBuffer && (await api.readFileBuffer(card.filePath)) === null) {
+        showToast({ title: "文件不存在", description: card.fileName ?? card.title, variant: "error", duration: 3000 })
+        return
+      }
+    }
     tabStore.openTab(card)
-    revealPanel()
+    focusResultTabs()
   }
 
   // ── 长任务卡片操作(spec: docs/specs/ui/task-card.md §6) ──────
@@ -1400,8 +1765,33 @@ function InsightContent() {
     // 故用 openTab 返回的「实际生效 id」激活,避免 activate 指向不存在的 tab 导致右侧栏空白。
     const openedIds = ocs.map((oc) => tabStore.openTab(oc))
     tabStore.activate(openedIds[0])
-    revealPanel()
+    focusResultTabs()
   }
+
+  // ── eager 落地(SPEC-INS-014 v4):completed 任务的 MCP 产物「出卡即落」进 outputs,不等用户点开 ──
+  // 文件管理「生成文件」段列的是 outputs 磁盘真实文件;此前 uri 产物只在点开渲染时才(部分)落盘,
+  // 导致「生成了但没点开」的产物(典型:思维导图 json)在文件管理查无此文件。这里在 taskCards 拿到
+  // completed 产物 links 时就落盘,与 UI 是否打开解耦。inline / path 卡不在此列(见 v4:inline 不落盘;
+  // path/write 产物由 agent 提示词约定直接写 outputs,前端不搬运)。
+  const eagerMaterializedCardIds = new Set<string>()
+  createEffect(() => {
+    const dir = projectDir()
+    const sid = params.id
+    // taskCards() 必须先读:早退在它之前会让 Solid 追踪不到该依赖,后续任务产物到达时 effect 不重跑
+    // (与 insight-turn outputCards memo 里 parts 先读同一个道理)。
+    const cards = [...taskCards().values()]
+    if (!dir || !sid) return
+    for (const card of cards) {
+      if (card.status !== "completed") continue
+      for (const oc of buildOutputCardsFromTask(card)) {
+        if (oc.source !== "uri" || !oc.uri) continue
+        if (eagerMaterializedCardIds.has(oc.id)) continue
+        eagerMaterializedCardIds.add(oc.id)
+        // 落盘后通知文件管理表格重拉:否则任务产物进了 outputs 目录,列表仍要手动切面板才看得到。
+        void materializeUriCardToOutputs(oc, dir, sid).then(() => setFilesRefreshKey((k) => k + 1))
+      }
+    }
+  })
 
   // ── 兑现「查看结果」:上面的查询返回真实产物后,把 pendingOpen 的那张任务结果打开并激活 ──
   createEffect(() => {
@@ -1415,7 +1805,7 @@ function InsightContent() {
     console.log("[octo:task] openResult fulfilled after query", { taskId: tid, count: ocs.length })
     const openedIds = ocs.map((oc) => tabStore.openTab(oc))
     tabStore.activate(openedIds[0])
-    revealPanel()
+    focusResultTabs()
   })
 
   // ── 自动 openTab(ResultViewer 当前为空时,把会话内所有 completed 任务的产物一次性全开;spec §8.3)──
@@ -1441,7 +1831,7 @@ function InsightContent() {
     }
     if (firstOpenedId !== undefined) {
       tabStore.activate(firstOpenedId)  // 激活首个任务的首张,其余作为待选 tab 并存
-      revealPanel()
+      focusResultTabs()
     }
   })
 
@@ -1495,12 +1885,42 @@ function InsightContent() {
     return attachments().some((a) => a.status === "uploading")
   }
 
+  // ResultViewer 渲染在两处复用:常态 inline(收起按钮=手动收起)与窄屏抽屉(收起按钮=关抽屉)。
+  // 二者按宽度互斥挂载(抽屉仅在 responsivePanelCollapsed 时可开,此时 inline 的 panelVisible 恒为 false)。
+  const renderResultViewer = (onCollapse: () => void) => (
+    <ResultViewer
+      tabs={tabStore.tabs()}
+      activeId={tabStore.activeId()}
+      onActivate={handleActivateTab}
+      onClose={handleCloseTab}
+      onCacheContent={tabStore.cacheContent}
+      onCollapse={onCollapse}
+      onSetViewMode={tabStore.setViewMode}
+      viewMode={resultViewMode()}
+      onViewModeChange={setResultViewMode}
+      onOpenLocalFile={openFileFromManager}
+      onAddToSession={addInsightFileToSession}
+      onCloseTabsByPath={closeTabsByPath}
+      onRemoveAttachmentsByPath={removeAttachmentsByPath}
+      refreshKey={filesRefreshKey()}
+    />
+  )
+
   return (
     <DataProvider
       data={sync.data}
       directory={projectDir() || ""}
-      onNavigateToSession={(sessionID: string) => navigate(`/insight/${sessionID}`)}
-      onSessionHref={(sessionID: string) => `/insight/${sessionID}`}
+      onNavigateToSession={(sessionID: string) => {
+        // 子会话导航拦截(SPEC-INS-021 §1 追加,isChildSession 注释详述)
+        if (isChildSession(sessionID)) {
+          console.log("[octo:task] child-session navigation blocked", { sessionID })
+          return
+        }
+        navigate(`/insight/${sessionID}`)
+      }}
+      // 子会话给空串:上游 sessionLink 对 falsy 走路径兜底(/insight 无 /session 段 → 无 href),
+      // 与点击拦截配套,堵住 cmd/中键经 <a href> 绕行的口
+      onSessionHref={(sessionID: string) => (isChildSession(sessionID) ? "" : `/insight/${sessionID}`)}
     >
       <div class="size-full flex overflow-hidden relative">
         {/* 左侧会话栏(SPEC-INS-010 §11:侧栏归 insight,单独第一列,不混入对话↔面板的 flex) */}
@@ -1508,22 +1928,32 @@ function InsightContent() {
             与 _shell/sidebar.tsx + make/sidebar.tsx 同一实例,onboarding 元数据持久化共用)。
             octo-agent 同位置注入的是同事 fcd100b 那套简版 ProjectInfo(在 project-selector/),
             两仓注入物不同但 InsightSidebar 接口相同,不影响同步。*/}
-        <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
+        <Show when={!responsiveSidebarHidden()}>
+          <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
+        </Show>
+        {/* 窄屏(<746px)左侧栏抽屉:无可见遮罩(对齐 Claude),经汉堡唤出,贴左侧。
+            透明点击层兜住抽屉外点击 → 点空白/导航/再点汉堡都关闭。 */}
+        <Show when={responsiveSidebarHidden() && sidebarOverlayOpen()}>
+          <div class="absolute inset-0 z-20" onClick={() => setSidebarOverlayOpen(false)} />
+          <div class="absolute left-0 top-0 bottom-0 z-30" style={{ "box-shadow": "8px 0 24px rgba(0,0,0,0.12)" }}>
+            <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
+          </div>
+        </Show>
 
-        {/* 对话↔任务面板区(data-page 作用域;拖拽分隔线相对它左边缘绝对定位,故侧栏必须在它之外) */}
-        <div class="flex-1 min-w-0 flex overflow-hidden relative" data-page="insight">
+        {/* 对话↔任务面板区(data-page 作用域;拖拽分隔线相对它左边缘绝对定位,故侧栏必须在它之外)
+            ref 观测容器实测宽 → 驱动 responsivePanelCollapsed / effectiveChatWidth */}
+        <div ref={observePageArea} class="flex-1 min-w-0 flex overflow-hidden relative" data-page="insight">
 
         {/* ── 左栏：对话面板 ────
-             展开态:固定 chatWidth,可拖拽分隔。收起态:撑满 100%,内容居中 reading-width。
-             宽度在 chatWidth ↔ 100% 间过渡;任务面板 flex:1 跟随重排自然伸缩(SPEC-INS-009 §3)。
-             panelAnimating 仅切换期间为真 → 拖拽分隔线时无 transition,跟手不滞后。 */}
+             面板可见时:宽度 = effectiveChatWidth(用户拖拽宽,被容器宽钳制;窄屏先挤聊天、面板守 480)。
+             面板不可见(收起/无会话)时:撑满 100%,内容居中 reading-width。任务面板 flex:1 跟随重排。
+             无 width 过渡动画(直接跟 panelVisible),分隔线拖拽跟手。 */}
         <div
           class="flex flex-col overflow-hidden relative"
           style={{
-            width: panelExpanded() ? `${chatWidth()}px` : "100%",
+            width: panelVisible() ? `${effectiveChatWidth()}px` : "100%",
             flex: "0 0 auto",
             "min-width": "0",
-            transition: panelAnimating() ? `width ${PANEL_ANIM_MS}ms ease` : "none",
             background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-surface-page)",
             outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
           }}
@@ -1531,6 +1961,17 @@ function InsightContent() {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
+            <Show when={responsiveSidebarHidden() && !(params.id && userMessages().length > 0)}>
+              <button
+                type="button"
+                onClick={toggleSidebarDrawer}
+                title="侧栏"
+                class="absolute top-3 left-3 z-10 flex items-center justify-center size-8 rounded-md transition-colors"
+                style={{ color: "var(--octo-text-secondary)", background: sidebarOverlayOpen() ? "var(--octo-surface-hover)" : "transparent" }}
+              >
+                <Icon name="menu" class="size-5" />
+              </button>
+            </Show>
             <Show
               when={params.id && userMessages().length > 0}
               fallback={
@@ -1545,34 +1986,9 @@ function InsightContent() {
                   }
                 >
                 <div class="size-full flex flex-col items-center justify-center px-8 py-10 overflow-y-auto">
-                  <IllustrationInsightEmpty width={166} height={166} />
-                  <div
-                    style={{
-                      "margin-top": "12px",
-                      "font-size": "36px",
-                      "font-weight": "600",
-                      "line-height": "1.2",
-                      color: "var(--octo-text-strong)",
-                    }}
-                  >
-                    Octo Insight
-                  </div>
-                  <div
-                    style={{
-                      "margin-top": "8px",
-                      "font-size": "16px",
-                      color: "var(--octo-text-secondary)",
-                    }}
-                  >
-                    AI辅助用户洞察研究
-                  </div>
+                  <NewSessionView worktree="" title="Octo Insight" subtitle="AI辅助用户洞察研究" />
 
-                  <div style={{ "margin-top": "80px", width: "100%", "max-width": "800px" }}>
-                    <PresetPrompts
-                      prompts={PRESET_PROMPTS}
-                      onClick={(preset) => handlePresetClick(preset, "welcome")}
-                    />
-
+                  <div style={{ width: "100%", "max-width": "800px" }}>
                     <div
                       class="rounded-[24px] transition-all duration-300 relative group flex flex-col overflow-hidden"
                       style={{
@@ -1605,8 +2021,8 @@ function InsightContent() {
                         onCompositionEnd={handleCompositionEnd}
                         onKeyDown={handleKeyDown}
                         onPaste={handlePaste}
-                        placeholder="请描述您的需求..."
-                        class="octo-input-scroll w-full resize-none px-4 pt-3 bg-transparent text-sm outline-none relative z-10"
+                        placeholder={mcpSelection()?.preset.placeholder ?? "请描述您的需求..."}
+                        class="octo-input-scroll w-full resize-none px-4 pt-4 pb-0 bg-transparent text-sm outline-none relative z-10"
                         style={{
                           color: "var(--octo-text-primary)",
                           "font-family": "var(--octo-font)",
@@ -1616,7 +2032,7 @@ function InsightContent() {
                         }}
                       />
 
-                      <div class="flex items-center gap-2 px-2.5 pb-2.5 relative z-10">
+                      <div class="flex items-center gap-2 px-4 pb-4 relative z-10">
                         <input
                           ref={fileInputRef!}
                           type="file"
@@ -1659,21 +2075,35 @@ function InsightContent() {
                           <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60 transition-transform duration-200 group-data-[expanded]:rotate-180" />
                         </ModelSelectorPopover>
 
+                        {/* 「研究工具」MCP 显式入口(SPEC-INS-017 §1,设计稿:位于模型选择器右侧) */}
+                        <McpChip
+                          functions={PRESET_PROMPTS}
+                          selection={mcpSelection()}
+                          onSelect={handleMcpSelect}
+                          onClear={handleMcpClear}
+                          onOpenMenu={() => tracker.interaction({ module: "insight", name: "mcp-chip-open" })}
+                        />
+
                         <button
                           type="button"
                           onClick={() => stopping() ? void handleAbort() : void handleSubmit("button")}
-                          disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
+                          disabled={sendDisabled()}
                           title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isWorking() ? "LLM 响应中,发送会进入排队" : undefined))}
-                          class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
+                          class="flex-shrink-0 ml-auto"
                           style={{
-                            opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
-                            filter: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? "grayscale(0.5)" : "none",
+                            "width": "32px",
+                            "height": "32px",
+                            "border-radius": "50%",
+                            "background-image": stopping() ? "url(/pauseIcon.svg)" : "url(/IconSend-blue.svg)",
+                            "background-size": "48.4px auto",
+                            "background-position": "-8px -3.5px",
+                            "background-repeat": "no-repeat",
+                            "background-color": "transparent",
+                            "border": "none",
+                            "opacity": sendDisabled() ? "0.6" : "1",
+                            "cursor": sendDisabled() ? "not-allowed" : "pointer",
                           }}
-                        >
-                          <Show when={stopping()} fallback={<IconSendBlue width={40} height={40} />}>
-                            <IconStopBlue width={40} height={40} />
-                          </Show>
-                        </button>
+                        />
                       </div>
                     </div>
                   </div>
@@ -1684,65 +2114,82 @@ function InsightContent() {
               {/* 对话面板顶部标题栏（会话标题 + 改名 + 删除） */}
               {/* 收起态唤回浮标：放进 header 行内，与三点菜单同行，避免绝对定位遮挡三点按钮 */}
               <ConversationHeader
-                panelBadge={
-                  tabStore.tabs().length > 0 && panelCollapsed() && !panelAnimating()
-                    ? (
-                      <button
-                        type="button"
-                        onClick={() => setPanelCollapsed(false)}
-                        title="展开产出面板"
-                        class="flex shrink-0 items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-medium transition-colors"
-                        style={{
-                          background: "var(--octo-surface-page)",
-                          color: "var(--octo-text-secondary)",
-                          border: "1px solid var(--octo-border-divider)",
-                          "box-shadow": "0 1px 3px rgba(0,0,0,0.06)",
-                        }}
-                      >
-                        <Icon name="chevron-left" class="size-3 opacity-70" />
-                        产出 ({tabStore.tabs().length})
-                      </button>
-                    )
-                    : undefined
-                }
+                sidebarToggle={responsiveSidebarHidden() ? (
+                  <button
+                    type="button"
+                    onClick={toggleSidebarDrawer}
+                    title="侧栏"
+                    class="flex items-center justify-center size-6 rounded-md transition-colors"
+                    style={{ color: "var(--octo-text-secondary)", background: sidebarOverlayOpen() ? "var(--octo-surface-hover)" : "transparent" }}
+                  >
+                    <Icon name="menu" class="size-4" />
+                  </button>
+                ) : undefined}
+                panelToggle={!!params.id ? (
+                  <button
+                    type="button"
+                    onClick={() => { if (responsivePanelCollapsed()) togglePanelDrawer(); else setPanelCollapsed((v) => !v) }}
+                    title="文件面板"
+                    class="flex items-center justify-center size-6 rounded-md transition-colors hover:bg-black/5 active:bg-black/10"
+                    style={{ color: "var(--octo-text-secondary)" }}
+                  >
+                    {/* 统一面板开关(对齐 Claude):所有宽度都可开合——宽屏 inline 收/显、窄屏抽屉。
+                        图标实心=面板当前展开、描边=已收起。 */}
+                    <Icon name={(responsivePanelCollapsed() ? panelOverlayOpen() : !panelCollapsed()) ? "layout-right-full" : "layout-right"} class="size-4" />
+                  </button>
+                ) : undefined}
               />
 
               {/* 消息列表（autoScroll 挂在 scrollRef 容器，contentRef 挂在内容 div） */}
-              <div
-                class="flex-1 overflow-y-auto min-h-0"
-                ref={(el) => {
-                  scrollContainerEl = el
-                  autoScroll.scrollRef(el)
-                }}
-                onScroll={autoScroll.handleScroll}
-                onMouseUp={autoScroll.handleInteraction}
-              >
-                <div
-                  ref={autoScroll.contentRef}
-                  class="py-3 flex flex-col gap-0 w-full mx-auto"
-                  style={{ "max-width": "800px" }}
+              <div class="relative flex-1 min-h-0">
+                <ScrollView
+                  class="h-full"
+                  style={{ background: "var(--octo-surface-page)", padding: "0 12px" }}
+                  viewportRef={(el) => {
+                    scrollContainerEl = el
+                    autoScroll.scrollRef(el)
+                  }}
+                  onScroll={autoScroll.handleScroll}
+                  onMouseUp={autoScroll.handleInteraction}
                 >
-                  <For each={userMessageIDs()}>
-                    {(msgID) => (
-                      <InsightTurn
-                        sessionID={params.id!}
-                        messageID={msgID}
-                        status={sessionStatus()}
-                        active={isBusy()}
-                        onOpenResult={handleOpenResult}
-                        taskCards={taskCardsByAnchor().get(msgID) ?? []}
-                        onTaskRefresh={handleTaskRefresh}
-                        onTaskStop={handleTaskStop}
-                        onTaskOpenResult={handleTaskOpenResult}
-                        resolveTaskLinks={(taskId) => taskCards().get(taskId)?.resourceLinks}
-                      />
-                    )}
-                  </For>
-                </div>
+                  <div
+                    ref={autoScroll.contentRef}
+                    class="py-3 flex flex-col gap-0 w-full mx-auto"
+                    style={{ "max-width": "800px" }}
+                  >
+                    <For each={userMessageIDs()}>
+                      {(msgID) => (
+                        <InsightTurn
+                          sessionID={params.id!}
+                          messageID={msgID}
+                          status={sessionStatus()}
+                          active={isBusy()}
+                          onOpenResult={handleOpenResult}
+                          taskCards={taskCardsByAnchor().get(msgID) ?? []}
+                          onTaskRefresh={handleTaskRefresh}
+                          onTaskStop={handleTaskStop}
+                          onTaskOpenResult={handleTaskOpenResult}
+                          resolveTaskLinks={(taskId) => taskCards().get(taskId)?.resourceLinks}
+                          onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
+                        />
+                      )}
+                    </For>
+                  </div>
+                </ScrollView>
+                <div
+                  class="absolute bottom-0 left-0 right-0 pointer-events-none z-[1]"
+                  style={{
+                    height: "24px",
+                    background: "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%)",
+                  }}
+                />
               </div>
 
               {/* 输入区(居中 reading-width,与消息列表对齐) */}
               <div class="shrink-0 p-4 w-full mx-auto" style={{ "max-width": "800px" }}>
+                {/* 权限询问 Dock(SPEC-INS-021 §2):如读取工作区以外的文件需用户确认,
+                    否则服务端 ask 阻塞、界面停在「正在探索」(spec §0.2 贴路径卡死) */}
+                <InsightPermissionDock sessionID={params.id} />
                 {/* 队列提示条:busy 时点了发送会先入队,FIFO 多条逐行列出 (SPEC-INS-007 §3.3.4) */}
                 <Show when={queue().length > 0}>
                   <div class="octo-queue-banner">
@@ -1768,13 +2215,6 @@ function InsightContent() {
                     </div>
                   </div>
                 </Show>
-
-                {/* 预置提示词按钮 (SPEC-INS-007 §3.1.3):放在输入框白卡片之外,
-                    视觉层级:辅助操作浮在输入框上方,与卡片解耦 */}
-                <PresetPrompts
-                  prompts={PRESET_PROMPTS}
-                  onClick={(preset) => handlePresetClick(preset, "conversation")}
-                />
 
                 <div
                   class="rounded-[16px] transition-all duration-300 relative group flex flex-col overflow-hidden"
@@ -1809,8 +2249,8 @@ function InsightContent() {
                     onCompositionEnd={() => setComposing(false)}
                     onKeyDown={handleKeyDown}
                     onPaste={handlePaste}
-                    placeholder="请描述您的需求..."
-                    class="octo-input-scroll w-full resize-none px-3 pt-2.5 pb-2 bg-transparent text-sm outline-none relative z-10"
+                    placeholder={mcpSelection()?.preset.placeholder ?? "请描述您的需求..."}
+                    class="octo-input-scroll w-full resize-none px-4 pt-4 pb-0 bg-transparent text-sm outline-none relative z-10"
                     style={{
                       color: "var(--octo-text-primary)",
                       "font-family": "var(--octo-font)",
@@ -1820,7 +2260,7 @@ function InsightContent() {
                     }}
                   />
 
-                  <div class="flex items-center gap-2 px-2.5 pb-2.5 relative z-10">
+                  <div class="flex items-center gap-2 px-4 pb-4 relative z-10">
                     <input
                       ref={fileInputRef!}
                       type="file"
@@ -1863,21 +2303,35 @@ function InsightContent() {
                       <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60 transition-transform duration-200 group-data-[expanded]:rotate-180" />
                     </ModelSelectorPopover>
 
+                    {/* 「研究工具」MCP 显式入口(SPEC-INS-017 §1,设计稿:位于模型选择器右侧) */}
+                    <McpChip
+                      functions={PRESET_PROMPTS}
+                      selection={mcpSelection()}
+                      onSelect={handleMcpSelect}
+                      onClear={handleMcpClear}
+                      onOpenMenu={() => tracker.interaction({ module: "insight", name: "mcp-chip-open" })}
+                    />
+
                     <button
                       type="button"
                       onClick={() => stopping() ? void handleAbort() : void handleSubmit()}
-                      disabled={!stopping() && (!prompt().trim() || hasUploadingAttachments())}
+                      disabled={sendDisabled()}
                       title={stopping() ? "停止生成" : (hasUploadingAttachments() ? "请等待附件上传完成" : (isWorking() ? "LLM 响应中,发送会进入排队" : undefined))}
-                      class="flex flex-shrink-0 items-center justify-center ml-auto bg-transparent border-0 p-0 transition-opacity duration-200 disabled:cursor-not-allowed"
+                      class="flex-shrink-0 ml-auto"
                       style={{
-                        opacity: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? 0.4 : 1,
-                        filter: (!stopping() && (!prompt().trim() || hasUploadingAttachments())) ? "grayscale(0.5)" : "none",
+                        "width": "32px",
+                        "height": "32px",
+                        "border-radius": "50%",
+                        "background-image": stopping() ? "url(/pauseIcon.svg)" : "url(/IconSend-blue.svg)",
+                        "background-size": "48.4px auto",
+                        "background-position": "-8px -3.5px",
+                        "background-repeat": "no-repeat",
+                        "background-color": "transparent",
+                        "border": "none",
+                        "opacity": sendDisabled() ? "0.6" : "1",
+                        "cursor": sendDisabled() ? "not-allowed" : "pointer",
                       }}
-                    >
-                      <Show when={stopping()} fallback={<IconSendBlue width={40} height={40} />}>
-                        <IconStopBlue width={40} height={40} />
-                      </Show>
-                    </button>
+                    />
                   </div>
                 </div>
               </div>
@@ -1886,13 +2340,12 @@ function InsightContent() {
         </div>
 
         {/* ── 任务面板:有产物且未收起时挂载;收起动画播完才卸载(SPEC-INS-009) ── */}
-        <Show when={panelMounted()}>
-          {/* 聊天/结果 拖拽分隔线（半侧贴边胶囊）—— 仅在动画结束的展开稳态显示,避免滑动中错位
+        <Show when={panelVisible()}>
+          {/* 聊天/结果 拖拽分隔线（半侧贴边胶囊）
               top/bottom 缩进 20px：避免与 Windows classic 滚动条两端箭头（~17px）热区重合 */}
-          <Show when={panelExpanded() && !panelAnimating()}>
           <div
             class="absolute flex items-center justify-center group"
-            style={{ top: "20px", bottom: "20px", left: `${chatWidth() - 10}px`, width: "20px", cursor: "col-resize", "z-index": 10 }}
+            style={{ top: "20px", bottom: "20px", left: `${effectiveChatWidth() - 4}px`, width: "8px", cursor: "col-resize", "z-index": 10 }}
             onPointerDown={handleDividerPointerDown}
           >
             {/* 拖拽手柄视觉胶囊已隐藏(dev-yfy d8bc3d4):保留热区与拖拽手感,仅去掉胶囊视觉
@@ -1913,18 +2366,21 @@ function InsightContent() {
               />
             </div> */}
           </div>
-          </Show>
 
-          {/* 中栏：ResultViewer(flex:1 跟随聊天列宽度重排,收起时被挤到 0 并裁切) */}
-          <ResultViewer
-            tabs={tabStore.tabs()}
-            activeId={tabStore.activeId()}
-            onActivate={handleActivateTab}
-            onClose={handleCloseTab}
-            onCacheContent={tabStore.cacheContent}
-            onCollapse={() => setPanelCollapsed(true)}
-            onSetViewMode={tabStore.setViewMode}
-          />
+          {/* 中栏：ResultViewer(flex:1 跟随聊天列宽度重排) */}
+          {renderResultViewer(() => setPanelCollapsed(true))}
+        </Show>
+
+        {/* 窄屏收起后的右侧面板抽屉:无可见遮罩(对齐 Claude),经顶栏按钮唤出,贴右侧滑出(480 宽,守住内容不折叠);
+            盖在聊天右侧、左侧聊天仍可见。透明点击层兜住抽屉外点击 → 点空白/切会话/再点按钮都关闭。 */}
+        <Show when={responsivePanelCollapsed() && panelOverlayOpen()}>
+          <div class="absolute inset-0 z-20" onClick={() => setPanelOverlayOpen(false)} />
+          <div
+            class="absolute right-0 top-0 bottom-0 z-30 flex"
+            style={{ width: `${PANEL_MIN}px`, "max-width": "100%", background: "var(--octo-surface-page)", "box-shadow": "-8px 0 24px rgba(0,0,0,0.12)" }}
+          >
+            {renderResultViewer(() => setPanelOverlayOpen(false))}
+          </div>
         </Show>
         </div>
       </div>

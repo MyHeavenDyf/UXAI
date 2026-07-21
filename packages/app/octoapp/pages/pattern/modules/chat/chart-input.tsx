@@ -76,11 +76,6 @@ export function ChartInput(props: ChartInputProps): JSX.Element {
       />
       <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
         <div class="flex items-center gap-1 min-w-0">
-          <DesignSystemPicker
-            selected={props.selectedDesignSystem}
-            onSelect={props.onSelectDesignSystem}
-            disabled={props.designSystemLocked}
-          />
           <input
             ref={fileInputRef}
             type="file"
@@ -89,15 +84,20 @@ export function ChartInput(props: ChartInputProps): JSX.Element {
             accept="*/*"
             onChange={props.onFileChange}
           />
-          {/* <button
+          <button
             type="button"
             onClick={() => { if (!props.maxAttachments) fileInputRef.click() }}
             disabled={props.maxAttachments}
-            class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-            title={props.maxAttachments ? "最多 5 个文件" : "添加附件"}
+            class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors bg-transparent hover:bg-[#e8e8e8] active:bg-[#dedede] text-gray-800 hover:text-black disabled:text-gray-400"
+            title={props.maxAttachments ? "最多 5 个文件" : "上传附件"}
           >
             <Icon name="plus" class="size-5" />
-          </button> */}
+          </button>
+          <DesignSystemPicker
+            selected={props.selectedDesignSystem}
+            onSelect={props.onSelectDesignSystem}
+            disabled={props.designSystemLocked}
+          />
           <ModelSelectorPopover
             model={props.model}
             triggerAs="button"

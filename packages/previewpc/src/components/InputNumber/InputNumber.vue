@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from "vue"
+import { onMounted, ref, computed, useAttrs } from "vue"
 import { ElInputNumber } from "element-plus"
 import type { InputNumberNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
@@ -16,6 +16,25 @@ const props = defineProps<A2UIComponentProps<InputNumberNode>>()
 const { node, surfaceId } = props
 const { properties } = props.node
 const { resolveValue, setValue } = useA2UIComponent(node, surfaceId)
+
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
+const elInputNumberRef = ref<InstanceType<typeof ElInputNumber>>()
+
+onMounted(() => {
+  const wrapper = (elInputNumberRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
+
 const id = computed(() => node.id)
 const className = computed(() => node.properties.className)
 
@@ -48,6 +67,7 @@ function change(newVal: number | undefined) {
 
 <template>
   <ElInputNumber
+    ref="elInputNumberRef"
     :id="id"
     :class="className"
     v-model="val"

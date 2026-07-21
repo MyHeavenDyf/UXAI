@@ -4,7 +4,7 @@ import { ElInput } from "element-plus"
 import type { InputNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
-import { getLucideIconComponentRef } from "../Icon/IconBase"
+import { useIconComponentRef } from "../Icon/IconBase"
 import "./Input.less"
 
 defineOptions({ inheritAttrs: false })
@@ -26,8 +26,8 @@ const elInputRef = ref<InstanceType<typeof ElInput>>()
 onMounted(() => {
   const wrapper = (elInputRef.value as any)?.$el
   if (wrapper instanceof HTMLElement) {
-    if (attrs['dom-picker-id'] != null)
-      wrapper.setAttribute('dom-picker-id', String(attrs['dom-picker-id']))
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
     if (attrs['dom-picker-component'] != null)
       wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
     if (attrs['data-element-props'] != null)
@@ -48,6 +48,9 @@ const size = computed(() => {
 const maxlength = computed(() => resolveValue(properties.maxLength))
 const suffix = computed(() => resolveValue(properties.suffix) as string)
 const prefix = computed(() => resolveValue(properties.prefix) as string)
+
+const resolvedPrefix = useIconComponentRef(prefix, { size: 14 })
+const resolvedSuffix = useIconComponentRef(suffix, { size: 14 })
 
 const initVal = computed(() => resolveValue(properties.value) as string)
 const value = ref(initVal.value)
@@ -75,13 +78,14 @@ function change(val: string) {
     :type="type"
     :maxlength="maxlength as any"
     :placeholder="placeholder"
+    :show-password="type==='password'"
     @change="change"
   >
-    <template v-if="prefix" #prefix>
-      <component :is="getLucideIconComponentRef(prefix)" :size="14" />
+    <template v-if="prefix && resolvedPrefix?.component" #prefix>
+      <component :is="resolvedPrefix.component" v-bind="resolvedPrefix.props" />
     </template>
-    <template v-if="suffix" #suffix>
-      <component :is="getLucideIconComponentRef(suffix)" :size="14" />
+    <template v-if="suffix && resolvedSuffix?.component" #suffix>
+      <component :is="resolvedSuffix.component" v-bind="resolvedSuffix.props" />
     </template>
   </ElInput>
 </template>

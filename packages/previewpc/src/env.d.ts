@@ -50,3 +50,6 @@ declare module 'd3' {
   export default d3
   export * from 'd3'
 }
+
+// ===== 可选依赖 @hui/icon-plus-vue =====
+declare const __HAS_ICONPLUS__: boolean

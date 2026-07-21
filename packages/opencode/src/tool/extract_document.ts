@@ -3,24 +3,28 @@ import { basename, extname } from "node:path"
 import { access, readFile } from "node:fs/promises"
 import * as Tool from "./tool"
 
-// extract_document —— 把本地 office 文档(docx/xlsx/pdf/pptx)抽取成文本,供 insight 本地模型直接读。
-// SPEC-INS-015 文件传参路由 ②(office → 模型读):模型按提示词在需要读 office 正文时调本工具、
-// 参数填 [附件] 清单里的**本地路径**;txt/md 不走此路(① 由 opencode 组 prompt 时自动内联)。
+// extract_document —— 把本地文档(docx/xlsx/pdf/pptx/txt/md)抽取成文本,供 insight 本地模型直接读。
+// SPEC-INS-015 文件传参路由 ②(office → 模型读)+ SPEC-INS-021 §3(txt/md 直读,解析源统一入口):
+// 参数是文件的本地绝对路径,[附件] 清单是常见来源,用户在消息里直接给出的路径同样有效(工具本就
+// 不限制路径,会话目录外的路径由 external_directory 权限询问把关)。上传 txt/md 的 FilePart 内联路
+// (路由 ①)不动——已在上下文里的不需要工具;这里的 txt/md 直读覆盖"用户只给了路径"的场景,
+// 并让测量头(字数/token 估算)对所有解析源一致生效。
 // 抽取实现属 SPEC-INS-016(本地解析能力线 Spec B):docx=mammoth / pdf=unpdf / xlsx=exceljs /
-// pptx=jszip+slide XML 直抽;lazy 解析(调用时才读盘解析,不缓存);输出首行带字数/token 估算
-// (E 护栏的测量机制),超长正文由 Tool.define 自带的 Truncate 兜底(截断 + 全文落盘 + 引导 Read/Grep)。
+// pptx=jszip+slide XML 直抽 / txt·md=readFile 直读;lazy 解析(调用时才读盘解析,不缓存);
+// 输出首行带字数/token 估算(E 护栏的测量机制),超长正文由 Tool.define 自带的 Truncate 兜底
+// (截断 + 全文落盘 + 引导 Read/Grep)。
 // ⚠️ 桌面端 sidecar 是 Node 子进程(非 Bun):文件 IO 用 node:fs,不要用 Bun.*。
 
 const DESCRIPTION =
-  "把本地 office 文档(docx/xlsx/pdf/pptx)抽取成纯文本,用于阅读其正文内容。" +
-  "参数 path 填 [附件] 清单里该文件的本地路径(冒号后那串)。" +
-  "txt / md 无需调用本工具(正文已自动内联);图片也无需(可直接看)。"
+  "把本地文档(docx/xlsx/pdf/pptx/txt/md)抽取成纯文本,用于阅读其正文内容。" +
+  "参数 path 填该文件的本地绝对路径:[附件] 清单(冒号后那串)是常见来源,用户在消息里直接给出的本地路径同样有效。" +
+  "docx/xlsx/pdf/pptx 一律用本工具读取,不要用 read(二进制不可读);图片无需调用(可直接看)。"
 
 export const Parameters = Schema.Struct({
-  path: Schema.String.annotate({ description: "要抽取的本地文档绝对路径(取自 [附件] 清单冒号后那串)" }),
+  path: Schema.String.annotate({ description: "要抽取的文档本地绝对路径(取自 [附件] 清单,或用户在消息中给出的路径)" }),
 })
 
-const SUPPORTED = ["docx", "xlsx", "pdf", "pptx"] as const
+const SUPPORTED = ["docx", "xlsx", "pdf", "pptx", "txt", "md"] as const
 type Supported = (typeof SUPPORTED)[number]
 
 type ExtractDetail = { pages?: number; sheets?: number; slides?: number }
@@ -128,11 +132,18 @@ async function extractPptx(buf: Buffer) {
   return { text: parts.join("\n\n"), detail: { slides: slideNames.length } }
 }
 
+// txt/md 直读(SPEC-INS-021 §3):readFile 即得,统一走本工具是为了测量头/后续段落锚点全格式一致。
+async function extractPlainText(buf: Buffer) {
+  return { text: buf.toString("utf8"), detail: {} as ExtractDetail }
+}
+
 const EXTRACTORS: Record<Supported, (buf: Buffer) => Promise<{ text: string; detail: ExtractDetail }>> = {
   docx: extractDocx,
   pdf: extractPdf,
   xlsx: extractXlsx,
   pptx: extractPptx,
+  txt: extractPlainText,
+  md: extractPlainText,
 }
 
 export const ExtractDocumentTool = Tool.define(
@@ -145,7 +156,8 @@ export const ExtractDocumentTool = Tool.define(
         Effect.gen(function* () {
           const path = params.path
           const name = basename(path)
-          const title = `extract_document: ${name}`
+          // title 是过程展示的用户可见文字(SPEC-INS-021 §4):自研工具直接给中文
+          const title = `提取文档正文:${name}`
           const started = Date.now()
 
           // ⚠️ 用 node:fs 判存在、不用 Bun.file:桌面端 sidecar 是 Node 子进程,Bun.* 不存在。
@@ -157,7 +169,7 @@ export const ExtractDocumentTool = Tool.define(
             console.log("[octo:extract] failed", { path, reason: "not-found" })
             return {
               title,
-              output: `未找到文件:${path}。请确认路径取自 [附件] 清单冒号后那串。`,
+              output: `未找到文件:${path}。请核对路径是否完整正确([附件] 清单里冒号后那串,或向用户确认其给出的路径)。`,
               metadata: { path, error: "not-found" } as ExtractMetadata,
             }
           }
@@ -188,7 +200,7 @@ export const ExtractDocumentTool = Tool.define(
               title,
               output:
                 `解析「${name}」失败:${parsed.failed}。` +
-                `文件可能已损坏、被加密或格式不规范;如需分析该文件,请改用 MCP 分析工具(文件参数填文件名)。`,
+                `文件可能已损坏、被加密或格式不规范;如需分析该文件,请建议用户点击输入框的 MCP 按钮转交内网解析。`,
               metadata: { path, format, error: "parse-error", errorMessage: parsed.failed } as ExtractMetadata,
             }
           }
@@ -203,7 +215,7 @@ export const ExtractDocumentTool = Tool.define(
               title,
               output:
                 `「${name}」解析成功但未抽取到文本(可能是扫描件 / 纯图片文档)。` +
-                `如需分析该文件,请改用 MCP 分析工具(文件参数填文件名)。`,
+                `如需分析该文件,请建议用户点击输入框的 MCP 按钮转交内网解析。`,
               metadata: { path, format, chars, tokenEstimate, ...result.detail } as ExtractMetadata,
             }
           }

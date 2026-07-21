@@ -1,6 +1,8 @@
 import { extractJson } from '../../utils/json-parser';
 import { runChildSession } from "../run-child-session"
 import { logAgentParsed } from "../../utils/debug-log"
+import { MODULE_MODIFY_FORMAT } from "./schema"
+import { agentThrow } from "../../utils/error-msg"
 
 const AGENT_NAME = "proto_module_modify";
 
@@ -62,13 +64,14 @@ export default async function proto_module_modify(ctx: ModuleModifyContext): Pro
     directory: sdk.directory,
     parentSessionID: rootSession,
     extra: ctx.extra,
+    schema: MODULE_MODIFY_FORMAT.schema,
   })
   console.log("----- 模块修改Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 json 数据
   const modifyJson = extractJson(modifyRes.text)
   if (!modifyJson) {
     logAgentParsed(modifyRes.childSessionId, { error: "Failed to parse JSON", raw: modifyRes.text })
-    throw new Error("module_modify did not return valid JSON")
+    agentThrow(AGENT_NAME, modifyRes.childSessionId, "module_modify did not return valid JSON")
   }
 
   const rootElementId = ctx.input.originModules.rootId as string

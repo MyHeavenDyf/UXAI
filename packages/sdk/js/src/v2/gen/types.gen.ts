@@ -5,6 +5,12 @@ export type ClientOptions = {
 }
 
 export type Event =
+  | EventTuiPromptAppend
+  | EventTuiCommandExecute
+  | EventTuiToastShow1
+  | EventTuiSessionSelect
+  | EventServerConnected
+  | EventGlobalDisposed
   | EventServerInstanceDisposed
   | EventFileEdited
   | EventFileWatcherUpdated
@@ -17,6 +23,7 @@ export type Event =
   | EventSessionError
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
+  | EventSkillUsed
   | EventQuestionAsked
   | EventQuestionReplied
   | EventQuestionRejected
@@ -24,10 +31,6 @@ export type Event =
   | EventSessionStatus
   | EventSessionIdle
   | EventSessionCompacted
-  | EventTuiPromptAppend
-  | EventTuiCommandExecute
-  | EventTuiToastShow1
-  | EventTuiSessionSelect
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
@@ -75,8 +78,6 @@ export type Event =
   | EventSessionNextCompactionStarted
   | EventSessionNextCompactionDelta
   | EventSessionNextCompactionEnded
-  | EventServerConnected
-  | EventGlobalDisposed
 
 export type OAuth = {
   type: "oauth"
@@ -102,6 +103,61 @@ export type WellKnownAuth = {
 }
 
 export type Auth = OAuth | ApiAuth | WellKnownAuth
+
+export type EventTuiPromptAppend = {
+  id: string
+  type: "tui.prompt.append"
+  properties: {
+    text: string
+  }
+}
+
+export type EventTuiCommandExecute = {
+  id: string
+  type: "tui.command.execute"
+  properties: {
+    command:
+      | "session.list"
+      | "session.new"
+      | "session.share"
+      | "session.interrupt"
+      | "session.compact"
+      | "session.page.up"
+      | "session.page.down"
+      | "session.line.up"
+      | "session.line.down"
+      | "session.half.page.up"
+      | "session.half.page.down"
+      | "session.first"
+      | "session.last"
+      | "prompt.clear"
+      | "prompt.submit"
+      | "agent.cycle"
+      | string
+  }
+}
+
+export type EventTuiToastShow = {
+  id: string
+  type: "tui.toast.show"
+  properties: {
+    title?: string
+    message: string
+    variant: "info" | "success" | "warning" | "error"
+    duration?: number
+  }
+}
+
+export type EventTuiSessionSelect = {
+  id: string
+  type: "tui.session.select"
+  properties: {
+    /**
+     * Session ID to navigate to
+     */
+    sessionID: string
+  }
+}
 
 export type PermissionRequest = {
   id: string
@@ -277,61 +333,6 @@ export type SessionStatus =
   | {
       type: "busy"
     }
-
-export type EventTuiPromptAppend = {
-  id: string
-  type: "tui.prompt.append"
-  properties: {
-    text: string
-  }
-}
-
-export type EventTuiCommandExecute = {
-  id: string
-  type: "tui.command.execute"
-  properties: {
-    command:
-      | "session.list"
-      | "session.new"
-      | "session.share"
-      | "session.interrupt"
-      | "session.compact"
-      | "session.page.up"
-      | "session.page.down"
-      | "session.line.up"
-      | "session.line.down"
-      | "session.half.page.up"
-      | "session.half.page.down"
-      | "session.first"
-      | "session.last"
-      | "prompt.clear"
-      | "prompt.submit"
-      | "agent.cycle"
-      | string
-  }
-}
-
-export type EventTuiToastShow = {
-  id: string
-  type: "tui.toast.show"
-  properties: {
-    title?: string
-    message: string
-    variant: "info" | "success" | "warning" | "error"
-    duration?: number
-  }
-}
-
-export type EventTuiSessionSelect = {
-  id: string
-  type: "tui.session.select"
-  properties: {
-    /**
-     * Session ID to navigate to
-     */
-    sessionID: string
-  }
-}
 
 export type Project = {
   id: string
@@ -777,6 +778,12 @@ export type GlobalEvent = {
   project?: string
   workspace?: string
   payload:
+    | EventTuiPromptAppend
+    | EventTuiCommandExecute
+    | EventTuiToastShow
+    | EventTuiSessionSelect
+    | EventServerConnected
+    | EventGlobalDisposed
     | EventServerInstanceDisposed
     | EventFileEdited
     | EventFileWatcherUpdated
@@ -789,6 +796,7 @@ export type GlobalEvent = {
     | EventSessionError
     | EventInstallationUpdated
     | EventInstallationUpdateAvailable
+    | EventSkillUsed
     | EventQuestionAsked
     | EventQuestionReplied
     | EventQuestionRejected
@@ -796,10 +804,6 @@ export type GlobalEvent = {
     | EventSessionStatus
     | EventSessionIdle
     | EventSessionCompacted
-    | EventTuiPromptAppend
-    | EventTuiCommandExecute
-    | EventTuiToastShow
-    | EventTuiSessionSelect
     | EventMcpToolsChanged
     | EventMcpBrowserOpenFailed
     | EventCommandExecuted
@@ -847,8 +851,6 @@ export type GlobalEvent = {
     | EventSessionNextCompactionStarted
     | EventSessionNextCompactionDelta
     | EventSessionNextCompactionEnded
-    | EventServerConnected
-    | EventGlobalDisposed
     | SyncEventMessageUpdated
     | SyncEventMessageRemoved
     | SyncEventMessagePartUpdated
@@ -2307,6 +2309,22 @@ export type SyncEventSessionNextCompactionEnded = {
   }
 }
 
+export type EventServerConnected = {
+  id: string
+  type: "server.connected"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventGlobalDisposed = {
+  id: string
+  type: "global.disposed"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
 export type EventServerInstanceDisposed = {
   id: string
   type: "server.instance.disposed"
@@ -2415,6 +2433,14 @@ export type EventInstallationUpdateAvailable = {
   type: "installation.update-available"
   properties: {
     version: string
+  }
+}
+
+export type EventSkillUsed = {
+  id: string
+  type: "skill.used"
+  properties: {
+    skillName: string
   }
 }
 
@@ -3021,22 +3047,6 @@ export type EventSessionNextCompactionEnded = {
   }
 }
 
-export type EventServerConnected = {
-  id: string
-  type: "server.connected"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
-export type EventGlobalDisposed = {
-  id: string
-  type: "global.disposed"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
 export type SessionInfo = {
   id: string
   parentID?: string
@@ -3531,20 +3541,25 @@ export type ArtifactListData = {
     directory?: string
     workspace?: string
     sessionId: string
+    category?: "generated" | "uploaded"
+    path?: string
+    recursive?: "true" | "false"
   }
   url: "/artifact/list"
 }
 
 export type ArtifactListResponses = {
   /**
-   * Artifact files
+   * Artifact files and folders
    */
   200: {
     files: Array<{
       name: string
       path: string
+      relativePath: string
       sessionId: string
       kind: string
+      isFolder: boolean
       size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       mtime: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       mime: string
@@ -3581,6 +3596,7 @@ export type ArtifactReadResponses = {
   200: {
     content: string
     mimeType: string
+    encoding?: "base64"
   }
 }
 
@@ -3679,6 +3695,124 @@ export type ArtifactDeleteBatchResponses = {
 }
 
 export type ArtifactDeleteBatchResponse = ArtifactDeleteBatchResponses[keyof ArtifactDeleteBatchResponses]
+
+export type ArtifactUploadData = {
+  body?: {
+    sessionId: string
+    filename: string
+    content: string
+    path?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/artifact/upload"
+}
+
+export type ArtifactUploadErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ArtifactUploadError = ArtifactUploadErrors[keyof ArtifactUploadErrors]
+
+export type ArtifactUploadResponses = {
+  /**
+   * Uploaded file info
+   */
+  200: {
+    name: string
+    path: string
+    relativePath: string
+    sessionId: string
+    kind: string
+    isFolder: boolean
+    size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    mtime: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    mime: string
+  }
+}
+
+export type ArtifactUploadResponse = ArtifactUploadResponses[keyof ArtifactUploadResponses]
+
+export type ArtifactUploadFolderData = {
+  body?: {
+    sessionId: string
+    folderName: string
+    files: Array<{
+      relativePath: string
+      content: string
+    }>
+    path?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/artifact/upload-folder"
+}
+
+export type ArtifactUploadFolderErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ArtifactUploadFolderError = ArtifactUploadFolderErrors[keyof ArtifactUploadFolderErrors]
+
+export type ArtifactUploadFolderResponses = {
+  /**
+   * Uploaded folder info
+   */
+  200: {
+    name: string
+    path: string
+    relativePath: string
+    sessionId: string
+    kind: string
+    isFolder: boolean
+    fileCount: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    mtime: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type ArtifactUploadFolderResponse = ArtifactUploadFolderResponses[keyof ArtifactUploadFolderResponses]
+
+export type ArtifactServeData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    sessionId: string
+    path: string
+  }
+  url: "/artifact/serve"
+}
+
+export type ArtifactServeErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ArtifactServeError = ArtifactServeErrors[keyof ArtifactServeErrors]
+
+export type ArtifactServeResponses = {
+  /**
+   * Artifact file content
+   */
+  200: string
+}
+
+export type ArtifactServeResponse = ArtifactServeResponses[keyof ArtifactServeResponses]
 
 export type ConfigGetData = {
   body?: never
@@ -5649,6 +5783,9 @@ export type SessionPromptData = {
     format?: OutputFormat
     system?: string
     variant?: string
+    extra?: {
+      [key: string]: unknown
+    }
     parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
   }
   path: {
@@ -5984,6 +6121,9 @@ export type SessionPromptAsyncData = {
     format?: OutputFormat
     system?: string
     variant?: string
+    extra?: {
+      [key: string]: unknown
+    }
     parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
   }
   path: {
@@ -7095,6 +7235,34 @@ export type StudioPermissionsCheckResponses = {
   200: unknown
 }
 
+export type StudioPromptGenCreateData = {
+  body?: {
+    base64img: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/prompt-gen"
+}
+
+export type StudioPromptGenCreateErrors = {
+  /**
+   * StudioGenerationError
+   */
+  400: StudioGenerationError
+}
+
+export type StudioPromptGenCreateError = StudioPromptGenCreateErrors[keyof StudioPromptGenCreateErrors]
+
+export type StudioPromptGenCreateResponses = {
+  /**
+   * Prompt generation result
+   */
+  200: unknown
+}
+
 export type StudioGenerationsCreateData = {
   body?: {
     sessionID?: string
@@ -7301,6 +7469,80 @@ export type StudioGenerationsCancelResponses = {
 
 export type StudioGenerationsCancelResponse = StudioGenerationsCancelResponses[keyof StudioGenerationsCancelResponses]
 
+export type StudioGenerationsRebootData = {
+  body?: never
+  path: {
+    generationID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/generations/{generationID}/reboot"
+}
+
+export type StudioGenerationsRebootErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioGenerationsRebootError = StudioGenerationsRebootErrors[keyof StudioGenerationsRebootErrors]
+
+export type StudioGenerationsRebootResponses = {
+  /**
+   * Rebooted Studio generation
+   */
+  200: {
+    id: string
+    sessionID: string
+    status: "queued" | "running" | "succeeded" | "create_failed" | "failed"
+    capability:
+      | "image.generate"
+      | "video.generate"
+      | "image.upscale"
+      | "image.cutout"
+      | "image.inpaint"
+      | "image.outpaint"
+      | "image.fusion"
+    prompt: string
+    displayPrompt?: string
+    provider: "jimeng" | "internel"
+    toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
+    taskType?: string
+    task_type?: string
+    taskId?: string
+    model: string
+    aspectRatio: string
+    videoMode?: "text" | "first_last_frame"
+    duration?: "5" | "10"
+    videoQualityMode?: "std" | "pro"
+    images: Array<{
+      id: string
+      kind?: "image" | "video"
+      url: string
+      thumbnailUrl?: string
+      remoteUrl?: string
+      width?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      height?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      duration?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+    progress: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    order?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    rawStatus?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN" | string
+    error?: string
+    request?: unknown
+    response?: unknown
+    rawBody?: string
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    completedAt?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type StudioGenerationsRebootResponse = StudioGenerationsRebootResponses[keyof StudioGenerationsRebootResponses]
+
 export type StudioGenerationsGetData = {
   body?: never
   path: {
@@ -7407,6 +7649,128 @@ export type InsightSessionsListResponses = {
 }
 
 export type InsightSessionsListResponse = InsightSessionsListResponses[keyof InsightSessionsListResponses]
+
+export type InsightFilesListData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    sessionId: string
+    category: "uploads" | "outputs"
+    path?: string
+  }
+  url: "/insight/files"
+}
+
+export type InsightFilesListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type InsightFilesListError = InsightFilesListErrors[keyof InsightFilesListErrors]
+
+export type InsightFilesListResponses = {
+  /**
+   * Insight session files
+   */
+  200: {
+    files: Array<{
+      name: string
+      path: string
+      size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      mtime: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      isFolder: boolean
+      relativePath: string
+    }>
+  }
+}
+
+export type InsightFilesListResponse = InsightFilesListResponses[keyof InsightFilesListResponses]
+
+export type InsightFilesUploadData = {
+  body?: {
+    sessionId: string
+    filename: string
+    content: string
+    path?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/insight/upload"
+}
+
+export type InsightFilesUploadErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type InsightFilesUploadError = InsightFilesUploadErrors[keyof InsightFilesUploadErrors]
+
+export type InsightFilesUploadResponses = {
+  /**
+   * Uploaded insight file
+   */
+  200: {
+    name: string
+    path: string
+    size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    mtime: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    isFolder: boolean
+    relativePath: string
+  }
+}
+
+export type InsightFilesUploadResponse = InsightFilesUploadResponses[keyof InsightFilesUploadResponses]
+
+export type InsightFilesUploadFolderData = {
+  body?: {
+    sessionId: string
+    folderName: string
+    files: Array<{
+      relativePath: string
+      content: string
+    }>
+    path?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/insight/upload-folder"
+}
+
+export type InsightFilesUploadFolderErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type InsightFilesUploadFolderError = InsightFilesUploadFolderErrors[keyof InsightFilesUploadFolderErrors]
+
+export type InsightFilesUploadFolderResponses = {
+  /**
+   * Uploaded insight folder
+   */
+  200: {
+    name: string
+    path: string
+    fileCount: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    mtime: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type InsightFilesUploadFolderResponse =
+  InsightFilesUploadFolderResponses[keyof InsightFilesUploadFolderResponses]
 
 export type PtyConnectData = {
   body?: never

@@ -48,10 +48,16 @@ import { TerminalProvider } from "@/context/terminal"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layoutnet"
 import { ErrorPage } from "./pages/error"
-import { OctoSidebar } from "@/pages/_shell/sidebar"
 // DEV-ONLY:insight 组件隔离预览路由(见 pages/insight/__dev/routes.tsx)。仅 DEV 分支调用,生产构建该引用为死代码,整模块摇树掉。
 import { insightDevRoutes } from "@/pages/insight/__dev/routes"
+// 生产构建把 console 对象参数序列化成 JSON 再落盘(insight-debug.log 转发只拿到字符串,
+// 否则全是 "[object Object]");dev 不装,保留 DevTools 对象可展开。见模块头注释。
+import { installConsoleObjectSerializer } from "@/pages/insight/lib/console-serialize"
+if (!import.meta.env.DEV) installConsoleObjectSerializer()
 import { MakeSidebar } from "@/pages/make/sidebar"
+import { InsightSidebar } from "@/pages/insight/sidebar"
+import { SidebarFooter } from "@/pages/insight/components/sidebar-footer"
+import { ProjectInfo } from "@/components/project-info"
 import { PatternSidebar } from "@/pages/pattern/modules/sidebar/sidebar"
 import { Scene3DSidebar } from "@/pages/3d/modules/sidebar/sidebar"
 import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
@@ -59,6 +65,9 @@ import { useCheckServerHealth } from "./utils/server-health"
 import { persisted, Persist } from "@/utils/persist"
 // jk-j60099994-replace-with-octo-1-start
 // jk-j60099994-replace-with-octo-1-end
+
+// jk-j60099994-replace-with-60062650-octo-1-start
+// jk-j60099994-replace-with-60062650-octo-1-end
 
 const ChatPage = lazy(() => import("@/pages/chat"))
 const InsightPage = lazy(() => import("@/pages/insight"))
@@ -127,69 +136,6 @@ function QueryProvider(props: ParentProps) {
     },
   })
   return <QueryClientProvider client={client}>{props.children}</QueryClientProvider>
-}
-
-function OctoSidebarLayout(props: ParentProps) {
-  const [sidebarWidthStore, setSidebarWidthStore] = persisted(
-    Persist.global("cowork.sidebar.width"),
-    createStore({ width: 296 }),
-  )
-  const sidebarWidth = () => sidebarWidthStore.width
-  const setSidebarWidth = (w: number) => setSidebarWidthStore({ width: w })
-
-  function handleSidebarResize(e: MouseEvent) {
-    e.preventDefault()
-    const startX = e.clientX
-    const startW = sidebarWidth()
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(160, Math.min(360, startW + ev.clientX - startX)))
-    const onUp = () => {
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
-    }
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
-  }
-
-  return (
-    <div data-cowork-area="sidebar" class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
-      <OctoSidebar width={sidebarWidth()} />
-      <div
-        class="absolute top-0 bottom-0 flex items-center justify-center group"
-        style={{
-          left: `${sidebarWidth() - 10}px`,
-          width: "20px",
-          cursor: "col-resize",
-          "z-index": "10",
-        }}
-        onMouseDown={handleSidebarResize}
-      >
-        <div
-          class="absolute left-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
-          style={{
-            width: "12px",
-            height: "36px",
-            "border-radius": "0 10px 10px 0",
-            "box-shadow": "2px 0 4px rgba(0,0,0,0.04), inset -1px 0 0 rgba(0,0,0,0.02)",
-            border: "1px solid var(--octo-border-divider)",
-            "border-left": "none",
-            display: "none"
-          }}
-        >
-          <div
-            class="w-[2px] h-[14px] rounded-full ml-[2px]"
-            style={{ background: "var(--octo-border-input, #c9c9c9)" }}
-          />
-        </div>
-      </div>
-      <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
-        {props.children}
-      </div>
-    </div>
-  )
 }
 
 function MakeSidebarLayout(props: ParentProps) {
@@ -329,12 +275,31 @@ function Scene3DSidebarLayout(props: ParentProps) {
   return <SidebarShell widthKey="scene3d.sidebar.width" sidebar={(w) => <Scene3DSidebar width={w} />}>{props.children}</SidebarShell>
 }
 
+// insight 侧栏在 /skills 上的复用壳:与 /insight 用同一个自包含的 InsightSidebar
+// (自管宽度/拖拽/持久化 octo:insight:sidebar-width),故此处只摆布局、不重复 resize 逻辑。
+// 见 InsightPage 主体同款结构(pages/insight/index.tsx)。
+// 注意:不加 data-cowork-area——那是旧 _shell/OctoSidebar 的属性,cowork.css 针对它有一坨
+// 样式覆盖(如滚动区 padding 改 8px 16px),套到 InsightSidebar 上会让 /skills 与 /insight
+// 的间距/选中样式不一致(InsightSidebar 自带样式,不吃 cowork.css)。
+function InsightSidebarLayout(props: ParentProps) {
+  return (
+    <div class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
+      <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
+      <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
+        {props.children}
+      </div>
+    </div>
+  )
+}
+
 function SkillsSidebarLayout(props: ParentProps) {
   const layout = useLayout()
   const source = layout.sidebarSource.get()
   return source === "make"
     ? <MakeSidebarLayout>{props.children}</MakeSidebarLayout>
-    : <OctoSidebarLayout>{props.children}</OctoSidebarLayout>
+     : source === "pattern"
+    ? <PatternSidebarLayout>{props.children}</PatternSidebarLayout>
+    : <InsightSidebarLayout>{props.children}</InsightSidebarLayout>
 }
 
 function AppShellProviders(props: ParentProps) {
@@ -496,9 +461,13 @@ export function AppBaseProviders(props: ParentProps<{ locale?: Locale }>) {
                 <DialogProvider>
                   {/* jk-j60099994-replace-with-octo-2-start */}
                   {/* jk-j60099994-replace-with-octo-2-end */}
+                  {/* jk-j60099994-replace-with-60062650-octo-2-start */}
+                  {/* jk-j60099994-replace-with-60062650-octo-2-end */}
                   <MarkedProvider>
                     <FileComponentProvider component={File}>{props.children}</FileComponentProvider>
                   </MarkedProvider>
+                  {/* jk-j60099994-replace-with-60062650-octo-3-start */}
+                  {/* jk-j60099994-replace-with-60062650-octo-3-end */}
                   {/* jk-j60099994-replace-with-octo-3-start */}
                   {/* jk-j60099994-replace-with-octo-3-end */}
                 </DialogProvider>

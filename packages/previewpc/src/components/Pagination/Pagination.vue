@@ -1,15 +1,33 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue"
+import { computed, ref, watch, onMounted, useAttrs } from "vue"
 import { ElPagination } from "element-plus"
 import type { PaginationNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import "./Pagination.less"
 
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
 const props = defineProps<A2UIComponentProps<PaginationNode>>()
 const { node, surfaceId } = props
 const properties = node.properties
 const { resolveValue, setValue } = useA2UIComponent(node, surfaceId)
+
+const elPaginationRef = ref<InstanceType<typeof ElPagination>>()
+
+onMounted(() => {
+  const wrapper = (elPaginationRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const id = computed(() => node.id)
 const className = computed(() => properties.className)
@@ -45,6 +63,7 @@ const handleCurrentChange = (value: number) => {
 
 <template>
   <ElPagination
+    ref="elPaginationRef"
     :id="id"
     background
     :class="className"

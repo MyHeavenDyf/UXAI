@@ -1,11 +1,11 @@
-import { cancelGeneration, createEditorEntry, createGeneration, getGeneration } from "@/studio/studio-service"
+import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, getGeneration, rebootGeneration } from "@/studio/studio-service"
 import * as InstanceState from "@/effect/instance-state"
 import { Instance } from "@/project/instance"
 import { checkStudioPermission, fetchPromptTags } from "@/tool/internel_image_generate"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
-import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioPermissionPayload } from "../groups/studio"
+import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioPermissionPayload, StudioPromptGenPayload } from "../groups/studio"
 
 export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (handlers) =>
   Effect.gen(function* () {
@@ -85,6 +85,22 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       })
     })
 
+    const reboot = Effect.fn("StudioHttpApi.rebootGeneration")(function* (ctx: {
+      params: { generationID: string }
+    }) {
+      const instance = yield* InstanceState.context
+      return yield* Effect.tryPromise({
+        try: () => Instance.restore(instance, () => rebootGeneration(ctx.params.generationID)),
+        catch: (error) =>
+          new ApiStudioGenerationError({
+            name: "StudioGenerationError",
+            data: {
+              message: error instanceof Error ? error.message : String(error),
+            },
+          }),
+      })
+    })
+
     const createEntry = Effect.fn("StudioHttpApi.createEditorEntry")(function* (ctx: {
       payload: typeof StudioEditorEntryPayload.Type
     }) {
@@ -101,11 +117,29 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       })
     })
 
+    const promptGen = Effect.fn("StudioHttpApi.createPromptGen")(function* (ctx: {
+      payload: typeof StudioPromptGenPayload.Type
+    }) {
+      const instance = yield* InstanceState.context
+      return yield* Effect.tryPromise({
+        try: () => Instance.restore(instance, () => createPromptGen(ctx.payload)),
+        catch: (error) =>
+          new ApiStudioGenerationError({
+            name: "StudioGenerationError",
+            data: {
+              message: error instanceof Error ? error.message : String(error),
+            },
+          }),
+      })
+    })
+
     return handlers
       .handle("createGeneration", create)
       .handle("createEditorEntry", createEntry)
+      .handle("createPromptGen", promptGen)
       .handle("getGeneration", get)
       .handle("cancelGeneration", cancel)
+      .handle("rebootGeneration", reboot)
       .handle("checkPermission", (ctx: { payload: typeof StudioPermissionPayload.Type }) =>
         Effect.tryPromise({
           try: () => checkStudioPermission(ctx.payload.uid),

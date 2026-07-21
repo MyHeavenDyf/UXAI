@@ -6,6 +6,7 @@ import { useLanguage } from "@/context/language"
 import { ProjectInfoDialogContent } from "./project-info-dialog-content"
 import { createStore } from "solid-js/store"
 import { createEffect, createMemo, createSignal, Show } from "solid-js"
+import { Portal } from "solid-js/web"
 import { isValidUserPath } from "@/utils/path-valid"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLayout } from "@/context/layout"
@@ -40,6 +41,8 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
   })
 
   const lastSelection = server.projects.lastSelection()
+
+  const shouldAutoSelect = !lastSelection?.domain && !lastSelection?.productLine && !lastSelection?.product && !lastSelection?.version
 
   const [selections, setSelections] = createStore({
     domain: lastSelection?.domain,
@@ -126,10 +129,11 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
   const hasDirectory = createMemo(() => directory().length > 0)
 
   return (
-    <div
-      class="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: "rgba(0, 0, 0, 0.5)" }}
-    >
+    <Portal>
+      <div
+        class="fixed inset-0 z-50 flex items-center justify-center"
+        style={{ background: "rgba(0, 0, 0, 0.5)" }}
+      >
       <div
         class="flex flex-col items-center"
         style={{
@@ -144,14 +148,14 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         <Splash class="w-[80px] h-[80px]" />
         <img src="/octo-agent.png" alt="Octo Agent" style={{ width: "212px", height: "42px", "margin-top": "20px" }} />
         <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "24px", "letter-spacing": "2px", "text-align": "center", color: "rgba(110, 115, 122, 1)", "margin-top": "4px" }}>您的全能设计与调研专家</div>
-        <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "19px", "text-align": "left", "margin-top": "40px", width: "100%", color: "rgba(0,0,0,0.3)" }}>选择项目&版本</div>
+        <div style={{ "font-weight": 500, "font-size": "16px", "line-height": "19px", "text-align": "left", "margin-top": "40px", width: "100%" }}>选择项目&版本</div>
         <div style={{ width: "100%", height: "40px", "margin-top": "4px" }}>
           <ProjectInfoDialogContent
             domain={selections.domain}
             productLine={selections.productLine}
             product={selections.product}
             version={selections.version}
-            disabled
+            shouldAutoSelect={shouldAutoSelect}
             onSelectionChange={(data) => {
               setSelections("domain", data.domain)
               setSelections("productLine", data.productLine)
@@ -207,5 +211,6 @@ export function DialogProjectOnboarding(props: DialogProjectOnboardingProps) {
         </button>
       </div>
     </div>
+    </Portal>
   )
 }

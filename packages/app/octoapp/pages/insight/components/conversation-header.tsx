@@ -37,7 +37,7 @@ function errorDescription(err: unknown): string {
   return "请稍后重试"
 }
 
-export function ConversationHeader(props: { panelBadge?: JSX.Element } = {}) {
+export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelToggle?: JSX.Element } = {}) {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const sync = useSync()
@@ -159,6 +159,7 @@ export function ConversationHeader(props: { panelBadge?: JSX.Element } = {}) {
           style={{ "border-bottom": "1px solid var(--octo-border-default, #E5E7EB)" }}
         >
           <div class="flex items-center gap-2 min-w-0 flex-1">
+            {props.sidebarToggle}
             <Show when={busy()}>
               <Spinner class="size-4 shrink-0" style={{ color: "var(--octo-brand, #0067D1)" }} />
             </Show>
@@ -201,7 +202,7 @@ export function ConversationHeader(props: { panelBadge?: JSX.Element } = {}) {
             </Show>
           </div>
 
-          {props.panelBadge}
+          {props.panelToggle}
 
           <DropdownMenu
             gutter={4}

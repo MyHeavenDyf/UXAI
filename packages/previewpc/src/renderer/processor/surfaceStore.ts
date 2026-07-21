@@ -7,12 +7,10 @@ export class SurfaceStore {
     private subscribers: Map<string, Set<() => void>> = new Map();
 
     createSurface(id: string, json: JsonInput) {
-        this.setImportantClassName(json)
         this.setSurfSurface(id, json)
     }
 
     updateSurface(id: string, json: JsonInput) {
-        this.setImportantClassName(json)
         this.setSurfSurface(id, json)
     }
 
@@ -22,6 +20,7 @@ export class SurfaceStore {
         .trim()
         .split(/\s+/)
         .map((cls: string) => {
+            if (cls.includes('!')) return cls
             if (cls.includes(':')) {
             const lastColonIndex = cls.lastIndexOf(':')
             return cls.substring(0, lastColonIndex + 1) + '!' + cls.substring(lastColonIndex + 1)
@@ -49,6 +48,7 @@ export class SurfaceStore {
         }
         const surface = new SurfaceModel(id);
         this.surfaces.set(id, surface)
+        this.setImportantClassName(json)
         surface.parserJson(json)
         this.notify(id);
     }

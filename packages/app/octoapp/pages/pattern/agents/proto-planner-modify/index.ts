@@ -1,6 +1,8 @@
 import { extractJson } from '../../utils/json-parser';
 import { runChildSession } from "../run-child-session"
 import { logAgentParsed } from "../../utils/debug-log"
+import { PLANNER_MODIFY_FORMAT } from "./schema"
+import { agentThrow } from "../../utils/error-msg"
 
 const AGENT_NAME = "proto_planner_modify"
 
@@ -73,14 +75,15 @@ export default async function proto_planner_modify(ctx: PlannerModifyContext): P
     client: sdk.client,
     prompt: humanMessage,
     directory: sdk.directory,
-    parentSessionID: rootSession
+    parentSessionID: rootSession,
+    schema: PLANNER_MODIFY_FORMAT.schema,
   })
   console.log("----- 布局修改Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 modify json
   const modifyJson = extractJson(modifyRes.text)
   if (!modifyJson) {
     logAgentParsed(modifyRes.childSessionId, { error: "Failed to parse JSON", raw: modifyRes.text })
-    throw new Error("----- Planner Modify JSON did not return valid JSON -----")
+    agentThrow(AGENT_NAME, modifyRes.childSessionId, "Planner Modify JSON did not return valid JSON")
   }
   const output: PlannerModifyOutput = {
     rootId: (modifyJson.rootId as string) ?? "",

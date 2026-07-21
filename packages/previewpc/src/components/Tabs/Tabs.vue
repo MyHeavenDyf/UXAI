@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from "vue"
+import { computed, onMounted, ref, useAttrs, watch } from "vue"
+import type { Component } from "vue"
 import { ElTabs, ElTabPane } from "element-plus"
 import type { TabsNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
-import { getLucideIconComponentRef } from "../Icon/IconBase"
+import { getIconComponentRef } from "../Icon/IconBase"
 import "./Tabs.less"
 
 const sizeEnum = {
@@ -31,6 +32,24 @@ const props = defineProps<A2UIComponentProps<TabsNode>>()
 const { properties } = props.node
 
 const { resolveValue } = useA2UIComponent(props.node, props.surfaceId)
+
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
+const elTabsRef = ref<InstanceType<typeof ElTabs>>()
+
+onMounted(() => {
+  const wrapper = (elTabsRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const id = computed(() => props.node.id)
 
@@ -90,18 +109,38 @@ const items = computed(() => {
     }
   })
 })
+
+// ---- 异步图标解析 ----
+const resolvedTabIcons = ref<Record<string, { component: Component | null; props: Record<string, any> } | null>>({})
+
+watch(
+  [items, iconSize],
+  async ([newItems, sz]) => {
+    const map: Record<string, any> = {}
+    await Promise.all((newItems as any[]).map(async (item: any) => {
+      if (item.icon) {
+        map[item.name] = await getIconComponentRef(item.icon, { size: sz as number, strokeWidth: 1 })
+      }
+    }))
+    resolvedTabIcons.value = map
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
-  <ElTabs :id="id" :class="className" :editable="editable" :type="type === 'card' ? 'card' : ''" :tab-position="position as any"
+  <ElTabs ref="elTabsRef" :id="id" :class="className" :editable="editable" :type="type === 'card' ? 'card' : ''" :tab-position="position as any"
     v-model="activeKey">
     <ElTabPane v-for="(item) in items" :key="item.name" :label="item.label" :disabled="item.disabled" :name="item.name">
-      <template #label v-if="item.icon">
+      <template #label v-if="item.icon && resolvedTabIcons[item.name]">
         <span class="item-content flex items-center">
-          <component class="mr-1" :is="getLucideIconComponentRef(item.icon)" :color="activeKey === item.name
+          <component class="mr-1" :is="resolvedTabIcons[item.name]?.component"
+            v-bind="resolvedTabIcons[item.name]?.props ?? {}"
+            :color="activeKey === item.name
               ? 'var(--el-color-primary)'
               : undefined
-            " :size="iconSize" :stroke-width="1" :absolute-stroke-width="true" />
+            "
+          />
           <span class="item-label leading-none">{{ item.label }}</span>
         </span>
       </template>

@@ -9,7 +9,7 @@
   display: flex;
   width: 100%;
   overflow: hidden;
-  background-color: var(--surface-container-lowest, #f3f4f6);
+  background-color: var(--gray-05, #f3f4f6);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
@@ -42,14 +42,14 @@
   align-items: flex-end; 
   gap: 6px;
   font-size: 13px;
-  color: var(--on-surface-variant, #4b5563);
+  color: var(--gray-50, #4b5563);
 }
 
 /* 图例上方的数字 */
 .sbc-legend-value {
   font-size: 1.25rem;
   font-weight: 600;
-  color: var(--text-default,#1f2937);
+  color: var(--color-text-primary,#1f2937);
   line-height: 1;
 }
 

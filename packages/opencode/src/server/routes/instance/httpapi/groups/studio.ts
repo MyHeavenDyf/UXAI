@@ -21,13 +21,19 @@ export const StudioPaths = {
   generations: `${root}/generations`,
   generation: `${root}/generations/:generationID`,
   generationCancel: `${root}/generations/:generationID/cancel`,
+  generationReboot: `${root}/generations/:generationID/reboot`,
   editorEntries: `${root}/editor-entries`,
   promptTags: `${root}/prompt-tags`,
+  promptGen: `${root}/prompt-gen`,
   permission: `${root}/permissions/check`,
 } as const
 
 export const StudioPermissionPayload = Schema.Struct({
   uid: Schema.optional(Schema.String),
+})
+
+export const StudioPromptGenPayload = Schema.Struct({
+  base64img: Schema.String,
 })
 
 export const StudioGenerationPayload = Schema.Struct({
@@ -150,6 +156,17 @@ export const StudioApi = HttpApi.make("studio")
             description: "Checks whether the current user can access the internal Studio entry.",
           }),
         ),
+        HttpApiEndpoint.post("createPromptGen", StudioPaths.promptGen, {
+          payload: StudioPromptGenPayload,
+          success: described(Schema.Unknown, "Prompt generation result"),
+          error: ApiStudioGenerationError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.prompt-gen.create",
+            summary: "Generate prompt from reference image",
+            description: "Returns generated prompt text from the internal image prompt generation API.",
+          }),
+        ),
         HttpApiEndpoint.post("createGeneration", StudioPaths.generations, {
           payload: StudioGenerationPayload,
           success: described(StudioGenerationResult, "Studio generation result"),
@@ -183,6 +200,17 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.generations.cancel",
             summary: "Cancel Studio generation",
             description: "Cancels an active asynchronous Studio generation.",
+          }),
+        ),
+        HttpApiEndpoint.post("rebootGeneration", StudioPaths.generationReboot, {
+          params: { generationID: Schema.String },
+          success: described(StudioGenerationResult, "Rebooted Studio generation"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.generations.reboot",
+            summary: "Reboot Studio generation",
+            description: "Reboots a failed asynchronous Studio generation with an existing provider task id.",
           }),
         ),
         HttpApiEndpoint.get("getGeneration", StudioPaths.generation, {

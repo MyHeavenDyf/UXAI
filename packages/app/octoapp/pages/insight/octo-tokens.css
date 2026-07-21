@@ -177,28 +177,6 @@
   background: rgba(0,0,0,0.05);
 }
 
-/* ── 预置提示词按钮组(spec: insight-prompt-redesign §3.1.3) ────── */
-
-.octo-preset-bar {
-  position: relative;
-  display: flex;
-  align-items: center;
-  padding: 0 2px 16px 2px;      /* 输入框外:不要左右内缩 + 给输入框留 16px 间距 */
-}
-
-.octo-preset-scroll {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  scrollbar-width: none;            /* Firefox */
-  -ms-overflow-style: none;         /* IE / Edge legacy */
-  flex: 1;
-  scroll-behavior: smooth;
-}
-.octo-preset-scroll::-webkit-scrollbar {
-  display: none;                    /* Chromium */
-}
-
 /* 输入框 textarea:可滚动但滚动条透明 */
 .octo-input-scroll {
   scrollbar-width: thin;                       /* Firefox */
@@ -211,6 +189,9 @@
 .octo-input-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ── 预置胶囊基础样式(.octo-preset-chip):insight 的预置胶囊行已随 SPEC-INS-017 下线,
+   但 make 页 starter-cards 仍复用该 class,保留。 */
 
 .octo-preset-chip {
   flex-shrink: 0;
@@ -236,33 +217,59 @@
   cursor: not-allowed;
 }
 
-.octo-preset-scroll-left,
-.octo-preset-scroll-right {
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
+/* ── 「研究工具」chip(spec: insight-mcp-explicit-entry §1)──────
+   触发钮基础样式用 tailwind 对齐模型选择器(mcp-chip.tsx);此处只放激活态与专属元素。 */
+
+.octo-mcp-chip--active,
+.octo-mcp-chip--active:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--octo-text-primary);
+}
+.octo-mcp-chip-x {
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+/* 菜单经 Portal 挂 body(fixed):chip 在输入卡片(overflow-hidden)内,就地渲染会被裁剪 */
+.octo-mcp-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 198px;
+  max-width: 320px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--octo-surface-page);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
+}
+.octo-mcp-menu-item {
   display: flex;
   align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  border: 1px solid var(--octo-border-divider);
-  background: var(--octo-surface-page);
-  color: var(--octo-text-secondary);
-  font-size: 12px;
+  width: 100%;
+  padding: 7px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--octo-text-primary);
+  font-size: 14px;
+  font-family: var(--octo-font);
+  text-align: left;
   cursor: pointer;
+  height: 36px;
 }
-.octo-preset-scroll-left {
-  margin-right: 4px;
-  box-shadow: 6px 0 8px -4px rgba(255, 255, 255, 0.9);
+.octo-mcp-menu-item:hover {
+  background: rgba(0, 0, 0, 0.1);
 }
-.octo-preset-scroll-right {
-  margin-left: 4px;
-  box-shadow: -6px 0 8px -4px rgba(255, 255, 255, 0.9);
+.octo-mcp-menu-item:active {
+  background: rgba(0, 0, 0, 0.15);
 }
-.octo-preset-scroll-left:hover,
-.octo-preset-scroll-right:hover {
-  color: var(--octo-brand);
-  border-color: var(--octo-brand-a25);
+.octo-mcp-menu-item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── 队列提示条(spec §3.3.4) ──────────────────────────────── */
@@ -334,7 +341,27 @@
   color: var(--octo-text-primary);
 }
 
-
+/* ── 发送按钮图标 ──────────────────────────────── */
+.octo-split [data-action="prompt-submit"] {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-image: url(/IconSend-blue.svg);
+  background-size: 48.4px auto;
+  background-position: -8px -3.5px;
+  background-repeat: no-repeat;
+  background-color: transparent;
+  border: none;
+}
+.octo-split [data-action="prompt-submit"]:disabled {
+  opacity: 0.6;
+}
+.octo-split [data-action="prompt-submit"][data-icon="stop"] {
+  background-image: url(/pauseIcon.svg);
+}
+.octo-split [data-action="prompt-submit"] [data-slot="icon-svg"] {
+  display: none;
+}
 
 /* ── 防止 opencode 深色主题污染 Insight (FOUC 初屏保护层) ──────────
    主要防护：InsightContent.onMount 注入 html[data-color-scheme="dark"] 全局覆盖，

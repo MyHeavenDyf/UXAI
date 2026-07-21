@@ -40,12 +40,13 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { PreviewPane } from "./preview-pane"
 import { Breadcrumb } from "./breadcrumb"
 import { DesignFilesToolbar } from "./design-files-toolbar"
 import emptyPng from "../../icons/empty.png"
 import emptyFolderPng from "../../icons/empty_folder.png"
-import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload } from "../../icons/design-files-icons"
+import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload, IconFolder, IconFile } from "../../icons/design-files-icons"
 import { getFileIcon } from "../../icons/file-type-icons"
 
 const kindToI18nKey = (kind: ArtifactFileKind): string => {
@@ -88,6 +89,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const language = useLanguage()
   const fileStore = createArtifactFileStore(props.sessionId)
   const [isDragOver, setIsDragOver] = createSignal(false)
+  const [emptyUploadOpen, setEmptyUploadOpen] = createSignal(false)
   let fileInputRef!: HTMLInputElement
   let folderInputRef!: HTMLInputElement
 
@@ -604,14 +606,15 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           />
         </Show>
 
-        <div class="flex-1 min-h-0 overflow-auto">
-          <div style={{ padding: "24px" }} class="h-full">
-            <Show when={hasAnyFiles()}>
-              <Breadcrumb
-                currentPath={fileStore.store.currentPath}
-                onNavigate={(path) => fileStore.setCurrentPath(path)}
-              />
-            </Show>
+        <div class="flex-1 min-h-0 flex flex-col">
+          <Show when={hasAnyFiles()}>
+            <Breadcrumb
+              currentPath={fileStore.store.currentPath}
+              onNavigate={(path) => fileStore.setCurrentPath(path)}
+            />
+          </Show>
+          <ScrollView class="flex-1 min-h-0" style={{ padding: "0 24px 24px" }}>
+            
             <Show when={fileStore.store.loading && fileStore.store.generatedFiles.length === 0 && fileStore.store.uploadedFiles.length === 0}>
             <div class="flex items-center justify-center h-full">
               <Spinner class="size-[20px]" />
@@ -631,43 +634,128 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                 class="text-[14px] leading-[22px]"
                 style={{ color: "#666", "margin-bottom": "20px" }}
               >
+                暂无文件
+              </span>
+              <span
+                class="text-[14px] leading-[22px]"
+                style={{ color: "#191919", "margin-bottom": "20px" }}
+              >
                 {language.t("designFiles.emptyHint")}
               </span>
-              <button
-                type="button"
-                onClick={() => fileInputRef?.click()}
-                class="flex items-center justify-center gap-2 transition-colors"
-                style={{
-                  background: "#0a59F7",
-                  color: "white",
-                  "border-radius": "4px",
-                  height: "32px",
-                  width: "108px",
-                  "font-size": "14px",
-                  "line-height": "22px",
-                }}
-              >
-                <IconUpload size={16} />
-                <span>{language.t("designFiles.uploadFileAction")}</span>
-              </button>
+              <Kobalte open={emptyUploadOpen()} onOpenChange={setEmptyUploadOpen} modal={false} placement="bottom" gutter={4}>
+                <Kobalte.Trigger
+                  as="button"
+                  type="button"
+                  class="flex items-center justify-center gap-2 transition-colors"
+                  style={{
+                    background: "#0a59F7",
+                    color: "white",
+                    "border-radius": "999px",
+                    height: "32px",
+                    width: "108px",
+                    "font-size": "14px",
+                    "line-height": "22px",
+                  }}
+                >
+                  <IconUpload size={16} />
+                  <span>{language.t("designFiles.uploadFileAction")}</span>
+                </Kobalte.Trigger>
+                <Kobalte.Portal>
+                  <Kobalte.Content
+                    class="z-50 flex flex-col gap-1 bg-surface-raised-stronger-non-alpha rounded-md p-2"
+                    style={{ "box-shadow": "0 4px 12px rgba(0,0,0,0.16)", "min-width": "122px" }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => { folderInputRef?.click(); setEmptyUploadOpen(false) }}
+                      class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                      style={{
+                        height: "36px",
+                        "border-radius": "6px",
+                        "font-size": "14px",
+                        "line-height": "22px",
+                        color: "#191919",
+                      }}
+                    >
+                      <IconFolder size={16} />
+                      <span>{language.t("designFiles.uploadFolder")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { fileInputRef?.click(); setEmptyUploadOpen(false) }}
+                      class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                      style={{
+                        height: "36px",
+                        "border-radius": "6px",
+                        "font-size": "14px",
+                        "line-height": "22px",
+                        color: "#191919",
+                      }}
+                    >
+                      <IconFile size={16} />
+                      <span>{language.t("designFiles.uploadFile")}</span>
+                    </button>
+                  </Kobalte.Content>
+                </Kobalte.Portal>
+              </Kobalte>
             </div>
           </Show>
 
           <Show when={!fileStore.isTopLevel() && !fileStore.store.loading && fileStore.store.uploadedFiles.length === 0}>
             <div class="flex flex-col items-center justify-center h-full gap-3 text-center px-8">
               <span class="text-[12px]" style={{ color: "var(--octo-text-secondary)" }}>暂无文件</span>
-              <button
-                type="button"
-                onClick={() => fileInputRef?.click()}
-                class="flex items-center gap-2 px-4 py-2 rounded-lg text-[14px] font-medium transition-colors"
-                style={{
-                  background: "var(--octo-brand)",
-                  color: "white",
-                }}
-              >
-                <IconUpload size={16} />
-                <span>{language.t("designFiles.uploadFileAction")}</span>
-              </button>
+              <Kobalte open={emptyUploadOpen()} onOpenChange={setEmptyUploadOpen} modal={false} placement="bottom" gutter={4}>
+                <Kobalte.Trigger
+                  as="button"
+                  type="button"
+                  class="flex items-center gap-2 px-4 py-2 text-[14px] font-medium transition-colors"
+                  style={{
+                    background: "var(--octo-brand)",
+                    color: "white",
+                    "border-radius": "999px",
+                  }}
+                >
+                  <IconUpload size={16} />
+                  <span>{language.t("designFiles.uploadFileAction")}</span>
+                </Kobalte.Trigger>
+                <Kobalte.Portal>
+                  <Kobalte.Content
+                    class="z-50 flex flex-col gap-1 bg-surface-raised-stronger-non-alpha rounded-md p-2"
+                    style={{ "box-shadow": "0 4px 12px rgba(0,0,0,0.16)", "min-width": "122px" }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => { folderInputRef?.click(); setEmptyUploadOpen(false) }}
+                      class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                      style={{
+                        height: "36px",
+                        "border-radius": "6px",
+                        "font-size": "14px",
+                        "line-height": "22px",
+                        color: "#191919",
+                      }}
+                    >
+                      <IconFolder size={16} />
+                      <span>{language.t("designFiles.uploadFolder")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { fileInputRef?.click(); setEmptyUploadOpen(false) }}
+                      class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                      style={{
+                        height: "36px",
+                        "border-radius": "6px",
+                        "font-size": "14px",
+                        "line-height": "22px",
+                        color: "#191919",
+                      }}
+                    >
+                      <IconFile size={16} />
+                      <span>{language.t("designFiles.uploadFile")}</span>
+                    </button>
+                  </Kobalte.Content>
+                </Kobalte.Portal>
+              </Kobalte>
             </div>
           </Show>
 
@@ -810,7 +898,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
               </tbody>
             </table>
           </Show>
-          </div>
+          </ScrollView>
         </div>
       </div>
 
@@ -837,18 +925,20 @@ function SectionRow(props: {
   onToggle: () => void
 }): JSX.Element {
   return (
-    <tr class="df-section-row" style={{ background: "var(--octo-surface-page)", height: "54px" }}>
-      <td colSpan={5} class="px-2 py-1" style={{ "border-bottom": props.collapsed ? "1px solid rgba(0, 0, 0, 0.1)" : "none" }}>
+    <tr class="df-section-row" style={{ background: "var(--octo-surface-page)" }}>
+      <td colSpan={5} class="px-2" style={{ height: "54px", "box-sizing": "border-box", "vertical-align": "middle", "box-shadow": props.collapsed ? "inset 0 -1px 0 rgba(0, 0, 0, 0.1)" : "none" }}>
         <button
           type="button"
           onClick={props.onToggle}
           class="flex items-center gap-2 w-full"
           style={{ color: "rgba(0, 0, 0, 0.9)", "font-size": "14px", "line-height": "22px" }}
         >
-          <IconChevronDown
-            size={16}
-            style={{ transform: props.collapsed ? "rotate(-90deg)" : "none" }}
-          />
+          <span style={{ width: "16px", height: "16px", display: "flex", "align-items": "center", "justify-content": "center", "flex-shrink": "0" }}>
+            <IconChevronDown
+              size={16}
+              style={{ transform: props.collapsed ? "rotate(-90deg)" : "none" }}
+            />
+          </span>
           <span class="font-medium">{props.title}</span>
         </button>
       </td>

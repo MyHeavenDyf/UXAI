@@ -1,4 +1,4 @@
-import type { StudioAsset, StudioCapability, StudioGenerationResult, StudioImage, StudioMode } from "./types"
+import type { StudioAsset, StudioCapability, StudioGenerationResult, StudioImage, StudioInputImage, StudioMode } from "./types"
 
 export const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 export const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
@@ -11,6 +11,7 @@ export const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
 ])
 export const STUDIO_GENERATION_CREATE_TIMEOUT_MS = 130_000
 export const STUDIO_GENERATION_CANCEL_TIMEOUT_MS = 20_000
+export const STUDIO_GENERATION_REBOOT_TIMEOUT_MS = 30_000
 export const STUDIO_GENERATION_STATUS_INTERVAL_MS = 7_500
 
 export function isStudioGenerationStatusRegression(
@@ -31,6 +32,7 @@ export function isStudioGenerationFailure(status: StudioGenerationResult["status
 export type StudioPendingResult = StudioGenerationResult & {
   displayPrompt?: string
   sourceImage?: string
+  inputImages?: StudioInputImage[]
 }
 
 export type StudioHDMode = "restoration_8k" | "restoration" | "super_resolution"
@@ -150,6 +152,7 @@ export function isVideoMedia(image?: StudioImage) {
 
 export function getImageOrientation(image?: StudioImage): "portrait" | "landscape" | "" {
   if (!image?.width || !image?.height) return ""
+  if (image.width === image.height) return ""
   return image.height > image.width ? "portrait" : "landscape"
 }
 
@@ -165,4 +168,44 @@ export function triggerBrowserDownload(url: string, filename: string) {
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
+}
+
+export function getModelResolutionKey(styleModel: string): string {
+  if (styleModel === "hdesign") return "hdesign"
+  if (styleModel === "seedream-5-lite") return "2k"
+  if (styleModel.includes("2k")) return "2k"
+  if (styleModel.includes("3k")) return "3k"
+  if (styleModel.includes("4k")) return "4k"
+  return "default"
+}
+
+/** [width, height] per aspect ratio, keyed by resolution tier */
+export const STUDIO_SIZE_MAP: Record<string, Record<string, [number, number]>> = {
+  hdesign: { "1:1": [1280, 1280] },
+  "2k":    { "1:1": [2048, 2048], "2:3": [1664, 2496], "3:4": [1728, 2304], "9:16": [1600, 2848] },
+  "3k":    { "1:1": [3072, 3072], "2:3": [2496, 3744], "3:4": [2592, 3456], "9:16": [2304, 4096] },
+  "4k":    { "1:1": [4096, 4096], "2:3": [3328, 4992], "3:4": [3520, 4704], "9:16": [3040, 5504] },
+  default: { "1:1": [1024, 1024], "2:3": [800,  1200], "3:4": [768,  1024], "9:16": [720,  1280] },
+}
+
+/** Derive pixel dimensions from a style model + aspect-ratio pair. */
+export function getDefaultDimensions(
+  styleModel: string | undefined,
+  aspectRatio: string | undefined,
+): { width: number; height: number } | undefined {
+  if (!aspectRatio) return
+  const key = getModelResolutionKey(styleModel ?? "")
+  const map = STUDIO_SIZE_MAP[key] ?? STUDIO_SIZE_MAP.default
+  const exact = map[aspectRatio]
+  if (exact) return { width: exact[0], height: exact[1] }
+  const [w, h] = aspectRatio.split(":").map(Number)
+  if (!w || !h || w === h) return
+  // try inverse ratio
+  const inverse = `${h}:${w}`
+  const inv = map[inverse]
+  if (inv) return { width: inv[1], height: inv[0] }
+  // compute from 1:1 base
+  const base = (map["1:1"] ?? STUDIO_SIZE_MAP.default["1:1"])[0]
+  if (w > h) return { width: Math.round(base * w / h), height: base }
+  return { width: base, height: Math.round(base * h / w) }
 }

@@ -3,9 +3,9 @@
   --el-menu-item-height: 48px;
   --el-menu-base-level-padding: 16px;
   --el-menu-level-padding: 28px;
-  --el-menu-text-color: var(--text-default);
-  --el-menu-bg-color: var(--surface-default);
-  --el-menu-border-color: var(--neutral-100);
+  --el-menu-text-color: var(--color-text-primary);
+  --el-menu-bg-color: var(--color-bg-2);
+  --el-menu-border-color: var(--gray-10);
 }
 
 .el-sub-menu .el-sub-menu__icon-arrow {
@@ -13,7 +13,7 @@
 
   svg path {
     fill: none;
-    stroke: var(--text-default);
+    stroke: var(--color-text-primary);
     stroke-width: 80px;
   }
 }
@@ -40,23 +40,23 @@
 
   .el-sub-menu.is-opened {
     &>.el-sub-menu__title {
-      color: var(--primary-500);
+      color: var(--brand-50);
 
       .el-icon.el-sub-menu__icon-arrow {
         transform: rotateZ(0deg) !important;
         svg path {
-          stroke: var(--primary-500);
+          stroke: var(--brand-50);
         }
       }
     }
     &>.el-menu {
-      background-color: rgb(from var(--neutral-50) r g b / 0.4);
+      background-color: rgb(from var(--gray-05) r g b / 0.4);
     }
   }
 
   .el-menu-item.is-active {
-    color: var(--text-primary-active);
-    background-color: #e6f2fd;
+    color: var(--brand-50);
+    background-color: var(--brand-05);
   }
 
 }
@@ -75,14 +75,14 @@
     &:not(.is-disabled):hover,
     &:not(.is-disabled):focus {
       background-color: transparent;
-      color: var(--text-primary-hover);
+      color: var(--color-brand-hover);
     }
   }
 
   &>.el-menu-item.is-active {
     position: relative;
     border-bottom-color: transparent;
-    color: var(--text-primary-active) !important;
+    color: var(--brand-50) !important;
 
     &::after {
       content: '';
@@ -91,7 +91,7 @@
       right: var(--el-menu-base-level-padding);
       bottom: 0px;
       height: 2px;
-      background-color: var(--text-primary-active);
+      background-color: var(--brand-50);
     }
   }
 }
@@ -108,12 +108,12 @@
 .theme-dark {
   .el-menu {
     .el-menu-item:not(.is-active) .lucide {
-      stroke: var(--neutral-100);
+      stroke: var(--gray-10);
     }
   }
 
   .el-sub-menu .el-sub-menu__icon-arrow svg path {
-    stroke: var(--text-default);
+    stroke: var(--color-text-primary);
   }
 
   .el-menu--vertical {
@@ -124,12 +124,12 @@
     }
 
     .el-menu-item.is-active {
-      background-color: rgb(from var(--primary-500) r g b / 0.4);
-      color: var(--text-default);
+      background-color: rgb(from var(--brand-50) r g b / 0.4);
+      color: var(--color-text-primary);
     }
 
     .is-active.is-opened>.el-sub-menu__title {
-      color: var(--text-primary-active);
+      color: var(--brand-30);
 
       .el-sub-menu__icon-arrow svg path,
       .lucide {

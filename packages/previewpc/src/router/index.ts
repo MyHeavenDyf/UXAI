@@ -1,8 +1,8 @@
-import { createRouter, createWebHistory } from "vue-router";
+import { createRouter, createWebHashHistory } from "vue-router";
 import PreviewPage from "../views/PreviewPage.vue";
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHashHistory(),
   routes: [
     {
       path: "/",
@@ -14,11 +14,11 @@ const router = createRouter({
       name: "Explorer",
       component: () => import("../views/ExplorerPage.vue"),
     },
-    //     {
-    //   path: "/icon",
-    //   name: "Icon",
-    //   component: () => import("../views/IconPage.vue"),
-    // },
+        {
+      path: "/component",
+      name: "Component",
+      component: () => import("../views/ComponentPage.vue"),
+    },
     {
       path: "/custom",
       name: "Custom",

@@ -4,8 +4,8 @@ import "../../assets/style/preview/pattern-generating.css"
 /**
  * 页面生成中的加载状态组件
  *
- * 在需求确认页面点击「确认并继续生成」后，
- * 后端开始执行 pattern 匹配 + 意图扩展 + 布局规划（create_planner_json），
+ * 在需求确认页面点击「确认」后，
+ * 后端开始执行意图扩展 + 布局规划 + 模块生成 + 合并模块
  * 此期间预览区展示该加载态，避免出现空白占位页。
  */
 export function PatternGenerating(): JSX.Element {

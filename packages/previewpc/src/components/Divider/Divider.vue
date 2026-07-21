@@ -3,8 +3,12 @@ import { ElDivider, type DividerProps } from "element-plus"
 import type { DividerNode } from "../types"
 import { useA2UIComponent, type A2UIComponentProps } from "../../renderer"
 import "./Divider.less"
-import { computed } from "vue"
+import { computed, onMounted, ref, useAttrs } from "vue"
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
+
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
 
 const positionEnum = {
   start: "left",
@@ -16,6 +20,20 @@ const props = defineProps<A2UIComponentProps<DividerNode>>()
 const { node, surfaceId } = props
 const properties = props.node.properties
 const { resolveValue } = useA2UIComponent(node, surfaceId)
+
+const elDividerRef = ref<InstanceType<typeof ElDivider>>()
+
+onMounted(() => {
+  const wrapper = (elDividerRef.value as any)?.$el
+  if (wrapper instanceof HTMLElement) {
+    if (attrs['id'] != null)
+      wrapper.setAttribute('id', String(attrs['id']))
+    if (attrs['dom-picker-component'] != null)
+      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+    if (attrs['data-element-props'] != null)
+      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
+  }
+})
 
 const id = computed(() => node.id)
 const className = computed(() => properties.className)
@@ -52,6 +70,7 @@ const styles = computed(() => {
 
 <template>
   <ElDivider
+    ref="elDividerRef"
     :id="id"
     :class="className"
     :style="styles"
