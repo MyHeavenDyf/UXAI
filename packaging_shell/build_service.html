@@ -107,8 +107,8 @@
       }
       .job:hover, .job.selected { background: var(--panel-2); border-color: #303d53; }
       .job-main { min-width: 0; }
-      .job-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 700; }
-      .job-time { margin-top: 4px; color: var(--muted); font-size: 10px; }
+      .job-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 700; }
+      .job-time { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; }
       .toast {
         position: fixed; right: 24px; bottom: 24px; z-index: 10; max-width: 420px; padding: 13px 16px;
         color: #fff; background: #273147; border: 1px solid #3d4a63; border-radius: 11px; box-shadow: 0 14px 50px rgba(0,0,0,.35);
@@ -139,7 +139,7 @@
       <section class="grid">
         <aside class="stack">
           <article class="card">
-            <div class="card-head"><h2>新建打包任务</h2><p>任务将进入串行队列，避免多人操作互相覆盖。</p></div>
+            <div class="card-head"><h2>新建打包任务</h2><p>任务串行执行；结束后会自动清除本次任务产生的全部 Git 改动。</p></div>
             <form id="build-form" class="card-body">
               <div class="field"><label for="branch">下载分支</label><input id="branch" name="branch" value="dev" maxlength="100" required /></div>
               <div class="field"><label for="version">应用版本</label><input id="version" name="version" value="0.1.0" placeholder="例如 0.3.11" required /></div>
@@ -222,6 +222,16 @@
         return node.innerHTML
       }
 
+      function upsertJob(job) {
+        const index = app.jobs.findIndex((candidate) => candidate.id === job.id)
+        if (index === -1) app.jobs.unshift(job)
+        else app.jobs[index] = job
+      }
+
+      function replaceJobs(jobs) {
+        app.jobs = jobs.filter((job, index) => jobs.findIndex((candidate) => candidate.id === job.id) === index)
+      }
+
       function renderDetail() {
         const job = app.jobs.find((candidate) => candidate.id === app.selectedId)
         $("detail-empty").hidden = Boolean(job)
@@ -276,7 +286,7 @@
         const result = await response.json()
         $("submit-build").disabled = false
         if (!response.ok) return toast(result.error || "任务提交失败", true)
-        app.jobs.unshift(result.job)
+        upsertJob(result.job)
         app.selectedId = result.job.id
         render()
         toast("任务已加入打包队列")
@@ -298,11 +308,10 @@
       const events = new EventSource("/api/events")
       events.addEventListener("open", () => { $("connection-dot").classList.add("online"); $("connection-text").textContent = "服务已连接" })
       events.addEventListener("error", () => { $("connection-dot").classList.remove("online"); $("connection-text").textContent = "正在重连" })
-      events.addEventListener("snapshot", (event) => { app.jobs = JSON.parse(event.data); if (!app.selectedId && app.jobs.length) app.selectedId = app.jobs[0].id; render() })
+      events.addEventListener("snapshot", (event) => { replaceJobs(JSON.parse(event.data)); if (!app.selectedId && app.jobs.length) app.selectedId = app.jobs[0].id; render() })
       events.addEventListener("job", (event) => {
         const job = JSON.parse(event.data)
-        const index = app.jobs.findIndex((candidate) => candidate.id === job.id)
-        if (index === -1) app.jobs.unshift(job); else app.jobs[index] = job
+        upsertJob(job)
         if (!app.selectedId) app.selectedId = job.id
         render()
       })

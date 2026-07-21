@@ -148,24 +148,49 @@ async function runJob(job: Job) {
   appendLog(job, `开始任务 ${job.id}\n分支: ${job.branch}\n版本: ${job.version}\n渠道: ${job.channel}\n\n`)
   updateJob(job)
 
+  const before = await gitState()
+  if (before.dirty) {
+    job.status = "failed"
+    job.finishedAt = new Date().toISOString()
+    appendLog(job, "工作区存在任务外的未提交修改。为避免误删代码，本次任务已终止。\n")
+    updateJob(job)
+    return
+  }
+
   const process = Bun.spawn(
     ["bash", runner, "--branch", job.branch, "--version", job.version, "--channel", job.channel],
     { cwd: rootDir, stdout: "pipe", stderr: "pipe", env: processEnv() },
   )
   await Promise.all([streamToLog(job, process.stdout), streamToLog(job, process.stderr)])
   job.exitCode = await process.exited
-  job.finishedAt = new Date().toISOString()
 
-  if (job.exitCode !== 0) {
+  if (job.exitCode === 0) await copyArtifacts(job)
+
+  appendLog(job, "\n正在清除本次打包产生的 Git 改动...\n")
+  const reset = await runCommand(["git", "reset", "--hard", "HEAD"])
+  if (reset.stdout) appendLog(job, `${reset.stdout}\n`)
+  if (reset.stderr) appendLog(job, `${reset.stderr}\n`)
+  const clean = await runCommand(["git", "clean", "-fd", "-e", "packaging_shell/"])
+  if (clean.stdout) appendLog(job, `${clean.stdout}\n`)
+  if (clean.stderr) appendLog(job, `${clean.stderr}\n`)
+
+  job.finishedAt = new Date().toISOString()
+  if (reset.exitCode !== 0 || clean.exitCode !== 0) {
     job.status = "failed"
-    appendLog(job, `\n任务失败，退出码: ${job.exitCode}\n`)
+    appendLog(job, "Git 改动清理失败，请管理员检查打包机工作区。\n")
     updateJob(job)
     return
   }
 
-  await copyArtifacts(job)
+  if (job.exitCode !== 0) {
+    job.status = "failed"
+    appendLog(job, `Git 改动已清除。任务失败，退出码: ${job.exitCode}\n`)
+    updateJob(job)
+    return
+  }
+
   job.status = "success"
-  appendLog(job, `\n任务完成，共收集 ${job.artifacts.length} 个产物。\n`)
+  appendLog(job, `Git 改动已清除。任务完成，共收集 ${job.artifacts.length} 个产物。\n`)
   updateJob(job)
 }
 
