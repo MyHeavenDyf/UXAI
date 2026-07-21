@@ -1040,8 +1040,9 @@ const sessionMessagesLoaded = createMemo(() => {
     }
   }, { defer: true }))
 
-  // 当用户发送 [strategy-complete] 消息时，自动将 planPhase 切换到 generate 阶段
-  // 注意：只检测用户消息，不检测助手消息（助手可能只是提到这个指令名称）
+  // 当模型输出 text/design-plan artifact 或用户发送 [strategy-complete] 时，自动切换到 generate 阶段
+  // - 用户消息中的 [strategy-complete]：用户主动触发生成
+  // - 助手消息中的 text/design-plan：模型已输出设计规划文档
   createEffect(on(
     () => {
       const planSid = activePlanSessionId()
@@ -1053,11 +1054,13 @@ const sessionMessagesLoaded = createMemo(() => {
       if (currentPhase === "generate") return null
       const msgs = sync.data.message?.[planSid]
       if (!msgs) return null
-      // 只检测用户消息
+      // 检测两种条件：用户发送 strategy-complete 或助手输出 design-plan
       for (const m of msgs) {
-        if (m.role !== "user") continue
         const text = (sync.data.part?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
-        if (text?.includes("[strategy-complete]")) {
+        if (m.role === "user" && text?.includes("[strategy-complete]")) {
+          return "generate"
+        }
+        if (m.role === "assistant" && text?.includes('type="text/design-plan"')) {
           return "generate"
         }
       }
