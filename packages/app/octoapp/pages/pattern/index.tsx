@@ -1,5 +1,5 @@
 import "./assets/style/pattern-tokens.css"
-import type { Message, Session, SessionStatus, FilePartInput } from "@opencode-ai/sdk/v2/client"
+import type { Message, Session, SessionStatus, UserMessage, FilePartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { showToast, Toast } from "@opencode-ai/ui/toast"
