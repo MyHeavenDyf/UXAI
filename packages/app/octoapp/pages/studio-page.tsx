@@ -27,6 +27,7 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { authTokenFromCredentials } from "@/utils/server"
 import { directoryHeader } from "@/utils/headers"
+import { modelsApiHeaders } from "@/network/models-api"
 import { useServer } from "@/context/server"
 import {
   STUDIO_ASPECT_RATIOS,
@@ -111,6 +112,7 @@ type StudioGenerationOverrides = {
   capability?: StudioCapability
   prompt?: string
   displayPrompt?: string
+  detailPrompt?: string
   refinedPrompt?: string
   effectivePrompt?: string
   sourceImage?: string
@@ -1021,7 +1023,7 @@ export default function StudioPage() {
       if (isStudioGenerationStatusRegression(pending.status, next.status)) return
       setPendingResult((current) => {
         if (!current || current.status === next.status && current.progress === next.progress && current.order === next.order) return current
-        return { ...current, ...next, displayPrompt: current.displayPrompt ?? next.displayPrompt, sourceImage: current.sourceImage, inputImages: current.inputImages }
+        return { ...current, ...next, displayPrompt: current.displayPrompt ?? next.displayPrompt, detailPrompt: current.detailPrompt ?? next.detailPrompt, sourceImage: current.sourceImage, inputImages: current.inputImages }
       })
       setStatus(next.status)
       return
@@ -1061,7 +1063,7 @@ export default function StudioPage() {
       if (isStudioGenerationStatusRegression(pending.status, next.status)) return
       setPendingResult((current) => {
         if (!current || current.status === next.status && current.progress === next.progress && current.order === next.order) return current
-        return { ...current, ...next, displayPrompt: current.displayPrompt ?? next.displayPrompt, sourceImage: current.sourceImage, inputImages: current.inputImages }
+        return { ...current, ...next, displayPrompt: current.displayPrompt ?? next.displayPrompt, detailPrompt: current.detailPrompt ?? next.detailPrompt, sourceImage: current.sourceImage, inputImages: current.inputImages }
       })
       setStatus(next.status)
       return
@@ -1866,6 +1868,7 @@ export default function StudioPage() {
     const headers: Record<string, string> = {
       "content-type": "application/json",
       ...directoryHeader(projectDir()),
+      ...modelsApiHeaders(),
     }
     if (current.http.password) {
       headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -2133,6 +2136,7 @@ export default function StudioPage() {
         capability: result.capability,
         prompt: effectivePrompt ?? refinedPrompt ?? originalPrompt ?? result.prompt,
         displayPrompt: STUDIO_REGENERATE_DISPLAY_PROMPT,
+        detailPrompt: result.detailPrompt,
         refinedPrompt,
         effectivePrompt,
         referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
@@ -2155,6 +2159,7 @@ export default function StudioPage() {
         capability: result.capability,
         prompt: effectivePrompt ?? refinedPrompt ?? originalPrompt ?? result.prompt,
         displayPrompt: STUDIO_REGENERATE_DISPLAY_PROMPT,
+        detailPrompt: result.detailPrompt,
         refinedPrompt,
         effectivePrompt,
         referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
@@ -2174,6 +2179,7 @@ export default function StudioPage() {
       capability: result.capability,
       prompt: effectivePrompt ?? refinedPrompt ?? originalPrompt ?? result.prompt,
       displayPrompt: STUDIO_REGENERATE_DISPLAY_PROMPT,
+      detailPrompt: result.detailPrompt,
       refinedPrompt,
       effectivePrompt,
       sourceImage: stringValue(input, "sourceImage"),
@@ -2311,6 +2317,7 @@ export default function StudioPage() {
     sessionID: string
     text: string
     displayPrompt?: string
+    detailPrompt?: string
     capability: StudioCapability
     styleModel?: string
     aspectRatio?: StudioAspectRatio
@@ -2328,6 +2335,7 @@ export default function StudioPage() {
     const headers: Record<string, string> = {
       "content-type": "application/json",
       ...directoryHeader(projectDir()),
+      ...modelsApiHeaders(),
     }
     if (current.http.password) {
       headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -2347,6 +2355,7 @@ export default function StudioPage() {
         capability: input.capability,
         prompt: input.text,
         displayPrompt: input.displayPrompt,
+        detailPrompt: input.detailPrompt,
         refinedPrompt: input.refinedPrompt,
         effectivePrompt: input.effectivePrompt,
         styleModel: input.capability === "image.generate" ? input.styleModel ?? styleModelLabel(styleModel()) : undefined,
@@ -2697,7 +2706,8 @@ export default function StudioPage() {
           }
     const nextHasInvalidVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.last && !nextVideoFrames.first)
     const nextHasVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.first)
-    const text = (overrides?.prompt ?? prompt()).trim() || (
+    const actualUserPrompt = (overrides?.prompt ?? prompt()).trim()
+    const text = actualUserPrompt || (
       nextCapability === "image.upscale"
         ? "将当前图片变清晰，提升分辨率和细节"
         : nextCapability === "image.cutout"
@@ -2711,6 +2721,7 @@ export default function StudioPage() {
             : ""
     )
     if (!text || isActionBusy() || nextHasInvalidVideoFrames) return
+    const detailPrompt = overrides?.detailPrompt ?? (actualUserPrompt || (nextCapability === "video.generate" ? text : undefined))
     const currentToken = ++generationToken
     const previousPrompt = prompt()
     const previousAssets = assets()
@@ -2778,6 +2789,7 @@ export default function StudioPage() {
       capability: nextCapability,
       prompt: overrides?.effectivePrompt ?? overrides?.refinedPrompt ?? text,
       displayPrompt: overrides?.displayPrompt,
+      detailPrompt,
       provider: "internel",
       model: nextStyleModel,
       aspectRatio: nextIsCustom ? ("1:1" as StudioAspectRatio) : nextAspectRatio,
@@ -2836,6 +2848,7 @@ export default function StudioPage() {
         sessionID,
         text,
         displayPrompt: overrides?.displayPrompt,
+        detailPrompt,
         capability: nextCapability,
         refinedPrompt: overrides?.refinedPrompt,
         effectivePrompt: overrides?.effectivePrompt,
@@ -2858,6 +2871,7 @@ export default function StudioPage() {
         // Preserve sessionID from current — generation response may not include it
         sessionID: current?.sessionID ?? (generation as StudioGenerationResult).sessionID,
         displayPrompt: current?.displayPrompt ?? generation.displayPrompt,
+        detailPrompt: current?.detailPrompt ?? generation.detailPrompt,
         sourceImage: current?.sourceImage ?? overrides?.sourceImage,
         inputImages: current?.inputImages ?? pendingInputImages,
         // Preserve custom size fields from current state — API response may not include them
@@ -2977,6 +2991,7 @@ export default function StudioPage() {
                 // Preserve sessionID from current when generation doesn't include it
                 sessionID: current?.sessionID ?? (generation as StudioGenerationResult).sessionID,
                 displayPrompt: current?.displayPrompt ?? generation.displayPrompt,
+                detailPrompt: current?.detailPrompt ?? generation.detailPrompt,
                 sourceImage: current?.sourceImage,
                 inputImages: current?.inputImages,
                 // Preserve custom size fields from current state — API response may not include them
