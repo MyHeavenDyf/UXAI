@@ -201,11 +201,16 @@ export default function StudioPage() {
 
   const [prompt, setPrompt] = createSignal("")
   const [imageSettingStore, setImageSettingStore] = persisted(
-    Persist.global("studio.image.settings"),
+    { ...Persist.global("studio.image.settings"), migrate: (value: unknown) => {
+      if (value && typeof value === "object" && (value as Record<string, unknown>).count === 1) {
+        return { ...(value as Record<string, unknown>), count: 4 }
+      }
+      return value
+    } },
     createStore({
       capability: "image.generate" as StudioCapability,
       aspectRatio: "3:4" as StudioAspectRatio,
-      count: 1 as 1 | 2 | 3 | 4,
+      count: 4 as 1 | 2 | 3 | 4,
       styleModel: "seedream-5-lite",
     }),
   )
@@ -246,8 +251,6 @@ export default function StudioPage() {
   const [fileManagerDetailView, setFileManagerDetailView] = createSignal(false)
   // 记录上一次 session id，切换 session 时重置视图偏好
   let lastStudioSessionId: string | undefined
-  // 记录已访问过的 session ID，用于区分「加载中」和「空 session」
-  const visitedSessionIds = new Set<string>()
   // 记录文件管理详情页当前查看的 resultId / imageId，从 canvas 切回时恢复
   let fileManagerDetailResultId: string | undefined
   let fileManagerDetailImageId: string | undefined
@@ -405,6 +408,8 @@ export default function StudioPage() {
   let scrollFrame = 0
   let pendingEditorSessionID: string | undefined
   let pendingGenerationSessionID: string | undefined
+  // 记录已访问过的 session ID，模块级以在组件卸载/重载之间存活，防止切回时出现空白页
+  const visitedSessionIds = new Set<string>()
   let pendingVideoFirstFrame: StudioAsset | undefined
   const blobUrlCache = new Map<string, string>()
 
@@ -3655,7 +3660,7 @@ if (!headerTitle.pendingRename) return
             }}
             class="studio-center-scroll"
           >
-            <Show when={displayTurns().length > 0 || pendingResult() || sending()} fallback={params.id && !sessionDataLoaded() && !visitedSessionIds.has(params.id) ? null : <StudioIntro />}>
+            <Show when={displayTurns().length > 0 || pendingResult() || sending() || isBusy()} fallback={params.id && !sessionDataLoaded() && !visitedSessionIds.has(params.id) ? null : <StudioIntro />}>
               <StudioConversation
                 result={result()}
                 turns={displayTurns()}
