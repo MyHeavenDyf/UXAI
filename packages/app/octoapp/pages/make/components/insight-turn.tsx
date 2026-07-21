@@ -45,6 +45,7 @@ export type OutputCard = {
   type: OutputCardType
   content: string
   filePath?: string
+  commentFilePath?: string
   sessionId?: string
   artifactKind?: string
   artifactIdentifier?: string

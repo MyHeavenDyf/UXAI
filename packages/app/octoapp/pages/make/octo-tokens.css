@@ -223,7 +223,7 @@
   padding: 4px 8px;
   background: transparent;
   border: none;
-  border-radius: var(--octo-radius-sm);
+  border-radius: var(--octo-radius-pill);
   color: var(--octo-text-secondary);
   font-size: 14px;
   cursor: pointer;
@@ -234,8 +234,40 @@
   color: var(--octo-text-primary);
   background: rgba(0,0,0,0.04);
 }
+
 .octo-action-btn > svg {
   flex-shrink: 0;
+}
+.octo-action-btn-refresh {
+  padding: 0;
+}
+.octo-action-btn-refresh:hover {
+  background: transparent;
+}
+.octo-action-btn-refresh:active {
+  color: #0a59f7;
+}
+.octo-action-btn-download:active {
+  color: var(--octo-brand);
+  background: var(--octo-brand-a8);
+}
+.octo-action-btn.octo-action-btn-archive {
+  padding: 0 16px;
+  height: 32px;
+  background: #0a59f7;
+  color: #fff;
+}
+.octo-action-btn.octo-action-btn-archive:hover {
+  background: #0950de;
+  color: #fff;
+}
+.octo-action-btn.octo-action-btn-archive:active {
+  background: #0a55eb;
+  color: #fff;
+}
+.octo-action-btn.octo-action-btn-archive.octo-action-btn-archive-active,
+.octo-action-btn.octo-action-btn-archive.octo-action-btn-archive-active:hover {
+  background: #0a55eb;
 }
 .octo-action-btn > span {
   overflow: hidden;
@@ -378,10 +410,10 @@
   color: var(--octo-brand);
   background: var(--octo-brand-a8);
 }
-.octo-viewport-btn-active:hover {
+/* .octo-viewport-btn-active:hover {
   color: var(--octo-brand);
   background: var(--octo-brand-a20);
-}
+} */
 
 /* ── Action bar layout ──────────────────── */
 
@@ -395,13 +427,13 @@
 .octo-action-bar-left {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
 }
 
 .octo-action-bar-right {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
 }
 
 .octo-action-bar-divider {
@@ -421,8 +453,8 @@
 .octo-dropdown-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
+  gap: 8px;
+  height: 28px;
   background: transparent;
   border: none;
   border-radius: var(--octo-radius-sm);
@@ -430,12 +462,14 @@
   font-size: 14px;
   cursor: pointer;
   transition: background var(--octo-dur-fast) var(--octo-ease), color var(--octo-dur-fast) var(--octo-ease);
-  width: 60px;
+  width: 52px;
 }
 
 .octo-dropdown-trigger:hover {
   color: var(--octo-text-primary);
-  background: rgba(0,0,0,0.04);
+}
+.octo-dropdown-trigger.octo-dropdown-open {
+  color: var(--octo-text-primary);
 }
 
 .octo-dropdown-trigger > svg {
@@ -454,13 +488,23 @@
 }
 
 .octo-dropdown-menu {
+  --octo-brand: #0a59f7;
+  --octo-brand-a8: rgba(10, 89, 247, 0.08);
+  --octo-brand-a20: rgba(10, 89, 247, 0.20);
+  --octo-border-default: #E5E7EB;
+  --octo-dur-fast: 100ms;
+  --octo-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --octo-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   position: fixed;
   z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
   background: #ffffff;
   border: 1px solid var(--octo-border-default);
-  border-radius: var(--octo-radius-md);
-  box-shadow: var(--octo-shadow-md);
-  width: 60px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px 0 rgba(0,0,0,0.16);
   animation: octo-pop-in 120ms var(--octo-ease-out);
 }
 
@@ -468,29 +512,27 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 100%;
-  padding: 6px 10px;
+  min-width: 80px;
+  height: 36px;
+  padding: 0 10px;
   background: transparent;
   border: none;
-  color: var(--octo-text-secondary);
-  font-size: 13px;
+  border-radius: 6px;
+  color: rgba(0,0,0,0.9);
+  font-size: 14px;
+  line-height: 22px;
   cursor: pointer;
   transition: background var(--octo-dur-fast) var(--octo-ease), color var(--octo-dur-fast) var(--octo-ease);
 }
 
 .octo-dropdown-item:hover {
-  background: rgba(0,0,0,0.04);
-  color: var(--octo-text-primary);
+  background: rgba(0,0,0,0.05);
 }
 
-.octo-dropdown-item-active {
-  color: var(--octo-brand);
-  background: var(--octo-brand-a8);
-}
-
+.octo-dropdown-item-active,
 .octo-dropdown-item-active:hover {
   color: var(--octo-brand);
-  background: var(--octo-brand-a20);
+  background: var(--octo-brand-a8);
 }
 
 button[title="版本历史"] {
