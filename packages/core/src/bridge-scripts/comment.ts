@@ -18,6 +18,10 @@ html[data-od-comment-mode] [data-od-comment-active] {
 html[data-od-comment-mode] [data-od-comment-pin] {
   display: flex !important;
 }
+
+[data-od-comment-pin-active] {
+  border: 1.5px solid #0a59f7 !important;
+}
 `
 
 export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function(){
@@ -38,6 +42,11 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
         document.body.style.cursor = 'pointer'
         window.parent.postMessage({ type: 'od:comment-request-pins' }, '*')
         updatePinPositionsLoop()
+        document.addEventListener('mousedown', blockEvent, true)
+        document.addEventListener('mouseup', blockEvent, true)
+        document.addEventListener('keydown', blockEvent, true)
+        document.addEventListener('keyup', blockEvent, true)
+        document.addEventListener('dblclick', blockEvent, true)
       } else {
         document.body.style.cursor = ''
         hoveredElementId = null
@@ -49,6 +58,11 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
           cancelAnimationFrame(animationFrameId)
           animationFrameId = null
         }
+        document.removeEventListener('mousedown', blockEvent, true)
+        document.removeEventListener('mouseup', blockEvent, true)
+        document.removeEventListener('keydown', blockEvent, true)
+        document.removeEventListener('keyup', blockEvent, true)
+        document.removeEventListener('dblclick', blockEvent, true)
       }
       return
     }
@@ -64,6 +78,10 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
       for (var i = 0; i < activeElements.length; i++) {
         activeElements[i].removeAttribute('data-od-comment-active')
       }
+      var activePins = document.querySelectorAll('[data-od-comment-pin-active]')
+      for (var j = 0; j < activePins.length; j++) {
+        activePins[j].removeAttribute('data-od-comment-pin-active')
+      }
       return
     }
     
@@ -71,13 +89,70 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
       var prevActive = document.querySelector('[data-od-comment-active]')
       if (prevActive) prevActive.removeAttribute('data-od-comment-active')
       
+      var prevActivePin = document.querySelector('[data-od-comment-pin-active]')
+      if (prevActivePin) prevActivePin.removeAttribute('data-od-comment-pin-active')
+      
       if (data.elementId) {
         var targetElement = document.querySelector('[data-od-id="' + data.elementId + '"]')
-        if (targetElement) targetElement.setAttribute('data-od-comment-active', 'true')
+        if (targetElement) {
+          targetElement.setAttribute('data-od-comment-active', 'true')
+          targetElement.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'nearest' })
+        }
+      }
+      
+      if (data.commentId) {
+        var targetPin = document.querySelector('[data-od-comment-pin="' + data.commentId + '"]')
+        if (targetPin) targetPin.setAttribute('data-od-comment-pin-active', 'true')
+      }
+      
+      if (data.commentId) {
+        var pin = document.querySelector('[data-od-comment-pin="' + data.commentId + '"]')
+        if (pin) {
+          var rect = pin.getBoundingClientRect()
+          window.parent.postMessage({
+            type: 'od:comment-pin-position',
+            commentId: data.commentId,
+            pinPosition: {
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height
+            }
+          }, '*')
+        }
+      }
+      return
+    }
+    
+    if (data.type === 'od:comment-get-pin-position') {
+      var pin = document.querySelector('[data-od-comment-pin="' + data.commentId + '"]')
+      if (pin) {
+        var rect = pin.getBoundingClientRect()
+        window.parent.postMessage({
+          type: 'od:comment-pin-position',
+          commentId: data.commentId,
+          pinPosition: {
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height
+          }
+        }, '*')
       }
       return
     }
   })
+
+  function blockEvent(ev) {
+    if (!commentEnabled) return
+    var el = ev.target
+    while (el && el !== document.documentElement) {
+      if (el.getAttribute && el.getAttribute('data-od-comment-pin')) return
+      el = el.parentElement
+    }
+    ev.preventDefault()
+    ev.stopPropagation()
+  }
 
   document.addEventListener('click', function(ev) {
     if (!commentEnabled) return
@@ -91,6 +166,9 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
     clickedElement = clickedElement.parentElement
   }
   
+  ev.preventDefault()
+  ev.stopPropagation()
+  
   // 检查是否正在编辑评论（有 active 元素）
   var activeElement = document.querySelector('[data-od-comment-active]')
   if (activeElement) {
@@ -102,8 +180,6 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
   
   var result = findCommentTarget(ev.target)
     if (result) {
-      ev.preventDefault()
-      ev.stopPropagation()
       var target = result.target
       
       var prevActive = document.querySelector('[data-od-comment-active]')
@@ -121,20 +197,14 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
     
     // Free-pin fallback for elements without data-od-id
     if (!canUseDomFallback()) return
-    var t = ev.target
-    var walk = t && t.nodeType === 1 ? t : null
-    while (walk && walk !== document.documentElement) {
-      var tag = walk.tagName
-      if (tag === 'A' || tag === 'BUTTON' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'LABEL') return
-      if (walk.isContentEditable) return
-      walk = walk.parentElement
-    }
-    ev.preventDefault()
-    ev.stopPropagation()
     
-    var viewport = document.documentElement.getBoundingClientRect()
-    var x = (ev.clientX - viewport.left) / viewport.width
-    var y = (ev.clientY - viewport.top) / viewport.height
+    var scrollX = window.scrollX || document.documentElement.scrollLeft
+    var scrollY = window.scrollY || document.documentElement.scrollTop
+    var docWidth = document.documentElement.scrollWidth
+    var docHeight = document.documentElement.scrollHeight
+    
+    var x = (ev.clientX + scrollX) / docWidth
+    var y = (ev.clientY + scrollY) / docHeight
     
     window.parent.postMessage({
       type: 'od:comment-target',
@@ -160,12 +230,16 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
 
   function buildTargetPayload(target) {
     var rect = target.getBoundingClientRect()
-    var viewport = document.documentElement.getBoundingClientRect()
+    var scrollX = window.scrollX || document.documentElement.scrollLeft
+    var scrollY = window.scrollY || document.documentElement.scrollTop
+    var docWidth = document.documentElement.scrollWidth
+    var docHeight = document.documentElement.scrollHeight
+    
     var position = {
-      x: (rect.left - viewport.left) / viewport.width,
-      y: (rect.top - viewport.top) / viewport.height,
-      w: rect.width / viewport.width,
-      h: rect.height / viewport.height
+      x: (rect.left + scrollX) / docWidth,
+      y: (rect.top + scrollY) / docHeight,
+      w: rect.width / docWidth,
+      h: rect.height / docHeight
     }
     
     return {
@@ -208,36 +282,52 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
     return true
   }
 
+  function isElementVisible(el) {
+    if (!el) return false
+    if (!document.body.contains(el)) return false
+    
+    var current = el
+    while (current && current !== document.documentElement) {
+      var style = window.getComputedStyle(current)
+      
+      if (style.display === 'none') return false
+      if (style.visibility === 'hidden') return false
+      if (current === el && style.pointerEvents === 'none') return false
+      
+      current = current.parentElement
+    }
+    
+    return true
+  }
+
   function renderSavedPins(comments) {
-    // 1. 更新现有 pin 的位置或创建新的
     comments.forEach(function(comment) {
       var existingPin = document.querySelector('[data-od-comment-pin="' + comment.id + '"]')
-      
-      var leftPercent, topPercent
-      
       var targetElement = document.querySelector('[data-od-id="' + comment.elementId + '"]')
       
-      if (targetElement) {
-        var rect = targetElement.getBoundingClientRect()
-        var viewport = document.documentElement.getBoundingClientRect()
-        
-        leftPercent = ((rect.left - viewport.left + rect.width) / viewport.width) * 100
-        topPercent = ((rect.top - viewport.top) / viewport.height) * 100
-      } else {
-        leftPercent = (comment.position.x + comment.position.w) * 100
-        topPercent = (comment.position.y) * 100
+      if (!isElementVisible(targetElement)) {
+        if (existingPin) {
+          existingPin.style.display = 'none'
+        }
+        return
       }
       
+      var rect = targetElement.getBoundingClientRect()
+      var scrollX = window.scrollX || document.documentElement.scrollLeft
+      var scrollY = window.scrollY || document.documentElement.scrollTop
+      
+      var leftPx = rect.left + scrollX + rect.width
+      var topPx = rect.top + scrollY
+      
       if (existingPin) {
-        // pin 已存在，只更新位置
-        existingPin.style.left = leftPercent + '%'
-        existingPin.style.top = 'calc(' + topPercent + '% - 40px)'
+        existingPin.style.display = 'flex'
+        existingPin.style.left = leftPx + 'px'
+        existingPin.style.top = (topPx - 40) + 'px'
       } else {
-        // 创建新的 pin
         var pin = document.createElement('div')
         pin.setAttribute('data-od-comment-pin', comment.id)
         
-        pin.style.cssText = 'position:absolute;left:' + leftPercent + '%;top:calc(' + topPercent + '% - 40px);width:40px;height:40px;background:#fff;border:1.5px solid #0a59f7;border-radius:999px 999px 999px 0;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:999;box-sizing:border-box;box-shadow:0 2px 8px rgba(0,0,0,0.15);'
+        pin.style.cssText = 'position:absolute;left:' + leftPx + 'px;top:' + (topPx - 40) + 'px;width:40px;height:40px;background:#fff;border:none;border-radius:999px 999px 999px 0;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2147483647;box-sizing:border-box;box-shadow:0 2px 8px rgba(0,0,0,0.15);'
         
         if (comment.commenterAvatar) {
           pin.innerHTML = '<img src="' + comment.commenterAvatar + '" style="width:32px;height:32px;border-radius:50%;object-fit:cover;display:block;" />'
@@ -263,13 +353,6 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
           }, '*')
         })
         
-        pin.addEventListener('pointerleave', function(e) {
-          e.stopPropagation()
-          window.parent.postMessage({
-            type: 'od:comment-pin-leave'
-          }, '*')
-        })
-        
         pin.addEventListener('click', function(e) {
           e.stopPropagation()
           
@@ -278,14 +361,28 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
             prevActive.removeAttribute('data-od-comment-active')
           }
           
+          var prevActivePin = document.querySelector('[data-od-comment-pin-active]')
+          if (prevActivePin) {
+            prevActivePin.removeAttribute('data-od-comment-pin-active')
+          }
+          
           var targetElement = document.querySelector('[data-od-id="' + comment.elementId + '"]')
           if (targetElement) {
             targetElement.setAttribute('data-od-comment-active', 'true')
           }
           
+          pin.setAttribute('data-od-comment-pin-active', 'true')
+          
+          var rect = pin.getBoundingClientRect()
           window.parent.postMessage({
             type: 'od:comment-pin-click',
-            commentId: comment.id
+            commentId: comment.id,
+            pinPosition: {
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height
+            }
           }, '*')
         })
         
