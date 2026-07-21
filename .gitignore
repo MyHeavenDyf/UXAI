@@ -42,3 +42,8 @@ bun.lock
 .bunfig.toml
 
 analysis/
+
+# Packaging workspace copied from internal/external source trees
+packaging_shell/packages/
+packaging_shell/zip/
+packaging_shell/artifacts/

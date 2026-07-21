@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Octo 内网打包台</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #080b12;
+        --panel: #111722;
+        --panel-2: #171f2d;
+        --line: #263044;
+        --text: #f4f7fb;
+        --muted: #8f9bb0;
+        --accent: #71e0b8;
+        --accent-2: #8aacff;
+        --warn: #f5c86a;
+        --danger: #ff7b86;
+        --success: #60d8a8;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 15% -10%, rgba(77, 125, 255, 0.18), transparent 35%),
+          radial-gradient(circle at 90% 15%, rgba(40, 213, 153, 0.12), transparent 28%),
+          var(--bg);
+        font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      button, input, select { font: inherit; }
+      button { cursor: pointer; }
+      .shell { max-width: 1480px; margin: 0 auto; padding: 28px; }
+      header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+      .brand { display: flex; align-items: center; gap: 14px; }
+      .mark {
+        display: grid; place-items: center; width: 44px; height: 44px; border-radius: 13px;
+        color: #08110f; background: linear-gradient(135deg, var(--accent), #b5f5de); font-weight: 900;
+        box-shadow: 0 8px 30px rgba(113, 224, 184, 0.2);
+      }
+      h1 { margin: 0; font-size: 21px; letter-spacing: -0.02em; }
+      .subtitle { margin-top: 4px; color: var(--muted); font-size: 13px; }
+      .connection { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+      .dot.online { background: var(--success); box-shadow: 0 0 12px rgba(96, 216, 168, 0.6); }
+
+      .grid { display: grid; grid-template-columns: 390px minmax(0, 1fr); gap: 18px; }
+      .stack { display: grid; gap: 18px; align-content: start; }
+      .card { background: rgba(17, 23, 34, 0.92); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; }
+      .card-head { padding: 18px 20px; border-bottom: 1px solid var(--line); }
+      .card-head h2 { margin: 0; font-size: 15px; }
+      .card-head p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+      .card-body { padding: 20px; }
+      .field { display: grid; gap: 8px; margin-bottom: 15px; }
+      label { color: #c7d0de; font-size: 12px; font-weight: 650; }
+      input, select {
+        width: 100%; height: 44px; padding: 0 13px; color: var(--text); background: #0c111a;
+        border: 1px solid #2a354a; border-radius: 10px; outline: none;
+      }
+      input:focus, select:focus { border-color: var(--accent-2); box-shadow: 0 0 0 3px rgba(138, 172, 255, 0.12); }
+      .primary {
+        width: 100%; height: 46px; border: 0; border-radius: 11px; color: #08130f;
+        background: linear-gradient(135deg, var(--accent), #a7f0d6); font-weight: 800;
+      }
+      .primary:hover { filter: brightness(1.04); }
+      .primary:disabled { cursor: not-allowed; opacity: 0.5; }
+      .secondary {
+        height: 40px; padding: 0 15px; color: var(--text); background: var(--panel-2);
+        border: 1px solid #33415a; border-radius: 10px; font-weight: 650;
+      }
+      .branch-row { display: grid; grid-template-columns: 1fr auto; gap: 9px; }
+      .current-branch { display: flex; align-items: center; justify-content: space-between; margin-bottom: 13px; }
+      .branch-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent-2); font-size: 13px; }
+      .dirty { color: var(--warn); font-size: 11px; }
+      .clean { color: var(--success); font-size: 11px; }
+      .hint { margin: 12px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+
+      .workspace { min-width: 0; }
+      .workspace-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .status-pill { padding: 6px 10px; border-radius: 999px; font-size: 11px; font-weight: 750; background: #222b3a; color: var(--muted); }
+      .status-pill.running { color: var(--accent-2); background: rgba(79, 122, 224, 0.16); }
+      .status-pill.success { color: var(--success); background: rgba(46, 191, 139, 0.13); }
+      .status-pill.failed { color: var(--danger); background: rgba(255, 91, 105, 0.13); }
+      .status-pill.queued { color: var(--warn); background: rgba(245, 200, 106, 0.12); }
+      .empty { display: grid; place-items: center; min-height: 420px; color: var(--muted); text-align: center; }
+      .empty strong { display: block; margin-bottom: 7px; color: #c8d1df; }
+      .job-meta { display: flex; flex-wrap: wrap; gap: 16px; padding: 14px 18px; background: #0c111a; border-bottom: 1px solid var(--line); }
+      .meta-item { color: var(--muted); font-size: 11px; }
+      .meta-item b { margin-left: 5px; color: #dbe3ef; font-weight: 650; }
+      pre {
+        margin: 0; min-height: 410px; max-height: 570px; padding: 18px; overflow: auto; color: #cfdae9;
+        background: #070a10; font: 12px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        white-space: pre-wrap; word-break: break-word;
+      }
+      .artifacts { display: flex; flex-wrap: wrap; gap: 9px; padding: 14px 18px; border-top: 1px solid var(--line); }
+      .artifact { padding: 8px 11px; color: var(--accent); background: rgba(71, 190, 148, 0.09); border: 1px solid rgba(113, 224, 184, 0.2); border-radius: 9px; text-decoration: none; font-size: 11px; }
+
+      .history { margin-top: 18px; }
+      .jobs { display: grid; gap: 8px; padding: 12px; }
+      .job {
+        display: grid; grid-template-columns: 88px 1fr auto; align-items: center; gap: 12px; width: 100%;
+        padding: 11px 12px; color: var(--text); text-align: left; background: transparent; border: 1px solid transparent; border-radius: 11px;
+      }
+      .job:hover, .job.selected { background: var(--panel-2); border-color: #303d53; }
+      .job-main { min-width: 0; }
+      .job-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 700; }
+      .job-time { margin-top: 4px; color: var(--muted); font-size: 10px; }
+      .toast {
+        position: fixed; right: 24px; bottom: 24px; z-index: 10; max-width: 420px; padding: 13px 16px;
+        color: #fff; background: #273147; border: 1px solid #3d4a63; border-radius: 11px; box-shadow: 0 14px 50px rgba(0,0,0,.35);
+        font-size: 12px; opacity: 0; transform: translateY(10px); pointer-events: none; transition: .2s ease;
+      }
+      .toast.show { opacity: 1; transform: translateY(0); }
+      .toast.error { background: #48262c; border-color: #74404a; }
+
+      @media (max-width: 900px) {
+        .shell { padding: 18px; }
+        .grid { grid-template-columns: 1fr; }
+        header { align-items: flex-start; }
+        .connection { margin-top: 5px; }
+        pre { min-height: 350px; max-height: 480px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <div class="brand">
+          <div class="mark">O</div>
+          <div><h1>Octo 内网打包台</h1><div class="subtitle">桌面应用构建、日志与产物中心</div></div>
+        </div>
+        <div class="connection"><span id="connection-dot" class="dot"></span><span id="connection-text">正在连接</span></div>
+      </header>
+
+      <section class="grid">
+        <aside class="stack">
+          <article class="card">
+            <div class="card-head"><h2>新建打包任务</h2><p>任务将进入串行队列，避免多人操作互相覆盖。</p></div>
+            <form id="build-form" class="card-body">
+              <div class="field"><label for="branch">下载分支</label><input id="branch" name="branch" value="dev" maxlength="100" required /></div>
+              <div class="field"><label for="version">应用版本</label><input id="version" name="version" value="0.1.0" placeholder="例如 0.3.11" required /></div>
+              <div class="field"><label for="channel">构建渠道</label><select id="channel" name="channel"><option value="beta">Beta</option><option value="prod">Prod</option><option value="dev">Dev</option></select></div>
+              <button id="submit-build" class="primary" type="submit">加入打包队列</button>
+            </form>
+          </article>
+
+          <article class="card">
+            <div class="card-head"><h2>当前代码分支</h2><p>切换的是打包机本地仓库，不是上方下载分支。</p></div>
+            <div class="card-body">
+              <div class="current-branch"><span id="current-branch" class="branch-name">读取中...</span><span id="git-state"></span></div>
+              <div class="branch-row"><select id="local-branch" aria-label="本地代码分支"></select><button id="switch-branch" class="secondary" type="button">切换</button></div>
+              <p class="hint">存在未提交修改或打包任务时会禁止切换，服务不会自动清理、暂存或覆盖代码。</p>
+            </div>
+          </article>
+        </aside>
+
+        <section class="workspace">
+          <article class="card">
+            <div class="card-head workspace-head"><div><h2 id="detail-title">任务详情</h2><p id="detail-subtitle">选择一个任务查看实时日志</p></div><span id="detail-status" class="status-pill">空闲</span></div>
+            <div id="detail-empty" class="empty"><div><strong>还没有打包任务</strong>填写左侧参数并加入队列后，日志会显示在这里。</div></div>
+            <div id="detail-content" hidden>
+              <div id="job-meta" class="job-meta"></div>
+              <pre id="job-log"></pre>
+              <div id="artifacts" class="artifacts" hidden></div>
+            </div>
+          </article>
+
+          <article class="card history">
+            <div class="card-head"><h2>任务记录</h2><p>最多保留本次服务运行期间的 20 条任务。</p></div>
+            <div id="jobs" class="jobs"><div class="hint">暂无任务</div></div>
+          </article>
+        </section>
+      </section>
+    </main>
+    <div id="toast" class="toast"></div>
+
+    <script>
+      const app = { jobs: [], selectedId: null, git: null }
+      const $ = (id) => document.getElementById(id)
+      const labels = { queued: "排队中", running: "打包中", success: "已完成", failed: "失败" }
+
+      function toast(message, error = false) {
+        $("toast").textContent = message
+        $("toast").className = `toast show${error ? " error" : ""}`
+        clearTimeout(toast.timer)
+        toast.timer = setTimeout(() => $("toast").className = "toast", 3500)
+      }
+
+      function formatTime(value) {
+        return value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "—"
+      }
+
+      function formatSize(bytes) {
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+        return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+      }
+
+      function renderJobs() {
+        if (!app.jobs.length) {
+          $("jobs").innerHTML = '<div class="hint">暂无任务</div>'
+          return
+        }
+        $("jobs").innerHTML = app.jobs.map((job) => `
+          <button class="job ${job.id === app.selectedId ? "selected" : ""}" data-id="${job.id}">
+            <span class="status-pill ${job.status}">${labels[job.status]}</span>
+            <span class="job-main"><span class="job-title">${escapeHtml(job.branch)} · ${escapeHtml(job.version)} · ${job.channel}</span><span class="job-time">${formatTime(job.createdAt)}</span></span>
+            <span class="job-time">#${job.id.slice(-6)}</span>
+          </button>`).join("")
+        document.querySelectorAll(".job").forEach((button) => button.addEventListener("click", () => {
+          app.selectedId = button.dataset.id
+          render()
+        }))
+      }
+
+      function escapeHtml(value) {
+        const node = document.createElement("div")
+        node.textContent = value
+        return node.innerHTML
+      }
+
+      function renderDetail() {
+        const job = app.jobs.find((candidate) => candidate.id === app.selectedId)
+        $("detail-empty").hidden = Boolean(job)
+        $("detail-content").hidden = !job
+        if (!job) return
+        $("detail-title").textContent = `${job.branch} · ${job.version}`
+        $("detail-subtitle").textContent = `任务 #${job.id}`
+        $("detail-status").className = `status-pill ${job.status}`
+        $("detail-status").textContent = labels[job.status]
+        $("job-meta").innerHTML = [
+          ["渠道", job.channel], ["创建", formatTime(job.createdAt)], ["开始", formatTime(job.startedAt)], ["结束", formatTime(job.finishedAt)]
+        ].map(([name, value]) => `<span class="meta-item">${name}<b>${value}</b></span>`).join("")
+        const log = $("job-log")
+        const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80
+        log.textContent = job.log || "等待执行..."
+        if (nearBottom) log.scrollTop = log.scrollHeight
+        $("artifacts").hidden = !job.artifacts.length
+        $("artifacts").innerHTML = job.artifacts.map((artifact) =>
+          `<a class="artifact" href="/api/artifacts/${job.id}/${encodeURIComponent(artifact.name)}">下载 ${escapeHtml(artifact.name)} · ${formatSize(artifact.size)}</a>`
+        ).join("")
+      }
+
+      function renderGit() {
+        if (!app.git) return
+        $("current-branch").textContent = app.git.current
+        $("git-state").className = app.git.dirty ? "dirty" : "clean"
+        $("git-state").textContent = app.git.dirty ? `有 ${app.git.changes.length} 项修改` : "工作区干净"
+        const selected = $("local-branch").value
+        $("local-branch").innerHTML = app.git.branches.map((branch) => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join("")
+        $("local-branch").value = app.git.branches.includes(selected) ? selected : app.git.current
+        $("switch-branch").disabled = app.git.dirty
+      }
+
+      function render() { renderJobs(); renderDetail(); renderGit() }
+
+      async function refresh() {
+        const [state, git] = await Promise.all([
+          fetch("/api/state").then((response) => response.json()),
+          fetch("/api/git").then((response) => response.json()),
+        ])
+        app.jobs = state.jobs
+        app.git = git.git
+        if (!app.selectedId && app.jobs.length) app.selectedId = app.jobs[0].id
+        render()
+      }
+
+      $("build-form").addEventListener("submit", async (event) => {
+        event.preventDefault()
+        const data = Object.fromEntries(new FormData(event.currentTarget))
+        $("submit-build").disabled = true
+        const response = await fetch("/api/jobs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) })
+        const result = await response.json()
+        $("submit-build").disabled = false
+        if (!response.ok) return toast(result.error || "任务提交失败", true)
+        app.jobs.unshift(result.job)
+        app.selectedId = result.job.id
+        render()
+        toast("任务已加入打包队列")
+      })
+
+      $("switch-branch").addEventListener("click", async () => {
+        const branch = $("local-branch").value
+        if (!branch || branch === app.git?.current) return toast("当前已经是该分支")
+        if (!confirm(`确认把打包机代码切换到 ${branch}？`)) return
+        $("switch-branch").disabled = true
+        const response = await fetch("/api/git/switch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ branch }) })
+        const result = await response.json()
+        if (!response.ok) { renderGit(); return toast(result.error || "分支切换失败", true) }
+        app.git = result.git
+        renderGit()
+        toast(`已切换到 ${branch}`)
+      })
+
+      const events = new EventSource("/api/events")
+      events.addEventListener("open", () => { $("connection-dot").classList.add("online"); $("connection-text").textContent = "服务已连接" })
+      events.addEventListener("error", () => { $("connection-dot").classList.remove("online"); $("connection-text").textContent = "正在重连" })
+      events.addEventListener("snapshot", (event) => { app.jobs = JSON.parse(event.data); if (!app.selectedId && app.jobs.length) app.selectedId = app.jobs[0].id; render() })
+      events.addEventListener("job", (event) => {
+        const job = JSON.parse(event.data)
+        const index = app.jobs.findIndex((candidate) => candidate.id === job.id)
+        if (index === -1) app.jobs.unshift(job); else app.jobs[index] = job
+        if (!app.selectedId) app.selectedId = job.id
+        render()
+      })
+      events.addEventListener("log", (event) => {
+        const update = JSON.parse(event.data)
+        const job = app.jobs.find((candidate) => candidate.id === update.id)
+        if (!job) return
+        job.log = `${job.log || ""}${update.text}`.slice(-400000)
+        if (app.selectedId === job.id) renderDetail()
+      })
+      events.addEventListener("git", (event) => { app.git = JSON.parse(event.data); renderGit() })
+
+      refresh().catch(() => toast("无法读取打包服务状态", true))
+      setInterval(() => fetch("/api/git").then((response) => response.json()).then((result) => { app.git = result.git; renderGit() }).catch(() => {}), 10000)
+    </script>
+  </body>
+</html>
