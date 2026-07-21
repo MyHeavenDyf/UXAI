@@ -1152,6 +1152,16 @@ const sessionMessagesLoaded = createMemo(() => {
   // ── 设计规划阶段引导(plan entry banner)─────────────────────
   // agent 输出 [design-plan-intent] sentinel 但用户尚未响应时,
   // 显示 PlanEntryBanner 让用户决定是否进入规划阶段。
+
+  // 乐观锁:用户点 [进入]/[直接执行] 后立即隐藏 banner,等消息流回灌确认。
+  // 避免 sendMessage 飞行期间用户连点重复发送。
+  const [optimisticIntentResolved, setOptimisticIntentResolved] = createSignal(false)
+  // 记录用户已点击"结束"的 session,防止 banner 再次出现
+  const [planEndedForSession, setPlanEndedForSession] = createSignal<string | null>(null)
+  createEffect(on(() => params.id, () => {
+    setOptimisticIntentResolved(false)
+  }, { defer: true }))
+
   const planIntentPending = createMemo(() => {
     const sid = params.id
     if (!sid) return false
@@ -1170,14 +1180,6 @@ const sessionMessagesLoaded = createMemo(() => {
     return !isPlanIntentResolved(sync.data.message?.[sid], sync.data.part)
   })
 
-  // 乐观锁:用户点 [进入]/[直接执行] 后立即隐藏 banner,等消息流回灌确认。
-  // 避免 sendMessage 飞行期间用户连点重复发送。
-  const [optimisticIntentResolved, setOptimisticIntentResolved] = createSignal(false)
-  // 记录用户已点击"结束"的 session,防止 banner 再次出现
-  const [planEndedForSession, setPlanEndedForSession] = createSignal<string | null>(null)
-  createEffect(on(() => params.id, () => {
-    setOptimisticIntentResolved(false)
-  }, { defer: true }))
   // 当消息流中出现新的 sentinel 时自动复位乐观锁,允许用户再次选择。
   // 否则同一个 session 内第二次生成的时乐观锁仍是 true,banner 不会显示。
   createEffect(on(() => planIntentPending(), (pending) => {
