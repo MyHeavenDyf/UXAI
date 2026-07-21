@@ -298,12 +298,24 @@ async function remoteBranches(force = false) {
 
   const proxy = await proxyProcessEnv()
   if ("error" in proxy) return { error: proxy.error }
-  const subprocess = Bun.spawn(["git", "ls-remote", "--heads", sourceRepository], {
-    cwd: rootDir,
-    stdout: "pipe",
-    stderr: "pipe",
-    env: proxy.env,
-  })
+  const subprocess = Bun.spawn(
+    [
+      "git",
+      "-c",
+      "http.sslVerify=false",
+      "-c",
+      "http.proxyAuthMethod=basic",
+      "ls-remote",
+      "--heads",
+      sourceRepository,
+    ],
+    {
+      cwd: rootDir,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: proxy.env,
+    },
+  )
   const completion = Promise.all([
     new Response(subprocess.stdout).text(),
     new Response(subprocess.stderr).text(),
@@ -675,7 +687,8 @@ const server = Bun.serve({
     }
     if (request.method === "GET" && url.pathname === "/api/git/remote-branches") {
       const result = await remoteBranches(url.searchParams.get("refresh") === "1")
-      return "error" in result ? json(result, 504) : json({ ...result, repository: sourceRepository })
+      if ("error" in result) return json(result, result.error.includes("超时") ? 504 : 502)
+      return json({ ...result, repository: sourceRepository })
     }
     if (request.method === "POST" && url.pathname === "/api/git/switch") {
       if (!coordinator) return switchBranch(request)
