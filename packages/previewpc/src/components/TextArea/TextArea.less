@@ -1,0 +1,37 @@
+.el-textarea__inner {
+  padding: 5px 12px;
+  &:focus {
+    border: 1px solid var(--brand-20);
+  }
+
+  // 滚动条样式：热区10px，默认宽度4px，悬浮宽度6px
+  &::-webkit-scrollbar {
+    width: 10px; // 热区宽度
+  }
+
+  &::-webkit-scrollbar-thumb {
+    min-height: 30px;
+    border: 3px solid transparent;
+    border-radius: 5px;
+    background-clip: content-box;
+    transition: background-color 0.3s;
+
+    &:hover {
+      border: 2px solid transparent;
+    }
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+.theme-dark {
+  .el-textarea__inner {
+    --el-input-focus-border-color: var(--brand-40);
+    background-color: transparent;
+    &:focus {
+      border: 1px solid var(--brand-70);
+    }
+  }
+}

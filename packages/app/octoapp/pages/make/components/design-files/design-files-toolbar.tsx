@@ -70,7 +70,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
 
   return (
     <div
-      class="flex items-center justify-between px-4 py-2 shrink-0"
+      class="flex items-center justify-between px-6 py-3 shrink-0"
       style={{ "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}
     >
       <div class="flex items-center gap-2">
@@ -81,7 +81,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
             tracker.interaction({ module: "design", name: "files-refresh" })
           }}
           disabled={props.fileStore.store.loading}
-          class="p-1.5 rounded-md hover:bg-surface-base-hover transition-colors"
+          class="flex items-center justify-center p-0 bg-transparent transition-colors cursor-pointer active:text-[#0a59f7]"
           title="Refresh"
         >
           <Show when={props.fileStore.store.loading} fallback={<IconRefresh size={16} />}>
@@ -276,7 +276,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
               <button
                 type="button"
                 onClick={() => { props.onUploadFolder(); setUploadOpen(false) }}
-                class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)] cursor-pointer"
                 style={{
                   height: "36px",
                   "border-radius": "6px",
@@ -291,7 +291,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
               <button
                 type="button"
                 onClick={() => { props.onUploadFile(); setUploadOpen(false) }}
-                class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)] cursor-pointer"
                 style={{
                   height: "36px",
                   "border-radius": "6px",

@@ -10,7 +10,7 @@ import { OutputEntryCard } from "./output-entry-card"
 import { scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
 import { isMindmapJSON } from "../utils/mindmap-adapter"
 import { findResourceLinks, linkToOutputType, type ResourceLink } from "../utils/resource-link"
-import { findWriteCards } from "../utils/write-output"
+import { findWriteCards, basename } from "../utils/write-output"
 import { readTaskInfo, type TaskCardEntry, type TaskInfo } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
 import { parseUploadedFiles } from "../lib/upload"
@@ -209,13 +209,33 @@ export function InsightTurn(props: {
     }, undefined)
     const canonical = completedTask ? props.resolveTaskLinks?.(completedTask.taskId) : undefined
     const links = canonical && canonical.length > 0 ? canonical : findResourceLinks(parts)
-    // 路径 C(write 工具产物出卡)已退役:write 产物都在本地磁盘,由独立扫盘的「文件管理」面板
-    // 呈现与预览,无需在对话流再塞一张冗余卡;脚本执行产生的真交付物(docx/xlsx 等)同样去文件管理里找。
-    // 「write 完成 → 文件管理刷新」由下方独立 effect 处理(与出卡解耦)。详见 output-renderers.md §2.6。
-    if (links.length > 0) {
-      console.log("[octo:card] resource_links (no task)", {
+    // ── 路径 C:write 工具产物,收窄为 md/html 扩展名白名单出卡(SPEC-INS-014 v6 / output-renderers §2.6)──
+    // #384 曾整条退役路径 C——因无法确定性区分「交付物 vs 脚本/scratch」(gen_word.ps1 被误出卡)。
+    // 现按扩展名白名单收窄:只有 md/html 出卡(它们有应用内专用预览 md→编辑器 / html→iframe,且几乎不会是
+    // scratch),其余 write 产物(docx/py/脚本…)仍不出卡、只走文件管理。纯扩展名判定,不猜意图。
+    // 与路径 A 并列(来源不重叠:A=MCP resource_link,C=本地 write)。落点由 write-output resolveCardPath 取
+    // metadata.filepath(#368 重定向后的真实写盘路径),点开时 PathTabBody 走 SDK file.read 读盘。
+    // 白名单外的 write 产物照样落 outputs(#368)、并由下方独立 effect 刷新文件管理——只是不在对话流出卡。
+    const writeCards: OutputCard[] = findWriteCards(parts)
+      .filter((w) => w.type === "markdown" || w.type === "html")
+      .map((w, idx) => {
+        const name = basename(w.filePath)
+        return {
+          id: `card-${props.messageID}-write-${idx}`,
+          title: name,
+          type: w.type,
+          source: "path" as const,
+          filePath: w.filePath,
+          fileName: name, // 供入口卡按扩展名命中图标 + 下载默认文件名
+          createdAt: msgDate,
+        }
+      })
+    if (links.length > 0 || writeCards.length > 0) {
+      console.log("[octo:card] resource_links + write(md/html)", {
         linkCount: links.length,
+        writeCount: writeCards.length,
         links: links.map((l) => ({ mime: l.mimeType, name: l.name, uri: l.uri, business_type: l.business_type })),
+        writes: writeCards.map((w) => ({ filePath: w.filePath, type: w.type })),
         msgID: props.messageID,
       })
       const linkCards: OutputCard[] = links.map((link, idx) => ({
@@ -229,7 +249,7 @@ export function InsightTurn(props: {
         description: link.description,
         createdAt: msgDate,
       }))
-      return linkCards
+      return [...linkCards, ...writeCards]
     }
 
     // ── 路径 B:自由文本嗅探(规则收紧版,spec §2.1)──
@@ -325,7 +345,8 @@ export function InsightTurn(props: {
     const dir = eagerProjectDir()
     for (const card of outputCards()) {
       if (eagerMaterializedCardIds.has(card.id)) continue
-      // 路径 C 退役后 outputCards 不再有 path 源卡;这里只落地路径 A 的 uri 产物(inline 卡不落)。
+      // 只落地路径 A 的 uri 产物(需从 S3 下载进 outputs);路径 C 的 path 源卡(md/html write)已在磁盘、
+      // inline 卡不落盘——两者都在此跳过,文件管理刷新由下方独立 effect 覆盖全部 write 产物。
       if (card.source !== "uri" || !card.uri) continue
       if (!dir || !props.sessionID) continue
       eagerMaterializedCardIds.add(card.id)
@@ -333,9 +354,9 @@ export function InsightTurn(props: {
     }
   })
 
-  // write 工具产物不出卡(路径 C 退役),但仍需在写入完成后通知文件管理刷新——否则新文件要用户
-  // 手点刷新才出现。findWriteCards 复用作「本 turn 有哪些 write 产物」的探针,按 messageID:filePath
-  // 去重只发一次。turnAssistantParts 先读以稳定 SolidJS 依赖追踪;生成中不扫,turn 落定后再刷。
+  // 文件管理刷新覆盖**全部** write 产物(不止出卡的 md/html):任何 write 都落 outputs,写完要通知文件
+  // 管理刷新,否则新文件要用户手点刷新才出现。故此处仍扫全量 findWriteCards(不按白名单过滤),与出卡的
+  // 白名单是两条正交的线。按 messageID:filePath 去重只发一次;生成中不扫,turn 落定后再刷。
   createEffect(() => {
     const parts = turnAssistantParts()
     if (showGenerating()) return

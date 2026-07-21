@@ -7,6 +7,7 @@ import { Account } from "@/account/account"
 import { Agent } from "@/agent/agent"
 import { Auth } from "@/auth"
 import { Bus } from "@/bus"
+import { Comment } from "@/comment"
 import { Config } from "@/config/config"
 import { Command } from "@/command"
 import * as Observability from "@opencode-ai/core/effect/observability"
@@ -53,6 +54,7 @@ import { authorizationLayer, authorizationRouterMiddleware } from "./middleware/
 import { EventApi, eventHandlers } from "./event"
 import { artifactHandlers } from "./handlers/artifact"
 import { configHandlers } from "./handlers/config"
+import { commentHandlers } from "./handlers/comment"
 import { controlHandlers } from "./handlers/control"
 import { experimentalHandlers } from "./handlers/experimental"
 import { fileHandlers } from "./handlers/file"
@@ -115,6 +117,7 @@ const eventApiRoutes = HttpApiBuilder.layer(EventApi).pipe(
 const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
   Layer.provide([
     artifactHandlers,
+    commentHandlers,
     configHandlers,
     experimentalHandlers,
     fileHandlers,
@@ -192,6 +195,7 @@ export function createRoutes(corsOptions?: CorsOptions) {
       SyncEvent.defaultLayer,
       Skill.defaultLayer,
       Todo.defaultLayer,
+      Comment.defaultLayer,
       ToolRegistry.defaultLayer,
       Vcs.defaultLayer,
       Workspace.defaultLayer,

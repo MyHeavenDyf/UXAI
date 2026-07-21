@@ -9,6 +9,7 @@ import {
   EDIT_BRIDGE_SCRIPT,
   EDIT_BRIDGE_STYLE,
 } from "./constants"
+import { COMMENT_BRIDGE_SCRIPT, COMMENT_OUTLINE_CSS, injectCommentBridge as injectCommentBridgeImpl } from "./comment"
 
 export function injectSandboxShim(doc: string): string {
   if (/<head[^>]*>/i.test(doc)) {
@@ -79,6 +80,10 @@ export function injectEditBridgeStyle(doc: string): string {
     return doc.replace("<body", EDIT_BRIDGE_STYLE + "<body")
   }
   return doc + EDIT_BRIDGE_STYLE
+}
+
+export function injectCommentBridge(doc: string): string {
+  return injectCommentBridgeImpl(doc)
 }
 
 export * as BridgeInject from "./inject"

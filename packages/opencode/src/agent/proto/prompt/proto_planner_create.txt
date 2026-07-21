@@ -20,11 +20,15 @@ The JSON object must conform to the following structure:
 
 -----
 
-{A2UI_JSON_PROTOCOL}
+{a2ui_json_protocol}
 
 -----
 
-{DESIGN_SYSTEM_PROMPT}
+{design_system}
+
+-----
+
+{responsive_adaptive}
 
 -----
 

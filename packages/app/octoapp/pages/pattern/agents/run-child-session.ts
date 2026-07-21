@@ -83,6 +83,7 @@ export async function runChildSession(input: RunChildSessionInput): Promise<{ te
     tagError(err, parentSessionID)
     const message = err instanceof Error ? err.message : String(err)
     console.error(`[runChildSession] ${agent} 执行失败:`, message)
+    if (message === "aborted") throw err
     return { text: "", childSessionId: parentSessionID, error: message }
   }
 }

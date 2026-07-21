@@ -183,13 +183,14 @@ export function InsightTurn(props: {
 
   const customCardLabel = createMemo(() => {
     const text = userText()
-    if (text.endsWith("请分析用户需求中尚未明确的维度，输出缺失维度的选项清单。")) return "分析用户需求"
-    if (text.endsWith("请开始意图扩展。")) return "意图扩展"
+    if (text.endsWith("请分析用户需求中尚未明确的维度，输出缺失维度的选项清单。")) return "需求确认"
+    if (text.endsWith("请开始意图扩展。")) return "功能完善"
     if (text.startsWith("请根据以下页面蓝图，设计外壳布局并指定下一步细化模块：")) return "布局规划"
-    if (text.startsWith("请为以下模块生成 A2UI JSON：")) return "模块生成"
+    if (text.startsWith("请为以下模块生成 A2UI JSON：")) return "区域生成"
     if (text.startsWith("请根据以下内容，修改外壳布局并指定下一步细化模块")) return "细化模块"
     if (text.startsWith("[顶层布局和Slots]:")) return "更新页面"
-    if (text.startsWith("[用户修改请求]: ")) return "分诊"
+    if (text.startsWith("[用户修改请求]: ")) return "思考分析"
+    if (text.includes("[分诊操作列表]:")) return "修改"
     return null
   })
 
@@ -532,10 +533,7 @@ export function InsightTurn(props: {
                   </svg>
                 </Show>
               }>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="10" stroke="#D32F2F" stroke-width="2" />
-                  <path d="M9 9L15 15M15 9L9 15" stroke="#D32F2F" stroke-width="2" stroke-linecap="round" />
-                </svg>
+                <span class="gc-error-badge">错误</span>
               </Show>
             </div>
           </div>
