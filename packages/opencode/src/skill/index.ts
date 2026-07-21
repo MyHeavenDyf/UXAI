@@ -7,7 +7,6 @@ import { withStatics } from "@/util/schema"
 import { NamedError } from "@opencode-ai/core/util/error"
 import type { Agent } from "@/agent/agent"
 import { Bus } from "@/bus"
-import { BusEvent } from "@/bus/bus-event"
 import { InstanceState } from "@/effect/instance-state"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Global } from "@opencode-ai/core/global"
@@ -399,11 +398,8 @@ export function fmt(list: Info[], opts: { verbose: boolean }) {
   ].join("\n")
 }
 
-export const SkillUsed = BusEvent.define(
-  "skill.used",
-  Schema.Struct({
-    skillName: Schema.String,
-  }),
-)
+import { SkillUsed } from "./events"
+
+export { SkillUsed }
 
 export * as Skill from "."
