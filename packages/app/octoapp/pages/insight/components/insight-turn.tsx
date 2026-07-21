@@ -11,10 +11,11 @@ import { scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
 import { isMindmapJSON } from "../utils/mindmap-adapter"
 import { findResourceLinks, linkToOutputType, type ResourceLink } from "../utils/resource-link"
 import { findWriteCards, basename } from "../utils/write-output"
-import { readTaskInfo, type TaskCardEntry, type TaskInfo } from "../utils/task-detect"
+import { readTaskInfo, businessToolBareName, type TaskCardEntry, type TaskInfo } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
 import { parseUploadedFiles } from "../lib/upload"
 import { fileTypeIconUrl } from "../icons/illustrations"
+import { tracker } from "@/utils/tracker"
 
 export type OutputCardType = "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "code" | "image"
 
@@ -40,6 +41,25 @@ const eagerMaterializedCardIds = new Set<string>()
 // 文件管理面板呈现/预览。此 set 只用于「write 完成 → 通知文件管理刷新」的去重(按 messageID:filePath),
 // 避免 memo 重算 / 多 turn 实例重挂时重复发刷新。
 const refreshedWritePaths = new Set<string>()
+
+// 「服务端真实使用」打点去重(server-mcp-used / server-skill-used):记已上报过的 usage key,
+// 跨 turn 实例重挂 / memo 重算都只报一次。key 全局唯一(mcp:<taskId> / skill:<partId>)。
+// 注意:这只解决「同一 usage 不重复报」;「页面刷新后不把历史 usage 当新事件重报」由 InsightTurn
+// 内的 baseline 快照(首次观测即视为历史,不报)负责——两层配合才不会在每次加载会话时虚增计数。
+const trackedServerUsageKeys = new Set<string>()
+
+/** 识别 skill 工具调用 part。skill 是内置工具(无 MCP 前缀),完成后 state.metadata.name = 解析出的技能名。 */
+function readSkillUsage(part: unknown): { partId: string; skill: string } | undefined {
+  if (!part || typeof part !== "object") return undefined
+  const p = part as Record<string, unknown>
+  if (p.type !== "tool" || p.tool !== "skill") return undefined
+  const id = typeof p.id === "string" ? p.id : undefined
+  const state = p.state as Record<string, unknown> | undefined
+  if (!id || state?.status !== "completed") return undefined
+  const meta = state.metadata as Record<string, unknown> | undefined
+  const name = meta?.name
+  return typeof name === "string" && name.length > 0 ? { partId: id, skill: name } : undefined
+}
 
 // 路径 B 嗅探规则:table / mindmap / json / html 互相独立,允许同时命中
 // (典型:内网 mindmap MCP 返回的 JSON 既符合 plainJSON 又符合 mindmap shape → 出双卡)
@@ -368,6 +388,55 @@ export function InsightTurn(props: {
       fresh = true
     }
     if (fresh) props.onFilesRefresh?.()
+  })
+
+  // 「服务端真实使用」打点(与常规用户操作打点区分,统一 server- 前缀,清单见 docs/tracking.md):
+  //   - server-mcp-used:某业务 MCP 工具真实被模型调用并提交长任务(每 task_id 一次),extend {tool,taskId}
+  //   - server-skill-used:某 skill 真实被模型调用(每 skill part 一次),extend {skill}
+  // 与用户主动打点(message-send 等)的关键差异:这是「模型/服务端」驱动的行为,统计 MCP/skill 真实被用到。
+  //
+  // 为何不在全局 event-reducer 消费 skill.used 事件:该事件不带 sessionID/agent,无法区分 insight 与
+  // make/studio(它们也绑了 skill),会误标 module。改在 insight turn 内从本轮 parts / taskCards 识别,
+  // 天然 insight 作用域,且对齐「生成内容回显到会话中」的语义(只统计真的出现在会话里的调用)。
+  //
+  // baseline 快照(usageBaselineTaken):首次观测本 turn 实例时,把当前已存在的 usage 全部记为「历史」
+  // 不上报——否则每次刷新/切回会话重挂 turn,历史里的 MCP/skill 调用会被当成新事件重报,虚增计数。
+  // 之后新到达的 usage(实时提交 / 实时调用)才上报一次(跨重挂由 trackedServerUsageKeys 兜底去重)。
+  let usageBaselineTaken = false
+  createEffect(() => {
+    const usages: Array<{ key: string; kind: "mcp" | "skill"; tool?: string; taskId?: string; skill?: string }> = []
+    for (const t of props.taskCards) {
+      const bare = businessToolBareName(t.toolName)
+      if (bare) usages.push({ key: `mcp:${t.taskId}`, kind: "mcp", tool: bare, taskId: t.taskId })
+    }
+    for (const part of turnAssistantParts()) {
+      const skill = readSkillUsage(part)
+      if (skill) usages.push({ key: `skill:${skill.partId}`, kind: "skill", skill: skill.skill })
+    }
+
+    if (!usageBaselineTaken) {
+      usageBaselineTaken = true
+      for (const u of usages) trackedServerUsageKeys.add(u.key)
+      return
+    }
+
+    for (const u of usages) {
+      if (trackedServerUsageKeys.has(u.key)) continue
+      trackedServerUsageKeys.add(u.key)
+      if (u.kind === "mcp") {
+        tracker.interaction({
+          module: "insight",
+          name: "server-mcp-used",
+          extend: JSON.stringify({ tool: u.tool, taskId: u.taskId }),
+        })
+      } else {
+        tracker.interaction({
+          module: "insight",
+          name: "server-skill-used",
+          extend: JSON.stringify({ skill: u.skill }),
+        })
+      }
+    }
   })
 
   return (

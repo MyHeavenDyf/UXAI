@@ -124,9 +124,12 @@ P2 的 7 项已确认不打；`tracker.duration` 已下线，会话停留时长�
 
 ## 六、维护闭环
 
+**先方案后清单（硬性顺序，不可颠倒）：** 要新增 / 修改打点，**先在本文件（`tracking-plan.md`）里定 name / extend / 映射规则 / 命名约定**，方案敲定后**再去 `tracking.md` 记已实现的那一行**。本文件是「怎么定」，`tracking.md` 是「定了什么、落在哪」；顺序反了会出现「清单里有行、但没有对应的命名 / 映射依据」的漂移。
+
 ```
 新增/修改 insight 较重要功能
   → 同步增/删/改对应打点（仅核心行为，CLAUDE.md 有提示）
-  → 按本方案映射规则定 name / extend（来源维度并入 extend，不用 from）
-  → 实现后在 tracking.md 加 / 改 / 删对应行（不再用桌面收集单）
+  ① 先在本文件 tracking-plan.md 定 name / extend / 映射规则（来源维度并入 extend，不用 from）
+     · 用户主动操作 = 裸 kebab name；服务端真实使用（模型调起 MCP/skill 并回显）= server- 前缀
+  ② 再在 tracking.md 加 / 改 / 删对应行（记已实现的落点，不再用桌面收集单）
 ```

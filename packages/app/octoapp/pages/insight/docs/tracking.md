@@ -4,6 +4,8 @@
 
 接入规范见 [`/docs/tracker.md`](../../../../../../docs/tracker.md)。实施方案与映射规则见 [`tracking-plan.md`](./tracking-plan.md)。
 
+> **先方案后清单（硬性顺序）：** 要加 / 改打点，**先去 [`tracking-plan.md`](./tracking-plan.md) 定 name / extend / 映射规则**，再回本文件记已实现的那一行。本文件只记「定了什么、落在哪」，不承担「怎么定」——顺序反了会出现清单有行却无命名依据的漂移。
+
 > 注：当前 tracker SDK 的 `interaction` 仅接受 `module / name / subType / extend`，**不支持 `from`**（`from` 只在 `page` 上）。因此「来源区域 / 方式」等维度统一并入 `extend` JSON（如 `source` / `method`），而非顶层 `from`。`tracker.duration` 也已下线。`/docs/tracker.md` 的旧描述待该 SDK 维护方同步修订。
 
 ## 打点列表
@@ -37,9 +39,21 @@
 | 25 | interaction | insight | file-save-as | 文件兜底卡点「下载 / 另存为」 | `fileType` | `result-viewer/index.tsx` `handleSaveAs` |
 | 26 | interaction | insight | session-load-more | 会话列表点「加载更多」（已显示数 < 该目录 insight 会话 total 时出现，SPEC-INS-013 服务端分页） | `limit`(加载后的新上限)、`source`(panel=insight 侧栏 / shell=外壳侧栏) | `session-list/index.tsx` `loadMore` + `_shell/sidebar.tsx` `loadMore` |
 
+## 服务端真实使用打点（`server-` 前缀，与上表常规打点区分）
+
+上表 1–26 统计的是**用户主动操作**（点击 / 发送）。下面两条统计的是**模型 / 服务端真实使用 MCP / skill 并把内容回显到会话中**——不是用户点了什么，而是 agent 真的调起了这些能力。为便于分析侧按维度切分，统一用 `server-` 前缀与常规打点区分（`module` 仍为 `insight`）。
+
+触发点都在 `insight-turn.tsx` 一个 effect 内，从本轮的 `taskCards` / assistant parts 识别，天然 insight 作用域；用 baseline 快照避免「刷新会话把历史调用当新事件重报」，用 `trackedServerUsageKeys` 保证同一 usage 只报一次。
+
+| # | type | module | name | 触发时机 | extend 字段 | 代码位置 |
+|---|------|--------|------|----------|------------|----------|
+| 27 | interaction | insight | server-mcp-used | 某业务 MCP 工具真实被模型调用并提交长任务（每 `task_id` 一次；从 `taskCards` 中 `isBusinessTool` 的条目识别） | `tool`(业务工具裸名 key_findings/run_guide_analysis/run_usability_analysis/mindmap)、`taskId` | `insight-turn.tsx` server-usage effect |
+| 28 | interaction | insight | server-skill-used | 某 skill 真实被模型调用（每个 skill 工具 part 一次；从 assistant parts 中 `tool==="skill"` 且 completed 的条目识别，取 `metadata.name`） | `skill`(解析出的技能名，如 interview-analysis) | `insight-turn.tsx` server-usage effect |
+
 ## 维护说明
 
 - 新增打点 → 在表格末尾追加一行
 - 删除打点 → 删除对应行，重要变更可加删除线保留记录
 - 修改 `name` / `module` → 同步更新表格，并通知后端确认字段变更
 - 来源 / 方式维度并入 `extend`（不要用 `from`，interaction 不支持）
+- **区分「用户操作」与「服务端真实使用」**：前者是用户点击 / 发送（常规 name）；后者是模型真的调起 MCP / skill（`server-` 前缀）。新增服务端使用类打点一律沿用 `server-` 前缀，落点放在渲染派生的 effect 里时，必须配 baseline 快照 + 去重 set，避免刷新历史会话虚增计数。
