@@ -25,6 +25,7 @@ echo "📂 子脚本相对路径: $SCRIPT_DIR"
 GIT_BRANCH="dev"
 VERSION_NUMBER="0.1.0"
 VERSION_CHANNEL="beta"
+BUILD_TARGET=""
 
 # 4. 💡 智能 & Flag 双模参数解析引擎
 while [[ $# -gt 0 ]]; do
@@ -39,6 +40,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -c|--channel)
             VERSION_CHANNEL="$2"
+            shift 2
+            ;;
+        -t|--target)
+            BUILD_TARGET="$2"
             shift 2
             ;;
         *)
@@ -59,11 +64,17 @@ if [ "$VERSION_CHANNEL" != "beta" ] && [ "$VERSION_CHANNEL" != "prod" ]; then
     exit 1
 fi
 
+if [ -n "$BUILD_TARGET" ] && [ "$BUILD_TARGET" != "mac-arm64" ] && [ "$BUILD_TARGET" != "mac-x64" ] && [ "$BUILD_TARGET" != "win-x64" ]; then
+    echo "❌ 目标平台仅支持 mac-arm64、mac-x64 或 win-x64，当前为: $BUILD_TARGET"
+    exit 1
+fi
+
 echo "=========================================="
 echo "💡 自动化全局参数解析成功："
 echo "-> 1. Git 下载分支 (BRANCH)  : $GIT_BRANCH"
 echo "-> 2. 应用版本号   (VERSION) : $VERSION_NUMBER"
 echo "-> 3. 打包构建环境 (CHANNEL) : $VERSION_CHANNEL"
+echo "-> 4. 目标平台     (TARGET)  : ${BUILD_TARGET:-自动识别}"
 echo "=========================================="
 
 # 5. 使用相对路径依次执行实际存在的子脚本
@@ -87,8 +98,8 @@ for script_name in "download_git_zip.sh" "extract.sh" "copy_packages.sh" "versio
         bash "$script" "$VERSION_NUMBER"
 
     elif [ "$script_name" = "build_desktop.sh" ]; then
-        echo "   [参数] 喂给 build_desktop.sh 的构建环境: $VERSION_CHANNEL"
-        bash "$script" "$VERSION_CHANNEL"
+        echo "   [参数] 喂给 build_desktop.sh 的构建环境: $VERSION_CHANNEL，目标平台: ${BUILD_TARGET:-自动识别}"
+        bash "$script" "$VERSION_CHANNEL" "$BUILD_TARGET"
 
     else
         bash "$script"

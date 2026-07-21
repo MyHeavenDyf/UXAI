@@ -147,8 +147,9 @@
       <section class="grid">
         <aside class="stack">
           <article class="card">
-            <div class="card-head"><h2>新建打包任务</h2><p>任务串行执行；结束后会自动清除本次任务产生的全部 Git 改动。</p></div>
+            <div class="card-head"><h2>新建打包任务</h2><p>每台构建机的任务串行执行；不同平台可同时打包。</p></div>
             <form id="build-form" class="card-body">
+              <div class="field"><label for="target">目标平台</label><select id="target" name="target" required><option value="">正在读取构建机...</option></select></div>
               <div class="field"><label for="baseBranch">基础代码分支（当前本地项目）</label><div class="branch-row"><select id="baseBranch" name="baseBranch" required><option value="">正在读取本地分支...</option></select><button id="refresh-local-branches" class="secondary" type="button">刷新</button></div></div>
               <div class="field">
                 <label for="branch">下载分支（MyHeavenDyf/UXAI）</label>
@@ -191,9 +192,10 @@
     <div id="toast" class="toast"></div>
 
     <script>
-      const app = { jobs: [], selectedId: null, git: null, remoteBranches: [] }
+      const app = { jobs: [], selectedId: null, git: null, remoteBranches: [], targets: [] }
       const $ = (id) => document.getElementById(id)
       const labels = { queued: "排队中", running: "打包中", success: "已完成", failed: "失败" }
+      const targetLabels = { "mac-arm64": "macOS ARM64", "mac-x64": "macOS x64", "win-x64": "Windows x64" }
 
       function toast(message, error = false) {
         $("toast").textContent = message
@@ -219,7 +221,7 @@
         $("jobs").innerHTML = app.jobs.map((job) => `
           <button class="job ${job.id === app.selectedId ? "selected" : ""}" data-id="${job.id}">
             <span class="status-pill ${job.status}">${labels[job.status]}</span>
-            <span class="job-main"><span class="job-title">${escapeHtml(job.baseBranch)} ← ${escapeHtml(job.branch)} · ${escapeHtml(job.version)} · ${job.channel}</span><span class="job-time">${formatTime(job.createdAt)}</span></span>
+            <span class="job-main"><span class="job-title">${targetLabels[job.target] || job.target} · ${escapeHtml(job.baseBranch)} ← ${escapeHtml(job.branch)} · ${escapeHtml(job.version)} · ${job.channel}</span><span class="job-time">${formatTime(job.createdAt)}</span></span>
             <span class="job-time">#${job.id.slice(-6)}</span>
           </button>`).join("")
         document.querySelectorAll(".job").forEach((button) => button.addEventListener("click", () => {
@@ -254,7 +256,7 @@
         $("detail-status").className = `status-pill ${job.status}`
         $("detail-status").textContent = labels[job.status]
         $("job-meta").innerHTML = [
-          ["基础分支", job.baseBranch], ["下载分支", job.branch], ["构建环境", job.channel], ["创建", formatTime(job.createdAt)], ["开始", formatTime(job.startedAt)], ["结束", formatTime(job.finishedAt)]
+          ["目标平台", targetLabels[job.target] || job.target], ["基础分支", job.baseBranch], ["下载分支", job.branch], ["构建环境", job.channel], ["创建", formatTime(job.createdAt)], ["开始", formatTime(job.startedAt)], ["结束", formatTime(job.finishedAt)]
         ].map(([name, value]) => `<span class="meta-item">${name}<b>${value}</b></span>`).join("")
         const log = $("job-log")
         const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80
@@ -282,7 +284,7 @@
       }
 
       function updateBuildButton() {
-        $("submit-build").disabled = !app.remoteBranches.length || !app.git?.branches.length
+        $("submit-build").disabled = !$("target").value || !app.remoteBranches.length || !app.git?.branches.length
       }
 
       function renderRemoteBranches(selected = $("branch").value) {
@@ -323,7 +325,7 @@
         button.disabled = true
         button.classList.add("loading")
         button.textContent = "刷新中"
-        const response = await fetch("/api/git").catch(() => undefined)
+        const response = await fetch(`/api/git?target=${encodeURIComponent($("target").value)}`).catch(() => undefined)
         button.disabled = false
         button.classList.remove("loading")
         button.textContent = "刷新"
@@ -338,9 +340,12 @@
       function render() { renderJobs(); renderDetail(); renderGit() }
 
       async function refresh() {
+        const targets = await fetch("/api/targets").then((response) => response.json())
+        app.targets = targets.targets
+        $("target").innerHTML = app.targets.map((target) => `<option value="${target.value}">${escapeHtml(target.label)}</option>`).join("")
         const [state, git] = await Promise.all([
           fetch("/api/state").then((response) => response.json()),
-          fetch("/api/git").then((response) => response.json()),
+          fetch(`/api/git?target=${encodeURIComponent($("target").value)}`).then((response) => response.json()),
         ])
         app.jobs = state.jobs
         app.git = git.git
@@ -365,13 +370,18 @@
 
       $("refresh-branches").addEventListener("click", () => refreshRemoteBranches(true).catch(() => toast("远端分支刷新失败", true)))
       $("refresh-local-branches").addEventListener("click", () => refreshLocalBranches().catch(() => toast("本地分支刷新失败", true)))
+      $("target").addEventListener("change", () => {
+        app.git = null
+        $("baseBranch").innerHTML = '<option value="">正在读取对应构建机分支...</option>'
+        refreshLocalBranches().catch(() => toast("构建机分支读取失败", true))
+      })
 
       $("switch-branch").addEventListener("click", async () => {
         const branch = $("local-branch").value
         if (!branch || branch === app.git?.current) return toast("当前已经是该分支")
         if (!confirm(`确认把打包机代码切换到 ${branch}？`)) return
         $("switch-branch").disabled = true
-        const response = await fetch("/api/git/switch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ branch }) })
+        const response = await fetch(`/api/git/switch?target=${encodeURIComponent($("target").value)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ branch }) })
         const result = await response.json()
         if (!response.ok) { renderGit(); return toast(result.error || "分支切换失败", true) }
         app.git = result.git

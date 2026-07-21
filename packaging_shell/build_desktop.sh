@@ -15,6 +15,7 @@ echo "🌐 已启用直连模式（不使用代理）"
 # 🧠 1. 宽容处理：缺参数就默认为 beta
 # ========================================================
 VERSION_CHANNEL="${1:-beta}"
+BUILD_TARGET="${2:-}"
 
 if [ "$VERSION_CHANNEL" != "beta" ] && [ "$VERSION_CHANNEL" != "prod" ]; then
     echo "❌ 构建环境仅支持 beta 或 prod，当前为: $VERSION_CHANNEL"
@@ -23,30 +24,46 @@ fi
 
 echo "开始构建 [ ${VERSION_CHANNEL} ] 环境桌面应用..."
 
-# 删除旧的 dist 目录
-if [ -d "packages/desktop/dist" ]; then
-    echo "删除旧的 dist 目录..."
-    rm -rf "packages/desktop/dist"
-fi
-
 # 2. 动态执行对应环境的编译
 VITE_CMD="build:${VERSION_CHANNEL}"
 
-# 3.【核心动态探测逻辑】判断当前操作系统与芯片架构
+# 3. 判断当前构建机平台，并校验任务目标必须与构建机一致
 OS_TYPE=$(uname -s 2>/dev/null || echo "Windows_NT")
 ARCH_TYPE=$(uname -m 2>/dev/null || echo "x86_64")
 
 if [[ "$OS_TYPE" == "Darwin" ]]; then
     if [[ "$ARCH_TYPE" == "arm64" ]]; then
-        RELEASE_CMD="release:mac-arm64"
+        LOCAL_TARGET="mac-arm64"
     else
-        RELEASE_CMD="release:mac-x64"
+        LOCAL_TARGET="mac-x64"
     fi
 else
-    RELEASE_CMD="release:win"
+    LOCAL_TARGET="win-x64"
 fi
 
-echo "🎯 智能化探测完成 -> 系统: $OS_TYPE, 架构: $ARCH_TYPE ➡️ 锁定匹配脚本: $RELEASE_CMD"
+BUILD_TARGET="${BUILD_TARGET:-$LOCAL_TARGET}"
+if [ "$BUILD_TARGET" != "$LOCAL_TARGET" ]; then
+    if [ "$BUILD_ALLOW_CROSS_TARGET" != "1" ]; then
+        echo "❌ 当前构建机是 $LOCAL_TARGET，不能执行 $BUILD_TARGET 任务。请把任务发送到对应构建机。"
+        exit 1
+    fi
+    echo "⚠️ 已启用本机模拟：当前构建机 $LOCAL_TARGET 将尝试执行 $BUILD_TARGET 任务"
+fi
+
+case "$BUILD_TARGET" in
+    mac-arm64) RELEASE_CMD="release:mac-arm64" ;;
+    mac-x64) RELEASE_CMD="release:mac-x64" ;;
+    win-x64) RELEASE_CMD="release:win" ;;
+    *) echo "❌ 不支持的目标平台: $BUILD_TARGET"; exit 1 ;;
+esac
+
+echo "🎯 构建机探测完成 -> 系统: $OS_TYPE, 架构: $ARCH_TYPE，目标平台: $BUILD_TARGET"
+
+# 校验通过后再删除旧产物，避免发错构建机的任务影响现有安装包。
+if [ -d "packages/desktop/dist" ]; then
+    echo "删除旧的 dist 目录..."
+    rm -rf "packages/desktop/dist"
+fi
 
 # ========================================================
 # 🚀 4. 编译与打包执行阶段

@@ -3,6 +3,7 @@ import { networkInterfaces, tmpdir } from "node:os"
 import path from "node:path"
 
 type JobStatus = "queued" | "running" | "success" | "failed"
+type BuildTarget = "mac-arm64" | "mac-x64" | "win-x64"
 type Artifact = { name: string; size: number }
 type Job = {
   id: string
@@ -10,6 +11,7 @@ type Job = {
   branch: string
   version: string
   channel: "beta" | "prod"
+  target: BuildTarget
   status: JobStatus
   createdAt: string
   startedAt?: string
@@ -21,6 +23,34 @@ type Job = {
 
 const rootDir = path.resolve(import.meta.dir, "..")
 const sourceRepository = "https://github.com/MyHeavenDyf/UXAI.git"
+const targetLabels: Record<BuildTarget, string> = {
+  "mac-arm64": "macOS ARM64",
+  "mac-x64": "macOS x64",
+  "win-x64": "Windows x64",
+}
+function validBuildTarget(value: unknown): value is BuildTarget {
+  return typeof value === "string" && Object.hasOwn(targetLabels, value)
+}
+
+const detectedTarget: BuildTarget =
+  process.platform === "darwin" ? (process.arch === "arm64" ? "mac-arm64" : "mac-x64") : "win-x64"
+if (Bun.env.BUILD_NODE_TARGET && !validBuildTarget(Bun.env.BUILD_NODE_TARGET)) {
+  throw new Error(`BUILD_NODE_TARGET 配置错误: ${Bun.env.BUILD_NODE_TARGET}`)
+}
+const localTarget = validBuildTarget(Bun.env.BUILD_NODE_TARGET) ? Bun.env.BUILD_NODE_TARGET : detectedTarget
+const workerEntries = (Bun.env.BUILD_WORKERS || "").split(",").filter(Boolean)
+const workers = workerEntries
+  .map((entry) => {
+    const separator = entry.indexOf("=")
+    const target = entry.slice(0, separator)
+    const url = entry.slice(separator + 1).replace(/\/$/, "")
+    return separator > 0 && validBuildTarget(target) && /^https?:\/\//.test(url) ? { target, url } : undefined
+  })
+  .filter((worker): worker is { target: BuildTarget; url: string } => Boolean(worker))
+if (workers.length !== workerEntries.length || new Set(workers.map((worker) => worker.target)).size !== workers.length) {
+  throw new Error("BUILD_WORKERS 配置错误，请使用 target=http://ip:port 并确保目标平台不重复")
+}
+const coordinator = workers.length > 0
 const artifactsRoot = path.join(import.meta.dir, "artifacts")
 const jobsFile = path.join(artifactsRoot, "jobs.json")
 const retentionMs = 3 * 24 * 60 * 60 * 1000
@@ -59,6 +89,7 @@ function publicJob(job: Job) {
     branch: job.branch,
     version: job.version,
     channel: job.channel,
+    target: job.target,
     status: job.status,
     createdAt: job.createdAt,
     startedAt: job.startedAt,
@@ -100,6 +131,7 @@ function isJob(value: unknown): value is Job {
     typeof job.branch === "string" &&
     typeof job.version === "string" &&
     (job.channel === "beta" || job.channel === "prod") &&
+    (job.target === "mac-arm64" || job.target === "mac-x64" || job.target === "win-x64") &&
     (job.status === "queued" || job.status === "running" || job.status === "success" || job.status === "failed") &&
     typeof job.createdAt === "string" &&
     typeof job.log === "string" &&
@@ -123,7 +155,10 @@ function schedulePersistJobs() {
 async function loadJobs() {
   const stored = (await Bun.file(jobsFile).json().catch(() => [])) as unknown
   if (!Array.isArray(stored)) return
-  state.jobs = stored.filter(isJob).map((job) => {
+  state.jobs = stored
+    .map((job) => job && typeof job === "object" && !("target" in job) ? { ...job, target: localTarget } : job)
+    .filter(isJob)
+    .map((job) => {
     if (job.status !== "queued" && job.status !== "running") return job
     return {
       ...job,
@@ -131,6 +166,53 @@ async function loadJobs() {
       finishedAt: new Date().toISOString(),
       log: `${job.log}\n打包服务曾在任务执行期间停止，此任务已标记为失败。\n`,
     }
+    })
+}
+
+async function workerRequest(target: BuildTarget, pathname: string, init?: RequestInit) {
+  const worker = workers.find((candidate) => candidate.target === target)
+  if (!worker) return undefined
+  return fetch(`${worker.url}${pathname}`, { ...init, signal: AbortSignal.timeout(10_000) }).catch(() => undefined)
+}
+
+async function syncWorkers() {
+  const results = await Promise.all(
+    workers.map(async (worker) => {
+      const response = await workerRequest(worker.target, "/api/state")
+      if (!response?.ok) return state.jobs.filter((job) => job.target === worker.target)
+      const value: unknown = await response.json().catch(() => undefined)
+      if (!value || typeof value !== "object" || !("jobs" in value) || !Array.isArray(value.jobs)) {
+        return state.jobs.filter((job) => job.target === worker.target)
+      }
+      return value.jobs.filter(isJob).map((job) => ({ ...job, target: worker.target }))
+    }),
+  )
+  const jobs = results.flat().sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  if (JSON.stringify(jobs) === JSON.stringify(state.jobs)) return
+  const previous = new Map(state.jobs.map((job) => [job.id, job]))
+  const removed = state.jobs.some((job) => !jobs.some((candidate) => candidate.id === job.id))
+  state.jobs = jobs
+  if (removed) {
+    sendEvent("snapshot", state.jobs.map(publicJob))
+    return
+  }
+  jobs.forEach((job) => {
+    const old = previous.get(job.id)
+    if (!old) {
+      sendEvent("job", publicJob(job))
+      return
+    }
+    const metadataChanged =
+      old.status !== job.status ||
+      old.startedAt !== job.startedAt ||
+      old.finishedAt !== job.finishedAt ||
+      old.exitCode !== job.exitCode ||
+      JSON.stringify(old.artifacts) !== JSON.stringify(job.artifacts)
+    if (metadataChanged || !job.log.startsWith(old.log)) {
+      sendEvent("job", publicJob(job))
+      return
+    }
+    if (job.log !== old.log) sendEvent("log", { id: job.id, text: job.log.slice(old.log.length) })
   })
 }
 
@@ -275,7 +357,7 @@ async function runJob(job: Job) {
   job.startedAt = new Date().toISOString()
   appendLog(
     job,
-    `开始任务 ${job.id}\n基础代码分支: ${job.baseBranch}\n下载分支: ${job.branch}\n版本: ${job.version}\n构建环境: ${job.channel}\n\n`,
+    `开始任务 ${job.id}\n目标平台: ${targetLabels[job.target]}\n基础代码分支: ${job.baseBranch}\n下载分支: ${job.branch}\n版本: ${job.version}\n构建环境: ${job.channel}\n\n`,
   )
   updateJob(job)
 
@@ -304,7 +386,18 @@ async function runJob(job: Job) {
   env.PACKAGING_SCRIPT_DIR = runtimeDir
   env.PACKAGING_DATA_DIR = import.meta.dir
   const process = Bun.spawn(
-    ["bash", runner, "--branch", job.branch, "--version", job.version, "--channel", job.channel],
+    [
+      "bash",
+      runner,
+      "--branch",
+      job.branch,
+      "--version",
+      job.version,
+      "--channel",
+      job.channel,
+      "--target",
+      job.target,
+    ],
     { cwd: rootDir, stdout: "pipe", stderr: "pipe", env },
   )
   await Promise.all([streamToLog(job, process.stdout), streamToLog(job, process.stderr)])
@@ -403,11 +496,29 @@ function validVersion(value: unknown): value is string {
 
 async function createJob(request: Request) {
   if (!sameOrigin(request)) return json({ error: "不允许跨站提交任务" }, 403)
+  const body = (await request.json().catch(() => undefined)) as Record<string, unknown> | undefined
+  if (!body || !validBuildTarget(body.target)) {
+    return json({ error: "请选择有效的目标平台" }, 400)
+  }
+  if (coordinator) {
+    const response = await workerRequest(body.target, "/api/jobs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    })
+    if (!response) return json({ error: `${targetLabels[body.target]} 构建机无法连接` }, 503)
+    return new Response(await response.text(), {
+      status: response.status,
+      headers: { "content-type": response.headers.get("content-type") || "application/json" },
+    })
+  }
+  if (body.target !== localTarget) {
+    return json({ error: `此构建机只接受 ${targetLabels[localTarget]} 任务` }, 409)
+  }
   if (state.jobs.filter((job) => job.status === "running" || job.status === "queued").length >= 20) {
     return json({ error: "当前队列已满，请等待已有任务完成" }, 429)
   }
-  const body = (await request.json().catch(() => undefined)) as Record<string, unknown> | undefined
-  if (!body || !validBranch(body.branch)) return json({ error: "分支名称不合法" }, 400)
+  if (!validBranch(body.branch)) return json({ error: "分支名称不合法" }, 400)
   if (state.remoteBranches.branches.length && !state.remoteBranches.branches.includes(body.branch)) {
     return json({ error: "请选择 Git 远端当前存在的分支" }, 400)
   }
@@ -426,6 +537,7 @@ async function createJob(request: Request) {
     branch: body.branch,
     version: body.version,
     channel: body.channel,
+    target: body.target,
     status: "queued",
     createdAt: new Date().toISOString(),
     log: "",
@@ -456,12 +568,23 @@ async function switchBranch(request: Request) {
   return json({ git })
 }
 
-function artifactResponse(url: URL) {
+async function artifactResponse(url: URL) {
   const match = url.pathname.match(/^\/api\/artifacts\/([a-z0-9-]+)\/([^/]+)$/)
   if (!match) return json({ error: "产物不存在" }, 404)
   const job = state.jobs.find((candidate) => candidate.id === match[1])
   const name = decodeURIComponent(match[2])
   if (!job?.artifacts.some((artifact) => artifact.name === name)) return json({ error: "产物不存在" }, 404)
+  if (coordinator) {
+    const response = await workerRequest(job.target, url.pathname)
+    if (!response?.ok) return json({ error: "无法从构建机读取产物" }, response?.status || 502)
+    return new Response(response.body, {
+      status: response.status,
+      headers: {
+        "content-type": response.headers.get("content-type") || "application/octet-stream",
+        "content-disposition": response.headers.get("content-disposition") || "attachment",
+      },
+    })
+  }
   const file = Bun.file(path.join(artifactsRoot, job.id, name))
   if (!file.size) return json({ error: "产物文件不存在" }, 404)
   return new Response(file, {
@@ -474,9 +597,14 @@ function artifactResponse(url: URL) {
 
 const port = Number(Bun.env.BUILD_SERVICE_PORT || 8787)
 const hostname = Bun.env.BUILD_SERVICE_HOST || "0.0.0.0"
-await loadJobs()
-await purgeExpiredJobs()
-setInterval(() => void purgeExpiredJobs(), 60 * 60 * 1000)
+if (coordinator) {
+  await syncWorkers()
+  setInterval(() => void syncWorkers(), 1_000)
+} else {
+  await loadJobs()
+  await purgeExpiredJobs()
+  setInterval(() => void purgeExpiredJobs(), 60 * 60 * 1000)
+}
 const server = Bun.serve({
   port,
   hostname,
@@ -487,14 +615,40 @@ const server = Bun.serve({
       return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } })
     }
     if (request.method === "GET" && url.pathname === "/api/state") {
-      return json({ jobs: state.jobs.map(publicJob), processing: state.processing })
+      return json({ jobs: state.jobs.map(publicJob), processing: state.processing, coordinator })
     }
-    if (request.method === "GET" && url.pathname === "/api/git") return json({ git: await gitState() })
+    if (request.method === "GET" && url.pathname === "/api/targets") {
+      return json({
+        targets: (coordinator ? workers.map((worker) => worker.target) : [localTarget]).map((target) => ({
+          value: target,
+          label: targetLabels[target],
+        })),
+      })
+    }
+    if (request.method === "GET" && url.pathname === "/api/git") {
+      if (!coordinator) return json({ git: await gitState() })
+      const target = url.searchParams.get("target")
+      if (!validBuildTarget(target)) return json({ error: "请选择目标平台" }, 400)
+      const response = await workerRequest(target, "/api/git")
+      if (!response) return json({ error: `${targetLabels[target]} 构建机无法连接` }, 503)
+      return new Response(await response.text(), { status: response.status, headers: { "content-type": "application/json" } })
+    }
     if (request.method === "GET" && url.pathname === "/api/git/remote-branches") {
       const result = await remoteBranches(url.searchParams.get("refresh") === "1")
       return "error" in result ? json(result, 504) : json({ ...result, repository: sourceRepository })
     }
-    if (request.method === "POST" && url.pathname === "/api/git/switch") return switchBranch(request)
+    if (request.method === "POST" && url.pathname === "/api/git/switch") {
+      if (!coordinator) return switchBranch(request)
+      const target = url.searchParams.get("target")
+      if (!validBuildTarget(target)) return json({ error: "请选择目标平台" }, 400)
+      const response = await workerRequest(target, "/api/git/switch", {
+        method: "POST",
+        headers: { "content-type": request.headers.get("content-type") || "application/json" },
+        body: await request.text(),
+      })
+      if (!response) return json({ error: `${targetLabels[target]} 构建机无法连接` }, 503)
+      return new Response(await response.text(), { status: response.status, headers: { "content-type": "application/json" } })
+    }
     if (request.method === "POST" && url.pathname === "/api/jobs") return createJob(request)
     if (request.method === "GET" && url.pathname === "/api/events") {
       let controller: ReadableStreamDefaultController<Uint8Array>
@@ -526,6 +680,6 @@ const addresses = Object.values(networkInterfaces())
   .filter((address) => address?.family === "IPv4" && !address.internal)
   .map((address) => `http://${address?.address}:${server.port}`)
 
-console.log(`Octo 内网打包服务已启动：`)
+console.log(`Octo 内网打包服务已启动（${coordinator ? "主控" : targetLabels[localTarget]}）：`)
 console.log(`  本机：http://127.0.0.1:${server.port}`)
 addresses.forEach((address) => console.log(`  内网：${address}`))

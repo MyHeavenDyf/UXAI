@@ -18,14 +18,57 @@ bash packaging_shell/start_build_service.sh
 BUILD_SERVICE_PORT=9000 bash packaging_shell/start_build_service.sh
 ```
 
+## 一套网页连接三台构建机
+
+每台构建机启动一个节点服务，目标平台必须与电脑一致：
+
+```bash
+# Apple 芯片 Mac
+BUILD_NODE_TARGET=mac-arm64 BUILD_SERVICE_PORT=8787 bash packaging_shell/start_build_service.sh
+
+# Intel Mac
+BUILD_NODE_TARGET=mac-x64 BUILD_SERVICE_PORT=8787 bash packaging_shell/start_build_service.sh
+
+# Windows（在 Git Bash 中执行）
+BUILD_NODE_TARGET=win-x64 BUILD_SERVICE_PORT=8787 bash packaging_shell/start_build_service.sh
+```
+
+再选择一台电脑启动主控网页。将示例 IP 替换为三台构建机的实际内网 IP；如果主控和其中一个节点在同一台电脑上，主控需要使用另一个端口：
+
+```bash
+BUILD_SERVICE_PORT=8790 \
+BUILD_WORKERS="mac-arm64=http://192.168.1.101:8787,mac-x64=http://192.168.1.102:8787,win-x64=http://192.168.1.103:8787" \
+bash packaging_shell/start_build_service.sh
+```
+
+访问主控服务的 `8790` 端口即可在同一个页面选择目标平台。任务、实时日志和产物仍保存在实际执行任务的构建机中，主控网页会统一展示并代理安装包下载。未设置 `BUILD_WORKERS` 时，服务保持原来的单机模式并自动识别本机平台。
+
+### 在一台电脑上模拟三个构建节点
+
+当三个同级项目目录分别为 `UXAI`、`UXAITEST1`、`UXAITEST2` 时，可在 `UXAI` 中执行：
+
+```bash
+bash packaging_shell/start_local_build_cluster.sh
+```
+
+脚本使用以下固定映射：
+
+- `UXAI`：macOS x64，端口 `8787`
+- `UXAITEST1`：macOS ARM64，端口 `8788`
+- `UXAITEST2`：Windows x64，端口 `8789`
+- 统一主控网页：端口 `8790`
+
+模拟模式会设置 `BUILD_ALLOW_CROSS_TARGET=1`，用于测试任务分发和尝试跨平台构建。实际部署到三台电脑时不要设置该变量，各节点会拒绝与本机平台不一致的任务。
+
 ## 页面能力
 
 - 基础代码分支始终来自 `packaging_shell` 所在的当前本地 Git 项目。
 - 基础代码分支不定时轮询，需要时可通过页面刷新按钮立即重新读取。
 - 下载分支始终来自固定仓库 `https://github.com/MyHeavenDyf/UXAI.git`，不受当前项目 `origin` 配置影响。
 - 为每个任务选择基础代码分支和下载分支，填写应用版本和构建环境。
+- 主控模式下可选择 `macOS ARM64`、`macOS x64` 或 `Windows x64`，任务会自动发送到对应构建机。
 - 构建环境仅支持 `beta` 和 `prod`。
-- 多人提交的任务按顺序串行执行。
+- 同一构建机的任务按顺序串行执行，不同平台的构建机可以并行工作。
 - 实时查看构建日志和任务状态。
 - 下载每次成功构建后独立归档的产物。
 - 任务记录和日志落盘保存，页面刷新或服务重启后仍可查看。
