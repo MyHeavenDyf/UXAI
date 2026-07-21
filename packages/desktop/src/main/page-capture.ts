@@ -86,14 +86,17 @@ const CAPTURE_SCRIPT = `(async function() {
   var clone = document.documentElement.cloneNode(true);
 
   // Tag recognized components with OCTO_C2D_ID
-  var PIXSO_COMPS = ['Button','Badge','Dropdown','Menu','Input','Checkbox','Select','Tabs','Tag','Switch','Breadcrumb','PieChart', 'BarChart', 'ProcessChart', 'BubbleChart', 'ScatterChart', 'FunnelChart','RadarChart', 'GaugeChart', 'HillChart', 'BulletChart', 'CircleProcessChart','AssembleBubbleChart', 'JadeJueChart', 'LineChart'];
+  var PIXSO_COMPS = ['Button','Badge','Dropdown','Menu','Input','InputNumber','Steps','Checkbox','CheckGroup','Select','Tabs','Tag','Switch','Carousel','Collapse','divider','Segmented','TimeLine','Tree','Datepicker','Timepicker','Breadcrumb','RadioGroup','Rate','Slider','Progress','Textarea','PieChart', 'BarChart','ProcessChart', 'BubbleChart', 'ScatterChart', 'FunnelChart','RadarChart', 'GaugeChart', 'HillChart', 'BulletChart', 'CircleProcessChart','AssembleBubbleChart', 'JadeJueChart', 'LineChart'];
   function tagComponents(node) {
     if (node.nodeType !== 1) return;
     var ct = node.getAttribute('dom-picker-component');
     if (ct && PIXSO_COMPS.indexOf(ct) !== -1) {
-      var id = ct || node.getAttribute('id') || '';
+      var id = node.getAttribute('id') || '';
       var cls = node.getAttribute('class') || '';
       node.setAttribute('class', cls + ' OCTO_C2D_ID_' + id);
+      if(node.getAttribute('id')) {
+        node.setAttribute('id', 'OCTO_C2D_ID_' + id);
+      }
     }
     for (var i = 0; i < node.children.length; i++) tagComponents(node.children[i]);
   }

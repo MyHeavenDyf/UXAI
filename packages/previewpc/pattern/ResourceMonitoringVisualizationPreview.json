@@ -1,0 +1,835 @@
+{
+    "state": {
+        "systemName": "iMaster NCE",
+        "rightIcons": [
+            {
+                "icon": "search"
+            },
+            {
+                "icon": "languages",
+                "label": "CN"
+            },
+            {
+                "icon": "user"
+            },
+            {
+                "icon": "circle-help"
+            },
+            {
+                "icon": "message-circle-dots",
+                "badge": true
+            }
+        ],
+        "mapBgImage": "../src/assets/pattern/map.jpg",
+        "trendData": [
+            {
+                "timestamp": "01-23",
+                "availability": 146
+            },
+            {
+                "timestamp": "01-24",
+                "availability": 120
+            },
+            {
+                "timestamp": "01-25",
+                "availability": 150
+            },
+            {
+                "timestamp": "01-26",
+                "availability": 130
+            },
+            {
+                "timestamp": "01-27",
+                "availability": 160
+            },
+            {
+                "timestamp": "01-28",
+                "availability": 90
+            },
+            {
+                "timestamp": "01-29",
+                "availability": 120
+            },
+            {
+                "timestamp": "01-30",
+                "availability": 80
+            },
+            {
+                "timestamp": "01-31",
+                "availability": 150
+            },
+            {
+                "timestamp": "02-01",
+                "availability": 110
+            },
+            {
+                "timestamp": "02-02",
+                "availability": 140
+            }
+           
+            
+        ],
+        "rankingData": [
+            {
+                "name": "AL",
+                "value": 14
+            },
+            {
+                "name": "GA",
+                "value": 13
+            },
+            {
+                "name": "OVD",
+                "value": 12
+            },
+            {
+                "name": "IB",
+                "value": 11
+            },
+            {
+                "name": "MAD",
+                "value": 10
+            },
+            {
+                "name": "BAQ",
+                "value": 9
+            },
+            {
+                "name": "CAT",
+                "value": 8
+            },
+            {
+                "name": "MJV",
+                "value": 8
+            },
+            {
+                "name": "VLC",
+                "value": 7
+            },
+            {
+                "name": "IRG",
+                "value": 7
+            }
+        ],
+        "regionalData": [
+            {
+                "region": "AL",
+                "active": 89,
+                "standby": 79
+            },
+            {
+                "region": "GA",
+                "active": 89,
+                "standby": 79
+            },
+            {
+                "region": "OVD",
+                "active": 79,
+                "standby": 69
+            },
+            {
+                "region": "IB",
+                "active": 79,
+                "standby": 69
+            },
+            {
+                "region": "MAD",
+                "active": 69,
+                "standby": 59
+            },
+            {
+                "region": "BAQ",
+                "active": 69,
+                "standby": 59
+            },
+            {
+                "region": "CAT",
+                "active": 59,
+                "standby": 49
+            },
+            {
+                "region": "MJV",
+                "active": 59,
+                "standby": 49
+            },
+             {
+                "region": "VCL",
+                "active": 49,
+                "standby": 39
+            },
+            {
+                "region": "IRG",
+                "active": 49,
+                "standby": 39
+            }
+        ],
+        "circleData": [
+            {
+                "value": 98.59,
+                "name": "Normal servers"
+            },
+            {
+                "value": 1.41,
+                "name": "Poor-Qos servers"
+            }
+        ]
+    },
+    "rootId": "rootShell",
+    "elements": [
+        {
+            "id": "rootShell",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col min-h-screen bg-surface-container-lowest"
+            },
+            "children": [
+                "headerShell",
+                "mainShell"
+            ]
+        },
+        {
+            "id": "headerShell",
+            "component": "div",
+            "props": {
+                "className": "h-12 bg-surface-container-highest flex items-center px-8"
+            },
+            "children": [
+                "headerLeftGroup",
+                "headerRightGroup"
+            ]
+        },
+        {
+            "id": "mainShell",
+            "component": "div",
+            "props": {
+                "className": "flex-1 flex flex-row"
+            },
+            "children": [
+                "rightPanelShell",
+                "mapAreaShell"
+            ]
+        },
+        {
+            "id": "mapAreaShell",
+            "component": "div",
+            "props": {
+                "className": "w-3/4 flex items-center justify-center bg-[#EEE]"
+            },
+            "children": [
+                "mapBgImgWrapper"
+            ]
+        },
+        {
+            "id": "rightPanelShell",
+            "component": "div",
+            "props": {
+                "className": "flex-1 bg-surface-container-lowest p-6 flex flex-col gap-4 overflow-y-auto"
+            },
+            "children": [
+                "rightOverviewCard",
+                "chartCon"
+            ]
+        },
+        {
+            "id": "chartCon",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded p-6"
+            },
+            "children": [
+                "rightTrendCard",
+                "rightRankingCard",
+                "rightRegionalCard",
+                "rightStatusCard"
+            ]
+        },
+        {
+            "id": "headerLeftGroup",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-6"
+            },
+            "children": [
+                "headerMenuIcon",
+                "headerLogoArea"
+            ]
+        },
+        {
+            "id": "headerMenuIcon",
+            "component": "Icon",
+            "props": {
+                "name": "menu",
+                "shape": "outline",
+                "className": "w-5 h-5 text-on-surface cursor-pointer"
+            }
+        },
+        {
+            "id": "headerLogoArea",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-2"
+            },
+            "children": [
+                "headerLogoIcon",
+                "headerSystemName"
+            ]
+        },
+        {
+            "id": "headerLogoIcon",
+            "component": "Icon",
+            "props": {
+                "name": "hexagon",
+                "color": "primary",
+                "shape": "fill",
+                "className": "w-6 h-6"
+            }
+        },
+        {
+            "id": "headerSystemName",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "/systemName"
+                },
+                "className": "text-lg font-semibold text-on-surface"
+            }
+        },
+        {
+            "id": "headerRightGroup",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-5 ml-auto"
+            },
+            "children": [
+                "headerSearchIcon",
+                "headerLangArea",
+                "headerUserIcon",
+                "headerHelpIcon",
+                "headerNotifBadge"
+            ]
+        },
+        {
+            "id": "headerSearchIcon",
+            "component": "Icon",
+            "props": {
+                "name": {
+                    "path": "/rightIcons/0/icon"
+                },
+                "shape": "outline",
+                "className": "w-5 h-5 cursor-pointer"
+            }
+        },
+        {
+            "id": "headerLangArea",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-1 cursor-pointer"
+            },
+            "children": [
+                "headerLangLabel"
+            ]
+        },
+        {
+            "id": "headerLangLabel",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "/rightIcons/1/label"
+                },
+                "className": "text-sm font-medium text-on-surface"
+            }
+        },
+        {
+            "id": "headerUserIcon",
+            "component": "Icon",
+            "props": {
+                "name": {
+                    "path": "/rightIcons/2/icon"
+                },
+                "shape": "outline",
+                "className": "w-5 h-5 cursor-pointer"
+            }
+        },
+        {
+            "id": "headerHelpIcon",
+            "component": "Icon",
+            "props": {
+                "name": {
+                    "path": "/rightIcons/3/icon"
+                },
+                "shape": "outline",
+                "className": "w-5 h-5 cursor-pointer"
+            }
+        },
+        {
+            "id": "headerNotifBadge",
+            "component": "Badge",
+            "props": {
+                "dot": true,
+                "offset": [
+                    1,
+                    2
+                ],
+                "color": "error"
+            },
+            "children": [
+                "headerBellIcon"
+            ]
+        },
+        {
+            "id": "headerBellIcon",
+            "component": "Icon",
+            "props": {
+                "name": {
+                    "path": "/rightIcons/4/icon"
+                },
+                "shape": "outline",
+                "className": "w-5 h-5 cursor-pointer"
+            }
+        },
+        {
+            "id": "mapBgImgWrapper",
+            "component": "div",
+            "props": {
+                "className": "w-full h-full overflow-hidden rounded-sm"
+            },
+            "children": [
+                "mapBgImgElement"
+            ]
+        },
+        {
+            "id": "mapBgImgElement",
+            "component": "img",
+            "props": {
+                "src": {
+                    "path": "/mapBgImage"
+                },
+                "className": "w-full h-full object-cover",
+                "alt": "全球监控态势地图"
+            }
+        },
+        {
+            "id": "rightOverviewCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded p-6 flex flex-col"
+            },
+            "children": [
+                "rightOverviewTitle",
+                "rightOverviewKpiGrid"
+            ]
+        },
+        {
+            "id": "rightOverviewTitle",
+            "component": "span",
+            "props": {
+                "className": "text-2xl font-semibold text-on-surface mb-2",
+                "value": "Overview"
+            }
+        },
+        {
+            "id": "rightOverviewKpiGrid",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-3"
+            },
+            "children": [
+                "rightOverviewRow1",
+                "rightOverviewRow2"
+            ]
+        },
+        {
+            "id": "rightOverviewRow1",
+            "component": "div",
+            "props": {
+                "className": "grid grid-cols-3 gap-3"
+            },
+            "children": [
+                "rightOverviewKpi0",
+                "rightOverviewKpi1",
+                "rightOverviewKpi2"
+            ]
+        },
+        {
+            "id": "rightOverviewRow2",
+            "component": "div",
+            "props": {
+                "className": "grid grid-cols-3 gap-3"
+            },
+            "children": [
+                "rightOverviewKpi2b",
+                "rightOverviewKpi3"
+            ]
+        },
+        {
+            "id": "rightOverviewKpi0",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col max-w-[100px]"
+            },
+            "children": [
+                "rightOverviewKpi0Value",
+                "rightOverviewKpi0Label"
+            ]
+        },
+        {
+            "id": "rightOverviewKpi0Value",
+            "component": "div",
+            "props": {
+                "className": "flex items-baseline gap-1"
+            },
+            "children": [
+                "rightOverviewKpi0ValueNum",
+                "rightOverviewKpi0ValueUnit"
+            ]
+        },
+        {
+            "id": "rightOverviewKpi0ValueNum",
+            "component": "span",
+            "props": {
+                "className": "text-2xl font-bold",
+                "value": "99.92"
+            }
+        },
+        {
+            "id": "rightOverviewKpi0ValueUnit",
+            "component": "span",
+            "props": {
+                "className": "text-sm font-medium text-[#4E4E4E]",
+                "value": "%"
+            }
+        },
+        {
+            "id": "rightOverviewKpi0Label",
+            "component": "span",
+            "props": {
+                "className": "text-sm text-[#676767] leading-tight",
+                "value": "Mobile bearer service Availability"
+            }
+        },
+        {
+            "id": "rightOverviewKpi1",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col max-w-[100px]"
+            },
+            "children": [
+                "rightOverviewKpi1Value",
+                "rightOverviewKpi1Label"
+            ]
+        },
+        {
+            "id": "rightOverviewKpi1Value",
+            "component": "div",
+            "props": {
+                "className": "flex items-baseline gap-1"
+            },
+            "children": [
+                "rightOverviewKpi1ValueNum",
+                "rightOverviewKpi1ValueUnit"
+            ]
+        },
+        {
+            "id": "rightOverviewKpi1ValueNum",
+            "component": "span",
+            "props": {
+                "className": "text-2xl font-bold",
+                "value": "99.94"
+            }
+        },
+        {
+            "id": "rightOverviewKpi1ValueUnit",
+            "component": "span",
+            "props": {
+                "className": "text-sm font-medium text-[#4E4E4E]",
+                "value": "%"
+            }
+        },
+        {
+            "id": "rightOverviewKpi1Label",
+            "component": "span",
+            "props": {
+                "className": "text-sm text-[#676767] leading-tight",
+                "value": "Home broadband service Availability"
+            }
+        },
+        {
+            "id": "rightOverviewKpi2",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col max-w-[100px]"
+            },
+            "children": [
+                "rightOverviewKpi2Value",
+                "rightOverviewKpi2Label"
+            ]
+        },
+        {
+            "id": "rightOverviewKpi2Value",
+            "component": "div",
+            "props": {
+                "className": "flex items-baseline gap-1"
+            },
+            "children": [
+                "rightOverviewKpi2ValueNum",
+                "rightOverviewKpi2ValueUnit"
+            ]
+        },
+        {
+            "id": "rightOverviewKpi2ValueNum",
+            "component": "span",
+            "props": {
+                "className": "text-2xl font-bold",
+                "value": "99.96"
+            }
+        },
+        {
+            "id": "rightOverviewKpi2ValueUnit",
+            "component": "span",
+            "props": {
+                "className": "text-sm font-medium text-[#4E4E4E]",
+                "value": "%"
+            }
+        },
+        {
+            "id": "rightOverviewKpi2Label",
+            "component": "span",
+            "props": {
+                "className": "text-sm text-[#676767] leading-tight",
+                "value": "Private line service Availability"
+            }
+        },
+        {
+            "id": "rightOverviewKpi2b",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col max-w-[100px]"
+            },
+            "children": [
+                "rightOverviewKpi2bValue",
+                "rightOverviewKpi2bLabel"
+            ]
+        },
+        {
+            "id": "rightOverviewKpi2bValue",
+            "component": "div",
+            "props": {
+                "className": "flex items-baseline gap-1"
+            },
+            "children": [
+                "rightOverviewKpi2bValueNum",
+                "rightOverviewKpi2bValueUnit"
+            ]
+        },
+        {
+            "id": "rightOverviewKpi2bValueNum",
+            "component": "span",
+            "props": {
+                "className": "text-2xl font-bold",
+                "value": "99.96"
+            }
+        },
+        {
+            "id": "rightOverviewKpi2bValueUnit",
+            "component": "span",
+            "props": {
+                "className": "text-sm font-medium text-[#4E4E4E]",
+                "value": "%"
+            }
+        },
+        {
+            "id": "rightOverviewKpi2bLabel",
+            "component": "span",
+            "props": {
+                "className": "text-sm text-[#676767] leading-tight",
+                "value": "Universal VPN Availability"
+            }
+        },
+        {
+            "id": "rightOverviewKpi3",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col max-w-[95px]"
+            },
+            "children": [
+                "rightOverviewKpi3Value",
+                "rightOverviewKpi3Label"
+            ]
+        },
+        {
+            "id": "rightOverviewKpi3Value",
+            "component": "div",
+            "props": {
+                "className": "flex items-baseline gap-1"
+            },
+            "children": [
+                "rightOverviewKpi3ValueNum"
+            ]
+        },
+        {
+            "id": "rightOverviewKpi3ValueNum",
+            "component": "span",
+            "props": {
+                "className": "text-2xl font-bold text-primary underline decoration-1",
+                "value": "86"
+            }
+        },
+        {
+            "id": "rightOverviewKpi3Label",
+            "component": "span",
+            "props": {
+                "className": "text-sm text-[#676767] leading-tight",
+                "value": "Optimization suggestions"
+            }
+        },
+        {
+            "id": "rightTrendCard",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-3 mb-6"
+            },
+            "children": [
+                "rightTrendTitle",
+                "rightTrendChart"
+            ]
+        },
+        {
+            "id": "rightTrendTitle",
+            "component": "span",
+            "props": {
+                "className": "text-lg font-semibold text-on-surface",
+                "value": "Base Station width Substandard Availability"
+            }
+        },
+        {
+            "id": "rightTrendChart",
+            "component": "LineChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/trendData"
+                    },
+                    "xAxis": {
+                        "data": "timestamp",
+                        "name": "Time"
+                    },
+                    "yAxis": {
+                        "min" : 0
+                    },
+                    "yAxisTitle": "",
+                    "smooth": true
+                   
+                },
+                "className": "h-[120px] w-full"
+            }
+        },
+        {
+            "id": "rightRankingCard",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-3 mb-6"
+            },
+            "children": [
+                "rightRankingTitle",
+                "rightRankingChart"
+            ]
+        },
+        {
+            "id": "rightRankingTitle",
+            "component": "span",
+            "props": {
+                "className": "text-lg font-semibold text-on-surface",
+                "value": "Regional Base Stations Availability Sub…"
+            }
+        },
+        {
+            "id": "rightRankingChart",
+            "component": "BarChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/rankingData"
+                    },
+                    "xAxis": {
+                        "data": "name",
+                        "name": "Site"
+                    },
+                    "legend": {
+                        "show": false
+                    },
+                    "yAxisTitle": "",
+                    "direction": "vertical"
+                },
+                "className": "h-[120px] w-full"
+            }
+        },
+        {
+            "id": "rightRegionalCard",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-3 mb-6"
+            },
+            "children": [
+                "rightRegionalTitle",
+                "rightRegionalChart"
+            ]
+        },
+        {
+            "id": "rightRegionalTitle",
+            "component": "span",
+            "props": {
+                "className": "text-lg font-semibold text-on-surface",
+                "value": "Service Availability Analysis"
+            }
+        },
+        {
+            "id": "rightRegionalChart",
+            "component": "BarChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/regionalData"
+                    },
+                    "xAxis": {
+                        "data": "region",
+                        "name": "Region"
+                    },
+                    "yAxisTitle": ""
+                },
+                "className": "h-[120px] w-full"
+            }
+        },
+        {
+            "id": "rightStatusCard",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-3"
+            },
+            "children": [
+                "rightStatusTitle",
+                "rightStatusChart"
+            ]
+        },
+        {
+            "id": "rightStatusTitle",
+            "component": "span",
+            "props": {
+                "className": "text-lg font-semibold text-on-surface mb-4",
+                "value": "Poor-QoS Analysis of Domestic Servers"
+            }
+        },
+        {
+            "id": "rightStatusChart",
+            "component": "PieChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/circleData"
+                    }
+                   
+                },
+                "className": "h-[128px] w-full"
+            }
+        }
+    ]
+}
