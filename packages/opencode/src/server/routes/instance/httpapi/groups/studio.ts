@@ -52,6 +52,14 @@ export const StudioGenerationPayload = Schema.Struct({
   detailPrompt: Schema.optional(Schema.String),
   refinedPrompt: Schema.optional(Schema.String),
   effectivePrompt: Schema.optional(Schema.String),
+  promptRefineModels: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        providerID: Schema.String,
+        modelID: Schema.String,
+      }),
+    ),
+  ),
   styleModel: Schema.optional(Schema.String),
   aspectRatio: Schema.optional(Schema.String),
   count: Schema.optional(Schema.Int),

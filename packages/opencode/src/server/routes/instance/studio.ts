@@ -31,6 +31,14 @@ const StudioGenerationInput = z.object({
   detailPrompt: z.string().optional(),
   refinedPrompt: z.string().optional(),
   effectivePrompt: z.string().optional(),
+  promptRefineModels: z
+    .array(
+      z.object({
+        providerID: z.string(),
+        modelID: z.string(),
+      }),
+    )
+    .optional(),
   styleModel: z.string().optional(),
   aspectRatio: z.string().optional(),
   count: z.number().int().min(1).max(4).optional(),
