@@ -71,6 +71,7 @@ function change(val: string) {
     v-model="value"
     :size="size as any"
     type="textarea"
+    :show-word-limit="true"
     :autosize="autosize"
     :maxlength="maxlength"
     :placeholder="placeholder"
