@@ -110,6 +110,7 @@ const api: ElectronAPI = {
   downloadHuiCode: (jsonData) => ipcRenderer.invoke("download-hui-code", jsonData),
   runPixsoBuild: (input) => ipcRenderer.invoke("run-pixso-build", input),
   exportZip: (opts) => ipcRenderer.invoke("export-zip", opts),
+  exportProjectZip: (opts) => ipcRenderer.invoke("export-project-zip", opts),
   importZip: () => ipcRenderer.invoke("import-zip"),
   // Pipeline API IPC bridge — renderer 内网调用时通过此通道请求主进程 net.fetch(绕 CORS)
   pipelineRequest: (url, method, uiplusToken, body, headers) => ipcRenderer.invoke("pipeline-request", url, method, uiplusToken, body, headers),

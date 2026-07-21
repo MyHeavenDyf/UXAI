@@ -1,20 +1,19 @@
 /**
  * 3D 预览页：iframe 嵌入 3d-templete embed.vue，走 SCENE_* 通信。
  *
- * 阶段3 新增交互闭环：
- *   - 右上角"编辑"按钮 → sendPickMode(true) 开 iframe 侧 ScenePicker
- *   - iframe 拾取物体 → SCENE_PICK {id} → 从本地 objectsById 取 SceneConfigObject3D → 弹属性编辑器
- *   - 属性编辑器改字段 → sendPatch(SCENE_PATCH) → iframe 增量 upsert（不重建、不闪烁）
+ * 工具栏（TitleBar3D，参考 pattern titlebar-wrapper，UI 一致）：
+ *   刷新 / 预览(另开窗口) / 设备切换(桌面/平板/手机) /
+ *   复位 / 编辑 / 历史 / 主题(预留) / 分享 / 下载
  *
- * 3D 不需要 pattern 的 canvas-view/property-editor/device-switch/drag-reorder（2D+DOM 专属），
- * 轨道交互在 iframe 内（OrbitControls）。
- *
- * 自包含：editMode/objectsById/pickedObj 全在本组件内管理，pages/3d/index.tsx 无需改动。
+ * 编辑态浮层（仅在编辑模式时显示）：
+ *   部件/整体粒度切换 + 聚焦选中物 + 属性编辑弹窗
  */
 import { createEffect, createSignal, on, onCleanup, Show } from "solid-js"
 import type { SceneConfig, SceneConfigObject3D, ScenePatch } from "../../utils/scene-config"
 import { showToast } from "@opencode-ai/ui/toast"
 import { PropertyEditor3DPopup } from "./property-editor-popup"
+import { TitleBar3D } from "./title-bar"
+import type { VersionEntry } from "../../utils/version-history"
 
 export type PreviewPageAPI = {
   sendToPreview: (data: SceneConfig | null) => void
@@ -24,6 +23,10 @@ export type PreviewPageAPI = {
   sendPickMode?: (enabled: boolean) => void
   /** 聚焦物体（SCENE_FLY_TO） */
   sendFlyTo?: (targetId: string) => void
+  /** 复位相机到初始视角（SCENE_RESET_CAMERA） */
+  sendResetCamera?: () => void
+  /** 切主题（SCENE_THEME） */
+  sendTheme?: (mode: "light" | "dark") => void
 }
 
 export function PreviewPage3D(props: {
@@ -34,6 +37,13 @@ export function PreviewPage3D(props: {
   onReady?: () => void
   /** 编辑器产生增量补丁时回调父组件（用于回写 authoritative state + 持久化，避免编辑丢失） */
   onPatch?: (patch: ScenePatch) => void
+  /** 以下 TitleBar 回调由 pages/3d/index.tsx 传入 */
+  versions?: VersionEntry[]
+  currentVersionId?: string | null
+  onSelectVersion?: (versionId: string) => void
+  onPreview?: () => void
+  onShare?: () => void
+  onDownload?: () => void
 }) {
   let iframeRef: HTMLIFrameElement | undefined
 
@@ -70,6 +80,12 @@ export function PreviewPage3D(props: {
   function sendFlyTo(targetId: string): void {
     post({ type: "SCENE_FLY_TO", targetId })
   }
+  function sendResetCamera(): void {
+    post({ type: "SCENE_RESET_CAMERA" })
+  }
+  function sendTheme(mode: "light" | "dark"): void {
+    post({ type: "SCENE_THEME", mode })
+  }
 
   /** 本地同步补丁，避免连续编辑基于过期 def */
   function applyPatchToLocal(patch: ScenePatch): void {
@@ -89,6 +105,8 @@ export function PreviewPage3D(props: {
     props.api.sendPatch = sendPatch
     props.api.sendPickMode = sendPickMode
     props.api.sendFlyTo = sendFlyTo
+    props.api.sendResetCamera = sendResetCamera
+    props.api.sendTheme = sendTheme
   }
 
   // pendingData 变化（新生成/切会话/恢复）→ 重建本地物体表 + 关弹窗
@@ -165,100 +183,124 @@ export function PreviewPage3D(props: {
     window.removeEventListener("message", handleIframeMessage)
   })
 
+  // ── 刷新：重置 iframe src 重载 embed ──
+  function handleRefresh(): void {
+    if (iframeRef) {
+      iframeRef.src = props.previewSrc
+    }
+  }
+
   return (
-    <div class="relative h-full w-full overflow-hidden bg-[#1a1a2e]">
-      <iframe
-        ref={(el) => {
-          iframeRef = el
-        }}
-        src={props.previewSrc}
-        onLoad={() => {
-          console.log("[3d] iframe loaded")
-          const pending = props.pendingData ?? null
-          if (pending) post({ type: "SCENE_UPDATE", payload: pending })
-        }}
-        style={{ width: "100%", height: "100%", border: "none" }}
+    <div class="flex flex-col h-full w-full overflow-hidden bg-[var(--octo-surface-page,#1a1a2e)]">
+      {/* 工具栏 */}
+      <TitleBar3D
+        onRefresh={handleRefresh}
+        onPreview={() => props.onPreview?.()}
+        onReset={() => sendResetCamera()}
+        onToggleEditing={() => toggleEditMode()}
+        versions={props.versions}
+        currentVersionId={props.currentVersionId}
+        onSelectVersion={(vid) => props.onSelectVersion?.(vid)}
+        onThemeChange={(mode) => sendTheme(mode)}
+        onShare={() => props.onShare?.()}
+        onDownload={() => props.onDownload?.()}
+        editing={editMode()}
       />
 
-      {/* 顶部工具条：编辑/拾取切换 + 选中粒度 + 聚焦选中物（对齐 Pattern .preview-action-btn 玻璃白按钮） */}
-      <div class="absolute top-2 right-2 flex items-center gap-1.5 z-10" style={{ "pointer-events": "auto" }}>
-        <Show when={pickedObj()}>
-          <button
-            class="preview-action-btn"
-            style={{ width: "auto", padding: "0 10px", "font-size": "12px" }}
-            onClick={() => pickedObj() && sendFlyTo(pickedObj()!.id)}
-            title="聚焦到选中物体"
-          >
-            聚焦
-          </button>
-        </Show>
-        {/* 选中粒度：部件|整体（仅编辑态显示） */}
+      {/* iframe 区域（flex-1 占剩余高度，iframe 铺满） */}
+      <div class="relative flex-1 overflow-hidden" style={{ background: "var(--octo-surface-page,#1a1a2e)" }}>
+        <iframe
+          ref={(el) => {
+            iframeRef = el
+          }}
+          src={props.previewSrc}
+          onLoad={() => {
+            console.log("[3d] iframe loaded")
+            const pending = props.pendingData ?? null
+            if (pending) post({ type: "SCENE_UPDATE", payload: pending })
+          }}
+          style={{ width: "100%", height: "100%", border: "none" }}
+        />
+
+        {/* 编辑态浮层：粒度切换 + 聚焦（右上角，仅编辑模式）。
+            用 token 浅色块 + 深字 + 描边/阴影，确保在深色/浅色 3D 场景背景上都可读（参考项目 TitleBar 按钮风格）。 */}
         <Show when={editMode()}>
-          <div class="flex items-center rounded-md overflow-hidden" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.18)" }}>
-            <button
-              class="px-2 h-6 text-[11px] leading-none transition-colors"
+          <div class="absolute top-2 right-2 flex items-center gap-1.5 z-10" style={{ "pointer-events": "auto" }}>
+            <Show when={pickedObj()}>
+              <button
+                class="rounded-md text-[12px] leading-none"
+                style={{
+                  height: "26px",
+                  padding: "0 10px",
+                  background: "var(--octo-surface, #ffffff)",
+                  color: "var(--octo-text-primary, #1f2937)",
+                  border: "1px solid var(--octo-border, #e5e7eb)",
+                  "box-shadow": "0 1px 3px rgba(0,0,0,0.15)",
+                }}
+                onClick={() => pickedObj() && sendFlyTo(pickedObj()!.id)}
+                title="聚焦到选中物体"
+              >
+                聚焦
+              </button>
+            </Show>
+            <div
+              class="flex items-center rounded-md overflow-hidden"
               style={{
-                background: pickGranularity() === "part" ? "var(--octo-brand, #3d99ff)" : "transparent",
-                color: pickGranularity() === "part" ? "#fff" : "rgba(255,255,255,0.7)",
+                background: "var(--octo-surface, #ffffff)",
+                border: "1px solid var(--octo-border, #e5e7eb)",
+                "box-shadow": "0 1px 3px rgba(0,0,0,0.15)",
               }}
-              onClick={() => switchGranularity("part")}
-              title="选中单个部件（树干/树冠）"
             >
-              部件
-            </button>
-            <button
-              class="px-2 h-6 text-[11px] leading-none transition-colors"
-              style={{
-                background: pickGranularity() === "whole" ? "var(--octo-brand, #3d99ff)" : "transparent",
-                color: pickGranularity() === "whole" ? "#fff" : "rgba(255,255,255,0.7)",
-              }}
-              onClick={() => switchGranularity("whole")}
-              title="选中一个整体（整棵树/整张桌），整体变换"
-            >
-              整体
-            </button>
+              <button
+                class="px-2 h-[26px] text-[11px] leading-none transition-colors"
+                style={{
+                  background: pickGranularity() === "part" ? "var(--octo-brand, #3d99ff)" : "transparent",
+                  color: pickGranularity() === "part" ? "#fff" : "var(--octo-text-primary, #1f2937)",
+                }}
+                onClick={() => switchGranularity("part")}
+                title="选中单个部件（树干/树冠）"
+              >
+                部件
+              </button>
+              <button
+                class="px-2 h-[26px] text-[11px] leading-none transition-colors"
+                style={{
+                  background: pickGranularity() === "whole" ? "var(--octo-brand, #3d99ff)" : "transparent",
+                  color: pickGranularity() === "whole" ? "#fff" : "var(--octo-text-primary, #1f2937)",
+                }}
+                onClick={() => switchGranularity("whole")}
+                title="选中一个整体（整棵树/整张桌），整体变换"
+              >
+                整体
+              </button>
+            </div>
           </div>
         </Show>
-        <button
-          class="preview-action-btn"
-          style={{
-            width: "auto",
-            padding: "0 12px",
-            "font-size": "12px",
-            background: editMode() ? "var(--octo-brand)" : undefined,
-            color: editMode() ? "#fff" : undefined,
-            "border-color": editMode() ? "var(--octo-brand)" : undefined,
-          }}
-          onClick={() => toggleEditMode()}
-          title={editMode() ? "退出编辑（恢复轨道操作）" : "进入编辑（点击物体编辑属性）"}
-        >
-          {editMode() ? "✓ 编辑中" : "编辑"}
-        </button>
+
+        {/* 属性编辑弹窗 */}
+        <Show when={pickedObj()} keyed>
+          {(obj) => (
+            <PropertyEditor3DPopup
+              obj={obj}
+              onPatch={(patch) => sendPatch(patch)}
+              onClose={() => setPickedObj(null)}
+            />
+          )}
+        </Show>
+
+        <Show when={!props.pendingData}>
+          <div class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-white/40">
+            <div class="text-base">3D 预览</div>
+            <div class="mt-2 text-xs">场景生成中...</div>
+          </div>
+        </Show>
+
+        <Show when={editMode()}>
+          <div class="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded bg-black/50 text-white/70 text-[11px] px-3 py-1">
+            编辑模式：点击物体编辑属性，拖拽旋转视角 · 右上「部件/整体」切换选中粒度
+          </div>
+        </Show>
       </div>
-
-      {/* 属性编辑弹窗（按 pickedObj.id keyed 切换物体时 remount） */}
-      <Show when={pickedObj()} keyed>
-        {(obj) => (
-          <PropertyEditor3DPopup
-            obj={obj}
-            onPatch={(patch) => sendPatch(patch)}
-            onClose={() => setPickedObj(null)}
-          />
-        )}
-      </Show>
-
-      <Show when={!props.pendingData}>
-        <div class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-white/40">
-          <div class="text-base">3D 预览</div>
-          <div class="mt-2 text-xs">场景生成中...</div>
-        </div>
-      </Show>
-
-      <Show when={editMode()}>
-        <div class="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded bg-black/50 text-white/70 text-[11px] px-3 py-1">
-          编辑模式：点击物体编辑属性，拖拽旋转视角 · 右上「部件/整体」切换选中粒度
-        </div>
-      </Show>
     </div>
   )
 }

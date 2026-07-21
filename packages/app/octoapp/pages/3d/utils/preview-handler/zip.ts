@@ -18,7 +18,7 @@ export async function exportZip(opts: {
   const result = await desktopApi.exportZip({
     defaultName: opts.title || opts.sessionId,
     sourceDir,
-    comment: "a2ui-pattern",
+    comment: "scene-3d",
   })
 
   if (result) {

@@ -139,6 +139,13 @@ export type ElectronAPI = {
     sourceDir?: string
     comment?: string
   }) => Promise<string | null>
+  exportProjectZip: (opts: {
+    sourceDir: string
+    defaultName: string
+    ignore?: string[]
+    injectFiles?: { path: string; content: string }[]
+    comment?: string
+  }) => Promise<string | null>
   importZip: () => Promise<{ name: string; content: string }[] | null>
   // Pipeline API IPC bridge 类型定义
   pipelineRequest: (url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) => Promise<any>

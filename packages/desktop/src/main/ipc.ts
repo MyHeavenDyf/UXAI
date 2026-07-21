@@ -793,7 +793,7 @@ export function registerIpcHandlers(deps: Deps) {
     if (result.canceled || !result.filePaths[0]) return null
 
     const zipPath = result.filePaths[0]
-    if (readZipComment(zipPath) !== "a2ui-pattern") return []
+    if (readZipComment(zipPath) !== "a2ui-pattern" && readZipComment(zipPath) !== "scene-3d") return []
 
     const extractDir = join(tmpdir(), `octo-import-${Date.now()}`)
     await mkdir(extractDir, { recursive: true })
@@ -820,6 +820,112 @@ export function registerIpcHandlers(deps: Deps) {
       await rm(extractDir, { recursive: true, force: true }).catch(() => { })
     }
   })
+
+  /**
+   * export-project-zip — 导出工程目录为 zip（供 3D 下载：导出整个 3d-templete 工程给开发者）。
+   * 与 export-zip 的区别：
+   *   - 支持 ignore 排除规则（glob，排除 node_modules/dist/.git 等）
+   *   - 支持 injectFiles（注入/覆盖文件，如覆盖 public/live-data.json）
+   *   - 总是复制到临时目录再打包，不直接打 sourceDir（避免包含 node_modules）
+   *   - finally 清理临时目录
+   */
+  ipcMain.handle(
+    "export-project-zip",
+    async (
+      event: IpcMainInvokeEvent,
+      opts: {
+        sourceDir: string
+        defaultName: string
+        ignore?: string[]          // glob 排除模式（如 ["node_modules","dist",".git"]）
+        injectFiles?: { path: string; content: string }[]  // 注入文件（相对路径，UTF-8 文本）
+        comment?: string
+      },
+    ) => {
+      if (!existsSync(opts.sourceDir)) return null
+
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const dialogOpts = {
+        title: "导出工程压缩包",
+        defaultPath: opts.defaultName,
+        filters: [{ name: "ZIP", extensions: ["zip"] }],
+      }
+      const result = win
+        ? await dialog.showSaveDialog(win, dialogOpts)
+        : await dialog.showSaveDialog(dialogOpts)
+      if (result.canceled || !result.filePath) return null
+
+      const destZip = result.filePath
+      const workDir = join(tmpdir(), `octo-project-export-${Date.now()}`)
+
+      // 复制 sourceDir → workDir，按 ignore 排除
+      const ignorePatterns = opts.ignore ?? ["node_modules", "dist", ".git", ".claude"]
+      await mkdir(workDir, { recursive: true })
+      // 用 Node.js cp 替代 xcopy/cp（跨平台，路径分隔符无关）
+      try {
+        const { cp } = await import("fs/promises")
+        await cp(opts.sourceDir, workDir, { recursive: true, filter: (src) => {
+          // 排除 ignore 目录：检查 src 路径中是否包含这些目录段
+          const rel = src.slice(opts.sourceDir.length + 1)
+          for (const pat of ignorePatterns) {
+            if (rel === pat || rel.startsWith(pat + "/") || rel.startsWith(pat + "\\")) return false
+          }
+          return true
+        }})
+      } catch {
+        // fallback：Node < 16.7 没有 fs.cp，用 xcopy/cp
+        await new Promise<void>((resolve, reject) => {
+          if (process.platform === "win32") {
+            // xcopy 要求反斜杠路径
+            const src = opts.sourceDir.replace(/\//g, "\\")
+            const dst = workDir.replace(/\//g, "\\") + "\\"
+            execFile("xcopy", [src, dst, "/E", "/I", "/Q", "/Y"], (err) =>
+              err ? reject(err) : resolve(),
+            )
+          } else {
+            execFile("cp", ["-r", opts.sourceDir + "/.", workDir], (err) =>
+              err ? reject(err) : resolve(),
+            )
+          }
+        })
+      }
+
+      // 注入文件（覆盖或新增）
+      if (opts.injectFiles) {
+        for (const file of opts.injectFiles) {
+          const filePath = join(workDir, file.path)
+          await mkdir(dirname(filePath), { recursive: true })
+          await writeFile(filePath, file.content, "utf-8")
+        }
+      }
+
+      try {
+        await new Promise<void>((resolve, reject) => {
+          if (process.platform === "win32") {
+            execFile(
+              "powershell",
+              [
+                "-NoProfile",
+                "-Command",
+                `Compress-Archive -Path '${workDir}\\*' -DestinationPath '${destZip}' -Force`,
+              ],
+              (err) => (err ? reject(err) : resolve()),
+            )
+          } else {
+            execFile("zip", ["-r", destZip, "."], { cwd: workDir }, (err) =>
+              err ? reject(err) : resolve(),
+            )
+          }
+        })
+
+        if (opts.comment) addZipComment(destZip, opts.comment)
+
+        return destZip
+      } finally {
+        await rm(workDir, { recursive: true, force: true }).catch(() => {})
+      }
+    },
+  )
+
   // Pipeline API IPC — renderer 通过 window.api.pipelineRequest 调用, 主进程用 net.fetch 请求真实接口(绕 CORS)
   ipcMain.handle("pipeline-request", (_event: IpcMainInvokeEvent, url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) =>
     pipelineRequest(url, method, uiplusToken, body, headers))

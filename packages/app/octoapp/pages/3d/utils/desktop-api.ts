@@ -5,6 +5,13 @@ export type DesktopApi = {
     sourceDir?: string
     comment?: string
   }) => Promise<string | null>
+  exportProjectZip?: (opts: {
+    sourceDir: string
+    defaultName: string
+    ignore?: string[]
+    injectFiles?: { path: string; content: string }[]
+    comment?: string
+  }) => Promise<string | null>
   importZip?: () => Promise<{ name: string; content: string }[] | null>
   getPreviewDistDir?: () => Promise<string>
   writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>

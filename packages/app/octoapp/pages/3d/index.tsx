@@ -21,6 +21,9 @@ import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { showToast, Toast } from "@opencode-ai/ui/toast"
+import { exportZip } from "./utils/preview-handler/zip"
+import { exportProject } from "./utils/preview-handler/export-project"
+import { getDesktopApi } from "./utils/desktop-api"
 import { createEffect, createMemo, createResource, createSignal, on, onMount, Show, type JSX } from "solid-js"
 import { useNavigate, useParams } from "@solidjs/router"
 import { SDKProvider, useSDK } from "@/context/sdk"
@@ -41,6 +44,7 @@ import {
   updateSceneVersion,
   loadCurrentSceneState,
   listSceneVersions,
+  rollbackToVersion,
   type VersionEntry,
 } from "./utils/version-history"
 import {
@@ -835,6 +839,91 @@ function Scene3DContent() {
     rows: undefined,
   })
 
+  // ── 阶段 B：TitleBar 数据功能 handler ──
+
+  /** 历史版本回退 */
+  function handleSelectVersion(versionId: string): void {
+    const sid = params.id
+    if (!sid) return
+    const dir = sceneHistoryDir()
+    // 关编辑态
+    previewApi.sendPickMode?.(false)
+    // rollbackToVersion 内部会调 onPreview(sendToPreview) 推送历史版本的 SceneConfig
+    // 切完不要再 sendToPreview 当前数据（否则覆盖历史版本）
+    rollbackToVersion(dir, sid, versionId, (data) => {
+      previewApi.sendToPreview(data as SceneConfig | null)
+    }).then((state) => {
+      if (!state) return
+      setCurrentVersionId((prev) => ({ ...prev, [sid]: versionId }))
+      // 同步 pendingPreviewData 为历史版本，后续操作基于此
+      const merged = (state as any)?.mergedSceneConfig ?? null
+      if (merged) {
+        setPendingPreviewData((prev) => ({ ...prev, [sid]: merged as SceneConfig }))
+      }
+    })
+  }
+
+  /** 分享：导出历史目录为 zip */
+  async function handleShare(): Promise<void> {
+    const sid = params.id
+    if (!sid) return
+    const dir = sceneHistoryDir()
+    const title = sessionInfo()?.title ?? sid
+    await exportZip({ historyDir: dir, sessionId: sid, title })
+  }
+
+  /** 预览：另开独立窗口显示当前场景（运行态，无编辑栏） */
+  function handleLivePreview(): void {
+    const sid = params.id
+    if (!sid) return
+    const data = pendingPreviewData()[sid]
+    if (!data) {
+      showToast({ title: "暂无可预览的场景数据" })
+      return
+    }
+    const desktopApi = getDesktopApi()
+    if (!desktopApi?.writeFileBuffer) {
+      showToast({ title: "当前环境不支持实时预览" })
+      return
+    }
+    // 写场景 JSON 到 3d-templete 的 public/live-data.json（vite dev server 5173 自动 serve），
+    // 然后用 ?fetch=live-data.json 让 Scene3D.vue 的 loadLiveDataConfig 读取（与 pattern 实时预览协议一致）。
+    const templateSrc = import.meta.env.VITE_3D_TEMPLATE_SRC ?? "D:/cyc/project/octo/3d-templete"
+    const jsonStr = JSON.stringify(data, null, 2)
+    const encoder = new TextEncoder()
+    desktopApi.writeFileBuffer(`${templateSrc}/public/live-data.json`, encoder.encode(jsonStr).buffer as ArrayBuffer).then(() => {
+      // 3d-templete 运行态 URL（不带 /embed），?fetch= 指向 public/live-data.json
+      const baseUrl = import.meta.env.VITE_3D_BASE ?? "http://127.0.0.1:5173"
+      window.open(`${baseUrl}/?fetch=live-data.json`)
+    }).catch(() => {
+      showToast({ title: "写入预览文件失败" })
+    })
+  }
+
+  /** 下载：导出 3d-templete 工程（开发者 npm i && npm run dev 可运行） */
+  async function handleDownload(): Promise<void> {
+    const sid = params.id
+    if (!sid) return
+    const data = pendingPreviewData()[sid]
+    if (!data) {
+      showToast({ title: "暂无可导出的场景数据" })
+      return
+    }
+    const templateSrc = import.meta.env.VITE_3D_TEMPLATE_SRC ?? "D:/cyc/project/octo/3d-templete"
+    const componentsSrc = import.meta.env.VITE_3D_COMPONENTS_SRC ?? "D:/cyc/project/octo/3d-components"
+    if (!templateSrc || !componentsSrc) {
+      showToast({ title: "未配置工程源码路径（VITE_3D_TEMPLATE_SRC / VITE_3D_COMPONENTS_SRC）" })
+      return
+    }
+    const title = sessionInfo()?.title ?? `3d-scene-${sid}`
+    await exportProject({
+      templateSrc,
+      componentsSrc,
+      sceneConfig: data,
+      defaultName: title,
+    })
+  }
+
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
       <Toast.Region />
@@ -883,6 +972,12 @@ function Scene3DContent() {
                       previewSrc={PREVIEW_SRC}
                       onReady={() => setEmbedReady(true)}
                       onPatch={handleScenePatch}
+                      versions={versions()[params.id!] ?? []}
+                      currentVersionId={currentVersionId()[params.id!] ?? null}
+                      onSelectVersion={handleSelectVersion}
+                      onPreview={handleLivePreview}
+                      onShare={handleShare}
+                      onDownload={handleDownload}
                     />
                   </Show>
                 }>
