@@ -268,13 +268,6 @@ export function createInsightFileStore(sessionId: string) {
     !allPageSelected() && selectablePageFiles().some((f) => store.selected.has(f.path)),
   )
 
-  // 批量删除只针对"已上传"段(generated 产物不能由用户删);selectedUploadedFiles 给 batch delete 用。
-  const selectedUploadedFiles = createMemo(() =>
-    Array.from(store.selected).filter((path) =>
-      store.uploadedFiles.some((f) => f.path === path),
-    ),
-  )
-
   return {
     store,
     setStore,
@@ -287,7 +280,6 @@ export function createInsightFileStore(sessionId: string) {
     isTopLevel,
     allPageSelected,
     somePageSelected,
-    selectedUploadedFiles,
 
     setLoading(loading: boolean) {
       setStore("loading", loading)

@@ -7,6 +7,7 @@ export type ResultTab = {
   type: "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "deck" | "svg" | "markdown-document" | "code-snippet" | "react-component" | "diagram" | "local-file" | "image" | "video" | "audio" | "pdf" | "text" | "design-plan" 
   content: string
   filePath?: string
+  commentFilePath?: string
   sessionId?: string
   absoluteFilePath?: string
   exports?: ArtifactExportKind[]
@@ -39,6 +40,7 @@ export function createTabStore() {
       type: card.type,
       content: card.content,
       filePath: card.filePath,
+      commentFilePath: card.commentFilePath,
       sessionId: card.sessionId,
       exports: card.exports,
       artifactIdentifier: card.artifactIdentifier,
