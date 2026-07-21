@@ -3376,6 +3376,11 @@ export default function StudioPage() {
     void runGeneration(restoreGenerationInput(current))
   }
 
+  const sessionDataLoaded = createMemo(() => {
+    if (!params.id) return false
+    return dataStore.message[params.id] !== undefined
+  })
+
   const hasStudioConversation = createMemo(() => {
     // 切换 session 数据未加载时保持对话布局，避免闪现空状态
     if (params.id && !sessionDataLoaded()) return true
@@ -3385,11 +3390,6 @@ export default function StudioPage() {
       sending() ||
       isEditingWorkspaceMode() ||
       Boolean(workspaceModeForCapability(capability()))
-  })
-
-  const sessionDataLoaded = createMemo(() => {
-    if (!params.id) return false
-    return dataStore.message[params.id] !== undefined
   })
 
   const [hintVisible, setHintVisible] = createSignal(false)
