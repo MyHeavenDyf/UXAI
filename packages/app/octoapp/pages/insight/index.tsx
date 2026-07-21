@@ -1659,7 +1659,7 @@ function InsightContent() {
     })
     if (card.source === "path" && card.filePath) {
       const api = getDesktopApi()
-      if (api?.readFileBuffer && (await api.readFileBuffer(card.filePath)) === null) {
+      if (api?.fileExists && !(await api.fileExists(card.filePath))) {
         showToast({ title: "文件不存在", description: card.fileName ?? card.title, variant: "error", duration: 3000 })
         return
       }
