@@ -2,7 +2,7 @@
   --el-button-font-weight: var(--el-font-weight-primary);
   --el-button-text-color: var(--el-text-color-primary);
   --el-button-disabled-text-color: var(--el-text-color-disabled);
-  --el-button-disabled-bg-color: var(--surface-disabled);
+  --el-button-disabled-bg-color: var(--gray-10);
   --el-button-hover-text-color: var(--el-text-color-primary);
   --el-button-hover-bg-color: var(--el-fill-color-blank);
   --el-button-hover-border-color: var(--gray-90);
@@ -148,16 +148,22 @@
   .el-button {
     --el-button-border-color: var(--gray-50);
     --el-button-bg-color: rgb(from var(--gray-100) r g b / 0);
-    --el-button-disabled-bg-color: rgb(from var(--gray-5) r g b / 0.2);
+    --el-button-disabled-bg-color: rgb(from var(--gray-05) r g b / 0.2);
     --el-button-disabled-border-color: var(--gray-60);
     --el-button-hover-bg-color: rgb(from var(--gray-100) r g b / 0);
-    --el-button-hover-border-color: var(--gray-5);
+    --el-button-hover-border-color: var(--gray-05);
     --el-button-active-text-color: var(--el-text-color-primary);
     --el-button-active-border-color: var(--brand-40);
     --el-button-active-bg-color: rgb(from var(--gray-100) r g b / 0);
 
     &.icon-only-circle {
       color: var(--gray-10);
+      &:hover svg {
+        stroke: var(--brand-20) !important;
+      }
+      &:active svg {
+        stroke: var(--brand-40) !important;
+      }
     }
   }
 
@@ -173,7 +179,7 @@
     --el-button-hover-border-color: var(--brand-40);
     --el-button-active-bg-color: var(--brand-60);
     --el-button-active-border-color: var(--brand-60);
-    --el-button-disabled-text-color: var(--el-color-white);
+    --el-button-disabled-text-color: rgb(from var(--gray-05) r g b / 0.3);
     --el-button-disabled-bg-color: var(--brand-20);
     --el-button-disabled-border-color: var(--brand-20);
   }
@@ -234,6 +240,9 @@
 
   .el-button.is-link {
     color: var(--brand-30);
+    &:not(.is-disabled):hover {
+      color: var(--brand-20);
+    }
     &:not(.is-disabled):active {
       color: var(--brand-40);
     }

@@ -5,17 +5,17 @@
 
 .el-tag {
   --el-tag-border-radius: var(--radius-base);
-  padding: 0 7px;
+  padding: 0 8px;
 }
 
 .el-tag--large {
   --el-icon-size: 14px;
   height: 28px;
-  padding: 0 7px;
+  padding: 0 12px;
 }
 
 .el-tag.is-closable {
-  padding: 0 7px;
+  padding: 0 8px;
 }
 
 .el-tag .el-tag__close {
@@ -112,7 +112,7 @@
 .el-tag--plain.el-tag--info,
 .el-tag--plain.el-tag--warning,
 .el-tag--plain.el-tag--danger {
-  --el-tag-bg-color: var(--surface-default);
+  --el-tag-bg-color: var(--color-bg-2);
 }
 
 .el-tag.el-tag--default {
@@ -123,12 +123,13 @@
   &:hover {
     --el-tag-bg-color: #dfdfdf;
   }
-
-  &:active,
-  &:focus {
-    --el-tag-text-color: #0067d1;
-    --el-tag-bg-color: #e6f2fd;
-    --el-tag-border-color: #0067d1;
+  &:not(.is-closable) {
+    &:active,
+    &:focus {
+      --el-tag-text-color: #0067d1;
+      --el-tag-bg-color: #e6f2fd;
+      --el-tag-border-color: #0067d1;
+    }
   }
 }
 
@@ -218,16 +219,20 @@
     --el-tag-text-color: #ffffff;
     --el-tag-bg-color: rgb(from #f3f3f3 r g b / 0.2);
     --el-tag-border-color: transparent;
+    .el-tag__content svg {
+      stroke: var(--gray-40);
+    }
 
     &:hover {
       --el-tag-bg-color: #595959;
     }
-
-    &:active,
-    &:focus {
-      --el-tag-text-color: #ffffff;
-      --el-tag-bg-color: rgb(from #0067d1 r g b / 0.4);
-      --el-tag-border-color: #2e86de;
+    &:not(.is-closable) {
+      &:active,
+      &:focus {
+        --el-tag-text-color: #ffffff;
+        --el-tag-bg-color: rgb(from #0067d1 r g b / 0.4);
+        --el-tag-border-color: #2e86de;
+      }
     }
   }
 

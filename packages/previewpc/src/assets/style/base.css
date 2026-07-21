@@ -3,7 +3,7 @@
      1. 基础色阶 (Primitive Colors)
      ========================================================================== */
   /* brand */
-  --brand-5: #E6F2FD;
+  --brand-05: #E6F2FD;
   --brand-10: #B8D9F9;
   --brand-20: #8ABEF3;
   --brand-30: #5CA2E9;
@@ -16,7 +16,7 @@
 
   /* gray */
    --gray-0: #FFFFFF;
-   --gray-5: #F3F3F3;
+   --gray-05: #F3F3F3;
    --gray-10: #DFDFDF;
    --gray-20: #C9C9C9; 
    --gray-30: #AEAEAE;
@@ -29,7 +29,7 @@
    --gray-100: #000000;
 
    /* red */
-   --red-5: #FEE7E8;
+   --red-05: #FEE7E8;
    --red-10: #FABDC1;
    --red-20: #F59297;
    --red-30: #EE696F;
@@ -41,7 +41,7 @@
    --red-90: #350305;
 
    /* rose */
-   --rose-5: #FEE5F2;
+   --rose-05: #FEE5F2;
    --rose-10: #FCC3E0;
    --rose-20: #F99AC7;
    --rose-30: #F470AB;
@@ -53,7 +53,7 @@
    --rose-90: #330614;
 
    /* orange */
-   --orange-5: #FEF5E8;
+   --orange-05: #FEF5E8;
    --orange-10: #FDE2BD;
    --orange-20: #FCCE92;
    --orange-30: #F9B766;
@@ -65,7 +65,7 @@
    --orange-90: #3D1601;
 
    /* yellow */
-   --yellow-5: #FEFCE0;
+   --yellow-05: #FEFCE0;
    --yellow-10: #FEF8B8;
    --yellow-20: #FEF08A;
    --yellow-30: #FDE55C;
@@ -77,7 +77,7 @@
    --yellow-90: #2E1F00;
 
    /* green */
-   --green-5: #F2FBE9;
+   --green-05: #F2FBE9;
    --green-10: #DFF4CC;
    --green-20: #C6E9A8;
    --green-30: #A8DB81;
@@ -89,7 +89,7 @@
    --green-90: #0C2004;
 
    /* mint */
-   --mint-5: #E7FBF2;
+   --mint-05: #E7FBF2;
    --mint-10: #BCF2DB;
    --mint-20: #8FE5C2;
    --mint-30: #63D5A8;
@@ -101,7 +101,7 @@
    --mint-90: #00291D;
 
    /* cyan */
-   --cyan-5: #E8FCFD;
+   --cyan-05: #E8FCFD;
    --cyan-10: #C9F6F9;
    --cyan-20: #A4ECF1;
    --cyan-30: #7DDFE7;
@@ -113,7 +113,7 @@
    --cyan-90: #04282F;
 
    /* blue */
-   --blue-5: #EEF3FE;
+   --blue-05: #EEF3FE;
    --blue-10: #D0D8FD;
    --blue-20: #B0BFFD;
    --blue-30: #8CA3FA;
@@ -125,7 +125,7 @@
    --blue-90: #081635;
 
    /* indigo */
-   --indigo-5: #EEEEFE;
+   --indigo-05: #EEEEFE;
    --indigo-10: #D5D3FD;
    --indigo-20: #BFB9FA;
    --indigo-30: #A89FF9;
@@ -137,7 +137,7 @@
    --indigo-90: #160B48;
 
    /* purple */
-   --purple-5: #F7EDFE;
+   --purple-05: #F7EDFE;
    --purple-10: #E8CFFE;
    --purple-20: #D9B1FD;
    --purple-30: #CB8EFB;
@@ -149,7 +149,7 @@
    --purple-90: #260937;
 
    /* pink */
-   --pink-5: #FDE6FC;
+   --pink-05: #FDE6FC;
    --pink-10: #F9C5F6;
    --pink-20: #F39DEC;
    --pink-30: #EB74DF;

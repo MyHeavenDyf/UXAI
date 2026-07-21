@@ -68,7 +68,7 @@ export class GaugeChart {
           <circle cx="180" cy="100" r="6" fill="#0ea5e9" filter="url(#gdGlow)" />
         </g>
         
-        <text class="gd-value-text" x="100" y="95" text-anchor="middle" font-size="38" font-weight="bold" fill="var(--text-default, #000)">
+        <text class="gd-value-text" x="100" y="95" text-anchor="middle" font-size="38" font-weight="bold" fill="var(--color-text-primary, #000)">
           <tspan class="gd-number">0</tspan><tspan font-size="16" fill="#6b7280" font-weight="normal" dx="2">%</tspan>
         </text>
       </svg>

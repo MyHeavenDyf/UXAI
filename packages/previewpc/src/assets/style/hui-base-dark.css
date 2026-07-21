@@ -11,7 +11,7 @@
   --color-text-placeholder: var(--gray-40);
   --color-text-disabled: var(--gray-40);
   --color-text-inverse: var(--gray-0);
-  --color-text-inverse-disabled: rgb(from var(--gray-5) r g b / 0.3);
+  --color-text-inverse-disabled: rgb(from var(--gray-05) r g b / 0.3);
   --color-text-on: var(--gray-0);
   --color-link: var(--brand-30);
   --color-link-hover: var(--brand-20);
@@ -23,14 +23,14 @@
   --color-bg-2: var(--gray-90);
   --color-bg-3: var(--gray-80);
   --color-bg-4: var(--gray-70);
-  --color-bg-5: rgb(from var(--gray-5) r g b / 0.1);
-  --color-bg-6: rgb(from var(--gray-5) r g b / 0.1);
+  --color-bg-5: rgb(from var(--gray-05) r g b / 0.1);
+  --color-bg-6: rgb(from var(--gray-05) r g b / 0.1);
   --color-bg-mask: rgb(from var(--gray-0) r g b / 0.7);
   /* 填充色 */
   --color-fill-disabled: var(--gray-60);
-  --color-hover: rgb(from var(--gray-5) r g b / 0.2);
-  --color-fill-disabled-subtle: rgb(from var(--gray-5) r g b / 0.2);
-  --color-fill: rgb(from var(--gray-5) r g b / 0.2);
+  --color-hover: rgb(from var(--gray-05) r g b / 0.2);
+  --color-fill-disabled-subtle: rgb(from var(--gray-05) r g b / 0.2);
+  --color-fill: rgb(from var(--gray-05) r g b / 0.2);
   --color-select: rgb(from var(--brand-50) r g b / 0.4);
   --color-fill-subtle: rgb(from var(--gray-100) r g b / 0);
 
@@ -46,12 +46,12 @@
   --color-icon-active: var(--brand-40);
   /* 边框色 */
   --color-border: var(--gray-50);
-  --color-border-hover: var(--gray-5);
+  --color-border-hover: var(--gray-05);
   --color-border-focus: var(--brand-40);
   --color-border-active: var(--brand-80);
   --color-border-disabled: var(--gray-60);
-  --color-border-separator: rgb(from var(--gray-5) r g b / 0.15);
-  --color-border-separator-sbutle: rgb(from var(--gray-5) r g b / 0.1);
+  --color-border-separator: rgb(from var(--gray-05) r g b / 0.15);
+  --color-border-separator-sbutle: rgb(from var(--gray-05) r g b / 0.1);
   /* 功能色-错误 */
   --color-error: var(--red-40);
   --color-error-hover: var(--red-30);
@@ -92,7 +92,7 @@
   --color-info-secondary-subtle: var(--blue-80);
   /* 功能色-失效 */
   --color-none: var(--gray-60);
-  --color-none-hover: rgb(from var(--gray-5) r g b / 0.2);
+  --color-none-hover: rgb(from var(--gray-05) r g b / 0.2);
   --color-none-active: var(--gray-50);
   --color-none-disabled: var(--gray-90);
   --color-none-subtle: var(--gray-90);
@@ -128,10 +128,8 @@
   --color-card-gray-disabled: rgb(from var(--gray-40) r g b / 0.05);
   --color-card-white-disabled: rgb(from var(--gray-40) r g b / 0.1);
   --color-sidenav-bg: var(--gray-70);
-  --color-table-header: rgb(from var(--gray-5) r g b / 0.1);
+  --color-table-header: rgb(from var(--gray-05) r g b / 0.1);
   --color-table-zebra: rgb(from var(--gray-50) r g b / 0.15);
-  --color-radiogp-bg: var(--brand-40);
-  --color-radiogp-text: var(--gray-0);
   --color-message-bg-info: rgb(from var(--blue-50) r g b / 0.15);
   --color-message-bg-success: rgb(from var(--mint-60) r g b / 0.15);
   --color-message-bg-warning: rgb(from var(--yellow-40) r g b / 0.15);
@@ -178,82 +176,9 @@
   --color-tag-text-info: var(--blue-30);
   --color-tag-bg-info: rgb(from var(--blue-40) r g b / 0.15);
 
-  /* ==========================================================================
-     语义化色彩 Token (暗色模式映射)
-     ========================================================================== */
-  /* Text */
-  --text-default: var(--gray-0);
-  --text-secondary: var(--gray-20);
-  --text-placeholder: var(--gray-40);
-  --text-disabled: var(--gray-40);
-  --text-inverse: var(--gray-90);
-  --text-primary: var(--brand-30);
-  --text-success: var(--mint-30);
-  --text-warning: var(--yellow-30);
-  --text-alert: var(--orange-30);
-  --text-error: var(--red-30);
-
-  /* Text Interaction States */
-  --text-primary-hover: var(--gray-0);
-  --text-primary-active: var(--brand-30);
-  --text-success-hover: var(--mint-20);
-  --text-success-active: var(--mint-30);
-  --text-warning-hover: var(--yellow-20);
-  --text-warning-active: var(--yellow-30);
-  --text-alert-hover: var(--orange-20);
-  --text-alert-active: var(--orange-30);
-  --text-error-hover: var(--red-20);
-  --text-error-active: var(--red-30);
-
-  /* Background - Base */
-  --surface-background: var(--gray-100);
-  --surface-default: var(--gray-90);
-  --surface-secondary: var(--gray-80);
-  --surface-transparent: transparent;
-  --surface-disabled: var(--gray-70);
-  --surface-mask: rgba(0, 0, 0, 0.6);
-
-  /* Background - Solid */
-  --surface-primary: var(--brand-30);
-  --surface-success: var(--mint-30);
-  --surface-warning: var(--yellow-30);
-  --surface-alert: var(--orange-30);
-  --surface-error: var(--red-30);
-
-  /* Background - Solid Interaction States */
-  --surface-primary-hover: var(--brand-20);
-  --surface-primary-active: var(--brand-40);
-  --surface-success-hover: var(--mint-20);
-  --surface-success-active: var(--mint-40);
-  --surface-warning-hover: var(--yellow-20);
-  --surface-warning-active: var(--yellow-40);
-  --surface-alert-hover: var(--orange-20);
-  --surface-alert-active: var(--orange-40);
-  --surface-error-hover: var(--red-20);
-  --surface-error-active: var(--red-40);
-
-  /* Background - Subtle */
-  --surface-primary-subtle: var(--brand-90);
-  --surface-success-subtle: var(--mint-90);
-  --surface-warning-subtle: var(--yellow-90);
-  --surface-alert-subtle: var(--orange-90);
-  --surface-error-subtle: var(--red-90);
-
-  /* Background - Subtle Interaction States */
-  --surface-primary-subtle-hover: var(--brand-80);
-  --surface-primary-subtle-active: var(--brand-70);
-  --surface-success-subtle-hover: var(--mint-80);
-  --surface-success-subtle-active: var(--mint-70);
-  --surface-warning-subtle-hover: var(--yellow-80);
-  --surface-warning-subtle-active: var(--yellow-70);
-  --surface-alert-subtle-hover: var(--orange-80);
-  --surface-alert-subtle-active: var(--orange-70);
-  --surface-error-subtle-hover: var(--red-80);
-  --surface-error-subtle-active: var(--red-70);
-
   /* Border */
   --border: var(--gray-50);
-  --border-light: rgb(from var(--gray-5) r g b / 0.15);
+  --border-light: rgb(from var(--gray-05) r g b / 0.15);
   --border-primary: var(--brand-30);
   --border-success: var(--mint-20);
   --border-warning: var(--yellow-20);
@@ -269,14 +194,6 @@
   --icon-error: var(--red-30);
 
 
-  /* Gradients */
-  --gradient-dark: linear-gradient(135deg,
-      var(--brand-40) 0%,
-      var(--brand-60) 100%);
-  --gradient-light: linear-gradient(180deg,
-      var(--brand-80) 0%,
-      var(--gray-90) 100%);
-
   /* Shadow (暗色模式下阴影更强) */
    --shadow-none: none;
    --shadow-sm: 0 1px 6px rgba(0, 0, 0, 0.5);
@@ -290,62 +207,6 @@
    --shadow-l-md: -2px 0 24px 0 rgba(0, 0, 0, 0.5);
 
 
-  /* ==========================================================================
-     Tailwind Design Token Mappings (暗色模式)
-     ========================================================================== */
-  --primary: var(--brand-50);
-  --on-primary: var(--gray-0);
-  --primary-container: rgb(from var(--brand-50) r g b / 15%);
-  --on-primary-container: var(--gray-0);
-  --primary-fixed: var(--brand-50);
-  --primary-fixed-dim: var(--brand-60);
-  --on-primary-fixed: var(--gray-0);
-  --on-primary-fixed-variant: var(--gray-5);
-
-  --surface: var(--gray-100);
-  --surface-dim: var(--gray-100);
-  --surface-bright: var(--gray-90);
-  --on-surface: var(--gray-0);
-  --surface-variant: rgb(from var(--gray-5) r g b / 15%);  
-  --on-surface-variant: var(--gray-20);
-  
-  --surface-container-lowest: var(--gray-100);
-  --surface-container-low: var(--gray-80); 
-  --surface-container: var(--gray-80); 
-  --surface-container-high: var(--gray-70); 
-  --surface-container-highest: var(--gray-90); 
-
-  --inverse-surface: var(--gray-0);
-  --inverse-on-surface: var(--gray-90);
-  --inverse-on-surface-variant: var(--gray-60);
-  --inverse-primary: var(--brand-60);
-
-  --error: var(--red-40);
-  --on-error: var(--gray-0);
-  --error-container: rgb(from var(--red-40) r g b / 15%);
-  --on-error-container: var(--gray-0);
-
-  --success: var(--mint-60);
-  --on-success: var(--gray-0);
-  --success-container: rgb(from var(--mint-40) r g b / 15%);
-  --on-success-container: var(--gray-0);
-
-  --warning: var(--yellow-40);
-  --on-warning: var(--gray-0);
-  --warning-container: rgb(from var(--yellow-40) r g b / 15%);
-  --on-warning-container: var(--gray-0);
-
-  --info: var(--brand-50);
-  --on-info: var(--gray-0);
-  --info-container: rgb(from var(--brand-50) r g b / 15%);
-  --on-info-container: var(--gray-0);
-
-  --critical: var(--orange-50);
-  --on-critical: var(--gray-0);
-  --critical-container: rgb(from var(--orange-50) r g b / 15%);
-  --on-critical-container: var(--gray-0);
-
-  --divider: rgb(from var(--gray-5) r g b / 15%);
   /* ==========================================================================
       Element Plus 变量覆盖 (映射到设计系统)
      ========================================================================== */
@@ -369,7 +230,7 @@
   --el-color-info-light-3: var(--gray-30);
   --el-color-info-light-5: var(--gray-20);
   --el-color-info-light-8: var(--gray-10);
-  --el-color-info-light-9: var(--gray-5);
+  --el-color-info-light-9: var(--gray-05);
 
   --el-color-primary-light-3: var(--brand-30);
   --el-color-primary-light-5: var(--brand-20);
@@ -379,31 +240,31 @@
   --el-color-success-light-3: var(--mint-30);
   --el-color-success-light-5: var(--mint-20);
   --el-color-success-light-8: var(--mint-10);
-  --el-color-success-light-9: var(--mint-5);
+  --el-color-success-light-9: var(--mint-05);
 
   --el-color-warning-light-3: var(--yellow-30);
   --el-color-warning-light-5: var(--yellow-20);
   --el-color-warning-light-8: var(--yellow-10);
-  --el-color-warning-light-9: var(--yellow-5);
+  --el-color-warning-light-9: var(--yellow-05);
 
   --el-color-danger-light-3: var(--red-30);
   --el-color-danger-light-5: var(--red-20);
   --el-color-danger-light-8: var(--red-10);
-  --el-color-danger-light-9: var(--red-5);
+  --el-color-danger-light-9: var(--red-05);
 
   /* 衍生深色 (与黑色混合加深，用于 Active 按压状态)  待定  */
   /* 文字颜色阶梯 */
   --el-color-primary-dark-2: var(--brand-40);
   /* 主要文字 */
-  --el-text-color-primary: var(--text-default);
+  --el-text-color-primary: var(--color-text-primary);
   /* 常规正文 */
-  --el-text-color-regular: var(--text-default);
+  --el-text-color-regular: var(--color-text-primary);
   /* 次要说明 */
-  --el-text-color-secondary: var(--text-secondary);
+  --el-text-color-secondary: var(--gray-20);
   /* 占位符提示 */
-  --el-text-color-placeholder: var(--text-placeholder);
+  --el-text-color-placeholder: var(--gray-40);
   /* 禁用状态文字 */
-  --el-text-color-disabled: var(--text-disabled);
+  --el-text-color-disabled: var(--gray-40);
 
 
   /* 字号大小 (对齐系统要求：md 为 16px 为默认正文) */
@@ -420,21 +281,21 @@
   --el-font-weight-primary: var(--font-weight-normal);
 
   /* 页面级背景 */
-  --el-bg-color: var(--surface-default);
+  --el-bg-color: var(--color-bg-2);
   /* 组件基础背景 */
-  --el-bg-color-page: var(--surface-background);
+  --el-bg-color-page: var(--gray-100);
   /* 页面底层背景 */
-  --el-bg-color-overlay: var(--surface-default);
+  --el-bg-color-overlay: var(--color-bg-2);
   /* 弹窗、下拉框等悬浮层背景 */
 
   /* 填充色阶梯 (禁用状态的输入框、表格斑马纹等)  */
-  --el-fill-color: var(--surface-secondary);
-  --el-fill-color-light: var(--surface-secondary);
-  --el-fill-color-lighter: var(--surface-primary);
-  --el-fill-color-extra-light: var(--surface-primary);
-  --el-fill-color-dark: var(--surface-disabled);
+  --el-fill-color: var(--gray-80);
+  --el-fill-color-light: var(--gray-80);
+  --el-fill-color-lighter: var(--brand-30);
+  --el-fill-color-extra-light: var(--brand-30);
+  --el-fill-color-dark: var(--gray-70);
   --el-fill-color-darker: var(--brand-20);
-  --el-fill-color-blank: var(--surface-default);
+  --el-fill-color-blank: var(--color-bg-2);
 
   /* 边框颜色阶梯 */
   /* 基础边框 */
@@ -447,7 +308,7 @@
   --el-border-color-extra-light: var(--gray-0);
   --el-border-color-dark: var(--gray-30);
   --el-border-color-darker: var(--gray-40);
-  --el-border-color-hover: var(--gray-5);
+  --el-border-color-hover: var(--gray-05);
 
   /* 边框样式 */
   --el-border-width: 1px;
@@ -473,7 +334,7 @@
   --el-index-popper: 2000;
 
   /* 黑色半透明遮罩 待定 light lighter */
-  --el-overlay-color: var(--surface-mask);
+  --el-overlay-color: rgb(from var(--gray-100) r g b / 0.6);
   --el-overlay-color-light: rgba(0, 0, 0, 0.3);
   --el-overlay-color-lighter: rgba(0, 0, 0, 0.1);
 
@@ -499,6 +360,7 @@
 .el-popper {
   --el-popper-bg-color-light: var(--gray-70);
   --el-popper-bg-color-dark: var(--el-text-color-primary);
+  border-radius: var(--radius-md);
   &[data-popper-placement="top-start"],
   &[data-popper-placement="top"],
   &[data-popper-placement="top-end"] {
@@ -540,7 +402,7 @@
 .el-dropdown__popper.el-popper {
   --el-dropdown-menu-box-shadow: var(--el-box-shadow);
   --el-dropdown-menuItem-hover-fill: var(--el-fill-color-light);
-  --el-dropdown-menuItem-hover-color: var(--text-primary);
+  --el-dropdown-menuItem-hover-color: var(--brand-30);
   border-radius: var(--radius-base);
   padding: 4px;
     .el-dropdown-menu {
@@ -560,9 +422,20 @@
 /* ================= Select ================= */
 .el-select {
   --el-select-input-font-size: var(--el-font-size-base);
+  --el-select-multiple-input-color: var(--gray-0);
+  --el-text-color-placeholder: var(--gray-0);
 }
+
 .el-select__wrapper {
   background-color: transparent;
+    &.is-focused {
+    border: 1px solid var(--brand-80);
+    box-shadow: 0 0 0 1px var(--brand-40) inset;
+  }
+}
+.el-select__prefix,
+.el-select__suffix {
+  color: var(--gray-10);
 }
 
 .el-select__popper {
@@ -579,13 +452,19 @@
 }
 
 .el-select-dropdown__item {
+  height: 32px;
+  line-height: 32px;
+  padding: 0 8px;
   border-radius: var(--radius-base);
+  &:not(&:nth-last-of-type(1)) {
+    margin-bottom: 4px;
+  }
   &.is-hovering {
-    background-color: rgba(243, 243, 243, 0.2);
-    color: var(--text-primary-hover);
+    background-color: rgb(from var(--gray-05) r g b / 0.2);
+    color: var(--gray-0);
   }
   &.is-selected {
-    color: var(--text-primary-hover);
+    color: var(--gray-0);
     font-weight: var(--el-font-weight-primary);
     background-color: rgb(from var(--brand-50) r g b / 0.4);
   }
@@ -613,6 +492,6 @@
 }
 
 .theme-dark {
-  color: var(--text-default);
+  color: var(--color-text-primary);
 
 }
