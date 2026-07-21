@@ -2653,39 +2653,68 @@ if (dsId) {
                 onMouseUp={autoScroll.handleInteraction}
               >
                 <div ref={autoScroll.contentRef} class="py-3 flex flex-col gap-0">
-                    {/* 进入设计规划子 agent 的提示卡片 - 只在 plan 模式下显示 */}
+                    {/* 第一条消息 */}
+                    <Show when={userMessages().length > 0}>
+                      <InsightTurn
+                        sessionID={userMessages()[0].sessionID || params.id!}
+                        messageID={userMessages()[0].id}
+                        status={sync.data.session_status[userMessages()[0].sessionID] ?? sessionStatus()}
+                        active={isBusy()}
+                        elapsedText={elapsedText()}
+                        blockTime={blockTime()}
+                        onAbort={halt}
+                        onOpenResult={handleOpenResult}
+                        onOpenLocalFile={handleOpenLocalFile}
+                        projectDir={projectDir()}
+                        onContinue={handleContinue}
+                        onChildSession={ensureChildSession}
+                        deltaLog={deltaLog()}
+                        onFormSubmit={(text) => {
+                          setPrompt(text)
+                        }}
+                        hasQuestionRequest={!!questionRequest()}
+                        onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
+                        skillToolCalls={skillToolCalls()}
+                      />
+                    </Show>
+                    {/* 设计策略模式气泡 */}
                     <Show when={resultViewMode() === "plan" && activePlanSessionId()}>
                       <div
-                        class="flex items-center justify-between gap-2 px-4 py-2 mx-3 rounded-lg mb-2"
-                        style="background: rgba(10, 89, 247, 0.08); border: 1px solid rgba(10, 89, 247, 0.2);"
+                        class="flex items-center justify-between mx-3 mb-2"
+                        style={{
+                          height: "48px",
+                          padding: "0 16px",
+                          "border-radius": "12px",
+                          border: "1px solid rgba(0,0,0,0.1)",
+                          background: "linear-gradient(90deg, rgb(245, 248, 255), rgb(255, 255, 255) 50%)",
+                        }}
                       >
-                        <div class="flex items-center gap-2">
-                          <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" style="color: #0a59f7;">
-                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" opacity="0.3" />
-                            <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                              <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite" />
-                            </path>
+                        <div class="flex items-center gap-[8px]">
+                          <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="shrink-0">
+                            <path d="M3.66642 1.23337C3.63087 1.1667 3.59531 1.12892 3.55976 1.12003C3.5242 1.11114 3.48865 1.12003 3.45309 1.1467C3.42198 1.17337 3.40198 1.20225 3.39309 1.23337C3.27309 1.85114 2.9842 2.3867 2.52642 2.84003C2.06865 3.29337 1.5242 3.58892 0.89309 3.7267C0.85309 3.74003 0.824201 3.7667 0.806423 3.8067C0.79309 3.85114 0.795312 3.89114 0.81309 3.9267C0.835312 3.9667 0.861979 3.9867 0.89309 3.9867C1.5242 4.11114 2.06865 4.40448 2.52642 4.8667C2.9842 5.32448 3.27309 5.86226 3.39309 6.48003C3.41531 6.53337 3.44642 6.56892 3.48642 6.5867C3.53087 6.60003 3.56865 6.59559 3.59976 6.57337C3.63087 6.55559 3.65309 6.52448 3.66642 6.48003C3.8042 5.84892 4.09753 5.3067 4.54642 4.85337C4.99087 4.40003 5.52865 4.11114 6.15976 3.9867C6.2042 3.97337 6.23531 3.94892 6.25309 3.91337C6.27531 3.87337 6.27531 3.83559 6.25309 3.80003C6.23531 3.76448 6.2042 3.74003 6.15976 3.7267C5.54198 3.58892 5.00642 3.29337 4.55309 2.84003C4.09976 2.3867 3.8042 1.85114 3.66642 1.23337ZM13.6664 9.55337C13.6531 9.50892 13.6353 9.48448 13.6131 9.48003C13.5953 9.47559 13.5775 9.48003 13.5598 9.49337C13.542 9.51114 13.5286 9.53114 13.5198 9.55337C13.4442 9.91337 13.2753 10.2245 13.0131 10.4867C12.7553 10.7489 12.4398 10.9223 12.0664 11.0067C12.0309 11.02 12.0109 11.0356 12.0064 11.0534C12.002 11.0756 12.0042 11.0978 12.0131 11.12C12.0264 11.1423 12.0442 11.1534 12.0664 11.1534C12.4264 11.2378 12.7398 11.4111 13.0064 11.6734C13.2731 11.9356 13.4442 12.2423 13.5198 12.5934C13.5286 12.6245 13.5442 12.6445 13.5664 12.6534C13.5886 12.6667 13.6109 12.6667 13.6331 12.6534C13.6553 12.6445 13.6664 12.6245 13.6664 12.5934C13.7509 12.2289 13.9242 11.9156 14.1864 11.6534C14.4442 11.3956 14.7553 11.2289 15.1198 11.1534C15.1509 11.1534 15.1731 11.14 15.1864 11.1134C15.1953 11.0867 15.1953 11.0623 15.1864 11.04C15.1731 11.0178 15.1509 11.0067 15.1198 11.0067C14.7553 10.9311 14.4442 10.76 14.1864 10.4934C13.9242 10.2267 13.7509 9.91337 13.6664 9.55337ZM10.3864 12.5734C10.3731 12.5334 10.3531 12.5156 10.3264 12.52C10.2998 12.5245 10.282 12.5423 10.2731 12.5734C10.2286 12.8311 10.1131 13.0534 9.92642 13.24C9.73976 13.4267 9.51309 13.5467 9.24642 13.6C9.21531 13.6089 9.20198 13.6267 9.20642 13.6534C9.21087 13.68 9.2242 13.6934 9.24642 13.6934C9.5042 13.7467 9.72864 13.8711 9.91976 14.0667C10.1109 14.2578 10.2286 14.4756 10.2731 14.72C10.282 14.7645 10.2998 14.7823 10.3264 14.7734C10.3531 14.7689 10.3731 14.7511 10.3864 14.72C10.4398 14.4623 10.5598 14.24 10.7464 14.0534C10.9331 13.8667 11.1531 13.7467 11.4064 13.6934C11.4375 13.6934 11.4531 13.68 11.4531 13.6534C11.4531 13.6267 11.4375 13.6089 11.4064 13.6C11.1531 13.5467 10.9331 13.4267 10.7464 13.24C10.5598 13.0534 10.4398 12.8311 10.3864 12.5734Z" fill="rgb(10,89,247)" fill-rule="nonzero" />
+                            <path d="M12.4934 2.44669C12.1956 2.14003 11.8334 1.98669 11.4067 1.98669C10.9801 1.98669 10.6134 2.14003 10.3067 2.44669L2.92673 9.84003C2.82007 9.92447 2.72896 10.0578 2.6534 10.24L1.76007 12.48C1.63118 12.8 1.6334 13.1111 1.76673 13.4134C1.90007 13.72 2.11562 13.94 2.4134 14.0734C2.71562 14.2067 3.02673 14.2089 3.34673 14.08L5.58673 13.1667C5.75562 13.0911 5.8934 13.0067 6.00007 12.9134L13.3734 5.52003C13.5778 5.31558 13.7156 5.08003 13.7867 4.81336C13.8534 4.54669 13.8534 4.28447 13.7867 4.02669C13.7156 3.76447 13.5778 3.53114 13.3734 3.32669L12.4934 2.44669ZM10.7667 6.67336L5.20007 12.2067L2.96007 13.12C2.90673 13.1289 2.85785 13.1267 2.8134 13.1134C2.7734 13.0956 2.74229 13.0623 2.72007 13.0134C2.69785 12.9689 2.69785 12.9245 2.72007 12.88L3.64673 10.56L9.1534 5.07336L10.7667 6.67336ZM11.0401 3.18669C11.1467 3.08003 11.269 3.02669 11.4067 3.02669C11.5445 3.02669 11.6623 3.08003 11.7601 3.18669L12.6401 4.06669C12.7467 4.16003 12.8001 4.28003 12.8001 4.42669C12.8001 4.56892 12.7467 4.68892 12.6401 4.78669L11.4534 5.92003L9.88673 4.33336L11.0401 3.18669Z" fill="rgb(10,89,247)" fill-rule="nonzero" />
                           </svg>
-                          <span style="font-size: 13px; color: #0a59f7; font-weight: 500;">
-                            已进入设计规划子 agent — 你可以在此对话中持续修改设计方案
+                          <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0,0,0,0.9)" }}>
+                            进入设计策略模式
                           </span>
                         </div>
                         <button
                           onClick={handleEndPlan}
-                          class="shrink-0 px-2 py-0.5 rounded text-[12px] font-medium transition-colors"
-                          style="color: #0a59f7; background: transparent; border: 1px solid rgba(10, 89, 247, 0.3); cursor: pointer;"
-                          onMouseEnter={(e) => {
-                            (e.currentTarget as HTMLElement).style.background = "rgba(10, 89, 247, 0.12)"
-                          }}
-                          onMouseLeave={(e) => {
-                            (e.currentTarget as HTMLElement).style.background = "transparent"
+                          class="shrink-0 transition-colors cursor-pointer"
+                          style={{
+                            "font-size": "14px",
+                            "line-height": "22px",
+                            color: "#0a59f7",
+                            background: "transparent",
+                            border: "none",
                           }}
                         >
-                          结束
+                          退出
                         </button>
                       </div>
                     </Show>
-                    <For each={userMessages()}>
+                    {/* 剩余消息 */}
+                    <For each={userMessages().slice(1)}>
                     {(msg) => (
                       <InsightTurn
                         sessionID={msg.sessionID || params.id!}

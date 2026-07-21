@@ -173,12 +173,12 @@ export const IconCardDiagram = mk("0 0 14 14", `
 `, 14)
 
 export const IconCardPlan = mk("0 0 14 14", `
-  <rect x="2.5" y="1.2" width="9" height="11.6" rx="1" fill="none" stroke="rgb(119,119,119)" stroke-width="1"/>
-  <rect x="5" y="0.6" width="4" height="1.4" rx="0.4" fill="rgb(119,119,119)"/>
-  <path d="M4.3 5.2h5.4" stroke="rgb(119,119,119)" stroke-width="0.9" stroke-linecap="round"/>
-  <path d="M4.3 7.4h5.4" stroke="rgb(119,119,119)" stroke-width="0.9" stroke-linecap="round"/>
-  <path d="M4.3 9.6h3.4" stroke="rgb(119,119,119)" stroke-width="0.9" stroke-linecap="round"/>
-  <path d="M3.4 5.2l0.5 0.5 1 -1" stroke="rgb(119,119,119)" stroke-width="0.7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <rect x="2.5" y="1.2" width="9" height="11.6" rx="1" fill="none" stroke="currentColor" stroke-width="1"/>
+  <rect x="5" y="0.6" width="4" height="1.4" rx="0.4" fill="currentColor"/>
+  <path d="M4.3 5.2h5.4" stroke="currentColor" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M4.3 7.4h5.4" stroke="currentColor" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M4.3 9.6h3.4" stroke="currentColor" stroke-width="0.9" stroke-linecap="round"/>
+  <path d="M3.4 5.2l0.5 0.5 1 -1" stroke="currentColor" stroke-width="0.7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
 `, 14)
 
 export const IconTabClose = mk("0 0 16 16", `

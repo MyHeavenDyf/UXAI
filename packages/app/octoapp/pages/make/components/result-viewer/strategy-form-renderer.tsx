@@ -1,8 +1,6 @@
-import { createSignal, For } from "solid-js"
+import { For } from "solid-js"
 import type { JSX } from "solid-js"
-import { Button } from "@opencode-ai/ui/button"
 import type { StrategyFormData } from "../../utils/strategy-form-scanner"
-import { IconCardPlan } from "../../icons"
 
 interface FormSection {
   title: string
@@ -33,67 +31,114 @@ export function StrategyFormRenderer(props: {
   formData: StrategyFormData
   onFieldChange: (field: keyof StrategyFormData, value: string) => void
   onGenerate: () => void
+  onCancel?: () => void
   isGenerating?: boolean
+  currentStep?: number
 }): JSX.Element {
+  const currentStep = () => props.currentStep ?? 1
   return (
     <div class="flex flex-col h-full overflow-hidden" style={{ background: "var(--octo-surface-page)" }}>
       {/* Header */}
       <div
-        class="flex items-center justify-between shrink-0"
+        class="flex flex-col shrink-0"
         style={{
-          padding: "16px 24px",
+          padding: "24px",
           "border-bottom": "1px solid rgba(0,0,0,0.06)",
           background: "#fff",
         }}
       >
-        <div class="flex items-center gap-2">
-          <IconCardPlan size={18} class="shrink-0" />
-          <span class="text-[15px] font-semibold" style={{ color: "var(--octo-text-primary)" }}>
-            设计策略准备
-          </span>
+        {/* Step indicator */}
+        <div class="flex items-center" style={{ "margin-bottom": "24px" }}>
+          <div class="flex items-center gap-[8px]">
+            <div
+              style={{
+                width: "24px",
+                height: "24px",
+                "border-radius": "999px",
+                display: "flex",
+                "align-items": "center",
+                "justify-content": "center",
+                "font-size": "14px",
+                "line-height": "22px",
+                background: currentStep() === 1 ? "#0a59f7" : "#fff",
+                border: currentStep() === 1 ? "1px solid #0a59f7" : "1px solid rgba(0,0,0,0.2)",
+                color: currentStep() === 1 ? "#fff" : "rgba(0,0,0,0.9)",
+              }}
+            >
+              1
+            </div>
+            <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0,0,0,0.9)" }}>
+              策略准备
+            </span>
+          </div>
+          <div
+            style={{
+              width: "120px",
+              height: "1px",
+              "margin-left": "8px",
+              "margin-right": "8px",
+              background: "rgba(0,0,0,0.2)",
+            }}
+          />
+          <div class="flex items-center gap-[8px]">
+            <div
+              style={{
+                width: "24px",
+                height: "24px",
+                "border-radius": "999px",
+                display: "flex",
+                "align-items": "center",
+                "justify-content": "center",
+                "font-size": "14px",
+                "line-height": "22px",
+                background: currentStep() === 2 ? "#0a59f7" : "#fff",
+                border: currentStep() === 2 ? "1px solid #0a59f7" : "1px solid rgba(0,0,0,0.2)",
+                color: currentStep() === 2 ? "#fff" : "rgba(0,0,0,0.9)",
+              }}
+            >
+              2
+            </div>
+            <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0,0,0,0.9)" }}>
+              策略生成
+            </span>
+          </div>
         </div>
-        <Button
-          variant="primary"
-          size="small"
-          onClick={props.onGenerate}
-          disabled={props.isGenerating}
-        >
-          {props.isGenerating ? "生成中…" : "策略生成"}
-        </Button>
+        {/* Title */}
+        <span style={{ "font-size": "24px", "line-height": "32px", "font-weight": "bold", color: "rgba(0,0,0,0.9)" }}>
+          设计策略准备
+        </span>
       </div>
 
       {/* Form body */}
-      <div class="flex-1 overflow-y-auto" style={{ padding: "24px" }}>
+      <div class="flex-1 overflow-y-auto" style={{ padding: "24px", display: "flex", "flex-direction": "column", gap: "16px" }}>
         <For each={SECTIONS}>
           {(section) => (
-            <div class="mb-6">
-              <h3
-                class="text-[14px] font-semibold mb-3"
-                style={{ color: "var(--octo-text-primary)" }}
-              >
+            <div style={{ padding: "24px", "border-radius": "16px", background: "rgba(0,0,0,0.03)" }}>
+              <h3 style={{ "font-size": "16px", "line-height": "24px", "font-weight": "bold", color: "rgba(0,0,0,0.9)", "margin-bottom": "20px" }}>
                 {section.title}
               </h3>
-              <div class="flex flex-col gap-3">
+              <div style={{ display: "flex", "flex-direction": "column", gap: "20px" }}>
                 <For each={section.fields}>
                   {(field) => (
-                    <div class="flex flex-col gap-1">
-                      <label
-                        class="text-[12px] font-medium"
-                        style={{ color: "var(--octo-text-secondary)" }}
-                      >
+                    <div style={{ display: "flex", "flex-direction": "column", gap: "8px" }}>
+                      <label style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0,0,0,0.9)" }}>
                         {field.label}
                       </label>
                       <textarea
                         value={props.formData[field.key] ?? ""}
                         onInput={(e) => props.onFieldChange(field.key, e.currentTarget.value)}
                         rows={3}
-                        class="resize-y outline-none p-2.5 rounded-[6px] text-[13px]"
+                        class="resize-y outline-none"
                         style={{
+                          "font-size": "14px",
+                          "line-height": "22px",
+                          color: "rgba(0,0,0,0.9)",
                           "font-family": "var(--octo-font)",
-                          background: "rgba(0,0,0,0.02)",
-                          border: "1px solid rgba(0,0,0,0.08)",
-                          color: "var(--octo-text-primary)",
-                          "min-height": "64px",
+                          background: "#fff",
+                          border: "1px solid rgba(0,0,0,0.1)",
+                          "border-radius": "8px",
+                          padding: "8px 12px",
+                          height: "80px",
                         }}
                         placeholder={`请输入${field.label}…`}
                       />
@@ -104,6 +149,62 @@ export function StrategyFormRenderer(props: {
             </div>
           )}
         </For>
+      </div>
+
+      {/* Bottom footer */}
+      <div
+        class="flex items-center justify-end shrink-0"
+        style={{
+          height: "56px",
+          padding: "0 24px",
+          gap: "8px",
+          "border-top": "1px solid rgba(0,0,0,0.1)",
+          background: "#fff",
+        }}
+      >
+        <button
+          type="button"
+          class="text-[14px] rounded-[999px] transition-colors cursor-pointer"
+          style={{
+            height: "32px",
+            padding: "0 16px",
+            "line-height": "22px",
+            background: "#f3f3f3",
+            color: "#191919",
+            border: "none",
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.background = "#dfdfdf"
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.background = "#f3f3f3"
+          }}
+          onClick={props.onCancel}
+        >
+          取消
+        </button>
+        <button
+          type="button"
+          class="text-[14px] font-medium rounded-[999px] text-white transition-colors cursor-pointer"
+          style={{
+            height: "32px",
+            padding: "0 16px",
+            "line-height": "22px",
+            background: "#0a59f7",
+            color: "white",
+            border: "none",
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.background = "#0950de"
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.background = "#0a59f7"
+          }}
+          onClick={props.onGenerate}
+          disabled={props.isGenerating}
+        >
+          {props.isGenerating ? "生成中…" : "策略生成"}
+        </button>
       </div>
     </div>
   )

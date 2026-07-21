@@ -36,7 +36,7 @@
   /* ── Border ─────────────────────────────── */
   --octo-border-default: #E5E7EB;
   --octo-border-input:   #C9C9C9;
-  --octo-border-divider: rgba(0, 0, 0, 0.07);  /* 面板间分隔线 */
+  --octo-border-divider: rgba(0, 0, 0, 0.1);  /* 面板间分隔线 */
 
   /* ── Radius ─────────────────────────────── */
   --octo-radius-sm: 4px;
