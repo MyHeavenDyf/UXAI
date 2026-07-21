@@ -44,6 +44,7 @@ interface PersistedSelections {
   folderName: string | null
   teamId: string | null
   teamName: string | null
+  isProjectArchive: boolean
 }
 
 let persistedSelections: PersistedSelections = {
@@ -57,6 +58,7 @@ let persistedSelections: PersistedSelections = {
   folderName: null,
   teamId: null,
   teamName: null,
+  isProjectArchive: false,
 }
 
 const MOCK_PRODUCT_TREE: ProductTreeData = {
@@ -179,6 +181,47 @@ const MOCK_SEARCH_RESULTS: DeliverableItem[] = [
   { fileName: "在线设计1111", coverUrl: "/workspaces/...", id: 733386, docId: "aaaa" }
 ]
 
+const PROJECT_ARCHIVE_ID = -1
+
+const MOCK_PRODUCT_TEAM: NestedTreeNode[] = [
+  {
+    id: 339042,
+    label: "公共",
+    level: 2,
+    teamType: 4,
+    activityId: 31,
+    permissionFlag: true,
+    parentId: 339041,
+    children: [
+      {
+        id: 388437,
+        label: "分组",
+        level: 5,
+        teamType: 4,
+        activityId: 6,
+        permissionFlag: true,
+        parentId: 339059,
+        baseTeam: 339057,
+        children: [
+          { id: 388429, label: "分组", level: 5, teamType: 4, activityId: 6, permissionFlag: true, parentId: 388437, baseTeam: 339057, children: [] },
+          { id: 388438, label: "分组", level: 5, teamType: 4, activityId: 6, permissionFlag: false, parentId: 388437, baseTeam: 339057, children: [] }
+        ]
+      }
+    ]
+  },
+  {
+    id: 339059,
+    label: "版本计划",
+    level: 3,
+    teamType: 4,
+    activityId: 6,
+    permissionFlag: true,
+    parentId: 339058,
+    baseTeam: 339057,
+    children: []
+  }
+]
+
 const getBaseUrl = () => import.meta.env.VITE_OCTO_BASE_URL || ""
 const isLoggedIn = () => !!localStorage.getItem("uiplusToken")
 const getAuthHeaders = () => ({
@@ -212,6 +255,8 @@ export function ArchiveDialog(props: Props): JSX.Element {
   const [loading, setLoading] = createSignal(false)
   const [showCollisionOverlay, setShowCollisionOverlay] = createSignal(false)
   const [initialized, setInitialized] = createSignal(false)
+  const [productTeamList, setProductTeamList] = createSignal<NestedTreeNode[]>(MOCK_PRODUCT_TEAM)
+  const [isProjectArchive, setIsProjectArchive] = createSignal(false)
 
   const flattenTree = (nodes: NestedTreeNode[]): NestedTreeNode[] => {
     const result: NestedTreeNode[] = []
@@ -323,8 +368,28 @@ export function ArchiveDialog(props: Props): JSX.Element {
     }
   }
 
+  const fetchProductTeam = async (teamId: number): Promise<NestedTreeNode[] | null> => {
+    if (!isLoggedIn()) return null
+    try {
+      const res = await fetch(`${getBaseUrl()}/main/rest.root/workflow/team/getProductTeam?teamId=${teamId}`, {
+        headers: getAuthHeaders()
+      })
+      const data = await res.json()
+      if (data?.content) {
+        setProductTeamList(data.content)
+        return data.content
+      }
+    } catch (err) {
+      console.error("[Archive] Failed to fetch product team:", err)
+    }
+    return null
+  }
+
   const getFolderTree = (): NestedTreeNode[] => {
     if (spaceType() === "project") {
+      if (isProjectArchive()) {
+        return productTeamList()
+      }
       const flat = flattenTree(versionDeliveryList())
       const found = flat.find(n => n.id === selectedVersionId())
       return found?.children || []
@@ -343,6 +408,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
     setSelectedTeamId(null)
     setSelectedTeamName(null)
     setDeliverables([])
+    setIsProjectArchive(false)
   }
 
   const autoSelectFirstProduct = async () => {
@@ -426,23 +492,35 @@ export function ArchiveDialog(props: Props): JSX.Element {
     const product = item as { name: string; commonTeam?: number }
     setSelectedProductId(id)
     setSelectedProduct({ name: product.name, commonTeam: product.commonTeam })
+    setIsProjectArchive(false)
     
     if (isLoggedIn()) {
       fetchVersionDelivery(id).then((tree) => {
         if (tree) autoSelectFirstVersionDelivery(tree)
         else autoSelectFirstVersionDelivery()
       })
+      if (product.commonTeam) {
+        fetchProductTeam(product.commonTeam)
+      }
     } else {
       autoSelectFirstVersionDelivery()
     }
   }
 
   const handleVersionSelect = (id: number, item: NestedTreeNode) => {
-    setSelectedVersionId(id)
-    setSelectedVersion({ label: item.label, children: item.children })
-    
-    const folders = item.children || []
-    autoSelectFirstFolder(folders)
+    if (id === PROJECT_ARCHIVE_ID) {
+      setIsProjectArchive(true)
+      setSelectedVersionId(id)
+      setSelectedVersion({ label: "项目归档", children: productTeamList() })
+      autoSelectFirstFolder(productTeamList())
+    } else {
+      setIsProjectArchive(false)
+      setSelectedVersionId(id)
+      setSelectedVersion({ label: item.label, children: item.children })
+      
+      const folders = item.children || []
+      autoSelectFirstFolder(folders)
+    }
   }
 
   const handleFolderSelect = (id: number, item: TreeNodeItem) => {
@@ -478,9 +556,30 @@ export function ArchiveDialog(props: Props): JSX.Element {
           
           if (isLoggedIn()) {
             const versionTree = await fetchVersionDelivery(product.id)
-            if (versionTree && persistedSelections.versionDeliveryId) {
+            if (product.commonTeam) {
+              await fetchProductTeam(product.commonTeam)
+            }
+            
+            if (persistedSelections.isProjectArchive) {
+              setIsProjectArchive(true)
+              setSelectedVersionId(PROJECT_ARCHIVE_ID)
+              setSelectedVersion({ label: "项目归档", children: productTeamList() })
+              if (persistedSelections.folderId) {
+                const folder = flattenTree(productTeamList()).find(f => f.id === persistedSelections.folderId)
+                if (folder) {
+                  setSelectedFolderId(folder.id)
+                  setSelectedFolder({ label: folder.label })
+                  fetchDeliverables(folder.id)
+                } else {
+                  autoSelectFirstFolder(productTeamList())
+                }
+              } else {
+                autoSelectFirstFolder(productTeamList())
+              }
+            } else if (persistedSelections.versionDeliveryId && versionTree) {
               const version = flattenTree(versionTree).find(v => v.id === persistedSelections.versionDeliveryId)
               if (version) {
+                setIsProjectArchive(false)
                 setSelectedVersionId(version.id)
                 setSelectedVersion({ label: version.label, children: version.children })
                 
@@ -503,9 +602,26 @@ export function ArchiveDialog(props: Props): JSX.Element {
               autoSelectFirstVersionDelivery(versionTree || undefined)
             }
           } else {
-            if (persistedSelections.versionDeliveryId) {
+            if (persistedSelections.isProjectArchive) {
+              setIsProjectArchive(true)
+              setSelectedVersionId(PROJECT_ARCHIVE_ID)
+              setSelectedVersion({ label: "项目归档", children: productTeamList() })
+              if (persistedSelections.folderId) {
+                const folder = flattenTree(productTeamList()).find(f => f.id === persistedSelections.folderId)
+                if (folder) {
+                  setSelectedFolderId(folder.id)
+                  setSelectedFolder({ label: folder.label })
+                  fetchDeliverables(folder.id)
+                } else {
+                  autoSelectFirstFolder(productTeamList())
+                }
+              } else {
+                autoSelectFirstFolder(productTeamList())
+              }
+            } else if (persistedSelections.versionDeliveryId) {
               const version = flattenTree(versionDeliveryList()).find(v => v.id === persistedSelections.versionDeliveryId)
               if (version) {
+                setIsProjectArchive(false)
                 setSelectedVersionId(version.id)
                 setSelectedVersion({ label: version.label, children: version.children })
                 if (persistedSelections.folderId) {
@@ -642,6 +758,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
       folderName: selectedFolder()?.label || null,
       teamId: selectedTeamId(),
       teamName: selectedTeamName(),
+      isProjectArchive: isProjectArchive(),
     }
     setInitialized(false)
     props.onResetArchiving?.()
@@ -732,12 +849,19 @@ export function ArchiveDialog(props: Props): JSX.Element {
                     <div class="archive-step-title">版本交付</div>
                     <div class="archive-step-content">
                       <ArchiveSearchDropdown
-                        items={flattenTree(versionDeliveryList()).map(v => ({ id: v.id, label: v.label }))}
+                        items={[
+                          ...flattenTree(versionDeliveryList()).map(v => ({ id: v.id, label: v.label })),
+                          { id: PROJECT_ARCHIVE_ID, label: "项目归档" }
+                        ]}
                         selectedId={selectedVersionId()}
                         selectedLabel={selectedVersion()?.label}
                         onSelect={(id) => {
-                          const item = flattenTree(versionDeliveryList()).find(v => v.id === id)
-                          if (item) handleVersionSelect(id as number, item)
+                          if (id === PROJECT_ARCHIVE_ID) {
+                            handleVersionSelect(PROJECT_ARCHIVE_ID, {} as NestedTreeNode)
+                          } else {
+                            const item = flattenTree(versionDeliveryList()).find(v => v.id === id)
+                            if (item) handleVersionSelect(id as number, item)
+                          }
                         }}
                         searchPlaceholder="搜索..."
                         triggerPlaceholder={flattenTree(versionDeliveryList()).length === 0 ? "暂无数据" : "请选择版本交付"}

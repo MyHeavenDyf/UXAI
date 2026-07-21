@@ -10,7 +10,7 @@ export type DesktopApi = {
   listDirectory?: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>
   capturePreviewRect?: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
   getPathForFile?: (file: File) => string
-  /** 下载完成后的保存路径回调(主进程仅观察默认保存对话框的结果) */
+  openLink?: (url: string) => void
   onDownloadSavePath?: (cb: (info: {
     url: string
     filename: string

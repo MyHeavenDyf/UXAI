@@ -147,7 +147,7 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
             border-radius: 6px;
             font-size: 14px;
             cursor: pointer;
-            background: var(--octo-accent-primary);
+            background: #0a59f7;
             color: white;
           }
           .btn-primary:hover {
@@ -155,15 +155,15 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
           }
           .btn-secondary {
             padding: 8px 16px;
-            border: 1px solid var(--octo-border-default);
+            border: none;
             border-radius: 6px;
             font-size: 14px;
             cursor: pointer;
-            background: var(--octo-surface-page, #ffffff);
+            background: #f2f2f2;
             color: var(--octo-text-primary);
           }
           .btn-secondary:hover {
-            background: var(--octo-surface-hover);
+            opacity: 0.9;
           }
         `}</style>
       </Portal>
