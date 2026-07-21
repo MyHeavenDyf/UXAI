@@ -1,6 +1,7 @@
 import { extractJson } from '../../utils/json-parser';
 import { runChildSession } from "../run-child-session";
 import { logAgentParsed } from "../../utils/debug-log"
+import { WIREFRAMES_FORMAT } from "./schema"
 
 const AGENT_NAME = "proto_wireframes"
 
@@ -66,7 +67,8 @@ export default async function proto_triage(ctx: TriageInputContext): Promise<Tri
     client: sdk.client,
     prompt: humanMessage,
     directory: sdk.directory,
-    parentSessionID: rootSession
+    parentSessionID: rootSession,
+    schema: WIREFRAMES_FORMAT.schema,
   })
   console.log("----- 分诊Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 triage json

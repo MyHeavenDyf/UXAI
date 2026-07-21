@@ -404,7 +404,7 @@ export function StudioResultCanvas(props: {
                 />
               </div>
               <Show when={!props.showFileManager || (props.showFileManager && props.fileManagerDetailView)}>
-                <div style="display:flex;flex-direction:column;flex:1;min-height:0;">
+                <div style="display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;">
                 <Show when={props.showFileManager && props.fileManagerDetailView}>
                   <div class="studio-file-manager-back-bar">
                     <button
@@ -429,7 +429,6 @@ export function StudioResultCanvas(props: {
                       >
                         <StudioVideoPlayer
                           src={img().remoteUrl ?? img().url}
-                          class={`studio-canvas-image ${getImageOrientation(img())}`}
                           mount={props.videoPlayerMount}
                         />
                       </Show>

@@ -2,9 +2,9 @@ import { getDesktopApi } from "./desktop-api"
 
 export type PatternEntry = {
   name: string
-  elements?: string
-  business_scenario?: string
-  layout_mode?: string
+  description?: string
+  structure?: string
+  category?: string
   path: string
   preview?: string
 }
@@ -22,8 +22,15 @@ export async function readPatternIndex(category: string, theme = "ICT3.1"): Prom
   if (!api?.getPatternIndex) return null
   const data = await api.getPatternIndex(category, theme)
   if (!data) return null
-  const entries = (category === "page" ? data.pages : data.blocks) as PatternEntry[] | undefined
-  return entries ?? null
+  // 分类格式 { "顶部导航": [...], "侧边导航": [...] }，展平为带 category 的数组
+  const entries: PatternEntry[] = []
+  for (const [cat, items] of Object.entries(data)) {
+    if (!Array.isArray(items)) continue
+    for (const item of items) {
+      entries.push({ ...item, category: cat })
+    }
+  }
+  return entries.length > 0 ? entries : null
 }
 
 // 读取指定主题、类别下的具体 pattern 文件内容

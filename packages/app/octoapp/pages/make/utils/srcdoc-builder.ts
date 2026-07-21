@@ -21,6 +21,7 @@ import {
   injectEditBridge,
   injectEditBridgeStyle,
   annotateElementsWithIdsBrowser,
+  injectCommentBridge,
 } from "@opencode-ai/core/bridge-scripts"
 
 export type SrcdocOptions = {
@@ -33,6 +34,7 @@ export type SrcdocOptions = {
   inspectBridge?: boolean
   editBridge?: boolean
   snapshotBridge?: boolean
+  commentBridge?: boolean
   annotateElements?: boolean
 }
 
@@ -84,6 +86,10 @@ export function buildSrcdoc(html: string, options: SrcdocOptions = {}): string {
   if (options.editBridge) {
     doc = injectEditBridgeStyle(doc)
     doc = injectEditBridge(doc)
+  }
+
+  if (options.commentBridge === true) {
+    doc = injectCommentBridge(doc)
   }
 
   return doc

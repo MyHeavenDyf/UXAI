@@ -898,6 +898,7 @@
   position: relative;
   flex: 1;
   width: 100%;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -916,6 +917,7 @@
 .studio-canvas-image-wrapper {
   width: 100%;
   flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   align-items: center;
@@ -970,7 +972,7 @@
   box-shadow: none;
 }
 
-.studio-video-player-media {
+.studio-video-player .studio-video-player-media {
   width: 100%;
   height: 100%;
   max-width: none;

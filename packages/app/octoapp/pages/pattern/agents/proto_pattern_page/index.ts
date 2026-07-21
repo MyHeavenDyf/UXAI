@@ -6,6 +6,7 @@ import {
   type PatternEntry,
   type PatternMatchItem,
 } from '../../utils/pattern-resource'
+import { PATTERN_PAGE_FORMAT } from './schema'
 
 const AGENT_NAME = "proto_pattern_page"
 
@@ -42,6 +43,7 @@ export default async function proto_pattern_page(input: ProtoPatternPageInput) {
     prompt: humanMessage,
     directory: sdk.directory,
     parentSessionID: rootSession,
+    schema: PATTERN_PAGE_FORMAT.schema,
   })
   // 3. 解析 LLM 返回的匹配结果并加载 pattern 文件内容
   const matchJson = extractJson(result.text)

@@ -20,6 +20,8 @@ export type DesktopApi = {
   getDesignSystems?: () => Promise<string[]>
   downloadHuiCode?: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[]) => Promise<{ files: { path: string; content: string }[] }>
   tailwindToCss?: (className: string) => Promise<Record<string, string>>
+  saveFilePicker?: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
+  codeToHtml?: (opts: { url: string; theme?: "light" | "dark"; waitForMs?: number }) => Promise<{ html: string; resourceCount: number }>
 }
 
 export function getDesktopApi(): DesktopApi | undefined {

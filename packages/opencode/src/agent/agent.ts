@@ -32,6 +32,8 @@ import {
   PROMPT_PROTO_PATTERN_BLOCK,
   PROMPT_PROTO_INTENT_CONFIRM,
   PROMPT_PROTO_WFRAMES,
+  PROMPT_PROTO_MODIFY,
+  PROMPT_PROTO_REPLANNER,
 } from "./proto"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
@@ -503,6 +505,28 @@ export const layer = Layer.effect(
             mode: "primary",
             native: false,
             temperature: 0.1,
+          },
+          proto_modify: {
+            name: "proto_modify",
+            description: "Proto modify agent.",
+            prompt: PROMPT_PROTO_MODIFY,
+            permission: Permission.fromConfig({ "*": "deny", load_components_docs: "allow" }),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.1,
+          },
+          proto_replanner: {
+            name: "proto_replanner",
+            description: "Proto replanner agent — reverse-engineers macro-layout from final A2UI JSON.",
+            prompt: PROMPT_PROTO_REPLANNER,
+            permission: Permission.fromConfig({
+              "*": "deny",
+            }),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.0,
           },
         }
 
