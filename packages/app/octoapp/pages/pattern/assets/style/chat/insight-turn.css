@@ -154,10 +154,6 @@
   border-color: var(--octo-brand-a25);
 }
 
-.captured-card-btn.error {
-  border-color: #D32F2F;
-}
-
 .captured-card-btn.confirming {
   background: linear-gradient(90deg, rgba(219,234,254,1) 0%, rgba(239,246,255,1) 100%);
   border-color: rgba(59,130,246,0.3);
