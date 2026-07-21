@@ -1,4 +1,4 @@
-import { readdir, mkdir, mkdtemp } from "node:fs/promises"
+import { readdir, mkdir, mkdtemp, rm } from "node:fs/promises"
 import { networkInterfaces, tmpdir } from "node:os"
 import path from "node:path"
 
@@ -21,6 +21,8 @@ type Job = {
 
 const rootDir = path.resolve(import.meta.dir, "..")
 const artifactsRoot = path.join(import.meta.dir, "artifacts")
+const jobsFile = path.join(artifactsRoot, "jobs.json")
+const retentionMs = 3 * 24 * 60 * 60 * 1000
 const page = await Bun.file(path.join(import.meta.dir, "build_service.html")).text()
 const runtimeDir = await mkdtemp(path.join(tmpdir(), "octo-build-service-"))
 const automationScripts = [
@@ -42,6 +44,7 @@ const state = {
   subscribers: new Set<ReadableStreamDefaultController<Uint8Array>>(),
   remoteBranches: { branches: [] as string[], fetchedAt: 0 },
 }
+const persistence = { timer: undefined as ReturnType<typeof setTimeout> | undefined }
 const serviceBranch = (await runCommand(["git", "branch", "--show-current"])).stdout
 
 function json(value: unknown, status = 200) {
@@ -78,11 +81,67 @@ function sendEvent(type: string, value: unknown) {
 
 function updateJob(job: Job) {
   sendEvent("job", publicJob(job))
+  schedulePersistJobs()
 }
 
 function appendLog(job: Job, text: string) {
   job.log = `${job.log}${text}`.slice(-400_000)
   sendEvent("log", { id: job.id, text })
+}
+
+function isJob(value: unknown): value is Job {
+  if (!value || typeof value !== "object") return false
+  const job = value as Record<string, unknown>
+  return (
+    typeof job.id === "string" &&
+    /^[a-z0-9-]+$/.test(job.id) &&
+    typeof job.baseBranch === "string" &&
+    typeof job.branch === "string" &&
+    typeof job.version === "string" &&
+    (job.channel === "beta" || job.channel === "prod") &&
+    (job.status === "queued" || job.status === "running" || job.status === "success" || job.status === "failed") &&
+    typeof job.createdAt === "string" &&
+    typeof job.log === "string" &&
+    Array.isArray(job.artifacts)
+  )
+}
+
+async function writeJobs() {
+  await mkdir(artifactsRoot, { recursive: true })
+  await Bun.write(jobsFile, `${JSON.stringify(state.jobs.map(publicJob), null, 2)}\n`)
+}
+
+function schedulePersistJobs() {
+  if (persistence.timer) clearTimeout(persistence.timer)
+  persistence.timer = setTimeout(() => {
+    persistence.timer = undefined
+    void writeJobs()
+  }, 100)
+}
+
+async function loadJobs() {
+  const stored = (await Bun.file(jobsFile).json().catch(() => [])) as unknown
+  if (!Array.isArray(stored)) return
+  state.jobs = stored.filter(isJob).map((job) => {
+    if (job.status !== "queued" && job.status !== "running") return job
+    return {
+      ...job,
+      status: "failed" as const,
+      finishedAt: new Date().toISOString(),
+      log: `${job.log}\n打包服务曾在任务执行期间停止，此任务已标记为失败。\n`,
+    }
+  })
+}
+
+async function purgeExpiredJobs() {
+  const cutoff = Date.now() - retentionMs
+  const expired = state.jobs.filter((job) => new Date(job.createdAt).getTime() < cutoff)
+  state.jobs = state.jobs.filter((job) => new Date(job.createdAt).getTime() >= cutoff)
+  await Promise.all(expired.map((job) => rm(path.join(artifactsRoot, job.id), { recursive: true, force: true })))
+  if (expired.length) {
+    await writeJobs()
+    sendEvent("snapshot", state.jobs.map(publicJob))
+  }
 }
 
 async function runCommand(command: string[]) {
@@ -353,7 +412,6 @@ async function createJob(request: Request) {
     artifacts: [],
   }
   state.jobs.unshift(job)
-  state.jobs.splice(20)
   updateJob(job)
   void processQueue()
   return json({ job: publicJob(job) }, 202)
@@ -396,6 +454,9 @@ function artifactResponse(url: URL) {
 
 const port = Number(Bun.env.BUILD_SERVICE_PORT || 8787)
 const hostname = Bun.env.BUILD_SERVICE_HOST || "0.0.0.0"
+await loadJobs()
+await purgeExpiredJobs()
+setInterval(() => void purgeExpiredJobs(), 60 * 60 * 1000)
 const server = Bun.serve({
   port,
   hostname,

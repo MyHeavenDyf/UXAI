@@ -80,6 +80,8 @@
       @keyframes spin { to { transform: rotate(360deg); } }
       .branch-row { display: grid; grid-template-columns: 1fr auto; gap: 9px; }
       .current-branch { display: flex; align-items: center; justify-content: space-between; margin-bottom: 13px; }
+      .current-branch-value { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      .branch-label { color: var(--muted); font-size: 11px; white-space: nowrap; }
       .branch-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent-2); font-size: 13px; }
       .dirty { color: var(--warn); font-size: 11px; }
       .clean { color: var(--success); font-size: 11px; }
@@ -161,7 +163,7 @@
           <article class="card">
             <div class="card-head"><h2>当前代码分支</h2><p>任务会自动切换基础分支；队列结束后切回服务启动分支。</p></div>
             <div class="card-body">
-              <div class="current-branch"><span id="current-branch" class="branch-name">读取中...</span><span id="git-state"></span></div>
+              <div class="current-branch"><div class="current-branch-value"><span class="branch-label">当前分支</span><span id="current-branch" class="branch-name">读取中...</span></div><span id="git-state"></span></div>
               <div class="branch-row"><select id="local-branch" aria-label="本地代码分支"></select><button id="switch-branch" class="secondary" type="button">切换</button></div>
               <p class="hint">存在未提交修改或打包任务时会禁止切换，服务不会自动清理、暂存或覆盖代码。</p>
             </div>
@@ -180,7 +182,7 @@
           </article>
 
           <article class="card history">
-            <div class="card-head"><h2>任务记录</h2><p>最多保留本次服务运行期间的 20 条任务。</p></div>
+            <div class="card-head"><h2>任务记录</h2><p>显示近三天的任务；刷新或重启服务后仍可查看。</p></div>
             <div id="jobs" class="jobs"><div class="hint">暂无任务</div></div>
           </article>
         </section>
