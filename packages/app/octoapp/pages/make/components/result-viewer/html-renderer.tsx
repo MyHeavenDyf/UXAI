@@ -164,6 +164,10 @@ export function HtmlRenderer(props: {
     label: string
     note?: string
     pinPosition?: { left: number; top: number; width: number; height: number }
+    commenterAvatar?: string
+    commenterName?: string
+    createdAt?: number
+    commentId?: string
   } | null>(null)
   const [commentTarget, setCommentTarget] = createSignal<{
     elementId: string | null
@@ -174,6 +178,7 @@ export function HtmlRenderer(props: {
     htmlHint: string
     label: string
     hoverPoint?: { x: number; y: number }
+    pinPosition?: { left: number; top: number; width: number; height: number }
   } | null>(null)
   const [editingComment, setEditingComment] = createSignal<FileComment | null>(null)
   const [savedComments, setSavedComments] = createSignal<FileComment[]>([])
@@ -864,12 +869,12 @@ createEffect(() => {
           label: comment.label,
           note: comment.note,
           pinPosition: d.position,
+          commenterAvatar: comment.commenterAvatar,
+          commenterName: comment.commenterName,
+          createdAt: comment.createdAt,
+          commentId: comment.id,
         })
       }
-    }
-
-    if (d.type === "od:comment-pin-leave") {
-      setCommentHoverTarget(null)
     }
 
     if (d.type === "od:comment-external-click") {
@@ -893,12 +898,42 @@ createEffect(() => {
     }
 
     if (d.type === "od:comment-pin-click") {
+      console.log('[DEBUG] pin-click received:', d)
+      console.log('[DEBUG] pinPosition:', d.pinPosition)
       const commentId = d.commentId
       const comment = savedComments().find(c => c.id === commentId)
       if (comment) {
         setEditingComment(comment)
         setCommentReadOnly(true)
-        const bounds = iframeRef?.getBoundingClientRect()
+        const pinPos = d.pinPosition
+        console.log('[DEBUG] calculated hoverPoint:', pinPos ? {
+          x: pinPos.left + pinPos.width + 8,
+          y: pinPos.top
+        } : undefined)
+        setCommentTarget({
+          elementId: comment.elementId,
+          tag: comment.elementId.split('-')[0] || 'div',
+          selector: comment.selector,
+          text: comment.text,
+          position: comment.position,
+          htmlHint: comment.htmlHint,
+          label: comment.label,
+          hoverPoint: pinPos ? {
+            x: pinPos.left + pinPos.width + 8,
+            y: pinPos.top
+          } : undefined,
+          pinPosition: pinPos,
+        })
+      }
+    }
+    
+    if (d.type === "od:comment-pin-position") {
+      const commentId = d.commentId
+      const pinPos = d.pinPosition
+      const comment = savedComments().find(c => c.id === commentId)
+      if (comment && pinPos) {
+        setEditingComment(comment)
+        setCommentReadOnly(true)
         setCommentTarget({
           elementId: comment.elementId,
           tag: comment.elementId.split('-')[0] || 'div',
@@ -908,9 +943,10 @@ createEffect(() => {
           htmlHint: comment.htmlHint,
           label: comment.label,
           hoverPoint: {
-            x: comment.position.x * (bounds?.width || 800),
-            y: comment.position.y * (bounds?.height || 600)
+            x: pinPos.left + pinPos.width + 8,
+            y: pinPos.top
           },
+          pinPosition: pinPos,
         })
       }
     }
@@ -926,25 +962,10 @@ createEffect(() => {
     const idx = currentCommentIndex()
     if (idx <= 0) return
     const prevComment = sorted[idx - 1]
-    setEditingComment(prevComment)
-    setCommentReadOnly(true)
-    const bounds = iframeRef?.getBoundingClientRect()
-    setCommentTarget({
-      elementId: prevComment.elementId,
-      tag: prevComment.elementId.split('-')[0] || 'div',
-      selector: prevComment.selector,
-      text: prevComment.text,
-      position: prevComment.position,
-      htmlHint: prevComment.htmlHint,
-      label: prevComment.label,
-      hoverPoint: {
-        x: prevComment.position.x * (bounds?.width || 800),
-        y: prevComment.position.y * (bounds?.height || 600)
-      },
-    })
     iframeRef?.contentWindow?.postMessage({
       type: 'od:comment-set-active',
-      elementId: prevComment.elementId
+      elementId: prevComment.elementId,
+      commentId: prevComment.id
     }, '*')
   }
 
@@ -953,25 +974,10 @@ createEffect(() => {
     const idx = currentCommentIndex()
     if (idx < 0 || idx >= sorted.length - 1) return
     const nextComment = sorted[idx + 1]
-    setEditingComment(nextComment)
-    setCommentReadOnly(true)
-    const bounds = iframeRef?.getBoundingClientRect()
-    setCommentTarget({
-      elementId: nextComment.elementId,
-      tag: nextComment.elementId.split('-')[0] || 'div',
-      selector: nextComment.selector,
-      text: nextComment.text,
-      position: nextComment.position,
-      htmlHint: nextComment.htmlHint,
-      label: nextComment.label,
-      hoverPoint: {
-        x: nextComment.position.x * (bounds?.width || 800),
-        y: nextComment.position.y * (bounds?.height || 600)
-      },
-    })
     iframeRef?.contentWindow?.postMessage({
       type: 'od:comment-set-active',
-      elementId: nextComment.elementId
+      elementId: nextComment.elementId,
+      commentId: nextComment.id
     }, '*')
   }
 
@@ -1352,38 +1358,69 @@ onExit={async () => {
 onFloatingPositionChange={setEditPanelPosition}
                />
              </Show>
-             <Show when={props.commenting && commentHoverTarget()}>
-               <CommentHoverTooltip
-                 target={commentHoverTarget()!}
-                 iframeBounds={iframeRef?.getBoundingClientRect() ? { width: iframeRef.getBoundingClientRect().width, height: iframeRef.getBoundingClientRect().height } : { width: 800, height: 600 }}
-               />
-             </Show>
+<Show when={props.commenting && commentHoverTarget() && commentHoverTarget()!.commentId !== editingComment()?.id}>
+                <CommentHoverTooltip
+                  target={commentHoverTarget()!}
+                  iframeBounds={iframeRef?.getBoundingClientRect() ? { width: iframeRef.getBoundingClientRect().width, height: iframeRef.getBoundingClientRect().height } : { width: 800, height: 600 }}
+                  onClose={() => setCommentHoverTarget(null)}
+                  onClick={() => {
+                    const hoverTarget = commentHoverTarget()
+                    const comment = savedComments().find(c => c.id === hoverTarget?.commentId)
+                    if (comment && hoverTarget?.pinPosition) {
+                      setEditingComment(comment)
+                      setCommentReadOnly(true)
+                      setCommentTarget({
+                        elementId: comment.elementId,
+                        tag: comment.elementId.split('-')[0] || 'div',
+                        selector: comment.selector,
+                        text: comment.text,
+                        position: comment.position,
+                        htmlHint: comment.htmlHint,
+                        label: comment.label,
+                        hoverPoint: {
+                          x: hoverTarget.pinPosition.left + hoverTarget.pinPosition.width + 8,
+                          y: hoverTarget.pinPosition.top
+                        },
+                        pinPosition: hoverTarget.pinPosition,
+                      })
+                      iframeRef?.contentWindow?.postMessage({
+                        type: 'od:comment-set-active',
+                        elementId: comment.elementId,
+                        commentId: comment.id
+                      }, '*')
+                      setCommentHoverTarget(null)
+                    }
+                  }}
+                />
+              </Show>
 <Show when={props.commenting && (commentTarget() || editingComment())}>
 <CommentPopover
-                  iframeBounds={iframeRef?.getBoundingClientRect() ? { width: iframeRef.getBoundingClientRect().width, height: iframeRef.getBoundingClientRect().height } : { width: 800, height: 600 }}
-                  target={editingComment() ? {
-                    elementId: editingComment()!.elementId,
-                    selector: editingComment()!.selector,
-                    label: editingComment()!.label,
-                    text: editingComment()!.text,
-                    position: editingComment()!.position,
-                    htmlHint: editingComment()!.htmlHint,
-                    hoverPoint: editingComment()!.hoverPoint || (() => {
-                      const bounds = iframeRef?.getBoundingClientRect()
-                      return {
-                        x: editingComment()!.position.x * (bounds?.width || 800),
-                        y: editingComment()!.position.y * (bounds?.height || 600)
-                      }
-                    })(),
-                  } : {
-                    elementId: commentTarget()!.elementId,
-                    selector: commentTarget()!.selector,
-                    label: commentTarget()!.label,
-                    text: commentTarget()!.text,
-                    position: commentTarget()!.position,
-                    htmlHint: commentTarget()!.htmlHint,
-                    hoverPoint: commentTarget()!.hoverPoint,
-                  }}
+                   iframeBounds={iframeRef?.getBoundingClientRect() ? { width: iframeRef.getBoundingClientRect().width, height: iframeRef.getBoundingClientRect().height } : { width: 800, height: 600 }}
+                   target={editingComment() ? {
+                     elementId: editingComment()!.elementId,
+                     selector: editingComment()!.selector,
+                     label: editingComment()!.label,
+                     text: editingComment()!.text,
+                     position: editingComment()!.position,
+                     htmlHint: editingComment()!.htmlHint,
+                     hoverPoint: commentTarget()?.hoverPoint || (() => {
+                       const bounds = iframeRef?.getBoundingClientRect()
+                       return {
+                         x: editingComment()!.position.x * (bounds?.width || 800),
+                         y: editingComment()!.position.y * (bounds?.height || 600)
+                       }
+                     })(),
+                     pinPosition: commentTarget()?.pinPosition,
+                   } : {
+                     elementId: commentTarget()!.elementId,
+                     selector: commentTarget()!.selector,
+                     label: commentTarget()!.label,
+                     text: commentTarget()!.text,
+                     position: commentTarget()!.position,
+                     htmlHint: commentTarget()!.htmlHint,
+                     hoverPoint: commentTarget()!.hoverPoint,
+                     pinPosition: commentTarget()?.pinPosition,
+                   }}
 comment={editingComment()}
   externalClickSignal={externalClickSignal()}
   allComments={sortedComments()}
@@ -1596,7 +1633,7 @@ body: JSON.stringify({
 setCommentTarget(null)
                       setEditingComment(null)
                       iframeRef?.contentWindow?.postMessage({ type: 'od:comment-clear' }, '*')
-                      showToast({ title: "评论已删除" })
+                      showToast({ title: "标注已删除" })
                      tracker.interaction({ module: "design", name: "delete-comment" })
                    })
                    .catch(err => {
@@ -1605,11 +1642,12 @@ setCommentTarget(null)
                    })
                  }}
 onClose={() => {
-                     setCommentTarget(null)
-                     setEditingComment(null)
-                     setExternalClickSignal(0)
-                     iframeRef?.contentWindow?.postMessage({ type: 'od:comment-clear' }, '*')
-                   }}
+                      setCommentTarget(null)
+                      setEditingComment(null)
+                      setExternalClickSignal(0)
+                      setCommentHoverTarget(null)
+                      iframeRef?.contentWindow?.postMessage({ type: 'od:comment-clear' }, '*')
+                    }}
 onUploadAttachment={(file) => {
                      const existingComment = editingComment()
                      

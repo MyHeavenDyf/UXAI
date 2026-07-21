@@ -40,9 +40,10 @@ export interface CommentPopoverTarget {
   position: { x: number; y: number; w: number; h: number }
   htmlHint: string
   hoverPoint?: { x: number; y: number }
+  pinPosition?: { left: number; top: number; width: number; height: number }
 }
 
-function formatCommentTime(timestamp: number): string {
+export function formatCommentTime(timestamp: number): string {
   const date = new Date(timestamp)
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -68,12 +69,19 @@ export function CommentPopover(props: {
   onNextPin?: () => void
 }): JSX.Element {
   const [note, setNote] = createSignal(props.comment?.note || "")
-  const [confirmDelete, setConfirmDelete] = createSignal(false)
   const [externalClickCount, setExternalClickCount] = createSignal(0)
   const [isShaking, setIsShaking] = createSignal(false)
   const [pendingFiles, setPendingFiles] = createSignal<File[]>([])
   const [isEditing, setIsEditing] = createSignal(false)
   const [originalNote, setOriginalNote] = createSignal("")
+  
+  // 当 comment 变化时，重置所有状态
+  createEffect(() => {
+    setNote(props.comment?.note || "")
+    setPendingFiles([])
+    setIsEditing(false)
+  })
+  
   let editTextarea: HTMLTextAreaElement | undefined
   const autoResizeTextarea = (el: HTMLTextAreaElement) => {
     el.style.height = "auto"
@@ -191,10 +199,6 @@ export function CommentPopover(props: {
 
   const handleDelete = (e: MouseEvent) => {
     e.stopPropagation()
-    if (!confirmDelete()) {
-      setConfirmDelete(true)
-      return
-    }
     props.onDelete?.()
     props.onClose()
   }
@@ -222,10 +226,38 @@ export function CommentPopover(props: {
   const iframeWidth = props.iframeBounds?.width || 800
   const iframeHeight = props.iframeBounds?.height || 600
 
-  const left = createMemo(() => props.target!.hoverPoint?.x || props.target!.position.x * iframeWidth + 20)
-  const top = createMemo(() => props.target!.hoverPoint?.y || props.target!.position.y * iframeHeight + 20)
-
   const hasFiles = createMemo(() => pendingFiles().length + attachments().length >= 2)
+
+  const left = createMemo(() => {
+    const pw = hasFiles() ? 468 : 320
+    const pp = props.target!.pinPosition
+    const hoverX = props.target!.hoverPoint?.x
+    
+    console.log('[DEBUG popover] hoverPoint:', props.target?.hoverPoint)
+    console.log('[DEBUG popover] pinPosition:', pp)
+    console.log('[DEBUG popover] popoverWidth:', pw)
+    console.log('[DEBUG popover] iframeWidth:', iframeWidth)
+    
+    // 有 pinPosition（点击现有 pin）
+    if (pp && hoverX !== undefined) {
+      if (hoverX + pw > iframeWidth) {
+        return pp.left - pw - 8
+      }
+      return hoverX
+    }
+    
+    // 新建标注（只有 hoverPoint，没有 pinPosition）
+    if (hoverX !== undefined) {
+      if (hoverX + pw > iframeWidth) {
+        return hoverX - pw - 8
+      }
+      return hoverX
+    }
+    
+    // Fallback
+    return props.target!.position.x * iframeWidth + 20
+  })
+  const top = createMemo(() => props.target!.hoverPoint?.y || props.target!.position.y * iframeHeight + 20)
 
   return (
     <div
@@ -261,22 +293,16 @@ export function CommentPopover(props: {
             </button>
           </div>
           <div class="comment-popover-header-right">
-            <Show when={!confirmDelete() && !isEditing()}>
+            <Show when={!isEditing()}>
               <button class="comment-popover-action-btn" onClick={handleDelete} title="删除">
                 <IconDeleteAnnotation size={16} />
               </button>
-            </Show>
-            <Show when={confirmDelete()}>
-              <button class="comment-btn-confirm-delete" onClick={handleDelete}>确认删除</button>
-              <button class="comment-btn-cancel-delete" onClick={(e) => { e.stopPropagation(); setConfirmDelete(false) }}>取消</button>
-            </Show>
-            <Show when={isEditing()}>
-              <button class="comment-popover-action-btn" onClick={handleCancelEdit} title="取消编辑">
+              <button class="comment-popover-action-btn" onClick={(e) => { e.stopPropagation(); props.onClose() }} title="关闭">
                 <IconCloseCancel size={16} />
               </button>
             </Show>
-            <Show when={!isEditing()}>
-              <button class="comment-popover-action-btn" onClick={(e) => { e.stopPropagation(); props.onClose() }} title="关闭">
+            <Show when={isEditing()}>
+              <button class="comment-popover-action-btn" onClick={handleCancelEdit} title="取消编辑">
                 <IconCloseCancel size={16} />
               </button>
             </Show>
