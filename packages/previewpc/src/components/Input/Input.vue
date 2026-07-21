@@ -78,6 +78,7 @@ function change(val: string) {
     :type="type"
     :maxlength="maxlength as any"
     :placeholder="placeholder"
+    :show-password="type==='password'"
     @change="change"
   >
     <template v-if="prefix && resolvedPrefix?.component" #prefix>

@@ -141,9 +141,12 @@
 
 // 收起展开图标样式
 .el-table__expand-icon {
-  font-size: 14px;
   cursor: pointer;
   transition: transform 0.2s ease;
+  &>.el-icon {
+    font-size: 8px;
+    transform: scale(1);
+  }
 
   &.el-table__expand-icon--expanded {
     transform: rotate(90deg);
@@ -166,6 +169,15 @@
           background-color: var(--gray-50);
         }
       }
+    }
+  }
+
+  .el-table .el-table__row {
+    &:has(.el-table__expand-icon.el-table__expand-icon--expanded) {
+      background-color: #0F3863;
+    }
+    &:has(.el-table-column--selection>.cell>.el-checkbox.is-checked) {
+      background-color: #14293E;
     }
   }
 
