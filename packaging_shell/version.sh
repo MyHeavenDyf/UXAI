@@ -30,7 +30,7 @@ fi
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
     echo "❌ 严重错误：非法的版本号格式 -> \"$VERSION\""
     echo "💡 提示：electron-builder 要求 version 必须符合 SemVer 规范（例如：43.2.1 或 1.0.0）。"
-    echo "⚠️  请检查是否误将构建渠道（dev/beta/prod）当做版本号传进来了！"
+    echo "⚠️  请检查是否误将构建环境（beta/prod）当做版本号传进来了！"
     exit 1
 fi
 
@@ -56,5 +56,4 @@ else
     echo "❌ 错误：version 更新失败！"
     exit 1
 fi
-
 

@@ -1,11 +1,13 @@
 #!/bin/bash
 
 BRANCH_NAME="${1:-dev}"
+SAFE_BRANCH_NAME="${BRANCH_NAME//\//__}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DATA_DIR="${PACKAGING_DATA_DIR:-$SCRIPT_DIR}"
 
 URL="https://github.com/MyHeavenDyf/UXAI/archive/refs/heads/${BRANCH_NAME}.zip"
-TARGET_DIR="${SCRIPT_DIR}/zip"
-OUTPUT="${TARGET_DIR}/UXAI-${BRANCH_NAME}.zip"
+TARGET_DIR="${DATA_DIR}/zip"
+OUTPUT="${TARGET_DIR}/UXAI-${SAFE_BRANCH_NAME}.zip"
 
 # 1. 创建并清空相对路径保存目录
 mkdir -p "$TARGET_DIR"

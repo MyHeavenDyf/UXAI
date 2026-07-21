@@ -4,14 +4,18 @@
 
 # 1. 自动切换当前终端工作目录至项目根目录（确保后续相对路径 100% 生效）
 SCRIPT_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ "$(basename "$SCRIPT_SELF_DIR")" = "packaging_shell" ]; then
-    cd "$SCRIPT_SELF_DIR/.." || exit 1
-else
-    cd "$SCRIPT_SELF_DIR" || exit 1
+PROJECT_ROOT="${PACKAGING_PROJECT_ROOT:-}"
+if [ -z "$PROJECT_ROOT" ]; then
+    if [ "$(basename "$SCRIPT_SELF_DIR")" = "packaging_shell" ]; then
+        PROJECT_ROOT="$SCRIPT_SELF_DIR/.."
+    else
+        PROJECT_ROOT="$SCRIPT_SELF_DIR"
+    fi
 fi
+cd "$PROJECT_ROOT" || exit 1
 
 # 2. 统一使用相对路径目录
-SCRIPT_DIR="packaging_shell"
+SCRIPT_DIR="${PACKAGING_SCRIPT_DIR:-packaging_shell}"
 
 echo "开始执行 packaging_shell 脚本..."
 echo "📂 工作目录已锁定至项目根目录: $(pwd)"
@@ -50,11 +54,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+if [ "$VERSION_CHANNEL" != "beta" ] && [ "$VERSION_CHANNEL" != "prod" ]; then
+    echo "❌ 构建环境仅支持 beta 或 prod，当前为: $VERSION_CHANNEL"
+    exit 1
+fi
+
 echo "=========================================="
 echo "💡 自动化全局参数解析成功："
 echo "-> 1. Git 下载分支 (BRANCH)  : $GIT_BRANCH"
 echo "-> 2. 应用版本号   (VERSION) : $VERSION_NUMBER"
-echo "-> 3. 打包构建渠道 (CHANNEL) : $VERSION_CHANNEL"
+echo "-> 3. 打包构建环境 (CHANNEL) : $VERSION_CHANNEL"
 echo "=========================================="
 
 # 5. 使用相对路径依次执行实际存在的子脚本
@@ -78,7 +87,7 @@ for script_name in "download_git_zip.sh" "extract.sh" "copy_packages.sh" "versio
         bash "$script" "$VERSION_NUMBER"
 
     elif [ "$script_name" = "build_desktop.sh" ]; then
-        echo "   [参数] 喂给 build_desktop.sh 的环境渠道: $VERSION_CHANNEL"
+        echo "   [参数] 喂给 build_desktop.sh 的构建环境: $VERSION_CHANNEL"
         bash "$script" "$VERSION_CHANNEL"
 
     else

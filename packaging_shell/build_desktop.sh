@@ -12,9 +12,14 @@ export NO_PROXY="*"
 echo "🌐 已启用直连模式（不使用代理）"
 
 # ========================================================
-# 🧠 1. 宽容处理：缺参数就默认为 dev
+# 🧠 1. 宽容处理：缺参数就默认为 beta
 # ========================================================
-VERSION_CHANNEL="${1:-dev}"
+VERSION_CHANNEL="${1:-beta}"
+
+if [ "$VERSION_CHANNEL" != "beta" ] && [ "$VERSION_CHANNEL" != "prod" ]; then
+    echo "❌ 构建环境仅支持 beta 或 prod，当前为: $VERSION_CHANNEL"
+    exit 1
+fi
 
 echo "开始构建 [ ${VERSION_CHANNEL} ] 环境桌面应用..."
 
@@ -25,11 +30,7 @@ if [ -d "packages/desktop/dist" ]; then
 fi
 
 # 2. 动态执行对应环境的编译
-if [ "$VERSION_CHANNEL" = "beta" ] || [ "$VERSION_CHANNEL" = "prod" ]; then
-    VITE_CMD="build:${VERSION_CHANNEL}"
-else
-    VITE_CMD="build"
-fi
+VITE_CMD="build:${VERSION_CHANNEL}"
 
 # 3.【核心动态探测逻辑】判断当前操作系统与芯片架构
 OS_TYPE=$(uname -s 2>/dev/null || echo "Windows_NT")

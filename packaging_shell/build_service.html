@@ -147,18 +147,19 @@
           <article class="card">
             <div class="card-head"><h2>新建打包任务</h2><p>任务串行执行；结束后会自动清除本次任务产生的全部 Git 改动。</p></div>
             <form id="build-form" class="card-body">
+              <div class="field"><label for="baseBranch">基础代码分支</label><select id="baseBranch" name="baseBranch" required><option value="">正在读取本地分支...</option></select></div>
               <div class="field">
                 <label for="branch">下载分支</label>
                 <div class="branch-row"><input id="branch" name="branch" list="remote-branch-options" placeholder="搜索并选择远端分支" autocomplete="off" required /><datalist id="remote-branch-options"></datalist><button id="refresh-branches" class="secondary" type="button">刷新</button></div>
               </div>
               <div class="field"><label for="version">应用版本</label><input id="version" name="version" value="0.1.0" placeholder="例如 0.3.11" required /></div>
-              <div class="field"><label for="channel">构建渠道</label><select id="channel" name="channel"><option value="beta">Beta</option><option value="prod">Prod</option><option value="dev">Dev</option></select></div>
+              <div class="field"><label for="channel">构建环境</label><select id="channel" name="channel"><option value="beta">Beta</option><option value="prod">Prod</option></select></div>
               <button id="submit-build" class="primary" type="submit" disabled>加入打包队列</button>
             </form>
           </article>
 
           <article class="card">
-            <div class="card-head"><h2>当前代码分支</h2><p>切换的是打包机本地仓库，不是上方下载分支。</p></div>
+            <div class="card-head"><h2>当前代码分支</h2><p>任务会自动切换基础分支；队列结束后切回服务启动分支。</p></div>
             <div class="card-body">
               <div class="current-branch"><span id="current-branch" class="branch-name">读取中...</span><span id="git-state"></span></div>
               <div class="branch-row"><select id="local-branch" aria-label="本地代码分支"></select><button id="switch-branch" class="secondary" type="button">切换</button></div>
@@ -216,7 +217,7 @@
         $("jobs").innerHTML = app.jobs.map((job) => `
           <button class="job ${job.id === app.selectedId ? "selected" : ""}" data-id="${job.id}">
             <span class="status-pill ${job.status}">${labels[job.status]}</span>
-            <span class="job-main"><span class="job-title">${escapeHtml(job.branch)} · ${escapeHtml(job.version)} · ${job.channel}</span><span class="job-time">${formatTime(job.createdAt)}</span></span>
+            <span class="job-main"><span class="job-title">${escapeHtml(job.baseBranch)} ← ${escapeHtml(job.branch)} · ${escapeHtml(job.version)} · ${job.channel}</span><span class="job-time">${formatTime(job.createdAt)}</span></span>
             <span class="job-time">#${job.id.slice(-6)}</span>
           </button>`).join("")
         document.querySelectorAll(".job").forEach((button) => button.addEventListener("click", () => {
@@ -246,12 +247,12 @@
         $("detail-empty").hidden = Boolean(job)
         $("detail-content").hidden = !job
         if (!job) return
-        $("detail-title").textContent = `${job.branch} · ${job.version}`
+        $("detail-title").textContent = `${job.baseBranch} ← ${job.branch} · ${job.version}`
         $("detail-subtitle").textContent = `任务 #${job.id}`
         $("detail-status").className = `status-pill ${job.status}`
         $("detail-status").textContent = labels[job.status]
         $("job-meta").innerHTML = [
-          ["渠道", job.channel], ["创建", formatTime(job.createdAt)], ["开始", formatTime(job.startedAt)], ["结束", formatTime(job.finishedAt)]
+          ["基础分支", job.baseBranch], ["下载分支", job.branch], ["构建环境", job.channel], ["创建", formatTime(job.createdAt)], ["开始", formatTime(job.startedAt)], ["结束", formatTime(job.finishedAt)]
         ].map(([name, value]) => `<span class="meta-item">${name}<b>${value}</b></span>`).join("")
         const log = $("job-log")
         const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80
@@ -269,15 +270,23 @@
         $("git-state").className = app.git.dirty ? "dirty" : "clean"
         $("git-state").textContent = app.git.dirty ? `有 ${app.git.changes.length} 项修改` : "工作区干净"
         const selected = $("local-branch").value
+        const selectedBase = $("baseBranch").value
         $("local-branch").innerHTML = app.git.branches.map((branch) => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join("")
+        $("baseBranch").innerHTML = app.git.branches.map((branch) => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join("")
         $("local-branch").value = app.git.branches.includes(selected) ? selected : app.git.current
+        $("baseBranch").value = app.git.branches.includes(selectedBase) ? selectedBase : app.git.current
         $("switch-branch").disabled = app.git.dirty
+        updateBuildButton()
+      }
+
+      function updateBuildButton() {
+        $("submit-build").disabled = !app.remoteBranches.length || !app.git?.branches.length
       }
 
       function renderRemoteBranches(selected = $("branch").value) {
         $("remote-branch-options").innerHTML = app.remoteBranches.map((branch) => `<option value="${escapeHtml(branch)}"></option>`).join("")
         $("branch").value = app.remoteBranches.includes(selected) ? selected : app.remoteBranches.includes("dev") ? "dev" : app.remoteBranches[0] || ""
-        $("submit-build").disabled = !app.remoteBranches.length
+        updateBuildButton()
       }
 
       async function refreshRemoteBranches(force = false) {
@@ -294,7 +303,7 @@
         if (!response.ok) {
           $("branch").value = ""
           $("branch").placeholder = "远端分支读取失败"
-          $("submit-build").disabled = true
+          updateBuildButton()
           return toast(result.error || "远端分支读取失败", true)
         }
         app.remoteBranches = result.branches
@@ -323,7 +332,7 @@
         $("submit-build").disabled = true
         const response = await fetch("/api/jobs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) })
         const result = await response.json()
-        $("submit-build").disabled = false
+        updateBuildButton()
         if (!response.ok) return toast(result.error || "任务提交失败", true)
         upsertJob(result.job)
         app.selectedId = result.job.id

@@ -4,12 +4,14 @@
 # 覆盖策略：完美模拟 Mac 'Command + 拖拽合并'，冲突时替换，本地独有时保留
 
 OS_TYPE=$(uname -s 2>/dev/null || echo "Windows_NT")
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DATA_DIR="${PACKAGING_DATA_DIR:-$SCRIPT_DIR}"
 
 if [[ "$OS_TYPE" == "Darwin" ]]; then
     # ========================================================
     # 🍏 macOS 专属拖拽合并逻辑
     # ========================================================
-    SOURCE_DIR="packaging_shell/packages"
+    SOURCE_DIR="$DATA_DIR/packages"
     DEST_DIR="packages" 
     DIRTY_SUFFIX="packages-j60099994-jk"
 
@@ -49,7 +51,7 @@ else
     # ========================================================
     # 🪟 Windows / Linux 专属拖拽合并逻辑
     # ========================================================
-    SOURCE_DIR="packaging_shell/packages"
+    SOURCE_DIR="$DATA_DIR/packages"
     DEST_DIR="packages"
 
     echo "🚀 [Win] 正在将最新内容增量合并到本地 packages..."

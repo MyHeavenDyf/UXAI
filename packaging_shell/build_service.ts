@@ -1,14 +1,15 @@
-import { readdir, mkdir } from "node:fs/promises"
-import { networkInterfaces } from "node:os"
+import { readdir, mkdir, mkdtemp } from "node:fs/promises"
+import { networkInterfaces, tmpdir } from "node:os"
 import path from "node:path"
 
 type JobStatus = "queued" | "running" | "success" | "failed"
 type Artifact = { name: string; size: number }
 type Job = {
   id: string
+  baseBranch: string
   branch: string
   version: string
-  channel: "dev" | "beta" | "prod"
+  channel: "beta" | "prod"
   status: JobStatus
   createdAt: string
   startedAt?: string
@@ -19,9 +20,21 @@ type Job = {
 }
 
 const rootDir = path.resolve(import.meta.dir, "..")
-const runner = path.join(import.meta.dir, "run_all.sh")
 const artifactsRoot = path.join(import.meta.dir, "artifacts")
 const page = await Bun.file(path.join(import.meta.dir, "build_service.html")).text()
+const runtimeDir = await mkdtemp(path.join(tmpdir(), "octo-build-service-"))
+const automationScripts = [
+  "run_all.sh",
+  "download_git_zip.sh",
+  "extract.sh",
+  "copy_packages.sh",
+  "version.sh",
+  "build_desktop.sh",
+]
+await Promise.all(
+  automationScripts.map((name) => Bun.write(path.join(runtimeDir, name), Bun.file(path.join(import.meta.dir, name)))),
+)
+const runner = path.join(runtimeDir, "run_all.sh")
 const encoder = new TextEncoder()
 const state = {
   jobs: [] as Job[],
@@ -29,6 +42,7 @@ const state = {
   subscribers: new Set<ReadableStreamDefaultController<Uint8Array>>(),
   remoteBranches: { branches: [] as string[], fetchedAt: 0 },
 }
+const serviceBranch = (await runCommand(["git", "branch", "--show-current"])).stdout
 
 function json(value: unknown, status = 200) {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } })
@@ -37,6 +51,7 @@ function json(value: unknown, status = 200) {
 function publicJob(job: Job) {
   return {
     id: job.id,
+    baseBranch: job.baseBranch,
     branch: job.branch,
     version: job.version,
     channel: job.channel,
@@ -86,11 +101,15 @@ async function gitState() {
     runCommand(["git", "branch", "--format=%(refname:short)"]),
     runCommand(["git", "status", "--porcelain"]),
   ])
+  const changeLines = changes.stdout
+    .split("\n")
+    .filter(Boolean)
+    .filter((line) => !line.startsWith("?? packaging_shell/"))
   return {
     current: branch.stdout || "(detached HEAD)",
     branches: branches.stdout.split("\n").filter(Boolean),
-    dirty: changes.stdout.length > 0,
-    changes: changes.stdout.split("\n").filter(Boolean).slice(0, 30),
+    dirty: changeLines.length > 0,
+    changes: changeLines.slice(0, 30),
   }
 }
 
@@ -175,7 +194,10 @@ async function streamToLog(job: Job, stream: ReadableStream<Uint8Array>) {
 async function runJob(job: Job) {
   job.status = "running"
   job.startedAt = new Date().toISOString()
-  appendLog(job, `开始任务 ${job.id}\n分支: ${job.branch}\n版本: ${job.version}\n渠道: ${job.channel}\n\n`)
+  appendLog(
+    job,
+    `开始任务 ${job.id}\n基础代码分支: ${job.baseBranch}\n下载分支: ${job.branch}\n版本: ${job.version}\n构建环境: ${job.channel}\n\n`,
+  )
   updateJob(job)
 
   const before = await gitState()
@@ -187,9 +209,24 @@ async function runJob(job: Job) {
     return
   }
 
+  const switched = await runCommand(["git", "switch", job.baseBranch])
+  if (switched.exitCode !== 0) {
+    job.status = "failed"
+    job.finishedAt = new Date().toISOString()
+    appendLog(job, `切换基础代码分支失败: ${switched.stderr || switched.stdout}\n`)
+    updateJob(job)
+    return
+  }
+  appendLog(job, `已切换到基础代码分支 ${job.baseBranch}\n\n`)
+  sendEvent("git", await gitState())
+
+  const env = processEnv()
+  env.PACKAGING_PROJECT_ROOT = rootDir
+  env.PACKAGING_SCRIPT_DIR = runtimeDir
+  env.PACKAGING_DATA_DIR = import.meta.dir
   const process = Bun.spawn(
     ["bash", runner, "--branch", job.branch, "--version", job.version, "--channel", job.channel],
-    { cwd: rootDir, stdout: "pipe", stderr: "pipe", env: processEnv() },
+    { cwd: rootDir, stdout: "pipe", stderr: "pipe", env },
   )
   await Promise.all([streamToLog(job, process.stdout), streamToLog(job, process.stderr)])
   job.exitCode = await process.exited
@@ -203,6 +240,7 @@ async function runJob(job: Job) {
   const clean = await runCommand(["git", "clean", "-fd", "-e", "packaging_shell/"])
   if (clean.stdout) appendLog(job, `${clean.stdout}\n`)
   if (clean.stderr) appendLog(job, `${clean.stderr}\n`)
+  sendEvent("git", await gitState())
 
   job.finishedAt = new Date().toISOString()
   if (reset.exitCode !== 0 || clean.exitCode !== 0) {
@@ -247,7 +285,14 @@ function processEnv() {
 async function processQueue() {
   if (state.processing) return
   const job = state.jobs.find((candidate) => candidate.status === "queued")
-  if (!job) return
+  if (!job) {
+    const current = await gitState()
+    if (serviceBranch && !current.dirty && current.current !== serviceBranch) {
+      await runCommand(["git", "switch", serviceBranch])
+      sendEvent("git", await gitState())
+    }
+    return
+  }
   state.processing = true
   await runJob(job).catch((error: unknown) => {
     job.status = "failed"
@@ -287,13 +332,18 @@ async function createJob(request: Request) {
   if (state.remoteBranches.branches.length && !state.remoteBranches.branches.includes(body.branch)) {
     return json({ error: "请选择 Git 远端当前存在的分支" }, 400)
   }
+  if (!validBranch(body.baseBranch)) return json({ error: "基础代码分支不合法" }, 400)
+  if (!(await gitState()).branches.includes(body.baseBranch)) {
+    return json({ error: "请选择打包机当前存在的本地基础分支" }, 400)
+  }
   if (!validVersion(body.version)) return json({ error: "版本号必须符合 SemVer，例如 0.3.11" }, 400)
-  if (body.channel !== "dev" && body.channel !== "beta" && body.channel !== "prod") {
-    return json({ error: "渠道仅支持 dev、beta 或 prod" }, 400)
+  if (body.channel !== "beta" && body.channel !== "prod") {
+    return json({ error: "构建环境仅支持 beta 或 prod" }, 400)
   }
 
   const job: Job = {
     id: `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 6)}`,
+    baseBranch: body.baseBranch,
     branch: body.branch,
     version: body.version,
     channel: body.channel,
