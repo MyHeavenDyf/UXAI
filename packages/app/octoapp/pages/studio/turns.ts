@@ -459,6 +459,7 @@ function buildResult(input: {
     stringField(inputRecord, "prompt") ??
     extractUserDemand(input.userText)
   const displayPrompt = stringField(inputRecord, "displayPrompt")
+  const detailPrompt = stringField(inputRecord, "detailPrompt") ?? (displayPrompt ? undefined : extractUserDemand(input.userText))
   const progress = studioProgress(running)
   const failure = studioProgress(errored)
   const failureStatus = failure.status === "create_failed" ? "create_failed" : "failed"
@@ -494,6 +495,7 @@ function buildResult(input: {
           capability,
           prompt,
           displayPrompt,
+          detailPrompt,
           provider: resolveProvider(completed?.tool),
           toolAction: stringField(output, "toolAction") as StudioGenerationResult["toolAction"],
           taskType: stringField(output, "taskType") ?? stringField(output, "task_type") ?? stringField(inputRecord, "task_type") ?? stringField(inputRecord, "taskType"),
@@ -537,6 +539,7 @@ function buildResult(input: {
             capability,
             prompt,
             displayPrompt,
+            detailPrompt,
             provider: resolveProvider(running.tool),
             model: running.tool,
             aspectRatio,
@@ -554,6 +557,7 @@ function buildResult(input: {
               capability,
               prompt,
               displayPrompt,
+              detailPrompt,
               provider: resolveProvider(errored.tool),
               taskId: failure.taskId,
               model,

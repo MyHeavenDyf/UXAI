@@ -679,7 +679,7 @@ export function StudioDetails(props: {
       <section class="studio-detail-section">
         <Show when={!isEditResult()}>
           <div class="studio-detail-section-title">提示词</div>
-          <p class="studio-detail-prompt">{props.result.prompt.split("\n")[0]}</p>
+          <p class="studio-detail-prompt">{(props.result.detailPrompt ?? props.result.prompt).split("\n")[0]}</p>
         </Show>
       </section>
     </ScrollView>
