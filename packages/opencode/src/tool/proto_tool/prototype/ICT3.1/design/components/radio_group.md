@@ -1,4 +1,4 @@
-# radio 单选框使用规范
+# radio_group 单选框使用规范
 
 ## Props
 

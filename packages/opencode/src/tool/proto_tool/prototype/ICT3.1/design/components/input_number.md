@@ -1,4 +1,4 @@
-# numeric 计数器使用规范
+# input_number 计数器使用规范
 
 ## Props
 
