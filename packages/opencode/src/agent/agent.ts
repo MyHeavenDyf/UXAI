@@ -490,7 +490,7 @@ export const layer = Layer.effect(
             name: "proto_intent_confirm",
             description: "Proto intent confirm agent.",
             prompt: PROMPT_PROTO_INTENT_CONFIRM,
-            permission: Permission.fromConfig({ "*": "deny"}),
+            permission: Permission.fromConfig({ "*": "deny", skill: "allow"}),
             options: {},
             mode: "primary",
             native: false,
