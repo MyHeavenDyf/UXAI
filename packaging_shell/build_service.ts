@@ -27,6 +27,7 @@ const state = {
   jobs: [] as Job[],
   processing: false,
   subscribers: new Set<ReadableStreamDefaultController<Uint8Array>>(),
+  remoteBranches: { branches: [] as string[], fetchedAt: 0 },
 }
 
 function json(value: unknown, status = 200) {
@@ -91,6 +92,35 @@ async function gitState() {
     dirty: changes.stdout.length > 0,
     changes: changes.stdout.split("\n").filter(Boolean).slice(0, 30),
   }
+}
+
+async function remoteBranches(force = false) {
+  if (!force && state.remoteBranches.branches.length && Date.now() - state.remoteBranches.fetchedAt < 60_000) {
+    return { branches: state.remoteBranches.branches, fetchedAt: state.remoteBranches.fetchedAt }
+  }
+
+  const subprocess = Bun.spawn(
+    ["git", "-c", "http.proxy=", "-c", "https.proxy=", "ls-remote", "--heads", "origin"],
+    { cwd: rootDir, stdout: "pipe", stderr: "pipe", env: processEnv() },
+  )
+  const timeout = setTimeout(() => subprocess.kill(), 20_000)
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(subprocess.stdout).text(),
+    new Response(subprocess.stderr).text(),
+    subprocess.exited,
+  ])
+  clearTimeout(timeout)
+  if (exitCode !== 0) return { error: stderr.trim() || "无法读取 Git 远端分支" }
+
+  state.remoteBranches = {
+    branches: stdout
+      .split("\n")
+      .map((line) => line.split("\trefs/heads/")[1])
+      .filter((branch): branch is string => Boolean(branch))
+      .sort((a, b) => a.localeCompare(b)),
+    fetchedAt: Date.now(),
+  }
+  return { branches: state.remoteBranches.branches, fetchedAt: state.remoteBranches.fetchedAt }
 }
 
 async function copyArtifacts(job: Job) {
@@ -254,6 +284,9 @@ async function createJob(request: Request) {
   }
   const body = (await request.json().catch(() => undefined)) as Record<string, unknown> | undefined
   if (!body || !validBranch(body.branch)) return json({ error: "分支名称不合法" }, 400)
+  if (state.remoteBranches.branches.length && !state.remoteBranches.branches.includes(body.branch)) {
+    return json({ error: "请选择 Git 远端当前存在的分支" }, 400)
+  }
   if (!validVersion(body.version)) return json({ error: "版本号必须符合 SemVer，例如 0.3.11" }, 400)
   if (body.channel !== "dev" && body.channel !== "beta" && body.channel !== "prod") {
     return json({ error: "渠道仅支持 dev、beta 或 prod" }, 400)
@@ -326,6 +359,10 @@ const server = Bun.serve({
       return json({ jobs: state.jobs.map(publicJob), processing: state.processing })
     }
     if (request.method === "GET" && url.pathname === "/api/git") return json({ git: await gitState() })
+    if (request.method === "GET" && url.pathname === "/api/git/remote-branches") {
+      const result = await remoteBranches(url.searchParams.get("refresh") === "1")
+      return "error" in result ? json(result, 502) : json(result)
+    }
     if (request.method === "POST" && url.pathname === "/api/git/switch") return switchBranch(request)
     if (request.method === "POST" && url.pathname === "/api/jobs") return createJob(request)
     if (request.method === "GET" && url.pathname === "/api/events") {

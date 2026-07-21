@@ -20,7 +20,7 @@ BUILD_SERVICE_PORT=9000 bash packaging_shell/start_build_service.sh
 
 ## 页面能力
 
-- 填写下载分支、应用版本和构建渠道。
+- 从 Git 远端读取并选择下载分支，填写应用版本和构建渠道。
 - 多人提交的任务按顺序串行执行。
 - 实时查看构建日志和任务状态。
 - 下载每次成功构建后独立归档的产物。

@@ -72,6 +72,12 @@
         height: 40px; padding: 0 15px; color: var(--text); background: var(--panel-2);
         border: 1px solid #33415a; border-radius: 10px; font-weight: 650;
       }
+      .secondary.loading { cursor: wait; opacity: 0.75; }
+      .secondary.loading::before {
+        content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 7px; vertical-align: -2px;
+        border: 2px solid rgba(255,255,255,.25); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
       .branch-row { display: grid; grid-template-columns: 1fr auto; gap: 9px; }
       .current-branch { display: flex; align-items: center; justify-content: space-between; margin-bottom: 13px; }
       .branch-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent-2); font-size: 13px; }
@@ -141,10 +147,13 @@
           <article class="card">
             <div class="card-head"><h2>新建打包任务</h2><p>任务串行执行；结束后会自动清除本次任务产生的全部 Git 改动。</p></div>
             <form id="build-form" class="card-body">
-              <div class="field"><label for="branch">下载分支</label><input id="branch" name="branch" value="dev" maxlength="100" required /></div>
+              <div class="field">
+                <label for="branch">下载分支</label>
+                <div class="branch-row"><input id="branch" name="branch" list="remote-branch-options" placeholder="搜索并选择远端分支" autocomplete="off" required /><datalist id="remote-branch-options"></datalist><button id="refresh-branches" class="secondary" type="button">刷新</button></div>
+              </div>
               <div class="field"><label for="version">应用版本</label><input id="version" name="version" value="0.1.0" placeholder="例如 0.3.11" required /></div>
               <div class="field"><label for="channel">构建渠道</label><select id="channel" name="channel"><option value="beta">Beta</option><option value="prod">Prod</option><option value="dev">Dev</option></select></div>
-              <button id="submit-build" class="primary" type="submit">加入打包队列</button>
+              <button id="submit-build" class="primary" type="submit" disabled>加入打包队列</button>
             </form>
           </article>
 
@@ -179,7 +188,7 @@
     <div id="toast" class="toast"></div>
 
     <script>
-      const app = { jobs: [], selectedId: null, git: null }
+      const app = { jobs: [], selectedId: null, git: null, remoteBranches: [] }
       const $ = (id) => document.getElementById(id)
       const labels = { queued: "排队中", running: "打包中", success: "已完成", failed: "失败" }
 
@@ -265,6 +274,35 @@
         $("switch-branch").disabled = app.git.dirty
       }
 
+      function renderRemoteBranches(selected = $("branch").value) {
+        $("remote-branch-options").innerHTML = app.remoteBranches.map((branch) => `<option value="${escapeHtml(branch)}"></option>`).join("")
+        $("branch").value = app.remoteBranches.includes(selected) ? selected : app.remoteBranches.includes("dev") ? "dev" : app.remoteBranches[0] || ""
+        $("submit-build").disabled = !app.remoteBranches.length
+      }
+
+      async function refreshRemoteBranches(force = false) {
+        const button = $("refresh-branches")
+        button.disabled = true
+        button.classList.add("loading")
+        button.textContent = "刷新中"
+        const response = await fetch(`/api/git/remote-branches${force ? "?refresh=1" : ""}`).catch(() => undefined)
+        button.disabled = false
+        button.classList.remove("loading")
+        button.textContent = "刷新"
+        if (!response) return toast("远端分支刷新失败，请检查网络", true)
+        const result = await response.json()
+        if (!response.ok) {
+          $("branch").value = ""
+          $("branch").placeholder = "远端分支读取失败"
+          $("submit-build").disabled = true
+          return toast(result.error || "远端分支读取失败", true)
+        }
+        app.remoteBranches = result.branches
+        $("branch").placeholder = "搜索并选择远端分支"
+        renderRemoteBranches()
+        if (force) toast(`刷新成功，已获取 ${result.branches.length} 个远端分支`)
+      }
+
       function render() { renderJobs(); renderDetail(); renderGit() }
 
       async function refresh() {
@@ -281,6 +319,7 @@
       $("build-form").addEventListener("submit", async (event) => {
         event.preventDefault()
         const data = Object.fromEntries(new FormData(event.currentTarget))
+        if (!app.remoteBranches.includes(data.branch)) return toast("请从远端分支列表中选择有效分支", true)
         $("submit-build").disabled = true
         const response = await fetch("/api/jobs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) })
         const result = await response.json()
@@ -291,6 +330,8 @@
         render()
         toast("任务已加入打包队列")
       })
+
+      $("refresh-branches").addEventListener("click", () => refreshRemoteBranches(true).catch(() => toast("远端分支刷新失败", true)))
 
       $("switch-branch").addEventListener("click", async () => {
         const branch = $("local-branch").value
@@ -325,6 +366,7 @@
       events.addEventListener("git", (event) => { app.git = JSON.parse(event.data); renderGit() })
 
       refresh().catch(() => toast("无法读取打包服务状态", true))
+      refreshRemoteBranches().catch(() => toast("远端分支读取失败", true))
       setInterval(() => fetch("/api/git").then((response) => response.json()).then((result) => { app.git = result.git; renderGit() }).catch(() => {}), 10000)
     </script>
   </body>
