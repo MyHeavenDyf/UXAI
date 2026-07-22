@@ -18,6 +18,8 @@ import { AudioRenderer } from "./audio-renderer"
 import { PdfRenderer } from "./pdf-renderer"
 import { TextRenderer } from "./text-renderer"
 import { DesignPlanRenderer } from "./design-plan-renderer"
+import { StrategyFormRenderer } from "./strategy-form-renderer"
+import type { StrategyFormData } from "../../utils/strategy-form-scanner"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
 import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { DesignFilesPanel } from "../design-files"
@@ -73,8 +75,8 @@ export function ResultViewer(props: {
   onContentChange?: (id: string, content: string) => Promise<void>
   sessionId?: string
   onOpenArtifact?: (card: OutputCard) => void
-  viewMode: "tabs" | "files"
-  onViewModeChange: (mode: "tabs" | "files") => void
+  viewMode: "tabs" | "files" | "plan"
+  onViewModeChange: (mode: "tabs" | "files" | "plan") => void
   onAddArtifactToSession?: (file: ArtifactFile) => void
   onRemoveAttachmentsByPath?: (paths: string[]) => void
   onRenameTabByPath?: (oldPath: string, newPath: string, newTitle: string) => void
@@ -87,6 +89,20 @@ export function ResultViewer(props: {
   isPlanConfirmed?: () => boolean
   filesRefreshKey?: number
   onFilesRefresh?: () => void
+  /** 设计规划内容 (plan 模式使用) */
+  planCard?: OutputCard | null
+  /** 两步走工作流：当前阶段 */
+  planPhase?: "strategy" | "generate"
+  /** 策略表单数据 */
+  strategyFormData?: StrategyFormData
+  /** 策略表单字段变更回调 */
+  onStrategyFieldChange?: (field: keyof StrategyFormData, value: string) => void
+  /** 策略生成按钮回调 */
+  onGenerateStrategy?: () => void
+  /** 返回策略准备阶段回调 */
+  onBackToStrategy?: () => void
+  /** 策略是否正在生成中 */
+  isGenerating?: boolean
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const projectSelection = useProjectSelection()
@@ -267,7 +283,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
       class="flex flex-col flex-1 min-w-0 overflow-hidden"
       style={{ background: "var(--octo-surface-result)" }}
     >
-      <Show when={props.tabs.length > 0 || props.viewMode === "files"} fallback={<ResultViewerEmpty />}>
+      <Show when={props.tabs.length > 0 || props.viewMode === "files" || props.viewMode === "plan"} fallback={<ResultViewerEmpty />}>
         <TabBar
           tabs={props.tabs}
           activeId={props.activeId}
@@ -275,6 +291,8 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           onClose={props.onClose}
           viewMode={props.viewMode}
           onViewModeChange={props.sessionId ? props.onViewModeChange : undefined}
+          showPlanEntry={!!props.planCard || props.planPhase === "strategy"}
+          planConfirmed={props.isPlanConfirmed?.()}
         />
 
         <Show when={props.viewMode === "files" && props.sessionId}>
@@ -289,6 +307,54 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
               onFilesRefresh={props.onFilesRefresh}
             />
           )}
+        </Show>
+
+        {/* plan 模式 — 策略准备阶段 */}
+        <Show when={props.viewMode === "plan" && props.planPhase === "strategy"}>
+          <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+            <StrategyFormRenderer
+              formData={props.strategyFormData ?? {
+                需求背景: "", 设计目标: "", 设计方法: "", 其他: "",
+                用户画像: "", 用户旅程: "", 研究报告: "",
+              }}
+              onFieldChange={(field, value) => props.onStrategyFieldChange?.(field, value)}
+              onGenerate={() => props.onGenerateStrategy?.()}
+              isGenerating={props.isGenerating}
+              currentStep={1}
+            />
+          </div>
+        </Show>
+
+        {/* plan 模式 — 设计规划生成阶段,有 planCard 时渲染 */}
+        <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && props.planCard}>
+          {(plan) => (
+            <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <DesignPlanRenderer
+                content={plan().content}
+                title={plan().title}
+                artifactIdentifier={plan().artifactIdentifier}
+                confirmed={props.isPlanConfirmed?.() ?? false}
+                onConfirm={() => props.onConfirmPlan?.(plan().artifactIdentifier)}
+                onContentChange={(content) => {
+                  if (props.onContentChange && plan().id) {
+                    props.onContentChange(plan().id, content)
+                  }
+                }}
+                onBackToStrategy={() => props.onBackToStrategy?.()}
+                currentStep={2}
+              />
+            </div>
+          )}
+        </Show>
+
+        {/* plan 模式 — 生成阶段等待子 agent 输出 design-plan */}
+        <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && !props.planCard}>
+          <div class="flex flex-col items-center justify-center flex-1 gap-3" style="background: var(--octo-surface-result);">
+            <div class="flex items-center gap-2">
+              <span class="i-svg-spinners-clock size-5" />
+              <span style="color: var(--octo-text-secondary); font-size: 14px;">设计规划子 agent 正在生成中...</span>
+            </div>
+          </div>
         </Show>
 
         <Show when={props.viewMode === "tabs"}>
@@ -425,8 +491,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                         artifactIdentifier={tab.artifactIdentifier}
                         confirmed={props.isPlanConfirmed?.() ?? false}
                         onConfirm={() => props.onConfirmPlan?.(tab.artifactIdentifier)}
-                        onAdjust={() => props.onAdjustPlan?.()}
-                        onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
+                        onContentChange={(content) => { props.onContentChange?.(tabId, content) }}
                       />
                     </Match>
                     <Match when={tabType === "local-file"}>
