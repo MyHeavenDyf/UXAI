@@ -606,15 +606,13 @@ export function registerIpcHandlers(deps: Deps) {
   function syncSkillConfig() {
     try {
       if (!existsSync(skillsConfigPath)) return
-      const raw = JSON.parse(readFileSync(skillsConfigPath, "utf-8")) as Record<
-        string,
-        { description?: string; import?: boolean; type?: string }
-      >
+      const raw = JSON.parse(readFileSync(skillsConfigPath, "utf-8"))
+      const skillEntries: Record<string, { description?: string; import?: boolean; type?: string }> = raw.skill ?? {}
 
       const skillMap: Record<string, { description?: string; import?: boolean; type?: string }> = {}
       const agentMap: Record<string, string[]> = { octo_insight: [], octo_make: [], octo_studio: [] }
 
-      for (const [name, entry] of Object.entries(raw)) {
+      for (const [name, entry] of Object.entries(skillEntries)) {
         if (entry.import === false) continue
         skillMap[name] = { description: entry.description, import: entry.import, type: entry.type }
         const t = entry.type || "common"
