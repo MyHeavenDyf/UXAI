@@ -1,6 +1,26 @@
 import { getDesktopApi } from "../lib/electron-api"
 import JSZip from "jszip"
 
+export function getNextAvailableFileName(baseName: string, existingNames: string[]): string {
+  if (!existingNames.includes(baseName)) {
+    return baseName
+  }
+  
+  const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const regex = new RegExp(`^${escapeRegex(baseName)}\\((\\d+)\\)$`)
+  let maxNum = 0
+  
+  for (const name of existingNames) {
+    const match = name.match(regex)
+    if (match) {
+      const num = parseInt(match[1], 10)
+      if (num > maxNum) maxNum = num
+    }
+  }
+  
+  return `${baseName}(${maxNum + 1})`
+}
+
 export interface FileComment {
   id: string
   filePath: string

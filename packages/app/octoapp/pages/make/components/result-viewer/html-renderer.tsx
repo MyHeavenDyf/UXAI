@@ -13,7 +13,7 @@ import { CommentHoverTooltip } from "./comment-hover-tooltip"
 import { CommentPopover, type FileComment } from "./comment-popover"
 import { ArchiveDialog, type ArchiveConfirmData } from "@/components/dialog-archive"
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
-import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl } from "../../utils/archive-utils"
+import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl, getNextAvailableFileName } from "../../utils/archive-utils"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -312,7 +312,9 @@ export function HtmlRenderer(props: {
           uploadResult = await uploadVersion(data.existingDocId, zipBlob)
           uniqueId = data.existingDocId
         } else {
-          const newDeliverable = await createDeliverable(data.teamId, fileName)
+          const existingNames = data.existingDeliverables.map(d => d.fileName)
+          const newFileName = getNextAvailableFileName(fileName, existingNames)
+          const newDeliverable = await createDeliverable(data.teamId, newFileName)
           await uploadCover(newDeliverable.deliverableId, screenshotBlob)
           uploadResult = await uploadVersion(newDeliverable.uniqueId, zipBlob)
           uniqueId = newDeliverable.uniqueId

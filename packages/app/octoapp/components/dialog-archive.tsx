@@ -24,6 +24,7 @@ export interface ArchiveConfirmData {
   isOverwrite: boolean
   existingDeliverableId?: number
   existingDocId?: string
+  existingDeliverables: DeliverableItem[]
 }
 
 interface DeliverableItem {
@@ -726,7 +727,8 @@ export function ArchiveDialog(props: Props): JSX.Element {
         teamId: selectedFolderId() || 0,
         isOverwrite,
         existingDeliverableId: isOverwrite ? deliverables()[0]?.id : undefined,
-        existingDocId: isOverwrite ? deliverables()[0]?.docId : undefined
+        existingDocId: isOverwrite ? deliverables()[0]?.docId : undefined,
+        existingDeliverables: deliverables()
       }
 
       await props.onConfirm(data)
