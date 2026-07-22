@@ -28,6 +28,7 @@ import { sessionTitle } from "@/utils/session-title"
 import { authTokenFromCredentials } from "@/utils/server"
 import { directoryHeader } from "@/utils/headers"
 import { modelsApiHeaders } from "@/network/models-api"
+import { useModels } from "@/context/models"
 import { useServer } from "@/context/server"
 import {
   STUDIO_ASPECT_RATIOS,
@@ -138,6 +139,7 @@ export default function StudioPage() {
   const language = useLanguage()
   const layout = useLayout()
   const server = useServer()
+  const models = useModels()
   const dialog = useDialog()
   let studioPermissionChecked = false
   let studioPageRef!: HTMLDivElement
@@ -2395,6 +2397,18 @@ export default function StudioPage() {
         detailPrompt: input.detailPrompt,
         refinedPrompt: input.refinedPrompt,
         effectivePrompt: input.effectivePrompt,
+        promptRefineModels: models
+          .list()
+          .filter((model) =>
+            models.visible({
+              providerID: model.provider.id,
+              modelID: model.id,
+            }),
+          )
+          .map((model) => ({
+            providerID: model.provider.id,
+            modelID: model.id,
+          })),
         styleModel: input.capability === "image.generate" ? input.styleModel ?? styleModelLabel(styleModel()) : undefined,
         aspectRatio: (input.width && input.height)
           ? undefined

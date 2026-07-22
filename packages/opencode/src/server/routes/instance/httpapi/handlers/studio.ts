@@ -38,6 +38,7 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
               detailPrompt: ctx.payload.detailPrompt,
               refinedPrompt: ctx.payload.refinedPrompt,
               effectivePrompt: ctx.payload.effectivePrompt,
+              promptRefineModels: ctx.payload.promptRefineModels ? [...ctx.payload.promptRefineModels] : undefined,
               styleModel: ctx.payload.styleModel,
               aspectRatio: ctx.payload.aspectRatio,
               count: ctx.payload.count,

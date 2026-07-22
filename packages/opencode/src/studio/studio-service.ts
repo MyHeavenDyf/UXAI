@@ -68,6 +68,10 @@ export type StudioGenerationRequest = {
   detailPrompt?: string
   refinedPrompt?: string
   effectivePrompt?: string
+  promptRefineModels?: Array<{
+    providerID: string
+    modelID: string
+  }>
   styleModel?: string
   aspectRatio?: string
   count?: number
@@ -359,20 +363,44 @@ function isStudioPromptConnectedProvider(provider: Provider.Info, disabledProvid
     Boolean((provider.options as Record<string, unknown>)?.apiKey)
 }
 
-function firstStudioPromptConnectedModel(providers: Record<string, Provider.Info>, disabledProviders: Set<string>) {
+function studioPromptRefineModelKey(input: { providerID: string; modelID: string }) {
+  return `${input.providerID}:${input.modelID}`
+}
+
+function studioPromptRefineEnabledModels(input: StudioGenerationRequest) {
+  if (!input.promptRefineModels) return
+  return new Set(input.promptRefineModels.map(studioPromptRefineModelKey))
+}
+
+function isStudioPromptRefineModelEnabled(providerID: string, modelID: string, enabledModels?: Set<string>) {
+  if (!enabledModels) return true
+  return enabledModels.has(studioPromptRefineModelKey({ providerID, modelID }))
+}
+
+function firstStudioPromptConnectedModel(
+  providers: Record<string, Provider.Info>,
+  disabledProviders: Set<string>,
+  enabledModels?: Set<string>,
+) {
   const defaults = Provider.defaultModelIDs(providers)
   for (const provider of Object.values(providers).filter((item) =>
     isStudioPromptConnectedProvider(item, disabledProviders),
   )) {
     const configured = defaults[provider.id]
-    if (configured && provider.models[configured]) {
+    if (
+      configured &&
+      provider.models[configured] &&
+      isStudioPromptRefineModelEnabled(provider.id, provider.models[configured].id, enabledModels)
+    ) {
       return {
         providerID: ProviderID.make(provider.id),
         modelID: provider.models[configured].id,
       }
     }
 
-    const model = Object.values(provider.models).sort((left, right) => left.id.localeCompare(right.id))[0]
+    const model = Object.values(provider.models)
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .find((item) => isStudioPromptRefineModelEnabled(provider.id, item.id, enabledModels))
     if (!model) continue
     return {
       providerID: ProviderID.make(provider.id),
@@ -381,8 +409,12 @@ function firstStudioPromptConnectedModel(providers: Record<string, Provider.Info
   }
 }
 
-function sessionPromptRefineModel(session: typeof SessionTable.$inferSelect): StudioPromptRefineModelCandidate | undefined {
+function sessionPromptRefineModel(
+  session: typeof SessionTable.$inferSelect,
+  enabledModels?: Set<string>,
+): StudioPromptRefineModelCandidate | undefined {
   if (!session.model) return
+  if (!isStudioPromptRefineModelEnabled(session.model.providerID, session.model.id, enabledModels)) return
   return {
     providerID: ProviderID.make(session.model.providerID),
     modelID: ModelID.make(session.model.id),
@@ -394,14 +426,15 @@ const selectStudioPromptRefineModel = Effect.fn("Studio.selectPromptRefineModel"
   provider: Provider.Interface,
   session: typeof SessionTable.$inferSelect,
   disabledProviders: Set<string>,
+  enabledModels?: Set<string>,
 ) {
-  const sessionModel = sessionPromptRefineModel(session)
+  const sessionModel = sessionPromptRefineModel(session, enabledModels)
   if (sessionModel) {
     const resolved = yield* provider.getModel(sessionModel.providerID, sessionModel.modelID).pipe(Effect.option)
     if (resolved._tag === "Some") return sessionModel
   }
 
-  const connectedModel = firstStudioPromptConnectedModel(yield* provider.list(), disabledProviders)
+  const connectedModel = firstStudioPromptConnectedModel(yield* provider.list(), disabledProviders, enabledModels)
   if (connectedModel) {
     const resolved = yield* provider.getModel(connectedModel.providerID, connectedModel.modelID).pipe(Effect.option)
     if (resolved._tag === "Some") {
@@ -410,6 +443,10 @@ const selectStudioPromptRefineModel = Effect.fn("Studio.selectPromptRefineModel"
         source: "connected",
       }
     }
+  }
+
+  if (enabledModels) {
+    return yield* Effect.fail(new Error("No Studio prompt refine model is enabled."))
   }
 
   return {
@@ -683,10 +720,12 @@ async function refineStudioPrompt(
       (provider) =>
         Effect.gen(function* () {
           const config = yield* Effect.promise(() => studioPromptConfigRuntime.runPromise((service) => service.get()))
+          const enabledModels = studioPromptRefineEnabledModels(input)
           const selected = yield* selectStudioPromptRefineModel(
             provider,
             session,
             new Set(config.disabled_providers ?? []),
+            enabledModels,
           )
           const resolved = yield* provider.getModel(selected.providerID, selected.modelID)
           const agent = yield* Effect.promise(() => getStudioPromptRefineAgent())
@@ -728,6 +767,7 @@ async function refineStudioPrompt(
             resolvedModelID: resolved.id,
             apiID: resolved.api.id,
             apiNpm: resolved.api.npm,
+            enabledModelCount: enabledModels?.size,
           })
           console.log("[studio.service] prompt refine llm stream", {
             sessionID: session.id,
