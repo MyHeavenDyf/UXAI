@@ -5,7 +5,7 @@ import { rollbackToVersion } from "../version-history"
 import type { PatternSessionState } from "../version-history"
 
 // 导出 HUI 代码(经 IPC 调主进程 downloadHuiCode,传入 planner + mergedA2UI)
-export async function handleDownload(input: {planner: Record<string, unknown> | null, mergedA2UI: unknown}): Promise<void> {
+export async function handleDownload(input: {planner: Record<string, unknown> | null, mergedA2UI: unknown, sessionId?: string}): Promise<void> {
    if (!input.planner || !input.mergedA2UI) {
     showToast({ title: "暂无可下载的内容" })
     return
@@ -15,6 +15,10 @@ export async function handleDownload(input: {planner: Record<string, unknown> | 
     showToast({ title: "当前环境不支持代码导出" })
     return
   }
+  const uploadsDir = await desktopApi.getUploadsDir?.()
+  const fullUploadsPath = uploadsDir && input.sessionId ? `${uploadsDir}\\${input.sessionId}\\uploads` : null
+  console.log("[handleDownload] uploads dir:", uploadsDir)
+  console.log("[handleDownload] full uploads path:", fullUploadsPath)
   const jsonInput: {
     planner: Record<string, unknown>
     mergedA2UI: Record<string, unknown>

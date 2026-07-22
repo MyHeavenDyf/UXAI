@@ -371,17 +371,17 @@ function PatternContent() {
     return null
   })
 
-  // 历史文件存储目录，优先使用关联目录下的 .octo/design/history
+  // 历史文件存储目录，优先使用关联目录下的 .octo\\design\\history
   const patternHistoryDir = createMemo(() => {
     const home = sdk.directory
-    return `${home}/.octo/design/history`
+    return `${home}\\.octo\\design\\history`
   })
 
   createEffect(() => {
     const home = sdk.directory
     if (!home) return
     const api = (window as unknown as { api?: { setUploadsDir?: (dir: string) => Promise<void> } }).api
-    api?.setUploadsDir?.(`${home}/.octo/design/history`)
+    api?.setUploadsDir?.(`${home}\\.octo\\design\\history`)
   })
 
   // pipeline 忙状态（用于生成卡片状态）
@@ -1107,7 +1107,7 @@ function PatternContent() {
       if (replannerSessionId) await sdk.client.session.delete({ sessionID: replannerSessionId }).catch(() => {})
     }
 
-    await download({ planner, mergedA2UI })
+    await download({ planner, mergedA2UI, sessionId: sid })
   }
 
   // 分享 — 打包 intent / planner / modules / preview JSON 为 ZIP
