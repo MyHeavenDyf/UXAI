@@ -240,34 +240,12 @@
         return escapeHtml(value).replaceAll('"', "&quot;").replaceAll("'", "&#39;")
       }
 
-      function shellSingleQuote(value) {
-        return `'${value.replaceAll("'", `'"'"'`)}'`
-      }
-
-      function shellDoubleQuoteFragment(value) {
-        return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("$", "\\$").replaceAll("`", "\\`")
-      }
-
-      function terminalDownloadCommand(job, artifact) {
-        const name = shellDoubleQuoteFragment(artifact.name)
-        const url = new URL(`/api/artifacts/${job.id}/${encodeURIComponent(artifact.name)}`, location.origin).href
-        return `output="$HOME/Downloads/${name}"; url=${shellSingleQuote(url)}; finish() { xattr -d com.apple.quarantine "$output" 2>/dev/null || true; open "$output"; }; remote_size=$(curl --fail --silent --show-error --location --head "$url" | awk 'tolower($1) == "content-length:" { gsub("\\r", "", $2); size=$2 } END { print size }'); local_size=$(stat -f%z "$output" 2>/dev/null || echo 0); if [ -n "$remote_size" ] && [ "$local_size" -eq "$remote_size" ]; then finish; elif [ -n "$remote_size" ] && [ "$local_size" -gt 0 ] && [ "$local_size" -lt "$remote_size" ]; then curl --fail --location --retry 3 --continue-at - --output "$output" "$url" && finish; else curl --fail --location --retry 3 --output "$output" "$url" && finish; fi`
-      }
-
-      async function copyText(value) {
-        const copied = navigator.clipboard
-          ? await navigator.clipboard.writeText(value).then(() => true).catch(() => false)
-          : false
-        if (copied) return true
-        const textarea = document.createElement("textarea")
-        textarea.value = value
-        textarea.style.position = "fixed"
-        textarea.style.opacity = "0"
-        document.body.append(textarea)
-        textarea.select()
-        const fallback = document.execCommand("copy")
-        textarea.remove()
-        return fallback
+      function artifactUrl(job, artifact) {
+        if (artifact.url) {
+          const configured = new URL(artifact.url, location.origin)
+          if (configured.protocol === "http:" || configured.protocol === "https:") return configured.href
+        }
+        return new URL(`/api/artifacts/${job.id}/${encodeURIComponent(artifact.name)}`, location.origin).href
       }
 
       function upsertJob(job) {
@@ -297,19 +275,9 @@
         log.textContent = job.log || "等待执行..."
         if (nearBottom) log.scrollTop = log.scrollHeight
         $("artifacts").hidden = !job.artifacts.length
-        $("artifacts").innerHTML = job.artifacts.flatMap((artifact) => [
-          `<a class="artifact" href="/api/artifacts/${job.id}/${encodeURIComponent(artifact.name)}">下载 ${escapeHtml(artifact.name)} · ${formatSize(artifact.size)}</a>`,
-          ...(job.target.startsWith("mac-") && artifact.name.toLowerCase().endsWith(".dmg")
-            ? [`<button class="artifact terminal-download" type="button" data-name="${escapeAttribute(artifact.name)}">终端下载（复制命令）</button>`]
-            : []),
-        ]).join("")
-        document.querySelectorAll(".terminal-download").forEach((button) => button.addEventListener("click", async () => {
-          const artifact = job.artifacts.find((candidate) => candidate.name === button.dataset.name)
-          if (!artifact) return toast("未找到对应安装包", true)
-          const command = terminalDownloadCommand(job, artifact)
-          if (await copyText(command)) return toast("终端下载命令已复制，请打开终端粘贴并回车")
-          window.prompt("请复制下面的命令到终端执行", command)
-        }))
+        $("artifacts").innerHTML = job.artifacts
+          .map((artifact) => `<a class="artifact" href="${escapeAttribute(artifactUrl(job, artifact))}">下载 ${escapeHtml(artifact.name)} · ${formatSize(artifact.size)}</a>`)
+          .join("")
       }
 
       function renderGit() {
