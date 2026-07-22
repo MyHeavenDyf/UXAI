@@ -168,6 +168,7 @@ export function HtmlRenderer(props: {
     commenterName?: string
     createdAt?: number
     commentId?: string
+    showOverlap?: boolean
   } | null>(null)
   const [commentTarget, setCommentTarget] = createSignal<{
     elementId: string | null
@@ -882,6 +883,7 @@ createEffect(() => {
           commenterName: comment.commenterName,
           createdAt: comment.createdAt,
           commentId: comment.id,
+          showOverlap: d.showOverlap,
         })
       }
     }
