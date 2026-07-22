@@ -112,16 +112,17 @@ export function getHuiIconComponentRef(
   const cacheKey = `${iconId}:${apiStyle}`
   const cachedSvg = svgCache.get(cacheKey)
 
-  // filled 没找到时退回 line
-  if (!cachedSvg && apiStyle === getStyleValue('filled')) {
-    const lineKey = `${iconId}:${getStyleValue('border')}`
-    const lineSvg = svgCache.get(lineKey)
-    if (lineSvg) {
+  // 非 border 变体没找到时，退回到 border(线性) 变体
+  const borderValue = getStyleValue('border')
+  if (!cachedSvg && apiStyle !== borderValue) {
+    const borderKey = `${iconId}:${borderValue}`
+    const borderSvg = svgCache.get(borderKey)
+    if (borderSvg) {
       return {
         component: markRaw(HuiSvgIcon),
         props: {
           iconId,
-          svgHtml: lineSvg,
+          svgHtml: borderSvg,
           size: HUI_ICON_SIZE,
           type: mapShapeToHuiType(shape),
           iconColor: mapColorToHuiColor(undefined),

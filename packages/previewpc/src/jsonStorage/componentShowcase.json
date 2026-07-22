@@ -372,7 +372,9 @@
         "status": "休假",
         "detail": "王五，2022年加入公司，擅长用户界面设计与交互体验优化。"
       }
-    ]
+    ],
+    "paginationCurrent": 3,
+    "paginationTotal": 85
   },
   "rootId": "pageRoot",
   "elements": [
@@ -4043,6 +4045,7 @@
         "dropdownCard",
         "tabsCard",
         "stepsCard",
+        "paginationCard",
         "menuCard"
       ]
     },
@@ -5202,6 +5205,53 @@
           "path": "status"
         },
         "color": "default"
+      }
+    },
+    {
+      "id": "paginationCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "paginationCardTitle",
+        "paginationRowShowTotal"
+      ]
+    },
+    {
+      "id": "paginationCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Pagination 分页",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "paginationRowShowTotal",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "paginationRowShowTotalLabel",
+        "paginationShowTotal"
+      ]
+    },
+    {
+      "id": "paginationRowShowTotalLabel",
+      "component": "span",
+      "props": {
+        "value": "显示总数",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "paginationShowTotal",
+      "component": "Pagination",
+      "props": {
+        "current": 3,
+        "total": 85,
+        "showTotal": true
       }
     },
     {

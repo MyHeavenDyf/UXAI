@@ -3,12 +3,15 @@
  *
  * 收集范围（区分 Icon 组件与其他组件）：
  *   A. elements 节点树：
- *      1. `component === 'Icon'` 节点的 `props.name` — 记录 IconContext（含 shape、color）
+ *      1. `component === 'Icon'` 节点的 `props.name` — 记录 IconContext（含 shapes Set）
  *      2. 任意节点 `props.icon`（字符串字面量，如 Button 的 icon prop）— 标记为 OtherComponent
  *      3. 任意节点 `props.items` 数组中元素的 `icon` 字段 — 标记为 OtherComponent
  *      4. `children` 递归
  *   B. state 数据：
  *      5. 递归遍历 state 中所有对象/数组，收集任意 `icon` 字段的字符串值 — 标记为 OtherComponent
+ *
+ * 重要：同一图标名在Icon组件中可能以不同shape出现（如outline+fill），需要分别获取对应风格的SVG。
+ * 仅Icon组件有shape区分，其他组件一律视为线性(border)风格。
  */
 
 import { fetchSvgBatch, getStyleValue } from './fetchSvg'
@@ -26,7 +29,8 @@ function toIconComponentName(raw: string): string {
 /** 图标来源上下文：区分 Icon 独立组件与其他组件的 icon 属性 */
 export interface IconContext {
   sourceType: 'IconComponent' | 'OtherComponent'
-  shape?: 'outline' | 'fill' | 'square' | 'circle'  // 仅 IconComponent 有
+  /** Icon组件出现的所有shape值（同名不同shape合并到Set中） */
+  shapes: Set<string>  // 仅 IconComponent 有，如 Set(['outline', 'fill'])
 }
 
 interface JsonData {
@@ -70,21 +74,26 @@ function collectIconNamesFromElement(
 ): void {
   if (!el || typeof el !== 'object') return
 
-  // 1. Icon 组件节点的 props.name — 记录完整上下文
+  // 1. Icon 组件节点的 props.name — 记录完整上下文，合并所有shape
   if (el.component === 'Icon' && el.props?.name && typeof el.props.name === 'string') {
     names.add(el.props.name)
-    contextMap.set(el.props.name, {
-      sourceType: 'IconComponent',
-      shape: el.props.shape || 'outline',
-    })
+    const shape = el.props.shape || 'outline'
+    const existing = contextMap.get(el.props.name)
+    if (existing && existing.sourceType === 'IconComponent') {
+      existing.shapes.add(shape)  // 同名不同shape → 合入Set
+    } else {
+      contextMap.set(el.props.name, {
+        sourceType: 'IconComponent',
+        shapes: new Set([shape]),
+      })
+    }
   }
 
   // 2. 任意节点 props.icon（字符串字面量，如 Button）— 标记为 OtherComponent
   if (el.props && typeof el.props.icon === 'string' && el.component !== 'Icon') {
     names.add(el.props.icon)
-    // 如果已有 IconComponent 上下文，保留更高优先级的上下文
     if (!contextMap.has(el.props.icon)) {
-      contextMap.set(el.props.icon, { sourceType: 'OtherComponent' })
+      contextMap.set(el.props.icon, { sourceType: 'OtherComponent', shapes: new Set() })
     }
   }
 
@@ -112,7 +121,7 @@ function collectIconNamesFromArray(
     if (typeof item.icon === 'string') {
       names.add(item.icon)
       if (!contextMap.has(item.icon)) {
-        contextMap.set(item.icon, { sourceType: 'OtherComponent' })
+        contextMap.set(item.icon, { sourceType: 'OtherComponent', shapes: new Set() })
       }
     }
     if (Array.isArray(item.children)) {
@@ -141,7 +150,7 @@ function collectIconNamesFromState(
     if (typeof value.icon === 'string') {
       names.add(value.icon)
       if (!contextMap.has(value.icon)) {
-        contextMap.set(value.icon, { sourceType: 'OtherComponent' })
+        contextMap.set(value.icon, { sourceType: 'OtherComponent', shapes: new Set() })
       }
     }
     for (const v of Object.values(value)) {
@@ -162,7 +171,9 @@ interface IconApiResult {
 /**
  * 调用 icon 映射 API（分批串行请求）
  * 接口协议：GET {ICON_API_URL}?keyword={names}&topK=2
- * 返回 Array<{ keyword, icons: Array<{ icon_id, name, group? }> }>
+ * 返回 Array<{ keyword, icons: Array<{ icon_id, name, englishName, group? }> }>
+ *
+ * 匹配策略：优先系统图标组 → name字段匹配 → 第一个结果
  */
 async function callIconApi(names: string[]): Promise<IconApiResult[]> {
   const BATCH_SIZE = 6
@@ -189,10 +200,16 @@ async function callIconApi(names: string[]): Promise<IconApiResult[]> {
       const data = await resp.json()
       if (Array.isArray(data)) {
         for (const item of data) {
+          // 优先匹配系统图标组
           const systemIcon = item.icons?.find((icon: any) =>
             Array.isArray(icon.group) && icon.group.some((g: string) => g.includes('系统图标'))
           )
-          const selected = systemIcon || item.icons?.[0]
+          // 其次匹配name字段（icon.name 包含 keyword 子串）
+          const keywordStr = item.keyword?.toLowerCase() || ''
+          const nameMatch = item.icons?.find((icon: any) =>
+            icon.name?.toLowerCase().includes(keywordStr)
+          )
+          const selected = systemIcon || nameMatch || item.icons?.[0]
           results.push({
             iconId: selected?.icon_id || null,
             name: selected?.name || null,
@@ -212,9 +229,19 @@ async function callIconApi(names: string[]): Promise<IconApiResult[]> {
 
 // ========== 主流程 ==========
 
+/** shape → API style value 映射 */
+function shapeToStyleValue(shape: string): string {
+  switch (shape) {
+    case 'fill': return getStyleValue('filled')
+    case 'circle': return getStyleValue('round_bottom2')
+    case 'square': return getStyleValue('square_bottom2')
+    default: return getStyleValue('border')
+  }
+}
+
 /**
  * 从多个 JSON 数据源中收集所有 icon 名称，调用 API 映射，
- * 并串行获取 SVG 文本缓存到 svgCache
+ * 并按 (icon_id, style) 组合去重批量获取 SVG 文本缓存到 svgCache
  *
  * @returns { componentNameMap, iconIdMap, iconContextMap }
  */
@@ -261,34 +288,41 @@ export async function resolveAllIcons(dataSources: JsonData[]): Promise<IconReso
     iconContextMap[key] = ctx
   }
 
-  // ===== 串行获取 SVG（按 style 分组，最小化请求次数） =====
-  // 收集所有需要 line 和 filled 变体的 icon_ids
-  const lineIconIds: string[] = []
-  const filledIconIds: string[] = []
+  // ===== 按 (icon_id, styleValue) 组合去重，批量获取 SVG =====
+  // 收集所有需要获取的 style 变体
+  const fetchTasks: Map<string, Set<string>> = new Map()  // iconId → Set<styleValue>
 
   for (const name of names) {
     const iconId = iconIdMap[name]
     if (!iconId) continue
-
     const context = iconContextMap[name]
 
-    // 所有图标都需要 line 变体（默认 + outline/circle/square）
-    lineIconIds.push(iconId)
+    if (!fetchTasks.has(iconId)) fetchTasks.set(iconId, new Set())
+    const styles = fetchTasks.get(iconId)!
 
-    // 仅 Icon 组件且 shape="fill" 的图标需要 filled 变体
-    if (context?.sourceType === 'IconComponent' && context?.shape === 'fill') {
-      filledIconIds.push(iconId)
+    if (context?.sourceType === 'IconComponent') {
+      // Icon组件：遍历所有出现的shape，每个映射到对应的API style
+      for (const shape of context.shapes) {
+        styles.add(shapeToStyleValue(shape))
+      }
+    } else {
+      // 其他组件：只需要线性(border)
+      styles.add(getStyleValue('border'))
     }
   }
 
-  // 第 1 次请求：批量获取所有 line 变体
-  if (lineIconIds.length) {
-    await fetchSvgBatch(lineIconIds, getStyleValue('line'), '24')
+  // 按 styleValue 分组批量获取（去重iconId）
+  const styleToIds: Record<string, Set<string>> = {}
+  for (const [iconId, styleValues] of fetchTasks) {
+    for (const styleValue of styleValues) {
+      if (!styleToIds[styleValue]) styleToIds[styleValue] = new Set()
+      styleToIds[styleValue].add(iconId)
+    }
   }
 
-  // 第 2 次请求：批量获取 filled 变体（仅当有 fill 需求时）
-  if (filledIconIds.length) {
-    await fetchSvgBatch(filledIconIds, getStyleValue('filled'), '24')
+  // 串行获取各风格变体
+  for (const [styleValue, idSet] of Object.entries(styleToIds)) {
+    await fetchSvgBatch(Array.from(idSet), styleValue, '24')
   }
 
   return { componentNameMap, iconIdMap, iconContextMap }

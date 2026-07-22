@@ -1116,6 +1116,11 @@ function PatternContent() {
     await exportZip({historyDir: patternHistoryDir(), sessionId: params.id ?? "", title: sessionInfo()?.title ?? params.id ?? "export" })
   }
 
+  // 画布编辑  跳转pixso
+  function handleCanvasEditing() {
+    console.log('跳转pixso')
+  }
+
   // 实时预览
   async function handleLivePreview() {
     const sid = params.id
@@ -1240,6 +1245,7 @@ function PatternContent() {
                     onPickerSubmit={handlePickerSubmit}
                     onDownload={handleDownload}
                     onShare={handleShare}
+                    onCanvasEditing={handleCanvasEditing}
                     onReorder={handleReorder}
                     onLivePreview={handleLivePreview}
                     onPixsoPreview={handlePixsoPreview}

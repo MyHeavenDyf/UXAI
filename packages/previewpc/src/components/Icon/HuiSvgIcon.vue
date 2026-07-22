@@ -19,15 +19,25 @@ const props = defineProps<{
 const resolvedSvg = computed(() => {
   if (props.svgHtml) return props.svgHtml
   if (props.iconId) {
-    const isFilled = props.type === 'filled' || props.type === 'filled-twotone'
-    const style = isFilled ? getStyleValue('filled') : getStyleValue('border')
-    const cacheKey = `${props.iconId}:${style}`
+    // 根据 type 映射到对应的 styleValue 查找缓存
+    let styleValue: string
+    switch (props.type) {
+      case 'filled': styleValue = getStyleValue('filled'); break
+      case 'filled-twotone': styleValue = getStyleValue('filled'); break  // filled-twotone也用面性
+      case 'round-bg': styleValue = getStyleValue('round_bottom2'); break
+      case 'square-bg': styleValue = getStyleValue('square_bottom2'); break
+      case 'lined-twotone': styleValue = getStyleValue('border'); break
+      default: styleValue = getStyleValue('border'); break
+    }
+
+    const cacheKey = `${props.iconId}:${styleValue}`
     const cached = svgCache.get(cacheKey)
     if (cached) return cached
-  
-    if (isFilled) {
-      const lineKey = `${props.iconId}:${getStyleValue('border')}`
-      return svgCache.get(lineKey) || ''
+
+    // filled/round-bg/square-bg 没找到时退回 border(线性)变体
+    if (styleValue !== getStyleValue('border')) {
+      const borderKey = `${props.iconId}:${getStyleValue('border')}`
+      return svgCache.get(borderKey) || ''
     }
     return ''
   }
