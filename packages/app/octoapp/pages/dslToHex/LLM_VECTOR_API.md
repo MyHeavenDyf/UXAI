@@ -9,12 +9,12 @@
 **设计目标**：为 LLM 提供高效的资源检索能力，通过两步调用获取完整信息。
 
 **两个 API 关系**：
-1. `POST /lib-resource-service/api/vector/search/llm` → 精简搜索（返回 data_id + vector_text）
-2. `GET /lib-resource-service/api/vector/detail` → 获取完整数据（返回所有字段）
+1. `POST /api/vector/search/llm` → 精简搜索（返回 data_id + vector_text）
+2. `GET /api/vector/detail` → 获取完整数据（返回所有字段）
 
 ---
 
-## 二、精简版搜索：POST /lib-resource-service/api/vector/search/llm
+## 二、精简版搜索：POST /api/vector/search/llm
 
 ### 请求参数
 
@@ -65,7 +65,7 @@
 
 **请求**：
 ```bash
-curl -X POST https://octo-beta.hdesign.huawei.com/lib-resource-service/api/vector/search/llm \
+curl -X POST http://localhost:8009/api/vector/search/llm \
   -H "Content-Type: application/json" \
   -d '{
     "type": "component",
@@ -103,7 +103,7 @@ curl -X POST https://octo-beta.hdesign.huawei.com/lib-resource-service/api/vecto
 
 ---
 
-## 三、全量数据获取：GET /lib-resource-service/api/vector/detail
+## 三、全量数据获取：GET /api/vector/detail
 
 ### 请求参数（Query 参数）
 
@@ -140,8 +140,6 @@ curl -X POST https://octo-beta.hdesign.huawei.com/lib-resource-service/api/vecto
 | `cv_variant_name` | 变体属性 |
 | `cv_component_key` | 组件 Key |
 | `cv_variant_key` | 变体 Key |
-| `width` | 组件宽度（px） |
-| `height` | 组件高度（px） |
 
 **图标专用字段**（type=icon）：
 | 字段 | 说明 |
@@ -163,7 +161,7 @@ curl -X POST https://octo-beta.hdesign.huawei.com/lib-resource-service/api/vecto
 
 **请求**：
 ```bash
-curl -X GET "https://octo-beta.hdesign.huawei.com/lib-resource-service/api/vector/detail?type=component&data_id=abc123def456"
+curl -X GET "http://localhost:8009/api/vector/detail?type=component&data_id=abc123def456"
 ```
 
 **返回**：
@@ -192,9 +190,9 @@ curl -X GET "https://octo-beta.hdesign.huawei.com/lib-resource-service/api/vecto
 
 ```
 步骤1: 用户提出需求 → LLM 提取关键词
-步骤2: LLM 调用 POST /lib-resource-service/api/vector/search/llm
+步骤2: LLM 调用 POST /api/vector/search/llm
 步骤3: LLM 解析 vector_text，识别相关资源
-步骤4: （可选）LLM 调用 GET /lib-resource-service/api/vector/detail 获取完整信息
+步骤4: （可选）LLM 调用 GET /api/vector/detail 获取完整信息
 步骤5: LLM 返回结果给用户
 ```
 
@@ -209,7 +207,7 @@ LLM 分析用户需求，提取关键词：`["按钮", "可用", "正常"]`
 
 #### 步骤2：调用精简搜索
 ```bash
-POST /lib-resource-service/api/vector/search/llm
+POST /api/vector/search/llm
 {
   "type": "component",
   "queries": ["按钮 可用 正常"],
@@ -245,7 +243,7 @@ LLM 解析：
 #### 步骤4：（可选）获取完整信息
 LLM 如需文件路径等信息，调用：
 ```bash
-GET /lib-resource-service/api/vector/detail?type=component&data_id=abc123
+GET /api/vector/detail?type=component&data_id=abc123
 ```
 
 #### 步骤5：返回结果
@@ -317,8 +315,8 @@ LLM 告知用户：
 ## 九、API 地址
 
 **开发环境**：
-- `https://octo-beta.hdesign.huawei.com/lib-resource-service/api/vector/search/llm`
-- `https://octo-beta.hdesign.huawei.com/lib-resource-service/api/vector/detail`
+- `http://localhost:8009/api/vector/search/llm`
+- `http://localhost:8009/api/vector/detail`
 
 **生产环境**：
 - 替换 `localhost:8009` 为实际服务地址
@@ -327,7 +325,7 @@ LLM 告知用户：
 
 ## 十、组件搜索结果 → 设计 DSL instance 节点
 
-搜索到组件后，调用 `/lib-resource-service/api/vector/detail` 获取完整数据，再将字段映射到设计 DSL 的 `instance` 节点。
+搜索到组件后，调用 `/api/vector/detail` 获取完整数据，再将字段映射到设计 DSL 的 `instance` 节点。
 
 ### 字段映射表
 
@@ -336,7 +334,7 @@ LLM 告知用户：
 | `instance.variant_key` | `cv_variant_key` | 变体唯一 key |
 | `instance.component_set_key` | `cv_component_key` | 组件集 key（即 parentKey）|
 | `instance.symbol_id` | `cv_variant_guid` | 变体 GUID，格式 `"sessionID:localID"` |
-| `instance.path` | `cv_domain` + `"/"` + `file_path` | 拼接得到 hex 文件路径，如 `"ICT_UI/component/be1d....txt"` |
+| `instance.path` | `cv_lib_file_key` + `"/"` + `file_path` | 拼接得到 hex 文件路径，如 `"mock-key-001/component/be1d....txt"` |
 | `instance.variant_props` | `cv_variant_name` 解析 | 将 `"size=normal, disabled=false"` 解析为 `{"size":"normal","disabled":"false"}` |
 | `instance.component_set_resolved` | 固定 `true` | 本地库已成功解析 |
 | `instance.overrides` | 固定 `[]` | 无覆写 |
@@ -345,7 +343,7 @@ LLM 告知用户：
 
 **Step 1：搜索组件**
 ```bash
-POST /lib-resource-service/api/vector/search/llm
+POST /api/vector/search/llm
 {
   "type": "component",
   "queries": ["按钮 正常 可用"],
@@ -364,7 +362,7 @@ POST /lib-resource-service/api/vector/search/llm
 
 **Step 2：获取完整数据**
 ```bash
-GET /lib-resource-service/api/vector/detail?type=component&data_id=f884abc...
+GET /api/vector/detail?type=component&data_id=f884abc...
 ```
 
 返回：
@@ -373,7 +371,8 @@ GET /lib-resource-service/api/vector/detail?type=component&data_id=f884abc...
   "cv_variant_key":    "f884abc...",
   "cv_component_key":  "be1dabc...",
   "cv_variant_guid":   "8229:277395",
-  "cv_domain":         "ICT_UI",
+  "cv_lib_file_key":  "mock-key-001",
+  "cv_lib_name":      "AAA组件库",
   "cv_variant_name":   "size=normal, disabled=false",
   "file_path":         "component/be1dabc....txt",
   ...
@@ -402,7 +401,7 @@ dsl_layer = {
         "variant_key":            detail["cv_variant_key"],
         "component_set_key":      detail["cv_component_key"],
         "component_set_resolved": True,
-        "path":                   f"{detail['cv_domain']}/{detail['file_path']}",
+        "path":                   f"{detail['cv_lib_file_key']}/{detail['file_path']}",
         "variant_props":          variant_props,
         "overrides":              []
     }
@@ -422,6 +421,67 @@ dsl_layer = {
     "component_set_resolved": true,
     "path":                   "ICT_UI/component/be1dabc....txt",
     "variant_props":          { "size": "normal", "disabled": "false" },
+    "overrides":              []
+  }
+}
+```
+
+---
+
+### 修改组件文字（variant_props）
+
+组件显示的文字内容**只能通过 `variant_props` 修改**，且只有 `type == "TEXT"` 的属性才能承载文字。
+
+`/detail` 返回的 `cv_component_props` 字段记录了该变体的所有属性（名称 + 类型），例如：
+
+```json
+{
+  "cv_component_props": [
+    { "name": "text",     "type": "TEXT"     },
+    { "name": "icon",     "type": "INSTANCE" },
+    { "name": "disabled", "type": "BOOLEAN"  }
+  ]
+}
+```
+
+**Step 1：从 `cv_component_props` 中筛选 TEXT 属性**
+
+```python
+detail = response_from_detail_api
+
+text_props = [
+    prop for prop in detail.get("cv_component_props", [])
+    if prop.get("type") == "TEXT"
+]
+# text_props → [{"name": "text", "type": "TEXT"}]
+```
+
+**Step 2：将目标文字追加到 `variant_props`**
+
+```python
+new_label = "立即购买"   # 由调用方按实际需求填写
+
+for prop in text_props:
+    variant_props[prop["name"]] = new_label
+# variant_props → {"size": "normal", "disabled": "false", "text": "立即购买"}
+
+dsl_layer["instance"]["variant_props"] = variant_props
+```
+
+**最终输出的 DSL 片段**：
+
+```json
+{
+  "type": "instance",
+  "name": "按钮",
+  "box": { "x": 0, "y": 0, "width": 120, "height": 36 },
+  "instance": {
+    "symbol_id":              "8229:277395",
+    "variant_key":            "f884abc...",
+    "component_set_key":      "be1dabc...",
+    "component_set_resolved": true,
+    "path":                   "ICT_UI/component/be1dabc....txt",
+    "variant_props":          { "size": "normal", "disabled": "false", "text": "立即购买" },
     "overrides":              []
   }
 }

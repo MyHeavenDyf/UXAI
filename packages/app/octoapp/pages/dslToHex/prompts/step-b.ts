@@ -16,7 +16,7 @@ export const STEP_B_PROMPT = `
 
 1. 理解语义布局描述中的页面结构、区块划分和元素语义
 2. 规划 Node DSL JSON 的节点树结构
-3. 识别所有 layerType=component/icon/image 的节点，其中 resourceType=illus 的 image 节点走 illusPlus 流程
+3. 识别所有 layerType=component/icon/image 的节点，其中 resourceType=illus 的 image 节点走 illusPlus 流程，resourceType=image 的 image 节点走 imagePlus 流程
 4. 为每个资源节点提取搜索关键词——queries 必须包含具体属性词，不要只写类别名。从语义描述中提取维度拼入关键词：组件名+状态（如"按钮 禁用"、"输入框 正常"）、组件名+尺寸（如"按钮 large"）、组件名+子类（如"导航栏 底部"）
 
 ### 阶段2：调用资源 API，为资源节点匹配真实设计资源
@@ -31,15 +31,16 @@ export VECTOR_API_BASE=\${VECTOR_API_BASE} NODE_TLS_REJECT_UNAUTHORIZED=0
 
 脚本路径：\${API_CALL_SCRIPT}
 
-根据节点 layerType 和 resourceType 分为三套完全独立的 API 流程：
+根据节点 layerType 和 resourceType 分为四套完全独立的 API 流程：
 
-- **component / image（resourceType=image）** → vectorSearch + vectorDetail
-- **icon** → getConfig → getIconInfo → getSvg，三步顺序调用
+- **component** → vectorSearch + vectorDetail
+- **icon** → getConfig → getIconInfo → getIcon，三步顺序调用
 - **image（resourceType=illus）** → getConfig → getIllusInfo → getIllus，三步顺序调用
+- **image（resourceType=image）** → getConfig → getImageInfo → getImage，三步顺序调用
 
 ---
 
-#### 流程A：component / image — 向量搜索
+#### 流程A：component — 向量搜索
 
 ##### 精简搜索
 
@@ -48,7 +49,7 @@ bun \${API_CALL_SCRIPT} vectorSearch --type component --queries "按钮 禁用,�
 \`\`\`
 
 参数说明：
-- type：资源类型名（component / image），对应 layerType → resourceType 映射见下方表格
+- type：资源类型名，component 走向量搜索
 - queries：逗号分隔的搜索关键词列表（脚本自动转为数组）
 - top_k：可选，每条 query 返回结果数，默认 5
 
@@ -108,7 +109,7 @@ queries 必须包含具体属性词，不要只写资源类别名：
 
 #### 流程B：icon — iconPlus 三步 API
 
-⚠️ icon 资源不走向量搜索 API（/lib-resource-service/api/vector/search/llm 和 /lib-resource-service/api/vector/detail），走独立的 iconPlus 三步链路。icon 节点的 resourceId / resourceScore 来自 getIconInfo。resourceDetail 不需要你输出——系统会根据 getIconInfo + getSvg 的真实输出自动回填，但 getSvg 必须实际调用（系统靠它的输出拿到 SVG 内容）。
+⚠️ icon 资源不走向量搜索 API（/lib-resource-service/api/vector/search/llm 和 /lib-resource-service/api/vector/detail），走独立的 iconPlus 三步链路。icon 节点的 resourceId / resourceScore 来自 getIconInfo（resourceId 取 icon_id）。resourceDetail 不需要你输出——系统会根据 getIconInfo + getIcon 的真实输出自动回填，但 getIcon 必须实际调用（系统靠它的输出拿到 SVG/PNG 内容）。
 
 ##### 步骤1：获取配置
 
@@ -124,6 +125,7 @@ bun \${API_CALL_SCRIPT} getConfig --flow icon
   "size": [{"key": 16, "value": 16}, {"key": 24, "value": 24}, {"key": 36, "value": 36}, {"key": 48, "value": 48}],
   "style": [{"key": "line", "value": "线性"}, {"key": "filled", "value": "面性"}],
   "category": [{"key": "basic", "value": "基础图标"}, {"key": "system", "value": "系统图标"}],
+  "groups": [{"id": "74", "key": "系统图标", "value": "系统图标"}, {"id": "74", "key": "业务领域图标", "value": "业务领域图标"}],
   "color": [{"id": "GTS_线程_Blue-5", "key": "Blue-5", "value": "#007DFF", "domain": "GTS", "type": "linear", "style": "线性"}]
 }
 \`\`\`
@@ -136,44 +138,48 @@ bun \${API_CALL_SCRIPT} getConfig --flow icon
 bun \${API_CALL_SCRIPT} getIconInfo --keyword "返回" --topK 5
 \`\`\`
 
-参数：keyword（必选，搜索关键词）、topK（可选，默认5）、Category（可选）
+参数：keyword（必选，搜索关键词）、topK（可选，默认5）、category（可选）、group_id（可选）、source_id（可选）
 
 返回：
 \`\`\`json
  [{
-   "keyword": "返回",
-   "icons": [{
-    "icon_id": "123",
-    "name": "下载",
-    "chineseName": "返回",
-    "englishName": "back",
-    "description": "",
-    "category": "基础图标",
-    "group": "通用",
-    "score": "0.95"
-  }]
+  "keyword": "返回",
+  "icons": [{
+   "icon_id": "123",
+   "name": "下载",
+   "chineseName": "返回",
+   "englishName": "back",
+   "description": "",
+   "category": "基础图标",
+   "group": "通用",
+   "url": "https://...",
+   "score": "0.95"
+ }]
 }]
 \`\`\`
 
+⚠️ **注意 url 字段**：getIconInfo 返回的每个 icon 都有 url 字段，这是步骤3 getIcon 的必选参数。你在步骤3 中必须使用此 url（不是 icon_id）来调用 getIcon。icon_id 用于 DSL JSON 的 resourceId 和 --save 模式的回填标识。
+
 ##### 步骤3：获取 SVG/PNG
 
-支持批量获取，优先把同一 size+style+color 的 icon_id 用逗号拼成一个请求，减少请求数：
+支持批量获取，优先把同一 size+style+color 的 url 用逗号拼成一个请求，减少请求数：
 
 \`\`\`bash
-bun \${API_CALL_SCRIPT} getSvg --icon_id "123,456,789" --size 24 --style "线性" --color "GTS_线程_Blue-5" --fileType svg --save \${ASSETS_DIR}
+bun \${API_CALL_SCRIPT} getIcon --url "url1,url2,url3" --icon_id "123,456,789" --size 24 --style "线性" --color "GTS_线程_Blue-5" --fileType svg --save \${ASSETS_DIR}
 \`\`\`
 
 参数说明：
-- icon_id（必选）：来自 getIconInfo 返回的 icon_id，支持逗号隔开分批获取（同一 size+style+color 的 icon 才可批量）
+- url（必选）：来自 getIconInfo 返回的 url 字段，支持逗号隔开分批获取（同一 size+style+color 的 icon 才可批量）
+- icon_id（--save 模式下必须传）：来自 getIconInfo 返回的 icon_id，逗号分隔，与 url 位置一一对应。用于 --save 输出的回填标识，系统靠它关联 resourceId
 - size（必选）：来自 getConfig 的 size 列表，根据 icon 节点语义描述中的尺寸选择（导航图标选 24，功能图标选 20→选 16 或 24，装饰图标选 16）
 - style（必选）：来自 getConfig 的 style.value（直接传原始值，如"线性"/"面性"）
 - color（必选）：来自 getConfig 的 color.id（直接传原始值），根据 icon 设计上下文选择最合适的颜色（从 color 列表中匹配：value 是色值，key 是颜色名，domain 是所属域，style 是适用风格）
 - fileType（可选）：默认 svg，需要 PNG 时传 png
-- save（必须传）：固定传 \${ASSETS_DIR}。SVG 会落盘为文件，命令只返回文件引用 JSON（{icon_id, file, ...}），你不需要也不会看到 SVG 内容本身
+- save（必须传）：固定传 \${ASSETS_DIR}。SVG/PNG 会落盘为文件，命令只返回文件引用 JSON（{icon_id, url, file, ...}），你不需要也不会看到 SVG 内容本身
 
 返回（--save 模式）：
-- 单个 icon_id：{"icon_id": "...", "file": "素材文件相对路径", "icon_file_type": "svg|png", "size": "...", "style": "...", "color": "..."}——svg 与 png 均会落盘，你无需处理 file 的内容，系统会自动读取
-- 多个 icon_id：[{icon_id, name, file, icon_file_type, size, style, color}]（每条独立落盘）
+- 单个 url：{"icon_id": "...", "url": "...", "file": "素材文件相对路径", "icon_file_type": "svg|png", "size": "...", "style": "...", "color": "..."}——svg 与 png 均会落盘，你无需处理 file 的内容，系统会自动读取
+- 多个 url：[{icon_id, url, name, file, icon_file_type, size, style, color}]（每条独立落盘）
 - 识别不了的返回内容：对应条目回退返回原始数据，同样无需抄写
 
 ##### icon 参数选择指引
@@ -190,17 +196,17 @@ bun \${API_CALL_SCRIPT} getSvg --icon_id "123,456,789" --size 24 --style "线性
 
 ##### icon 批量获取策略
 
-- 只有同一 size+style+color 的 icon 才可以合并为一个 getSvg 调用（因为这三个参数是请求必选参数，不同参数的 icon 必须分开调用）
-- 把同组 icon_id 用逗号拼接为一个请求：bun \${API_CALL_SCRIPT} getSvg --icon_id "id1,id2,id3" --size 24 --style "线性" --color "GTS_线程_Blue-5" --save \${ASSETS_DIR}
-- 若单组 icon_id 数量超过 10 个，分批调用，每批最多 10 个
-- 不同 size/style/color 的 icon 必须分别调用 getSvg
+- 只有同一 size+style+color 的 icon 才可以合并为一个 getIcon 调用（因为这三个参数是请求必选参数，不同参数的 icon 必须分开调用）
+- 把同组 url 用逗号拼接为一个请求，对应 icon_id 也用逗号拼接（位置一一对应）：bun \${API_CALL_SCRIPT} getIcon --url "url1,url2,url3" --icon_id "id1,id2,id3" --size 24 --style "线性" --color "GTS_线程_Blue-5" --save \${ASSETS_DIR}
+- 若单组 url 数量超过 10 个，分批调用，每批最多 10 个
+- 不同 size/style/color 的 icon 必须分别调用 getIcon
 - 例：3 个导航图标（size=24, style=线性, color=Blue-5）→ 合并为 1 次调用；另 2 个装饰图标（size=16, style=面性, color=Red-3）→ 单独 1 次调用
 
 ---
 
 #### 流程C：illus — illusPlus 三步 API
 
-⚠️ resourceType=illus 的 image 节点不走向量搜索 API，走独立的 illusPlus 三步链路。其 resourceId / resourceScore 来自 getIllusInfo。resourceDetail 不需要你输出——系统会根据 getIllusInfo + getIllus 的真实输出自动回填，但 getIllus 必须实际调用（系统靠它的输出拿到 SVG 内容）。
+⚠️ resourceType=illus 的 image 节点不走向量搜索 API，走独立的 illusPlus 三步链路。其 resourceId / resourceScore 来自 getIllusInfo（resourceId 取 illus_id）。resourceDetail 不需要你输出——系统会根据 getIllusInfo + getIllus 的真实输出自动回填，但 getIllus 必须实际调用（系统靠它的输出拿到 SVG 内容）。
 
 ##### 步骤1：获取配置
 
@@ -213,11 +219,13 @@ bun \${API_CALL_SCRIPT} getConfig --flow illus
 返回：
 \`\`\`json
 {
-  "category": {
+  "group": [{
+    "id": 104,
     "key": "H Design",
     "value": "H Design",
+    "tags": [{"id": 109, "key": "空状态插画", "value": "空状态插画"}],
     "theme": [{"key": "light", "value": "浅色"}, {"key": "dark", "value": "深色"}]
-  }
+  }]
 }
 \`\`\`
 
@@ -229,7 +237,7 @@ bun \${API_CALL_SCRIPT} getConfig --flow illus
 bun \${API_CALL_SCRIPT} getIllusInfo --keyword "空状态" --topK 5
 \`\`\`
 
-参数：keyword（必选，搜索关键词）、topK（可选，默认5）、Category（可选）
+参数：keyword（必选，搜索关键词）、topK（可选，默认5）、source_id（可选）、group_id（可选）
 
 返回：
 \`\`\`json
@@ -243,33 +251,37 @@ bun \${API_CALL_SCRIPT} getIllusInfo --keyword "空状态" --topK 5
     "tags": "办公",
     "theme": "浅色",
     "version": "1.0.0",
+    "url": "https://...",
     "score": "0.95"
   }]
 }]
 \`\`\`
 
+⚠️ **注意 url 字段**：getIllusInfo 返回的每个 illus 都有 url 字段，这是步骤3 getIllus 的必选参数。你在步骤3 中必须使用此 url（不是 illus_id）来调用 getIllus。illus_id 用于 DSL JSON 的 resourceId 和 --save 模式的回填标识。
+
 ##### 步骤3：获取插画内容
 
-支持批量获取，优先把所有选中的 illus_id 用逗号拼成一个请求，减少请求数：
+支持批量获取，优先把所有选中的 url 用逗号拼成一个请求，减少请求数：
 
 \`\`\`bash
-bun \${API_CALL_SCRIPT} getIllus --illus_id "EMPLY_ILL,ERROR_ILL" --theme "浅色" --fileType svg --save \${ASSETS_DIR}
+bun \${API_CALL_SCRIPT} getIllus --url "url1,url2" --illus_id "EMPLY_ILL,ERROR_ILL" --theme "浅色" --fileType svg --save \${ASSETS_DIR}
 \`\`\`
 
 参数说明：
-- illus_id（必选）：来自 getIllusInfo 返回的 illus_id，支持逗号隔开分批获取
+- url（必选）：来自 getIllusInfo 返回的 url 字段，支持逗号隔开分批获取
+- illus_id（--save 模式下必须传）：来自 getIllusInfo 返回的 illus_id，逗号分隔，与 url 位置一一对应。用于 --save 输出的回填标识
 - theme（可选）：来自 getConfig 的 theme.value（直接传原始值，如"浅色"/"深色"），根据语义描述选择（深色背景→深色，浅色背景→浅色），默认浅色
 - fileType（可选）：默认 svg，需要 PNG 时传 png
-- save（必须传）：固定传 \${ASSETS_DIR}。插画 SVG 会落盘为文件，命令只返回文件引用 JSON，你不需要也不会看到 SVG 内容本身
+- save（必须传）：固定传 \${ASSETS_DIR}。插画 SVG/PNG 会落盘为文件，命令只返回文件引用 JSON，你不需要也不会看到 SVG 内容本身
 
 返回（--save 模式）：
-- 单个 illus_id：{"illus_id": "...", "file": "素材文件相对路径", "illus_file_type": "svg|png", "theme": "..."}
-- 多个 illus_id：[{illus_id, alias, file, illus_file_type, theme}]（svg 与 png 均会落盘）
+- 单个 url：{"illus_id": "...", "url": "...", "file": "素材文件相对路径", "illus_file_type": "svg|png", "theme": "..."}
+- 多个 url：[{illus_id, url, alias, file, illus_file_type, theme}]（svg 与 png 均会落盘）
 - 识别不了的返回内容：对应条目回退返回原始数据，同样无需抄写
 
 ##### illus 参数选择指引
 
-- theme：根据 layerDescription 中的主题描述从 getConfig.category.theme 中选择 value。深色/暗色背景→深色；浅色/明亮背景→浅色。无描述时默认 浅色
+- theme：根据 layerDescription 中的主题描述从 getConfig.group.theme 中选择 value。深色/暗色背景→深色；浅色/明亮背景→浅色。无描述时默认 浅色
 - fileType：根据语义需求选择 svg 或 png，默认 svg
 
 ##### illus 结果选择策略
@@ -280,8 +292,101 @@ bun \${API_CALL_SCRIPT} getIllus --illus_id "EMPLY_ILL,ERROR_ILL" --theme "浅�
 
 ##### illus 批量获取策略
 
-- 优先把所有选中的 illus_id 用逗号拼成一个 getIllus 调用（如 illus_id=EMPLY_ILL,ERROR_ILL,LOADING_ILL）
-- 若 illus_id 数量超过 10 个，分批调用，每批最多 10 个
+- 优先把所有选中的 url 用逗号拼成一个 getIllus 调用，对应的 illus_id 也逗号拼接（位置一一对应）
+- 若 url 数量超过 10 个，分批调用，每批最多 10 个
+
+---
+
+#### 流程D：image — imagePlus 三步 API
+
+⚠️ resourceType=image 的 image 节点不再走向量搜索 API，走独立的 imagePlus 三步链路。其 resourceId / resourceScore 来自 getImageInfo（resourceId 取 image_id）。resourceDetail 不需要你输出——系统会根据 getImageInfo + getImage 的真实输出自动回填，但 getImage 必须实际调用（系统靠它的输出拿到图片内容）。
+
+##### 步骤1：获取配置
+
+只调用一次，缓存配置数据，后续所有 image 节点共用此配置。
+
+\`\`\`bash
+bun \${API_CALL_SCRIPT} getConfig --flow image
+\`\`\`
+
+返回：
+\`\`\`json
+{
+  "group": [{
+    "id": 104,
+    "key": "H Design",
+    "value": "H Design",
+    "children": [{"id": 109, "key": "生活", "value": "生活"}, {"id": 112, "key": "医疗", "value": "医疗"}]
+  }]
+}
+\`\`\`
+
+##### 步骤2：搜索图片
+
+对每个 image 节点的语义关键词调用此接口：
+
+\`\`\`bash
+bun \${API_CALL_SCRIPT} getImageInfo --keyword "首页横幅" --topK 5
+\`\`\`
+
+参数：keyword（必选，搜索关键词）、topK（可选，默认5）、source_id（可选）、group_id（可选）
+
+返回：
+\`\`\`json
+[{
+  "keyword": "首页横幅",
+  "images": [{
+    "image_id": "123",
+    "alias": "促销横幅",
+    "description": "首页顶部促销活动横幅图片",
+    "category": "基础图片",
+    "tags": "办公",
+    "theme": "浅色",
+    "version": "1.0.0",
+    "group": "h design",
+    "url": "https://...",
+    "score": "0.95"
+  }]
+}]
+\`\`\`
+
+⚠️ **注意 url 字段**：getImageInfo 返回的每个 image 都有 url 字段，这是步骤3 getImage 的必选参数。你在步骤3 中必须使用此 url（不是 image_id）来调用 getImage。image_id 用于 DSL JSON 的 resourceId 和 --save 模式的回填标识。
+
+##### 步骤3：获取图片内容
+
+支持批量获取，优先把所有选中的 url 用逗号拼成一个请求，减少请求数：
+
+\`\`\`bash
+bun \${API_CALL_SCRIPT} getImage --url "url1,url2" --image_id "123,456" --theme "浅色" --fileType svg --save \${ASSETS_DIR}
+\`\`\`
+
+参数说明：
+- url（必选）：来自 getImageInfo 返回的 url 字段，支持逗号隔开分批获取
+- image_id（--save 模式下必须传）：来自 getImageInfo 返回的 image_id，逗号分隔，与 url 位置一一对应。用于 --save 输出的回填标识
+- theme（可选）：主题参数，根据语义描述选择（深色背景→深色，浅色背景→浅色），默认浅色
+- fileType（可选）：默认 svg，需要 PNG 时传 png，需要 JPG 时传 jpg
+- save（必须传）：固定传 \${ASSETS_DIR}。图片素材会落盘为文件，命令只返回文件引用 JSON
+
+返回（--save 模式）：
+- 单个 url：{"image_id": "...", "url": "...", "file": "素材文件相对路径", "image_file_type": "svg|png|jpg", "theme": "..."}
+- 多个 url：[{image_id, url, name, file, image_file_type, theme}]（每条独立落盘）
+- 识别不了的返回内容：对应条目回退返回原始数据，同样无需抄写
+
+##### image 参数选择指引
+
+- theme：根据 layerDescription 中的主题描述选择。深色/暗色背景→深色；浅色/明亮背景→浅色。无描述时默认 浅色
+- fileType：根据语义需求选择 svg / png / jpg，默认 svg
+
+##### image 结果选择策略
+
+- 取 score 最高的 image 作为匹配结果
+- 若最高 score 结果与节点语义需求不符，取次高
+- 若所有结果均不匹配，只保留 resourceType，省略数据性字段
+
+##### image 批量获取策略
+
+- 优先把所有选中的 url 用逗号拼成一个 getImage 调用，对应的 image_id 也逗号拼接（位置一一对应）
+- 若 url 数量超过 10 个，分批调用，每批最多 10 个
 
 ---
 
@@ -291,7 +396,7 @@ bun \${API_CALL_SCRIPT} getIllus --illus_id "EMPLY_ILL,ERROR_ILL" --theme "浅�
 |---|---|---|---|
 | component | component | 流程A（向量搜索） | 按钮、输入框、开关等可复用组件 |
 | icon | icon | 流程B（iconPlus） | SVG / 字体图标 |
-| image | image | 流程A（向量搜索） | 图片（resourceType=image） |
+| image | image | 流程D（imagePlus） | 图片（resourceType=image） |
 | image | illus | 流程C（illusPlus） | 插画（layerType=image，resourceType=illus） |
 
 #### 调用顺序
@@ -299,27 +404,30 @@ bun \${API_CALL_SCRIPT} getIllus --illus_id "EMPLY_ILL,ERROR_ILL" --theme "浅�
 0. export VECTOR_API_BASE=\${VECTOR_API_BASE} NODE_TLS_REJECT_UNAUTHORIZED=0
 1. 若有 icon 节点：bun \${API_CALL_SCRIPT} getConfig --flow icon（只调一次，缓存配置）
 2. 若有 illus 节点：bun \${API_CALL_SCRIPT} getConfig --flow illus（只调一次，缓存配置）
-3. 若有 component 节点：bun \${API_CALL_SCRIPT} vectorSearch --type component --queries "所有组件关键词"
-4. 若有 icon 节点：对每个关键词 bun \${API_CALL_SCRIPT} getIconInfo --keyword "xxx" --topK 5
-5. 若有 illus 节点：对每个关键词 bun \${API_CALL_SCRIPT} getIllusInfo --keyword "xxx" --topK 5
-6. 若有 image 节点：bun \${API_CALL_SCRIPT} vectorSearch --type image --queries "..."
-7. 对选中的 icon_id，按 size+style+color 分组，每组用逗号拼接 icon_id：bun \${API_CALL_SCRIPT} getSvg --icon_id "id1,id2,..." --size xx --style "xx" --color "xx" --fileType svg --save \${ASSETS_DIR}
-8. 对所有选中的 illus_id（批量逗号拼接）：bun \${API_CALL_SCRIPT} getIllus --illus_id "id1,id2,..." --theme "浅色" --fileType svg --save \${ASSETS_DIR}
-9. 对每个选中的 data_id：bun \${API_CALL_SCRIPT} vectorDetail --type xxx --data_id xxx
+3. 若有 image 节点：bun \${API_CALL_SCRIPT} getConfig --flow image（只调一次，缓存配置）
+4. 若有 component 节点：bun \${API_CALL_SCRIPT} vectorSearch --type component --queries "所有组件关键词"
+5. 若有 icon 节点：对每个关键词 bun \${API_CALL_SCRIPT} getIconInfo --keyword "xxx" --topK 5
+6. 若有 illus 节点：对每个关键词 bun \${API_CALL_SCRIPT} getIllusInfo --keyword "xxx" --topK 5
+7. 若有 image 节点：对每个关键词 bun \${API_CALL_SCRIPT} getImageInfo --keyword "xxx" --topK 5
+8. 对选中的 icon，按 size+style+color 分组，每组用逗号拼接 url（对应 icon_id 位置一致）：bun \${API_CALL_SCRIPT} getIcon --url "url1,url2,..." --icon_id "id1,id2,..." --size xx --style "xx" --color "xx" --fileType svg --save \${ASSETS_DIR}
+9. 对所有选中的 illus，url 逗号拼接（对应 illus_id 位置一致）：bun \${API_CALL_SCRIPT} getIllus --url "url1,url2,......" --illus_id "id1,id2,..." --theme "浅色" --fileType svg --save \${ASSETS_DIR}
+10. 对所有选中的 image，url 逗号拼接（对应 image_id 位置一致）：bun \${API_CALL_SCRIPT} getImage --url "url1,url2,......" --image_id "id1,id2,..." --theme "浅色" --fileType svg --save \${ASSETS_DIR}
+11. 对每个选中的 data_id：bun \${API_CALL_SCRIPT} vectorDetail --type component --data_id xxx
 
-⚠️ 步骤 7/8/9 不可省略：系统在渲染前根据这些调用的真实输出自动回填每个节点的 resourceDetail。getSvg/getIllus **必须带 --save \${ASSETS_DIR}**（不是可选项）——SVG 落盘为素材文件，你只会看到文件引用 JSON，系统自动读取文件内容。没有对应调用输出的资源节点，渲染时将没有资源数据。
+⚠️ 步骤 8/9/10/11 不可省略：系统在渲染前根据这些调用的真实输出自动回填每个节点的 resourceDetail。getIcon/getIllus/getImage **必须带 --save \${ASSETS_DIR}**（不是可选项）——素材落盘为文件，你只会看到文件引用 JSON，系统自动读取文件内容。没有对应调用输出的资源节点，渲染时将没有资源数据。
 
-⚠️ 变体标识 resourceVariant：当同一 icon_id 在页面中用了**多种变体**（不同 size/style/color），或同一 illus_id 用了不同 theme 时，每个用到该资源的节点必须填 resourceVariant（icon：\`{"size","style","color"}\`；illus：\`{"theme"}\`），值与该节点对应的 getSvg/getIllus 调用参数完全一致。否则系统无法区分变体，会给节点回填错误的素材。只有单一变体时可省略。
+⚠️ 变体标识 resourceVariant：当同一 icon_id 在页面中用了**多种变体**（不同 size/style/color），或同一 illus_id/image_id 用了不同 theme 时，每个用到该资源的节点必须填 resourceVariant（icon：\`{"size","style","color"}\`；illus/image：\`{"theme"}\`），值与该节点对应的 getIcon/getIllus/getImage 调用参数完全一致。否则系统无法区分变体，会给节点回填错误的素材。只有单一变体时可省略。
 
 #### ⛔ 严禁臆想资源数据
 
 resourceType 是语义字段（表示节点的资源类型），始终保留。resourceId / resourceVectorText / resourceScore 是数据性字段，其值必须且只能来自对应 API 流程的真实返回结果：
-- component/image 节点的数据性字段必须来自向量搜索 API（/lib-resource-service/api/vector/search/llm + /lib-resource-service/api/vector/detail）
-- icon 节点的数据性字段必须来自 iconPlus API（getIconInfo + getSvg）
-- resourceType=illus 的 image 节点的数据性字段必须来自 illusPlus API（getIllusInfo + getIllus）
+- component 节点的数据性字段必须来自向量搜索 API（/lib-resource-service/api/vector/search/llm + /lib-resource-service/api/vector/detail）
+- icon 节点的数据性字段必须来自 iconPlus API（getIconInfo + getIcon），其中 resourceId 取 icon_id（不是 url）
+- resourceType=illus 的 image 节点的数据性字段必须来自 illusPlus API（getIllusInfo + getIllus），其中 resourceId 取 illus_id（不是 url）
+- resourceType=image 的 image 节点的数据性字段必须来自 imagePlus API（getImageInfo + getImage），其中 resourceId 取 image_id（不是 url）
 严禁自行编造、猜测、推断任何数据性字段。如果你没有通过脚本实际调用 API 并拿到返回数据，则数据性字段必须省略（不输出空字符串、null 或任何编造的占位值），只保留 resourceType。如果 API 调用失败或无返回，同样省略数据性字段，只保留 resourceType。
 
-⚠️ resourceDetail 一律不要输出：系统会根据你的 API 调用真实输出自动回填（包括 SVG 内容），你只需如实调用 API 并填写 resourceId / resourceVectorText / resourceScore。禁止把 SVG 内容或任何 detail 字段抄进 JSON——又慢又容易抄错。
+⚠️ resourceDetail 一律不要输出：系统会根据你的 API 调用真实输出自动回填（包括 SVG/PNG/JPG 内容），你只需如实调用 API 并填写 resourceId / resourceVectorText / resourceScore。禁止把 SVG 内容或任何 detail 字段抄进 JSON——又慢又容易抄错。
 
 #### API 调用失败时的处理
 
@@ -350,7 +458,7 @@ resourceType 是语义字段（表示节点的资源类型），始终保留。r
 | id | string | 否 | 元素 id 属性 |
 | class | string | 否 | 元素 class 属性，截断至 200 字符 |
 | attrs | object | 否 | 除 id/class/style 外的 HTML 属性 |
-| text | string | 否 | 直接子文本内容，截断至 300 字符 |
+| text | string | 否 | 节点的文本内容，截断至 300 字符。text/其它普通节点：直接子文本内容；component 节点：该组件要显示的自定义文案（按钮文字、输入框 placeholder、标签文本等），系统会把它注入组件实例 variant_props 中类型为 TEXT 的属性，覆盖组件库里的默认文字 |
 | src | string | 否 | img/video/audio/script 的 src |
 | alt | string | 否 | img 的 alt |
 | href | string | 否 | a/link 的 href |
@@ -359,16 +467,17 @@ resourceType 是语义字段（表示节点的资源类型），始终保留。r
 | naturalHeight | number | 否 | img 原始高度 |
 | loaded | boolean | 否 | img 是否加载成功 |
 | passthrough | boolean | 否 | true 表示尺寸 0 但有可见后代 |
-| resourceType | string | layerType 为 component/icon/image 时必选 | 资源类型语义标记：component / icon / image / illus，始终保留。其中 resourceType=illus 对应 layerType=image |
-| resourceId | string | API 返回真实 ID 时必选，否则省略 | component/image 来自 /lib-resource-service/api/vector/search/llm 的 data_id；icon 来自 getIconInfo 的 icon_id；illus 来自 getIllusInfo 的 illus_id |
+| resourceType | string | layerType 为 component/icon/image 时必选 | 资源类型语义标记：component / icon / image / illus，始终保留。其中 resourceType=illus 对应 layerType=image，resourceType=image 对应 layerType=image |
+| resourceId | string | API 返回真实 ID 时必选，否则省略 | component 来自 vectorSearch 的 data_id；icon 来自 getIconInfo 的 icon_id；illus 来自 getIllusInfo 的 illus_id；image 来自 getImageInfo 的 image_id |
 | resourceVectorText | string | 同 resourceId | 资源核心信息文本 |
 | resourceScore | number | 同 resourceId，可选 | 匹配置信度（0-1） |
-| resourceDetail | ResourceDetail | 不要输出 | 系统根据 API 调用的真实输出自动回填（icon 的 icon_content 来自 getSvg、illus 的 illus_content 来自 getIllus），你不得在 JSON 中输出此字段 |
-| resourceVariant | object | 同一 resourceId 在页面中用了多种变体时必填，否则可省略 | icon：{"size","style","color"}；illus：{"theme"}。值必须与你为该节点调用 getSvg/getIllus 时传的参数完全一致（系统按它匹配对应变体的素材）。这是唯一允许你自己填写的 resource 数据字段，因为它就是你的调用参数 |
+| resourceDetail | ResourceDetail | 不要输出 | 系统根据 API 调用的真实输出自动回填，你不得在 JSON 中输出此字段 |
+| resourceVariant | object | 同一 resourceId 在页面中用了多种变体时必填，否则可省略 | icon：{"size","style","color"}；illus/image：{"theme"}。值必须与你为该节点调用 getIcon/getIllus/getImage 时传的参数完全一致。这是唯一允许你自己填写的 resource 数据字段 |
 | children | Node[] | 否 | 子节点列表 |
 
 > ⛔ text / icon / component / rectangle 节点不得有 children 字段。
-> 🔗 component / icon / image 节点必须包含 resourceType。如果 API 返回了真实数据，则同时包含 resourceId / resourceVectorText（resourceDetail 由系统自动回填，不要输出）。如果 API 未返回或搜索无匹配，只保留 resourceType，省略其余数据性字段。⚠️ icon 资源走 iconPlus API（/iconPlus/），resourceType=illus 的 image 资源走 illusPlus API（/illusPlus/），不走向量搜索 API（/lib-resource-service/api/vector/）。frame / text / rectangle 节点不得有任何 resource 相关字段。
+> 📝 component 节点的显示文案用 text 字段表达：从语义布局描述里提炼该组件应显示的文字（按钮的文案、输入框的 placeholder、标签的文本等），填入 text（单个字符串）。它与资源匹配无关——即使 API 没匹配到组件，只要语义描述指明了文案，也应填 text。组件默认自带的文字（组件库里的占位文案）不要照抄，只有用户/语义描述明确要求显示的文案才填。无自定义文案（纯图标按钮、无占位符输入框等）则省略。
+> 🔗 component / icon / image 节点必须包含 resourceType。如果 API 返回了真实数据，则同时包含 resourceId / resourceVectorText（resourceDetail 由系统自动回填，不要输出）。如果 API 未返回或搜索无匹配，只保留 resourceType，省略其余数据性字段。⚠️ icon 资源走 iconPlus API（/iconPlus/），resourceType=illus 的 image 资源走 illusPlus API（/illusPlus/），resourceType=image 的 image 资源走 imagePlus API（/imagePlus/），不走向量搜索 API（/lib-resource-service/api/vector/）。frame / text / rectangle 节点不得有任何 resource 相关字段。
 
 ### ResourceDetail 结构（系统自动回填，仅供理解，你不需要输出）
 
@@ -377,14 +486,14 @@ resourceType 是语义字段（表示节点的资源类型），始终保留。r
 **resourceType=component**：
 cv_component_name, cv_canvas_name, cv_variant_name, cv_component_key, cv_variant_key, cv_variant_guid, cv_domain, file_path, name, description, tags, width, height
 
-**resourceType=icon**（字段来自 iconPlus API 的 getIconInfo + getSvg 合并）：
-icon_id, name, chineseName, englishName, description, category, group, icon_file_type, icon_content
+**resourceType=icon**（字段来自 iconPlus API 的 getIconInfo + getIcon 合并）：
+icon_id, url, name, chineseName, englishName, description, category, group, icon_file_type, icon_content
 
 **resourceType=illus**（字段来自 illusPlus API 的 getIllusInfo + getIllus 合并）：
-illus_id, alias, description, category, tags, theme, version, illus_file_type, illus_content
+illus_id, url, alias, description, category, tags, theme, version, illus_file_type, illus_content
 
-**resourceType=image**：
-file_path, name, description
+**resourceType=image**（字段来自 imagePlus API 的 getImageInfo + getImage 合并）：
+image_id, url, name, alias, description, category, tags, theme, version, image_file_type, image_content
 
 ### Rect 字段
 
@@ -461,7 +570,8 @@ rect 是页面绝对坐标，块级元素的水平位置完全由 rect.x 决定�
 - layerName：同类节点须可区分（如"登录按钮"/"注册按钮"，不得笼统写"按钮"）
 - layerDescription：icon 类型须注明尺寸和线条粗细（如"返回图标 24x24 细线"）
 - style 只写非默认值字段
-- component / icon / image 节点必须包含 resourceType；resourceId / resourceVectorText 仅在 API 返回真实数据时才包含，否则省略；多变体的 icon/illus 节点还须填 resourceVariant；resourceDetail 一律不输出，由系统自动回填（icon 走 iconPlus，resourceType=illus 走 illusPlus，component/resourceType=image 走向量搜索）
+- component / icon / image 节点必须包含 resourceType；resourceId / resourceVectorText 仅在 API 返回真实数据时才包含，否则省略；多变体的 icon/illus/image 节点还须填 resourceVariant；resourceDetail 一律不输出，由系统自动回填（icon 走 iconPlus，resourceType=illus 走 illusPlus，resourceType=image 走 imagePlus，component 走向量搜索）
+- component 节点若语义描述指明了显示文案（按钮文字、输入框 placeholder 等），填 text（单字符串）；无自定义文案则省略
 - frame / text / rectangle 节点不得有 resource 相关字段
 
 ### 常用尺寸参考
@@ -515,7 +625,7 @@ rect 是页面绝对坐标，块级元素的水平位置完全由 rect.x 决定�
 
 ### 图标规范
 导航图标：24x24，功能图标：20x20，装饰图标：16x16
-线条粗细：细线 1px / 中等 1.5px / 粗线 2px
+线条粗细：细线 1px / 中等 1.5px / 着线 2px
 
 ## 输出要求
 
@@ -573,8 +683,9 @@ rect 是页面绝对坐标，块级元素的水平位置完全由 rect.x 决定�
       "rect": { "x": 40, "y": 300, "w": 295, "h": 48 },
       "layerType": "component",
       "layerName": "登录按钮",
-      "layerDescription": "主登录按钮，正常状态可用",
+      "layerDescription": "主登录按钮，正常状态可用，显示文案"登录"",
       "style": { "backgroundColor": "#3478F6FF", "borderRadius": "8px" },
+      "text": "登录",
       "resourceType": "component",
       "resourceId": "abc123def456",
       "resourceVectorText": "按钮 基础类 normal 可用 主要",
@@ -611,7 +722,7 @@ rect 是页面绝对坐标，块级元素的水平位置完全由 rect.x 决定�
 \`\`\`
 \`\`\`
 
-请根据用户提供的语义布局描述，生成完整的 Node DSL JSON。你必须先调用对应 API（component/image 走向量搜索，icon 走 iconPlus 三步，illus 走 illusPlus 三步）为所有资源节点匹配真实资源，然后把 resourceId / resourceVectorText / resourceScore 填入 JSON（resourceDetail 由系统根据你的调用输出自动回填，不要输出）。
+请根据用户提供的语义布局描述，生成完整的 Node DSL JSON。你必须先调用对应 API（component 走向量搜索，icon 走 iconPlus 三步，illus 起 illusPlus 三步，image 起 imagePlus 三步）为所有资源节点匹配真实资源，然后把 resourceId / resourceVectorText / resourceScore 填入 JSON（resourceDetail 由系统根据你的调用输出自动回填，不要输出）。
 
 ## ⚠️ 输出约束 — 覆盖所有其他指令
 

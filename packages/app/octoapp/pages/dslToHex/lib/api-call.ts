@@ -1,5 +1,3 @@
-// NODE_TLS_REJECT_UNAUTHORIZED=0 时跳过证书校验（内网自签/企业 CA 场景）。
-// Bun 的 fetch 不认这个 Node 环境变量，必须显式传 tls 选项。
 const FETCH_OPTS = process.env.NODE_TLS_REJECT_UNAUTHORIZED === "0"
   ? ({ tls: { rejectUnauthorized: false } } as RequestInit)
   : undefined
@@ -29,7 +27,7 @@ function encodeQuery(params: Record<string, string>): string {
   return Object.entries(params)
     .filter(([, v]) => v !== undefined && v !== "")
     .map(([k, v]) => {
-      if (k === "illus_id" || k === "icon_id") {
+      if (k === "url" || k === "illus_id" || k === "icon_id" || k === "image_id") {
         const encoded = v.split(",").map((id) => encodeURIComponent(id.trim())).join(",")
         return `${encodeURIComponent(k)}=${encoded}`
       }
@@ -78,11 +76,9 @@ function output(data: unknown): void {
 }
 
 function safeName(s: string): string {
-  // 保留 Unicode 字母/数字（含中文，如 style="线性"），避免不同参数生成同名文件
   return s.replace(/[^\p{L}\p{N}._-]+/gu, "_")
 }
 
-// 本文件在 web 包内（无 bun 全局类型），但运行时始终是 bun，从 globalThis 取
 const bunWrite = (globalThis as { Bun?: { write(path: string, data: string | Uint8Array): Promise<number> } }).Bun?.write
 
 function looksLikeBase64(s: string): boolean {
@@ -90,7 +86,6 @@ function looksLikeBase64(s: string): boolean {
   return t.length > 0 && /^[A-Za-z0-9+/=\r\n]+$/.test(t)
 }
 
-// 把素材写入 --save 指定目录，返回文件相对路径；写失败返回 null（调用方回退打印原始内容）
 async function saveAsset(dir: string, filename: string, content: string | Uint8Array): Promise<string | null> {
   if (!bunWrite) return null
   const file = `${dir.replace(/\/+$/, "")}/${filename}`
@@ -102,7 +97,6 @@ async function saveAsset(dir: string, filename: string, content: string | Uint8A
   }
 }
 
-// svg → 原文写 .svg；png → base64 解码写 .png；其余（错误文本等）返回 null 走回退
 function assetPayload(data: string, fileType: string, basename: string): { filename: string; content: string | Uint8Array } | null {
   if (data.includes("<svg")) return { filename: `${basename}.svg`, content: data }
   if (fileType === "png" && looksLikeBase64(data)) {
@@ -112,7 +106,23 @@ function assetPayload(data: string, fileType: string, basename: string): { filen
       return null
     }
   }
+  // jpg: base64 解码写 .jpg（与 png 解码逻辑相同，扩展名不同）
+  if ((fileType === "jpg" || fileType === "jpeg") && looksLikeBase64(data)) {
+    try {
+      return { filename: `${basename}.jpg`, content: Uint8Array.from(atob(data.trim().replace(/\s+/g, "")), (c) => c.charCodeAt(0)) }
+    } catch {
+      return null
+    }
+  }
   return null
+}
+
+// 将逗号分隔的 ids 字符串与 urls 字符串按位置配对，用于 --save 回填标识。
+// 如果 ids 数量少于 urls，缺失位置用空字符串占位。
+function zipIdsWithUrls(idsStr: string | undefined, urlsStr: string): Array<{ id: string; url: string }> {
+  const urls = urlsStr.split(",").map((u) => u.trim())
+  const ids = idsStr ? idsStr.split(",").map((i) => i.trim()) : []
+  return urls.map((url, idx) => ({ id: ids[idx] ?? "", url }))
 }
 
 async function handleGetConfig(opts: Record<string, string>): Promise<void> {
@@ -121,8 +131,10 @@ async function handleGetConfig(opts: Record<string, string>): Promise<void> {
     output(await httpGet("/iconPlus/getConfig", {}))
   } else if (flow === "illus") {
     output(await httpGet("/illusPlus/getConfig", {}))
+  } else if (flow === "image") {
+    output(await httpGet("/imagePlus/getConfig", {}))
   } else {
-    console.error(`Unknown flow: ${flow}. Use "icon" or "illus".`)
+    console.error(`Unknown flow: ${flow}. Use "icon", "illus", or "image".`)
     process.exit(1)
   }
 }
@@ -134,58 +146,77 @@ async function handleGetIconInfo(opts: Record<string, string>): Promise<void> {
   }
   const params: Record<string, string> = { keyword: opts.keyword }
   if (opts.topK) params.topK = opts.topK
-  if (opts.Category) params.Category = opts.Category
+  if (opts.category) params.category = opts.category
+  if (opts.group_id) params.group_id = opts.group_id
+  if (opts.source_id) params.source_id = opts.source_id
   output(await httpGet("/iconPlus/getIconInfo", params))
 }
 
-async function handleGetSvg(opts: Record<string, string>): Promise<void> {
-  if (!opts.icon_id || !opts.size || !opts.style || !opts.color) {
-    console.error("Missing required parameters: --icon_id, --size, --style, --color")
+async function handleGetIcon(opts: Record<string, string>): Promise<void> {
+  if (!opts.url) {
+    console.error("Missing required parameter: --url")
     process.exit(1)
   }
-  const params: Record<string, string> = {
-    icon_id: opts.icon_id,
-    size: opts.size,
-    style: opts.style,
-    color: opts.color,
-  }
+  const params: Record<string, string> = { url: opts.url }
+  if (opts.size) params.size = opts.size
+  if (opts.style) params.style = opts.style
+  if (opts.color) params.color = opts.color
   if (opts.fileType) params.fileType = opts.fileType
-  const data = await httpGet("/iconPlus/getSvg", params)
+  const data = await httpGet("/iconPlus/getIcon", params)
   const fileType = opts.fileType || "svg"
   if (opts.save) {
-    const themeStyle = opts.style
-    const themeColor = opts.color
-    const themeSize = opts.size
-    // 单 id 返回 JSON envelope {icon_id, name, data}；多 id 返回 [{icon_id, name, data}]；
-    // 旧版可能返回裸 SVG 字符串
+    const themeStyle = opts.style ?? ""
+    const themeColor = opts.color ?? ""
+    const themeSize = opts.size ?? ""
+    const pairs = zipIdsWithUrls(opts.icon_id, opts.url)
+    // 单 url 返回 {url, name, data}；多 url 返回 [{url, name, data}]；旧版可能返回裸 SVG
     if (typeof data === "string") {
-      const basename = `icon-${safeName(opts.icon_id)}-${safeName(themeSize)}-${safeName(themeStyle)}-${safeName(themeColor)}`
+      const pair = pairs[0]
+      const basename = pair.id
+        ? `icon-${safeName(pair.id)}-${safeName(themeSize)}-${safeName(themeStyle)}-${safeName(themeColor)}`
+        : `icon-${safeName(pair.url)}-${safeName(themeSize)}-${safeName(themeStyle)}-${safeName(themeColor)}`
       const payload = assetPayload(data, fileType, basename)
       const file = payload ? await saveAsset(opts.save, payload.filename, payload.content) : null
       if (file) {
-        output({ icon_id: opts.icon_id, file, icon_file_type: fileType, size: themeSize, style: themeStyle, color: themeColor })
+        output({ ...(pair.id ? { icon_id: pair.id } : {}), url: pair.url, file, icon_file_type: fileType, size: themeSize, style: themeStyle, color: themeColor })
         return
       }
     }
-    if (typeof data === "object" && !Array.isArray(data) && typeof (data as Record<string, unknown>).icon_id === "string" && typeof (data as Record<string, unknown>).data === "string") {
-      const envelope = data as { icon_id: string; name?: string; data: string }
-      const basename = `icon-${safeName(envelope.icon_id)}-${safeName(themeSize)}-${safeName(themeStyle)}-${safeName(themeColor)}`
-      const payload = assetPayload(envelope.data, fileType, basename)
-      const file = payload ? await saveAsset(opts.save, payload.filename, payload.content) : null
-      if (file) {
-        output({ icon_id: envelope.icon_id, ...(envelope.name ? { name: envelope.name } : {}), file, icon_file_type: fileType, size: themeSize, style: themeStyle, color: themeColor })
-        return
+    if (typeof data === "object" && !Array.isArray(data)) {
+      const envelope = data as Record<string, unknown>
+      const respUrl = typeof envelope.url === "string" ? envelope.url : pairs[0].url
+      const respName = typeof envelope.name === "string" ? envelope.name : ""
+      const respData = typeof envelope.data === "string" ? envelope.data : ""
+      if (respData) {
+        const pair = pairs[0]
+        const basename = pair.id
+          ? `icon-${safeName(pair.id)}-${safeName(themeSize)}-${safeName(themeStyle)}-${safeName(themeColor)}`
+          : `icon-${safeName(respUrl)}-${safeName(themeSize)}-${safeName(themeStyle)}-${safeName(themeColor)}`
+        const payload = assetPayload(respData, fileType, basename)
+        const file = payload ? await saveAsset(opts.save, payload.filename, payload.content) : null
+        if (file) {
+          output({ ...(pair.id ? { icon_id: pair.id } : {}), url: respUrl, ...(respName ? { name: respName } : {}), file, icon_file_type: fileType, size: themeSize, style: themeStyle, color: themeColor })
+          return
+        }
       }
     }
     if (Array.isArray(data)) {
       const entries: unknown[] = []
-      for (const item of data as Array<{ icon_id?: string; name?: string; data?: string }>) {
-        if (typeof item?.icon_id === "string" && typeof item.data === "string") {
-          const basename = `icon-${safeName(item.icon_id)}-${safeName(themeSize)}-${safeName(themeStyle)}-${safeName(themeColor)}`
-          const payload = assetPayload(item.data, fileType, basename)
+      const items = data as Array<Record<string, unknown>>
+      for (let idx = 0; idx < items.length; idx++) {
+        const item = items[idx]
+        const pair = pairs[idx] ?? { id: "", url: "" }
+        const respUrl = typeof item.url === "string" ? item.url : pair.url
+        const respName = typeof item.name === "string" ? item.name : ""
+        const respData = typeof item.data === "string" ? item.data : ""
+        if (respData) {
+          const basename = pair.id
+            ? `icon-${safeName(pair.id)}-${safeName(themeSize)}-${safeName(themeStyle)}-${safeName(themeColor)}`
+            : `icon-${safeName(respUrl)}-${safeName(themeSize)}-${safeName(themeStyle)}-${safeName(themeColor)}`
+          const payload = assetPayload(respData, fileType, basename)
           const file = payload ? await saveAsset(opts.save, payload.filename, payload.content) : null
           if (file) {
-            entries.push({ icon_id: item.icon_id, ...(item.name ? { name: item.name } : {}), file, icon_file_type: fileType, size: themeSize, style: themeStyle, color: themeColor })
+            entries.push({ ...(pair.id ? { icon_id: pair.id } : {}), url: respUrl, ...(respName ? { name: respName } : {}), file, icon_file_type: fileType, size: themeSize, style: themeStyle, color: themeColor })
             continue
           }
         }
@@ -205,49 +236,161 @@ async function handleGetIllusInfo(opts: Record<string, string>): Promise<void> {
   }
   const params: Record<string, string> = { keyword: opts.keyword }
   if (opts.topK) params.topK = opts.topK
-  if (opts.Category) params.Category = opts.Category
+  if (opts.source_id) params.source_id = opts.source_id
+  if (opts.group_id) params.group_id = opts.group_id
   output(await httpGet("/illusPlus/getIllusInfo", params))
 }
 
 async function handleGetIllus(opts: Record<string, string>): Promise<void> {
-  if (!opts.illus_id) {
-    console.error("Missing required parameter: --illus_id")
+  if (!opts.url) {
+    console.error("Missing required parameter: --url")
     process.exit(1)
   }
-  const params: Record<string, string> = { illus_id: opts.illus_id }
+  const params: Record<string, string> = { url: opts.url }
   if (opts.theme) params.theme = opts.theme
   if (opts.fileType) params.fileType = opts.fileType
   const data = await httpGet("/illusPlus/getIllus", params)
-  // --save <dir>：插画素材落盘（svg 原文 / png 解码 base64），stdout 只打印文件引用 JSON。
-  // 单 id 返回裸内容，多 id 返回 [{illus_id, alias, data}]，逐条落盘；识别不了的内容原样输出
   if (opts.save) {
     const theme = opts.theme || "浅色"
     const fileType = opts.fileType || "svg"
+    const pairs = zipIdsWithUrls(opts.illus_id, opts.url)
     if (typeof data === "string") {
-      const payload = assetPayload(data, fileType, `illus-${safeName(opts.illus_id)}-${safeName(theme)}`)
+      const pair = pairs[0]
+      const basename = pair.id
+        ? `illus-${safeName(pair.id)}-${safeName(theme)}`
+        : `illus-${safeName(pair.url)}-${safeName(theme)}`
+      const payload = assetPayload(data, fileType, basename)
       const file = payload ? await saveAsset(opts.save, payload.filename, payload.content) : null
       if (file) {
-        output({ illus_id: opts.illus_id, file, illus_file_type: fileType, theme })
+        output({ ...(pair.id ? { illus_id: pair.id } : {}), url: pair.url, file, illus_file_type: fileType, theme })
         return
       }
     }
-    if (typeof data === "object" && !Array.isArray(data) && typeof (data as Record<string, unknown>).illus_id === "string" && typeof (data as Record<string, unknown>).data === "string") {
-      const envelope = data as { illus_id: string; alias?: string; data: string }
-      const payload = assetPayload(envelope.data, fileType, `illus-${safeName(envelope.illus_id)}-${safeName(theme)}`)
-      const file = payload ? await saveAsset(opts.save, payload.filename, payload.content) : null
-      if (file) {
-        output({ illus_id: envelope.illus_id, ...(envelope.alias ? { alias: envelope.alias } : {}), file, illus_file_type: fileType, theme })
-        return
+    if (typeof data === "object" && !Array.isArray(data)) {
+      const envelope = data as Record<string, unknown>
+      const respId = typeof envelope.illus_id === "string" ? envelope.illus_id : (pairs[0].id || "")
+      const respAlias = typeof envelope.alias === "string" ? envelope.alias : ""
+      const respData = typeof envelope.data === "string" ? envelope.data : ""
+      if (respData) {
+        const pair = pairs[0]
+        const idForName = pair.id || respId
+        const basename = idForName
+          ? `illus-${safeName(idForName)}-${safeName(theme)}`
+          : `illus-${safeName(pair.url)}-${safeName(theme)}`
+        const payload = assetPayload(respData, fileType, basename)
+        const file = payload ? await saveAsset(opts.save, payload.filename, payload.content) : null
+        if (file) {
+          output({ ...(idForName ? { illus_id: idForName } : {}), ...(respAlias ? { alias: respAlias } : {}), url: pair.url, file, illus_file_type: fileType, theme })
+          return
+        }
       }
     }
     if (Array.isArray(data)) {
       const entries: unknown[] = []
-      for (const item of data as Array<{ illus_id?: string; alias?: string; data?: string }>) {
-        if (typeof item?.illus_id === "string" && typeof item.data === "string") {
-          const payload = assetPayload(item.data, fileType, `illus-${safeName(item.illus_id)}-${safeName(theme)}`)
+      const items = data as Array<Record<string, unknown>>
+      for (let idx = 0; idx < items.length; idx++) {
+        const item = items[idx]
+        const pair = pairs[idx] ?? { id: "", url: "" }
+        const respId = typeof item.illus_id === "string" ? item.illus_id : pair.id
+        const respAlias = typeof item.alias === "string" ? item.alias : ""
+        const respData = typeof item.data === "string" ? item.data : ""
+        if (respData) {
+          const idForName = pair.id || respId
+          const basename = idForName
+            ? `illus-${safeName(idForName)}-${safeName(theme)}`
+            : `illus-${safeName(pair.url)}-${safeName(theme)}`
+          const payload = assetPayload(respData, fileType, basename)
           const file = payload ? await saveAsset(opts.save, payload.filename, payload.content) : null
           if (file) {
-            entries.push({ illus_id: item.illus_id, ...(item.alias ? { alias: item.alias } : {}), file, illus_file_type: fileType, theme })
+            entries.push({ ...(idForName ? { illus_id: idForName } : {}), ...(respAlias ? { alias: respAlias } : {}), url: pair.url, file, illus_file_type: fileType, theme })
+            continue
+          }
+        }
+        entries.push(item)
+      }
+      output(entries)
+      return
+    }
+  }
+  output(data)
+}
+
+async function handleGetImageInfo(opts: Record<string, string>): Promise<void> {
+  if (!opts.keyword) {
+    console.error("Missing required parameter: --keyword")
+    process.exit(1)
+  }
+  const params: Record<string, string> = { keyword: opts.keyword }
+  if (opts.topK) params.topK = opts.topK
+  if (opts.source_id) params.source_id = opts.source_id
+  if (opts.group_id) params.group_id = opts.group_id
+  output(await httpGet("/imagePlus/getImageInfo", params))
+}
+
+async function handleGetImage(opts: Record<string, string>): Promise<void> {
+  if (!opts.url) {
+    console.error("Missing required parameter: --url")
+    process.exit(1)
+  }
+  const params: Record<string, string> = { url: opts.url }
+  if (opts.theme) params.theme = opts.theme
+  if (opts.fileType) params.fileType = opts.fileType
+  const data = await httpGet("/imagePlus/getImage", params)
+  if (opts.save) {
+    const theme = opts.theme || "浅色"
+    const fileType = opts.fileType || "svg"
+    const pairs = zipIdsWithUrls(opts.image_id, opts.url)
+    if (typeof data === "string") {
+      const pair = pairs[0]
+      const basename = pair.id
+        ? `image-${safeName(pair.id)}-${safeName(theme)}`
+        : `image-${safeName(pair.url)}-${safeName(theme)}`
+      const payload = assetPayload(data, fileType, basename)
+      const file = payload ? await saveAsset(opts.save, payload.filename, payload.content) : null
+      if (file) {
+        output({ ...(pair.id ? { image_id: pair.id } : {}), url: pair.url, file, image_file_type: fileType, theme })
+        return
+      }
+    }
+    if (typeof data === "object" && !Array.isArray(data)) {
+      const envelope = data as Record<string, unknown>
+      const respUrl = typeof envelope.url === "string" ? envelope.url : pairs[0].url
+      const respName = typeof envelope.name === "string" ? envelope.name : ""
+      const respFormat = typeof envelope.format === "string" ? envelope.format : fileType
+      const respData = typeof envelope.data === "string" ? envelope.data : ""
+      if (respData) {
+        const pair = pairs[0]
+        const resolvedFileType = respFormat === "jpg" || respFormat === "jpeg" ? respFormat : fileType
+        const basename = pair.id
+          ? `image-${safeName(pair.id)}-${safeName(theme)}`
+          : `image-${safeName(respUrl)}-${safeName(theme)}`
+        const payload = assetPayload(respData, resolvedFileType, basename)
+        const file = payload ? await saveAsset(opts.save, payload.filename, payload.content) : null
+        if (file) {
+          output({ ...(pair.id ? { image_id: pair.id } : {}), url: respUrl, ...(respName ? { name: respName } : {}), ...(respFormat ? { format: respFormat } : {}), file, image_file_type: resolvedFileType, theme })
+          return
+        }
+      }
+    }
+    if (Array.isArray(data)) {
+      const entries: unknown[] = []
+      const items = data as Array<Record<string, unknown>>
+      for (let idx = 0; idx < items.length; idx++) {
+        const item = items[idx]
+        const pair = pairs[idx] ?? { id: "", url: "" }
+        const respUrl = typeof item.url === "string" ? item.url : pair.url
+        const respName = typeof item.name === "string" ? item.name : ""
+        const respFormat = typeof item.format === "string" ? item.format : fileType
+        const respData = typeof item.data === "string" ? item.data : ""
+        if (respData) {
+          const resolvedFileType = respFormat === "jpg" || respFormat === "jpeg" ? respFormat : fileType
+          const basename = pair.id
+            ? `image-${safeName(pair.id)}-${safeName(theme)}`
+            : `image-${safeName(respUrl)}-${safeName(theme)}`
+          const payload = assetPayload(respData, resolvedFileType, basename)
+          const file = payload ? await saveAsset(opts.save, payload.filename, payload.content) : null
+          if (file) {
+            entries.push({ ...(pair.id ? { image_id: pair.id } : {}), url: respUrl, ...(respName ? { name: respName } : {}), ...(respFormat ? { format: respFormat } : {}), file, image_file_type: resolvedFileType, theme })
             continue
           }
         }
@@ -279,7 +422,6 @@ async function handleVectorDetail(opts: Record<string, string>): Promise<void> {
     console.error("Missing required parameters: --type, --data_id")
     process.exit(1)
   }
-  // detail API 的返回体不含 data_id，而前端按 data_id 关联回填，这里注入回去
   const detail = await httpGet("/lib-resource-service/api/vector/detail", { type: opts.type, data_id: opts.data_id })
   if (detail && typeof detail === "object" && !Array.isArray(detail)) {
     output({ data_id: opts.data_id, ...(detail as Record<string, unknown>) })
@@ -291,9 +433,11 @@ async function handleVectorDetail(opts: Record<string, string>): Promise<void> {
 const handlers: Record<string, (opts: Record<string, string>) => Promise<void>> = {
   getConfig: handleGetConfig,
   getIconInfo: handleGetIconInfo,
-  getSvg: handleGetSvg,
+  getIcon: handleGetIcon,
   getIllusInfo: handleGetIllusInfo,
   getIllus: handleGetIllus,
+  getImageInfo: handleGetImageInfo,
+  getImage: handleGetImage,
   vectorSearch: handleVectorSearch,
   vectorDetail: handleVectorDetail,
 }
@@ -302,7 +446,7 @@ const { command, opts } = parseArgs()
 
 if (!handlers[command]) {
   console.error(
-    `Unknown command: ${command}\nAvailable commands: getConfig, getIconInfo, getSvg, getIllusInfo, getIllus, vectorSearch, vectorDetail`,
+    `Unknown command: ${command}\nAvailable commands: getConfig, getIconInfo, getIcon, getIllusInfo, getIllus, getImageInfo, getImage, vectorSearch, vectorDetail`,
   )
   process.exit(1)
 }

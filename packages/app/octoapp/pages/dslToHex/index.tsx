@@ -939,9 +939,11 @@ const sessionMessagesLoaded = createMemo(() => {
       const realDataIds = new Set<string>()
       const realIconIds = new Set<string>()
       const realIllusIds = new Set<string>()
+      const realImageIds = new Set<string>()
       const realDetailMap = new Map<string, Record<string, unknown>>()
       const realIconDetailMap = new Map<string, Record<string, unknown>>()
       const realIllusDetailMap = new Map<string, Record<string, unknown>>()
+      const realImageDetailMap = new Map<string, Record<string, unknown>>()
       // 素材内容（SVG 文本或 png base64）与变体级 file 条目。key 有两级：id 级（后写覆盖）
       // 与变体级（icon: "id|size|style|color"，illus: "id|theme"）。节点带 resourceVariant 时
       // 优先按变体级匹配，解决同 id 多变体互相覆盖
@@ -949,6 +951,7 @@ const sessionMessagesLoaded = createMemo(() => {
       const variantDetailMap = new Map<string, Record<string, unknown>>()
       const iconVariantKey = (id: string, size: unknown, style: unknown, color: unknown) => `${id}|${size ?? ""}|${style ?? ""}|${color ?? ""}`
       const illusVariantKey = (id: string, theme: unknown) => `${id}|${theme ?? ""}`
+      const imageVariantKey = (id: string, theme: unknown) => `${id}|${theme ?? ""}`
       // --save 模式的文件引用 JSON（{icon_id, file, size, style, color} / {illus_id, file, theme}）按变体建索引
       function collectVariantAssets(obj: unknown) {
         if (Array.isArray(obj)) {
@@ -960,6 +963,7 @@ const sessionMessagesLoaded = createMemo(() => {
         if (typeof rec.file === "string") {
           if (typeof rec.icon_id === "string") variantDetailMap.set(iconVariantKey(rec.icon_id, rec.size, rec.style, rec.color), rec)
           if (typeof rec.illus_id === "string") variantDetailMap.set(illusVariantKey(rec.illus_id, rec.theme), rec)
+          if (typeof rec.image_id === "string") variantDetailMap.set(imageVariantKey(rec.image_id, rec.theme), rec)
         }
         for (const val of Object.values(rec)) collectVariantAssets(val)
       }
@@ -981,13 +985,13 @@ const sessionMessagesLoaded = createMemo(() => {
           const cmd = typeof input?.command === "string" ? input.command : ""
           const url = typeof input?.url === "string" ? input.url : ""
           // 既识别直连 URL，也识别 api-call.ts 脚本调用（脚本封装了 URL，命令里只有子命令名）
-          const isResourceCall = cmd.includes("/lib-resource-service/api/vector/") || url.includes("/lib-resource-service/api/vector/") || cmd.includes("/iconPlus/") || url.includes("/iconPlus/") || cmd.includes("/illusPlus/") || url.includes("/illusPlus/") || cmd.includes("api-call.ts")
+          const isResourceCall = cmd.includes("/lib-resource-service/api/vector/") || url.includes("/lib-resource-service/api/vector/") || cmd.includes("/iconPlus/") || url.includes("/iconPlus/") || cmd.includes("/illusPlus/") || url.includes("/illusPlus/") || cmd.includes("/imagePlus/") || url.includes("/imagePlus/") || cmd.includes("api-call.ts")
           if (!isResourceCall) continue
           const out = state.output as string
           try {
             const parsed = JSON.parse(out)
-            collectDataIds(parsed, realDataIds, realIconIds, realIllusIds)
-            collectDetails(parsed, realDetailMap, realIconDetailMap, realIllusDetailMap)
+            collectDataIds(parsed, realDataIds, realIconIds, realIllusIds, realImageIds)
+            collectDetails(parsed, realDetailMap, realIconDetailMap, realIllusDetailMap, realImageDetailMap)
             collectVariantAssets(parsed)
           } catch {
             // 非 JSON 输出（未带 --save 的回退路径）：裸 SVG 或 png 的 base64
@@ -1001,21 +1005,24 @@ const sessionMessagesLoaded = createMemo(() => {
                   return end > start ? out.slice(start, end + 6) : out.slice(start).trim()
                 })()
               : out.trim()
-            const id = argValue(cmd, "icon_id") ?? argValue(cmd, "illus_id")
+            const id = argValue(cmd, "icon_id") ?? argValue(cmd, "illus_id") ?? argValue(cmd, "image_id")
             if (!id || id.includes(",")) continue
             assetContentByKey.set(id, content)
-            if (/\bgetSvg\b/.test(cmd)) {
+            if (/\bgetIcon\b/.test(cmd)) {
               realIconIds.add(id)
               assetContentByKey.set(iconVariantKey(id, argValue(cmd, "size"), argValue(cmd, "style"), argValue(cmd, "color")), content)
-            } else {
+            } else if (/\bgetIllus\b/.test(cmd)) {
               realIllusIds.add(id)
               assetContentByKey.set(illusVariantKey(id, argValue(cmd, "theme") ?? "浅色"), content)
+            } else if (/\bgetImage\b/.test(cmd)) {
+              realImageIds.add(id)
+              assetContentByKey.set(imageVariantKey(id, argValue(cmd, "theme") ?? "浅色"), content)
             }
           }
         }
       }
 
-      const allValidIds = new Set([...realDataIds, ...realIconIds, ...realIllusIds])
+      const allValidIds = new Set([...realDataIds, ...realIconIds, ...realIllusIds, ...realImageIds])
 
        try {
          const root = JSON.parse(jsonStr)
@@ -1027,15 +1034,17 @@ const sessionMessagesLoaded = createMemo(() => {
            } else {
              // 程序化回填：resourceDetail 以工具真实输出为准。LLM 不再抄写 detail（prompt 已
              // 要求省略），旧输出里抄了的也会被真实数据覆盖，抄错不再导致资源整体丢失。
-             const cachedDetail = realDetailMap.get(rid) ?? realIconDetailMap.get(rid) ?? realIllusDetailMap.get(rid)
+              const cachedDetail = realDetailMap.get(rid) ?? realIconDetailMap.get(rid) ?? realIllusDetailMap.get(rid) ?? realImageDetailMap.get(rid)
              // 节点带 resourceVariant（LLM 自己的调用参数）时按变体级精确匹配素材，
              // 避免同 id 多变体（不同 size/color/theme）被"后写覆盖"串台
              const variant = node.resourceVariant as Record<string, unknown> | undefined
-             const variantKey = variant
-               ? realIconIds.has(rid)
-                 ? iconVariantKey(rid, variant.size, variant.style, variant.color)
-                 : illusVariantKey(rid, variant.theme)
-               : null
+              const variantKey = variant
+                ? realIconIds.has(rid)
+                  ? iconVariantKey(rid, variant.size, variant.style, variant.color)
+                  : realImageIds.has(rid)
+                    ? imageVariantKey(rid, variant.theme)
+                    : illusVariantKey(rid, variant.theme)
+                : null
              // detail 完全由工具真实输出构成，不 spread node.resourceDetail：prompt 已禁止
              // LLM 输出该字段，它若违规塞了搜索浅记录（{data_id, vector_text, score}）会污染结果
              const detail: Record<string, unknown> = {
@@ -1043,19 +1052,24 @@ const sessionMessagesLoaded = createMemo(() => {
                ...((variantKey ? variantDetailMap.get(variantKey) : undefined) ?? {}),
              }
              // 素材内容（SVG 文本 / png base64）来自未带 --save 的回退输出，单独回填
-             const content = (variantKey ? assetContentByKey.get(variantKey) : undefined) ?? assetContentByKey.get(rid)
-             if (content) {
-               if (realIconIds.has(rid)) detail.icon_content = content
-               else detail.illus_content = content
-             }
-              if (realIconIds.has(rid) && detail.icon_content === undefined && typeof detail.data === "string" && detail.data.includes("<svg")) {
-                detail.icon_content = detail.data
-                delete detail.data
+              const content = (variantKey ? assetContentByKey.get(variantKey) : undefined) ?? assetContentByKey.get(rid)
+              if (content) {
+                if (realIconIds.has(rid)) detail.icon_content = content
+                else if (realImageIds.has(rid)) detail.image_content = content
+                else detail.illus_content = content
               }
-              if (!realIconIds.has(rid) && detail.illus_content === undefined && typeof detail.data === "string" && detail.data.includes("<svg")) {
-                detail.illus_content = detail.data
-                delete detail.data
-              }
+               if (realIconIds.has(rid) && detail.icon_content === undefined && typeof detail.data === "string" && detail.data.includes("<svg")) {
+                 detail.icon_content = detail.data
+                 delete detail.data
+               }
+               if (realImageIds.has(rid) && detail.image_content === undefined && typeof detail.data === "string" && detail.data.includes("<svg")) {
+                 detail.image_content = detail.data
+                 delete detail.data
+               }
+               if (!realIconIds.has(rid) && !realImageIds.has(rid) && detail.illus_content === undefined && typeof detail.data === "string" && detail.data.includes("<svg")) {
+                 detail.illus_content = detail.data
+                 delete detail.data
+               }
              // 有真实数据才写；否则删掉（含 LLM 违规输出的 resourceDetail），符合"无数据则省略"
              if (Object.keys(detail).length > 0) node.resourceDetail = detail
              else delete node.resourceDetail
@@ -1071,40 +1085,45 @@ const sessionMessagesLoaded = createMemo(() => {
       }
    }
 
-    function collectDataIds(obj: unknown, ids: Set<string>, iconIds?: Set<string>, illusIds?: Set<string>) {
-      if (Array.isArray(obj)) {
-        for (const item of obj) collectDataIds(item, ids, iconIds, illusIds)
-      } else if (obj && typeof obj === "object") {
-        const rec = obj as Record<string, unknown>
-        if (typeof rec.data_id === "string") ids.add(rec.data_id)
-        if (iconIds && typeof rec.icon_id === "string") iconIds.add(rec.icon_id)
-        if (illusIds && typeof rec.illus_id === "string") illusIds.add(rec.illus_id)
-        for (const val of Object.values(rec)) collectDataIds(val, ids, iconIds, illusIds)
-      }
-    }
+     function collectDataIds(obj: unknown, ids: Set<string>, iconIds?: Set<string>, illusIds?: Set<string>, imageIds?: Set<string>) {
+       if (Array.isArray(obj)) {
+         for (const item of obj) collectDataIds(item, ids, iconIds, illusIds, imageIds)
+       } else if (obj && typeof obj === "object") {
+         const rec = obj as Record<string, unknown>
+         if (typeof rec.data_id === "string") ids.add(rec.data_id)
+         if (iconIds && typeof rec.icon_id === "string") iconIds.add(rec.icon_id)
+         if (illusIds && typeof rec.illus_id === "string") illusIds.add(rec.illus_id)
+         if (imageIds && typeof rec.image_id === "string") imageIds.add(rec.image_id)
+         for (const val of Object.values(rec)) collectDataIds(val, ids, iconIds, illusIds, imageIds)
+       }
+     }
 
     // 同一 id 可能出现多次（vectorSearch 的浅记录在前、vectorDetail 的完整记录在后），
     // 作为回填数据源必须合并累积（后到覆盖先到），不能先到先得
-    function collectDetails(obj: unknown, map: Map<string, Record<string, unknown>>, iconDetailMap?: Map<string, Record<string, unknown>>, illusDetailMap?: Map<string, Record<string, unknown>>) {
-      if (Array.isArray(obj)) {
-        for (const item of obj) collectDetails(item, map, iconDetailMap, illusDetailMap)
-      } else if (obj && typeof obj === "object") {
-        const rec = obj as Record<string, unknown>
-        if (typeof rec.data_id === "string") {
-          const { results, data_id, vector_text, score, ...detail } = rec
-          if (Object.keys(detail).length > 1) map.set(rec.data_id, { ...map.get(rec.data_id) ?? {}, ...detail })
-        }
-        if (iconDetailMap && typeof rec.icon_id === "string") {
-          const { results, score, ...detail } = rec
-          if (Object.keys(detail).length > 1) iconDetailMap.set(rec.icon_id, { ...iconDetailMap.get(rec.icon_id) ?? {}, ...detail })
-        }
-        if (illusDetailMap && typeof rec.illus_id === "string") {
-          const { results, keyword, score, ...detail } = rec
-          if (Object.keys(detail).length > 1) illusDetailMap.set(rec.illus_id, { ...illusDetailMap.get(rec.illus_id) ?? {}, ...detail })
-        }
-        for (const val of Object.values(rec)) collectDetails(val, map, iconDetailMap, illusDetailMap)
-      }
-    }
+     function collectDetails(obj: unknown, map: Map<string, Record<string, unknown>>, iconDetailMap?: Map<string, Record<string, unknown>>, illusDetailMap?: Map<string, Record<string, unknown>>, imageDetailMap?: Map<string, Record<string, unknown>>) {
+       if (Array.isArray(obj)) {
+         for (const item of obj) collectDetails(item, map, iconDetailMap, illusDetailMap, imageDetailMap)
+       } else if (obj && typeof obj === "object") {
+         const rec = obj as Record<string, unknown>
+         if (typeof rec.data_id === "string") {
+           const { results, data_id, vector_text, score, ...detail } = rec
+           if (Object.keys(detail).length > 1) map.set(rec.data_id, { ...map.get(rec.data_id) ?? {}, ...detail })
+         }
+         if (iconDetailMap && typeof rec.icon_id === "string") {
+           const { results, score, ...detail } = rec
+           if (Object.keys(detail).length > 1) iconDetailMap.set(rec.icon_id, { ...iconDetailMap.get(rec.icon_id) ?? {}, ...detail })
+         }
+         if (illusDetailMap && typeof rec.illus_id === "string") {
+           const { results, keyword, score, ...detail } = rec
+           if (Object.keys(detail).length > 1) illusDetailMap.set(rec.illus_id, { ...illusDetailMap.get(rec.illus_id) ?? {}, ...detail })
+         }
+         if (imageDetailMap && typeof rec.image_id === "string") {
+           const { results, keyword, score, ...detail } = rec
+           if (Object.keys(detail).length > 1) imageDetailMap.set(rec.image_id, { ...imageDetailMap.get(rec.image_id) ?? {}, ...detail })
+         }
+         for (const val of Object.values(rec)) collectDetails(val, map, iconDetailMap, illusDetailMap, imageDetailMap)
+       }
+     }
 
   // ── 产物持久化 ─────────────────────────────────────────────
   const dslDir = projectDir()
