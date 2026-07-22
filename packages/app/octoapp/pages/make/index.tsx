@@ -49,6 +49,7 @@ import { SyncProvider, useSync } from "@/context/sync"
 
 import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
+import { useResponsiveBreakpoints } from "@/components/responsive-layout"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { useProviders } from "@/hooks/use-providers"
@@ -124,6 +125,7 @@ function MakeContent() {
   const command = useCommand()
   const sync = useSync()
   const layout = useLayout()
+  const { isNarrow } = useResponsiveBreakpoints()
   const language = useLanguage()
   const settings = useSettings()
   const dialog = useDialog()
@@ -932,14 +934,15 @@ const sessionMessagesLoaded = createMemo(() => {
     const stored = localStorage.getItem(CHAT_WIDTH_KEY)
     if (stored) {
       const n = parseInt(stored, 10)
-      if (!isNaN(n) && n >= 345 && n <= 720) return n
+      if (!isNaN(n) && n >= 360 && n <= 720) return n
     }
     return 460
   }
   const [chatWidth, setChatWidth] = createSignal(getInitialChatWidth())
   const focusMode = layout.focusMode.get
+  const hideChat = () => focusMode() || (hasContent() && isNarrow())
 
-  const MIN_CHAT = 345
+  const MIN_CHAT = 360
   const MAX_CHAT = 720
 
   let dragCleanup: (() => void) | null = null
@@ -2075,9 +2078,9 @@ if (dsId) {
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
       <div
         class="octo-make octo-split bg-background-base"
-        data-focus={focusMode() ? "true" : undefined}
+        data-focus={hideChat() ? "true" : undefined}
         style={{
-          "grid-template-columns": !focusMode()
+          "grid-template-columns": !hideChat()
             ? hasContent()
               ? `${chatWidth()}px 0px minmax(0, 1fr)`
               : "1fr"
@@ -2086,7 +2089,7 @@ if (dsId) {
       >
 
         {/* ── 左栏：对话面板 ──── */}
-        <Show when={!focusMode()}>
+        <Show when={!hideChat()}>
           <div
             class="flex flex-col overflow-hidden"
             style={{
@@ -2796,7 +2799,7 @@ if (dsId) {
         </Show>
 
         {/* ── 拖拽分隔线（Grid 中间列） ──── */}
-        <Show when={hasContent() && !focusMode()}>
+        <Show when={hasContent() && !hideChat()}>
           <div class="octo-split-handle" onMouseDown={handleDividerMouseDown} />
         </Show>
 
