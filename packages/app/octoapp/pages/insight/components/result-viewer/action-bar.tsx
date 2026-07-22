@@ -14,6 +14,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { tracker } from "@/utils/tracker"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useParams } from "@solidjs/router"
+import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).then(() => {
@@ -35,6 +36,82 @@ function downloadBlob(content: string, filename: string, mimeType: string) {
 
 function sanitizeFilename(name: string): string {
   return name.replace(/[\\/:*?"<>|]/g, "_").trim() || "untitled"
+}
+
+// 归档用文件名:text 类型按 type 补扩展名;有 fileName(office/二进制/path 源)直接复用。
+function tabArchiveName(tab: ResultTab): string {
+  if (tab.fileName) return tab.fileName
+  const base = sanitizeFilename(tab.title || "download")
+  switch (tab.type) {
+    case "markdown": return `${base}.md`
+    case "json": return `${base}.json`
+    case "mindmap": return `${base}.json`
+    case "table": return `${base}.md`
+    case "code": return `${base}.txt`
+    default: return base
+  }
+}
+
+function tabArchiveMime(tab: ResultTab): string {
+  switch (tab.type) {
+    case "markdown": return "text/markdown;charset=utf-8"
+    case "json": return "application/json;charset=utf-8"
+    case "mindmap": return "application/json;charset=utf-8"
+    case "table": return "text/markdown;charset=utf-8"
+    case "code": return "text/plain;charset=utf-8"
+    default: return tab.mimeType || "application/octet-stream"
+  }
+}
+
+// 把 tab 物化成 File 供 EdmUtil.upload:优先本地读盘 → 远程拉取 → 文本内容兜底。
+async function getTabFile(tab: ResultTab): Promise<File | null> {
+  const name = tabArchiveName(tab)
+  const api = getDesktopApi()
+  if (tab.filePath && api?.readFileBuffer) {
+    try {
+      const buf = await api.readFileBuffer(tab.filePath)
+      if (buf) return new File([buf], name, { type: tab.mimeType || undefined })
+    } catch (err) {
+      console.warn("[octo:archive] read-local-failed", { filePath: tab.filePath, err })
+    }
+  }
+  if (tab.uri) {
+    try {
+      const blob = await fetch(tab.uri).then((r) => r.blob())
+      if (blob && blob.size > 0) return new File([blob], name, { type: tab.mimeType || blob.type || undefined })
+    } catch (err) {
+      console.warn("[octo:archive] fetch-uri-failed", { uri: tab.uri, err })
+    }
+  }
+  if (typeof tab.content === "string" && tab.content) {
+    return new File([tab.content], name, { type: tabArchiveMime(tab) })
+  }
+  return null
+}
+
+// 把 ResultTab 转成归档 target:HTML → 复刻 Design 流程(DOM 取预览 iframe 截图);其他 → file 流(EdmUtil)。
+// 传 getter 而非快照:uri/path tab 的 content 是异步回写(cacheContent 换新对象),confirm 时读最新值。
+function tabToArchiveTarget(getTab: () => ResultTab, projectDir: string, sessionId: string): ArchiveTarget {
+  const tab = getTab()
+  if (tab.type === "html") {
+    return {
+      mode: "html",
+      sessionId,
+      projectDir,
+      getHtmlContent: () => Promise.resolve(stripCodeFence(getTab().content ?? "")),
+      htmlFileName: tab.fileName || tab.title || "preview.html",
+      htmlFilePath: tab.filePath || "",
+      getIframe: () => document.querySelector('iframe[title="HTML preview"]') as HTMLIFrameElement | null,
+    }
+  }
+  return {
+    mode: "file",
+    sessionId,
+    projectDir,
+    fileName: tabArchiveName(tab),
+    filePath: tab.filePath || "",
+    getFile: () => getTabFile(getTab()),
+  }
 }
 
 // path 源(write 文本产物)的本地打开 / 文件夹定位:文件已在磁盘,直接传 filePath。
@@ -216,7 +293,19 @@ export function ActionBar(props: {
   // inline 无本地文件不给编辑。见 docs/specs/ui/insight-markdown-editor.md §2.1。
   const canEdit = () =>
     !!props.onEdit && props.tab.type === "markdown" && (props.tab.source === "uri" || props.tab.source === "path") && ready()
+
+  // ── 归档(所有文件类型,头部最右侧按钮;逻辑抽到 ../archive-flow)──────────────────────
+  const [archiveTarget, setArchiveTarget] = createSignal<ArchiveTarget | null>(null)
+  const [archiveDialogOpen, setArchiveDialogOpen] = createSignal(false)
+
+  function handleArchiveClick() {
+    setArchiveTarget(tabToArchiveTarget(() => props.tab, projectDir() || "", params.id ?? ""))
+    setArchiveDialogOpen(true)
+    tracker.interaction({ module: "insight", name: "result-archive", extend: JSON.stringify({ tabType: props.tab.type }) })
+  }
+
   return (
+    <>
     <div
       class="flex items-center justify-between px-4 py-1.5 shrink-0 gap-2"
       style={{
@@ -233,8 +322,8 @@ export function ActionBar(props: {
       >
         <ViewModeToggle mode={props.viewMode} onSet={props.onSetViewMode} />
       </Show>
-      <Show when={showActions()}>
-        <div class="flex items-center gap-0.5">
+      <div class="flex items-center gap-0.5">
+        <Show when={showActions()}>
           {/* path 源(write 文本产物):额外给"本地打开/文件夹打开"——文件在本地磁盘,
               方便用 Typora / VSCode 等原生应用打开编辑。见 output-renderers.md §2.6.8。 */}
           <Show when={props.tab.source === "path" && props.tab.filePath}>
@@ -280,9 +369,35 @@ export function ActionBar(props: {
             }}
           />
           <DownloadMenu tab={props.tab} disabled={!ready()} />
-        </div>
-      </Show>
+        </Show>
+        {/* 归档(60×32,#0A59F7):所有文件类型均可归档,置于头部操作项最右侧 */}
+        <button
+          type="button"
+          onClick={handleArchiveClick}
+          class="flex items-center justify-center transition-opacity hover:opacity-90"
+          style={{
+            width: "60px",
+            height: "32px",
+            "border-radius": "20px",
+            background: "#0A59F7",
+            color: "#FFFFFF",
+            "font-size": "14px",
+            "line-height": "22px",
+            cursor: "pointer",
+            "flex-shrink": "0",
+          }}
+          title="归档"
+        >
+          归档
+        </button>
+      </div>
     </div>
+    <ArchiveDialogs
+      target={archiveTarget()}
+      open={archiveDialogOpen()}
+      onClose={() => setArchiveDialogOpen(false)}
+    />
+    </>
   )
 }
 

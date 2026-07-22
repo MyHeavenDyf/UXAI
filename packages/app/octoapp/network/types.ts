@@ -86,3 +86,20 @@ export type UploadDeliverableBody = {
   files: DeliverableFile[]
   teamId: number
 }
+
+export type ActivityTemplate = {
+  categoryId: number
+  docType: number
+  fileName: string
+  templateId: number
+  templateType: number
+  templateLabel: string
+  typeId: number
+}
+
+export type ActivityTeamInfo = {
+  activityId: number
+  deliverableType: number
+  label: string
+  templates: ActivityTemplate[]
+}

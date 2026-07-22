@@ -52,6 +52,57 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { FileManagerToolbar } from "./toolbar"
 import { Breadcrumb } from "./breadcrumb"
 import { PreviewPane } from "./preview-pane"
+import { ArchiveDialogs, type ArchiveTarget, decodeBase64ToString } from "../archive-flow"
+
+// 把文件管理列表中的 InsightFile 转成归档 target:HTML → 复刻 Design 流程(列表无 live iframe,走占位截图);
+// 其他类型 → file 流(本地读盘取 File → EdmUtil.upload)。
+function insightFileToArchiveTarget(file: InsightFile, sdkUrl: string, sdkDirectory: string, sessionId: string): ArchiveTarget {
+  if (file.kind === "html") {
+    return {
+      mode: "html",
+      sessionId,
+      projectDir: sdkDirectory,
+      getHtmlContent: async () => {
+        const c = await fetchInsightContent(sdkUrl, sdkDirectory, file.path)
+        return c.encoding === "base64" ? decodeBase64ToString(c.content) : c.content
+      },
+      htmlFileName: file.name,
+      htmlFilePath: file.path,
+    }
+  }
+  return {
+    mode: "file",
+    sessionId,
+    projectDir: sdkDirectory,
+    fileName: file.name,
+    filePath: file.path,
+    getFile: async () => {
+      const api = getDesktopApi()
+      if (api?.readFileBuffer) {
+        try {
+          const buf = await api.readFileBuffer(file.path)
+          if (buf) return new File([buf], file.name, { type: file.mime || undefined })
+        } catch (err) {
+          console.warn("[octo:archive] read-local-failed", { path: file.path, err })
+        }
+      }
+      // 兜底:走 SDK content 端点(非桌面端 / 读盘失败),base64 解码为二进制 → File。
+      try {
+        const c = await fetchInsightContent(sdkUrl, sdkDirectory, file.path)
+        if (c.encoding === "base64") {
+          const binary = atob(c.content)
+          const bytes = new Uint8Array(binary.length)
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+          return new File([bytes], file.name, { type: c.mimeType || file.mime || undefined })
+        }
+        return new File([c.content], file.name, { type: c.mimeType || file.mime || undefined })
+      } catch (err) {
+        console.warn("[octo:archive] fetch-content-failed", { path: file.path, err })
+      }
+      return null
+    },
+  }
+}
 
 export function InsightFileManager(props: {
   refreshKey?: number
@@ -406,6 +457,15 @@ function FileManagerInner(props: {
     tracker.interaction({ module: "insight", name: "files-open-in-explorer" })
   }
 
+  // ── 归档(列表行 `…` 菜单入口;逻辑抽到 ../archive-flow)───────────────────────
+  const [archiveTarget, setArchiveTarget] = createSignal<ArchiveTarget | null>(null)
+  const [archiveDialogOpen, setArchiveDialogOpen] = createSignal(false)
+  function handleArchiveFile(file: InsightFile) {
+    setArchiveTarget(insightFileToArchiveTarget(file, sdk.url, sdk.directory || "", props.sessionId))
+    setArchiveDialogOpen(true)
+    tracker.interaction({ module: "insight", name: "files-archive", extend: JSON.stringify({ kind: file.kind }) })
+  }
+
   function handleHeaderSort(key: SortKey) {
     if (store().sortKey === key) fileStore.setSortDir(store().sortDir === "asc" ? "desc" : "asc")
     else { fileStore.setSortKey(key); fileStore.setSortDir(key === "mtime" ? "desc" : "asc") }
@@ -510,6 +570,7 @@ function FileManagerInner(props: {
                     onAddToSession={props.onAddToSession ? handleAddToSession : undefined}
                     onDownload={handleDownload}
                     onDelete={handleDelete}
+                    onArchive={handleArchiveFile}
                     onOpenInExplorer={handleOpenInExplorer}
                     onNavigateFolder={(f) => fileStore.navigateToFolder(f)}
                   />
@@ -533,6 +594,12 @@ function FileManagerInner(props: {
           />
         )}
       </Show>
+
+      <ArchiveDialogs
+        target={archiveTarget()}
+        open={archiveDialogOpen()}
+        onClose={() => setArchiveDialogOpen(false)}
+      />
     </div>
   )
 }
@@ -547,6 +614,7 @@ function FileTable(props: {
   onAddToSession?: (file: InsightFile) => void
   onDownload: (file: InsightFile) => void
   onDelete: (file: InsightFile) => void
+  onArchive?: (file: InsightFile) => void
   onOpenInExplorer: (file: InsightFile) => void
   onNavigateFolder: (folder: InsightFile) => void
 }): JSX.Element {
@@ -591,11 +659,11 @@ function FileTable(props: {
         <Show when={props.fileStore.isTopLevel()}>
           <SectionHeaderRow title="生成文件" collapsed={store().collapsedGenerated} onToggle={() => props.fileStore.toggleGeneratedSection()} />
           <Show when={!store().collapsedGenerated}>
-            <GroupedRows computed={props.fileStore.generated} fileStore={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onOpenInExplorer={props.onOpenInExplorer} />
+            <GroupedRows computed={props.fileStore.generated} fileStore={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onArchive={props.onArchive} onOpenInExplorer={props.onOpenInExplorer} />
           </Show>
           <SectionHeaderRow title="上传文件" collapsed={store().collapsedUploaded} onToggle={() => props.fileStore.toggleUploadedSection()} />
           <Show when={!store().collapsedUploaded}>
-            <GroupedRows computed={props.fileStore.uploaded} fileStore={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />
+            <GroupedRows computed={props.fileStore.uploaded} fileStore={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onArchive={props.onArchive} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />
           </Show>
         </Show>
         <Show when={!props.fileStore.isTopLevel()}>
@@ -628,6 +696,7 @@ function GroupedRows(props: {
   onAddToSession?: (file: InsightFile) => void
   onDownload: (file: InsightFile) => void
   onDelete?: (file: InsightFile) => void
+  onArchive?: (file: InsightFile) => void
   onOpenInExplorer: (file: InsightFile) => void
   onNavigateFolder?: (folder: InsightFile) => void
 }): JSX.Element {
@@ -639,7 +708,7 @@ function GroupedRows(props: {
           {([kind, files]) => (
             <>
               <SubGroupHeaderRow label={kindLabel(kind)} />
-              <For each={files}>{(file) => <FileRow file={file} selected={props.fileStore.store.selected.has(file.path)} store={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />}</For>
+              <For each={files}>{(file) => <FileRow file={file} selected={props.fileStore.store.selected.has(file.path)} store={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onArchive={props.onArchive} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />}</For>
             </>
           )}
         </For>
@@ -650,7 +719,7 @@ function GroupedRows(props: {
             <>
               <SubGroupHeaderRow label={MODIFIED_SECTION_LABELS[section]} />
               <For each={props.computed.modifiedGroups()[section]}>
-                {(file) => <FileRow file={file} selected={props.fileStore.store.selected.has(file.path)} store={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />}
+                {(file) => <FileRow file={file} selected={props.fileStore.store.selected.has(file.path)} store={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onArchive={props.onArchive} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />}
               </For>
             </>
           )}
@@ -681,6 +750,7 @@ function FileRow(props: {
   onAddToSession?: (file: InsightFile) => void
   onDownload: (file: InsightFile) => void
   onDelete?: (file: InsightFile) => void
+  onArchive?: (file: InsightFile) => void
   onOpenInExplorer: (file: InsightFile) => void
   onNavigateFolder?: (folder: InsightFile) => void
 }): JSX.Element {
@@ -774,6 +844,9 @@ function FileRow(props: {
               <MenuItem label="打开所在文件夹" onClick={() => { props.onOpenInExplorer(props.file); setMenuOpen(false) }} />
               <Show when={!props.file.isFolder}>
                 <MenuItem label="下载" onClick={() => { props.onDownload(props.file); setMenuOpen(false) }} />
+                <Show when={props.onArchive}>
+                  <MenuItem label="归档" onClick={() => { props.onArchive!(props.file); setMenuOpen(false) }} />
+                </Show>
               </Show>
               <Show when={props.onDelete}>
                 <MenuDivider />
