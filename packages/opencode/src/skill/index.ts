@@ -25,6 +25,12 @@ const EXTERNAL_SKILL_PATTERN = "skills/**/SKILL.md"
 const OPENCODE_SKILL_PATTERN = "{skill,skills}/**/SKILL.md"
 const SKILL_PATTERN = "**/SKILL.md"
 
+// Agent skill mapping: agents not listed in skill_config.json can inherit skill mappings from another agent.
+// Key: agent name pattern (supports "*" suffix for prefix match, e.g. "proto_*"), Value: target agent name to inherit from.
+const AGENT_SKILL_ALIASES: Record<string, string> = {
+  "proto_*": "octo_make",
+}
+
 export const Info = Schema.Struct({
   name: Schema.String,
   description: Schema.String,
@@ -346,7 +352,22 @@ export const layer = Layer.effect(
       const d = yield* InstanceState.get(discovered)
       const list = Object.values(s.skills).toSorted((a, b) => a.name.localeCompare(b.name))
       if (!agent) return list
-      const allowedDirs = d.agentConfig[agent.name] ?? []
+
+      // Resolve agent skill alias: if agent name matches a prefix pattern in AGENT_SKILL_ALIASES,
+      // use the mapped agent's skill config instead.
+      let agentKey = agent.name
+      for (const [pattern, target] of Object.entries(AGENT_SKILL_ALIASES)) {
+        if (pattern.endsWith("*") && agent.name.startsWith(pattern.slice(0, -1))) {
+          agentKey = target
+          break
+        }
+        if (pattern === agent.name) {
+          agentKey = target
+          break
+        }
+      }
+
+      const allowedDirs = d.agentConfig[agentKey] ?? []
       const allowedSet = new Set(allowedDirs)
       return list.filter((skill) => {
         if (Permission.evaluate("skill", skill.name, agent.permission).action === "deny") return false
