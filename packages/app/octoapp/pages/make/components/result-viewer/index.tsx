@@ -491,8 +491,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                         artifactIdentifier={tab.artifactIdentifier}
                         confirmed={props.isPlanConfirmed?.() ?? false}
                         onConfirm={() => props.onConfirmPlan?.(tab.artifactIdentifier)}
-onAdjust={() => props.onAdjustPlan?.()}
-                        onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
+                        onContentChange={(content) => { props.onContentChange?.(tabId, content) }}
                       />
                     </Match>
                     <Match when={tabType === "local-file"}>
