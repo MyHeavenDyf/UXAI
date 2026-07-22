@@ -1,7 +1,7 @@
 // SPEC-INS-014 §10 / §10.1:「文件管理」——viewMode==="files" 时替换 ResultViewer 整个内容区。
 // 功能对齐站内 Design 模块(make/components/design-files/design-files-panel.tsx):
 //   面包屑 + 文件夹导航 + 右侧预览面板 + 批量下载/删除 + 上传(文件夹/文件) + 5 项行操作菜单。
-// 数据源走 insight/<sessionId>/{uploads,outputs}/(uploads 支持子文件夹导航);content/delete/archive
+// 数据源走 .octo/<sessionId>/{uploads,outputs}/(uploads 支持子文件夹导航);content/delete/archive
 // 复用 artifact 分组同款端点(按绝对 path),upload/upload-folder 走 insight 专属端点。
 // insight 自包含:不 import make 目录下的组件;图标用 design-files-icons(拷贝自 make)。
 // 颜色/圆角统一走 --octo-* 主题变量。
