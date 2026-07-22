@@ -49,6 +49,7 @@ export const StudioGenerationPayload = Schema.Struct({
   ]),
   prompt: Schema.String,
   displayPrompt: Schema.optional(Schema.String),
+  detailPrompt: Schema.optional(Schema.String),
   refinedPrompt: Schema.optional(Schema.String),
   effectivePrompt: Schema.optional(Schema.String),
   styleModel: Schema.optional(Schema.String),
@@ -101,6 +102,7 @@ const StudioGenerationResult = Schema.Struct({
   capability: StudioGenerationPayload.fields.capability,
   prompt: Schema.String,
   displayPrompt: Schema.optional(Schema.String),
+  detailPrompt: Schema.optional(Schema.String),
   provider: Schema.Union([Schema.Literal("jimeng"), Schema.Literal("internel")]),
   toolAction: Schema.optional(Schema.Union([
     Schema.Literal("generate_image"),

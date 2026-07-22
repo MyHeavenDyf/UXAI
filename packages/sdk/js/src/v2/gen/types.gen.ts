@@ -7276,6 +7276,7 @@ export type StudioGenerationsCreateData = {
       | "image.fusion"
     prompt: string
     displayPrompt?: string
+    detailPrompt?: string
     refinedPrompt?: string
     effectivePrompt?: string
     styleModel?: string
@@ -7323,6 +7324,7 @@ export type StudioGenerationsCreateResponses = {
       | "image.fusion"
     prompt: string
     displayPrompt?: string
+    detailPrompt?: string
     provider: "jimeng" | "internel"
     toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
     taskType?: string
@@ -7434,6 +7436,7 @@ export type StudioGenerationsCancelResponses = {
       | "image.fusion"
     prompt: string
     displayPrompt?: string
+    detailPrompt?: string
     provider: "jimeng" | "internel"
     toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
     taskType?: string
@@ -7508,6 +7511,7 @@ export type StudioGenerationsRebootResponses = {
       | "image.fusion"
     prompt: string
     displayPrompt?: string
+    detailPrompt?: string
     provider: "jimeng" | "internel"
     toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
     taskType?: string
@@ -7582,6 +7586,7 @@ export type StudioGenerationsGetResponses = {
       | "image.fusion"
     prompt: string
     displayPrompt?: string
+    detailPrompt?: string
     provider: "jimeng" | "internel"
     toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
     taskType?: string
