@@ -3,6 +3,7 @@ export type DesktopApi = {
     defaultName: string
     files?: { path: string; content: string }[]
     sourceDir?: string
+    destFolder?: string
     comment?: string
   }) => Promise<string | null>
   importZip?: () => Promise<{ name: string; content: string }[] | null>
