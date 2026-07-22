@@ -320,6 +320,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
               onFieldChange={(field, value) => props.onStrategyFieldChange?.(field, value)}
               onGenerate={() => props.onGenerateStrategy?.()}
               isGenerating={props.isGenerating}
+              currentStep={1}
             />
           </div>
         </Show>
@@ -334,13 +335,13 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                 artifactIdentifier={plan().artifactIdentifier}
                 confirmed={props.isPlanConfirmed?.() ?? false}
                 onConfirm={() => props.onConfirmPlan?.(plan().artifactIdentifier)}
-                onAdjust={() => props.onAdjustPlan?.()}
                 onContentChange={(content) => {
                   if (props.onContentChange && plan().id) {
                     props.onContentChange(plan().id, content)
                   }
                 }}
                 onBackToStrategy={() => props.onBackToStrategy?.()}
+                currentStep={2}
               />
             </div>
           )}
@@ -490,7 +491,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                         artifactIdentifier={tab.artifactIdentifier}
                         confirmed={props.isPlanConfirmed?.() ?? false}
                         onConfirm={() => props.onConfirmPlan?.(tab.artifactIdentifier)}
-                        onAdjust={() => props.onAdjustPlan?.()}
+onAdjust={() => props.onAdjustPlan?.()}
                         onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
                       />
                     </Match>

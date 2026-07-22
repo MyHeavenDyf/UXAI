@@ -52,6 +52,16 @@ export function TabBar(props: {
 
         {/* 设计规划入口 — plan artifact 存在时出现,点击切换到 plan 模式 */}
         <Show when={props.showPlanEntry && props.onViewModeChange}>
+          <div
+            class="shrink-0"
+            style={{
+              width: "1px",
+              height: "16px",
+              background: "rgba(0,0,0,0.1)",
+              "margin-left": "8px",
+              "margin-right": "8px",
+            }}
+          />
           <button
             type="button"
             onClick={() => props.onViewModeChange?.("plan")}
@@ -67,16 +77,15 @@ export function TabBar(props: {
               background: props.viewMode === "plan" ? "rgba(10, 89, 247, 0.08)" : "rgba(0, 0, 0, 0.05)",
             }}
           >
-            <IconCardPlan
-              size={16}
-              style={{ color: props.viewMode === "plan" ? "#0a59f7" : props.planConfirmed ? "#999" : "#666" }}
-            />
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="shrink-0">
+              <path d="M9.33376 1.34338C9.36376 1.34338 9.39043 1.34672 9.42043 1.35005C9.4371 1.35338 9.47376 1.36338 9.4871 1.37005C9.4971 1.37338 9.5671 1.40338 9.5771 1.40672C9.5971 1.42338 9.67376 1.47672 9.69043 1.49672L13.1604 4.98005C13.3038 5.12338 13.3471 5.33672 13.2671 5.52338C13.1904 5.71005 13.0071 5.83338 12.8071 5.83338L10.3338 5.83338C9.50376 5.83338 8.83376 5.16005 8.83376 4.33338L8.83043 2.34338L4.69043 2.34338C4.14043 2.34338 3.69043 2.79338 3.69043 3.34338L3.69043 12.6534C3.69043 13.2034 4.14043 13.6534 4.69043 13.6534L11.3071 13.6534C11.8571 13.6534 12.3071 13.2034 12.3071 12.6534L12.3071 6.99672C12.3071 6.72005 12.5304 6.49672 12.8071 6.49672C13.0838 6.49672 13.3071 6.72005 13.3071 6.99672L13.3071 12.6534C13.3071 13.7567 12.4104 14.6534 11.3071 14.6534L4.69043 14.6534C3.5871 14.6534 2.69043 13.7567 2.69043 12.6534L2.69043 3.34338C2.69043 2.24005 3.5871 1.34338 4.69043 1.34338L9.33376 1.34338ZM9.83376 3.05338L9.83376 4.33338C9.83376 4.60672 10.0571 4.83338 10.3338 4.83338L11.6038 4.83338L9.83376 3.05338Z" fill="currentColor" fill-rule="evenodd" />
+            </svg>
             <span>{props.planConfirmed ? "方案已确认" : "设计规划"}</span>
           </button>
         </Show>
 
         <Show when={props.tabs.length > 0}>
-          <div class="w-px h-4 shrink-0" style={{ background: "var(--octo-border-divider)" }} />
+          <div class="w-px h-4 shrink-0 ml-2 mr-2" style={{ background: "var(--octo-border-divider)", "border-radius": "999px" }} />
         </Show>
       </Show>
 
