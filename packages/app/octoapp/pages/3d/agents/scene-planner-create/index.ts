@@ -2,6 +2,8 @@ import { extractJson } from "../../utils/json-parser"
 import { runChildSession } from "../run-child-session"
 import { logAgentParsed } from "../../utils/debug-log"
 import type { ScenePlanner } from "../merge"
+import { SCENE_PLANNER_CREATE_FORMAT } from "./schema"
+import { agentThrow } from "../../utils/error-msg"
 
 const AGENT_NAME = "scene_3d_planner_create"
 
@@ -36,12 +38,13 @@ export default async function scene_3d_planner_create(input: ScenePlannerCreateI
     prompt: humanMessage,
     sync,
     onSessionCreated,
+    schema: SCENE_PLANNER_CREATE_FORMAT.schema,
   })
   console.log("----- 3D 场景规划Agent运行结束，耗时：", (Date.now() - startTime) / 1000, "s -----")
   const plannerJson = extractJson(plannerResult.text)
   if (!plannerJson) {
     logAgentParsed(plannerResult.childSessionId, { error: "Failed to parse JSON", raw: plannerResult.text })
-    throw new Error("----- Scene Planner Create did not return valid JSON -----")
+    agentThrow(AGENT_NAME, plannerResult.childSessionId, "Scene Planner Create did not return valid JSON")
   }
   // planner 可能直接返回 layout_planner，也可能返回裸对象（agent prompt 输出 {layout_planner:{...}}）
   const layoutPlanner: ScenePlanner = (plannerJson.layout_planner ?? plannerJson) as ScenePlanner

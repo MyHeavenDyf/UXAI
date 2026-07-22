@@ -2,51 +2,99 @@ import { createRoot, createEffect } from "solid-js"
 
 // 从 AI 返回的字符串中提取 JSON
 export function extractJson(text: string) {
-  // 1. 边界防守
-  if (!text || !text.trim()) return null;
+  // ==========================================
+  // 1. 边界防守与初步清洗
+  // ==========================================
+  if (!text || typeof text !== 'string' || !text.trim()) return null;
 
   let cleanText = text;
 
-  // 2. 移除大模型的思维链（如 DeepSeek 的 <think>...</think>）
+  // 如果字符串两头带着外层包裹的双引号（常见于从某些 API 直接读取的 Raw 字符串），先剥离
+  if (cleanText.startsWith('"') && cleanText.endsWith('"')) {
+    cleanText = cleanText.slice(1, -1);
+  }
+
+  // 清洗不可见字符
+  cleanText = cleanText.replace(/[  ᠎ -     　]/g, " ");
+
+  // ==========================================
+  // 2. 移除大模型的思维链
+  // ==========================================
   if (cleanText.includes('</think>')) {
     const thinkEndIndex = cleanText.indexOf('</think>') + '</think>'.length;
-    const realJsonStart = cleanText.indexOf('{', thinkEndIndex);
-    
-    if (realJsonStart !== -1) {
+    const realJsonStart = cleanText.search(/[\{\[]/);
+    if (realJsonStart !== -1 && realJsonStart > thinkEndIndex) {
       cleanText = cleanText.slice(realJsonStart);
     } else {
-      return null;
+      cleanText = cleanText.slice(thinkEndIndex);
     }
   }
 
+  // ==========================================
+  // 🛠️ 核心补丁：局部破坏性双引号修复器
+  // ==========================================
+  // 它的原理是匹配 ` : " [内容] " , ` 或 ` : " [内容] " } `
+  // 从而精准锁定 Value 内部。然后将内部未转义的双引号替换为中文双引号
+  const repairInvalidQuotes = (jsonStr: string) => {
+    return jsonStr.replace(/(:\s*")([\s\S]*?)("\s*[,}])/g, (match, p1, p2, p3) => {
+      // 将值内部那些由于大模型粗心导致的裸双引号，替换为中文双引号
+      const repairedP2 = p2.replace(/"/g, '“');
+      return p1 + repairedP2 + p3;
+    });
+  };
+
+  // ==========================================
+  // 3. 优先匹配 Markdown 代码块
+  // ==========================================
   try {
-    // 3. 优先匹配 Markdown 代码块
-    let match = cleanText.match(/```(?:json)?\s*([\s\S]*?)\n?```/); // 这里顺便去掉了 \n 的强限制，更稳健
+    const match = cleanText.match(/```(?:json)?\s*([\s\S]*?)\n?```/);
     let raw = match ? match[1] : cleanText;
-    let parsed = JSON.parse(raw.trim());
-    
-    console.log(parsed, 'parsed');
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    // 4. 绝地求生（升级版：放在这里，专门对付多套 JSON 和夹带废话的情况）
-    let end = cleanText.lastIndexOf("}");
+    raw = raw.trim();
+
+    try {
+      // 尝试直接正常解析
+      return JSON.parse(raw);
+    } catch (primaryErr) {
+      // 💥 第一次抢救：如果是常规匹配成功但解析报错，极大概率是内部双引号冲突，尝试修复它
+      const repairedRaw = repairInvalidQuotes(raw);
+      return JSON.parse(repairedRaw);
+    }
+  } catch (err) {
+    // ==========================================
+    // 4. 绝地求生（无需次数限制的无损全拉满版）
+    // ==========================================
+    const lastIdxOfBrace = cleanText.lastIndexOf("}");
+    const lastIdxOfBracket = cleanText.lastIndexOf("]");
+
+    const endChar = lastIdxOfBracket > lastIdxOfBrace ? "]" : "}";
+    const startChar = endChar === "]" ? "[" : "{";
+
+    let end = cleanText.lastIndexOf(endChar);
     if (end === -1) return null;
 
-    // 从最后一个 } 开始往前找 {
-    let start = cleanText.lastIndexOf("{", end); 
+    let start = cleanText.lastIndexOf(startChar, end);
+    let lastStart = -1; // 用来记录上一次的指针，防止死循环
 
-    // 循环向上探测，直到成功解析出最完整的 JSON 对象
-    while (start !== -1) {
+    while (start !== -1 && start !== lastStart) {
+      lastStart = start;
       try {
-        let rawjson = cleanText.substring(start, end + 1);
-        let parsed = JSON.parse(rawjson.trim());
-        if (parsed && typeof parsed === "object") {
-          console.log(parsed, 'parsed from recovery');
-          return parsed; // 🎉 在这里成功抢救出最后一套正确的 JSON！
+        let rawjson = cleanText.substring(start, end + 1).trim();
+
+        try {
+          // 盲猜解析
+          const parsed = JSON.parse(rawjson);
+          if (parsed && typeof parsed === "object") return parsed;
+        } catch {
+          // 💥 第二次抢救：如果截取片段无法解析，强行洗一遍内部的恶性双引号再试
+          const repairedRawJson = repairInvalidQuotes(rawjson);
+          const parsed = JSON.parse(repairedRawJson);
+          if (parsed && typeof parsed === "object") {
+            return parsed; // 🎉 成功强行抢救！
+          }
         }
       } catch {
-        // 如果失败了，说明找的 { 还在 JSON 内部，继续往左边（外面）找更靠前的 {
-        start = cleanText.lastIndexOf("{", start - 1);
+        // 核心优化：直接找上一个起始符，只要指针在往前走，就允许它一直找，直到文本开头
+        start = cleanText.lastIndexOf(startChar, start - 1);
       }
     }
 

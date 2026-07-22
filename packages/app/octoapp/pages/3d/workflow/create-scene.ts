@@ -30,6 +30,8 @@ export type SceneCreateInput = {
   extra?: Record<string, unknown>
   // 子 session 创建回调
   onSessionCreated?: (childSessionID: string) => void
+  // 文件附件（图片等，传给 agent 的 prompt parts）
+  fileParts?: { type: "file"; mime: string; filename: string; url: string }[]
 }
 
 const historyDir = (sdk: any) => `${sdk.directory}/.octo/design-3d/history`

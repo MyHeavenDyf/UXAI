@@ -1,6 +1,8 @@
 import { extractJson } from "../../utils/json-parser"
 import { runChildSession } from "../run-child-session"
 import { logAgentParsed } from "../../utils/debug-log"
+import { SCENE_TRIAGE_FORMAT } from "./schema"
+import { agentThrow } from "../../utils/error-msg"
 
 const AGENT_NAME = "scene_3d_triage"
 
@@ -22,14 +24,23 @@ export interface TriageModifyItem {
   action: string
 }
 
+export interface TriageDeleteItem {
+  element_id: string
+  action: string
+}
+
+export interface TriageAddItem {
+  action: string
+}
+
 export interface TriageResult {
   routing: "regenerate" | "modify" | "chat"
-  delete: string[]
-  add: string[]
+  delete: TriageDeleteItem[]
+  add: TriageAddItem[]
   modify: TriageModifyItem[]
   reply: string
-  updated_intent: Record<string, unknown>
   reason: string
+  attachment_description: string | null
 }
 
 export default async function scene_3d_triage(ctx: TriageInputContext): Promise<TriageResult> {
@@ -47,25 +58,31 @@ export default async function scene_3d_triage(ctx: TriageInputContext): Promise<
     prompt: humanMessage,
     directory: sdk.directory,
     parentSessionID: rootSession,
+    schema: SCENE_TRIAGE_FORMAT.schema,
   })
   console.log("----- 3D 场景分诊Agent运行结束，耗时：", (Date.now() - startTime) / 1000, "s -----")
   const triageJson = extractJson(triageRes.text)
   if (!triageJson) {
     logAgentParsed(triageRes.childSessionId, { error: "Failed to parse JSON", raw: triageRes.text })
-    throw new Error("----- Scene Triage did not return valid JSON -----")
+    agentThrow(AGENT_NAME, triageRes.childSessionId, "Scene Triage did not return valid JSON")
   }
   const returnValue: TriageResult = {
     routing: (triageJson.routing as "regenerate" | "modify" | "chat") ?? "regenerate",
-    delete: (triageJson.delete as string[]) ?? [],
-    add: (triageJson.add as string[]) ?? [],
+    delete: ((triageJson.delete as TriageDeleteItem[]) ?? []).map((d) => ({
+      element_id: d.element_id ?? "",
+      action: d.action ?? "",
+    })),
+    add: ((triageJson.add as TriageAddItem[]) ?? []).map((a) => ({
+      action: a.action ?? "",
+    })),
     modify: ((triageJson.modify as TriageModifyItem[]) ?? []).map((m) => ({
       section_id: m.section_id ?? "",
       element_id: m.element_id ?? "",
       action: m.action ?? "",
     })),
     reply: (triageJson.reply as string) ?? "",
-    updated_intent: (triageJson.updated_intent as Record<string, unknown>) ?? {},
     reason: (triageJson.reason as string) ?? "",
+    attachment_description: normalizeAttachmentDesc(triageJson.attachment_description),
   }
   logAgentParsed(triageRes.childSessionId, returnValue)
   return returnValue
@@ -80,4 +97,12 @@ function buildHumanMessage(userInput: string, lastPlanner: any, lastSceneObjects
     `[当前的每个分区物体结构]: ${JSON.stringify(lastSceneObjects)}`,
     ``,
   ].join("\n")
+}
+
+function normalizeAttachmentDesc(v: unknown): string | null {
+  if (v === null || v === undefined) return null
+  if (typeof v !== "string") return null
+  const t = v.trim()
+  if (!t || t === "null" || t === "无" || t === "无图片" || t === "无图像" || t === "N/A") return null
+  return t
 }

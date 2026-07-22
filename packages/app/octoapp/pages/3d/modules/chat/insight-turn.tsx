@@ -134,6 +134,7 @@ export function InsightTurn(props: {
   messageID: string
   status: SessionStatus
   pipelineBusy: boolean
+  errorCallId?: string
 }): JSX.Element {
   const data = useData()
   const partStore = data.store.part as Record<string, { type: string; text?: string }[]>
@@ -182,21 +183,30 @@ export function InsightTurn(props: {
 
   const customCardLabel = createMemo(() => {
     const text = userText()
-    if (text.endsWith("请分析用户需求中尚未明确的维度，输出缺失维度的选项清单。")) return "分析用户需求"
-    if (text.endsWith("请开始意图扩展。")) return "意图扩展"
+    if (text.endsWith("请分析用户需求中尚未明确的维度，输出缺失维度的选项清单。")) return "需求确认"
+    if (text.endsWith("请开始意图扩展。")) return "功能完善"
     if (text.startsWith("请根据以下页面蓝图，设计外壳布局并指定下一步细化模块：")) return "布局规划"
-    if (text.startsWith("请为以下模块生成 A2UI JSON：")) return "模块生成"
+    if (text.startsWith("请为以下模块生成 A2UI JSON：")) return "区域生成"
     if (text.startsWith("请根据以下内容，修改外壳布局并指定下一步细化模块")) return "细化模块"
     if (text.startsWith("[顶层布局和Slots]:")) return "更新页面"
+    if (text.startsWith("[用户修改请求]: ")) return "思考分析"
+    if (text.includes("[分诊操作列表]:")) return "修改"
     return null
   })
 
   const showUserInput = createMemo(() =>
-    userText().endsWith("请分析用户需求中尚未明确的维度，输出缺失维度的选项清单。")
-    || userText().startsWith("[用户修改请求]:")
+    userText().startsWith("[用户修改请求]:")
   )
 
-  // 提取 reasoning 内容
+  // 用户输入卡片展示的精简文本：从完整 prompt 中提取用户实际输入部分
+  const userInputDisplay = createMemo(() => {
+    const text = userText()
+    // 修改/分诊: "[用户修改请求]: {用户输入}\n\n[当前..." 或 "[用户修改请求]: ===\n{用户输入}\n\n[JSON..."
+    const m = text.match(/^\[用户修改请求\]:\s*(?:=+\s*\n)?([\s\S]*?)\n+\[/)
+    return m?.[1]?.trim() ?? text
+  })
+
+  // 提取 reasoning 内容（包括 DeepSeek 的 <think> 标签）
   const reasoningTexts = createMemo(() => {
     const parts = assistantParts()
     const texts: string[] = []
@@ -208,6 +218,14 @@ export function InsightTurn(props: {
         const state = (p as Record<string, unknown>).state as Record<string, unknown> | undefined
         const reasoning = state?.reasoning as string | undefined
         if (reasoning) texts.push(reasoning)
+      }
+      // DeepSeek 等模型将思考过程放在 text 部分的 <think> 标签中
+      if (p.type === "text" && (p as { text?: string }).text) {
+        const raw = (p as { text: string }).text
+        const thinkMatches = raw.matchAll(/<think>([\s\S]*?)(<\/think>|$)/g)
+        for (const m of thinkMatches) {
+          if (m[1]?.trim()) texts.push(m[1])
+        }
       }
     }
     return texts
@@ -241,23 +259,29 @@ export function InsightTurn(props: {
           input: input ?? undefined,
           output: hasOutput ? (state.output as string) : undefined,
           filePath: filePath || undefined,
+          error: isError ? stateError : undefined,
         }
       })
   })
 
-  const hasError = createMemo(() => toolCalls().some((c) => c.status === "error"))
+  const hasError = createMemo(() =>
+    toolCalls().some((c) => c.status === "error") ||
+    (!!props.errorCallId && props.errorCallId === props.sessionID),
+  )
   const fileOpsEntries = createMemo(() => deriveFileOps(toolCalls()))
 
-  // ── NEW: prose text (stripped of artifacts) ──
+  // ── NEW: prose text (stripped of artifacts and <think> tags) ──
   const proseText = createMemo(() => {
     const parts = assistantParts()
     const textPart = [...parts]
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
     if (!textPart?.text) return ""
+    // 去除 DeepSeek 等模型的 <think> 标签内容
+    const cleanText = textPart.text.replace(/<think>[\s\S]*?(<\/think>|$)/g, "")
     const parser = createArtifactParser()
     let prose = ""
-    for (const ev of parser.feed(textPart.text)) {
+    for (const ev of parser.feed(cleanText)) {
       if (ev.type === "text") prose += ev.delta
     }
     const trimmed = prose.trim()
@@ -276,9 +300,10 @@ export function InsightTurn(props: {
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
     if (!textPart?.text) return false
+    const cleanText = textPart.text.replace(/<think>[\s\S]*?(<\/think>|$)/g, "")
     const parser = createArtifactParser()
     let prose = ""
-    for (const ev of parser.feed(textPart.text)) {
+    for (const ev of parser.feed(cleanText)) {
       if (ev.type === "text") prose += ev.delta
     }
     return prose.trim().startsWith("{") || prose.trim().startsWith("[")
@@ -461,61 +486,55 @@ export function InsightTurn(props: {
   return (
     <div class="flex flex-col insight-turn-root">
       <Show when={showUserInput()}>
-        <UserInputCard text={userText()} />
+        <UserInputCard text={userInputDisplay()} />
       </Show>
 
       {/* 自定义标签卡片 */}
       <Show when={customCardLabel()}>
         {(label) => (
-              <div
-              class="mx-3 mb-1 captured-card-btn"
-              classList={{
-                generating: assistantGenerating(),
-                error: !assistantGenerating() && hasError(),
-              }}
+          <div
+            class="mx-3 mb-1 captured-card-btn"
+            classList={{
+              generating: assistantGenerating() && !hasError(),
+              error: hasError(),
+            }}
+          >
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setContentCollapsed((p) => !p)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setContentCollapsed((p) => !p) } }}
+              class="flex items-center gap-3 cursor-pointer select-none justify-between"
             >
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => setContentCollapsed((p) => !p)}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setContentCollapsed((p) => !p) } }}
-                class="flex items-center gap-3 cursor-pointer select-none justify-between"
-              >
-                <div class="flex items-center gap-1 min-w-0">
-                  <div class="flex flex-col min-w-0">
-                    <span class="truncate title">{label()}</span>
-                  </div>
-                  <span class="flex-shrink-0 flex items-center justify-center size-6 rounded-md hover:bg-black/5 transition-colors">
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 16 16"
-                      fill="none"
-                      class="transition-transform"
-                      style={{ transform: contentCollapsed() ? "rotate(-90deg)" : "rotate(90deg)" }}
-                    >
-                      <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                  </span>
+              <div class="flex items-center gap-1 min-w-0">
+                <div class="flex flex-col min-w-0">
+                  <span class="truncate title">{label()}</span>
                 </div>
-                <Show when={!assistantGenerating() && hasError()} fallback={
-                  <Show when={assistantGenerating()} fallback={
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" stroke="#2E7D32" stroke-width="2" />
-                      <path d="M8 12L11 15L16 9" stroke="#2E7D32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
-                  }>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="insight-spinner">
-                      <circle cx="12" cy="12" r="10" stroke="#2563EB" stroke-width="3" opacity="0.15" />
-                        <path d="M12 2a10 10 0 0 1 10 10" stroke="#2563EB" stroke-width="3" stroke-linecap="round" />
-                    </svg>
-                  </Show>
+                <span class="flex-shrink-0 flex items-center justify-center size-6 rounded-md hover:bg-black/5 transition-colors">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    class="transition-transform"
+                    style={{ transform: contentCollapsed() ? "rotate(-90deg)" : "rotate(90deg)" }}
+                  >
+                    <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </span>
+              </div>
+              <Show when={hasError()} fallback={
+                <Show when={assistantGenerating()} fallback={
+                  <span class="gc-done-badge">完成</span>
                 }>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="#D32F2F" stroke-width="2" />
-                    <path d="M9 9L15 15M15 9L9 15" stroke="#D32F2F" stroke-width="2" stroke-linecap="round" />
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="insight-spinner">
+                    <circle cx="12" cy="12" r="10" stroke="#2563EB" stroke-width="3" opacity="0.15" />
+                    <path d="M12 2a10 10 0 0 1 10 10" stroke="#2563EB" stroke-width="3" stroke-linecap="round" />
                   </svg>
                 </Show>
+              }>
+                <span class="gc-error-badge">错误</span>
+              </Show>
             </div>
           </div>
         )}
@@ -534,7 +553,7 @@ export function InsightTurn(props: {
             }}
             class="mx-3 mb-2 px-3 py-2 rounded-md text-xs leading-relaxed overflow-auto reasoning-text"
           >
-            <Show when={assistantGenerating()}>
+            <Show when={assistantGenerating() && !hasError()}>
               <div class="text-[12px] text-[#999] reasoning-text-tip">思考中...</div>
             </Show>
             <For each={reasoningTexts()}>
@@ -562,10 +581,10 @@ export function InsightTurn(props: {
               }}
               class="mx-3 mb-2 px-3 py-2 rounded-md text-xs leading-relaxed overflow-auto prose-text"
             >
-              <Show when={assistantGenerating()}>
+              <Show when={assistantGenerating() && !hasError()}>
                 <div class="text-[12px] text-[#999] reasoning-text-tip">思考中...</div>
               </Show>
-              <Markdown text={proseText()} streaming={assistantGenerating()} />
+              <Markdown text={proseText()} streaming={assistantGenerating() && !hasError()} />
             </div>
           }>
             <pre
@@ -576,9 +595,9 @@ export function InsightTurn(props: {
                 })
               }}
               class="prose-json-pre mx-3 mb-2"
-              classList={{ completed: !assistantGenerating() }}
+              classList={{ completed: !assistantGenerating() || hasError() }}
             >
-              <Show when={assistantGenerating()}>
+              <Show when={assistantGenerating() && !hasError()}>
                 <div class="text-[12px] text-[#999] prose-text-tip">输出中...</div>
               </Show>
               {proseText()}

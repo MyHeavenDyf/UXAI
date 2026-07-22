@@ -2,6 +2,8 @@ import { extractJson } from "../../utils/json-parser"
 import { runChildSession } from "../run-child-session"
 import { logAgentParsed } from "../../utils/debug-log"
 import type { ScenePlanner, SceneSlot } from "../merge"
+import { SCENE_PLANNER_MODIFY_FORMAT } from "./schema"
+import { agentThrow } from "../../utils/error-msg"
 
 const AGENT_NAME = "scene_3d_planner_modify"
 
@@ -41,12 +43,13 @@ export default async function scene_3d_planner_modify(ctx: PlannerModifyContext)
     prompt: humanMessage,
     directory: sdk.directory,
     parentSessionID: rootSession,
+    schema: SCENE_PLANNER_MODIFY_FORMAT.schema,
   })
   console.log("----- 3D 场景规划修改Agent运行结束，耗时：", (Date.now() - startTime) / 1000, "s -----")
   const modifyJson = extractJson(modifyRes.text)
   if (!modifyJson) {
     logAgentParsed(modifyRes.childSessionId, { error: "Failed to parse JSON", raw: modifyRes.text })
-    throw new Error("----- Scene Planner Modify did not return valid JSON -----")
+    agentThrow(AGENT_NAME, modifyRes.childSessionId, "Scene Planner Modify did not return valid JSON")
   }
   // agent 输出 {output:{rootId,elements,slots,camera,lights,scene}, removedSectionIds} 或裸对象
   const raw = modifyJson.output ?? modifyJson

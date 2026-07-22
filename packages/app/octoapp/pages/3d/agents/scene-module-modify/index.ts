@@ -2,6 +2,8 @@ import { extractJson } from "../../utils/json-parser"
 import { runChildSession } from "../run-child-session"
 import { logAgentParsed } from "../../utils/debug-log"
 import type { SceneModuleResult } from "../merge"
+import { SCENE_MODULE_MODIFY_FORMAT } from "./schema"
+import { agentThrow } from "../../utils/error-msg"
 
 const AGENT_NAME = "scene_3d_module_modify"
 
@@ -41,12 +43,13 @@ export default async function scene_3d_module_modify(ctx: ModuleModifyContext): 
     directory: sdk.directory,
     parentSessionID: rootSession,
     extra: ctx.extra,
+    schema: SCENE_MODULE_MODIFY_FORMAT.schema,
   })
   console.log(`----- 3D 分区物体修改Agent运行结束 [${ctx.input.sectionId}]，耗时：`, (Date.now() - startTime) / 1000, "s -----")
   const modifyJson = extractJson(modifyRes.text)
   if (!modifyJson) {
     logAgentParsed(modifyRes.childSessionId, { error: "Failed to parse JSON", raw: modifyRes.text })
-    throw new Error("scene_3d_module_modify did not return valid JSON")
+    agentThrow(AGENT_NAME, modifyRes.childSessionId, "Scene Module Modify did not return valid JSON")
   }
   const returnValue: SceneModuleResult = {
     scene_objects: (modifyJson.scene_objects ?? []) as SceneModuleResult["scene_objects"],

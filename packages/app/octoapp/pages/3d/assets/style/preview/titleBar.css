@@ -309,6 +309,29 @@
   color: #3b82f6;
 }
 
+/* 文本按钮：蓝色胶囊样式（与线框审查页确认按钮一致） */
+.pattern-text-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  background: var(--octo-brand, #0a59f7);
+  color: #ffffff;
+  border: 1px solid var(--octo-brand, #0a59f7);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.pattern-text-btn:hover {
+  background: var(--octo-brand-hover, #094ed6);
+  border-color: var(--octo-brand, #0a59f7);
+}
+.pattern-text-btn:active {
+  transform: scale(0.97);
+}
+
 /* 🛠️ 新增：鼠标悬停（hover）时的浅灰色半透明背景与反馈 */
 .preview-action-icon-btn:hover {
   background-color: rgba(0, 0, 0, 0.05); /* 柔和的浅灰悬浮背景 */

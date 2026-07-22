@@ -76,19 +76,19 @@ export default async function modify_scene_ai(
     ...inputCtx,
     input: {
       intentReason: triage.reason,
-      intentDelete: triage.delete,
-      intentAdd: triage.add,
+      intentDelete: triage.delete.map((d) => `${d.element_id}: ${d.action}`),
+      intentAdd: triage.add.map((a) => a.action),
       intentModify: triage.modify,
-      intentPage: triage.updated_intent,
+      intentPage: lastData.lastIntent,
       layoutPlanner: lastPlanner as unknown as Record<string, unknown>,
     },
   })
   void saveDebugSnapshot(historyD, inputCtx.rootSession, "modify_planner", {
-    lastIntent: triage.updated_intent,
+    lastIntent: lastData.lastIntent,
     lastPlanner: modifyResult.output as unknown as Record<string, unknown>,
   })
 
-  const updatedIntent = { ...triage.updated_intent }
+  const updatedIntent = { ...lastData.lastIntent }
   const newPlanner = modifyResult.output
 
   // ── element_id 重映射（核心健壮性修复）──────────────────────────────────

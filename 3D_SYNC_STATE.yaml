@@ -2,9 +2,9 @@
 # 唯一事实源：记录"上次同步到哪、下次从哪开始"。每次同步后更新。
 # 详见 3D_PAGE_DESIGN.md §4（长期同步机制）。
 
-last_synced_commit: 40177fd038fccc8004b7d77588c34d5a6c8239f2   # 上次同步到的 dev_pattern commit
-last_synced_date: 2026-07-10
-sync_round: 0                                                  # 同步轮次，每次同步 +1
+last_synced_commit: b2ad3c7890b1f412a536f65f5ca12c120eba0f2a   # 上次同步到的 dev_pattern commit
+last_synced_date: 2026-07-22
+sync_round: 3                                                  # 同步轮次，每次同步 +1
 
 # 已确认的迁移性映射（pattern 文件 → 3D 处理策略），跨轮次累积，避免每次重新评估
 # transferability: common(✅套用) | skip(❌2D专属) | partial(⚠️借流程换语义)
@@ -55,6 +55,139 @@ file_mapping:
   pages/pattern/agents/:
     transferability: partial
     notes: "agent 结构借，意图/规划/生成换成 3D 版本（场景规划/物体生成/合并）"
+  # ── 以下为 #3 同步新增映射 ──
+  pages/pattern/agents/run-child-session.ts:
+    target: pages/3d/agents/run-child-session.ts
+    transferability: common
+    notes: "共享基础设施，schema/fileParts/error/tagError/重试UX 全部通用"
+  pages/pattern/agents/proto-replanner/:
+    target: pages/3d/agents/scene-replanner/
+    transferability: partial
+    notes: "借骨架；A2UI I/O 换 ScenePlanner（3D 暂无此 agent，留待后续）"
+  pages/pattern/agents/proto-modify/:
+    transferability: skip
+    notes: "patch-based modify，3D 已选 full-replace 范式"
+  pages/pattern/agents/proto_pattern_block/:
+    transferability: skip
+    notes: "2D 模板匹配系统，3D 无模板库"
+  pages/pattern/agents/proto_pattern_page/:
+    transferability: skip
+    notes: "2D 模板匹配系统，3D 无模板库"
+  pages/pattern/agents/proto_wireframes/:
+    transferability: skip
+    notes: "schema 与逻辑不匹配的开发中间态"
+  pages/pattern/modules/chat/generation-card.tsx:
+    target: pages/3d/modules/chat/generation-card.tsx
+    transferability: common
+    notes: "通用 error/retry 显示"
+  pages/pattern/modules/chat/insight-turn.tsx:
+    target: pages/3d/modules/chat/insight-turn.tsx
+    transferability: common
+    notes: "通用卡片标签/DeepSeek think/error badge"
+  pages/pattern/modules/chat/intent-confirm-card.tsx:
+    target: pages/3d/modules/chat/intent-confirm-card.tsx
+    transferability: common
+    notes: "纯数据驱动两步卡片，领域无关"
+  pages/pattern/modules/chat/tool-call-card.tsx:
+    target: pages/3d/modules/chat/tool-call-card.tsx
+    transferability: common
+    notes: "ToolCallInfo 增加 error 字段"
+  pages/pattern/modules/chat/turn-duration.tsx:
+    target: pages/3d/modules/chat/turn-duration.tsx
+    transferability: common
+    notes: "计时器逻辑修复"
+  pages/pattern/modules/chat/attachment-bar.tsx:
+    target: pages/3d/modules/chat/attachment-bar.tsx
+    transferability: common
+    notes: "图标更换"
+  pages/pattern/modules/chat/chart-input.tsx:
+    target: pages/3d/modules/chat/chart-input.tsx
+    transferability: common
+    notes: "文件上传按钮启用 + DesignSystemPicker 重排"
+  pages/pattern/modules/preview/pattern-generating.tsx:
+    target: pages/3d/modules/preview/SceneGenerating.tsx
+    transferability: common
+    notes: "加载动画+注释更新"
+  pages/pattern/modules/icons/index.tsx:
+    target: pages/3d/modules/icons/index.tsx
+    transferability: common
+    notes: "SVG 图标"
+  pages/pattern/modules/sidebar/sidebar.tsx:
+    target: pages/3d/modules/sidebar/sidebar.tsx
+    transferability: partial
+    notes: "布局复用；导入按钮去掉；技能库按钮需 3D 路由适配"
+  pages/pattern/modules/preview/annotation-module.ts:
+    transferability: skip
+    notes: "2D DOM 注解，需完全重写"
+  pages/pattern/modules/preview/annotation-popup.tsx:
+    transferability: partial
+    notes: "弹窗 UI 可复用；2D 锚定模型须换 3D 屏幕投影（3D 暂无注解功能）"
+  pages/pattern/utils/schema-validator.ts:
+    target: pages/3d/utils/schema-validator.ts
+    transferability: common
+    notes: "Ajv JSON Schema 校验封装，完全通用"
+  pages/pattern/utils/json-parser.ts:
+    target: pages/3d/utils/json-parser.ts
+    transferability: common
+    notes: "extractJson 增强：引号修复/空白清理/数组支持/无限循环防护"
+  pages/pattern/utils/round-messages.ts:
+    target: pages/3d/utils/round-messages.ts
+    transferability: common
+    notes: "Round 接口增加 errorAgent/errorCallId"
+  pages/pattern/utils/error-msg.ts:
+    target: pages/3d/utils/error-msg.ts
+    transferability: partial
+    notes: "AgentError/agentThrow/withAgentError 通用；AGENT_LABELS 需 3D 条目"
+  pages/pattern/utils/pattern-resource.ts:
+    transferability: skip
+    notes: "2D 模板索引，3D 用不同资源模型"
+  pages/pattern/utils/annotation-persist.ts:
+    transferability: partial
+    notes: "双模持久化模式可复用；3D 暂无注解功能"
+  pages/pattern/utils/patch-json.ts:
+    target: pages/3d/utils/scene-patch.ts
+    transferability: partial
+    notes: "patch 引擎通用；children→parentId 语义替换（3D 暂未迁移，留待后续）"
+  pages/pattern/checkpoint/checkpoint.ts:
+    target: pages/3d/utils/scene-checkpoint.ts
+    transferability: partial
+    notes: "统一单文件 checkpoint 架构；stage 名+payload 字段换 3D 语义"
+  pages/pattern/checkpoint/session-restore.ts:
+    target: pages/3d/utils/scene-checkpoint.ts（内联）
+    transferability: partial
+    notes: "restore-dispatch 模式复用；stage 名换 3D"
+  pages/pattern/workflow/modify-json-ai.ts:
+    target: pages/3d/workflow/modify-scene-ai.ts
+    transferability: partial
+    notes: "架构转向单 agent modify；需建 scene_modify agent（留待后续）"
+  pages/pattern/workflow/modify-json-quick.ts:
+    transferability: skip
+    notes: "2D 元素属性编辑，3D 无对应"
+  # 已删除的文件（pattern 侧已删除，3D 侧如无对应也可删或留作归档）
+  pages/pattern/modules/preview/Intent-confirm-review.tsx:
+    transferability: skip
+    notes: "已删除，被 IntentConfirmCard 替代"
+  pages/pattern/modules/preview/pattern-match-page.tsx:
+    transferability: skip
+    notes: "已删除"
+  pages/pattern/modules/preview/scaled-frame.tsx:
+    transferability: skip
+    notes: "已删除，CSS 缩放"
+  pages/pattern/modules/preview/template-card-stack.tsx:
+    transferability: skip
+    notes: "已删除"
+  pages/pattern/modules/preview/wireframe-review.tsx:
+    transferability: skip
+    notes: "已删除"
+  pages/pattern/modules/preview/wireframe-tree.tsx:
+    transferability: skip
+    notes: "已删除"
+  pages/pattern/utils/intent-checkpoint.ts:
+    transferability: skip
+    notes: "已删除，被统一 checkpoint 替代"
+  pages/pattern/utils/review-checkpoint.ts:
+    transferability: skip
+    notes: "已删除，被统一 checkpoint 替代"
 
 # 永久跳过清单（这些 pattern 文件永不迁移，避免每次评估）
 always_skip:
@@ -62,21 +195,37 @@ always_skip:
   - "pages/pattern/**/drag-bridge*"       # 拖拽重排序，2D+DOM 专属
   - "pages/pattern/**/*device-switch*"    # 设备切换（手机/平板），3D 无此概念
   - "pages/pattern/**/*design-system*"    # 设计系统选择器，2D 专属
+  - "pages/pattern/agents/proto-modify*"  # patch-based modify，3D 选 full-replace
+  - "pages/pattern/agents/proto_pattern_*" # 2D 模板匹配系统
+  - "pages/pattern/agents/proto_wireframes*" # 开发中间态
 
 # 同步历史（最近 5 轮摘要，详情见 git log --grep='3D-SYNC'）
 history:
   - { round: 0, date: 2026-07-10, commit: 40177fd03, files: 0, note: "初始基线，未同步" }
-  - { round: 1, date: 2026-07-13, commit: 40177fd03, files: 30+, note: "阶段2 落地：克隆 pattern 对话流（agents/workflow/utils/chat/preview）+ 后端注册 8 个 scene_3d_* agent。非同步迁移，是原创实现，故 last_synced_commit 未推进" }
-  - { round: 2, date: 2026-07-14, commit: 40177fd03, files: 5, note: "阶段2 端到端验证+修bug：生成/审查/渲染闭环通过✓；修了 merge 旧物体丢弃、3D 侧栏 Scene3DSidebar、chart-input 高度、sendToPreview iframe 时序。遗留：修改流加物体后原有物体仍可能消失（merge parentId链归属），见 memory/3d-modify-objects-lost.md，已落盘待验证" }
+  - { round: 1, date: 2026-07-13, commit: 40177fd03, files: 30+, note: "阶段2 落地：克隆 pattern 对话流+后端注册 scene_3d_* agent。非同步迁移，游标未推进" }
+  - { round: 2, date: 2026-07-14, commit: 40177fd03, files: 5, note: "阶段2 端到端验证+修bug。游标未推进" }
+  - { round: 3, date: 2026-07-22, commit: b2ad3c789, files: 43, note: "首次正式同步：基础设施层(schema-validator/error-msg/json-parser/round-messages)+run-child-session增强+8个agent加schema.ts+agentThrow+Chat UI(generation-card/insight-turn/intent-confirm-card/tool-call-card/turn-duration/chart-input/attachment-bar)+CSS+Preview(title-bar/sidebar)+统一Checkpoint重写+index.tsx(ProtoError/retry/attachment/triage/halt)" }
 
 # 遗留问题（未解决，下次会话优先确认）
 known_issues:
   - id: modify-flow-correctness
     status: 阶段4已系统修复（代码落地+typecheck过），待运行时验证
     files:
-      - packages/app/octoapp/pages/3d/workflow/modify-scene-ai.ts   # element_id 重映射 + findPrevModuleObjects 收集整棵子树
-      - packages/app/octoapp/pages/3d/agents/merge.ts               # modify 分区 REPLACE（只保留 none 分区）+ 诊断
-      - packages/app/octoapp/pages/3d/modules/preview/index.tsx     # onPatch 回调
-      - packages/app/octoapp/pages/3d/index.tsx                     # handleScenePatch 回写 lastSceneObjects + 防抖落盘
-    desc: "修改流三簇症状：①加物体丢原有 ②删单个物体删不掉（删整分区OK）③手动编辑复位/恢复编辑前。根因A：modify 分区 merge 原 UNION 但 module_modify 按契约返回完整分区→应 REPLACE（改了）；element_id 漂移致 none 分区旧物误丢（重映射修）。根因B：手动 patch 不回写 lastSceneObjects/磁盘（onPatch+防抖落盘修）。"
-    verify: "加球→加树→加长桌 sendToPreview 单调增；删单棵树 merge log merged 下降；挪树→删另一棵树被挪树位置保留；挪球切走切回在新位置"
+      - packages/app/octoapp/pages/3d/workflow/modify-scene-ai.ts
+      - packages/app/octoapp/pages/3d/agents/merge.ts
+      - packages/app/octoapp/pages/3d/modules/preview/index.tsx
+      - packages/app/octoapp/pages/3d/index.tsx
+    desc: "修改流三簇症状：①加物体丢原有 ②删单个物体删不掉 ③手动编辑复位。根因修改分区 merge 须 REPLACE + element_id 重映射 + 手动 patch 回写。"
+    verify: "加球→加树→加长桌 sendToPreview 单调增；删单棵树；挪树→删另一棵树被挪树位置保留；挪球切走切回在新位置"
+  - id: scene-replanner-agent
+    status: 待创建
+    files: []
+    desc: "pattern 侧新增 proto-replanner，3D 需对应 scene-replanner（重新规划完整场景布局）。骨架借自 proto-replanner，I/O 换 ScenePlanner。"
+  - id: scene-modify-single-agent
+    status: 待评估
+    files: []
+    desc: "pattern 侧 modify-json-ai 已从多步拆分改为单 agent(proto-modify)一步完成。3D 是否跟进需评估：当前 modify-scene-ai 仍有 3D 特有逻辑（element_id 重映射、mergeSceneObjects）。"
+  - id: patch-json-3d
+    status: 待迁移
+    files: []
+    desc: "pattern 新增 patch-json.ts（8 种 JSON patch 操作）。3D 版需将 children 语义替换为 parentId 语义。暂未迁移。"

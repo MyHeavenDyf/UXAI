@@ -1,6 +1,7 @@
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
+import { DesignSystemPicker } from "./design-system-picker"
 import { useLocal } from "@/context/local"
 import type { JSX } from "solid-js"
 import "../../assets/style/chat/chart_input.css"
@@ -38,6 +39,12 @@ export type ChartInputProps = {
   maxAttachments: boolean
   /** 文件选择回调 */
   onFileChange: (e: Event) => void
+  /** 当前选中的设计系统 */
+  selectedDesignSystem: string
+  /** 设计系统选择变化回调 */
+  onSelectDesignSystem: (v: string) => void
+  /** 首次发送对话后锁定设计系统选择 */
+  designSystemLocked?: boolean
   /** 模型选择器状态（来自 useLocal().model） */
   model: ModelState
   /** 模型选择关闭回调 */
@@ -77,15 +84,20 @@ export function ChartInput(props: ChartInputProps): JSX.Element {
             accept="*/*"
             onChange={props.onFileChange}
           />
-          {/* <button
+          <button
             type="button"
             onClick={() => { if (!props.maxAttachments) fileInputRef.click() }}
             disabled={props.maxAttachments}
-            class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
-            title={props.maxAttachments ? "最多 5 个文件" : "添加附件"}
+            class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors bg-transparent hover:bg-[#e8e8e8] active:bg-[#dedede] text-gray-800 hover:text-black disabled:text-gray-400"
+            title={props.maxAttachments ? "最多 5 个文件" : "上传附件"}
           >
             <Icon name="plus" class="size-5" />
-          </button> */}
+          </button>
+          <DesignSystemPicker
+            selected={props.selectedDesignSystem}
+            onSelect={props.onSelectDesignSystem}
+            disabled={props.designSystemLocked}
+          />
           <ModelSelectorPopover
             model={props.model}
             triggerAs="button"

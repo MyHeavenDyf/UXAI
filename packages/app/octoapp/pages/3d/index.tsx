@@ -54,9 +54,12 @@ import {
   saveIntentConfirmCheckpoint,
   loadIntentConfirmCheckpoint,
   clearIntentConfirmCheckpoint,
+  loadSceneCheckpoint,
+  clearSceneCheckpoint,
+  type SceneCheckpoint,
 } from "./utils/scene-checkpoint"
 import { logStartSession, clearDebugLog, saveDebugSnapshot } from "./utils/debug-log"
-import { classifyAIError, saveProtoError, loadProtoError, clearProtoError } from "./utils/error-msg"
+import { classifyAIError, saveProtoError, loadProtoError, clearProtoError, type ProtoError } from "./utils/error-msg"
 import { autoRenameSession } from "./utils/rename"
 import { groupRounds } from "./utils/round-messages"
 import type { SceneConfig, SceneConfigObject3D, ScenePatch } from "./utils/scene-config"
@@ -67,6 +70,7 @@ import { SceneGenerating } from "./modules/preview/SceneGenerating"
 import { IntentConfirmReview, type IntentConfirmAnswers } from "./modules/preview/IntentConfirmReview"
 import type { IntentConfirmResult } from "./agents/scene-intent-confirm"
 import { ChatPanel } from "./modules/chat/index"
+import scene_3d_triage from "./agents/scene-triage"
 import { tracker } from "@/utils/tracker"
 import * as sessionMap from "./utils/session-map"
 import "./assets/style/pattern-tokens.css"
@@ -77,13 +81,13 @@ const AGENT_NAME = "scene_3d_triage"
 const PREVIEW_SRC = import.meta.env.VITE_3D_PREVIEW_URL ?? "http://127.0.0.1:5173/embed"
 
 /** 空场景占位：会话无已保存场景（生成未完成/失败，或历史记录缺失）时显示，避免空白无 iframe 的困惑。 */
-function SceneEmptyState(props: { error?: string }) {
+function SceneEmptyState(props: { error?: ProtoError }) {
   return (
     <div class="relative h-full w-full overflow-hidden bg-[#1a1a2e] flex flex-col items-center justify-center text-center px-6">
       <div class="text-white/50 text-base">此会话暂无 3D 场景</div>
       <div class="text-white/30 text-xs mt-2 max-w-[320px] leading-relaxed">
         {props.error
-          ? `上次生成失败：${props.error}。可在左侧重新输入需求生成。`
+          ? `上次生成失败：${props.error.agentLabel ? props.error.agentLabel + ' — ' : ''}${props.error.title}。可在左侧重新输入需求生成。`
           : "场景生成未完成或未保存。可在左侧输入需求重新生成。"}
       </div>
     </div>
@@ -158,7 +162,7 @@ function Scene3DContent() {
   const sending = () => !!params.id && sendingSids().has(params.id)
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
-  const [sessionErrors, setSessionErrors] = createSignal<Record<string, string>>({})
+  const [sessionErrors, setSessionErrors] = createSignal<Record<string, ProtoError>>({})
   const [pauseMs, setPauseMs] = createSignal<Record<string, number>>({})
   const [pauseStart, setPauseStart] = createSignal<Record<string, number | undefined>>({})
 
@@ -313,8 +317,8 @@ function Scene3DContent() {
             setSessionSynced(true)
             const errDir = sceneHistoryDir()
             if (errDir) {
-              void loadProtoError(errDir, id).then((errTitle) => {
-                if (errTitle && params.id === id) setSessionErrors(prev => ({ ...prev, [id]: errTitle }))
+              void loadProtoError(errDir, id).then((protoErr) => {
+                if (protoErr && params.id === id) setSessionErrors(prev => ({ ...prev, [id]: protoErr }))
               })
             }
           })
@@ -324,25 +328,26 @@ function Scene3DContent() {
           if (dir) {
             void (async () => {
               if (params.id !== id) return
-              // 意图确认检查点
-              const checkpoint = await loadIntentConfirmCheckpoint(dir, id)
+              // 统一检查点恢复（优先 checkpoint.json，回退旧格式）
+              const ckpt = await loadSceneCheckpoint(dir, id)
               if (params.id !== id) return
-              if (checkpoint) {
-                console.log("[3d] 恢复分支: 命中【意图确认检查点】→ 显示意图确认，不挂 3D 预览")
-                sessionMap.set(setUserInput, id, checkpoint.userInput)
-                sessionMap.set(setIntentConfirm, id, { options: checkpoint.options, current_step: "intent_confirm" })
-                return
-              }
-              // 场景规划审查检查点
-              const reviewCkpt = await loadSceneReviewCheckpoint(dir, id)
-              if (params.id !== id) return
-              if (reviewCkpt) {
-                console.log("[3d] 恢复分支: 命中【场景规划审查检查点】→ 显示规划审查，不挂 3D 预览")
-                sessionMap.set(setLastPlanner, id, reviewCkpt.planner)
-                sessionMap.set(setLastIntent, id, reviewCkpt.intentDescription)
-                sessionMap.set(setUserInput, id, reviewCkpt.userInput)
-                sessionMap.set(setIsPlanReview, id, true)
-                return
+              if (ckpt) {
+                if (ckpt.stage === "intent_confirm" && ckpt.options && Object.keys(ckpt.options).length > 0) {
+                  console.log("[3d] 恢复分支: 命中【意图确认检查点】→ 显示意图确认，不挂 3D 预览")
+                  sessionMap.set(setUserInput, id, ckpt.userInput)
+                  sessionMap.set(setIntentConfirm, id, { options: ckpt.options, current_step: "intent_confirm" })
+                  return
+                }
+                if (ckpt.stage === "planner_create" && ckpt.planner) {
+                  console.log("[3d] 恢复分支: 命中【场景规划审查检查点】→ 显示规划审查，不挂 3D 预览")
+                  sessionMap.set(setLastPlanner, id, ckpt.planner)
+                  sessionMap.set(setLastIntent, id, ckpt.intentDescription ?? {})
+                  sessionMap.set(setUserInput, id, ckpt.userInput)
+                  sessionMap.set(setIsPlanReview, id, true)
+                  return
+                }
+                // 其他 stage (intent_create/modules_create) = pipeline 中断，当作错误态
+                console.log("[3d] 恢复分支: 命中【pipeline 中断检查点】stage=", ckpt.stage)
               }
               // 已完成状态
               const state = await loadCurrentSceneState(dir, id)
@@ -417,9 +422,9 @@ function Scene3DContent() {
       (sid) => (sync.data.message[sid] ?? []) as Message[],
       (mid) => sync.data.part[mid] as Array<Record<string, unknown>> | undefined,
     )
-    const error = sessionErrors()[id]
-    if (error && rounds.length > 0) {
-      rounds[rounds.length - 1] = { ...rounds[rounds.length - 1], error }
+    const protoErr = sessionErrors()[id]
+    if (protoErr && rounds.length > 0) {
+      rounds[rounds.length - 1] = { ...rounds[rounds.length - 1], error: protoErr.title, errorAgent: protoErr.agentLabel, errorCallId: protoErr.agentCallId }
     }
     return rounds
   })
@@ -460,10 +465,206 @@ function Scene3DContent() {
     }
     const error = classifyAIError(err)
     if (error.title) {
-      setSessionErrors(prev => ({ ...prev, [sessionId]: error.title }))
+      setSessionErrors(prev => ({ ...prev, [sessionId]: { title: error.title, agentLabel: error.agentLabel, agentCallId: error.agentCallId } }))
       showToast({ title: error.title, description: error.description })
       const errDir = sceneHistoryDir()
-      if (errDir) void saveProtoError(errDir, sessionId, error.title)
+      if (errDir) void saveProtoError(errDir, sessionId, { title: error.title, agentLabel: error.agentLabel, agentCallId: error.agentCallId })
+    }
+  }
+
+  // 重试：从检查点恢复断点续传
+  async function handleRetry() {
+    const sid = params.id
+    if (!sid) return
+    const mk = activeModelKey()
+    if (!mk) return
+    const dir = sceneHistoryDir()
+    if (!dir) return
+
+    // 统一检查点：优先读 checkpoint.json，回退读旧格式
+    const ckpt = await loadSceneCheckpoint(dir, sid)
+
+    if (!ckpt) {
+      // 检查是否有已保存的版本状态可恢复
+      const state = await loadCurrentSceneState(dir, sid)
+      if (!state) {
+        showToast({ title: "无断点记录", description: "未找到可恢复的进度，请重新生成" })
+        return
+      }
+    }
+
+    // 兼容：从统一检查点提取旧格式数据
+    const intentCkpt = ckpt?.stage === "intent_confirm" && ckpt.options ? {
+      options: ckpt.options,
+      userInput: ckpt.userInput,
+      rootSessionId: ckpt.rootSessionId,
+      createdAt: ckpt.createdAt,
+    } : null
+    const reviewCkpt = ckpt?.stage === "planner_create" && ckpt.planner ? {
+      planner: ckpt.planner,
+      intentDescription: ckpt.intentDescription ?? {},
+      userInput: ckpt.userInput,
+      rootSessionId: ckpt.rootSessionId,
+      createdAt: ckpt.createdAt,
+    } : null
+
+    setSessionErrors(prev => { const n = { ...prev }; delete n[sid]; return n })
+    await clearProtoError(dir, sid)
+    setSendingSids(prev => new Set(prev).add(sid))
+
+    const intentCtx: SceneCreateInput = {
+      sdk,
+      sync,
+      modelKey: mk,
+      rootSession: sid,
+      userInput: intentCkpt?.userInput ?? reviewCkpt?.userInput ?? "",
+      onSessionCreated: (childID: string) => {
+        if (params.id !== sid) return
+        setChildSessionIDs(prev => [...prev, childID])
+      },
+    }
+
+    try {
+      if (reviewCkpt) {
+        // 场景规划审查阶段失败：重新从 planner 开始
+        sessionMap.set(setIsGeneratingReview, sid, true)
+        const planner = reviewCkpt.planner
+        const intentDescription = reviewCkpt.intentDescription
+
+        const onFinshed = async ({ sceneIntent, layoutPlanner, modulesJson, sceneConfig, skipped }: any) => {
+          if (skipped?.length) {
+            showToast({ title: `${skipped.length} 个分区生成失败已跳过`, description: `可重新生成或继续对话补齐：${skipped.join("、")}` })
+          }
+          const mergedObjects = (sceneConfig?.objects ?? []) as SceneModuleResult[]
+          const finishedDir = sceneHistoryDir()
+          if (finishedDir) {
+            await updateSceneVersion(finishedDir, sid, {
+              lastSceneObjects: mergedObjects,
+              mergedSceneConfig: sceneConfig,
+            })
+            void saveDebugSnapshot(finishedDir, sid, "modules", {
+              lastIntent: sceneIntent,
+              lastPlanner: layoutPlanner as unknown as Record<string, unknown>,
+              lastSceneObjects: mergedObjects,
+              sceneConfig,
+              summary: intentCtx.userInput.slice(0, 80),
+            })
+            clearDebugLog()
+          }
+          sessionMap.set(setLastIntent, sid, sceneIntent)
+          sessionMap.set(setLastPlanner, sid, layoutPlanner)
+          sessionMap.set(setLastSceneObjects, sid, mergedObjects)
+          sessionMap.set(setIsGeneratingReview, sid, false)
+          sessionMap.set(setIsPlanReview, sid, false)
+          if (params.id === sid && sceneConfig) sendToPreview(sceneConfig as SceneConfig)
+        }
+
+        await clearSceneReviewCheckpoint(dir, sid)
+        await create_modules_json(intentCtx, planner, intentDescription, onFinshed)
+      } else if (intentCkpt) {
+        // 意图确认阶段失败：重新跑意图确认
+        const confirmResult = await create_intent_confirm(intentCtx)
+        void saveDebugSnapshot(sceneHistoryDir(), sid, "intent_confirm")
+        if (Object.keys(confirmResult.options).length > 0) {
+          sessionMap.set(setUserInput, sid, intentCkpt.userInput)
+          sessionMap.set(setIntentConfirm, sid, confirmResult)
+          startPause(sid)
+          const confirmDir = sceneHistoryDir()
+          if (confirmDir) {
+            await saveIntentConfirmCheckpoint(confirmDir, sid, {
+              options: confirmResult.options,
+              userInput: intentCkpt.userInput,
+              rootSessionId: sid,
+              createdAt: Date.now(),
+            })
+          }
+          return
+        }
+
+        // 无需确认，继续走 planner 流程
+        await clearIntentConfirmCheckpoint(dir, sid)
+        if (!sendingSids().has(sid)) return
+        const new_planner = await create_planner_json(intentCtx)
+        sessionMap.set(setIsGenerating, sid, false)
+        const partialDir = sceneHistoryDir()
+        if (partialDir) {
+          const vid = await appendSceneVersion(partialDir, sid, {
+            lastIntent: new_planner.intent.intent_description,
+            lastPlanner: new_planner.planner.layout_planner,
+            lastSceneObjects: [],
+          }, intentCtx.userInput.slice(0, 80))
+          if (params.id === sid) {
+            sessionMap.update(setVersions, sid, prev => [...prev, { id: vid, createdAt: Date.now(), summary: intentCtx.userInput.slice(0, 80) }], [])
+            sessionMap.set(setCurrentVersionId, sid, vid)
+          }
+        }
+        const userDir = sceneHistoryDir()
+        if (userDir) {
+          await saveSceneReviewCheckpoint(userDir, sid, {
+            planner: new_planner.planner.layout_planner,
+            intentDescription: new_planner.intent.intent_description,
+            userInput: intentCtx.userInput,
+            rootSessionId: sid,
+            createdAt: Date.now(),
+          })
+        }
+        if (params.id !== sid) return
+        sessionMap.set(setLastPlanner, sid, new_planner.planner.layout_planner)
+        sessionMap.set(setLastIntent, sid, new_planner.intent.intent_description)
+        sessionMap.set(setIsPlanReview, sid, true)
+        startPause(sid)
+      } else {
+        // 有版本状态但无检查点：从 planner 重试
+        sessionMap.set(setIsGenerating, sid, true)
+        const new_planner = await create_planner_json(intentCtx)
+        void saveDebugSnapshot(dir, sid, "planner")
+        const partialDir = sceneHistoryDir()
+        if (partialDir) {
+          const vid = await appendSceneVersion(partialDir, sid, {
+            lastIntent: new_planner.intent.intent_description,
+            lastPlanner: new_planner.planner.layout_planner,
+            lastSceneObjects: [],
+          }, intentCtx.userInput.slice(0, 80))
+          if (params.id === sid) {
+            sessionMap.update(setVersions, sid, prev => [...prev, { id: vid, createdAt: Date.now(), summary: intentCtx.userInput.slice(0, 80) }], [])
+            sessionMap.set(setCurrentVersionId, sid, vid)
+          }
+        }
+
+        if (params.id !== sid) return
+        sessionMap.set(setLastPlanner, sid, new_planner.planner.layout_planner)
+        sessionMap.set(setLastIntent, sid, new_planner.intent.intent_description)
+
+        // 直接进入 modules_create
+        sessionMap.set(setIsGeneratingReview, sid, true)
+        const retryOnFinished = async ({ sceneIntent, layoutPlanner, modulesJson, sceneConfig, skipped }: any) => {
+          if (skipped?.length) {
+            showToast({ title: `${skipped.length} 个分区生成失败已跳过`, description: `可重新生成或继续对话补齐：${skipped.join("、")}` })
+          }
+          const mergedObjects = (sceneConfig?.objects ?? []) as SceneModuleResult[]
+          const finishedDir = sceneHistoryDir()
+          if (finishedDir) {
+            await updateSceneVersion(finishedDir, sid, {
+              lastSceneObjects: mergedObjects,
+              mergedSceneConfig: sceneConfig,
+            })
+            clearDebugLog()
+          }
+          sessionMap.set(setLastIntent, sid, sceneIntent)
+          sessionMap.set(setLastPlanner, sid, layoutPlanner)
+          sessionMap.set(setLastSceneObjects, sid, mergedObjects)
+          sessionMap.set(setIsGeneratingReview, sid, false)
+          if (params.id === sid && sceneConfig) sendToPreview(sceneConfig as SceneConfig)
+        }
+        await create_modules_json(intentCtx, new_planner.planner.layout_planner, new_planner.intent.intent_description, retryOnFinished)
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message === "aborted") return
+      await handleWorkflowError(err, sid, "handleRetry")
+    } finally {
+      setSendingSids(prev => { const n = new Set(prev); n.delete(sid); return n })
+      sessionMap.set(setIsGenerating, sid, false)
+      sessionMap.set(setIsGeneratingReview, sid, false)
     }
   }
 
@@ -498,7 +699,11 @@ function Scene3DContent() {
         return next
       })
       const startDir = sceneHistoryDir()
-      if (startDir) void clearProtoError(startDir, sid!)
+      if (startDir) {
+        void clearProtoError(startDir, sid!)
+        void clearIntentConfirmCheckpoint(startDir, sid!)
+        void clearSceneReviewCheckpoint(startDir, sid!)
+      }
 
       const intentCtx: SceneCreateInput = {
         sdk,
@@ -510,8 +715,12 @@ function Scene3DContent() {
           if (params.id !== sid) return
           setChildSessionIDs(prev => [...prev, childID])
         },
+        fileParts: attachments().length > 0
+          ? attachments().map(a => ({ type: "file" as const, mime: a.mime, filename: a.filename, url: a.dataUrl }))
+          : undefined,
       }
 
+      setAttachments([])
       logStartSession(sid, text)
 
       const onFinshed = async ({ sceneIntent, layoutPlanner, modulesJson, sceneConfig, skipped }: any) => {
@@ -563,6 +772,27 @@ function Scene3DContent() {
         if (sid) sessionMap.set(setIsModifying, sid, false)
         if ((modifyResult as any)?.reply) showToast({ title: (modifyResult as any).reply })
       } else {
+        // 首次创建：先分诊，判断是否为闲聊
+        if (!sendingSids().has(sid!)) return
+        const triageCtx = {
+          sdk: intentCtx.sdk,
+          sync: intentCtx.sync,
+          modelKey: intentCtx.modelKey,
+          rootSession: intentCtx.rootSession,
+          userInput: intentCtx.userInput,
+          lastIntent: null,
+          lastPlanner: null,
+          lastSceneObjects: [],
+          onSessionCreated: intentCtx.onSessionCreated,
+        }
+        const triage = await scene_3d_triage(triageCtx as any)
+        if (triage.routing === "chat") {
+          return
+        }
+        if (triage.attachment_description) {
+          intentCtx.userInput = `[参考内容]: ${triage.attachment_description}\n[用户需求]: ${text}`
+        }
+
         // 首次创建
         void autoRenameSession({
           sync,
@@ -791,13 +1021,38 @@ function Scene3DContent() {
   function halt() {
     const sid = params.id
     if (!sid) return
+    tracker.interaction({ module: "scene3d", name: "stop-generation" })
+    // abort 根 session
     void sdk.client.session.abort({ sessionID: sid }).catch(() => {})
+    // abort 所有正在运行的子 session
     for (const childID of childSessionIDs()) {
       void sdk.client.session.abort({ sessionID: childID }).catch(() => {})
+    }
+    setSendingSids((prev) => {
+      if (!prev.has(sid)) return prev
+      const next = new Set(prev)
+      next.delete(sid)
+      return next
+    })
+    // 清理该 session 的 workflow 状态
+    sessionMap.set(setIsGenerating, sid, false)
+    sessionMap.set(setIsGeneratingReview, sid, false)
+    sessionMap.set(setIsModifying, sid, false)
+    sessionMap.set(setIntentConfirm, sid, null)
+    // 取消时保留已累计的 pauseMs（扣除暂停时间），只停止实时暂停
+    endPause(sid)
+    setSessionErrors((prev) => { const next = { ...prev }; delete next[sid]; return next })
+    const haltDir = sceneHistoryDir()
+    if (haltDir) {
+      void clearProtoError(haltDir, sid)
+      void clearIntentConfirmCheckpoint(haltDir, sid)
+      void clearSceneReviewCheckpoint(haltDir, sid)
     }
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    // 输入法合成期间(如拼音待选)的回车用于确认候选词,不应触发发送
+    if (e.isComposing || e.keyCode === 229) return
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
       void handleSubmit()
@@ -807,15 +1062,45 @@ function Scene3DContent() {
   function removeAttachment(id: string) {
     setAttachments(prev => prev.filter(a => a.id !== id))
   }
+
+  function addAttachments(files: File[]) {
+    const slots = 5 - attachments().length
+    const toAdd = files.slice(0, slots)
+    for (const file of toAdd) {
+      const reader = new FileReader()
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string
+        setAttachments((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            filename: file.name,
+            mime: file.type || "application/octet-stream",
+            dataUrl,
+          },
+        ])
+      }
+      reader.readAsDataURL(file)
+    }
+    if (toAdd.length > 0) {
+      tracker.interaction({ module: "scene3d", name: "add-attachment", extend: JSON.stringify({ count: toAdd.length }) })
+    }
+  }
+
   function handleDragOver(e: DragEvent) { e.preventDefault(); setIsDragOver(true) }
   function handleDragLeave() { setIsDragOver(false) }
   function handleDrop(e: DragEvent) {
     e.preventDefault()
     setIsDragOver(false)
-    // 附件解析暂留空，3D 场景文本输入为主
+    const files = Array.from(e.dataTransfer?.files ?? [])
+    if (files.length > 0) addAttachments(files)
   }
-  function handleFileInputChange(_e: Event) {
-    // 附件选择暂留空
+  function handleFileInputChange(e: Event) {
+    const input = e.currentTarget as HTMLInputElement
+    if (input.files?.length) {
+      addAttachments(Array.from(input.files))
+      input.value = ""
+    }
   }
 
   const inputDisabled = () => {
@@ -953,6 +1238,7 @@ function Scene3DContent() {
             pauseStartedAt={pauseStart()[params.id!]}
             onDeleteSession={deleteSession}
             onTitleChanged={title => mutateSession(prev => prev ? { ...prev, title } : prev)}
+            onRetry={handleRetry}
           />
         </div>
 

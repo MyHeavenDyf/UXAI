@@ -1,6 +1,8 @@
 import { extractJson } from "../../utils/json-parser"
 import { runChildSession } from "../run-child-session"
 import { logAgentParsed } from "../../utils/debug-log"
+import { SCENE_INTENT_AUDIT_FORMAT } from "./schema"
+import { agentThrow } from "../../utils/error-msg"
 
 const AGENT_NAME = "scene_3d_intent_audit"
 
@@ -34,12 +36,13 @@ export default async function scene_3d_intent_audit(input: SceneIntentAuditInput
     prompt: humanMessage,
     directory: sdk.directory,
     parentSessionID: rootSession,
+    schema: SCENE_INTENT_AUDIT_FORMAT.schema,
   })
   console.log("----- 3D 意图审核Agent运行结束，耗时：", (Date.now() - startTime) / 1000, "s -----")
   const auditJson = extractJson(auditRes.text)
   if (!auditJson) {
     logAgentParsed(auditRes.childSessionId, { error: "Failed to parse JSON", raw: auditRes.text })
-    throw new Error("----- Scene Intent Audit did not return valid JSON -----")
+    agentThrow(AGENT_NAME, auditRes.childSessionId, "Scene Intent Audit did not return valid JSON")
   }
   const returnValue: IntentAuditResult = {
     is_pass: auditJson.is_pass ?? false,

@@ -2,6 +2,8 @@ import { extractJson } from "../../utils/json-parser"
 import { runChildSession } from "../run-child-session"
 import { logAgentParsed } from "../../utils/debug-log"
 import type { SceneModuleResult } from "../merge"
+import { SCENE_MODULE_CREATE_FORMAT } from "./schema"
+import { agentThrow } from "../../utils/error-msg"
 
 const AGENT_NAME = "scene_3d_module_create"
 
@@ -47,12 +49,13 @@ export default async function scene_3d_module_create(input: SceneModuleCreateInp
     sync,
     onSessionCreated,
     extra: input.extra,
+    schema: SCENE_MODULE_CREATE_FORMAT.schema,
   })
   console.log(`----- 3D 分区物体生成Agent运行结束 [${sectionId}]，耗时：`, (Date.now() - startTime) / 1000, "s -----")
   const moduleJson = extractJson(moduleResult.text)
   if (!moduleJson) {
     logAgentParsed(moduleResult.childSessionId, { error: "Failed to parse JSON", raw: moduleResult.text })
-    throw new Error("----- Scene Module Create did not return valid JSON -----")
+    agentThrow(AGENT_NAME, moduleResult.childSessionId, "Scene Module Create did not return valid JSON")
   }
   const returnValue: SceneModuleResult = {
     scene_objects: (moduleJson.scene_objects ?? []) as SceneModuleResult["scene_objects"],

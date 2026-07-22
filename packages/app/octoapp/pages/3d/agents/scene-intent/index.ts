@@ -1,6 +1,8 @@
 import { extractJson } from "../../utils/json-parser"
 import { runChildSession } from "../run-child-session"
 import { logAgentParsed } from "../../utils/debug-log"
+import { SCENE_INTENT_FORMAT } from "./schema"
+import { agentThrow } from "../../utils/error-msg"
 
 const AGENT_NAME = "scene_3d_intent"
 
@@ -39,12 +41,13 @@ export default async function scene_3d_intent(input: SceneIntentInput) {
     prompt: humanMessage,
     directory: sdk.directory,
     parentSessionID: rootSession,
+    schema: SCENE_INTENT_FORMAT.schema,
   })
   console.log("----- 3D 意图扩展Agent运行结束，耗时：", (Date.now() - startTime) / 1000, "s -----")
   const intentJson = extractJson(intentResult.text)
   if (!intentJson) {
     logAgentParsed(intentResult.childSessionId, { error: "Failed to parse JSON", raw: intentResult.text })
-    throw new Error("----- Scene Intent did not return valid JSON -----")
+    agentThrow(AGENT_NAME, intentResult.childSessionId, "Scene Intent did not return valid JSON")
   }
   const returnValue = {
     intent_description: intentJson,

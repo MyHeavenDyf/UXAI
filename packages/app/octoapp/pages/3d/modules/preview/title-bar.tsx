@@ -4,7 +4,8 @@
  * 与 pattern 版差异：
  *   - 去掉：缩放下拉、画布/操作切换、预览下拉+Pixso、设备下拉、被注释的 titlebar-row-first
  *   - 保留：刷新、预览（单按钮，另开窗口）、复位（SCENE_RESET_CAMERA）、
- *            编辑、历史下拉、主题预留、分享、下载
+ *            编辑、历史下拉、下载
+ *   - 隐藏：主题切换（预留）、分享
  *   - 新增：复位协议（3D 专属，pattern 的复位是 CanvasView 居中）
  */
 import { createSignal, onCleanup, For, Show } from "solid-js"
@@ -75,7 +76,7 @@ export function TitleBar3D(props: TitleBar3DProps) {
           </button>
         </div>
 
-        {/* 右组：复位 | 编辑 | 历史 | 主题 | 分隔 | 分享 | 下载 */}
+        {/* 右组：复位 | 编辑 | 历史 | 主题(隐藏) | 分隔 | 分享(隐藏) | 下载 */}
         <div class="toolbar-flex-right">
           <button class="pattern-action-btn" title="复位视角" onClick={() => props.onReset()}>
             <IconCenterReset size={16} />
@@ -142,22 +143,23 @@ export function TitleBar3D(props: TitleBar3DProps) {
             </Show>
           </div>
 
-          {/* 主题切换（预留） */}
-          <button
+          {/* 主题切换（预留，暂隐藏） */}
+          {/* <button
             class="pattern-action-btn"
             title={isDarkMode() ? "切换为浅色模式" : "切换为深色模式"}
             onClick={toggleThemeMode}
           >
             {isDarkMode() ? <IconSun size={16} /> : <IconMoon size={16} />}
             <span>{isDarkMode() ? "浅色" : "深色"}</span>
-          </button>
+          </button> */}
 
           <div class="btn-vertical-divider" style={{ height: "10px", margin: "0 8px" }} />
 
-          <button class="pattern-action-btn" title="分享" onClick={() => props.onShare?.()}>
+          {/* 分享（暂隐藏） */}
+          {/* <button class="pattern-action-btn" title="分享" onClick={() => props.onShare?.()}>
             <IconActionShare size={16} />
             <span>分享</span>
-          </button>
+          </button> */}
 
           <button class="pattern-action-btn" title="下载" onClick={() => props.onDownload?.()}>
             <IconActionDownload size={16} />
