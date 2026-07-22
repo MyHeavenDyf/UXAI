@@ -40,7 +40,7 @@ function sanitizeFilename(name: string): string {
 // path 源(write 文本产物)的本地打开 / 文件夹定位:文件已在磁盘,直接传 filePath。
 // 实现见 utils/local-file-ops.ts(与文件管理面板共用,SPEC-INS-014 §10)。
 
-// uri md 卡「文件夹」:SPEC-INS-014 v2 后 uri md 产物落在可见的 insight/<sessionId>/outputs,
+// uri md 卡「文件夹」:SPEC-INS-014 v2 后 uri md 产物落在可见的 .octo/<sessionId>/outputs,
 // 先命中/落地本地工作副本(与预览、编辑同一份),再在文件管理器定位。
 async function revealUriLocal(tab: ResultTab, dir: string, sessionId: string) {
   let path: string
@@ -200,7 +200,7 @@ export function ActionBar(props: {
   const params = useParams<{ id?: string }>()
   // URI 模式 fetch 未完成时 content 为空,禁用复制 / 下载
   const ready = () => typeof props.tab.content === "string" && props.tab.content.length > 0
-  // uri md 卡「文件夹」:产物落在可见的 insight/<sessionId>/outputs,给定位入口(与 path 源的「文件夹」对齐)。
+  // uri md 卡「文件夹」:产物落在可见的 .octo/<sessionId>/outputs,给定位入口(与 path 源的「文件夹」对齐)。
   const canRevealUri = () =>
     props.tab.type === "markdown" && props.tab.source === "uri" && !!props.tab.uri && ready()
   // file 类型(Office/PDF/二进制):FileFallback 自带"用本地应用打开 / 在文件夹中打开 / 另存为",
@@ -212,7 +212,7 @@ export function ActionBar(props: {
   const showToggle = () =>
     isToggleType(props.tab.type) ||
     (props.tab.type === "json" && isMindmapJSON(props.tab.content ?? ""))
-  // 编辑按钮:仅 markdown 卡,且内容来自本地可写文件(uri 落 insight/<sessionId>/outputs / path write 产物);
+  // 编辑按钮:仅 markdown 卡,且内容来自本地可写文件(uri 落 .octo/<sessionId>/outputs / path write 产物);
   // inline 无本地文件不给编辑。见 docs/specs/ui/insight-markdown-editor.md §2.1。
   const canEdit = () =>
     !!props.onEdit && props.tab.type === "markdown" && (props.tab.source === "uri" || props.tab.source === "path") && ready()
@@ -251,7 +251,7 @@ export function ActionBar(props: {
               }}
             />
           </Show>
-          {/* uri md 卡「文件夹」定位——落点在可见的 insight/<sessionId>/outputs;path 源已在上方 path 块提供。 */}
+          {/* uri md 卡「文件夹」定位——落点在可见的 .octo/<sessionId>/outputs;path 源已在上方 path 块提供。 */}
           <Show when={canRevealUri()}>
             <ActionBtn
               icon={<IconActionFolder size={14} />}

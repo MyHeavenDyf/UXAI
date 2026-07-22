@@ -20,9 +20,9 @@ export type DesktopApi = {
     baseDir?: string,
     sessionId?: string,
   ) => Promise<string>
-  /** SPEC-INS-014 v2(会话隔离):拷贝源文件进 <baseDir>/insight/uploads/(预会话落地区,撞名加后缀);返回落地路径 */
+  /** SPEC-INS-014 v2(会话隔离):拷贝源文件进 <baseDir>/.octo/tmps/(预会话落地区,撞名加后缀);返回落地路径 */
   copyFileToWorktree?: (srcPath: string, baseDir: string, filename: string) => Promise<string>
-  /** SPEC-INS-014 §4.1.2(v2 新增):发送时把 insight/uploads/ 里的附件 rename 进 <baseDir>/insight/<sessionId>/uploads/ */
+  /** SPEC-INS-014 §4.1.2(v2 新增):发送时把 .octo/tmps/ 里的附件 rename 进 <baseDir>/.octo/<sessionId>/uploads/ */
   movePendingUploadToSession?: (srcPath: string, baseDir: string, sessionId: string) => Promise<string>
   /** 取拖拽/选取 File 的真实本地路径(Electron webUtils.getPathForFile;非桌面端为 undefined) */
   getPathForFile?: (file: File) => string

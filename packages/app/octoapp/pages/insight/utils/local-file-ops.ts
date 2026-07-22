@@ -51,7 +51,7 @@ export async function revealFileInFolder(filePath: string): Promise<void> {
   }
 }
 
-// SPEC-INS-014 §10.1:文件管理面板的"上传"——脱离对话框也能往 insight/<sessionId>/uploads/ 塞文件。
+// SPEC-INS-014 §10.1:文件管理面板的"上传"——脱离对话框也能往 .octo/<sessionId>/uploads/ 塞文件。
 // 复用输入框附件那条既有落地链路(不新造上传通道):copyFileToWorktree 拷进预会话区 uploads/ →
 // movePendingUploadToSession rename 进本会话目录。文件管理面板一定处在真实会话里,故拷完直接归属;
 // 撞名加后缀、sanitize 都由主进程处理。返回落地成功数,调用方据此决定是否刷新列表。
