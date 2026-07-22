@@ -65,7 +65,7 @@ bash packaging_shell/start_local_build_cluster.sh
 ## 页面能力
 
 - 基础代码分支始终来自 `packaging_shell` 所在的当前本地 Git 项目。
-- 基础代码分支不定时轮询，需要时可通过页面刷新按钮立即重新读取。
+- 基础代码分支不定时轮询；点击刷新会从本地项目的 Git 远端获取全部分支，并为缺失的远端分支创建同名本地跟踪分支。
 - 下载分支始终来自固定仓库 `https://github.com/MyHeavenDyf/UXAI.git`，不受当前项目 `origin` 配置影响。
 - 为每个任务选择基础代码分支和下载分支，填写应用版本和构建环境。
 - 主控模式下可选择 `macOS ARM64`、`macOS x64` 或 `Windows x64`，任务会自动发送到对应构建机。
@@ -78,7 +78,7 @@ bash packaging_shell/start_local_build_cluster.sh
 
 任务索引保存在 `packaging_shell/artifacts/jobs.json`，每个任务的安装包保存在同目录下以任务 ID 命名的子目录中。
 - 查看并切换打包机本地 Git 分支。
-- 每个任务执行前自动切换到它绑定的基础代码分支，队列结束后自动切回服务启动分支。
+- 每个任务执行前自动切换到它绑定的基础代码分支，并通过 `git pull --ff-only` 拉取该分支的最新远端代码；队列结束后自动切回服务启动分支。
 - 每个任务结束后，自动还原已跟踪文件并删除任务产生的未跟踪文件。
 
 ## 安全规则

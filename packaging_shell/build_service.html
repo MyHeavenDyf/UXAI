@@ -320,12 +320,12 @@
         if (force) toast(`刷新成功，已获取 ${result.branches.length} 个远端分支`)
       }
 
-      async function refreshLocalBranches() {
+      async function refreshLocalBranches(sync = false) {
         const button = $("refresh-local-branches")
         button.disabled = true
         button.classList.add("loading")
         button.textContent = "刷新中"
-        const response = await fetch(`/api/git?target=${encodeURIComponent($("target").value)}`).catch(() => undefined)
+        const response = await fetch(`/api/git?target=${encodeURIComponent($("target").value)}${sync ? "&refresh=1" : ""}`).catch(() => undefined)
         button.disabled = false
         button.classList.remove("loading")
         button.textContent = "刷新"
@@ -334,7 +334,7 @@
         if (!response.ok) return toast(result.error || "本地分支刷新失败", true)
         app.git = result.git
         renderGit()
-        toast(`刷新成功，已获取 ${result.git.branches.length} 个本地分支`)
+        if (sync) toast(`同步成功：远端 ${result.sync.remoteCount} 个分支，本次新建 ${result.sync.createdCount} 个本地分支`)
       }
 
       function render() { renderJobs(); renderDetail(); renderGit() }
@@ -369,7 +369,7 @@
       })
 
       $("refresh-branches").addEventListener("click", () => refreshRemoteBranches(true).catch(() => toast("远端分支刷新失败", true)))
-      $("refresh-local-branches").addEventListener("click", () => refreshLocalBranches().catch(() => toast("本地分支刷新失败", true)))
+      $("refresh-local-branches").addEventListener("click", () => refreshLocalBranches(true).catch(() => toast("本地分支刷新失败", true)))
       $("target").addEventListener("change", () => {
         app.git = null
         $("baseBranch").innerHTML = '<option value="">正在读取对应构建机分支...</option>'

@@ -227,8 +227,8 @@ async function purgeExpiredJobs() {
   }
 }
 
-async function runCommand(command: string[]) {
-  const process = Bun.spawn(command, { cwd: rootDir, stdout: "pipe", stderr: "pipe" })
+async function runCommand(command: string[], env = { ...Bun.env }) {
+  const process = Bun.spawn(command, { cwd: rootDir, stdout: "pipe", stderr: "pipe", env })
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(process.stdout).text(),
     new Response(process.stderr).text(),
@@ -287,6 +287,53 @@ async function proxyProcessEnv() {
   env.no_proxy = env.NO_PROXY
   env.GIT_TERMINAL_PROMPT = "0"
   return { env }
+}
+
+async function syncLocalBranches() {
+  const proxy = await proxyProcessEnv()
+  if ("error" in proxy) return { error: proxy.error }
+  const remotes = await runCommand(["git", "remote"], proxy.env)
+  if (remotes.exitCode !== 0) return { error: remotes.stderr || "读取本地项目远端失败" }
+  const names = remotes.stdout.split("\n").filter(Boolean)
+  const remote = names.includes("origin") ? "origin" : names[0]
+  if (!remote) return { error: "当前本地项目没有配置 Git 远端" }
+
+  const fetched = await runCommand(
+    [
+      "git",
+      "-c",
+      "http.sslVerify=false",
+      "-c",
+      "http.proxyAuthMethod=basic",
+      "fetch",
+      "--prune",
+      remote,
+      `+refs/heads/*:refs/remotes/${remote}/*`,
+    ],
+    proxy.env,
+  )
+  if (fetched.exitCode !== 0) return { error: fetched.stderr || fetched.stdout || "获取本地项目远端分支失败" }
+
+  const [local, remoteRefs] = await Promise.all([
+    runCommand(["git", "for-each-ref", "--format=%(refname:short)", "refs/heads"]),
+    runCommand(["git", "for-each-ref", "--format=%(refname)", `refs/remotes/${remote}`]),
+  ])
+  if (local.exitCode !== 0 || remoteRefs.exitCode !== 0) {
+    return { error: local.stderr || remoteRefs.stderr || "读取分支列表失败" }
+  }
+
+  const localBranches = new Set(local.stdout.split("\n").filter(Boolean))
+  const prefix = `refs/remotes/${remote}/`
+  const remoteBranches = remoteRefs.stdout
+    .split("\n")
+    .filter((ref) => ref.startsWith(prefix) && ref !== `${prefix}HEAD`)
+    .map((ref) => ref.slice(prefix.length))
+  const missing = remoteBranches.filter((branch) => !localBranches.has(branch))
+  for (const branch of missing) {
+    const created = await runCommand(["git", "branch", "--track", branch, `${remote}/${branch}`])
+    if (created.exitCode !== 0) return { error: created.stderr || created.stdout || `创建本地分支 ${branch} 失败` }
+  }
+  return { remote, remoteCount: remoteBranches.length, createdCount: missing.length }
 }
 
 async function remoteBranches(force = false) {
@@ -429,6 +476,29 @@ async function runJob(job: Job) {
     return
   }
   appendLog(job, `已切换到基础代码分支 ${job.baseBranch}\n\n`)
+  sendEvent("git", await gitState())
+
+  appendLog(job, `正在拉取基础代码分支 ${job.baseBranch} 的最新远端代码...\n`)
+  const proxy = await proxyProcessEnv()
+  if ("error" in proxy) {
+    job.status = "failed"
+    job.finishedAt = new Date().toISOString()
+    appendLog(job, `读取代理配置失败: ${proxy.error}\n`)
+    updateJob(job)
+    return
+  }
+  const pulled = await runCommand(
+    ["git", "-c", "http.sslVerify=false", "-c", "http.proxyAuthMethod=basic", "pull", "--ff-only"],
+    proxy.env,
+  )
+  if (pulled.exitCode !== 0) {
+    job.status = "failed"
+    job.finishedAt = new Date().toISOString()
+    appendLog(job, `拉取基础代码分支失败: ${pulled.stderr || pulled.stdout}\n`)
+    updateJob(job)
+    return
+  }
+  appendLog(job, `${pulled.stdout || "基础代码分支已是最新版本"}\n\n`)
   sendEvent("git", await gitState())
 
   const env = processEnv()
@@ -676,10 +746,18 @@ const server = Bun.serve({
       })
     }
     if (request.method === "GET" && url.pathname === "/api/git") {
-      if (!coordinator) return json({ git: await gitState() })
+      if (!coordinator) {
+        if (url.searchParams.get("refresh") !== "1") return json({ git: await gitState() })
+        if (state.jobs.some((job) => job.status === "running" || job.status === "queued")) {
+          return json({ error: "存在运行中或排队中的任务，暂时不能同步本地分支" }, 409)
+        }
+        const sync = await syncLocalBranches()
+        if ("error" in sync) return json(sync, 502)
+        return json({ git: await gitState(), sync })
+      }
       const target = url.searchParams.get("target")
       if (!validBuildTarget(target)) return json({ error: "请选择目标平台" }, 400)
-      const response = await workerRequest(target, "/api/git")
+      const response = await workerRequest(target, url.searchParams.get("refresh") === "1" ? "/api/git?refresh=1" : "/api/git")
       if (!response) return json({ error: `${targetLabels[target]} 构建机无法连接` }, 503)
       return new Response(await response.text(), { status: response.status, headers: { "content-type": "application/json" } })
     }
