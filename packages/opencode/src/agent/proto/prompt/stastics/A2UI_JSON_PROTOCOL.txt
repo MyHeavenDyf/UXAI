@@ -99,18 +99,3 @@ AS Loop Syntax, `Tab/TabItem`, `Steps/StepItem`, `Table/TableRow`, `Collapse/Col
 # A2UI STRUCTURE SCHEMA
 {A2UI_SCHEMA}
 
-# HTML5 Native Element SCHEMA
-重点属性包括：injecting Tailwind via `className`, assigning raw text to `value`, nesting nodes in `children`
-{HTML5_SCHEMA}
-
-# A2UI SYNTAX EXAMPLE
-## HTML5 Native Element
-{HTML_EXAMPLE}
-## ISOLATED INTERACTIVE CARD
-{CARD_EXAMPLE}
-## LOOP SYNTAX & LISTS
-{LIST_EXAMPLE}
-## SLOT SYNTAX & COMPONENT COMPOSITION
-{TABS_EXAMPLE}
-## TWO-WAY BINDING SYNTAX
-{FORM_EXAMPLE}

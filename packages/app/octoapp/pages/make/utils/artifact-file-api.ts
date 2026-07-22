@@ -291,6 +291,7 @@ export function artifactFileToOutputCard(file: ArtifactFile): OutputCard {
     type,
     content: "",
     filePath: file.path,
+    commentFilePath: file.relativePath,
     sessionId: file.sessionId,
     createdAt: new Date(file.mtime),
   }
@@ -329,6 +330,16 @@ export function getArtifactRelativePath(filePath: string): { sessionId: string; 
 export function pathToLocalUrl(filePath: string): string {
   const normalized = filePath.replace(/\\/g, "/")
   return `local:///${normalized}`
+}
+
+export function extractCommentFilePath(absolutePath: string, sessionId: string): string {
+  const sessionDir = `.octo/artifacts/make/${sessionId}/`
+  const normalized = absolutePath.replace(/\\/g, "/")
+  const idx = normalized.indexOf(sessionDir)
+  if (idx === -1) {
+    return normalized.split("/").pop() || ""
+  }
+  return normalized.slice(idx + sessionDir.length)
 }
 
 export function isElectronDesktop(): boolean {

@@ -1,21 +1,10 @@
 import { createEffect, createSignal, createMemo, Show, For, onCleanup } from "solid-js"
 import { Portal } from "solid-js/web"
 
-export type ColorToken = { color: string; opacity: string; name: string }
-
-export const TEXT_COLOR_TOKENS: ColorToken[] = [
-  { color: '#191919', opacity: '100%', name: 'color-text-primary' },
-  { color: '#777777', opacity: '100%', name: 'color-text-secondary' },
-  { color: '#aeaeae', opacity: '100%', name: 'color-text-placeholder' },
-  { color: '#c9c9c9', opacity: '100%', name: 'color-text-disabled' },
-]
-
-export const BG_COLOR_TOKENS: ColorToken[] = [
-  { color: '#f3f3f3', opacity: '100%', name: 'color-bg-1' },
-  { color: '#ffffff', opacity: '100%', name: 'color-bg-2' },
-  { color: '#ffffff', opacity: '100%', name: 'color-bg-3' },
-  { color: '#191919', opacity: '30%', name: 'color-bg-mask' },
-]
+export type { ColorToken } from "./hui-color-tokens"
+import type { ColorToken } from "./hui-color-tokens"
+import { HUI_COLOR_TOKENS, TEXT_COLOR_TOKENS, BG_COLOR_TOKENS } from "./hui-color-tokens"
+export { HUI_COLOR_TOKENS, TEXT_COLOR_TOKENS, BG_COLOR_TOKENS }
 
 function hsbToRgb(h: number, s: number, b: number) {
   const c = (b / 100) * (s / 100)
@@ -89,6 +78,7 @@ function rgbToHsb(rgb: { r: number; g: number; b: number }) {
 export function ColorPicker(props: {
   value: string
   onChange: (hex: string) => void
+  onTokenChange?: (tokenName: string | null) => void
   label: string
   tokens: ColorToken[]
   placeholder?: string
@@ -107,6 +97,12 @@ export function ColorPicker(props: {
   const [mode, setMode] = createSignal<'RGB' | 'HSL' | 'HSB'>('RGB')
   const [modeOpen, setModeOpen] = createSignal(false)
   const [lastTokenName, setLastTokenName] = createSignal('')
+  const [tooltipData, setTooltipData] = createSignal<{ name: string; color: string; opacity: string; x: number; y: number } | null>(null)
+
+  function showTooltip(token: ColorToken, e: MouseEvent) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    setTooltipData({ name: token.displayName || token.name, color: token.color, opacity: token.opacity, x: rect.left - 10, y: rect.top + rect.height / 2 })
+  }
 
   const placeholder = () => props.placeholder ?? '继承'
 
@@ -116,12 +112,12 @@ export function ColorPicker(props: {
       for (const t of props.tokens) {
         if (t.name !== lastTokenName()) continue
         const tokenAlpha = parseFloat(t.opacity) || 100
-        if (hexWithAlpha(t.color, tokenAlpha).toLowerCase() === props.value.toLowerCase()) return t.name
+        if (hexWithAlpha(t.color, tokenAlpha).toLowerCase() === props.value.toLowerCase()) return t.displayName || t.name
       }
     }
     for (const t of props.tokens) {
       const tokenAlpha = parseFloat(t.opacity) || 100
-      if (hexWithAlpha(t.color, tokenAlpha).toLowerCase() === props.value.toLowerCase()) return t.name
+      if (hexWithAlpha(t.color, tokenAlpha).toLowerCase() === props.value.toLowerCase()) return t.displayName || t.name
     }
     return props.value
   })
@@ -138,6 +134,7 @@ export function ColorPicker(props: {
 
   function setColorFromHsb(h = hue(), s = saturation(), b = brightness()) {
     setLastTokenName('')
+    props.onTokenChange?.(null)
     props.onChange(hexWithAlpha(rgbToHex(hsbToRgb(h, s, b)), alpha()))
   }
 
@@ -285,21 +282,20 @@ export function ColorPicker(props: {
     }
   }
 
-  function updatePos(t = tab()) {
+  function updatePos() {
     if (!buttonRef) return
     const rect = buttonRef.getBoundingClientRect()
     const panelW = 260
-    const panelH = t === 'custom' ? 330 : 150
+    const panelH = 330
     setPopupPos({
       x: Math.max(4, rect.left - panelW - 6),
-      y: Math.max(4, Math.min(rect.top - (t === 'custom' ? 72 : 0), window.innerHeight - panelH - 4)),
+      y: Math.max(4, Math.min(rect.top - 72, window.innerHeight - panelH - 4)),
     })
   }
 
   function toggle() {
     if (!open() && buttonRef) {
-      setTab('token')
-      updatePos('token')
+      updatePos()
     }
     setOpen(!open())
   }
@@ -364,14 +360,14 @@ export function ColorPicker(props: {
             <div class="flex items-center gap-1 border-b border-[#e5e7eb] px-2 pb-1">
               <button
                 type="button"
-                onClick={() => { setLastTokenName(''); syncFromHex(); setTab('custom'); updatePos('custom') }}
+                onClick={() => { setLastTokenName(''); props.onTokenChange?.(null); syncFromHex(); setTab('custom'); updatePos() }}
                 class={tab() === 'custom' ? 'h-6 rounded-sm px-2 text-[11px] text-[#19191a]' : 'h-6 rounded-sm px-2 text-[11px] text-[#8b8c8f] hover:bg-[#F4F4F5]'}
               >
                 自定义
               </button>
               <button
                 type="button"
-                onClick={() => { setTab('token'); updatePos('token') }}
+                onClick={() => { setTab('token'); updatePos() }}
                 class={tab() === 'token' ? 'h-6 rounded-sm px-2 text-[11px] text-[#19191a]' : 'h-6 rounded-sm px-2 text-[11px] text-[#8b8c8f] hover:bg-[#F4F4F5]'}
               >
                 token色
@@ -472,23 +468,38 @@ export function ColorPicker(props: {
                 </div>
               }
             >
+              <div class="max-h-[367.5px] overflow-y-auto">
               <For each={props.tokens}>
                 {(token) => (
                   <button
                     type="button"
-                    onClick={() => { const tokenAlpha = parseFloat(token.opacity) || 100; const hex = hexWithAlpha(token.color, tokenAlpha); props.onChange(hex); syncFromHex(hex); setLastTokenName(token.name); setOpen(false) }}
-                    class="group relative flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] text-slate-600 hover:bg-[#F4F4F5]"
+                    onClick={() => { const tokenAlpha = parseFloat(token.opacity) || 100; const hex = hexWithAlpha(token.color, tokenAlpha); props.onChange(hex); syncFromHex(hex); setLastTokenName(token.name); props.onTokenChange?.(token.name); setOpen(false) }}
+                    onMouseEnter={(e) => showTooltip(token, e)}
+                    onMouseLeave={() => setTooltipData(null)}
+                    class="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] text-slate-600 hover:bg-[#F4F4F5]"
                   >
                     <span class="h-3.5 w-3.5 shrink-0 rounded-full border border-[#12112a12]" style={{ background: token.color, opacity: token.opacity }} />
-                    <span class="truncate">{token.name}</span>
-                    <span class="pointer-events-none absolute right-full top-1/2 mr-2 hidden -translate-y-1/2 whitespace-nowrap rounded-sm bg-[#1a1b1e] px-3 py-1 text-[12px] shadow-[0_4px_12px_rgba(0,0,0,0.24)] group-hover:block">
-                      <span class="block text-[#fbfbfc]">{token.name}</span>
-                      <span class="block text-[#797a7b]">{token.color} {token.opacity}</span>
-                      <span class="absolute right-[-6px] top-1/2 h-0 w-0 -translate-y-1/2 border-y-[6px] border-l-[6px] border-y-transparent border-l-[#1a1b1e]" />
-                    </span>
+                    <span class="truncate">{token.displayName || token.name}</span>
                   </button>
                 )}
               </For>
+              </div>
+            </Show>
+            <Show when={tooltipData()}>
+              <Portal>
+                <div
+                  class="fixed z-[303] pointer-events-none whitespace-nowrap rounded-sm bg-[#1a1b1e] px-3 py-1 text-[12px] shadow-[0_4px_12px_rgba(0,0,0,0.24)]"
+                  style={{
+                    left: (tooltipData()!.x) + 'px',
+                    top: (tooltipData()!.y) + 'px',
+                    transform: 'translate(-100%, -50%)',
+                  }}
+                >
+                  <span class="block text-[#fbfbfc]">{tooltipData()!.name}</span>
+                  <span class="block text-[#797a7b]">{tooltipData()!.color} {tooltipData()!.opacity}</span>
+                  <span class="absolute right-[-6px] top-1/2 h-0 w-0 -translate-y-1/2 border-y-[6px] border-l-[6px] border-y-transparent border-l-[#1a1b1e]" />
+                </div>
+              </Portal>
             </Show>
           </div>
         </Portal>
