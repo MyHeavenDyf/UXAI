@@ -6,6 +6,7 @@ import { base64Encode } from "@opencode-ai/core/util/encode"
 import { tracker } from "@/utils/tracker"
 import { AgentSidebar } from "@/components/agent-sidebar"
 import { useLocal } from "@/context/local"
+import { useTabModel } from "@/hooks/use-tab-model"
 import { useLayout } from "@/context/layout"
 import { useSDK } from "@/context/sdk"
 import { decode64 } from "@/utils/base64"
@@ -34,6 +35,7 @@ function SessionProviders(props: { children: JSX.Element }) {
 export default function ChatPage() {
   const params = useParams<{ dir?: string; id?: string }>()
   const local = useLocal()
+  useTabModel("chat")
   const layout = useLayout()
   const sdk = useSDK()
 

@@ -1,5 +1,5 @@
 import "./octo-tokens.css"
-import type { Message, Part, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
+import type { Message, Part, Session, SessionStatus, UserMessage } from "@opencode-ai/sdk/v2/client"
 import type { TextPartInput, FilePartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
@@ -30,6 +30,8 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
 import { LocalProvider, useLocal } from "@/context/local"
+import { useTabModel } from "@/hooks/use-tab-model"
+import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { useLanguage } from "@/context/language"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
@@ -202,6 +204,7 @@ function InsightContent() {
   const sdk = useSDK()
   const sync = useSync()
   const local = useLocal()
+  useTabModel("insight")
   const language = useLanguage()
   const themeCtx = useTheme()
   const globalSDK = useGlobalSDK()
@@ -344,6 +347,68 @@ function InsightContent() {
     () => userMessages().map((m) => m.id),
     [] as string[],
     { equals: same },
+  )
+
+  // Sync session model when last user message changes (same as session.tsx).
+  // Populates saved.session[session] so scope() returns the correct model per conversation.
+  const lastUserMessage = createMemo(() => userMessages().at(-1) as UserMessage | undefined)
+
+  createEffect(
+    on(
+      () => lastUserMessage()?.id,
+      () => {
+        const msg = lastUserMessage()
+        if (!msg) return
+        syncSessionModel(local, msg)
+        // Sync tab key so new conversations inherit this session's model.
+        if (msg.model?.providerID && msg.model?.modelID) {
+          local.model.set(msg.model, { recent: true })
+        }
+      },
+    ),
+  )
+
+  // Populate saved.session[session] from user messages immediately.
+  // syncSessionModel only runs when lastUserMessage changes; this effect
+  // runs on every params.id change and checks if messages are already loaded.
+  createEffect(
+    on(
+      () => params.id,
+      (id) => {
+        if (!id) return
+        // Check if messages are already loaded for this session.
+        const messages = (sync.data.message[id] ?? []) as Message[]
+        const lastUser = [...messages].reverse().find((m) => m.role === "user")
+        if (!lastUser?.model) return
+        local.session.restore({
+          sessionID: id,
+          agent: lastUser.agent ?? "",
+          model: {
+            providerID: lastUser.model.providerID,
+            modelID: lastUser.model.modelID,
+            variant: lastUser.model.variant,
+          },
+        })
+        // Sync tab key so new conversations inherit this session's model.
+        local.model.set(
+          { providerID: lastUser.model.providerID, modelID: lastUser.model.modelID },
+          { recent: true },
+        )
+      },
+    ),
+  )
+
+  // Reset draft when switching from session to new conversation.
+  createEffect(
+    on(
+      () => ({ dir: sdk.directory, id: params.id }),
+      (next, prev) => {
+        if (!prev) return
+        if (next.dir === prev.dir && next.id === prev.id) return
+        if (prev.id && !next.id) local.session.reset()
+      },
+      { defer: true },
+    ),
   )
 
   // 会话消息是否已加载:切到"未加载过的已存在会话"时 message[id] 为 undefined,
