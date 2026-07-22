@@ -173,6 +173,7 @@ SPEC-INS-014 文件管理器面板的用户操作。删除（单个 / 批量）�
 - 只在 `completed` / `failed` 两个终态打；`stopped`（用户终止，已由 `task-stop` 覆盖）、`pending` / `processing`（未出结果）**不打**——对齐「出结果了（成功或失败）才打」。
 - `status` 归一化为 `success` / `failure`（不直接透传 TaskStatus 枚举，分析侧只关心成败二分）。
 - **必须配 baseline 快照 + 去重 set**（与 `server-mcp-used` 同规则）：复用模块级 `trackedServerUsageKeys`，key 用 `mcp-result:${taskId}` 前缀（与提交侧 `mcp:${taskId}` 区分）；首次观测本 turn 时把已终态的历史任务记入 baseline 不上报，避免刷新 / 切回历史会话把旧结果当新事件虚增。
+- **已知偏差（分析侧必读）：`result` 相对 `used` 会系统性偏低（低估完成率）。** 有一种情况会漏 `result`：用户在长任务**运行中切走**该会话，任务在 turn 卸载期间跑完，再切回时首次观测已是终态 → 被 baseline 当历史吞掉不上报；而 `used` 此前已在提交侧实时报过。结果这类任务**有 `used` 无 `result`**。这是 baseline「宁可少报、不虚增」取舍的固有代价（不补一个没真观测到的终态事件），偏差方向恒为「偏低」。**用 `taskId` 对齐 `used`/`result` 算成功率 / 完成漏斗时：`result` 缺口 = 未观测到终态，不等于失败，别把缺口计入失败分母。** 要精确成功率需服务端在 turn 之外补事件，不在前端 effect 内解决。
 
 ## 五、验证
 
