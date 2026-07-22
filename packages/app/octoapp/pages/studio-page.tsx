@@ -324,15 +324,13 @@ export default function StudioPage() {
         const result = JSON.parse(bodyText) as { code?: number; resp_code?: number; data?: unknown }
         const permissionData = Array.isArray(result.data) ? result.data : []
         const permissionOk = result.code === 200 || result.resp_code === 200
-        // 强制绕过视频权限
-        setCanGenerateVideo(true)
-        setCanUseSeedream(true)
+        setCanGenerateVideo(permissionOk && permissionData[0] === true)
+        setCanUseSeedream(permissionOk && permissionData[1] === true)
         setStudioPermissionReady(true)
       })
       .catch((error) => {
-        // 强制绕过视频权限
-        setCanGenerateVideo(true)
-        setCanUseSeedream(true)
+        setCanGenerateVideo(false)
+        setCanUseSeedream(false)
         setStudioPermissionReady(true)
         console.error("[StudioPage] permission check failed", error)
       })
@@ -1339,7 +1337,8 @@ export default function StudioPage() {
 
   const deleteHeaderSession = async (session: Session) => {
     tracker.interaction({ module: "studio", name: "delete-session" })
-    const sessions = syncStore.session
+    const listResult = await globalSDK.createClient({ directory: projectDir() }).session.list()
+    const sessions = ((listResult.data ?? []) as Session[])
       .filter((item) => item.agent === "octo_studio" && !item.time?.archived)
       .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
     const index = sessions.findIndex((item) => item.id === session.id)
@@ -3523,11 +3522,7 @@ export default function StudioPage() {
             <div class="studio-empty-group">
               <StudioIntro />
               <div class="relative size-full">
-                <Show when={hintVisible()}>
-                  <div class="absolute left-1/2 -translate-x-1/2 z-50 pointer-events-none -top-7" data-component="tooltip">
-                    {language.t("prompt.hint.newSession")}
-                  </div>
-                </Show>
+
                 <StudioComposer
                   prompt={prompt()}
                   capability={capability()}
