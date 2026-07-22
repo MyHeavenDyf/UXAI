@@ -16,9 +16,6 @@ rm -rf "${TARGET_DIR:?}"/*
 
 # 2. 读取并启用内网代理配置
 ENV_FILE="${PACKAGING_PROXY_ENV_FILE:-$PROJECT_ROOT/.env.proxy}"
-if [ -z "$PACKAGING_PROXY_ENV_FILE" ] && [ ! -f "$ENV_FILE" ] && [ -f "$PROJECT_ROOT/merge-option/.env.proxy" ]; then
-    ENV_FILE="$PROJECT_ROOT/merge-option/.env.proxy"
-fi
 
 if [ ! -f "$ENV_FILE" ]; then
     echo "❌ 未找到 .env.proxy 配置文件！"

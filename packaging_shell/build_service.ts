@@ -76,7 +76,7 @@ const state = {
   remoteBranches: { branches: [] as string[], fetchedAt: 0 },
 }
 const persistence = { timer: undefined as ReturnType<typeof setTimeout> | undefined }
-const serviceBranch = (await runCommand(["git", "branch", "--show-current"])).stdout
+const serviceBranch = (await runCommand(["git", "symbolic-ref", "--quiet", "--short", "HEAD"])).stdout
 
 function json(value: unknown, status = 200) {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } })
@@ -239,7 +239,7 @@ async function runCommand(command: string[]) {
 
 async function gitState() {
   const [branch, branches, changes] = await Promise.all([
-    runCommand(["git", "branch", "--show-current"]),
+    runCommand(["git", "symbolic-ref", "--quiet", "--short", "HEAD"]),
     runCommand(["git", "branch", "--format=%(refname:short)"]),
     runCommand(["git", "status", "--porcelain"]),
   ])
@@ -270,9 +270,7 @@ function proxyConfigValue(content: string, key: string) {
 
 async function proxyProcessEnv() {
   const configured = Bun.env.PACKAGING_PROXY_ENV_FILE
-  const primary = configured || path.join(rootDir, ".env.proxy")
-  const fallback = path.join(rootDir, "merge-option", ".env.proxy")
-  const file = !configured && !(await Bun.file(primary).exists()) && (await Bun.file(fallback).exists()) ? fallback : primary
+  const file = configured || path.join(rootDir, ".env.proxy")
   if (!(await Bun.file(file).exists())) return { error: `未找到代理配置文件: ${file}` }
   const content = await Bun.file(file).text()
   const user = proxyConfigValue(content, "HW_USER")
@@ -422,7 +420,7 @@ async function runJob(job: Job) {
     return
   }
 
-  const switched = await runCommand(["git", "switch", job.baseBranch])
+  const switched = await runCommand(["git", "checkout", job.baseBranch])
   if (switched.exitCode !== 0) {
     job.status = "failed"
     job.finishedAt = new Date().toISOString()
@@ -512,7 +510,7 @@ async function processQueue() {
   if (!job) {
     const current = await gitState()
     if (serviceBranch && !current.dirty && current.current !== serviceBranch) {
-      await runCommand(["git", "switch", serviceBranch])
+      await runCommand(["git", "checkout", serviceBranch])
       sendEvent("git", await gitState())
     }
     return
@@ -613,7 +611,7 @@ async function switchBranch(request: Request) {
   if (current.dirty) return json({ error: "工作区存在未提交修改，为避免丢失代码，已拒绝切换", git: current }, 409)
   if (!current.branches.includes(body.branch)) return json({ error: "只能切换到已经存在的本地分支" }, 404)
 
-  const result = await runCommand(["git", "switch", body.branch])
+  const result = await runCommand(["git", "checkout", body.branch])
   if (result.exitCode !== 0) return json({ error: result.stderr || result.stdout || "切换失败" }, 500)
   const git = await gitState()
   sendEvent("git", git)
