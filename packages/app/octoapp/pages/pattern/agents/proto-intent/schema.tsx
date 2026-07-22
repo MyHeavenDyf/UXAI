@@ -15,7 +15,7 @@ const intentDescriptionSchema = {
     },
     sections: {
       type: "array",
-      description: "界面大区域划分列表",
+      description: "界面大区域划分列表，包含详细结构和数据",
       items: {
         type: "object",
         properties: {
@@ -29,33 +29,7 @@ const intentDescriptionSchema = {
           },
           description: {
             type: "string",
-            description: "子区域描述：描述该区块的功能，解决什么具体业务问题"
-          }
-        },
-        required: ["id", "name", "description"]
-      }
-    },
-    sectionDetailList: {
-      type: "array",
-      description: "所有区域的详细结构和数据扩充",
-      items: {
-        type: "object",
-        properties: {
-          id: {
-            type: "string",
-            description: "子区域的唯一标识 id, 对应主体布局结构（sections）的区块id"
-          },
-          name: {
-            type: "string",
-            description: "子区域名称，对应主体布局结构的区块名称，例如：4.1 核心指标看板区"
-          },
-          intent: {
-            type: "string",
-            description: "该区域的意图和目的, 为了解决什么具体业务问题"
-          },
-          function: {
-            type: "string",
-            description: "该区域包含的功能"
+            description: "该区域的意图、目的和包含的功能描述"
           },
           layout: {
             type: "string",
@@ -66,15 +40,19 @@ const intentDescriptionSchema = {
             description: "该区域拥有的子模块描述, 清晰说明采用什么组件"
           },
           data: {
-            type: "object", // 对应 Python 的 Dict[str, Any]
-            description: "局部 JSON 数据契约：驱动该区块渲染的 JSON 结构，必须包含丰富的高拟真业务 Mock 数据"
+            type: "object",
+            description: "局部 JSON 数据契约：驱动该区块渲染的 JSON 结构，必须包含丰富的高拟真业务 Mock 数据。如果该区域使用了模块模板则不生成此字段"
+          },
+          patternPath: {
+            type: "string",
+            description: "可选字段，仅当该区域使用了用户选定的模块模板时填写，值为模板文件路径"
           }
         },
-        required: ["id", "name", "intent", "function", "layout", "elements", "data"]
+        required: ["id", "name", "description", "layout", "elements"]
       }
     }
   },
-  required: ["userInput", "intentAnalysis", "layoutDescription", "sections", "sectionDetailList"]
+  required: ["userInput", "intentAnalysis", "layoutDescription", "sections"]
 };
 
 export default intentDescriptionSchema;

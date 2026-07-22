@@ -3,7 +3,7 @@ import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, globSync } from "node:fs"
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
-import { mkdir, readFile, writeFile, lstat, unlink, rm, copyFile, rename } from "node:fs/promises"
+import { mkdir, readFile, writeFile, lstat, stat, unlink, rm, copyFile, rename } from "node:fs/promises"
 import { dirname, extname, join, basename, resolve as resolvePath, sep } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
@@ -36,6 +36,7 @@ import { convertTailwindToCSS } from "./tailwind-to-css"
 import { convertCssToTailwind } from "./tailwind-from-css"
 import { previewDistDir, getUploadsDir, setUploadsDir } from "./preview-server"
 import { pipelineRequest } from "../network/pipelineRequest"
+import { codeToHtml } from "./page-capture"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -486,6 +487,44 @@ export function registerIpcHandlers(deps: Deps) {
       return buf.buffer
     } catch {
       return null
+    }
+  })
+
+  ipcMain.handle("list-directory", async (_event: IpcMainInvokeEvent, dirPath: string) => {
+    const results: Array<{ path: string; type: 'file' | 'directory'; size?: number }> = []
+
+    if (!existsSync(dirPath)) return results
+
+    function walk(currentPath: string, basePath: string) {
+      const entries = readdirSync(currentPath, { withFileTypes: true })
+      for (const entry of entries) {
+        const fullPath = join(currentPath, entry.name)
+        const relativePath = fullPath.slice(basePath.length).replace(/^[\/\\]/, '')
+
+        if (entry.isDirectory()) {
+          walk(fullPath, basePath)
+        } else {
+          const stat = statSync(fullPath)
+          results.push({
+            path: relativePath,
+            type: 'file',
+            size: stat.size
+          })
+        }
+      }
+    }
+
+    walk(dirPath, dirPath)
+    return results
+  })
+
+  // 轻量存在性检查：只 stat 不读盘，供打开前预检用（避免为判断"文件在不在"把整份文件读进内存）。
+  // 语义与 read-file-buffer 对齐：仅当目标是一个存在的普通文件时返回 true，其余(不存在/是目录/无权限等)一律 false。
+  ipcMain.handle("file-exists", async (_event: IpcMainInvokeEvent, path: string) => {
+    try {
+      return (await stat(path)).isFile()
+    } catch {
+      return false
     }
   })
 
@@ -1002,6 +1041,17 @@ export function registerIpcHandlers(deps: Deps) {
       await rm(extractDir, { recursive: true, force: true }).catch(() => { })
     }
   })
+  // 页面资源捕获(CDP):创建隐藏窗口加载指定 URL,拦截全部网络响应,将所有资源(CSS/JS/图片/字体)内联为 data URI,生成单个自包含 HTML 文件。
+  ipcMain.handle(
+    "capture-page",
+    async (
+      _event: IpcMainInvokeEvent,
+      opts: { url: string; theme?: "light" | "dark"; waitForMs?: number },
+    ) => {
+      return codeToHtml(opts)
+    },
+  )
+
   // Pipeline API IPC — renderer 通过 window.api.pipelineRequest 调用, 主进程用 net.fetch 请求真实接口(绕 CORS)
   ipcMain.handle("pipeline-request", (_event: IpcMainInvokeEvent, url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) =>
     pipelineRequest(url, method, uiplusToken, body, headers))
