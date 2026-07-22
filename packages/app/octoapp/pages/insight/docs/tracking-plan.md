@@ -115,6 +115,65 @@ async function handleSubmit() {
 
 P2 的 7 项已确认不打；`tracker.duration` 已下线，会话停留时长类暂无落点。批次 1 + 2 共 24 个 name 已全部上线（清单见 `tracking.md`）。
 
+### 批次 3 — chip 常驻工具 / 文件管理器 / 抽取补充（SPEC-INS-017 / 014 后陆续上线）
+
+收集单之后随功能演进新增的打点，命名沿用「用户操作 = 裸 kebab name / `<域>-<动作>`」约定。四个族：
+
+**① MCP chip 交互族 `mcp-chip-<action>`（替代已删的 `preset-click` 胶囊）**
+
+旧的「预置提示词胶囊」(`preset-click`) 已随 SPEC-INS-017 常驻工具 chip 改造删除，`message-send` 的 `presetId` / `presetEdited` 字段一并移除、改带 `mcpFunction`（当前选中的 chip 功能 id）。chip 是「用户挂载一个业务能力意图」的交互层，与 `server-mcp-used`（模型真实调起 MCP）分属两层，都保留：
+
+| name | 功能（统计什么用户行为） | 打在哪个功能 / 控件（UI + handler） | extend |
+|---|---|---|---|
+| `mcp-chip-open` | 用户打开 chip 功能菜单 | PromptInput chip 按钮 `onOpenMenu` | — |
+| `mcp-chip-select` | 用户选中某功能 chip（常驻挂载） | `index.tsx` `handleMcpSelect` | `{functionId, fileCount, pendingBytes, tokenEstimate}` |
+| `mcp-chip-clear` | 用户 × 取消已挂载的 chip | `index.tsx` `handleMcpClear` | `{functionId}` |
+| `mcp-chip-result` | chip turn 结束后对账该功能工具是否真被调用 / 成败（结果型，turn 完成 effect 派生） | `index.tsx` turn-complete effect | `{functionId, called, status: completed/error/not-called}` |
+
+**② 文件管理器族 `files-<action>`（module 仍 `insight`）**
+
+SPEC-INS-014 文件管理器面板的用户操作。删除（单个 / 批量）低价值不打。
+
+| name | 功能 | 打在哪个功能 / 控件 | extend |
+|---|---|---|---|
+| `files-download-file` | 下载单个文件 | `file-manager/index.tsx` `handleDownload` | — |
+| `files-batch-download` | 批量打包（zip）下载 | `handleBatchDownload` | `{count}` |
+| `files-preview-file` | 单击文件到右侧预览 | `handlePreview` | — |
+| `files-open-in-tab` | 打开文件到结果 tab | `handleOpenFile` | — |
+| `files-add-to-session` | 「加入会话」把文件挂到输入 | `handleAddToSession` | — |
+| `files-open-in-explorer` | 「在文件夹中显示」 | `handleOpenInExplorer` | — |
+| `files-navigate-folder` | 进入子目录 | 目录行 onClick | — |
+
+**③ 结果面板补充**
+
+| name | 功能 | 打在哪个功能 / 控件 | extend |
+|---|---|---|---|
+| `md-edit-open` | md 结果卡点「编辑」进编辑模式 | `result-viewer/action-bar.tsx` 编辑按钮 | `{source: tab.source}` |
+
+**④ 抽取 / 附件结果型补充**
+
+| name | 功能 | 打在哪个功能 / 控件 | extend |
+|---|---|---|---|
+| `extract-failure` | `extract_document` 本地解析失败（按原因分布，结果型，turn effect 派生） | `index.tsx` turn effect 扫 tool parts | `{reason: error/empty-text}` |
+| `attachment-import-result` | 非图片附件导入 worktree 的成败（结果型；与图片走的 `attachment-upload-result` 区分） | `index.tsx` `doImport` then/catch | `{success, localized?}` |
+
+> 注：`attachment-upload-result` 现仅用于**图片** S3 上传结果，extend 带 `kind:"image"`；非图片附件走本地导入、结果打 `attachment-import-result`。
+
+### 批次 4 — MCP 任务结果成败（`server-` 前缀，服务端真实使用）
+
+`server-mcp-used` 统计的是 MCP 业务工具**被调用并提交长任务**（提交时刻，每 `task_id` 一次）。批次 4 补它的**完成侧**对偶：任务真正跑出终态（成功 / 失败）时再打一次，用于算 MCP 调用成功率、失败分布。属「模型 / 服务端真实使用」，沿用 `server-` 前缀。
+
+| name | 功能（统计什么） | 打在哪 | extend |
+|---|---|---|---|
+| `server-mcp-result` | 某业务 MCP 任务跑出终态（`completed`→success / `failed`→failure），每 `task_id` 一次 | `insight-turn.tsx` server-usage effect（与 `server-mcp-used` 同一 effect） | `{tool, taskId, status: "success"/"failure"}` |
+
+命名 / 落点约定：
+
+- 与 `server-mcp-used` 一对：`used` = 提交侧、`result` = 完成侧，`taskId` 可打通两者算漏斗 / 时延。
+- 只在 `completed` / `failed` 两个终态打；`stopped`（用户终止，已由 `task-stop` 覆盖）、`pending` / `processing`（未出结果）**不打**——对齐「出结果了（成功或失败）才打」。
+- `status` 归一化为 `success` / `failure`（不直接透传 TaskStatus 枚举，分析侧只关心成败二分）。
+- **必须配 baseline 快照 + 去重 set**（与 `server-mcp-used` 同规则）：复用模块级 `trackedServerUsageKeys`，key 用 `mcp-result:${taskId}` 前缀（与提交侧 `mcp:${taskId}` 区分）；首次观测本 turn 时把已终态的历史任务记入 baseline 不上报，避免刷新 / 切回历史会话把旧结果当新事件虚增。
+
 ## 五、验证
 
 每批合入前按 `/docs/tracker.md` 验证流程：
@@ -124,9 +183,12 @@ P2 的 7 项已确认不打；`tracker.duration` 已下线，会话停留时长�
 
 ## 六、维护闭环
 
+**先方案后清单（硬性顺序，不可颠倒）：** 要新增 / 修改打点，**先在本文件（`tracking-plan.md`）里定 name / extend / 映射规则 / 命名约定**，方案敲定后**再去 `tracking.md` 记已实现的那一行**。本文件是「怎么定」，`tracking.md` 是「定了什么、落在哪」；顺序反了会出现「清单里有行、但没有对应的命名 / 映射依据」的漂移。
+
 ```
 新增/修改 insight 较重要功能
   → 同步增/删/改对应打点（仅核心行为，CLAUDE.md 有提示）
-  → 按本方案映射规则定 name / extend（来源维度并入 extend，不用 from）
-  → 实现后在 tracking.md 加 / 改 / 删对应行（不再用桌面收集单）
+  ① 先在本文件 tracking-plan.md 定 name / extend / 映射规则（来源维度并入 extend，不用 from）
+     · 用户主动操作 = 裸 kebab name；服务端真实使用（模型调起 MCP/skill 并回显）= server- 前缀
+  ② 再在 tracking.md 加 / 改 / 删对应行（记已实现的落点，不再用桌面收集单）
 ```
