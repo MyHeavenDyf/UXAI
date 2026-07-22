@@ -17,11 +17,11 @@ export interface IconProviderContext {
   iconNameMap: Ref<Record<string, string>>
   /** 图标ID映射表 { [a2ui图标名]: icon_id } */
   iconIdMap: Ref<Record<string, string>>
-  /** 图标来源上下文 { [a2ui图标名]: IconContext } */
+  /** 图标来源上下文 { [a2ui图标名]: IconContext（shapes为Set） } */
   iconContextMap: Ref<Record<string, IconContext>>
   /** 是否正在解析图标映射中 */
   resolving: Ref<boolean>
-  /** SVG 文本缓存（icon_id:style → SVG 文本） */
+  /** SVG 文本缓存（icon_id:styleValue → SVG 文本） */
   svgCache: Map<string, string>
 }
 
@@ -38,7 +38,7 @@ export const iconNameMap = ref<Record<string, string>>({})
 /** 图标名称 → icon_id 映射 */
 export const iconIdMap = ref<Record<string, string>>({})
 
-/** 图标名称 → 来源上下文映射 */
+/** 图标名称 → 来源上下文映射（shapes为Set） */
 export const iconContextMap = ref<Record<string, IconContext>>({})
 
 /** 是否正在解析 */
@@ -46,11 +46,11 @@ export const resolving = ref(false)
 
 /** 是否已执行 API 检测 */
 let configChecked = false
-/** 是否正在处理 JSON（防并发） */
-let processingJson = false
+/** 串行处理队列：后续请求等待前一个完成后再执行，不丢弃请求 */
+let processingPromise: Promise<void> | null = null
 /** 配置检测完成的Promise，供Provider.ts 等待 **/
 let _configResolve: () => void
-export const configReady = new Promise<void>((resolve) => { _configResolve = resolve})
+export const configReady = new Promise<void>((resolve) => { _configResolve = resolve })
 /**
  * 在 App.vue 中调用，提供图标系统响应式状态给所有子孙组件。
  * 同时执行 API 可用性检测（串行调用 getConfig）。
@@ -94,31 +94,51 @@ export function useIconProvider(): IconProviderContext {
  * 收集其中的 icon 引用字段并调用 API 映射为 icon_id + 组件名，
  * 串行获取 SVG 文本缓存到 svgCache
  *
- * 可被多次调用，每次新映射会合并到全局 iconNameMap/iconIdMap 中
+ * 可被多次调用，每次新映射会合并到全局 iconNameMap/iconIdMap 中。
+ * 串行队列确保请求不丢弃：后续请求等待前一个完成后再执行。
  */
 export async function processJsonForIcons(jsonData: any): Promise<void> {
   if (!hasHuiIcons.value) return
   if (!jsonData?.elements) return
 
-  if (processingJson) return
-  processingJson = true
+  // 等待前一个处理完成（串行但不丢弃）
+  if (processingPromise) {
+    await processingPromise
+  }
 
   resolving.value = true
-  try {
-    const result = await resolveAllIcons([jsonData])
-    if (Object.keys(result.componentNameMap).length > 0) {
-      iconNameMap.value = { ...iconNameMap.value, ...result.componentNameMap }
+  processingPromise = (async () => {
+    try {
+      const result = await resolveAllIcons([jsonData])
+      if (Object.keys(result.componentNameMap).length > 0) {
+        iconNameMap.value = { ...iconNameMap.value, ...result.componentNameMap }
+      }
+      if (Object.keys(result.iconIdMap).length > 0) {
+        iconIdMap.value = { ...iconIdMap.value, ...result.iconIdMap }
+      }
+      // iconContextMap 合并：shapes Set 需要逐个合并
+      if (Object.keys(result.iconContextMap).length > 0) {
+        const merged = { ...iconContextMap.value }
+        for (const [name, ctx] of Object.entries(result.iconContextMap)) {
+          const existing = merged[name]
+          if (existing?.sourceType === 'IconComponent' && ctx.sourceType === 'IconComponent') {
+            // 合并 shapes Set
+            const mergedShapes = new Set([...existing.shapes, ...ctx.shapes])
+            merged[name] = { ...existing, shapes: mergedShapes }
+          } else {
+            // 深拷贝 shapes Set 以避免引用共享
+            merged[name] = { ...ctx, shapes: new Set(ctx.shapes) }
+          }
+        }
+        iconContextMap.value = merged
+      }
+    } catch (err) {
+      console.warn('[iconProvider] 处理 JSON 图标失败:', err)
+    } finally {
+      resolving.value = false
+      processingPromise = null
     }
-    if (Object.keys(result.iconIdMap).length > 0) {
-      iconIdMap.value = { ...iconIdMap.value, ...result.iconIdMap }
-    }
-    if (Object.keys(result.iconContextMap).length > 0) {
-      iconContextMap.value = { ...iconContextMap.value, ...result.iconContextMap }
-    }
-  } catch (err) {
-    console.warn('[iconProvider] 处理 JSON 图标失败:', err)
-  } finally {
-    resolving.value = false
-    processingJson = false
-  }
+  })()
+
+  await processingPromise
 }

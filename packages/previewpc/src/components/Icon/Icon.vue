@@ -96,7 +96,7 @@ const color = computed(() => {
     case "info":
       return "var(--color-icon-primary)"
     case "inverse":
-      return "var(--color-icon-inverse)"
+      return "var(--icon-inverse)"
     default:
       return newColor || "currentColor"
   }
@@ -117,7 +117,25 @@ const borderRadius = computed(() => {
 })
 
 const mixPercentage = Math.round(BACKGROUND_OPACITY * 100)
+
+// ========== wrapperStyle：API圆底托/方底托SVG自带背景时不叠加 ==========
 const wrapperStyle = computed(() => {
+  // API的圆底托(round_bottom2)/方底托(square_bottom2) SVG已自带背景托底，
+  // 不需要Icon.vue再添加 backgroundColor/borderRadius
+  const hasApiBackground = isHuiIcon.value && (bgShape.value === 'circle' || bgShape.value === 'square')
+
+  if (hasApiBackground) {
+    return {
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      color: color.value || "#191919",
+      backgroundColor: "transparent",
+      borderRadius: "0",
+    }
+  }
+
+  // 原有逻辑：outline/fill/非hui-icon 使用Icon.vue提供的背景
   const hasBg = bgShape.value !== "outline"
   const isWhite = bgShape.value === "fill" || bgShape.value === "square"
 

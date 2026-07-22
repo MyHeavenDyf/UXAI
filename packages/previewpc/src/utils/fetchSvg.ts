@@ -2,14 +2,14 @@
  * hui-icon-plus SVG 获取与缓存模块
  *
  * 调用 /iconPlus/getSvg API 获取 SVG 文本，缓存到 Map 中。
- * 缓存键为 icon_id:style（如 "123:line"、"123:filled"），颜色不作为缓存维度。
+ * 缓存键为 icon_id:styleValue（如 "123:线性"、"123:面性"），颜色不作为缓存维度。
  *
  * 请求策略：串行执行、按 style 分组批量请求、统一使用默认颜色。
  */
 
 const SVG_API_URL = "/iconPlus/getSvg"
 
-/** SVG 文本缓存，键为 icon_id:style */
+/** SVG 文本缓存，键为 icon_id:styleValue（如 "123:线性"） */
 export const svgCache = new Map<string, string>()
 
 /** getConfig 返回的默认颜色 ID，用于所有 getSvg 请求 */
@@ -82,13 +82,13 @@ export function sanitizeSvg(svg: string): string {
  * 批量获取 SVG（按 style 分组）
  *
  * @param iconIds - icon_id 数组
- * @param style - 图标风格：'线性' 或 '面性'
+ * @param style - 图标风格：styleValue如'线性'或'面性'（从getConfig获取）
  * @param size - 图标尺寸（从 config.size 的 key 中选取，默认 24）
  * @returns 缓存键 → SVG 文本的映射
  */
 export async function fetchSvgBatch(
   iconIds: string[],
-  style: string = "line",
+  style?: string,
   size: string = "24",
 ): Promise<Map<string, string>> {
   if (!iconIds.length) return new Map()
