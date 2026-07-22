@@ -57,7 +57,7 @@ const api: ElectronAPI = {
   saveFilePicker: (opts) => ipcRenderer.invoke("save-file-picker", opts),
   openLink: (url) => ipcRenderer.send("open-link", url),
   openPath: (path, app) => ipcRenderer.invoke("open-path", path, app),
-  showItemInFolder: (path) => ipcRenderer.send("show-item-in-folder", path),
+  showItemInFolder: (path) => ipcRenderer.invoke("show-item-in-folder", path),
   downloadResource: (url, destPath) => ipcRenderer.invoke("download-resource", url, destPath),
   downloadResourceToTemp: (url, namespace, filename, baseDir, sessionId) =>
     ipcRenderer.invoke("download-resource-to-temp", url, namespace, filename, baseDir, sessionId),
@@ -87,9 +87,10 @@ const api: ElectronAPI = {
   setBackgroundColor: (color: string) => ipcRenderer.invoke("set-background-color", color),
   getSkillsConfig: () => ipcRenderer.invoke("get-skills-config"),
   setSkillsConfig: (config) => ipcRenderer.invoke("set-skills-config", config),
+  getSkillConfig: () => ipcRenderer.invoke("get-skill-config"),
   // jk-j60099994-replace-with-60062650-preload-index-1-start
-  getSkillContent: (skillName) => ipcRenderer.invoke("get-skill-content", skillName),
   // jk-j60099994-replace-with-60062650-preload-index-1-end
+  getSkillContent: (skillName) => ipcRenderer.invoke("get-skill-content", skillName),
   addSkill: (sourcePath) => ipcRenderer.invoke("add-skill", sourcePath),
   ensureSkillConfig: () => ipcRenderer.invoke("ensure-skill-config"),
   openSkillFolder: () => ipcRenderer.invoke("open-skill-folder"),
@@ -100,6 +101,7 @@ const api: ElectronAPI = {
   setUploadsDir: (dir) => ipcRenderer.invoke("set-uploads-dir", dir),
   writeFile: (path, content) => ipcRenderer.invoke("write-file", path, content),
   readFileBuffer: (path) => ipcRenderer.invoke("read-file-buffer", path),
+  fileExists: (path) => ipcRenderer.invoke("file-exists", path),
   deleteFile: (path) => ipcRenderer.invoke("delete-file", path),
   writeClipboardText: (text) => ipcRenderer.invoke("write-clipboard-text", text),
   capturePreviewRect: (rect) => ipcRenderer.invoke("capture-preview-rect", rect),
@@ -115,6 +117,8 @@ const api: ElectronAPI = {
   runPixsoBuild: (input) => ipcRenderer.invoke("run-pixso-build", input),
   exportZip: (opts) => ipcRenderer.invoke("export-zip", opts),
   importZip: () => ipcRenderer.invoke("import-zip"),
+  codeToHtml: (opts) => ipcRenderer.invoke("capture-page", opts),
+  listDirectory: (path) => ipcRenderer.invoke("list-directory", path),
   // Pipeline API IPC bridge — renderer 内网调用时通过此通道请求主进程 net.fetch(绕 CORS)
   pipelineRequest: (url, method, uiplusToken, body, headers) => ipcRenderer.invoke("pipeline-request", url, method, uiplusToken, body, headers),
   // jk-j60099994-replace-with-index-1-start

@@ -27,6 +27,9 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
   const [filterOpen, setFilterOpen] = createSignal(false)
 
   const hasSelection = createMemo(() => props.fileStore.store.selected.size > 0)
+  const deletableCount = createMemo(() => props.fileStore.selectedUploadedFiles().length)
+  const selectedGeneratedCount = createMemo(() => props.fileStore.store.selected.size - deletableCount())
+  const canDelete = createMemo(() => deletableCount() > 0 && selectedGeneratedCount() === 0)
 
   const filterButtonText = createMemo(() => {
     const filterSize = props.fileStore.store.kindFilter.size
@@ -67,7 +70,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
 
   return (
     <div
-      class="flex items-center justify-between px-4 py-2 shrink-0"
+      class="flex items-center justify-between px-6 py-3 shrink-0"
       style={{ "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}
     >
       <div class="flex items-center gap-2">
@@ -78,7 +81,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
             tracker.interaction({ module: "design", name: "files-refresh" })
           }}
           disabled={props.fileStore.store.loading}
-          class="p-1.5 rounded-md hover:bg-surface-base-hover transition-colors"
+          class="flex items-center justify-center p-0 bg-transparent transition-colors cursor-pointer active:text-[#0a59f7]"
           title="Refresh"
         >
           <Show when={props.fileStore.store.loading} fallback={<IconRefresh size={16} />}>
@@ -233,9 +236,16 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
           </button>
           <button
             type="button"
-            onClick={props.onBatchDelete}
-            class="flex items-center gap-1 px-2 py-1 rounded transition-colors text-text-diff-delete-base cursor-pointer"
-            style={{ "font-size": "14px", "line-height": "22px" }}
+            onClick={canDelete() ? props.onBatchDelete : undefined}
+            disabled={!canDelete()}
+            class="flex items-center gap-1 px-2 py-1 rounded transition-colors"
+            style={{ 
+              "font-size": "14px", 
+              "line-height": "22px",
+              color: canDelete() ? undefined : "#C9C9C9",
+              cursor: canDelete() ? "pointer" : "not-allowed"
+            }}
+            title={!canDelete() ? "当前仅支持删除上传文件" : undefined}
           >
             <span>{language.t("designFiles.batchDelete")}</span>
           </button>
@@ -266,7 +276,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
               <button
                 type="button"
                 onClick={() => { props.onUploadFolder(); setUploadOpen(false) }}
-                class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)] cursor-pointer"
                 style={{
                   height: "36px",
                   "border-radius": "6px",
@@ -281,7 +291,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
               <button
                 type="button"
                 onClick={() => { props.onUploadFile(); setUploadOpen(false) }}
-                class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)] cursor-pointer"
                 style={{
                   height: "36px",
                   "border-radius": "6px",

@@ -2,9 +2,11 @@ import { executeJimengImageGenerate, summarizeJimengOutput } from "@/tool/jimeng
 import {
   cancelInternalGeneration,
   createInternalGeneration,
+  generatePromptFromImage,
   queryInternalGeneration,
   rebootInternalGeneration,
   summarizeInternalOutput,
+  type PromptGenResponse,
 } from "@/tool/internel_image_generate"
 import { streamText, type ModelMessage } from "ai"
 import z from "zod"
@@ -90,6 +92,10 @@ export type StudioEditorEntryResult = {
   assistantMessageID: string
 }
 
+export type StudioPromptGenRequest = {
+  base64img: string
+}
+
 export type StudioGenerationResult = {
   id: string
   status: StudioGenerationStatus
@@ -117,6 +123,17 @@ export type StudioGenerationResult = {
   rawStatus?: number | string
   updatedAt: number
   completedAt?: number
+}
+
+export async function createPromptGen(input: StudioPromptGenRequest): Promise<PromptGenResponse> {
+  const result = await generatePromptFromImage(input)
+  if (result.resp_code !== 200) {
+    throw new Error(result.resp_msg?.trim() || "提示词生成失败")
+  }
+  if (!result.result?.zh?.trim()) {
+    throw new Error("提示词生成结果为空")
+  }
+  return result
 }
 
 export type StudioGenerationAccepted = Pick<

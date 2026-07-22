@@ -32,6 +32,11 @@ export type SkillConfigEntry = { description?: string; import?: boolean; type?: 
 // jk-j60099994-replace-with-60062650-preload-types-1-end
 export type SkillsConfig = Record<string, SkillConfigEntry>
 
+export type SkillConfig = {
+  skill?: Record<string, SkillConfigEntry>
+  agent?: Record<string, string[]>
+}
+
 export type SkillContentResponse =
   | { success: true; name: string; content: string; baseDir: string; files: string }
   | { success: false; error: string }
@@ -81,7 +86,8 @@ export type ElectronAPI = {
   saveFilePicker: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   openLink: (url: string) => void
   openPath: (path: string, app?: string) => Promise<void>
-  showItemInFolder: (path: string) => void
+  /** 在系统文件管理器中定位;文件不存在时返回 { ok: false, reason: "not-found" } 而非 throw */
+  showItemInFolder: (path: string) => Promise<{ ok: boolean; reason?: "not-found" }>
   downloadResource: (url: string, destPath: string) => Promise<void>
   downloadResourceToTemp: (
     url: string,
@@ -115,6 +121,7 @@ export type ElectronAPI = {
   // jk-j60099994-replace-with-types-2-end
   getSkillsConfig: () => Promise<SkillsConfig>
   setSkillsConfig: (config: SkillsConfig) => Promise<void>
+  getSkillConfig: () => Promise<SkillConfig>
   getSkillContent: (skillName: string) => Promise<SkillContentResponse>
   addSkill: (sourcePath: string) => Promise<{ success: boolean; skillName?: string; error?: string }>
   ensureSkillConfig: () => Promise<void>
@@ -130,6 +137,8 @@ export type ElectronAPI = {
   /** insight markdown 编辑器自动保存:覆盖写本地文本文件(主进程校验路径在 insight/<sessionId>/{uploads,outputs}、旧 .octo/downloads 或临时目录下) */
   writeFile: (path: string, content: string) => Promise<void>
   readFileBuffer: (path: string) => Promise<ArrayBuffer | null>
+  /** 轻量存在性预检：只 stat 不读盘，仅当路径是存在的普通文件时返回 true(不存在/目录/无权限均为 false) */
+  fileExists: (path: string) => Promise<boolean>
   deleteFile: (path: string) => Promise<void>
   writeClipboardText: (text: string) => Promise<void>
   capturePreviewRect: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
@@ -143,13 +152,10 @@ export type ElectronAPI = {
   getDesignSystems: () => Promise<string[]>
   downloadHuiCode: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[]) => Promise<{ files: { path: string; content: string }[] }>
   runPixsoBuild: (input: string) => Promise<string>
-  exportZip: (opts: {
-    defaultName: string
-    files?: { path: string; content: string }[]
-    sourceDir?: string
-    comment?: string
-  }) => Promise<string | null>
+  exportZip: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; comment?: string }) => Promise<string | null>
   importZip: () => Promise<{ name: string; content: string }[] | null>
+  codeToHtml: (opts: { url: string; theme?: "light" | "dark"; waitForMs?: number }) => Promise<{ html: string; resourceCount: number }>
+  listDirectory: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>
   // Pipeline API IPC bridge 类型定义
   pipelineRequest: (url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) => Promise<any>
 }

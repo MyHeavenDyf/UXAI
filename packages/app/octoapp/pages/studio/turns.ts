@@ -1,5 +1,6 @@
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioInputImage } from "./types"
+import { getDefaultDimensions } from "./studio-shared"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
@@ -411,10 +412,11 @@ function buildResult(input: {
   const requestRecord = toolRequest(activeTool)
   const capability = normalizeCapability(stringField(output, "capability") ?? stringField(inputRecord, "capability"))
   const aspectRatio = normalizeAspectRatio(stringField(output, "aspectRatio") ?? stringField(inputRecord, "aspectRatio"))
+  const extra = recordField(inputRecord, "extra")
   const size = recordField(inputRecord, "target_size")
-  const width = size ? numberField(size, "width") : numberField(inputRecord, "width")
-  const height = size ? numberField(size, "height") : numberField(inputRecord, "height")
-  const isCustom = Boolean(inputRecord?.isCustom) || Boolean(width && height)
+  const width = size ? numberField(size, "width") : numberField(inputRecord, "width") ?? numberField(extra, "width")
+  const height = size ? numberField(size, "height") : numberField(inputRecord, "height") ?? numberField(extra, "height")
+  const isCustom = Boolean(inputRecord?.isCustom) || Boolean(extra?.isCustom) || Boolean(width && height)
   const model = stringField(output, "model") ?? stringField(inputRecord, "styleModel") ?? activeTool?.tool ?? "image-generation-tool"
   const prompt = stringField(inputRecord, "effectivePrompt") ??
     stringField(inputRecord, "refinedPrompt") ??
@@ -475,8 +477,8 @@ function buildResult(input: {
             url: item.url,
             thumbnailUrl: item.url,
             remoteUrl: item.url,
-            width: numberField(output, "width"),
-            height: numberField(output, "height"),
+            width: numberField(output, "width") ?? numberField(recordField(output, "response"), "width") ?? width ?? getDefaultDimensions(stringField(inputRecord, "styleModel"), aspectRatio)?.width,
+            height: numberField(output, "height") ?? numberField(recordField(output, "response"), "height") ?? height ?? getDefaultDimensions(stringField(inputRecord, "styleModel"), aspectRatio)?.height,
           })),
           progress: numberField(output, "progress") ?? 100,
           order: numberField(output, "order"),

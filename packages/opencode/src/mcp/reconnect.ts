@@ -3,13 +3,14 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import * as Log from "@opencode-ai/core/util/log"
 import type { EffectBridge } from "@/effect/bridge"
 import type { ConfigMCP } from "../config/mcp"
+import { TuiEvent } from "@/cli/cmd/tui/event"
 
 const log = Log.create({ service: "mcp.reconnect" })
 
 // === 常量 ===
 const MAX_RECONNECT_ATTEMPTS = 3
-const INITIAL_BACKOFF_MS = 500
-const MAX_BACKOFF_MS = 5000
+const INITIAL_BACKOFF_MS = 1000
+const MAX_BACKOFF_MS = 30000
 const MAX_ERRORS_BEFORE_RECONNECT = 2
 
 // === 状态跟踪（全部模块级，按 server name 隔离） ===
@@ -715,7 +716,300 @@ export function setupConnectionHandlers(
   }
 }
 
-// === 重连核心逻辑 ===
+// === 阻塞重连（对话开始时按需重连） ===
+
+/** 重连完成信号（用于阻塞等待） */
+interface ReconnectCompletion {
+  resolve: (success: boolean) => void
+  reject: (error: Error) => void
+}
+
+/** 正在等待完成的阻塞请求 */
+const reconnectCompletions = new Map<string, ReconnectCompletion>()
+
+/** 创建完成信号 */
+function createCompletion(name: string): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    reconnectCompletions.set(name, { resolve, reject })
+  })
+}
+
+/**
+ * 阻塞等待 agent 相关 MCP 进入终态（connected 或 failed）。
+ * 只在 toolsForAgent 中调用，确保对话开始时 MCP 就绪。
+ *
+ * 设计原则：
+ *  - 按需重连：只在对话开始时检查，其他时刻不主动重连
+ *  - 作用域限制：只处理 agent.mcp 配置的服务器
+ *  - 阻塞等待：等待重连完成后再返回工具列表
+ *  - Toast 通知：断开/成功/失败时通知前端
+ */
+export function waitForAgentMcpReady(
+  ctx: ReconnectContext,
+  bridge: EffectBridge.Shape,
+  agentMcp: string[] | undefined,
+  customServerNames: string[],
+  timeoutMs: number = 60_000,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const s = yield* ctx.state.get()
+
+    // 计算需要检查的服务器列表
+    const allRemoteNames = Array.from(remoteConfigs.keys())
+    const relevantNames =
+      agentMcp && agentMcp.length > 0
+        ? [...agentMcp, ...customServerNames]
+        : customServerNames
+
+    // 过滤出需要处理的 remote server
+    const serverNames = relevantNames.filter((n) => allRemoteNames.includes(n))
+    if (serverNames.length === 0) return
+
+    log.debug("[reconnect] waitForAgentMcpReady starting", {
+      agentMcp,
+      customServerNames,
+      serverNames,
+    })
+
+    for (const name of serverNames) {
+      // 跳过主动断开的服务器
+      if (intentionalDisconnects.has(name)) {
+        log.debug("[reconnect] waitForAgentMcpReady skipped - intentional disconnect", { name })
+        continue
+      }
+
+      const currentStatus = s.status[name]?.status
+      const client = s.clients[name]
+
+      // 已连接且健康 → 跳过
+      if (currentStatus === "connected" && client) {
+        log.debug("[reconnect] waitForAgentMcpReady already connected", { name })
+        continue
+      }
+
+      // 正在重连 → 等待完成
+      if (currentStatus === "reconnecting" || activeReconnects.has(name)) {
+        log.info("[reconnect] waitForAgentMcpReady waiting for existing reconnect", { name })
+        yield* waitForCompletion(ctx, name, timeoutMs)
+        continue
+      }
+
+      // 已失败或无 client → 触发阻塞重连
+      if (currentStatus === "failed" || !client) {
+        log.info("[reconnect] waitForAgentMcpReady triggering blocking reconnect", {
+          name,
+          currentStatus: currentStatus ?? "missing",
+          hasClient: !!client,
+        })
+        yield* blockingReconnect(ctx, bridge, name, timeoutMs)
+        continue
+      }
+
+      // 其他状态（如 disabled）→ 跳过
+      log.debug("[reconnect] waitForAgentMcpReady skipped - other status", {
+        name,
+        currentStatus,
+      })
+    }
+
+    log.debug("[reconnect] waitForAgentMcpReady completed", { serverNames })
+  }).pipe(
+    // 兜底：永不阻塞对话流程
+    Effect.catch((error) => {
+      log.warn("[reconnect] waitForAgentMcpReady error (continuing anyway)", {
+        error: String(error),
+      })
+      return Effect.void
+    }),
+  )
+}
+
+/** 等待正在进行的重连完成 */
+function waitForCompletion(
+  ctx: ReconnectContext,
+  name: string,
+  timeoutMs: number,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    // 如果没有正在进行的重连，直接返回
+    if (!activeReconnects.has(name)) {
+      log.debug("[reconnect] waitForCompletion - no active reconnect", { name })
+      return
+    }
+
+    log.info("[reconnect] waitForCompletion - waiting", { name, timeoutMs })
+
+    // 使用 Effect.promise 等待完成信号或超时
+    yield* Effect.promise(() => {
+      const completion = createCompletion(name)
+      const timeoutPromise = new Promise<void>((resolve) => {
+        setTimeout(() => {
+          reconnectCompletions.delete(name)
+          resolve()
+        }, timeoutMs)
+      })
+
+      return Promise.race([
+        completion.then(() => {}),
+        timeoutPromise,
+      ])
+    })
+
+    log.info("[reconnect] waitForCompletion - done", { name })
+  })
+}
+
+/** 阻塞重连：发送 Toast + 等待完成 */
+function blockingReconnect(
+  ctx: ReconnectContext,
+  bridge: EffectBridge.Shape,
+  name: string,
+  timeoutMs: number,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const mcp = remoteConfigs.get(name)
+    if (!mcp) {
+      log.warn("[reconnect] blockingReconnect skipped - no config", { name })
+      return
+    }
+
+    // 发送 Toast：开始重连
+    yield* ctx.bus.publish(TuiEvent.ToastShow, {
+      message: `MCP "${name}" 断开，正在重连...`,
+      variant: "warning",
+      duration: 5000,
+    }).pipe(Effect.ignore)
+
+    const completion = createCompletion(name)
+
+    // 启动重连
+    bridge
+      .promise(reconnectWithBackoffWithToast(ctx, bridge, name, mcp))
+      .then(() => {
+        const comp = reconnectCompletions.get(name)
+        if (comp) {
+          comp.resolve(true)
+          reconnectCompletions.delete(name)
+        }
+      })
+      .catch((err) => {
+        const comp = reconnectCompletions.get(name)
+        if (comp) {
+          comp.reject(err)
+          reconnectCompletions.delete(name)
+        }
+      })
+
+    // 阻塞等待
+    yield* Effect.promise(() => {
+      const timeoutPromise = new Promise<void>((resolve) => {
+        setTimeout(() => {
+          reconnectCompletions.delete(name)
+          resolve()
+        }, timeoutMs)
+      })
+
+      return Promise.race([
+        completion.then(() => {}),
+        timeoutPromise,
+      ])
+    })
+  })
+}
+
+/** 带 Toast 的重连循环 */
+function reconnectWithBackoffWithToast(
+  ctx: ReconnectContext,
+  bridge: EffectBridge.Shape,
+  name: string,
+  mcp: ConfigMCP.Info & { type: "remote" },
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    // 防重入
+    if (activeReconnects.has(name)) {
+      log.info("[reconnect] blocking reconnect skipped - already active", { name })
+      return
+    }
+    activeReconnects.add(name)
+
+    // 立即更新状态
+    const s = yield* ctx.state.get()
+    s.status[name] = { status: "reconnecting", error: `Reconnecting on dialog start` }
+
+    let lastError: string | undefined
+
+    try {
+      for (let attempt = 1; attempt <= MAX_RECONNECT_ATTEMPTS; attempt++) {
+        if (intentionalDisconnects.has(name)) {
+          log.info("[reconnect] blocking reconnect cancelled - intentional disconnect", { name })
+          return
+        }
+
+        const result = yield* ctx.createFn(name, mcp).pipe(
+          Effect.catchCause((cause) => {
+            const error = Cause.squash(cause)
+            const msg = error instanceof Error ? error.message : String(error)
+            return Effect.succeed<CreateResult>({
+              status: { status: "failed" as const, error: msg },
+            })
+          }),
+        )
+
+        // 成功
+        if (result.mcpClient && result.status.status === "connected") {
+          const state = yield* ctx.state.get()
+          yield* ctx.storeClientFn(state, name, result.mcpClient, result.defs!, mcp.timeout)
+
+          // 发送 Toast：重连成功
+          yield* ctx.bus.publish(TuiEvent.ToastShow, {
+            message: `MCP "${name}" 已重连成功`,
+            variant: "success",
+            duration: 3000,
+          }).pipe(Effect.ignore)
+
+          log.info("[reconnect] blocking reconnect succeeded", { name, attempt })
+          yield* ctx.bus.publish(ctx.toolsChanged, { server: name }).pipe(Effect.ignore)
+          return
+        }
+
+        lastError = (result.status as any).error
+        log.warn("[reconnect] blocking reconnect attempt failed", {
+          name,
+          attempt,
+          error: lastError,
+        })
+
+        if (attempt < MAX_RECONNECT_ATTEMPTS) {
+          yield* Effect.sleep(backoffMs(attempt))
+        }
+      }
+
+      // 全部失败
+      const state = yield* ctx.state.get()
+      delete state.clients[name]
+      delete state.defs[name]
+      state.status[name] = {
+        status: "failed",
+        error: `Reconnect failed after ${MAX_RECONNECT_ATTEMPTS} attempts: ${lastError ?? "unknown"}`,
+      }
+      triggeredReconnectFlags.delete(name)
+
+      // 发送 Toast：重连失败
+      yield* ctx.bus.publish(TuiEvent.ToastShow, {
+        message: `MCP "${name}" 重连失败`,
+        variant: "error",
+        duration: 5000,
+      }).pipe(Effect.ignore)
+
+      log.error("[reconnect] blocking reconnect failed - max attempts", { name, lastError })
+      yield* ctx.bus.publish(ctx.toolsChanged, { server: name }).pipe(Effect.ignore)
+    } finally {
+      activeReconnects.delete(name)
+    }
+  })
+}
+
+// === 重连核心逻辑（原 fire-and-forget 版本） ===
 
 function reconnectWithBackoff(name: string, ctx: ReconnectContext): Effect.Effect<void> {
   return Effect.gen(function* () {

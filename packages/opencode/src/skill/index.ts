@@ -54,6 +54,7 @@ export const NameMismatchError = NamedError.create(
 
 type State = {
   skills: Record<string, Info>
+  skillDirMap: Record<string, string> // skillName -> skillDir
   dirs: Set<string>
 }
 
@@ -118,6 +119,7 @@ const add = Effect.fnUntraced(function* (state: State, match: string, bus: Bus.I
     content: md.content,
     type: typeMap?.[skillDir],
   }
+  state.skillDirMap[parsed.data.name] = skillDir
 })
 
 const scan = Effect.fnUntraced(function* (
@@ -314,7 +316,7 @@ export const layer = Layer.effect(
     ).pipe(Effect.orDie)
     const state = yield* InstanceState.make(
       Effect.fn("Skill.state")(function* () {
-        const s: State = { skills: {}, dirs: new Set() }
+        const s: State = { skills: {}, skillDirMap: {}, dirs: new Set() }
         yield* loadSkills(s, yield* InstanceState.get(discovered), bus)
         return s
       }),
@@ -344,11 +346,12 @@ export const layer = Layer.effect(
       const d = yield* InstanceState.get(discovered)
       const list = Object.values(s.skills).toSorted((a, b) => a.name.localeCompare(b.name))
       if (!agent) return list
-      const allowedNames = d.agentConfig[agent.name] ?? []
-      const allowedSet = new Set(allowedNames)
+      const allowedDirs = d.agentConfig[agent.name] ?? []
+      const allowedSet = new Set(allowedDirs)
       return list.filter((skill) => {
         if (Permission.evaluate("skill", skill.name, agent.permission).action === "deny") return false
-        return allowedSet.has(skill.name)
+        const skillDir = s.skillDirMap[skill.name]
+        return allowedSet.has(skillDir)
       })
     })
 

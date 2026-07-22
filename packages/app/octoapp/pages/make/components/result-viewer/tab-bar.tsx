@@ -17,10 +17,9 @@ export function TabBar(props: {
 }): JSX.Element {
   return (
     <div
-      class="flex items-center overflow-x-auto shrink-0 gap-2 px-6 py-3"
+      class="flex items-center shrink-0 gap-2 px-6 py-3"
       style={{
         "border-bottom": "1px solid var(--octo-border-divider)",
-        "scrollbar-width": "none",
         height: "56px",
         background: "var(--octo-surface-page)",
       }}
@@ -29,7 +28,7 @@ export function TabBar(props: {
         <button
           type="button"
           onClick={() => props.onViewModeChange?.("files")}
-          class="flex items-center transition-colors font-medium"
+          class="flex items-center justify-center transition-colors font-medium shrink-0"
           style={{
             padding: "0px 16px",
             "border-radius": "999px",
@@ -37,6 +36,9 @@ export function TabBar(props: {
             "line-height": "22px",
             gap: "4px",
             height: "32px",
+            width: "108px",
+            "box-sizing": "border-box",
+            "flex": "0 0 108px",
             color: props.viewMode === "files" ? "#0a59f7" : "#666",
             background: props.viewMode === "files" ? "rgba(10, 89, 247, 0.08)" : "rgba(0, 0, 0, 0.05)",
           }}
@@ -78,33 +80,37 @@ export function TabBar(props: {
         </Show>
       </Show>
 
-      <For each={props.tabs}>
-        {(tab) => {
-          const isActive = () => tab.id === props.activeId && props.viewMode === "tabs"
-          return (
-            <div
-              class="octo-tab"
-              data-active={isActive() ? "true" : undefined}
-              onClick={() => {
-                props.onActivate(tab.id)
-                props.onViewModeChange?.("tabs")
-              }}
-            >
-              <span class="truncate min-w-0 text-left outline-none">{tab.title}</span>
-              <button
-                type="button"
-                class="octo-tab-close"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  props.onClose(tab.id)
+      <div
+        class="octo-tab-scroller flex items-center gap-2 flex-1 min-w-0 overflow-x-auto"
+      >
+        <For each={props.tabs}>
+          {(tab) => {
+            const isActive = () => tab.id === props.activeId && props.viewMode === "tabs"
+            return (
+              <div
+                class="octo-tab"
+                data-active={isActive() ? "true" : undefined}
+                onClick={() => {
+                  props.onActivate(tab.id)
+                  props.onViewModeChange?.("tabs")
                 }}
               >
-                <IconTabClose size={16} />
-              </button>
-            </div>
-          )
-        }}
-      </For>
+                <span class="truncate min-w-0 text-left outline-none">{tab.title}</span>
+                <button
+                  type="button"
+                  class="octo-tab-close"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    props.onClose(tab.id)
+                  }}
+                >
+                  <IconTabClose size={16} />
+                </button>
+              </div>
+            )
+          }}
+        </For>
+      </div>
     </div>
   )
 }
