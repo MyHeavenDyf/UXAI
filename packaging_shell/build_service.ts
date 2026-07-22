@@ -1,4 +1,4 @@
-import { readdir, mkdir, mkdtemp, rm } from "node:fs/promises"
+import { cp, readdir, mkdir, mkdtemp, rm } from "node:fs/promises"
 import { networkInterfaces, tmpdir } from "node:os"
 import path from "node:path"
 
@@ -56,17 +56,27 @@ const jobsFile = path.join(artifactsRoot, "jobs.json")
 const retentionMs = 3 * 24 * 60 * 60 * 1000
 const page = await Bun.file(path.join(import.meta.dir, "build_service.html")).text()
 const runtimeDir = await mkdtemp(path.join(tmpdir(), "octo-build-service-"))
-const automationScripts = [
-  "run_all.sh",
-  "download_git_zip.sh",
-  "extract.sh",
-  "copy_packages.sh",
-  "version.sh",
-  "build_desktop.sh",
-]
-await Promise.all(
-  automationScripts.map((name) => Bun.write(path.join(runtimeDir, name), Bun.file(path.join(import.meta.dir, name)))),
-)
+
+async function cacheAutomationScripts() {
+  await rm(runtimeDir, { recursive: true, force: true })
+  await mkdir(runtimeDir, { recursive: true })
+  const ignored = new Set(["artifacts", "packages", "zip", ".DS_Store"])
+  await Promise.all(
+    (await readdir(import.meta.dir, { withFileTypes: true }))
+      .filter((entry) => !ignored.has(entry.name))
+      .map((entry) =>
+        cp(path.join(import.meta.dir, entry.name), path.join(runtimeDir, entry.name), {
+          recursive: entry.isDirectory(),
+          force: true,
+        }),
+      ),
+  )
+  if (!(await Bun.file(path.join(runtimeDir, "run_all.sh")).exists())) {
+    throw new Error("packaging_shell/run_all.sh 不存在")
+  }
+}
+
+await cacheAutomationScripts()
 const runner = path.join(runtimeDir, "run_all.sh")
 const encoder = new TextEncoder()
 const state = {
@@ -159,13 +169,13 @@ async function loadJobs() {
     .map((job) => job && typeof job === "object" && !("target" in job) ? { ...job, target: localTarget } : job)
     .filter(isJob)
     .map((job) => {
-    if (job.status !== "queued" && job.status !== "running") return job
-    return {
-      ...job,
-      status: "failed" as const,
-      finishedAt: new Date().toISOString(),
-      log: `${job.log}\n打包服务曾在任务执行期间停止，此任务已标记为失败。\n`,
-    }
+      if (job.status !== "queued" && job.status !== "running") return job
+      return {
+        ...job,
+        status: "failed" as const,
+        finishedAt: new Date().toISOString(),
+        log: `${job.log}\n打包服务曾在任务执行期间停止，此任务已标记为失败。\n`,
+      }
     })
 }
 
@@ -261,7 +271,14 @@ function proxyConfigValue(content: string, key: string) {
     .map((value) => value.trim())
     .find((value) => new RegExp(`^(?:export\\s+)?${key}\\s*=`).test(value))
   if (!line) return ""
-  const value = line.slice(line.indexOf("=") + 1).trim()
+  let value = line.slice(line.indexOf("=") + 1).trim()
+
+  // 清理尾部行内注释 (例如 HW_USER=xxx # comment)
+  const commentIndex = value.indexOf("#")
+  if (commentIndex !== -1) {
+    value = value.slice(0, commentIndex).trim()
+  }
+
   if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
     return value.slice(1, -1)
   }
@@ -270,14 +287,21 @@ function proxyConfigValue(content: string, key: string) {
 
 async function proxyProcessEnv() {
   const configured = Bun.env.PACKAGING_PROXY_ENV_FILE
-  const file = configured || path.join(rootDir, ".env.proxy")
+  let file = configured || path.join(rootDir, ".env.proxy")
+
+  if (!configured && !(await Bun.file(file).exists())) {
+    const fallback = path.join(rootDir, "merge-option", ".env.proxy")
+    if (await Bun.file(fallback).exists()) file = fallback
+  }
+
   if (!(await Bun.file(file).exists())) return { error: `未找到代理配置文件: ${file}` }
   const content = await Bun.file(file).text()
   const user = proxyConfigValue(content, "HW_USER")
   const password = proxyConfigValue(content, "HW_PASS")
   if (!user || !password) return { error: `${file} 中缺少 HW_USER 或 HW_PASS` }
   const host = proxyConfigValue(content, "HW_PROXY_HOST") || "proxyhk.huawei.com:8080"
-  const proxy = `http://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}`
+  // 直接组合原始账号密码，不要过 encodeURIComponent，交给 Git/cURL 自己处理
+  const proxy = `http://${user}:${password}@${host}`
   const env = processEnv()
   env.http_proxy = proxy
   env.https_proxy = proxy
@@ -292,7 +316,7 @@ async function proxyProcessEnv() {
 async function syncLocalBranches() {
   const proxy = await proxyProcessEnv()
   if ("error" in proxy) return { error: proxy.error }
-  const remotes = await runCommand(["git", "remote"], proxy.env)
+  const remotes = await runCommand(["git", "remote"])
   if (remotes.exitCode !== 0) return { error: remotes.stderr || "读取本地项目远端失败" }
   const names = remotes.stdout.split("\n").filter(Boolean)
   const remote = names.includes("origin") ? "origin" : names[0]
@@ -304,7 +328,7 @@ async function syncLocalBranches() {
       "-c",
       "http.sslVerify=false",
       "-c",
-      "http.proxyAuthMethod=basic",
+      `http.proxy=${proxy.env.http_proxy}`,
       "fetch",
       "--prune",
       remote,
@@ -349,7 +373,7 @@ async function remoteBranches(force = false) {
       "-c",
       "http.sslVerify=false",
       "-c",
-      "http.proxyAuthMethod=basic",
+      `http.proxy=${proxy.env.http_proxy}`,
       "ls-remote",
       "--heads",
       sourceRepository,
@@ -488,7 +512,15 @@ async function runJob(job: Job) {
     return
   }
   const pulled = await runCommand(
-    ["git", "-c", "http.sslVerify=false", "-c", "http.proxyAuthMethod=basic", "pull", "--ff-only"],
+    [
+      "git",
+      "-c",
+      "http.sslVerify=false",
+      "-c",
+      `http.proxy=${proxy.env.http_proxy}`,
+      "pull",
+      "--ff-only",
+    ],
     proxy.env,
   )
   if (pulled.exitCode !== 0) {
@@ -500,6 +532,9 @@ async function runJob(job: Job) {
   }
   appendLog(job, `${pulled.stdout || "基础代码分支已是最新版本"}\n\n`)
   sendEvent("git", await gitState())
+
+  await cacheAutomationScripts()
+  appendLog(job, "已刷新 packaging_shell 脚本缓存。\n\n")
 
   const env = processEnv()
   env.PACKAGING_PROJECT_ROOT = rootDir
@@ -688,31 +723,67 @@ async function switchBranch(request: Request) {
   return json({ git })
 }
 
-async function artifactResponse(url: URL) {
+async function artifactResponse(request: Request, url: URL) {
   const match = url.pathname.match(/^\/api\/artifacts\/([a-z0-9-]+)\/([^/]+)$/)
   if (!match) return json({ error: "产物不存在" }, 404)
   const job = state.jobs.find((candidate) => candidate.id === match[1])
   const name = decodeURIComponent(match[2])
   if (!job?.artifacts.some((artifact) => artifact.name === name)) return json({ error: "产物不存在" }, 404)
   if (coordinator) {
-    const response = await workerRequest(job.target, url.pathname)
-    if (!response?.ok) return json({ error: "无法从构建机读取产物" }, response?.status || 502)
+    const worker = workers.find((candidate) => candidate.target === job.target)
+    if (!worker) return json({ error: "找不到对应构建机" }, 502)
+    const headers = new Headers()
+    const range = request.headers.get("range")
+    if (range) headers.set("range", range)
+    const response = await fetch(`${worker.url}${url.pathname}`, {
+      method: request.method,
+      headers,
+      signal: request.signal,
+    }).catch(() => undefined)
+    if (!response) return json({ error: "无法从构建机读取产物" }, 502)
+    if (!response.ok && response.status !== 416) {
+      return json({ error: "无法从构建机读取产物" }, response.status)
+    }
+    const responseHeaders = new Headers()
+    ;["content-type", "content-disposition", "content-length", "content-range", "accept-ranges", "etag"].forEach(
+      (name) => {
+        const value = response.headers.get(name)
+        if (value) responseHeaders.set(name, value)
+      },
+    )
     return new Response(response.body, {
       status: response.status,
-      headers: {
-        "content-type": response.headers.get("content-type") || "application/octet-stream",
-        "content-disposition": response.headers.get("content-disposition") || "attachment",
-      },
+      headers: responseHeaders,
     })
   }
   const file = Bun.file(path.join(artifactsRoot, job.id, name))
   if (!file.size) return json({ error: "产物文件不存在" }, 404)
-  return new Response(file, {
-    headers: {
-      "content-type": file.type || "application/octet-stream",
-      "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
-    },
+  const headers = new Headers({
+    "content-type": file.type || "application/octet-stream",
+    "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+    "accept-ranges": "bytes",
+    etag: `"${job.id}-${file.size}"`,
   })
+  const range = request.headers.get("range")
+  if (!range) {
+    headers.set("content-length", String(file.size))
+    return new Response(request.method === "HEAD" ? null : file, { headers })
+  }
+
+  const parsed = range.match(/^bytes=(\d*)-(\d*)$/)
+  if (!parsed || (!parsed[1] && !parsed[2])) {
+    headers.set("content-range", `bytes */${file.size}`)
+    return new Response(null, { status: 416, headers })
+  }
+  const start = parsed[1] ? Number(parsed[1]) : Math.max(file.size - Number(parsed[2]), 0)
+  const end = parsed[1] && parsed[2] ? Math.min(Number(parsed[2]), file.size - 1) : file.size - 1
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start > end || start >= file.size) {
+    headers.set("content-range", `bytes */${file.size}`)
+    return new Response(null, { status: 416, headers })
+  }
+  headers.set("content-length", String(end - start + 1))
+  headers.set("content-range", `bytes ${start}-${end}/${file.size}`)
+  return new Response(request.method === "HEAD" ? null : file.slice(start, end + 1), { status: 206, headers })
 }
 
 const port = Number(Bun.env.BUILD_SERVICE_PORT || 8787)
@@ -799,7 +870,9 @@ const server = Bun.serve({
         },
       })
     }
-    if (request.method === "GET" && url.pathname.startsWith("/api/artifacts/")) return artifactResponse(url)
+    if ((request.method === "GET" || request.method === "HEAD") && url.pathname.startsWith("/api/artifacts/")) {
+      return artifactResponse(request, url)
+    }
     return json({ error: "Not Found" }, 404)
   },
 })

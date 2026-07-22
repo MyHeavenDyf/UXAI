@@ -150,7 +150,7 @@
             <div class="card-head"><h2>新建打包任务</h2><p>每台构建机的任务串行执行；不同平台可同时打包。</p></div>
             <form id="build-form" class="card-body">
               <div class="field"><label for="target">目标平台</label><select id="target" name="target" required><option value="">正在读取构建机...</option></select></div>
-              <div class="field"><label for="baseBranch">基础代码分支（当前本地项目）</label><div class="branch-row"><select id="baseBranch" name="baseBranch" required><option value="">正在读取本地分支...</option></select><button id="refresh-local-branches" class="secondary" type="button">刷新</button></div></div>
+              <div class="field"><label for="baseBranch">基础代码分支（当前本地项目）</label><div class="branch-row"><input id="baseBranch" name="baseBranch" list="local-base-branch-options" placeholder="搜索并选择本地分支" autocomplete="off" required /><datalist id="local-base-branch-options"></datalist><button id="refresh-local-branches" class="secondary" type="button">刷新</button></div></div>
               <div class="field">
                 <label for="branch">下载分支（MyHeavenDyf/UXAI）</label>
                 <div class="branch-row"><input id="branch" name="branch" list="remote-branch-options" placeholder="搜索并选择远端分支" autocomplete="off" required /><datalist id="remote-branch-options"></datalist><button id="refresh-branches" class="secondary" type="button">刷新</button></div>
@@ -236,6 +236,40 @@
         return node.innerHTML
       }
 
+      function escapeAttribute(value) {
+        return escapeHtml(value).replaceAll('"', "&quot;").replaceAll("'", "&#39;")
+      }
+
+      function shellSingleQuote(value) {
+        return `'${value.replaceAll("'", `'"'"'`)}'`
+      }
+
+      function shellDoubleQuoteFragment(value) {
+        return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("$", "\\$").replaceAll("`", "\\`")
+      }
+
+      function terminalDownloadCommand(job, artifact) {
+        const name = shellDoubleQuoteFragment(artifact.name)
+        const url = new URL(`/api/artifacts/${job.id}/${encodeURIComponent(artifact.name)}`, location.origin).href
+        return `output="$HOME/Downloads/${name}"; url=${shellSingleQuote(url)}; finish() { xattr -d com.apple.quarantine "$output" 2>/dev/null || true; open "$output"; }; remote_size=$(curl --fail --silent --show-error --location --head "$url" | awk 'tolower($1) == "content-length:" { gsub("\\r", "", $2); size=$2 } END { print size }'); local_size=$(stat -f%z "$output" 2>/dev/null || echo 0); if [ -n "$remote_size" ] && [ "$local_size" -eq "$remote_size" ]; then finish; elif [ -n "$remote_size" ] && [ "$local_size" -gt 0 ] && [ "$local_size" -lt "$remote_size" ]; then curl --fail --location --retry 3 --continue-at - --output "$output" "$url" && finish; else curl --fail --location --retry 3 --output "$output" "$url" && finish; fi`
+      }
+
+      async function copyText(value) {
+        const copied = navigator.clipboard
+          ? await navigator.clipboard.writeText(value).then(() => true).catch(() => false)
+          : false
+        if (copied) return true
+        const textarea = document.createElement("textarea")
+        textarea.value = value
+        textarea.style.position = "fixed"
+        textarea.style.opacity = "0"
+        document.body.append(textarea)
+        textarea.select()
+        const fallback = document.execCommand("copy")
+        textarea.remove()
+        return fallback
+      }
+
       function upsertJob(job) {
         const index = app.jobs.findIndex((candidate) => candidate.id === job.id)
         if (index === -1) app.jobs.unshift(job)
@@ -263,9 +297,19 @@
         log.textContent = job.log || "等待执行..."
         if (nearBottom) log.scrollTop = log.scrollHeight
         $("artifacts").hidden = !job.artifacts.length
-        $("artifacts").innerHTML = job.artifacts.map((artifact) =>
-          `<a class="artifact" href="/api/artifacts/${job.id}/${encodeURIComponent(artifact.name)}">下载 ${escapeHtml(artifact.name)} · ${formatSize(artifact.size)}</a>`
-        ).join("")
+        $("artifacts").innerHTML = job.artifacts.flatMap((artifact) => [
+          `<a class="artifact" href="/api/artifacts/${job.id}/${encodeURIComponent(artifact.name)}">下载 ${escapeHtml(artifact.name)} · ${formatSize(artifact.size)}</a>`,
+          ...(job.target.startsWith("mac-") && artifact.name.toLowerCase().endsWith(".dmg")
+            ? [`<button class="artifact terminal-download" type="button" data-name="${escapeAttribute(artifact.name)}">终端下载（复制命令）</button>`]
+            : []),
+        ]).join("")
+        document.querySelectorAll(".terminal-download").forEach((button) => button.addEventListener("click", async () => {
+          const artifact = job.artifacts.find((candidate) => candidate.name === button.dataset.name)
+          if (!artifact) return toast("未找到对应安装包", true)
+          const command = terminalDownloadCommand(job, artifact)
+          if (await copyText(command)) return toast("终端下载命令已复制，请打开终端粘贴并回车")
+          window.prompt("请复制下面的命令到终端执行", command)
+        }))
       }
 
       function renderGit() {
@@ -276,9 +320,10 @@
         const selected = $("local-branch").value
         const selectedBase = $("baseBranch").value
         $("local-branch").innerHTML = app.git.branches.map((branch) => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join("")
-        $("baseBranch").innerHTML = app.git.branches.map((branch) => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join("")
+        $("local-base-branch-options").innerHTML = app.git.branches.map((branch) => `<option value="${escapeHtml(branch)}"></option>`).join("")
         $("local-branch").value = app.git.branches.includes(selected) ? selected : app.git.current
         $("baseBranch").value = app.git.branches.includes(selectedBase) ? selectedBase : app.git.current
+        $("baseBranch").placeholder = "搜索并选择本地分支"
         $("switch-branch").disabled = app.git.dirty
         updateBuildButton()
       }
@@ -356,6 +401,7 @@
       $("build-form").addEventListener("submit", async (event) => {
         event.preventDefault()
         const data = Object.fromEntries(new FormData(event.currentTarget))
+        if (!app.git?.branches.includes(data.baseBranch)) return toast("请从本地分支列表中选择有效的基础代码分支", true)
         if (!app.remoteBranches.includes(data.branch)) return toast("请从远端分支列表中选择有效分支", true)
         $("submit-build").disabled = true
         const response = await fetch("/api/jobs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) })
@@ -372,7 +418,9 @@
       $("refresh-local-branches").addEventListener("click", () => refreshLocalBranches(true).catch(() => toast("本地分支刷新失败", true)))
       $("target").addEventListener("change", () => {
         app.git = null
-        $("baseBranch").innerHTML = '<option value="">正在读取对应构建机分支...</option>'
+        $("baseBranch").value = ""
+        $("baseBranch").placeholder = "正在读取对应构建机分支..."
+        $("local-base-branch-options").innerHTML = ""
         refreshLocalBranches().catch(() => toast("构建机分支读取失败", true))
       })
 
