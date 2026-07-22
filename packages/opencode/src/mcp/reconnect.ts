@@ -28,24 +28,6 @@ const triggeredReconnectFlags = new Set<string>()
 /** handler 安装时间戳（用于 aliveMs 计算） */
 const handlerInstalledAt = new Map<string, number>()
 
-/** 活跃 session 计数（加 1 = 开始处理，减 1 = 结束）。>0 表示有用户对话正在进行。 */
-let activeSessionCount = 0
-
-/** 标记活跃 session 开始 */
-export function markSessionActive() {
-  activeSessionCount++
-}
-
-/** 标记活跃 session 结束 */
-export function markSessionInactive() {
-  if (activeSessionCount > 0) activeSessionCount--
-}
-
-/** 检查当前是否有活跃的用户对话 */
-function hasActiveSession(): boolean {
-  return activeSessionCount > 0
-}
-
 // === 辅助函数 ===
 
 function isTerminalConnectionError(msg: string): boolean {
@@ -517,22 +499,6 @@ function triggerReconnect(
       clientAgeMs: clientAgeMs(name),
     })
     return
-  }
-
-  // 静默保护：被动网络事件（onerror/onclose）在没有活跃对话时只记录日志，不触发重连。
-  // 等用户下次发消息时，tools() 的 preflight 会主动检查并发起重连。
-  // 这样避免后台无用户交互时 MCP 反复重连导致状态抖动。
-  // tools-preflight 和 tool-execute 来源本身就在用户对话中，不受此限制。
-  if (source.startsWith("onerror") || source === "onclose-fallback") {
-    if (!hasActiveSession()) {
-      log.info("[reconnect] trigger suppressed - no active session, deferring to next tools() preflight", {
-        name,
-        source,
-        reason,
-        currentStatus: s.status[name]?.status,
-      })
-      return
-    }
   }
 
   triggeredReconnectFlags.add(name)
@@ -1094,11 +1060,6 @@ function reconnectWithBackoff(name: string, ctx: ReconnectContext): Effect.Effec
           error: lastError,
         })
 
-        // 首次失败后立即清掉 triggeredReconnectFlags，让后续 preflight 能重新触发重连。
-        // 这样如果重连还在进行中但下一次 tools() 调用到来，preflight 可以再触发一次 triggerReconnect
-        // （被 activeReconnects 防重入拦住），但不会因为标志残留而跳过。
-        triggeredReconnectFlags.delete(name)
-
         // 最后一次不再等待
         if (attempt < MAX_RECONNECT_ATTEMPTS) {
           const delay = backoffMs(attempt)
@@ -1131,7 +1092,7 @@ function reconnectWithBackoff(name: string, ctx: ReconnectContext): Effect.Effec
       // 关键：清掉已触发标志，否则下次 tools() 的 preflight 会因为标志残留而跳过，
       // server 进入"永久死"状态，只能靠用户手动 disconnect→connect 恢复。
       // 清掉后，下次用户发消息触发 tools() 时，preflight 会发现 status=failed + 无 client，
-      // 重新触发一轮重连。
+      // 重新触发一轮 5 次重连。
       triggeredReconnectFlags.delete(name)
       log.error("[reconnect] failed - max attempts reached", {
         name,
