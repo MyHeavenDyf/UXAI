@@ -1,17 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, useAttrs, watch } from "vue"
-import type { Component } from "vue"
 import { ElTree } from "element-plus"
 import type { TreeNodeNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
-import { getIconComponentRef } from "../Icon/IconBase"
+import { getIconComponentRef, createIconRenderer } from "../Icon/IconBase"
 import "./Tree.less"
 
 interface TreeNodeData {
   label: string
   id: string
-  icon?: Component
+  icon?: (() => any) | undefined
   children?: TreeNodeData[]
 }
 
@@ -93,40 +92,36 @@ const rawTreeData = computed<RawNode[]>(() => {
   return opts.map(toRawNode)
 })
 
-// ---- 异步图标解析 ----
-async function resolveIcons(nodes: RawNode[]): Promise<TreeNodeData[]> {
-  return Promise.all(
-    nodes.map(async (node) => {
-      let icon: Component | undefined
-      if (node.iconName) {
-        const refComp = await getIconComponentRef(node.iconName, { size: 14 })
-        icon = refComp?.component ?? undefined
-      }
-      return {
-        label: node.label,
-        id: node.id,
-        icon,
-        ...(node.children ? { children: await resolveIcons(node.children) } : {}),
-      }
-    }),
-  )
+// ---- 图标解析（同步，使用 createIconRenderer 封装为 Element Plus 可接受的 Component） ----
+function resolveIcons(nodes: RawNode[]): TreeNodeData[] {
+  return nodes.map((node) => {
+    let icon: (() => any) | undefined
+    if (node.iconName) {
+      const refComp = getIconComponentRef(node.iconName, { size: 14 })
+      icon = createIconRenderer(refComp) ?? undefined
+    }
+    return {
+      label: node.label,
+      id: node.id,
+      icon,
+      ...(node.children ? { children: resolveIcons(node.children) } : {}),
+    }
+  })
 }
 
 const treeData = ref<TreeNodeData[]>([])
 
 watch(
   rawTreeData,
-  async (raw) => {
-    treeData.value = await resolveIcons(raw)
+  (raw) => {
+    treeData.value = resolveIcons(raw)
   },
   { immediate: true, deep: true },
 )
 
 // ---- 展开/折叠图标 ----
-const expandIcon = ref<Component>()
-getIconComponentRef("chevron-right").then((r) => {
-  expandIcon.value = r?.component ?? undefined
-})
+const expandIconRef = getIconComponentRef("chevron-right", { size: 14 })
+const expandIcon = ref<(() => any) | undefined>(createIconRenderer(expandIconRef))
 
 const treeRef = ref<InstanceType<typeof ElTree>>()
 

@@ -1,8 +1,9 @@
-
 import * as LucideIcons from "lucide-vue-next"
-import { markRaw, ref, watch, type Ref } from "vue"
-import type { Component } from "vue"
-import { hasHuiIcons, iconNameMap, huiIconCache } from "../../composables/useIconProvider"
+import { h, markRaw, shallowRef, ref, watch, type Ref } from "vue"
+import type { Component, VNode } from "vue"
+import HuiSvgIcon from "./HuiSvgIcon.vue"
+import { hasHuiIcons, iconNameMap, iconIdMap, svgCache } from "../../composables/useIconProvider"
+import { mapShapeToApiStyle, getStyleValue } from "../../utils/fetchSvg"
 
 export const sizeConfig = {
   xs: 12,
@@ -87,42 +88,61 @@ const toPascalCase = (str: string) => {
     .join("")
 }
 
-const huiIconModules = import.meta.glob("../../../node_modules/@hui/icon-plus-vue/icons/*.js")
 /**
- * 获取 hui 图标组件引用（动态 import + 缓存）
+ * 获取 hui 图标组件引用（从 svgCache 同步查找）
+ *
  * @param name - A2UI 图标名称（如 "activity"、"x"）
- * @returns 对应的 hui 组件，若无法获取则返回 null
+ * @param shape - 图标形状（用于确定缓存键中的 style）
+ * @returns { component: HuiSvgIcon, props } 或 null（未找到时回退到 lucide）
  */
-export async function getHuiIconComponentRef(name: string): Promise<Component | null> {
+export function getHuiIconComponentRef(
+  name: string,
+  shape?: string,
+): { component: Component; props: Record<string, any> } | null {
   if (!name || !hasHuiIcons.value) return null
 
-  const huiComponentName = iconNameMap.value[name]
-  if (!huiComponentName) return null
+  const componentName = iconNameMap.value[name]
+  if (!componentName) return null
 
-  // 命中缓存
-  const cached = huiIconCache.get(huiComponentName)
-  if (cached) return cached
+  const iconId = iconIdMap.value[name]
+  if (!iconId) return null
 
-  const modulePath = `../../../node_modules/@hui/icon-plus-vue/icons/${huiComponentName}.js`
-  const loadModule = huiIconModules[modulePath]
-  if (!loadModule) {
+  // 根据 shape 确定缓存键中的 style
+  const apiStyle = mapShapeToApiStyle(shape)
+  const cacheKey = `${iconId}:${apiStyle}`
+  const cachedSvg = svgCache.get(cacheKey)
+
+  // filled 没找到时退回 line
+  if (!cachedSvg && apiStyle === getStyleValue('filled')) {
+    const lineKey = `${iconId}:${getStyleValue('border')}`
+    const lineSvg = svgCache.get(lineKey)
+    if (lineSvg) {
+      return {
+        component: markRaw(HuiSvgIcon),
+        props: {
+          iconId,
+          svgHtml: lineSvg,
+          size: HUI_ICON_SIZE,
+          type: mapShapeToHuiType(shape),
+          iconColor: mapColorToHuiColor(undefined),
+        },
+      }
+    }
     return null
   }
-  try {
-    // 按需加载单个图标组件，避免加载整个 @hui/icon-plus-vue 包
-    const mod = (await loadModule()) as { default?: Component }
-    const component = mod.default ?? (mod as any)[huiComponentName]
 
-    if (component) {
-      const raw = markRaw(component as Component)
-      huiIconCache.set(huiComponentName, raw)
-      return raw
-    }
-  } catch (err) {
-    console.warn(`[IconBase] 动态导入 hui 图标失败: ${huiComponentName}`, err)
+  if (!cachedSvg) return null
+
+  return {
+    component: markRaw(HuiSvgIcon),
+    props: {
+      iconId,
+      svgHtml: cachedSvg,
+      size: HUI_ICON_SIZE,
+      type: mapShapeToHuiType(shape),
+      iconColor: mapColorToHuiColor(undefined),
+    },
   }
-
-  return null
 }
 
 /**
@@ -182,33 +202,31 @@ export interface IconComponentRefOptions {
  * @param name - A2UI 图标名称（如 "activity"）
  * @param options - 可选，lucide 格式属性，hui 时自动映射
  * @returns { component, props } 可直接 v-bind 到 <component :is>
- *          hui 不可用时退回 lucide
+ *          hui 不可用或 SVG 未缓存时退回 lucide
  */
-export async function getIconComponentRef(
+export function getIconComponentRef(
   name: string,
   options?: IconComponentRefOptions,
-): Promise<{ component: Component | null; props: Record<string, any> } | null> {
+): { component: Component | null; props: Record<string, any> } | null {
   if (!name) return null
 
   // ----- hui 分支 -----
   if (hasHuiIcons.value && iconNameMap.value[name]) {
-    const component = await getHuiIconComponentRef(name)
-    if (!component) return null
-    return {
-      component,
-      props: {
-        size: options?.size ?? HUI_ICON_SIZE,
-        type: mapShapeToHuiType(options?.shape),
-        iconColor: mapColorToHuiColor(options?.color),
-      },
+    const huiRef = getHuiIconComponentRef(name, options?.shape)
+    if (huiRef) {
+      // 覆盖 size 和 iconColor（如果 options 有指定）
+      if (options?.size) huiRef.props.size = options.size
+      if (options?.color) huiRef.props.iconColor = mapColorToHuiColor(options.color)
+      return huiRef
     }
+    // hui SVG 未缓存，回退到 lucide
   }
 
   // ----- lucide 分支 -----
   const componentName = toPascalCase(name)
   const component = (LucideIcons as any)[componentName] || LucideIcons.CircleEllipsis
   return {
-    component,
+    component: markRaw(component),
     props: {
       size: options?.size ?? 24,
       color: resolveIconColor(options?.color),
@@ -218,7 +236,7 @@ export async function getIconComponentRef(
 }
 
 /**
- * 响应式图标解析 - 监听图标名称变化，自动异步解析出 { component, props }
+ * 响应式图标解析 - 监听图标名称变化，自动解析出 { component, props }
  *
  * 适用于模板中无法直接 await 的场景：
  * @example
@@ -232,16 +250,38 @@ export function useIconComponentRef(
   nameRef: Ref<string | undefined | null>,
   options?: IconComponentRefOptions,
 ): Ref<{ component: Component | null; props: Record<string, any> } | null> {
-  const resolved = ref<{ component: Component | null; props: Record<string, any> } | null>(null)
+  const resolved = shallowRef<{ component: Component | null; props: Record<string, any> } | null>(null)
 
   watch(
     nameRef,
-    async (val) => {
+    (val) => {
       if (!val) { resolved.value = null; return }
-      resolved.value = await getIconComponentRef(val, options)
+      resolved.value = getIconComponentRef(val, options)
     },
     { immediate: true },
   )
 
   return resolved
+}
+
+/**
+ * 创建图标渲染器（用于 Pattern B 消费者 —— Element Plus :icon prop）
+ *
+ * Element Plus 的 :icon 属性接受 Component 类型。
+ * 对于 HuiSvgIcon 组件，需要同时传递 props（iconId/svgHtml 等），
+ * 但 Element Plus 只接受 component 而不展开 props。
+ *
+ * 此函数返回一个函数式组件（渲染函数），将 component + props 封装为
+ * 一个可被 Element Plus :icon 接受的 Component。
+ *
+ * @param iconRef - getIconComponentRef / useIconComponentRef 返回的 { component, props }
+ * @returns 函数式组件（() => VNode），可直接传给 Element Plus :icon
+ */
+export function createIconRenderer(
+  iconRef: { component: Component | null; props: Record<string, any> } | null,
+): (() => VNode) | undefined {
+  if (!iconRef?.component) return undefined
+  const comp = iconRef.component
+  const props = iconRef.props
+  return () => h(comp!, props)
 }

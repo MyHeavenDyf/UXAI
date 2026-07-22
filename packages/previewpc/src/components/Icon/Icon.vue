@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, shallowRef, ref, watch } from "vue"
-import { getLucideIconComponentRef, getHuiIconComponentRef, sizeConfig, HUI_ICON_SIZE, mapShapeToHuiType, mapColorToHuiColor } from "./IconBase"
+import { getIconComponentRef, sizeConfig, HUI_ICON_SIZE, mapShapeToHuiType, mapColorToHuiColor } from "./IconBase"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import type { IconNode } from "../types"
@@ -19,32 +19,27 @@ const id = computed(() => node.id)
 const className = computed(() => properties.className || "")
 const name = computed(() => (resolveValue(properties.name) as string) || "")
 
-// ========== 图标组件解析（支持 hui / lucide 双源） ==========
-const resolvedComponent = shallowRef<any>(null)
+// ========== 图标组件解析（使用 getIconComponentRef 统一路径） ==========
+const resolved = shallowRef<{ component: any; props: Record<string, any> } | null>(null)
 const isHuiIcon = ref(false)
 
 watch(
   name,
-  async (newName) => {
+  (newName) => {
     if (!newName) {
-      resolvedComponent.value = null
+      resolved.value = null
       isHuiIcon.value = false
       return
     }
 
-    // 优先使用 hui 图标（当依赖存在且有映射时）
-    if (hasHuiIcons.value && iconNameMap.value[newName]) {
-      const huiRef = await getHuiIconComponentRef(newName)
-      if (huiRef) {
-        resolvedComponent.value = huiRef
-        isHuiIcon.value = true
-        return
-      }
-    }
+    // 使用统一的 getIconComponentRef — 自动判断 hui/lucide
+    const shape = resolveValue(properties.shape) as string | undefined
+    const color = resolveValue(properties.color) as string | undefined
+    const result = getIconComponentRef(newName, { shape, color })
+    resolved.value = result
 
-    // 回退到 lucide 图标
-    resolvedComponent.value = getLucideIconComponentRef(newName)
-    isHuiIcon.value = false
+    // 判断是否为 hui 图标（用于样式差异化）
+    isHuiIcon.value = hasHuiIcons.value && !!iconNameMap.value[newName] && !!result?.props?.iconId
   },
   { immediate: true },
 )
@@ -142,18 +137,19 @@ const wrapperStyle = computed(() => {
 
 <template>
   <div :id="id" :style="wrapperStyle" class="icon-base" :class="className">
-    <!-- hui 图标 -->
+    <!-- hui 图标（HuiSvgIcon 组件，通过 v-bind 展开 props） -->
     <component
-      v-if="isHuiIcon && resolvedComponent"
-      :is="resolvedComponent"
+      v-if="isHuiIcon && resolved"
+      :is="resolved.component"
+      v-bind="resolved.props"
       :size="huiIconSize"
       :type="huiIconType"
       :iconColor="huiIconColor"
     />
     <!-- lucide 图标 -->
     <component
-      v-else-if="resolvedComponent"
-      :is="resolvedComponent"
+      v-else-if="resolved"
+      :is="resolved.component"
       :style="iconSizeStyle"
       :color="(bgShape === 'fill' || bgShape === 'square') ? '#fff' : color"
       :stroke-width="2"

@@ -130,8 +130,9 @@ const resolvedIcon = computed(() => {
   return {
     component: base.component,
     props: isHui
-      ? { iconSize: resolveIconSize(),
-         type: base.props.type,
+      ? { ...base.props,
+          size: resolveIconSize(),
+          type: base.props.type,
           iconColor: [colorValue],
           hoverColor: onlyIcon.value ? [isDark.value ? 'var(--brand-20)' : 'var(--brand-40)'] : undefined,
         }
