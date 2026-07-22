@@ -214,6 +214,7 @@ export function ArchiveDialogs(props: {
           sessionId={sessionId()}
           filePath={filePath()}
           tabTitle={tabTitle()}
+          showDeliverables={props.target?.mode === "html"}
         />
       </Show>
       <Show when={successOpen()}>
