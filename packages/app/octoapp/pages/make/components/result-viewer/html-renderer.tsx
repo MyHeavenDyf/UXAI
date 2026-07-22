@@ -280,6 +280,8 @@ export function HtmlRenderer(props: {
         collisionOverlay.style.visibility = 'hidden'
       }
       
+      await new Promise(resolve => requestAnimationFrame(resolve))
+      
       const screenshotBlob = await capturePageScreenshot(iframeRef)
       
       if (overlay) {

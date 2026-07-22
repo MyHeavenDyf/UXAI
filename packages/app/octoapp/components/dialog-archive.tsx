@@ -236,9 +236,11 @@ interface Props {
   sessionId: string
   filePath: string
   tabTitle: string
+  showDeliverables?: boolean
 }
 
 export function ArchiveDialog(props: Props): JSX.Element {
+  const showDeliverablesSection = () => props.showDeliverables !== false
   const [spaceType, setSpaceType] = createSignal<SpaceType>("project")
   const [productTree, setProductTree] = createSignal<ProductTreeData>(MOCK_PRODUCT_TREE)
   const [selectedProductId, setSelectedProductId] = createSignal<number | null>(null)
@@ -528,7 +530,9 @@ export function ArchiveDialog(props: Props): JSX.Element {
     const node = item as { label: string }
     setSelectedFolderId(id)
     setSelectedFolder({ label: node.label })
-    fetchDeliverables(id)
+    if (showDeliverablesSection()) {
+      fetchDeliverables(id)
+    }
   }
 
   const handleTeamSelect = (id: string, item: { label: string }) => {
@@ -570,7 +574,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
                 if (folder) {
                   setSelectedFolderId(folder.id)
                   setSelectedFolder({ label: folder.label })
-                  fetchDeliverables(folder.id)
+                  if (showDeliverablesSection()) fetchDeliverables(folder.id)
                 } else {
                   autoSelectFirstFolder(productTeamList())
                 }
@@ -589,7 +593,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
                   if (folder) {
                     setSelectedFolderId(folder.id)
                     setSelectedFolder({ label: folder.label })
-                    fetchDeliverables(folder.id)
+                    if (showDeliverablesSection()) fetchDeliverables(folder.id)
                   } else {
                     autoSelectFirstFolder(version.children)
                   }
@@ -612,7 +616,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
                 if (folder) {
                   setSelectedFolderId(folder.id)
                   setSelectedFolder({ label: folder.label })
-                  fetchDeliverables(folder.id)
+                  if (showDeliverablesSection()) fetchDeliverables(folder.id)
                 } else {
                   autoSelectFirstFolder(productTeamList())
                 }
@@ -630,7 +634,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
                   if (folder) {
                     setSelectedFolderId(folder.id)
                     setSelectedFolder({ label: folder.label })
-                    fetchDeliverables(folder.id)
+                    if (showDeliverablesSection()) fetchDeliverables(folder.id)
                   } else {
                     autoSelectFirstFolder(version.children)
                   }
@@ -664,7 +668,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
               if (folder) {
                 setSelectedFolderId(folder.id)
                 setSelectedFolder({ label: folder.label })
-                fetchDeliverables(folder.id)
+                if (showDeliverablesSection()) fetchDeliverables(folder.id)
               } else {
                 autoSelectFirstFolder(folderTree)
               }
@@ -677,7 +681,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
               if (folder) {
                 setSelectedFolderId(folder.id)
                 setSelectedFolder({ label: folder.label })
-                fetchDeliverables(folder.id)
+                if (showDeliverablesSection()) fetchDeliverables(folder.id)
               } else {
                 autoSelectFirstFolder()
               }
@@ -728,7 +732,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
         isOverwrite,
         existingDeliverableId: isOverwrite ? deliverables()[0]?.id : undefined,
         existingDocId: isOverwrite ? deliverables()[0]?.docId : undefined,
-        existingDeliverables: deliverables()
+        existingDeliverables: showDeliverablesSection() ? deliverables() : []
       }
 
       await props.onConfirm(data)
@@ -741,6 +745,10 @@ export function ArchiveDialog(props: Props): JSX.Element {
   }
 
   const handleConfirm = async () => {
+    if (!showDeliverablesSection()) {
+      await executeArchive(false)
+      return
+    }
     if (hasMatchingDeliverable()) {
       setShowCollisionOverlay(true)
       return
@@ -927,7 +935,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
                 </Show>
               </Show>
 
-              <Show when={selectedFolderId() !== null}>
+              <Show when={selectedFolderId() !== null && showDeliverablesSection()}>
                 <div class="archive-step">
                   <div class="archive-step-title">归档原型</div>
                   <div class="archive-step-content">
@@ -988,16 +996,6 @@ export function ArchiveDialog(props: Props): JSX.Element {
                         <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                       </svg>
                       <span>覆盖这些页面</span>
-                    </button>
-                    <button
-                      type="button"
-                      class="archive-dialog-collision-option"
-                      onClick={() => setShowCollisionOverlay(false)}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                      </svg>
-                      <span>跳过</span>
                     </button>
                   </div>
                   <button
