@@ -64,6 +64,38 @@ Make agent 从通用英文提示演进为中文 `<artifact>` 标签格式，支�
 - 新增「防循环」规则：用户已选 `[skip-plan]` 后，本会话内 agent 不再发 sentinel，直接生成 HTML（除非用户明确要求"先规划"）
 - 配套前端改动（在 packages/app，非本目录）：新建 `plan-entry-banner.tsx` 引导横条，scanner 加 `isPlanIntentResolved` 函数推断 sentinel 是否已被响应
 
+### 强化 sentinel 输出可靠性（2026-07-13）
+
+- `src/agent/prompt/octo_make.txt`：重写「工作流程」章节，从「规则说明」改为「回复模板 + 违规案例」格式
+- 原因：agent 有时跳过 `[design-plan-intent]` sentinel，直接输出自然语言或 HTML artifact，导致 banner 不显示
+- 改动：
+  1. 新增「回复模板」：明确要求回复必须以 `[design-plan-intent]` 开头（判断为生成时）或纯文字（非生成时）
+  2. 新增「违规案例」：列出 5 种常见违规模式（以"我来帮你生成"开头、以"好的"开头、sentinel 后有额外文字等）
+  3. 工作流从 4 步改为 5 步，sentinel 必须是回复的**第一个词**，前面不能有任何文字/空格/换行
+  4. 移除"复杂需求才触发"的语义，改为"任何生成需求都触发"（第 1 步判断为生成 → 立刻发 sentinel）
+
+### 修复子 agent 不输出 design-plan artifact（2026-07-13）
+
+- `src/agent/prompt/octo_make_plan.txt`：重写「工作流程」和「能力边界」章节
+- 原因：子 agent `octo_make_plan` 收到 prompt 后先调用 `read` 工具读工作目录（触发权限弹窗），然后输出文字说明但未输出 `<artifact>` 标签，导致 `planCard` 检测不到设计文档，用户看不到确认按钮
+- 改动：
+  1. 新增「核心规则」章节：要求回复必须以 `<artifact type="text/design-plan">` 开头直接输出文档
+  2. 新增「回复模板」：明确 artifact 格式，禁止在 artifact 前输出任何文字
+  3. 工作流改为"直接输出 → 等待反馈 → 用户确认"三步
+  4. 工具调用（read/websearch）只能在输出初始 artifact 之后的迭代阶段使用
+  5. 权限保持 `read: "ask"`、`websearch: "allow"` 不变
+
+### 强化子 agent 强制输出 artifact 规则（2026-07-13）
+
+- `src/agent/prompt/octo_make_plan.txt`：将"强制规则"提升到 prompt 最前面，文档结构模板放到后面
+- 原因：之前的 prompt 中"直接输出"指令被 70 行文档结构模板淹没，agent 优先调用 read 工具而非直接输出 artifact
+- 改动：
+  1. 新增「强制规则（必须遵守）」章节作为 prompt 第一段，明确 4 条硬性约束
+  2. 规则 1：第一次回复必须以 `<artifact type="text/design-plan">` 开头
+  3. 规则 2：输出 artifact 之后才允许调用 read/websearch 工具
+  4. 规则 3：用户确认前保持等待
+  5. 规则 4：禁止第一次回复调用工具或输出说明文字
+
 ### 允许 write 工具但约束到 artifact 目录（2026-06-30）
 
 - `src/agent/prompt/octo_make.txt`：放宽三处对 write 工具的硬性禁止（第 6、29、173 行），改为条件允许——默认仍用 `<artifact>` 标签；仅当用户明确要求用 write 工具时才允许，且写入路径必须限定在 `.octo/artifacts/make/<sessionId>/` 目录内。
@@ -77,3 +109,17 @@ Make agent 从通用英文提示演进为中文 `<artifact>` 标签格式，支�
 - 配套前端改动（在 packages/app，非本目录）：`pages/make/index.tsx` 的 `sendMessage()` 在原有 `[Artifact Folder]` 注入基础上，调 `sdk.client.file.list` 扫描 `.octo/artifacts/make/<sessionId>/` 目录下已存在的文件，注入 `[Existing artifacts in this session]` 列表（每轮 sendMessage 重新扫盘，保证列表新鲜）。
 - 原因：用户希望同会话里改之前的产物时，agent 直接 edit 文件而非重新输出完整 `<artifact>`，省 token 也更符合"修改"语义。文件列表由前端注入而非 agent 自行 ls，是为了减少 tool call 轮次，并确保 agent 拿到准确的绝对路径。
 
+### 设计规划改为两步走工作流（2026-07-16）
+
+- `src/agent/prompt/octo_make_plan.txt`：完全重写为两阶段工作流
+- 原因：用户希望在"点击进入"和"输出设计文档"之间增加一个"策略准备"阶段，让子 agent 先通过对话收集信息并填写策略表单，用户确认后再生成完整文档
+- 改动：
+  1. **第一阶段（策略准备）**：与用户对话，提取关键信息后立即用 `<artifact type="text/strategy-field" field="字段名">值</artifact>` 输出到对应字段（需求背景/设计目标/设计方法/其他/用户画像/用户旅程/研究报告）
+  2. **第二阶段（设计规划生成）**：收到 `[strategy-complete]` 后，根据表单信息输出完整 `<artifact type="text/design-plan">` 文档
+  3. 新增强制规则：第一阶段禁止输出 design-plan，第二阶段必须先分析再输出文档
+  4. 工具调用（read/websearch）只能在第二阶段使用
+- 配套前端改动（在 packages/app）：
+  - `pages/make/index.tsx`：新增 `planPhase` signal（"strategy" | "generate"）、`strategyFormData` memo、`handleGenerateStrategy()` 函数、`manualStrategyFormData` signal 用于用户手动编辑
+  - `pages/make/utils/strategy-form-scanner.ts`：新建，解析子 agent 输出的 strategy-field artifact
+  - `pages/make/components/result-viewer/strategy-form-renderer.tsx`：新建，策略表单 UI 组件（7 个字段分两块：设计需求 + 洞察研究）
+  - `pages/make/components/result-viewer/index.tsx`：新增 props（planPhase/strategyFormData/onStrategyFieldChange/onGenerateStrategy/isGenerating），按 phase 分发渲染 StrategyFormRenderer 或 DesignPlanRenderer

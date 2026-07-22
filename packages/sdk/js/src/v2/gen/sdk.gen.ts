@@ -5381,6 +5381,7 @@ export class Generations extends HeyApiClient {
         | "image.fusion"
       prompt?: string
       displayPrompt?: string
+      detailPrompt?: string
       refinedPrompt?: string
       effectivePrompt?: string
       styleModel?: string
@@ -5406,6 +5407,7 @@ export class Generations extends HeyApiClient {
             { in: "body", key: "capability" },
             { in: "body", key: "prompt" },
             { in: "body", key: "displayPrompt" },
+            { in: "body", key: "detailPrompt" },
             { in: "body", key: "refinedPrompt" },
             { in: "body", key: "effectivePrompt" },
             { in: "body", key: "styleModel" },
