@@ -159,6 +159,21 @@ SPEC-INS-014 文件管理器面板的用户操作。删除（单个 / 批量）�
 
 > 注：`attachment-upload-result` 现仅用于**图片** S3 上传结果，extend 带 `kind:"image"`；非图片附件走本地导入、结果打 `attachment-import-result`。
 
+### 批次 4 — MCP 任务结果成败（`server-` 前缀，服务端真实使用）
+
+`server-mcp-used` 统计的是 MCP 业务工具**被调用并提交长任务**（提交时刻，每 `task_id` 一次）。批次 4 补它的**完成侧**对偶：任务真正跑出终态（成功 / 失败）时再打一次，用于算 MCP 调用成功率、失败分布。属「模型 / 服务端真实使用」，沿用 `server-` 前缀。
+
+| name | 功能（统计什么） | 打在哪 | extend |
+|---|---|---|---|
+| `server-mcp-result` | 某业务 MCP 任务跑出终态（`completed`→success / `failed`→failure），每 `task_id` 一次 | `insight-turn.tsx` server-usage effect（与 `server-mcp-used` 同一 effect） | `{tool, taskId, status: "success"/"failure"}` |
+
+命名 / 落点约定：
+
+- 与 `server-mcp-used` 一对：`used` = 提交侧、`result` = 完成侧，`taskId` 可打通两者算漏斗 / 时延。
+- 只在 `completed` / `failed` 两个终态打；`stopped`（用户终止，已由 `task-stop` 覆盖）、`pending` / `processing`（未出结果）**不打**——对齐「出结果了（成功或失败）才打」。
+- `status` 归一化为 `success` / `failure`（不直接透传 TaskStatus 枚举，分析侧只关心成败二分）。
+- **必须配 baseline 快照 + 去重 set**（与 `server-mcp-used` 同规则）：复用模块级 `trackedServerUsageKeys`，key 用 `mcp-result:${taskId}` 前缀（与提交侧 `mcp:${taskId}` 区分）；首次观测本 turn 时把已终态的历史任务记入 baseline 不上报，避免刷新 / 切回历史会话把旧结果当新事件虚增。
+
 ## 五、验证
 
 每批合入前按 `/docs/tracker.md` 验证流程：

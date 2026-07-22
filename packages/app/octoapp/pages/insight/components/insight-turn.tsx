@@ -414,9 +414,27 @@ export function InsightTurn(props: {
       if (skill) usages.push({ key: `skill:${skill.partId}`, kind: "skill", skill: skill.skill })
     }
 
+    // server-mcp-result:server-mcp-used 的「完成侧」对偶——业务 MCP 任务跑出终态时打一次成败,
+    // 与提交侧用 taskId 成对(算成功率 / 时延)。只在 completed(success) / failed(failure) 两个终态打;
+    // stopped(用户终止,已由 task-stop 覆盖)、pending / processing(未出结果)不打。key 用 mcp-result: 前缀
+    // 与提交侧 mcp: 区分,同样纳入 baseline 快照 + trackedServerUsageKeys 去重(避免刷新历史会话虚增)。
+    const results: Array<{ key: string; tool: string; taskId: string; status: "success" | "failure" }> = []
+    for (const t of props.taskCards) {
+      const bare = businessToolBareName(t.toolName)
+      if (!bare) continue
+      if (t.status !== "completed" && t.status !== "failed") continue
+      results.push({
+        key: `mcp-result:${t.taskId}`,
+        tool: bare,
+        taskId: t.taskId,
+        status: t.status === "completed" ? "success" : "failure",
+      })
+    }
+
     if (!usageBaselineTaken) {
       usageBaselineTaken = true
       for (const u of usages) trackedServerUsageKeys.add(u.key)
+      for (const r of results) trackedServerUsageKeys.add(r.key)
       return
     }
 
@@ -436,6 +454,16 @@ export function InsightTurn(props: {
           extend: JSON.stringify({ skill: u.skill }),
         })
       }
+    }
+
+    for (const r of results) {
+      if (trackedServerUsageKeys.has(r.key)) continue
+      trackedServerUsageKeys.add(r.key)
+      tracker.interaction({
+        module: "insight",
+        name: "server-mcp-result",
+        extend: JSON.stringify({ tool: r.tool, taskId: r.taskId, status: r.status }),
+      })
     }
   })
 
