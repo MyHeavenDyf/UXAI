@@ -3,7 +3,7 @@ import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, globSync, createWriteStream } from "node:fs"
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
-import { mkdir, readFile, writeFile, lstat, unlink, rm, copyFile, rename } from "node:fs/promises"
+import { mkdir, readFile, writeFile, lstat, stat, unlink, rm, copyFile, rename } from "node:fs/promises"
 import { dirname, extname, join, basename, resolve as resolvePath, sep } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
@@ -59,7 +59,8 @@ function detectImageExt(buf: Buffer): string {
 // ── SPEC-INS-014 Insight 本地工作目录布局(worktree)共享工具 ────────────────
 // uploads(附件拷贝,v2 由 sources 改名)与 outputs(产物落地)用同一套文件名规则:sanitize + 撞名加后缀。
 // v2(会话隔离):outputs 从一开始按 <sessionId> 分桶;uploads 分两段——
-//   预会话落地区 insight/uploads/(扁平,不属于任何会话)→ 发送时 rename 进 insight/<sessionId>/uploads/。
+//   预会话落地区 .octo/tmps/(扁平,不属于任何会话)→ 发送时 rename 进 .octo/<sessionId>/uploads/。
+// (全局约定:所有本地落点收进 .octo 根,不再有 agent 命名层——会话归属哪个 agent 可由 sessionId 反查。)
 // spec docs/specs/infra/insight-worktree-layout.md §2-4。
 
 // 文件名清洗(spec §3.1):保留 字母/数字/中文/-/_/./;空格→_;其他→_;主名截 100;空名兜底 unnamed。
@@ -98,11 +99,12 @@ function sanitizeSessionSegment(raw: string): string {
   return cleaned || "session"
 }
 
-// write-file 白名单用(v2 会话隔离新增):判断路径是否落在 insight/<sessionId>/{uploads,outputs} 下。
-// sessionId 段可变,不能用固定子串匹配,按路径分段比对——insight 之后第二段必须是 uploads/outputs。
+// write-file 白名单用(v2 会话隔离新增):判断路径是否落在 .octo/<sessionId>/{uploads,outputs} 下。
+// sessionId 段可变,不能用固定子串匹配,按路径分段比对—— .octo 之后第一段是会话段、第二段必须是
+// uploads/outputs(这样 .octo/artifacts/make/... 这类其它命名空间的第二段不是 uploads/outputs,天然不放行)。
 function isInsightSessionWorktreePath(resolved: string): boolean {
   const segs = resolved.split(sep)
-  const i = segs.lastIndexOf("insight")
+  const i = segs.lastIndexOf(".octo")
   return i !== -1 && i + 2 < segs.length && (segs[i + 2] === "uploads" || segs[i + 2] === "outputs")
 }
 
@@ -324,14 +326,14 @@ export function registerIpcHandlers(deps: Deps) {
     await writeFile(destPath, buf)
   })
 
-  // SPEC-INS-014 §4.1:把用户选的源文件**拷贝**进 worktree 预会话落地区(<baseDir>/insight/uploads/)。
+  // SPEC-INS-014 §4.1:把用户选的源文件**拷贝**进 worktree 预会话落地区(<baseDir>/.octo/tmps/)。
   // 对本地路径而言这不是上传,是磁盘流式拷贝(100MB 也无压力);原样拷贝、绝不转格式。
   // S3 上传是另一件只为 MCP 服务的事(走 lib/upload.ts,发预置时 lazy 触发),与本拷贝解耦。
   // v2:没有 sessionId 时也落这里(§4.1.2 预会话落地区);发送时由 move-pending-upload-to-session 挪进真会话。
   ipcMain.handle(
     "copy-file-to-worktree",
     async (_event: IpcMainInvokeEvent, srcPath: string, baseDir: string, filename: string) => {
-      const dir = join(baseDir, "insight", "uploads")
+      const dir = join(baseDir, ".octo", "tmps")
       await ensureWorktreeDir(dir)
       const dest = collisionFreePath(dir, sanitizeWorktreeName(filename))
       try {
@@ -350,13 +352,13 @@ export function registerIpcHandlers(deps: Deps) {
     },
   )
 
-  // SPEC-INS-014 §4.1.2(v2 新增):发送时把预会话落地区(insight/uploads/)里的附件
-  // rename 进真实会话目录(insight/<sessionId>/uploads/)。同一文件系统内的原子操作,
+  // SPEC-INS-014 §4.1.2(v2 新增):发送时把预会话落地区(.octo/tmps/)里的附件
+  // rename 进真实会话目录(.octo/<sessionId>/uploads/)。同一文件系统内的原子操作,
   // 失败(源文件在拷贝完成后被删/移动,极少见)由调用方 catch、不阻断发送。
   ipcMain.handle(
     "move-pending-upload-to-session",
     async (_event: IpcMainInvokeEvent, srcPath: string, baseDir: string, sessionId: string) => {
-      const dir = join(baseDir, "insight", sanitizeSessionSegment(sessionId), "uploads")
+      const dir = join(baseDir, ".octo", sanitizeSessionSegment(sessionId), "uploads")
       await ensureWorktreeDir(dir)
       const dest = collisionFreePath(dir, basename(srcPath))
       try {
@@ -388,17 +390,17 @@ export function registerIpcHandlers(deps: Deps) {
       const safeName = sanitizeWorktreeName(filename)
       // 本会话幂等(spec §2/§4.2):同一张卡已落地的本地副本即用户的「工作文件」——直接复用,
       // 绝不 re-fetch / 覆盖,否则「本地打开/编辑 → 改 → 关闭 → 再打开」会被重新下载的原版盖掉。
-      // 落点改为显性的 insight/<sessionId>/outputs(扁平、撞名加后缀),幂等键由旧的 <id> 目录改为内存表。
+      // 落点改为显性的 .octo/<sessionId>/outputs(扁平、撞名加后缀),幂等键由旧的 <id> 目录改为内存表。
       const known = materializedByNamespace.get(namespace)
       if (known && existsSync(known)) {
         console.log("[octo:worktree] result-materialize", { filename: safeName, path: known, sessionId, reused: true })
         return known
       }
-      // baseDir 与 sessionId 都提供时落 <baseDir>/insight/<sessionId>/outputs/(用户可见、可管理、按会话隔离);
+      // baseDir 与 sessionId 都提供时落 <baseDir>/.octo/<sessionId>/outputs/(用户可见、可管理、按会话隔离);
       // 缺一不可时 fallback 走 OS 临时目录(无项目场景 / 无会话 / 纯一次性预览,非持久)。
       const dir =
         baseDir && baseDir.length > 0 && sessionId && sessionId.length > 0
-          ? join(baseDir, "insight", sanitizeSessionSegment(sessionId), "outputs")
+          ? join(baseDir, ".octo", sanitizeSessionSegment(sessionId), "outputs")
           : join(app.getPath("temp"), "octo")
       await ensureWorktreeDir(dir)
       const destPath = collisionFreePath(dir, safeName)
@@ -456,14 +458,14 @@ export function registerIpcHandlers(deps: Deps) {
 // insight markdown 编辑器自动保存:把编辑后的文本覆盖写回本地产物文件。
   // 渲染进程不是安全边界 —— 主进程独立校验路径,避免被构造路径越权写系统文件。见 §5 / §7。
   // 两类合法目标:
-  //   ① uri 产物:downloadResourceToTemp 落到 <projectDir>/insight/<sessionId>/outputs/ 或 OS 临时目录(octo/);
+  //   ① uri 产物:downloadResourceToTemp 落到 <projectDir>/.octo/<sessionId>/outputs/ 或 OS 临时目录(octo/);
   //   ② write 工具产物(路径 C):Agent 写到任意位置的文件(如 ~/Downloads/...),不在白名单内。
   // 因编辑器只会覆盖"它正在展示的、已落地的本地文件",白名单外只放行"已存在的普通文件"
   // (拒绝凭空新建任意系统文件;拒绝经符号链接越权)。
   ipcMain.handle("write-file", async (_event: IpcMainInvokeEvent, path: string, content: string) => {
     const resolved = resolvePath(path)
     const tempRoot = resolvePath(join(app.getPath("temp"), "octo"))
-    // SPEC-INS-014 v2:产物/附件落点变成 insight/<sessionId>/{uploads,outputs}(会话段可变,故按
+    // SPEC-INS-014 v2:产物/附件落点变成 .octo/<sessionId>/{uploads,outputs}(会话段可变,故按
     // 分段比对而非固定子串);旧 v1 扁平路径(insight/sources、insight/outputs)不再放行 ——
     // Insight tab 是纯内存 signal、不跨重启持久化,不存在"存活 tab 引用旧路径"的场景。
     const inWorktree = isInsightSessionWorktreePath(resolved)
@@ -493,30 +495,40 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("list-directory", async (_event: IpcMainInvokeEvent, dirPath: string) => {
     const results: Array<{ path: string; type: 'file' | 'directory'; size?: number }> = []
-    
+
     if (!existsSync(dirPath)) return results
-    
+
     function walk(currentPath: string, basePath: string) {
       const entries = readdirSync(currentPath, { withFileTypes: true })
       for (const entry of entries) {
         const fullPath = join(currentPath, entry.name)
         const relativePath = fullPath.slice(basePath.length).replace(/^[\/\\]/, '')
-        
+
         if (entry.isDirectory()) {
           walk(fullPath, basePath)
         } else {
           const stat = statSync(fullPath)
-          results.push({ 
-            path: relativePath, 
+          results.push({
+            path: relativePath,
             type: 'file',
             size: stat.size
           })
         }
       }
     }
-    
+
     walk(dirPath, dirPath)
     return results
+  })
+
+  // 轻量存在性检查：只 stat 不读盘，供打开前预检用（避免为判断"文件在不在"把整份文件读进内存）。
+  // 语义与 read-file-buffer 对齐：仅当目标是一个存在的普通文件时返回 true，其余(不存在/是目录/无权限等)一律 false。
+  ipcMain.handle("file-exists", async (_event: IpcMainInvokeEvent, path: string) => {
+    try {
+      return (await stat(path)).isFile()
+    } catch {
+      return false
+    }
   })
 
   ipcMain.handle("delete-file", async (_event: IpcMainInvokeEvent, path: string) => {

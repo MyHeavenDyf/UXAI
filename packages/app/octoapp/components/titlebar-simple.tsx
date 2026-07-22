@@ -100,8 +100,56 @@ export function TitlebarSimple() {
     return dir ? base64Encode(dir) : undefined
   }
 
+  // 检测当前页面是否为"新建对话"状态（URL 中没有 session ID）
+  const isCurrentTabNewConversation = createMemo(() => {
+    const path = location.pathname
+    // chat: /:dir/chat (没有 session ID)
+    if (/^\/[^/]+\/chat\/?$/.test(path)) return true
+    // make: /make (没有 session ID)
+    if (path === "/make") return true
+    // insight/cowork: /insight (没有 session ID)
+    if (path === "/insight") return true
+    // pattern: /pattern (没有 session ID)
+    if (path === "/pattern") return true
+    return false
+  })
+
   const handleTabClick = (tab: TabType) => {
     const path = location.pathname
+
+    // 获取当前 tab 类型
+    const currentTab = activeTab()
+    if (currentTab) {
+      // 记录当前 tab 是否在"新建对话"状态
+      layout.lastSessionPerTab.setNewConversation(currentTab, isCurrentTabNewConversation())
+    }
+
+    // 检查目标 tab 是否在"新建对话"状态
+    if (layout.lastSessionPerTab.newConversation(tab)) {
+      // 目标 tab 之前是新建对话状态，恢复到新建对话
+      if (tab === "cowork") {
+        navigate("/insight")
+        return
+      }
+      if (tab === "make") {
+        navigate("/make")
+        return
+      }
+      if (tab === "pattern") {
+        navigate("/pattern")
+        return
+      }
+      if (tab === "chat") {
+        const dirSlug = getConfigDirSlug()
+        if (dirSlug) navigate(`/${dirSlug}/chat`)
+        return
+      }
+      if (tab === "studio") {
+        const dirSlug = getConfigDirSlug()
+        if (dirSlug) navigate(`/${dirSlug}/studio`)
+        return
+      }
+    }
 
     if (tab === "cowork") {
       const cowork = layout.lastSessionPerTab.cowork()
