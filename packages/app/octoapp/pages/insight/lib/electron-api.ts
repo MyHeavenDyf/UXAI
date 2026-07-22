@@ -20,9 +20,9 @@ export type DesktopApi = {
     baseDir?: string,
     sessionId?: string,
   ) => Promise<string>
-  /** SPEC-INS-014 v2(会话隔离):拷贝源文件进 <baseDir>/insight/uploads/(预会话落地区,撞名加后缀);返回落地路径 */
+  /** SPEC-INS-014 v2(会话隔离):拷贝源文件进 <baseDir>/.octo/tmps/(预会话落地区,撞名加后缀);返回落地路径 */
   copyFileToWorktree?: (srcPath: string, baseDir: string, filename: string) => Promise<string>
-  /** SPEC-INS-014 §4.1.2(v2 新增):发送时把 insight/uploads/ 里的附件 rename 进 <baseDir>/insight/<sessionId>/uploads/ */
+  /** SPEC-INS-014 §4.1.2(v2 新增):发送时把 .octo/tmps/ 里的附件 rename 进 <baseDir>/.octo/<sessionId>/uploads/ */
   movePendingUploadToSession?: (srcPath: string, baseDir: string, sessionId: string) => Promise<string>
   /** 取拖拽/选取 File 的真实本地路径(Electron webUtils.getPathForFile;非桌面端为 undefined) */
   getPathForFile?: (file: File) => string
@@ -30,6 +30,8 @@ export type DesktopApi = {
   writeFile?: (path: string, content: string) => Promise<void>
   /** 读本地文件为二进制(uri markdown 卡读「本地工作副本」回显改动);文件不存在返回 null */
   readFileBuffer?: (path: string) => Promise<ArrayBuffer | null>
+  /** 轻量存在性预检:只 stat 不读盘,仅当路径是存在的普通文件时返回 true(打开卡片前判断文件是否已被删) */
+  fileExists?: (path: string) => Promise<boolean>
   /** 用系统默认浏览器打开外链(shell.openExternal);避免在 Electron webview 内导航后无法返回 */
   openLink?: (url: string) => void
   writeClipboardText?: (text: string) => Promise<void>

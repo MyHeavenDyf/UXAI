@@ -1,4 +1,4 @@
-// SPEC-INS-014 §10:薄封装,拉取 <projectDir>/insight/<sessionId>/{uploads,outputs}/[/path] 列表。
+// SPEC-INS-014 §10:薄封装,拉取 <projectDir>/.octo/<sessionId>/{uploads,outputs}/[/path] 列表。
 // 服务端实现在类型化 HttpApi 的 insight 分组(packages/opencode/.../httpapi/{groups,handlers}/insight.ts)。
 // content/delete/archive/delete-batch 复用站内 artifact 分组的同款端点(它们按绝对 path 操作,
 // 与存储目录无关,insight 文件同样是 projectDir 下的绝对路径),故此处只封 list/upload/upload-folder。

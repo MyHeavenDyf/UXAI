@@ -256,7 +256,7 @@ function UriTabBody(props: {
 
 // uri markdown 模式:先把产物落成本地工作副本(download-resource-to-temp 幂等),再读这份本地文件,
 // 使「卡片预览 / 编辑 / 本地打开 / 重开卡」回显的都是同一份(含用户改动)。要原件走「下载原件」。
-// 落点 <projectDir>/insight/<sessionId>/outputs/<file>(SPEC-INS-014 v2,扁平、撞名加后缀);无项目目录/无会话时落 OS 临时目录(非持久,重启可能丢)。
+// 落点 <projectDir>/.octo/<sessionId>/outputs/<file>(SPEC-INS-014 v2,扁平、撞名加后缀);无项目目录/无会话时落 OS 临时目录(非持久,重启可能丢)。
 // 桌面端能力缺失(浏览器 __dev / 测试)时退回直接 fetch(url) 只读预览。见 insight-markdown-editor.md §3。
 function UriMarkdownTabBody(props: {
   tab: ResultTab
@@ -472,7 +472,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
   const [openBusy, setOpenBusy] = createSignal(false)
   const [downloadBusy, setDownloadBusy] = createSignal(false)
   const [revealBusy, setRevealBusy] = createSignal(false)
-  // 选了项目目录且有会话就把 MCP 文件落进 <projectDir>/insight/<sessionId>/outputs/ 持久保留;否则走 OS 临时目录。
+  // 选了项目目录且有会话就把 MCP 文件落进 <projectDir>/.octo/<sessionId>/outputs/ 持久保留;否则走 OS 临时目录。
   const projectDir = useProjectDir()
   const params = useParams<{ id?: string }>()
 

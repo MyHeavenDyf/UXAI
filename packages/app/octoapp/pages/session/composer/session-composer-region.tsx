@@ -138,7 +138,7 @@ export function SessionComposerRegion(props: {
     >
       <div
         classList={{
-          "w-full px-3 pointer-events-auto": true,
+          "w-full px-10 pointer-events-auto": true,
           "md:max-w-[848px] md:mx-auto 2xl:max-w-[848px]": props.centered,
         }}
       >

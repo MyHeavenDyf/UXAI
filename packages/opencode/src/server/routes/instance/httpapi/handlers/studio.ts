@@ -3,15 +3,18 @@ import * as InstanceState from "@/effect/instance-state"
 import { Instance } from "@/project/instance"
 import { checkStudioPermission, fetchPromptTags } from "@/tool/internel_image_generate"
 import { Effect } from "effect"
+import { HttpServerRequest } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
 import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioPermissionPayload, StudioPromptGenPayload } from "../groups/studio"
+import { configureModelsApiHeaders } from "@/plugin/model-headers"
 
 export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (handlers) =>
   Effect.gen(function* () {
     const create = Effect.fn("StudioHttpApi.createGeneration")(function* (ctx: {
       payload: typeof StudioGenerationPayload.Type
     }) {
+      configureModelsApiHeaders((yield* HttpServerRequest.HttpServerRequest).headers)
       const instance = yield* InstanceState.context
       console.log("[studio.httpapi] POST /studio/generations", {
         sessionID: ctx.payload.sessionID,
@@ -32,8 +35,10 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
               capability: ctx.payload.capability,
               prompt: ctx.payload.prompt,
               displayPrompt: ctx.payload.displayPrompt,
+              detailPrompt: ctx.payload.detailPrompt,
               refinedPrompt: ctx.payload.refinedPrompt,
               effectivePrompt: ctx.payload.effectivePrompt,
+              promptRefineModels: ctx.payload.promptRefineModels ? [...ctx.payload.promptRefineModels] : undefined,
               styleModel: ctx.payload.styleModel,
               aspectRatio: ctx.payload.aspectRatio,
               count: ctx.payload.count,

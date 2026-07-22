@@ -466,6 +466,7 @@ describe("buildStudioTurns", () => {
             capability: "image.generate",
             prompt: "一只大黄狗",
             displayPrompt: "再次生成",
+            detailPrompt: "一只大黄狗在草地上奔跑",
             refinedPrompt: "一只大黄狗，阳光草地，胶片质感",
             effectivePrompt: "一只大黄狗，阳光草地，胶片质感",
             aspectRatio: "3:4",
@@ -478,6 +479,27 @@ describe("buildStudioTurns", () => {
     expect(turns[0].assistantText).toBe("好的，我会按当前结果的配置重新生成。")
     expect(turns[0].result?.prompt).toBe("一只大黄狗，阳光草地，胶片质感")
     expect(turns[0].result?.displayPrompt).toBe("再次生成")
+    expect(turns[0].result?.detailPrompt).toBe("一只大黄狗在草地上奔跑")
+  })
+
+  test("uses the original user bubble as the detail prompt for legacy turns", () => {
+    const user = userMessage("msg_legacy_detail_user")
+    const assistant = assistantMessage("msg_legacy_detail_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_legacy_detail_text", user.id, "雨中的木屋")],
+        [assistant.id]: [completedGenerationToolPart("p_legacy_detail_tool", assistant.id, {
+          capability: "image.generate",
+          prompt: "雨中的木屋",
+          refinedPrompt: "一座坐落在雨幕中的温暖木屋，电影感光影",
+          aspectRatio: "3:4",
+        })],
+      },
+    })
+
+    expect(turns[0].result?.prompt).toBe("一座坐落在雨幕中的温暖木屋，电影感光影")
+    expect(turns[0].result?.detailPrompt).toBe("雨中的木屋")
   })
 
   test("restores create failure separately from generation failure", () => {
