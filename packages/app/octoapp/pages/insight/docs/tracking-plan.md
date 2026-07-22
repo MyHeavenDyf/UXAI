@@ -115,6 +115,50 @@ async function handleSubmit() {
 
 P2 的 7 项已确认不打；`tracker.duration` 已下线，会话停留时长类暂无落点。批次 1 + 2 共 24 个 name 已全部上线（清单见 `tracking.md`）。
 
+### 批次 3 — chip 常驻工具 / 文件管理器 / 抽取补充（SPEC-INS-017 / 014 后陆续上线）
+
+收集单之后随功能演进新增的打点，命名沿用「用户操作 = 裸 kebab name / `<域>-<动作>`」约定。四个族：
+
+**① MCP chip 交互族 `mcp-chip-<action>`（替代已删的 `preset-click` 胶囊）**
+
+旧的「预置提示词胶囊」(`preset-click`) 已随 SPEC-INS-017 常驻工具 chip 改造删除，`message-send` 的 `presetId` / `presetEdited` 字段一并移除、改带 `mcpFunction`（当前选中的 chip 功能 id）。chip 是「用户挂载一个业务能力意图」的交互层，与 `server-mcp-used`（模型真实调起 MCP）分属两层，都保留：
+
+| name | 功能（统计什么用户行为） | 打在哪个功能 / 控件（UI + handler） | extend |
+|---|---|---|---|
+| `mcp-chip-open` | 用户打开 chip 功能菜单 | PromptInput chip 按钮 `onOpenMenu` | — |
+| `mcp-chip-select` | 用户选中某功能 chip（常驻挂载） | `index.tsx` `handleMcpSelect` | `{functionId, fileCount, pendingBytes, tokenEstimate}` |
+| `mcp-chip-clear` | 用户 × 取消已挂载的 chip | `index.tsx` `handleMcpClear` | `{functionId}` |
+| `mcp-chip-result` | chip turn 结束后对账该功能工具是否真被调用 / 成败（结果型，turn 完成 effect 派生） | `index.tsx` turn-complete effect | `{functionId, called, status: completed/error/not-called}` |
+
+**② 文件管理器族 `files-<action>`（module 仍 `insight`）**
+
+SPEC-INS-014 文件管理器面板的用户操作。删除（单个 / 批量）低价值不打。
+
+| name | 功能 | 打在哪个功能 / 控件 | extend |
+|---|---|---|---|
+| `files-download-file` | 下载单个文件 | `file-manager/index.tsx` `handleDownload` | — |
+| `files-batch-download` | 批量打包（zip）下载 | `handleBatchDownload` | `{count}` |
+| `files-preview-file` | 单击文件到右侧预览 | `handlePreview` | — |
+| `files-open-in-tab` | 打开文件到结果 tab | `handleOpenFile` | — |
+| `files-add-to-session` | 「加入会话」把文件挂到输入 | `handleAddToSession` | — |
+| `files-open-in-explorer` | 「在文件夹中显示」 | `handleOpenInExplorer` | — |
+| `files-navigate-folder` | 进入子目录 | 目录行 onClick | — |
+
+**③ 结果面板补充**
+
+| name | 功能 | 打在哪个功能 / 控件 | extend |
+|---|---|---|---|
+| `md-edit-open` | md 结果卡点「编辑」进编辑模式 | `result-viewer/action-bar.tsx` 编辑按钮 | `{source: tab.source}` |
+
+**④ 抽取 / 附件结果型补充**
+
+| name | 功能 | 打在哪个功能 / 控件 | extend |
+|---|---|---|---|
+| `extract-failure` | `extract_document` 本地解析失败（按原因分布，结果型，turn effect 派生） | `index.tsx` turn effect 扫 tool parts | `{reason: error/empty-text}` |
+| `attachment-import-result` | 非图片附件导入 worktree 的成败（结果型；与图片走的 `attachment-upload-result` 区分） | `index.tsx` `doImport` then/catch | `{success, localized?}` |
+
+> 注：`attachment-upload-result` 现仅用于**图片** S3 上传结果，extend 带 `kind:"image"`；非图片附件走本地导入、结果打 `attachment-import-result`。
+
 ## 五、验证
 
 每批合入前按 `/docs/tracker.md` 验证流程：

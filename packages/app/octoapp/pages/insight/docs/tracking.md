@@ -14,12 +14,12 @@
 |---|------|--------|------|----------|------------|----------|
 | 1 | page | insight | insight-page | insight 页面挂载 | — | `index.tsx` `InsightContent` onMount |
 | 2 | interaction | insight | new-session | 新建对话成功、跳转到新会话 | — | `index.tsx` `createAndNavigate` |
-| 3 | interaction | insight | preset-click | 点击预置提示词胶囊 | `presetId`、`source`(welcome/conversation) | `index.tsx` `handlePresetClick` |
-| 4 | interaction | insight | message-send | 发送消息通过校验、受理后（按钮 / Enter） | `trigger`(button/enter)、`source`(welcome/conversation)、`attachmentCount`、`textLength`、`presetId`(文本源自某预置胶囊时带，可与 preset-click 打通漏斗)、`presetEdited`(是否改过预置文案) | `index.tsx` `handleSubmit` |
+| 3 | ~~interaction~~ | ~~insight~~ | ~~preset-click~~ | ~~点击预置提示词胶囊~~ **已删除**：SPEC-INS-017 常驻工具 chip 改造移除了预置提示词胶囊，改用 `mcp-chip-*` 族（见 27–30）。`presetId` / `source` 字段随之作废。 | — | — |
+| 4 | interaction | insight | message-send | 发送消息通过校验、受理后（按钮 / Enter） | `trigger`(button/enter)、`source`(welcome/conversation)、`attachmentCount`、`textLength`、`mcpFunction`(当前挂载的 chip 功能 id，可与 mcp-chip-select 打通漏斗；旧的 `presetId`/`presetEdited` 已随胶囊删除) | `index.tsx` `handleSubmit` |
 | 5 | interaction | insight | message-send-blocked | 发送被拦截（未选模型，弹 toast） | `reason`(no_model) | `index.tsx` `handleSubmit` 未选模型分支 |
 | 6 | interaction | insight | message-abort | 点击停止生成 | — | `index.tsx` `handleAbort` |
 | 7 | interaction | insight | attachment-add | 添加附件（逐个文件，含 picker / 拖拽 / 粘贴） | `method`(picker/drop/paste)、`fileType`、`fileSize` | `index.tsx` `addAttachments` |
-| 8 | interaction | insight | attachment-upload-result | 附件上传 promise 落定（成功 / 失败） | `success`(bool)、`errorCode`(失败时) | `index.tsx` `doUpload` |
+| 8 | interaction | insight | attachment-upload-result | **图片** S3 上传 promise 落定（成功 / 失败）；非图片附件走本地导入，结果打 `attachment-import-result`（见 32） | `success`(bool)、`kind`("image")、`errorCode`(失败时) | `index.tsx` `doImageUpload` |
 | 9 | interaction | insight | task-refresh | 任务卡片手动刷新（通过 busy/cooldown 校验后） | `taskId` | `index.tsx` `handleTaskRefresh` |
 | 10 | interaction | insight | task-stop | 任务停止（通过 busy 校验后） | `taskId` | `index.tsx` `handleTaskStop` |
 | 11 | interaction | insight | task-open-result | 任务卡片点「查看结果」。两种分支：本地已有产物→直接打开；completed 但本地无产物（典型：对已完成任务点过终止，拿回的是 stop_task 控制响应而非文件）→触发一次 get_task_result 兜底查询，产物到达后再打开 | `taskId`、`deferred`(true=走了兜底查询分支；缺省/false=直接打开) | `index.tsx` `handleTaskOpenResult` |
@@ -39,6 +39,27 @@
 | 25 | interaction | insight | file-save-as | 文件兜底卡点「下载 / 另存为」 | `fileType` | `result-viewer/index.tsx` `handleSaveAs` |
 | 26 | interaction | insight | session-load-more | 会话列表点「加载更多」（已显示数 < 该目录 insight 会话 total 时出现，SPEC-INS-013 服务端分页） | `limit`(加载后的新上限)、`source`(panel=insight 侧栏 / shell=外壳侧栏) | `session-list/index.tsx` `loadMore` + `_shell/sidebar.tsx` `loadMore` |
 
+### 批次 3 追加（chip 常驻工具 / 文件管理器 / 结果 / 抽取补充，命名依据见 `tracking-plan.md` 批次 3）
+
+| # | type | module | name | 触发时机 | extend 字段 | 代码位置 |
+|---|------|--------|------|----------|------------|----------|
+| 27 | interaction | insight | mcp-chip-open | 打开 chip 功能菜单 | — | `index.tsx` PromptInput `onOpenMenu` |
+| 28 | interaction | insight | mcp-chip-select | 选中某功能 chip（常驻挂载，替代旧胶囊 preset-click） | `functionId`、`fileCount`、`pendingBytes`、`tokenEstimate` | `index.tsx` `handleMcpSelect` |
+| 29 | interaction | insight | mcp-chip-clear | × 取消已挂载的 chip | `functionId` | `index.tsx` `handleMcpClear` |
+| 30 | interaction | insight | mcp-chip-result | chip turn 结束后对账该功能工具是否真被调用 / 成败（结果型，turn 完成 effect 派生） | `functionId`、`called`(bool)、`status`(completed/error/not-called) | `index.tsx` turn-complete effect |
+| 31 | interaction | insight | extract-failure | `extract_document` 本地解析失败（按原因分布，结果型，turn effect 扫 tool parts 派生） | `reason`(error/empty-text) | `index.tsx` turn effect |
+| 32 | interaction | insight | attachment-import-result | 非图片附件导入 worktree 的成败（结果型；图片走 `attachment-upload-result`，见 8） | `success`(bool)、`localized`(成功时，是否拿到本地绝对路径) | `index.tsx` `doImport` then/catch |
+| 33 | interaction | insight | md-edit-open | md 结果卡点「编辑」进编辑模式 | `source`(tab.source) | `result-viewer/action-bar.tsx` 编辑按钮 |
+| 34 | interaction | insight | files-download-file | 文件管理器下载单个文件 | — | `file-manager/index.tsx` `handleDownload` |
+| 35 | interaction | insight | files-batch-download | 文件管理器批量打包（zip）下载 | `count` | `file-manager/index.tsx` `handleBatchDownload` |
+| 36 | interaction | insight | files-preview-file | 文件管理器单击文件到右侧预览 | — | `file-manager/index.tsx` `handlePreview` |
+| 37 | interaction | insight | files-open-in-tab | 文件管理器打开文件到结果 tab | — | `file-manager/index.tsx` `handleOpenFile` |
+| 38 | interaction | insight | files-add-to-session | 文件管理器「加入会话」把文件挂到输入 | — | `file-manager/index.tsx` `handleAddToSession` |
+| 39 | interaction | insight | files-open-in-explorer | 文件管理器「在文件夹中显示」 | — | `file-manager/index.tsx` `handleOpenInExplorer` |
+| 40 | interaction | insight | files-navigate-folder | 文件管理器进入子目录 | — | `file-manager/index.tsx` 目录行 onClick |
+
+> 文件管理器的删除（单个 / 批量）低价值不打（对齐 P2 排除原则）。
+
 ## 服务端真实使用打点（`server-` 前缀，与上表常规打点区分）
 
 上表 1–26 统计的是**用户主动操作**（点击 / 发送）。下面两条统计的是**模型 / 服务端真实使用 MCP / skill 并把内容回显到会话中**——不是用户点了什么，而是 agent 真的调起了这些能力。为便于分析侧按维度切分，统一用 `server-` 前缀与常规打点区分（`module` 仍为 `insight`）。
@@ -47,8 +68,8 @@
 
 | # | type | module | name | 触发时机 | extend 字段 | 代码位置 |
 |---|------|--------|------|----------|------------|----------|
-| 27 | interaction | insight | server-mcp-used | 某业务 MCP 工具真实被模型调用并提交长任务（每 `task_id` 一次；从 `taskCards` 中 `isBusinessTool` 的条目识别） | `tool`(业务工具裸名 key_findings/run_guide_analysis/run_usability_analysis/mindmap)、`taskId` | `insight-turn.tsx` server-usage effect |
-| 28 | interaction | insight | server-skill-used | 某 skill 真实被模型调用（每个 skill 工具 part 一次；从 assistant parts 中 `tool==="skill"` 且 completed 的条目识别，取 `metadata.name`） | `skill`(解析出的技能名，如 interview-analysis) | `insight-turn.tsx` server-usage effect |
+| 41 | interaction | insight | server-mcp-used | 某业务 MCP 工具真实被模型调用并提交长任务（每 `task_id` 一次；从 `taskCards` 中 `isBusinessTool` 的条目识别） | `tool`(业务工具裸名 key_findings/run_guide_analysis/run_usability_analysis/mindmap)、`taskId` | `insight-turn.tsx` server-usage effect |
+| 42 | interaction | insight | server-skill-used | 某 skill 真实被模型调用（每个 skill 工具 part 一次；从 assistant parts 中 `tool==="skill"` 且 completed 的条目识别，取 `metadata.name`） | `skill`(解析出的技能名，如 interview-analysis) | `insight-turn.tsx` server-usage effect |
 
 ## 维护说明
 
