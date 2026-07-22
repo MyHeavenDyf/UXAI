@@ -116,14 +116,10 @@ function describeNetworkError(err: unknown): string {
   return parts.length > 0 ? parts.join(" ← ") : String(err)
 }
 
-// 产物落地幂等(spec §2/§4.2):同一个资源(namespace=资源 URI)首次 materialize 后记下其
-// outputs 本地路径,本会话内稳定 —— 后续预览/编辑/打开都命中这份(含用户改动),绝不 re-fetch。
-// 用主进程内存表替代旧的 `.octo/downloads/<id>/` 目录分桶,使 outputs 扁平、显性。
-// namespace 必须是资源身份(URI)而非卡片身份(tab.id/card.id):同一份产物会被多张卡引用
-// (任务卡 vs「查询结果」turn 的路径 A 卡),按卡片 id 记会让同一 URI 各落一份、第二份撞名成
-// `xxx (2)`,且每查询一次多一份。调用方约定见 app 侧 utils/local-resource.ts 文件头。
-// 跨重启该表清空 → 同名产物会按 §3.3 加后缀新建(少见边界,spec 接受)。
-const materializedByNamespace = new Map<string, string>()
+// 产物落地幂等(spec §2/§4.2):幂等由 download-resource-to-temp 的**确定性落点**承担
+// (outputs/<安全名>,已存在即复用,不加 `(2)` 后缀),对齐 Design 页 artifact-auto-save.ts。
+// 幂等落在「路径本身」→ 天生跨重启/重装保持,不再靠进程内内存表(旧内存表跨重启清空,会导致
+// 重装后重开旧会话把同名产物按 §3.3 加后缀重落一份,#90)。调用方约定见 app 侧 utils/local-resource.ts。
 
 type Deps = {
   killSidecar: () => Promise<void> | void
@@ -381,20 +377,14 @@ export function registerIpcHandlers(deps: Deps) {
     async (
       _event: IpcMainInvokeEvent,
       url: string,
-      namespace: string,
+      // _namespace(资源 URI):历史上做内存幂等键,现幂等改由确定性落点承担(见下),保留入参仅为
+      // 兼容渲染端/preload 的调用签名,本 handler 不再使用。
+      _namespace: string,
       filename: string,
       baseDir?: string,
       sessionId?: string,
     ) => {
       const safeName = sanitizeWorktreeName(filename)
-      // 本会话幂等(spec §2/§4.2):同一张卡已落地的本地副本即用户的「工作文件」——直接复用,
-      // 绝不 re-fetch / 覆盖,否则「本地打开/编辑 → 改 → 关闭 → 再打开」会被重新下载的原版盖掉。
-      // 落点改为显性的 .octo/<sessionId>/outputs(扁平、撞名加后缀),幂等键由旧的 <id> 目录改为内存表。
-      const known = materializedByNamespace.get(namespace)
-      if (known && existsSync(known)) {
-        console.log("[octo:worktree] result-materialize", { filename: safeName, path: known, sessionId, reused: true })
-        return known
-      }
       // baseDir 与 sessionId 都提供时落 <baseDir>/.octo/<sessionId>/outputs/(用户可见、可管理、按会话隔离);
       // 缺一不可时 fallback 走 OS 临时目录(无项目场景 / 无会话 / 纯一次性预览,非持久)。
       const dir =
@@ -402,7 +392,17 @@ export function registerIpcHandlers(deps: Deps) {
           ? join(baseDir, ".octo", sanitizeSessionSegment(sessionId), "outputs")
           : join(app.getPath("temp"), "octo")
       await ensureWorktreeDir(dir)
-      const destPath = collisionFreePath(dir, safeName)
+
+      // 幂等 = 确定性落点(对齐 Design 页 artifact-auto-save.ts:落点恒为 <dir>/<安全名>,不加 `(2)` 后缀)。
+      // 目标已存在即复用那一份(含用户改动),绝不 re-fetch / 覆盖 —— 「本地打开/编辑 → 改 → 关闭 → 再打开」
+      // 命中同一份。把幂等落在「路径本身」而非进程内内存表,天生跨重启/重装保持:重装后重开旧会话再触发
+      // eager 落盘,同名即复用,不再每装一次多一份 MCP 产物副本(#90)。
+      // 权衡(与 Design 同口径):同一会话内两个不同资源恰好同名时,后者复用前者那一份、不再各留一份。
+      const destPath = join(dir, safeName)
+      if (existsSync(destPath)) {
+        console.log("[octo:worktree] result-materialize", { filename: safeName, path: destPath, sessionId, reused: true })
+        return destPath
+      }
       // net.fetch 走 Chromium 网络栈,理由同 download-resource;失败落 main.log(electron-log),
       // 裸 console.log 进不了 main.log,内网远程排障只有这份文件可看。
       const res = await net.fetch(url).catch((err: unknown) => {
@@ -422,7 +422,6 @@ export function registerIpcHandlers(deps: Deps) {
       }
       const buf = Buffer.from(await res.arrayBuffer())
       await writeFile(destPath, buf)
-      materializedByNamespace.set(namespace, destPath)
       console.log("[octo:worktree] result-materialize", { filename: safeName, path: destPath, sessionId, reused: false })
       return destPath
     },
