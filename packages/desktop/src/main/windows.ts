@@ -484,7 +484,7 @@ async function writeLocalStorageAuth(win: BrowserWindow, auth: { uiplusToken: st
   await win.webContents.executeJavaScript(
     `{
       ${auth.uiplusToken ? `localStorage.setItem("uiplusToken", ${JSON.stringify(auth.uiplusToken)});` : ""}
-      ${auth.uiplusCookie ? `localStorage.setItem("uiplusCookie", ${JSON.stringify(auth.uiplusCookie)});` : ""}
+      ${(auth.uiplusCookie && auth.uiplusCookie.indexOf("ucd.designcloud") !== -1) ? `localStorage.setItem("uiplusCookie", ${JSON.stringify(auth.uiplusCookie)});` : ""}
     }`,
     true,
   )
