@@ -697,7 +697,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
   createEffect(() => {
     if (props.open && !initialized()) {
       setInitialized(true)
-      
+
       if (isLoggedIn()) {
         if (persistedSelections.spaceType === "project") {
           fetchProductTree().then(() => restoreSelections())
@@ -964,36 +964,45 @@ export function ArchiveDialog(props: Props): JSX.Element {
             </div>
 
             <Show when={showCollisionOverlay()}>
-              <div class="archive-collision-overlay">
-                <div class="archive-collision-content">
-                  <p class="archive-collision-title">已存在以下多个同名归档原型</p>
-                  <p class="archive-collision-name">{props.tabTitle}</p>
-                  <div class="archive-collision-options">
+              <div class="archive-dialog-collision-overlay">
+                <div class="archive-dialog-collision-content">
+                  <h3 class="archive-dialog-collision-title">已存在以下多个同名归档原型</h3>
+                  <p class="archive-dialog-collision-name">{props.tabTitle}</p>
+                  <div class="archive-dialog-collision-options">
                     <button
                       type="button"
-                      class="archive-collision-btn archive-collision-overwrite"
-                      onClick={() => executeArchive(true)}
-                    >
-                      覆盖这些页面
-                    </button>
-                    <button
-                      type="button"
-                      class="archive-collision-btn archive-collision-keep"
+                      class="archive-dialog-collision-option"
                       onClick={() => executeArchive(false)}
                     >
-                      保留两者
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                      <span>保留两者</span>
                     </button>
                     <button
                       type="button"
-                      class="archive-collision-btn archive-collision-skip"
+                      class="archive-dialog-collision-option"
+                      onClick={() => executeArchive(true)}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                      <span>覆盖这些页面</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="archive-dialog-collision-option"
                       onClick={() => setShowCollisionOverlay(false)}
                     >
-                      跳过
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                      <span>跳过</span>
                     </button>
                   </div>
                   <button
                     type="button"
-                    class="archive-collision-cancel"
+                    class="archive-dialog-collision-cancel"
                     onClick={() => setShowCollisionOverlay(false)}
                   >
                     取消
@@ -1024,6 +1033,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
             box-shadow: 0 16px 48px 0 rgba(0, 0, 0, 0.16);
             padding: 20px 24px;
             box-sizing: border-box;
+            position: relative;
             animation: dialog-slide-in 0.2s ease-out;
           }
           @keyframes dialog-slide-in {
@@ -1188,57 +1198,84 @@ export function ArchiveDialog(props: Props): JSX.Element {
             opacity: 0.5;
             cursor: not-allowed;
           }
-          .archive-collision-overlay {
+          .archive-dialog-collision-overlay {
             position: absolute;
-            inset: 0;
-            background: white;
+            top: 56px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
             display: flex;
             align-items: center;
             justify-content: center;
             border-radius: 12px;
             z-index: 1;
           }
-          .archive-collision-content {
+          .archive-dialog-collision-content {
+            width: 356px;
+            padding: 20px 24px;
+          }
+          .archive-dialog-collision-title {
+            font-size: 14px;
+            line-height: 22px;
+            font-weight: bold;
+            color: rgba(0, 0, 0, 0.9);
+            margin: 0 0 4px;
             text-align: center;
-            padding: 20px;
           }
-          .archive-collision-title {
+          .archive-dialog-collision-name {
             font-size: 14px;
-            color: var(--octo-text-primary);
-            margin: 0 0 8px;
+            line-height: 22px;
+            color: rgba(0, 0, 0, 0.6);
+            margin: 0 0 24px;
+            text-align: center;
           }
-          .archive-collision-name {
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--octo-text-primary);
-            margin: 0 0 20px;
-          }
-          .archive-collision-options {
+          .archive-dialog-collision-options {
             display: flex;
             flex-direction: column;
             gap: 8px;
-            margin-bottom: 16px;
+            margin-bottom: 24px;
           }
-          .archive-collision-btn {
-            padding: 10px 16px;
+          .archive-dialog-collision-option {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            height: 40px;
+            padding: 0 16px 0 12px;
             border: none;
-            border-radius: 6px;
-            font-size: 13px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.05);
             cursor: pointer;
-            background: #F9F9F9;
-            color: var(--octo-text-primary);
+            text-align: left;
           }
-          .archive-collision-btn:hover {
-            opacity: 0.9;
+          .archive-dialog-collision-option:hover {
+            background: rgba(0, 0, 0, 0.08);
           }
-          .archive-collision-cancel {
-            padding: 8px 24px;
+          .archive-dialog-collision-option svg {
+            flex-shrink: 0;
+            color: rgba(0, 0, 0, 0.9);
+          }
+          .archive-dialog-collision-option span {
+            font-size: 14px;
+            line-height: 22px;
+            color: rgba(0, 0, 0, 0.9);
+          }
+          .archive-dialog-collision-cancel {
+            width: 100%;
+            height: 32px;
+            padding: 0;
             border: none;
-            border-radius: 6px;
-            font-size: 13px;
+            border-radius: 999px;
+            background: rgba(0, 0, 0, 0.05);
             cursor: pointer;
-            background: transparent;
-            color: var(--octo-text-secondary);
+            font-size: 14px;
+            line-height: 22px;
+            color: rgba(0, 0, 0, 0.9);
+          }
+          .archive-dialog-collision-cancel:hover {
+            background: rgba(0, 0, 0, 0.08);
           }
         `}</style>
       </Portal>
