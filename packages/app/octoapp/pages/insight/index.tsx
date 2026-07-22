@@ -1716,12 +1716,19 @@ function InsightContent() {
     addAttachments(files, "paste")
   }
 
-  function handleOpenResult(card: OutputCard) {
+  async function handleOpenResult(card: OutputCard) {
     tracker.interaction({
       module: "insight",
       name: "result-card-open",
       extend: JSON.stringify({ cardType: card.type }),
     })
+    if (card.source === "path" && card.filePath) {
+      const api = getDesktopApi()
+      if (api?.fileExists && !(await api.fileExists(card.filePath))) {
+        showToast({ title: "文件不存在", description: card.fileName ?? card.title, variant: "error", duration: 3000 })
+        return
+      }
+    }
     tabStore.openTab(card)
     focusResultTabs()
   }

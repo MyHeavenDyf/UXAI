@@ -576,6 +576,37 @@ const triggeredCloseFlags = new Set<string>()
   - storeClient: watch 之后 setupConnectionHandlers
   - finalizer: Reconnect.cleanup()
 
+### 2026-07-11: 活跃 session 跟踪 + 重连参数调优 + 无对话时静默保护
+
+**问题**：MCP 在没有用户对话时（如后台 SSE 断开）也会触发主动重连，导致状态抖动。同时重连参数（5 次，最长 31s）偏保守。
+
+**改动（仅 `packages/opencode/src/mcp/reconnect.ts` + `processor.ts` 最小 import）**：
+
+1. **活跃 session 跟踪**（reconnect.ts:30-46）：
+   - 新增模块级 `activeSessionCount` 计数器
+   - 导出 `markSessionActive()` / `markSessionInactive()` 函数
+   - 导出 `hasActiveSession()` 检查函数
+
+2. **静默保护**（reconnect.ts:521-535）：
+   - `triggerReconnect` 中新增检查：来源为 `onerror-*` 或 `onclose-fallback` 且无活跃 session 时，仅记录日志，不触发重连
+   - 等用户下次发消息时由 `tools()` 的 preflight 主动检查并发起重连
+   - `tools-preflight` 和 `tool-execute` 来源本身就在用户对话中，不受此限制
+
+3. **重连参数调优**（reconnect.ts:10-13）：
+   - `MAX_RECONNECT_ATTEMPTS = 3`（从 5 下调）
+   - `INITIAL_BACKOFF_MS = 500`（从 1000 下调）
+   - `MAX_BACKOFF_MS = 5000`（从 30000 下调）
+
+4. **processor.ts 集成**（最小改动）：
+   - 导入 `markSessionActive`, `markSessionInactive`
+   - `process()` 入口调 `markSessionActive()`
+   - `cleanup()` 内调 `markSessionInactive()`
+
+**效果**：
+- 后台网络抖动不触发重连（无用户对话时）
+- 重连更快：3 次 × 最大 5s = 最多 15s 完成
+- 用户发消息时 preflight 兜底，不丢失重连机会
+
 ## 与 claude-code 对照
 
 | 功能 | claude-code | 本方案 |

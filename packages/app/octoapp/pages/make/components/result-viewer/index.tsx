@@ -1,6 +1,7 @@
 import { createMemo, createSignal, createEffect, Show, Switch, Match, For } from "solid-js"
 import type { JSX } from "solid-js"
 import { Markdown } from "@opencode-ai/ui/markdown"
+import { showToast } from "@opencode-ai/ui/toast"
 import type { ResultTab } from "./tab-store"
 import type { ViewportPreset, PaletteId, InspectTarget } from "./html-renderer"
 import { TabBar } from "./tab-bar"
@@ -17,6 +18,8 @@ import { AudioRenderer } from "./audio-renderer"
 import { PdfRenderer } from "./pdf-renderer"
 import { TextRenderer } from "./text-renderer"
 import { DesignPlanRenderer } from "./design-plan-renderer"
+import { StrategyFormRenderer } from "./strategy-form-renderer"
+import type { StrategyFormData } from "../../utils/strategy-form-scanner"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
 import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { DesignFilesPanel } from "../design-files"
@@ -25,6 +28,9 @@ import { artifactFileToOutputCard, type ArtifactFile, getArtifactRelativePath } 
 import { saveArtifactContent } from "../../utils/artifact-auto-save"
 import type { OutputCard } from "../insight-turn"
 import { tracker } from "@/utils/tracker"
+import { createC2DZip } from "../../utils/canvas-to-design"
+import { uploadZip } from "@/utils/useZipTransport"
+import { useProjectSelection } from "@/hooks/use-project-selection"
 
 function extractCodeBlock(text: string, lang: string): string {
   const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
@@ -69,8 +75,8 @@ export function ResultViewer(props: {
   onContentChange?: (id: string, content: string) => Promise<void>
   sessionId?: string
   onOpenArtifact?: (card: OutputCard) => void
-  viewMode: "tabs" | "files"
-  onViewModeChange: (mode: "tabs" | "files") => void
+  viewMode: "tabs" | "files" | "plan"
+  onViewModeChange: (mode: "tabs" | "files" | "plan") => void
   onAddArtifactToSession?: (file: ArtifactFile) => void
   onRemoveAttachmentsByPath?: (paths: string[]) => void
   onRenameTabByPath?: (oldPath: string, newPath: string, newTitle: string) => void
@@ -83,8 +89,23 @@ export function ResultViewer(props: {
   isPlanConfirmed?: () => boolean
   filesRefreshKey?: number
   onFilesRefresh?: () => void
+  /** 设计规划内容 (plan 模式使用) */
+  planCard?: OutputCard | null
+  /** 两步走工作流：当前阶段 */
+  planPhase?: "strategy" | "generate"
+  /** 策略表单数据 */
+  strategyFormData?: StrategyFormData
+  /** 策略表单字段变更回调 */
+  onStrategyFieldChange?: (field: keyof StrategyFormData, value: string) => void
+  /** 策略生成按钮回调 */
+  onGenerateStrategy?: () => void
+  /** 返回策略准备阶段回调 */
+  onBackToStrategy?: () => void
+  /** 策略是否正在生成中 */
+  isGenerating?: boolean
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
+  const projectSelection = useProjectSelection()
   const activeTab = createMemo(() =>
     props.tabs.find((t) => t.id === props.activeId) ?? null
   )
@@ -96,7 +117,71 @@ export function ResultViewer(props: {
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
   const [editing, setEditing] = createSignal(false)
   const [drawing, setDrawing] = createSignal(false)
+  const [commenting, setCommenting] = createSignal(false)
+  const [archiving, setArchiving] = createSignal(false)
   const [refreshKey, setRefreshKey] = createSignal(0)
+
+  const handleCanvasToDesign = async () => {
+    const tab = activeTab()
+    if (!tab || tab.type !== "html") {
+      showToast({ title: "请先打开HTML文件" })
+      return
+    }
+
+    try {
+      showToast({ title: "生成ZIP文件..." })
+      
+      const htmlContent = extractCodeBlock(tab.content, "html")
+      const zipBlob = await createC2DZip({
+        htmlContent,
+        htmlFilePath: tab.filePath || "",
+        tabTitle: tab.title
+      })
+
+      const isLoggedIn = !!localStorage.getItem('uiplusToken')
+      
+      if (!isLoggedIn) {
+        const fileName = `${tab.title}-c2d.zip`
+        const url = URL.createObjectURL(zipBlob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = fileName
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+        showToast({ title: "生成完成", description: "ZIP文件已下载" })
+        return
+      }
+
+      showToast({ title: "上传中..." })
+      
+      const result = await uploadZip(zipBlob, {
+        containerId: "root",
+        deathDay: 7,
+        limitTimes: 1
+      }, projectSelection())
+
+      if (!result.webview) {
+        showToast({ title: "创建失败" })
+        return
+      }
+
+      showToast({
+        title: "创建成功",
+        description: `传送码: ${result.code}`
+      })
+
+      result.onMessage('render-complete', () => {
+        showToast({ title: "渲染完成" })
+      })
+    } catch (err) {
+      showToast({
+        title: "上传失败",
+        description: err instanceof Error ? err.message : String(err)
+      })
+    }
+  }
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
 
@@ -108,6 +193,8 @@ export function ResultViewer(props: {
       setInspecting(false)
       setEditing(false)
       setDrawing(false)
+      setCommenting(false)
+      setArchiving(false)
     }
   }
 
@@ -196,7 +283,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
       class="flex flex-col flex-1 min-w-0 overflow-hidden"
       style={{ background: "var(--octo-surface-result)" }}
     >
-      <Show when={props.tabs.length > 0 || props.viewMode === "files"} fallback={<ResultViewerEmpty />}>
+      <Show when={props.tabs.length > 0 || props.viewMode === "files" || props.viewMode === "plan"} fallback={<ResultViewerEmpty />}>
         <TabBar
           tabs={props.tabs}
           activeId={props.activeId}
@@ -204,6 +291,8 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           onClose={props.onClose}
           viewMode={props.viewMode}
           onViewModeChange={props.sessionId ? props.onViewModeChange : undefined}
+          showPlanEntry={!!props.planCard || props.planPhase === "strategy"}
+          planConfirmed={props.isPlanConfirmed?.()}
         />
 
         <Show when={props.viewMode === "files" && props.sessionId}>
@@ -220,6 +309,54 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           )}
         </Show>
 
+        {/* plan 模式 — 策略准备阶段 */}
+        <Show when={props.viewMode === "plan" && props.planPhase === "strategy"}>
+          <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+            <StrategyFormRenderer
+              formData={props.strategyFormData ?? {
+                需求背景: "", 设计目标: "", 设计方法: "", 其他: "",
+                用户画像: "", 用户旅程: "", 研究报告: "",
+              }}
+              onFieldChange={(field, value) => props.onStrategyFieldChange?.(field, value)}
+              onGenerate={() => props.onGenerateStrategy?.()}
+              isGenerating={props.isGenerating}
+              currentStep={1}
+            />
+          </div>
+        </Show>
+
+        {/* plan 模式 — 设计规划生成阶段,有 planCard 时渲染 */}
+        <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && props.planCard}>
+          {(plan) => (
+            <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <DesignPlanRenderer
+                content={plan().content}
+                title={plan().title}
+                artifactIdentifier={plan().artifactIdentifier}
+                confirmed={props.isPlanConfirmed?.() ?? false}
+                onConfirm={() => props.onConfirmPlan?.(plan().artifactIdentifier)}
+                onContentChange={(content) => {
+                  if (props.onContentChange && plan().id) {
+                    props.onContentChange(plan().id, content)
+                  }
+                }}
+                onBackToStrategy={() => props.onBackToStrategy?.()}
+                currentStep={2}
+              />
+            </div>
+          )}
+        </Show>
+
+        {/* plan 模式 — 生成阶段等待子 agent 输出 design-plan */}
+        <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && !props.planCard}>
+          <div class="flex flex-col items-center justify-center flex-1 gap-3" style="background: var(--octo-surface-result);">
+            <div class="flex items-center gap-2">
+              <span class="i-svg-spinners-clock size-5" />
+              <span style="color: var(--octo-text-secondary); font-size: 14px;">设计规划子 agent 正在生成中...</span>
+            </div>
+          </div>
+        </Show>
+
         <Show when={props.viewMode === "tabs"}>
           <Show when={activeTab()?.id} keyed>
             {(tabId) => {
@@ -228,49 +365,60 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
             const canToggle = canToggleMode(tab)
             const htmlMode = createMemo(() => getHtmlMode(tabId))
             const showRefresh = true
-            const showFocusToggle = tabType !== "html" && tabType !== "design-plan"
+            const showFocusToggle = tabType !== "design-plan"
 
             return (
               <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
                 <Show when={tabType !== "design-plan"}>
-                <ActionBar
-                  tab={tab}
-                  mode={canToggle ? htmlMode() : undefined}
-                  onModeChange={canToggle ? () => toggleHtmlMode(tabId) : undefined}
-                  viewport={viewport()}
-                  onViewportChange={setViewport}
-                  palette={palette()}
-                  onPaletteChange={setPalette}
-                  inspecting={inspecting()}
-                  onInspectToggle={undefined}
-                  editing={editing()}
-                  onEditToggle={htmlMode() === "edit" ? undefined : () => {
-                    const nextEditing = !editing()
-                    setEditing(nextEditing)
-                    tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
-                    if (nextEditing && inspecting()) {
-                      setInspecting(false)
-                    }
-                    if (nextEditing && drawing()) {
-                      setDrawing(false)
-                    }
-                  }}
-                  drawing={drawing()}
-                  onDrawToggle={htmlMode() === "edit" ? undefined : () => {
-                    const nextDrawing = !drawing()
-                    setDrawing(nextDrawing)
-                    tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
-                    if (nextDrawing && inspecting()) {
-                      setInspecting(false)
-                    }
-                    if (nextDrawing && editing()) {
-                      setEditing(false)
-                    }
-                  }}
-                  onRefresh={handleRefresh}
-                  focusMode={props.focusMode}
-                  onFocusModeToggle={tabType !== "design-plan" ? props.onFocusModeToggle : undefined}
-                />
+<ActionBar
+                   tab={tab}
+                   mode={canToggle ? htmlMode() : undefined}
+                   onModeChange={canToggle ? () => toggleHtmlMode(tabId) : undefined}
+                   viewport={viewport()}
+                   onViewportChange={setViewport}
+                   palette={palette()}
+                   onPaletteChange={setPalette}
+                   editing={editing()}
+                   onEditToggle={htmlMode() === "edit" ? undefined : () => {
+                     const nextEditing = !editing()
+                     setEditing(nextEditing)
+                     tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
+                     if (nextEditing && drawing()) setDrawing(false)
+                     if (nextEditing && commenting()) setCommenting(false)
+                     if (nextEditing && archiving()) setArchiving(false)
+                   }}
+                   drawing={drawing()}
+                   onDrawToggle={htmlMode() === "edit" ? undefined : () => {
+                     const nextDrawing = !drawing()
+                     setDrawing(nextDrawing)
+                     tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
+                     if (nextDrawing && editing()) setEditing(false)
+                     if (nextDrawing && commenting()) setCommenting(false)
+                     if (nextDrawing && archiving()) setArchiving(false)
+                   }}
+                   commenting={commenting()}
+                   onCommentToggle={htmlMode() === "edit" ? undefined : () => {
+                     const nextCommenting = !commenting()
+                     setCommenting(nextCommenting)
+                     tracker.interaction({ module: "design", name: "toggle-comment-mode", extend: JSON.stringify({ action: nextCommenting ? "open" : "close" }) })
+                     if (nextCommenting && editing()) setEditing(false)
+                     if (nextCommenting && drawing()) setDrawing(false)
+                     if (nextCommenting && archiving()) setArchiving(false)
+                   }}
+                   archiving={archiving()}
+                   onArchiveToggle={htmlMode() === "edit" ? undefined : () => {
+                     const nextArchiving = !archiving()
+                     setArchiving(nextArchiving)
+                     tracker.interaction({ module: "design", name: "toggle-archive-mode", extend: JSON.stringify({ action: nextArchiving ? "open" : "close" }) })
+                     if (nextArchiving && editing()) setEditing(false)
+                     if (nextArchiving && drawing()) setDrawing(false)
+                     if (nextArchiving && commenting()) setCommenting(false)
+}}
+                    onCanvasToDesign={handleCanvasToDesign}
+                    onRefresh={handleRefresh}
+                   focusMode={props.focusMode}
+                   onFocusModeToggle={tabType !== "design-plan" ? props.onFocusModeToggle : undefined}
+                 />
                 </Show>
                 <div class="flex-1 min-h-0 overflow-hidden">
                   <Switch
@@ -293,32 +441,36 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                       <JsonRenderer content={tab.content} />
                     </Match>
                     <Match when={tabType === "html"}>
-                      <HtmlRenderer
-                        content={tab.content}
-                        mode={htmlMode()}
-                        viewport={viewport()}
-                        palette={palette()}
-                        inspecting={inspecting()}
-                        editing={editing()}
-                        drawing={drawing()}
-                        onDrawActiveChange={setDrawing}
-                        inspectPanel={true}
-                        onInspectTarget={setInspectTarget}
-                        onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
-                        onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
-                        refreshKey={refreshKey()}
-                        filePath={tab.filePath}
-                        sessionId={tab.sessionId ?? props.sessionId}
-                        sdkUrl={globalSDK.url}
-                        sdkDirectory={props.sdkDirectory}
-                        onSaveFile={async (content) => {
-                          if (!tab.filePath) return
-                          const html = extractCodeBlock(content, "html")
-                          await saveArtifactContent(tab.filePath, html)
-                        }}
-                        onRefreshNeeded={handleRefresh}
-                        tabTitle={tab.title}
-                      />
+<HtmlRenderer
+                          content={tab.content}
+                          mode={htmlMode()}
+                          viewport={viewport()}
+                          palette={palette()}
+                          inspecting={inspecting()}
+                          editing={editing()}
+                          drawing={drawing()}
+                          commenting={commenting()}
+                          archiving={archiving()}
+                          onDrawActiveChange={setDrawing}
+                          onResetArchiving={() => setArchiving(false)}
+                          inspectPanel={true}
+                          onInspectTarget={setInspectTarget}
+                          onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
+                          onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
+                          refreshKey={refreshKey()}
+                          filePath={tab.filePath}
+                          commentFilePath={tab.commentFilePath}
+                          sessionId={tab.sessionId ?? props.sessionId}
+                          sdkUrl={globalSDK.url}
+                          sdkDirectory={props.sdkDirectory}
+                          onSaveFile={async (content) => {
+                            if (!tab.filePath) return
+                            const html = extractCodeBlock(content, "html")
+                            await saveArtifactContent(tab.filePath, html)
+                          }}
+                          onRefreshNeeded={handleRefresh}
+                          tabTitle={tab.title}
+                        />
                     </Match>
                     <Match when={tabType === "deck"}>
                       <DeckRenderer content={tab.content} />
@@ -339,8 +491,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                         artifactIdentifier={tab.artifactIdentifier}
                         confirmed={props.isPlanConfirmed?.() ?? false}
                         onConfirm={() => props.onConfirmPlan?.(tab.artifactIdentifier)}
-                        onAdjust={() => props.onAdjustPlan?.()}
-                        onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
+                        onContentChange={(content) => { props.onContentChange?.(tabId, content) }}
                       />
                     </Match>
                     <Match when={tabType === "local-file"}>

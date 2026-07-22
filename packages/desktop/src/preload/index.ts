@@ -101,6 +101,7 @@ const api: ElectronAPI = {
   setUploadsDir: (dir) => ipcRenderer.invoke("set-uploads-dir", dir),
   writeFile: (path, content) => ipcRenderer.invoke("write-file", path, content),
   readFileBuffer: (path) => ipcRenderer.invoke("read-file-buffer", path),
+  fileExists: (path) => ipcRenderer.invoke("file-exists", path),
   deleteFile: (path) => ipcRenderer.invoke("delete-file", path),
   writeClipboardText: (text) => ipcRenderer.invoke("write-clipboard-text", text),
   capturePreviewRect: (rect) => ipcRenderer.invoke("capture-preview-rect", rect),
@@ -117,6 +118,7 @@ const api: ElectronAPI = {
   exportZip: (opts) => ipcRenderer.invoke("export-zip", opts),
   importZip: () => ipcRenderer.invoke("import-zip"),
   codeToHtml: (opts) => ipcRenderer.invoke("capture-page", opts),
+  listDirectory: (path) => ipcRenderer.invoke("list-directory", path),
   // Pipeline API IPC bridge — renderer 内网调用时通过此通道请求主进程 net.fetch(绕 CORS)
   pipelineRequest: (url, method, uiplusToken, body, headers) => ipcRenderer.invoke("pipeline-request", url, method, uiplusToken, body, headers),
   // jk-j60099994-replace-with-index-1-start

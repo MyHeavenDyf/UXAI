@@ -1,9 +1,10 @@
 import "./make/octo-tokens.css"
-import { createMemo, createEffect, on, Show, ErrorBoundary, Suspense, onMount, type JSX } from "solid-js"
+import { createMemo, createEffect, on, Show, Suspense, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useParams } from "@solidjs/router"
+import { base64Encode } from "@opencode-ai/core/util/encode"
 import { tracker } from "@/utils/tracker"
-import { Sidebar } from "@/components/sidebar"
+import { AgentSidebar } from "@/components/agent-sidebar"
 import { useLocal } from "@/context/local"
 import { useTabModel } from "@/hooks/use-tab-model"
 import { useLayout } from "@/context/layout"
@@ -15,6 +16,7 @@ import { TerminalProvider } from "@/context/terminal"
 import { FileProvider } from "@/context/file"
 import { PromptProvider } from "@/context/prompt"
 import { CommentsProvider } from "@/context/comments"
+import type { Session } from "@opencode-ai/sdk/v2/client"
 
 const SessionPage = lazy(() => import("@/pages/session"))
 
@@ -87,12 +89,27 @@ export default function ChatPage() {
           class="sidebar-wrap h-full shrink-0 border-r border-border-weak-base flex flex-col"
           style={{ width: `${sidebarWidth()}px`, "z-index": 11 }}
         >
-          <ErrorBoundary fallback={(err) => {
-            console.error("Sidebar error:", err)
-            return <div class="p-3 text-14-regular text-text-weak">Sidebar loading...</div>
-          }}>
-            <Sidebar currentDir={resolvedDirectory} />
-          </ErrorBoundary>
+          <AgentSidebar
+            width={sidebarWidth()}
+            directory={resolvedDirectory()}
+            agentFilter="octo_ai"
+            showProjectInfo={false}
+            showBottomNav={false}
+            listParams={{ scope: "project", category: "dev" }}
+            buildSessionRoute={(s: Session) => `/${base64Encode(s.directory)}/chat/${s.id}`}
+            buildNewRoute={() => {
+              const dir = resolvedDirectory()
+              return dir ? `/${base64Encode(dir)}/chat?hint=${Date.now()}` : "/chat"
+            }}
+            buildDeleteFallback={(s: Session) => `/${base64Encode(s.directory)}/chat`}
+            activeSessionId={() => params.id}
+            sectionTitle="Octo Chat"
+            sectionIcon={() => <img src="/IconChat1.svg" alt="" style={{ width: "20px", height: "20px" }} />}
+            newButtonText="新建对话"
+            trackerModule="chat"
+            showSettings
+            sidebarSourceKey="cowork"
+          />
         </div>
         <div
           style={{
