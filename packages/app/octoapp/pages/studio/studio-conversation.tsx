@@ -224,11 +224,14 @@ export function StudioResultCanvas(props: {
   )
   const showImage = createMemo(() => {
     if (fileManagerLoading()) return undefined
+    if (props.status === "running" || props.status === "queued" || props.status === "submitting") return undefined
     return props.image
   })
-  const shouldShowCanvas = createMemo(() =>
-    !!showImage() || (props.showFileManager === true && !fileManagerLoading()),
-  )
+  const shouldShowCanvas = createMemo(() => {
+    // 生成中时优先展示 loading fallback（"生成中..."），而非空 canvas 或文件管理
+    if (props.status === "running" || props.status === "queued" || props.status === "submitting") return false
+    return !!showImage() || (props.showFileManager === true && !fileManagerLoading())
+  })
   const [canvasStageRef, setCanvasStageRef] = createSignal<HTMLDivElement | null>(null)
   const [floatingActionsRef, setFloatingActionsRef] = createSignal<HTMLDivElement | null>(null)
   const [compactActions, setCompactActions] = createSignal(false)
@@ -403,7 +406,7 @@ export function StudioResultCanvas(props: {
                   sessionID={props.sessionID}
                 />
               </div>
-              <Show when={!props.showFileManager || (props.showFileManager && props.fileManagerDetailView)}>
+              <Show when={!props.showFileManager || (props.showFileManager && props.fileManagerDetailView) || props.status === "running" || props.status === "queued" || props.status === "submitting"}>
                 <div style="display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;">
                 <Show when={props.showFileManager && props.fileManagerDetailView}>
                   <div class="studio-file-manager-back-bar">
@@ -421,7 +424,11 @@ export function StudioResultCanvas(props: {
                 </Show>
               <div ref={setCanvasStageRef} class="studio-canvas-stage" classList={{ "has-back-bar": props.showFileManager && props.fileManagerDetailView }}>
                 <div class="studio-canvas-image-wrapper">
-                  <Show when={showImage()}>
+                  <Show when={showImage()} fallback={
+                    <Show when={props.status === "running" || props.status === "queued" || props.status === "submitting"}>
+                      <StudioEmptyState />
+                    </Show>
+                  }>
                     {(img) => (
                       <Show
                         when={isVideoMedia(img())}

@@ -2,6 +2,7 @@ import { batch, createEffect, createMemo, createSignal, For, onCleanup, Show, ty
 import { Portal } from "solid-js/web"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import type { StudioTurnData } from "./turns"
+import emptyPng from "../insight/icons/empty.png"
 
 type FileFilterTab = "all" | "image" | "video"
 
@@ -164,16 +165,29 @@ function extractMediaFromTurns(turns: StudioTurnData[]): FileManagerMedia[] {
       const url = image.url
       if (!url) continue
 
+      // For edit results (inpaint/outpaint/cutout/upscale), the result-level
+      // aspectRatio may not reflect the actual output image dimensions. Prefer
+      // image-level width/height for ratio detection by marking as isCustom.
+      const isEditResult = turn.result?.capability
+        ? ["image.upscale", "image.cutout", "image.inpaint", "image.outpaint"].includes(turn.result.capability)
+        : false
+      const itemWidth = image.width ?? turn.result?.width
+      const itemHeight = image.height ?? turn.result?.height
+      const hasExplicitDimensions = itemWidth && itemHeight && isEditResult
+
       media.push({
         id: image.id,
         turnID: turn.id,
         url,
         thumbnailUrl: image.thumbnailUrl ?? url,
         kind: image.kind === "video" ? "video" : "image",
-        width: image.width ?? turn.result?.width,
-        height: image.height ?? turn.result?.height,
-        aspectRatio: turn.result?.aspectRatio,
-        isCustom: turn.result?.isCustom,
+        width: itemWidth,
+        height: itemHeight,
+        // For edit results with actual pixel dimensions, skip the result-level
+        // aspectRatio (which may be a fabricated default) and use pixel-based
+        // ratio detection via isCustom instead.
+        aspectRatio: hasExplicitDimensions ? undefined : turn.result?.aspectRatio,
+        isCustom: hasExplicitDimensions || turn.result?.isCustom,
         capability: turn.result?.capability ?? turn.editCapability,
         duration: turn.result?.duration,
         createdAt: turn.createdAt,
@@ -522,11 +536,7 @@ export function StudioFileManager(props: {
       <ScrollView class="studio-file-manager-body">
         <Show when={!tabEmpty()} fallback={
           <div class="studio-file-manager-empty">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="none" aria-hidden="true" style={{ "margin-bottom": "12px" }}>
-              <rect x="6" y="8" width="36" height="32" rx="4" stroke="rgba(0,0,0,0.15)" stroke-width="2" fill="none" />
-              <circle cx="17" cy="19" r="3" stroke="rgba(0,0,0,0.15)" stroke-width="2" fill="none" />
-              <path d="M6 32l8-8 6 6 8-8 14 14" stroke="rgba(0,0,0,0.15)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
+            <img src={emptyPng} style={{ width: "150px", height: "150px", "margin-bottom": "12px" }} alt="" draggable={false} />
             <span class="studio-file-manager-empty-text">{emptyText()}</span>
           </div>
         }>
