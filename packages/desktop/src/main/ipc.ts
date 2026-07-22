@@ -355,6 +355,41 @@ export function registerIpcHandlers(deps: Deps) {
     await writeFile(destPath, buf)
   })
 
+  // office「下载」按钮(§下载走本地拷贝):解析某资源 URI 已落地的本地副本路径,**不拉网络**。
+  // 命中(内存 Map 快路径 / 磁盘持久清单)且文件仍在 → 返回绝对路径;否则返回 null(调用方兜底 web 下载)。
+  // 查找口径与 download-resource-to-temp 一致(键=资源 URI + outputsDir),只是去掉 fetch 分支。
+  ipcMain.handle(
+    "resolve-materialized-path",
+    async (_event: IpcMainInvokeEvent, namespace: string, baseDir?: string, sessionId?: string) => {
+      const persistent = !!(baseDir && baseDir.length > 0 && sessionId && sessionId.length > 0)
+      const dir = persistent
+        ? join(baseDir!, ".octo", sanitizeSessionSegment(sessionId!), "outputs")
+        : join(app.getPath("temp"), "octo")
+      const cacheKey = `${dir}::${namespace}`
+      const cached = materializedByNamespace.get(cacheKey)
+      if (cached && existsSync(cached)) return cached
+      if (persistent) {
+        const entry = readMaterializedManifest(dir)[namespace]
+        if (entry?.file) {
+          const abs = join(dir, entry.file)
+          if (existsSync(abs)) {
+            materializedByNamespace.set(cacheKey, abs) // 回填快路径
+            return abs
+          }
+        }
+      }
+      return null
+    },
+  )
+
+  // office「下载」按钮:把**已落地的本地副本**原样拷到用户选定的目标路径。走 fs.copyFile 磁盘级拷贝
+  // (二进制原样、不读进内存再写),而非 readFileBuffer + writeFileBuffer 的「读+写」。与 download-resource
+  // (走网络拉 S3)互补:调用方优先 resolve-materialized-path + 本拷贝,本地副本不存在时才兜底 download-resource。
+  ipcMain.handle("copy-file-to", async (_event: IpcMainInvokeEvent, srcPath: string, destPath: string) => {
+    await mkdir(dirname(destPath), { recursive: true })
+    await copyFile(srcPath, destPath)
+  })
+
   // SPEC-INS-014 §4.1:把用户选的源文件**拷贝**进 worktree 预会话落地区(<baseDir>/.octo/tmps/)。
   // 对本地路径而言这不是上传,是磁盘流式拷贝(100MB 也无压力);原样拷贝、绝不转格式。
   // S3 上传是另一件只为 MCP 服务的事(走 lib/upload.ts,发预置时 lazy 触发),与本拷贝解耦。
