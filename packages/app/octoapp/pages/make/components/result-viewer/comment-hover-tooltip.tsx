@@ -15,6 +15,7 @@ export interface CommentHoverTarget {
   commenterName?: string
   createdAt?: number
   commentId?: string
+  showOverlap?: boolean
 }
 
 export function CommentHoverTooltip(props: {

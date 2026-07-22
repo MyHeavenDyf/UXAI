@@ -315,19 +315,26 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
       var rect = targetElement.getBoundingClientRect()
       var scrollX = window.scrollX || document.documentElement.scrollLeft
       var scrollY = window.scrollY || document.documentElement.scrollTop
+      var viewportWidth = document.documentElement.clientWidth
       
       var leftPx = rect.left + scrollX + rect.width
       var topPx = rect.top + scrollY
+      var showOverlap = topPx < 40 || (leftPx + 40 > viewportWidth + scrollX)
+      var pinLeft = showOverlap ? (rect.left + scrollX + rect.width - 40) : leftPx
+      var pinTop = showOverlap ? topPx : (topPx - 40)
       
       if (existingPin) {
         existingPin.style.display = 'flex'
-        existingPin.style.left = leftPx + 'px'
-        existingPin.style.top = (topPx - 40) + 'px'
+        existingPin.style.left = pinLeft + 'px'
+        existingPin.style.top = pinTop + 'px'
       } else {
         var pin = document.createElement('div')
         pin.setAttribute('data-od-comment-pin', comment.id)
+        if (showOverlap) {
+          pin.setAttribute('data-od-comment-pin-overlap', 'true')
+        }
         
-        pin.style.cssText = 'position:absolute;left:' + leftPx + 'px;top:' + (topPx - 40) + 'px;width:40px;height:40px;background:#fff;border:none;border-radius:999px 999px 999px 0;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2147483647;box-sizing:border-box;box-shadow:0 2px 8px rgba(0,0,0,0.15);'
+        pin.style.cssText = 'position:absolute;left:' + pinLeft + 'px;top:' + pinTop + 'px;width:40px;height:40px;background:#fff;border:none;border-radius:999px 999px 999px 0;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2147483647;box-sizing:border-box;box-shadow:0 2px 8px rgba(0,0,0,0.15);'
         
         if (comment.commenterAvatar) {
           pin.innerHTML = '<img src="' + comment.commenterAvatar + '" style="width:32px;height:32px;border-radius:50%;object-fit:cover;display:block;" />'
@@ -341,6 +348,7 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
         pin.addEventListener('pointerenter', function(e) {
           e.stopPropagation()
           var rect = pin.getBoundingClientRect()
+          var showOverlap = pin.getAttribute('data-od-comment-pin-overlap') === 'true'
           window.parent.postMessage({
             type: 'od:comment-pin-hover',
             commentId: comment.id,
@@ -349,7 +357,8 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
               top: rect.top,
               width: rect.width,
               height: rect.height
-            }
+            },
+            showOverlap: showOverlap
           }, '*')
         })
         
