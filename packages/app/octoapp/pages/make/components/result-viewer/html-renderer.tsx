@@ -40,7 +40,7 @@ function getCommenterInfo(): { commenterName: string; commenterAccount: string; 
     const nickName = obj.nickName || "用户名"
     const account = obj.account || ""
     const avatarUrl = account
-      ? `https://octo.hdesign.huawei.com/w3lab/rest/yellowpage/face/${account.replace(/[^\d]/g, '')}/120?ts=${Date.now()}`
+      ? `https://octo.hdesign.huawei.com/w3lab/rest/yellowpage/face/${account.replace(/^[a-zA-Z]/, '')}/120?ts=${Date.now()}`
       : ""
     return { commenterName: nickName, commenterAccount: account, commenterAvatar: avatarUrl }
   } catch {
