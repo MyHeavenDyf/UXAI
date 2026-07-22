@@ -257,7 +257,19 @@ export function CommentPopover(props: {
     // Fallback
     return props.target!.position.x * iframeWidth + 20
   })
-  const top = createMemo(() => props.target!.hoverPoint?.y || props.target!.position.y * iframeHeight + 20)
+  const top = createMemo(() => {
+    const hoverY = props.target!.hoverPoint?.y
+    const popoverHeight = 84
+    
+    if (hoverY !== undefined) {
+      if (hoverY + popoverHeight > iframeHeight) {
+        return hoverY - popoverHeight - 8
+      }
+      return hoverY
+    }
+    
+    return props.target!.position.y * iframeHeight + 20
+  })
 
   return (
     <div
