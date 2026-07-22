@@ -1162,10 +1162,11 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 用户点击 [策略生成] → 把表单数据发给子 agent，切换到第二阶段 */
   function handleGenerateStrategy() {
     const planSid = activePlanSessionId()
-    if (!planSid) return
+    const key = activeModelKey()
+    if (!planSid || !key) return
     const data = strategyFormData()
     const prompt = `[strategy-complete]\n\n以下是已填写的设计策略信息：\n\n## 设计需求\n- 需求背景：${data.需求背景 || "（未填写）"}\n- 设计目标：${data.设计目标 || "（未填写）"}\n- 设计方法：${data.设计方法 || "（未填写）"}\n- 其他：${data.其他 || "（未填写）"}\n\n## 洞察&研究\n- 用户画像：${data.用户画像 || "（未填写）"}\n- 用户旅程：${data.用户旅程 || "（未填写）"}\n- 研究报告：${data.研究报告 || "（未填写）"}\n\n请根据以上信息输出完整的设计策略文档。`
-    sendMessage(planSid, prompt).catch((err) => {
+    sendMessage(planSid, prompt, key).catch((err) => {
       console.error("[MakePage] generate strategy failed", err)
     })
     setUserChangedPhase(false)  // 重置手动切换标记
@@ -1198,13 +1199,15 @@ const sessionMessagesLoaded = createMemo(() => {
       localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + endedSid)
       delete _planChildSessionCache[endedSid]
     }
+    // 根据当前 planPhase 确定最终阶段，保留以正确显示对应内容
+    const currentPhase = planPhase()
     setPlanEndedForSession(params.id ?? null)
     setActivePlanSessionId(null)
     setPlanParentSessionId(null)
     setHasChildPlanSession(false)
     setManualStrategyFormData({})
     setResultViewMode("files")
-    setPlanPhase("strategy")
+    setPlanPhase(currentPhase)
   }
 
   /** 用户点击 [调整方案] → 焦点切到输入框,预填引导文字 */
@@ -1547,9 +1550,11 @@ const sessionMessagesLoaded = createMemo(() => {
     if (tab?.type === "design-plan" && tab.artifactIdentifier) {
       const planSid = activePlanSessionId()
       if (planSid) {
+        const key = activeModelKey()
+        if (!key) return
         // 发送更新指令让子 agent 重新输出更新后的 plan
         const updatePrompt = `[update-plan ${tab.artifactIdentifier}]\n\n${content}`
-        sendMessage(planSid, updatePrompt).catch((err) => {
+        sendMessage(planSid, updatePrompt, key).catch((err) => {
           console.error("[MakePage] update plan failed", err)
         })
       }
