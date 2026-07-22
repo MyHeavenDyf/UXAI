@@ -116,14 +116,44 @@ function describeNetworkError(err: unknown): string {
   return parts.length > 0 ? parts.join(" ← ") : String(err)
 }
 
-// 产物落地幂等(spec §2/§4.2):同一个资源(namespace=资源 URI)首次 materialize 后记下其
-// outputs 本地路径,本会话内稳定 —— 后续预览/编辑/打开都命中这份(含用户改动),绝不 re-fetch。
-// 用主进程内存表替代旧的 `.octo/downloads/<id>/` 目录分桶,使 outputs 扁平、显性。
-// namespace 必须是资源身份(URI)而非卡片身份(tab.id/card.id):同一份产物会被多张卡引用
-// (任务卡 vs「查询结果」turn 的路径 A 卡),按卡片 id 记会让同一 URI 各落一份、第二份撞名成
-// `xxx (2)`,且每查询一次多一份。调用方约定见 app 侧 utils/local-resource.ts 文件头。
-// 跨重启该表清空 → 同名产物会按 §3.3 加后缀新建(少见边界,spec 接受)。
+// 产物落地幂等(spec §2/§4.2):幂等键 = **资源 URI(namespace)**——同一资源被多张卡引用、
+// 或跨重启重开旧会话再触发 eager 落盘时,都复用首次落地的那一份(含用户改动),绝不 re-fetch/覆盖。
+// **必须按 URI 记身份、不能按文件名**:文件名 ≠ 身份,两个不同 URI 都叫 report.md 不能 alias 成同一份
+// (故撞名仍走 collisionFreePath 各留一份)。
+//
+// 幂等落在**磁盘持久清单** .octo/<sessionId>/outputs/.materialized.json(dotfile,服务端 listFiles 过滤,
+// 不进文件管理;随会话目录生命周期,天然活过重启/重装)——这是修 #90 的关键:旧实现只有下面的进程内
+// Map、跨重启即清空,重开旧会话查不到 → 撞名重落 `xxx (2)`,每装一次多一份。
+// (业界同款:npm cacache / pip / MCP 缓存代理都用「跨重启存活的 逻辑键→已落地条目 清单」。)
+//
+// 下面这张内存 Map 仅作进程内快路径(免每次 materialize 读一次 JSON),键 = `${outputsDir}::${URI}`
+// ——**带 outputsDir 前缀**是必须的:Map 是模块级跨会话共享,只按 URI 记会让同一 URI 在会话 A/B 间串场
+// (B 命中 A 的落点)。带 dir 后它与「本会话持久清单」答案一致,纯缓存、无跨会话 alias。
 const materializedByNamespace = new Map<string, string>()
+
+const MATERIALIZED_MANIFEST = ".materialized.json"
+type MaterializedEntry = { file: string; fetchedAt: number }
+
+// 读某会话 outputs 的持久幂等清单(URI → {落地文件名, 时间})。缺文件/坏 JSON → 空表(退化为重新落盘)。
+function readMaterializedManifest(outputsDir: string): Record<string, MaterializedEntry> {
+  try {
+    const parsed = JSON.parse(readFileSync(join(outputsDir, MATERIALIZED_MANIFEST), "utf-8"))
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, MaterializedEntry>) : {}
+  } catch {
+    return {}
+  }
+}
+
+// 记一条 URI→文件名 到清单(读改写)。失败仅告警:内存 Map 仍在,只是这次跨重启幂等失效,不阻断落盘。
+function recordMaterialized(outputsDir: string, namespace: string, file: string): void {
+  try {
+    const map = readMaterializedManifest(outputsDir)
+    map[namespace] = { file, fetchedAt: Date.now() }
+    writeFileSync(join(outputsDir, MATERIALIZED_MANIFEST), JSON.stringify(map, null, 2), "utf-8")
+  } catch (err) {
+    log.warn("[octo:worktree] materialize-manifest write failed", { outputsDir, err })
+  }
+}
 
 type Deps = {
   killSidecar: () => Promise<void> | void
@@ -387,21 +417,41 @@ export function registerIpcHandlers(deps: Deps) {
       sessionId?: string,
     ) => {
       const safeName = sanitizeWorktreeName(filename)
-      // 本会话幂等(spec §2/§4.2):同一张卡已落地的本地副本即用户的「工作文件」——直接复用,
-      // 绝不 re-fetch / 覆盖,否则「本地打开/编辑 → 改 → 关闭 → 再打开」会被重新下载的原版盖掉。
-      // 落点改为显性的 .octo/<sessionId>/outputs(扁平、撞名加后缀),幂等键由旧的 <id> 目录改为内存表。
-      const known = materializedByNamespace.get(namespace)
-      if (known && existsSync(known)) {
-        console.log("[octo:worktree] result-materialize", { filename: safeName, path: known, sessionId, reused: true })
-        return known
-      }
       // baseDir 与 sessionId 都提供时落 <baseDir>/.octo/<sessionId>/outputs/(用户可见、可管理、按会话隔离);
       // 缺一不可时 fallback 走 OS 临时目录(无项目场景 / 无会话 / 纯一次性预览,非持久)。
-      const dir =
-        baseDir && baseDir.length > 0 && sessionId && sessionId.length > 0
-          ? join(baseDir, ".octo", sanitizeSessionSegment(sessionId), "outputs")
-          : join(app.getPath("temp"), "octo")
+      const persistent = !!(baseDir && baseDir.length > 0 && sessionId && sessionId.length > 0)
+      const dir = persistent
+        ? join(baseDir!, ".octo", sanitizeSessionSegment(sessionId!), "outputs")
+        : join(app.getPath("temp"), "octo")
+
+      // 内存快路径的键带上 dir(已含 sessionId):Map 是模块级、跨会话共享,只按 URI 记会让「同一 URI 被
+      // 会话 A、B 分别引用」时 B 命中 A 的落点、指向 A 的会话目录。带 dir 前缀后,Map 成为「本会话清单」的
+      // 忠实缓存,与持久清单答案一致(纯提速、无跨会话 alias)。
+      const cacheKey = `${dir}::${namespace}`
+
+      // 幂等 ①:进程内快路径。命中且文件仍在 → 复用,绝不 re-fetch/覆盖。
+      const cached = materializedByNamespace.get(cacheKey)
+      if (cached && existsSync(cached)) {
+        console.log("[octo:worktree] result-materialize", { filename: safeName, path: cached, sessionId, reused: true })
+        return cached
+      }
+
       await ensureWorktreeDir(dir)
+
+      // 幂等 ②:磁盘持久清单(跨重启/重装存活,#90)。同样按 URI 命中、且落地文件仍在 → 复用并回填内存 Map。
+      if (persistent) {
+        const entry = readMaterializedManifest(dir)[namespace]
+        if (entry?.file) {
+          const abs = join(dir, entry.file)
+          if (existsSync(abs)) {
+            materializedByNamespace.set(cacheKey, abs)
+            console.log("[octo:worktree] result-materialize", { filename: safeName, path: abs, sessionId, reused: true })
+            return abs
+          }
+        }
+      }
+
+      // 未命中 → 落盘。撞名仍走 collisionFreePath(两个不同 URI 撞同名各留一份,不 alias),再把 URI→文件名 写回清单。
       const destPath = collisionFreePath(dir, safeName)
       // net.fetch 走 Chromium 网络栈,理由同 download-resource;失败落 main.log(electron-log),
       // 裸 console.log 进不了 main.log,内网远程排障只有这份文件可看。
@@ -422,7 +472,8 @@ export function registerIpcHandlers(deps: Deps) {
       }
       const buf = Buffer.from(await res.arrayBuffer())
       await writeFile(destPath, buf)
-      materializedByNamespace.set(namespace, destPath)
+      materializedByNamespace.set(cacheKey, destPath)
+      if (persistent) recordMaterialized(dir, namespace, basename(destPath))
       console.log("[octo:worktree] result-materialize", { filename: safeName, path: destPath, sessionId, reused: false })
       return destPath
     },
