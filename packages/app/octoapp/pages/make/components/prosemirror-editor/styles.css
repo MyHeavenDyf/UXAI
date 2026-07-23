@@ -1,0 +1,73 @@
+.pm-editor-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.pm-editor {
+  min-height: 88px;
+  max-height: 184px;
+  overflow-y: auto;
+  padding: 1rem;
+  outline: none;
+  font-family: var(--octo-font);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.pm-editor:focus {
+  outline: none;
+}
+
+.pm-editor.pm-editor--disabled {
+  background: var(--bg-subtle);
+  cursor: not-allowed;
+}
+
+.pm-editor .ProseMirror {
+  outline: none;
+}
+
+.pm-editor .ProseMirror:focus {
+  outline: none;
+}
+
+.pm-editor p {
+  margin: 0;
+}
+
+.pm-mention {
+  display: inline;
+  margin: 0 -1px;
+  padding: 0 1px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+}
+
+.pm-mention.pm-mention--skill {
+  background: rgba(37, 99, 235, 0.08);
+  color: rgba(37, 99, 235, 0.8);
+}
+
+.pm-mention.pm-mention--file {
+  background: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.pm-mention.ProseMirror-selectednode {
+  background: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+}
+
+.pm-editor .ProseMirror-separator {
+  display: inline-block !important;
+  width: 1px;
+  height: 1.2em;
+  vertical-align: text-bottom;
+}
+
+.pm-editor .ProseMirror-trailingBreak {
+  display: inline !important;
+}

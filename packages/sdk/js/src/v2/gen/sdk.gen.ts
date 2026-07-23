@@ -28,6 +28,16 @@ import type {
   AuthSetErrors,
   AuthSetResponses,
   CommandListResponses,
+  CommentDeleteAttachmentErrors,
+  CommentDeleteAttachmentResponses,
+  CommentDeleteErrors,
+  CommentDeleteResponses,
+  CommentLoadErrors,
+  CommentLoadResponses,
+  CommentSaveErrors,
+  CommentSaveResponses,
+  CommentUploadAttachmentErrors,
+  CommentUploadAttachmentResponses,
   Config as Config3,
   ConfigGetResponses,
   ConfigProvidersResponses,
@@ -981,6 +991,242 @@ export class Artifact extends HeyApiClient {
       url: "/artifact/serve",
       ...options,
       ...params,
+    })
+  }
+}
+
+export class Comment extends HeyApiClient {
+  /**
+   * Delete comment
+   *
+   * Delete a comment.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      sessionId: string
+      commentFilePath: string
+      commentId: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "sessionId" },
+            { in: "query", key: "commentFilePath" },
+            { in: "query", key: "commentId" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<CommentDeleteResponses, CommentDeleteErrors, ThrowOnError>({
+      url: "/comment/file",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Load comments
+   *
+   * Load all comments for an artifact file.
+   */
+  public load<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      sessionId: string
+      commentFilePath: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "sessionId" },
+            { in: "query", key: "commentFilePath" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<CommentLoadResponses, CommentLoadErrors, ThrowOnError>({
+      url: "/comment/file",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Save comment
+   *
+   * Save or update a comment.
+   */
+  public save<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionId?: string
+      commentFilePath?: string
+      comment?: {
+        id: string
+        filePath: string
+        elementId: string
+        selector: string
+        label: string
+        text: string
+        position: {
+          x: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+          y: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+          w: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+          h: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        }
+        htmlHint: string
+        note: string
+        attachments?: Array<{
+          id: string
+          filename: string
+          mime: string
+          size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+          filePath: string
+          uploadedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        }>
+        createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        commenterAccount?: string
+        commenterName?: string
+        commenterAvatar?: string
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionId" },
+            { in: "body", key: "commentFilePath" },
+            { in: "body", key: "comment" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<CommentSaveResponses, CommentSaveErrors, ThrowOnError>({
+      url: "/comment/file",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Delete comment attachment
+   *
+   * Delete an attachment file from a comment.
+   */
+  public deleteAttachment<ThrowOnError extends boolean = false>(
+    parameters: {
+      attachmentId: string
+      directory?: string
+      workspace?: string
+      sessionId: string
+      commentFilePath: string
+      commentId: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "attachmentId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "sessionId" },
+            { in: "query", key: "commentFilePath" },
+            { in: "query", key: "commentId" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      CommentDeleteAttachmentResponses,
+      CommentDeleteAttachmentErrors,
+      ThrowOnError
+    >({
+      url: "/comment/file/attachment/{attachmentId}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Upload comment attachment
+   *
+   * Upload an attachment file for a comment (copy from source path).
+   */
+  public uploadAttachment<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionId?: string
+      commentFilePath?: string
+      commentId?: string
+      sourceFilePath?: string
+      filename?: string
+      mime?: string
+      size?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionId" },
+            { in: "body", key: "commentFilePath" },
+            { in: "body", key: "commentId" },
+            { in: "body", key: "sourceFilePath" },
+            { in: "body", key: "filename" },
+            { in: "body", key: "mime" },
+            { in: "body", key: "size" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      CommentUploadAttachmentResponses,
+      CommentUploadAttachmentErrors,
+      ThrowOnError
+    >({
+      url: "/comment/file/attachment",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 }
@@ -4172,14 +4418,17 @@ export class Session2 extends HeyApiClient {
       arguments?: string
       command?: string
       variant?: string
-      parts?: Array<{
-        id?: string
-        type: "file"
-        mime: string
-        filename?: string
-        url: string
-        source?: FilePartSource
-      }>
+      parts?: Array<
+        | TextPartInput
+        | {
+            id?: string
+            type: "file"
+            mime: string
+            filename?: string
+            url: string
+            source?: FilePartSource
+          }
+      >
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -5384,6 +5633,10 @@ export class Generations extends HeyApiClient {
       detailPrompt?: string
       refinedPrompt?: string
       effectivePrompt?: string
+      promptRefineModels?: Array<{
+        providerID: string
+        modelID: string
+      }>
       styleModel?: string
       aspectRatio?: string
       count?: number
@@ -5410,6 +5663,7 @@ export class Generations extends HeyApiClient {
             { in: "body", key: "detailPrompt" },
             { in: "body", key: "refinedPrompt" },
             { in: "body", key: "effectivePrompt" },
+            { in: "body", key: "promptRefineModels" },
             { in: "body", key: "styleModel" },
             { in: "body", key: "aspectRatio" },
             { in: "body", key: "count" },
@@ -5830,6 +6084,11 @@ export class OpencodeClient extends HeyApiClient {
   private _artifact?: Artifact
   get artifact(): Artifact {
     return (this._artifact ??= new Artifact({ client: this.client }))
+  }
+
+  private _comment?: Comment
+  get comment(): Comment {
+    return (this._comment ??= new Comment({ client: this.client }))
   }
 
   private _config?: Config2
