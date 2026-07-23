@@ -554,7 +554,7 @@ export function PreviewPage(props: {
                         <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" fill="#ffffff" stroke="rgba(0,0,0,0.1)" stroke-width="1.5" stroke-linejoin="round" />
                       </g>
                     </svg>
-                    <img src="/AvatarUser.svg" class="annotation-badge-avatar" />
+                    <img src={getAvatarUrl(item.account) || "/AvatarUser.svg"} class="annotation-badge-avatar" />
                   </div>
                 )}
               </For>

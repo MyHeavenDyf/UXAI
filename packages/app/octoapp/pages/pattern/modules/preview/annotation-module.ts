@@ -71,8 +71,8 @@ export function useAnnotations(deps: {
    */
   const visibleAnnotationData = createMemo(() => {
     const popupSelector = annotationPopup.show ? annotationPopup.target?.elementId : null
-    return annotations.reduce<Array<{ selector: string; pos: { top: number; left: number; width: number; height: number }; originalIndex: number }>>((acc, a, i) => {
-      if (a.pos && a.selector !== popupSelector) acc.push({ selector: a.selector, pos: a.pos, originalIndex: i })
+    return annotations.reduce<Array<{ selector: string; account: string; pos: { top: number; left: number; width: number; height: number }; originalIndex: number }>>((acc, a, i) => {
+      if (a.pos && a.selector !== popupSelector) acc.push({ selector: a.selector, account: a.account, pos: a.pos, originalIndex: i })
       return acc
     }, [])
   })
