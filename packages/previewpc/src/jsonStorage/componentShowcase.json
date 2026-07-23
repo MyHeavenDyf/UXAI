@@ -3273,8 +3273,7 @@
       },
       "children": [
         "inputNumberCardTitle",
-        "inputNumberRowDefault",
-        "inputNumberRowControls"
+        "inputNumberRowDefault"
       ]
     },
     {
@@ -3312,34 +3311,7 @@
         "placeholder": "请输入数字"
       }
     },
-    {
-      "id": "inputNumberRowControls",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-2"
-      },
-      "children": [
-        "inputNumberRowControlsLabel",
-        "inputNumberControls"
-      ]
-    },
-    {
-      "id": "inputNumberRowControlsLabel",
-      "component": "span",
-      "props": {
-        "value": "无控制器",
-        "className": "text-sm text-on-surface-variant"
-      }
-    },
-    {
-      "id": "inputNumberControls",
-      "component": "InputNumber",
-      "props": {
-        "value": 10,
-        "controls": false,
-        "step": 5
-      }
-    },
+
     {
       "id": "timePickerCard",
       "component": "div",
@@ -3836,8 +3808,7 @@
         "switchCardTitle",
         "switchRowDefault",
         "switchRowText",
-        "switchRowIcon",
-        "switchRowSizes"
+        "switchRowIcon"
       ]
     },
     {
@@ -3947,36 +3918,6 @@
         "checkedChildrenIcon": "check",
         "unCheckedChildrenIcon": "x"
       }
-    },
-    {
-      "id": "switchRowSizes",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-2"
-      },
-      "children": [
-        "switchRowSizesLabel",
-        "switchRowSizesContent"
-      ]
-    },
-    {
-      "id": "switchRowSizesLabel",
-      "component": "span",
-      "props": {
-        "value": "尺寸变体",
-        "className": "text-sm text-on-surface-variant"
-      }
-    },
-    {
-      "id": "switchRowSizesContent",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-4"
-      },
-      "children": [
-        "switchMedium",
-        "switchSmall"
-      ]
     },
     {
       "id": "switchMedium",

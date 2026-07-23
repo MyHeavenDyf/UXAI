@@ -79,8 +79,8 @@ const onSwitch = (val: string | number | boolean) => {
     :size="size as any"
     :active-text="checkedChildren"
     :inactive-text="unCheckedChildren"
-    :active-icon="checkedChildrenIcon as any"
-    :inactive-icon="unCheckedChildrenIcon as any"
+    :active-action-icon="checkedChildrenIcon as any"
+    :inactive-action-icon="unCheckedChildrenIcon as any"
     @change="onSwitch"
   />
 </template>
