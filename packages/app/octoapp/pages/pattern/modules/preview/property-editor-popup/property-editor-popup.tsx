@@ -17,8 +17,8 @@ import { CustomSelect } from "./custom-select"
 import {
   SettingsIcon, FreeformIcon, RowIcon, ColIcon, HAlignIcon, VAlignIcon, BorderRadiusIcon,
   TopLeftBorderRadiusIcon, TopRightBorderRadiusIcon, BottomLeftBorderRadiusIcon, BottomRightBorderRadiusIcon,
-  HorizontalPaddingIcon, VerticalPaddingIcon,
-  LineHeightIcon, LetterSpacingIcon,
+  HorizontalPaddingIcon, VerticalPaddingIcon, PaddingIcon, MarginIcon, OpacityIcon, CornerCurveIcon,
+  LineHeightIcon, LetterSpacingIcon, ImageUploadIcon,
 } from "./icons"
 
 export function PropertyEditorPopup(props: {
@@ -1496,7 +1496,7 @@ export function PropertyEditorPopup(props: {
                   <DragInput
                     value={editPt} setValue={(v) => { setEditPt(v); setEditPr(v); setEditPb(v); setEditPl(v) }}
                     setFound={(v) => { setFoundPt(v); setFoundPr(v); setFoundPb(v); setFoundPl(v) }}
-                    found={foundPt} placeholder="-" />
+                    found={foundPt} placeholder="-" icon={PaddingIcon()} />
                 </div>
               </Show>
               <Show when={paddingMode() === 'hv'}>
@@ -1553,7 +1553,7 @@ export function PropertyEditorPopup(props: {
                   <DragInput
                     value={editMt} setValue={(v) => { setEditMt(v); setEditMr(v); setEditMb(v); setEditMl(v) }}
                     setFound={(v) => { setFoundMt(v); setFoundMr(v); setFoundMb(v); setFoundMl(v) }}
-                    found={foundMt} placeholder="-" />
+                    found={foundMt} placeholder="-" icon={MarginIcon()} />
                 </div>
               </Show>
               <Show when={marginMode() === 'hv'}>
@@ -1616,8 +1616,8 @@ export function PropertyEditorPopup(props: {
             <div class="grid gap-2 py-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
               <span class="text-[12px] font-semibold text-slate-500">外观</span>
               <div class="flex items-center gap-1.5 w-full min-w-0">
-                <DragInput value={editOpacity} setValue={setEditOpacity} setFound={setFoundOpacity} found={foundOpacity} placeholder="透明度" max={100} suffix="%"  icon="%"/>
-                <DragInput value={editRadius} setValue={setEditRadius} setFound={setFoundRadius} found={foundRadius} placeholder="圆角" display={cornerOpen() && (foundRadiusTl() || foundRadiusTr() || foundRadiusBr() || foundRadiusBl()) ? 'mixed' : undefined} icon={BorderRadiusIcon()} />
+                <DragInput value={editOpacity} setValue={setEditOpacity} setFound={setFoundOpacity} found={foundOpacity} placeholder="透明度" max={100} icon={OpacityIcon()} suffixIcon="%"/>
+                <DragInput value={editRadius} setValue={setEditRadius} setFound={setFoundRadius} found={foundRadius} placeholder="圆角" display={cornerOpen() && (foundRadiusTl() || foundRadiusTr() || foundRadiusBr() || foundRadiusBl()) ? 'mixed' : undefined} icon={CornerCurveIcon()} suffixIcon={BorderRadiusIcon()} />
                 <button onClick={() => setCornerOpen(!cornerOpen())}
                   class={cornerOpen() ? 'prop-chip-active h-6 w-6 p-0 flex items-center justify-center shrink-0' : 'prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0'}>
                   <span class="text-[10px]">◱</span>
@@ -1642,9 +1642,9 @@ export function PropertyEditorPopup(props: {
 
             <div class="flex items-center gap-2 pb-2 -mx-4 px-4">
               <label class="text-[12px] font-semibold text-slate-500 w-14 shrink-0">背景图</label>
-              <button onClick={openBgPicker} class="text-xs px-2 py-0.5 rounded-sm border border-[#cbd5e1] text-slate-400 hover:text-slate-600 hover:border-[#94a3b8] hover:bg-[#f1f5f9] whitespace-nowrap flex items-center gap-1 transition-colors">
-                <svg width="16" height="16" viewBox="0 0 1024 1024" fill="currentColor"><path d="M392.32 800.192l242.912-242.944 164.992 164.992 0.032 77.76-407.968 0.192zM224 224l576-0.256 0.192 407.968-142.336-142.336a31.968 31.968 0 0 0-45.248 0L301.76 800.224H224V224z m576.256-64H223.712a63.808 63.808 0 0 0-63.68 63.744v576.512C160 835.424 188.544 864 223.68 864h576.544A63.808 63.808 0 0 0 864 800.256V223.744A63.84 63.84 0 0 0 800.256 160z"/><path d="M416 384a31.68 31.68 0 0 1 32 32 31.68 31.68 0 0 1-32 32 31.68 31.68 0 0 1-32-32c0-17.952 14.048-32 32-32m0 128c52.928 0 96-43.072 96-96s-43.072-96-96-96-96 43.072-96 96 43.072 96 96 96"/></svg>
-                上传
+              <button onClick={openBgPicker} class="flex items-center gap-4 h-6 py-2 px-2 rounded-[4px] bg-[#F4F4F5] text-[10px] text-slate-600 hover:bg-[#E4E4E7] w-full whitespace-nowrap transition-colors">
+                <ImageUploadIcon />
+                <span>上传</span>
               </button>
               <Show when={editBgUrl() && editBgUrl() !== 'none'}>
                 <span class="text-[10px] text-slate-500 truncate flex-1">{editBgUrl()}</span>

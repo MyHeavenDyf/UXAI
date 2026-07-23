@@ -345,10 +345,10 @@ export function ColorPicker(props: {
         ref={(el) => { buttonRef = el }}
         type="button"
         onClick={(e) => { e.stopPropagation(); toggle() }}
-        class="flex items-center gap-1.5 h-6 px-2 rounded-sm bg-[#F4F4F5] text-[10px] text-slate-600 hover:bg-[#E4E4E7]"
+        class="flex items-center gap-4 h-6 rounded-sm bg-[#F4F4F5] text-[10px] text-slate-600 hover:bg-[#E4E4E7] w-full py-2 px-2"
       >
-        <span class="w-3 h-3 rounded-full border border-slate-200" style={{ background: props.value || '#ffffff' }} />
-        {displayLabel()}
+        <span class="w-4 h-4 rounded-[2px] shrink-0" style={{ background: props.value || '#ffffff' }} />
+        <span class="truncate">{props.value ? props.value.toUpperCase() : placeholder()}</span>
       </button>
       <Show when={open()}>
         <Portal>

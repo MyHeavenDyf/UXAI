@@ -11,6 +11,7 @@ export function DragInput(props: {
   min?: number
   max?: number
   icon?: string | JSX.Element
+  suffixIcon?: string | JSX.Element
   hasBorder?: boolean
   bg?: string
   class?: string
@@ -53,6 +54,7 @@ export function DragInput(props: {
         value={props.display ?? (props.found() ? String(props.value()) + (props.suffix ?? '') : '')}
         onInput={(e) => { const v = Math.max(mn, parseInt(e.currentTarget.value) || 0); props.setValue(props.max != null ? Math.min(props.max, v) : v); props.setFound(true) }}
         class="placeholder:text-muted-foreground flex-1 min-w-0 bg-transparent outline-none text-[11px] pr-1 h-full border-0 shadow-none" />
+      {props.suffixIcon && <span class="text-slate-400 text-[10px] font-medium px-1.5 h-full flex items-center shrink-0 select-none">{props.suffixIcon}</span>}
     </div>
   )
 }
