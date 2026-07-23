@@ -1623,7 +1623,7 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
-  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }) {
+  async function sendMessage(sessionId: string, text: string, _modelKey: { providerID: string; modelID: string }) {
     try {
       const done = attachments().filter(a => a.status === "done")
       
@@ -1640,6 +1640,56 @@ const sessionMessagesLoaded = createMemo(() => {
         url: a.url ?? a.dataUrl!,
       }))
       
+      // ── Multi-slash-command detection ──
+      // Scan all tokens in text for /cmd patterns, match against sync.data.command,
+      // execute each via session.command(). Each command gets the text between itself
+      // and the next /cmd as its arguments. Commands are self-contained (no follow-up prompt).
+      const segments = text.split(/(?=\/\S)/)
+      const cmdSegments: { cmd: string; args: string }[] = []
+      let hasCommand = false
+      for (const seg of segments) {
+        const trimmed = seg.trim()
+        if (!trimmed) continue
+        const m = trimmed.match(/^\/(\S+)([\s\S]*)$/)
+        if (m) {
+          const cmdName = m[1]
+          if (cmdName && sync.data.command.find((c) => c.name === cmdName)) {
+            cmdSegments.push({ cmd: cmdName, args: m[2].trim() })
+            hasCommand = true
+            continue
+          }
+        }
+        // Non-command segment: only keep if no commands found (for prompt fallback)
+        if (!hasCommand) {
+          cmdSegments.push({ cmd: "", args: trimmed })
+        }
+      }
+
+      if (hasCommand) {
+        const modelStr = `${_modelKey.providerID}/${_modelKey.modelID}`
+        const cmdParts = fileParts.length > 0 ? fileParts : undefined
+
+        for (const seg of cmdSegments) {
+          if (!seg.cmd) continue
+          try {
+            await sdk.client.session.command({
+              sessionID: sessionId,
+              command: seg.cmd,
+              arguments: seg.args,
+              agent: sessionId === activePlanSessionId() ? "octo_make_plan" : "octo_make",
+              model: modelStr,
+              parts: cmdParts,
+            })
+          } catch (err) {
+            console.error(`[MakePage] command /${seg.cmd} failed`, err)
+          }
+        }
+
+        setAttachments([])
+        return  // Commands are self-contained, skip prompt
+      }
+      // ── End command detection ──
+
       let promptText = text
 
       const loadedSkills = skillToolCalls()
