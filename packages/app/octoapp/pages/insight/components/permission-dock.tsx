@@ -2,12 +2,13 @@ import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js"
 import type { PermissionRequest, Session } from "@opencode-ai/sdk/v2"
 import { Button } from "@opencode-ai/ui/button"
 import { DockPrompt } from "@opencode-ai/ui/dock-prompt"
-import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useLanguage } from "@/context/language"
 import { usePermission } from "@/context/permission"
+import { usePlatform } from "@/context/platform"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
+import "./permission-dock.css"
 
 // InsightPermissionDock —— insight 聊天面板的权限询问 UI(SPEC-INS-021 §2)。
 //
@@ -67,6 +68,7 @@ export function InsightPermissionDock(props: { sessionID?: string }) {
   const sync = useSync()
   const language = useLanguage()
   const permission = usePermission()
+  const platform = usePlatform()
 
   const request = createMemo((): PermissionRequest | undefined =>
     findPendingPermission(
@@ -120,70 +122,107 @@ export function InsightPermissionDock(props: { sessionID?: string }) {
     return value
   }
 
+  // 点路径打开对应本地文件。external_directory 的 pattern 是「目录/*」glob,真正的文件在
+  // metadata.filepath;优先开它,兜底把 pattern 末尾的 /* 去掉当目录开。桌面壳外(web)无 openPath 时静默。
+  const openPath = (perm: PermissionRequest, pattern: string) => {
+    if (!platform.openPath) return
+    const meta = perm.metadata?.["filepath"]
+    const target = typeof meta === "string" && meta ? meta : pattern.replace(/[\\/]\*$/, "")
+    console.log("[octo:permission] open", { permissionID: perm.id, target })
+    platform.openPath(target).catch((err: unknown) => {
+      const description = err instanceof Error ? err.message : String(err)
+      showToast({ title: language.t("common.requestFailed"), description })
+    })
+  }
+
   return (
     <Show when={request()} keyed>
       {(perm) => (
-        <DockPrompt
-          kind="permission"
-          header={
-            <div data-slot="permission-row" data-variant="header">
-              <span data-slot="permission-icon">
-                <Icon name="warning" size="normal" />
-              </span>
-              <div data-slot="permission-header-title">{language.t("notification.permission.title")}</div>
-            </div>
-          }
-          footer={
-            <>
-              <div />
-              <div data-slot="permission-footer-actions">
-                <Button
-                  variant="ghost"
-                  size="normal"
-                  onClick={() => decide(perm, "reject")}
-                  disabled={responding() === perm.id}
-                >
-                  {language.t("ui.permission.deny")}
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="normal"
-                  onClick={() => decide(perm, "always")}
-                  disabled={responding() === perm.id}
-                >
-                  {language.t("ui.permission.allowAlways")}
-                </Button>
-                <Button
-                  variant="primary"
-                  size="normal"
-                  onClick={() => decide(perm, "once")}
-                  disabled={responding() === perm.id}
-                >
-                  {language.t("ui.permission.allowOnce")}
-                </Button>
-              </div>
-            </>
-          }
-        >
-          <Show when={hint(perm)}>
-            <div data-slot="permission-row">
-              <span data-slot="permission-spacer" aria-hidden="true" />
-              <div data-slot="permission-hint">{hint(perm)}</div>
-            </div>
-          </Show>
-
-          <Show when={perm.patterns.length > 0}>
-            <div data-slot="permission-row">
-              <span data-slot="permission-spacer" aria-hidden="true" />
-              <div data-slot="permission-patterns">
-                <For each={perm.patterns}>
-                  {(pattern) => <code class="text-12-regular text-text-base break-all">{pattern}</code>}
-                </For>
-              </div>
-            </div>
-          </Show>
-        </DockPrompt>
+        <PermissionDockView
+          title={language.t("notification.permission.title")}
+          hint={hint(perm)}
+          patterns={perm.patterns}
+          busy={responding() === perm.id}
+          labels={{
+            deny: language.t("ui.permission.deny"),
+            always: language.t("ui.permission.allowAlways"),
+            once: language.t("ui.permission.allowOnce"),
+          }}
+          onDecide={(response) => decide(perm, response)}
+          onOpenPath={(pattern) => openPath(perm, pattern)}
+        />
       )}
     </Show>
+  )
+}
+
+// 纯展示层(无 context 依赖):把 DockPrompt 结构 + 三键从数据逻辑里剥出来,
+// 供真实 InsightPermissionDock 与 __dev/permission-dock-preview 共用,预览所见即所得、
+// 刷 UI 时样式不会与线上漂移。所有文案由调用方传入(i18n 解析留在数据层)。
+export function PermissionDockView(props: {
+  title: string
+  hint?: string
+  patterns: string[]
+  busy?: boolean
+  labels: { deny: string; always: string; once: string }
+  onDecide: (response: "once" | "always" | "reject") => void
+  /** 点击某条路径时触发(通常打开对应本地文件);缺省则路径不可点。 */
+  onOpenPath?: (pattern: string) => void
+}) {
+  return (
+    <div class="octo-perm-dock">
+      <DockPrompt
+        kind="permission"
+        header={
+          <div data-slot="permission-row" data-variant="header">
+            <span data-slot="permission-icon">
+              {/* 圆形充填黄 + 白色感叹号(样式见 permission-dock.css .octo-perm-badge) */}
+              <span class="octo-perm-badge" aria-hidden="true">
+                !
+              </span>
+            </span>
+            <div data-slot="permission-header-title">{props.title}</div>
+          </div>
+        }
+        footer={
+          <>
+            <div />
+            <div data-slot="permission-footer-actions">
+              <Button variant="ghost" size="normal" onClick={() => props.onDecide("reject")} disabled={props.busy}>
+                {props.labels.deny}
+              </Button>
+              <Button variant="secondary" size="normal" onClick={() => props.onDecide("always")} disabled={props.busy}>
+                {props.labels.always}
+              </Button>
+              <Button variant="primary" size="normal" onClick={() => props.onDecide("once")} disabled={props.busy}>
+                {props.labels.once}
+              </Button>
+            </div>
+          </>
+        }
+      >
+        <Show when={props.hint}>
+          <div data-slot="permission-row">
+            <span data-slot="permission-spacer" aria-hidden="true" />
+            <div data-slot="permission-hint">{props.hint}</div>
+          </div>
+        </Show>
+
+        <Show when={props.patterns.length > 0}>
+          <div data-slot="permission-row">
+            <span data-slot="permission-spacer" aria-hidden="true" />
+            <div data-slot="permission-patterns">
+              <For each={props.patterns}>
+                {(pattern) => (
+                  <button type="button" class="octo-perm-path" onClick={() => props.onOpenPath?.(pattern)}>
+                    {pattern}
+                  </button>
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
+      </DockPrompt>
+    </div>
   )
 }
