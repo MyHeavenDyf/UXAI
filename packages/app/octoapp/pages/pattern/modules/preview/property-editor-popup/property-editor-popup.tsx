@@ -738,6 +738,7 @@ export function PropertyEditorPopup(props: {
     setEditFontWeight(400); setFoundFontWeight(false)
     setEditAlign(''); setEditFontFamily(''); setEditLineHeight(''); setEditLetterSpacing(0)
     setEditVAlign('');     setEditTextColor(''); setEditBgColor('')
+    setEditBgUrl('');      initialBgUrl = ''
     setTextColorToken(null); setBgColorToken(null)
     setEditPt(0); setFoundPt(false); setEditPr(0); setFoundPr(false)
     setEditPb(0); setFoundPb(false); setEditPl(0); setFoundPl(false)

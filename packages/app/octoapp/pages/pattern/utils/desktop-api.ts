@@ -9,6 +9,7 @@ export type DesktopApi = {
   getPreviewDistDir?: () => Promise<string>
   writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>
   readFileBuffer?: (path: string) => Promise<ArrayBuffer | null>
+  listDirectory?: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>
   deleteFile?: (path: string) => Promise<void>
   runPixsoBuild?: (input: string) => Promise<string>
   writeClipboardText?: (text: string) => Promise<void>

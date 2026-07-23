@@ -1,0 +1,123 @@
+import JSZip from "jszip"
+import type { AnnotationRecord } from "./annotation-persist"
+import { getDesktopApi } from "./desktop-api"
+// 复用 make 页面的 REST 上传函数,避免重复实现
+import { buildArchivePath, createDeliverable, uploadVersion } from "../../make/utils/archive-utils"
+
+export { buildArchivePath, createDeliverable, uploadVersion }
+
+export interface PatternArchiveZipOptions {
+  annotations: AnnotationRecord[]
+  sessionId: string
+  pageJson: unknown
+}
+
+/**
+ * 归档 ZIP 构建工具
+ *
+ * 生成的 ZIP 结构:
+ *   data/
+ *     comments.json        ← 批注(去除 rawRect, selector 规范化)
+ *   src/                   ← 占位空目录
+ *   preview/
+ *     index.html           ← 来自 previewdist(A2UI runtime)
+ *     data.js              ← 注入当前页面 A2UI JSON
+ *     assets/...           ← previewdist 的字体/CSS/JS
+ *     uploads/xxx.png      ← 样式引用的背景图(扁平,只保留文件名)
+ *
+ * 与 make 页面 createArchiveZip 的区别:
+ *   - 无截图(make 用 capturePageScreenshot,pattern 跳过)
+ *   - 无 HTML 同目录资源复制(make 复制 htmlFilePath 同目录,pattern 拷贝整个 previewdist)
+ *   - 无评论附件文件复制(make 从 projectDir 读附件,pattern 暂不处理)
+ */
+
+// 拼接绝对路径,统一用正斜杠(Node 在 Windows 上也能正确处理)
+function joinPath(base: string, relative: string): string {
+  const normalizedBase = base.replace(/\\/g, "/")
+  const normalizedRelative = relative.replace(/\\/g, "/")
+  if (normalizedRelative.startsWith(normalizedBase)) return normalizedRelative
+  if (normalizedBase.endsWith("/")) return normalizedBase + normalizedRelative
+  return normalizedBase + "/" + normalizedRelative
+}
+
+export async function createPatternArchiveZip(options: PatternArchiveZipOptions): Promise<Blob> {
+  const zip = new JSZip()
+
+  zip.folder("data")
+  zip.folder("src")
+  zip.folder("preview")
+
+  // ── 批注:去除 rawRect(仅用于画布定位,归档无意义),规范 selector ──
+  // selector 规范化:确保以 # 开头,且 : 前加 \ 转义(如 a:1 → #a\:1)
+  const stripped = options.annotations.map(({ rawRect, selector, ...rest }) => ({
+    ...rest,
+    selector: (selector.startsWith("#") ? selector : "#" + selector).replace(/(?<!\\):/g, "\\:"),
+  }))
+  zip.file("data/comments.json", JSON.stringify(stripped, null, 2))
+
+  // ── preview/ 目录:拷贝 previewdist 全部文件(开发态为 packages/previewdist,安装态为 resources/previewdist) ──
+  // 跳过 data.js,后续单独注入当前页面 JSON
+  const api = getDesktopApi()
+  if (api?.getPreviewDistDir && api?.listDirectory && api?.readFileBuffer) {
+    try {
+      const dir = await api.getPreviewDistDir()
+      const files = await api.listDirectory(dir)
+      for (const file of files) {
+        if (file.type !== 'file') continue
+        const relPath = file.path.replace(/\\/g, "/")
+        if (relPath === "data.js") continue
+        try {
+          const absolutePath = joinPath(dir, file.path)
+          const buffer = await api.readFileBuffer(absolutePath)
+          if (buffer) zip.file(`preview/${relPath}`, new Uint8Array(buffer))
+        } catch (err) {
+          console.warn(`[Archive] Failed to read previewdist file:`, file.path, err)
+        }
+      }
+    } catch (err) {
+      console.warn('[Archive] Failed to list previewdist directory:', err)
+    }
+  }
+
+  // ── 注入 preview/data.js:当前页面 A2UI JSON ──
+  // JSON 中可能有 /history/ses_xxx/uploads/yyy.png 形式的资源引用,
+  // 需要同步拷贝资源到 preview/uploads/ 并改写为相对路径
+  let jsonStr = typeof options.pageJson === "string"
+    ? options.pageJson
+    : JSON.stringify(options.pageJson ?? {})
+
+  // 扫描 JSON 中所有 /uploads/文件名 引用,去重后只保留文件名
+  const uploadPattern = /\/uploads\/([a-zA-Z0-9_\-.]+)/g
+  const uniqueBasenames = new Set([...jsonStr.matchAll(uploadPattern)].map(m => m[1]))
+
+  if (uniqueBasenames.size > 0) {
+    // uploadsDir = {sdk.directory}/.octo/design/history,由 pattern/index.tsx 的 setUploadsDir 设置
+    // 文件实际路径: {uploadsDir}/{sessionId}/uploads/{filename}(与 save-upload-image IPC 一致)
+    const uploadsDir = api?.getUploadsDir ? await api.getUploadsDir() : null
+    const copied = new Set<string>()
+
+    if (uploadsDir && api?.readFileBuffer) {
+      for (const basename of uniqueBasenames) {
+        if (copied.has(basename)) continue
+        try {
+          const filePath = joinPath(uploadsDir, options.sessionId + "/uploads/" + basename)
+          const buffer = await api.readFileBuffer(filePath)
+          if (buffer) {
+            zip.file(`preview/uploads/${basename}`, new Uint8Array(buffer))
+            copied.add(basename)
+          }
+        } catch (err) {
+          console.warn(`[Archive] Failed to read resource:`, basename, err)
+        }
+      }
+    }
+
+    // 改写 URL: /history/ses_xxx/uploads/yyy.png → ./uploads/yyy.png
+    // [^)\]"'\s]*? 非贪婪匹配 sessionId 等中间路径,避免字符类限制问题
+    jsonStr = jsonStr.replace(/\/history\/[^)\]"'\s]*?\/uploads\/([a-zA-Z0-9_\-.]+)/g, "./uploads/$1")
+  }
+
+  zip.file("preview/data.js", `window.__A2UI_DATA__ = ${jsonStr};`)
+
+  return await zip.generateAsync({ type: "blob" })
+}

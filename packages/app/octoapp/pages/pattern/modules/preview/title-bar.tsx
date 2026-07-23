@@ -41,6 +41,8 @@ interface TitleBarProps {
   onToggleEditing?: () => void
   annotating?: boolean
   onToggleAnnotating?: () => void
+  archiving?: boolean
+  onArchiveToggle?: () => void
 }
 
 export function TitleBar(props: TitleBarProps) {
@@ -324,10 +326,16 @@ export function TitleBar(props: TitleBarProps) {
             <span>标注</span>
           </button>
 
-          {/* 按钮 8：文本 */}
-          {/* <button class="pattern-text-btn" title="文本" onClick={() => props.onText?.()}>
-            归档
-          </button> */}
+          {/* 按钮 8：归档 */}
+          <button
+            class="pattern-action-btn"
+            classList={{ 'edit-active': !!props.archiving }}
+            title="归档"
+            onClick={() => props.onArchiveToggle?.()}
+          >
+            <IconActionDownload size={16} />
+            <span>归档</span>
+          </button>
         </div>
       </div>
     </div>

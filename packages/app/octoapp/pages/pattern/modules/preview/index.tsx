@@ -38,6 +38,8 @@ export function PreviewPage(props: {
   currentVersionId?: string | null
   onSelectVersion?: (versionId: string) => void
   onReorder?: (elementId: string, targetSiblingId: string, position: "before" | "after") => void
+  archiving?: boolean
+  onArchiveToggle?: () => void
 }) {
   let previewIframeRef: HTMLIFrameElement | undefined
   let previewPageRef: HTMLDivElement | undefined
@@ -517,6 +519,8 @@ export function PreviewPage(props: {
             anno.closeAnnotationPopup()
           }
         }}
+        archiving={props.archiving}
+        onArchiveToggle={props.onArchiveToggle}
       />
 
       <CanvasView

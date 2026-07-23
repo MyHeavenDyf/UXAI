@@ -47,6 +47,9 @@ import { PatternPreviewEmpty } from "./modules/preview/pattern-preview-empty"
 import { saveTheme, loadTheme } from "./utils/theme"
 import { tracker } from "@/utils/tracker"
 import { createReorderHandler } from "./utils/reorder"
+import { useArchive } from "./utils/archive-module"
+import { ArchiveDialog } from "@/components/dialog-archive"
+import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import * as sessionMap from "./utils/session-map"
 
 const AGENT_NAME = "proto_triage"
@@ -331,6 +334,14 @@ function PatternContent() {
   const [isDragOver, setIsDragOver] = createSignal(false)
   const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string>("ICT3.1")
 
+  // 归档:状态和事件处理由 useArchive composable 封装,此处只注入依赖
+  const archive = useArchive({
+    sessionId: () => params.id,
+    projectDir: () => sdk.directory,
+    sessionTitle: () => sessionInfo()?.title,
+    pendingData: () => pendingPreviewData()[params.id ?? ""] ?? null,
+  })
+
   // ── per-session 状态 Map（按 session ID 隔离，互不干扰）──
   const [lastIntent, setLastIntent] = sessionMap.createSessionMap<Record<string, unknown> | null>()
   const [lastPlanner, setLastPlanner] = sessionMap.createSessionMap<Record<string, unknown> | null>()
@@ -371,7 +382,7 @@ function PatternContent() {
     return null
   })
 
-  // 历史文件存储目录，优先使用关联目录下的 .octo\\design\\history
+  // 历史文件存储目录，优先使用关联目录下的 .octo/design/history
   const patternHistoryDir = createMemo(() => {
     const home = sdk.directory
     return `${home}\\.octo\\design\\history`
@@ -1247,6 +1258,8 @@ function PatternContent() {
                     versions={versions()[params.id!] ?? []}
                     currentVersionId={currentVersionId()[params.id!] ?? null}
                     onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
+                    archiving={archive.archiving()}
+                    onArchiveToggle={archive.toggleArchiving}
                   />
                 </Show>
               }>
@@ -1262,6 +1275,26 @@ function PatternContent() {
               </div>
             </Show>
           </div>
+        </Show>
+        {/* 归档弹窗:选择空间/产品/版本/文件夹后上传 ZIP 到交付物系统 */}
+        <Show when={archive.archiving()}>
+          <ArchiveDialog
+            open={archive.archiving()}
+            onClose={archive.closeArchive}
+            onResetArchiving={archive.closeArchive}
+            onConfirm={archive.handleArchiveConfirm}
+            sessionId={params.id ?? ""}
+            filePath=""
+            tabTitle={sessionInfo()?.title ?? params.id ?? "pattern"}
+          />
+        </Show>
+        {/* 归档成功弹窗:展示归档路径 */}
+        <Show when={archive.archiveSuccessOpen()}>
+          <DialogArchiveSuccess
+            open={archive.archiveSuccessOpen()}
+            onClose={archive.closeArchiveSuccess}
+            archivePath={archive.archiveSuccessPath()}
+          />
         </Show>
       </div>
     </DataProvider>
