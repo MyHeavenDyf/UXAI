@@ -47,6 +47,18 @@
       .connection { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
       .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
       .dot.online { background: var(--success); box-shadow: 0 0 12px rgba(96, 216, 168, 0.6); }
+      .mac-tip {
+        display: grid; grid-template-columns: auto 1fr; gap: 12px; margin: -6px 0 18px; padding: 14px 16px;
+        color: #ffe6a3; background: rgba(245, 200, 106, 0.12); border: 1px solid rgba(245, 200, 106, 0.42);
+        border-radius: 13px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
+      }
+      .mac-tip-icon { font-size: 18px; line-height: 1.35; }
+      .mac-tip strong { display: block; margin-bottom: 6px; color: #ffedbd; font-size: 13px; }
+      .mac-tip p { margin: 0; color: #d9c99d; font-size: 12px; line-height: 1.6; }
+      .mac-tip code {
+        display: inline-block; margin-top: 5px; padding: 4px 7px; color: #fff3d2; background: rgba(0, 0, 0, 0.3);
+        border-radius: 6px; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere;
+      }
 
       .grid { display: grid; grid-template-columns: 390px minmax(0, 1fr); gap: 18px; }
       .stack { display: grid; gap: 18px; align-content: start; }
@@ -144,6 +156,15 @@
         <div class="connection"><span id="connection-dot" class="dot"></span><span id="connection-text">正在连接</span></div>
       </header>
 
+      <aside class="mac-tip" role="note">
+        <span class="mac-tip-icon">⚠️</span>
+        <div>
+          <strong>macOS 安装提示</strong>
+          <p>下载 Mac 安装包后，如果提示“OctoAgent 已损坏，无法打开”，请在终端执行：</p>
+          <code>xattr -d com.apple.quarantine "下载的安装包.dmg"</code>
+        </div>
+      </aside>
+
       <section class="grid">
         <aside class="stack">
           <article class="card">
@@ -236,18 +257,6 @@
         return node.innerHTML
       }
 
-      function escapeAttribute(value) {
-        return escapeHtml(value).replaceAll('"', "&quot;").replaceAll("'", "&#39;")
-      }
-
-      function artifactUrl(job, artifact) {
-        if (artifact.url) {
-          const configured = new URL(artifact.url, location.origin)
-          if (configured.protocol === "http:" || configured.protocol === "https:") return configured.href
-        }
-        return new URL(`/api/artifacts/${job.id}/${encodeURIComponent(artifact.name)}`, location.origin).href
-      }
-
       function upsertJob(job) {
         const index = app.jobs.findIndex((candidate) => candidate.id === job.id)
         if (index === -1) app.jobs.unshift(job)
@@ -276,7 +285,7 @@
         if (nearBottom) log.scrollTop = log.scrollHeight
         $("artifacts").hidden = !job.artifacts.length
         $("artifacts").innerHTML = job.artifacts
-          .map((artifact) => `<a class="artifact" href="${escapeAttribute(artifactUrl(job, artifact))}">下载 ${escapeHtml(artifact.name)} · ${formatSize(artifact.size)}</a>`)
+          .map((artifact) => `<a class="artifact" href="/api/artifacts/${job.id}/${encodeURIComponent(artifact.name)}">下载 ${escapeHtml(artifact.name)} · ${formatSize(artifact.size)}</a>`)
           .join("")
       }
 

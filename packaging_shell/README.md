@@ -43,36 +43,6 @@ bash packaging_shell/start_build_service.sh
 
 访问主控服务的 `8790` 端口即可在同一个页面选择目标平台。任务、实时日志和产物仍保存在实际执行任务的构建机中，主控网页会统一展示并代理安装包下载。未设置 `BUILD_WORKERS` 时，服务保持原来的单机模式并自动识别本机平台。
 
-## 将产物上传到内网服务器
-
-构建节点可选配置统一的内网产物服务器。配置后，打包成功的文件仍会在构建机本地保留一份，同时通过 HTTP `PUT` 上传到服务器，网页下载按钮会直接使用服务器地址：
-
-```bash
-cp packaging_shell/artifact_server.env.example packaging_shell/.env.artifact
-```
-
-然后编辑 `packaging_shell/.env.artifact`：
-
-```bash
-BUILD_ARTIFACT_UPLOAD_URL="http://内网服务器地址:端口/upload"
-BUILD_ARTIFACT_DOWNLOAD_URL="http://内网服务器地址:端口/artifacts"
-BUILD_ARTIFACT_UPLOAD_TOKEN=""
-```
-
-`.env.artifact` 已被仓库的 `.env.*` 规则忽略，不会提交服务器令牌。之后仍按原命令启动节点即可，`start_build_service.sh` 会自动加载该文件。也可以通过 `BUILD_ARTIFACT_ENV_FILE` 指定其他配置文件。
-
-地址暂时不确定时不创建配置文件，服务会继续使用现有的构建机本地下载方式。确定服务器后，只需在每台构建节点填写配置，不需要修改代码。三台构建机都应填写相同的服务器地址；主控服务不负责上传，因此主控不需要配置。
-
-产物服务器需要提供以下约定：
-
-- 接受 `PUT <BUILD_ARTIFACT_UPLOAD_URL>/<任务ID>/<文件名>`，成功时返回任意 `2xx` 状态。
-- 可通过 `GET <BUILD_ARTIFACT_DOWNLOAD_URL>/<任务ID>/<文件名>` 下载相同文件。
-- 建议返回正确的 `Content-Length`，并支持 HTTP Range，以便大文件完整下载和断点续传。
-- 如果设置了上传令牌，上传请求会携带 `Authorization: Bearer <令牌>`；下载地址默认不携带令牌，适合仅在可信内网开放。
-- 服务器端文件的保留周期由服务器自行管理；构建节点只会自动清理本机三天前的归档。
-
-任一产物上传失败时，任务会标记为失败并在日志中列出文件和 HTTP 状态；本地归档不会删除，可以从构建机继续下载。
-
 ### 在一台电脑上模拟三个构建节点
 
 当三个同级项目目录分别为 `UXAI`、`UXAITEST1`、`UXAITEST2` 时，可在 `UXAI` 中执行：
@@ -154,7 +124,7 @@ bash packaging_shell/start_local_build_cluster.sh
 6. 从 `.env.proxy` 读取代理，通过 `git pull --ff-only` 拉取该分支最新远端代码；无法快进合并时任务失败，不自动执行 merge 或 rebase。
 7. 根据切换后的分支重新生成自动化资源缓存。
 8. 从缓存执行 `run_all.sh`，传入下载分支、版本、构建环境和目标平台。
-9. 打包成功后，从 `packages/desktop/dist` 收集安装包和更新文件到任务独立归档目录；配置了产物服务器时，再上传并记录服务器下载地址。
+9. 打包成功后，从 `packages/desktop/dist` 收集安装包和更新文件到任务独立归档目录。
 10. 无论打包成功还是失败，都清理本次任务对 Git 工作区产生的修改。
 11. 写入结束时间、退出码、日志和最终状态。
 12. 队列全部完成后，在工作区干净的前提下切回服务启动时所在的分支。
@@ -241,7 +211,6 @@ packaging_shell/artifacts/<任务 ID>/
 
 - `jobs.json` 保存近三天任务的参数、状态、时间、退出码、日志和产物索引。
 - 每个任务的安装包使用独立任务 ID 目录归档，不会被后续任务覆盖。
-- 配置产物服务器后，任务记录会保存每个文件的服务器下载地址，刷新页面或通过主控查看时仍会直接从服务器下载。
 - 服务每小时清理一次创建时间超过三天的任务及其产物目录。
 - 页面刷新后从服务重新读取任务记录，因此最近三天记录仍会显示。
 - 如果节点服务在任务处于 `queued` 或 `running` 时重启，该任务会在恢复记录时标记为失败，不会自动续跑。

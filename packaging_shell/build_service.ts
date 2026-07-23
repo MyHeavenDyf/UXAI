@@ -4,7 +4,7 @@ import path from "node:path"
 
 type JobStatus = "queued" | "running" | "success" | "failed"
 type BuildTarget = "mac-arm64" | "mac-x64" | "win-x64"
-type Artifact = { name: string; size: number; url?: string }
+type Artifact = { name: string; size: number }
 type Job = {
   id: string
   baseBranch: string
@@ -53,18 +53,6 @@ if (workers.length !== workerEntries.length || new Set(workers.map((worker) => w
 const coordinator = workers.length > 0
 const artifactsRoot = path.join(import.meta.dir, "artifacts")
 const jobsFile = path.join(artifactsRoot, "jobs.json")
-const artifactUploadUrl = Bun.env.BUILD_ARTIFACT_UPLOAD_URL?.replace(/\/$/, "")
-const artifactDownloadUrl = Bun.env.BUILD_ARTIFACT_DOWNLOAD_URL?.replace(/\/$/, "")
-if (Boolean(artifactUploadUrl) !== Boolean(artifactDownloadUrl)) {
-  throw new Error("BUILD_ARTIFACT_UPLOAD_URL 和 BUILD_ARTIFACT_DOWNLOAD_URL 必须同时配置")
-}
-if (
-  [artifactUploadUrl, artifactDownloadUrl].some(
-    (value) => value && !/^https?:\/\//.test(value),
-  )
-) {
-  throw new Error("产物服务器地址必须使用 http:// 或 https://")
-}
 const retentionMs = 3 * 24 * 60 * 60 * 1000
 const page = await Bun.file(path.join(import.meta.dir, "build_service.html")).text()
 const runtimeDir = await mkdtemp(path.join(tmpdir(), "octo-build-service-"))
@@ -460,37 +448,13 @@ async function copyArtifacts(job: Job) {
     ),
   )
 
-  const localArtifacts = await Promise.all(
+  job.artifacts = await Promise.all(
     files.map(async (file) => {
       const name = path.relative(dist, file).split(path.sep).join("__")
       await Bun.write(path.join(output, name), Bun.file(file))
       return { name, size: Bun.file(file).size }
     }),
   )
-  job.artifacts = localArtifacts
-  if (!artifactUploadUrl || !artifactDownloadUrl) return []
-
-  appendLog(job, `\n正在上传 ${localArtifacts.length} 个产物到内网产物服务器...\n`)
-  const results = await Promise.all(
-    localArtifacts.map(async (artifact) => {
-      const remotePath = `${job.id}/${encodeURIComponent(artifact.name)}`
-      const headers = new Headers({ "content-type": "application/octet-stream" })
-      if (Bun.env.BUILD_ARTIFACT_UPLOAD_TOKEN) {
-        headers.set("authorization", `Bearer ${Bun.env.BUILD_ARTIFACT_UPLOAD_TOKEN}`)
-      }
-      const response = await fetch(`${artifactUploadUrl}/${remotePath}`, {
-        method: "PUT",
-        headers,
-        body: Bun.file(path.join(output, artifact.name)),
-      }).catch((error: unknown) => error)
-      if (response instanceof Error) return `${artifact.name}: ${response.message}`
-      if (!response.ok) return `${artifact.name}: HTTP ${response.status}`
-      artifact.url = `${artifactDownloadUrl}/${remotePath}`
-      appendLog(job, `已上传: ${artifact.name}\n`)
-      return undefined
-    }),
-  )
-  return results.filter((error): error is string => Boolean(error))
 }
 
 async function streamToLog(job: Job, stream: ReadableStream<Uint8Array>) {
@@ -594,7 +558,7 @@ async function runJob(job: Job) {
   await Promise.all([streamToLog(job, process.stdout), streamToLog(job, process.stderr)])
   job.exitCode = await process.exited
 
-  const uploadErrors = job.exitCode === 0 ? await copyArtifacts(job) : []
+  if (job.exitCode === 0) await copyArtifacts(job)
 
   appendLog(job, "\n正在清除本次打包产生的 Git 改动...\n")
   const reset = await runCommand(["git", "reset", "--hard", "HEAD"])
@@ -616,13 +580,6 @@ async function runJob(job: Job) {
   if (job.exitCode !== 0) {
     job.status = "failed"
     appendLog(job, `Git 改动已清除。任务失败，退出码: ${job.exitCode}\n`)
-    updateJob(job)
-    return
-  }
-
-  if (uploadErrors.length) {
-    job.status = "failed"
-    appendLog(job, `Git 改动已清除，但产物上传失败：\n${uploadErrors.join("\n")}\n`)
     updateJob(job)
     return
   }
