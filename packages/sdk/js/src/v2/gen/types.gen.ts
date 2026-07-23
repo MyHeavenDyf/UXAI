@@ -3814,6 +3814,246 @@ export type ArtifactServeResponses = {
 
 export type ArtifactServeResponse = ArtifactServeResponses[keyof ArtifactServeResponses]
 
+export type CommentDeleteData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    sessionId: string
+    commentFilePath: string
+    commentId: string
+  }
+  url: "/comment/file"
+}
+
+export type CommentDeleteErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type CommentDeleteError = CommentDeleteErrors[keyof CommentDeleteErrors]
+
+export type CommentDeleteResponses = {
+  /**
+   * Deleted
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type CommentDeleteResponse = CommentDeleteResponses[keyof CommentDeleteResponses]
+
+export type CommentLoadData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    sessionId: string
+    commentFilePath: string
+  }
+  url: "/comment/file"
+}
+
+export type CommentLoadErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type CommentLoadError = CommentLoadErrors[keyof CommentLoadErrors]
+
+export type CommentLoadResponses = {
+  /**
+   * Comments for file
+   */
+  200: {
+    comments: Array<{
+      id: string
+      filePath: string
+      elementId: string
+      selector: string
+      label: string
+      text: string
+      position: {
+        x: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        y: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        w: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        h: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }
+      htmlHint: string
+      note: string
+      attachments?: Array<{
+        id: string
+        filename: string
+        mime: string
+        size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        filePath: string
+        uploadedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }>
+      createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      commenterAccount?: string
+      commenterName?: string
+      commenterAvatar?: string
+    }>
+  }
+}
+
+export type CommentLoadResponse = CommentLoadResponses[keyof CommentLoadResponses]
+
+export type CommentSaveData = {
+  body?: {
+    sessionId: string
+    commentFilePath: string
+    comment: {
+      id: string
+      filePath: string
+      elementId: string
+      selector: string
+      label: string
+      text: string
+      position: {
+        x: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        y: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        w: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        h: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }
+      htmlHint: string
+      note: string
+      attachments?: Array<{
+        id: string
+        filename: string
+        mime: string
+        size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        filePath: string
+        uploadedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }>
+      createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      commenterAccount?: string
+      commenterName?: string
+      commenterAvatar?: string
+    }
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/comment/file"
+}
+
+export type CommentSaveErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type CommentSaveError = CommentSaveErrors[keyof CommentSaveErrors]
+
+export type CommentSaveResponses = {
+  /**
+   * Saved
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type CommentSaveResponse = CommentSaveResponses[keyof CommentSaveResponses]
+
+export type CommentDeleteAttachmentData = {
+  body?: never
+  path: {
+    attachmentId: string
+  }
+  query: {
+    directory?: string
+    workspace?: string
+    sessionId: string
+    commentFilePath: string
+    commentId: string
+  }
+  url: "/comment/file/attachment/{attachmentId}"
+}
+
+export type CommentDeleteAttachmentErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type CommentDeleteAttachmentError = CommentDeleteAttachmentErrors[keyof CommentDeleteAttachmentErrors]
+
+export type CommentDeleteAttachmentResponses = {
+  /**
+   * Deleted
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type CommentDeleteAttachmentResponse = CommentDeleteAttachmentResponses[keyof CommentDeleteAttachmentResponses]
+
+export type CommentUploadAttachmentData = {
+  body?: {
+    sessionId: string
+    commentFilePath: string
+    commentId: string
+    sourceFilePath: string
+    filename: string
+    mime: string
+    size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/comment/file/attachment"
+}
+
+export type CommentUploadAttachmentErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type CommentUploadAttachmentError = CommentUploadAttachmentErrors[keyof CommentUploadAttachmentErrors]
+
+export type CommentUploadAttachmentResponses = {
+  /**
+   * Uploaded
+   */
+  200: {
+    ok: boolean
+    attachment?: {
+      id: string
+      filename: string
+      mime: string
+      size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      filePath: string
+      uploadedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+  }
+}
+
+export type CommentUploadAttachmentResponse = CommentUploadAttachmentResponses[keyof CommentUploadAttachmentResponses]
+
 export type ConfigGetData = {
   body?: never
   path?: never
@@ -7277,8 +7517,15 @@ export type StudioGenerationsCreateData = {
     prompt: string
     displayPrompt?: string
     detailPrompt?: string
+    detailTitle?: string
+    initialSessionTitle?: string
+    shouldSetSessionTitle?: boolean
     refinedPrompt?: string
     effectivePrompt?: string
+    promptRefineModels?: Array<{
+      providerID: string
+      modelID: string
+    }>
     styleModel?: string
     aspectRatio?: string
     count?: number
@@ -7325,6 +7572,7 @@ export type StudioGenerationsCreateResponses = {
     prompt: string
     displayPrompt?: string
     detailPrompt?: string
+    detailTitle?: string
     provider: "jimeng" | "internel"
     toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
     taskType?: string
@@ -7437,6 +7685,7 @@ export type StudioGenerationsCancelResponses = {
     prompt: string
     displayPrompt?: string
     detailPrompt?: string
+    detailTitle?: string
     provider: "jimeng" | "internel"
     toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
     taskType?: string
@@ -7512,6 +7761,7 @@ export type StudioGenerationsRebootResponses = {
     prompt: string
     displayPrompt?: string
     detailPrompt?: string
+    detailTitle?: string
     provider: "jimeng" | "internel"
     toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
     taskType?: string
@@ -7587,6 +7837,7 @@ export type StudioGenerationsGetResponses = {
     prompt: string
     displayPrompt?: string
     detailPrompt?: string
+    detailTitle?: string
     provider: "jimeng" | "internel"
     toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
     taskType?: string
