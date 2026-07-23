@@ -1,4 +1,4 @@
-import { createSignal, For, Show, type JSX } from "solid-js"
+import { For, Show, type JSX } from "solid-js"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLayout } from "@/context/layout"
@@ -15,7 +15,7 @@ import {
  * 注入到 InsightSidebar 的 bottom 槽(SPEC-INS-010 §11:D7 由宿主注入)。
  * 与 _shell/sidebar.tsx、make/sidebar.tsx 的底部块同一套交互/视觉:
  *   - 技能库 → 切 sidebarSource=cowork 并 navigate("/skills")
- *   - 资产库 → 本地 activeNav 高亮(目标页未接,先沿用上游占位行为)
+ *   - 资产库 → 切 sidebarSource=cowork 并 navigate("/assets")
  *   - 设置   → 弹 DialogSettings
  */
 const NAV_ITEMS = [
@@ -29,8 +29,6 @@ export function SidebarFooter(): JSX.Element {
   const dialog = useDialog()
   const layout = useLayout()
 
-  const [activeNav, setActiveNav] = createSignal<string | null>(null)
-
   return (
     <>
       {/* 技能库 / 资产库 */}
@@ -40,22 +38,17 @@ export function SidebarFooter(): JSX.Element {
             const isActive = () =>
               item.key === "skill_market"
                 ? location.pathname === "/skills"
-                : activeNav() === item.key
+                : location.pathname === "/assets"
             return (
               <button
                 type="button"
                 onClick={() => {
-                  if (item.key === "skill_market") {
-                    layout.sidebarSource.set("cowork")
-                    navigate("/skills")
-                  } else {
-                    setActiveNav((v) => (v === item.key ? null : item.key))
-                  }
+                  layout.sidebarSource.set("cowork")
+                  navigate(item.key === "skill_market" ? "/skills" : "/assets")
                 }}
                 title={item.label}
                 classList={{
                   "w-full relative flex items-center gap-[8px] px-[12px] rounded-[4px] transition-colors text-[14px] leading-[22px]": true,
-                  hidden: item.key === "knowledge_base",
                 }}
                 style={{
                   height: "36px",

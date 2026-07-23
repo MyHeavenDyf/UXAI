@@ -2,7 +2,6 @@ import { createSignal, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { PlatformAssets } from "./platform-assets"
 import { ProjectAssets } from "./project-assets"
-import { SearchBox } from "./search-box"
 
 type Scope = "platform" | "project"
 
@@ -49,17 +48,15 @@ export function AssetsContent(): JSX.Element {
             }}
           </For>
         </div>
+      </div>
+      <div style={{height: "calc(100% - 73px)"}}>
+        <Show when={scope() === "platform"}>
+          <PlatformAssets />
+        </Show>
         <Show when={scope() === "project"}>
-          <SearchBox />
+          <ProjectAssets />
         </Show>
       </div>
-
-      <Show when={scope() === "platform"}>
-        <PlatformAssets />
-      </Show>
-      <Show when={scope() === "project"}>
-        <ProjectAssets />
-      </Show>
     </div>
   )
 }
