@@ -2,7 +2,7 @@ import { cp, readdir, mkdir, mkdtemp, rm } from "node:fs/promises"
 import { networkInterfaces, tmpdir } from "node:os"
 import path from "node:path"
 
-type JobStatus = "queued" | "running" | "success" | "failed"
+type JobStatus = "queued" | "running" | "success" | "failed" | "stopped"
 type BuildTarget = "mac-arm64" | "mac-x64" | "win-x64"
 type Artifact = { name: string; size: number }
 type Job = {
@@ -17,6 +17,7 @@ type Job = {
   startedAt?: string
   finishedAt?: string
   exitCode?: number
+  stopping?: boolean
   log: string
   artifacts: Artifact[]
 }
@@ -84,6 +85,7 @@ const state = {
   processing: false,
   subscribers: new Set<ReadableStreamDefaultController<Uint8Array>>(),
   remoteBranches: { branches: [] as string[], fetchedAt: 0 },
+  activeProcesses: new Map<string, Bun.Subprocess>(),
 }
 const persistence = { timer: undefined as ReturnType<typeof setTimeout> | undefined }
 const serviceBranch = (await runCommand(["git", "symbolic-ref", "--quiet", "--short", "HEAD"])).stdout
@@ -105,6 +107,7 @@ function publicJob(job: Job) {
     startedAt: job.startedAt,
     finishedAt: job.finishedAt,
     exitCode: job.exitCode,
+    stopping: job.stopping,
     log: job.log,
     artifacts: job.artifacts,
   }
@@ -142,7 +145,11 @@ function isJob(value: unknown): value is Job {
     typeof job.version === "string" &&
     (job.channel === "beta" || job.channel === "prod") &&
     (job.target === "mac-arm64" || job.target === "mac-x64" || job.target === "win-x64") &&
-    (job.status === "queued" || job.status === "running" || job.status === "success" || job.status === "failed") &&
+    (job.status === "queued" ||
+      job.status === "running" ||
+      job.status === "success" ||
+      job.status === "failed" ||
+      job.status === "stopped") &&
     typeof job.createdAt === "string" &&
     typeof job.log === "string" &&
     Array.isArray(job.artifacts)
@@ -173,6 +180,7 @@ async function loadJobs() {
       return {
         ...job,
         status: "failed" as const,
+        stopping: false,
         finishedAt: new Date().toISOString(),
         log: `${job.log}\n打包服务曾在任务执行期间停止，此任务已标记为失败。\n`,
       }
@@ -217,6 +225,7 @@ async function syncWorkers() {
       old.startedAt !== job.startedAt ||
       old.finishedAt !== job.finishedAt ||
       old.exitCode !== job.exitCode ||
+      old.stopping !== job.stopping ||
       JSON.stringify(old.artifacts) !== JSON.stringify(job.artifacts)
     if (metadataChanged || !job.log.startsWith(old.log)) {
       sendEvent("job", publicJob(job))
@@ -473,8 +482,33 @@ async function streamToLog(job: Job, stream: ReadableStream<Uint8Array>) {
   await read()
 }
 
+function finishStoppedJob(job: Job, message: string) {
+  job.status = "stopped"
+  job.stopping = false
+  job.finishedAt = new Date().toISOString()
+  appendLog(job, `${message}\n`)
+  updateJob(job)
+}
+
+async function terminateBuildProcess(process: Bun.Subprocess) {
+  if (process.exitCode !== null) return
+  if (globalThis.process.platform === "win32") {
+    const terminated = await runCommand(["taskkill", "/PID", String(process.pid), "/T", "/F"])
+    if (terminated.exitCode !== 0 && process.exitCode === null) process.kill()
+    return
+  }
+
+  const interrupted = await runCommand(["kill", "-INT", `-${process.pid}`])
+  if (interrupted.exitCode !== 0 && process.exitCode === null) process.kill("SIGINT")
+  await Promise.race([process.exited, Bun.sleep(5_000)])
+  if (process.exitCode !== null) return
+  const killed = await runCommand(["kill", "-KILL", `-${process.pid}`])
+  if (killed.exitCode !== 0 && process.exitCode === null) process.kill("SIGKILL")
+}
+
 async function runJob(job: Job) {
   job.status = "running"
+  job.stopping = false
   job.startedAt = new Date().toISOString()
   appendLog(
     job,
@@ -483,6 +517,10 @@ async function runJob(job: Job) {
   updateJob(job)
 
   const before = await gitState()
+  if (job.stopping) {
+    finishStoppedJob(job, "任务已在构建准备阶段停止。")
+    return
+  }
   if (before.dirty) {
     job.status = "failed"
     job.finishedAt = new Date().toISOString()
@@ -492,6 +530,10 @@ async function runJob(job: Job) {
   }
 
   const switched = await runCommand(["git", "checkout", job.baseBranch])
+  if (job.stopping) {
+    finishStoppedJob(job, "任务已在切换基础代码分支后停止。")
+    return
+  }
   if (switched.exitCode !== 0) {
     job.status = "failed"
     job.finishedAt = new Date().toISOString()
@@ -523,6 +565,10 @@ async function runJob(job: Job) {
     ],
     proxy.env,
   )
+  if (job.stopping) {
+    finishStoppedJob(job, "任务已在拉取基础代码后停止。")
+    return
+  }
   if (pulled.exitCode !== 0) {
     job.status = "failed"
     job.finishedAt = new Date().toISOString()
@@ -534,6 +580,10 @@ async function runJob(job: Job) {
   sendEvent("git", await gitState())
 
   await cacheAutomationScripts()
+  if (job.stopping) {
+    finishStoppedJob(job, "任务已在刷新脚本缓存后停止。")
+    return
+  }
   appendLog(job, "已刷新 packaging_shell 脚本缓存。\n\n")
 
   const env = processEnv()
@@ -553,12 +603,17 @@ async function runJob(job: Job) {
       "--target",
       job.target,
     ],
-    { cwd: rootDir, stdout: "pipe", stderr: "pipe", env },
+    { cwd: rootDir, stdout: "pipe", stderr: "pipe", env, detached: true },
   )
-  await Promise.all([streamToLog(job, process.stdout), streamToLog(job, process.stderr)])
-  job.exitCode = await process.exited
+  state.activeProcesses.set(job.id, process)
+  const completion = await Promise.all([
+    streamToLog(job, process.stdout),
+    streamToLog(job, process.stderr),
+    process.exited,
+  ]).finally(() => state.activeProcesses.delete(job.id))
+  job.exitCode = completion[2]
 
-  if (job.exitCode === 0) await copyArtifacts(job)
+  if (job.exitCode === 0 && !job.stopping) await copyArtifacts(job)
 
   appendLog(job, "\n正在清除本次打包产生的 Git 改动...\n")
   const reset = await runCommand(["git", "reset", "--hard", "HEAD"])
@@ -574,6 +629,11 @@ async function runJob(job: Job) {
     job.status = "failed"
     appendLog(job, "Git 改动清理失败，请管理员检查打包机工作区。\n")
     updateJob(job)
+    return
+  }
+
+  if (job.stopping) {
+    finishStoppedJob(job, "Git 改动已清除。任务已由用户停止。")
     return
   }
 
@@ -701,6 +761,29 @@ async function createJob(request: Request) {
   state.jobs.unshift(job)
   updateJob(job)
   void processQueue()
+  return json({ job: publicJob(job) }, 202)
+}
+
+async function stopJob(request: Request, id: string) {
+  if (!sameOrigin(request)) return json({ error: "不允许跨站停止任务" }, 403)
+  const job = state.jobs.find((candidate) => candidate.id === id)
+  if (!job) return json({ error: "任务不存在" }, 404)
+  if (job.status !== "running") return json({ error: "只能停止正在执行的任务" }, 409)
+  if (coordinator) {
+    const response = await workerRequest(job.target, `/api/jobs/${job.id}/stop`, { method: "POST" })
+    if (!response) return json({ error: `${targetLabels[job.target]} 构建机无法连接` }, 503)
+    return new Response(await response.text(), {
+      status: response.status,
+      headers: { "content-type": response.headers.get("content-type") || "application/json" },
+    })
+  }
+  if (job.stopping) return json({ job: publicJob(job) }, 202)
+
+  job.stopping = true
+  appendLog(job, "\n收到用户停止请求，正在终止任务...\n")
+  updateJob(job)
+  const process = state.activeProcesses.get(job.id)
+  if (process) await terminateBuildProcess(process)
   return json({ job: publicJob(job) }, 202)
 }
 
@@ -850,6 +933,8 @@ const server = Bun.serve({
       return new Response(await response.text(), { status: response.status, headers: { "content-type": "application/json" } })
     }
     if (request.method === "POST" && url.pathname === "/api/jobs") return createJob(request)
+    const stopMatch = request.method === "POST" && url.pathname.match(/^\/api\/jobs\/([a-z0-9-]+)\/stop$/)
+    if (stopMatch) return stopJob(request, stopMatch[1])
     if (request.method === "GET" && url.pathname === "/api/events") {
       let controller: ReadableStreamDefaultController<Uint8Array>
       const stream = new ReadableStream<Uint8Array>({

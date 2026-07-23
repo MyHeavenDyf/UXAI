@@ -106,6 +106,7 @@
       .status-pill.success { color: var(--success); background: rgba(46, 191, 139, 0.13); }
       .status-pill.failed { color: var(--danger); background: rgba(255, 91, 105, 0.13); }
       .status-pill.queued { color: var(--warn); background: rgba(245, 200, 106, 0.12); }
+      .status-pill.stopped { color: #ffad7d; background: rgba(255, 143, 92, 0.13); }
       .empty { display: grid; place-items: center; min-height: 420px; color: var(--muted); text-align: center; }
       .empty strong { display: block; margin-bottom: 7px; color: #c8d1df; }
       .job-meta { display: flex; flex-wrap: wrap; gap: 16px; padding: 14px 18px; background: #0c111a; border-bottom: 1px solid var(--line); }
@@ -122,10 +123,21 @@
       .history { margin-top: 18px; }
       .jobs { display: grid; gap: 8px; padding: 12px; }
       .job {
-        display: grid; grid-template-columns: 88px 1fr auto; align-items: center; gap: 12px; width: 100%;
-        padding: 11px 12px; color: var(--text); text-align: left; background: transparent; border: 1px solid transparent; border-radius: 11px;
+        display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px;
+        background: transparent; border: 1px solid transparent; border-radius: 11px;
       }
       .job:hover, .job.selected { background: var(--panel-2); border-color: #303d53; }
+      .job-select {
+        display: grid; grid-template-columns: 88px minmax(0, 1fr) auto; align-items: center; gap: 12px;
+        min-width: 0; padding: 11px 12px; color: var(--text); text-align: left; background: transparent; border: 0;
+      }
+      .stop-job {
+        min-width: 62px; height: 34px; margin-right: 10px; padding: 0 10px; color: #ff9ba4;
+        background: rgba(255, 91, 105, 0.1); border: 1px solid rgba(255, 123, 134, 0.35); border-radius: 8px;
+        font-size: 11px; font-weight: 750;
+      }
+      .stop-job:hover { color: #ffd4d8; background: rgba(255, 91, 105, 0.2); }
+      .stop-job:disabled { cursor: wait; opacity: 0.65; }
       .job-main { min-width: 0; }
       .job-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 700; }
       .job-time { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; }
@@ -215,7 +227,7 @@
     <script>
       const app = { jobs: [], selectedId: null, git: null, remoteBranches: [], targets: [] }
       const $ = (id) => document.getElementById(id)
-      const labels = { queued: "排队中", running: "打包中", success: "已完成", failed: "失败" }
+      const labels = { queued: "排队中", running: "打包中", success: "已完成", failed: "失败", stopped: "已停止" }
       const targetLabels = { "mac-arm64": "macOS ARM64", "mac-x64": "macOS x64", "win-x64": "Windows x64" }
 
       function toast(message, error = false) {
@@ -240,15 +252,40 @@
           return
         }
         $("jobs").innerHTML = app.jobs.map((job) => `
-          <button class="job ${job.id === app.selectedId ? "selected" : ""}" data-id="${job.id}">
-            <span class="status-pill ${job.status}">${labels[job.status]}</span>
-            <span class="job-main"><span class="job-title">${targetLabels[job.target] || job.target} · ${escapeHtml(job.baseBranch)} ← ${escapeHtml(job.branch)} · ${escapeHtml(job.version)} · ${job.channel}</span><span class="job-time">${formatTime(job.createdAt)}</span></span>
-            <span class="job-time">#${job.id.slice(-6)}</span>
-          </button>`).join("")
-        document.querySelectorAll(".job").forEach((button) => button.addEventListener("click", () => {
+          <div class="job ${job.id === app.selectedId ? "selected" : ""}">
+            <button class="job-select" type="button" data-id="${job.id}">
+              <span class="status-pill ${job.status}">${labels[job.status]}</span>
+              <span class="job-main"><span class="job-title">${targetLabels[job.target] || job.target} · ${escapeHtml(job.baseBranch)} ← ${escapeHtml(job.branch)} · ${escapeHtml(job.version)} · ${job.channel}</span><span class="job-time">${formatTime(job.createdAt)}</span></span>
+              <span class="job-time">#${job.id.slice(-6)}</span>
+            </button>
+            ${job.status === "running" ? `<button class="stop-job" type="button" data-id="${job.id}" ${job.stopping ? "disabled" : ""}>${job.stopping ? "停止中" : "停止"}</button>` : ""}
+          </div>`).join("")
+        document.querySelectorAll(".job-select").forEach((button) => button.addEventListener("click", () => {
           app.selectedId = button.dataset.id
           render()
         }))
+        document.querySelectorAll(".stop-job").forEach((button) => button.addEventListener("click", () => {
+          const job = app.jobs.find((candidate) => candidate.id === button.dataset.id)
+          if (!job || !confirm(`确认停止正在执行的任务 ${job.baseBranch} ← ${job.branch}？`)) return
+          button.disabled = true
+          button.textContent = "停止中"
+          stopRunningJob(job).catch(() => {
+            renderJobs()
+            toast("停止任务失败", true)
+          })
+        }))
+      }
+
+      async function stopRunningJob(job) {
+        const response = await fetch(`/api/jobs/${job.id}/stop`, { method: "POST" })
+        const result = await response.json()
+        if (!response.ok) {
+          renderJobs()
+          return toast(result.error || "停止任务失败", true)
+        }
+        upsertJob(result.job)
+        render()
+        toast("已发送停止请求，正在清理构建进程和 Git 改动")
       }
 
       function escapeHtml(value) {
