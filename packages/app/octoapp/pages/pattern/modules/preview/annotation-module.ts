@@ -14,6 +14,7 @@ import { createEffect, createMemo, createSignal, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { A2UIDocument, A2UIElement } from "../../utils/a2ui-protocol"
 import { loadAnnotations, saveAnnotations, saveAttachment, type AnnotationRecord } from "../../utils/annotation-persist"
+import { getCommenterInfo } from "../../utils/user-info"
 import type { AnnotationTarget } from "./annotation-popup"
 
 /** iframe 内元素的原始坐标（未经缩放变换） */
@@ -190,7 +191,13 @@ export function useAnnotations(deps: {
       if (seq !== loadSeq) return
       // 若当前有文档数据，过滤掉 selector 已失效的批注
       const filtered = doc?.elements ? data.filter((a) => selectorExists(a.selector, doc)) : data
-      setAnnotations(filtered.map((a) => ({ ...a, pos: null })))
+      setAnnotations(filtered.map((a) => ({
+        ...a,
+        // 兼容历史记录:旧批注落盘时无 account/userName,归一为空串避免 JSON 出现 undefined
+        account: a.account ?? "",
+        userName: a.userName ?? "",
+        pos: null,
+      })))
     })
   })
 
@@ -289,9 +296,12 @@ export function useAnnotations(deps: {
       const result = await saveAttachment(deps.dir()!, deps.sessionId()!, id, file.name, buf)
       attachments.push(result)
     }
+    // 归档时写入 comments.json 的用户身份(与 make ArchiveComment 的 account/userName 对齐)
+    const userInfo = getCommenterInfo()
     const record = {
       id, note: text, selector: annotationPopup.target!.elementId,
       attachments, time: Date.now(),
+      account: userInfo.account, userName: userInfo.userName,
       rawRect: annotationPopup.rawRect!,
       pos: null,
     }
@@ -322,6 +332,8 @@ export function useAnnotations(deps: {
       const result = await saveAttachment(deps.dir()!, deps.sessionId()!, id, file.name, buf)
       newAttachments.push(result)
     }
+    // 旧记录缺身份时用当前用户回填;已有值则保留原作者归属,不被编辑者覆盖
+    const userInfo = getCommenterInfo()
     setAnnotations(annotations.map((a) => {
       if (a.id !== id) return a
       return {
@@ -329,6 +341,8 @@ export function useAnnotations(deps: {
         note: text,
         attachments: [...a.attachments, ...newAttachments],
         time: Date.now(),
+        account: a.account || userInfo.account,
+        userName: a.userName || userInfo.userName,
       }
     }))
     await persistAnnotations()

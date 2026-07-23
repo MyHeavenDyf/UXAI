@@ -105,6 +105,7 @@ const api: ElectronAPI = {
   deleteFile: (path) => ipcRenderer.invoke("delete-file", path),
   writeClipboardText: (text) => ipcRenderer.invoke("write-clipboard-text", text),
   capturePreviewRect: (rect) => ipcRenderer.invoke("capture-preview-rect", rect),
+  capturePreviewPage: (opts) => ipcRenderer.invoke("capture-preview-page", opts),
   tailwindToCss: (className) => ipcRenderer.invoke("tailwind-to-css", className),
   cssToTailwind: (cssObject) => ipcRenderer.invoke("css-to-tailwind", cssObject),
   getPreviewDistDir: () => ipcRenderer.invoke("get-preview-dist-dir"),

@@ -25,6 +25,7 @@ export type DesktopApi = {
   tailwindToCss?: (className: string) => Promise<Record<string, string>>
   saveFilePicker?: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   codeToHtml?: (opts: { url: string; theme?: "light" | "dark"; waitForMs?: number }) => Promise<{ html: string; resourceCount: number }>
+  capturePreviewPage?: (opts: { pageJson: unknown; waitForMs?: number }) => Promise<string | null>
 }
 
 export function getDesktopApi(): DesktopApi | undefined {

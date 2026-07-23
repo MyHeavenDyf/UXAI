@@ -1,7 +1,8 @@
 import { createSignal } from "solid-js"
 import { showToast } from "@opencode-ai/ui/toast"
-import { createPatternArchiveZip, buildArchivePath, createDeliverable, uploadVersion } from "./pattern-archive-utils"
+import { createPatternArchiveZip, buildArchivePath, createDeliverable, uploadCover, uploadVersion } from "./pattern-archive-utils"
 import { loadAnnotations } from "./annotation-persist"
+import { getDesktopApi } from "./desktop-api"
 import type { ArchiveConfirmData } from "@/components/dialog-archive"
 
 /**
@@ -29,24 +30,36 @@ export function useArchive(deps: {
     if (!dir) return
 
     try {
-      // 1. 读批注 + 当前页面 JSON,打包成 ZIP
+      // 1. 离屏截图 + 读批注 + 当前页面 JSON,打包成 ZIP
+      // 截图走离屏隐藏窗口(单独加载 previewdist + 注入当前页面数据):
+      // 可见界面的归档弹窗/批注不会被截进图里,避免遮罩污染与截图时隐藏导致的闪烁
+      const api = getDesktopApi()
+      const dataUrl = await api?.capturePreviewPage?.({ pageJson: deps.pendingData() })
+      if (!dataUrl) throw new Error("截图失败,无法获取预览内容")
+      const screenshotBlob = await (await fetch(dataUrl)).blob()
+
       const annotations = await loadAnnotations(dir, sid)
       const pageJson = deps.pendingData()
-      const zipBlob = await createPatternArchiveZip({ annotations, sessionId: sid, pageJson })
+      const zipBlob = await createPatternArchiveZip({
+        annotations, sessionId: sid, pageJson,
+        screenshotBlob, projectDir: dir,
+      })
 
       const isLoggedIn = !!localStorage.getItem("uiplusToken")
       const fileName = (deps.sessionTitle() ?? sid).replace(/\.html?$/i, "")
 
       if (isLoggedIn) {
-        // 2a. 已登录:上传到交付物系统
-        // 覆盖模式:直接给已存在的 deliverable 上传新版本
-        // 新建模式:先 createDeliverable 再 uploadVersion
-        // 注意:跳过 uploadCover(无截图),所以归档后的 deliverable 无封面图
+        // 2a. 已登录:上传到交付物系统(封面 + 版本),与 make 流程对齐
+        // 封面用上面的离屏截图,保证交付物有缩略图;版本是打包好的 ZIP
+        // 覆盖模式:给已存在的 deliverable 上传新版本
+        // 新建模式:先 createDeliverable 再 uploadCover + uploadVersion
         let uploadResult: { success: boolean }
         if (data.isOverwrite && data.existingDeliverableId && data.existingDocId) {
+          await uploadCover(data.existingDeliverableId, screenshotBlob)
           uploadResult = await uploadVersion(data.existingDocId, zipBlob)
         } else {
           const newDeliverable = await createDeliverable(data.teamId, fileName)
+          await uploadCover(newDeliverable.deliverableId, screenshotBlob)
           uploadResult = await uploadVersion(newDeliverable.uniqueId, zipBlob)
         }
         if (!uploadResult.success) throw new Error("归档上传失败")

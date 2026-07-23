@@ -823,6 +823,54 @@ export function registerIpcHandlers(deps: Deps) {
     },
   )
 
+  // 离屏窗口截图:先把当前页面 JSON 写入 previewdist/data.js 的 window.__A2UI_DATA__,
+  // 让隐藏窗口启动时直接渲染当前页面(顶层窗口走 __A2UI_DATA__ 路径,不走 postMessage),
+  // 截完恢复 data.js。可见界面(含归档弹窗/批注)完全不动,避免遮罩污染与闪烁。
+  ipcMain.handle(
+    "capture-preview-page",
+    async (_event: IpcMainInvokeEvent, opts: { pageJson: unknown; waitForMs?: number }) => {
+      const dataJsPath = join(previewDistDir(), "data.js")
+      let backup = ""
+      try {
+        backup = await readFile(dataJsPath, "utf8").catch(() => "")
+        const pageJsonObj = typeof opts.pageJson === "string" ? JSON.parse(opts.pageJson) : opts.pageJson
+        await writeFile(dataJsPath, `window.__A2UI_DATA__ = ${JSON.stringify(pageJsonObj)};`, "utf8")
+
+        const win = new BrowserWindow({
+          width: 1920,
+          height: 1080,
+          show: false,
+          frame: false,
+          webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+          },
+        })
+        try {
+          await new Promise<void>((resolve) => {
+            let done = false
+            const finish = () => { if (!done) { done = true; resolve() } }
+            win.webContents.once("did-finish-load", finish)
+            win.webContents.once("did-fail-load", finish)
+            win.webContents.loadURL("http://127.0.0.1:51856").then(finish).catch(finish)
+            setTimeout(finish, 15000)
+          })
+          // 等 runtime 渲染(含图标处理,必要时调用方可调大 waitForMs)
+          await new Promise((r) => setTimeout(r, opts.waitForMs ?? 2000))
+          const image = await win.webContents.capturePage({ x: 0, y: 0, width: 1920, height: 1080 })
+          if (image.isEmpty()) return null
+          return image.toDataURL()
+        } finally {
+          if (!win.isDestroyed()) win.destroy()
+        }
+      } finally {
+        // 回退 data.js,不影响可见 iframe 与后续启动
+        await writeFile(dataJsPath, backup, "utf8").catch(() => {})
+      }
+    },
+  )
+
   // 将 Tailwind 转换为 CSS - By WangQiang - 该注释请勿删除
   ipcMain.handle("tailwind-to-css", (_event: IpcMainInvokeEvent, className: string) => {
     return convertTailwindToCSS(className)

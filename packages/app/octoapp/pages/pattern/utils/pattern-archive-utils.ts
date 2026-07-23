@@ -2,14 +2,16 @@ import JSZip from "jszip"
 import type { AnnotationRecord } from "./annotation-persist"
 import { getDesktopApi } from "./desktop-api"
 // 复用 make 页面的 REST 上传函数,避免重复实现
-import { buildArchivePath, createDeliverable, uploadVersion } from "../../make/utils/archive-utils"
+import { buildArchivePath, createDeliverable, uploadCover, uploadVersion } from "../../make/utils/archive-utils"
 
-export { buildArchivePath, createDeliverable, uploadVersion }
+export { buildArchivePath, createDeliverable, uploadCover, uploadVersion }
 
 export interface PatternArchiveZipOptions {
   annotations: AnnotationRecord[]
   sessionId: string
   pageJson: unknown
+  screenshotBlob: Blob
+  projectDir: string
 }
 
 /**
@@ -17,7 +19,9 @@ export interface PatternArchiveZipOptions {
  *
  * 生成的 ZIP 结构:
  *   data/
- *     comments.json        ← 批注(去除 rawRect, selector 规范化)
+ *     comments.json        ← 批注(去除 rawRect, selector 规范化,含 account/userName)
+ *     screenshot.jpg       ← 预览截图
+ *     {annoId}/{attId}     ← 批注附件文件(attId 已含扩展名)
  *   src/                   ← 占位空目录
  *   preview/
  *     index.html           ← 来自 previewdist(A2UI runtime)
@@ -26,10 +30,14 @@ export interface PatternArchiveZipOptions {
  *     uploads/xxx.png      ← 样式引用的背景图(扁平,只保留文件名)
  *
  * 与 make 页面 createArchiveZip 的区别:
- *   - 无截图(make 用 capturePageScreenshot,pattern 跳过)
- *   - 无 HTML 同目录资源复制(make 复制 htmlFilePath 同目录,pattern 拷贝整个 previewdist)
- *   - 无评论附件文件复制(make 从 projectDir 读附件,pattern 暂不处理)
+ *   - preview 内容不同(make 单 HTML + 同目录资源,pattern 拷贝整个 previewdist + 注入 data.js)
+ *   - 附件目录结构一致(data/{annoId}/{attId}),attId 已含扩展名(make 在归档时拼 ext,pattern 落盘时已拼)
  */
+
+async function blobToUint8Array(blob: Blob): Promise<Uint8Array> {
+  const buffer = await blob.arrayBuffer()
+  return new Uint8Array(buffer)
+}
 
 // 拼接绝对路径,统一用正斜杠(Node 在 Windows 上也能正确处理)
 function joinPath(base: string, relative: string): string {
@@ -55,9 +63,29 @@ export async function createPatternArchiveZip(options: PatternArchiveZipOptions)
   }))
   zip.file("data/comments.json", JSON.stringify(stripped, null, 2))
 
+  // ── 截图(来自离屏窗口捕获的当前页面,作交付物封面与预览) ──
+  const screenshotBytes = await blobToUint8Array(options.screenshotBlob)
+  zip.file("data/screenshot.jpg", screenshotBytes)
+
+  // ── 附件文件:从磁盘 {projectDir}/.octo/design/history/{sessionId}/annotations/uploads/{attId} 拷贝到 data/{annoId}/{attId} ──
+  const api = getDesktopApi()
+  if (api?.readFileBuffer && options.projectDir) {
+    for (const anno of options.annotations) {
+      if (!anno.attachments.length) continue
+      for (const att of anno.attachments) {
+        try {
+          const filePath = joinPath(options.projectDir, `.octo/design/history/${options.sessionId}/annotations/uploads/${att.id}`)
+          const buffer = await api.readFileBuffer(filePath)
+          if (buffer) zip.file(`data/${anno.id}/${att.id}`, new Uint8Array(buffer))
+        } catch (err) {
+          console.warn(`[Archive] Failed to read attachment:`, att.id, err)
+        }
+      }
+    }
+  }
+
   // ── preview/ 目录:拷贝 previewdist 全部文件(开发态为 packages/previewdist,安装态为 resources/previewdist) ──
   // 跳过 data.js,后续单独注入当前页面 JSON
-  const api = getDesktopApi()
   if (api?.getPreviewDistDir && api?.listDirectory && api?.readFileBuffer) {
     try {
       const dir = await api.getPreviewDistDir()

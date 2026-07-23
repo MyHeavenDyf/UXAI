@@ -142,6 +142,7 @@ export type ElectronAPI = {
   deleteFile: (path: string) => Promise<void>
   writeClipboardText: (text: string) => Promise<void>
   capturePreviewRect: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
+  capturePreviewPage: (opts: { pageJson: unknown; waitForMs?: number }) => Promise<string | null>
   tailwindToCss: (className: string) => Promise<Record<string, string>>
   cssToTailwind: (cssObject: Record<string, unknown>) => Promise<string>
   getPreviewDistDir: () => Promise<string>

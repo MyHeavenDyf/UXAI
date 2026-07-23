@@ -2,6 +2,7 @@ import { createEffect, createSignal, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import type { VersionEntry } from "../../utils/version-history"
+import { getCommenterInfo, getAvatarUrl } from "../../utils/user-info"
 
 import { TitleBar } from "./title-bar"
 import { CanvasView } from "./canvas-view"
@@ -596,14 +597,16 @@ export function PreviewPage(props: {
       <Show when={anno.annotationPopup.show && anno.annotationPopup.target}>
         <AnnotationPopup
           target={anno.annotationPopup.target!}
-          author="用户"
+          author={getCommenterInfo().userName}
+          authorAvatar={getCommenterInfo().avatar}
           annotations={anno.annotations
             .filter((a) => a.selector === anno.annotationPopup.target!.elementId)
             .map((a): Annotation => ({
               id: a.id,
               elementId: a.selector,
-              author: "用户",
-              authorInitial: "用",
+              author: a.userName || "用户",
+              authorInitial: (a.userName || "用户").charAt(0),
+              avatar: getAvatarUrl(a.account),
               text: a.note,
               attachments: a.attachments.map((att) => att.fileName),
               createdAt: a.time,
