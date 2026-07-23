@@ -1,7 +1,7 @@
-export type ColorToken = { color: string; opacity: string; name: string; displayName?: string }
+export type ColorToken = { color: string; opacity: string; name: string; displayName?: string; isGroupTitle?: boolean }
 
 export const HUI_COLOR_TOKENS: ColorToken[] = [
-  /* ── 品牌色 ── */
+  { color: '', opacity: '', name: '品牌色', isGroupTitle: true },
   { color: '#2E86DE', opacity: '100%', name: 'hui-brand-hover', displayName: 'color-brand-hover' },
   { color: '#0067D1', opacity: '100%', name: 'hui-brand-focus', displayName: 'color-brand-focus' },
   { color: '#004EA8', opacity: '100%', name: 'hui-brand-active', displayName: 'color-brand-active' },
@@ -9,7 +9,7 @@ export const HUI_COLOR_TOKENS: ColorToken[] = [
   { color: '#0067D1', opacity: '100%', name: 'hui-brand-color', displayName: 'color-brand' },
 
 
-  /* ── 文本色 ── */
+  { color: '', opacity: '', name: '文本色', isGroupTitle: true },
   { color: '#191919', opacity: '100%', name: 'hui-text-primary', displayName: 'color-text-primary' },
   { color: '#777777', opacity: '100%', name: 'hui-text-secondary', displayName: 'color-text-secondary' },
   { color: '#AEAEAE', opacity: '100%', name: 'hui-text-placeholder', displayName: 'color-text-placeholder' },
@@ -18,14 +18,14 @@ export const HUI_COLOR_TOKENS: ColorToken[] = [
   { color: '#FFFFFF', opacity: '100%', name: 'hui-text-inverse-disabled', displayName: 'color-text-inverse-disabled' },
   { color: '#0067D1', opacity: '100%', name: 'hui-text-on', displayName: 'color-text-on' },
 
-  /* ── 链接色 ── */
+  { color: '', opacity: '', name: '链接色', isGroupTitle: true },
   { color: '#0067D1', opacity: '100%', name: 'hui-link', displayName: 'color-link' },
   { color: '#2E86DE', opacity: '100%', name: 'hui-link-hover', displayName: 'color-link-hover' },
   { color: '#004EA8', opacity: '100%', name: 'hui-link-active', displayName: 'color-link-active' },
   { color: '#715AFB', opacity: '100%', name: 'hui-link-visited', displayName: 'color-link-visited' },
   { color: '#8ABEF3', opacity: '100%', name: 'hui-link-disabled', displayName: 'color-link-disabled' },
 
-  /* ── 背景色 ── */
+  { color: '', opacity: '', name: '背景色', isGroupTitle: true },
   { color: '#F3F3F3', opacity: '100%', name: 'hui-bg-1', displayName: 'color-bg-1' },
   { color: '#FFFFFF', opacity: '100%', name: 'hui-bg-2', displayName: 'color-bg-2' },
   { color: '#FFFFFF', opacity: '100%', name: 'hui-bg-3', displayName: 'color-bg-3' },
@@ -34,7 +34,7 @@ export const HUI_COLOR_TOKENS: ColorToken[] = [
   { color: '#C9C9C9', opacity: '20%', name: 'hui-bg-6', displayName: 'color-bg-6' },
   { color: '#AEAEAE', opacity: '30%', name: 'hui-bg-mask', displayName: 'color-bg-mask' },
 
-  /* ── 填充色 ── */
+  { color: '', opacity: '', name: '填充色', isGroupTitle: true },
   { color: '#191919', opacity: '100%', name: 'hui-hover', displayName: 'color-hover' },
   { color: '#E6F2FD', opacity: '100%', name: 'hui-select', displayName: 'color-select' },
   { color: '#191919', opacity: '100%', name: 'hui-fill', displayName: 'color-fill' },
@@ -42,7 +42,7 @@ export const HUI_COLOR_TOKENS: ColorToken[] = [
   { color: '#DFDFDF', opacity: '100%', name: 'hui-fill-disabled', displayName: 'color-fill-disabled' },
   { color: '#191919', opacity: '100%', name: 'hui-fill-disabled-subtle', displayName: 'color-fill-disabled-subtle' },
 
-  /* ── 图标色 ── */
+  { color: '', opacity: '', name: '图标色', isGroupTitle: true },
   { color: '#191919', opacity: '100%', name: 'hui-icon-primary', displayName: 'color-icon-primary' },
   { color: '#2E86DE', opacity: '100%', name: 'hui-icon-hover', displayName: 'color-icon-hover' },
   { color: '#0067D1', opacity: '100%', name: 'hui-icon-focus', displayName: 'color-icon-focus' },
@@ -53,7 +53,7 @@ export const HUI_COLOR_TOKENS: ColorToken[] = [
   { color: '#939393', opacity: '100%', name: 'hui-icon-tertiary', displayName: 'color-icon-tertiary' },
   { color: '#AEAEAE', opacity: '100%', name: 'hui-icon-placeholder', displayName: 'color-icon-placeholder' },
 
-  /* ── 边框色 ── */
+  { color: '', opacity: '', name: '边框色', isGroupTitle: true },
   { color: '#C9C9C9', opacity: '100%', name: 'hui-border-color', displayName: 'color-border' },
   { color: '#191919', opacity: '100%', name: 'hui-border-hover', displayName: 'color-border-hover' },
   { color: '#0067D1', opacity: '100%', name: 'hui-border-focus', displayName: 'color-border-focus' },
@@ -62,7 +62,7 @@ export const HUI_COLOR_TOKENS: ColorToken[] = [
   { color: '#DFDFDF', opacity: '100%', name: 'hui-border-separator', displayName: 'color-border-separator' },
   { color: '#F3F3F3', opacity: '100%', name: 'hui-border-separator-sbutle', displayName: 'color-border-separator-sbutle' },
 
-  /* ── 功能色-错误 ── */
+  { color: '', opacity: '', name: '功能色-错误', isGroupTitle: true },
   { color: '#E02128', opacity: '100%', name: 'hui-error', displayName: 'color-error' },
   { color: '#E7434A', opacity: '100%', name: 'hui-error-hover', displayName: 'color-error-hover' },
   { color: '#C7000B', opacity: '100%', name: 'hui-error-active', displayName: 'color-error-active' },
@@ -70,7 +70,7 @@ export const HUI_COLOR_TOKENS: ColorToken[] = [
   { color: '#F59297', opacity: '100%', name: 'hui-error-subtle', displayName: 'color-error-subtle' },
   { color: '#FEE7E8', opacity: '100%', name: 'hui-error-subtler', displayName: 'color-error-subtler' },
 
-  /* ── 功能色-告警 ── */
+  { color: '', opacity: '', name: '功能色-告警', isGroupTitle: true },
   { color: '#F4840C', opacity: '100%', name: 'hui-alert', displayName: 'color-alert' },
   { color: '#F69E39', opacity: '100%', name: 'hui-alert-hover', displayName: 'color-alert-hover' },
   { color: '#C76207', opacity: '100%', name: 'hui-alert-active', displayName: 'color-alert-active' },
@@ -78,7 +78,7 @@ export const HUI_COLOR_TOKENS: ColorToken[] = [
   { color: '#FCCE92', opacity: '100%', name: 'hui-alert-subtle', displayName: 'color-alert-subtle' },
   { color: '#FEF5E8', opacity: '100%', name: 'hui-alert-subtler', displayName: 'color-alert-subtler' },
 
-  /* ── 功能色-提醒 ── */
+  { color: '', opacity: '', name: '功能色-提醒', isGroupTitle: true },
   { color: '#FCC800', opacity: '100%', name: 'hui-warning', displayName: 'color-warning' },
   { color: '#FCD72E', opacity: '100%', name: 'hui-warning-hover', displayName: 'color-warning-hover' },
   { color: '#D19F00', opacity: '100%', name: 'hui-warning-active', displayName: 'color-warning-active' },
@@ -87,7 +87,7 @@ export const HUI_COLOR_TOKENS: ColorToken[] = [
   { color: '#FEF08A', opacity: '100%', name: 'hui-warning-subtle', displayName: 'color-warning-subtle' },
   { color: '#FEFCE0', opacity: '100%', name: 'hui-warning-subtler', displayName: 'color-warning-subtler' },
 
-  /* ── 功能色-成功 ── */
+  { color: '', opacity: '', name: '功能色-成功', isGroupTitle: true },
   { color: '#09AA71', opacity: '100%', name: 'hui-success', displayName: 'color-success' },
   { color: '#36C18D', opacity: '100%', name: 'hui-success-hover', displayName: 'color-success-hover' },
   { color: '#058358', opacity: '100%', name: 'hui-success-active', displayName: 'color-success-active' },
@@ -95,7 +95,7 @@ export const HUI_COLOR_TOKENS: ColorToken[] = [
   { color: '#8FE5C2', opacity: '100%', name: 'hui-success-subtle', displayName: 'color-success-subtle' },
   { color: '#E7FBF2', opacity: '100%', name: 'hui-success-subtler', displayName: 'color-success-subtler' },
 
-  /* ── 功能色-信息 ── */
+  { color: '', opacity: '', name: '功能色-信息', isGroupTitle: true },
   { color: '#2070F3', opacity: '100%', name: 'hui-info-primary', displayName: 'color-info-primary' },
   { color: '#8CA3FA', opacity: '100%', name: 'hui-info-primary-subtle', displayName: 'color-info-primary-subtle' },
   { color: '#EEF3FE', opacity: '100%', name: 'hui-info-primary-subtler', displayName: 'color-info-primary-subtler' },
@@ -105,7 +105,7 @@ export const HUI_COLOR_TOKENS: ColorToken[] = [
   { color: '#D0D8FD', opacity: '100%', name: 'hui-info-secondary-disabled', displayName: 'color-info-secondary-disabled' },
   { color: '#EEF3FE', opacity: '100%', name: 'hui-info-secondary-subtle', displayName: 'color-info-secondary-subtle' },
 
-  /* ── 图表色 ── */
+  { color: '', opacity: '', name: '图表色', isGroupTitle: true },
   { color: '#2070F3', opacity: '100%', name: 'hui-chart-1', displayName: 'color-chart-1' },
   { color: '#62B42E', opacity: '100%', name: 'hui-chart-2', displayName: 'color-chart-2' },
   { color: '#715AFB', opacity: '100%', name: 'hui-chart-3', displayName: 'color-chart-3' },
@@ -132,14 +132,14 @@ export const HUI_COLOR_TOKENS: ColorToken[] = [
   { color: '#651B8B', opacity: '100%', name: 'hui-chart-24', displayName: 'color-chart-24' },
   { color: '#8FE5C2', opacity: '100%', name: 'hui-chart-25', displayName: 'color-chart-25' },
 
-  /* ── 功能色-失效 ── */
+  { color: '', opacity: '', name: '功能色-失效', isGroupTitle: true },
   { color: '#AEAEAE', opacity: '100%', name: 'hui-none', displayName: 'color-none' },
   { color: '#C9C9C9', opacity: '100%', name: 'hui-none-hover', displayName: 'color-none-hover' },
   { color: '#939393', opacity: '100%', name: 'hui-none-active', displayName: 'color-none-active' },
   { color: '#DFDFDF', opacity: '100%', name: 'hui-none-disabled', displayName: 'color-none-disabled' },
   { color: '#F3F3F3', opacity: '100%', name: 'hui-none-subtle', displayName: 'color-none-subtle' },
 
-  /* ── 特殊场景 ── */
+  { color: '', opacity: '', name: '特殊场景', isGroupTitle: true },
   { color: '#DFDFDF', opacity: '100%', name: 'hui-scrollbar', displayName: 'color-scrollbar' },
   { color: '#AEAEAE', opacity: '100%', name: 'hui-scrollbar-hover', displayName: 'color-scrollbar-hover' },
   { color: '#AEAEAE', opacity: '100%', name: 'hui-card-gray-disabled', displayName: 'color-card-gray-disabled' },
@@ -155,7 +155,7 @@ export const HUI_COLOR_TOKENS: ColorToken[] = [
   { color: '#FEF5E8', opacity: '100%', name: 'hui-message-bg-alert', displayName: 'color-message-bg-alert' },
   { color: '#FEE7E8', opacity: '100%', name: 'hui-message-bg-error', displayName: 'color-message-bg-error' },
 
-  /* ── 标签色 ── */
+  { color: '', opacity: '', name: '标签色', isGroupTitle: true },
   { color: '#8A21BC', opacity: '100%', name: 'hui-tag-text-purple', displayName: 'color-tag-text-purple' },
   /* FIXME: purple-0 不存在于 base.css，fallback 使用 purple-5 #F7EDFE 60% */
   { color: '#F7EDFE', opacity: '60%', name: 'hui-tag-bg-purple', displayName: 'color-tag-bg-purple' },
@@ -182,7 +182,7 @@ export const HUI_COLOR_TOKENS: ColorToken[] = [
   { color: '#1F55B5', opacity: '100%', name: 'hui-tag-text-info', displayName: 'color-tag-text-info' },
   { color: '#D0D8FD', opacity: '50%', name: 'hui-tag-bg-info', displayName: 'color-tag-bg-info' },
 
-  /* ── 告警固定色 (hardcoded, no var) ── */
+  { color: '', opacity: '', name: '告警固定色 (hardcoded, no var)', isGroupTitle: true },
   { color: '#F43146', opacity: '100%', name: 'hui-alert-urgent', displayName: 'hui-alert-urgent' },
   { color: '#EC6F1A', opacity: '100%', name: 'hui-alert-primary', displayName: 'hui-alert-primary' },
   { color: '#EEBA18', opacity: '100%', name: 'hui-alert-secondary', displayName: 'hui-alert-secondary' },
@@ -190,7 +190,7 @@ export const HUI_COLOR_TOKENS: ColorToken[] = [
   { color: '#5990FD', opacity: '100%', name: 'hui-alert-running', displayName: 'hui-alert-running' },
   { color: '#939393', opacity: '100%', name: 'hui-alert-none', displayName: 'hui-alert-none' },
 
-  /* ── 表格 ── */
+  { color: '', opacity: '', name: '表格', isGroupTitle: true },
   { color: '#E6F2FD', opacity: '100%', name: 'hui-table-1', displayName: 'color-table-1' },
   { color: '#B8D9F9', opacity: '100%', name: 'hui-table-2', displayName: 'color-table-2' },
   { color: '#E6F2FD', opacity: '100%', name: 'hui-table-sticky-1', displayName: 'color-table-sticky-1' },
@@ -198,7 +198,7 @@ export const HUI_COLOR_TOKENS: ColorToken[] = [
   { color: '#FFFFFF', opacity: '100%', name: 'hui-table-sticky-bg', displayName: 'color-table-sticky-bg' },
   { color: '#F3F3F3', opacity: '100%', name: 'hui-table-sticky-header', displayName: 'color-table-sticky-header' },
   
-  /* ── 基本色阶 ── */
+  { color: '', opacity: '', name: '基本色阶', isGroupTitle: true },
   { color: '#E6F2FD', opacity: '100%', name: 'hui-brand-5', displayName: 'brand-5' },
   { color: '#B8D9F9', opacity: '100%', name: 'hui-brand-10', displayName: 'brand-10' },
   { color: '#8ABEF3', opacity: '100%', name: 'hui-brand-20', displayName: 'brand-20' },
