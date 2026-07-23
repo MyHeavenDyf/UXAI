@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises"
  * 背景 / 决策见 octo-agent 文档仓 SPEC-INS-015(文件传参机制 ④ MCP 按需上传)、ADR-015 / ADR-014。
  *
  * 机制(SPEC-INS-015 路由 ④):
- *   - insight 页选非图片文件时只把源文件拷进 <projectDir>/insight/uploads 或 insight/<sessionId>/uploads
+ *   - insight 页选非图片文件时只把源文件拷进 <projectDir>/.octo/tmps 或 .octo/<sessionId>/uploads
  *     (本地副本,SPEC-INS-014 v2 会话隔离),**不上传 S3**。
  *     发送时以 `[附件]` synthetic text part 注入 session(可用文件清单,模型从不改写):
  *       [附件]
@@ -50,6 +50,11 @@ const LOG = "[octo:inject]"
 // 非 MCP 工具保持 hasFileRef 零开销早退。
 const MCP_TOOL_PREFIX = "uxr-tool_"
 const MCP_DECLARATION_HEADER = "[MCP声明]"
+
+// 吃**本地路径**的内置工具:它们的 path/filePath 参数是本地磁盘目标,永远不该被换成 S3 URL
+// (S3 URL 替换只服务 MCP 工具 uxr-tool_*)。extract_document 之外的项(write/edit/apply_patch/
+// read/glob/grep)此前漏收,导致模型对上传文件做 write 时 filePath 被替换成 S3 URL、落点建目录崩溃。
+const LOCAL_FILE_TOOLS = new Set(["extract_document", "write", "edit", "apply_patch", "read", "glob", "grep"])
 
 type ChipDeclaration = {
   tool: string
@@ -304,9 +309,13 @@ async function enforceChipDeclaration(
 export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
   return {
     "tool.execute.before": async (input, output) => {
-      // extract_document 是我们自己的本地工具,收**本地路径**,绝不能被替换成 S3 url —— 显式跳过。
-      // (其它工具走下面按需上传;input.tool 对 MCP 是带 server 前缀的 uxr-tool_*,对本工具是 extract_document。)
-      if (input.tool === "extract_document" || input.tool.endsWith("_extract_document")) return
+      // 本地文件工具收**本地路径**,绝不能被替换成 S3 url —— 显式跳过。只有 MCP 工具(uxr-tool_*)填的
+      // 文件名才需要按需上传换 URL。write/edit/apply_patch 的 filePath 是落盘目标:若被换成 S3 URL,
+      // 后续 octo-outputs-redirect 会把非绝对的 https:// 串 join 进 outputs/,建目录时因路径含 URL 成分
+      // 崩溃(内网实测:上传 md → 让其在末尾追加,write 报 makeDirectory .../outputs/https:/.../... 失败)。
+      // read/glob/grep 同理(读/搜本地文件)。extract_document 原就是这个道理,一并收进本集合。
+      // (input.tool 对 MCP 是带 server 前缀的 uxr-tool_*,对本地工具是裸工具名 / <task>_extract_document。)
+      if (LOCAL_FILE_TOOLS.has(input.tool) || input.tool.endsWith("_extract_document")) return
 
       // 早退:args 里没有任何"以文档扩展名结尾"的串,就别去拉消息(非文件工具一律零开销放行)。
       // 例外:MCP 工具(uxr-tool_*)不能靠 args 早退——chip 声明路径(SPEC-INS-017 §2.1)要接管的

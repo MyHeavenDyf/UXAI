@@ -5,7 +5,7 @@ import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { buildStudioDisplayPrompt, type StudioTurnData } from "./turns"
 import { StudioResultCard } from "./studio-result-card"
 import { isStudioEditResult, isVideoMedia, getImageOrientation } from "./studio-shared"
-import { STUDIO_STYLE_MODELS } from "./data"
+import { capabilityLabel, STUDIO_STYLE_MODELS } from "./data"
 import { StudioVideoPlayer } from "./studio-video-player"
 import { getArtifactRelativePath, getArtifactServeUrl } from "../make/utils/artifact-file-api"
 import { StudioFileManager } from "./studio-file-manager"
@@ -224,11 +224,14 @@ export function StudioResultCanvas(props: {
   )
   const showImage = createMemo(() => {
     if (fileManagerLoading()) return undefined
+    if (props.status === "running" || props.status === "queued" || props.status === "submitting") return undefined
     return props.image
   })
-  const shouldShowCanvas = createMemo(() =>
-    !!showImage() || (props.showFileManager === true && !fileManagerLoading()),
-  )
+  const shouldShowCanvas = createMemo(() => {
+    // 生成中时优先展示 loading fallback（"生成中..."），而非空 canvas 或文件管理
+    if (props.status === "running" || props.status === "queued" || props.status === "submitting") return false
+    return !!showImage() || (props.showFileManager === true && !fileManagerLoading())
+  })
   const [canvasStageRef, setCanvasStageRef] = createSignal<HTMLDivElement | null>(null)
   const [floatingActionsRef, setFloatingActionsRef] = createSignal<HTMLDivElement | null>(null)
   const [compactActions, setCompactActions] = createSignal(false)
@@ -403,7 +406,7 @@ export function StudioResultCanvas(props: {
                   sessionID={props.sessionID}
                 />
               </div>
-              <Show when={!props.showFileManager || (props.showFileManager && props.fileManagerDetailView)}>
+              <Show when={!props.showFileManager || (props.showFileManager && props.fileManagerDetailView) || props.status === "running" || props.status === "queued" || props.status === "submitting"}>
                 <div style="display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;">
                 <Show when={props.showFileManager && props.fileManagerDetailView}>
                   <div class="studio-file-manager-back-bar">
@@ -421,7 +424,11 @@ export function StudioResultCanvas(props: {
                 </Show>
               <div ref={setCanvasStageRef} class="studio-canvas-stage" classList={{ "has-back-bar": props.showFileManager && props.fileManagerDetailView }}>
                 <div class="studio-canvas-image-wrapper">
-                  <Show when={showImage()}>
+                  <Show when={showImage()} fallback={
+                    <Show when={props.status === "running" || props.status === "queued" || props.status === "submitting"}>
+                      <StudioEmptyState />
+                    </Show>
+                  }>
                     {(img) => (
                       <Show
                         when={isVideoMedia(img())}
@@ -626,6 +633,25 @@ export function StudioDetails(props: {
 }): JSX.Element {
   const isEditResult = createMemo(() => isStudioEditResult(props.result))
   const isVideoResult = createMemo(() => props.result.capability === "video.generate" || isVideoMedia(props.image))
+  const editorTitle = createMemo(() => {
+    if (props.result.capability === "image.upscale") return capabilityLabel(props.result.capability)
+    if (props.result.capability === "image.cutout") return capabilityLabel(props.result.capability)
+    if (props.result.capability === "image.inpaint" || props.result.toolAction === "inpainting") return "智能重绘"
+    if (props.result.capability === "image.outpaint" || props.result.toolAction === "outpainting") return "扩图"
+    if (props.result.toolAction === "super_resolution") return "变清晰"
+    if (props.result.toolAction === "cutout") return "抠图"
+    return capabilityLabel(props.result.capability)
+  })
+  const detailTitle = createMemo(() => isEditResult()
+    ? editorTitle()
+    : props.result.detailTitle ?? buildStudioDisplayPrompt(props.result.prompt))
+  const detailCopy = createMemo(() => {
+    if (!isEditResult()) return props.result.prompt
+    if (props.result.capability === "image.inpaint" || props.result.capability === "image.outpaint" || props.result.toolAction === "inpainting" || props.result.toolAction === "outpainting") {
+      return props.result.detailPrompt?.trim() || "-"
+    }
+    return "-"
+  })
   const modelLabel = createMemo(() => {
     const m = props.result.styleModel || props.result.model
     const found = STUDIO_STYLE_MODELS.find((item) => item.id === m || item.label === m)
@@ -648,9 +674,9 @@ export function StudioDetails(props: {
         </For>
       </div>
       <section class="studio-detail-section">
-        <div class="studio-detail-title">{buildStudioDisplayPrompt(props.result.prompt)}</div>
+        <div class="studio-detail-title">{detailTitle()}</div>
         <p class="studio-detail-copy">
-          {props.result.prompt}
+          {detailCopy()}
         </p>
       </section>
       <section class="studio-detail-section">
@@ -672,7 +698,7 @@ export function StudioDetails(props: {
       <section class="studio-detail-section">
         <Show when={!isEditResult()}>
           <div class="studio-detail-section-title">提示词</div>
-          <p class="studio-detail-prompt">{props.result.prompt.split("\n")[0]}</p>
+          <p class="studio-detail-prompt">{(props.result.detailPrompt ?? props.result.prompt).split("\n")[0]}</p>
         </Show>
       </section>
     </ScrollView>

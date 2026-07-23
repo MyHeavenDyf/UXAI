@@ -59,12 +59,16 @@ const api: ElectronAPI = {
   openPath: (path, app) => ipcRenderer.invoke("open-path", path, app),
   showItemInFolder: (path) => ipcRenderer.invoke("show-item-in-folder", path),
   downloadResource: (url, destPath) => ipcRenderer.invoke("download-resource", url, destPath),
+  // office「下载」按钮:解析资源已落地的本地副本(不拉网络,缺失返回 null)+ 把本地副本拷到用户选定路径(fs.copyFile)。
+  resolveMaterializedPath: (namespace, baseDir, sessionId) =>
+    ipcRenderer.invoke("resolve-materialized-path", namespace, baseDir, sessionId),
+  copyFileTo: (srcPath, destPath) => ipcRenderer.invoke("copy-file-to", srcPath, destPath),
   downloadResourceToTemp: (url, namespace, filename, baseDir, sessionId) =>
     ipcRenderer.invoke("download-resource-to-temp", url, namespace, filename, baseDir, sessionId),
-  // SPEC-INS-014 v2(会话隔离):把源文件拷贝进 <baseDir>/insight/uploads/(预会话落地区,主进程 fs.copyFile);返回落地路径。
+  // SPEC-INS-014 v2(会话隔离):把源文件拷贝进 <baseDir>/.octo/tmps/(预会话落地区,主进程 fs.copyFile);返回落地路径。
   copyFileToWorktree: (srcPath, baseDir, filename) =>
     ipcRenderer.invoke("copy-file-to-worktree", srcPath, baseDir, filename),
-  // SPEC-INS-014 §4.1.2(v2 新增):发送时把 insight/uploads/ 里的附件 rename 进 <baseDir>/insight/<sessionId>/uploads/。
+  // SPEC-INS-014 §4.1.2(v2 新增):发送时把 .octo/tmps/ 里的附件 rename 进 <baseDir>/.octo/<sessionId>/uploads/。
   movePendingUploadToSession: (srcPath, baseDir, sessionId) =>
     ipcRenderer.invoke("move-pending-upload-to-session", srcPath, baseDir, sessionId),
   // Electron 32+ 已移除 File.path —— 用 webUtils.getPathForFile 拿拖拽/选取文件的真实本地路径。
@@ -101,6 +105,7 @@ const api: ElectronAPI = {
   setUploadsDir: (dir) => ipcRenderer.invoke("set-uploads-dir", dir),
   writeFile: (path, content) => ipcRenderer.invoke("write-file", path, content),
   readFileBuffer: (path) => ipcRenderer.invoke("read-file-buffer", path),
+  fileExists: (path) => ipcRenderer.invoke("file-exists", path),
   deleteFile: (path) => ipcRenderer.invoke("delete-file", path),
   writeClipboardText: (text) => ipcRenderer.invoke("write-clipboard-text", text),
   capturePreviewRect: (rect) => ipcRenderer.invoke("capture-preview-rect", rect),

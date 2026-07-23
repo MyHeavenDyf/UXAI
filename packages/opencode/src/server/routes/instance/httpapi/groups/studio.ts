@@ -49,8 +49,20 @@ export const StudioGenerationPayload = Schema.Struct({
   ]),
   prompt: Schema.String,
   displayPrompt: Schema.optional(Schema.String),
+  detailPrompt: Schema.optional(Schema.String),
+  detailTitle: Schema.optional(Schema.String),
+  initialSessionTitle: Schema.optional(Schema.String),
+  shouldSetSessionTitle: Schema.optional(Schema.Boolean),
   refinedPrompt: Schema.optional(Schema.String),
   effectivePrompt: Schema.optional(Schema.String),
+  promptRefineModels: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        providerID: Schema.String,
+        modelID: Schema.String,
+      }),
+    ),
+  ),
   styleModel: Schema.optional(Schema.String),
   aspectRatio: Schema.optional(Schema.String),
   count: Schema.optional(Schema.Int),
@@ -101,6 +113,8 @@ const StudioGenerationResult = Schema.Struct({
   capability: StudioGenerationPayload.fields.capability,
   prompt: Schema.String,
   displayPrompt: Schema.optional(Schema.String),
+  detailPrompt: Schema.optional(Schema.String),
+  detailTitle: Schema.optional(Schema.String),
   provider: Schema.Union([Schema.Literal("jimeng"), Schema.Literal("internel")]),
   toolAction: Schema.optional(Schema.Union([
     Schema.Literal("generate_image"),

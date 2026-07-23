@@ -1,0 +1,161 @@
+/* Insight 权限弹窗视觉覆盖(读取本地文件授权,SPEC-INS-021 §2 刷新版)。
+ *
+ * 不改上游 packages/ui。本文件**不入 @layer**,靠「无层样式胜过 layer(components)」
+ * 压过 message-part.css / dock-surface.css / button.css 的默认样式,作用域全部收在 .octo-perm-dock。
+ * 色值沿用邻近 insight 组件的字面量约定(如 session-list 直接用 #0a59f7 / rgba(0,0,0,.9))。
+ *
+ * 本弹窗**只有浅色一套**:不跟随系统暗色。因此凡是会随主题翻转的上游 token
+ * (--surface-raised-stronger-non-alpha、--text-strong)都在这里钉成浅色字面量,
+ * 并用 color-scheme: light 防止表单控件被 UA 按暗色渲染。 */
+
+.octo-perm-dock {
+  --octo-perm-blue: #0a59f7; /* 应用通用蓝 */
+  --octo-perm-ink: rgba(0, 0, 0, 0.9);
+  --octo-perm-fill: rgba(0, 0, 0, 0.05);
+  --octo-perm-fill-hover: rgba(0, 0, 0, 0.09);
+  /* ③ 框内所有文字统一用应用通用字体(octo-tokens.css :root 的 --octo-font) */
+  font-family: var(--octo-font);
+  /* 固定浅色:系统切暗色时 UA 控件也不跟着变 */
+  color-scheme: light;
+  /* 与下方输入框拉开距离 */
+  margin-bottom: 16px;
+}
+
+/* ① 文本框 + 按钮框合成一个整体框 */
+.octo-perm-dock [data-component="dock-prompt"][data-kind="permission"] {
+  /* 钉死浅色底(原 var(--surface-raised-stronger-non-alpha) 在暗色下会变 #1c1c1c) */
+  background-color: #ffffff;
+  border-radius: 16px;
+  overflow: clip;
+  /* ② 整体框不要 border —— 去掉原来 0 0 0 1px 的描边环,只留纯投影;色彩仍走中性灰 */
+  border: none;
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+/* 内层两块 surface 去掉各自底色/边框/圆角/阴影,融进整体框 */
+/* ① 文本框(shell)不要 border */
+/* 注意用 background 简写而非 background-color:
+ * app/octoapp/style/prompt-input.css 有一条全局 [data-dock-surface="shell"] 规则(本为输入框而写),
+ * 它用 background 简写叠了两层渐变(padding-box 底色 + border-box 彩虹描边)。
+ * 只覆盖 background-color 清不掉 background-image,会残留一层灰。 */
+.octo-perm-dock [data-dock-surface="shell"] {
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  border-radius: 0;
+}
+.octo-perm-dock [data-dock-surface="tray"] {
+  background-color: transparent;
+  border: none;
+  border-radius: 0;
+}
+
+/* 底部按钮行:去掉原本为「托盘上叠」补偿的负 margin 和大 padding */
+/* ④ 整体框 padding-bottom 再 +10px(12 → 22) */
+.octo-perm-dock [data-slot="permission-footer"] {
+  margin-top: 0;
+  padding: 4px 12px 22px;
+}
+
+/* ④ 标题「需要权限」加粗 · ③ 字体统一 · 钉死浅色字色(原 --text-strong 暗色下会翻白) */
+.octo-perm-dock [data-slot="permission-header-title"] {
+  font-family: var(--octo-font);
+  font-weight: 700;
+  color: #171717;
+}
+
+/* ③ hint / 按钮 字体统一(上游默认写的是 --font-family-sans,这里压成应用通用字体) */
+.octo-perm-dock [data-slot="permission-hint"],
+.octo-perm-dock [data-slot="permission-footer-actions"] [data-component="button"] {
+  font-family: var(--octo-font);
+}
+
+/* ④ icon → 圆形充填黄、正中白色感叹号 */
+.octo-perm-dock .octo-perm-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #f5b31a;
+  color: #fff;
+  font-family: var(--octo-font);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  user-select: none;
+}
+
+/* ⑤ 第二行(hint)字色 #000 90% */
+.octo-perm-dock [data-slot="permission-hint"] {
+  color: var(--octo-perm-ink);
+}
+
+/* ⑥ 第三行(路径)通用蓝 + 下划线 + 可点击打开文件 */
+.octo-perm-dock .octo-perm-path {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--octo-perm-blue);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  /* ③ 路径不再用等宽,跟随应用通用字体 */
+  font-family: var(--octo-font);
+  font-size: 14px;
+  line-height: var(--line-height-large);
+  word-break: break-all;
+}
+.octo-perm-dock .octo-perm-path:hover {
+  color: #0a4fd0;
+}
+
+/* ③ 三键:全圆角胶囊 · 高/行高 32 · 宽 88(literal 50% 会成椭圆,取胶囊语义) */
+.octo-perm-dock [data-slot="permission-footer-actions"] [data-component="button"] {
+  height: 32px;
+  line-height: 32px;
+  width: 88px;
+  padding: 0;
+  border-radius: 999px;
+  border-color: transparent;
+  /* 上游 button.css 默认 cursor: default,这里改成手型 */
+  cursor: pointer;
+}
+
+/* 应答中禁用时不给手型 */
+.octo-perm-dock [data-slot="permission-footer-actions"] [data-component="button"]:disabled {
+  cursor: not-allowed;
+}
+
+/* 允许一次:通用蓝底白字 */
+.octo-perm-dock [data-slot="permission-footer-actions"] [data-variant="primary"] {
+  background-color: var(--octo-perm-blue);
+  border-color: transparent;
+  color: #fff;
+}
+.octo-perm-dock [data-slot="permission-footer-actions"] [data-variant="primary"]:hover:not(:disabled) {
+  background-color: #0a4fd0;
+}
+
+/* 拒绝 + 始终允许:同款 —— #000 5% 底、无边框、深字 */
+.octo-perm-dock [data-slot="permission-footer-actions"] [data-variant="ghost"],
+.octo-perm-dock [data-slot="permission-footer-actions"] [data-variant="secondary"] {
+  background-color: var(--octo-perm-fill);
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--octo-perm-ink);
+}
+.octo-perm-dock [data-slot="permission-footer-actions"] [data-variant="ghost"]:hover:not(:disabled),
+.octo-perm-dock [data-slot="permission-footer-actions"] [data-variant="secondary"]:hover:not(:disabled) {
+  background-color: var(--octo-perm-fill-hover);
+}
+
+/* 本弹窗不做暗色模式:不提供 prefers-color-scheme: dark 覆盖,
+ * 上述浅色字面量在任何系统主题下都生效。 */

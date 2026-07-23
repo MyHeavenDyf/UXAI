@@ -27,6 +27,8 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { authTokenFromCredentials } from "@/utils/server"
 import { directoryHeader } from "@/utils/headers"
+import { modelsApiHeaders } from "@/network/models-api"
+import { useModels } from "@/context/models"
 import { useServer } from "@/context/server"
 import {
   STUDIO_ASPECT_RATIOS,
@@ -111,6 +113,8 @@ type StudioGenerationOverrides = {
   capability?: StudioCapability
   prompt?: string
   displayPrompt?: string
+  detailPrompt?: string
+  detailTitle?: string
   refinedPrompt?: string
   effectivePrompt?: string
   sourceImage?: string
@@ -136,6 +140,7 @@ export default function StudioPage() {
   const language = useLanguage()
   const layout = useLayout()
   const server = useServer()
+  const models = useModels()
   const dialog = useDialog()
   let studioPermissionChecked = false
   let studioPageRef!: HTMLDivElement
@@ -189,6 +194,9 @@ export default function StudioPage() {
   createEffect(() => {
     if (params.id) return
     if (new URLSearchParams(location.search).has("hint")) return
+    // 重置为默认生图模式，避免持久化的编辑 capability 导致
+    // hasStudioConversation 误判为 true，从而不显示 studio-empty-workspace
+    if (workspaceModeForCapability(capability())) setCapability("image.generate")
     const decoded = decode64(params.dir)
     if (!decoded) return
     const lastId = layout.lastSessionPerTab.studio(decoded)
@@ -198,11 +206,16 @@ export default function StudioPage() {
 
   const [prompt, setPrompt] = createSignal("")
   const [imageSettingStore, setImageSettingStore] = persisted(
-    Persist.global("studio.image.settings"),
+    { ...Persist.global("studio.image.settings"), migrate: (value: unknown) => {
+      if (value && typeof value === "object" && (value as Record<string, unknown>).count === 1) {
+        return { ...(value as Record<string, unknown>), count: 4 }
+      }
+      return value
+    } },
     createStore({
       capability: "image.generate" as StudioCapability,
       aspectRatio: "3:4" as StudioAspectRatio,
-      count: 1 as 1 | 2 | 3 | 4,
+      count: 4 as 1 | 2 | 3 | 4,
       styleModel: "seedream-5-lite",
     }),
   )
@@ -235,12 +248,14 @@ export default function StudioPage() {
   const processedAutoAddResults = new Set<string>()
   const [studioViewPref, setStudioViewPref] = persisted(
     Persist.global("studio.view.preference"),
-    createStore({ mode: "file-manager" as "canvas" | "file-manager" }),
+    createStore({ mode: "canvas" as "canvas" | "file-manager" }),
   )
   const [showStudioCanvas, setShowStudioCanvas] = createSignal(true)
   const [showStudioDetails, setShowStudioDetails] = createSignal(false)
   const [showFileManager, setShowFileManager] = createSignal(true)
   const [fileManagerDetailView, setFileManagerDetailView] = createSignal(false)
+  // 记录上一次 session id，切换 session 时重置视图偏好
+  let lastStudioSessionId: string | undefined
   // 记录文件管理详情页当前查看的 resultId / imageId，从 canvas 切回时恢复
   let fileManagerDetailResultId: string | undefined
   let fileManagerDetailImageId: string | undefined
@@ -396,6 +411,8 @@ export default function StudioPage() {
   let scrollFrame = 0
   let pendingEditorSessionID: string | undefined
   let pendingGenerationSessionID: string | undefined
+  // 记录已访问过的 session ID，模块级以在组件卸载/重载之间存活，防止切回时出现空白页
+  const visitedSessionIds = new Set<string>()
   let pendingVideoFirstFrame: StudioAsset | undefined
   const blobUrlCache = new Map<string, string>()
 
@@ -824,14 +841,27 @@ export default function StudioPage() {
     return r2.images.length > 0 ? r2 : undefined
   })
   // Keep showFileManager in sync with the persisted preference.
-  // Falls back to file manager when the current session has no generated images.
+  // When the current session has no data, hide canvas/file-manager and show StudioIntro.
+  // When switching sessions, default to the latest image tab (canvas).
   createEffect(() => {
-    const hasImages = (canvasResult()?.images.length ?? 0) > 0
-    if (!hasImages) {
-      setShowFileManager(true)
+    // 生成中时保持不变，避免文件管理覆盖 canvas 的 loading 状态
+    if (isBusy()) return
+    // 切换 session 时重置为默认显示图片/视频 tab
+    if (params.id !== lastStudioSessionId) {
+      lastStudioSessionId = params.id
+      setStudioViewPref("mode", "canvas")
+    }
+    const hasImages = displayTurns().some((t) => (t.result?.images.length ?? 0) > 0)
+    const hasData = displayTurns().length > 0 || pendingResult() || sending()
+    if (!hasData || !hasImages) {
+      // 无数据或无图片 → 显示 StudioIntro，隐藏 canvas 和文件管理
+      setShowStudioCanvas(false)
+      setShowFileManager(false)
       return
     }
-    setShowFileManager(studioViewPref.mode !== "canvas")
+    // 有数据且有图片 → 显示 canvas 区域，默认图片 tab
+    setShowStudioCanvas(true)
+    setShowFileManager(studioViewPref.mode === "file-manager")
   })
 
   const effectiveStatus = createMemo<StudioGenerationStatus>(() => {
@@ -857,6 +887,14 @@ export default function StudioPage() {
   createEffect(() => {
     const r = canvasResult()
     if (!r) return
+    if (canvasTabTitle(r)) {
+      setCanvasTabLabels((prev) => Object.fromEntries(
+        Object.entries(prev).map(([id, label]) => {
+          const index = r.images.findIndex((image) => image.id === id)
+          return index === -1 ? [id, label] : [id, canvasTabLabel(r, index)]
+        }),
+      ))
+    }
     const first = r.images[0]?.id
     if (!first || r.images.some((image) => image.id === selectedImageId())) return
     setSelectedImageId(first)
@@ -869,7 +907,7 @@ export default function StudioPage() {
       if (canvasTabImages().length === 0) {
         // 无 tabs：创建第一个 tab
         setCanvasTabImages([r.images[0]])
-        setCanvasTabLabels({ [r.images[0].id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-1` : extractKeywords(r.prompt) })
+        setCanvasTabLabels({ [r.images[0].id]: canvasTabLabel(r) })
       } else {
         // 已有 tabs：追加，与 selectStudioImage 逻辑一致
         setCanvasTabImages((prev) => {
@@ -878,7 +916,7 @@ export default function StudioPage() {
         })
         setCanvasTabLabels((prev) => {
           if (prev[r.images[0].id]) return prev
-          return { ...prev, [r.images[0].id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-1` : extractKeywords(r.prompt) }
+          return { ...prev, [r.images[0].id]: canvasTabLabel(r) }
         })
       }
     }
@@ -893,6 +931,20 @@ export default function StudioPage() {
       .replace(/^-+|-+$/g, "")
     const prefix = cleaned.length > maxLen ? cleaned.slice(0, maxLen).replace(/-+$/, "") : (cleaned || "image")
     return prefix
+  }
+
+  function canvasTabLabel(result: StudioGenerationResult, imageIndex = 0) {
+    const title = canvasTabTitle(result)
+    return result.images.length > 1 ? `${title}-${imageIndex + 1}` : title
+  }
+
+  function canvasTabTitle(result: StudioGenerationResult) {
+    if (result.capability === "image.upscale" || result.capability === "image.cutout") return capabilityLabel(result.capability)
+    if (result.capability === "image.inpaint" || result.toolAction === "inpainting") return "智能重绘"
+    if (result.capability === "image.outpaint" || result.toolAction === "outpainting") return "扩图"
+    if (result.toolAction === "super_resolution") return "变清晰"
+    if (result.toolAction === "cutout") return "抠图"
+    return result.detailTitle ?? extractKeywords(result.prompt)
   }
   function selectStudioImage(input: { resultID: string; imageID: string }) {
     batch(() => {
@@ -910,7 +962,7 @@ export default function StudioPage() {
         if (tabImg && imageIndex !== -1) {
           setCanvasTabLabels((prev) => ({
             ...prev,
-            [tabImg.id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-${imageIndex + 1}` : extractKeywords(r.prompt),
+            [tabImg.id]: canvasTabLabel(r, imageIndex),
           }))
         }
         setDeletedImageIds(new Set<string>())
@@ -928,7 +980,7 @@ export default function StudioPage() {
         setSelectedImageId(input.imageID)
         setShowStudioCanvas(true)
         setCanvasTabImages((prev) => [...prev, first])
-        setCanvasTabLabels((prev) => ({ ...prev, [first.id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-${imageIndex + 1}` : extractKeywords(r.prompt) }))
+        setCanvasTabLabels((prev) => ({ ...prev, [first.id]: canvasTabLabel(r, imageIndex) }))
         setDeletedImageIds(new Set<string>())
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(false)
@@ -1021,7 +1073,7 @@ export default function StudioPage() {
       if (isStudioGenerationStatusRegression(pending.status, next.status)) return
       setPendingResult((current) => {
         if (!current || current.status === next.status && current.progress === next.progress && current.order === next.order) return current
-        return { ...current, ...next, displayPrompt: current.displayPrompt ?? next.displayPrompt, sourceImage: current.sourceImage, inputImages: current.inputImages }
+        return { ...current, ...next, displayPrompt: current.displayPrompt ?? next.displayPrompt, detailPrompt: current.detailPrompt ?? next.detailPrompt, sourceImage: current.sourceImage, inputImages: current.inputImages }
       })
       setStatus(next.status)
       return
@@ -1061,7 +1113,7 @@ export default function StudioPage() {
       if (isStudioGenerationStatusRegression(pending.status, next.status)) return
       setPendingResult((current) => {
         if (!current || current.status === next.status && current.progress === next.progress && current.order === next.order) return current
-        return { ...current, ...next, displayPrompt: current.displayPrompt ?? next.displayPrompt, sourceImage: current.sourceImage, inputImages: current.inputImages }
+        return { ...current, ...next, displayPrompt: current.displayPrompt ?? next.displayPrompt, detailPrompt: current.detailPrompt ?? next.detailPrompt, sourceImage: current.sourceImage, inputImages: current.inputImages }
       })
       setStatus(next.status)
       return
@@ -1117,19 +1169,29 @@ export default function StudioPage() {
         setDeletedImageIds(new Set<string>())
         setSelectedImageId(undefined)
         setSelectedResultId(undefined)
+        // 标记已访问，用于区分「加载中」和「空 session」
+        if (id) visitedSessionIds.add(id)
         // 无图片数据时直接显示文件管理，避免展示空 canvas / 生成中 loading
+        // 但如果 session 完全没有数据，显示 StudioIntro
+        const sessionTurns = id ? buildStudioTurns({
+          messages: dataStore.message[id] ?? [],
+          parts: dataStore.part,
+          currentSessionID: id,
+        }) : []
         const hasImages = (() => {
-          const turns = buildStudioTurns({
-            messages: id ? dataStore.message[id] ?? [] : [],
-            parts: dataStore.part,
-            currentSessionID: id,
-          })
-          const latest = [...turns].reverse().find((t) => (t.result?.images.length ?? 0) > 0)
+          const latest = [...sessionTurns].reverse().find((t) => (t.result?.images.length ?? 0) > 0)
           return (latest?.result?.images.length ?? 0) > 0
         })()
-        const prefFileManager = !hasImages || studioViewPref.mode !== "canvas"
-        setShowStudioCanvas(true)
-        setShowFileManager(prefFileManager)
+        const hasData = sessionTurns.length > 0 || pendingResult() || sending()
+        if (!hasData || !hasImages) {
+          // 无数据或无图片 → 显示 StudioIntro
+          setShowStudioCanvas(false)
+          setShowFileManager(false)
+        } else {
+          // 有数据且有图片 → 默认图片 tab
+          setShowStudioCanvas(true)
+          setShowFileManager(studioViewPref.mode === "file-manager")
+        }
         setFileManagerDetailView(false)
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(preserveEditorEntry)
@@ -1171,9 +1233,9 @@ export default function StudioPage() {
   const isEditingWorkspaceMode = createMemo(() => mode() !== "preview")
   const currentTitle = createMemo(() =>
     sessionTitle(activeStudioSession()?.title) ??
-    (result()?.prompt
+    (result()?.detailTitle ?? (result()?.prompt
       ? buildStudioDisplayPrompt(result()!.prompt)
-      : studioTurn()?.userText || "Octo Studio"),
+      : studioTurn()?.userText || "Octo Studio")),
   )
   const [headerTitle, setHeaderTitle] = createStore({
     draft: "",
@@ -1298,7 +1360,8 @@ export default function StudioPage() {
 
   const deleteHeaderSession = async (session: Session) => {
     tracker.interaction({ module: "studio", name: "delete-session" })
-    const sessions = syncStore.session
+    const listResult = await globalSDK.createClient({ directory: projectDir() }).session.list()
+    const sessions = ((listResult.data ?? []) as Session[])
       .filter((item) => item.agent === "octo_studio" && !item.time?.archived)
       .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
     const index = sessions.findIndex((item) => item.id === session.id)
@@ -1866,6 +1929,7 @@ export default function StudioPage() {
     const headers: Record<string, string> = {
       "content-type": "application/json",
       ...directoryHeader(projectDir()),
+      ...modelsApiHeaders(),
     }
     if (current.http.password) {
       headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -2133,6 +2197,8 @@ export default function StudioPage() {
         capability: result.capability,
         prompt: effectivePrompt ?? refinedPrompt ?? originalPrompt ?? result.prompt,
         displayPrompt: STUDIO_REGENERATE_DISPLAY_PROMPT,
+        detailPrompt: result.detailPrompt,
+        detailTitle: result.detailTitle,
         refinedPrompt,
         effectivePrompt,
         referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
@@ -2155,6 +2221,8 @@ export default function StudioPage() {
         capability: result.capability,
         prompt: effectivePrompt ?? refinedPrompt ?? originalPrompt ?? result.prompt,
         displayPrompt: STUDIO_REGENERATE_DISPLAY_PROMPT,
+        detailPrompt: result.detailPrompt,
+        detailTitle: result.detailTitle,
         refinedPrompt,
         effectivePrompt,
         referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
@@ -2174,6 +2242,8 @@ export default function StudioPage() {
       capability: result.capability,
       prompt: effectivePrompt ?? refinedPrompt ?? originalPrompt ?? result.prompt,
       displayPrompt: STUDIO_REGENERATE_DISPLAY_PROMPT,
+      detailPrompt: result.detailPrompt,
+      detailTitle: result.detailTitle,
       refinedPrompt,
       effectivePrompt,
       sourceImage: stringValue(input, "sourceImage"),
@@ -2311,6 +2381,10 @@ export default function StudioPage() {
     sessionID: string
     text: string
     displayPrompt?: string
+    detailPrompt?: string
+    detailTitle?: string
+    initialSessionTitle?: string
+    shouldSetSessionTitle?: boolean
     capability: StudioCapability
     styleModel?: string
     aspectRatio?: StudioAspectRatio
@@ -2328,6 +2402,7 @@ export default function StudioPage() {
     const headers: Record<string, string> = {
       "content-type": "application/json",
       ...directoryHeader(projectDir()),
+      ...modelsApiHeaders(),
     }
     if (current.http.password) {
       headers.Authorization = `Basic ${authTokenFromCredentials({
@@ -2347,8 +2422,24 @@ export default function StudioPage() {
         capability: input.capability,
         prompt: input.text,
         displayPrompt: input.displayPrompt,
+        detailPrompt: input.detailPrompt,
+        detailTitle: input.detailTitle,
+        initialSessionTitle: input.initialSessionTitle,
+        shouldSetSessionTitle: input.shouldSetSessionTitle,
         refinedPrompt: input.refinedPrompt,
         effectivePrompt: input.effectivePrompt,
+        promptRefineModels: models
+          .list()
+          .filter((model) =>
+            models.visible({
+              providerID: model.provider.id,
+              modelID: model.id,
+            }),
+          )
+          .map((model) => ({
+            providerID: model.provider.id,
+            modelID: model.id,
+          })),
         styleModel: input.capability === "image.generate" ? input.styleModel ?? styleModelLabel(styleModel()) : undefined,
         aspectRatio: (input.width && input.height)
           ? undefined
@@ -2697,7 +2788,8 @@ export default function StudioPage() {
           }
     const nextHasInvalidVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.last && !nextVideoFrames.first)
     const nextHasVideoFrames = nextCapability === "video.generate" && Boolean(nextVideoFrames.first)
-    const text = (overrides?.prompt ?? prompt()).trim() || (
+    const actualUserPrompt = (overrides?.prompt ?? prompt()).trim()
+    const text = actualUserPrompt || (
       nextCapability === "image.upscale"
         ? "将当前图片变清晰，提升分辨率和细节"
         : nextCapability === "image.cutout"
@@ -2711,6 +2803,8 @@ export default function StudioPage() {
             : ""
     )
     if (!text || isActionBusy() || nextHasInvalidVideoFrames) return
+    const detailPrompt = overrides?.detailPrompt ?? (actualUserPrompt || (nextCapability === "video.generate" ? text : undefined))
+    const detailTitle = overrides?.detailTitle ?? buildStudioDisplayPrompt(detailPrompt ?? text)
     const currentToken = ++generationToken
     const previousPrompt = prompt()
     const previousAssets = assets()
@@ -2770,7 +2864,7 @@ export default function StudioPage() {
     setMode("preview")
     setSending(true)
     setStatus("submitting")
-    if (!overrides?.useRestoredInputs && !fileManagerDetailView()) setSelectedResultId(undefined)
+    if (!overrides?.useRestoredInputs && !fileManagerDetailView() && !selectedImage()) setSelectedResultId(undefined)
     if (fileManagerDetailView()) setFileManagerGenPending(true)
     setPendingResult({
       id: `studio_pending_${Date.now()}`,
@@ -2778,6 +2872,8 @@ export default function StudioPage() {
       capability: nextCapability,
       prompt: overrides?.effectivePrompt ?? overrides?.refinedPrompt ?? text,
       displayPrompt: overrides?.displayPrompt,
+      detailPrompt,
+      detailTitle,
       provider: "internel",
       model: nextStyleModel,
       aspectRatio: nextIsCustom ? ("1:1" as StudioAspectRatio) : nextAspectRatio,
@@ -2836,6 +2932,10 @@ export default function StudioPage() {
         sessionID,
         text,
         displayPrompt: overrides?.displayPrompt,
+        detailPrompt,
+        detailTitle,
+        initialSessionTitle: existingSession ? undefined : buildStudioDisplayPrompt(text),
+        shouldSetSessionTitle: existingSession ? undefined : true,
         capability: nextCapability,
         refinedPrompt: overrides?.refinedPrompt,
         effectivePrompt: overrides?.effectivePrompt,
@@ -2858,6 +2958,8 @@ export default function StudioPage() {
         // Preserve sessionID from current — generation response may not include it
         sessionID: current?.sessionID ?? (generation as StudioGenerationResult).sessionID,
         displayPrompt: current?.displayPrompt ?? generation.displayPrompt,
+        detailPrompt: current?.detailPrompt ?? generation.detailPrompt,
+        detailTitle: generation.detailTitle ?? current?.detailTitle,
         sourceImage: current?.sourceImage ?? overrides?.sourceImage,
         inputImages: current?.inputImages ?? pendingInputImages,
         // Preserve custom size fields from current state — API response may not include them
@@ -2977,6 +3079,8 @@ export default function StudioPage() {
                 // Preserve sessionID from current when generation doesn't include it
                 sessionID: current?.sessionID ?? (generation as StudioGenerationResult).sessionID,
                 displayPrompt: current?.displayPrompt ?? generation.displayPrompt,
+                detailPrompt: current?.detailPrompt ?? generation.detailPrompt,
+                detailTitle: generation.detailTitle ?? current?.detailTitle,
                 sourceImage: current?.sourceImage,
                 inputImages: current?.inputImages,
                 // Preserve custom size fields from current state — API response may not include them
@@ -3339,29 +3443,20 @@ export default function StudioPage() {
     void runGeneration(restoreGenerationInput(current))
   }
 
-  const hasStudioConversation = createMemo(() =>
-    turns().length > 0 ||
-    pendingEditorEntries().length > 0 ||
-    Boolean(pendingResult()) ||
-    sending() ||
-    isEditingWorkspaceMode() ||
-    Boolean(workspaceModeForCapability(capability())) ||
-    Boolean(params.id),
-  )
-
   const sessionDataLoaded = createMemo(() => {
     if (!params.id) return false
     return dataStore.message[params.id] !== undefined
   })
 
-  createEffect(() => {
-    if (!params.id) return
-    if (!sessionDataLoaded()) return
-    if (displayTurns().length > 0 || pendingResult() || sending()) return
-    // 清除 last session 记录，防止恢复 effect 重定向回来造成死循环
-    const decoded = decode64(params.dir)
-    if (decoded) layout.lastSessionPerTab.setStudio(decoded, "")
-    navigate(`/${routeSlug()}/studio`, { replace: true })
+  const hasStudioConversation = createMemo(() => {
+    // 切换 session 数据未加载时保持对话布局，避免闪现空状态
+    if (params.id && !sessionDataLoaded()) return true
+    return turns().length > 0 ||
+      pendingEditorEntries().length > 0 ||
+      Boolean(pendingResult()) ||
+      sending() ||
+      isEditingWorkspaceMode() ||
+      Boolean(workspaceModeForCapability(capability()))
   })
 
   const [hintVisible, setHintVisible] = createSignal(false)
@@ -3466,11 +3561,7 @@ export default function StudioPage() {
             <div class="studio-empty-group">
               <StudioIntro />
               <div class="relative size-full">
-                <Show when={hintVisible()}>
-                  <div class="absolute left-1/2 -translate-x-1/2 z-50 pointer-events-none -top-7" data-component="tooltip">
-                    {language.t("prompt.hint.newSession")}
-                  </div>
-                </Show>
+
                 <StudioComposer
                   prompt={prompt()}
                   capability={capability()}
@@ -3632,7 +3723,7 @@ if (!headerTitle.pendingRename) return
             }}
             class="studio-center-scroll"
           >
-            <Show when={displayTurns().length > 0 || pendingResult() || sending()} fallback={params.id && !sessionDataLoaded() ? null : <StudioIntro />}>
+            <Show when={displayTurns().length > 0 || pendingResult() || sending() || isBusy()} fallback={params.id && !sessionDataLoaded() && !visitedSessionIds.has(params.id) ? null : <StudioIntro />}>
               <StudioConversation
                 result={result()}
                 turns={displayTurns()}
@@ -3709,7 +3800,7 @@ if (!headerTitle.pendingRename) return
 
       <main class="studio-workspace">
         <Show when={isEditingWorkspaceMode() || showStudioCanvas() || isBusy()} fallback={
-          params.id && !sessionDataLoaded() ? null : (
+          params.id && !sessionDataLoaded() && !visitedSessionIds.has(params.id) ? null : (
             <div class="studio-empty-workspace">
               <StudioIntro />
             </div>
@@ -3824,7 +3915,7 @@ if (!headerTitle.pendingRename) return
                               if (tabImg && imageIndex !== -1) {
                                 setCanvasTabLabels((prev) => ({
                                   ...prev,
-                                  [tabImg.id]: r.images.length > 1 ? `${extractKeywords(r.prompt ?? "")}-${imageIndex + 1}` : extractKeywords(r.prompt ?? ""),
+                                  [tabImg.id]: canvasTabLabel(r, imageIndex),
                                 }))
                               }
                               setDeletedImageIds(new Set<string>())
@@ -3839,7 +3930,7 @@ if (!headerTitle.pendingRename) return
                               const imageIndex = r.images.findIndex((img) => img.id === id)
                               setSelectedImageId(id)
                               setCanvasTabImages((prev) => [...prev, first])
-                              setCanvasTabLabels((prev) => ({ ...prev, [first.id]: (r?.images.length ?? 0) > 1 ? `${extractKeywords(r?.prompt ?? "")}-${imageIndex + 1}` : extractKeywords(r?.prompt ?? "") }))
+                              setCanvasTabLabels((prev) => ({ ...prev, [first.id]: canvasTabLabel(r, imageIndex) }))
                               setDeletedImageIds(new Set<string>())
                               setWorkspaceImage(undefined)
                               setWorkspaceUploadRequested(false)

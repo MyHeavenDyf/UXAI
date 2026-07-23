@@ -57,6 +57,8 @@ export type StudioGenerationResult = {
   capability: StudioCapability
   prompt: string
   displayPrompt?: string
+  detailPrompt?: string
+  detailTitle?: string
   provider: "mock" | "jimeng" | "internel"
   toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
   taskType?: string

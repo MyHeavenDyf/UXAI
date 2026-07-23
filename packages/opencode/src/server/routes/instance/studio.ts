@@ -5,6 +5,7 @@ import { lazy } from "@/util/lazy"
 import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, getGeneration, rebootGeneration } from "@/studio/studio-service"
 import { checkStudioPermission, fetchPromptTags } from "@/tool/internel_image_generate"
 import { errors } from "../../error"
+import { configureModelsApiHeaders } from "@/plugin/model-headers"
 
 const StudioPermissionInput = z.object({
   uid: z.string().optional(),
@@ -27,8 +28,20 @@ const StudioGenerationInput = z.object({
   ]),
   prompt: z.string().min(1),
   displayPrompt: z.string().optional(),
+  detailPrompt: z.string().optional(),
+  detailTitle: z.string().optional(),
+  initialSessionTitle: z.string().optional(),
+  shouldSetSessionTitle: z.boolean().optional(),
   refinedPrompt: z.string().optional(),
   effectivePrompt: z.string().optional(),
+  promptRefineModels: z
+    .array(
+      z.object({
+        providerID: z.string(),
+        modelID: z.string(),
+      }),
+    )
+    .optional(),
   styleModel: z.string().optional(),
   aspectRatio: z.string().optional(),
   count: z.number().int().min(1).max(4).optional(),
@@ -141,6 +154,7 @@ export const StudioRoutes = lazy(() =>
       }),
       validator("json", StudioGenerationInput),
       async (c) => {
+        configureModelsApiHeaders(Object.fromEntries(c.req.raw.headers.entries()))
         const input = c.req.valid("json")
         console.log("[studio.route] POST /studio/generations", {
           sessionID: input.sessionID,
