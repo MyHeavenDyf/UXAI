@@ -1,7 +1,7 @@
 import { ref, provide, inject } from 'vue'
 import { SurfaceStore } from '../processor/surfaceStore'
 import type { JsonInput, DataValue, A2UIClientEventMessage } from '../processor/type'
-import { processJsonForIcons, hasHuiIcons } from '../../composables/useIconProvider'
+import { processJsonForIcons, hasHuiIcons, configReady } from '../../composables/useIconProvider'
 
 export interface A2UIActionsProps {
     createSurface: (id: string, json: JsonInput) => void;
@@ -34,6 +34,7 @@ export function provideA2UI(onAction?: (message: A2UIClientEventMessage) => void
     const actions: A2UIActionsProps = {
         createSurface: async (id: string, json: JsonInput) => {
             // 等待图标映射完成再渲染，避免先 lucide 后 hui 的闪烁
+            await configReady
             if (hasHuiIcons.value) {
                 await Promise.race([
                     processJsonForIcons(json),
@@ -44,6 +45,7 @@ export function provideA2UI(onAction?: (message: A2UIClientEventMessage) => void
         },
         updateSurface: async (id: string, json: JsonInput) => {
             // 等待图标映射完成再渲染
+            await configReady
             if (hasHuiIcons.value) {
                 await Promise.race([
                     processJsonForIcons(json),

@@ -5,7 +5,7 @@ import path from "node:path"
 //
 // 背景:insight agent 生成交付文件时用 write 工具。write 本体(packages/opencode/src/tool/write.ts,
 // 上游共享核心,不改)把**相对路径**默认 join 到 instance.directory(项目根),而不是本会话的
-// insight/<sessionId>/outputs/。此前为把产物导进 outputs(文件管理「生成文件」段从那读),客户端
+// .octo/<sessionId>/outputs/。此前为把产物导进 outputs(文件管理「生成文件」段从那读),客户端
 // 每轮消息都注入一条 `[输出目录] …绝对路径` 的 synthetic 指令去纠偏——弱模型会把这条常驻指令
 // 当成"当前要回应的事"复述出来(空问候"你好"也触发,把绝对路径暴露给用户)。
 //
@@ -54,7 +54,7 @@ export const OctoOutputsRedirectPlugin: Plugin = async ({ client }) => {
       if (!meta.isInsight || !meta.directory) return
 
       // 相对文件名 → 本会话 outputs/;write 的 fs.writeWithDirs 会自动建父目录。
-      const outputsDir = path.join(meta.directory, "insight", input.sessionID, "outputs")
+      const outputsDir = path.join(meta.directory, ".octo", input.sessionID, "outputs")
       const before = filePath
       const after = path.join(outputsDir, filePath)
       ;(output.args as { filePath: string }).filePath = after

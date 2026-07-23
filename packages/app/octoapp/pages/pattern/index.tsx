@@ -1,5 +1,5 @@
 import "./assets/style/pattern-tokens.css"
-import type { Message, Session, SessionStatus, FilePartInput } from "@opencode-ai/sdk/v2/client"
+import type { Message, Session, SessionStatus, UserMessage, FilePartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { showToast, Toast } from "@opencode-ai/ui/toast"
@@ -17,6 +17,8 @@ import { useNavigate, useParams } from "@solidjs/router"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider, useLocal } from "@/context/local"
+import { useTabModel } from "@/hooks/use-tab-model"
+import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { useLayout } from "@/context/layout"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { type Attachment } from "./modules/chat/attachment-bar"
@@ -79,6 +81,7 @@ function PatternContent() {
   const sync = useSync()
   const layout = useLayout()
   const local = useLocal()
+  useTabModel("pattern")
 
   onMount(() => { tracker.page({ module: "prototype", name: "pattern-page" }) })
 
@@ -1127,6 +1130,11 @@ function PatternContent() {
     await exportZip({historyDir: patternHistoryDir(), sessionId: params.id ?? "", title: sessionInfo()?.title ?? params.id ?? "export" })
   }
 
+  // 画布编辑  跳转pixso
+  function handleCanvasEditing() {
+    console.log('跳转pixso')
+  }
+
   // 实时预览
   async function handleLivePreview() {
     const sid = params.id
@@ -1251,6 +1259,7 @@ function PatternContent() {
                     onPickerSubmit={handlePickerSubmit}
                     onDownload={handleDownload}
                     onShare={handleShare}
+                    onCanvasEditing={handleCanvasEditing}
                     onReorder={handleReorder}
                     onLivePreview={handleLivePreview}
                     onPixsoPreview={handlePixsoPreview}

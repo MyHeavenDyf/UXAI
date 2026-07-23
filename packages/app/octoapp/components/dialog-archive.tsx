@@ -24,6 +24,7 @@ export interface ArchiveConfirmData {
   isOverwrite: boolean
   existingDeliverableId?: number
   existingDocId?: string
+  existingDeliverables: DeliverableItem[]
 }
 
 interface DeliverableItem {
@@ -44,6 +45,7 @@ interface PersistedSelections {
   folderName: string | null
   teamId: string | null
   teamName: string | null
+  isProjectArchive: boolean
 }
 
 let persistedSelections: PersistedSelections = {
@@ -57,6 +59,7 @@ let persistedSelections: PersistedSelections = {
   folderName: null,
   teamId: null,
   teamName: null,
+  isProjectArchive: false,
 }
 
 const MOCK_PRODUCT_TREE: ProductTreeData = {
@@ -179,6 +182,47 @@ const MOCK_SEARCH_RESULTS: DeliverableItem[] = [
   { fileName: "在线设计1111", coverUrl: "/workspaces/...", id: 733386, docId: "aaaa" }
 ]
 
+const PROJECT_ARCHIVE_ID = -1
+
+const MOCK_PRODUCT_TEAM: NestedTreeNode[] = [
+  {
+    id: 339042,
+    label: "公共",
+    level: 2,
+    teamType: 4,
+    activityId: 31,
+    permissionFlag: true,
+    parentId: 339041,
+    children: [
+      {
+        id: 388437,
+        label: "分组",
+        level: 5,
+        teamType: 4,
+        activityId: 6,
+        permissionFlag: true,
+        parentId: 339059,
+        baseTeam: 339057,
+        children: [
+          { id: 388429, label: "分组", level: 5, teamType: 4, activityId: 6, permissionFlag: true, parentId: 388437, baseTeam: 339057, children: [] },
+          { id: 388438, label: "分组", level: 5, teamType: 4, activityId: 6, permissionFlag: false, parentId: 388437, baseTeam: 339057, children: [] }
+        ]
+      }
+    ]
+  },
+  {
+    id: 339059,
+    label: "版本计划",
+    level: 3,
+    teamType: 4,
+    activityId: 6,
+    permissionFlag: true,
+    parentId: 339058,
+    baseTeam: 339057,
+    children: []
+  }
+]
+
 const getBaseUrl = () => import.meta.env.VITE_OCTO_BASE_URL || ""
 const isLoggedIn = () => !!localStorage.getItem("uiplusToken")
 const getAuthHeaders = () => ({
@@ -192,9 +236,11 @@ interface Props {
   sessionId: string
   filePath: string
   tabTitle: string
+  showDeliverables?: boolean
 }
 
 export function ArchiveDialog(props: Props): JSX.Element {
+  const showDeliverablesSection = () => props.showDeliverables !== false
   const [spaceType, setSpaceType] = createSignal<SpaceType>("project")
   const [productTree, setProductTree] = createSignal<ProductTreeData>(MOCK_PRODUCT_TREE)
   const [selectedProductId, setSelectedProductId] = createSignal<number | null>(null)
@@ -212,6 +258,8 @@ export function ArchiveDialog(props: Props): JSX.Element {
   const [loading, setLoading] = createSignal(false)
   const [showCollisionOverlay, setShowCollisionOverlay] = createSignal(false)
   const [initialized, setInitialized] = createSignal(false)
+  const [productTeamList, setProductTeamList] = createSignal<NestedTreeNode[]>(MOCK_PRODUCT_TEAM)
+  const [isProjectArchive, setIsProjectArchive] = createSignal(false)
 
   const flattenTree = (nodes: NestedTreeNode[]): NestedTreeNode[] => {
     const result: NestedTreeNode[] = []
@@ -323,8 +371,28 @@ export function ArchiveDialog(props: Props): JSX.Element {
     }
   }
 
+  const fetchProductTeam = async (teamId: number): Promise<NestedTreeNode[] | null> => {
+    if (!isLoggedIn()) return null
+    try {
+      const res = await fetch(`${getBaseUrl()}/main/rest.root/workflow/team/getProductTeam?teamId=${teamId}`, {
+        headers: getAuthHeaders()
+      })
+      const data = await res.json()
+      if (data?.content) {
+        setProductTeamList(data.content)
+        return data.content
+      }
+    } catch (err) {
+      console.error("[Archive] Failed to fetch product team:", err)
+    }
+    return null
+  }
+
   const getFolderTree = (): NestedTreeNode[] => {
     if (spaceType() === "project") {
+      if (isProjectArchive()) {
+        return productTeamList()
+      }
       const flat = flattenTree(versionDeliveryList())
       const found = flat.find(n => n.id === selectedVersionId())
       return found?.children || []
@@ -343,6 +411,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
     setSelectedTeamId(null)
     setSelectedTeamName(null)
     setDeliverables([])
+    setIsProjectArchive(false)
   }
 
   const autoSelectFirstProduct = async () => {
@@ -426,30 +495,44 @@ export function ArchiveDialog(props: Props): JSX.Element {
     const product = item as { name: string; commonTeam?: number }
     setSelectedProductId(id)
     setSelectedProduct({ name: product.name, commonTeam: product.commonTeam })
+    setIsProjectArchive(false)
     
     if (isLoggedIn()) {
       fetchVersionDelivery(id).then((tree) => {
         if (tree) autoSelectFirstVersionDelivery(tree)
         else autoSelectFirstVersionDelivery()
       })
+      if (product.commonTeam) {
+        fetchProductTeam(product.commonTeam)
+      }
     } else {
       autoSelectFirstVersionDelivery()
     }
   }
 
   const handleVersionSelect = (id: number, item: NestedTreeNode) => {
-    setSelectedVersionId(id)
-    setSelectedVersion({ label: item.label, children: item.children })
-    
-    const folders = item.children || []
-    autoSelectFirstFolder(folders)
+    if (id === PROJECT_ARCHIVE_ID) {
+      setIsProjectArchive(true)
+      setSelectedVersionId(id)
+      setSelectedVersion({ label: "项目归档", children: productTeamList() })
+      autoSelectFirstFolder(productTeamList())
+    } else {
+      setIsProjectArchive(false)
+      setSelectedVersionId(id)
+      setSelectedVersion({ label: item.label, children: item.children })
+      
+      const folders = item.children || []
+      autoSelectFirstFolder(folders)
+    }
   }
 
   const handleFolderSelect = (id: number, item: TreeNodeItem) => {
     const node = item as { label: string }
     setSelectedFolderId(id)
     setSelectedFolder({ label: node.label })
-    fetchDeliverables(id)
+    if (showDeliverablesSection()) {
+      fetchDeliverables(id)
+    }
   }
 
   const handleTeamSelect = (id: string, item: { label: string }) => {
@@ -478,9 +561,30 @@ export function ArchiveDialog(props: Props): JSX.Element {
           
           if (isLoggedIn()) {
             const versionTree = await fetchVersionDelivery(product.id)
-            if (versionTree && persistedSelections.versionDeliveryId) {
+            if (product.commonTeam) {
+              await fetchProductTeam(product.commonTeam)
+            }
+            
+            if (persistedSelections.isProjectArchive) {
+              setIsProjectArchive(true)
+              setSelectedVersionId(PROJECT_ARCHIVE_ID)
+              setSelectedVersion({ label: "项目归档", children: productTeamList() })
+              if (persistedSelections.folderId) {
+                const folder = flattenTree(productTeamList()).find(f => f.id === persistedSelections.folderId)
+                if (folder) {
+                  setSelectedFolderId(folder.id)
+                  setSelectedFolder({ label: folder.label })
+                  if (showDeliverablesSection()) fetchDeliverables(folder.id)
+                } else {
+                  autoSelectFirstFolder(productTeamList())
+                }
+              } else {
+                autoSelectFirstFolder(productTeamList())
+              }
+            } else if (persistedSelections.versionDeliveryId && versionTree) {
               const version = flattenTree(versionTree).find(v => v.id === persistedSelections.versionDeliveryId)
               if (version) {
+                setIsProjectArchive(false)
                 setSelectedVersionId(version.id)
                 setSelectedVersion({ label: version.label, children: version.children })
                 
@@ -489,7 +593,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
                   if (folder) {
                     setSelectedFolderId(folder.id)
                     setSelectedFolder({ label: folder.label })
-                    fetchDeliverables(folder.id)
+                    if (showDeliverablesSection()) fetchDeliverables(folder.id)
                   } else {
                     autoSelectFirstFolder(version.children)
                   }
@@ -503,9 +607,26 @@ export function ArchiveDialog(props: Props): JSX.Element {
               autoSelectFirstVersionDelivery(versionTree || undefined)
             }
           } else {
-            if (persistedSelections.versionDeliveryId) {
+            if (persistedSelections.isProjectArchive) {
+              setIsProjectArchive(true)
+              setSelectedVersionId(PROJECT_ARCHIVE_ID)
+              setSelectedVersion({ label: "项目归档", children: productTeamList() })
+              if (persistedSelections.folderId) {
+                const folder = flattenTree(productTeamList()).find(f => f.id === persistedSelections.folderId)
+                if (folder) {
+                  setSelectedFolderId(folder.id)
+                  setSelectedFolder({ label: folder.label })
+                  if (showDeliverablesSection()) fetchDeliverables(folder.id)
+                } else {
+                  autoSelectFirstFolder(productTeamList())
+                }
+              } else {
+                autoSelectFirstFolder(productTeamList())
+              }
+            } else if (persistedSelections.versionDeliveryId) {
               const version = flattenTree(versionDeliveryList()).find(v => v.id === persistedSelections.versionDeliveryId)
               if (version) {
+                setIsProjectArchive(false)
                 setSelectedVersionId(version.id)
                 setSelectedVersion({ label: version.label, children: version.children })
                 if (persistedSelections.folderId) {
@@ -513,7 +634,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
                   if (folder) {
                     setSelectedFolderId(folder.id)
                     setSelectedFolder({ label: folder.label })
-                    fetchDeliverables(folder.id)
+                    if (showDeliverablesSection()) fetchDeliverables(folder.id)
                   } else {
                     autoSelectFirstFolder(version.children)
                   }
@@ -547,7 +668,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
               if (folder) {
                 setSelectedFolderId(folder.id)
                 setSelectedFolder({ label: folder.label })
-                fetchDeliverables(folder.id)
+                if (showDeliverablesSection()) fetchDeliverables(folder.id)
               } else {
                 autoSelectFirstFolder(folderTree)
               }
@@ -560,7 +681,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
               if (folder) {
                 setSelectedFolderId(folder.id)
                 setSelectedFolder({ label: folder.label })
-                fetchDeliverables(folder.id)
+                if (showDeliverablesSection()) fetchDeliverables(folder.id)
               } else {
                 autoSelectFirstFolder()
               }
@@ -580,7 +701,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
   createEffect(() => {
     if (props.open && !initialized()) {
       setInitialized(true)
-      
+
       if (isLoggedIn()) {
         if (persistedSelections.spaceType === "project") {
           fetchProductTree().then(() => restoreSelections())
@@ -610,7 +731,8 @@ export function ArchiveDialog(props: Props): JSX.Element {
         teamId: selectedFolderId() || 0,
         isOverwrite,
         existingDeliverableId: isOverwrite ? deliverables()[0]?.id : undefined,
-        existingDocId: isOverwrite ? deliverables()[0]?.docId : undefined
+        existingDocId: isOverwrite ? deliverables()[0]?.docId : undefined,
+        existingDeliverables: showDeliverablesSection() ? deliverables() : []
       }
 
       await props.onConfirm(data)
@@ -623,6 +745,10 @@ export function ArchiveDialog(props: Props): JSX.Element {
   }
 
   const handleConfirm = async () => {
+    if (!showDeliverablesSection()) {
+      await executeArchive(false)
+      return
+    }
     if (hasMatchingDeliverable()) {
       setShowCollisionOverlay(true)
       return
@@ -642,6 +768,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
       folderName: selectedFolder()?.label || null,
       teamId: selectedTeamId(),
       teamName: selectedTeamName(),
+      isProjectArchive: isProjectArchive(),
     }
     setInitialized(false)
     props.onResetArchiving?.()
@@ -732,12 +859,19 @@ export function ArchiveDialog(props: Props): JSX.Element {
                     <div class="archive-step-title">版本交付</div>
                     <div class="archive-step-content">
                       <ArchiveSearchDropdown
-                        items={flattenTree(versionDeliveryList()).map(v => ({ id: v.id, label: v.label }))}
+                        items={[
+                          ...flattenTree(versionDeliveryList()).map(v => ({ id: v.id, label: v.label })),
+                          { id: PROJECT_ARCHIVE_ID, label: "项目归档" }
+                        ]}
                         selectedId={selectedVersionId()}
                         selectedLabel={selectedVersion()?.label}
                         onSelect={(id) => {
-                          const item = flattenTree(versionDeliveryList()).find(v => v.id === id)
-                          if (item) handleVersionSelect(id as number, item)
+                          if (id === PROJECT_ARCHIVE_ID) {
+                            handleVersionSelect(PROJECT_ARCHIVE_ID, {} as NestedTreeNode)
+                          } else {
+                            const item = flattenTree(versionDeliveryList()).find(v => v.id === id)
+                            if (item) handleVersionSelect(id as number, item)
+                          }
                         }}
                         searchPlaceholder="搜索..."
                         triggerPlaceholder={flattenTree(versionDeliveryList()).length === 0 ? "暂无数据" : "请选择版本交付"}
@@ -801,7 +935,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
                 </Show>
               </Show>
 
-              <Show when={selectedFolderId() !== null}>
+              <Show when={selectedFolderId() !== null && showDeliverablesSection()}>
                 <div class="archive-step">
                   <div class="archive-step-title">归档原型</div>
                   <div class="archive-step-content">
@@ -838,36 +972,35 @@ export function ArchiveDialog(props: Props): JSX.Element {
             </div>
 
             <Show when={showCollisionOverlay()}>
-              <div class="archive-collision-overlay">
-                <div class="archive-collision-content">
-                  <p class="archive-collision-title">已存在以下多个同名归档原型</p>
-                  <p class="archive-collision-name">{props.tabTitle}</p>
-                  <div class="archive-collision-options">
+              <div class="archive-dialog-collision-overlay">
+                <div class="archive-dialog-collision-content">
+                  <h3 class="archive-dialog-collision-title">已存在以下多个同名归档原型</h3>
+                  <p class="archive-dialog-collision-name">{props.tabTitle}</p>
+                  <div class="archive-dialog-collision-options">
                     <button
                       type="button"
-                      class="archive-collision-btn archive-collision-overwrite"
-                      onClick={() => executeArchive(true)}
-                    >
-                      覆盖这些页面
-                    </button>
-                    <button
-                      type="button"
-                      class="archive-collision-btn archive-collision-keep"
+                      class="archive-dialog-collision-option"
                       onClick={() => executeArchive(false)}
                     >
-                      保留两者
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                      <span>保留两者</span>
                     </button>
                     <button
                       type="button"
-                      class="archive-collision-btn archive-collision-skip"
-                      onClick={() => setShowCollisionOverlay(false)}
+                      class="archive-dialog-collision-option"
+                      onClick={() => executeArchive(true)}
                     >
-                      跳过
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                      <span>覆盖这些页面</span>
                     </button>
                   </div>
                   <button
                     type="button"
-                    class="archive-collision-cancel"
+                    class="archive-dialog-collision-cancel"
                     onClick={() => setShowCollisionOverlay(false)}
                   >
                     取消
@@ -898,6 +1031,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
             box-shadow: 0 16px 48px 0 rgba(0, 0, 0, 0.16);
             padding: 20px 24px;
             box-sizing: border-box;
+            position: relative;
             animation: dialog-slide-in 0.2s ease-out;
           }
           @keyframes dialog-slide-in {
@@ -1062,57 +1196,84 @@ export function ArchiveDialog(props: Props): JSX.Element {
             opacity: 0.5;
             cursor: not-allowed;
           }
-          .archive-collision-overlay {
+          .archive-dialog-collision-overlay {
             position: absolute;
-            inset: 0;
-            background: white;
+            top: 56px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
             display: flex;
             align-items: center;
             justify-content: center;
             border-radius: 12px;
             z-index: 1;
           }
-          .archive-collision-content {
+          .archive-dialog-collision-content {
+            width: 356px;
+            padding: 20px 24px;
+          }
+          .archive-dialog-collision-title {
+            font-size: 14px;
+            line-height: 22px;
+            font-weight: bold;
+            color: rgba(0, 0, 0, 0.9);
+            margin: 0 0 4px;
             text-align: center;
-            padding: 20px;
           }
-          .archive-collision-title {
+          .archive-dialog-collision-name {
             font-size: 14px;
-            color: var(--octo-text-primary);
-            margin: 0 0 8px;
+            line-height: 22px;
+            color: rgba(0, 0, 0, 0.6);
+            margin: 0 0 24px;
+            text-align: center;
           }
-          .archive-collision-name {
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--octo-text-primary);
-            margin: 0 0 20px;
-          }
-          .archive-collision-options {
+          .archive-dialog-collision-options {
             display: flex;
             flex-direction: column;
             gap: 8px;
-            margin-bottom: 16px;
+            margin-bottom: 24px;
           }
-          .archive-collision-btn {
-            padding: 10px 16px;
+          .archive-dialog-collision-option {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            height: 40px;
+            padding: 0 16px 0 12px;
             border: none;
-            border-radius: 6px;
-            font-size: 13px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.05);
             cursor: pointer;
-            background: #F9F9F9;
-            color: var(--octo-text-primary);
+            text-align: left;
           }
-          .archive-collision-btn:hover {
-            opacity: 0.9;
+          .archive-dialog-collision-option:hover {
+            background: rgba(0, 0, 0, 0.08);
           }
-          .archive-collision-cancel {
-            padding: 8px 24px;
+          .archive-dialog-collision-option svg {
+            flex-shrink: 0;
+            color: rgba(0, 0, 0, 0.9);
+          }
+          .archive-dialog-collision-option span {
+            font-size: 14px;
+            line-height: 22px;
+            color: rgba(0, 0, 0, 0.9);
+          }
+          .archive-dialog-collision-cancel {
+            width: 100%;
+            height: 32px;
+            padding: 0;
             border: none;
-            border-radius: 6px;
-            font-size: 13px;
+            border-radius: 999px;
+            background: rgba(0, 0, 0, 0.05);
             cursor: pointer;
-            background: transparent;
-            color: var(--octo-text-secondary);
+            font-size: 14px;
+            line-height: 22px;
+            color: rgba(0, 0, 0, 0.9);
+          }
+          .archive-dialog-collision-cancel:hover {
+            background: rgba(0, 0, 0, 0.08);
           }
         `}</style>
       </Portal>

@@ -3,6 +3,7 @@ import {
   IconActionDownload,
   IconActionShare,
   IconActionAnnotate,
+  IconActionCanvasEdit,
   IconRefresh,
   IconChevronDown,
   IconCanvasHand,
@@ -43,6 +44,7 @@ interface TitleBarProps {
   onToggleAnnotating?: () => void
   archiving?: boolean
   onArchiveToggle?: () => void
+  onCanvasEditing?: () => void
 }
 
 export function TitleBar(props: TitleBarProps) {
@@ -250,6 +252,16 @@ export function TitleBar(props: TitleBarProps) {
           >
             <IconEditPencil size={16} />
             <span>编辑</span>
+          </button>
+
+          {/* 按钮：画布编辑 */}
+          <button
+            class="pattern-action-btn"
+            title="画布编辑"
+            onClick={() => props.onCanvasEditing?.()}
+          >
+            <IconActionCanvasEdit size={16} />
+            <span>画布编辑</span>
           </button>
 
           {/* 按钮 4：历史版本 */}

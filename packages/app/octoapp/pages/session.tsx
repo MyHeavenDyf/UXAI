@@ -494,6 +494,10 @@ export default function Page() {
         const msg = lastUserMessage()
         if (!msg) return
         syncSessionModel(local, msg)
+        // Sync tab key so new conversations inherit this session's model.
+        if (msg.model?.providerID && msg.model?.modelID) {
+          local.model.set(msg.model, { recent: true })
+        }
       },
     ),
   )

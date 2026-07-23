@@ -30,7 +30,7 @@ export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", 
       })
     })
 
-    // SPEC-INS-014 §10:列 <projectDir>/insight/<sessionId>/<category>/[/path]。
+    // SPEC-INS-014 §10:列 <projectDir>/.octo/<sessionId>/<category>/[/path]。
     // uploads 段支持子文件夹导航(path 非空 → 列 uploads/<path>/,含文件夹条目);
     // outputs 段扁平(生成产物,无子目录)。返回 isFolder + relativePath 供前端面包屑/导航。
     const listFiles = Effect.fn("InsightHttpApi.listFiles")(function* (ctx: {
@@ -41,7 +41,7 @@ export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", 
       const subPath = ctx.query.path ?? ""
 
       if (category === "outputs") {
-        const dir = path.join(instance.directory, "insight", ctx.query.sessionId, "outputs")
+        const dir = path.join(instance.directory, ".octo", ctx.query.sessionId, "outputs")
         const exists = yield* fs.exists(dir).pipe(Effect.catch(() => Effect.succeed(false)))
         if (!exists) return { files: [] }
         const entries = yield* fs.readDirectory(dir).pipe(Effect.catch(() => Effect.succeed([])))
@@ -64,7 +64,7 @@ export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", 
       }
 
       // uploads
-      const uploadsRoot = path.join(instance.directory, "insight", ctx.query.sessionId, "uploads")
+      const uploadsRoot = path.join(instance.directory, ".octo", ctx.query.sessionId, "uploads")
       const targetDir = subPath.trim() !== "" ? path.join(uploadsRoot, sanitizePath(subPath)) : uploadsRoot
 
       const exists = yield* fs.exists(targetDir).pipe(Effect.catch(() => Effect.succeed(false)))
@@ -100,7 +100,7 @@ export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", 
     }) {
       const body = ctx.payload
       const instance = yield* InstanceState.context
-      const uploadsRoot = path.join(instance.directory, "insight", body.sessionId, "uploads")
+      const uploadsRoot = path.join(instance.directory, ".octo", body.sessionId, "uploads")
       yield* fs.ensureDir(uploadsRoot).pipe(Effect.orDie)
 
       let targetDir = uploadsRoot
@@ -150,7 +150,7 @@ export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", 
     }) {
       const body = ctx.payload
       const instance = yield* InstanceState.context
-      const uploadsRoot = path.join(instance.directory, "insight", body.sessionId, "uploads")
+      const uploadsRoot = path.join(instance.directory, ".octo", body.sessionId, "uploads")
       yield* fs.ensureDir(uploadsRoot).pipe(Effect.orDie)
 
       let targetDir = uploadsRoot

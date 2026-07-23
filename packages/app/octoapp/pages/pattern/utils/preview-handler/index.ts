@@ -36,9 +36,13 @@ export async function handleDownload(input: {planner: Record<string, unknown> | 
     return
   }
 
+  // resources → zip 内 public/assets/（Vite 由 public/ 提供 /assets/X）；无资源目录时只打代码
   const zipPath = await desktopApi.exportZip({
     defaultName: `code-export-${Date.now()}`,
     files,
+    ...(fullUploadsPath
+      ? { sourceDir: fullUploadsPath, destFolder: "public/assets" }
+      : {}),
     comment: "a2ui-code",
   })
 

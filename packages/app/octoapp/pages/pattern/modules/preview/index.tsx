@@ -34,6 +34,7 @@ export function PreviewPage(props: {
   onLivePreview?: () => void
   onPixsoPreview?: () => void
   onCodeToHtml?: () => void
+  onCanvasEditing?: () => void
   versions?: VersionEntry[]
   currentVersionId?: string | null
   onSelectVersion?: (versionId: string) => void
@@ -521,6 +522,8 @@ export function PreviewPage(props: {
         }}
         archiving={props.archiving}
         onArchiveToggle={props.onArchiveToggle}
+        // 画布编辑模式：开启后允许用户在画布上直接拖拽/缩放元素，关闭其他编辑模式
+        onCanvasEditing={props.onCanvasEditing}
       />
 
       <CanvasView
