@@ -36,8 +36,12 @@
 
 /* 内层两块 surface 去掉各自底色/边框/圆角/阴影,融进整体框 */
 /* ① 文本框(shell)不要 border */
+/* 注意用 background 简写而非 background-color:
+ * app/octoapp/style/prompt-input.css 有一条全局 [data-dock-surface="shell"] 规则(本为输入框而写),
+ * 它用 background 简写叠了两层渐变(padding-box 底色 + border-box 彩虹描边)。
+ * 只覆盖 background-color 清不掉 background-image,会残留一层灰。 */
 .octo-perm-dock [data-dock-surface="shell"] {
-  background-color: transparent;
+  background: transparent;
   box-shadow: none;
   border: none;
   border-radius: 0;
