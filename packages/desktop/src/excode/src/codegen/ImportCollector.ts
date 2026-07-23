@@ -1,190 +1,262 @@
 /**
- * ImportCollector — 遍历节点树，收集所有组件导入声明
+ * import-collector — 按文件维度收集 import
  *
- * 两趟收集：
- *   第一趟（collect）：遍历树，按 source 分组组件 import （含 wrapper.import）
- *   第二趟（generate）：生成 import 语句字符串
+ * 复用旧 ImportCollector 的 ImportMap 形态：source → { default, named }。
+ * 遍历 BuildNode 树（包括 children、props、wrapper），
+ * 对每个有 import 的 ComponentNode 建索引；同源合并（默认+命名允许同一行）。
  *
- * 特性：
- *   - 递归收集 slotNode、loopTemplate、wrapper（递归 child 包含 wrapper 时自动处理）
- *   - 去重（按 source + specifier）
- *   - 区分 default import / named import
- *   - 自动合并同源 import（如 Carousel + CarouselItem 合并到同一 import 语句）
+ * props 扫描说明：
+ *   resolveIcon 等产生的 BuildNode（kind:'component',带 import）会嵌入到
+ *   父组件的 prop 值中（如 Button.leftIcon、Input.prefix），而非放在 children
+ *   下。walkPropsForImports 负责递归扫描 prop 值，收集这些内嵌节点的 import。
  */
 
+import type { BuildNode, ComponentNode, HtmlNode, ExtractNode, LoopNode, RegularNode } from '../core/nodeTypes'
+import type { ImportSpec, PropValue } from '../core/valueTypes'
+
 interface ImportEntry {
-  default: string | null;
-  named: Set<string>;
+  default: string | null
+  named: Set<string>
 }
 
-type ImportMap = Map<string, ImportEntry>;
+export type ImportMap = Map<string, ImportEntry>
 
-interface GenerateResult {
-  statements: string[];
-  fallbackComments: string[];
+export interface CollectedImports {
+  imports: ImportMap
+  warnings: string[]
 }
 
-export class ImportCollector {
-  /**
-   * 遍历节点树收集 import
-   *
-   * @param node - 节点
-   * @param imports - 收集容器：source → { default, named: Set }
-   * @param transformFn - (component, node, { forImport }) => result
-   */
-  static collect(node: any, imports: ImportMap, transformFn: (component: string, node: any, opts: { forImport: boolean }) => any): void {
-    if (!node) return;
+export function collectImports(
+  root: BuildNode | null | undefined
+): CollectedImports {
+  const imports: ImportMap = new Map()
+  const warnings: string[] = []
 
-    // 1. 收集节点自身的 import（通过 transformFn 的 forImport 模式）
-    if (node.component || node.__nodeType === 'unresolved') {
-      ImportCollector._collectNodeImport(node, imports, transformFn);
-    } else if (node.__nodeType === 'component' && node.import) {
-      // 直接使用已解析节点的 import
-      if (node.importMode === 'named') {
-        ImportCollector._addNamedImport(node.import, node.tag, imports);
+  walkForImports(root, imports, warnings)
+
+  return { imports, warnings }
+}
+
+// ─── 内部辅助 ───
+
+function addImport(map: ImportMap, source: string, named: boolean, tag: string): void {
+  if (!source || !tag) return
+  if (!map.has(source)) {
+    map.set(source, { default: null, named: new Set() })
+  }
+  const entry = map.get(source)!
+  if (named) {
+    entry.named.add(tag)
+  } else if (!entry.default) {
+    entry.default = tag
+  }
+}
+
+function walkForImports(
+  node: BuildNode | null | undefined,
+  imports: ImportMap,
+  warnings: string[]
+): void {
+  if (!node) return
+
+  switch (node.kind) {
+    case 'component':
+      collectNodeImport(node as ComponentNode, imports, warnings)
+      walkPropsForImports((node as ComponentNode).props, imports, warnings)
+      walkChildren((node as ComponentNode).children, imports, warnings)
+      if ((node as ComponentNode).wrapper) {
+        walkForImports((node as ComponentNode).wrapper, imports, warnings)
+      }
+      break
+    case 'html':
+      walkChildren((node as HtmlNode).children, imports, warnings)
+      // html 节点也可能挂 wrapper（如 Carousel 给 div 子节点包 CarouselItem），
+      // jsxEmitter.emitHtml 会渲染它，这里必须同步收集其 import，否则漏引用。
+      if ((node as HtmlNode).wrapper) {
+        walkForImports((node as HtmlNode).wrapper, imports, warnings)
+      }
+      break
+    case 'extract':
+      // ExtractNode 通常已被 tree-finalizer 替换；若还有遗留，遍历 body
+      for (const c of (node as ExtractNode).body) walkForImports(c, imports, warnings)
+      break
+    case 'text':
+    default:
+      break
+  }
+}
+
+function collectNodeImport(
+  node: ComponentNode,
+  imports: ImportMap,
+  warnings: string[]
+): void {
+  const tag = node.tag ?? node.component
+  if (!node.import) return
+
+  const spec: ImportSpec = node.import
+  if (typeof spec === 'string') {
+    addImport(imports, spec, false, tag)
+  } else if (spec && typeof spec === 'object' && typeof spec.source === 'string') {
+    addImport(imports, spec.source, !!spec.named, tag)
+  } else {
+    warnings.push(`unknown import spec: ${JSON.stringify(spec)} for tag "${tag}"`)
+  }
+}
+
+function walkChildren(
+  children: RegularNode[] | LoopNode | null | undefined,
+  imports: ImportMap,
+  warnings: string[]
+): void {
+  if (!children) return
+  if ((children as any).kind === 'loop') {
+    // Loop template body 的 import 归属模板自身文件单元，不在当前文件收集
+    return
+  }
+  if (Array.isArray(children)) {
+    for (const c of children) {
+      walkForImports(c, imports, warnings)
+    }
+  }
+}
+
+/**
+ * 遍历组件 props，收集嵌入的 BuildNode（如 resolveIcon 产生的图标节点）的 import。
+ * 图标节点直接作为 prop 值嵌入（例如 Button.leftIcon / Input.prefix），
+ * 而非放在 children 中，因此需要额外扫描 props。
+ */
+function walkPropsForImports(
+  props: Record<string, PropValue> | undefined,
+  imports: ImportMap,
+  warnings: string[]
+): void {
+  if (!props) return
+  for (const value of Object.values(props)) {
+    walkValueForImports(value, imports, warnings)
+  }
+}
+
+/**
+ * 递归扫描一个值及其嵌套，收集所有 BuildNode（kind:'component'）的 import。
+ */
+function walkValueForImports(
+  value: any,
+  imports: ImportMap,
+  warnings: string[]
+): void {
+  if (!value || typeof value !== 'object') return
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      walkValueForImports(item, imports, warnings)
+    }
+    return
+  }
+
+  // BuildNode 组件：收集 import 并递归其 props
+  if (value.kind === 'component' && value.import) {
+    collectNodeImport(value, imports, warnings)
+    walkPropsForImports(value.props, imports, warnings)
+    // 递归 children（图标节点一般 selfClosing，但泛化处理）
+    if (value.children) {
+      if (Array.isArray(value.children)) {
+        for (const c of value.children) walkValueForImports(c, imports, warnings)
       } else {
-        ImportCollector._addImport(node.import, node.tag, imports);
-      }
-    }
-
-    // 2. 收集 wrapper.import（wrapper 是 CodeGenNode，递归 collect 统一处理）
-    if (node.wrapper) {
-      ImportCollector.collect(node.wrapper, imports, transformFn);
-    }
-
-    // 3. 递归子节点和循环模板
-    //    兼容两种循环节点形态：
-    //    a) BuildTrees 阶段（_isLoop 标记）：模板节点挂在 children（单对象）或 _loopTemplate 字段
-    //    b) _deepResolve 阶段（__type: 'loop' / 'renderFn'）：模板 body 在 template.body / body
-    if (node._isLoop) {
-      const template = node._loopTemplate || node._resolvedTemplate;
-      if (template) {
-        ImportCollector.collect(template, imports, transformFn);
-      } else if (node.children && !Array.isArray(node.children)) {
-        // BuildTrees 后：模板节点直接挂在 children 上（单个对象，非数组）
-        ImportCollector.collect(node.children, imports, transformFn);
-      }
-    } else if (node.__type === 'loop') {
-      // _deepResolve 阶段：循环表达式的 body 在 template.body
-      if (node.template && node.template.body) {
-        ImportCollector.collect(node.template.body, imports, transformFn);
-      }
-      // 抽取模式：node.template.refName 引用独立函数，函数体在 generateConstDecls 中单独收集
-      return;
-    } else if (node.__type === 'renderFn') {
-      if (node.body) {
-        ImportCollector.collect(node.body, imports, transformFn);
-      }
-      return;
-    }
-    if (node.children) {
-      if (Array.isArray(node.children)) {
-        node.children.forEach((child: any) => ImportCollector.collect(child, imports, transformFn));
-      } else if (typeof node.children === 'object') {
-        // BuildTrees 阶段：循环模板节点作为单 children 直接挂载（非数组）
-        ImportCollector.collect(node.children, imports, transformFn);
-      }
-    }
-
-    // 4. 从 props 中的 slotNode 递归
-    if (node.props) {
-      for (const value of Object.values(node.props)) {
-        ImportCollector._collectFromPropValue(value, imports, transformFn);
-      }
-    }
-
-    // 5. 从 componentData 中递归收集 import（如 Menu 的 icon 组件 CodeGenNode）
-    if (node.componentData) {
-      for (const value of Object.values(node.componentData)) {
-        ImportCollector._collectFromPropValue(value, imports, transformFn);
+        walkValueForImports(value.children, imports, warnings)
       }
     }
   }
-
-  /**
-   * 通过 transformFn(forImport) 收集节点 import
-   */
-  static _collectNodeImport(node: any, imports: ImportMap, transformFn: (component: string, node: any, opts: { forImport: boolean }) => any): void {
-    const result = transformFn(node.component, node, { forImport: true });
-    if (result && result.__nodeType === 'component' && result.import) {
-      if (result.importMode === 'named') {
-        ImportCollector._addNamedImport(result.import, result.tag, imports);
+  // BuildNode 组件（无 import 但有 tag，如 html 节点 / resolveIcon 产物）
+  if (value.kind === 'component' || value.kind === 'html') {
+    walkPropsForImports(value.props, imports, warnings)
+    if (value.children) {
+      if (Array.isArray(value.children)) {
+        for (const c of value.children) walkValueForImports(c, imports, warnings)
       } else {
-        ImportCollector._addImport(result.import, result.tag, imports);
+        walkValueForImports(value.children, imports, warnings)
       }
     }
   }
 
-  /**
-   * 向 imports 添加一条默认导入
-   */
-  static _addImport(importPath: string, tag: string, imports: ImportMap): void {
-    if (!importPath) return;
-    if (!imports.has(importPath)) {
-      imports.set(importPath, { default: null, named: new Set() });
-    }
-    const entry = imports.get(importPath)!;
-    if (!entry.default) {
-      entry.default = tag;
+  // RenderFnValue：body 中的 BuildNode（如 Table 列 render 内的 IconButton）import 收集
+  if (value.type === 'renderFn') {
+    const bodies = Array.isArray(value.body) ? value.body : [value.body]
+    for (const b of bodies) walkValueForImports(b, imports, warnings)
+  }
+
+  // SlotNodeValue：node 中的 BuildNode import 收集
+  if (value.type === 'slotNode' && value.node) {
+    walkValueForImports(value.node, imports, warnings)
+  }
+
+  // 递归检查普通对象的每个值（可能嵌套在数据对象中）
+  for (const v of Object.values(value)) {
+    walkValueForImports(v, imports, warnings)
+  }
+}
+
+// ─── 渲染 import 块 ───
+
+export function renderImportBlock(imports: ImportMap): string {
+  const sources = [...imports.keys()].sort(importSortKey)
+  const lines: string[] = []
+
+  for (const source of sources) {
+    const entry = imports.get(source)!
+    const defaultPart = entry.default ?? ''
+    const named = entry.named && entry.named.size > 0
+      ? `{ ${[...entry.named].sort().join(', ')} }`
+      : ''
+
+    if (defaultPart && named) {
+      lines.push(`import ${defaultPart}, ${named} from '${source}';`)
+    } else if (named) {
+      lines.push(`import ${named} from '${source}';`)
+    } else if (defaultPart) {
+      lines.push(`import ${defaultPart} from '${source}';`)
     }
   }
 
-  /**
-   * 向 imports 添加一条命名导入
-   */
-  static _addNamedImport(importPath: string, specifier: string, imports: ImportMap): void {
-    if (!importPath) return;
-    if (!imports.has(importPath)) {
-      imports.set(importPath, { default: null, named: new Set() });
-    }
-    const entry = imports.get(importPath)!;
-    entry.named.add(specifier);
+  return lines.join('\n')
+}
+
+/**
+ * import 排序优先级：
+ *   0. react 相关
+ *   1. @nce/icon-plus（图标库）
+ *   2. ./modules/*（页面模块）
+ *   3. ../components/*（循环模板）
+ *   4. @nce/eview-react/*（目标组件库）
+ *   5. ./state（页面数据源）
+ *   6. ./styles/*（样式）
+ *   7. 其他
+ */
+function importSortKey(a: string, b: string): number {
+  const priority = (s: string): number => {
+    if (s === 'react' || s === 'react-dom') return 0
+    if (s.startsWith('@nce/icon')) return 1
+    if (s.includes('/modules/') || s.startsWith('./modules/')) return 2
+    if (s.includes('/components/') || s.startsWith('../components/')) return 3
+    if (s.startsWith('@nce/eview-react')) return 4
+    if (s === './state') return 5
+    if (s.startsWith('./styles/')) return 6
+    return 7
   }
+  const pa = priority(a)
+  const pb = priority(b)
+  if (pa !== pb) return pa - pb
+  return a.localeCompare(b)
+}
 
-  /**
-   * 从 prop value 中递归收集 import（slotNode / CodeGenNode）
-   */
-  static _collectFromPropValue(value: any, imports: ImportMap, transformFn: (component: string, node: any, opts: { forImport: boolean }) => any): void {
-    if (!value || typeof value !== 'object') return;
-    if (value.__slotNode) {
-      ImportCollector.collect(value.__slotNode, imports, transformFn);
-      return;
-    }
-    // CodeGenNode — 递归 collect 收集其 import
-    if (value.__nodeType === 'component' || value.__nodeType === 'html') {
-      ImportCollector.collect(value, imports, transformFn);
-      return;
-    }
-    for (const v of Object.values(value)) {
-      ImportCollector._collectFromPropValue(v, imports, transformFn);
-    }
-  }
-
-  /**
-   * 生成 import 语句字符串
-   *
-   * @param imports - collect() 填入的 imports
-   * @returns {{ statements, fallbackComments }}
-   */
-  static generate(imports: ImportMap): GenerateResult {
-    const statements: string[] = [];
-    const fallbackComments: string[] = [];
-
-    for (const [source, info] of imports) {
-      const defaultPart = info.default || '';
-      const namedPart = (info.named && info.named.size > 0)
-        ? `{ ${[...info.named].sort().join(', ')} }`
-        : '';
-
-      if (defaultPart && namedPart) {
-        statements.push(`import ${defaultPart}, ${namedPart} from '${source}';`);
-      } else if (namedPart) {
-        statements.push(`import ${namedPart} from '${source}';`);
-      } else if (defaultPart) {
-        statements.push(`import ${defaultPart} from '${source}';`);
-      }
-    }
-
-    return { statements, fallbackComments };
-  }
+/**
+ * 强制注入一个 import（如 always-react-useState）。
+ */
+export function injectImport(
+  imports: ImportMap,
+  source: string,
+  specifier: string,
+  named: boolean
+): void {
+  addImport(imports, source, named, specifier)
 }
