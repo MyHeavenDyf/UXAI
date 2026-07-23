@@ -9,6 +9,19 @@ import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
 
+import { ComponentRegistry } from './src/core/componentRegistry'
+import { Pipeline } from './src/pipeline/pipeline'
+import { PipelineContext } from './src/pipeline/pipelineContext'
+
+// 步骤
+import { RegisterComponents } from './src/steps/registerComponents'
+import { BuildTrees } from './src/steps/buildTrees'
+import { NodeMapper } from './src/steps/nodeMapper'
+import { GenerateStyles } from './src/steps/generateStyles'
+import { FileGenerator } from './src/steps/fileGenerator'
+import { GenerateRoutes } from './src/steps/generateRoutes'
+import { WriteOutput } from './src/steps/writeOutput'
+import { GenerateReport } from './src/steps/generateReport'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -59,7 +72,7 @@ const config: {
   templateDir: './templates',
   targetLib: 'eview-react',
   css: true,
-  id: false,
+  id: true,
 }
 
 /**
@@ -95,6 +108,29 @@ const DEFAULT_STEPS = [
   'WriteOutput',
 ]
 
+const STEP_MAP: Record<string, any> = {
+  RegisterComponents,
+  BuildTrees,
+  NodeMapper,
+  GenerateStyles,
+  FileGenerator,
+  GenerateRoutes,
+  GenerateReport,
+  WriteOutput,
+}
+
+async function runPipeline(ctx: PipelineContext, steps: string[]): Promise<void> {
+  const pipeline = new Pipeline()
+  for (const stepName of steps) {
+    const StepClass = STEP_MAP[stepName]
+    if (!StepClass) {
+      console.warn(`  [warn] 未知步骤: ${stepName}，跳过`)
+      continue
+    }
+    pipeline.add(StepClass)
+  }
+  await pipeline.run(ctx)
+}
 
 /**
  * 将 A2UI 页面数据转换为 React 项目代码文件列表
@@ -111,7 +147,51 @@ export async function downloadHuiCode(
     throw new Error('[downloadHuiCode] input 必须为非空数组')
   }
 
+  // ── 合并 config + options ──
+  config.targetLib = options.targetLib ?? 'eview-react'
+  // 模板目录按 options 解析（绝对路径直接用；默认 ./templates；不存在回退源路径）
+  config.templateDir = resolveTemplateDir(options.templateDir)
 
+  const registry = new ComponentRegistry()
+  const ctx = new PipelineContext(config, registry)
 
-  return { files: [] }
+  // ── input → pagesData 形态直接注入 ctx，跳过 ReadPages ──
+  ctx.pagesData = input.map((item, index) => {
+    const mergedA2UI = item.mergedA2UI ?? {}
+    const planner = item.planner ?? {}
+
+    const elements = mergedA2UI.elements
+    if (!mergedA2UI.rootId) {
+      throw new Error(`[downloadHuiCode] input[${index}] mergedA2UI 缺少 rootId`)
+    }
+    if (!Array.isArray(elements)) {
+      throw new Error(`[downloadHuiCode] input[${index}] mergedA2UI 缺少 elements`)
+    }
+
+    const slots = planner.slots
+    const splitMeta = Array.isArray(slots)
+      ? slots.map((slot: any) => ({
+          id_prefix: slot.id_prefix || '',
+          section_id: slot.section_id || '',
+          element_id: slot.element_id || slot.id || '',
+        }))
+      : []
+
+    // pageName 直接取 mergedA2UI.rootId（caller 不需要任何额外字段）
+    const pageName = mergedA2UI.rootId
+
+    return {
+      pageName,
+      a2uiDoc: {
+        state: mergedA2UI.state || {},
+        rootId: mergedA2UI.rootId,
+        elements,
+      },
+      splitMeta,
+    }
+  })
+
+  await runPipeline(ctx, DEFAULT_STEPS)
+
+  return { files: ctx.outputFiles }
 }
