@@ -1,17 +1,17 @@
 import "./octo-tokens.css"
-import "./components/starter-cards.css"
 import "./components/slash-popover.css"
-import "./components/mention-popover.css"
-import { FEATURED_STARTERS } from "./utils/starter-prompts"
+import { type MentionSelection } from "./components/mention-popover"
+import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc } from "./components/prosemirror-editor"
+import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import {
   fetchArtifactList,
   fetchArtifactContent,
   formatFileSize,
+  uploadArtifactFile,
   type ArtifactFile,
   type ArtifactFileKind,
 } from "./utils/artifact-file-api"
-import { StarterCards } from "./components/starter-cards"
 import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "@opencode-ai/core/util/binary"
@@ -772,10 +772,15 @@ const sessionMessagesLoaded = createMemo(() => {
   const [slashState, setSlashState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [slashIndex, setSlashIndex] = createSignal(0)
   let textareaRef!: HTMLTextAreaElement
+  let proseMirrorRef1: { getText: () => string; getMentions: () => Array<{ name: string; type: string; label: string; path?: string }>; clear: () => void; insertText: (text: string) => void } | undefined
+  let proseMirrorRef2: { getText: () => string; getMentions: () => Array<{ name: string; type: string; label: string; path?: string }>; clear: () => void; insertText: (text: string) => void } | undefined
 
   // ── Mention (@) Popover State ──
   const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
+  const [mentionSelections, setMentionSelections] = createSignal<MentionSelection[]>([])
   const [filesRefreshKey, setFilesRefreshKey] = createSignal(0)
+
+  // Mention selections are now managed by ProseMirrorEditor's sync plugin
 
   // ── Artifact Files Resource (for @ mention) ──
   const [artifactFiles] = createResource(
@@ -821,7 +826,7 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!state) return
     const handler = (e: MouseEvent) => {
       const target = e.target as HTMLElement
-      if (!target.closest(".mention-popover")) {
+      if (!target.closest(".mention-popover-container")) {
         setMentionState(null)
       }
     }
@@ -830,29 +835,8 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   // ── Skills Config (from skill_config.json) ──
-  type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
-  type PanelSkill = {
-    label: string
-    description?: string
-    path?: string
-    enable?: boolean
-    id?: number
-  }
-  type SkillConfig = {
-    skill?: Record<string, SkillConfigEntry>
-    agent?: Record<string, string[]>
-    panel?: {
-      octo_insight?: PanelSkill[]
-      octo_make?: PanelSkill[]
-      octo_studio?: PanelSkill[]
-      common?: PanelSkill[]
-    }
-  }
-
   const [skillConfig, setSkillConfig] = createSignal<SkillConfig>({})
   const [skillsLoading, setSkillsLoading] = createSignal(false)
-  const [skillsMenuState, setSkillsMenuState] = createSignal<{ query: string; cursor: number } | null>(null)
-  const [skillsMenuIndex, setSkillsMenuIndex] = createSignal(0)
   const [skillToolCalls, setSkillToolCalls] = createSignal<ToolCallInfo[]>([])
   const [pendingSkill, setPendingSkill] = createSignal<{ name: string; content: string } | null>(null)
 
@@ -920,15 +904,6 @@ const sessionMessagesLoaded = createMemo(() => {
       source: "builtin",
     })
 
-    // Builtin: /skills command
-    list.push({
-      trigger: "skills",
-      title: "加载技能",
-      description: "将技能指令注入prompt（仅显示已激活技能）",
-      id: "builtin.skills",
-      source: "builtin",
-    })
-
     // Sort alphabetically
     list.sort((a, b) => a.trigger.localeCompare(b.trigger))
     return list
@@ -958,35 +933,6 @@ const sessionMessagesLoaded = createMemo(() => {
         description: skill.description ?? "",
         path: skill.path ?? `skill/${skill.label}/SKILL.md`
       }))
-  })
-
-  // Filter skills by search query
-  const filteredSkills = createMemo(() => {
-    const query = skillsMenuState()?.query ?? ""
-    const list = activeSkills()
-
-    if (!query) return list
-
-    const lowerQuery = query.toLowerCase()
-    return list.filter(skill =>
-      skill.name.toLowerCase().includes(lowerQuery) ||
-      skill.description.toLowerCase().includes(lowerQuery)
-    )
-  })
-
-  // Skills menu ESC close (global listener, works regardless of focus)
-  createEffect(() => {
-    if (!skillsMenuState()) return
-
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault()
-        setSkillsMenuState(null)
-      }
-    }
-
-    window.addEventListener("keydown", handler)
-    onCleanup(() => window.removeEventListener("keydown", handler))
   })
 
   const DS_KEY_PREFIX = "octo:make:design-system:"
@@ -1623,8 +1569,32 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
-  async function sendMessage(sessionId: string, text: string, _modelKey: { providerID: string; modelID: string }) {
+  async function sendMessage(sessionId: string, text: string, _modelKey: { providerID: string; modelID: string }, mentions?: Array<{ name: string; type: string; label: string; path?: string }>) {
     try {
+      // Process mention selections: replace chip text with model format
+      let processedText = text
+      let displayText = text
+      const selections = mentions ?? []
+      
+      console.log("[sendMessage] mentions:", mentions)
+      console.log("[sendMessage] skillToolCalls:", skillToolCalls())
+      
+      for (const sel of selections) {
+        if (sel.type === 'skill') {
+          processedText = processedText.replace(`@${sel.name}`, ` /${sel.name} `)
+        } else {
+          processedText = processedText.replace(`@${sel.name}`, ` 读取${sel.path} 这个文件 `)
+        }
+      }
+      // Clean up extra spaces
+      processedText = processedText.replace(/  +/g, ' ').trim()
+      
+      console.log("[sendMessage] displayText:", displayText)
+      console.log("[sendMessage] processedText:", processedText)
+      
+      // Clear mention selections after processing
+      setMentionSelections([])
+      
       const done = attachments().filter(a => a.status === "done")
       
       // 本地文件 → [附件] 清单
@@ -1641,10 +1611,10 @@ const sessionMessagesLoaded = createMemo(() => {
       }))
       
       // ── Multi-slash-command detection ──
-      // Scan all tokens in text for /cmd patterns, match against sync.data.command,
+      // Scan all tokens in processedText for /cmd patterns, match against sync.data.command,
       // execute each via session.command(). Each command gets the text between itself
       // and the next /cmd as its arguments. Commands are self-contained (no follow-up prompt).
-      const segments = text.split(/(?=\/\S)/)
+      const segments = processedText.split(/(?=\/\S)/)
       const cmdSegments: { cmd: string; args: string }[] = []
       let hasCommand = false
       for (const seg of segments) {
@@ -1667,10 +1637,31 @@ const sessionMessagesLoaded = createMemo(() => {
 
       if (hasCommand) {
         const modelStr = `${_modelKey.providerID}/${_modelKey.modelID}`
-        const cmdParts = fileParts.length > 0 ? fileParts : undefined
-
+        
+        // Find skill mentions to preserve display text for chips
+        const skillMentions = selections.filter(s => s.type === 'skill')
+        
+        // Save full display text (contains all text and @mentions)
+        const fullDisplayText = displayText
+        let isFirstSkillCommand = true
+        
         for (const seg of cmdSegments) {
           if (!seg.cmd) continue
+          
+          // Build parts: file parts + optional text part with metadata for skill chips
+          const cmdParts: Array<FilePartInput | TextPartInput> = [...fileParts]
+          
+          // If this command is a skill from @mention, add metadata for chip display
+          const isSkillMention = skillMentions.some(s => s.name === seg.cmd)
+          if (isSkillMention) {
+            cmdParts.push({
+              type: "text",
+              text: "",  // Empty text - only metadata for display, no content sent to model
+              metadata: { displayText: isFirstSkillCommand ? fullDisplayText : "" }
+            })
+            isFirstSkillCommand = false
+          }
+          
           try {
             await sdk.client.session.command({
               sessionID: sessionId,
@@ -1678,7 +1669,7 @@ const sessionMessagesLoaded = createMemo(() => {
               arguments: seg.args,
               agent: sessionId === activePlanSessionId() ? "octo_make_plan" : "octo_make",
               model: modelStr,
-              parts: cmdParts,
+              parts: cmdParts.length > 0 ? cmdParts : undefined,
             })
           } catch (err) {
             console.error(`[MakePage] command /${seg.cmd} failed`, err)
@@ -1690,7 +1681,11 @@ const sessionMessagesLoaded = createMemo(() => {
       }
       // ── End command detection ──
 
-      let promptText = text
+      // Store display text for rendering (user's visible text with @mentions)
+      const hasMentions = selections.length > 0
+      const userDisplayText = hasMentions ? displayText : undefined
+
+      let promptText = processedText
 
       const loadedSkills = skillToolCalls()
       if (loadedSkills.length > 0) {
@@ -1704,7 +1699,7 @@ const sessionMessagesLoaded = createMemo(() => {
           ].join("\n"))
           .join("\n")
         
-        promptText = skillPrefix + "\n" + text
+        promptText = skillPrefix + "\n" + processedText
         setSkillToolCalls([])
       }
 
@@ -1806,7 +1801,14 @@ const sessionMessagesLoaded = createMemo(() => {
         promptText = folderPrefix + "\n" + promptText
       }
 
-      const textPart: TextPartInput = { type: "text", text: promptText }
+      const textPart: TextPartInput = { 
+        type: "text", 
+        text: promptText,
+        ...(userDisplayText ? { metadata: { displayText: userDisplayText } } : {}),
+      }
+      
+      console.log("[sendMessage] textPart:", textPart)
+      console.log("[sendMessage] userDisplayText:", userDisplayText)
       
       // 本地文件清单 (synthetic)
       const manifestPart = localManifest.length > 0 
@@ -1846,7 +1848,8 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 提交 prompt：自动创建 session → 发送消息 */
   async function handleSubmit() {
-    const text = prompt().trim()
+    const text = proseMirrorRef1?.getText?.() || proseMirrorRef2?.getText?.() || prompt().trim()
+    const mentions = proseMirrorRef1?.getMentions?.() || proseMirrorRef2?.getMentions?.() || []
     if (sending() || !activeModelKey()) return
     // 在异步操作前捕获 model key，避免后续被其他 effect 修改
     const capturedModelKey = activeModelKey()
@@ -1865,6 +1868,8 @@ const sessionMessagesLoaded = createMemo(() => {
 
     setSending(true)
     setPrompt("")
+    proseMirrorRef1?.clear()
+    proseMirrorRef2?.clear()
     const planSid = resultViewMode() === "plan" && planParentSessionId() === params.id ? activePlanSessionId() : null
     const submitSessionId = planSid || params.id
     try {
@@ -1884,7 +1889,7 @@ if (dsId) {
         navigate(`/make/${session.id}`)
         sid = session.id
       }
-      await sendMessage(sid, messageText, capturedModelKey)
+      await sendMessage(sid, messageText, capturedModelKey, mentions)
       
       // 发送成功后追踪技能使用
       if (skill) {
@@ -1925,46 +1930,46 @@ if (dsId) {
     // isComposing / keyCode 229 兼容各平台输入法(macOS 拼音回车补偿尤其需要)
     if (e.isComposing || e.keyCode === 229) return
 
-    const slash = slashState()
-    const mention = mentionState()
-
-    // Mention popover close on Escape
-    if (mention && mentionFiles()) {
-      if (e.key === "Escape") {
+    // Backspace to delete chip markers
+    if (e.key === "Backspace") {
+      const ta = textareaRef
+      const cursor = ta.selectionStart
+      const text = prompt()
+      
+      // Check if cursor is right after a chip (@name format)
+      const beforeCursor = text.slice(0, cursor)
+      const chipMatch = beforeCursor.match(/@[^\s@]+\s*$/)
+      if (chipMatch) {
         e.preventDefault()
-        e.stopPropagation()
-        setMentionState(null)
+        const chipStart = cursor - chipMatch[0]!.length
+        const after = text.slice(cursor)
+        const next = text.slice(0, chipStart) + after
+        setPrompt(next)
+        
+        // Also remove from mentionSelections
+        const chipName = chipMatch[0]!.replace(/@\s*/g, '').trim()
+        setMentionSelections(prev => prev.filter(s => 
+          s.type === 'skill' ? s.name !== chipName : s.filename !== chipName
+        ))
+        
+        // Update cursor position
+        requestAnimationFrame(() => {
+          ta.focus()
+          ta.setSelectionRange(chipStart, chipStart)
+        })
         return
       }
     }
 
-    const skillsMenu = skillsMenuState()
+    const slash = slashState()
+    const mention = mentionState()
 
-    // Skills menu keyboard navigation
-    if (skillsMenu) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault()
-        e.stopPropagation()
-        setSkillsMenuIndex(i => Math.min(i + 1, filteredSkills().length - 1))
-        return
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault()
-        e.stopPropagation()
-        setSkillsMenuIndex(i => Math.max(i - 1, 0))
-        return
-      }
-      if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault()
-        e.stopPropagation()
-        const selected = filteredSkills()[skillsMenuIndex()]
-        if (selected) pickSkillFromMenu(selected)
-        return
-      }
+    // Mention popover close on Escape
+    if (mention && artifactFiles()) {
       if (e.key === "Escape") {
         e.preventDefault()
         e.stopPropagation()
-        setSkillsMenuState(null)
+        setMentionState(null)
         return
       }
     }
@@ -2001,7 +2006,7 @@ if (dsId) {
     }
 
     // Enter to send (only when both popovers are closed)
-    if (e.key === "Enter" && !e.shiftKey && !slash && !mention && !skillsMenu) {
+    if (e.key === "Enter" && !e.shiftKey && !slash && !mention) {
       if (e.isComposing || composing() || e.keyCode === 229) return
       e.preventDefault()
 
@@ -2011,14 +2016,6 @@ if (dsId) {
         const target = previewMatch[1].trim()
         handleOpenLocalFile(target)
         setPrompt("")
-        return
-      }
-
-      // Check for /skills <name> command
-      const skillsMatch = prompt().match(/^\/skills\s+([^\s]+)\s*$/)
-      if (skillsMatch) {
-        const skillName = skillsMatch[1].trim()
-        handleSkillCommand(skillName)
         return
       }
 
@@ -2033,21 +2030,6 @@ if (dsId) {
     const cursor = ta.selectionStart
 
     setPrompt(value)
-
-    // Detect /skills trigger (skills menu)
-    const skillsMenuMatch = value.match(/^\/skills(?:\s+(.*))?$/)
-    if (skillsMenuMatch && cursor === value.length) {
-      const query = skillsMenuMatch[1]?.trim() ?? ""
-      setSkillsMenuState({ query, cursor })
-      setSkillsMenuIndex(0)
-      setSlashState(null)
-      setMentionState(null)
-
-      loadSkillConfig()
-      return
-    }
-
-    setSkillsMenuState(null)
 
     // Detect slash trigger: /^\/([^\s/]*)$/
     const slashMatch = value.match(/^\/([^\s/]*)$/)
@@ -2064,77 +2046,68 @@ if (dsId) {
     const mentionMatch = /(?:^|\s)@([^\s@]*)$/.exec(before)
     if (mentionMatch) {
       setMentionState({ query: mentionMatch[1] ?? "", cursor })
+      loadSkillConfig()
     } else {
       setMentionState(null)
     }
   }
 
-  /** Pick a slash command and insert into textarea */
+  /** Pick a slash command and insert into editor */
   function pickSlash(cmd: SlashCommand) {
     if (!slashState()) return
 
-    const ta = textareaRef
-    const before = prompt()
-
-    // Replace `/query` with `/trigger `
-    const replaced = before.replace(/^\/([^\s/]*)$/, `/${cmd.trigger} `)
-    setPrompt(replaced)
+    const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
+    ref?.clear()
+    ref?.insertText?.("/preview")
+    ref?.insertText?.(" ")
+    
     setSlashState(null)
-
-    if (cmd.trigger === "skills") {
-      setSkillsMenuState({ query: "", cursor: replaced.length })
-      setSkillsMenuIndex(0)
-      loadSkillConfig()
-    }
-
-    // Focus textarea and position cursor at end
-    requestAnimationFrame(() => {
-      ta.focus()
-      ta.setSelectionRange(replaced.length, replaced.length)
-    })
-  }
-
-  /** Pick a skill from skills menu and add to pending */
-  async function pickSkillFromMenu(skill: { name: string; description: string }) {
-    const state = skillsMenuState()
-    if (!state) return
-
-    // Clear previous pending skill
-    setPendingSkill(null)
-    setSkillsMenuState(null)
-
-    // Clear /skills text from prompt
-    const before = prompt()
-    setPrompt(before.replace(/^\/skills(?:\s+[^\s]*)?/, ""))
-
-    try {
-      // Load skill content
-      const api = (window as unknown as { api?: { getSkillContent?: (name: string) => Promise<any> } }).api
-      const result = await api?.getSkillContent?.(skill.name)
-
-      if (!result?.success) {
-        console.error("[MakePage] Failed to load skill:", result?.error)
-        return
-      }
-
-      // Store pending skill
-      setPendingSkill({
-        name: skill.name,
-        content: result.content
-      })
-
-      // Focus textarea
-      requestAnimationFrame(() => {
-        textareaRef.focus()
-      })
-    } catch (err) {
-      console.error("[MakePage] Failed to load skill:", err)
-    }
   }
 
   /** Remove pending skill */
   function removePendingSkill() {
     setPendingSkill(null)
+  }
+
+  /** Handle mention selection (skill or file) */
+  function handleMentionSelect(selection: MentionSelection) {
+    const state = mentionState()
+    if (!state) return
+
+    const ta = textareaRef
+    const value = prompt()
+
+    // Remove @query text from prompt
+    const before = value.slice(0, state.cursor - state.query.length - 1)
+    const after = value.slice(ta.selectionStart)
+    
+    // Add visible chip format: @技能名 or @文件名
+    const chipText = selection.type === 'skill' 
+      ? `@${selection.name}` 
+      : `@${selection.filename}`
+    
+    const next = before + chipText + ' ' + after
+    setPrompt(next)
+    setMentionSelections(prev => [...prev, selection])
+
+    requestAnimationFrame(() => {
+      ta.focus()
+      const newPos = before.length + chipText.length + 1
+      ta.setSelectionRange(newPos, newPos)
+    })
+  }
+
+  function handleMentionDeselect(selection: MentionSelection) {
+    setMentionSelections(prev => prev.filter(s => 
+      s.type !== selection.type || 
+      (s.type === 'skill' ? s.name !== (selection as any).name : s.path !== (selection as any).path)
+    ))
+
+    // Remove chip from prompt
+    const chipText = selection.type === 'skill' 
+      ? `@${selection.name}` 
+      : `@${selection.filename}`
+    setPrompt(prev => prev.replace(chipText, '').replace(/  +/g, ' ').trim())
   }
 
   /** Pick a Design Files file and add as attachment */
@@ -2223,7 +2196,7 @@ if (dsId) {
       if (isImageFile(file.name)) {
         addImageAttachment(file)
       } else {
-        addDataUrlAttachment(file)
+        addLocalFileAttachment(file)
       }
     }
   }
@@ -2256,23 +2229,57 @@ if (dsId) {
     }
   }
 
-  function addDataUrlAttachment(file: File) {
+  async function addLocalFileAttachment(file: File) {
     const id = crypto.randomUUID()
-    filesById.set(id, file)
+    const sid = params.id
     
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      setAttachments(prev => [...prev, {
-        id,
-        filename: file.name,
-        mime: file.type || 'application/octet-stream',
-        size: file.size,
-        status: 'done',
-        source: 'external',
-        dataUrl: ev.target?.result as string
-      }])
+    if (!sid) {
+      showToast({ title: "无法添加附件", description: "未选择项目目录", variant: "error" })
+      return
     }
-    reader.readAsDataURL(file)
+    
+    setAttachments(prev => [...prev, {
+      id,
+      filename: file.name,
+      mime: file.type || 'application/octet-stream',
+      size: file.size,
+      status: 'uploading',
+      source: 'external',
+    }])
+    
+    try {
+      const reader = new FileReader()
+      const base64 = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          const result = reader.result as string
+          resolve(result.split(",")[1] || result)
+        }
+        reader.onerror = () => reject(new Error("读取文件失败"))
+        reader.readAsDataURL(file)
+      })
+      
+      const result = await uploadArtifactFile(
+        globalSDK.url,
+        sdk.directory || "",
+        sid,
+        file.name,
+        base64,
+      )
+      
+      setAttachments(prev => prev.map(a => 
+        a.id === id ? { 
+          ...a, 
+          status: 'done' as const, 
+          source: 'local' as const,
+          path: result.path,
+        } : a
+      ))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '上传失败'
+      setAttachments(prev => prev.map(a =>
+        a.id === id ? { ...a, status: 'error' as const, error: message } : a
+      ))
+    }
   }
 
   function handlePaste(e: ClipboardEvent) {
@@ -2515,33 +2522,6 @@ if (dsId) {
     tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "local", ext: filePath.split('.').pop() }) })
   }
 
-  /** Handle `/skills <name>` command: inject skill name into prompt */
-  function handleSkillCommand(skillName: string) {
-    const skill = activeSkills().find(s => s.name === skillName)
-    if (!skill) {
-      showToast({
-        title: `技能 "${skillName}" 未激活`,
-        description: "请在技能库中激活此技能"
-      })
-      setPrompt("")
-      return
-    }
-
-    tracker.interaction({
-      module: "design",
-      name: "skill-inject",
-      extend: JSON.stringify({ skill: skillName })
-    })
-
-    const skillPrompt = `请使用 ${skillName} skill 来处理这个任务。${skill.description}`
-    setPrompt(skillPrompt)
-
-    requestAnimationFrame(() => {
-      textareaRef.focus()
-      textareaRef.setSelectionRange(skillPrompt.length, skillPrompt.length)
-    })
-  }
-
   /** Continue generation (append truncated content as prompt) */
   function handleContinue(card: OutputCard) {
     tracker.interaction({ module: "design", name: "continue-generation" })
@@ -2709,16 +2689,7 @@ if (dsId) {
                 <div class="flex-1 flex flex-col items-center justify-center min-h-0 px-6 py-6">
                   <NewSessionView worktree="" title="Octo Design" subtitle="描述需求，开始生成原型" />
                 <div class="w-full max-w-[800px]">
-                  {/* 预置提示词按钮:放在输入框白卡片之外,视觉层级:辅助操作浮在输入框上方 */}
-<StarterCards
-                     prompts={FEATURED_STARTERS}
-                     onClick={(starter) => {
-                       tracker.interaction({ module: "design", name: "starter-click", extend: JSON.stringify({ title: starter.title }) })
-                       setPrompt(starter.prompt)
-                     }}
-                   />
-
-{/* Pending skill tag */}
+                  {/* Pending skill tag */}
                     <Show when={pendingSkill()}>
                       {(skill) => (
                         <div class="flex items-center gap-2 px-4 pt-3">
@@ -2786,115 +2757,33 @@ if (dsId) {
                       </div>
                     </Show>
 
-                    {/* Skills Menu Popover */}
-                    <Show when={skillsMenuState()}>
-                      <div class="slash-popover">
-                        <div class="slash-popover-head">
-                          <span class="slash-popover-title">技能列表</span>
-                          <Show when={skillsLoading()}>
-                            <span class="slash-popover-loading">加载中...</span>
-                          </Show>
-                          <span class="slash-popover-hint">Esc 关闭</span>
-                        </div>
-                        <div class="slash-popover-body">
-                          <Show when={!skillsLoading() && filteredSkills().length === 0}>
-                            <div class="slash-popover-empty">
-                              {skillsMenuState()?.query ? "未找到匹配技能" : "暂无可用技能（请在技能库中激活）"}
-                            </div>
-                          </Show>
-                          <For each={filteredSkills()}>
-                            {(skill, index) => (
-                              <button
-                                type="button"
-                                class="slash-popover-item"
-                                classList={{ "slash-popover-item-active": index() === skillsMenuIndex() }}
-                                onClick={() => pickSkillFromMenu(skill)}
-                              >
-                                <div class="slash-popover-item-title" title={skill.name}>{skill.name}</div>
-                                <Show when={skill.description}>
-                                  <div class="slash-popover-item-desc" title={skill.description}>{skill.description}</div>
-                                </Show>
-                              </button>
-                            )}
-                          </For>
-                        </div>
-                      </div>
-                    </Show>
-
-                    {/* Mention Popover（新建对话） */}
-                    <Show when={mentionFiles()}>
-                      {(files) => (
-                        <div class="mention-popover">
-                          <div class="mention-popover-head">
-                            <span class="mention-popover-title">Design Files</span>
-                            <span class="mention-popover-hint">点击选择 · Esc 关闭</span>
-                          </div>
-                          <ScrollView class="mention-scroll">
-                          <Show when={files().generated.length > 0}>
-                            <div class="mention-section">
-                              <div class="mention-section-title">生成文件</div>
-                              <For each={files().generated}>
-                                {(file) => (
-                                  <button
-                                    type="button"
-                                    class="mention-item"
-                                    onMouseDown={(e) => e.preventDefault()}
-                                    onClick={() => pickMention(file)}
-                                  >
-                                    {getFileKindIcon(file.kind, file.name)({ size: 16 })}
-                                    <span class="mention-item-name mention-item-name--full" title={file.name}>{file.name}</span>
-                                  </button>
-                                )}
-                              </For>
-                            </div>
-                          </Show>
-                          <Show when={files().uploaded.length > 0}>
-                            <div class="mention-section">
-                              <div class="mention-section-title">上传文件</div>
-                              <For each={files().uploaded}>
-                                {(file) => {
-                                  const dirPath = getUploadFileDirectory(file.relativePath)
-                                  return (
-                                    <button
-                                      type="button"
-                                      class="mention-item"
-                                      onMouseDown={(e) => e.preventDefault()}
-                                      onClick={() => pickMention(file)}
-                                    >
-                                      {getFileKindIcon(file.kind, file.name)({ size: 16 })}
-                                      <span class="mention-item-name mention-item-name--uploaded" title={file.name}>{file.name}</span>
-                                    </button>
-                                  )
-                                }}
-                              </For>
-                            </div>
-                          </Show>
-                          </ScrollView>
-                        </div>
-                      )}
-                    </Show>
-
                     <AttachmentBar
                       attachments={attachments()}
                       onRemove={removeAttachment}
                       onRetry={retryUpload}
                     />
 
-                    <textarea
-                      ref={textareaRef}
-                      value={prompt()}
-                      onInput={handleInput}
-                      onPaste={handlePaste}
-                      onCompositionStart={handleCompositionStart}
-                      onCompositionEnd={handleCompositionEnd}
-                      onKeyDown={handleKeyDown}
-                      placeholder="输入指令，按 Enter 发送…"
+                    <ProseMirrorEditor
+                      sessionId={params.id!}
+                      skillConfig={skillConfig() ?? {}}
+                      artifactFiles={artifactFiles()}
+                      mentionSelections={mentionSelections()}
+                      setMentionSelections={setMentionSelections}
                       disabled={inputDisabled()}
-                      class="w-full flex-1 resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 px-4 pt-4"
-                      style={{
-                        "font-family": "var(--octo-font)",
-                        "overflow-y": "auto",
+                      onTriggerMention={loadSkillConfig}
+                      onContentChange={setPrompt}
+                      onSubmit={() => void handleSubmit()}
+                      onSlashTrigger={(query) => {
+                        setSlashState({ query, cursor: 0 })
+                        setSlashIndex(0)
                       }}
+                      onSlashClose={() => setSlashState(null)}
+                      onPreview={(url) => {
+                        handleOpenLocalFile(url)
+                        proseMirrorRef1?.clear()
+                        proseMirrorRef2?.clear()
+                      }}
+                      ref={(el) => { proseMirrorRef1 = el }}
                     />
                     <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
@@ -3105,15 +2994,6 @@ if (dsId) {
                   )}
                 </Show>
 
-                {/* 预置提示词按钮:放在输入框白卡片之外,视觉层级:辅助操作浮在输入框上方 */}
-                <StarterCards
-                  prompts={FEATURED_STARTERS}
-                  onClick={(starter) => {
-                    tracker.interaction({ module: "design", name: "starter-click", extend: JSON.stringify({ title: starter.title }) })
-                    setPrompt(starter.prompt)
-                  }}
-                />
-
                 {/* Pending skill tag */}
                 <Show when={pendingSkill()}>
                   {(skill) => (
@@ -3181,117 +3061,33 @@ if (dsId) {
                     </div>
                   </Show>
 
-                  {/* Skills Menu Popover */}
-                  <Show when={skillsMenuState()}>
-                    <div class="slash-popover">
-                      <div class="slash-popover-head">
-                        <span class="slash-popover-title">技能列表</span>
-                        <Show when={skillsLoading()}>
-                          <span class="slash-popover-loading">加载中...</span>
-                        </Show>
-                        <span class="slash-popover-hint">Esc 关闭</span>
-                      </div>
-                      <div class="slash-popover-body">
-                        <Show when={!skillsLoading() && filteredSkills().length === 0}>
-                          <div class="slash-popover-empty">
-                            {skillsMenuState()?.query ? "未找到匹配技能" : "暂无可用技能（请在技能库中激活）"}
-                          </div>
-                        </Show>
-                        <For each={filteredSkills()}>
-                          {(skill, index) => (
-                            <button
-                              type="button"
-                              class="slash-popover-item"
-                              classList={{ "slash-popover-item-active": index() === skillsMenuIndex() }}
-                              onClick={() => pickSkillFromMenu(skill)}
-                            >
-                              <div class="slash-popover-item-title" title={skill.name}>{skill.name}</div>
-                              <Show when={skill.description}>
-                                <div class="slash-popover-item-desc" title={skill.description}>{skill.description}</div>
-                              </Show>
-                            </button>
-                          )}
-                        </For>
-                      </div>
-                    </div>
-                  </Show>
-
-                  {/* Mention Popover */}
-                  <Show when={mentionFiles()}>
-                    {(files) => (
-                      <div class="mention-popover">
-                        <div class="mention-popover-head">
-                          <span class="mention-popover-title">从文件管理选择内容添加到上下文</span>
-                        </div>
-                        <ScrollView class="mention-scroll">
-                        <Show when={files().generated.length > 0}>
-                          <div class="mention-section">
-                            <div class="mention-section-title">生成文件</div>
-                            <For each={files().generated}>
-                              {(file) => (
-                                <button
-                                  type="button"
-                                  class="mention-item"
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => pickMention(file)}
-                                >
-                                  {getFileKindIcon(file.kind, file.name)({ size: 16 })}
-                                  <span class="mention-item-name mention-item-name--full" title={file.name}>{file.name}</span>
-                                </button>
-                              )}
-                            </For>
-                          </div>
-                        </Show>
-                        <Show when={files().uploaded.length > 0}>
-                          <div class="mention-section">
-                            <div class="mention-section-title">上传文件</div>
-                            <For each={files().uploaded}>
-                              {(file) => {
-                                const dirPath = getUploadFileDirectory(file.relativePath)
-                                return (
-                                  <button
-                                    type="button"
-                                    class="mention-item"
-                                    onMouseDown={(e) => e.preventDefault()}
-                                    onClick={() => pickMention(file)}
-                                  >
-                                    {getFileKindIcon(file.kind, file.name)({ size: 16 })}
-                                    <span class="mention-item-name" title={file.name}>{file.name}</span>
-                                    {dirPath && <span class="mention-item-dir" title={dirPath}>{dirPath}</span>}
-                                  </button>
-                                )
-                              }}
-                            </For>
-                          </div>
-                        </Show>
-                        </ScrollView>
-                      </div>
-                    )}
-                  </Show>
-
                   <AttachmentBar
                     attachments={attachments()}
                     onRemove={removeAttachment}
                     onRetry={retryUpload}
                   />
 
-                  <textarea
-                    ref={textareaRef}
-                    value={prompt()}
-                    onInput={handleInput}
-                    onCompositionStart={handleCompositionStart}
-                    onCompositionEnd={handleCompositionEnd}
-                    onPaste={handlePaste}
-                    onKeyDown={handleKeyDown}
-                    placeholder="输入指令，按 Enter 发送…"
-                    rows={3}
+                  <ProseMirrorEditor
+                    sessionId={params.id!}
+                    skillConfig={skillConfig() ?? {}}
+                    artifactFiles={artifactFiles()}
+                    mentionSelections={mentionSelections()}
+                    setMentionSelections={setMentionSelections}
                     disabled={inputDisabled()}
-                    class="w-full resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 px-4 pt-4 pb-4"
-                    style={{
-                      "font-family": "var(--octo-font)",
-                      "max-height": "120px",
-                      "overflow-y": "auto",
-                    }}
+                    onTriggerMention={loadSkillConfig}
+                    onContentChange={setPrompt}
+                    onSubmit={() => void handleSubmit()}
+onSlashTrigger={(query) => {
+                       setSlashState({ query, cursor: 0 })
+                       setSlashIndex(0)
+                     }}
+                     onSlashClose={() => setSlashState(null)}
+                     onPreview={(url) => {
+                       handleOpenLocalFile(url)
+                       proseMirrorRef1?.clear()
+                       proseMirrorRef2?.clear()
+                     }}
+                     ref={(el) => { proseMirrorRef2 = el }}
                   />
                   <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">

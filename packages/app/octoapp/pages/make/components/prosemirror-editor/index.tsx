@@ -1,0 +1,316 @@
+import { createSignal, onMount, onCleanup, Show, createEffect } from "solid-js"
+import { EditorState, Transaction, TextSelection } from "prosemirror-state"
+import { EditorView } from "prosemirror-view"
+import { history, undo, redo } from "prosemirror-history"
+import { keymap } from "prosemirror-keymap"
+import { baseKeymap } from "prosemirror-commands"
+import { editorSchema, getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs } from "./schema"
+import { createMentionTriggerPlugin, mentionTriggerKey, closeMentionTrigger, type MentionTriggerState } from "./plugins/mention-trigger"
+import { createSyncPlugin } from "./plugins/sync"
+import { atomKeymap } from "./plugins/atom-keymap"
+import { createNoEmptyParagraphPlugin } from "./plugins/no-empty-paragraph"
+import { createSlashTriggerPlugin, slashTriggerKey, type SlashTriggerState } from "./plugins/slash-trigger"
+import { MentionPopover, type MentionSelection } from "../mention-popover"
+import type { PanelSkill } from "../skill-config-types"
+import type { ArtifactFile } from "@/pages/make/utils/artifact-file-api"
+import "./styles.css"
+
+interface EditorRef {
+  getText: () => string
+  getMentions: () => Array<{ name: string; type: string; label: string; path?: string }>
+  focus: () => void
+  clear: () => void
+  insertText: (text: string) => void
+}
+
+interface Props {
+  sessionId: string
+  skillConfig: { panel?: { common?: PanelSkill[]; octo_make?: PanelSkill[] } }
+  artifactFiles: { generated: ArtifactFile[]; uploaded: ArtifactFile[] } | null | undefined
+  mentionSelections: MentionSelection[]
+  setMentionSelections: (selections: MentionSelection[]) => void
+  disabled?: boolean
+  onSubmit?: () => void
+  onTriggerMention?: () => void
+  onContentChange?: (text: string) => void
+  onSlashTrigger?: (query: string) => void
+  onSlashClose?: () => void
+  onPreview?: (url: string) => void
+  ref?: (el: EditorRef) => void
+}
+
+export const ProseMirrorEditor = (props: Props) => {
+  let containerRef: HTMLDivElement | undefined
+  const [view, setView] = createSignal<EditorView>()
+  const [triggerState, setTriggerState] = createSignal<MentionTriggerState | null>(null)
+  const [slashTriggerState, setSlashTriggerState] = createSignal<SlashTriggerState | null>(null)
+  const [focused, setFocused] = createSignal(false)
+
+  const mentionTriggerPlugin = createMentionTriggerPlugin((state) => {
+    setTriggerState(state)
+  }, props.onTriggerMention)
+
+  const slashTriggerPlugin = createSlashTriggerPlugin((state) => {
+    setSlashTriggerState(state)
+    if (state?.active) {
+      props.onSlashTrigger?.(state.query)
+    } else if (state === null) {
+      props.onSlashClose?.()
+    }
+  })
+
+  const syncPlugin = createSyncPlugin((mentions: MentionAttrs[]) => {
+    const selections: MentionSelection[] = mentions.map((m) => {
+      if (m.type === "skill") {
+        return { type: "skill", name: m.name, label: m.label }
+      } else {
+        return { type: "file", filename: m.name, path: m.path || "" }
+      }
+    })
+    props.setMentionSelections(selections)
+  }, props.onContentChange)
+
+  onMount(() => {
+    if (!containerRef) return
+
+    const state = EditorState.create({
+      schema: editorSchema,
+      plugins: [
+        history(),
+        keymap({
+          "Mod-z": undo,
+          "Mod-y": redo,
+          "Mod-shift-z": redo,
+          "Enter": (state, dispatch, view) => {
+            if (props.disabled) return false
+            
+            // Check for /preview command
+            const text = getDocTextWithMentions(state.doc).trim()
+            const previewMatch = text.match(/^\/preview\s+(.+)$/)
+            if (previewMatch) {
+              props.onPreview?.(previewMatch[1])
+              return true
+            }
+            
+            // Otherwise send message
+            props.onSubmit?.()
+            return true
+          },
+          "Shift-Enter": (state, dispatch) => {
+            return false
+          },
+        }),
+        keymap(baseKeymap),
+        atomKeymap,
+        mentionTriggerPlugin,
+        slashTriggerPlugin,
+        syncPlugin,
+        createNoEmptyParagraphPlugin(),
+      ],
+    })
+
+    const editorView = new EditorView(containerRef, {
+      state,
+      dispatchTransaction: (tr: Transaction) => {
+        const newState = editorView.state.apply(tr)
+        editorView.updateState(newState)
+      },
+      editable: () => !props.disabled,
+    })
+
+    setView(editorView)
+    
+    // Expose ref methods
+    if (props.ref) {
+      props.ref({
+        getText: () => {
+          const v = view()
+          if (!v) return ""
+          return getDocTextWithMentions(v.state.doc)
+        },
+        getMentions: () => {
+          const v = view()
+          if (!v) return []
+          return extractMentionsFromDoc(v.state.doc)
+        },
+        focus: () => {
+          const v = view()
+          if (v) v.focus()
+        },
+        clear: () => {
+          const v = view()
+          if (!v || !v.state || !v.state.doc || !v.dom?.isConnected) return
+          const tr = v.state.tr.delete(0, v.state.doc.content.size)
+          v.dispatch(tr)
+        },
+        insertText: (text: string) => {
+          const v = view()
+          if (!v) return
+          const tr = v.state.tr.insertText(text)
+          v.dispatch(tr)
+        },
+      })
+    }
+
+    onCleanup(() => editorView.destroy())
+  })
+
+  createEffect(() => {
+    const v = view()
+    if (!v) return
+    
+    const isEditable = !props.disabled
+    if (v.editable !== isEditable) {
+      v.setProps({ ...v.props, editable: () => isEditable })
+    }
+  })
+
+  // Close popover when clicking outside
+  createEffect(() => {
+    const state = triggerState()
+    if (!state?.active) return
+    
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      
+      // Don't close if clicking on editor (let ProseMirror handle it)
+      if (target.closest(".pm-editor")) return
+      
+      if (!target.closest(".mention-popover-container")) {
+        console.log("[click-outside] closing popover")
+        // Clear plugin state first
+        const v = view()
+        if (v) {
+          const tr = v.state.tr.setMeta(mentionTriggerKey, null)
+          v.dispatch(tr)
+        }
+        // Then clear component state
+        setTriggerState(null)
+      }
+    }
+    
+    document.addEventListener("mousedown", handler)
+    onCleanup(() => document.removeEventListener("mousedown", handler))
+  })
+
+  // Close slash popover when clicking outside
+  createEffect(() => {
+    const state = slashTriggerState()
+    if (!state?.active) return
+    
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      
+      // Don't close if clicking on editor or slash popover
+      if (target.closest(".pm-editor")) return
+      if (target.closest(".slash-popover")) return
+      
+      // Clear plugin state first
+      const v = view()
+      if (v) {
+        const tr = v.state.tr.setMeta(slashTriggerKey, null)
+        v.dispatch(tr)
+      }
+      // Then clear component state
+      setSlashTriggerState(null)
+      // Notify parent
+      props.onSlashClose?.()
+    }
+    
+    document.addEventListener("mousedown", handler)
+    onCleanup(() => document.removeEventListener("mousedown", handler))
+  })
+
+  const handleMentionSelect = (selection: MentionSelection) => {
+    const v = view()
+    const trigger = triggerState()
+    if (!v || !trigger) return
+
+    const attrs = selection.type === "skill"
+      ? { id: selection.name, name: selection.name, type: "skill" as const, label: selection.label, path: "" }
+      : { id: selection.filename, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
+
+    const node = editorSchema.nodes.mention.create(attrs)
+    const pos = trigger.from
+    const tr = v.state.tr.replaceWith(trigger.from, trigger.to, node)
+    
+    const newPos = pos + node.nodeSize
+    tr.setSelection(TextSelection.create(tr.doc, newPos))
+    
+    v.dispatch(tr)
+    setTriggerState(null)
+  }
+
+  const handleMentionDeselect = (selection: MentionSelection) => {
+    const v = view()
+    if (!v) return
+
+    const name = selection.type === "skill" ? selection.name : selection.filename
+    const tr = v.state.tr
+    
+    v.state.doc.descendants((node, pos) => {
+      if (node.type.name === "mention" && node.attrs.name === name) {
+        tr.delete(pos, pos + node.nodeSize)
+      }
+    })
+    
+    if (tr.docChanged) {
+      v.dispatch(tr)
+    }
+  }
+
+  const getText = () => {
+    const v = view()
+    if (!v) return ""
+    return getDocTextWithMentions(v.state.doc)
+  }
+
+  const focus = () => {
+    const v = view()
+    if (v) v.focus()
+  }
+
+  const clear = () => {
+    const v = view()
+    if (!v) return
+    
+    const tr = v.state.tr
+    tr.delete(0, v.state.doc.content.size)
+    v.dispatch(tr)
+  }
+
+  const insertText = (text: string) => {
+    const v = view()
+    if (!v) return
+
+    const tr = v.state.tr.insertText(text)
+    v.dispatch(tr)
+  }
+
+  return (
+    <div class="pm-editor-wrapper">
+      <div 
+        ref={containerRef} 
+        class="pm-editor"
+        classList={{ "pm-editor--disabled": props.disabled }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+      />
+      
+      <Show when={triggerState()?.active}>
+        <MentionPopover
+          query={triggerState()!.query}
+          sessionId={props.sessionId}
+          onClose={() => setTriggerState(null)}
+          onSelect={handleMentionSelect}
+          onDeselect={handleMentionDeselect}
+          selections={props.mentionSelections}
+          skillConfig={props.skillConfig}
+          artifactFiles={props.artifactFiles}
+        />
+      </Show>
+    </div>
+  )
+}
+
+export { getDocTextWithMentions, extractMentionsFromDoc }
