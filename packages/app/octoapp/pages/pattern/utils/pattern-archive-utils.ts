@@ -2,9 +2,9 @@ import JSZip from "jszip"
 import type { AnnotationRecord } from "./annotation-persist"
 import { getDesktopApi } from "./desktop-api"
 // 复用 make 页面的 REST 上传函数,避免重复实现
-import { buildArchivePath, createDeliverable, uploadCover, uploadVersion } from "../../make/utils/archive-utils"
+import { buildArchivePath, createDeliverable, getArchiveBaseUrl, uploadCover, uploadVersion } from "../../make/utils/archive-utils"
 
-export { buildArchivePath, createDeliverable, uploadCover, uploadVersion }
+export { buildArchivePath, createDeliverable, getArchiveBaseUrl, uploadCover, uploadVersion }
 
 export interface PatternArchiveZipOptions {
   annotations: AnnotationRecord[]

@@ -21,6 +21,8 @@ export function useArchive(deps: {
   const [archiving, setArchiving] = createSignal(false)
   const [archiveSuccessOpen, setArchiveSuccessOpen] = createSignal(false)
   const [archiveSuccessPath, setArchiveSuccessPath] = createSignal("")
+  // 归档后的交付物 uniqueId,用于拼分享链接与「跳转查看」
+  const [archiveSuccessUniqueId, setArchiveSuccessUniqueId] = createSignal("")
 
   async function handleArchiveConfirm(data: ArchiveConfirmData): Promise<void> {
     const sid = deps.sessionId()
@@ -54,13 +56,16 @@ export function useArchive(deps: {
         // 覆盖模式:给已存在的 deliverable 上传新版本
         // 新建模式:先 createDeliverable 再 uploadCover + uploadVersion
         let uploadResult: { success: boolean }
+        let uniqueId: string
         if (data.isOverwrite && data.existingDeliverableId && data.existingDocId) {
           await uploadCover(data.existingDeliverableId, screenshotBlob)
           uploadResult = await uploadVersion(data.existingDocId, zipBlob)
+          uniqueId = data.existingDocId
         } else {
           const newDeliverable = await createDeliverable(data.teamId, fileName)
           await uploadCover(newDeliverable.deliverableId, screenshotBlob)
           uploadResult = await uploadVersion(newDeliverable.uniqueId, zipBlob)
+          uniqueId = newDeliverable.uniqueId
         }
         if (!uploadResult.success) throw new Error("归档上传失败")
 
@@ -72,6 +77,7 @@ export function useArchive(deps: {
           folderName: data.folderName
         })
         setArchiveSuccessPath(pathStr)
+        setArchiveSuccessUniqueId(uniqueId)
         setArchiveSuccessOpen(true)
         showToast({ title: "归档成功" })
       } else {
@@ -97,6 +103,7 @@ export function useArchive(deps: {
     archiving,
     archiveSuccessOpen,
     archiveSuccessPath,
+    archiveSuccessUniqueId,
     toggleArchiving: () => setArchiving(a => !a),
     closeArchive: () => setArchiving(false),
     closeArchiveSuccess: () => setArchiveSuccessOpen(false),

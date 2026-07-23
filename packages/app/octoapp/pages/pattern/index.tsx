@@ -50,6 +50,8 @@ import { saveTheme, loadTheme } from "./utils/theme"
 import { tracker } from "@/utils/tracker"
 import { createReorderHandler } from "./utils/reorder"
 import { useArchive } from "./utils/archive-module"
+import { getArchiveBaseUrl } from "./utils/pattern-archive-utils"
+import { getDesktopApi } from "./utils/desktop-api"
 import { ArchiveDialog } from "@/components/dialog-archive"
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import * as sessionMap from "./utils/session-map"
@@ -1297,12 +1299,22 @@ function PatternContent() {
             tabTitle={sessionInfo()?.title ?? params.id ?? "pattern"}
           />
         </Show>
-        {/* 归档成功弹窗:展示归档路径 */}
+        {/* 归档成功弹窗:展示归档路径,「跳转查看」打开交付物预览分享给开发(与 make 一致) */}
         <Show when={archive.archiveSuccessOpen()}>
           <DialogArchiveSuccess
             open={archive.archiveSuccessOpen()}
             onClose={archive.closeArchiveSuccess}
             archivePath={archive.archiveSuccessPath()}
+            shareLink={archive.archiveSuccessUniqueId()
+              ? `${getArchiveBaseUrl()}/developerPreview/designAgent/index.html?uniqueId=${archive.archiveSuccessUniqueId()}`
+              : undefined}
+            onViewClick={() => {
+              const uniqueId = archive.archiveSuccessUniqueId()
+              if (uniqueId) {
+                const url = `${getArchiveBaseUrl()}/developerPreview/designAgent/index.html?uniqueId=${uniqueId}`
+                getDesktopApi()?.openLink?.(url)
+              }
+            }}
           />
         </Show>
       </div>

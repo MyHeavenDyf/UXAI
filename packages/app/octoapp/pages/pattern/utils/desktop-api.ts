@@ -24,6 +24,7 @@ export type DesktopApi = {
   downloadHuiCode?: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[]) => Promise<{ files: { path: string; content: string }[] }>
   tailwindToCss?: (className: string) => Promise<Record<string, string>>
   saveFilePicker?: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
+  openLink?: (url: string) => void
   codeToHtml?: (opts: { url: string; theme?: "light" | "dark"; waitForMs?: number }) => Promise<{ html: string; resourceCount: number }>
   capturePreviewPage?: (opts: { pageJson: unknown; waitForMs?: number }) => Promise<string | null>
 }
