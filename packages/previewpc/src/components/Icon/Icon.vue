@@ -19,7 +19,6 @@ const id = computed(() => node.id)
 const className = computed(() => properties.className || "")
 const name = computed(() => (resolveValue(properties.name) as string) || "")
 
-// ========== 图标组件解析（使用 getIconComponentRef 统一路径） ==========
 const resolved = shallowRef<{ component: any; props: Record<string, any> } | null>(null)
 const isHuiIcon = ref(false)
 
@@ -31,94 +30,59 @@ watch(
       isHuiIcon.value = false
       return
     }
-
-    // 使用统一的 getIconComponentRef — 自动判断 hui/lucide
-    const shape = (resolveValue(properties.shape) as string | undefined) || 'outline'
-    const color = (resolveValue(properties.color) as string | undefined) || 'default'
-    const result = getIconComponentRef(newName, { shape, color })
-    resolved.value = result
-
-    // 判断是否为 hui 图标：通过 variantDataMap 精准查找
-    const variantId = toVariantId(newName, shape || 'outline', color || 'default')
-    const variantData = variantDataMap.value[variantId]
-    isHuiIcon.value = hasHuiIcons.value && !!variantData?.svg
+    const shape = (resolveValue(properties.shape) as string | undefined) || "outline"
+    const color = (resolveValue(properties.color) as string | undefined) || "default"
+    resolved.value = getIconComponentRef(newName, { shape, color })
+    const variantId = toVariantId(newName, shape, color)
+    isHuiIcon.value = hasHuiIcons.value && !!variantDataMap.value[variantId]?.svg
   },
   { immediate: true },
 )
 
-// ========== 原始属性 → hui 属性映射（逻辑集中在 IconBase） ==========
 const huiIconType = computed(() => mapShapeToHuiType(resolveValue(properties.shape) as string | undefined))
-
 const huiIconColor = computed(() => mapColorToHuiColor(resolveValue(properties.color) as string | undefined))
-
-// bgShape 统一从原始 shape 获取（hui/lucide 共用）
 const bgShape = computed(() => properties.shape || "outline")
 
-// ========== 是否为API自带背景的图标（圆底托/方底托） ==========
-const hasApiBackground = computed(() => isHuiIcon.value && (bgShape.value === 'circle' || bgShape.value === 'square'))
-
-// ========== 图标大小 ==========
-// 圆底托/方底托：HuiSvgIcon应填满父容器（SVG自带背景），不设置固定px尺寸
-// 其他hui图标：固定16px
-// lucide图标：沿用 bgShape 自适应
-const huiIconSize = computed(() => hasApiBackground.value ? undefined : HUI_ICON_SIZE)
+const hasApiBackground = computed(() => isHuiIcon.value && (bgShape.value === "circle" || bgShape.value === "square"))
+const huiIconSize = computed(() => (hasApiBackground.value ? undefined : HUI_ICON_SIZE))
 
 const iconSizeStyle = computed(() => {
-  let sizeValue: string
   switch (bgShape.value) {
     case "circle":
-      sizeValue = "min(100%, max(12px, 70%))"
-      break
+      return { width: "min(100%, max(12px, 70%))", height: "min(100%, max(12px, 70%))" }
     case "square":
-      sizeValue = "min(100%, max(12px, 60%))"
-      break
+      return { width: "min(100%, max(12px, 60%))", height: "min(100%, max(12px, 60%))" }
     case "fill":
-      sizeValue = "min(100%, max(12px, 70%))"
-      break
+      return { width: "min(100%, max(12px, 70%))", height: "min(100%, max(12px, 70%))" }
     default:
-      sizeValue = "100%"
+      return { width: "100%", height: "100%" }
   }
-  return { width: sizeValue, height: sizeValue }
 })
 
-// ========== 图标颜色（lucide 用，保持原有逻辑不变） ==========
 const color = computed(() => {
-  let newColor = resolveValue(properties.color) as string
-  switch (newColor) {
-    case "primary":
-      return "var(--icon-primary)"
-    case "success":
-      return "var(--icon-success)"
-    case "warning":
-      return "var(--icon-warning)"
-    case "critical":
-      return "var(--icon-critical)"
-    case "error":
-      return "var(--icon-error)"
-    case "default":
-      return "var(--color-icon-primary)"
-    case "normal":
-      return "var(--icon-normal)"
-    case "neutral":
-      return "var(--color-icon-primary)"
-    case "info":
-      return "var(--color-icon-primary)"
-    case "inverse":
-      return "var(--icon-inverse)"
-    default:
-      return newColor || "currentColor"
+  const c = resolveValue(properties.color) as string
+  const map: Record<string, string> = {
+    success: "var(--icon-success)",
+    primary: "var(--icon-primary)",
+    error: "var(--icon-error)",
+    warning: "var(--icon-warning)",
+    critical: "var(--icon-critical)",
+    default: "var(--color-icon-primary)",
+    inverse: "var(--icon-inverse)",
+    info: "var(--color-icon-primary)",
+    neutral: "var(--color-icon-primary)",
+    normal: "var(--icon-normal)",
   }
+  return map[c] || c || "currentColor"
 })
 
 const borderRadius = computed(() => {
   switch (bgShape.value) {
     case "fill":
-      return "50%"
     case "circle":
       return "50%"
     case "square":
-      const radius = Math.floor(sizeConfig["md"] * 0.25) || 2
-      return `${radius}px`
+      return `${Math.floor(sizeConfig.md * 0.25) || 2}px`
     default:
       return "0"
   }
@@ -126,10 +90,7 @@ const borderRadius = computed(() => {
 
 const mixPercentage = Math.round(BACKGROUND_OPACITY * 100)
 
-// ========== wrapperStyle：API圆底托/方底托SVG自带背景时不叠加 ==========
 const wrapperStyle = computed(() => {
-  // API的圆底托(round_bottom2)/方底托(square_bottom2) SVG已自带背景托底，
-  // 不需要Icon.vue再添加 backgroundColor/borderRadius
   if (hasApiBackground.value) {
     return {
       display: "inline-flex",
@@ -139,28 +100,25 @@ const wrapperStyle = computed(() => {
       borderRadius: "0",
     }
   }
-
-  // 原有逻辑：outline/fill/非hui-icon 使用Icon.vue提供的背景
   const hasBg = bgShape.value !== "outline"
   const isWhite = bgShape.value === "fill"
-
   return {
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
     color: isWhite ? "#fff" : color.value || "#191919",
-    backgroundColor: isWhite ? color.value :
-      hasBg
+    backgroundColor: isWhite
+      ? color.value
+      : hasBg
         ? `color-mix(in srgb, currentColor ${mixPercentage}%, transparent)`
         : "transparent",
-    borderRadius: borderRadius.value
+    borderRadius: borderRadius.value,
   }
 })
 </script>
 
 <template>
   <div :id="id" :style="wrapperStyle" class="icon-base" :class="className">
-    <!-- hui 图标（HuiSvgIcon 组件，通过 v-bind 展开 props） -->
     <component
       v-if="isHuiIcon && resolved"
       :is="resolved.component"
@@ -169,12 +127,11 @@ const wrapperStyle = computed(() => {
       :type="huiIconType"
       :iconColor="huiIconColor"
     />
-    <!-- lucide 图标 -->
     <component
       v-else-if="resolved"
       :is="resolved.component"
       :style="iconSizeStyle"
-      :color="(bgShape === 'fill') ? '#fff' : color"
+      :color="bgShape === 'fill' ? '#fff' : color"
       :stroke-width="2"
     />
   </div>
