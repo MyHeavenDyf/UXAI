@@ -5,9 +5,9 @@ import { DockPrompt } from "@opencode-ai/ui/dock-prompt"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useLanguage } from "@/context/language"
 import { usePermission } from "@/context/permission"
-import { usePlatform } from "@/context/platform"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
+import { openFileLocally } from "../utils/local-file-ops"
 import "./permission-dock.css"
 
 // InsightPermissionDock —— insight 聊天面板的权限询问 UI(SPEC-INS-021 §2)。
@@ -68,7 +68,6 @@ export function InsightPermissionDock(props: { sessionID?: string }) {
   const sync = useSync()
   const language = useLanguage()
   const permission = usePermission()
-  const platform = usePlatform()
 
   const request = createMemo((): PermissionRequest | undefined =>
     findPendingPermission(
@@ -123,16 +122,14 @@ export function InsightPermissionDock(props: { sessionID?: string }) {
   }
 
   // 点路径打开对应本地文件。external_directory 的 pattern 是「目录/*」glob,真正的文件在
-  // metadata.filepath;优先开它,兜底把 pattern 末尾的 /* 去掉当目录开。桌面壳外(web)无 openPath 时静默。
+  // metadata.filepath;优先开它,兜底把 pattern 末尾的 /* 去掉当目录开。
+  // 打开复用 openFileLocally:shell.openPath 失败(文件被移走 / 无关联应用)是 resolve 一个错误串、
+  // 不 reject —— openFileLocally 已按此约定判串并弹专业文案。若只 .catch 会把这类失败静默吞掉。
   const openPath = (perm: PermissionRequest, pattern: string) => {
-    if (!platform.openPath) return
     const meta = perm.metadata?.["filepath"]
     const target = typeof meta === "string" && meta ? meta : pattern.replace(/[\\/]\*$/, "")
     console.log("[octo:permission] open", { permissionID: perm.id, target })
-    platform.openPath(target).catch((err: unknown) => {
-      const description = err instanceof Error ? err.message : String(err)
-      showToast({ title: language.t("common.requestFailed"), description })
-    })
+    void openFileLocally(target)
   }
 
   return (
