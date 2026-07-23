@@ -27,6 +27,7 @@ export function ProjectAssets(): JSX.Element {
         style={{
           border: "none",
           "min-height": "400px",
+          background: "#fff",
           position: "relative",
           "z-index": modalOpen() ? 51 : "auto",
         }}
