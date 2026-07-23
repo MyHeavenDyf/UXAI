@@ -73,7 +73,7 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
         return [] as Session[]
       }
       const client = globalSDK.createClient({ directory: d })
-      const result = await client.session.list()
+      const result = await client.session.list({ roots: true })
       const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
       setPatternFetchedDir(d)
       return data.filter(s => s.agent === "proto_triage")
