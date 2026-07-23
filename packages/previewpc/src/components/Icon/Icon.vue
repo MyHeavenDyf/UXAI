@@ -4,9 +4,9 @@ import { getIconComponentRef, sizeConfig, HUI_ICON_SIZE, mapShapeToHuiType, mapC
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import type { IconNode } from "../types"
-import { useIconProvider } from "../../composables/useIconProvider"
+import { useIconProvider, toVariantId } from "../../composables/useIconProvider"
 
-const { hasHuiIcons, iconNameMap } = useIconProvider()
+const { hasHuiIcons, variantDataMap } = useIconProvider()
 
 const BACKGROUND_OPACITY = 0.15
 
@@ -33,13 +33,15 @@ watch(
     }
 
     // 使用统一的 getIconComponentRef — 自动判断 hui/lucide
-    const shape = resolveValue(properties.shape) as string | undefined
-    const color = resolveValue(properties.color) as string | undefined
+    const shape = (resolveValue(properties.shape) as string | undefined) || 'outline'
+    const color = (resolveValue(properties.color) as string | undefined) || 'default'
     const result = getIconComponentRef(newName, { shape, color })
     resolved.value = result
 
-    // 判断是否为 hui 图标（用于样式差异化）
-    isHuiIcon.value = hasHuiIcons.value && !!iconNameMap.value[newName] && !!result?.props?.iconId
+    // 判断是否为 hui 图标：通过 variantDataMap 精准查找
+    const variantId = toVariantId(newName, shape || 'outline', color || 'default')
+    const variantData = variantDataMap.value[variantId]
+    isHuiIcon.value = hasHuiIcons.value && !!variantData?.svg
   },
   { immediate: true },
 )
@@ -52,8 +54,14 @@ const huiIconColor = computed(() => mapColorToHuiColor(resolveValue(properties.c
 // bgShape 统一从原始 shape 获取（hui/lucide 共用）
 const bgShape = computed(() => properties.shape || "outline")
 
-// ========== 图标大小（hui 固定 16，lucide 沿用 bgShape 自适应） ==========
-const huiIconSize = HUI_ICON_SIZE
+// ========== 是否为API自带背景的图标（圆底托/方底托） ==========
+const hasApiBackground = computed(() => isHuiIcon.value && (bgShape.value === 'circle' || bgShape.value === 'square'))
+
+// ========== 图标大小 ==========
+// 圆底托/方底托：HuiSvgIcon应填满父容器（SVG自带背景），不设置固定px尺寸
+// 其他hui图标：固定16px
+// lucide图标：沿用 bgShape 自适应
+const huiIconSize = computed(() => hasApiBackground.value ? undefined : HUI_ICON_SIZE)
 
 const iconSizeStyle = computed(() => {
   let sizeValue: string
@@ -122,14 +130,11 @@ const mixPercentage = Math.round(BACKGROUND_OPACITY * 100)
 const wrapperStyle = computed(() => {
   // API的圆底托(round_bottom2)/方底托(square_bottom2) SVG已自带背景托底，
   // 不需要Icon.vue再添加 backgroundColor/borderRadius
-  const hasApiBackground = isHuiIcon.value && (bgShape.value === 'circle' || bgShape.value === 'square')
-
-  if (hasApiBackground) {
+  if (hasApiBackground.value) {
     return {
       display: "inline-flex",
       alignItems: "center",
       justifyContent: "center",
-      color: color.value || "#191919",
       backgroundColor: "transparent",
       borderRadius: "0",
     }
@@ -137,7 +142,7 @@ const wrapperStyle = computed(() => {
 
   // 原有逻辑：outline/fill/非hui-icon 使用Icon.vue提供的背景
   const hasBg = bgShape.value !== "outline"
-  const isWhite = bgShape.value === "fill" || bgShape.value === "square"
+  const isWhite = bgShape.value === "fill"
 
   return {
     display: "inline-flex",
@@ -169,7 +174,7 @@ const wrapperStyle = computed(() => {
       v-else-if="resolved"
       :is="resolved.component"
       :style="iconSizeStyle"
-      :color="(bgShape === 'fill' || bgShape === 'square') ? '#fff' : color"
+      :color="(bgShape === 'fill') ? '#fff' : color"
       :stroke-width="2"
     />
   </div>

@@ -2,8 +2,7 @@ import * as LucideIcons from "lucide-vue-next"
 import { h, markRaw, shallowRef, ref, watch, type Ref } from "vue"
 import type { Component, VNode } from "vue"
 import HuiSvgIcon from "./HuiSvgIcon.vue"
-import { hasHuiIcons, iconNameMap, iconIdMap, svgCache } from "../../composables/useIconProvider"
-import { mapShapeToApiStyle, getStyleValue } from "../../utils/fetchSvg"
+import { hasHuiIcons, variantDataMap, toVariantId, type VariantId, type IconVariantData } from "../../composables/useIconProvider"
 
 export const sizeConfig = {
   xs: 12,
@@ -27,7 +26,7 @@ const SEMANTIC_COLOR_MAP: Record<string, string> = {
   normal: "var(--icon-normal)",
   neutral: "var(--color-icon-primary)",
   info: "var(--color-icon-primary)",
-  inverse: "var(--color-icon-inverse)",
+  inverse: "var(--icon-inverse)",
 }
 
 /** getLucideIconComponentRef 支持的覆盖选项 */
@@ -89,61 +88,78 @@ const toPascalCase = (str: string) => {
 }
 
 /**
- * 获取 hui 图标组件引用（从 svgCache 同步查找）
+ * 获取 hui 图标组件引用（通过 variantDataMap 精准查找）
  *
  * @param name - A2UI 图标名称（如 "activity"、"x"）
- * @param shape - 图标形状（用于确定缓存键中的 style）
+ * @param shape - 图标形状（outline/fill/circle/square）
+ * @param color - A2UI 颜色值（如 "primary"、"default"）
  * @returns { component: HuiSvgIcon, props } 或 null（未找到时回退到 lucide）
  */
 export function getHuiIconComponentRef(
   name: string,
   shape?: string,
+  color?: string,
 ): { component: Component; props: Record<string, any> } | null {
   if (!name || !hasHuiIcons.value) return null
 
-  const componentName = iconNameMap.value[name]
-  if (!componentName) return null
+  const resolvedShape = shape || 'outline'
+  const resolvedColor = color || 'default'
+  const variantId = toVariantId(name, resolvedShape, resolvedColor)
 
-  const iconId = iconIdMap.value[name]
-  if (!iconId) return null
+  const variantData = variantDataMap.value[variantId]
 
-  // 根据 shape 确定缓存键中的 style
-  const apiStyle = mapShapeToApiStyle(shape)
-  const cacheKey = `${iconId}:${apiStyle}`
-  const cachedSvg = svgCache.get(cacheKey)
+  // 1. 精确匹配：variantData 存在且有 SVG
+  if (variantData?.svg) {
+    return {
+      component: markRaw(HuiSvgIcon),
+      props: {
+        svgHtml: variantData.svg,
+        iconUrl: variantData.url,
+        size: HUI_ICON_SIZE,
+        type: mapShapeToHuiType(resolvedShape),
+        iconColor: mapColorToHuiColor(resolvedColor === 'default' ? undefined : resolvedColor),
+      },
+    }
+  }
 
-  // 非 border 变体没找到时，退回到 border(线性) 变体
-  const borderValue = getStyleValue('border')
-  if (!cachedSvg && apiStyle !== borderValue) {
-    const borderKey = `${iconId}:${borderValue}`
-    const borderSvg = svgCache.get(borderKey)
-    if (borderSvg) {
+  // 2. 降级：非 outline 变体尝试同名称的 outline 变体（同 color）
+  if (resolvedShape !== 'outline') {
+    const outlineVariantId = toVariantId(name, 'outline', resolvedColor)
+    const outlineData = variantDataMap.value[outlineVariantId]
+    if (outlineData?.svg) {
       return {
         component: markRaw(HuiSvgIcon),
         props: {
-          iconId,
-          svgHtml: borderSvg,
+          svgHtml: outlineData.svg,
+          iconUrl: outlineData.url,
           size: HUI_ICON_SIZE,
-          type: mapShapeToHuiType(shape),
-          iconColor: mapColorToHuiColor(undefined),
+          type: mapShapeToHuiType(resolvedShape),
+          iconColor: mapColorToHuiColor(resolvedColor === 'default' ? undefined : resolvedColor),
         },
       }
     }
-    return null
   }
 
-  if (!cachedSvg) return null
-
-  return {
-    component: markRaw(HuiSvgIcon),
-    props: {
-      iconId,
-      svgHtml: cachedSvg,
-      size: HUI_ICON_SIZE,
-      type: mapShapeToHuiType(shape),
-      iconColor: mapColorToHuiColor(undefined),
-    },
+  // 3. 最终降级：尝试 outline + default color
+  if (resolvedShape !== 'outline' || resolvedColor !== 'default') {
+    const defaultVariantId = toVariantId(name, 'outline', 'default')
+    const defaultData = variantDataMap.value[defaultVariantId]
+    if (defaultData?.svg) {
+      return {
+        component: markRaw(HuiSvgIcon),
+        props: {
+          svgHtml: defaultData.svg,
+          iconUrl: defaultData.url,
+          size: HUI_ICON_SIZE,
+          type: mapShapeToHuiType(resolvedShape),
+          iconColor: mapColorToHuiColor(resolvedColor === 'default' ? undefined : resolvedColor),
+        },
+      }
+    }
   }
+
+  // variantData 存在但无 SVG，或根本无 variantData → 回退 lucide
+  return null
 }
 
 /**
@@ -211,13 +227,16 @@ export function getIconComponentRef(
 ): { component: Component | null; props: Record<string, any> } | null {
   if (!name) return null
 
+  const shape = options?.shape || 'outline'
+  const color = options?.color || 'default'
+
   // ----- hui 分支 -----
-  if (hasHuiIcons.value && iconNameMap.value[name]) {
-    const huiRef = getHuiIconComponentRef(name, options?.shape)
+  if (hasHuiIcons.value) {
+    const huiRef = getHuiIconComponentRef(name, shape, color)
     if (huiRef) {
-      // 覆盖 size 和 iconColor（如果 options 有指定）
+      // 覆盖 size（如果 options 有指定）
       if (options?.size) huiRef.props.size = options.size
-      if (options?.color) huiRef.props.iconColor = mapColorToHuiColor(options.color)
+      // iconColor 已由 color 参数设置，无需再次覆盖
       return huiRef
     }
     // hui SVG 未缓存，回退到 lucide
@@ -269,7 +288,7 @@ export function useIconComponentRef(
  * 创建图标渲染器（用于 Pattern B 消费者 —— Element Plus :icon prop）
  *
  * Element Plus 的 :icon 属性接受 Component 类型。
- * 对于 HuiSvgIcon 组件，需要同时传递 props（iconId/svgHtml 等），
+ * 对于 HuiSvgIcon 组件，需要同时传递 props（iconUrl/svgHtml 等），
  * 但 Element Plus 只接受 component 而不展开 props。
  *
  * 此函数返回一个函数式组件（渲染函数），将 component + props 封装为

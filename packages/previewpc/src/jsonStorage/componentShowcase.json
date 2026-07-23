@@ -225,6 +225,71 @@
         "salary": "26000"
       }
     ],
+    "sortFilterTableData": [
+      {
+        "key": "sf1",
+        "name": "张三",
+        "age": 28,
+        "department": "研发部",
+        "position": "前端工程师",
+        "salary": 25000,
+        "status": "在职"
+      },
+      {
+        "key": "sf2",
+        "name": "李四",
+        "age": 32,
+        "department": "市场部",
+        "position": "产品经理",
+        "salary": 30000,
+        "status": "在职"
+      },
+      {
+        "key": "sf3",
+        "name": "王五",
+        "age": 26,
+        "department": "设计部",
+        "position": "UI设计师",
+        "salary": 20000,
+        "status": "休假"
+      },
+      {
+        "key": "sf4",
+        "name": "赵六",
+        "age": 35,
+        "department": "研发部",
+        "position": "后端工程师",
+        "salary": 28000,
+        "status": "在职"
+      },
+      {
+        "key": "sf5",
+        "name": "孙七",
+        "age": 29,
+        "department": "运营部",
+        "position": "运营主管",
+        "salary": 26000,
+        "status": "离职"
+      },
+      {
+        "key": "sf6",
+        "name": "周八",
+        "age": 24,
+        "department": "市场部",
+        "position": "市场专员",
+        "salary": 18000,
+        "status": "在职"
+      },
+      {
+        "key": "sf7",
+        "name": "吴九",
+        "age": 38,
+        "department": "研发部",
+        "position": "架构师",
+        "salary": 35000,
+        "status": "在职"
+      }
+    ],
     "dropdownMenu": [
       {
         "label": "编辑",
@@ -2479,7 +2544,8 @@
       "children": [
         "tableCardTitle",
         "tableRowDefault",
-        "tableRowExpandable"
+        "tableRowExpandable",
+        "tableRowSortFilter"
       ]
     },
     {
@@ -5024,6 +5090,157 @@
     },
     {
       "id": "expandableCellStatus",
+      "component": "Tag",
+      "props": {
+        "value": {
+          "path": "status"
+        },
+        "color": "default"
+      }
+    },
+    {
+      "id": "tableRowSortFilter",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tableRowSortFilterLabel",
+        "tableSortFilter"
+      ]
+    },
+    {
+      "id": "tableRowSortFilterLabel",
+      "component": "span",
+      "props": {
+        "value": "排序与筛选",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tableSortFilter",
+      "component": "Table",
+      "props": {
+        "rowKey": "key",
+        "columns": [
+          {
+            "title": "姓名",
+            "dataIndex": "name",
+            "width": 100
+          },
+          {
+            "title": "年龄",
+            "dataIndex": "age",
+            "sort": true,
+            "minWidth": 80
+          },
+          {
+            "title": "部门",
+            "dataIndex": "department",
+            "filters": [
+              { "text": "研发部", "value": "研发部" },
+              { "text": "市场部", "value": "市场部" },
+              { "text": "设计部", "value": "设计部" },
+              { "text": "运营部", "value": "运营部" }
+            ],
+            "minWidth": 100
+          },
+          {
+            "title": "职位",
+            "dataIndex": "position",
+            "minWidth": 120
+          },
+          {
+            "title": "薪资",
+            "dataIndex": "salary",
+            "sort": true,
+            "minWidth": 100
+          },
+          {
+            "title": "状态",
+            "dataIndex": "status",
+            "filters": [
+              { "text": "在职", "value": "在职" },
+              { "text": "休假", "value": "休假" },
+              { "text": "离职", "value": "离职" }
+            ],
+            "minWidth": 80
+          }
+        ],
+        "dataSource": {
+          "path": "/sortFilterTableData"
+        },
+        "pagination": false
+      },
+      "children": {
+        "componentId": "tableSortFilterRowTpl",
+        "path": "/sortFilterTableData"
+      }
+    },
+    {
+      "id": "tableSortFilterRowTpl",
+      "component": "TableRow",
+      "children": [
+        "sortFilterCellName",
+        "sortFilterCellAge",
+        "sortFilterCellDept",
+        "sortFilterCellPosition",
+        "sortFilterCellSalary",
+        "sortFilterCellStatus"
+      ]
+    },
+    {
+      "id": "sortFilterCellName",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "name"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "sortFilterCellAge",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "age"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "sortFilterCellDept",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "department"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "sortFilterCellPosition",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "position"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "sortFilterCellSalary",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "salary"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "sortFilterCellStatus",
       "component": "Tag",
       "props": {
         "value": {

@@ -1,7 +1,8 @@
 import { ref, provide, inject, type Ref } from 'vue'
 import { resolveAllIcons } from '../utils/resolveIcons'
 import { fetchIconConfig, svgCache } from '../utils/fetchSvg'
-import type { IconContext } from '../utils/resolveIcons'
+import type { VariantId, IconVariantData } from '../utils/resolveIcons'
+export { type VariantId, type IconVariantData, toVariantId, fromVariantId } from '../utils/resolveIcons'
 
 // 重新导出 svgCache 供非组件环境（如 IconBase.ts）直接使用
 export { svgCache } from '../utils/fetchSvg'
@@ -11,17 +12,13 @@ export const ICON_PROVIDER_KEY = Symbol('IconProvider')
 
 // ========== 注入类型 ==========
 export interface IconProviderContext {
-  /** API 是否可用（运行时检测，替代 __HAS_ICONPLUS__） */
+  /** API 是否可用（运行时检测） */
   hasHuiIcons: Ref<boolean>
-  /** 图标名称映射表 { [a2ui图标名]: IconPlusXxx 组件名 } */
-  iconNameMap: Ref<Record<string, string>>
-  /** 图标ID映射表 { [a2ui图标名]: icon_id } */
-  iconIdMap: Ref<Record<string, string>>
-  /** 图标来源上下文 { [a2ui图标名]: IconContext（shapes为Set） } */
-  iconContextMap: Ref<Record<string, IconContext>>
+  /** Per-variant 解析数据：每个 VariantId 对应 {name, style, colorId, url, svg} */
+  variantDataMap: Ref<Record<VariantId, IconVariantData>>
   /** 是否正在解析图标映射中 */
   resolving: Ref<boolean>
-  /** SVG 文本缓存（icon_id:styleValue → SVG 文本） */
+  /** 底层 SVG 文本缓存（仅供去重，渲染路径通过 variantDataMap.svg） */
   svgCache: Map<string, string>
 }
 
@@ -32,14 +29,8 @@ export interface IconProviderContext {
 /** API 可用性：启动时通过 getConfig 检测 */
 export const hasHuiIcons = ref(false)
 
-/** 图标名称 → 组件名映射 */
-export const iconNameMap = ref<Record<string, string>>({})
-
-/** 图标名称 → icon_id 映射 */
-export const iconIdMap = ref<Record<string, string>>({})
-
-/** 图标名称 → 来源上下文映射（shapes为Set） */
-export const iconContextMap = ref<Record<string, IconContext>>({})
+/** Per-variant 解析数据（替代原来的四个分离映射表） */
+export const variantDataMap = ref<Record<VariantId, IconVariantData>>({})
 
 /** 是否正在解析 */
 export const resolving = ref(false)
@@ -51,17 +42,18 @@ let processingPromise: Promise<void> | null = null
 /** 配置检测完成的Promise，供Provider.ts 等待 **/
 let _configResolve: () => void
 export const configReady = new Promise<void>((resolve) => { _configResolve = resolve })
+
 /**
  * 在 App.vue 中调用，提供图标系统响应式状态给所有子孙组件。
  * 同时执行 API 可用性检测（串行调用 getConfig）。
  */
 export async function provideIconProvider(): Promise<IconProviderContext> {
-  const context: IconProviderContext = { hasHuiIcons, iconNameMap, iconIdMap, iconContextMap, resolving, svgCache }
+  const context: IconProviderContext = { hasHuiIcons, variantDataMap, resolving, svgCache }
   provide(ICON_PROVIDER_KEY, context)
 
   if (!configChecked) {
     configChecked = true
-    try{
+    try {
       const apiAvailable = await fetchIconConfig()
       hasHuiIcons.value = apiAvailable
       if (apiAvailable) {
@@ -84,17 +76,17 @@ export function useIconProvider(): IconProviderContext {
   const context = inject<IconProviderContext>(ICON_PROVIDER_KEY)
   if (!context) {
     // 如果没有 provider，回退到模块级状态
-    return { hasHuiIcons, iconNameMap, iconIdMap, iconContextMap, resolving, svgCache }
+    return { hasHuiIcons, variantDataMap, resolving, svgCache }
   }
   return context
 }
 
 /**
  * 处理从 createSurface / updateSurface 传进来的 JSON 数据，
- * 收集其中的 icon 引用字段并调用 API 映射为 icon_id + 组件名，
- * 串行获取 SVG 文本缓存到 svgCache
+ * 收集其中的 icon 引用字段并调用 API 映射为 url + SVG，
+ * 串行获取 SVG 文本缓存到 variantDataMap
  *
- * 可被多次调用，每次新映射会合并到全局 iconNameMap/iconIdMap 中。
+ * 可被多次调用，每次新 variant 会合并到全局 variantDataMap 中。
  * 串行队列确保请求不丢弃：后续请求等待前一个完成后再执行。
  */
 export async function processJsonForIcons(jsonData: any): Promise<void> {
@@ -110,27 +102,9 @@ export async function processJsonForIcons(jsonData: any): Promise<void> {
   processingPromise = (async () => {
     try {
       const result = await resolveAllIcons([jsonData])
-      if (Object.keys(result.componentNameMap).length > 0) {
-        iconNameMap.value = { ...iconNameMap.value, ...result.componentNameMap }
-      }
-      if (Object.keys(result.iconIdMap).length > 0) {
-        iconIdMap.value = { ...iconIdMap.value, ...result.iconIdMap }
-      }
-      // iconContextMap 合并：shapes Set 需要逐个合并
-      if (Object.keys(result.iconContextMap).length > 0) {
-        const merged = { ...iconContextMap.value }
-        for (const [name, ctx] of Object.entries(result.iconContextMap)) {
-          const existing = merged[name]
-          if (existing?.sourceType === 'IconComponent' && ctx.sourceType === 'IconComponent') {
-            // 合并 shapes Set
-            const mergedShapes = new Set([...existing.shapes, ...ctx.shapes])
-            merged[name] = { ...existing, shapes: mergedShapes }
-          } else {
-            // 深拷贝 shapes Set 以避免引用共享
-            merged[name] = { ...ctx, shapes: new Set(ctx.shapes) }
-          }
-        }
-        iconContextMap.value = merged
+      if (Object.keys(result.variantDataMap).length > 0) {
+        // Merge: VariantId 稳定，同名同shape同color = 同一 variantId，后结果覆盖前
+        variantDataMap.value = { ...variantDataMap.value, ...result.variantDataMap }
       }
     } catch (err) {
       console.warn('[iconProvider] 处理 JSON 图标失败:', err)
