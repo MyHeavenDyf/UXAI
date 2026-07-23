@@ -2,76 +2,92 @@
  * PipelineContext — 管线上下文
  *
  * 保存管线执行过程中所有步骤共享的数据。
- * 各步骤按顺序读写 ctx 上的字段，不存在页面循环概念（页面级数据一步处理全部）。
+ * 各步骤按顺序读写 ctx 上的字段。
  *
- * === 生命周期 ===
+ * === 数据流字段（按步骤写入） ===
  *
- * Pipeline.run() 创建 → 步骤链依次 execute(ctx) → 结束后 discard
- *
- * === 核心字段 ===
- *
+ * registry           Step 0: 创建时注入
  * config             配置对象
- * registry           ComponentRegistry 实例
- * targetLib          目标组件库名（如 "eview-react"）
+ * targetLib          目标组件库名
  *
- * === 数据流字段（按步骤写入）===
- *
- * pagesData[]        ← 步骤 01: 原始页面数据
- * resolvedPages[]    ← 步骤 02: 构建树 + 绑定解析结果
- * styleResults[]     ← 步骤 02: 样式转换结果
- * iconNameMap        ← 步骤 03: ResolveIcons 收集的 icon 名称映射表
- *                      A2UI icon name → @nce/icon-plus 组件名
- *                      如 { menu: 'IconPlusIcIctMenu', home: 'IconPlusIcIctHome' }
- * generatedPages[]   ← 步骤 05: 代码生成结果
- * routeResult        ← 步骤 06: 路由文件
- * outputFiles        ← 步骤 07: 最终的输出文件清单
+ * pagesData           Step 1: 读 A2UI 数据
+ * builtPages          Step 2: BuildTrees 产出
+ * iconNameMap         icon API 映射结果
+ * mappedPages         Step 3: NodeMapper 产出
+ * generatedFiles      Step 4: FileGenerator 产出
+ * routeResult         Step 5: 路由文件
+ * outputFiles         Step 6: 最终输出文件清单
+ * generationReport    Step 7: 报告
  */
-import type { ComponentRegistry } from '../core/ComponentRegistry';
+
+import type { ComponentRegistry } from '../core/componentRegistry'
+import type { BuildNode, ExtractNode } from '../core/nodeTypes'
+
+export interface BuiltPage {
+  pageName: string
+  state: Record<string, any>
+  rootTree: BuildNode
+  extracts: ExtractNode[]   // ExtractNode 索引视图
+  iconNameSet: string[]
+  iconNameMap: Record<string, string>  // A2UI name → @nce/icon-plus 组件名
+}
+
+export interface MappedPage {
+  pageName: string
+  state: Record<string, any>
+  rootTree: BuildNode
+  extracts: ExtractNode[]     // NodeMapper 已 walkTree body 子节点
+  iconNameMap: Record<string, string>
+}
+
+export interface GeneratedFile {
+  path: string
+  content: string
+}
 
 export class PipelineContext {
-  config: Record<string, any>;
-  registry: ComponentRegistry;
-  targetLib: string;
-  pagesSourceData: any;
-  pagesData: any[];
-  resolvedPages: any[];
-  styleResults: any[];
-  /**
-   * icon 名称映射表（A2UI name → @nce/icon-plus 组件名）
-   * 由 ResolveIcons 步骤填充，供 Icon.ts 等 mapping transform 查询
-   */
-  iconNameMap: Record<string, string>;
-  generatedPages: any[];
-  routeResult: any;
-  outputFiles: any[];
-  generationReport?: string;
+  // ── 基础 ──
+  config: Record<string, any>
+  registry: ComponentRegistry
+  targetLib: string
 
-  /**
-   * @param config - 配置对象
-   * @param registry - ComponentRegistry 实例
-   * @param pagesSourceData - API 传入的内存数据（HuiCodeInput 格式）
-   */
-  constructor(config: Record<string, any>, registry: ComponentRegistry, pagesSourceData: any = null) {
-    this.config = config;
-    this.registry = registry;
-    this.targetLib = config.targetLib || 'eview-react';
+  // ── Step 2: ReadPages ──
+  pagesData: any[]
 
-    // API 模式：直接从内存传入的数据（ReadPages 会优先使用）
-    this.pagesSourceData = pagesSourceData;
+  // ── Step 3: BuildTrees ──
+  builtPages: BuiltPage[]
+  iconNameMap: Record<string, string>
 
-    // 步骤 00：RegisterComponents 直接使用 ctx.registry
-    // 步骤 01：ReadPages
-    this.pagesData = [];
-    // 步骤 02：BuildTrees（绑定解析 + 样式转换合并于此）
-    this.resolvedPages = [];
-    this.styleResults = [];
-    // 步骤 05：GenerateComponents
-    this.generatedPages = [];
-    // 步骤 06：GenerateRoutes
-    this.routeResult = null;
-    // 步骤 07：WriteOutput
-    this.outputFiles = [];
-    // 步骤 03：ResolveIcons（在 GenerateComponents 之前）
-    this.iconNameMap = {};
+  // ── Step 4: NodeMapper ──
+  mappedPages: any[]
+
+  // ── Step 5: FileGenerator ──
+  generatedFiles: GeneratedFile[]
+
+  // ── Step 5b: GenerateStyles（less / module.less + globalLess）──
+  styleResults: any[]
+
+  // ── Step 6: GenerateRoutes ──
+  routeResult: any
+
+  // ── Step 7: WriteOutput ──
+  outputFiles: GeneratedFile[]
+
+  // ── Step 8: GenerateReport ──
+  generationReport?: string
+
+  constructor(config: Record<string, any>, registry: ComponentRegistry) {
+    this.config = config
+    this.registry = registry
+    this.targetLib = config.targetLib || 'eview-react'
+
+    this.pagesData = []
+    this.builtPages = []
+    this.iconNameMap = {}
+    this.mappedPages = []
+    this.generatedFiles = []
+    this.styleResults = []
+    this.routeResult = null
+    this.outputFiles = []
   }
 }

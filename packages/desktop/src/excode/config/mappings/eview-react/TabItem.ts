@@ -1,64 +1,113 @@
 /**
- * TabItem → TabItem 映射
+ * TabItem → TabItem 映射（新架构）
  *
- * A2UI TabItem → eview-react TabItem 组件。
+ * A2UI TabItem → eview-react TabItem（named export from '@nce/eview-react/Tab'）。
  *
- * ## 映射规则
+ * ## Props 对照
  *
- * 1. key → 删除（由 children 顺序决定索引，Tabs 的 onClick 回传 index）
- * 2. label → title
- * 3. content → children（三分支处理）
- *    - 纯文本字符串 → 直接作为顶层字符串 children
- *    - DataBinding → resolveBindingValue 从 rawState 取实际值 → 顶层字符串 children
- *    - SlotNode → resolveNode 递归解析
- * 4. icon → 保留（透传 Lucide icon name）
+ * | A2UI prop | eview-react prop | 处理方式 |
+ * |-----------|-----------------|---------|
+ * | label（字面量） | title | 改名透传 |
+ * | label（DataBinding） | title | 保持 BindingValue 原样 |
+ * | icon（字面量） | icon | ctx.resolveIcon() → BuildNode 直出 |
+ * | icon（DataBinding） | icon | **ComputedValue** + containsJSX:true |
+ * | key | — | 丢弃（由 children 顺序决定索引） |
+ * | content（字面量） | children | 转为 TextNode 作为 children |
+ * | content（DataBinding） | children | 转为 TextNode 含 BindingValue 作为 children |
+ * | content（SlotNode） | children | 展开 SlotNodeValue.node 为 children |
+ * | className | className | 透传 |
+ *
+ * ## 特殊逻辑
+ *
+ * - content 三分支全部转入 children，不在 props 上保留
+ * - icon 双形态分叉：字面量直接 resolveIcon，DataBinding 走 ComputedValue
  */
-export default {
+
+import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
+import type { PropValue } from '../../../src/core/valueTypes'
+import { Value } from '../../../src/core/value'
+import { Node } from '../../../src/core/node'
+
+const TabItemMapping: MappingDef = {
   tag: 'TabItem',
-  import: '@nce/eview-react/Tab',
-  importMode: 'named',
-  propsMap: {
-    label: 'title',
-  },
+  import: { source: '@nce/eview-react/Tab', named: true },
 
-  /**
-   * transform — props 转换
-   *
-   * content 转为 children：
-   *   1. 纯文本 → children = 字符串（顶层，不引入 DOM 包装）
-   *   2. DataBinding → 从 rawState 取值后转为字符串 children
-   *   3. SlotNode → resolveNode 递归
-   */
-  transform(node: any, { rawState, resolveNode }: { rawState?: any; resolveNode?: Function }) {
-    const p = { ...(node.props || {}) };
-    let children = node.children || [];
+  transform(node: any, ctx: TransformContext) {
+    const props = node.props || {}
+    const outputProps: Record<string, PropValue> = {}
+    let children: any[] | null = null
+    const SKIP_KEYS = new Set(['key', 'label', 'icon', 'content', 'className'])
 
-    // ─── content → children ───
-    if ('content' in p) {
-      const content = p.content;
-      delete p.content;
+    // ─── key → 丢弃（由 children 顺序决定索引） ───
 
-      if (typeof content === 'string') {
-        // 1. 纯文本 → 顶层字符串 children（不引入 DOM）
-        if (content !== '') children = content;
-      } else if (content?.__binding) {
-        // 2. DataBinding → 从 rawState 取值
-        const path = content.accessPath || content.path?.replace(/^\//, '');
-        let actual;
-        if (path && rawState) {
-          actual = path.split(/[.[\]']+/).filter(Boolean).reduce((o: any, k: string) => o?.[k], rawState);
-        }
-        children = actual !== undefined ? String(actual) : '';
-      } else if (content?.__slotNode && typeof resolveNode === 'function') {
-        // 3. SlotNode → resolveNode 递归
-        const resolved = resolveNode(content.__slotNode);
-        if (resolved) children = Array.isArray(resolved) ? resolved : [resolved];
+    // ─── label → title（双形态） ───
+    if ('label' in props) {
+      const label = props.label
+      if (label && typeof label === 'object' && label.type === 'binding') {
+        outputProps.title = label
+      } else if (typeof label === 'string') {
+        outputProps.title = label
       }
     }
 
-    // ─── key → 删除（由顺序决定索引）───
-    delete p.key;
+    // ─── icon → icon（双形态） ───
+    if ('icon' in props) {
+      const icon = props.icon
+      if (icon && typeof icon === 'object' && icon.type === 'binding') {
+        // DataBinding → ComputedValue
+        outputProps.icon = Value.computed({
+          path: icon.path,
+          pathType: icon.pathType ?? 'absolute',
+          accessPath: icon.accessPath,
+          containsJSX: true,
+          transform: (rawValue, cvCtx) => {
+            const rIcon = cvCtx?.resolveIcon ?? ctx.resolveIcon
+            return typeof rawValue === 'string' ? rIcon(rawValue) : null
+          },
+        }) as any
+      } else if (typeof icon === 'string') {
+        // 字面量 → 直接 resolveIcon
+        const iconNode = ctx.resolveIcon(icon)
+        if (iconNode) {
+          outputProps.icon = iconNode as any
+        }
+      }
+    }
 
-    return { props: p, children };
+    // ─── content → children（三分支） ───
+    if ('content' in props) {
+      const content = props.content
+      delete props.content // 确保不会透传
+
+      if (typeof content === 'string') {
+        // 分支 1：纯文本 → TextNode
+        children = [Node.text({ value: content })]
+      } else if (content && typeof content === 'object' && content.type === 'slotNode') {
+        // 分支 2：SlotNode → 展开节点的 BuildNode 为 children
+        children = [content.node]
+      } else if (content && typeof content === 'object' && content.type === 'binding') {
+        // 分支 3：DataBinding → TextNode 含 BindingValue
+        children = [Node.text({ value: content })]
+      }
+    }
+
+    // ─── className 透传 ───
+    if (props.className) {
+      outputProps.className = props.className
+    }
+
+    // ─── 透传剩余 prop ───
+    for (const [key, value] of Object.entries(props)) {
+      if (!SKIP_KEYS.has(key)) {
+        outputProps[key] = value as PropValue
+      }
+    }
+
+    return {
+      props: outputProps,
+      children: children ?? undefined,
+    }
   },
-};
+}
+
+export default TabItemMapping
