@@ -2,8 +2,11 @@
  *
  * 不改上游 packages/ui。本文件**不入 @layer**,靠「无层样式胜过 layer(components)」
  * 压过 message-part.css / dock-surface.css / button.css 的默认样式,作用域全部收在 .octo-perm-dock。
- * 色值沿用邻近 insight 组件的字面量约定(如 session-list 直接用 #0a59f7 / rgba(0,0,0,.9)),浅色优先;
- * 深色仅对基于纯黑的字面量做等价翻转,避免黑底下破相。 */
+ * 色值沿用邻近 insight 组件的字面量约定(如 session-list 直接用 #0a59f7 / rgba(0,0,0,.9))。
+ *
+ * 本弹窗**只有浅色一套**:不跟随系统暗色。因此凡是会随主题翻转的上游 token
+ * (--surface-raised-stronger-non-alpha、--text-strong)都在这里钉成浅色字面量,
+ * 并用 color-scheme: light 防止表单控件被 UA 按暗色渲染。 */
 
 .octo-perm-dock {
   --octo-perm-blue: #0a59f7; /* 应用通用蓝 */
@@ -12,11 +15,16 @@
   --octo-perm-fill-hover: rgba(0, 0, 0, 0.09);
   /* ③ 框内所有文字统一用应用通用字体(octo-tokens.css :root 的 --octo-font) */
   font-family: var(--octo-font);
+  /* 固定浅色:系统切暗色时 UA 控件也不跟着变 */
+  color-scheme: light;
+  /* 与下方输入框拉开距离 */
+  margin-bottom: 16px;
 }
 
 /* ① 文本框 + 按钮框合成一个整体框 */
 .octo-perm-dock [data-component="dock-prompt"][data-kind="permission"] {
-  background-color: var(--surface-raised-stronger-non-alpha);
+  /* 钉死浅色底(原 var(--surface-raised-stronger-non-alpha) 在暗色下会变 #1c1c1c) */
+  background-color: #ffffff;
   border-radius: 16px;
   overflow: clip;
   /* ② 整体框不要 border —— 去掉原来 0 0 0 1px 的描边环,只留纯投影;色彩仍走中性灰 */
@@ -47,10 +55,11 @@
   padding: 4px 12px 22px;
 }
 
-/* ④ 标题「需要权限」加粗 · ③ 字体统一 */
+/* ④ 标题「需要权限」加粗 · ③ 字体统一 · 钉死浅色字色(原 --text-strong 暗色下会翻白) */
 .octo-perm-dock [data-slot="permission-header-title"] {
   font-family: var(--octo-font);
   font-weight: 700;
+  color: #171717;
 }
 
 /* ③ hint / 按钮 字体统一(上游默认写的是 --font-family-sans,这里压成应用通用字体) */
@@ -144,23 +153,5 @@
   background-color: var(--octo-perm-fill-hover);
 }
 
-/* 深色:仅翻转基于纯黑的字面量,黄/蓝保持 */
-@media (prefers-color-scheme: dark) {
-  .octo-perm-dock {
-    --octo-perm-ink: rgba(255, 255, 255, 0.92);
-    --octo-perm-fill: rgba(255, 255, 255, 0.08);
-    --octo-perm-fill-hover: rgba(255, 255, 255, 0.14);
-  }
-  /* ② 深色同样去掉描边环,只留投影 */
-  .octo-perm-dock [data-component="dock-prompt"][data-kind="permission"] {
-    box-shadow:
-      0 2px 6px rgba(0, 0, 0, 0.45),
-      0 8px 24px rgba(0, 0, 0, 0.55);
-  }
-  .octo-perm-dock .octo-perm-path {
-    color: #6ea8ff;
-  }
-  .octo-perm-dock .octo-perm-path:hover {
-    color: #93bdff;
-  }
-}
+/* 本弹窗不做暗色模式:不提供 prefers-color-scheme: dark 覆盖,
+ * 上述浅色字面量在任何系统主题下都生效。 */
