@@ -37,6 +37,18 @@ describe("Filesystem.contains", () => {
     expect(Filesystem.contains("/project", "/project-other/file")).toBe(false)
     expect(Filesystem.contains("/project", "/projectfile")).toBe(false)
   })
+
+  // 回归:Windows 跨盘符时 path.relative 返回的是目标绝对路径(不以 ".." 开头),
+  // 早期实现只判 ".." 会把另一个盘的路径误判为「在 parent 之内」,导致 external_directory
+  // 边界检查被绕过 —— 另一盘的文件会被直接读取而不询问权限。
+  // 只在 win32 有意义:POSIX 下 path.relative 对绝对路径永远返回相对路径。
+  test.skipIf(process.platform !== "win32")("blocks cross-drive paths on Windows", () => {
+    expect(Filesystem.contains("D:\\project", "C:\\Users\\someone\\secret.txt")).toBe(false)
+    expect(Filesystem.contains("C:\\", "D:\\data\\secret.txt")).toBe(false)
+    // 同盘符的正常判定不受影响
+    expect(Filesystem.contains("D:\\project", "D:\\project\\src\\a.ts")).toBe(true)
+    expect(Filesystem.contains("D:\\project", "D:\\other\\a.ts")).toBe(false)
+  })
 })
 
 /*

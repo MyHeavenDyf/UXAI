@@ -20,6 +20,7 @@ import PROMPT_OCTO_PATTERN_INTENT from "./prompt/octo_pattern_intent.txt"
 import PROMPT_OCTO_PATTERN_MODULE from "./prompt/octo_pattern_module.txt"
 import PROMPT_OCTO_AI from "./prompt/octo_ai.txt"
 import PROMPT_MAKE_COMPONENT from "./prompt/make_component.txt"
+import PROMPT_OCTO_MAKE_PLAN from "./prompt/octo_make_plan.txt"
 import {
   PROMPT_PROTO_INTENT,
   PROMPT_PROTO_INTENT_AUDIT,
@@ -290,7 +291,7 @@ export const layer = Layer.effect(
                 internel_image_generate: "deny",
                 lsp: "deny",
                 plan_exit: "deny",
-                question: "allow",
+                question: "deny",
               }),
               user,
             ),
@@ -299,6 +300,24 @@ export const layer = Layer.effect(
             native: false,
             skills: ["html-prototype"],
             mcp: ["prototype-dev"],
+          },
+          octo_make_plan: {
+            name: "octo_make_plan",
+            description: "设计规划专家。根据用户需求产出一份结构化设计策略文档，包含设计需求、洞察研究、设计资产等模块。",
+            prompt: PROMPT_OCTO_MAKE_PLAN,
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                "*": "deny",
+                read: "ask",
+                websearch: "allow",
+              }),
+              user,
+            ),
+            options: {},
+            mode: "primary",
+            native: true,
+            hidden: true,
           },
           octo_design: {
             name: "octo_design",

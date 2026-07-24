@@ -1,7 +1,7 @@
 // SPEC-INS-014 §10.1:文件管理面板的视图状态 store。结构照抄站内 Design 模块
 // (make/utils/artifact-file-store.ts)已验证的分组 / 排序 / 筛选 / 多选 / 文件夹导航逻辑——
 // 这套逻辑与后端存储形态无关,只把数据源从 Design 的 ArtifactFile 换成 Insight 自己的 InsightFile。
-// 文件夹导航:currentPath 相对 insight/<sessionId>/uploads/ 根;非顶层只列 uploads/<path>/,
+// 文件夹导航:currentPath 相对 .octo/<sessionId>/uploads/ 根;非顶层只列 uploads/<path>/,
 //   不再分"已上传/已生成"两段(generated 产物无子目录,只在顶层并排)。
 
 import { createStore } from "solid-js/store"

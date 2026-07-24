@@ -1,5 +1,5 @@
 import "./octo-tokens.css"
-import type { Message, Part, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
+import type { Message, Part, Session, SessionStatus, UserMessage } from "@opencode-ai/sdk/v2/client"
 import type { TextPartInput, FilePartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
@@ -30,6 +30,8 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
 import { LocalProvider, useLocal } from "@/context/local"
+import { useTabModel } from "@/hooks/use-tab-model"
+import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { useLanguage } from "@/context/language"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
@@ -67,6 +69,7 @@ import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
 import { showToast } from "@opencode-ai/ui/toast"
 import { extToOutputType } from "./utils/write-output"
+import { isPendingUploadPath } from "./utils/local-file"
 import type { InsightFile, InsightFileEntry } from "./utils/insight-file-api"
 import { mimeForName, pathToLocalUrl } from "./utils/insight-file-api"
 
@@ -155,14 +158,6 @@ function readLastSession(): { dir: string; id: string } | undefined {
   } catch { /* 历史格式/损坏 → 视为无记录 */ }
   return undefined
 }
-// SPEC-INS-014 §4.1.2(v2 会话隔离新增):判断附件本地路径是否还落在预会话落地区
-// insight/uploads/(而非已经 rename 进 insight/<sessionId>/uploads/)——发送时用来决定要不要挪。
-function isPendingUploadPath(path: string): boolean {
-  const segs = path.split(/[\\/]/)
-  const i = segs.lastIndexOf("insight")
-  return i !== -1 && segs[i + 1] === "uploads"
-}
-
 // 每次整页加载只恢复一次(模块级,页面 reload 时自然重置);避免 keyed 重挂导致重复跳转。
 let didBootRestore = false
 // 上次挂载 InsightContent 时的目录:keyed 重挂时与之对比,检测"用户切了项目目录"。
@@ -202,6 +197,7 @@ function InsightContent() {
   const sdk = useSDK()
   const sync = useSync()
   const local = useLocal()
+  useTabModel("insight")
   const language = useLanguage()
   const themeCtx = useTheme()
   const globalSDK = useGlobalSDK()
@@ -344,6 +340,68 @@ function InsightContent() {
     () => userMessages().map((m) => m.id),
     [] as string[],
     { equals: same },
+  )
+
+  // Sync session model when last user message changes (same as session.tsx).
+  // Populates saved.session[session] so scope() returns the correct model per conversation.
+  const lastUserMessage = createMemo(() => userMessages().at(-1) as UserMessage | undefined)
+
+  createEffect(
+    on(
+      () => lastUserMessage()?.id,
+      () => {
+        const msg = lastUserMessage()
+        if (!msg) return
+        syncSessionModel(local, msg)
+        // Sync tab key so new conversations inherit this session's model.
+        if (msg.model?.providerID && msg.model?.modelID) {
+          local.model.set(msg.model, { recent: true })
+        }
+      },
+    ),
+  )
+
+  // Populate saved.session[session] from user messages immediately.
+  // syncSessionModel only runs when lastUserMessage changes; this effect
+  // runs on every params.id change and checks if messages are already loaded.
+  createEffect(
+    on(
+      () => params.id,
+      (id) => {
+        if (!id) return
+        // Check if messages are already loaded for this session.
+        const messages = (sync.data.message[id] ?? []) as Message[]
+        const lastUser = [...messages].reverse().find((m) => m.role === "user")
+        if (!lastUser?.model) return
+        local.session.restore({
+          sessionID: id,
+          agent: lastUser.agent ?? "",
+          model: {
+            providerID: lastUser.model.providerID,
+            modelID: lastUser.model.modelID,
+            variant: lastUser.model.variant,
+          },
+        })
+        // Sync tab key so new conversations inherit this session's model.
+        local.model.set(
+          { providerID: lastUser.model.providerID, modelID: lastUser.model.modelID },
+          { recent: true },
+        )
+      },
+    ),
+  )
+
+  // Reset draft when switching from session to new conversation.
+  createEffect(
+    on(
+      () => ({ dir: sdk.directory, id: params.id }),
+      (next, prev) => {
+        if (!prev) return
+        if (next.dir === prev.dir && next.id === prev.id) return
+        if (prev.id && !next.id) local.session.reset()
+      },
+      { defer: true },
+    ),
   )
 
   // 会话消息是否已加载:切到"未加载过的已存在会话"时 message[id] 为 undefined,
@@ -976,8 +1034,8 @@ function InsightContent() {
     // 图片(已 change 即传拿到 S3 url):走 ③ vision FilePart{url},不进 [附件] 清单。
     const imageFiles = done.filter((a) => isImageFile(a.filename) && a.url)
 
-    // SPEC-INS-014 §4.1.2(v2 新增):发送前把还落在预会话落地区(insight/uploads/)的附件
-    // rename 进真实会话目录(insight/<sessionId>/uploads/)——此时 sessionId 已经 resolve。
+    // SPEC-INS-014 §4.1.2(v2 新增):发送前把还落在预会话落地区(.octo/tmps/)的附件
+    // rename 进真实会话目录(.octo/<sessionId>/uploads/)——此时 sessionId 已经 resolve。
     // rename 是本地文件系统原子操作,失败(源文件在拷贝完成后被删/移动,极少见)不阻断发送,
     // 该附件在 [附件] 清单里退化为指向预会话区的旧路径,仍可读。
     const movedPaths = new Map<string, string>()
@@ -1004,7 +1062,7 @@ function InsightContent() {
     }
     const resolvedPath = (a: Attachment) => movedPaths.get(a.id) ?? a.path!
 
-    // 文件已落地 insight/<sessionId>/uploads/:通知文件管理表格重拉,避免后续上传不刷新(挂载只刷一次的回归)。
+    // 文件已落地 .octo/<sessionId>/uploads/:通知文件管理表格重拉,避免后续上传不刷新(挂载只刷一次的回归)。
     if (movedPaths.size > 0) setFilesRefreshKey(k => k + 1)
 
     // [附件] 清单:独立 synthetic text part(server toModelMessages 不过滤 → 模型可见;上游气泡不渲染
@@ -1015,7 +1073,7 @@ function InsightContent() {
     const cleanTextPart: TextPartInput = { type: "text", text }
     const parts: Array<TextPartInput | FilePartInput> = [cleanTextPart]
     if (uploadBlock) parts.push({ type: "text", text: uploadBlock, synthetic: true })
-    // 落点重定向:write 产物进 insight/<sessionId>/outputs/ 由服务端插件 octo-outputs-redirect 确定性完成
+    // 落点重定向:write 产物进 .octo/<sessionId>/outputs/ 由服务端插件 octo-outputs-redirect 确定性完成
     // (相对路径 → 会话 outputs/,只对 octo_insight 会话生效)。此前这里每轮注入 `[输出目录] 绝对路径`
     // synthetic 指令纠偏,弱模型会把它当当前任务复述(空问候"你好"也触发、把路径暴露给用户),故删除。
     // SPEC-INS-017 chip turn:模板(功能指令 + 文件名 + 迁入的 MCP 仪式段落)与机器可读声明段,
@@ -1469,8 +1527,8 @@ function InsightContent() {
           ...prev,
           { id, filename: file.name, mime, size: file.size, status: "uploading" },
         ])
-        // 非图片不 eager 上传:只拷进 insight/uploads(预会话落地区本地副本,SPEC-INS-014 §4.1.2)。
-        // done 带 path,发送时进 [附件] 清单 + rename 进 insight/<sessionId>/uploads(见 doSendPrompt);
+        // 非图片不 eager 上传:只拷进 .octo/tmps(预会话落地区本地副本,SPEC-INS-014 §4.1.2)。
+        // done 带 path,发送时进 [附件] 清单 + rename 进 .octo/<sessionId>/uploads(见 doSendPrompt);
         // 插件在模型调 MCP 时才按需上传(④)。
         void doImport(id, rawFile, file.name)
       }
@@ -1500,7 +1558,7 @@ function InsightContent() {
     }
   }
 
-  // 把源文件导入 worktree 的 insight/uploads/(SPEC-INS-014 §4.1 磁盘流式拷贝,原样不转格式,预会话落地区),
+  // 把源文件导入 worktree 的 .octo/tmps/(SPEC-INS-014 §4.1 磁盘流式拷贝,原样不转格式,预会话落地区),
   // 拿到本地绝对路径写进附件(SPEC-INS-015:供 [本地文件] 注入块,插件按需上传 S3)。
   //   - 成功:status=done + path
   //   - 真失败(copyFileToWorktree 抛错):status=error + retriable,chip 显示重试
@@ -1544,7 +1602,7 @@ function InsightContent() {
     }
   }
 
-  // 把源文件拷贝进 worktree 的 insight/uploads/(预会话落地区,磁盘流式拷贝,原样不转格式),返回本地绝对路径。
+  // 把源文件拷贝进 worktree 的 .octo/tmps/(预会话落地区,磁盘流式拷贝,原样不转格式),返回本地绝对路径。
   // 不需要 sessionId——选中时可能还没有真实会话(欢迎页);发送时统一由 doSendPrompt rename 进真会话目录(§4.1.2)。
   //   - 无 projectDir / 非桌面端(无 getPathForFile / copyFileToWorktree)/ 拿不到真实路径 → 返回 null(降级)
   //   - copyFileToWorktree 抛错(真失败)→ 向上抛,由 doImport 转成可重试错误
