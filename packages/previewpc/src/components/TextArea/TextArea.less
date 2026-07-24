@@ -1,5 +1,11 @@
 .el-textarea__inner {
   padding: 5px 12px;
+  resize: vertical;
+
+  &::-webkit-resizer {
+    display: none;
+  }
+
   &:focus {
     border: 1px solid var(--brand-20);
   }
@@ -7,6 +13,14 @@
   // 滚动条样式：热区10px，默认宽度4px，悬浮宽度6px
   &::-webkit-scrollbar {
     width: 10px; // 热区宽度
+  }
+
+  &::-webkit-scrollbar-corner {
+    background-color: transparent;
+  }
+
+  &::-webkit-scrollbar-track-piece {
+    background-color: transparent;
   }
 
   &::-webkit-scrollbar-thumb {
@@ -18,6 +32,7 @@
 
     &:hover {
       border: 2px solid transparent;
+      background-color: var(--gray-30);
     }
   }
 
@@ -27,11 +42,25 @@
 }
 
 .theme-dark {
+  .el-textarea::after {
+    border-right-color: var(--gray-60);
+    border-bottom-color: var(--gray-60);
+  }
+
   .el-textarea__inner {
     --el-input-focus-border-color: var(--brand-40);
     background-color: transparent;
+
     &:focus {
       border: 1px solid var(--brand-70);
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background-color: var(--gray-60);
+
+      &:hover {
+        background-color: var(--gray-40);
+      }
     }
   }
 }

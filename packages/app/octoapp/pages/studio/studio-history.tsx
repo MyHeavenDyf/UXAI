@@ -76,7 +76,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
   const unsub = globalSDK.event.listen((e) => {
     const t = e.details.type
-    if (t === "session.created" || t === "session.updated" || t === "session.deleted") {
+    if (t === "session.created" || t === "session.updated" || t === "session.deleted" || t === "message.updated") {
       clearTimeout(refetchTimer)
       refetchTimer = setTimeout(() => void refetch(), 1000)
     }

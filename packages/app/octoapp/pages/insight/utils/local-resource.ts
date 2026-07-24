@@ -2,7 +2,7 @@
 // 本地打开共用同一份,避免文件名 / 落点规则漂移到两套(漂移会导致预览读 A、编辑写 B,看不到改动)。
 //
 // - path 源(write 工具产物):文件已在磁盘,直接用 filePath。
-// - uri 源:downloadResourceToTemp 幂等落到 <projectDir>/insight/<sessionId>/outputs/<file>(SPEC-INS-014 v2,扁平、撞名加后缀);
+// - uri 源:downloadResourceToTemp 幂等落到 <projectDir>/.octo/<sessionId>/outputs/<file>(SPEC-INS-014 v2,扁平、撞名加后缀);
 //   首次下原件、之后复用用户改过的那份(主进程按 namespace 记内存表,见 desktop/src/main/ipc.ts `result-materialize`)。
 //   无 projectDir / 无 sessionId → 落 OS 临时目录(persistent=false,重启可能被清)。
 // - inline / 缺桌面能力 → 抛错(调用方决定退回 fetch 只读 或 提示无法编辑)。
@@ -54,7 +54,7 @@ export async function ensureLocalMarkdownFile(
 }
 
 /**
- * eager 落地(SPEC-INS-014 v4):MCP `uri` 产物卡「出卡即落」进 <projectDir>/insight/<sessionId>/outputs/,
+ * eager 落地(SPEC-INS-014 v4):MCP `uri` 产物卡「出卡即落」进 <projectDir>/.octo/<sessionId>/outputs/,
  * 不等用户点开。覆盖所有 uri 卡类型(json/mindmap/html/table/markdown/file)——此前只有 markdown 卡在点开
  * 渲染时才落、其余 uri 卡走 UriTabBody 只 fetch 不落盘,故思维导图等产物永不进「文件管理」(见 v4 修订)。
  *

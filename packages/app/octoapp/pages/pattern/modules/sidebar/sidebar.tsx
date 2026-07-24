@@ -73,7 +73,7 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
         return [] as Session[]
       }
       const client = globalSDK.createClient({ directory: d })
-      const result = await client.session.list()
+      const result = await client.session.list({ roots: true })
       const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
       setPatternFetchedDir(d)
       return data.filter(s => s.agent === "proto_triage")
@@ -293,7 +293,7 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
               <Icon name="plus" size="normal" class="shrink-0" />
               <span>新建</span>
             </button>
-            {/* <button
+            <button
               type="button"
               class="flex items-center gap-2 rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
               style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
@@ -301,7 +301,7 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
             >
               <Icon name="download" size="normal" class="shrink-0" />
               <span>导入</span>
-            </button> */}
+            </button>
           </div>
         </div>
         <div style={{ height: "1px", background: "rgba(0,0,0,0.1)" }} />

@@ -1,0 +1,834 @@
+{
+  "planner": {
+    "rootId": "loginRootContainer",
+    "elements": [
+      {
+        "id": "loginRootContainer",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col min-h-screen bg-surface-container-lowest"
+        },
+        "children": [
+          "loginContentArea",
+          "loginFooterSection"
+        ]
+      },
+      {
+        "id": "loginContentArea",
+        "component": "div",
+        "props": {
+          "className": "flex flex-1 overflow-hidden"
+        },
+        "children": [
+          "loginBrandSection",
+          "loginFormSection"
+        ]
+      },
+      {
+        "id": "loginBrandSection",
+        "component": "div",
+        "props": {
+          "className": "w-[60%] relative overflow-hidden flex items-center justify-center"
+        },
+        "children": []
+      },
+      {
+        "id": "loginFormSection",
+        "component": "div",
+        "props": {
+          "className": "w-[40%] flex items-center justify-center bg-surface-container-highest"
+        },
+        "children": []
+      },
+      {
+        "id": "loginFooterSection",
+        "component": "div",
+        "props": {
+          "className": "w-full py-4 text-sm text-on-surface-variant border-t border-divider text-center bg-surface-container-lowest"
+        },
+        "children": []
+      }
+    ],
+    "slots": [
+      {
+        "section_id": "brandSection",
+        "element_id": "loginBrandSection",
+        "id_prefix": "brand"
+      },
+      {
+        "section_id": "formSection",
+        "element_id": "loginFormSection",
+        "id_prefix": "form"
+      },
+      {
+        "section_id": "footerSection",
+        "element_id": "loginFooterSection",
+        "id_prefix": "footer"
+      }
+    ]
+  },
+  "mergedA2UI": {
+    "rootId": "loginRootContainer",
+    "elements": [
+      {
+        "id": "loginRootContainer",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col min-h-screen bg-surface-container-lowest"
+        },
+        "children": [
+          "loginContentArea",
+          "loginFooterSection"
+        ]
+      },
+      {
+        "id": "loginContentArea",
+        "component": "div",
+        "props": {
+          "className": "flex flex-1 overflow-hidden"
+        },
+        "children": [
+          "loginBrandSection",
+          "loginFormSection"
+        ]
+      },
+      {
+        "id": "loginBrandSection",
+        "component": "div",
+        "props": {
+          "className": "w-[60%] relative overflow-hidden flex items-center justify-center"
+        },
+        "children": [
+          "brandCarouselWrapper",
+          "brandOverlayBg",
+          "brandContentWrapper"
+        ]
+      },
+      {
+        "id": "loginFormSection",
+        "component": "div",
+        "props": {
+          "className": "bg-[url(/uploads/1783307956932\\_resource1.jpg)] !w-2/5 flex flex-row justify-center items-center bg-on-info"
+        },
+        "children": [
+          "formInnerContainer"
+        ]
+      },
+      {
+        "id": "loginFooterSection",
+        "component": "div",
+        "props": {
+          "className": "w-full py-4 text-sm text-on-surface-variant border-t border-divider text-center bg-surface-container-lowest"
+        },
+        "children": [
+          "footerMainContent"
+        ]
+      },
+      {
+        "id": "brandCarouselWrapper",
+        "component": "div",
+        "props": {
+          "className": "absolute inset-0 w-full h-full"
+        },
+        "children": [
+          "brandCarousel"
+        ]
+      },
+      {
+        "id": "brandCarousel",
+        "component": "Carousel",
+        "props": {
+          "arrows": false,
+          "dotPlacement": "bottom",
+          "className": "w-full h-full"
+        },
+        "children": [
+          "brandSlide1",
+          "brandSlide2",
+          "brandSlide3"
+        ]
+      },
+      {
+        "id": "brandSlide1",
+        "component": "div",
+        "props": {
+          "className": "w-full h-full"
+        },
+        "children": [
+          "brandSlide1Img"
+        ]
+      },
+      {
+        "id": "brandSlide1Img",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "/brandInfo/backgroundImages/0"
+          },
+          "className": "w-full h-full object-cover",
+          "alt": "Intelligent Ops Platform"
+        }
+      },
+      {
+        "id": "brandSlide2",
+        "component": "div",
+        "props": {
+          "className": "w-full h-full"
+        },
+        "children": [
+          "brandSlide2Img"
+        ]
+      },
+      {
+        "id": "brandSlide2Img",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "/brandInfo/backgroundImages/1"
+          },
+          "className": "w-full h-full object-cover",
+          "alt": "Data Driven Platform"
+        }
+      },
+      {
+        "id": "brandSlide3",
+        "component": "div",
+        "props": {
+          "className": "w-full h-full"
+        },
+        "children": [
+          "brandSlide3Img"
+        ]
+      },
+      {
+        "id": "brandSlide3Img",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "/brandInfo/backgroundImages/2"
+          },
+          "className": "w-full h-full object-cover",
+          "alt": "Full Observability Platform"
+        }
+      },
+      {
+        "id": "brandOverlayBg",
+        "component": "div",
+        "props": {
+          "className": "absolute inset-0 bg-black/45"
+        }
+      },
+      {
+        "id": "brandContentWrapper",
+        "component": "div",
+        "props": {
+          "className": "relative z-10 flex flex-col items-center gap-6 px-12 text-center"
+        },
+        "children": [
+          "brandLogoIcon",
+          "brandAppName",
+          "brandSlogan",
+          "brandFeatureList"
+        ]
+      },
+      {
+        "id": "brandLogoIcon",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "path": "/brandInfo/appLogoIcon"
+          },
+          "color": "inverse",
+          "shape": "square",
+          "className": "w-16 h-16"
+        }
+      },
+      {
+        "id": "brandAppName",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "/brandInfo/appName"
+          },
+          "className": "text-4xl font-bold text-white tracking-wider"
+        }
+      },
+      {
+        "id": "brandSlogan",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "/brandInfo/slogan"
+          },
+          "className": "text-lg text-white/80 max-w-md"
+        }
+      },
+      {
+        "id": "brandFeatureList",
+        "component": "div",
+        "props": {
+          "className": "flex flex-row items-center gap-6 mt-2"
+        },
+        "children": {
+          "path": "/brandInfo/features",
+          "componentId": "brandFeatureItem"
+        }
+      },
+      {
+        "id": "brandFeatureItem",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "brandFeatureIcon",
+          "brandFeatureText"
+        ]
+      },
+      {
+        "id": "brandFeatureIcon",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "path": "iconName"
+          },
+          "color": "inverse",
+          "shape": "outline",
+          "className": "w-5 h-5"
+        }
+      },
+      {
+        "id": "brandFeatureText",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "featureText"
+          },
+          "className": "text-sm text-white/90"
+        }
+      },
+      {
+        "id": "formInnerContainer",
+        "component": "div",
+        "props": {
+          "className": "w-[400px] flex flex-col gap-6"
+        },
+        "children": [
+          "formLangSelect",
+          "formWelcomeTitle",
+          "formTabContainer",
+          "formActionsRow",
+          "formLoginBtn",
+          "formDivider",
+          "formSsoContainer",
+          "formRegisterLink"
+        ]
+      },
+      {
+        "id": "formLangSelect",
+        "component": "Select",
+        "props": {
+          "value": {
+            "path": "/language"
+          },
+          "size": "small",
+          "className": "self-end",
+          "options": [
+            {
+              "label": "简体中文",
+              "value": "zh-CN"
+            },
+            {
+              "label": "English",
+              "value": "en-US"
+            },
+            {
+              "label": "日本語",
+              "value": "ja-JP"
+            }
+          ]
+        }
+      },
+      {
+        "id": "formWelcomeTitle",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "/cardTitle"
+          },
+          "className": "text-2xl font-bold text-on-surface"
+        }
+      },
+      {
+        "id": "formTabContainer",
+        "component": "Tabs",
+        "props": {
+          "activeKey": {
+            "path": "/activeTab"
+          },
+          "size": "large",
+          "className": "w-full"
+        },
+        "children": [
+          "formTabItemPwd",
+          "formTabItemSms"
+        ]
+      },
+      {
+        "id": "formTabItemPwd",
+        "component": "TabItem",
+        "props": {
+          "key": "password",
+          "label": "密码登录",
+          "content": {
+            "componentId": "formPwdTabContent"
+          }
+        }
+      },
+      {
+        "id": "formTabItemSms",
+        "component": "TabItem",
+        "props": {
+          "key": "sms",
+          "label": "短信登录",
+          "content": {
+            "componentId": "formSmsTabContent"
+          }
+        }
+      },
+      {
+        "id": "formPwdTabContent",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-4"
+        },
+        "children": [
+          "formUsernameInput",
+          "formPasswordInput"
+        ]
+      },
+      {
+        "id": "formSmsTabContent",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-4"
+        },
+        "children": [
+          "formSmsPhoneInput",
+          "formSmsCodeRow"
+        ]
+      },
+      {
+        "id": "formUsernameInput",
+        "component": "Input",
+        "props": {
+          "value": {
+            "path": "/username"
+          },
+          "placeholder": {
+            "path": "/formConfig/usernamePlaceholder"
+          },
+          "prefix": "user",
+          "size": "large",
+          "className": "w-full"
+        }
+      },
+      {
+        "id": "formPasswordInput",
+        "component": "Input",
+        "props": {
+          "value": {
+            "path": "/password"
+          },
+          "placeholder": {
+            "path": "/formConfig/passwordPlaceholder"
+          },
+          "prefix": "lock",
+          "password": true,
+          "size": "large",
+          "className": "w-full"
+        }
+      },
+      {
+        "id": "formSmsPhoneInput",
+        "component": "Input",
+        "props": {
+          "value": {
+            "path": "/smsPhone"
+          },
+          "placeholder": "请输入手机号",
+          "prefix": "phone",
+          "size": "large",
+          "className": "w-full"
+        }
+      },
+      {
+        "id": "formSmsCodeRow",
+        "component": "div",
+        "props": {
+          "className": "flex gap-2"
+        },
+        "children": [
+          "formSmsCodeInput",
+          "formGetCodeBtn"
+        ]
+      },
+      {
+        "id": "formSmsCodeInput",
+        "component": "Input",
+        "props": {
+          "value": {
+            "path": "/smsCode"
+          },
+          "placeholder": {
+            "path": "/formConfig/smsPlaceholder"
+          },
+          "size": "large",
+          "className": "flex-1"
+        }
+      },
+      {
+        "id": "formGetCodeBtn",
+        "component": "Button",
+        "props": {
+          "value": "获取验证码",
+          "color": "primary",
+          "className": "whitespace-nowrap"
+        }
+      },
+      {
+        "id": "formActionsRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between"
+        },
+        "children": [
+          "formRememberCheckbox",
+          "formForgotPwdBtn"
+        ]
+      },
+      {
+        "id": "formRememberCheckbox",
+        "component": "Checkbox",
+        "props": {
+          "checked": {
+            "path": "/rememberDevice"
+          },
+          "label": {
+            "path": "/formConfig/rememberLabel"
+          }
+        }
+      },
+      {
+        "id": "formForgotPwdBtn",
+        "component": "Button",
+        "props": {
+          "value": {
+            "path": "/formConfig/forgotPwdLabel"
+          },
+          "types": "link"
+        }
+      },
+      {
+        "id": "formLoginBtn",
+        "component": "Button",
+        "props": {
+          "value": {
+            "path": "/formConfig/loginButtonText"
+          },
+          "color": "primary",
+          "size": "large",
+          "className": "w-full"
+        }
+      },
+      {
+        "id": "formDivider",
+        "component": "Divider",
+        "props": {
+          "value": {
+            "path": "/formConfig/otherLoginTitle"
+          },
+          "titlePlacement": "center",
+          "className": "my-2"
+        }
+      },
+      {
+        "id": "formSsoContainer",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-center gap-6"
+        },
+        "children": {
+          "path": "/ssoProviders",
+          "componentId": "formSsoIconItem"
+        }
+      },
+      {
+        "id": "formSsoIconItem",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col items-center gap-1 cursor-pointer"
+        },
+        "children": [
+          "formSsoIconImage",
+          "formSsoIconLabel"
+        ]
+      },
+      {
+        "id": "formSsoIconImage",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "path": "iconName"
+          },
+          "shape": "square",
+          "className": "w-8 h-8 text-on-surface-variant hover:text-primary transition-colors"
+        }
+      },
+      {
+        "id": "formSsoIconLabel",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "providerName"
+          },
+          "className": "text-xs text-on-surface-variant"
+        }
+      },
+      {
+        "id": "formRegisterLink",
+        "component": "Button",
+        "props": {
+          "value": {
+            "path": "/formConfig/registerLinkText"
+          },
+          "types": "link",
+          "className": "self-center"
+        }
+      },
+      {
+        "id": "footerMainContent",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-center gap-1 flex-wrap px-4"
+        },
+        "children": [
+          "footerCopyrightPrefix",
+          "footerCopyrightYear",
+          "footerCopyrightCompany",
+          "footerCopyrightSuffix",
+          "footerSep1",
+          "footerIcpLink",
+          "footerSep2",
+          "footerTermsLink",
+          "footerSep3",
+          "footerPrivacyLink"
+        ]
+      },
+      {
+        "id": "footerCopyrightPrefix",
+        "component": "span",
+        "props": {
+          "value": "© "
+        }
+      },
+      {
+        "id": "footerCopyrightYear",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "/copyrightInfo/year"
+          }
+        }
+      },
+      {
+        "id": "footerCopyrightCompany",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "/copyrightInfo/companyName"
+          }
+        }
+      },
+      {
+        "id": "footerCopyrightSuffix",
+        "component": "span",
+        "props": {
+          "value": " 版权所有"
+        }
+      },
+      {
+        "id": "footerSep1",
+        "component": "span",
+        "props": {
+          "value": "|",
+          "className": "mx-1 text-on-surface-variant"
+        }
+      },
+      {
+        "id": "footerIcpLink",
+        "component": "a",
+        "props": {
+          "href": {
+            "path": "/copyrightInfo/icpUrl"
+          },
+          "target": "_blank",
+          "value": {
+            "path": "/copyrightInfo/icpNumber"
+          },
+          "className": "hover:text-primary transition-colors"
+        }
+      },
+      {
+        "id": "footerSep2",
+        "component": "span",
+        "props": {
+          "value": "|",
+          "className": "mx-1 text-on-surface-variant"
+        }
+      },
+      {
+        "id": "footerTermsLink",
+        "component": "a",
+        "props": {
+          "href": {
+            "path": "/copyrightInfo/links/0/url"
+          },
+          "target": "_blank",
+          "value": {
+            "path": "/copyrightInfo/links/0/label"
+          },
+          "className": "hover:text-primary transition-colors"
+        }
+      },
+      {
+        "id": "footerSep3",
+        "component": "span",
+        "props": {
+          "value": "|",
+          "className": "mx-1 text-on-surface-variant"
+        }
+      },
+      {
+        "id": "footerPrivacyLink",
+        "component": "a",
+        "props": {
+          "href": {
+            "path": "/copyrightInfo/links/1/url"
+          },
+          "target": "_blank",
+          "value": {
+            "path": "/copyrightInfo/links/1/label"
+          },
+          "className": "hover:text-primary transition-colors"
+        }
+      }
+    ],
+    "state": {
+      "brandInfo": {
+        "appLogoIcon": "ShieldCheck",
+        "appName": "智驭·云控平台",
+        "slogan": "新一代企业级全栈可观测性平台",
+        "features": [
+          {
+            "iconName": "BarChart3",
+            "featureText": "实时数据洞察"
+          },
+          {
+            "iconName": "Shield",
+            "featureText": "零信任安全架构"
+          },
+          {
+            "iconName": "RefreshCw",
+            "featureText": "智能故障自愈"
+          }
+        ],
+        "backgroundImages": [
+          "https://fpoimg.com/1920x1080?gradient=0067D1,004EA8&text_color=ffffff&text=INTELLIGENT+OPS",
+          "https://fpoimg.com/1920x1080?gradient=09AA71,0067D1&text_color=ffffff&text=DATA+DRIVEN",
+          "https://fpoimg.com/1920x1080?gradient=F4840C,0067D1&text_color=ffffff&text=FULL+OBSERVABILITY"
+        ]
+      },
+      "cardTitle": "欢迎回来",
+      "activeTab": "password",
+      "language": "zh-CN",
+      "username": "",
+      "password": "",
+      "smsPhone": "",
+      "smsCode": "",
+      "rememberDevice": true,
+      "formTabs": [
+        {
+          "tabKey": "password",
+          "tabLabel": "密码登录"
+        },
+        {
+          "tabKey": "sms",
+          "tabLabel": "短信登录"
+        }
+      ],
+      "formConfig": {
+        "usernamePlaceholder": "请输入账号 / 手机号 / 邮箱",
+        "passwordPlaceholder": "请输入登录密码",
+        "smsPlaceholder": "请输入短信验证码",
+        "rememberLabel": "记住此设备",
+        "forgotPwdLabel": "忘记密码?",
+        "loginButtonText": "登 录",
+        "registerLinkText": "没有账号？立即注册",
+        "otherLoginTitle": "第三方账号登录"
+      },
+      "ssoProviders": [
+        {
+          "providerName": "钉钉",
+          "iconName": "Dingding",
+          "enabled": true
+        },
+        {
+          "providerName": "飞书",
+          "iconName": "BookMarked",
+          "enabled": true
+        },
+        {
+          "providerName": "企业微信",
+          "iconName": "Workflow",
+          "enabled": true
+        },
+        {
+          "providerName": "微信",
+          "iconName": "QrCode",
+          "enabled": false
+        }
+      ],
+      "languageOptions": [
+        {
+          "langCode": "zh-CN",
+          "langLabel": "简体中文"
+        },
+        {
+          "langCode": "en-US",
+          "langLabel": "English"
+        },
+        {
+          "langCode": "ja-JP",
+          "langLabel": "日本語"
+        }
+      ],
+      "copyrightInfo": {
+        "companyName": "星辰云图（北京）科技有限公司",
+        "year": "2026",
+        "icpNumber": "京ICP备2024XXXXXXXX号-1",
+        "icpUrl": "https://beian.miit.gov.cn/",
+        "links": [
+          {
+            "label": "服务条款",
+            "url": "https://example.com/terms"
+          },
+          {
+            "label": "隐私协议",
+            "url": "https://example.com/privacy"
+          }
+        ]
+      }
+    }
+  }
+}

@@ -18,46 +18,50 @@ export function PlanEntryBanner(props: {
 }): JSX.Element {
   return (
     <div
-      class="w-full rounded-[12px] px-4 py-3 flex items-start gap-3 mb-2 transition-all duration-150"
+      class="w-full rounded-[12px] flex flex-col mb-6 transition-all duration-150"
       style={{
-        background: "var(--octo-surface-2, #F5F7FA)",
-        border: "1px solid rgba(0,0,0,0.06)",
+        background: "linear-gradient(180deg, rgba(234,241,255,1), rgba(242,245,255,1) 100%)",
+        border: "none",
+        padding: "0",
       }}
     >
-      <span
-        class="shrink-0 flex items-center justify-center rounded-[8px] mt-0.5"
+      <div class="flex items-center gap-[6px] py-[16px] px-[20px] pb-[12px]">
+        <IconCardPlan size={20} />
+        <span
+          class="text-[14px] font-bold"
+          style={{ "line-height": "22px", color: "rgba(0,0,0,0.9)" }}
+        >
+          进入设计策略规划阶段
+        </span>
+      </div>
+
+      <div
+        class="mx-[12px] mb-[12px] flex flex-col gap-[16px]"
         style={{
-          width: "28px",
-          height: "28px",
-          background: "rgba(74,81,255,0.10)",
-          color: "rgb(74,81,255)",
+          padding: "12px",
+          background: "rgba(255,255,255,0.9)",
+          "border-radius": "8px",
         }}
       >
-        <IconCardPlan size={16} />
-      </span>
-
-      <div class="flex-1 min-w-0 flex flex-col gap-0.5">
         <div
-          class="text-[13px] font-semibold"
-          style={{ color: "var(--octo-text-primary)" }}
+          class="text-[14px]"
+          style={{ "line-height": "22px", color: "rgba(0,0,0,0.9)" }}
         >
-          进入设计规划阶段
-        </div>
-        <div
-          class="text-[12px] leading-[1.5]"
-          style={{ color: "var(--octo-text-secondary)" }}
-        >
-          App 需要明确核心功能与交互场景,先规划再实现能避免返工。
+          原型生成需要明确核心功能与交互场景，先规划再实现能避免返工。
         </div>
 
-        <div class="flex items-center justify-end gap-2 mt-2">
+        <div class="flex items-center justify-center gap-[8px]">
           <button
             type="button"
-            class="text-[12px] font-medium rounded-[8px] px-3 py-1.5 transition-colors hover:bg-[rgba(0,0,0,0.04)]"
+            class="text-[14px] rounded-[999px] transition-colors hover:bg-[#dfdfdf] active:bg-[#dfdfdf]"
             style={{
-              background: "transparent",
-              color: "var(--octo-text-secondary)",
-              border: "1px solid rgba(0,0,0,0.10)",
+              width: "88px",
+              height: "32px",
+              "line-height": "22px",
+              background: "rgba(0,0,0,0.05)",
+              color: "rgba(0,0,0,0.9)",
+              border: "none",
+              cursor: "pointer",
             }}
             onClick={props.onSkip}
           >
@@ -65,8 +69,16 @@ export function PlanEntryBanner(props: {
           </button>
           <button
             type="button"
-            class="text-[12px] font-semibold rounded-[8px] px-3 py-1.5 text-white transition-colors"
-            style={{ background: "#0a59f7", color: "white" }}
+            class="text-[14px] font-medium rounded-[999px] text-white transition-colors hover:opacity-90"
+            style={{
+              width: "88px",
+              height: "32px",
+              "line-height": "22px",
+              background: "#0a59f7",
+              color: "white",
+              border: "none",
+              cursor: "pointer",
+            }}
             onClick={props.onEnter}
           >
             进入

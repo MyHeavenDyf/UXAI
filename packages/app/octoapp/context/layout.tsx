@@ -58,6 +58,7 @@ type LastSessionPerTab = {
   studio: Record<string, string>
   pattern?: { id: string }
   lastChatDir?: string
+  newConversation: Record<string, boolean>
 }
 
 type SidebarSource = "cowork" | "make" | "pattern"
@@ -281,6 +282,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       studio: {},
       pattern: undefined,
       lastChatDir: undefined,
+      newConversation: {},
     })
 
     const [sidebarSource, setSidebarSource] = createStore<{ source: SidebarSource }>({
@@ -612,6 +614,10 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         studio: (dir: string) => lastSessionPerTab.studio[dir],
         setStudio(dir: string, id: string) {
           setLastSession("studio", dir, id)
+        },
+        newConversation: (tab: string) => lastSessionPerTab.newConversation[tab] ?? false,
+        setNewConversation(tab: string, value: boolean) {
+          setLastSession("newConversation", tab, value)
         },
       },
       sidebarSource: {

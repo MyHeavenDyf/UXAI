@@ -96,9 +96,9 @@ export type ElectronAPI = {
     baseDir?: string,
     sessionId?: string,
   ) => Promise<string>
-  /** SPEC-INS-014 v2(会话隔离):拷贝源文件进 <baseDir>/insight/uploads/(预会话落地区,撞名加后缀);返回落地路径 */
+  /** SPEC-INS-014 v2(会话隔离):拷贝源文件进 <baseDir>/.octo/tmps/(预会话落地区,撞名加后缀);返回落地路径 */
   copyFileToWorktree: (srcPath: string, baseDir: string, filename: string) => Promise<string>
-  /** SPEC-INS-014 §4.1.2(v2 新增):发送时把 insight/uploads/ 里的附件 rename 进 <baseDir>/insight/<sessionId>/uploads/ */
+  /** SPEC-INS-014 §4.1.2(v2 新增):发送时把 .octo/tmps/ 里的附件 rename 进 <baseDir>/.octo/<sessionId>/uploads/ */
   movePendingUploadToSession: (srcPath: string, baseDir: string, sessionId: string) => Promise<string>
   /** Electron 32+ 取拖拽/选取 File 的真实本地路径(File.path 已移除,改用 webUtils.getPathForFile) */
   getPathForFile: (file: File) => string
@@ -134,12 +134,15 @@ export type ElectronAPI = {
   saveUploadImage: (buffer: ArrayBuffer, sessionId: string) => Promise<string>
   getUploadsDir: () => Promise<string | null>
   setUploadsDir: (dir: string) => Promise<void>
-  /** insight markdown 编辑器自动保存:覆盖写本地文本文件(主进程校验路径在 insight/<sessionId>/{uploads,outputs}、旧 .octo/downloads 或临时目录下) */
+  /** insight markdown 编辑器自动保存:覆盖写本地文本文件(主进程校验路径在 .octo/<sessionId>/{uploads,outputs}、旧 .octo/downloads 或临时目录下) */
   writeFile: (path: string, content: string) => Promise<void>
   readFileBuffer: (path: string) => Promise<ArrayBuffer | null>
+  /** 轻量存在性预检：只 stat 不读盘，仅当路径是存在的普通文件时返回 true(不存在/目录/无权限均为 false) */
+  fileExists: (path: string) => Promise<boolean>
   deleteFile: (path: string) => Promise<void>
   writeClipboardText: (text: string) => Promise<void>
   capturePreviewRect: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
+  capturePreviewPage: (opts: { pageJson: unknown; waitForMs?: number }) => Promise<string | null>
   tailwindToCss: (className: string) => Promise<Record<string, string>>
   cssToTailwind: (cssObject: Record<string, unknown>) => Promise<string>
   getPreviewDistDir: () => Promise<string>
@@ -150,7 +153,7 @@ export type ElectronAPI = {
   getDesignSystems: () => Promise<string[]>
   downloadHuiCode: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[]) => Promise<{ files: { path: string; content: string }[] }>
   runPixsoBuild: (input: string) => Promise<string>
-  exportZip: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; comment?: string }) => Promise<string | null>
+  exportZip: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; destFolder?: string; comment?: string }) => Promise<string | null>
   importZip: () => Promise<{ name: string; content: string }[] | null>
   codeToHtml: (opts: { url: string; theme?: "light" | "dark"; waitForMs?: number }) => Promise<{ html: string; resourceCount: number }>
   listDirectory: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>

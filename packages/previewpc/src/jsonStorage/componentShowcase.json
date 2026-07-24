@@ -225,6 +225,71 @@
         "salary": "26000"
       }
     ],
+    "sortFilterTableData": [
+      {
+        "key": "sf1",
+        "name": "张三",
+        "age": 28,
+        "department": "研发部",
+        "position": "前端工程师",
+        "salary": 25000,
+        "status": "在职"
+      },
+      {
+        "key": "sf2",
+        "name": "李四",
+        "age": 32,
+        "department": "市场部",
+        "position": "产品经理",
+        "salary": 30000,
+        "status": "在职"
+      },
+      {
+        "key": "sf3",
+        "name": "王五",
+        "age": 26,
+        "department": "设计部",
+        "position": "UI设计师",
+        "salary": 20000,
+        "status": "休假"
+      },
+      {
+        "key": "sf4",
+        "name": "赵六",
+        "age": 35,
+        "department": "研发部",
+        "position": "后端工程师",
+        "salary": 28000,
+        "status": "在职"
+      },
+      {
+        "key": "sf5",
+        "name": "孙七",
+        "age": 29,
+        "department": "运营部",
+        "position": "运营主管",
+        "salary": 26000,
+        "status": "离职"
+      },
+      {
+        "key": "sf6",
+        "name": "周八",
+        "age": 24,
+        "department": "市场部",
+        "position": "市场专员",
+        "salary": 18000,
+        "status": "在职"
+      },
+      {
+        "key": "sf7",
+        "name": "吴九",
+        "age": 38,
+        "department": "研发部",
+        "position": "架构师",
+        "salary": 35000,
+        "status": "在职"
+      }
+    ],
     "dropdownMenu": [
       {
         "label": "编辑",
@@ -372,7 +437,9 @@
         "status": "休假",
         "detail": "王五，2022年加入公司，擅长用户界面设计与交互体验优化。"
       }
-    ]
+    ],
+    "paginationCurrent": 3,
+    "paginationTotal": 85
   },
   "rootId": "pageRoot",
   "elements": [
@@ -2477,7 +2544,8 @@
       "children": [
         "tableCardTitle",
         "tableRowDefault",
-        "tableRowExpandable"
+        "tableRowExpandable",
+        "tableRowSortFilter"
       ]
     },
     {
@@ -3205,8 +3273,7 @@
       },
       "children": [
         "inputNumberCardTitle",
-        "inputNumberRowDefault",
-        "inputNumberRowControls"
+        "inputNumberRowDefault"
       ]
     },
     {
@@ -3244,34 +3311,7 @@
         "placeholder": "请输入数字"
       }
     },
-    {
-      "id": "inputNumberRowControls",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-2"
-      },
-      "children": [
-        "inputNumberRowControlsLabel",
-        "inputNumberControls"
-      ]
-    },
-    {
-      "id": "inputNumberRowControlsLabel",
-      "component": "span",
-      "props": {
-        "value": "无控制器",
-        "className": "text-sm text-on-surface-variant"
-      }
-    },
-    {
-      "id": "inputNumberControls",
-      "component": "InputNumber",
-      "props": {
-        "value": 10,
-        "controls": false,
-        "step": 5
-      }
-    },
+
     {
       "id": "timePickerCard",
       "component": "div",
@@ -3768,8 +3808,7 @@
         "switchCardTitle",
         "switchRowDefault",
         "switchRowText",
-        "switchRowIcon",
-        "switchRowSizes"
+        "switchRowIcon"
       ]
     },
     {
@@ -3879,36 +3918,6 @@
         "checkedChildrenIcon": "check",
         "unCheckedChildrenIcon": "x"
       }
-    },
-    {
-      "id": "switchRowSizes",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-2"
-      },
-      "children": [
-        "switchRowSizesLabel",
-        "switchRowSizesContent"
-      ]
-    },
-    {
-      "id": "switchRowSizesLabel",
-      "component": "span",
-      "props": {
-        "value": "尺寸变体",
-        "className": "text-sm text-on-surface-variant"
-      }
-    },
-    {
-      "id": "switchRowSizesContent",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-4"
-      },
-      "children": [
-        "switchMedium",
-        "switchSmall"
-      ]
     },
     {
       "id": "switchMedium",
@@ -4043,6 +4052,7 @@
         "dropdownCard",
         "tabsCard",
         "stepsCard",
+        "paginationCard",
         "menuCard"
       ]
     },
@@ -4476,7 +4486,8 @@
         "stepsCardTitle",
         "stepsRowDefault",
         "stepsRowDot",
-        "stepsRowVertical"
+        "stepsRowVertical",
+        "stepsRowPanel"
       ]
     },
     {
@@ -4673,6 +4684,72 @@
       "props": {
         "title": "部署上线",
         "content": "生产环境发布",
+        "status": "wait"
+      }
+    },
+    {
+      "id": "stepsRowPanel",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "stepsRowPanelLabel",
+        "stepsPanel"
+      ]
+    },
+    {
+      "id": "stepsRowPanelLabel",
+      "component": "span",
+      "props": {
+        "value": "面板步骤条",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "stepsPanel",
+      "component": "Steps",
+      "props": {
+        "current": 1,
+        "types": "panel",
+        "className": "w-full"
+      },
+      "children": [
+        "stepPanelItem1",
+        "stepPanelItem2",
+        "stepPanelItem3",
+        "stepPanelItem4"
+      ]
+    },
+    {
+      "id": "stepPanelItem1",
+      "component": "StepItem",
+      "props": {
+        "title": "立项",
+        "status": "finish"
+      }
+    },
+    {
+      "id": "stepPanelItem2",
+      "component": "StepItem",
+      "props": {
+        "title": "开发",
+        "status": "process"
+      }
+    },
+    {
+      "id": "stepPanelItem3",
+      "component": "StepItem",
+      "props": {
+        "title": "测试",
+        "status": "wait"
+      }
+    },
+    {
+      "id": "stepPanelItem4",
+      "component": "StepItem",
+      "props": {
+        "title": "上线",
         "status": "wait"
       }
     },
@@ -5030,6 +5107,157 @@
       }
     },
     {
+      "id": "tableRowSortFilter",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tableRowSortFilterLabel",
+        "tableSortFilter"
+      ]
+    },
+    {
+      "id": "tableRowSortFilterLabel",
+      "component": "span",
+      "props": {
+        "value": "排序与筛选",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tableSortFilter",
+      "component": "Table",
+      "props": {
+        "rowKey": "key",
+        "columns": [
+          {
+            "title": "姓名",
+            "dataIndex": "name",
+            "width": 100
+          },
+          {
+            "title": "年龄",
+            "dataIndex": "age",
+            "sort": true,
+            "minWidth": 80
+          },
+          {
+            "title": "部门",
+            "dataIndex": "department",
+            "filters": [
+              { "text": "研发部", "value": "研发部" },
+              { "text": "市场部", "value": "市场部" },
+              { "text": "设计部", "value": "设计部" },
+              { "text": "运营部", "value": "运营部" }
+            ],
+            "minWidth": 100
+          },
+          {
+            "title": "职位",
+            "dataIndex": "position",
+            "minWidth": 120
+          },
+          {
+            "title": "薪资",
+            "dataIndex": "salary",
+            "sort": true,
+            "minWidth": 100
+          },
+          {
+            "title": "状态",
+            "dataIndex": "status",
+            "filters": [
+              { "text": "在职", "value": "在职" },
+              { "text": "休假", "value": "休假" },
+              { "text": "离职", "value": "离职" }
+            ],
+            "minWidth": 80
+          }
+        ],
+        "dataSource": {
+          "path": "/sortFilterTableData"
+        },
+        "pagination": false
+      },
+      "children": {
+        "componentId": "tableSortFilterRowTpl",
+        "path": "/sortFilterTableData"
+      }
+    },
+    {
+      "id": "tableSortFilterRowTpl",
+      "component": "TableRow",
+      "children": [
+        "sortFilterCellName",
+        "sortFilterCellAge",
+        "sortFilterCellDept",
+        "sortFilterCellPosition",
+        "sortFilterCellSalary",
+        "sortFilterCellStatus"
+      ]
+    },
+    {
+      "id": "sortFilterCellName",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "name"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "sortFilterCellAge",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "age"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "sortFilterCellDept",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "department"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "sortFilterCellPosition",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "position"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "sortFilterCellSalary",
+      "component": "span",
+      "props": {
+        "value": {
+          "path": "salary"
+        },
+        "className": ""
+      }
+    },
+    {
+      "id": "sortFilterCellStatus",
+      "component": "Tag",
+      "props": {
+        "value": {
+          "path": "status"
+        },
+        "color": "default"
+      }
+    },
+    {
       "id": "tableDefault",
       "component": "Table",
       "props": {
@@ -5205,6 +5433,53 @@
       }
     },
     {
+      "id": "paginationCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "paginationCardTitle",
+        "paginationRowShowTotal"
+      ]
+    },
+    {
+      "id": "paginationCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Pagination 分页",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "paginationRowShowTotal",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "paginationRowShowTotalLabel",
+        "paginationShowTotal"
+      ]
+    },
+    {
+      "id": "paginationRowShowTotalLabel",
+      "component": "span",
+      "props": {
+        "value": "显示总数",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "paginationShowTotal",
+      "component": "Pagination",
+      "props": {
+        "current": 3,
+        "total": 85,
+        "showTotal": true
+      }
+    },
+    {
       "id": "menuCard",
       "component": "div",
       "props": {
@@ -5250,10 +5525,12 @@
       "props": {
         "mode": "vertical",
         "selectedKeys": [
-          "home"
+          "userList"
         ],
         "openKeys": [
-          "system"
+          "system",
+          "content",
+          "user"
         ],
         "className": "w-54",
         "items": [
@@ -5269,11 +5546,31 @@
             "children": [
               {
                 "key": "user",
-                "title": "用户管理"
+                "title": "用户管理",
+                "children": [
+                  {
+                    "key": "userList",
+                    "title": "用户列表"
+                  },
+                  {
+                    "key": "userAudit",
+                    "title": "用户审核"
+                  }
+                ]
               },
               {
                 "key": "role",
-                "title": "角色管理"
+                "title": "角色管理",
+                "children": [
+                  {
+                    "key": "roleConfig",
+                    "title": "角色配置"
+                  },
+                  {
+                    "key": "roleAssign",
+                    "title": "角色分配"
+                  }
+                ]
               },
               {
                 "key": "permission",
@@ -5289,7 +5586,17 @@
               {
                 "key": "article",
                 "title": "文章管理",
-                "icon": "file-text"
+                "icon": "file-text",
+                "children": [
+                  {
+                    "key": "articlePublish",
+                    "title": "文章发布"
+                  },
+                  {
+                    "key": "articleAudit",
+                    "title": "文章审核"
+                  }
+                ]
               },
               {
                 "key": "category",

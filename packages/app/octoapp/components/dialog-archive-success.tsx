@@ -35,7 +35,9 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
             <div class="dialog-archive-success-header">
               <h3>归档成功</h3>
               <button type="button" class="dialog-close-btn" onClick={props.onClose}>
-                ✕
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 4L4 12M4 4L12 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
               </button>
             </div>
             <div class="dialog-archive-success-body">
@@ -45,11 +47,11 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
             </div>
             <div class="dialog-archive-success-footer">
               <Show when={props.shareLink}>
-                <button type="button" class="btn-secondary" onClick={handleCopyLink}>
+                <button type="button" class="dialog-btn-secondary" onClick={handleCopyLink}>
                   复制链接
                 </button>
               </Show>
-              <button type="button" class="btn-primary" onClick={handleView}>
+              <button type="button" class="dialog-btn-primary" onClick={handleView}>
                 跳转查看
               </button>
             </div>
@@ -70,7 +72,7 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
             border-radius: 12px;
             width: 400px;
             max-width: 90vw;
-            box-shadow: var(--octo-shadow-lg);
+            box-shadow: 0 16px 48px 0 rgba(0, 0, 0, 0.16);
             animation: dialog-slide-in 0.2s ease-out;
           }
           @keyframes dialog-slide-in {
@@ -87,14 +89,14 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 16px 20px;
-            border-bottom: 1px solid var(--octo-border-default);
+            padding: 20px 24px 0;
           }
           .dialog-archive-success-header h3 {
             margin: 0;
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--octo-text-primary);
+            font-size: 14px;
+            line-height: 22px;
+            font-weight: bold;
+            color: rgba(0, 0, 0, 0.9);
           }
           .dialog-close-btn {
             width: 28px;
@@ -105,65 +107,77 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
             border: none;
             background: transparent;
             cursor: pointer;
-            color: var(--octo-text-secondary);
-            font-size: 16px;
+            color: rgba(0, 0, 0, 0.6);
             border-radius: 4px;
           }
           .dialog-close-btn:hover {
-            background: var(--octo-surface-hover);
+            background: rgba(0, 0, 0, 0.05);
           }
           .dialog-archive-success-body {
-            padding: 20px;
+            padding: 16px 24px;
           }
           .archive-path-label {
             margin: 0 0 8px;
             font-size: 14px;
-            color: var(--octo-text-secondary);
+            line-height: 22px;
+            color: rgba(0, 0, 0, 0.9);
           }
           .archive-path-value {
             margin: 0 0 12px;
             font-size: 14px;
-            color: var(--octo-text-primary);
-            font-weight: 500;
-            background: var(--octo-surface-subtle);
+            line-height: 22px;
+            color: rgba(0, 0, 0, 0.9);
+            background: rgba(0, 0, 0, 0.03);
             padding: 8px 12px;
-            border-radius: 6px;
+            border-radius: 8px;
           }
           .archive-hint {
             margin: 0;
-            font-size: 13px;
-            color: var(--octo-text-secondary);
+            font-size: 14px;
+            line-height: 22px;
+            color: rgba(0, 0, 0, 0.9);
           }
           .dialog-archive-success-footer {
             display: flex;
             justify-content: flex-end;
-            gap: 12px;
-            padding: 16px 20px;
-            border-top: 1px solid var(--octo-border-default);
+            gap: 8px;
+            padding: 8px 24px 24px;
           }
-          .btn-primary {
-            padding: 8px 16px;
+          .dialog-btn-primary {
+            height: 32px;
+            padding: 0 16px;
+            min-width: 88px;
             border: none;
-            border-radius: 6px;
+            border-radius: 999px;
             font-size: 14px;
+            line-height: 22px;
             cursor: pointer;
-            background: var(--octo-accent-primary);
+            background: #0a59f7;
             color: white;
           }
-          .btn-primary:hover {
-            opacity: 0.9;
+          .dialog-btn-primary:hover {
+            background: #0950de;
           }
-          .btn-secondary {
-            padding: 8px 16px;
-            border: 1px solid var(--octo-border-default);
-            border-radius: 6px;
+          .dialog-btn-primary:active {
+            background: #0a55eb;
+          }
+          .dialog-btn-secondary {
+            height: 32px;
+            padding: 0 16px;
+            min-width: 88px;
+            border: none;
+            border-radius: 999px;
             font-size: 14px;
+            line-height: 22px;
             cursor: pointer;
-            background: var(--octo-surface-page, #ffffff);
-            color: var(--octo-text-primary);
+            background: #f3f3f3;
+            color: #191919;
           }
-          .btn-secondary:hover {
-            background: var(--octo-surface-hover);
+          .dialog-btn-secondary:hover {
+            background: #dfdfdf;
+          }
+          .dialog-btn-secondary:active {
+            background: #dfdfdf;
           }
         `}</style>
       </Portal>
