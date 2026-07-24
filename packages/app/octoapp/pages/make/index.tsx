@@ -3,6 +3,7 @@ import "./components/slash-popover.css"
 import { type MentionSelection } from "./components/mention-popover"
 import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc } from "./components/prosemirror-editor"
 import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
+import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import {
   fetchArtifactList,
@@ -845,11 +846,15 @@ const sessionMessagesLoaded = createMemo(() => {
     setSkillsLoading(true)
 
     try {
-      const api = (window as unknown as { api?: { getSkillConfig?: () => Promise<SkillConfig> } }).api
-      const config = await api?.getSkillConfig?.()
-      if (config) {
-        setSkillConfig(config)
-      }
+      const platformSkills = await loadSkillsFromPanel("octo_make")
+      const customSkills = await loadSkillsFromPanel("common")
+      
+      setSkillConfig({
+        panel: {
+          octo_make: platformSkills,
+          common: customSkills
+        }
+      })
     } catch (err) {
       console.error("[MakePage] Failed to load skill config:", err)
     } finally {
