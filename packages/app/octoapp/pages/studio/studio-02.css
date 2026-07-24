@@ -1122,7 +1122,10 @@
 }
 
 .studio-result-card.failed {
-  border-color: rgba(180, 35, 24, 0.18);
+  min-height: 0;
+}
+.studio-result-card.failed .studio-result-progress-preview {
+  min-height: 0;
 }
 
 .studio-result-badge {

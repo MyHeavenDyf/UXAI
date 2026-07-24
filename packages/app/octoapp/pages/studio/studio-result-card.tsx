@@ -175,10 +175,13 @@ export function StudioResultCard(props: StudioResultCardProps) {
       </Show>
       <div class="studio-result-progress-preview">
         <Show when={status() === "failed" || status() === "create_failed"}>
-          <div class="studio-result-error">
-            {props.turn.toolError ??
-              props.turn.result?.error ??
-              (status() === "create_failed" ? "任务创建失败，请检查网络或稍后再试" : "生成失败")}
+          <div class="studio-result-error-box">
+            <img class="studio-result-error-icon" src="/studio/studio-result-error.svg" />
+            <div class="studio-result-error">
+              {props.turn.toolError ??
+                props.turn.result?.error ??
+                (status() === "create_failed" ? "任务创建失败，请检查网络或稍后再试" : "生成失败")}
+            </div>
           </div>
         </Show>
         <Show when={status() === "succeeded" && props.turn.result?.images.length}>

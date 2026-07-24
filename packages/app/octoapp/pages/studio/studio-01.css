@@ -403,7 +403,7 @@
   top: 0;
   width: 52px;
   height: 64px;
-  z-index: calc(10 - var(--ref-index));
+  z-index: calc(var(--ref-index) + 1);
   transform: rotate(var(--ref-rotate));
   transform-origin: center center;
   transition: transform 160ms ease;
@@ -470,7 +470,7 @@
   opacity: 0.45;
 }
 
-.studio-composer-ref-slot.filled .studio-composer-ref-btn {
+.studio-composer-ref-slot.filled .studio-composer-ref-btn:not(.studio-composer-ref-add) {
   width: 52px;
   height: 64px;
   overflow: hidden;
@@ -493,15 +493,17 @@
   height: 12px;
   display: grid;
   place-items: center;
-  border-radius: 999px;
-  background: rgba(8, 12, 20, 0.94);
-  color: #fff;
-  font-size: 8px;
-  line-height: 8px;
+  background: transparent;
   opacity: 0;
   transform: scale(0.9);
   transition: opacity 140ms ease, transform 140ms ease;
   z-index: 2;
+}
+
+.studio-composer-ref-remove-icon {
+  width: 12px;
+  height: 12px;
+  display: block;
 }
 
 .studio-composer-ref-item:hover .studio-composer-ref-remove,
