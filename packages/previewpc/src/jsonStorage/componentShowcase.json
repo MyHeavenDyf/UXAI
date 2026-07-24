@@ -3273,8 +3273,7 @@
       },
       "children": [
         "inputNumberCardTitle",
-        "inputNumberRowDefault",
-        "inputNumberRowControls"
+        "inputNumberRowDefault"
       ]
     },
     {
@@ -3312,34 +3311,7 @@
         "placeholder": "请输入数字"
       }
     },
-    {
-      "id": "inputNumberRowControls",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-2"
-      },
-      "children": [
-        "inputNumberRowControlsLabel",
-        "inputNumberControls"
-      ]
-    },
-    {
-      "id": "inputNumberRowControlsLabel",
-      "component": "span",
-      "props": {
-        "value": "无控制器",
-        "className": "text-sm text-on-surface-variant"
-      }
-    },
-    {
-      "id": "inputNumberControls",
-      "component": "InputNumber",
-      "props": {
-        "value": 10,
-        "controls": false,
-        "step": 5
-      }
-    },
+
     {
       "id": "timePickerCard",
       "component": "div",
@@ -3836,8 +3808,7 @@
         "switchCardTitle",
         "switchRowDefault",
         "switchRowText",
-        "switchRowIcon",
-        "switchRowSizes"
+        "switchRowIcon"
       ]
     },
     {
@@ -3947,36 +3918,6 @@
         "checkedChildrenIcon": "check",
         "unCheckedChildrenIcon": "x"
       }
-    },
-    {
-      "id": "switchRowSizes",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-2"
-      },
-      "children": [
-        "switchRowSizesLabel",
-        "switchRowSizesContent"
-      ]
-    },
-    {
-      "id": "switchRowSizesLabel",
-      "component": "span",
-      "props": {
-        "value": "尺寸变体",
-        "className": "text-sm text-on-surface-variant"
-      }
-    },
-    {
-      "id": "switchRowSizesContent",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-4"
-      },
-      "children": [
-        "switchMedium",
-        "switchSmall"
-      ]
     },
     {
       "id": "switchMedium",
@@ -4545,7 +4486,8 @@
         "stepsCardTitle",
         "stepsRowDefault",
         "stepsRowDot",
-        "stepsRowVertical"
+        "stepsRowVertical",
+        "stepsRowPanel"
       ]
     },
     {
@@ -4742,6 +4684,72 @@
       "props": {
         "title": "部署上线",
         "content": "生产环境发布",
+        "status": "wait"
+      }
+    },
+    {
+      "id": "stepsRowPanel",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "stepsRowPanelLabel",
+        "stepsPanel"
+      ]
+    },
+    {
+      "id": "stepsRowPanelLabel",
+      "component": "span",
+      "props": {
+        "value": "面板步骤条",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "stepsPanel",
+      "component": "Steps",
+      "props": {
+        "current": 1,
+        "types": "panel",
+        "className": "w-full"
+      },
+      "children": [
+        "stepPanelItem1",
+        "stepPanelItem2",
+        "stepPanelItem3",
+        "stepPanelItem4"
+      ]
+    },
+    {
+      "id": "stepPanelItem1",
+      "component": "StepItem",
+      "props": {
+        "title": "立项",
+        "status": "finish"
+      }
+    },
+    {
+      "id": "stepPanelItem2",
+      "component": "StepItem",
+      "props": {
+        "title": "开发",
+        "status": "process"
+      }
+    },
+    {
+      "id": "stepPanelItem3",
+      "component": "StepItem",
+      "props": {
+        "title": "测试",
+        "status": "wait"
+      }
+    },
+    {
+      "id": "stepPanelItem4",
+      "component": "StepItem",
+      "props": {
+        "title": "上线",
         "status": "wait"
       }
     },
@@ -5517,10 +5525,12 @@
       "props": {
         "mode": "vertical",
         "selectedKeys": [
-          "home"
+          "userList"
         ],
         "openKeys": [
-          "system"
+          "system",
+          "content",
+          "user"
         ],
         "className": "w-54",
         "items": [
@@ -5536,11 +5546,31 @@
             "children": [
               {
                 "key": "user",
-                "title": "用户管理"
+                "title": "用户管理",
+                "children": [
+                  {
+                    "key": "userList",
+                    "title": "用户列表"
+                  },
+                  {
+                    "key": "userAudit",
+                    "title": "用户审核"
+                  }
+                ]
               },
               {
                 "key": "role",
-                "title": "角色管理"
+                "title": "角色管理",
+                "children": [
+                  {
+                    "key": "roleConfig",
+                    "title": "角色配置"
+                  },
+                  {
+                    "key": "roleAssign",
+                    "title": "角色分配"
+                  }
+                ]
               },
               {
                 "key": "permission",
@@ -5556,7 +5586,17 @@
               {
                 "key": "article",
                 "title": "文章管理",
-                "icon": "file-text"
+                "icon": "file-text",
+                "children": [
+                  {
+                    "key": "articlePublish",
+                    "title": "文章发布"
+                  },
+                  {
+                    "key": "articleAudit",
+                    "title": "文章审核"
+                  }
+                ]
               },
               {
                 "key": "category",
