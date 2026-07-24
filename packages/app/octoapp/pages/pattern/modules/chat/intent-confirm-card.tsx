@@ -1,5 +1,7 @@
 import { createMemo, createSignal, For, Show, type JSX } from "solid-js"
+import { showToast } from "@opencode-ai/ui/toast"
 import type { IntentConfirmDimension, IntentConfirmResult } from "../../agents/proto-intent-confirm"
+import { readPagePatternMd } from "../../utils/pattern-resource"
 import type { PatternMatchItem } from "../../utils/pattern-resource"
 import "../../assets/style/chat/intent-confirm-card.css"
 
@@ -25,9 +27,18 @@ export function IntentConfirmCard(props: {
   // 预览模态框的图片 URL（点击放大缩略图时设置，null 表示关闭）
   const [previewModalUrl, setPreviewModalUrl] = createSignal<string | null>(null)
 
-  // page pattern 步骤点「下一步」/「跳过」：把选中的 item（或 null）传给回调
-  function handleBlockPatterns() {
-    const selected = props.result.results.find(r => r.id === selectedPatternId()) ?? null
+  // page pattern 步骤点「下一步」/「跳过」：拉取选中 item 的 md 文档，放到 content 上再传给回调
+  async function handleBlockPatterns() {
+    const found = props.result.results.find(r => r.id === selectedPatternId()) ?? null
+    let selected = found
+    if (found?.file) {
+      const mdResult = await readPagePatternMd(found.file)
+      if (mdResult.success && mdResult.content) {
+        selected = { ...found, content: mdResult.content }
+      } else {
+        showToast({ title: "请求Pattern资源失败" })
+      }
+    }
     props.onMatchPattern(selected)
     setStep("blocks")
   }

@@ -135,6 +135,7 @@ function PatternContent() {
         // ── 2. 无条件同步重置（仅重置当前视图状态，各 session 独立数据保留在 map 中）──
         setChildSessionIDs([])
         setSessionSynced(false)
+        setCardInitialStep(undefined)
         discoverVersion++
         previewApi.sendToPreview(null)
         if (id) delete lastSentPreviewJson[id]
@@ -570,7 +571,8 @@ function PatternContent() {
         if (ckpt.stage === "intent_confirm") {
           // intent_confirm 报错，先重跑意图确认
           const confirmResult = await create_intent_confirm(intentCtx)
-          // 无论是否匹配到 Pattern，都弹卡片暂停；空结果时卡片显示「未匹配到」+ 重新匹配
+          setCardInitialStep(undefined)
+          // 无论是否匹配到 Pattern，都弹卡片暂停；空结果时卡片显示「未匹配到」+ 跳过
           sessionMap.set(setUserInput, sid, text)
           sessionMap.set(setIntentConfirm, sid, confirmResult)
           startPause(sid)
@@ -785,7 +787,8 @@ function PatternContent() {
         if (!sendingSids().has(sid!)) return
         const confirmResult = await create_intent_confirm(intentCtx)
         void saveDebugSnapshot(patternHistoryDir(), sid!, "intent_confirm")
-        // 无论是否匹配到 Pattern，都弹卡片暂停；空结果时卡片显示「未匹配到」+ 重新匹配
+        setCardInitialStep(undefined)
+        // 无论是否匹配到 Pattern，都弹卡片暂停；空结果时卡片显示「未匹配到」+ 跳过
         if (sid) sessionMap.set(setUserInput, sid!, intentCtx.userInput)
         if (sid) sessionMap.set(setIntentConfirm, sid!, confirmResult)
         startPause(sid!)

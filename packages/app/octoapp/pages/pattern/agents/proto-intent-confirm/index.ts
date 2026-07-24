@@ -3,6 +3,7 @@ import { runChildSession } from '../run-child-session'
 import { logAgentParsed } from '../../utils/debug-log'
 import { INTENT_CONFIRM_FORMAT } from './schema'
 import { agentThrow } from '../../utils/error-msg'
+import { getPagePatternResource } from '../../utils/pattern-resource'
 
 const AGENT_NAME = "proto_intent_confirm"
 
@@ -12,6 +13,7 @@ export type IntentConfirmDimension = {
   score: number
   file?: string
   preview?: string
+  content?: string
 }
 
 export type IntentConfirmResult = {
@@ -51,41 +53,9 @@ export default async function proto_intent_confirm(input: ProtoIntentConfirmInpu
     agentThrow(AGENT_NAME, result.childSessionId, "Intent Confirm did not return valid JSON")
   }
   // 访问云端向量数据库，补充文档和预览图资源
-  // 此处模拟补充完的信息状态，后续会编写真的信息补充接口，还要写接口访问报错的throw error机制？待定
-  json = {
-    "results": [
-        {
-            "id": "966",
-            "name": "管理页-表格模式",
-            "score": 88,
-            "file": "https://xx.xx.com/acada.md",
-            "preview": "https://gips2.baidu.com/it/u=195724436,3554684702&fm=3028&app=3028&f=JPEG&fmt=auto?w=1280&h=960"
-        },
-        {
-            "id": "1017",
-            "name": "管理页-卡片模式",
-            "score": 85,
-            "file": "https://xx.xx.com/acada.md",
-            "preview": "https://gips2.baidu.com/it/u=195724436,3554684702&fm=3028&app=3028&f=JPEG&fmt=auto?w=1280&h=960"
-        },
-        {
-            "id": "1021",
-            "name": "详情页-页面级详情",
-            "score": 45,
-            "file": "https://xx.xx.com/acada.md",
-            "preview": "https://gips2.baidu.com/it/u=195724436,3554684702&fm=3028&app=3028&f=JPEG&fmt=auto?w=1280&h=960"
-        },
-        {
-            "id": "1022",
-            "name": "详情页-抽屉级详情",
-            "score": 42,
-            "file": "https://xx.xx.com/acada.md",
-            "preview": "https://gips2.baidu.com/it/u=195724436,3554684702&fm=3028&app=3028&f=JPEG&fmt=auto?w=1280&h=960"
-        }
-    ]
-}
+  const enriched = await getPagePatternResource(json)
   const returnValue: IntentConfirmResult = {
-    results: json.results ?? [],
+    results: (enriched.results ?? []) as IntentConfirmDimension[],
     current_step: "intent_confirm",
   }
   logAgentParsed(result.childSessionId, returnValue)
