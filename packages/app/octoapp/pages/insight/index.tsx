@@ -69,6 +69,7 @@ import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
 import { showToast } from "@opencode-ai/ui/toast"
 import { extToOutputType } from "./utils/write-output"
+import { isPendingUploadPath } from "./utils/local-file"
 import type { InsightFile, InsightFileEntry } from "./utils/insight-file-api"
 import { mimeForName, pathToLocalUrl } from "./utils/insight-file-api"
 
@@ -157,14 +158,6 @@ function readLastSession(): { dir: string; id: string } | undefined {
   } catch { /* 历史格式/损坏 → 视为无记录 */ }
   return undefined
 }
-// SPEC-INS-014 §4.1.2(v2 会话隔离新增):判断附件本地路径是否还落在预会话落地区
-// .octo/tmps/(而非已经 rename 进 .octo/<sessionId>/uploads/)——发送时用来决定要不要挪。
-function isPendingUploadPath(path: string): boolean {
-  const segs = path.split(/[\\/]/)
-  const i = segs.lastIndexOf("insight")
-  return i !== -1 && segs[i + 1] === "uploads"
-}
-
 // 每次整页加载只恢复一次(模块级,页面 reload 时自然重置);避免 keyed 重挂导致重复跳转。
 let didBootRestore = false
 // 上次挂载 InsightContent 时的目录:keyed 重挂时与之对比,检测"用户切了项目目录"。

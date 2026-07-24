@@ -29,3 +29,11 @@ export function defaultFilename(tab: {
 export function ensureMarkdownExt(name: string): string {
   return /\.(md|markdown|mdown|mkd)$/i.test(name) ? name : `${name}.md`
 }
+
+/** 附件本地路径是否还在预会话落地区 `<projectDir>/.octo/tmps/`(SPEC-INS-014 §4.1.2)——
+ *  发送时据此决定要不要 rename 进 `.octo/<sessionId>/uploads/`。已归属会话的返回 false,不重复挪。 */
+export function isPendingUploadPath(filePath: string): boolean {
+  const segs = filePath.split(/[\\/]/)
+  const i = segs.lastIndexOf(".octo")
+  return i !== -1 && segs[i + 1] === "tmps"
+}
