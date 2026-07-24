@@ -14,10 +14,13 @@ export function cleanBridgeContent(html: string): string {
     // 2. Remove all bridge style tags (including content)
     .replace(/<style\s+data-od-[a-z-]+[^>]*>[\s\S]*?<\/style>/gi, '')
     
-    // 3. Remove all data-od-* attributes from elements
+    // 3. Remove comment pin elements
+    .replace(/<div[^>]*data-od-comment-pin[^>]*>[\s\S]*?<\/div>/gi, '')
+    
+    // 4. Remove all data-od-* attributes from elements
     .replace(/\s+data-od-[a-z-]+(?:="[^"]*")?/gi, '')
     
-    // 4. Clean empty script/style tags that might remain
+    // 5. Clean empty script/style tags that might remain
     .replace(/<script><\/script>/gi, '')
     .replace(/<style><\/style>/gi, '')
 }
