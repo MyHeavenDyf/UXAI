@@ -49,7 +49,7 @@
 					"oneOf": [
 						{
 							"type": "string",
-							"pattern": "^(success|primary|error|default|warning|critical|inverse|#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3}))$"
+							"enum": ["default", "info", "error", "alert", "warning", "success", "disabled", "brand", "HOS", "rose", "pink", "purple", "indigo", "cyan", "green"]
 						},
 						{
 							"$ref": "#/$defs/DataBinding"
