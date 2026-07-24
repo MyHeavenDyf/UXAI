@@ -1,4 +1,5 @@
-import { createSignal, Show, For } from 'solid-js'
+import { createSignal, createEffect, Show, For, onCleanup } from 'solid-js'
+import { Portal } from 'solid-js/web'
 import type { ManualEditTarget, ManualEditStyles, ManualEditPatch } from '../../edit-mode/source-patches'
 import { emptyManualEditStyles } from '../../edit-mode/source-patches'
 import './manual-edit-panel.css'
@@ -62,11 +63,39 @@ export function ManualEditPanel(props: {
   const [confirmDelete, setConfirmDelete] = createSignal(false)
   const [uploadingImage, setUploadingImage] = createSignal(false)
   let fileInputRef: HTMLInputElement | undefined
+  let panelRef: HTMLElement | undefined
+
+  const updatePanelMaxHeight = () => {
+    if (!panelRef || !props.floatingStyle) return
+    const parent = panelRef.parentElement
+    if (!parent) return
+    const parentRect = parent.getBoundingClientRect()
+    const panelTop = props.floatingStyle.top
+    const available = parentRect.height - panelTop - 12
+    panelRef.style.maxHeight = `${Math.max(100, available)}px`
+  }
+
+  createEffect(() => {
+    if (props.floatingStyle) updatePanelMaxHeight()
+  })
   
   const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
   
+  const interactive = (target: EventTarget | null) => {
+    if (!(target instanceof Element)) return false
+    const selector =
+      "button, a, input, textarea, select, option, [role='button'], [role='menuitem'], [contenteditable='true'], [contenteditable='']"
+    return !!target.closest(selector)
+  }
+  
+  const isDragHandle = (target: EventTarget | null) => {
+    if (!(target instanceof Element)) return false
+    return !!target.closest('.manual-edit-drag-handle')
+  }
+  
   const startPanelDrag = (event: PointerEvent) => {
     if (!props.onFloatingPositionChange) return
+    if (interactive(event.target) && !isDragHandle(event.target)) return
     event.preventDefault()
     event.stopPropagation()
     
@@ -88,14 +117,32 @@ export function ManualEditPanel(props: {
     const maxLeft = Math.max(pad, parentRect.width - panelRect.width - pad)
     const maxTop = Math.max(pad, parentRect.height - panelRect.height - pad)
     
+    let rafId: number | null = null
+    let pendingLeft = startLeft
+    let pendingTop = startTop
+    
+    const updatePosition = () => {
+      rafId = null
+      props.onFloatingPositionChange!({ left: pendingLeft, top: pendingTop })
+      if (panelRef) {
+        const available = parentRect.height - pendingTop - 12
+        panelRef.style.maxHeight = `${Math.max(100, available)}px`
+      }
+    }
+    
     const move = (moveEvent: PointerEvent) => {
-      props.onFloatingPositionChange!({
-        left: clamp(startLeft + moveEvent.clientX - startX, pad, maxLeft),
-        top: clamp(startTop + moveEvent.clientY - startY, pad, maxTop)
-      })
+      pendingLeft = clamp(startLeft + moveEvent.clientX - startX, pad, maxLeft)
+      pendingTop = clamp(startTop + moveEvent.clientY - startY, pad, maxTop)
+      if (rafId === null) {
+        rafId = requestAnimationFrame(updatePosition)
+      }
     }
     
     const up = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId)
+        rafId = null
+      }
       try { target.releasePointerCapture(event.pointerId) } catch { /* noop */ }
       target.removeEventListener('pointermove', move)
       target.removeEventListener('pointerup', up)
@@ -160,7 +207,8 @@ export function ManualEditPanel(props: {
   }
 
   return (
-    <aside 
+    <aside
+      ref={panelRef}
       class={`manual-edit-right${props.floatingStyle ? ' manual-edit-floating' : ''}`}
       style={props.floatingStyle ? { 
         left: `${props.floatingStyle.left}px`, 
@@ -169,8 +217,8 @@ export function ManualEditPanel(props: {
         bottom: 'auto'
       } : undefined}
     >
-      <section class="manual-edit-modal cc-panel">
-        <div class="manual-edit-titlebar">
+      <section class="manual-edit-modal cc-panel octo-thin-scroll">
+        <div class="manual-edit-titlebar" onPointerDown={startPanelDrag}>
           {/* 拖拽按钮（只在floating模式下显示） */}
           <Show when={props.floatingStyle}>
             <button
@@ -178,7 +226,7 @@ export function ManualEditPanel(props: {
               class="manual-edit-drag-handle"
               aria-label="Move panel"
               title="Move panel"
-              onPointerDown={startPanelDrag}
+              onPointerDown={(e) => { e.stopPropagation(); startPanelDrag(e) }}
             >
               ⋮⋮
             </button>
@@ -194,12 +242,14 @@ export function ManualEditPanel(props: {
               title="Close panel"
               onClick={props.onExit}
             >
-              ✕
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 4L4 12M4 4L12 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
             </button>
           </Show>
         </div>
 
-        <div class="manual-edit-scroll">
+        <div class="manual-edit-scroll octo-thin-scroll">
           <Show when={props.selectedTarget}>
             {/* ★ Href input for link elements (separate from TEXT section) */}
             <Show when={props.selectedTarget!.kind === 'link'}>
@@ -277,7 +327,12 @@ export function ManualEditPanel(props: {
                     disabled={props.busy}
                     onClick={() => setConfirmDelete(true)}
                   >
-                    🗑
+                    <svg width="16" height="16" viewBox="0 0 13.0068 14.5867" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M4.48 3.08667C4.60889 3.08667 4.72222 3.03778 4.82 2.94C4.91333 2.84667 4.96 2.72889 4.96 2.58667C4.96 2.30222 5.03333 2.03333 5.18 1.78C5.32222 1.53111 5.51778 1.33333 5.76667 1.18667C6.02 1.04444 6.29111 0.973333 6.58 0.973333C6.86445 0.973333 7.13333 1.04444 7.38667 1.18667C7.63556 1.33333 7.83333 1.53111 7.98 1.78C8.12222 2.03333 8.19333 2.30222 8.19333 2.58667C8.19333 2.72889 8.24222 2.84667 8.34 2.94C8.43333 3.03778 8.54889 3.08667 8.68667 3.08667L12.5133 3.08667C12.6511 3.08667 12.7689 3.03778 12.8667 2.94C12.96 2.84667 13.0067 2.72889 13.0067 2.58667C13.0067 2.44889 12.96 2.33333 12.8667 2.24C12.7689 2.14222 12.6511 2.09333 12.5133 2.09333L9.12 2.09333C9.01333 1.49778 8.72 1 8.24 0.6C7.76 0.2 7.2 0 6.56 0C5.93333 0 5.38222 0.2 4.90667 0.6C4.43111 1 4.13556 1.49778 4.02 2.09333L0.5 2.09333C0.357778 2.09333 0.24 2.14222 0.146667 2.24C0.0488889 2.33333 0 2.44889 0 2.58667C0 2.72889 0.0488889 2.84667 0.146667 2.94C0.24 3.03778 0.357778 3.08667 0.5 3.08667L4.48 3.08667Z" fill="currentColor" fill-rule="nonzero" />
+                      <path d="M7.74667 11.3867C7.88444 11.3867 8.00222 11.3422 8.1 11.2533C8.19333 11.1644 8.24667 11.0489 8.26 10.9067L8.42 6C8.42889 5.85778 8.38222 5.73778 8.28 5.64C8.17778 5.53778 8.05778 5.48 7.92 5.46667C7.79111 5.46667 7.68 5.51333 7.58667 5.60667C7.48889 5.69556 7.44 5.80889 7.44 5.94667L7.24667 10.86C7.23778 10.9978 7.28444 11.1178 7.38667 11.22C7.48889 11.3222 7.60889 11.3778 7.74667 11.3867Z" fill="currentColor" fill-rule="nonzero" />
+                      <path d="M5.3 11.3867C5.43778 11.3778 5.55778 11.3222 5.66 11.22C5.75778 11.1178 5.80222 10.9978 5.79333 10.86L5.58667 5.94667C5.58667 5.80889 5.54 5.69556 5.44667 5.60667C5.35778 5.51333 5.23778 5.46667 5.08667 5.46667C4.94889 5.48 4.83333 5.53778 4.74 5.64C4.64222 5.73778 4.59778 5.85778 4.60667 6L4.78667 10.9067C4.80889 11.0489 4.86444 11.1644 4.95333 11.2533C5.04222 11.3422 5.15778 11.3867 5.3 11.3867Z" fill="currentColor" fill-rule="nonzero" />
+                      <path d="M10.2067 12.7667C10.1756 13.0111 10.0756 13.2111 9.90667 13.3667C9.73333 13.5222 9.53111 13.6 9.3 13.6L3.72667 13.6C3.49556 13.6 3.29111 13.5222 3.11333 13.3667C2.93556 13.2111 2.83778 13.0111 2.82 12.7667L2.22667 4.63333L1.18 4.63333L1.79333 13.06C1.84 13.6111 2.07333 14.0622 2.49333 14.4133C2.91333 14.7644 3.4 14.94 3.95333 14.94L9.07333 14.94C9.62667 14.94 10.1133 14.7644 10.5333 14.4133C10.9533 14.0622 11.1867 13.6111 11.2333 13.06L11.8467 4.63333L10.8 4.63333L10.2067 12.7667Z" fill="currentColor" fill-rule="nonzero" />
+                    </svg>
                   </button>
                 }
               >
@@ -303,24 +358,26 @@ export function ManualEditPanel(props: {
               </Show>
             </Show>
           </div>
-          <div class="manual-edit-footer-right">
-            <button
-              type="button"
-              class="manual-edit-footer-btn subtle"
-              disabled={props.busy}
-              onClick={props.onCancelDraft}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              class="manual-edit-footer-btn primary"
-              disabled={props.busy}
-              onClick={props.onSaveDraft}
-            >
-              Save
-            </button>
-          </div>
+          <Show when={!confirmDelete()}>
+            <div class="manual-edit-footer-right">
+              <button
+                type="button"
+                class="manual-edit-footer-btn subtle"
+                disabled={props.busy}
+                onClick={props.onCancelDraft}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="manual-edit-footer-btn primary"
+                disabled={props.busy}
+                onClick={props.onSaveDraft}
+              >
+                Save
+              </button>
+            </div>
+          </Show>
         </div>
 
         <Show when={props.error}>
@@ -438,7 +495,7 @@ function UnitRow(props: {
   }
 
   return (
-    <label class="cc-row">
+    <div class="cc-row">
       <span class="cc-label">{props.label}</span>
       <span class="cc-value">
         <button type="button" class="cc-step" disabled={!canStep()} onClick={() => stepBy(-1)}>−</button>
@@ -450,7 +507,7 @@ function UnitRow(props: {
         <button type="button" class="cc-step" disabled={!canStep()} onClick={() => stepBy(1)}>+</button>
         <Show when={props.unit && !isKeyword(display())}><em class="cc-unit">{props.unit}</em></Show>
       </span>
-    </label>
+    </div>
   )
 }
 
@@ -460,34 +517,245 @@ function DropdownRow(props: {
   onChange: (v: string) => void
   options: string[]
 }) {
+  const [open, setOpen] = createSignal(false)
+  const [popupPos, setPopupPos] = createSignal({ top: 0, left: 0, width: 120 })
+  let triggerRef: HTMLButtonElement | undefined
+  let dropdownRef: HTMLDivElement | undefined
+
+  const displayText = () => props.value || "请选择"
+
+  const handleSelect = (option: string) => {
+    props.onChange(option)
+    setOpen(false)
+  }
+
+  const updatePosition = () => {
+    if (!triggerRef) return
+    const rect = triggerRef.getBoundingClientRect()
+    setPopupPos({
+      top: rect.bottom + 4,
+      left: rect.left,
+      width: rect.width
+    })
+  }
+
+  const handleClickOutside = (e: MouseEvent) => {
+    if (!open()) return
+    const target = e.target as HTMLElement
+    if (triggerRef && !triggerRef.contains(target) && dropdownRef && !dropdownRef.contains(target)) {
+      setOpen(false)
+    }
+  }
+
+  const handleWindowBlur = () => {
+    if (open()) {
+      setOpen(false)
+    }
+  }
+
+  const handleScroll = () => {
+    if (open()) {
+      updatePosition()
+    }
+  }
+
+  const handleResize = () => {
+    if (open()) {
+      updatePosition()
+    }
+  }
+
+  createEffect(() => {
+    if (open()) {
+      updatePosition()
+      document.addEventListener("click", handleClickOutside)
+      document.addEventListener("scroll", handleScroll, true)
+      window.addEventListener("resize", handleResize)
+      window.addEventListener("blur", handleWindowBlur)
+    } else {
+      document.removeEventListener("click", handleClickOutside)
+      document.removeEventListener("scroll", handleScroll, true)
+      window.removeEventListener("resize", handleResize)
+      window.removeEventListener("blur", handleWindowBlur)
+    }
+    onCleanup(() => {
+      document.removeEventListener("click", handleClickOutside)
+      document.removeEventListener("scroll", handleScroll, true)
+      window.removeEventListener("resize", handleResize)
+      window.removeEventListener("blur", handleWindowBlur)
+    })
+  })
+
+  const popupStyle = () => ({
+    position: "fixed" as const,
+    top: `${popupPos().top}px`,
+    left: `${popupPos().left}px`,
+    "min-width": `${popupPos().width}px`,
+    "z-index": 10001
+  })
+
   return (
     <label class="cc-row">
       <span class="cc-label">{props.label}</span>
       <span class="cc-value cc-select">
-        <select value={props.value} onChange={(e) => props.onChange(e.currentTarget.value)}>
-          <For each={props.options}>{(opt) => <option value={opt}>{opt}</option>}</For>
-        </select>
-        <em class="cc-chevron">▾</em>
+        <button
+          ref={triggerRef}
+          type="button"
+          class="cc-select-trigger"
+          classList={{ "cc-select-trigger-active": open() }}
+          onClick={() => setOpen(!open())}
+        >
+          <span class="cc-select-trigger-text">{displayText()}</span>
+          <span class="cc-select-trigger-icon" style={{ transform: open() ? "rotate(180deg)" : "none" }}>
+            <svg viewBox="0 0 20 20" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="currentColor" fill-opacity="0.6"/>
+            </svg>
+          </span>
+        </button>
+        <Show when={open()}>
+          <Portal mount={document.body}>
+            <div ref={dropdownRef} class="cc-select-popup" style={popupStyle()}>
+              <div class="cc-select-list">
+                <For each={props.options}>
+                  {(opt) => (
+                    <div
+                      class="cc-select-item"
+                      classList={{ "cc-select-item-selected": props.value === opt }}
+                      onClick={() => handleSelect(opt)}
+                    >
+                      {opt}
+                    </div>
+                  )}
+                </For>
+              </div>
+            </div>
+          </Portal>
+        </Show>
       </span>
     </label>
   )
 }
 
 function FontRow(props: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = createSignal(false)
+  const [popupPos, setPopupPos] = createSignal({ top: 0, left: 0, width: 120 })
+  let triggerRef: HTMLButtonElement | undefined
+  let dropdownRef: HTMLDivElement | undefined
+
   const normalizedValue = () => normalizeFontFamilyForSelect(props.value)
   const customValue = () => normalizedValue() === props.value ? props.value : ''
+  const displayText = () => {
+    const normalized = normalizedValue()
+    const opt = FONT_OPTS.find(o => o.value === normalized)
+    return opt?.label || fontFamilyLabel(normalized) || "请选择"
+  }
+
+  const options = () => {
+    const opts = [...FONT_OPTS]
+    if (customValue() && !FONT_OPTS.some(o => o.value === customValue())) {
+      opts.unshift({ label: fontFamilyLabel(customValue()), value: customValue() })
+    }
+    return opts
+  }
+
+  const handleSelect = (option: { label: string; value: string }) => {
+    props.onChange(option.value)
+    setOpen(false)
+  }
+
+  const updatePosition = () => {
+    if (!triggerRef) return
+    const rect = triggerRef.getBoundingClientRect()
+    setPopupPos({
+      top: rect.bottom + 4,
+      left: rect.left,
+      width: rect.width
+    })
+  }
+
+  const handleClickOutside = (e: MouseEvent) => {
+    if (!open()) return
+    const target = e.target as HTMLElement
+    if (triggerRef && !triggerRef.contains(target) && dropdownRef && !dropdownRef.contains(target)) {
+      setOpen(false)
+    }
+  }
+
+  const handleScroll = () => {
+    if (open()) {
+      updatePosition()
+    }
+  }
+
+  const handleResize = () => {
+    if (open()) {
+      updatePosition()
+    }
+  }
+
+  createEffect(() => {
+    if (open()) {
+      updatePosition()
+      document.addEventListener("click", handleClickOutside)
+      document.addEventListener("scroll", handleScroll, true)
+      window.addEventListener("resize", handleResize)
+    } else {
+      document.removeEventListener("click", handleClickOutside)
+      document.removeEventListener("scroll", handleScroll, true)
+      window.removeEventListener("resize", handleResize)
+    }
+    onCleanup(() => {
+      document.removeEventListener("click", handleClickOutside)
+      document.removeEventListener("scroll", handleScroll, true)
+      window.removeEventListener("resize", handleResize)
+    })
+  })
+
+  const popupStyle = () => ({
+    position: "fixed" as const,
+    top: `${popupPos().top}px`,
+    left: `${popupPos().left}px`,
+    "min-width": `${popupPos().width}px`,
+    "z-index": 10001
+  })
 
   return (
     <label class="cc-row">
       <span class="cc-label">Font</span>
       <span class="cc-value cc-select">
-        <select value={normalizedValue()} onChange={(e) => props.onChange(e.currentTarget.value)}>
-          <Show when={customValue() && !FONT_OPTS.some(o => o.value === customValue())}>
-            <option value={customValue()}>{fontFamilyLabel(customValue())}</option>
-          </Show>
-          <For each={FONT_OPTS}>{(opt) => <option value={opt.value}>{opt.label}</option>}</For>
-        </select>
-        <em class="cc-chevron">▾</em>
+        <button
+          ref={triggerRef}
+          type="button"
+          class="cc-select-trigger"
+          classList={{ "cc-select-trigger-active": open() }}
+          onClick={() => setOpen(!open())}
+        >
+          <span class="cc-select-trigger-text">{displayText()}</span>
+          <span class="cc-select-trigger-icon" style={{ transform: open() ? "rotate(180deg)" : "none" }}>
+            <svg viewBox="0 0 20 20" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="currentColor" fill-opacity="0.6"/>
+            </svg>
+          </span>
+        </button>
+        <Show when={open()}>
+          <Portal mount={document.body}>
+            <div ref={dropdownRef} class="cc-select-popup" style={popupStyle()}>
+              <div class="cc-select-list">
+                <For each={options()}>
+                  {(opt) => (
+                    <div
+                      class="cc-select-item"
+                      classList={{ "cc-select-item-selected": normalizedValue() === opt.value }}
+                      onClick={() => handleSelect(opt)}
+                    >
+                      {opt.label}
+                    </div>
+                  )}
+                </For>
+              </div>
+            </div>
+          </Portal>
+        </Show>
       </span>
     </label>
   )
@@ -526,32 +794,91 @@ function ColorRow(props: {
   compact?: boolean
 }) {
   const [open, setOpen] = createSignal(false)
+  let containerRef: HTMLDivElement | undefined
+  let popoverRef: HTMLDivElement | undefined
+  let swatchRef: HTMLButtonElement | undefined
+  let inputRef: HTMLInputElement | undefined
+
+  const isInsidePopover = (target: HTMLElement) => {
+    return popoverRef && popoverRef.contains(target)
+  }
+
+  const isTriggerElement = (target: HTMLElement) => {
+    return swatchRef?.contains(target) || inputRef?.contains(target)
+  }
+
+  const handleClickOutside = (e: MouseEvent) => {
+    if (!open()) return
+    const target = e.target as HTMLElement
+    if (!isTriggerElement(target) && !isInsidePopover(target)) {
+      setOpen(false)
+    }
+  }
+
+  const handleWindowBlur = () => {
+    if (open()) {
+      setOpen(false)
+    }
+  }
+
+  createEffect(() => {
+    if (open()) {
+      setTimeout(() => {
+        document.addEventListener("click", handleClickOutside)
+      }, 0)
+      window.addEventListener("blur", handleWindowBlur)
+    } else {
+      document.removeEventListener("click", handleClickOutside)
+      window.removeEventListener("blur", handleWindowBlur)
+    }
+    onCleanup(() => {
+      document.removeEventListener("click", handleClickOutside)
+      window.removeEventListener("blur", handleWindowBlur)
+    })
+  })
+
+  const handleSwatchClick = (e: MouseEvent) => {
+    e.stopPropagation()
+    setOpen(!open())
+  }
+
+  const handleInputFocus = (e: FocusEvent) => {
+    e.stopPropagation()
+    setOpen(true)
+  }
 
   return (
-    <label class={`cc-row cc-color ${props.compact ? 'cc-color-compact' : ''}`}>
+    <div ref={containerRef} class={`cc-row cc-color ${props.compact ? 'cc-color-compact' : ''}`}>
       <Show when={!props.compact}><span class="cc-label">{props.label}</span></Show>
       <span class="cc-value">
         <button
+          ref={swatchRef}
           type="button"
           class="cc-swatch"
           style={{ background: props.value || 'transparent' }}
-          onClick={() => setOpen(!open())}
+          onClick={handleSwatchClick}
         />
         <input
+          ref={inputRef}
           value={props.value}
           placeholder="(transparent)"
           onChange={(e) => props.onChange(e.currentTarget.value)}
-          onFocus={() => setOpen(true)}
+          onFocus={handleInputFocus}
+          onBlur={(e) => {
+            if (!e.currentTarget.value && !open()) {
+              props.onChange('')
+            }
+          }}
         />
         <Show when={open()}>
-          <div class="cc-color-popover">
+          <div ref={popoverRef} class="cc-color-popover" onClick={(e) => e.stopPropagation()}>
             <div class="cc-color-grid">
               <For each={EDITOR_SWATCH_COLORS}>{(hex) =>
                 <button
                   type="button"
                   class="cc-color-tile"
                   style={{ background: hex }}
-                  onClick={() => { props.onChange(hex); setOpen(false) }}
+                  onClick={(e) => { e.stopPropagation(); props.onChange(hex); setOpen(false) }}
                 />
               }</For>
             </div>
@@ -576,7 +903,7 @@ function ColorRow(props: {
           </div>
         </Show>
       </span>
-    </label>
+    </div>
   )
 }
 
@@ -595,7 +922,7 @@ function QuadRow(props: {
     <div class="cc-quad">
       <button type="button" class="cc-quad-head" onClick={() => setOpen(!open())}>
         <span>{props.label}</span>
-        <Show when={!open() && allEqualValue() !== null} fallback={<span class="cc-chevron-small">{open() ? '▾' : '▸'}</span>}>
+        <Show when={!open() && allEqualValue() !== null} fallback={<span class="cc-chevron-small" style={{ transform: open() ? "rotate(180deg)" : "none" }}><svg viewBox="0 0 20 20" width="12" height="12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="currentColor" fill-opacity="0.6"/></svg></span>}>
           <em>{allEqualValue() || '0 px'}</em>
         </Show>
       </button>
