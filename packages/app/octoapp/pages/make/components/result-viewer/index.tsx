@@ -122,25 +122,23 @@ export function ResultViewer(props: {
   const [refreshKey, setRefreshKey] = createSignal(0)
 
   const handleCanvasToDesign = async () => {
-    const tab = activeTab()
-    if (!tab || tab.type !== "html") {
-      showToast({ title: "请先打开HTML文件" })
-      return
-    }
-
     try {
-      showToast({ title: "生成ZIP文件..." })
-      
-      const htmlContent = extractCodeBlock(tab.content, "html")
-      const zipBlob = await createC2DZip({
-        htmlContent,
-        htmlFilePath: tab.filePath || "",
-        tabTitle: tab.title
-      })
+      const tab = activeTab()
+      if (!tab || tab.type !== "html") {
+        showToast({ title: "请先打开HTML文件" })
+        return
+      }
 
       const isLoggedIn = !!localStorage.getItem('uiplusToken')
-      
+
       if (!isLoggedIn) {
+        showToast({ title: "生成ZIP文件..." })
+        const htmlContent = extractCodeBlock(tab.content, "html")
+        const zipBlob = await createC2DZip({
+          htmlContent,
+          htmlFilePath: tab.filePath || "",
+          tabTitle: tab.title
+        })
         const fileName = `${tab.title}-c2d.zip`
         const url = URL.createObjectURL(zipBlob)
         const a = document.createElement("a")
@@ -154,32 +152,27 @@ export function ResultViewer(props: {
         return
       }
 
-      showToast({ title: "上传中..." })
-      
-      const result = await uploadZip(zipBlob, {
-        containerId: "root",
-        deathDay: 7,
-        limitTimes: 1
+      const result = await uploadZip(async () => {
+        showToast({ title: "生成ZIP文件..." })
+        const htmlContent = extractCodeBlock(tab.content, "html")
+        return await createC2DZip({
+          htmlContent,
+          htmlFilePath: tab.filePath || "",
+          tabTitle: tab.title
+        })
       }, projectSelection())
+
+      console.log('pixsourl', result?.pixsoUrl)
 
       if (!result.webview) {
         showToast({ title: "创建失败" })
         return
       }
 
-      showToast({
-        title: "创建成功",
-        description: `传送码: ${result.code}`
-      })
-
-      result.onMessage('render-complete', () => {
-        showToast({ title: "渲染完成" })
-      })
-    } catch (err) {
-      showToast({
-        title: "上传失败",
-        description: err instanceof Error ? err.message : String(err)
-      })
+      console.log('pixso loaded')
+    } catch (error) {
+      console.error("[handleCanvasToDesign] Error:", error)
+      showToast({ title: "操作失败", description: String(error) })
     }
   }
 
