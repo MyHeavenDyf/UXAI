@@ -627,6 +627,11 @@
     overflow: hidden;
   }
 
+  .studio-center-action {
+    width: 20px;
+    height: 20px;
+  }
+
   .studio-center-scroll {
     padding: 0;
   }

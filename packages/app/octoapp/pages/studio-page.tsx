@@ -607,6 +607,20 @@ export default function StudioPage() {
     return windowWidth() - leftW - centerW
   })
 
+  // studio-canvas 实测宽度（ResizeObserver）：用于按宽度自动展开/收起详情面板
+  const [studioCanvasEl, setStudioCanvasEl] = createSignal<HTMLElement | null>(null)
+  const [studioCanvasWidth, setStudioCanvasWidth] = createSignal(0)
+  createEffect(() => {
+    const el = studioCanvasEl()
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      setStudioCanvasWidth(entries[0]?.contentRect.width ?? 0)
+    })
+    ro.observe(el)
+    onCleanup(() => ro.disconnect())
+  })
+  // studio-details 默认隐藏，仅由用户手动 toggle 展开/收起
+
   // 窗口 <1456px 时左侧栏以遮罩层形式展示
   const [studioLeftOverlayOpen, setStudioLeftOverlayOpen] = createSignal(false)
   const [isOverlayMode, setIsOverlayMode] = createSignal(false)
@@ -3735,7 +3749,7 @@ if (!headerTitle.pendingRename) return
               <button
                 type="button"
                 class="flex items-center justify-center rounded-md transition-colors hover:bg-[rgba(25,25,25,0.06)] shrink-0"
-                style={{ width: "28px", height: "28px" }}
+                style={{ width: "20px", height: "20px" }}
                 onClick={(e) => { e.stopPropagation(); setStudioWorkspaceOverlayOpen((v) => !v); }}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="15" viewBox="0 0 12 15" fill="none" class="shrink-0">
@@ -3859,7 +3873,7 @@ if (!headerTitle.pendingRename) return
             </div>
           )
         }>
-        <section class="studio-canvas">
+        <section ref={setStudioCanvasEl} class="studio-canvas">
           <Show when={isEditingWorkspaceMode() || showStudioCanvas() || canvasTabImages().length > 0}>
           <Show when={isEditingWorkspaceMode()} fallback={
             <StudioResultCanvas
@@ -3938,7 +3952,7 @@ if (!headerTitle.pendingRename) return
               sessionID={params.id}
               fileManagerGenPending={fileManagerGenPending()}
             >
-              <Show when={showStudioCanvas() && canvasResult()?.images.length && canvasWidth() >= 700}>
+              <Show when={showStudioCanvas() && canvasResult()?.images.length && (canvasWidth() >= 700 || studioCanvasWidth() >= 700)}>
                 <div class="studio-details-wrapper" classList={{ expanded: showStudioDetails() }}>
                   <button
                     class="studio-details-toggle"

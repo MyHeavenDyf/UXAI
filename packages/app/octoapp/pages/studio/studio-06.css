@@ -122,10 +122,6 @@
     flex-basis: 420px;
     min-width: 380px;
   }
-
-  .studio-details-wrapper.expanded {
-    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.12);
-  }
 }
 
 @media (min-width: 1228px) and (max-width: 1919px) {
@@ -360,10 +356,17 @@
   background-color: #333;
 }
 
-/* 当 studio-canvas-stage 宽度不足 500px 时隐藏详情面板和切换按钮 */
-@container (max-width: 839px) {
+/* 当 studio-canvas-body 宽度不足 800px 时隐藏详情面板和切换按钮（>=800px 由 JS 自动展开） */
+@container (max-width: 799px) {
   .studio-details-toggle,
   .studio-details {
     display: none;
+  }
+}
+
+/* 窗口 <1228px 时：studio-canvas-header 右侧预留 84px（放在 studio-06.css 以保证晚于 studio-03.css 的 padding:0 24px 生效） */
+@media (max-width: 1227px) {
+  .studio-canvas-header {
+    padding-right: 84px;
   }
 }
