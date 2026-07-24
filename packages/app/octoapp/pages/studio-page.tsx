@@ -577,20 +577,33 @@ export default function StudioPage() {
   // 折叠图标：窗口 ≥1456px 且 <1920px 时显示
   const [showToggleDrawer, setShowToggleDrawer] = createSignal(false)
 
-  // 窗口 <1228px 时隐藏 studio-center
-  const [showStudioCenter, setShowStudioCenter] = createSignal(true)
+  // 窗口 <1228px 时隐藏 studio-workspace，studio-center 始终可见
+  const [showStudioWorkspace, setShowStudioWorkspace] = createSignal(true)
   createEffect(() => {
     const mql = window.matchMedia("(min-width: 1228px)")
-    const update = () => setShowStudioCenter(mql.matches)
+    const update = () => setShowStudioWorkspace(mql.matches)
     update()
     mql.addEventListener("change", update)
     onCleanup(() => mql.removeEventListener("change", update))
   })
 
-  // studio-canvas 实际宽度（依赖 showStudioCenter，需放在其声明之后）
+  // 窗口 <1228px 时 workspace 以抽屉形式悬浮
+  const [studioWorkspaceOverlayOpen, setStudioWorkspaceOverlayOpen] = createSignal(false)
+
+  // studio-center 样式：<1228px 铺满右侧，>=1228px 保持固定宽度
+  const studioCenterStyle = createMemo(() => {
+    if (!showStudioWorkspace()) {
+      const leftW = studioLeftCollapsed() ? 68 : studioLeftWidth()
+      const width = windowWidth() - leftW
+      return { width: `${width}px`, flex: `0 0 ${width}px` }
+    }
+    return { width: `${studioCenterWidth()}px`, flex: `0 0 ${studioCenterWidth()}px` }
+  })
+
+  // studio-canvas 实际宽度（studio-center 始终可见）
   const canvasWidth = createMemo(() => {
     const leftW = studioLeftCollapsed() ? 68 : studioLeftWidth()
-    const centerW = showStudioCenter() ? studioCenterWidth() : 0
+    const centerW = studioCenterWidth()
     return windowWidth() - leftW - centerW
   })
 
@@ -866,7 +879,8 @@ export default function StudioPage() {
 
   const effectiveStatus = createMemo<StudioGenerationStatus>(() => {
     // isBusy 最优先，确保正在生成时显示 loading，而非被旧 result 的缓存图片掩盖
-    if (isBusy()) return "running"
+    // 但用户手动点击缩略图打开 canvas 时，显示已选图片而非 loading
+    if (isBusy() && !(showStudioCanvas() && canvasResult()?.images.length)) return "running"
     if (canvasResult()?.images.length) return "succeeded"
     if (status() === "create_failed" || result()?.status === "create_failed") return "create_failed"
     if (status() === "failed" || result()?.status === "failed") return "failed"
@@ -951,6 +965,7 @@ export default function StudioPage() {
       setSelectedResultId(input.resultID)
       const r = displayTurns().map((t) => t.result).find((item) => item?.id === input.resultID)
       if (!r) return
+      if (!showStudioWorkspace()) setStudioWorkspaceOverlayOpen(true)
       // 该 result 是否已有 tab
       const hasTab = canvasTabImages().some((tabImg) => r.images.some((img) => img.id === tabImg.id))
       if (hasTab) {
@@ -1916,6 +1931,7 @@ export default function StudioPage() {
       setSelectedResultId(undefined)
       setSelectedImageId(undefined)
       setMode(nextMode)
+      if (!showStudioWorkspace()) setStudioWorkspaceOverlayOpen(true)
     })
   }
 
@@ -2345,6 +2361,7 @@ export default function StudioPage() {
     batch(() => {
       setOpenMenu(null)
       setMode("preview")
+      setStudioWorkspaceOverlayOpen(false)
       setCapability(draft.capability)
       setPrompt(draft.prompt)
       setAspectRatio(draft.aspectRatio)
@@ -2714,6 +2731,7 @@ export default function StudioPage() {
       return
     }
     setRebootingGenerationIDs((ids) => new Set([...ids, id]))
+    setStudioWorkspaceOverlayOpen(false)
     try {
       const headers: Record<string, string> = {
         "content-type": "application/json",
@@ -2864,6 +2882,7 @@ export default function StudioPage() {
     setMode("preview")
     setSending(true)
     setStatus("submitting")
+    setStudioWorkspaceOverlayOpen(false)
     if (!overrides?.useRestoredInputs && !fileManagerDetailView() && !selectedImage()) setSelectedResultId(undefined)
     if (fileManagerDetailView()) setFileManagerGenPending(true)
     setPendingResult({
@@ -3613,8 +3632,7 @@ export default function StudioPage() {
         </div>
         </main>
       }>
-        <Show when={showStudioCenter()}>
-          <section class="studio-center" style={{ width: `${studioCenterWidth()}px`, flex: `0 0 ${studioCenterWidth()}px` }}>
+          <section class="studio-center" style={studioCenterStyle()}>
           <div class="studio-center-header">
             <div class="flex-1 min-w-0">
             <Show
@@ -3667,7 +3685,8 @@ export default function StudioPage() {
               />
             </Show>
             </div>
-            <Show when={params.id}>
+            <div class="flex items-center gap-1 relative" style={{ "z-index": "60" }}>
+              <Show when={params.id}>
                 <DropdownMenu
                   gutter={4}
                   placement="bottom-end"
@@ -3712,6 +3731,20 @@ if (!headerTitle.pendingRename) return
                   </DropdownMenu.Portal>
                 </DropdownMenu>
             </Show>
+            <Show when={!showStudioWorkspace()}>
+              <button
+                type="button"
+                class="flex items-center justify-center rounded-md transition-colors hover:bg-[rgba(25,25,25,0.06)] shrink-0"
+                style={{ width: "28px", height: "28px" }}
+                onClick={(e) => { e.stopPropagation(); setStudioWorkspaceOverlayOpen((v) => !v); }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="15" viewBox="0 0 12 15" fill="none" class="shrink-0">
+                  <rect x="0.5" y="0.5" width="11" height="14" rx="2" stroke="#000000" />
+                  <line x1="2.67" y1="0.5" x2="2.67" y2="14.5" stroke="#000000" />
+                </svg>
+              </button>
+            </Show>
+            </div>
           </div>
 
           <ScrollView
@@ -3787,18 +3820,38 @@ if (!headerTitle.pendingRename) return
             onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
             onRemoveVideoFrame={(slot) => setVideoFrames(slot, undefined)}
             onSwapVideoFrames={() => replaceVideoFrames({ first: videoFrames.last, last: videoFrames.first })}
+            onToolClick={() => { if (!showStudioWorkspace()) setStudioWorkspaceOverlayOpen(true) }}
             onReversePrompt={() => void handleReversePrompt()}
           />
         </section>
-        </Show>
         <div
           class="absolute top-0 bottom-0 cursor-col-resize z-10"
-          classList={{ hidden: !showStudioCenter() }}
+          classList={{ hidden: !showStudioWorkspace() }}
           style={{ left: `${centerResizeLeft() + studioCenterWidth()}px`, width: "8px" }}
           onPointerDown={handleStudioCenterResize}
         />
 
-      <main class="studio-workspace">
+      <Show when={!showStudioWorkspace() && studioWorkspaceOverlayOpen()}>
+        <div
+          class="absolute inset-0"
+          style={{ "z-index": "49" }}
+          onClick={(e) => {
+            const hit = document.elementsFromPoint(e.clientX, e.clientY)
+              .find(el => (el as HTMLElement).closest(".studio-assistant-editor-link"))
+            if (hit) {
+              const btn = (hit as HTMLElement).closest(".studio-assistant-editor-link") as HTMLElement | null
+              btn?.click()
+              return
+            }
+            setStudioWorkspaceOverlayOpen(false)
+          }}
+        />
+      </Show>
+      <Show when={showStudioWorkspace() || studioWorkspaceOverlayOpen()}>
+      <main
+        class="studio-workspace"
+        classList={{ "studio-workspace-overlay": !showStudioWorkspace() && studioWorkspaceOverlayOpen() }}
+      >
         <Show when={isEditingWorkspaceMode() || showStudioCanvas() || isBusy()} fallback={
           params.id && !sessionDataLoaded() && !visitedSessionIds.has(params.id) ? null : (
             <div class="studio-empty-workspace">
@@ -3878,7 +3931,7 @@ if (!headerTitle.pendingRename) return
                 }
               }}
               studioCenterWidth={studioCenterWidth()}
-              showStudioCenter={showStudioCenter()}
+              showStudioCenter={true}
               hideFileManagerFilter={studioLeftOverlayOpen() || fileManagerDetailView()}
               turns={displayTurns()}
               canGenerateVideo={canGenerateVideo()}
@@ -4008,6 +4061,7 @@ if (!headerTitle.pendingRename) return
         </section>
         </Show>
         </main>
+        </Show>
       </Show>
       <input ref={fileInputRef!} type="file" accept=".png,.jpg,.jpeg,.webp" multiple class="hidden" onChange={handleFileChange} />
       <input ref={videoFrameInputRef!} type="file" accept="image/png,image/jpeg" class="hidden" onChange={handleVideoFrameFileChange} />
