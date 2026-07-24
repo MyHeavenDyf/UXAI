@@ -1,6 +1,5 @@
 import { __unstable__loadDesignSystem } from "tailwindcss"
-import { createRequire } from "node:module"
-import { readFileSync } from "node:fs"
+import _tailwindIndexCss from "tailwindcss/index.css?raw"
 
 export const tailwindConfig: any = {
   theme: {
@@ -405,9 +404,6 @@ export const tailwindConfig: any = {
     },
   },
 }
-
-const _require = createRequire(import.meta.url)
-const _tailwindIndexCss = readFileSync(_require.resolve("tailwindcss/index.css"), "utf-8")
 
 function buildThemeCss(): string {
   const ext = (tailwindConfig as { theme: { extend: Record<string, any> } }).theme.extend
