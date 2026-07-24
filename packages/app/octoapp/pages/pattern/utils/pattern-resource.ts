@@ -78,6 +78,16 @@ export async function getResourceDetail(type = "file", dataId: string) {
   return { success: true, data }
 }
 
+// 获取页面pattern Md数据
+export async function readPagePatternMd(mdUrl: string) {
+  const response = await fetch(mdUrl)
+  if (!response.ok) {
+    return { success: false, error: `HTTP error! status: ${response.status}` }
+  }
+  const content = await response.text()
+  return { success: true, content }
+}
+
 export type ResourceDetailResult = {
   success: boolean
   data?: { file_path?: string; thumbnail_path?: string }
@@ -85,8 +95,8 @@ export type ResourceDetailResult = {
 }
 
 // 获取页面级数据的资源路径
-export async function enrichResultsWithPaths(inputData: { results?: Array<Record<string, any>> }) {
-  const initDatas = {
+export async function getPagePatternResource(inputData: { results?: Array<Record<string, any>> }) {
+  const initData = {
     "results": [
       {
         "id": "966",
@@ -111,7 +121,7 @@ export async function enrichResultsWithPaths(inputData: { results?: Array<Record
       }
     ]
   }
-  return initDatas;
+  return initData;
   const results = inputData.results || []
   const enrichedResults = await Promise.all(
     results.map(async (item) => {
