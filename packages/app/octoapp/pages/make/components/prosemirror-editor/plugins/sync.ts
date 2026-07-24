@@ -5,7 +5,7 @@ import { getDocTextWithMentions } from "../schema"
 export const syncPluginKey = new PluginKey("sync")
 
 export function createSyncPlugin(
-  onChange: (mentions: MentionAttrs[]) => void,
+  onChange: (mentions: MentionAttrs[], isEmpty: boolean) => void,
   onContentChange?: (text: string) => void
 ) {
   return new Plugin({
@@ -28,10 +28,12 @@ export function createSyncPlugin(
                 })
               }
             })
-            onChange(mentions)
+            
+            const text = getDocTextWithMentions(state.doc)
+            const isEmpty = text.trim().length === 0
+            onChange(mentions, isEmpty)
             
             if (onContentChange) {
-              const text = getDocTextWithMentions(state.doc)
               onContentChange(text)
             }
           }
