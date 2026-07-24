@@ -303,7 +303,6 @@ export async function handleModifyElement(
       }
     }
   }
-  debugger
   console.log("[Pattern] element modify diff:", {
     elementId: data.elementId,
     found,

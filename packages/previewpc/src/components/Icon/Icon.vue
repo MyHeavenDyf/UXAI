@@ -5,6 +5,7 @@ import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import type { IconNode } from "../types"
 import { useIconProvider, toVariantId } from "../../composables/useIconProvider"
+import { iconColors } from "../../utils/themeColors"
 
 const { hasHuiIcons, variantDataMap } = useIconProvider()
 
@@ -60,20 +61,12 @@ const iconSizeStyle = computed(() => {
 })
 
 const color = computed(() => {
-  const c = resolveValue(properties.color) as string
-  const map: Record<string, string> = {
-    success: "var(--icon-success)",
-    primary: "var(--icon-primary)",
-    error: "var(--icon-error)",
-    warning: "var(--icon-warning)",
-    critical: "var(--icon-critical)",
-    default: "var(--color-icon-primary)",
-    inverse: "var(--icon-inverse)",
-    info: "var(--color-icon-primary)",
-    neutral: "var(--color-icon-primary)",
-    normal: "var(--icon-normal)",
+  const c = (resolveValue(properties.color) as string | undefined) || "default"
+  const iconColor = iconColors[c as keyof typeof iconColors]
+  if (iconColor) {
+    return `var(${iconColor.color})`
   }
-  return map[c] || c || "currentColor"
+  return "currentColor"
 })
 
 const borderRadius = computed(() => {
