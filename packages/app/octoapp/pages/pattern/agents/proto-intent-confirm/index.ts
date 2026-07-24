@@ -43,10 +43,12 @@ export default async function proto_intent_confirm(input: ProtoIntentConfirmInpu
     schema: INTENT_CONFIRM_FORMAT.schema,
   })
   const json = extractJson(result.text)
+  debugger
   if (!json) {
     logAgentParsed(result.childSessionId, { error: "Failed to parse JSON", raw: result.text })
     agentThrow(AGENT_NAME, result.childSessionId, "Intent Confirm did not return valid JSON")
   }
+  
   const returnValue: IntentConfirmResult = {
     options: json as Record<string, IntentConfirmDimension>,
     current_step: "intent_confirm",
@@ -59,5 +61,5 @@ function buildHumanMessage(userInput: string): string {
   return `[用户的需求:] ==================================
 ${userInput}
 
-请分析用户需求中尚未明确的维度，输出缺失维度的选项清单。`
+请分析用户需求，匹配合适的Pattern。`
 }

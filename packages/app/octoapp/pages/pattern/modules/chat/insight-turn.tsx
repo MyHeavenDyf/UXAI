@@ -183,7 +183,7 @@ export function InsightTurn(props: {
 
   const customCardLabel = createMemo(() => {
     const text = userText()
-    if (text.endsWith("请分析用户需求中尚未明确的维度，输出缺失维度的选项清单。")) return "需求确认"
+    if (text.endsWith("请分析用户需求，匹配合适的Pattern。")) return "需求确认"
     if (text.endsWith("请开始意图扩展。")) return "功能完善"
     if (text.startsWith("请根据以下页面蓝图，设计外壳布局并指定下一步细化模块：")) return "布局规划"
     if (text.startsWith("请为以下模块生成 A2UI JSON：")) return "区域生成"
