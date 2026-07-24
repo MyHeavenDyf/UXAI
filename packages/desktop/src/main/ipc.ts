@@ -397,6 +397,9 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle(
     "copy-file-to-worktree",
     async (_event: IpcMainInvokeEvent, srcPath: string, baseDir: string, filename: string) => {
+      // 布局 SOT = SPEC-INS-014 §2。`.octo`/`tmps` 与渲染端判据
+      // (packages/app/octoapp/pages/insight/utils/worktree-layout.ts)受进程边界隔离、不共享常量;
+      // 改这里的落点必须同步改渲染端 worktree-layout.ts 与 spec §2(v7 曾漏改渲染端 → PR #424)。
       const dir = join(baseDir, ".octo", "tmps")
       await ensureWorktreeDir(dir)
       const dest = collisionFreePath(dir, sanitizeWorktreeName(filename))
@@ -422,6 +425,7 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle(
     "move-pending-upload-to-session",
     async (_event: IpcMainInvokeEvent, srcPath: string, baseDir: string, sessionId: string) => {
+      // 布局 SOT = SPEC-INS-014 §2;`.octo`/`uploads` 落点与渲染端判据须同步(见 copy-file-to-worktree 上方注释)。
       const dir = join(baseDir, ".octo", sanitizeSessionSegment(sessionId), "uploads")
       await ensureWorktreeDir(dir)
       const dest = collisionFreePath(dir, basename(srcPath))
