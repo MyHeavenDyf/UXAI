@@ -86,7 +86,7 @@ export type ResourceDetailResult = {
 
 // 获取页面级数据的资源路径
 export async function enrichResultsWithPaths(inputData: { results?: Array<Record<string, any>> }) {
-  const initData = {
+  const initDatas = {
     "results": [
       {
         "id": "966",
@@ -111,7 +111,7 @@ export async function enrichResultsWithPaths(inputData: { results?: Array<Record
       }
     ]
   }
-  return initData;
+  return initDatas;
   const results = inputData.results || []
   const enrichedResults = await Promise.all(
     results.map(async (item) => {
