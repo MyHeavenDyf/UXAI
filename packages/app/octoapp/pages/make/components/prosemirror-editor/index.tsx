@@ -45,6 +45,7 @@ export const ProseMirrorEditor = (props: Props) => {
   const [triggerState, setTriggerState] = createSignal<MentionTriggerState | null>(null)
   const [slashTriggerState, setSlashTriggerState] = createSignal<SlashTriggerState | null>(null)
   const [focused, setFocused] = createSignal(false)
+  const [isEmpty, setIsEmpty] = createSignal(true)
 
   const mentionTriggerPlugin = createMentionTriggerPlugin((state) => {
     setTriggerState(state)
@@ -59,7 +60,7 @@ export const ProseMirrorEditor = (props: Props) => {
     }
   })
 
-  const syncPlugin = createSyncPlugin((mentions: MentionAttrs[]) => {
+  const syncPlugin = createSyncPlugin((mentions: MentionAttrs[], empty: boolean) => {
     const selections: MentionSelection[] = mentions.map((m) => {
       if (m.type === "skill") {
         return { type: "skill", name: m.name, label: m.label }
@@ -68,6 +69,7 @@ export const ProseMirrorEditor = (props: Props) => {
       }
     })
     props.setMentionSelections(selections)
+    setIsEmpty(empty)
   }, props.onContentChange)
 
   onMount(() => {
@@ -178,13 +180,17 @@ export const ProseMirrorEditor = (props: Props) => {
       
       if (!target.closest(".mention-popover-container")) {
         console.log("[click-outside] closing popover")
-        // Clear plugin state first
         const v = view()
-        if (v) {
-          const tr = v.state.tr.setMeta(mentionTriggerKey, null)
+        const state = triggerState()
+        
+        if (v && state) {
+          // Move cursor before @ so next click on @ will trigger popover
+          const tr = v.state.tr
+            .setMeta(mentionTriggerKey, null)
+            .setSelection(TextSelection.create(v.state.doc, Math.max(0, state.from - 1)))
           v.dispatch(tr)
         }
-        // Then clear component state
+        
         setTriggerState(null)
       }
     }
@@ -239,6 +245,7 @@ export const ProseMirrorEditor = (props: Props) => {
     
     v.dispatch(tr)
     setTriggerState(null)
+    v.focus()
   }
 
   const handleMentionDeselect = (selection: MentionSelection) => {
@@ -246,17 +253,32 @@ export const ProseMirrorEditor = (props: Props) => {
     if (!v) return
 
     const name = selection.type === "skill" ? selection.name : selection.filename
-    const tr = v.state.tr
     
+    // First, delete existing MentionNode
+    const tr1 = v.state.tr
     v.state.doc.descendants((node, pos) => {
       if (node.type.name === "mention" && node.attrs.name === name) {
-        tr.delete(pos, pos + node.nodeSize)
+        tr1.delete(pos, pos + node.nodeSize)
       }
     })
     
-    if (tr.docChanged) {
-      v.dispatch(tr)
+    if (tr1.docChanged) {
+      v.dispatch(tr1)
     }
+    
+    // Then, delete @ text at current cursor position (after MentionNode is removed)
+    const state2 = v.state
+    const { from } = state2.selection
+    const textBefore = state2.doc.textBetween(Math.max(0, from - 50), from)
+    const match = textBefore.match(/@([^\s@]*)$/)
+    
+    if (match) {
+      const start = from - match[0].length
+      const tr2 = state2.tr.delete(start, from)
+      v.dispatch(tr2)
+    }
+    
+    setTriggerState(null)
   }
 
   const getText = () => {
@@ -289,6 +311,9 @@ export const ProseMirrorEditor = (props: Props) => {
 
   return (
     <div class="pm-editor-wrapper">
+      <Show when={isEmpty() && !props.disabled}>
+        <div class="pm-placeholder">输入你的想法生成可交互的原型效果...</div>
+      </Show>
       <div 
         ref={containerRef} 
         class="pm-editor"

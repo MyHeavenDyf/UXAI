@@ -144,13 +144,25 @@
 }
 
 .mention-secondary-item-text {
-  flex: 1;
   font-size: 14px;
   line-height: 20px;
-  color: rgba(0, 0, 0, 0.9);
+  color: #191919;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.mention-secondary-item-path {
+  font-size: 12px;
+  line-height: 20px;
+  color: #777777;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
+  margin-left: auto;
+  padding-left: 12px;
 }
 
 /* Checkbox style */

@@ -38,8 +38,8 @@
 
 .pm-mention {
   display: inline;
-  margin: 0 -1px;
-  padding: 0 1px;
+  padding: 3px 0;
+  font-size: 12px;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.05);
   color: rgba(0, 0, 0, 0.6);
@@ -47,8 +47,8 @@
 }
 
 .pm-mention.pm-mention--skill {
-  background: rgba(37, 99, 235, 0.08);
-  color: rgba(37, 99, 235, 0.8);
+  background: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.6);
 }
 
 .pm-mention.pm-mention--file {
@@ -70,4 +70,18 @@
 
 .pm-editor .ProseMirror-trailingBreak {
   display: inline !important;
+}
+
+.pm-editor .ProseMirror-trailingBreak {
+  display: inline !important;
+}
+
+.pm-placeholder {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  color: rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  font-size: 14px;
+  font-family: var(--octo-font);
 }

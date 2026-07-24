@@ -33,30 +33,29 @@ export function createMentionTriggerPlugin(
           const { state } = view
           const { from } = state.selection
           
-          if (from !== prevState.selection.from || !prevState.doc.eq(state.doc)) {
-            const textBefore = state.doc.textBetween(Math.max(0, from - 50), from)
-            const match = textBefore.match(/@([^\s@]*)$/)
-            
-            if (match) {
+          const prevTrigger = mentionTriggerKey.getState(prevState)
+          
+          const textBefore = state.doc.textBetween(Math.max(0, from - 50), from)
+          const match = textBefore.match(/@([^\s@]*)$/)
+          
+          if (match) {
+            // Only update if state changed (avoid infinite loop)
+            if (!prevTrigger?.active || prevTrigger.query !== match[1]) {
               const start = from - match[0].length
               const newState = { active: true, query: match[1] || "", from: start, to: from }
               
-              // Update plugin state via transaction first
               const tr = view.state.tr.setMeta(mentionTriggerKey, newState)
               view.dispatch(tr)
               
-              // Then notify component
               onChange(newState)
               onTrigger?.()
-            } else {
-              const prevTrigger = mentionTriggerKey.getState(prevState)
-              if (prevTrigger?.active) {
-                // Clear plugin state via transaction
-                const tr = view.state.tr.setMeta(mentionTriggerKey, null)
-                view.dispatch(tr)
-                
-                onChange(null)
-              }
+            }
+          } else {
+            if (prevTrigger?.active) {
+              const tr = view.state.tr.setMeta(mentionTriggerKey, null)
+              view.dispatch(tr)
+              
+              onChange(null)
             }
           }
         },

@@ -34,7 +34,7 @@ export const mentionNodeSpec = {
         "data-label": attrs.label,
         "data-path": attrs.path || "",
       },
-      `@${attrs.label || attrs.name}`,
+      `   @${attrs.label || attrs.name}   `,
     ] as const
   },
   parseDOM: [

@@ -236,7 +236,8 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                           </Show>
                         </div>
                         <Icon name="folder" size="small" />
-                        <span class="mention-secondary-item-text">{file.name}</span>
+                        <span class="mention-secondary-item-text" title={file.name}>{file.name}</span>
+                        <span class="mention-secondary-item-path" title={file.path}>{file.path}</span>
                       </button>
                     )
                   }}
@@ -259,7 +260,8 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                           </Show>
                         </div>
                         <Icon name="folder" size="small" />
-                        <span class="mention-secondary-item-text">{file.name}</span>
+                        <span class="mention-secondary-item-text" title={file.name}>{file.name}</span>
+                        <span class="mention-secondary-item-path" title={file.path}>{file.path}</span>
                       </button>
                     )
                   }}
