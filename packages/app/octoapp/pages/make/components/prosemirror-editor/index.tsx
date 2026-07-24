@@ -181,13 +181,9 @@ export const ProseMirrorEditor = (props: Props) => {
       if (!target.closest(".mention-popover-container")) {
         console.log("[click-outside] closing popover")
         const v = view()
-        const state = triggerState()
         
-        if (v && state) {
-          // Move cursor before @ so next click on @ will trigger popover
-          const tr = v.state.tr
-            .setMeta(mentionTriggerKey, null)
-            .setSelection(TextSelection.create(v.state.doc, Math.max(0, state.from - 1)))
+        if (v) {
+          const tr = v.state.tr.setMeta(mentionTriggerKey, null)
           v.dispatch(tr)
         }
         
