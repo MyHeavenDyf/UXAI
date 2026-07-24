@@ -5631,6 +5631,9 @@ export class Generations extends HeyApiClient {
       prompt?: string
       displayPrompt?: string
       detailPrompt?: string
+      detailTitle?: string
+      initialSessionTitle?: string
+      shouldSetSessionTitle?: boolean
       refinedPrompt?: string
       effectivePrompt?: string
       promptRefineModels?: Array<{
@@ -5661,6 +5664,9 @@ export class Generations extends HeyApiClient {
             { in: "body", key: "prompt" },
             { in: "body", key: "displayPrompt" },
             { in: "body", key: "detailPrompt" },
+            { in: "body", key: "detailTitle" },
+            { in: "body", key: "initialSessionTitle" },
+            { in: "body", key: "shouldSetSessionTitle" },
             { in: "body", key: "refinedPrompt" },
             { in: "body", key: "effectivePrompt" },
             { in: "body", key: "promptRefineModels" },

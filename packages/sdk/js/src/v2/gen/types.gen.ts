@@ -7520,6 +7520,9 @@ export type StudioGenerationsCreateData = {
     prompt: string
     displayPrompt?: string
     detailPrompt?: string
+    detailTitle?: string
+    initialSessionTitle?: string
+    shouldSetSessionTitle?: boolean
     refinedPrompt?: string
     effectivePrompt?: string
     promptRefineModels?: Array<{
@@ -7572,6 +7575,7 @@ export type StudioGenerationsCreateResponses = {
     prompt: string
     displayPrompt?: string
     detailPrompt?: string
+    detailTitle?: string
     provider: "jimeng" | "internel"
     toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
     taskType?: string
@@ -7684,6 +7688,7 @@ export type StudioGenerationsCancelResponses = {
     prompt: string
     displayPrompt?: string
     detailPrompt?: string
+    detailTitle?: string
     provider: "jimeng" | "internel"
     toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
     taskType?: string
@@ -7759,6 +7764,7 @@ export type StudioGenerationsRebootResponses = {
     prompt: string
     displayPrompt?: string
     detailPrompt?: string
+    detailTitle?: string
     provider: "jimeng" | "internel"
     toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
     taskType?: string
@@ -7834,6 +7840,7 @@ export type StudioGenerationsGetResponses = {
     prompt: string
     displayPrompt?: string
     detailPrompt?: string
+    detailTitle?: string
     provider: "jimeng" | "internel"
     toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
     taskType?: string
