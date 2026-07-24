@@ -42,7 +42,7 @@ import { PatternGenerating }  from "./modules/preview/pattern-generating"
 import type { PatternMatchItem } from "./utils/pattern-resource"
 import { readPatternFile } from "./utils/pattern-resource"
 import { type IntentConfirmAnswers } from "./modules/chat/intent-confirm-card"
-import type { IntentConfirmResult } from "./agents/proto-intent-confirm"
+import type { IntentConfirmDimension, IntentConfirmResult } from "./agents/proto-intent-confirm"
 import { ChatPanel } from "./modules/chat/index"
 import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
 import { PatternPreviewEmpty } from "./modules/preview/pattern-preview-empty"
@@ -193,13 +193,19 @@ function PatternContent() {
                 case "intent_confirm": {
                   const ckpt = result.checkpoint
                   sessionMap.set(setUserInput, id, ckpt.userInput)
-                  sessionMap.set(setIntentConfirm, id, { options: ckpt.options ?? {}, current_step: "intent_confirm" } as any)
+                  sessionMap.set(setIntentConfirm, id, {
+                    results: (ckpt.options as { results?: IntentConfirmResult["results"] })?.results ?? [],
+                    current_step: "intent_confirm",
+                  })
                   return
                 }
                 case "block_matching": {
                   const ckpt = result.checkpoint
                   sessionMap.set(setUserInput, id, ckpt.userInput)
-                  sessionMap.set(setIntentConfirm, id, { options: ckpt.options ?? {}, current_step: "intent_confirm" } as any)
+                  sessionMap.set(setIntentConfirm, id, {
+                    results: (ckpt.options as { results?: IntentConfirmResult["results"] })?.results ?? [],
+                    current_step: "intent_confirm",
+                  })
                   sessionMap.set(setBlockMatches, id, ckpt.blockMatches ?? [])
                   if (!ckpt.blockMatches || ckpt.blockMatches.length === 0) {
                     sessionMap.set(setBlockMatchError, id, true)
@@ -371,7 +377,7 @@ function PatternContent() {
   // block 匹配是否出错
   const [blockMatchError, setBlockMatchError] = sessionMap.createSessionMap<boolean>()
   // 卡片初始步骤（恢复 block_matching 时直接跳到 blocks）
-  const [cardInitialStep, setCardInitialStep] = createSignal<"dimensions" | "blocks" | undefined>()
+  const [cardInitialStep, setCardInitialStep] = createSignal<"patterns" | "blocks" | undefined>()
 
   const needsConfirm = createMemo(() => {
     const id = params.id
@@ -564,18 +570,10 @@ function PatternContent() {
         if (ckpt.stage === "intent_confirm") {
           // intent_confirm 报错，先重跑意图确认
           const confirmResult = await create_intent_confirm(intentCtx)
-          if (Object.keys(confirmResult.options).length > 0) {
-            // 需要用户确认，在 CHAT 中显示确认卡片
-            sessionMap.set(setUserInput, sid, text)
-            sessionMap.set(setIntentConfirm, sid, confirmResult)
-            startPause(sid)
-            return
-          }
-          // 无需确认，弹出卡片走 block 选择
+          // 无论是否匹配到 Pattern，都弹卡片暂停；空结果时卡片显示「未匹配到」+ 重新匹配
           sessionMap.set(setUserInput, sid, text)
           sessionMap.set(setIntentConfirm, sid, confirmResult)
           startPause(sid)
-          void handleMatchPatternInCard("")
           return
         }
 
@@ -787,18 +785,10 @@ function PatternContent() {
         if (!sendingSids().has(sid!)) return
         const confirmResult = await create_intent_confirm(intentCtx)
         void saveDebugSnapshot(patternHistoryDir(), sid!, "intent_confirm")
-        if (Object.keys(confirmResult.options).length > 0) {
-          if (sid) sessionMap.set(setUserInput, sid!, intentCtx.userInput)
-          if (sid) sessionMap.set(setIntentConfirm, sid!, confirmResult)
-          startPause(sid!)
-          return
-        }
-
-        // 无维度需确认，直接弹出卡片走 block 选择
-        if (sid) sessionMap.set(setUserInput, sid!, text)
+        // 无论是否匹配到 Pattern，都弹卡片暂停；空结果时卡片显示「未匹配到」+ 重新匹配
+        if (sid) sessionMap.set(setUserInput, sid!, intentCtx.userInput)
         if (sid) sessionMap.set(setIntentConfirm, sid!, confirmResult)
         startPause(sid!)
-        void handleMatchPatternInCard("")
         return
       }
     } catch (err: unknown) {
@@ -815,14 +805,14 @@ function PatternContent() {
     }
   }
 
-  // 卡片第一步：点「匹配pattern」触发 block 匹配
-  async function handleMatchPatternInCard(enrichedInput: string) {
+  // 卡片第一步：page pattern 选定后触发 block 匹配（selectedItem 后续用于精准匹配）
+  async function handleMatchPatternInCard(selectedItem: IntentConfirmDimension | null) {
     const sid = params.id
     if (!sid) return
     const mk = activeModelKey()
     if (!mk) return
     const text = userInput()[sid] ?? ""
-    const enrichedText = text + enrichedInput
+    const enrichedText = text
     const ds = selectedDesignSystem()
     sessionMap.set(setBlockMatching, sid, true)
     sessionMap.set(setBlockMatchError, sid, false)
@@ -1232,7 +1222,7 @@ function PatternContent() {
             onDeleteSession={deleteSession}
             onTitleChanged={(title) => mutateSession(prev => prev ? { ...prev, title } : prev)}
             onRetry={handleRetry}
-            intentConfirmResult={intentConfirm()[params.id!] ?? null}
+            pageMatches={intentConfirm()[params.id!] ?? null}
             blockMatches={blockMatches()[params.id!] ?? []}
             blockMatching={blockMatching()[params.id!] ?? false}
             blockMatchError={blockMatchError()[params.id!] ?? false}
