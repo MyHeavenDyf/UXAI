@@ -211,11 +211,17 @@
   align-items: stretch;
 }
 
+.comment-input-field-with-content .comment-input-text {
+  flex: none;
+  margin-right: -8px;
+}
+
 .comment-input-text {
   flex: 1;
-  min-height: 40px;
-  max-height: 44px;
-  padding: 8px 0;
+  min-height: 24px;
+  max-height: 88px;
+  margin: 8px 0;
+  padding: 0 4px 0 0;
   border: none;
   font-size: 14px;
   line-height: 22px;
@@ -226,6 +232,21 @@
   font-family: inherit;
   background: transparent;
   min-width: 0;
+  overflow-y: auto;
+  scrollbar-width: auto;
+}
+.comment-input-text::-webkit-scrollbar {
+  width: 4px;
+}
+.comment-input-text::-webkit-scrollbar-track {
+  background: transparent;
+}
+.comment-input-text::-webkit-scrollbar-thumb {
+  background-color: var(--border-weak-base);
+  border-radius: 9999px;
+}
+.comment-input-text::-webkit-scrollbar-thumb:hover {
+  background-color: var(--border-strong-base);
 }
 
 .comment-input-text::placeholder {
@@ -665,25 +686,20 @@
   min-height: 0;
   padding: 0;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+  scrollbar-width: auto;
 }
-
 .comment-edit-container .comment-input-text::-webkit-scrollbar {
   width: 4px;
 }
-
 .comment-edit-container .comment-input-text::-webkit-scrollbar-track {
   background: transparent;
 }
-
 .comment-edit-container .comment-input-text::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 2px;
+  background-color: var(--border-weak-base);
+  border-radius: 9999px;
 }
-
 .comment-edit-container .comment-input-text::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.35);
+  background-color: var(--border-strong-base);
 }
 
 .comment-edit-container .comment-input-icons {

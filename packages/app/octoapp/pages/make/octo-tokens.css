@@ -627,3 +627,65 @@ button.delete-dialog-btn-primary {
   border-color: #0a59f7;
   color: #fff;
 }
+
+/* ── Thin scrollbar (matches list-scroll) ────────── */
+.octo-thin-scroll {
+  scrollbar-width: auto;
+  -ms-overflow-style: auto;
+}
+.octo-thin-scroll::-webkit-scrollbar {
+  display: block;
+  width: 4px;
+  height: 4px;
+}
+.octo-thin-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--border-weak-base);
+  border-radius: 9999px;
+}
+.octo-thin-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--border-strong-base);
+}
+.octo-thin-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ── Drawer toggle & operations button hover ────────── */
+.make-drawer-toggle-btn,
+.make-operations-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #777;
+}
+
+.make-drawer-toggle-btn::before,
+.make-operations-btn::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  background: transparent;
+  transform: translate(-50%, -50%);
+  transition: background var(--octo-dur-fast) var(--octo-ease);
+  pointer-events: none;
+}
+
+.make-drawer-toggle-btn:hover::before,
+.make-operations-btn:hover::before {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.make-drawer-toggle-btn[data-expanded="true"]::before,
+.make-operations-btn[data-expanded="true"]::before {
+  background: rgba(0, 0, 0, 0.06);
+}

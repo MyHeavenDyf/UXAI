@@ -655,7 +655,12 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                     width: "108px",
                     "font-size": "14px",
                     "line-height": "22px",
+                    cursor: "pointer",
                   }}
+                  onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "#0950de") }}
+                  onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "#0a59F7") }}
+                  onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "#0a55eb") }}
+                  onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "#0a55eb") }}
                 >
                   <IconUpload size={16} />
                   <span>{language.t("designFiles.uploadFileAction")}</span>
@@ -714,6 +719,10 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                     color: "white",
                     "border-radius": "999px",
                   }}
+                  onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "#0950de") }}
+                  onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand)") }}
+                  onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "#0a55eb") }}
+                  onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "#0a55eb") }}
                 >
                   <IconUpload size={16} />
                   <span>{language.t("designFiles.uploadFileAction")}</span>

@@ -1,4 +1,5 @@
-import { createEffect, createMemo, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js"
+import { Portal } from "solid-js/web"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { Icon } from "@opencode-ai/ui/icon"
 import { usePlatform } from "@/context/platform"
@@ -10,6 +11,7 @@ import { base64Encode } from "@opencode-ai/core/util/encode"
 import { decode64 } from "@/utils/base64"
 import { useCommand } from "@/context/command"
 import { useProjectDir } from "@/hooks/use-project-dir"
+import { useResponsiveBreakpoints } from "@/components/responsive-layout"
 // jk-j60099994-replace-with-titlebar-simple-1-start
 // jk-j60099994-replace-with-titlebar-simple-1-end
 
@@ -59,6 +61,10 @@ export function TitlebarSimple() {
   const layout = useLayout()
   const server = useServer()
   const projectDir = useProjectDir({ mode: "project" })
+  const { isWide } = useResponsiveBreakpoints()
+  const [menuOpen, setMenuOpen] = createSignal(false)
+  const [dropdownPos, setDropdownPos] = createSignal({ top: 0, left: 0 })
+  let triggerRef: HTMLButtonElement | undefined
 
   const mac = createMemo(() => platform.platform === "desktop" && platform.os === "macos")
   const windows = createMemo(() => platform.platform === "desktop" && platform.os === "windows")
@@ -224,6 +230,44 @@ export function TitlebarSimple() {
 
   const hasActiveTab = createMemo(() => activeTab() !== undefined)
 
+  const activeTabLabel = () => {
+    const key = activeTab()
+    if (!key) return ""
+    return TAB_ITEMS.find((item) => item.key === key)?.label ?? ""
+  }
+
+  // Close menu when entering wide mode
+  createEffect(() => {
+    if (isWide()) setMenuOpen(false)
+  })
+
+  // Update dropdown position: below trigger, centered
+  createEffect(() => {
+    if (!menuOpen()) return
+    const update = () => {
+      if (!triggerRef) return
+      const rect = triggerRef.getBoundingClientRect()
+      setDropdownPos({ top: rect.bottom + 4, left: rect.left + rect.width / 2 })
+    }
+    update()
+    window.addEventListener("resize", update)
+    window.addEventListener("scroll", update, true)
+    onCleanup(() => {
+      window.removeEventListener("resize", update)
+      window.removeEventListener("scroll", update, true)
+    })
+  })
+
+  // Close menu on Escape
+  createEffect(() => {
+    if (!menuOpen()) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false)
+    }
+    document.addEventListener("keydown", handler)
+    onCleanup(() => document.removeEventListener("keydown", handler))
+  })
+
   createEffect(() => {
     if (platform.platform !== "desktop") return
     const scheme = theme.colorScheme()
@@ -274,34 +318,115 @@ export function TitlebarSimple() {
         <img src="/headerLogo.png" alt="" style={{ width: "90px", height: "18px" }} />
       </div>
 
-        <style>{`.titlebar-tab-btn [data-component="icon"] { color: inherit }`}</style>
-        <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ zoom: counterZoom() }}>
+      <style>{`
+        .titlebar-tab-btn [data-component="icon"] { color: inherit }
+        .octo-dropdown-trigger {
+          display: inline-flex; align-items: center; gap: 8px;
+          height: 28px; background: transparent; border: none;
+          border-radius: var(--octo-radius-sm, 6px);
+          color: var(--octo-text-secondary, #4b5563);
+          font-size: 14px; cursor: pointer; width: auto; padding: 0 4px;
+          transition: background 100ms cubic-bezier(0.4,0,0.2,1), color 100ms cubic-bezier(0.4,0,0.2,1);
+        }
+        .octo-dropdown-trigger:hover { color: var(--octo-text-primary, #1f2937); }
+        .octo-dropdown-trigger.octo-dropdown-open { color: var(--octo-text-primary, #1f2937); }
+        .octo-dropdown-trigger > svg { flex-shrink: 0; }
+        .octo-dropdown-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .octo-dropdown-trigger:disabled { opacity: 0.5; cursor: not-allowed; }
+        .octo-dropdown-menu {
+          position: fixed; z-index: 99999;
+          display: flex; flex-direction: column; gap: 4px;
+          padding: 4px; background: #ffffff;
+          border: 1px solid #E5E7EB; border-radius: 8px;
+          box-shadow: 0 4px 12px 0 rgba(0,0,0,0.16);
+          animation: octo-pop-in 120ms cubic-bezier(0.23,1,0.32,1);
+        }
+        @keyframes octo-pop-in { from { opacity: 0; } to { opacity: 1; } }
+        .octo-dropdown-menu .octo-dropdown-item {
+          display: flex; align-items: center; justify-content: center;
+          min-width: 80px; height: 36px; padding: 0 10px;
+          background: transparent; border: none; border-radius: 6px;
+          color: rgba(0,0,0,0.9); font-size: 14px; line-height: 22px;
+          cursor: pointer; text-align: center;
+          transition: background 100ms cubic-bezier(0.4,0,0.2,1), color 100ms cubic-bezier(0.4,0,0.2,1);
+        }
+        .octo-dropdown-menu .octo-dropdown-item:hover { background: rgba(0,0,0,0.05); }
+        .octo-dropdown-menu .octo-dropdown-item-active,
+        .octo-dropdown-menu .octo-dropdown-item-active:hover {
+          color: var(--octo-brand, #0a59f7);
+          background: var(--octo-brand-a8, rgba(10,89,247,0.08));
+        }
+      `}</style>
+      <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ zoom: counterZoom() }}>
+        <Show
+          when={isWide()}
+          fallback={
+            <div class="relative">
+              <button
+                ref={triggerRef}
+                type="button"
+                class={`octo-dropdown-trigger ${menuOpen() ? "octo-dropdown-open" : ""}`}
+                disabled={!hasActiveTab()}
+                onClick={() => setMenuOpen(!menuOpen())}
+              >
+                <span>{activeTabLabel()}</span>
+                <svg width="12" height="12" viewBox="0 0 10 10" style={{ transform: menuOpen() ? "rotate(180deg)" : "none", transition: "transform 0.2s ease" }}>
+                  <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
+              <Show when={menuOpen()}>
+                <Portal>
+                  <div class="fixed inset-0 z-[40]" onClick={() => setMenuOpen(false)} />
+                  <div
+                    class="octo-dropdown-menu"
+                    style={{
+                      top: `${dropdownPos().top}px`,
+                      left: `${dropdownPos().left}px`,
+                      transform: "translateX(-50%)",
+                    }}
+                  >
+                    {TAB_ITEMS.map((item) => (
+                      <button
+                        type="button"
+                        class={`octo-dropdown-item ${activeTab() === item.key ? "octo-dropdown-item-active" : ""}`}
+                        onClick={() => { handleTabClick(item.key); setMenuOpen(false) }}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </Portal>
+              </Show>
+            </div>
+          }
+        >
           <div class="flex items-center rounded-full bg-[rgba(0,0,0,0.05)] gap-1 p-[2px]" role="tablist">
             {TAB_ITEMS.map((item) => (
               <button
                 class="titlebar-tab-btn"
                 role="tab"
-              aria-selected={activeTab() === item.key}
-              disabled={!hasActiveTab()}
-              classList={{
-                "flex items-center justify-center gap-1 rounded-full transition-colors": true,
-                "w-[106px] h-[28px]": true,
-                "text-14-regular": true,
-                "bg-[#FFFFFF] text-[rgba(10,89,247,1)]": activeTab() === item.key,
-                "text-text-weak hover:text-text-base": activeTab() !== item.key && hasActiveTab(),
-                "text-text-disabled": !hasActiveTab(),
-                "cursor-pointer": hasActiveTab(),
-                "cursor-not-allowed": !hasActiveTab(),
-              }}
-              onClick={() => {
-                if (hasActiveTab()) handleTabClick(item.key)
-              }}
-            >
-              <Icon name={`tab-${item.key}` as any} size="small"/>
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </div>
+                aria-selected={activeTab() === item.key}
+                disabled={!hasActiveTab()}
+                classList={{
+                  "flex items-center justify-center gap-1 rounded-full transition-colors": true,
+                  "w-[106px] h-[28px]": true,
+                  "text-14-regular": true,
+                  "bg-[#FFFFFF] text-[rgba(10,89,247,1)]": activeTab() === item.key,
+                  "text-text-weak hover:text-text-base": activeTab() !== item.key && hasActiveTab(),
+                  "text-text-disabled": !hasActiveTab(),
+                  "cursor-pointer": hasActiveTab(),
+                  "cursor-not-allowed": !hasActiveTab(),
+                }}
+                onClick={() => {
+                  if (hasActiveTab()) handleTabClick(item.key)
+                }}
+              >
+                <Icon name={`tab-${item.key}` as any} size="small"/>
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
+        </Show>
       </div>
 
       <div
