@@ -94,34 +94,35 @@ export type ResourceDetailResult = {
   error?: string
 }
 
+// 页面级默认数据
+//  const pageResourceData = {
+//   "results": [
+//     {
+//       "id": "966",
+//       "name": "管理页-表格模式",
+//       "score": 75,
+//       "file_path": "https://octo-beta.hdesign.huawei.com/lib-resource-service/static/file/b3414307-b975-40f8-b5fa-bfe90f73cd9e.md",
+//       "thumbnail_path": "https://octo-beta.hdesign.huawei.com/lib-resource-service/static/file/image/9d68970d-94b6-4cb3-8de5-37d2297113e3_thumb.png"
+//     },
+//     {
+//       "id": "1022",
+//       "name": "详情页-抽屉级详情",
+//       "score": 73,
+//       "file_path": "https://octo-beta.hdesign.huawei.com/lib-resource-service/static/file/5bff1fe7-7a51-41e6-8f6c-cd92781b2bbf.md",
+//       "thumbnail_path": "https://octo-beta.hdesign.huawei.com/lib-resource-service/static/file/image/bf85c790-5aa9-4d86-aec4-e5d326d0179e_thumb.png"
+//     },
+//     {
+//       "id": "1017",
+//       "name": "管理页-卡片模式",
+//       "score": 58,
+//       "file_path": "https://octo-beta.hdesign.huawei.com/lib-resource-service/static/file/86b58752-5a28-48ec-a49b-69f8fcb38d70.md",
+//       "thumbnail_path": "https://octo-beta.hdesign.huawei.com/lib-resource-service/static/file/image/19866e48-0775-4ca7-9bf8-4240b214daee_thumb.png"
+//     }
+//   ]
+// }
+
 // 获取页面级数据的资源路径
 export async function getPagePatternResource(inputData: { results?: Array<Record<string, any>> }) {
-  const initData = {
-    "results": [
-      {
-        "id": "966",
-        "name": "管理页-表格模式",
-        "score": 75,
-        "file_path": "https://octo-beta.hdesign.huawei.com/lib-resource-service/static/file/b3414307-b975-40f8-b5fa-bfe90f73cd9e.md",
-        "thumbnail_path": "https://octo-beta.hdesign.huawei.com/lib-resource-service/static/file/image/9d68970d-94b6-4cb3-8de5-37d2297113e3_thumb.png"
-      },
-      {
-        "id": "1022",
-        "name": "详情页-抽屉级详情",
-        "score": 73,
-        "file_path": "https://octo-beta.hdesign.huawei.com/lib-resource-service/static/file/5bff1fe7-7a51-41e6-8f6c-cd92781b2bbf.md",
-        "thumbnail_path": "https://octo-beta.hdesign.huawei.com/lib-resource-service/static/file/image/bf85c790-5aa9-4d86-aec4-e5d326d0179e_thumb.png"
-      },
-      {
-        "id": "1017",
-        "name": "管理页-卡片模式",
-        "score": 58,
-        "file_path": "https://octo-beta.hdesign.huawei.com/lib-resource-service/static/file/86b58752-5a28-48ec-a49b-69f8fcb38d70.md",
-        "thumbnail_path": "https://octo-beta.hdesign.huawei.com/lib-resource-service/static/file/image/19866e48-0775-4ca7-9bf8-4240b214daee_thumb.png"
-      }
-    ]
-  }
-  return initData;
   const results = inputData.results || []
   const enrichedResults = await Promise.all(
     results.map(async (item) => {
