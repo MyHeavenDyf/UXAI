@@ -65,6 +65,45 @@ export async function saveUploadImage(buffer: ArrayBuffer, sessionId: string): P
   return api.saveUploadImage(buffer, sessionId)
 }
 
+// 资源库服务地址
+export const BASE_URL = "https://octo-beta.hdesign.huawei.com/lib-resource-service"
+
+export async function getResourceDetail(type = "file", dataId: string) {
+  const url = `${BASE_URL}/api/vector/detail?type=${type}&data_id=${dataId}`
+  const response = await fetch(url)
+  if (!response.ok) {
+    return { success: false, error: `HTTP error! status: ${response.status}` }
+  }
+  const data = await response.json()
+  return { success: true, data }
+}
+
+export type ResourceDetailResult = {
+  success: boolean
+  data?: { file_path?: string; thumbnail_path?: string }
+  error?: string
+}
+
+// 获取页面级数据的资源路径
+export async function enrichResultsWithPaths(inputData: { results?: Array<Record<string, any>> }) {
+  const results = inputData.results || []
+  const enrichedResults = await Promise.all(
+    results.map(async (item) => {
+      const detailResult: ResourceDetailResult = await getResourceDetail("file", item.id)
+      const enrichedItem = { ...item }
+      if (detailResult.success && detailResult.data) {
+        enrichedItem.file_path = detailResult.data.file_path || ""
+        enrichedItem.thumbnail_path = detailResult.data.thumbnail_path || ""
+      } else {
+        enrichedItem.file_path = ""
+        enrichedItem.thumbnail_path = ""
+      }
+      return enrichedItem
+    }),
+  )
+  return { results: enrichedResults }
+}
+
 // 将 JSON 中所有 ./xxx/filename 相对路径替换为上传后的 URL
 export function replacePatternAssetPaths(data: unknown, replacements: Record<string, string>): any {
   if (Object.keys(replacements).length === 0) return data
