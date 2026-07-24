@@ -44,7 +44,8 @@
     "jsdom": "^26.0.0",
     "marked": "^15",
     "shell-path": "3.1.0",
-    "xdg-basedir": "5.1.0"
+    "xdg-basedir": "5.1.0",
+    "tailwindcss": "^4.3.0"
   },
   "devDependencies": {
     "@actions/artifact": "4.0.0",
@@ -70,7 +71,6 @@
     "electron-vite": "^5",
     "solid-js": "catalog:",
     "sury": "11.0.0-alpha.4",
-    "tailwindcss": "^4.3.0",
     "tw-to-css": "^0.0.12",
     "twirlwind": "0.3.0",
     "typescript": "~5.6.2",
