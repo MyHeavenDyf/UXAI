@@ -65,11 +65,11 @@ export async function saveUploadImage(buffer: ArrayBuffer, sessionId: string): P
   return api.saveUploadImage(buffer, sessionId)
 }
 
-// 资源库服务地址
-export const BASE_URL = "https://octo-beta.hdesign.huawei.com/lib-resource-service"
+// 页面资源库查询地址
+export const PAGE_RESOURCE_URL = "https://octo-beta.hdesign.huawei.com/lib-resource-service"
 
 export async function getResourceDetail(type = "file", dataId: string) {
-  const url = `${BASE_URL}/api/vector/detail?type=${type}&data_id=${dataId}`
+  const url = `${PAGE_RESOURCE_URL}/api/vector/detail?type=${type}&data_id=${dataId}`
   const response = await fetch(url)
   if (!response.ok) {
     return { success: false, error: `HTTP error! status: ${response.status}` }
