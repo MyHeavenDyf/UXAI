@@ -52,7 +52,7 @@ export default async function proto_intent_confirm(input: ProtoIntentConfirmInpu
     logAgentParsed(result.childSessionId, { error: "Failed to parse JSON", raw: result.text })
     agentThrow(AGENT_NAME, result.childSessionId, "Intent Confirm did not return valid JSON")
   }
-  // 访问云端向量数据库，补充文档和预览图资源
+  // 访问云端向量数据库，补充文档和预览图资源 ----- 此处后续要做一个功能：判断是否在内外网
   const enriched = await getPagePatternResource(json)
   const returnValue: IntentConfirmResult = {
     results: (enriched.results ?? []) as IntentConfirmDimension[],

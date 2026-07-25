@@ -62,22 +62,18 @@ export async function create_intent_confirm(inputCtx: ProtoCreateJsonInput) {
 // block 模板匹配：调 proto_pattern_block + 落盘 blockMatches
 export async function create_block_match(inputCtx: ProtoCreateJsonInput): Promise<{ matches: any[]; previewUrls: Map<string, string> }> {
   const sid = inputCtx.rootSession
-  const theme = (inputCtx.extra?.designSystem as string) || "ICT3.1"
-  // 推进 stage 到 block_matching
+  const pagePattern = (inputCtx.extra?.pagePattern as string) ?? ""
+  // 推进 stage 到 block_matching，同时持久化 pagePattern（重试 + 恢复时复用）
   if (inputCtx.checkpointDir) {
     const ckpt = await loadCheckpoint(inputCtx.checkpointDir, sid)
     if (ckpt) {
       ckpt.stage = "block_matching"
       ckpt.userInput = inputCtx.userInput
+      ckpt.pagePattern = pagePattern
       await saveCheckpoint(inputCtx.checkpointDir, sid, ckpt)
     }
   }
   const result = await proto_pattern_block(inputCtx)
-  // 为每个匹配加载预览图
-  for (const match of result.matches) {
-    if (!match.pattern.preview) continue
-    match.previewUrl = await readPatternPreview("block", match.pattern.preview, theme)
-  }
   // 落盘 blockMatches
   if (inputCtx.checkpointDir) {
     const ckpt = await loadCheckpoint(inputCtx.checkpointDir, sid)

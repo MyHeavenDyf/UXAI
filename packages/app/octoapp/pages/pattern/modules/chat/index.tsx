@@ -20,7 +20,7 @@ import { InsightTurn } from "./insight-turn"
 import { GenerationCard } from "./generation-card"
 import { IntentConfirmCard, type IntentConfirmAnswers } from "./intent-confirm-card"
 import type { IntentConfirmDimension, IntentConfirmResult } from "../../agents/proto-intent-confirm"
-import type { PatternMatchItem } from "../../utils/pattern-resource"
+import type { BlockModuleItem } from "../../utils/pattern-resource"
 import { TurnDuration } from "./turn-duration"
 import { ProtoIntroduction } from "./proto-introduction"
 import { ChartInput, type ChartInputProps } from "./chart-input"
@@ -117,7 +117,7 @@ export function ChatPanel(props: {
   /** page pattern 匹配结果（Pattern 匹配阶段返回的候选页面布局） */
   pageMatches?: IntentConfirmResult | null
   /** block 模板匹配结果列表（用户选完 Pattern 后匹配出来的候选模板） */
-  blockMatches?: PatternMatchItem[]
+  blockMatches?: BlockModuleItem[]
   /** 是否正在匹配 block 模板（loading 状态） */
   blockMatching?: boolean
   /** block 匹配是否出错（卡片内显示重试） */
@@ -127,7 +127,7 @@ export function ChatPanel(props: {
   /** page pattern 选定后点「下一步」/「跳过」时触发，传入选中的 item（跳过时为 null） */
   onMatchPattern?: (selectedItem: IntentConfirmDimension | null) => void
   /** 用户点「下一步」确认时触发，传入维度答案 + enrichedInput + 选中的 block 列表 */
-  onConfirmIntent?: (answers: IntentConfirmAnswers, enrichedInput: string, selectedBlocks: PatternMatchItem[]) => void
+  onConfirmIntent?: (answers: IntentConfirmAnswers, enrichedInput: string, selectedBlocks: BlockModuleItem[]) => void
 }) {
   const params = useParams<{ id?: string }>()
   const sdk = useSDK()

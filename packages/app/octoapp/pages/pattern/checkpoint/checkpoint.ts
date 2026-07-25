@@ -4,7 +4,7 @@
  * 一个 session 一个 checkpoint.json，通过 stage 字段区分当前阶段。
  */
 import { getDesktopApi } from "../utils/desktop-api"
-import type { PatternMatchItem } from "../utils/pattern-resource"
+import type { BlockModuleItem } from "../utils/pattern-resource"
 
 // ─── 通用读写机制 ───
 const CHECKPOINT_FILENAME = "checkpoint"
@@ -74,7 +74,9 @@ export type Checkpoint = {
   /** 缺失维度选项（为空 = agent 报错） */
   options?: Record<string, unknown>
   /** 匹配到的 block 模板列表 */
-  blockMatches?: PatternMatchItem[]
+  blockMatches?: BlockModuleItem[]
+  /** 选中的 page pattern 规范 MD（用于 block 匹配 + 重试时复用） */
+  pagePattern?: string
   /** 用户选中的 block 外层信息，传给 intent 和 planner */
   patterns?: any[]
   /** 页面级 pattern 匹配结果 */
