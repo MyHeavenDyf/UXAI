@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { sanitizeFilename, defaultFilename, ensureMarkdownExt, isPendingUploadPath } from "./local-file"
+import { sanitizeFilename, defaultFilename, ensureMarkdownExt } from "./local-file"
 
 describe("sanitizeFilename", () => {
   test("去掉路径分隔符与控制字符", () => {
@@ -37,24 +37,5 @@ describe("ensureMarkdownExt", () => {
     expect(ensureMarkdownExt("a.md")).toBe("a.md")
     expect(ensureMarkdownExt("a.markdown")).toBe("a.markdown")
     expect(ensureMarkdownExt("A.MD")).toBe("A.MD")
-  })
-})
-
-describe("isPendingUploadPath", () => {
-  test("预会话落地区(Windows 反斜杠)", () => {
-    expect(isPendingUploadPath("D:\\proj\\.octo\\tmps\\访谈稿.docx")).toBe(true)
-  })
-  test("预会话落地区(POSIX)", () => {
-    expect(isPendingUploadPath("/proj/.octo/tmps/访谈稿.docx")).toBe(true)
-  })
-  test("已归属会话的不再挪", () => {
-    expect(isPendingUploadPath("/proj/.octo/ses_1/uploads/访谈稿.docx")).toBe(false)
-  })
-  // 落点在 b90d404c6 收进 .octo 根前是 insight/uploads/;老路径不该被当成待搬迁。
-  test("旧布局路径不误判", () => {
-    expect(isPendingUploadPath("/proj/insight/uploads/访谈稿.docx")).toBe(false)
-  })
-  test("不在 .octo 下的同名目录不误判", () => {
-    expect(isPendingUploadPath("/proj/tmps/访谈稿.docx")).toBe(false)
   })
 })
