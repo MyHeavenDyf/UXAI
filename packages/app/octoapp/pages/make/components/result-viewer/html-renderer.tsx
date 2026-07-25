@@ -174,6 +174,8 @@ export function HtmlRenderer(props: {
     elementId: string | null
     tag: string
     selector: string
+    contentSignature?: string
+    nativeId?: string
     text: string
     position: { x: number; y: number; w: number; h: number }
     htmlHint: string
@@ -897,6 +899,8 @@ createEffect(() => {
         elementId: d.elementId || null,
         tag: d.tag,
         selector: d.selector,
+        contentSignature: d.contentSignature || '',
+        nativeId: d.nativeId,
         text: d.text,
         position: d.position,
         htmlHint: d.htmlHint,
@@ -925,6 +929,8 @@ createEffect(() => {
           elementId: comment.elementId,
           tag: comment.elementId.split('-')[0] || 'div',
           selector: comment.selector,
+          contentSignature: comment.contentSignature,
+          nativeId: comment.nativeId,
           text: comment.text,
           position: comment.position,
           htmlHint: comment.htmlHint,
@@ -949,6 +955,8 @@ createEffect(() => {
           elementId: comment.elementId,
           tag: comment.elementId.split('-')[0] || 'div',
           selector: comment.selector,
+          contentSignature: comment.contentSignature,
+          nativeId: comment.nativeId,
           text: comment.text,
           position: comment.position,
           htmlHint: comment.htmlHint,
@@ -976,6 +984,10 @@ createEffect(() => {
     iframeRef?.contentWindow?.postMessage({
       type: 'od:comment-set-active',
       elementId: prevComment.elementId,
+      selector: prevComment.selector,
+      contentSignature: prevComment.contentSignature,
+      nativeId: prevComment.nativeId,
+      position: prevComment.position,
       commentId: prevComment.id
     }, '*')
   }
@@ -988,6 +1000,10 @@ createEffect(() => {
     iframeRef?.contentWindow?.postMessage({
       type: 'od:comment-set-active',
       elementId: nextComment.elementId,
+      selector: nextComment.selector,
+      contentSignature: nextComment.contentSignature,
+      nativeId: nextComment.nativeId,
+      position: nextComment.position,
       commentId: nextComment.id
     }, '*')
   }
@@ -1378,25 +1394,31 @@ onFloatingPositionChange={setEditPanelPosition}
                     const hoverTarget = commentHoverTarget()
                     const comment = savedComments().find(c => c.id === hoverTarget?.commentId)
                     if (comment && hoverTarget?.pinPosition) {
-                      setEditingComment(comment)
-                      setCommentReadOnly(true)
-                      setCommentTarget({
-                        elementId: comment.elementId,
-                        tag: comment.elementId.split('-')[0] || 'div',
-                        selector: comment.selector,
-                        text: comment.text,
-                        position: comment.position,
-                        htmlHint: comment.htmlHint,
-                        label: comment.label,
-                        hoverPoint: {
-                          x: hoverTarget.pinPosition.left + hoverTarget.pinPosition.width + 8,
-                          y: hoverTarget.pinPosition.top
-                        },
-                        pinPosition: hoverTarget.pinPosition,
-                      })
+setEditingComment(comment)
+                       setCommentReadOnly(true)
+                       setCommentTarget({
+                         elementId: comment.elementId,
+                         tag: comment.elementId.split('-')[0] || 'div',
+                         selector: comment.selector,
+                         contentSignature: comment.contentSignature,
+                         nativeId: comment.nativeId,
+                         text: comment.text,
+                         position: comment.position,
+                         htmlHint: comment.htmlHint,
+                         label: comment.label,
+                         hoverPoint: {
+                           x: hoverTarget.pinPosition.left + hoverTarget.pinPosition.width + 8,
+                           y: hoverTarget.pinPosition.top
+                         },
+                         pinPosition: hoverTarget.pinPosition,
+                       })
                       iframeRef?.contentWindow?.postMessage({
                         type: 'od:comment-set-active',
                         elementId: comment.elementId,
+                        selector: comment.selector,
+                        contentSignature: comment.contentSignature,
+                        nativeId: comment.nativeId,
+                        position: comment.position,
                         commentId: comment.id
                       }, '*')
                       setCommentHoverTarget(null)
@@ -1407,31 +1429,35 @@ onFloatingPositionChange={setEditPanelPosition}
 <Show when={props.commenting && (commentTarget() || editingComment())}>
 <CommentPopover
                    iframeBounds={iframeRef?.getBoundingClientRect() ? { width: iframeRef.getBoundingClientRect().width, height: iframeRef.getBoundingClientRect().height } : { width: 800, height: 600 }}
-                   target={editingComment() ? {
-                     elementId: editingComment()!.elementId,
-                     selector: editingComment()!.selector,
-                     label: editingComment()!.label,
-                     text: editingComment()!.text,
-                     position: editingComment()!.position,
-                     htmlHint: editingComment()!.htmlHint,
-                     hoverPoint: commentTarget()?.hoverPoint || (() => {
-                       const bounds = iframeRef?.getBoundingClientRect()
-                       return {
-                         x: editingComment()!.position.x * (bounds?.width || 800),
-                         y: editingComment()!.position.y * (bounds?.height || 600)
-                       }
-                     })(),
-                     pinPosition: commentTarget()?.pinPosition,
-                   } : {
-                     elementId: commentTarget()!.elementId,
-                     selector: commentTarget()!.selector,
-                     label: commentTarget()!.label,
-                     text: commentTarget()!.text,
-                     position: commentTarget()!.position,
-                     htmlHint: commentTarget()!.htmlHint,
-                     hoverPoint: commentTarget()!.hoverPoint,
-                     pinPosition: commentTarget()?.pinPosition,
-                   }}
+target={editingComment() ? {
+                      elementId: editingComment()!.elementId,
+                      selector: editingComment()!.selector,
+                      contentSignature: editingComment()!.contentSignature,
+                      nativeId: editingComment()!.nativeId,
+                      label: editingComment()!.label,
+                      text: editingComment()!.text,
+                      position: editingComment()!.position,
+                      htmlHint: editingComment()!.htmlHint,
+                      hoverPoint: commentTarget()?.hoverPoint || (() => {
+                        const bounds = iframeRef?.getBoundingClientRect()
+                        return {
+                          x: editingComment()!.position.x * (bounds?.width || 800),
+                          y: editingComment()!.position.y * (bounds?.height || 600)
+                        }
+                      })(),
+                      pinPosition: commentTarget()?.pinPosition,
+                    } : {
+                      elementId: commentTarget()!.elementId,
+                      selector: commentTarget()!.selector,
+                      contentSignature: commentTarget()!.contentSignature,
+                      nativeId: commentTarget()!.nativeId,
+                      label: commentTarget()!.label,
+                      text: commentTarget()!.text,
+                      position: commentTarget()!.position,
+                      htmlHint: commentTarget()!.htmlHint,
+                      hoverPoint: commentTarget()!.hoverPoint,
+                      pinPosition: commentTarget()?.pinPosition,
+                    }}
 comment={editingComment()}
   externalClickSignal={externalClickSignal()}
   allComments={sortedComments()}
@@ -1449,22 +1475,24 @@ onSave={(note, attachments, pendingFiles) => {
                       } : getCommenterInfo()
 
 const comment: FileComment = {
-                         id: existing?.id || `comment-${Date.now()}`,
-                         filePath: props.filePath || '',
-                         elementId: existing?.elementId || target?.elementId || '',
-                         selector: existing?.selector || target?.selector || '',
-                         label: existing?.label || target?.label || '',
-                         text: existing?.text || target?.text || '',
-                         position: existing?.position || target?.position || { x: 0, y: 0, w: 0, h: 0 },
-                         htmlHint: existing?.htmlHint || target?.htmlHint || '',
-                         note,
-                         attachments,
-                         createdAt: existing?.createdAt || Date.now(),
-                         updatedAt: Date.now(),
-                         commenterName: commenterInfo.commenterName,
-                         commenterAccount: commenterInfo.commenterAccount,
-                         commenterAvatar: commenterInfo.commenterAvatar,
-                       }
+                          id: existing?.id || `comment-${Date.now()}`,
+                          filePath: props.filePath || '',
+                          elementId: existing?.elementId || target?.elementId || '',
+                          selector: existing?.selector || target?.selector || '',
+                          contentSignature: existing?.contentSignature || target?.contentSignature || '',
+                          nativeId: existing?.nativeId || target?.nativeId,
+                          label: existing?.label || target?.label || '',
+                          text: existing?.text || target?.text || '',
+                          position: existing?.position || target?.position || { x: 0, y: 0, w: 0, h: 0 },
+                          htmlHint: existing?.htmlHint || target?.htmlHint || '',
+                          note,
+                          attachments,
+                          createdAt: existing?.createdAt || Date.now(),
+                          updatedAt: Date.now(),
+                          commenterName: commenterInfo.commenterName,
+                          commenterAccount: commenterInfo.commenterAccount,
+                          commenterAvatar: commenterInfo.commenterAvatar,
+                        }
                     
                     // Save to backend API
                     if (!props.sdkUrl || !props.sdkDirectory) {
@@ -1479,26 +1507,28 @@ fetch(`${props.sdkUrl}/comment/file`, {
                           ...directoryHeader(props.sdkDirectory)
                         },
 body: JSON.stringify({
-                             sessionId: props.sessionId,
-                             commentFilePath: props.commentFilePath || extractCommentFilePath(comment.filePath, props.sessionId || ''),
-                             comment: {
-                              id: comment.id,
-                              filePath: comment.filePath,
-                             elementId: comment.elementId,
-                             selector: comment.selector,
-                             label: comment.label,
-                             text: comment.text,
-                             position: comment.position,
-                             htmlHint: comment.htmlHint,
-                             note: comment.note,
-                             attachments: comment.attachments || [],
-                             createdAt: comment.createdAt,
-                             updatedAt: comment.updatedAt,
-                             commenterName: comment.commenterName,
-                             commenterAccount: comment.commenterAccount,
-                             commenterAvatar: comment.commenterAvatar,
-                           }
-                         })
+                              sessionId: props.sessionId,
+                              commentFilePath: props.commentFilePath || extractCommentFilePath(comment.filePath, props.sessionId || ''),
+                              comment: {
+                               id: comment.id,
+                               filePath: comment.filePath,
+                              elementId: comment.elementId,
+                              selector: comment.selector,
+                              contentSignature: comment.contentSignature,
+                              nativeId: comment.nativeId,
+                              label: comment.label,
+                              text: comment.text,
+                              position: comment.position,
+                              htmlHint: comment.htmlHint,
+                              note: comment.note,
+                              attachments: comment.attachments || [],
+                              createdAt: comment.createdAt,
+                              updatedAt: comment.updatedAt,
+                              commenterName: comment.commenterName,
+                              commenterAccount: comment.commenterAccount,
+                              commenterAvatar: comment.commenterAvatar,
+                            }
+                          })
                       })
                      .then(res => {
                        console.log('[Comment] First save response status:', res.status)
