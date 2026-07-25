@@ -247,15 +247,52 @@ known_issues:
     files: []
     desc: "pattern 新增 patch-json.ts（8 种 JSON patch 操作）。3D 版需将 children 语义替换为 parentId 语义。暂未迁移。"
   - id: intent-confirm-page-pattern-migration
-    status: 待迁移
+    status: 待迁移（前提：3D场景模板库）
     files:
       - packages/app/octoapp/pages/3d/agents/scene-intent-confirm/index.ts
       - packages/app/octoapp/pages/3d/agents/scene-intent-confirm/schema.ts
       - packages/app/octoapp/pages/3d/modules/chat/intent-confirm-card.tsx
       - packages/app/octoapp/pages/3d/modules/chat/index.tsx
       - packages/app/octoapp/pages/3d/index.tsx
-    desc: "pattern 已将 intent-confirm 从维度确认(dimension→options)重构为页面模式匹配(page-pattern→results)。3D 仍用旧维度模型，需同步迁移：schema 加 results 数组、card 换 page-pattern 选择 UI、chat/index 换 pageMatches prop、index.tsx 换 onMatchPattern 签名。#4 同步时 SKIP。"
+    desc: |
+      pattern 已将 intent-confirm 从维度确认(dimension→options)重构为页面模式匹配(page-pattern→results)。3D 仍用旧维度模型，需同步迁移。
+      收益：3D有明确场景类型(展厅/办公室/园区/数据中心)，天然适合"先匹配典型场景布局再填充细节"；基于模板生成首次出图质量远高于从零生成。
+      前提：需先建3D场景模板库(类似pattern的design/*.md)，否则results返回空数组无意义。
+      改动范围：schema加results数组 → agent prompt换匹配语义 → card换page-pattern选择UI → chat/index换pageMatches prop → index.tsx换onMatchPattern签名 → insight-turn customCardLabel更新。
+      #4同步时SKIP，待模板库到位后一次性迁移。
+    implementation_plan: |
+      ── 模板库结构 ──
+      参照 pattern 的 ICT3.1/pattern/page/ 目录结构：
+        scene3d/pattern/
+        ├── page/                          ← 3D 场景级模板
+        │   ├── index.json                 ← 索引(name/elements/business_scenario/layout_mode/path/preview)
+        │   ├── DataCenterMonitoring/      ← 数据中心监控场景
+        │   │   ├── scene.json             ← 完整 SceneConfig(场景描述+objects布局+camera)
+        │   │   └── preview.png            ← 渲染截图
+        │   ├── OfficeBuilding/            ← 办公楼场景
+        │   ├── IndustrialPark/            ← 产业园区场景
+        │   └── EquipmentRoom/             ← 机房场景
+      index.json 示例:
+        { "pages": [
+            { "id": "datacenter-monitor", "name": "数据中心监控",
+              "elements": "3D机房楼体+机柜阵列+冷热通道+监控大屏+告警标注",
+              "business_scenario": "数据中心日常监控、容量管理、故障定位",
+              "layout_mode": "俯视视角，中央主体建筑，周围辅以KPI面板和告警热力图",
+              "path": "./DataCenterMonitoring/scene.json", "preview": "./DataCenterMonitoring/preview.png" }
+        ]}
+      scene.json 本质就是完整 SceneConfig（与 sendToPreview 的 payload 同结构）。
+
+      ── 三步实施 ──
+      步骤1（内容，瓶颈）：手动/半自动制作4-6个典型场景的SceneConfig+渲染截图，需产品定义场景类型。
+      步骤2（代码，确定性）：scene-resource.ts加readScenePatternIndex/readScenePatternFile；
+        scene-intent-confirm schema改results数组；card UI改场景选择（照抄pattern IntentConfirmCard）；
+        chat/index换pageMatches prop；index.tsx换onMatchPattern签名。
+        参照文件：pattern/pages/pattern/utils/pattern-resource.ts（readPagePatternMd/getPagePatternResource）
+                  pattern/pages/pattern/agents/proto-intent-confirm/schema.ts（results数组schema）
+                  pattern/pages/pattern/modules/chat/intent-confirm-card.tsx（page-pattern选择UI）
+      步骤3（接入，调优）：intent_confirm agent prompt从"分析维度"改为"匹配场景模板"；
+        planner拿到模板后基于模板填充细节而非从零生成。
   - id: archive-3d
     status: 待实现
     files: []
-    desc: "pattern 新增归档功能(archive-module+pattern-archive-utils+ArchiveDialog)。3D 需适配：场景截图替代页面截图、scene-config 替代 mergedA2UI、交付物路径适配。#4 同步时 TITLEBAR 按钮已加但逻辑未接。"
+    desc: "pattern 新增归档功能(archive-module+pattern-archive-utils+ArchiveDialog)。3D 需适配：场景截图替代页面截图、scene-config 替代 mergedA2UI、交付物路径适配。#4 同步时 SKIP（死按钮已回退）。"

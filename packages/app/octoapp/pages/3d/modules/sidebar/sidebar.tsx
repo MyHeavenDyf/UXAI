@@ -290,7 +290,7 @@ export function Scene3DSidebar(props: { width: number }): JSX.Element {
               <Icon name="plus" size="normal" class="shrink-0" />
               <span>新建</span>
             </button>
-            <button
+            {/* <button
               type="button"
               class="flex items-center gap-2 rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
               style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
@@ -298,7 +298,7 @@ export function Scene3DSidebar(props: { width: number }): JSX.Element {
             >
               <Icon name="download" size="normal" class="shrink-0" />
               <span>导入</span>
-            </button>
+            </button> */}
           </div>
         </div>
         <div style={{ height: "1px", background: "rgba(0,0,0,0.1)" }} />

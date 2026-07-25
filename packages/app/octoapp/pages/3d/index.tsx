@@ -32,7 +32,6 @@ import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useTabModel } from "@/hooks/use-tab-model"
-import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { type Attachment } from "./modules/chat/attachment-bar"
 import {
   create_intent_confirm,
