@@ -160,6 +160,59 @@ export async function getPagePatternResource(inputData: { results?: Array<Record
   }
 }
 
+// 向量库搜索：根据 query 返回匹配的 block 资源
+async function searchResources(
+  queries: string | string[],
+  topK: number,
+  filters: Record<string, number> = { source_id: 4, group_id: 39 },
+) {
+  const url = `${PAGE_RESOURCE_URL}/api/vector/search`
+  const payload = {
+    type: "file",
+    queries: Array.isArray(queries) ? queries : [queries],
+    top_k: topK,
+    filters,
+  }
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    return { success: false, error: `HTTP error! status: ${response.status}` }
+  }
+  const data = await response.json()
+  return { success: true, data }
+}
+
+// 根据 modules[].description 逐个搜索向量库，解析去重后返回真实 block 信息
+export async function getBlockPatternResource(modulesData: { modules?: Array<{ description?: string }> }) {
+  const modules = modulesData.modules || []
+  const queries = modules.map(m => m.description).filter(Boolean) as string[]
+  const allResults: any[] = []
+  for (const query of queries) {
+    const result = await searchResources(query, 4)
+    if (result.success && result.data?.results?.[0]) {
+      allResults.push(...result.data.results[0])
+    }
+  }
+  const seenIds = new Set<string>()
+  const uniqueResults = allResults.filter((item) => {
+    if (seenIds.has(item.id)) return false
+    seenIds.add(item.id)
+    return true
+  }).map((item) => ({
+    id: item.id,
+    description: item.description || "",
+    name: item.name || "",
+    file: item.file_path || "",
+    preview: item.thumbnail_path || "",
+    category: item.tags?.length ? item.tags[0] : "",
+    structure: item.search_text || "",
+  }))
+  return { results: uniqueResults }
+}
+
 // 将 JSON 中所有 ./xxx/filename 相对路径替换为上传后的 URL
 export function replacePatternAssetPaths(data: unknown, replacements: Record<string, string>): any {
   if (Object.keys(replacements).length === 0) return data
