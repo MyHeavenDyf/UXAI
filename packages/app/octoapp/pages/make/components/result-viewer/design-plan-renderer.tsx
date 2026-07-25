@@ -307,20 +307,16 @@ export function DesignPlanRenderer(props: {
       >
         <button
           type="button"
-          class="text-[14px] rounded-[999px] transition-colors cursor-pointer"
+          class="text-[14px] rounded-[999px] transition-colors"
           style={{
             height: "32px",
             padding: "0 16px",
             "line-height": "22px",
-            background: "#f3f3f3",
-            color: "#191919",
+            background: props.confirmed ? "#e0e0e0" : "#f3f3f3",
+            color: props.confirmed ? "#aaa" : "#191919",
             border: "none",
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.background = "#dfdfdf"
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.background = "#f3f3f3"
+            cursor: props.confirmed ? "not-allowed" : "pointer",
+            "pointer-events": props.confirmed ? "none" : "auto",
           }}
           onClick={() => { autoSave(); props.onBackToStrategy?.() }}
           disabled={props.confirmed}
@@ -329,20 +325,16 @@ export function DesignPlanRenderer(props: {
         </button>
         <button
           type="button"
-          class="text-[14px] font-medium rounded-[999px] text-white transition-colors cursor-pointer"
+          class="text-[14px] font-medium rounded-[999px] text-white transition-colors"
           style={{
             height: "32px",
             padding: "0 16px",
             "line-height": "22px",
-            background: "#0a59f7",
+            background: props.confirmed ? "#b0b0b0" : "#0a59f7",
             color: "white",
             border: "none",
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.background = "#0950de"
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.background = "#0a59f7"
+            cursor: props.confirmed ? "not-allowed" : "pointer",
+            "pointer-events": props.confirmed ? "none" : "auto",
           }}
           onClick={() => { autoSave(); props.onConfirm?.() }}
           disabled={props.confirmed}
