@@ -192,7 +192,7 @@ export async function getBlockPatternResource(modulesData: { modules?: Array<{ d
   const queries = modules.map(m => m.description).filter(Boolean) as string[]
   const allResults: any[] = []
   for (const query of queries) {
-    const result = await searchResources(query, 4)
+    const result = await searchResources(query, 2)
     if (result.success && result.data?.results?.[0]) {
       allResults.push(...result.data.results[0])
     }
@@ -220,10 +220,11 @@ async function fetchZipContents(url: string) {
   if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`)
   const zip = await JSZip.loadAsync(await res.arrayBuffer())
   const entries = Object.entries(zip.files).filter(([, file]) => !file.dir)
-  const dataJsonEntry = entries.find(([name]) => name === "data.json" || name.endsWith("/data.json"))
+  const normalized = entries.map(([name, file]) => [name.replace(/\\/g, "/"), file] as const)
+  const dataJsonEntry = normalized.find(([name]) => name === "data.json" || name.endsWith("/data.json"))
   const dataJson = dataJsonEntry ? JSON.parse(await dataJsonEntry[1].async("text")) : null
   const assets = await Promise.all(
-    entries.filter(([name]) => name.includes("assets/")).map(async ([name, file]) => ({
+    normalized.filter(([name]) => name.includes("assets/")).map(async ([name, file]) => ({
       filename: name.split("/").pop() || name,
       buffer: await file.async("arraybuffer"),
     })),
