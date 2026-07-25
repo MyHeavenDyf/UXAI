@@ -27,6 +27,8 @@ const FileCommentSchema = z.object({
   filePath: z.string(),
   elementId: z.string(),
   selector: z.string(),
+  contentSignature: z.string().optional(),
+  nativeId: z.string().optional(),
   label: z.string(),
   text: z.string(),
   position: CommentPositionSchema,
