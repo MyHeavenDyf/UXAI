@@ -89,6 +89,8 @@ import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
 import { scanDesignPlanFromMessages, isPlanConfirmed, isPlanIntentResolved } from "./utils/design-plan-scanner"
 import { scanStrategyFields, EMPTY_STRATEGY_FORM, type StrategyFormData } from "./utils/strategy-form-scanner"
 import { useMakeCommands } from "./use-make-commands"
+import { useDialogIframe } from '@/context/dialog-iframe'
+import { getDesktopApi } from "./lib/electron-api"
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
@@ -158,6 +160,9 @@ function MakeContent() {
   const local = useLocal()
   useTabModel("make")
   const currentModel = () => local.model.current()
+  
+  const dialogPop = useDialogIframe()
+  const [selectedSpec, setSelectedSpec] = createSignal<string | null>(null)
 
   createEffect(
     on(
@@ -205,6 +210,12 @@ function MakeContent() {
     on(
       () => params.id,
       (id, prevId) => {
+        // 切换 session 时重置 specSelector 状态
+        if (id !== prevId) {
+          setSelectedSpec(null)
+        }
+        
+        // 回填模型选择
         if (!id && prevId && lastSessionModel) {
           local.model.set(lastSessionModel)
         }
@@ -1650,11 +1661,17 @@ const sessionMessagesLoaded = createMemo(() => {
         const fullDisplayText = displayText
         let isFirstSkillCommand = true
         
+        // 添加本地文件清单
+        const manifestPart = localManifest.length > 0 
+          ? { type: "text" as const, text: formatUploadsForPrompt(localManifest), synthetic: true as const }
+          : null
+        
         for (const seg of cmdSegments) {
           if (!seg.cmd) continue
           
-          // Build parts: file parts + optional text part with metadata for skill chips
+          // Build parts: file parts + local manifest + optional text part with metadata for skill chips
           const cmdParts: Array<FilePartInput | TextPartInput> = [...fileParts]
+          if (manifestPart) cmdParts.push(manifestPart)
           
           // If this command is a skill from @mention, add metadata for chip display
           const isSkillMention = skillMentions.some(s => s.name === seg.cmd)
@@ -1853,8 +1870,16 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 提交 prompt：自动创建 session → 发送消息 */
   async function handleSubmit() {
-    const text = proseMirrorRef1?.getText?.() || proseMirrorRef2?.getText?.() || prompt().trim()
-    const mentions = proseMirrorRef1?.getMentions?.() || proseMirrorRef2?.getMentions?.() || []
+    let text = proseMirrorRef1?.getText?.() || proseMirrorRef2?.getText?.() || prompt().trim()
+    let mentions = proseMirrorRef1?.getMentions?.() || proseMirrorRef2?.getMentions?.() || []
+    
+    // 注入 specSelector 的 skill
+    const spec = selectedSpec()
+    if (spec) {
+      text = `@${spec} ` + text
+      mentions = [{ type: 'skill', name: spec, label: spec }, ...mentions]
+    }
+    
     if (sending() || !activeModelKey()) return
     // 在异步操作前捕获 model key，避免后续被其他 effect 修改
     const capturedModelKey = activeModelKey()
@@ -1885,6 +1910,10 @@ const sessionMessagesLoaded = createMemo(() => {
 const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
       const session = result.data as Session | undefined
       if (!session) return
+      
+      await movePendingUploadsToSession(session.id)
+      await moveAssetsConfigToSession(session.id)
+      
       local.session.promote(sdk.directory, session.id)
       const dsId = selectedDesignSystem()
 if (dsId) {
@@ -2239,7 +2268,50 @@ if (dsId) {
     const sid = params.id
     
     if (!sid) {
-      showToast({ title: "无法添加附件", description: "未选择项目目录", variant: "error" })
+      setAttachments(prev => [...prev, {
+        id,
+        filename: file.name,
+        mime: file.type || 'application/octet-stream',
+        size: file.size,
+        status: 'uploading',
+        source: 'pending',
+      }])
+      
+      try {
+        const projectDirValue = projectDir()
+        if (!projectDirValue) {
+          showToast({ title: "无法添加附件", description: "未选择项目目录", variant: "error" })
+          return
+        }
+        
+        const api = getDesktopApi()
+        if (!api?.writeFileBuffer) {
+          showToast({ title: "无法添加附件", description: "不支持文件操作", variant: "error" })
+          return
+        }
+        
+        const buffer = await file.arrayBuffer()
+        const sep = projectDirValue.includes("\\") ? "\\" : "/"
+        const tempPath = [projectDirValue, ".octo", "tmps", "make", "uploads", file.name].join(sep)
+        
+        await api.writeFileBuffer(tempPath, buffer)
+        
+        setAttachments(prev => prev.map(a => 
+          a.id === id ? { 
+            ...a, 
+            status: 'done' as const,
+            source: 'pending' as const,
+            path: tempPath,
+          } : a
+        ))
+        
+        showToast({ title: "已添加附件", description: file.name })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : '保存失败'
+        setAttachments(prev => prev.map(a =>
+          a.id === id ? { ...a, status: 'error' as const, error: message } : a
+        ))
+      }
       return
     }
     
@@ -2341,6 +2413,83 @@ if (dsId) {
       if (!a.path || a.path.replace(/\\/g, "/") !== normalizedOld) return a
       return { ...a, path: newPath, filename: newFilename }
     }))
+  }
+
+  function handleSpecSelect() {
+    dialogPop.show((str) => {
+      try {
+        const data = JSON.parse(str)
+        const value = data.user.designSpec
+        
+        setSelectedSpec(value)
+        
+        const projectDirValue = projectDir()
+        if (projectDirValue) {
+          const api = getDesktopApi()
+          if (api?.writeFileBuffer) {
+            const sep = projectDirValue.includes("\\") ? "\\" : "/"
+            const configPath = [projectDirValue, ".octo", "tmps", "make", "resource", "assets_config.json"].join(sep)
+            const encoder = new TextEncoder()
+            const buffer = encoder.encode(str).buffer as ArrayBuffer
+            api.writeFileBuffer(configPath, buffer).catch(err => {
+              console.error("[handleSpecSelect] Failed to save assets_config.json:", err)
+            })
+          }
+        }
+      } catch (err) {
+        console.error("[handleSpecSelect] Failed to parse dialog response:", err)
+      }
+    })
+  }
+
+  async function movePendingUploadsToSession(sessionId: string) {
+    const projectDirValue = projectDir()
+    if (!projectDirValue) return
+    
+    const api = getDesktopApi()
+    if (!api?.readFileBuffer || !api?.writeFileBuffer) return
+    
+    const pendingAttachments = attachments().filter(a => a.source === 'pending' && a.path)
+    
+    for (const att of pendingAttachments) {
+      try {
+        const sep = projectDirValue.includes("\\") ? "\\" : "/"
+        
+        const tempPath = att.path!
+        const buffer = await api.readFileBuffer(tempPath)
+        if (!buffer) continue
+        
+        const finalPath = [projectDirValue, ".octo", sessionId, "uploads", att.filename].join(sep)
+        await api.writeFileBuffer(finalPath, buffer)
+        
+        setAttachments(prev => prev.map(a => 
+          a.id === att.id ? { ...a, path: finalPath, source: 'local' as const } : a
+        ))
+      } catch (err) {
+        console.error(`[movePendingUploadsToSession] Failed to move ${att.filename}:`, err)
+      }
+    }
+  }
+
+  async function moveAssetsConfigToSession(sessionId: string) {
+    const projectDirValue = projectDir()
+    if (!projectDirValue) return
+    
+    const api = getDesktopApi()
+    if (!api?.readFileBuffer || !api?.writeFileBuffer) return
+    
+    const sep = projectDirValue.includes("\\") ? "\\" : "/"
+    const tempPath = [projectDirValue, ".octo", "tmps", "make", "resource", "assets_config.json"].join(sep)
+    
+    try {
+      const buffer = await api.readFileBuffer(tempPath)
+      if (!buffer) return
+      
+      const finalPath = [projectDirValue, ".octo", sessionId, "resource", "assets_config.json"].join(sep)
+      await api.writeFileBuffer(finalPath, buffer)
+    } catch (err) {
+      console.error("[moveAssetsConfigToSession] Failed to move assets_config.json:", err)
+    }
   }
 
   function handleFileInputChange(e: Event) {
@@ -2727,7 +2876,7 @@ if (dsId) {
                           rgba(61, 93, 255, 0.7) 87%,
                           rgba(206, 7, 232, 0.7) 92%) border-box`,
                       "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
-                      height: "150px",
+                      "min-height": "150px",
                     }}
                   >
                     {/* Slash Command Popover（新建对话） */}
@@ -2768,28 +2917,29 @@ if (dsId) {
                       onRetry={retryUpload}
                     />
 
-                    <ProseMirrorEditor
-                      sessionId={params.id!}
-                      skillConfig={skillConfig() ?? {}}
-                      artifactFiles={artifactFiles()}
-                      mentionSelections={mentionSelections()}
-                      setMentionSelections={setMentionSelections}
-                      disabled={inputDisabled()}
-                      onTriggerMention={loadSkillConfig}
-                      onContentChange={setPrompt}
-                      onSubmit={() => void handleSubmit()}
-                      onSlashTrigger={(query) => {
-                        setSlashState({ query, cursor: 0 })
-                        setSlashIndex(0)
-                      }}
-                      onSlashClose={() => setSlashState(null)}
-                      onPreview={(url) => {
-                        handleOpenLocalFile(url)
-                        proseMirrorRef1?.clear()
-                        proseMirrorRef2?.clear()
-                      }}
-                      ref={(el) => { proseMirrorRef1 = el }}
-                    />
+<ProseMirrorEditor
+                       sessionId={params.id!}
+                       skillConfig={skillConfig() ?? {}}
+                       artifactFiles={artifactFiles()}
+                       mentionSelections={mentionSelections()}
+                       setMentionSelections={setMentionSelections}
+                       disabled={inputDisabled()}
+                       onTriggerMention={loadSkillConfig}
+                       onContentChange={setPrompt}
+                       onSubmit={() => void handleSubmit()}
+                       onPaste={handlePaste}
+                       onSlashTrigger={(query) => {
+                         setSlashState({ query, cursor: 0 })
+                         setSlashIndex(0)
+                       }}
+                       onSlashClose={() => setSlashState(null)}
+                       onPreview={(url) => {
+                         handleOpenLocalFile(url)
+                         proseMirrorRef1?.clear()
+                         proseMirrorRef2?.clear()
+                       }}
+                       ref={(el) => { proseMirrorRef1 = el }}
+                     />
                     <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
                         <span class="hidden">
@@ -2843,6 +2993,16 @@ if (dsId) {
                           </span>
                           <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
                         </ModelSelectorPopover>
+                        <button
+                          type="button"
+                          class="flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none"
+                          onClick={handleSpecSelect}
+                        >
+                          <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
+                            {selectedSpec() ?? "请选择设计规范"}
+                          </span>
+                          <Icon name="chevron-down" class="size-3.5 shrink-0" style="color: #000" />
+                        </button>
                       </div>
                       <IconButton
                         data-action="prompt-submit"
@@ -3072,28 +3232,29 @@ if (dsId) {
                     onRetry={retryUpload}
                   />
 
-                  <ProseMirrorEditor
-                    sessionId={params.id!}
-                    skillConfig={skillConfig() ?? {}}
-                    artifactFiles={artifactFiles()}
-                    mentionSelections={mentionSelections()}
-                    setMentionSelections={setMentionSelections}
-                    disabled={inputDisabled()}
-                    onTriggerMention={loadSkillConfig}
-                    onContentChange={setPrompt}
-                    onSubmit={() => void handleSubmit()}
+<ProseMirrorEditor
+                     sessionId={params.id!}
+                     skillConfig={skillConfig() ?? {}}
+                     artifactFiles={artifactFiles()}
+                     mentionSelections={mentionSelections()}
+                     setMentionSelections={setMentionSelections}
+                     disabled={inputDisabled()}
+                     onTriggerMention={loadSkillConfig}
+                     onContentChange={setPrompt}
+                     onSubmit={() => void handleSubmit()}
+                     onPaste={handlePaste}
 onSlashTrigger={(query) => {
-                       setSlashState({ query, cursor: 0 })
-                       setSlashIndex(0)
-                     }}
-                     onSlashClose={() => setSlashState(null)}
-                     onPreview={(url) => {
-                       handleOpenLocalFile(url)
-                       proseMirrorRef1?.clear()
-                       proseMirrorRef2?.clear()
-                     }}
-                     ref={(el) => { proseMirrorRef2 = el }}
-                  />
+                        setSlashState({ query, cursor: 0 })
+                        setSlashIndex(0)
+                      }}
+                      onSlashClose={() => setSlashState(null)}
+                      onPreview={(url) => {
+                        handleOpenLocalFile(url)
+                        proseMirrorRef1?.clear()
+                        proseMirrorRef2?.clear()
+                      }}
+                      ref={(el) => { proseMirrorRef2 = el }}
+                   />
                   <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
                          <span class="hidden">
