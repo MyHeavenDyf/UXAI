@@ -29,6 +29,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import * as Stream from "effect/Stream"
 import { Command } from "../command"
+import { SkillUsed } from "../skill/events"
 import { pathToFileURL, fileURLToPath } from "url"
 import { Config } from "@/config/config"
 import * as BuiltinMCP from "@/config/builtin-mcp"
@@ -1809,6 +1810,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         arguments: input.arguments,
         messageID: result.info.id,
       })
+
+      // 如果该命令是 skill，额外发布 skill.used 事件供前端消费
+      if (cmd.source === "skill") {
+        yield* bus.publish(SkillUsed, { skillName: input.command })
+      }
+
       return result
     })
 

@@ -1,6 +1,7 @@
-import { createSignal, For, Show, type JSX } from "solid-js"
-import { createStore } from "solid-js/store"
+import { createMemo, createSignal, For, Show, type JSX } from "solid-js"
+import { showToast } from "@opencode-ai/ui/toast"
 import type { IntentConfirmDimension, IntentConfirmResult } from "../../agents/proto-intent-confirm"
+import { readPagePatternMd } from "../../utils/pattern-resource"
 import type { PatternMatchItem } from "../../utils/pattern-resource"
 import "../../assets/style/chat/intent-confirm-card.css"
 
@@ -11,50 +12,34 @@ export function IntentConfirmCard(props: {
   blockMatches: PatternMatchItem[]
   blockMatching: boolean
   blockMatchError?: boolean
-  initialStep?: "dimensions" | "blocks"
-  onMatchPattern: (enrichedInput: string) => void
+  initialStep?: "patterns" | "blocks"
+  onMatchPattern: (selectedItem: IntentConfirmDimension | null) => void
   onConfirm: (answers: IntentConfirmAnswers, enrichedInput: string, selectedBlocks: PatternMatchItem[]) => void
 }): JSX.Element {
-  // 维度列表（从 intent_confirm 结果中提取）
-  const dimensionEntries = Object.entries(props.result.options)
-  // 是否有维度需要确认（无维度时跳过第一步直接进 block 选择）
-  const hasDimensions = dimensionEntries.length > 0
-  // 当前卡片步骤：dimensions = 维度确认，blocks = 模板选择
-  const [step, setStep] = createSignal<"dimensions" | "blocks">(props.initialStep ?? (hasDimensions ? "dimensions" : "blocks"))
-  // 维度确认步骤中当前激活的 tab 索引
-  const [activeTab, setActiveTab] = createSignal(0)
-  // 用户在每个维度下的选择（选中项 + 补充说明）
-  const [answers, setAnswers] = createStore<IntentConfirmAnswers>(
-    Object.fromEntries(dimensionEntries.map(([name]) => [name, { selections: [], supplement: "" }])),
-  )
+  // 匹配到的 page pattern 列表
+  const hasResults = createMemo(() => props.result.results.length > 0)
+  // 当前卡片步骤：patterns = page pattern 选择，blocks = block 模板选择
+  const [step, setStep] = createSignal<"patterns" | "blocks">(props.initialStep ?? "patterns")
+  // 用户选中的 page pattern id（单选）
+  const [selectedPatternId, setSelectedPatternId] = createSignal<string | null>(null)
   // 用户选中的 block 模板：category → name（每个分类互斥，只能选一个）
   const [selectedBlocks, setSelectedBlocks] = createSignal<Record<string, string>>({})
   // 预览模态框的图片 URL（点击放大缩略图时设置，null 表示关闭）
   const [previewModalUrl, setPreviewModalUrl] = createSignal<string | null>(null)
 
-  function toggleSelection(dimName: string, type: string, option: string) {
-    const current = answers[dimName]?.selections ?? []
-    if (type === "single") {
-      setAnswers(dimName, "selections", current.includes(option) ? [] : [option])
-    } else {
-      setAnswers(dimName, "selections",
-        current.includes(option) ? current.filter((v: string) => v !== option) : [...current, option],
-      )
+  // page pattern 步骤点「下一步」/「跳过」：拉取选中 item 的 md 文档，放到 content 上再传给回调
+  async function handleBlockPatterns() {
+    const found = props.result.results.find(r => r.id === selectedPatternId()) ?? null
+    let selected = found
+    if (found?.file) {
+      const mdResult = await readPagePatternMd(found.file)
+      if (mdResult.success && mdResult.content) {
+        selected = { ...found, content: mdResult.content }
+      } else {
+        showToast({ title: "请求Pattern资源失败" })
+      }
     }
-  }
-
-  function buildEnrichedInput(): string {
-    const parts: string[] = []
-    for (const [dimName, ans] of Object.entries(answers) as [string, { selections: string[]; supplement: string }][]) {
-      if (ans.selections.length > 0) parts.push(`${dimName}: ${ans.selections.join("、")}`)
-      if (ans.supplement.trim()) parts.push(`${dimName}补充: ${ans.supplement.trim()}`)
-    }
-    return parts.length > 0 ? `\n\n请额外遵循以下要求：\n${parts.join("\n")}` : ""
-  }
-
-  function handleMatchPattern() {
-    const enrichedInput = buildEnrichedInput()
-    props.onMatchPattern(enrichedInput)
+    props.onMatchPattern(selected)
     setStep("blocks")
   }
 
@@ -71,94 +56,71 @@ export function IntentConfirmCard(props: {
   }
 
   function handleConfirm() {
-    const enrichedInput = buildEnrichedInput()
     const selectedNames = Object.values(selectedBlocks())
     const blocks = props.blockMatches.filter(m => selectedNames.includes(m.pattern.name))
-    props.onConfirm(answers, enrichedInput, blocks)
+    props.onConfirm({}, "", blocks)
   }
-
-  const activeDim = () => dimensionEntries[activeTab()]
-  const isLastDimTab = () => activeTab() === dimensionEntries.length - 1
 
   return (
     <div class="ic-card">
       <div class="ic-card-head">
         <span class="ic-card-icon">?</span>
         <div class="ic-card-titles">
-          <div class="ic-card-title">{step() === "dimensions" ? "需求确认" : "模板匹配"}</div>
+          <div class="ic-card-title">{step() === "patterns" ? "典型页面匹配" : "模块模板匹配"}</div>
           <div class="ic-card-desc">
-            {step() === "dimensions"
-              ? "请补充以下维度，更精准生成页面"
-              : "请选择需要使用的模板"}
+            {step() === "patterns" ? "请选择最合适的典型页面模板" : "请选择需要使用的模块模板"}
           </div>
         </div>
       </div>
 
-      {/* 步骤 1：维度确认 */}
-      <Show when={step() === "dimensions"}>
-        <Show when={dimensionEntries.length > 1}>
-          <div class="ic-card-tabs">
-            <For each={dimensionEntries}>
-              {([dimName], i) => (
-                <button
-                  class={`ic-card-tab ${activeTab() === i() ? "ic-card-tab-active" : ""}`}
-                  onClick={() => setActiveTab(i())}
-                >
-                  {dimName}
-                </button>
-              )}
-            </For>
-          </div>
-        </Show>
-
+      {/* 步骤 1：page pattern 选择 */}
+      <Show when={step() === "patterns"}>
         <div class="ic-card-body">
-          <For each={[activeDim()]}>
-            {([dimName, dim]: [string, IntentConfirmDimension]) => (
-              <div class="ic-card-field">
-                <div class="ic-card-field-header">
-                  <Show when={dimensionEntries.length <= 1}>
-                    <span class="ic-card-label">{dimName}</span>
-                  </Show>
-                  <span class="ic-card-type-tag">{dim.type === "single" ? "单选" : "多选"}</span>
-                </div>
-                <div class="ic-card-options">
-                  <For each={dim.options}>
-                    {(option) => {
-                      const checked = () => answers[dimName]?.selections.includes(option) ?? false
-                      return (
-                        <label class={`ic-card-check ${checked() ? "ic-card-check-on" : ""}`}>
-                          <input
-                            type={dim.type === "single" ? "radio" : "checkbox"}
-                            name={dimName}
-                            checked={checked()}
-                            onChange={() => toggleSelection(dimName, dim.type, option)}
+          <Show when={hasResults()} fallback={
+            <div class="ic-card-empty">未匹配到合适的页面模板</div>
+          }>
+            <div class="ic-card-block-grid">
+              <For each={props.result.results}>
+                {(item) => {
+                  const checked = () => selectedPatternId() === item.id
+                  return (
+                    <div
+                      class={`ic-card-block-card ${checked() ? "ic-card-block-card-on" : ""}`}
+                      onClick={() => setSelectedPatternId(prev => prev === item.id ? null : item.id)}
+                    >
+                      <Show when={item.preview}>
+                        <div class="ic-card-block-preview-wrap">
+                          <img
+                            class="ic-card-block-preview"
+                            src={item.preview}
+                            alt={item.name}
                           />
-                          <span>{option}</span>
-                        </label>
-                      )
-                    }}
-                  </For>
-                </div>
-                <input
-                  type="text"
-                  class="ic-card-supplement"
-                  placeholder="补充说明（可选）"
-                  value={answers[dimName]?.supplement ?? ""}
-                  onInput={(e) => setAnswers(dimName, "supplement", e.currentTarget.value)}
-                />
-              </div>
-            )}
-          </For>
+                          <button
+                            class="ic-card-block-zoom"
+                            onClick={(e) => { e.stopPropagation(); setPreviewModalUrl(item.preview!) }}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="M11 8v6"/><path d="M8 11h6"/></svg>
+                          </button>
+                        </div>
+                      </Show>
+                      <span class="ic-card-block-name">{item.name}</span>
+                    </div>
+                  )
+                }}
+              </For>
+            </div>
+          </Show>
         </div>
 
         <div class="ic-card-foot">
-          <Show when={!isLastDimTab()} fallback={
-            <button class="ic-card-submit-btn" onClick={handleMatchPattern}>
+          <Show when={hasResults()}>
+            <button class="ic-card-submit-btn" onClick={handleBlockPatterns} disabled={!selectedPatternId()}>
               下一步
             </button>
-          }>
-            <button class="ic-card-next-btn" onClick={() => setActiveTab(activeTab() + 1)}>
-              下一步
+          </Show>
+          <Show when={!hasResults()}>
+            <button class="ic-card-submit-btn" onClick={handleBlockPatterns}>
+              跳过
             </button>
           </Show>
         </div>
@@ -230,10 +192,10 @@ export function IntentConfirmCard(props: {
         </div>
 
         <div class="ic-card-foot">
-          <button class="ic-card-next-btn" onClick={() => setStep("dimensions")} disabled={props.blockMatching}>
+          <button class="ic-card-next-btn" onClick={() => setStep("patterns")} disabled={props.blockMatching}>
             上一步
           </button>
-          <button class="ic-card-next-btn" onClick={() => handleMatchPattern()} disabled={props.blockMatching}>
+          <button class="ic-card-next-btn" onClick={() => props.onMatchPattern(null)} disabled={props.blockMatching}>
             重试
           </button>
           <Show when={!props.blockMatching}>

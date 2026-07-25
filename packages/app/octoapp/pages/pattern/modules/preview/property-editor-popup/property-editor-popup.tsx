@@ -8,7 +8,7 @@ import {
   TW_FONT_SIZES, FW_TO_TW,
   GRID_POSITIONS, BOOL_PROP_KEY_SET,
 } from "./constants"
-import { isTailwindToken, normalizeCssKeys, toHex } from "./utils"
+import { normalizeCssKeys, toHex } from "./utils"
 import { parseClass, type ParsedClassInfo } from "./class-parser"
 import { parseFillsFromRawCls, parseStrokesFromRawCls, parseEffectsFromRawCls } from "./raw-parsers"
 import { ColorPicker, TEXT_COLOR_TOKENS, BG_COLOR_TOKENS } from "./color-picker"
@@ -17,8 +17,8 @@ import { CustomSelect } from "./custom-select"
 import {
   SettingsIcon, FreeformIcon, RowIcon, ColIcon, HAlignIcon, VAlignIcon, BorderRadiusIcon,
   TopLeftBorderRadiusIcon, TopRightBorderRadiusIcon, BottomLeftBorderRadiusIcon, BottomRightBorderRadiusIcon,
-  HorizontalPaddingIcon, VerticalPaddingIcon,
-  LineHeightIcon, LetterSpacingIcon,
+  HorizontalPaddingIcon, VerticalPaddingIcon, PaddingIcon, MarginIcon, OpacityIcon, CornerCurveIcon,
+  LineHeightIcon, LetterSpacingIcon, ImageUploadIcon,
 } from "./icons"
 
 export function PropertyEditorPopup(props: {
@@ -178,6 +178,7 @@ export function PropertyEditorPopup(props: {
   let parsedClasses: string[] = []
   let baseCssVars: Record<string, string> = {}
   let preservedCssVars: Record<string, string> = {}
+  let importantSet = new Set<string>()
 
   function getEnumOptions(key: string): { label: string; value: string }[] {
     return COMPONENT_ENUMS[`${props.componentType}.${key}`] || []
@@ -229,45 +230,101 @@ export function PropertyEditorPopup(props: {
     return result.info
   }
 
-  function buildClassName() {
-    const parts = parsedClasses.filter(c =>
-      !c.startsWith('text-[') &&
-      !c.match(/^text-\S+$/) &&
-      !c.match(/^font-\S+$/) &&
-      !['text-left', 'text-center', 'text-right', 'text-justify'].includes(c) &&
-      !c.startsWith('p-[') && !c.match(/^p(t|r|b|l)?-\d+$/) &&
-      !c.startsWith('pt-[') && !c.startsWith('pr-[') && !c.startsWith('pb-[') && !c.startsWith('pl-[') &&
-      !c.startsWith('m-[') && !c.match(/^m(t|r|b|l)?-\d+$/) &&
-      !c.startsWith('mt-[') && !c.startsWith('mr-[') && !c.startsWith('mb-[') && !c.startsWith('ml-[') &&
-      !c.startsWith('rounded-[') && !c.match(/^rounded(-\S+)?$/) &&
-      !c.startsWith('rounded-tl-[') && !c.startsWith('rounded-tr-[') &&
-      !c.startsWith('rounded-br-[') && !c.startsWith('rounded-bl-[') &&
-      !c.startsWith('opacity-[') && !c.match(/^opacity-\d+$/) &&
-      !c.startsWith('w-[') && !c.match(/^w-\S+$/) &&
-      !c.startsWith('h-[') && !c.match(/^h-\S+$/) &&
-      !['flex', 'flex-col', 'flex-row'].includes(c) &&
-      !c.startsWith('gap-[') && !c.match(/^gap-\d+$/) &&
-      !c.match(/^justify-\S+$/) && !c.match(/^items-\S+$/) && c !== 'overflow-hidden' && c !== 'border-solid' &&
-      !c.startsWith('border-[') && !c.startsWith('border-t-[') && !c.startsWith('border-r-[') && !c.startsWith('border-b-[') && !c.startsWith('border-l-[') &&
-      !c.match(/^border(-[trbl])?-\d+$/) &&
-      !c.startsWith('bg-[') &&
-      !c.startsWith('shadow-[') && !c.startsWith('blur-[') && !c.startsWith('backdrop-blur-[') &&
-      !c.startsWith('leading-') && !c.startsWith('tracking-') && !c.startsWith('font-')
-    )
-    if (foundFontSize()) {
+  const SNAPSHOT_GROUPS: Record<string, string[]> = {
+    text: ['text'],
+    fontSize: ['fontSize', 'foundFontSize'],
+    fontWeight: ['fontWeight', 'foundFontWeight'],
+    textAlign: ['textAlign'],
+    fontFamily: ['fontFamily'],
+    lineHeight: ['lineHeight'],
+    letterSpacing: ['letterSpacing'],
+    textColor: ['textColor', 'textColorToken'],
+    bgColor: ['bgColor', 'bgColorToken'],
+    vAlign: ['vAlign'],
+    padding: ['pt', 'foundPt', 'pr', 'foundPr', 'pb', 'foundPb', 'pl', 'foundPl', 'paddingMode'],
+    margin: ['mt', 'foundMt', 'mr', 'foundMr', 'mb', 'foundMb', 'ml', 'foundMl', 'marginMode'],
+    radius: ['radius', 'foundRadius', 'radiusTl', 'foundRadiusTl', 'radiusTr', 'foundRadiusTr', 'radiusBr', 'foundRadiusBr', 'radiusBl', 'foundRadiusBl'],
+    width: ['width', 'widthPx', 'foundWidthPx', 'fillWidth', 'hugWidth'],
+    height: ['heightPx', 'foundHeightPx', 'fillHeight', 'hugHeight'],
+    clipContent: ['clipContent'],
+    opacity: ['opacity', 'foundOpacity'],
+    flexDir: ['flexDir', 'flexGap', 'foundFlexGap', 'justify', 'alignItems'],
+    bgImage: ['bgImage', 'bgUrl'],
+    tag: ['tag'],
+    fills: ['fills'],
+    strokes: ['strokes'],
+    effects: ['effects'],
+    componentProps: ['editProps', 'propKeys'],
+  }
+
+  function classifyClassGroup(c: string): string | null {
+    const s = c.startsWith('!') ? c.slice(1) : c
+    if (s === 'text-left' || s === 'text-center' || s === 'text-right' || s === 'text-justify') return 'textAlign'
+    if (s.startsWith('text-[#')) return 'textColor'
+    if (/^text-hui-/.test(s)) return 'textColor'
+    if (s.startsWith('text-[')) return 'fontSize'
+    if (s.startsWith('text-') && TW_FONT_SIZES[s.slice(5)] != null) return 'fontSize'
+    if (/^text-(ellipsis|clip|wrap|nowrap|balance|pretty)$/.test(s)) return null
+    if (s.startsWith('text-')) return 'textColor'
+    if (/^font-(thin|extralight|light|normal|medium|semibold|bold|extrabold|black)$/.test(s)) return 'fontWeight'
+    if (s.startsWith('font-[')) return 'fontFamily'
+    if (s.startsWith('leading-')) return 'lineHeight'
+    if (s.startsWith('tracking-')) return 'letterSpacing'
+    if (/^(p|pt|pr|pb|pl|px|py)-/.test(s)) return 'padding'
+    if (/^(m|mt|mr|mb|ml|mx|my)-/.test(s)) return 'margin'
+    if (s.startsWith('rounded-') || s === 'rounded') return 'radius'
+    if (/^(w|min-w|max-w)-/.test(s)) return 'width'
+    if (/^(h|min-h|max-h)-/.test(s)) return 'height'
+    if (s.startsWith('overflow-')) return 'clipContent'
+    if (s.startsWith('opacity-')) return 'opacity'
+    if (s.startsWith('bg-[url')) return 'bgImage'
+    if (/^bg-(cover|contain|center|no-repeat|repeat|fixed|bottom|top|left|right)$/.test(s)) return 'bgImage'
+    if (s.startsWith('bg-')) return 'bgColor'
+    if (s.startsWith('border-')) return 'strokes'
+    if (s.startsWith('shadow-[')) return 'effects'
+    if (s.startsWith('shadow-') && s !== 'shadow') return 'effects'
+    if (s.startsWith('blur-[') || s.startsWith('backdrop-blur-[')) return 'effects'
+    if (s === 'flex' || s === 'flex-col' || s === 'flex-row' || s.startsWith('gap-') || s.startsWith('justify-') || s.startsWith('items-')) return 'flexDir'
+    return null
+  }
+
+  function computeDirtyGroups(): Set<string> | null {
+    if (!initialized || !initialSnapshotJson) return null
+    let initSnap: Record<string, unknown>
+    try { initSnap = JSON.parse(initialSnapshotJson) as Record<string, unknown> } catch { return null }
+    const cur = autoSnapshot()
+    if (!cur) return null
+    const dirty = new Set<string>()
+    for (const [name, keys] of Object.entries(SNAPSHOT_GROUPS)) {
+      for (const k of keys) {
+        if (JSON.stringify(initSnap[k]) !== JSON.stringify((cur as Record<string, unknown>)[k])) { dirty.add(name); break }
+      }
+    }
+    return dirty
+  }
+
+  function buildClassName(dirtyGroups?: Set<string> | null) {
+    const parts = parsedClasses.filter(c => {
+      const g = classifyClassGroup(c)
+      if (g === null) return true
+      if (!dirtyGroups) return false
+      return !dirtyGroups.has(g)
+    })
+    const isDirty = (g: string) => !dirtyGroups || dirtyGroups.has(g)
+    if (isDirty('fontSize') && foundFontSize()) {
       const twFs = Object.entries(TW_FONT_SIZES).find(([, v]) => v === editFontSize())
       if (twFs) parts.push(`text-${twFs[0]}`)
       else parts.push(`text-[${editFontSize()}px]`)
     }
-    if (foundFontWeight()) {
+    if (isDirty('fontWeight') && foundFontWeight()) {
       const twFw = FW_TO_TW[editFontWeight()]
       if (twFw) parts.push(`font-${twFw}`)
     }
-    if (editFontFamily()) parts.push(`font-${editFontFamily()}`)
-    if (editLineHeight() && editLineHeight() !== 'auto') parts.push(`leading-[${editLineHeight()}]`)
-    if (editLetterSpacing()) parts.push(`tracking-[${editLetterSpacing() / 100}em]`)
-    if (editAlign()) parts.push(`text-${editAlign()}`)
-    if (editVAlign()) parts.push(`items-${editVAlign()}`)
+    if (isDirty('fontFamily') && editFontFamily()) parts.push(`font-${editFontFamily()}`)
+    if (isDirty('lineHeight') && editLineHeight() && editLineHeight() !== 'auto') parts.push(`leading-[${editLineHeight()}]`)
+    if (isDirty('letterSpacing') && editLetterSpacing()) parts.push(`tracking-[${editLetterSpacing() / 100}em]`)
+    if (isDirty('textAlign') && editAlign()) parts.push(`text-${editAlign()}`)
+    if (isDirty('vAlign') && editVAlign()) parts.push(`items-${editVAlign()}`)
 
     const pv = [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64]
     const pushSpacing = (prefix: string, pairs: [Accessor<number>, string][]) => {
@@ -285,83 +342,97 @@ export function PropertyEditorPopup(props: {
         parts.push(pv.includes(v) ? `${p}-${v / 4}` : `${p}-[${v}px]`)
       }
     }
-    pushSpacing('p', [[editPt, 'pt'], [editPr, 'pr'], [editPb, 'pb'], [editPl, 'pl']])
-    pushSpacing('m', [[editMt, 'mt'], [editMr, 'mr'], [editMb, 'mb'], [editMl, 'ml']])
-    if (foundRadiusTl() || foundRadiusTr() || foundRadiusBr() || foundRadiusBl()) {
-      if (foundRadiusTl() && editRadiusTl()) parts.push(`rounded-tl-[${editRadiusTl()}px]`)
-      if (foundRadiusTr() && editRadiusTr()) parts.push(`rounded-tr-[${editRadiusTr()}px]`)
-      if (foundRadiusBr() && editRadiusBr()) parts.push(`rounded-br-[${editRadiusBr()}px]`)
-      if (foundRadiusBl() && editRadiusBl()) parts.push(`rounded-bl-[${editRadiusBl()}px]`)
-    } else if (foundRadius()) {
-      if (editRadius() === 999) parts.push('rounded-full')
-      else if (editRadius() === 0) parts.push('rounded-none')
-      else {
-        const rMap: Record<number, string> = { 2: 'sm', 4: '', 6: 'md', 8: 'lg', 12: 'xl', 16: '2xl', 24: '3xl' }
-        if (rMap[editRadius()] !== undefined) parts.push(`rounded${rMap[editRadius()] ? '-' + rMap[editRadius()] : ''}`)
-        else parts.push(`rounded-[${editRadius()}px]`)
-      }
-    }
-    if (fillWidth()) parts.push('w-full')
-    else if (hugWidth()) parts.push('w-auto')
-    else if (foundWidthPx() && editWidthPx()) parts.push(`w-[${editWidthPx()}px]`)
-    else if (editWidth()) {
-      if (editWidth() === '100%') parts.push('w-full')
-      else if (editWidth() === 'auto') parts.push('w-auto')
-      else parts.push(`w-[${editWidth()}]`)
-    }
-    if (fillHeight()) parts.push('h-full')
-    else if (hugHeight()) parts.push('h-auto')
-    else if (foundHeightPx() && editHeightPx()) parts.push(`h-[${editHeightPx()}px]`)
-    if (clipContent()) parts.push('overflow-hidden')
-    for (const f of fills) {
-      if (!f.visible) continue
-      const alpha = f.opacity / 100
-      parts.push(alpha < 1 ? `bg-[${f.color}/${f.opacity}]` : `bg-[${f.color}]`)
-    }
-    for (const s of strokes) {
-      if (!s.visible) continue
-      if (s.individualOpen) {
-        if (s.foundWidthTop && s.widthTop) parts.push(`border-t-[${s.widthTop}px]`)
-        if (s.foundWidthRight && s.widthRight) parts.push(`border-r-[${s.widthRight}px]`)
-        if (s.foundWidthBottom && s.widthBottom) parts.push(`border-b-[${s.widthBottom}px]`)
-        if (s.foundWidthLeft && s.widthLeft) parts.push(`border-l-[${s.widthLeft}px]`)
-      } else if (s.foundWidth && s.width) {
-        parts.push(`border-[${s.width}px]`)
-      }
-      parts.push(`border-[${s.color}]`)
-      parts.push('border-solid')
-    }
-    for (const e of effects) {
-      if (!e.visible) continue
-      if (e.type === 'drop-shadow') {
-        const token = matchShadowToken(e)
-        if (token) {
-          parts.push(`shadow-${token}`)
-        } else {
-          const r = Math.round(e.opacity * 2.55)
-          const a = r.toString(16).padStart(2, '0')
-          const c = e.color + a
-          const b = e.foundBlur && e.blur ? `${e.blur}px` : '0'
-          const x = e.foundOffsetX ? `${e.offsetX}px` : '0'
-          const y = e.foundOffsetY ? `${e.offsetY}px` : '0'
-          parts.push(`shadow-[${x}_${y}_${b}_${c}]`)
+    if (isDirty('padding')) pushSpacing('p', [[editPt, 'pt'], [editPr, 'pr'], [editPb, 'pb'], [editPl, 'pl']])
+    if (isDirty('margin')) pushSpacing('m', [[editMt, 'mt'], [editMr, 'mr'], [editMb, 'mb'], [editMl, 'ml']])
+    if (isDirty('radius')) {
+      if (foundRadiusTl() || foundRadiusTr() || foundRadiusBr() || foundRadiusBl()) {
+        if (foundRadiusTl() && editRadiusTl()) parts.push(`rounded-tl-[${editRadiusTl()}px]`)
+        if (foundRadiusTr() && editRadiusTr()) parts.push(`rounded-tr-[${editRadiusTr()}px]`)
+        if (foundRadiusBr() && editRadiusBr()) parts.push(`rounded-br-[${editRadiusBr()}px]`)
+        if (foundRadiusBl() && editRadiusBl()) parts.push(`rounded-bl-[${editRadiusBl()}px]`)
+      } else if (foundRadius()) {
+        if (editRadius() === 999) parts.push('rounded-full')
+        else if (editRadius() === 0) parts.push('rounded-none')
+        else {
+          const rMap: Record<number, string> = { 2: 'sm', 4: '', 6: 'md', 8: 'lg', 12: 'xl', 16: '2xl', 24: '3xl' }
+          if (rMap[editRadius()] !== undefined) parts.push(`rounded${rMap[editRadius()] ? '-' + rMap[editRadius()] : ''}`)
+          else parts.push(`rounded-[${editRadius()}px]`)
         }
-      } else if (e.type === 'layer-blur') {
-        if (e.foundLayerBlur && e.layerBlur) parts.push(`blur-[${e.layerBlur}px]`)
-      } else if (e.type === 'background-blur') {
-        if (e.foundBgBlur && e.bgBlur) parts.push(`backdrop-blur-[${e.bgBlur}px]`)
       }
     }
-    if (foundOpacity() && editOpacity() !== 100) parts.push(`opacity-[${editOpacity() / 100}]`)
-    if (editFlexDir() === 'col') parts.push('flex', 'flex-col')
-    else if (editFlexDir() === 'row') parts.push('flex', 'flex-row')
-    const j = editJustify()
-    if (editFlexGap() && j !== 'between' && j !== 'around') {
-      const gv = editFlexGap()
-      parts.push(pv.includes(gv) ? `gap-${gv / 4}` : `gap-[${gv}px]`)
+    if (isDirty('width')) {
+      if (fillWidth()) parts.push('w-full')
+      else if (hugWidth()) parts.push('w-auto')
+      else if (foundWidthPx() && editWidthPx()) parts.push(`w-[${editWidthPx()}px]`)
+      else if (editWidth()) {
+        if (editWidth() === '100%') parts.push('w-full')
+        else if (editWidth() === 'auto') parts.push('w-auto')
+        else parts.push(`w-[${editWidth()}]`)
+      }
     }
-    if (j) parts.push(`justify-${j}`)
-    if (editAlignItems()) parts.push(`items-${editAlignItems()}`)
+    if (isDirty('height')) {
+      if (fillHeight()) parts.push('h-full')
+      else if (hugHeight()) parts.push('h-auto')
+      else if (foundHeightPx() && editHeightPx()) parts.push(`h-[${editHeightPx()}px]`)
+    }
+    if (isDirty('clipContent') && clipContent()) parts.push('overflow-hidden')
+    if (isDirty('fills')) {
+      for (const f of fills) {
+        if (!f.visible) continue
+        const alpha = f.opacity / 100
+        parts.push(alpha < 1 ? `bg-[${f.color}/${f.opacity}]` : `bg-[${f.color}]`)
+      }
+    }
+    if (isDirty('strokes')) {
+      for (const s of strokes) {
+        if (!s.visible) continue
+        if (s.individualOpen) {
+          if (s.foundWidthTop && s.widthTop) parts.push(`border-t-[${s.widthTop}px]`)
+          if (s.foundWidthRight && s.widthRight) parts.push(`border-r-[${s.widthRight}px]`)
+          if (s.foundWidthBottom && s.widthBottom) parts.push(`border-b-[${s.widthBottom}px]`)
+          if (s.foundWidthLeft && s.widthLeft) parts.push(`border-l-[${s.widthLeft}px]`)
+        } else if (s.foundWidth && s.width) {
+          parts.push(`border-[${s.width}px]`)
+        }
+        parts.push(`border-[${s.color}]`)
+        parts.push('border-solid')
+      }
+    }
+    if (isDirty('effects')) {
+      for (const e of effects) {
+        if (!e.visible) continue
+        if (e.type === 'drop-shadow') {
+          const token = matchShadowToken(e)
+          if (token) {
+            parts.push(`shadow-${token}`)
+          } else {
+            const r = Math.round(e.opacity * 2.55)
+            const a = r.toString(16).padStart(2, '0')
+            const c = e.color + a
+            const b = e.foundBlur && e.blur ? `${e.blur}px` : '0'
+            const x = e.foundOffsetX ? `${e.offsetX}px` : '0'
+            const y = e.foundOffsetY ? `${e.offsetY}px` : '0'
+            parts.push(`shadow-[${x}_${y}_${b}_${c}]`)
+          }
+        } else if (e.type === 'layer-blur') {
+          if (e.foundLayerBlur && e.layerBlur) parts.push(`blur-[${e.layerBlur}px]`)
+        } else if (e.type === 'background-blur') {
+          if (e.foundBgBlur && e.bgBlur) parts.push(`backdrop-blur-[${e.bgBlur}px]`)
+        }
+      }
+    }
+    if (isDirty('opacity') && foundOpacity() && editOpacity() !== 100) parts.push(`opacity-[${editOpacity() / 100}]`)
+    if (isDirty('flexDir')) {
+      if (editFlexDir() === 'col') parts.push('flex', 'flex-col')
+      else if (editFlexDir() === 'row') parts.push('flex', 'flex-row')
+      const j = editJustify()
+      if (editFlexGap() && j !== 'between' && j !== 'around') {
+        const gv = editFlexGap()
+        parts.push(pv.includes(gv) ? `gap-${gv / 4}` : `gap-[${gv}px]`)
+      }
+      if (j) parts.push(`justify-${j}`)
+      if (editAlignItems()) parts.push(`items-${editAlignItems()}`)
+    }
     return parts.join(' ')
   }
 
@@ -485,7 +556,9 @@ export function PropertyEditorPopup(props: {
       if (c.startsWith('#') || c.startsWith('rgb')) {
         const hex = toHex(c)
         setEditTextColor(hex)
-        setTextColorToken(matchTokenHex(hex, TEXT_COLOR_TOKENS))
+        const m = rawCls.match(/\btext-(hui-\S+)\b/)
+        const named = m && TEXT_COLOR_TOKENS.find(t => t.name === m[1]) ? m[1] : null
+        setTextColorToken(named ?? matchTokenHex(hex, TEXT_COLOR_TOKENS))
       }
     }
     if (v.backgroundColor) {
@@ -493,7 +566,9 @@ export function PropertyEditorPopup(props: {
       if (c.startsWith('#') || c.startsWith('rgb')) {
         const hex = toHex(c)
         setEditBgColor(hex)
-        setBgColorToken(matchTokenHex(hex, BG_COLOR_TOKENS))
+        const m = rawCls.match(/\bbg-(hui-\S+)\b/)
+        const named = m && BG_COLOR_TOKENS.find(t => t.name === m[1]) ? m[1] : null
+        setBgColorToken(named ?? matchTokenHex(hex, BG_COLOR_TOKENS))
       }
     }
     if (v.backgroundImage) {
@@ -732,12 +807,15 @@ export function PropertyEditorPopup(props: {
   let ready = false
   let apiCalled = false
   let autoUpdateTimer: ReturnType<typeof setTimeout> | undefined
+  let initialized = false
+  let initialSnapshotJson = ''
 
   function resetEditorSignals() {
     setEditFontSize(14); setFoundFontSize(false)
     setEditFontWeight(400); setFoundFontWeight(false)
     setEditAlign(''); setEditFontFamily(''); setEditLineHeight(''); setEditLetterSpacing(0)
     setEditVAlign('');     setEditTextColor(''); setEditBgColor('')
+    setEditBgUrl('');      initialBgUrl = ''
     setTextColorToken(null); setBgColorToken(null)
     setEditPt(0); setFoundPt(false); setEditPr(0); setFoundPr(false)
     setEditPb(0); setFoundPb(false); setEditPl(0); setFoundPl(false)
@@ -764,13 +842,20 @@ export function PropertyEditorPopup(props: {
     if (!props.show) {
       ready = false
       apiCalled = false
+      initialized = false
+      initialSnapshotJson = ''
       clearTimeout(autoUpdateTimer)
       return
     }
     let parsed: Record<string, unknown> = {}
     try { parsed = JSON.parse(props.elementProps || '{}') } catch { /* ignore */ }
     const rawCls = (parsed.className as string) || props.currentClass || ''
-    parsedClasses = rawCls.split(/\s+/).filter(c => Boolean(c) && !c.startsWith('el-')).map(c => c.startsWith('!') ? c.slice(1) : c)
+    parsedClasses = rawCls.split(/\s+/).filter(c => Boolean(c) && !c.startsWith('el-') && !c.startsWith('!el-')).map(c => c.startsWith('!') ? c.slice(1) : c)
+    importantSet = new Set(
+      rawCls.split(/\s+/)
+        .filter(c => c.startsWith('!') && !c.startsWith('!el-'))
+        .map(c => c.slice(1))
+    )
     const cleanCls = parsedClasses.join(' ')
 
     console.log("[PropertyEditor] open, original className:", rawCls, "domPickerClass:", props.currentClass)
@@ -789,24 +874,6 @@ export function PropertyEditorPopup(props: {
       const desktopApi = (window as unknown as { api?: { tailwindToCss?: (className: string) => Promise<Record<string, string>> } }).api
       const api = desktopApi?.tailwindToCss
       if (api) {
-        const tokenNames = new Set(TEXT_COLOR_TOKENS.map(t => t.name))
-        const hasHuiToken = rawCls.split(/\s+/).some(c => {
-          const stripped = c.startsWith('!') ? c.slice(1) : c
-          const m = stripped.match(/^(text|bg)-(hui-\S+)$/)
-          return m && tokenNames.has(m[2])
-        })
-        if (hasHuiToken) {
-          console.log("[PropertyEditor] skip tailwindToCss: has hui token")
-          applyParseClassFallback(rawCls, parsed)
-          baseCssVars = buildCssObject()
-          if (!editBgColor()) {
-            const f = fills.find(x => x.visible)
-            if (f) { setEditBgColor(toHex(f.color)); setBgColorToken(matchTokenHex(toHex(f.color), BG_COLOR_TOKENS)) }
-          }
-          setDragOffset({ x: 0, y: 0 })
-          initialEffectsJson = JSON.stringify(effects)
-          ready = true
-        } else {
         const baseCls = cleanCls.split(/\s+/).filter((c: string) => c.includes('[') || !c.includes(':')).join(' ')
         logAgentCall('tailwindToCss', props.elementId, rawCls, null)
         api(baseCls).then(cssVars => {
@@ -825,11 +892,10 @@ export function PropertyEditorPopup(props: {
             const f = fills.find(x => x.visible)
             if (f) { setEditBgColor(toHex(f.color)); setBgColorToken(matchTokenHex(toHex(f.color), BG_COLOR_TOKENS)) }
           }
-        setDragOffset({ x: 0, y: 0 })
-        initialEffectsJson = JSON.stringify(effects)
-        ready = true
-      })
-      }
+          setDragOffset({ x: 0, y: 0 })
+          initialEffectsJson = JSON.stringify(effects)
+          ready = true
+        })
       } else {
         console.log("[PropertyEditor] fallback: no tailwindToCss api, using parseClass")
         applyParseClassFallback(rawCls, parsed)
@@ -893,7 +959,9 @@ export function PropertyEditorPopup(props: {
       letterSpacing: editLetterSpacing(),
       vAlign: editVAlign(),
       textColor: editTextColor(),
+      textColorToken: textColorToken(),
       bgColor: editBgColor(),
+      bgColorToken: bgColorToken(),
       pt: editPt(), foundPt: foundPt(),
       pr: editPr(), foundPr: foundPr(),
       pb: editPb(), foundPb: foundPb(),
@@ -919,6 +987,7 @@ export function PropertyEditorPopup(props: {
       justify: editJustify(),
       alignItems: editAlignItems(),
       paddingMode: paddingMode(),
+      marginMode: marginMode(),
       bgImage: editBgImage(),
       bgUrl: editBgUrl(),
       tag: editTag(),
@@ -931,8 +1000,14 @@ export function PropertyEditorPopup(props: {
   })
 
   createEffect(() => {
-    autoSnapshot()
+    const snap = autoSnapshot()
     if (!ready) return
+    if (!initialized) {
+      initialized = true
+      initialSnapshotJson = JSON.stringify(snap)
+      return
+    }
+    if (JSON.stringify(snap) === initialSnapshotJson) return
     clearTimeout(autoUpdateTimer)
     autoUpdateTimer = setTimeout(() => handleConfirm(true), 400)
   })
@@ -989,7 +1064,7 @@ export function PropertyEditorPopup(props: {
 
   function normalizeArbitraryValues(className: string): string {
     return className.split(/\s+/).map(c => {
-      const m = c.match(/^(w|min-w|max-w|h|min-h|max-h|p[trbl]?|m[trbl]?|gap)-\[(\d+)px\]$/)
+      const m = c.match(/^(w|min-w|max-w|h|min-h|max-h|p[trblxy]?|m[trblxy]?|gap)-\[(\d+)px\]$/)
       if (!m) return c
       const px = Number(m[2])
       if (px % 4 !== 0) return c
@@ -997,65 +1072,76 @@ export function PropertyEditorPopup(props: {
     }).join(' ')
   }
 
-  function buildCssObject(): Record<string, string> {
+  function buildCssObject(dirtyGroups?: Set<string> | null): Record<string, string> {
     const css: Record<string, string> = { ...preservedCssVars }
+    const isDirty = (g: string) => !dirtyGroups || dirtyGroups.has(g)
 
-    if (foundFontSize()) css['font-size'] = editFontSize() + 'px'
-    if (foundFontWeight()) css['font-weight'] = String(editFontWeight())
-    if (editFontFamily()) css['font-family'] = editFontFamily()
-    if (editAlign()) css['text-align'] = editAlign()
-    if (editLineHeight() && editLineHeight() !== 'auto') css['line-height'] = editLineHeight()
-    if (editLetterSpacing()) css['letter-spacing'] = (editLetterSpacing() / 100) + 'em'
+    if (isDirty('fontSize') && foundFontSize()) css['font-size'] = editFontSize() + 'px'
+    if (isDirty('fontWeight') && foundFontWeight()) css['font-weight'] = String(editFontWeight())
+    if (isDirty('fontFamily') && editFontFamily()) css['font-family'] = editFontFamily()
+    if (isDirty('textAlign') && editAlign()) css['text-align'] = editAlign()
+    if (isDirty('lineHeight') && editLineHeight() && editLineHeight() !== 'auto') css['line-height'] = editLineHeight()
+    if (isDirty('letterSpacing') && editLetterSpacing()) css['letter-spacing'] = (editLetterSpacing() / 100) + 'em'
 
-    if (editTextColor()) css['color'] = editTextColor()
+    if (isDirty('textColor') && editTextColor()) css['color'] = editTextColor()
 
-    if (editBgUrl()) css['background-image'] = `url(${editBgUrl()})`
+    if (isDirty('bgImage') && editBgUrl()) css['background-image'] = `url(${editBgUrl()})`
 
-    const pt = editPt(), pr = editPr(), pb = editPb(), pl = editPl()
-    const fp = foundPt(), fpr = foundPr(), fpb = foundPb(), fpl = foundPl()
-    if (fp && fpr && fpb && fpl && pt === pr && pt === pb && pt === pl) {
-      css['padding'] = pt + 'px'
-    } else {
-      if (fp) css['padding-top'] = pt + 'px'
-      if (fpr) css['padding-right'] = pr + 'px'
-      if (fpb) css['padding-bottom'] = pb + 'px'
-      if (fpl) css['padding-left'] = pl + 'px'
+    if (isDirty('padding')) {
+      const pt = editPt(), pr = editPr(), pb = editPb(), pl = editPl()
+      const fp = foundPt(), fpr = foundPr(), fpb = foundPb(), fpl = foundPl()
+      if (fp && fpr && fpb && fpl && pt === pr && pt === pb && pt === pl) {
+        css['padding'] = pt + 'px'
+      } else {
+        if (fp) css['padding-top'] = pt + 'px'
+        if (fpr) css['padding-right'] = pr + 'px'
+        if (fpb) css['padding-bottom'] = pb + 'px'
+        if (fpl) css['padding-left'] = pl + 'px'
+      }
     }
 
-    const mt = editMt(), mr = editMr(), mb = editMb(), ml = editMl()
-    const fmt = foundMt(), fmr = foundMr(), fmb = foundMb(), fml = foundMl()
-    if (fmt && fmr && fmb && fml && mt === mr && mt === mb && mt === ml) {
-      css['margin'] = mt + 'px'
-    } else {
-      if (fmt) css['margin-top'] = mt + 'px'
-      if (fmr) css['margin-right'] = mr + 'px'
-      if (fmb) css['margin-bottom'] = mb + 'px'
-      if (fml) css['margin-left'] = ml + 'px'
+    if (isDirty('margin')) {
+      const mt = editMt(), mr = editMr(), mb = editMb(), ml = editMl()
+      const fmt = foundMt(), fmr = foundMr(), fmb = foundMb(), fml = foundMl()
+      if (fmt && fmr && fmb && fml && mt === mr && mt === mb && mt === ml) {
+        css['margin'] = mt + 'px'
+      } else {
+        if (fmt) css['margin-top'] = mt + 'px'
+        if (fmr) css['margin-right'] = mr + 'px'
+        if (fmb) css['margin-bottom'] = mb + 'px'
+        if (fml) css['margin-left'] = ml + 'px'
+      }
     }
 
-    if (foundRadiusTl() || foundRadiusTr() || foundRadiusBr() || foundRadiusBl()) {
-      if (foundRadiusTl()) css['border-top-left-radius'] = editRadiusTl() + 'px'
-      if (foundRadiusTr()) css['border-top-right-radius'] = editRadiusTr() + 'px'
-      if (foundRadiusBr()) css['border-bottom-right-radius'] = editRadiusBr() + 'px'
-      if (foundRadiusBl()) css['border-bottom-left-radius'] = editRadiusBl() + 'px'
-    } else if (foundRadius()) {
-      css['border-radius'] = editRadius() + 'px'
+    if (isDirty('radius')) {
+      if (foundRadiusTl() || foundRadiusTr() || foundRadiusBr() || foundRadiusBl()) {
+        if (foundRadiusTl()) css['border-top-left-radius'] = editRadiusTl() + 'px'
+        if (foundRadiusTr()) css['border-top-right-radius'] = editRadiusTr() + 'px'
+        if (foundRadiusBr()) css['border-bottom-right-radius'] = editRadiusBr() + 'px'
+        if (foundRadiusBl()) css['border-bottom-left-radius'] = editRadiusBl() + 'px'
+      } else if (foundRadius()) {
+        css['border-radius'] = editRadius() + 'px'
+      }
     }
 
-    if (fillWidth()) css['width'] = '100%'
-    else if (hugWidth()) css['width'] = 'auto'
-    else if (foundWidthPx() && editWidthPx()) css['width'] = editWidthPx() + 'px'
-    else if (editWidth()) css['width'] = editWidth()
+    if (isDirty('width')) {
+      if (fillWidth()) css['width'] = '100%'
+      else if (hugWidth()) css['width'] = 'auto'
+      else if (foundWidthPx() && editWidthPx()) css['width'] = editWidthPx() + 'px'
+      else if (editWidth()) css['width'] = editWidth()
+    }
 
-    if (fillHeight()) css['height'] = '100%'
-    else if (hugHeight()) css['height'] = 'auto'
-    else if (foundHeightPx() && editHeightPx()) css['height'] = editHeightPx() + 'px'
+    if (isDirty('height')) {
+      if (fillHeight()) css['height'] = '100%'
+      else if (hugHeight()) css['height'] = 'auto'
+      else if (foundHeightPx() && editHeightPx()) css['height'] = editHeightPx() + 'px'
+    }
 
-    if (clipContent()) css['overflow'] = 'hidden'
+    if (isDirty('clipContent') && clipContent()) css['overflow'] = 'hidden'
 
-    if (foundOpacity() && editOpacity() !== 100) css['opacity'] = String(editOpacity() / 100)
+    if (isDirty('opacity') && foundOpacity() && editOpacity() !== 100) css['opacity'] = String(editOpacity() / 100)
 
-    if (editFlexDir()) {
+    if (isDirty('flexDir') && editFlexDir()) {
       css['display'] = 'flex'
       css['flex-direction'] = editFlexDir() === 'col' ? 'column' : 'row'
       if (editFlexGap() && foundFlexGap() && editJustify() !== 'between' && editJustify() !== 'around') {
@@ -1071,45 +1157,51 @@ export function PropertyEditorPopup(props: {
       }
     }
 
-    for (const f of fills) {
-      if (!f.visible) continue
-      if (f.opacity < 100) {
-        const a = Math.round(f.opacity * 2.55).toString(16).padStart(2, '0')
-        css['background-color'] = f.color + a
-      } else {
-        css['background-color'] = f.color
+    if (isDirty('fills')) {
+      for (const f of fills) {
+        if (!f.visible) continue
+        if (f.opacity < 100) {
+          const a = Math.round(f.opacity * 2.55).toString(16).padStart(2, '0')
+          css['background-color'] = f.color + a
+        } else {
+          css['background-color'] = f.color
+        }
       }
     }
 
-    if (editBgColor()) css['background-color'] = editBgColor()
+    if (isDirty('bgColor') && editBgColor()) css['background-color'] = editBgColor()
 
-    for (const s of strokes) {
-      if (!s.visible) continue
-      css['border-style'] = 'solid'
-      css['border-color'] = s.color
-      if (s.individualOpen) {
-        if (s.foundWidthTop && s.widthTop) css['border-top-width'] = s.widthTop + 'px'
-        if (s.foundWidthRight && s.widthRight) css['border-right-width'] = s.widthRight + 'px'
-        if (s.foundWidthBottom && s.widthBottom) css['border-bottom-width'] = s.widthBottom + 'px'
-        if (s.foundWidthLeft && s.widthLeft) css['border-left-width'] = s.widthLeft + 'px'
-      } else if (s.foundWidth && s.width) {
-        css['border-width'] = s.width + 'px'
+    if (isDirty('strokes')) {
+      for (const s of strokes) {
+        if (!s.visible) continue
+        css['border-style'] = 'solid'
+        css['border-color'] = s.color
+        if (s.individualOpen) {
+          if (s.foundWidthTop && s.widthTop) css['border-top-width'] = s.widthTop + 'px'
+          if (s.foundWidthRight && s.widthRight) css['border-right-width'] = s.widthRight + 'px'
+          if (s.foundWidthBottom && s.widthBottom) css['border-bottom-width'] = s.widthBottom + 'px'
+          if (s.foundWidthLeft && s.widthLeft) css['border-left-width'] = s.widthLeft + 'px'
+        } else if (s.foundWidth && s.width) {
+          css['border-width'] = s.width + 'px'
+        }
       }
     }
 
-    for (const e of effects) {
-      if (!e.visible) continue
-      if (e.type === 'drop-shadow') {
-        const hex = e.color.replace('#', '')
-        const r = parseInt(hex.slice(0, 2), 16)
-        const g = parseInt(hex.slice(2, 4), 16)
-        const b = parseInt(hex.slice(4, 6), 16)
-        const alpha = e.opacity / 100
-        css['box-shadow'] = `${e.offsetX}px ${e.offsetY}px ${e.blur}px rgba(${r},${g},${b},${alpha})`
-      } else if (e.type === 'layer-blur') {
-        if (e.foundLayerBlur && e.layerBlur) css['filter'] = `blur(${e.layerBlur}px)`
-      } else if (e.type === 'background-blur') {
-        if (e.foundBgBlur && e.bgBlur) css['backdrop-filter'] = `blur(${e.bgBlur}px)`
+    if (isDirty('effects')) {
+      for (const e of effects) {
+        if (!e.visible) continue
+        if (e.type === 'drop-shadow') {
+          const hex = e.color.replace('#', '')
+          const r = parseInt(hex.slice(0, 2), 16)
+          const g = parseInt(hex.slice(2, 4), 16)
+          const b = parseInt(hex.slice(4, 6), 16)
+          const alpha = e.opacity / 100
+          css['box-shadow'] = `${e.offsetX}px ${e.offsetY}px ${e.blur}px rgba(${r},${g},${b},${alpha})`
+        } else if (e.type === 'layer-blur') {
+          if (e.foundLayerBlur && e.layerBlur) css['filter'] = `blur(${e.layerBlur}px)`
+        } else if (e.type === 'background-blur') {
+          if (e.foundBgBlur && e.bgBlur) css['backdrop-filter'] = `blur(${e.bgBlur}px)`
+        }
       }
     }
 
@@ -1120,6 +1212,7 @@ export function PropertyEditorPopup(props: {
     logStartSession(`quick-modify-${props.elementId}`, `修改元素 ${props.elementId} [${props.componentType}]`)
     let className = props.currentClass || ''
     if (hasClassEditor()) {
+      const dirtyGroups = computeDirtyGroups()
       const desktopApi = (window as unknown as {
         api?: {
           tailwindToCss?: (className: string) => Promise<Record<string, string>>
@@ -1128,13 +1221,18 @@ export function PropertyEditorPopup(props: {
       }).api
       const api = desktopApi?.cssToTailwind
       if (api) {
-        const currentCss = buildCssObject()
+        const currentCss = buildCssObject(dirtyGroups)
         if (textColorToken()) delete (currentCss as Record<string, string>)['color']
         if (bgColorToken()) {
           delete (currentCss as Record<string, string>)['background-color']
           delete (currentCss as Record<string, string>)['background']
         }
-        const keepParts = parsedClasses.filter(c => !isTailwindToken(c))
+        const keepParts = parsedClasses.filter(c => {
+          const g = classifyClassGroup(c)
+          if (g === null) return true
+          if (!dirtyGroups) return false
+          return !dirtyGroups.has(g)
+        })
         const newTailwind = await api(currentCss)
         console.log("[PropertyEditor] full cssToTailwind:", newTailwind)
         logAgentCall('cssToTailwind', props.elementId, currentCss, newTailwind)
@@ -1144,8 +1242,10 @@ export function PropertyEditorPopup(props: {
           c.startsWith('flex-') && !['flex-col', 'flex-row'].includes(c) && !newTailwindSet.has(c)
         ).join(' ')
         className = ((keepParts.join(' ') + ' ' + normalizedTailwind).trim() + ' ' + extraFlex).trim()
-        if (textColorToken()) className = (className + ` text-${textColorToken()}`).trim()
-        if (bgColorToken()) className = (className + ` bg-${bgColorToken()}`).trim()
+        const colorDirty = !dirtyGroups || dirtyGroups.has('textColor')
+        const bgColorDirty = !dirtyGroups || dirtyGroups.has('bgColor')
+        if (textColorToken() && colorDirty) className = (className + ` text-${textColorToken()}`).trim()
+        if (bgColorToken() && bgColorDirty) className = (className + ` bg-${bgColorToken()}`).trim()
         const effectsUnchanged = JSON.stringify(effects) === initialEffectsJson
         const originalShadowTokens = (props.currentClass || '').split(/\s+/).filter(c =>
           c.startsWith('shadow-') && c !== 'shadow' && !c.startsWith('shadow-[')
@@ -1160,7 +1260,7 @@ export function PropertyEditorPopup(props: {
           }
         }
       } else {
-        className = buildClassName()
+        className = buildClassName(dirtyGroups)
         const effectsUnchanged2 = JSON.stringify(effects) === initialEffectsJson
         const origShadows = (props.currentClass || '').split(/\s+/).filter(c =>
           c.startsWith('shadow-') && c !== 'shadow' && !c.startsWith('shadow-[')
@@ -1171,19 +1271,25 @@ export function PropertyEditorPopup(props: {
         }
         console.log("[PropertyEditor] buildClassName output (no api):", className)
         logAgentCall('buildClassName', props.elementId, props.currentClass || '', className)
-        if (textColorToken()) {
-          className = className.replace(/\btext-\[#[^\]]+\]/g, '').trim()
-          className += ` text-${textColorToken()}`
-        } else if (editTextColor()) {
-          className = className.replace(/\btext-\[#[^\]]+\]/g, '').trim()
-          className += ` text-[${editTextColor()}]`
+        const colorDirty = !dirtyGroups || dirtyGroups.has('textColor')
+        const bgColorDirty = !dirtyGroups || dirtyGroups.has('bgColor')
+        if (colorDirty) {
+          if (textColorToken()) {
+            className = className.replace(/\btext-\[#[^\]]+\]/g, '').trim()
+            className += ` text-${textColorToken()}`
+          } else if (editTextColor()) {
+            className = className.replace(/\btext-\[#[^\]]+\]/g, '').trim()
+            className += ` text-[${editTextColor()}]`
+          }
         }
-        if (bgColorToken()) {
-          className = className.replace(/\bbg-\[#[^\]]+\]/g, '').trim()
-          className += ` bg-${bgColorToken()}`
-        } else if (editBgColor()) {
-          className = className.replace(/\bbg-\[#[^\]]+\]/g, '').trim()
-          className += ` bg-[${editBgColor()}]`
+        if (bgColorDirty) {
+          if (bgColorToken()) {
+            className = className.replace(/\bbg-\[#[^\]]+\]/g, '').trim()
+            className += ` bg-${bgColorToken()}`
+          } else if (editBgColor()) {
+            className = className.replace(/\bbg-\[#[^\]]+\]/g, '').trim()
+            className += ` bg-[${editBgColor()}]`
+          }
         }
         if (initialBgUrl && !editBgUrl() && !editBgImage()) {
           className = className.replace(/\bbg-\[url\([^)]+\)\]/g, '').replace(/\bbg-(cover|contain|center|no-repeat)\b/g, '').trim()
@@ -1191,9 +1297,12 @@ export function PropertyEditorPopup(props: {
       }
     }
 
-    className = className.split(/\s+/).filter(c => !c.startsWith('el-')).map(c =>
-      c.match(/^(w|min-w|max-w|h|min-h|max-h)-/) && !c.startsWith('!') ? '!' + c : c
-    ).join(' ')
+    className = className.split(/\s+/).filter(c => c && !c.startsWith('el-') && !c.startsWith('!el-')).map(c => {
+      const stripped = c.startsWith('!') ? c.slice(1) : c
+      const shouldImportant = importantSet.has(stripped)
+      const hasImportant = c.startsWith('!')
+      return shouldImportant && !hasImportant ? '!' + c : (!shouldImportant && hasImportant ? stripped : c)
+    }).join(' ')
 
     const componentProps: Record<string, string | boolean> = {}
     if (!isTextElement()) {
@@ -1495,7 +1604,7 @@ export function PropertyEditorPopup(props: {
                   <DragInput
                     value={editPt} setValue={(v) => { setEditPt(v); setEditPr(v); setEditPb(v); setEditPl(v) }}
                     setFound={(v) => { setFoundPt(v); setFoundPr(v); setFoundPb(v); setFoundPl(v) }}
-                    found={foundPt} placeholder="-" />
+                    found={foundPt} placeholder="-" icon={PaddingIcon()} />
                 </div>
               </Show>
               <Show when={paddingMode() === 'hv'}>
@@ -1552,7 +1661,7 @@ export function PropertyEditorPopup(props: {
                   <DragInput
                     value={editMt} setValue={(v) => { setEditMt(v); setEditMr(v); setEditMb(v); setEditMl(v) }}
                     setFound={(v) => { setFoundMt(v); setFoundMr(v); setFoundMb(v); setFoundMl(v) }}
-                    found={foundMt} placeholder="-" />
+                    found={foundMt} placeholder="-" icon={MarginIcon()} />
                 </div>
               </Show>
               <Show when={marginMode() === 'hv'}>
@@ -1615,8 +1724,8 @@ export function PropertyEditorPopup(props: {
             <div class="grid gap-2 py-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
               <span class="text-[12px] font-semibold text-slate-500">外观</span>
               <div class="flex items-center gap-1.5 w-full min-w-0">
-                <DragInput value={editOpacity} setValue={setEditOpacity} setFound={setFoundOpacity} found={foundOpacity} placeholder="透明度" max={100} suffix="%"  icon="%"/>
-                <DragInput value={editRadius} setValue={setEditRadius} setFound={setFoundRadius} found={foundRadius} placeholder="圆角" display={cornerOpen() && (foundRadiusTl() || foundRadiusTr() || foundRadiusBr() || foundRadiusBl()) ? 'mixed' : undefined} icon={BorderRadiusIcon()} />
+                <DragInput value={editOpacity} setValue={setEditOpacity} setFound={setFoundOpacity} found={foundOpacity} placeholder="透明度" max={100} icon={OpacityIcon()} suffixIcon="%"/>
+                <DragInput value={editRadius} setValue={setEditRadius} setFound={setFoundRadius} found={foundRadius} placeholder="圆角" display={cornerOpen() && (foundRadiusTl() || foundRadiusTr() || foundRadiusBr() || foundRadiusBl()) ? 'mixed' : undefined} icon={CornerCurveIcon()} suffixIcon={BorderRadiusIcon()} />
                 <button onClick={() => setCornerOpen(!cornerOpen())}
                   class={cornerOpen() ? 'prop-chip-active h-6 w-6 p-0 flex items-center justify-center shrink-0' : 'prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0'}>
                   <span class="text-[10px]">◱</span>
@@ -1641,9 +1750,9 @@ export function PropertyEditorPopup(props: {
 
             <div class="flex items-center gap-2 pb-2 -mx-4 px-4">
               <label class="text-[12px] font-semibold text-slate-500 w-14 shrink-0">背景图</label>
-              <button onClick={openBgPicker} class="text-xs px-2 py-0.5 rounded-sm border border-[#cbd5e1] text-slate-400 hover:text-slate-600 hover:border-[#94a3b8] hover:bg-[#f1f5f9] whitespace-nowrap flex items-center gap-1 transition-colors">
-                <svg width="16" height="16" viewBox="0 0 1024 1024" fill="currentColor"><path d="M392.32 800.192l242.912-242.944 164.992 164.992 0.032 77.76-407.968 0.192zM224 224l576-0.256 0.192 407.968-142.336-142.336a31.968 31.968 0 0 0-45.248 0L301.76 800.224H224V224z m576.256-64H223.712a63.808 63.808 0 0 0-63.68 63.744v576.512C160 835.424 188.544 864 223.68 864h576.544A63.808 63.808 0 0 0 864 800.256V223.744A63.84 63.84 0 0 0 800.256 160z"/><path d="M416 384a31.68 31.68 0 0 1 32 32 31.68 31.68 0 0 1-32 32 31.68 31.68 0 0 1-32-32c0-17.952 14.048-32 32-32m0 128c52.928 0 96-43.072 96-96s-43.072-96-96-96-96 43.072-96 96 43.072 96 96 96"/></svg>
-                上传
+              <button onClick={openBgPicker} class="flex items-center gap-4 h-6 py-2 px-2 rounded-[4px] bg-[#F4F4F5] text-[10px] text-slate-600 hover:bg-[#E4E4E7] w-full whitespace-nowrap transition-colors">
+                <ImageUploadIcon />
+                <span>上传</span>
               </button>
               <Show when={editBgUrl() && editBgUrl() !== 'none'}>
                 <span class="text-[10px] text-slate-500 truncate flex-1">{editBgUrl()}</span>

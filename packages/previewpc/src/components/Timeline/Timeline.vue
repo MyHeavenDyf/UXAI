@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, useAttrs, watch } from "vue"
-import type { Component } from "vue"
 import { ElTimeline, ElTimelineItem } from "element-plus"
 import type { TimelineNode } from "../types"
 import { useA2UIComponent, type A2UIComponentProps } from "../../renderer"
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
-import { getIconComponentRef } from "../Icon/IconBase"
+import { getIconComponentRef, createIconRenderer } from "../Icon/IconBase"
 import "./Timeline.less"
 
 const modeEnum = {
@@ -83,10 +82,10 @@ const rawItems = computed(() => {
   })
 })
 
-// ---- 异步图标解析 ----
+// ---- 图标解析（同步，使用 createIconRenderer 封装为 Element Plus 可接受的 Component） ----
 type ResolvedItem = {
   title: any
-  icon: Component | undefined
+  icon: (() => any) | undefined
   color: string
   placement: "top" | "bottom"
   className: string
@@ -96,24 +95,21 @@ const resolvedItems = ref<ResolvedItem[]>([])
 
 watch(
   rawItems,
-  async (raw) => {
-    const results = await Promise.all(
-      raw.map(async (r: any) => {
-        if (!r.iconName) {
-          return { title: r.title, icon: undefined, color: r.color, placement: r.placement, className: r.className, content: r.content }
-        }
-        const refComp = await getIconComponentRef(r.iconName, { size: 16 })
-        return {
-          title: r.title,
-          icon: refComp?.component ?? undefined,
-          color: r.color,
-          placement: r.placement,
-          className: r.className,
-          content: r.content,
-        }
-      }),
-    )
-    resolvedItems.value = results
+  (raw) => {
+    resolvedItems.value = raw.map((r: any) => {
+      if (!r.iconName) {
+        return { title: r.title, icon: undefined, color: r.color, placement: r.placement, className: r.className, content: r.content }
+      }
+      const refComp = getIconComponentRef(r.iconName, { size: 16 })
+      return {
+        title: r.title,
+        icon: createIconRenderer(refComp) ?? undefined,
+        color: r.color,
+        placement: r.placement,
+        className: r.className,
+        content: r.content,
+      }
+    })
   },
   { immediate: true },
 )

@@ -3,6 +3,7 @@ import {
   IconActionDownload,
   IconActionShare,
   IconActionAnnotate,
+  IconActionCanvasEdit,
   IconRefresh,
   IconChevronDown,
   IconCanvasHand,
@@ -41,6 +42,9 @@ interface TitleBarProps {
   onToggleEditing?: () => void
   annotating?: boolean
   onToggleAnnotating?: () => void
+  archiving?: boolean
+  onArchiveToggle?: () => void
+  onCanvasEditing?: () => void
 }
 
 export function TitleBar(props: TitleBarProps) {
@@ -250,6 +254,16 @@ export function TitleBar(props: TitleBarProps) {
             <span>编辑</span>
           </button>
 
+          {/* 按钮：画布编辑 */}
+          <button
+            class="pattern-action-btn"
+            title="画布编辑"
+            onClick={() => props.onCanvasEditing?.()}
+          >
+            <IconActionCanvasEdit size={16} />
+            <span>画布编辑</span>
+          </button>
+
           {/* 按钮 4：历史版本 */}
           <div class="dropdown-trigger-container">
             <button class="pattern-action-btn" title="历史版本" onClick={() => { setShowHistory(!showHistory()); setOpenPreview(false); setOpenDesktop(false); setOpenZoom(false) }}>
@@ -289,23 +303,23 @@ export function TitleBar(props: TitleBarProps) {
           </div>
 
           {/* 按钮 5：主题切换 */}
-          {/* <button 
+          <button 
             class="pattern-action-btn" 
             title={isDarkMode() ? "切换为浅色模式" : "切换为深色模式"} 
             onClick={toggleThemeMode}
           >
             {isDarkMode() ? <IconSun size={16} /> : <IconMoon size={16} />}
             <span>{isDarkMode() ? "浅色" : "深色"}</span>
-          </button> */}
+          </button>
 
           {/* 下载前的垂直分割线 */}
           <div class="btn-vertical-divider" style={{ height: "10px", margin: "0 8px" }} />
 
           {/* 按钮：分享 */}
-          {/* <button class="pattern-action-btn" title="分享" onClick={() => props.onShare?.()}>
+          <button class="pattern-action-btn" title="分享" onClick={() => props.onShare?.()}>
             <IconActionShare size={16} />
             <span>分享</span>
-          </button> */}
+          </button>
 
           {/* 按钮 6：下载 */}
           <button class="pattern-action-btn" title="下载" onClick={() => props.onDownload?.()}>
@@ -324,10 +338,16 @@ export function TitleBar(props: TitleBarProps) {
             <span>标注</span>
           </button>
 
-          {/* 按钮 8：文本 */}
-          {/* <button class="pattern-text-btn" title="文本" onClick={() => props.onText?.()}>
-            归档
-          </button> */}
+          {/* 按钮 8：归档 */}
+          <button
+            class="pattern-action-btn"
+            classList={{ 'edit-active': !!props.archiving }}
+            title="归档"
+            onClick={() => props.onArchiveToggle?.()}
+          >
+            <IconActionDownload size={16} />
+            <span>归档</span>
+          </button>
         </div>
       </div>
     </div>

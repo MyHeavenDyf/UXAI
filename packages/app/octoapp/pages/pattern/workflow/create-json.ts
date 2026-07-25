@@ -46,17 +46,16 @@ export async function create_intent_confirm(inputCtx: ProtoCreateJsonInput) {
     createdAt: Date.now(),
   })
   const result = await withAgentError("proto_intent_confirm", () => proto_intent_confirm(inputCtx))
-  // agent 成功且有 options 时，更新 checkpoint 补上 options,这样切换 session 回来后能恢复弹窗
-  if (Object.keys(result.options).length > 0) {
-    await saveCheckpoint(inputCtx.checkpointDir, inputCtx.rootSession, {
-      stage: "intent_confirm",
-      userInput: inputCtx.userInput,
-      designSystem: inputCtx.extra?.designSystem as string,
-      rootSessionId: inputCtx.rootSession,
-      createdAt: Date.now(),
-      options: result.options,
-    })
-  }
+  // agent 成功后无论是否有匹配结果都落盘 options，这样切换 session 回来时
+  // restore 能区分「空匹配」（options 有值，显示卡片）和「agent 报错」（options 缺失，pipeline_error）
+  await saveCheckpoint(inputCtx.checkpointDir, inputCtx.rootSession, {
+    stage: "intent_confirm",
+    userInput: inputCtx.userInput,
+    designSystem: inputCtx.extra?.designSystem as string,
+    rootSessionId: inputCtx.rootSession,
+    createdAt: Date.now(),
+    options: { results: result.results },
+  })
   return result
 }
 

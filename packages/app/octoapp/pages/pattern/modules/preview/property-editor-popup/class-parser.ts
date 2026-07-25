@@ -97,11 +97,15 @@ export function parseClass(cls: string): { classes: string[]; info: ParsedClassI
     else if (c === 'text-right') ta = 'right'
     else if (c === 'text-justify') ta = 'justify'
     if (_px(c, 'p') != null) { pt = pr = pb = pl = _px(c, 'p')!; fPt = fPr = fPb = fPl = true }
+    if (_px(c, 'py') != null) { const v = _px(c, 'py')!; pt = pb = v; fPt = fPb = true }
+    if (_px(c, 'px') != null) { const v = _px(c, 'px')!; pr = pl = v; fPr = fPl = true }
     if (_px(c, 'pt') != null) { pt = _px(c, 'pt')!; fPt = true }
     if (_px(c, 'pr') != null) { pr = _px(c, 'pr')!; fPr = true }
     if (_px(c, 'pb') != null) { pb = _px(c, 'pb')!; fPb = true }
     if (_px(c, 'pl') != null) { pl = _px(c, 'pl')!; fPl = true }
     if (_px(c, 'm') != null) { mt = mr = mb = ml = _px(c, 'm')!; fMt = fMr = fMb = fMl = true }
+    if (_px(c, 'my') != null) { const v = _px(c, 'my')!; mt = mb = v; fMt = fMb = true }
+    if (_px(c, 'mx') != null) { const v = _px(c, 'mx')!; mr = ml = v; fMr = fMl = true }
     if (_px(c, 'mt') != null) { mt = _px(c, 'mt')!; fMt = true }
     if (_px(c, 'mr') != null) { mr = _px(c, 'mr')!; fMr = true }
     if (_px(c, 'mb') != null) { mb = _px(c, 'mb')!; fMb = true }

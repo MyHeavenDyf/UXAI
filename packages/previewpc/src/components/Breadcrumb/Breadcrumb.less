@@ -8,25 +8,40 @@
 .el-breadcrumb__inner.is-link:hover,
 .el-breadcrumb__inner:hover,
 .el-breadcrumb__inner a:hover {
-  color: var(--el-color-primary);
+  color: var(--brand-50);
   cursor: pointer;
 }
 
 .el-breadcrumb__inner {
+  max-width: 280px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .el-breadcrumb__item:last-child .el-breadcrumb__inner,
 .el-breadcrumb__item:last-child .el-breadcrumb__inner:hover,
 .el-breadcrumb__item:last-child .el-breadcrumb__inner a,
 .el-breadcrumb__item:last-child .el-breadcrumb__inner a:hover {
-  font-weight: var(--font-weight-bold);
+  font-weight: var(--font-weight-medium);
   color: var(--el-text-color-primary);
 }
 
 .el-breadcrumb__separator {
-  color: var(--el-text-color-placeholder);
+  color: var(--gray-20);
   margin: 0 var(--spacing-1);
   width: 12px;
   font-weight: var(--font-weight-normal);
   text-align: center;
+}
+
+.theme-dark {
+  .el-breadcrumb__separator {
+    color: var(--gray-70);
+  }
+  .el-breadcrumb__inner.is-link:hover,
+  .el-breadcrumb__inner:hover,
+  .el-breadcrumb__inner a:hover {
+    color: var(--brand-30);
+  }
 }

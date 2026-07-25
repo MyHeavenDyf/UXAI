@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises"
  * 背景 / 决策见 octo-agent 文档仓 SPEC-INS-015(文件传参机制 ④ MCP 按需上传)、ADR-015 / ADR-014。
  *
  * 机制(SPEC-INS-015 路由 ④):
- *   - insight 页选非图片文件时只把源文件拷进 <projectDir>/insight/uploads 或 insight/<sessionId>/uploads
+ *   - insight 页选非图片文件时只把源文件拷进 <projectDir>/.octo/tmps 或 .octo/<sessionId>/uploads
  *     (本地副本,SPEC-INS-014 v2 会话隔离),**不上传 S3**。
  *     发送时以 `[附件]` synthetic text part 注入 session(可用文件清单,模型从不改写):
  *       [附件]

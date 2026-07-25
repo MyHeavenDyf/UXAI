@@ -277,7 +277,7 @@
   gap: 4px;
   overflow: hidden;
   padding: 0;
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid transparent;
   border-radius: 3px;
   background: #f2f3f5;
   color: rgba(15, 23, 42, 0.62);
@@ -287,10 +287,6 @@
 
 .studio-composer-video-frame-wrap:nth-child(3) .studio-composer-video-frame {
   transform: rotate(4deg);
-}
-
-.studio-composer-video-frame.filled {
-  background: #0f172a;
 }
 
 .studio-composer-video-plus {

@@ -5,7 +5,7 @@ import type { SwitchNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import "./Switch.less"
-import { useIconComponentRef } from "../Icon/IconBase"
+import { useIconComponentRef, createIconRenderer } from "../Icon/IconBase"
 
 const sizeEnum = {
   medium: "default",
@@ -44,14 +44,14 @@ const size = computed(() => {
 const checkedChildren = computed(() => properties.checkedChildren)
 const unCheckedChildren = computed(() => properties.unCheckedChildren)
 
-// ---- 异步图标解析 ----
+// ---- 图标解析（使用 createIconRenderer 封装为 Element Plus 可接受的 Component） ----
 const checkedIconName = computed(() => resolveValue(properties.checkedChildrenIcon) as string | undefined)
 const checkedIconRef = useIconComponentRef(checkedIconName)
-const checkedChildrenIcon = computed(() => checkedIconRef.value?.component ?? null)
+const checkedChildrenIcon = computed(() => createIconRenderer(checkedIconRef.value) ?? null)
 
 const uncheckedIconName = computed(() => resolveValue(properties.unCheckedChildrenIcon) as string | undefined)
 const uncheckedIconRef = useIconComponentRef(uncheckedIconName)
-const unCheckedChildrenIcon = computed(() => uncheckedIconRef.value?.component ?? null)
+const unCheckedChildrenIcon = computed(() => createIconRenderer(uncheckedIconRef.value) ?? null)
 
 const initVal = computed(() => resolveValue(properties.value) as boolean ?? false)
 const value = ref(initVal.value)
@@ -79,8 +79,8 @@ const onSwitch = (val: string | number | boolean) => {
     :size="size as any"
     :active-text="checkedChildren"
     :inactive-text="unCheckedChildren"
-    :active-icon="checkedChildrenIcon as any"
-    :inactive-icon="unCheckedChildrenIcon as any"
+    :active-action-icon="checkedChildrenIcon as any"
+    :inactive-action-icon="unCheckedChildrenIcon as any"
     @change="onSwitch"
   />
 </template>

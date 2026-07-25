@@ -1,5 +1,5 @@
 import "./assets/style/pattern-tokens.css"
-import type { Message, Session, SessionStatus, FilePartInput } from "@opencode-ai/sdk/v2/client"
+import type { Message, Session, SessionStatus, UserMessage, FilePartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { showToast, Toast } from "@opencode-ai/ui/toast"
@@ -17,6 +17,8 @@ import { useNavigate, useParams } from "@solidjs/router"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider, useLocal } from "@/context/local"
+import { useTabModel } from "@/hooks/use-tab-model"
+import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { useLayout } from "@/context/layout"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { type Attachment } from "./modules/chat/attachment-bar"
@@ -40,13 +42,18 @@ import { PatternGenerating }  from "./modules/preview/pattern-generating"
 import type { PatternMatchItem } from "./utils/pattern-resource"
 import { readPatternFile } from "./utils/pattern-resource"
 import { type IntentConfirmAnswers } from "./modules/chat/intent-confirm-card"
-import type { IntentConfirmResult } from "./agents/proto-intent-confirm"
+import type { IntentConfirmDimension, IntentConfirmResult } from "./agents/proto-intent-confirm"
 import { ChatPanel } from "./modules/chat/index"
 import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
 import { PatternPreviewEmpty } from "./modules/preview/pattern-preview-empty"
 import { saveTheme, loadTheme } from "./utils/theme"
 import { tracker } from "@/utils/tracker"
 import { createReorderHandler } from "./utils/reorder"
+import { useArchive } from "./utils/archive-module"
+import { getArchiveBaseUrl } from "./utils/pattern-archive-utils"
+import { getDesktopApi } from "./utils/desktop-api"
+import { ArchiveDialog } from "@/components/dialog-archive"
+import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import * as sessionMap from "./utils/session-map"
 
 const AGENT_NAME = "proto_triage"
@@ -76,6 +83,7 @@ function PatternContent() {
   const sync = useSync()
   const layout = useLayout()
   const local = useLocal()
+  useTabModel("pattern")
 
   onMount(() => { tracker.page({ module: "prototype", name: "pattern-page" }) })
 
@@ -127,6 +135,7 @@ function PatternContent() {
         // ── 2. 无条件同步重置（仅重置当前视图状态，各 session 独立数据保留在 map 中）──
         setChildSessionIDs([])
         setSessionSynced(false)
+        setCardInitialStep(undefined)
         discoverVersion++
         previewApi.sendToPreview(null)
         if (id) delete lastSentPreviewJson[id]
@@ -185,13 +194,19 @@ function PatternContent() {
                 case "intent_confirm": {
                   const ckpt = result.checkpoint
                   sessionMap.set(setUserInput, id, ckpt.userInput)
-                  sessionMap.set(setIntentConfirm, id, { options: ckpt.options ?? {}, current_step: "intent_confirm" } as any)
+                  sessionMap.set(setIntentConfirm, id, {
+                    results: (ckpt.options as { results?: IntentConfirmResult["results"] })?.results ?? [],
+                    current_step: "intent_confirm",
+                  })
                   return
                 }
                 case "block_matching": {
                   const ckpt = result.checkpoint
                   sessionMap.set(setUserInput, id, ckpt.userInput)
-                  sessionMap.set(setIntentConfirm, id, { options: ckpt.options ?? {}, current_step: "intent_confirm" } as any)
+                  sessionMap.set(setIntentConfirm, id, {
+                    results: (ckpt.options as { results?: IntentConfirmResult["results"] })?.results ?? [],
+                    current_step: "intent_confirm",
+                  })
                   sessionMap.set(setBlockMatches, id, ckpt.blockMatches ?? [])
                   if (!ckpt.blockMatches || ckpt.blockMatches.length === 0) {
                     sessionMap.set(setBlockMatchError, id, true)
@@ -331,6 +346,14 @@ function PatternContent() {
   const [isDragOver, setIsDragOver] = createSignal(false)
   const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string>("ICT3.1")
 
+  // 归档:状态和事件处理由 useArchive composable 封装,此处只注入依赖
+  const archive = useArchive({
+    sessionId: () => params.id,
+    projectDir: () => sdk.directory,
+    sessionTitle: () => sessionInfo()?.title,
+    pendingData: () => pendingPreviewData()[params.id ?? ""] ?? null,
+  })
+
   // ── per-session 状态 Map（按 session ID 隔离，互不干扰）──
   const [lastIntent, setLastIntent] = sessionMap.createSessionMap<Record<string, unknown> | null>()
   const [lastPlanner, setLastPlanner] = sessionMap.createSessionMap<Record<string, unknown> | null>()
@@ -355,7 +378,7 @@ function PatternContent() {
   // block 匹配是否出错
   const [blockMatchError, setBlockMatchError] = sessionMap.createSessionMap<boolean>()
   // 卡片初始步骤（恢复 block_matching 时直接跳到 blocks）
-  const [cardInitialStep, setCardInitialStep] = createSignal<"dimensions" | "blocks" | undefined>()
+  const [cardInitialStep, setCardInitialStep] = createSignal<"patterns" | "blocks" | undefined>()
 
   const needsConfirm = createMemo(() => {
     const id = params.id
@@ -374,14 +397,14 @@ function PatternContent() {
   // 历史文件存储目录，优先使用关联目录下的 .octo/design/history
   const patternHistoryDir = createMemo(() => {
     const home = sdk.directory
-    return `${home}/.octo/design/history`
+    return `${home}\\.octo\\design\\history`
   })
 
   createEffect(() => {
     const home = sdk.directory
     if (!home) return
     const api = (window as unknown as { api?: { setUploadsDir?: (dir: string) => Promise<void> } }).api
-    api?.setUploadsDir?.(`${home}/.octo/design/history`)
+    api?.setUploadsDir?.(`${home}\\.octo\\design\\history`)
   })
 
   // pipeline 忙状态（用于生成卡片状态）
@@ -548,18 +571,11 @@ function PatternContent() {
         if (ckpt.stage === "intent_confirm") {
           // intent_confirm 报错，先重跑意图确认
           const confirmResult = await create_intent_confirm(intentCtx)
-          if (Object.keys(confirmResult.options).length > 0) {
-            // 需要用户确认，在 CHAT 中显示确认卡片
-            sessionMap.set(setUserInput, sid, text)
-            sessionMap.set(setIntentConfirm, sid, confirmResult)
-            startPause(sid)
-            return
-          }
-          // 无需确认，弹出卡片走 block 选择
+          setCardInitialStep(undefined)
+          // 无论是否匹配到 Pattern，都弹卡片暂停；空结果时卡片显示「未匹配到」+ 跳过
           sessionMap.set(setUserInput, sid, text)
           sessionMap.set(setIntentConfirm, sid, confirmResult)
           startPause(sid)
-          void handleMatchPatternInCard("")
           return
         }
 
@@ -771,18 +787,11 @@ function PatternContent() {
         if (!sendingSids().has(sid!)) return
         const confirmResult = await create_intent_confirm(intentCtx)
         void saveDebugSnapshot(patternHistoryDir(), sid!, "intent_confirm")
-        if (Object.keys(confirmResult.options).length > 0) {
-          if (sid) sessionMap.set(setUserInput, sid!, intentCtx.userInput)
-          if (sid) sessionMap.set(setIntentConfirm, sid!, confirmResult)
-          startPause(sid!)
-          return
-        }
-
-        // 无维度需确认，直接弹出卡片走 block 选择
-        if (sid) sessionMap.set(setUserInput, sid!, text)
+        setCardInitialStep(undefined)
+        // 无论是否匹配到 Pattern，都弹卡片暂停；空结果时卡片显示「未匹配到」+ 跳过
+        if (sid) sessionMap.set(setUserInput, sid!, intentCtx.userInput)
         if (sid) sessionMap.set(setIntentConfirm, sid!, confirmResult)
         startPause(sid!)
-        void handleMatchPatternInCard("")
         return
       }
     } catch (err: unknown) {
@@ -799,14 +808,14 @@ function PatternContent() {
     }
   }
 
-  // 卡片第一步：点「匹配pattern」触发 block 匹配
-  async function handleMatchPatternInCard(enrichedInput: string) {
+  // 卡片第一步：page pattern 选定后触发 block 匹配（selectedItem 后续用于精准匹配）
+  async function handleMatchPatternInCard(selectedItem: IntentConfirmDimension | null) {
     const sid = params.id
     if (!sid) return
     const mk = activeModelKey()
     if (!mk) return
     const text = userInput()[sid] ?? ""
-    const enrichedText = text + enrichedInput
+    const enrichedText = text
     const ds = selectedDesignSystem()
     sessionMap.set(setBlockMatching, sid, true)
     sessionMap.set(setBlockMatchError, sid, false)
@@ -1107,13 +1116,18 @@ function PatternContent() {
       if (replannerSessionId) await sdk.client.session.delete({ sessionID: replannerSessionId }).catch(() => {})
     }
 
-    await download({ planner, mergedA2UI })
+    await download({ planner, mergedA2UI, sessionId: sid })
   }
 
   // 分享 — 打包 intent / planner / modules / preview JSON 为 ZIP
   async function handleShare() {
     tracker.interaction({ module: "prototype", name: "share-result" })
     await exportZip({historyDir: patternHistoryDir(), sessionId: params.id ?? "", title: sessionInfo()?.title ?? params.id ?? "export" })
+  }
+
+  // 画布编辑  跳转pixso
+  function handleCanvasEditing() {
+    console.log('跳转pixso')
   }
 
   // 实时预览
@@ -1211,7 +1225,7 @@ function PatternContent() {
             onDeleteSession={deleteSession}
             onTitleChanged={(title) => mutateSession(prev => prev ? { ...prev, title } : prev)}
             onRetry={handleRetry}
-            intentConfirmResult={intentConfirm()[params.id!] ?? null}
+            pageMatches={intentConfirm()[params.id!] ?? null}
             blockMatches={blockMatches()[params.id!] ?? []}
             blockMatching={blockMatching()[params.id!] ?? false}
             blockMatchError={blockMatchError()[params.id!] ?? false}
@@ -1240,6 +1254,7 @@ function PatternContent() {
                     onPickerSubmit={handlePickerSubmit}
                     onDownload={handleDownload}
                     onShare={handleShare}
+                    onCanvasEditing={handleCanvasEditing}
                     onReorder={handleReorder}
                     onLivePreview={handleLivePreview}
                     onPixsoPreview={handlePixsoPreview}
@@ -1247,6 +1262,8 @@ function PatternContent() {
                     versions={versions()[params.id!] ?? []}
                     currentVersionId={currentVersionId()[params.id!] ?? null}
                     onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
+                    archiving={archive.archiving()}
+                    onArchiveToggle={archive.toggleArchiving}
                   />
                 </Show>
               }>
@@ -1262,6 +1279,36 @@ function PatternContent() {
               </div>
             </Show>
           </div>
+        </Show>
+        {/* 归档弹窗:选择空间/产品/版本/文件夹后上传 ZIP 到交付物系统 */}
+        <Show when={archive.archiving()}>
+          <ArchiveDialog
+            open={archive.archiving()}
+            onClose={archive.closeArchive}
+            onResetArchiving={archive.closeArchive}
+            onConfirm={archive.handleArchiveConfirm}
+            sessionId={params.id ?? ""}
+            filePath=""
+            tabTitle={sessionInfo()?.title ?? params.id ?? "pattern"}
+          />
+        </Show>
+        {/* 归档成功弹窗:展示归档路径,「跳转查看」打开交付物预览分享给开发(与 make 一致) */}
+        <Show when={archive.archiveSuccessOpen()}>
+          <DialogArchiveSuccess
+            open={archive.archiveSuccessOpen()}
+            onClose={archive.closeArchiveSuccess}
+            archivePath={archive.archiveSuccessPath()}
+            shareLink={archive.archiveSuccessUniqueId()
+              ? `${getArchiveBaseUrl()}/developerPreview/designAgent/index.html?uniqueId=${archive.archiveSuccessUniqueId()}`
+              : undefined}
+            onViewClick={() => {
+              const uniqueId = archive.archiveSuccessUniqueId()
+              if (uniqueId) {
+                const url = `${getArchiveBaseUrl()}/developerPreview/designAgent/index.html?uniqueId=${uniqueId}`
+                getDesktopApi()?.openLink?.(url)
+              }
+            }}
+          />
         </Show>
       </div>
     </DataProvider>

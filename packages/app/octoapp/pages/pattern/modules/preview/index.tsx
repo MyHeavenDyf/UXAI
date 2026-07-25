@@ -2,6 +2,7 @@ import { createEffect, createSignal, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import type { VersionEntry } from "../../utils/version-history"
+import { getCommenterInfo, getAvatarUrl } from "../../utils/user-info"
 
 import { TitleBar } from "./title-bar"
 import { CanvasView } from "./canvas-view"
@@ -34,10 +35,13 @@ export function PreviewPage(props: {
   onLivePreview?: () => void
   onPixsoPreview?: () => void
   onCodeToHtml?: () => void
+  onCanvasEditing?: () => void
   versions?: VersionEntry[]
   currentVersionId?: string | null
   onSelectVersion?: (versionId: string) => void
   onReorder?: (elementId: string, targetSiblingId: string, position: "before" | "after") => void
+  archiving?: boolean
+  onArchiveToggle?: () => void
 }) {
   let previewIframeRef: HTMLIFrameElement | undefined
   let previewPageRef: HTMLDivElement | undefined
@@ -517,6 +521,10 @@ export function PreviewPage(props: {
             anno.closeAnnotationPopup()
           }
         }}
+        archiving={props.archiving}
+        onArchiveToggle={props.onArchiveToggle}
+        // 画布编辑模式：开启后允许用户在画布上直接拖拽/缩放元素，关闭其他编辑模式
+        onCanvasEditing={props.onCanvasEditing}
       />
 
       <CanvasView
@@ -546,7 +554,7 @@ export function PreviewPage(props: {
                         <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" fill="#ffffff" stroke="rgba(0,0,0,0.1)" stroke-width="1.5" stroke-linejoin="round" />
                       </g>
                     </svg>
-                    <img src="/AvatarUser.svg" class="annotation-badge-avatar" />
+                    <img src={getAvatarUrl(item.account) || "/AvatarUser.svg"} class="annotation-badge-avatar" />
                   </div>
                 )}
               </For>
@@ -589,14 +597,16 @@ export function PreviewPage(props: {
       <Show when={anno.annotationPopup.show && anno.annotationPopup.target}>
         <AnnotationPopup
           target={anno.annotationPopup.target!}
-          author="用户"
+          author={getCommenterInfo().userName}
+          authorAvatar={getCommenterInfo().avatar}
           annotations={anno.annotations
             .filter((a) => a.selector === anno.annotationPopup.target!.elementId)
             .map((a): Annotation => ({
               id: a.id,
               elementId: a.selector,
-              author: "用户",
-              authorInitial: "用",
+              author: a.userName || "用户",
+              authorInitial: (a.userName || "用户").charAt(0),
+              avatar: getAvatarUrl(a.account),
               text: a.note,
               attachments: a.attachments.map((att) => att.fileName),
               createdAt: a.time,

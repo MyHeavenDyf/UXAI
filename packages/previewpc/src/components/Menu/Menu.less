@@ -20,8 +20,17 @@
 
 .el-menu--vertical {
   --el-menu-sub-item-height: 48px;
-  // padding-top: 12px;
+  padding-top: 12px;
   // padding-bottom: 52px;
+  .el-sub-menu__title {
+    overflow: hidden;
+    &>span {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis; 
+    }
+  }
 
   .el-menu-item:hover,
   .el-sub-menu__title:hover {
@@ -107,6 +116,7 @@
 
 .theme-dark {
   .el-menu {
+    --el-menu-border-color: rgb(from var(--gray-05) r g b / 0.15);
     .el-menu-item:not(.is-active) .lucide {
       stroke: var(--gray-10);
     }
@@ -117,19 +127,29 @@
   }
 
   .el-menu--vertical {
-
+    .el-sub-menu.is-opened {
+      & > .el-menu {
+        background-color: transparent;
+      }
+      & > .el-sub-menu__title .el-icon.el-sub-menu__icon-arrow svg path {
+        stroke: currentColor;
+      }
+    }  
     .el-menu-item:hover,
     .el-sub-menu__title:hover {
-      background-color: rgba(243, 243, 243, 0.2);
+      color: var(--gray-0);
+      background: rgb(from var(--gray-05) r g b / 0.2);
     }
 
     .el-menu-item.is-active {
       background-color: rgb(from var(--brand-50) r g b / 0.4);
-      color: var(--color-text-primary);
+      color: var(--gary-0);
     }
 
     .is-active.is-opened>.el-sub-menu__title {
       color: var(--brand-30);
+      background: var(--gray-90);
+
 
       .el-sub-menu__icon-arrow svg path,
       .lucide {

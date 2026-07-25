@@ -9,6 +9,7 @@ export interface Annotation {
   text: string
   attachments: string[]
   createdAt: number
+  avatar?: string
 }
 
 export interface AnnotationTarget {
@@ -19,6 +20,7 @@ export interface AnnotationTarget {
 interface AnnotationPopupProps {
   target: AnnotationTarget
   author: string
+  authorAvatar?: string
   annotations: Annotation[]
   active?: boolean
   onSend: (text: string, attachments: File[]) => void
@@ -114,7 +116,7 @@ export function AnnotationPopup(props: AnnotationPopupProps) {
             />
           </g>
         </svg>
-        <img src="/AvatarUser.svg" class="annotation-badge-avatar" />
+        <img src={props.authorAvatar || "/AvatarUser.svg"} class="annotation-badge-avatar" />
       </div>
 
       {/* 高亮框 — 标注目标元素 */}
@@ -176,7 +178,7 @@ export function AnnotationPopup(props: AnnotationPopupProps) {
             <For each={props.annotations}>
               {(ann) => (
                 <div class="annotation-item" onDblClick={(e) => { e.stopPropagation(); startEdit(ann) }}>
-                  <img src="/AvatarUser.svg" class="annotation-item-avatar" />
+                  <img src={ann.avatar || "/AvatarUser.svg"} class="annotation-item-avatar" />
                   <div class="annotation-item-content">
                     <div class="annotation-item-author">
                       {ann.author}

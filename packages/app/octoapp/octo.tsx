@@ -37,6 +37,7 @@ import { GlobalSDKProvider } from "@/context/global-sdk"
 import { GlobalSyncProvider } from "@/context/global-sync"
 import { HighlightsProvider } from "@/context/highlights"
 import { LanguageProvider, type Locale, useLanguage } from "@/context/language"
+import { Icon } from "@opencode-ai/ui/icon"
 import { LayoutProvider, useLayout } from "@/context/layout"
 import { ModelsProvider } from "@/context/models"
 import { NotificationProvider } from "@/context/notification"
@@ -48,6 +49,7 @@ import { TerminalProvider } from "@/context/terminal"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layoutnet"
 import { ErrorPage } from "./pages/error"
+import { OctoSidebar } from "@/pages/_shell/sidebar"
 // DEV-ONLY:insight 组件隔离预览路由(见 pages/insight/__dev/routes.tsx)。仅 DEV 分支调用,生产构建该引用为死代码,整模块摇树掉。
 import { insightDevRoutes } from "@/pages/insight/__dev/routes"
 // 生产构建把 console 对象参数序列化成 JSON 再落盘(insight-debug.log 转发只拿到字符串,
@@ -55,12 +57,15 @@ import { insightDevRoutes } from "@/pages/insight/__dev/routes"
 import { installConsoleObjectSerializer } from "@/pages/insight/lib/console-serialize"
 if (!import.meta.env.DEV) installConsoleObjectSerializer()
 import { MakeSidebar } from "@/pages/make/sidebar"
-import { InsightSidebar } from "@/pages/insight/sidebar"
-import { SidebarFooter } from "@/pages/insight/components/sidebar-footer"
-import { ProjectInfo } from "@/components/project-info"
 import { PatternSidebar } from "@/pages/pattern/modules/sidebar/sidebar"
 import { Scene3DSidebar } from "@/pages/3d/modules/sidebar/sidebar"
+import { InsightSidebar } from "@/pages/insight/sidebar"
+import { ProjectInfo } from "@/components/project-info"
+import { SidebarFooter } from "@/pages/insight/components/sidebar-footer"
+import { ResponsiveSidebarLayout } from "@/components/responsive-sidebar-layout"
+import { CollapsedSidebarIcons } from "@/components/collapsed-sidebar-icons"
 import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
+import { WelcomePage } from "@/components/welcome-page"
 import { useCheckServerHealth } from "./utils/server-health"
 import { persisted, Persist } from "@/utils/persist"
 // jk-j60099994-replace-with-octo-1-start
@@ -138,10 +143,9 @@ function QueryProvider(props: ParentProps) {
   return <QueryClientProvider client={client}>{props.children}</QueryClientProvider>
 }
 
-function MakeSidebarLayout(props: ParentProps) {
-  const layout = useLayout()
+function OctoSidebarLayout(props: ParentProps) {
   const [sidebarWidthStore, setSidebarWidthStore] = persisted(
-    Persist.global("make.sidebar.width"),
+    Persist.global("cowork.sidebar.width"),
     createStore({ width: 296 }),
   )
   const sidebarWidth = () => sidebarWidthStore.width
@@ -165,38 +169,36 @@ function MakeSidebarLayout(props: ParentProps) {
   }
 
   return (
-    <div data-make-area="sidebar" class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
-      <Show when={!layout.focusMode.get()}>
-        <MakeSidebar width={sidebarWidth()} />
+    <div data-cowork-area="sidebar" class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
+      <OctoSidebar width={sidebarWidth()} />
+      <div
+        class="absolute top-0 bottom-0 flex items-center justify-center group"
+        style={{
+          left: `${sidebarWidth() - 10}px`,
+          width: "20px",
+          cursor: "col-resize",
+          "z-index": "10",
+        }}
+        onMouseDown={handleSidebarResize}
+      >
         <div
-          class="absolute top-0 bottom-0 flex items-center justify-center group"
+          class="absolute left-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
           style={{
-            left: `${sidebarWidth() - 10}px`,
-            width: "20px",
-            cursor: "col-resize",
-            "z-index": "10",
+            width: "12px",
+            height: "36px",
+            "border-radius": "0 10px 10px 0",
+            "box-shadow": "2px 0 4px rgba(0,0,0,0.04), inset -1px 0 0 rgba(0,0,0,0.02)",
+            border: "1px solid var(--octo-border-divider)",
+            "border-left": "none",
+            display: "none"
           }}
-          onMouseDown={handleSidebarResize}
         >
           <div
-            class="absolute left-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
-            style={{
-              width: "12px",
-              height: "36px",
-              "border-radius": "0 10px 10px 0",
-              "box-shadow": "2px 0 4px rgba(0,0,0,0.04), inset -1px 0 0 rgba(0,0,0,0.02)",
-              border: "1px solid var(--octo-border-divider)",
-              "border-left": "none",
-              display: "none"
-            }}
-          >
-            <div
-              class="w-[2px] h-[14px] rounded-full ml-[2px]"
-              style={{ background: "var(--octo-border-input, #c9c9c9)" }}
-            />
-          </div>
+            class="w-[2px] h-[14px] rounded-full ml-[2px]"
+            style={{ background: "var(--octo-border-input, #c9c9c9)" }}
+          />
         </div>
-      </Show>
+      </div>
       <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
         {props.children}
       </div>
@@ -273,6 +275,25 @@ function PatternSidebarLayout(props: ParentProps) {
 
 function Scene3DSidebarLayout(props: ParentProps) {
   return <SidebarShell widthKey="scene3d.sidebar.width" sidebar={(w) => <Scene3DSidebar width={w} />}>{props.children}</SidebarShell>
+function MakeSidebarLayout(props: ParentProps) {
+  const navigate = useNavigate()
+  const layout = useLayout()
+  return (
+    <ResponsiveSidebarLayout
+      storageKey="make.sidebar.width"
+      sidebar={(w) => <MakeSidebar width={w} />}
+      collapsedIcons={() => (
+        <CollapsedSidebarIcons
+          onConversationClick={() => navigate("/make")}
+          onSkillsClick={() => { layout.sidebarSource.set("make"); navigate("/skills") }}
+        />
+      )}
+      dataAttribute="data-make-area"
+      focusMode={layout.focusMode.get()}
+    >
+      {props.children}
+    </ResponsiveSidebarLayout>
+  )
 }
 
 // insight 侧栏在 /skills 上的复用壳:与 /insight 用同一个自包含的 InsightSidebar
@@ -344,13 +365,24 @@ function OnboardingLayer() {
     return layout.onboarding.show()
   })
 
-  function handleOnboardingSelect(data: { directory: string }) {
+  const [step, setStep] = createSignal<"project" | "welcome">("project")
+
+  function handleProjectSelect() {
+    setStep("welcome")
+  }
+
+  function handleWelcomeComplete() {
     layout.onboarding.hide()
   }
 
   return (
     <Show when={showOnboarding()}>
-      <DialogProjectOnboarding onSelect={handleOnboardingSelect} />
+      <Show when={step() === "project"}>
+        <DialogProjectOnboarding onSelect={handleProjectSelect} />
+      </Show>
+      <Show when={step() === "welcome"}>
+        <WelcomePage onComplete={handleWelcomeComplete} />
+      </Show>
     </Show>
   )
 }
