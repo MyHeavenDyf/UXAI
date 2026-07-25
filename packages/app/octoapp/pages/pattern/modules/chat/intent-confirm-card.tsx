@@ -2,7 +2,7 @@ import { createEffect, createMemo, createSignal, For, Show, type JSX } from "sol
 import { showToast } from "@opencode-ai/ui/toast"
 import type { IntentConfirmDimension, IntentConfirmResult } from "../../agents/proto-intent-confirm"
 import { readPagePatternMd } from "../../utils/pattern-resource"
-import type { BlockModuleItem } from "../../utils/pattern-resource"
+import { type BlockModuleItem, getBlockContent } from "../../utils/pattern-resource"
 import "../../assets/style/chat/intent-confirm-card.css"
 
 export type IntentConfirmAnswers = Record<string, { selections: string[]; supplement: string }>
@@ -61,12 +61,12 @@ export function IntentConfirmCard(props: {
     })
   }
 
-  function handleConfirm() {
+  async function handleConfirm() {
     
     const selectedIds = Object.values(selectedBlocks())
     const blocks = props.blockMatches.filter(m => selectedIds.includes(m.id))
     // 在这个阶段，文斌会写一个网络请求，获取zip，解压JSON，存储到block的content属性里面去
-    
+    const blockPatterns = await getBlockContent({ results: blocks }, props.sessionId)
     debugger
     var test= "111"
     // props.onConfirm({}, "", blocks)
