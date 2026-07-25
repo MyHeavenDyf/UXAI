@@ -122,6 +122,8 @@ export function ChatPanel(props: {
   blockMatchError?: boolean
   /** 卡片初始步骤（恢复断点时直接跳到 blocks） */
   initialStep?: "dimensions" | "blocks"
+  /** 3D 模式：跳过 block 模板选择步骤，维度确认后直接提交 */
+  skipBlocks?: boolean
   /** 用户点「匹配pattern」时触发，传入维度确认后的 enrichedInput */
   onMatchPattern?: (enrichedInput: string) => void
   /** 用户点「下一步」确认时触发，传入维度答案 + enrichedInput + 选中的 block 列表 */
@@ -376,6 +378,7 @@ export function ChatPanel(props: {
               blockMatching={props.blockMatching ?? false}
               blockMatchError={props.blockMatchError ?? false}
               initialStep={props.initialStep}
+              skipBlocks={props.skipBlocks}
               onMatchPattern={props.onMatchPattern!}
               onConfirm={props.onConfirmIntent!}
             />

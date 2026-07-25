@@ -15,7 +15,7 @@ export function extractJson(text: string) {
   }
 
   // 清洗不可见字符
-  cleanText = cleanText.replace(/[  ᠎ -     　]/g, " ");
+  cleanText = cleanText.replace(/[\u00a0\u1680\u180e\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/g, " ");
 
   // ==========================================
   // 2. 移除大模型的思维链
@@ -38,7 +38,7 @@ export function extractJson(text: string) {
   const repairInvalidQuotes = (jsonStr: string) => {
     return jsonStr.replace(/(:\s*")([\s\S]*?)("\s*[,}])/g, (match, p1, p2, p3) => {
       // 将值内部那些由于大模型粗心导致的裸双引号，替换为中文双引号
-      const repairedP2 = p2.replace(/"/g, '“');
+      const repairedP2 = p2.replace(/"/g, '“'); 
       return p1 + repairedP2 + p3;
     });
   };
@@ -65,7 +65,7 @@ export function extractJson(text: string) {
     // ==========================================
     const lastIdxOfBrace = cleanText.lastIndexOf("}");
     const lastIdxOfBracket = cleanText.lastIndexOf("]");
-
+    
     const endChar = lastIdxOfBracket > lastIdxOfBrace ? "]" : "}";
     const startChar = endChar === "]" ? "[" : "{";
 
@@ -79,7 +79,7 @@ export function extractJson(text: string) {
       lastStart = start;
       try {
         let rawjson = cleanText.substring(start, end + 1).trim();
-
+        
         try {
           // 盲猜解析
           const parsed = JSON.parse(rawjson);

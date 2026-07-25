@@ -196,6 +196,29 @@ export default async function modify_scene_ai(
           id_prefix: slot.id_prefix,
         }
       }
+      // ── 安全合并：防止 module_modify LLM 返回不完整 scene_objects ──────────
+      // 契约要求 module_modify 返回该分区【完整】物体清单（含未改动的原物体），
+      // 但 LLM 不可靠——经常只返回改动/新增的物体，漏掉未改动的。merge 对 modify
+      // 分区是整体替换，漏掉的物体 = 被删除（已多次导致"修改热力图后整个 centralHub
+      // 消失"、"加喷泉后中央区域被清空"等严重 bug）。
+      //
+      // 修复：union-merge originObjects 与 module 结果，module 优先（同名 id 取 module
+      // 版本 = 被修改的物体生效），originObjects 中未被 module 包含的物体自动补回
+      // （= 遗漏的未改动物体保留）。
+      //
+      // 权衡：此策略会导致"LLM 故意不返回某物体表示删除"时该物体被保留（误复活）。
+      // 但这远好于当前"整分区丢失"的严重 bug，且删除物体是更少见的操作。未来可
+      // 通过 triage 返回 per-object 级别的 delete 意图来精确区分。
+      if (originObjects.length > 0) {
+        const moduleIds = new Set(result.scene_objects.map((o) => o.id))
+        const missingFromModule = originObjects.filter((o) => o.id && !moduleIds.has(o.id))
+        if (missingFromModule.length > 0) {
+          console.warn(
+            `[3d-modify] 安全合并: 分区 ${slot.section_id} 的 module 结果缺 ${missingFromModule.length}/${originObjects.length} 个旧物体（ids: ${missingFromModule.slice(0, 5).map((o) => o.id).join(", ")}${missingFromModule.length > 5 ? ", ..." : ""}），已补回`,
+          )
+          result.scene_objects = [...result.scene_objects, ...missingFromModule]
+        }
+      }
       return result
     }
     return null

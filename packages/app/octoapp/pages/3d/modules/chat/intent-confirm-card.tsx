@@ -12,6 +12,8 @@ export function IntentConfirmCard(props: {
   blockMatching: boolean
   blockMatchError?: boolean
   initialStep?: "dimensions" | "blocks"
+  /** 3D 模式：跳过 block 模板选择步骤，维度确认后直接提交 */
+  skipBlocks?: boolean
   onMatchPattern: (enrichedInput: string) => void
   onConfirm: (answers: IntentConfirmAnswers, enrichedInput: string, selectedBlocks: PatternMatchItem[]) => void
 }): JSX.Element {
@@ -153,8 +155,8 @@ export function IntentConfirmCard(props: {
 
         <div class="ic-card-foot">
           <Show when={!isLastDimTab()} fallback={
-            <button class="ic-card-submit-btn" onClick={handleMatchPattern}>
-              下一步
+            <button class="ic-card-submit-btn" onClick={props.skipBlocks ? handleConfirm : handleMatchPattern}>
+              {props.skipBlocks ? "确认并继续生成" : "下一步"}
             </button>
           }>
             <button class="ic-card-next-btn" onClick={() => setActiveTab(activeTab() + 1)}>
@@ -164,8 +166,8 @@ export function IntentConfirmCard(props: {
         </div>
       </Show>
 
-      {/* 步骤 2：block 模板选择 */}
-      <Show when={step() === "blocks"}>
+      {/* 步骤 2：block 模板选择（3D 跳过此步骤） */}
+      <Show when={step() === "blocks" && !props.skipBlocks}>
         <div class="ic-card-body">
           <Show when={!props.blockMatching} fallback={
             <div class="ic-card-loading">

@@ -1,8 +1,8 @@
 # 3D 页面改造 — 完整方案文档
 
 > 维护方式：每次重要决策后更新本文件。新会话开始时将本文件作为初始 prompt，基于已定结论继续推进，不重复讨论。
-> 同步基线 commit：`40177fd038fccc8004b7d77588c34d5a6c8239f2`（dev_pattern，本次会话时点 HEAD）。
-> 旧基线 `18de05fbf` 已过时，但仍在 git 历史中可达。
+> 同步基线 commit：`b2ad3c7890b1f412a536f65f5ca12c120eba0f2a`（dev_pattern，3D-SYNC #3 后 HEAD）。
+> 旧基线 `40177fd038fccc8004b7d77588c34d5a6c8239f2` 已过时（SYNC #3 前）。
 
 ---
 
@@ -676,3 +676,56 @@ history:
 - 新会话开始时，将本文件全文作为初始 prompt 发出，并说明本次要做什么。
 - 基于已定结论继续，不重复讨论；新决策直接更新对应章节。
 - 记忆（`~/.claude/.../memory/`）保存精简指针（架构/对话/previewdist 三份），细节以本文件为准。
+
+---
+
+## 5. 同步与功能迁移记录
+
+### 5.1 3D-SYNC #3（2026-07-22，base=`40177fd03`..`b2ad3c789`）
+
+首次正式 dev_pattern → 3D 同步，44 files changed（+2337/-287），typecheck ✅。
+
+**迁移内容（按层级）：**
+
+| 层级 | 改动 |
+|------|------|
+| 基础设施 | `schema-validator.ts`(NEW)、`error-msg.ts`(AgentError/agentThrow/ProtoError)、`json-parser.ts`(引号修复/死循环防护)、`round-messages.ts`(errorAgent/errorCallId) |
+| 核心引擎 | `run-child-session.ts`(schema/fileParts/error/tagError/重试UX/watchRetryStatus) |
+| Agent 升级 | 8 个 scene-* agent 各加 `schema.ts` + `agentThrow`；scene-triage: delete/add 类型化 + 去 updated_intent + attachment_description |
+| Chat UI | `intent-confirm-card.tsx`(NEW)、`generation-card`(error+retry)、`insight-turn`(think标签/badge)、`tool-call-card`/`turn-duration`/`chart-input`/`attachment-bar` 更新 |
+| Preview/结构 | `title-bar`(注释主题/分享)、`sidebar`(注释导入)、CSS(pattern-tokens z-index、titleBar pattern-text-btn) |
+| Checkpoint | `scene-checkpoint.ts` 重写为统一单文件 checkpoint.json 方案（兼容旧格式） |
+| index.tsx | ProtoError 类型、handleRetry 统一 checkpoint 恢复、fileParts 附件、triage 前置、halt 增强、IME guard |
+
+**跳过（2D 专属）：** proto-modify、proto_pattern_block/page、proto_wireframes、annotation-module/popup、已删除的 preview 组件(wireframe-review/tree/scaled-frame/template-card-stack/pattern-match-page)、pattern-resource、modify-json-quick、patch-json(待后续)
+
+**遗留待办：**
+- scene-replanner agent（借 proto-replanner 骨架，3D 暂无）
+- modify 单 agent 化（pattern 已改，3D 需评估）
+- patch-json 3D 版（children→parentId 语义替换）
+
+### 5.2 IntentConfirmCard 从 preview 侧迁移到 chat 侧（2026-07-22，未提交）
+
+同步 #3 搬了 IntentConfirmCard 组件到 3D，但未接入用户流程。此前 3D 在 preview 右侧渲染 IntentConfirmReview 面板做意图确认，与 pattern 的 chat 驱动卡片流不一致。
+
+**改动：**
+- `index.tsx`：添加 blockMatches/blockMatching/blockMatchError/cardInitialStep 四个 signal；ChatPanel 传入 8 个新 prop（7 个 IntentConfirmCard + `skipBlocks={true}`）；handleConfirmIntent 签名从 2-arg 扩展为 3-arg；添加 handleMatchPatternInCard no-op；confirmText 意图确认提示改"请在下方确认需求"；preview 面板去掉 IntentConfirmReview 渲染分支
+- `intent-confirm-card.tsx`：加 `skipBlocks?: boolean` prop；skipBlocks 时最后一个维度 tab 按钮显示"确认并继续生成"并直接调 handleConfirm（跳过 blocks 步骤）；blocks 步骤加 `!props.skipBlocks` 守卫
+- `chat/index.tsx`：ChatPanel 加 `skipBlocks` prop 并透传
+
+**UX 变化：**
+- 之前：输入需求 → preview 右侧弹出确认面板 → 确认后继续
+- 之后：输入需求 → chat 底部弹出确认卡片（仅维度选择，无模板步骤）→ 确认后继续生成
+- 3D 特有的场景规划审查暂停点（SceneWireframeReview）保留在 preview 侧
+
+**验证步骤：**
+
+| # | 场景 | 操作 | 预期结果 | 通过标识 |
+|---|------|------|---------|---------|
+| 1 | 意图确认卡片 | 新建 3D 会话，输入模糊需求（如"一个室内场景"） | chat 底部弹出 IntentConfirmCard 卡片，显示维度选择（如风格、用途等），**无"模板选择"步骤** | ✅ 卡片出现在 chat 底部，只有维度选择 |
+| 2 | 卡片确认后继续 | 在卡片中选择维度，点"确认并继续生成" | 卡片消失，preview 区显示"场景规划审查"或生成中 | ✅ 卡片关闭，pipeline 继续 |
+| 3 | 无意图确认 | 输入非常明确的需求（如"一个客厅，有沙发和电视"） | 无卡片弹出，直接进入 planner 生成 | ✅ 无卡片，直接生成 |
+| 4 | 场景规划审查 | 意图确认后 planner 完成 | preview 右侧显示 SceneWireframeReview（3D 特有暂停点仍正常） | ✅ review 面板在 preview 侧 |
+| 5 | 修改流不受影响 | 对已有场景发修改请求 | 不出意图确认卡片，直接走修改流 | ✅ 修改流正常 |
+| 6 | 断点恢复 | 在意图确认阶段关掉页面，重新打开 | chat 底部重新出现 IntentConfirmCard，选项恢复 | ✅ 卡片恢复 |
+| 7 | 生成错误重试 | pipeline 出错后点重试 | 根据断点恢复到正确阶段 | ✅ 重试正常 |

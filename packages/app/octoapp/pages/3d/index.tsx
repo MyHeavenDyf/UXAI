@@ -67,8 +67,9 @@ import type { ScenePlanner, SceneModuleResult } from "./agents/merge"
 import { PreviewPage3D, type PreviewPageAPI } from "./modules/preview/index"
 import { SceneWireframeReview, type SceneWireframeReviewResult } from "./modules/preview/SceneWireframeReview"
 import { SceneGenerating } from "./modules/preview/SceneGenerating"
-import { IntentConfirmReview, type IntentConfirmAnswers } from "./modules/preview/IntentConfirmReview"
+import type { IntentConfirmAnswers } from "./modules/chat/intent-confirm-card"
 import type { IntentConfirmResult } from "./agents/scene-intent-confirm"
+import type { PatternMatchItem } from "./utils/scene-resource"
 import { ChatPanel } from "./modules/chat/index"
 import scene_3d_triage from "./agents/scene-triage"
 import { tracker } from "@/utils/tracker"
@@ -180,6 +181,10 @@ function Scene3DContent() {
   const [isGenerating, setIsGenerating] = sessionMap.createSessionMap<boolean>()
   const [isGeneratingReview, setIsGeneratingReview] = sessionMap.createSessionMap<boolean>()
   const [intentConfirm, setIntentConfirm] = sessionMap.createSessionMap<IntentConfirmResult | null>()
+  const [blockMatches, setBlockMatches] = sessionMap.createSessionMap<PatternMatchItem[]>()
+  const [blockMatching, setBlockMatching] = sessionMap.createSessionMap<boolean>()
+  const [blockMatchError, setBlockMatchError] = sessionMap.createSessionMap<boolean>()
+  const [cardInitialStep, setCardInitialStep] = createSignal<"dimensions" | "blocks" | undefined>()
   const [embedReady, setEmbedReady] = createSignal(false)
 
   const needsConfirm = createMemo(() => {
@@ -192,7 +197,7 @@ function Scene3DContent() {
   const confirmText = createMemo<{ title: string; subtitle: string } | null>(() => {
     const id = params.id
     if (!id) return null
-    if (intentConfirm()[id]) return { title: "意图分析完成", subtitle: "请在右侧确认场景需求" }
+    if (intentConfirm()[id]) return { title: "意图分析完成", subtitle: "请在下方确认需求" }
     if (isPlanReview()[id]) return { title: "场景规划审查", subtitle: "请在右侧确认空间分区" }
     return null
   })
@@ -944,8 +949,13 @@ function Scene3DContent() {
     }
   }
 
+  // 3D 无模板库，IntentConfirmCard skipBlocks=true 不会调用此函数，但 ChatPanel prop 类型要求
+  function handleMatchPatternInCard(_enrichedInput: string) {
+    // no-op: 3D skips block matching entirely
+  }
+
   // 意图确认后，带着用户补充继续阶段2
-  async function handleConfirmIntent(_answers: IntentConfirmAnswers, enrichedInput: string) {
+  async function handleConfirmIntent(_answers: IntentConfirmAnswers, enrichedInput: string, _selectedBlocks?: PatternMatchItem[]) {
     const sid = params.id
     if (!sid) return
     const mk = activeModelKey()
@@ -1239,22 +1249,29 @@ function Scene3DContent() {
             onDeleteSession={deleteSession}
             onTitleChanged={title => mutateSession(prev => prev ? { ...prev, title } : prev)}
             onRetry={handleRetry}
+            intentConfirmResult={intentConfirm()[params.id!] ?? null}
+            blockMatches={blockMatches()[params.id!] ?? []}
+            blockMatching={blockMatching()[params.id!] ?? false}
+            blockMatchError={blockMatchError()[params.id!] ?? false}
+            initialStep={cardInitialStep()}
+            onMatchPattern={handleMatchPatternInCard}
+            onConfirmIntent={handleConfirmIntent}
+            skipBlocks={true}
           />
         </div>
 
         {/* 预览区 */}
         <Show when={hasContent()}>
           <div style={{ position: "relative", flex: 1, overflow: "hidden" }}>
-            <Show when={intentConfirm()[params.id!] ?? null} fallback={
-              <Show when={!!isPlanReview()[params.id!]} fallback={
-                <Show when={!!isGeneratingReview()[params.id!]} fallback={
-                  <Show
-                    when={!!hasPreviewContent()[params.id!]}
-                    fallback={<SceneEmptyState error={sessionErrors()[params.id!]} />}
-                  >
-                    <PreviewPage3D
-                      api={previewApi}
-                      pendingData={pendingPreviewData()[params.id!] ?? null}
+            <Show when={!!isPlanReview()[params.id!]} fallback={
+              <Show when={!!isGeneratingReview()[params.id!]} fallback={
+                <Show
+                  when={!!hasPreviewContent()[params.id!]}
+                  fallback={<SceneEmptyState error={sessionErrors()[params.id!]} />}
+                >
+                  <PreviewPage3D
+                    api={previewApi}
+                    pendingData={pendingPreviewData()[params.id!] ?? null}
                       previewSrc={PREVIEW_SRC}
                       onReady={() => setEmbedReady(true)}
                       onPatch={handleScenePatch}
@@ -1294,17 +1311,6 @@ function Scene3DContent() {
                   </div>
                 </Show>
               </Show>
-            }>
-              <div style={{ position: "relative", width: "100%", height: "100%" }}>
-                <IntentConfirmReview
-                  result={intentConfirm()[params.id!]!}
-                  onConfirm={handleConfirmIntent}
-                />
-                <Show when={!!isGenerating()[params.id!]}>
-                  <SceneGenerating />
-                </Show>
-              </div>
-            </Show>
             <Show when={!!isModifying()[params.id!]}>
               <div style={{ position: "absolute", inset: 0, display: "flex", "align-items": "center", "justify-content": "center", "flex-direction": "column", gap: "8px" }}>
                 <SceneGenerating />

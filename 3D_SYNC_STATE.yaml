@@ -204,7 +204,8 @@ history:
   - { round: 0, date: 2026-07-10, commit: 40177fd03, files: 0, note: "初始基线，未同步" }
   - { round: 1, date: 2026-07-13, commit: 40177fd03, files: 30+, note: "阶段2 落地：克隆 pattern 对话流+后端注册 scene_3d_* agent。非同步迁移，游标未推进" }
   - { round: 2, date: 2026-07-14, commit: 40177fd03, files: 5, note: "阶段2 端到端验证+修bug。游标未推进" }
-  - { round: 3, date: 2026-07-22, commit: b2ad3c789, files: 43, note: "首次正式同步：基础设施层(schema-validator/error-msg/json-parser/round-messages)+run-child-session增强+8个agent加schema.ts+agentThrow+Chat UI(generation-card/insight-turn/intent-confirm-card/tool-call-card/turn-duration/chart-input/attachment-bar)+CSS+Preview(title-bar/sidebar)+统一Checkpoint重写+index.tsx(ProtoError/retry/attachment/triage/halt)" }
+  - { round: 3, date: 2026-07-22, commit: b2ad3c789, files: 43, note: "首次正式同步：基础设施层+run-child-session+8个agent schema+Chat UI+CSS+Preview+统一Checkpoint+index.tsx(ProtoError/retry/attachment/triage/halt)" }
+  - { round: 3.1, date: 2026-07-22, commit: TBD, files: 3, note: "功能接入：IntentConfirmCard从preview侧迁移到chat侧(skipBlocks跳过模板步骤)+preview去掉IntentConfirmReview+handleConfirmIntent 3-arg扩展+confirmText更新" }
 
 # 遗留问题（未解决，下次会话优先确认）
 known_issues:
