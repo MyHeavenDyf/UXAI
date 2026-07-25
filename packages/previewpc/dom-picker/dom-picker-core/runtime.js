@@ -198,11 +198,19 @@ export function installDomPicker(options = {}) {
       }
     }
 
-    const pickerElement = target.closest(`[id]`)
+    const componentElement = target.closest(`[${PICKER_COMPONENT_ATTR}]`)
+    if (componentElement) {
+      return {
+        element: componentElement,
+        location: componentElement.getAttribute(PICKER_ID_ATTR) || '',
+      }
+    }
+
+    const pickerElement = target.closest(`[${PICKER_ID_ATTR}]`)
     if (pickerElement) {
       return {
         element: pickerElement,
-        location: pickerElement.getAttribute('id') || '',
+        location: pickerElement.getAttribute(PICKER_ID_ATTR) || '',
       }
     }
 
