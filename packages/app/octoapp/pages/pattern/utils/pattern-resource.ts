@@ -1,3 +1,4 @@
+import JSZip from "jszip"
 import { getDesktopApi } from "./desktop-api"
 
 export type PatternEntry = {
@@ -211,6 +212,47 @@ export async function getBlockPatternResource(modulesData: { modules?: Array<{ d
     structure: item.search_text || "",
   }))
   return { results: uniqueResults }
+}
+
+// 下载 zip 并解析出 data.json 内容与 assets 文件（含 buffer）
+async function fetchZipContents(url: string) {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`)
+  const zip = await JSZip.loadAsync(await res.arrayBuffer())
+  const entries = Object.entries(zip.files).filter(([, file]) => !file.dir)
+  const dataJsonEntry = entries.find(([name]) => name === "data.json" || name.endsWith("/data.json"))
+  const dataJson = dataJsonEntry ? JSON.parse(await dataJsonEntry[1].async("text")) : null
+  const assets = await Promise.all(
+    entries.filter(([name]) => name.includes("assets/")).map(async ([name, file]) => ({
+      filename: name.split("/").pop() || name,
+      buffer: await file.async("arraybuffer"),
+    })),
+  )
+  return { dataJson, assets }
+}
+
+// 根据 results[].file 下载并解析 zip，将 content 与 assets 合并到每一项
+// assets 资源会保存到 history 下，并替换 content 中的相对路径
+export async function getBlockContent(inputData: { results?: Array<Record<string, any>> }, sessionId: string) {
+  const results = inputData.results || []
+  const enrichedResults = await Promise.all(
+    results.map(async (item) => {
+      if (!item.file) return { ...item, content: null }
+      try {
+        const parsed = await fetchZipContents(item.file)
+        const replacements: Record<string, string> = {}
+        for (const a of parsed.assets) {
+          const url = await saveUploadImage(a.buffer, sessionId)
+          if (url) replacements[a.filename] = url
+        }
+        const content = replacePatternAssetPaths(parsed.dataJson, replacements)
+        return { ...item, content }
+      } catch {
+        return { ...item, content: null }
+      }
+    }),
+  )
+  return { results: enrichedResults }
 }
 
 // 将 JSON 中所有 ./xxx/filename 相对路径替换为上传后的 URL
