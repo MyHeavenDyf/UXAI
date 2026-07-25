@@ -49,7 +49,7 @@
 					"oneOf": [
 						{
 							"type": "string",
-							"enum": ["default", "info", "error", "alert", "warning", "success", "disabled", "brand", "HOS", "rose", "pink", "purple", "indigo", "cyan", "green"]
+							"enum": ["default", "info", "error", "alert", "warning", "success", "disabled", "brand", "rose", "pink", "purple", "indigo", "cyan", "green"]
 						},
 						{
 							"$ref": "#/$defs/DataBinding"

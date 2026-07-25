@@ -804,7 +804,7 @@ export function PropertyEditorPopup(props: {
     }
   }
 
-  let ready = false
+  const [ready, setReady] = createSignal(false)
   let apiCalled = false
   let autoUpdateTimer: ReturnType<typeof setTimeout> | undefined
   let initialized = false
@@ -840,7 +840,7 @@ export function PropertyEditorPopup(props: {
 
   createEffect(() => {
     if (!props.show) {
-      ready = false
+      setReady(false)
       apiCalled = false
       initialized = false
       initialSnapshotJson = ''
@@ -894,7 +894,7 @@ export function PropertyEditorPopup(props: {
           }
           setDragOffset({ x: 0, y: 0 })
           initialEffectsJson = JSON.stringify(effects)
-          ready = true
+          setReady(true)
         })
       } else {
         console.log("[PropertyEditor] fallback: no tailwindToCss api, using parseClass")
@@ -906,7 +906,7 @@ export function PropertyEditorPopup(props: {
         }
         setDragOffset({ x: 0, y: 0 })
         initialEffectsJson = JSON.stringify(effects)
-        ready = true
+        setReady(true)
       }
     }
   })
@@ -1001,7 +1001,7 @@ export function PropertyEditorPopup(props: {
 
   createEffect(() => {
     const snap = autoSnapshot()
-    if (!ready) return
+    if (!ready()) return
     if (!initialized) {
       initialized = true
       initialSnapshotJson = JSON.stringify(snap)

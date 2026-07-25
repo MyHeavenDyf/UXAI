@@ -323,7 +323,7 @@ export const COMPONENT_PROPS: Record<string, string[]> = {
   Timeline: ['mode', 'orientation', 'variant', 'className'],
   TimelineItem: ['placement', 'className'],
   DatePicker: ['picker', 'size', 'format', 'disabled', 'className'],
-  Input: ['size', 'prefix', 'suffix', 'disabled', 'readonly', 'className'],
+  Input: ['size', 'prefix', 'suffix', 'disabled', 'readonly', 'className', 'placeholder'],
   InputNumber: ['size', 'disabled', 'className'],
   RadioGroup: ['orientation', 'optionType', 'size', 'className'],
   Rate: ['size', 'className'],
