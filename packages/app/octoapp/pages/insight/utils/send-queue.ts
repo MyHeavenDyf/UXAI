@@ -10,18 +10,29 @@ import { createSignal } from "solid-js"
  *
  * 注意:模块级 createSignal 没有 SolidJS owner,但只持有纯数据、无 timer/订阅,
  * 无需 onCleanup;在反应式上下文里读 sessionQueue() 会自动追踪变化。
+ *
+ * SPEC-INS-023:队列项从纯 string 升级为 {text, skills?},让 busy 期间排队的
+ * @技能 引用不丢——flush 时把 skills 一并带给 doSendPrompt 注入 SKILL.md。
  */
 
-const [queues, setQueues] = createSignal<Record<string, string[]>>({})
+export interface QueuedSend {
+  text: string
+  /** @技能 选中的技能名(label);flush 时用于注入 SKILL.md synthetic part */
+  skills?: string[]
+  /** @文件 引用的会话文件(filename + 绝对 path);flush 时注入 [引用文件] synthetic 清单 */
+  files?: Array<{ filename: string; path: string }>
+}
+
+const [queues, setQueues] = createSignal<Record<string, QueuedSend[]>>({})
 
 /** reactive:当前 session 的队列(空 id 视为空队列) */
-export function sessionQueue(sid: string | undefined): string[] {
+export function sessionQueue(sid: string | undefined): QueuedSend[] {
   if (!sid) return []
   return queues()[sid] ?? []
 }
 
 /** 更新指定 session 的队列;结果为空则删除该键,避免空桶堆积 */
-export function updateSessionQueue(sid: string | undefined, updater: (q: string[]) => string[]): void {
+export function updateSessionQueue(sid: string | undefined, updater: (q: QueuedSend[]) => QueuedSend[]): void {
   if (!sid) return
   setQueues((all) => {
     const next = updater(all[sid] ?? [])
