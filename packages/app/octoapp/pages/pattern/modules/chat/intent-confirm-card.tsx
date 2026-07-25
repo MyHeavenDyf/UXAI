@@ -37,68 +37,11 @@ export function IntentConfirmCard(props: {
     let selected = found
     if (found?.file) {
       const mdResult = await readPagePatternMd(found.file)
-      debugger
       if (mdResult.success && mdResult.content) {
         selected = { ...found, content: mdResult.content }
       } else {
-        showToast({ title: "请求Pattern资源失败" })
-        // 由于环境不通，所以先在此处通过mock的形式做：
-        selected = { ...found, content: `# ManagementPageTable
-
-## 1. 核心目标
-
-生成**高密度、状态驱动、数据实时性强**的网络运维管理页面。  
-
----
-
-## 2. 页面整体布局规范
-
-### 2.1 画布结构（从上到下，从左到右）
-
-| 区域名称 | 标识 | 是否必选 | 尺寸规范 |
-| :--- | :--- | :--- | :--- |
-| **顶部导航栏** | \`Top Navigation\` | **必选** | 高度固定 \`56px\`，背景深色（\`#001529\`） |
-| **左侧导航栏** | \`Left Sidebar\` | **可选**（管理页默认开启） | 宽度 \`200px\`（收起态 \`64px\`），背景 \`#002140\` |
-| **标题与操作区** | \`Title & Actions\` | **必选** | 高度 \`64px\`，包含返回/标题/主按钮 |
-| **统计区** | \`Statistics\` | **可选**（仪表盘必选） | 高度自适应（建议 \`120px\`），内边距 \`16px\` |
-| **内容区** | \`Content Area\` | **必选** | 占据剩余全部高度（含筛选栏 + 表格/列表） |
-
----
-
-## 3. 页面模块原子库（Component Atoms）
-
-AI 在生成代码时，必须优先从以下预置模块库中调用组件进行拼装：
-
-### 3.1 顶部导航栏（Top Navigation）
-- **左段**：Logo + 系统名称（"NetOps 管理平台"）。
-- **中段**：全局命令搜索框（\`Cmd + K\` 呼起）。
-- **右段**：环境标签（生产/测试/预发）、告警铃铛（带未读红点徽标）、全屏切换、用户头像下拉菜单（个人中心/退出）。
-
-### 3.2 左侧导航栏（Left Sidebar）
-- **结构**：支持多级树形菜单（父级可展开/收起）。
-- **交互**：根据当前路由 \`$route.path\` 自动高亮当前菜单项及其父级。
-
-### 3.3 统计区（Statistics Area）
-- **原子组件**：\`Statistic Card\`。
-- **包含元素**：标题、主数值、单位、环比趋势（上升/下降百分比）、微型趋势图（Sparkline）。
-- **典型指标**：总资产数、在线率（%）、异常告警总数、今日工单量、平均延迟。
-
-### 3.4 基础表格（Base Table）—— *默认首选*
-- **组成结构**：筛选搜索栏（\`Search Bar\`） + 操作按钮组（\`Button Group\`：新建、批量删除、导出） + 数据表格（\`Data Table\`）。
-- **列固定规范**：必须包含多选复选框、序号列、状态标签列（\`Status Tag\`）、"操作"列（固定在表格右侧，宽度不低于 \`220px\`）。
-
-### 3.5 带标签的表格（Tabs Table）
-- **场景**：需要按状态维度水平切分数据时。
-- **规则**：Tab 切换时仅刷新表格数据（\`Table Data\`），不刷新统计区或标题区。
-
-### 3.6 卡片模式（Card Mode）
-- **场景**：展示设备拓扑摘要、机房缩略图或详情密度不高的数据。
-- **布局**：响应式网格布局（\`Grid\`），每张卡片包含设备图标、名称、IP 地址、状态指示灯（在线/离线/告警）和最后更新时间。
-
-### 3.7 列表模式（List Mode）
-- **场景**：展示审计日志、操作历史、变更时间线。
-- **布局**：垂直时间轴（\`Timeline\`）风格，左侧是时间点，右侧是操作内容和结果状态。
-` }
+        showToast({ title: "请求Pattern资源失败，请联系开发人员！" })
+        return
       }
     }
     props.onMatchPattern(selected)
