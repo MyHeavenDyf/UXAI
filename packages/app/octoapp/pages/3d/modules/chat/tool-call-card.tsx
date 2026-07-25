@@ -12,7 +12,7 @@ export type ToolCallInfo = {
   error?: string
 }
 
-type ToolFamily = "write" | "edit" | "read" | "bash" | "glob" | "grep" | "search" | "task" | "other"
+type ToolFamily = "write" | "edit" | "read" | "bash" | "glob" | "grep" | "search" | "task" | "skill" | "other"
 
 export function toolFamily(name: string): ToolFamily {
   const n = name.toLowerCase()
@@ -24,6 +24,7 @@ export function toolFamily(name: string): ToolFamily {
   if (/grep/.test(n)) return "grep"
   if (/search|websearch|web_search/.test(n)) return "search"
   if (/task/.test(n)) return "task"
+  if (n === "skill") return "skill"
   return "other"
 }
 
@@ -36,6 +37,7 @@ const FAMILY_LABEL: Record<ToolFamily, string> = {
   grep: "搜索内容",
   search: "网络搜索",
   task: "子任务",
+  skill: "技能",
   other: "工具调用",
 }
 
@@ -69,6 +71,7 @@ function SingleToolCard(props: { call: ToolCallInfo }): JSX.Element {
   const summary = createMemo(() => {
     const input = props.call.input
     if (!input) return ""
+    if (typeof input.name === "string" && props.call.name.toLowerCase() === "skill") return input.name
     if (props.call.filePath) return props.call.filePath.split(/[/\\]/).pop() ?? props.call.filePath
     if (typeof input.command === "string") return input.command.length > 60 ? input.command.slice(0, 60) + "…" : input.command
     if (typeof input.pattern === "string") return input.pattern

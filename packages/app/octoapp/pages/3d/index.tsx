@@ -31,6 +31,8 @@ import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useLayout } from "@/context/layout"
 import { useProjectDir } from "@/hooks/use-project-dir"
+import { useTabModel } from "@/hooks/use-tab-model"
+import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { type Attachment } from "./modules/chat/attachment-bar"
 import {
   create_intent_confirm,
@@ -120,6 +122,7 @@ function Scene3DContent() {
   const sync = useSync()
   const layout = useLayout()
   const local = useLocal()
+  useTabModel("3d")
 
   onMount(() => { tracker.page({ module: "scene3d", name: "scene3d-page" }) })
 

@@ -154,6 +154,11 @@ export const IconActionAnnotate = mk("0 0 24 24", `
   <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
 `, 16)
 
+export const IconActionCanvasEdit = mk("0 0 24 24", `
+  <rect x="5" y="4" width="15" height="15" rx="2" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round" />
+  <rect x="5" y="9" width="10" height="10" rx="1.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round" />
+`, 16)
+
 export const IconCardHtml = mk("0 0 14 14", `
   <path d="M5.5 3.5L2.5 7l3 3.5M8.5 3.5l3 3.5-3 3.5" stroke="rgb(119,119,119)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
 `, 14)

@@ -138,8 +138,13 @@
   padding: 2px 6px;
   border-radius: 6px;
   border: none;
-  background: #F4F4F5;
+  background: #FFFFFF;
   cursor: pointer;
+  color: #2453F5;
+}
+
+.prop-chip-active svg {
+  color: #2453F5;
 }
 
 .prop-chip-active:hover {

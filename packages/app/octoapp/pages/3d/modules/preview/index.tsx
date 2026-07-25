@@ -42,6 +42,9 @@ export function PreviewPage3D(props: {
   currentVersionId?: string | null
   onSelectVersion?: (versionId: string) => void
   onPreview?: () => void
+  onCanvasEditing?: () => void
+  archiving?: boolean
+  onArchiveToggle?: () => void
   onShare?: () => void
   onDownload?: () => void
 }) {
@@ -198,6 +201,9 @@ export function PreviewPage3D(props: {
         onPreview={() => props.onPreview?.()}
         onReset={() => sendResetCamera()}
         onToggleEditing={() => toggleEditMode()}
+        onCanvasEditing={() => props.onCanvasEditing?.()}
+        archiving={props.archiving}
+        onArchiveToggle={() => props.onArchiveToggle?.()}
         versions={props.versions}
         currentVersionId={props.currentVersionId}
         onSelectVersion={(vid) => props.onSelectVersion?.(vid)}

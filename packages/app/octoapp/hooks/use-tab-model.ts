@@ -4,7 +4,7 @@ import { useLocal } from "@/context/local"
 import { useSDK } from "@/context/sdk"
 import type { ModelKey } from "@/context/local"
 
-type TabName = "insight" | "make" | "chat" | "pattern"
+type TabName = "insight" | "make" | "chat" | "pattern" | "3d"
 
 const tabKey = (tab: TabName, dir: string) => `octo:tab-model:${tab}:${dir}`
 

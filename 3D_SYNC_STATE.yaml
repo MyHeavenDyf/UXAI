@@ -2,9 +2,9 @@
 # 唯一事实源：记录"上次同步到哪、下次从哪开始"。每次同步后更新。
 # 详见 3D_PAGE_DESIGN.md §4（长期同步机制）。
 
-last_synced_commit: b2ad3c7890b1f412a536f65f5ca12c120eba0f2a   # 上次同步到的 dev_pattern commit
-last_synced_date: 2026-07-22
-sync_round: 3                                                  # 同步轮次，每次同步 +1
+last_synced_commit: 5b612fb56c4b6d74c16be58e23252303e71ed2e3   # 上次同步到的 dev_pattern commit
+last_synced_date: 2026-07-25
+sync_round: 4                                                  # 同步轮次，每次同步 +1
 
 # 已确认的迁移性映射（pattern 文件 → 3D 处理策略），跨轮次累积，避免每次重新评估
 # transferability: common(✅套用) | skip(❌2D专属) | partial(⚠️借流程换语义)
@@ -163,6 +163,21 @@ file_mapping:
   pages/pattern/workflow/modify-json-quick.ts:
     transferability: skip
     notes: "2D 元素属性编辑，3D 无对应"
+  # ── 以下为 #4 同步新增映射 ──
+  pages/pattern/utils/user-info.ts:
+    target: pages/3d/utils/user-info.ts
+    transferability: common
+    notes: "用户身份读取（昵称/头像），完全通用"
+  pages/pattern/utils/archive-module.ts:
+    target: pages/3d/utils/archive-module.ts
+    transferability: partial
+    notes: "归档 composable 封装；依赖 pattern-archive-utils + annotation-persist + capturePreviewPage，3D 需适配场景截图+交付物路径"
+  pages/pattern/utils/pattern-archive-utils.ts:
+    transferability: partial
+    notes: "ZIP 打包/上传/交付物；3D 需适配 scene-config 替代 mergedA2UI"
+  pages/pattern/modules/preview/property-editor-popup/:
+    transferability: skip
+    notes: "2D DOM 属性编辑（class-parser/color-picker/drag-input/hui-color-tokens），3D 用 SCENE_PICK + 3D 属性弹窗重写"
   # 已删除的文件（pattern 侧已删除，3D 侧如无对应也可删或留作归档）
   pages/pattern/modules/preview/Intent-confirm-review.tsx:
     transferability: skip
@@ -206,6 +221,7 @@ history:
   - { round: 2, date: 2026-07-14, commit: 40177fd03, files: 5, note: "阶段2 端到端验证+修bug。游标未推进" }
   - { round: 3, date: 2026-07-22, commit: b2ad3c789, files: 43, note: "首次正式同步：基础设施层+run-child-session+8个agent schema+Chat UI+CSS+Preview+统一Checkpoint+index.tsx(ProtoError/retry/attachment/triage/halt)" }
   - { round: 3.1, date: 2026-07-22, commit: TBD, files: 3, note: "功能接入：IntentConfirmCard从preview侧迁移到chat侧(skipBlocks跳过模板步骤)+preview去掉IntentConfirmReview+handleConfirmIntent 3-arg扩展+confirmText更新" }
+  - { round: 4, date: 2026-07-25, commit: 5b612fb56, files: 12, note: "同步202个commit：COMMON(tool-call-card加skill族+icons加CanvasEdit+desktop-api加listDirectory/getUploadsDir/openLink/capturePreviewPage+insight-turn标签更新+user-info新建)；PARTIAL(title-bar加画布编辑/主题/分享/归档按钮+sidebar加roots:true+导入按钮取消注释+preview/index加archiving/canvasEditing透传+index.tsx加useTabModel+PropertyEditorPopup CSS)；SKIP(intent-confirm维度→page-pattern重构+archive-module+pattern-archive-utils+session-restore+create-json)" }
 
 # 遗留问题（未解决，下次会话优先确认）
 known_issues:
@@ -230,3 +246,16 @@ known_issues:
     status: 待迁移
     files: []
     desc: "pattern 新增 patch-json.ts（8 种 JSON patch 操作）。3D 版需将 children 语义替换为 parentId 语义。暂未迁移。"
+  - id: intent-confirm-page-pattern-migration
+    status: 待迁移
+    files:
+      - packages/app/octoapp/pages/3d/agents/scene-intent-confirm/index.ts
+      - packages/app/octoapp/pages/3d/agents/scene-intent-confirm/schema.ts
+      - packages/app/octoapp/pages/3d/modules/chat/intent-confirm-card.tsx
+      - packages/app/octoapp/pages/3d/modules/chat/index.tsx
+      - packages/app/octoapp/pages/3d/index.tsx
+    desc: "pattern 已将 intent-confirm 从维度确认(dimension→options)重构为页面模式匹配(page-pattern→results)。3D 仍用旧维度模型，需同步迁移：schema 加 results 数组、card 换 page-pattern 选择 UI、chat/index 换 pageMatches prop、index.tsx 换 onMatchPattern 签名。#4 同步时 SKIP。"
+  - id: archive-3d
+    status: 待实现
+    files: []
+    desc: "pattern 新增归档功能(archive-module+pattern-archive-utils+ArchiveDialog)。3D 需适配：场景截图替代页面截图、scene-config 替代 mergedA2UI、交付物路径适配。#4 同步时 TITLEBAR 按钮已加但逻辑未接。"
