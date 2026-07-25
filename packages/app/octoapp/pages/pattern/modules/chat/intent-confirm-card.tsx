@@ -8,6 +8,7 @@ import "../../assets/style/chat/intent-confirm-card.css"
 export type IntentConfirmAnswers = Record<string, { selections: string[]; supplement: string }>
 
 export function IntentConfirmCard(props: {
+  sessionId: string
   result: IntentConfirmResult
   blockMatches: BlockModuleItem[]
   blockMatching: boolean
@@ -124,7 +125,7 @@ export function IntentConfirmCard(props: {
 
         <div class="ic-card-foot">
           <Show when={hasResults()}>
-            <button class="ic-card-submit-btn" onClick={handleBlockPatterns} disabled={!selectedPatternId()}>
+            <button class="ic-card-submit-btn" onClick={handleBlockPatterns}>
               下一步
             </button>
           </Show>

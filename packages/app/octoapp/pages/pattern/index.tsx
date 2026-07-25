@@ -871,6 +871,7 @@ function PatternContent() {
         description: string
         structure: string
         patternPath: string
+        content?: string
         rootContainer: { id: string; component: string; className: string }
       }> = []
       for (const block of selectedBlocks) {
@@ -884,6 +885,7 @@ function PatternContent() {
           description: block.description ?? "",
           structure: block.structure ?? "",
           patternPath: block.file,
+          content: block.content,
           rootContainer: {
             id: json.rootId ?? rootEl.id ?? "",
             component: rootEl.component ?? "",

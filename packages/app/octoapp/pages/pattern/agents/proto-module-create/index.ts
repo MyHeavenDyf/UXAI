@@ -2,7 +2,6 @@ import { extractJson } from '../../utils/json-parser';
 import { runChildSession } from '../run-child-session';
 import { logAgentParsed } from "../../utils/debug-log";
 import { MODULE_CREATE_FORMAT } from "./schema";
-import { readPatternFile, readPatternAssets, saveUploadImage, replacePatternAssetPaths } from '../../utils/pattern-resource';
 import { agentThrow } from "../../utils/error-msg";
 
 const AGENT_NAME = "proto_module_create";
@@ -48,19 +47,24 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
     onSessionCreated
   } = input
 
-  // 如果该模块有 patternPath，加载模板跳过 LLM
+  // 如果该模块有 patternPath，从 extra.patterns 中取预处理的 content，跳过 LLM
   const sections = intentDescription?.sections ?? []
   const sectionDetail = sections.find((item: any) => item?.id === sectionId)
   if (sectionDetail?.patternPath) {
-    const theme = (input.extra?.designSystem as string) || "ICT3.1"
-    const patternJson = await loadPatternModule(sectionDetail.patternPath, elementId, rootSession, theme)
-    if (patternJson) {
-      console.log(`----- 模块 ${sectionId} 使用 Pattern 模板，跳过 LLM -----`)
-      return {
-        ui_json: patternJson,
-        section_id: sectionId,
-        element_id: elementId,
-        id_prefix: idPrefix
+    const patterns = input.extra?.patterns as Array<{ patternPath: string; content?: string }> | undefined
+    const matched = patterns?.find(p => p.patternPath === sectionDetail.patternPath)
+    if (matched?.content) {
+      try {
+        const patternJson = remapPatternRootId(JSON.parse(matched.content), elementId)
+        console.log(`----- 模块 ${sectionId} 使用 Pattern 模板，跳过 LLM -----`)
+        return {
+          ui_json: patternJson,
+          section_id: sectionId,
+          element_id: elementId,
+          id_prefix: idPrefix
+        }
+      } catch {
+        console.warn(`----- Pattern JSON 解析失败: ${sectionDetail.patternPath} -----`)
       }
     }
   }
@@ -97,29 +101,6 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
   }
   logAgentParsed(moduleResult.childSessionId, returnValue)
   return returnValue
-}
-
-// 加载 pattern 模板：读 JSON → 处理静态资源 → remapRootId
-// 返回 null 表示加载失败，调用方应 fallback 到 LLM 生成
-async function loadPatternModule(patternPath: string, elementId: string, sessionId: string, theme: string) {
-  const content = await readPatternFile("block", patternPath, theme)
-  if (!content) return null
-  let patternJson: any
-  try {
-    patternJson = JSON.parse(content)
-  } catch {
-    console.warn(`----- Pattern JSON 解析失败: ${patternPath} -----`)
-    return null
-  }
-  const folderName = patternPath.split("/").slice(0, -1).pop() || ""
-  const assets = await readPatternAssets("block", folderName, theme)
-  const replacements: Record<string, string> = {}
-  for (const a of assets) {
-    const url = await saveUploadImage(a.buffer, sessionId)
-    if (url) replacements[a.filename] = url
-  }
-  patternJson = replacePatternAssetPaths(patternJson, replacements)
-  return remapPatternRootId(patternJson, elementId)
 }
 
 // pattern 模板的 rootId 与 planner slot 的 elementId 可能不一致，需要重映射

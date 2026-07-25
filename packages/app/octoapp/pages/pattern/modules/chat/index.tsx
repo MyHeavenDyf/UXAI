@@ -375,6 +375,7 @@ export function ChatPanel(props: {
         <Show when={props.pageMatches && props.onConfirmIntent}>
           <div class="ic-card-overlay">
             <IntentConfirmCard
+              sessionId={params.id!}
               result={props.pageMatches!}
               blockMatches={props.blockMatches ?? []}
               blockMatching={props.blockMatching ?? false}
