@@ -275,6 +275,8 @@ function PatternSidebarLayout(props: ParentProps) {
 
 function Scene3DSidebarLayout(props: ParentProps) {
   return <SidebarShell widthKey="scene3d.sidebar.width" sidebar={(w) => <Scene3DSidebar width={w} />}>{props.children}</SidebarShell>
+}
+
 function MakeSidebarLayout(props: ParentProps) {
   const navigate = useNavigate()
   const layout = useLayout()
