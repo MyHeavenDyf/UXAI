@@ -36,6 +36,7 @@ interface Props {
   onSlashTrigger?: (query: string) => void
   onSlashClose?: () => void
   onPreview?: (url: string) => void
+  onPaste?: (e: ClipboardEvent) => void
   ref?: (el: EditorRef) => void
 }
 
@@ -316,6 +317,7 @@ export const ProseMirrorEditor = (props: Props) => {
         classList={{ "pm-editor--disabled": props.disabled }}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
+        onPaste={(e) => props.onPaste?.(e as ClipboardEvent)}
       />
       
       <Show when={triggerState()?.active}>
