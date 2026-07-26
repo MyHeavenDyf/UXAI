@@ -238,7 +238,7 @@ async function fetchZipContents(url: string) {
 
 // 根据 results[].file 下载并解析 zip，将 content 与 assets 合并到每一项
 // assets 资源会保存到 history 下，并替换 content 中的相对路径
-export async function getBlockContent(inputData: { results?: Array<Record<string, any>> }, sessionId: string) {
+export async function getBlockContent(inputData: { results?: BlockModuleItem[] }, sessionId: string): Promise<{ results: BlockModuleItem[] }> {
   const results = inputData.results || []
   const enrichedResults = await Promise.all(
     results.map(async (item) => {
