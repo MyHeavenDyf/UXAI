@@ -1,0 +1,32 @@
+.el-switch {
+  --el-switch-on-color: var(--el-color-primary);
+  --el-switch-off-color: var(--switch-off-bg);
+
+  .el-icon {
+    transform: scale(1);
+  }
+
+  .el-switch__core .el-switch__inner {
+    padding: 0 8px 0 22px;
+  }
+
+  .el-switch.is-checked .el-switch__core .el-switch__inner {
+    padding: 0 22px 0 8px;
+  }
+
+  &.is-checked .el-switch__core .el-switch__inner {
+    padding: 0 22px 0 8px;
+  }
+}
+
+.el-switch__core {
+  min-width: 38px;
+}
+
+:root {
+  --switch-off-bg: var(--gray-30);
+}
+
+.theme-dark {
+  --switch-off-bg: var(--gray-60);
+}
