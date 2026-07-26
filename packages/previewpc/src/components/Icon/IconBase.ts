@@ -1,8 +1,8 @@
 import * as LucideIcons from "lucide-vue-next"
-import { h, markRaw, shallowRef, ref, watch, type Ref } from "vue"
+import { h, markRaw, shallowRef, watch, type Ref } from "vue"
 import type { Component, VNode } from "vue"
 import HuiSvgIcon from "./HuiSvgIcon.vue"
-import { hasHuiIcons, variantDataMap, toVariantId, type VariantId, type IconVariantData } from "../../composables/useIconProvider"
+import { hasHuiIcons, variantDataMap, toVariantId } from "../../composables/useIconProvider"
 
 export const sizeConfig = { xs: 12, sm: 16, md: 24, lg: 32, xl: 40 } as const
 export const HUI_ICON_SIZE = 16

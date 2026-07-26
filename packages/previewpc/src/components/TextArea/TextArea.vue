@@ -35,7 +35,6 @@ onMounted(() => {
   }
 })
 
-const id = computed(() => node.id)
 const className = computed(() => node.properties.className)
 const autosize = computed(() => node.properties.autoSize)
 
@@ -66,7 +65,7 @@ function change(val: string) {
 
 <template>
   <ElInput
-    :id="id"
+    ref="elInputRef"
     :class="className"
     v-model="value"
     :size="size as any"

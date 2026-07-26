@@ -38,7 +38,8 @@ const attrs = useAttrs()
 const elDatePickerRef = ref<InstanceType<typeof ElDatePicker>>()
 
 onMounted(() => {
-  const wrapper = (elDatePickerRef.value as any)?.$el
+  const el = (elDatePickerRef.value as any)?.$el
+  const wrapper = el instanceof HTMLElement ? el : el?.nextElementSibling
   if (wrapper instanceof HTMLElement) {
     if (attrs['id'] != null)
       wrapper.setAttribute('id', String(attrs['id']))
@@ -58,7 +59,6 @@ const size = computed(() => {
 const format = computed(() => properties.format)
 
 const range = computed(() => resolveValue(properties.range))
-const id = computed(() => range.value ? [`${node.id}-start`, `${node.id}-end`] : node.id)
 
 
 const picker = computed(() => {
@@ -100,7 +100,6 @@ function handleDateChange(val: any) {
 <template>
   <ElDatePicker
     ref="elDatePickerRef"
-    :id="id as any"
     :class="className"
     v-model="inputValue" 
     v-bind="placeholderBinding"

@@ -25,6 +25,7 @@ const FileFallbackDevPage = lazy(() => import("./file-fallback-preview"))
 const AttachmentBarDevPage = lazy(() => import("./attachment-bar-preview"))
 const PanelHeaderDevPage = lazy(() => import("./panel-header-preview"))
 const AttachmentParseDevPage = lazy(() => import("./attachment-parse-preview"))
+const PermissionDockDevPage = lazy(() => import("./permission-dock-preview"))
 
 const PAGES = [
   { path: "/insight/__dev", component: DevIndexPage },
@@ -35,6 +36,7 @@ const PAGES = [
   { path: "/insight/__dev/attachment-bar", component: AttachmentBarDevPage },
   { path: "/insight/__dev/panel-header", component: PanelHeaderDevPage },
   { path: "/insight/__dev/attachment-parse", component: AttachmentParseDevPage },
+  { path: "/insight/__dev/permission-dock", component: PermissionDockDevPage },
 ] as const
 
 /** 返回全部 dev 路由。调用点须加 import.meta.env.DEV 守卫(见 octo.tsx)。 */

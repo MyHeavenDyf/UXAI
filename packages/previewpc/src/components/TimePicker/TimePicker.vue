@@ -23,7 +23,8 @@ const attrs = useAttrs()
 const elTimePickerRef = ref<InstanceType<typeof ElTimePicker>>()
 
 onMounted(() => {
-  const wrapper = (elTimePickerRef.value as any)?.$el
+  const el = (elTimePickerRef.value as any)?.$el
+  const wrapper = el instanceof HTMLElement ? el : el?.nextElementSibling
   if (wrapper instanceof HTMLElement) {
     if (attrs['id'] != null)
       wrapper.setAttribute('id', String(attrs['id']))
@@ -34,7 +35,6 @@ onMounted(() => {
   }
 })
 
-const id = computed(() => node.id as string)
 const className = computed(() => node.properties.className)
 
 const size = computed(() => {
@@ -77,7 +77,6 @@ function handleDateChange(val: any) {
 <template>
   <ElTimePicker
     ref="elTimePickerRef"
-    :id="range ? [id+'-1', id+'-2'] : id"
     :class="className"
     v-model="inputValue"
     :placeholder="range ? undefined : placeholder"

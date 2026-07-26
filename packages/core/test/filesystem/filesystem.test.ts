@@ -355,6 +355,17 @@ describe("AppFileSystem", () => {
     test("contains checks path containment", () => {
       expect(AppFileSystem.contains("/a/b", "/a/b/c")).toBe(true)
       expect(AppFileSystem.contains("/a/b", "/a/c")).toBe(false)
+      expect(AppFileSystem.contains("/a/b", "/a/b")).toBe(true)
+    })
+
+    // 回归:Windows 跨盘符时 path.relative 返回目标绝对路径(不以 ".." 开头),
+    // 早期实现只判 ".." 会误判为「在 parent 之内」,导致 external_directory 边界被绕过。
+    // 只在 win32 有意义:POSIX 下 path.relative 对绝对路径永远返回相对路径。
+    test.skipIf(process.platform !== "win32")("contains rejects cross-drive paths on Windows", () => {
+      expect(AppFileSystem.contains("D:\\project", "C:\\Users\\someone\\secret.txt")).toBe(false)
+      expect(AppFileSystem.contains("C:\\", "D:\\data\\secret.txt")).toBe(false)
+      expect(AppFileSystem.contains("D:\\project", "D:\\project\\src\\a.ts")).toBe(true)
+      expect(AppFileSystem.contains("D:\\project", "D:\\other\\a.ts")).toBe(false)
     })
 
     test("overlaps detects overlapping paths", () => {
