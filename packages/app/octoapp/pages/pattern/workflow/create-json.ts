@@ -1,11 +1,9 @@
 import proto_intent_confirm from "../agents/proto-intent-confirm"
 import proto_pattern_block from "../agents/proto_pattern_block"
-import proto_pattern_page from "../agents/proto_pattern_page"
 import proto_planner_create from "../agents/proto-planner-create"
 import proto_module_create from "../agents/proto-module-create"
 import proto_intent from "../agents/proto-intent"
 import { mergeModules } from "../agents/merge"
-import { readPatternPreview } from "../utils/pattern-resource"
 import { withAgentError, agentThrow } from "../utils/error-msg"
 import {
   saveCheckpoint,
@@ -46,39 +44,34 @@ export async function create_intent_confirm(inputCtx: ProtoCreateJsonInput) {
     createdAt: Date.now(),
   })
   const result = await withAgentError("proto_intent_confirm", () => proto_intent_confirm(inputCtx))
-  // agent 成功且有 options 时，更新 checkpoint 补上 options,这样切换 session 回来后能恢复弹窗
-  if (Object.keys(result.options).length > 0) {
-    await saveCheckpoint(inputCtx.checkpointDir, inputCtx.rootSession, {
-      stage: "intent_confirm",
-      userInput: inputCtx.userInput,
-      designSystem: inputCtx.extra?.designSystem as string,
-      rootSessionId: inputCtx.rootSession,
-      createdAt: Date.now(),
-      options: result.options,
-    })
-  }
+  // agent 成功后无论是否有匹配结果都落盘 options，这样切换 session 回来时
+  // restore 能区分「空匹配」（options 有值，显示卡片）和「agent 报错」（options 缺失，pipeline_error）
+  await saveCheckpoint(inputCtx.checkpointDir, inputCtx.rootSession, {
+    stage: "intent_confirm",
+    userInput: inputCtx.userInput,
+    designSystem: inputCtx.extra?.designSystem as string,
+    rootSessionId: inputCtx.rootSession,
+    createdAt: Date.now(),
+    options: { results: result.results },
+  })
   return result
 }
 
 // block 模板匹配：调 proto_pattern_block + 落盘 blockMatches
 export async function create_block_match(inputCtx: ProtoCreateJsonInput): Promise<{ matches: any[]; previewUrls: Map<string, string> }> {
   const sid = inputCtx.rootSession
-  const theme = (inputCtx.extra?.designSystem as string) || "ICT3.1"
-  // 推进 stage 到 block_matching
+  const pagePattern = (inputCtx.extra?.pagePattern as string) ?? ""
+  // 推进 stage 到 block_matching，同时持久化 pagePattern（重试 + 恢复时复用）
   if (inputCtx.checkpointDir) {
     const ckpt = await loadCheckpoint(inputCtx.checkpointDir, sid)
     if (ckpt) {
       ckpt.stage = "block_matching"
       ckpt.userInput = inputCtx.userInput
+      ckpt.pagePattern = pagePattern
       await saveCheckpoint(inputCtx.checkpointDir, sid, ckpt)
     }
   }
   const result = await proto_pattern_block(inputCtx)
-  // 为每个匹配加载预览图
-  for (const match of result.matches) {
-    if (!match.pattern.preview) continue
-    match.previewUrl = await readPatternPreview("block", match.pattern.preview, theme)
-  }
   // 落盘 blockMatches
   if (inputCtx.checkpointDir) {
     const ckpt = await loadCheckpoint(inputCtx.checkpointDir, sid)
@@ -93,36 +86,14 @@ export async function create_block_match(inputCtx: ProtoCreateJsonInput): Promis
 // 阶段 2：意图扩展 + 布局规划
 export async function create_planner_json(inputCtx: ProtoCreateJsonInput) {
   const sid = inputCtx.rootSession
-  const theme = (inputCtx.extra?.designSystem as string) || "ICT3.1"
   let checkpoint: Checkpoint | null = null
   if (inputCtx.checkpointDir) {
     checkpoint = await loadCheckpoint(inputCtx.checkpointDir, sid)
   }
 
-  // 步骤 1：pattern_page
-  let patternPageResult: { matches: any[] }
-  if (checkpoint?.patternPageResult) {
-    console.log("[Pipeline] 跳过 proto_pattern_page（已有 checkpoint）")
-    patternPageResult = checkpoint.patternPageResult
-  } else {
-    patternPageResult = await withAgentError("proto_pattern_page", () => proto_pattern_page(inputCtx))
-  }
-
-  if (inputCtx.checkpointDir && checkpoint) {
-    checkpoint.patternPageResult = { matches: patternPageResult.matches }
-    checkpoint.stage = "pattern_page"
-    await saveCheckpoint(inputCtx.checkpointDir, sid, checkpoint)
-  }
-
-  for (const match of patternPageResult.matches) {
-    if (!match.pattern.preview) continue
-    match.previewUrl = await readPatternPreview("page", match.pattern.preview, theme)
-  }
-
-  // 步骤 2：intent_create
+  // 步骤 1：intent_create
   let intentResult: { intent_description: Record<string, unknown> }
   if (checkpoint?.intentResult) {
-    console.log("[Pipeline] 跳过 proto_intent（已有 checkpoint）")
     intentResult = checkpoint.intentResult
   } else {
     intentResult = await withAgentError("proto_intent", () => proto_intent(inputCtx))
@@ -133,7 +104,7 @@ export async function create_planner_json(inputCtx: ProtoCreateJsonInput) {
     await saveCheckpoint(inputCtx.checkpointDir, sid, checkpoint)
   }
 
-  // 步骤 3：planner_create
+  // 步骤 2：planner_create
   let planner: any
   if (checkpoint?.planner) {
     console.log("[Pipeline] 跳过 proto_planner_create（已有 checkpoint）")
@@ -152,7 +123,6 @@ export async function create_planner_json(inputCtx: ProtoCreateJsonInput) {
   return {
     planner,
     intent: intentResult,
-    patternPageResult,
     current_step: "planner_create",
   }
 }

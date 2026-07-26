@@ -18,7 +18,7 @@
 
 .ic-card-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
   margin-bottom: 12px;
 }
@@ -54,111 +54,12 @@
   margin-top: 2px;
 }
 
-/* Tabs */
-.ic-card-tabs {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 12px;
-  border-bottom: 1px solid var(--octo-border-default, #e5e7eb);
-}
-
-.ic-card-tab {
-  padding: 6px 12px;
-  border: none;
-  background: transparent;
-  color: var(--octo-text-secondary, rgba(0,0,0,0.6));
-  font-size: 13px;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-}
-
-.ic-card-tab:hover {
-  color: var(--octo-text-strong, #101828);
-}
-
-.ic-card-tab-active {
-  color: var(--octo-brand, #3b82f6);
-  border-bottom-color: var(--octo-brand, #3b82f6);
-  font-weight: 500;
-}
-
 /* Body */
 .ic-card-body {
   flex: 1;
   min-height: 0;
-}
-
-.ic-card-field-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.ic-card-label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--octo-text-strong, #101828);
-}
-
-.ic-card-type-tag {
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--octo-surface-container-low, #f4f4f5);
-  color: var(--octo-text-secondary, rgba(0,0,0,0.6));
-}
-
-/* Checkbox options */
-.ic-card-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.ic-card-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border: 1px solid var(--octo-border-default, #e5e7eb);
-  border-radius: 6px;
-  font-size: 12px;
-  color: var(--octo-text-strong, #101828);
-  cursor: pointer;
-  user-select: none;
-  transition: all 0.15s ease;
-}
-
-.ic-card-check:hover {
-  border-color: var(--octo-brand, #3b82f6);
-}
-
-.ic-card-check-on {
-  border-color: var(--octo-brand, #3b82f6);
-  background: rgba(59, 130, 246, 0.06);
-}
-
-.ic-card-check input[type="checkbox"] {
-  margin: 0;
-  cursor: pointer;
-}
-
-.ic-card-supplement {
-  width: 100%;
-  padding: 6px 10px;
-  border: 1px solid var(--octo-border-default, #e5e7eb);
-  border-radius: 6px;
-  font-size: 12px;
-  color: var(--octo-text-strong, #101828);
-  background: var(--octo-surface-page, #fff);
-  outline: none;
-}
-
-.ic-card-supplement:focus {
-  border-color: var(--octo-brand, #3b82f6);
+  max-height: 500px;
+  overflow-y: auto;
 }
 
 /* Footer */
@@ -201,7 +102,7 @@
   background: var(--octo-brand-hover, #2563eb);
 }
 
-/* Block list (step 2) */
+/* Card grid (patterns & blocks) */
 .ic-card-loading {
   display: flex;
   align-items: center;
@@ -264,8 +165,6 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 8px;
   border: 1px solid var(--octo-border-default, #e5e7eb);
   border-radius: 8px;
   cursor: pointer;
@@ -294,9 +193,7 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  border-radius: 4px;
-  background: #f5f5f5;
-  border: 1px solid var(--octo-border-default, #e5e7eb);
+  border-bottom: 1px solid var(--octo-border-default, #e5e7eb);
 }
 
 .ic-card-block-zoom {
