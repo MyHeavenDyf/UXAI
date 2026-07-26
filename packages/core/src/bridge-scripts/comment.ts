@@ -92,10 +92,16 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
       var prevActivePin = document.querySelector('[data-od-comment-pin-active]')
       if (prevActivePin) prevActivePin.removeAttribute('data-od-comment-pin-active')
       
-      if (data.elementId) {
-        var targetElement = document.querySelector('[data-od-id="' + data.elementId + '"]')
-        if (targetElement) {
-          targetElement.setAttribute('data-od-comment-active', 'true')
+      var targetElement = findElementByStrategies(data)
+      if (targetElement) {
+        targetElement.setAttribute('data-od-comment-active', 'true')
+        
+        var rect = targetElement.getBoundingClientRect()
+        var isInViewport = rect.top >= 0 && 
+                           rect.left >= 0 && 
+                           rect.bottom <= window.innerHeight && 
+                           rect.right <= window.innerWidth
+        if (!isInViewport) {
           targetElement.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'nearest' })
         }
       }
@@ -245,6 +251,8 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
     return {
       elementId: target.getAttribute('data-od-id'),
       selector: buildSelector(target),
+      contentSignature: buildContentSignature(target),
+      nativeId: getNativeId(target),
       label: inferLabel(target),
       text: (target.textContent || '').trim().slice(0, 40),
       position: position,
@@ -256,16 +264,134 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
     var parts = []
     while (el && el !== document.body) {
       var part = el.tagName.toLowerCase()
-      if (el.id) part += '#' + el.id
-      var classAttr = el.getAttribute('class')
-      if (classAttr) {
-        var firstClass = classAttr.split(' ')[0]
-        if (firstClass) part += '.' + firstClass
+      
+      if (el.id && !el.id.match(/^el-\d+$/)) {
+        part += '#' + CSS.escape(el.id)
+      } else {
+        var classAttr = el.getAttribute('class')
+        if (classAttr) {
+          var classes = classAttr.split(' ').filter(function(c) { 
+            return c && !c.match(/^[._]?[a-f0-9]{6,}$/i)
+          }).slice(0, 3)
+          if (classes.length > 0) {
+            part += '.' + classes.map(function(c) { return CSS.escape(c) }).join('.')
+          }
+        }
+        
+        var parent = el.parentElement
+        if (parent) {
+          var siblings = Array.prototype.filter.call(parent.children, function(c) { 
+            return c.tagName === el.tagName 
+          })
+          if (siblings.length > 1) {
+            var index = Array.prototype.indexOf.call(siblings, el) + 1
+            part += ':nth-of-type(' + index + ')'
+          }
+        }
       }
+      
       parts.unshift(part)
       el = el.parentElement
     }
     return parts.join(' > ')
+  }
+  
+  function buildContentSignature(el) {
+    var text = (el.textContent || '').trim().slice(0, 100)
+    var tag = el.tagName.toLowerCase()
+    var classAttr = el.getAttribute('class') || ''
+    var firstClass = classAttr.split(' ')[0] || ''
+    return tag + '|' + firstClass + '|' + text
+  }
+  
+  function getNativeId(el) {
+    var id = el.id
+    if (id && !id.match(/^el-\d+$/)) {
+      return id
+    }
+    return null
+  }
+  
+  function findElementByStrategies(comment) {
+    var targetElement = null
+    
+    if (comment.selector) {
+      try {
+        targetElement = document.querySelector(comment.selector)
+      } catch (e) {}
+    }
+    
+    if (!targetElement && comment.contentSignature) {
+      targetElement = findByContentSignature(comment.contentSignature, comment.position)
+    }
+    
+    if (!targetElement && comment.nativeId) {
+      targetElement = document.getElementById(comment.nativeId)
+    }
+    
+    if (!targetElement && comment.elementId) {
+      targetElement = document.querySelector('[data-od-id="' + comment.elementId + '"]')
+    }
+    
+    return targetElement
+  }
+  
+  function findByContentSignature(signature, position) {
+    var parts = signature.split('|')
+    if (parts.length < 3) return null
+    
+    var tag = parts[0]
+    var firstClass = parts[1]
+    var text = parts.slice(2).join('|')
+    
+    var selector = tag
+    if (firstClass) {
+      try {
+        selector += '.' + CSS.escape(firstClass)
+      } catch (e) {
+        selector += '.' + firstClass
+      }
+    }
+    
+    var candidates = document.querySelectorAll(selector)
+    var matches = []
+    
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i]
+      var elText = (el.textContent || '').trim().slice(0, 100)
+      if (elText === text) {
+        matches.push(el)
+      }
+    }
+    
+    if (matches.length === 1) return matches[0]
+    
+    if (matches.length > 1 && position) {
+      var scrollX = window.scrollX || document.documentElement.scrollLeft
+      var scrollY = window.scrollY || document.documentElement.scrollTop
+      var docWidth = document.documentElement.scrollWidth
+      var docHeight = document.documentElement.scrollHeight
+      
+      var bestMatch = null
+      var bestDistance = Infinity
+      
+      for (var j = 0; j < matches.length; j++) {
+        var el = matches[j]
+        var rect = el.getBoundingClientRect()
+        var elX = (rect.left + scrollX) / docWidth
+        var elY = (rect.top + scrollY) / docHeight
+        
+        var distance = Math.abs(elX - position.x) + Math.abs(elY - position.y)
+        if (distance < bestDistance) {
+          bestDistance = distance
+          bestMatch = el
+        }
+      }
+      
+      if (bestDistance < 0.1) return bestMatch
+    }
+    
+    return null
   }
 
   function inferLabel(el) {
@@ -303,7 +429,7 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
   function renderSavedPins(comments) {
     comments.forEach(function(comment) {
       var existingPin = document.querySelector('[data-od-comment-pin="' + comment.id + '"]')
-      var targetElement = document.querySelector('[data-od-id="' + comment.elementId + '"]')
+      var targetElement = findElementByStrategies(comment)
       
       if (!isElementVisible(targetElement)) {
         if (existingPin) {
@@ -375,7 +501,7 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
             prevActivePin.removeAttribute('data-od-comment-pin-active')
           }
           
-          var targetElement = document.querySelector('[data-od-id="' + comment.elementId + '"]')
+          var targetElement = findElementByStrategies(comment)
           if (targetElement) {
             targetElement.setAttribute('data-od-comment-active', 'true')
           }

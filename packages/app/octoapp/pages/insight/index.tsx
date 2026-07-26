@@ -69,6 +69,7 @@ import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
 import { showToast } from "@opencode-ai/ui/toast"
 import { extToOutputType } from "./utils/write-output"
+import { isPendingUploadPath } from "./utils/worktree-layout"
 import type { InsightFile, InsightFileEntry } from "./utils/insight-file-api"
 import { mimeForName, pathToLocalUrl } from "./utils/insight-file-api"
 
@@ -157,14 +158,6 @@ function readLastSession(): { dir: string; id: string } | undefined {
   } catch { /* 历史格式/损坏 → 视为无记录 */ }
   return undefined
 }
-// SPEC-INS-014 §4.1.2(v2 会话隔离新增):判断附件本地路径是否还落在预会话落地区
-// .octo/tmps/(而非已经 rename 进 .octo/<sessionId>/uploads/)——发送时用来决定要不要挪。
-function isPendingUploadPath(path: string): boolean {
-  const segs = path.split(/[\\/]/)
-  const i = segs.lastIndexOf("insight")
-  return i !== -1 && segs[i + 1] === "uploads"
-}
-
 // 每次整页加载只恢复一次(模块级,页面 reload 时自然重置);避免 keyed 重挂导致重复跳转。
 let didBootRestore = false
 // 上次挂载 InsightContent 时的目录:keyed 重挂时与之对比,检测"用户切了项目目录"。
@@ -1069,8 +1062,11 @@ function InsightContent() {
     }
     const resolvedPath = (a: Attachment) => movedPaths.get(a.id) ?? a.path!
 
-    // 文件已落地 .octo/<sessionId>/uploads/:通知文件管理表格重拉,避免后续上传不刷新(挂载只刷一次的回归)。
-    if (movedPaths.size > 0) setFilesRefreshKey(k => k + 1)
+    // 这次发送带了本地附件 → 通知文件管理表格重拉(挂载只刷一次的回归)。
+    // gate 在「有无本地附件」而非「movedPaths 是否非空」:刷新只依赖可靠事实(有附件),不耦合到
+    // 搬迁判据(isPendingUploadPath)是否为真——判据一旦再脱节(如 v7 那次),附件进不去已是 bug,
+    // 不该连带把可见性刷新也一起哑掉、放大故障。刷新幂等且廉价(纯文本发送 localFiles 为空、不触发)。
+    if (localFiles.length > 0) setFilesRefreshKey(k => k + 1)
 
     // [附件] 清单:独立 synthetic text part(server toModelMessages 不过滤 → 模型可见;上游气泡不渲染
     // synthetic;InsightTurn 解析渲染成文件卡片)。清单只给文件名+本地路径,**不触发上传**。

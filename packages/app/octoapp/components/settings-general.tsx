@@ -1,4 +1,4 @@
-import { Component, Show, createMemo, createResource, onMount, type JSX } from "solid-js"
+import { Component, Show, createMemo, createResource, createSignal, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -95,6 +95,31 @@ export const SettingsGeneral: Component = () => {
   const [store, setStore] = createStore({
     checking: false,
   })
+
+  const [proxyAccount, setProxyAccount] = createSignal("")
+  const [proxyPassword, setProxyPassword] = createSignal("")
+  const [proxyConfiguring, setProxyConfiguring] = createSignal(false)
+
+  const configureProxy = async () => {
+    const api = (window as any).api
+    if (!api?.configureProxy) {
+      showToast({ title: "当前环境不支持代理配置" })
+      return
+    }
+    setProxyConfiguring(true)
+    try {
+      const result = await api.configureProxy(proxyAccount(), proxyPassword())
+      if (result.success) {
+        showToast({ variant: "success", title: "已成功配置" })
+      } else {
+        showToast({ variant: "error", title: "配置值不正确" })
+      }
+    } catch {
+      showToast({ variant: "error", title: "配置值不正确" })
+    } finally {
+      setProxyConfiguring(false)
+    }
+  }
 
   const linux = createMemo(() => platform.platform === "desktop" && platform.os === "linux")
   const dir = createMemo(() => {
@@ -720,6 +745,54 @@ export const SettingsGeneral: Component = () => {
     </div>
   )
 
+  const ProxySection = () => (
+    <div class="flex flex-col gap-1">
+      <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>Proxy 配置</div>
+      <SettingsList>
+        <SettingsRow title="W3 账号" description="请输入W3账号">
+          <div style={{ width: "200px" }}>
+            <TextField
+              type="text"
+              value={proxyAccount()}
+              onChange={(v) => setProxyAccount(v)}
+              placeholder="请输入W3账号"
+              spellcheck={false}
+              autocorrect="off"
+              autocomplete="off"
+              autocapitalize="off"
+              class="text-12-regular"
+            />
+          </div>
+        </SettingsRow>
+        <SettingsRow title="W3 密码" description="请输入W3密码">
+          <div style={{ width: "200px" }}>
+            <TextField
+              type="password"
+              value={proxyPassword()}
+              onChange={(v) => setProxyPassword(v)}
+              placeholder="请输入W3密码"
+              spellcheck={false}
+              autocorrect="off"
+              autocomplete="off"
+              autocapitalize="off"
+              class="text-12-regular"
+            />
+          </div>
+        </SettingsRow>
+        <SettingsRow title="" description="">
+          <Button
+            size="small"
+            variant="secondary"
+            disabled={proxyConfiguring() || !proxyAccount() || !proxyPassword()}
+            onClick={configureProxy}
+          >
+            {proxyConfiguring() ? "配置中..." : "配置"}
+          </Button>
+        </SettingsRow>
+      </SettingsList>
+    </div>
+  )
+
   return (
     <div class="flex flex-col h-full overflow-y-auto no-scrollbar pb-10 sm:pb-10">
       <div class="sticky top-0 z-10" style="background: linear-gradient(to bottom, #fff calc(100% - 12px), transparent);">
@@ -768,6 +841,8 @@ export const SettingsGeneral: Component = () => {
         <Show when={desktop() && import.meta.env.VITE_OPENCODE_CHANNEL === "beta"}>
           <AdvancedSection />
         </Show>
+
+        <ProxySection />
       </div>
     </div>
 )
