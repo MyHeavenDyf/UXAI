@@ -1,35 +1,25 @@
-# charts 图表使用规范
+# Charts 图表使用规范
 
-> 图表 API 详见 `components/api/Chart/`，涵盖 18 种图表类型及 Custom/PatGauge、PatStackedBar、Response/Progress。
+用于趋势、比较、组成和进度概览；仅使用开发属性表中已有的图表组件。
 
-### 用途
+## 使用规则
 
-用于趋势、比较、组成、分布和状态概览。
+- 类别比较使用 BarChart；组成或占比使用 PieChart；单值达成率使用 PatGauge；状态构成使用 PatStackedBar；任务进度使用 Progress。
+- BarChart 必须设置 `option.data`、`option.xAxis.data` 和描述性的 `option.yAxisTitle`；横向柱状图使用 `option.direction=horizontal`，堆叠比较使用 `option.stack=true`。
+- BarChart 仅在需要阈值时设置 `option.markLine.top` 或 `option.markLine.bottom`。
+- PieChart 必须设置 `option.data` 和中心标题 `option.title.text`；需要补充说明时使用 `option.title.subtext`，图例位置使用 `option.legendPosition=centerRight | bottomCenter`。
+- PieChart 仅在扇区需要直接标注时设置 `option.label.show=true`。
+- PatGauge 使用 `value` 表示当前值，只有最大值不是组件默认值时才设置 `max`。
+- PatStackedBar 必须提供 `normal / warning / danger / error`；Progress 必须提供 `percent`，状态使用 `normal | active | success | exception`。
+- 沿用组件默认图表色；除非用户明确要求且符合 Token 规范，不设置 `option.color` 或 `strokeColor`。
 
-### 规则
+## 布局
 
-- 使用图表组件内置图例、单位和坐标轴。
-- 传入数据，不要手动画图表 UI。
-- 数据 key 转中文。
-- 图表高度填满父容器。
-- 不使用图表 `color` prop。
-- 趋势用折线/面积，比较用柱状，组成用饼/环/堆叠，分布用散点/直方，进度或占比用进度/仪表类组件。
-- 图表旁需要有标题、时间范围、筛选条件或数据口径，不要让用户猜测含义。
-- 多图表组合时，主图表优先占据最大面积，辅助图表保持一致高度和节奏。
-- 无数据、加载、异常和权限不足时使用图表区域内状态，不要显示空白画布。
+- 图表填满父容器，并提供标题、时间范围或数据口径。
+- 多图表组合时主图占最大面积，辅助图保持一致高度；无数据或异常时显示区域内状态，不留空白画布。
 
-### Do
+## Don't
 
-- 使用图表组件内置图例、单位和坐标轴，不手动画图表 UI。
-- 传入数据，数据 key 转中文。
-- 图表高度填满父容器，使用 `className` 显式定义 `w-` 和 `h-`。
-- 趋势用折线/面积，比较用柱状，组成用饼/环/堆叠，分布用散点/直方，进度或占比用进度/仪表类组件。
-- 图表旁有标题、时间范围、筛选条件或数据口径，不让用户猜测含义。
-- 多图表组合时主图表优先占据最大面积，辅助图表保持一致高度和节奏。
-- 无数据、加载、异常和权限不足时使用图表区域内状态，不显示空白画布。
-
-### Don't
-
-- 不要手动画图例、坐标轴或单位。
-- 不要留下大面积空白。
-- 不要使用任意图表颜色。
+- 不要手动画图例、坐标轴、单位或进度组件。
+- 不要调用开发属性表中不存在的图表类型或属性。
+- 不要用饼图比较大量类别或细微差异。

@@ -405,15 +405,17 @@ export const LoadComponentsDocsTool = Tool.define(
 
           const resultParts: string[] = []
 
-          // 加载所有组件的 design/components 设计规范
-          const designParts: string[] = []
-          for (const comp of validComps) {
-            const designFile = designCompMap.get(comp.toLowerCase())
-            if (!designFile) continue
-            const content = yield* Effect.promise(() => readFile(designFile, "utf-8"))
-            designParts.push(content)
-          }
-          if (designParts.length > 0) resultParts.push(`# 前端组件视觉应用规范\n\n${designParts.join("\n\n---\n\n")}`)
+          // [临时屏蔽] design 文档与 API schema 存在偏差（Tag color 枚举不一致等），
+          // 暂不输出「前端组件视觉应用规范」段。恢复时取消下方注释即可。
+          // const designParts: string[] = []
+          // for (const comp of validComps) {
+          //   const designFile = designCompMap.get(comp.toLowerCase())
+          //   if (!designFile) continue
+          //   const content = yield* Effect.promise(() => readFile(designFile, "utf-8"))
+          //   designParts.push(content)
+          // }
+          // if (designParts.length > 0) resultParts.push(`# 前端组件视觉应用规范\n\n${designParts.join("\n\n---\n\n")}`)
+          void designCompMap
 
           // 将 API schema 渲染为紧凑 Markdown
           if (apiSchemas.length > 0) {

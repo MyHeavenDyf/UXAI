@@ -1,61 +1,25 @@
-# table 表格使用规范
-
-## Props
-
-- `rowKey`: string
-- `columns`: array（`{ title, dataIndex, align, fixed, sort, width, minWidth, filters }`）
-- `dataSource`: DataBinding
-- `pagination`: boolean
-- `rowSelection`: `{ type: checkbox | radio, selectedRowKeys }`
-- `expandable`: `{ expandedRowKeys }`
-- `rowClassName`: string
-
-TableRow 子组件：
-
-- `expandedRowRender`: SlotNode（展开行内容模板）
-
-### 用途
+# Table 表格使用规范
 
 用于密集、可比较、基于行的企业数据。
 
-### 容器
+## 使用规则
 
-- 必须放在 `bg-surface-container-highest` 内。
-- 不要直接放在页面最低层画布上。
-- 表格内容使用 `text-md`。
-- 默认有分页；分页未显式控制时需要保留下方间距。
+- 必须设置唯一 `rowKey`、`dataSource` 和 `columns`；每列必须设置 `columns.title` 与 `columns.dataIndex`。
+- 数字右对齐，短状态可居中，其余默认左对齐，通过 `columns.align=left | center | right` 设置。
+- 仅冻结列设置 `columns.fixed=start | end` 和 `columns.width`；长文本列可设置 `columns.minWidth`，不要给所有列固定宽度。
+- 需要列筛选或排序时使用 `columns.filters`、`columns.sort=true`，不要手画控件。
+- 默认保留组件分页；仅需显示全部行时设置 `pagination=false`。
+- 批量选择使用 `rowSelection.type=checkbox | radio`；展开行使用 `expandable.expandedRowKeys` 和 TableRow 的 `expandedRowRender`。
+- 行内操作使用 `Button types=link`；状态使用文本、图标或 Tag，不使用 Badge。
 
-### 列宽
+## 布局
 
-- 只有冻结列可设置 `width`。
-- 长文本列可设置 `minWidth`。
-- 状态、标签、操作、图标等短列不要设置 `minWidth`。
-- 不要给所有列固定宽度。
+- Table 放在 `bg-surface-container-highest` 内，长文本截断并通过 Tooltip 或详情展示，保持行高一致。
+- 选中行后在表格工具区显示已选数量和可执行操作。
 
-### 操作
+## Don't
 
-- 行内文字操作使用 `Button types=link`。
-- 操作列保持紧凑和一致。
-- 批量操作与选择状态保持关联。
-- 表格顶部可包含搜索、筛选、刷新、导出、新建和批量操作，但操作区不能压过数据主体。
-- 行选择用于批量操作；选中后需要显示已选数量和可执行操作。
-- 排序、筛选、列设置、展开行、树形层级、固定列等能力优先使用 Table 组件能力。
-- 长文本列使用截断、Tooltip 或详情抽屉；不要把行高撑得不一致。
-- 状态信息在表格内使用文本、图标或 Tag，不使用 Badge。
-
-### Do
-
-- 表格放在 `bg-surface-container-highest` 内，内容使用 `text-md`。
-- 只有冻结列设置 `width`，长文本列设置 `minWidth`。
-- 行内文字操作使用 `Button types=link`。
-- 行内状态使用文本、图标或 Tag，不使用 Badge。
-- 长文本列使用截断、Tooltip 或详情抽屉保持行高一致。
-- 排序、筛选、列设置、展开行优先使用 Table 组件能力。
-- 行选择用于批量操作，选中后显示已选数量和可执行操作。
-
-### Don't
-
-- 不要在 Table 内使用 Badge。
-- 不要把标准表格行做成卡片。
-- 不要手动画组件已有的分页。
-- 不要用固定宽度破坏自适应。
+- 不要手动画分页、复选列、排序或筛选。
+- 不要把标准表格行做成 Card。
+- 不要用固定宽度破坏表格自适应。
+- 不要使用开发组件不存在的属性或枚举值。
