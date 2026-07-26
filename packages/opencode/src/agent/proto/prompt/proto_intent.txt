@@ -90,14 +90,14 @@
         ]
       }
     },
-    // 情况二：使用了模块模板的区域（用户选定的 block），不生成 data，标注 patternPath
+    // 情况二：使用了模块模板的区域（用户选定的 block），不生成 data，标注 patternId
     {
       "id": "sideNav",
       "name": "侧边导航",
       "description": "提供全局功能导航入口，展示导航菜单，支持展开/折叠",
       "layout": "左侧固定宽度垂直布局",
       "elements": "纵向折叠菜单",
-      "patternPath": "./expandSideBar/data.json"
+      "patternId": "1120"
     }
   ]
 }
@@ -151,6 +151,6 @@
 
 7. **模块模板约束**：
    - 如果用户输入中包含「已有的模块模板」列表，其中每个模板必须作为独立的一个 section 出现在 sections 中，不可遗漏任何一个。
-   - 对于使用了模块模板的 section，添加 `patternPath` 字段，值为该模板的 patternPath，且不生成 `data` 字段（模块内容将由模板直接提供）。
+   - 对于使用了模块模板的 section，添加 `patternId` 字段，值为该模板的 patternId，且不生成 `data` 字段（模块内容将由模板直接提供）。
    - 对于使用了模块模板的 section，仍需生成 description、layout、elements 字段。
-   - 对于未使用模块模板的 section（用户新增的功能区域），正常生成完整的 data 字段，不添加 patternPath。
+   - 对于未使用模块模板的 section（用户新增的功能区域），正常生成完整的 data 字段，不添加 patternId。

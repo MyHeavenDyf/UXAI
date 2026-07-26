@@ -851,6 +851,7 @@ function PatternContent() {
 
   // 卡片第二步：点「确认并继续生成」→ proto_intent → planner_create → modules_create
   async function handleConfirmIntent(_answers: IntentConfirmAnswers, enrichedInput: string, selectedBlocks: BlockModuleItem[]) {
+    debugger
     const sid = params.id
     if (!sid) return
     const mk = activeModelKey()
@@ -870,21 +871,21 @@ function PatternContent() {
         category: string
         description: string
         structure: string
-        patternPath: string
-        content?: string
+        patternId: string
+        content?: any
         rootContainer: { id: string; component: string; className: string }
       }> = []
       for (const block of selectedBlocks) {
         if (!block.content) continue
-        const json = JSON.parse(block.content)
-        const rootEl = json.elements?.[0]
+        const json = block.content
+        const rootEl = json.elements?.find((e: any) => e.id === json.rootId) ?? json.elements?.[0]
         if (!rootEl) continue
         patterns.push({
           name: block.name,
           category: block.category ?? "",
           description: block.description ?? "",
           structure: block.structure ?? "",
-          patternPath: block.file,
+          patternId: block.id,
           content: block.content,
           rootContainer: {
             id: json.rootId ?? rootEl.id ?? "",

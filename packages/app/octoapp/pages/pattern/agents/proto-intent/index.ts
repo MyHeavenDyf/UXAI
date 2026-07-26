@@ -78,10 +78,18 @@ function buildHumanMessage(userInput: string, auditFeedback: string | undefined,
   }else{
     let patternSection = "";
     if (patterns && patterns.length > 0) {
+      const patternsForPrompt = patterns.map(p => ({
+        name: p.name,
+        category: p.category,
+        description: p.description,
+        structure: p.structure,
+        patternId: p.patternId,
+        rootContainer: p.rootContainer,
+      }))
       patternSection = `
 
     [已有的模块模板:] ==================================
-    ${JSON.stringify(patterns, null, 2)}`;
+    ${JSON.stringify(patternsForPrompt, null, 2)}`;
     }
     humanMessage = `[用户的需求:] ==================================
     ${userInput}${patternSection}

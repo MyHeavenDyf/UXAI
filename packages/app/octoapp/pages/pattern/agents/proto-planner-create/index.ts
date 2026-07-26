@@ -70,13 +70,13 @@ function buildHumanMessage(intentDescription: string, patterns?: any[]){
   let patternSection = "";
   if (patterns && patterns.length > 0) {
     const rootContainers = patterns.map(p => ({
-      patternPath: p.patternPath,
+      patternId: p.patternId,
       rootContainer: p.rootContainer,
     }))
     patternSection = `
 
   [模块模板的根容器信息:] ==================================
-  对于 blueprint 中带有 patternPath 的 section，必须直接使用下面对应的 rootContainer 作为 slot 容器（包括 id、component、className），不要自行生成或修改这些容器的属性。
+  对于 blueprint 中带有 patternId 的 section，必须直接使用下面对应的 rootContainer 作为 slot 容器（包括 id、component、className），不要自行生成或修改这些容器的属性。
 
   ${JSON.stringify(rootContainers, null, 2)}`;
   }
