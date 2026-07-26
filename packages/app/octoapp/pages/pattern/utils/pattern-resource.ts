@@ -13,7 +13,7 @@ export type PatternEntry = {
 export type PatternMatchItem = {
   pattern: PatternEntry
   score: number
-  content?: string | null
+  content?: any | null
   previewUrl?: string | null
 }
 
@@ -25,7 +25,7 @@ export type BlockModuleItem = {
   file: string
   preview: string
   structure?: string
-  content?: string
+  content?: any
 }
 
 // 读取指定主题、类别（"page" | "block"）的 pattern 目录索引
@@ -188,30 +188,34 @@ async function searchResources(
 
 // 根据 modules[].description 逐个搜索向量库，解析去重后返回真实 block 信息
 export async function getBlockPatternResource(modulesData: { modules?: Array<{ description?: string }> }) {
-  const modules = modulesData.modules || []
-  const queries = modules.map(m => m.description).filter(Boolean) as string[]
-  const allResults: any[] = []
-  for (const query of queries) {
-    const result = await searchResources(query, 2)
-    if (result.success && result.data?.results?.[0]) {
-      allResults.push(...result.data.results[0])
+  try {
+    const modules = modulesData.modules || []
+    const queries = modules.map(m => m.description).filter(Boolean) as string[]
+    const allResults: any[] = []
+    for (const query of queries) {
+      const result = await searchResources(query, 2)
+      if (result.success && result.data?.results?.[0]) {
+        allResults.push(...result.data.results[0])
+      }
     }
+    const seenIds = new Set<string>()
+    const uniqueResults = allResults.filter((item) => {
+      if (seenIds.has(item.id)) return false
+      seenIds.add(item.id)
+      return true
+    }).map((item) => ({
+      id: item.id,
+      description: item.description || "",
+      name: item.name || "",
+      file: item.file_path || "",
+      preview: item.thumbnail_path || "",
+      category: item.tags?.length ? item.tags[0] : "",
+      structure: item.search_text || "",
+    }))
+    return { results: uniqueResults }
+  } catch {
+    return { results: [] }
   }
-  const seenIds = new Set<string>()
-  const uniqueResults = allResults.filter((item) => {
-    if (seenIds.has(item.id)) return false
-    seenIds.add(item.id)
-    return true
-  }).map((item) => ({
-    id: item.id,
-    description: item.description || "",
-    name: item.name || "",
-    file: item.file_path || "",
-    preview: item.thumbnail_path || "",
-    category: item.tags?.length ? item.tags[0] : "",
-    structure: item.search_text || "",
-  }))
-  return { results: uniqueResults }
 }
 
 // 下载 zip 并解析出 data.json 内容与 assets 文件（含 buffer）

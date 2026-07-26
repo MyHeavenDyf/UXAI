@@ -47,15 +47,15 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
     onSessionCreated
   } = input
 
-  // 如果该模块有 patternPath，从 extra.patterns 中取预处理的 content，跳过 LLM
+  // 如果该模块有 patternId，从 extra.patterns 中取预处理的 content，跳过 LLM
   const sections = intentDescription?.sections ?? []
   const sectionDetail = sections.find((item: any) => item?.id === sectionId)
-  if (sectionDetail?.patternPath) {
-    const patterns = input.extra?.patterns as Array<{ patternPath: string; content?: string }> | undefined
-    const matched = patterns?.find(p => p.patternPath === sectionDetail.patternPath)
+  if (sectionDetail?.patternId) {
+    const patterns = input.extra?.patterns as Array<{ patternId: string; content?: any }> | undefined
+    const matched = patterns?.find(p => p.patternId === sectionDetail.patternId)
     if (matched?.content) {
       try {
-        const patternJson = remapPatternRootId(JSON.parse(matched.content), elementId)
+        const patternJson = remapPatternRootId(matched.content, elementId)
         console.log(`----- 模块 ${sectionId} 使用 Pattern 模板，跳过 LLM -----`)
         return {
           ui_json: patternJson,
@@ -64,7 +64,7 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
           id_prefix: idPrefix
         }
       } catch {
-        console.warn(`----- Pattern JSON 解析失败: ${sectionDetail.patternPath} -----`)
+        console.warn(`----- Pattern JSON 解析失败: ${sectionDetail.patternId} -----`)
       }
     }
   }
