@@ -622,3 +622,53 @@
 .studio-composer-tool-btn[data-active] .studio-composer-tool-caret {
   transform: rotate(-180deg);
 }
+
+@media (max-width: 1227px) {
+  .studio-center {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .studio-center-action {
+    width: 20px;
+    height: 20px;
+  }
+
+  .studio-center-scroll {
+    padding: 0;
+  }
+
+  .studio-center-scroll .scroll-view__viewport {
+    padding: 36px 14% 22px;
+  }
+
+  .studio-composer-wrap {
+    padding: 0 14%;
+  }
+
+  .studio-workspace-overlay {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 800px;
+    z-index: 50;
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.12);
+  }
+}
+
+@media (max-width: 999px) {
+  .studio-workspace-overlay {
+    width: 100%;
+  }
+}
+
+@media (max-width: 799px) {
+  .studio-center-scroll .scroll-view__viewport {
+    padding: 36px 6% 22px;
+  }
+
+  .studio-composer-wrap {
+    padding: 0 6%;
+  }
+}

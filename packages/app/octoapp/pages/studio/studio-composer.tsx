@@ -63,6 +63,7 @@ export function StudioComposer(props: {
   onRemoveAsset: (id: string) => void
   onRemoveVideoFrame: (slot: StudioVideoFrameSlot) => void
   onSwapVideoFrames: () => void
+  onToolClick?: () => void
 }): JSX.Element {
   const platform = usePlatform()
   let inputRef!: HTMLTextAreaElement
@@ -656,7 +657,7 @@ export function StudioComposer(props: {
               <CapabilityMenu
                 value={props.capability}
                 canGenerateVideo={props.canGenerateVideo}
-                onSelect={(value) => { props.onCapability(value); props.onOpenMenu(null) }}
+                onSelect={(value) => { props.onToolClick?.(); props.onCapability(value); props.onOpenMenu(null) }}
               />
             </div>
           </Show>
@@ -665,7 +666,7 @@ export function StudioComposer(props: {
               <StyleMenu
                 value={props.styleModel}
                 canUseSeedream={props.canUseSeedream}
-                onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }}
+                onSelect={(value) => { props.onToolClick?.(); props.onStyleModel(value); props.onOpenMenu(null) }}
               />
             </div>
           </Show>
