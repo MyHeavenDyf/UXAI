@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { EventEmitter } from "node:events"
-import { existsSync, mkdirSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
 import * as http from "node:http"
 import { createServer } from "node:net"
 import { homedir, tmpdir } from "node:os"
@@ -217,6 +217,22 @@ function useEnvProxy() {
     ;(http as any).setGlobalProxyFromEnv()
   } catch (error) {
     logger.warn("failed to load proxy environment", error)
+  }
+
+  // 从 ~/.config/.octo/config 读取代理配置并注入环境变量
+  try {
+    const configFile = join(homedir(), ".config", ".octo", "config")
+    if (existsSync(configFile)) {
+      const config = JSON.parse(readFileSync(configFile, "utf-8"))
+      for (const key of ["http_proxy", "https_proxy", "no_proxy"]) {
+        const value = config[key]
+        if (!value) continue
+        process.env[key] = value
+        process.env[key.toUpperCase()] = value
+      }
+    }
+  } catch (error) {
+    logger.warn("failed to load octo proxy config", error)
   }
 }
 
