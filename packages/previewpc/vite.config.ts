@@ -74,7 +74,7 @@ export default defineConfig(({ mode }) => {
       port: parseInt(rootEnv.VUE_FRONTEND_PORT || '51856'),
       proxy: {
         '/assetRepository/iconPlus': {
-          target: 'https://octo-beta.hdesign.huawei.com/',
+          target: 'https://octo.hdesign.huawei.com/',
           changeOrigin: true,
           secure: false,
         }

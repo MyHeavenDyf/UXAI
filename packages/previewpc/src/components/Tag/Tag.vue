@@ -9,6 +9,7 @@ import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import "./Tag.less"
 import { useTheme } from "../../composables/useTheme"
+import {tagColors} from "../../utils/themeColors"
 
 const { isDark } = useTheme()
 const sizeEnum = {
@@ -29,18 +30,6 @@ const effectEnum = {
   outlined: "dark"
   // outlined: "plain",
 }
-
-const typeEnum = {
-  primary: "primary",
-  success: "success",
-  info: "info",
-  warning: "warning",
-  error: "danger",
-  processing: "processing",
-  default: "default",
-}
-const types = ["success", "processing", "error", "warning", "primary", "info", "default"]
-
 
 const colorsFilledTags = [
   { text: '#1f55b5', bg: 'rgb(from #d0d8fd r g b / 0.5)' },
@@ -151,10 +140,9 @@ watch(
   { immediate: true },
 )
 
+const variant = computed(() => resolveValue(properties?.variant as any) as string || 'filled')
 const effect = computed(() => {
-  if (type.value === "default") return "light"
-  const variant = resolveValue(properties?.variant as any) as string
-  return variant ? effectEnum[variant as keyof typeof effectEnum] : "light"
+  return variant.value ? effectEnum[variant.value as keyof typeof effectEnum] : "light"
 })
 
 const type = ref<string | undefined>(undefined)
@@ -166,11 +154,18 @@ watch(
     
     if (!curColor) return false
     const newColor = resolveValue(curColor) as string
-    // 组件内的类型色
-    if (types.findIndex((item) => item === newColor) > -1) {
-      type.value = typeEnum[newColor as keyof typeof typeEnum]
-      return false
+    const typeColors = tagColors[variant.value as keyof typeof tagColors] || {}
+    const colorObj = typeColors[newColor as keyof typeof typeColors]
+    if (colorObj) {
+      const {text, bg, bgOpacity } = colorObj
+      styles.value = {
+        "--el-tag-bg-color": bgOpacity ? `rgb(from var(${bg}) r g b / ${bgOpacity})` : `var(${bg})`,
+        "--el-tag-border-color": "transparent",
+        "--el-tag-text-color": `var(${text})`
+      }
+      return
     }
+
     // 自定义颜色
     // 按规范修改outlined(plain)和solid(dark)一致
     if (effect.value === "plain" || effect.value === "dark") {
@@ -197,11 +192,10 @@ watch(
   <ElTag ref="elTagRef" 
   v-show="label !== ''" 
   :id="id" 
-  :class="[className, (type ==='default' || type==='processing') ? `el-tag--${type}`:'']" 
+  :class="[className,`el-tag--${type}`]" 
   :size="size as any" 
   :closable="closable"
   :effect="effect as any" 
-  :type="(type ==='default' || type==='processing') ? undefined : type as any" 
   :color="color" 
   :style="styles">
     <template v-if="iconName && resolvedIcon?.component">

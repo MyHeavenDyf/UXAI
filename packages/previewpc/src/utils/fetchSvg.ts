@@ -1,17 +1,23 @@
 /**
  * hui-icon-plus 图标获取与缓存
  *
- * API 协议：
- *   1. /assetRepository/iconPlus/getConfig — 获取配置
- *   2. /assetRepository/iconPlus/getIconInfo — 搜索图标（返回 url）
- *   3. /assetRepository/iconPlus/getIcon — 用 url 获取 SVG
+ * 新架构（按需获取）：
+ *   1. getConfig — 获取配置 + 检测 API 可用性
+ *   2. getIconInfo — 搜索图标（返回 url），存入 iconInfoMap (name → {name, url})
+ *   3. getIcon — 渲染时按需获取 SVG，存入 svgCache (name&shape&color → svg)
  *
- * svgCache 键格式 url:styleValue:colorId，仅供去重，渲染通过 variantDataMap.svg
+ * svgCache 键格式 name&shape&color（直接用 JSON 数据值），渲染时主查找
+ * svgCacheVersion 每次 svgCache 写入后自增，驱动 Vue 响应式更新
  */
+
+import { ref } from 'vue'
 
 const ICON_API_URL = "/assetRepository/iconPlus/getIcon"
 
-/** 底层缓存（去重用），键为 url:styleValue:colorId */
+/** svgCache 版本号，每次写入自增，驱动 Vue 响应式更新 */
+export const svgCacheVersion = ref(0)
+
+/** SVG 缓存，键为 name&shape&color（JSON 数据值），值为 SVG 字符串 */
 export const svgCache = new Map<string, string>()
 
 /** 默认颜色 ID fallback */
@@ -35,13 +41,21 @@ export function getStyleValue(styleKey: string): string {
   return entry?.value || styleKey
 }
 
-function shapeToStyleKey(shape: string): string {
+/** shape → API styleKey（导出，供请求队列等使用） */
+export function shapeToStyleKey(shape: string): string {
   switch (shape) {
     case 'fill': return 'filled'
     case 'circle': return 'round_bottom2'
     case 'square': return 'square_bottom2'
     default: return 'border'
   }
+}
+
+/** svgCache key：直接用 JSON 数据值拼接，shape 缺省 outline，color 缺省 default */
+export function resolveSvgCacheKey(name: string, shape?: string, color?: string): string {
+  const s = shape || 'outline'
+  const c = color || 'default'
+  return `${name}&${s}&${c}`
 }
 
 /**
@@ -109,61 +123,57 @@ export function sanitizeSvg(svg: string): string {
   return clean
 }
 
-/** 批量获取图标 SVG，按 (style, colorId) 分组 */
+/**
+ * 批量获取图标 SVG（纯 API 调用，不写 svgCache）
+ *
+ * svgCache 写入由 IconRequestQueue 统一处理，
+ * 因为同一批次内不同 entry 可能有不同的 shape/color → 不同 svgCache key
+ *
+ * @param urls 图标 URL 列表
+ * @param style API style 参数（中文值如 "线性"）
+ * @param size 图标尺寸
+ * @param colorId API color 参数（id 如 "GTS_线性_Gray-10"）
+ * @returns Map<url, {name, data}> — url → 消毒后的 SVG 数据
+ */
 export async function fetchIconBatch(
-  iconUrls: string[],
-  style?: string,
+  urls: string[],
+  style: string,
   size: string = "16",
-  colorId?: string,
-): Promise<Map<string, string>> {
-  if (!iconUrls.length) return new Map()
-  const resolvedStyle = style ?? getStyleValue("border")
-  const resolvedColor = colorId || defaultColorId
-  const urlStr = iconUrls.join(",")
-  const apiUrl = `${ICON_API_URL}?url=${encodeURIComponent(urlStr)}&size=${encodeURIComponent(size)}&style=${encodeURIComponent(resolvedStyle)}&color=${encodeURIComponent(resolvedColor)}&fileType=svg`
+  colorId: string,
+): Promise<Map<string, { name: string; data: string }>> {
+  if (!urls.length) return new Map()
+  const urlStr = urls.join(",")
+  const apiUrl = `${ICON_API_URL}?url=${encodeURIComponent(urlStr)}&size=${encodeURIComponent(size)}&style=${encodeURIComponent(style)}&color=${encodeURIComponent(colorId)}&fileType=svg`
 
   try {
     const resp = await fetch(apiUrl)
     if (!resp.ok) {
-      console.warn("[fetchIcon] getIcon 失败 HTTP", resp.status, "style:", resolvedStyle, "color:", resolvedColor)
+      console.warn("[fetchIcon] getIcon 失败 HTTP", resp.status, "style:", style, "color:", colorId)
       return new Map()
     }
     const data = await resp.json()
     const items: Array<{ url: string; name: string; data: string }> = Array.isArray(data) ? data : [data]
 
-    const result = new Map<string, string>()
+    const result = new Map<string, { name: string; data: string }>()
     for (const item of items) {
       if (item.url && item.data) {
-        const cacheKey = `${item.url}:${resolvedStyle}:${resolvedColor}`
         const cleanSvg = sanitizeSvg(item.data)
         if (cleanSvg) {
-          svgCache.set(cacheKey, cleanSvg)
-          result.set(cacheKey, cleanSvg)
+          result.set(item.url, { name: item.name || '', data: cleanSvg })
         }
       }
     }
     return result
   } catch (err: any) {
-    console.warn("[fetchIcon] getIcon 失败:", err.message, "style:", resolvedStyle, "color:", resolvedColor)
+    console.warn("[fetchIcon] getIcon 失败:", err.message, "style:", style, "color:", colorId)
     return new Map()
   }
-}
-
-/** 单个获取图标（边缘场景） */
-export async function fetchIconByUrl(iconUrl: string, style?: string, size: string = "16", colorId?: string): Promise<string> {
-  const resolvedStyle = style ?? getStyleValue("border")
-  const resolvedColor = colorId || defaultColorId
-  const cacheKey = `${iconUrl}:${resolvedStyle}:${resolvedColor}`
-  const cached = svgCache.get(cacheKey)
-  if (cached) return cached
-
-  const result = await fetchIconBatch([iconUrl], resolvedStyle, size, resolvedColor)
-  return result.get(cacheKey) || ""
 }
 
 /** 清空缓存 */
 export function clearSvgCache(): void {
   svgCache.clear()
+  svgCacheVersion.value++
 }
 
 /** shape → API style value */
