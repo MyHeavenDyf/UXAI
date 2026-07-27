@@ -65,3 +65,42 @@ describe("octo-upload-inject 早退顺序(endpoint 未配置时不误杀无关�
     expect(args.path).toBe("/tmp/uploads/访谈稿.docx")
   })
 })
+
+// 本地文件工具的 path/filePath 是本地磁盘目标,永不该被换成 S3 URL(回归:内网上传 md → 让其在
+// 末尾追加,write 的 filePath 命中清单被替换成 S3 URL,octo-outputs-redirect 再把非绝对的 https://
+// 串 join 进 outputs/,建目录时因路径含 URL 成分崩溃 makeDirectory .../outputs/https:/.../...)。
+// 关键点:即便 endpoint 已配置(内网),这些工具也必须原值放行——由排除集早退,而非"没配 endpoint"的兜底。
+describe("本地文件工具排除(write/edit/read 等不被换成 S3 URL)", () => {
+  // 清单文件名 = 落盘目标常见形态:模型对上传文件做 write 时 filePath 常照抄文件名/完整路径。
+  const LOCAL_MANIFEST = "[附件]\n- report.md: /tmp/uploads/report.md"
+
+  beforeEach(() => {
+    // 显式配好 endpoint:若排除失效,插件会走到 uploadLocalFile(fetch/readFile)→ 抛错,
+    // 测试即失败;排除生效时应在 fetch 之前早退,filePath 原样。
+    process.env.OCTO_UPLOAD_ENDPOINT = "https://upload.example.test/api"
+  })
+
+  test("write:filePath 命中清单文件名,仍原值放行(不被换成 S3 URL)", async () => {
+    const hook = await beforeHook([userMessage([LOCAL_MANIFEST])])
+    const args = { filePath: "report.md", content: "…【1234】" }
+    await hook({ ...input, tool: "write" }, { args })
+    expect(args.filePath).toBe("report.md")
+  })
+
+  test("write:filePath 命中清单完整路径,仍原值放行", async () => {
+    const hook = await beforeHook([userMessage([LOCAL_MANIFEST])])
+    const args = { filePath: "/tmp/uploads/report.md", content: "…【1234】" }
+    await hook({ ...input, tool: "write" }, { args })
+    expect(args.filePath).toBe("/tmp/uploads/report.md")
+  })
+
+  test.each(["edit", "apply_patch", "read", "glob", "grep"])(
+    "%s:引用清单文件仍原值放行",
+    async (tool) => {
+      const hook = await beforeHook([userMessage([LOCAL_MANIFEST])])
+      const args = { filePath: "report.md" }
+      await hook({ ...input, tool }, { args })
+      expect(args.filePath).toBe("report.md")
+    },
+  )
+})

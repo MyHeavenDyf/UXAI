@@ -22,17 +22,9 @@ type ProtoPatternBlockInput = {
 
 export default async function proto_pattern_block(input: ProtoPatternBlockInput) {
   const { sdk, sync, modelKey, rootSession, userInput, onSessionCreated } = input
-
   const theme = (input.extra?.designSystem as string) || "ICT3.1"
   const pagePattern = (input.extra?.pagePattern as string) ?? ""
-
-  // const patterns = await readPatternIndex("block", theme)
-  // if (!patterns || patterns.length === 0) {
-  //   return { matches: [], current_step: "pattern_block" }
-  // }
-
   const humanMessage = buildHumanMessage(userInput, pagePattern)
-  debugger
   const result = await runChildSession({
     sync,
     modelKey,

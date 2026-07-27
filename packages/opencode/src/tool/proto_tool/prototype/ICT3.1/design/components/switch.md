@@ -1,40 +1,23 @@
-# switch 开关使用规范
-
-## Props
-
-- `value`: boolean
-- `size`: `medium | small`
-- `checkedChildren`: string
-- `unCheckedChildren`: string
-- `checkedChildrenIcon`: string
-- `unCheckedChildrenIcon`: string
-
-### 用途
+# Switch 开关使用规范
 
 用于立即生效的开/关设置。
 
-### 规则
+## 使用规则
 
-- 适合 enable/disable、on/off、open/closed。
-- 切换后通常立即生效。
-- 高风险切换需要确认。
-- 异步切换需要 loading 或反馈。
-- 文案不明确时必须有 Label。
-- 设置项列表中 Switch 通常放在行尾，Label 和说明放在行首。
-- 批量或高风险开关切换后，应提示影响范围。
-- 如果切换需要先填写其他字段，不要使用立即生效 Switch，改用表单提交。
+- 必须设置布尔 `value`；切换后立即生效，不需要额外提交。
+- 文案已能说明两态时使用基础 Switch；需要在控件内强化两态时使用 `checkedChildren` 和 `unCheckedChildren`。
+- 控件内文字保持简短，建议不超过 5 个字符；更完整的含义由外部 Label 说明。
+- 只有图标能清楚表达两态时使用 `checkedChildrenIcon` 和 `unCheckedChildrenIcon`，图标名使用 Lucide kebab-case。
+- 常规设置使用 `size=medium`；紧凑列表使用 `size=small`。
+- 高风险或批量切换需要确认并说明影响范围；异步结果需要明确反馈。
 
-### Do
+## 布局
 
-- 适合 enable/disable、on/off、open/closed，切换后通常立即生效。
-- 高风险切换需要确认，异步切换需要 loading 或反馈。
-- 文案不明确时必须有 Label。
-- 设置项列表中 Switch 放在行尾，Label 和说明放在行首。
-- 批量或高风险开关切换后提示影响范围。
-- 用 `checkedChildren`/`unCheckedChildren` 明确表达开关两态语义。
+- 设置项 Label 和说明放在行首，Switch 放在行尾。
 
-### Don't
+## Don't
 
 - 不要用于需要提交按钮确认的设置。
 - 不要用于超过两个状态的选择。
-- 不要省略模糊设置的标签。
+- 不要同时堆叠无必要的控件内文字和图标。
+- 不要使用开发组件不存在的属性或枚举值。

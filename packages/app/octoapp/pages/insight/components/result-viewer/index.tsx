@@ -454,7 +454,7 @@ function PathErrorFallback(props: {
 //
 // 返回桌面壳缺失的 API 方法名列表(便于 toast 给用户精确报错 + 知会开发团队补壳)。
 // SOT: ../../lib/electron-api.ts 的 DesktopApi;handoff 同步清单见 octo-agent 文档仓 docs/intranet-handoff.md §4。
-type ApiKey = "openPath" | "saveFilePicker" | "downloadResource" | "downloadResourceToTemp" | "showItemInFolder"
+type ApiKey = "openPath" | "saveFilePicker" | "downloadResource" | "downloadResourceToTemp" | "showItemInFolder" | "resolveMaterializedPath" | "copyFileTo"
 function missingDesktopApi(required: ApiKey[]): string[] {
   const api = getDesktopApi()
   if (!api) return required.slice()
@@ -541,10 +541,12 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     }
   }
 
+  // 「下载」= 优先拷贝已落地的本地副本(走 fs.copyFile,不读进内存再写);本地副本找不到(如被删/移走)
+  // 再兜底走 web 拉 S3 直落目标路径。office 卡本就 eager 落到 .octo/<sessionId>/outputs/,常态命中本地拷贝。
   async function handleSaveAs() {
     if (!props.tab.uri || downloadBusy()) return
     tracker.interaction({ module: "insight", name: "file-save-as", extend: JSON.stringify({ fileType: trackFileType() }) })
-    const missing = missingDesktopApi(["saveFilePicker", "downloadResource"])
+    const missing = missingDesktopApi(["saveFilePicker", "resolveMaterializedPath", "copyFileTo", "downloadResource"])
     if (missing.length > 0) {
       notifyMissingApi(missing)
       return
@@ -552,7 +554,7 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     const api = getDesktopApi()!
     setDownloadBusy(true)
     try {
-      // 另存为默认路径:有项目目录则落项目内,无则让 OS 弹空白(用户自选)
+      // 保存位置:有项目目录则落项目内,无则让 OS 弹空白(用户自选)
       const projectBase = projectDir()
       const defaultPath = projectBase ? `${projectBase}/${defaultFilename()}` : defaultFilename()
       const chosen = await api.saveFilePicker!({ defaultPath })
@@ -560,14 +562,22 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
         setDownloadBusy(false)
         return
       }
-      console.log("[octo:office] saveas-start", { uri: props.tab.uri, destPath: chosen })
-      await api.downloadResource!(props.tab.uri, chosen)
-      console.log("[octo:office] saveas-ok", { destPath: chosen })
-      showToast({ description: "已另存", variant: "success", duration: 2000 })
+      // 幂等键传 uri(资源身份),与本地打开/文件夹打开共用同一份落地副本。
+      const localPath = await api.resolveMaterializedPath!(props.tab.uri, projectBase || undefined, params.id)
+      if (localPath) {
+        console.log("[octo:office] saveas-copy-local", { localPath, destPath: chosen })
+        await api.copyFileTo!(localPath, chosen)
+      } else {
+        // 本地副本找不到 → 兜底 web 下载直落目标路径
+        console.log("[octo:office] saveas-web-fallback", { uri: props.tab.uri, destPath: chosen })
+        await api.downloadResource!(props.tab.uri, chosen)
+      }
+      console.log("[octo:office] saveas-ok", { destPath: chosen, source: localPath ? "local-copy" : "web" })
+      showToast({ description: "已下载", variant: "success", duration: 2000 })
     } catch (err) {
       console.error("[octo:office] saveas-failed", { uri: props.tab.uri, err })
       showToast({
-        title: "另存失败",
+        title: "下载失败",
         description: err instanceof Error ? err.message : String(err),
         variant: "error",
       })

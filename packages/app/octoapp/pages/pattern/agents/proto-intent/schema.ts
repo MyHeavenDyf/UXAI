@@ -15,7 +15,7 @@ const schema = {
           layout: { type: "string" },
           elements: { type: "string" },
           data: { type: "object" },
-          patternPath: { type: "string" },
+          patternId: { type: ["string", "number"] },
         },
         required: ["id", "name", "description", "layout", "elements"],
       },

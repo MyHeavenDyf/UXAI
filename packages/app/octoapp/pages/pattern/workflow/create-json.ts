@@ -91,6 +91,14 @@ export async function create_planner_json(inputCtx: ProtoCreateJsonInput) {
     checkpoint = await loadCheckpoint(inputCtx.checkpointDir, sid)
   }
 
+  // 持久化 patterns（含 content）到 checkpoint，供断点恢复/重试时重建 extra
+  // 同时推进 stage 到 intent_create，若 proto_intent 报错，恢复时映射为 pipeline_error 而非 block_matching
+  if (checkpoint && inputCtx.extra?.patterns) {
+    checkpoint.patterns = inputCtx.extra.patterns as any[]
+    checkpoint.stage = "intent_create"
+    await saveCheckpoint(inputCtx.checkpointDir, sid, checkpoint)
+  }
+
   // 步骤 1：intent_create
   let intentResult: { intent_description: Record<string, unknown> }
   if (checkpoint?.intentResult) {

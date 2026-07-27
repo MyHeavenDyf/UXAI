@@ -26,6 +26,8 @@ const FileCommentSchema = Schema.Struct({
   filePath: Schema.String,
   elementId: Schema.String,
   selector: Schema.String,
+  contentSignature: Schema.optional(Schema.String),
+  nativeId: Schema.optional(Schema.String),
   label: Schema.String,
   text: Schema.String,
   position: CommentPositionSchema,

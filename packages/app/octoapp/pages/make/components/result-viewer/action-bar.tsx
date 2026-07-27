@@ -348,7 +348,7 @@ export function ActionBar(props: {
   }
 
   const canToggleMode = () => props.tab.type === "html"
-  const showViewport = () => props.tab.type === "html"
+  const showViewport = () => props.tab.type === "html" && currentMode() === "preview"
   const showRefreshButton = () => true
   const shouldShowCopy = () =>
     props.tab.type === "table" ||

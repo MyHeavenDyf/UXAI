@@ -1,43 +1,21 @@
-# badge 徽标使用规范
+# Badge 徽标使用规范
 
-## Props
+用于依附在图标、头像或文字上的通知点和数量提示。
 
-- `status`: `success | processing | default | error | warning`
-- `dot`: boolean
-- `count`: string | number
-- `overflowCount`: number
-- `showZero`: boolean
-- `offset`: array
-- `color`: string
+## 使用规则
 
-### 用途
+- 必须设置 `count`；只表达“有新内容”时使用 `dot=true`，表达数量时显示 `count`。
+- 数量超过展示上限时设置 `overflowCount`；只有业务需要显示 0 时才使用 `showZero=true`。
+- 有明确状态时使用 `status=success | processing | default | error | warning`，不要用任意 `color` 替代语义状态。
+- 默认放在锚点右上角；仅在遮挡锚点时使用 `offset=[x, y]` 微调。
 
-用于通知点、未读数或附着在元素上的小型数量提示。
+## 布局
 
-### 类型
+- Badge 必须依附明确锚点，不单独占据内容区域。
+- 同组 Badge 的位置与上限规则保持一致。
 
-- Dot badge：只表达“有”。
-- Number badge：表达数量。
-- Dot badge 用于未读、待处理、提醒存在性。
-- Number badge 用于通知数量、待办数量、消息数量；数量过大按组件上限显示。
-
-### 规则
-
-- 依附于图标、头像、Tab 或紧凑文本。
-- 通常位于锚点右上角。
-- 大数字按组件能力显示上限，如 `99+`。
-- Badge 是锚点的附属信息，不应成为主内容。
-
-### Do
-
-- 依附于图标、头像、Tab 或紧凑文本，位于锚点右上角。
-- 未读、待处理使用 `dot` 表达存在性。
-- 通知、待办数量使用 `count` 表达具体数量。
-- 大数字使用 `overflowCount` 显示上限，如 `99+`。
-- Badge 作为锚点附属信息，不抢主内容视觉权重。
-
-### Don't
+## Don't
 
 - 不要在 Table 内使用 Badge。
-- 不要把 Badge 当通用状态标签。
-- 不要让 Badge 没有明确锚点。
+- 不要用 Badge 表达分类或普通状态；此类信息使用 Tag。
+- 不要让 Badge 抢过锚点本身的视觉权重。
