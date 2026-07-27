@@ -16,7 +16,7 @@
 				"value": {
 					"path": "/tagLabel"
 				},
-				"color": "success"
+				"color": "purple"
 			}
 		}
 	]
@@ -32,7 +32,7 @@
 	"props": {
 		"value": "信息提示",
 		"icon": "info",
-		"color": "#8ca3fa",
+		"color": "default",
 	}
 },
 ```
