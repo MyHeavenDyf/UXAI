@@ -16,7 +16,7 @@ function samePath(a?: string, b?: string): boolean {
  * 开出来的 uri tab 就没有 filePath。故这里**每次去重都重查注册表**,而不是只信 tab 上
  * 那份创建时的快照——否则「卡片一出现就点开(慢文件) → 稍后从文件管理打开同一文件」必然双开。
  */
-function tabLocalPath(t: ResultTab): string | undefined {
+export function tabLocalPath(t: ResultTab): string | undefined {
   if (t.filePath) return t.filePath
   return t.source === "uri" ? materializedLocalPath(t.id) : undefined
 }
@@ -66,11 +66,12 @@ export function createTabStore() {
     const card: OutputCard = localPath ? { ...incoming, filePath: localPath } : incoming
     // 去重优先级(spec: task-card.md §3.5 入口冗余 ≠ tab 重复):
     //   1. (uri, type) 复合命中 → 激活(多入口指向同一产物 + 同一渲染视图)
-    //   2. (filePath, type) 复合命中 → 激活(同一本地文件;含 uri 卡 ↔ 文件管理卡跨入口)
+    //   2. filePath 命中 → 激活(同一本地文件;含 uri 卡 ↔ 文件管理卡跨入口)
     //   3. id 命中 → 激活(inline 模式 / 同入口重复点击)
     //   4. 都不命中 → 新建
-    // 同一 URI 不同 type 可并存(典型场景:mindmap JSON 文件既可走 json 高亮预览,
-    // 也可走 mindmap 思维导图渲染——两个 tab 互不冲突)。
+    // 同一 URI 不同 type 可并存(典型场景:对话区同一份 mindmap JSON 既开 json 高亮卡、
+    // 又开 mindmap 思维导图卡——两个「对话卡片」是用户要的双视图,不合)。这条只在 (uri,type)
+    // 判据里保留:两张卡都来自对话区(source 都是 uri),type 不同就各留一个。
     const current = tabs()
     if (card.uri) {
       const byUriAndType = current.find((t) => t.uri === card.uri && t.type === card.type)
@@ -85,20 +86,29 @@ export function createTabStore() {
         return byUriAndType.id
       }
     }
-    // (filePath, type) 去重:write 产物重复点开,以及「对话区 uri 卡 ↔ 文件管理同一文件」跨入口。
+    // filePath 去重:「对话区 uri 卡 ↔ 文件管理同一文件」跨入口收敛成一个 tab。
     // 比较用 tabLocalPath():已开的 uri tab 可能开在落盘完成之前(慢文件),filePath 是空的,
     // 要回查注册表才认得出它就是这个本地文件。
+    //
+    // ⚠️ 跨入口(source 不同,一个 uri 一个 path)时**忽略 type**:同一份 `mindmap.json` 被文件管理
+    // 按扩展名判成 json、被对话卡按 business_type 判成 mindmap——它俩是同一个磁盘文件,必须合成一个 tab
+    // (否则用户看到「一份文件两个条目、改了不同步」,见 #文件卡与文件管理身份统一)。视图差异由 tab 内的
+    // 预览/代码切换承担,不靠双 tab。仅当两边 source 相同(都是对话区 uri 卡)才保留 type 区分双视图。
     if (card.filePath) {
-      const byPathAndType = current.find((t) => samePath(tabLocalPath(t), card.filePath) && t.type === card.type)
-      if (byPathAndType) {
-        console.log("[octo:tab] dedupe-by-path-and-type", {
-          existingTabId: byPathAndType.id,
+      const byPath = current.find(
+        (t) => samePath(tabLocalPath(t), card.filePath) && (t.source !== card.source || t.type === card.type),
+      )
+      if (byPath) {
+        console.log("[octo:tab] dedupe-by-path", {
+          existingTabId: byPath.id,
           incomingCardId: card.id,
           filePath: card.filePath,
-          type: card.type,
+          existingType: byPath.type,
+          incomingType: card.type,
+          crossSource: byPath.source !== card.source,
         })
-        setActiveId(byPathAndType.id)
-        return byPathAndType.id
+        setActiveId(byPath.id)
+        return byPath.id
       }
     }
     const byId = current.find((t) => t.id === card.id)

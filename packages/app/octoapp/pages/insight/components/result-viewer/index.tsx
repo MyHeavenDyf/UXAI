@@ -3,6 +3,7 @@ import { Portal } from "solid-js/web"
 import type { JSX } from "solid-js"
 import { showToast } from "@opencode-ai/ui/toast"
 import type { ResultTab, TabViewMode } from "./tab-store"
+import { tabLocalPath } from "./tab-store"
 import { TabBar } from "./tab-bar"
 import { ActionBar } from "./action-bar"
 import { TableRenderer } from "./table-renderer"
@@ -139,6 +140,9 @@ function TabBody(props: {
   onCacheContent?: (id: string, content: string) => void
   refreshKey?: number
 }): JSX.Element {
+  // 本地磁盘副本路径(path 卡的 filePath / uri 卡已落盘的注册路径)。tabLocalPath 响应式:
+  // uri 卡异步落盘完成后本 getter 变化 → 下面的 Match 自动切到读盘分支。
+  const localDiskPath = () => tabLocalPath(props.tab)
   return (
     <Switch fallback={<TabContent tab={props.tab} />}>
       {/* image 模式(filePath:local:// 协议读盘渲染 / uri:直接加载):
@@ -147,11 +151,15 @@ function TabBody(props: {
       <Match when={props.tab.type === "image" && (props.tab.filePath || props.tab.uri)}>
         <ImageRenderer filePath={props.tab.filePath} uri={props.tab.uri} refreshKey={props.refreshKey} />
       </Match>
-      {/* path 模式(路径 C,write 文本产物):走 SDK file.read 读盘取最新内容,不复用快照。
-          见 output-renderers.md §2.6.3。file 类型(表格/office/二进制)不读盘,直接 fallback 到
-          TabContent → FileFallback(本地 openPath / showItemInFolder)。 */}
-      <Match when={props.tab.source === "path" && props.tab.type !== "file"}>
-        <PathTabBody tab={props.tab} onCacheContent={props.onCacheContent} />
+      {/* 有本地磁盘文件就一律走 SDK file.read 读盘、每次挂载重读,不复用缓存快照:
+          - path 卡(路径 C write 文本产物)—— 原有行为
+          - uri 卡已落盘(json/html/table/mindmap/markdown)—— 与「文件管理打开的同一磁盘文件」读同一份,
+            外部改了文件重开即见最新;也让对话卡片和文件管理项收敛成一个 tab(见 tab-store filePath 去重)。
+            修复:uri 卡此前只读远端 S3 原件 / 读一次就缓存,导致和文件管理「不是一个文件、改了不同步」。
+          file(office/二进制)不读文本、image 已在上面分流,均排除,走各自 fallback。
+          见 output-renderers.md §2.6.3。 */}
+      <Match when={!!localDiskPath() && props.tab.type !== "file" && props.tab.type !== "image"}>
+        <PathTabBody tab={{ ...props.tab, filePath: localDiskPath()! }} onCacheContent={props.onCacheContent} />
       </Match>
       {/* uri markdown 卡:不直接 fetch(url),而是先把产物落成本地「工作副本」(download-resource-to-temp
           已幂等:首次下原件、之后复用用户改过的那份),再读这份本地文件。于是卡片预览 / 编辑 / 重开卡

@@ -57,16 +57,43 @@ describe("openTab 跨入口去重", () => {
     expect(store.tabs()).toHaveLength(1)
   })
 
-  it("同一文件不同 type 仍并存(mindmap json 双卡不能被误合)", () => {
+  it("对话区同一份 json 开两张卡(json 高亮 + mindmap 视图)仍并存(双视图不合)", () => {
     const store = createTabStore()
     const local = "/proj/insight/ses_1/outputs/mindmap.json"
     materialized.set("card-json", local)
     materialized.set("card-mm", local)
 
+    // 两张卡都来自对话区(source 都是 uri),type 不同 → 保留双视图,不合。
     store.openTab(card({ id: "card-json", source: "uri", uri: "https://mcp/m.json", type: "json" }))
     store.openTab(card({ id: "card-mm", source: "uri", uri: "https://mcp/m.json", type: "mindmap" }))
 
     expect(store.tabs()).toHaveLength(2)
+  })
+
+  it("跨入口同一文件 type 不同也合并(对话 mindmap 卡 ↔ 文件管理 json)", () => {
+    const store = createTabStore()
+    const local = "/proj/insight/ses_1/outputs/mindmap.json"
+    materialized.set("card-mm", local)
+
+    // 对话卡按 business_type 判成 mindmap;文件管理按 .json 扩展名判成 json——同一磁盘文件,
+    // source 不同(uri vs path)→ 忽略 type 合并成一个 tab(修复「一份文件两个条目、改了不同步」)。
+    const mmId = store.openTab(card({ id: "card-mm", source: "uri", uri: "https://mcp/m.json", type: "mindmap" }))
+    const fmId = store.openTab(card({ id: "fm-uuid", source: "path", filePath: local, type: "json" }))
+
+    expect(fmId).toBe(mmId)
+    expect(store.tabs()).toHaveLength(1)
+  })
+
+  it("跨入口合并对开 tab 时机不敏感:先文件管理(json)后对话卡(mindmap)也合", () => {
+    const store = createTabStore()
+    const local = "/proj/insight/ses_1/outputs/mindmap.json"
+    materialized.set("card-mm", local)
+
+    const fmId = store.openTab(card({ id: "fm-uuid", source: "path", filePath: local, type: "json" }))
+    const mmId = store.openTab(card({ id: "card-mm", source: "uri", uri: "https://mcp/m.json", type: "mindmap" }))
+
+    expect(mmId).toBe(fmId)
+    expect(store.tabs()).toHaveLength(1)
   })
 
   // 慢文件回归:eager 落盘是异步的,几十 MB 的 xlsx 下完要数秒~数十秒。用户在下载完成前

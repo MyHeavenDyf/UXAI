@@ -2,8 +2,18 @@ import { For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
 import type { ResultTab } from "./tab-store"
+import { tabLocalPath } from "./tab-store"
 import { IconTabClose } from "../../icons"
 import { IconFolder } from "../../icons/design-files-icons"
+
+// tab 标签文案:已落盘的产物用磁盘真实 basename(与「文件管理」列名一致),避免同一份文件
+// 卡片名(resource_link 原名,如「林 (2).json」)与磁盘名(「林__2_.json」)对不上、看着像两份。
+// 未落盘(inline / 远端未下完)则回退 tab.title。tabLocalPath 响应式,落盘后自动更新。
+function tabDisplayTitle(tab: ResultTab): string {
+  const local = tabLocalPath(tab)
+  const base = local?.split(/[\\/]/).pop()
+  return base || tab.title
+}
 
 export function TabBar(props: {
   tabs: ResultTab[]
@@ -64,7 +74,7 @@ export function TabBar(props: {
                 class="flex-1 min-w-0 text-[13px] text-left truncate transition-colors outline-none"
                 style={{ "font-weight": isActive() ? "500" : "400" }}
               >
-                {tab.title}
+                {tabDisplayTitle(tab)}
               </button>
               <button
                 type="button"
