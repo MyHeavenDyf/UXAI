@@ -127,6 +127,7 @@ const api: ElectronAPI = {
   pipelineRequest: (url, method, uiplusToken, body, headers) => ipcRenderer.invoke("pipeline-request", url, method, uiplusToken, body, headers),
   // jk-j60099994-replace-with-index-1-start
   // jk-j60099994-replace-with-index-1-end
+  configureProxy: (account, password) => ipcRenderer.invoke("configure-proxy", account, password),
 }
 
 contextBridge.exposeInMainWorld("api", api)

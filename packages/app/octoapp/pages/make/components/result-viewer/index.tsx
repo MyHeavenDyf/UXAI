@@ -103,6 +103,12 @@ export function ResultViewer(props: {
   onBackToStrategy?: () => void
   /** 策略是否正在生成中 */
   isGenerating?: boolean
+  /** 确认后等待主 agent 响应的过渡状态 */
+  planConfirmPending?: boolean
+  /** 子 agent 最终确认状态（基于 childSessionIDs 消息流扫描） */
+  childPlanConfirmed?: boolean
+  /** 子 session 的 session_status（用于检测子 agent 是否已完成但未输出有效 plan） */
+  childSessionStatus?: { type: string }
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const projectSelection = useProjectSelection()
@@ -284,7 +290,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           onClose={props.onClose}
           viewMode={props.viewMode}
           onViewModeChange={props.sessionId ? props.onViewModeChange : undefined}
-          showPlanEntry={!!props.planCard || props.planPhase === "strategy"}
+          showPlanEntry={!!props.planCard}
           planConfirmed={props.isPlanConfirmed?.()}
         />
 
@@ -302,8 +308,8 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           )}
         </Show>
 
-        {/* plan 模式 — 策略准备阶段 */}
-        <Show when={props.viewMode === "plan" && props.planPhase === "strategy"}>
+        {/* plan 模式 — 策略准备阶段（排除已确认状态） */}
+        <Show when={props.viewMode === "plan" && props.planPhase === "strategy" && !props.childPlanConfirmed && !props.planConfirmPending}>
           <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
             <StrategyFormRenderer
               formData={props.strategyFormData ?? {
@@ -318,36 +324,124 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           </div>
         </Show>
 
-        {/* plan 模式 — 设计规划生成阶段,有 planCard 时渲染 */}
-        <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && props.planCard}>
-          {(plan) => (
-            <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
-              <DesignPlanRenderer
-                content={plan().content}
-                title={plan().title}
-                artifactIdentifier={plan().artifactIdentifier}
-                confirmed={props.isPlanConfirmed?.() ?? false}
-                onConfirm={() => props.onConfirmPlan?.(plan().artifactIdentifier)}
-                onContentChange={(content) => {
-                  if (props.onContentChange && plan().id) {
-                    props.onContentChange(plan().id, content)
-                  }
-                }}
-                onBackToStrategy={() => props.onBackToStrategy?.()}
-                currentStep={2}
-              />
-            </div>
-          )}
+        {/* plan 模式 — 设计规划生成阶段,有 planCard 时渲染（未确认状态） */}
+        <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && !props.planConfirmPending && !props.childPlanConfirmed}>
+          <Show when={props.planCard} keyed>
+            {(plan) => (
+              <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+                <DesignPlanRenderer
+                  content={plan.content}
+                  title={plan.title}
+                  artifactIdentifier={plan.artifactIdentifier}
+                  confirmed={props.isPlanConfirmed?.() ?? false}
+                  onConfirm={() => props.onConfirmPlan?.(plan.artifactIdentifier)}
+                  onContentChange={(content) => {
+                    if (props.onContentChange && plan.id) {
+                      props.onContentChange(plan.id, content)
+                    }
+                  }}
+                  onBackToStrategy={() => props.onBackToStrategy?.()}
+                  currentStep={2}
+                />
+              </div>
+            )}
+          </Show>
         </Show>
 
-        {/* plan 模式 — 生成阶段等待子 agent 输出 design-plan */}
-        <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && !props.planCard}>
-          <div class="flex flex-col items-center justify-center flex-1 gap-3" style="background: var(--octo-surface-result);">
-            <div class="flex items-center gap-2">
-              <span class="i-svg-spinners-clock size-5" />
-              <span style="color: var(--octo-text-secondary); font-size: 14px;">设计规划子 agent 正在生成中...</span>
+        {/* plan 模式 — 方案已确认，等待主 agent 生成 HTML（按钮禁用状态） */}
+        <Show when={props.viewMode === "plan" && props.planConfirmPending}>
+          <Show when={props.planCard} keyed>
+            {(plan) => (
+              <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+                <DesignPlanRenderer
+                  content={plan.content}
+                  title={plan.title}
+                  artifactIdentifier={plan.artifactIdentifier}
+                  confirmed={true}
+                  onConfirm={() => {}}
+                  onContentChange={(content) => {
+                    if (props.onContentChange && plan.id) {
+                      props.onContentChange(plan.id, content)
+                    }
+                  }}
+                  onBackToStrategy={() => {}}
+                  currentStep={2}
+                />
+                <div class="flex items-center justify-center gap-2 shrink-0" style="padding: 12px 24px; border-top: 1px solid rgba(0,0,0,0.06); background: var(--octo-surface-page);">
+                  <span class="i-svg-spinners-clock size-4" />
+                  <span style="color: var(--octo-text-secondary); font-size: 13px;">方案已确认，正在通知主 agent 生成 HTML...</span>
+                </div>
+              </div>
+            )}
+          </Show>
+          {/* planCard 尚未同步时的兜底 */}
+          <Show when={!props.planCard}>
+            <div class="flex flex-col items-center justify-center flex-1 gap-3" style="background: var(--octo-surface-result);">
+              <div class="flex items-center gap-2">
+                <span class="i-svg-spinners-clock size-5" />
+                <span style="color: var(--octo-text-secondary); font-size: 14px;">方案已确认，正在生成 HTML...</span>
+              </div>
             </div>
-          </div>
+          </Show>
+        </Show>
+
+        {/* plan 模式 — 已确认的第二阶段（跨重启后/已结束），按钮禁用 */}
+        <Show when={props.viewMode === "plan" && props.childPlanConfirmed && !props.planConfirmPending}>
+          <Show when={props.planCard} keyed>
+            {(plan) => (
+              <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+                <DesignPlanRenderer
+                  content={plan.content}
+                  title={plan.title}
+                  artifactIdentifier={plan.artifactIdentifier}
+                  confirmed={true}
+                  onConfirm={() => {}}
+                  onContentChange={(content) => {
+                    if (props.onContentChange && plan.id) {
+                      props.onContentChange(plan.id, content)
+                    }
+                  }}
+                  onBackToStrategy={() => {}}
+                  currentStep={2}
+                />
+              </div>
+            )}
+          </Show>
+        </Show>
+
+        {/* plan 模式 — 生成阶段等待子 agent 输出 design-plan（排除已确认状态） */}
+        <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && !props.planCard && !props.childPlanConfirmed && !props.planConfirmPending}>
+          <Show when={props.childSessionStatus?.type === "idle" && props.childSessionStatus !== undefined}
+            fallback={
+              <div class="flex flex-col items-center justify-center flex-1 gap-3" style="background: var(--octo-surface-result);">
+                <div class="flex items-center gap-2">
+                  <span class="i-svg-spinners-clock size-5" />
+                  <span style="color: var(--octo-text-secondary); font-size: 14px;">设计规划子 agent 正在生成中...</span>
+                </div>
+              </div>
+            }>
+            <div class="flex flex-col items-center justify-center flex-1 gap-3" style="background: var(--octo-surface-result);">
+              <div class="flex flex-col items-center gap-2">
+                <span style="color: var(--octo-text-secondary); font-size: 14px;">模型生成的策略格式异常，请重新生成</span>
+                <button
+                  type="button"
+                  onClick={() => props.onBackToStrategy?.()}
+                  class="text-[14px] font-medium rounded-[999px] transition-colors cursor-pointer"
+                  style={{
+                    height: "32px",
+                    padding: "0 16px",
+                    "line-height": "22px",
+                    background: "#0a59f7",
+                    color: "white",
+                    border: "none",
+                    "margin-top": "8px",
+                  }}
+                >
+                  返回策略准备
+                </button>
+              </div>
+            </div>
+          </Show>
         </Show>
 
         <Show when={props.viewMode === "tabs"}>
