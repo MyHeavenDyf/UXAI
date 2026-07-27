@@ -1118,12 +1118,15 @@ export function registerIpcHandlers(deps: Deps) {
       const errorMessage = err instanceof Error ? err.message : String(err)
       const errorStack = err instanceof Error ? err.stack : undefined
       const errorCode = (err as NodeJS.ErrnoException).code
+      // execSync 失败时, stderr 包含 curl 的具体错误信息
+      const stderrOutput = err instanceof Error ? (err as any).stderr?.toString().trim() : undefined
       log.error("[configure-proxy] 配置失败", {
         error: errorMessage,
         code: errorCode,
+        stderr: stderrOutput,
         stack: errorStack,
       })
-      return { success: false, encodedPwd, curlUrl: curlTarget, error: errorMessage }
+      return { success: false, encodedPwd, curlUrl: curlTarget, error: stderrOutput || errorMessage }
     } finally {
       // 恢复之前的环境变量
       for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"] as const) {
