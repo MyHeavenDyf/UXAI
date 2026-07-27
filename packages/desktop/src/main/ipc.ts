@@ -100,7 +100,7 @@ function sanitizeSessionSegment(raw: string): string {
 
 // write-file 白名单用(v2 会话隔离新增):判断路径是否落在 .octo/<sessionId>/{uploads,outputs} 下。
 // sessionId 段可变,不能用固定子串匹配,按路径分段比对—— .octo 之后第一段是会话段、第二段必须是
-// uploads/outputs(这样 .octo/artifacts/make/... 这类其它命名空间的第二段不是 uploads/outputs,天然不放行)。
+// uploads/outputs(这样 .octo/<sessionId>/comments/... 等其它命名空间的第二段不是 uploads/outputs,天然不放行)。
 function isInsightSessionWorktreePath(resolved: string): boolean {
   const segs = resolved.split(sep)
   const i = segs.lastIndexOf(".octo")

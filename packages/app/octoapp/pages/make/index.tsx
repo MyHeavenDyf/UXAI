@@ -1908,13 +1908,14 @@ const sessionMessagesLoaded = createMemo(() => {
         const sep = folderProjDir.includes("\\") ? "\\" : "/"
         const artifactFolder = [
           folderProjDir,
-          ...".octo/artifacts/make".split("/"),
+          ".octo",
           sessionId,
+          "outputs",
         ].join(sep)
 
         let existingList = ""
         try {
-          const relPath = `.octo/artifacts/make/${sessionId}`
+          const relPath = `.octo/${sessionId}/outputs`
           const result = await sdk.client.file.list({ path: relPath })
           const files = (result.data ?? []).filter((n) => n.type === "file")
           if (files.length > 0) {

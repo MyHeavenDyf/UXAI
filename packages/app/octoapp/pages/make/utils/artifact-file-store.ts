@@ -390,7 +390,7 @@ export function createArtifactFileStore(sessionId: string) {
 
     navigateToFolder(folder: ArtifactFile) {
       if (!folder.isFolder) return
-      const path = folder.relativePath.replace(/^upload-files\//, "")
+      const path = folder.relativePath.replace(/^uploads\//, "")
       setStore("currentPath", path)
     },
   }
