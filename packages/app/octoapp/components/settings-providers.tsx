@@ -206,18 +206,35 @@ export const SettingsProviders: Component = () => {
                       </div>
                     </Show>
                     <Show when={item.id !== "opencode" && item.id !== "w3"}>
-                    <Show
-                      when={canDisconnect(item)}
-                      fallback={
-                        <span class="text-14-regular text-text-base opacity-0 group-hover:opacity-100 transition-opacity duration-200 pr-3 cursor-default">
-                          {language.t("settings.providers.connected.environmentDescription")}
-                        </span>
-                      }
-                    >
-                      <Button size="large" variant="ghost" onClick={() => void disconnect(item.id, item.name)}>
-                        {language.t("common.disconnect")}
-                      </Button>
-                    </Show>
+                      <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+                        <Show when={isConfigCustom(item.id)}>
+                          <Button
+                            size="large"
+                            variant="secondary"
+                            onClick={() =>
+                              dialog.show(() => (
+                                <DialogCustomProvider back="close" providerID={item.id} />
+                              ))
+                            }
+                          >
+                            {language.t("common.edit")}
+                          </Button>
+                        </Show>
+                        <Show
+                          when={canDisconnect(item)}
+                          fallback={
+                            <Show when={!isConfigCustom(item.id)}>
+                              <span class="text-14-regular text-text-base opacity-0 group-hover:opacity-100 transition-opacity duration-200 pr-3 cursor-default">
+                                {language.t("settings.providers.connected.environmentDescription")}
+                              </span>
+                            </Show>
+                          }
+                        >
+                          <Button size="large" variant="ghost" onClick={() => void disconnect(item.id, item.name)}>
+                            {language.t("common.disconnect")}
+                          </Button>
+                        </Show>
+                      </div>
                     </Show>
                   </div>
                 )}

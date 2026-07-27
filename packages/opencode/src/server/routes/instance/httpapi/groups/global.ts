@@ -1,4 +1,5 @@
 import { Config } from "@/config/config"
+import { ConfigProvider } from "@/config/provider"
 import { BusEvent } from "@/bus/bus-event"
 import { SyncEvent } from "@/sync"
 import "@/server/event"
@@ -37,6 +38,7 @@ export const GlobalPaths = {
   health: "/global/health",
   event: "/global/event",
   config: "/global/config",
+  configProvider: "/global/config/provider/:providerID",
   dispose: "/global/dispose",
   upgrade: "/global/upgrade",
 } as const
@@ -80,6 +82,18 @@ export const GlobalApi = HttpApi.make("global").add(
           identifier: "global.config.update",
           summary: "Update global configuration",
           description: "Update global OpenCode configuration settings and preferences.",
+        }),
+      ),
+      HttpApiEndpoint.put("configProviderReplace", GlobalPaths.configProvider, {
+        params: { providerID: Schema.String },
+        payload: ConfigProvider.Info,
+        success: described(Config.Info, "Successfully replaced global provider config"),
+        error: HttpApiError.BadRequest,
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.config.replaceProvider",
+          summary: "Replace global provider configuration",
+          description: "Replace one provider configuration without changing other global settings or providers.",
         }),
       ),
       HttpApiEndpoint.post("dispose", GlobalPaths.dispose, {

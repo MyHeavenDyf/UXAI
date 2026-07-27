@@ -325,6 +325,10 @@ export interface Interface {
   readonly getConsoleState: () => Effect.Effect<ConsoleState>
   readonly update: (config: Info) => Effect.Effect<void>
   readonly updateGlobal: (config: Info) => Effect.Effect<{ info: Info; changed: boolean }>
+  readonly replaceGlobalProvider: (
+    providerID: string,
+    provider: ConfigProvider.Info,
+  ) => Effect.Effect<{ info: Info; changed: boolean }>
   readonly invalidate: () => Effect.Effect<void>
   readonly directories: () => Effect.Effect<string[]>
   readonly waitForDependencies: () => Effect.Effect<void>
@@ -866,12 +870,44 @@ export const layer = Layer.effect(
       return { info: next, changed }
     })
 
+    const replaceGlobalProvider = Effect.fn("Config.replaceGlobalProvider")(function* (
+      providerID: string,
+      provider: ConfigProvider.Info,
+    ) {
+      const file = globalConfigFile()
+      const before = (yield* readConfigFile(file)) ?? "{}"
+      const existing = ConfigParse.effectSchema(Info, ConfigParse.jsonc(before, file), file)
+      const next = {
+        ...writable(existing),
+        provider: {
+          ...existing.provider,
+          [providerID]: provider,
+        },
+      }
+      const updated = file.endsWith(".jsonc")
+        ? applyEdits(
+            before,
+            modify(before, ["provider", providerID], provider, {
+              formattingOptions: {
+                insertSpaces: true,
+                tabSize: 2,
+              },
+            }),
+          )
+        : JSON.stringify(next, null, 2)
+      const changed = updated !== before
+      if (changed) yield* fs.writeFileString(file, updated).pipe(Effect.orDie)
+      if (changed) yield* invalidate()
+      return { info: next, changed }
+    })
+
     return Service.of({
       get,
       getGlobal,
       getConsoleState,
       update,
       updateGlobal,
+      replaceGlobalProvider,
       invalidate,
       directories,
       waitForDependencies,
