@@ -1062,7 +1062,7 @@ export function registerIpcHandlers(deps: Deps) {
     const encodedPwd = encodeURIComponent(password)
       .replace(/['()!*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
     const proxyUrl = `http://${account}:${encodedPwd}@proxyhk.huawei.com:8080`
-    const httpsProxyUrl = proxyUrl.replace("http://", "https://")
+    // http_proxy 和 https_proxy 都用同一个 http:// 代理地址
     const noProxy = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
     const curlTarget = "https://ifconfig.me/ip"
     const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null"
@@ -1075,10 +1075,10 @@ export function registerIpcHandlers(deps: Deps) {
       prevEnv[key] = process.env[key]
     }
     process.env["http_proxy"] = proxyUrl
-    process.env["https_proxy"] = httpsProxyUrl
+    process.env["https_proxy"] = proxyUrl
     process.env["no_proxy"] = noProxy
     process.env["HTTP_PROXY"] = proxyUrl
-    process.env["HTTPS_PROXY"] = httpsProxyUrl
+    process.env["HTTPS_PROXY"] = proxyUrl
     process.env["NO_PROXY"] = noProxy
 
     log.info("[configure-proxy] 环境变量已注入", {
@@ -1090,7 +1090,7 @@ export function registerIpcHandlers(deps: Deps) {
     try {
       log.info("[configure-proxy] 执行 curl 测试连通性", { curlTarget, connectTimeout: 15, execTimeout: 20000 })
 
-      const curlResult = execSync(`curl -sS -o "${nullDevice}" -w "%{http_code}" --connect-timeout 15 "${curlTarget}"`, {
+      const curlResult = execSync(`curl -k -sS -o "${nullDevice}" -w "%{http_code}" --connect-timeout 15 "${curlTarget}"`, {
         timeout: 20000,
         stdio: "pipe",
         encoding: "utf-8",
@@ -1111,7 +1111,7 @@ export function registerIpcHandlers(deps: Deps) {
       } catch { /* 文件不存在或解析失败, 使用空对象 */ }
 
       config["http_proxy"] = proxyUrl
-      config["https_proxy"] = httpsProxyUrl
+      config["https_proxy"] = proxyUrl
       config["no_proxy"] = noProxy
 
       writeFileSync(configFile, JSON.stringify(config, null, 2), "utf-8")
