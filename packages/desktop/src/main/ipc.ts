@@ -1090,10 +1090,13 @@ export function registerIpcHandlers(deps: Deps) {
     try {
       log.info("[configure-proxy] 执行 curl 测试连通性", { curlTarget, connectTimeout: 15, execTimeout: 20000 })
 
-      execSync(`curl -s -o "${nullDevice}" -w "%{http_code}" --connect-timeout 15 "${curlTarget}"`, {
+      const curlResult = execSync(`curl -sS -o "${nullDevice}" -w "%{http_code}" --connect-timeout 15 "${curlTarget}"`, {
         timeout: 20000,
         stdio: "pipe",
-      })
+        encoding: "utf-8",
+      }).toString().trim()
+
+      log.info("[configure-proxy] curl 测试通过", { httpCode: curlResult })
 
       log.info("[configure-proxy] curl 测试通过, 写入配置文件")
 
@@ -1120,13 +1123,17 @@ export function registerIpcHandlers(deps: Deps) {
       const errorCode = (err as NodeJS.ErrnoException).code
       // execSync 失败时, stderr 包含 curl 的具体错误信息
       const stderrOutput = err instanceof Error ? (err as any).stderr?.toString().trim() : undefined
+      const stdoutOutput = err instanceof Error ? (err as any).stdout?.toString().trim() : undefined
       log.error("[configure-proxy] 配置失败", {
         error: errorMessage,
         code: errorCode,
         stderr: stderrOutput,
+        stdout: stdoutOutput,
         stack: errorStack,
       })
-      return { success: false, encodedPwd, curlUrl: curlTarget, error: stderrOutput || errorMessage }
+      // 将完整的错误详情返回给前端
+      const detailParts = [stderrOutput, stdoutOutput, errorMessage].filter(Boolean)
+      return { success: false, encodedPwd, curlUrl: curlTarget, error: detailParts.join(" | ") }
     } finally {
       // 恢复之前的环境变量
       for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"] as const) {
