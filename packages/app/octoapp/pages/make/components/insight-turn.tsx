@@ -17,6 +17,11 @@ import { parseUploadedFiles } from "../../insight/lib/upload"
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
 
+// Render text with @mentions - plain text only, no chip styling
+function renderMentionText(text: string): JSX.Element {
+  return text
+}
+
 // 跟踪已 autoSave 的 artifact（避免重复调用）
 const autoSavedArtifacts = new Set<string>()
 
@@ -513,8 +518,20 @@ export function InsightTurn(props: {
 
   const userText = createMemo(() => {
     const parts = partStore?.[props.messageID] ?? []
+    
+    // 优先查找带有 metadata.displayText 的 text part（用于 @mention 显示）
+    const displayTextPart = parts.find(
+      (p) => p.type === "text" && (p as { metadata?: { displayText?: string } }).metadata?.displayText
+    )
+    if (displayTextPart) {
+      const metadata = (displayTextPart as { metadata?: { displayText?: string } }).metadata
+      return metadata?.displayText?.trim() ?? ""
+    }
+    
+    // 否则查找第一个 text part
     const textPart = parts.find((p) => p.type === "text")
     if (!textPart?.text) return ""
+    
     const raw = textPart.text
     const sepIdx = raw.lastIndexOf("\n---\n")
     if (sepIdx !== -1) return raw.slice(sepIdx + 5).trim()
@@ -1008,7 +1025,7 @@ const stateStatus = state.status as string | undefined
                 "max-width": "85%",
               }}
             >
-              {userText()}
+              {renderMentionText(userText())}
             </div>
           </Show>
           <Show when={userAttachments().length > 0}>

@@ -29,3 +29,5 @@ export function defaultFilename(tab: {
 export function ensureMarkdownExt(name: string): string {
   return /\.(md|markdown|mdown|mkd)$/i.test(name) ? name : `${name}.md`
 }
+
+// isPendingUploadPath 是「worktree 布局判据」而非文件名规则,已迁至 ./worktree-layout.ts(布局单一真相源)。

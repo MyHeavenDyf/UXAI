@@ -10,7 +10,6 @@ import { injectArtifactBridges } from "./artifact-bridge"
 
 const ARTIFACTS_BASE_DIR = ".octo/artifacts/make"
 const UPLOAD_FILES_DIR = "upload-files"
-const ICONPLUS_FILES_DIR = "iconPlus"
 const COMMENT_FILES_DIR = "comment-files"
 
 function sanitizePath(rawPath: string): string {
@@ -270,7 +269,7 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
         const files: ArtifactFileInfo[] = []
 
         for (const name of entries) {
-          if (name.startsWith(".") || name === UPLOAD_FILES_DIR || name === ICONPLUS_FILES_DIR || name === COMMENT_FILES_DIR) continue
+          if (name.startsWith(".") || name === UPLOAD_FILES_DIR || name === COMMENT_FILES_DIR) continue
 
           const fullPath = path.join(artifactDir, name)
           const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))

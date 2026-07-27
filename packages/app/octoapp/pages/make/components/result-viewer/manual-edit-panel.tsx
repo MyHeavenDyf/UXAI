@@ -415,13 +415,15 @@ function UnitRow(props: {
   unit: string
   autoUnit?: boolean
 }) {
-  const display = () => stripPxUnit(props.value)
+  const hadPxUnit = () => /^-?\d+(\.\d+)?px$/i.test(props.value.trim())
+  const display = () => props.unit === "" && !hadPxUnit() ? props.value : stripPxUnit(props.value)
   const canStep = () => isNumericInput(display())
 
   const valueFromDisplay = (raw: string) => {
     const trimmed = raw.trim()
+    if (/^-?\d+(\.\d+)?px$/i.test(trimmed)) return trimmed.toLowerCase()
+    if (props.unit === "" && hadPxUnit() && isNumericInput(trimmed)) return `${trimmed}px`
     if (props.autoUnit && trimmed && isNumericInput(trimmed)) return `${trimmed}px`
-    if (props.autoUnit && /^-?\d+(\.\d+)?px$/i.test(trimmed)) return trimmed.toLowerCase()
     return raw
   }
 

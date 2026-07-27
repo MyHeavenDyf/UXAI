@@ -5,7 +5,7 @@ import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { buildStudioDisplayPrompt, type StudioTurnData } from "./turns"
 import { StudioResultCard } from "./studio-result-card"
 import { isStudioEditResult, isVideoMedia, getImageOrientation } from "./studio-shared"
-import { STUDIO_STYLE_MODELS } from "./data"
+import { capabilityLabel, STUDIO_STYLE_MODELS } from "./data"
 import { StudioVideoPlayer } from "./studio-video-player"
 import { getArtifactRelativePath, getArtifactServeUrl } from "../make/utils/artifact-file-api"
 import { StudioFileManager } from "./studio-file-manager"
@@ -633,6 +633,25 @@ export function StudioDetails(props: {
 }): JSX.Element {
   const isEditResult = createMemo(() => isStudioEditResult(props.result))
   const isVideoResult = createMemo(() => props.result.capability === "video.generate" || isVideoMedia(props.image))
+  const editorTitle = createMemo(() => {
+    if (props.result.capability === "image.upscale") return capabilityLabel(props.result.capability)
+    if (props.result.capability === "image.cutout") return capabilityLabel(props.result.capability)
+    if (props.result.capability === "image.inpaint" || props.result.toolAction === "inpainting") return "智能重绘"
+    if (props.result.capability === "image.outpaint" || props.result.toolAction === "outpainting") return "扩图"
+    if (props.result.toolAction === "super_resolution") return "变清晰"
+    if (props.result.toolAction === "cutout") return "抠图"
+    return capabilityLabel(props.result.capability)
+  })
+  const detailTitle = createMemo(() => isEditResult()
+    ? editorTitle()
+    : props.result.detailTitle ?? buildStudioDisplayPrompt(props.result.prompt))
+  const detailCopy = createMemo(() => {
+    if (!isEditResult()) return props.result.prompt
+    if (props.result.capability === "image.inpaint" || props.result.capability === "image.outpaint" || props.result.toolAction === "inpainting" || props.result.toolAction === "outpainting") {
+      return props.result.detailPrompt?.trim() || "-"
+    }
+    return "-"
+  })
   const modelLabel = createMemo(() => {
     const m = props.result.styleModel || props.result.model
     const found = STUDIO_STYLE_MODELS.find((item) => item.id === m || item.label === m)
@@ -655,9 +674,9 @@ export function StudioDetails(props: {
         </For>
       </div>
       <section class="studio-detail-section">
-        <div class="studio-detail-title">{buildStudioDisplayPrompt(props.result.prompt)}</div>
+        <div class="studio-detail-title">{detailTitle()}</div>
         <p class="studio-detail-copy">
-          {props.result.prompt}
+          {detailCopy()}
         </p>
       </section>
       <section class="studio-detail-section">

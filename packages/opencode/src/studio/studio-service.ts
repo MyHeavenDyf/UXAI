@@ -13,6 +13,7 @@ import * as Database from "@/storage/db"
 import { and, eq, inArray, lte } from "@/storage/db"
 import { MessageV2 } from "@/session/message-v2"
 import { MessageID, PartID, SessionID } from "@/session/schema"
+import { Session } from "@/session/session"
 import { MessageTable, PartTable, SessionTable } from "@/session/session.sql"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { Provider } from "@/provider/provider"
@@ -43,6 +44,7 @@ type StudioPromptRefineResult = {
   assistantText: string
   refinedPrompt: string
   effectivePrompt: string
+  detailTitle: string
   fallback?: boolean
   raw?: unknown
 }
@@ -57,6 +59,9 @@ type StudioGenerationPromptInput = StudioGenerationRequest & {
   effectivePrompt?: string
   displayPrompt?: string
   detailPrompt?: string
+  detailTitle?: string
+  initialSessionTitle?: string
+  shouldSetSessionTitle?: boolean
   promptRefineFallback?: boolean
 }
 
@@ -66,6 +71,9 @@ export type StudioGenerationRequest = {
   prompt: string
   displayPrompt?: string
   detailPrompt?: string
+  detailTitle?: string
+  initialSessionTitle?: string
+  shouldSetSessionTitle?: boolean
   refinedPrompt?: string
   effectivePrompt?: string
   promptRefineModels?: Array<{
@@ -110,6 +118,7 @@ export type StudioGenerationResult = {
   prompt: string
   displayPrompt?: string
   detailPrompt?: string
+  detailTitle?: string
   provider: StudioProvider
   toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
   taskType?: string
@@ -146,7 +155,7 @@ export async function createPromptGen(input: StudioPromptGenRequest): Promise<Pr
 
 export type StudioGenerationAccepted = Pick<
   StudioGenerationResult,
-  "id" | "status" | "capability" | "prompt" | "displayPrompt" | "detailPrompt" | "provider" | "model" | "aspectRatio" | "taskId" | "images" | "progress" | "order" | "rawStatus" | "error" | "createdAt" | "updatedAt" | "completedAt"
+  "id" | "status" | "capability" | "prompt" | "displayPrompt" | "detailPrompt" | "detailTitle" | "provider" | "model" | "aspectRatio" | "taskId" | "images" | "progress" | "order" | "rawStatus" | "error" | "createdAt" | "updatedAt" | "completedAt"
 > & {
   sessionID: string
 }
@@ -235,6 +244,7 @@ function submittingPromptRefine(input: StudioGenerationRequest): StudioPromptRef
     assistantText: buildSubmittingAssistantText(input),
     refinedPrompt: prompt,
     effectivePrompt: prompt,
+    detailTitle: resolveDetailTitle(input),
   }
 }
 
@@ -281,6 +291,22 @@ function generationPrompt(input: StudioGenerationRequest) {
   return typeof effectivePrompt === "string" && effectivePrompt.trim().length > 0
     ? effectivePrompt.trim()
     : buildEffectivePrompt(input)
+}
+
+function fallbackDetailTitle(input: StudioGenerationRequest) {
+  const title = (input.detailPrompt ?? input.prompt)
+    .split("\n")[0]
+    .replace(/[\\/:*?\"<>|，。！？、；：""''（）【】《》!?;:()\[\]{}@#$%^&+=~`]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 16)
+    .trim()
+  if (title) return title
+  return input.capability === "video.generate" ? "视频创作" : "图片创作"
+}
+
+function resolveDetailTitle(input: StudioGenerationRequest) {
+  return input.detailTitle?.trim() || fallbackDetailTitle(input)
 }
 
 function displayInput(input: StudioGenerationRequest, task?: ImageGenerationTask) {
@@ -330,6 +356,7 @@ function promptPassthroughRefine(input: StudioGenerationRequest): StudioPromptRe
     assistantText: buildSubmittingAssistantText(input),
     refinedPrompt: prompt,
     effectivePrompt: prompt,
+    detailTitle: resolveDetailTitle(input),
     fallback: true,
   }
 }
@@ -350,6 +377,7 @@ function promptRefineFallback(input: StudioGenerationRequest, previous?: StudioG
       : buildAssistantText(input),
     refinedPrompt: effectivePrompt,
     effectivePrompt,
+    detailTitle: resolveDetailTitle(input),
     fallback: true,
   }
 }
@@ -518,6 +546,7 @@ function promptRefineInput(input: StudioGenerationRequest, previous?: StudioGene
 const promptRefineSchema = z.object({
   assistantText: z.string().min(1),
   refinedPrompt: z.string().min(1),
+  detailTitle: z.string().min(1).max(32).optional(),
 })
 
 function parsePromptRefineText(text: string) {
@@ -544,6 +573,7 @@ function completePromptRefineResult(parsed: z.infer<typeof promptRefineSchema>):
   return {
     ...parsed,
     effectivePrompt: parsed.refinedPrompt,
+    detailTitle: parsed.detailTitle?.trim() ?? "",
   }
 }
 
@@ -645,6 +675,7 @@ function studioToolInput(request: StudioGenerationPromptInput, promptRefine: Stu
     prompt: request.prompt,
     displayPrompt: request.displayPrompt,
     detailPrompt: request.detailPrompt,
+    detailTitle: promptRefine.detailTitle,
     styleModel: isEditorGenerationCapability(request.capability) ? undefined : request.styleModel,
     aspectRatio: isEditorGenerationCapability(request.capability) ? undefined : request.aspectRatio,
     count: isEditorGenerationCapability(request.capability) ? undefined : request.count,
@@ -659,7 +690,7 @@ function studioToolInput(request: StudioGenerationPromptInput, promptRefine: Stu
 
 const IMAGE_PROMPT_REFINE_SYSTEM = [
   "你是 Octo Studio 的图片提示词润色助手。",
-  "你的任务是根据用户当前输入、最近一次成功生成结果和上下文，生成 assistantText 和 refinedPrompt。",
+  "你的任务是根据用户当前输入、最近一次成功生成结果和上下文，生成 assistantText、refinedPrompt 和 detailTitle。",
   "严格规则：",
   "- 只负责画面内容描述，不决定能力、模型、风格配置、工具、比例、数量。",
   "- 不要在 refinedPrompt 中写模型名称、画幅比例、生成数量、工具名称。",
@@ -670,13 +701,15 @@ const IMAGE_PROMPT_REFINE_SYSTEM = [
   "- assistantText 不超过 40 个中文字。",
   "- refinedPrompt 只描述要生成的画面内容。",
   "- refinedPrompt 不超过 300 个中文字。",
+  "- detailTitle 是 4 到 12 个中文字的短标题，只概括主体或核心画面，不写模型、比例、数量、工具、动作指令或解释句，不使用标点。",
+  "- 例如：雨中木屋、晨雾山谷。",
   "- 输出必须是单个 JSON object，不要 markdown，不要代码块，不要解释文字。",
   "- 只输出 JSON。",
 ].join("\n")
 
 const VIDEO_PROMPT_REFINE_SYSTEM = [
   "你是 Octo Studio 的视频提示词润色助手。",
-  "你的任务是根据用户当前输入、最近一次成功生成结果和上下文，生成 assistantText 和 refinedPrompt。",
+  "你的任务是根据用户当前输入、最近一次成功生成结果和上下文，生成 assistantText、refinedPrompt 和 detailTitle。",
   "严格规则：",
   "- 只负责视频内容、动作、镜头、节奏、氛围描述。",
   "- 不决定能力、模型、比例、数量、时长、质量模式、工具。",
@@ -689,6 +722,8 @@ const VIDEO_PROMPT_REFINE_SYSTEM = [
   "- assistantText 不超过 40 个中文字。",
   "- refinedPrompt 只描述要生成的视频内容。",
   "- refinedPrompt 不超过 300 个中文字。",
+  "- detailTitle 是 4 到 12 个中文字的短标题，只概括主体或核心动作，不写模型、比例、时长、质量、工具、动作指令或解释句，不使用标点。",
+  "- 例如：海边奔跑、咖啡馆镜头推进。",
   "- 输出必须是单个 JSON object，不要 markdown，不要代码块，不要解释文字。",
   "- 只输出 JSON。",
 ].join("\n")
@@ -794,6 +829,7 @@ async function refineStudioPrompt(
       assistantText: result.assistantText.trim(),
       refinedPrompt: result.refinedPrompt.trim(),
       effectivePrompt: result.refinedPrompt.trim(),
+      detailTitle: result.detailTitle?.trim() || fallbackDetailTitle(input),
       raw: result,
     }
   } catch (error) {
@@ -1397,6 +1433,7 @@ function generationSnapshot(record: StudioGenerationRecord): StudioGenerationAcc
     prompt: generationPrompt(data.input),
     displayPrompt: data.input.displayPrompt,
     detailPrompt: data.input.detailPrompt,
+    detailTitle: data.input.detailTitle,
     provider: record.provider,
     model: result?.model ?? data.task?.model ?? data.input.styleModel ?? "internel",
     aspectRatio: result?.aspectRatio ?? data.input.aspectRatio ?? "3:4",
@@ -1733,12 +1770,24 @@ async function runGenerationCreatePipeline(id: string) {
     const generationInput: StudioGenerationPromptInput = {
       ...input,
       displayPrompt: input.displayPrompt,
+      detailTitle: promptRefine.detailTitle,
       refinedPrompt: promptRefine.refinedPrompt,
       effectivePrompt: promptRefine.effectivePrompt,
       promptRefineFallback: promptRefine.fallback,
     }
     const current = loadGenerationRecord(id)
     if (!current || isGenerationCancelled(current)) return
+    if (input.shouldSetSessionTitle && promptRefine.detailTitle) {
+      const latestSession = Database.use((db) =>
+        db.select().from(SessionTable).where(eq(SessionTable.id, record.session_id)).get(),
+      )
+      if (latestSession && (!latestSession.title || latestSession.title === input.initialSessionTitle)) {
+        SyncEvent.run(Session.Event.Updated, {
+          sessionID: record.session_id,
+          info: { title: promptRefine.detailTitle },
+        })
+      }
+    }
     updateSubmittingTurn({ record: current, request: generationInput, promptRefine })
     Database.use((db) =>
       db

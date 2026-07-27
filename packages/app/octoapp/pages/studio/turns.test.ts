@@ -467,6 +467,7 @@ describe("buildStudioTurns", () => {
             prompt: "一只大黄狗",
             displayPrompt: "再次生成",
             detailPrompt: "一只大黄狗在草地上奔跑",
+            detailTitle: "草地大黄狗",
             refinedPrompt: "一只大黄狗，阳光草地，胶片质感",
             effectivePrompt: "一只大黄狗，阳光草地，胶片质感",
             aspectRatio: "3:4",
@@ -480,6 +481,7 @@ describe("buildStudioTurns", () => {
     expect(turns[0].result?.prompt).toBe("一只大黄狗，阳光草地，胶片质感")
     expect(turns[0].result?.displayPrompt).toBe("再次生成")
     expect(turns[0].result?.detailPrompt).toBe("一只大黄狗在草地上奔跑")
+    expect(turns[0].result?.detailTitle).toBe("草地大黄狗")
   })
 
   test("uses the original user bubble as the detail prompt for legacy turns", () => {

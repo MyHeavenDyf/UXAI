@@ -1,17 +1,18 @@
 import "./octo-tokens.css"
-import "./components/starter-cards.css"
 import "./components/slash-popover.css"
-import "./components/mention-popover.css"
-import { FEATURED_STARTERS } from "./utils/starter-prompts"
+import { type MentionSelection } from "./components/mention-popover"
+import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc } from "./components/prosemirror-editor"
+import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
+import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import {
   fetchArtifactList,
   fetchArtifactContent,
   formatFileSize,
+  uploadArtifactFile,
   type ArtifactFile,
   type ArtifactFileKind,
 } from "./utils/artifact-file-api"
-import { StarterCards } from "./components/starter-cards"
 import type { Message, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { Binary } from "@opencode-ai/core/util/binary"
@@ -88,6 +89,8 @@ import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
 import { scanDesignPlanFromMessages, isPlanConfirmed, isPlanIntentResolved } from "./utils/design-plan-scanner"
 import { scanStrategyFields, EMPTY_STRATEGY_FORM, type StrategyFormData } from "./utils/strategy-form-scanner"
 import { useMakeCommands } from "./use-make-commands"
+import { useDialogIframe } from '@/context/dialog-iframe'
+import { getDesktopApi } from "./lib/electron-api"
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
@@ -157,6 +160,9 @@ function MakeContent() {
   const local = useLocal()
   useTabModel("make")
   const currentModel = () => local.model.current()
+  
+  const dialogPop = useDialogIframe()
+  const [selectedSpec, setSelectedSpec] = createSignal<string | null>(null)
 
   createEffect(
     on(
@@ -204,6 +210,12 @@ function MakeContent() {
     on(
       () => params.id,
       (id, prevId) => {
+        // 切换 session 时重置 specSelector 状态
+        if (id !== prevId) {
+          setSelectedSpec(null)
+        }
+        
+        // 回填模型选择
         if (!id && prevId && lastSessionModel) {
           local.model.set(lastSessionModel)
         }
@@ -692,6 +704,14 @@ const sessionMessagesLoaded = createMemo(() => {
 
   const isBusy = createMemo(() => sessionStatus().type !== "idle")
 
+  // 子 session 的 busy 状态检测：子 session 生成中时锁定输入框
+  const childBusy = createMemo(() => {
+    const childId = activePlanSessionId()
+    if (!childId) return false
+    const status = sync.data.session_status[childId]
+    return status?.type === "busy"
+  })
+
   // ── 会话进度条动画状态 ────────────────────────────────────
   const [timeoutDone, setTimeoutDone] = createSignal(true)
   const workingStatus = createMemo<"hidden" | "showing" | "hiding">((prev) => {
@@ -772,10 +792,15 @@ const sessionMessagesLoaded = createMemo(() => {
   const [slashState, setSlashState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [slashIndex, setSlashIndex] = createSignal(0)
   let textareaRef!: HTMLTextAreaElement
+  let proseMirrorRef1: { getText: () => string; getMentions: () => Array<{ name: string; type: string; label: string; path?: string }>; clear: () => void; insertText: (text: string) => void } | undefined
+  let proseMirrorRef2: { getText: () => string; getMentions: () => Array<{ name: string; type: string; label: string; path?: string }>; clear: () => void; insertText: (text: string) => void } | undefined
 
   // ── Mention (@) Popover State ──
   const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
+  const [mentionSelections, setMentionSelections] = createSignal<MentionSelection[]>([])
   const [filesRefreshKey, setFilesRefreshKey] = createSignal(0)
+
+  // Mention selections are now managed by ProseMirrorEditor's sync plugin
 
   // ── Artifact Files Resource (for @ mention) ──
   const [artifactFiles] = createResource(
@@ -821,7 +846,7 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!state) return
     const handler = (e: MouseEvent) => {
       const target = e.target as HTMLElement
-      if (!target.closest(".mention-popover")) {
+      if (!target.closest(".mention-popover-container")) {
         setMentionState(null)
       }
     }
@@ -830,29 +855,8 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   // ── Skills Config (from skill_config.json) ──
-  type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
-  type PanelSkill = {
-    label: string
-    description?: string
-    path?: string
-    enable?: boolean
-    id?: number
-  }
-  type SkillConfig = {
-    skill?: Record<string, SkillConfigEntry>
-    agent?: Record<string, string[]>
-    panel?: {
-      octo_insight?: PanelSkill[]
-      octo_make?: PanelSkill[]
-      octo_studio?: PanelSkill[]
-      common?: PanelSkill[]
-    }
-  }
-
   const [skillConfig, setSkillConfig] = createSignal<SkillConfig>({})
   const [skillsLoading, setSkillsLoading] = createSignal(false)
-  const [skillsMenuState, setSkillsMenuState] = createSignal<{ query: string; cursor: number } | null>(null)
-  const [skillsMenuIndex, setSkillsMenuIndex] = createSignal(0)
   const [skillToolCalls, setSkillToolCalls] = createSignal<ToolCallInfo[]>([])
   const [pendingSkill, setPendingSkill] = createSignal<{ name: string; content: string } | null>(null)
 
@@ -861,11 +865,15 @@ const sessionMessagesLoaded = createMemo(() => {
     setSkillsLoading(true)
 
     try {
-      const api = (window as unknown as { api?: { getSkillConfig?: () => Promise<SkillConfig> } }).api
-      const config = await api?.getSkillConfig?.()
-      if (config) {
-        setSkillConfig(config)
-      }
+      const platformSkills = await loadSkillsFromPanel("octo_make")
+      const customSkills = await loadSkillsFromPanel("common")
+      
+      setSkillConfig({
+        panel: {
+          octo_make: platformSkills,
+          common: customSkills
+        }
+      })
     } catch (err) {
       console.error("[MakePage] Failed to load skill config:", err)
     } finally {
@@ -920,15 +928,6 @@ const sessionMessagesLoaded = createMemo(() => {
       source: "builtin",
     })
 
-    // Builtin: /skills command
-    list.push({
-      trigger: "skills",
-      title: "加载技能",
-      description: "将技能指令注入prompt（仅显示已激活技能）",
-      id: "builtin.skills",
-      source: "builtin",
-    })
-
     // Sort alphabetically
     list.sort((a, b) => a.trigger.localeCompare(b.trigger))
     return list
@@ -958,35 +957,6 @@ const sessionMessagesLoaded = createMemo(() => {
         description: skill.description ?? "",
         path: skill.path ?? `skill/${skill.label}/SKILL.md`
       }))
-  })
-
-  // Filter skills by search query
-  const filteredSkills = createMemo(() => {
-    const query = skillsMenuState()?.query ?? ""
-    const list = activeSkills()
-
-    if (!query) return list
-
-    const lowerQuery = query.toLowerCase()
-    return list.filter(skill =>
-      skill.name.toLowerCase().includes(lowerQuery) ||
-      skill.description.toLowerCase().includes(lowerQuery)
-    )
-  })
-
-  // Skills menu ESC close (global listener, works regardless of focus)
-  createEffect(() => {
-    if (!skillsMenuState()) return
-
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault()
-        setSkillsMenuState(null)
-      }
-    }
-
-    window.addEventListener("keydown", handler)
-    onCleanup(() => window.removeEventListener("keydown", handler))
   })
 
   const DS_KEY_PREFIX = "octo:make:design-system:"
@@ -1103,14 +1073,17 @@ const sessionMessagesLoaded = createMemo(() => {
   // ── 设计方案(design-plan)扫描 ─────────────────────────────
   // 方案 artifact 从子 session 的消息流中提取（如果存在子 session），
   // 否则回退到主 session（兼容旧流程）。
+  // 方案 artifact 从子 session 的消息流中提取（如果存在子 session）。
+  // 只在活跃的 plan 模式下回退到主 session 扫描，
+  // 避免主 session 中 agent 输出的 design-plan artifact 被重复捕获。
   const planCard = createMemo(() => {
-    // 优先从活跃的子 session 扫描，否则从 childSessionIDs 中找第一个有 design-plan 的
+    // 优先从活跃的子 session 扫描
     const activePlanSid = activePlanSessionId()
     if (activePlanSid) {
       const card = scanDesignPlanFromMessages(sync.data.message?.[activePlanSid], sync.data.part, activePlanSid)
       if (card) return card
     }
-    // 对于已确认的 session，activePlanSessionId 为 null，需要从 childSessionIDs 中找
+    // 从 childSessionIDs 中找第一个有 design-plan 的（已确认的 session 用此路径）
     const childIds = childSessionIDs()
     if (childIds.size > 0) {
       for (const childId of childIds) {
@@ -1118,7 +1091,8 @@ const sessionMessagesLoaded = createMemo(() => {
         if (card) return card
       }
     }
-    // 回退到主 session（兼容旧流程）
+    // 只有在活跃的 plan 模式下才回退到主 session 扫描
+    if (!activePlanSid) return null
     const mainSid = params.id
     if (!mainSid) return null
     return scanDesignPlanFromMessages(sync.data.message?.[mainSid], sync.data.part, mainSid)
@@ -1133,13 +1107,46 @@ const sessionMessagesLoaded = createMemo(() => {
     return isPlanConfirmed(sync.data.message?.[planSid], sync.data.part, ident)
   })
 
-  // 乐观锁:用户点 [确认开始生成] 后立即永久 disable,直到 planConfirmed 翻为 true 或 session 切换。
+  // 子 agent 最终状态：根据子 session 消息流检测 plan 是否已被确认。
+  // 与 planConfirmed 不同，这个状态直接基于 childSessionIDs 中的消息扫描，
+  // 不依赖 planCard / activePlanSessionId，跨重启后也能正确恢复。
+  // 依赖消息内容变化，确保异步同步完成后自动更新。
+  const childPlanConfirmed = createMemo(() => {
+    const childIds = [...childSessionIDs()]
+    for (const childId of childIds) {
+      const messages = sync.data.message?.[childId]
+      if (!messages) continue
+      // 显式依赖消息内容，确保消息同步完成后重新计算
+      const msgLen = messages.length
+      const card = scanDesignPlanFromMessages(messages, sync.data.part, childId)
+      if (!card) continue
+      const ident = card.artifactIdentifier
+      if (!ident) continue
+      if (isPlanConfirmed(messages, sync.data.part, ident)) return true
+    }
+    // 如果 childSessionIDs 不为空但没有消息，返回 undefined 而不是 false，
+    // 以便在消息加载前保持 pending 状态
+    return childIds.length > 0 && childIds.every(id => !sync.data.message?.[id]) ? undefined : false
+  })
+
+  // 乐观锁:用户点 [确认开始生成] 后立即永久 disable,直到 childPlanConfirmed 翻为 true 或 session 切换。
   // 避免 sendMessage 飞行期间(session 还没进入 busy)用户连点重复发送。
   const [optimisticConfirmed, setOptimisticConfirmed] = createSignal(false)
-  const planButtonDisabled = createMemo(() => planConfirmed() || optimisticConfirmed())
+  const planButtonDisabled = createMemo(() => {
+    const confirmed = childPlanConfirmed()
+    // 当 childPlanConfirmed 为 undefined（消息未加载完）时，返回当前 disabled 状态不变
+    if (confirmed === undefined) return optimisticConfirmed()
+    return confirmed || optimisticConfirmed()
+  })
+
+  // 确认后等待主 agent 响应的过渡状态
+  const [planConfirmPending, setPlanConfirmPending] = createSignal(false)
 
   // Phase 2 异步检测子 session 期间阻止 banner 闪现（跨重启恢复时的过渡状态）
   const [phase2Pending, setPhase2Pending] = createSignal(false)
+
+  /** 策略生成阶段按钮是否正在加载（phase 1 → phase 2 过渡） */
+  const [isGenerating, setIsGenerating] = createSignal(false)
 
   // 切换 session 时复位乐观锁,允许新 session 重新走方案流程
   createEffect(on(() => params.id, () => setOptimisticConfirmed(false), { defer: true }))
@@ -1148,6 +1155,7 @@ const sessionMessagesLoaded = createMemo(() => {
     if (id && id !== prev) {
       setOptimisticConfirmed(false)
     }
+    if (id) setIsGenerating(false)  // plan 出现时复位 isGenerating
   }, { defer: true }))
 
   // 当模型输出 text/design-plan artifact 或用户发送 [strategy-complete] 时，自动切换到 generate 阶段
@@ -1187,10 +1195,13 @@ const sessionMessagesLoaded = createMemo(() => {
     const planSid = activePlanSessionId()
     const key = activeModelKey()
     if (!planSid || !key) return
+    setIsGenerating(true)  // 立即禁用按钮
     const data = strategyFormData()
     const prompt = `[strategy-complete]\n\n以下是已填写的设计策略信息：\n\n## 设计需求\n- 需求背景：${data.需求背景 || "（未填写）"}\n- 设计目标：${data.设计目标 || "（未填写）"}\n- 设计方法：${data.设计方法 || "（未填写）"}\n- 其他：${data.其他 || "（未填写）"}\n\n## 洞察&研究\n- 用户画像：${data.用户画像 || "（未填写）"}\n- 用户旅程：${data.用户旅程 || "（未填写）"}\n- 研究报告：${data.研究报告 || "（未填写）"}\n\n请根据以上信息输出完整的设计策略文档。`
     sendMessage(planSid, prompt, key).catch((err) => {
       console.error("[MakePage] generate strategy failed", err)
+      setIsGenerating(false)  // 失败时恢复
+      setPlanPhase("strategy")  // 失败时回滚到策略准备阶段
     })
     setUserChangedPhase(false)  // 重置手动切换标记
     setPlanPhase("generate")
@@ -1202,35 +1213,34 @@ const sessionMessagesLoaded = createMemo(() => {
     setPlanPhase("strategy")
   }
 
-  /** 用户点击 [确认开始生成] → 向子 session 发送确认指令，结束子 agent 回到主会话 */
+  /** 用户点击 [确认开始生成] → 向主 session 发送确认指令，通知主 agent 设计规划已完成，开始生成 HTML */
   function handleConfirmPlan(identifier?: string) {
     const planSid = activePlanSessionId()
     const modelKey = activeModelKey()
-    if (!planSid || !modelKey) return
+    const mainSid = params.id
+    if (!planSid || !modelKey || !mainSid) return
     if (planButtonDisabled()) return   // 防重复
     setOptimisticConfirmed(true)
+    setPlanConfirmPending(true)  // 过渡状态：保持 plan 视图显示"正在生成 HTML..."
     const cmd = identifier ? `[confirm-plan ${identifier}]` : `[confirm-plan]`
-    sendMessage(planSid, cmd, modelKey).catch((err) => {
-      console.error("[MakePage] confirm plan failed", err)
-      // 发送失败时回滚乐观锁,允许重试
-      setOptimisticConfirmed(false)
+
+    // 只向主 session 发送确认指令，通知主 agent 设计规划已完成，开始生成 HTML
+    sendMessage(mainSid, cmd, modelKey).catch((err) => {
+      console.error("[MakePage] confirm plan to main session failed", err)
     })
-    // 确认后标记子 session 已结束，回到主会话
-    // 保留子 session 的记录（不清理 childSessionIDs），确保对话栏中的历史消息持续显示
-    const endedSid = params.id
-    if (endedSid) {
-      localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + endedSid)
-      delete _planChildSessionCache[endedSid]
-    }
-    // 根据当前 planPhase 确定最终阶段，保留以正确显示对应内容
+
+    // 清理子 session 状态，保留子 session 的记录（不清理 childSessionIDs）
+    localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + mainSid)
+    delete _planChildSessionCache[mainSid]
     const currentPhase = planPhase()
-    setPlanEndedForSession(params.id ?? null)
+    setPlanEndedForSession(mainSid)
     setActivePlanSessionId(null)
     setPlanParentSessionId(null)
     setHasChildPlanSession(false)
     setManualStrategyFormData({})
-    setResultViewMode("files")
     setPlanPhase(currentPhase)
+    // 不切视图：保持 plan 模式，让用户看到按钮已禁用的状态
+    // 等到主 agent 进入 busy 状态后再自动切回 files 视图
   }
 
   /** 用户点击 [调整方案] → 焦点切到输入框,预填引导文字 */
@@ -1479,6 +1489,9 @@ const sessionMessagesLoaded = createMemo(() => {
           setPlanEndedForSession(newSid)
           // 设置 planPhase 为 generate，以便用户点击 tab 时正确显示第二阶段内容
           setPlanPhase(hasDesignPlan ? "generate" : "strategy")
+          // 清理 localStorage 缓存
+          localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + newSid)
+          delete _planChildSessionCache[newSid]
         } else {
           // 未确认：恢复为活跃状态
           setActivePlanSessionId(restoredPlanSid)
@@ -1501,46 +1514,112 @@ const sessionMessagesLoaded = createMemo(() => {
           loadedChildSessions.add(childId)
           setChildSessionIDs((prev) => { const next = new Set(prev); next.add(childId); return next })
           sync.session.sync(childId).catch(() => {})
-          // 检测子 session 是否已被确认（需要等 sync 完成后检测消息流）
-          // 先设为 hasChildPlanSession，让后续 effect 检测确认状态
-          setHasChildPlanSession(true)
-          setActivePlanSessionId(childId)
-          setResultViewMode("plan")
-          setPlanPhase("strategy")
+          // sync 完成后在子 session 消息流中检测确认状态
+          // 先同步消息，再检测
+          const checkConfirmed = () => {
+            const msgs = sync.data.message?.[childId]
+            if (!msgs) {
+              // 消息还没同步完，等下一个 tick
+              requestAnimationFrame(checkConfirmed)
+              return
+            }
+            const planArtifact = scanDesignPlanFromMessages(msgs, sync.data.part, childId)
+            const planIdent = planArtifact?.artifactIdentifier
+            const isConfirmed = planIdent ? isPlanConfirmed(msgs, sync.data.part, planIdent) : false
+            const hasDesignPlan = msgs.some((m: any) => {
+              if (m.role !== "assistant") return false
+              const text = (sync.data.part?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
+              return text?.includes('type="text/design-plan"')
+            })
+
+            if (isConfirmed) {
+              // 已确认：不设为活跃，只保留历史记录
+              setHasChildPlanSession(false)
+              setPlanEndedForSession(capturedSid)
+              setPlanPhase(hasDesignPlan ? "generate" : "strategy")
+            } else {
+              // 未确认：恢复为活跃状态
+              setHasChildPlanSession(true)
+              setActivePlanSessionId(childId)
+              setResultViewMode("plan")
+              setPlanPhase(hasDesignPlan ? "generate" : "strategy")
+            }
+          }
+          checkConfirmed()
         })
       }
     },
   ))
 
   // 当子 session 消息流更新时检测确认状态（异步恢复后的延迟检测）
+  // 同时也用于 planConfirmPending 期间检测子 agent 的最终状态
+  // 以及跨重启后子 agent 最终状态的持久化检测
+  // 这个 effect 触发 childPlanConfirmed memo 重新计算
   createEffect(on(
     () => {
-      const planSid = activePlanSessionId()
-      if (!planSid) return null
-      // 依赖子 session 的消息流
-      return sync.data.message?.[planSid]
+      // 依赖 childSessionIDs 中所有子 session 的消息流，确保跨重启也能检测到
+      const childIds = [...childSessionIDs()]
+      return childIds.map(id => sync.data.message?.[id]?.length).filter(v => v !== undefined)
     },
-    (messages) => {
-      if (!messages) return
-      const planSid = activePlanSessionId()
-      if (!planSid) return
+    () => {
       const mainSid = params.id
       if (!mainSid) return
 
-      // 使用 isPlanConfirmed 检测是否已确认（包括 [confirm-plan] 标记和 text/html artifact）
-      const ident = planCard()?.artifactIdentifier
-      const isConfirmed = isPlanConfirmed(messages, sync.data.part, ident)
+      // 遍历所有子 session 检测确认状态
+      const childIds = [...childSessionIDs()]
+      for (const childId of childIds) {
+        const messages = sync.data.message?.[childId]
+        if (!messages) continue
+        const planCardFromChild = scanDesignPlanFromMessages(messages, sync.data.part, childId)
+        if (!planCardFromChild) continue
+        const ident = planCardFromChild.artifactIdentifier
+        if (!ident) continue
+        const isConfirmed = isPlanConfirmed(messages, sync.data.part, ident)
 
-      if (isConfirmed) {
-        // 已确认：清理活跃状态，保留历史记录
-        setHasChildPlanSession(false)
-        setPlanEndedForSession(mainSid)
-        setActivePlanSessionId(null)
-        setResultViewMode("files")
-        // 注意：不重置 planPhase，保留为 "generate" 以便用户查看时能正确显示第二阶段
-        // setPlanPhase("strategy")
+        // 子 agent 最终状态已确认，清理状态
+        // 无论 planConfirmPending 还是跨重启恢复，只要子 session 消息流中出现了确认标记就处理
+        if (isConfirmed) {
+          if (planConfirmPending()) {
+            setPlanConfirmPending(false)
+          }
+          // 清除 localStorage 缓存，防止下次恢复时重新进入 plan 模式
+          if (mainSid) {
+            localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + mainSid)
+            delete _planChildSessionCache[mainSid]
+          }
+          setHasChildPlanSession(false)
+          setPlanEndedForSession(mainSid)
+          if (activePlanSessionId() === childId) {
+            setActivePlanSessionId(null)
+            setPlanParentSessionId(null)
+          }
+          break
+        }
       }
     }
+  ))
+
+  // 监控主 session 状态：确认后等待主 agent 进入 busy 再切换视图
+  createEffect(on(
+    () => sync.data.session_status[params.id ?? ""],
+    (status) => {
+      if (planConfirmPending() && status?.type === "busy") {
+        // 主 agent 已开始工作，清理子 session 状态并切换视图
+        const mainSid = params.id
+        if (mainSid) {
+          localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + mainSid)
+          delete _planChildSessionCache[mainSid]
+        }
+        setPlanConfirmPending(false)
+        setPlanEndedForSession(mainSid ?? null)
+        setActivePlanSessionId(null)
+        setPlanParentSessionId(null)
+        setHasChildPlanSession(false)
+        setManualStrategyFormData({})
+        setResultViewMode("files")
+      }
+    },
+    { defer: true }
   ))
 
     // 设计方案(design-plan)显示策略:plan 不再自动占用右侧 ResultViewer。
@@ -1623,8 +1702,32 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
-  async function sendMessage(sessionId: string, text: string, _modelKey: { providerID: string; modelID: string }) {
+  async function sendMessage(sessionId: string, text: string, _modelKey: { providerID: string; modelID: string }, mentions?: Array<{ name: string; type: string; label: string; path?: string }>) {
     try {
+      // Process mention selections: replace chip text with model format
+      let processedText = text
+      let displayText = text
+      const selections = mentions ?? []
+      
+      console.log("[sendMessage] mentions:", mentions)
+      console.log("[sendMessage] skillToolCalls:", skillToolCalls())
+      
+      for (const sel of selections) {
+        if (sel.type === 'skill') {
+          processedText = processedText.replace(`@${sel.name}`, ` /${sel.name} `)
+        } else {
+          processedText = processedText.replace(`@${sel.name}`, ` 读取${sel.path} 这个文件 `)
+        }
+      }
+      // Clean up extra spaces
+      processedText = processedText.replace(/  +/g, ' ').trim()
+      
+      console.log("[sendMessage] displayText:", displayText)
+      console.log("[sendMessage] processedText:", processedText)
+      
+      // Clear mention selections after processing
+      setMentionSelections([])
+      
       const done = attachments().filter(a => a.status === "done")
       
       // 本地文件 → [附件] 清单
@@ -1641,10 +1744,10 @@ const sessionMessagesLoaded = createMemo(() => {
       }))
       
       // ── Multi-slash-command detection ──
-      // Scan all tokens in text for /cmd patterns, match against sync.data.command,
+      // Scan all tokens in processedText for /cmd patterns, match against sync.data.command,
       // execute each via session.command(). Each command gets the text between itself
       // and the next /cmd as its arguments. Commands are self-contained (no follow-up prompt).
-      const segments = text.split(/(?=\/\S)/)
+      const segments = processedText.split(/(?=\/\S)/)
       const cmdSegments: { cmd: string; args: string }[] = []
       let hasCommand = false
       for (const seg of segments) {
@@ -1667,10 +1770,37 @@ const sessionMessagesLoaded = createMemo(() => {
 
       if (hasCommand) {
         const modelStr = `${_modelKey.providerID}/${_modelKey.modelID}`
-        const cmdParts = fileParts.length > 0 ? fileParts : undefined
-
+        
+        // Find skill mentions to preserve display text for chips
+        const skillMentions = selections.filter(s => s.type === 'skill')
+        
+        // Save full display text (contains all text and @mentions)
+        const fullDisplayText = displayText
+        let isFirstSkillCommand = true
+        
+        // 添加本地文件清单
+        const manifestPart = localManifest.length > 0 
+          ? { type: "text" as const, text: formatUploadsForPrompt(localManifest), synthetic: true as const }
+          : null
+        
         for (const seg of cmdSegments) {
           if (!seg.cmd) continue
+          
+          // Build parts: file parts + local manifest + optional text part with metadata for skill chips
+          const cmdParts: Array<FilePartInput | TextPartInput> = [...fileParts]
+          if (manifestPart) cmdParts.push(manifestPart)
+          
+          // If this command is a skill from @mention, add metadata for chip display
+          const isSkillMention = skillMentions.some(s => s.name === seg.cmd)
+          if (isSkillMention) {
+            cmdParts.push({
+              type: "text",
+              text: "",  // Empty text - only metadata for display, no content sent to model
+              metadata: { displayText: isFirstSkillCommand ? fullDisplayText : "" }
+            })
+            isFirstSkillCommand = false
+          }
+          
           try {
             await sdk.client.session.command({
               sessionID: sessionId,
@@ -1678,7 +1808,7 @@ const sessionMessagesLoaded = createMemo(() => {
               arguments: seg.args,
               agent: sessionId === activePlanSessionId() ? "octo_make_plan" : "octo_make",
               model: modelStr,
-              parts: cmdParts,
+              parts: cmdParts.length > 0 ? cmdParts : undefined,
             })
           } catch (err) {
             console.error(`[MakePage] command /${seg.cmd} failed`, err)
@@ -1690,7 +1820,11 @@ const sessionMessagesLoaded = createMemo(() => {
       }
       // ── End command detection ──
 
-      let promptText = text
+      // Store display text for rendering (user's visible text with @mentions)
+      const hasMentions = selections.length > 0
+      const userDisplayText = hasMentions ? displayText : undefined
+
+      let promptText = processedText
 
       const loadedSkills = skillToolCalls()
       if (loadedSkills.length > 0) {
@@ -1704,7 +1838,7 @@ const sessionMessagesLoaded = createMemo(() => {
           ].join("\n"))
           .join("\n")
         
-        promptText = skillPrefix + "\n" + text
+        promptText = skillPrefix + "\n" + processedText
         setSkillToolCalls([])
       }
 
@@ -1806,7 +1940,14 @@ const sessionMessagesLoaded = createMemo(() => {
         promptText = folderPrefix + "\n" + promptText
       }
 
-      const textPart: TextPartInput = { type: "text", text: promptText }
+      const textPart: TextPartInput = { 
+        type: "text", 
+        text: promptText,
+        ...(userDisplayText ? { metadata: { displayText: userDisplayText } } : {}),
+      }
+      
+      console.log("[sendMessage] textPart:", textPart)
+      console.log("[sendMessage] userDisplayText:", userDisplayText)
       
       // 本地文件清单 (synthetic)
       const manifestPart = localManifest.length > 0 
@@ -1846,7 +1987,16 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 提交 prompt：自动创建 session → 发送消息 */
   async function handleSubmit() {
-    const text = prompt().trim()
+    let text = proseMirrorRef1?.getText?.() || proseMirrorRef2?.getText?.() || prompt().trim()
+    let mentions = proseMirrorRef1?.getMentions?.() || proseMirrorRef2?.getMentions?.() || []
+    
+    // 注入 specSelector 的 skill
+    const spec = selectedSpec()
+    if (spec) {
+      text = `@${spec} ` + text
+      mentions = [{ type: 'skill', name: spec, label: spec }, ...mentions]
+    }
+    
     if (sending() || !activeModelKey()) return
     // 在异步操作前捕获 model key，避免后续被其他 effect 修改
     const capturedModelKey = activeModelKey()
@@ -1865,6 +2015,8 @@ const sessionMessagesLoaded = createMemo(() => {
 
     setSending(true)
     setPrompt("")
+    proseMirrorRef1?.clear()
+    proseMirrorRef2?.clear()
     const planSid = resultViewMode() === "plan" && planParentSessionId() === params.id ? activePlanSessionId() : null
     const submitSessionId = planSid || params.id
     try {
@@ -1875,6 +2027,10 @@ const sessionMessagesLoaded = createMemo(() => {
 const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
       const session = result.data as Session | undefined
       if (!session) return
+      
+      await movePendingUploadsToSession(session.id)
+      await moveAssetsConfigToSession(session.id)
+      
       local.session.promote(sdk.directory, session.id)
       const dsId = selectedDesignSystem()
 if (dsId) {
@@ -1884,7 +2040,7 @@ if (dsId) {
         navigate(`/make/${session.id}`)
         sid = session.id
       }
-      await sendMessage(sid, messageText, capturedModelKey)
+      await sendMessage(sid, messageText, capturedModelKey, mentions)
       
       // 发送成功后追踪技能使用
       if (skill) {
@@ -1925,46 +2081,46 @@ if (dsId) {
     // isComposing / keyCode 229 兼容各平台输入法(macOS 拼音回车补偿尤其需要)
     if (e.isComposing || e.keyCode === 229) return
 
-    const slash = slashState()
-    const mention = mentionState()
-
-    // Mention popover close on Escape
-    if (mention && mentionFiles()) {
-      if (e.key === "Escape") {
+    // Backspace to delete chip markers
+    if (e.key === "Backspace") {
+      const ta = textareaRef
+      const cursor = ta.selectionStart
+      const text = prompt()
+      
+      // Check if cursor is right after a chip (@name format)
+      const beforeCursor = text.slice(0, cursor)
+      const chipMatch = beforeCursor.match(/@[^\s@]+\s*$/)
+      if (chipMatch) {
         e.preventDefault()
-        e.stopPropagation()
-        setMentionState(null)
+        const chipStart = cursor - chipMatch[0]!.length
+        const after = text.slice(cursor)
+        const next = text.slice(0, chipStart) + after
+        setPrompt(next)
+        
+        // Also remove from mentionSelections
+        const chipName = chipMatch[0]!.replace(/@\s*/g, '').trim()
+        setMentionSelections(prev => prev.filter(s => 
+          s.type === 'skill' ? s.name !== chipName : s.filename !== chipName
+        ))
+        
+        // Update cursor position
+        requestAnimationFrame(() => {
+          ta.focus()
+          ta.setSelectionRange(chipStart, chipStart)
+        })
         return
       }
     }
 
-    const skillsMenu = skillsMenuState()
+    const slash = slashState()
+    const mention = mentionState()
 
-    // Skills menu keyboard navigation
-    if (skillsMenu) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault()
-        e.stopPropagation()
-        setSkillsMenuIndex(i => Math.min(i + 1, filteredSkills().length - 1))
-        return
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault()
-        e.stopPropagation()
-        setSkillsMenuIndex(i => Math.max(i - 1, 0))
-        return
-      }
-      if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault()
-        e.stopPropagation()
-        const selected = filteredSkills()[skillsMenuIndex()]
-        if (selected) pickSkillFromMenu(selected)
-        return
-      }
+    // Mention popover close on Escape
+    if (mention && artifactFiles()) {
       if (e.key === "Escape") {
         e.preventDefault()
         e.stopPropagation()
-        setSkillsMenuState(null)
+        setMentionState(null)
         return
       }
     }
@@ -2001,7 +2157,7 @@ if (dsId) {
     }
 
     // Enter to send (only when both popovers are closed)
-    if (e.key === "Enter" && !e.shiftKey && !slash && !mention && !skillsMenu) {
+    if (e.key === "Enter" && !e.shiftKey && !slash && !mention) {
       if (e.isComposing || composing() || e.keyCode === 229) return
       e.preventDefault()
 
@@ -2011,14 +2167,6 @@ if (dsId) {
         const target = previewMatch[1].trim()
         handleOpenLocalFile(target)
         setPrompt("")
-        return
-      }
-
-      // Check for /skills <name> command
-      const skillsMatch = prompt().match(/^\/skills\s+([^\s]+)\s*$/)
-      if (skillsMatch) {
-        const skillName = skillsMatch[1].trim()
-        handleSkillCommand(skillName)
         return
       }
 
@@ -2033,21 +2181,6 @@ if (dsId) {
     const cursor = ta.selectionStart
 
     setPrompt(value)
-
-    // Detect /skills trigger (skills menu)
-    const skillsMenuMatch = value.match(/^\/skills(?:\s+(.*))?$/)
-    if (skillsMenuMatch && cursor === value.length) {
-      const query = skillsMenuMatch[1]?.trim() ?? ""
-      setSkillsMenuState({ query, cursor })
-      setSkillsMenuIndex(0)
-      setSlashState(null)
-      setMentionState(null)
-
-      loadSkillConfig()
-      return
-    }
-
-    setSkillsMenuState(null)
 
     // Detect slash trigger: /^\/([^\s/]*)$/
     const slashMatch = value.match(/^\/([^\s/]*)$/)
@@ -2064,77 +2197,68 @@ if (dsId) {
     const mentionMatch = /(?:^|\s)@([^\s@]*)$/.exec(before)
     if (mentionMatch) {
       setMentionState({ query: mentionMatch[1] ?? "", cursor })
+      loadSkillConfig()
     } else {
       setMentionState(null)
     }
   }
 
-  /** Pick a slash command and insert into textarea */
+  /** Pick a slash command and insert into editor */
   function pickSlash(cmd: SlashCommand) {
     if (!slashState()) return
 
-    const ta = textareaRef
-    const before = prompt()
-
-    // Replace `/query` with `/trigger `
-    const replaced = before.replace(/^\/([^\s/]*)$/, `/${cmd.trigger} `)
-    setPrompt(replaced)
+    const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
+    ref?.clear()
+    ref?.insertText?.("/preview")
+    ref?.insertText?.(" ")
+    
     setSlashState(null)
-
-    if (cmd.trigger === "skills") {
-      setSkillsMenuState({ query: "", cursor: replaced.length })
-      setSkillsMenuIndex(0)
-      loadSkillConfig()
-    }
-
-    // Focus textarea and position cursor at end
-    requestAnimationFrame(() => {
-      ta.focus()
-      ta.setSelectionRange(replaced.length, replaced.length)
-    })
-  }
-
-  /** Pick a skill from skills menu and add to pending */
-  async function pickSkillFromMenu(skill: { name: string; description: string }) {
-    const state = skillsMenuState()
-    if (!state) return
-
-    // Clear previous pending skill
-    setPendingSkill(null)
-    setSkillsMenuState(null)
-
-    // Clear /skills text from prompt
-    const before = prompt()
-    setPrompt(before.replace(/^\/skills(?:\s+[^\s]*)?/, ""))
-
-    try {
-      // Load skill content
-      const api = (window as unknown as { api?: { getSkillContent?: (name: string) => Promise<any> } }).api
-      const result = await api?.getSkillContent?.(skill.name)
-
-      if (!result?.success) {
-        console.error("[MakePage] Failed to load skill:", result?.error)
-        return
-      }
-
-      // Store pending skill
-      setPendingSkill({
-        name: skill.name,
-        content: result.content
-      })
-
-      // Focus textarea
-      requestAnimationFrame(() => {
-        textareaRef.focus()
-      })
-    } catch (err) {
-      console.error("[MakePage] Failed to load skill:", err)
-    }
   }
 
   /** Remove pending skill */
   function removePendingSkill() {
     setPendingSkill(null)
+  }
+
+  /** Handle mention selection (skill or file) */
+  function handleMentionSelect(selection: MentionSelection) {
+    const state = mentionState()
+    if (!state) return
+
+    const ta = textareaRef
+    const value = prompt()
+
+    // Remove @query text from prompt
+    const before = value.slice(0, state.cursor - state.query.length - 1)
+    const after = value.slice(ta.selectionStart)
+    
+    // Add visible chip format: @技能名 or @文件名
+    const chipText = selection.type === 'skill' 
+      ? `@${selection.name}` 
+      : `@${selection.filename}`
+    
+    const next = before + chipText + ' ' + after
+    setPrompt(next)
+    setMentionSelections(prev => [...prev, selection])
+
+    requestAnimationFrame(() => {
+      ta.focus()
+      const newPos = before.length + chipText.length + 1
+      ta.setSelectionRange(newPos, newPos)
+    })
+  }
+
+  function handleMentionDeselect(selection: MentionSelection) {
+    setMentionSelections(prev => prev.filter(s => 
+      s.type !== selection.type || 
+      (s.type === 'skill' ? s.name !== (selection as any).name : s.path !== (selection as any).path)
+    ))
+
+    // Remove chip from prompt
+    const chipText = selection.type === 'skill' 
+      ? `@${selection.name}` 
+      : `@${selection.filename}`
+    setPrompt(prev => prev.replace(chipText, '').replace(/  +/g, ' ').trim())
   }
 
   /** Pick a Design Files file and add as attachment */
@@ -2223,7 +2347,7 @@ if (dsId) {
       if (isImageFile(file.name)) {
         addImageAttachment(file)
       } else {
-        addDataUrlAttachment(file)
+        addLocalFileAttachment(file)
       }
     }
   }
@@ -2256,23 +2380,100 @@ if (dsId) {
     }
   }
 
-  function addDataUrlAttachment(file: File) {
+  async function addLocalFileAttachment(file: File) {
     const id = crypto.randomUUID()
-    filesById.set(id, file)
+    const sid = params.id
     
-    const reader = new FileReader()
-    reader.onload = (ev) => {
+    if (!sid) {
       setAttachments(prev => [...prev, {
         id,
         filename: file.name,
         mime: file.type || 'application/octet-stream',
         size: file.size,
-        status: 'done',
-        source: 'external',
-        dataUrl: ev.target?.result as string
+        status: 'uploading',
+        source: 'pending',
       }])
+      
+      try {
+        const projectDirValue = projectDir()
+        if (!projectDirValue) {
+          showToast({ title: "无法添加附件", description: "未选择项目目录", variant: "error" })
+          return
+        }
+        
+        const api = getDesktopApi()
+        if (!api?.writeFileBuffer) {
+          showToast({ title: "无法添加附件", description: "不支持文件操作", variant: "error" })
+          return
+        }
+        
+        const buffer = await file.arrayBuffer()
+        const sep = projectDirValue.includes("\\") ? "\\" : "/"
+        const tempPath = [projectDirValue, ".octo", "tmps", "make", "uploads", file.name].join(sep)
+        
+        await api.writeFileBuffer(tempPath, buffer)
+        
+        setAttachments(prev => prev.map(a => 
+          a.id === id ? { 
+            ...a, 
+            status: 'done' as const,
+            source: 'pending' as const,
+            path: tempPath,
+          } : a
+        ))
+        
+        showToast({ title: "已添加附件", description: file.name })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : '保存失败'
+        setAttachments(prev => prev.map(a =>
+          a.id === id ? { ...a, status: 'error' as const, error: message } : a
+        ))
+      }
+      return
     }
-    reader.readAsDataURL(file)
+    
+    setAttachments(prev => [...prev, {
+      id,
+      filename: file.name,
+      mime: file.type || 'application/octet-stream',
+      size: file.size,
+      status: 'uploading',
+      source: 'external',
+    }])
+    
+    try {
+      const reader = new FileReader()
+      const base64 = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          const result = reader.result as string
+          resolve(result.split(",")[1] || result)
+        }
+        reader.onerror = () => reject(new Error("读取文件失败"))
+        reader.readAsDataURL(file)
+      })
+      
+      const result = await uploadArtifactFile(
+        globalSDK.url,
+        sdk.directory || "",
+        sid,
+        file.name,
+        base64,
+      )
+      
+      setAttachments(prev => prev.map(a => 
+        a.id === id ? { 
+          ...a, 
+          status: 'done' as const, 
+          source: 'local' as const,
+          path: result.path,
+        } : a
+      ))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '上传失败'
+      setAttachments(prev => prev.map(a =>
+        a.id === id ? { ...a, status: 'error' as const, error: message } : a
+      ))
+    }
   }
 
   function handlePaste(e: ClipboardEvent) {
@@ -2329,6 +2530,83 @@ if (dsId) {
       if (!a.path || a.path.replace(/\\/g, "/") !== normalizedOld) return a
       return { ...a, path: newPath, filename: newFilename }
     }))
+  }
+
+  function handleSpecSelect() {
+    dialogPop.show((str) => {
+      try {
+        const data = JSON.parse(str)
+        const value = data.user.designSpec
+        
+        setSelectedSpec(value)
+        
+        const projectDirValue = projectDir()
+        if (projectDirValue) {
+          const api = getDesktopApi()
+          if (api?.writeFileBuffer) {
+            const sep = projectDirValue.includes("\\") ? "\\" : "/"
+            const configPath = [projectDirValue, ".octo", "tmps", "make", "resource", "assets_config.json"].join(sep)
+            const encoder = new TextEncoder()
+            const buffer = encoder.encode(str).buffer as ArrayBuffer
+            api.writeFileBuffer(configPath, buffer).catch(err => {
+              console.error("[handleSpecSelect] Failed to save assets_config.json:", err)
+            })
+          }
+        }
+      } catch (err) {
+        console.error("[handleSpecSelect] Failed to parse dialog response:", err)
+      }
+    })
+  }
+
+  async function movePendingUploadsToSession(sessionId: string) {
+    const projectDirValue = projectDir()
+    if (!projectDirValue) return
+    
+    const api = getDesktopApi()
+    if (!api?.readFileBuffer || !api?.writeFileBuffer) return
+    
+    const pendingAttachments = attachments().filter(a => a.source === 'pending' && a.path)
+    
+    for (const att of pendingAttachments) {
+      try {
+        const sep = projectDirValue.includes("\\") ? "\\" : "/"
+        
+        const tempPath = att.path!
+        const buffer = await api.readFileBuffer(tempPath)
+        if (!buffer) continue
+        
+        const finalPath = [projectDirValue, ".octo", sessionId, "uploads", att.filename].join(sep)
+        await api.writeFileBuffer(finalPath, buffer)
+        
+        setAttachments(prev => prev.map(a => 
+          a.id === att.id ? { ...a, path: finalPath, source: 'local' as const } : a
+        ))
+      } catch (err) {
+        console.error(`[movePendingUploadsToSession] Failed to move ${att.filename}:`, err)
+      }
+    }
+  }
+
+  async function moveAssetsConfigToSession(sessionId: string) {
+    const projectDirValue = projectDir()
+    if (!projectDirValue) return
+    
+    const api = getDesktopApi()
+    if (!api?.readFileBuffer || !api?.writeFileBuffer) return
+    
+    const sep = projectDirValue.includes("\\") ? "\\" : "/"
+    const tempPath = [projectDirValue, ".octo", "tmps", "make", "resource", "assets_config.json"].join(sep)
+    
+    try {
+      const buffer = await api.readFileBuffer(tempPath)
+      if (!buffer) return
+      
+      const finalPath = [projectDirValue, ".octo", sessionId, "resource", "assets_config.json"].join(sep)
+      await api.writeFileBuffer(finalPath, buffer)
+    } catch (err) {
+      console.error("[moveAssetsConfigToSession] Failed to move assets_config.json:", err)
+    }
   }
 
   function handleFileInputChange(e: Event) {
@@ -2515,33 +2793,6 @@ if (dsId) {
     tracker.interaction({ module: "design", name: "preview-local-file", extend: JSON.stringify({ type: "local", ext: filePath.split('.').pop() }) })
   }
 
-  /** Handle `/skills <name>` command: inject skill name into prompt */
-  function handleSkillCommand(skillName: string) {
-    const skill = activeSkills().find(s => s.name === skillName)
-    if (!skill) {
-      showToast({
-        title: `技能 "${skillName}" 未激活`,
-        description: "请在技能库中激活此技能"
-      })
-      setPrompt("")
-      return
-    }
-
-    tracker.interaction({
-      module: "design",
-      name: "skill-inject",
-      extend: JSON.stringify({ skill: skillName })
-    })
-
-    const skillPrompt = `请使用 ${skillName} skill 来处理这个任务。${skill.description}`
-    setPrompt(skillPrompt)
-
-    requestAnimationFrame(() => {
-      textareaRef.focus()
-      textareaRef.setSelectionRange(skillPrompt.length, skillPrompt.length)
-    })
-  }
-
   /** Continue generation (append truncated content as prompt) */
   function handleContinue(card: OutputCard) {
     tracker.interaction({ module: "design", name: "continue-generation" })
@@ -2580,7 +2831,7 @@ if (dsId) {
       })
   }
 
-  const inputDisabled = () => sending() || isBusy() || !activeModelKey() || !!questionRequest() || !!permissionRequest()
+  const inputDisabled = () => sending() || isBusy() || childBusy() || !activeModelKey() || !!questionRequest() || !!permissionRequest()
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
@@ -2709,16 +2960,7 @@ if (dsId) {
                 <div class="flex-1 flex flex-col items-center justify-center min-h-0 px-6 py-6">
                   <NewSessionView worktree="" title="Octo Design" subtitle="描述需求，开始生成原型" />
                 <div class="w-full max-w-[800px]">
-                  {/* 预置提示词按钮:放在输入框白卡片之外,视觉层级:辅助操作浮在输入框上方 */}
-<StarterCards
-                     prompts={FEATURED_STARTERS}
-                     onClick={(starter) => {
-                       tracker.interaction({ module: "design", name: "starter-click", extend: JSON.stringify({ title: starter.title }) })
-                       setPrompt(starter.prompt)
-                     }}
-                   />
-
-{/* Pending skill tag */}
+                  {/* Pending skill tag */}
                     <Show when={pendingSkill()}>
                       {(skill) => (
                         <div class="flex items-center gap-2 px-4 pt-3">
@@ -2751,7 +2993,7 @@ if (dsId) {
                           rgba(61, 93, 255, 0.7) 87%,
                           rgba(206, 7, 232, 0.7) 92%) border-box`,
                       "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
-                      height: "150px",
+                      "min-height": "150px",
                     }}
                   >
                     {/* Slash Command Popover（新建对话） */}
@@ -2786,116 +3028,35 @@ if (dsId) {
                       </div>
                     </Show>
 
-                    {/* Skills Menu Popover */}
-                    <Show when={skillsMenuState()}>
-                      <div class="slash-popover">
-                        <div class="slash-popover-head">
-                          <span class="slash-popover-title">技能列表</span>
-                          <Show when={skillsLoading()}>
-                            <span class="slash-popover-loading">加载中...</span>
-                          </Show>
-                          <span class="slash-popover-hint">Esc 关闭</span>
-                        </div>
-                        <div class="slash-popover-body">
-                          <Show when={!skillsLoading() && filteredSkills().length === 0}>
-                            <div class="slash-popover-empty">
-                              {skillsMenuState()?.query ? "未找到匹配技能" : "暂无可用技能（请在技能库中激活）"}
-                            </div>
-                          </Show>
-                          <For each={filteredSkills()}>
-                            {(skill, index) => (
-                              <button
-                                type="button"
-                                class="slash-popover-item"
-                                classList={{ "slash-popover-item-active": index() === skillsMenuIndex() }}
-                                onClick={() => pickSkillFromMenu(skill)}
-                              >
-                                <div class="slash-popover-item-title" title={skill.name}>{skill.name}</div>
-                                <Show when={skill.description}>
-                                  <div class="slash-popover-item-desc" title={skill.description}>{skill.description}</div>
-                                </Show>
-                              </button>
-                            )}
-                          </For>
-                        </div>
-                      </div>
-                    </Show>
-
-                    {/* Mention Popover（新建对话） */}
-                    <Show when={mentionFiles()}>
-                      {(files) => (
-                        <div class="mention-popover">
-                          <div class="mention-popover-head">
-                            <span class="mention-popover-title">Design Files</span>
-                            <span class="mention-popover-hint">点击选择 · Esc 关闭</span>
-                          </div>
-                          <ScrollView class="mention-scroll">
-                          <Show when={files().generated.length > 0}>
-                            <div class="mention-section">
-                              <div class="mention-section-title">生成文件</div>
-                              <For each={files().generated}>
-                                {(file) => (
-                                  <button
-                                    type="button"
-                                    class="mention-item"
-                                    onMouseDown={(e) => e.preventDefault()}
-                                    onClick={() => pickMention(file)}
-                                  >
-                                    {getFileKindIcon(file.kind, file.name)({ size: 16 })}
-                                    <span class="mention-item-name mention-item-name--full" title={file.name}>{file.name}</span>
-                                  </button>
-                                )}
-                              </For>
-                            </div>
-                          </Show>
-                          <Show when={files().uploaded.length > 0}>
-                            <div class="mention-section">
-                              <div class="mention-section-title">上传文件</div>
-                              <For each={files().uploaded}>
-                                {(file) => {
-                                  const dirPath = getUploadFileDirectory(file.relativePath)
-                                  return (
-                                    <button
-                                      type="button"
-                                      class="mention-item"
-                                      onMouseDown={(e) => e.preventDefault()}
-                                      onClick={() => pickMention(file)}
-                                    >
-                                      {getFileKindIcon(file.kind, file.name)({ size: 16 })}
-                                      <span class="mention-item-name mention-item-name--uploaded" title={file.name}>{file.name}</span>
-                                    </button>
-                                  )
-                                }}
-                              </For>
-                            </div>
-                          </Show>
-                          </ScrollView>
-                        </div>
-                      )}
-                    </Show>
-
                     <AttachmentBar
                       attachments={attachments()}
                       onRemove={removeAttachment}
                       onRetry={retryUpload}
                     />
 
-                    <textarea
-                      ref={textareaRef}
-                      value={prompt()}
-                      onInput={handleInput}
-                      onPaste={handlePaste}
-                      onCompositionStart={handleCompositionStart}
-                      onCompositionEnd={handleCompositionEnd}
-                      onKeyDown={handleKeyDown}
-                      placeholder="输入指令，按 Enter 发送…"
-                      disabled={inputDisabled()}
-                      class="w-full flex-1 resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 px-4 pt-4"
-                      style={{
-                        "font-family": "var(--octo-font)",
-                        "overflow-y": "auto",
-                      }}
-                    />
+<ProseMirrorEditor
+                       sessionId={params.id!}
+                       skillConfig={skillConfig() ?? {}}
+                       artifactFiles={artifactFiles()}
+                       mentionSelections={mentionSelections()}
+                       setMentionSelections={setMentionSelections}
+                       disabled={inputDisabled()}
+                       onTriggerMention={loadSkillConfig}
+                       onContentChange={setPrompt}
+                       onSubmit={() => void handleSubmit()}
+                       onPaste={handlePaste}
+                       onSlashTrigger={(query) => {
+                         setSlashState({ query, cursor: 0 })
+                         setSlashIndex(0)
+                       }}
+                       onSlashClose={() => setSlashState(null)}
+                       onPreview={(url) => {
+                         handleOpenLocalFile(url)
+                         proseMirrorRef1?.clear()
+                         proseMirrorRef2?.clear()
+                       }}
+                       ref={(el) => { proseMirrorRef1 = el }}
+                     />
                     <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
                         <span class="hidden">
@@ -2949,6 +3110,16 @@ if (dsId) {
                           </span>
                           <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
                         </ModelSelectorPopover>
+                        <button
+                          type="button"
+                          class="flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none"
+                          onClick={handleSpecSelect}
+                        >
+                          <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
+                            {selectedSpec() ?? "请选择设计规范"}
+                          </span>
+                          <Icon name="chevron-down" class="size-3.5 shrink-0" style="color: #000" />
+                        </button>
                       </div>
                       <IconButton
                         data-action="prompt-submit"
@@ -3105,15 +3276,6 @@ if (dsId) {
                   )}
                 </Show>
 
-                {/* 预置提示词按钮:放在输入框白卡片之外,视觉层级:辅助操作浮在输入框上方 */}
-                <StarterCards
-                  prompts={FEATURED_STARTERS}
-                  onClick={(starter) => {
-                    tracker.interaction({ module: "design", name: "starter-click", extend: JSON.stringify({ title: starter.title }) })
-                    setPrompt(starter.prompt)
-                  }}
-                />
-
                 {/* Pending skill tag */}
                 <Show when={pendingSkill()}>
                   {(skill) => (
@@ -3181,118 +3343,35 @@ if (dsId) {
                     </div>
                   </Show>
 
-                  {/* Skills Menu Popover */}
-                  <Show when={skillsMenuState()}>
-                    <div class="slash-popover">
-                      <div class="slash-popover-head">
-                        <span class="slash-popover-title">技能列表</span>
-                        <Show when={skillsLoading()}>
-                          <span class="slash-popover-loading">加载中...</span>
-                        </Show>
-                        <span class="slash-popover-hint">Esc 关闭</span>
-                      </div>
-                      <div class="slash-popover-body">
-                        <Show when={!skillsLoading() && filteredSkills().length === 0}>
-                          <div class="slash-popover-empty">
-                            {skillsMenuState()?.query ? "未找到匹配技能" : "暂无可用技能（请在技能库中激活）"}
-                          </div>
-                        </Show>
-                        <For each={filteredSkills()}>
-                          {(skill, index) => (
-                            <button
-                              type="button"
-                              class="slash-popover-item"
-                              classList={{ "slash-popover-item-active": index() === skillsMenuIndex() }}
-                              onClick={() => pickSkillFromMenu(skill)}
-                            >
-                              <div class="slash-popover-item-title" title={skill.name}>{skill.name}</div>
-                              <Show when={skill.description}>
-                                <div class="slash-popover-item-desc" title={skill.description}>{skill.description}</div>
-                              </Show>
-                            </button>
-                          )}
-                        </For>
-                      </div>
-                    </div>
-                  </Show>
-
-                  {/* Mention Popover */}
-                  <Show when={mentionFiles()}>
-                    {(files) => (
-                      <div class="mention-popover">
-                        <div class="mention-popover-head">
-                          <span class="mention-popover-title">从文件管理选择内容添加到上下文</span>
-                        </div>
-                        <ScrollView class="mention-scroll">
-                        <Show when={files().generated.length > 0}>
-                          <div class="mention-section">
-                            <div class="mention-section-title">生成文件</div>
-                            <For each={files().generated}>
-                              {(file) => (
-                                <button
-                                  type="button"
-                                  class="mention-item"
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => pickMention(file)}
-                                >
-                                  {getFileKindIcon(file.kind, file.name)({ size: 16 })}
-                                  <span class="mention-item-name mention-item-name--full" title={file.name}>{file.name}</span>
-                                </button>
-                              )}
-                            </For>
-                          </div>
-                        </Show>
-                        <Show when={files().uploaded.length > 0}>
-                          <div class="mention-section">
-                            <div class="mention-section-title">上传文件</div>
-                            <For each={files().uploaded}>
-                              {(file) => {
-                                const dirPath = getUploadFileDirectory(file.relativePath)
-                                return (
-                                  <button
-                                    type="button"
-                                    class="mention-item"
-                                    onMouseDown={(e) => e.preventDefault()}
-                                    onClick={() => pickMention(file)}
-                                  >
-                                    {getFileKindIcon(file.kind, file.name)({ size: 16 })}
-                                    <span class="mention-item-name" title={file.name}>{file.name}</span>
-                                    {dirPath && <span class="mention-item-dir" title={dirPath}>{dirPath}</span>}
-                                  </button>
-                                )
-                              }}
-                            </For>
-                          </div>
-                        </Show>
-                        </ScrollView>
-                      </div>
-                    )}
-                  </Show>
-
                   <AttachmentBar
                     attachments={attachments()}
                     onRemove={removeAttachment}
                     onRetry={retryUpload}
                   />
 
-                  <textarea
-                    ref={textareaRef}
-                    value={prompt()}
-                    onInput={handleInput}
-                    onCompositionStart={handleCompositionStart}
-                    onCompositionEnd={handleCompositionEnd}
-                    onPaste={handlePaste}
-                    onKeyDown={handleKeyDown}
-                    placeholder="输入指令，按 Enter 发送…"
-                    rows={3}
-                    disabled={inputDisabled()}
-                    class="w-full resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 px-4 pt-4 pb-4"
-                    style={{
-                      "font-family": "var(--octo-font)",
-                      "max-height": "120px",
-                      "overflow-y": "auto",
-                    }}
-                  />
+<ProseMirrorEditor
+                     sessionId={params.id!}
+                     skillConfig={skillConfig() ?? {}}
+                     artifactFiles={artifactFiles()}
+                     mentionSelections={mentionSelections()}
+                     setMentionSelections={setMentionSelections}
+                     disabled={inputDisabled()}
+                     onTriggerMention={loadSkillConfig}
+                     onContentChange={setPrompt}
+                     onSubmit={() => void handleSubmit()}
+                     onPaste={handlePaste}
+onSlashTrigger={(query) => {
+                        setSlashState({ query, cursor: 0 })
+                        setSlashIndex(0)
+                      }}
+                      onSlashClose={() => setSlashState(null)}
+                      onPreview={(url) => {
+                        handleOpenLocalFile(url)
+                        proseMirrorRef1?.clear()
+                        proseMirrorRef2?.clear()
+                      }}
+                      ref={(el) => { proseMirrorRef2 = el }}
+                   />
                   <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
                          <span class="hidden">
@@ -3446,7 +3525,10 @@ if (dsId) {
                 }}
                 onGenerateStrategy={handleGenerateStrategy}
                 onBackToStrategy={handleBackToStrategy}
-                isGenerating={false}
+                isGenerating={isGenerating()}
+                planConfirmPending={planConfirmPending()}
+                childPlanConfirmed={childPlanConfirmed()}
+                childSessionStatus={sync.data.session_status[activePlanSessionId() ?? ""]}
               />
             </div>
             <Show when={showVersionPanel()}>

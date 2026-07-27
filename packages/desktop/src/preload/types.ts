@@ -89,6 +89,10 @@ export type ElectronAPI = {
   /** 在系统文件管理器中定位;文件不存在时返回 { ok: false, reason: "not-found" } 而非 throw */
   showItemInFolder: (path: string) => Promise<{ ok: boolean; reason?: "not-found" }>
   downloadResource: (url: string, destPath: string) => Promise<void>
+  /** office「下载」:解析资源 URI 已落地的本地副本路径(不拉网络);命中且文件在→绝对路径,否则 null */
+  resolveMaterializedPath: (namespace: string, baseDir?: string, sessionId?: string) => Promise<string | null>
+  /** office「下载」:把本地副本原样拷到用户选定路径(fs.copyFile,走复制不读+写) */
+  copyFileTo: (srcPath: string, destPath: string) => Promise<void>
   downloadResourceToTemp: (
     url: string,
     namespace: string,
@@ -159,4 +163,7 @@ export type ElectronAPI = {
   listDirectory: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>
   // Pipeline API IPC bridge 类型定义
   pipelineRequest: (url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) => Promise<any>
+
+  /** 配置 W3 代理: 测试连通性后写入 ~/.config/.octo */
+  configureProxy: (account: string, password: string) => Promise<{ success: boolean }>
 }

@@ -291,7 +291,7 @@ export const layer = Layer.effect(
                 internel_image_generate: "deny",
                 lsp: "deny",
                 plan_exit: "deny",
-                question: "allow",
+                question: "deny",
               }),
               user,
             ),
