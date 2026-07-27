@@ -1056,23 +1056,24 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("pipeline-request", (_event: IpcMainInvokeEvent, url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) =>
     pipelineRequest(url, method, uiplusToken, body, headers))
 
-  // Proxy 配置: curl 测试代理连通性, 成功后写入 ~/.config/.octo
+  // Proxy 配置: curl 测试代理连通性, 成功后写入 ~/.config/octo/octo.json
   ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string) => {
-    try {
-      // 密码编码: 字母/数字/-/_/./~ 原样保留, 其他字符转百分号编码
-      const encodedPwd = encodeURIComponent(password)
-        .replace(/['()!*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
-      const proxyUrl = `http://${account}:${encodedPwd}@proxyhk.huawei.com:8080`
+    // 先计算编码结果，无论成功失败都返回给前端用于调试
+    const encodedPwd = encodeURIComponent(password)
+      .replace(/['()!*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
+    const proxyUrl = `http://${account}:${encodedPwd}@proxyhk.huawei.com:8080`
+    const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null"
 
+    try {
       // curl 测试连通性
-      execSync(`curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "${proxyUrl}"`, {
+      execSync(`curl -s -o "${nullDevice}" -w "%{http_code}" --connect-timeout 5 "${proxyUrl}"`, {
         timeout: 8000,
         stdio: "pipe",
       })
 
-      // 写入 ~/.config/.octo
-      const configDir = join(homedir(), ".config", ".octo")
-      const configFile = join(configDir, "config")
+      // 写入 ~/.config/octo/octo.json
+      const configDir = getOctoConfigPath()
+      const configFile = join(configDir, "octo.json")
       mkdirSync(configDir, { recursive: true })
 
       let config: Record<string, string> = {}
@@ -1085,9 +1086,9 @@ export function registerIpcHandlers(deps: Deps) {
       config["no_proxy"] = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
 
       writeFileSync(configFile, JSON.stringify(config, null, 2), "utf-8")
-      return { success: true }
-    } catch {
-      return { success: false }
+      return { success: true, encodedPwd, curlUrl: proxyUrl }
+    } catch (err) {
+      return { success: false, encodedPwd, curlUrl: proxyUrl, error: err instanceof Error ? err.message : String(err) }
     }
   })
 }

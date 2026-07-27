@@ -109,12 +109,19 @@ export const SettingsGeneral: Component = () => {
     setProxyConfiguring(true)
     try {
       const result = await api.configureProxy(proxyAccount(), proxyPassword())
+      console.log("[proxy] 用户输入的账号:", proxyAccount())
+      console.log("[proxy] 用户输入的密码:", proxyPassword())
+      console.log("[proxy] 编码后的密码:", result.encodedPwd)
+      console.log("[proxy] curl 请求地址:", result.curlUrl)
       if (result.success) {
+        console.log("[proxy] 配置成功")
         showToast({ variant: "success", title: "已成功配置" })
       } else {
+        console.error("[proxy] 配置失败:", result.error)
         showToast({ variant: "error", title: "配置值不正确" })
       }
-    } catch {
+    } catch (err) {
+      console.error("[proxy] 配置异常:", err)
       showToast({ variant: "error", title: "配置值不正确" })
     } finally {
       setProxyConfiguring(false)

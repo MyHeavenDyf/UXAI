@@ -219,9 +219,9 @@ function useEnvProxy() {
     logger.warn("failed to load proxy environment", error)
   }
 
-  // 从 ~/.config/.octo/config 读取代理配置并注入环境变量
+  // 从 ~/.config/octo/octo.json 读取代理配置并注入环境变量
   try {
-    const configFile = join(homedir(), ".config", ".octo", "config")
+    const configFile = join(homedir(), ".config", "octo", "octo.json")
     if (existsSync(configFile)) {
       const config = JSON.parse(readFileSync(configFile, "utf-8"))
       for (const key of ["http_proxy", "https_proxy", "no_proxy"]) {
