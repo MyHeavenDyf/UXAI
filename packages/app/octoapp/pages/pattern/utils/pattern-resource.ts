@@ -78,7 +78,7 @@ export async function saveUploadImage(buffer: ArrayBuffer, sessionId: string): P
 }
 
 // 页面资源库查询地址
-export const PAGE_RESOURCE_URL = "https://octo-beta.hdesign.huawei.com/lib-resource-service"
+export const PAGE_RESOURCE_URL = "https://octo.hdesign.huawei.com/lib-resource-service"
 
 export async function getResourceDetail(type = "file", dataId: string) {
   const url = `${PAGE_RESOURCE_URL}/api/vector/detail?type=${type}&data_id=${dataId}`
@@ -137,6 +137,7 @@ export type ResourceDetailResult = {
 //   ]
 // }
 
+
 // 获取页面级数据的资源路径
 export async function getPagePatternResource(inputData: { results?: Array<Record<string, any>> }) {
   try {
@@ -165,7 +166,7 @@ export async function getPagePatternResource(inputData: { results?: Array<Record
 async function searchResources(
   queries: string | string[],
   topK: number,
-  filters: Record<string, number> = { source_id: 4, group_id: 39 },
+  filters: Record<string, number> = { source_id: 10, group_id: 390 },
 ) {
   const url = `${PAGE_RESOURCE_URL}/api/vector/search`
   const payload = {
