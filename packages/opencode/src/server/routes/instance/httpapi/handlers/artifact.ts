@@ -265,30 +265,33 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       yield* fs.ensureDir(uploadsDir).pipe(Effect.catch(() => Effect.void))
 
       if (category === "generated") {
-        const exists = yield* fs.exists(outputsDir).pipe(Effect.catch(() => Effect.succeed(false)))
+        const targetDir = subPath ? path.join(outputsDir, sanitizePath(subPath)) : outputsDir
+
+        const exists = yield* fs.exists(targetDir).pipe(Effect.catch(() => Effect.succeed(false)))
         if (!exists) return { files: [] }
 
-        const entries = yield* fs.readDirectory(outputsDir).pipe(Effect.catch(() => Effect.succeed([])))
+        const entries = yield* fs.readDirectory(targetDir).pipe(Effect.catch(() => Effect.succeed([])))
         const files: ArtifactFileInfo[] = []
 
         for (const name of entries) {
           if (name.startsWith(".")) continue
 
-          const fullPath = path.join(outputsDir, name)
+          const fullPath = path.join(targetDir, name)
+          const relativePath = subPath ? `${sanitizePath(subPath)}/${name}` : name
           const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
 
           if (!stat) continue
 
           const isFolder = stat.type === "Directory"
           if (recursive && isFolder) {
-            yield* collectFilesRecursive(fullPath, name, sessionId, files)
+            yield* collectFilesRecursive(fullPath, relativePath, sessionId, files)
           } else {
             const sizeNum = isFolder ? 0 : (typeof stat.size === "bigint" ? Number(stat.size) : (stat.size ?? 0))
             const mtimeNum = Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
             files.push({
               name,
               path: fullPath,
-              relativePath: name,
+              relativePath,
               sessionId,
               kind: isFolder ? "folder" : getKind(name),
               isFolder,
