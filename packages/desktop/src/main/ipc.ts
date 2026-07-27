@@ -1064,6 +1064,7 @@ export function registerIpcHandlers(deps: Deps) {
     const proxyUrl = `http://${account}:${encodedPwd}@proxyhk.huawei.com:8080`
     const httpsProxyUrl = proxyUrl.replace("http://", "https://")
     const noProxy = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
+    const curlTarget = "https://ifconfig.me/ip"
     const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null"
 
     log.info("[configure-proxy] 开始配置代理", { account, encodedPwd, proxyUrl })
@@ -1087,9 +1088,9 @@ export function registerIpcHandlers(deps: Deps) {
     })
 
     try {
-      log.info("[configure-proxy] 执行 curl 测试连通性", { connectTimeout: 5, execTimeout: 8000 })
+      log.info("[configure-proxy] 执行 curl 测试连通性", { curlTarget, connectTimeout: 5, execTimeout: 8000 })
 
-      execSync(`curl -s -o "${nullDevice}" -w "%{http_code}" --connect-timeout 5 "https://ifconfig.me/ip"`, {
+      execSync(`curl -s -o "${nullDevice}" -w "%{http_code}" --connect-timeout 5 "${curlTarget}"`, {
         timeout: 8000,
         stdio: "pipe",
       })
@@ -1112,7 +1113,7 @@ export function registerIpcHandlers(deps: Deps) {
 
       writeFileSync(configFile, JSON.stringify(config, null, 2), "utf-8")
       log.info("[configure-proxy] 配置写入成功", { configFile })
-      return { success: true, encodedPwd, curlUrl: proxyUrl }
+      return { success: true, encodedPwd, curlUrl: curlTarget }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
       const errorStack = err instanceof Error ? err.stack : undefined
@@ -1122,7 +1123,7 @@ export function registerIpcHandlers(deps: Deps) {
         code: errorCode,
         stack: errorStack,
       })
-      return { success: false, encodedPwd, curlUrl: proxyUrl, error: errorMessage }
+      return { success: false, encodedPwd, curlUrl: curlTarget, error: errorMessage }
     } finally {
       // 恢复之前的环境变量
       for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"] as const) {
