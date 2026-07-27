@@ -20,6 +20,8 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useLayout } from "@/context/layout"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { useProjectDir } from "@/hooks/use-project-dir"
+import { useComposerDraft } from "@/hooks/use-composer-draft"
+import type { DraftPersist } from "@/utils/composer-draft"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { INSIGHT_AGENT } from "@/constants/agent"
@@ -141,6 +143,55 @@ const UPLOAD_ACCEPT = ALLOWED_EXT.map((e) => `.${e}`).join(",")
 
 // 添加附件按钮的 tooltip 提示:支持的文件类型 + 大小 + 数量上限(均从常量派生)。
 const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)}MB，最多 ${MAX_ATTACHMENTS} 个`
+
+// ── 输入区草稿的落盘编解码(见 utils/composer-draft)───────────────────────────
+// 只落 done 态附件:uploading 物理上活不过整页刷新;error 态的「重试」要靠进程内的原 File 引用,
+// 进程一没就废,与其恢复出一个点了没反应的失败 chip,不如不落。
+// previewUrl 是 objectURL / local:// url,不落盘,恢复时按 path(本地文件)或 url(S3 图片)重建。
+type StoredDraftAttachment = Pick<Attachment, "id" | "filename" | "mime" | "size" | "path" | "url">
+
+const DRAFT_PERSIST: DraftPersist<Attachment, McpSelection | null> = {
+  saveAttachment(attachment) {
+    if (attachment.status !== "done") return undefined
+    const stored: StoredDraftAttachment = {
+      id: attachment.id,
+      filename: attachment.filename,
+      mime: attachment.mime,
+      size: attachment.size,
+      path: attachment.path,
+      url: attachment.url,
+    }
+    return stored
+  },
+  loadAttachment(raw) {
+    const stored = raw as StoredDraftAttachment | null
+    if (!stored || typeof stored.id !== "string" || typeof stored.filename !== "string") return undefined
+    // path(本地读 / MCP 引用)与 url(vision)两条路都没有 → 恢复出来也参与不了发送,丢弃
+    if (!stored.path && !stored.url) return undefined
+    return {
+      id: stored.id,
+      filename: stored.filename,
+      mime: stored.mime || "application/octet-stream",
+      size: typeof stored.size === "number" ? stored.size : 0,
+      status: "done",
+      path: stored.path,
+      url: stored.url,
+      // 缩略图重建:有本地路径走 local://(与文件管理添加图片时同源),纯 S3 图片直接用 S3 url
+      previewUrl: isImageFile(stored.filename) ? (stored.path ? pathToLocalUrl(stored.path) : stored.url) : undefined,
+    }
+  },
+  // MCP chip 只落功能 id,恢复时查回 PRESET_PROMPTS 的规范对象(与菜单同一份定义,避免落盘副本漂移)
+  saveExtra: (selection) => (selection ? { presetId: selection.preset.id } : undefined),
+  loadExtra(raw) {
+    const presetId = (raw as { presetId?: string } | null)?.presetId
+    const preset = presetId ? PRESET_PROMPTS.find((p) => p.id === presetId) : undefined
+    return preset ? { preset } : null
+  },
+}
+
+// 落盘恢复的附件指向本地磁盘文件,用户可能在两次启动之间把它删了 —— 每个桶进入时异步核一次。
+// 模块级:与草稿同生命周期,页面卸载重挂(切顶层 tab)不该重复核。
+const validatedDraftBuckets = new Set<string>()
 
 // 刷新保路由:打包态 Electron 走 file://(dev 的 electron reload 同样不走 SPA 兜底),整页
 // 重载会丢失 /insight/:id 路由、回退到首页。这里把"当前所在对话"持久化,boot 落在无 id 的
@@ -583,14 +634,29 @@ function InsightContent() {
     }
   }, { defer: true }))
 
-  const [prompt, setPrompt] = createSignal("")
+  // ── 输入区草稿:正文 / 附件 / MCP chip ──────────────────────────────────────
+  // 三者按 sessionID 分桶存在模块级 store(hooks/use-composer-draft),不是组件内 signal:
+  //   - 切会话:本页是 /insight/:id? 单例路由,换 id 不卸载,组件内 signal 跨不了 id;
+  //   - 切顶层 tab(Chat / Make / Studio):本页整个卸载,组件内 signal 一并销毁。
+  // 两种情况用户都在丢正在写的内容(上游 chat 不丢,靠的是 context/prompt.tsx 同款分桶)。
+  // 理由与 utils/send-queue 同源——那个模块已经为「切 tab 会卸载」把发送队列提到过模块级。
+  // 尚未建会话(欢迎页)单独一个桶,首次发送时整桶改名到真实会话名下(见 handleSubmit)。
+  const draft = useComposerDraft<Attachment, McpSelection | null>({
+    scope: "insight",
+    session: () => params.id,
+    // MCP「研究工具」chip 选择(SPEC-INS-017):非空 = 解析模式开启——若模型发起 MCP 业务调用,
+    // 只能是所选工具(范围限制);是否调用由模型按用户消息判断。纯常驻:只有手动 × 才取消,
+    // 无任何自动清除副作用(重复提交由模板判断规则 + 查询仪式防,非客户端状态机)。
+    emptyExtra: null,
+    persist: DRAFT_PERSIST,
+  })
+  const prompt = draft.text
+  const setPrompt = draft.setText
+  const mcpSelection = draft.extra
+  const setMcpSelection = draft.setExtra
   // 输入法合成态:macOS 上「确认候选」的 Enter keydown 先于 compositionend 触发,
   // 此时 event.isComposing 在部分 Chromium 版本已是 false 会漏判,故另用手动信号兜底
   const [composing, setComposing] = createSignal(false)
-  // MCP「研究工具」chip 选择(SPEC-INS-017):非空 = 解析模式开启——若模型发起 MCP 业务调用,
-  // 只能是所选工具(范围限制);是否调用由模型按用户消息判断。纯常驻:只有手动 × 才取消,
-  // 无任何自动清除副作用(重复提交由模板判断规则 + 查询仪式防,非客户端状态机)。
-  const [mcpSelection, setMcpSelection] = createSignal<McpSelection | null>(null)
   // chip turn 结果对账记录:chip 发送后记 user messageID,busy→idle 时对账工具调用结果(spec §5 埋点)。
   let pendingChipResult: { messageID: string; functionId: string; toolKey: string } | null = null
   // queue:busy 期间用户继续发送,先入队,idle 后按 FIFO 逐条自动 flush(SPEC-INS-007 §3.3.3)
@@ -603,12 +669,14 @@ function InsightContent() {
   const setQueueFor = updateSessionQueue
   /** 清空当前所视 session 的队列(abort 用) */
   const clearQueue = () => clearSessionQueue(params.id)
-  const [attachments, setAttachments] = createSignal<Attachment[]>([])
+  const attachments = draft.attachments
+  const setAttachments = draft.setAttachments
+  /** 按 id 局部更新指定草稿桶里的附件——导入/上传是异步的,回调必须写回**发起时那个桶**:
+   *  用户可能在传完之前就切走了会话,写当前桶会匹配不到 id,那条附件会永远停在 uploading。 */
+  function patchAttachment(owner: string, id: string, update: (attachment: Attachment) => Attachment) {
+    draft.updateAttachments(owner, (prev) => prev.map((a) => (a.id === id ? update(a) : a)))
+  }
   const [isDragOver, setIsDragOver] = createSignal(false)
-  // 首次带附件发送会 createAndNavigate 改 params.id,触发下方 session 切换 effect 清空附件草稿。
-  // 但首次发送的这批附件要留给 doSendPrompt consume,不能被 effect 抢清 → 用此 flag 标记
-  // "发送导致的导航",effect 消费一次后跳过清空(其余新建/切换 session 正常清)。
-  let sendingNavigation = false
   let textareaRef!: HTMLTextAreaElement
 
   // 聊天区宽度：从 localStorage 恢复，无存储值时取约 50% 可用宽（扣除侧边栏约 240px）
@@ -780,6 +848,8 @@ function InsightContent() {
       return
     }
     const id = crypto.randomUUID()
+    // 读盘 + S3 上传都是异步的,期间用户可能切走 → 结果写回发起时这个草稿桶(同 addAttachments)
+    const owner = draft.key()
     // 图片必须走 ③ vision FilePart{url:S3}:发送时 imageFiles 过滤要求 url,而文件管理里的图片只有本地 path。
     // 先读盘 → 构造 File → 复用输入框选图那条 doImageUpload 链路(含 uploading 态 / 失败重试 / S3 上传拿 url)。
     // 不这么做,图片会同时漏出 imageFiles(无 url)和 localFiles(isImageFile 被排除)两个分流 → 静默丢失。
@@ -792,8 +862,8 @@ function InsightContent() {
         return
       }
       const imgFile = new File([buffer], file.name, { type: file.mime || "image/png" })
-      filesById.set(id, imgFile) // 重试用(retryUpload 从 filesById 取原 File 重传)
-      setAttachments((prev) => [...prev, {
+      draft.files.set(id, imgFile) // 重试用(retryUpload 从 filesById 取原 File 重传)
+      draft.updateAttachments(owner, (prev) => [...prev, {
         id,
         filename: file.name,
         mime: file.mime || "image/png",
@@ -803,11 +873,11 @@ function InsightContent() {
         // 图片给 local:// 缩略图(附件条 FileTypeIcon 有 previewUrl 时渲染缩略图)。
         previewUrl: pathToLocalUrl(file.path),
       }])
-      void doImageUpload(id, imgFile) // 成功 → done + url;失败 → error + 可重试
+      void doImageUpload(owner, id, imgFile) // 成功 → done + url;失败 → error + 可重试
       return
     }
     // 非图片(已落盘):直接作为已就绪附件进 [附件] 清单(给 ②extract_document 拿路径 / ④MCP 引用)。
-    setAttachments((prev) => [...prev, {
+    draft.updateAttachments(owner, (prev) => [...prev, {
       id,
       filename: file.name,
       mime: file.mime || "application/octet-stream",
@@ -829,7 +899,10 @@ function InsightContent() {
   /** 按路径移除输入区附件(删除文件后清理已添加的同路径附件)。 */
   function removeAttachmentsByPath(paths: string[]) {
     const set = new Set(paths.map((p) => p.replace(/\\/g, "/")))
-    setAttachments((prev) => prev.filter((a) => !a.path || !set.has(a.path.replace(/\\/g, "/"))))
+    const hit = (a: Attachment) => !!a.path && set.has(a.path.replace(/\\/g, "/"))
+    // 附件现在跨会话常驻,被摘掉的这批要显式释放 objectURL / 原 File 引用,不能靠组件卸载兜底
+    draft.dispose(attachments().filter(hit))
+    setAttachments((prev) => prev.filter((a) => !hit(a)))
   }
 
   /** 切 tab:仅在切到不同 tab 时打点(避免重复点击当前 tab 也计数) */
@@ -855,11 +928,12 @@ function InsightContent() {
   // 自动滚动：session busy 时保持对话区随新内容跟随到底部
   const autoScroll = createAutoScroll({ working: isBusy })
 
-  // 切换 session 时重置 ResultViewer tabs / 自动 openTab 记录 / 未发送附件 / 输入框草稿
+  // 切换 session 时重置 ResultViewer tabs / 自动 openTab 记录 —— 只复位**视图**,不动用户输入。
   // queue 不清:已按 sessionID 分桶,切走再切回同一 session 必须延续其排队;
   //   分桶天然隔离,A 的排队不会错发到 B(SPEC-INS-007 §3.3.5)。
-  // 附件草稿与输入框草稿必须清:在 session A 输入未发送的内容,新建/切换 session 后不应残留(设计确认)。
-  //   例外:首次发送触发的导航(sendingNavigation)——那批附件留给 doSendPrompt consume,跳过一次。
+  // 输入框草稿(正文 / 附件 / chip)同样不清:也已按 sessionID 分桶(见 draft),切走切回原样还在,
+  //   跨顶层 tab 与整页刷新也在。曾经在这里主动清空,是因为当时草稿是页面级单例、不分桶,
+  //   不清就会串台(在 A 写的内容跟着切到 B)——分桶之后清空既无必要也是数据丢失。
   // 任务卡片刷新冷却(task-refresh)不清:per task_id 全局唯一,切走再切回必须延续倒计时
   //   (否则切换 session 可绕过 3 分钟防抖,spec task-card.md §7.1)。
   createEffect(on(() => params.id, () => {
@@ -868,17 +942,37 @@ function InsightContent() {
     setResultViewMode("files")
     autoOpenedTaskIds.clear()
     lastTaskSnapshot = new Map()
-    if (sendingNavigation) {
-      sendingNavigation = false
-    } else {
-      revokeAllPreviews()
-      filesById.clear()
-      setAttachments([])
-      setPrompt("")
-      setMcpSelection(null)
-    }
     console.log("[octo:task] session switched, view state reset (refresh cooldown preserved)", { sessionID: params.id })
   }, { defer: true }))
+
+  // 进入某个会话时核一遍它草稿里附件的存活:落盘恢复的附件指向本地磁盘文件,用户可能在两次启动
+  // 之间把文件删了。不在读盘时同步核(会为每个附件串一次 IPC、拖慢首屏),进来之后异步核、静默剔除。
+  // 每桶只核一次:核过之后的增删都发生在本进程内,已由 removeAttachmentsByPath 等路径兜住。
+  createEffect(on(draft.key, (key) => { void pruneMissingAttachments(key) }))
+
+  async function pruneMissingAttachments(key: string) {
+    if (validatedDraftBuckets.has(key)) return
+    validatedDraftBuckets.add(key)
+    const api = getDesktopApi()
+    if (typeof api?.fileExists !== "function") return
+    const candidates = draft.attachmentsOf(key).filter((a) => a.path)
+    if (candidates.length === 0) return
+    const missing: Attachment[] = []
+    await Promise.all(candidates.map(async (a) => {
+      // 探测本身失败(IPC 异常)按存活处理:宁可留一条发送时才报错的附件,也不误删用户的东西
+      try {
+        if (!(await api.fileExists!(a.path!))) missing.push(a)
+      } catch { /* noop */ }
+    }))
+    if (missing.length === 0) return
+    const gone = new Set(missing.map((a) => a.id))
+    console.warn("[octo:upload] draft attachment(s) no longer on disk, dropped", {
+      bucket: key,
+      files: missing.map((a) => a.filename),
+    })
+    draft.dispose(missing)
+    draft.updateAttachments(key, (prev) => prev.filter((a) => !gone.has(a.id)))
+  }
 
   // 切换 / 打开 session 后把对话区滚到底部：消息异步加载(message[id] 先 undefined),
   // 必须等 sessionMessagesLoaded 翻真、InsightTurn 的 parts 渲染撑开高度后再定位,
@@ -934,7 +1028,8 @@ function InsightContent() {
     return !!target?.parentID
   }
 
-  async function createAndNavigate(): Promise<string | undefined> {
+  /** beforeNavigate:路由切走之前的最后一次同步机会(草稿改名等),此时 params.id 还是旧值 */
+  async function createAndNavigate(beforeNavigate?: (sessionID: string) => void): Promise<string | undefined> {
     const dir = projectDir()
     if (!dir) return
     try {
@@ -953,6 +1048,7 @@ function InsightContent() {
           }),
         )
         local.session.promote(dir, session.id)
+        beforeNavigate?.(session.id)
         navigate(`/insight/${session.id}`)
         tracker.interaction({ module: "insight", name: "new-session" })
         return session.id
@@ -1011,23 +1107,26 @@ function InsightContent() {
 
   /**
    * 共享的 prompt 调用底层(SPEC-INS-007 §3.2 改用 promptAsync + optimistic)
-   *   - consumeAttachments=true(用户手动发送):附件随消息发送,发送后清空附件状态
-   *   - consumeAttachments=false(刷新/终止/follow-up 按钮 inject):不消费附件,保留用户正在选的附件状态
+   *   - draftOwner 有值(用户手动发送):该草稿桶的附件随消息发送,发送后清空并释放资源
+   *   - draftOwner 缺省(刷新/终止/follow-up 按钮 inject):不消费附件,保留用户正在选的附件
+   * 为什么要显式传桶而不是读「当前会话」:欢迎页发第一条时会现建会话,发送过程中 params.id 正在翻新,
+   * 消费的是改名后那个桶,必须由调用方钉死,不能靠读当下的路由参数。
    * spec: docs/specs/ui/task-card.md §6.1 + docs/specs/ui/insight-prompt-redesign.md §3.2
    */
   async function doSendPrompt(
     sessionId: string,
     text: string,
     opts: {
-      consumeAttachments: boolean
+      draftOwner?: string
       source: string
       /** SPEC-INS-017 chip turn:注入 [MCP解析模式] 模板 + [MCP声明],tools gate 只放行所选工具。
        *  text 参数即用户键入原文(空输入不可发送,气泡文案 = user_prompt 原文,无回落) */
       chip?: { selection: McpSelection }
     },
   ) {
+    const draftOwner = opts.draftOwner
     // SPEC-INS-015 文件传参路由:发送时按「文件类 × 用途」分流(spec docs/specs/infra/insight-file-passing.md)。
-    const done = opts.consumeAttachments ? attachments().filter((a) => a.status === "done") : []
+    const done = draftOwner ? draft.attachmentsOf(draftOwner).filter((a) => a.status === "done") : []
     // 非图片(已导入 worktree、有本地 path):进 [附件] 清单(给 ②extract_document 拿路径 / ④MCP 引用)。
     // 降级场景(无 projectDir/非桌面)拿不到 path → 不进清单(本地读 + MCP 都用不了)。
     const localFiles = done.filter((a) => !isImageFile(a.filename) && a.path)
@@ -1055,8 +1154,10 @@ function InsightContent() {
               }
             }),
         )
-        if (movedPaths.size > 0) {
-          setAttachments((prev) => prev.map((x) => (movedPaths.has(x.id) ? { ...x, path: movedPaths.get(x.id) } : x)))
+        if (movedPaths.size > 0 && draftOwner) {
+          draft.updateAttachments(draftOwner, (prev) =>
+            prev.map((x) => (movedPaths.has(x.id) ? { ...x, path: movedPaths.get(x.id) } : x)),
+          )
         }
       }
     }
@@ -1227,11 +1328,9 @@ function InsightContent() {
     })
     console.log("[octo:prompt] optimistic added", { messageID, partsCount: optimisticParts.length })
 
-    if (opts.consumeAttachments) {
-      revokeAllPreviews()
-      filesById.clear()
-      setAttachments([])
-    }
+    // 附件随本条消息发出 → 清空该桶附件并释放 objectURL / 原 File 引用。
+    // 正文与 chip 不动:正文在 handleSubmit 已清,chip 是常驻模式(不随发送复位)。
+    if (draftOwner) draft.consumeAttachments(draftOwner)
 
     try {
       const result = await sdk.client.session.promptAsync({
@@ -1268,13 +1367,14 @@ function InsightContent() {
     }
   }
 
-  function sendMessage(sessionId: string, text: string, chip?: { selection: McpSelection }) {
-    return doSendPrompt(sessionId, text, { consumeAttachments: true, source: chip ? "mcp-chip" : "user", chip })
+  /** draftOwner 缺省 = 消费当前所视会话的草稿桶(队列 flush 走这条);首次发送由 handleSubmit 显式钉死 */
+  function sendMessage(sessionId: string, text: string, chip?: { selection: McpSelection }, draftOwner = draft.key()) {
+    return doSendPrompt(sessionId, text, { draftOwner, source: chip ? "mcp-chip" : "user", chip })
   }
 
   /** 任务卡片"刷新 / 终止 / follow-up"按钮通过本函数 inject prompt;不消费附件状态 */
   function sendInjectedPrompt(sessionId: string, text: string, source: string) {
-    return doSendPrompt(sessionId, text, { consumeAttachments: false, source })
+    return doSendPrompt(sessionId, text, { source })
   }
 
   // ── MCP chip(SPEC-INS-017)─────────────────────────────────
@@ -1384,14 +1484,20 @@ function InsightContent() {
     }
 
     let sid = params.id
+    let draftOwner = draft.key()
     if (!sid) {
-      // 首次发送:navigate 会触发 session 切换 effect,标记一下让它别抢清这批待发送附件
-      sendingNavigation = true
-      sid = await createAndNavigate()
-      if (!sid) { sendingNavigation = false; return }
+      // 首次发送:会话是这一刻才建出来的。在路由切走**之前**把欢迎页桶整体改名到新会话名下——
+      // 待发送的附件要留给本次发送消费,常驻的 MCP chip 也得跟着进新会话(chip 不随发送复位)。
+      // 改名放在 navigate 之前,params.id 翻新时新桶已经就位,输入区不会闪一下空。
+      sid = await createAndNavigate((id) => {
+        const next = draft.keyOf(id)
+        draft.rename(draftOwner, next)
+        draftOwner = next
+      })
+      if (!sid) return
     }
     autoScroll.forceScrollToBottom()
-    await sendMessage(sid, text, chipPayload)
+    await sendMessage(sid, text, chipPayload, draftOwner)
   }
 
   // idle 时 flush 当前 session 队首一条(SPEC-INS-007 §3.3.3)。
@@ -1471,15 +1577,13 @@ function InsightContent() {
   // ── 附件管理 ─────────────────────────────────────────────
 
   let fileInputRef!: HTMLInputElement
-  // id -> File，保留原 File 引用以支持重传（不进 Attachment 类型避免污染 chip 渲染）
-  const filesById = new Map<string, File>()
-
-  // 释放当前所有图片附件的缩略图 objectURL（避免内存泄漏）。清空附件前调用。
-  function revokeAllPreviews() {
-    for (const a of attachments()) if (a.previewUrl) URL.revokeObjectURL(a.previewUrl)
-  }
+  // id -> File，保留原 File 引用以支持重传（不进 Attachment 类型避免污染 chip 渲染）。
+  // 与草稿同为模块级(draft.files):附件本身跨会话/跨顶层 tab 常驻,重传能力得跟着一起活着。
+  const filesById = draft.files
 
   function addAttachments(files: File[], method: "picker" | "drop" | "paste") {
+    // 导入/上传是异步的,期间用户可能切走;回调按这个桶写回,不看「当下的当前桶」
+    const owner = draft.key()
     const slots = MAX_ATTACHMENTS - attachments().length
     // 超过 10 个:提示并截断到剩余槽位(单次超额取前 N 个);已满则只提示不新增
     if (files.length > slots) {
@@ -1522,7 +1626,7 @@ function InsightContent() {
           ...prev,
           { id, filename: file.name, mime, size: file.size, status: "uploading", previewUrl },
         ])
-        void doImageUpload(id, file)
+        void doImageUpload(owner, id, file)
       } else {
         // filesById 存原始 rawFile:导入靠它取真实本地路径,重试复用。展示名走 filename。
         filesById.set(id, rawFile)
@@ -1533,20 +1637,20 @@ function InsightContent() {
         // 非图片不 eager 上传:只拷进 .octo/tmps(预会话落地区本地副本,SPEC-INS-014 §4.1.2)。
         // done 带 path,发送时进 [附件] 清单 + rename 进 .octo/<sessionId>/uploads(见 doSendPrompt);
         // 插件在模型调 MCP 时才按需上传(④)。
-        void doImport(id, rawFile, file.name)
+        void doImport(owner, id, rawFile, file.name)
       }
     }
   }
 
   // ③ 图片:change 即传 S3。成功 → done + url(发送时产出 vision FilePart{url});失败 → retriable。
   // 不拷进 uploads、不进 [附件] 清单——图片只供模型"看",不参与本地读 / MCP。
-  async function doImageUpload(id: string, file: File) {
+  // owner:发起上传时所在的草稿桶。上传期间用户可能切会话/切顶层 tab,结果必须写回原桶,
+  // 否则那条附件会永远停在 uploading(还会因 hasUploadingAttachments 卡死该会话的发送键)。
+  async function doImageUpload(owner: string, id: string, file: File) {
     try {
       const result = await uploadFile(file)
       tracker.interaction({ module: "insight", name: "attachment-upload-result", extend: JSON.stringify({ success: true, kind: "image" }) })
-      setAttachments((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, status: "done", url: result.url, error: undefined } : a)),
-      )
+      patchAttachment(owner, id, (a) => ({ ...a, status: "done", url: result.url, error: undefined }))
     } catch (err) {
       const message = err instanceof UploadError ? err.message : err instanceof Error ? err.message : "上传失败"
       console.error("[octo:upload] image-upload failed", { id, filename: file.name, err })
@@ -1555,9 +1659,7 @@ function InsightContent() {
         name: "attachment-upload-result",
         extend: JSON.stringify({ success: false, kind: "image", errorCode: err instanceof UploadError ? err.code : "UNKNOWN" }),
       })
-      setAttachments((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, status: "error", error: message, retriable: true } : a)),
-      )
+      patchAttachment(owner, id, (a) => ({ ...a, status: "error", error: message, retriable: true }))
     }
   }
 
@@ -1567,7 +1669,8 @@ function InsightContent() {
   //   - 真失败(copyFileToWorktree 抛错):status=error + retriable,chip 显示重试
   //   - 降级(无 projectDir / 非桌面 / 拿不到真实路径,如剪贴板内存 blob):status=done 但**无 path**,
   //     不报错(不破坏 __dev),该文件不进注入块、MCP 不可用
-  async function doImport(id: string, rawFile: File, filename: string) {
+  // owner 语义同 doImageUpload:导入结果写回**发起时**那个草稿桶,不写当下所视会话。
+  async function doImport(owner: string, id: string, rawFile: File, filename: string) {
     try {
       const dest = await copySourceToWorktree(filename, rawFile)
       tracker.interaction({
@@ -1584,13 +1687,13 @@ function InsightContent() {
       // extract_document 的路径里抄到磁盘 basename,而插件键表里只有清单名 → 不替换、裸文件名直通 MCP。
       // split 兼容 Windows 反斜杠路径(渲染进程无 node:path)。
       const landedName = dest?.split(/[\\/]/).pop()
-      setAttachments((prev) =>
-        prev.map((a) =>
-          a.id === id
-            ? { ...a, status: "done", path: dest ?? undefined, filename: landedName || a.filename, error: undefined }
-            : a,
-        ),
-      )
+      patchAttachment(owner, id, (a) => ({
+        ...a,
+        status: "done",
+        path: dest ?? undefined,
+        filename: landedName || a.filename,
+        error: undefined,
+      }))
     } catch (err) {
       console.error("[octo:upload] import to worktree failed", { id, filename, err })
       tracker.interaction({
@@ -1599,9 +1702,7 @@ function InsightContent() {
         extend: JSON.stringify({ success: false }),
       })
       // 已发起过导入(rawFile 在 filesById):标 retriable=true → chip 显示重试
-      setAttachments((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, status: "error", error: "导入失败，请重试", retriable: true } : a)),
-      )
+      patchAttachment(owner, id, (a) => ({ ...a, status: "error", error: "导入失败，请重试", retriable: true }))
     }
   }
 
@@ -1631,12 +1732,12 @@ function InsightContent() {
       name: "attachment-remove",
       extend: JSON.stringify({ stage: att?.status === "done" ? "uploaded" : "pending" }),
     })
-    if (att?.previewUrl) URL.revokeObjectURL(att.previewUrl) // 释放图片缩略图 objectURL
-    filesById.delete(id)
+    if (att) draft.dispose([att]) // 释放图片缩略图 objectURL + 重传用的原 File 引用
     setAttachments((prev) => prev.filter((a) => a.id !== id))
   }
 
   function retryUpload(id: string) {
+    const owner = draft.key()
     const file = filesById.get(id)
     const att = attachments().find((a) => a.id === id)
     if (!file || !att) {
@@ -1646,16 +1747,14 @@ function InsightContent() {
       return
     }
     tracker.interaction({ module: "insight", name: "attachment-retry" })
-    setAttachments((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, status: "uploading", error: undefined, retriable: undefined } : a)),
-    )
+    patchAttachment(owner, id, (a) => ({ ...a, status: "uploading", error: undefined, retriable: undefined }))
     // 按文件类型走对应重试:图片重传 S3,非图片重新导入 worktree。
     if (isImageFile(att.filename)) {
       console.log("[octo:upload] retry image-upload", { id, filename: att.filename })
-      void doImageUpload(id, file)
+      void doImageUpload(owner, id, file)
     } else {
       console.log("[octo:upload] retry import", { id, filename: att.filename })
-      void doImport(id, file, att.filename)
+      void doImport(owner, id, file, att.filename)
     }
   }
 
