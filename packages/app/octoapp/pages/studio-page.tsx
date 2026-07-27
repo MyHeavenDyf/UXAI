@@ -78,7 +78,6 @@ import {
   STUDIO_GENERATION_CREATE_TIMEOUT_MS,
   STUDIO_GENERATION_REBOOT_TIMEOUT_MS,
   STUDIO_GENERATION_STATUS_INTERVAL_MS,
-  STUDIO_VIDEO_ASPECT_RATIOS,
   stringValue,
   studioGenerationTitle,
   SUPPORTED_STUDIO_CAPABILITIES,
@@ -1967,8 +1966,9 @@ export default function StudioPage() {
 
   function applyStudioCapability(value: StudioCapability) {
     setCapability(value)
-    if (value === "video.generate" && !STUDIO_VIDEO_ASPECT_RATIOS.includes(aspectRatio() as (typeof STUDIO_VIDEO_ASPECT_RATIOS)[number])) {
-      setAspectRatio("16:9")
+    if (value === "video.generate") {
+      setAspectRatio("1:1")
+      setCount(1)
     }
     if (value !== "video.generate") clearVideoFrames()
     if (value !== "image.generate") {

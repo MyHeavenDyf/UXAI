@@ -731,7 +731,10 @@ export function StudioComposer(props: {
           <button type="button" class="studio-composer-compliance-trigger">合规指引</button>
           <span>，</span>
           <div role="tooltip" class="studio-composer-compliance-tooltip">
-            <StudioVideoRiskContent class="studio-composer-compliance-tooltip-content" />
+            <StudioVideoRiskContent
+              class="studio-composer-compliance-tooltip-content"
+              isVideoGeneration={props.capability === "video.generate"}
+            />
             <span class="studio-composer-compliance-tooltip-arrow" />
           </div>
         </div>
@@ -1331,8 +1334,8 @@ function VideoSettings(props: {
       <div class="studio-image-settings-label">生成模式</div>
       <div class="studio-image-settings-counts studio-video-settings-quality">
         <For each={[
-          { label: "标准", value: "std" },
-          { label: "高质量", value: "pro" },
+          { label: "标准模式", value: "std" },
+          { label: "高质量模式", value: "pro" },
         ] as const}>
           {(item) => (
             <button

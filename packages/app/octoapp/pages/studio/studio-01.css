@@ -277,7 +277,7 @@
   gap: 4px;
   overflow: hidden;
   padding: 0;
-  border: 1px solid transparent;
+  border: 1px solid #DFDFDF;
   border-radius: 3px;
   background: #f2f3f5;
   color: rgba(15, 23, 42, 0.62);
