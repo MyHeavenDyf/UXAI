@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process"
+import { execFile, execSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, globSync } from "node:fs"
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
@@ -397,6 +397,9 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle(
     "copy-file-to-worktree",
     async (_event: IpcMainInvokeEvent, srcPath: string, baseDir: string, filename: string) => {
+      // 布局 SOT = SPEC-INS-014 §2。`.octo`/`tmps` 与渲染端判据
+      // (packages/app/octoapp/pages/insight/utils/worktree-layout.ts)受进程边界隔离、不共享常量;
+      // 改这里的落点必须同步改渲染端 worktree-layout.ts 与 spec §2(v7 曾漏改渲染端 → PR #424)。
       const dir = join(baseDir, ".octo", "tmps")
       await ensureWorktreeDir(dir)
       const dest = collisionFreePath(dir, sanitizeWorktreeName(filename))
@@ -422,6 +425,7 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle(
     "move-pending-upload-to-session",
     async (_event: IpcMainInvokeEvent, srcPath: string, baseDir: string, sessionId: string) => {
+      // 布局 SOT = SPEC-INS-014 §2;`.octo`/`uploads` 落点与渲染端判据须同步(见 copy-file-to-worktree 上方注释)。
       const dir = join(baseDir, ".octo", sanitizeSessionSegment(sessionId), "uploads")
       await ensureWorktreeDir(dir)
       const dest = collisionFreePath(dir, basename(srcPath))
@@ -1141,6 +1145,41 @@ export function registerIpcHandlers(deps: Deps) {
   // Pipeline API IPC — renderer 通过 window.api.pipelineRequest 调用, 主进程用 net.fetch 请求真实接口(绕 CORS)
   ipcMain.handle("pipeline-request", (_event: IpcMainInvokeEvent, url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) =>
     pipelineRequest(url, method, uiplusToken, body, headers))
+
+  // Proxy 配置: curl 测试代理连通性, 成功后写入 ~/.config/.octo
+  ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string) => {
+    try {
+      // 密码编码: 字母/数字/-/_/./~ 原样保留, 其他字符转百分号编码
+      const encodedPwd = encodeURIComponent(password)
+        .replace(/['()!*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
+      const proxyUrl = `http://${account}:${encodedPwd}@proxyhk.huawei.com:8080`
+
+      // curl 测试连通性
+      execSync(`curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "${proxyUrl}"`, {
+        timeout: 8000,
+        stdio: "pipe",
+      })
+
+      // 写入 ~/.config/.octo
+      const configDir = join(homedir(), ".config", ".octo")
+      const configFile = join(configDir, "config")
+      mkdirSync(configDir, { recursive: true })
+
+      let config: Record<string, string> = {}
+      try {
+        config = JSON.parse(readFileSync(configFile, "utf-8"))
+      } catch { /* 文件不存在或解析失败, 使用空对象 */ }
+
+      config["http_proxy"] = proxyUrl
+      config["https_proxy"] = proxyUrl.replace("http://", "https://")
+      config["no_proxy"] = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
+
+      writeFileSync(configFile, JSON.stringify(config, null, 2), "utf-8")
+      return { success: true }
+    } catch {
+      return { success: false }
+    }
+  })
 }
 
 export function sendSqliteMigrationProgress(win: BrowserWindow, progress: SqliteMigrationProgress) {
