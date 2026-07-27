@@ -1,5 +1,5 @@
 import { NodeFileSystem } from "@effect/platform-node"
-import { dirname, isAbsolute, join, relative, resolve as pathResolve } from "path"
+import { dirname, join, relative, resolve as pathResolve } from "path"
 import { realpathSync } from "fs"
 import * as NFS from "fs/promises"
 import { lookup } from "mime-types"
@@ -239,12 +239,6 @@ export namespace AppFileSystem {
   }
 
   export function contains(parent: string, child: string) {
-    const rel = relative(parent, child)
-    // 同一路径视为「在内部」(与既有行为一致)
-    if (rel === "") return true
-    // Windows 跨盘符时 path.relative 无法生成相对路径,会直接返回目标绝对路径
-    // (如 relative("D:\\proj", "C:\\Users\\x") === "C:\\Users\\x")。该结果不以 ".." 开头,
-    // 若只判 ".." 会把另一个盘的路径误判为「在 parent 之内」,从而绕过边界检查。
-    return !rel.startsWith("..") && !isAbsolute(rel)
+    return !relative(parent, child).startsWith("..")
   }
 }

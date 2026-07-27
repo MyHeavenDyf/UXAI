@@ -29,9 +29,6 @@ const StudioGenerationInput = z.object({
   prompt: z.string().min(1),
   displayPrompt: z.string().optional(),
   detailPrompt: z.string().optional(),
-  detailTitle: z.string().optional(),
-  initialSessionTitle: z.string().optional(),
-  shouldSetSessionTitle: z.boolean().optional(),
   refinedPrompt: z.string().optional(),
   effectivePrompt: z.string().optional(),
   promptRefineModels: z

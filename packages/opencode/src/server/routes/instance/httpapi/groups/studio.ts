@@ -50,9 +50,6 @@ export const StudioGenerationPayload = Schema.Struct({
   prompt: Schema.String,
   displayPrompt: Schema.optional(Schema.String),
   detailPrompt: Schema.optional(Schema.String),
-  detailTitle: Schema.optional(Schema.String),
-  initialSessionTitle: Schema.optional(Schema.String),
-  shouldSetSessionTitle: Schema.optional(Schema.Boolean),
   refinedPrompt: Schema.optional(Schema.String),
   effectivePrompt: Schema.optional(Schema.String),
   promptRefineModels: Schema.optional(
@@ -114,7 +111,6 @@ const StudioGenerationResult = Schema.Struct({
   prompt: Schema.String,
   displayPrompt: Schema.optional(Schema.String),
   detailPrompt: Schema.optional(Schema.String),
-  detailTitle: Schema.optional(Schema.String),
   provider: Schema.Union([Schema.Literal("jimeng"), Schema.Literal("internel")]),
   toolAction: Schema.optional(Schema.Union([
     Schema.Literal("generate_image"),

@@ -90,8 +90,10 @@ export function ResponsiveSidebarLayout(props: ResponsiveSidebarLayoutProps) {
       class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative"
       style={{ "min-width": props.minContainerWidth ?? "1024px" }}
     >
-      {/* Sidebar area - CSS hidden in focusMode to avoid remounting children */}
-      <Show when={!props.focusMode}>
+      <Show
+        when={!props.focusMode}
+        fallback={<div class="flex flex-col flex-1 min-w-0 overflow-hidden">{props.children}</div>}
+      >
         {/* Full sidebar (>= 1456px) */}
         <Show when={!responsive.sidebarCollapsed()}>
           {props.sidebar(responsive.sidebarWidth())}
@@ -142,6 +144,9 @@ export function ResponsiveSidebarLayout(props: ResponsiveSidebarLayoutProps) {
           </div>
         </Show>
 
+        {/* Content area */}
+        <div class="flex flex-col flex-1 min-w-0 overflow-hidden">{props.children}</div>
+
         {/* Drawer overlay */}
         <Show when={responsive.isOverlayMode() && responsive.drawerOpen()}>
           <div
@@ -170,9 +175,6 @@ export function ResponsiveSidebarLayout(props: ResponsiveSidebarLayoutProps) {
           </div>
         </Show>
       </Show>
-
-      {/* Content area - always rendered, never destroyed */}
-      <div class="flex flex-col flex-1 min-w-0 overflow-hidden">{props.children}</div>
     </div>
   )
 }

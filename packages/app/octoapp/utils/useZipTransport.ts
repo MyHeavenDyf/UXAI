@@ -1,11 +1,19 @@
 // jk-j60099994-replace-with-1134603-start
+export interface UploadZipOptions {
+  containerId: string
+  deathDay: number
+  limitTimes: number
+}
+
 export interface UploadZipResult {
   webview: string | null
-  pixsoUrl?: string
+  code: string
+  onMessage: (event: string, callback: () => void) => void
 }
 
 export async function uploadZip(
-  zipBlobFactory: () => Promise<Blob>,
+  zipBlob: Blob,
+  options: UploadZipOptions,
   projectSelection: unknown
 ): Promise<UploadZipResult> {
   // Implemented by others - placeholder

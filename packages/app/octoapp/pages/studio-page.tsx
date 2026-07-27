@@ -114,7 +114,6 @@ type StudioGenerationOverrides = {
   prompt?: string
   displayPrompt?: string
   detailPrompt?: string
-  detailTitle?: string
   refinedPrompt?: string
   effectivePrompt?: string
   sourceImage?: string
@@ -887,14 +886,6 @@ export default function StudioPage() {
   createEffect(() => {
     const r = canvasResult()
     if (!r) return
-    if (canvasTabTitle(r)) {
-      setCanvasTabLabels((prev) => Object.fromEntries(
-        Object.entries(prev).map(([id, label]) => {
-          const index = r.images.findIndex((image) => image.id === id)
-          return index === -1 ? [id, label] : [id, canvasTabLabel(r, index)]
-        }),
-      ))
-    }
     const first = r.images[0]?.id
     if (!first || r.images.some((image) => image.id === selectedImageId())) return
     setSelectedImageId(first)
@@ -907,7 +898,7 @@ export default function StudioPage() {
       if (canvasTabImages().length === 0) {
         // 无 tabs：创建第一个 tab
         setCanvasTabImages([r.images[0]])
-        setCanvasTabLabels({ [r.images[0].id]: canvasTabLabel(r) })
+        setCanvasTabLabels({ [r.images[0].id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-1` : extractKeywords(r.prompt) })
       } else {
         // 已有 tabs：追加，与 selectStudioImage 逻辑一致
         setCanvasTabImages((prev) => {
@@ -916,7 +907,7 @@ export default function StudioPage() {
         })
         setCanvasTabLabels((prev) => {
           if (prev[r.images[0].id]) return prev
-          return { ...prev, [r.images[0].id]: canvasTabLabel(r) }
+          return { ...prev, [r.images[0].id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-1` : extractKeywords(r.prompt) }
         })
       }
     }
@@ -931,20 +922,6 @@ export default function StudioPage() {
       .replace(/^-+|-+$/g, "")
     const prefix = cleaned.length > maxLen ? cleaned.slice(0, maxLen).replace(/-+$/, "") : (cleaned || "image")
     return prefix
-  }
-
-  function canvasTabLabel(result: StudioGenerationResult, imageIndex = 0) {
-    const title = canvasTabTitle(result)
-    return result.images.length > 1 ? `${title}-${imageIndex + 1}` : title
-  }
-
-  function canvasTabTitle(result: StudioGenerationResult) {
-    if (result.capability === "image.upscale" || result.capability === "image.cutout") return capabilityLabel(result.capability)
-    if (result.capability === "image.inpaint" || result.toolAction === "inpainting") return "智能重绘"
-    if (result.capability === "image.outpaint" || result.toolAction === "outpainting") return "扩图"
-    if (result.toolAction === "super_resolution") return "变清晰"
-    if (result.toolAction === "cutout") return "抠图"
-    return result.detailTitle ?? extractKeywords(result.prompt)
   }
   function selectStudioImage(input: { resultID: string; imageID: string }) {
     batch(() => {
@@ -962,7 +939,7 @@ export default function StudioPage() {
         if (tabImg && imageIndex !== -1) {
           setCanvasTabLabels((prev) => ({
             ...prev,
-            [tabImg.id]: canvasTabLabel(r, imageIndex),
+            [tabImg.id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-${imageIndex + 1}` : extractKeywords(r.prompt),
           }))
         }
         setDeletedImageIds(new Set<string>())
@@ -980,7 +957,7 @@ export default function StudioPage() {
         setSelectedImageId(input.imageID)
         setShowStudioCanvas(true)
         setCanvasTabImages((prev) => [...prev, first])
-        setCanvasTabLabels((prev) => ({ ...prev, [first.id]: canvasTabLabel(r, imageIndex) }))
+        setCanvasTabLabels((prev) => ({ ...prev, [first.id]: r.images.length > 1 ? `${extractKeywords(r.prompt)}-${imageIndex + 1}` : extractKeywords(r.prompt) }))
         setDeletedImageIds(new Set<string>())
         setWorkspaceImage(undefined)
         setWorkspaceUploadRequested(false)
@@ -1233,9 +1210,9 @@ export default function StudioPage() {
   const isEditingWorkspaceMode = createMemo(() => mode() !== "preview")
   const currentTitle = createMemo(() =>
     sessionTitle(activeStudioSession()?.title) ??
-    (result()?.detailTitle ?? (result()?.prompt
+    (result()?.prompt
       ? buildStudioDisplayPrompt(result()!.prompt)
-      : studioTurn()?.userText || "Octo Studio")),
+      : studioTurn()?.userText || "Octo Studio"),
   )
   const [headerTitle, setHeaderTitle] = createStore({
     draft: "",
@@ -2198,7 +2175,6 @@ export default function StudioPage() {
         prompt: effectivePrompt ?? refinedPrompt ?? originalPrompt ?? result.prompt,
         displayPrompt: STUDIO_REGENERATE_DISPLAY_PROMPT,
         detailPrompt: result.detailPrompt,
-        detailTitle: result.detailTitle,
         refinedPrompt,
         effectivePrompt,
         referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
@@ -2222,7 +2198,6 @@ export default function StudioPage() {
         prompt: effectivePrompt ?? refinedPrompt ?? originalPrompt ?? result.prompt,
         displayPrompt: STUDIO_REGENERATE_DISPLAY_PROMPT,
         detailPrompt: result.detailPrompt,
-        detailTitle: result.detailTitle,
         refinedPrompt,
         effectivePrompt,
         referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
@@ -2243,7 +2218,6 @@ export default function StudioPage() {
       prompt: effectivePrompt ?? refinedPrompt ?? originalPrompt ?? result.prompt,
       displayPrompt: STUDIO_REGENERATE_DISPLAY_PROMPT,
       detailPrompt: result.detailPrompt,
-      detailTitle: result.detailTitle,
       refinedPrompt,
       effectivePrompt,
       sourceImage: stringValue(input, "sourceImage"),
@@ -2382,9 +2356,6 @@ export default function StudioPage() {
     text: string
     displayPrompt?: string
     detailPrompt?: string
-    detailTitle?: string
-    initialSessionTitle?: string
-    shouldSetSessionTitle?: boolean
     capability: StudioCapability
     styleModel?: string
     aspectRatio?: StudioAspectRatio
@@ -2423,9 +2394,6 @@ export default function StudioPage() {
         prompt: input.text,
         displayPrompt: input.displayPrompt,
         detailPrompt: input.detailPrompt,
-        detailTitle: input.detailTitle,
-        initialSessionTitle: input.initialSessionTitle,
-        shouldSetSessionTitle: input.shouldSetSessionTitle,
         refinedPrompt: input.refinedPrompt,
         effectivePrompt: input.effectivePrompt,
         promptRefineModels: models
@@ -2804,7 +2772,6 @@ export default function StudioPage() {
     )
     if (!text || isActionBusy() || nextHasInvalidVideoFrames) return
     const detailPrompt = overrides?.detailPrompt ?? (actualUserPrompt || (nextCapability === "video.generate" ? text : undefined))
-    const detailTitle = overrides?.detailTitle ?? buildStudioDisplayPrompt(detailPrompt ?? text)
     const currentToken = ++generationToken
     const previousPrompt = prompt()
     const previousAssets = assets()
@@ -2873,7 +2840,6 @@ export default function StudioPage() {
       prompt: overrides?.effectivePrompt ?? overrides?.refinedPrompt ?? text,
       displayPrompt: overrides?.displayPrompt,
       detailPrompt,
-      detailTitle,
       provider: "internel",
       model: nextStyleModel,
       aspectRatio: nextIsCustom ? ("1:1" as StudioAspectRatio) : nextAspectRatio,
@@ -2933,9 +2899,6 @@ export default function StudioPage() {
         text,
         displayPrompt: overrides?.displayPrompt,
         detailPrompt,
-        detailTitle,
-        initialSessionTitle: existingSession ? undefined : buildStudioDisplayPrompt(text),
-        shouldSetSessionTitle: existingSession ? undefined : true,
         capability: nextCapability,
         refinedPrompt: overrides?.refinedPrompt,
         effectivePrompt: overrides?.effectivePrompt,
@@ -2959,7 +2922,6 @@ export default function StudioPage() {
         sessionID: current?.sessionID ?? (generation as StudioGenerationResult).sessionID,
         displayPrompt: current?.displayPrompt ?? generation.displayPrompt,
         detailPrompt: current?.detailPrompt ?? generation.detailPrompt,
-        detailTitle: generation.detailTitle ?? current?.detailTitle,
         sourceImage: current?.sourceImage ?? overrides?.sourceImage,
         inputImages: current?.inputImages ?? pendingInputImages,
         // Preserve custom size fields from current state — API response may not include them
@@ -3080,7 +3042,6 @@ export default function StudioPage() {
                 sessionID: current?.sessionID ?? (generation as StudioGenerationResult).sessionID,
                 displayPrompt: current?.displayPrompt ?? generation.displayPrompt,
                 detailPrompt: current?.detailPrompt ?? generation.detailPrompt,
-                detailTitle: generation.detailTitle ?? current?.detailTitle,
                 sourceImage: current?.sourceImage,
                 inputImages: current?.inputImages,
                 // Preserve custom size fields from current state — API response may not include them
@@ -3915,7 +3876,7 @@ if (!headerTitle.pendingRename) return
                               if (tabImg && imageIndex !== -1) {
                                 setCanvasTabLabels((prev) => ({
                                   ...prev,
-                                  [tabImg.id]: canvasTabLabel(r, imageIndex),
+                                  [tabImg.id]: r.images.length > 1 ? `${extractKeywords(r.prompt ?? "")}-${imageIndex + 1}` : extractKeywords(r.prompt ?? ""),
                                 }))
                               }
                               setDeletedImageIds(new Set<string>())
@@ -3930,7 +3891,7 @@ if (!headerTitle.pendingRename) return
                               const imageIndex = r.images.findIndex((img) => img.id === id)
                               setSelectedImageId(id)
                               setCanvasTabImages((prev) => [...prev, first])
-                              setCanvasTabLabels((prev) => ({ ...prev, [first.id]: canvasTabLabel(r, imageIndex) }))
+                              setCanvasTabLabels((prev) => ({ ...prev, [first.id]: (r?.images.length ?? 0) > 1 ? `${extractKeywords(r?.prompt ?? "")}-${imageIndex + 1}` : extractKeywords(r?.prompt ?? "") }))
                               setDeletedImageIds(new Set<string>())
                               setWorkspaceImage(undefined)
                               setWorkspaceUploadRequested(false)

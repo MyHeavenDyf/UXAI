@@ -1920,7 +1920,6 @@ export const CommandInput = Schema.Struct({
   parts: Schema.optional(
     Schema.Array(
       Schema.Union([
-        MessageV2.TextPartInput,
         Schema.Struct({
           id: Schema.optional(PartID),
           type: Schema.Literal("file"),
