@@ -1064,12 +1064,17 @@ export function registerIpcHandlers(deps: Deps) {
     const proxyUrl = `http://${account}:${encodedPwd}@proxyhk.huawei.com:8080`
     const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null"
 
+    log.info("[configure-proxy] 开始配置代理", { account, encodedPwd, proxyUrl })
+
     try {
-      // curl 测试连通性
+      log.info("[configure-proxy] 执行 curl 测试连通性", { proxyUrl, connectTimeout: 5, execTimeout: 8000 })
+
       execSync(`curl -s -o "${nullDevice}" -w "%{http_code}" --connect-timeout 5 "${proxyUrl}"`, {
         timeout: 8000,
         stdio: "pipe",
       })
+
+      log.info("[configure-proxy] curl 测试通过, 写入配置文件")
 
       // 写入 ~/.config/octo/octo.json
       const configDir = getOctoConfigPath()
@@ -1086,9 +1091,19 @@ export function registerIpcHandlers(deps: Deps) {
       config["no_proxy"] = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
 
       writeFileSync(configFile, JSON.stringify(config, null, 2), "utf-8")
+      log.info("[configure-proxy] 配置写入成功", { configFile })
       return { success: true, encodedPwd, curlUrl: proxyUrl }
     } catch (err) {
-      return { success: false, encodedPwd, curlUrl: proxyUrl, error: err instanceof Error ? err.message : String(err) }
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      const errorStack = err instanceof Error ? err.stack : undefined
+      const errorCode = (err as NodeJS.ErrnoException).code
+      log.error("[configure-proxy] 配置失败", {
+        error: errorMessage,
+        code: errorCode,
+        stack: errorStack,
+        proxyUrl,
+      })
+      return { success: false, encodedPwd, curlUrl: proxyUrl, error: errorMessage }
     }
   })
 }
