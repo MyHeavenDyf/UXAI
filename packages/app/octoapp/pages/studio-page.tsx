@@ -3221,6 +3221,7 @@ export default function StudioPage() {
   function handleKeyDown(event: KeyboardEvent) {
     if (event.key !== "Enter" || event.shiftKey) return
     event.preventDefault()
+    if (!canSubmit()) return
     handleSubmit()
   }
 
