@@ -1056,7 +1056,7 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("pipeline-request", (_event: IpcMainInvokeEvent, url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) =>
     pipelineRequest(url, method, uiplusToken, body, headers))
 
-  // Proxy 配置: curl 测试代理连通性, 成功后写入 ~/.config/octo/octo.json
+  // Proxy 配置: curl 测试代理连通性, 成功后写入 ~/.config/octo/proxy_config.json
   ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string) => {
     const encodedPwd = encodeURIComponent(password)
       .replace(/['()!*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
@@ -1099,21 +1099,16 @@ export function registerIpcHandlers(deps: Deps) {
 
       log.info("[configure-proxy] curl 测试通过, 写入配置文件")
 
-      // 写入 ~/.config/octo/octo.json
+      // 写入 ~/.config/octo/proxy_config.json（独立文件，避免影响 octo.json 的 schema 校验）
       const configDir = getOctoConfigPath()
-      const configFile = join(configDir, "octo.json")
+      const configFile = join(configDir, "proxy_config.json")
       mkdirSync(configDir, { recursive: true })
 
-      let config: Record<string, string> = {}
-      try {
-        config = JSON.parse(readFileSync(configFile, "utf-8"))
-      } catch { /* 文件不存在或解析失败, 使用空对象 */ }
-
-      config["http_proxy"] = proxyUrl
-      config["https_proxy"] = proxyUrl
-      config["no_proxy"] = noProxy
-
-      writeFileSync(configFile, JSON.stringify(config, null, 2), "utf-8")
+      writeFileSync(configFile, JSON.stringify({
+        http_proxy: proxyUrl,
+        https_proxy: proxyUrl,
+        no_proxy: noProxy,
+      }, null, 2), "utf-8")
       log.info("[configure-proxy] 配置写入成功", { configFile })
       return { success: true, curlUrl: curlTarget }
     } catch (err) {
