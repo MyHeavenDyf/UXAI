@@ -306,14 +306,18 @@
 /* studio-details 折叠/展开面板 */
 .studio-details-wrapper {
   flex-shrink: 0;
+  position: relative;
   display: flex;
   flex-direction: row;
   align-items: stretch;
 }
 
 .studio-details-toggle {
-  flex: 0 0 20px;
-  align-self: center;
+  position: absolute;
+  top: 50%;
+  left: -20px;
+  transform: translateY(-50%);
+  z-index: 1;
   width: 20px;
   height: 37px;
   border: none;
@@ -356,11 +360,18 @@
   background-color: #333;
 }
 
-/* 当 studio-canvas-body 宽度不足 800px 时隐藏详情面板和切换按钮（>=800px 由 JS 自动展开） */
+/* 当 studio-canvas-body 宽度不足 800px 时隐藏详情面板和切换按钮 */
 @container (max-width: 799px) {
   .studio-details-toggle,
   .studio-details {
     display: none;
+  }
+}
+
+/* studio-canvas-stage 宽度不足 600px 时收紧横向内边距（查 stage 所在 flex 列容器，其宽度 = stage 宽度） */
+@container (max-width: 599px) {
+  .studio-canvas-stage {
+    padding: 32px 20px;
   }
 }
 
