@@ -1058,7 +1058,6 @@ export function registerIpcHandlers(deps: Deps) {
 
   // Proxy 配置: curl 测试代理连通性, 成功后写入 ~/.config/octo/octo.json
   ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string) => {
-    // 先计算编码结果，无论成功失败都返回给前端用于调试
     const encodedPwd = encodeURIComponent(password)
       .replace(/['()!*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
     const proxyUrl = `http://${account}:${encodedPwd}@proxyhk.huawei.com:8080`
@@ -1066,7 +1065,7 @@ export function registerIpcHandlers(deps: Deps) {
     const noProxy = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
     const curlTarget = "https://ifconfig.me/ip"
 
-    log.info("[configure-proxy] 开始配置代理", { account, encodedPwd, proxyUrl })
+    log.info("[configure-proxy] 开始配置代理")
 
     // 先注入环境变量，确保 curl 能走代理
     const prevEnv: Record<string, string | undefined> = {}
@@ -1080,11 +1079,7 @@ export function registerIpcHandlers(deps: Deps) {
     process.env["HTTPS_PROXY"] = proxyUrl
     process.env["NO_PROXY"] = noProxy
 
-    log.info("[configure-proxy] 环境变量已注入", {
-      http_proxy: process.env.http_proxy,
-      https_proxy: process.env.https_proxy,
-      no_proxy: process.env.no_proxy,
-    })
+    log.info("[configure-proxy] 环境变量已注入")
 
     try {
       log.info("[configure-proxy] 执行 curl 测试连通性", { curlTarget, connectTimeout: 15, execTimeout: 20000 })
@@ -1120,24 +1115,11 @@ export function registerIpcHandlers(deps: Deps) {
 
       writeFileSync(configFile, JSON.stringify(config, null, 2), "utf-8")
       log.info("[configure-proxy] 配置写入成功", { configFile })
-      return { success: true, encodedPwd, curlUrl: curlTarget }
+      return { success: true, curlUrl: curlTarget }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
-      const errorStack = err instanceof Error ? err.stack : undefined
-      const errorCode = (err as NodeJS.ErrnoException).code
-      // execSync 失败时, stderr 包含 curl 的具体错误信息
-      const stderrOutput = err instanceof Error ? (err as any).stderr?.toString().trim() : undefined
-      const stdoutOutput = err instanceof Error ? (err as any).stdout?.toString().trim() : undefined
-      log.error("[configure-proxy] 配置失败", {
-        error: errorMessage,
-        code: errorCode,
-        stderr: stderrOutput,
-        stdout: stdoutOutput,
-        stack: errorStack,
-      })
-      // 将完整的错误详情返回给前端
-      const detailParts = [stderrOutput, stdoutOutput, errorMessage].filter(Boolean)
-      return { success: false, encodedPwd, curlUrl: curlTarget, error: detailParts.join(" | ") }
+      log.error("[configure-proxy] 配置失败", { error: errorMessage })
+      return { success: false, curlUrl: curlTarget, error: errorMessage }
     } finally {
       // 恢复之前的环境变量
       for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"] as const) {

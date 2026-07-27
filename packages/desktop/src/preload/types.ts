@@ -162,7 +162,6 @@ export type ElectronAPI = {
   /** 配置 W3 代理: 测试连通性后写入 ~/.config/octo/octo.json */
   configureProxy: (account: string, password: string) => Promise<{
     success: boolean
-    encodedPwd: string
     curlUrl: string
     error?: string
   }>
