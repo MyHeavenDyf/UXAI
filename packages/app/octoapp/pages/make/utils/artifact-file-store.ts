@@ -7,6 +7,7 @@ export type GroupMode = "kind" | "modified"
 export type ModifiedSection = "today" | "yesterday" | "previous7Days" | "previous30Days" | "older"
 export type SortKey = "name" | "kind" | "mtime"
 export type SortDir = "asc" | "desc"
+export type ArtifactCategory = "generated" | "uploaded"
 export { type ArtifactFile, type ArtifactFileKind, kindSortPriority }
 
 const VIEW_STATE_KEY_PREFIX = "octo:make:design-files:view-state:v3:"
@@ -77,6 +78,7 @@ export const MODIFIED_SECTION_LABELS: Record<ModifiedSection, string> = {
 
 export type ArtifactFileStore = {
   currentPath: string
+  currentCategory: ArtifactCategory | null
   generatedFiles: ArtifactFile[]
   uploadedFiles: ArtifactFile[]
   collapsedGenerated: boolean
@@ -192,6 +194,7 @@ export function createArtifactFileStore(sessionId: string) {
 
   const [store, setStore] = createStore<ArtifactFileStore>({
     currentPath: "",
+    currentCategory: null,
     generatedFiles: [],
     uploadedFiles: [],
     collapsedGenerated: savedViewState.collapsedGenerated ?? false,
@@ -235,7 +238,7 @@ export function createArtifactFileStore(sessionId: string) {
     dayBoundary,
   )
 
-  const isTopLevel = createMemo(() => store.currentPath === "")
+  const isTopLevel = createMemo(() => store.currentPath === "" && store.currentCategory === null)
 
   createEffect(on(
     () => store.kindFilter,
@@ -388,10 +391,18 @@ export function createArtifactFileStore(sessionId: string) {
       }
     },
 
-    navigateToFolder(folder: ArtifactFile) {
+    navigateToFolder(folder: ArtifactFile, category: ArtifactCategory) {
       if (!folder.isFolder) return
-      const path = folder.relativePath.replace(/^uploads\//, "")
+      const path = category === "uploaded"
+        ? folder.relativePath.replace(/^uploads\//, "")
+        : folder.relativePath
       setStore("currentPath", path)
+      setStore("currentCategory", category)
+    },
+
+    navigateToTopLevel() {
+      setStore("currentPath", "")
+      setStore("currentCategory", null)
     },
   }
 }
