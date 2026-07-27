@@ -86,7 +86,7 @@ export class IconRequestQueue {
    * 刷新队列：对每个分组发起一次 fetchIconBatch，
    * 将结果写入 svgCache（key = name&shape&color），自增 svgCacheVersion
    */
-  async flush(): void {
+  async flush() {
     this.timer = null
 
     // 快照当前分组并清空

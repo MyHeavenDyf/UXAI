@@ -231,7 +231,13 @@ const iconColors = {
   },
 }
 
-const tagColors = {
+interface TagColorEntry {
+  text: string;
+  bg: string;
+  bgOpacity?: number;
+}
+
+const tagColors: Record<string, Record<string, TagColorEntry>> = {
   solid: {
     info: {
       text: "--gray-0",

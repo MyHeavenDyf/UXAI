@@ -2,11 +2,11 @@ import { ref, provide, inject, type Ref } from 'vue'
 import { resolveAllIcons } from '../utils/resolveIcons'
 import { fetchIconConfig, svgCache, svgCacheVersion } from '../utils/fetchSvg'
 import { IconRequestQueue } from '../utils/iconRequestQueue'
-import { mapShapeToApiStyle, resolveApiColorId, resolveSvgCacheKey } from '../utils/fetchSvg'
+import { resolveSvgCacheKey } from '../utils/fetchSvg'
 import type { IconInfoEntry } from '../utils/resolveIcons'
 export { type IconInfoEntry } from '../utils/resolveIcons'
 export { svgCache, svgCacheVersion } from '../utils/fetchSvg'
-export { resolveSvgCacheKey, mapShapeToApiStyle, resolveApiColorId } from '../utils/fetchSvg'
+export { resolveSvgCacheKey } from '../utils/fetchSvg'
 
 export const ICON_PROVIDER_KEY = Symbol('IconProvider')
 
