@@ -1,24 +1,30 @@
 import { ref, provide, inject, type Ref } from 'vue'
 import { resolveAllIcons } from '../utils/resolveIcons'
-import { fetchIconConfig, svgCache } from '../utils/fetchSvg'
-import type { VariantId, IconVariantData } from '../utils/resolveIcons'
-export { type VariantId, type IconVariantData, toVariantId, fromVariantId } from '../utils/resolveIcons'
-export { svgCache } from '../utils/fetchSvg'
+import { fetchIconConfig, svgCache, svgCacheVersion } from '../utils/fetchSvg'
+import { IconRequestQueue } from '../utils/iconRequestQueue'
+import { mapShapeToApiStyle, resolveApiColorId, resolveSvgCacheKey } from '../utils/fetchSvg'
+import type { IconInfoEntry } from '../utils/resolveIcons'
+export { type IconInfoEntry } from '../utils/resolveIcons'
+export { svgCache, svgCacheVersion } from '../utils/fetchSvg'
+export { resolveSvgCacheKey, mapShapeToApiStyle, resolveApiColorId } from '../utils/fetchSvg'
 
 export const ICON_PROVIDER_KEY = Symbol('IconProvider')
 
 export interface IconProviderContext {
   hasHuiIcons: Ref<boolean>
-  variantDataMap: Ref<Record<VariantId, IconVariantData>>
-  resolving: Ref<boolean>
+  iconInfoMap: Ref<Record<string, IconInfoEntry>>
   svgCache: Map<string, string>
+  svgCacheVersion: Ref<number>
+  requestSvg: (name: string, shape: string, color: string) => void
 }
 
 // ========== 全局单例 ==========
 
 export const hasHuiIcons = ref(false)
-export const variantDataMap = ref<Record<VariantId, IconVariantData>>({})
-export const resolving = ref(false)
+export const iconInfoMap = ref<Record<string, IconInfoEntry>>({})
+
+/** 请求队列单例 */
+const iconRequestQueue = new IconRequestQueue(50)
 
 let configChecked = false
 let processingPromise: Promise<void> | null = null
@@ -27,7 +33,8 @@ export const configReady = new Promise<void>((resolve) => { _configResolve = res
 
 /** App.vue 中调用，初始化 + 检测 API 可用性 */
 export async function provideIconProvider(): Promise<IconProviderContext> {
-  const context: IconProviderContext = { hasHuiIcons, variantDataMap, resolving, svgCache }
+  const requestSvgFn = requestSvg
+  const context: IconProviderContext = { hasHuiIcons, iconInfoMap, svgCache, svgCacheVersion, requestSvg: requestSvgFn }
   provide(ICON_PROVIDER_KEY, context)
 
   if (!configChecked) {
@@ -47,26 +54,35 @@ export async function provideIconProvider(): Promise<IconProviderContext> {
 /** 子组件 inject 获取 */
 export function useIconProvider(): IconProviderContext {
   const context = inject<IconProviderContext>(ICON_PROVIDER_KEY)
-  return context || { hasHuiIcons, variantDataMap, resolving, svgCache }
+  return context || { hasHuiIcons, iconInfoMap, svgCache, svgCacheVersion, requestSvg }
 }
 
-/** 处理 JSON 数据，串行执行 resolveAllIcons，合并到全局 variantDataMap */
+/** 渲染时按需请求 SVG：查缓存→无则入队 */
+export function requestSvg(name: string, shape: string, color: string): void {
+  const entry = iconInfoMap.value[name]
+  if (!entry?.url) return
+
+  const cacheKey = resolveSvgCacheKey(name, shape, color)
+  if (svgCache.has(cacheKey)) return  // 已缓存，无需请求
+
+  iconRequestQueue.enqueue(name, shape, color, entry.url)
+}
+
+/** 处理 JSON 数据，串行执行 resolveAllIcons，合并到全局 iconInfoMap */
 export async function processJsonForIcons(jsonData: any): Promise<void> {
   if (!hasHuiIcons.value || !jsonData?.elements) return
 
   if (processingPromise) await processingPromise
 
-  resolving.value = true
   processingPromise = (async () => {
     try {
       const result = await resolveAllIcons([jsonData])
-      if (Object.keys(result.variantDataMap).length > 0) {
-        variantDataMap.value = { ...variantDataMap.value, ...result.variantDataMap }
+      if (Object.keys(result.iconInfoMap).length > 0) {
+        iconInfoMap.value = { ...iconInfoMap.value, ...result.iconInfoMap }
       }
     } catch (err) {
       console.warn('[iconProvider] 处理 JSON 图标失败:', err)
     } finally {
-      resolving.value = false
       processingPromise = null
     }
   })()
