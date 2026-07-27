@@ -16,6 +16,19 @@ interface ProjectInfoDialogContentProps {
   onSelectionChange?: (data: { domain?: Domain; productLine?: ProductLine; product?: Product; version?: Version }) => void
 }
 
+const PIN_ICON_OUTLINE = "M477.366 269.291C495.926 252.95 523.062 251.67 542.987 265.494L547.808 269.249L877.653 553.452C889.216 563.564 896 578.156 896 593.516C896 621.121 875.136 643.863 848.213 646.593L842.666 646.849L684.683 646.849L684.683 832.001C684.683 867.329 656.011 896.007 620.683 896.007L401.334 896.007C368.097 896.007 340.747 870.444 337.633 837.974L337.334 832.001L337.334 646.849L181.333 646.849C167.936 646.849 155.264 641.814 145.493 632.812L141.226 628.759C123.05 608.108 123.946 577.388 142.079 557.548L145.919 553.495L477.366 269.291ZM512.566 323.477L209.493 582.848L369.334 582.848C385.547 582.848 398.945 594.88 401.078 610.496L401.334 614.848L401.334 832L620.683 832L620.683 614.848C620.683 598.635 632.715 585.28 648.331 583.147L652.683 582.848L814.08 582.848L512.566 323.477L512.566 323.477ZM864 128C881.673 128 896 142.327 896 160C896 176.2 883.886 189.589 868.267 191.708L864 192L160 192C142.327 192 128 177.673 128 160C128 143.8 140.039 130.411 155.658 128.292L160 128L864 128L864 128Z"
+const PIN_ICON_FILLED = "M919.067 103.374C930.374 114.28 931.919 131.498 923.506 144.123L919.884 148.621L687.444 389.574L877.654 553.451C889.217 563.563 896.001 578.155 896.001 593.515C896.001 618.82 878.469 640.038 854.81 645.502L848.214 646.593L842.667 646.849L684.684 646.849L684.684 832.001C684.684 864.806 659.962 891.876 628.144 895.576L620.684 896.007L401.335 896.007C370.654 896.007 344.991 874.225 338.774 845.336L337.633 837.974L337.334 832.001L337.3 752.583L151.884 944.857C139.615 957.577 119.357 957.943 106.637 945.674C95.3301 934.768 93.7851 917.55 102.198 904.925L105.82 900.427L873.82 104.193C886.089 91.4729 906.347 91.1069 919.067 103.376L919.067 103.374ZM642.964 435.654L401.3 686.214L401.334 832L620.683 832L620.683 614.848C620.683 600.661 629.895 588.663 642.66 584.456L648.332 583.146L652.684 582.847L814.081 582.847L642.965 435.653L642.964 435.654ZM536.1 261.445L542.987 265.494L547.808 269.249L590.719 306.23L546.175 352.374L512.565 323.478L209.492 582.849L323.903 582.838L262.207 646.838L181.332 646.849C170.614 646.849 160.36 643.627 151.685 637.729L145.492 632.812L141.225 628.759C124.701 609.986 123.94 582.891 137.562 563.213L142.079 557.548L145.919 553.495L477.365 269.292C493.863 254.766 517.137 252.141 536.099 261.446L536.1 261.445ZM762.624 127.99L700.864 191.99L160 192C142.327 192 128 177.673 128 160C128 143.8 140.039 130.411 155.658 128.292L160 128L762.624 127.99L762.624 127.99Z"
+
+function PinIcon(props: { filled: boolean }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 1024 1024" fill="none">
+      <Show when={props.filled} fallback={<path d={PIN_ICON_OUTLINE} fill="currentColor" fill-rule="nonzero" />}>
+        <path d={PIN_ICON_FILLED} fill="currentColor" fill-rule="nonzero" />
+      </Show>
+    </svg>
+  )
+}
+
 export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): JSX.Element {
   const [store, setStore] = createStore({
     domain: props.domain,
@@ -25,24 +38,23 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
   })
 
   const [versionPopoverOpen, setVersionPopoverOpen] = createSignal(false)
-  const [versionFetchProductId, setVersionFetchProductId] = createSignal<number | undefined>(undefined)
   let pinActionActive = false
   let versionCloseGuard = false
   // 用户一旦手动操作，就中止自动选中链，避免在途接口返回后覆盖用户已选的项
   let userInteracted = false
   let autoSelectStarted = false
 
-  const [versionOptions, { refetch: refetchVersions, mutate: mutateVersions }] = createResource(() =>  versionFetchProductId() ?? undefined, fetchVersions)
+  const [versionOptions, { mutate: mutateVersions }] = createResource(() => store.product?.id ?? undefined, fetchVersions)
 
   const safeVersionOptions = () => {
     if (versionOptions.loading || versionOptions.error) return []
     return versionOptions() ?? []
   }
 
+  // 版本数据到达后校验当前版本是否仍存在；为空则自动选第一项
   createEffect(() => {
     const options = safeVersionOptions()
     if (!options.length) return
-    setTimeout(() => { versionCloseGuard = false }, 0)
     const current = store.version
     if (!current) {
       setStore("version", options[0] ? { ...options[0] } : undefined)
@@ -51,21 +63,28 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
     if (!options.some((v) => v.id === current.id)) setStore("version", undefined)
   })
 
+  // versionCloseGuard 在打开时置 true，拦截 Kobalte 在版本数据变化瞬间内部触发的 onOpenChange(false)。
+  // 关键：面板打开期间若再次开始 loading（如自动选中链路异步设置 product 触发新请求），
+  // 必须重新置守卫——否则之前打开时被清掉的守卫挡不住这次数据到达的内部关闭。
+  createEffect(() => {
+    if (!versionPopoverOpen()) return
+    if (!versionOptions.loading) return
+    versionCloseGuard = true
+  })
+
+  // loading 结束或面板关闭后延迟一拍清除守卫，确保拦截发生在同一 reactive flush 内，之后放开供用户关闭。
+  createEffect(() => {
+    if (versionPopoverOpen() && versionOptions.loading) return
+    if (!versionCloseGuard) return
+    setTimeout(() => { versionCloseGuard = false }, 0)
+  })
+
   // 新用户（无历史选择）自动级联选中第一个可用的领域/产品线/产品/版本
   createEffect(() => {
     if (!props.shouldAutoSelect) return
     if (autoSelectStarted) return
     autoSelectStarted = true
     void autoSelectFirstAvailable()
-  })
-
-  // 自动选中模式下，版本列表返回后自动选第一个；复用 versionOptions resource，不再单独发一次请求
-  createEffect(() => {
-    if (!props.shouldAutoSelect || userInteracted) return
-    if (store.version || !store.product) return
-    const options = safeVersionOptions()
-    if (!options.length) return
-    setStore("version", { ...options[0] })
   })
 
   async function autoSelectFirstAvailable() {
@@ -83,8 +102,6 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
       const firstAvailable = products.find(p => !(p.isSecret && !p.isProductMember))
       if (!firstAvailable) return
       setStore("product", firstAvailable)
-      // 触发版本列表加载，版本第一项由上面的 effect 在 resource 返回后自动选中
-      setVersionFetchProductId(firstAvailable.id)
     } catch {
       // 接口失败时静默降级，保持未选中状态，由用户手动选择
     }
@@ -132,19 +149,13 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
           onPointerDown={(e) => { e.stopPropagation(); e.preventDefault() }}
           onPointerUp={(e) => { e.stopPropagation(); handleVersionTopToggle(o) }}
         >
-          <svg width="16" height="16" viewBox="0 0 1024 1024" fill="none">
-            <Show when={o.isTop} fallback={
-              <path d="M477.366 269.291C495.926 252.95 523.062 251.67 542.987 265.494L547.808 269.249L877.653 553.452C889.216 563.564 896 578.156 896 593.516C896 621.121 875.136 643.863 848.213 646.593L842.666 646.849L684.683 646.849L684.683 832.001C684.683 867.329 656.011 896.007 620.683 896.007L401.334 896.007C368.097 896.007 340.747 870.444 337.633 837.974L337.334 832.001L337.334 646.849L181.333 646.849C167.936 646.849 155.264 641.814 145.493 632.812L141.226 628.759C123.05 608.108 123.946 577.388 142.079 557.548L145.919 553.495L477.366 269.291ZM512.566 323.477L209.493 582.848L369.334 582.848C385.547 582.848 398.945 594.88 401.078 610.496L401.334 614.848L401.334 832L620.683 832L620.683 614.848C620.683 598.635 632.715 585.28 648.331 583.147L652.683 582.848L814.08 582.848L512.566 323.477L512.566 323.477ZM864 128C881.673 128 896 142.327 896 160C896 176.2 883.886 189.589 868.267 191.708L864 192L160 192C142.327 192 128 177.673 128 160C128 143.8 140.039 130.411 155.658 128.292L160 128L864 128L864 128Z" fill="currentColor" fill-rule="nonzero" />
-            }>
-              <path d="M919.067 103.374C930.374 114.28 931.919 131.498 923.506 144.123L919.884 148.621L687.444 389.574L877.654 553.451C889.217 563.563 896.001 578.155 896.001 593.515C896.001 618.82 878.469 640.038 854.81 645.502L848.214 646.593L842.667 646.849L684.684 646.849L684.684 832.001C684.684 864.806 659.962 891.876 628.144 895.576L620.684 896.007L401.335 896.007C370.654 896.007 344.991 874.225 338.774 845.336L337.633 837.974L337.334 832.001L337.3 752.583L151.884 944.857C139.615 957.577 119.357 957.943 106.637 945.674C95.3301 934.768 93.7851 917.55 102.198 904.925L105.82 900.427L873.82 104.193C886.089 91.4729 906.347 91.1069 919.067 103.376L919.067 103.374ZM642.964 435.654L401.3 686.214L401.334 832L620.683 832L620.683 614.848C620.683 600.661 629.895 588.663 642.66 584.456L648.332 583.146L652.684 582.847L814.081 582.847L642.965 435.653L642.964 435.654ZM536.1 261.445L542.987 265.494L547.808 269.249L590.719 306.23L546.175 352.374L512.565 323.478L209.492 582.849L323.903 582.838L262.207 646.838L181.332 646.849C170.614 646.849 160.36 643.627 151.685 637.729L145.492 632.812L141.225 628.759C124.701 609.986 123.94 582.891 137.562 563.213L142.079 557.548L145.919 553.495L477.365 269.292C493.863 254.766 517.137 252.141 536.099 261.446L536.1 261.445ZM762.624 127.99L700.864 191.99L160 192C142.327 192 128 177.673 128 160C128 143.8 140.039 130.411 155.658 128.292L160 128L762.624 127.99L762.624 127.99Z" fill="currentColor" fill-rule="nonzero" />
-            </Show>
-          </svg>
+          <PinIcon filled={o.isTop} />
         </span>
       </>
     )
   }
 
-  const emptyVersionContent = (
+  const versionNoDataContent = (
     <div style={{ padding: "12px 16px", "text-align": "center", color: "rgba(0,0,0,0.4)", "font-size": "13px" }}>
       无数据
     </div>
@@ -153,7 +164,7 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
   const versionEmptyContent = () =>
     versionOptions.loading
       ? <div style={{ padding: "12px 16px", "text-align": "center", color: "rgba(0,0,0,0.4)", "font-size": "13px" }}>加载中...</div>
-      : emptyVersionContent
+      : versionNoDataContent
 
   const versionSelectTriggerStyle = {
     width: "110px",
@@ -182,7 +193,6 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
           setStore("productLine", data.productLine)
           setStore("product", data.product)
           setStore("version", undefined)
-          setVersionFetchProductId(data.product?.id)
         }}
       />
       <Select
@@ -202,11 +212,7 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
           if (pinActionActive && !open) return
           if (props.disabled) return
           if (!open && (versionCloseGuard || versionOptions.loading)) return
-          if (open) {
-            versionCloseGuard = true
-            setVersionFetchProductId(store.product?.id)
-            setTimeout(() => { versionCloseGuard = false }, 0)
-          }
+          if (open) versionCloseGuard = true
           setVersionPopoverOpen(open)
         }}
         onSelect={(o) => {
