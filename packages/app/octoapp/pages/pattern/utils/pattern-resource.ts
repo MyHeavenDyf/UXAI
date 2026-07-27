@@ -137,6 +137,7 @@ export type ResourceDetailResult = {
 //   ]
 // }
 
+
 // 获取页面级数据的资源路径
 export async function getPagePatternResource(inputData: { results?: Array<Record<string, any>> }) {
   try {
