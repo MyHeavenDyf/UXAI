@@ -303,10 +303,9 @@ export function ArchiveDialog(props: Props): JSX.Element {
         { headers: getAuthHeaders() }
       )
       const data = await res.json()
-      if (data?.content) {
-        setVersionDeliveryList(data.content)
-        return data.content
-      }
+      const content = data?.content || []
+      setVersionDeliveryList(content)
+      return content
     } catch (err) {
       console.error("[Archive] Failed to fetch version delivery:", err)
     }
@@ -320,10 +319,9 @@ export function ArchiveDialog(props: Props): JSX.Element {
         headers: getAuthHeaders()
       })
       const data = await res.json()
-      if (data?.content) {
-        setMyTeamList(data.content)
-        return data.content
-      }
+      const content = data?.content || []
+      setMyTeamList(content)
+      return content
     } catch (err) {
       console.error("[Archive] Failed to fetch my team:", err)
     }
@@ -338,10 +336,9 @@ export function ArchiveDialog(props: Props): JSX.Element {
         { headers: getAuthHeaders() }
       )
       const data = await res.json()
-      if (data?.content) {
-        setTeamByVersionList(data.content)
-        return data.content
-      }
+      const content = data?.content || []
+      setTeamByVersionList(content)
+      return content
     } catch (err) {
       console.error("[Archive] Failed to fetch team by version:", err)
     }
@@ -359,13 +356,12 @@ export function ArchiveDialog(props: Props): JSX.Element {
         { headers: getAuthHeaders() }
       )
       const data = await res.json()
-      if (data?.content?.data) {
-        const transformed = data.content.data.map((item: DeliverableItem) => ({
-          ...item,
-          coverUrl: `${getBaseUrl()}/pipeline${item.coverUrl}`
-        }))
-        setDeliverables(transformed)
-      }
+      const items = data?.content?.data || []
+      const transformed = items.map((item: DeliverableItem) => ({
+        ...item,
+        coverUrl: `${getBaseUrl()}/pipeline${item.coverUrl}`
+      }))
+      setDeliverables(transformed)
     } catch (err) {
       console.error("[Archive] Failed to fetch deliverables:", err)
     }
@@ -378,10 +374,9 @@ export function ArchiveDialog(props: Props): JSX.Element {
         headers: getAuthHeaders()
       })
       const data = await res.json()
-      if (data?.content) {
-        setProductTeamList(data.content)
-        return data.content
-      }
+      const content = data?.content || []
+      setProductTeamList(content)
+      return content
     } catch (err) {
       console.error("[Archive] Failed to fetch product team:", err)
     }
