@@ -3,7 +3,7 @@
 //   跨域直连 + 鉴权(uiplustoken/cookie)由 desktop 主进程 webRequest 拦截统一注入,
 //   详见 packages/desktop/src/main/windows.ts;纯 web 环境下 host 需同源或经 Vite proxy。
 import { showToast } from "@opencode-ai/ui/toast"
-import type { Domain, DomainInfoByProduct, Product, ProductLine, SearchResult, Version, UploadDeliverableBody, ActivityTeamInfo } from "./types"
+import type { Domain, DomainInfoByProduct, Product, ProductLine, SearchResult, Version, UploadDeliverableBody, ActivityTeamInfo, UploadDeliverableResult } from "./types"
 
 // 后端路径前缀注册表 — 新增路径时在此添加即可, 各接口函数通过 prefix 参数引用
 const API_PREFIXES = {
@@ -117,7 +117,7 @@ export async function searchDeliverables(teamId: number, pageNum: number, pageSi
 }
 
 // deliverable 上传
-export async function uploadDeliverable(body: UploadDeliverableBody): Promise<any> {
+export async function uploadDeliverable(body: UploadDeliverableBody): Promise<UploadDeliverableResult> {
   return apiFetch({ path: "/deliverable/uploadDeliverable", method: "POST", body })
 }
 

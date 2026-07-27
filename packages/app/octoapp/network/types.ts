@@ -87,6 +87,19 @@ export type UploadDeliverableBody = {
   teamId: number
 }
 
+export type UploadDeliverableResult = {
+  id: number
+  fileName: string
+  docId: string
+  docVersion: string
+  fileSize: number
+  fileType: string
+  docType: number
+  teamId: number
+  platformType: number
+  typeId: number
+}
+
 export type ActivityTemplate = {
   categoryId: number
   docType: number

@@ -2,7 +2,8 @@
 //   - runArchive:按 target.mode 分流。HTML 复刻 Design 流程(截图 + zip + createDeliverable/uploadCover/
 //     uploadVersion);其他类型走 EdmUtil.upload → getActivityByTeam 取 deliverableType → uploadDeliverable。
 //   - ArchiveDialogs:复用归档弹窗 + 成功弹窗,调用方持 open/target 状态,本组件负责 confirm 执行。
-// 成功返回归档路径(开成功弹窗);未登录 HTML 下载 zip 返回 undefined;失败 throw(已 toast)。
+// HTML:成功返回归档路径(开成功弹窗);未登录下载 zip 返回 undefined;失败 throw(已 toast)。
+// 非 HTML:立即返回 undefined(弹窗关闭 + toast 任务已加入),后台任务完成后回调 onDeferredSuccess 开成功弹窗。
 
 import { createSignal, Show } from "solid-js"
 import type { JSX } from "solid-js"
@@ -19,6 +20,8 @@ import {
 } from "../utils/archive-utils"
 import { EdmUtil } from "@/utils/edmUtil"
 import { uploadDeliverable, getActivityByTeam } from "@/network/pipelineRequest"
+import { getDesktopApi } from "../lib/electron-api"
+import { TaskStore, type TaskItem } from "@/context/task"
 
 export type ArchiveTarget =
   | {
@@ -54,6 +57,22 @@ export function buildSuccessPath(data: ArchiveConfirmData): string {
   })
 }
 
+// 归档成功结果:archivePath 用于成功弹窗展示,viewUrl 用于「跳转查看」(非 HTML)。
+export type ArchiveSuccess = { path: string; viewUrl?: string }
+
+// 非 HTML 归档成功后的「跳转查看」URL:/p/{id},id 来自 uploadDeliverable 返回。
+function buildDeliverableViewUrl(id: number): string {
+  const base = import.meta.env.VITE_OCTO_BASE_URL || ""
+  return `${base}/p/${id}`
+}
+
+// 唤起系统浏览器打开外链(electron 用 openLink,web 用 window.open),避免在 webview 内导航后无返回入口。
+function openExternalUrl(url: string) {
+  const api = getDesktopApi()
+  if (typeof api?.openLink === "function") api.openLink(url)
+  else window.open(url, "_blank", "noopener")
+}
+
 // base64 → 原始字符串(文件管理 HTML 归档需解码后源码进 zip)
 export function decodeBase64ToString(b64: string): string {
   try {
@@ -66,8 +85,13 @@ export function decodeBase64ToString(b64: string): string {
   }
 }
 
-export async function runArchive(target: ArchiveTarget, data: ArchiveConfirmData): Promise<string | undefined> {
-  return target.mode === "html" ? archiveHtml(target, data) : archiveFile(target, data)
+// onDeferredSuccess:非 HTML 归档后台任务完成后的回调(开成功弹窗,带跳转 URL)。HTML 不用。
+export async function runArchive(
+  target: ArchiveTarget,
+  data: ArchiveConfirmData,
+  onDeferredSuccess?: (result: ArchiveSuccess) => void,
+): Promise<string | undefined> {
+  return target.mode === "html" ? archiveHtml(target, data) : archiveFile(target, data, onDeferredSuccess)
 }
 
 // 无 live iframe 时用 1×1 白图占位(与 capturePageScreenshot 的 web 兜底同源,不阻塞 zip 打包)
@@ -146,41 +170,106 @@ async function archiveHtml(target: HtmlTarget, data: ArchiveConfirmData): Promis
   }
 }
 
-async function archiveFile(target: FileTarget, data: ArchiveConfirmData): Promise<string | undefined> {
-  const file = await target.getFile()
-  if (!file) {
-    showToast({ title: "归档失败", description: "无法获取文件内容" })
-    throw new Error("无法获取文件内容")
-  }
-  const dt = new DataTransfer()
-  dt.items.add(file)
-  // apiFetch 失败时已弹 toast 并返回 null(见 pipelineRequest.reportRequestError),这里仅判空抛错,不重复 toast。
-  const activity = await getActivityByTeam(data.teamId)
-  if (!activity) throw new Error("获取归档类型失败")
-  await new Promise<void>((resolve, reject) => {
+// 非 HTML 归档:立即返回(弹窗关闭、toast 提示已加入任务列表),后台跑 runArchiveFileTask,
+// 任务(EdmUtil.upload)完成后再 onDeferredSuccess 开成功弹窗。
+async function archiveFile(
+  target: FileTarget,
+  data: ArchiveConfirmData,
+  onDeferredSuccess?: (result: ArchiveSuccess) => void,
+): Promise<string | undefined> {
+  void runArchiveFileTask(target, data, onDeferredSuccess)
+  return undefined
+}
+
+async function runArchiveFileTask(
+  target: FileTarget,
+  data: ArchiveConfirmData,
+  onDeferredSuccess?: (result: ArchiveSuccess) => void,
+): Promise<void> {
+  try {
+    const file = await target.getFile()
+    if (!file) {
+      showToast({ title: "归档失败", description: "无法获取文件内容" })
+      return
+    }
+    const dt = new DataTransfer()
+    dt.items.add(file)
+    // apiFetch 失败时已弹 toast 并返回 null(见 pipelineRequest.reportRequestError),这里仅判空返回。
+    const activity = await getActivityByTeam(data.teamId)
+    if (!activity) return
+    // TaskStore 的 add/progress/finish/error 在本业务回调里调(EdmUtil 不再包办)。
     EdmUtil.upload(dt.files, {
-      onFinish: (_taskId, files) => {
+      onInit: (taskId, files) => {
+        TaskStore.add(files.map((file, index): TaskItem => ({
+          key: `${taskId}-${index}`,
+          taskId,
+          type: "upload",
+          name: file.name,
+          size: file.size,
+          progress: 0,
+          status: "pending",
+          createdAt: Date.now(),
+          fileIndex: index,
+        })))
+      },
+      onProgress: (taskId, files) => {
+        TaskStore.progress(files.map((file, index): TaskItem => ({
+          key: `${taskId}-${index}`,
+          taskId,
+          type: "upload",
+          name: file.name,
+          size: file.size,
+          progress: file.progress,
+          status: "in_progress",
+          fileIndex: index,
+        })))
+      },
+      onFinish: (taskId, files) => {
+        TaskStore.finish(files.map((file, index): TaskItem => ({
+          key: `${taskId}-${index}`,
+          taskId,
+          type: "upload",
+          name: file.name,
+          size: file.size,
+          progress: 100,
+          status: "completed",
+          fileIndex: index,
+        })))
         uploadDeliverable({
           typeId: activity.deliverableType,
           files: files.map((f) => ({ docName: f.name, docId: f.docId, docVersion: f.version, docSize: f.size })),
           teamId: data.teamId,
         })
           .then((res) => {
-            // apiFetch 失败返回 null(已 toast);成功返回非空 content。
-            if (res === null || res === undefined) return reject(new Error("归档上传失败"))
-            showToast({ title: "归档成功" })
-            resolve()
+            // apiFetch 失败返回 null(已 toast);成功返回 UploadDeliverableResult(含 id)。
+            if (!res) return
+            const viewUrl = res.id > 0 ? buildDeliverableViewUrl(res.id) : undefined
+            onDeferredSuccess?.({ path: buildSuccessPath(data), viewUrl })
           })
-          .catch((e) => reject(e instanceof Error ? e : new Error(String(e))))
+          .catch((e) => {
+            showToast({ title: "归档失败", description: e instanceof Error ? e.message : String(e) })
+          })
       },
-      onError: (_taskId, errors) => {
+      onError: (taskId, errors) => {
+        TaskStore.error(TaskStore.items()
+          .filter((f) => f.taskId === taskId)
+          .map((f): TaskItem => ({
+            key: f.key,
+            taskId,
+            type: "upload",
+            name: f.name,
+            size: f.size,
+            progress: f.progress,
+            status: "error",
+            fileIndex: f.fileIndex,
+          })))
         const msg = errors?.message || "上传失败"
         showToast({ title: "归档失败", description: msg })
-        reject(new Error(msg))
       },
     })
-  })
-  return buildSuccessPath(data)
+  } catch (err) {
+    showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
+  }
 }
 
 export function ArchiveDialogs(props: {
@@ -190,6 +279,7 @@ export function ArchiveDialogs(props: {
 }): JSX.Element {
   const [successOpen, setSuccessOpen] = createSignal(false)
   const [successPath, setSuccessPath] = createSignal("")
+  const [successViewUrl, setSuccessViewUrl] = createSignal<string | undefined>(undefined)
 
   const filePath = () => (props.target ? (props.target.mode === "html" ? props.target.htmlFilePath : props.target.filePath) : "")
   const tabTitle = () => (props.target ? (props.target.mode === "html" ? props.target.htmlFileName : props.target.fileName) : "")
@@ -197,11 +287,22 @@ export function ArchiveDialogs(props: {
 
   async function handleConfirm(data: ArchiveConfirmData): Promise<void> {
     if (!props.target) return
-    const path = await runArchive(props.target, data)
-    if (path) {
-      setSuccessPath(path)
-      setSuccessOpen(true)
+    if (props.target.mode === "html") {
+      const path = await runArchive(props.target, data)
+      if (path) {
+        setSuccessPath(path)
+        setSuccessViewUrl(undefined)
+        setSuccessOpen(true)
+      }
+      return
     }
+    // 非 HTML:弹窗立即关闭,toast 提示任务已加入任务列表,后台任务(EdmUtil.upload)完成后再开成功弹窗。
+    showToast({ title: "该任务已添加到任务列表" })
+    void runArchive(props.target, data, (result) => {
+      setSuccessPath(result.path)
+      setSuccessViewUrl(result.viewUrl)
+      setSuccessOpen(true)
+    })
   }
 
   return (
@@ -222,6 +323,7 @@ export function ArchiveDialogs(props: {
           open={successOpen()}
           onClose={() => setSuccessOpen(false)}
           archivePath={successPath()}
+          onViewClick={successViewUrl() ? () => openExternalUrl(successViewUrl()!) : undefined}
         />
       </Show>
     </>
