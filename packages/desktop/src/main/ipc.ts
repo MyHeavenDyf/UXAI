@@ -1065,7 +1065,6 @@ export function registerIpcHandlers(deps: Deps) {
     // http_proxy 和 https_proxy 都用同一个 http:// 代理地址
     const noProxy = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
     const curlTarget = "https://ifconfig.me/ip"
-    const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null"
 
     log.info("[configure-proxy] 开始配置代理", { account, encodedPwd, proxyUrl })
 
@@ -1090,13 +1089,18 @@ export function registerIpcHandlers(deps: Deps) {
     try {
       log.info("[configure-proxy] 执行 curl 测试连通性", { curlTarget, connectTimeout: 15, execTimeout: 20000 })
 
-      const curlResult = execSync(`curl -k -sS -o "${nullDevice}" -w "%{http_code}" --connect-timeout 15 "${curlTarget}"`, {
+      // 代理验证：通过代理请求 ifconfig.me/ip，检查返回 IP 以 119. 开头
+      const curlOutput = execSync(`curl -k -sS --connect-timeout 15 "${curlTarget}"`, {
         timeout: 20000,
         stdio: "pipe",
         encoding: "utf-8",
       }).toString().trim()
 
-      log.info("[configure-proxy] curl 测试通过", { httpCode: curlResult })
+      if (!curlOutput.startsWith("119.")) {
+        throw new Error(`代理返回的 IP 不是 119.x.x.x: ${curlOutput}`)
+      }
+
+      log.info("[configure-proxy] 代理验证通过", { ip: curlOutput })
 
       log.info("[configure-proxy] curl 测试通过, 写入配置文件")
 
