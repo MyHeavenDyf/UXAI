@@ -26,6 +26,8 @@ export interface FileComment {
   filePath: string
   elementId: string
   selector: string
+  contentSignature?: string
+  nativeId?: string
   label: string
   text: string
   position: { x: number; y: number; w: number; h: number }

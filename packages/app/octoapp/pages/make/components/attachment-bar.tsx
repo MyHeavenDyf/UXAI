@@ -5,7 +5,7 @@ import { getFileIcon } from "../icons/file-type-icons"
 import { Spinner } from "@opencode-ai/ui/spinner"
 
 export type AttachmentStatus = "uploading" | "done" | "error"
-export type AttachmentSource = "external" | "local"
+export type AttachmentSource = "external" | "local" | "pending"
 
 export type Attachment = {
   id: string
