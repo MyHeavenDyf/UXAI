@@ -1069,7 +1069,7 @@ export function registerIpcHandlers(deps: Deps) {
     try {
       log.info("[configure-proxy] 执行 curl 测试连通性", { proxyUrl, connectTimeout: 5, execTimeout: 8000 })
 
-      execSync(`curl -s -o "${nullDevice}" -w "%{http_code}" --connect-timeout 5 "${proxyUrl}"`, {
+      execSync(`curl -s -o "${nullDevice}" -w "%{http_code}" --connect-timeout 5 -x "${proxyUrl}" "https://ifconfig.me/ip"`, {
         timeout: 8000,
         stdio: "pipe",
       })
