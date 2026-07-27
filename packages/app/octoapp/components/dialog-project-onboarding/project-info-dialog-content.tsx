@@ -40,6 +40,8 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
   const [versionPopoverOpen, setVersionPopoverOpen] = createSignal(false)
   let pinActionActive = false
   let versionCloseGuard = false
+  // 守卫清除代际：每次置守卫递增，陈旧的清除定时器因代际不一致而失效，避免误清正在生效的守卫。
+  let guardClearGen = 0
   // 用户一旦手动操作，就中止自动选中链，避免在途接口返回后覆盖用户已选的项
   let userInteracted = false
   let autoSelectStarted = false
@@ -66,9 +68,11 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
   // versionCloseGuard 在打开时置 true，拦截 Kobalte 在版本数据变化瞬间内部触发的 onOpenChange(false)。
   // 关键：面板打开期间若再次开始 loading（如自动选中链路异步设置 product 触发新请求），
   // 必须重新置守卫——否则之前打开时被清掉的守卫挡不住这次数据到达的内部关闭。
+  // 递增 guardClearGen 使上一轮排队的清除定时器失效，避免它在 loading 期间误清守卫。
   createEffect(() => {
     if (!versionPopoverOpen()) return
     if (!versionOptions.loading) return
+    guardClearGen++
     versionCloseGuard = true
   })
 
@@ -76,7 +80,8 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
   createEffect(() => {
     if (versionPopoverOpen() && versionOptions.loading) return
     if (!versionCloseGuard) return
-    setTimeout(() => { versionCloseGuard = false }, 0)
+    const gen = guardClearGen
+    setTimeout(() => { if (gen === guardClearGen) versionCloseGuard = false }, 0)
   })
 
   // 新用户（无历史选择）自动级联选中第一个可用的领域/产品线/产品/版本
@@ -212,7 +217,10 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
           if (pinActionActive && !open) return
           if (props.disabled) return
           if (!open && (versionCloseGuard || versionOptions.loading)) return
-          if (open) versionCloseGuard = true
+          if (open) {
+            guardClearGen++
+            versionCloseGuard = true
+          }
           setVersionPopoverOpen(open)
         }}
         onSelect={(o) => {
