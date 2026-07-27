@@ -39,7 +39,7 @@ onMounted(async () => {
     </div>
 
     <!-- 渲染区 -->
-    <div v-if="currentContent" class="w-full h-full">
+    <div v-if="currentContent" class="w-full">
       <A2UIRenderer :surfaceId="surfaceId" />
     </div>
     <div v-else class="flex items-center justify-center h-full text-gray-400 text-sm">

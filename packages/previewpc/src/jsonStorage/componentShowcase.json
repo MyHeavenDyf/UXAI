@@ -4138,7 +4138,7 @@
       "id": "tabsRowPlacementLabel",
       "component": "span",
       "props": {
-        "value": "左侧标签",
+        "value": "分割线样式",
         "className": "text-sm text-on-surface-variant"
       }
     },
@@ -4147,8 +4147,7 @@
       "component": "Tabs",
       "props": {
         "activeKey": "tab1",
-        "types": "line",
-        "tabPlacement": "start"
+        "types": "separator"
       },
       "children": [
         "tabPlacement1",
