@@ -732,7 +732,7 @@ function FileRow(props: {
             return <FileIcon size={32} />
           })()}
           <div class="flex flex-col gap-0.5 min-w-0">
-            <span class="truncate">{props.file.name}</span>
+            <span class="truncate" title={props.file.name}>{props.file.name}</span>
             <Show when={!props.file.isFolder}>
               <span class="text-[14px]" style={{ color: "var(--octo-text-secondary)" }}>{formatFileSize(props.file.size)}</span>
             </Show>

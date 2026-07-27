@@ -55,6 +55,9 @@ export function TabBar(props: {
       <For each={props.tabs}>
         {(tab) => {
           const isActive = () => tab.id === props.activeId && props.viewMode !== "files"
+          // 标签宽度上限 240px,文件名过长会 truncate 成「…」。加 title 让 hover 显示完整名
+          // (打开文件多、名字长时靠它看全名)。
+          const displayTitle = () => tabDisplayTitle(tab)
           return (
             <div
               class="flex items-center gap-[4px] shrink-0 transition-colors px-[12px] py-[6px] cursor-pointer"
@@ -71,10 +74,11 @@ export function TabBar(props: {
             >
               <button
                 type="button"
+                title={displayTitle()}
                 class="flex-1 min-w-0 text-[13px] text-left truncate transition-colors outline-none"
                 style={{ "font-weight": isActive() ? "500" : "400" }}
               >
-                {tabDisplayTitle(tab)}
+                {displayTitle()}
               </button>
               <button
                 type="button"
