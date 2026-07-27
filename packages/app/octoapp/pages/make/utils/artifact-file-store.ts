@@ -10,36 +10,8 @@ export type SortDir = "asc" | "desc"
 export type ArtifactCategory = "generated" | "uploaded"
 export { type ArtifactFile, type ArtifactFileKind, kindSortPriority }
 
-const VIEW_STATE_KEY_PREFIX = "octo:make:design-files:view-state:v3:"
 const DEFAULT_SORT_KEY: SortKey = "mtime"
 const DEFAULT_SORT_DIR: SortDir = "desc"
-
-interface PersistedViewState {
-  sortKey?: SortKey
-  sortDir?: SortDir
-  kindFilter?: ArtifactFileKind[]
-  groupMode?: GroupMode
-  collapsedGenerated?: boolean
-  collapsedUploaded?: boolean
-}
-
-function readViewState(sessionId: string): PersistedViewState {
-  try {
-    const raw = localStorage.getItem(VIEW_STATE_KEY_PREFIX + sessionId)
-    if (!raw) return {}
-    const parsed = JSON.parse(raw) as unknown
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {}
-    return parsed as PersistedViewState
-  } catch {
-    return {}
-  }
-}
-
-function writeViewState(sessionId: string, state: PersistedViewState): void {
-  try {
-    localStorage.setItem(VIEW_STATE_KEY_PREFIX + sessionId, JSON.stringify(state))
-  } catch {}
-}
 
 function dateDaysBefore(date: Date, days: number): Date {
   const result = new Date(date)
@@ -188,8 +160,6 @@ function createFileListComputed(
 }
 
 export function createArtifactFileStore(sessionId: string) {
-  const savedViewState = readViewState(sessionId)
-
   const [previewFile, setPreviewFile] = createSignal<ArtifactFile | null>(null)
 
   const [store, setStore] = createStore<ArtifactFileStore>({
@@ -197,13 +167,13 @@ export function createArtifactFileStore(sessionId: string) {
     currentCategory: null,
     generatedFiles: [],
     uploadedFiles: [],
-    collapsedGenerated: savedViewState.collapsedGenerated ?? false,
-    collapsedUploaded: savedViewState.collapsedUploaded ?? false,
+    collapsedGenerated: false,
+    collapsedUploaded: false,
     selected: new Set(),
-    sortKey: savedViewState.sortKey ?? DEFAULT_SORT_KEY,
-    sortDir: savedViewState.sortDir ?? DEFAULT_SORT_DIR,
-    kindFilter: new Set(savedViewState.kindFilter ?? []),
-    groupMode: savedViewState.groupMode ?? "kind",
+    sortKey: DEFAULT_SORT_KEY,
+    sortDir: DEFAULT_SORT_DIR,
+    kindFilter: new Set(),
+    groupMode: "kind",
     loading: false,
     error: null,
   })
@@ -250,27 +220,6 @@ export function createArtifactFileStore(sessionId: string) {
     () => {
       setStore("selected", new Set())
       setPreviewFile(null)
-    },
-  ))
-
-  createEffect(on(
-    [
-      () => store.sortKey,
-      () => store.sortDir,
-      () => store.kindFilter,
-      () => store.groupMode,
-      () => store.collapsedGenerated,
-      () => store.collapsedUploaded,
-    ],
-    () => {
-      writeViewState(sessionId, {
-        sortKey: store.sortKey,
-        sortDir: store.sortDir,
-        kindFilter: Array.from(store.kindFilter),
-        groupMode: store.groupMode,
-        collapsedGenerated: store.collapsedGenerated,
-        collapsedUploaded: store.collapsedUploaded,
-      })
     },
   ))
 
