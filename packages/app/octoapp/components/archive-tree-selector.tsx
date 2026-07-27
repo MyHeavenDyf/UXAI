@@ -530,11 +530,10 @@ export function ArchiveTreeSelector(props: Props): JSX.Element {
           background: rgba(0, 0, 0, 0.15);
         }
         .archive-tree-node-disabled {
-          cursor: not-allowed;
-          opacity: 0.5;
+          cursor: default;
         }
         .archive-tree-node-disabled:hover {
-          background: transparent;
+          background: rgba(0,0,0,0.05);
         }
         .archive-tree-expand-btn {
           width: 20px;
