@@ -1,6 +1,4 @@
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
-import { STUDIO_ASPECT_RATIOS } from "./data"
-import { StudioMediaPreview } from "./studio-conversation"
 import type { StudioAspectRatio, StudioImage } from "./types"
 
 type OutpaintBox = {
@@ -12,6 +10,10 @@ type OutpaintBox = {
 
 type OutpaintHandle = "top-left" | "top" | "top-right" | "left" | "right" | "bottom-left" | "bottom" | "bottom-right"
 
+const IMAGE_STAGE_SHARE = 0.4
+const STAGE_INSET = 8
+const OUTPAINT_RATIOS = ["1:1", "9:16", "16:9"] as StudioAspectRatio[]
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
@@ -19,6 +21,12 @@ function clamp(value: number, min: number, max: number) {
 function ratioToNumber(ratio: StudioAspectRatio): number {
   const [w, h] = ratio.split(":").map(Number)
   return w / h
+}
+
+function ratioDimensions(width: number, height: number, ratio: StudioAspectRatio) {
+  const value = ratioToNumber(ratio)
+  if (value > width / height) return { width: height * value, height }
+  return { width, height: width / value }
 }
 
 function findMatchingRatio(rect: OutpaintBox, ratios: StudioAspectRatio[]): StudioAspectRatio | undefined {
@@ -32,14 +40,11 @@ function findMatchingRatio(rect: OutpaintBox, ratios: StudioAspectRatio[]): Stud
   return undefined
 }
 
-function ratioBox(imageBox: OutpaintBox, stage: { width: number; height: number }, ratio: StudioAspectRatio): OutpaintBox {
-  const ratioValue = ratioToNumber(ratio)
-  const imageRatio = imageBox.width / imageBox.height
-  const width = ratioValue > imageRatio ? imageBox.height * ratioValue : imageBox.width
-  const height = ratioValue > imageRatio ? imageBox.height : imageBox.width / ratioValue
+function ratioBox(imageBox: OutpaintBox, stage: { width: number; height: number }, ratio: StudioAspectRatio, inset = STAGE_INSET): OutpaintBox {
+  const { width, height } = ratioDimensions(imageBox.width, imageBox.height, ratio)
   return {
-    x: clamp(imageBox.x + (imageBox.width - width) / 2, 0, stage.width - width),
-    y: clamp(imageBox.y + (imageBox.height - height) / 2, 0, stage.height - height),
+    x: clamp(imageBox.x + (imageBox.width - width) / 2, inset, Math.max(inset, stage.width - inset - width)),
+    y: clamp(imageBox.y + (imageBox.height - height) / 2, inset, Math.max(inset, stage.height - inset - height)),
     width,
     height,
   }
@@ -57,18 +62,18 @@ function resizeOutpaintBox(input: {
   const imageRight = input.imageBox.x + input.imageBox.width
   const imageBottom = input.imageBox.y + input.imageBox.height
   if (input.handle.includes("left")) {
-    next.x = clamp(input.rect.x + input.dx, 0, input.imageBox.x)
+    next.x = clamp(input.rect.x + input.dx, STAGE_INSET, input.imageBox.x)
     next.width = input.rect.x + input.rect.width - next.x
   }
   if (input.handle.includes("right")) {
-    next.width = clamp(input.rect.x + input.rect.width + input.dx, imageRight, input.stage.width) - next.x
+    next.width = clamp(input.rect.x + input.rect.width + input.dx, imageRight, input.stage.width - STAGE_INSET) - next.x
   }
   if (input.handle.includes("top")) {
-    next.y = clamp(input.rect.y + input.dy, 0, input.imageBox.y)
+    next.y = clamp(input.rect.y + input.dy, STAGE_INSET, input.imageBox.y)
     next.height = input.rect.y + input.rect.height - next.y
   }
   if (input.handle.includes("bottom")) {
-    next.height = clamp(input.rect.y + input.rect.height + input.dy, imageBottom, input.stage.height) - next.y
+    next.height = clamp(input.rect.y + input.rect.height + input.dy, imageBottom, input.stage.height - STAGE_INSET) - next.y
   }
   return {
     x: next.x,
@@ -91,20 +96,22 @@ export function StudioOutpaintEditor(props: {
   const [rect, setRect] = createSignal<OutpaintBox>()
   const [imageSourceSize, setImageSourceSize] = createSignal({ width: props.image.width ?? 1024, height: props.image.height ?? 1024 })
   const [localAspectRatio, setLocalAspectRatio] = createSignal<StudioAspectRatio | undefined>(undefined)
-  const ratios = ["1:1", "9:16", "16:9"] as StudioAspectRatio[]
   let stageRef!: HTMLDivElement
 
   createEffect(
     on(
       () => `${props.image.id}:${props.image.url}:${props.image.width ?? ""}:${props.image.height ?? ""}`,
       () => {
-        if (props.image.width && props.image.height) {
-          setImageSourceSize({ width: props.image.width, height: props.image.height })
-          return
-        }
+        let active = true
+        setImageSourceSize({ width: props.image.width ?? 1024, height: props.image.height ?? 1024 })
         const image = new Image()
-        image.onload = () => setImageSourceSize({ width: image.naturalWidth, height: image.naturalHeight })
+        image.onload = () => {
+          if (active) setImageSourceSize({ width: image.naturalWidth, height: image.naturalHeight })
+        }
         image.src = props.image.url
+        return () => {
+          active = false
+        }
       },
     ),
   )
@@ -112,14 +119,24 @@ export function StudioOutpaintEditor(props: {
   const imageBox = createMemo<OutpaintBox>(() => {
     const sourceWidth = imageSourceSize().width
     const sourceHeight = imageSourceSize().height
-    const maxWidth = Math.min(320, stage().width * 0.42)
-    const maxHeight = stage().height * 0.56
-    const scale = Math.min(maxWidth / sourceWidth, maxHeight / sourceHeight)
+    const currentStage = stage()
+    const usableStage = {
+      width: Math.max(1, currentStage.width - STAGE_INSET * 2),
+      height: Math.max(1, currentStage.height - STAGE_INSET * 2),
+    }
+    const scale = Math.min(
+      usableStage.width * IMAGE_STAGE_SHARE / sourceWidth,
+      usableStage.height * IMAGE_STAGE_SHARE / sourceHeight,
+      ...OUTPAINT_RATIOS.map((ratio) => {
+        const target = ratioDimensions(sourceWidth, sourceHeight, ratio)
+        return Math.min(usableStage.width / target.width, usableStage.height / target.height)
+      }),
+    )
     const width = sourceWidth * scale
     const height = sourceHeight * scale
     return {
-      x: (stage().width - width) / 2,
-      y: (stage().height - height) / 2,
+      x: STAGE_INSET + (usableStage.width - width) / 2,
+      y: STAGE_INSET + (usableStage.height - height) / 2,
       width,
       height,
     }
@@ -141,7 +158,10 @@ export function StudioOutpaintEditor(props: {
   createEffect(
     on(
       () => `${props.image.id}:${stage().width}:${stage().height}:${imageSourceSize().width}:${imageSourceSize().height}`,
-      () => setRect(imageBox()),
+      () => {
+        setLocalAspectRatio(undefined)
+        setRect(imageBox())
+      },
       { defer: true },
     ),
   )
@@ -171,7 +191,7 @@ export function StudioOutpaintEditor(props: {
       document.removeEventListener("pointerup", onUp)
       const currentRect = rect()
       if (currentRect) {
-        setLocalAspectRatio(findMatchingRatio(currentRect, ratios))
+        setLocalAspectRatio(findMatchingRatio(currentRect, OUTPAINT_RATIOS))
       }
     }
     document.addEventListener("pointermove", onMove)
@@ -260,7 +280,7 @@ export function StudioOutpaintEditor(props: {
         </div>
         <div class="studio-enlarging-controls">
           <div class="studio-enlarging-ratios" aria-label="扩图比例">
-          <For each={ratios}>
+          <For each={OUTPAINT_RATIOS}>
             {(item) => (
               <button
                 type="button"
