@@ -241,9 +241,10 @@ async function runArchiveFileTask(
           teamId: data.teamId,
         })
           .then((res) => {
-            // apiFetch 失败返回 null(已 toast);成功返回 UploadDeliverableResult(含 id)。
-            if (!res) return
-            const viewUrl = res.id > 0 ? buildDeliverableViewUrl(res.id) : undefined
+            // apiFetch 失败返回 null(已 toast);成功返回 UploadDeliverableResult[](归档一个文件 → 取 [0])。
+            if (!res || res.length === 0) return
+            const id = res[0].id
+            const viewUrl = id > 0 ? buildDeliverableViewUrl(id) : undefined
             onDeferredSuccess?.({ path: buildSuccessPath(data), viewUrl })
           })
           .catch((e) => {

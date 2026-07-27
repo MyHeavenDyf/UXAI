@@ -117,7 +117,7 @@ export async function searchDeliverables(teamId: number, pageNum: number, pageSi
 }
 
 // deliverable 上传
-export async function uploadDeliverable(body: UploadDeliverableBody): Promise<UploadDeliverableResult> {
+export async function uploadDeliverable(body: UploadDeliverableBody): Promise<UploadDeliverableResult[]> {
   return apiFetch({ path: "/deliverable/uploadDeliverable", method: "POST", body })
 }
 
