@@ -1088,10 +1088,10 @@ export function registerIpcHandlers(deps: Deps) {
     })
 
     try {
-      log.info("[configure-proxy] 执行 curl 测试连通性", { curlTarget, connectTimeout: 5, execTimeout: 8000 })
+      log.info("[configure-proxy] 执行 curl 测试连通性", { curlTarget, connectTimeout: 15, execTimeout: 20000 })
 
-      execSync(`curl -s -o "${nullDevice}" -w "%{http_code}" --connect-timeout 5 "${curlTarget}"`, {
-        timeout: 8000,
+      execSync(`curl -s -o "${nullDevice}" -w "%{http_code}" --connect-timeout 15 "${curlTarget}"`, {
+        timeout: 20000,
         stdio: "pipe",
       })
 
