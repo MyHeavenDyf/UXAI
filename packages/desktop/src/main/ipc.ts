@@ -1062,14 +1062,34 @@ export function registerIpcHandlers(deps: Deps) {
     const encodedPwd = encodeURIComponent(password)
       .replace(/['()!*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
     const proxyUrl = `http://${account}:${encodedPwd}@proxyhk.huawei.com:8080`
+    const httpsProxyUrl = proxyUrl.replace("http://", "https://")
+    const noProxy = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
     const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null"
 
     log.info("[configure-proxy] 开始配置代理", { account, encodedPwd, proxyUrl })
 
-    try {
-      log.info("[configure-proxy] 执行 curl 测试连通性", { proxyUrl, connectTimeout: 5, execTimeout: 8000 })
+    // 先注入环境变量，确保 curl 能走代理
+    const prevEnv: Record<string, string | undefined> = {}
+    for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"]) {
+      prevEnv[key] = process.env[key]
+    }
+    process.env["http_proxy"] = proxyUrl
+    process.env["https_proxy"] = httpsProxyUrl
+    process.env["no_proxy"] = noProxy
+    process.env["HTTP_PROXY"] = proxyUrl
+    process.env["HTTPS_PROXY"] = httpsProxyUrl
+    process.env["NO_PROXY"] = noProxy
 
-      execSync(`curl -s -o "${nullDevice}" -w "%{http_code}" --connect-timeout 5 -x "${proxyUrl}" "https://ifconfig.me/ip"`, {
+    log.info("[configure-proxy] 环境变量已注入", {
+      http_proxy: process.env.http_proxy,
+      https_proxy: process.env.https_proxy,
+      no_proxy: process.env.no_proxy,
+    })
+
+    try {
+      log.info("[configure-proxy] 执行 curl 测试连通性", { connectTimeout: 5, execTimeout: 8000 })
+
+      execSync(`curl -s -o "${nullDevice}" -w "%{http_code}" --connect-timeout 5 "https://ifconfig.me/ip"`, {
         timeout: 8000,
         stdio: "pipe",
       })
@@ -1087,8 +1107,8 @@ export function registerIpcHandlers(deps: Deps) {
       } catch { /* 文件不存在或解析失败, 使用空对象 */ }
 
       config["http_proxy"] = proxyUrl
-      config["https_proxy"] = proxyUrl.replace("http://", "https://")
-      config["no_proxy"] = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
+      config["https_proxy"] = httpsProxyUrl
+      config["no_proxy"] = noProxy
 
       writeFileSync(configFile, JSON.stringify(config, null, 2), "utf-8")
       log.info("[configure-proxy] 配置写入成功", { configFile })
@@ -1101,9 +1121,18 @@ export function registerIpcHandlers(deps: Deps) {
         error: errorMessage,
         code: errorCode,
         stack: errorStack,
-        proxyUrl,
       })
       return { success: false, encodedPwd, curlUrl: proxyUrl, error: errorMessage }
+    } finally {
+      // 恢复之前的环境变量
+      for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"] as const) {
+        const val = prevEnv[key]
+        if (val === undefined) {
+          delete process.env[key]
+        } else {
+          process.env[key] = val
+        }
+      }
     }
   })
 }
