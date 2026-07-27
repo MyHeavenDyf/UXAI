@@ -69,10 +69,8 @@ const getCommentsFilePath = (sessionId: string, commentFilePath: string, instanc
   return path.join(
     instance.directory,
     ".octo",
-    "artifacts",
-    "make",
     sessionId,
-    "comment-files",
+    "comments",
     safeFolderName,
     "comments.json"
   )
@@ -84,10 +82,8 @@ const getAttachmentDir = (sessionId: string, commentFilePath: string, commentId:
   return path.join(
     instance.directory,
     ".octo",
-    "artifacts",
-    "make",
     sessionId,
-    "comment-files",
+    "comments",
     safeFolderName,
     commentId
   )

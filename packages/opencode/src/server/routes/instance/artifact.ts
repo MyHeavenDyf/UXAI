@@ -9,7 +9,9 @@ import { Effect, Option } from "effect"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Instance } from "@/project/instance"
 
-const ARTIFACTS_BASE_DIR = ".octo/artifacts/make"
+const SESSION_BASE_DIR = ".octo"
+const OUTPUTS_DIR = "outputs"
+const UPLOADS_DIR = "uploads"
 
 const KIND_BY_EXT: Record<string, string> = {
   html: "html",
@@ -71,7 +73,7 @@ export const ArtifactRoutes = lazy(() =>
       "/list",
       describeRoute({
         summary: "List artifacts",
-        description: "List artifact files and folders in .octo/artifacts/make/<sessionId> directory. Use 'path' parameter to navigate subfolders.",
+        description: "List artifact files and folders in .octo/<sessionId>/outputs directory. Use 'path' parameter to navigate subfolders.",
         operationId: "artifact.list",
         responses: {
           200: {
@@ -109,10 +111,10 @@ export const ArtifactRoutes = lazy(() =>
       ),
       async (c) =>
         jsonRequest("ArtifactRoutes.list", c, function* () {
-          const { sessionId, path: subPath } = c.req.valid("query")
-          const fs = yield* AppFileSystem.Service
-          const artifactDir = path.join(Instance.directory, ARTIFACTS_BASE_DIR, sessionId)
-          const targetDir = subPath ? path.join(artifactDir, subPath) : artifactDir
+const { sessionId, path: subPath } = c.req.valid("query")
+           const fs = yield* AppFileSystem.Service
+           const outputsDir = path.join(Instance.directory, SESSION_BASE_DIR, sessionId, OUTPUTS_DIR)
+           const targetDir = subPath ? path.join(outputsDir, subPath) : outputsDir
 
           const exists = yield* fs.exists(targetDir).pipe(Effect.catch(() => Effect.succeed(false)))
           if (!exists) {
@@ -407,9 +409,9 @@ export const ArtifactRoutes = lazy(() =>
         jsonRequest("ArtifactRoutes.upload", c, function* () {
           const body = c.req.valid("json")
           const fs = yield* AppFileSystem.Service
-          const artifactDir = path.join(Instance.directory, ARTIFACTS_BASE_DIR, body.sessionId)
+          const uploadsDir = path.join(Instance.directory, SESSION_BASE_DIR, body.sessionId, UPLOADS_DIR)
 
-          yield* fs.ensureDir(artifactDir).pipe(Effect.catch(() => Effect.void))
+          yield* fs.ensureDir(uploadsDir).pipe(Effect.catch(() => Effect.void))
 
           let finalFilename = body.filename
           let counter = 1
@@ -417,14 +419,14 @@ export const ArtifactRoutes = lazy(() =>
           const baseName = path.basename(body.filename, ext)
 
           while (true) {
-            const fullPath = path.join(artifactDir, finalFilename)
+            const fullPath = path.join(uploadsDir, finalFilename)
             const fileExists = yield* fs.exists(fullPath).pipe(Effect.catch(() => Effect.succeed(false)))
             if (!fileExists) break
             finalFilename = `${baseName}-${counter}${ext}`
             counter++
           }
 
-          const fullPath = path.join(artifactDir, finalFilename)
+          const fullPath = path.join(uploadsDir, finalFilename)
           const contentBuffer = Buffer.from(body.content, "base64")
           yield* fs.writeFile(fullPath, contentBuffer)
 
@@ -490,8 +492,8 @@ export const ArtifactRoutes = lazy(() =>
         jsonRequest("ArtifactRoutes.uploadFolder", c, function* () {
           const body = c.req.valid("json")
           const fs = yield* AppFileSystem.Service
-          const artifactDir = path.join(Instance.directory, ARTIFACTS_BASE_DIR, body.sessionId)
-          const folderDir = path.join(artifactDir, body.folderName)
+          const uploadsDir = path.join(Instance.directory, SESSION_BASE_DIR, body.sessionId, UPLOADS_DIR)
+          const folderDir = path.join(uploadsDir, body.folderName)
 
           yield* fs.ensureDir(folderDir).pipe(Effect.catch(() => Effect.void))
 
