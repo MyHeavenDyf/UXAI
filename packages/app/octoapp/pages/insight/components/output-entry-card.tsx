@@ -1,5 +1,7 @@
 import type { JSX } from "solid-js"
 import { fileTypeIconUrl } from "../icons/illustrations"
+import { materializedLocalPath } from "../utils/local-resource"
+import { predictWorktreeLandingName } from "../utils/local-file"
 import type { OutputCard, OutputCardType } from "./insight-turn"
 
 /**
@@ -37,7 +39,7 @@ export function OutputEntryCard(props: { card: OutputCard; onClick: () => void }
         <img src={cardIconUrl(props.card)} width={28} height={28} alt="" aria-hidden="true" />
       </span>
       <span class="octo-preview-entry__body">
-        <span class="octo-preview-entry__title">{previewEntryLabel(props.card)}</span>
+        <span class="octo-preview-entry__title">{entryDisplayLabel(props.card)}</span>
         <span class="octo-preview-entry__desc">创建时间: {formatCreatedTime(props.card.createdAt)}</span>
       </span>
     </button>
@@ -60,6 +62,22 @@ function previewEntryLabel(card: OutputCard): string {
     case "file": return card.fileName || "文件"
     case "image": return card.fileName || "图片"
   }
+}
+
+// 展示名对齐磁盘落地名:同一份产物在「文件管理」按主进程清洗规则落成磁盘名(如 `林_2_.json`),
+// 而入口卡标题来自 resource_link.name 原文(`林(2).json`)——两名不一致会让用户误以为是两个文件。
+// 仅对「文件名形态」标签(带扩展名)做对齐,友好标签(可视化页面 / 思维导图 / 自定义标题)原样保留。
+//   - 已落盘:用磁盘真实 basename(含撞名后缀,最准);materializedLocalPath 响应式,落盘后自动重算
+//   - 未落盘:按主进程清洗规则预测,消除括号 / 空格等分叉
+function isFilenameLike(label: string): boolean {
+  return /\.[A-Za-z0-9]{1,12}$/.test(label)
+}
+
+function entryDisplayLabel(card: OutputCard): string {
+  const label = previewEntryLabel(card)
+  if (!isFilenameLike(label)) return label
+  const landedBase = materializedLocalPath(card.id)?.split(/[\\/]/).pop()
+  return landedBase || predictWorktreeLandingName(label)
 }
 
 function formatCreatedTime(d: Date): string {

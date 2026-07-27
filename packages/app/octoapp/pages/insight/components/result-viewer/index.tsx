@@ -15,7 +15,7 @@ import { extractTableMarkdown } from "../../utils/markdown-table"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
 import { defaultFilename as defaultLocalFilename } from "../../utils/local-file"
-import { ensureLocalMarkdownFile } from "../../utils/local-resource"
+import { ensureLocalMarkdownFile, ensureLocalResourceFile } from "../../utils/local-resource"
 import { openFileLocally, revealFileInFolder, NO_APP_HINT } from "../../utils/local-file-ops"
 import { MarkdownEditor } from "../markdown-editor"
 import { MarkdownPreview } from "../markdown-editor/markdown-preview"
@@ -211,17 +211,32 @@ function PathTabBody(props: {
   )
 }
 
-// URI 模式 + 未缓存:fetch → 回写 cache → 由父层 Show 自动切到 inline 分支渲染。
+// URI 模式(json/html/table/mindmap)+ 未缓存:与 markdown 卡同源,先把产物落成本地工作副本
+// (download-resource-to-temp 幂等,按 uri),再读这份本地文件 → 卡片预览读的就是「文件管理打开的同一份」,
+// 用户在磁盘上的改动即时反映(修复:此前直接 fetch(uri) 拉远端 S3 原件,改了本地文件不生效、看起来像两个文件)。
+// 桌面端能力缺失(浏览器 __dev / 测试)时退回直接 fetch(url) 只读预览。
 // tab.type 在对话流出卡阶段已由 business_type(优先) / mimeType(兜底)确定(spec: output-renderers.md §2.5.2);
 // 此处不再做"application/json 二次判断 retype"——服务端 business_type 显式声明即真理,客户端零嗅探。
 function UriTabBody(props: {
   tab: ResultTab
   onCacheContent?: (id: string, content: string) => void
 }): JSX.Element {
+  const projectDir = useProjectDir()
+  const params = useParams<{ id?: string }>()
   const [resource, { refetch }] = createResource(
-    () => (props.tab.uri ? { id: props.tab.id, uri: props.tab.uri } : null),
+    () => (props.tab.uri ? { id: props.tab.id, uri: props.tab.uri, dir: projectDir() || "" } : null),
     async (src) => {
-      const text = await fetchResourceText(src.uri)
+      const api = getDesktopApi()
+      if (typeof api?.downloadResourceToTemp !== "function" || typeof api?.readFileBuffer !== "function") {
+        // 非桌面端:无本地落地能力,退回直接 fetch url(只读,不持久)
+        const text = await fetchResourceText(src.uri)
+        props.onCacheContent?.(src.id, text)
+        return text
+      }
+      const { path: localPath } = await ensureLocalResourceFile(props.tab, src.dir, params.id ?? "")
+      const buf = await api.readFileBuffer!(localPath)
+      const text = buf ? new TextDecoder("utf-8").decode(new Uint8Array(buf)) : ""
+      console.log("[octo:resource] uri-local", { localPath, type: props.tab.type, bytes: text.length })
       props.onCacheContent?.(src.id, text)
       return text
     },

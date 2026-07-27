@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { sanitizeFilename, defaultFilename, ensureMarkdownExt } from "./local-file"
+import { sanitizeFilename, defaultFilename, ensureMarkdownExt, predictWorktreeLandingName } from "./local-file"
 
 describe("sanitizeFilename", () => {
   test("去掉路径分隔符与控制字符", () => {
@@ -37,5 +37,25 @@ describe("ensureMarkdownExt", () => {
     expect(ensureMarkdownExt("a.md")).toBe("a.md")
     expect(ensureMarkdownExt("a.markdown")).toBe("a.markdown")
     expect(ensureMarkdownExt("A.MD")).toBe("A.MD")
+  })
+})
+
+// 必须与 desktop/src/main/ipc.ts sanitizeWorktreeName 逐字一致(改一处同步另一处)。
+describe("predictWorktreeLandingName", () => {
+  test("括号 → 下划线,与磁盘落地名一致", () => {
+    expect(predictWorktreeLandingName("林(2).json")).toBe("林_2_.json")
+  })
+  test("空格 → 下划线", () => {
+    expect(predictWorktreeLandingName("我的 报告 v2.md")).toBe("我的_报告_v2.md")
+  })
+  test("保留中文/数字/. - _,扩展名不动", () => {
+    expect(predictWorktreeLandingName("分析结果-2026_07.csv")).toBe("分析结果-2026_07.csv")
+  })
+  test("主名截 100,扩展名保留", () => {
+    const out = predictWorktreeLandingName("x".repeat(300) + ".txt")
+    expect(out).toBe("x".repeat(100) + ".txt")
+  })
+  test("空名兜底 unnamed", () => {
+    expect(predictWorktreeLandingName("")).toBe("unnamed")
   })
 })

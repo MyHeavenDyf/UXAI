@@ -13,7 +13,7 @@ mock.module("../lib/electron-api", () => ({
   }),
 }))
 
-const { materializeUriCardToOutputs } = await import("./local-resource")
+const { materializeUriCardToOutputs, ensureLocalResourceFile } = await import("./local-resource")
 
 const URI = "https://mcp.intra/artifacts/abc/report.md"
 
@@ -59,5 +59,40 @@ describe("materializeUriCardToOutputs 幂等键", () => {
     expect(calls[0]!.filename).toBe("report.md") // markdown 补 .md
     expect(calls[1]!.filename).toBe("report") // file 型保留原名
     expect(new Set(calls.map((c) => c.namespace)).size).toBe(1)
+  })
+})
+
+describe("ensureLocalResourceFile", () => {
+  beforeEach(() => (calls.length = 0))
+
+  it("json 卡保留原扩展名(不强补 .md),幂等键传 uri", async () => {
+    const uri = "https://mcp.intra/artifacts/abc/林(2).json"
+    const { path } = await ensureLocalResourceFile(
+      { id: "task-t1-0", type: "json", source: "uri", uri, fileName: "林(2).json" } as never,
+      "/proj",
+      "ses_1",
+    )
+    expect(calls[0]!.filename).toBe("林(2).json") // 主进程再落地为 林_2_.json;客户端不预清洗
+    expect(calls[0]!.namespace).toBe(uri)
+    expect(path).toBe("/proj/insight/ses_1/outputs/林(2).json")
+  })
+
+  it("markdown 卡补 .md", async () => {
+    await ensureLocalResourceFile(
+      { id: "c1", type: "markdown", source: "uri", uri: "https://x/y", fileName: "report" } as never,
+      "/proj",
+      "ses_1",
+    )
+    expect(calls[0]!.filename).toBe("report.md")
+  })
+
+  it("path 源直接返回 filePath,不落盘", async () => {
+    const { path } = await ensureLocalResourceFile(
+      { id: "c2", type: "json", source: "path", filePath: "/proj/insight/ses_1/outputs/a.json" } as never,
+      "/proj",
+      "ses_1",
+    )
+    expect(path).toBe("/proj/insight/ses_1/outputs/a.json")
+    expect(calls).toHaveLength(0)
   })
 })

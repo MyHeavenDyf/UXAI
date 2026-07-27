@@ -16,6 +16,7 @@
 //
 // 见 spec insight-markdown-editor.md §3。
 
+import { createSignal } from "solid-js"
 import { getDesktopApi } from "../lib/electron-api"
 import type { ResultTab } from "../components/result-viewer/tab-store"
 import { defaultFilename, ensureMarkdownExt } from "./local-file"
@@ -26,9 +27,62 @@ import { defaultFilename, ensureMarkdownExt } from "./local-file"
 // openTab 据此给已落盘的 uri 卡补上 filePath,让 (filePath,type) 去重同时覆盖两个入口。
 const materializedPaths = new Map<string, string>()
 
-/** 查 uri 卡 eager 落盘后的本地副本路径;未落盘(或落在 OS 临时目录)返回 undefined。 */
+// 落盘登记的版本号信号:每次 materializedPaths.set 自增一次,使 materializedLocalPath 在响应式
+// 上下文(如产物入口卡的展示名)里能感知「刚落盘」并重算——用磁盘真实 basename 对齐展示名。
+// 命令式调用点(tab-store openTab)读它不订阅,行为不变。
+const [materializeVersion, bumpMaterializeVersion] = createSignal(0)
+
+function registerMaterialized(cardId: string, localPath: string): void {
+  materializedPaths.set(cardId, localPath)
+  bumpMaterializeVersion((v) => v + 1)
+}
+
+/**
+ * 查 uri 卡落盘后的本地副本路径;未落盘(或落在 OS 临时目录)返回 undefined。
+ * 响应式:读了 materializeVersion,落盘后调用方(入口卡展示名)自动重算。
+ */
 export function materializedLocalPath(cardId: string): string | undefined {
+  materializeVersion()
   return materializedPaths.get(cardId)
+}
+
+// uri 卡落盘文件名:markdown 补 .md(点开走编辑器时命中同一份),其余类型保留 resource_link.name
+// 原扩展名(json 落成 .json)。eager 落盘与预览读盘共用此规则,避免「下 A 读 B」两份漂移。
+function landingFilename(card: { type: string; fileName?: string; uri?: string; title?: string }): string {
+  const base = defaultFilename(card)
+  return card.type === "markdown" ? ensureMarkdownExt(base) : base
+}
+
+/**
+ * 确保 uri 卡有一份本地工作副本(落 <projectDir>/.octo/<sessionId>/outputs/,幂等按 uri),返回本地路径。
+ * 与 ensureLocalMarkdownFile 同源,但按 card.type 决定扩展名(json 保留 .json,不强补 .md)——供**非
+ * markdown** 的 uri 卡(json/html/table/mindmap)预览读盘用:读的就是「文件管理打开的同一份」,于是
+ * 用户在磁盘上的改动能即时反映到卡片预览(修复:json 卡曾直接 fetch 远端原件、改了不生效)。
+ * - path 源:文件已在磁盘,直接用 filePath。
+ * - inline / 缺桌面能力 → 抛错(调用方退回 fetch 只读预览)。
+ */
+export async function ensureLocalResourceFile(
+  tab: ResultTab,
+  projectDir: string,
+  sessionId: string,
+): Promise<{ path: string; persistent: boolean }> {
+  if (tab.source === "path" && tab.filePath) {
+    return { path: tab.filePath, persistent: true }
+  }
+  if (tab.source === "uri" && tab.uri) {
+    const api = getDesktopApi()
+    if (typeof api?.downloadResourceToTemp !== "function") {
+      throw new Error("缺少 window.api.downloadResourceToTemp,无法定位本地文件")
+    }
+    const filename = landingFilename(tab)
+    const baseDir = projectDir || undefined
+    // 幂等键传 uri(资源身份),不传 tab.id —— 见文件头说明。
+    const localPath = await api.downloadResourceToTemp!(tab.uri, tab.uri, filename, baseDir, baseDir ? sessionId : undefined)
+    // 登记本地副本路径:openTab 据此给 uri 卡补 filePath 去重;入口卡据此对齐展示名。
+    if (baseDir) registerMaterialized(tab.id, localPath)
+    return { path: localPath, persistent: !!baseDir }
+  }
+  throw new Error("该卡片无可编辑的本地文件(inline 内容)")
 }
 
 export async function ensureLocalMarkdownFile(
@@ -48,6 +102,7 @@ export async function ensureLocalMarkdownFile(
     const baseDir = projectDir || undefined
     // 幂等键传 uri(资源身份),不传 tab.id —— 见文件头说明。
     const localPath = await api.downloadResourceToTemp!(tab.uri, tab.uri, filename, baseDir, baseDir ? sessionId : undefined)
+    if (baseDir) registerMaterialized(tab.id, localPath)
     return { path: localPath, persistent: !!baseDir }
   }
   throw new Error("该卡片无可编辑的本地文件(inline 内容)")
@@ -75,13 +130,12 @@ export async function materializeUriCardToOutputs(
   if (!projectDir || !sessionId) return
   const api = getDesktopApi()
   if (typeof api?.downloadResourceToTemp !== "function") return
-  const base = defaultFilename(card)
-  const filename = card.type === "markdown" ? ensureMarkdownExt(base) : base
+  const filename = landingFilename(card)
   try {
     // 幂等键传 uri(资源身份),不传 card.id —— 见文件头说明。
     const localPath = await api.downloadResourceToTemp!(card.uri, card.uri, filename, projectDir, sessionId)
     // 登记本地副本路径:openTab 据此给 uri 卡补 filePath,与「文件管理打开同一文件」去重到同一个 tab。
-    materializedPaths.set(card.id, localPath)
+    registerMaterialized(card.id, localPath)
     // 客户端触发侧日志(主进程落地本身另打 [octo:worktree] result-materialize);两者配对定位「出卡了没落盘」。
     console.log("[octo:resource] eager-materialize", { cardId: card.id, type: card.type, filename, sessionId, localPath })
   } catch (err) {
