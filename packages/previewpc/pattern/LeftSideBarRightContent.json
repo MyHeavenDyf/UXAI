@@ -1,0 +1,730 @@
+{
+    "state": {
+        "ghSelectedKeys": [
+            "topology"
+        ],
+        "ghNavItems": [
+            {
+                "title": "首页概览",
+                "key": "home",
+                "icon": "layout-dashboard"
+            },
+            {
+                "title": "拓扑管理",
+                "key": "topology",
+                "icon": "git-graph"
+            },
+            {
+                "title": "告警管理",
+                "key": "alarm",
+                "icon": "bell-ring"
+            }
+        ],
+        "ghUserMenu": [
+            {
+                "label": "个人中心",
+                "key": "profile",
+                "icon": "user"
+            },
+            {
+                "label": "系统设置",
+                "key": "settings",
+                "icon": "settings"
+            },
+            {
+                "label": "退出登录",
+                "key": "logout",
+                "icon": "log-out"
+            }
+        ],
+        "snSidebarTitle": "Title",
+        "snSelectedKeys": [
+            "m1-2"
+        ],
+        "snOpenKeys": [
+            "m1"
+        ],
+        "snMenuItems": [
+            {
+                "key": "m1",
+                "title": "设备资源",
+                "icon": "server",
+                "children": [
+                    {
+                        "key": "m1-1",
+                        "title": "交换机列表"
+                    },
+                    {
+                        "key": "m1-2",
+                        "title": "路由器管理"
+                    },
+                    {
+                        "key": "m1-3",
+                        "title": "防火墙配置"
+                    }
+                ]
+            },
+            {
+                "key": "m2",
+                "title": "链路监控",
+                "icon": "activity"
+            },
+            {
+                "key": "m3",
+                "title": "流量分析",
+                "icon": "bar-chart-3"
+            },
+            {
+                "key": "m4",
+                "title": "自动化脚本",
+                "icon": "terminal"
+            },
+            {
+                "key": "m5",
+                "title": "系统设置",
+                "icon": "settings"
+            }
+        ],
+        "mcaBreadcrumbPaths": [
+            {
+                "title": "Home"
+            },
+            {
+                "title": "Work"
+            },
+            {
+                "title": "Work1"
+            }
+        ],
+        "mcaSearchValue": "",
+        "mcaDeviceList": [
+            {
+                "id": "1",
+                "name": "核心交换机_01",
+                "site": "site01",
+                "sn": "SN-9928341",
+                "status": "正常",
+                "statusIcon": "play",
+                "statusColor": "success"
+            },
+            {
+                "id": "2",
+                "name": "边界路由器_A2",
+                "site": "site02",
+                "sn": "SN-1120394",
+                "status": "告警",
+                "statusIcon": "alert-triangle",
+                "statusColor": "warning"
+            },
+            {
+                "id": "3",
+                "name": "汇聚交换机_05",
+                "site": "site01",
+                "sn": "SN-8827312",
+                "status": "离线",
+                "statusIcon": "power",
+                "statusColor": "error"
+            },
+            {
+                "id": "4",
+                "name": "防火墙_Main",
+                "site": "site03",
+                "sn": "SN-4455667",
+                "status": "正常",
+                "statusIcon": "play",
+                "statusColor": "success"
+            },
+            {
+                "id": "5",
+                "name": "接入交换机_B1",
+                "site": "site02",
+                "sn": "SN-2233441",
+                "status": "正常",
+                "statusIcon": "play",
+                "statusColor": "success"
+            },
+            {
+                "id": "6",
+                "name": "无线控制器_01",
+                "site": "site01",
+                "sn": "SN-7788990",
+                "status": "正常",
+                "statusIcon": "play",
+                "statusColor": "success"
+            },
+            {
+                "id": "7",
+                "name": "负载均衡器_V1",
+                "site": "site04",
+                "sn": "SN-3344552",
+                "status": "维护中",
+                "statusIcon": "wrench",
+                "statusColor": "processing"
+            },
+            {
+                "id": "8",
+                "name": "核心交换机_02",
+                "site": "site01",
+                "sn": "SN-9928342",
+                "status": "正常",
+                "statusIcon": "play",
+                "statusColor": "success"
+            },
+            {
+                "id": "9",
+                "name": "VPN网关_01",
+                "site": "site03",
+                "sn": "SN-5566778",
+                "status": "告警",
+                "statusIcon": "alert-triangle",
+                "statusColor": "warning"
+            },
+            {
+                "id": "10",
+                "name": "接入交换机_B2",
+                "site": "site02",
+                "sn": "SN-2233442",
+                "status": "正常",
+                "statusIcon": "play",
+                "statusColor": "success"
+            }
+        ]
+    },
+    "rootId": "shellRoot",
+    "elements": [
+        {
+            "id": "shellRoot",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col w-full h-screen bg-surface-container-lowest overflow-hidden"
+            },
+            "children": [
+                "shellHeader",
+                "shellBody"
+            ]
+        },
+        {
+            "id": "shellHeader",
+            "component": "header",
+            "props": {
+                "className": "h-12 w-full bg-surface-container-highest shadow-sm z-10 shrink-0"
+            },
+            "children": [
+                "ghMainContainer"
+            ]
+        },
+        {
+            "id": "shellBody",
+            "component": "div",
+            "props": {
+                "className": "flex flex-1 w-full overflow-hidden"
+            },
+            "children": [
+                "shellSidebar",
+                "shellMain"
+            ]
+        },
+        {
+            "id": "shellSidebar",
+            "component": "aside",
+            "props": {
+                "className": "w-[15.5rem] h-full bg-surface-container-highest border-r border-divider shrink-0"
+            },
+            "children": [
+                "snSidebarHeader",
+                "snSidebarDivider",
+                "snSidebarMenuContainer"
+            ]
+        },
+        {
+            "id": "shellMain",
+            "component": "main",
+            "props": {
+                "className": "flex-1 h-full overflow-y-auto p-page flex flex-col gap-section"
+            },
+            "children": [
+                "mcaBreadcrumb",
+                "mcaTableCard"
+            ]
+        },
+        {
+            "id": "ghMainContainer",
+            "component": "div",
+            "props": {
+                "className": "flex items-center justify-between h-full px-gutter"
+            },
+            "children": [
+                "ghLeftSection",
+                "ghCenterSection",
+                "ghRightSection"
+            ]
+        },
+        {
+            "id": "ghLeftSection",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-inline"
+            },
+            "children": [
+                "ghLogoIcon",
+                "ghSystemName"
+            ]
+        },
+        {
+            "id": "ghLogoIcon",
+            "component": "Icon",
+            "props": {
+                "name": "network",
+                "color": "primary",
+                "shape": "square",
+                "className": "w-6 h-6"
+            }
+        },
+        {
+            "id": "ghSystemName",
+            "component": "span",
+            "props": {
+                "className": "text-lg font-bold text-on-surface",
+                "value": "Product"
+            }
+        },
+        {
+            "id": "ghCenterSection",
+            "component": "div",
+            "props": {
+                "className": "flex-1 flex justify-center"
+            },
+            "children": [
+                "ghTopMenu"
+            ]
+        },
+        {
+            "id": "ghTopMenu",
+            "component": "Menu",
+            "props": {
+                "mode": "horizontal",
+                "selectedKeys": {
+                    "path": "/ghSelectedKeys"
+                },
+                "items": {
+                    "path": "/ghNavItems"
+                },
+                "className": "border-none bg-transparent"
+            }
+        },
+        {
+            "id": "ghRightSection",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-gutter"
+            },
+            "children": [
+                "ghActionGroup",
+                "ghUserDropdown"
+            ]
+        },
+        {
+            "id": "ghActionGroup",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-inline"
+            },
+            "children": [
+                "ghSearchBtn",
+                "ghHelpBtn",
+                "ghMoreBtn"
+            ]
+        },
+        {
+            "id": "ghSearchBtn",
+            "component": "Button",
+            "props": {
+                "icon": "search",
+                "types": "link",
+                "className": "text-on-surface-variant hover:text-primary"
+            }
+        },
+        {
+            "id": "ghHelpBtn",
+            "component": "Button",
+            "props": {
+                "icon": "help-circle",
+                "types": "link",
+                "className": "text-on-surface-variant hover:text-primary"
+            }
+        },
+        {
+            "id": "ghMoreBtn",
+            "component": "Button",
+            "props": {
+                "icon": "more-horizontal",
+                "types": "link",
+                "className": "text-on-surface-variant hover:text-primary"
+            }
+        },
+        {
+            "id": "ghUserDropdown",
+            "component": "Dropdown",
+            "props": {
+                "menu": {
+                    "path": "/ghUserMenu"
+                },
+                "placement": "bottomRight",
+                "trigger": [
+                    "hover"
+                ]
+            },
+            "children": [
+                "ghUserAvatarContainer"
+            ]
+        },
+        {
+            "id": "ghUserAvatarContainer",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+            },
+            "children": [
+                "ghUserAvatar"
+            ]
+        },
+        {
+            "id": "ghUserAvatar",
+            "component": "img",
+            "props": {
+                "src": "https://randomuser.me/api/portraits/men/32.jpg",
+                "className": "w-8 h-8 rounded-full border border-divider"
+            }
+        },
+        {
+            "id": "snSidebarHeader",
+            "component": "div",
+            "props": {
+                "className": "px-inset py-stack flex items-center"
+            },
+            "children": [
+                "snSidebarTitleText"
+            ]
+        },
+        {
+            "id": "snSidebarTitleText",
+            "component": "span",
+            "props": {
+                "className": "text-lg font-bold text-on-surface",
+                "value": {
+                    "path": "/snSidebarTitle"
+                }
+            }
+        },
+        {
+            "id": "snSidebarDivider",
+            "component": "Divider",
+            "props": {
+                "className": "my-0"
+            }
+        },
+        {
+            "id": "snSidebarMenuContainer",
+            "component": "div",
+            "props": {
+                "className": "flex-1 overflow-y-auto py-inline"
+            },
+            "children": [
+                "snSidebarMenu"
+            ]
+        },
+        {
+            "id": "snSidebarMenu",
+            "component": "Menu",
+            "props": {
+                "mode": "vertical",
+                "selectedKeys": {
+                    "path": "/snSelectedKeys"
+                },
+                "openKeys": {
+                    "path": "/snOpenKeys"
+                },
+                "items": {
+                    "path": "/snMenuItems"
+                },
+                "className": "border-none"
+            }
+        },
+        {
+            "id": "mcaBreadcrumb",
+            "component": "Breadcrumb",
+            "props": {
+                "items": {
+                    "path": "/mcaBreadcrumbPaths"
+                }
+            }
+        },
+        {
+            "id": "mcaTableCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-card p-inset flex flex-col gap-gutter"
+            },
+            "children": [
+                "mcaTableHeader",
+                "mcaTableMain"
+            ]
+        },
+        {
+            "id": "mcaTableHeader",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-stack"
+            },
+            "children": [
+                "mcaTableTitle",
+                "mcaTableActions"
+            ]
+        },
+        {
+            "id": "mcaTableTitle",
+            "component": "span",
+            "props": {
+                "value": "设备列表",
+                "className": "text-lg font-bold text-on-surface"
+            }
+        },
+        {
+            "id": "mcaTableActions",
+            "component": "div",
+            "props": {
+                "className": "flex items-center justify-between"
+            },
+            "children": [
+                "mcaSearchInput",
+                "mcaActionGroup"
+            ]
+        },
+        {
+            "id": "mcaSearchInput",
+            "component": "Input",
+            "props": {
+                "value": {
+                    "path": "/mcaSearchValue"
+                },
+                "placeholder": "搜索设备名称或SN",
+                "prefix": "search",
+                "className": "w-80"
+            }
+        },
+        {
+            "id": "mcaActionGroup",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-inline"
+            },
+            "children": [
+                "mcaBtnDownload",
+                "mcaBtnPlay",
+                "mcaBtnDelete",
+                "mcaBtnMore",
+                "mcaToolRefresh",
+                "mcaToolSettings"
+            ]
+        },
+        {
+            "id": "mcaBtnDownload",
+            "component": "Button",
+            "props": {
+                "value": "Download",
+                "color": "default"
+            }
+        },
+        {
+            "id": "mcaBtnPlay",
+            "component": "Button",
+            "props": {
+                "value": "Play",
+                "color": "primary"
+            }
+        },
+        {
+            "id": "mcaBtnDelete",
+            "component": "Button",
+            "props": {
+                "value": "Delete",
+                "color": "danger"
+            }
+        },
+        {
+            "id": "mcaBtnMore",
+            "component": "Button",
+            "props": {
+                "value": "More",
+                "icon": "chevron-down",
+                "iconPlacement": "end",
+                "color": "default"
+            }
+        },
+        {
+            "id": "mcaToolRefresh",
+            "component": "Button",
+            "props": {
+                "icon": "refresh-cw",
+                "color": "default"
+            }
+        },
+        {
+            "id": "mcaToolSettings",
+            "component": "Button",
+            "props": {
+                "icon": "settings",
+                "color": "default"
+            }
+        },
+        {
+            "id": "mcaTableMain",
+            "component": "Table",
+            "props": {
+                "rowKey": "id",
+                "dataSource": {
+                    "path": "/mcaDeviceList"
+                },
+                "columns": [
+                    {
+                        "title": "名称",
+                        "dataIndex": "name",
+                        "sort": true,
+                        "minWidth": 200
+                    },
+                    {
+                        "title": "站点",
+                        "dataIndex": "site",
+                        "sort": true
+                    },
+                    {
+                        "title": "设备SN",
+                        "dataIndex": "sn",
+                        "sort": true
+                    },
+                    {
+                        "title": "状态",
+                        "dataIndex": "status"
+                    },
+                    {
+                        "title": "操作",
+                        "dataIndex": "actions",
+                        "fixed": "end",
+                        "width": 180
+                    }
+                ]
+            },
+            "children": {
+                "path": "/mcaDeviceList",
+                "componentId": "mcaTableRow"
+            }
+        },
+        {
+            "id": "mcaTableRow",
+            "component": "TableRow",
+            "children": [
+                "mcaCellName",
+                "mcaCellSite",
+                "mcaCellSn",
+                "mcaCellStatus",
+                "mcaCellActions"
+            ]
+        },
+        {
+            "id": "mcaCellName",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "name"
+                },
+                "className": "text-md font-medium"
+            }
+        },
+        {
+            "id": "mcaCellSite",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "site"
+                },
+                "className": "text-md text-on-surface-variant"
+            }
+        },
+        {
+            "id": "mcaCellSn",
+            "component": "span",
+            "props": {
+                "value": {
+                    "path": "sn"
+                },
+                "className": "text-md font-mono"
+            }
+        },
+        {
+            "id": "mcaCellStatus",
+            "component": "Tag",
+            "props": {
+                "value": {
+                    "path": "status"
+                },
+                "color": {
+                    "path": "statusColor"
+                },
+                "icon": {
+                    "path": "statusIcon"
+                },
+                "variant": "outlined"
+            }
+        },
+        {
+            "id": "mcaCellActions",
+            "component": "div",
+            "props": {
+                "className": "flex items-center gap-inline"
+            },
+            "children": [
+                "mcaRowBtnSave",
+                "mcaRowBtnDelete",
+                "mcaRowBtnInfo",
+                "mcaRowBtnMore"
+            ]
+        },
+        {
+            "id": "mcaRowBtnSave",
+            "component": "Button",
+            "props": {
+                "icon": "save",
+                "types": "link",
+                "size": "small"
+            }
+        },
+        {
+            "id": "mcaRowBtnDelete",
+            "component": "Button",
+            "props": {
+                "icon": "trash-2",
+                "types": "link",
+                "size": "small",
+                "color": "danger"
+            }
+        },
+        {
+            "id": "mcaRowBtnInfo",
+            "component": "Button",
+            "props": {
+                "icon": "alert-circle",
+                "types": "link",
+                "size": "small"
+            }
+        },
+        {
+            "id": "mcaRowBtnMore",
+            "component": "Button",
+            "props": {
+                "icon": "more-horizontal",
+                "types": "link",
+                "size": "small"
+            }
+        }
+    ]
+}
