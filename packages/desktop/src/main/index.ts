@@ -9,6 +9,7 @@ import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { DownloadItem, Event, WebContents } from "electron"
 import { app, BrowserWindow, dialog, session } from "electron"
 import pkg from "electron-updater"
+import semver from "semver"
 import {shellPath} from "shell-path"
 
 import contextMenu from "electron-context-menu"
@@ -219,9 +220,9 @@ function useEnvProxy() {
     logger.warn("failed to load proxy environment", error)
   }
 
-  // 从 ~/.config/.octo/config 读取代理配置并注入环境变量
+  // 从 ~/.config/octo/octo.json 读取代理配置并注入环境变量
   try {
-    const configFile = join(homedir(), ".config", ".octo", "config")
+    const configFile = join(homedir(), ".config", "octo", "octo.json")
     if (existsSync(configFile)) {
       const config = JSON.parse(readFileSync(configFile, "utf-8"))
       for (const key of ["http_proxy", "https_proxy", "no_proxy"]) {
@@ -488,7 +489,7 @@ function setupAutoUpdater() {
   autoUpdater.logger = logger
   autoUpdater.channel = "latest"
   autoUpdater.allowPrerelease = false
-  autoUpdater.allowDowngrade = true
+  autoUpdater.allowDowngrade = false
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
   logger.log("auto updater configured", {
@@ -525,9 +526,16 @@ async function checkUpdate() {
       files: updateInfo?.files?.map((file) => file.url) ?? [],
     })
     const version = result?.updateInfo?.version
-    if (result?.isUpdateAvailable === false || !version) {
+    if (
+      result?.isUpdateAvailable === false ||
+      !version ||
+      !semver.valid(version) ||
+      !semver.gt(version, app.getVersion())
+    ) {
       logger.log("no update available", {
-        reason: "provider returned no newer version",
+        reason: "release version is not newer than current version",
+        currentVersion: app.getVersion(),
+        releaseVersion: version ?? null,
       })
       return { updateAvailable: false }
     }
