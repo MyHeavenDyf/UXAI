@@ -11,6 +11,7 @@ import op_prompt from "./prompt/stastics/op_prompt.md"
 import brand_guide from "./prompt/stastics/brand_guide.md"
 import responsive_adaptive from "./prompt/stastics/responsive_adaptive.md"
 import design_system from "./prompt/stastics/design_system.md"
+import role from "./prompt/stastics/role.md"
 
 import _RAW_INTENT from "./prompt/proto_intent.txt"
 import _RAW_INTENT_AUDIT from "./prompt/proto_intent_audit.txt"
@@ -39,6 +40,7 @@ const _staticData: Record<string, string> = {
   brand_guide,
   responsive_adaptive,
   design_system,  
+  role,
 }
 
 export const staticData = _staticData
@@ -79,8 +81,5 @@ export const RAW_TEMPLATES: Record<string, string> = {
   proto_modify: _RAW_MODIFY,
   proto_replanner: _RAW_REPLANNER,
 }
-
-export const DEFAULT_DESIGN_SYSTEM = design_system
-export const DEFAULT_COMPONENT_USAGE = component_usage
   
 export * as Proto from "."

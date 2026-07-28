@@ -53,8 +53,9 @@ import { readdirSync, readFileSync } from "fs"
 
 const log = Log.create({ service: "proto.theme" })
 
-/** 静态替换后的默认 prompt，作为无 theme 时的 fallback */
-const STATIC_PROMPTS: Record<string, string> = {
+/** 静态替换后的默认 prompt，作为无 theme 时的 fallback。
+ *  导出供 proto-theme 插件做反查（system[0] 是否是某 proto agent 的静态 prompt）。 */
+export const STATIC_PROMPTS: Record<string, string> = {
   proto_intent: PROMPT_PROTO_INTENT,
   proto_intent_audit: PROMPT_PROTO_INTENT_AUDIT,
   proto_module_create: PROMPT_PROTO_MODULE_CREATE,
@@ -185,6 +186,37 @@ export function resolvePromptForSession(
     const overrides = yield* Effect.promise(() => loadThemeOverrides(theme))
     return formatPrompt(raw, overrides ?? {})
   })
+}
+
+/**
+ * `resolvePromptForSession` 的纯 async 版本，供插件 hook（非 Effect 上下文）调用。
+ *
+ * 与 Effect 版的区别仅在于：directory 由调用方显式传入（取自 PluginInput.directory），
+ * 不再走 `InstanceState.context`。其余逻辑（theme.json 读取、parent 回溯、override 加载、
+ * formatPrompt 替换、fallback 到 STATIC_PROMPTS）完全一致。
+ *
+ * `Database.use` 是同步函数（LocalContext 兜底到全局 Client），在纯 async 上下文里也能工作；
+ * `loadThemeOverrides` 内部全用 readFileSync/readdirSync，async 仅是 Promise 包装。
+ */
+export async function resolvePromptForSessionAsync(
+  agentName: string,
+  sessionID: string,
+  directory: string,
+): Promise<string | undefined> {
+  const raw = RAW_TEMPLATES[agentName]
+  if (!raw) return undefined
+
+  let theme = readThemeJsonSync(directory, sessionID)
+  if (!theme) {
+    const parentID = findParentSessionID(sessionID)
+    if (parentID) theme = readThemeJsonSync(directory, parentID)
+  }
+
+  if (!theme) return STATIC_PROMPTS[agentName]
+
+  log.info("theme resolved", { sessionID, theme })
+  const overrides = await loadThemeOverrides(theme)
+  return formatPrompt(raw, overrides ?? {})
 }
 
 /** 判断 agent 是否有对应的 RAW_TEMPLATE（即是否是 proto agent） */
