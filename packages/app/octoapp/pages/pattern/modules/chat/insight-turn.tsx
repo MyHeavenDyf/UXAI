@@ -202,7 +202,7 @@ export function InsightTurn(props: {
   const userInputDisplay = createMemo(() => {
     const text = userText()
     // 修改/分诊: "[用户修改请求]: {用户输入}\n\n[当前..." 或 "[用户修改请求]: ===\n{用户输入}\n\n[JSON..."
-    const m = text.match(/^\[用户修改请求\]:\s*(?:=+\s*\n)?([\s\S]*?)\n+\[/)
+    const m = text.match(/^\[用户修改请求\]:\s*(?:=+\s*\n)?([\s\S]*?)\n{2,}\[/)
     return m?.[1]?.trim() ?? text
   })
 

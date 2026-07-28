@@ -29,6 +29,7 @@ export function PreviewPage(props: {
   sessionId?: string
   dir?: string
   onPickerSubmit?: (text: string, id: string) => void
+  onPickerAppend?: (text: string, id: string) => void
   onModifyElement?: (data: ModifyElementData) => void
   onDownload?: () => void
   onShare?: () => void
@@ -202,8 +203,8 @@ export function PreviewPage(props: {
     const gap = 8
     const paneW = previewPageRef?.clientWidth ?? 0
     const paneH = previewPageRef?.clientHeight ?? 0
-    const dialogW = Math.min(660, paneW * 0.9)
-    const estH = 180
+    const dialogW = 400
+    const estH = 220
     // 水平居中于元素下方，左右夹紧在 [8, paneW-8-dialogW]
     let left = Math.max(
       8,
@@ -291,11 +292,18 @@ export function PreviewPage(props: {
 
   function submitPicker() {
     const text = pickerText().trim()
-    if (!text) return
     setPickerVisible(false)
     setPropertyEditor('show', false)
     maybeUnfreeze()
     props.onPickerSubmit?.(text, pickerDialog.id)
+  }
+
+  function appendPickerNext() {
+    const text = pickerText().trim()
+    if (!text) return
+    props.onPickerAppend?.(text, pickerDialog.id)
+    setPickerText("")
+    closeEditPanels()
   }
 
   function handleCopyName() {
@@ -739,14 +747,25 @@ export function PreviewPage(props: {
                 onInput={(e) => setPickerText(e.currentTarget.value)}
                 placeholder="描述你想要的修改..."
                 rows={2}
-                class="w-full resize-none rounded-md border border-divider px-3 py-2 text-14-regular text-text-strong outline-none focus:border-primary"
+                class="resize-none rounded-md px-3 py-2 text-14-regular text-text-strong outline-none focus:border-primary"
+                style={{
+                  width: "368px",
+                  height: "110px",
+                  "background-color": "#FFF",
+                  "border-radius": "8px",
+                  "box-sizing": "border-box",
+                  border: "1px solid rgba(0, 0, 0, 0.1)",
+                }}
               />
               <div class="flex justify-end gap-2" style={{"margin-top": "12px"}}>
-                <Button variant="ghost" size="large" onClick={closePicker}>
+                <Button variant="ghost" size="large" onClick={closePicker} style={{ "border-radius": "9999px", "border": "1px solid rgba(0,0,0,0.15)", "box-sizing": "border-box",width:"98px",height:"32px" }}>
                   取消
                 </Button>
-                <Button variant="primary" size="large" onClick={submitPicker} style={{ "background-color": "rgb(10, 89, 247)", color: "white" }}>
-                  确认修改
+                <Button variant="primary" size="large" onClick={appendPickerNext} style={{ "background-color": "rgb(10, 89, 247)", color: "white", "border-radius": "9999px",width:"98px",height:"32px" }}>
+                  下一项
+                </Button>
+                <Button variant="primary" size="large" onClick={submitPicker} style={{ "background-color": "rgb(10, 89, 247)", color: "white", "border-radius": "9999px",width:"98px",height:"32px" }}>
+                  确认
                 </Button>
               </div>
             </div>
