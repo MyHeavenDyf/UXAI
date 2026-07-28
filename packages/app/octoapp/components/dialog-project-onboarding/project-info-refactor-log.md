@@ -901,6 +901,8 @@ derived signal 模式测试后仍有两个选项同时高亮。改为更直接�
 
 ### 132. 移除版本自动选中第一项 — 改为仅校验当前版本是否匹配
 
+> ❌ **本条已被推翻（2026-07-28，见 137）**：设计交互定的就是「选产品后默认聚焦第一个版本」，自动选第一项符合设计，本条当初移除它才是偏离。下方内容仅作历史记录，**不要再作为依据**。
+
 - 原 `createEffect` 自动选中逻辑：`store.version` 存在且匹配 → 保持；`store.version` 不存在或不匹配 → 选中第一项 `options[0]`
 - 改为仅校验：`store.version` 存在且匹配 → 保持（不触发 setStore）；`store.version` 存在但不匹配 → `setStore("version", undefined)` 清空；`store.version` 为 undefined → 不做任何操作
 - `versionCloseGuard` 清除时机改为数据到达后立即执行（`setTimeout(0)`），不再依赖是否选中版本
@@ -1225,10 +1227,21 @@ derived signal 模式测试后仍有两个选项同时高亮。改为更直接�
 
 - `createResource` fetch key 从 `versionFetchProductId()` 改为直接派生 `store.product?.id`，产品一变即请求，下拉打开时数据通常已就绪。
 - 移除 `versionFetchProductId` signal 及 `setVersionFetchProductId` 调用（onOpenChange / onProductConfirm / autoSelectFirstAvailable），顺带移除未使用的 `refetchVersions`。
-- ⚠️ 行为变化（待确认）：props.product 有缓存但 props.version 为空时，弹窗挂载即触发版本请求，effect 1 会在用户未碰下拉时自动选第一项并通过 `onSelectionChange` 抛给外部。132 条当初是去掉挂载即自动选的；切产品后填充与挂载即填充不是一回事，需与需求方确认是否回退为延迟请求。
+- ⚠️ 行为变化（~~待确认~~ → **已确认符合设计，见 137**）：props.product 有缓存但 props.version 为空时，弹窗挂载即触发版本请求，effect 1 会在用户未碰下拉时自动选第一项并通过 `onSelectionChange` 抛给外部。
 
 ### 136. `project-info-dialog-content.tsx` — 删除死代码 effect + SVG 抽取 + 命名清理
 
 - 删除「自动选中模式下版本选第一项」effect：与 effect 1（数据到达后校验/选第一项）逻辑重叠且永远跑不到 `setStore`。
 - 两个超长置顶 SVG path 抽成 `PIN_ICON_OUTLINE` / `PIN_ICON_FILLED` 常量 + `PinIcon` 组件（`<Show>` 简化为三元）。
 - `emptyVersionContent` → `versionNoDataContent`，消除与 `versionEmptyContent` 的命名混淆；二者共用 `versionEmptyHintStyle` 常量。
+
+---
+
+## 第三十六轮改动（版本自动选中的设计口径订正）
+
+### 137. 「选产品后默认聚焦第一个版本」是设计口径 — 推翻 132
+
+- **结论**：产品设计定的交互就是**选产品后默认聚焦/选中第一个版本**。effect 1 的「`store.version` 为空 → 自动选 `options[0]`」符合设计，132 条当初移除它是偏离设计。
+- **影响范围**：135 条预取改造让这一行为在「product 有缓存、version 为空」时于弹窗挂载即触发，同样符合设计，不需回退为延迟请求。
+- **不存在静默落库**：`onSelectionChange` 只写 `dialog-project-onboarding.tsx` 的本地 `selections` store；真正落库在 `handleConfirm()`（`server.projects.saveSelection` + `props.onSelect` + 埋点），仅用户点「确认」时触发，且该按钮 `disabled={!hasDirectory()}` 要求先选本地目录。故自动选中只是**预填默认值**，用户在确认前始终可改。
+- **为什么单独记一条**：132 的表述（「`store.version` 为 undefined → 不做任何操作」）与设计口径相反，已两次把评审引向「这是行为回退」的误判（一次是 132 自身，一次是 PR #439 评审）。此处订正并在 132 条顶部加推翻标记，避免第三次。
