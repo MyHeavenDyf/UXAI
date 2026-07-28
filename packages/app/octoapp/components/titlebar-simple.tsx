@@ -11,7 +11,6 @@ import { base64Encode } from "@opencode-ai/core/util/encode"
 import { decode64 } from "@/utils/base64"
 import { useCommand } from "@/context/command"
 import { useProjectDir } from "@/hooks/use-project-dir"
-import { useResponsiveBreakpoints } from "@/components/responsive-layout"
 // jk-j60099994-replace-with-titlebar-simple-1-start
 // jk-j60099994-replace-with-titlebar-simple-1-end
 
@@ -61,7 +60,15 @@ export function TitlebarSimple() {
   const layout = useLayout()
   const server = useServer()
   const projectDir = useProjectDir({ mode: "project" })
-  const { isWide } = useResponsiveBreakpoints()
+  // 标签栏在宽度 >= 1024px 时展开，< 1024px 时折叠为下拉
+  const [tabsVisible, setTabsVisible] = createSignal(window.innerWidth >= 1024)
+  createEffect(() => {
+    const mql = window.matchMedia("(min-width: 1024px)")
+    const update = () => setTabsVisible(mql.matches)
+    update()
+    mql.addEventListener("change", update)
+    onCleanup(() => mql.removeEventListener("change", update))
+  })
   const [menuOpen, setMenuOpen] = createSignal(false)
   const [dropdownPos, setDropdownPos] = createSignal({ top: 0, left: 0 })
   let triggerRef: HTMLButtonElement | undefined
@@ -238,7 +245,7 @@ export function TitlebarSimple() {
 
   // Close menu when entering wide mode
   createEffect(() => {
-    if (isWide()) setMenuOpen(false)
+    if (tabsVisible()) setMenuOpen(false)
   })
 
   // Update dropdown position: below trigger, centered
@@ -305,7 +312,7 @@ export function TitlebarSimple() {
 
   return (
     <header
-      class="shrink-0 bg-background-base relative overflow-hidden flex items-center px-4 border-b border-border-weak-base"
+      class="shrink-0 bg-background-base relative z-31 overflow-hidden flex items-center px-4 border-b border-border-weak-base"
       style={{ "min-height": minHeight(), height: minHeight(), width:"100%", "justify-content": "space-between" }}
       data-tauri-drag-region
       onMouseDown={drag}
@@ -322,13 +329,13 @@ export function TitlebarSimple() {
         .titlebar-tab-btn [data-component="icon"] { color: inherit }
         .octo-dropdown-trigger {
           display: inline-flex; align-items: center; gap: 8px;
+          cursor: pointer;
           height: 28px; background: transparent; border: none;
           border-radius: var(--octo-radius-sm, 6px);
-          color: var(--octo-text-secondary, #4b5563);
+          color: #191919;
           font-size: 14px; cursor: pointer; width: auto; padding: 0 4px;
           transition: background 100ms cubic-bezier(0.4,0,0.2,1), color 100ms cubic-bezier(0.4,0,0.2,1);
         }
-        .octo-dropdown-trigger:hover { color: var(--octo-text-primary, #1f2937); }
         .octo-dropdown-trigger.octo-dropdown-open { color: var(--octo-text-primary, #1f2937); }
         .octo-dropdown-trigger > svg { flex-shrink: 0; }
         .octo-dropdown-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -359,7 +366,7 @@ export function TitlebarSimple() {
       `}</style>
       <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ zoom: counterZoom() }}>
         <Show
-          when={isWide()}
+          when={tabsVisible()}
           fallback={
             <div class="relative">
               <button

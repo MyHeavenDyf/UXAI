@@ -2727,7 +2727,7 @@ if (dsId) {
                           rgba(61, 93, 255, 0.7) 87%,
                           rgba(206, 7, 232, 0.7) 92%) border-box`,
                       "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
-                      height: "150px",
+                      "min-height": "140px",
                     }}
                   >
                     {/* Slash Command Popover（新建对话） */}

@@ -31,6 +31,13 @@ const features: FeatureCard[] = [
     tags: ["原型生成", "开发传递", "开发传递"],
     previewImage: "/welcomepage/design.png",
   },
+    {
+    title: "Prototype",
+    titleColor: "#CB2578",
+    description: "引用开发组件拼搭页面，可开\n发交付（当前仅支持ICT领域）",
+    tags: ["代码原型生成"],
+    previewImage: "/welcomepage/prototype.png",
+  },
   {
     title: "Studio",
     titleColor: "#05743C",
@@ -81,7 +88,7 @@ export function WelcomePage(props: { onComplete: () => void }) {
       <div
         class="flex flex-col items-center"
         style={{
-          width: "900px",
+          width: "1128px",
           height: "555px",
           background: "white url('/welcomepage/background.png') center/cover no-repeat",
           "border-radius": "12px",
@@ -124,7 +131,7 @@ export function WelcomePage(props: { onComplete: () => void }) {
             "padding-left": "26px",
             "padding-right": "26px",
             gap: "16px",
-            "align-items": "flex-start",
+            "align-items": "stretch",
           }}
         >
           <For each={features}>
@@ -143,7 +150,7 @@ export function WelcomePage(props: { onComplete: () => void }) {
                 {/* Card Content */}
                 <div
                   style={{
-                    padding: "18px 10px 0px 18px",
+                    padding: "18px 0px 0px 18px",
                   }}
                 >
                   {/* Title */}
@@ -152,7 +159,7 @@ export function WelcomePage(props: { onComplete: () => void }) {
                       "font-size": "18px",
                       "line-height": "24px",
                       color: feature.titleColor,
-                      "font-weight": "500",
+                      "font-weight": "600",
                       "margin-bottom": "12px",
                     }}
                   >
@@ -201,6 +208,8 @@ export function WelcomePage(props: { onComplete: () => void }) {
                   alt={feature.title}
                   style={{
                     width: "100%",
+                    "margin-top": "auto",
+                    "object-fit": "contain",
                   }}
                 />
               </div>

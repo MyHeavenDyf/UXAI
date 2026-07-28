@@ -154,8 +154,8 @@ export function SessionListItem(props: SessionListItemProps) {
         ref={props.ref}
         type="button"
         onClick={() => {
-          notification.session.markViewed(props.session.id)
           props.onClick?.()
+          notification.session.markViewed(props.session.id)
         }}
         onContextMenu={(e) => { e.preventDefault(); props.onContextMenu?.(e) }}
         onMouseEnter={enterTrigger}

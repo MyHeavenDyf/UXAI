@@ -109,6 +109,7 @@ export function SidebarShell(props: SidebarShellProps) {
 
   return (
     <div
+      data-sidebar-shell
       class="shrink-0 flex flex-col h-full overflow-hidden"
       style={{
         width: `${props.width}px`,

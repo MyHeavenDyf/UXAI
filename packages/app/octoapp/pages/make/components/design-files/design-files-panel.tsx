@@ -545,68 +545,69 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     fileStore.store.generatedFiles.length > 0 || fileStore.store.uploadedFiles.length > 0)
 
   return (
-    <div class="flex h-full overflow-hidden" style={{ background: "var(--octo-surface-page)" }}>
-      <div
-        class="flex flex-col flex-1 min-w-0 overflow-hidden relative"
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
-        <Show when={isDragOver()}>
-          <div
-            class="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none"
-            style={{
-              background: "rgba(194, 214, 255, 0.11)",
-              border: "2px dashed rgba(10, 89, 247, 1)",
-            }}
-          >
-            <img src={emptyFolderPng} style={{ width: "52px", height: "52px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
-            <span
-              class="text-[16px]"
-              style={{ color: "#191919", "line-height": "24px", "margin-top": "12px" }}
+    <div class="flex flex-col h-full overflow-hidden" style={{ background: "var(--octo-surface-page)" }}>
+      <Show when={hasAnyFiles()}>
+        <DesignFilesToolbar
+          fileStore={fileStore}
+          onRefresh={refresh}
+          onUploadFile={() => fileInputRef?.click()}
+          onUploadFolder={() => folderInputRef?.click()}
+          onBatchDownload={handleBatchDownload}
+          onBatchDelete={handleBatchDelete}
+        />
+      </Show>
+
+      <div class="flex flex-1 min-h-0 overflow-hidden">
+        <div
+          class="flex flex-col flex-1 min-w-0 overflow-hidden relative"
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <Show when={isDragOver()}>
+            <div
+              class="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none"
+              style={{
+                background: "rgba(194, 214, 255, 0.11)",
+                border: "2px dashed rgba(10, 89, 247, 1)",
+              }}
             >
-              释放鼠标上传文件
-            </span>
-          </div>
-        </Show>
-        <input
-          type="file"
-          multiple
-          ref={fileInputRef}
-          onChange={(e) => {
-            if (e.currentTarget.files) {
-              handleUpload(e.currentTarget.files)
-              e.currentTarget.value = ""
-            }
-          }}
-          class="hidden"
-        />
-        <input
-          type="file"
-          ref={folderInputRef}
-          // @ts-ignore - webkitdirectory is non-standard but widely supported
-          webkitdirectory=""
-          onChange={(e) => {
-            if (e.currentTarget.files) {
-              void handleFolderUpload(e.currentTarget.files)
-              e.currentTarget.value = ""
-            }
-          }}
-          class="hidden"
-        />
-
-        <Show when={hasAnyFiles()}>
-          <DesignFilesToolbar
-            fileStore={fileStore}
-            onRefresh={refresh}
-            onUploadFile={() => fileInputRef?.click()}
-            onUploadFolder={() => folderInputRef?.click()}
-            onBatchDownload={handleBatchDownload}
-            onBatchDelete={handleBatchDelete}
+              <img src={emptyFolderPng} style={{ width: "52px", height: "52px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
+              <span
+                class="text-[16px]"
+                style={{ color: "#191919", "line-height": "24px", "margin-top": "12px" }}
+              >
+                释放鼠标上传文件
+              </span>
+            </div>
+          </Show>
+          <input
+            type="file"
+            multiple
+            ref={fileInputRef}
+            onChange={(e) => {
+              if (e.currentTarget.files) {
+                handleUpload(e.currentTarget.files)
+                e.currentTarget.value = ""
+              }
+            }}
+            class="hidden"
           />
-        </Show>
+          <input
+            type="file"
+            ref={folderInputRef}
+            // @ts-ignore - webkitdirectory is non-standard but widely supported
+            webkitdirectory=""
+            onChange={(e) => {
+              if (e.currentTarget.files) {
+                void handleFolderUpload(e.currentTarget.files)
+                e.currentTarget.value = ""
+              }
+            }}
+            class="hidden"
+          />
 
-        <div class="flex-1 min-h-0 flex flex-col">
+          <div class="flex-1 min-h-0 flex flex-col">
           <Show when={hasAnyFiles()}>
             <Breadcrumb
               currentPath={fileStore.store.currentPath}
@@ -909,20 +910,21 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           </Show>
           </ScrollView>
         </div>
-      </div>
+        </div>
 
-      <Show when={fileStore.previewFile()}>
-        {(file) => (
-          <PreviewPane
-            file={file()}
-            sdkUrl={globalSDK.url}
-            sdkDirectory={sdk.directory || ""}
-            onClose={() => fileStore.setPreviewFile(null)}
-            onOpen={() => handleOpenFile(file())}
-            onDownload={() => handleDownload(file())}
-          />
-        )}
-      </Show>
+        <Show when={fileStore.previewFile()}>
+          {(file) => (
+            <PreviewPane
+              file={file()}
+              sdkUrl={globalSDK.url}
+              sdkDirectory={sdk.directory || ""}
+              onClose={() => fileStore.setPreviewFile(null)}
+              onOpen={() => handleOpenFile(file())}
+              onDownload={() => handleDownload(file())}
+            />
+          )}
+        </Show>
+      </div>
     </div>
   )
 }

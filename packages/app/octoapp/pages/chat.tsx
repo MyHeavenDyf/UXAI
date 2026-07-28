@@ -1,10 +1,11 @@
 import "./make/octo-tokens.css"
-import { createMemo, createEffect, on, Show, Suspense, onMount, type JSX } from "solid-js"
+import { createMemo, createEffect, createSignal, on, Show, Suspense, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useParams } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { tracker } from "@/utils/tracker"
 import { AgentSidebar } from "@/components/agent-sidebar"
+import { useResponsiveBreakpoints } from "@/components/responsive-layout"
 import { useLocal } from "@/context/local"
 import { useTabModel } from "@/hooks/use-tab-model"
 import { useLayout } from "@/context/layout"
@@ -38,6 +39,7 @@ export default function ChatPage() {
   useTabModel("chat")
   const layout = useLayout()
   const sdk = useSDK()
+  const { isNarrow } = useResponsiveBreakpoints()
 
   const resolvedDirectory = createMemo(() => sdk.directory || null)
 
@@ -65,6 +67,61 @@ export default function ChatPage() {
   const sidebarWidth = () => sidebarWidthStore.width
   const setSidebarWidth = (w: number) => setSidebarWidthStore({ width: w })
 
+  // Reactive drawer state
+  const [drawerOpen, setDrawerOpen] = createSignal(false)
+  const [drawerClosing, setDrawerClosing] = createSignal(false)
+  let sidebarEl: HTMLDivElement | undefined
+
+  const displayWidth = () => {
+    if (drawerOpen()) return 296
+    if (drawerClosing()) return 296
+    return sidebarWidth()
+  }
+
+  function openDrawer() {
+    setDrawerOpen(true)
+    document.body.classList.add("chat-drawer-open")
+  }
+
+  function closeDrawer() {
+    if (!drawerOpen()) return
+    setDrawerOpen(false)
+    setDrawerClosing(true)
+    document.body.classList.remove("chat-drawer-open")
+  }
+
+  function toggleDrawer() {
+    if (drawerOpen()) closeDrawer()
+    else openDrawer()
+  }
+
+  // Sync drawer signal with body class (for external toggles like notepad button)
+  onMount(() => {
+    const observer = new MutationObserver(() => {
+      const open = document.body.classList.contains("chat-drawer-open")
+      if (open !== drawerOpen()) {
+        setDrawerOpen(open)
+        if (!open) setDrawerClosing(true)
+      }
+    })
+    observer.observe(document.body, { attributes: true, attributeFilter: ["class"] })
+
+    sidebarEl?.addEventListener("transitionend", (e) => {
+      if (e.propertyName === "transform") setDrawerClosing(false)
+    })
+    document.addEventListener("click", (e) => {
+      if (!drawerOpen()) return
+      const target = e.target as HTMLElement
+      if (target.closest(".chat-sidebar") || target.closest("[data-drawer-toggle]")) return
+      closeDrawer()
+    })
+    // Close drawer when viewport widens beyond 656px
+    const mq = window.matchMedia("(max-width: 656px)")
+    mq.addEventListener("change", (e) => {
+      if (!e.matches) closeDrawer()
+    })
+  })
+
   function handleSidebarResize(e: MouseEvent) {
     e.preventDefault()
     const startX = e.clientX
@@ -84,46 +141,76 @@ export default function ChatPage() {
 
   return (
     <div class="relative flex flex-1 min-w-0 min-h-0 h-full">
-      <Show when={resolvedDirectory()}>
-        <div
-          class="sidebar-wrap h-full shrink-0 border-r border-border-weak-base flex flex-col"
-          style={{ width: `${sidebarWidth()}px`, "z-index": 11 }}
-        >
-          <AgentSidebar
-            width={sidebarWidth()}
-            directory={resolvedDirectory()}
-            agentFilter="octo_ai"
-            showProjectInfo={false}
-            showBottomNav={false}
-            listParams={{ scope: "project", category: "dev" }}
-            buildSessionRoute={(s: Session) => `/${base64Encode(s.directory)}/chat/${s.id}`}
-            buildNewRoute={() => {
-              const dir = resolvedDirectory()
-              return dir ? `/${base64Encode(dir)}/chat?hint=${Date.now()}` : "/chat"
-            }}
-            buildDeleteFallback={(s: Session) => `/${base64Encode(s.directory)}/chat`}
-            activeSessionId={() => params.id}
-            sectionTitle="Octo Chat"
-            sectionIcon={() => <img src="/IconChat1.svg" alt="" style={{ width: "20px", height: "20px" }} />}
-            newButtonText="新建对话"
-            trackerModule="chat"
-            showSettings
-            sidebarSourceKey="cowork"
+      {resolvedDirectory() && (
+        <>
+          <style>{`
+            .chat-sidebar-overlay {
+              display: none;
+              position: fixed;
+              inset: 0;
+              z-index: 30;
+            }
+            .chat-sidebar-resize {
+              position: absolute;
+              top: 0;
+              bottom: 0;
+              width: 8px;
+              cursor: col-resize;
+              z-index: 10;
+            }
+            @media (max-width: 656px) {
+              .chat-sidebar {
+                position: fixed !important;
+                top: 48px; bottom: 0; left: 0;
+                height: auto !important;
+                z-index: 32;
+                transform: translateX(-100%);
+                transition: transform 200ms ease;
+                border-right: none !important;
+              }
+              body.chat-drawer-open .chat-sidebar {
+                transform: translateX(0);
+                box-shadow: 11px 0 20px 0 rgba(0,0,0,0.08);
+              }
+              body.chat-drawer-open .chat-sidebar-overlay { display: block; }
+              .chat-sidebar-resize { display: none !important; }
+            }
+          `}</style>
+          <div class="chat-sidebar-overlay" onClick={() => document.body.classList.remove("chat-drawer-open")} />
+          <div
+            ref={sidebarEl}
+            class="chat-sidebar h-full shrink-0 border-r border-border-weak-base flex flex-col"
+            style={{ width: `${displayWidth()}px` }}
+          >
+            <AgentSidebar
+              width={displayWidth()}
+              directory={resolvedDirectory()}
+              agentFilter="octo_ai"
+              showProjectInfo={false}
+              showBottomNav
+              listParams={{ scope: "project", category: "dev" }}
+              buildSessionRoute={(s: Session) => `/${base64Encode(s.directory)}/chat/${s.id}`}
+              buildNewRoute={() => {
+                const dir = resolvedDirectory()
+                return dir ? `/${base64Encode(dir)}/chat?hint=${Date.now()}` : "/chat"
+              }}
+              buildDeleteFallback={(s: Session) => `/${base64Encode(s.directory)}/chat`}
+              activeSessionId={() => params.id}
+              sectionTitle="Octo Chat"
+              sectionIcon={() => <img src="/IconChat1.svg" alt="" style={{ width: "20px", height: "20px" }} />}
+              newButtonText="新建对话"
+              trackerModule="chat"
+              showSettings
+              sidebarSourceKey="cowork"
+            />
+          </div>
+          <div
+            class="chat-sidebar-resize"
+            style={{ left: `${sidebarWidth() - 4}px` }}
+            onMouseDown={handleSidebarResize}
           />
-        </div>
-        <div
-          style={{
-            position: "absolute",
-            top: "0",
-            bottom: "0",
-            left: `${sidebarWidth() - 4}px`,
-            width: "8px",
-            cursor: "col-resize",
-            "z-index": "10",
-          }}
-          onMouseDown={handleSidebarResize}
-        />
-      </Show>
+        </>
+      )}
       <div class="flex-1 min-w-0 min-h-0">
         <Suspense fallback={<div class="p-3 text-14-regular text-text-weak">Loading session...</div>}>
           <SessionProviders>
