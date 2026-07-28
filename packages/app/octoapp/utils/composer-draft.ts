@@ -74,6 +74,15 @@ const STORAGE_VERSION = 1
  *  按 scope 而非全局计:多个模块共用本 store,全局计会让活跃模块把别的模块的草稿挤掉。 */
 const MAX_DRAFTS = 20
 
+/**
+ * 单桶落盘体积上限。附件那侧是有界的(条数有上限、每条只存元数据),**正文没有** ——
+ * 用户往输入框粘一份长文本就可能几百 KB,多个桶叠起来会顶爆 localStorage 配额(通常 5–10MB)。
+ * 而配额一爆是静默的:草稿看着好好的,刷新后没了,用户和排查的人都不知道为什么。
+ * 所以宁可在这里显式放弃超大草稿的落盘(内存照常保留,当前会话不受影响)并留下日志。
+ * 64KB ≈ 3 万汉字,任何真实草稿都够用。
+ */
+const MAX_PERSIST_BYTES = 64 * 1024
+
 const [drafts, setDrafts] = createSignal<Record<string, AnyDraft>>({})
 
 /** 附件原 File 引用(重传用):id 是 uuid、全局唯一,不必分桶;不进 Attachment 类型以免污染渲染 */
@@ -84,6 +93,9 @@ const persisters = new Map<string, AnyPersist>()
 
 /** 已读过盘的 scope:页面重新挂载(切 tab 回来)时内存里就是最新的,不能再读盘覆盖 */
 const hydrated = new Set<string>()
+
+/** 已警告过落盘失败的桶(见 warnOnce):防止逐键入刷屏 */
+const warned = new Set<string>()
 
 /**
  * 登记一个模块的草稿 scope,并在首次登记时把该 scope 已落盘的草稿同步读回内存。
@@ -167,6 +179,7 @@ export function resetDrafts(): void {
   rawFiles.clear()
   persisters.clear()
   hydrated.clear()
+  warned.clear()
 }
 
 // ── 内部 ────────────────────────────────────────────────────────────
@@ -216,7 +229,20 @@ function persist(key: string, draft: AnyDraft): void {
   }
 
   const stored: StoredDraft = { v: STORAGE_VERSION, at: Date.now(), text: draft.text, attachments, extra }
-  setItem(STORAGE_PREFIX + key, JSON.stringify(stored))
+  const payload = JSON.stringify(stored)
+
+  // 超限只放弃**落盘**,不动内存;整桶放弃而不是只截断正文 —— 恢复出「附件在、正文没了」的
+  // 半截草稿比不恢复更让人困惑。旧记录一并清掉,免得刷新后回填一份过时的。
+  if (payload.length * 2 > MAX_PERSIST_BYTES) {
+    warnOnce(key, "草稿超出落盘上限,仅保留在内存(刷新后会丢)", {
+      bytes: payload.length * 2,
+      limit: MAX_PERSIST_BYTES,
+    })
+    removeItem(STORAGE_PREFIX + key)
+    return
+  }
+
+  setItem(STORAGE_PREFIX + key, payload)
 }
 
 function hydrate(scope: string, codec: AnyPersist): void {
@@ -290,9 +316,20 @@ function getItem(key: string): string | null {
 function setItem(key: string, value: string): void {
   try {
     localStorage.setItem(key, value)
-  } catch {
-    /* 配额 / 隐私模式:降级为纯内存草稿 */
+    warned.delete(key)
+  } catch (err) {
+    // 配额耗尽 / 隐私模式:该桶降级为纯内存草稿。不重试、更不去淘汰别人的键 —— 草稿不值得
+    // 动整个 origin 的存储(上游 utils/persist 会那么做,它扛的是应用主状态,量级不同)。
+    // 但必须留痕:否则「刷新后草稿没了」在现场无从排查。
+    warnOnce(key, "草稿落盘失败(配额耗尽 / 隐私模式?),仅保留在内存", { err })
   }
+}
+
+/** 同一个桶只警告一次,避免逐键入刷屏;下次成功落盘时复位(见 setItem) */
+function warnOnce(key: string, message: string, detail: Record<string, unknown>): void {
+  if (warned.has(key)) return
+  warned.add(key)
+  console.warn(`[octo:draft] ${message}`, { key, ...detail })
 }
 
 function removeItem(key: string): void {

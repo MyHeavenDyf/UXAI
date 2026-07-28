@@ -1,4 +1,5 @@
 import { createMemo, untrack } from "solid-js"
+import { checksum } from "@opencode-ai/core/util/encode"
 import {
   disposeAttachments,
   draftFiles,
@@ -33,6 +34,15 @@ export type ComposerDraftOptions<A extends DraftAttachment, E> = {
   scope: string
   /** 当前会话 id;undefined = 尚未建会话,用独立的 __new__ 桶 */
   session: () => string | undefined
+  /**
+   * 给「尚未建会话」的 __new__ 桶再分一层命名空间,通常传项目目录。
+   *
+   * 已建会话的桶不需要 —— 会话 id 全局唯一。但 __new__ 只有一个名字,当页面还有「路由之外
+   * 的维度」时就会串:insight 路由是 `/insight/:id?`、不带 `:dir`,切项目目录时路由不变,
+   * 不分层的话在 A 项目欢迎页写了一半的草稿会跟着切到 B 项目去。上游 context/prompt.tsx
+   * 的桶键本身就带 dir(它的空会话桶叫 `__workspace__`),这里是同一件事的等价物。
+   */
+  newSessionScope?: () => string | undefined
   /** 附加输入态的空值(insight = null 的 MCP chip);正文空 + 无附件 + extra 回到它 = 空草稿,自动删桶 */
   emptyExtra: E
   /** 不传 = 该模块草稿纯内存(切会话 / 切 tab 保留,整页刷新重置) */
@@ -45,7 +55,14 @@ export function useComposerDraft<A extends DraftAttachment, E>(options: Composer
   // 稳定空草稿:无桶时恒返回同一引用,避免每次读都吐新对象导致下游 memo 空转
   const empty: ComposerDraft<A, E> = { text: "", attachments: [], extra: options.emptyExtra }
 
-  const keyOf = (session: string | undefined) => `${options.scope}/${session || NEW_SESSION_BUCKET}`
+  // 未建会话时的桶名:有 newSessionScope 就按其摘要再分一层(目录字符串直接进 key 太长且含
+  // 分隔符,摘要一下)。没有 scope 值(如目录尚未就绪)时回落到裸 __new__,保证 key 恒定可用。
+  const newBucket = () => {
+    const namespace = options.newSessionScope?.()
+    if (!namespace) return NEW_SESSION_BUCKET
+    return `${NEW_SESSION_BUCKET}.${checksum(namespace) ?? "0"}`
+  }
+  const keyOf = (session: string | undefined) => `${options.scope}/${session || newBucket()}`
   const key = () => keyOf(options.session())
 
   const read = (bucket: string) => (readDraft(bucket) as ComposerDraft<A, E> | undefined) ?? empty

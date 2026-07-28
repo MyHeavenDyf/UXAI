@@ -644,6 +644,10 @@ function InsightContent() {
   const draft = useComposerDraft<Attachment, McpSelection | null>({
     scope: "insight",
     session: () => params.id,
+    // 欢迎页(未建会话)那个桶按项目目录再分一层:本页路由是 /insight/:id?、不带 :dir,
+    // 目录来自 server.projects.last(),切项目时路由不变——不分层的话在 A 项目写了一半的
+    // 草稿会跟着切到 B 项目。已建会话的桶不需要(会话 id 全局唯一)。
+    newSessionScope: projectDir,
     // MCP「研究工具」chip 选择(SPEC-INS-017):非空 = 解析模式开启——若模型发起 MCP 业务调用,
     // 只能是所选工具(范围限制);是否调用由模型按用户消息判断。纯常驻:只有手动 × 才取消,
     // 无任何自动清除副作用(重复提交由模板判断规则 + 查询仪式防,非客户端状态机)。

@@ -41,12 +41,12 @@ const PERSIST: DraftPersist<Att, Extra> = {
   loadExtra: (raw) => (raw as Extra) ?? null,
 }
 
-function mount(persist?: DraftPersist<Att, Extra>, scope = "test") {
+function mount(persist?: DraftPersist<Att, Extra>, scope = "test", newSessionScope?: () => string | undefined) {
   const [session, setSession] = createSignal<string | undefined>(undefined)
   let dispose!: () => void
   const draft = createRoot((d) => {
     dispose = d
-    return useComposerDraft<Att, Extra>({ scope, session, emptyExtra: null, persist })
+    return useComposerDraft<Att, Extra>({ scope, session, emptyExtra: null, persist, newSessionScope })
   })
   return { draft, setSession, dispose }
 }
@@ -332,6 +332,84 @@ describe("LRU 上限", () => {
 
     expect(text("s0")).toBe("又改了一次")
     expect(readDraft(bucket("s1"))).toBeUndefined()
+
+    dispose()
+  })
+})
+
+describe("落盘体积上限", () => {
+  it("超限的草稿只留内存、不落盘,并清掉该桶的旧记录", () => {
+    const { draft, setSession, dispose } = mount(PERSIST)
+
+    setSession("big")
+    draft.setText("先写一点正常长度的")
+    expect(localStorage.getItem(storageKey("big"))).not.toBeNull()
+
+    // 64KB 上限按 UTF-16 计(length * 2),这里直接给一份远超的正文
+    draft.setText("很".repeat(40_000))
+
+    expect(text("big")).toBe("很".repeat(40_000)) // 内存里一字不少,当前会话不受影响
+    expect(localStorage.getItem(storageKey("big"))).toBeNull() // 旧记录也清掉,免得刷新后回填过时内容
+
+    dispose()
+  })
+
+  it("回落到上限内会重新开始落盘", () => {
+    const { draft, setSession, dispose } = mount(PERSIST)
+
+    setSession("big")
+    draft.setText("很".repeat(40_000))
+    expect(localStorage.getItem(storageKey("big"))).toBeNull()
+
+    draft.setText("删回正常长度")
+    expect(localStorage.getItem(storageKey("big"))).not.toBeNull()
+
+    dispose()
+  })
+})
+
+describe("未建会话的桶按 newSessionScope 分层", () => {
+  it("同一个 __new__ 在不同项目目录下互不串台", () => {
+    const [dir, setDir] = createSignal<string | undefined>("D:/projects/alpha")
+    const { draft, dispose } = mount(undefined, "test", dir)
+
+    draft.setText("在 alpha 项目欢迎页写了一半")
+    const alphaKey = draft.key()
+
+    setDir("D:/projects/beta")
+    expect(draft.key()).not.toBe(alphaKey) // 换了桶
+    expect(draft.text()).toBe("") // beta 的欢迎页是干净的
+
+    draft.setText("beta 的草稿")
+
+    // 两份各自还在,没互相覆盖
+    expect(readDraft(alphaKey)?.text).toBe("在 alpha 项目欢迎页写了一半")
+    expect(readDraft(draft.key())?.text).toBe("beta 的草稿")
+
+    dispose()
+  })
+
+  it("已建会话的桶不受影响 —— 会话 id 全局唯一,不该因切目录换桶", () => {
+    const [dir, setDir] = createSignal<string | undefined>("D:/projects/alpha")
+    const { draft, setSession, dispose } = mount(undefined, "test", dir)
+
+    setSession("ses_1")
+    const keyBefore = draft.key()
+    draft.setText("会话内的草稿")
+
+    setDir("D:/projects/beta")
+    expect(draft.key()).toBe(keyBefore)
+    expect(readDraft(keyBefore)?.text).toBe("会话内的草稿")
+
+    dispose()
+  })
+
+  it("scope 值尚未就绪(目录还没解析出来)时回落到裸 __new__,key 恒定可用", () => {
+    const { draft, dispose } = mount(undefined, "test", () => undefined)
+
+    expect(draft.key()).toBe("test/__new__")
+    draft.setText("目录没就绪也能写")
+    expect(text()).toBe("目录没就绪也能写")
 
     dispose()
   })
