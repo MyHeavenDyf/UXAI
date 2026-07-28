@@ -1374,6 +1374,7 @@ const sessionMessagesLoaded = createMemo(() => {
           agent: "octo_make_plan",
           model: modelKey,
           parts: [{ type: "text", text: initialPrompt }],
+          system: "当用户未指定图标、插画、图片等资源的来源时，使用 \"resourceLibrary\" skill 获取这些资源。该 skill 位于 octo 配置目录下的 resourceLibraryScript/resourceLibrary/SKILL.md（Linux/macOS 通常在 ~/.config/octo/，Windows 通常在 %APPDATA%/octo/）",
         }).catch((err: any) => {
           console.error("[MakePage] prompt child agent failed", err)
           setOptimisticIntentResolved(false)
@@ -1978,6 +1979,7 @@ const sessionMessagesLoaded = createMemo(() => {
         agent: sessionId === activePlanSessionId() ? "octo_make_plan" : "octo_make",
         ...(modelKey ? { model: modelKey } : {}),
         parts,
+        system: "当用户未指定图标、插画、图片等资源的来源时，使用 \"resourceLibrary\" skill 获取这些资源。该 skill 位于 octo 配置目录下的 resourceLibraryScript/resourceLibrary/SKILL.md（Linux/macOS 通常在 ~/.config/octo/，Windows 通常在 %APPDATA%/octo/）",
       })
       setAttachments([])
     } catch (err) {
