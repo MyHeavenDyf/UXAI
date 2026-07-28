@@ -1004,6 +1004,12 @@
   margin: 0 auto;
 }
 
+@media (max-width: 1227px) {
+  .studio-conversation {
+    padding: 24px;
+  }
+}
+
 .studio-user-input-images {
   width: fit-content;
   max-width: 100%;

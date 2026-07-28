@@ -63,6 +63,7 @@ export function StudioComposer(props: {
   onRemoveAsset: (id: string) => void
   onRemoveVideoFrame: (slot: StudioVideoFrameSlot) => void
   onSwapVideoFrames: () => void
+  onToolClick?: () => void
 }): JSX.Element {
   const platform = usePlatform()
   let inputRef!: HTMLTextAreaElement
@@ -460,7 +461,7 @@ export function StudioComposer(props: {
               onPaste={handlePaste}
               placeholder={isVideoGeneration() ? undefined : isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : "上传参考图、输入文字，描述你想生成的图片。"}
               class="studio-composer-input"
-              disabled={isEditingCapability() || props.status === "queued" || props.status === "running" || props.status === "submitting"}
+              disabled={isEditingCapability()}
             />
             <Show when={isVideoGeneration() && !props.prompt}>
               <div class="studio-composer-video-placeholder" onClick={() => inputRef.focus()}>
@@ -632,7 +633,7 @@ export function StudioComposer(props: {
               <CapabilityMenu
                 value={props.capability}
                 canGenerateVideo={props.canGenerateVideo}
-                onSelect={(value) => { props.onCapability(value); props.onOpenMenu(null) }}
+                onSelect={(value) => { props.onToolClick?.(); props.onCapability(value); props.onOpenMenu(null) }}
               />
             </div>
           </Show>
@@ -641,7 +642,7 @@ export function StudioComposer(props: {
               <StyleMenu
                 value={props.styleModel}
                 canUseSeedream={props.canUseSeedream}
-                onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }}
+                onSelect={(value) => { props.onToolClick?.(); props.onStyleModel(value); props.onOpenMenu(null) }}
               />
             </div>
           </Show>

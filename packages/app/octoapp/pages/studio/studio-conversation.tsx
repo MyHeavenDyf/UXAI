@@ -407,7 +407,7 @@ export function StudioResultCanvas(props: {
                 />
               </div>
               <Show when={!props.showFileManager || (props.showFileManager && props.fileManagerDetailView) || props.status === "running" || props.status === "queued" || props.status === "submitting"}>
-                <div style="display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;">
+                <div style="display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;container-type:inline-size;">
                 <Show when={props.showFileManager && props.fileManagerDetailView}>
                   <div class="studio-file-manager-back-bar">
                     <button
