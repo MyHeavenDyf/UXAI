@@ -68,8 +68,10 @@ export function StudioComposer(props: {
   const platform = usePlatform()
   let inputRef!: HTMLTextAreaElement
   let pointerDownOpenMenu: typeof props.openMenu = null
+  let referenceHoverFrame: number | undefined
   const [composing, setComposing] = createSignal(false)
   const [referenceExpanded, setReferenceExpanded] = createSignal(false)
+  const [referenceHoverReady, setReferenceHoverReady] = createSignal(false)
   const referenceAssets = createMemo(() => props.assets.slice(0, props.maxReferenceImages))
   const referenceAsset = createMemo(() => referenceAssets()[0])
   const canAddReferenceAsset = createMemo(() => referenceAssets().length < props.maxReferenceImages)
@@ -78,6 +80,25 @@ export function StudioComposer(props: {
   const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
   const isImeComposing = (event: KeyboardEvent) => event.isComposing || composing() || event.keyCode === 229
   const isBusy = createMemo(() => props.status === "queued" || props.status === "running" || props.status === "submitting")
+  onCleanup(() => {
+    if (referenceHoverFrame !== undefined) cancelAnimationFrame(referenceHoverFrame)
+  })
+  createEffect((previousReferenceCount = 0) => {
+    const referenceCount = referenceAssets().length
+    if (!referenceCount) {
+      setReferenceExpanded(false)
+      setReferenceHoverReady(false)
+      return referenceCount
+    }
+    if (previousReferenceCount) return referenceCount
+    setReferenceExpanded(false)
+    setReferenceHoverReady(false)
+    referenceHoverFrame = requestAnimationFrame(() => {
+      referenceHoverFrame = undefined
+      setReferenceHoverReady(true)
+    })
+    return referenceCount
+  }, 0)
   const resizeInput = () => {
     if (!inputRef) return
     inputRef.style.height = "auto"
@@ -384,7 +405,10 @@ export function StudioComposer(props: {
                 <div
                   class="studio-composer-ref-stack"
                   classList={{ expanded: referenceExpanded() }}
-                  onPointerEnter={() => setReferenceExpanded(true)}
+                  onPointerMove={(event) => {
+                    if (!referenceHoverReady() || (!event.movementX && !event.movementY) || referenceExpanded()) return
+                    setReferenceExpanded(true)
+                  }}
                   onPointerLeave={() => setReferenceExpanded(false)}
                 >
                   <For each={referenceAssets()}>
@@ -410,7 +434,7 @@ export function StudioComposer(props: {
                           aria-label="删除参考图"
                           title="删除参考图"
                         >
-                          ×
+                          <img src="/studio/studio-img-delete-icon.svg" class="studio-composer-ref-remove-icon" alt="" />
                         </button>
                       </div>
                     )}
@@ -708,7 +732,10 @@ export function StudioComposer(props: {
           <button type="button" class="studio-composer-compliance-trigger">合规指引</button>
           <span>，</span>
           <div role="tooltip" class="studio-composer-compliance-tooltip">
-            <StudioVideoRiskContent class="studio-composer-compliance-tooltip-content" />
+            <StudioVideoRiskContent
+              class="studio-composer-compliance-tooltip-content"
+              isVideoGeneration={props.capability === "video.generate"}
+            />
             <span class="studio-composer-compliance-tooltip-arrow" />
           </div>
         </div>
@@ -1308,8 +1335,8 @@ function VideoSettings(props: {
       <div class="studio-image-settings-label">生成模式</div>
       <div class="studio-image-settings-counts studio-video-settings-quality">
         <For each={[
-          { label: "标准", value: "std" },
-          { label: "高质量", value: "pro" },
+          { label: "标准模式", value: "std" },
+          { label: "高质量模式", value: "pro" },
         ] as const}>
           {(item) => (
             <button

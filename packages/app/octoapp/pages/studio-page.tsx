@@ -78,7 +78,6 @@ import {
   STUDIO_GENERATION_CREATE_TIMEOUT_MS,
   STUDIO_GENERATION_REBOOT_TIMEOUT_MS,
   STUDIO_GENERATION_STATUS_INTERVAL_MS,
-  STUDIO_VIDEO_ASPECT_RATIOS,
   stringValue,
   studioGenerationTitle,
   SUPPORTED_STUDIO_CAPABILITIES,
@@ -1642,30 +1641,6 @@ export default function StudioPage() {
     return asset
   }
 
-  function autoSetAspectRatioFromDimensions(width: number, height: number) {
-    if (!width || !height) return
-    const imageRatio = width / height
-    const candidates: { key: StudioAspectRatio; value: number }[] = [
-      { key: "1:1", value: 1 },
-      { key: "2:3", value: 2 / 3 },
-      { key: "3:4", value: 3 / 4 },
-      { key: "9:16", value: 9 / 16 },
-      { key: "3:2", value: 3 / 2 },
-      { key: "4:3", value: 4 / 3 },
-      { key: "16:9", value: 16 / 9 },
-    ]
-    let best = candidates[0]
-    let bestDiff = Math.abs(imageRatio - best.value)
-    for (const item of candidates) {
-      const diff = Math.abs(imageRatio - item.value)
-      if (diff < bestDiff) {
-        bestDiff = diff
-        best = item
-      }
-    }
-    setAspectRatio(best.key)
-  }
-
   const ALLOWED_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp"] as const
 
   function readStudioAssetDimensions(asset: StudioAsset) {
@@ -1737,7 +1712,6 @@ export default function StudioPage() {
     }
     tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: 1 }) })
     setAssets((current) => limit === 1 ? [asset] : [...current, asset].slice(0, limit))
-    autoSetAspectRatioFromDimensions(dimensions.width, dimensions.height)
   }
 
   function nextVideoFrameSlot() {
@@ -1805,7 +1779,6 @@ export default function StudioPage() {
           return
         }
         setAssets((current) => limit === 1 ? [items[0].asset] : [...current, ...items.map((item) => item.asset)].slice(0, limit))
-        autoSetAspectRatioFromDimensions(items[0].dimensions.width, items[0].dimensions.height)
       })
       .catch((error) => {
         showToast({
@@ -2023,8 +1996,9 @@ export default function StudioPage() {
 
   function applyStudioCapability(value: StudioCapability) {
     setCapability(value)
-    if (value === "video.generate" && !STUDIO_VIDEO_ASPECT_RATIOS.includes(aspectRatio() as (typeof STUDIO_VIDEO_ASPECT_RATIOS)[number])) {
-      setAspectRatio("16:9")
+    if (value === "video.generate") {
+      setAspectRatio("1:1")
+      setCount(1)
     }
     if (value !== "video.generate") clearVideoFrames()
     if (value !== "image.generate") {
@@ -2471,7 +2445,7 @@ export default function StudioPage() {
             providerID: model.provider.id,
             modelID: model.id,
           })),
-        styleModel: input.capability === "image.generate" ? input.styleModel ?? styleModelLabel(styleModel()) : undefined,
+        styleModel: input.capability === "image.generate" ? input.styleModel ?? styleModel() : undefined,
         aspectRatio: (input.width && input.height)
           ? undefined
           : input.capability === "image.generate" || input.capability === "video.generate"
@@ -2801,7 +2775,7 @@ export default function StudioPage() {
 
   async function runGeneration(overrides?: StudioGenerationOverrides) {
     const nextCapability = overrides?.capability ?? capability()
-    const nextStyleModel = overrides?.styleModel ?? styleModelLabel(styleModel())
+    const nextStyleModel = overrides?.styleModel ?? styleModel()
     const nextAspectRatio = overrides?.aspectRatio ?? aspectRatio()
     const nextWidth = overrides?.width ?? customWidth()
     const nextHeight = overrides?.height ?? customHeight()
@@ -2909,6 +2883,7 @@ export default function StudioPage() {
       detailTitle,
       provider: "internel",
       model: nextStyleModel,
+      styleModel: nextCapability === "image.generate" ? nextStyleModel : undefined,
       aspectRatio: nextIsCustom ? ("1:1" as StudioAspectRatio) : nextAspectRatio,
       width: nextIsCustom ? nextWidth : undefined,
       height: nextIsCustom ? nextHeight : undefined,
@@ -2993,6 +2968,7 @@ export default function StudioPage() {
         displayPrompt: current?.displayPrompt ?? generation.displayPrompt,
         detailPrompt: current?.detailPrompt ?? generation.detailPrompt,
         detailTitle: generation.detailTitle ?? current?.detailTitle,
+        styleModel: generation.styleModel ?? current?.styleModel,
         sourceImage: current?.sourceImage ?? overrides?.sourceImage,
         inputImages: current?.inputImages ?? pendingInputImages,
         // Preserve custom size fields from current state — API response may not include them
@@ -3114,6 +3090,7 @@ export default function StudioPage() {
                 displayPrompt: current?.displayPrompt ?? generation.displayPrompt,
                 detailPrompt: current?.detailPrompt ?? generation.detailPrompt,
                 detailTitle: generation.detailTitle ?? current?.detailTitle,
+                styleModel: generation.styleModel ?? current?.styleModel,
                 sourceImage: current?.sourceImage,
                 inputImages: current?.inputImages,
                 // Preserve custom size fields from current state — API response may not include them

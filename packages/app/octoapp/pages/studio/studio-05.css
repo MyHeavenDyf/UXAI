@@ -476,7 +476,7 @@
 .studio-enlarging-image {
   position: absolute;
   z-index: 2;
-  object-fit: fill;
+  object-fit: contain;
   pointer-events: none;
 }
 
