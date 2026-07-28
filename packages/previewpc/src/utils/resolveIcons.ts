@@ -32,12 +32,19 @@ interface JsonData {
 
 // ========== ① 收集图标名 ==========
 
+// 不遵循 icon / xxxIcon 命名模式、但实际承载图标名的属性
+const EXTRA_ICON_PROP_KEYS = new Set([
+  'prefix',   // Input 前缀图标
+  'suffix',   // Input 后缀图标
+])
+
 /** 判断属性名是否是图标名属性
  *  匹配: icon, expandIcon, checkedChildrenIcon, unCheckedChildrenIcon, closeIcon 等
+ *  匹配: prefix, suffix（Input 等组件的前/后缀图标）
  *  排除: iconPlacement, iconSize, expandIconPlacement 等（不以 Icon 结尾）
  */
 function isIconPropKey(key: string): boolean {
-  return key === 'icon' || /Icon$/.test(key)
+  return key === 'icon' || /Icon$/.test(key) || EXTRA_ICON_PROP_KEYS.has(key)
 }
 
 function collectIconNamesFromJson(data: JsonData, names: Set<string>): void {
