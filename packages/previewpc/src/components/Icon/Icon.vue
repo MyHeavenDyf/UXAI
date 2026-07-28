@@ -59,7 +59,6 @@ const huiIconColor = computed(() => mapColorToHuiColor(color.value))
 const bgShape = computed(() => shape.value)
 
 const hasApiBackground = computed(() => isHuiIcon.value && (bgShape.value === "circle" || bgShape.value === "square"))
-const huiIconSize = computed(() => (hasApiBackground.value ? undefined : HUI_ICON_SIZE))
 
 const iconSizeStyle = computed(() => {
   switch (bgShape.value) {
@@ -102,9 +101,7 @@ const wrapperStyle = computed(() => {
     return {
       display: "inline-flex",
       alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: "transparent",
-      borderRadius: "0",
+      justifyContent: "center"
     }
   }
   const hasBg = bgShape.value !== "outline"
@@ -125,18 +122,24 @@ const wrapperStyle = computed(() => {
 </script>
 
 <template>
-  <div :id="id" :style="wrapperStyle" class="icon-base" :class="className">
+  <component
+    v-if="isHuiIcon && resolved"
+    :id="id" 
+    :style="wrapperStyle" 
+    class="icon-base" 
+    :class="className"
+    :is="resolved.component"
+    v-bind="resolved.props"
+    :type="huiIconType"
+    :iconColor="huiIconColor"
+  />
+  <div 
+    v-else-if="!hasHuiIcons && resolved" 
+    :id="id" 
+    :style="wrapperStyle" 
+    class="icon-base" 
+    :class="className">
     <component
-      v-if="isHuiIcon && resolved"
-      :is="resolved.component"
-      v-bind="resolved.props"
-      :size="huiIconSize"
-      :type="huiIconType"
-      :iconColor="huiIconColor"
-    />
-
-    <component
-      v-else-if="!hasHuiIcons && resolved"
       :is="resolved.component"
       :style="iconSizeStyle"
       :color="bgShape === 'fill' ? '#fff' : iconColor"

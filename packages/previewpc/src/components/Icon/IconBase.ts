@@ -80,7 +80,7 @@ export function getHuiIconComponentRef(
   const svg = svgCache.get(cacheKey)
   if (svg) {
     return { component: markRaw(HuiSvgIcon), props: {
-      svgHtml: svg, iconUrl: entry.url, size: HUI_ICON_SIZE,
+      svgHtml: svg, iconUrl: entry.url,
       type: mapShapeToHuiType(s),
       iconColor: mapColorToHuiColor(c === 'default' ? undefined : c),
     }}
@@ -92,7 +92,7 @@ export function getHuiIconComponentRef(
     const fallbackSvg = svgCache.get(fallbackKey)
     if (fallbackSvg) {
       return { component: markRaw(HuiSvgIcon), props: {
-        svgHtml: fallbackSvg, iconUrl: entry.url, size: HUI_ICON_SIZE,
+        svgHtml: fallbackSvg, iconUrl: entry.url,
         type: mapShapeToHuiType(s),
         iconColor: mapColorToHuiColor(c === 'default' ? undefined : c),
       }}

@@ -3991,7 +3991,9 @@
         "tabsCardTitle",
         "tabsRowLine",
         "tabsRowCard",
-        "tabsRowPlacement"
+        "tabsRowSeparator",
+        "tabsRowEditableCard",
+        "tabsRowSize"
       ]
     },
     {
@@ -4124,18 +4126,18 @@
       }
     },
     {
-      "id": "tabsRowPlacement",
+      "id": "tabsRowSeparator",
       "component": "div",
       "props": {
         "className": "flex flex-col gap-2"
       },
       "children": [
-        "tabsRowPlacementLabel",
-        "tabsPlacement"
+        "tabsRowSeparatorLabel",
+        "tabsSeparator"
       ]
     },
     {
-      "id": "tabsRowPlacementLabel",
+      "id": "tabsRowSeparatorLabel",
       "component": "span",
       "props": {
         "value": "分割线样式",
@@ -4143,19 +4145,20 @@
       }
     },
     {
-      "id": "tabsPlacement",
+      "id": "tabsSeparator",
       "component": "Tabs",
       "props": {
         "activeKey": "tab1",
-        "types": "separator"
+        "types": "separator",
+        "tabPlacement": "start"
       },
       "children": [
-        "tabPlacement1",
-        "tabPlacement2"
+        "tabSeparator1",
+        "tabSeparator2"
       ]
     },
     {
-      "id": "tabPlacement1",
+      "id": "tabSeparator1",
       "component": "TabItem",
       "props": {
         "key": "tab1",
@@ -4164,12 +4167,546 @@
       }
     },
     {
-      "id": "tabPlacement2",
+      "id": "tabSeparator2",
       "component": "TabItem",
       "props": {
         "key": "tab2",
         "label": "标签二",
         "content": "标签二内容"
+      }
+    },
+    {
+      "id": "tabsRowEditableCard",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tabsRowEditableCardLabel",
+        "tabsEditableCard"
+      ]
+    },
+    {
+      "id": "tabsRowEditableCardLabel",
+      "component": "span",
+      "props": {
+        "value": "可编辑卡片样式",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsEditableCard",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "tab1",
+        "types": "editable-card"
+      },
+      "children": [
+        "tabEditableCard1",
+        "tabEditableCard2",
+        "tabEditableCard3"
+      ]
+    },
+    {
+      "id": "tabEditableCard1",
+      "component": "TabItem",
+      "props": {
+        "key": "tab1",
+        "label": "文档一",
+        "content": "可编辑卡片文档一的内容"
+      }
+    },
+    {
+      "id": "tabEditableCard2",
+      "component": "TabItem",
+      "props": {
+        "key": "tab2",
+        "label": "文档二",
+        "content": "可编辑卡片文档二的内容"
+      }
+    },
+    {
+      "id": "tabEditableCard3",
+      "component": "TabItem",
+      "props": {
+        "key": "tab3",
+        "label": "文档三",
+        "content": "可编辑卡片文档三的内容"
+      }
+    },
+    {
+      "id": "tabsRowSize",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tabsRowSizeLabel",
+        "tabsRowSizeContent"
+      ]
+    },
+    {
+      "id": "tabsRowSizeLabel",
+      "component": "span",
+      "props": {
+        "value": "尺寸变体（结合类型）",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsRowSizeContent",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-6"
+      },
+      "children": [
+        "tabsSizeLineGroup",
+        "tabsSizeCardGroup",
+        "tabsSizeSeparatorGroup"
+      ]
+    },
+    {
+      "id": "tabsSizeLineGroup",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-3"
+      },
+      "children": [
+        "tabsSizeLineGroupLabel",
+        "tabsSizeLineGroupContent"
+      ]
+    },
+    {
+      "id": "tabsSizeLineGroupLabel",
+      "component": "span",
+      "props": {
+        "value": "line 线条",
+        "className": "text-xs text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsSizeLineGroupContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-start gap-4 flex-wrap"
+      },
+      "children": [
+        "tabsSizeLineLarge",
+        "tabsSizeLineMedium",
+        "tabsSizeLineSmall"
+      ]
+    },
+    {
+      "id": "tabsSizeLineLarge",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "tab1",
+        "types": "line",
+        "size": "large"
+      },
+      "children": [
+        "tabSizeLineL1",
+        "tabSizeLineL2",
+        "tabSizeLineL3"
+      ]
+    },
+    {
+      "id": "tabSizeLineL1",
+      "component": "TabItem",
+      "props": {
+        "key": "tab1",
+        "label": "大尺寸",
+        "icon": "info",
+        "content": "大尺寸线条标签页内容"
+      }
+    },
+    {
+      "id": "tabSizeLineL2",
+      "component": "TabItem",
+      "props": {
+        "key": "tab2",
+        "label": "详情",
+        "icon": "file-text",
+        "content": "大尺寸线条标签二内容"
+      }
+    },
+    {
+      "id": "tabSizeLineL3",
+      "component": "TabItem",
+      "props": {
+        "key": "tab3",
+        "label": "设置",
+        "icon": "settings",
+        "content": "大尺寸线条标签三内容"
+      }
+    },
+    {
+      "id": "tabsSizeLineMedium",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "tab1",
+        "types": "line",
+        "size": "medium"
+      },
+      "children": [
+        "tabSizeLineM1",
+        "tabSizeLineM2",
+        "tabSizeLineM3"
+      ]
+    },
+    {
+      "id": "tabSizeLineM1",
+      "component": "TabItem",
+      "props": {
+        "key": "tab1",
+        "label": "中尺寸",
+        "icon": "info",
+        "content": "中尺寸线条标签页内容"
+      }
+    },
+    {
+      "id": "tabSizeLineM2",
+      "component": "TabItem",
+      "props": {
+        "key": "tab2",
+        "label": "详情",
+        "icon": "file-text",
+        "content": "中尺寸线条标签二内容"
+      }
+    },
+    {
+      "id": "tabSizeLineM3",
+      "component": "TabItem",
+      "props": {
+        "key": "tab3",
+        "label": "设置",
+        "icon": "settings",
+        "content": "中尺寸线条标签三内容"
+      }
+    },
+    {
+      "id": "tabsSizeLineSmall",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "tab1",
+        "types": "line",
+        "size": "small"
+      },
+      "children": [
+        "tabSizeLineS1",
+        "tabSizeLineS2",
+        "tabSizeLineS3"
+      ]
+    },
+    {
+      "id": "tabSizeLineS1",
+      "component": "TabItem",
+      "props": {
+        "key": "tab1",
+        "label": "小尺寸",
+        "icon": "info",
+        "content": "小尺寸线条标签页内容"
+      }
+    },
+    {
+      "id": "tabSizeLineS2",
+      "component": "TabItem",
+      "props": {
+        "key": "tab2",
+        "label": "详情",
+        "icon": "file-text",
+        "content": "小尺寸线条标签二内容"
+      }
+    },
+    {
+      "id": "tabSizeLineS3",
+      "component": "TabItem",
+      "props": {
+        "key": "tab3",
+        "label": "设置",
+        "icon": "settings",
+        "content": "小尺寸线条标签三内容"
+      }
+    },
+    {
+      "id": "tabsSizeCardGroup",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-3"
+      },
+      "children": [
+        "tabsSizeCardGroupLabel",
+        "tabsSizeCardGroupContent"
+      ]
+    },
+    {
+      "id": "tabsSizeCardGroupLabel",
+      "component": "span",
+      "props": {
+        "value": "card 卡片",
+        "className": "text-xs text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsSizeCardGroupContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-start gap-4 flex-wrap"
+      },
+      "children": [
+        "tabsSizeCardLarge",
+        "tabsSizeCardMedium",
+        "tabsSizeCardSmall"
+      ]
+    },
+    {
+      "id": "tabsSizeCardLarge",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "tab1",
+        "types": "card",
+        "size": "large"
+      },
+      "children": [
+        "tabSizeCardL1",
+        "tabSizeCardL2",
+        "tabSizeCardL3"
+      ]
+    },
+    {
+      "id": "tabSizeCardL1",
+      "component": "TabItem",
+      "props": {
+        "key": "tab1",
+        "label": "大尺寸",
+        "content": "大尺寸卡片标签页内容"
+      }
+    },
+    {
+      "id": "tabSizeCardL2",
+      "component": "TabItem",
+      "props": {
+        "key": "tab2",
+        "label": "扩展信息",
+        "content": "大尺寸卡片标签二内容"
+      }
+    },
+    {
+      "id": "tabSizeCardL3",
+      "component": "TabItem",
+      "props": {
+        "key": "tab3",
+        "label": "历史记录",
+        "content": "大尺寸卡片标签三内容"
+      }
+    },
+    {
+      "id": "tabsSizeCardMedium",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "tab1",
+        "types": "card",
+        "size": "medium"
+      },
+      "children": [
+        "tabSizeCardM1",
+        "tabSizeCardM2",
+        "tabSizeCardM3"
+      ]
+    },
+    {
+      "id": "tabSizeCardM1",
+      "component": "TabItem",
+      "props": {
+        "key": "tab1",
+        "label": "中尺寸",
+        "content": "中尺寸卡片标签页内容"
+      }
+    },
+    {
+      "id": "tabSizeCardM2",
+      "component": "TabItem",
+      "props": {
+        "key": "tab2",
+        "label": "扩展信息",
+        "content": "中尺寸卡片标签二内容"
+      }
+    },
+    {
+      "id": "tabSizeCardM3",
+      "component": "TabItem",
+      "props": {
+        "key": "tab3",
+        "label": "历史记录",
+        "content": "中尺寸卡片标签三内容"
+      }
+    },
+    {
+      "id": "tabsSizeCardSmall",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "tab1",
+        "types": "card",
+        "size": "small"
+      },
+      "children": [
+        "tabSizeCardS1",
+        "tabSizeCardS2",
+        "tabSizeCardS3"
+      ]
+    },
+    {
+      "id": "tabSizeCardS1",
+      "component": "TabItem",
+      "props": {
+        "key": "tab1",
+        "label": "小尺寸",
+        "content": "小尺寸卡片标签页内容"
+      }
+    },
+    {
+      "id": "tabSizeCardS2",
+      "component": "TabItem",
+      "props": {
+        "key": "tab2",
+        "label": "扩展信息",
+        "content": "小尺寸卡片标签二内容"
+      }
+    },
+    {
+      "id": "tabSizeCardS3",
+      "component": "TabItem",
+      "props": {
+        "key": "tab3",
+        "label": "历史记录",
+        "content": "小尺寸卡片标签三内容"
+      }
+    },
+    {
+      "id": "tabsSizeSeparatorGroup",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-3"
+      },
+      "children": [
+        "tabsSizeSeparatorGroupLabel",
+        "tabsSizeSeparatorGroupContent"
+      ]
+    },
+    {
+      "id": "tabsSizeSeparatorGroupLabel",
+      "component": "span",
+      "props": {
+        "value": "separator 分割线",
+        "className": "text-xs text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsSizeSeparatorGroupContent",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-4"
+      },
+      "children": [
+        "tabsSizeSepLarge",
+        "tabsSizeSepMedium",
+        "tabsSizeSepSmall"
+      ]
+    },
+    {
+      "id": "tabsSizeSepLarge",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "tab1",
+        "types": "separator",
+        
+        "size": "large"
+      },
+      "children": [
+        "tabSizeSepL1",
+        "tabSizeSepL2"
+      ]
+    },
+    {
+      "id": "tabSizeSepL1",
+      "component": "TabItem",
+      "props": {
+        "key": "tab1",
+        "label": "标签一",
+        "content": "大尺寸分割线标签一内容"
+      }
+    },
+    {
+      "id": "tabSizeSepL2",
+      "component": "TabItem",
+      "props": {
+        "key": "tab2",
+        "label": "标签二",
+        "content": "大尺寸分割线标签二内容"
+      }
+    },
+    {
+      "id": "tabsSizeSepMedium",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "tab1",
+        "types": "separator",
+        
+        "size": "medium"
+      },
+      "children": [
+        "tabSizeSepM1",
+        "tabSizeSepM2"
+      ]
+    },
+    {
+      "id": "tabSizeSepM1",
+      "component": "TabItem",
+      "props": {
+        "key": "tab1",
+        "label": "标签一",
+        "content": "中尺寸分割线标签一内容"
+      }
+    },
+    {
+      "id": "tabSizeSepM2",
+      "component": "TabItem",
+      "props": {
+        "key": "tab2",
+        "label": "标签二",
+        "content": "中尺寸分割线标签二内容"
+      }
+    },
+    {
+      "id": "tabsSizeSepSmall",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "tab1",
+        "types": "separator",
+        
+        "size": "small"
+      },
+      "children": [
+        "tabSizeSepS1",
+        "tabSizeSepS2"
+      ]
+    },
+    {
+      "id": "tabSizeSepS1",
+      "component": "TabItem",
+      "props": {
+        "key": "tab1",
+        "label": "标签一",
+        "content": "小尺寸分割线标签一内容"
+      }
+    },
+    {
+      "id": "tabSizeSepS2",
+      "component": "TabItem",
+      "props": {
+        "key": "tab2",
+        "label": "标签二",
+        "content": "小尺寸分割线标签二内容"
       }
     },
     {
