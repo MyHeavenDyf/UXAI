@@ -94,11 +94,11 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   let folderInputRef!: HTMLInputElement
 
   createEffect(on(
-    [() => props.sessionId, () => fileStore.store.currentPath],
+    [() => props.sessionId, () => fileStore.store.currentPath, () => fileStore.store.currentCategory],
     ([sessionId], prev) => {
       if (prev && prev[0] !== sessionId) {
         batch(() => {
-          fileStore.setCurrentPath("")
+          fileStore.navigateToTopLevel()
           fileStore.clearKindFilter()
           fileStore.setGeneratedFiles([])
           fileStore.setUploadedFiles([])
@@ -116,13 +116,17 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   ))
 
   const refresh = async () => {
+    const category = fileStore.store.currentCategory
+    const path = fileStore.store.currentPath
+
     fileStore.setLoading(true)
     try {
-      if (fileStore.isTopLevel()) {
+      if (!category) {
         const [genResult, uplResult] = await Promise.all([
           fetchArtifactList(globalSDK.url, sdk.directory, props.sessionId, "generated"),
           fetchArtifactList(globalSDK.url, sdk.directory, props.sessionId, "uploaded"),
         ])
+        if (fileStore.store.currentCategory !== category || fileStore.store.currentPath !== path) return
         fileStore.setGeneratedFiles(genResult.files)
         fileStore.setUploadedFiles(uplResult.files)
       } else {
@@ -130,11 +134,17 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           globalSDK.url,
           sdk.directory,
           props.sessionId,
-          "uploaded",
-          fileStore.store.currentPath,
+          category,
+          path,
         )
-        fileStore.setUploadedFiles(result.files)
-        fileStore.setGeneratedFiles([])
+        if (fileStore.store.currentCategory !== category || fileStore.store.currentPath !== path) return
+        if (category === "generated") {
+          fileStore.setGeneratedFiles(result.files)
+          fileStore.setUploadedFiles([])
+        } else {
+          fileStore.setUploadedFiles(result.files)
+          fileStore.setGeneratedFiles([])
+        }
       }
       fileStore.setError(null)
     } catch (err) {
@@ -610,7 +620,14 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           <Show when={hasAnyFiles()}>
             <Breadcrumb
               currentPath={fileStore.store.currentPath}
-              onNavigate={(path) => fileStore.setCurrentPath(path)}
+              currentCategory={fileStore.store.currentCategory}
+              onNavigate={(path) => {
+                if (path === "") {
+                  fileStore.navigateToTopLevel()
+                } else {
+                  fileStore.setCurrentPath(path)
+                }
+              }}
             />
           </Show>
           <ScrollView class="flex-1 min-h-0" style={{ padding: "0 24px 24px" }}>
@@ -701,7 +718,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
             </div>
           </Show>
 
-          <Show when={!fileStore.isTopLevel() && !fileStore.store.loading && fileStore.store.uploadedFiles.length === 0}>
+          <Show when={!fileStore.isTopLevel() && !fileStore.store.loading && fileStore.store.generatedFiles.length === 0 && fileStore.store.uploadedFiles.length === 0}>
             <div class="flex flex-col items-center justify-center h-full gap-3 text-center px-8">
               <span class="text-[12px]" style={{ color: "var(--octo-text-secondary)" }}>暂无文件</span>
               <Kobalte open={emptyUploadOpen()} onOpenChange={setEmptyUploadOpen} modal={false} placement="bottom" gutter={4}>
@@ -844,6 +861,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                       onOpen={handleOpenFile}
                       onDownload={handleDownload}
                       onOpenInExplorer={handleOpenInExplorer}
+                      onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, "generated")}
                       onAddToSession={props.onAddToSession}
                       language={language}
                     />
@@ -866,10 +884,10 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                       onToggleSelection={(file) => fileStore.toggleFileSelection(file.path)}
                       onPreview={handlePreview}
                       onOpen={handleOpenFile}
-                      onDelete={handleDelete}
+onDelete={handleDelete}
                       onDownload={handleDownload}
                       onOpenInExplorer={handleOpenInExplorer}
-                      onNavigateFolder={(folder) => fileStore.navigateToFolder(folder)}
+                      onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, "uploaded")}
                       onAddToSession={props.onAddToSession}
                       language={language}
                     />
@@ -878,19 +896,19 @@ export function DesignFilesPanel(props: Props): JSX.Element {
 
                 <Show when={!fileStore.isTopLevel()}>
                   <KindGroupRows
-                    kindGroupEntries={() => fileStore.uploaded.kindGroupEntries()}
-                    modifiedGroups={() => fileStore.uploaded.modifiedGroups()}
-                    visibleModifiedSections={() => fileStore.uploaded.visibleModifiedSections()}
+                    kindGroupEntries={() => fileStore.store.currentCategory === "generated" ? fileStore.generated.kindGroupEntries() : fileStore.uploaded.kindGroupEntries()}
+                    modifiedGroups={() => fileStore.store.currentCategory === "generated" ? fileStore.generated.modifiedGroups() : fileStore.uploaded.modifiedGroups()}
+                    visibleModifiedSections={() => fileStore.store.currentCategory === "generated" ? fileStore.generated.visibleModifiedSections() : fileStore.uploaded.visibleModifiedSections()}
                     groupMode={fileStore.store.groupMode}
                     sectionKey=""
                     selected={fileStore.store.selected}
                     onToggleSelection={(file) => fileStore.toggleFileSelection(file.path)}
                     onPreview={handlePreview}
                     onOpen={handleOpenFile}
-                    onDelete={handleDelete}
+                    onDelete={fileStore.store.currentCategory === "uploaded" ? handleDelete : undefined}
                     onDownload={handleDownload}
                     onOpenInExplorer={handleOpenInExplorer}
-                    onNavigateFolder={(folder) => fileStore.navigateToFolder(folder)}
+                    onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, fileStore.store.currentCategory!)}
                     onAddToSession={props.onAddToSession}
                     language={language}
                   />
