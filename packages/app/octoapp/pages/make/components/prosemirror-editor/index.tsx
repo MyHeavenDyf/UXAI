@@ -1,4 +1,5 @@
 import { createSignal, onMount, onCleanup, Show, createEffect } from "solid-js"
+import { Portal } from "solid-js/web"
 import { EditorState, Transaction, TextSelection } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
 import { history, undo, redo } from "prosemirror-history"
@@ -47,9 +48,16 @@ export const ProseMirrorEditor = (props: Props) => {
   const [slashTriggerState, setSlashTriggerState] = createSignal<SlashTriggerState | null>(null)
   const [focused, setFocused] = createSignal(false)
   const [isEmpty, setIsEmpty] = createSignal(true)
+  const [popoverPosition, setPopoverPosition] = createSignal<{ left: number; bottom: number } | null>(null)
 
   const mentionTriggerPlugin = createMentionTriggerPlugin((state) => {
     setTriggerState(state)
+    if (state?.active && containerRef) {
+      const rect = containerRef.getBoundingClientRect()
+      setPopoverPosition({ left: rect.left, bottom: window.innerHeight - rect.top })
+    } else {
+      setPopoverPosition(null)
+    }
   }, props.onTriggerMention)
 
   const slashTriggerPlugin = createSlashTriggerPlugin((state) => {
@@ -320,17 +328,28 @@ export const ProseMirrorEditor = (props: Props) => {
         onPaste={(e) => props.onPaste?.(e as ClipboardEvent)}
       />
       
-      <Show when={triggerState()?.active}>
-        <MentionPopover
-          query={triggerState()!.query}
-          sessionId={props.sessionId}
-          onClose={() => setTriggerState(null)}
-          onSelect={handleMentionSelect}
-          onDeselect={handleMentionDeselect}
-          selections={props.mentionSelections}
-          skillConfig={props.skillConfig}
-          artifactFiles={props.artifactFiles}
-        />
+      <Show when={triggerState()?.active && popoverPosition()}>
+        <Portal>
+          <div 
+            style={{
+              position: "fixed",
+              left: `${popoverPosition()!.left}px`,
+              bottom: `${popoverPosition()!.bottom + 12}px`,
+              "z-index": 1000,
+            }}
+          >
+            <MentionPopover
+              query={triggerState()!.query}
+              sessionId={props.sessionId}
+              onClose={() => setTriggerState(null)}
+              onSelect={handleMentionSelect}
+              onDeselect={handleMentionDeselect}
+              selections={props.mentionSelections}
+              skillConfig={props.skillConfig}
+              artifactFiles={props.artifactFiles}
+            />
+          </div>
+        </Portal>
       </Show>
     </div>
   )

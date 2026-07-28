@@ -60,7 +60,7 @@ export const SettingsModels: Component = () => {
   })
 
   return (
-    <div class="flex flex-col h-full overflow-y-auto no-scrollbar pb-10 sm:pb-10">
+    <div data-settings-models class="flex flex-col h-full min-h-0 overflow-y-auto pb-10 sm:pb-10">
       <div class="sticky top-0 z-10" style="background: linear-gradient(to bottom, #fff calc(100% - 12px), transparent);">
         <div style={{ display: "flex", "align-items": "center", "justify-content": "space-between", gap: "8px", padding: "12px 0" }}>
           <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold" }}>
