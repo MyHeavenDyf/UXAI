@@ -109,6 +109,8 @@ export function ResultViewer(props: {
   childPlanConfirmed?: boolean
   /** 子 session 的 session_status（用于检测子 agent 是否已完成但未输出有效 plan） */
   childSessionStatus?: { type: string }
+  /** 子 session 是否正在生成中（模型输出期间禁用按钮和表单） */
+  childBusy?: boolean
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const projectSelection = useProjectSelection()
@@ -326,6 +328,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
               onFieldChange={(field, value) => props.onStrategyFieldChange?.(field, value)}
               onGenerate={() => props.onGenerateStrategy?.()}
               isGenerating={props.isGenerating}
+              disabled={props.childBusy}
               currentStep={1}
             />
           </div>
@@ -341,6 +344,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                   title={plan.title}
                   artifactIdentifier={plan.artifactIdentifier}
                   confirmed={props.isPlanConfirmed?.() ?? false}
+                  disabled={props.childBusy}
                   onConfirm={() => props.onConfirmPlan?.(plan.artifactIdentifier)}
                   onContentChange={(content) => {
                     if (props.onContentChange && plan.id) {
