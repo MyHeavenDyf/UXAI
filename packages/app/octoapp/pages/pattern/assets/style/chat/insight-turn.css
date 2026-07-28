@@ -73,7 +73,7 @@
   border: 1px solid var(--octo-border-default);
   border-radius: var(--octo-radius-md);
   box-shadow: none;
-  max-height: 160px;
+  max-height: 400px;
   overflow: auto;
   -webkit-user-select: text;
   user-select: text;
@@ -91,7 +91,7 @@
   overflow-wrap: normal;
   background: var(--octo-brand-a3);
   border: 1px dashed var(--octo-brand-a25);
-  max-height: 160px;
+  max-height: 400px;
   -webkit-user-select: text;
   user-select: text;
   padding-top: 0px;

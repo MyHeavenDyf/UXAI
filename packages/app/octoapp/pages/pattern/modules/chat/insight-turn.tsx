@@ -266,7 +266,7 @@ export function InsightTurn(props: {
 
   const hasError = createMemo(() =>
     toolCalls().some((c) => c.status === "error") ||
-    (!!props.errorCallId && props.errorCallId === props.sessionID),
+    (!!props.errorCallId && props.errorCallId.split(",").includes(props.sessionID)),
   )
   const fileOpsEntries = createMemo(() => deriveFileOps(toolCalls()))
 
