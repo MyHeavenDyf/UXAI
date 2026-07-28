@@ -12,6 +12,8 @@
  * | size | — | 丢弃 |
  * | — | isControlled | defaults: true（需受控模式） |
  * | className | className | 同名透传 |
+ *
+ * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
  */
 
 import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
@@ -33,89 +35,89 @@ function normalizeOptions(items: any[]): any[] {
 
 // ─── RadioGroup → RadioGroup 映射定义 ───
 
-const RadioGroupMapping: MappingDef = {
-  tag: 'RadioGroup',
-  import: '@nce/eview-react/RadioGroup',
-  defaults: {
-    isControlled: true,
-  },
+export function createRadioGroupMapping(pkg: string): MappingDef {
+  return {
+    tag: 'RadioGroup',
+    import: `${pkg}/RadioGroup`,
+    defaults: {
+      isControlled: true,
+    },
 
-  transform(node: any, _ctx: TransformContext) {
-    const props = node.props || {}
-    const outputProps: Record<string, PropValue> = {}
-    const SKIP_KEYS = new Set(['value', 'options', 'orientation', 'optionType', 'size', 'className'])
+    transform(node: any, _ctx: TransformContext) {
+      const props = node.props || {}
+      const outputProps: Record<string, PropValue> = {}
+      const SKIP_KEYS = new Set(['value', 'options', 'orientation', 'optionType', 'size', 'className'])
 
-    // ─── value → value（useState 受控） ───
-    if ('value' in props) {
-      const val = props.value
-      if (val && typeof val === 'object' && val.type === 'binding') {
-        // DataBinding → ComputedValue + useState
-        outputProps.value = Value.computed({
-          path: val.path,
-          pathType: val.pathType ?? 'absolute',
-          accessPath: val.accessPath,
-          containsJSX: false,
-          useState: {
-            event: 'onChange',
-            extractor: (setter) => `(oldVal, val) => ${setter}(val)`,
-          },
-          transform: (raw) => raw ?? '',
-        })
-      } else {
-        // 字面量 → LiteralValue + useState
-        outputProps.value = Value.literal({
-          value: val ?? '',
-          useState: {
-            event: 'onChange',
-            extractor: (setter) => `(oldVal, val) => ${setter}(val)`,
-          },
-        })
+      // ─── value → value（useState 受控） ───
+      if ('value' in props) {
+        const val = props.value
+        if (val && typeof val === 'object' && val.type === 'binding') {
+          // DataBinding → ComputedValue + useState
+          outputProps.value = Value.computed({
+            path: val.path,
+            pathType: val.pathType ?? 'absolute',
+            accessPath: val.accessPath,
+            containsJSX: false,
+            useState: {
+              event: 'onChange',
+              extractor: (setter) => `(oldVal, val) => ${setter}(val)`,
+            },
+            transform: (raw) => raw ?? '',
+          })
+        } else {
+          // 字面量 → LiteralValue + useState
+          outputProps.value = Value.literal({
+            value: val ?? '',
+            useState: {
+              event: 'onChange',
+              extractor: (setter) => `(oldVal, val) => ${setter}(val)`,
+            },
+          })
+        }
       }
-    }
 
-    // ─── options → data（字段重命名 label→text） ───
-    if ('options' in props) {
-      const opts = props.options
-      if (opts && typeof opts === 'object' && opts.type === 'binding') {
-        outputProps.data = Value.computed({
-          path: opts.path,
-          pathType: opts.pathType ?? 'absolute',
-          accessPath: opts.accessPath,
-          containsJSX: false,
-          transform: (rawItems) => {
-            const itemsArray = Array.isArray(rawItems) ? rawItems : []
-            return normalizeOptions(itemsArray)
-          },
-        })
-      } else if (Array.isArray(opts)) {
-        outputProps.data = normalizeOptions(opts)
+      // ─── options → data（字段重命名 label→text） ───
+      if ('options' in props) {
+        const opts = props.options
+        if (opts && typeof opts === 'object' && opts.type === 'binding') {
+          outputProps.data = Value.computed({
+            path: opts.path,
+            pathType: opts.pathType ?? 'absolute',
+            accessPath: opts.accessPath,
+            containsJSX: false,
+            transform: (rawItems) => {
+              const itemsArray = Array.isArray(rawItems) ? rawItems : []
+              return normalizeOptions(itemsArray)
+            },
+          })
+        } else if (Array.isArray(opts)) {
+          outputProps.data = normalizeOptions(opts)
+        }
       }
-    }
 
-    // ─── orientation → type ───
-    if (props.orientation) {
-      outputProps.type = props.orientation
-    }
-
-    // ─── optionType / size 丢弃 ───
-
-    // ─── className 透传 ───
-    if (props.className) {
-      outputProps.className = props.className
-    }
-
-    // ─── 剩余 prop 透传 ───
-    for (const [key, value] of Object.entries(props)) {
-      if (!SKIP_KEYS.has(key)) {
-        outputProps[key] = value as PropValue
+      // ─── orientation → type ───
+      if (props.orientation) {
+        outputProps.type = props.orientation
       }
-    }
 
-    return {
-      props: outputProps,
-      children: null,
-    }
-  },
+      // ─── optionType / size 丢弃 ───
+
+      // ─── className 透传 ───
+      if (props.className) {
+        outputProps.className = props.className
+      }
+
+      // ─── 剩余 prop 透传 ───
+      for (const [key, value] of Object.entries(props)) {
+        if (!SKIP_KEYS.has(key)) {
+          outputProps[key] = value as PropValue
+        }
+      }
+
+      return {
+        props: outputProps,
+        children: null,
+      }
+    },
+  }
 }
-
-export default RadioGroupMapping
