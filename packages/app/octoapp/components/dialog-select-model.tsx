@@ -82,6 +82,9 @@ const ModelList: Component<{
           <Show when={i.latest}>
             <Tag>{language.t("model.tag.latest")}</Tag>
           </Show>
+          <Show when={i.capabilities?.input?.image}>
+            <Tag>{language.t("model.tag.multimodal")}</Tag>
+          </Show>
         </div>
       )}
     </List>

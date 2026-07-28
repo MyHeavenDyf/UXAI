@@ -160,7 +160,38 @@ function MakeContent() {
   const local = useLocal()
   useTabModel("make")
   const currentModel = () => local.model.current()
-  
+
+  function findMultimodalModel() {
+    const recent = local.model.recent()
+    for (const m of recent) {
+      if (m?.capabilities?.input?.image === true) return m
+    }
+    return local.model.list()
+      .filter(m => m.capabilities?.input?.image === true)
+      .filter(m => local.model.visible({ providerID: m.provider.id, modelID: m.id }))[0]
+  }
+
+  function hasImageAttachments() {
+    return attachments().some(a => a.mime?.startsWith('image/'))
+  }
+
+  function supportsImageInput() {
+    return currentModel()?.capabilities?.input?.image === true
+  }
+
+  function ensureMultimodalModel(): boolean {
+    if (supportsImageInput()) return true
+    const multimodalModel = findMultimodalModel()
+    if (multimodalModel) {
+      local.model.set(
+        { providerID: multimodalModel.provider.id, modelID: multimodalModel.id },
+        { recent: true }
+      )
+      return true
+    }
+    return false
+  }
+
   const dialogPop = useDialogIframe()
   const [selectedSpec, setSelectedSpec] = createSignal<string | null>(null)
 
@@ -394,6 +425,11 @@ const sessionMessagesLoaded = createMemo(() => {
       const messageText = contextMessage + (detail.note || "")
       
       if (detail.action === 'send' && !sending()) {
+        if (!ensureMultimodalModel()) {
+          showToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型", variant: "error" })
+          return
+        }
+
         const sessionId = params.id
         const modelKey = activeModelKey()
         if (sessionId && modelKey) {
@@ -794,6 +830,7 @@ const sessionMessagesLoaded = createMemo(() => {
   // ── Mention (@) Popover State ──
   const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [mentionSelections, setMentionSelections] = createSignal<MentionSelection[]>([])
+  const [mentionIndex, setMentionIndex] = createSignal(0)
   const [filesRefreshKey, setFilesRefreshKey] = createSignal(0)
 
   // Mention selections are now managed by ProseMirrorEditor's sync plugin
@@ -1995,6 +2032,12 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     
     if (sending() || !activeModelKey()) return
+
+    if (hasImageAttachments() && !ensureMultimodalModel()) {
+      showToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型", variant: "error" })
+      return
+    }
+
     // 在异步操作前捕获 model key，避免后续被其他 effect 修改
     const capturedModelKey = activeModelKey()
     if (!capturedModelKey) return
@@ -2256,6 +2299,12 @@ if (dsId) {
       ? `@${selection.name}` 
       : `@${selection.filename}`
     setPrompt(prev => prev.replace(chipText, '').replace(/  +/g, ' ').trim())
+  }
+
+  function handleMentionNavigate(direction: "up" | "down") {
+    // This will be handled in ProseMirrorEditor via mentionIndex
+    // For now, we need to calculate the max index based on filtered items
+    // The actual selection change will be reflected in MentionPopover
   }
 
   /** Pick a Design Files file and add as attachment */

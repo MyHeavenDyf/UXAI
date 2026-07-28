@@ -491,15 +491,15 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                      if (nextEditing && commenting()) setCommenting(false)
                      if (nextEditing && archiving()) setArchiving(false)
                    }}
-                   drawing={drawing()}
-                   onDrawToggle={htmlMode() === "edit" ? undefined : () => {
-                     const nextDrawing = !drawing()
-                     setDrawing(nextDrawing)
-                     tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
-                     if (nextDrawing && editing()) setEditing(false)
-                     if (nextDrawing && commenting()) setCommenting(false)
-                     if (nextDrawing && archiving()) setArchiving(false)
-                   }}
+drawing={drawing()}
+                    onDrawToggle={htmlMode() === "edit" ? undefined : () => {
+                      const nextDrawing = !drawing()
+                      setDrawing(nextDrawing)
+                      tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
+                      if (nextDrawing && editing()) setEditing(false)
+                      if (nextDrawing && commenting()) setCommenting(false)
+                      if (nextDrawing && archiving()) setArchiving(false)
+                    }}
                    commenting={commenting()}
                    onCommentToggle={htmlMode() === "edit" ? undefined : () => {
                      const nextCommenting = !commenting()

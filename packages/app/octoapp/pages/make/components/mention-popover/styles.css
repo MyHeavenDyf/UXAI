@@ -143,6 +143,10 @@
   background-color: rgba(10, 89, 247, 0.08);
 }
 
+.mention-secondary-item--active {
+  background-color: rgba(10, 89, 247, 0.12);
+}
+
 .mention-secondary-item-text {
   font-size: 14px;
   line-height: 20px;

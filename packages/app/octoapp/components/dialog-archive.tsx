@@ -714,6 +714,10 @@ export function ArchiveDialog(props: Props): JSX.Element {
     setShowCollisionOverlay(false)
 
     try {
+      const matchingDeliverable = deliverables().find(
+        d => d.fileName === props.tabTitle.replace(/\.html?$/i, "")
+      )
+      
       const data: ArchiveConfirmData = {
         spaceType: spaceType(),
         productId: spaceType() === "project" ? selectedProductId() || undefined : undefined,
@@ -725,8 +729,8 @@ export function ArchiveDialog(props: Props): JSX.Element {
         folderName: selectedFolder()?.label || "",
         teamId: selectedFolderId() || 0,
         isOverwrite,
-        existingDeliverableId: isOverwrite ? deliverables()[0]?.id : undefined,
-        existingDocId: isOverwrite ? deliverables()[0]?.docId : undefined,
+        existingDeliverableId: isOverwrite ? matchingDeliverable?.id : undefined,
+        existingDocId: isOverwrite ? matchingDeliverable?.docId : undefined,
         existingDeliverables: showDeliverablesSection() ? deliverables() : []
       }
 
