@@ -6,6 +6,7 @@ import type { MenuNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import { getIconComponentRef } from "../Icon/IconBase"
+import { svgCacheVersion } from "../../composables/useIconProvider"
 import "./Menu.less"
 
 interface MenuItemData {
@@ -74,28 +75,27 @@ const selectedKeys = computed<string[]>(() => {
 const mode = computed(() => (resolveValue(properties.mode) as string) || "vertical")
 const inlineCollapsed = computed(() => (resolveValue(properties.inlineCollapsed) as boolean) || false)
 
-// ---- 异步图标解析 ----
+// ---- 图标解析（同步，追踪 svgCacheVersion 以响应 SVG 到达） ----
 type ResolvedIcon = { component: Component | null; props: Record<string, any> } | null
 const resolvedIcons = ref<Record<string | number, ResolvedIcon>>({})
 
 watch(
-  items,
-  async (newItems) => {
+  [items, svgCacheVersion],
+  ([newItems]) => {
     const map: Record<string | number, ResolvedIcon> = {}
 
-    async function collect(items: MenuItemData[]) {
-      const promises = items.map(async (item) => {
+    function collect(items: MenuItemData[]) {
+      for (const item of items) {
         if (item.icon) {
-          map[item.key] = await getIconComponentRef(item.icon, { size: 16, strokeWidth: 2 })
+          map[item.key] = getIconComponentRef(item.icon, { size: 16, strokeWidth: 2 })
         } else {
           map[item.key] = null
         }
-        if (item.children) await collect(item.children)
-      })
-      await Promise.all(promises)
+        if (item.children) collect(item.children)
+      }
     }
 
-    await collect(newItems)
+    collect(newItems)
     resolvedIcons.value = { ...map }
   },
   { immediate: true, deep: true },

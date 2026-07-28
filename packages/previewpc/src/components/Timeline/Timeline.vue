@@ -5,6 +5,7 @@ import type { TimelineNode } from "../types"
 import { useA2UIComponent, type A2UIComponentProps } from "../../renderer"
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
 import { getIconComponentRef, createIconRenderer } from "../Icon/IconBase"
+import { svgCacheVersion } from "../../composables/useIconProvider"
 import "./Timeline.less"
 
 const modeEnum = {
@@ -94,8 +95,8 @@ type ResolvedItem = {
 const resolvedItems = ref<ResolvedItem[]>([])
 
 watch(
-  rawItems,
-  (raw) => {
+  [rawItems, svgCacheVersion],
+  ([raw]) => {
     resolvedItems.value = raw.map((r: any) => {
       if (!r.iconName) {
         return { title: r.title, icon: undefined, color: r.color, placement: r.placement, className: r.className, content: r.content }
