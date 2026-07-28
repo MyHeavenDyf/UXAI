@@ -1203,3 +1203,32 @@ derived signal 模式测试后仍有两个选项同时高亮。改为更直接�
 
 - 新增 `.version-select-content [data-slot="select-select-trigger-icon"] { font-weight: normal !important }` — 清除 Icon 组件残留的 font-weight
 - 新增 `.version-select-content [data-slot="select-select-trigger-icon"] svg { stroke: unset !important }` — 清除原 `chevron-down` Icon 的 stroke 样式，避免与 fill 冲突
+---
+
+## 第三十五轮改动（版本下拉加载完成即收起 — 确定性修法）
+
+### 133. `project-info-dialog-content.tsx` — `allowDuplicateSelectionEvents={false}` 替代 `versionCloseGuard`（ supersede 131）
+
+- **根因（经控制台日志实测确认）**：Kobalte 单选 Select 的 `closeOnSelection` 默认 true，版本数据到达时 `options` 从「1 条假 item」变为「N 条真 item」，内部 prune-effect 调用 `setSelectedKeys` → `onSelectionChange` → `close()` → `onOpenChange(false)`，面板收起。131 条的 `versionCloseGuard` + `setTimeout(0)` 是靠时序拦截，脆弱（自动选中链路异步设置 product 触发新请求时守卫已被清掉，挡不住）。
+- **确定性修法**：版本 Select 新增 `allowDuplicateSelectionEvents={false}`。`setSelectedKeys` 在新选中集合与当前一致（`isSameSelection` 按集合成员比较、不看顺序）时不调用 `_setSelectedKeys`，从而不触发 `onSelectionChange`、不触发 `close()`。版本数据到达（version 为空或仍有效）与置顶重排（集合不变）都属于「集合一致」→ 不再收起。
+- 用户选中不同版本时集合变化 → `onSelectionChange` 触发 → `closeOnSelection` 关闭面板，行为不变。
+- 移除 `versionCloseGuard`、`guardClearGen`、re-arm effect、清守卫 effect、`onOpenChange`/`onSelect` 中的守卫判断。
+
+### 134. `project-info-dialog-content.tsx` — `pinActionActive` 保留（实测修正）
+
+- 原计划随 `allowDuplicateSelectionEvents={false}` 一并移除 `pinActionActive`（假设置顶重排集合不变 → prune 不 close）。
+- 实测发现：Kobalte 的 press 检测在 capture 阶段，pin span 的 bubble `stopPropagation` 挡不住，**点击置顶图标会选中该版本项**（选中集合变化）→ `onSelectionChange` → `close()`。`allowDuplicateSelectionEvents` 只在「集合不变」时生效，挡不住这种「集合变化」的 close。
+- 故 `pinActionActive` 保留：在 `handleVersionTopToggle` 期间置位，拦截 `onOpenChange(false)` 与 `onSelect` 副作用。与 `allowDuplicateSelectionEvents={false}` 分工：后者管版本数据到达（集合不变），前者管置顶点击选中（集合变化）。
+- `select.tsx` 的 `isPinAction`（`.pin-action-icon` pointerdown/up stopPropagation）继续在 bubble 层尽力阻止 item 选中，但 capture 层仍漏，需 `pinActionActive` 兜底。
+
+### 135. `project-info-dialog-content.tsx` — 版本接口由点击时才请求改为产品变化即预取（调整 125）
+
+- `createResource` fetch key 从 `versionFetchProductId()` 改为直接派生 `store.product?.id`，产品一变即请求，下拉打开时数据通常已就绪。
+- 移除 `versionFetchProductId` signal 及 `setVersionFetchProductId` 调用（onOpenChange / onProductConfirm / autoSelectFirstAvailable），顺带移除未使用的 `refetchVersions`。
+- ⚠️ 行为变化（待确认）：props.product 有缓存但 props.version 为空时，弹窗挂载即触发版本请求，effect 1 会在用户未碰下拉时自动选第一项并通过 `onSelectionChange` 抛给外部。132 条当初是去掉挂载即自动选的；切产品后填充与挂载即填充不是一回事，需与需求方确认是否回退为延迟请求。
+
+### 136. `project-info-dialog-content.tsx` — 删除死代码 effect + SVG 抽取 + 命名清理
+
+- 删除「自动选中模式下版本选第一项」effect：与 effect 1（数据到达后校验/选第一项）逻辑重叠且永远跑不到 `setStore`。
+- 两个超长置顶 SVG path 抽成 `PIN_ICON_OUTLINE` / `PIN_ICON_FILLED` 常量 + `PinIcon` 组件（`<Show>` 简化为三元）。
+- `emptyVersionContent` → `versionNoDataContent`，消除与 `versionEmptyContent` 的命名混淆；二者共用 `versionEmptyHintStyle` 常量。
