@@ -90,7 +90,7 @@ function FileManagerInner(props: {
 }): JSX.Element {
   const sdk = useSDK()
   const dialog = useDialog()
-  const fileStore = createInsightFileStore(props.sessionId)
+  const fileStore = createInsightFileStore()
   const store = () => fileStore.store
   const [isDragOver, setIsDragOver] = createSignal(false)
   let fileInputRef!: HTMLInputElement
