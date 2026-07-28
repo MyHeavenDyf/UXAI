@@ -1,12 +1,13 @@
 import { execFile, execSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, globSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, globSync, createWriteStream } from "node:fs"
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
 import { mkdir, readFile, writeFile, lstat, stat, unlink, rm, copyFile, rename } from "node:fs/promises"
 import { dirname, extname, join, basename, resolve as resolvePath, sep } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
+import archiver from "archiver"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell, net } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 import log from "electron-log/main.js"
@@ -912,6 +913,54 @@ export function registerIpcHandlers(deps: Deps) {
     },
   )
 
+  // 离屏窗口截图:先把当前页面 JSON 写入 previewdist/data.js 的 window.__A2UI_DATA__,
+  // 让隐藏窗口启动时直接渲染当前页面(顶层窗口走 __A2UI_DATA__ 路径,不走 postMessage),
+  // 截完恢复 data.js。可见界面(含归档弹窗/批注)完全不动,避免遮罩污染与闪烁。
+  ipcMain.handle(
+    "capture-preview-page",
+    async (_event: IpcMainInvokeEvent, opts: { pageJson: unknown; waitForMs?: number }) => {
+      const dataJsPath = join(previewDistDir(), "data.js")
+      let backup = ""
+      try {
+        backup = await readFile(dataJsPath, "utf8").catch(() => "")
+        const pageJsonObj = typeof opts.pageJson === "string" ? JSON.parse(opts.pageJson) : opts.pageJson
+        await writeFile(dataJsPath, `window.__A2UI_DATA__ = ${JSON.stringify(pageJsonObj)};`, "utf8")
+
+        const win = new BrowserWindow({
+          width: 1920,
+          height: 1080,
+          show: false,
+          frame: false,
+          webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+          },
+        })
+        try {
+          await new Promise<void>((resolve) => {
+            let done = false
+            const finish = () => { if (!done) { done = true; resolve() } }
+            win.webContents.once("did-finish-load", finish)
+            win.webContents.once("did-fail-load", finish)
+            win.webContents.loadURL("http://127.0.0.1:51856").then(finish).catch(finish)
+            setTimeout(finish, 15000)
+          })
+          // 等 runtime 渲染(含图标处理,必要时调用方可调大 waitForMs)
+          await new Promise((r) => setTimeout(r, opts.waitForMs ?? 2000))
+          const image = await win.webContents.capturePage({ x: 0, y: 0, width: 1920, height: 1080 })
+          if (image.isEmpty()) return null
+          return image.toDataURL()
+        } finally {
+          if (!win.isDestroyed()) win.destroy()
+        }
+      } finally {
+        // 回退 data.js,不影响可见 iframe 与后续启动
+        await writeFile(dataJsPath, backup, "utf8").catch(() => {})
+      }
+    },
+  )
+
   // 将 Tailwind 转换为 CSS - By WangQiang - 该注释请勿删除
   ipcMain.handle("tailwind-to-css", (_event: IpcMainInvokeEvent, className: string) => {
     return convertTailwindToCSS(className)
@@ -1038,10 +1087,15 @@ export function registerIpcHandlers(deps: Deps) {
         defaultName: string
         files?: { path: string; content: string }[]
         sourceDir?: string
+        /** sourceDir 内容在 zip 内的落点（相对路径，默认 ""＝根，如 "assets"） */
+        destFolder?: string
         comment?: string
       },
     ) => {
-      if (opts.sourceDir && !existsSync(opts.sourceDir)) return null
+      // sourceDir 不存在时：有 files 就跳过 sourceDir 继续打代码；
+      // 既无 files 又无可用 sourceDir → 无内容，取消。
+      const sourceDirExists = opts.sourceDir ? existsSync(opts.sourceDir) : false
+      if (!opts.files?.length && !sourceDirExists) return null
 
       const win = BrowserWindow.fromWebContents(event.sender)
       const dialogOpts = {
@@ -1055,43 +1109,38 @@ export function registerIpcHandlers(deps: Deps) {
       if (result.canceled || !result.filePath) return null
 
       const destZip = result.filePath
-      const isDirect = !!opts.sourceDir
-      const workDir = opts.sourceDir ?? join(tmpdir(), `octo-export-${Date.now()}`)
+      // sourceDir 在 zip 内的落点：相对路径，去前导/尾随 /；"" → 打到根（archive.directory 第二参 false）
+      const destFolder = (opts.destFolder ?? "").replace(/^\/+/, "").replace(/\/+$/, "")
 
-      if (!isDirect) {
-        await mkdir(workDir, { recursive: true })
-        for (const file of opts.files ?? []) {
-          const filePath = join(workDir, file.path)
-          await mkdir(dirname(filePath), { recursive: true })
-          await writeFile(filePath, file.content, "utf-8")
-        }
-      }
+      // archiver 合并 files + sourceDir（落到 destFolder）成一个 zip，替换原 powershell/tar + tmp workDir。
+      // 三种输入都支持：仅 files / 仅 sourceDir / files + sourceDir。
+      await new Promise<void>((resolve, reject) => {
+        const output = createWriteStream(destZip)
+        const archive = archiver("zip", { zlib: { level: 9 } })
+        output.on("close", () => resolve())
+        output.on("error", (err) => reject(err))
+        archive.on("error", (err) => reject(err))
+        archive.pipe(output)
 
-      try {
-        await new Promise<void>((resolve, reject) => {
-          if (process.platform === "win32") {
-            execFile(
-              "powershell",
-              [
-                "-NoProfile",
-                "-Command",
-                `Compress-Archive -Path '${workDir}\\*' -DestinationPath '${destZip}' -Force`,
-              ],
-              (err) => (err ? reject(err) : resolve()),
-            )
-          } else {
-            execFile("zip", ["-r", destZip, "."], { cwd: workDir }, (err) =>
-              err ? reject(err) : resolve(),
-            )
+        // ① files：文本文件按 path 写入 zip
+        if (opts.files) {
+          for (const file of opts.files) {
+            archive.append(Buffer.from(file.content, "utf-8"), { name: file.path })
           }
-        })
+        }
 
-        if (opts.comment) addZipComment(destZip, opts.comment)
+        // ② sourceDir：目录内容整体写入 zip 的 destFolder 下（仅当目录存在）
+        //    archive.directory(src, false) → 内容打到根；传字符串 → 打到该子目录
+        if (opts.sourceDir && sourceDirExists) {
+          archive.directory(opts.sourceDir, destFolder || false)
+        }
 
-        return destZip
-      } finally {
-        if (!isDirect) await rm(workDir, { recursive: true, force: true }).catch(() => { })
-      }
+        void archive.finalize()
+      })
+
+      if (opts.comment) addZipComment(destZip, opts.comment)
+
+      return destZip
     },
   )
 

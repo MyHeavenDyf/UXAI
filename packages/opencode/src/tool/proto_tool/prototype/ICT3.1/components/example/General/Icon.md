@@ -8,7 +8,7 @@
 	"component": "Icon",
 	"props": {
 		"name": "circle-check",
-		"color": "primary",
+		"color": "success",
 		"shape": "circle",
 		"className": "w-6 h-6"
 	}
@@ -31,7 +31,7 @@
 				"name": {
 					"path": "/currentStatusIcon"
 				},
-				"color": "primary",
+				"color": "rose",
 				"className": "w-6 h-6"
 			}
 		}
