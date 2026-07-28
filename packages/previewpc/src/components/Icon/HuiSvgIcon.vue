@@ -28,13 +28,12 @@ const normalizedSvg = computed(() => {
 })
 
 const computedStyle = computed(() => {
+  const sizeVal = props.size ? `${props.size}px` : '100%'
+  const style: Record<string, string> = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: sizeVal, height: sizeVal }
   if (isBgType.value) {
-    const style: Record<string, string> = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }
     if (props.iconColor?.[0]) style.color = props.iconColor[0]
     return style
   }
-  const s = props.size ?? 16
-  const style: Record<string, string> = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: `${s}px`, height: `${s}px` }
   if (props.iconColor?.[0]) style.color = props.iconColor[0]
   return style
 })
