@@ -5,7 +5,7 @@ import { rollbackToVersion } from "../version-history"
 import type { PatternSessionState } from "../version-history"
 
 // 导出 HUI 代码(经 IPC 调主进程 downloadHuiCode,传入 planner + mergedA2UI)
-export async function handleDownload(input: {planner: Record<string, unknown> | null, mergedA2UI: unknown, sessionId?: string}): Promise<void> {
+export async function handleDownload(input: {planner: Record<string, unknown> | null, mergedA2UI: unknown, sessionId?: string}, options?: { targetLib?: string }): Promise<void> {
    if (!input.planner || !input.mergedA2UI) {
     showToast({ title: "暂无可下载的内容" })
     return
@@ -28,7 +28,7 @@ export async function handleDownload(input: {planner: Record<string, unknown> | 
       mergedA2UI: input.mergedA2UI as Record<string, unknown>,
     },
   ]
-  const result = await desktopApi.downloadHuiCode(jsonInput)
+  const result = await desktopApi.downloadHuiCode(jsonInput, options ?? { targetLib: 'eview-react' })
   const files = result?.files
 
   if (!files || files.length === 0) {
