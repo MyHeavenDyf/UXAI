@@ -313,11 +313,11 @@ export function getArtifactServeUrl(
 
 export function getArtifactRelativePath(filePath: string): { sessionId: string; relativePath: string } | null {
   const normalized = filePath.replace(/\\/g, "/")
-  const artifactBase = ".octo/artifacts/make/"
-  const idx = normalized.indexOf(artifactBase)
+  const sessionBase = ".octo/"
+  const idx = normalized.indexOf(sessionBase)
   if (idx === -1) return null
   
-  const afterBase = normalized.slice(idx + artifactBase.length)
+  const afterBase = normalized.slice(idx + sessionBase.length)
   const slashIdx = afterBase.indexOf("/")
   if (slashIdx === -1) return null
   
@@ -333,7 +333,7 @@ export function pathToLocalUrl(filePath: string): string {
 }
 
 export function extractCommentFilePath(absolutePath: string, sessionId: string): string {
-  const sessionDir = `.octo/artifacts/make/${sessionId}/`
+  const sessionDir = `.octo/${sessionId}/`
   const normalized = absolutePath.replace(/\\/g, "/")
   const idx = normalized.indexOf(sessionDir)
   if (idx === -1) {

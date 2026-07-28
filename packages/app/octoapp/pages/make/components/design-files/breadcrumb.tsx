@@ -2,9 +2,11 @@ import { For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useLanguage } from "@/context/language"
+import type { ArtifactCategory } from "../../utils/artifact-file-store"
 
 interface BreadcrumbProps {
   currentPath: string
+  currentCategory: ArtifactCategory | null
   onNavigate: (path: string) => void
 }
 
@@ -20,7 +22,7 @@ export function Breadcrumb(props: BreadcrumbProps): JSX.Element {
         type="button"
         onClick={() => props.onNavigate("")}
         class="hover:text-text-interactive-base transition-colors cursor-pointer font-medium"
-        style={{ color: props.currentPath ? "rgba(0, 0, 0, 0.6)" : "rgba(0, 0, 0, 0.9)" }}
+        style={{ color: props.currentCategory ? "rgba(0, 0, 0, 0.6)" : "rgba(0, 0, 0, 0.9)" }}
       >
         {language.t("designFiles.title")}
       </button>

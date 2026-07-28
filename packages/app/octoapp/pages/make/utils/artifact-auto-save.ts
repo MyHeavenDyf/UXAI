@@ -1,7 +1,7 @@
 import type { OutputCard } from "../components/insight-turn"
 import { getDesktopApi } from "../lib/electron-api"
 
-export const ARTIFACTS_SUBDIR = ".octo/artifacts/make"
+export const ARTIFACTS_SUBDIR = ".octo"
 
 export function sanitizeFilename(name: string): string {
   return name.replace(/[\\/:*?"<>|]/g, "_").trim() || "untitled"
@@ -47,7 +47,7 @@ export function computeArtifactFilePath(
   const sep = projectDir.includes("\\") ? "\\" : "/"
   const baseName = hasExtension(title, type) ? title : title + getExtension(type)
   const filename = sanitizeFilename(baseName)
-  return [projectDir, ...ARTIFACTS_SUBDIR.split("/"), sessionId, filename].join(sep)
+  return [projectDir, ...ARTIFACTS_SUBDIR.split("/"), sessionId, "outputs", filename].join(sep)
 }
 
 export async function inferArtifactFilePath(
@@ -84,7 +84,7 @@ export async function autoSaveArtifact(
   const sep = projectDir.includes("\\") ? "\\" : "/"
   const baseName = hasExtension(card.title, card.type) ? card.title : card.title + getExtension(card.type)
   const filename = sanitizeFilename(baseName)
-  const filePath = [projectDir, ...ARTIFACTS_SUBDIR.split("/"), sessionId, filename].join(sep)
+  const filePath = [projectDir, ...ARTIFACTS_SUBDIR.split("/"), sessionId, "outputs", filename].join(sep)
 
   // 检查文件是否已存在，不覆盖用户编辑的内容
   const existing = await api.readFileBuffer(filePath)
