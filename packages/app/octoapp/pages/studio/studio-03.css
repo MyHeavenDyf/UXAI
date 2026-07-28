@@ -124,9 +124,9 @@
   background: #fff;
 }
 
-.studio-result-progress-preview .studio-result-error {
+/* .studio-result-progress-preview .studio-result-error {
   margin: 16px;
-}
+} */
 
 
 .studio-result-badge-icon {
@@ -153,14 +153,23 @@
   line-height: 16px;
 }
 
+.studio-result-error-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.studio-result-error-icon {
+  width: 14px;
+  height: 14px;
+}
+
 .studio-result-error {
-  margin-top: 16px;
-  padding: 10px 12px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.72);
-  color: #b42318;
+  color: #191919;
   font-size: 12px;
-  line-height: 18px;
+  line-height: 20px;
   white-space: pre-wrap;
   word-break: break-all;
 }

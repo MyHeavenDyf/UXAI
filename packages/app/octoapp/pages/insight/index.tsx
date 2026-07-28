@@ -41,6 +41,7 @@ import { SidebarFooter } from "./components/sidebar-footer"
 import { ProjectInfo } from "@/components/project-info"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
 import { InsightPermissionDock } from "./components/permission-dock"
+import { InsightQuestionDock } from "./components/question-dock"
 import { McpChip } from "./components/mcp-chip"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
@@ -2251,6 +2252,10 @@ function InsightContent() {
                 {/* 权限询问 Dock(SPEC-INS-021 §2):如读取工作区以外的文件需用户确认,
                     否则服务端 ask 阻塞、界面停在「正在探索」(spec §0.2 贴路径卡死) */}
                 <InsightPermissionDock sessionID={params.id} />
+                {/* 答题 Dock(SPEC-INS-025):模型调 question 工具时服务端阻塞等答复,
+                    此前 insight 无答题入口 → 会话永久挂起。与上面的权限 Dock 是同级兄弟节点,
+                    两者可同时 pending(并行 tool call / task 子代理),正常纵向堆叠、不重叠。 */}
+                <InsightQuestionDock sessionID={params.id} />
                 {/* 队列提示条:busy 时点了发送会先入队,FIFO 多条逐行列出 (SPEC-INS-007 §3.3.4) */}
                 <Show when={queue().length > 0}>
                   <div class="octo-queue-banner">

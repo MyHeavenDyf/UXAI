@@ -23,9 +23,9 @@ export async function restoreSession(
   if (ckpt) {
     switch (ckpt.stage) {
       case "intent_confirm":
-        // options 有值说明显示卡片正在让用户选，归为 intent_confirm
-        // options 为空说明反问SKILL还没跑完或报错了，归为 pipeline_error
-        if (ckpt.options && Object.keys(ckpt.options).length > 0) {
+        // options 存在（含空数组）→ agent 跑完了，恢复卡片（空结果显示「未匹配到」）
+        // options 缺失 → agent 报错或没跑完，归为 pipeline_error
+        if (ckpt.options) {
           return { type: "intent_confirm", checkpoint: ckpt }
         }
         return { type: "pipeline_error", checkpoint: ckpt }

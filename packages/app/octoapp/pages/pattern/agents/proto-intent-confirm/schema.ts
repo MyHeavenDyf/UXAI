@@ -1,17 +1,22 @@
 const schema = {
   type: "object",
-  additionalProperties: {
-    type: "object",
-    properties: {
-      type: { type: "string", enum: ["single", "multiple"] },
-      options: {
-        type: "array",
-        items: { type: "string" },
+  properties: {
+    results: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          score: { type: "number" },
+        },
+        required: ["id", "name", "score"],
+        additionalProperties: false,
       },
     },
-    required: ["type", "options"],
-    additionalProperties: false,
   },
+  required: ["results"],
+  additionalProperties: false,
 }
 
 export const INTENT_CONFIRM_FORMAT = {

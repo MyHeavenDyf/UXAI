@@ -1,0 +1,1559 @@
+{
+  "planner": {
+    "rootId": "shellRoot",
+    "elements": [
+      {
+        "id": "shellRoot",
+        "component": "div",
+        "props": {
+          "className": "flex h-screen bg-surface-container-lowest"
+        },
+        "children": [
+          "shellLeftNavContainer",
+          "shellRightMainArea"
+        ]
+      },
+      {
+        "id": "shellLeftNavContainer",
+        "component": "div",
+        "props": {
+          "className": "w-[15.5rem] flex-shrink-0 bg-surface-container-highest shadow-sm flex flex-col h-full"
+        },
+        "children": []
+      },
+      {
+        "id": "shellRightMainArea",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col flex-1 min-w-0"
+        },
+        "children": [
+          "shellTopNavBarContainer",
+          "shellContentArea"
+        ]
+      },
+      {
+        "id": "shellTopNavBarContainer",
+        "component": "div",
+        "props": {
+          "className": "h-[3rem] bg-surface-container-highest shadow-sm flex items-center justify-end px-gutter"
+        },
+        "children": []
+      },
+      {
+        "id": "shellContentArea",
+        "component": "div",
+        "props": {
+          "className": "flex-1 p-page overflow-auto flex flex-col gap-section"
+        },
+        "children": [
+          "shellBreadcrumbNavContainer",
+          "shellDeviceOverviewCardContainer",
+          "shellSystemDetailSectionContainer"
+        ]
+      },
+      {
+        "id": "shellBreadcrumbNavContainer",
+        "component": "div",
+        "props": {
+          "className": "flex items-center"
+        },
+        "children": []
+      },
+      {
+        "id": "shellDeviceOverviewCardContainer",
+        "component": "div",
+        "props": {
+          "className": "bg-white rounded-xl border border-base"
+        },
+        "children": []
+      },
+      {
+        "id": "shellSystemDetailSectionContainer",
+        "component": "div",
+        "props": {
+          "className": "bg-white rounded-xl border border-base"
+        },
+        "children": []
+      }
+    ],
+    "slots": [
+      {
+        "section_id": "leftNavigation",
+        "element_id": "shellLeftNavContainer",
+        "id_prefix": "lNav",
+        "operation": "modify"
+      },
+      {
+        "section_id": "topNavBar",
+        "element_id": "shellTopNavBarContainer",
+        "id_prefix": "tNav",
+        "operation": "none"
+      },
+      {
+        "section_id": "breadcrumbNav",
+        "element_id": "shellBreadcrumbNavContainer",
+        "id_prefix": "bcNav",
+        "operation": "none"
+      },
+      {
+        "section_id": "deviceOverviewCard",
+        "element_id": "shellDeviceOverviewCardContainer",
+        "id_prefix": "ovCard",
+        "operation": "modify"
+      },
+      {
+        "section_id": "systemDetailSection",
+        "element_id": "shellSystemDetailSectionContainer",
+        "id_prefix": "sysDt",
+        "operation": "modify"
+      }
+    ]
+  },
+  "mergedA2UI": {
+    "rootId": "shellRoot",
+    "elements": [
+      {
+        "id": "shellRoot",
+        "component": "div",
+        "props": {
+          "className": "flex h-screen bg-surface-container-lowest"
+        },
+        "children": [
+          "shellLeftNavContainer",
+          "shellRightMainArea"
+        ]
+      },
+      {
+        "id": "shellLeftNavContainer",
+        "component": "div",
+        "props": {
+          "className": "w-[15.5rem] flex-shrink-0 bg-surface-container-highest shadow-sm flex flex-col h-full"
+        },
+        "children": [
+          "lNavBrandRow",
+          "lNavInfraRow",
+          "lNavMenuContainer",
+          "lNavBottomRow"
+        ]
+      },
+      {
+        "id": "shellRightMainArea",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col flex-1 min-w-0"
+        },
+        "children": [
+          "shellTopNavBarContainer",
+          "shellContentArea"
+        ]
+      },
+      {
+        "id": "shellTopNavBarContainer",
+        "component": "div",
+        "props": {
+          "className": "h-[3rem] bg-surface-container-highest shadow-sm flex items-center justify-end px-gutter"
+        },
+        "children": [
+          "tNavSearchBtn",
+          "tNavNotificationBadge",
+          "tNavHelpBtn",
+          "tNavDocBtn",
+          "tNavUserDropdown"
+        ]
+      },
+      {
+        "id": "shellContentArea",
+        "component": "div",
+        "props": {
+          "className": "flex-1 p-page overflow-auto flex flex-col gap-section"
+        },
+        "children": [
+          "shellBreadcrumbNavContainer",
+          "shellDeviceOverviewCardContainer",
+          "shellSystemDetailSectionContainer"
+        ]
+      },
+      {
+        "id": "shellBreadcrumbNavContainer",
+        "component": "div",
+        "props": {
+          "className": "flex items-center"
+        },
+        "children": [
+          "bcNavBackIcon",
+          "bcNavDeviceName",
+          "bcNavDropdownIcon"
+        ]
+      },
+      {
+        "id": "shellDeviceOverviewCardContainer",
+        "component": "div",
+        "props": {
+          "className": "bg-white rounded-xl border border-base"
+        },
+        "children": [
+          "ovCardInner"
+        ]
+      },
+      {
+        "id": "shellSystemDetailSectionContainer",
+        "component": "div",
+        "props": {
+          "className": "bg-white rounded-xl border border-base"
+        },
+        "children": [
+          "sysDtFirstLevelTabs"
+        ]
+      },
+      {
+        "id": "lNavBrandRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between px-4 py-3 border-b border-divider"
+        },
+        "children": [
+          "lNavBrandLeft",
+          "lNavBrandCollapseBtn"
+        ]
+      },
+      {
+        "id": "lNavBrandLeft",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "lNavBrandIcon",
+          "lNavBrandText"
+        ]
+      },
+      {
+        "id": "lNavBrandIcon",
+        "component": "Icon",
+        "props": {
+          "name": "hexagon",
+          "shape": "outline",
+          "color": "primary",
+          "className": "w-6 h-6"
+        }
+      },
+      {
+        "id": "lNavBrandText",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": "DME"
+        }
+      },
+      {
+        "id": "lNavBrandCollapseBtn",
+        "component": "Icon",
+        "props": {
+          "name": "chevron-left",
+          "shape": "outline",
+          "className": "w-5 h-5 text-on-surface-variant cursor-pointer"
+        }
+      },
+      {
+        "id": "lNavInfraRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-3 px-4 py-2 border-b border-divider"
+        },
+        "children": [
+          "lNavInfraIcon",
+          "lNavInfraText"
+        ]
+      },
+      {
+        "id": "lNavInfraIcon",
+        "component": "Icon",
+        "props": {
+          "name": "database",
+          "shape": "square",
+          "color": "primary",
+          "className": "w-7 h-7"
+        }
+      },
+      {
+        "id": "lNavInfraText",
+        "component": "span",
+        "props": {
+          "className": "text-base font-medium text-on-surface",
+          "value": "基础设施"
+        }
+      },
+      {
+        "id": "lNavMenuContainer",
+        "component": "div",
+        "props": {
+          "className": "flex-1 overflow-y-auto"
+        },
+        "children": [
+          "lNavMenu"
+        ]
+      },
+      {
+        "id": "lNavMenu",
+        "component": "Menu",
+        "props": {
+          "mode": "vertical",
+          "selectedKeys": {
+            "path": "/selectedKeys"
+          },
+          "openKeys": {
+            "path": "/openKeys"
+          },
+          "items": [
+            {
+              "title": "存储",
+              "key": "lNavGroupStorage",
+              "children": [
+                {
+                  "title": "存储设备",
+                  "key": "lNavStorageDevices",
+                  "icon": "hard-drive"
+                },
+                {
+                  "title": "命名空间",
+                  "key": "lNavNamespaces",
+                  "icon": "folder"
+                },
+                {
+                  "title": "文件系统",
+                  "key": "lNavFileSystems",
+                  "icon": "file"
+                },
+                {
+                  "title": "Dtree",
+                  "key": "lNavDtree",
+                  "icon": "tree-pine"
+                },
+                {
+                  "title": "共享",
+                  "key": "lNavShares",
+                  "icon": "share-2"
+                }
+              ]
+            },
+            {
+              "title": "机柜",
+              "key": "lNavGroupCabinet",
+              "children": []
+            }
+          ],
+          "className": "border-none bg-transparent"
+        }
+      },
+      {
+        "id": "lNavBottomRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center px-4 py-3 border-t border-divider"
+        },
+        "children": [
+          "lNavBottomCollapseIcon"
+        ]
+      },
+      {
+        "id": "lNavBottomCollapseIcon",
+        "component": "Icon",
+        "props": {
+          "name": "panel-left-close",
+          "shape": "outline",
+          "className": "w-5 h-5 text-on-surface-variant cursor-pointer"
+        }
+      },
+      {
+        "id": "tNavSearchBtn",
+        "component": "Button",
+        "props": {
+          "icon": "search",
+          "shape": "circle",
+          "className": "mr-inline"
+        }
+      },
+      {
+        "id": "tNavNotificationBadge",
+        "component": "Badge",
+        "props": {
+          "count": {
+            "path": "/notificationBadgeCount"
+          },
+          "overflowCount": 99,
+          "className": "mr-inline"
+        },
+        "children": [
+          "tNavNotificationBtn"
+        ]
+      },
+      {
+        "id": "tNavNotificationBtn",
+        "component": "Button",
+        "props": {
+          "icon": "bell",
+          "shape": "circle"
+        }
+      },
+      {
+        "id": "tNavHelpBtn",
+        "component": "Button",
+        "props": {
+          "icon": "circle-help",
+          "shape": "circle",
+          "className": "mr-inline"
+        }
+      },
+      {
+        "id": "tNavDocBtn",
+        "component": "Button",
+        "props": {
+          "icon": "file-text",
+          "shape": "circle",
+          "className": "mr-inline"
+        }
+      },
+      {
+        "id": "tNavUserDropdown",
+        "component": "Dropdown",
+        "props": {
+          "trigger": [
+            "click"
+          ],
+          "placement": "bottomRight",
+          "menu": {
+            "path": "/dropdownMenuItems"
+          }
+        },
+        "children": [
+          "tNavUserAvatar"
+        ]
+      },
+      {
+        "id": "tNavUserAvatar",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "/userAvatar"
+          },
+          "title": {
+            "path": "/userName"
+          },
+          "className": "w-8 h-8 rounded-full object-cover cursor-pointer"
+        }
+      },
+      {
+        "id": "bcNavBackIcon",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "path": "/backIcon"
+          },
+          "color": "default",
+          "shape": "outline",
+          "className": "w-5 h-5 cursor-pointer text-on-surface-variant hover:text-primary transition-colors"
+        }
+      },
+      {
+        "id": "bcNavDeviceName",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "/deviceName"
+          },
+          "className": "text-lg font-bold text-on-surface mx-inline"
+        }
+      },
+      {
+        "id": "bcNavDropdownIcon",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "path": "/dropdownIcon"
+          },
+          "color": "default",
+          "shape": "outline",
+          "className": "w-4 h-4 cursor-pointer text-on-surface-variant hover:text-primary transition-colors"
+        }
+      },
+      {
+        "id": "ovCardInner",
+        "component": "div",
+        "props": {
+          "className": "flex items-stretch w-full"
+        },
+        "children": [
+          "ovCardLeftSpacer",
+          "ovCardContent",
+          "ovCardActions"
+        ]
+      },
+      {
+        "id": "ovCardLeftSpacer",
+        "component": "div",
+        "props": {
+          "className": "w-[100px] shrink-0"
+        }
+      },
+      {
+        "id": "ovCardContent",
+        "component": "div",
+        "props": {
+          "className": "flex-1 flex flex-col justify-center gap-stack py-gutter"
+        },
+        "children": [
+          "ovCardTitleRow",
+          "ovCardStatusTag",
+          "ovCardAttributesRow"
+        ]
+      },
+      {
+        "id": "ovCardTitleRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-inline"
+        },
+        "children": [
+          "ovCardTitleText",
+          "ovCardIpText"
+        ]
+      },
+      {
+        "id": "ovCardTitleText",
+        "component": "span",
+        "props": {
+          "className": "text-xl font-bold text-on-surface",
+          "value": {
+            "path": "/deviceName"
+          }
+        }
+      },
+      {
+        "id": "ovCardIpText",
+        "component": "span",
+        "props": {
+          "className": "text-md text-on-surface-variant",
+          "value": "(100.122.13.24)"
+        }
+      },
+      {
+        "id": "ovCardStatusTag",
+        "component": "Tag",
+        "props": {
+          "value": {
+            "path": "/statusText"
+          },
+          "color": "success"
+        }
+      },
+      {
+        "id": "ovCardAttributesRow",
+        "component": "div",
+        "props": {
+          "className": "flex gap-gutter"
+        },
+        "children": {
+          "path": "/attributes",
+          "componentId": "ovCardAttrBlock"
+        }
+      },
+      {
+        "id": "ovCardAttrBlock",
+        "component": "div",
+        "props": {
+          "className": "flex-1 flex flex-col gap-1"
+        },
+        "children": [
+          "ovCardAttrLabel",
+          "ovCardAttrValue"
+        ]
+      },
+      {
+        "id": "ovCardAttrLabel",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": {
+            "path": "fieldName"
+          }
+        }
+      },
+      {
+        "id": "ovCardAttrValue",
+        "component": "span",
+        "props": {
+          "className": "text-md font-medium text-on-surface",
+          "value": {
+            "path": "value"
+          }
+        }
+      },
+      {
+        "id": "ovCardActions",
+        "component": "div",
+        "props": {
+          "className": "ml-auto flex items-center gap-3 px-inset shrink-0"
+        },
+        "children": [
+          "ovCardEditBtn",
+          "ovCardSyncBtn",
+          "ovCardExportBtn",
+          "ovCardMoreDropdown"
+        ]
+      },
+      {
+        "id": "ovCardEditBtn",
+        "component": "Button",
+        "props": {
+          "value": "修改",
+          "icon": "pencil",
+          "iconPlacement": "start",
+          "color": "primary"
+        }
+      },
+      {
+        "id": "ovCardSyncBtn",
+        "component": "Button",
+        "props": {
+          "value": "同步",
+          "icon": "refresh-cw",
+          "iconPlacement": "start"
+        }
+      },
+      {
+        "id": "ovCardExportBtn",
+        "component": "Button",
+        "props": {
+          "value": "导出数据",
+          "icon": "download",
+          "iconPlacement": "start"
+        }
+      },
+      {
+        "id": "ovCardMoreDropdown",
+        "component": "Dropdown",
+        "props": {
+          "placement": "bottomRight",
+          "trigger": [
+            "click"
+          ],
+          "menu": [
+            {
+              "label": "查看详情",
+              "key": "detail",
+              "icon": "eye"
+            },
+            {
+              "label": "编辑配置",
+              "key": "edit",
+              "icon": "settings"
+            },
+            {
+              "label": "删除设备",
+              "key": "delete",
+              "icon": "trash-2"
+            }
+          ]
+        },
+        "children": [
+          "ovCardMoreBtn"
+        ]
+      },
+      {
+        "id": "ovCardMoreBtn",
+        "component": "Button",
+        "props": {
+          "value": "更多",
+          "icon": "more-horizontal",
+          "iconPlacement": "end"
+        }
+      },
+      {
+        "id": "sysDtFirstLevelTabs",
+        "component": "Tabs",
+        "props": {
+          "activeKey": {
+            "path": "/firstLevelActiveKey"
+          },
+          "types": "line",
+          "className": "border-b border-divider"
+        },
+        "children": [
+          "sysDtTabOverview",
+          "sysDtTabFileService",
+          "sysDtTabHardware",
+          "sysDtTabSystem",
+          "sysDtTabConfig"
+        ]
+      },
+      {
+        "id": "sysDtTabOverview",
+        "component": "TabItem",
+        "props": {
+          "key": "overview",
+          "label": "概览",
+          "content": {
+            "componentId": "sysDtOverviewContent"
+          }
+        }
+      },
+      {
+        "id": "sysDtTabFileService",
+        "component": "TabItem",
+        "props": {
+          "key": "fileService",
+          "label": "文件服务",
+          "content": {
+            "componentId": "sysDtFileServiceContent"
+          }
+        }
+      },
+      {
+        "id": "sysDtTabHardware",
+        "component": "TabItem",
+        "props": {
+          "key": "hardware",
+          "label": "硬件",
+          "content": {
+            "componentId": "sysDtHardwareContent"
+          }
+        }
+      },
+      {
+        "id": "sysDtTabSystem",
+        "component": "TabItem",
+        "props": {
+          "key": "system",
+          "label": "系统",
+          "content": {
+            "componentId": "sysDtSystemContent"
+          }
+        }
+      },
+      {
+        "id": "sysDtTabConfig",
+        "component": "TabItem",
+        "props": {
+          "key": "config",
+          "label": "配置",
+          "content": {
+            "componentId": "sysDtConfigContent"
+          }
+        }
+      },
+      {
+        "id": "sysDtOverviewContent",
+        "component": "div",
+        "props": {
+          "className": "p-6 flex items-center justify-center text-on-surface-variant",
+          "value": "概览面板内容区域"
+        }
+      },
+      {
+        "id": "sysDtFileServiceContent",
+        "component": "div",
+        "props": {
+          "className": "p-6 flex items-center justify-center text-on-surface-variant",
+          "value": "文件服务面板内容区域"
+        }
+      },
+      {
+        "id": "sysDtHardwareContent",
+        "component": "div",
+        "props": {
+          "className": "p-6 flex items-center justify-center text-on-surface-variant",
+          "value": "硬件面板内容区域"
+        }
+      },
+      {
+        "id": "sysDtSystemContent",
+        "component": "div",
+        "props": {
+          "className": "p-4 flex flex-col gap-4"
+        },
+        "children": [
+          "sysDtSecondLevelTabs",
+          "sysDtTenantContent"
+        ]
+      },
+      {
+        "id": "sysDtConfigContent",
+        "component": "div",
+        "props": {
+          "className": "p-6 flex items-center justify-center text-on-surface-variant",
+          "value": "配置面板内容区域"
+        }
+      },
+      {
+        "id": "sysDtSecondLevelTabs",
+        "component": "Tabs",
+        "props": {
+          "activeKey": {
+            "path": "/secondLevelActiveKey"
+          },
+          "types": "line"
+        },
+        "children": [
+          "sysDtSecondTabZone",
+          "sysDtSecondTabStoragePool",
+          "sysDtSecondTabTenant",
+          "sysDtSecondTabAuthUser",
+          "sysDtSecondTabDataTurbo"
+        ]
+      },
+      {
+        "id": "sysDtSecondTabZone",
+        "component": "TabItem",
+        "props": {
+          "key": "zone",
+          "label": "Zone",
+          "content": {
+            "componentId": "sysDtZoneContent"
+          }
+        }
+      },
+      {
+        "id": "sysDtSecondTabStoragePool",
+        "component": "TabItem",
+        "props": {
+          "key": "storagePool",
+          "label": "存储池",
+          "content": {
+            "componentId": "sysDtStoragePoolContent"
+          }
+        }
+      },
+      {
+        "id": "sysDtSecondTabTenant",
+        "component": "TabItem",
+        "props": {
+          "key": "tenant",
+          "label": "租户",
+          "content": {
+            "componentId": "sysDtTenantContent"
+          }
+        }
+      },
+      {
+        "id": "sysDtSecondTabAuthUser",
+        "component": "TabItem",
+        "props": {
+          "key": "authUser",
+          "label": "认证用户",
+          "content": {
+            "componentId": "sysDtAuthUserContent"
+          }
+        }
+      },
+      {
+        "id": "sysDtSecondTabDataTurbo",
+        "component": "TabItem",
+        "props": {
+          "key": "dataTurboAdmin",
+          "label": "DataTurbo管理员",
+          "content": {
+            "componentId": "sysDtDataTurboContent"
+          }
+        }
+      },
+      {
+        "id": "sysDtZoneContent",
+        "component": "div",
+        "props": {
+          "className": "p-6 flex items-center justify-center text-on-surface-variant",
+          "value": "Zone配置管理面板"
+        }
+      },
+      {
+        "id": "sysDtStoragePoolContent",
+        "component": "div",
+        "props": {
+          "className": "p-6 flex items-center justify-center text-on-surface-variant",
+          "value": "存储池管理面板"
+        }
+      },
+      {
+        "id": "sysDtAuthUserContent",
+        "component": "div",
+        "props": {
+          "className": "p-6 flex items-center justify-center text-on-surface-variant",
+          "value": "认证用户管理面板"
+        }
+      },
+      {
+        "id": "sysDtDataTurboContent",
+        "component": "div",
+        "props": {
+          "className": "p-6 flex items-center justify-center text-on-surface-variant",
+          "value": "DataTurbo管理员设置面板"
+        }
+      },
+      {
+        "id": "sysDtTenantContent",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-4"
+        },
+        "children": [
+          "sysDtTableOperationBar",
+          "sysDtTenantTable"
+        ]
+      },
+      {
+        "id": "sysDtTableOperationBar",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between"
+        },
+        "children": [
+          "sysDtOpLeftGroup",
+          "sysDtOpRightGroup"
+        ]
+      },
+      {
+        "id": "sysDtOpLeftGroup",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "sysDtDeleteButton",
+          "sysDtCreateButton"
+        ]
+      },
+      {
+        "id": "sysDtDeleteButton",
+        "component": "Button",
+        "props": {
+          "value": "删除",
+          "icon": "trash-2",
+          "iconPlacement": "start",
+          "color": "danger"
+        }
+      },
+      {
+        "id": "sysDtCreateButton",
+        "component": "Button",
+        "props": {
+          "value": "创建",
+          "icon": "plus",
+          "iconPlacement": "start",
+          "color": "primary"
+        }
+      },
+      {
+        "id": "sysDtOpRightGroup",
+        "component": "div",
+        "props": {
+          "className": "flex items-center"
+        },
+        "children": [
+          "sysDtRefreshIcon"
+        ]
+      },
+      {
+        "id": "sysDtRefreshIcon",
+        "component": "Icon",
+        "props": {
+          "name": "refresh-cw",
+          "className": "w-5 h-5 text-on-surface-variant cursor-pointer"
+        }
+      },
+      {
+        "id": "sysDtTenantTable",
+        "component": "Table",
+        "props": {
+          "rowKey": "id",
+          "dataSource": {
+            "path": "/tenantList"
+          },
+          "rowSelection": {
+            "type": "checkbox",
+            "selectedRowKeys": {
+              "path": "/selectedRowKeys"
+            }
+          },
+          "columns": [
+            {
+              "title": "名称",
+              "dataIndex": "name",
+              "sort": true
+            },
+            {
+              "title": "ID",
+              "dataIndex": "id",
+              "sort": true
+            },
+            {
+              "title": "所属集群",
+              "dataIndex": "cluster"
+            },
+            {
+              "title": "文件系统数量",
+              "dataIndex": "fsCount",
+              "sort": true
+            },
+            {
+              "title": "文件系统总容量",
+              "dataIndex": "fsTotalCapacity",
+              "sort": true
+            },
+            {
+              "title": "NAS容量配额利用率",
+              "dataIndex": "nasUtilization"
+            },
+            {
+              "title": "NAS容量配额告警",
+              "dataIndex": "quotaAlert"
+            },
+            {
+              "title": "NAS容量配额告警阈值",
+              "dataIndex": "quotaThreshold",
+              "sort": true
+            },
+            {
+              "title": "操作",
+              "dataIndex": "actions",
+              "fixed": "end",
+              "width": 60
+            }
+          ],
+          "className": "mb-4"
+        },
+        "children": {
+          "path": "/tenantList",
+          "componentId": "sysDtTenantRow"
+        }
+      },
+      {
+        "id": "sysDtTenantRow",
+        "component": "TableRow",
+        "children": [
+          "sysDtNameCell",
+          "sysDtIdCell",
+          "sysDtClusterCell",
+          "sysDtFsCountCell",
+          "sysDtFsTotalCapacityCell",
+          "sysDtNasUtilizationCell",
+          "sysDtQuotaAlertCell",
+          "sysDtQuotaThresholdCell",
+          "sysDtActionsCell"
+        ],
+        "props": {}
+      },
+      {
+        "id": "sysDtNameCell",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "name"
+          },
+          "className": "text-md text-on-surface"
+        }
+      },
+      {
+        "id": "sysDtIdCell",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "id"
+          },
+          "className": "text-md text-on-surface"
+        }
+      },
+      {
+        "id": "sysDtClusterCell",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-3"
+        },
+        "children": [
+          "sysDtClusterNodeBlock",
+          "sysDtClusterTag"
+        ]
+      },
+      {
+        "id": "sysDtClusterNodeBlock",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col leading-tight"
+        },
+        "children": [
+          "sysDtClusterNodeName",
+          "sysDtClusterNodeIp"
+        ]
+      },
+      {
+        "id": "sysDtClusterNodeName",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "cluster/nodeName"
+          },
+          "className": "text-md text-on-surface"
+        }
+      },
+      {
+        "id": "sysDtClusterNodeIp",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "cluster/nodeIp"
+          },
+          "className": "text-sm text-on-surface-variant"
+        }
+      },
+      {
+        "id": "sysDtClusterTag",
+        "component": "Tag",
+        "props": {
+          "value": {
+            "path": "cluster/tag"
+          },
+          "color": "processing",
+          "variant": "filled",
+          "size": "small"
+        }
+      },
+      {
+        "id": "sysDtFsCountCell",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "fsCount"
+          },
+          "className": "text-md text-on-surface"
+        }
+      },
+      {
+        "id": "sysDtFsTotalCapacityCell",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "fsTotalCapacity"
+          },
+          "className": "text-md text-on-surface"
+        }
+      },
+      {
+        "id": "sysDtNasUtilizationCell",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-1 min-w-[140px]"
+        },
+        "children": [
+          "sysDtUtilPercentRow",
+          "sysDtUtilProgress",
+          "sysDtUtilUsedTotal"
+        ]
+      },
+      {
+        "id": "sysDtUtilPercentRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-0"
+        },
+        "children": [
+          "sysDtUtilPercentVal",
+          "sysDtUtilPercentSym"
+        ]
+      },
+      {
+        "id": "sysDtUtilPercentVal",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "nasUtilization/percent"
+          },
+          "className": "text-sm font-medium text-on-surface"
+        }
+      },
+      {
+        "id": "sysDtUtilPercentSym",
+        "component": "span",
+        "props": {
+          "value": "%",
+          "className": "text-sm font-medium text-on-surface"
+        }
+      },
+      {
+        "id": "sysDtUtilProgress",
+        "component": "Progress",
+        "props": {
+          "percent": {
+            "path": "nasUtilization/progressValue"
+          },
+          "size": "small",
+          "showInfo": false
+        }
+      },
+      {
+        "id": "sysDtUtilUsedTotal",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-0 text-xs text-on-surface-variant"
+        },
+        "children": [
+          "sysDtUtilUsedNum",
+          "sysDtUtilSep",
+          "sysDtUtilTotalNum",
+          "sysDtUtilUnit"
+        ]
+      },
+      {
+        "id": "sysDtUtilUsedNum",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "nasUtilization/used"
+          }
+        }
+      },
+      {
+        "id": "sysDtUtilSep",
+        "component": "span",
+        "props": {
+          "value": "/"
+        }
+      },
+      {
+        "id": "sysDtUtilTotalNum",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "nasUtilization/total"
+          }
+        }
+      },
+      {
+        "id": "sysDtUtilUnit",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "nasUtilization/unit"
+          }
+        }
+      },
+      {
+        "id": "sysDtQuotaAlertCell",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "quotaAlert"
+          },
+          "className": "text-md text-on-surface"
+        }
+      },
+      {
+        "id": "sysDtQuotaThresholdCell",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "quotaThreshold"
+          },
+          "className": "text-md text-on-surface"
+        }
+      },
+      {
+        "id": "sysDtActionsCell",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-center"
+        },
+        "children": [
+          "sysDtActionsDropdown"
+        ]
+      },
+      {
+        "id": "sysDtActionsDropdown",
+        "component": "Dropdown",
+        "props": {
+          "trigger": [
+            "click"
+          ],
+          "placement": "bottomRight",
+          "menu": [
+            {
+              "label": "编辑",
+              "key": "edit",
+              "icon": "pencil"
+            },
+            {
+              "label": "删除",
+              "key": "delete",
+              "icon": "trash-2"
+            },
+            {
+              "label": "查看详情",
+              "key": "detail",
+              "icon": "eye"
+            }
+          ]
+        },
+        "children": [
+          "sysDtActionsIcon"
+        ]
+      },
+      {
+        "id": "sysDtActionsIcon",
+        "component": "Icon",
+        "props": {
+          "name": "more-horizontal",
+          "className": "w-5 h-5 text-on-surface-variant cursor-pointer"
+        }
+      }
+    ],
+    "state": {
+      "selectedKeys": [
+        "lNavStorageDevices"
+      ],
+      "openKeys": [
+        "lNavGroupStorage"
+      ],
+      "notificationBadgeCount": 5,
+      "userAvatar": "https://randomuser.me/api/portraits/men/42.jpg",
+      "userName": "Admin",
+      "dropdownMenuItems": [
+        {
+          "key": "profile",
+          "label": "个人设置"
+        },
+        {
+          "key": "logout",
+          "label": "退出登录"
+        }
+      ],
+      "backIcon": "arrow-left",
+      "deviceName": "A800_01",
+      "dropdownIcon": "chevron-down",
+      "deviceIp": "100.122.13.24",
+      "statusText": "正常",
+      "attributes": [
+        {
+          "fieldName": "序列号",
+          "value": "2102350CDS10DM000001"
+        },
+        {
+          "fieldName": "型号",
+          "value": "OceanStor A800"
+        },
+        {
+          "fieldName": "版本",
+          "value": "1.0.0"
+        },
+        {
+          "fieldName": "厂商",
+          "value": "Huawei"
+        }
+      ],
+      "firstLevelActiveKey": "system",
+      "secondLevelActiveKey": "tenant",
+      "selectedRowKeys": [
+        "001"
+      ],
+      "tenantList": [
+        {
+          "name": "vStore001",
+          "id": "001",
+          "cluster": {
+            "nodeName": "Node_005",
+            "nodeIp": "10.12.13.11",
+            "tag": "HyperScale"
+          },
+          "fsCount": 32,
+          "fsTotalCapacity": "12.000GB",
+          "nasUtilization": {
+            "percent": 20,
+            "progressValue": 20,
+            "used": "2.400",
+            "total": "12.000",
+            "unit": "GB"
+          },
+          "quotaAlert": "已启用",
+          "quotaThreshold": "80%"
+        },
+        {
+          "name": "vStore002",
+          "id": "002",
+          "cluster": {
+            "nodeName": "Node_003",
+            "nodeIp": "10.12.13.12",
+            "tag": "HyperScale"
+          },
+          "fsCount": 45,
+          "fsTotalCapacity": "24.000GB",
+          "nasUtilization": {
+            "percent": 45.5,
+            "progressValue": 45.5,
+            "used": "10.920",
+            "total": "24.000",
+            "unit": "GB"
+          },
+          "quotaAlert": "已启用",
+          "quotaThreshold": "85%"
+        },
+        {
+          "name": "vStore003",
+          "id": "003",
+          "cluster": {
+            "nodeName": "Node_001",
+            "nodeIp": "10.12.13.13",
+            "tag": "HyperScale"
+          },
+          "fsCount": 12,
+          "fsTotalCapacity": "6.000GB",
+          "nasUtilization": {
+            "percent": 78.2,
+            "progressValue": 78.2,
+            "used": "4.692",
+            "total": "6.000",
+            "unit": "GB"
+          },
+          "quotaAlert": "已启用",
+          "quotaThreshold": "80%"
+        },
+        {
+          "name": "vStore004",
+          "id": "004",
+          "cluster": {
+            "nodeName": "Node_002",
+            "nodeIp": "10.12.13.14",
+            "tag": "HyperScale"
+          },
+          "fsCount": 28,
+          "fsTotalCapacity": "48.000GB",
+          "nasUtilization": {
+            "percent": 33.33,
+            "progressValue": 33.33,
+            "used": "16.000",
+            "total": "48.000",
+            "unit": "GB"
+          },
+          "quotaAlert": "已禁用",
+          "quotaThreshold": "90%"
+        },
+        {
+          "name": "vStore005",
+          "id": "005",
+          "cluster": {
+            "nodeName": "Node_004",
+            "nodeIp": "10.12.13.15",
+            "tag": "HyperScale"
+          },
+          "fsCount": 8,
+          "fsTotalCapacity": "2.000GB",
+          "nasUtilization": {
+            "percent": 95,
+            "progressValue": 95,
+            "used": "1.900",
+            "total": "2.000",
+            "unit": "GB"
+          },
+          "quotaAlert": "已启用",
+          "quotaThreshold": "80%"
+        },
+        {
+          "name": "vStore006",
+          "id": "006",
+          "cluster": {
+            "nodeName": "Node_006",
+            "nodeIp": "10.12.13.16",
+            "tag": "HyperScale"
+          },
+          "fsCount": 15,
+          "fsTotalCapacity": "10.000GB",
+          "nasUtilization": {
+            "percent": 62.1,
+            "progressValue": 62.1,
+            "used": "6.210",
+            "total": "10.000",
+            "unit": "GB"
+          },
+          "quotaAlert": "已启用",
+          "quotaThreshold": "85%"
+        },
+        {
+          "name": "vStore007",
+          "id": "007",
+          "cluster": {
+            "nodeName": "Node_007",
+            "nodeIp": "10.12.13.17",
+            "tag": "HyperScale"
+          },
+          "fsCount": 52,
+          "fsTotalCapacity": "100.000GB",
+          "nasUtilization": {
+            "percent": 12.8,
+            "progressValue": 12.8,
+            "used": "12.800",
+            "total": "100.000",
+            "unit": "GB"
+          },
+          "quotaAlert": "已禁用",
+          "quotaThreshold": "70%"
+        },
+        {
+          "name": "vStore008",
+          "id": "008",
+          "cluster": {
+            "nodeName": "Node_008",
+            "nodeIp": "10.12.13.18",
+            "tag": "HyperScale"
+          },
+          "fsCount": 20,
+          "fsTotalCapacity": "8.000GB",
+          "nasUtilization": {
+            "percent": 55,
+            "progressValue": 55,
+            "used": "4.400",
+            "total": "8.000",
+            "unit": "GB"
+          },
+          "quotaAlert": "已启用",
+          "quotaThreshold": "80%"
+        },
+        {
+          "name": "vStore009",
+          "id": "009",
+          "cluster": {
+            "nodeName": "Node_009",
+            "nodeIp": "10.12.13.19",
+            "tag": "HyperScale"
+          },
+          "fsCount": 40,
+          "fsTotalCapacity": "30.000GB",
+          "nasUtilization": {
+            "percent": 90,
+            "progressValue": 90,
+            "used": "27.000",
+            "total": "30.000",
+            "unit": "GB"
+          },
+          "quotaAlert": "已启用",
+          "quotaThreshold": "90%"
+        },
+        {
+          "name": "vStore010",
+          "id": "010",
+          "cluster": {
+            "nodeName": "Node_010",
+            "nodeIp": "10.12.13.20",
+            "tag": "HyperScale"
+          },
+          "fsCount": 5,
+          "fsTotalCapacity": "1.000GB",
+          "nasUtilization": {
+            "percent": 10,
+            "progressValue": 10,
+            "used": "0.100",
+            "total": "1.000",
+            "unit": "GB"
+          },
+          "quotaAlert": "已禁用",
+          "quotaThreshold": "75%"
+        }
+      ]
+    }
+  }
+}

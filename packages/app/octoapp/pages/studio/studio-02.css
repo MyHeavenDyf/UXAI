@@ -1004,6 +1004,12 @@
   margin: 0 auto;
 }
 
+@media (max-width: 1227px) {
+  .studio-conversation {
+    padding: 24px;
+  }
+}
+
 .studio-user-input-images {
   width: fit-content;
   max-width: 100%;
@@ -1122,7 +1128,10 @@
 }
 
 .studio-result-card.failed {
-  border-color: rgba(180, 35, 24, 0.18);
+  min-height: 0;
+}
+.studio-result-card.failed .studio-result-progress-preview {
+  min-height: 0;
 }
 
 .studio-result-badge {

@@ -2,6 +2,7 @@ import { extractJson } from '../../utils/json-parser';
 import { runChildSession } from '../run-child-session';
 import { logAgentParsed } from "../../utils/debug-log"
 import { INTENT_FORMAT } from "./schema"
+import { agentThrow } from "../../utils/error-msg"
 
 const AGENT_NAME = "proto_intent"
 type ProtoIntentInput = {
@@ -50,7 +51,7 @@ export default async function proto_intent(input: ProtoIntentInput) {
   const intentJson = extractJson(intentResult.text)
   if (!intentJson) {
     logAgentParsed(intentResult.childSessionId, { error: "Failed to parse JSON", raw: intentResult.text })
-    throw new Error("----- Intent Audit did not return valid JSON -----")
+    agentThrow(AGENT_NAME, intentResult.childSessionId, "Intent Audit did not return valid JSON")
   }
   const returnValue = {
     "intent_description": intentJson,
@@ -77,10 +78,18 @@ function buildHumanMessage(userInput: string, auditFeedback: string | undefined,
   }else{
     let patternSection = "";
     if (patterns && patterns.length > 0) {
+      const patternsForPrompt = patterns.map(p => ({
+        name: p.name,
+        category: p.category,
+        description: p.description,
+        structure: p.structure,
+        patternId: p.patternId,
+        rootContainer: p.rootContainer,
+      }))
       patternSection = `
 
     [已有的模块模板:] ==================================
-    ${JSON.stringify(patterns, null, 2)}`;
+    ${JSON.stringify(patternsForPrompt, null, 2)}`;
     }
     humanMessage = `[用户的需求:] ==================================
     ${userInput}${patternSection}

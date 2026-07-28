@@ -8,7 +8,7 @@ import { Persist, persisted } from "@/utils/persist"
  * Breakpoints (from 响应式规则.txt):
  *   >= 1456px  — Wide: full sidebar, all panels visible
  *   1228–1455px — Medium: sidebar collapses to 68px icon strip, drawer overlay
- *   < 1228px   — Narrow: center/chat panel hidden, right fills container
+ *   < 1228px   — Narrow: workspace/canvas hidden, center/chat panel fills container
  *   min-width 1024px on container
  */
 
