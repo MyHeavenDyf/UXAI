@@ -3080,7 +3080,8 @@ if (dsId) {
                       onRetry={retryUpload}
                     />
 
-<ProseMirrorEditor
+                    <div class="flex-1 min-h-0 overflow-hidden rounded-[inherit]">
+                    <ProseMirrorEditor
                        sessionId={params.id!}
                        skillConfig={skillConfig() ?? {}}
                        artifactFiles={artifactFiles()}
@@ -3103,6 +3104,7 @@ if (dsId) {
                        }}
                        ref={(el) => { proseMirrorRef1 = el }}
                      />
+                    </div>
                     <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
                         <span class="hidden">
