@@ -22,12 +22,12 @@ const PIN_ICON_FILLED = "M919.067 103.374C930.374 114.28 931.919 131.498 923.506
 function PinIcon(props: { filled: boolean }) {
   return (
     <svg width="16" height="16" viewBox="0 0 1024 1024" fill="none">
-      <Show when={props.filled} fallback={<path d={PIN_ICON_OUTLINE} fill="currentColor" fill-rule="nonzero" />}>
-        <path d={PIN_ICON_FILLED} fill="currentColor" fill-rule="nonzero" />
-      </Show>
+      <path d={props.filled ? PIN_ICON_FILLED : PIN_ICON_OUTLINE} fill="currentColor" fill-rule="nonzero" />
     </svg>
   )
 }
+
+const versionEmptyHintStyle = { padding: "12px 16px", "text-align": "center", color: "rgba(0,0,0,0.4)", "font-size": "13px" } as const
 
 export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): JSX.Element {
   const [store, setStore] = createStore({
@@ -38,10 +38,6 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
   })
 
   const [versionPopoverOpen, setVersionPopoverOpen] = createSignal(false)
-  let pinActionActive = false
-  let versionCloseGuard = false
-  // 守卫清除代际：每次置守卫递增，陈旧的清除定时器因代际不一致而失效，避免误清正在生效的守卫。
-  let guardClearGen = 0
   // 用户一旦手动操作，就中止自动选中链，避免在途接口返回后覆盖用户已选的项
   let userInteracted = false
   let autoSelectStarted = false
@@ -63,25 +59,6 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
       return
     }
     if (!options.some((v) => v.id === current.id)) setStore("version", undefined)
-  })
-
-  // versionCloseGuard 在打开时置 true，拦截 Kobalte 在版本数据变化瞬间内部触发的 onOpenChange(false)。
-  // 关键：面板打开期间若再次开始 loading（如自动选中链路异步设置 product 触发新请求），
-  // 必须重新置守卫——否则之前打开时被清掉的守卫挡不住这次数据到达的内部关闭。
-  // 递增 guardClearGen 使上一轮排队的清除定时器失效，避免它在 loading 期间误清守卫。
-  createEffect(() => {
-    if (!versionPopoverOpen()) return
-    if (!versionOptions.loading) return
-    guardClearGen++
-    versionCloseGuard = true
-  })
-
-  // loading 结束或面板关闭后延迟一拍清除守卫，确保拦截发生在同一 reactive flush 内，之后放开供用户关闭。
-  createEffect(() => {
-    if (versionPopoverOpen() && versionOptions.loading) return
-    if (!versionCloseGuard) return
-    const gen = guardClearGen
-    setTimeout(() => { if (gen === guardClearGen) versionCloseGuard = false }, 0)
   })
 
   // 新用户（无历史选择）自动级联选中第一个可用的领域/产品线/产品/版本
@@ -117,7 +94,6 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
   })
 
   const handleVersionTopToggle = (version: Version) => {
-    pinActionActive = true
     const newIsTop = !version.isTop
     const fn = newIsTop ? topVersion : cancelTopVersion
     fn(version.baseTeam).then(() => {
@@ -132,10 +108,7 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
         const updated = safeVersionOptions().find(v => v.id === version.id)
         if (updated) setStore("version", { ...updated })
       }
-      pinActionActive = false
-    }).catch(() => {
-      pinActionActive = false
-    })
+    }).catch(() => {})
   }
 
   const versionItemContent = (o: Version | undefined) => {
@@ -160,15 +133,11 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
     )
   }
 
-  const versionNoDataContent = (
-    <div style={{ padding: "12px 16px", "text-align": "center", color: "rgba(0,0,0,0.4)", "font-size": "13px" }}>
-      无数据
-    </div>
-  )
+  const versionNoDataContent = <div style={versionEmptyHintStyle}>无数据</div>
 
   const versionEmptyContent = () =>
     versionOptions.loading
-      ? <div style={{ padding: "12px 16px", "text-align": "center", color: "rgba(0,0,0,0.4)", "font-size": "13px" }}>加载中...</div>
+      ? <div style={versionEmptyHintStyle}>加载中...</div>
       : versionNoDataContent
 
   const versionSelectTriggerStyle = {
@@ -210,21 +179,15 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
         placeholder="选择版本"
         emptyContent={versionEmptyContent()}
         disabled={props.disabled}
+        allowDuplicateSelectionEvents={false}
         triggerStyle={versionSelectTriggerStyle}
         triggerProps={{ class: "version-select-trigger" }}
         open={versionPopoverOpen()}
         onOpenChange={(open) => {
-          if (pinActionActive && !open) return
           if (props.disabled) return
-          if (!open && (versionCloseGuard || versionOptions.loading)) return
-          if (open) {
-            guardClearGen++
-            versionCloseGuard = true
-          }
           setVersionPopoverOpen(open)
         }}
         onSelect={(o) => {
-          if (pinActionActive) return
           userInteracted = true
           o && setStore("version", { ...o })
         }}
