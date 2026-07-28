@@ -1,3 +1,7 @@
+/* Insight 输入框(ProseMirror)样式(SPEC-INS-023,本地化自 Design prosemirror-editor)。
+   与 mention-popover/styles.css 口径一致:一律走 --octo-* token,不留裸 rgba 与悬空变量
+   (拷贝来的原版用的 --bg-subtle 在本仓没有定义,disabled 底色其实一直没生效)。 */
+
 .pm-editor-wrapper {
   position: relative;
   width: 100%;
@@ -20,7 +24,7 @@
 }
 
 .pm-editor.pm-editor--disabled {
-  background: var(--bg-subtle);
+  background: var(--octo-surface-disabled);
   cursor: not-allowed;
 }
 
@@ -36,26 +40,20 @@
   margin: 0;
 }
 
+/* 行内灰胶囊。原版为 skill / file 各写了一条与基类完全同值的规则,已合并;
+   toDOM 仍输出 pm-mention--skill / --file 类名,将来要区分两者直接加规则即可。 */
 .pm-mention {
   display: inline;
   padding: 3px 0;
   font-size: 12px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.05);
-  color: rgba(0, 0, 0, 0.6);
+  background: var(--octo-surface-hover);
+  color: var(--octo-text-secondary);
   cursor: pointer;
 }
 
-.pm-mention.pm-mention--skill {
-  background: rgba(0, 0, 0, 0.05);
-  color: rgba(0, 0, 0, 0.6);
-}
-
-.pm-mention.pm-mention--file {
-  background: rgba(0, 0, 0, 0.05);
-  color: rgba(0, 0, 0, 0.6);
-}
-
+/* 选中态需要比胶囊底色更深一级的灰,token 表里没有对应层级(surface-hover / -disabled 同为 #F5F5F5),
+   故此处保留字面量,不拿 border/brand token 硬凑——换蓝底会改掉设计确认过的观感。 */
 .pm-mention.ProseMirror-selectednode {
   background: rgba(0, 0, 0, 0.12);
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
@@ -72,15 +70,11 @@
   display: inline !important;
 }
 
-.pm-editor .ProseMirror-trailingBreak {
-  display: inline !important;
-}
-
 .pm-placeholder {
   position: absolute;
   top: 1rem;
   left: 1rem;
-  color: rgba(0, 0, 0, 0.3);
+  color: var(--octo-text-placeholder);
   pointer-events: none;
   font-size: 14px;
   font-family: var(--octo-font);

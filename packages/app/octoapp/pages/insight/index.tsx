@@ -68,35 +68,18 @@ import { tracker } from "@/utils/tracker"
 import { linkToOutputType } from "./utils/resource-link"
 import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
+import { splitMentions, queuedMentions } from "./utils/mention"
 import { showToast } from "@opencode-ai/ui/toast"
 import { extToOutputType } from "./utils/write-output"
 import { isPendingUploadPath } from "./utils/worktree-layout"
 import type { InsightFile, InsightFileEntry } from "./utils/insight-file-api"
 import { mimeForName, pathToLocalUrl, fetchInsightFiles } from "./utils/insight-file-api"
 import { type MentionSelection, type MentionSkill } from "./components/mention-popover"
-import { ProseMirrorEditor, type InsightEditorRef } from "./components/prosemirror-editor"
+import { ProseMirrorEditor, type InsightEditorRef, type MentionAttrs } from "./components/prosemirror-editor"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
 
 // 稳定空数组:作为 userMessages memo 的初值与无 id 时的返回,配合 equals:same 避免每帧吐新空数组
 const EMPTY_MESSAGES: Message[] = []
-
-// SPEC-INS-023 @ 引用:把选中项拆成技能名 / 文件引用两桶,供发送时注入 synthetic part。
-// 可见文本保持 @名 原样(气泡显示用户所引用,不暴露路径);skills/files 只驱动 synthetic 注入。
-function splitMentions(selections: MentionSelection[]): {
-  skills: string[]
-  files: Array<{ filename: string; path: string }>
-} {
-  const skills: string[] = []
-  const files: Array<{ filename: string; path: string }> = []
-  for (const s of selections) {
-    if (s.type === "skill") {
-      if (!skills.includes(s.name)) skills.push(s.name)
-    } else if (!files.some((f) => f.path === s.path)) {
-      files.push({ filename: s.filename, path: s.path })
-    }
-  }
-  return { skills, files }
-}
 
 /**
  * InsightPage —— 用研 agent 页面
@@ -695,10 +678,10 @@ function InsightContent() {
     pmRefConv?.clear()
     setPrompt("")
   }
-  /** 覆盖回填输入框文本(排队项回填);@名 退化为纯文本 */
-  function setComposerText(text: string) {
-    pmRefWelcome?.setText(text)
-    pmRefConv?.setText(text)
+  /** 覆盖回填输入框(排队项回填):文本 + 引用一起还原,@名 重新变回胶囊 */
+  function setComposerContent(text: string, mentions: MentionAttrs[]) {
+    pmRefWelcome?.setContent(text, mentions)
+    pmRefConv?.setContent(text, mentions)
   }
   /** 聚焦当前输入框(模型选择器关闭等场景回焦) */
   function focusComposer() {
@@ -713,9 +696,12 @@ function InsightContent() {
     custom: [],
   })
   let skillsLoaded = false
+  // 加载态单独暴露:首次 @ 唤起时列表还没到,面板要显示「正在加载」而不是「暂无技能」(后者是错误陈述)
+  const [skillsLoading, setSkillsLoading] = createSignal(false)
   async function loadInsightSkills() {
     if (skillsLoaded) return
     skillsLoaded = true
+    setSkillsLoading(true)
     try {
       const [platform, custom] = await Promise.all([
         loadSkillsFromPanel("octo_insight"),
@@ -725,6 +711,8 @@ function InsightContent() {
     } catch (err) {
       skillsLoaded = false
       console.error("[octo:mention] load skills failed", err)
+    } finally {
+      setSkillsLoading(false)
     }
   }
 
@@ -1185,6 +1173,9 @@ function InsightContent() {
     // SPEC-INS-023 @ 引用注入:技能读 SKILL.md、文件列引用清单,均 synthetic(模型可见、气泡不显、不暴露路径)。
     // 3b:不走 session.command,自读 SKILL.md 作 synthetic 注入 → 技能指令每轮确定进上下文。
     const mentionBlocks: string[] = []
+    // 读不到 SKILL.md 的技能要显式告知:胶囊已在气泡里,若静默跳过,用户会以为技能已生效(实际没进上下文)。
+    // 覆盖三种失败:SKILL.md 缺失({success:false})、IPC 抛错、非 Electron 渠道(getSkillContent 不存在 → res undefined)。
+    const failedSkills: string[] = []
     if (opts.mentions?.skills.length) {
       const api = getDesktopApi()
       for (const name of opts.mentions.skills) {
@@ -1193,12 +1184,22 @@ function InsightContent() {
           if (res?.success && res.content) {
             mentionBlocks.push(`<skill_content name="${name}">\n${res.content}\n</skill_content>`)
           } else {
+            failedSkills.push(name)
             console.warn("[octo:mention] skill content missing, skip inject", { name, ok: res?.success })
           }
         } catch (err) {
+          failedSkills.push(name)
           console.warn("[octo:mention] getSkillContent failed, skip inject", { name, err })
         }
       }
+    }
+    if (failedSkills.length) {
+      showToast({
+        title: "技能未生效",
+        description: `${failedSkills.map((n) => `「${n}」`).join("")}的技能内容读取失败,本轮未纳入上下文`,
+        variant: "error",
+        duration: 4000,
+      })
     }
     if (opts.mentions?.files.length) {
       mentionBlocks.push(
@@ -1564,7 +1565,9 @@ function InsightContent() {
     const item = queue()[index]
     if (item === undefined) return
     setQueueFor(params.id, (q) => q.filter((_, i) => i !== index))
-    if (!prompt().trim()) setComposerText(item.text) // 输入框为空才回填(编辑器覆盖式);非空不覆盖草稿
+    // 输入框为空才回填(编辑器覆盖式);非空不覆盖草稿。
+    // 引用随文本一并还原成胶囊 —— 只回填文本会让 @名 变成失效的纯文本残留,用户无从察觉引用已丢。
+    if (!prompt().trim()) setComposerContent(item.text, queuedMentions(item))
     console.log("[octo:queue] removed", { index, remaining: queue().length })
   }
 
@@ -2197,6 +2200,8 @@ function InsightContent() {
                         platformSkills={insightSkills().platform}
                         customSkills={insightSkills().custom}
                         files={mentionFiles() ?? null}
+                        skillsLoading={skillsLoading()}
+                        filesLoading={mentionFiles.loading}
                         mentionSelections={mentionSelections()}
                         setMentionSelections={setMentionSelections}
                         placeholder={mcpSelection()?.preset.placeholder ?? "请描述您的需求..."}
@@ -2424,6 +2429,8 @@ function InsightContent() {
                     platformSkills={insightSkills().platform}
                     customSkills={insightSkills().custom}
                     files={mentionFiles() ?? null}
+                    skillsLoading={skillsLoading()}
+                    filesLoading={mentionFiles.loading}
                     mentionSelections={mentionSelections()}
                     setMentionSelections={setMentionSelections}
                     placeholder={mcpSelection()?.preset.placeholder ?? "请描述您的需求..."}

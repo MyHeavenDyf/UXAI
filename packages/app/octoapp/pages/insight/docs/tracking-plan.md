@@ -187,7 +187,7 @@ SPEC-INS-014 文件管理器面板的用户操作。删除（单个 / 批量）�
 命名 / 落点约定：
 
 - `mention-` 前缀,与 `mcp-chip-` 平级(都是「输入框内的引用 / 挂载」交互族),但 mention 是 @ 唤起的即选即插,无常驻态,故只有 open/select 两态,不设 clear(取消勾选是低频微操,不打)。
-- `mention-open` 只在面板**由关到开**的那次打(`wasOpen` 判据),连续输入 `@abc` 的每次 keystroke 不重复打。
+- `mention-open` 一次 `@` 输入过程只打一次,连续输入 `@abc` 的每次 keystroke 不重复打。判据是编辑器内的 `openReported` 标记,**以 `@` 触发文本消失(选中成胶囊 / 删掉 / 敲空格)为重置点**,不是以面板的显示状态为准——点面板外关闭时文本里的 `@query` 还在,若按显示状态重置,继续输入会被判成「重新打开」虚增 open 数。
 - `mention-select` 的 `type` 二分(skill/file)供分析侧切「技能引用 vs 文件引用」占比。**注意**:@技能走 synthetic 注入(3b,不调 skill 工具),故 §九 `server-skill-used` **不覆盖** @技能;`mention-select{type:skill}` 是 @技能 唯一的用户侧口径。
 
 ## 五、验证

@@ -2,6 +2,7 @@ import { createSignal, onMount, onCleanup, Show, createEffect } from "solid-js"
 import { Portal } from "solid-js/web"
 import { EditorState, Transaction, TextSelection } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
+import { buildParagraphs } from "../../utils/mention"
 import { history, undo, redo } from "prosemirror-history"
 import { keymap } from "prosemirror-keymap"
 import { baseKeymap } from "prosemirror-commands"
@@ -23,14 +24,18 @@ export interface InsightEditorRef {
   getMentions: () => Array<{ name: string; type: string; label: string; path?: string }>
   focus: () => void
   clear: () => void
-  /** 覆盖式回填纯文本(排队回填等);@名 退化为纯文本,不重建胶囊 */
-  setText: (text: string) => void
+  /** 覆盖式回填「文本 + 引用」(排队项回填):按 @名 重建 mention 胶囊,selections 由 syncPlugin 自动派生 */
+  setContent: (text: string, mentions: MentionAttrs[]) => void
 }
+
 
 interface Props {
   platformSkills: MentionSkill[]
   customSkills: MentionSkill[]
   files: MentionFiles | null
+  /** 技能 / 文件是否仍在拉取:透传给面板区分「加载中」与「暂无」 */
+  skillsLoading?: boolean
+  filesLoading?: boolean
   mentionSelections: MentionSelection[]
   setMentionSelections: (selections: MentionSelection[]) => void
   disabled?: boolean
@@ -56,8 +61,11 @@ export function ProseMirrorEditor(props: Props) {
   // 永不被裁切/遮挡 → 胶囊可保留 overflow-hidden(圆角)。坐标从编辑器容器实时算。
   const [popoverPos, setPopoverPos] = createSignal<{ left: number; bottom: number } | null>(null)
 
+  // 打点去重:一次 @ 输入过程只报一次 open。
+  // 不能拿 triggerState 的 active 当判据 —— 点面板外关闭只置空了本地 state,文本里的 @query 还在,
+  // 之后每敲一个字插件都会判成「由关到开」再报一次。以 @ 触发文本真正消失(插件回调传 null)为重置点。
+  let openReported = false
   const mentionTriggerPlugin = createMentionTriggerPlugin((state) => {
-    const wasActive = triggerState()?.active ?? false
     setTriggerState(state)
     if (state?.active && containerRef) {
       const rect = containerRef.getBoundingClientRect()
@@ -65,7 +73,12 @@ export function ProseMirrorEditor(props: Props) {
     } else {
       setPopoverPos(null)
     }
-    if (state?.active && !wasActive) props.onMentionOpen?.()
+    if (!state?.active) {
+      openReported = false
+    } else if (!openReported) {
+      openReported = true
+      props.onMentionOpen?.()
+    }
   }, props.onTriggerMention)
 
   const syncPlugin = createSyncPlugin((mentions: MentionAttrs[], empty: boolean) => {
@@ -128,11 +141,13 @@ export function ProseMirrorEditor(props: Props) {
         if (!connected(v)) return
         v.dispatch(v.state.tr.delete(0, v.state.doc.content.size))
       },
-      setText: (text: string) => {
+      setContent: (text: string, mentions: MentionAttrs[]) => {
         const v = view()
         if (!connected(v)) return
-        const tr = v.state.tr.delete(0, v.state.doc.content.size)
-        if (text) tr.insertText(text)
+        const paragraphs = buildParagraphs(text, mentions)
+        const tr = v.state.tr.replaceWith(0, v.state.doc.content.size, paragraphs)
+        // 光标落到末尾,接着改就行
+        tr.setSelection(TextSelection.atEnd(tr.doc))
         v.dispatch(tr)
       },
     })
@@ -231,6 +246,8 @@ export function ProseMirrorEditor(props: Props) {
               platformSkills={props.platformSkills}
               customSkills={props.customSkills}
               files={props.files}
+              skillsLoading={props.skillsLoading}
+              filesLoading={props.filesLoading}
               selections={props.mentionSelections}
               onSelect={handleMentionSelect}
               onDeselect={handleMentionDeselect}
@@ -244,3 +261,4 @@ export function ProseMirrorEditor(props: Props) {
 }
 
 export { getDocTextWithMentions, extractMentionsFromDoc }
+export type { MentionAttrs }

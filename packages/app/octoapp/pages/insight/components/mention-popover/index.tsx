@@ -23,6 +23,10 @@ interface MentionPopoverProps {
   platformSkills: MentionSkill[]
   customSkills: MentionSkill[]
   files: MentionFiles | null
+  /** 技能惰性加载中(首次 @ 唤起时才拉);为 true 时空列表按「加载中」显示,不显示「暂无」 */
+  skillsLoading?: boolean
+  /** 会话文件拉取中;同上,避免把未到达的数据说成不存在 */
+  filesLoading?: boolean
   selections: MentionSelection[]
   onSelect: (selection: MentionSelection) => void
   onDeselect: (selection: MentionSelection) => void
@@ -144,7 +148,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         <div class="ins-mention-secondary" style={{ bottom: "52px" }}>
           <Show
             when={filteredPlatform().length > 0}
-            fallback={<div class="ins-mention-empty">暂无平台技能</div>}
+            fallback={<div class="ins-mention-empty">{props.skillsLoading ? "正在加载技能…" : "暂无平台技能"}</div>}
           >
             <div class="ins-mention-secondary-content">
               <For each={filteredPlatform()}>
@@ -175,7 +179,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         <div class="ins-mention-secondary" style={{ bottom: "8px" }}>
           <Show
             when={filteredCustom().length > 0}
-            fallback={<div class="ins-mention-empty">暂无自定义技能</div>}
+            fallback={<div class="ins-mention-empty">{props.skillsLoading ? "正在加载技能…" : "暂无自定义技能"}</div>}
           >
             <div class="ins-mention-secondary-content">
               <For each={filteredCustom()}>
@@ -207,7 +211,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <div class="ins-mention-files-header">当前会话</div>
           <Show
             when={filteredFiles() && (filteredFiles()!.generated.length > 0 || filteredFiles()!.uploaded.length > 0)}
-            fallback={<div class="ins-mention-empty">暂无用研资产</div>}
+            fallback={<div class="ins-mention-empty">{props.filesLoading ? "正在加载用研资产…" : "暂无用研资产"}</div>}
           >
             <div class="ins-mention-secondary-content ins-mention-secondary-content--files">
               <Show when={filteredFiles()!.generated.length > 0}>
