@@ -12,6 +12,7 @@ export function DesignPlanRenderer(props: {
   title: string
   artifactIdentifier?: string
   confirmed: boolean
+  disabled?: boolean
   onConfirm: () => void
   onContentChange?: (content: string) => void
   onBackToStrategy?: () => void
@@ -312,14 +313,14 @@ export function DesignPlanRenderer(props: {
             height: "32px",
             padding: "0 16px",
             "line-height": "22px",
-            background: props.confirmed ? "#e0e0e0" : "#f3f3f3",
-            color: props.confirmed ? "#aaa" : "#191919",
+            background: (props.confirmed || props.disabled) ? "#e0e0e0" : "#f3f3f3",
+            color: (props.confirmed || props.disabled) ? "#aaa" : "#191919",
             border: "none",
-            cursor: props.confirmed ? "not-allowed" : "pointer",
-            "pointer-events": props.confirmed ? "none" : "auto",
+            cursor: (props.confirmed || props.disabled) ? "not-allowed" : "pointer",
+            "pointer-events": (props.confirmed || props.disabled) ? "none" : "auto",
           }}
           onClick={() => { autoSave(); props.onBackToStrategy?.() }}
-          disabled={props.confirmed}
+          disabled={props.confirmed || props.disabled}
         >
           上一步
         </button>
@@ -330,14 +331,14 @@ export function DesignPlanRenderer(props: {
             height: "32px",
             padding: "0 16px",
             "line-height": "22px",
-            background: props.confirmed ? "#b0b0b0" : "#0a59f7",
+            background: (props.confirmed || props.disabled) ? "#b0b0b0" : "#0a59f7",
             color: "white",
             border: "none",
-            cursor: props.confirmed ? "not-allowed" : "pointer",
-            "pointer-events": props.confirmed ? "none" : "auto",
+            cursor: (props.confirmed || props.disabled) ? "not-allowed" : "pointer",
+            "pointer-events": (props.confirmed || props.disabled) ? "none" : "auto",
           }}
           onClick={() => { autoSave(); props.onConfirm?.() }}
-          disabled={props.confirmed}
+          disabled={props.confirmed || props.disabled}
         >
           {props.confirmed ? "已确认" : "策略执行"}
         </button>

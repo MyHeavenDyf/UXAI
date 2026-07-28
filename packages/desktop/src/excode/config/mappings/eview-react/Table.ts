@@ -1,206 +1,205 @@
 /**
- * Table 组件映射
+ * Table → Table 映射（新架构）
  *
- * 流程：
- *   - stateData.tableColumns → 纯数据，合并到 initialState
- *   - componentData.tableColumnsJsx → 含 JSX render 函数的 columns，模块顶部 const 声明
- *   - props.columns 引用 { __varRef: 'tableColumnsJsx' }
+ * A2UI Table → eview-react Table 组件。
+ *
+ * ## Props 对照
+ *
+ * | A2UI prop | eview-react prop | 处理方式 |
+ * |-----------|-----------------|---------|
+ * | dataSource（DataBinding） | dataset | **enrichScopedData** → ComputedValue（含 cells 内 relative CV 的编译期 enrichment） |
+ * | columns（字面量数组） | columns | 每列从 cells 生成 `render` fn，title/width/align 从 A2UI 列定义透传 |
+ * | columns（DataBinding） | columns | 透传 BindingValue（仅改名，不改值） |
+ * | rowKey | rowKey | 透传 |
+ * | pagination: true/false | enablePagination | false→false，其他（含缺省）→true |
+ * | rowSelection.type: checkbox | checkType: multi + enableCheckBox: true | 值映射 |
+ * | rowSelection.type: radio | checkType: single + enableCheckBox: true | 值映射 |
+ * | rowSelection.selectedRowKeys（字面量数组） | checkedRows | **LiteralValue.useState** + onRowCheck |
+ * | rowSelection.selectedRowKeys（DataBinding） | checkedRows | **ComputedValue.useState** + onRowCheck（值进 state.js，useState 引用 initialState） |
+ * | expandable | enableRowExpand: true | 存在即启用 |
+ * | className | className | 透传 |
+ * | rowClassName | — | eview-react 无直接对应，暂不处理 |
+ *
+ * ## 特殊逻辑
+ *
+ * - Table.children 总是 TemplateChildren（LoopNode），不存在静态 children
+ * - LoopNode.data → enrichScopedData（收集 cells 中的 relative ComputedValue，对数据源整体 enrichment）
+ * - cells resolve 后清除 loopScope（断循环引用，render fn body emit 不再需要 scope 链）
+ * - columns 由字面量构造 → propRoute 提升到 module-top
+ * - selectedRowKeys 双形态分叉：字面量 → Value.literal.useState，DataBinding → Value.computed.useState
  */
-export default {
+
+import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
+import type { LoopNode, RegularNode } from '../../../src/core/nodeTypes'
+import type { PropValue, BindingValue } from '../../../src/core/valueTypes'
+import { Value } from '../../../src/core/value'
+import { enrichScopedData, buildRenderFn } from '../../../src/core/scopedEnrichment'
+
+/** A2UI 列定义（字面量形态） */
+interface A2UIColDef {
+  title: string
+  dataIndex?: string
+  align?: 'left' | 'right' | 'center'
+  width?: string | number
+  minWidth?: string | number
+  fixed?: boolean | 'start' | 'end'
+  sort?: boolean
+  className?: string
+  filters?: Array<{ text: string; value: string | number }>
+}
+
+const TableMapping: MappingDef = {
   tag: 'Table',
   import: '@nce/eview-react/Table',
-  propsMap: {
-    dataSource: 'dataset',
-  },
-  defaults: {
-    rowKey: 'key',
-  },
 
-  /**
-   * transform — 构建 Table 节点
-   *
-   * 三种 cell 解析模式（按优先级）：
-   *   1) col.cell（componentId 引用）→ resolveNode 解析
-   *   2) node._loopTemplate.children[idx] → resolveNode 解析
-   *   3) 无数据源 → 根据 colKey 模式匹配硬编码 render
-   */
-  transform(node: any, { rawState, resolveNode }: { rawState: any; resolveNode: any }) {
-    const rawColumns = rawState?.tableColumns || [];
+  transform(node: any, ctx: TransformContext) {
+    // ─── children 处理：取出 LoopNode 和 cells ───
+    const children = node.children
+    if (!children || children.kind !== 'loop') return null
+    const loop = children as LoopNode
+    const dataBinding = loop.data as BindingValue
 
-    // 获取循环模板中的 cell 节点
-    const templateChildren = node._loopTemplate?.children || null;
+    const templateBody = loop.template?.body ?? []
+    const tableRow = templateBody[0]
+    if (!tableRow || tableRow.kind !== 'component') return null
+    const cells = (tableRow.children ?? []) as RegularNode[]
+    if (cells.length === 0) return null
 
-    // ── 纯数据 columns ──
-    const columns = rawColumns.map((col: any) => ({
-      key: col.dataIndex || col.key,
-      title: col.title,
-      width: col.width,
-      align: col.align,
-      fixed: col.fixed,
-    }));
+    // A2UI 字面量列定义（取 title/width/align 等；DataBinding 形态不在此处理）
+    const a2uiCols: A2UIColDef[] = Array.isArray(node.props.columns)
+      ? node.props.columns
+      : []
 
-    // ── 含 JSX 的 columns（render 函数）──
-    const columnsJsx = rawColumns.map((col: any, idx: number) => {
-      const colKey = col.dataIndex || col.key;
-      const baseCol: Record<string, any> = {
-        key: colKey,
-        title: col.title,
-        width: col.width,
-        align: col.align,
-        fixed: col.fixed,
-      };
+    // ─── resolve cells ───
+    const resolvedCells = cells.map(cell => ctx.resolveNode(cell as any))
 
-      // 1) col.cell（componentId 引用）→ resolveNode 解析
-      if (col.cell && resolveNode) {
-        const resolved = resolveNode(col.cell);
-        if (resolved) {
-          baseCol.render = {
-            __type: 'renderFn',
-            extract: true,
-            refName: `_renderCell_${colKey}`,
-            params: '(cellValue, rowData)',
-            body: resolved,
-          };
-          return baseCol;
+    // 清除 loopScope（断循环引用）
+    for (const cell of resolvedCells) {
+      if (cell && typeof cell === 'object') {
+        const clean = (n: any) => {
+          if (!n || typeof n !== 'object') return
+          delete n.loopScope
+          if (Array.isArray(n.children)) n.children.forEach(clean)
+          if (n.kind === 'loop') { clean(n.template); n.template?.body?.forEach(clean) }
+        }
+        delete (cell as any).loopScope
+        if (Array.isArray((cell as any).children)) (cell as any).children.forEach(clean)
+      }
+    }
+
+    // ─── dataset = dataSource enrichment ───
+    // dataSource 一定是 DataBinding（A2UI 强制），转为 ComputedValue 做整体 enrichment
+    const dsBinding = (node.props.dataSource as BindingValue) ?? dataBinding
+    const dataset = enrichScopedData(dsBinding, resolvedCells as any)
+
+    // ─── columns ───
+    // 字面量分支：从 resolved cells + A2UI 列定义构造
+    const columns: any[] = []
+    for (let i = 0; i < resolvedCells.length; i++) {
+      const cell = resolvedCells[i] as any
+      const colDef: A2UIColDef = a2uiCols[i] || {}
+
+      const col: Record<string, any> = {
+        key: colDef.dataIndex ?? cell.id ?? `col_${i}`,
+        title: typeof colDef.title === 'string' ? colDef.title : (cell.id ?? `col_${i}`),
+        render: buildRenderFn(cell, [
+          { name: 'cellValue' },
+          { name: 'rowData', dataSource: dataBinding },
+        ]),
+      }
+
+      // 列属性映射（A2UI → eview-react）
+      if (colDef.align) col.align = colDef.align
+      if (colDef.width !== undefined) col.width = colDef.width
+      if (colDef.minWidth !== undefined) col.width = colDef.minWidth
+      if (colDef.sort === true) col.allowSort = true
+      if (colDef.className) col.className = colDef.className
+      if (colDef.fixed === 'start' || colDef.fixed === 'end') col.freezeCol = true
+      // filters 透传（A2UI 与 eview-react 结构一致：[{ text, value }]）
+      if (colDef.filters) col.filters = colDef.filters
+
+      columns.push(col)
+    }
+
+    // ─── 构造输出 props ───
+    const outputProps: Record<string, PropValue> = {
+      dataset,
+      columns,
+    }
+
+    // rowKey：字面量，透传
+    if (node.props.rowKey) outputProps.rowKey = node.props.rowKey
+
+    // pagination → enablePagination（字面量 boolean，值映射）
+    outputProps.enablePagination = node.props.pagination !== false
+
+    // rowSelection → checkType + enableCheckBox + checkedRows（受控组件）
+    if (node.props.rowSelection) {
+      const rs = node.props.rowSelection
+
+      // checkType（字面量 string，值映射）
+      outputProps.checkType = rs.type === 'radio' ? 'single' : 'multi'
+      outputProps.enableCheckBox = true
+
+      // selectedRowKeys → checkedRows（双形态：字面量 / DataBinding，均触发 useState）
+      if (rs.selectedRowKeys !== undefined) {
+        const sk = rs.selectedRowKeys
+
+        if (sk && typeof sk === 'object' && (sk as any).type === 'binding') {
+          // DataBinding → ComputedValue + useState（值进 state.js）
+          outputProps.checkedRows = Value.computed({
+            path: (sk as any).path,
+            pathType: (sk as any).pathType ?? 'absolute',
+            accessPath: (sk as any).accessPath ?? 'checkedRows',
+            containsJSX: false,
+            useState: {
+              event: 'onRowCheck',
+              extractor: (setter) => `(_, checkedRows) => ${setter}(checkedRows)`,
+            },
+            transform: (rawValue: any) => Array.isArray(rawValue) ? rawValue : [],
+          })
+        } else if (Array.isArray(sk)) {
+          // 字面量 → LiteralValue + useState（初始值硬编码）
+          outputProps.checkedRows = Value.literal({
+            value: sk,
+            useState: {
+              event: 'onRowCheck',
+              extractor: (setter) => `(_, checkedRows) => ${setter}(checkedRows)`,
+            },
+          })
         }
       }
+    }
 
-      // 2) _loopTemplate.children 按索引取 cell 节点 → resolveNode 解析
-      if (templateChildren && templateChildren[idx] && resolveNode) {
-        const cellNode = templateChildren[idx];
-        const resolved = resolveNode(cellNode);
-        if (resolved) {
-          baseCol.render = {
-            __type: 'renderFn',
-            extract: true,
-            refName: `_renderCell_${colKey}`,
-            params: '(cellValue, rowData)',
-            body: resolved,
-          };
-          return baseCol;
-        }
-      }
+    // expandable → enableRowExpand（字面量 object，存在即启用）
+    if (node.props.expandable) outputProps.enableRowExpand = true
 
-      // 3) 无数据源 → 根据 colKey 模式匹配硬编码 render
-      if (colKey === 'customerInfo') {
-        baseCol.render = {
-          __type: 'renderFn',
-          extract: true,
-          refName: '_renderCell_customerInfo',
-          params: '(cellValue, rowData)',
-          body: {
-            __nodeType: 'html',
-            tag: 'div',
-            props: { className: 'flex items-center gap-2' },
-            children: [
-              {
-                __nodeType: 'component',
-                tag: 'img',
-                import: '',
-                props: {
-                  src: { __binding: true, pathType: 'relative', path: 'customerInfo.avatar' },
-                  alt: '',
-                  className: 'w-8 h-8 rounded-full',
-                },
-                selfClosing: true,
-              },
-              {
-                __nodeType: 'html',
-                tag: 'div',
-                props: { className: 'flex flex-col' },
-                children: [
-                  {
-                    __nodeType: 'html',
-                    tag: 'span',
-                    props: {
-                      className: 'font-medium',
-                      value: { __binding: true, pathType: 'relative', path: 'customerInfo.name' },
-                    },
-                  },
-                  {
-                    __nodeType: 'html',
-                    tag: 'span',
-                    props: {
-                      className: 'text-xs text-gray-500',
-                      value: { __binding: true, pathType: 'relative', path: 'customerInfo.phone' },
-                    },
-                  },
-                ],
-              },
-            ],
-          },
-        };
-      } else if (colKey === 'statusTag') {
-        baseCol.render = {
-          __type: 'renderFn',
-          extract: true,
-          refName: '_renderCell_statusTag',
-          params: '(cellValue, rowData)',
-          body: {
-            __nodeType: 'component',
-            tag: 'Tag',
-            import: '@nce/eview-react/Tag',
-            props: {
-              color: { __binding: true, pathType: 'relative', path: 'statusTag.color' },
-              value: { __binding: true, pathType: 'relative', path: 'statusTag.text' },
-            },
-          },
-        };
-      } else if (colKey === 'action') {
-        baseCol.render = {
-          __type: 'renderFn',
-          extract: true,
-          refName: '_renderCell_action',
-          params: '(cellValue, rowData)',
-          body: {
-            __nodeType: 'html',
-            tag: 'div',
-            props: { className: 'flex gap-2' },
-            children: [
-              {
-                __nodeType: 'component',
-                tag: 'Button',
-                import: '@nce/eview-react/Button',
-                props: {
-                  type: 'link',
-                  size: 'small',
-                  value: '查看详情',
-                },
-              },
-            ],
-          },
-        };
-      } else if (colKey) {
-        // 通用列：直接显示数据值
-        baseCol.render = {
-          __type: 'renderFn',
-          extract: true,
-          refName: `_renderCell_${colKey}`,
-          params: '(cellValue, rowData)',
-          body: {
-            __nodeType: 'html',
-            tag: 'span',
-            props: {
-              value: { __binding: true, pathType: 'relative', path: colKey },
-            },
-          },
-        };
-      }
+    // className（字面量 string，透传）
+    if (node.props.className) outputProps.className = node.props.className
 
-      return baseCol;
-    });
+    // 透传剩余（排除已处理的 A2UI 字段）
+    const SKIP = new Set([
+      'dataSource', 'columns', 'rowKey', 'pagination',
+      'rowSelection', 'expandable', 'rowClassName', 'className', 'id',
+    ])
+    for (const [key, val] of Object.entries(node.props)) {
+      if (!SKIP.has(key)) outputProps[key] = val as PropValue
+    }
 
-    // props 中的 columns 引用 {{ __varRef: 'tableColumnsJsx' }}
-    const props = {
-      ...(node.props || {}),
-      columns: { __varRef: 'tableColumnsJsx' },
-    };
+    // ─── propRoute ───
+    // columns：字面量数组 → module-top 提升
+    // checkedRows：受控 useState → component-internal
+    const propRoute: Record<string, any> = { columns: 'module-top' }
+    if (node.props.rowSelection?.selectedRowKeys !== undefined) {
+      propRoute.checkedRows = 'component-internal'
+    }
 
     return {
-      props,
+      props: outputProps,
+      propRoute,
       children: null,
-      stateData: { tableColumns: columns },
-      componentData: { tableColumnsJsx: columnsJsx },
-    };
+    }
   },
-};
+}
+
+export default TableMapping

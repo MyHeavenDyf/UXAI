@@ -20,6 +20,8 @@ import { PoeAuthPlugin } from "opencode-poe-auth"
 import { CloudflareAIGatewayAuthPlugin, CloudflareWorkersAuthPlugin } from "./cloudflare"
 import { AzureAuthPlugin } from "./azure"
 import { ModelHeadersPlugin } from "./model-headers"
+// proto agent 提示词按主题动态覆盖(替代 122f218cb 在 llm.ts 里的硬编码)
+import { ProtoThemePlugin } from "./proto-theme"
 // octo 自有 server 插件:MCP 工具执行前注入精确 S3 URL(见 ../agent/octo-upload-inject.ts)
 import { OctoUploadInjectPlugin } from "../agent/octo-upload-inject"
 // octo 自有 server 插件:insight 会话 write 相对落点重定向到会话 outputs/(见 ../agent/octo-outputs-redirect.ts)
@@ -70,6 +72,7 @@ const INTERNAL_PLUGINS: PluginInstance[] = [
   CloudflareAIGatewayAuthPlugin,
   AzureAuthPlugin,
   ModelHeadersPlugin,
+  ProtoThemePlugin,
   OctoUploadInjectPlugin,
   OctoOutputsRedirectPlugin,
 ]

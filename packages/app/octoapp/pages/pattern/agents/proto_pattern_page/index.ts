@@ -1,6 +1,7 @@
 import { extractJson } from '../../utils/json-parser'
 import { runChildSession } from '../run-child-session'
 import { logAgentParsed } from '../../utils/debug-log'
+import { agentThrow } from '../../utils/error-msg'
 import {
   readPatternIndex,
   type PatternEntry,
@@ -49,7 +50,7 @@ export default async function proto_pattern_page(input: ProtoPatternPageInput) {
   const matchJson = extractJson(result.text)
   if (!matchJson) {
     logAgentParsed(result.childSessionId, { error: "Failed to parse JSON", raw: result.text })
-    throw new Error("----- Pattern Page did not return valid JSON -----")
+    agentThrow(AGENT_NAME, result.childSessionId, "Pattern Page did not return valid JSON")
   }
   const returnValue = await resolveMatches(matchJson, patterns, theme)
   logAgentParsed(result.childSessionId, returnValue)

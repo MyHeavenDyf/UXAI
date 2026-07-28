@@ -2,6 +2,7 @@ import { extractJson } from '../../utils/json-parser';
 import { runChildSession } from "../run-child-session";
 import { logAgentParsed } from "../../utils/debug-log"
 import { TRIAGE_FORMAT } from "./schema"
+import { agentThrow } from "../../utils/error-msg"
 
 const AGENT_NAME = "proto_triage"
 
@@ -91,7 +92,7 @@ export default async function proto_triage(ctx: TriageInputContext): Promise<Tri
   const triageJson = extractJson(triageRes.text)
   if (!triageJson) {
     logAgentParsed(triageRes.childSessionId, { error: "Failed to parse JSON", raw: triageRes.text })
-    throw new Error("----- Triage JSON did not return valid JSON -----")
+    agentThrow(AGENT_NAME, triageRes.childSessionId, "Triage JSON did not return valid JSON")
   }
   const returnValue = {
     routing: (triageJson.routing as "regenerate" | "modify" | "chat") ?? "regenerate",

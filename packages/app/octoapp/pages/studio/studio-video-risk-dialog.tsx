@@ -3,6 +3,7 @@ import { usePlatform } from "@/context/platform"
 
 const AI_MANAGEMENT_GUIDE_URL = "https://w3.huawei.com/info/cn/doc/viewDoc.do?did=18822293&cata348041"
 const SEEDANCE_TERMS_URL = "https://docs.byteplus.com/zh-CN/docs/legal/docs-terms-of-service"
+const SEEDREAM_TERMS_URL = "https://www.volcengine.com/docs/85621/1536950"
 const EXTERNAL_AI_WEBSITE_CASE_URL = "https://12345.huawei.com/unidesk/portal/#/case_details?caseId=KT00231963"
 
 function StudioVideoRiskLink(props: { href: string; children: JSX.Element }): JSX.Element {
@@ -24,7 +25,7 @@ function StudioVideoRiskLink(props: { href: string; children: JSX.Element }): JS
   )
 }
 
-export function StudioVideoRiskContent(props: { class: string }): JSX.Element {
+export function StudioVideoRiskContent(props: { class: string; isVideoGeneration: boolean }): JSX.Element {
   return (
     <div class={props.class}>
       请遵守
@@ -32,8 +33,8 @@ export function StudioVideoRiskContent(props: { class: string }): JSX.Element {
         《业务生产与办公生成式人工智能管理指引》
       </StudioVideoRiskLink>
       ，按公司要求不能向外部网站上传内部文档、内部代码及内部信息；关于生成物版权请查看
-      <StudioVideoRiskLink href={SEEDANCE_TERMS_URL}>
-        《Seedance服务专用条款》
+      <StudioVideoRiskLink href={props.isVideoGeneration ? SEEDANCE_TERMS_URL : SEEDREAM_TERMS_URL}>
+        {props.isVideoGeneration ? "《Seedance服务专用条款》" : "《Seedream服务专用条款》"}
       </StudioVideoRiskLink>
     </div>
   )

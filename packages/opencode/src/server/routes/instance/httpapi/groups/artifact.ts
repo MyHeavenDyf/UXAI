@@ -103,7 +103,7 @@ export const ArtifactApi = HttpApi.make("artifact")
           OpenApi.annotations({
             identifier: "artifact.list",
             summary: "List artifacts",
-            description: "List artifact files and folders. 'category=generated' returns root files (excluding upload-files); 'category=uploaded' returns files in upload-files directory. Use 'path' to navigate subfolders within the category root.",
+            description: "List artifact files and folders. 'category=generated' returns files in outputs directory; 'category=uploaded' returns files in uploads directory. Use 'path' to navigate subfolders within the category root.",
           }),
         ),
         HttpApiEndpoint.get("content", ArtifactPaths.content, {

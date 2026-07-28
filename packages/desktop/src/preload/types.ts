@@ -146,6 +146,7 @@ export type ElectronAPI = {
   deleteFile: (path: string) => Promise<void>
   writeClipboardText: (text: string) => Promise<void>
   capturePreviewRect: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
+  capturePreviewPage: (opts: { pageJson: unknown; waitForMs?: number }) => Promise<string | null>
   tailwindToCss: (className: string) => Promise<Record<string, string>>
   cssToTailwind: (cssObject: Record<string, unknown>) => Promise<string>
   getPreviewDistDir: () => Promise<string>
@@ -156,13 +157,17 @@ export type ElectronAPI = {
   getDesignSystems: () => Promise<string[]>
   downloadHuiCode: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[]) => Promise<{ files: { path: string; content: string }[] }>
   runPixsoBuild: (input: string) => Promise<string>
-  exportZip: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; comment?: string }) => Promise<string | null>
+  exportZip: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; destFolder?: string; comment?: string }) => Promise<string | null>
   importZip: () => Promise<{ name: string; content: string }[] | null>
   codeToHtml: (opts: { url: string; theme?: "light" | "dark"; waitForMs?: number }) => Promise<{ html: string; resourceCount: number }>
   listDirectory: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>
   // Pipeline API IPC bridge 类型定义
   pipelineRequest: (url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) => Promise<any>
 
-  /** 配置 W3 代理: 测试连通性后写入 ~/.config/.octo */
-  configureProxy: (account: string, password: string) => Promise<{ success: boolean }>
+  /** 配置 W3 代理: 测试连通性后写入 ~/.config/octo/octo.json */
+  configureProxy: (account: string, password: string) => Promise<{
+    success: boolean
+    curlUrl: string
+    error?: string
+  }>
 }

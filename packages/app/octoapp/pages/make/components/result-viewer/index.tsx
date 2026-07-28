@@ -109,6 +109,8 @@ export function ResultViewer(props: {
   childPlanConfirmed?: boolean
   /** 子 session 的 session_status（用于检测子 agent 是否已完成但未输出有效 plan） */
   childSessionStatus?: { type: string }
+  /** 子 session 是否正在生成中（模型输出期间禁用按钮和表单） */
+  childBusy?: boolean
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const projectSelection = useProjectSelection()
@@ -127,7 +129,13 @@ export function ResultViewer(props: {
   const [archiving, setArchiving] = createSignal(false)
   const [refreshKey, setRefreshKey] = createSignal(0)
 
+  const handleViewportChange = (vp: ViewportPreset) => {
+    tracker.interaction({ module: "design", name: "change-viewport", extend: JSON.stringify({ viewport: vp }) })
+    setViewport(vp)
+  }
+
   const handleCanvasToDesign = async () => {
+    tracker.interaction({ module: "design", name: "canvas-to-design" })
     try {
       const tab = activeTab()
       if (!tab || tab.type !== "html") {
@@ -187,6 +195,7 @@ export function ResultViewer(props: {
   const toggleHtmlMode = (id: string) => {
     const current = getHtmlMode(id)
     const nextMode = current === "preview" ? "edit" : "preview"
+    tracker.interaction({ module: "design", name: "toggle-preview-source", extend: JSON.stringify({ mode: nextMode }) })
     setHtmlModes((prev) => ({ ...prev, [id]: nextMode }))
     if (nextMode === "edit") {
       setInspecting(false)
@@ -216,7 +225,13 @@ export function ResultViewer(props: {
   })
 
   const handleRefresh = () => {
+    tracker.interaction({ module: "design", name: "refresh-preview" })
     setRefreshKey((prev) => prev + 1)
+  }
+
+  const handleFocusModeToggle = () => {
+    tracker.interaction({ module: "design", name: "toggle-focus-mode", extend: JSON.stringify({ action: props.focusMode ? "close" : "open" }) })
+    props.onFocusModeToggle?.()
   }
 
 const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId: string; prop: string; value: string }>) => {
@@ -319,6 +334,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
               onFieldChange={(field, value) => props.onStrategyFieldChange?.(field, value)}
               onGenerate={() => props.onGenerateStrategy?.()}
               isGenerating={props.isGenerating}
+              disabled={props.childBusy}
               currentStep={1}
             />
           </div>
@@ -334,6 +350,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                   title={plan.title}
                   artifactIdentifier={plan.artifactIdentifier}
                   confirmed={props.isPlanConfirmed?.() ?? false}
+                  disabled={props.childBusy}
                   onConfirm={() => props.onConfirmPlan?.(plan.artifactIdentifier)}
                   onContentChange={(content) => {
                     if (props.onContentChange && plan.id) {
@@ -462,7 +479,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                    mode={canToggle ? htmlMode() : undefined}
                    onModeChange={canToggle ? () => toggleHtmlMode(tabId) : undefined}
                    viewport={viewport()}
-                   onViewportChange={setViewport}
+                   onViewportChange={handleViewportChange}
                    palette={palette()}
                    onPaletteChange={setPalette}
                    editing={editing()}
@@ -504,7 +521,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                     onCanvasToDesign={handleCanvasToDesign}
                     onRefresh={handleRefresh}
                    focusMode={props.focusMode}
-                   onFocusModeToggle={tabType !== "design-plan" ? props.onFocusModeToggle : undefined}
+                   onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
                  />
                 </Show>
                 <div class="flex-1 min-h-0 overflow-hidden">

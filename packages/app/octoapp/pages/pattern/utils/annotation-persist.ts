@@ -9,6 +9,8 @@ export type AnnotationRecord = {
     id: string
   }>
   time: number
+  account: string
+  userName: string
   rawRect: { top: number; left: number; width: number; height: number }
 }
 

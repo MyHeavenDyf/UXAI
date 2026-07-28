@@ -74,6 +74,8 @@ import type {
   FindTextResponses,
   FormatterStatusResponses,
   GlobalConfigGetResponses,
+  GlobalConfigReplaceProviderErrors,
+  GlobalConfigReplaceProviderResponses,
   GlobalConfigUpdateErrors,
   GlobalConfigUpdateResponses,
   GlobalDisposeResponses,
@@ -126,6 +128,7 @@ import type {
   ProjectUpdateResponses,
   Prompt,
   ProviderAuthResponses,
+  ProviderConfig,
   ProviderListResponses,
   ProviderOauthAuthorizeErrors,
   ProviderOauthAuthorizeResponses,
@@ -541,6 +544,45 @@ export class Config extends HeyApiClient {
     const params = buildClientParams([parameters], [{ args: [{ key: "config", map: "body" }] }])
     return (options?.client ?? this.client).patch<GlobalConfigUpdateResponses, GlobalConfigUpdateErrors, ThrowOnError>({
       url: "/global/config",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Replace global provider configuration
+   *
+   * Replace one provider configuration without changing other global settings or providers.
+   */
+  public replaceProvider<ThrowOnError extends boolean = false>(
+    parameters: {
+      providerID: string
+      providerConfig?: ProviderConfig
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "providerID" },
+            { key: "providerConfig", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<
+      GlobalConfigReplaceProviderResponses,
+      GlobalConfigReplaceProviderErrors,
+      ThrowOnError
+    >({
+      url: "/global/config/provider/{providerID}",
       ...options,
       ...params,
       headers: {
