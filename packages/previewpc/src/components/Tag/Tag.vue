@@ -3,6 +3,7 @@ import { computed, onMounted, ref, useAttrs, watch } from "vue"
 import { ElTag } from "element-plus"
 
 import { getIconComponentRef } from "../Icon/IconBase"
+import { svgCacheVersion } from "../../composables/useIconProvider"
 import type { Component } from "vue"
 import type { TagNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
@@ -132,10 +133,10 @@ const iconSize = computed(() => (size.value ? iconSizeEnum[size.value as keyof t
 
 const resolvedIcon = ref<{ component: Component | null; props: Record<string, any> } | null>(null)
 watch(
-  [iconName, iconSize],
-  async ([name, sz]) => {
+  [iconName, iconSize, svgCacheVersion],
+  ([name, sz]) => {
     if (!name) { resolvedIcon.value = null; return }
-    resolvedIcon.value = await getIconComponentRef(name, { size: sz })
+    resolvedIcon.value = getIconComponentRef(name, { size: sz })
   },
   { immediate: true },
 )

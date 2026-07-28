@@ -4,7 +4,8 @@ import { ElSegmented } from "element-plus"
 import type { SegmentedNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
-import { getIconComponentRef } from "../Icon/IconBase"
+import { getIconComponentRef, createIconRenderer } from "../Icon/IconBase"
+import { svgCacheVersion } from "../../composables/useIconProvider"
 import "./Segmented.less"
 
 const sizeEnum: Record<string, "" | "small" | "large" | "default" | undefined> = {
@@ -60,20 +61,17 @@ const normalizedOptions = computed(() => {
   })
 })
 
-// ---- 异步图标解析 ----
+// ---- 图标解析（同步，追踪 svgCacheVersion 以响应 SVG 到达） ----
 const resolvedOptions = ref<any[]>([])
 
 watch(
-  normalizedOptions,
-  async (opts) => {
-    const results = await Promise.all(
-      opts.map(async (opt: any) => {
-        if (!opt.iconName) return { label: opt.label, value: opt.value, icon: undefined }
-        const ref = await getIconComponentRef(opt.iconName)
-        return { label: opt.label, value: opt.value, icon: ref?.component ?? undefined }
-      }),
-    )
-    resolvedOptions.value = results
+  [normalizedOptions, svgCacheVersion],
+  ([opts]) => {
+    resolvedOptions.value = opts.map((opt: any) => {
+      if (!opt.iconName) return { label: opt.label, value: opt.value, icon: undefined }
+      const iconRef = getIconComponentRef(opt.iconName, { size: 16 })
+      return { label: opt.label, value: opt.value, icon: createIconRenderer(iconRef) ?? undefined }
+    })
   },
   { immediate: true },
 )

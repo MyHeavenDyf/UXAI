@@ -5,6 +5,7 @@ import type { TreeNodeNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import { getIconComponentRef, createIconRenderer } from "../Icon/IconBase"
+import { svgCacheVersion } from "../../composables/useIconProvider"
 import "./Tree.less"
 
 interface TreeNodeData {
@@ -112,8 +113,8 @@ function resolveIcons(nodes: RawNode[]): TreeNodeData[] {
 const treeData = ref<TreeNodeData[]>([])
 
 watch(
-  rawTreeData,
-  (raw) => {
+  [rawTreeData, svgCacheVersion],
+  ([raw]) => {
     treeData.value = resolveIcons(raw)
   },
   { immediate: true, deep: true },

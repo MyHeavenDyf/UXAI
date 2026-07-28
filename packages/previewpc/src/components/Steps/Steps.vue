@@ -6,6 +6,7 @@ import type { StepsNode } from "../types"
 import { useA2UIComponent, type A2UIComponentProps } from "../../renderer"
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
 import { getIconComponentRef } from "../Icon/IconBase"
+import { svgCacheVersion } from "../../composables/useIconProvider"
 import "./Steps.less"
 const statusEnum = {
   wait: "wait",
@@ -73,18 +74,19 @@ const items = computed(() => {
   })
 })
 
-// ---- 异步图标解析 ----
+// ---- 图标解析（同步，追踪 svgCacheVersion 以响应 SVG 到达） ----
 const resolvedStepIcons = ref<Record<number, { component: Component | null; props: Record<string, any> } | null>>({})
 
 watch(
-  items,
-  async (newItems) => {
+  [items, svgCacheVersion],
+  ([newItems]) => {
     const map: Record<number, any> = {}
-    await Promise.all(newItems.map(async (item: any, index: number) => {
+    for (let index = 0; index < newItems.length; index++) {
+      const item = newItems[index] as any
       if (item.icon) {
-        map[index] = await getIconComponentRef(item.icon, { size: 16 })
+        map[index] = getIconComponentRef(item.icon, { size: 24 })
       }
-    }))
+    }
     resolvedStepIcons.value = map
   },
   { immediate: true, deep: true },
