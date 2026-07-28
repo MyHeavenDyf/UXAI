@@ -133,7 +133,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
             onClick={() => setCategory("session")}
           >
             <Icon name="folder" size="small" />
-            <span class="ins-mention-primary-text">会话文件</span>
+            <span class="ins-mention-primary-text">用研资产</span>
             <Icon name="chevron-right" size="small" class="ins-mention-primary-arrow" />
           </button>
         </Show>
@@ -207,7 +207,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <div class="ins-mention-files-header">当前会话</div>
           <Show
             when={filteredFiles() && (filteredFiles()!.generated.length > 0 || filteredFiles()!.uploaded.length > 0)}
-            fallback={<div class="ins-mention-empty">暂无会话文件</div>}
+            fallback={<div class="ins-mention-empty">暂无用研资产</div>}
           >
             <div class="ins-mention-secondary-content ins-mention-secondary-content--files">
               <Show when={filteredFiles()!.generated.length > 0}>

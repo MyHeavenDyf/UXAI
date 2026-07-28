@@ -2166,9 +2166,9 @@ function InsightContent() {
                   <NewSessionView worktree="" title="Octo Insight" subtitle="AI辅助用户洞察研究" />
 
                   <div style={{ width: "100%", "max-width": "800px" }}>
-                    {/* 胶囊不加 overflow-hidden(对齐 Design):否则会裁掉编辑器内 @ 面板的 bottom:100% 弹层 */}
+                    {/* @ 面板走 Portal + fixed(编辑器内),脱离本胶囊裁剪 → 胶囊可保留 overflow-hidden 圆角 */}
                     <div
-                      class="rounded-[24px] transition-all duration-300 relative group flex flex-col"
+                      class="rounded-[24px] transition-all duration-300 relative group flex flex-col overflow-hidden"
                       style={{
                         border: "1px solid transparent",
                         background: `
@@ -2392,9 +2392,9 @@ function InsightContent() {
                   </div>
                 </Show>
 
-                {/* 胶囊不加 overflow-hidden(对齐 Design):否则会裁掉编辑器内 @ 面板的 bottom:100% 弹层 */}
+                {/* @ 面板走 Portal + fixed(编辑器内),脱离本胶囊裁剪 → 胶囊可保留 overflow-hidden 圆角 */}
                 <div
-                  class="rounded-[16px] transition-all duration-300 relative group flex flex-col"
+                  class="rounded-[16px] transition-all duration-300 relative group flex flex-col overflow-hidden"
                   style={{
                     border: "1px solid transparent",
                     background: `

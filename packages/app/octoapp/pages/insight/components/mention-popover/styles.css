@@ -11,7 +11,7 @@
   border-radius: 12px;
   box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.14);
   padding: 8px;
-  z-index: 100;
+  z-index: 1000;
   margin-bottom: 10px;
 }
 
@@ -100,7 +100,7 @@
   border-radius: 12px;
   box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.14);
   overflow: hidden;
-  z-index: 101;
+  z-index: 1001;
 }
 
 .ins-mention-secondary--files {

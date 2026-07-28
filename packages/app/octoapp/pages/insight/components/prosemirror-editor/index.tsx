@@ -1,4 +1,5 @@
 import { createSignal, onMount, onCleanup, Show, createEffect } from "solid-js"
+import { Portal } from "solid-js/web"
 import { EditorState, Transaction, TextSelection } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
 import { history, undo, redo } from "prosemirror-history"
@@ -51,10 +52,19 @@ export function ProseMirrorEditor(props: Props) {
   const [view, setView] = createSignal<EditorView>()
   const [triggerState, setTriggerState] = createSignal<MentionTriggerState | null>(null)
   const [isEmpty, setIsEmpty] = createSignal(true)
+  // 弹层用 Portal 挂到 body + fixed 定位(对齐 Design a919045a2):脱离胶囊 overflow/堆叠上下文,
+  // 永不被裁切/遮挡 → 胶囊可保留 overflow-hidden(圆角)。坐标从编辑器容器实时算。
+  const [popoverPos, setPopoverPos] = createSignal<{ left: number; bottom: number } | null>(null)
 
   const mentionTriggerPlugin = createMentionTriggerPlugin((state) => {
     const wasActive = triggerState()?.active ?? false
     setTriggerState(state)
+    if (state?.active && containerRef) {
+      const rect = containerRef.getBoundingClientRect()
+      setPopoverPos({ left: rect.left, bottom: window.innerHeight - rect.top })
+    } else {
+      setPopoverPos(null)
+    }
     if (state?.active && !wasActive) props.onMentionOpen?.()
   }, props.onTriggerMention)
 
@@ -206,17 +216,28 @@ export function ProseMirrorEditor(props: Props) {
         onPaste={(e) => props.onPaste?.(e)}
       />
 
-      <Show when={triggerState()?.active}>
-        <MentionPopover
-          query={triggerState()!.query}
-          platformSkills={props.platformSkills}
-          customSkills={props.customSkills}
-          files={props.files}
-          selections={props.mentionSelections}
-          onSelect={handleMentionSelect}
-          onDeselect={handleMentionDeselect}
-          onClose={() => setTriggerState(null)}
-        />
+      <Show when={triggerState()?.active && popoverPos()}>
+        <Portal>
+          <div
+            style={{
+              position: "fixed",
+              left: `${popoverPos()!.left}px`,
+              bottom: `${popoverPos()!.bottom + 12}px`,
+              "z-index": 1000,
+            }}
+          >
+            <MentionPopover
+              query={triggerState()!.query}
+              platformSkills={props.platformSkills}
+              customSkills={props.customSkills}
+              files={props.files}
+              selections={props.mentionSelections}
+              onSelect={handleMentionSelect}
+              onDeselect={handleMentionDeselect}
+              onClose={() => setTriggerState(null)}
+            />
+          </div>
+        </Portal>
       </Show>
     </div>
   )
