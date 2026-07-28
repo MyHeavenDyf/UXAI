@@ -9,7 +9,6 @@ import { ProviderTransform } from "@/provider/transform"
 import { Config } from "@/config/config"
 import { InstanceState } from "@/effect/instance-state"
 import type { Agent } from "@/agent/agent"
-import { ProtoTheme } from "@/agent/proto/theme"
 import type { MessageV2 } from "./message-v2"
 import { Plugin } from "@/plugin"
 import { SystemPrompt } from "./system"
@@ -100,14 +99,11 @@ const live: Layer.Layer<
 
       // TODO: move this to a proper hook
       const isOpenaiOauth = item.id === "openai" && info?.type === "oauth"
-      const resolvedPrompt = ProtoTheme.hasTemplate(input.agent.name)
-        ? yield* ProtoTheme.resolvePromptForSession(input.agent.name, input.sessionID)
-        : undefined
       const system: string[] = []
       system.push(
         [
           // use agent prompt otherwise provider prompt
-          ...(resolvedPrompt ?? input.agent.prompt ? [resolvedPrompt ?? input.agent.prompt] : SystemPrompt.provider(input.model)),
+          ...(input.agent.prompt ? [input.agent.prompt] : SystemPrompt.provider(input.model)),
           // any custom prompt passed into this call
           ...input.system,
           // any custom prompt from last user message
