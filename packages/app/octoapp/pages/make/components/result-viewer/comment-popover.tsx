@@ -84,7 +84,23 @@ export function CommentPopover(props: {
     setIsEditing(false)
   })
   
+  let newTextarea: HTMLTextAreaElement | undefined
   let editTextarea: HTMLTextAreaElement | undefined
+  
+  // 新建标注时自动 focus
+  createEffect(() => {
+    if (!props.comment && newTextarea) {
+      newTextarea.focus()
+    }
+  })
+  
+  // 编辑标注时自动 focus
+  createEffect(() => {
+    if (isEditing() && editTextarea) {
+      editTextarea.focus()
+    }
+  })
+  
   const autoResizeTextarea = (el: HTMLTextAreaElement) => {
     el.style.height = "auto"
     el.style.height = Math.min(el.scrollHeight, 66) + "px"
@@ -444,6 +460,7 @@ export function CommentPopover(props: {
       <Show when={!props.readOnly}>
         <div class="comment-input-field" classList={{ "comment-input-field-with-content": hasContent() }}>
           <textarea
+            ref={newTextarea}
             class="comment-input-text"
             value={note()}
             onInput={(e) => {
