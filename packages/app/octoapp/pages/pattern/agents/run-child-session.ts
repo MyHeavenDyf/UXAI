@@ -104,7 +104,7 @@ async function processAgentResult(params: {
     model: modelKey,
     sessionID: childSessionID,
     parts: [{ type: "text", text: promptText }, ...(fileParts ?? [])],
-    ...(agent === "octo_make" ? { system: "当用户未指定图标、插画、图片等资源的来源时，使用 \"resourceLibrary\" skill 获取这些资源。该 skill 位于 octo 配置目录下的 resourceLibraryScript/resourceLibrary/SKILL.md（Linux/macOS 通常在 ~/.config/octo/，Windows 通常在 %APPDATA%/octo/）" } : {}),
+    ...(agent === "octo_make" || agent === "octo_make_plan" || agent.startsWith("proto_") ? { system: "当用户未指定图标、插画、图片等资源的来源时，使用 \"resourceLibrary\" skill 获取这些资源。该 skill 位于 octo 配置目录下的 resourceLibraryScript/resourceLibrary/SKILL.md（Linux/macOS 通常在 ~/.config/octo/，Windows 通常在 %APPDATA%/octo/）" } : {}),
   })
 
   const stopWatch = watchRetryStatus(sync, childSessionID)
