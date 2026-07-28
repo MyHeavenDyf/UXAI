@@ -327,6 +327,7 @@ export function TitlebarSimple() {
         </div>
         <TaskList />
         {/* jk// jk-j60099994-replace-with-titlebar-simple-2-start */}
+        <TaskList />
         <img src="/AvatarUser.svg" alt="" class="header-user-icon" />
         {/* jk-j60099994-replace-with-titlebar-simple-2-end */}
         <Show when={windows()}>
