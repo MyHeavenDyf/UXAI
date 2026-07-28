@@ -44,9 +44,3 @@ const computedStyle = computed(() => {
   <span class="hui-svg-icon" :style="computedStyle" v-html="normalizedSvg" />
 </template>
 
-<style scoped>
-.hui-svg-icon svg {
-  width: 100%;
-  height: 100%;
-}
-</style>
