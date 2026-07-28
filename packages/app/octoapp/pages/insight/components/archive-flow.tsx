@@ -226,7 +226,7 @@ async function runArchiveFileTask(
           serviceType: "edm_upload",
           hasProgress: true,
           canPause: false,
-          canCancel: false,
+          canCancel: true,
           pauseDisabled: false,
           cancelDisabled: false,
           name: file.name,
