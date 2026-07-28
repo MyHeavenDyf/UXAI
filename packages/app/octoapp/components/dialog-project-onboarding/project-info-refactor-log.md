@@ -1214,10 +1214,12 @@ derived signal 模式测试后仍有两个选项同时高亮。改为更直接�
 - 用户选中不同版本时集合变化 → `onSelectionChange` 触发 → `closeOnSelection` 关闭面板，行为不变。
 - 移除 `versionCloseGuard`、`guardClearGen`、re-arm effect、清守卫 effect、`onOpenChange`/`onSelect` 中的守卫判断。
 
-### 134. `project-info-dialog-content.tsx` — 移除 `pinActionActive`
+### 134. `project-info-dialog-content.tsx` — `pinActionActive` 保留（实测修正）
 
-- `allowDuplicateSelectionEvents={false}` 后，置顶的 `mutateVersions`（重排 + 切 isTop）使选中集合不变 → prune 不触发 `close()`，置顶不再收起面板。
-- 移除 `pinActionActive` 标志及其在 `handleVersionTopToggle` / `onOpenChange` / `onSelect` 中的判断。`select.tsx` 的 `isPinAction`（`.pin-action-icon` pointerdown/up stopPropagation）继续负责阻止点置顶图标误触 item 选中。
+- 原计划随 `allowDuplicateSelectionEvents={false}` 一并移除 `pinActionActive`（假设置顶重排集合不变 → prune 不 close）。
+- 实测发现：Kobalte 的 press 检测在 capture 阶段，pin span 的 bubble `stopPropagation` 挡不住，**点击置顶图标会选中该版本项**（选中集合变化）→ `onSelectionChange` → `close()`。`allowDuplicateSelectionEvents` 只在「集合不变」时生效，挡不住这种「集合变化」的 close。
+- 故 `pinActionActive` 保留：在 `handleVersionTopToggle` 期间置位，拦截 `onOpenChange(false)` 与 `onSelect` 副作用。与 `allowDuplicateSelectionEvents={false}` 分工：后者管版本数据到达（集合不变），前者管置顶点击选中（集合变化）。
+- `select.tsx` 的 `isPinAction`（`.pin-action-icon` pointerdown/up stopPropagation）继续在 bubble 层尽力阻止 item 选中，但 capture 层仍漏，需 `pinActionActive` 兜底。
 
 ### 135. `project-info-dialog-content.tsx` — 版本接口由点击时才请求改为产品变化即预取（调整 125）
 

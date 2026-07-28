@@ -38,6 +38,9 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
   })
 
   const [versionPopoverOpen, setVersionPopoverOpen] = createSignal(false)
+  // 置顶/取消置顶期间置位：Kobalte press 检测在 capture 阶段，pin span 的 bubble stopPropagation 挡不住，
+  // 点击置顶图标会选中该版本项（选中集合变化）→ onSelectionChange → close()，需在此期间拦截关闭与选中副作用。
+  let pinActionActive = false
   // 用户一旦手动操作，就中止自动选中链，避免在途接口返回后覆盖用户已选的项
   let userInteracted = false
   let autoSelectStarted = false
@@ -94,6 +97,7 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
   })
 
   const handleVersionTopToggle = (version: Version) => {
+    pinActionActive = true
     const newIsTop = !version.isTop
     const fn = newIsTop ? topVersion : cancelTopVersion
     fn(version.baseTeam).then(() => {
@@ -108,7 +112,10 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
         const updated = safeVersionOptions().find(v => v.id === version.id)
         if (updated) setStore("version", { ...updated })
       }
-    }).catch(() => {})
+      pinActionActive = false
+    }).catch(() => {
+      pinActionActive = false
+    })
   }
 
   const versionItemContent = (o: Version | undefined) => {
@@ -184,10 +191,12 @@ export function ProjectInfoDialogContent(props: ProjectInfoDialogContentProps): 
         triggerProps={{ class: "version-select-trigger" }}
         open={versionPopoverOpen()}
         onOpenChange={(open) => {
+          if (pinActionActive && !open) return
           if (props.disabled) return
           setVersionPopoverOpen(open)
         }}
         onSelect={(o) => {
+          if (pinActionActive) return
           userInteracted = true
           o && setStore("version", { ...o })
         }}
