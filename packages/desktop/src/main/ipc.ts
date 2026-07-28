@@ -101,7 +101,7 @@ function sanitizeSessionSegment(raw: string): string {
 
 // write-file 白名单用(v2 会话隔离新增):判断路径是否落在 .octo/<sessionId>/{uploads,outputs} 下。
 // sessionId 段可变,不能用固定子串匹配,按路径分段比对—— .octo 之后第一段是会话段、第二段必须是
-// uploads/outputs(这样 .octo/artifacts/make/... 这类其它命名空间的第二段不是 uploads/outputs,天然不放行)。
+// uploads/outputs(这样 .octo/<sessionId>/comments/... 等其它命名空间的第二段不是 uploads/outputs,天然不放行)。
 function isInsightSessionWorktreePath(resolved: string): boolean {
   const segs = resolved.split(sep)
   const i = segs.lastIndexOf(".octo")
@@ -1195,38 +1195,75 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("pipeline-request", (_event: IpcMainInvokeEvent, url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) =>
     pipelineRequest(url, method, uiplusToken, body, headers))
 
-  // Proxy 配置: curl 测试代理连通性, 成功后写入 ~/.config/.octo
+  // Proxy 配置: curl 测试代理连通性, 成功后写入 ~/.config/octo/proxy_config.json
   ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string) => {
+    const encodedPwd = encodeURIComponent(password)
+      .replace(/['()!*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
+    const proxyUrl = `http://${account}:${encodedPwd}@proxyhk.huawei.com:8080`
+    // http_proxy 和 https_proxy 都用同一个 http:// 代理地址
+    const noProxy = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
+    const curlTarget = "https://ifconfig.me/ip"
+
+    log.info("[configure-proxy] 开始配置代理")
+
+    // 先注入环境变量，确保 curl 能走代理
+    const prevEnv: Record<string, string | undefined> = {}
+    for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"]) {
+      prevEnv[key] = process.env[key]
+    }
+    process.env["http_proxy"] = proxyUrl
+    process.env["https_proxy"] = proxyUrl
+    process.env["no_proxy"] = noProxy
+    process.env["HTTP_PROXY"] = proxyUrl
+    process.env["HTTPS_PROXY"] = proxyUrl
+    process.env["NO_PROXY"] = noProxy
+
+    log.info("[configure-proxy] 环境变量已注入")
+
     try {
-      // 密码编码: 字母/数字/-/_/./~ 原样保留, 其他字符转百分号编码
-      const encodedPwd = encodeURIComponent(password)
-        .replace(/['()!*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
-      const proxyUrl = `http://${account}:${encodedPwd}@proxyhk.huawei.com:8080`
+      log.info("[configure-proxy] 执行 curl 测试连通性", { curlTarget, connectTimeout: 15, execTimeout: 20000 })
 
-      // curl 测试连通性
-      execSync(`curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "${proxyUrl}"`, {
-        timeout: 8000,
+      // 代理验证：通过代理请求 ifconfig.me/ip，检查返回 IP 以 119. 开头
+      const curlOutput = execSync(`curl -k -sS --connect-timeout 15 "${curlTarget}"`, {
+        timeout: 20000,
         stdio: "pipe",
-      })
+        encoding: "utf-8",
+      }).toString().trim()
 
-      // 写入 ~/.config/.octo
-      const configDir = join(homedir(), ".config", ".octo")
-      const configFile = join(configDir, "config")
+      if (!curlOutput.startsWith("119.")) {
+        throw new Error(`代理返回的 IP 不是 119.x.x.x: ${curlOutput}`)
+      }
+
+      log.info("[configure-proxy] 代理验证通过", { ip: curlOutput })
+
+      log.info("[configure-proxy] curl 测试通过, 写入配置文件")
+
+      // 写入 ~/.config/octo/proxy_config.json（独立文件，避免影响 octo.json 的 schema 校验）
+      const configDir = getOctoConfigPath()
+      const configFile = join(configDir, "proxy_config.json")
       mkdirSync(configDir, { recursive: true })
 
-      let config: Record<string, string> = {}
-      try {
-        config = JSON.parse(readFileSync(configFile, "utf-8"))
-      } catch { /* 文件不存在或解析失败, 使用空对象 */ }
-
-      config["http_proxy"] = proxyUrl
-      config["https_proxy"] = proxyUrl.replace("http://", "https://")
-      config["no_proxy"] = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
-
-      writeFileSync(configFile, JSON.stringify(config, null, 2), "utf-8")
-      return { success: true }
-    } catch {
-      return { success: false }
+      writeFileSync(configFile, JSON.stringify({
+        http_proxy: proxyUrl,
+        https_proxy: proxyUrl,
+        no_proxy: noProxy,
+      }, null, 2), "utf-8")
+      log.info("[configure-proxy] 配置写入成功", { configFile })
+      return { success: true, curlUrl: curlTarget }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      log.error("[configure-proxy] 配置失败", { error: errorMessage })
+      return { success: false, curlUrl: curlTarget, error: errorMessage }
+    } finally {
+      // 恢复之前的环境变量
+      for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"] as const) {
+        const val = prevEnv[key]
+        if (val === undefined) {
+          delete process.env[key]
+        } else {
+          process.env[key] = val
+        }
+      }
     }
   })
 }

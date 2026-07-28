@@ -3464,6 +3464,35 @@ export type GlobalConfigUpdateResponses = {
 
 export type GlobalConfigUpdateResponse = GlobalConfigUpdateResponses[keyof GlobalConfigUpdateResponses]
 
+export type GlobalConfigReplaceProviderData = {
+  body?: ProviderConfig
+  path: {
+    providerID: string
+  }
+  query?: never
+  url: "/global/config/provider/{providerID}"
+}
+
+export type GlobalConfigReplaceProviderErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalConfigReplaceProviderError =
+  GlobalConfigReplaceProviderErrors[keyof GlobalConfigReplaceProviderErrors]
+
+export type GlobalConfigReplaceProviderResponses = {
+  /**
+   * Successfully replaced global provider config
+   */
+  200: Config
+}
+
+export type GlobalConfigReplaceProviderResponse =
+  GlobalConfigReplaceProviderResponses[keyof GlobalConfigReplaceProviderResponses]
+
 export type GlobalDisposeData = {
   body?: never
   path?: never

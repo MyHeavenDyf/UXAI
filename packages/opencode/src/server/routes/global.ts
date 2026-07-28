@@ -14,6 +14,7 @@ import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import * as Log from "@opencode-ai/core/util/log"
 import { lazy } from "../../util/lazy"
 import { Config } from "@/config/config"
+import { ConfigProvider } from "@/config/provider"
 import { errors } from "../error"
 import { disposeAllInstancesAndEmitGlobalDisposed } from "../global-lifecycle"
 
@@ -180,6 +181,38 @@ export const GlobalRoutes = lazy(() =>
       async (c) => {
         const config = c.req.valid("json")
         const result = await AppRuntime.runPromise(Config.Service.use((cfg) => cfg.updateGlobal(config)))
+        if (result.changed) {
+          void AppRuntime.runPromise(disposeAllInstancesAndEmitGlobalDisposed({ swallowErrors: true })).catch(
+            () => undefined,
+          )
+        }
+        return c.json(result.info)
+      },
+    )
+    .put(
+      "/config/provider/:providerID",
+      describeRoute({
+        summary: "Replace global provider configuration",
+        description: "Replace one provider configuration without changing other global settings or providers.",
+        operationId: "global.config.replaceProvider",
+        responses: {
+          200: {
+            description: "Successfully replaced global provider config",
+            content: {
+              "application/json": {
+                schema: resolver(Config.Info.zod),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("param", z.object({ providerID: z.string() })),
+      validator("json", ConfigProvider.Info.zod),
+      async (c) => {
+        const result = await AppRuntime.runPromise(
+          Config.Service.use((cfg) => cfg.replaceGlobalProvider(c.req.valid("param").providerID, c.req.valid("json"))),
+        )
         if (result.changed) {
           void AppRuntime.runPromise(disposeAllInstancesAndEmitGlobalDisposed({ swallowErrors: true })).catch(
             () => undefined,

@@ -101,6 +101,18 @@ export const DialogSettings: Component = () => {
             transform: translateX(20px) !important;
             border: none !important;
           }
+          [data-settings-models] {
+            scrollbar-color: rgba(0, 0, 0, 0.24) transparent;
+            scrollbar-gutter: stable;
+            scrollbar-width: thin;
+          }
+          [data-settings-models]::-webkit-scrollbar {
+            width: 6px;
+          }
+          [data-settings-models]::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.24);
+            border-radius: 999px;
+          }
         `}</style>
         <TabsRoot orientation="vertical" defaultValue="general" class="h-full" style={{ display: "flex" }}>
           <TabsList
@@ -175,7 +187,10 @@ export const DialogSettings: Component = () => {
           <TabsContent value="providers" style={{ flex: 1, overflow: "auto", padding: "8px 20px" }}>
             <SettingsProviders />
           </TabsContent>
-          <TabsContent value="models" style={{ flex: 1, overflow: "auto", padding: "8px 20px" }}>
+          <TabsContent
+            value="models"
+            style={{ flex: 1, "min-height": 0, "min-width": 0, overflow: "hidden", padding: "8px 20px" }}
+          >
             <SettingsModels />
           </TabsContent>
         </TabsRoot>

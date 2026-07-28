@@ -114,7 +114,7 @@ export const SettingsGeneral: Component = () => {
       } else {
         showToast({ variant: "error", title: "配置值不正确" })
       }
-    } catch {
+    } catch (err) {
       showToast({ variant: "error", title: "配置值不正确" })
     } finally {
       setProxyConfiguring(false)

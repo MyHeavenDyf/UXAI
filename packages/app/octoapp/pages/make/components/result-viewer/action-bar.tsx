@@ -9,6 +9,7 @@ import { IconActionCopy, IconActionEdit, IconActionPreview, IconViewportDesktop,
 import { IconRefresh as IconFileRefresh } from "../../icons/design-files-icons"
 import { showToast } from "@opencode-ai/ui/toast"
 import { getDesktopApi } from "../../lib/electron-api"
+import { tracker } from "@/utils/tracker"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text)
@@ -338,6 +339,7 @@ export function ActionBar(props: {
     onCanvasToDesign?: () => void
   }): JSX.Element {
   async function handleDownload() {
+    tracker.interaction({ module: "design", name: "download-file", extend: JSON.stringify({ type: props.tab.type }) })
     if (props.tab.type === "deck") {
       exportDeckAsPDF(props.tab.content, props.tab.title)
       return
@@ -461,12 +463,15 @@ export function ActionBar(props: {
             <span>画布编辑</span>
           </button>
         )}
-        <Show when={shouldShowCopy()}>
-          <button type="button" class="octo-action-btn" onClick={() => copyToClipboard(props.tab.content)}>
-            <IconActionCopy size={13} />
-            <span>复制</span>
-          </button>
-        </Show>
+<Show when={shouldShowCopy()}>
+           <button type="button" class="octo-action-btn" onClick={() => {
+             tracker.interaction({ module: "design", name: "copy-content", extend: JSON.stringify({ type: props.tab.type }) })
+             copyToClipboard(props.tab.content)
+           }}>
+             <IconActionCopy size={13} />
+             <span>复制</span>
+           </button>
+         </Show>
         <Show when={props.tab.type !== "local-file" && props.tab.type !== "html"}>
           <ExportButton tab={props.tab} onPrimaryDownload={handleDownload} />
         </Show>
@@ -545,6 +550,7 @@ function ExportButton(props: {
   }
 
   const handleExport = async (kind: ArtifactExportKind) => {
+    tracker.interaction({ module: "design", name: "export-file", extend: JSON.stringify({ type: props.tab.type, format: kind }) })
     const result = getExportContent(props.tab, kind)
     if (result) await downloadBlob(result.content, result.filename, EXPORT_MIME[kind])
     setOpen(false)

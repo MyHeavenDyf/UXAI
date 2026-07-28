@@ -50,7 +50,7 @@ export async function persistTabChanges(
   
   // 3. Auto-save to project directory (Electron environment only)
   // Skip if file is from Design Files panel (already exists on disk)
-  const isFromDesignFiles = tab.filePath && tab.filePath.includes(".octo/artifacts/make")
+  const isFromDesignFiles = tab.filePath && tab.filePath.includes(".octo/") && tab.filePath.includes(`/${options.sessionId}/`)
   if (options.projectDir && !isFromDesignFiles && tab.type !== "local-file") {
     const card: OutputCard = {
       id: tab.id,

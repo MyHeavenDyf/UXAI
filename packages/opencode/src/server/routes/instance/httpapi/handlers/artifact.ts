@@ -8,9 +8,10 @@ import * as InstanceState from "@/effect/instance-state"
 import path from "path"
 import { injectArtifactBridges } from "./artifact-bridge"
 
-const ARTIFACTS_BASE_DIR = ".octo/artifacts/make"
-const UPLOAD_FILES_DIR = "upload-files"
-const COMMENT_FILES_DIR = "comment-files"
+const SESSION_BASE_DIR = ".octo"
+const OUTPUTS_DIR = "outputs"
+const UPLOADS_DIR = "uploads"
+const COMMENTS_DIR = "comments"
 
 function sanitizePath(rawPath: string): string {
   const normalized = rawPath.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
@@ -256,36 +257,41 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       const subPath = ctx.query.path ?? ""
       const recursive = ctx.query.recursive ?? false
       const instanceCtx = yield* InstanceState.context
-      const artifactDir = path.join(instanceCtx.directory, ARTIFACTS_BASE_DIR, sessionId)
-      const uploadFilesDir = path.join(artifactDir, UPLOAD_FILES_DIR)
+      const sessionDir = path.join(instanceCtx.directory, SESSION_BASE_DIR, sessionId)
+      const outputsDir = path.join(sessionDir, OUTPUTS_DIR)
+      const uploadsDir = path.join(sessionDir, UPLOADS_DIR)
 
-      yield* fs.ensureDir(uploadFilesDir).pipe(Effect.catch(() => Effect.void))
+      yield* fs.ensureDir(outputsDir).pipe(Effect.catch(() => Effect.void))
+      yield* fs.ensureDir(uploadsDir).pipe(Effect.catch(() => Effect.void))
 
       if (category === "generated") {
-        const exists = yield* fs.exists(artifactDir).pipe(Effect.catch(() => Effect.succeed(false)))
+        const targetDir = subPath ? path.join(outputsDir, sanitizePath(subPath)) : outputsDir
+
+        const exists = yield* fs.exists(targetDir).pipe(Effect.catch(() => Effect.succeed(false)))
         if (!exists) return { files: [] }
 
-        const entries = yield* fs.readDirectory(artifactDir).pipe(Effect.catch(() => Effect.succeed([])))
+        const entries = yield* fs.readDirectory(targetDir).pipe(Effect.catch(() => Effect.succeed([])))
         const files: ArtifactFileInfo[] = []
 
         for (const name of entries) {
-          if (name.startsWith(".") || name === UPLOAD_FILES_DIR || name === COMMENT_FILES_DIR) continue
+          if (name.startsWith(".")) continue
 
-          const fullPath = path.join(artifactDir, name)
+          const fullPath = path.join(targetDir, name)
+          const relativePath = subPath ? `${sanitizePath(subPath)}/${name}` : name
           const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
 
           if (!stat) continue
 
           const isFolder = stat.type === "Directory"
           if (recursive && isFolder) {
-            yield* collectFilesRecursive(fullPath, name, sessionId, files)
+            yield* collectFilesRecursive(fullPath, relativePath, sessionId, files)
           } else {
             const sizeNum = isFolder ? 0 : (typeof stat.size === "bigint" ? Number(stat.size) : (stat.size ?? 0))
             const mtimeNum = Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
             files.push({
               name,
               path: fullPath,
-              relativePath: name,
+              relativePath,
               sessionId,
               kind: isFolder ? "folder" : getKind(name),
               isFolder,
@@ -300,7 +306,7 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       }
 
       if (category === "uploaded") {
-        const targetDir = subPath ? path.join(uploadFilesDir, sanitizePath(subPath)) : uploadFilesDir
+        const targetDir = subPath ? path.join(uploadsDir, sanitizePath(subPath)) : uploadsDir
 
         const exists = yield* fs.exists(targetDir).pipe(Effect.catch(() => Effect.succeed(false)))
         if (!exists) return { files: [] }
@@ -308,7 +314,7 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
         const files: ArtifactFileInfo[] = []
 
         if (recursive) {
-          const baseRelativePath = subPath ? `upload-files/${sanitizePath(subPath)}` : "upload-files"
+          const baseRelativePath = subPath ? `uploads/${sanitizePath(subPath)}` : "uploads"
           yield* collectFilesRecursive(targetDir, baseRelativePath, sessionId, files)
         } else {
           const entries = yield* fs.readDirectory(targetDir).pipe(Effect.catch(() => Effect.succeed([])))
@@ -316,7 +322,7 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
             if (name.startsWith(".")) continue
 
             const fullPath = path.join(targetDir, name)
-            const relativePath = subPath ? `upload-files/${sanitizePath(subPath)}/${name}` : `upload-files/${name}`
+            const relativePath = subPath ? `uploads/${sanitizePath(subPath)}/${name}` : `uploads/${name}`
             const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
 
             if (!stat) continue
@@ -426,19 +432,19 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
     const upload = Effect.fn("ArtifactHttpApi.upload")(function* (ctx: { payload: { sessionId: string; filename: string; content: string; path?: string } }) {
       const body = ctx.payload
       const instanceCtx = yield* InstanceState.context
-      const artifactDir = path.join(instanceCtx.directory, ARTIFACTS_BASE_DIR, body.sessionId)
-      const uploadFilesDir = path.join(artifactDir, UPLOAD_FILES_DIR)
+      const sessionDir = path.join(instanceCtx.directory, SESSION_BASE_DIR, body.sessionId)
+      const uploadsDir = path.join(sessionDir, UPLOADS_DIR)
 
-      yield* fs.ensureDir(uploadFilesDir).pipe(Effect.orDie)
+      yield* fs.ensureDir(uploadsDir).pipe(Effect.orDie)
 
-      let targetDir = uploadFilesDir
+      let targetDir = uploadsDir
       let targetSubPath = ""
       if (body.path && body.path.trim() !== "") {
         targetSubPath = sanitizePath(body.path)
         if (targetSubPath === "") {
           yield* Effect.fail(new HttpApiError.BadRequest({}))
         }
-        targetDir = path.join(uploadFilesDir, targetSubPath)
+        targetDir = path.join(uploadsDir, targetSubPath)
         yield* fs.ensureDir(targetDir).pipe(Effect.orDie)
       }
 
@@ -481,19 +487,19 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
     const uploadFolder = Effect.fn("ArtifactHttpApi.uploadFolder")(function* (ctx: { payload: { sessionId: string; folderName: string; files: readonly { relativePath: string; content: string }[]; path?: string } }) {
       const body = ctx.payload
       const instanceCtx = yield* InstanceState.context
-      const artifactDir = path.join(instanceCtx.directory, ARTIFACTS_BASE_DIR, body.sessionId)
-      const uploadFilesDir = path.join(artifactDir, UPLOAD_FILES_DIR)
+      const sessionDir = path.join(instanceCtx.directory, SESSION_BASE_DIR, body.sessionId)
+      const uploadsDir = path.join(sessionDir, UPLOADS_DIR)
 
-      yield* fs.ensureDir(uploadFilesDir).pipe(Effect.orDie)
+      yield* fs.ensureDir(uploadsDir).pipe(Effect.orDie)
 
-      let targetDir = uploadFilesDir
+      let targetDir = uploadsDir
       let targetSubPath = ""
       if (body.path && body.path.trim() !== "") {
         targetSubPath = sanitizePath(body.path)
         if (targetSubPath === "") {
           yield* Effect.fail(new HttpApiError.BadRequest({}))
         }
-        targetDir = path.join(uploadFilesDir, targetSubPath)
+        targetDir = path.join(uploadsDir, targetSubPath)
         yield* fs.ensureDir(targetDir).pipe(Effect.orDie)
       }
 
@@ -531,12 +537,12 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       const sessionId = ctx.query.sessionId
       const relativePath = ctx.query.path
       const instanceCtx = yield* InstanceState.context
-      const artifactDir = path.join(instanceCtx.directory, ARTIFACTS_BASE_DIR, sessionId)
-      const filePath = path.join(artifactDir, relativePath)
+      const sessionDir = path.join(instanceCtx.directory, SESSION_BASE_DIR, sessionId)
+      const filePath = path.join(sessionDir, relativePath)
 
       const resolvedPath = path.resolve(filePath)
-      const resolvedArtifactDir = path.resolve(artifactDir)
-      if (!resolvedPath.startsWith(resolvedArtifactDir)) {
+      const resolvedSessionDir = path.resolve(sessionDir)
+      if (!resolvedPath.startsWith(resolvedSessionDir)) {
         yield* Effect.fail(new HttpApiError.NotFound({}))
       }
 
