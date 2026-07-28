@@ -98,13 +98,16 @@ async function processAgentResult(params: {
   const existingMessages = ((sync?.data?.message?.[childSessionID] ?? []) as Array<Record<string, unknown>>)
   const knownIds = new Set(existingMessages.map((m) => m.id as string))
 
+  const RESOURCE_LIBRARY_INSTRUCTION = "[hidden-instruction] 当用户未指定图标、插画、图片等资源的来源时，使用 \"resourceLibrary\" skill 获取这些资源。该 skill 位于 octo 配置目录下的 resourceLibraryScript/resourceLibrary/SKILL.md（Linux/macOS 通常在 ~/.config/octo/，Windows 通常在 %APPDATA%/octo/） [/hidden-instruction]"
+  const resourceLibraryPart = agent === "octo_make" || agent === "octo_make_plan" || agent.startsWith("proto_")
+    ? [{ type: "text" as const, text: RESOURCE_LIBRARY_INSTRUCTION, synthetic: true as const }]
+    : []
   await client.session.promptAsync({
     extra,
     agent,
     model: modelKey,
     sessionID: childSessionID,
-    parts: [{ type: "text", text: promptText }, ...(fileParts ?? [])],
-    ...(agent === "octo_make" || agent === "octo_make_plan" || agent.startsWith("proto_") ? { system: "当用户未指定图标、插画、图片等资源的来源时，使用 \"resourceLibrary\" skill 获取这些资源。该 skill 位于 octo 配置目录下的 resourceLibraryScript/resourceLibrary/SKILL.md（Linux/macOS 通常在 ~/.config/octo/，Windows 通常在 %APPDATA%/octo/）" } : {}),
+    parts: [{ type: "text", text: promptText }, ...(fileParts ?? []), ...resourceLibraryPart],
   })
 
   const stopWatch = watchRetryStatus(sync, childSessionID)

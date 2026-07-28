@@ -1369,12 +1369,12 @@ const sessionMessagesLoaded = createMemo(() => {
       })
 
       if (modelKey) {
+        const RESOURCE_LIBRARY_INSTRUCTION = "[hidden-instruction] 当用户未指定图标、插画、图片等资源的来源时，使用 \"resourceLibrary\" skill 获取这些资源。该 skill 位于 octo 配置目录下的 resourceLibraryScript/resourceLibrary/SKILL.md（Linux/macOS 通常在 ~/.config/octo/，Windows 通常在 %APPDATA%/octo/） [/hidden-instruction]"
         sdk.client.session.prompt({
           sessionID: childSession.id,
           agent: "octo_make_plan",
           model: modelKey,
-          parts: [{ type: "text", text: initialPrompt }],
-          system: "当用户未指定图标、插画、图片等资源的来源时，使用 \"resourceLibrary\" skill 获取这些资源。该 skill 位于 octo 配置目录下的 resourceLibraryScript/resourceLibrary/SKILL.md（Linux/macOS 通常在 ~/.config/octo/，Windows 通常在 %APPDATA%/octo/）",
+          parts: [{ type: "text", text: initialPrompt }, { type: "text" as const, text: RESOURCE_LIBRARY_INSTRUCTION, synthetic: true as const }],
         }).catch((err: any) => {
           console.error("[MakePage] prompt child agent failed", err)
           setOptimisticIntentResolved(false)
@@ -1974,13 +1974,14 @@ const sessionMessagesLoaded = createMemo(() => {
       if (manifestPart) parts.push(manifestPart)
       parts.push(...fileParts)
       
+      const RESOURCE_LIBRARY_INSTRUCTION = "[hidden-instruction] 当用户未指定图标、插画、图片等资源的来源时，使用 \"resourceLibrary\" skill 获取这些资源。该 skill 位于 octo 配置目录下的 resourceLibraryScript/resourceLibrary/SKILL.md（Linux/macOS 通常在 ~/.config/octo/，Windows 通常在 %APPDATA%/octo/） [/hidden-instruction]"
+      const resourceLibraryPart = { type: "text" as const, text: RESOURCE_LIBRARY_INSTRUCTION, synthetic: true as const }
+      
       await sdk.client.session.prompt({
         sessionID: sessionId,
         agent: sessionId === activePlanSessionId() ? "octo_make_plan" : "octo_make",
         ...(modelKey ? { model: modelKey } : {}),
-        parts,
-        system: "当用户未指定图标、插画、图片等资源的来源时，使用 \"resourceLibrary\" skill 获取这些资源。该 skill 位于 octo 配置目录下的 resourceLibraryScript/resourceLibrary/SKILL.md（Linux/macOS 通常在 ~/.config/octo/，Windows 通常在 %APPDATA%/octo/）",
-      })
+        parts: [...parts, resourceLibraryPart],
       setAttachments([])
     } catch (err) {
       console.error("[MakePage] prompt failed", err)
