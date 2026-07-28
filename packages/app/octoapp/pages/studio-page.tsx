@@ -53,6 +53,7 @@ import {
   buildStudioDisplayPrompt,
   buildStudioInputImages,
   buildStudioTurns,
+  closestStudioAspectRatio,
   parseToolAttachments,
   parseToolImages,
   type StudioTurnData,
@@ -98,6 +99,22 @@ import { getArtifactRelativePath, getArtifactServeUrl } from "./make/utils/artif
 type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
 const STUDIO_REGENERATE_DISPLAY_PROMPT = "再次生成"
 const STUDIO_REGENERATE_ASSISTANT_TEXT = "好的，我会按当前结果的配置重新生成。"
+
+// 探测图片真实宽高，映射到最接近的 Studio 比例；用于编辑类结果保留源图比例
+async function probeImageAspectRatio(url: string): Promise<StudioAspectRatio | undefined> {
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image()
+      el.onload = () => resolve(el)
+      el.onerror = () => reject(new Error("image load failed"))
+      el.src = url
+    })
+    const w = img.naturalWidth
+    const h = img.naturalHeight
+    if (w && h) return closestStudioAspectRatio(w, h)
+  } catch { /* noop */ }
+  return undefined
+}
 
 type StudioPromptGenResponse = {
   resp_code?: number
@@ -2482,7 +2499,9 @@ export default function StudioPage() {
           ? undefined
           : input.capability === "image.generate" || input.capability === "video.generate"
             ? input.aspectRatio ?? aspectRatio()
-            : undefined,
+            : input.capability === "image.inpaint"
+              ? input.aspectRatio
+              : undefined,
         count: input.capability === "image.generate" || input.capability === "video.generate" ? input.count ?? count() : undefined,
         isCustom: Boolean(input.width && input.height),
         ...(input.width && input.height ? { target_size: { width: input.width, height: input.height } } : {}),
@@ -3337,9 +3356,12 @@ export default function StudioPage() {
           isUploadedImage: !!workspaceImage(),
         }),
       })
+      // 智能重绘保留源图比例，探测实际宽高以避免结果被默认为 3:4
+      const sourceAspectRatio = await probeImageAspectRatio(sourceUrl)
       void runGeneration({
         capability: "image.inpaint",
         sourceImage: sourceUrl,
+        aspectRatio: sourceAspectRatio,
         prompt: input.prompt || (input.hasDrawing
           ? input.mode === "erase" ? "消除涂抹区域内的物体" : "重绘所选区域"
           : input.mode === "erase" ? "消除图中的物体" : "重绘图片"),
