@@ -39,6 +39,28 @@
   pointer-events: auto;
 }
 
+/* 编辑态遮罩：透明矩形 + 巨大 box-shadow 向外铺半透明黑，露出选中元素与蓝框 */
+.picker-mask {
+  position: absolute;
+  z-index: 50;
+  pointer-events: none;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+  border: 2px solid #007bff;
+  background: rgba(0, 123, 255, 0.1);
+  box-sizing: border-box;
+}
+
+/* 编辑态点击捕获层：全屏透明，z-index 在遮罩(50)之下、canvas 之上。
+   单独存在是因为遮罩的黑色用 box-shadow 画，而 box-shadow 不参与命中测试，
+   必须靠这个独立层来收点击，点黑色区域 / 元素洞 都能触发关闭。 */
+.picker-mask-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 49;
+  pointer-events: auto;
+  background: transparent;
+}
+
 .picker-header {
   padding: 16px 20px;
   font-size: 14px;

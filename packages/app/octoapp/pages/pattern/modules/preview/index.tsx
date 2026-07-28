@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import type { VersionEntry } from "../../utils/version-history"
@@ -183,6 +183,65 @@ export function PreviewPage(props: {
   const [pickerText, setPickerText] = createSignal("")
   const [pickerVisible, setPickerVisible] = createSignal(false)
   const [pickerDrag, setPickerDrag] = createStore({ x: 0, y: 0 })
+  // 选中元素在 preview 容器内的锚点矩形 + canvas 缩放比，供遮罩挖洞与弹窗定位使用
+  const [pickerAnchor, setPickerAnchor] = createStore({
+    hasRect: false, scale: 1, top: 0, left: 0, width: 0, height: 0,
+  })
+
+  // PropertyEditorPopup 在 preview 容器内的矩形，供 picker-dialog 避让重叠。
+  // popup 无对外 ref，这里用 querySelector 测量；createEffect 在 DOM 更新后用 rAF 取值。
+  const [popupRect, setPopupRect] = createSignal<{ left: number; top: number; right: number; bottom: number } | null>(null)
+
+  // "修改选中区域"弹窗定位：贴在元素正下方居中；越界时翻到上方或贴边；
+  // 无锚点（如 DOM_PICKER_COPY 路径）时回退到 CSS 默认的底部居中。
+  // 始终叠加 pickerDrag 的拖拽偏移，bottom:'auto' 覆盖 CSS 的 bottom:10%。
+  // 若与 PropertyEditorPopup(popupRect) 重叠，优先整体左移到其左侧以避免遮挡。
+  const pickerDialogStyle = createMemo(() => {
+    const transform = `translate(${pickerDrag.x}px, ${pickerDrag.y}px)`
+    if (!pickerAnchor.hasRect) return { transform }
+    const gap = 8
+    const paneW = previewPageRef?.clientWidth ?? 0
+    const paneH = previewPageRef?.clientHeight ?? 0
+    const dialogW = Math.min(660, paneW * 0.9)
+    const estH = 180
+    // 水平居中于元素下方，左右夹紧在 [8, paneW-8-dialogW]
+    let left = Math.max(
+      8,
+      Math.min(pickerAnchor.left + (pickerAnchor.width - dialogW) / 2, paneW - 8 - dialogW),
+    )
+    // 下方放不下则翻到上方，上方也放不下则贴顶
+    const naturalTop = pickerAnchor.top + pickerAnchor.height + gap
+    const aboveTop = pickerAnchor.top - estH - gap
+    let top = naturalTop + estH > paneH - 8
+      ? (aboveTop > 8 ? aboveTop : 8)
+      : naturalTop
+    // 避让 PropertyEditorPopup：两框在 x、y 方向都重叠时才挪
+    const pr = popupRect()
+    if (pr) {
+      const overlapX = left < pr.right + gap && left + dialogW > pr.left - gap
+      const overlapY = top < pr.bottom + gap && top + estH > pr.top - gap
+      if (overlapX && overlapY) {
+        const shiftLeft = pr.left - gap - dialogW
+        if (shiftLeft >= 8) left = shiftLeft
+        else if (aboveTop > 8) top = aboveTop
+      }
+    }
+    return { transform, top: `${top}px`, left: `${left}px`, bottom: 'auto' }
+  })
+
+  // popup 打开时测其在容器内的矩形；关闭时清空（picker 回退到自然定位）。
+  // 用 rAF 等 popup 自身 finalStyle 与布局落定后再测，保证 getBoundingClientRect 准确。
+  createEffect(() => {
+    if (!propertyEditor.show) { setPopupRect(null); return }
+    const raf = requestAnimationFrame(() => {
+      const el = previewPageRef?.querySelector('.property-editor-popup') as HTMLElement | null
+      if (!el || !previewPageRef) return
+      const r = el.getBoundingClientRect()
+      const c = previewPageRef.getBoundingClientRect()
+      setPopupRect({ left: r.left - c.left, top: r.top - c.top, right: r.right - c.left, bottom: r.bottom - c.top })
+    })
+    onCleanup(() => cancelAnimationFrame(raf))
+  })
 
   function startPickerDrag(e: MouseEvent) {
     e.preventDefault()
@@ -210,7 +269,11 @@ export function PreviewPage(props: {
   }
 
   function maybeUnfreeze() {
-    if (!propertyEditor.show && !pickerVisible() && !ctxMenu.show) unfreezeDomPicker()
+    if (!propertyEditor.show && !pickerVisible() && !ctxMenu.show) {
+      unfreezeDomPicker()
+      // 所有面板都关闭时重置锚点，避免陈旧 hasRect 让遮罩在右键单开 propertyEditor 时误显示
+      setPickerAnchor({ hasRect: false, scale: 1, top: 0, left: 0, width: 0, height: 0 })
+    }
   }
 
   function hideCtxMenu() { setCtxMenu('show', false) }
@@ -264,6 +327,8 @@ export function PreviewPage(props: {
     setPickerDialog({ id: data.id, tagName: data.tagName ?? '' })
     setPickerText('')
     setPickerDrag({ x: 0, y: 0 })
+    // 写入锚点：hasRect 决定是否启用"贴元素定位/遮罩挖洞"，scale 用于遮罩边框补偿
+    setPickerAnchor({ hasRect: !!data.rawRect, ...computeElementRect(data.rawRect) })
     setPickerVisible(true)
     if (ctxMenu.show) {
       setCtxMenu({
@@ -277,6 +342,23 @@ export function PreviewPage(props: {
     }
   }
 
+  // 把 iframe 内的元素矩形（rawRect，iframe 视口坐标）换算成 preview 容器内坐标，
+  // 同时返回 canvas 缩放比 scale，供遮罩边框粗细补偿使用。
+  function computeElementRect(rawRect: RawRect | null | undefined) {
+    const paneRect = previewPageRef?.getBoundingClientRect()
+    const wrapper = previewIframeRef?.closest('.preview-iframe-wrapper') as HTMLElement | null
+    const wrapperRect = wrapper?.getBoundingClientRect()
+    const scale = (wrapperRect?.width ?? targetWidth()) / targetWidth()
+    const rect = rawRect ?? { top: 0, left: 0, width: 0, height: 0 }
+    return {
+      scale,
+      top: (wrapperRect?.top ?? 0) - (paneRect?.top ?? 0) + rect.top * scale,
+      left: (wrapperRect?.left ?? 0) - (paneRect?.left ?? 0) + rect.left * scale,
+      width: rect.width * scale,
+      height: rect.height * scale,
+    }
+  }
+
   function openQuickModify(data: {
     id: string
     domPickerComponent?: string
@@ -285,31 +367,20 @@ export function PreviewPage(props: {
     tagName?: string
     rawRect?: RawRect | null
   }) {
-    const paneRect = previewPageRef?.getBoundingClientRect()
-    const wrapper = previewIframeRef?.closest('.preview-iframe-wrapper') as HTMLElement | null
-    const wrapperRect = wrapper?.getBoundingClientRect()
-    const scale = (wrapperRect?.width ?? targetWidth()) / targetWidth()
-    const rawRect = data.rawRect ?? { top: 0, left: 0, width: 0, height: 0 }
-
-    const cx = 46
-    const cy = 57
-
     setPropertyEditor('show', false)
     queueMicrotask(() => {
       const compType = data.domPickerComponent || data.tagName || ''
       console.log("[preview] open property editor:", { elementId: data.id, componentType: compType, class: data.domPickerClass, props: data.elementProps })
+      // 解构出 rect 字段，避免把 scale 误带入 elementRect（该字段只含 top/left/width/height）
+      const { top, left, width, height } = computeElementRect(data.rawRect)
       setPropertyEditor({
         show: true,
         elementId: data.id,
         componentType: compType,
         currentClass: data.domPickerClass ?? '',
         elementProps: data.elementProps ?? '',
-        clickPoint: { x: cx, y: cy },
-        elementRect: {
-          top: (wrapperRect?.top ?? 0) - (paneRect?.top ?? 0) + rawRect.top * scale,
-          left: (wrapperRect?.left ?? 0) - (paneRect?.left ?? 0) + rawRect.left * scale,
-          width: rawRect.width * scale, height: rawRect.height * scale,
-        },
+        clickPoint: { x: 46, y: 57 },
+        elementRect: { top, left, width, height },
       })
     })
   }
@@ -338,6 +409,13 @@ export function PreviewPage(props: {
     maybeUnfreeze()
   }
 
+  // 点击遮罩关闭两个修改框并解冻 picker，保留编辑模式以便继续选别的元素。
+  // 两个函数都调 maybeUnfreeze，第二次执行时两框均已关闭会触发 unfreezeDomPicker。
+  function closeEditPanels() {
+    closePicker()
+    handlePropertyCancel()
+  }
+
   const handlePickerMessage = (e: MessageEvent) => {
     if (e.data?.type === "DOM_PICKER_CLOSE_PANELS") {
       if (anno.annotationPopup.show) {
@@ -350,7 +428,7 @@ export function PreviewPage(props: {
       }
       setPropertyEditor('show', false)
       setPickerVisible(false)
-      unfreezeDomPicker()
+      maybeUnfreeze()
       return
     }
 
@@ -363,6 +441,9 @@ export function PreviewPage(props: {
       const { id, tagName } = e.data
       setPickerDialog({ id: id ?? '', tagName: tagName ?? '' })
       setPickerText('')
+      setPickerDrag({ x: 0, y: 0 })
+      // COPY 路径不带 rect，清空锚点使弹窗回退到 CSS 默认的底部居中、不显示遮罩
+      setPickerAnchor({ hasRect: false, scale: 1, top: 0, left: 0, width: 0, height: 0 })
       setPickerVisible(true)
       return
     }
@@ -572,6 +653,29 @@ export function PreviewPage(props: {
         />
       </CanvasView>
 
+      <Show when={(pickerVisible() || propertyEditor.show) && pickerAnchor.hasRect}>
+        {/* 点击捕获层：全屏透明，z-index 49 在遮罩之下、canvas 之上。
+            遮罩的黑色是 box-shadow 画的、不参与命中测试，故用此独立层收点击
+            关闭两个修改框；两个修改框在上且 stopPropagation，不会被误关。 */}
+        <div class="picker-mask-backdrop" onClick={closeEditPanels} />
+        {/* 编辑态黑色遮罩：只要还有一个修改框打开且存在元素锚点就显示（OR 语义），
+            两个框都关闭时由 maybeUnfreeze 重置 hasRect 使本 Show 失效而消失。
+            矩形对齐选中元素（border-box，外框=元素 rect），透明内部露出元素与蓝框；
+            巨大 box-shadow 向外铺半透明黑（被 .preview-container overflow:hidden 裁剪）。
+            border-width 随 canvas scale 变化，与 iframe 内 dom-picker 的 2px 蓝框视觉一致。
+            z-index 50 处于 backdrop(49) 之上、picker(100)/property-editor(199/203) 之下。 */}
+        <div
+          class="picker-mask"
+          style={{
+            left: `${pickerAnchor.left}px`,
+            top: `${pickerAnchor.top}px`,
+            width: `${pickerAnchor.width}px`,
+            height: `${pickerAnchor.height}px`,
+            'border-width': `${2 * pickerAnchor.scale}px`,
+          }}
+        />
+      </Show>
+
       <Show when={ctxMenu.show}>
         <div class="dom-picker-ctx-menu" style={{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }}
              onClick={(e) => e.stopPropagation()}>
@@ -622,7 +726,8 @@ export function PreviewPage(props: {
         <div class="picker-overlay" onClick={closePicker}>
           <div
             class="picker-dialog"
-            style={{ transform: `translate(${pickerDrag.x}px, ${pickerDrag.y}px)` }}
+            // 定位由 pickerDialogStyle 计算（贴元素下方/越界翻转），保留拖拽偏移
+            style={pickerDialogStyle()}
             onClick={(e) => e.stopPropagation()}
           >
             <div class="picker-header" onMouseDown={startPickerDrag}>
