@@ -1982,6 +1982,7 @@ const sessionMessagesLoaded = createMemo(() => {
         agent: sessionId === activePlanSessionId() ? "octo_make_plan" : "octo_make",
         ...(modelKey ? { model: modelKey } : {}),
         parts: [...parts, resourceLibraryPart],
+      })
       setAttachments([])
     } catch (err) {
       console.error("[MakePage] prompt failed", err)
