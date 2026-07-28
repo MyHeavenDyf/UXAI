@@ -739,7 +739,7 @@ export function PreviewPage(props: {
             onClick={(e) => e.stopPropagation()}
           >
             <div class="picker-header" onMouseDown={startPickerDrag}>
-              修改选中区域: {pickerDialog.tagName} ({pickerDialog.id})
+              修改选中区域
             </div>
             <div class="picker-body">
               <textarea
