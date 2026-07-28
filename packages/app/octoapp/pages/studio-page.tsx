@@ -1677,37 +1677,25 @@ export default function StudioPage() {
   async function addReferenceAsset(asset: StudioAsset) {
     const limit = maxReferenceImages()
     if (limit !== 1 && assets().length >= limit) {
-      showToast({
-        title: "上传失败",
-        description: `最多上传 ${limit} 张参考图。`,
-      })
+      showFloatingNotice("error", `上传失败：最多上传 ${limit} 张参考图。`)
       return
     }
     const isJimeng = imageTool() === "jimeng"
     const allowedExts = isJimeng ? ["png", "jpg", "jpeg"] : (ALLOWED_IMAGE_EXTENSIONS as readonly string[])
     const ext = studioImageExtension(asset.mime)
     if (!allowedExts.includes(ext)) {
-      showToast({
-        title: "上传失败",
-        description: isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。",
-      })
+      showFloatingNotice("error", `上传失败：${isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。"}`)
       return
     }
     const maxSize = isJimeng ? 15 * 1024 * 1024 : 8 * 1024 * 1024
     const maxSizeLabel = isJimeng ? "15MB" : "8MB"
     if (dataUrlByteSize(asset.dataUrl) > maxSize) {
-      showToast({
-        title: "上传失败",
-        description: `图片文件大小不能超过 ${maxSizeLabel}。`,
-      })
+      showFloatingNotice("error", `上传失败：图片文件大小不能超过 ${maxSizeLabel}。`)
       return
     }
     const dimensions = await readStudioAssetDimensions(asset)
     if (dimensions.width > 7500 || dimensions.height > 7500) {
-      showToast({
-        title: "上传失败",
-        description: "图片最大尺寸不能超过 7500px。",
-      })
+      showFloatingNotice("error", "上传失败：图片最大尺寸不能超过 7500px。")
       return
     }
     tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: 1 }) })
@@ -1730,10 +1718,7 @@ export default function StudioPage() {
     inputImageAssetFromUrl(url)
       .then((asset) => capability() === "video.generate" ? addVideoFrameAsset(asset) : addReferenceAsset(asset))
       .catch((error) => {
-        showToast({
-          title: "上传失败",
-          description: error instanceof Error ? error.message : String(error),
-        })
+        showFloatingNotice("error", `上传失败：${error instanceof Error ? error.message : String(error)}`)
       })
   }
 
@@ -1743,48 +1728,33 @@ export default function StudioPage() {
     const limit = maxReferenceImages()
     const selectedFiles = limit === 1 ? imageFiles.slice(0, 1) : imageFiles.slice(0, Math.max(limit - assets().length, 0))
     if (!selectedFiles.length) {
-      showToast({
-        title: "上传失败",
-        description: `最多上传 ${limit} 张参考图。`,
-      })
+      showFloatingNotice("error", `上传失败：最多上传 ${limit} 张参考图。`)
       return
     }
     const isJimeng = imageTool() === "jimeng"
     const allowedExts = isJimeng ? ["png", "jpg", "jpeg"] : (ALLOWED_IMAGE_EXTENSIONS as readonly string[])
     const invalidExtFile = selectedFiles.find((file) => !allowedExts.includes(file.name.split(".").pop()?.toLowerCase() ?? ""))
     if (invalidExtFile) {
-      showToast({
-        title: "上传失败",
-        description: isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。",
-      })
+      showFloatingNotice("error", `上传失败：${isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。"}`)
       return
     }
     const maxSize = isJimeng ? 15 * 1024 * 1024 : 8 * 1024 * 1024
     const maxSizeLabel = isJimeng ? "15MB" : "8MB"
     if (selectedFiles.some((file) => file.size > maxSize)) {
-      showToast({
-        title: "上传失败",
-        description: `图片文件大小不能超过 ${maxSizeLabel}。`,
-      })
+      showFloatingNotice("error", `上传失败：图片文件大小不能超过 ${maxSizeLabel}。`)
       return
     }
     tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: selectedFiles.length }) })
     Promise.all(selectedFiles.map((file) => readStudioAsset(file).then((asset) => readStudioAssetDimensions(asset).then((dimensions) => ({ asset, dimensions })))))
       .then((items) => {
         if (items.some((item) => item.dimensions.width > 7500 || item.dimensions.height > 7500)) {
-          showToast({
-            title: "上传失败",
-            description: "图片最大尺寸不能超过 7500px。",
-          })
+          showFloatingNotice("error", "上传失败：图片最大尺寸不能超过 7500px。")
           return
         }
         setAssets((current) => limit === 1 ? [items[0].asset] : [...current, ...items.map((item) => item.asset)].slice(0, limit))
       })
       .catch((error) => {
-        showToast({
-          title: "上传失败",
-          description: error instanceof Error ? error.message : String(error),
-        })
+        showFloatingNotice("error", `上传失败：${error instanceof Error ? error.message : String(error)}`)
       })
   }
 
@@ -1794,10 +1764,7 @@ export default function StudioPage() {
     validateVideoFrame(file)
       .then((asset) => setVideoFrames(slot, asset))
       .catch((error) => {
-        showToast({
-          title: "上传失败",
-          description: error instanceof Error ? error.message : String(error),
-        })
+        showFloatingNotice("error", `上传失败：${error instanceof Error ? error.message : String(error)}`)
       })
   }
 
@@ -1829,10 +1796,7 @@ export default function StudioPage() {
     const allowedExts = isJimeng ? ["png", "jpg", "jpeg"] : (ALLOWED_IMAGE_EXTENSIONS as readonly string[])
     const ext = file.name.split(".").pop()?.toLowerCase()
     if (!ext || !allowedExts.includes(ext)) {
-      showToast({
-        title: "上传失败",
-        description: isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。",
-      })
+      showFloatingNotice("error", `上传失败：${isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。"}`)
       return
     }
     const isStrictEdit = capability() === "image.outpaint" || capability() === "image.inpaint" || capability() === "image.cutout"
@@ -1849,28 +1813,19 @@ export default function StudioPage() {
       maxSizeLabel = "20MB"
     }
     if (file.size > maxSize) {
-      showToast({
-        title: "上传失败",
-        description: `图片文件大小不能超过 ${maxSizeLabel}。`,
-      })
+      showFloatingNotice("error", `上传失败：图片文件大小不能超过 ${maxSizeLabel}。`)
       return
     }
     readWorkspaceImage(file)
       .then((image) => {
         if (image.width != null && image.height != null) {
           if (image.width > 7500 || image.height > 7500) {
-            showToast({
-              title: "上传失败",
-              description: "图片最大尺寸不能超过 7500px。",
-            })
+            showFloatingNotice("error", "上传失败：图片最大尺寸不能超过 7500px。")
             return
           }
           const minSide = capability() === "image.cutout" ? 50 : isStrictEdit ? 300 : 0
           if (minSide > 0 && Math.min(image.width, image.height) < minSide) {
-            showToast({
-              title: "上传失败",
-              description: `图片最小边不能小于 ${minSide}px。`,
-            })
+            showFloatingNotice("error", `上传失败：图片最小边不能小于 ${minSide}px。`)
             return
           }
         }
@@ -1882,10 +1837,7 @@ export default function StudioPage() {
         })
       })
       .catch((error) => {
-        showToast({
-          title: "上传失败",
-          description: error instanceof Error ? error.message : String(error),
-        })
+        showFloatingNotice("error", `上传失败：${error instanceof Error ? error.message : String(error)}`)
       })
   }
 
@@ -1986,10 +1938,7 @@ export default function StudioPage() {
           .catch((error) => console.error("[StudioPage] editor entry reload failed", error))
       } catch (error) {
         setPendingEditorEntries((entries) => entries.filter((entry) => entry.editorEntryID !== entryID))
-        showToast({
-          title: "入口消息保存失败",
-          description: error instanceof Error ? error.message : String(error),
-        })
+        showFloatingNotice("error", `入口消息保存失败：${error instanceof Error ? error.message : String(error)}`)
       }
     })()
   }
@@ -2079,10 +2028,7 @@ export default function StudioPage() {
       })
       .catch((error) => {
         pendingVideoFirstFrame = undefined
-        showToast({
-          title: "图片处理失败",
-          description: error instanceof Error ? error.message : String(error),
-        })
+        showFloatingNotice("error", `图片处理失败：${error instanceof Error ? error.message : String(error)}`)
       })
   }
 
@@ -2282,10 +2228,7 @@ export default function StudioPage() {
 
   function canEditGenerationDraft(draft: ReturnType<typeof restoreGenerationEditDraft>) {
     if (draft.capability === "video.generate" && !canGenerateVideo()) {
-      showToast({
-        title: "暂无视频生成权限",
-        description: "当前账号暂无视频生成权限，无法重新编辑该视频生成任务。",
-      })
+      showFloatingNotice("warning", "暂无视频生成权限：当前账号无法重新编辑该视频生成任务。")
       return false
     }
     if (
@@ -2294,10 +2237,7 @@ export default function StudioPage() {
       styleModelRequiresSeedreamPermission(draft.styleModel) &&
       !canUseSeedream()
     ) {
-      showToast({
-        title: "暂无模型使用权限",
-        description: "当前账号暂无该模型权限，无法重新编辑该图片生成任务。",
-      })
+      showFloatingNotice("warning", "暂无模型使用权限：当前账号无法重新编辑该图片生成任务。")
       return false
     }
     return true
@@ -2712,10 +2652,7 @@ export default function StudioPage() {
     if (rebootingGenerationIDs().has(id) || isActionBusy()) return
     const current = server.current
     if (!current) {
-      showToast({
-        title: "重新生成失败",
-        description: "No active server.",
-      })
+      showFloatingNotice("error", "重新生成失败：No active server.")
       return
     }
     setRebootingGenerationIDs((ids) => new Set([...ids, id]))
@@ -2760,10 +2697,7 @@ export default function StudioPage() {
         })
       }
     } catch (error) {
-      showToast({
-        title: "重新生成失败",
-        description: error instanceof Error ? error.message : String(error),
-      })
+      showFloatingNotice("error", `重新生成失败：${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setRebootingGenerationIDs((ids) => new Set([...ids].filter((generationID) => generationID !== id)))
     }
