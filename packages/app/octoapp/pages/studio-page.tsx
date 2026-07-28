@@ -408,6 +408,14 @@ export default function StudioPage() {
   let pendingVideoFrameSlot: StudioVideoFrameSlot = "first"
   let conversationScrollRef!: HTMLDivElement
   let scrollFrame = 0
+  // 用户是否贴近底部：贴近时新内容自动跟随滚动，向上查看历史时不再强制回到底部
+  const [stickToBottom, setStickToBottom] = createSignal(true)
+  const STUDIO_SCROLL_BOTTOM_THRESHOLD = 200
+  const handleConversationScroll = () => {
+    const el = conversationScrollRef
+    if (!el) return
+    setStickToBottom(el.scrollTop + el.clientHeight >= el.scrollHeight - STUDIO_SCROLL_BOTTOM_THRESHOLD)
+  }
   let pendingEditorSessionID: string | undefined
   let pendingGenerationSessionID: string | undefined
   // 记录已访问过的 session ID，模块级以在组件卸载/重载之间存活，防止切回时出现空白页
@@ -915,10 +923,12 @@ export default function StudioPage() {
     const r = canvasResult()
     if (!r) return
     if (canvasTabTitle(r)) {
+      const selected = r.images.findIndex((image) => image.id === selectedImageId())
+      const labelIndex = selected !== -1 ? selected : 0
       setCanvasTabLabels((prev) => Object.fromEntries(
         Object.entries(prev).map(([id, label]) => {
           const index = r.images.findIndex((image) => image.id === id)
-          return index === -1 ? [id, label] : [id, canvasTabLabel(r, index)]
+          return index === -1 ? [id, label] : [id, canvasTabLabel(r, labelIndex)]
         }),
       ))
     }
@@ -1495,8 +1505,30 @@ export default function StudioPage() {
   createEffect(
     on(
       () => `${params.id ?? ""}:${displayTurns().map((turn) => turn.id).join("|")}:${pendingResult()?.id ?? ""}`,
-      () => {
+      (next, prev) => {
         if (!params.id || !conversationScrollRef) return
+        const sessionChanged = prev == null || next.slice(0, next.indexOf(":")) !== prev.slice(0, prev.indexOf(":"))
+        // 生成中/排队中不自动滚动，保留用户滚动条位置；完成后贴近底部时才跟随
+        if (!sessionChanged && isBusy()) return
+        if (!sessionChanged && !stickToBottom()) return
+        cancelAnimationFrame(scrollFrame)
+        scrollFrame = requestAnimationFrame(() => {
+          conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
+        })
+      },
+      { defer: true },
+    ),
+  )
+
+  // 生成完成（busy→idle）：贴近底部时滚动到底部展示新结果。
+  // 独立监听 isBusy 以覆盖内容变更先于 session 状态置 idle 到达的时序。
+  createEffect(
+    on(
+      isBusy,
+      (busy, prev) => {
+        if (!params.id || !conversationScrollRef) return
+        if (!(prev && !busy)) return
+        if (!stickToBottom()) return
         cancelAnimationFrame(scrollFrame)
         scrollFrame = requestAnimationFrame(() => {
           conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
@@ -2871,7 +2903,7 @@ export default function StudioPage() {
     setSending(true)
     setStatus("submitting")
     setStudioWorkspaceOverlayOpen(false)
-    if (!overrides?.useRestoredInputs && !fileManagerDetailView() && !selectedImage()) setSelectedResultId(undefined)
+    if (!overrides?.useRestoredInputs && !fileManagerDetailView()) setSelectedResultId(undefined)
     if (fileManagerDetailView()) setFileManagerGenPending(true)
     setPendingResult({
       id: `studio_pending_${Date.now()}`,
@@ -3746,6 +3778,7 @@ if (!headerTitle.pendingRename) return
                 el.scrollTo({ top: el.scrollHeight })
               })
             }}
+            onScroll={handleConversationScroll}
             class="studio-center-scroll"
           >
             <Show when={displayTurns().length > 0 || pendingResult() || sending() || isBusy()} fallback={params.id && !sessionDataLoaded() && !visitedSessionIds.has(params.id) ? null : <StudioIntro />}>
