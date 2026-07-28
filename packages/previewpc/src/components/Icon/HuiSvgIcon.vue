@@ -41,6 +41,6 @@ const computedStyle = computed(() => {
 </script>
 
 <template>
-  <span class="hui-svg-icon" :style="computedStyle" v-html="normalizedSvg" />
+  <i class="hui-svg-icon" :style="computedStyle" v-html="normalizedSvg" />
 </template>
 
