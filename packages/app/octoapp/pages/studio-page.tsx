@@ -3710,7 +3710,7 @@ export default function StudioPage() {
             </Show>
             </div>
             <div class="flex items-center gap-1 relative" style={{ "z-index": "60" }}>
-              <Show when={params.id}>
+              <Show when={params.id && (showStudioWorkspace() || !studioWorkspaceOverlayOpen())}>
                 <DropdownMenu
                   gutter={4}
                   placement="bottom-end"
