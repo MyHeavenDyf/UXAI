@@ -1,4 +1,5 @@
 import { createSignal, onMount, onCleanup, Show, createEffect } from "solid-js"
+import { Portal } from "solid-js/web"
 import { EditorState, Transaction, TextSelection } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
 import { history, undo, redo } from "prosemirror-history"
@@ -8,7 +9,6 @@ import { editorSchema, getDocTextWithMentions, extractMentionsFromDoc, type Ment
 import { createMentionTriggerPlugin, mentionTriggerKey, closeMentionTrigger, type MentionTriggerState } from "./plugins/mention-trigger"
 import { createSyncPlugin } from "./plugins/sync"
 import { atomKeymap } from "./plugins/atom-keymap"
-import { createNoEmptyParagraphPlugin } from "./plugins/no-empty-paragraph"
 import { createSlashTriggerPlugin, slashTriggerKey, type SlashTriggerState } from "./plugins/slash-trigger"
 import { MentionPopover, type MentionSelection } from "../mention-popover"
 import type { PanelSkill } from "../skill-config-types"
@@ -36,6 +36,7 @@ interface Props {
   onSlashTrigger?: (query: string) => void
   onSlashClose?: () => void
   onPreview?: (url: string) => void
+  onPaste?: (e: ClipboardEvent) => void
   ref?: (el: EditorRef) => void
 }
 
@@ -46,9 +47,16 @@ export const ProseMirrorEditor = (props: Props) => {
   const [slashTriggerState, setSlashTriggerState] = createSignal<SlashTriggerState | null>(null)
   const [focused, setFocused] = createSignal(false)
   const [isEmpty, setIsEmpty] = createSignal(true)
+  const [popoverPosition, setPopoverPosition] = createSignal<{ left: number; bottom: number } | null>(null)
 
   const mentionTriggerPlugin = createMentionTriggerPlugin((state) => {
     setTriggerState(state)
+    if (state?.active && containerRef) {
+      const rect = containerRef.getBoundingClientRect()
+      setPopoverPosition({ left: rect.left, bottom: window.innerHeight - rect.top })
+    } else {
+      setPopoverPosition(null)
+    }
   }, props.onTriggerMention)
 
   const slashTriggerPlugin = createSlashTriggerPlugin((state) => {
@@ -86,6 +94,18 @@ export const ProseMirrorEditor = (props: Props) => {
           "Enter": (state, dispatch, view) => {
             if (props.disabled) return false
             
+            // If mention popover is open, don't send message
+            const mentionTrigger = mentionTriggerKey.getState(state)
+            if (mentionTrigger?.active) {
+              return false
+            }
+            
+            // If slash popover is open, don't send message
+            const slashTrigger = slashTriggerKey.getState(state)
+            if (slashTrigger?.active) {
+              return false
+            }
+            
             // Check for /preview command
             const text = getDocTextWithMentions(state.doc).trim()
             const previewMatch = text.match(/^\/preview\s+(.+)$/)
@@ -99,6 +119,25 @@ export const ProseMirrorEditor = (props: Props) => {
             return true
           },
           "Shift-Enter": (state, dispatch) => {
+            if (props.disabled) return false
+            const hardBreak = state.schema.nodes.hard_break
+            if (dispatch) {
+              dispatch(state.tr.replaceSelectionWith(hardBreak.create()))
+            }
+            return true
+          },
+          "ArrowUp": (state, dispatch) => {
+            const mentionTrigger = mentionTriggerKey.getState(state)
+            if (mentionTrigger?.active) {
+              return false  // Let MentionPopover handle it
+            }
+            return false
+          },
+          "ArrowDown": (state, dispatch) => {
+            const mentionTrigger = mentionTriggerKey.getState(state)
+            if (mentionTrigger?.active) {
+              return false  // Let MentionPopover handle it
+            }
             return false
           },
         }),
@@ -107,7 +146,6 @@ export const ProseMirrorEditor = (props: Props) => {
         mentionTriggerPlugin,
         slashTriggerPlugin,
         syncPlugin,
-        createNoEmptyParagraphPlugin(),
       ],
     })
 
@@ -316,19 +354,31 @@ export const ProseMirrorEditor = (props: Props) => {
         classList={{ "pm-editor--disabled": props.disabled }}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
+        onPaste={(e) => props.onPaste?.(e as ClipboardEvent)}
       />
       
-      <Show when={triggerState()?.active}>
-        <MentionPopover
-          query={triggerState()!.query}
-          sessionId={props.sessionId}
-          onClose={() => setTriggerState(null)}
-          onSelect={handleMentionSelect}
-          onDeselect={handleMentionDeselect}
-          selections={props.mentionSelections}
-          skillConfig={props.skillConfig}
-          artifactFiles={props.artifactFiles}
-        />
+      <Show when={triggerState()?.active && popoverPosition()}>
+        <Portal>
+          <div 
+            style={{
+              position: "fixed",
+              left: `${popoverPosition()!.left}px`,
+              bottom: `${popoverPosition()!.bottom + 12}px`,
+              "z-index": 1000,
+            }}
+          >
+            <MentionPopover
+              query={triggerState()!.query}
+              sessionId={props.sessionId}
+              onClose={() => setTriggerState(null)}
+              onSelect={handleMentionSelect}
+              onDeselect={handleMentionDeselect}
+              selections={props.mentionSelections}
+              skillConfig={props.skillConfig}
+              artifactFiles={props.artifactFiles}
+            />
+          </div>
+        </Portal>
       </Show>
     </div>
   )

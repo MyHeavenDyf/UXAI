@@ -99,7 +99,6 @@ const live: Layer.Layer<
 
       // TODO: move this to a proper hook
       const isOpenaiOauth = item.id === "openai" && info?.type === "oauth"
-
       const system: string[] = []
       system.push(
         [

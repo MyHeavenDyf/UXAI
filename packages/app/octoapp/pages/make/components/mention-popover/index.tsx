@@ -1,4 +1,4 @@
-import { createSignal, createMemo, createEffect, For, Show, onCleanup, type JSX } from "solid-js"
+import { createSignal, createMemo, createEffect, For, Show, onCleanup, onMount, type JSX } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
 import type { PanelSkill } from "../skill-config-types"
 import type { ArtifactFile } from "../../utils/artifact-file-api"
@@ -82,6 +82,49 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     return { generated, uploaded }
   })
 
+  // Calculate current items list based on active tab and category
+  onMount(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        e.preventDefault()
+        e.stopPropagation()
+        const currentTab = activeTab()
+        if (currentTab === 'skills') {
+          setActiveTab('files')
+          setSelectedCategory('design')
+        } else {
+          setActiveTab('skills')
+          setSelectedCategory('platform')
+        }
+      }
+      if (e.key === "Enter") {
+        e.preventDefault()
+        e.stopPropagation()
+        if (activeTab() === 'skills') {
+          const skills = selectedCategory() === 'platform' 
+            ? filteredPlatformSkills() 
+            : filteredCustomSkills()
+          if (skills.length > 0) {
+            handleSkillClick(skills[0])
+          }
+        } else if (activeTab() === 'files') {
+          const files = filteredFiles()
+          if (files && (files.generated.length > 0 || files.uploaded.length > 0)) {
+            const firstFile = files.generated[0] || files.uploaded[0]
+            handleFileClick({ name: firstFile.name, path: firstFile.path })
+          }
+        }
+      }
+      if (e.key === "Escape") {
+        e.preventDefault()
+        e.stopPropagation()
+        props.onClose()
+      }
+    }
+    document.addEventListener("keydown", handler, true)
+    onCleanup(() => document.removeEventListener("keydown", handler, true))
+  })
+
   const isSelected = (selection: MentionSelection) => {
     return props.selections.some(s => 
       s.type === selection.type && 
@@ -151,7 +194,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <button
             type="button"
             class={`mention-primary-item ${selectedCategory() === 'platform' ? 'mention-primary-item--selected' : ''}`}
-            onClick={() => setSelectedCategory('platform')}
+            onClick={() => { setSelectedCategory('platform') }}
           >
             <PlatformSkillIcon />
             <span class="mention-primary-item-text">平台技能</span>
@@ -160,7 +203,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <button
             type="button"
             class={`mention-primary-item ${selectedCategory() === 'custom' ? 'mention-primary-item--selected' : ''}`}
-            onClick={() => setSelectedCategory('custom')}
+            onClick={() => { setSelectedCategory('custom') }}
           >
             <CustomSkillIcon />
             <span class="mention-primary-item-text">自定义技能</span>
@@ -172,7 +215,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <button
             type="button"
             class={`mention-primary-item ${selectedCategory() === 'design' ? 'mention-primary-item--selected' : ''}`}
-            onClick={() => setSelectedCategory('design')}
+            onClick={() => { setSelectedCategory('design') }}
           >
             <DesignAssetIcon />
             <span class="mention-primary-item-text">设计资产</span>
@@ -186,7 +229,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         <div class="mention-secondary-panel" style={secondaryPanelStyle()}>
           <div class="mention-secondary-content">
             <For each={filteredPlatformSkills()}>
-              {(skill) => {
+              {(skill, i) => {
                 const sel: MentionSelection = { type: 'skill', name: skill.label, label: skill.label }
                 return (
                   <button
@@ -210,7 +253,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         <div class="mention-secondary-panel" style={secondaryPanelStyle()}>
           <div class="mention-secondary-content">
             <For each={filteredCustomSkills()}>
-              {(skill) => {
+              {(skill, i) => {
                 const sel: MentionSelection = { type: 'skill', name: skill.label, label: skill.label }
                 return (
                   <button

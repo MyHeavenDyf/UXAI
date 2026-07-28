@@ -33,6 +33,7 @@ export function StrategyFormRenderer(props: {
   onGenerate: () => void
   onCancel?: () => void
   isGenerating?: boolean
+  disabled?: boolean
   currentStep?: number
 }): JSX.Element {
   const currentStep = () => props.currentStep ?? 1
@@ -129,12 +130,13 @@ export function StrategyFormRenderer(props: {
                         onInput={(e) => props.onFieldChange(field.key, e.currentTarget.value)}
                         rows={3}
                         class="resize-y outline-none"
+                        disabled={props.disabled}
                         style={{
                           "font-size": "14px",
                           "line-height": "22px",
                           color: "rgba(0,0,0,0.9)",
                           "font-family": "var(--octo-font)",
-                          background: "#fff",
+                          background: props.disabled ? "rgba(0,0,0,0.03)" : "#fff",
                           border: "1px solid rgba(0,0,0,0.1)",
                           "border-radius": "8px",
                           padding: "8px 12px",
@@ -164,44 +166,37 @@ export function StrategyFormRenderer(props: {
       >
         <button
           type="button"
-          class="text-[14px] rounded-[999px] transition-colors cursor-pointer"
+          class="text-[14px] rounded-[999px] transition-colors"
           style={{
             height: "32px",
             padding: "0 16px",
             "line-height": "22px",
-            background: "#f3f3f3",
-            color: "#191919",
+            background: props.disabled ? "#e0e0e0" : "#f3f3f3",
+            color: props.disabled ? "#aaa" : "#191919",
             border: "none",
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.background = "#dfdfdf"
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.background = "#f3f3f3"
+            cursor: props.disabled ? "not-allowed" : "pointer",
+            "pointer-events": props.disabled ? "none" : "auto",
           }}
           onClick={props.onCancel}
+          disabled={props.disabled}
         >
           取消
         </button>
         <button
           type="button"
-          class="text-[14px] font-medium rounded-[999px] text-white transition-colors cursor-pointer"
+          class="text-[14px] font-medium rounded-[999px] text-white transition-colors"
           style={{
             height: "32px",
             padding: "0 16px",
             "line-height": "22px",
-            background: "#0a59f7",
+            background: (props.isGenerating || props.disabled) ? "#b0b0b0" : "#0a59f7",
             color: "white",
             border: "none",
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.background = "#0950de"
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.background = "#0a59f7"
+            cursor: (props.isGenerating || props.disabled) ? "not-allowed" : "pointer",
+            "pointer-events": (props.isGenerating || props.disabled) ? "none" : "auto",
           }}
           onClick={props.onGenerate}
-          disabled={props.isGenerating}
+          disabled={props.isGenerating || props.disabled}
         >
           {props.isGenerating ? "生成中…" : "策略生成"}
         </button>

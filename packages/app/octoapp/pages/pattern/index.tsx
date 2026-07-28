@@ -28,7 +28,7 @@ import { appendPatternVersion, updatePatternVersion, listPatternVersions, type V
 import { saveCheckpoint, loadCheckpoint, clearCheckpoint } from "./checkpoint/checkpoint"
 import { restoreSession } from "./checkpoint/session-restore"
 import { logStartSession, clearDebugLog, saveDebugSnapshot } from "./utils/debug-log"
-import { classifyAIError, saveProtoError, loadProtoError, clearProtoError } from "./utils/error-msg"
+import { classifyAIError, saveProtoError, loadProtoError, clearProtoError, type ProtoError } from "./utils/error-msg"
 import { autoRenameSession } from "./utils/rename"
 import { groupRounds } from "./utils/round-messages"
 import { createSplitDrag } from "./utils/drag-split"
@@ -39,16 +39,20 @@ import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
 import proto_triage from "./agents/proto-triage"
 import proto_replanner from "./agents/proto-replanner"
 import { PatternGenerating }  from "./modules/preview/pattern-generating"
-import type { PatternMatchItem } from "./utils/pattern-resource"
-import { readPatternFile } from "./utils/pattern-resource"
+import type { BlockModuleItem } from "./utils/pattern-resource"
 import { type IntentConfirmAnswers } from "./modules/chat/intent-confirm-card"
-import type { IntentConfirmResult } from "./agents/proto-intent-confirm"
+import type { IntentConfirmDimension, IntentConfirmResult } from "./agents/proto-intent-confirm"
 import { ChatPanel } from "./modules/chat/index"
 import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
 import { PatternPreviewEmpty } from "./modules/preview/pattern-preview-empty"
 import { saveTheme, loadTheme } from "./utils/theme"
 import { tracker } from "@/utils/tracker"
 import { createReorderHandler } from "./utils/reorder"
+import { useArchive } from "./utils/archive-module"
+import { getArchiveBaseUrl } from "./utils/pattern-archive-utils"
+import { getDesktopApi } from "./utils/desktop-api"
+import { ArchiveDialog } from "@/components/dialog-archive"
+import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import * as sessionMap from "./utils/session-map"
 
 const AGENT_NAME = "proto_triage"
@@ -130,6 +134,7 @@ function PatternContent() {
         // ── 2. 无条件同步重置（仅重置当前视图状态，各 session 独立数据保留在 map 中）──
         setChildSessionIDs([])
         setSessionSynced(false)
+        setCardInitialStep(undefined)
         discoverVersion++
         previewApi.sendToPreview(null)
         if (id) delete lastSentPreviewJson[id]
@@ -157,8 +162,8 @@ function PatternContent() {
             // 加载持久化的 workflow 错误
             const errDir = patternHistoryDir()
             if (errDir) {
-              void loadProtoError(errDir, id).then((errTitle) => {
-                if (errTitle && params.id === id) setSessionErrors((prev) => ({ ...prev, [id]: errTitle }))
+              void loadProtoError(errDir, id).then((protoErr) => {
+                if (protoErr && params.id === id) setSessionErrors((prev) => ({ ...prev, [id]: protoErr }))
               })
             }
             // 滚动到底部
@@ -182,23 +187,28 @@ function PatternContent() {
 
               switch (result.type) {
                 case "pipeline_error": {
-                  setSessionErrors(prev => ({ ...prev, [id]: "生成异常，请重试" }))
+                  setSessionErrors(prev => ({ ...prev, [id]: { title: "生成异常，请重试" } }))
                   return
                 }
                 case "intent_confirm": {
                   const ckpt = result.checkpoint
                   sessionMap.set(setUserInput, id, ckpt.userInput)
-                  sessionMap.set(setIntentConfirm, id, { options: ckpt.options ?? {}, current_step: "intent_confirm" } as any)
+                  sessionMap.set(setIntentConfirm, id, {
+                    results: (ckpt.options as { results?: IntentConfirmResult["results"] })?.results ?? [],
+                    current_step: "intent_confirm",
+                  })
                   return
                 }
                 case "block_matching": {
                   const ckpt = result.checkpoint
                   sessionMap.set(setUserInput, id, ckpt.userInput)
-                  sessionMap.set(setIntentConfirm, id, { options: ckpt.options ?? {}, current_step: "intent_confirm" } as any)
+                  sessionMap.set(setIntentConfirm, id, {
+                    results: (ckpt.options as { results?: IntentConfirmResult["results"] })?.results ?? [],
+                    current_step: "intent_confirm",
+                  })
                   sessionMap.set(setBlockMatches, id, ckpt.blockMatches ?? [])
-                  if (!ckpt.blockMatches || ckpt.blockMatches.length === 0) {
-                    sessionMap.set(setBlockMatchError, id, true)
-                  }
+                  sessionMap.set(setCachedPagePattern, id, ckpt.pagePattern ?? "")
+                  sessionMap.set(setBlockMatchError, id, !ckpt.blockMatches)
                   setCardInitialStep("blocks")
                   return
                 }
@@ -266,55 +276,7 @@ function PatternContent() {
     return result.sort((a, b) => (a.time?.created ?? 0) - (b.time?.created ?? 0))
   })
 
-  // Sync session model from user messages (same as insight/session pages).
-  const lastUserMessage = createMemo(() => {
-    const msg = userMessages().at(-1)
-    if (!msg || msg.role !== "user") return undefined
-    return msg as UserMessage | undefined
-  })
-
-  createEffect(
-    on(
-      () => lastUserMessage()?.id,
-      () => {
-        const msg = lastUserMessage()
-        if (!msg?.model) return
-        syncSessionModel(local, msg)
-        local.model.set(
-          { providerID: msg.model.providerID, modelID: msg.model.modelID },
-          { recent: true },
-        )
-      },
-    ),
-  )
-
-  // Populate saved.session[session] when messages are already loaded on session switch.
-  createEffect(
-    on(
-      () => params.id,
-      (id) => {
-        if (!id) return
-        const messages = (sync.data.message[id] ?? []) as Message[]
-        const lastUser = [...messages].reverse().find((m) => m.role === "user") as UserMessage | undefined
-        if (!lastUser?.model) return
-        local.session.restore({
-          sessionID: id,
-          agent: lastUser.agent ?? "",
-          model: {
-            providerID: lastUser.model.providerID,
-            modelID: lastUser.model.modelID,
-            variant: lastUser.model.variant,
-          },
-        })
-        local.model.set(
-          { providerID: lastUser.model.providerID, modelID: lastUser.model.modelID },
-          { recent: true },
-        )
-      },
-    ),
-  )
-
-  const [sessionErrors, setSessionErrors] = createSignal<Record<string, string>>({})
+  const [sessionErrors, setSessionErrors] = createSignal<Record<string, ProtoError>>({})
   // per-session 暂停计时（需求确认 / 线框审查等待期间不计时）
   const [pauseMs, setPauseMs] = createSignal<Record<string, number>>({})
   const [pauseStart, setPauseStart] = createSignal<Record<string, number | undefined>>({})
@@ -342,9 +304,9 @@ function PatternContent() {
       (mid) => sync.data.part[mid] as Array<Record<string, unknown>> | undefined,
     )
     // 运行时 workflow 错误
-    const error = sessionErrors()[id]
-    if (error && rounds.length > 0) {
-      rounds[rounds.length - 1] = { ...rounds[rounds.length - 1], error }
+    const protoErr = sessionErrors()[id]
+    if (protoErr && rounds.length > 0) {
+      rounds[rounds.length - 1] = { ...rounds[rounds.length - 1], error: protoErr.title, errorAgent: protoErr.agentLabel, errorCallId: protoErr.agentCallId }
     }
     return rounds
   })
@@ -382,6 +344,14 @@ function PatternContent() {
   const [isDragOver, setIsDragOver] = createSignal(false)
   const [selectedDesignSystem, setSelectedDesignSystem] = createSignal<string>("ICT3.1")
 
+  // 归档:状态和事件处理由 useArchive composable 封装,此处只注入依赖
+  const archive = useArchive({
+    sessionId: () => params.id,
+    projectDir: () => sdk.directory,
+    sessionTitle: () => sessionInfo()?.title,
+    pendingData: () => pendingPreviewData()[params.id ?? ""] ?? null,
+  })
+
   // ── per-session 状态 Map（按 session ID 隔离，互不干扰）──
   const [lastIntent, setLastIntent] = sessionMap.createSessionMap<Record<string, unknown> | null>()
   const [lastPlanner, setLastPlanner] = sessionMap.createSessionMap<Record<string, unknown> | null>()
@@ -400,13 +370,15 @@ function PatternContent() {
   // 意图确认阶段：null = 未激活，非 null = 带选项结果
   const [intentConfirm, setIntentConfirm] = sessionMap.createSessionMap<IntentConfirmResult | null>()
   // block 匹配到的模板列表
-  const [blockMatches, setBlockMatches] = sessionMap.createSessionMap<PatternMatchItem[]>()
+  const [blockMatches, setBlockMatches] = sessionMap.createSessionMap<BlockModuleItem[]>()
   // 是否正在匹配 block 模板
   const [blockMatching, setBlockMatching] = sessionMap.createSessionMap<boolean>()
   // block 匹配是否出错
   const [blockMatchError, setBlockMatchError] = sessionMap.createSessionMap<boolean>()
+  // 缓存的 page pattern 规范 MD（首次选择时缓存，重试时复用，checkpoint 恢复时回填）
+  const [cachedPagePattern, setCachedPagePattern] = sessionMap.createSessionMap<string>()
   // 卡片初始步骤（恢复 block_matching 时直接跳到 blocks）
-  const [cardInitialStep, setCardInitialStep] = createSignal<"dimensions" | "blocks" | undefined>()
+  const [cardInitialStep, setCardInitialStep] = createSignal<"patterns" | "blocks" | undefined>()
 
   const needsConfirm = createMemo(() => {
     const id = params.id
@@ -425,14 +397,14 @@ function PatternContent() {
   // 历史文件存储目录，优先使用关联目录下的 .octo/design/history
   const patternHistoryDir = createMemo(() => {
     const home = sdk.directory
-    return `${home}/.octo/design/history`
+    return `${home}\\.octo\\design\\history`
   })
 
   createEffect(() => {
     const home = sdk.directory
     if (!home) return
     const api = (window as unknown as { api?: { setUploadsDir?: (dir: string) => Promise<void> } }).api
-    api?.setUploadsDir?.(`${home}/.octo/design/history`)
+    api?.setUploadsDir?.(`${home}\\.octo\\design\\history`)
   })
 
   // pipeline 忙状态（用于生成卡片状态）
@@ -518,7 +490,7 @@ function PatternContent() {
       const error = classifyAIError(err)
       if (error.title) {
         const sid = params.id
-        if (sid) setSessionErrors((prev) => ({ ...prev, [sid]: error.title }))
+        if (sid) setSessionErrors((prev) => ({ ...prev, [sid]: { title: error.title, agentLabel: error.agentLabel, agentCallId: error.agentCallId } }))
         showToast({ title: error.title, description: error.description })
       }
     }
@@ -527,15 +499,16 @@ function PatternContent() {
   async function handleWorkflowError(err: unknown, sessionId: string, label: string) {
     console.error(`[PatternPage] ${label} failed`, err)
     void saveDebugSnapshot(patternHistoryDir(), sessionId, "error", { error: String(err instanceof Error ? err.message : err) })
+    await sdk.client.session.abort({ sessionID: sessionId }).catch(() => { })
     for (const childID of childSessionIDs()) {
       await sdk.client.session.abort({ sessionID: childID }).catch(() => { })
     }
     const error = classifyAIError(err)
     if (error.title) {
-      setSessionErrors((prev) => ({ ...prev, [sessionId]: error.title }))
+      setSessionErrors((prev) => ({ ...prev, [sessionId]: { title: error.title, agentLabel: error.agentLabel, agentCallId: error.agentCallId } }))
       showToast({ title: error.title, description: error.description })
       const errDir = patternHistoryDir()
-      if (errDir) void saveProtoError(errDir, sessionId, error.title)
+      if (errDir) void saveProtoError(errDir, sessionId, { title: error.title, agentLabel: error.agentLabel, agentCallId: error.agentCallId })
     }
   }
 
@@ -598,18 +571,11 @@ function PatternContent() {
         if (ckpt.stage === "intent_confirm") {
           // intent_confirm 报错，先重跑意图确认
           const confirmResult = await create_intent_confirm(intentCtx)
-          if (Object.keys(confirmResult.options).length > 0) {
-            // 需要用户确认，在 CHAT 中显示确认卡片
-            sessionMap.set(setUserInput, sid, text)
-            sessionMap.set(setIntentConfirm, sid, confirmResult)
-            startPause(sid)
-            return
-          }
-          // 无需确认，弹出卡片走 block 选择
+          setCardInitialStep(undefined)
+          // 无论是否匹配到 Pattern，都弹卡片暂停；空结果时卡片显示「未匹配到」+ 跳过
           sessionMap.set(setUserInput, sid, text)
           sessionMap.set(setIntentConfirm, sid, confirmResult)
           startPause(sid)
-          void handleMatchPatternInCard("")
           return
         }
 
@@ -821,18 +787,11 @@ function PatternContent() {
         if (!sendingSids().has(sid!)) return
         const confirmResult = await create_intent_confirm(intentCtx)
         void saveDebugSnapshot(patternHistoryDir(), sid!, "intent_confirm")
-        if (Object.keys(confirmResult.options).length > 0) {
-          if (sid) sessionMap.set(setUserInput, sid!, intentCtx.userInput)
-          if (sid) sessionMap.set(setIntentConfirm, sid!, confirmResult)
-          startPause(sid!)
-          return
-        }
-
-        // 无维度需确认，直接弹出卡片走 block 选择
-        if (sid) sessionMap.set(setUserInput, sid!, text)
+        setCardInitialStep(undefined)
+        // 无论是否匹配到 Pattern，都弹卡片暂停；空结果时卡片显示「未匹配到」+ 跳过
+        if (sid) sessionMap.set(setUserInput, sid!, intentCtx.userInput)
         if (sid) sessionMap.set(setIntentConfirm, sid!, confirmResult)
         startPause(sid!)
-        void handleMatchPatternInCard("")
         return
       }
     } catch (err: unknown) {
@@ -849,15 +808,18 @@ function PatternContent() {
     }
   }
 
-  // 卡片第一步：点「匹配pattern」触发 block 匹配
-  async function handleMatchPatternInCard(enrichedInput: string) {
+  // 卡片第一步：page pattern 选定后触发 block 匹配（selectedItem 后续用于精准匹配）
+  async function handleMatchPatternInCard(selectedItem: IntentConfirmDimension | null) {
     const sid = params.id
     if (!sid) return
     const mk = activeModelKey()
     if (!mk) return
     const text = userInput()[sid] ?? ""
-    const enrichedText = text + enrichedInput
+    const enrichedText = text
     const ds = selectedDesignSystem()
+    // 首次选择时缓存 pagePattern，重试时（selectedItem = null）复用缓存
+    const pagePattern = selectedItem?.content ?? cachedPagePattern()[sid] ?? ""
+    if (selectedItem) sessionMap.set(setCachedPagePattern, sid, pagePattern)
     sessionMap.set(setBlockMatching, sid, true)
     sessionMap.set(setBlockMatchError, sid, false)
     sessionMap.set(setBlockMatches, sid, [])
@@ -868,7 +830,10 @@ function PatternContent() {
         modelKey: mk,
         rootSession: sid,
         userInput: enrichedText,
-        extra: ds ? { designSystem: ds } as Record<string, unknown> : undefined,
+        extra: {
+          ...(ds ? { designSystem: ds } : {}),
+          pagePattern,
+        } as Record<string, unknown>,
         checkpointDir: patternHistoryDir() ?? undefined,
         onSessionCreated: (childID: string) => {
           if (params.id !== sid) return
@@ -885,7 +850,8 @@ function PatternContent() {
   }
 
   // 卡片第二步：点「确认并继续生成」→ proto_intent → planner_create → modules_create
-  async function handleConfirmIntent(_answers: IntentConfirmAnswers, enrichedInput: string, selectedBlocks: PatternMatchItem[]) {
+  async function handleConfirmIntent(_answers: IntentConfirmAnswers, enrichedInput: string, selectedBlocks: BlockModuleItem[]) {
+    debugger
     const sid = params.id
     if (!sid) return
     const mk = activeModelKey()
@@ -905,21 +871,22 @@ function PatternContent() {
         category: string
         description: string
         structure: string
-        patternPath: string
+        patternId: string
+        content?: any
         rootContainer: { id: string; component: string; className: string }
       }> = []
       for (const block of selectedBlocks) {
-        const content = await readPatternFile("block", block.pattern.path, ds)
-        if (!content) continue
-        const json = JSON.parse(content)
-        const rootEl = json.elements?.[0]
+        if (!block.content) continue
+        const json = block.content
+        const rootEl = json.elements?.find((e: any) => e.id === json.rootId) ?? json.elements?.[0]
         if (!rootEl) continue
         patterns.push({
-          name: block.pattern.name,
-          category: block.pattern.category ?? "",
-          description: block.pattern.description ?? "",
-          structure: block.pattern.structure ?? "",
-          patternPath: block.pattern.path,
+          name: block.name,
+          category: block.category ?? "",
+          description: block.description ?? "",
+          structure: block.structure ?? "",
+          patternId: block.id,
+          content: block.content,
           rootContainer: {
             id: json.rootId ?? rootEl.id ?? "",
             component: rootEl.component ?? "",
@@ -1157,13 +1124,18 @@ function PatternContent() {
       if (replannerSessionId) await sdk.client.session.delete({ sessionID: replannerSessionId }).catch(() => {})
     }
 
-    await download({ planner, mergedA2UI })
+    await download({ planner, mergedA2UI, sessionId: sid })
   }
 
   // 分享 — 打包 intent / planner / modules / preview JSON 为 ZIP
   async function handleShare() {
     tracker.interaction({ module: "prototype", name: "share-result" })
     await exportZip({historyDir: patternHistoryDir(), sessionId: params.id ?? "", title: sessionInfo()?.title ?? params.id ?? "export" })
+  }
+
+  // 画布编辑  跳转pixso
+  function handleCanvasEditing() {
+    console.log('跳转pixso')
   }
 
   // 实时预览
@@ -1261,7 +1233,7 @@ function PatternContent() {
             onDeleteSession={deleteSession}
             onTitleChanged={(title) => mutateSession(prev => prev ? { ...prev, title } : prev)}
             onRetry={handleRetry}
-            intentConfirmResult={intentConfirm()[params.id!] ?? null}
+            pageMatches={intentConfirm()[params.id!] ?? null}
             blockMatches={blockMatches()[params.id!] ?? []}
             blockMatching={blockMatching()[params.id!] ?? false}
             blockMatchError={blockMatchError()[params.id!] ?? false}
@@ -1290,6 +1262,7 @@ function PatternContent() {
                     onPickerSubmit={handlePickerSubmit}
                     onDownload={handleDownload}
                     onShare={handleShare}
+                    onCanvasEditing={handleCanvasEditing}
                     onReorder={handleReorder}
                     onLivePreview={handleLivePreview}
                     onPixsoPreview={handlePixsoPreview}
@@ -1297,6 +1270,8 @@ function PatternContent() {
                     versions={versions()[params.id!] ?? []}
                     currentVersionId={currentVersionId()[params.id!] ?? null}
                     onSelectVersion={(vid) => { void handleSelectVersion(vid) }}
+                    archiving={archive.archiving()}
+                    onArchiveToggle={archive.toggleArchiving}
                   />
                 </Show>
               }>
@@ -1312,6 +1287,36 @@ function PatternContent() {
               </div>
             </Show>
           </div>
+        </Show>
+        {/* 归档弹窗:选择空间/产品/版本/文件夹后上传 ZIP 到交付物系统 */}
+        <Show when={archive.archiving()}>
+          <ArchiveDialog
+            open={archive.archiving()}
+            onClose={archive.closeArchive}
+            onResetArchiving={archive.closeArchive}
+            onConfirm={archive.handleArchiveConfirm}
+            sessionId={params.id ?? ""}
+            filePath=""
+            tabTitle={sessionInfo()?.title ?? params.id ?? "pattern"}
+          />
+        </Show>
+        {/* 归档成功弹窗:展示归档路径,「跳转查看」打开交付物预览分享给开发(与 make 一致) */}
+        <Show when={archive.archiveSuccessOpen()}>
+          <DialogArchiveSuccess
+            open={archive.archiveSuccessOpen()}
+            onClose={archive.closeArchiveSuccess}
+            archivePath={archive.archiveSuccessPath()}
+            shareLink={archive.archiveSuccessUniqueId()
+              ? `${getArchiveBaseUrl()}/developerPreview/designAgent/index.html?uniqueId=${archive.archiveSuccessUniqueId()}`
+              : undefined}
+            onViewClick={() => {
+              const uniqueId = archive.archiveSuccessUniqueId()
+              if (uniqueId) {
+                const url = `${getArchiveBaseUrl()}/developerPreview/designAgent/index.html?uniqueId=${uniqueId}`
+                getDesktopApi()?.openLink?.(url)
+              }
+            }}
+          />
         </Show>
       </div>
     </DataProvider>

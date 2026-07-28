@@ -90,21 +90,21 @@
         ]
       }
     },
-    // 情况二：使用了模块模板的区域（用户选定的 block），不生成 data，标注 patternPath
+    // 情况二：使用了模块模板的区域（用户选定的 block），不生成 data，标注 patternId
     {
       "id": "sideNav",
       "name": "侧边导航",
       "description": "提供全局功能导航入口，展示导航菜单，支持展开/折叠",
       "layout": "左侧固定宽度垂直布局",
       "elements": "纵向折叠菜单",
-      "patternPath": "./expandSideBar/data.json"
+      "patternId": "1120"
     }
   ]
 }
 ```
 
 ## 前端组件目录(Ant Design React Components)
-{COMPONENTS_CATALOG}
+{component_usage}
 
 ## 核心约束
 
@@ -132,31 +132,25 @@
     - 在Mock图表数据时，针对尺寸较大的图表，非常鼓励额外增加多个系列数据，来丰富图表的表达.
     - 在Mock图表数据时，针对线形图、柱状图的图表，数据的走势需要有波动性，来模拟更加真实的场景.
    
-4.**媒体资源URL可渲染:** JSON数据中的静态资源必须使用公开可访问的占位图服务链接，禁止编造不存在的域名路径。
-  - **图标类:** 统一使用Lucide Icon.
-  - **LOGO类:** 统一使用Lucide Icon.
-  - **头像类:** 统一使用randomuser: `https://randomuser.me/api/portraits/{men|women}/{1-99}.jpg` （如 `https://randomuser.me/api/portraits/women/44.jpg`）.
-  - **通用图片类:** 统一使用 `https://fpoimg.com/{width}x{height}?gradient={hex_start},{hex_end}&text_color={text_hex}&text=IMAGE` 来生成占位图，按场景选择尺寸、渐变色(不要使用灰、白)和文字，例如：
-    - 封面/Banner (`1920x600`): `https://fpoimg.com/1920x600?gradient=FF512F,DD2476&text_color=ffffff&text=IMAGE`
-    - 卡片缩略图 (`800x600`): `https://fpoimg.com/800x600?gradient=00C6FF,0072FF&text_color=ffffff&text=IMAGE`
-    - 商品图/详情图 (`1200x1200`): `https://fpoimg.com/1200x1200?gradient=11998E,38EF7D&text_color=ffffff&text=IMAGE`
-    - 小图 (`200x200`): `https://fpoimg.com/200x200?gradient=B224EF,7579FF&text_color=ffffff&text=IMAGE`
+4.**媒体资源URL可渲染:** JSON数据中的静态资源必须使用以下本地资源路径，禁止编造不存在的路径或使用外部网络图片。
+   - **图标类:** 统一使用Lucide Icon.
+   - **LOGO类:** 统一使用Lucide Icon.
+   - **头像类:** 统一使用 `/user.png`.
+   - **通用图片类:** 统一使用 `/image.jpg`.
+   - **背景图类:** 统一使用 `/background.jpg`.
 
-5. **组件使用指南**
-{COMPONENTS_USAGE}
-
-6. **交互形式内聚约束**：
+5. **交互形式内聚约束**：
 优先使用页面内布局区域完成交互。表单编辑、详情展示尽量采用行内展开、侧边平铺或分步表单实现；
 在确保极简现代体验的前提下，仅在必要时（如强打断操作）允许在蓝图声明模态弹窗或抽屉。
 
-7. **模块划分约束**：
+6. **模块划分约束**：
   - 表格分页组件已经默认跟随在表格组件中，无需再单独设定
   - 针对整个界面的筛选等操作，通常放在头部导航中，而不是单独放在主体区域中作为一个单独的卡片
   - Side-by-side buttons must share identical structures (All-Text, All-Icon, or All-Icon+Text). Mixing structures within a single row is prohibited to maintain visual parity.
   - 业务数据指标卡片、表格模块等需要标题，在UI上显示该区域名称，在数据 data 中需有显性的包含`cardTitle`的字段。（导航栏、侧边菜单等不需要标题的无需该字段）
 
-8. **模块模板约束**：
+7. **模块模板约束**：
    - 如果用户输入中包含「已有的模块模板」列表，其中每个模板必须作为独立的一个 section 出现在 sections 中，不可遗漏任何一个。
-   - 对于使用了模块模板的 section，添加 `patternPath` 字段，值为该模板的 patternPath，且不生成 `data` 字段（模块内容将由模板直接提供）。
+   - 对于使用了模块模板的 section，添加 `patternId` 字段，值为该模板的 patternId，且不生成 `data` 字段（模块内容将由模板直接提供）。
    - 对于使用了模块模板的 section，仍需生成 description、layout、elements 字段。
-   - 对于未使用模块模板的 section（用户新增的功能区域），正常生成完整的 data 字段，不添加 patternPath。
+   - 对于未使用模块模板的 section（用户新增的功能区域），正常生成完整的 data 字段，不添加 patternId。

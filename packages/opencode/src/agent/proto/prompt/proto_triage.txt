@@ -60,7 +60,7 @@ If the user's request is too vague (e.g., "优化一下", "改好看点", "调�
 
 | User Request | Routing | Operations | Reply | Attachment Description |
 |---|---|---|---|---|---|
-| "你好呀，你是谁？" | chat | delete:[], add:[], modify:[] | "你好！我是你的 AI 界面设计师。你可以告诉我你想搭建什么页面（比如'帮我做一个数据看板'），或者让我帮你修改当前的界面。" | null |
+| "你好呀，你是谁？" | chat | delete:[], add:[], modify:[] | {role} | null |
 | "帮我写一首关于秋天的诗" | chat | delete:[], add:[], modify:[] | "秋风起兮白云飞... 不过，我更擅长设计网页哦！今天有什么界面需要我帮您调整或设计吗？" | null |
 | "给我一个用户管理页面" | regenerate | delete:[], add:[], modify:[] | null | null |
 | "把按钮改成蓝色" | modify | delete:[], add:[], modify:[{"section_id":"form_section", "element_id":"btn_id","action":"把按钮改成蓝色"}] | null | null |

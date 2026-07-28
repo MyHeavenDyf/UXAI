@@ -1,169 +1,198 @@
 /**
- * Tabs → Tab 映射
+ * Tabs → Tab 映射（新架构）
  *
  * A2UI Tabs → eview-react Tab 组件。
  *
- * ## 映射规则
+ * ## Props 对照
  *
- * 1. activeKey（受控绑定）→ selectedIndex（数字索引，0-based）
- *    四种情况处理 key→index 转换，统一输出 two-way binding：
- *    - 无 activeKey 字段 → 不输出 selectedIndex prop，不生成 useState，走组件默认值
- *    - 字面量 string + StaticChildren → 遍历 children[i].props.key 匹配
- *    - 字面量 string + 循环 → rawState[_loopBinding.stateKey] 数据数组 → 遍历 item.key 匹配
- *    - DataBinding + StaticChildren → rawState 取值 → 遍历 children.props.key 匹配
- *    - DataBinding + 循环 → rawState 取值 + 取循环数组 → 遍历 item.key 匹配
- *    - 非法值/空字符串/未匹配 → selectedIndex = 0（默认选中第一个）
+ * | A2UI prop | eview-react prop | 处理方式 |
+ * |-----------|-----------------|---------|
+ * | activeKey（字面量/DataBinding） | selectedIndex | 编译期 key→index 匹配 → **LiteralValue.useState**，event: 'onClick' 自动注入 |
+ * | types: line/card/editable-card | type: main/sub/sub | 值映射 |
+ * | tabPlacement: top/end/bottom/start | position: top/right/bottom/left | 值映射 |
+ * | size | size | 透传 |
+ * | className | className | 透传 |
+ * | — | lazyLoad | `defaults: true` |
+ * | — | onClick | 由 selectedIndex 的 useState.event 自动生成，无需手动占位 |
  *
- * 2. types → type
- *    line → main, card → sub, editable-card → sub
+ * ## 特殊逻辑
  *
- * 3. tabPlacement → position
- *    top → top, end → right, bottom → bottom, start → left
- *
- * 4. onClick → two-way binding，回传 index
- *    eview-react Tab onClick(index) 回传选中 tab 的 index
+ * - activeKey（string）→ selectedIndex（number），匹配来源：
+ *   - 静态 children → 遍历 RegularNode[].props.key
+ *   - 循环 children → 从 LoopNode.data 取数据数组，遍历 item.key
+ * - activeKey 可以为字面量或 DataBinding，均需匹配后产生 useState
+ * - 无 activeKey 时，不输出 selectedIndex（走组件默认值 0）
  */
-import { resolveBindingValue } from '../../../src/core/stateUtils';
+
+import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
+import type { PropValue, BindingValue } from '../../../src/core/valueTypes'
+import { Value } from '../../../src/core/value'
+import type { LoopNode } from '../../../src/core/nodeTypes'
+
+// ─── 工具 ───
 
 /**
- * 尝试从 children 或循环数据中找出 activeKey 对应的 index
- *
- * @param children - 已解析的 children 节点数组
- * @param activeKeyVal - 要匹配的 activeKey 值（字面量 string）
- * @param rawState - 原始 state（循环场景需要）
- * @param loopStateKey - 循环数据在 state 中的 key（如 tabItems），无循环时为 null
- * @returns 匹配的 index，-1 表示未找到
+ * 从静态 children（RegularNode[]）中遍历查找 activeKey 对应的索引
  */
-function findIndexByKey(
+function findIndexInStaticChildren(
   children: any[] | null | undefined,
   activeKeyVal: string,
-  rawState: any,
-  loopStateKey: string | null,
 ): number {
-  if (Array.isArray(children)) {
-    for (let i = 0; i < children.length; i++) {
-      const child = children[i];
-      if (child?.props?.key === activeKeyVal) return i;
+  if (!Array.isArray(children)) return -1
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i]
+    if (child?.kind === 'component' && child.props?.key === activeKeyVal) {
+      return i
     }
   }
-
-  if (loopStateKey) {
-    const items = rawState?.[loopStateKey];
-    if (Array.isArray(items)) {
-      for (let i = 0; i < items.length; i++) {
-        if (items[i]?.key === activeKeyVal) return i;
-      }
-    }
-  }
-
-  return -1;
+  return -1
 }
 
 /**
- * 构造 two-way binding 标记，让管线自动生成 useState + onClick handler
- *
- * @param id - 节点 id，用于生成独立 state key（如 "mCnPrimaryNav" → "mCnPrimaryNavSelectedIndex"）
+ * 从循环数据数组中遍历查找 activeKey 对应的索引
  */
-function makeTwoWayBinding(id: string) {
-  const stateKey = `${id}SelectedIndex`;
-  return {
-    __binding: true,
-    bindMode: 'two-way' as const,
-    pathType: 'absolute' as const,
-    stateKey,
-    accessPath: stateKey,
-    control: {
-      changeEvent: 'onClick',
-      valueExtractor: (setter: string) => `(index) => ${setter}(index)`,
-    },
-  };
+function findIndexInRawData(rawData: any[], activeKeyVal: string): number {
+  if (!Array.isArray(rawData)) return -1
+  for (let i = 0; i < rawData.length; i++) {
+    const item = rawData[i]
+    if (item?.key === activeKeyVal) return i
+  }
+  return -1
 }
 
-export default {
+/**
+ * 从循环数据中查找索引（保留兼容，字面量场景用）
+ */
+function findIndexInLoopData(
+  loop: LoopNode,
+  activeKeyVal: string,
+  ctx: TransformContext,
+): number {
+  const data = loop.data as BindingValue
+  const rawData: any[] = data?.path
+    ? (ctx.resolveAbsoluteStateValue(data.path) ?? [])
+    : []
+  return findIndexInRawData(rawData, activeKeyVal)
+}
+
+// ─── Tabs 映射定义 ───
+
+const TabsMapping: MappingDef = {
   tag: 'Tab',
   import: '@nce/eview-react/Tab',
 
-  binding: {
-    activeKey: {
-      changeEvent: 'onClick',
-      valueExtractor: ()=>{},
-    },
+  defaults: {
+    lazyLoad: true,
   },
 
-  propsMap: {
-    types: 'type',
-    tabPlacement: 'position',
-  },
+  transform(node: any, ctx: TransformContext) {
+    const props = node.props || {}
+    const outputProps: Record<string, PropValue> = {}
+    const SKIP_KEYS = new Set([
+      'activeKey', 'types', 'tabPlacement', 'size', 'className',
+    ])
 
-  valueMap: {
-    type: {
-      line: 'main',
-      card: 'sub',
-      'editable-card': 'sub',
-    },
-    position: {
-      top: 'top',
-      end: 'right',
-      bottom: 'bottom',
-      start: 'left',
-    },
-  },
+    // ─── 判定 children 形态 ───
+    const children = node.children
+    const isLoop = children && typeof children === 'object' && children.kind === 'loop'
+    const staticChildren = isLoop ? [] : (Array.isArray(children) ? children : [])
 
-  transform(node: any, { rawState }: { rawState: any }) {
-    const p = { ...(node.props || {}) };
-    const deleteFields: string[] = [];
-    const stateData: Record<string, any> = {};
+    // ─── activeKey → selectedIndex（useState，双形态） ───
+    //   字面量 → Value.literal（编译期算索引 hardcode）
+    //   DataBinding → Value.computed + useState（transform 内算索引，cvCtx 读循环数据，path 直传无需 resolveValueFromPath）
+    const hasActiveKey = Object.prototype.hasOwnProperty.call(props, 'activeKey')
+    if (hasActiveKey) {
+      const activeKeyRaw = props.activeKey
+      const extractor = (setter: string) => `(index) => ${setter}(index)`
 
-    // ─── 无 activeKey → 不输出 selectedIndex，不生成 useState ───
-    const hasActiveKey = Object.prototype.hasOwnProperty.call(p, 'activeKey');
-    if (!hasActiveKey) {
-      return {
-        props: p,
-        children: node.children,
-      };
-    }
-
-    // ─── 有 activeKey → 用 node.id 生成独立 state key（小驼峰），避免多 Tab state 冲突 ───
-    const stateKey = `${node.id}SelectedIndex`;
-
-    const isLoop = !!node._isLoop;
-    const loopStateKey = isLoop && node._loopBinding?.stateKey
-      ? node._loopBinding.stateKey
-      : null;
-
-    const isDataBinding = !!(p.activeKey?.__binding);
-
-    let activeKeyVal: string | null = null;
-    if (isDataBinding) {
-      const rawVal = resolveBindingValue(rawState, p.activeKey);
-      activeKeyVal = rawVal !== undefined && rawVal !== null ? String(rawVal) : null;
-      if (p.activeKey.accessPath) {
-        deleteFields.push(p.activeKey.accessPath);
+      if (activeKeyRaw && typeof activeKeyRaw === 'object' && activeKeyRaw.type === 'binding') {
+        // DataBinding → ComputedValue.useState
+        // 闭包捕获 staticChildren / loop（编译期已知），transform 内用 cvCtx 读循环数据算索引
+        const staticChildrenCapture = staticChildren
+        const loopCapture = isLoop ? (children as LoopNode) : null
+        outputProps.selectedIndex = Value.computed({
+          path: activeKeyRaw.path,
+          pathType: activeKeyRaw.pathType ?? 'absolute',
+          accessPath: activeKeyRaw.accessPath,
+          containsJSX: false,
+          useState: { event: 'onClick', extractor },
+          transform: (rawActiveKey: any, cvCtx?: any) => {
+            const activeKeyVal = rawActiveKey !== undefined && rawActiveKey !== null ? String(rawActiveKey) : ''
+            if (!activeKeyVal || activeKeyVal === '') return 0
+            let idx = findIndexInStaticChildren(staticChildrenCapture, activeKeyVal)
+            if (idx === -1 && loopCapture) {
+              const data = loopCapture.data as BindingValue
+              const rawData = data?.path && cvCtx
+                ? (cvCtx.resolveValueFromPath(data.path) ?? [])
+                : []
+              idx = findIndexInRawData(rawData, activeKeyVal)
+            }
+            return idx !== -1 ? idx : 0
+          },
+        })
+      } else {
+        // 字面量 → Value.literal.useState（编译期算索引）
+        const activeKeyVal = typeof activeKeyRaw === 'string' ? activeKeyRaw : ''
+        let selectedIndex = 0
+        if (activeKeyVal && activeKeyVal !== '') {
+          let idx = -1
+          if (isLoop) {
+            idx = findIndexInLoopData(children as LoopNode, activeKeyVal, ctx)
+          } else {
+            idx = findIndexInStaticChildren(staticChildren, activeKeyVal)
+          }
+          if (idx !== -1) selectedIndex = idx
+        }
+        outputProps.selectedIndex = Value.literal({
+          value: selectedIndex,
+          useState: { event: 'onClick', extractor },
+        })
       }
-    } else if (typeof p.activeKey === 'string') {
-      activeKeyVal = p.activeKey;
     }
 
-    let selectedIndex: number = 0;
-    if (activeKeyVal && activeKeyVal !== '') {
-      const idx = findIndexByKey(node.children, activeKeyVal, rawState, loopStateKey);
-      if (idx !== -1) {
-        selectedIndex = idx;
+    // ─── types → type：值映射 ───
+    if (props.types === 'line') {
+      outputProps.type = 'main'
+    } else if (props.types === 'card' || props.types === 'editable-card') {
+      outputProps.type = 'sub'
+    }
+
+    // ─── tabPlacement → position：值映射 ───
+    if (props.tabPlacement === 'top') {
+      outputProps.position = 'top'
+    } else if (props.tabPlacement === 'end') {
+      outputProps.position = 'right'
+    } else if (props.tabPlacement === 'bottom') {
+      outputProps.position = 'bottom'
+    } else if (props.tabPlacement === 'start') {
+      outputProps.position = 'left'
+    }
+
+    // ─── size 透传 ───
+    if (props.size) {
+      // size: medium → normal
+      outputProps.size = props.size === 'medium' ? 'normal' : props.size
+    }
+
+    // ─── className 透传 ───
+    if (props.className) {
+      outputProps.className = props.className
+    }
+
+    // ─── onClick 由 selectedIndex 的 useState.event 自动注入，不手动占位 ───
+
+    // ─── 透传剩余 prop ───
+    for (const [key, value] of Object.entries(props)) {
+      if (!SKIP_KEYS.has(key)) {
+        outputProps[key] = value as PropValue
       }
-    }
-
-    stateData[stateKey] = selectedIndex;
-    p.selectedIndex = makeTwoWayBinding(node.id);
-    delete p.activeKey;
-
-    if (deleteFields.length > 0) {
-      stateData.__deleteFields = deleteFields;
     }
 
     return {
-      props: p,
-      children: node.children,
-      stateData,
-    };
+      props: outputProps,
+      // 透传 children（TabItem 作为子节点渲染）
+    }
   },
-};
+}
+
+export default TabsMapping

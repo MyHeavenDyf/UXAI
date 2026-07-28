@@ -109,6 +109,7 @@ const api: ElectronAPI = {
   deleteFile: (path) => ipcRenderer.invoke("delete-file", path),
   writeClipboardText: (text) => ipcRenderer.invoke("write-clipboard-text", text),
   capturePreviewRect: (rect) => ipcRenderer.invoke("capture-preview-rect", rect),
+  capturePreviewPage: (opts) => ipcRenderer.invoke("capture-preview-page", opts),
   tailwindToCss: (className) => ipcRenderer.invoke("tailwind-to-css", className),
   cssToTailwind: (cssObject) => ipcRenderer.invoke("css-to-tailwind", cssObject),
   getPreviewDistDir: () => ipcRenderer.invoke("get-preview-dist-dir"),
@@ -127,6 +128,7 @@ const api: ElectronAPI = {
   pipelineRequest: (url, method, uiplusToken, body, headers) => ipcRenderer.invoke("pipeline-request", url, method, uiplusToken, body, headers),
   // jk-j60099994-replace-with-index-1-start
   // jk-j60099994-replace-with-index-1-end
+  configureProxy: (account, password) => ipcRenderer.invoke("configure-proxy", account, password),
 }
 
 contextBridge.exposeInMainWorld("api", api)
