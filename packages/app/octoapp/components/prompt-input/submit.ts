@@ -153,16 +153,12 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       return false
     }
 
-    const RESOURCE_LIBRARY_INSTRUCTION = "[hidden-instruction] 当用户未指定图标、插画、图片等资源的来源时，使用 \"resourceLibrary\" skill 获取这些资源。该 skill 位于 octo 配置目录下的 resourceLibraryScript/resourceLibrary/SKILL.md（Linux/macOS 通常在 ~/.config/octo/，Windows 通常在 %APPDATA%/octo/） [/hidden-instruction]"
-    const resourceLibraryPart = input.draft.agent === "octo_make" || input.draft.agent === "octo_make_plan" || input.draft.agent.startsWith("proto_")
-      ? [{ type: "text" as const, text: RESOURCE_LIBRARY_INSTRUCTION, synthetic: true as const }]
-      : []
     await input.client.session.promptAsync({
       sessionID: input.draft.sessionID,
       agent: input.draft.agent,
       model: input.draft.model,
       messageID,
-      parts: [...requestParts, ...resourceLibraryPart],
+      parts: requestParts,
       variant: input.draft.variant,
     })
     return true
