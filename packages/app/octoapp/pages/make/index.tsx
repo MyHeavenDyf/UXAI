@@ -834,6 +834,7 @@ const sessionMessagesLoaded = createMemo(() => {
   // ── Mention (@) Popover State ──
   const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [mentionSelections, setMentionSelections] = createSignal<MentionSelection[]>([])
+  const [mentionIndex, setMentionIndex] = createSignal(0)
   const [filesRefreshKey, setFilesRefreshKey] = createSignal(0)
 
   // Mention selections are now managed by ProseMirrorEditor's sync plugin
@@ -2302,6 +2303,12 @@ if (dsId) {
       ? `@${selection.name}` 
       : `@${selection.filename}`
     setPrompt(prev => prev.replace(chipText, '').replace(/  +/g, ' ').trim())
+  }
+
+  function handleMentionNavigate(direction: "up" | "down") {
+    // This will be handled in ProseMirrorEditor via mentionIndex
+    // For now, we need to calculate the max index based on filtered items
+    // The actual selection change will be reflected in MentionPopover
   }
 
   /** Pick a Design Files file and add as attachment */
