@@ -187,7 +187,10 @@ export function StudioComposer(props: {
   // Toolbar overflow detection
   const [toolbarOverflow, setToolbarOverflow] = createSignal<string[]>([])
   const [moreMenuOpen, setMoreMenuOpen] = createSignal(false)
+  const [moreMenuTick, setMoreMenuTick] = createSignal(0)
   const moreMenuStyle = (): JSX.CSSProperties => {
+    // 窗口尺寸变化时重新计算位置，使菜单跟随更多按钮
+    moreMenuTick()
     if (!moreButtonRef) return {}
     const rect = moreButtonRef.getBoundingClientRect()
     const menuWidth = 175
@@ -286,11 +289,26 @@ export function StudioComposer(props: {
     onCleanup(() => document.removeEventListener("pointerdown", handler))
   })
 
+  // 更多菜单展开时，窗口尺寸变化重新定位以跟随更多按钮
+  createEffect(() => {
+    if (!moreMenuOpen()) return
+    const onResize = () => requestAnimationFrame(() => setMoreMenuTick((v) => v + 1))
+    window.addEventListener("resize", onResize)
+    onCleanup(() => window.removeEventListener("resize", onResize))
+  })
+
   // Close more menu when any main popup opens from outside the more menu
   createEffect(() => {
     const menu = props.openMenu
     if (menu && !toolbarOverflow().includes(menu)) {
       // opened from toolbar button, close more menu
+      setMoreMenuOpen(false)
+    }
+  })
+
+  // 更多按钮不显示时（工具栏无溢出）自动收起更多菜单
+  createEffect(() => {
+    if (moreMenuOpen() && toolbarOverflow().length === 0) {
       setMoreMenuOpen(false)
     }
   })
@@ -326,6 +344,8 @@ export function StudioComposer(props: {
   createEffect(() => {
     const menu = props.openMenu
     if (!menu) return
+    // 工具栏溢出变化时重新定位：按钮在工具栏与更多菜单间切换时弹框需重新对齐
+    toolbarOverflow()
     // Defer measurement to next microtask so the DOM has updated
     queueMicrotask(() => positionDropdown(menu))
   })
@@ -657,7 +677,7 @@ export function StudioComposer(props: {
               <CapabilityMenu
                 value={props.capability}
                 canGenerateVideo={props.canGenerateVideo}
-                onSelect={(value) => { props.onToolClick?.(); props.onCapability(value); props.onOpenMenu(null) }}
+                onSelect={(value) => { if (workspaceModeForCapability(value)) props.onToolClick?.(); props.onCapability(value); props.onOpenMenu(null) }}
               />
             </div>
           </Show>
