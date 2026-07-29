@@ -305,7 +305,7 @@ const STUDIO_ASPECT_RATIO_CANDIDATES: { key: StudioAspectRatio; value: number }[
   { key: "9:16", value: 9 / 16 },
 ]
 
-function closestStudioAspectRatio(w: number, h: number): StudioAspectRatio {
+export function closestStudioAspectRatio(w: number, h: number): StudioAspectRatio {
   const ratio = w / h
   let best = STUDIO_ASPECT_RATIO_CANDIDATES[0]
   let bestDist = Math.abs(ratio - best.value)

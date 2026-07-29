@@ -38,6 +38,7 @@ import {
   onCleanup,
   onMount,
   Show,
+  Suspense,
   type JSX,
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
@@ -113,7 +114,9 @@ export default function MakePage() {
         <SDKProvider directory={() => dir}>
           <SyncProvider>
             <LocalProvider>
-              <MakeContent />
+              <Suspense fallback={<div class="size-full bg-background-base" />}>
+                <MakeContent />
+              </Suspense>
             </LocalProvider>
           </SyncProvider>
         </SDKProvider>
@@ -160,7 +163,38 @@ function MakeContent() {
   const local = useLocal()
   useTabModel("make")
   const currentModel = () => local.model.current()
-  
+
+  function findMultimodalModel() {
+    const recent = local.model.recent()
+    for (const m of recent) {
+      if (m?.capabilities?.input?.image === true) return m
+    }
+    return local.model.list()
+      .filter(m => m.capabilities?.input?.image === true)
+      .filter(m => local.model.visible({ providerID: m.provider.id, modelID: m.id }))[0]
+  }
+
+  function hasImageAttachments() {
+    return attachments().some(a => a.mime?.startsWith('image/'))
+  }
+
+  function supportsImageInput() {
+    return currentModel()?.capabilities?.input?.image === true
+  }
+
+  function ensureMultimodalModel(): boolean {
+    if (supportsImageInput()) return true
+    const multimodalModel = findMultimodalModel()
+    if (multimodalModel) {
+      local.model.set(
+        { providerID: multimodalModel.provider.id, modelID: multimodalModel.id },
+        { recent: true }
+      )
+      return true
+    }
+    return false
+  }
+
   const dialogPop = useDialogIframe()
   const [selectedSpec, setSelectedSpec] = createSignal<string | null>(null)
 
@@ -243,6 +277,9 @@ function MakeContent() {
     },
   )
 
+  const [sessionInfoMirror, setSessionInfoMirror] = createSignal<Session | null>(null)
+  createEffect(on(sessionInfo, (v) => setSessionInfoMirror(v ?? null), { defer: true }))
+
   const [overrideTitle, setOverrideTitle] = createSignal<string | null>(null)
   createEffect(() => {
     const handler = (e: Event) => {
@@ -267,7 +304,7 @@ function MakeContent() {
 
   /** 打开标题编辑模式 */
   function openTitleEditor() {
-    const sInfo = sessionInfo()
+    const sInfo = sessionInfoMirror()
     setTitleState({ editing: true, draft: sessionTitle(overrideTitle() ?? info()?.title ?? sInfo?.title) ?? "" })
     requestAnimationFrame(() => titleRef?.focus())
   }
@@ -304,7 +341,7 @@ function MakeContent() {
   function handleDeleteSession() {
     const id = params.id
     if (!id) return
-    dialog.show(() => <MakeDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfo()?.title) ?? "Octo Design"} onDelete={deleteSession} />)
+    dialog.show(() => <MakeDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfoMirror()?.title) ?? "Octo Design"} onDelete={deleteSession} />)
   }
 
 // 监听项目切换，清理不属于新项目的 session
@@ -394,6 +431,11 @@ const sessionMessagesLoaded = createMemo(() => {
       const messageText = contextMessage + (detail.note || "")
       
       if (detail.action === 'send' && !sending()) {
+        if (!ensureMultimodalModel()) {
+          showToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型", variant: "error" })
+          return
+        }
+
         const sessionId = params.id
         const modelKey = activeModelKey()
         if (sessionId && modelKey) {
@@ -778,6 +820,8 @@ const sessionMessagesLoaded = createMemo(() => {
   const [composing, setComposing] = createSignal(false)
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)
+  // During session transition, keep split layout to avoid flash (messages not yet loaded)
+  const gridHasContent = () => hasContent() || !!(params.id && !sessionMessagesLoaded())
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const filesById = new Map<string, File>()
   const maxAttachments = () => attachments().length >= 5
@@ -794,6 +838,7 @@ const sessionMessagesLoaded = createMemo(() => {
   // ── Mention (@) Popover State ──
   const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [mentionSelections, setMentionSelections] = createSignal<MentionSelection[]>([])
+  const [mentionIndex, setMentionIndex] = createSignal(0)
   const [filesRefreshKey, setFilesRefreshKey] = createSignal(0)
 
   // Mention selections are now managed by ProseMirrorEditor's sync plugin
@@ -815,11 +860,14 @@ const sessionMessagesLoaded = createMemo(() => {
     },
   )
 
+  const [artifactFilesMirror, setArtifactFilesMirror] = createSignal<{ generated: ArtifactFile[]; uploaded: ArtifactFile[] } | null>(null)
+  createEffect(on(artifactFiles, (v) => setArtifactFilesMirror(v ?? null), { defer: true }))
+
   const mentionFiles = createMemo(() => {
     const state = mentionState()
     if (!state) return null
     const query = state.query.toLowerCase()
-    const data = artifactFiles()
+    const data = artifactFilesMirror()
     if (!data) return null
     
     const generated = data.generated.filter(f => !f.isFolder && f.name.toLowerCase().includes(query))
@@ -1937,6 +1985,20 @@ const sessionMessagesLoaded = createMemo(() => {
         promptText = folderPrefix + "\n" + promptText
       }
 
+      // resourceLibrary skill injection: 告诉 agent resourceLibrary skill 的使用方式。
+      // 每轮注入,确保 agent 始终知道如何获取视觉资源。
+      const resourceLibraryPrefix = [
+        `[Resource Library]`,
+        `当需要图标、插画、图片等视觉资源时，如果用户未指定来源，且如果存在resourceLibrary这个skill，必须使用 resourceLibrary skill 来获取这些资源。`,
+        `resourceLibrary 不在 available_skills 列表中，是一个独立路径的 skill，不能通过 skill 工具调用。`,
+        `使用方式：`,
+        `1. 用 glob 工具查找 SKILL.md：glob path="~/.config/octo" pattern="**/resourceLibraryScript/resourceLibrary/SKILL.md"`,
+        `   （~ 表示用户主目录，Windows 上通常是 C:\\Users\\{用户名}）`,
+        `2. 用 read 工具读取找到的 SKILL.md 文件，严格按照文件中的说明执行获取资源流程。`,
+        `---`,
+      ].join("\n")
+      promptText = resourceLibraryPrefix + "\n" + promptText
+
       const textPart: TextPartInput = { 
         type: "text", 
         text: promptText,
@@ -1995,6 +2057,12 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     
     if (sending() || !activeModelKey()) return
+
+    if (hasImageAttachments() && !ensureMultimodalModel()) {
+      showToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型", variant: "error" })
+      return
+    }
+
     // 在异步操作前捕获 model key，避免后续被其他 effect 修改
     const capturedModelKey = activeModelKey()
     if (!capturedModelKey) return
@@ -2113,7 +2181,7 @@ if (dsId) {
     const mention = mentionState()
 
     // Mention popover close on Escape
-    if (mention && artifactFiles()) {
+    if (mention && artifactFilesMirror()) {
       if (e.key === "Escape") {
         e.preventDefault()
         e.stopPropagation()
@@ -2256,6 +2324,12 @@ if (dsId) {
       ? `@${selection.name}` 
       : `@${selection.filename}`
     setPrompt(prev => prev.replace(chipText, '').replace(/  +/g, ' ').trim())
+  }
+
+  function handleMentionNavigate(direction: "up" | "down") {
+    // This will be handled in ProseMirrorEditor via mentionIndex
+    // For now, we need to calculate the max index based on filtered items
+    // The actual selection change will be reflected in MentionPopover
   }
 
   /** Pick a Design Files file and add as attachment */
@@ -2837,7 +2911,7 @@ if (dsId) {
         data-focus={hideChat() ? "true" : undefined}
         style={{
           "grid-template-columns": !hideChat()
-            ? hasContent()
+            ? gridHasContent()
               ? `${chatWidth()}px 0px minmax(0, 1fr)`
               : "1fr"
             : undefined,
@@ -2904,7 +2978,7 @@ if (dsId) {
                       style={{ "font-size": "14px", "line-height": "22px", "font-weight": "600", color: "#191919" }}
                       onDblClick={openTitleEditor}
                     >
-                      {sessionTitle(overrideTitle() ?? info()?.title ?? sessionInfo()?.title) ?? "Octo Design"}
+                      {sessionTitle(overrideTitle() ?? info()?.title ?? sessionInfoMirror()?.title) ?? "Octo Design"}
                     </h1>
                   </Show>
                 </div>
@@ -3031,10 +3105,11 @@ if (dsId) {
                       onRetry={retryUpload}
                     />
 
-<ProseMirrorEditor
+                    <div class="flex-1 min-h-0 overflow-hidden rounded-[inherit]">
+                    <ProseMirrorEditor
                        sessionId={params.id!}
                        skillConfig={skillConfig() ?? {}}
-                       artifactFiles={artifactFiles()}
+                       artifactFiles={artifactFilesMirror()}
                        mentionSelections={mentionSelections()}
                        setMentionSelections={setMentionSelections}
                        disabled={inputDisabled()}
@@ -3054,6 +3129,7 @@ if (dsId) {
                        }}
                        ref={(el) => { proseMirrorRef1 = el }}
                      />
+                    </div>
                     <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
                         <span class="hidden">
@@ -3349,7 +3425,7 @@ if (dsId) {
 <ProseMirrorEditor
                      sessionId={params.id!}
                      skillConfig={skillConfig() ?? {}}
-                     artifactFiles={artifactFiles()}
+                     artifactFiles={artifactFilesMirror()}
                      mentionSelections={mentionSelections()}
                      setMentionSelections={setMentionSelections}
                      disabled={inputDisabled()}
@@ -3442,12 +3518,12 @@ onSlashTrigger={(query) => {
         </Show>
 
         {/* ── 拖拽分隔线（Grid 中间列） ──── */}
-        <Show when={hasContent() && !hideChat()}>
+        <Show when={gridHasContent() && !hideChat()}>
           <div class="octo-split-handle" onMouseDown={handleDividerMouseDown} />
         </Show>
 
         {/* ── 右栏：ResultViewer + Version Panel ──── */}
-        <Show when={hasContent()}>
+        <Show when={gridHasContent()}>
         <div class="flex flex-col overflow-hidden" >
           <div class="flex flex-1 min-h-0 overflow-auto">
             <div class="flex flex-col flex-1" style="min-width:800px">

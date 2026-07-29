@@ -392,6 +392,7 @@ export function ArchiveTreeSelector(props: Props): JSX.Element {
         ref={triggerRef}
         type="button"
         class="archive-tree-trigger"
+        classList={{ "archive-tree-trigger-active": open() }}
         onClick={() => setOpen(!open())}
       >
         <span class="archive-tree-trigger-text">{displayText()}</span>
@@ -451,7 +452,10 @@ export function ArchiveTreeSelector(props: Props): JSX.Element {
           box-sizing: border-box;
         }
         .archive-tree-trigger:hover {
-          border-color: var(--octo-border-focus);
+          border-color: #0a59f7;
+        }
+        .archive-tree-trigger-active {
+          border-color: #0a59f7;
         }
         .archive-tree-trigger-text {
           flex: 1;
@@ -489,12 +493,8 @@ export function ArchiveTreeSelector(props: Props): JSX.Element {
           font-size: 12px;
           line-height: 18px;
           outline: none;
-          background: var(--octo-surface-selected, #ffffff);
           color: var(--octo-text-primary, rgba(0, 0, 0, 0.9));
           box-sizing: border-box;
-        }
-        .archive-tree-search input:focus {
-          background: var(--octo-surface-selected, #ffffff);
         }
         .archive-tree-list {
           overflow-y: auto;

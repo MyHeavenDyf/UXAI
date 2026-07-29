@@ -1,8 +1,10 @@
 import { createSignal, Show, For, createMemo, createEffect } from "solid-js"
 import type { JSX } from "solid-js"
 import { Portal } from "solid-js/web"
-import { ArchiveTreeSelector, type ProductTreeData, type NestedTreeNode, type TreeNodeItem } from "./archive-tree-selector"
+import { ArchiveTreeSelector, type ProductTreeData, type NestedTreeNode, type TreeNodeItem, type DomainNode, type SubDomainNode, type ProductNode } from "./archive-tree-selector"
 import { ArchiveSearchDropdown } from "./archive-search-dropdown"
+import { useProjectSelection, type ProjectSelection } from "@/hooks/use-project-selection"
+import type { Domain, ProductLine, Product, Version } from "@/network/types"
 
 const SPACE_OPTIONS = [
   { value: "project", label: "项目空间" },
@@ -60,6 +62,22 @@ let persistedSelections: PersistedSelections = {
   teamId: null,
   teamName: null,
   isProjectArchive: false,
+}
+
+let lastUsedSelectionKey: string | null = null
+
+const getSelectionKey = (selection: ProjectSelection | undefined): string => {
+  return [
+    selection?.domain?.id,
+    selection?.productLine?.id,
+    selection?.product?.id,
+    selection?.version?.id
+  ].join('-')
+}
+
+const shouldUseProjectSelection = (selection: ProjectSelection | undefined): boolean => {
+  const currentKey = getSelectionKey(selection)
+  return lastUsedSelectionKey === null || lastUsedSelectionKey !== currentKey
 }
 
 const MOCK_PRODUCT_TREE: ProductTreeData = {
@@ -260,6 +278,55 @@ export function ArchiveDialog(props: Props): JSX.Element {
   const [initialized, setInitialized] = createSignal(false)
   const [productTeamList, setProductTeamList] = createSignal<NestedTreeNode[]>(MOCK_PRODUCT_TEAM)
   const [isProjectArchive, setIsProjectArchive] = createSignal(false)
+  
+  const projectSelection = useProjectSelection()
+  
+  const findMatchingDomain = (domain: Domain | undefined, domains: DomainNode[]) => {
+    if (!domain) return null
+    return domains.find(d => d.id === domain.id) || null
+  }
+  
+  const findMatchingSubDomain = (productLine: ProductLine | undefined, subDomains: SubDomainNode[]) => {
+    if (!productLine) return null
+    return subDomains.find(s => s.id === productLine.id) || null
+  }
+  
+  const findMatchingProduct = (product: Product | undefined, products: ProductNode[]) => {
+    if (!product) return null
+    return products.find(p => p.id === product.id) || null
+  }
+  
+  const findMatchingVersion = (version: Version | undefined, versionList: NestedTreeNode[]) => {
+    if (!version) return null
+    return versionList.find(v => v.id === version.id) || null
+  }
+  
+  const applyProjectSelectionAsDefault = async (selection: ProjectSelection | undefined, tree: ProductTreeData) => {
+    const domain = findMatchingDomain(selection?.domain, tree.domains)
+    const subDomain = findMatchingSubDomain(selection?.productLine, tree.subDomains)
+    const product = findMatchingProduct(selection?.product, tree.products)
+    
+    if (product) {
+      setSelectedProductId(product.id)
+      setSelectedProduct({ name: product.name, commonTeam: product.commonTeam })
+      
+      const versionTree = await fetchVersionDelivery(product.id)
+      if (product.commonTeam) {
+        fetchProductTeam(product.commonTeam)
+      }
+      
+      if (versionTree) {
+        const version = findMatchingVersion(selection?.version, versionTree)
+        if (version) {
+          handleVersionSelect(version.id, version)
+        } else {
+          autoSelectFirstVersionDelivery(versionTree)
+        }
+      }
+    } else {
+      autoSelectFirstProduct()
+    }
+  }
 
   const flattenTree = (nodes: NestedTreeNode[]): NestedTreeNode[] => {
     const result: NestedTreeNode[] = []
@@ -388,8 +455,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
       if (isProjectArchive()) {
         return productTeamList()
       }
-      const flat = flattenTree(versionDeliveryList())
-      const found = flat.find(n => n.id === selectedVersionId())
+      const found = versionDeliveryList().find(n => n.id === selectedVersionId())
       return found?.children || []
     } else {
       return teamByVersionList()
@@ -427,16 +493,14 @@ export function ArchiveDialog(props: Props): JSX.Element {
 
   const autoSelectFirstVersionDelivery = (tree?: NestedTreeNode[]) => {
     const list = tree || versionDeliveryList()
-    const flat = flattenTree(list)
-    if (flat.length > 0) {
-      const first = flat[0]
+    if (list.length > 0) {
+      const first = list[0]
       handleVersionSelect(first.id, first)
     } else {
       setSelectedVersionId(null)
       setSelectedVersion(null)
       setSelectedFolderId(null)
       setSelectedFolder(null)
-      setDeliverables([])
     }
   }
 
@@ -449,7 +513,6 @@ export function ArchiveDialog(props: Props): JSX.Element {
     } else {
       setSelectedFolderId(null)
       setSelectedFolder(null)
-      setDeliverables([])
     }
   }
 
@@ -463,7 +526,6 @@ export function ArchiveDialog(props: Props): JSX.Element {
       setSelectedTeamName(null)
       setSelectedFolderId(null)
       setSelectedFolder(null)
-      setDeliverables([])
     }
   }
 
@@ -487,6 +549,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
   }
 
   const handleProductSelect = (id: number, item: TreeNodeItem) => {
+    lastUsedSelectionKey = null
     const product = item as { name: string; commonTeam?: number }
     setSelectedProductId(id)
     setSelectedProduct({ name: product.name, commonTeam: product.commonTeam })
@@ -512,6 +575,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
       setSelectedVersion({ label: "项目归档", children: productTeamList() })
       autoSelectFirstFolder(productTeamList())
     } else {
+      lastUsedSelectionKey = null
       setIsProjectArchive(false)
       setSelectedVersionId(id)
       setSelectedVersion({ label: item.label, children: item.children })
@@ -619,7 +683,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
                 autoSelectFirstFolder(productTeamList())
               }
             } else if (persistedSelections.versionDeliveryId) {
-              const version = flattenTree(versionDeliveryList()).find(v => v.id === persistedSelections.versionDeliveryId)
+              const version = versionDeliveryList().find(v => v.id === persistedSelections.versionDeliveryId)
               if (version) {
                 setIsProjectArchive(false)
                 setSelectedVersionId(version.id)
@@ -696,15 +760,32 @@ export function ArchiveDialog(props: Props): JSX.Element {
   createEffect(() => {
     if (props.open && !initialized()) {
       setInitialized(true)
+      
+      const selection = projectSelection()
+      const useProjectSelection = shouldUseProjectSelection(selection)
 
       if (isLoggedIn()) {
         if (persistedSelections.spaceType === "project") {
-          fetchProductTree().then(() => restoreSelections())
+          fetchProductTree().then((tree) => {
+            if (tree) {
+              if (useProjectSelection) {
+                applyProjectSelectionAsDefault(selection, tree)
+                lastUsedSelectionKey = getSelectionKey(selection)
+              } else {
+                restoreSelections()
+              }
+            }
+          })
         } else {
           fetchMyTeam().then(() => restoreSelections())
         }
       } else {
-        restoreSelections()
+        if (useProjectSelection) {
+          applyProjectSelectionAsDefault(selection, productTree())
+          lastUsedSelectionKey = getSelectionKey(selection)
+        } else {
+          restoreSelections()
+        }
       }
     }
   })
@@ -714,6 +795,10 @@ export function ArchiveDialog(props: Props): JSX.Element {
     setShowCollisionOverlay(false)
 
     try {
+      const matchingDeliverable = deliverables().find(
+        d => d.fileName === props.tabTitle.replace(/\.html?$/i, "")
+      )
+      
       const data: ArchiveConfirmData = {
         spaceType: spaceType(),
         productId: spaceType() === "project" ? selectedProductId() || undefined : undefined,
@@ -725,8 +810,8 @@ export function ArchiveDialog(props: Props): JSX.Element {
         folderName: selectedFolder()?.label || "",
         teamId: selectedFolderId() || 0,
         isOverwrite,
-        existingDeliverableId: isOverwrite ? deliverables()[0]?.id : undefined,
-        existingDocId: isOverwrite ? deliverables()[0]?.docId : undefined,
+        existingDeliverableId: isOverwrite ? matchingDeliverable?.id : undefined,
+        existingDocId: isOverwrite ? matchingDeliverable?.docId : undefined,
         existingDeliverables: showDeliverablesSection() ? deliverables() : []
       }
 
@@ -778,7 +863,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
   const hasEmptyData = createMemo(() => {
     if (spaceType() === "project") {
       const hasProducts = productTree().products.length > 0
-      const hasVersions = flattenTree(versionDeliveryList()).length > 0
+      const hasVersions = versionDeliveryList().length > 0
       const hasFolders = selectedVersionId() !== null && flattenTree(getFolderTree()).length > 0
       return !hasProducts || !hasVersions || !hasFolders
     } else {
@@ -806,13 +891,8 @@ export function ArchiveDialog(props: Props): JSX.Element {
             <div class="archive-dialog-header">
               <h3>归档</h3>
               <button type="button" class="archive-close-btn" onClick={handleClose} aria-label="关闭">
-                <svg viewBox="0 0 12.1436 12.144" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none">
-                  <path
-                    d="M0.855774 0.148499C0.657776 -0.0494995 0.346497 -0.0494995 0.148499 0.148499C-0.0494995 0.346497 -0.0494995 0.657593 0.148499 0.855591L5.36481 6.07202L0.148499 11.2884C-0.0494995 11.4864 -0.0494995 11.7975 0.148499 11.9955C0.346497 12.1935 0.657776 12.1935 0.855774 11.9955L6.07208 6.77911L11.2879 11.9952C11.4859 12.1932 11.7972 12.1932 11.9952 11.9952C12.1932 11.7972 12.1932 11.4861 11.9952 11.2881L6.77911 6.07196L11.9952 0.855896C12.1929 0.657898 12.1929 0.346802 11.9952 0.148804C11.7972 -0.0491943 11.4859 -0.0491943 11.2879 0.148804L6.07208 5.36487L0.855774 0.148499Z"
-                    fill="rgb(0,0,0)"
-                    fill-opacity="0.9"
-                    fill-rule="evenodd"
-                  />
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 4L4 12M4 4L12 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
               </button>
             </div>
@@ -855,7 +935,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
                     <div class="archive-step-content">
                       <ArchiveSearchDropdown
                         items={[
-                          ...flattenTree(versionDeliveryList()).map(v => ({ id: v.id, label: v.label })),
+                          ...versionDeliveryList().map(v => ({ id: v.id, label: v.label })),
                           { id: PROJECT_ARCHIVE_ID, label: "项目归档" }
                         ]}
                         selectedId={selectedVersionId()}
@@ -864,12 +944,12 @@ export function ArchiveDialog(props: Props): JSX.Element {
                           if (id === PROJECT_ARCHIVE_ID) {
                             handleVersionSelect(PROJECT_ARCHIVE_ID, {} as NestedTreeNode)
                           } else {
-                            const item = flattenTree(versionDeliveryList()).find(v => v.id === id)
+                            const item = versionDeliveryList().find(v => v.id === id)
                             if (item) handleVersionSelect(id as number, item)
                           }
                         }}
                         searchPlaceholder="搜索..."
-                        triggerPlaceholder={flattenTree(versionDeliveryList()).length === 0 ? "暂无数据" : "请选择版本交付"}
+                        triggerPlaceholder={versionDeliveryList().length === 0 ? "暂无数据" : "请选择版本交付"}
                         maxHeight="250px"
                       />
                     </div>
@@ -969,7 +1049,12 @@ export function ArchiveDialog(props: Props): JSX.Element {
             <Show when={showCollisionOverlay()}>
               <div class="archive-dialog-collision-overlay">
                 <div class="archive-dialog-collision-content">
-                  <h3 class="archive-dialog-collision-title">已存在以下多个同名归档原型</h3>
+                  <div class="archive-dialog-collision-header">
+                    <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" fill="none">
+                      <path d="M0.731097 23.6902L12.1664 3.88358C12.4005 3.47845 12.682 3.12507 13.011 2.82345C13.2619 2.59354 13.5403 2.39366 13.8463 2.22412C14.1507 2.05542 14.4658 1.92526 14.7916 1.83364C15.1792 1.72482 15.5818 1.67041 15.9998 1.67041C16.7696 1.67041 17.4875 1.85498 18.1535 2.22412C18.8608 2.61628 19.4208 3.16943 19.8332 3.88358L31.2685 23.6902C31.6809 24.4044 31.8798 25.1659 31.8659 25.9747C31.8525 26.736 31.6533 27.45 31.2685 28.1166C30.8837 28.7831 30.3647 29.3126 29.7121 29.7047C29.4122 29.885 29.1 30.0263 28.7755 30.1286C28.35 30.2627 27.903 30.3297 27.4351 30.3297L4.56452 30.3297C4.09668 30.3297 3.65011 30.2627 3.22468 30.1287C2.90046 30.0264 2.58733 29.8849 2.28746 29.7047C1.63484 29.3126 1.11586 28.7831 0.731097 28.1166C0.346331 27.45 0.147112 26.736 0.133998 25.9747C0.119768 25.1659 0.318708 24.4044 0.731097 23.6902ZM15.9998 8.68631C16.6399 8.68631 17.1426 9.18911 17.1426 9.82917L17.1426 19.1623C17.1426 19.8023 16.6399 20.3052 15.9998 20.3052C15.3597 20.3052 14.8569 19.8023 14.8569 19.1623L14.8569 9.82917C14.8569 9.18911 15.3597 8.68631 15.9998 8.68631ZM14.6664 22.9628C14.6664 22.2264 15.2635 21.6294 15.9998 21.6294C16.7361 21.6294 17.3332 22.2264 17.3332 22.9628C17.3332 23.6992 16.7361 24.2961 15.9998 24.2961C15.2635 24.2961 14.6664 23.6992 14.6664 22.9628Z" fill="rgb(252,200,0)" fill-rule="evenodd" />
+                    </svg>
+                    <h3 class="archive-dialog-collision-title">已存在以下多个同名归档原型</h3>
+                  </div>
                   <p class="archive-dialog-collision-name">{props.tabTitle}</p>
                   <div class="archive-dialog-collision-options">
                     <button
@@ -1018,7 +1103,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
           .archive-dialog {
             background: #ffffff;
             border-radius: 12px;
-            width: 560px;
+            width: 452px;
             max-width: 90vw;
             max-height: 85vh;
             display: flex;
@@ -1053,20 +1138,20 @@ export function ArchiveDialog(props: Props): JSX.Element {
             color: rgba(0, 0, 0, 0.9);
           }
           .archive-close-btn {
-            width: 16px;
-            height: 16px;
+            width: 28px;
+            height: 28px;
             display: flex;
             align-items: center;
             justify-content: center;
             border: none;
             background: transparent;
             cursor: pointer;
-            color: rgba(0, 0, 0, 0.9);
+            color: rgba(0, 0, 0, 0.6);
             padding: 0;
             border-radius: 4px;
           }
           .archive-close-btn:hover {
-            background: var(--octo-surface-hover);
+            color: #0a59f7;
           }
           .archive-dialog-body {
             overflow-y: auto;
@@ -1107,7 +1192,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
             overflow-y: auto;
             padding: 12px;
             border-radius: 8px;
-            border: 1px solid rgba(243, 243, 243, 1);
+            border: 1px solid rgba(0, 0, 0, 0.1);
             box-sizing: border-box;
           }
           .archive-prototype-item {
@@ -1207,15 +1292,24 @@ export function ArchiveDialog(props: Props): JSX.Element {
             z-index: 1;
           }
           .archive-dialog-collision-content {
-            width: 356px;
-            padding: 20px 24px;
+            width: 100%;
+            padding: 0 48px;
+            box-sizing: border-box;
+            transform: translateY(-32px);
+          }
+          .archive-dialog-collision-header {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 4px;
           }
           .archive-dialog-collision-title {
             font-size: 14px;
             line-height: 22px;
             font-weight: bold;
             color: rgba(0, 0, 0, 0.9);
-            margin: 0 0 4px;
+            margin: 0;
             text-align: center;
           }
           .archive-dialog-collision-name {

@@ -294,7 +294,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
 
   return (
     <div
-      class="flex flex-col flex-1 min-w-0 overflow-hidden"
+      class="flex flex-col flex-1 min-w-0 min-h-0"
       style={{ background: "var(--octo-surface-result)" }}
     >
       <Show when={props.tabs.length > 0 || props.viewMode === "files" || props.viewMode === "plan"} fallback={<ResultViewerEmpty />}>
@@ -472,7 +472,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
             const showFocusToggle = tabType !== "design-plan"
 
             return (
-              <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
                 <Show when={tabType !== "design-plan"}>
 <ActionBar
                    tab={tab}
@@ -491,15 +491,15 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                      if (nextEditing && commenting()) setCommenting(false)
                      if (nextEditing && archiving()) setArchiving(false)
                    }}
-                   drawing={drawing()}
-                   onDrawToggle={htmlMode() === "edit" ? undefined : () => {
-                     const nextDrawing = !drawing()
-                     setDrawing(nextDrawing)
-                     tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
-                     if (nextDrawing && editing()) setEditing(false)
-                     if (nextDrawing && commenting()) setCommenting(false)
-                     if (nextDrawing && archiving()) setArchiving(false)
-                   }}
+drawing={drawing()}
+                    onDrawToggle={htmlMode() === "edit" ? undefined : () => {
+                      const nextDrawing = !drawing()
+                      setDrawing(nextDrawing)
+                      tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
+                      if (nextDrawing && editing()) setEditing(false)
+                      if (nextDrawing && commenting()) setCommenting(false)
+                      if (nextDrawing && archiving()) setArchiving(false)
+                    }}
                    commenting={commenting()}
                    onCommentToggle={htmlMode() === "edit" ? undefined : () => {
                      const nextCommenting = !commenting()

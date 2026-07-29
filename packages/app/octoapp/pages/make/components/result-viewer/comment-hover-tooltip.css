@@ -1,13 +1,37 @@
 .comment-hover-tooltip {
   position: absolute;
+  left: 0;
+  top: 0;
   width: 320px;
   min-height: 60px;
   background: #fff;
-  border-radius: 12px 12px 12px 0;
+  border-radius: 12px;
   box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.16);
   z-index: 2147483647;
   overflow: hidden;
   box-sizing: border-box;
+  visibility: hidden;
+  transform: translate(var(--tooltip-x, 0), var(--tooltip-y, 0));
+}
+
+.comment-hover-tooltip.visible {
+  visibility: visible;
+}
+
+.comment-hover-tooltip.radius-top-left {
+  border-top-left-radius: 0;
+}
+
+.comment-hover-tooltip.radius-top-right {
+  border-top-right-radius: 0;
+}
+
+.comment-hover-tooltip.radius-bottom-left {
+  border-bottom-left-radius: 0;
+}
+
+.comment-hover-tooltip.radius-bottom-right {
+  border-bottom-right-radius: 0;
 }
 
 .comment-hover-tooltip-author {
