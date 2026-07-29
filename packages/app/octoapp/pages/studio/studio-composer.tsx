@@ -677,7 +677,7 @@ export function StudioComposer(props: {
               <CapabilityMenu
                 value={props.capability}
                 canGenerateVideo={props.canGenerateVideo}
-                onSelect={(value) => { props.onToolClick?.(); props.onCapability(value); props.onOpenMenu(null) }}
+                onSelect={(value) => { if (workspaceModeForCapability(value)) props.onToolClick?.(); props.onCapability(value); props.onOpenMenu(null) }}
               />
             </div>
           </Show>
