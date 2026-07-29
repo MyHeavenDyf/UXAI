@@ -3838,7 +3838,7 @@ if (!headerTitle.pendingRename) return
       <Show when={!showStudioWorkspace() && studioWorkspaceOverlayOpen()}>
         <div
           class="absolute inset-0"
-          style={{ "z-index": "49" }}
+          style={{ "z-index": "39" }}
           onClick={(e) => {
             const hit = document.elementsFromPoint(e.clientX, e.clientY)
               .find(el => (el as HTMLElement).closest(".studio-assistant-editor-link"))
