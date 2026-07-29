@@ -12,69 +12,10 @@ function getDesktopApi(): ArchiveDesktopApi | undefined {
   return (window as unknown as { api?: ArchiveDesktopApi }).api
 }
 
-export interface FileComment {
-  id: string
-  filePath: string
-  elementId: string
-  selector: string
-  label: string
-  text: string
-  position: { x: number; y: number; w: number; h: number }
-  htmlHint: string
-  note: string
-  attachments?: CommentAttachment[]
-  createdAt: number
-  updatedAt: number
-  commenterName?: string
-  commenterAccount?: string
-  commenterAvatar?: string
-}
-
-export interface CommentAttachment {
-  id: string
-  filename: string
-  mime: string
-  size: number
-  filePath: string
-  uploadedAt: number
-}
-
-export interface ArchiveComment {
-  id: string
-  note: string
-  selector: string
-  time: number
-  attachments: Array<{ fileName: string; id: string }>
-  account: string
-  userName: string
-}
-
 export interface CreateArchiveZipOptions {
-  comments: FileComment[]
   screenshotBlob: Blob
   htmlContent: string
-  htmlFileName: string
   htmlFilePath: string
-  sessionId: string
-  projectDir: string
-}
-
-export function transformCommentsForArchive(comments: FileComment[]): ArchiveComment[] {
-  return comments.map(c => ({
-    id: c.id,
-    note: c.note,
-    selector: c.selector,
-    time: c.updatedAt,
-    account: c.commenterAccount || "",
-    userName: c.commenterName || "",
-    attachments: (c.attachments || []).map(a => {
-      const ext = a.filename.match(/\.[^.]*$/)?.[0] || ""
-      return {
-        fileName: a.filename,
-        id: `${a.id}${ext}`
-      }
-    })
-  }))
 }
 
 export async function capturePageScreenshot(iframe: HTMLIFrameElement): Promise<Blob> {
@@ -155,8 +96,8 @@ export async function createArchiveZip(options: CreateArchiveZipOptions): Promis
   zip.folder("src")
   zip.folder("preview")
 
-  const archiveComments = transformCommentsForArchive(options.comments)
-  zip.file("data/comments.json", JSON.stringify(archiveComments, null, 2))
+  // insight 无评论系统,data/comments.json 恒为空数组(保留以对齐 Design 的 zip 结构)
+  zip.file("data/comments.json", "[]")
 
   const screenshotBytes = await blobToUint8Array(options.screenshotBlob)
   zip.file("data/screenshot.jpg", screenshotBytes)
@@ -191,27 +132,6 @@ export async function createArchiveZip(options: CreateArchiveZipOptions): Promis
         }
       } catch (err) {
         console.warn('[Archive] Failed to list directory:', err)
-      }
-    }
-  }
-
-  // 处理评论附件
-  if (api?.readFileBuffer && options.projectDir) {
-    for (const comment of options.comments) {
-      if (comment.attachments && comment.attachments.length > 0) {
-        zip.folder(`data/${comment.id}`)
-        for (const attachment of comment.attachments) {
-          try {
-            const absolutePath = joinPath(options.projectDir, attachment.filePath)
-            const buffer = await api.readFileBuffer(absolutePath)
-            if (buffer) {
-              const ext = attachment.filename.match(/\.[^.]*$/)?.[0] || ""
-              zip.file(`data/${comment.id}/${attachment.id}${ext}`, new Uint8Array(buffer))
-            }
-          } catch (err) {
-            console.warn(`[Archive] Failed to read attachment:`, attachment.filePath, err)
-          }
-        }
       }
     }
   }

@@ -25,12 +25,12 @@ export type ArchiveTarget =
       mode: "html"
       sessionId: string
       projectDir: string
-      /** 懒取 HTML 源码(文件管理场景需读盘后再解码 base64;ActionBar 场景直接拿 tab.content) */
+      /** 懒取 HTML 源码(ActionBar 场景直接拿 tab.content) */
       getHtmlContent: () => Promise<string>
       htmlFileName: string
       htmlFilePath: string
-      /** 预览 iframe 用于截图;文件管理列表无 live iframe → 留空走占位截图 */
-      getIframe?: () => HTMLIFrameElement | null
+      /** 预览 iframe 用于截图;取不到(null)视为不可归档(如源码视图),任务置 error 并提示切换预览视图 */
+      getIframe: () => HTMLIFrameElement | null
     }
   | {
       mode: "file"
@@ -87,20 +87,6 @@ export async function runArchive(
     : archiveFile(target, data, onDeferredSuccess)
 }
 
-// 无 live iframe 时用 1×1 白图占位(与 capturePageScreenshot 的 web 兜底同源,不阻塞 zip 打包)
-function placeholderScreenshot(): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const canvas = document.createElement("canvas")
-    canvas.width = 1
-    canvas.height = 1
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return reject(new Error("无法生成截图"))
-    ctx.fillStyle = "#ffffff"
-    ctx.fillRect(0, 0, 1, 1)
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("无法生成截图"))), "image/jpeg", 0.9)
-  })
-}
-
 // HTML 归档:立即返回(弹窗关闭),后台跑 runArchiveHtmlTask(复刻 Design 流程 + 任务中心),完成后 onDeferredSuccess。
 async function archiveHtml(
   target: HtmlTarget,
@@ -111,12 +97,13 @@ async function archiveHtml(
 }
 
 // HTML 归档任务用 TaskItem(单任务,key=taskId):type=archive、无进度(createDeliverable/uploadVersion 无进度回调)。
+// serviceType=archive:不对应任何已注册服务句柄(canCancel/canPause 均 false,不派发),仅作类型标记。
 function htmlArchiveTask(taskId: string, name: string, progress: number, status: TaskItem["status"]): TaskItem {
   return {
     key: taskId,
     taskId,
     type: "archive",
-    serviceType: "s3_upload",
+    serviceType: "archive",
     hasProgress: false,
     canPause: false,
     canCancel: false,
@@ -142,18 +129,19 @@ async function runArchiveHtmlTask(
   TaskStore.progress([{ key: taskId, progress: 0, status: "in_progress" }])
   showToast({ title: "该任务已添加到任务列表" })
   try {
-    // 弹窗已关闭,iframe 在标签页内容区仍可见;无 live iframe(文件管理 / 源码视图)走占位截图。
-    const iframe = target.getIframe?.() ?? null
-    const screenshotBlob = iframe ? await capturePageScreenshot(iframe) : await placeholderScreenshot()
+    // 取不到 iframe(源码视图 / tab 不可见)不静默降级成 1×1 白图封面,直接失败提示切换预览视图。
+    const iframe = target.getIframe()
+    if (!iframe) {
+      TaskStore.error([{ key: taskId, status: "error" }])
+      showToast({ title: "归档失败", description: "请切换到预览视图后再归档" })
+      return
+    }
+    const screenshotBlob = await capturePageScreenshot(iframe)
 
     const zipBlob = await createArchiveZip({
-      comments: [],
       screenshotBlob,
       htmlContent: await target.getHtmlContent(),
-      htmlFileName: target.htmlFileName,
       htmlFilePath: target.htmlFilePath,
-      sessionId: target.sessionId,
-      projectDir: target.projectDir,
     })
 
     const isLoggedIn = !!localStorage.getItem("uiplusToken")
@@ -252,16 +240,22 @@ async function runArchiveFileTask(
         })))
       },
       onFinish: (taskId, files) => {
-        TaskStore.finish(files.map((file, index) => ({
-          key: `${taskId}-${index}`,
+        // EdmUtil.onFinish 是整批回调,用户中途取消的项(key 对应 store 已 cancelled)不能被改回 completed,
+        // 也不能进 uploadDeliverable(取消语义要贯穿到业务)。全部取消则直接 return,不建 deliverable。
+        const live = files
+          .map((file, index) => ({ file, index, key: `${taskId}-${index}` }))
+          .filter((e) => TaskStore.items().find((f) => f.key === e.key)?.status !== "cancelled")
+        if (live.length === 0) return
+        TaskStore.finish(live.map((e) => ({
+          key: e.key,
           progress: 100,
           status: "completed",
-          docId: file.docId,
-          version: file.version,
+          docId: e.file.docId,
+          version: e.file.version,
         })))
         uploadDeliverable({
           typeId: activity.deliverableType,
-          files: files.map((f) => ({ docName: f.name, docId: f.docId, docVersion: f.version, docSize: f.size })),
+          files: live.map((e) => ({ docName: e.file.name, docId: e.file.docId, docVersion: e.file.version, docSize: e.file.size })),
           teamId: data.teamId,
         })
           .then((res) => {

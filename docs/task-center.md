@@ -81,11 +81,10 @@ TaskStore.togglePause(item)
 ```ts
 TaskStore.registerService("edm_upload", {
   cancel: (item) => { FileService.cancelUpload(item.taskId, item.fileIndex!) },
-  pause: undefined, // 暂未实现
 })
 ```
 
-按 `serviceType` 注册取消/暂停句柄；`cancel` / `togglePause` 据此派发，新服务接入无需改 `task.ts`。已内置 `edm_upload` / `edm_download` 的 `cancel`。
+按 `serviceType` 注册取消/暂停句柄；`cancel` / `togglePause` 据此派发，新服务接入无需改 `task.ts`。已内置 `edm_upload` / `edm_download` 的 `cancel`（`pause` 待 `FileService` 支持后补）。
 
 ### 派生列表（只读）
 

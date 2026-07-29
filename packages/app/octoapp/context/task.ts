@@ -77,6 +77,13 @@ function findIndex(key: string) {
   return store.items.findIndex(i => i.key === key)
 }
 
+// 终态判断:completed/error/cancelled 不再被后续 progress/finish/error 回调改写
+// (防止用户取消/任务完成后,被迟到的整批回调改回 in_progress/completed/error)
+function isTerminal(idx: number) {
+  const s = store.items[idx]?.status
+  return s === "completed" || s === "error" || s === "cancelled"
+}
+
 // 服务句柄注册表：新服务在此注册 cancel/pause，TaskStore.cancel/togglePause 按 serviceType 派发，
 // 避免在公共 store 里写 if-else（s3 或新模块接进来无需改本文件）。
 type ServiceHandlers = { cancel?: (item: TaskItem) => void; pause?: (item: TaskItem, paused: boolean) => void }
@@ -104,18 +111,17 @@ export const TaskStore = {
   progress(data: Array<TaskProgressUpdate>) {
     for (const u of data) {
       const idx = findIndex(u.key)
-      if (idx < 0) continue
+      if (idx < 0 || isTerminal(idx)) continue
       const cur = store.items[idx]
-      if (cur.status === "completed" || cur.status === "error" || cur.status === "cancelled") continue
       const next = cur.status === "paused" ? "paused" : (u.status ?? cur.status)
       setStore("items", idx, { progress: u.progress, status: next })
     }
   },
-  // 传输完成；写入 progress/status 与 docId/version(供后续按文档 id 跳转)
+  // 传输完成；写入 progress/status 与 docId/version(供后续按文档 id 跳转)。终态项跳过(取消的不被改回完成)
   finish(data: Array<TaskFinishUpdate>) {
     for (const u of data) {
       const idx = findIndex(u.key)
-      if (idx < 0) continue
+      if (idx < 0 || isTerminal(idx)) continue
       setStore("items", idx, {
         progress: u.progress ?? store.items[idx].progress,
         status: u.status ?? "completed",
@@ -124,11 +130,12 @@ export const TaskStore = {
       })
     }
   },
-  // 传输失败
+  // 传输失败。终态项跳过(已完成的不被迟到的 onError 改成失败)
   error(data: Array<TaskErrorUpdate>) {
     for (const u of data) {
       const idx = findIndex(u.key)
-      if (idx >= 0) setStore("items", idx, { status: u.status ?? "error" })
+      if (idx < 0 || isTerminal(idx)) continue
+      setStore("items", idx, { status: u.status ?? "error" })
     }
   },
   // 取消任务：将该任务项（按 key）置为 cancelled，并按 serviceType 派发到已注册的服务句柄中止传输

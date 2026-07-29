@@ -27,7 +27,7 @@ function parseResponse<T>(data: any, silent = false): T {
   const inner = data?.data ?? data
   if (!inner) return reportRequestError<T>("网络异常,请稍后重试", silent, "Empty response")
   if (inner.errorCode === 400 || inner.errorCode === 1417) {
-    if (!silent) (window as any).openLogin?.() // 登录态失效 → 跳登录, 非错误, 不弹 toast
+    ;(window as any).openLogin?.() // 登录态失效 → 跳登录,非错误,不弹 toast(与 silent 无关,任何调用都应跳)
     return null as T
   }
   if (inner.errorCode === 200) return inner.content as T
@@ -154,6 +154,7 @@ export async function createDeliverable(teamId: number, fileName: string): Promi
 }
 
 // 上传 deliverable 封面图(deliverable 前缀,multipart);失败抛错(由调用方 toast)
+// raw:true — 该接口不走 {errorCode,content} 包装,返回裸 {success,...}(待联调确认;若实为标准形态,去掉 raw 走 parseResponse)
 export async function uploadCover(deliverableId: number, file: Blob): Promise<void> {
   const formData = new FormData()
   formData.append("uploadFile", file, "screenshot.jpg")
@@ -163,6 +164,7 @@ export async function uploadCover(deliverableId: number, file: Blob): Promise<vo
 }
 
 // 上传 deliverable 版本 zip(designAgent 前缀,multipart);返回 { success }，失败时 success=false(已 silent，由调用方判 false 后 throw)
+// raw:true — 该接口不走 {errorCode,content} 包装,返回裸 {success,...}(待联调确认;若实为标准形态,去掉 raw 走 parseResponse)
 export async function uploadVersion(uniqueId: string, file: Blob): Promise<{ success: boolean }> {
   const formData = new FormData()
   formData.append("file", file, "archive.zip")
