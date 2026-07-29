@@ -10,7 +10,6 @@ import { editorSchema, getDocTextWithMentions, extractMentionsFromDoc, type Ment
 import { createMentionTriggerPlugin, mentionTriggerKey, type MentionTriggerState } from "./plugins/mention-trigger"
 import { createSyncPlugin } from "./plugins/sync"
 import { atomKeymap } from "./plugins/atom-keymap"
-import { createNoEmptyParagraphPlugin } from "./plugins/no-empty-paragraph"
 import { MentionPopover, type MentionSelection, type MentionSkill, type MentionFiles } from "../mention-popover"
 import "./styles.css"
 
@@ -104,18 +103,24 @@ export function ProseMirrorEditor(props: Props) {
           "Mod-z": undo,
           "Mod-y": redo,
           "Mod-shift-z": redo,
-          Enter: () => {
+          Enter: (state) => {
             if (props.disabled) return false
+            // @ 面板打开时 Enter 用于确认选中项,不发送消息(与 Slack / Notion / GitHub 一致)
+            if (mentionTriggerKey.getState(state)?.active) return false
             props.onSubmit?.()
             return true
           },
-          "Shift-Enter": () => false, // 换行交给 baseKeymap
+          // 换行插 hard_break:schema 无 hard_break 时 baseKeymap 接不住 Shift-Enter,换行会整个丢掉
+          "Shift-Enter": (state, dispatch) => {
+            if (props.disabled) return false
+            if (dispatch) dispatch(state.tr.replaceSelectionWith(editorSchema.nodes.hard_break.create()))
+            return true
+          },
         }),
         keymap(baseKeymap),
         atomKeymap,
         mentionTriggerPlugin,
         syncPlugin,
-        createNoEmptyParagraphPlugin(),
       ],
     })
 
