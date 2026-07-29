@@ -241,7 +241,7 @@ export function deployProtoTools() {
 }
 
 export function deployResourceLibraryScripts() {
-  const configDir = join(homedir(), ".config", "octo")
+  const octoSkillDir = join(homedir(), ".config", "octo", "skill")
 
   const builtinSource = app.isPackaged
     ? process.resourcesPath
@@ -253,9 +253,10 @@ export function deployResourceLibraryScripts() {
     return
   }
 
-  const destDir = join(configDir, "resourceLibraryScript")
+  const destDir = join(octoSkillDir, "resourceLibrary")
 
   try {
+    mkdirSync(octoSkillDir, { recursive: true })
     cpSync(srcDir, destDir, { recursive: true, force: true })
     log.log("resourceLibraryScripts deployment: copied to", destDir)
   } catch (err) {
