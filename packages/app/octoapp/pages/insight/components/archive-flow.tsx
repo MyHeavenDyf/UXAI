@@ -1,9 +1,9 @@
 // Insight 归档复用层:抽取自 result-viewer/action-bar,供 ActionBar 与文件管理列表行菜单共用。
-//   - runArchive:按 target.mode 分流。HTML 复刻 Design 流程(截图 + zip + createDeliverable/uploadCover/
-//     uploadVersion);其他类型走 EdmUtil.upload → getActivityByTeam 取 deliverableType → uploadDeliverable。
+//   - runArchive:按 target.mode 分流,均异步(立即返回 undefined,弹窗关闭),后台任务完成后回调 onDeferredSuccess。
+//     · HTML:复刻 Design 流程(截图 + zip + createDeliverable/uploadCover/uploadVersion),TaskStore 任务 type=archive。
+//     · 非 HTML:EdmUtil.upload → getActivityByTeam 取 deliverableType → uploadDeliverable,TaskStore 任务 type=upload(有进度)。
 //   - ArchiveDialogs:复用归档弹窗 + 成功弹窗,调用方持 open/target 状态,本组件负责 confirm 执行。
-// HTML:成功返回归档路径(开成功弹窗);未登录下载 zip 返回 undefined;失败 throw(已 toast)。
-// 非 HTML:立即返回 undefined(弹窗关闭 + toast 任务已加入),后台任务完成后回调 onDeferredSuccess 开成功弹窗。
+// 两者均:确定即关弹窗 + toast「任务已加入任务列表」,任务(头部任务中心可见)完成后再开成功弹窗。
 
 import { createSignal, Show } from "solid-js"
 import type { JSX } from "solid-js"
@@ -85,13 +85,15 @@ export function decodeBase64ToString(b64: string): string {
   }
 }
 
-// onDeferredSuccess:非 HTML 归档后台任务完成后的回调(开成功弹窗,带跳转 URL)。HTML 不用。
+// onDeferredSuccess:归档后台任务完成后的回调(开成功弹窗,带跳转 URL)。HTML/非 HTML 均异步,立即返回 undefined。
 export async function runArchive(
   target: ArchiveTarget,
   data: ArchiveConfirmData,
   onDeferredSuccess?: (result: ArchiveSuccess) => void,
 ): Promise<string | undefined> {
-  return target.mode === "html" ? archiveHtml(target, data) : archiveFile(target, data, onDeferredSuccess)
+  return target.mode === "html"
+    ? archiveHtml(target, data, onDeferredSuccess)
+    : archiveFile(target, data, onDeferredSuccess)
 }
 
 // 无 live iframe 时用 1×1 白图占位(与 capturePageScreenshot 的 web 兜底同源,不阻塞 zip 打包)
@@ -108,20 +110,50 @@ function placeholderScreenshot(): Promise<Blob> {
   })
 }
 
-async function archiveHtml(target: HtmlTarget, data: ArchiveConfirmData): Promise<string | undefined> {
-  const overlay = document.querySelector(".archive-dialog-overlay") as HTMLElement | null
-  const collisionOverlay = document.querySelector(".archive-collision-overlay") as HTMLElement | null
+// HTML 归档:立即返回(弹窗关闭),后台跑 runArchiveHtmlTask(复刻 Design 流程 + 任务中心),完成后 onDeferredSuccess。
+async function archiveHtml(
+  target: HtmlTarget,
+  data: ArchiveConfirmData,
+  onDeferredSuccess?: (result: ArchiveSuccess) => void,
+): Promise<string | undefined> {
+  void runArchiveHtmlTask(target, data, onDeferredSuccess)
+  return undefined
+}
+
+// HTML 归档任务用 TaskItem(单任务,key=taskId):type=archive、无进度(createDeliverable/uploadVersion 无进度回调)。
+function htmlArchiveTask(taskId: string, name: string, progress: number, status: TaskItem["status"]): TaskItem {
+  return {
+    key: taskId,
+    taskId,
+    type: "archive",
+    serviceType: "s3_upload",
+    hasProgress: false,
+    canPause: false,
+    canCancel: false,
+    pauseDisabled: false,
+    cancelDisabled: false,
+    name,
+    size: 0,
+    progress,
+    status,
+    createdAt: Date.now(),
+    fileIndex: 0,
+  }
+}
+
+async function runArchiveHtmlTask(
+  target: HtmlTarget,
+  data: ArchiveConfirmData,
+  onDeferredSuccess?: (result: ArchiveSuccess) => void,
+): Promise<void> {
+  const taskId = `archive-html-${Date.now()}`
+  const name = target.htmlFileName
+  TaskStore.add([htmlArchiveTask(taskId, name, 0, "pending")])
+  TaskStore.progress([htmlArchiveTask(taskId, name, 0, "in_progress")])
   try {
+    // 弹窗已关闭,iframe 在标签页内容区仍可见;无 live iframe(文件管理 / 源码视图)走占位截图。
     const iframe = target.getIframe?.() ?? null
-    let screenshotBlob: Blob
-    if (iframe) {
-      if (overlay) overlay.style.visibility = "hidden"
-      if (collisionOverlay) collisionOverlay.style.visibility = "hidden"
-      screenshotBlob = await capturePageScreenshot(iframe)
-      if (overlay) overlay.style.visibility = "visible"
-    } else {
-      screenshotBlob = await placeholderScreenshot()
-    }
+    const screenshotBlob = iframe ? await capturePageScreenshot(iframe) : await placeholderScreenshot()
 
     const zipBlob = await createArchiveZip({
       comments: [],
@@ -146,8 +178,8 @@ async function archiveHtml(target: HtmlTarget, data: ArchiveConfirmData): Promis
         uploadResult = await uploadVersion(newDeliverable.uniqueId, zipBlob)
       }
       if (!uploadResult.success) throw new Error("归档上传失败")
-      showToast({ title: "归档成功" })
-      return buildSuccessPath(data)
+      TaskStore.finish([htmlArchiveTask(taskId, name, 100, "completed")])
+      onDeferredSuccess?.({ path: buildSuccessPath(data) })
     } else {
       const zipName = `${baseName}-archive.zip`
       const url = URL.createObjectURL(zipBlob)
@@ -158,15 +190,13 @@ async function archiveHtml(target: HtmlTarget, data: ArchiveConfirmData): Promis
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
+      TaskStore.finish([htmlArchiveTask(taskId, name, 100, "completed")])
       showToast({ title: "归档完成", description: "ZIP文件已下载" })
-      return undefined
     }
   } catch (err) {
-    if (overlay) overlay.style.visibility = "visible"
-    if (collisionOverlay) collisionOverlay.style.visibility = "visible"
+    TaskStore.error([htmlArchiveTask(taskId, name, 0, "error")])
     console.error("[Archive] Failed:", err)
     showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
-    throw err
   }
 }
 
@@ -312,16 +342,7 @@ export function ArchiveDialogs(props: {
 
   async function handleConfirm(data: ArchiveConfirmData): Promise<void> {
     if (!props.target) return
-    if (props.target.mode === "html") {
-      const path = await runArchive(props.target, data)
-      if (path) {
-        setSuccessPath(path)
-        setSuccessViewUrl(undefined)
-        setSuccessOpen(true)
-      }
-      return
-    }
-    // 非 HTML:弹窗立即关闭,toast 提示任务已加入任务列表,后台任务(EdmUtil.upload)完成后再开成功弹窗。
+    // 弹窗立即关闭,toast 提示任务已加入任务列表,后台归档任务(HTML/非 HTML 均走任务中心)完成后 onDeferredSuccess 开成功弹窗。
     showToast({ title: "该任务已添加到任务列表" })
     void runArchive(props.target, data, (result) => {
       setSuccessPath(result.path)
