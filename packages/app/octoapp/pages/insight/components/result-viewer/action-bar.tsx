@@ -145,16 +145,6 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
             downloadBlob(stripCodeFence(content), `${base}.html`, "text/html;charset=utf-8"),
         },
       ]
-    case "mindmap":
-      return [
-        {
-          label: "原始格式",
-          format: "json",
-          onClick: () =>
-            downloadBlob(stripCodeFence(content), `${base}.json`, "application/json;charset=utf-8"),
-        },
-        octoWhiteboardOption(base, content),
-      ]
     case "json":
       return [
         {
@@ -163,8 +153,9 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
           onClick: () =>
             downloadBlob(stripCodeFence(content), `${base}.json`, "application/json;charset=utf-8"),
         },
-        // json 卡内容恰为思维导图 shape(路径 A application/json / 路径 C .json 文件)时,也提供 Octo 白板导出——
-        // 与「渲染成 markmap」的判定同源(isMindmapJSON),口径一致。
+        // json 卡内容恰为思维导图 shape 时提供 Octo 白板导出 —— 与「渲染成 markmap」判定同源
+        // (isMindmapJSON),口径一致。§4.2 后这是导图的**唯一**判定方式:不再有 mindmap 类型,
+        // 也不看 business_type,一律看内容。
         ...(isMindmapJSON(content) ? [octoWhiteboardOption(base, content)] : []),
       ]
     case "code": {

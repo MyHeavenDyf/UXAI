@@ -17,8 +17,10 @@ import { TaskCardView } from "./task-card"
 import { parseUploadedFiles } from "../lib/upload"
 import { fileTypeIconUrl } from "../icons/illustrations"
 import { tracker } from "@/utils/tracker"
+import type { OutputCardType } from "../utils/output-type"
 
-export type OutputCardType = "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "code" | "image"
+// OutputCardType 的定义已收进 utils/output-type.ts(SPEC-INS-026 §4.2:类型与判定同源)。
+export type { OutputCardType } from "../utils/output-type"
 
 export type OutputCard = {
   id: string
@@ -62,8 +64,7 @@ function readSkillUsage(part: unknown): { partId: string; skill: string } | unde
   return typeof name === "string" && name.length > 0 ? { partId: id, skill: name } : undefined
 }
 
-// 路径 B 嗅探规则:table / mindmap / json / html 互相独立,允许同时命中
-// (典型:内网 mindmap MCP 返回的 JSON 既符合 plainJSON 又符合 mindmap shape → 出双卡)
+// 路径 B 嗅探规则:html fence 与 mindmap shape JSON 互相独立,允许同时命中。
 // 详见 docs/specs/ui/output-renderers.md §2。直接在 outputCards memo 内顺序判断,
 // 不再走"按优先级取一个"的旧路径。
 
@@ -210,10 +211,9 @@ export function InsightTurn(props: {
     if (props.taskCards.length > 0) return []
 
     // ── 路径 A:MCP resource_link part(强契约,零嗅探)──
-    // 一个 resource_link = 一张卡,类型按 linkToOutputType(business_type 优先,mimeType 兜底)。
-    //   - "mindmap" → 单张 mindmap 卡(打开后 预览/代码 切换看 markmap 或原始 JSON)
-    //   - 其他(key_findings / search_reports / run_*_analysis 等)→ 按 mimeType 路由
-    // 详见 output-renderers.md §1 视图切换 / §2.5.2 + mcp-contract.md §business_type
+    // 一个 resource_link = 一张卡,类型按 linkToOutputType(扩展名优先、mimeType 兜底,§4.2 单一入口)。
+    // business_type 不参与判定(§8):导图是 json 的内容形态,打开后由 isMindmapJSON 决定渲 markmap
+    // 还是渲源码,与它出自哪个 MCP tool 无关。详见 output-renderers.md §1 视图切换 / §2.5.2
     //
     // get_task_result 重复查询:优先换回该任务「首次确定的产物链接」——用户每次「查询任务 X 进度」
     // 都会重调 get_task_result,server 可能每次返回一批新 URI;按 task_id 取最初那批,保证每次查询
@@ -314,7 +314,7 @@ export function InsightTurn(props: {
     }
 
     // B-2. 非 HTML 规则:取最后一条 text part 跑一次
-    //   - mindmap shape JSON → mindmap 入口卡(markmap 思维导图渲染)
+    //   - mindmap shape JSON → json 入口卡(打开后 isMindmapJSON 判真 → markmap 渲染)
     //   - 其他 JSON / 代码 / markdown / **markdown 表格** → **不出卡**(对话区 opencode <Markdown> 原渲染已足够)
     // 设计:出卡的唯一目的是"追加预览能力";普通 JSON / 代码段 / markdown 表格有 shiki 高亮 + 复制即够,无追加价值。
     // 注:md 表格曾在路径 B 嗅探成 table 卡,2026-06 移除——业务表格走路径 A(text/csv resource_link),
@@ -327,7 +327,9 @@ export function InsightTurn(props: {
         cards.push({
           id: `card-${props.messageID}-mindmap`,
           title: lastText.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? "思维导图",
-          type: "mindmap",
+          // 导图不是独立类型(§4.2):出 json 卡,打开后由 isMindmapJSON 判定渲 markmap。
+          // 入口卡的图标/文案仍按内容升级为「思维导图」(§4.4 允许图标文案与类型不同源)。
+          type: "json",
           source: "inline",
           content: lastText,
           createdAt: msgDate,
@@ -538,7 +540,7 @@ export function InsightTurn(props: {
       {/* 紧凑预览入口卡(spec: output-renderers.md §6.B)
           - 对话区已由上游 <Markdown> 原样渲染代码段 / markdown 表格,完整可读
           - 入口卡是"附加预览能力",不替代对话内容
-          - 类型差异化文案:html 称"可视化"、mindmap 称"思维导图"、table 称"表格"等 */}
+          - 类型差异化文案:html 称"可视化",内容为导图 shape 的 json 称"思维导图"(§4.4) */}
       <For each={outputCards()}>
         {(card) => (
           <OutputEntryCard

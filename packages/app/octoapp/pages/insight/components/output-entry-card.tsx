@@ -2,7 +2,9 @@ import { Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { fileTypeIconUrl } from "../icons/illustrations"
 import { materializeStateOf } from "../utils/local-resource"
-import type { OutputCard, OutputCardType } from "./insight-turn"
+import { isMindmapJSON } from "../utils/mindmap-adapter"
+import type { OutputCard } from "./insight-turn"
+import type { OutputCardType } from "../utils/output-type"
 
 /**
  * 文件结果卡片(紧凑预览入口) — 2026-06 设计稿改版。
@@ -22,11 +24,23 @@ import type { OutputCard, OutputCardType } from "./insight-turn"
 const TYPE_SYNTH: Partial<Record<OutputCardType, { name?: string; mime?: string }>> = {
   html: { name: "x.html" },
   markdown: { name: "x.md" },
-  mindmap: { name: "x.json", mime: "application/json+mindmap" },
   json: { name: "x.json" },
 }
 
+/**
+ * 内容是思维导图 shape 吗。**只在已有 content 时判**(inline 卡出卡即带内容;
+ * uri 卡落盘前没有内容,不在这里读盘)。
+ *
+ * SPEC-INS-026 §4.4:**名字必须一致(那是身份),图标和文案不必**。对话入口卡是「这次产出了
+ * 什么」的语义视图,内容是导图就给思维导图图标 + 文案;文件管理是「磁盘上有什么」的文件视图,
+ * 按扩展名给图标即可(Finder 也不会因为 json 内容是导图就换图标)。两者不构成分叉。
+ */
+function looksLikeMindmap(card: OutputCard): boolean {
+  return card.type === "json" && !!card.content && isMindmapJSON(card.content)
+}
+
 function cardIconUrl(card: OutputCard): string {
+  if (looksLikeMindmap(card)) return fileTypeIconUrl("x.json", "application/json+mindmap")
   if (card.fileName || card.mimeType) return fileTypeIconUrl(card.fileName, card.mimeType)
   const synth = TYPE_SYNTH[card.type]
   return fileTypeIconUrl(synth?.name, synth?.mime)
@@ -94,15 +108,16 @@ function descText(card: OutputCard, state: "pending" | "ready" | "failed"): stri
  */
 function previewEntryLabel(card: OutputCard): string {
   if (card.title && card.title.length > 0 && card.title !== "分析结果") return card.title
+  if (looksLikeMindmap(card)) return "思维导图"
   switch (card.type) {
     case "html": return "可视化页面"
-    case "mindmap": return "思维导图"
-    case "table": return "分析表格"
     case "markdown": return "Markdown 文档"
     case "json": return "JSON 数据"
     case "code": return card.fileName || "代码文件"
     case "file": return card.fileName || "文件"
     case "image": return card.fileName || "图片"
+    // table 已无生产者(§7),渲染分支随后续 PR 一并删除
+    case "table": return "分析表格"
   }
 }
 
