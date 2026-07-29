@@ -249,11 +249,13 @@ export const layer = Layer.effect(
               "用研 Agent，从访谈材料中提取结构化洞察。支持多维度分析（关键发现/按提纲聚类/用户画像/评估/思维导图/知识问答）。",
             prompt: PROMPT_OCTO_INSIGHT,
             // SPEC-INS-021 §1 工具白名单:deny 即"从模型工具列表隐藏 + 阻断执行"。
-            // 常驻可见集收敛为 extract_document/read/grep/glob/write/task/skill/webfetch/websearch
+            // 常驻可见集收敛为 extract_document/read/grep/glob/write/task/skill/webfetch/websearch/bash
             // (+ MCP 查询/终止)。
-            //   - bash/task 是弱模型在 MCP 断连时模拟调用的逃生口(2026-07-07 内网事故),bash 常驻关死;
-            //     task 保留给多文档分治,chip turn 由 buildToolGate 再临时关 task/bash/webfetch
-            //     (双保险,互不替代)。
+            //   - task 保留给多文档分治,chip turn 由 buildToolGate 临时关 task/bash/webfetch。
+            //   - bash 原为弱模型在 MCP 断连时模拟调用的逃生口(2026-07-07 内网事故)而常驻关死;
+            //     现因 interview-analysis skill 步骤需要 shell 而在权限层放开(普通轮次可用)。
+            //     chip turn(研究工具那轮)仍由 buildToolGate 关死 bash——那轮只该单次直调所选 MCP 工具,
+            //     shell 无正当用途、正是逃生口高发场景,故 chip turn 的关闭从"冗余"升为"唯一守卫"。
             //   - edit/apply_patch 的摘除**不在这里**:Permission.disabled 把 edit/write/apply_patch
             //     都映射到 "edit" 权限键(EDIT_TOOLS),在权限层 deny edit 会连带隐藏要保留的 write,
             //     故改在 registry.ts tools() 按 agent 裁剪(与 extract_document 只给 insight 同款模式)。
@@ -261,7 +263,9 @@ export const layer = Layer.effect(
             permission: Permission.merge(
               defaults,
               Permission.fromConfig({
-                bash: "deny",
+                // bash 放开供 interview-analysis skill 使用(原 2026-07-07 事故后常驻 deny);
+                // chip turn 的 bash 仍由 buildToolGate 关闭,详见上方白名单注释。
+                bash: "allow",
                 todowrite: "deny",
                 jimeng_image_generate: "deny",
                 internel_image_generate: "deny",
