@@ -1,8 +1,10 @@
 import { createSignal, Show, For, createMemo, createEffect } from "solid-js"
 import type { JSX } from "solid-js"
 import { Portal } from "solid-js/web"
-import { ArchiveTreeSelector, type ProductTreeData, type NestedTreeNode, type TreeNodeItem } from "./archive-tree-selector"
+import { ArchiveTreeSelector, type ProductTreeData, type NestedTreeNode, type TreeNodeItem, type DomainNode, type SubDomainNode, type ProductNode } from "./archive-tree-selector"
 import { ArchiveSearchDropdown } from "./archive-search-dropdown"
+import { useProjectSelection, type ProjectSelection } from "@/hooks/use-project-selection"
+import type { Domain, ProductLine, Product, Version } from "@/network/types"
 
 const SPACE_OPTIONS = [
   { value: "project", label: "项目空间" },
@@ -60,6 +62,22 @@ let persistedSelections: PersistedSelections = {
   teamId: null,
   teamName: null,
   isProjectArchive: false,
+}
+
+let lastUsedSelectionKey: string | null = null
+
+const getSelectionKey = (selection: ProjectSelection | undefined): string => {
+  return [
+    selection?.domain?.id,
+    selection?.productLine?.id,
+    selection?.product?.id,
+    selection?.version?.id
+  ].join('-')
+}
+
+const shouldUseProjectSelection = (selection: ProjectSelection | undefined): boolean => {
+  const currentKey = getSelectionKey(selection)
+  return lastUsedSelectionKey === null || lastUsedSelectionKey !== currentKey
 }
 
 const MOCK_PRODUCT_TREE: ProductTreeData = {
@@ -260,6 +278,55 @@ export function ArchiveDialog(props: Props): JSX.Element {
   const [initialized, setInitialized] = createSignal(false)
   const [productTeamList, setProductTeamList] = createSignal<NestedTreeNode[]>(MOCK_PRODUCT_TEAM)
   const [isProjectArchive, setIsProjectArchive] = createSignal(false)
+  
+  const projectSelection = useProjectSelection()
+  
+  const findMatchingDomain = (domain: Domain | undefined, domains: DomainNode[]) => {
+    if (!domain) return null
+    return domains.find(d => d.id === domain.id) || null
+  }
+  
+  const findMatchingSubDomain = (productLine: ProductLine | undefined, subDomains: SubDomainNode[]) => {
+    if (!productLine) return null
+    return subDomains.find(s => s.id === productLine.id) || null
+  }
+  
+  const findMatchingProduct = (product: Product | undefined, products: ProductNode[]) => {
+    if (!product) return null
+    return products.find(p => p.id === product.id) || null
+  }
+  
+  const findMatchingVersion = (version: Version | undefined, versionList: NestedTreeNode[]) => {
+    if (!version) return null
+    return versionList.find(v => v.id === version.id) || null
+  }
+  
+  const applyProjectSelectionAsDefault = async (selection: ProjectSelection | undefined, tree: ProductTreeData) => {
+    const domain = findMatchingDomain(selection?.domain, tree.domains)
+    const subDomain = findMatchingSubDomain(selection?.productLine, tree.subDomains)
+    const product = findMatchingProduct(selection?.product, tree.products)
+    
+    if (product) {
+      setSelectedProductId(product.id)
+      setSelectedProduct({ name: product.name, commonTeam: product.commonTeam })
+      
+      const versionTree = await fetchVersionDelivery(product.id)
+      if (product.commonTeam) {
+        fetchProductTeam(product.commonTeam)
+      }
+      
+      if (versionTree) {
+        const version = findMatchingVersion(selection?.version, versionTree)
+        if (version) {
+          handleVersionSelect(version.id, version)
+        } else {
+          autoSelectFirstVersionDelivery(versionTree)
+        }
+      }
+    } else {
+      autoSelectFirstProduct()
+    }
+  }
 
   const flattenTree = (nodes: NestedTreeNode[]): NestedTreeNode[] => {
     const result: NestedTreeNode[] = []
@@ -388,8 +455,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
       if (isProjectArchive()) {
         return productTeamList()
       }
-      const flat = flattenTree(versionDeliveryList())
-      const found = flat.find(n => n.id === selectedVersionId())
+      const found = versionDeliveryList().find(n => n.id === selectedVersionId())
       return found?.children || []
     } else {
       return teamByVersionList()
@@ -427,9 +493,8 @@ export function ArchiveDialog(props: Props): JSX.Element {
 
   const autoSelectFirstVersionDelivery = (tree?: NestedTreeNode[]) => {
     const list = tree || versionDeliveryList()
-    const flat = flattenTree(list)
-    if (flat.length > 0) {
-      const first = flat[0]
+    if (list.length > 0) {
+      const first = list[0]
       handleVersionSelect(first.id, first)
     } else {
       setSelectedVersionId(null)
@@ -484,6 +549,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
   }
 
   const handleProductSelect = (id: number, item: TreeNodeItem) => {
+    lastUsedSelectionKey = null
     const product = item as { name: string; commonTeam?: number }
     setSelectedProductId(id)
     setSelectedProduct({ name: product.name, commonTeam: product.commonTeam })
@@ -509,6 +575,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
       setSelectedVersion({ label: "项目归档", children: productTeamList() })
       autoSelectFirstFolder(productTeamList())
     } else {
+      lastUsedSelectionKey = null
       setIsProjectArchive(false)
       setSelectedVersionId(id)
       setSelectedVersion({ label: item.label, children: item.children })
@@ -616,7 +683,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
                 autoSelectFirstFolder(productTeamList())
               }
             } else if (persistedSelections.versionDeliveryId) {
-              const version = flattenTree(versionDeliveryList()).find(v => v.id === persistedSelections.versionDeliveryId)
+              const version = versionDeliveryList().find(v => v.id === persistedSelections.versionDeliveryId)
               if (version) {
                 setIsProjectArchive(false)
                 setSelectedVersionId(version.id)
@@ -693,15 +760,32 @@ export function ArchiveDialog(props: Props): JSX.Element {
   createEffect(() => {
     if (props.open && !initialized()) {
       setInitialized(true)
+      
+      const selection = projectSelection()
+      const useProjectSelection = shouldUseProjectSelection(selection)
 
       if (isLoggedIn()) {
         if (persistedSelections.spaceType === "project") {
-          fetchProductTree().then(() => restoreSelections())
+          fetchProductTree().then((tree) => {
+            if (tree) {
+              if (useProjectSelection) {
+                applyProjectSelectionAsDefault(selection, tree)
+                lastUsedSelectionKey = getSelectionKey(selection)
+              } else {
+                restoreSelections()
+              }
+            }
+          })
         } else {
           fetchMyTeam().then(() => restoreSelections())
         }
       } else {
-        restoreSelections()
+        if (useProjectSelection) {
+          applyProjectSelectionAsDefault(selection, productTree())
+          lastUsedSelectionKey = getSelectionKey(selection)
+        } else {
+          restoreSelections()
+        }
       }
     }
   })
@@ -779,7 +863,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
   const hasEmptyData = createMemo(() => {
     if (spaceType() === "project") {
       const hasProducts = productTree().products.length > 0
-      const hasVersions = flattenTree(versionDeliveryList()).length > 0
+      const hasVersions = versionDeliveryList().length > 0
       const hasFolders = selectedVersionId() !== null && flattenTree(getFolderTree()).length > 0
       return !hasProducts || !hasVersions || !hasFolders
     } else {
@@ -851,7 +935,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
                     <div class="archive-step-content">
                       <ArchiveSearchDropdown
                         items={[
-                          ...flattenTree(versionDeliveryList()).map(v => ({ id: v.id, label: v.label })),
+                          ...versionDeliveryList().map(v => ({ id: v.id, label: v.label })),
                           { id: PROJECT_ARCHIVE_ID, label: "项目归档" }
                         ]}
                         selectedId={selectedVersionId()}
@@ -860,12 +944,12 @@ export function ArchiveDialog(props: Props): JSX.Element {
                           if (id === PROJECT_ARCHIVE_ID) {
                             handleVersionSelect(PROJECT_ARCHIVE_ID, {} as NestedTreeNode)
                           } else {
-                            const item = flattenTree(versionDeliveryList()).find(v => v.id === id)
+                            const item = versionDeliveryList().find(v => v.id === id)
                             if (item) handleVersionSelect(id as number, item)
                           }
                         }}
                         searchPlaceholder="搜索..."
-                        triggerPlaceholder={flattenTree(versionDeliveryList()).length === 0 ? "暂无数据" : "请选择版本交付"}
+                        triggerPlaceholder={versionDeliveryList().length === 0 ? "暂无数据" : "请选择版本交付"}
                         maxHeight="250px"
                       />
                     </div>

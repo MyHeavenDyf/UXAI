@@ -382,6 +382,11 @@
   }
 }
 
+/* 窗口 <1228px 且悬浮抽屉展开时：省略号已隐藏，右侧仅剩收起按钮(20px)，预留收紧至 52px */
+.studio-workspace-overlay .studio-canvas-header {
+  padding-right: 52px;
+}
+
 /* 窗口 <800px 时：操作区两个盒模型上下排列 */
 @media (max-width: 799px) {
   .studio-hd-controls {
