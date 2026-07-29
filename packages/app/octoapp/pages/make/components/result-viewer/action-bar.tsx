@@ -683,9 +683,9 @@ function ExportButton(props: {
                     top: `${(rect?.bottom ?? 0) + 4}px`,
                     left: `${rect?.left ?? 0}px`,
                     background: "#ffffff",
-                    border: "1px solid var(--octo-border-default)",
-                    "box-shadow": "var(--octo-shadow-md)",
-                    animation: "octo-pop-in 120ms var(--octo-ease-out)",
+                    border: "1px solid var(--octo-border-default, #E5E7EB)",
+                    "box-shadow": "var(--octo-shadow-md, 0 4px 16px rgba(0,0,0,0.08))",
+                    animation: "octo-pop-in 120ms var(--octo-ease-out, cubic-bezier(0.23, 1, 0.32, 1))",
                   }}
                   onClick={(e) => {
                     const target = e.target as HTMLElement
@@ -696,8 +696,8 @@ function ExportButton(props: {
                     {(kind) => (
                       <button
                         type="button"
-                        class="w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--octo-surface-hover)]"
-                        style={{ color: "var(--octo-text-primary)" }}
+                        class="w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--octo-surface-hover,#F5F5F5)]"
+                        style={{ color: "var(--octo-text-primary, #191919)" }}
                         onClick={() => handleExport(kind)}
                       >
                         {EXPORT_LABELS[kind]}
