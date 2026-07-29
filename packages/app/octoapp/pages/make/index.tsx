@@ -3498,16 +3498,14 @@ onSlashTrigger={(query) => {
 
         {/* ── 右栏：ResultViewer + Version Panel ──── */}
         <Show when={gridHasContent()}>
-        <Show when={ml.rightCollapsed() && ml.rightDrawerOpen()}>
-          <div class="make-right-overlay" onClick={ml.toggleRight} />
-        </Show>
+        <div class="make-right-overlay" />
         <div
           class="flex flex-col overflow-hidden"
           classList={{ "make-right-panel": true, "is-collapsed": ml.rightCollapsed() || ml.rightManuallyHidden() }}
           style={(ml.rightCollapsed() || ml.rightManuallyHidden()) ? { background: "#fff", "border-left": "1px solid var(--border-weak-base)" } : { flex: `${1 - ml.cRatio()} 1 0%`, "min-width": `${MAKE_RIGHT_MIN}px` }}
         >
-          <div class="flex flex-1 min-h-0 overflow-auto">
-            <div class="flex flex-col flex-1" style="min-width:800px">
+          <div class="flex flex-1 min-h-0 min-w-0">
+            <div class="flex flex-col flex-1 min-w-0">
               {/* 焦点模式 + 版本历史 切换按钮 */}
               <div class="flex hidden items-center justify-end px-2 shrink-0 gap-1" style={{ "min-height": "32px" }}>
                 <button

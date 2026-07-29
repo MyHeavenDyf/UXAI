@@ -524,7 +524,7 @@ drawing={drawing()}
                    onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
                  />
                 </Show>
-                <div class="flex-1 min-h-0 overflow-hidden">
+                <div class="flex-1 min-h-0 min-w-0 overflow-hidden">
                   <Switch
                     fallback={
                       <div class="p-4 overflow-auto h-full">

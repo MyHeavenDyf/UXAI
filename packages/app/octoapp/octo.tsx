@@ -295,6 +295,18 @@ function MakeSidebarArea(props: ParentProps) {
     document.addEventListener("mouseup", onUp)
   }
 
+  onMount(() => {
+    document.addEventListener("click", (e) => {
+      const target = e.target as HTMLElement
+      if (ml.leftDrawerOpen() && !target.closest(".make-sidebar") && !target.closest("[data-drawer-toggle='make-left']")) {
+        ml.toggleLeftDrawer()
+      }
+      if (ml.rightDrawerOpen() && !target.closest(".make-right-panel") && !target.closest("[data-drawer-toggle='make-right']")) {
+        ml.toggleRightDrawer()
+      }
+    })
+  })
+
   return (
     <>
       <style>{`
@@ -323,7 +335,7 @@ function MakeSidebarArea(props: ParentProps) {
         class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative"
         style={{ "--sidebar-width": `${ml.leftW()}px` }}
       >
-        <div class="make-sidebar-overlay" onClick={ml.toggleLeftDrawer} />
+        <div class="make-sidebar-overlay" />
         <div
           class="make-sidebar h-full shrink-0 flex flex-col overflow-hidden"
           classList={{ "is-collapsed": ml.leftCollapsed() }}

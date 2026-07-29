@@ -367,94 +367,9 @@ export function ActionBar(props: {
   const currentMode = () => props.mode ?? "preview"
   const currentViewport = () => props.viewport ?? "desktop"
 
-  // Responsive state: "full" | "collapsed" | "wrapped"
-  // full: all buttons with text
-  // collapsed: 局部修改/框选编辑/画布编辑/下载 become icons, 标注/归档 stay as text
-  // wrapped: icons wrap to next line
-  const [responsiveState, setResponsiveState] = createSignal<"full" | "collapsed" | "wrapped">("full")
-  let containerRef: HTMLDivElement | undefined
-  let leftRef: HTMLDivElement | undefined
-  let collapsibleRef: HTMLDivElement | undefined
-  let fixedRef: HTMLDivElement | undefined
-  let rightRef: HTMLDivElement | undefined
-
-  const MIN_GAP = 16
-
-  createEffect(() => {
-    if (!containerRef || !leftRef || !collapsibleRef || !fixedRef) return
-
-    const updateState = () => {
-      const containerWidth = containerRef?.clientWidth
-      if (!containerWidth) return
-
-      // Measure natural (unshrunk) widths
-      const leftWidth = leftRef?.scrollWidth ?? 0
-      const fixedWidth = fixedRef?.scrollWidth ?? 0
-
-      // Temporarily reset to full state to measure full collapsible width
-      const prev = responsiveState()
-      if (prev !== "full") {
-        // Measure full width by temporarily allowing overflow
-        const collapsibleFullWidth = collapsibleRef?.scrollWidth ?? 0
-        const totalFull = leftWidth + MIN_GAP + collapsibleFullWidth + fixedWidth
-        if (totalFull <= containerWidth) {
-          setResponsiveState("full")
-          return
-        }
-      }
-
-      // Full state measurement
-      const collapsibleFullWidth = collapsibleRef?.scrollWidth ?? 0
-      const totalFull = leftWidth + MIN_GAP + collapsibleFullWidth + fixedWidth
-
-      // Collapsed state measurement (icons only)
-      const collapsedCollapsibleWidth = collapsibleRef?.offsetWidth ?? 0
-      const totalCollapsed = leftWidth + MIN_GAP + collapsedCollapsibleWidth + fixedWidth
-
-      if (responsiveState() === "full") {
-        if (totalFull > containerWidth) {
-          setResponsiveState("collapsed")
-        }
-      } else if (responsiveState() === "collapsed") {
-        if (totalFull <= containerWidth) {
-          setResponsiveState("full")
-        } else if (totalCollapsed > containerWidth) {
-          setResponsiveState("wrapped")
-        }
-      } else if (responsiveState() === "wrapped") {
-        if (totalCollapsed <= containerWidth) {
-          if (totalFull <= containerWidth) {
-            setResponsiveState("full")
-          } else {
-            setResponsiveState("collapsed")
-          }
-        }
-      }
-    }
-
-    updateState()
-    const resizeObserver = new ResizeObserver(updateState)
-    resizeObserver.observe(containerRef)
-    onCleanup(() => resizeObserver.disconnect())
-  })
-
-  const rightBarClass = () => {
-    const base = "octo-action-bar-right"
-    const state = responsiveState()
-    if (state === "collapsed") return `${base} octo-action-bar-collapsed`
-    if (state === "wrapped") return `${base} octo-action-bar-wrapped`
-    return base
-  }
-
-  const containerClass = () => {
-    const base = "octo-action-bar"
-    if (responsiveState() === "wrapped") return `${base} octo-action-bar-wrap`
-    return base
-  }
-
   return (
-    <div ref={containerRef} class={containerClass()}>
-      <div ref={leftRef} class="octo-action-bar-left">
+    <div class="octo-action-bar">
+      <div class="octo-action-bar-left">
         {props.onRefresh && (
           <button
             type="button"
@@ -486,9 +401,9 @@ export function ActionBar(props: {
           </>
         )}
       </div>
-      <div ref={rightRef} class={rightBarClass()}>
+      <div class="octo-action-bar-right">
         {/* Collapsible buttons - can become icons */}
-        <div ref={collapsibleRef} class="octo-action-bar-collapsible">
+        <div class="octo-action-bar-collapsible">
           {showViewport() && props.onEditToggle && (
             <button
               type="button"
@@ -545,7 +460,7 @@ export function ActionBar(props: {
         </div>
 
         {/* Fixed buttons - always stay as text */}
-        <div ref={fixedRef} class="octo-action-bar-fixed">
+        <div class="octo-action-bar-fixed">
           {showViewport() && props.onPaletteChange && (
             <div class="flex items-center gap-[2px] mr-1 hidden">
               <button
@@ -656,7 +571,7 @@ function ExportButton(props: {
     <Show
       when={hasMultiple()}
       fallback={
-        <button type="button" class="octo-action-btn octo-action-btn-download" onClick={props.onPrimaryDownload}>
+        <button type="button" class="octo-action-btn octo-action-btn-download" onClick={props.onPrimaryDownload} title="下载">
           <IconDownloadNew size={16} />
           <span>下载</span>
         </button>
@@ -668,6 +583,7 @@ function ExportButton(props: {
           type="button"
           class="octo-action-btn octo-action-btn-download"
           onClick={() => setOpen(!open())}
+          title="导出"
         >
           <IconDownloadNew size={16} />
           <span>导出</span>
