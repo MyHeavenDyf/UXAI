@@ -68,6 +68,15 @@ export const editorSchema = new Schema({
       group: "inline",
     },
     mention: mentionNodeSpec,
+    hard_break: {
+      inline: true,
+      group: "inline",
+      selectable: false,
+      toDOM() {
+        return ["br"]
+      },
+      parseDOM: [{ tag: "br" }],
+    },
   },
   marks: {},
 })
@@ -89,13 +98,15 @@ export function extractMentionsFromDoc(doc: PMNode): MentionAttrs[] {
 }
 
 export function getDocTextWithMentions(doc: PMNode): string {
-  let text = ""
-  doc.descendants((node: PMNode) => {
-    if (node.type.name === "text") {
-      text += node.text || ""
-    } else if (node.type.name === "mention") {
-      text += `@${node.attrs.name}`
+  return doc.textBetween(0, doc.content.size, "\n", (node) => {
+    if (node.type.name === "mention") {
+      return `@${node.attrs.name}`
     }
+    // hard_break 也是 leaf,会走这个回调;不显式返回 "\n" 的话 Shift+Enter 敲出来的换行
+    // 只存在于编辑器里,取文本时被吞成空串 —— 发给模型的仍是连排一行。
+    if (node.type.name === "hard_break") {
+      return "\n"
+    }
+    return ""
   })
-  return text
 }

@@ -69,6 +69,31 @@ describe("queuedMentions", () => {
   })
 })
 
+// 取文本时换行必须保留:丢了的话编辑器里看着是多行、发给模型的却是连排一行(内容失真且无从察觉)
+describe("getDocTextWithMentions 换行", () => {
+  const t = (s: string) => editorSchema.text(s)
+  const p = (...content: ReturnType<typeof t>[]) => editorSchema.node("paragraph", null, content)
+
+  test("段落之间产出 \\n", () => {
+    const doc = editorSchema.node("doc", null, [p(t("第一段")), p(t("第二段"))])
+    expect(getDocTextWithMentions(doc)).toBe("第一段\n第二段")
+  })
+
+  // hard_break 是 leaf,会走 textBetween 的 leafText 回调;不显式返回 "\n" 就会被吞成空串
+  test("Shift+Enter 的 hard_break 产出 \\n", () => {
+    const br = editorSchema.nodes.hard_break.create()
+    const doc = editorSchema.node("doc", null, [editorSchema.node("paragraph", null, [t("第一行"), br, t("第二行")])])
+    expect(getDocTextWithMentions(doc)).toBe("第一行\n第二行")
+  })
+
+  test("换行与 mention 混排", () => {
+    const br = editorSchema.nodes.hard_break.create()
+    const m = editorSchema.nodes.mention.create({ id: "x", name: "访谈分析", type: "skill", label: "访谈分析", path: "" })
+    const doc = editorSchema.node("doc", null, [editorSchema.node("paragraph", null, [m, t(" 看这个"), br, t("再看那个")])])
+    expect(getDocTextWithMentions(doc)).toBe("@访谈分析 看这个\n再看那个")
+  })
+})
+
 // 排队回填:@名 要重新变回胶囊,否则文本里留着失效的 @名、引用却已丢失,用户无从察觉
 describe("buildParagraphs", () => {
   const attrs = (name: string, type: "skill" | "file" = "skill"): MentionAttrs => ({
@@ -115,5 +140,19 @@ describe("buildParagraphs", () => {
     const nodes = buildParagraphs("", [])
     expect(nodes).toHaveLength(1)
     expect(nodes[0]!.content.size).toBe(0)
+  })
+
+  // 粘贴路径也复用这个函数(handlePaste 一律按 text/plain 拆段落),换行数必须原样保留
+  test("多行文本按行拆成段落,空行保留", () => {
+    const nodes = buildParagraphs("第一行\n\n第三行", [])
+    expect(nodes).toHaveLength(3)
+    expect(nodes[1]!.content.size).toBe(0)
+    const doc = editorSchema.node("doc", null, nodes)
+    expect(getDocTextWithMentions(doc)).toBe("第一行\n\n第三行")
+  })
+
+  test("CRLF 与 CR 也按行拆", () => {
+    expect(buildParagraphs("a\r\nb", [])).toHaveLength(2)
+    expect(buildParagraphs("a\rb", [])).toHaveLength(2)
   })
 })

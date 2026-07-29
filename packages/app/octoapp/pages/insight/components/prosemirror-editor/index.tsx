@@ -2,6 +2,7 @@ import { createSignal, onMount, onCleanup, Show, createEffect } from "solid-js"
 import { Portal } from "solid-js/web"
 import { EditorState, Transaction, TextSelection } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
+import { Slice, Fragment } from "prosemirror-model"
 import { buildParagraphs } from "../../utils/mention"
 import { history, undo, redo } from "prosemirror-history"
 import { keymap } from "prosemirror-keymap"
@@ -10,7 +11,6 @@ import { editorSchema, getDocTextWithMentions, extractMentionsFromDoc, type Ment
 import { createMentionTriggerPlugin, mentionTriggerKey, type MentionTriggerState } from "./plugins/mention-trigger"
 import { createSyncPlugin } from "./plugins/sync"
 import { atomKeymap } from "./plugins/atom-keymap"
-import { createNoEmptyParagraphPlugin } from "./plugins/no-empty-paragraph"
 import { MentionPopover, type MentionSelection, type MentionSkill, type MentionFiles } from "../mention-popover"
 import "./styles.css"
 
@@ -104,18 +104,24 @@ export function ProseMirrorEditor(props: Props) {
           "Mod-z": undo,
           "Mod-y": redo,
           "Mod-shift-z": redo,
-          Enter: () => {
+          Enter: (state) => {
             if (props.disabled) return false
+            // @ 面板打开时 Enter 用于确认选中项,不发送消息(与 Slack / Notion / GitHub 一致)
+            if (mentionTriggerKey.getState(state)?.active) return false
             props.onSubmit?.()
             return true
           },
-          "Shift-Enter": () => false, // 换行交给 baseKeymap
+          // 换行插 hard_break:schema 无 hard_break 时 baseKeymap 接不住 Shift-Enter,换行会整个丢掉
+          "Shift-Enter": (state, dispatch) => {
+            if (props.disabled) return false
+            if (dispatch) dispatch(state.tr.replaceSelectionWith(editorSchema.nodes.hard_break.create()))
+            return true
+          },
         }),
         keymap(baseKeymap),
         atomKeymap,
         mentionTriggerPlugin,
         syncPlugin,
-        createNoEmptyParagraphPlugin(),
       ],
     })
 
@@ -126,6 +132,20 @@ export function ProseMirrorEditor(props: Props) {
         editorView.updateState(newState)
       },
       editable: () => !props.disabled,
+      // 粘贴一律走 text/plain:本编辑器只承载纯文本 + mention 胶囊,富文本格式一概接不住。
+      // 默认行为会优先解析 text/html,而从消息气泡复制出来的 HTML 里换行是裸 \n
+      // (气泡靠 white-space: pre-wrap 才显示成多行),DOMParser 在 preserveWhitespace: false 下
+      // 按 HTML 空白规则把它折叠成空格 —— 表现为「从气泡复制的多行,粘进来变一行」。
+      handlePaste: (view, event) => {
+        // 图片 / 文件粘贴不归这里管,交给外层 onPaste 走附件上传
+        if (Array.from(event.clipboardData?.items ?? []).some((i) => i.kind === "file")) return false
+        const text = event.clipboardData?.getData("text/plain")
+        if (!text) return false
+        // openStart/openEnd = 1:段落两端保持开放,粘到段落中间时首尾会与原内容合并而不是硬切成新段
+        const slice = new Slice(Fragment.from(buildParagraphs(text, [])), 1, 1)
+        view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView())
+        return true
+      },
     })
 
     setView(editorView)
