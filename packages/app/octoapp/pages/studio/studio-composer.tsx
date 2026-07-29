@@ -666,7 +666,7 @@ export function StudioComposer(props: {
               <StyleMenu
                 value={props.styleModel}
                 canUseSeedream={props.canUseSeedream}
-                onSelect={(value) => { props.onToolClick?.(); props.onStyleModel(value); props.onOpenMenu(null) }}
+                onSelect={(value) => { props.onStyleModel(value); props.onOpenMenu(null) }}
               />
             </div>
           </Show>
