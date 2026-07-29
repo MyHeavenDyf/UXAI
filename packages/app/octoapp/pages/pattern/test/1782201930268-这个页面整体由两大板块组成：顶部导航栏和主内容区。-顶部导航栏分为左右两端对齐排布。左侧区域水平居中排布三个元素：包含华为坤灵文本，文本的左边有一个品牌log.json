@@ -1,0 +1,2753 @@
+{
+  "planner": {
+    "state": {},
+    "rootId": "rootContainer",
+    "elements": [
+      {
+        "id": "rootContainer",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col min-h-screen bg-surface-container-lowest"
+        },
+        "children": [
+          "topNavHeader",
+          "bodyMainFlex"
+        ]
+      },
+      {
+        "id": "topNavHeader",
+        "component": "header",
+        "props": {
+          "className": "flex items-center h-12 px-page bg-surface-container-highest shadow-sm"
+        },
+        "children": []
+      },
+      {
+        "id": "bodyMainFlex",
+        "component": "div",
+        "props": {
+          "className": "flex flex-1"
+        },
+        "children": [
+          "sideMenuAside",
+          "mainContentMain"
+        ]
+      },
+      {
+        "id": "sideMenuAside",
+        "component": "aside",
+        "props": {
+          "className": "w-12 bg-surface-container-highest shadow-sm flex flex-col items-center py-4"
+        },
+        "children": []
+      },
+      {
+        "id": "mainContentMain",
+        "component": "main",
+        "props": {
+          "className": "flex-1 bg-surface-container-lowest overflow-y-auto"
+        },
+        "children": []
+      }
+    ],
+    "slots": [
+      {
+        "section_id": "topNav",
+        "element_id": "topNavHeader",
+        "id_prefix": "topN"
+      },
+      {
+        "section_id": "sideMenu",
+        "element_id": "sideMenuAside",
+        "id_prefix": "sMen"
+      },
+      {
+        "section_id": "mainContent",
+        "element_id": "mainContentMain",
+        "id_prefix": "mCnt"
+      }
+    ]
+  },
+  "mergedA2UI": {
+    "rootId": "rootContainer",
+    "elements": [
+      {
+        "id": "rootContainer",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col min-h-screen bg-surface-container-lowest"
+        },
+        "children": [
+          "topNavHeader",
+          "bodyMainFlex"
+        ]
+      },
+      {
+        "id": "topNavHeader",
+        "component": "header",
+        "props": {
+          "className": "flex items-center h-12 px-page bg-surface-container-highest shadow-sm"
+        },
+        "children": [
+          "topNLeft",
+          "topNRight"
+        ]
+      },
+      {
+        "id": "bodyMainFlex",
+        "component": "div",
+        "props": {
+          "className": "flex flex-1"
+        },
+        "children": [
+          "sideMenuAside",
+          "mainContentMain"
+        ]
+      },
+      {
+        "id": "sideMenuAside",
+        "component": "aside",
+        "props": {
+          "className": "w-12 bg-surface-container-highest shadow-sm flex flex-col items-center py-4"
+        },
+        "children": [
+          "sMenTopMenu",
+          "sMenSpacer",
+          "sMenBottomMenu"
+        ]
+      },
+      {
+        "id": "mainContentMain",
+        "component": "main",
+        "props": {
+          "className": "flex-1 bg-surface-container-lowest overflow-y-auto"
+        },
+        "children": [
+          "mCntPrimaryTabs"
+        ]
+      },
+      {
+        "id": "topNLeft",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-4"
+        },
+        "children": [
+          "topNLogoIcon",
+          "topNLogoText",
+          "topNProjectIcon",
+          "topNProjectGroup"
+        ]
+      },
+      {
+        "id": "topNLogoIcon",
+        "component": "Icon",
+        "props": {
+          "name": "network",
+          "shape": "outline",
+          "color": "primary",
+          "className": "w-6 h-6"
+        }
+      },
+      {
+        "id": "topNLogoText",
+        "component": "span",
+        "props": {
+          "value": "华为坤灵",
+          "className": "text-lg font-semibold text-on-surface"
+        }
+      },
+      {
+        "id": "topNProjectIcon",
+        "component": "Icon",
+        "props": {
+          "name": "folder-kanban",
+          "shape": "outline",
+          "className": "w-5 h-5 text-on-surface-variant"
+        }
+      },
+      {
+        "id": "topNProjectGroup",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-1 text-on-surface-variant"
+        },
+        "children": [
+          "topNProjectName",
+          "topNProjectArrow"
+        ]
+      },
+      {
+        "id": "topNProjectName",
+        "component": "span",
+        "props": {
+          "value": "企业网络A",
+          "className": "text-md"
+        }
+      },
+      {
+        "id": "topNProjectArrow",
+        "component": "Icon",
+        "props": {
+          "name": "chevron-down",
+          "shape": "outline",
+          "className": "w-4 h-4"
+        }
+      },
+      {
+        "id": "topNRight",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-4 ml-auto"
+        },
+        "children": [
+          "topNNotificationWrapper",
+          "topNUserAvatar",
+          "topNBackBtn"
+        ]
+      },
+      {
+        "id": "topNNotificationWrapper",
+        "component": "Badge",
+        "props": {
+          "count": {
+            "path": "/notificationBadge"
+          },
+          "color": "error",
+          "overflowCount": 99
+        },
+        "children": [
+          "topNNotificationIcon"
+        ]
+      },
+      {
+        "id": "topNNotificationIcon",
+        "component": "Icon",
+        "props": {
+          "name": "bell",
+          "shape": "outline",
+          "className": "w-5 h-5 text-on-surface-variant"
+        }
+      },
+      {
+        "id": "topNUserAvatar",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "/userAvatarUrl"
+          },
+          "className": "w-8 h-8 rounded-full object-cover",
+          "alt": "用户头像"
+        }
+      },
+      {
+        "id": "topNBackBtn",
+        "component": "Button",
+        "props": {
+          "value": "返回首页",
+          "icon": "home",
+          "iconPlacement": "start",
+          "size": "medium",
+          "color": "default"
+        }
+      },
+      {
+        "id": "sMenTopMenu",
+        "component": "Menu",
+        "props": {
+          "mode": "vertical",
+          "inlineCollapsed": true,
+          "selectedKeys": {
+            "path": "/sMenSelectedKeys"
+          },
+          "items": {
+            "path": "/sMenTopItems"
+          },
+          "className": "w-full bg-transparent border-none"
+        }
+      },
+      {
+        "id": "sMenSpacer",
+        "component": "div",
+        "props": {
+          "className": "flex-1"
+        }
+      },
+      {
+        "id": "sMenBottomMenu",
+        "component": "Menu",
+        "props": {
+          "mode": "vertical",
+          "inlineCollapsed": true,
+          "selectedKeys": {
+            "path": "/sMenSelectedKeys"
+          },
+          "items": {
+            "path": "/sMenBottomItems"
+          },
+          "className": "w-full bg-transparent border-none"
+        }
+      },
+      {
+        "id": "mCntPrimaryTabs",
+        "component": "Tabs",
+        "props": {
+          "activeKey": {
+            "path": "/primaryActiveKey"
+          },
+          "types": "line",
+          "size": "medium",
+          "className": "pt-4 px-4"
+        },
+        "children": [
+          "mCntPrimaryWholeNet",
+          "mCntPrimarySwitch",
+          "mCntPrimaryRouter",
+          "mCntPrimaryAp",
+          "mCntPrimaryWac"
+        ]
+      },
+      {
+        "id": "mCntPrimaryWholeNet",
+        "component": "TabItem",
+        "props": {
+          "key": "wholeNet",
+          "label": "整网配置",
+          "content": {
+            "componentId": "mCntWholeNetContent"
+          }
+        }
+      },
+      {
+        "id": "mCntPrimarySwitch",
+        "component": "TabItem",
+        "props": {
+          "key": "switch",
+          "label": "交换机",
+          "content": {
+            "componentId": "mCntSwitchContent"
+          }
+        }
+      },
+      {
+        "id": "mCntPrimaryRouter",
+        "component": "TabItem",
+        "props": {
+          "key": "router",
+          "label": "路由器",
+          "content": {
+            "componentId": "mCntRouterContent"
+          }
+        }
+      },
+      {
+        "id": "mCntPrimaryAp",
+        "component": "TabItem",
+        "props": {
+          "key": "ap",
+          "label": "AP",
+          "content": {
+            "componentId": "mCntApContent"
+          }
+        }
+      },
+      {
+        "id": "mCntPrimaryWac",
+        "component": "TabItem",
+        "props": {
+          "key": "wac",
+          "label": "WAC",
+          "content": {
+            "componentId": "mCntWacContent"
+          }
+        }
+      },
+      {
+        "id": "mCntWholeNetContent",
+        "component": "div",
+        "props": {
+          "className": "bg-white rounded-xl shadow-card p-6 mx-4 mb-4"
+        },
+        "children": [
+          "mCntSecondaryTabs"
+        ]
+      },
+      {
+        "id": "mCntSecondaryTabs",
+        "component": "Tabs",
+        "props": {
+          "activeKey": {
+            "path": "/secondaryActiveKey"
+          },
+          "types": "line",
+          "size": "small"
+        },
+        "children": [
+          "mCntSecondaryService",
+          "mCntSecondaryIptv",
+          "mCntSecondaryIntranet"
+        ]
+      },
+      {
+        "id": "mCntSecondaryService",
+        "component": "TabItem",
+        "props": {
+          "key": "serviceNet",
+          "label": "业务网",
+          "content": {
+            "componentId": "mCntServiceContent"
+          }
+        }
+      },
+      {
+        "id": "mCntSecondaryIptv",
+        "component": "TabItem",
+        "props": {
+          "key": "iptv",
+          "label": "IPTV",
+          "content": {
+            "componentId": "mCntIptvContent"
+          }
+        }
+      },
+      {
+        "id": "mCntSecondaryIntranet",
+        "component": "TabItem",
+        "props": {
+          "key": "intranet",
+          "label": "内网穿透",
+          "content": {
+            "componentId": "mCntIntranetContent"
+          }
+        }
+      },
+      {
+        "id": "mCntServiceContent",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-4 pt-4"
+        },
+        "children": [
+          "mCntServiceDivider",
+          "mCntDeviceCard",
+          "mCntDeviceDivider",
+          "mCntModuleTitle",
+          "mCntToolbar",
+          "mCntDataTable"
+        ]
+      },
+      {
+        "id": "mCntIptvContent",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-center h-32 text-on-surface-variant pt-4",
+          "value": "IPTV 配置内容"
+        }
+      },
+      {
+        "id": "mCntIntranetContent",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-center h-32 text-on-surface-variant pt-4",
+          "value": "内网穿透配置内容"
+        }
+      },
+      {
+        "id": "mCntServiceDivider",
+        "component": "Divider",
+        "props": {
+          "className": "my-0"
+        }
+      },
+      {
+        "id": "mCntDeviceCard",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between py-3"
+        },
+        "children": [
+          "mCntDeviceLeft",
+          "mCntDeviceBtn"
+        ]
+      },
+      {
+        "id": "mCntDeviceLeft",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-4"
+        },
+        "children": [
+          "mCntDeviceIcon",
+          "mCntDeviceInfoGroup"
+        ]
+      },
+      {
+        "id": "mCntDeviceIcon",
+        "component": "Icon",
+        "props": {
+          "name": "monitor",
+          "shape": "square",
+          "className": "w-10 h-10 text-primary"
+        }
+      },
+      {
+        "id": "mCntDeviceInfoGroup",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-4"
+        },
+        "children": [
+          "mCntDeviceName",
+          "mCntDeviceModel",
+          "mCntDeviceEsn"
+        ]
+      },
+      {
+        "id": "mCntDeviceName",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": "AR_6AEBBC254674648874802"
+        }
+      },
+      {
+        "id": "mCntDeviceModel",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": "型号 AR651C"
+        }
+      },
+      {
+        "id": "mCntDeviceEsn",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": "ESN 10023455RLG19807655"
+        }
+      },
+      {
+        "id": "mCntDeviceBtn",
+        "component": "Button",
+        "props": {
+          "value": "修改网关",
+          "icon": "edit-3",
+          "color": "default",
+          "iconPlacement": "start"
+        }
+      },
+      {
+        "id": "mCntDeviceDivider",
+        "component": "Divider",
+        "props": {
+          "className": "my-0"
+        }
+      },
+      {
+        "id": "mCntModuleTitle",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": "业务网"
+        }
+      },
+      {
+        "id": "mCntToolbar",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between"
+        },
+        "children": [
+          "mCntSearchInput",
+          "mCntToolbarRight"
+        ]
+      },
+      {
+        "id": "mCntSearchInput",
+        "component": "Input",
+        "props": {
+          "value": {
+            "path": "/searchValue"
+          },
+          "placeholder": "请输入业务网名称",
+          "prefix": "search",
+          "className": "w-72"
+        }
+      },
+      {
+        "id": "mCntToolbarRight",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "mCntDeleteBtn",
+          "mCntCreateGuestBtn",
+          "mCntCreateServiceBtn",
+          "mCntRefreshBtn"
+        ]
+      },
+      {
+        "id": "mCntDeleteBtn",
+        "component": "Button",
+        "props": {
+          "value": "删除",
+          "icon": "trash-2",
+          "iconPlacement": "start",
+          "disabled": true,
+          "color": "default"
+        }
+      },
+      {
+        "id": "mCntCreateGuestBtn",
+        "component": "Button",
+        "props": {
+          "value": "创建访客网",
+          "icon": "user-plus",
+          "iconPlacement": "start",
+          "color": "default"
+        }
+      },
+      {
+        "id": "mCntCreateServiceBtn",
+        "component": "Button",
+        "props": {
+          "value": "创建业务网",
+          "icon": "plus",
+          "iconPlacement": "start",
+          "color": "primary"
+        }
+      },
+      {
+        "id": "mCntRefreshBtn",
+        "component": "Button",
+        "props": {
+          "icon": "refresh-cw",
+          "color": "default"
+        }
+      },
+      {
+        "id": "mCntDataTable",
+        "component": "Table",
+        "props": {
+          "rowKey": "entry",
+          "dataSource": {
+            "path": "/tableData"
+          },
+          "columns": [
+            {
+              "title": "条目",
+              "dataIndex": "entry"
+            },
+            {
+              "title": "名称",
+              "dataIndex": "name",
+              "minWidth": 150
+            },
+            {
+              "title": "VLAN",
+              "dataIndex": "vlan"
+            },
+            {
+              "title": "网关/掩码",
+              "dataIndex": "gatewayMask"
+            },
+            {
+              "title": "有线接入口",
+              "dataIndex": "wiredInterface"
+            },
+            {
+              "title": "无线配置Wi-Fi",
+              "dataIndex": "wirelessConfig"
+            },
+            {
+              "title": "配置状态",
+              "dataIndex": "configStatus"
+            },
+            {
+              "title": "网络状态",
+              "dataIndex": "networkStatus"
+            },
+            {
+              "title": "操作",
+              "dataIndex": "action",
+              "width": 100,
+              "fixed": "end"
+            }
+          ],
+          "className": "mb-4"
+        },
+        "children": {
+          "path": "/tableData",
+          "componentId": "mCntTableRow"
+        }
+      },
+      {
+        "id": "mCntTableRow",
+        "component": "TableRow",
+        "children": [
+          "mCntEntryCell",
+          "mCntNameCell",
+          "mCntVlanCell",
+          "mCntGatewayCell",
+          "mCntInterfaceCell",
+          "mCntWirelessCell",
+          "mCntConfigCell",
+          "mCntNetworkCell",
+          "mCntActionCell"
+        ],
+        "props": {}
+      },
+      {
+        "id": "mCntEntryCell",
+        "component": "span",
+        "props": {
+          "className": "text-md",
+          "value": {
+            "path": "entry"
+          }
+        }
+      },
+      {
+        "id": "mCntNameCell",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "mCntNameText",
+          "mCntNameTag"
+        ]
+      },
+      {
+        "id": "mCntNameText",
+        "component": "span",
+        "props": {
+          "className": "text-md",
+          "value": {
+            "path": "name"
+          }
+        }
+      },
+      {
+        "id": "mCntNameTag",
+        "component": "Tag",
+        "props": {
+          "value": {
+            "path": "nameTag/label"
+          },
+          "color": {
+            "path": "nameTag/color"
+          },
+          "size": "small"
+        }
+      },
+      {
+        "id": "mCntVlanCell",
+        "component": "span",
+        "props": {
+          "className": "text-md",
+          "value": {
+            "path": "vlan"
+          }
+        }
+      },
+      {
+        "id": "mCntGatewayCell",
+        "component": "span",
+        "props": {
+          "className": "text-md",
+          "value": {
+            "path": "gatewayMask"
+          }
+        }
+      },
+      {
+        "id": "mCntInterfaceCell",
+        "component": "span",
+        "props": {
+          "className": "text-md",
+          "value": {
+            "path": "wiredInterface"
+          }
+        }
+      },
+      {
+        "id": "mCntWirelessCell",
+        "component": "span",
+        "props": {
+          "className": "text-md",
+          "value": {
+            "path": "wirelessConfig"
+          }
+        }
+      },
+      {
+        "id": "mCntConfigCell",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-1.5"
+        },
+        "children": [
+          "mCntConfigDot",
+          "mCntConfigText"
+        ]
+      },
+      {
+        "id": "mCntConfigDot",
+        "component": "Icon",
+        "props": {
+          "name": "circle",
+          "shape": "fill",
+          "className": "w-2 h-2",
+          "color": {
+            "path": "configStatusColor"
+          }
+        }
+      },
+      {
+        "id": "mCntConfigText",
+        "component": "span",
+        "props": {
+          "className": "text-md",
+          "value": {
+            "path": "configStatus"
+          }
+        }
+      },
+      {
+        "id": "mCntNetworkCell",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-1.5"
+        },
+        "children": [
+          "mCntNetworkDot",
+          "mCntNetworkText"
+        ]
+      },
+      {
+        "id": "mCntNetworkDot",
+        "component": "Icon",
+        "props": {
+          "name": "circle",
+          "shape": "fill",
+          "className": "w-2 h-2",
+          "color": {
+            "path": "networkStatusColor"
+          }
+        }
+      },
+      {
+        "id": "mCntNetworkText",
+        "component": "span",
+        "props": {
+          "className": "text-md",
+          "value": {
+            "path": "networkStatus"
+          }
+        }
+      },
+      {
+        "id": "mCntActionCell",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-1 justify-center"
+        },
+        "children": [
+          "mCntEditBtn",
+          "mCntDeleteRowBtn"
+        ]
+      },
+      {
+        "id": "mCntEditBtn",
+        "component": "Button",
+        "props": {
+          "icon": "edit-2",
+          "size": "small",
+          "types": "link"
+        }
+      },
+      {
+        "id": "mCntDeleteRowBtn",
+        "component": "Button",
+        "props": {
+          "icon": "trash-2",
+          "size": "small",
+          "types": "link"
+        }
+      },
+      {
+        "id": "mCntSwitchContent",
+        "component": "div",
+        "props": {
+          "className": "bg-white rounded-xl shadow-card p-6 mx-4 mb-4 flex items-center justify-center h-40 text-on-surface-variant",
+          "value": "交换机配置内容"
+        }
+      },
+      {
+        "id": "mCntRouterContent",
+        "component": "div",
+        "props": {
+          "className": "bg-white rounded-xl shadow-card p-6 mx-4 mb-4 flex items-center justify-center h-40 text-on-surface-variant",
+          "value": "路由器配置内容"
+        }
+      },
+      {
+        "id": "mCntApContent",
+        "component": "div",
+        "props": {
+          "className": "bg-white rounded-xl shadow-card p-6 mx-4 mb-4 flex items-center justify-center h-40 text-on-surface-variant",
+          "value": "AP 配置内容"
+        }
+      },
+      {
+        "id": "mCntWacContent",
+        "component": "div",
+        "props": {
+          "className": "bg-white rounded-xl shadow-card p-6 mx-4 mb-4 flex items-center justify-center h-40 text-on-surface-variant",
+          "value": "WAC 配置内容"
+        }
+      }
+    ],
+    "state": {
+      "notificationBadge": 5,
+      "userAvatarUrl": "https://randomuser.me/api/portraits/men/32.jpg",
+      "sMenSelectedKeys": [
+        "nav6"
+      ],
+      "sMenTopItems": [
+        {
+          "title": "仪表盘",
+          "key": "nav1",
+          "icon": "layout-dashboard"
+        },
+        {
+          "title": "监控",
+          "key": "nav2",
+          "icon": "monitor"
+        },
+        {
+          "title": "设置",
+          "key": "nav3",
+          "icon": "settings"
+        },
+        {
+          "title": "网络",
+          "key": "nav4",
+          "icon": "network"
+        },
+        {
+          "title": "安全",
+          "key": "nav5",
+          "icon": "shield"
+        },
+        {
+          "title": "终端设备",
+          "key": "nav6",
+          "icon": "terminal"
+        },
+        {
+          "title": "服务器",
+          "key": "nav7",
+          "icon": "server"
+        },
+        {
+          "title": "工具箱",
+          "key": "nav8",
+          "icon": "tool"
+        }
+      ],
+      "sMenBottomItems": [
+        {
+          "title": "用户管理",
+          "key": "nav9",
+          "icon": "user"
+        },
+        {
+          "title": "退出",
+          "key": "nav10",
+          "icon": "log-out"
+        }
+      ],
+      "primaryActiveKey": "wholeNet",
+      "secondaryActiveKey": "serviceNet",
+      "searchValue": "",
+      "tableData": [
+        {
+          "entry": 1,
+          "name": "15",
+          "nameTag": {
+            "label": "还原",
+            "color": "blue"
+          },
+          "vlan": 109,
+          "gatewayMask": "255.255.255.0",
+          "wiredInterface": "--",
+          "wirelessConfig": 0,
+          "configStatus": "正常",
+          "configStatusColor": "success",
+          "networkStatus": "正常",
+          "networkStatusColor": "success"
+        },
+        {
+          "entry": 2,
+          "name": "Guest-Net",
+          "nameTag": {
+            "label": "访客",
+            "color": "orange"
+          },
+          "vlan": 200,
+          "gatewayMask": "255.255.255.0",
+          "wiredInterface": "GE0/0/1",
+          "wirelessConfig": 1,
+          "configStatus": "正常",
+          "configStatusColor": "success",
+          "networkStatus": "正常",
+          "networkStatusColor": "success"
+        },
+        {
+          "entry": 3,
+          "name": "Office-1",
+          "nameTag": {
+            "label": "默认",
+            "color": "green"
+          },
+          "vlan": 10,
+          "gatewayMask": "255.255.255.0",
+          "wiredInterface": "GE0/0/2",
+          "wirelessConfig": 2,
+          "configStatus": "正常",
+          "configStatusColor": "success",
+          "networkStatus": "正常",
+          "networkStatusColor": "success"
+        },
+        {
+          "entry": 4,
+          "name": "IoT-Device",
+          "nameTag": {
+            "label": "",
+            "color": ""
+          },
+          "vlan": 50,
+          "gatewayMask": "255.255.255.0",
+          "wiredInterface": "--",
+          "wirelessConfig": 0,
+          "configStatus": "告警",
+          "configStatusColor": "warning",
+          "networkStatus": "离线",
+          "networkStatusColor": "default"
+        },
+        {
+          "entry": 5,
+          "name": "Camera-Stream",
+          "nameTag": {
+            "label": "视频流",
+            "color": "purple"
+          },
+          "vlan": 30,
+          "gatewayMask": "255.255.255.0",
+          "wiredInterface": "GE0/0/3",
+          "wirelessConfig": 0,
+          "configStatus": "正常",
+          "configStatusColor": "success",
+          "networkStatus": "正常",
+          "networkStatusColor": "success"
+        },
+        {
+          "entry": 6,
+          "name": "Server-Farm",
+          "nameTag": {
+            "label": "",
+            "color": ""
+          },
+          "vlan": 100,
+          "gatewayMask": "255.255.255.0",
+          "wiredInterface": "GE0/0/4",
+          "wirelessConfig": 0,
+          "configStatus": "异常",
+          "configStatusColor": "error",
+          "networkStatus": "故障",
+          "networkStatusColor": "error"
+        },
+        {
+          "entry": 7,
+          "name": "VLAN-Test",
+          "nameTag": {
+            "label": "测试",
+            "color": "cyan"
+          },
+          "vlan": 300,
+          "gatewayMask": "255.255.255.0",
+          "wiredInterface": "--",
+          "wirelessConfig": 0,
+          "configStatus": "正常",
+          "configStatusColor": "success",
+          "networkStatus": "正常",
+          "networkStatusColor": "success"
+        },
+        {
+          "entry": 8,
+          "name": "Backup-Net",
+          "nameTag": {
+            "label": "",
+            "color": ""
+          },
+          "vlan": 400,
+          "gatewayMask": "255.255.255.0",
+          "wiredInterface": "GE0/0/5",
+          "wirelessConfig": 1,
+          "configStatus": "正常",
+          "configStatusColor": "success",
+          "networkStatus": "正常",
+          "networkStatusColor": "success"
+        },
+        {
+          "entry": 9,
+          "name": "Cloud-Service",
+          "nameTag": {
+            "label": "已迁移",
+            "color": "volcano"
+          },
+          "vlan": 500,
+          "gatewayMask": "255.255.255.0",
+          "wiredInterface": "GE0/0/6",
+          "wirelessConfig": 1,
+          "configStatus": "正常",
+          "configStatusColor": "success",
+          "networkStatus": "正常",
+          "networkStatusColor": "success"
+        },
+        {
+          "entry": 10,
+          "name": "VPN-Remote",
+          "nameTag": {
+            "label": "",
+            "color": ""
+          },
+          "vlan": 600,
+          "gatewayMask": "255.255.255.0",
+          "wiredInterface": "GE0/0/7",
+          "wirelessConfig": 0,
+          "configStatus": "告警",
+          "configStatusColor": "warning",
+          "networkStatus": "告警",
+          "networkStatusColor": "warning"
+        },
+        {
+          "entry": 11,
+          "name": "Management",
+          "nameTag": {
+            "label": "管理",
+            "color": "geekblue"
+          },
+          "vlan": 1,
+          "gatewayMask": "255.255.255.0",
+          "wiredInterface": "GE0/0/0",
+          "wirelessConfig": 0,
+          "configStatus": "正常",
+          "configStatusColor": "success",
+          "networkStatus": "正常",
+          "networkStatusColor": "success"
+        }
+      ]
+    }
+  },
+  "debug": {
+    "sessionId": "ses_10c848a41ffenY0iK9cL4xFqTb",
+    "userInput": "这个页面整体由两大板块组成：顶部导航栏和主内容区。\n\n顶部导航栏分为左右两端对齐排布。左侧区域水平居中排布三个元素：包含华为坤灵文本，文本的左边有一个品牌logo,距离文本右边一小段距离是一个图标，图表旁边是带有向下折叠箭头图标的纯文本项目名称。右侧区域水平居中依次排布三个元素：带有红色badage的通知铃铛图标、个人用户头像图标、以及一个返回首页的按钮。\n\n主内容区中包含左侧固定菜单栏和右侧内容区。\n左侧菜单栏是缩略版的菜单栏，采用纵向纯图标排布，上方模块垂直等距排布 8 个功能图标，其中第 6 个终端设备图标处于高亮选中状态。在最下方垂直排布 2 个功能图标。\n\n右侧内容区呈自上而下的流式布局。背景色是#F3F3F3，在顶部为一级标签页导航，它的背景色也为#F3F3F3，横向依次排布整网配置、交换机、路由器、AP、WAC，其中整网配置为高亮选中状态。下方是一整个大的内容卡片，背景色是白色，有一定的内边距，内容卡片顶部是二级标签导航，横向依次排布业务网、IPTV、内网穿透，其中业务网为当前选中状态，该二级标签区域底部有一条分割线。\n\n分割线下方为一个横向铺展的设备基础信息卡片。卡片内部采用左右两端对齐布局。左侧为一个信息组合区域，水平横向依次排布一个设备缩略图图标、大字号粗体主标题 AR_6AEBBC254674648874802，以及两组次级描述文本，分别是型号 AR651C 和 ESN 10023455RLG19807655。右侧区域居右单独排布一个修改网关操作按钮。设备卡片底部有一条分割线。\n\n分割线下方为独立的大字号模块标题业务网。标题正下方为表格工具栏，采用左右两端对齐排布。左侧为一个定宽的搜索输入框，内含搜索放大镜图标与 请输入业务网名称 占位提示词。右侧横向依次排布四个操作组件：禁用的删除按钮、创建访客网次级按钮、带有主题色背景的创建业务网主按钮，以及一个独立的刷新图标按钮。\n\n工具栏下方为核心数据表格模块。表头包含 9 个列字段，从左至右依次为：条目、名称、VLAN、网关/掩码、有线接入口、无线配置Wi-Fi、配置状态、网络状态、操作。\n\n表格内部可视范围内展示 10 行数据。每行最右侧的操作列固定横向排布编辑铅笔图标和删除垃圾桶图标两个操作项。名称列部分文本右侧带有胶囊形状的状态标签。配置状态和网络状态列中，除空值外，有效状态文本的左侧均带有一个实心状态小圆点。\n\n其中一行的数据模版是这样：条目 1，名称 15右侧附带还原胶囊标签，VLAN 109，网关/掩码 255 255 255 0，有线接入口 --，无线配置Wi-Fi 0，配置状态为点加正常，网络状态为点加正常。其他行的数据与此类似。",
+    "startedAt": 1782201415133,
+    "entries": [
+      {
+        "idx": 1,
+        "ts": 1782201556102,
+        "agent": "proto_intent",
+        "sessionId": "ses_10c848a1affe3KCRSnZipWQUE0",
+        "input": "[用户的需求:] ==================================\n    这个页面整体由两大板块组成：顶部导航栏和主内容区。\n\n顶部导航栏分为左右两端对齐排布。左侧区域水平居中排布三个元素：包含华为坤灵文本，文本的左边有一个品牌logo,距离文本右边一小段距离是一个图标，图表旁边是带有向下折叠箭头图标的纯文本项目名称。右侧区域水平居中依次排布三个元素：带有红色badage的通知铃铛图标、个人用户头像图标、以及一个返回首页的按钮。\n\n主内容区中包含左侧固定菜单栏和右侧内容区。\n左侧菜单栏是缩略版的菜单栏，采用纵向纯图标排布，上方模块垂直等距排布 8 个功能图标，其中第 6 个终端设备图标处于高亮选中状态。在最下方垂直排布 2 个功能图标。\n\n右侧内容区呈自上而下的流式布局。背景色是#F3F3F3，在顶部为一级标签页导航，它的背景色也为#F3F3F3，横向依次排布整网配置、交换机、路由器、AP、WAC，其中整网配置为高亮选中状态。下方是一整个大的内容卡片，背景色是白色，有一定的内边距，内容卡片顶部是二级标签导航，横向依次排布业务网、IPTV、内网穿透，其中业务网为当前选中状态，该二级标签区域底部有一条分割线。\n\n分割线下方为一个横向铺展的设备基础信息卡片。卡片内部采用左右两端对齐布局。左侧为一个信息组合区域，水平横向依次排布一个设备缩略图图标、大字号粗体主标题 AR_6AEBBC254674648874802，以及两组次级描述文本，分别是型号 AR651C 和 ESN 10023455RLG19807655。右侧区域居右单独排布一个修改网关操作按钮。设备卡片底部有一条分割线。\n\n分割线下方为独立的大字号模块标题业务网。标题正下方为表格工具栏，采用左右两端对齐排布。左侧为一个定宽的搜索输入框，内含搜索放大镜图标与 请输入业务网名称 占位提示词。右侧横向依次排布四个操作组件：禁用的删除按钮、创建访客网次级按钮、带有主题色背景的创建业务网主按钮，以及一个独立的刷新图标按钮。\n\n工具栏下方为核心数据表格模块。表头包含 9 个列字段，从左至右依次为：条目、名称、VLAN、网关/掩码、有线接入口、无线配置Wi-Fi、配置状态、网络状态、操作。\n\n表格内部可视范围内展示 10 行数据。每行最右侧的操作列固定横向排布编辑铅笔图标和删除垃圾桶图标两个操作项。名称列部分文本右侧带有胶囊形状的状态标签。配置状态和网络状态列中，除空值外，有效状态文本的左侧均带有一个实心状态小圆点。\n\n其中一行的数据模版是这样：条目 1，名称 15右侧附带还原胶囊标签，VLAN 109，网关/掩码 255 255 255 0，有线接入口 --，无线配置Wi-Fi 0，配置状态为点加正常，网络状态为点加正常。其他行的数据与此类似。\n\n    请开始意图扩展。",
+        "output": "{\n  \"userInput\": \"这个页面整体由两大板块组成：顶部导航栏和主内容区。\\n\\n顶部导航栏分为左右两端对齐排布。左侧区域水平居中排布三个元素：包含华为坤灵文本，文本的左边有一个品牌logo,距离文本右边一小段距离是一个图标，图表旁边是带有向下折叠箭头图标的纯文本项目名称。右侧区域水平居中依次排布三个元素：带有红色badage的通知铃铛图标、个人用户头像图标、以及一个返回首页的按钮。\\n\\n主内容区中包含左侧固定菜单栏和右侧内容区。\\n左侧菜单栏是缩略版的菜单栏，采用纵向纯图标排布，上方模块垂直等距排布 8 个功能图标，其中第 6 个终端设备图标处于高亮选中状态。在最下方垂直排布 2 个功能图标。\\n\\n右侧内容区呈自上而下的流式布局。背景色是#F3F3F3，在顶部为一级标签页导航，它的背景色也为#F3F3F3，横向依次排布整网配置、交换机、路由器、AP、WAC，其中整网配置为高亮选中状态。下方是一整个大的内容卡片，背景色是白色，有一定的内边距，内容卡片顶部是二级标签导航，横向依次排布业务网、IPTV、内网穿透，其中业务网为当前选中状态，该二级标签区域底部有一条分割线。\\n\\n分割线下方为一个横向铺展的设备基础信息卡片。卡片内部采用左右两端对齐布局。左侧为一个信息组合区域，水平横向依次排布一个设备缩略图图标、大字号粗体主标题 AR_6AEBBC254674648874802，以及两组次级描述文本，分别是型号 AR651C 和 ESN 10023455RLG19807655。右侧区域居右单独排布一个修改网关操作按钮。设备卡片底部有一条分割线。\\n\\n分割线下方为独立的大字号模块标题业务网。标题正下方为表格工具栏，采用左右两端对齐排布。左侧为一个定宽的搜索输入框，内含搜索放大镜图标与 请输入业务网名称 占位提示词。右侧横向依次排布四个操作组件：禁用的删除按钮、创建访客网次级按钮、带有主题色背景的创建业务网主按钮，以及一个独立的刷新图标按钮。\\n\\n工具栏下方为核心数据表格模块。表头包含 9 个列字段，从左至右依次为：条目、名称、VLAN、网关/掩码、有线接入口、无线配置Wi-Fi、配置状态、网络状态、操作。\\n\\n表格内部可视范围内展示 10 行数据。每行最右侧的操作列固定横向排布编辑铅笔图标和删除垃圾桶图标两个操作项。名称列部分文本右侧带有胶囊形状的状态标签。配置状态和网络状态列中，除空值外，有效状态文本的左侧均带有一个实心状态小圆点。\\n\\n其中一行的数据模版是这样：条目 1，名称 15右侧附带还原胶囊标签，VLAN 109，网关/掩码 255 255 255 0，有线接入口 --，无线配置Wi-Fi 0，配置状态为点加正常，网络状态为点加正常。其他行的数据与此类似。\",\n  \"intentAnalysis\": \"此页面为企业网络设备配置与监控控制台，面向网络管理员。核心目标是通过直观的设备信息展示和业务网配置管理，提供高效的网络配置、状态监控及维护操作。界面采用经典后台布局，导航层级清晰，操作集中。\",\n  \"layoutDescription\": \"采用顶部导航栏+左侧缩略菜单栏+右侧内容区的经典管理后台布局。顶部导航栏左右两端对齐，左侧品牌与项目信息，右侧通知与用户操作；左侧菜单栏为纯图标纵向排列；右侧内容区使用自上而下的流式布局，包含一级标签导航、白色卡片内容区（内含二级标签、设备信息、表格工具栏及数据表格）。\",\n  \"sections\": [\n    {\n      \"id\": \"topNav\",\n      \"name\": \"顶部导航栏\",\n      \"description\": \"全局导航栏，包含品牌标识、项目选择、通知、用户头像及返回首页，提供系统级导航与快速操作入口。\"\n    },\n    {\n      \"id\": \"sideMenu\",\n      \"name\": \"左侧菜单栏\",\n      \"description\": \"缩略版侧边菜单栏，纵向纯图标排列，提供8个常用功能入口和2个底部功能入口，当前终端设备图标高亮。\"\n    },\n    {\n      \"id\": \"mainContent\",\n      \"name\": \"右侧内容区\",\n      \"description\": \"主工作区域，包括一级标签页导航、设备基础信息卡片、业务网模块标题、表格工具栏及数据表格，是业务网配置的核心操作界面。\"\n    }\n  ],\n  \"sectionDetailList\": [\n    {\n      \"id\": \"topNav\",\n      \"name\": \"顶部导航栏\",\n      \"intent\": \"提供品牌识别、项目切换、通知提醒和用户快捷操作，确保用户能快速导航和接收系统消息。\",\n      \"function\": \"显示品牌Logo和名称；项目选择器（带下拉箭头）；通知铃铛图标（带Badge显示未读数量）；用户头像展示；返回首页按钮。\",\n      \"layout\": \"水平左右两端对齐排布。左侧区域水平居中依次排布品牌logo+品牌名称组合、项目类型图标、项目名称（带下拉箭头）。右侧区域水平居中依次排布通知图标（带badge）、用户头像、返回首页按钮。\",\n      \"elements\": \"包含品牌Logo图标（Network）、品牌名称文本'华为坤灵'、项目类型图标（FolderKanban）、项目名称文本（带ChevronDown图标）、通知图标（Bell+Badge）、用户头像图片、返回首页按钮（Home图标+文字）。\",\n      \"data\": {\n        \"brandLogoIcon\": \"Network\",\n        \"brandName\": \"华为坤灵\",\n        \"projectIcon\": \"FolderKanban\",\n        \"projectName\": \"企业网络A\",\n        \"projectDropdownIcon\": \"ChevronDown\",\n        \"notificationIcon\": \"Bell\",\n        \"notificationBadge\": 5,\n        \"userAvatarImage\": \"https://randomuser.me/api/portraits/men/32.jpg\",\n        \"backButtonIcon\": \"Home\",\n        \"backButtonLabel\": \"返回首页\"\n      }\n    },\n    {\n      \"id\": \"sideMenu\",\n      \"name\": \"左侧菜单栏\",\n      \"intent\": \"提供功能模块的快速切换入口，通过图标直觉化导航，支持当前活动模块高亮。\",\n      \"function\": \"垂直排列10个导航图标，点击切换功能模块；上方8个主要功能，下方2个辅助功能；第6个终端设备图标高亮显示选中状态。\",\n      \"layout\": \"纵向排列，分为上（8个图标）下（2个图标）两组，图标垂直等距居中排布。\",\n      \"elements\": \"基于Menu组件的纯图标侧边栏，每个菜单项使用单个Icon组件。\",\n      \"data\": {\n        \"menuSections\": [\n          {\n            \"position\": \"top\",\n            \"items\": [\n              {\n                \"menuId\": \"nav1\",\n                \"itemIcon\": \"LayoutDashboard\",\n                \"tooltip\": \"仪表盘\"\n              },\n              {\n                \"menuId\": \"nav2\",\n                \"itemIcon\": \"Monitor\",\n                \"tooltip\": \"监控\"\n              },\n              {\n                \"menuId\": \"nav3\",\n                \"itemIcon\": \"Settings\",\n                \"tooltip\": \"设置\"\n              },\n              {\n                \"menuId\": \"nav4\",\n                \"itemIcon\": \"Network\",\n                \"tooltip\": \"网络\"\n              },\n              {\n                \"menuId\": \"nav5\",\n                \"itemIcon\": \"Shield\",\n                \"tooltip\": \"安全\"\n              },\n              {\n                \"menuId\": \"nav6\",\n                \"itemIcon\": \"Terminal\",\n                \"tooltip\": \"终端设备\",\n                \"active\": true\n              },\n              {\n                \"menuId\": \"nav7\",\n                \"itemIcon\": \"Server\",\n                \"tooltip\": \"服务器\"\n              },\n              {\n                \"menuId\": \"nav8\",\n                \"itemIcon\": \"Tool\",\n                \"tooltip\": \"工具箱\"\n              }\n            ]\n          },\n          {\n            \"position\": \"bottom\",\n            \"items\": [\n              {\n                \"menuId\": \"nav9\",\n                \"itemIcon\": \"User\",\n                \"tooltip\": \"用户管理\"\n              },\n              {\n                \"menuId\": \"nav10\",\n                \"itemIcon\": \"LogOut\",\n                \"tooltip\": \"退出\"\n              }\n            ]\n          }\n        ]\n      }\n    },\n    {\n      \"id\": \"mainContent\",\n      \"name\": \"右侧内容区\",\n      \"intent\": \"作为业务网配置的核心操作面板，集成设备信息查看、二级标签切换和业务网数据的增删改查，支持管理员高效管理网络配置。\",\n      \"function\": \"包含一级标签导航（切换网络配置模块）、二级标签导航（切换业务网类型）、设备基础信息展示（含修改网关）、业务网管理（搜索、创建访客网、创建业务网、刷新）、数据表格展示（含行级编辑和删除）。\",\n      \"layout\": \"垂直流式布局。顶部一级标签导航横向排列（Tabs组件，背景浅灰）；下方为浅色背景卡片区域（内边距），卡片内部从上到下依次为：二级标签导航（Tabs组件+分割线）、设备信息卡片（水平左右布局，左侧组合信息包含设备图标、名称、型号、ESN，右侧修改网关按钮）、分割线、模块标题'业务网'、表格工具栏（左右布局，左侧搜索输入框，右侧四个操作按钮）、数据表格（Table组件，含分页）。\",\n      \"elements\": \"主要组件包括：一级Tabs、二级Tabs、设备信息卡片（内嵌Icon、Text、Button）、表格工具栏（Input、Button、IconButton）、数据表格（Table，列包括条目、名称、VLAN、网关/掩码、有线接入口、无线配置Wi-Fi、配置状态、网络状态；操作列包含编辑和删除IconButton）。\",\n      \"data\": {\n        \"primaryTabs\": {\n          \"items\": [\n            {\n              \"key\": \"wholeNet\",\n              \"label\": \"整网配置\"\n            },\n            {\n              \"key\": \"switch\",\n              \"label\": \"交换机\"\n            },\n            {\n              \"key\": \"router\",\n              \"label\": \"路由器\"\n            },\n            {\n              \"key\": \"ap\",\n              \"label\": \"AP\"\n            },\n            {\n              \"key\": \"wac\",\n              \"label\": \"WAC\"\n            }\n          ],\n          \"activeKey\": \"wholeNet\"\n        },\n        \"secondaryTabs\": {\n          \"items\": [\n            {\n              \"key\": \"serviceNet\",\n              \"label\": \"业务网\"\n            },\n            {\n              \"key\": \"iptv\",\n              \"label\": \"IPTV\"\n            },\n            {\n              \"key\": \"intranet\",\n              \"label\": \"内网穿透\"\n            }\n          ],\n          \"activeKey\": \"serviceNet\"\n        },\n        \"deviceInfo\": {\n          \"deviceIcon\": \"Monitor\",\n          \"deviceName\": \"AR_6AEBBC254674648874802\",\n          \"model\": \"AR651C\",\n          \"esn\": \"10023455RLG19807655\",\n          \"actions\": [\n            {\n              \"label\": \"修改网关\",\n              \"buttonType\": \"default\",\n              \"buttonIcon\": \"Edit3\"\n            }\n          ]\n        },\n        \"moduleTitle\": \"业务网\",\n        \"toolbar\": {\n          \"searchIcon\": \"Search\",\n          \"searchPlaceholder\": \"请输入业务网名称\",\n          \"buttons\": [\n            {\n              \"label\": \"删除\",\n              \"buttonType\": \"default\",\n              \"buttonIcon\": \"Trash2\",\n              \"disabled\": true\n            },\n            {\n              \"label\": \"创建访客网\",\n              \"buttonType\": \"default\",\n              \"buttonIcon\": \"UserPlus\",\n              \"disabled\": false\n            },\n            {\n              \"label\": \"创建业务网\",\n              \"buttonType\": \"primary\",\n              \"buttonIcon\": \"Plus\",\n              \"disabled\": false\n            },\n            {\n              \"label\": \"刷新\",\n              \"buttonType\": \"default\",\n              \"buttonIcon\": \"RefreshCw\",\n              \"disabled\": false\n            }\n          ]\n        },\n        \"tableData\": [\n          {\n            \"entry\": 1,\n            \"name\": \"15\",\n            \"nameTag\": {\n              \"label\": \"还原\",\n              \"color\": \"blue\",\n              \"shape\": \"capsule\"\n            },\n            \"vlan\": 109,\n            \"gatewayMask\": \"255.255.255.0\",\n            \"wiredInterface\": \"--\",\n            \"wirelessConfig\": 0,\n            \"configStatus\": \"正常\",\n            \"networkStatus\": \"正常\"\n          },\n          {\n            \"entry\": 2,\n            \"name\": \"Guest-Net\",\n            \"nameTag\": {\n              \"label\": \"访客\",\n              \"color\": \"orange\",\n              \"shape\": \"capsule\"\n            },\n            \"vlan\": 200,\n            \"gatewayMask\": \"255.255.255.0\",\n            \"wiredInterface\": \"GE0/0/1\",\n            \"wirelessConfig\": 1,\n            \"configStatus\": \"正常\",\n            \"networkStatus\": \"正常\"\n          },\n          {\n            \"entry\": 3,\n            \"name\": \"Office-1\",\n            \"nameTag\": {\n              \"label\": \"默认\",\n              \"color\": \"green\",\n              \"shape\": \"capsule\"\n            },\n            \"vlan\": 10,\n            \"gatewayMask\": \"255.255.255.0\",\n            \"wiredInterface\": \"GE0/0/2\",\n            \"wirelessConfig\": 2,\n            \"configStatus\": \"正常\",\n            \"networkStatus\": \"正常\"\n          },\n          {\n            \"entry\": 4,\n            \"name\": \"IoT-Device\",\n            \"vlan\": 50,\n            \"gatewayMask\": \"255.255.255.0\",\n            \"wiredInterface\": \"--\",\n            \"wirelessConfig\": 0,\n            \"configStatus\": \"告警\",\n            \"networkStatus\": \"离线\"\n          },\n          {\n            \"entry\": 5,\n            \"name\": \"Camera-Stream\",\n            \"nameTag\": {\n              \"label\": \"视频流\",\n              \"color\": \"purple\",\n              \"shape\": \"capsule\"\n            },\n            \"vlan\": 30,\n            \"gatewayMask\": \"255.255.255.0\",\n            \"wiredInterface\": \"GE0/0/3\",\n            \"wirelessConfig\": 0,\n            \"configStatus\": \"正常\",\n            \"networkStatus\": \"正常\"\n          },\n          {\n            \"entry\": 6,\n            \"name\": \"Server-Farm\",\n            \"vlan\": 100,\n            \"gatewayMask\": \"255.255.255.0\",\n            \"wiredInterface\": \"GE0/0/4\",\n            \"wirelessConfig\": 0,\n            \"configStatus\": \"异常\",\n            \"networkStatus\": \"故障\"\n          },\n          {\n            \"entry\": 7,\n            \"name\": \"VLAN-Test\",\n            \"nameTag\": {\n              \"label\": \"测试\",\n              \"color\": \"cyan\",\n              \"shape\": \"capsule\"\n            },\n            \"vlan\": 300,\n            \"gatewayMask\": \"255.255.255.0\",\n            \"wiredInterface\": \"--\",\n            \"wirelessConfig\": 0,\n            \"configStatus\": \"正常\",\n            \"networkStatus\": \"正常\"\n          },\n          {\n            \"entry\": 8,\n            \"name\": \"Backup-Net\",\n            \"vlan\": 400,\n            \"gatewayMask\": \"255.255.255.0\",\n            \"wiredInterface\": \"GE0/0/5\",\n            \"wirelessConfig\": 1,\n            \"configStatus\": \"正常\",\n            \"networkStatus\": \"正常\"\n          },\n          {\n            \"entry\": 9,\n            \"name\": \"Cloud-Service\",\n            \"nameTag\": {\n              \"label\": \"已迁移\",\n              \"color\": \"volcano\",\n              \"shape\": \"capsule\"\n            },\n            \"vlan\": 500,\n            \"gatewayMask\": \"255.255.255.0\",\n            \"wiredInterface\": \"GE0/0/6\",\n            \"wirelessConfig\": 1,\n            \"configStatus\": \"正常\",\n            \"networkStatus\": \"正常\"\n          },\n          {\n            \"entry\": 10,\n            \"name\": \"VPN-Remote\",\n            \"vlan\": 600,\n            \"gatewayMask\": \"255.255.255.0\",\n            \"wiredInterface\": \"GE0/0/7\",\n            \"wirelessConfig\": 0,\n            \"configStatus\": \"告警\",\n            \"networkStatus\": \"告警\"\n          },\n          {\n            \"entry\": 11,\n            \"name\": \"Management\",\n            \"nameTag\": {\n              \"label\": \"管理\",\n              \"color\": \"geekblue\",\n              \"shape\": \"capsule\"\n            },\n            \"vlan\": 1,\n            \"gatewayMask\": \"255.255.255.0\",\n            \"wiredInterface\": \"GE0/0/0\",\n            \"wirelessConfig\": 0,\n            \"configStatus\": \"正常\",\n            \"networkStatus\": \"正常\"\n          }\n        ]\n      }\n    }\n  ]\n}",
+        "parsed": {
+          "intent_description": {
+            "userInput": "这个页面整体由两大板块组成：顶部导航栏和主内容区。\n\n顶部导航栏分为左右两端对齐排布。左侧区域水平居中排布三个元素：包含华为坤灵文本，文本的左边有一个品牌logo,距离文本右边一小段距离是一个图标，图表旁边是带有向下折叠箭头图标的纯文本项目名称。右侧区域水平居中依次排布三个元素：带有红色badage的通知铃铛图标、个人用户头像图标、以及一个返回首页的按钮。\n\n主内容区中包含左侧固定菜单栏和右侧内容区。\n左侧菜单栏是缩略版的菜单栏，采用纵向纯图标排布，上方模块垂直等距排布 8 个功能图标，其中第 6 个终端设备图标处于高亮选中状态。在最下方垂直排布 2 个功能图标。\n\n右侧内容区呈自上而下的流式布局。背景色是#F3F3F3，在顶部为一级标签页导航，它的背景色也为#F3F3F3，横向依次排布整网配置、交换机、路由器、AP、WAC，其中整网配置为高亮选中状态。下方是一整个大的内容卡片，背景色是白色，有一定的内边距，内容卡片顶部是二级标签导航，横向依次排布业务网、IPTV、内网穿透，其中业务网为当前选中状态，该二级标签区域底部有一条分割线。\n\n分割线下方为一个横向铺展的设备基础信息卡片。卡片内部采用左右两端对齐布局。左侧为一个信息组合区域，水平横向依次排布一个设备缩略图图标、大字号粗体主标题 AR_6AEBBC254674648874802，以及两组次级描述文本，分别是型号 AR651C 和 ESN 10023455RLG19807655。右侧区域居右单独排布一个修改网关操作按钮。设备卡片底部有一条分割线。\n\n分割线下方为独立的大字号模块标题业务网。标题正下方为表格工具栏，采用左右两端对齐排布。左侧为一个定宽的搜索输入框，内含搜索放大镜图标与 请输入业务网名称 占位提示词。右侧横向依次排布四个操作组件：禁用的删除按钮、创建访客网次级按钮、带有主题色背景的创建业务网主按钮，以及一个独立的刷新图标按钮。\n\n工具栏下方为核心数据表格模块。表头包含 9 个列字段，从左至右依次为：条目、名称、VLAN、网关/掩码、有线接入口、无线配置Wi-Fi、配置状态、网络状态、操作。\n\n表格内部可视范围内展示 10 行数据。每行最右侧的操作列固定横向排布编辑铅笔图标和删除垃圾桶图标两个操作项。名称列部分文本右侧带有胶囊形状的状态标签。配置状态和网络状态列中，除空值外，有效状态文本的左侧均带有一个实心状态小圆点。\n\n其中一行的数据模版是这样：条目 1，名称 15右侧附带还原胶囊标签，VLAN 109，网关/掩码 255 255 255 0，有线接入口 --，无线配置Wi-Fi 0，配置状态为点加正常，网络状态为点加正常。其他行的数据与此类似。",
+            "intentAnalysis": "此页面为企业网络设备配置与监控控制台，面向网络管理员。核心目标是通过直观的设备信息展示和业务网配置管理，提供高效的网络配置、状态监控及维护操作。界面采用经典后台布局，导航层级清晰，操作集中。",
+            "layoutDescription": "采用顶部导航栏+左侧缩略菜单栏+右侧内容区的经典管理后台布局。顶部导航栏左右两端对齐，左侧品牌与项目信息，右侧通知与用户操作；左侧菜单栏为纯图标纵向排列；右侧内容区使用自上而下的流式布局，包含一级标签导航、白色卡片内容区（内含二级标签、设备信息、表格工具栏及数据表格）。",
+            "sections": [
+              {
+                "id": "topNav",
+                "name": "顶部导航栏",
+                "description": "全局导航栏，包含品牌标识、项目选择、通知、用户头像及返回首页，提供系统级导航与快速操作入口。"
+              },
+              {
+                "id": "sideMenu",
+                "name": "左侧菜单栏",
+                "description": "缩略版侧边菜单栏，纵向纯图标排列，提供8个常用功能入口和2个底部功能入口，当前终端设备图标高亮。"
+              },
+              {
+                "id": "mainContent",
+                "name": "右侧内容区",
+                "description": "主工作区域，包括一级标签页导航、设备基础信息卡片、业务网模块标题、表格工具栏及数据表格，是业务网配置的核心操作界面。"
+              }
+            ],
+            "sectionDetailList": [
+              {
+                "id": "topNav",
+                "name": "顶部导航栏",
+                "intent": "提供品牌识别、项目切换、通知提醒和用户快捷操作，确保用户能快速导航和接收系统消息。",
+                "function": "显示品牌Logo和名称；项目选择器（带下拉箭头）；通知铃铛图标（带Badge显示未读数量）；用户头像展示；返回首页按钮。",
+                "layout": "水平左右两端对齐排布。左侧区域水平居中依次排布品牌logo+品牌名称组合、项目类型图标、项目名称（带下拉箭头）。右侧区域水平居中依次排布通知图标（带badge）、用户头像、返回首页按钮。",
+                "elements": "包含品牌Logo图标（Network）、品牌名称文本'华为坤灵'、项目类型图标（FolderKanban）、项目名称文本（带ChevronDown图标）、通知图标（Bell+Badge）、用户头像图片、返回首页按钮（Home图标+文字）。",
+                "data": {
+                  "brandLogoIcon": "Network",
+                  "brandName": "华为坤灵",
+                  "projectIcon": "FolderKanban",
+                  "projectName": "企业网络A",
+                  "projectDropdownIcon": "ChevronDown",
+                  "notificationIcon": "Bell",
+                  "notificationBadge": 5,
+                  "userAvatarImage": "https://randomuser.me/api/portraits/men/32.jpg",
+                  "backButtonIcon": "Home",
+                  "backButtonLabel": "返回首页"
+                }
+              },
+              {
+                "id": "sideMenu",
+                "name": "左侧菜单栏",
+                "intent": "提供功能模块的快速切换入口，通过图标直觉化导航，支持当前活动模块高亮。",
+                "function": "垂直排列10个导航图标，点击切换功能模块；上方8个主要功能，下方2个辅助功能；第6个终端设备图标高亮显示选中状态。",
+                "layout": "纵向排列，分为上（8个图标）下（2个图标）两组，图标垂直等距居中排布。",
+                "elements": "基于Menu组件的纯图标侧边栏，每个菜单项使用单个Icon组件。",
+                "data": {
+                  "menuSections": [
+                    {
+                      "position": "top",
+                      "items": [
+                        {
+                          "menuId": "nav1",
+                          "itemIcon": "LayoutDashboard",
+                          "tooltip": "仪表盘"
+                        },
+                        {
+                          "menuId": "nav2",
+                          "itemIcon": "Monitor",
+                          "tooltip": "监控"
+                        },
+                        {
+                          "menuId": "nav3",
+                          "itemIcon": "Settings",
+                          "tooltip": "设置"
+                        },
+                        {
+                          "menuId": "nav4",
+                          "itemIcon": "Network",
+                          "tooltip": "网络"
+                        },
+                        {
+                          "menuId": "nav5",
+                          "itemIcon": "Shield",
+                          "tooltip": "安全"
+                        },
+                        {
+                          "menuId": "nav6",
+                          "itemIcon": "Terminal",
+                          "tooltip": "终端设备",
+                          "active": true
+                        },
+                        {
+                          "menuId": "nav7",
+                          "itemIcon": "Server",
+                          "tooltip": "服务器"
+                        },
+                        {
+                          "menuId": "nav8",
+                          "itemIcon": "Tool",
+                          "tooltip": "工具箱"
+                        }
+                      ]
+                    },
+                    {
+                      "position": "bottom",
+                      "items": [
+                        {
+                          "menuId": "nav9",
+                          "itemIcon": "User",
+                          "tooltip": "用户管理"
+                        },
+                        {
+                          "menuId": "nav10",
+                          "itemIcon": "LogOut",
+                          "tooltip": "退出"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "mainContent",
+                "name": "右侧内容区",
+                "intent": "作为业务网配置的核心操作面板，集成设备信息查看、二级标签切换和业务网数据的增删改查，支持管理员高效管理网络配置。",
+                "function": "包含一级标签导航（切换网络配置模块）、二级标签导航（切换业务网类型）、设备基础信息展示（含修改网关）、业务网管理（搜索、创建访客网、创建业务网、刷新）、数据表格展示（含行级编辑和删除）。",
+                "layout": "垂直流式布局。顶部一级标签导航横向排列（Tabs组件，背景浅灰）；下方为浅色背景卡片区域（内边距），卡片内部从上到下依次为：二级标签导航（Tabs组件+分割线）、设备信息卡片（水平左右布局，左侧组合信息包含设备图标、名称、型号、ESN，右侧修改网关按钮）、分割线、模块标题'业务网'、表格工具栏（左右布局，左侧搜索输入框，右侧四个操作按钮）、数据表格（Table组件，含分页）。",
+                "elements": "主要组件包括：一级Tabs、二级Tabs、设备信息卡片（内嵌Icon、Text、Button）、表格工具栏（Input、Button、IconButton）、数据表格（Table，列包括条目、名称、VLAN、网关/掩码、有线接入口、无线配置Wi-Fi、配置状态、网络状态；操作列包含编辑和删除IconButton）。",
+                "data": {
+                  "primaryTabs": {
+                    "items": [
+                      {
+                        "key": "wholeNet",
+                        "label": "整网配置"
+                      },
+                      {
+                        "key": "switch",
+                        "label": "交换机"
+                      },
+                      {
+                        "key": "router",
+                        "label": "路由器"
+                      },
+                      {
+                        "key": "ap",
+                        "label": "AP"
+                      },
+                      {
+                        "key": "wac",
+                        "label": "WAC"
+                      }
+                    ],
+                    "activeKey": "wholeNet"
+                  },
+                  "secondaryTabs": {
+                    "items": [
+                      {
+                        "key": "serviceNet",
+                        "label": "业务网"
+                      },
+                      {
+                        "key": "iptv",
+                        "label": "IPTV"
+                      },
+                      {
+                        "key": "intranet",
+                        "label": "内网穿透"
+                      }
+                    ],
+                    "activeKey": "serviceNet"
+                  },
+                  "deviceInfo": {
+                    "deviceIcon": "Monitor",
+                    "deviceName": "AR_6AEBBC254674648874802",
+                    "model": "AR651C",
+                    "esn": "10023455RLG19807655",
+                    "actions": [
+                      {
+                        "label": "修改网关",
+                        "buttonType": "default",
+                        "buttonIcon": "Edit3"
+                      }
+                    ]
+                  },
+                  "moduleTitle": "业务网",
+                  "toolbar": {
+                    "searchIcon": "Search",
+                    "searchPlaceholder": "请输入业务网名称",
+                    "buttons": [
+                      {
+                        "label": "删除",
+                        "buttonType": "default",
+                        "buttonIcon": "Trash2",
+                        "disabled": true
+                      },
+                      {
+                        "label": "创建访客网",
+                        "buttonType": "default",
+                        "buttonIcon": "UserPlus",
+                        "disabled": false
+                      },
+                      {
+                        "label": "创建业务网",
+                        "buttonType": "primary",
+                        "buttonIcon": "Plus",
+                        "disabled": false
+                      },
+                      {
+                        "label": "刷新",
+                        "buttonType": "default",
+                        "buttonIcon": "RefreshCw",
+                        "disabled": false
+                      }
+                    ]
+                  },
+                  "tableData": [
+                    {
+                      "entry": 1,
+                      "name": "15",
+                      "nameTag": {
+                        "label": "还原",
+                        "color": "blue",
+                        "shape": "capsule"
+                      },
+                      "vlan": 109,
+                      "gatewayMask": "255.255.255.0",
+                      "wiredInterface": "--",
+                      "wirelessConfig": 0,
+                      "configStatus": "正常",
+                      "networkStatus": "正常"
+                    },
+                    {
+                      "entry": 2,
+                      "name": "Guest-Net",
+                      "nameTag": {
+                        "label": "访客",
+                        "color": "orange",
+                        "shape": "capsule"
+                      },
+                      "vlan": 200,
+                      "gatewayMask": "255.255.255.0",
+                      "wiredInterface": "GE0/0/1",
+                      "wirelessConfig": 1,
+                      "configStatus": "正常",
+                      "networkStatus": "正常"
+                    },
+                    {
+                      "entry": 3,
+                      "name": "Office-1",
+                      "nameTag": {
+                        "label": "默认",
+                        "color": "green",
+                        "shape": "capsule"
+                      },
+                      "vlan": 10,
+                      "gatewayMask": "255.255.255.0",
+                      "wiredInterface": "GE0/0/2",
+                      "wirelessConfig": 2,
+                      "configStatus": "正常",
+                      "networkStatus": "正常"
+                    },
+                    {
+                      "entry": 4,
+                      "name": "IoT-Device",
+                      "vlan": 50,
+                      "gatewayMask": "255.255.255.0",
+                      "wiredInterface": "--",
+                      "wirelessConfig": 0,
+                      "configStatus": "告警",
+                      "networkStatus": "离线"
+                    },
+                    {
+                      "entry": 5,
+                      "name": "Camera-Stream",
+                      "nameTag": {
+                        "label": "视频流",
+                        "color": "purple",
+                        "shape": "capsule"
+                      },
+                      "vlan": 30,
+                      "gatewayMask": "255.255.255.0",
+                      "wiredInterface": "GE0/0/3",
+                      "wirelessConfig": 0,
+                      "configStatus": "正常",
+                      "networkStatus": "正常"
+                    },
+                    {
+                      "entry": 6,
+                      "name": "Server-Farm",
+                      "vlan": 100,
+                      "gatewayMask": "255.255.255.0",
+                      "wiredInterface": "GE0/0/4",
+                      "wirelessConfig": 0,
+                      "configStatus": "异常",
+                      "networkStatus": "故障"
+                    },
+                    {
+                      "entry": 7,
+                      "name": "VLAN-Test",
+                      "nameTag": {
+                        "label": "测试",
+                        "color": "cyan",
+                        "shape": "capsule"
+                      },
+                      "vlan": 300,
+                      "gatewayMask": "255.255.255.0",
+                      "wiredInterface": "--",
+                      "wirelessConfig": 0,
+                      "configStatus": "正常",
+                      "networkStatus": "正常"
+                    },
+                    {
+                      "entry": 8,
+                      "name": "Backup-Net",
+                      "vlan": 400,
+                      "gatewayMask": "255.255.255.0",
+                      "wiredInterface": "GE0/0/5",
+                      "wirelessConfig": 1,
+                      "configStatus": "正常",
+                      "networkStatus": "正常"
+                    },
+                    {
+                      "entry": 9,
+                      "name": "Cloud-Service",
+                      "nameTag": {
+                        "label": "已迁移",
+                        "color": "volcano",
+                        "shape": "capsule"
+                      },
+                      "vlan": 500,
+                      "gatewayMask": "255.255.255.0",
+                      "wiredInterface": "GE0/0/6",
+                      "wirelessConfig": 1,
+                      "configStatus": "正常",
+                      "networkStatus": "正常"
+                    },
+                    {
+                      "entry": 10,
+                      "name": "VPN-Remote",
+                      "vlan": 600,
+                      "gatewayMask": "255.255.255.0",
+                      "wiredInterface": "GE0/0/7",
+                      "wirelessConfig": 0,
+                      "configStatus": "告警",
+                      "networkStatus": "告警"
+                    },
+                    {
+                      "entry": 11,
+                      "name": "Management",
+                      "nameTag": {
+                        "label": "管理",
+                        "color": "geekblue",
+                        "shape": "capsule"
+                      },
+                      "vlan": 1,
+                      "gatewayMask": "255.255.255.0",
+                      "wiredInterface": "GE0/0/0",
+                      "wirelessConfig": 0,
+                      "configStatus": "正常",
+                      "networkStatus": "正常"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "intent_page": {
+            "pageDescription": "此页面为企业网络设备配置与监控控制台，面向网络管理员。核心目标是通过直观的设备信息展示和业务网配置管理，提供高效的网络配置、状态监控及维护操作。界面采用经典后台布局，导航层级清晰，操作集中。",
+            "layoutDescription": "采用顶部导航栏+左侧缩略菜单栏+右侧内容区的经典管理后台布局。顶部导航栏左右两端对齐，左侧品牌与项目信息，右侧通知与用户操作；左侧菜单栏为纯图标纵向排列；右侧内容区使用自上而下的流式布局，包含一级标签导航、白色卡片内容区（内含二级标签、设备信息、表格工具栏及数据表格）。",
+            "sections": [
+              {
+                "id": "topNav",
+                "name": "顶部导航栏",
+                "intent": "提供品牌识别、项目切换、通知提醒和用户快捷操作，确保用户能快速导航和接收系统消息。",
+                "function": "显示品牌Logo和名称；项目选择器（带下拉箭头）；通知铃铛图标（带Badge显示未读数量）；用户头像展示；返回首页按钮。"
+              },
+              {
+                "id": "sideMenu",
+                "name": "左侧菜单栏",
+                "intent": "提供功能模块的快速切换入口，通过图标直觉化导航，支持当前活动模块高亮。",
+                "function": "垂直排列10个导航图标，点击切换功能模块；上方8个主要功能，下方2个辅助功能；第6个终端设备图标高亮显示选中状态。"
+              },
+              {
+                "id": "mainContent",
+                "name": "右侧内容区",
+                "intent": "作为业务网配置的核心操作面板，集成设备信息查看、二级标签切换和业务网数据的增删改查，支持管理员高效管理网络配置。",
+                "function": "包含一级标签导航（切换网络配置模块）、二级标签导航（切换业务网类型）、设备基础信息展示（含修改网关）、业务网管理（搜索、创建访客网、创建业务网、刷新）、数据表格展示（含行级编辑和删除）。"
+              }
+            ]
+          },
+          "current_step": "intent_expansion"
+        }
+      },
+      {
+        "idx": 2,
+        "ts": 1782201610507,
+        "agent": "proto_planner_create",
+        "sessionId": "ses_10c82637fffetpGEuoMEvFLOUz",
+        "input": "请根据以下页面蓝图，设计外壳布局并指定下一步细化模块：\n  [Page Blue_print:] ==================================\n\n  {\"userInput\":\"这个页面整体由两大板块组成：顶部导航栏和主内容区。\\n\\n顶部导航栏分为左右两端对齐排布。左侧区域水平居中排布三个元素：包含华为坤灵文本，文本的左边有一个品牌logo,距离文本右边一小段距离是一个图标，图表旁边是带有向下折叠箭头图标的纯文本项目名称。右侧区域水平居中依次排布三个元素：带有红色badage的通知铃铛图标、个人用户头像图标、以及一个返回首页的按钮。\\n\\n主内容区中包含左侧固定菜单栏和右侧内容区。\\n左侧菜单栏是缩略版的菜单栏，采用纵向纯图标排布，上方模块垂直等距排布 8 个功能图标，其中第 6 个终端设备图标处于高亮选中状态。在最下方垂直排布 2 个功能图标。\\n\\n右侧内容区呈自上而下的流式布局。背景色是#F3F3F3，在顶部为一级标签页导航，它的背景色也为#F3F3F3，横向依次排布整网配置、交换机、路由器、AP、WAC，其中整网配置为高亮选中状态。下方是一整个大的内容卡片，背景色是白色，有一定的内边距，内容卡片顶部是二级标签导航，横向依次排布业务网、IPTV、内网穿透，其中业务网为当前选中状态，该二级标签区域底部有一条分割线。\\n\\n分割线下方为一个横向铺展的设备基础信息卡片。卡片内部采用左右两端对齐布局。左侧为一个信息组合区域，水平横向依次排布一个设备缩略图图标、大字号粗体主标题 AR_6AEBBC254674648874802，以及两组次级描述文本，分别是型号 AR651C 和 ESN 10023455RLG19807655。右侧区域居右单独排布一个修改网关操作按钮。设备卡片底部有一条分割线。\\n\\n分割线下方为独立的大字号模块标题业务网。标题正下方为表格工具栏，采用左右两端对齐排布。左侧为一个定宽的搜索输入框，内含搜索放大镜图标与 请输入业务网名称 占位提示词。右侧横向依次排布四个操作组件：禁用的删除按钮、创建访客网次级按钮、带有主题色背景的创建业务网主按钮，以及一个独立的刷新图标按钮。\\n\\n工具栏下方为核心数据表格模块。表头包含 9 个列字段，从左至右依次为：条目、名称、VLAN、网关/掩码、有线接入口、无线配置Wi-Fi、配置状态、网络状态、操作。\\n\\n表格内部可视范围内展示 10 行数据。每行最右侧的操作列固定横向排布编辑铅笔图标和删除垃圾桶图标两个操作项。名称列部分文本右侧带有胶囊形状的状态标签。配置状态和网络状态列中，除空值外，有效状态文本的左侧均带有一个实心状态小圆点。\\n\\n其中一行的数据模版是这样：条目 1，名称 15右侧附带还原胶囊标签，VLAN 109，网关/掩码 255 255 255 0，有线接入口 --，无线配置Wi-Fi 0，配置状态为点加正常，网络状态为点加正常。其他行的数据与此类似。\",\"intentAnalysis\":\"此页面为企业网络设备配置与监控控制台，面向网络管理员。核心目标是通过直观的设备信息展示和业务网配置管理，提供高效的网络配置、状态监控及维护操作。界面采用经典后台布局，导航层级清晰，操作集中。\",\"layoutDescription\":\"采用顶部导航栏+左侧缩略菜单栏+右侧内容区的经典管理后台布局。顶部导航栏左右两端对齐，左侧品牌与项目信息，右侧通知与用户操作；左侧菜单栏为纯图标纵向排列；右侧内容区使用自上而下的流式布局，包含一级标签导航、白色卡片内容区（内含二级标签、设备信息、表格工具栏及数据表格）。\",\"sections\":[{\"id\":\"topNav\",\"name\":\"顶部导航栏\",\"description\":\"全局导航栏，包含品牌标识、项目选择、通知、用户头像及返回首页，提供系统级导航与快速操作入口。\"},{\"id\":\"sideMenu\",\"name\":\"左侧菜单栏\",\"description\":\"缩略版侧边菜单栏，纵向纯图标排列，提供8个常用功能入口和2个底部功能入口，当前终端设备图标高亮。\"},{\"id\":\"mainContent\",\"name\":\"右侧内容区\",\"description\":\"主工作区域，包括一级标签页导航、设备基础信息卡片、业务网模块标题、表格工具栏及数据表格，是业务网配置的核心操作界面。\"}],\"sectionDetailList\":[{\"id\":\"topNav\",\"name\":\"顶部导航栏\",\"intent\":\"提供品牌识别、项目切换、通知提醒和用户快捷操作，确保用户能快速导航和接收系统消息。\",\"function\":\"显示品牌Logo和名称；项目选择器（带下拉箭头）；通知铃铛图标（带Badge显示未读数量）；用户头像展示；返回首页按钮。\",\"layout\":\"水平左右两端对齐排布。左侧区域水平居中依次排布品牌logo+品牌名称组合、项目类型图标、项目名称（带下拉箭头）。右侧区域水平居中依次排布通知图标（带badge）、用户头像、返回首页按钮。\",\"elements\":\"包含品牌Logo图标（Network）、品牌名称文本'华为坤灵'、项目类型图标（FolderKanban）、项目名称文本（带ChevronDown图标）、通知图标（Bell+Badge）、用户头像图片、返回首页按钮（Home图标+文字）。\",\"data\":{\"brandLogoIcon\":\"Network\",\"brandName\":\"华为坤灵\",\"projectIcon\":\"FolderKanban\",\"projectName\":\"企业网络A\",\"projectDropdownIcon\":\"ChevronDown\",\"notificationIcon\":\"Bell\",\"notificationBadge\":5,\"userAvatarImage\":\"https://randomuser.me/api/portraits/men/32.jpg\",\"backButtonIcon\":\"Home\",\"backButtonLabel\":\"返回首页\"}},{\"id\":\"sideMenu\",\"name\":\"左侧菜单栏\",\"intent\":\"提供功能模块的快速切换入口，通过图标直觉化导航，支持当前活动模块高亮。\",\"function\":\"垂直排列10个导航图标，点击切换功能模块；上方8个主要功能，下方2个辅助功能；第6个终端设备图标高亮显示选中状态。\",\"layout\":\"纵向排列，分为上（8个图标）下（2个图标）两组，图标垂直等距居中排布。\",\"elements\":\"基于Menu组件的纯图标侧边栏，每个菜单项使用单个Icon组件。\",\"data\":{\"menuSections\":[{\"position\":\"top\",\"items\":[{\"menuId\":\"nav1\",\"itemIcon\":\"LayoutDashboard\",\"tooltip\":\"仪表盘\"},{\"menuId\":\"nav2\",\"itemIcon\":\"Monitor\",\"tooltip\":\"监控\"},{\"menuId\":\"nav3\",\"itemIcon\":\"Settings\",\"tooltip\":\"设置\"},{\"menuId\":\"nav4\",\"itemIcon\":\"Network\",\"tooltip\":\"网络\"},{\"menuId\":\"nav5\",\"itemIcon\":\"Shield\",\"tooltip\":\"安全\"},{\"menuId\":\"nav6\",\"itemIcon\":\"Terminal\",\"tooltip\":\"终端设备\",\"active\":true},{\"menuId\":\"nav7\",\"itemIcon\":\"Server\",\"tooltip\":\"服务器\"},{\"menuId\":\"nav8\",\"itemIcon\":\"Tool\",\"tooltip\":\"工具箱\"}]},{\"position\":\"bottom\",\"items\":[{\"menuId\":\"nav9\",\"itemIcon\":\"User\",\"tooltip\":\"用户管理\"},{\"menuId\":\"nav10\",\"itemIcon\":\"LogOut\",\"tooltip\":\"退出\"}]}]}},{\"id\":\"mainContent\",\"name\":\"右侧内容区\",\"intent\":\"作为业务网配置的核心操作面板，集成设备信息查看、二级标签切换和业务网数据的增删改查，支持管理员高效管理网络配置。\",\"function\":\"包含一级标签导航（切换网络配置模块）、二级标签导航（切换业务网类型）、设备基础信息展示（含修改网关）、业务网管理（搜索、创建访客网、创建业务网、刷新）、数据表格展示（含行级编辑和删除）。\",\"layout\":\"垂直流式布局。顶部一级标签导航横向排列（Tabs组件，背景浅灰）；下方为浅色背景卡片区域（内边距），卡片内部从上到下依次为：二级标签导航（Tabs组件+分割线）、设备信息卡片（水平左右布局，左侧组合信息包含设备图标、名称、型号、ESN，右侧修改网关按钮）、分割线、模块标题'业务网'、表格工具栏（左右布局，左侧搜索输入框，右侧四个操作按钮）、数据表格（Table组件，含分页）。\",\"elements\":\"主要组件包括：一级Tabs、二级Tabs、设备信息卡片（内嵌Icon、Text、Button）、表格工具栏（Input、Button、IconButton）、数据表格（Table，列包括条目、名称、VLAN、网关/掩码、有线接入口、无线配置Wi-Fi、配置状态、网络状态；操作列包含编辑和删除IconButton）。\",\"data\":{\"primaryTabs\":{\"items\":[{\"key\":\"wholeNet\",\"label\":\"整网配置\"},{\"key\":\"switch\",\"label\":\"交换机\"},{\"key\":\"router\",\"label\":\"路由器\"},{\"key\":\"ap\",\"label\":\"AP\"},{\"key\":\"wac\",\"label\":\"WAC\"}],\"activeKey\":\"wholeNet\"},\"secondaryTabs\":{\"items\":[{\"key\":\"serviceNet\",\"label\":\"业务网\"},{\"key\":\"iptv\",\"label\":\"IPTV\"},{\"key\":\"intranet\",\"label\":\"内网穿透\"}],\"activeKey\":\"serviceNet\"},\"deviceInfo\":{\"deviceIcon\":\"Monitor\",\"deviceName\":\"AR_6AEBBC254674648874802\",\"model\":\"AR651C\",\"esn\":\"10023455RLG19807655\",\"actions\":[{\"label\":\"修改网关\",\"buttonType\":\"default\",\"buttonIcon\":\"Edit3\"}]},\"moduleTitle\":\"业务网\",\"toolbar\":{\"searchIcon\":\"Search\",\"searchPlaceholder\":\"请输入业务网名称\",\"buttons\":[{\"label\":\"删除\",\"buttonType\":\"default\",\"buttonIcon\":\"Trash2\",\"disabled\":true},{\"label\":\"创建访客网\",\"buttonType\":\"default\",\"buttonIcon\":\"UserPlus\",\"disabled\":false},{\"label\":\"创建业务网\",\"buttonType\":\"primary\",\"buttonIcon\":\"Plus\",\"disabled\":false},{\"label\":\"刷新\",\"buttonType\":\"default\",\"buttonIcon\":\"RefreshCw\",\"disabled\":false}]},\"tableData\":[{\"entry\":1,\"name\":\"15\",\"nameTag\":{\"label\":\"还原\",\"color\":\"blue\",\"shape\":\"capsule\"},\"vlan\":109,\"gatewayMask\":\"255.255.255.0\",\"wiredInterface\":\"--\",\"wirelessConfig\":0,\"configStatus\":\"正常\",\"networkStatus\":\"正常\"},{\"entry\":2,\"name\":\"Guest-Net\",\"nameTag\":{\"label\":\"访客\",\"color\":\"orange\",\"shape\":\"capsule\"},\"vlan\":200,\"gatewayMask\":\"255.255.255.0\",\"wiredInterface\":\"GE0/0/1\",\"wirelessConfig\":1,\"configStatus\":\"正常\",\"networkStatus\":\"正常\"},{\"entry\":3,\"name\":\"Office-1\",\"nameTag\":{\"label\":\"默认\",\"color\":\"green\",\"shape\":\"capsule\"},\"vlan\":10,\"gatewayMask\":\"255.255.255.0\",\"wiredInterface\":\"GE0/0/2\",\"wirelessConfig\":2,\"configStatus\":\"正常\",\"networkStatus\":\"正常\"},{\"entry\":4,\"name\":\"IoT-Device\",\"vlan\":50,\"gatewayMask\":\"255.255.255.0\",\"wiredInterface\":\"--\",\"wirelessConfig\":0,\"configStatus\":\"告警\",\"networkStatus\":\"离线\"},{\"entry\":5,\"name\":\"Camera-Stream\",\"nameTag\":{\"label\":\"视频流\",\"color\":\"purple\",\"shape\":\"capsule\"},\"vlan\":30,\"gatewayMask\":\"255.255.255.0\",\"wiredInterface\":\"GE0/0/3\",\"wirelessConfig\":0,\"configStatus\":\"正常\",\"networkStatus\":\"正常\"},{\"entry\":6,\"name\":\"Server-Farm\",\"vlan\":100,\"gatewayMask\":\"255.255.255.0\",\"wiredInterface\":\"GE0/0/4\",\"wirelessConfig\":0,\"configStatus\":\"异常\",\"networkStatus\":\"故障\"},{\"entry\":7,\"name\":\"VLAN-Test\",\"nameTag\":{\"label\":\"测试\",\"color\":\"cyan\",\"shape\":\"capsule\"},\"vlan\":300,\"gatewayMask\":\"255.255.255.0\",\"wiredInterface\":\"--\",\"wirelessConfig\":0,\"configStatus\":\"正常\",\"networkStatus\":\"正常\"},{\"entry\":8,\"name\":\"Backup-Net\",\"vlan\":400,\"gatewayMask\":\"255.255.255.0\",\"wiredInterface\":\"GE0/0/5\",\"wirelessConfig\":1,\"configStatus\":\"正常\",\"networkStatus\":\"正常\"},{\"entry\":9,\"name\":\"Cloud-Service\",\"nameTag\":{\"label\":\"已迁移\",\"color\":\"volcano\",\"shape\":\"capsule\"},\"vlan\":500,\"gatewayMask\":\"255.255.255.0\",\"wiredInterface\":\"GE0/0/6\",\"wirelessConfig\":1,\"configStatus\":\"正常\",\"networkStatus\":\"正常\"},{\"entry\":10,\"name\":\"VPN-Remote\",\"vlan\":600,\"gatewayMask\":\"255.255.255.0\",\"wiredInterface\":\"GE0/0/7\",\"wirelessConfig\":0,\"configStatus\":\"告警\",\"networkStatus\":\"告警\"},{\"entry\":11,\"name\":\"Management\",\"nameTag\":{\"label\":\"管理\",\"color\":\"geekblue\",\"shape\":\"capsule\"},\"vlan\":1,\"gatewayMask\":\"255.255.255.0\",\"wiredInterface\":\"GE0/0/0\",\"wirelessConfig\":0,\"configStatus\":\"正常\",\"networkStatus\":\"正常\"}]}}]}\n  ",
+        "output": "{\n  \"state\": {},\n  \"rootId\": \"rootContainer\",\n  \"elements\": [\n    {\n      \"id\": \"rootContainer\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"flex flex-col min-h-screen bg-surface-container-lowest\"\n      },\n      \"children\": [\n        \"topNavHeader\",\n        \"bodyMainFlex\"\n      ]\n    },\n    {\n      \"id\": \"topNavHeader\",\n      \"component\": \"header\",\n      \"props\": {\n        \"className\": \"flex items-center h-12 px-page bg-surface-container-highest shadow-sm\"\n      },\n      \"children\": []\n    },\n    {\n      \"id\": \"bodyMainFlex\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"flex flex-1\"\n      },\n      \"children\": [\n        \"sideMenuAside\",\n        \"mainContentMain\"\n      ]\n    },\n    {\n      \"id\": \"sideMenuAside\",\n      \"component\": \"aside\",\n      \"props\": {\n        \"className\": \"w-12 bg-surface-container-highest shadow-sm flex flex-col items-center py-4\"\n      },\n      \"children\": []\n    },\n    {\n      \"id\": \"mainContentMain\",\n      \"component\": \"main\",\n      \"props\": {\n        \"className\": \"flex-1 bg-surface-container-lowest overflow-y-auto\"\n      },\n      \"children\": []\n    }\n  ],\n  \"slots\": [\n    {\n      \"section_id\": \"topNav\",\n      \"element_id\": \"topNavHeader\",\n      \"id_prefix\": \"topN\"\n    },\n    {\n      \"section_id\": \"sideMenu\",\n      \"element_id\": \"sideMenuAside\",\n      \"id_prefix\": \"sMen\"\n    },\n    {\n      \"section_id\": \"mainContent\",\n      \"element_id\": \"mainContentMain\",\n      \"id_prefix\": \"mCnt\"\n    }\n  ]\n}",
+        "parsed": {
+          "layout_planner": {
+            "state": {},
+            "rootId": "rootContainer",
+            "elements": [
+              {
+                "id": "rootContainer",
+                "component": "div",
+                "props": {
+                  "className": "flex flex-col min-h-screen bg-surface-container-lowest"
+                },
+                "children": [
+                  "topNavHeader",
+                  "bodyMainFlex"
+                ]
+              },
+              {
+                "id": "topNavHeader",
+                "component": "header",
+                "props": {
+                  "className": "flex items-center h-12 px-page bg-surface-container-highest shadow-sm"
+                },
+                "children": []
+              },
+              {
+                "id": "bodyMainFlex",
+                "component": "div",
+                "props": {
+                  "className": "flex flex-1"
+                },
+                "children": [
+                  "sideMenuAside",
+                  "mainContentMain"
+                ]
+              },
+              {
+                "id": "sideMenuAside",
+                "component": "aside",
+                "props": {
+                  "className": "w-12 bg-surface-container-highest shadow-sm flex flex-col items-center py-4"
+                },
+                "children": []
+              },
+              {
+                "id": "mainContentMain",
+                "component": "main",
+                "props": {
+                  "className": "flex-1 bg-surface-container-lowest overflow-y-auto"
+                },
+                "children": []
+              }
+            ],
+            "slots": [
+              {
+                "section_id": "topNav",
+                "element_id": "topNavHeader",
+                "id_prefix": "topN"
+              },
+              {
+                "section_id": "sideMenu",
+                "element_id": "sideMenuAside",
+                "id_prefix": "sMen"
+              },
+              {
+                "section_id": "mainContent",
+                "element_id": "mainContentMain",
+                "id_prefix": "mCnt"
+              }
+            ]
+          },
+          "current_step": "planner_create"
+        }
+      },
+      {
+        "idx": 3,
+        "ts": 1782201648780,
+        "agent": "proto_module_create",
+        "sessionId": "ses_10c818eefffewycXXccJ6ajmsT",
+        "input": "请为以下模块生成 A2UI JSON：\n\n  [完整页面蓝图:] ==================================\n  - 用户输入: 这个页面整体由两大板块组成：顶部导航栏和主内容区。\n\n顶部导航栏分为左右两端对齐排布。左侧区域水平居中排布三个元素：包含华为坤灵文本，文本的左边有一个品牌logo,距离文本右边一小段距离是一个图标，图表旁边是带有向下折叠箭头图标的纯文本项目名称。右侧区域水平居中依次排布三个元素：带有红色badage的通知铃铛图标、个人用户头像图标、以及一个返回首页的按钮。\n\n主内容区中包含左侧固定菜单栏和右侧内容区。\n左侧菜单栏是缩略版的菜单栏，采用纵向纯图标排布，上方模块垂直等距排布 8 个功能图标，其中第 6 个终端设备图标处于高亮选中状态。在最下方垂直排布 2 个功能图标。\n\n右侧内容区呈自上而下的流式布局。背景色是#F3F3F3，在顶部为一级标签页导航，它的背景色也为#F3F3F3，横向依次排布整网配置、交换机、路由器、AP、WAC，其中整网配置为高亮选中状态。下方是一整个大的内容卡片，背景色是白色，有一定的内边距，内容卡片顶部是二级标签导航，横向依次排布业务网、IPTV、内网穿透，其中业务网为当前选中状态，该二级标签区域底部有一条分割线。\n\n分割线下方为一个横向铺展的设备基础信息卡片。卡片内部采用左右两端对齐布局。左侧为一个信息组合区域，水平横向依次排布一个设备缩略图图标、大字号粗体主标题 AR_6AEBBC254674648874802，以及两组次级描述文本，分别是型号 AR651C 和 ESN 10023455RLG19807655。右侧区域居右单独排布一个修改网关操作按钮。设备卡片底部有一条分割线。\n\n分割线下方为独立的大字号模块标题业务网。标题正下方为表格工具栏，采用左右两端对齐排布。左侧为一个定宽的搜索输入框，内含搜索放大镜图标与 请输入业务网名称 占位提示词。右侧横向依次排布四个操作组件：禁用的删除按钮、创建访客网次级按钮、带有主题色背景的创建业务网主按钮，以及一个独立的刷新图标按钮。\n\n工具栏下方为核心数据表格模块。表头包含 9 个列字段，从左至右依次为：条目、名称、VLAN、网关/掩码、有线接入口、无线配置Wi-Fi、配置状态、网络状态、操作。\n\n表格内部可视范围内展示 10 行数据。每行最右侧的操作列固定横向排布编辑铅笔图标和删除垃圾桶图标两个操作项。名称列部分文本右侧带有胶囊形状的状态标签。配置状态和网络状态列中，除空值外，有效状态文本的左侧均带有一个实心状态小圆点。\n\n其中一行的数据模版是这样：条目 1，名称 15右侧附带还原胶囊标签，VLAN 109，网关/掩码 255 255 255 0，有线接入口 --，无线配置Wi-Fi 0，配置状态为点加正常，网络状态为点加正常。其他行的数据与此类似。\n  - 意图分析: 此页面为企业网络设备配置与监控控制台，面向网络管理员。核心目标是通过直观的设备信息展示和业务网配置管理，提供高效的网络配置、状态监控及维护操作。界面采用经典后台布局，导航层级清晰，操作集中。\n  - 布局描述: 采用顶部导航栏+左侧缩略菜单栏+右侧内容区的经典管理后台布局。顶部导航栏左右两端对齐，左侧品牌与项目信息，右侧通知与用户操作；左侧菜单栏为纯图标纵向排列；右侧内容区使用自上而下的流式布局，包含一级标签导航、白色卡片内容区（内含二级标签、设备信息、表格工具栏及数据表格）。\n  - 页面结构: [\n  {\n    \"id\": \"topNav\",\n    \"name\": \"顶部导航栏\",\n    \"description\": \"全局导航栏，包含品牌标识、项目选择、通知、用户头像及返回首页，提供系统级导航与快速操作入口。\"\n  },\n  {\n    \"id\": \"sideMenu\",\n    \"name\": \"左侧菜单栏\",\n    \"description\": \"缩略版侧边菜单栏，纵向纯图标排列，提供8个常用功能入口和2个底部功能入口，当前终端设备图标高亮。\"\n  },\n  {\n    \"id\": \"mainContent\",\n    \"name\": \"右侧内容区\",\n    \"description\": \"主工作区域，包括一级标签页导航、设备基础信息卡片、业务网模块标题、表格工具栏及数据表格，是业务网配置的核心操作界面。\"\n  }\n]\n\n  [模块顶层容器:] ==================================\n  - Root ID: topNavHeader\n  - Root UI:\n    {\n  \"id\": \"topNavHeader\",\n  \"component\": \"header\",\n  \"props\": {\n    \"className\": \"flex items-center h-12 px-page bg-surface-container-highest shadow-sm\"\n  },\n  \"children\": []\n}\n    \n  [需要被渲染的模块详细蓝图:] ==================================\n  {\n  \"id\": \"topNav\",\n  \"name\": \"顶部导航栏\",\n  \"intent\": \"提供品牌识别、项目切换、通知提醒和用户快捷操作，确保用户能快速导航和接收系统消息。\",\n  \"function\": \"显示品牌Logo和名称；项目选择器（带下拉箭头）；通知铃铛图标（带Badge显示未读数量）；用户头像展示；返回首页按钮。\",\n  \"layout\": \"水平左右两端对齐排布。左侧区域水平居中依次排布品牌logo+品牌名称组合、项目类型图标、项目名称（带下拉箭头）。右侧区域水平居中依次排布通知图标（带badge）、用户头像、返回首页按钮。\",\n  \"elements\": \"包含品牌Logo图标（Network）、品牌名称文本'华为坤灵'、项目类型图标（FolderKanban）、项目名称文本（带ChevronDown图标）、通知图标（Bell+Badge）、用户头像图片、返回首页按钮（Home图标+文字）。\",\n  \"data\": {\n    \"brandLogoIcon\": \"Network\",\n    \"brandName\": \"华为坤灵\",\n    \"projectIcon\": \"FolderKanban\",\n    \"projectName\": \"企业网络A\",\n    \"projectDropdownIcon\": \"ChevronDown\",\n    \"notificationIcon\": \"Bell\",\n    \"notificationBadge\": 5,\n    \"userAvatarImage\": \"https://randomuser.me/api/portraits/men/32.jpg\",\n    \"backButtonIcon\": \"Home\",\n    \"backButtonLabel\": \"返回首页\"\n  }\n}\n\n  [需要被渲染模块的根节点:] topNavHeader\n  [模块内部元素id前缀:] topN (注：该模块内所有 element id 必须以此开头)\n\n  请先调用 *load_module_components* 工具查询组件 API，然后生成该模块的 JSON（包含 state 子集和 elements 数组）。",
+        "output": "{\n  \"state\": {\n    \"notificationBadge\": 5,\n    \"userAvatarUrl\": \"https://randomuser.me/api/portraits/men/32.jpg\"\n  },\n  \"rootId\": \"topNavHeader\",\n  \"elements\": [\n    {\n      \"id\": \"topNavHeader\",\n      \"component\": \"header\",\n      \"props\": {\n        \"className\": \"flex items-center h-12 px-page bg-surface-container-highest shadow-sm\"\n      },\n      \"children\": [\n        \"topNLeft\",\n        \"topNRight\"\n      ]\n    },\n    {\n      \"id\": \"topNLeft\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"flex items-center gap-4\"\n      },\n      \"children\": [\n        \"topNLogoIcon\",\n        \"topNLogoText\",\n        \"topNProjectIcon\",\n        \"topNProjectGroup\"\n      ]\n    },\n    {\n      \"id\": \"topNLogoIcon\",\n      \"component\": \"Icon\",\n      \"props\": {\n        \"name\": \"network\",\n        \"shape\": \"outline\",\n        \"color\": \"primary\",\n        \"className\": \"w-6 h-6\"\n      }\n    },\n    {\n      \"id\": \"topNLogoText\",\n      \"component\": \"span\",\n      \"props\": {\n        \"value\": \"华为坤灵\",\n        \"className\": \"text-lg font-semibold text-on-surface\"\n      }\n    },\n    {\n      \"id\": \"topNProjectIcon\",\n      \"component\": \"Icon\",\n      \"props\": {\n        \"name\": \"folder-kanban\",\n        \"shape\": \"outline\",\n        \"className\": \"w-5 h-5 text-on-surface-variant\"\n      }\n    },\n    {\n      \"id\": \"topNProjectGroup\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"flex items-center gap-1 text-on-surface-variant\"\n      },\n      \"children\": [\n        \"topNProjectName\",\n        \"topNProjectArrow\"\n      ]\n    },\n    {\n      \"id\": \"topNProjectName\",\n      \"component\": \"span\",\n      \"props\": {\n        \"value\": \"企业网络A\",\n        \"className\": \"text-md\"\n      }\n    },\n    {\n      \"id\": \"topNProjectArrow\",\n      \"component\": \"Icon\",\n      \"props\": {\n        \"name\": \"chevron-down\",\n        \"shape\": \"outline\",\n        \"className\": \"w-4 h-4\"\n      }\n    },\n    {\n      \"id\": \"topNRight\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"flex items-center gap-4 ml-auto\"\n      },\n      \"children\": [\n        \"topNNotificationWrapper\",\n        \"topNUserAvatar\",\n        \"topNBackBtn\"\n      ]\n    },\n    {\n      \"id\": \"topNNotificationWrapper\",\n      \"component\": \"Badge\",\n      \"props\": {\n        \"count\": {\n          \"path\": \"/notificationBadge\"\n        },\n        \"color\": \"error\",\n        \"overflowCount\": 99\n      },\n      \"children\": [\n        \"topNNotificationIcon\"\n      ]\n    },\n    {\n      \"id\": \"topNNotificationIcon\",\n      \"component\": \"Icon\",\n      \"props\": {\n        \"name\": \"bell\",\n        \"shape\": \"outline\",\n        \"className\": \"w-5 h-5 text-on-surface-variant\"\n      }\n    },\n    {\n      \"id\": \"topNUserAvatar\",\n      \"component\": \"img\",\n      \"props\": {\n        \"src\": {\n          \"path\": \"/userAvatarUrl\"\n        },\n        \"className\": \"w-8 h-8 rounded-full object-cover\",\n        \"alt\": \"用户头像\"\n      }\n    },\n    {\n      \"id\": \"topNBackBtn\",\n      \"component\": \"Button\",\n      \"props\": {\n        \"value\": \"返回首页\",\n        \"icon\": \"home\",\n        \"iconPlacement\": \"start\",\n        \"size\": \"medium\",\n        \"color\": \"default\"\n      }\n    }\n  ]\n}",
+        "parsed": {
+          "ui_json": {
+            "state": {
+              "notificationBadge": 5,
+              "userAvatarUrl": "https://randomuser.me/api/portraits/men/32.jpg"
+            },
+            "rootId": "topNavHeader",
+            "elements": [
+              {
+                "id": "topNavHeader",
+                "component": "header",
+                "props": {
+                  "className": "flex items-center h-12 px-page bg-surface-container-highest shadow-sm"
+                },
+                "children": [
+                  "topNLeft",
+                  "topNRight"
+                ]
+              },
+              {
+                "id": "topNLeft",
+                "component": "div",
+                "props": {
+                  "className": "flex items-center gap-4"
+                },
+                "children": [
+                  "topNLogoIcon",
+                  "topNLogoText",
+                  "topNProjectIcon",
+                  "topNProjectGroup"
+                ]
+              },
+              {
+                "id": "topNLogoIcon",
+                "component": "Icon",
+                "props": {
+                  "name": "network",
+                  "shape": "outline",
+                  "color": "primary",
+                  "className": "w-6 h-6"
+                }
+              },
+              {
+                "id": "topNLogoText",
+                "component": "span",
+                "props": {
+                  "value": "华为坤灵",
+                  "className": "text-lg font-semibold text-on-surface"
+                }
+              },
+              {
+                "id": "topNProjectIcon",
+                "component": "Icon",
+                "props": {
+                  "name": "folder-kanban",
+                  "shape": "outline",
+                  "className": "w-5 h-5 text-on-surface-variant"
+                }
+              },
+              {
+                "id": "topNProjectGroup",
+                "component": "div",
+                "props": {
+                  "className": "flex items-center gap-1 text-on-surface-variant"
+                },
+                "children": [
+                  "topNProjectName",
+                  "topNProjectArrow"
+                ]
+              },
+              {
+                "id": "topNProjectName",
+                "component": "span",
+                "props": {
+                  "value": "企业网络A",
+                  "className": "text-md"
+                }
+              },
+              {
+                "id": "topNProjectArrow",
+                "component": "Icon",
+                "props": {
+                  "name": "chevron-down",
+                  "shape": "outline",
+                  "className": "w-4 h-4"
+                }
+              },
+              {
+                "id": "topNRight",
+                "component": "div",
+                "props": {
+                  "className": "flex items-center gap-4 ml-auto"
+                },
+                "children": [
+                  "topNNotificationWrapper",
+                  "topNUserAvatar",
+                  "topNBackBtn"
+                ]
+              },
+              {
+                "id": "topNNotificationWrapper",
+                "component": "Badge",
+                "props": {
+                  "count": {
+                    "path": "/notificationBadge"
+                  },
+                  "color": "error",
+                  "overflowCount": 99
+                },
+                "children": [
+                  "topNNotificationIcon"
+                ]
+              },
+              {
+                "id": "topNNotificationIcon",
+                "component": "Icon",
+                "props": {
+                  "name": "bell",
+                  "shape": "outline",
+                  "className": "w-5 h-5 text-on-surface-variant"
+                }
+              },
+              {
+                "id": "topNUserAvatar",
+                "component": "img",
+                "props": {
+                  "src": {
+                    "path": "/userAvatarUrl"
+                  },
+                  "className": "w-8 h-8 rounded-full object-cover",
+                  "alt": "用户头像"
+                }
+              },
+              {
+                "id": "topNBackBtn",
+                "component": "Button",
+                "props": {
+                  "value": "返回首页",
+                  "icon": "home",
+                  "iconPlacement": "start",
+                  "size": "medium",
+                  "color": "default"
+                }
+              }
+            ]
+          },
+          "section_id": "topNav",
+          "element_id": "topNavHeader",
+          "id_prefix": "topN"
+        }
+      },
+      {
+        "idx": 4,
+        "ts": 1782201705362,
+        "agent": "proto_module_create",
+        "sessionId": "ses_10c818ee9ffeFGC36oKLb2h7qu",
+        "input": "请为以下模块生成 A2UI JSON：\n\n  [完整页面蓝图:] ==================================\n  - 用户输入: 这个页面整体由两大板块组成：顶部导航栏和主内容区。\n\n顶部导航栏分为左右两端对齐排布。左侧区域水平居中排布三个元素：包含华为坤灵文本，文本的左边有一个品牌logo,距离文本右边一小段距离是一个图标，图表旁边是带有向下折叠箭头图标的纯文本项目名称。右侧区域水平居中依次排布三个元素：带有红色badage的通知铃铛图标、个人用户头像图标、以及一个返回首页的按钮。\n\n主内容区中包含左侧固定菜单栏和右侧内容区。\n左侧菜单栏是缩略版的菜单栏，采用纵向纯图标排布，上方模块垂直等距排布 8 个功能图标，其中第 6 个终端设备图标处于高亮选中状态。在最下方垂直排布 2 个功能图标。\n\n右侧内容区呈自上而下的流式布局。背景色是#F3F3F3，在顶部为一级标签页导航，它的背景色也为#F3F3F3，横向依次排布整网配置、交换机、路由器、AP、WAC，其中整网配置为高亮选中状态。下方是一整个大的内容卡片，背景色是白色，有一定的内边距，内容卡片顶部是二级标签导航，横向依次排布业务网、IPTV、内网穿透，其中业务网为当前选中状态，该二级标签区域底部有一条分割线。\n\n分割线下方为一个横向铺展的设备基础信息卡片。卡片内部采用左右两端对齐布局。左侧为一个信息组合区域，水平横向依次排布一个设备缩略图图标、大字号粗体主标题 AR_6AEBBC254674648874802，以及两组次级描述文本，分别是型号 AR651C 和 ESN 10023455RLG19807655。右侧区域居右单独排布一个修改网关操作按钮。设备卡片底部有一条分割线。\n\n分割线下方为独立的大字号模块标题业务网。标题正下方为表格工具栏，采用左右两端对齐排布。左侧为一个定宽的搜索输入框，内含搜索放大镜图标与 请输入业务网名称 占位提示词。右侧横向依次排布四个操作组件：禁用的删除按钮、创建访客网次级按钮、带有主题色背景的创建业务网主按钮，以及一个独立的刷新图标按钮。\n\n工具栏下方为核心数据表格模块。表头包含 9 个列字段，从左至右依次为：条目、名称、VLAN、网关/掩码、有线接入口、无线配置Wi-Fi、配置状态、网络状态、操作。\n\n表格内部可视范围内展示 10 行数据。每行最右侧的操作列固定横向排布编辑铅笔图标和删除垃圾桶图标两个操作项。名称列部分文本右侧带有胶囊形状的状态标签。配置状态和网络状态列中，除空值外，有效状态文本的左侧均带有一个实心状态小圆点。\n\n其中一行的数据模版是这样：条目 1，名称 15右侧附带还原胶囊标签，VLAN 109，网关/掩码 255 255 255 0，有线接入口 --，无线配置Wi-Fi 0，配置状态为点加正常，网络状态为点加正常。其他行的数据与此类似。\n  - 意图分析: 此页面为企业网络设备配置与监控控制台，面向网络管理员。核心目标是通过直观的设备信息展示和业务网配置管理，提供高效的网络配置、状态监控及维护操作。界面采用经典后台布局，导航层级清晰，操作集中。\n  - 布局描述: 采用顶部导航栏+左侧缩略菜单栏+右侧内容区的经典管理后台布局。顶部导航栏左右两端对齐，左侧品牌与项目信息，右侧通知与用户操作；左侧菜单栏为纯图标纵向排列；右侧内容区使用自上而下的流式布局，包含一级标签导航、白色卡片内容区（内含二级标签、设备信息、表格工具栏及数据表格）。\n  - 页面结构: [\n  {\n    \"id\": \"topNav\",\n    \"name\": \"顶部导航栏\",\n    \"description\": \"全局导航栏，包含品牌标识、项目选择、通知、用户头像及返回首页，提供系统级导航与快速操作入口。\"\n  },\n  {\n    \"id\": \"sideMenu\",\n    \"name\": \"左侧菜单栏\",\n    \"description\": \"缩略版侧边菜单栏，纵向纯图标排列，提供8个常用功能入口和2个底部功能入口，当前终端设备图标高亮。\"\n  },\n  {\n    \"id\": \"mainContent\",\n    \"name\": \"右侧内容区\",\n    \"description\": \"主工作区域，包括一级标签页导航、设备基础信息卡片、业务网模块标题、表格工具栏及数据表格，是业务网配置的核心操作界面。\"\n  }\n]\n\n  [模块顶层容器:] ==================================\n  - Root ID: sideMenuAside\n  - Root UI:\n    {\n  \"id\": \"sideMenuAside\",\n  \"component\": \"aside\",\n  \"props\": {\n    \"className\": \"w-12 bg-surface-container-highest shadow-sm flex flex-col items-center py-4\"\n  },\n  \"children\": []\n}\n    \n  [需要被渲染的模块详细蓝图:] ==================================\n  {\n  \"id\": \"sideMenu\",\n  \"name\": \"左侧菜单栏\",\n  \"intent\": \"提供功能模块的快速切换入口，通过图标直觉化导航，支持当前活动模块高亮。\",\n  \"function\": \"垂直排列10个导航图标，点击切换功能模块；上方8个主要功能，下方2个辅助功能；第6个终端设备图标高亮显示选中状态。\",\n  \"layout\": \"纵向排列，分为上（8个图标）下（2个图标）两组，图标垂直等距居中排布。\",\n  \"elements\": \"基于Menu组件的纯图标侧边栏，每个菜单项使用单个Icon组件。\",\n  \"data\": {\n    \"menuSections\": [\n      {\n        \"position\": \"top\",\n        \"items\": [\n          {\n            \"menuId\": \"nav1\",\n            \"itemIcon\": \"LayoutDashboard\",\n            \"tooltip\": \"仪表盘\"\n          },\n          {\n            \"menuId\": \"nav2\",\n            \"itemIcon\": \"Monitor\",\n            \"tooltip\": \"监控\"\n          },\n          {\n            \"menuId\": \"nav3\",\n            \"itemIcon\": \"Settings\",\n            \"tooltip\": \"设置\"\n          },\n          {\n            \"menuId\": \"nav4\",\n            \"itemIcon\": \"Network\",\n            \"tooltip\": \"网络\"\n          },\n          {\n            \"menuId\": \"nav5\",\n            \"itemIcon\": \"Shield\",\n            \"tooltip\": \"安全\"\n          },\n          {\n            \"menuId\": \"nav6\",\n            \"itemIcon\": \"Terminal\",\n            \"tooltip\": \"终端设备\",\n            \"active\": true\n          },\n          {\n            \"menuId\": \"nav7\",\n            \"itemIcon\": \"Server\",\n            \"tooltip\": \"服务器\"\n          },\n          {\n            \"menuId\": \"nav8\",\n            \"itemIcon\": \"Tool\",\n            \"tooltip\": \"工具箱\"\n          }\n        ]\n      },\n      {\n        \"position\": \"bottom\",\n        \"items\": [\n          {\n            \"menuId\": \"nav9\",\n            \"itemIcon\": \"User\",\n            \"tooltip\": \"用户管理\"\n          },\n          {\n            \"menuId\": \"nav10\",\n            \"itemIcon\": \"LogOut\",\n            \"tooltip\": \"退出\"\n          }\n        ]\n      }\n    ]\n  }\n}\n\n  [需要被渲染模块的根节点:] sideMenuAside\n  [模块内部元素id前缀:] sMen (注：该模块内所有 element id 必须以此开头)\n\n  请先调用 *load_module_components* 工具查询组件 API，然后生成该模块的 JSON（包含 state 子集和 elements 数组）。",
+        "output": "{\n  \"state\": {\n    \"sMenSelectedKeys\": [\n      \"nav6\"\n    ],\n    \"sMenTopItems\": [\n      {\n        \"title\": \"仪表盘\",\n        \"key\": \"nav1\",\n        \"icon\": \"layout-dashboard\"\n      },\n      {\n        \"title\": \"监控\",\n        \"key\": \"nav2\",\n        \"icon\": \"monitor\"\n      },\n      {\n        \"title\": \"设置\",\n        \"key\": \"nav3\",\n        \"icon\": \"settings\"\n      },\n      {\n        \"title\": \"网络\",\n        \"key\": \"nav4\",\n        \"icon\": \"network\"\n      },\n      {\n        \"title\": \"安全\",\n        \"key\": \"nav5\",\n        \"icon\": \"shield\"\n      },\n      {\n        \"title\": \"终端设备\",\n        \"key\": \"nav6\",\n        \"icon\": \"terminal\"\n      },\n      {\n        \"title\": \"服务器\",\n        \"key\": \"nav7\",\n        \"icon\": \"server\"\n      },\n      {\n        \"title\": \"工具箱\",\n        \"key\": \"nav8\",\n        \"icon\": \"tool\"\n      }\n    ],\n    \"sMenBottomItems\": [\n      {\n        \"title\": \"用户管理\",\n        \"key\": \"nav9\",\n        \"icon\": \"user\"\n      },\n      {\n        \"title\": \"退出\",\n        \"key\": \"nav10\",\n        \"icon\": \"log-out\"\n      }\n    ]\n  },\n  \"rootId\": \"sideMenuAside\",\n  \"elements\": [\n    {\n      \"id\": \"sideMenuAside\",\n      \"component\": \"aside\",\n      \"props\": {\n        \"className\": \"w-12 bg-surface-container-highest shadow-sm flex flex-col items-center py-4\"\n      },\n      \"children\": [\n        \"sMenTopMenu\",\n        \"sMenSpacer\",\n        \"sMenBottomMenu\"\n      ]\n    },\n    {\n      \"id\": \"sMenTopMenu\",\n      \"component\": \"Menu\",\n      \"props\": {\n        \"mode\": \"vertical\",\n        \"inlineCollapsed\": true,\n        \"selectedKeys\": {\n          \"path\": \"/sMenSelectedKeys\"\n        },\n        \"items\": {\n          \"path\": \"/sMenTopItems\"\n        },\n        \"className\": \"w-full bg-transparent border-none\"\n      }\n    },\n    {\n      \"id\": \"sMenSpacer\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"flex-1\"\n      }\n    },\n    {\n      \"id\": \"sMenBottomMenu\",\n      \"component\": \"Menu\",\n      \"props\": {\n        \"mode\": \"vertical\",\n        \"inlineCollapsed\": true,\n        \"selectedKeys\": {\n          \"path\": \"/sMenSelectedKeys\"\n        },\n        \"items\": {\n          \"path\": \"/sMenBottomItems\"\n        },\n        \"className\": \"w-full bg-transparent border-none\"\n      }\n    }\n  ]\n}",
+        "parsed": {
+          "ui_json": {
+            "state": {
+              "sMenSelectedKeys": [
+                "nav6"
+              ],
+              "sMenTopItems": [
+                {
+                  "title": "仪表盘",
+                  "key": "nav1",
+                  "icon": "layout-dashboard"
+                },
+                {
+                  "title": "监控",
+                  "key": "nav2",
+                  "icon": "monitor"
+                },
+                {
+                  "title": "设置",
+                  "key": "nav3",
+                  "icon": "settings"
+                },
+                {
+                  "title": "网络",
+                  "key": "nav4",
+                  "icon": "network"
+                },
+                {
+                  "title": "安全",
+                  "key": "nav5",
+                  "icon": "shield"
+                },
+                {
+                  "title": "终端设备",
+                  "key": "nav6",
+                  "icon": "terminal"
+                },
+                {
+                  "title": "服务器",
+                  "key": "nav7",
+                  "icon": "server"
+                },
+                {
+                  "title": "工具箱",
+                  "key": "nav8",
+                  "icon": "tool"
+                }
+              ],
+              "sMenBottomItems": [
+                {
+                  "title": "用户管理",
+                  "key": "nav9",
+                  "icon": "user"
+                },
+                {
+                  "title": "退出",
+                  "key": "nav10",
+                  "icon": "log-out"
+                }
+              ]
+            },
+            "rootId": "sideMenuAside",
+            "elements": [
+              {
+                "id": "sideMenuAside",
+                "component": "aside",
+                "props": {
+                  "className": "w-12 bg-surface-container-highest shadow-sm flex flex-col items-center py-4"
+                },
+                "children": [
+                  "sMenTopMenu",
+                  "sMenSpacer",
+                  "sMenBottomMenu"
+                ]
+              },
+              {
+                "id": "sMenTopMenu",
+                "component": "Menu",
+                "props": {
+                  "mode": "vertical",
+                  "inlineCollapsed": true,
+                  "selectedKeys": {
+                    "path": "/sMenSelectedKeys"
+                  },
+                  "items": {
+                    "path": "/sMenTopItems"
+                  },
+                  "className": "w-full bg-transparent border-none"
+                }
+              },
+              {
+                "id": "sMenSpacer",
+                "component": "div",
+                "props": {
+                  "className": "flex-1"
+                }
+              },
+              {
+                "id": "sMenBottomMenu",
+                "component": "Menu",
+                "props": {
+                  "mode": "vertical",
+                  "inlineCollapsed": true,
+                  "selectedKeys": {
+                    "path": "/sMenSelectedKeys"
+                  },
+                  "items": {
+                    "path": "/sMenBottomItems"
+                  },
+                  "className": "w-full bg-transparent border-none"
+                }
+              }
+            ]
+          },
+          "section_id": "sideMenu",
+          "element_id": "sideMenuAside",
+          "id_prefix": "sMen"
+        }
+      },
+      {
+        "idx": 5,
+        "ts": 1782201930257,
+        "agent": "proto_module_create",
+        "sessionId": "ses_10c818eebffeYUigk8vizYzVt9",
+        "input": "请为以下模块生成 A2UI JSON：\n\n  [完整页面蓝图:] ==================================\n  - 用户输入: 这个页面整体由两大板块组成：顶部导航栏和主内容区。\n\n顶部导航栏分为左右两端对齐排布。左侧区域水平居中排布三个元素：包含华为坤灵文本，文本的左边有一个品牌logo,距离文本右边一小段距离是一个图标，图表旁边是带有向下折叠箭头图标的纯文本项目名称。右侧区域水平居中依次排布三个元素：带有红色badage的通知铃铛图标、个人用户头像图标、以及一个返回首页的按钮。\n\n主内容区中包含左侧固定菜单栏和右侧内容区。\n左侧菜单栏是缩略版的菜单栏，采用纵向纯图标排布，上方模块垂直等距排布 8 个功能图标，其中第 6 个终端设备图标处于高亮选中状态。在最下方垂直排布 2 个功能图标。\n\n右侧内容区呈自上而下的流式布局。背景色是#F3F3F3，在顶部为一级标签页导航，它的背景色也为#F3F3F3，横向依次排布整网配置、交换机、路由器、AP、WAC，其中整网配置为高亮选中状态。下方是一整个大的内容卡片，背景色是白色，有一定的内边距，内容卡片顶部是二级标签导航，横向依次排布业务网、IPTV、内网穿透，其中业务网为当前选中状态，该二级标签区域底部有一条分割线。\n\n分割线下方为一个横向铺展的设备基础信息卡片。卡片内部采用左右两端对齐布局。左侧为一个信息组合区域，水平横向依次排布一个设备缩略图图标、大字号粗体主标题 AR_6AEBBC254674648874802，以及两组次级描述文本，分别是型号 AR651C 和 ESN 10023455RLG19807655。右侧区域居右单独排布一个修改网关操作按钮。设备卡片底部有一条分割线。\n\n分割线下方为独立的大字号模块标题业务网。标题正下方为表格工具栏，采用左右两端对齐排布。左侧为一个定宽的搜索输入框，内含搜索放大镜图标与 请输入业务网名称 占位提示词。右侧横向依次排布四个操作组件：禁用的删除按钮、创建访客网次级按钮、带有主题色背景的创建业务网主按钮，以及一个独立的刷新图标按钮。\n\n工具栏下方为核心数据表格模块。表头包含 9 个列字段，从左至右依次为：条目、名称、VLAN、网关/掩码、有线接入口、无线配置Wi-Fi、配置状态、网络状态、操作。\n\n表格内部可视范围内展示 10 行数据。每行最右侧的操作列固定横向排布编辑铅笔图标和删除垃圾桶图标两个操作项。名称列部分文本右侧带有胶囊形状的状态标签。配置状态和网络状态列中，除空值外，有效状态文本的左侧均带有一个实心状态小圆点。\n\n其中一行的数据模版是这样：条目 1，名称 15右侧附带还原胶囊标签，VLAN 109，网关/掩码 255 255 255 0，有线接入口 --，无线配置Wi-Fi 0，配置状态为点加正常，网络状态为点加正常。其他行的数据与此类似。\n  - 意图分析: 此页面为企业网络设备配置与监控控制台，面向网络管理员。核心目标是通过直观的设备信息展示和业务网配置管理，提供高效的网络配置、状态监控及维护操作。界面采用经典后台布局，导航层级清晰，操作集中。\n  - 布局描述: 采用顶部导航栏+左侧缩略菜单栏+右侧内容区的经典管理后台布局。顶部导航栏左右两端对齐，左侧品牌与项目信息，右侧通知与用户操作；左侧菜单栏为纯图标纵向排列；右侧内容区使用自上而下的流式布局，包含一级标签导航、白色卡片内容区（内含二级标签、设备信息、表格工具栏及数据表格）。\n  - 页面结构: [\n  {\n    \"id\": \"topNav\",\n    \"name\": \"顶部导航栏\",\n    \"description\": \"全局导航栏，包含品牌标识、项目选择、通知、用户头像及返回首页，提供系统级导航与快速操作入口。\"\n  },\n  {\n    \"id\": \"sideMenu\",\n    \"name\": \"左侧菜单栏\",\n    \"description\": \"缩略版侧边菜单栏，纵向纯图标排列，提供8个常用功能入口和2个底部功能入口，当前终端设备图标高亮。\"\n  },\n  {\n    \"id\": \"mainContent\",\n    \"name\": \"右侧内容区\",\n    \"description\": \"主工作区域，包括一级标签页导航、设备基础信息卡片、业务网模块标题、表格工具栏及数据表格，是业务网配置的核心操作界面。\"\n  }\n]\n\n  [模块顶层容器:] ==================================\n  - Root ID: mainContentMain\n  - Root UI:\n    {\n  \"id\": \"mainContentMain\",\n  \"component\": \"main\",\n  \"props\": {\n    \"className\": \"flex-1 bg-surface-container-lowest overflow-y-auto\"\n  },\n  \"children\": []\n}\n    \n  [需要被渲染的模块详细蓝图:] ==================================\n  {\n  \"id\": \"mainContent\",\n  \"name\": \"右侧内容区\",\n  \"intent\": \"作为业务网配置的核心操作面板，集成设备信息查看、二级标签切换和业务网数据的增删改查，支持管理员高效管理网络配置。\",\n  \"function\": \"包含一级标签导航（切换网络配置模块）、二级标签导航（切换业务网类型）、设备基础信息展示（含修改网关）、业务网管理（搜索、创建访客网、创建业务网、刷新）、数据表格展示（含行级编辑和删除）。\",\n  \"layout\": \"垂直流式布局。顶部一级标签导航横向排列（Tabs组件，背景浅灰）；下方为浅色背景卡片区域（内边距），卡片内部从上到下依次为：二级标签导航（Tabs组件+分割线）、设备信息卡片（水平左右布局，左侧组合信息包含设备图标、名称、型号、ESN，右侧修改网关按钮）、分割线、模块标题'业务网'、表格工具栏（左右布局，左侧搜索输入框，右侧四个操作按钮）、数据表格（Table组件，含分页）。\",\n  \"elements\": \"主要组件包括：一级Tabs、二级Tabs、设备信息卡片（内嵌Icon、Text、Button）、表格工具栏（Input、Button、IconButton）、数据表格（Table，列包括条目、名称、VLAN、网关/掩码、有线接入口、无线配置Wi-Fi、配置状态、网络状态；操作列包含编辑和删除IconButton）。\",\n  \"data\": {\n    \"primaryTabs\": {\n      \"items\": [\n        {\n          \"key\": \"wholeNet\",\n          \"label\": \"整网配置\"\n        },\n        {\n          \"key\": \"switch\",\n          \"label\": \"交换机\"\n        },\n        {\n          \"key\": \"router\",\n          \"label\": \"路由器\"\n        },\n        {\n          \"key\": \"ap\",\n          \"label\": \"AP\"\n        },\n        {\n          \"key\": \"wac\",\n          \"label\": \"WAC\"\n        }\n      ],\n      \"activeKey\": \"wholeNet\"\n    },\n    \"secondaryTabs\": {\n      \"items\": [\n        {\n          \"key\": \"serviceNet\",\n          \"label\": \"业务网\"\n        },\n        {\n          \"key\": \"iptv\",\n          \"label\": \"IPTV\"\n        },\n        {\n          \"key\": \"intranet\",\n          \"label\": \"内网穿透\"\n        }\n      ],\n      \"activeKey\": \"serviceNet\"\n    },\n    \"deviceInfo\": {\n      \"deviceIcon\": \"Monitor\",\n      \"deviceName\": \"AR_6AEBBC254674648874802\",\n      \"model\": \"AR651C\",\n      \"esn\": \"10023455RLG19807655\",\n      \"actions\": [\n        {\n          \"label\": \"修改网关\",\n          \"buttonType\": \"default\",\n          \"buttonIcon\": \"Edit3\"\n        }\n      ]\n    },\n    \"moduleTitle\": \"业务网\",\n    \"toolbar\": {\n      \"searchIcon\": \"Search\",\n      \"searchPlaceholder\": \"请输入业务网名称\",\n      \"buttons\": [\n        {\n          \"label\": \"删除\",\n          \"buttonType\": \"default\",\n          \"buttonIcon\": \"Trash2\",\n          \"disabled\": true\n        },\n        {\n          \"label\": \"创建访客网\",\n          \"buttonType\": \"default\",\n          \"buttonIcon\": \"UserPlus\",\n          \"disabled\": false\n        },\n        {\n          \"label\": \"创建业务网\",\n          \"buttonType\": \"primary\",\n          \"buttonIcon\": \"Plus\",\n          \"disabled\": false\n        },\n        {\n          \"label\": \"刷新\",\n          \"buttonType\": \"default\",\n          \"buttonIcon\": \"RefreshCw\",\n          \"disabled\": false\n        }\n      ]\n    },\n    \"tableData\": [\n      {\n        \"entry\": 1,\n        \"name\": \"15\",\n        \"nameTag\": {\n          \"label\": \"还原\",\n          \"color\": \"blue\",\n          \"shape\": \"capsule\"\n        },\n        \"vlan\": 109,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"--\",\n        \"wirelessConfig\": 0,\n        \"configStatus\": \"正常\",\n        \"networkStatus\": \"正常\"\n      },\n      {\n        \"entry\": 2,\n        \"name\": \"Guest-Net\",\n        \"nameTag\": {\n          \"label\": \"访客\",\n          \"color\": \"orange\",\n          \"shape\": \"capsule\"\n        },\n        \"vlan\": 200,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"GE0/0/1\",\n        \"wirelessConfig\": 1,\n        \"configStatus\": \"正常\",\n        \"networkStatus\": \"正常\"\n      },\n      {\n        \"entry\": 3,\n        \"name\": \"Office-1\",\n        \"nameTag\": {\n          \"label\": \"默认\",\n          \"color\": \"green\",\n          \"shape\": \"capsule\"\n        },\n        \"vlan\": 10,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"GE0/0/2\",\n        \"wirelessConfig\": 2,\n        \"configStatus\": \"正常\",\n        \"networkStatus\": \"正常\"\n      },\n      {\n        \"entry\": 4,\n        \"name\": \"IoT-Device\",\n        \"vlan\": 50,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"--\",\n        \"wirelessConfig\": 0,\n        \"configStatus\": \"告警\",\n        \"networkStatus\": \"离线\"\n      },\n      {\n        \"entry\": 5,\n        \"name\": \"Camera-Stream\",\n        \"nameTag\": {\n          \"label\": \"视频流\",\n          \"color\": \"purple\",\n          \"shape\": \"capsule\"\n        },\n        \"vlan\": 30,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"GE0/0/3\",\n        \"wirelessConfig\": 0,\n        \"configStatus\": \"正常\",\n        \"networkStatus\": \"正常\"\n      },\n      {\n        \"entry\": 6,\n        \"name\": \"Server-Farm\",\n        \"vlan\": 100,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"GE0/0/4\",\n        \"wirelessConfig\": 0,\n        \"configStatus\": \"异常\",\n        \"networkStatus\": \"故障\"\n      },\n      {\n        \"entry\": 7,\n        \"name\": \"VLAN-Test\",\n        \"nameTag\": {\n          \"label\": \"测试\",\n          \"color\": \"cyan\",\n          \"shape\": \"capsule\"\n        },\n        \"vlan\": 300,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"--\",\n        \"wirelessConfig\": 0,\n        \"configStatus\": \"正常\",\n        \"networkStatus\": \"正常\"\n      },\n      {\n        \"entry\": 8,\n        \"name\": \"Backup-Net\",\n        \"vlan\": 400,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"GE0/0/5\",\n        \"wirelessConfig\": 1,\n        \"configStatus\": \"正常\",\n        \"networkStatus\": \"正常\"\n      },\n      {\n        \"entry\": 9,\n        \"name\": \"Cloud-Service\",\n        \"nameTag\": {\n          \"label\": \"已迁移\",\n          \"color\": \"volcano\",\n          \"shape\": \"capsule\"\n        },\n        \"vlan\": 500,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"GE0/0/6\",\n        \"wirelessConfig\": 1,\n        \"configStatus\": \"正常\",\n        \"networkStatus\": \"正常\"\n      },\n      {\n        \"entry\": 10,\n        \"name\": \"VPN-Remote\",\n        \"vlan\": 600,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"GE0/0/7\",\n        \"wirelessConfig\": 0,\n        \"configStatus\": \"告警\",\n        \"networkStatus\": \"告警\"\n      },\n      {\n        \"entry\": 11,\n        \"name\": \"Management\",\n        \"nameTag\": {\n          \"label\": \"管理\",\n          \"color\": \"geekblue\",\n          \"shape\": \"capsule\"\n        },\n        \"vlan\": 1,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"GE0/0/0\",\n        \"wirelessConfig\": 0,\n        \"configStatus\": \"正常\",\n        \"networkStatus\": \"正常\"\n      }\n    ]\n  }\n}\n\n  [需要被渲染模块的根节点:] mainContentMain\n  [模块内部元素id前缀:] mCnt (注：该模块内所有 element id 必须以此开头)\n\n  请先调用 *load_module_components* 工具查询组件 API，然后生成该模块的 JSON（包含 state 子集和 elements 数组）。",
+        "output": "{\n  \"state\": {\n    \"primaryActiveKey\": \"wholeNet\",\n    \"secondaryActiveKey\": \"serviceNet\",\n    \"searchValue\": \"\",\n    \"tableData\": [\n      {\n        \"entry\": 1,\n        \"name\": \"15\",\n        \"nameTag\": {\n          \"label\": \"还原\",\n          \"color\": \"blue\"\n        },\n        \"vlan\": 109,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"--\",\n        \"wirelessConfig\": 0,\n        \"configStatus\": \"正常\",\n        \"configStatusColor\": \"success\",\n        \"networkStatus\": \"正常\",\n        \"networkStatusColor\": \"success\"\n      },\n      {\n        \"entry\": 2,\n        \"name\": \"Guest-Net\",\n        \"nameTag\": {\n          \"label\": \"访客\",\n          \"color\": \"orange\"\n        },\n        \"vlan\": 200,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"GE0/0/1\",\n        \"wirelessConfig\": 1,\n        \"configStatus\": \"正常\",\n        \"configStatusColor\": \"success\",\n        \"networkStatus\": \"正常\",\n        \"networkStatusColor\": \"success\"\n      },\n      {\n        \"entry\": 3,\n        \"name\": \"Office-1\",\n        \"nameTag\": {\n          \"label\": \"默认\",\n          \"color\": \"green\"\n        },\n        \"vlan\": 10,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"GE0/0/2\",\n        \"wirelessConfig\": 2,\n        \"configStatus\": \"正常\",\n        \"configStatusColor\": \"success\",\n        \"networkStatus\": \"正常\",\n        \"networkStatusColor\": \"success\"\n      },\n      {\n        \"entry\": 4,\n        \"name\": \"IoT-Device\",\n        \"nameTag\": {\n          \"label\": \"\",\n          \"color\": \"\"\n        },\n        \"vlan\": 50,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"--\",\n        \"wirelessConfig\": 0,\n        \"configStatus\": \"告警\",\n        \"configStatusColor\": \"warning\",\n        \"networkStatus\": \"离线\",\n        \"networkStatusColor\": \"default\"\n      },\n      {\n        \"entry\": 5,\n        \"name\": \"Camera-Stream\",\n        \"nameTag\": {\n          \"label\": \"视频流\",\n          \"color\": \"purple\"\n        },\n        \"vlan\": 30,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"GE0/0/3\",\n        \"wirelessConfig\": 0,\n        \"configStatus\": \"正常\",\n        \"configStatusColor\": \"success\",\n        \"networkStatus\": \"正常\",\n        \"networkStatusColor\": \"success\"\n      },\n      {\n        \"entry\": 6,\n        \"name\": \"Server-Farm\",\n        \"nameTag\": {\n          \"label\": \"\",\n          \"color\": \"\"\n        },\n        \"vlan\": 100,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"GE0/0/4\",\n        \"wirelessConfig\": 0,\n        \"configStatus\": \"异常\",\n        \"configStatusColor\": \"error\",\n        \"networkStatus\": \"故障\",\n        \"networkStatusColor\": \"error\"\n      },\n      {\n        \"entry\": 7,\n        \"name\": \"VLAN-Test\",\n        \"nameTag\": {\n          \"label\": \"测试\",\n          \"color\": \"cyan\"\n        },\n        \"vlan\": 300,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"--\",\n        \"wirelessConfig\": 0,\n        \"configStatus\": \"正常\",\n        \"configStatusColor\": \"success\",\n        \"networkStatus\": \"正常\",\n        \"networkStatusColor\": \"success\"\n      },\n      {\n        \"entry\": 8,\n        \"name\": \"Backup-Net\",\n        \"nameTag\": {\n          \"label\": \"\",\n          \"color\": \"\"\n        },\n        \"vlan\": 400,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"GE0/0/5\",\n        \"wirelessConfig\": 1,\n        \"configStatus\": \"正常\",\n        \"configStatusColor\": \"success\",\n        \"networkStatus\": \"正常\",\n        \"networkStatusColor\": \"success\"\n      },\n      {\n        \"entry\": 9,\n        \"name\": \"Cloud-Service\",\n        \"nameTag\": {\n          \"label\": \"已迁移\",\n          \"color\": \"volcano\"\n        },\n        \"vlan\": 500,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"GE0/0/6\",\n        \"wirelessConfig\": 1,\n        \"configStatus\": \"正常\",\n        \"configStatusColor\": \"success\",\n        \"networkStatus\": \"正常\",\n        \"networkStatusColor\": \"success\"\n      },\n      {\n        \"entry\": 10,\n        \"name\": \"VPN-Remote\",\n        \"nameTag\": {\n          \"label\": \"\",\n          \"color\": \"\"\n        },\n        \"vlan\": 600,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"GE0/0/7\",\n        \"wirelessConfig\": 0,\n        \"configStatus\": \"告警\",\n        \"configStatusColor\": \"warning\",\n        \"networkStatus\": \"告警\",\n        \"networkStatusColor\": \"warning\"\n      },\n      {\n        \"entry\": 11,\n        \"name\": \"Management\",\n        \"nameTag\": {\n          \"label\": \"管理\",\n          \"color\": \"geekblue\"\n        },\n        \"vlan\": 1,\n        \"gatewayMask\": \"255.255.255.0\",\n        \"wiredInterface\": \"GE0/0/0\",\n        \"wirelessConfig\": 0,\n        \"configStatus\": \"正常\",\n        \"configStatusColor\": \"success\",\n        \"networkStatus\": \"正常\",\n        \"networkStatusColor\": \"success\"\n      }\n    ]\n  },\n  \"rootId\": \"mainContentMain\",\n  \"elements\": [\n    {\n      \"id\": \"mainContentMain\",\n      \"component\": \"main\",\n      \"props\": {\n        \"className\": \"flex-1 bg-surface-container-lowest overflow-y-auto\"\n      },\n      \"children\": [\n        \"mCntPrimaryTabs\"\n      ]\n    },\n    {\n      \"id\": \"mCntPrimaryTabs\",\n      \"component\": \"Tabs\",\n      \"props\": {\n        \"activeKey\": {\n          \"path\": \"/primaryActiveKey\"\n        },\n        \"types\": \"line\",\n        \"size\": \"medium\",\n        \"className\": \"pt-4 px-4\"\n      },\n      \"children\": [\n        \"mCntPrimaryWholeNet\",\n        \"mCntPrimarySwitch\",\n        \"mCntPrimaryRouter\",\n        \"mCntPrimaryAp\",\n        \"mCntPrimaryWac\"\n      ]\n    },\n    {\n      \"id\": \"mCntPrimaryWholeNet\",\n      \"component\": \"TabItem\",\n      \"props\": {\n        \"key\": \"wholeNet\",\n        \"label\": \"整网配置\",\n        \"content\": {\n          \"componentId\": \"mCntWholeNetContent\"\n        }\n      }\n    },\n    {\n      \"id\": \"mCntPrimarySwitch\",\n      \"component\": \"TabItem\",\n      \"props\": {\n        \"key\": \"switch\",\n        \"label\": \"交换机\",\n        \"content\": {\n          \"componentId\": \"mCntSwitchContent\"\n        }\n      }\n    },\n    {\n      \"id\": \"mCntPrimaryRouter\",\n      \"component\": \"TabItem\",\n      \"props\": {\n        \"key\": \"router\",\n        \"label\": \"路由器\",\n        \"content\": {\n          \"componentId\": \"mCntRouterContent\"\n        }\n      }\n    },\n    {\n      \"id\": \"mCntPrimaryAp\",\n      \"component\": \"TabItem\",\n      \"props\": {\n        \"key\": \"ap\",\n        \"label\": \"AP\",\n        \"content\": {\n          \"componentId\": \"mCntApContent\"\n        }\n      }\n    },\n    {\n      \"id\": \"mCntPrimaryWac\",\n      \"component\": \"TabItem\",\n      \"props\": {\n        \"key\": \"wac\",\n        \"label\": \"WAC\",\n        \"content\": {\n          \"componentId\": \"mCntWacContent\"\n        }\n      }\n    },\n    {\n      \"id\": \"mCntWholeNetContent\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"bg-white rounded-xl shadow-card p-6 mx-4 mb-4\"\n      },\n      \"children\": [\n        \"mCntSecondaryTabs\"\n      ]\n    },\n    {\n      \"id\": \"mCntSecondaryTabs\",\n      \"component\": \"Tabs\",\n      \"props\": {\n        \"activeKey\": {\n          \"path\": \"/secondaryActiveKey\"\n        },\n        \"types\": \"line\",\n        \"size\": \"small\"\n      },\n      \"children\": [\n        \"mCntSecondaryService\",\n        \"mCntSecondaryIptv\",\n        \"mCntSecondaryIntranet\"\n      ]\n    },\n    {\n      \"id\": \"mCntSecondaryService\",\n      \"component\": \"TabItem\",\n      \"props\": {\n        \"key\": \"serviceNet\",\n        \"label\": \"业务网\",\n        \"content\": {\n          \"componentId\": \"mCntServiceContent\"\n        }\n      }\n    },\n    {\n      \"id\": \"mCntSecondaryIptv\",\n      \"component\": \"TabItem\",\n      \"props\": {\n        \"key\": \"iptv\",\n        \"label\": \"IPTV\",\n        \"content\": {\n          \"componentId\": \"mCntIptvContent\"\n        }\n      }\n    },\n    {\n      \"id\": \"mCntSecondaryIntranet\",\n      \"component\": \"TabItem\",\n      \"props\": {\n        \"key\": \"intranet\",\n        \"label\": \"内网穿透\",\n        \"content\": {\n          \"componentId\": \"mCntIntranetContent\"\n        }\n      }\n    },\n    {\n      \"id\": \"mCntServiceContent\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"flex flex-col gap-4 pt-4\"\n      },\n      \"children\": [\n        \"mCntServiceDivider\",\n        \"mCntDeviceCard\",\n        \"mCntDeviceDivider\",\n        \"mCntModuleTitle\",\n        \"mCntToolbar\",\n        \"mCntDataTable\"\n      ]\n    },\n    {\n      \"id\": \"mCntIptvContent\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"flex items-center justify-center h-32 text-on-surface-variant pt-4\",\n        \"value\": \"IPTV 配置内容\"\n      }\n    },\n    {\n      \"id\": \"mCntIntranetContent\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"flex items-center justify-center h-32 text-on-surface-variant pt-4\",\n        \"value\": \"内网穿透配置内容\"\n      }\n    },\n    {\n      \"id\": \"mCntServiceDivider\",\n      \"component\": \"Divider\",\n      \"props\": {\n        \"className\": \"my-0\"\n      }\n    },\n    {\n      \"id\": \"mCntDeviceCard\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"flex items-center justify-between py-3\"\n      },\n      \"children\": [\n        \"mCntDeviceLeft\",\n        \"mCntDeviceBtn\"\n      ]\n    },\n    {\n      \"id\": \"mCntDeviceLeft\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"flex items-center gap-4\"\n      },\n      \"children\": [\n        \"mCntDeviceIcon\",\n        \"mCntDeviceInfoGroup\"\n      ]\n    },\n    {\n      \"id\": \"mCntDeviceIcon\",\n      \"component\": \"Icon\",\n      \"props\": {\n        \"name\": \"monitor\",\n        \"shape\": \"square\",\n        \"className\": \"w-10 h-10 text-primary\"\n      }\n    },\n    {\n      \"id\": \"mCntDeviceInfoGroup\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"flex items-center gap-4\"\n      },\n      \"children\": [\n        \"mCntDeviceName\",\n        \"mCntDeviceModel\",\n        \"mCntDeviceEsn\"\n      ]\n    },\n    {\n      \"id\": \"mCntDeviceName\",\n      \"component\": \"span\",\n      \"props\": {\n        \"className\": \"text-lg font-bold text-on-surface\",\n        \"value\": \"AR_6AEBBC254674648874802\"\n      }\n    },\n    {\n      \"id\": \"mCntDeviceModel\",\n      \"component\": \"span\",\n      \"props\": {\n        \"className\": \"text-sm text-on-surface-variant\",\n        \"value\": \"型号 AR651C\"\n      }\n    },\n    {\n      \"id\": \"mCntDeviceEsn\",\n      \"component\": \"span\",\n      \"props\": {\n        \"className\": \"text-sm text-on-surface-variant\",\n        \"value\": \"ESN 10023455RLG19807655\"\n      }\n    },\n    {\n      \"id\": \"mCntDeviceBtn\",\n      \"component\": \"Button\",\n      \"props\": {\n        \"value\": \"修改网关\",\n        \"icon\": \"edit-3\",\n        \"color\": \"default\",\n        \"iconPlacement\": \"start\"\n      }\n    },\n    {\n      \"id\": \"mCntDeviceDivider\",\n      \"component\": \"Divider\",\n      \"props\": {\n        \"className\": \"my-0\"\n      }\n    },\n    {\n      \"id\": \"mCntModuleTitle\",\n      \"component\": \"span\",\n      \"props\": {\n        \"className\": \"text-lg font-bold text-on-surface\",\n        \"value\": \"业务网\"\n      }\n    },\n    {\n      \"id\": \"mCntToolbar\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"flex items-center justify-between\"\n      },\n      \"children\": [\n        \"mCntSearchInput\",\n        \"mCntToolbarRight\"\n      ]\n    },\n    {\n      \"id\": \"mCntSearchInput\",\n      \"component\": \"Input\",\n      \"props\": {\n        \"value\": {\n          \"path\": \"/searchValue\"\n        },\n        \"placeholder\": \"请输入业务网名称\",\n        \"prefix\": \"search\",\n        \"className\": \"w-72\"\n      }\n    },\n    {\n      \"id\": \"mCntToolbarRight\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"flex items-center gap-2\"\n      },\n      \"children\": [\n        \"mCntDeleteBtn\",\n        \"mCntCreateGuestBtn\",\n        \"mCntCreateServiceBtn\",\n        \"mCntRefreshBtn\"\n      ]\n    },\n    {\n      \"id\": \"mCntDeleteBtn\",\n      \"component\": \"Button\",\n      \"props\": {\n        \"value\": \"删除\",\n        \"icon\": \"trash-2\",\n        \"iconPlacement\": \"start\",\n        \"disabled\": true,\n        \"color\": \"default\"\n      }\n    },\n    {\n      \"id\": \"mCntCreateGuestBtn\",\n      \"component\": \"Button\",\n      \"props\": {\n        \"value\": \"创建访客网\",\n        \"icon\": \"user-plus\",\n        \"iconPlacement\": \"start\",\n        \"color\": \"default\"\n      }\n    },\n    {\n      \"id\": \"mCntCreateServiceBtn\",\n      \"component\": \"Button\",\n      \"props\": {\n        \"value\": \"创建业务网\",\n        \"icon\": \"plus\",\n        \"iconPlacement\": \"start\",\n        \"color\": \"primary\"\n      }\n    },\n    {\n      \"id\": \"mCntRefreshBtn\",\n      \"component\": \"Button\",\n      \"props\": {\n        \"icon\": \"refresh-cw\",\n        \"color\": \"default\"\n      }\n    },\n    {\n      \"id\": \"mCntDataTable\",\n      \"component\": \"Table\",\n      \"props\": {\n        \"rowKey\": \"entry\",\n        \"dataSource\": {\n          \"path\": \"/tableData\"\n        },\n        \"columns\": [\n          {\n            \"title\": \"条目\",\n            \"dataIndex\": \"entry\"\n          },\n          {\n            \"title\": \"名称\",\n            \"dataIndex\": \"name\",\n            \"minWidth\": 150\n          },\n          {\n            \"title\": \"VLAN\",\n            \"dataIndex\": \"vlan\"\n          },\n          {\n            \"title\": \"网关/掩码\",\n            \"dataIndex\": \"gatewayMask\"\n          },\n          {\n            \"title\": \"有线接入口\",\n            \"dataIndex\": \"wiredInterface\"\n          },\n          {\n            \"title\": \"无线配置Wi-Fi\",\n            \"dataIndex\": \"wirelessConfig\"\n          },\n          {\n            \"title\": \"配置状态\",\n            \"dataIndex\": \"configStatus\"\n          },\n          {\n            \"title\": \"网络状态\",\n            \"dataIndex\": \"networkStatus\"\n          },\n          {\n            \"title\": \"操作\",\n            \"dataIndex\": \"action\",\n            \"width\": 100,\n            \"fixed\": \"end\"\n          }\n        ],\n        \"className\": \"mb-4\"\n      },\n      \"children\": {\n        \"path\": \"/tableData\",\n        \"componentId\": \"mCntTableRow\"\n      }\n    },\n    {\n      \"id\": \"mCntTableRow\",\n      \"component\": \"TableRow\",\n      \"children\": [\n        \"mCntEntryCell\",\n        \"mCntNameCell\",\n        \"mCntVlanCell\",\n        \"mCntGatewayCell\",\n        \"mCntInterfaceCell\",\n        \"mCntWirelessCell\",\n        \"mCntConfigCell\",\n        \"mCntNetworkCell\",\n        \"mCntActionCell\"\n      ]\n    },\n    {\n      \"id\": \"mCntEntryCell\",\n      \"component\": \"span\",\n      \"props\": {\n        \"className\": \"text-md\",\n        \"value\": {\n          \"path\": \"entry\"\n        }\n      }\n    },\n    {\n      \"id\": \"mCntNameCell\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"flex items-center gap-2\"\n      },\n      \"children\": [\n        \"mCntNameText\",\n        \"mCntNameTag\"\n      ]\n    },\n    {\n      \"id\": \"mCntNameText\",\n      \"component\": \"span\",\n      \"props\": {\n        \"className\": \"text-md\",\n        \"value\": {\n          \"path\": \"name\"\n        }\n      }\n    },\n    {\n      \"id\": \"mCntNameTag\",\n      \"component\": \"Tag\",\n      \"props\": {\n        \"value\": {\n          \"path\": \"nameTag/label\"\n        },\n        \"color\": {\n          \"path\": \"nameTag/color\"\n        },\n        \"size\": \"small\"\n      }\n    },\n    {\n      \"id\": \"mCntVlanCell\",\n      \"component\": \"span\",\n      \"props\": {\n        \"className\": \"text-md\",\n        \"value\": {\n          \"path\": \"vlan\"\n        }\n      }\n    },\n    {\n      \"id\": \"mCntGatewayCell\",\n      \"component\": \"span\",\n      \"props\": {\n        \"className\": \"text-md\",\n        \"value\": {\n          \"path\": \"gatewayMask\"\n        }\n      }\n    },\n    {\n      \"id\": \"mCntInterfaceCell\",\n      \"component\": \"span\",\n      \"props\": {\n        \"className\": \"text-md\",\n        \"value\": {\n          \"path\": \"wiredInterface\"\n        }\n      }\n    },\n    {\n      \"id\": \"mCntWirelessCell\",\n      \"component\": \"span\",\n      \"props\": {\n        \"className\": \"text-md\",\n        \"value\": {\n          \"path\": \"wirelessConfig\"\n        }\n      }\n    },\n    {\n      \"id\": \"mCntConfigCell\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"flex items-center gap-1.5\"\n      },\n      \"children\": [\n        \"mCntConfigDot\",\n        \"mCntConfigText\"\n      ]\n    },\n    {\n      \"id\": \"mCntConfigDot\",\n      \"component\": \"Icon\",\n      \"props\": {\n        \"name\": \"circle\",\n        \"shape\": \"fill\",\n        \"className\": \"w-2 h-2\",\n        \"color\": {\n          \"path\": \"configStatusColor\"\n        }\n      }\n    },\n    {\n      \"id\": \"mCntConfigText\",\n      \"component\": \"span\",\n      \"props\": {\n        \"className\": \"text-md\",\n        \"value\": {\n          \"path\": \"configStatus\"\n        }\n      }\n    },\n    {\n      \"id\": \"mCntNetworkCell\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"flex items-center gap-1.5\"\n      },\n      \"children\": [\n        \"mCntNetworkDot\",\n        \"mCntNetworkText\"\n      ]\n    },\n    {\n      \"id\": \"mCntNetworkDot\",\n      \"component\": \"Icon\",\n      \"props\": {\n        \"name\": \"circle\",\n        \"shape\": \"fill\",\n        \"className\": \"w-2 h-2\",\n        \"color\": {\n          \"path\": \"networkStatusColor\"\n        }\n      }\n    },\n    {\n      \"id\": \"mCntNetworkText\",\n      \"component\": \"span\",\n      \"props\": {\n        \"className\": \"text-md\",\n        \"value\": {\n          \"path\": \"networkStatus\"\n        }\n      }\n    },\n    {\n      \"id\": \"mCntActionCell\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"flex items-center gap-1 justify-center\"\n      },\n      \"children\": [\n        \"mCntEditBtn\",\n        \"mCntDeleteRowBtn\"\n      ]\n    },\n    {\n      \"id\": \"mCntEditBtn\",\n      \"component\": \"Button\",\n      \"props\": {\n        \"icon\": \"edit-2\",\n        \"size\": \"small\",\n        \"types\": \"link\"\n      }\n    },\n    {\n      \"id\": \"mCntDeleteRowBtn\",\n      \"component\": \"Button\",\n      \"props\": {\n        \"icon\": \"trash-2\",\n        \"size\": \"small\",\n        \"types\": \"link\"\n      }\n    },\n    {\n      \"id\": \"mCntSwitchContent\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"bg-white rounded-xl shadow-card p-6 mx-4 mb-4 flex items-center justify-center h-40 text-on-surface-variant\",\n        \"value\": \"交换机配置内容\"\n      }\n    },\n    {\n      \"id\": \"mCntRouterContent\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"bg-white rounded-xl shadow-card p-6 mx-4 mb-4 flex items-center justify-center h-40 text-on-surface-variant\",\n        \"value\": \"路由器配置内容\"\n      }\n    },\n    {\n      \"id\": \"mCntApContent\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"bg-white rounded-xl shadow-card p-6 mx-4 mb-4 flex items-center justify-center h-40 text-on-surface-variant\",\n        \"value\": \"AP 配置内容\"\n      }\n    },\n    {\n      \"id\": \"mCntWacContent\",\n      \"component\": \"div\",\n      \"props\": {\n        \"className\": \"bg-white rounded-xl shadow-card p-6 mx-4 mb-4 flex items-center justify-center h-40 text-on-surface-variant\",\n        \"value\": \"WAC 配置内容\"\n      }\n    }\n  ]\n}",
+        "parsed": {
+          "ui_json": {
+            "state": {
+              "primaryActiveKey": "wholeNet",
+              "secondaryActiveKey": "serviceNet",
+              "searchValue": "",
+              "tableData": [
+                {
+                  "entry": 1,
+                  "name": "15",
+                  "nameTag": {
+                    "label": "还原",
+                    "color": "blue"
+                  },
+                  "vlan": 109,
+                  "gatewayMask": "255.255.255.0",
+                  "wiredInterface": "--",
+                  "wirelessConfig": 0,
+                  "configStatus": "正常",
+                  "configStatusColor": "success",
+                  "networkStatus": "正常",
+                  "networkStatusColor": "success"
+                },
+                {
+                  "entry": 2,
+                  "name": "Guest-Net",
+                  "nameTag": {
+                    "label": "访客",
+                    "color": "orange"
+                  },
+                  "vlan": 200,
+                  "gatewayMask": "255.255.255.0",
+                  "wiredInterface": "GE0/0/1",
+                  "wirelessConfig": 1,
+                  "configStatus": "正常",
+                  "configStatusColor": "success",
+                  "networkStatus": "正常",
+                  "networkStatusColor": "success"
+                },
+                {
+                  "entry": 3,
+                  "name": "Office-1",
+                  "nameTag": {
+                    "label": "默认",
+                    "color": "green"
+                  },
+                  "vlan": 10,
+                  "gatewayMask": "255.255.255.0",
+                  "wiredInterface": "GE0/0/2",
+                  "wirelessConfig": 2,
+                  "configStatus": "正常",
+                  "configStatusColor": "success",
+                  "networkStatus": "正常",
+                  "networkStatusColor": "success"
+                },
+                {
+                  "entry": 4,
+                  "name": "IoT-Device",
+                  "nameTag": {
+                    "label": "",
+                    "color": ""
+                  },
+                  "vlan": 50,
+                  "gatewayMask": "255.255.255.0",
+                  "wiredInterface": "--",
+                  "wirelessConfig": 0,
+                  "configStatus": "告警",
+                  "configStatusColor": "warning",
+                  "networkStatus": "离线",
+                  "networkStatusColor": "default"
+                },
+                {
+                  "entry": 5,
+                  "name": "Camera-Stream",
+                  "nameTag": {
+                    "label": "视频流",
+                    "color": "purple"
+                  },
+                  "vlan": 30,
+                  "gatewayMask": "255.255.255.0",
+                  "wiredInterface": "GE0/0/3",
+                  "wirelessConfig": 0,
+                  "configStatus": "正常",
+                  "configStatusColor": "success",
+                  "networkStatus": "正常",
+                  "networkStatusColor": "success"
+                },
+                {
+                  "entry": 6,
+                  "name": "Server-Farm",
+                  "nameTag": {
+                    "label": "",
+                    "color": ""
+                  },
+                  "vlan": 100,
+                  "gatewayMask": "255.255.255.0",
+                  "wiredInterface": "GE0/0/4",
+                  "wirelessConfig": 0,
+                  "configStatus": "异常",
+                  "configStatusColor": "error",
+                  "networkStatus": "故障",
+                  "networkStatusColor": "error"
+                },
+                {
+                  "entry": 7,
+                  "name": "VLAN-Test",
+                  "nameTag": {
+                    "label": "测试",
+                    "color": "cyan"
+                  },
+                  "vlan": 300,
+                  "gatewayMask": "255.255.255.0",
+                  "wiredInterface": "--",
+                  "wirelessConfig": 0,
+                  "configStatus": "正常",
+                  "configStatusColor": "success",
+                  "networkStatus": "正常",
+                  "networkStatusColor": "success"
+                },
+                {
+                  "entry": 8,
+                  "name": "Backup-Net",
+                  "nameTag": {
+                    "label": "",
+                    "color": ""
+                  },
+                  "vlan": 400,
+                  "gatewayMask": "255.255.255.0",
+                  "wiredInterface": "GE0/0/5",
+                  "wirelessConfig": 1,
+                  "configStatus": "正常",
+                  "configStatusColor": "success",
+                  "networkStatus": "正常",
+                  "networkStatusColor": "success"
+                },
+                {
+                  "entry": 9,
+                  "name": "Cloud-Service",
+                  "nameTag": {
+                    "label": "已迁移",
+                    "color": "volcano"
+                  },
+                  "vlan": 500,
+                  "gatewayMask": "255.255.255.0",
+                  "wiredInterface": "GE0/0/6",
+                  "wirelessConfig": 1,
+                  "configStatus": "正常",
+                  "configStatusColor": "success",
+                  "networkStatus": "正常",
+                  "networkStatusColor": "success"
+                },
+                {
+                  "entry": 10,
+                  "name": "VPN-Remote",
+                  "nameTag": {
+                    "label": "",
+                    "color": ""
+                  },
+                  "vlan": 600,
+                  "gatewayMask": "255.255.255.0",
+                  "wiredInterface": "GE0/0/7",
+                  "wirelessConfig": 0,
+                  "configStatus": "告警",
+                  "configStatusColor": "warning",
+                  "networkStatus": "告警",
+                  "networkStatusColor": "warning"
+                },
+                {
+                  "entry": 11,
+                  "name": "Management",
+                  "nameTag": {
+                    "label": "管理",
+                    "color": "geekblue"
+                  },
+                  "vlan": 1,
+                  "gatewayMask": "255.255.255.0",
+                  "wiredInterface": "GE0/0/0",
+                  "wirelessConfig": 0,
+                  "configStatus": "正常",
+                  "configStatusColor": "success",
+                  "networkStatus": "正常",
+                  "networkStatusColor": "success"
+                }
+              ]
+            },
+            "rootId": "mainContentMain",
+            "elements": [
+              {
+                "id": "mainContentMain",
+                "component": "main",
+                "props": {
+                  "className": "flex-1 bg-surface-container-lowest overflow-y-auto"
+                },
+                "children": [
+                  "mCntPrimaryTabs"
+                ]
+              },
+              {
+                "id": "mCntPrimaryTabs",
+                "component": "Tabs",
+                "props": {
+                  "activeKey": {
+                    "path": "/primaryActiveKey"
+                  },
+                  "types": "line",
+                  "size": "medium",
+                  "className": "pt-4 px-4"
+                },
+                "children": [
+                  "mCntPrimaryWholeNet",
+                  "mCntPrimarySwitch",
+                  "mCntPrimaryRouter",
+                  "mCntPrimaryAp",
+                  "mCntPrimaryWac"
+                ]
+              },
+              {
+                "id": "mCntPrimaryWholeNet",
+                "component": "TabItem",
+                "props": {
+                  "key": "wholeNet",
+                  "label": "整网配置",
+                  "content": {
+                    "componentId": "mCntWholeNetContent"
+                  }
+                }
+              },
+              {
+                "id": "mCntPrimarySwitch",
+                "component": "TabItem",
+                "props": {
+                  "key": "switch",
+                  "label": "交换机",
+                  "content": {
+                    "componentId": "mCntSwitchContent"
+                  }
+                }
+              },
+              {
+                "id": "mCntPrimaryRouter",
+                "component": "TabItem",
+                "props": {
+                  "key": "router",
+                  "label": "路由器",
+                  "content": {
+                    "componentId": "mCntRouterContent"
+                  }
+                }
+              },
+              {
+                "id": "mCntPrimaryAp",
+                "component": "TabItem",
+                "props": {
+                  "key": "ap",
+                  "label": "AP",
+                  "content": {
+                    "componentId": "mCntApContent"
+                  }
+                }
+              },
+              {
+                "id": "mCntPrimaryWac",
+                "component": "TabItem",
+                "props": {
+                  "key": "wac",
+                  "label": "WAC",
+                  "content": {
+                    "componentId": "mCntWacContent"
+                  }
+                }
+              },
+              {
+                "id": "mCntWholeNetContent",
+                "component": "div",
+                "props": {
+                  "className": "bg-white rounded-xl shadow-card p-6 mx-4 mb-4"
+                },
+                "children": [
+                  "mCntSecondaryTabs"
+                ]
+              },
+              {
+                "id": "mCntSecondaryTabs",
+                "component": "Tabs",
+                "props": {
+                  "activeKey": {
+                    "path": "/secondaryActiveKey"
+                  },
+                  "types": "line",
+                  "size": "small"
+                },
+                "children": [
+                  "mCntSecondaryService",
+                  "mCntSecondaryIptv",
+                  "mCntSecondaryIntranet"
+                ]
+              },
+              {
+                "id": "mCntSecondaryService",
+                "component": "TabItem",
+                "props": {
+                  "key": "serviceNet",
+                  "label": "业务网",
+                  "content": {
+                    "componentId": "mCntServiceContent"
+                  }
+                }
+              },
+              {
+                "id": "mCntSecondaryIptv",
+                "component": "TabItem",
+                "props": {
+                  "key": "iptv",
+                  "label": "IPTV",
+                  "content": {
+                    "componentId": "mCntIptvContent"
+                  }
+                }
+              },
+              {
+                "id": "mCntSecondaryIntranet",
+                "component": "TabItem",
+                "props": {
+                  "key": "intranet",
+                  "label": "内网穿透",
+                  "content": {
+                    "componentId": "mCntIntranetContent"
+                  }
+                }
+              },
+              {
+                "id": "mCntServiceContent",
+                "component": "div",
+                "props": {
+                  "className": "flex flex-col gap-4 pt-4"
+                },
+                "children": [
+                  "mCntServiceDivider",
+                  "mCntDeviceCard",
+                  "mCntDeviceDivider",
+                  "mCntModuleTitle",
+                  "mCntToolbar",
+                  "mCntDataTable"
+                ]
+              },
+              {
+                "id": "mCntIptvContent",
+                "component": "div",
+                "props": {
+                  "className": "flex items-center justify-center h-32 text-on-surface-variant pt-4",
+                  "value": "IPTV 配置内容"
+                }
+              },
+              {
+                "id": "mCntIntranetContent",
+                "component": "div",
+                "props": {
+                  "className": "flex items-center justify-center h-32 text-on-surface-variant pt-4",
+                  "value": "内网穿透配置内容"
+                }
+              },
+              {
+                "id": "mCntServiceDivider",
+                "component": "Divider",
+                "props": {
+                  "className": "my-0"
+                }
+              },
+              {
+                "id": "mCntDeviceCard",
+                "component": "div",
+                "props": {
+                  "className": "flex items-center justify-between py-3"
+                },
+                "children": [
+                  "mCntDeviceLeft",
+                  "mCntDeviceBtn"
+                ]
+              },
+              {
+                "id": "mCntDeviceLeft",
+                "component": "div",
+                "props": {
+                  "className": "flex items-center gap-4"
+                },
+                "children": [
+                  "mCntDeviceIcon",
+                  "mCntDeviceInfoGroup"
+                ]
+              },
+              {
+                "id": "mCntDeviceIcon",
+                "component": "Icon",
+                "props": {
+                  "name": "monitor",
+                  "shape": "square",
+                  "className": "w-10 h-10 text-primary"
+                }
+              },
+              {
+                "id": "mCntDeviceInfoGroup",
+                "component": "div",
+                "props": {
+                  "className": "flex items-center gap-4"
+                },
+                "children": [
+                  "mCntDeviceName",
+                  "mCntDeviceModel",
+                  "mCntDeviceEsn"
+                ]
+              },
+              {
+                "id": "mCntDeviceName",
+                "component": "span",
+                "props": {
+                  "className": "text-lg font-bold text-on-surface",
+                  "value": "AR_6AEBBC254674648874802"
+                }
+              },
+              {
+                "id": "mCntDeviceModel",
+                "component": "span",
+                "props": {
+                  "className": "text-sm text-on-surface-variant",
+                  "value": "型号 AR651C"
+                }
+              },
+              {
+                "id": "mCntDeviceEsn",
+                "component": "span",
+                "props": {
+                  "className": "text-sm text-on-surface-variant",
+                  "value": "ESN 10023455RLG19807655"
+                }
+              },
+              {
+                "id": "mCntDeviceBtn",
+                "component": "Button",
+                "props": {
+                  "value": "修改网关",
+                  "icon": "edit-3",
+                  "color": "default",
+                  "iconPlacement": "start"
+                }
+              },
+              {
+                "id": "mCntDeviceDivider",
+                "component": "Divider",
+                "props": {
+                  "className": "my-0"
+                }
+              },
+              {
+                "id": "mCntModuleTitle",
+                "component": "span",
+                "props": {
+                  "className": "text-lg font-bold text-on-surface",
+                  "value": "业务网"
+                }
+              },
+              {
+                "id": "mCntToolbar",
+                "component": "div",
+                "props": {
+                  "className": "flex items-center justify-between"
+                },
+                "children": [
+                  "mCntSearchInput",
+                  "mCntToolbarRight"
+                ]
+              },
+              {
+                "id": "mCntSearchInput",
+                "component": "Input",
+                "props": {
+                  "value": {
+                    "path": "/searchValue"
+                  },
+                  "placeholder": "请输入业务网名称",
+                  "prefix": "search",
+                  "className": "w-72"
+                }
+              },
+              {
+                "id": "mCntToolbarRight",
+                "component": "div",
+                "props": {
+                  "className": "flex items-center gap-2"
+                },
+                "children": [
+                  "mCntDeleteBtn",
+                  "mCntCreateGuestBtn",
+                  "mCntCreateServiceBtn",
+                  "mCntRefreshBtn"
+                ]
+              },
+              {
+                "id": "mCntDeleteBtn",
+                "component": "Button",
+                "props": {
+                  "value": "删除",
+                  "icon": "trash-2",
+                  "iconPlacement": "start",
+                  "disabled": true,
+                  "color": "default"
+                }
+              },
+              {
+                "id": "mCntCreateGuestBtn",
+                "component": "Button",
+                "props": {
+                  "value": "创建访客网",
+                  "icon": "user-plus",
+                  "iconPlacement": "start",
+                  "color": "default"
+                }
+              },
+              {
+                "id": "mCntCreateServiceBtn",
+                "component": "Button",
+                "props": {
+                  "value": "创建业务网",
+                  "icon": "plus",
+                  "iconPlacement": "start",
+                  "color": "primary"
+                }
+              },
+              {
+                "id": "mCntRefreshBtn",
+                "component": "Button",
+                "props": {
+                  "icon": "refresh-cw",
+                  "color": "default"
+                }
+              },
+              {
+                "id": "mCntDataTable",
+                "component": "Table",
+                "props": {
+                  "rowKey": "entry",
+                  "dataSource": {
+                    "path": "/tableData"
+                  },
+                  "columns": [
+                    {
+                      "title": "条目",
+                      "dataIndex": "entry"
+                    },
+                    {
+                      "title": "名称",
+                      "dataIndex": "name",
+                      "minWidth": 150
+                    },
+                    {
+                      "title": "VLAN",
+                      "dataIndex": "vlan"
+                    },
+                    {
+                      "title": "网关/掩码",
+                      "dataIndex": "gatewayMask"
+                    },
+                    {
+                      "title": "有线接入口",
+                      "dataIndex": "wiredInterface"
+                    },
+                    {
+                      "title": "无线配置Wi-Fi",
+                      "dataIndex": "wirelessConfig"
+                    },
+                    {
+                      "title": "配置状态",
+                      "dataIndex": "configStatus"
+                    },
+                    {
+                      "title": "网络状态",
+                      "dataIndex": "networkStatus"
+                    },
+                    {
+                      "title": "操作",
+                      "dataIndex": "action",
+                      "width": 100,
+                      "fixed": "end"
+                    }
+                  ],
+                  "className": "mb-4"
+                },
+                "children": {
+                  "path": "/tableData",
+                  "componentId": "mCntTableRow"
+                }
+              },
+              {
+                "id": "mCntTableRow",
+                "component": "TableRow",
+                "children": [
+                  "mCntEntryCell",
+                  "mCntNameCell",
+                  "mCntVlanCell",
+                  "mCntGatewayCell",
+                  "mCntInterfaceCell",
+                  "mCntWirelessCell",
+                  "mCntConfigCell",
+                  "mCntNetworkCell",
+                  "mCntActionCell"
+                ]
+              },
+              {
+                "id": "mCntEntryCell",
+                "component": "span",
+                "props": {
+                  "className": "text-md",
+                  "value": {
+                    "path": "entry"
+                  }
+                }
+              },
+              {
+                "id": "mCntNameCell",
+                "component": "div",
+                "props": {
+                  "className": "flex items-center gap-2"
+                },
+                "children": [
+                  "mCntNameText",
+                  "mCntNameTag"
+                ]
+              },
+              {
+                "id": "mCntNameText",
+                "component": "span",
+                "props": {
+                  "className": "text-md",
+                  "value": {
+                    "path": "name"
+                  }
+                }
+              },
+              {
+                "id": "mCntNameTag",
+                "component": "Tag",
+                "props": {
+                  "value": {
+                    "path": "nameTag/label"
+                  },
+                  "color": {
+                    "path": "nameTag/color"
+                  },
+                  "size": "small"
+                }
+              },
+              {
+                "id": "mCntVlanCell",
+                "component": "span",
+                "props": {
+                  "className": "text-md",
+                  "value": {
+                    "path": "vlan"
+                  }
+                }
+              },
+              {
+                "id": "mCntGatewayCell",
+                "component": "span",
+                "props": {
+                  "className": "text-md",
+                  "value": {
+                    "path": "gatewayMask"
+                  }
+                }
+              },
+              {
+                "id": "mCntInterfaceCell",
+                "component": "span",
+                "props": {
+                  "className": "text-md",
+                  "value": {
+                    "path": "wiredInterface"
+                  }
+                }
+              },
+              {
+                "id": "mCntWirelessCell",
+                "component": "span",
+                "props": {
+                  "className": "text-md",
+                  "value": {
+                    "path": "wirelessConfig"
+                  }
+                }
+              },
+              {
+                "id": "mCntConfigCell",
+                "component": "div",
+                "props": {
+                  "className": "flex items-center gap-1.5"
+                },
+                "children": [
+                  "mCntConfigDot",
+                  "mCntConfigText"
+                ]
+              },
+              {
+                "id": "mCntConfigDot",
+                "component": "Icon",
+                "props": {
+                  "name": "circle",
+                  "shape": "fill",
+                  "className": "w-2 h-2",
+                  "color": {
+                    "path": "configStatusColor"
+                  }
+                }
+              },
+              {
+                "id": "mCntConfigText",
+                "component": "span",
+                "props": {
+                  "className": "text-md",
+                  "value": {
+                    "path": "configStatus"
+                  }
+                }
+              },
+              {
+                "id": "mCntNetworkCell",
+                "component": "div",
+                "props": {
+                  "className": "flex items-center gap-1.5"
+                },
+                "children": [
+                  "mCntNetworkDot",
+                  "mCntNetworkText"
+                ]
+              },
+              {
+                "id": "mCntNetworkDot",
+                "component": "Icon",
+                "props": {
+                  "name": "circle",
+                  "shape": "fill",
+                  "className": "w-2 h-2",
+                  "color": {
+                    "path": "networkStatusColor"
+                  }
+                }
+              },
+              {
+                "id": "mCntNetworkText",
+                "component": "span",
+                "props": {
+                  "className": "text-md",
+                  "value": {
+                    "path": "networkStatus"
+                  }
+                }
+              },
+              {
+                "id": "mCntActionCell",
+                "component": "div",
+                "props": {
+                  "className": "flex items-center gap-1 justify-center"
+                },
+                "children": [
+                  "mCntEditBtn",
+                  "mCntDeleteRowBtn"
+                ]
+              },
+              {
+                "id": "mCntEditBtn",
+                "component": "Button",
+                "props": {
+                  "icon": "edit-2",
+                  "size": "small",
+                  "types": "link"
+                }
+              },
+              {
+                "id": "mCntDeleteRowBtn",
+                "component": "Button",
+                "props": {
+                  "icon": "trash-2",
+                  "size": "small",
+                  "types": "link"
+                }
+              },
+              {
+                "id": "mCntSwitchContent",
+                "component": "div",
+                "props": {
+                  "className": "bg-white rounded-xl shadow-card p-6 mx-4 mb-4 flex items-center justify-center h-40 text-on-surface-variant",
+                  "value": "交换机配置内容"
+                }
+              },
+              {
+                "id": "mCntRouterContent",
+                "component": "div",
+                "props": {
+                  "className": "bg-white rounded-xl shadow-card p-6 mx-4 mb-4 flex items-center justify-center h-40 text-on-surface-variant",
+                  "value": "路由器配置内容"
+                }
+              },
+              {
+                "id": "mCntApContent",
+                "component": "div",
+                "props": {
+                  "className": "bg-white rounded-xl shadow-card p-6 mx-4 mb-4 flex items-center justify-center h-40 text-on-surface-variant",
+                  "value": "AP 配置内容"
+                }
+              },
+              {
+                "id": "mCntWacContent",
+                "component": "div",
+                "props": {
+                  "className": "bg-white rounded-xl shadow-card p-6 mx-4 mb-4 flex items-center justify-center h-40 text-on-surface-variant",
+                  "value": "WAC 配置内容"
+                }
+              }
+            ]
+          },
+          "section_id": "mainContent",
+          "element_id": "mainContentMain",
+          "id_prefix": "mCnt"
+        }
+      }
+    ]
+  }
+}

@@ -3,6 +3,7 @@ import { runChildSession } from "../run-child-session"
 import { logAgentParsed } from "../../utils/debug-log"
 import { mergeJson, type PatchOp, type PatchSource } from "../../utils/patch-json"
 import { MODIFY_FORMAT } from "./schema"
+import { agentThrow } from "../../utils/error-msg"
 
 const AGENT_NAME = "proto_modify";
 
@@ -74,8 +75,13 @@ export default async function proto_modify(ctx: ModuleModifyContext): Promise<Mo
     schema: MODIFY_FORMAT.schema,
   })
   console.log("----- 模块修改Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
-  logAgentParsed(modifyRes.childSessionId, { output: modifyRes.text })
-  const raw = extractJson(modifyRes.text) as unknown
+  // 转换成 json 数据
+  const modifyJson = extractJson(modifyRes.text)
+  if (!modifyJson) {
+    logAgentParsed(modifyRes.childSessionId, { error: "Failed to parse JSON", raw: modifyRes.text })
+    agentThrow(AGENT_NAME, modifyRes.childSessionId, "modify did not return valid JSON")
+  }
+  const raw = modifyJson as unknown
   const patchOps = (Array.isArray(raw) ? raw : [raw]) as PatchOp[]
   const patched = mergeJson(ctx.input.ui_json_str as unknown as PatchSource, patchOps)
 
@@ -85,6 +91,7 @@ export default async function proto_modify(ctx: ModuleModifyContext): Promise<Mo
     elementId: ctx.input.originModules.rootId as string,
     idPrefix: ctx.input.idPrefix,
   }
+  logAgentParsed(modifyRes.childSessionId, returnValue)
   return returnValue
 }
 

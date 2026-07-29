@@ -265,6 +265,12 @@ export const layer = Layer.effect(
                 todowrite: "deny",
                 jimeng_image_generate: "deny",
                 internel_image_generate: "deny",
+                // SPEC-INS-025:question 在上方 defaults 里是 "deny"(全局默认对所有 agent 关闭,
+                // 只有 plan agent 显式 allow),不在这里翻开的话模型的工具列表里根本没有它
+                // ——现象是模型回「我没有名为 question 的工具」,而不是调用后卡住。
+                // insight 需要它向用户提问(如知识库问答让用户选库),故显式放开;
+                // 答题 UI 见 pages/insight/components/question-dock.tsx。
+                question: "allow",
               }),
               user,
             ),

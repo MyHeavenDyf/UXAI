@@ -662,19 +662,15 @@ const sessionMessagesLoaded = createMemo(() => {
   const userMessages = createMemo((): Message[] => {
     const sid = params.id
     if (!sid) return []
-    // 始终包含主 session 的消息
     const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter((m) => m.role === "user")
-    // 追加所有子 session 的用户消息（不受 resultViewMode 影响）
     const childIds = childSessionIDs()
-    if (childIds.size > 0) {
-      const allChildMsgs: Message[] = []
-      for (const childId of childIds) {
-        const childMsgs = ((sync.data.message?.[childId] ?? []) as Message[]).filter((m) => m.role === "user")
-        allChildMsgs.push(...childMsgs)
-      }
-      return [...mainMsgs, ...allChildMsgs]
+    if (childIds.size === 0) return mainMsgs
+    const allMsgs: Message[] = [...mainMsgs]
+    for (const childId of childIds) {
+      const childMsgs = ((sync.data.message?.[childId] ?? []) as Message[]).filter((m) => m.role === "user")
+      allMsgs.push(...childMsgs)
     }
-    return mainMsgs
+    return allMsgs.sort((a, b) => (a as any).time?.created - (b as any).time?.created)
   })
 
   const lastUserMessage = createMemo(() => userMessages().at(-1))
@@ -1908,13 +1904,14 @@ const sessionMessagesLoaded = createMemo(() => {
         const sep = folderProjDir.includes("\\") ? "\\" : "/"
         const artifactFolder = [
           folderProjDir,
-          ...".octo/artifacts/make".split("/"),
+          ".octo",
           sessionId,
+          "outputs",
         ].join(sep)
 
         let existingList = ""
         try {
-          const relPath = `.octo/artifacts/make/${sessionId}`
+          const relPath = `.octo/${sessionId}/outputs`
           const result = await sdk.client.file.list({ path: relPath })
           const files = (result.data ?? []).filter((n) => n.type === "file")
           if (files.length > 0) {
@@ -3529,6 +3526,7 @@ onSlashTrigger={(query) => {
                 planConfirmPending={planConfirmPending()}
                 childPlanConfirmed={childPlanConfirmed()}
                 childSessionStatus={sync.data.session_status[activePlanSessionId() ?? ""]}
+                childBusy={childBusy()}
               />
             </div>
             <Show when={showVersionPanel()}>

@@ -267,6 +267,17 @@ export function HtmlRenderer(props: {
   
   // Handle archive confirm
   async function handleArchiveConfirm(data: ArchiveConfirmData): Promise<void> {
+    const isLoggedIn = !!localStorage.getItem("uiplusToken")
+    tracker.interaction({ 
+      module: "design", 
+      name: "confirm-archive", 
+      extend: JSON.stringify({ 
+        isLoggedIn,
+        isOverwrite: data.isOverwrite,
+        spaceType: data.spaceType 
+      }) 
+    })
+    
     const overlay = document.querySelector('.archive-dialog-overlay') as HTMLElement | null
     const collisionOverlay = document.querySelector('.archive-collision-overlay') as HTMLElement | null
     
@@ -277,18 +288,19 @@ export function HtmlRenderer(props: {
       }
       
       if (overlay) {
-        overlay.style.visibility = 'hidden'
+        overlay.style.display = 'none'
       }
       if (collisionOverlay) {
-        collisionOverlay.style.visibility = 'hidden'
+        collisionOverlay.style.display = 'none'
       }
       
+      await new Promise(resolve => requestAnimationFrame(resolve))
       await new Promise(resolve => requestAnimationFrame(resolve))
       
       const screenshotBlob = await capturePageScreenshot(iframeRef)
       
       if (overlay) {
-        overlay.style.visibility = 'visible'
+        overlay.style.display = ''
       }
       
       const comments = savedComments()
@@ -303,8 +315,6 @@ export function HtmlRenderer(props: {
         sessionId: props.sessionId || "",
         projectDir: props.sdkDirectory || ""
       })
-      
-      const isLoggedIn = !!localStorage.getItem("uiplusToken")
       
       if (isLoggedIn) {
         const fileName = getArtifactFilename(props.filePath).replace(/\.html?$/i, "")
@@ -353,10 +363,10 @@ export function HtmlRenderer(props: {
       }
     } catch (err) {
       if (overlay) {
-        overlay.style.visibility = 'visible'
+        overlay.style.display = ''
       }
       if (collisionOverlay) {
-        collisionOverlay.style.visibility = 'visible'
+        collisionOverlay.style.display = ''
       }
       console.error("[Archive] Failed:", err)
       showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
@@ -1161,7 +1171,7 @@ return (
     <div
       ref={containerRef}
       class="h-full w-full"
-      style={{ overflow: "auto", background: isResponsive() ? "var(--octo-shell-bg, #F3F6FB)" : "white", position: "relative", ...containerStyle() }}
+      style={{ overflow: "hidden", background: isResponsive() ? "var(--octo-shell-bg, #F3F6FB)" : "white", position: "relative", ...containerStyle() }}
     >
       {props.mode === "preview" ? (
         <DrawOverlay

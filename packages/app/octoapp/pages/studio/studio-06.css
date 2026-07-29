@@ -306,14 +306,18 @@
 /* studio-details 折叠/展开面板 */
 .studio-details-wrapper {
   flex-shrink: 0;
+  position: relative;
   display: flex;
   flex-direction: row;
   align-items: stretch;
 }
 
 .studio-details-toggle {
-  flex: 0 0 20px;
-  align-self: center;
+  position: absolute;
+  top: 50%;
+  left: -20px;
+  transform: translateY(-50%);
+  z-index: 1;
   width: 20px;
   height: 37px;
   border: none;
@@ -356,7 +360,7 @@
   background-color: #333;
 }
 
-/* 当 studio-canvas-body 宽度不足 800px 时隐藏详情面板和切换按钮（>=800px 由 JS 自动展开） */
+/* 当 studio-canvas-body 宽度不足 800px 时隐藏详情面板和切换按钮 */
 @container (max-width: 799px) {
   .studio-details-toggle,
   .studio-details {
@@ -364,9 +368,34 @@
   }
 }
 
+/* studio-canvas-stage 宽度不足 600px 时收紧横向内边距（查 stage 所在 flex 列容器，其宽度 = stage 宽度） */
+@container (max-width: 599px) {
+  .studio-canvas-stage {
+    padding: 32px 20px;
+  }
+}
+
 /* 窗口 <1228px 时：studio-canvas-header 右侧预留 84px（放在 studio-06.css 以保证晚于 studio-03.css 的 padding:0 24px 生效） */
 @media (max-width: 1227px) {
   .studio-canvas-header {
     padding-right: 84px;
+  }
+}
+
+/* 窗口 <800px 时：操作区两个盒模型上下排列 */
+@media (max-width: 799px) {
+  .studio-hd-controls {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 窗口 <800px 时：智能重绘工具栏换行，工具组独占一行（放在 studio-06.css 以保证晚于 studio-04/05.css 生效） */
+@media (max-width: 799px) {
+  .studio-inpaint-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .studio-inpaint-tool-group {
+    flex: 0 0 100%;
   }
 }
