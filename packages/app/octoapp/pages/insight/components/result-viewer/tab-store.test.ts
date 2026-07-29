@@ -57,14 +57,17 @@ describe("openTab 跨入口去重", () => {
     expect(store.tabs()).toHaveLength(1)
   })
 
-  it("同一文件不同 type 仍并存(mindmap json 双卡不能被误合)", () => {
+  // 现行去重键带 type,同一文件不同 type 会并存。原用例用的是 mindmap/json 双卡场景,
+  // 而 mindmap 类型已随 §4.2 退役(导图是 json 的内容形态),故改用两个仍存在的 type 表达同一条规则。
+  // 这条规则本身在 §6.1 被废除(去重不看 type),届时本用例反转为「只有 1 个 tab」。
+  it("同一文件不同 type 仍并存(现行规则,§6.1 将废除)", () => {
     const store = createTabStore()
-    const local = "/proj/insight/ses_1/outputs/mindmap.json"
+    const local = "/proj/insight/ses_1/outputs/data.json"
     materialized.set("card-json", local)
-    materialized.set("card-mm", local)
+    materialized.set("card-code", local)
 
     store.openTab(card({ id: "card-json", source: "uri", uri: "https://mcp/m.json", type: "json" }))
-    store.openTab(card({ id: "card-mm", source: "uri", uri: "https://mcp/m.json", type: "mindmap" }))
+    store.openTab(card({ id: "card-code", source: "uri", uri: "https://mcp/m.json", type: "code" }))
 
     expect(store.tabs()).toHaveLength(2)
   })

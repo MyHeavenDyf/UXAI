@@ -1,47 +1,8 @@
 import { describe, expect, test } from "bun:test"
-import { extToOutputType, canOpenLocally, basename, langFromPath, findWriteCards } from "./write-output"
+import { canOpenLocally, basename, langFromPath, findWriteCards } from "./write-output"
 
 // 路径 C:write 工具产物 → OutputCard。spec: output-renderers.md §2.6。
-
-describe("extToOutputType", () => {
-  test("应用内渲染:md / html", () => {
-    expect(extToOutputType("a/b/report.md")).toBe("markdown")
-    expect(extToOutputType("x.markdown")).toBe("markdown")
-    expect(extToOutputType("page.html")).toBe("html")
-    expect(extToOutputType("page.htm")).toBe("html")
-  })
-  test(".json 走 json 卡(扩展名不携带语义,普通 JSON 与导图同扩展名无法区分;导图走路径 A 声明)", () => {
-    expect(extToOutputType("data.json")).toBe("json")
-  })
-  test("代码/纯文本(任何语言)→ code(应用内 shiki 预览)", () => {
-    for (const f of ["script.py", "mod.ts", "main.cpp", "lib.rs", "App.java", "a.go", "q.sql", "x.lua", "s.swift", "n.kt", "notes.txt", "data.log", "conf.yaml", "app.toml", "q.graphql"]) {
-      expect(extToOutputType(f)).toBe("code")
-    }
-  })
-  test("无扩展名 / 未知扩展名 → code(兜底,无需穷举代码扩展名)", () => {
-    expect(extToOutputType("Makefile")).toBe("code")
-    expect(extToOutputType("a/b/README")).toBe("code")
-    expect(extToOutputType("x.unknownext")).toBe("code")
-  })
-  test("office/表格/媒体/压缩/二进制 → file(拉本地应用)", () => {
-    for (const f of ["rows.csv", "book.xlsx", "old.xls", "report.docx", "slides.pptx", "doc.pdf", "p.pages", "s.numbers", "v.mp4", "a.mp3", "pack.zip", "disk.dmg", "bin.exe", "lib.so"]) {
-      expect(extToOutputType(f)).toBe("file")
-    }
-  })
-  test("可浏览器内渲染的图片 → image(png/jpg/heic 等,走 ImageRenderer);无法渲染的设计源文件 → file", () => {
-    for (const f of ["img.png", "pic.heic", "a.jpg", "b.webp", "c.svg", "d.gif"]) {
-      expect(extToOutputType(f)).toBe("image")
-    }
-    for (const f of ["src.psd", "art.ai", "design.sketch", "board.fig"]) {
-      expect(extToOutputType(f)).toBe("file")
-    }
-  })
-  test("大小写不敏感", () => {
-    expect(extToOutputType("REPORT.MD")).toBe("markdown")
-    expect(extToOutputType("Page.HTML")).toBe("html")
-    expect(extToOutputType("IMG.PNG")).toBe("image")
-  })
-})
+// 类型判定的用例已随 extToOutputType 一并迁到 ./output-type.test.ts(SPEC-INS-026 §4.2 单一入口)。
 
 describe("canOpenLocally", () => {
   test("普通文件可本地打开", () => {
