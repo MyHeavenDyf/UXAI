@@ -443,6 +443,32 @@
   margin-left: 8px;
 }
 
+.octo-action-bar-collapsible {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.octo-action-bar-fixed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* ── Action bar responsive (container query) ─── */
+.octo-action-bar { container-type: inline-size; container-name: octo-action-bar; }
+
+@container octo-action-bar (max-width: 780px) {
+  .octo-action-bar-collapsible .octo-action-btn span { display: none; }
+}
+
+@container octo-action-bar (max-width: 520px) {
+  .octo-action-bar { flex-wrap: wrap; justify-content: center; gap: 8px; padding: 8px 16px; }
+  .octo-action-bar-left { width: 100%; justify-content: center; }
+  .octo-action-bar-right { width: 100%; justify-content: center; flex-wrap: wrap; }
+}
+
 /* ── Dropdown ──────────────────── */
 
 .octo-dropdown {
@@ -688,4 +714,26 @@ button.delete-dialog-btn-primary {
 .make-drawer-toggle-btn[data-expanded="true"]::before,
 .make-operations-btn[data-expanded="true"]::before {
   background: rgba(0, 0, 0, 0.06);
+}
+
+/* ── Design files toolbar responsive ───────── */
+.design-files-toolbar {
+  container-type: inline-size;
+  container-name: design-files-toolbar;
+}
+
+@container design-files-toolbar (max-width: 480px) {
+  .design-files-toolbar .toolbar-btn-text {
+    display: none;
+  }
+  .design-files-toolbar .toolbar-group-toggle {
+    min-width: auto !important;
+    padding: 0 8px !important;
+  }
+}
+
+@container design-files-toolbar (max-width: 360px) {
+  .design-files-toolbar .toolbar-divider {
+    display: none;
+  }
 }

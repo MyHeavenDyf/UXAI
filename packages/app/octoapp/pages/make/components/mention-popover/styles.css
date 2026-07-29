@@ -1,7 +1,10 @@
 /* Mention Popover Styles - @ Panel Redesign */
 
-/* Main popover container */
+/* Main popover container — rendered via Portal (outside .octo-make scope),
+   so re-declare the tokens it needs locally, matching .octo-dropdown-menu. */
 .mention-popover-container {
+  --octo-surface-page: #FFFFFF;
+  --octo-border-default: #E5E7EB;
   position: absolute;
   bottom: 100%;
   left: 0;
