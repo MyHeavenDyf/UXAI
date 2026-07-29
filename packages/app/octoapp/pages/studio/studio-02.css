@@ -493,7 +493,8 @@
 
 .studio-menu {
   position: absolute;
-  z-index: 30;
+  /* 高于视频播放器(z-index:51)与悬浮抽屉(50)，低于浮层侧边栏(101)/弹窗(150) */
+  z-index: 60;
   bottom: calc(100% + 8px);
   left: 0;
   right: auto;
