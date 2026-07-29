@@ -159,10 +159,19 @@ export interface RenderFnParam {
    * 可选：此 param 是否为"数据源参数"。
    * 提供 binding 时：
    *   1. state-builder 建立 RenderFnScope，body 内相对 binding 沿此 binding 解析
-   *   2. jsx-emitter 将 body 内相对 binding 以 destructure 后的裸名 `{X}` emit
+   *   2. jsx-emitter 在函数体顶部 `const { ${fields} } = ${dataAccessor}` 解构后，以裸名 `{X}` emit
    * 不提供时：仅作为普通运行时 param 透传
    */
   dataSource?: BindingValue
+
+  /**
+   * 可选：数据在 param 上的嵌套字段（决定解构源）。
+   * 例：eview-react Table render(cellValue, rowData, options, row)，当前行数据在 `row.rawData`，
+   * 则 dataSource 参数 name='row' + dataField='rawData'，解构源为 `row.rawData`
+   * （`const { f1, f2 } = row.rawData`），body 内相对 binding 仍裸 `{f1}`。
+   * 不提供时：解构源 = name（如 `rowData`）。
+   */
+  dataField?: string
 }
 
 // ─── RenderFnValue（渲染函数） ───

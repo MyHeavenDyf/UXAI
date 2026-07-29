@@ -13,6 +13,7 @@
 
 import type { BuildNode, ComponentNode, HtmlNode, ExtractNode, LoopNode, RegularNode } from '../core/nodeTypes'
 import type { ImportSpec, PropValue } from '../core/valueTypes'
+import { getIconPackage } from '../core/iconCollection'
 
 interface ImportEntry {
   default: string | null
@@ -224,23 +225,27 @@ export function renderImportBlock(imports: ImportMap): string {
 /**
  * import 排序优先级：
  *   0. react 相关
- *   1. @nce/icon-plus（图标库）
+ *   1. 当前目标库的图标库（@nce/icon-plus / @hui/icon-plus，经 getIconPackage() 取）
  *   2. ./modules/*（页面模块）
  *   3. ../components/*（循环模板）
- *   4. @nce/eview-react/*（目标组件库）
+ *   4. 目标组件库（其余外部包，如 @nce/eview-react/* / @cloudsop/eview-ui/*）
  *   5. ./state（页面数据源）
  *   6. ./styles/*（样式）
  *   7. 其他
+ *
+ * 桶 1/4 不硬编码任何具体包名：图标库取当前激活值，目标组件库兜底"外部包"，
+ * 覆盖任意目标库/图标库包名。renderImportBlock 在 FileGenerator（step 4）执行，
+ * 晚于 registerComponents（step 0）的 setIconPackage，读到的 iconPkg 已是当前库值。
  */
 function importSortKey(a: string, b: string): number {
   const priority = (s: string): number => {
     if (s === 'react' || s === 'react-dom') return 0
-    if (s.startsWith('@nce/icon')) return 1
+    if (s === getIconPackage()) return 1
     if (s.includes('/modules/') || s.startsWith('./modules/')) return 2
     if (s.includes('/components/') || s.startsWith('../components/')) return 3
-    if (s.startsWith('@nce/eview-react')) return 4
     if (s === './state') return 5
     if (s.startsWith('./styles/')) return 6
+    if (!s.startsWith('.')) return 4   // 其余外部包 = 目标组件库（react/icon 已在前面返回）
     return 7
   }
   const pa = priority(a)

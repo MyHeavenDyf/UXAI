@@ -64,7 +64,7 @@ export class PipelineContext {
   // ── Step 5: FileGenerator ──
   generatedFiles: GeneratedFile[]
 
-  // ── Step 5b: GenerateStyles（less / module.less + globalLess）──
+  // ── Step 5b: GenerateStyles（less / module.less）──
   styleResults: any[]
 
   // ── Step 6: GenerateRoutes ──

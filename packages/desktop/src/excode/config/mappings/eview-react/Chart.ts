@@ -24,60 +24,62 @@
  * - BuildTrees 已递归处理 option 内嵌的 {path} 绑定→BindingValue，transform 不额外处理
  * - 默认 option 从 chartDefaults/ 加载 + 深合并
  * - 运行时函数（formatter 等）自动转为 RawExprValue 序列化
+ *
+ * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
  */
 
 import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
 import type { PropValue } from '../../../src/core/valueTypes'
 import { buildChartOption, SPECIAL_YAXIS } from '../../chartDefaults'
 
-const ChartMapping: MappingDef = {
-  tag: 'Chart',
-  import: '@nce/eview-react/Chart',
+export function createChartMapping(pkg: string): MappingDef {
+  return {
+    tag: 'Chart',
+    import: `${pkg}/Chart`,
 
-  transform(node: any, _ctx: TransformContext) {
-    const props = node.props || {}
-    const chartName = node.component as string
+    transform(node: any, _ctx: TransformContext) {
+      const props = node.props || {}
+      const chartName = node.component as string
 
-    // ─── 读取 A2UI option ───
-    const a2uiOption = props.option ? { ...(props.option as Record<string, any>) } : {}
+      // ─── 读取 A2UI option ───
+      const a2uiOption = props.option ? { ...(props.option as Record<string, any>) } : {}
 
-    // ─── yAxisTitle → yAxis.name（仅 SPECIAL_YAXIS 中的图表）───
-    if (SPECIAL_YAXIS.has(chartName) && a2uiOption.yAxisTitle !== undefined) {
-      const title = a2uiOption.yAxisTitle
-      delete a2uiOption.yAxisTitle
-      // 如果用户已定义 yAxis，合并 name 进去；否则新建 yAxis
-      if (a2uiOption.yAxis) {
-        a2uiOption.yAxis = { ...a2uiOption.yAxis, name: title }
-      } else {
-        a2uiOption.yAxis = { name: title }
+      // ─── yAxisTitle → yAxis.name（仅 SPECIAL_YAXIS 中的图表）───
+      if (SPECIAL_YAXIS.has(chartName) && a2uiOption.yAxisTitle !== undefined) {
+        const title = a2uiOption.yAxisTitle
+        delete a2uiOption.yAxisTitle
+        // 如果用户已定义 yAxis，合并 name 进去；否则新建 yAxis
+        if (a2uiOption.yAxis) {
+          a2uiOption.yAxis = { ...a2uiOption.yAxis, name: title }
+        } else {
+          a2uiOption.yAxis = { name: title }
+        }
       }
-    }
 
-    // ─── 构建最终 option（合并默认 + 注入 a2/theme）───
-    const mergedOption = buildChartOption(chartName, a2uiOption)
+      // ─── 构建最终 option（合并默认 + 注入 a2/theme）───
+      const mergedOption = buildChartOption(chartName, a2uiOption)
 
-    // ─── 构造输出 props ───
-    const outputProps: Record<string, PropValue> = {
-      name: chartName,
-      option: mergedOption as PropValue,
-    }
+      // ─── 构造输出 props ───
+      const outputProps: Record<string, PropValue> = {
+        name: chartName,
+        option: mergedOption as PropValue,
+      }
 
-    // 透传 className
-    if (props.className) {
-      outputProps.className = props.className
-    }
+      // 透传 className
+      if (props.className) {
+        outputProps.className = props.className
+      }
 
-    // 透传 id
-    if (props.id) {
-      outputProps.id = props.id
-    }
+      // 透传 id
+      if (props.id) {
+        outputProps.id = props.id
+      }
 
-    return {
-      props: outputProps,
-      children: null,
-      selfClosing: true,
-    }
-  },
+      return {
+        props: outputProps,
+        children: null,
+        selfClosing: true,
+      }
+    },
+  }
 }
-
-export default ChartMapping

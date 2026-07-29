@@ -27,6 +27,8 @@
  * - extractor 处理：单开时 onExpand( index ) → setter([index])
  * - accordion=false 映射为 enableMultiExpand=true
  * - children 透传（PanelItem 作为子节点渲染）
+ *
+ * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
  */
 
 import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
@@ -53,94 +55,94 @@ function findIndexInRawData(rawData: any[], keyVal: string): number {
   return -1
 }
 
-const CollapseMapping: MappingDef = {
-  tag: 'Panel',
-  import: '@nce/eview-react/Panel',
+export function createCollapseMapping(pkg: string): MappingDef {
+  return {
+    tag: 'Panel',
+    import: `${pkg}/Panel`,
 
-  transform(node: any, ctx: TransformContext) {
-    const props = node.props || {}
-    const outputProps: Record<string, PropValue> = {}
-    const SKIP_KEYS = new Set([
-      'activeKey', 'accordion', 'size', 'expandIcon', 'expandIconPlacement', 'className',
-    ])
+    transform(node: any, ctx: TransformContext) {
+      const props = node.props || {}
+      const outputProps: Record<string, PropValue> = {}
+      const SKIP_KEYS = new Set([
+        'activeKey', 'accordion', 'size', 'expandIcon', 'expandIconPlacement', 'className',
+      ])
 
-    // ─── 判定 children 形态 ───
-    const children = node.children
-    const isLoop = children && typeof children === 'object' && children.kind === 'loop'
-    const staticChildren = isLoop ? [] : (Array.isArray(children) ? children : [])
+      // ─── 判定 children 形态 ───
+      const children = node.children
+      const isLoop = children && typeof children === 'object' && children.kind === 'loop'
+      const staticChildren = isLoop ? [] : (Array.isArray(children) ? children : [])
 
-    // ─── activeKey → selectedIndex（useState，双形态） ───
-    //   字面量 → Value.literal（编译期算索引）
-    //   DataBinding → Value.computed.useState（transform 内用 cvCtx 读循环数据算索引，path 直传无需 resolveValueFromPath）
-    const hasActiveKey = Object.prototype.hasOwnProperty.call(props, 'activeKey')
-    if (hasActiveKey) {
-      const rawProp = props.activeKey
-      const extractor = (setter: string) => `(index, event) => ${setter}([index])`
+      // ─── activeKey → selectedIndex（useState，双形态） ───
+      //   字面量 → Value.literal（编译期算索引）
+      //   DataBinding → Value.computed.useState（transform 内用 cvCtx 读循环数据算索引，path 直传无需 resolveValueFromPath）
+      const hasActiveKey = Object.prototype.hasOwnProperty.call(props, 'activeKey')
+      if (hasActiveKey) {
+        const rawProp = props.activeKey
+        const extractor = (setter: string) => `(index, event) => ${setter}([index])`
 
-      if (rawProp && typeof rawProp === 'object' && rawProp.type === 'binding') {
-        // DataBinding → ComputedValue.useState
-        const staticChildrenCapture = staticChildren
-        const loopCapture = isLoop ? (children as LoopNode) : null
-        outputProps.selectedIndex = Value.computed({
-          path: rawProp.path,
-          pathType: rawProp.pathType ?? 'absolute',
-          accessPath: rawProp.accessPath,
-          containsJSX: false,
-          useState: { event: 'onExpand', extractor },
-          transform: (rawActiveKey: any, cvCtx?: any) => {
-            const activeKeyVal = rawActiveKey !== undefined && rawActiveKey !== null ? String(rawActiveKey) : ''
-            if (!activeKeyVal || activeKeyVal === '') return [0]
-            let idx = findIndexInStaticChildren(staticChildrenCapture, activeKeyVal)
-            if (idx === -1 && loopCapture) {
-              const data = loopCapture.data as BindingValue
-              const rawData = data?.path && cvCtx ? (cvCtx.resolveValueFromPath(data.path) ?? []) : []
+        if (rawProp && typeof rawProp === 'object' && rawProp.type === 'binding') {
+          // DataBinding → ComputedValue.useState
+          const staticChildrenCapture = staticChildren
+          const loopCapture = isLoop ? (children as LoopNode) : null
+          outputProps.selectedIndex = Value.computed({
+            path: rawProp.path,
+            pathType: rawProp.pathType ?? 'absolute',
+            accessPath: rawProp.accessPath,
+            containsJSX: false,
+            useState: { event: 'onExpand', extractor },
+            transform: (rawActiveKey: any, cvCtx?: any) => {
+              const activeKeyVal = rawActiveKey !== undefined && rawActiveKey !== null ? String(rawActiveKey) : ''
+              if (!activeKeyVal || activeKeyVal === '') return [0]
+              let idx = findIndexInStaticChildren(staticChildrenCapture, activeKeyVal)
+              if (idx === -1 && loopCapture) {
+                const data = loopCapture.data as BindingValue
+                const rawData = data?.path && cvCtx ? (cvCtx.resolveValueFromPath(data.path) ?? []) : []
+                idx = findIndexInRawData(rawData, activeKeyVal)
+              }
+              return [idx !== -1 ? idx : 0]
+            },
+          })
+        } else {
+          // 字面量 → Value.literal.useState（编译期算索引）
+          const activeKeyVal = typeof rawProp === 'string' ? rawProp : ''
+          let selectedIndex = 0
+          if (activeKeyVal && activeKeyVal !== '') {
+            let idx = -1
+            if (isLoop) {
+              const data = (children as LoopNode).data as BindingValue
+              const rawData = data?.path ? (ctx.resolveAbsoluteStateValue(data.path) ?? []) : []
               idx = findIndexInRawData(rawData, activeKeyVal)
+            } else {
+              idx = findIndexInStaticChildren(staticChildren, activeKeyVal)
             }
-            return [idx !== -1 ? idx : 0]
-          },
-        })
-      } else {
-        // 字面量 → Value.literal.useState（编译期算索引）
-        const activeKeyVal = typeof rawProp === 'string' ? rawProp : ''
-        let selectedIndex = 0
-        if (activeKeyVal && activeKeyVal !== '') {
-          let idx = -1
-          if (isLoop) {
-            const data = (children as LoopNode).data as BindingValue
-            const rawData = data?.path ? (ctx.resolveAbsoluteStateValue(data.path) ?? []) : []
-            idx = findIndexInRawData(rawData, activeKeyVal)
-          } else {
-            idx = findIndexInStaticChildren(staticChildren, activeKeyVal)
+            if (idx !== -1) selectedIndex = idx
           }
-          if (idx !== -1) selectedIndex = idx
+          outputProps.selectedIndex = Value.literal({
+            value: [selectedIndex],
+            useState: { event: 'onExpand', extractor },
+          })
         }
-        outputProps.selectedIndex = Value.literal({
-          value: [selectedIndex],
-          useState: { event: 'onExpand', extractor },
-        })
       }
-    }
 
-    // ─── accordion: false → enableMultiExpand: true ───
-    if (props.accordion === false) {
-      outputProps.enableMultiExpand = true
-    }
-
-    // ─── className 透传 ───
-    if (props.className) outputProps.className = props.className
-
-    // ─── 透传剩余 prop ───
-    for (const [key, value] of Object.entries(props)) {
-      if (!SKIP_KEYS.has(key)) {
-        outputProps[key] = value as PropValue
+      // ─── accordion: false → enableMultiExpand: true ───
+      if (props.accordion === false) {
+        outputProps.enableMultiExpand = true
       }
-    }
 
-    return {
-      props: outputProps,
-      // children 透传（PanelItem 作为子节点渲染）
-    }
-  },
+      // ─── className 透传 ───
+      if (props.className) outputProps.className = props.className
+
+      // ─── 透传剩余 prop ───
+      for (const [key, value] of Object.entries(props)) {
+        if (!SKIP_KEYS.has(key)) {
+          outputProps[key] = value as PropValue
+        }
+      }
+
+      return {
+        props: outputProps,
+        // children 透传（PanelItem 作为子节点渲染）
+      }
+    },
+  }
 }
-
-export default CollapseMapping
