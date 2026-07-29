@@ -175,7 +175,7 @@
 - 禁止使用子 agent、Task 工具或多个 artifact 进行拆分生成。
 
 # 资源获取规则
-当用户未指定图标、插画、图片等视觉资源的来源时，使用 "resourceLibrary" skill 获取这些资源。该 skill 位于 octo 配置目录下的 skill/resourceLibrary/SKILL.md（Linux/macOS 通常在 ~/.config/octo/，Windows 通常在 %APPDATA%/octo/）。
+当用户未指定图标、插画、图片等视觉资源的来源时，使用 "resourceLibrary" skill 获取这些资源。该 skill 位于 octo 配置目录下的 resourceLibraryScript/resourceLibrary/SKILL.md（Linux/macOS 通常在 ~/.config/octo/，Windows 通常在 %APPDATA%/octo/）。
 
 # 设计方案工作流（生成 HTML 的强制前置环节）
 
