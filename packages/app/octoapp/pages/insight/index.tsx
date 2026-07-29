@@ -47,6 +47,7 @@ import { McpChip } from "./components/mcp-chip"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { materializeUriCardToOutputs } from "./utils/local-resource"
+import { notifyMaterializeFailure } from "./utils/materialize-notify"
 import { PRESET_PROMPTS } from "./store/preset-prompts"
 import {
   buildChipDeclaration,
@@ -1975,7 +1976,10 @@ function InsightContent() {
         if (eagerMaterializedCardIds.has(oc.id)) continue
         eagerMaterializedCardIds.add(oc.id)
         // 落盘后通知文件管理表格重拉:否则任务产物进了 outputs 目录,列表仍要手动切面板才看得到。
-        void materializeUriCardToOutputs(oc, dir, sid).then(() => setFilesRefreshKey((k) => k + 1))
+        void materializeUriCardToOutputs(oc, dir, sid).then((r) => {
+          notifyMaterializeFailure(r)
+          setFilesRefreshKey((k) => k + 1)
+        })
       }
     }
   })

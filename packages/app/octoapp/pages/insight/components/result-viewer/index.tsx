@@ -14,8 +14,8 @@ import { IllustrationResultEmpty, fileTypeIconUrl } from "../../icons/illustrati
 import { extractTableMarkdown } from "../../utils/markdown-table"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
-import { defaultFilename as defaultLocalFilename } from "../../utils/local-file"
-import { ensureLocalMarkdownFile } from "../../utils/local-resource"
+import { defaultFilename as defaultLocalFilename, saveDialogName } from "../../utils/local-file"
+import { ensureLocalMarkdownFile, describeResourceError } from "../../utils/local-resource"
 import { openFileLocally, revealFileInFolder, NO_APP_HINT } from "../../utils/local-file-ops"
 import { MarkdownEditor } from "../markdown-editor"
 import { MarkdownPreview } from "../markdown-editor/markdown-preview"
@@ -382,7 +382,8 @@ function ResourceErrorFallback(props: {
   error: unknown
   onRetry: () => void
 }): JSX.Element {
-  const message = () => (props.error instanceof Error ? props.error.message : String(props.error))
+  // 剥掉 [octo:name-rejected] 这类机器标记再展示(§4.1 拒绝类失败的原因文案本身是中文可读的)
+  const message = () => describeResourceError(props.error)
   return (
     <div class="flex flex-col items-center justify-center h-full gap-3 px-8 text-center">
       <div class="text-sm" style={{ color: "var(--octo-text-secondary)" }}>
@@ -483,7 +484,8 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     return ext || props.tab.mimeType || ""
   }
 
-  // 默认落地文件名:复用共享 util(与 markdown 编辑器同一套规则,见 utils/local-file.ts)
+  // 默认落地文件名:复用共享 util(与 markdown 编辑器同一套规则,见 utils/local-file.ts)。
+  // 逐字保留 —— 落盘是否要清洗/拒绝由主进程 landingName 单点决定(SPEC-INS-026 §4.1)。
   const defaultFilename = () => defaultLocalFilename(props.tab)
 
   // path 源(write 产物):文件已在本地磁盘,直接 openPath(filePath),无需下载。
@@ -554,9 +556,11 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     const api = getDesktopApi()!
     setDownloadBusy(true)
     try {
-      // 保存位置:有项目目录则落项目内,无则让 OS 弹空白(用户自选)
+      // 保存位置:有项目目录则落项目内,无则让 OS 弹空白(用户自选)。
+      // defaultPath 会被 OS 当路径解析,故这里(且仅这里)过一道 saveDialogName —— 与落盘链路无关。
       const projectBase = projectDir()
-      const defaultPath = projectBase ? `${projectBase}/${defaultFilename()}` : defaultFilename()
+      const dialogName = saveDialogName(defaultFilename())
+      const defaultPath = projectBase ? `${projectBase}/${dialogName}` : dialogName
       const chosen = await api.saveFilePicker!({ defaultPath })
       if (!chosen) {
         setDownloadBusy(false)
