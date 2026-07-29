@@ -202,26 +202,55 @@ const MOCK_SEARCH_RESULTS: DeliverableItem[] = [
 
 const PROJECT_ARCHIVE_ID = -1
 
-const filterFolderList = (nodes: NestedTreeNode[]): NestedTreeNode[] => {
+const formatFolderList = (nodes: NestedTreeNode[]): NestedTreeNode[] => {
   return nodes.map(node => {
-    let children = node.children ? filterFolderList(node.children) : []
-    
-    if (node.label === '版本管理') {
-      children = children.filter(child => child.label !== '版本管理')
+    let children = node.children ? formatFolderList(node.children) : []
+    children = children.filter(child => child.permissionFlag)
+    let permissionFlag = node.permissionFlag
+    if (children.length > 0) {
+      permissionFlag = true
     }
-    
-    let _hide = node.permissionFlag === false
-    if (!_hide && children.length > 0 && children.every(child => child._hide)) {
-      _hide = true
-    }
-    
     return {
       ...node,
-      _hide,
-      disabled: node.canClick === false,
+      permissionFlag,
       children
     }
   })
+}
+
+const getWorkFlowFolderList = (nodes: NestedTreeNode[]): NestedTreeNode[] => {
+  const formatNodes = (items: NestedTreeNode[]): NestedTreeNode[] => {
+    return items.map(item => {
+      let children = item.children ? formatNodes(item.children) : []
+      
+      if (item.label === '版本管理') {
+        children = children.filter(child => child.label !== '版本管理')
+      }
+      
+      let _hide = !item.permissionFlag
+      if (!_hide && children.length > 0) {
+        const allChildrenHide = children.every(child => child._hide)
+        if (allChildrenHide) _hide = true
+      }
+      
+      return {
+        ...item,
+        _hide,
+        children
+      }
+    })
+  }
+  
+  const result = formatNodes(nodes)
+  result.forEach(node => {
+    node.disabled = true
+  })
+  return result
+}
+
+const filterFolderList = (nodes: NestedTreeNode[]): NestedTreeNode[] => {
+  const formatted = formatFolderList(nodes).filter(node => node.permissionFlag)
+  return getWorkFlowFolderList(formatted)
 }
 
 const findFirstSelectable = (nodes: NestedTreeNode[]): NestedTreeNode | null => {
