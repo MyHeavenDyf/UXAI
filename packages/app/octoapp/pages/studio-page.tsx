@@ -4078,7 +4078,6 @@ if (!headerTitle.pendingRename) return
             position: "absolute",
             inset: "0",
             "z-index": "100",
-            background: "rgba(0, 0, 0, 0.2)",
           }}
           onClick={() => setStudioLeftOverlayOpen(false)}
         />
@@ -4092,6 +4091,7 @@ if (!headerTitle.pendingRename) return
             "z-index": "101",
             background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
             "border-right": "1px solid var(--border-weak-base)",
+            "box-shadow": "4px 0 24px rgba(0, 0, 0, 0.12)",
             overflow: "hidden",
           }}
         >
