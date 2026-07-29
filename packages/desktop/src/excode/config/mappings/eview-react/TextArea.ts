@@ -20,69 +20,71 @@
  *
  * - value 双形态分叉：字面量→LiteralValue，DataBinding→ComputedValue
  * - 均触发生成 useState + onChange 事件
+ *
+ * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
  */
 
 import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
 import type { PropValue } from '../../../src/core/valueTypes'
 import { Value } from '../../../src/core/value'
 
-const TextAreaMapping: MappingDef = {
-  tag: 'TextArea',
-  import: '@nce/eview-react/TextArea',
+export function createTextAreaMapping(pkg: string): MappingDef {
+  return {
+    tag: 'TextArea',
+    import: `${pkg}/TextArea`,
 
-  transform(node: any, ctx: TransformContext) {
-    const props = node.props || {}
-    const outputProps: Record<string, PropValue> = {}
-    const SKIP_KEYS = new Set(['value', 'placeholder', 'maxLength', 'autoSize', 'size'])
+    transform(node: any, ctx: TransformContext) {
+      const props = node.props || {}
+      const outputProps: Record<string, PropValue> = {}
+      const SKIP_KEYS = new Set(['value', 'placeholder', 'maxLength', 'autoSize', 'size'])
 
-    // ─── value（useState 受控，双形态） ───
-    if ('value' in props) {
-      const val = props.value
-      if (val && typeof val === 'object' && val.type === 'binding') {
-        outputProps.value = Value.computed({
-          path: val.path,
-          pathType: val.pathType ?? 'absolute',
-          accessPath: val.accessPath ?? 'textAreaValue',
-          containsJSX: false,
-          useState: {
-            event: 'onChange',
-            extractor: (setter) => `(val) => ${setter}(val)`,
-          },
-          transform: (rawValue: any) => rawValue ?? '',
-        })
-      } else {
-        outputProps.value = Value.literal({
-          value: val ?? '',
-          useState: {
-            event: 'onChange',
-            extractor: (setter) => `(val) => ${setter}(val)`,
-          },
-        })
+      // ─── value（useState 受控，双形态） ───
+      if ('value' in props) {
+        const val = props.value
+        if (val && typeof val === 'object' && val.type === 'binding') {
+          outputProps.value = Value.computed({
+            path: val.path,
+            pathType: val.pathType ?? 'absolute',
+            accessPath: val.accessPath ?? 'textAreaValue',
+            containsJSX: false,
+            useState: {
+              event: 'onChange',
+              extractor: (setter) => `(val) => ${setter}(val)`,
+            },
+            transform: (rawValue: any) => rawValue ?? '',
+          })
+        } else {
+          outputProps.value = Value.literal({
+            value: val ?? '',
+            useState: {
+              event: 'onChange',
+              extractor: (setter) => `(val) => ${setter}(val)`,
+            },
+          })
+        }
       }
-    }
 
-    // ─── placeholder ───
-    if (props.placeholder !== undefined) outputProps.placeholder = props.placeholder
+      // ─── placeholder ───
+      if (props.placeholder !== undefined) outputProps.placeholder = props.placeholder
 
-    // ─── maxLength ───
-    if (props.maxLength !== undefined) outputProps.maxLength = props.maxLength
+      // ─── maxLength ───
+      if (props.maxLength !== undefined) outputProps.maxLength = props.maxLength
 
-    // ─── autoSize → sizeAuto ───
-    if (props.autoSize !== undefined) outputProps.sizeAuto = props.autoSize
+      // ─── autoSize → sizeAuto ───
+      if (props.autoSize !== undefined) outputProps.sizeAuto = props.autoSize
 
-    // ─── className ───
-    if (props.className) outputProps.className = props.className as PropValue
+      // ─── className ───
+      if (props.className) outputProps.className = props.className as PropValue
 
-    // 透传剩余
-    for (const [key, value] of Object.entries(props)) {
-      if (!SKIP_KEYS.has(key)) outputProps[key] = value as PropValue
-    }
+      // 透传剩余
+      for (const [key, value] of Object.entries(props)) {
+        if (!SKIP_KEYS.has(key)) outputProps[key] = value as PropValue
+      }
 
-    return {
-      props: outputProps,
-      children: null,
-    }
-  },
+      return {
+        props: outputProps,
+        children: null,
+      }
+    },
+  }
 }
-
-export default TextAreaMapping

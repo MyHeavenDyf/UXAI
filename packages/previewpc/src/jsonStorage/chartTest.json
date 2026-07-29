@@ -1,0 +1,1348 @@
+{
+    "state": {
+        "platformTitle": "图表组件测试",
+        "barChartData": [
+            { "category": "周一", "sales": 120, "returns": 30 },
+            { "category": "周二", "sales": 200, "returns": 45 },
+            { "category": "周三", "sales": 150, "returns": 25 },
+            { "category": "周四", "sales": 280, "returns": 60 },
+            { "category": "周五", "sales": 170, "returns": 35 },
+            { "category": "周六", "sales": 320, "returns": 55 },
+            { "category": "周日", "sales": 250, "returns": 40 }
+        ],
+        "stackBarChartData": [
+            { "category": "Q1", "productA": 320, "productB": 220, "productC": 150 },
+            { "category": "Q2", "productA": 280, "productB": 180, "productC": 120 },
+            { "category": "Q3", "productA": 350, "productB": 250, "productC": 180 },
+            { "category": "Q4", "productA": 400, "productB": 300, "productC": 200 }
+        ],
+        "lineChartData": [
+            { "month": "1月", "temperature": 5, "humidity": 40 },
+            { "month": "2月", "temperature": 8, "humidity": 45 },
+            { "month": "3月", "temperature": 14, "humidity": 55 },
+            { "month": "4月", "temperature": 20, "humidity": 60 },
+            { "month": "5月", "temperature": 25, "humidity": 65 },
+            { "month": "6月", "temperature": 30, "humidity": 75 },
+            { "month": "7月", "temperature": 33, "humidity": 80 },
+            { "month": "8月", "temperature": 31, "humidity": 78 },
+            { "month": "9月", "temperature": 26, "humidity": 68 },
+            { "month": "10月", "temperature": 18, "humidity": 58 },
+            { "month": "11月", "temperature": 10, "humidity": 48 },
+            { "month": "12月", "temperature": 4, "humidity": 38 }
+        ],
+        "areaChartData": [
+            { "day": "Day1", "active": 30, "inactive": 20 },
+            { "day": "Day2", "active": 45, "inactive": 30 },
+            { "day": "Day3", "active": 55, "inactive": 25 },
+            { "day": "Day4", "active": 70, "inactive": 35 },
+            { "day": "Day5", "active": 65, "inactive": 28 },
+            { "day": "Day6", "active": 80, "inactive": 40 },
+            { "day": "Day7", "active": 75, "inactive": 32 }
+        ],
+        "pieChartData": [
+            { "name": "直接访问", "value": 335 },
+            { "name": "邮件营销", "value": 210 },
+            { "name": "联盟广告", "value": 148 },
+            { "name": "视频广告", "value": 98 },
+            { "name": "搜索引擎", "value": 409 }
+        ],
+        "radarChartData": {
+            "预算分配": { "销售": 4300, "管理": 10000, "信息技术": 28000, "客服": 35000, "研发": 50000, "市场": 19000 },
+            "实际开销": { "销售": 5000, "管理": 14000, "信息技术": 28000, "客服": 31000, "研发": 42000, "市场": 21000 }
+        },
+        "scatterChartData": {
+            "1990": [[28604, 77], [31163, 77.4], [15163, 68.1], [13670, 73.5], [28599, 75.3]],
+            "2000": [[30154, 78.1], [32464, 78.5], [16906, 70.2], [14710, 74.2], [30902, 76.5]],
+            "2010": [[34015, 79.8], [35472, 80.2], [18503, 72.3], [15756, 75.8], [33240, 77.9]]
+        },
+        "bubbleChartData": {
+            "Product A": [[10, 20, 5], [30, 40, 10]],
+            "Product B": [[20, 30, 8], [40, 50, 12]],
+            "Product C": [[15, 25, 6], [35, 45, 9]]
+        },
+        "funnelChartData": [
+            { "name": "展现", "value": 100 },
+            { "name": "点击", "value": 80 },
+            { "name": "访问", "value": 60 },
+            { "name": "咨询", "value": 40 },
+            { "name": "下单", "value": 20 }
+        ],
+        "gaugeChartData": [
+            { "name": "CPU利用率", "value": 72.5 }
+        ],
+        "hillChartData": [
+            { "name": "销售额", "value": 280, "group": "A" },
+            { "name": "利润", "value": 150, "group": "A" },
+            { "name": "客户数", "value": 320, "group": "B" },
+            { "name": "订单量", "value": 200, "group": "B" },
+            { "name": "库存", "value": 100, "group": "C" },
+            { "name": "退货率", "value": 50, "group": "C" }
+        ],
+        "jadeJueChartData": [
+            { "name": "完成率", "value": 85 },
+            { "name": "质量达标", "value": 92 },
+            { "name": "准时交付", "value": 78 }
+        ],
+        "bulletChartData": [
+            { "name": "收入", "value": 85, "target": 100, "ranges": [30, 60, 90, 100] },
+            { "name": "利润", "value": 70, "target": 80, "ranges": [20, 50, 70, 80] },
+            { "name": "效率", "value": 90, "target": 95, "ranges": [40, 65, 85, 95] }
+        ],
+        "circleProcessChartData": [
+            { "name": "磁盘使用率", "value": 65 },
+            { "name": "内存使用率", "value": 78 },
+            { "name": "CPU使用率", "value": 45 }
+        ],
+        "processChartData": [
+            { "name": "项目A", "value": 85 },
+            { "name": "项目B", "value": 60 },
+            { "name": "项目C", "value": 92 },
+            { "name": "项目D", "value": 35 }
+        ],
+        "stackProcessChartData": [
+            {
+                "name": "任务A",
+                "children": [
+                    { "name": "已完成", "type": "已完成", "value": 30 },
+                    { "name": "进行中", "type": "进行中", "value": 15 }
+                ]
+            },
+            {
+                "name": "任务B",
+                "children": [
+                    { "name": "已完成", "type": "已完成", "value": 25 },
+                    { "name": "进行中", "type": "进行中", "value": 35 }
+                ]
+            },
+            {
+                "name": "任务C",
+                "children": [
+                    { "name": "已完成", "type": "已完成", "value": 40 },
+                    { "name": "进行中", "type": "进行中", "value": 20 }
+                ]
+            }
+        ],
+        "sankeyChartData": {
+            "nodes": [
+                { "name": "a", "value": "5" },
+                { "name": "b", "value": "10" },
+                { "name": "c", "value": "15" },
+                { "name": "d", "value": "20" },
+                { "name": "e", "value": "8" },
+                { "name": "f", "value": "12" }
+            ],
+            "links": [
+                { "source": "a", "target": "b", "value": 5 },
+                { "source": "a", "target": "c", "value": 3 },
+                { "source": "b", "target": "d", "value": 6 },
+                { "source": "b", "target": "e", "value": 4 },
+                { "source": "c", "target": "d", "value": 5 },
+                { "source": "c", "target": "f", "value": 3 },
+                { "source": "d", "target": "e", "value": 8 },
+                { "source": "d", "target": "f", "value": 3 }
+            ]
+        },
+        "treeMapChartData": [
+            {
+                "name": "电子产品",
+                "value": "350",
+                "children": [
+                    { "name": "手机", "value": "150" },
+                    { "name": "电脑", "value": "120" },
+                    { "name": "平板", "value": "80" }
+                ]
+            },
+            {
+                "name": "服装",
+                "value": "200",
+                "children": [
+                    { "name": "男装", "value": "80" },
+                    { "name": "女装", "value": "120" }
+                ]
+            },
+            {
+                "name": "食品",
+                "value": "150",
+                "children": [
+                    { "name": "零食", "value": "60" },
+                    { "name": "饮料", "value": "50" },
+                    { "name": "主食", "value": "40" }
+                ]
+            }
+        ],
+        "barLineChartData": [
+            { "month": "1月", "barValue1": 320, "barValue2": 220, "lineValue1": 120, "lineValue2": 80 },
+            { "month": "2月", "barValue1": 280, "barValue2": 180, "lineValue1": 150, "lineValue2": 95 },
+            { "month": "3月", "barValue1": 350, "barValue2": 250, "lineValue1": 180, "lineValue2": 110 },
+            { "month": "4月", "barValue1": 400, "barValue2": 300, "lineValue1": 200, "lineValue2": 130 },
+            { "month": "5月", "barValue1": 380, "barValue2": 280, "lineValue1": 190, "lineValue2": 125 },
+            { "month": "6月", "barValue1": 450, "barValue2": 320, "lineValue1": 220, "lineValue2": 140 }
+        ]
+    },
+    "rootId": "chartTestRoot",
+    "elements": [
+        {
+            "id": "chartTestRoot",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col min-h-screen bg-surface-container-lowest p-8 gap-8"
+            },
+            "children": [
+                "pageTitle",
+                "sectionBar",
+                "sectionLine",
+                "sectionPie",
+                "sectionRadar",
+                "sectionScatter",
+                "sectionBubble",
+                "sectionFunnel",
+                "sectionGauge",
+                "sectionHill",
+                "sectionJadeJue",
+                "sectionBullet",
+                "sectionCircleProcess",
+                "sectionProcess",
+                "sectionSankey",
+                "sectionTreeMap",
+                "sectionBarLine"
+            ]
+        },
+        {
+            "id": "pageTitle",
+            "component": "span",
+            "props": {
+                "value": "图表组件测试 (Chart Components)",
+                "className": "text-2xl font-semibold text-on-surface border-b border-divider pb-3"
+            }
+        },
+        {
+            "id": "sectionBar",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-6"
+            },
+            "children": [
+                "sectionBarTitle",
+                "barCard",
+                "stackBarCard",
+                "horizontalBarCard"
+            ]
+        },
+        {
+            "id": "sectionBarTitle",
+            "component": "span",
+            "props": {
+                "value": "柱状图 BarChart",
+                "className": "text-xl font-semibold text-on-surface border-b border-divider pb-2"
+            }
+        },
+        {
+            "id": "barCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "barCardLabel",
+                "barChartVertical"
+            ]
+        },
+        {
+            "id": "barCardLabel",
+            "component": "span",
+            "props": {
+                "value": "垂直柱状图 - 周销售数据",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "barChartVertical",
+            "component": "BarChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/barChartData"
+                    },
+                    "direction": "vertical",
+                    "stack": false,
+                    "xAxis": {
+                        "data": "category",
+                        "name": "星期"
+                    },
+                    "yAxisTitle": "数量",
+                    "markLine": {
+                        "top": 300,
+                        "bottom": 50
+                    }
+                },
+                "className": "h-64 w-full"
+            }
+        },
+        {
+            "id": "stackBarCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "stackBarCardLabel",
+                "barChartStack"
+            ]
+        },
+        {
+            "id": "stackBarCardLabel",
+            "component": "span",
+            "props": {
+                "value": "堆叠柱状图 - 季度产品数据",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "barChartStack",
+            "component": "BarChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/stackBarChartData"
+                    },
+                    "direction": "vertical",
+                    "stack": true,
+                    "xAxis": {
+                        "data": "category",
+                        "name": "季度"
+                    },
+                    "yAxisTitle": "销售额"
+                },
+                "className": "h-64 w-full"
+            }
+        },
+        {
+            "id": "horizontalBarCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "horizontalBarCardLabel",
+                "barChartHorizontal"
+            ]
+        },
+        {
+            "id": "horizontalBarCardLabel",
+            "component": "span",
+            "props": {
+                "value": "水平柱状图 - 周销售数据",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "barChartHorizontal",
+            "component": "BarChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/barChartData"
+                    },
+                    "direction": "horizontal",
+                    "stack": false,
+                    "xAxis": {
+                        "data": "category",
+                        "name": "星期"
+                    },
+                    "yAxisTitle": "数量"
+                },
+                "className": "h-64 w-full"
+            }
+        },
+        {
+            "id": "sectionLine",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-6"
+            },
+            "children": [
+                "sectionLineTitle",
+                "lineCard",
+                "areaCard",
+                "stepLineCard"
+            ]
+        },
+        {
+            "id": "sectionLineTitle",
+            "component": "span",
+            "props": {
+                "value": "折线图 LineChart",
+                "className": "text-xl font-semibold text-on-surface border-b border-divider pb-2"
+            }
+        },
+        {
+            "id": "lineCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "lineCardLabel",
+                "lineChartSmooth"
+            ]
+        },
+        {
+            "id": "lineCardLabel",
+            "component": "span",
+            "props": {
+                "value": "平滑折线图 - 月度温度与湿度",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "lineChartSmooth",
+            "component": "LineChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/lineChartData"
+                    },
+                    "smooth": true,
+                    "step": false,
+                    "area": false,
+                    "xAxis": {
+                        "data": "month",
+                        "name": "月份"
+                    },
+                    "yAxisTitle": "数值",
+                    "markLine": {
+                        "top": 35,
+                        "bottom": 0
+                    }
+                },
+                "className": "h-64 w-full"
+            }
+        },
+        {
+            "id": "areaCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "areaCardLabel",
+                "lineChartArea"
+            ]
+        },
+        {
+            "id": "areaCardLabel",
+            "component": "span",
+            "props": {
+                "value": "面积图 - 用户活跃度趋势",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "lineChartArea",
+            "component": "LineChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/areaChartData"
+                    },
+                    "smooth": true,
+                    "step": false,
+                    "area": true,
+                    "xAxis": {
+                        "data": "day",
+                        "name": "日期"
+                    },
+                    "yAxisTitle": "人数"
+                },
+                "className": "h-64 w-full"
+            }
+        },
+        {
+            "id": "stepLineCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "stepLineCardLabel",
+                "lineChartStep"
+            ]
+        },
+        {
+            "id": "stepLineCardLabel",
+            "component": "span",
+            "props": {
+                "value": "阶梯折线图 - 月度温度与湿度",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "lineChartStep",
+            "component": "LineChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/lineChartData"
+                    },
+                    "smooth": false,
+                    "step": true,
+                    "area": false,
+                    "xAxis": {
+                        "data": "month",
+                        "name": "月份"
+                    },
+                    "yAxisTitle": "数值"
+                },
+                "className": "h-64 w-full"
+            }
+        },
+        {
+            "id": "sectionPie",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-6"
+            },
+            "children": [
+                "sectionPieTitle",
+                "pieCardRight",
+                "pieCardBottom"
+            ]
+        },
+        {
+            "id": "sectionPieTitle",
+            "component": "span",
+            "props": {
+                "value": "饼图 PieChart",
+                "className": "text-xl font-semibold text-on-surface border-b border-divider pb-2"
+            }
+        },
+        {
+            "id": "pieCardRight",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "pieCardRightLabel",
+                "pieChartCenterRight"
+            ]
+        },
+        {
+            "id": "pieCardRightLabel",
+            "component": "span",
+            "props": {
+                "value": "右侧图例饼图 - 访问来源分布",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "pieChartCenterRight",
+            "component": "PieChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/pieChartData"
+                    },
+                    "title": {
+                        "text": "访问来源",
+                        "subtext": "总访问量"
+                    },
+                    "label": {
+                        "show": true
+                    },
+                    "legendPosition": "centerRight"
+                },
+                "className": "h-64 w-full"
+            }
+        },
+        {
+            "id": "pieCardBottom",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "pieCardBottomLabel",
+                "pieChartBottomCenter"
+            ]
+        },
+        {
+            "id": "pieCardBottomLabel",
+            "component": "span",
+            "props": {
+                "value": "底部图例饼图 - 访问来源分布",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "pieChartBottomCenter",
+            "component": "PieChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/pieChartData"
+                    },
+                    "title": {
+                        "text": "访问来源",
+                        "subtext": "总访问量"
+                    },
+                    "label": {
+                        "show": true
+                    },
+                    "legendPosition": "bottomCenter"
+                },
+                "className": "h-64 w-full"
+            }
+        },
+        {
+            "id": "sectionRadar",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-6"
+            },
+            "children": [
+                "sectionRadarTitle",
+                "radarCard"
+            ]
+        },
+        {
+            "id": "sectionRadarTitle",
+            "component": "span",
+            "props": {
+                "value": "雷达图 RadarChart",
+                "className": "text-xl font-semibold text-on-surface border-b border-divider pb-2"
+            }
+        },
+        {
+            "id": "radarCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "radarCardLabel",
+                "radarChart"
+            ]
+        },
+        {
+            "id": "radarCardLabel",
+            "component": "span",
+            "props": {
+                "value": "雷达图 - 预算分配与实际开销",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "radarChart",
+            "component": "RadarChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/radarChartData"
+                    },
+                    "area": {
+                        "show": true
+                    },
+                    "markLine": 40000
+                },
+                "className": "h-64 w-full"
+            }
+        },
+        {
+            "id": "sectionScatter",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-6"
+            },
+            "children": [
+                "sectionScatterTitle",
+                "scatterCard"
+            ]
+        },
+        {
+            "id": "sectionScatterTitle",
+            "component": "span",
+            "props": {
+                "value": "散点图 ScatterChart",
+                "className": "text-xl font-semibold text-on-surface border-b border-divider pb-2"
+            }
+        },
+        {
+            "id": "scatterCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "scatterCardLabel",
+                "scatterChart"
+            ]
+        },
+        {
+            "id": "scatterCardLabel",
+            "component": "span",
+            "props": {
+                "value": "散点图 - 收入与寿命关系",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "scatterChart",
+            "component": "ScatterChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/scatterChartData"
+                    },
+                    "yAxisTitle": "寿命(岁)",
+                    "markPoint": {
+                        "1990": [28604, 77],
+                        "2010": [34015, 79.8]
+                    }
+                },
+                "className": "h-64 w-full"
+            }
+        },
+        {
+            "id": "sectionBubble",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-6"
+            },
+            "children": [
+                "sectionBubbleTitle",
+                "bubbleCard"
+            ]
+        },
+        {
+            "id": "sectionBubbleTitle",
+            "component": "span",
+            "props": {
+                "value": "气泡图 BubbleChart",
+                "className": "text-xl font-semibold text-on-surface border-b border-divider pb-2"
+            }
+        },
+        {
+            "id": "bubbleCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "bubbleCardLabel",
+                "bubbleChart"
+            ]
+        },
+        {
+            "id": "bubbleCardLabel",
+            "component": "span",
+            "props": {
+                "value": "气泡图 - 产品分布",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "bubbleChart",
+            "component": "BubbleChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/bubbleChartData"
+                    },
+                    "yAxisTitle": "数值"
+                },
+                "className": "h-64 w-full"
+            }
+        },
+        {
+            "id": "sectionFunnel",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-6"
+            },
+            "children": [
+                "sectionFunnelTitle",
+                "funnelCard"
+            ]
+        },
+        {
+            "id": "sectionFunnelTitle",
+            "component": "span",
+            "props": {
+                "value": "漏斗图 FunnelChart",
+                "className": "text-xl font-semibold text-on-surface border-b border-divider pb-2"
+            }
+        },
+        {
+            "id": "funnelCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "funnelCardLabel",
+                "funnelChart"
+            ]
+        },
+        {
+            "id": "funnelCardLabel",
+            "component": "span",
+            "props": {
+                "value": "垂直漏斗图 - 用户转化路径",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "funnelChart",
+            "component": "FunnelChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/funnelChartData"
+                    },
+                    "sort": "descending",
+                    "direction": "vertical"
+                },
+                "className": "h-64 w-full"
+            }
+        },
+        {
+            "id": "sectionGauge",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-6"
+            },
+            "children": [
+                "sectionGaugeTitle",
+                "gaugeCard"
+            ]
+        },
+        {
+            "id": "sectionGaugeTitle",
+            "component": "span",
+            "props": {
+                "value": "仪表盘 GaugeChart",
+                "className": "text-xl font-semibold text-on-surface border-b border-divider pb-2"
+            }
+        },
+        {
+            "id": "gaugeCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "gaugeCardLabel",
+                "gaugeChart"
+            ]
+        },
+        {
+            "id": "gaugeCardLabel",
+            "component": "span",
+            "props": {
+                "value": "仪表盘 - CPU利用率",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "gaugeChart",
+            "component": "GaugeChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/gaugeChartData"
+                    }
+                },
+                "className": "h-64 w-full"
+            }
+        },
+        {
+            "id": "sectionHill",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-6"
+            },
+            "children": [
+                "sectionHillTitle",
+                "hillCard"
+            ]
+        },
+        {
+            "id": "sectionHillTitle",
+            "component": "span",
+            "props": {
+                "value": "山脊图 HillChart",
+                "className": "text-xl font-semibold text-on-surface border-b border-divider pb-2"
+            }
+        },
+        {
+            "id": "hillCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "hillCardLabel",
+                "hillChart"
+            ]
+        },
+        {
+            "id": "hillCardLabel",
+            "component": "span",
+            "props": {
+                "value": "山脊图 - 业务指标分布",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "hillChart",
+            "component": "HillChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/hillChartData"
+                    }
+                },
+                "className": "h-64 w-full"
+            }
+        },
+        {
+            "id": "sectionJadeJue",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-6"
+            },
+            "children": [
+                "sectionJadeJueTitle",
+                "jadeJueCard"
+            ]
+        },
+        {
+            "id": "sectionJadeJueTitle",
+            "component": "span",
+            "props": {
+                "value": "玉玦图 JadeJueChart",
+                "className": "text-xl font-semibold text-on-surface border-b border-divider pb-2"
+            }
+        },
+        {
+            "id": "jadeJueCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "jadeJueCardLabel",
+                "jadeJueChart"
+            ]
+        },
+        {
+            "id": "jadeJueCardLabel",
+            "component": "span",
+            "props": {
+                "value": "玉玦图 - 项目达标率",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "jadeJueChart",
+            "component": "JadeJueChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/jadeJueChartData"
+                    },
+                    "title": {
+                        "text": "项目达标率",
+                        "subtext": "综合评估"
+                    }
+                },
+                "className": "h-64 w-full"
+            }
+        },
+        {
+            "id": "sectionBullet",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-6"
+            },
+            "children": [
+                "sectionBulletTitle",
+                "bulletCard"
+            ]
+        },
+        {
+            "id": "sectionBulletTitle",
+            "component": "span",
+            "props": {
+                "value": "子弹图 BulletChart",
+                "className": "text-xl font-semibold text-on-surface border-b border-divider pb-2"
+            }
+        },
+        {
+            "id": "bulletCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "bulletCardLabel",
+                "bulletChart"
+            ]
+        },
+        {
+            "id": "bulletCardLabel",
+            "component": "span",
+            "props": {
+                "value": "子弹图 - 业务指标对比",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "bulletChart",
+            "component": "BulletChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/bulletChartData"
+                    },
+                    "xAxis": {
+                        "data": "name",
+                        "name": "指标"
+                    },
+                    "yAxisTitle": "百分比",
+                    "direction": "horizontal",
+                    "markLine": {
+                        "data": 80,
+                        "name": "warning"
+                    }
+                },
+                "className": "h-64 w-full"
+            }
+        },
+        {
+            "id": "sectionCircleProcess",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-6"
+            },
+            "children": [
+                "sectionCircleProcessTitle",
+                "circleProcessCard"
+            ]
+        },
+        {
+            "id": "sectionCircleProcessTitle",
+            "component": "span",
+            "props": {
+                "value": "环形进度图 CircleProcessChart",
+                "className": "text-xl font-semibold text-on-surface border-b border-divider pb-2"
+            }
+        },
+        {
+            "id": "circleProcessCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "circleProcessCardLabel",
+                "circleProcessChart"
+            ]
+        },
+        {
+            "id": "circleProcessCardLabel",
+            "component": "span",
+            "props": {
+                "value": "环形进度图 - 系统资源使用率",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "circleProcessChart",
+            "component": "CircleProcessChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/circleProcessChartData"
+                    },
+                    "title": {
+                        "text": "资源使用率",
+                        "subtext": "实时监控"
+                    }
+                },
+                "className": "h-64 w-full"
+            }
+        },
+        {
+            "id": "sectionProcess",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-6"
+            },
+            "children": [
+                "sectionProcessTitle",
+                "processCard",
+                "stackProcessCard"
+            ]
+        },
+        {
+            "id": "sectionProcessTitle",
+            "component": "span",
+            "props": {
+                "value": "进度条图 ProcessChart",
+                "className": "text-xl font-semibold text-on-surface border-b border-divider pb-2"
+            }
+        },
+        {
+            "id": "processCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "processCardLabel",
+                "processChart"
+            ]
+        },
+        {
+            "id": "processCardLabel",
+            "component": "span",
+            "props": {
+                "value": "水平进度条 - 项目完成度",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "processChart",
+            "component": "ProcessChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/processChartData"
+                    },
+                    "name": "ProcessBarChart",
+                    "unit": "%"
+                },
+                "className": "h-48 w-full"
+            }
+        },
+        {
+            "id": "stackProcessCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "stackProcessCardLabel",
+                "stackProcessChart"
+            ]
+        },
+        {
+            "id": "stackProcessCardLabel",
+            "component": "span",
+            "props": {
+                "value": "堆叠进度条 - 任务进度",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "stackProcessChart",
+            "component": "ProcessChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/stackProcessChartData"
+                    },
+                    "name": "StackProcessBarChart",
+                    "unit": "%"
+                },
+                "className": "h-48 w-full"
+            }
+        },
+        {
+            "id": "sectionSankey",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-6"
+            },
+            "children": [
+                "sectionSankeyTitle",
+                "sankeyCard"
+            ]
+        },
+        {
+            "id": "sectionSankeyTitle",
+            "component": "span",
+            "props": {
+                "value": "桑基图 SankeyChart",
+                "className": "text-xl font-semibold text-on-surface border-b border-divider pb-2"
+            }
+        },
+        {
+            "id": "sankeyCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "sankeyCardLabel",
+                "sankeyChart"
+            ]
+        },
+        {
+            "id": "sankeyCardLabel",
+            "component": "span",
+            "props": {
+                "value": "桑基图 - 数据流向分析",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "sankeyChart",
+            "component": "SankeyChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/sankeyChartData"
+                    },
+                    "sortType": "unset"
+                },
+                "className": "h-64 w-full"
+            }
+        },
+        {
+            "id": "sectionTreeMap",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-6"
+            },
+            "children": [
+                "sectionTreeMapTitle",
+                "treeMapCard"
+            ]
+        },
+        {
+            "id": "sectionTreeMapTitle",
+            "component": "span",
+            "props": {
+                "value": "矩形树图 TreeMapChart",
+                "className": "text-xl font-semibold text-on-surface border-b border-divider pb-2"
+            }
+        },
+        {
+            "id": "treeMapCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "treeMapCardLabel",
+                "treeMapChart"
+            ]
+        },
+        {
+            "id": "treeMapCardLabel",
+            "component": "span",
+            "props": {
+                "value": "矩形树图 - 品类销售占比",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "treeMapChart",
+            "component": "TreeMapChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/treeMapChartData"
+                    }
+                },
+                "className": "h-64 w-full"
+            }
+        },
+        {
+            "id": "sectionBarLine",
+            "component": "div",
+            "props": {
+                "className": "flex flex-col gap-6"
+            },
+            "children": [
+                "sectionBarLineTitle",
+                "barLineCard"
+            ]
+        },
+        {
+            "id": "sectionBarLineTitle",
+            "component": "span",
+            "props": {
+                "value": "柱线混合图 BarLineChart",
+                "className": "text-xl font-semibold text-on-surface border-b border-divider pb-2"
+            }
+        },
+        {
+            "id": "barLineCard",
+            "component": "div",
+            "props": {
+                "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-4"
+            },
+            "children": [
+                "barLineCardLabel",
+                "barLineChart"
+            ]
+        },
+        {
+            "id": "barLineCardLabel",
+            "component": "span",
+            "props": {
+                "value": "柱线混合图 - 月度综合数据",
+                "className": "text-sm text-on-surface-variant"
+            }
+        },
+        {
+            "id": "barLineChart",
+            "component": "BarLineChart",
+            "props": {
+                "option": {
+                    "data": {
+                        "path": "/barLineChartData"
+                    },
+                    "xAxis": {
+                        "data": "month"
+                    },
+                    "yAxis": [
+                        {
+                            "dataName": ["barValue1", "barValue2"],
+                            "name": "销售额",
+                            "unit": "万",
+                            "position": "left"
+                        },
+                        {
+                            "dataName": ["lineValue1", "lineValue2"],
+                            "name": "增长率",
+                            "unit": "%",
+                            "position": "right"
+                        }
+                    ],
+                    "barOption": {
+                        "dataName": ["barValue1", "barValue2"],
+                        "label": {
+                            "show": false
+                        }
+                    },
+                    "lineOption": {
+                        "dataName": ["lineValue1", "lineValue2"],
+                        "smooth": true
+                    },
+                    "markLine": {
+                        "top": 400,
+                        "topUse": ["barValue1", "barValue2"],
+                        "bottom": 150,
+                        "bottomUse": ["barValue1", "barValue2"]
+                    }
+                },
+                "className": "h-64 w-full"
+            }
+        }
+    ]
+}

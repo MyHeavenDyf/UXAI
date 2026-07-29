@@ -80,7 +80,8 @@ export async function runChildSession(input: RunChildSessionInput): Promise<{ te
       tagError,
     })
   } catch (err) {
-    tagError(err, parentSessionID)
+    // 优先用 processAgentResult 已标记的真实子 session ID，避免 fallback 到 parentSessionID
+    tagError(err, (err as { _childSessionId?: string })?._childSessionId ?? parentSessionID)
     const message = err instanceof Error ? err.message : String(err)
     console.error(`[runChildSession] ${agent} 执行失败:`, message)
     if (message === "aborted") throw err
