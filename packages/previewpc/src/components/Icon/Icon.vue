@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, watchEffect } from "vue"
-import { getIconComponentRef, sizeConfig, HUI_ICON_SIZE, mapShapeToHuiType, mapColorToHuiColor } from "./IconBase"
+import { getIconComponentRef, sizeConfig, mapShapeToHuiType, mapColorToHuiColor } from "./IconBase"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import type { IconNode } from "../types"
