@@ -262,6 +262,24 @@ export class IconCollector {
 // 参考：api/config/mappings/eview-react/Icon.ts
 // 输入 A2UI icon name + iconNameMap → 输出已解析的 ComponentNode
 
+/**
+ * 当前目标库的配套图标库包名。
+ * 默认 @nce/icon-plus（eview-react）；registerComponents 选库后通过 setIconPackage
+ * 注入对应库的值（如 eview-ui 的 @hui/icon-plus）。resolveIcon emit 图标 import 用。
+ * 管线单 lib 单次跑，模块级状态安全。
+ */
+let iconPkg = '@nce/icon-plus'
+
+/** 注入当前目标库的图标库包名（registerComponents 选库后调用） */
+export function setIconPackage(p: string): void {
+  iconPkg = p
+}
+
+/** 读取当前目标库的图标库包名（importCollector 排序识别图标 import 用） */
+export function getIconPackage(): string {
+  return iconPkg
+}
+
 export function resolveIcon(
   iconName: string,
   iconNameMap: Record<string, string>,
@@ -295,7 +313,7 @@ export function resolveIcon(
     kind: 'component',
     component: 'Icon',
     tag: targetIconName,
-    import: { source: '@nce/icon-plus', named: true },
+    import: { source: iconPkg, named: true },
     props,
     selfClosing: true,
   }

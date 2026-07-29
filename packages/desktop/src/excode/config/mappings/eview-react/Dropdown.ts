@@ -19,6 +19,8 @@
  * - placement 拆分映射表见下方
  * - children 透传，不做处理
  * - menu 中的 icon 需要 resolveIcon 处理
+ *
+ * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
  */
 
 import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
@@ -54,63 +56,63 @@ function convertMenuItems(
   })
 }
 
-const DropdownMapping: MappingDef = {
-  tag: 'DropDown',
-  import: '@nce/eview-react/DropDown',
+export function createDropdownMapping(pkg: string): MappingDef {
+  return {
+    tag: 'DropDown',
+    import: `${pkg}/DropDown`,
 
-  transform(node: any, ctx: TransformContext) {
-    const props = node.props || {}
-    const outputProps: Record<string, PropValue> = {}
-    const SKIP_KEYS = new Set(['menu', 'placement', 'trigger'])
+    transform(node: any, ctx: TransformContext) {
+      const props = node.props || {}
+      const outputProps: Record<string, PropValue> = {}
+      const SKIP_KEYS = new Set(['menu', 'placement', 'trigger'])
 
-    // ─── menu → data ───
-    if (props.menu) {
-      const menuIsBinding = props.menu && typeof props.menu === 'object' && props.menu.type === 'binding'
+      // ─── menu → data ───
+      if (props.menu) {
+        const menuIsBinding = props.menu && typeof props.menu === 'object' && props.menu.type === 'binding'
 
-      if (menuIsBinding) {
-        // DataBinding → ComputedValue（编译期转换 + icon resolve）
-        outputProps.data = Value.computed({
-          path: props.menu.path,
-          pathType: props.menu.pathType ?? 'absolute',
-          accessPath: props.menu.accessPath ?? 'dropdownData',
-          containsJSX: true,
-          transform: (rawData: any, cvCtx?: any) => {
-            const rIcon = cvCtx?.resolveIcon ?? ctx.resolveIcon
-            return convertMenuItems(rawData ?? [], rIcon)
-          },
-        })
-      } else if (Array.isArray(props.menu)) {
-        // 字面量 → 直接转换
-        outputProps.data = convertMenuItems(props.menu, ctx.resolveIcon) as any
+        if (menuIsBinding) {
+          // DataBinding → ComputedValue（编译期转换 + icon resolve）
+          outputProps.data = Value.computed({
+            path: props.menu.path,
+            pathType: props.menu.pathType ?? 'absolute',
+            accessPath: props.menu.accessPath ?? 'dropdownData',
+            containsJSX: true,
+            transform: (rawData: any, cvCtx?: any) => {
+              const rIcon = cvCtx?.resolveIcon ?? ctx.resolveIcon
+              return convertMenuItems(rawData ?? [], rIcon)
+            },
+          })
+        } else if (Array.isArray(props.menu)) {
+          // 字面量 → 直接转换
+          outputProps.data = convertMenuItems(props.menu, ctx.resolveIcon) as any
+        }
       }
-    }
 
-    // ─── placement → position + popupDirection ───
-    if (props.placement) {
-      const mapped = PLACEMENT_MAP[props.placement]
-      if (mapped) {
-        outputProps.position = mapped.position as PropValue
-        outputProps.popupDirection = mapped.popupDirection as PropValue
+      // ─── placement → position + popupDirection ───
+      if (props.placement) {
+        const mapped = PLACEMENT_MAP[props.placement]
+        if (mapped) {
+          outputProps.position = mapped.position as PropValue
+          outputProps.popupDirection = mapped.popupDirection as PropValue
+        }
       }
-    }
 
-    // ─── trigger（数组）→ trigger（单值）───
-    if (props.trigger && Array.isArray(props.trigger) && props.trigger.length > 0) {
-      outputProps.trigger = props.trigger[0] as PropValue
-    }
+      // ─── trigger（数组）→ trigger（单值）───
+      if (props.trigger && Array.isArray(props.trigger) && props.trigger.length > 0) {
+        outputProps.trigger = props.trigger[0] as PropValue
+      }
 
-    // ─── className ───
-    if (props.className) outputProps.className = props.className as PropValue
+      // ─── className ───
+      if (props.className) outputProps.className = props.className as PropValue
 
-    // 透传剩余
-    for (const [key, value] of Object.entries(props)) {
-      if (!SKIP_KEYS.has(key)) outputProps[key] = value as PropValue
-    }
+      // 透传剩余
+      for (const [key, value] of Object.entries(props)) {
+        if (!SKIP_KEYS.has(key)) outputProps[key] = value as PropValue
+      }
 
-    return {
-      props: outputProps,
-    }
-  },
+      return {
+        props: outputProps,
+      }
+    },
+  }
 }
-
-export default DropdownMapping

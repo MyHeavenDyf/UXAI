@@ -28,6 +28,8 @@
  * - 同 Steps/Table 的"吞噬 children → data prop"模式
  * - eview-react 的 content 是对象数组 `{ text }` 格式，需包裹
  * - icon 字面量用 resolveIcon 直出，DataBinding 走 ComputedValue
+ *
+ * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
  */
 
 import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
@@ -80,126 +82,126 @@ function makeContent(content: any): any[] | undefined {
   return [{ text: content }]
 }
 
-const TimelineMapping: MappingDef = {
-  tag: 'TimeLine',
-  import: '@nce/eview-react/TimeLine',
+export function createTimelineMapping(pkg: string): MappingDef {
+  return {
+    tag: 'TimeLine',
+    import: `${pkg}/TimeLine`,
 
-  transform(node: any, ctx: TransformContext) {
-    const props = node.props || {}
-    const children = node.children
-    const outputProps: Record<string, PropValue> = {}
+    transform(node: any, ctx: TransformContext) {
+      const props = node.props || {}
+      const children = node.children
+      const outputProps: Record<string, PropValue> = {}
 
-    // ─── 简单 prop ───
-    if (props.className) outputProps.className = props.className as PropValue
+      // ─── 简单 prop ───
+      if (props.className) outputProps.className = props.className as PropValue
 
-    // ─── children → data ───
-    if (!children) {
-      outputProps.data = []
-      return { props: outputProps, children: null }
-    }
-
-    if (Array.isArray(children)) {
-      // ═══ 分支 A：静态 children ═══
-      const data: any[] = []
-      for (let i = 0; i < children.length; i++) {
-        const child = children[i] as any
-        const f = extractFieldMap(child)
-        const item: Record<string, any> = {
-          date: f.dateValue ?? '',
-        }
-
-        // content → [{ text: xxx }]
-        if (f.contentValue !== null) {
-          item.content = makeContent(f.contentValue)
-        } else if (f.contentIsSlot) {
-          const resolved = ctx.resolveNode(child.props.content.node)
-          if (resolved) item.content = makeContent(resolved)
-        } else if (f.contentField) {
-          // DataBinding → 保持为 BindingValue，jsx-emitter 会 emit 为 state 引用
-          item.content = makeContent(child.props.content)
-        }
-
-        // icon
-        if (f.iconValue) {
-          const iconNode = ctx.resolveIcon(f.iconValue)
-          if (iconNode) item.icon = iconNode
-        } else if (f.iconField) {
-          item.icon = Value.computed({
-            path: child.props.icon.path,
-            pathType: child.props.icon.pathType ?? 'absolute',
-            accessPath: child.props.icon.accessPath ?? 'timelineIcon',
-            containsJSX: true,
-            transform: (raw: any, cvCtx?: any) => {
-              const rIcon = cvCtx?.resolveIcon ?? ctx.resolveIcon
-              return typeof raw === 'string' ? rIcon(raw) : null
-            },
-          })
-        }
-
-        data.push(item)
+      // ─── children → data ───
+      if (!children) {
+        outputProps.data = []
+        return { props: outputProps, children: null }
       }
-      outputProps.data = data as any
-      return { props: outputProps, children: null }
-    }
 
-    if ((children as any).kind === 'loop') {
-      // ═══ 分支 B：循环模板 ═══
-      const loop = children as LoopNode
-      const tmpl = loop.template.body[0] as any
-      if (!tmpl) { outputProps.data = []; return { props: outputProps, children: null } }
+      if (Array.isArray(children)) {
+        // ═══ 分支 A：静态 children ═══
+        const data: any[] = []
+        for (let i = 0; i < children.length; i++) {
+          const child = children[i] as any
+          const f = extractFieldMap(child)
+          const item: Record<string, any> = {
+            date: f.dateValue ?? '',
+          }
 
-      const f = extractFieldMap(tmpl)
-      const dataBinding = loop.data as BindingValue
+          // content → [{ text: xxx }]
+          if (f.contentValue !== null) {
+            item.content = makeContent(f.contentValue)
+          } else if (f.contentIsSlot) {
+            const resolved = ctx.resolveNode(child.props.content.node)
+            if (resolved) item.content = makeContent(resolved)
+          } else if (f.contentField) {
+            // DataBinding → 保持为 BindingValue，jsx-emitter 会 emit 为 state 引用
+            item.content = makeContent(child.props.content)
+          }
 
-      // SlotNode content 预 resolve
-      let resolvedSlot: any = null
-      if (f.contentIsSlot) resolvedSlot = ctx.resolveNode(tmpl.props.content.node)
+          // icon
+          if (f.iconValue) {
+            const iconNode = ctx.resolveIcon(f.iconValue)
+            if (iconNode) item.icon = iconNode
+          } else if (f.iconField) {
+            item.icon = Value.computed({
+              path: child.props.icon.path,
+              pathType: child.props.icon.pathType ?? 'absolute',
+              accessPath: child.props.icon.accessPath ?? 'timelineIcon',
+              containsJSX: true,
+              transform: (raw: any, cvCtx?: any) => {
+                const rIcon = cvCtx?.resolveIcon ?? ctx.resolveIcon
+                return typeof raw === 'string' ? rIcon(raw) : null
+              },
+            })
+          }
 
-      outputProps.data = Value.computed({
-        path: dataBinding.path,
-        pathType: dataBinding.pathType ?? 'absolute',
-        accessPath: dataBinding.accessPath ?? 'timelineData',
-        containsJSX: f.hasJSX,
-        transform: (rawData: any, cvCtx?: any) => {
-          if (!Array.isArray(rawData)) return []
-          const rIcon = cvCtx?.resolveIcon ?? ctx.resolveIcon
+          data.push(item)
+        }
+        outputProps.data = data as any
+        return { props: outputProps, children: null }
+      }
 
-          return rawData.map((item: any, idx: number) => {
-            const dataItem: Record<string, any> = {
-              date: f.dateField ? (item[f.dateField] ?? '') : (f.dateValue ?? ''),
-            }
+      if ((children as any).kind === 'loop') {
+        // ═══ 分支 B：循环模板 ═══
+        const loop = children as LoopNode
+        const tmpl = loop.template.body[0] as any
+        if (!tmpl) { outputProps.data = []; return { props: outputProps, children: null } }
 
-            // content
-            if (f.contentField) {
-              dataItem.content = makeContent(item[f.contentField] ?? '')
-            } else if (f.contentValue !== null) {
-              dataItem.content = makeContent(f.contentValue)
-            } else if (resolvedSlot) {
-              dataItem.content = makeContent(resolvedSlot)
-            }
+        const f = extractFieldMap(tmpl)
+        const dataBinding = loop.data as BindingValue
 
-            // icon
-            if (f.iconField) {
-              const name = item[f.iconField]
-              if (typeof name === 'string') {
-                const iconNode = rIcon(name)
+        // SlotNode content 预 resolve
+        let resolvedSlot: any = null
+        if (f.contentIsSlot) resolvedSlot = ctx.resolveNode(tmpl.props.content.node)
+
+        outputProps.data = Value.computed({
+          path: dataBinding.path,
+          pathType: dataBinding.pathType ?? 'absolute',
+          accessPath: dataBinding.accessPath ?? 'timelineData',
+          containsJSX: f.hasJSX,
+          transform: (rawData: any, cvCtx?: any) => {
+            if (!Array.isArray(rawData)) return []
+            const rIcon = cvCtx?.resolveIcon ?? ctx.resolveIcon
+
+            return rawData.map((item: any, idx: number) => {
+              const dataItem: Record<string, any> = {
+                date: f.dateField ? (item[f.dateField] ?? '') : (f.dateValue ?? ''),
+              }
+
+              // content
+              if (f.contentField) {
+                dataItem.content = makeContent(item[f.contentField] ?? '')
+              } else if (f.contentValue !== null) {
+                dataItem.content = makeContent(f.contentValue)
+              } else if (resolvedSlot) {
+                dataItem.content = makeContent(resolvedSlot)
+              }
+
+              // icon
+              if (f.iconField) {
+                const name = item[f.iconField]
+                if (typeof name === 'string') {
+                  const iconNode = rIcon(name)
+                  if (iconNode) dataItem.icon = iconNode
+                }
+              } else if (f.iconValue) {
+                const iconNode = rIcon(f.iconValue)
                 if (iconNode) dataItem.icon = iconNode
               }
-            } else if (f.iconValue) {
-              const iconNode = rIcon(f.iconValue)
-              if (iconNode) dataItem.icon = iconNode
-            }
 
-            return dataItem
-          })
-        },
-      })
+              return dataItem
+            })
+          },
+        })
+
+        return { props: outputProps, children: null }
+      }
 
       return { props: outputProps, children: null }
-    }
-
-    return { props: outputProps, children: null }
-  },
+    },
+  }
 }
-
-export default TimelineMapping
