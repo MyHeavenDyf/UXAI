@@ -110,14 +110,18 @@ function emitValue(value: PropValue, opts: Required<EmitOptions>, isPropValue?: 
 
   // RenderFnValue：内联渲染函数（结构化 params + destructure 模式）
   if (v.type === 'renderFn') {
-    const paramsArr: Array<{ name: string; dataSource?: any }> = v.params ?? []
+    const paramsArr: Array<{ name: string; dataSource?: any; dataField?: string }> = v.params ?? []
     const sig = paramsArr.map((p: any) => p.name).join(', ')
-    const dataSourceName: string = paramsArr.find((p: any) => p.dataSource)?.name ?? ''
+    const dataSourceParam = paramsArr.find((p: any) => p.dataSource)
+    const dataSourceName: string = dataSourceParam?.name ?? ''
+    const dataField: string | undefined = dataSourceParam?.dataField
+    // 解构源：dataField 时为 name.dataField（如 row.rawData），否则 name
+    const dataAccessor: string = dataField ? `${dataSourceName}.${dataField}` : dataSourceName
 
     const bodies = Array.isArray(v.body) ? v.body : [v.body]
-    const bodyOpts = { ...opts, inRenderFnBody: !!dataSourceName, renderFnDataVarName: dataSourceName }
+    const bodyOpts = { ...opts, inRenderFnBody: !!dataSourceName, renderFnDataVarName: dataAccessor }
 
-    // destructure 行
+    // destructure 行（源 = dataAccessor，如 row.rawData；body 内相对绑定裸引用解构出的字段）
     let destructureLine = ''
     if (dataSourceName) {
       const fields = new Set<string>()
@@ -126,7 +130,7 @@ function emitValue(value: PropValue, opts: Required<EmitOptions>, isPropValue?: 
         for (const field of f) fields.add(field)
       }
       if (fields.size > 0) {
-        destructureLine = `  const { ${[...fields].sort().join(', ')} } = ${dataSourceName};\n`
+        destructureLine = `  const { ${[...fields].sort().join(', ')} } = ${dataAccessor};\n`
       }
     }
 
@@ -350,7 +354,7 @@ function emitText(node: TextNode, _opts: Required<EmitOptions>): string {
 // 适用场景：resolveIcon 产出的图标节点被嵌入到 data 数组等字面量 prop 值中。
 // 区别于 emitComponent（用于独立的 ComponentNode 节点），这个是 JSX 表达式值形态。
 
-function emitBuildNodeExpr(v: { tag: string; props: Record<string, any>; selfClosing?: boolean }): string {
+function emitBuildNodeExpr(v: { tag: string; props: Record<string, any>; selfClosing?: boolean; children?: any }): string {
   const tagName = v.tag
   const props = v.props ?? {}
   const propParts: string[] = []
@@ -358,11 +362,27 @@ function emitBuildNodeExpr(v: { tag: string; props: Record<string, any>; selfClo
     if (vv === true) propParts.push(k)
     else if (vv === false || vv === null || vv === undefined) continue
     else if (typeof vv === 'string') propParts.push(`${k}=${JSON.stringify(vv)}`)
-    else if (typeof vv === 'number' || typeof vv === 'boolean') propParts.push(`${k}={${vv}}`)
-    else propParts.push(`${k}={${emitValue(vv as PropValue, {...mergedOpts()})}}`)
+    else if (typeof vv === 'number') propParts.push(`${k}={${vv}}`)
+    else if (typeof vv === 'boolean') propParts.push(`${k}={${String(vv)}}`)
+    else propParts.push(`${k}={${emitValue(vv as PropValue, { ...mergedOpts() }, false)}}`)
   }
   const propsStr = propParts.join(' ')
-  return `<${tagName}${propsStr ? ' ' + propsStr : ''} />`
+  const attrs = propsStr ? ' ' + propsStr : ''
+
+  // children（如 Dropdown overlay 的 Menu+Menu.Item 子树）：递归 emit；无 children 则自闭合。
+  // 向后兼容：resolveIcon 产出的图标节点无 children / selfClosing，仍走自闭合分支。
+  const children = (v as any).children
+  if (v.selfClosing || !children) return `<${tagName}${attrs} />`
+  if (Array.isArray(children)) {
+    const childContent = children
+      .map(c => emitNode(c as BuildNode, mergedOpts()))
+      .filter(s => s && s !== 'null')
+      .join('\n')
+    if (!childContent) return `<${tagName}${attrs} />`
+    return `<${tagName}${attrs}>\n${indent(childContent, 2)}\n</${tagName}>`
+  }
+  // LoopNode 等其他 children 形态在 prop 值内暂不支持，回退自闭合
+  return `<${tagName}${attrs} />`
 }
 
 // ─── 循环 children ───

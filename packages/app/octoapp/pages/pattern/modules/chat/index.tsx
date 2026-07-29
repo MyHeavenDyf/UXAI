@@ -181,6 +181,11 @@ export function ChatPanel(props: {
   // ── 会话进度条动画状态 ──
   const [timeoutDone, setTimeoutDone] = createSignal(true)
   const workingStatus = createMemo<"hidden" | "showing" | "hiding">((prev) => {
+    // 意图确认 / 模板匹配等待期间不显示进度条
+    if (props.needsConfirm || props.blockMatching) {
+      if (prev === "showing" || !timeoutDone()) return "hiding"
+      return "hidden"
+    }
     if (props.pipelineBusy) return "showing"
     if (prev === "showing" || !timeoutDone()) return "hiding"
     return "hidden"
@@ -354,8 +359,8 @@ export function ChatPanel(props: {
                           errorCallId={round().errorCallId}
                           needsConfirm={props.needsConfirm}
                           confirmText={props.confirmText}
-                          pauseMs={props.pauseMs}
-                          pauseStartedAt={props.pauseStartedAt}
+                          pauseMs={ri === 0 ? props.pauseMs : 0}
+                          pauseStartedAt={ri === 0 ? props.pauseStartedAt : undefined}
                           onRetry={props.onRetry}
                         />
                       </>

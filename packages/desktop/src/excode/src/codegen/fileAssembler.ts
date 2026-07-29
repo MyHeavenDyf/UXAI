@@ -610,20 +610,24 @@ function serializeForConstValue(value: unknown, lvl: number = 0, compact: boolea
     }
     // RenderFnValue → 内联渲染函数（按当前 lvl 缩进传递）
     if (v.type === 'renderFn') {
-      const paramsArr: Array<{ name: string }> = v.params ?? []
+      const paramsArr: Array<{ name: string; dataSource?: any; dataField?: string }> = v.params ?? []
       const sig = paramsArr.map((p: any) => p.name).join(', ')
-      const dataSourceName: string = paramsArr.find((p: any) => p.dataSource)?.name ?? ''
+      const dataSourceParam = paramsArr.find((p: any) => p.dataSource)
+      const dataSourceName: string = dataSourceParam?.name ?? ''
+      const dataField: string | undefined = dataSourceParam?.dataField
+      // 解构源：dataField 时为 name.dataField（如 row.rawData），否则 name
+      const dataAccessor: string = dataField ? `${dataSourceName}.${dataField}` : dataSourceName
       const bodies = Array.isArray(v.body) ? v.body : [v.body]
       const bodyOpts = {
         inRenderFnBody: !!dataSourceName,
-        renderFnDataVarName: dataSourceName,
+        renderFnDataVarName: dataAccessor,
         useCssModules: constEmit.useCssModules,
         cssModuleVarName: constEmit.cssModuleVarName,
       }
       // 函数体缩进：比当前 lvl 多 2 空格
       const bodyPad = ' '.repeat(lvl + 2)
       const closePad = ' '.repeat(lvl)
-      // destructure
+      // destructure（源 = dataAccessor，如 row.rawData）
       let destructureLine = ''
       if (dataSourceName) {
         const fields = new Set<string>()
@@ -632,7 +636,7 @@ function serializeForConstValue(value: unknown, lvl: number = 0, compact: boolea
           for (const field of f) fields.add(field)
         }
         if (fields.size > 0) {
-          destructureLine = `${bodyPad}const { ${[...fields].sort().join(', ')} } = ${dataSourceName};\n`
+          destructureLine = `${bodyPad}const { ${[...fields].sort().join(', ')} } = ${dataAccessor};\n`
         }
       }
       const bodyJSX = bodies.map((n: any) => emitNode(n, bodyOpts as any)).join('\n')

@@ -40,12 +40,22 @@ async function blobToUint8Array(blob: Blob): Promise<Uint8Array> {
 }
 
 // 拼接绝对路径,统一用正斜杠(Node 在 Windows 上也能正确处理)
+// POSIX 绝对路径(/...)、Windows 盘符(C:/...)、UNC(//server/...)都视为绝对路径
+function isAbsolutePath(p: string): boolean {
+  return p.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith("//")
+}
+
 function joinPath(base: string, relative: string): string {
-  const normalizedBase = base.replace(/\\/g, "/")
-  const normalizedRelative = relative.replace(/\\/g, "/")
-  if (normalizedRelative.startsWith(normalizedBase)) return normalizedRelative
-  if (normalizedBase.endsWith("/")) return normalizedBase + normalizedRelative
-  return normalizedBase + "/" + normalizedRelative
+  const nb = base.replace(/\\/g, "/")
+  const nr = relative.replace(/\\/g, "/")
+  // relative 已是绝对路径(如 listDirectory 返回的绝对 file.path),直接返回,避免与 base 拼出重复前缀
+  if (isAbsolutePath(nr)) return nr
+  // relative 已含 base 前缀时直接返回:大小写不敏感比较(Windows/macOS 文件系统大小写不敏感)
+  // + 路径段边界检查,避免 /foo/bar 误匹配 /foo/barbaz 这类字符串前缀
+  const lower = nb.toLowerCase()
+  const lowerRel = nr.toLowerCase()
+  if (lowerRel === lower || lowerRel.startsWith(lower + "/")) return nr
+  return (nb.endsWith("/") ? nb : nb + "/") + nr
 }
 
 export async function createPatternArchiveZip(options: PatternArchiveZipOptions): Promise<Blob> {

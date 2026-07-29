@@ -32,6 +32,21 @@ interface JsonData {
 
 // ========== ① 收集图标名 ==========
 
+// 不遵循 icon / xxxIcon 命名模式、但实际承载图标名的属性
+const EXTRA_ICON_PROP_KEYS = new Set([
+  'prefix',   // Input 前缀图标
+  'suffix',   // Input 后缀图标
+])
+
+/** 判断属性名是否是图标名属性
+ *  匹配: icon, expandIcon, checkedChildrenIcon, unCheckedChildrenIcon, closeIcon 等
+ *  匹配: prefix, suffix（Input 等组件的前/后缀图标）
+ *  排除: iconPlacement, iconSize, expandIconPlacement 等（不以 Icon 结尾）
+ */
+function isIconPropKey(key: string): boolean {
+  return key === 'icon' || /Icon$/.test(key) || EXTRA_ICON_PROP_KEYS.has(key)
+}
+
 function collectIconNamesFromJson(data: JsonData, names: Set<string>): void {
   if (data.elements && Array.isArray(data.elements)) {
     for (const el of data.elements) {
@@ -46,19 +61,26 @@ function collectIconNamesFromJson(data: JsonData, names: Set<string>): void {
 function collectIconNamesFromElement(el: any, names: Set<string>): void {
   if (!el || typeof el !== 'object') return
 
-  // Icon 组件：收集 props.name
+  // Icon 组件：收集 props.name（name 不在 isIconPropKey 中，需单独处理）
   if (el.component === 'Icon' && el.props?.name && typeof el.props.name === 'string') {
     names.add(el.props.name)
   }
 
-  // 其他组件 props.icon：收集 icon 名
-  if (el.props && typeof el.props.icon === 'string' && el.component !== 'Icon') {
-    names.add(el.props.icon)
-  }
+  // 通用扫描：所有图标名属性（icon / xxxIcon）的字符串值
+  if (el.props && typeof el.props === 'object') {
+    for (const [key, value] of Object.entries(el.props)) {
+      if (isIconPropKey(key) && typeof value === 'string') {
+        names.add(value)
+      }
+    }
 
-  // props.items 中的 icon 字段
-  if (el.props?.items && Array.isArray(el.props.items)) {
-    collectIconNamesFromArray(el.props.items, names)
+    // 数组型 props：items / options / menu 中的图标字段
+    const arrayPropKeys = ['items', 'options', 'menu']
+    for (const propKey of arrayPropKeys) {
+      if (Array.isArray(el.props[propKey])) {
+        collectIconNamesFromArray(el.props[propKey], names)
+      }
+    }
   }
 
   // children 递归
@@ -73,8 +95,11 @@ function collectIconNamesFromElement(el: any, names: Set<string>): void {
 function collectIconNamesFromArray(arr: any[], names: Set<string>): void {
   for (const item of arr) {
     if (!item || typeof item !== 'object') continue
-    if (typeof item.icon === 'string') {
-      names.add(item.icon)
+    // 通用扫描数组项中的图标名属性
+    for (const [key, value] of Object.entries(item)) {
+      if (isIconPropKey(key) && typeof value === 'string') {
+        names.add(value)
+      }
     }
     if (Array.isArray(item.children)) {
       collectIconNamesFromArray(item.children, names)
@@ -94,10 +119,12 @@ function collectIconNamesFromState(value: any, names: Set<string>, depth: number
   }
 
   if (typeof value === 'object') {
-    if (typeof value.icon === 'string') {
-      names.add(value.icon)
-    }
-    for (const v of Object.values(value)) {
+    for (const [key, v] of Object.entries(value)) {
+      // 图标名属性（key 为 icon 或以 Icon 结尾），值为字符串
+      if (isIconPropKey(key) && typeof v === 'string') {
+        names.add(v)
+      }
+      // 递归扫描子对象
       if (v && typeof v === 'object') {
         collectIconNamesFromState(v, names, depth + 1)
       }

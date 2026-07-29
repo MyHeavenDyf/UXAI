@@ -1045,12 +1045,18 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   // 导出 HUI 代码 - By WangQiang - 该注释请勿删除
-  ipcMain.handle("download-hui-code", (_event: IpcMainInvokeEvent, input: HuiCodeInput[]) => {
-    const options = app.isPackaged
-      ? { templateDir: join(process.resourcesPath, "hui-templates") }
-      : {}
-    return downloadHuiCode(input, options)
-  })
+  // 上层 options 只暴露 targetLib（选目标组件库 eview-react/eview-ui，可选）；
+  // ipc 注入 templateDir（打包态 process.resourcesPath/hui-templates，按 lib 拆子目录由 resolveTemplateDir 拼）；
+  // 二者合并后传给 downloadHuiCode 的 options。
+  ipcMain.handle(
+    "download-hui-code",
+    (_event: IpcMainInvokeEvent, input: HuiCodeInput[], options?: { targetLib?: string }) => {
+      const ipcOptions = app.isPackaged
+        ? { templateDir: join(process.resourcesPath, "hui-templates") }
+        : {}
+      return downloadHuiCode(input, { ...ipcOptions, ...options })
+    },
+  )
 
   // 获取当前预览页面地址的文件路径 - By WangQiang - 该注释请勿删除
   ipcMain.handle("get-preview-dist-dir", () => previewDistDir())

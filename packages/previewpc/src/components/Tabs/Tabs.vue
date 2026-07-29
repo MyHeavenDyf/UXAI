@@ -7,6 +7,7 @@ import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
 import { getIconComponentRef } from "../Icon/IconBase"
+import { svgCacheVersion } from "../../composables/useIconProvider"
 import "./Tabs.less"
 
 const sizeEnum = {
@@ -111,17 +112,18 @@ const items = computed(() => {
 })
 
 // ---- 异步图标解析 ----
+// ---- 图标解析（同步，追踪 svgCacheVersion 以响应 SVG 到达） ----
 const resolvedTabIcons = ref<Record<string, { component: Component | null; props: Record<string, any> } | null>>({})
 
 watch(
-  [items, iconSize],
-  async ([newItems, sz]) => {
+  [items, iconSize, svgCacheVersion],
+  ([newItems, sz]) => {
     const map: Record<string, any> = {}
-    await Promise.all((newItems as any[]).map(async (item: any) => {
+    for (const item of (newItems as any[])) {
       if (item.icon) {
-        map[item.name] = await getIconComponentRef(item.icon, { size: sz as number, strokeWidth: 1 })
+        map[item.name] = getIconComponentRef(item.icon, { size: sz as number, strokeWidth: 1 })
       }
-    }))
+    }
     resolvedTabIcons.value = map
   },
   { immediate: true },
