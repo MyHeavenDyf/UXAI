@@ -15,16 +15,16 @@ export type TaskItem = {
   key: string        // 任务的唯一标识符，通常是 taskId + fileIndex
   taskId: string      // 一个任务可能包含多个文件，每个文件的 taskId 相同，但 fileIndex 不同
   type: "upload" | "download" | "archive"  // 任务类型，上传或下载或归档
-  serviceType: string  // 服务类型，如edm_upload edm_download 或 s3_upload s3_download
-  hasProgress: boolean  // 是否有进度信息，上传和下载任务通常有进度信息，而归档任务可能没有
-  canPause: boolean  // 是否可以暂停，标记是否出现暂停/继续按钮
-  canCancel: boolean  // 是否可以取消，标记是否出现取消按钮
-  pauseDisabled: boolean  // 暂停按钮是否置灰
-  cancelDisabled: boolean  // 取消按钮是否置灰
+  serviceType: string  // 服务类型，如edm_upload edm_download 或 s3_upload s3_download,暂停取消根据此类型统一配置
   name: string   // 文件名
   size: number   // 文件大小，单位为字节
-  progress: number // 任务进度，范围为 0 到 100
   status: TaskStatus // 任务状态，可能的值为 "pending"、"in_progress"、"paused"、"completed"、"error" 或 "cancelled"
+  hasProgress?: boolean  // 是否有进度信息，上传和下载任务通常有进度信息，而归档任务可能没有
+  progress?: number // 任务进度，范围为 0 到 100
+  canPause?: boolean  // 是否可以暂停，标记是否出现暂停/继续按钮
+  canCancel?: boolean  // 是否可以取消，标记是否出现取消按钮
+  pauseDisabled?: boolean  // 暂停按钮是否置灰
+  cancelDisabled?: boolean  // 取消按钮是否置灰
   docId?: string
   version?: string
   cacheSign?: string
@@ -107,16 +107,16 @@ export const TaskStore = {
       if (idx >= 0) setStore("items", idx, { status: u.status })
     }
   },
-  // 取消任务：置为 cancelled，并通知底层服务中止传输
+  // 取消任务：将该任务项（按 key）置为 cancelled，并通知底层服务中止传输
   cancel(data: TaskItem) {
     setStore(
       "items",
-      i => i.taskId === data.taskId,
+      i => i.key === data.key,
       "status",
       "cancelled"
     )
-    if (data.type === "upload" && data.fileIndex !== undefined) FileService.cancelUpload(data.taskId, data.fileIndex)
-    if (data.type === "download") FileService.cancelDownload(data.taskId)
+    if (data.serviceType === "edm_upload" && data.fileIndex !== undefined) FileService.cancelUpload(data.taskId, data.fileIndex)
+    if (data.serviceType === "edm_download") FileService.cancelDownload(data.taskId)
   },
   // 在 paused ↔ in_progress 之间切换
   togglePause(data: TaskItem) {
