@@ -24,7 +24,7 @@
 
   --color-inverse-surface: var(--color-text-primary, #191919);
   --color-inverse-on-surface: var(--color-text-inverse, #FFFFFF);
-  --color-inverse-on-surface-variant: var(--color-text-disabled, #C9C9C9);
+  --color-inverse-on-surface-variant: var(--color-text-inverse-disabled, #C9C9C9);
   --color-inverse-primary: var(--color-brand, #0067D1);
 
   --color-error: var(--color-error, #E02128);
@@ -52,12 +52,20 @@
   --color-info-container: var(--color-message-bg-info, #E6F2FD);
   --color-on-info-container: var(--color-text-primary, #191919);
 
+  --color-content-placeholder: var(--color-text-placeholder, #939393);
+  --color-content-disabled: var(--color-text-disabled, #C9C9C9);
+  --color-content-inverse-disabled: var(--color-text-inverse-disabled, #C9C9C9);
+  --color-interactive-link: var(--color-link, #0067D1);
+  --color-interactive-link-hover: var(--color-link-hover, #004EA8);
+  --color-interactive-link-active: var(--color-link-active, #003D83);
+  --color-interactive-link-visited: var(--color-link-visited, #715AFB);
+  --color-interactive-link-disabled: var(--color-link-disabled, #C9C9C9);
+  --color-scrim: var(--color-bg-mask, rgba(0, 0, 0, 0.4));
+  --color-outline: var(--color-border, #C9C9C9);
+  --color-outline-variant: var(--color-border-separator, #DFDFDF);
   --color-divider: var(--color-border-separator, #DFDFDF);
-
-  /* borderColor / outlineColor → --color-* */
-  --color-base: var(--color-border, #C9C9C9);
+  --color-focus-ring: var(--color-border-focus, #0067D1);
   --color-selected: var(--color-border-focus, #0067D1);
-  --color-brand: var(--color-border-focus, #0067D1);
 
   /* ── spacing → --spacing-* ── */
   --spacing-inline: 0.5rem;
@@ -68,11 +76,11 @@
   --spacing-page: 2rem;
 
   /* ── boxShadow → --shadow-* ── */
-  --shadow-sm: var(--shadow-sm, 0px 1px 6px 0 rgba(0, 0, 0, 0.08));
-  --shadow-base: var(--shadow-base, 0 4px 12px 0px rgba(0, 0, 0, 0.16));
-  --shadow-md: var(--shadow-md,0 8px 24px rgba(0, 0, 0, 0.08));
-  --shadow-lg: var(--shadow-lg, 0 8px 24px 0px rgba(0, 0, 0, 0.16));
-  --shadow-xl: var(--shadow-xl, 0 16px 48px 0px rgba(0, 0, 0, 0.16));
+  --shadow-sm: 0px 1px 6px 0 rgba(0, 0, 0, 0.08);
+  --shadow-base: 0 4px 12px 0 rgba(0, 0, 0, 0.16);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px 0 rgba(0, 0, 0, 0.16);
+  --shadow-xl: 0 16px 48px 0 rgba(0, 0, 0, 0.16);
   --shadow-card: var(--shadow-sm, 1px 1px 6px 0 rgba(0, 0, 0, 0.08));
   --shadow-popover: var(--shadow-lg, 0 8px 24px 0px rgba(0, 0, 0, 0.16));
   --shadow-modal: var(--shadow-xl, 0 16px 48px 0px rgba(0, 0, 0, 0.16));
@@ -95,8 +103,6 @@
   --outline-offset-gap: 2px;
 
   /* ── fontSize → --text-* (+ --text-*--line-height) ── */
-  --text-xs: 10px;
-  --text-xs--line-height: 1.8;
   --text-sm: 12px;
   --text-sm--line-height: 1.6;
   --text-md: 14px;
