@@ -224,7 +224,7 @@ const getWorkFlowFolderList = (nodes: NestedTreeNode[]): NestedTreeNode[] => {
       let children = item.children ? formatNodes(item.children) : []
       
       if (item.label === '版本管理') {
-        children = children.filter(child => child.label !== '版本管理')
+        children = children.filter(child => child.label !== ' 需求管理')
       }
       
       let _hide = !item.permissionFlag
