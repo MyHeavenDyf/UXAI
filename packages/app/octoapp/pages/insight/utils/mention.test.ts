@@ -141,4 +141,18 @@ describe("buildParagraphs", () => {
     expect(nodes).toHaveLength(1)
     expect(nodes[0]!.content.size).toBe(0)
   })
+
+  // 粘贴路径也复用这个函数(handlePaste 一律按 text/plain 拆段落),换行数必须原样保留
+  test("多行文本按行拆成段落,空行保留", () => {
+    const nodes = buildParagraphs("第一行\n\n第三行", [])
+    expect(nodes).toHaveLength(3)
+    expect(nodes[1]!.content.size).toBe(0)
+    const doc = editorSchema.node("doc", null, nodes)
+    expect(getDocTextWithMentions(doc)).toBe("第一行\n\n第三行")
+  })
+
+  test("CRLF 与 CR 也按行拆", () => {
+    expect(buildParagraphs("a\r\nb", [])).toHaveLength(2)
+    expect(buildParagraphs("a\rb", [])).toHaveLength(2)
+  })
 })
