@@ -53,6 +53,7 @@ import { getArchiveBaseUrl } from "./utils/pattern-archive-utils"
 import { getDesktopApi } from "./utils/desktop-api"
 import { ArchiveDialog } from "@/components/dialog-archive"
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
+import { useProjectSelection } from "@/hooks/use-project-selection"
 import * as sessionMap from "./utils/session-map"
 
 const AGENT_NAME = "proto_triage"
@@ -83,6 +84,8 @@ function PatternContent() {
   const layout = useLayout()
   const local = useLocal()
   useTabModel("pattern")
+
+  const projectSelection = useProjectSelection()
 
   onMount(() => { tracker.page({ module: "prototype", name: "pattern-page" }) })
 
@@ -1143,8 +1146,16 @@ function PatternContent() {
   }
 
   // 画布编辑  跳转pixso
-  function handleCanvasEditing() {
-    console.log('跳转pixso')
+  async function handleCanvasEditing() {
+    const sid = params.id
+    if(!sid) return
+
+    // await transformerPipeline?.({
+    //   previewData: pendingPreviewData()[sid],
+    //   sessionId: sid,
+    //   title: sessionInfo()?.title ?? sid ?? "export",
+    //   projectSelection,
+    // })
   }
 
   // 实时预览
