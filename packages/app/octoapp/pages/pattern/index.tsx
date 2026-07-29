@@ -1150,12 +1150,12 @@ function PatternContent() {
     const sid = params.id
     if(!sid) return
 
-    await transformerPipeline?.({
-      previewData: pendingPreviewData()[sid],
-      sessionId: sid,
-      title: sessionInfo()?.title ?? sid ?? "export",
-      projectSelection,
-    })
+    // await transformerPipeline?.({
+    //   previewData: pendingPreviewData()[sid],
+    //   sessionId: sid,
+    //   title: sessionInfo()?.title ?? sid ?? "export",
+    //   projectSelection,
+    // })
   }
 
   // 实时预览
