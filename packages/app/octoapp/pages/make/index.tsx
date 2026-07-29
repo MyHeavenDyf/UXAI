@@ -53,7 +53,7 @@ import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useTabModel } from "@/hooks/use-tab-model"
 import { useLayout } from "@/context/layout"
-import { useResponsiveBreakpoints } from "@/components/responsive-layout"
+import { useMakeLayout, MAKE_CENTER_MIN, MAKE_RIGHT_MIN } from "@/context/make-layout"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { useProviders } from "@/hooks/use-providers"
@@ -78,6 +78,7 @@ import { TemplatePicker } from "./components/template-picker"
 import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Icon } from "@opencode-ai/ui/icon"
+import { IconNotepad } from "@/pages/_shell/icons"
 import { loadDesignSystem } from "./utils/design-system-loader"
 import { loadCrafts } from "./utils/craft-loader"
 import { createSnapshotStore } from "./utils/snapshot-store"
@@ -134,7 +135,7 @@ function MakeContent() {
   const command = useCommand()
   const sync = useSync()
   const layout = useLayout()
-  const { isNarrow } = useResponsiveBreakpoints()
+  const ml = useMakeLayout()
   const language = useLanguage()
   const settings = useSettings()
   const dialog = useDialog()
@@ -1044,62 +1045,29 @@ const sessionMessagesLoaded = createMemo(() => {
     currentSessionIdForPrompt = newId
     setPrompt(loadPromptFromStorage(newId))
   }))
-  // 对话面板宽度：从 localStorage 恢复，无存储值时取默认 460px
-  const CHAT_WIDTH_KEY = "octo:make:chat-width"
-  function getInitialChatWidth(): number {
-    const stored = localStorage.getItem(CHAT_WIDTH_KEY)
-    if (stored) {
-      const n = parseInt(stored, 10)
-      if (!isNaN(n) && n >= 360 && n <= 720) return n
-    }
-    return 460
-  }
-  const [chatWidth, setChatWidth] = createSignal(getInitialChatWidth())
   const focusMode = layout.focusMode.get
-  const hideChat = () => focusMode() || (hasContent() && isNarrow())
+  const hideChat = () => focusMode()
 
-  const MIN_CHAT = 360
-  const MAX_CHAT = 720
+  let gridEl: HTMLDivElement | undefined
 
-  let dragCleanup: (() => void) | null = null
-
-  /** 聊天面板分隔线拖拽调整宽度 */
   function handleDividerMouseDown(e: MouseEvent) {
     e.preventDefault()
-    const startX = e.clientX
-    const startWidth = chatWidth()
-    
+    if (!gridEl) return
+    const rect = gridEl.getBoundingClientRect()
+    const free = rect.width
+    if (free <= 0) return
     const overlay = document.createElement("div")
-    overlay.style.cssText = `
-      position: fixed;
-      inset: 0;
-      z-index: 9999;
-      cursor: col-resize;
-      background: transparent;
-    `
+    overlay.style.cssText = "position:fixed;inset:0;z-index:9999;cursor:col-resize;background:transparent;"
     document.body.appendChild(overlay)
-    
-    const onMove = (ev: MouseEvent) => {
-      setChatWidth(Math.max(MIN_CHAT, Math.min(MAX_CHAT, startWidth + ev.clientX - startX)))
-    }
+    const onMove = (ev: MouseEvent) => ml.setCRatio((ev.clientX - rect.left) / free)
     const onUp = () => {
       overlay.remove()
-      localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth()))
       overlay.removeEventListener("mousemove", onMove)
       overlay.removeEventListener("mouseup", onUp)
-      dragCleanup = null
     }
     overlay.addEventListener("mousemove", onMove)
     overlay.addEventListener("mouseup", onUp)
-    dragCleanup = () => {
-      overlay.remove()
-      overlay.removeEventListener("mousemove", onMove)
-      overlay.removeEventListener("mouseup", onUp)
-      dragCleanup = null
-    }
   }
-
-  onCleanup(() => { dragCleanup?.() })
 
   const tabStore = createTabStore()
   const snapshotStore = createSnapshotStore(() => params.id)
@@ -2895,22 +2863,19 @@ if (dsId) {
       <div
         class="octo-make octo-split bg-background-base"
         data-focus={hideChat() ? "true" : undefined}
-        style={{
-          "grid-template-columns": !hideChat()
-            ? gridHasContent()
-              ? `${chatWidth()}px 0px minmax(0, 1fr)`
-              : "1fr"
-            : undefined,
-        }}
+        ref={(el) => { gridEl = el }}
+        style={{ display: "flex" }}
       >
 
         {/* ── 左栏：对话面板 ──── */}
         <Show when={!hideChat()}>
           <div
-            class="flex flex-col overflow-hidden"
+            classList={{ "flex": true, "flex-col": true, "overflow-hidden": true, "make-chat-folded": ml.rightCollapsed() || ml.rightManuallyHidden() }}
             style={{
               background: isDragOver() ? "var(--octo-brand-a3)" : "#fff",
               outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
+              flex: (gridHasContent() && !ml.rightCollapsed() && !ml.rightManuallyHidden()) ? `${ml.cRatio()} 1 0%` : "1 1 0%",
+              "min-width": `${MAKE_CENTER_MIN}px`,
             }}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -2934,9 +2899,21 @@ if (dsId) {
                 </Show>
                 <div
                   class="shrink-0 flex items-center justify-between"
-                  style={{ padding: "12px 24px", height: "56px", background: "#fff", "border-bottom": "1px solid rgba(0,0,0,0.1)" }}
+                  style={{ padding: "12px", height: "56px", background: "#fff", "border-bottom": "1px solid rgba(0,0,0,0.1)" }}
                 >
                 <div class="flex items-center gap-2 min-w-0 flex-1 pr-3">
+                  <Show when={ml.leftCollapsed()}>
+                    <button
+                      type="button"
+                      data-drawer-toggle="make-left"
+                      class="make-icon-btn"
+                      style={{ display: "flex", "align-items": "center", "justify-content": "center", width: "24px", height: "24px", cursor: "pointer", background: "none", border: "none", padding: "0", "border-radius": "4px", flex: "none" }}
+                      onClick={ml.toggleLeftDrawer}
+                      title="对话列表"
+                    >
+                      <IconNotepad size={16} />
+                    </button>
+                  </Show>
                   <Show when={isBusy()}>
                     <div class="shrink-0 flex items-center gap-1.5">
                       <Spinner class="size-4" />
@@ -2976,11 +2953,10 @@ if (dsId) {
                 >
                   <DropdownMenu.Trigger
                     as="button"
-                    class="flex items-center justify-center size-7 rounded-[4px] transition-colors hover:bg-[rgba(0,0,0,0.03)] data-[expanded]:bg-[rgba(0,0,0,0.03)]"
+                    class="make-icon-btn flex items-center justify-center size-4"
                     aria-label={language.t("common.moreOptions")}
-                    style={{ color: "rgba(0,0,0,0.6)" }}
                   >
-                    <Icon name="ellipsis" class="size-5" />
+                    <Icon name="ellipsis" class="size-4" />
                   </DropdownMenu.Trigger>
                   <DropdownMenu.Portal>
                     <DropdownMenu.Content
@@ -3005,6 +2981,16 @@ if (dsId) {
                     </DropdownMenu.Content>
                   </DropdownMenu.Portal>
                 </DropdownMenu>
+                <button
+                  type="button"
+                  data-drawer-toggle="make-right"
+                  class="make-icon-btn"
+                  style={{ display: "flex", "align-items": "center", "justify-content": "center", width: "24px", height: "24px", cursor: "pointer", background: "none", border: "none", padding: "0", "border-radius": "4px", flex: "none", "margin-left": "4px" }}
+                  onClick={ml.toggleRight}
+                  title="文件管理"
+                >
+                  <IconNotepad size={16} />
+                </button>
               </div>
               </div>
             </Show>
@@ -3015,7 +3001,9 @@ if (dsId) {
                 </div>
               }>
                 <div class="flex-1 flex flex-col items-center justify-center min-h-0 px-6 py-6">
-                  <NewSessionView worktree="" title="Octo Design" subtitle="描述需求，开始生成原型" />
+                  <div class="w-full">
+                    <NewSessionView worktree="" title="Octo Design" subtitle="描述需求，开始生成原型" />
+                  </div>
                 <div class="w-full max-w-[800px]">
                   {/* Pending skill tag */}
                     <Show when={pendingSkill()}>
@@ -3354,7 +3342,7 @@ if (dsId) {
                 </Show>
 
                 <div
-                  class="rounded-[16px] transition-all duration-300 relative group"
+                  class="make-composer rounded-[16px] transition-all duration-300 relative group"
                   style={{
                     border: "1px solid transparent",
                     background: `
@@ -3504,13 +3492,20 @@ onSlashTrigger={(query) => {
         </Show>
 
         {/* ── 拖拽分隔线（Grid 中间列） ──── */}
-        <Show when={gridHasContent() && !hideChat()}>
-          <div class="octo-split-handle" onMouseDown={handleDividerMouseDown} />
+        <Show when={gridHasContent() && !hideChat() && !ml.rightCollapsed() && !ml.rightManuallyHidden()}>
+          <div class="octo-split-handle" style={{ flex: "none", width: "0" }} onMouseDown={handleDividerMouseDown} />
         </Show>
 
         {/* ── 右栏：ResultViewer + Version Panel ──── */}
         <Show when={gridHasContent()}>
-        <div class="flex flex-col overflow-hidden" >
+        <Show when={ml.rightCollapsed() && ml.rightDrawerOpen()}>
+          <div class="make-right-overlay" onClick={ml.toggleRight} />
+        </Show>
+        <div
+          class="flex flex-col overflow-hidden"
+          classList={{ "make-right-panel": true, "is-collapsed": ml.rightCollapsed() || ml.rightManuallyHidden() }}
+          style={(ml.rightCollapsed() || ml.rightManuallyHidden()) ? { background: "#fff", "border-left": "1px solid var(--border-weak-base)" } : { flex: `${1 - ml.cRatio()} 1 0%`, "min-width": `${MAKE_RIGHT_MIN}px` }}
+        >
           <div class="flex flex-1 min-h-0 overflow-auto">
             <div class="flex flex-col flex-1" style="min-width:800px">
               {/* 焦点模式 + 版本历史 切换按钮 */}
