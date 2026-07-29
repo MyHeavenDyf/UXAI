@@ -6,8 +6,7 @@
 
 - 必须设置唯一 `rowKey`、`dataSource` 和 `columns`；每列必须设置 `columns.title` 与 `columns.dataIndex`。
 - 数字右对齐，短状态可居中，其余默认左对齐，通过 `columns.align=left | center | right` 设置。
-- 仅冻结列设置了 `columns.fixed=start | end` 才设置 `columns.width`，其余列不设 width 让表格自适应分配宽度撑满容器。
-- 仅长文本列（如描述、URL、名称）才设置 `minWidth`，短内容列（如状态、标签、操作、图标）不设 minWidth。
+- 仅冻结列设置 `columns.fixed=start | end` 和 `columns.width`；长文本列可设置 `columns.minWidth`，不要给所有列固定宽度。
 - 需要列筛选或排序时使用 `columns.filters`、`columns.sort=true`，不要手画控件。
 - 默认保留组件分页；仅需显示全部行时设置 `pagination=false`。
 - 批量选择使用 `rowSelection.type=checkbox | radio`；展开行使用 `expandable.expandedRowKeys` 和 TableRow 的 `expandedRowRender`。
@@ -16,7 +15,7 @@
 ## 布局
 
 - Table 放在 `bg-surface-container-highest` 内，长文本截断并通过 Tooltip 或详情展示，保持行高一致。
-- Table 默认具有分页功能，在不显性控制隐藏分页器时，必须给Table组件添加下边距。
+- 同一表格中的普通文字使用统一的文字色 Token；仅链接、状态、告警和禁用内容使用对应语义色，不得按列或行随意改变文字颜色。
 - 选中行后在表格工具区显示已选数量和可执行操作。
 
 ## Don't
@@ -25,5 +24,3 @@
 - 不要把标准表格行做成 Card。
 - 不要用固定宽度破坏表格自适应。
 - 不要使用开发组件不存在的属性或枚举值。
-- 禁止给所有列都加 width!。
-
