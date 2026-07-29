@@ -1,0 +1,25 @@
+.task-center-scroll {
+  scrollbar-width: auto;
+  -ms-overflow-style: auto;
+}
+.task-center-scroll::-webkit-scrollbar {
+  display: block;
+  width: 6px;
+  height: 6px;
+}
+.task-center-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--border-weak-base);
+  border-radius: 9999px;
+}
+.task-center-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--border-strong-base);
+}
+.task-center-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+@keyframes task-center-spin {
+  to { transform: rotate(360deg); }
+}
+.task-center-spin {
+  animation: task-center-spin 0.8s linear infinite;
+}

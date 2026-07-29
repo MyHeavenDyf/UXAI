@@ -2,6 +2,7 @@ import { createSignal, createMemo, Show, For } from "solid-js"
 import { Popover } from "@opencode-ai/ui/popover"
 import { TaskStore } from "@/context/task"
 import { TaskItemRow } from "./task-item"
+import "./task-center.css"
 
 export function TaskList() {
   const [shown, setShown] = createSignal(false)
@@ -21,36 +22,10 @@ export function TaskList() {
     const cancelled = cancelledItems()
     return [...active, ...paused, ...errors, ...completed, ...cancelled]
   })
+  // 是否有可清除的终态任务
+  const hasFinished = createMemo(() => completedItems().length > 0 || errorItems().length > 0 || cancelledItems().length > 0)
 
   return (
-    <>
-    <style>{`
-  .task-center-scroll {
-    scrollbar-width: auto;
-    -ms-overflow-style: auto;
-  }
-  .task-center-scroll::-webkit-scrollbar {
-    display: block;
-    width: 6px;
-    height: 6px;
-  }
-  .task-center-scroll::-webkit-scrollbar-thumb {
-    background-color: var(--border-weak-base);
-    border-radius: 9999px;
-  }
-  .task-center-scroll::-webkit-scrollbar-thumb:hover {
-    background-color: var(--border-strong-base);
-  }
-  .task-center-scroll::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  @keyframes task-center-spin {
-    to { transform: rotate(360deg); }
-  }
-  .task-center-spin {
-    animation: task-center-spin 0.8s linear infinite;
-  }
-`}</style>
     <Show when={allItems().length > 0}>
     <Popover
       open={shown()}
@@ -82,17 +57,29 @@ export function TaskList() {
         height: "446px",
         cursor: "default",
       }}>
-        {/* 头部：标题 + 关闭按钮 */}
+        {/* 头部：标题 + 清除/关闭按钮 */}
         <div class="flex items-center justify-between shrink-0" style={{ padding: "16px 16px 4px 16px" }}>
           <span class="text-[14px] font-semibold" style={{ color: "#191919", "line-height": "22px", padding: "8px" }}>
             任务中心
           </span>
-          <button
-            type="button"
-            class="rounded-[6px] transition-colors hover:bg-black/[0.06]"
-            style={{ width: "16px", height: "16px", cursor: "pointer", "background-image": "url(/task/task-panel-close.svg)", "background-size": "contain", "background-repeat": "no-repeat", "background-position": "center" }}
-            onClick={() => setShown(false)}
-          />
+          <div class="flex items-center gap-2">
+            <Show when={hasFinished()}>
+              <button
+                type="button"
+                class="text-[12px] transition-colors hover:text-[#0A59F7]"
+                style={{ color: "rgba(0,0,0,0.4)", cursor: "pointer" }}
+                onClick={TaskStore.removeFinished}
+              >
+                清除
+              </button>
+            </Show>
+            <button
+              type="button"
+              class="rounded-[6px] transition-colors hover:bg-black/[0.06]"
+              style={{ width: "16px", height: "16px", cursor: "pointer", "background-image": "url(/task/task-panel-close.svg)", "background-size": "contain", "background-repeat": "no-repeat", "background-position": "center" }}
+              onClick={() => setShown(false)}
+            />
+          </div>
         </div>
         {/* 列表区：撑满剩余高度并滚动；space-y-1 提供项间距，scrollbar-gutter 保证有/无滚动条时间距一致 */}
         <div class="task-center-scroll flex-1 pb-4 overflow-y-auto space-y-1" style={{ "padding-left": "calc(var(--spacing) * 4)", "padding-right": "calc(var(--spacing) * 2.5)", "scrollbar-gutter": "stable" }}>
@@ -103,6 +90,5 @@ export function TaskList() {
       </div>
     </Popover>
     </Show>
-    </>
   )
 }

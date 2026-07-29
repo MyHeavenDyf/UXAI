@@ -52,24 +52,11 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { FileManagerToolbar } from "./toolbar"
 import { Breadcrumb } from "./breadcrumb"
 import { PreviewPane } from "./preview-pane"
-import { ArchiveDialogs, type ArchiveTarget, decodeBase64ToString } from "../archive-flow"
+import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
 
-// 把文件管理列表中的 InsightFile 转成归档 target:HTML → 复刻 Design 流程(列表无 live iframe,走占位截图);
-// 其他类型 → file 流(本地读盘取 File → EdmUtil.upload)。
+// 把文件管理列表中的非 HTML InsightFile 转成归档 file target(本地读盘 / uri 拉取 → EdmUtil.upload)。
+// HTML 归档只在 result-viewer ActionBar 提供(那里有 live iframe 可截图,且避免对用户上传目录整包打包),故本入口不处理 HTML。
 function insightFileToArchiveTarget(file: InsightFile, sdkUrl: string, sdkDirectory: string, sessionId: string): ArchiveTarget {
-  if (file.kind === "html") {
-    return {
-      mode: "html",
-      sessionId,
-      projectDir: sdkDirectory,
-      getHtmlContent: async () => {
-        const c = await fetchInsightContent(sdkUrl, sdkDirectory, file.path)
-        return c.encoding === "base64" ? decodeBase64ToString(c.content) : c.content
-      },
-      htmlFileName: file.name,
-      htmlFilePath: file.path,
-    }
-  }
   return {
     mode: "file",
     sessionId,
@@ -846,7 +833,7 @@ function FileRow(props: {
               <MenuItem label="打开所在文件夹" onClick={() => { props.onOpenInExplorer(props.file); setMenuOpen(false) }} />
               <Show when={!props.file.isFolder}>
                 <MenuItem label="下载" onClick={() => { props.onDownload(props.file); setMenuOpen(false) }} />
-                <Show when={props.onArchive}>
+                <Show when={props.onArchive && props.file.kind !== "html"}>
                   <MenuItem label="归档" onClick={() => { props.onArchive!(props.file); setMenuOpen(false) }} />
                 </Show>
               </Show>

@@ -79,7 +79,7 @@ export function transformCommentsForArchive(comments: FileComment[]): ArchiveCom
 
 export async function capturePageScreenshot(iframe: HTMLIFrameElement): Promise<Blob> {
   const api = getDesktopApi()
-  
+
   if (api?.capturePreviewRect) {
     const rect = iframe.getBoundingClientRect()
     const dataUrl = await api.capturePreviewRect({
@@ -164,18 +164,18 @@ export async function createArchiveZip(options: CreateArchiveZipOptions): Promis
   zip.file("preview/index.html", options.htmlContent)
 
   const api = getDesktopApi()
-  
+
   // 检查是否有相对路径引用，如果有则复制同目录下所有文件
   if (api?.listDirectory && api?.readFileBuffer && options.htmlFilePath) {
     const hasRelativeRefs = checkHasRelativeRefs(options.htmlContent)
-    
+
     if (hasRelativeRefs) {
       const htmlDir = dirname(options.htmlFilePath)
       const htmlFileName = basename(options.htmlFilePath)
-      
+
       try {
         const files = await api.listDirectory(htmlDir)
-        
+
         for (const file of files) {
           if (file.type === 'file' && file.path !== htmlFileName) {
             try {
@@ -222,11 +222,11 @@ export async function createArchiveZip(options: CreateArchiveZipOptions): Promis
 function joinPath(base: string, relative: string): string {
   const normalizedBase = base.replace(/\\/g, "/")
   const normalizedRelative = relative.replace(/\\/g, "/")
-  
+
   if (normalizedRelative.startsWith(normalizedBase)) {
     return normalizedRelative
   }
-  
+
   if (normalizedBase.endsWith("/")) {
     return normalizedBase + normalizedRelative
   }
@@ -258,80 +258,3 @@ export function buildArchivePath(data: {
   return parts.join(" - ")
 }
 
-const getArchiveBaseUrl = () => import.meta.env.VITE_OCTO_BASE_URL || ""
-
-const getArchiveAuthHeaders = () => ({
-  "Content-Type": "application/json"
-})
-
-export interface CreateDeliverableResult {
-  deliverableId: number
-  uniqueId: string
-}
-
-export async function createDeliverable(teamId: number, fileName: string): Promise<CreateDeliverableResult> {
-  const res = await fetch(`${getArchiveBaseUrl()}/main/rest.root/octoAgentServer/designAgent/createDeliverable`, {
-    method: "POST",
-    headers: {
-      ...getArchiveAuthHeaders()
-    },
-    body: JSON.stringify({
-      teamId,
-      typeId: 41,
-      fileName: fileName.replace(/\.html?$/i, "")
-    })
-  })
-  
-  if (!res.ok) {
-    throw new Error(`createDeliverable failed: ${res.status}`)
-  }
-  
-  const data = await res.json()
-  if (data?.errorCode === 401) {
-    throw new Error("无该文件夹权限")
-  }
-  if (!data?.content) {
-    throw new Error("createDeliverable returned no content")
-  }
-  
-  return {
-    deliverableId: data.content.deliverableId || data.content.id,
-    uniqueId: data.content.uniqueId || data.content.docId
-  }
-}
-
-export async function uploadCover(deliverableId: number, file: Blob): Promise<void> {
-  const formData = new FormData()
-  formData.append("uploadFile", file, "screenshot.jpg")
-  formData.append("deliverableId", String(deliverableId))
-  
-  const res = await fetch(`${getArchiveBaseUrl()}/main/rest.root/workflow/deliverable/uploadCover`, {
-    method: "POST",
-    headers: {},
-    body: formData
-  })
-  
-  if (!res.ok) {
-    throw new Error(`uploadCover failed: ${res.status}`)
-  }
-}
-
-export async function uploadVersion(uniqueId: string, file: Blob): Promise<{ success: boolean }> {
-  const formData = new FormData()
-  formData.append("file", file, "archive.zip")
-  formData.append("uniqueId", uniqueId)
-  formData.append("fileSource", 'Design')
-  
-  const res = await fetch(`${getArchiveBaseUrl()}/main/rest.root/octoAgentServer/designAgent/uploadVersion`, {
-    method: "POST",
-    headers: {},
-    body: formData
-  })
-  
-  if (!res.ok) {
-    throw new Error(`uploadVersion failed: ${res.status}`)
-  }
-  
-  const data = await res.json()
-  return { success: data?.success ?? false }
-}

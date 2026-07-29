@@ -39,24 +39,26 @@ TaskStore.add([{
 ### `TaskStore.progress` — 进度更新
 
 ```ts
-TaskStore.progress([{ key, progress: 45, status: "in_progress" /* 其余字段补齐以满足类型 */ } as TaskItem])
+TaskStore.progress([{ key, progress: 45, status: "in_progress" }])
 ```
 
-按 `key` 定位，更新 `progress` 与 `status`。
+按 `key` 定位，更新 `progress` 与 `status`。仅传需更新字段；终态（`completed`/`error`/`cancelled`）项不会被覆盖，`paused` 项保持 `paused`（底层未真正暂停，见 `togglePause` TODO）。
 
 ### `TaskStore.finish` — 传输完成
 
 ```ts
-TaskStore.finish([{ key, progress: 100, status: "completed", docId, version } as TaskItem])
+TaskStore.finish([{ key, progress: 100, status: "completed", docId, version }])
 ```
+
+写入 `progress`/`status`，并持久化 `docId`/`version`（供后续按文档 id 跳转）。`progress`/`status` 可缺省（分别回退原值与 `completed`）。
 
 ### `TaskStore.error` — 传输失败
 
 ```ts
-TaskStore.error([{ key, status: "error" } as TaskItem])
+TaskStore.error([{ key, status: "error" }])
 ```
 
-仅按 `key` 更新 `status`。
+仅按 `key` 更新 `status`（缺省为 `error`）。
 
 ### `TaskStore.cancel` — 取消任务
 
@@ -72,7 +74,26 @@ TaskStore.cancel(item)
 TaskStore.togglePause(item)
 ```
 
-在 `paused` ↔ `in_progress` 之间切换（按 `key` 单项切换）。
+在 `paused` ↔ `in_progress` 之间切换（按 `key` 单项切换）。**注意：`FileService` 暂无 pause/resume，当前仅翻转 store 状态、未真正暂停底层传输**，待 `FileService` 支持后经注册表 `pause` 句柄补接。
+
+### `TaskStore.removeFinished` — 清除终态
+
+```ts
+TaskStore.removeFinished()
+```
+
+移除所有 `completed` / `error` / `cancelled` 任务，避免长会话列表无限增长、入口图标常驻。
+
+### `TaskStore.registerService` — 注册服务句柄
+
+```ts
+TaskStore.registerService("edm_upload", {
+  cancel: (item) => { FileService.cancelUpload(item.taskId, item.fileIndex!) },
+  pause: undefined, // 暂未实现
+})
+```
+
+按 `serviceType` 注册取消/暂停句柄；`cancel` / `togglePause` 据此派发，新服务接入无需改 `task.ts`。已内置 `edm_upload` / `edm_download` 的 `cancel`。
 
 ### 派生列表（只读）
 
@@ -95,7 +116,7 @@ TaskStore.togglePause(item)
 | `key` | `string` | ✓ | 唯一标识，通常 `taskId + fileIndex` |
 | `taskId` | `string` | ✓ | 任务 ID；多文件任务共享 |
 | `type` | `"upload" \| "download" \| "archive"` | ✓ | 任务类型，决定标签文案（上传/下载/归档） |
-| `serviceType` | `string` | ✓ | 服务类型，如 `edm_upload` / `s3_download`；暂停/取消据此配置 |
+| `serviceType` | `string` | ✓ | 服务类型，如 `edm_upload` / `s3_download`；取消时据此派发到对应服务（`edm_upload`→`FileService.cancelUpload`，`edm_download`→`FileService.cancelDownload`） |
 | `name` | `string` | ✓ | 文件名 |
 | `size` | `number` | ✓ | 文件大小（字节） |
 | `status` | `TaskStatus` | ✓ | 任务状态 |
@@ -155,24 +176,26 @@ EdmUtil.upload(files, {
   onProgress: (taskId, items) => {
     TaskStore.progress(items.map((f, i) => ({
       key: `${taskId}-${i}`, progress: f.progress, status: "in_progress",
-    }) as TaskItem))
+    })))
   },
   onFinish: (taskId, items) => {
     TaskStore.finish(items.map((f, i) => ({
       key: `${taskId}-${i}`, progress: 100, status: "completed", docId: f.docId, version: f.version,
-    }) as TaskItem))
+    })))
   },
   onError: (taskId, errors) => {
     TaskStore.error(TaskStore.items()
       .filter(i => i.taskId === taskId)
-      .map(i => ({ ...i, status: "error" }) as TaskItem))
+      .map(i => ({ key: i.key, status: "error" })))
   },
 })
 ```
 
 ### 自定义暂停 / 取消行为
 
-`TaskItemRow` 通过 props 注入回调，默认指向 `TaskStore`：
+取消/暂停按 `serviceType` 经注册表（`TaskStore.registerService`）派发到对应服务，内置 `edm_upload` / `edm_download` 的 `cancel`。新服务（如 `s3_upload`）接入时调用 `registerService` 注册自己的 `cancel` / `pause` 句柄即可，无需改 `task.ts`。
+
+`TaskItemRow` 的 `onPause` / `onCancel` props 默认指向 `TaskStore.togglePause` / `TaskStore.cancel`：
 
 ```tsx
 <TaskItemRow
@@ -182,13 +205,13 @@ EdmUtil.upload(files, {
 />
 ```
 
-若某类任务需要差异化逻辑，替换为自定义回调即可（如直接调用对应服务的取消接口）。
+若某条目需完全跳过 store 派发、走自定义逻辑，可替换为自定义回调。
 
 ## UI 与图标
 
 ### 面板结构
 
-- 入口：标题栏图标，有进行中任务时变蓝并显示数量徽标
+- 入口：标题栏图标，有进行中任务时外加旋转圈并缩小为 16px；全为终态时显示 28px 静态图标；无任何任务时整入口隐藏
 - 面板：固定 360×446，头部（标题 `任务中心` + 关闭按钮）+ 可滚动列表
 - 任务项：文件图标 + 标题 + 类型标签，状态描述，进度条；hover 显示暂停/取消按钮
 
@@ -198,8 +221,7 @@ EdmUtil.upload(files, {
 
 | 文件 | 用途 |
 |------|------|
-| `task-center.svg` | 入口图标（空闲态） |
-| `task-center-active.svg` | 入口图标（有任务态） |
+| `task-center.svg` | 入口图标（空闲态与有任务态共用，有任务时叠加旋转圈） |
 | `task-panel-close.svg` | 面板关闭按钮 |
 | `task-pause.svg` | 暂停 |
 | `task-play.svg` | 继续 |
@@ -209,10 +231,4 @@ EdmUtil.upload(files, {
 
 ## 验证
 
-### DEV mock 数据
-
-`context/task.ts` 在 `import.meta.env.DEV` 下注入覆盖每个 `type` / `serviceType` 组合与全部状态的 mock 数据，启动后打开任务中心即可核验各状态样式。
-
-### 真实接入
-
-业务侧按上方示例在 `EdmUtil` 回调中调用 `TaskStore`，`bun run dev` 后触发上传/下载，任务中心实时更新。
+`context/task.ts` 不再注入 DEV mock 数据。任务中心为纯展示层，验证依赖真实接入：`bun run dev` 后触发上传/下载/归档，`TaskStore` 在各生命周期回调中更新，任务中心实时刷新。

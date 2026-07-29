@@ -14,16 +14,16 @@ const typeLabel: Record<TaskItem["type"], string> = {
 const statusTextByType: Record<TaskItem["type"], Record<TaskItem["status"], string>> = {
   upload: { pending: "解析中", in_progress: "上传中", paused: "已暂停", completed: "上传完成", error: "上传失败", cancelled: "已取消" },
   download: { pending: "等待中", in_progress: "下载中", paused: "已暂停", completed: "下载完成", error: "下载失败", cancelled: "已取消" },
-  archive: { pending: "解析中", in_progress: "归档中", paused: "已暂停", completed: "归档完成", error: "归档失败", cancelled: "已取消" },
+  archive: { pending: "打包中", in_progress: "归档中", paused: "已暂停", completed: "归档完成", error: "归档失败", cancelled: "已取消" },
 }
 
-// 状态描述字体色
+// 状态描述字体色(completed/error 走主题变量，暗色主题下仍可读)
 const statusTextColor: Record<TaskItem["status"], string> = {
   pending: "#777777",
   in_progress: "#777777",
   paused: "#191919",
-  completed: "#316614",
-  error: "#E02128",
+  completed: "var(--icon-success-base)",
+  error: "var(--icon-critical-base)",
   cancelled: "#777777",
 }
 
@@ -145,10 +145,10 @@ export function TaskItemRow(props: {
           </Show>
         </div>
       </div>
-      {/* 进度条：非终态且有进度信息(hasProgress)时显示；轨道 #DFDFDF，填充色见 barColor，外层留 3px 上下间距 */}
+      {/* 进度条：非终态且有进度信息(hasProgress)时显示；轨道用主题弱边框色，填充色见 barColor，外层留 3px 上下间距 */}
       <Show when={!isTerminal() && item().hasProgress}>
         <div style={{ "margin-top": "4px", "padding-top": "3px", "padding-bottom": "3px" }}>
-          <div style={{ height: "4px", background: "#DFDFDF", "border-radius": "2px", overflow: "hidden" }}>
+          <div style={{ height: "4px", background: "var(--border-weak-base)", "border-radius": "2px", overflow: "hidden" }}>
             <div style={{ height: "4px", width: `${progressPercent()}%`, background: barColor(), "border-radius": "2px" }} />
           </div>
         </div>

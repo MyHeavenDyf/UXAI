@@ -91,7 +91,8 @@ async function getTabFile(tab: ResultTab): Promise<File | null> {
 
 // 把 ResultTab 转成归档 target:HTML → 复刻 Design 流程(DOM 取预览 iframe 截图);其他 → file 流(EdmUtil)。
 // 传 getter 而非快照:uri/path tab 的 content 是异步回写(cacheContent 换新对象),confirm 时读最新值。
-function tabToArchiveTarget(getTab: () => ResultTab, projectDir: string, sessionId: string): ArchiveTarget {
+// getIframe 由 result-viewer 容器作用域提供,避免全局 query 取错/取空(取空会上传 1×1 白图当封面)。
+function tabToArchiveTarget(getTab: () => ResultTab, projectDir: string, sessionId: string, getIframe?: () => HTMLIFrameElement | null): ArchiveTarget {
   const tab = getTab()
   if (tab.type === "html") {
     return {
@@ -101,7 +102,7 @@ function tabToArchiveTarget(getTab: () => ResultTab, projectDir: string, session
       getHtmlContent: () => Promise.resolve(stripCodeFence(getTab().content ?? "")),
       htmlFileName: tab.fileName || tab.title || "preview.html",
       htmlFilePath: tab.filePath || "",
-      getIframe: () => document.querySelector('iframe[title="HTML preview"]') as HTMLIFrameElement | null,
+      getIframe: getIframe ?? (() => null),
     }
   }
   return {
@@ -272,6 +273,8 @@ export function ActionBar(props: {
   onSetViewMode: (mode: TabViewMode) => void
   /** 进入全屏 markdown 编辑器(仅 markdown 卡且有本地文件时给出) */
   onEdit?: () => void
+  /** 取预览 iframe(由 result-viewer 容器作用域提供,避免全局 querySelector 取到其他 tab/分屏的 iframe) */
+  getIframe?: () => HTMLIFrameElement | null
 }): JSX.Element {
   const projectDir = useProjectDir()
   const params = useParams<{ id?: string }>()
@@ -299,7 +302,7 @@ export function ActionBar(props: {
   const [archiveDialogOpen, setArchiveDialogOpen] = createSignal(false)
 
   function handleArchiveClick() {
-    setArchiveTarget(tabToArchiveTarget(() => props.tab, projectDir() || "", params.id ?? ""))
+    setArchiveTarget(tabToArchiveTarget(() => props.tab, projectDir() || "", params.id ?? "", props.getIframe))
     setArchiveDialogOpen(true)
     tracker.interaction({ module: "insight", name: "result-archive", extend: JSON.stringify({ tabType: props.tab.type }) })
   }
@@ -370,11 +373,16 @@ export function ActionBar(props: {
           />
           <DownloadMenu tab={props.tab} disabled={!ready()} />
         </Show>
-        {/* 归档(60×32,#0A59F7):所有文件类型均可归档,置于头部操作项最右侧 */}
+        {/* 归档(60×32,#0A59F7):所有文件类型均可归档,置于头部操作项最右侧;未 ready 时置灰 */}
         <button
           type="button"
           onClick={handleArchiveClick}
-          class="flex items-center justify-center transition-opacity hover:opacity-90"
+          disabled={!ready()}
+          class="flex items-center justify-center transition-opacity"
+          classList={{
+            "hover:opacity-90 cursor-pointer": ready(),
+            "opacity-40 cursor-not-allowed": !ready(),
+          }}
           style={{
             width: "60px",
             height: "32px",
@@ -383,7 +391,6 @@ export function ActionBar(props: {
             color: "#FFFFFF",
             "font-size": "14px",
             "line-height": "22px",
-            cursor: "pointer",
             "flex-shrink": "0",
           }}
           title="归档"

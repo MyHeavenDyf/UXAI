@@ -14,12 +14,9 @@ import {
   createArchiveZip,
   capturePageScreenshot,
   buildArchivePath,
-  createDeliverable,
-  uploadCover,
-  uploadVersion,
 } from "../utils/archive-utils"
 import { EdmUtil } from "@/utils/edmUtil"
-import { uploadDeliverable, getActivityByTeam } from "@/network/pipelineRequest"
+import { uploadDeliverable, getActivityByTeam, createDeliverable, uploadCover, uploadVersion } from "@/network/pipelineRequest"
 import { getDesktopApi } from "../lib/electron-api"
 import { TaskStore, type TaskItem } from "@/context/task"
 
@@ -77,18 +74,6 @@ function openExternalUrl(url: string) {
   const api = getDesktopApi()
   if (typeof api?.openLink === "function") api.openLink(url)
   else window.open(url, "_blank", "noopener")
-}
-
-// base64 → 原始字符串(文件管理 HTML 归档需解码后源码进 zip)
-export function decodeBase64ToString(b64: string): string {
-  try {
-    const binary = atob(b64)
-    const bytes = new Uint8Array(binary.length)
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-    return new TextDecoder().decode(bytes)
-  } catch {
-    return ""
-  }
 }
 
 // onDeferredSuccess:归档后台任务完成后的回调(开成功弹窗,带跳转 URL)。HTML/非 HTML 均异步,立即返回 undefined。
@@ -154,7 +139,8 @@ async function runArchiveHtmlTask(
   const taskId = `archive-html-${Date.now()}`
   const name = target.htmlFileName
   TaskStore.add([htmlArchiveTask(taskId, name, 0, "pending")])
-  TaskStore.progress([htmlArchiveTask(taskId, name, 0, "in_progress")])
+  TaskStore.progress([{ key: taskId, progress: 0, status: "in_progress" }])
+  showToast({ title: "该任务已添加到任务列表" })
   try {
     // 弹窗已关闭,iframe 在标签页内容区仍可见;无 live iframe(文件管理 / 源码视图)走占位截图。
     const iframe = target.getIframe?.() ?? null
@@ -186,7 +172,7 @@ async function runArchiveHtmlTask(
         uploadResult = await uploadVersion(newDeliverable.uniqueId, zipBlob)
       }
       if (!uploadResult.success) throw new Error("归档上传失败")
-      TaskStore.finish([htmlArchiveTask(taskId, name, 100, "completed")])
+      TaskStore.finish([{ key: taskId, progress: 100, status: "completed" }])
       const viewUrl = uniqueId ? buildHtmlPreviewUrl(uniqueId) : undefined
       onDeferredSuccess?.({ path: buildSuccessPath(data), viewUrl })
     } else {
@@ -200,11 +186,11 @@ async function runArchiveHtmlTask(
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-      TaskStore.finish([htmlArchiveTask(taskId, name, 100, "completed")])
+      TaskStore.finish([{ key: taskId, progress: 100, status: "completed" }])
       showToast({ title: "归档完成", description: "ZIP文件已下载" })
     }
   } catch (err) {
-    TaskStore.error([htmlArchiveTask(taskId, name, 0, "error")])
+    TaskStore.error([{ key: taskId, status: "error" }])
     console.error("[Archive] Failed:", err)
     showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
   }
@@ -246,7 +232,7 @@ async function runArchiveFileTask(
           serviceType: "edm_upload",
           hasProgress: true,
           canPause: false,
-          canCancel: false,
+          canCancel: true,
           pauseDisabled: false,
           cancelDisabled: false,
           name: file.name,
@@ -256,41 +242,22 @@ async function runArchiveFileTask(
           createdAt: Date.now(),
           fileIndex: index,
         })))
+        showToast({ title: "该任务已添加到任务列表" })
       },
       onProgress: (taskId, files) => {
-        TaskStore.progress(files.map((file, index): TaskItem => ({
+        TaskStore.progress(files.map((file, index) => ({
           key: `${taskId}-${index}`,
-          taskId,
-          type: "upload",
-          serviceType: "edm_upload",
-          hasProgress: true,
-          canPause: false,
-          canCancel: true,
-          pauseDisabled: false,
-          cancelDisabled: false,
-          name: file.name,
-          size: file.size,
           progress: file.progress,
           status: "in_progress",
-          fileIndex: index,
         })))
       },
       onFinish: (taskId, files) => {
-        TaskStore.finish(files.map((file, index): TaskItem => ({
+        TaskStore.finish(files.map((file, index) => ({
           key: `${taskId}-${index}`,
-          taskId,
-          type: "upload",
-          serviceType: "edm_upload",
-          hasProgress: true,
-          canPause: false,
-          canCancel: false,
-          pauseDisabled: false,
-          cancelDisabled: false,
-          name: file.name,
-          size: file.size,
           progress: 100,
           status: "completed",
-          fileIndex: index,
+          docId: file.docId,
+          version: file.version,
         })))
         uploadDeliverable({
           typeId: activity.deliverableType,
@@ -311,24 +278,8 @@ async function runArchiveFileTask(
       onError: (taskId, errors) => {
         TaskStore.error(TaskStore.items()
           .filter((f) => f.taskId === taskId)
-          .map((f): TaskItem => ({
-            key: f.key,
-            taskId,
-            type: "upload",
-            serviceType: "edm_upload",
-            hasProgress: true,
-            canPause: false,
-            canCancel: false,
-            pauseDisabled: false,
-            cancelDisabled: false,
-            name: f.name,
-            size: f.size,
-            progress: f.progress,
-            status: "error",
-            fileIndex: f.fileIndex,
-          })))
-        const msg = errors?.message || "上传失败"
-        showToast({ title: "归档失败", description: msg })
+          .map((f) => ({ key: f.key, status: "error" })))
+        showToast({ title: "归档失败", description: errors?.message || "上传失败" })
       },
     })
   } catch (err) {
@@ -351,8 +302,7 @@ export function ArchiveDialogs(props: {
 
   async function handleConfirm(data: ArchiveConfirmData): Promise<void> {
     if (!props.target) return
-    // 弹窗立即关闭,toast 提示任务已加入任务列表,后台归档任务(HTML/非 HTML 均走任务中心)完成后 onDeferredSuccess 开成功弹窗。
-    showToast({ title: "该任务已添加到任务列表" })
+    // 弹窗立即关闭;后台归档任务真正入队 TaskStore 后才弹「已添加」toast(见 runArchiveHtmlTask / onInit),避免前置请求失败时文案失真。
     void runArchive(props.target, data, (result) => {
       setSuccessPath(result.path)
       setSuccessViewUrl(result.viewUrl)
