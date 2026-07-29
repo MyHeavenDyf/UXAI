@@ -100,7 +100,7 @@ export function TaskItemRow(props: {
             <Show when={totalSize() && item().hasProgress && !isTerminal()}>
               <span>·</span>
               <span>
-                <Show when={downloadedSize() && !isCompleted()}>
+                <Show when={downloadedSize()}>
                   {downloadedSize()}/
                 </Show>
                 {totalSize()}
@@ -140,13 +140,13 @@ export function TaskItemRow(props: {
           </div>
           <Show when={item().hasProgress && !isTerminal()}>
             <span class="text-[12px] leading-[16px]" style={{ color: statusTextColor[item().status] }}>
-              {isCompleted() ? "100%" : `${progressPercent()}%`}
+              {progressPercent()}%
             </span>
           </Show>
         </div>
       </div>
-      {/* 进度条：非终态显示；轨道 #DFDFDF，填充色见 barColor，外层留 3px 上下间距 */}
-      <Show when={!isTerminal()}>
+      {/* 进度条：非终态且有进度信息(hasProgress)时显示；轨道 #DFDFDF，填充色见 barColor，外层留 3px 上下间距 */}
+      <Show when={!isTerminal() && item().hasProgress}>
         <div style={{ "margin-top": "4px", "padding-top": "3px", "padding-bottom": "3px" }}>
           <div style={{ height: "4px", background: "#DFDFDF", "border-radius": "2px", overflow: "hidden" }}>
             <div style={{ height: "4px", width: `${progressPercent()}%`, background: barColor(), "border-radius": "2px" }} />
