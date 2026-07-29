@@ -26,12 +26,12 @@ export function OctoShell(props: ParentProps<{ withSidebar?: boolean }>) {
   return (
     <div class="flex flex-col h-dvh overflow-hidden" style={{ background: "#f3f6fb" }}>
       <OctoTopbar />
-      <div class="flex flex-1 min-h-0 overflow-hidden relative">
+      <div class="flex flex-1 min-h-0 overflow-hidden relative" style={{ "--sidebar-width": `${sidebarWidth()}px` }}>
         <Show 
           when={props.withSidebar} 
           fallback={<div class="flex-1 min-h-0 overflow-hidden flex flex-col">{props.children}</div>}
         >
-          <OctoSidebar width={sidebarWidth()} />
+          <OctoSidebar />
           {/* sidebar 拖拽句柄 */}
           <div
             class="absolute top-0 bottom-0 flex items-center justify-center group"

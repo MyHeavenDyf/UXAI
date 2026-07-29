@@ -12,6 +12,7 @@ import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { KnowledgeReferences, type KnowledgeSource } from "./knowledge-references"
+import { IconNotepad } from "@/pages/_shell/icons"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { TextField } from "@opencode-ai/ui/text-field"
 import type { AssistantMessage, Message as MessageType, Part, TextPart, UserMessage } from "@opencode-ai/sdk/v2"
@@ -628,6 +629,12 @@ export function MessageTimeline(props: {
       when={!props.mobileChanges}
       fallback={<div class="relative h-full overflow-hidden">{props.mobileFallback}</div>}
     >
+      <style>{`
+        .titlebar-icon-btn, .titlebar-icon-btn [data-component="icon"] { color: #777 !important; transition: color 150ms ease !important; }
+        button:hover .titlebar-icon-btn, button:hover .titlebar-icon-btn [data-component="icon"],
+        button:active .titlebar-icon-btn, button:active .titlebar-icon-btn [data-component="icon"],
+        button[data-expanded] .titlebar-icon-btn, button[data-expanded] .titlebar-icon-btn [data-component="icon"] { color: #0a59f7 !important; }
+      `}</style>
       <div class="relative w-full h-full min-w-0">
         <div
           class="absolute left-1/2 -translate-x-1/2 bottom-6 z-[2] pointer-events-none transition-all duration-200 ease-out"
@@ -705,7 +712,7 @@ export function MessageTimeline(props: {
             "--sticky-accordion-top": showHeader() ? "48px" : "0px",
           }}
         >
-          <div ref={props.setContentRef} class="min-w-0 w-full px-4 md:px-5">
+          <div ref={props.setContentRef} class="min-w-0 w-full">
             <Show when={showHeader()}>
               <div
                 ref={(el) => {
@@ -714,13 +721,11 @@ export function MessageTimeline(props: {
                 }}
                 data-session-title
                 classList={{
-                  "sticky top-0 z-30": true,
+                  "sticky top-0 z-31": true,
                   relative: true,
                   "w-full": true,
-                  "pb-4": true,
-                  "pl-2 pr-3 md:pl-4 md:pr-3": true,
-                  "md:max-w-200 md:mx-auto 2xl:max-w-[1000px]": props.centered,
                 }}
+                style={{ height: "56px", padding: "12px", background: "#fff", "border-bottom": "1px solid rgba(0,0,0,0.1)" }}
                 onMouseMove={(e) => {
                   if (title.editing) e.stopPropagation()
                 }}
@@ -738,8 +743,23 @@ export function MessageTimeline(props: {
                     <div data-component="session-progress-bar" />
                   </div>
                 </Show>
-                <div class="h-12 w-full flex items-center justify-between gap-2">
-                  <div class="flex items-center gap-1 min-w-0 flex-1 pr-3">
+                <div class="w-full flex items-center justify-between gap-2">
+                  <div class="flex items-center gap-3 min-w-0 flex-1 pr-3">
+                    <button
+                      type="button"
+                      data-drawer-toggle="chat"
+                      class="titlebar-icon-btn"
+                      style={{ display: "none", "align-items": "center", "justify-content": "center", width: "16px", height: "16px", cursor: "pointer", background: "none", border: "none", padding: "0" }}
+                      onClick={() => document.body.classList.toggle("chat-drawer-open")}
+                      ref={(el) => {
+                        const mq = window.matchMedia("(max-width: 656px)")
+                        const update = () => { el.style.display = mq.matches ? "flex" : "none" }
+                        update()
+                        mq.addEventListener("change", update)
+                      }}
+                    >
+                      <IconNotepad size={16} />
+                    </button>
                     <div class="flex items-center min-w-0 grow-1">
                       <Show when={parentID()}>
                         <button
@@ -782,6 +802,7 @@ export function MessageTimeline(props: {
                             <h1
                               data-slot="session-title-child"
                               class="text-14-medium text-text-strong truncate grow-1 min-w-0"
+                              style={{ "font-weight": "600" }}
                               onDblClick={openTitleEditor}
                             >
                               {childTitle()}
@@ -834,12 +855,16 @@ export function MessageTimeline(props: {
                           >
                             <DropdownMenu.Trigger
                               as="button"
-                              class="flex items-center justify-center size-7 rounded-[4px] transition-colors hover:bg-[rgba(0,0,0,0.03)] data-[expanded]:bg-[rgba(0,0,0,0.03)]"
+                              class="flex items-center justify-center size-7 rounded-[4px]"
                               aria-label={language.t("common.moreOptions")}
-                              style={{ color: "rgba(0,0,0,0.6)" }}
                               ref={setMoreRef}
                             >
-                              <Icon name="ellipsis" class="size-5" />
+                              <span
+                                class="titlebar-icon-btn"
+                                style={{ display: "flex", "align-items": "center", "justify-content": "center", cursor: "pointer" }}
+                              >
+                                <Icon name="ellipsis" class="size-4" />
+                              </span>
                             </DropdownMenu.Trigger>
                             <DropdownMenu.Portal>
                               <DropdownMenu.Content
@@ -1006,10 +1031,10 @@ export function MessageTimeline(props: {
             <div
               role="log"
               data-slot="session-turn-list"
-              class="flex flex-col items-start justify-start pb-16 transition-[margin]"
+              class="flex flex-col items-start justify-start mt-6 pb-16 transition-[margin]"
               classList={{
                 "w-full": true,
-                "md:max-w-200 md:mx-auto 2xl:max-w-[1000px]": props.centered,
+                "md:max-w-[800px] md:mx-auto 2xl:max-w-[800px]": props.centered,
                 "mt-0.5": props.centered,
                 "mt-0": !props.centered,
               }}
@@ -1063,7 +1088,7 @@ export function MessageTimeline(props: {
                       data-message-id={messageID}
                       classList={{
                         "min-w-0 w-full max-w-full": true,
-                        "md:max-w-200 2xl:max-w-[1000px]": props.centered,
+                        "md:max-w-[800px] 2xl:max-w-[800px]": props.centered,
                       }}
                       style={{
                         "content-visibility": active() ? undefined : "auto",
@@ -1123,7 +1148,7 @@ export function MessageTimeline(props: {
                         classes={{
                           root: "min-w-0 w-full relative",
                           content: "flex flex-col justify-between !overflow-visible",
-                          container: "w-full px-4 md:px-5",
+                          container: "w-full px-6",
                         }}
                       />
                       <Show when={kbSources().length > 0}>

@@ -1,0 +1,199 @@
+/* Insight 答题弹窗视觉覆盖(question 工具,SPEC-INS-025)。
+ *
+ * 不改上游 packages/ui。本文件**不入 @layer**,靠「无层样式胜过 layer(components)」压过
+ * message-part.css / dock-surface.css / button.css 的默认样式,作用域全部收在 .octo-question-dock。
+ * 视觉约定与同页的 permission-dock.css 保持一致(整体白框 + 纯投影 + 胶囊按钮 + 通用字体)。
+ *
+ * 本弹窗**只有浅色一套**:不跟随系统暗色。凡是会随主题翻转的上游 token
+ * (--surface-raised-stronger-non-alpha / --text-strong / --background-base 等)都钉成浅色字面量,
+ * 并用 color-scheme: light 防止 textarea 等 UA 控件被按暗色渲染。 */
+
+.octo-question-dock {
+  --octo-q-blue: #0a59f7; /* 应用通用蓝,与 permission-dock 同源 */
+  --octo-q-ink: rgba(0, 0, 0, 0.9);
+  --octo-q-fill: rgba(0, 0, 0, 0.05);
+  --octo-q-fill-hover: rgba(0, 0, 0, 0.09);
+  --octo-q-border: rgba(0, 0, 0, 0.08);
+
+  /* 选项区高度上限。
+   * 上游 session dock 用 measure() 按 session 页 DOM 反推这个变量(见 question-dock.tsx 注释①),
+   * insight 输入区结构不同、不做那种 DOM 耦合,这里给定值:够放 5~6 个选项,超出选项区自身滚动。
+   * 取 min() 兼顾小窗口(48vh)与大屏不过高(460px)。 */
+  --question-prompt-max-height: min(48vh, 460px);
+
+  font-family: var(--octo-font);
+  color-scheme: light;
+  /* 与下方输入框拉开距离;与 permission dock 并存时两块之间也靠它留白 */
+  margin-bottom: 16px;
+}
+
+/* 整体框:白底、圆角、无描边、纯投影(与 permission dock 同款) */
+.octo-question-dock [data-component="dock-prompt"][data-kind="question"] {
+  background-color: #ffffff;
+  border-radius: 16px;
+  overflow: clip;
+  border: none;
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+/* 内层两块 surface 融进整体框。
+ * 用 background 简写而非 background-color:style/prompt-input.css 有一条全局
+ * [data-dock-surface="shell"] 规则叠了渐变,只覆盖 background-color 会残留一层灰。 */
+.octo-question-dock [data-dock-surface="shell"] {
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  border-radius: 0;
+}
+.octo-question-dock [data-dock-surface="tray"] {
+  background-color: transparent;
+  border: none;
+  border-radius: 0;
+}
+
+/* 底部按钮行:去掉为「托盘上叠」补偿的负 margin */
+.octo-question-dock [data-slot="question-footer"] {
+  margin-top: 0;
+  padding: 4px 12px 16px;
+}
+
+/* 标题(进度文案)加粗 + 钉死浅色字色 */
+.octo-question-dock [data-slot="question-header-title"] {
+  font-family: var(--octo-font);
+  font-weight: 700;
+  color: #171717;
+}
+
+/* 题干 / 提示 / 按钮 统一应用字体,钉死浅色字色 */
+.octo-question-dock [data-slot="question-text"] {
+  font-family: var(--octo-font);
+  color: var(--octo-q-ink);
+  /* 题干可能很长(模型自由生成),必须能换行 */
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.octo-question-dock [data-slot="question-hint"] {
+  font-family: var(--octo-font);
+  color: rgba(0, 0, 0, 0.45);
+}
+.octo-question-dock [data-slot="question-footer"] [data-component="button"] {
+  font-family: var(--octo-font);
+}
+
+/* 进度点:未答灰、当前深、已答蓝(钉死,不跟随暗色 token) */
+.octo-question-dock [data-slot="question-progress-segment"]::after {
+  background-color: rgba(0, 0, 0, 0.18);
+}
+.octo-question-dock [data-slot="question-progress-segment"][data-active="true"]::after {
+  background-color: rgba(0, 0, 0, 0.65);
+}
+.octo-question-dock [data-slot="question-progress-segment"][data-answered="true"]::after {
+  background-color: var(--octo-q-blue);
+}
+
+/* 选项行:钉死浅色底/描边(上游 --surface-raised-stronger-non-alpha 暗色下会变 #1c1c1c) */
+.octo-question-dock [data-slot="question-option"] {
+  background-color: #ffffff;
+  border-color: var(--octo-q-border);
+  font-family: var(--octo-font);
+  cursor: pointer;
+}
+.octo-question-dock [data-slot="question-option"]:hover:not([data-picked="true"]) {
+  background-color: rgba(0, 0, 0, 0.03);
+}
+.octo-question-dock [data-slot="question-option"][data-picked="true"] {
+  background-color: rgba(10, 89, 247, 0.06);
+  border-color: rgba(10, 89, 247, 0.35);
+  box-shadow: none;
+}
+.octo-question-dock [data-slot="question-option"]:disabled {
+  cursor: not-allowed;
+}
+
+/* 勾选框 / 单选点:选中态用通用蓝 */
+.octo-question-dock [data-slot="question-option-box"] {
+  border-color: rgba(0, 0, 0, 0.25);
+}
+.octo-question-dock [data-slot="question-option-box"][data-picked="true"] {
+  border-color: var(--octo-q-blue);
+}
+.octo-question-dock [data-slot="question-option-box"][data-picked="true"][data-type="checkbox"],
+.octo-question-dock [data-slot="question-option-box"][data-picked="true"][data-type="radio"] {
+  background-color: var(--octo-q-blue);
+}
+
+/* ⚠️ 长答案硬约束(SPEC-INS-025 §长答案渲染)——本文件存在的主要功能性理由之一。
+ *
+ * 选项**不做词组胶囊**:上游布局本就是整行铺开(question-options 竖直排、question-option
+ * width:100%),这点无需改。但上游 option-label 只有 option-description 设了 overflow-wrap,
+ * label 自身没有 —— 中文与带空格文本能正常换行,遇到长不断词串(URL / 文件路径 / 长英文标识符)
+ * 会溢出容器。这里补上。 */
+.octo-question-dock [data-slot="option-label"] {
+  font-family: var(--octo-font);
+  color: var(--octo-q-ink);
+  overflow-wrap: anywhere;
+  white-space: normal;
+  min-width: 0;
+}
+.octo-question-dock [data-slot="option-description"] {
+  font-family: var(--octo-font);
+  color: rgba(0, 0, 0, 0.55);
+}
+
+/* 自定义答案输入框:钉死浅色,跟随应用字体 */
+.octo-question-dock [data-slot="question-custom-input"] {
+  font-family: var(--octo-font);
+  font-size: 14px;
+  line-height: var(--line-height-large);
+  color: var(--octo-q-ink);
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  width: 100%;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+.octo-question-dock [data-slot="question-custom-input"]::placeholder {
+  color: rgba(0, 0, 0, 0.35);
+}
+
+/* 按钮:胶囊,与 permission dock 同款尺寸语言 */
+.octo-question-dock [data-slot="question-footer"] [data-component="button"] {
+  height: 32px;
+  line-height: 32px;
+  padding: 0 18px;
+  border-radius: 999px;
+  border-color: transparent;
+  cursor: pointer;
+}
+.octo-question-dock [data-slot="question-footer"] [data-component="button"]:disabled {
+  cursor: not-allowed;
+}
+
+/* 提交 / 下一步:通用蓝底白字 */
+.octo-question-dock [data-slot="question-footer"] [data-variant="primary"] {
+  background-color: var(--octo-q-blue);
+  border-color: transparent;
+  color: #fff;
+}
+.octo-question-dock [data-slot="question-footer"] [data-variant="primary"]:hover:not(:disabled) {
+  background-color: #0a4fd0;
+}
+
+/* 忽略 / 返回:#000 5% 底、无边框、深字 */
+.octo-question-dock [data-slot="question-footer"] [data-variant="ghost"],
+.octo-question-dock [data-slot="question-footer"] [data-variant="secondary"] {
+  background-color: var(--octo-q-fill);
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--octo-q-ink);
+}
+.octo-question-dock [data-slot="question-footer"] [data-variant="ghost"]:hover:not(:disabled),
+.octo-question-dock [data-slot="question-footer"] [data-variant="secondary"]:hover:not(:disabled) {
+  background-color: var(--octo-q-fill-hover);
+}
+
+/* 本弹窗不做暗色模式:不提供 prefers-color-scheme: dark 覆盖。 */

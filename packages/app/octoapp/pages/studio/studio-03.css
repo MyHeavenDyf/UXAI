@@ -963,7 +963,8 @@
 
 .studio-video-player {
   position: absolute;
-  z-index: 20;
+  /* 高于悬浮抽屉 .studio-workspace-overlay(z-index:50)，低于顶栏控件(60)与全屏(1000) */
+  z-index: 51;
   overflow: hidden;
   border-radius: 6px;
   background: #000;

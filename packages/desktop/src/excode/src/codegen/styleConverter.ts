@@ -229,7 +229,7 @@ function safeConvert(cn: string): Record<string, string> {
     // 调用前先改写 className 里的本地资源 url()（bg-[url(/uploads/...)] → /assets/...），
     // convertTailwindToCSS 是封装好的纯转换，不在此函数内塞资源路径逻辑。
     const rewritten = rewriteCssUrlPaths(cn)
-    const r = convertTailwindToCSS(rewritten) as Record<string, string | number>
+    const r = convertTailwindToCSS(rewritten, true) as Record<string, string | number>
     const out: Record<string, string> = {}
     for (const [k, v] of Object.entries(r)) out[k] = String(v)
     return out
