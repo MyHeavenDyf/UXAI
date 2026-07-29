@@ -16,7 +16,7 @@ export async function handleDownload(input: {planner: Record<string, unknown> | 
     return
   }
   const uploadsDir = await desktopApi.getUploadsDir?.()
-  const fullUploadsPath = uploadsDir && input.sessionId ? `${uploadsDir}\\${input.sessionId}\\uploads` : null
+  const fullUploadsPath = uploadsDir && input.sessionId ? `${uploadsDir}/${input.sessionId}/uploads` : null
   console.log("[handleDownload] uploads dir:", uploadsDir)
   console.log("[handleDownload] full uploads path:", fullUploadsPath)
   const jsonInput: {
