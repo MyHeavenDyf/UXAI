@@ -118,7 +118,7 @@ export const TaskStore = {
     if (data.serviceType === "edm_upload" && data.fileIndex !== undefined) FileService.cancelUpload(data.taskId, data.fileIndex)
     if (data.serviceType === "edm_download") FileService.cancelDownload(data.taskId)
   },
-  // 在 paused ↔ in_progress 之间切换
+  // TODO: FileService 暂无 pause/resume,当前仅翻转 store 状态、未暂停底层传输;待 FileService 支持后补接。
   togglePause(data: TaskItem) {
     const idx = findIndex(data.key)
     if (idx < 0) return

@@ -64,7 +64,7 @@ export function TaskItemRow(props: {
   // 取消按钮：非终态且 canCancel 时显示
   const showCancel = () => item().canCancel && (isPending() || isInProgress() || isPaused())
   // 进度条填充色：进行中蓝、暂停灰（pending 为 0% 不显形）
-  const barColor = () => isInProgress() ? "#0A59F7" : "#77777"
+  const barColor = () => isInProgress() ? "#0A59F7" : "#777777"
   const totalSize = () => item().size > 0 ? TaskStore.formatFileSize(item().size) : ""
   const downloadedSize = () => {
     if (item().size <= 0) return ""

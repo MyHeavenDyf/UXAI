@@ -112,7 +112,6 @@ export async function capturePageScreenshot(iframe: HTMLIFrameElement): Promise<
     ctx.fillRect(0, 0, rect.width, rect.height)
 
     try {
-      ctx.fillText("Screenshot placeholder", 20, 20)
       canvas.toBlob((blob) => {
         if (blob) {
           resolve(blob)

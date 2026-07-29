@@ -96,7 +96,7 @@ export async function runArchive(
   target: ArchiveTarget,
   data: ArchiveConfirmData,
   onDeferredSuccess?: (result: ArchiveSuccess) => void,
-): Promise<string | undefined> {
+): Promise<void> {
   return target.mode === "html"
     ? archiveHtml(target, data, onDeferredSuccess)
     : archiveFile(target, data, onDeferredSuccess)
@@ -121,9 +121,8 @@ async function archiveHtml(
   target: HtmlTarget,
   data: ArchiveConfirmData,
   onDeferredSuccess?: (result: ArchiveSuccess) => void,
-): Promise<string | undefined> {
+): Promise<void> {
   void runArchiveHtmlTask(target, data, onDeferredSuccess)
-  return undefined
 }
 
 // HTML 归档任务用 TaskItem(单任务,key=taskId):type=archive、无进度(createDeliverable/uploadVersion 无进度回调)。
@@ -191,6 +190,7 @@ async function runArchiveHtmlTask(
       const viewUrl = uniqueId ? buildHtmlPreviewUrl(uniqueId) : undefined
       onDeferredSuccess?.({ path: buildSuccessPath(data), viewUrl })
     } else {
+      // 未登录:无法上传到云端,仅本地下载 zip。不开成功弹窗(无云端路径/链接),用 toast 收尾即可。
       const zipName = `${baseName}-archive.zip`
       const url = URL.createObjectURL(zipBlob)
       const a = document.createElement("a")
@@ -216,9 +216,8 @@ async function archiveFile(
   target: FileTarget,
   data: ArchiveConfirmData,
   onDeferredSuccess?: (result: ArchiveSuccess) => void,
-): Promise<string | undefined> {
+): Promise<void> {
   void runArchiveFileTask(target, data, onDeferredSuccess)
-  return undefined
 }
 
 async function runArchiveFileTask(
