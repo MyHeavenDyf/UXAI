@@ -33,9 +33,6 @@ const DEFAULT_NAV_ITEMS = [
 ] as const
 
 export type SidebarShellProps = ParentProps & {
-  /** Sidebar width in px */
-  width: number
-
   /** Show ProjectInfo at top. Default true. */
   showProjectInfo?: boolean
   /** Show bottom nav (技能库 etc). Default true. */
@@ -109,9 +106,10 @@ export function SidebarShell(props: SidebarShellProps) {
 
   return (
     <div
+      data-sidebar-shell
       class="shrink-0 flex flex-col h-full overflow-hidden"
       style={{
-        width: `${props.width}px`,
+        width: "var(--sidebar-width, 296px)",
         "padding-top": "12px",
         background: props.background ?? "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
         "border-right": "1px solid var(--border-weak-base)",

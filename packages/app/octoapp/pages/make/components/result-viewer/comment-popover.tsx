@@ -86,7 +86,7 @@ export function CommentPopover(props: {
   
   let newTextarea: HTMLTextAreaElement | undefined
   let editTextarea: HTMLTextAreaElement | undefined
-  
+
   // 新建标注时自动 focus
   createEffect(() => {
     if (!props.comment && newTextarea) {
@@ -101,9 +101,9 @@ export function CommentPopover(props: {
     }
   })
   
-  const autoResizeTextarea = (el: HTMLTextAreaElement) => {
+  const autoResizeTextarea = (el: HTMLTextAreaElement, max = 66) => {
     el.style.height = "auto"
-    el.style.height = Math.min(el.scrollHeight, 66) + "px"
+    el.style.height = Math.min(el.scrollHeight, max) + "px"
   }
   const attachments = () => props.comment?.attachments || []
 
@@ -466,6 +466,7 @@ export function CommentPopover(props: {
             onInput={(e) => {
               setNote(e.currentTarget.value)
               setExternalClickCount(0)
+              autoResizeTextarea(e.currentTarget, 88)
             }}
             placeholder="请在此处添加备注"
             rows={1}

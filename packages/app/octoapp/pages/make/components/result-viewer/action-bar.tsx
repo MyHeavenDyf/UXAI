@@ -11,6 +11,10 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { getDesktopApi } from "../../lib/electron-api"
 import { tracker } from "@/utils/tracker"
 
+// Responsive breakpoints for action bar
+const ACTION_BAR_COLLAPSE_WIDTH = 600
+const ACTION_BAR_WRAP_WIDTH = 480
+
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text)
     .then(() => showToast({ title: "已复制" }))
@@ -363,9 +367,94 @@ export function ActionBar(props: {
   const currentMode = () => props.mode ?? "preview"
   const currentViewport = () => props.viewport ?? "desktop"
 
+  // Responsive state: "full" | "collapsed" | "wrapped"
+  // full: all buttons with text
+  // collapsed: 局部修改/框选编辑/画布编辑/下载 become icons, 标注/归档 stay as text
+  // wrapped: icons wrap to next line
+  const [responsiveState, setResponsiveState] = createSignal<"full" | "collapsed" | "wrapped">("full")
+  let containerRef: HTMLDivElement | undefined
+  let leftRef: HTMLDivElement | undefined
+  let collapsibleRef: HTMLDivElement | undefined
+  let fixedRef: HTMLDivElement | undefined
+  let rightRef: HTMLDivElement | undefined
+
+  const MIN_GAP = 16
+
+  createEffect(() => {
+    if (!containerRef || !leftRef || !collapsibleRef || !fixedRef) return
+
+    const updateState = () => {
+      const containerWidth = containerRef?.clientWidth
+      if (!containerWidth) return
+
+      // Measure natural (unshrunk) widths
+      const leftWidth = leftRef?.scrollWidth ?? 0
+      const fixedWidth = fixedRef?.scrollWidth ?? 0
+
+      // Temporarily reset to full state to measure full collapsible width
+      const prev = responsiveState()
+      if (prev !== "full") {
+        // Measure full width by temporarily allowing overflow
+        const collapsibleFullWidth = collapsibleRef?.scrollWidth ?? 0
+        const totalFull = leftWidth + MIN_GAP + collapsibleFullWidth + fixedWidth
+        if (totalFull <= containerWidth) {
+          setResponsiveState("full")
+          return
+        }
+      }
+
+      // Full state measurement
+      const collapsibleFullWidth = collapsibleRef?.scrollWidth ?? 0
+      const totalFull = leftWidth + MIN_GAP + collapsibleFullWidth + fixedWidth
+
+      // Collapsed state measurement (icons only)
+      const collapsedCollapsibleWidth = collapsibleRef?.offsetWidth ?? 0
+      const totalCollapsed = leftWidth + MIN_GAP + collapsedCollapsibleWidth + fixedWidth
+
+      if (responsiveState() === "full") {
+        if (totalFull > containerWidth) {
+          setResponsiveState("collapsed")
+        }
+      } else if (responsiveState() === "collapsed") {
+        if (totalFull <= containerWidth) {
+          setResponsiveState("full")
+        } else if (totalCollapsed > containerWidth) {
+          setResponsiveState("wrapped")
+        }
+      } else if (responsiveState() === "wrapped") {
+        if (totalCollapsed <= containerWidth) {
+          if (totalFull <= containerWidth) {
+            setResponsiveState("full")
+          } else {
+            setResponsiveState("collapsed")
+          }
+        }
+      }
+    }
+
+    updateState()
+    const resizeObserver = new ResizeObserver(updateState)
+    resizeObserver.observe(containerRef)
+    onCleanup(() => resizeObserver.disconnect())
+  })
+
+  const rightBarClass = () => {
+    const base = "octo-action-bar-right"
+    const state = responsiveState()
+    if (state === "collapsed") return `${base} octo-action-bar-collapsed`
+    if (state === "wrapped") return `${base} octo-action-bar-wrapped`
+    return base
+  }
+
+  const containerClass = () => {
+    const base = "octo-action-bar"
+    if (responsiveState() === "wrapped") return `${base} octo-action-bar-wrap`
+    return base
+  }
+
   return (
-    <div class="octo-action-bar">
-      <div class="octo-action-bar-left">
+    <div ref={containerRef} class={containerClass()}>
+      <div ref={leftRef} class="octo-action-bar-left">
         {props.onRefresh && (
           <button
             type="button"
@@ -397,140 +486,147 @@ export function ActionBar(props: {
           </>
         )}
       </div>
-      <div class="octo-action-bar-right">
-        {showViewport() && props.onPaletteChange && (
-          <div class="flex items-center gap-[2px] mr-1 hidden">
+      <div ref={rightRef} class={rightBarClass()}>
+        {/* Collapsible buttons - can become icons */}
+        <div ref={collapsibleRef} class="octo-action-bar-collapsible">
+          {showViewport() && props.onEditToggle && (
             <button
               type="button"
-              class="octo-viewport-btn"
-              classList={{ "octo-viewport-btn-active": !props.palette }}
-              onClick={() => props.onPaletteChange!(null)}
-              title="默认配色"
+              class="octo-action-btn"
+              classList={{ "octo-viewport-btn-active": !!props.editing }}
+              onClick={props.onEditToggle}
+              title="局部修改"
             >
-              <span style={{ "font-size": "11px", "font-weight": 600, color: "inherit" }}>A</span>
+              <IconLocalModify size={16} />
+              <span>局部修改</span>
             </button>
-            <For each={PALETTE_PRESETS}>
-              {(p) => (
-                <button
-                  type="button"
-                  class="octo-viewport-btn"
-                  classList={{ "octo-viewport-btn-active": props.palette === p.id }}
-                  onClick={() => props.onPaletteChange!(props.palette === p.id ? null : p.id)}
-                  title={p.label}
-                >
-                  <span class="flex items-center gap-[1px]">
-                    <For each={p.colors.slice(0, 2)}>
-                      {(c) => <span style={{ width: "6px", height: "6px", "border-radius": "50%", background: c, display: "inline-block" }} />}
-                    </For>
-                  </span>
-                </button>
-              )}
-            </For>
-          </div>
-        )}
-        {showViewport() && props.onEditToggle && (
-          <button
-            type="button"
-            class="octo-action-btn"
-            classList={{ "octo-viewport-btn-active": !!props.editing }}
-            onClick={props.onEditToggle}
-            title="局部修改"
-          >
-            <IconLocalModify size={16} />
-            <span>局部修改</span>
-          </button>
-        )}
-        {showViewport() && props.onDrawToggle && (
-          <button
-            type="button"
-            class="octo-action-btn"
-            classList={{ "octo-viewport-btn-active": !!props.drawing }}
-            onClick={props.onDrawToggle}
-            title="框选编辑"
-          >
-            <IconBoxSelectEdit size={16} />
-            <span>框选编辑</span>
-          </button>
-        )}
-        {showViewport() && props.onCanvasToDesign && (
-          <button
-            type="button"
-            class="octo-action-btn"
-            onClick={props.onCanvasToDesign}
-            title="画布编辑"
-          >
-            <IconCanvasEdit size={16} />
-            <span>画布编辑</span>
-          </button>
-        )}
-<Show when={shouldShowCopy()}>
-           <button type="button" class="octo-action-btn" onClick={() => {
-             tracker.interaction({ module: "design", name: "copy-content", extend: JSON.stringify({ type: props.tab.type }) })
-             copyToClipboard(props.tab.content)
-           }}>
-             <IconActionCopy size={13} />
-             <span>复制</span>
-           </button>
-         </Show>
-        <Show when={props.tab.type !== "local-file" && props.tab.type !== "html"}>
-          <ExportButton tab={props.tab} onPrimaryDownload={handleDownload} />
-        </Show>
-        <Show when={props.tab.type === "html"}>
-          <button type="button" class="octo-action-btn octo-action-btn-download" onClick={handleDownload}>
-            <IconDownloadNew size={16} />
-            <span>下载</span>
-          </button>
-        </Show>
-        {showViewport() && props.onCommentToggle && (
-          <button
-            type="button"
-            class="octo-action-btn"
-            classList={{ "octo-viewport-btn-active": !!props.commenting }}
-            onClick={props.onCommentToggle}
-            title="标注元素"
-          >
-            <svg viewBox="0 0 20 20" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M2 18L2 10C2 5.58172 5.58172 2 10 2C14.4183 2 18 5.58172 18 10C18 14.4183 14.4183 18 10 18L2 18Z" fill-rule="evenodd" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.25" />
-            </svg>
-            <span>标注</span>
-          </button>
-        )}
-        {showViewport() && props.onArchiveToggle && (
-          <button
-            type="button"
-            class="octo-action-btn octo-action-btn-archive"
-            classList={{ "octo-action-btn-archive-active": !!props.archiving }}
-            onClick={props.onArchiveToggle}
-            title="归档"
-          >
-            <span>归档</span>
-          </button>
-        )}
-        <Show when={props.tab.type !== "design-plan" && props.onFocusModeToggle}>
-          <button
-            type="button"
-            class="octo-action-btn"
-            classList={{ "octo-viewport-btn-active": !!props.focusMode }}
-            onClick={props.onFocusModeToggle}
-            title={props.focusMode ? "退出全屏" : "全屏"}
-          >
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-              <Show when={props.focusMode} fallback={
-                <>
-                  <path d="M2 2h3.5M2 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
-                  <path d="M14 2h-3.5M14 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
-                  <path d="M2 14h3.5M2 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
-                  <path d="M14 14h-3.5M14 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
-                </>
-              }>
-                <path d="M6 2h2M6 2v2" stroke-linecap="round" stroke-linejoin="round" />
-                <path d="M8 2h2M10 2v2" stroke-linecap="round" stroke-linejoin="round" />
-                <path d="M6 14h2M6 14v-2" stroke-linecap="round" stroke-linejoin="round" />
-                <path d="M8 14h2M10 14v-2" stroke-linecap="round" stroke-linejoin="round" />
-              </Show>
-            </svg>
-          </button>
-        </Show>
+          )}
+          {showViewport() && props.onDrawToggle && (
+            <button
+              type="button"
+              class="octo-action-btn"
+              classList={{ "octo-viewport-btn-active": !!props.drawing }}
+              onClick={props.onDrawToggle}
+              title="框选编辑"
+            >
+              <IconBoxSelectEdit size={16} />
+              <span>框选编辑</span>
+            </button>
+          )}
+          {showViewport() && props.onCanvasToDesign && (
+            <button
+              type="button"
+              class="octo-action-btn"
+              onClick={props.onCanvasToDesign}
+              title="画布编辑"
+            >
+              <IconCanvasEdit size={16} />
+              <span>画布编辑</span>
+            </button>
+          )}
+          <Show when={shouldShowCopy()}>
+            <button type="button" class="octo-action-btn" onClick={() => {
+              tracker.interaction({ module: "design", name: "copy-content", extend: JSON.stringify({ type: props.tab.type }) })
+              copyToClipboard(props.tab.content)
+            }} title="复制">
+              <IconActionCopy size={13} />
+              <span>复制</span>
+            </button>
+          </Show>
+          <Show when={props.tab.type !== "local-file" && props.tab.type !== "html"}>
+            <ExportButton tab={props.tab} onPrimaryDownload={handleDownload} />
+          </Show>
+          <Show when={props.tab.type === "html"}>
+            <button type="button" class="octo-action-btn octo-action-btn-download" onClick={handleDownload} title="下载">
+              <IconDownloadNew size={16} />
+              <span>下载</span>
+            </button>
+          </Show>
+        </div>
+
+        {/* Fixed buttons - always stay as text */}
+        <div ref={fixedRef} class="octo-action-bar-fixed">
+          {showViewport() && props.onPaletteChange && (
+            <div class="flex items-center gap-[2px] mr-1 hidden">
+              <button
+                type="button"
+                class="octo-viewport-btn"
+                classList={{ "octo-viewport-btn-active": !props.palette }}
+                onClick={() => props.onPaletteChange!(null)}
+                title="默认配色"
+              >
+                <span style={{ "font-size": "11px", "font-weight": 600, color: "inherit" }}>A</span>
+              </button>
+              <For each={PALETTE_PRESETS}>
+                {(p) => (
+                  <button
+                    type="button"
+                    class="octo-viewport-btn"
+                    classList={{ "octo-viewport-btn-active": props.palette === p.id }}
+                    onClick={() => props.onPaletteChange!(props.palette === p.id ? null : p.id)}
+                    title={p.label}
+                  >
+                    <span class="flex items-center gap-[1px]">
+                      <For each={p.colors.slice(0, 2)}>
+                        {(c) => <span style={{ width: "6px", height: "6px", "border-radius": "50%", background: c, display: "inline-block" }} />}
+                      </For>
+                    </span>
+                  </button>
+                )}
+              </For>
+            </div>
+          )}
+          {showViewport() && props.onCommentToggle && (
+            <button
+              type="button"
+              class="octo-action-btn"
+              classList={{ "octo-viewport-btn-active": !!props.commenting }}
+              onClick={props.onCommentToggle}
+              title="标注"
+            >
+              <svg viewBox="0 0 20 20" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M2 18L2 10C2 5.58172 5.58172 2 10 2C14.4183 2 18 5.58172 18 10C18 14.4183 14.4183 18 10 18L2 18Z" fill-rule="evenodd" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.25" />
+              </svg>
+              <span>标注</span>
+            </button>
+          )}
+          {showViewport() && props.onArchiveToggle && (
+            <button
+              type="button"
+              class="octo-action-btn octo-action-btn-archive"
+              classList={{ "octo-action-btn-archive-active": !!props.archiving }}
+              onClick={props.onArchiveToggle}
+              title="归档"
+            >
+              <span>归档</span>
+            </button>
+          )}
+          <Show when={props.tab.type !== "design-plan" && props.onFocusModeToggle}>
+            <button
+              type="button"
+              class="octo-action-btn"
+              classList={{ "octo-viewport-btn-active": !!props.focusMode }}
+              onClick={props.onFocusModeToggle}
+              title={props.focusMode ? "退出全屏" : "全屏"}
+            >
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                <Show when={props.focusMode} fallback={
+                  <>
+                    <path d="M2 2h3.5M2 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M14 2h-3.5M14 2v3.5" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M2 14h3.5M2 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M14 14h-3.5M14 14v-3.5" stroke-linecap="round" stroke-linejoin="round" />
+                  </>
+                }>
+                  <path d="M6 2h2M6 2v2" stroke-linecap="round" stroke-linejoin="round" />
+                  <path d="M8 2h2M10 2v2" stroke-linecap="round" stroke-linejoin="round" />
+                  <path d="M6 14h2M6 14v-2" stroke-linecap="round" stroke-linejoin="round" />
+                  <path d="M8 14h2M10 14v-2" stroke-linecap="round" stroke-linejoin="round" />
+                </Show>
+              </svg>
+            </button>
+          </Show>
+        </div>
       </div>
     </div>
   )

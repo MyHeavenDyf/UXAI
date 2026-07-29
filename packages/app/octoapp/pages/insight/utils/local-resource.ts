@@ -16,6 +16,7 @@
 //
 // 见 spec insight-markdown-editor.md §3。
 
+import { createSignal } from "solid-js"
 import { getDesktopApi } from "../lib/electron-api"
 import type { ResultTab } from "../components/result-viewer/tab-store"
 import { defaultFilename, ensureMarkdownExt } from "./local-file"
@@ -29,6 +30,42 @@ const materializedPaths = new Map<string, string>()
 /** 查 uri 卡 eager 落盘后的本地副本路径;未落盘(或落在 OS 临时目录)返回 undefined。 */
 export function materializedLocalPath(cardId: string): string | undefined {
   return materializedPaths.get(cardId)
+}
+
+// ── 落盘状态(uri 卡「下载中 → 就绪 / 失败」)──────────────────────────────
+// 背景:uri 卡是**先出卡、后台再下载**(insight-turn 的 eager materialize effect),卡片出现那一刻
+// 磁盘上还没有文件。旧实现对这段窗口零反馈——下载中点开只看到转圈,下载失败只有 console 知道,
+// 用户完全不知道「有一份产物没拿到」。故把这段状态显式建模,由入口卡呈现(准备中 / 失败·重试)。
+//
+// 注:这是「身份两段式」的过渡态。产物身份收敛到磁盘路径后(见新 spec),状态机仍保留——
+// pending→ready 是真实存在的生命周期,不是权宜之计。
+export type MaterializeState = "pending" | "ready" | "failed"
+
+type MaterializeEntry = { state: MaterializeState; error?: string }
+
+const materializeStates = new Map<string, MaterializeEntry>()
+
+// 状态变更版本号:Map 本身不是响应式的,靠这个信号让读取方(入口卡)在状态变化时重算。
+// 命令式调用点(tab-store openTab)读 materializedLocalPath 时不在追踪上下文里,不受影响。
+const [stateVersion, bumpStateVersion] = createSignal(0)
+
+function setMaterializeState(cardId: string, entry: MaterializeEntry): void {
+  materializeStates.set(cardId, entry)
+  bumpStateVersion((v) => v + 1)
+}
+
+/**
+ * 查 uri 卡的落盘状态。**响应式**:在 JSX / memo 里读会随状态变化自动重算。
+ * 返回 undefined = 该卡不走落盘(inline / path 源),调用方按「就绪」处理。
+ */
+export function materializeStateOf(cardId: string): MaterializeEntry | undefined {
+  stateVersion()
+  return materializeStates.get(cardId)
+}
+
+/** 供 _dev 预览页构造三态样例;生产代码不要调用(状态由 materializeUriCardToOutputs 自己维护)。 */
+export function __devSeedMaterializeState(cardId: string, entry: MaterializeEntry): void {
+  setMaterializeState(cardId, entry)
 }
 
 export async function ensureLocalMarkdownFile(
@@ -77,14 +114,19 @@ export async function materializeUriCardToOutputs(
   if (typeof api?.downloadResourceToTemp !== "function") return
   const base = defaultFilename(card)
   const filename = card.type === "markdown" ? ensureMarkdownExt(base) : base
+  setMaterializeState(card.id, { state: "pending" })
   try {
     // 幂等键传 uri(资源身份),不传 card.id —— 见文件头说明。
     const localPath = await api.downloadResourceToTemp!(card.uri, card.uri, filename, projectDir, sessionId)
     // 登记本地副本路径:openTab 据此给 uri 卡补 filePath,与「文件管理打开同一文件」去重到同一个 tab。
     materializedPaths.set(card.id, localPath)
+    setMaterializeState(card.id, { state: "ready" })
     // 客户端触发侧日志(主进程落地本身另打 [octo:worktree] result-materialize);两者配对定位「出卡了没落盘」。
     console.log("[octo:resource] eager-materialize", { cardId: card.id, type: card.type, filename, sessionId, localPath })
   } catch (err) {
-    console.warn("[octo:resource] eager-materialize-failed", { cardId: card.id, uri: card.uri, err })
+    // 失败要能被用户看见并重试:入口卡据此渲染失败态(旧实现只 warn,产物静默消失)。
+    const reason = err instanceof Error ? err.message : String(err)
+    setMaterializeState(card.id, { state: "failed", error: reason })
+    console.warn("[octo:resource] eager-materialize-failed", { cardId: card.id, uri: card.uri, reason })
   }
 }

@@ -6,7 +6,7 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { AgentSidebar } from "@/components/agent-sidebar"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 
-export function MakeSidebar(props: { width: number }) {
+export function MakeSidebar() {
   const location = useLocation()
   const globalSync = useGlobalSync()
   const projectDir = useProjectDir()
@@ -27,7 +27,6 @@ export function MakeSidebar(props: { width: number }) {
 
   return (
     <AgentSidebar
-      width={props.width}
       directory={resolvedDir()}
       agentFilter="octo_make"
       buildSessionRoute={(s: Session) => `/make/${s.id}`}

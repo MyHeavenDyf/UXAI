@@ -119,10 +119,10 @@ export function useResponsiveLayout(options: UseResponsiveLayoutOptions): Respon
   // ── Drawer state ──
   const [drawerOpen, setDrawerOpen] = createSignal(false)
 
-  // ── Sidebar width (persisted) ──
+  // ── Sidebar width (persisted, versioned) ──
   const [sidebarWidthStore, setSidebarWidthStore] = persisted(
-    Persist.global(storageKey),
-    createStore({ width: defaultWidth }),
+    { ...Persist.global(storageKey), migrate: (v) => v && typeof v === "object" && !Array.isArray(v) && (v as Record<string, unknown>).v === 2 ? v : { width: defaultWidth, v: 2 } },
+    createStore({ width: defaultWidth, v: 2 }),
   )
   const sidebarWidth = () => sidebarWidthStore.width
   const setSidebarWidth = (w: number) => setSidebarWidthStore({ width: w })
