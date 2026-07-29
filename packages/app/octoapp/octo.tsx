@@ -155,7 +155,7 @@ function OctoSidebarLayout(props: ParentProps) {
     const startW = sidebarWidth()
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
-    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(160, Math.min(360, startW + ev.clientX - startX)))
+    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(200, Math.min(360, startW + ev.clientX - startX)))
     const onUp = () => {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
@@ -167,8 +167,8 @@ function OctoSidebarLayout(props: ParentProps) {
   }
 
   return (
-    <div data-cowork-area="sidebar" class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
-      <OctoSidebar width={sidebarWidth()} />
+    <div data-cowork-area="sidebar" class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative" style={{ "--sidebar-width": `${sidebarWidth()}px` }}>
+      <OctoSidebar />
       <div
         class="absolute top-0 bottom-0 flex items-center justify-center group"
         style={{
@@ -218,7 +218,7 @@ function PatternSidebarLayout(props: ParentProps) {
     const startW = sidebarWidth()
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
-    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(160, Math.min(360, startW + ev.clientX - startX)))
+    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(200, Math.min(360, startW + ev.clientX - startX)))
     const onUp = () => {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
@@ -273,7 +273,7 @@ function MakeSidebarLayout(props: ParentProps) {
   return (
     <ResponsiveSidebarLayout
       storageKey="make.sidebar.width"
-      sidebar={(w) => <MakeSidebar width={w} />}
+      sidebar={() => <MakeSidebar />}
       collapsedIcons={() => (
         <CollapsedSidebarIcons
           onConversationClick={() => navigate("/make")}

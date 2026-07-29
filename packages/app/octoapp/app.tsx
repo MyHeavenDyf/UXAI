@@ -133,8 +133,8 @@ function OctoSidebarLayout(props: ParentProps) {
   }
 
   return (
-    <div class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
-      <OctoSidebar width={sidebarWidth()} />
+    <div class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative" style={{ "--sidebar-width": `${sidebarWidth()}px` }}>
+      <OctoSidebar />
       <div
         class="absolute top-0 bottom-0 flex items-center justify-center group"
         style={{
