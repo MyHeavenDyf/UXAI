@@ -112,6 +112,8 @@ export function InsightTurn(props: {
   resolveTaskLinks?: (taskId: string) => ResourceLink[] | undefined
   /** 生成文件落盘后通知刷新文件管理表格 */
   onFilesRefresh?: () => void
+  /** uri 产物落盘完成 → 把 pending 期间开的 tab 绑定到磁盘路径(SPEC-INS-026 §6.2 身份转正) */
+  onMaterialized?: (cardId: string, localPath: string) => void
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
@@ -235,7 +237,7 @@ export function InsightTurn(props: {
     // 现按扩展名白名单收窄:只有 md/html 出卡(它们有应用内专用预览 md→编辑器 / html→iframe,且几乎不会是
     // scratch),其余 write 产物(docx/py/脚本…)仍不出卡、只走文件管理。纯扩展名判定,不猜意图。
     // 与路径 A 并列(来源不重叠:A=MCP resource_link,C=本地 write)。落点由 write-output resolveCardPath 取
-    // metadata.filepath(#368 重定向后的真实写盘路径),点开时 PathTabBody 走 SDK file.read 读盘。
+    // metadata.filepath(#368 重定向后的真实写盘路径),点开时走 LocalFileTabBody 的 IPC 读盘。
     // 白名单外的 write 产物照样落 outputs(#368)、并由下方独立 effect 刷新文件管理——只是不在对话流出卡。
     const writeCards: OutputCard[] = findWriteCards(parts)
       .filter((w) => w.type === "markdown" || w.type === "html")
@@ -375,6 +377,9 @@ export function InsightTurn(props: {
       eagerMaterializedCardIds.add(card.id)
       void materializeUriCardToOutputs(card, dir, props.sessionID).then((r) => {
         notifyMaterializeFailure(r)
+        // 身份转正(§6.2):pending 期间点开的 tab 此刻才拿到磁盘路径,绑定后与「文件管理打开
+        // 同一文件」的 tab 合并。不绑就会双开 —— 那正是 PR #445 的症状。
+        if (r.ok) props.onMaterialized?.(r.cardId, r.path)
         props.onFilesRefresh?.()
       })
     }
