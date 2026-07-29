@@ -76,14 +76,6 @@ TaskStore.togglePause(item)
 
 在 `paused` ↔ `in_progress` 之间切换（按 `key` 单项切换）。**注意：`FileService` 暂无 pause/resume，当前仅翻转 store 状态、未真正暂停底层传输**，待 `FileService` 支持后经注册表 `pause` 句柄补接。
 
-### `TaskStore.removeFinished` — 清除终态
-
-```ts
-TaskStore.removeFinished()
-```
-
-移除所有 `completed` / `error` / `cancelled` 任务，避免长会话列表无限增长、入口图标常驻。
-
 ### `TaskStore.registerService` — 注册服务句柄
 
 ```ts

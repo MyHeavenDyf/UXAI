@@ -22,8 +22,6 @@ export function TaskList() {
     const cancelled = cancelledItems()
     return [...active, ...paused, ...errors, ...completed, ...cancelled]
   })
-  // 是否有可清除的终态任务
-  const hasFinished = createMemo(() => completedItems().length > 0 || errorItems().length > 0 || cancelledItems().length > 0)
 
   return (
     <Show when={allItems().length > 0}>
@@ -57,29 +55,17 @@ export function TaskList() {
         height: "446px",
         cursor: "default",
       }}>
-        {/* 头部：标题 + 清除/关闭按钮 */}
+        {/* 头部：标题 + 关闭按钮 */}
         <div class="flex items-center justify-between shrink-0" style={{ padding: "16px 16px 4px 16px" }}>
           <span class="text-[14px] font-semibold" style={{ color: "#191919", "line-height": "22px", padding: "8px" }}>
             任务中心
           </span>
-          <div class="flex items-center gap-2">
-            <Show when={hasFinished()}>
-              <button
-                type="button"
-                class="text-[12px] transition-colors hover:text-[#0A59F7]"
-                style={{ color: "rgba(0,0,0,0.4)", cursor: "pointer" }}
-                onClick={TaskStore.removeFinished}
-              >
-                清除
-              </button>
-            </Show>
-            <button
-              type="button"
-              class="rounded-[6px] transition-colors hover:bg-black/[0.06]"
-              style={{ width: "16px", height: "16px", cursor: "pointer", "background-image": "url(/task/task-panel-close.svg)", "background-size": "contain", "background-repeat": "no-repeat", "background-position": "center" }}
-              onClick={() => setShown(false)}
-            />
-          </div>
+          <button
+            type="button"
+            class="rounded-[6px] transition-colors hover:bg-black/[0.06]"
+            style={{ width: "16px", height: "16px", cursor: "pointer", "background-image": "url(/task/task-panel-close.svg)", "background-size": "contain", "background-repeat": "no-repeat", "background-position": "center" }}
+            onClick={() => setShown(false)}
+          />
         </div>
         {/* 列表区：撑满剩余高度并滚动；space-y-1 提供项间距，scrollbar-gutter 保证有/无滚动条时间距一致 */}
         <div class="task-center-scroll flex-1 pb-4 overflow-y-auto space-y-1" style={{ "padding-left": "calc(var(--spacing) * 4)", "padding-right": "calc(var(--spacing) * 2.5)", "scrollbar-gutter": "stable" }}>

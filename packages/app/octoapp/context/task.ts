@@ -131,10 +131,6 @@ export const TaskStore = {
       if (idx >= 0) setStore("items", idx, { status: u.status ?? "error" })
     }
   },
-  // 清除所有终态(completed/error/cancelled)任务
-  removeFinished() {
-    setStore("items", prev => prev.filter(i => i.status !== "completed" && i.status !== "error" && i.status !== "cancelled"))
-  },
   // 取消任务：将该任务项（按 key）置为 cancelled，并按 serviceType 派发到已注册的服务句柄中止传输
   cancel(data: TaskItem) {
     setStore("items", i => i.key === data.key, "status", "cancelled")
