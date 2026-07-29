@@ -13,7 +13,7 @@ import { useLayout } from "@/context/layout"
 import { SidebarShell } from "@/components/sidebar-shell"
 import { SessionList } from "@/components/session-list"
 
-export function OctoSidebar(props: { width: number }) {
+export function OctoSidebar() {
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const navigate = useNavigate()
@@ -163,7 +163,6 @@ export function OctoSidebar(props: { width: number }) {
 
   return (
     <SidebarShell
-      width={props.width}
       newButtonText="新建"
       onNewClick={newSession}
       sectionTitle="Octo Insight"

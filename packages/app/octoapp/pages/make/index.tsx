@@ -38,6 +38,7 @@ import {
   onCleanup,
   onMount,
   Show,
+  Suspense,
   type JSX,
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
@@ -113,7 +114,9 @@ export default function MakePage() {
         <SDKProvider directory={() => dir}>
           <SyncProvider>
             <LocalProvider>
-              <MakeContent />
+              <Suspense fallback={<div class="size-full bg-background-base" />}>
+                <MakeContent />
+              </Suspense>
             </LocalProvider>
           </SyncProvider>
         </SDKProvider>
@@ -274,6 +277,9 @@ function MakeContent() {
     },
   )
 
+  const [sessionInfoMirror, setSessionInfoMirror] = createSignal<Session | null>(null)
+  createEffect(on(sessionInfo, (v) => setSessionInfoMirror(v ?? null), { defer: true }))
+
   const [overrideTitle, setOverrideTitle] = createSignal<string | null>(null)
   createEffect(() => {
     const handler = (e: Event) => {
@@ -298,7 +304,7 @@ function MakeContent() {
 
   /** 打开标题编辑模式 */
   function openTitleEditor() {
-    const sInfo = sessionInfo()
+    const sInfo = sessionInfoMirror()
     setTitleState({ editing: true, draft: sessionTitle(overrideTitle() ?? info()?.title ?? sInfo?.title) ?? "" })
     requestAnimationFrame(() => titleRef?.focus())
   }
@@ -335,7 +341,7 @@ function MakeContent() {
   function handleDeleteSession() {
     const id = params.id
     if (!id) return
-    dialog.show(() => <MakeDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfo()?.title) ?? "Octo Design"} onDelete={deleteSession} />)
+    dialog.show(() => <MakeDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfoMirror()?.title) ?? "Octo Design"} onDelete={deleteSession} />)
   }
 
 // 监听项目切换，清理不属于新项目的 session
@@ -814,6 +820,8 @@ const sessionMessagesLoaded = createMemo(() => {
   const [composing, setComposing] = createSignal(false)
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)
+  // During session transition, keep split layout to avoid flash (messages not yet loaded)
+  const gridHasContent = () => hasContent() || !!(params.id && !sessionMessagesLoaded())
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const filesById = new Map<string, File>()
   const maxAttachments = () => attachments().length >= 5
@@ -852,11 +860,14 @@ const sessionMessagesLoaded = createMemo(() => {
     },
   )
 
+  const [artifactFilesMirror, setArtifactFilesMirror] = createSignal<{ generated: ArtifactFile[]; uploaded: ArtifactFile[] } | null>(null)
+  createEffect(on(artifactFiles, (v) => setArtifactFilesMirror(v ?? null), { defer: true }))
+
   const mentionFiles = createMemo(() => {
     const state = mentionState()
     if (!state) return null
     const query = state.query.toLowerCase()
-    const data = artifactFiles()
+    const data = artifactFilesMirror()
     if (!data) return null
     
     const generated = data.generated.filter(f => !f.isFolder && f.name.toLowerCase().includes(query))
@@ -2156,7 +2167,7 @@ if (dsId) {
     const mention = mentionState()
 
     // Mention popover close on Escape
-    if (mention && artifactFiles()) {
+    if (mention && artifactFilesMirror()) {
       if (e.key === "Escape") {
         e.preventDefault()
         e.stopPropagation()
@@ -2886,7 +2897,7 @@ if (dsId) {
         data-focus={hideChat() ? "true" : undefined}
         style={{
           "grid-template-columns": !hideChat()
-            ? hasContent()
+            ? gridHasContent()
               ? `${chatWidth()}px 0px minmax(0, 1fr)`
               : "1fr"
             : undefined,
@@ -2953,7 +2964,7 @@ if (dsId) {
                       style={{ "font-size": "14px", "line-height": "22px", "font-weight": "600", color: "#191919" }}
                       onDblClick={openTitleEditor}
                     >
-                      {sessionTitle(overrideTitle() ?? info()?.title ?? sessionInfo()?.title) ?? "Octo Design"}
+                      {sessionTitle(overrideTitle() ?? info()?.title ?? sessionInfoMirror()?.title) ?? "Octo Design"}
                     </h1>
                   </Show>
                 </div>
@@ -3084,7 +3095,7 @@ if (dsId) {
                     <ProseMirrorEditor
                        sessionId={params.id!}
                        skillConfig={skillConfig() ?? {}}
-                       artifactFiles={artifactFiles()}
+                       artifactFiles={artifactFilesMirror()}
                        mentionSelections={mentionSelections()}
                        setMentionSelections={setMentionSelections}
                        disabled={inputDisabled()}
@@ -3400,7 +3411,7 @@ if (dsId) {
 <ProseMirrorEditor
                      sessionId={params.id!}
                      skillConfig={skillConfig() ?? {}}
-                     artifactFiles={artifactFiles()}
+                     artifactFiles={artifactFilesMirror()}
                      mentionSelections={mentionSelections()}
                      setMentionSelections={setMentionSelections}
                      disabled={inputDisabled()}
@@ -3493,12 +3504,12 @@ onSlashTrigger={(query) => {
         </Show>
 
         {/* ── 拖拽分隔线（Grid 中间列） ──── */}
-        <Show when={hasContent() && !hideChat()}>
+        <Show when={gridHasContent() && !hideChat()}>
           <div class="octo-split-handle" onMouseDown={handleDividerMouseDown} />
         </Show>
 
         {/* ── 右栏：ResultViewer + Version Panel ──── */}
-        <Show when={hasContent()}>
+        <Show when={gridHasContent()}>
         <div class="flex flex-col overflow-hidden" >
           <div class="flex flex-1 min-h-0 overflow-auto">
             <div class="flex flex-col flex-1" style="min-width:800px">

@@ -180,10 +180,9 @@ export default function ChatPage() {
           <div
             ref={sidebarEl}
             class="chat-sidebar h-full shrink-0 border-r border-border-weak-base flex flex-col"
-            style={{ width: `${displayWidth()}px` }}
+            style={{ width: `${displayWidth()}px`, "--sidebar-width": `${displayWidth()}px` }}
           >
             <AgentSidebar
-              width={displayWidth()}
               directory={resolvedDirectory()}
               agentFilter="octo_ai"
               showProjectInfo={false}
