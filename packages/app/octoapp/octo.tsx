@@ -50,7 +50,7 @@ import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layoutnet"
 import { ErrorPage } from "./pages/error"
 import { OctoSidebar } from "@/pages/_shell/sidebar"
-// DEV-ONLY:insight 组件隔离预览路由(见 pages/insight/__dev/routes.tsx)。仅 DEV 分支调用,生产构建该引用为死代码,整模块摇树掉。
+// DEV-ONLY:insight 组件隔离预览路由(见 pages/insight/__dev/routes.tsx)。
 import { insightDevRoutes } from "@/pages/insight/__dev/routes"
 // 生产构建把 console 对象参数序列化成 JSON 再落盘(insight-debug.log 转发只拿到字符串,
 // 否则全是 "[object Object]");dev 不装,保留 DevTools 对象可展开。见模块头注释。
@@ -82,6 +82,15 @@ const StudioPage = lazy(() => import("@/pages/studio/index"))
 const loadSession = () => import("@/pages/session")
 const Session = lazy(loadSession)
 const Loading = () => <div class="size-full" />
+
+// ⚠️ DEV-ONLY 守卫必须写在 JSX 之外,不要改回 `{import.meta.env.DEV && insightDevRoutes()}`。
+// 原因:vite-plugin-solid 的 babel 转换排在 vite:define 之前(Vite 插件序里 definePlugin 在
+// normalPlugins 之后),Solid 见到 JSX 里的成员表达式 import.meta.env.DEV 会判定"可能响应式",
+// 额外套一层内嵌 memo,编译成 memo(() => memo(() => false)() && insightDevRoutes())——
+// 内层是运行时调用,Rollup 折不掉,__dev/ 全部预览 chunk 照样进生产包(实测约 78KB)。
+// 提到模块级三元后,esbuild 在 transform 阶段就折成 false,整棵 __dev/ 子树被摇掉(实测 0 字节)。
+// 详见 docs/learning/solid-jsx-blocks-import-meta-env-treeshaking.md。
+const insightDevRoutesOrNone = import.meta.env.DEV ? insightDevRoutes : () => null
 
 if (typeof location === "object" && /\/session(?:\/|$)/.test(location.pathname)) {
   void loadSession()
@@ -155,7 +164,7 @@ function OctoSidebarLayout(props: ParentProps) {
     const startW = sidebarWidth()
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
-    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(160, Math.min(360, startW + ev.clientX - startX)))
+    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(200, Math.min(360, startW + ev.clientX - startX)))
     const onUp = () => {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
@@ -167,8 +176,8 @@ function OctoSidebarLayout(props: ParentProps) {
   }
 
   return (
-    <div data-cowork-area="sidebar" class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
-      <OctoSidebar width={sidebarWidth()} />
+    <div data-cowork-area="sidebar" class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative" style={{ "--sidebar-width": `${sidebarWidth()}px` }}>
+      <OctoSidebar />
       <div
         class="absolute top-0 bottom-0 flex items-center justify-center group"
         style={{
@@ -218,7 +227,7 @@ function PatternSidebarLayout(props: ParentProps) {
     const startW = sidebarWidth()
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
-    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(160, Math.min(360, startW + ev.clientX - startX)))
+    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(200, Math.min(360, startW + ev.clientX - startX)))
     const onUp = () => {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
@@ -273,7 +282,7 @@ function MakeSidebarLayout(props: ParentProps) {
   return (
     <ResponsiveSidebarLayout
       storageKey="make.sidebar.width"
-      sidebar={(w) => <MakeSidebar width={w} />}
+      sidebar={() => <MakeSidebar />}
       collapsedIcons={() => (
         <CollapsedSidebarIcons
           onConversationClick={() => navigate("/make")}
@@ -643,8 +652,8 @@ export function AppInterface(props: {
                 >
                   <Route path="/" component={() => <Navigate href="/make" />} />
                   <Route path="/cowork" component={() => <Navigate href="/insight" />} />
-                  {/* DEV-ONLY:静态段 /insight/__dev 优先于 :id?,且仅 dev 注册;生产构建里整块为死代码 */}
-                  {import.meta.env.DEV && insightDevRoutes()}
+                  {/* DEV-ONLY:静态段 /insight/__dev 优先于 :id?,且仅 dev 注册(守卫见上方 insightDevRoutesOrNone) */}
+                  {insightDevRoutesOrNone()}
                   <Route path="/insight/:id?" component={InsightPage} />
                   <Route path="/make/:id?" component={MakePage} />
                   <Route path="/pattern/:id?" component={PatternPage} />

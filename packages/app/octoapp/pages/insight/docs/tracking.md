@@ -8,7 +8,7 @@
 
 > 注：下表 `module` 恒为 `insight`，故省去该列；`type` 除 `insight-page` 为 `page` 外，其余全部为 `interaction`。当前 tracker SDK 的 `interaction` 仅接受 `module / name / subType / extend`，**不支持 `from`**（`from` 只在 `page` 上）。因此「来源区域 / 方式」等维度统一并入 `extend` JSON（如 `source` / `method`），而非顶层 `from`。`tracker.duration` 也已下线。`/docs/tracker.md` 的旧描述待该 SDK 维护方同步修订。
 
-> 排列方式：**按功能模块分组**（不再按上线批次 / 序号）。新增打点追加到所属模块分组的表尾即可。当前在用 42 个 name（另有 1 个已废弃，见文末）。
+> 排列方式：**按功能模块分组**（不再按上线批次 / 序号）。新增打点追加到所属模块分组的表尾即可。当前在用 44 个 name（另有 1 个已废弃，见文末）。
 
 ## 一、页面
 
@@ -106,6 +106,15 @@
 | server-mcp-used | 某业务 MCP 工具真实被模型调用并提交长任务（**提交侧**，每 `task_id` 一次；从 `taskCards` 中 `isBusinessTool` 的条目识别） | `tool`(业务工具裸名 key_findings/run_guide_analysis/run_usability_analysis/mindmap)、`taskId` | `insight-turn.tsx` server-usage effect |
 | server-mcp-result | 某业务 MCP 任务跑出终态（**完成侧**，`completed`→success / `failed`→failure，每 `task_id` 一次；`stopped` 及未出结果态不打）。与 `server-mcp-used` 靠 `taskId` 成对，可算成功率 / 时延 | `tool`、`taskId`、`status`("success"/"failure") | `insight-turn.tsx` server-usage effect |
 | server-skill-used | 某 skill 真实被模型调用（每个 skill 工具 part 一次；从 assistant parts 中 `tool==="skill"` 且 completed 的条目识别，取 `metadata.name`） | `skill`(解析出的技能名，如 interview-analysis) | `insight-turn.tsx` server-usage effect |
+
+## 十、@ 引用面板（SPEC-INS-023）
+
+> 输入框 `@` 唤起、引用**技能 / 会话文件**的用户操作层。技能落地走 synthetic 注入（3b，不调 skill 工具），故 §九 的 `server-skill-used` **不会**为 @技能覆盖——`mention-select` 是这条路径的唯一用户侧口径。纯 tab 切换 / hover / 取消勾选不打点。
+
+| name | 触发时机 | extend 字段 | 代码位置 |
+|------|----------|------------|----------|
+| mention-open | 输入框首次键入 `@` 唤起引用面板（面板由关到开的那一次） | — | `index.tsx` `trackMentionOpen`（由 `prosemirror-editor` 的 `onMentionOpen` 回调触发） |
+| mention-select | 在面板中选中一项（技能或文件） | `type`(skill / file) | `index.tsx` `trackMentionSelect`（由 `prosemirror-editor` 的 `onMentionSelect` 回调触发） |
 
 ## 已废弃
 

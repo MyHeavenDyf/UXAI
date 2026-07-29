@@ -90,7 +90,7 @@ function FileManagerInner(props: {
 }): JSX.Element {
   const sdk = useSDK()
   const dialog = useDialog()
-  const fileStore = createInsightFileStore(props.sessionId)
+  const fileStore = createInsightFileStore()
   const store = () => fileStore.store
   const [isDragOver, setIsDragOver] = createSignal(false)
   let fileInputRef!: HTMLInputElement
@@ -416,51 +416,52 @@ function FileManagerInner(props: {
   const showInitialSpinner = createMemo(() => store().loading && !hasAnyFiles() && !store().error)
 
   return (
-    <div class="flex h-full overflow-hidden" style={{ background: "var(--octo-surface-page)" }}>
-      <div
-        class="flex flex-col flex-1 min-w-0 overflow-hidden relative"
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
-        <input
-          type="file"
-          multiple
-          ref={fileInputRef}
-          class="hidden"
-          onChange={(e) => { if (e.currentTarget.files) { void handleUpload(e.currentTarget.files); e.currentTarget.value = "" } }}
+    <div class="flex flex-col h-full overflow-hidden" style={{ background: "var(--octo-surface-page)" }}>
+      <Show when={hasAnyFiles()}>
+        <FileManagerToolbar
+          fileStore={fileStore}
+          onRefresh={refresh}
+          onUploadFile={() => fileInputRef?.click()}
+          onUploadFolder={() => folderInputRef?.click()}
+          onBatchDownload={handleBatchDownload}
+          onBatchDelete={handleBatchDelete}
         />
-        <input
-          type="file"
-          ref={folderInputRef}
-          // @ts-ignore - webkitdirectory 非标准但广泛支持
-          webkitdirectory=""
-          class="hidden"
-          onChange={(e) => { if (e.currentTarget.files) { void handleFolderUpload(e.currentTarget.files); e.currentTarget.value = "" } }}
-        />
+      </Show>
 
-        <Show when={isDragOver()}>
-          <div
-            class="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none"
-            style={{ background: "var(--octo-brand-a8)", border: "2px dashed var(--octo-brand)" }}
-          >
-            <img src={emptyFolderPng} style={{ width: "52px", height: "52px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
-            <span class="text-[16px]" style={{ color: "var(--octo-text-primary)", "line-height": "24px", "margin-top": "12px" }}>释放鼠标上传文件</span>
-          </div>
-        </Show>
-
-        <Show when={hasAnyFiles()}>
-          <FileManagerToolbar
-            fileStore={fileStore}
-            onRefresh={refresh}
-            onUploadFile={() => fileInputRef?.click()}
-            onUploadFolder={() => folderInputRef?.click()}
-            onBatchDownload={handleBatchDownload}
-            onBatchDelete={handleBatchDelete}
+      <div class="flex flex-1 min-h-0 overflow-hidden">
+        <div
+          class="flex flex-col flex-1 min-w-0 overflow-hidden relative"
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <input
+            type="file"
+            multiple
+            ref={fileInputRef}
+            class="hidden"
+            onChange={(e) => { if (e.currentTarget.files) { void handleUpload(e.currentTarget.files); e.currentTarget.value = "" } }}
           />
-        </Show>
+          <input
+            type="file"
+            ref={folderInputRef}
+            // @ts-ignore - webkitdirectory 非标准但广泛支持
+            webkitdirectory=""
+            class="hidden"
+            onChange={(e) => { if (e.currentTarget.files) { void handleFolderUpload(e.currentTarget.files); e.currentTarget.value = "" } }}
+          />
 
-        <Switch>
+          <Show when={isDragOver()}>
+            <div
+              class="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none"
+              style={{ background: "var(--octo-brand-a8)", border: "2px dashed var(--octo-brand)" }}
+            >
+              <img src={emptyFolderPng} style={{ width: "52px", height: "52px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
+              <span class="text-[16px]" style={{ color: "var(--octo-text-primary)", "line-height": "24px", "margin-top": "12px" }}>释放鼠标上传文件</span>
+            </div>
+          </Show>
+
+          <Switch>
           <Match when={store().error}>
             <div class="flex flex-col items-center justify-center flex-1 min-h-0 gap-2" style={{ "font-size": "14px", "line-height": "22px", color: "var(--octo-text-primary)" }}>
               <span>加载文件列表失败</span>
@@ -518,21 +519,22 @@ function FileManagerInner(props: {
             </div>
           </Match>
         </Switch>
-      </div>
+        </div>
 
-      {/* 右侧预览面板:单击文件行触发(对齐 make design-files-panel.tsx 的同款布局)。 */}
-      <Show when={fileStore.previewFile()}>
-        {(file) => (
-          <PreviewPane
-            file={file()}
-            sdkUrl={sdk.url}
-            sdkDirectory={sdk.directory || ""}
-            onClose={() => fileStore.setPreviewFile(null)}
-            onOpen={() => handleOpenFile(file())}
-            onDownload={() => handleDownload(file())}
-          />
-        )}
-      </Show>
+        {/* 右侧预览面板:单击文件行触发(对齐 make design-files-panel.tsx 的同款布局)。 */}
+        <Show when={fileStore.previewFile()}>
+          {(file) => (
+            <PreviewPane
+              file={file()}
+              sdkUrl={sdk.url}
+              sdkDirectory={sdk.directory || ""}
+              onClose={() => fileStore.setPreviewFile(null)}
+              onOpen={() => handleOpenFile(file())}
+              onDownload={() => handleDownload(file())}
+            />
+          )}
+        </Show>
+      </div>
     </div>
   )
 }

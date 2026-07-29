@@ -1267,12 +1267,15 @@ function toolActionForCapability(capability: StudioCapability): InternalToolActi
 function localImagePath(value: string) {
   const filePath = value.startsWith("file://") ? fileURLToPath(value) : path.isAbsolute(value) ? value : undefined
   if (!filePath) return undefined
-  const artifactRoot = path.resolve(Instance.directory, ".octo", "artifacts", "make")
   const resolved = path.resolve(filePath)
-  if (resolved !== artifactRoot && !resolved.startsWith(`${artifactRoot}${path.sep}`)) {
-    throw new Error(`Studio local image path is outside artifact storage: ${filePath}`)
-  }
-  return resolved
+  const legacyArtifactRoot = path.resolve(Instance.directory, ".octo", "artifacts", "make")
+  if (resolved === legacyArtifactRoot || resolved.startsWith(`${legacyArtifactRoot}${path.sep}`)) return resolved
+  const octoRoot = path.resolve(Instance.directory, ".octo")
+  const relative = resolved === octoRoot || !resolved.startsWith(`${octoRoot}${path.sep}`)
+    ? []
+    : path.relative(octoRoot, resolved).split(path.sep)
+  if (relative.length >= 3 && relative[1] === "uploads") return resolved
+  throw new Error(`Studio local image path is outside artifact storage: ${filePath}`)
 }
 
 function imageMimeFromPath(filePath: string) {
