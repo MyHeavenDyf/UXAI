@@ -16,12 +16,13 @@
 // `isMindmapJSON` 按内容判定 —— 实事求是,不管这份 json 从哪来。
 
 /**
- * 产物卡 / tab 的类型。
+ * 产物卡 / tab 的类型。**六个,收敛后不再增减**(§4.2)。
  *
- * `table` 已无生产者(`.csv` 归 `file`,见 §7),渲染分支与工具函数在后续 PR 删除,
- * 那之前保留在联合里让残留分支仍能编译。
+ * 已退役:`mindmap`(是 json 的内容形态,由 isMindmapJSON 判定)、`table`(§7:唯一生产者是
+ * `text/csv`,而 csv→markdown 表格的转换函数从未实现,TableRenderer 喂原始 CSV 只会渲成
+ * 「未检测到表格内容」;csv 归 `file`,用 Excel/Numbers 打开体验更好)。
  */
-export type OutputCardType = "markdown" | "html" | "json" | "code" | "file" | "image" | "table"
+export type OutputCardType = "markdown" | "html" | "json" | "code" | "file" | "image"
 
 // ── 扩展名分类(SOT:与 docs/specs/ui/output-renderers.md §2.6.1 扩展名清单同源)──
 //
@@ -68,8 +69,7 @@ const MIME_TYPE: Record<string, OutputCardType> = {
   "text/markdown": "markdown",
   "application/json": "json",
   "text/plain": "code",
-  // §7:原本映射到 `table`,但 csv→markdown 表格的转换函数从未实现,TableRenderer 喂原始 CSV
-  // 只会渲成「未检测到表格内容」。归 file,与 `.csv` 扩展名一致。
+  // §7:原本映射到 `table`(那条链路是死的,见 OutputCardType 注释)。归 file,与 `.csv` 扩展名一致。
   "text/csv": "file",
 }
 

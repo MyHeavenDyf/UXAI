@@ -32,7 +32,7 @@ export type TabViewMode = "preview" | "source"
 // 注:json 卡是「按内容条件切换」——内容为思维导图 shape(树)时才出切换并默认 markmap 预览,
 //     普通 JSON 单显源;该判定需读到内容,故放在 action-bar.showToggle(用 isMindmapJSON),不在本静态集合。
 // 见 output-renderers.md §1 视图切换。
-const TOGGLE_TYPES = new Set<ResultTabType>(["html", "table", "markdown"])
+const TOGGLE_TYPES = new Set<ResultTabType>(["html", "markdown"])
 export function isToggleType(type: ResultTabType): boolean {
   return TOGGLE_TYPES.has(type)
 }

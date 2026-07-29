@@ -105,8 +105,6 @@ export function fileKind(fileName: string): InsightFileKind {
     case "image": return "image"
     case "file": return FILE_KIND_BY_EXT[ext] ?? "other"
     case "code": return CODE_EXTS.has(ext) ? "code" : "text"
-    // table 已无生产者(§7);留着让 switch 穷尽,随后续 PR 一并删除
-    case "table": return "excel"
   }
 }
 

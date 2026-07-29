@@ -115,7 +115,7 @@ export async function ensureLocalMarkdownFile(
 
 /**
  * eager 落地(SPEC-INS-014 v4):MCP `uri` 产物卡「出卡即落」进 <projectDir>/.octo/<sessionId>/outputs/,
- * 不等用户点开。覆盖所有 uri 卡类型(json/mindmap/html/table/markdown/file)——此前只有 markdown 卡在点开
+ * 不等用户点开。覆盖所有 uri 卡类型(json/html/markdown/file/code/image)——此前只有 markdown 卡在点开
  * 渲染时才落、其余 uri 卡走 UriTabBody 只 fetch 不落盘,故思维导图等产物永不进「文件管理」(见 v4 修订)。
  *
  * - 幂等:按 `uri` 作幂等键(主进程 result-materialize reuse-existing 内存表),重复调复用同一份、

@@ -56,11 +56,16 @@ describe("resolveOutputType 表驱动(V4)", () => {
     expect(resolveOutputType("我的 报告 v2.md")).toBe("markdown")
   })
 
-  test("不再产出 mindmap / table —— 思维导图是 json 的内容形态,不是类型", () => {
+  // V8 的类型侧断言:mindmap / table 都已不是类型。table 的文件级残留由 v8 grep 用例把关。
+  test("不再产出 mindmap —— 思维导图是 json 的内容形态,不是类型", () => {
     expect(resolveOutputType("mindmap.json")).toBe("json")
     expect(resolveOutputType("", "application/json")).toBe("json")
-    expect(resolveOutputType("data.csv")).not.toBe("table")
-    expect(resolveOutputType("", "text/csv")).not.toBe("table")
+  })
+
+  test("不再产出 table —— csv 两条路径都归 file(§7)", () => {
+    expect(resolveOutputType("data.csv")).toBe("file")
+    expect(resolveOutputType("", "text/csv")).toBe("file")
+    expect(resolveOutputType("data.tsv")).toBe("file")
   })
 })
 

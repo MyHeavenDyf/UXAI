@@ -116,8 +116,6 @@ function previewEntryLabel(card: OutputCard): string {
     case "code": return card.fileName || "代码文件"
     case "file": return card.fileName || "文件"
     case "image": return card.fileName || "图片"
-    // table 已无生产者(§7),渲染分支随后续 PR 一并删除
-    case "table": return "分析表格"
   }
 }
 
