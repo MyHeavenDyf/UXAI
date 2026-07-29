@@ -147,6 +147,12 @@
   background-color: var(--octo-brand-a8, rgba(10, 89, 247, 0.08));
 }
 
+/* 键盘高亮(↑↓ 走到的那项)。与「已勾选」同底色会分不清,故另加左侧色条区分。 */
+.ins-mention-item--active {
+  background-color: var(--octo-brand-a8, rgba(10, 89, 247, 0.08));
+  box-shadow: inset 2px 0 0 var(--octo-brand, #0a59f7);
+}
+
 .ins-mention-item-text {
   flex: 1;
   font-size: 14px;

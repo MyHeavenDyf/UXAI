@@ -102,6 +102,11 @@ export function getDocTextWithMentions(doc: PMNode): string {
     if (node.type.name === "mention") {
       return `@${node.attrs.name}`
     }
+    // hard_break 也是 leaf,会走这个回调;不显式返回 "\n" 的话 Shift+Enter 敲出来的换行
+    // 只存在于编辑器里,取文本时被吞成空串 —— 发给模型的仍是连排一行。
+    if (node.type.name === "hard_break") {
+      return "\n"
+    }
     return ""
   })
 }

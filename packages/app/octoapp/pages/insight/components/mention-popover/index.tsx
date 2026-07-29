@@ -1,4 +1,4 @@
-import { createSignal, createMemo, For, Show, type JSX } from "solid-js"
+import { createSignal, createMemo, createEffect, onMount, onCleanup, For, Show, type JSX } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
 import type { InsightFileEntry } from "../../utils/insight-file-api"
 import "./styles.css"
@@ -82,6 +82,80 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     props.onClose()
   }
 
+  // ── 键盘导航 ────────────────────────────────────────────────────────────
+  // 当前二级面板里可选项的扁平序列(文件 tab 下 生成 + 上传 连续编号),↑↓ 在其中移动。
+  type Row = { kind: "skill"; skill: MentionSkill } | { kind: "file"; file: InsightFileEntry }
+  const rows = createMemo<Row[]>(() => {
+    if (activeTab() === "skills") {
+      const list = category() === "custom" ? filteredCustom() : filteredPlatform()
+      return list.map((skill) => ({ kind: "skill", skill }) as Row)
+    }
+    const f = filteredFiles()
+    if (!f) return []
+    return [...f.generated, ...f.uploaded].map((file) => ({ kind: "file", file }) as Row)
+  })
+
+  const [activeIndex, setActiveIndex] = createSignal(0)
+  // 列表内容一变(改 query / 切 tab / 切分类)高亮回到首项,避免停在已不存在的下标上
+  createEffect(() => {
+    props.query
+    activeTab()
+    category()
+    setActiveIndex(0)
+  })
+
+  let listRef: HTMLDivElement | undefined
+  // 高亮项滚进可视区:二级面板有 max-height,靠键盘走到列表下方时不跟随就等于看不见
+  createEffect(() => {
+    const i = activeIndex()
+    listRef?.querySelector(`[data-row="${i}"]`)?.scrollIntoView({ block: "nearest" })
+  })
+
+  const activate = (row: Row | undefined) => {
+    if (!row) return
+    row.kind === "skill" ? handleSkillClick(row.skill) : handleFileClick(row.file)
+  }
+
+  onMount(() => {
+    const handler = (e: KeyboardEvent) => {
+      // 输入法合成期间(拼音待选)的 Enter / 方向键属于候选词操作,不能当成面板操作。
+      // 三重判定与旧 textarea 版一致:isComposing(标准)/ keyCode 229(部分 Chromium 漏报 isComposing)。
+      if (e.isComposing || e.keyCode === 229) return
+
+      const list = rows()
+      switch (e.key) {
+        case "ArrowDown":
+          if (list.length === 0) return
+          e.preventDefault()
+          e.stopPropagation()
+          setActiveIndex((i) => (i + 1) % list.length)
+          return
+        case "ArrowUp":
+          if (list.length === 0) return
+          e.preventDefault()
+          e.stopPropagation()
+          setActiveIndex((i) => (i - 1 + list.length) % list.length)
+          return
+        case "Enter": {
+          const row = list[activeIndex()]
+          if (!row) return // 列表为空时不拦 Enter,交回编辑器(否则面板一开就没法发消息)
+          e.preventDefault()
+          e.stopPropagation()
+          activate(row)
+          return
+        }
+        case "Escape":
+          e.preventDefault()
+          e.stopPropagation()
+          props.onClose()
+          return
+      }
+    }
+    // capture:↑↓ 与 Enter 必须抢在 ProseMirror 的 keymap 之前,否则会被当成光标移动 / 发送
+    document.addEventListener("keydown", handler, true)
+    onCleanup(() => document.removeEventListener("keydown", handler, true))
+  })
+
   return (
     <div class="ins-mention-container">
       {/* Tab 切换 */}
@@ -150,15 +224,17 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
             when={filteredPlatform().length > 0}
             fallback={<div class="ins-mention-empty">{props.skillsLoading ? "正在加载技能…" : "暂无平台技能"}</div>}
           >
-            <div class="ins-mention-secondary-content">
+            <div class="ins-mention-secondary-content" ref={listRef}>
               <For each={filteredPlatform()}>
-                {(skill) => {
+                {(skill, i) => {
                   const sel: MentionSelection = { type: "skill", name: skill.label, label: skill.label }
                   return (
                     <button
                       type="button"
-                      class={`ins-mention-item ${isSelected(sel) ? "ins-mention-item--selected" : ""}`}
+                      data-row={i()}
+                      class={`ins-mention-item ${isSelected(sel) ? "ins-mention-item--selected" : ""} ${activeIndex() === i() ? "ins-mention-item--active" : ""}`}
                       onClick={() => handleSkillClick(skill)}
+                      onMouseEnter={() => setActiveIndex(i())}
                       title={skill.description}
                     >
                       <Show when={isSelected(sel)}>
@@ -181,15 +257,17 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
             when={filteredCustom().length > 0}
             fallback={<div class="ins-mention-empty">{props.skillsLoading ? "正在加载技能…" : "暂无自定义技能"}</div>}
           >
-            <div class="ins-mention-secondary-content">
+            <div class="ins-mention-secondary-content" ref={listRef}>
               <For each={filteredCustom()}>
-                {(skill) => {
+                {(skill, i) => {
                   const sel: MentionSelection = { type: "skill", name: skill.label, label: skill.label }
                   return (
                     <button
                       type="button"
-                      class={`ins-mention-item ${isSelected(sel) ? "ins-mention-item--selected" : ""}`}
+                      data-row={i()}
+                      class={`ins-mention-item ${isSelected(sel) ? "ins-mention-item--selected" : ""} ${activeIndex() === i() ? "ins-mention-item--active" : ""}`}
                       onClick={() => handleSkillClick(skill)}
+                      onMouseEnter={() => setActiveIndex(i())}
                       title={skill.description}
                     >
                       <Show when={isSelected(sel)}>
@@ -213,17 +291,19 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
             when={filteredFiles() && (filteredFiles()!.generated.length > 0 || filteredFiles()!.uploaded.length > 0)}
             fallback={<div class="ins-mention-empty">{props.filesLoading ? "正在加载用研资产…" : "暂无用研资产"}</div>}
           >
-            <div class="ins-mention-secondary-content ins-mention-secondary-content--files">
+            <div class="ins-mention-secondary-content ins-mention-secondary-content--files" ref={listRef}>
               <Show when={filteredFiles()!.generated.length > 0}>
                 <div class="ins-mention-section-title">生成文件</div>
                 <For each={filteredFiles()!.generated}>
-                  {(file) => {
+                  {(file, i) => {
                     const sel: MentionSelection = { type: "file", filename: file.name, path: file.path }
                     return (
                       <button
                         type="button"
-                        class={`ins-mention-item ${isSelected(sel) ? "ins-mention-item--selected" : ""}`}
+                        data-row={i()}
+                        class={`ins-mention-item ${isSelected(sel) ? "ins-mention-item--selected" : ""} ${activeIndex() === i() ? "ins-mention-item--active" : ""}`}
                         onClick={() => handleFileClick(file)}
+                        onMouseEnter={() => setActiveIndex(i())}
                       >
                         <div class={`ins-mention-checkbox ${isSelected(sel) ? "ins-mention-checkbox--checked" : ""}`}>
                           <Show when={isSelected(sel)}>
@@ -240,13 +320,17 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
               <Show when={filteredFiles()!.uploaded.length > 0}>
                 <div class="ins-mention-section-title">上传文件</div>
                 <For each={filteredFiles()!.uploaded}>
-                  {(file) => {
+                  {(file, i) => {
                     const sel: MentionSelection = { type: "file", filename: file.name, path: file.path }
+                    // 上传段接在生成段之后编号,与 rows() 的扁平顺序对齐
+                    const row = () => filteredFiles()!.generated.length + i()
                     return (
                       <button
                         type="button"
-                        class={`ins-mention-item ${isSelected(sel) ? "ins-mention-item--selected" : ""}`}
+                        data-row={row()}
+                        class={`ins-mention-item ${isSelected(sel) ? "ins-mention-item--selected" : ""} ${activeIndex() === row() ? "ins-mention-item--active" : ""}`}
                         onClick={() => handleFileClick(file)}
+                        onMouseEnter={() => setActiveIndex(row())}
                       >
                         <div class={`ins-mention-checkbox ${isSelected(sel) ? "ins-mention-checkbox--checked" : ""}`}>
                           <Show when={isSelected(sel)}>
