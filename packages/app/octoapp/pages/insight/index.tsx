@@ -1979,6 +1979,8 @@ function InsightContent() {
         // 落盘后通知文件管理表格重拉:否则任务产物进了 outputs 目录,列表仍要手动切面板才看得到。
         void materializeUriCardToOutputs(oc, dir, sid).then((r) => {
           notifyMaterializeFailure(r)
+          // 身份转正(§6.2):任务产物在 pending 期间被点开时,tab 用的是临时 id,此刻绑定磁盘路径
+          if (r.ok) tabStore.bindLocalPath(r.cardId, r.path)
           setFilesRefreshKey((k) => k + 1)
         })
       }
@@ -2358,6 +2360,7 @@ function InsightContent() {
                           onTaskOpenResult={handleTaskOpenResult}
                           resolveTaskLinks={(taskId) => taskCards().get(taskId)?.resourceLinks}
                           onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
+                          onMaterialized={(cardId, localPath) => tabStore.bindLocalPath(cardId, localPath)}
                         />
                       )}
                     </For>
