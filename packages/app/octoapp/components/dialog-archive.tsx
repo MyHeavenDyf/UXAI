@@ -202,6 +202,79 @@ const MOCK_SEARCH_RESULTS: DeliverableItem[] = [
 
 const PROJECT_ARCHIVE_ID = -1
 
+const formatFolderList = (nodes: NestedTreeNode[]): NestedTreeNode[] => {
+  return nodes.map(node => {
+    let children = node.children ? formatFolderList(node.children) : []
+    children = children.filter(child => child.permissionFlag)
+    let permissionFlag = node.permissionFlag
+    if (children.length > 0) {
+      permissionFlag = true
+    }
+    return {
+      ...node,
+      permissionFlag,
+      children
+    }
+  })
+}
+
+const getWorkFlowFolderList = (nodes: NestedTreeNode[]): NestedTreeNode[] => {
+  const formatNodes = (items: NestedTreeNode[]): NestedTreeNode[] => {
+    return items.map(item => {
+      let children = item.children ? formatNodes(item.children) : []
+      
+      if (item.label === '版本管理') {
+        children = children.filter(child => child.label !== '需求管理')
+      }
+      
+      let _hide = !item.permissionFlag
+      if (!_hide && children.length > 0) {
+        const allChildrenHide = children.every(child => child._hide)
+        if (allChildrenHide) _hide = true
+      }
+      
+      return {
+        ...item,
+        _hide,
+        children
+      }
+    })
+  }
+  
+  const result = formatNodes(nodes)
+  result.forEach(node => {
+    node.disabled = true
+  })
+  return result
+}
+
+const filterFolderList = (nodes: NestedTreeNode[]): NestedTreeNode[] => {
+  const formatted = formatFolderList(nodes).filter(node => node.permissionFlag)
+  return getWorkFlowFolderList(formatted)
+}
+
+const findFirstSelectable = (nodes: NestedTreeNode[]): NestedTreeNode | null => {
+  for (const node of nodes) {
+    if (!node._hide && !node.disabled) return node
+    if (node.children?.length) {
+      const found = findFirstSelectable(node.children)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+const findFolderById = (nodes: NestedTreeNode[], id: number): NestedTreeNode | null => {
+  for (const node of nodes) {
+    if (node.id === id) return node
+    if (node.children?.length) {
+      const found = findFolderById(node.children, id)
+      if (found) return found
+    }
+  }
+  return null
+}
+
 const MOCK_PRODUCT_TEAM: NestedTreeNode[] = [
   {
     id: 339042,
@@ -278,6 +351,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
   const [initialized, setInitialized] = createSignal(false)
   const [productTeamList, setProductTeamList] = createSignal<NestedTreeNode[]>(MOCK_PRODUCT_TEAM)
   const [isProjectArchive, setIsProjectArchive] = createSignal(false)
+  const [filteredFolderList, setFilteredFolderList] = createSignal<NestedTreeNode[]>([])
   
   const projectSelection = useProjectSelection()
   
@@ -325,6 +399,28 @@ export function ArchiveDialog(props: Props): JSX.Element {
       }
     } else {
       autoSelectFirstProduct()
+    }
+  }
+
+  const restoreFolderSelection = (folders: NestedTreeNode[], savedFolderId: number | null) => {
+    if (savedFolderId) {
+      const folder = findFolderById(folders, savedFolderId)
+      if (folder && !folder._hide && !folder.disabled) {
+        setSelectedFolderId(folder.id)
+        setSelectedFolder({ label: folder.label })
+        if (showDeliverablesSection()) fetchDeliverables(folder.id)
+        return
+      }
+    }
+    const first = findFirstSelectable(folders)
+    if (first) {
+      setSelectedFolderId(first.id)
+      setSelectedFolder({ label: first.label })
+      if (showDeliverablesSection()) fetchDeliverables(first.id)
+    } else {
+      setSelectedFolderId(null)
+      setSelectedFolder(null)
+      setDeliverables([])
     }
   }
 
@@ -455,8 +551,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
       if (isProjectArchive()) {
         return productTeamList()
       }
-      const found = versionDeliveryList().find(n => n.id === selectedVersionId())
-      return found?.children || []
+      return filteredFolderList()
     } else {
       return teamByVersionList()
     }
@@ -506,9 +601,8 @@ export function ArchiveDialog(props: Props): JSX.Element {
 
   const autoSelectFirstFolder = (tree?: NestedTreeNode[]) => {
     const list = tree || getFolderTree()
-    const flat = flattenTree(list)
-    if (flat.length > 0) {
-      const first = flat[0]
+    const first = findFirstSelectable(list)
+    if (first) {
       handleFolderSelect(first.id, first as unknown as TreeNodeItem)
     } else {
       setSelectedFolderId(null)
@@ -554,6 +648,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
     setSelectedProductId(id)
     setSelectedProduct({ name: product.name, commonTeam: product.commonTeam })
     setIsProjectArchive(false)
+    setFilteredFolderList([])
     
     if (isLoggedIn()) {
       fetchVersionDelivery(id).then((tree) => {
@@ -573,15 +668,27 @@ export function ArchiveDialog(props: Props): JSX.Element {
       setIsProjectArchive(true)
       setSelectedVersionId(id)
       setSelectedVersion({ label: "项目归档", children: productTeamList() })
+      setFilteredFolderList([])
       autoSelectFirstFolder(productTeamList())
     } else {
       lastUsedSelectionKey = null
       setIsProjectArchive(false)
       setSelectedVersionId(id)
-      setSelectedVersion({ label: item.label, children: item.children })
       
-      const folders = item.children || []
-      autoSelectFirstFolder(folders)
+      const filtered = filterFolderList(item.children || [])
+      setFilteredFolderList(filtered)
+      setSelectedVersion({ label: item.label, children: filtered })
+      
+      const first = findFirstSelectable(filtered)
+      if (first) {
+        setSelectedFolderId(first.id)
+        setSelectedFolder({ label: first.label })
+        if (showDeliverablesSection()) fetchDeliverables(first.id)
+      } else {
+        setSelectedFolderId(null)
+        setSelectedFolder(null)
+        setDeliverables([])
+      }
     }
   }
 
@@ -628,37 +735,19 @@ export function ArchiveDialog(props: Props): JSX.Element {
               setIsProjectArchive(true)
               setSelectedVersionId(PROJECT_ARCHIVE_ID)
               setSelectedVersion({ label: "项目归档", children: productTeamList() })
-              if (persistedSelections.folderId) {
-                const folder = flattenTree(productTeamList()).find(f => f.id === persistedSelections.folderId)
-                if (folder) {
-                  setSelectedFolderId(folder.id)
-                  setSelectedFolder({ label: folder.label })
-                  if (showDeliverablesSection()) fetchDeliverables(folder.id)
-                } else {
-                  autoSelectFirstFolder(productTeamList())
-                }
-              } else {
-                autoSelectFirstFolder(productTeamList())
-              }
+              setFilteredFolderList([])
+              restoreFolderSelection(productTeamList(), persistedSelections.folderId)
             } else if (persistedSelections.versionDeliveryId && versionTree) {
               const version = flattenTree(versionTree).find(v => v.id === persistedSelections.versionDeliveryId)
               if (version) {
                 setIsProjectArchive(false)
                 setSelectedVersionId(version.id)
-                setSelectedVersion({ label: version.label, children: version.children })
                 
-                if (persistedSelections.folderId) {
-                  const folder = flattenTree(version.children || []).find(f => f.id === persistedSelections.folderId)
-                  if (folder) {
-                    setSelectedFolderId(folder.id)
-                    setSelectedFolder({ label: folder.label })
-                    if (showDeliverablesSection()) fetchDeliverables(folder.id)
-                  } else {
-                    autoSelectFirstFolder(version.children)
-                  }
-                } else {
-                  autoSelectFirstFolder(version.children)
-                }
+                const filtered = filterFolderList(version.children || [])
+                setFilteredFolderList(filtered)
+                setSelectedVersion({ label: version.label, children: filtered })
+                
+                restoreFolderSelection(filtered, persistedSelections.folderId)
               } else {
                 autoSelectFirstVersionDelivery(versionTree)
               }
@@ -670,36 +759,19 @@ export function ArchiveDialog(props: Props): JSX.Element {
               setIsProjectArchive(true)
               setSelectedVersionId(PROJECT_ARCHIVE_ID)
               setSelectedVersion({ label: "项目归档", children: productTeamList() })
-              if (persistedSelections.folderId) {
-                const folder = flattenTree(productTeamList()).find(f => f.id === persistedSelections.folderId)
-                if (folder) {
-                  setSelectedFolderId(folder.id)
-                  setSelectedFolder({ label: folder.label })
-                  if (showDeliverablesSection()) fetchDeliverables(folder.id)
-                } else {
-                  autoSelectFirstFolder(productTeamList())
-                }
-              } else {
-                autoSelectFirstFolder(productTeamList())
-              }
+              setFilteredFolderList([])
+              restoreFolderSelection(productTeamList(), persistedSelections.folderId)
             } else if (persistedSelections.versionDeliveryId) {
               const version = versionDeliveryList().find(v => v.id === persistedSelections.versionDeliveryId)
               if (version) {
                 setIsProjectArchive(false)
                 setSelectedVersionId(version.id)
-                setSelectedVersion({ label: version.label, children: version.children })
-                if (persistedSelections.folderId) {
-                  const folder = flattenTree(version.children || []).find(f => f.id === persistedSelections.folderId)
-                  if (folder) {
-                    setSelectedFolderId(folder.id)
-                    setSelectedFolder({ label: folder.label })
-                    if (showDeliverablesSection()) fetchDeliverables(folder.id)
-                  } else {
-                    autoSelectFirstFolder(version.children)
-                  }
-                } else {
-                  autoSelectFirstFolder(version.children)
-                }
+                
+                const filtered = filterFolderList(version.children || [])
+                setFilteredFolderList(filtered)
+                setSelectedVersion({ label: version.label, children: filtered })
+                
+                restoreFolderSelection(filtered, persistedSelections.folderId)
               } else {
                 autoSelectFirstVersionDelivery()
               }
@@ -722,31 +794,13 @@ export function ArchiveDialog(props: Props): JSX.Element {
           
           if (isLoggedIn()) {
             const folderTree = await fetchTeamByVersion(team.teamId)
-            if (folderTree && persistedSelections.folderId) {
-              const folder = flattenTree(folderTree).find(f => f.id === persistedSelections.folderId)
-              if (folder) {
-                setSelectedFolderId(folder.id)
-                setSelectedFolder({ label: folder.label })
-                if (showDeliverablesSection()) fetchDeliverables(folder.id)
-              } else {
-                autoSelectFirstFolder(folderTree)
-              }
-            } else {
-              autoSelectFirstFolder(folderTree || undefined)
-            }
-          } else {
-            if (persistedSelections.folderId) {
-              const folder = flattenTree(teamByVersionList()).find(f => f.id === persistedSelections.folderId)
-              if (folder) {
-                setSelectedFolderId(folder.id)
-                setSelectedFolder({ label: folder.label })
-                if (showDeliverablesSection()) fetchDeliverables(folder.id)
-              } else {
-                autoSelectFirstFolder()
-              }
+            if (folderTree) {
+              restoreFolderSelection(folderTree, persistedSelections.folderId)
             } else {
               autoSelectFirstFolder()
             }
+          } else {
+            restoreFolderSelection(teamByVersionList(), persistedSelections.folderId)
           }
         } else {
           autoSelectFirstTeam()

@@ -45,35 +45,25 @@ export function CommentHoverTooltip(props: {
       const pinWidth = props.target!.pinPosition!.width
       const pinHeight = props.target!.pinPosition!.height
 
-      const pinCenterX = pinLeft + pinWidth / 2
-      const pinCenterY = pinTop + pinHeight / 2
-      const isLeft = pinCenterX < props.iframeBounds.width / 2
-      const isTop = pinCenterY < props.iframeBounds.height / 2
+      let left = pinLeft
+      let top = pinTop + pinHeight - tooltipHeight
 
-      let left: number
-      let top: number
-      let radiusClass: string
+      const rightOverflow = left + tooltipWidth > props.iframeBounds.width
+      const topOverflow = top < 0
 
-      if (isLeft && isTop) {
-        left = pinLeft
-        top = pinTop
-        radiusClass = "radius-top-left"
-      } else if (!isLeft && isTop) {
+      let radiusClass = "radius-bottom-left"
+
+      if (rightOverflow && topOverflow) {
         left = pinLeft + pinWidth - tooltipWidth
         top = pinTop
         radiusClass = "radius-top-right"
-      } else if (isLeft && !isTop) {
-        left = pinLeft
-        top = pinTop + pinHeight - tooltipHeight
-        radiusClass = "radius-bottom-left"
-      } else {
+      } else if (rightOverflow) {
         left = pinLeft + pinWidth - tooltipWidth
-        top = pinTop + pinHeight - tooltipHeight
         radiusClass = "radius-bottom-right"
+      } else if (topOverflow) {
+        top = pinTop
+        radiusClass = "radius-top-left"
       }
-
-      left = Math.max(0, Math.min(left, props.iframeBounds.width - tooltipWidth))
-      top = Math.max(0, Math.min(top, props.iframeBounds.height - tooltipHeight))
 
       tooltipRef.style.setProperty("--tooltip-x", `${left}px`)
       tooltipRef.style.setProperty("--tooltip-y", `${top}px`)
