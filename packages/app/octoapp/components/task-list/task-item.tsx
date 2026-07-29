@@ -45,9 +45,13 @@ function inferKind(name: string): ArtifactFileKind {
   return "binary"
 }
 
-export function TaskItemRow(props: { item: TaskItem }) {
+export function TaskItemRow(props: {
+  item: TaskItem
+  onPause: (item: TaskItem) => void
+  onCancel: (item: TaskItem) => void
+}) {
   const item = () => props.item
-  const progressPercent = () => Math.round(item().progress)
+  const progressPercent = () => Math.round(item().progress ?? 0)
   const isCompleted = () => item().status === "completed"
   const isError = () => item().status === "error"
   const isCancelled = () => item().status === "cancelled"
@@ -64,7 +68,7 @@ export function TaskItemRow(props: { item: TaskItem }) {
   const totalSize = () => item().size > 0 ? TaskStore.formatFileSize(item().size) : ""
   const downloadedSize = () => {
     if (item().size <= 0) return ""
-    const downloaded = item().size * item().progress / 100
+    const downloaded = item().size * (item().progress ?? 0) / 100
     return TaskStore.formatFileSize(downloaded)
   }
 
@@ -117,7 +121,7 @@ export function TaskItemRow(props: { item: TaskItem }) {
                   "opacity-40 cursor-not-allowed": item().pauseDisabled,
                 }}
                 style={{ width: "16px", height: "16px", "background-image": `url(${isPaused() ? "/task/task-play.svg" : "/task/task-pause.svg"})`, "background-size": "contain", "background-repeat": "no-repeat", "background-position": "center" }}
-                onClick={() => TaskStore.togglePause(item())}
+                onClick={() => props.onPause(item())}
               />
             </Show>
             <Show when={showCancel()}>
@@ -130,7 +134,7 @@ export function TaskItemRow(props: { item: TaskItem }) {
                   "opacity-40 cursor-not-allowed": item().cancelDisabled,
                 }}
                 style={{ width: "16px", height: "16px", "background-image": "url(/task/task-cancel.svg)", "background-size": "contain", "background-repeat": "no-repeat", "background-position": "center" }}
-                onClick={() => TaskStore.cancel(item())}
+                onClick={() => props.onCancel(item())}
               />
             </Show>
           </div>
