@@ -70,7 +70,8 @@ export function requestSvg(name: string, shape: string, color: string): void {
 
 // ========== 兜底：单图标名 iconInfo 请求 ==========
 
-const ICON_API_URL = '/assetRepository/iconPlus/getIconInfo'
+const API_BASE = import.meta.env.VITE_ICON_API_BASE || ''
+const ICON_API_URL = `${API_BASE}/assetRepository/iconPlus/getIconInfo`
 /** 已尝试请求 iconInfo 的 name：正在请求中 或 已请求但未找到 */
 const triedIconInfoNames = new Set<string>()
 

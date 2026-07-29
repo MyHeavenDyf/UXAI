@@ -12,7 +12,8 @@
 
 import { ref } from 'vue'
 
-const ICON_API_URL = "/assetRepository/iconPlus/getIcon"
+const API_BASE = import.meta.env.VITE_ICON_API_BASE || ''
+const ICON_API_URL = `${API_BASE}/assetRepository/iconPlus/getIcon`
 
 /** svgCache 版本号，每次写入自增，驱动 Vue 响应式更新 */
 export const svgCacheVersion = ref(0)
@@ -91,7 +92,7 @@ export function resolveApiColorId(shape: string, a2uiColor?: string): string {
 /** 调 getConfig 获取配置 + 检测 API 可用性 */
 export async function fetchIconConfig(): Promise<boolean> {
   try {
-    const resp = await fetch("/assetRepository/iconPlus/getConfig")
+    const resp = await fetch(`${API_BASE}/assetRepository/iconPlus/getConfig`)
     if (!resp.ok) {
       console.warn("[fetchIcon] getConfig 失败 HTTP", resp.status)
       return false
