@@ -66,6 +66,12 @@ function buildDeliverableViewUrl(id: number): string {
   return `${base}/p/${id}`
 }
 
+// HTML 归档成功后的「跳转查看」URL:designAgent 预览页,uniqueId 来自 createDeliverable(新建)/ existingDocId(覆盖)。对齐 make html-renderer。
+function buildHtmlPreviewUrl(uniqueId: string): string {
+  const base = import.meta.env.VITE_OCTO_BASE_URL || ""
+  return `${base}/developerPreview/designAgent/index.html?uniqueId=${uniqueId}`
+}
+
 // 唤起系统浏览器打开外链(electron 用 openLink,web 用 window.open),避免在 webview 内导航后无返回入口。
 function openExternalUrl(url: string) {
   const api = getDesktopApi()
@@ -169,17 +175,21 @@ async function runArchiveHtmlTask(
     const baseName = target.htmlFileName.replace(/\.html?$/i, "")
     if (isLoggedIn) {
       let uploadResult: { success: boolean }
+      let uniqueId: string
       if (data.isOverwrite && data.existingDeliverableId && data.existingDocId) {
+        uniqueId = data.existingDocId
         await uploadCover(data.existingDeliverableId, screenshotBlob)
         uploadResult = await uploadVersion(data.existingDocId, zipBlob)
       } else {
         const newDeliverable = await createDeliverable(data.teamId, baseName)
+        uniqueId = newDeliverable.uniqueId
         await uploadCover(newDeliverable.deliverableId, screenshotBlob)
         uploadResult = await uploadVersion(newDeliverable.uniqueId, zipBlob)
       }
       if (!uploadResult.success) throw new Error("归档上传失败")
       TaskStore.finish([htmlArchiveTask(taskId, name, 100, "completed")])
-      onDeferredSuccess?.({ path: buildSuccessPath(data) })
+      const viewUrl = uniqueId ? buildHtmlPreviewUrl(uniqueId) : undefined
+      onDeferredSuccess?.({ path: buildSuccessPath(data), viewUrl })
     } else {
       const zipName = `${baseName}-archive.zip`
       const url = URL.createObjectURL(zipBlob)
@@ -369,6 +379,7 @@ export function ArchiveDialogs(props: {
           open={successOpen()}
           onClose={() => setSuccessOpen(false)}
           archivePath={successPath()}
+          shareLink={successViewUrl() || undefined}
           onViewClick={successViewUrl() ? () => openExternalUrl(successViewUrl()!) : undefined}
         />
       </Show>
