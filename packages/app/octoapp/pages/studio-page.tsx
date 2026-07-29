@@ -3311,11 +3311,17 @@ export default function StudioPage() {
         isUploadedImage: !!workspaceImage(),
       }),
     })
-    // 扩图结果比例为用户在编辑器选择的目标比例（extra.ratio）
-    const ratioRaw = input.extra?.ratio
-    const targetAspectRatio = typeof ratioRaw === "string" && (STUDIO_ASPECT_RATIOS as string[]).includes(ratioRaw)
-      ? (ratioRaw as StudioAspectRatio)
-      : undefined
+    // 扩图结果比例：优先用画布框实际像素尺寸(realWidth/realHeight)推算，
+    // 覆盖用户自由拖动（不匹配预设比例）的场景；否则回退 extra.ratio
+    const extra = input.extra
+    const realW = typeof extra?.realWidth === "number" ? extra.realWidth : undefined
+    const realH = typeof extra?.realHeight === "number" ? extra.realHeight : undefined
+    const ratioRaw = extra?.ratio
+    const targetAspectRatio = realW && realH
+      ? closestStudioAspectRatio(realW, realH)
+      : typeof ratioRaw === "string" && (STUDIO_ASPECT_RATIOS as string[]).includes(ratioRaw)
+        ? (ratioRaw as StudioAspectRatio)
+        : undefined
     void runGeneration({
       capability: "image.outpaint",
       sourceImage: sourceUrl,
