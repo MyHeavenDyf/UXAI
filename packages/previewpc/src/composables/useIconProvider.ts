@@ -68,6 +68,57 @@ export function requestSvg(name: string, shape: string, color: string): void {
   iconRequestQueue.enqueue(name, shape, color, entry.url)
 }
 
+// ========== 兜底：单图标名 iconInfo 请求 ==========
+
+const API_BASE = import.meta.env.VITE_ICON_API_BASE || ''
+const ICON_API_URL = `${API_BASE}/assetRepository/iconPlus/getIconInfo`
+/** 已尝试请求 iconInfo 的 name：正在请求中 或 已请求但未找到 */
+const triedIconInfoNames = new Set<string>()
+
+/** 遇到 iconInfoMap 中未映射的图标名时，主动请求 getIconInfo API 获取 URL */
+export function requestIconInfo(name: string): void {
+  if (!name || !hasHuiIcons.value) return
+  if (iconInfoMap.value[name]) return         // 已有映射，无需请求
+  if (triedIconInfoNames.has(name)) return     // 正在请求中 或 已请求未找到，跳过
+  triedIconInfoNames.add(name)
+
+  const keyword = encodeURIComponent(name)
+  const apiUrl = `${ICON_API_URL}?keyword=${keyword}&topK=2&source_id=6`
+
+  fetch(apiUrl)
+    .then(resp => {
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+      return resp.json()
+    })
+    .then(data => {
+      if (!Array.isArray(data)) return   // 非数组 → name 保留在 triedIconInfoNames，不再重复
+      for (const item of data) {
+        const icons = (item.icons || []).map((icon: any) => ({
+          name: icon.name || '',
+          group: icon.group || [],
+          url: icon.url || '',
+        }))
+        // 匹配策略与 resolveIcons.ts 一致：系统图标组 → name 匹配 → 首个
+        let selected = icons.find((icon: { name: string; group: string[]; url: string }) =>
+          Array.isArray(icon.group) && icon.group.some((g: string) => g.includes('系统图标'))
+        ) || icons.find((icon: { name: string; group: string[]; url: string }) =>
+          icon.name?.toLowerCase().includes(name.toLowerCase())
+        ) || icons[0]
+
+        if (selected?.url) {
+          iconInfoMap.value = { ...iconInfoMap.value, [name]: { name: selected.name, url: selected.url } }
+          svgCacheVersion.value++           // 通知所有监听者重新解析
+          triedIconInfoNames.delete(name)   // 找到了 → 清除标记，由 iconInfoMap 接管
+        }
+        // 未找到 → name 保留在 triedIconInfoNames，不再重复请求
+      }
+    })
+    .catch(err => {
+      console.warn(`[iconProvider] requestIconInfo 失败: ${err.message}`)
+      triedIconInfoNames.delete(name)       // 网络错误 → 清除，允许下次重试
+    })
+}
+
 /** 处理 JSON 数据，串行执行 resolveAllIcons，合并到全局 iconInfoMap */
 export async function processJsonForIcons(jsonData: any): Promise<void> {
   if (!hasHuiIcons.value || !jsonData?.elements) return
@@ -79,6 +130,7 @@ export async function processJsonForIcons(jsonData: any): Promise<void> {
       const result = await resolveAllIcons([jsonData])
       if (Object.keys(result.iconInfoMap).length > 0) {
         iconInfoMap.value = { ...iconInfoMap.value, ...result.iconInfoMap }
+        svgCacheVersion.value++   // 通知所有监听者：图标映射已更新
       }
     } catch (err) {
       console.warn('[iconProvider] 处理 JSON 图标失败:', err)

@@ -1,7 +1,9 @@
-import { createSignal, createMemo, For, Show, onCleanup, type JSX } from "solid-js"
+import { createSignal, createMemo, createEffect, For, Show, onCleanup, onMount, type JSX } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
 import type { PanelSkill } from "../skill-config-types"
 import type { ArtifactFile } from "../../utils/artifact-file-api"
+import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "./icons"
+import { getFileIcon } from "../../icons/file-type-icons"
 import "./styles.css"
 
 export type MentionTab = 'skills' | 'files'
@@ -28,6 +30,22 @@ interface MentionPopoverProps {
 export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const [activeTab, setActiveTab] = createSignal<MentionTab>('skills')
   const [selectedCategory, setSelectedCategory] = createSignal<'platform' | 'custom' | 'design'>('platform')
+  const [positionLeft, setPositionLeft] = createSignal(false)
+  let containerRef: HTMLDivElement | undefined
+
+  const checkPosition = () => {
+    if (!containerRef) return
+    const rect = containerRef.getBoundingClientRect()
+    const spaceRight = window.innerWidth - rect.right
+    const panelWidth = activeTab() === 'skills' ? 257 : 400
+    setPositionLeft(spaceRight < panelWidth + 16)
+  }
+
+  createEffect(() => {
+    activeTab()
+    selectedCategory()
+    checkPosition()
+  })
 
   const platformSkills = createMemo(() => {
     const panel = props.skillConfig.panel
@@ -64,6 +82,49 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     return { generated, uploaded }
   })
 
+  // Calculate current items list based on active tab and category
+  onMount(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        e.preventDefault()
+        e.stopPropagation()
+        const currentTab = activeTab()
+        if (currentTab === 'skills') {
+          setActiveTab('files')
+          setSelectedCategory('design')
+        } else {
+          setActiveTab('skills')
+          setSelectedCategory('platform')
+        }
+      }
+      if (e.key === "Enter") {
+        e.preventDefault()
+        e.stopPropagation()
+        if (activeTab() === 'skills') {
+          const skills = selectedCategory() === 'platform' 
+            ? filteredPlatformSkills() 
+            : filteredCustomSkills()
+          if (skills.length > 0) {
+            handleSkillClick(skills[0])
+          }
+        } else if (activeTab() === 'files') {
+          const files = filteredFiles()
+          if (files && (files.generated.length > 0 || files.uploaded.length > 0)) {
+            const firstFile = files.generated[0] || files.uploaded[0]
+            handleFileClick({ name: firstFile.name, path: firstFile.path })
+          }
+        }
+      }
+      if (e.key === "Escape") {
+        e.preventDefault()
+        e.stopPropagation()
+        props.onClose()
+      }
+    }
+    document.addEventListener("keydown", handler, true)
+    onCleanup(() => document.removeEventListener("keydown", handler, true))
+  })
+
   const isSelected = (selection: MentionSelection) => {
     return props.selections.some(s => 
       s.type === selection.type && 
@@ -92,20 +153,18 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   }
 
   const secondaryPanelStyle = () => {
+    const left = positionLeft()
     if (activeTab() === 'skills') {
-      // 技能库：二级弹窗底部与选中项底部对齐
-      // 从容器内容区底部算起：
-      // "自定义技能"底部: 8px (容器padding-bottom)
-      // "平台技能"底部: 52px (8px + 40px + 4px gap)
       return {
         width: '257px',
-        bottom: selectedCategory() === 'platform' ? '52px' : '8px'
+        bottom: '0',
+        ...(left ? { right: '100%', marginRight: '8px' } : { left: '100%', marginLeft: '8px' })
       }
     }
-    // 文件管理：二级弹窗底部与一级弹窗底部对齐
     return {
       width: '400px',
-      bottom: '8px'
+      bottom: '0',
+      ...(left ? { right: '100%', marginRight: '8px' } : { left: '100%', marginLeft: '8px' })
     }
   }
 
@@ -135,18 +194,18 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <button
             type="button"
             class={`mention-primary-item ${selectedCategory() === 'platform' ? 'mention-primary-item--selected' : ''}`}
-            onClick={() => setSelectedCategory('platform')}
+            onClick={() => { setSelectedCategory('platform') }}
           >
-            <Icon name="brain" size="small" />
+            <PlatformSkillIcon />
             <span class="mention-primary-item-text">平台技能</span>
             <Icon name="chevron-right" size="small" class="mention-primary-item-arrow" />
           </button>
           <button
             type="button"
             class={`mention-primary-item ${selectedCategory() === 'custom' ? 'mention-primary-item--selected' : ''}`}
-            onClick={() => setSelectedCategory('custom')}
+            onClick={() => { setSelectedCategory('custom') }}
           >
-            <Icon name="sliders" size="small" />
+            <CustomSkillIcon />
             <span class="mention-primary-item-text">自定义技能</span>
             <Icon name="chevron-right" size="small" class="mention-primary-item-arrow" />
           </button>
@@ -156,21 +215,21 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <button
             type="button"
             class={`mention-primary-item ${selectedCategory() === 'design' ? 'mention-primary-item--selected' : ''}`}
-            onClick={() => setSelectedCategory('design')}
+            onClick={() => { setSelectedCategory('design') }}
           >
-            <Icon name="folder" size="small" />
+            <DesignAssetIcon />
             <span class="mention-primary-item-text">设计资产</span>
             <Icon name="chevron-right" size="small" class="mention-primary-item-arrow" />
           </button>
         </Show>
       </div>
 
-      {/* Secondary Panel */}
+      {/* Secondary Panel - Skills */}
       <Show when={activeTab() === 'skills' && selectedCategory() === 'platform' && filteredPlatformSkills().length > 0}>
         <div class="mention-secondary-panel" style={secondaryPanelStyle()}>
           <div class="mention-secondary-content">
             <For each={filteredPlatformSkills()}>
-              {(skill) => {
+              {(skill, i) => {
                 const sel: MentionSelection = { type: 'skill', name: skill.label, label: skill.label }
                 return (
                   <button
@@ -194,7 +253,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         <div class="mention-secondary-panel" style={secondaryPanelStyle()}>
           <div class="mention-secondary-content">
             <For each={filteredCustomSkills()}>
-              {(skill) => {
+              {(skill, i) => {
                 const sel: MentionSelection = { type: 'skill', name: skill.label, label: skill.label }
                 return (
                   <button
@@ -214,6 +273,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         </div>
       </Show>
 
+      {/* Secondary Panel - Files */}
       <Show when={activeTab() === 'files' && filteredFiles()}>
         {(files) => (
           <div class="mention-secondary-panel" style={secondaryPanelStyle()}>
@@ -224,6 +284,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                 <For each={files().generated}>
                   {(file) => {
                     const sel: MentionSelection = { type: 'file', filename: file.name, path: file.path }
+                    const FileIcon = getFileIcon(file.kind, file.name)
                     return (
                       <button
                         type="button"
@@ -235,7 +296,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                             <Icon name="check" size="small" style="color: white" />
                           </Show>
                         </div>
-                        <Icon name="folder" size="small" />
+                        <FileIcon size={20} />
                         <span class="mention-secondary-item-text" title={file.name}>{file.name}</span>
                         <span class="mention-secondary-item-path" title={file.path}>{file.path}</span>
                       </button>
@@ -248,6 +309,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                 <For each={files().uploaded}>
                   {(file) => {
                     const sel: MentionSelection = { type: 'file', filename: file.name, path: file.path }
+                    const FileIcon = getFileIcon(file.kind, file.name)
                     return (
                       <button
                         type="button"
@@ -259,7 +321,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                             <Icon name="check" size="small" style="color: white" />
                           </Show>
                         </div>
-                        <Icon name="folder" size="small" />
+                        <FileIcon size={20} />
                         <span class="mention-secondary-item-text" title={file.name}>{file.name}</span>
                         <span class="mention-secondary-item-path" title={file.path}>{file.path}</span>
                       </button>

@@ -2,7 +2,7 @@ import * as LucideIcons from "lucide-vue-next"
 import { h, markRaw, shallowRef, watch, type Ref } from "vue"
 import type { Component, VNode } from "vue"
 import HuiSvgIcon from "./HuiSvgIcon.vue"
-import { hasHuiIcons, iconInfoMap, svgCache, svgCacheVersion, resolveSvgCacheKey, requestSvg } from "../../composables/useIconProvider"
+import { hasHuiIcons, iconInfoMap, svgCache, svgCacheVersion, resolveSvgCacheKey, requestSvg, requestIconInfo } from "../../composables/useIconProvider"
 
 export const sizeConfig = { xs: 12, sm: 16, md: 24, lg: 32, xl: 40 } as const
 export const HUI_ICON_SIZE = 16
@@ -71,7 +71,11 @@ export function getHuiIconComponentRef(
 
   // 1. 查 iconInfoMap[name] 获取 url
   const entry = iconInfoMap.value[name]
-  if (!entry?.url) return null  // 无映射 → 图标空白
+  if (!entry) {
+    requestIconInfo(name)  // 无 entry → 可能未请求过，兜底请求 iconInfo
+    return null
+  }
+  if (!entry.url) return null  // 有 entry 但无 url → 已请求过但 API 未找到，不再重复
 
   // 2. 用 JSON 数据值拼 svgCache key
   const cacheKey = resolveSvgCacheKey(name, s, c)

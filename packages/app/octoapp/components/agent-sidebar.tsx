@@ -16,8 +16,6 @@ import { SidebarShell } from "@/components/sidebar-shell"
 import { SessionList } from "@/components/session-list"
 
 export type AgentSidebarProps = {
-  width: number
-
   // ── Data ──
   /** Current project directory. Caller is responsible for resolving this. */
   directory: string | null | undefined
@@ -315,7 +313,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   return (
     <SidebarShell
-      width={props.width}
       showProjectInfo={props.showProjectInfo}
       showBottomNav={props.showBottomNav}
       newButtonText={props.newButtonText ?? "新建对话"}

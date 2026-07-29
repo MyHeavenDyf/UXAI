@@ -50,6 +50,11 @@ const DEV_PAGES: { path: string; title: string; desc: string }[] = [
     title: "读取本地文件 · 权限弹窗",
     desc: "external_directory 授权弹窗现状:真实 PermissionDockView + mock 数据,三场景(单/多/超长路径)+ busy 态",
   },
+  {
+    path: "/insight/__dev/question-dock",
+    title: "question 工具 · 答题弹窗",
+    desc: "SPEC-INS-025:真实 QuestionDockView + mock 数据,五场景(单选/分页多选/长答案回归/选项滚动/禁用自定义)+ 与权限弹窗共存",
+  },
 ]
 
 export default function DevIndexPage(): JSX.Element {

@@ -9,7 +9,8 @@
  * iconInfoMap key = 图标 name（如 "settings"），value = { name, url }
  */
 
-const ICON_API_URL = '/assetRepository/iconPlus/getIconInfo'
+const API_BASE = import.meta.env.VITE_ICON_API_BASE || ''
+const ICON_API_URL = `${API_BASE}/assetRepository/iconPlus/getIconInfo`
 const MAX_STATE_DEPTH = 20
 
 // ========== 类型 ==========
