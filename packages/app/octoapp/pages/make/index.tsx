@@ -2864,7 +2864,7 @@ if (dsId) {
         class="octo-make octo-split bg-background-base"
         data-focus={hideChat() ? "true" : undefined}
         ref={(el) => { gridEl = el }}
-        style={{ display: "flex" }}
+        style={{ display: "flex", position: "relative" }}
       >
 
         {/* ── 左栏：对话面板 ──── */}
@@ -3493,16 +3493,16 @@ onSlashTrigger={(query) => {
 
         {/* ── 拖拽分隔线（Grid 中间列） ──── */}
         <Show when={gridHasContent() && !hideChat() && !ml.rightCollapsed() && !ml.rightManuallyHidden()}>
-          <div class="octo-split-handle" style={{ flex: "none", width: "0" }} onMouseDown={handleDividerMouseDown} />
+          <div class="octo-split-handle" style={{ position: "absolute", left: `${ml.centerW() - 4}px`, top: "0", bottom: "0", width: "8px", margin: "0" }} onMouseDown={handleDividerMouseDown} />
         </Show>
 
         {/* ── 右栏：ResultViewer + Version Panel ──── */}
         <Show when={gridHasContent()}>
-        <div class="make-right-overlay" />
+        <div class="make-right-overlay" onClick={() => ml.toggleRightDrawer()} />
         <div
           class="flex flex-col overflow-hidden"
-          classList={{ "make-right-panel": true, "is-collapsed": ml.rightCollapsed() || ml.rightManuallyHidden() }}
-          style={(ml.rightCollapsed() || ml.rightManuallyHidden()) ? { background: "#fff", "border-left": "1px solid var(--border-weak-base)" } : { flex: `${1 - ml.cRatio()} 1 0%`, "min-width": `${MAKE_RIGHT_MIN}px` }}
+          classList={{ "make-right-panel": true, "is-collapsed": !hideChat() && (ml.rightCollapsed() || ml.rightManuallyHidden()) }}
+          style={hideChat() ? { flex: "1", "min-width": "0" } : (ml.rightCollapsed() || ml.rightManuallyHidden()) ? { background: "#fff", "border-left": "1px solid var(--border-weak-base)" } : { flex: `${1 - ml.cRatio()} 1 0%`, "min-width": `${MAKE_RIGHT_MIN}px` }}
         >
           <div class="flex flex-1 min-h-0 min-w-0">
             <div class="flex flex-col flex-1 min-w-0">

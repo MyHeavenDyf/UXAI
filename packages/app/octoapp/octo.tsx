@@ -276,6 +276,8 @@ function MakeSidebarLayout(props: ParentProps) {
 
 function MakeSidebarArea(props: ParentProps) {
   const ml = useMakeLayout()
+  const layout = useLayout()
+  const focusMode = layout.focusMode.get
 
   function handleResize(e: MouseEvent) {
     if (ml.leftCollapsed()) return
@@ -294,18 +296,6 @@ function MakeSidebarArea(props: ParentProps) {
     document.addEventListener("mousemove", onMove)
     document.addEventListener("mouseup", onUp)
   }
-
-  onMount(() => {
-    document.addEventListener("click", (e) => {
-      const target = e.target as HTMLElement
-      if (ml.leftDrawerOpen() && !target.closest(".make-sidebar") && !target.closest("[data-drawer-toggle='make-left']")) {
-        ml.toggleLeftDrawer()
-      }
-      if (ml.rightDrawerOpen() && !target.closest(".make-right-panel") && !target.closest("[data-drawer-toggle='make-right']")) {
-        ml.toggleRightDrawer()
-      }
-    })
-  })
 
   return (
     <>
@@ -335,15 +325,15 @@ function MakeSidebarArea(props: ParentProps) {
         class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative"
         style={{ "--sidebar-width": `${ml.leftW()}px` }}
       >
-        <div class="make-sidebar-overlay" />
+        <div class="make-sidebar-overlay" onClick={() => ml.toggleLeftDrawer()} />
         <div
           class="make-sidebar h-full shrink-0 flex flex-col overflow-hidden"
-          classList={{ "is-collapsed": ml.leftCollapsed() }}
+          classList={{ "is-collapsed": ml.leftCollapsed() || focusMode() }}
           style={{ "border-right": "1px solid var(--border-weak-base)", background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)" }}
         >
           <MakeSidebar />
         </div>
-        <Show when={!ml.leftCollapsed()}>
+        <Show when={!ml.leftCollapsed() && !focusMode()}>
           <div class="make-sidebar-resize" style={{ left: `${ml.leftW() - 4}px` }} onMouseDown={handleResize} />
         </Show>
         <div class="flex flex-col flex-1 min-w-0 overflow-hidden">{props.children}</div>
