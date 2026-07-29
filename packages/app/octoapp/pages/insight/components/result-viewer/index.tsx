@@ -5,13 +5,11 @@ import { showToast } from "@opencode-ai/ui/toast"
 import type { ResultTab, TabViewMode } from "./tab-store"
 import { TabBar } from "./tab-bar"
 import { ActionBar } from "./action-bar"
-import { TableRenderer } from "./table-renderer"
 import { MindmapRenderer } from "./mindmap-renderer"
 import { HtmlRenderer } from "./html-renderer"
 import { ImageRenderer } from "./image-renderer"
 import { SourceCodeView } from "./source-code-view"
 import { IllustrationResultEmpty, fileTypeIconUrl } from "../../icons/illustrations"
-import { extractTableMarkdown } from "../../utils/markdown-table"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
 import { defaultFilename as defaultLocalFilename, saveDialogName } from "../../utils/local-file"
@@ -159,7 +157,7 @@ function TabBody(props: {
       <Match when={props.tab.source === "uri" && props.tab.type === "markdown" && !props.tab.content}>
         <UriMarkdownTabBody tab={props.tab} onCacheContent={props.onCacheContent} />
       </Match>
-      {/* 其余 uri 模式(json/html/table/mindmap/file)未缓存:fetch → 回写 cache → 父层切到 inline 分支 */}
+      {/* 其余 uri 模式(json/html/file)未缓存:fetch → 回写 cache → 父层切到 inline 分支 */}
       <Match when={props.tab.source === "uri" && !props.tab.content}>
         <UriTabBody tab={props.tab} onCacheContent={props.onCacheContent} />
       </Match>
@@ -310,7 +308,7 @@ function UriMarkdownTabBody(props: {
 }
 
 // 实际内容渲染(content 已就位,inline 或缓存后均走这里)
-// toggle 类型(mindmap/html/table/markdown):viewMode==="source" 走 SourceCodeView(原始源),否则渲染态。
+// toggle 类型(html/markdown):viewMode==="source" 走 SourceCodeView(原始源),否则渲染态。
 // json 单视图(源),file 单视图(本地打开/下载)。见 output-renderers.md §1 视图切换。
 function TabContent(props: { tab: ResultTab }): JSX.Element {
   const content = () => props.tab.content ?? ""
@@ -323,14 +321,6 @@ function TabContent(props: { tab: ResultTab }): JSX.Element {
         </div>
       }
     >
-      <Match when={props.tab.type === "table"}>
-        {/* table 卡四视图(预览/代码/复制/下载)统一只呈现表格本体:
-            预览抽 table token、复制/下载走 extractTableMarkdown,代码视图同样抽表格源,
-            避免把上方对话正文带进来(全文仍在对话区 + 磁盘文件)。 */}
-        <Show when={!isSource()} fallback={<SourceCodeView content={extractTableMarkdown(content())} lang="markdown" />}>
-          <TableRenderer content={content()} />
-        </Show>
-      </Match>
       <Match when={props.tab.type === "markdown"}>
         <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="markdown" />}>
           <MarkdownRenderer content={content()} />

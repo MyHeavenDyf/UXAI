@@ -207,9 +207,8 @@ function outputMocks(): OutputCard[] {
   const createdAt = new Date("2026-04-27T15:38:00")
   // 思维导图不是独立类型(§4.2):它是 json 卡的一种内容形态,入口卡的图标/文案按内容升级(§4.4),
   // 故这里没有 mindmap 样例条目 —— 导图形态由下方 mindmapCardMock() 用真实内容触发。
-  const types: OutputCardType[] = ["table", "json", "file", "markdown", "html", "code", "image"]
+  const types: OutputCardType[] = ["json", "file", "markdown", "html", "code", "image"]
   const titles: Record<OutputCardType, string> = {
-    table: "用户痛点频次分析表",
     json: "原始访谈数据 JSON",
     file: "算子开发工具 访谈观点聚类报告.docx",
     markdown: "可用性测试小结 Markdown",
