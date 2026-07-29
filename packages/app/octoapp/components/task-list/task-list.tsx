@@ -23,6 +23,35 @@ export function TaskList() {
   })
 
   return (
+    <>
+    <style>{`
+  .task-center-scroll {
+    scrollbar-width: auto;
+    -ms-overflow-style: auto;
+  }
+  .task-center-scroll::-webkit-scrollbar {
+    display: block;
+    width: 6px;
+    height: 6px;
+  }
+  .task-center-scroll::-webkit-scrollbar-thumb {
+    background-color: var(--border-weak-base);
+    border-radius: 9999px;
+  }
+  .task-center-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: var(--border-strong-base);
+  }
+  .task-center-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  @keyframes task-center-spin {
+    to { transform: rotate(360deg); }
+  }
+  .task-center-spin {
+    animation: task-center-spin 0.8s linear infinite;
+  }
+`}</style>
+    <Show when={allItems().length > 0}>
     <Popover
       open={shown()}
       onOpenChange={setShown}
@@ -30,25 +59,15 @@ export function TaskList() {
       triggerProps={{
         type: "button",
         class: "flex items-center justify-center rounded-[6px] transition-colors hover:bg-black/[0.06] active:bg-black/[0.10]",
-        style: { width: "32px", height: "32px" },
+        style: { width: "32px", height: "32px", cursor: "pointer" },
       }}
       trigger={
-        // 标题栏入口：有进行中任务时图标变蓝并显示数量徽标
-        <div class="relative flex items-center justify-center">
-          <span style={{ display: "inline-block", width: "16px", height: "16px", "background-image": `url(${activeCount() > 0 ? "/task/task-center-active.svg" : "/task/task-center.svg"})`, "background-size": "contain", "background-repeat": "no-repeat", "background-position": "center" }} />
+        // 标题栏入口：有进行中任务时图标外加旋转圈(28)并缩小为 16；全为终态时显示 28 图标；无数据时整入口隐藏(见外层 Show)
+        <div class="relative flex items-center justify-center" style={{ width: "28px", height: "28px" }}>
           <Show when={activeCount() > 0}>
-            <span
-              class="absolute -top-1 -right-1 flex items-center justify-center rounded-full text-[10px] font-bold leading-none"
-              style={{
-                width: "14px",
-                height: "14px",
-                background: "#0A59F7",
-                color: "#fff",
-              }}
-            >
-              {activeCount() > 9 ? "9+" : activeCount()}
-            </span>
+            <span class="task-center-spin" style={{ position: "absolute", inset: 0, "border-radius": "50%", border: "2px solid rgba(0,0,0,0.1)", "border-top-color": "#0A59F7", "box-sizing": "border-box" }} />
           </Show>
+          <span style={{ display: "inline-block", width: activeCount() > 0 ? "16px" : "28px", height: activeCount() > 0 ? "16px" : "28px", "background-image": "url(/task/task-center.svg)", "background-size": "contain", "background-repeat": "no-repeat", "background-position": "center" }} />
         </div>
       }
       class="[&_[data-slot=popover-body]]:p-0 w-[360px] max-w-[calc(100vw-40px)] rounded-xl"
@@ -61,6 +80,7 @@ export function TaskList() {
         "border-radius": "12px",
         "box-shadow": "0 4px 16px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.06)",
         height: "446px",
+        cursor: "default",
       }}>
         {/* 头部：标题 + 关闭按钮 */}
         <div class="flex items-center justify-between shrink-0" style={{ padding: "16px 16px 4px 16px" }}>
@@ -74,22 +94,15 @@ export function TaskList() {
             onClick={() => setShown(false)}
           />
         </div>
-        <Show
-          when={allItems().length > 0}
-          fallback={
-            <div class="flex-1 flex items-center justify-center px-4 pb-4 text-[12px] text-center" style={{ color: "rgba(0,0,0,0.4)" }}>
-              暂无任务
-            </div>
-          }
-        >
         {/* 列表区：撑满剩余高度并滚动；space-y-1 提供项间距，scrollbar-gutter 保证有/无滚动条时间距一致 */}
-          <div class="flex-1 pb-4 overflow-y-auto space-y-1" style={{ "padding-left": "calc(var(--spacing) * 4)",  "scrollbar-gutter": "stable" }}>
-            <For each={allItems()}>
-              {(item) => <TaskItemRow item={item} onPause={TaskStore.togglePause} onCancel={TaskStore.cancel} />}
-            </For>
-          </div>
-        </Show>
+        <div class="task-center-scroll flex-1 pb-4 overflow-y-auto space-y-1" style={{ "padding-left": "calc(var(--spacing) * 4)", "padding-right": "calc(var(--spacing) * 2.5)", "scrollbar-gutter": "stable" }}>
+          <For each={allItems()}>
+            {(item) => <TaskItemRow item={item} onPause={TaskStore.togglePause} onCancel={TaskStore.cancel} />}
+          </For>
+        </div>
       </div>
     </Popover>
+    </Show>
+    </>
   )
 }
