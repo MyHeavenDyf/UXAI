@@ -225,7 +225,7 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
   }, true)
 
   function findCommentTarget(el) {
-    while (el && el !== document.body) {
+    while (el && el !== document.documentElement) {
       if (el.getAttribute && el.getAttribute('data-od-id')) {
         return { target: el }
       }
@@ -261,6 +261,10 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
   }
 
   function buildSelector(el) {
+    if (el === document.body) {
+      return 'body'
+    }
+    
     var parts = []
     while (el && el !== document.body) {
       var part = el.tagName.toLowerCase()
