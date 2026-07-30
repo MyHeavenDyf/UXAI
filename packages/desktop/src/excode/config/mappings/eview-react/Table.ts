@@ -31,11 +31,11 @@
  * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
  */
 
-import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
-import type { LoopNode, RegularNode } from '../../../src/core/nodeTypes'
-import type { PropValue, BindingValue } from '../../../src/core/valueTypes'
+import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
+import type { LoopNode, RegularNode } from '../../../src/core/node-types'
+import type { PropValue, BindingValue } from '../../../src/core/value-types'
 import { Value } from '../../../src/core/value'
-import { enrichScopedData, buildRenderFn } from '../../../src/core/scopedEnrichment'
+import { enrichScopedData, buildRenderFn } from '../../../src/core/scoped-enrichment'
 
 /** A2UI 列定义（字面量形态） */
 interface A2UIColDef {

@@ -18,11 +18,11 @@
 
 import path from 'path'
 
-import type { BuildNode, ComponentNode, HtmlNode, TextNode, ExtractNode, LoopNode, RegularNode } from '../core/nodeTypes'
-import type { PropValue, VarRefValue } from '../core/valueTypes'
+import type { BuildNode, ComponentNode, HtmlNode, TextNode, ExtractNode, LoopNode, RegularNode } from '../core/node-types'
+import type { PropValue, VarRefValue } from '../core/value-types'
 import { Value } from '../core/value'
-import type { StateBuilderResult } from './stateBuilder'
-import { stateRef } from '../core/accessPath'
+import type { StateBuilderResult } from './state-builder'
+import { stateRef } from '../core/access-path'
 
 // ─── 产出物 ───
 

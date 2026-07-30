@@ -18,18 +18,18 @@
  *   D. state.js（由 state-builder 产物落盘）
  */
 
-import type { GeneratedFile } from '../pipeline/pipelineContext'
-import type { FileDraft, PendingExtractedFile, PendingConstDecl } from './treeFinalizer'
-import type { StateBuilderResult, FileUnit } from './stateBuilder'
-import { fileKeyOf } from '../core/fileKeys'
-import { collectImports, renderImportBlock, injectImport, type ImportMap } from './importCollector'
-import { emitNode, indent } from './jsxEmitter'
-import { collectRelativeFields } from '../core/scopedEnrichment'
-import { isFlatAccessPath } from '../core/accessPath'
-import { emitKey, serializePlainJs } from './jsSerializer'
-import type { EmitOptions } from './jsxEmitter'
-import type { PropValue } from '../core/valueTypes'
-import type { BuildNode, LoopNode, ComponentNode, TextNode, RegularNode } from '../core/nodeTypes'
+import type { GeneratedFile } from '../pipeline/pipeline-context'
+import type { FileDraft, PendingExtractedFile, PendingConstDecl } from './tree-finalizer'
+import type { StateBuilderResult, FileUnit } from './state-builder'
+import { fileKeyOf } from '../core/file-keys'
+import { collectImports, renderImportBlock, injectImport, type ImportMap } from './import-collector'
+import { emitNode, indent } from './jsx-emitter'
+import { collectRelativeFields } from '../core/scoped-enrichment'
+import { isFlatAccessPath } from '../core/access-path'
+import { emitKey, serializePlainJs } from './js-serializer'
+import type { EmitOptions } from './jsx-emitter'
+import type { PropValue } from '../core/value-types'
+import type { BuildNode, LoopNode, ComponentNode, TextNode, RegularNode } from '../core/node-types'
 
 // ─── 主入口 ───
 

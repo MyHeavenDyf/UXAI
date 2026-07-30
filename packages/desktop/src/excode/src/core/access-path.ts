@@ -12,7 +12,7 @@
  *   - 相对嵌套：值在循环项（enrichment 写嵌套位置）→ 模板 destructure 顶级字段 + 属性访问
  */
 
-import type { ComputedValue } from './valueTypes'
+import type { ComputedValue } from './value-types'
 
 /**
  * 将 JSON Pointer 路径转为 JS 属性访问表达式。

@@ -7,9 +7,9 @@
  * 主要汇总：pages / state 字段数 / loops / extracted files。
  */
 
-import type { PipelineContext } from '../pipeline/pipelineContext'
-import type { StateBuilderResult } from './stateBuilder'
-import type { TreeFinalizerResult } from './treeFinalizer'
+import type { PipelineContext } from '../pipeline/pipeline-context'
+import type { StateBuilderResult } from './state-builder'
+import type { TreeFinalizerResult } from './tree-finalizer'
 
 export interface ReportPageStats {
   pageName: string

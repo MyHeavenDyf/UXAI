@@ -16,10 +16,10 @@
 import { convertTailwindToCSS } from '../../../main/tailwind-to-css'
 // ────────────────────────────────────────────────────────────
 
-import type { BuildNode, ComponentNode, HtmlNode, LoopNode, RegularNode } from '../core/nodeTypes'
-import type { PropValue } from '../core/valueTypes'
-import type { PendingExtractedFile } from './treeFinalizer'
-import { rewriteCssUrlPaths } from '../core/resourcePath'
+import type { BuildNode, ComponentNode, HtmlNode, LoopNode, RegularNode } from '../core/node-types'
+import type { PropValue } from '../core/value-types'
+import type { PendingExtractedFile } from './tree-finalizer'
+import { rewriteCssUrlPaths } from '../core/resource-path'
 
 /** ─── 手动开关 ─── */
 /** 是否使用 CSS Modules（*.module.less）。可在调用方覆盖。 */

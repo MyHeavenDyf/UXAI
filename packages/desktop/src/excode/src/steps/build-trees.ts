@@ -19,14 +19,14 @@
 import { Step } from '../core/step'
 import { Value } from '../core/value'
 import { Node } from '../core/node'
-import { IconCollector } from '../core/iconCollection'
+import { IconCollector } from '../core/icon-collection'
 import {
   HTML_TEXT_ELEMENTS,
   HTML_VALUE_ATTRIBUTE_ELEMENTS,
   ICON_PROPS_BY_COMPONENT,
   ICON_PROPS_NESTED_IN_ARRAYS,
-} from '../core/iconProps'
-import { rewriteResourcePath } from '../core/resourcePath'
+} from '../core/icon-props'
+import { rewriteResourcePath } from '../core/resource-path'
 import type {
   BuildNode,
   ComponentNode,
@@ -36,10 +36,10 @@ import type {
   LoopNode,
   LoopScope,
   RegularNode,
-} from '../core/nodeTypes'
-import type { PropValue } from '../core/valueTypes'
-import type { PipelineContext } from '../pipeline/pipelineContext'
-import type { BuiltPage } from '../pipeline/pipelineContext'
+} from '../core/node-types'
+import type { PropValue } from '../core/value-types'
+import type { PipelineContext } from '../pipeline/pipeline-context'
+import type { BuiltPage } from '../pipeline/pipeline-context'
 
 // ─── 循环模板不抽离的白名单 ───────────────────────────────────────
 // 这些组件是父组件的直接子组件（如 TabItem 之于 Tab），循环 children 不应

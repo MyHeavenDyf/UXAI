@@ -11,9 +11,9 @@
  *
  * 使用方：
  *   table.ts, timeline.ts, 等映射文件
- *   stateBuilder.ts（替代内联的 collectRelativeComputeds）
- *   fileAssembler.ts（替代内联的 collectRelativeFields）
- *   jsxEmitter.ts（collectRelativeFields 用于 render fn destructure）
+ *   state-builder.ts（替代内联的 collectRelativeComputeds）
+ *   file-assembler.ts（替代内联的 collectRelativeFields）
+ *   jsx-emitter.ts（collectRelativeFields 用于 render fn destructure）
  */
 
 import type {
@@ -21,19 +21,19 @@ import type {
   BindingValue,
   RenderFnValue,
   RenderFnParam,
-} from './valueTypes'
+} from './value-types'
 import { Value } from './value'
 import type {
   BuildNode,
   RegularNode,
-} from './nodeTypes'
-import { pathToJsAccess } from './accessPath'
+} from './node-types'
+import { pathToJsAccess } from './access-path'
 
 // ─── collectRelativeCVs ───
 
 /**
  * 从 body 中收集所有 relative ComputedValue（跳过嵌套 LoopNode）。
- * 等价于 stateBuilder.ts 中同名的内联函数，提取为公共共享。
+ * 等价于 state-builder.ts 中同名的内联函数，提取为公共共享。
  */
 export function collectRelativeCVs(body: RegularNode[]): ComputedValue[] {
   const out: ComputedValue[] = []

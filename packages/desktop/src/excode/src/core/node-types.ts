@@ -9,7 +9,7 @@
  * 管线渐进填充，不存在 A2UINode 中间层。
  */
 
-import type { PropValue, BindingValue, ComputedValue, ImportSpec, ExtractRoute, VarRefValue } from './valueTypes'
+import type { PropValue, BindingValue, ComputedValue, ImportSpec, ExtractRoute, VarRefValue } from './value-types'
 
 // ─── 节点类型层级 ───
 
