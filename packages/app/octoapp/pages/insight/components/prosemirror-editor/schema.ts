@@ -22,11 +22,12 @@ export const mentionNodeSpec = {
   },
   toDOM: (node: PMNode): readonly [string, ...any[]] => {
     const attrs = node.attrs as MentionAttrs
-    const typeClass = `pm-mention--${attrs.type}`
+    // 类名带 ins- 前缀:make/Design 的同源编辑器用的是无前缀 pm-mention,同名会跨模块串样式
+    const typeClass = `ins-pm-mention--${attrs.type}`
     return [
       "span",
       {
-        class: `pm-mention ${typeClass}`,
+        class: `ins-pm-mention ${typeClass}`,
         contenteditable: "false",
         "data-id": attrs.id || "",
         "data-name": attrs.name,
