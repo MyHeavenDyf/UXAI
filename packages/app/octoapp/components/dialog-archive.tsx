@@ -346,7 +346,6 @@ export function ArchiveDialog(props: Props): JSX.Element {
   const [selectedFolderId, setSelectedFolderId] = createSignal<number | null>(null)
   const [selectedFolder, setSelectedFolder] = createSignal<{ label: string } | null>(null)
   const [deliverables, setDeliverables] = createSignal<DeliverableItem[]>(MOCK_SEARCH_RESULTS)
-  const [loading, setLoading] = createSignal(false)
   const [showCollisionOverlay, setShowCollisionOverlay] = createSignal(false)
   const [initialized, setInitialized] = createSignal(false)
   const [productTeamList, setProductTeamList] = createSignal<NestedTreeNode[]>(MOCK_PRODUCT_TEAM)
@@ -844,38 +843,33 @@ export function ArchiveDialog(props: Props): JSX.Element {
     }
   })
 
-  const executeArchive = async (isOverwrite: boolean) => {
-    setLoading(true)
+  const executeArchive = (isOverwrite: boolean) => {
     setShowCollisionOverlay(false)
 
-    try {
-      const matchingDeliverable = deliverables().find(
-        d => d.fileName === props.tabTitle.replace(/\.html?$/i, "")
-      )
-      
-      const data: ArchiveConfirmData = {
-        spaceType: spaceType(),
-        productId: spaceType() === "project" ? selectedProductId() || undefined : undefined,
-        productName: spaceType() === "project" ? selectedProduct()?.name : undefined,
-        commonTeam: spaceType() === "project" ? selectedProduct()?.commonTeam : undefined,
-        versionDeliveryId: spaceType() === "project" ? selectedVersionId() || undefined : undefined,
-        versionDeliveryName: spaceType() === "project" ? selectedVersion()?.label : undefined,
-        folderId: selectedFolderId() || 0,
-        folderName: selectedFolder()?.label || "",
-        teamId: selectedFolderId() || 0,
-        isOverwrite,
-        existingDeliverableId: isOverwrite ? matchingDeliverable?.id : undefined,
-        existingDocId: isOverwrite ? matchingDeliverable?.docId : undefined,
-        existingDeliverables: showDeliverablesSection() ? deliverables() : []
-      }
-
-      await props.onConfirm(data)
-      handleClose()
-    } catch (err) {
-      console.error("[Archive] Failed:", err)
-    } finally {
-      setLoading(false)
+    const matchingDeliverable = deliverables().find(
+      d => d.fileName === props.tabTitle.replace(/\.html?$/i, "")
+    )
+    
+    const data: ArchiveConfirmData = {
+      spaceType: spaceType(),
+      productId: spaceType() === "project" ? selectedProductId() || undefined : undefined,
+      productName: spaceType() === "project" ? selectedProduct()?.name : undefined,
+      commonTeam: spaceType() === "project" ? selectedProduct()?.commonTeam : undefined,
+      versionDeliveryId: spaceType() === "project" ? selectedVersionId() || undefined : undefined,
+      versionDeliveryName: spaceType() === "project" ? selectedVersion()?.label : undefined,
+      folderId: selectedFolderId() || 0,
+      folderName: selectedFolder()?.label || "",
+      teamId: selectedFolderId() || 0,
+      isOverwrite,
+      existingDeliverableId: isOverwrite ? matchingDeliverable?.id : undefined,
+      existingDocId: isOverwrite ? matchingDeliverable?.docId : undefined,
+      existingDeliverables: showDeliverablesSection() ? deliverables() : []
     }
+
+    handleClose()
+    props.onConfirm(data).catch(err => {
+      console.error("[Archive] Failed:", err)
+    })
   }
 
   const handleConfirm = async () => {
@@ -1092,11 +1086,11 @@ export function ArchiveDialog(props: Props): JSX.Element {
               <button
                 type="button"
                 class="archive-confirm-btn"
-                classList={{ "archive-confirm-btn-disabled": !canConfirm() || loading() }}
-                disabled={!canConfirm() || loading()}
+                classList={{ "archive-confirm-btn-disabled": !canConfirm() }}
+                disabled={!canConfirm()}
                 onClick={handleConfirm}
               >
-                {loading() ? "处理中..." : "确定"}
+                确定
               </button>
             </div>
 
