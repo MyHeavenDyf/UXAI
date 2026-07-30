@@ -1,4 +1,55 @@
 .el-time-spinner__item.is-active:not(.is-disabled) {
   color: var(--el-color-primary);
-  font-weight: var(--font-weight-bold);
+  background: var(--color-select);
+  border-radius: 4px;
+}
+.el-time-spinner__item:hover:not(.is-disabled):not(.is-active) {
+  background: none;
+}
+
+.el-time-panel__content:before {
+  content: none;
+}
+.el-input__wrapper {
+
+  .el-input__prefix {
+    position: absolute;
+    right: 12px;
+    .el-input__prefix-inner {
+      &>:last-child {
+        margin-right: 0;
+      }
+      .el-input__icon {
+        svg {
+          width: 14px;
+          height: 14px;
+        }
+      }
+    }
+  }
+  .el-input__inner {
+    color: var(--color-text-primary);
+  }
+}
+.el-input__wrapper {
+  .el-range__icon {
+    position: absolute;
+    right: 12px;
+    svg {
+      width: 14px;
+      height: 14px;
+    }
+    .el-date-editor {
+      .el-range-input {
+        text-align: left;
+      }
+    }
+  }
+}
+.el-time-panel {
+  padding: 16px 12px 0;
+  .el-time-spinner {
+    display: flex;
+    gap: 8px;
+  }
 }
