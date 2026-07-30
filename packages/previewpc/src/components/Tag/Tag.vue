@@ -20,9 +20,9 @@ const sizeEnum = {
 }
 
 const iconSizeEnum = {
-  large: 16,
-  default: 14,
-  small: 12,
+  large: 12,
+  default: 10,
+  small: 10,
 }
 
 const effectEnum = {
@@ -129,7 +129,7 @@ const closable = computed(() => properties?.closable)
 // const closeIcon = computed(() => properties?.closeIcon)
 
 const iconName = computed(() => resolveValue(properties?.icon) as string)
-const iconSize = computed(() => (size.value ? iconSizeEnum[size.value as keyof typeof iconSizeEnum] : 12))
+const iconSize = computed(() => (size.value ? iconSizeEnum[size.value as keyof typeof iconSizeEnum] : 10))
 
 const resolvedIcon = ref<{ component: Component | null; props: Record<string, any> } | null>(null)
 watch(
