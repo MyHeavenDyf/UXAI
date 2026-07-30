@@ -838,6 +838,23 @@ export default function StudioPage() {
       ])
     })(),
   )
+  const [displayTurnStore, setDisplayTurnStore] = createStore<Record<string, StudioTurnData>>({})
+  createEffect(on(displayTurns, (next) => {
+    const ids = new Set(next.map((turn) => turn.id))
+    batch(() => {
+      next.forEach((turn) => setDisplayTurnStore(turn.id, reconcile(turn)))
+      setDisplayTurnStore(produce((turns) => {
+        Object.keys(turns)
+          .filter((id) => !ids.has(id))
+          .forEach((id) => delete turns[id])
+      }))
+    })
+  }))
+  const stableDisplayTurns = createMemo(() =>
+    displayTurns()
+      .map((turn) => displayTurnStore[turn.id])
+      .filter((turn): turn is StudioTurnData => Boolean(turn)),
+  )
   createEffect(() => {
     const persisted = new Set(turns().map((turn) => turn.editorEntryID).filter((id): id is string => Boolean(id)))
     if (persisted.size === 0) return
@@ -3762,7 +3779,7 @@ if (!headerTitle.pendingRename) return
             <Show when={displayTurns().length > 0 || pendingResult() || sending() || isBusy()} fallback={params.id && !sessionDataLoaded() && !visitedSessionIds.has(params.id) ? null : <StudioIntro />}>
               <StudioConversation
                 result={result()}
-                turns={displayTurns()}
+                turns={stableDisplayTurns()}
                 sdkUrl={globalSDK.url}
                 directory={projectDir()}
                 busy={effectiveStatus() === "queued" || effectiveStatus() === "running" || effectiveStatus() === "submitting"}
