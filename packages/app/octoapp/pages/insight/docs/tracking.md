@@ -89,8 +89,7 @@
 |------|----------|------------|----------|
 | files-download-file | 下载单个文件 | — | `file-manager/index.tsx` `handleDownload` |
 | files-batch-download | 批量打包（zip）下载 | `count` | `file-manager/index.tsx` `handleBatchDownload` |
-| files-preview-file | 单击文件到右侧预览 | — | `file-manager/index.tsx` `handlePreview` |
-| files-open-in-tab | 打开文件到结果 tab | — | `file-manager/index.tsx` `handleOpenFile` |
+| files-open-in-tab | 打开文件到结果 tab（单击文件行 / 行尾菜单「在标签页中打开」） | — | `file-manager/index.tsx` `handleOpenFile` |
 | files-add-to-session | 「加入会话」把文件挂到输入 | — | `file-manager/index.tsx` `handleAddToSession` |
 | files-open-in-explorer | 「在文件夹中显示」 | — | `file-manager/index.tsx` `handleOpenInExplorer` |
 | files-navigate-folder | 进入子目录 | — | `file-manager/index.tsx` 目录行 onClick |
