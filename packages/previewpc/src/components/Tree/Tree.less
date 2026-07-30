@@ -1,5 +1,5 @@
 .el-tree {
-  --el-tree-node-content-height: 32px;
+  --el-tree-node-content-height: 36px;
   --el-tree-node-hover-bg-color: transparent;
   --el-tree-text-color: var(--el-text-color-regular);
   --el-tree-expand-icon-color: var(--color-text-secondary);
@@ -7,23 +7,48 @@
   color: var(--el-tree-text-color);
   font-size: var(--el-font-size-base);
 }
-
-.el-tree-node__expand-icon.expanded {
-  transform: rotate(90deg) scale(1.35);
-}
-
-.el-icon,
 .el-tree-node__expand-icon {
-  font-size: 14px;
-  transform: scale(1.35);
+  width: 16px;
+  height: 16px;
+  &::before {
+    content: '';
+    display: inline-block;
+    border: 2px solid var(--gray-90);
+    padding: 2.5px;
+    border-width: 0 1px 1px 0;
+    transform: rotate(-45deg);
+    -webkit-transform:  rotate(-45deg);
+  }
+  &:hover {
+    &::before {
+      border: 2px solid var(--brand-40);
+      border-width: 0 1px 1px 0;
+    }
+  }
+  &:active {
+    &::before {
+      border: 2px solid var(--brand-60);
+      border-width: 0 1px 1px 0;
+    }
+  }
+  &+.custom-tree-node {
+    margin-left: 4px;
+  }
+  &+.el-checkbox {
+    margin-left: 8px;
+  }
+}
+.el-tree-node__expand-icon svg {
+  display: none;
 }
 
 .custom-tree-node {
   flex: 1;
-  height: 24.5px;
+  height: 28px;
+  line-height: 28px;
   font-weight: 400;
-  padding-left: 2px;
   border-radius: 4px;
+  padding-left: 4px;
 
   &:hover {
     background-color: rgb(from var(--gray-90) r g b / 0.05);
@@ -38,14 +63,39 @@
   }
 }
 
+.el-tree-node__content>label.el-checkbox {
+  margin-right: 4px;
+}
+.el-tree-node__content>.el-tree-node__expand-icon {
+  padding: 0;
+}
+
 
 .theme-dark {
+  .el-tree-node__expand-icon {
+    &::before {
+      border: 2px solid var(--gray-10);
+      border-width: 0 1px 1px 0;
+    }
+    &:hover {
+      &::before {
+        border: 2px solid var(--brand-20);
+        border-width: 0 1px 1px 0;
+      }
+    }
+    &:active {
+      &::before {
+        border: 2px solid var(--brand-40);
+        border-width: 0 1px 1px 0;
+      }
+    }
+  }
   .custom-tree-node {
     svg {
       color: var(--gray-10);
     }
     &:hover {
-      background-color: rgb(from var(--gray-05) r g b / 0.05);
+      background-color: rgb(from var(--gray-05) r g b / 0.2);
     }
   }
 
