@@ -286,12 +286,12 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
           <div class="flex items-center justify-between gap-2 mb-[8px]">
             <button
               type="button"
-              class="flex items-center gap-2  rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+              class="flex items-center gap-3  rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
               style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
               onClick={newSession}
             >
               <Icon name="plus" size="normal" class="shrink-0" />
-              <span>新建</span>
+              <span>新建对话</span>
             </button>
             {/* <button
               type="button"

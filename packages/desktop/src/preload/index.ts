@@ -120,6 +120,7 @@ const api: ElectronAPI = {
   getDesignSystems: () => ipcRenderer.invoke("get-design-systems"),
   downloadHuiCode: (jsonData, options?: { targetLib?: string }) => ipcRenderer.invoke("download-hui-code", jsonData, options),
   runPixsoBuild: (input) => ipcRenderer.invoke("run-pixso-build", input),
+  getTopixsoDir: () => ipcRenderer.invoke("get-topixso-dir"),
   exportZip: (opts) => ipcRenderer.invoke("export-zip", opts),
   importZip: () => ipcRenderer.invoke("import-zip"),
   codeToHtml: (opts) => ipcRenderer.invoke("capture-page", opts),
