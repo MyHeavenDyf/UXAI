@@ -16,7 +16,7 @@
  *   字面量 → JSON 内联；非字面量（BindingValue）→ 保持变量引用。
  */
 
-import type { PropValue } from '../../src/core/valueTypes'
+import type { PropValue } from '../../src/core/value-types'
 
 // ─── 类型 ───
 

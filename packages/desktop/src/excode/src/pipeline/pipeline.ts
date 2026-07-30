@@ -5,7 +5,7 @@
  */
 
 import { Step } from '../core/step'
-import type { PipelineContext } from './pipelineContext'
+import type { PipelineContext } from './pipeline-context'
 
 type StepConstructor = { new(): Step }
 
