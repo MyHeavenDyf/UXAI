@@ -1,0 +1,470 @@
+:root {
+  /* 品牌色 */
+  --color-brand: var(--brand-50);
+  --color-brand-hover: var(--brand-40);
+  --color-brand-focus: var(--brand-50);
+  --color-brand-active: var(--brand-60);
+  --color-brand-disabled: var(--brand-20);
+  /* 文本色 */
+  --color-text-primary: var(--gray-90);
+  --color-text-secondary: var(--gray-50);
+  --color-text-placeholder: var(--gray-30);
+  --color-text-disabled: var(--gray-20);
+  --color-text-inverse: var(--gray-0);
+  --color-text-inverse-disabled: var(--gray-0);
+  --color-text-on: var(--brand-50);
+  --color-link: var(--brand-50);
+  --color-link-hover: var(--brand-40);
+  --color-link-active: var(--brand-60);
+  --color-link-visited: var(--indigo-50);
+  --color-link-disabled: var(--brand-20);
+  /* 背景色 */
+  --color-bg-1: var(--gray-05);
+  --color-bg-2: var(--gray-0);
+  --color-bg-3: var(--gray-0);
+  --color-bg-4: var(--gray-0);
+  --color-bg-5: var(--gray-0);
+  --color-bg-6: rgb(from var(--gray-20) r g b / 0.2);
+  --color-bg-mask: rgb(from var(--gray-90) r g b / 0.3);
+  /* 填充色 */
+  --color-fill-disabled: var(--gray-10);
+  --color-hover: rgb(from var(--gray-90) r g b / 0.05);
+  --color-fill-disabled-subtle: rgb(from var(--gray-90) r g b / 0.05);
+  --color-fill: rgb(from var(--gray-90) r g b / 0.05);
+  --color-select: var(--brand-05);
+  --color-fill-subtle: var(--gray-0);
+
+  /* 图标色 */
+  --color-icon-primary: var(--gray-90);
+  --color-icon-secondary: var(--gray-50);
+  --color-icon-tertiary: var(--gray-40);
+  --color-icon-placeholder: var(--gray-30);
+  --color-icon-disabled: var(--gray-20);
+  --color-icon-inverse: var(--gray-0);
+  --color-icon-hover: var(--brand-40);
+  --color-icon-focus: var(--brand-50);
+  --color-icon-active: var(--brand-60);
+  /* 边框色 */
+  --color-border: var(--gray-20);
+  --color-border-hover: var(--gray-90);
+  --color-border-focus: var(--brand-50);
+  --color-border-active: var(--brand-10);
+  --color-border-disabled: var(--gray-20);
+  --color-border-separator: var(--gray-10);
+  --color-border-separator-sbutle: var(--gray-05);
+  /* 功能色-错误 */
+  --color-error: var(--red-50);
+  --color-error-hover: var(--red-40);
+  --color-error-active: var(--red-60);
+  --color-error-disabled: var(--red-10);
+  --color-error-subtle: var(--red-20);
+  --color-error-subtler: var(--red-05);
+  /* 功能色-告警 */
+  --color-alert: var(--orange-50);
+  --color-alert-hover: var(--orange-40);
+  --color-alert-active: var(--orange-60);
+  --color-alert-disabled: var(--orange-10);
+  --color-alert-subtle: var(--orange-20);
+  --color-alert-subtler: var(--orange-05);
+  /* 功能色-提醒 */
+  --color-warning: var(--yellow-50);
+  --color-warning-hover: var(--yellow-40);
+  --color-warning-active: var(--yellow-60);
+  --color-warning-disabled: var(--yellow-10);
+  --color-warning-bold: var(--yellow-60);
+  --color-warning-subtle: var(--yellow-20);
+  --color-warning-subtler: var(--yellow-05);
+  /* 功能色-成功 */
+  --color-success: var(--mint-50);
+  --color-success-hover: var(--mint-40);
+  --color-success-active: var(--mint-60);
+  --color-success-disabled: var(--mint-10);
+  --color-success-subtle: var(--mint-20);
+  --color-success-subtler: var(--mint-05);
+  /* 功能色-信息 */
+  --color-info-primary: var(--blue-50);
+  --color-info-primary-subtle: var(--blue-30);
+  --color-info-primary-subtler: var(--blue-05);
+  --color-info-secondary: var(--blue-30);
+  --color-info-secondary-hover: var(--blue-20);
+  --color-info-secondary-active: var(--blue-40);
+  --color-info-secondary-disabled: var(--blue-10);
+  --color-info-secondary-subtle: var(--blue-05);
+  /* 功能色-失效 */
+  --color-none: var(--gray-30);
+  --color-none-hover: var(--gray-20);
+  --color-none-active: var(--gray-40);
+  --color-none-disabled: var(--gray-10);
+  --color-none-subtle: var(--gray-05);
+  /* 推荐图表色 */
+  --color-chart-1: var(--blue-50);
+  --color-chart-2: var(--green-50);
+  --color-chart-3: var(--indigo-50);
+  --color-chart-4: var(--cyan-50);
+  --color-chart-5: var(--orange-40);
+  --color-chart-6: var(--brand-30);
+  --color-chart-7: var(--purple-40);
+  --color-chart-8: var(--rose-40);
+  --color-chart-9: var(--indigo-20);
+  --color-chart-10: var(--yellow-60);
+  --color-chart-11: var(--brand-10);
+  --color-chart-12: var(--green-60);
+  --color-chart-13: var(--purple-20);
+  --color-chart-14: var(--cyan-60);
+  --color-chart-15: var(--orange-20);
+  --color-chart-16: var(--rose-60);
+  --color-chart-17: var(--cyan-20);
+  --color-chart-18: var(--blue-60);
+  --color-chart-19: var(--green-20);
+  --color-chart-20: var(--indigo-70);
+  --color-chart-21: var(--rose-10);
+  --color-chart-22: var(--cyan-70);
+  --color-chart-23: var(--yellow-20);
+  --color-chart-24: var(--purple-70);
+  --color-chart-25: var(--mint-20);
+  /* 特殊场景 */
+  --color-scrollbar: var(--gray-10);
+  --color-scrollbar-hover: var(--gray-30);
+  --color-card-gray-disabled: rgb(from var(--gray-30) r g b / 0.05);
+  --color-card-white-disabled: rgb(from var(--gray-0) r g b / 0.5);
+  --color-sidenav-bg: rgb(from var(--gray-05) r g b / 0.5);
+  --color-table-header: rgb(from var(--gray-90) r g b / 0.05);
+  --color-table-zebra: rgb(from var(--gray-40) r g b / 0.05);
+  --color-message-bg-info: var(--blue-05);
+  --color-message-bg-success: var(--mint-05);
+  --color-message-bg-warning: var(--yellow-05);
+  --color-message-bg-alert: var(--orange-05);
+  --color-message-bg-error: var(--red-05);
+ 
+  /* ICT3.0 3.0告警色 */
+  --color-alert-urgent: #F43146;
+  --color-alert-primary: #EC6F1A;
+  --color-alert-secondary: #EEBA18;
+  --color-alert-success: #2DA769;
+  --color-alert-running: #5990FD;
+  --color-alert-none: #939393;
+  /* ICT3.1 表格 */
+  --color-table-1: var(--brand-05);
+  --color-table-2: var(--brand-10);
+  --color-table-sticky-1: var(--brand-05);
+  --color-table-sticky-2: var(--brand-10);
+  --color-table-sticky-bg: var(--gray-0);
+  --color-table-sticky-header: var(--gray-05);
+  /* 标签配色 */
+  --color-tag-text-purple: var(--purple-60);
+  --color-tag-bg-purple: rgb(from var(--purple-10) r g b / 0.6);
+  --color-tag-text-cyan: var(--cyan-80);
+  --color-tag-bg-cyan: rgb(from var(--cyan-60) r g b / 0.15);
+  --color-tag-text-rose: var(--rose-60);
+  --color-tag-bg-rose: var(--rose-05);
+  --color-tag-text-green: var(--green-70);
+  --color-tag-bg-green: var(--green-10);
+  --color-tag-text-pink: var(--pink-60);
+  --color-tag-bg-pink: var(--pink-05);
+  --color-tag-text-indigo: var(--indigo-80);
+  --color-tag-bg-indigo: rgb(from var(--indigo-10) r g b / 0.6);
+  --color-tag-text-none: var(--gray-70);
+  --color-tag-bg-none: rgb(from var(--gray-90) r g b / 0.05);
+  --color-tag-text-error: var(--red-60);
+  --color-tag-bg-error: var(--red-05);
+  --color-tag-text-alert: var(--orange-70);
+  --color-tag-bg-alert: var(--orange-10);
+  --color-tag-text-warning: var(--yellow-80);
+  --color-tag-bg-warning: rgb(from var(--yellow-30) r g b / 0.6);
+  --color-tag-text-success: var(--mint-70);
+  --color-tag-bg-success: rgb(from var(--mint-10) r g b / 0.6);
+  --color-tag-text-info: var(--blue-60);
+  --color-tag-bg-info: rgb(from var(--blue-10) r g b / 0.5);
+
+
+   /* Border */
+   --border: var(--gray-20);
+   --border-light: var(--gray-10);
+   --border-primary: var(--brand-50);
+   --border-success: var(--mint-20);
+   --border-warning: var(--yellow-20);
+   --border-alert: var(--orange-20);
+   --border-error: var(--red-20);
+
+   /* Icon */
+   --icon-primary: var(--brand-50);
+   --icon-success: var(--mint-50);
+   --icon-warning: var(--yellow-50);
+   --icon-critical: var(--orange-50);
+   --icon-alert: var(--orange-50);
+   --icon-error: var(--red-50);
+
+   /* ==========================================================================
+     尺寸与形状变量 (Sizes & Shapes)
+     ========================================================================== */
+   /* Shadow */
+   --shadow-none: none;
+   --shadow-sm: 0 1px 6px rgba(0, 0, 0, 0.08);
+   --shadow-base: 0 4px 12px rgba(0, 0, 0, 0.16);
+   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.16);
+   --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.16);
+   --shadow-r-sm: 1px 0 6px 0 rgba(0, 0, 0, 0.08);
+   --shadow-t-sm: 0 -1px 6px rgba(0, 0, 0, 0.08);
+   --shadow-l-base: -2px 0 12px 0 rgba(0, 0, 0, 0.08);
+   --shadow-l-md: -2px 0 24px 0 rgba(0, 0, 0, 0.08);
+
+
+   /* ==========================================================================
+      Element Plus 变量覆盖 (映射到设计系统)
+     ========================================================================== */
+   /* 主色基准色 */
+   --el-color-primary: var(--brand-50);
+   --el-color-success: var(--mint-50);
+   --el-color-warning: var(--yellow-50);
+   --el-color-danger: var(--red-50);
+   --el-color-error: var(--red-50);
+
+   --el-color-info: var(--gray-50);
+   
+   --el-color-white: var(--gray-0);
+
+
+   /* 衍生浅色 (由设计系统色阶平替映射)  待定，动态计算 或者 base 补全 */
+   --el-color-primary-light-1: var(--brand-40);
+   /* 10% */
+
+   /* 介于300-400之间，自动计算或略微插值 */
+   --el-color-info-light-3: var(--gray-30);
+   --el-color-info-light-5: var(--gray-20);
+   --el-color-info-light-8: var(--gray-10);
+   --el-color-info-light-9: var(--gray-05);
+
+   --el-color-primary-light-3: var(--brand-30);
+   --el-color-primary-light-5: var(--brand-20);
+   --el-color-primary-light-8: var(--brand-10);
+   --el-color-primary-light-9: var(--brand-05);
+
+   --el-color-success-light-3: var(--mint-30);
+   --el-color-success-light-5: var(--mint-20);
+   --el-color-success-light-8: var(--mint-10);
+   --el-color-success-light-9: var(--mint-05);
+
+   --el-color-warning-light-3: var(--yellow-30);
+   --el-color-warning-light-5: var(--yellow-20);
+   --el-color-warning-light-8: var(--yellow-10);
+   --el-color-warning-light-9: var(--yellow-05);
+
+   --el-color-danger-light-3: var(--red-30);
+   --el-color-danger-light-5: var(--red-20);
+   --el-color-danger-light-8: var(--red-10);
+   --el-color-danger-light-9: var(--red-05);
+
+   /* 衍生深色 (与黑色混合加深，用于 Active 按压状态)  待定  */
+   /* 文字颜色阶梯 */
+   --el-color-primary-dark-2: var(--brand-60);
+   /* 主要文字 */
+   --el-text-color-primary: var(--color-text-primary);
+   /* 常规正文 */
+   --el-text-color-regular: var(--color-text-primary);
+   /* 次要说明 */
+   --el-text-color-secondary: var(--gray-50);
+   /* 占位符提示 */
+   --el-text-color-placeholder: var(--gray-30);
+   /* 禁用状态文字 */
+   --el-text-color-disabled: var(--gray-20);
+
+
+   /* 字号大小 (对齐系统要求：md 为 16px 为默认正文) */
+   --el-font-size-extra-large: var(--font-size-2xl);
+   --el-font-size-large: var(--font-size-xl);
+   --el-font-size-medium: var(--font-size-lg);
+   /*  (默认正文) */
+   --el-font-size-base: var(--font-size-md);
+   --el-font-size-small: var(--font-size-base);
+   --el-font-size-extra-small: var(--font-size-xs);
+
+   /* 字体家族 */
+   --el-font-family: var(--font-family);
+   --el-font-weight-primary: var(--font-weight-normal);
+
+   /* 页面级背景 */
+   --el-bg-color: var(--color-bg-2);
+   /* 组件基础背景 */
+   --el-bg-color-page: var(--gray-05);
+   /* 页面底层背景 */
+   --el-bg-color-overlay: var(--color-bg-2);
+   /* 弹窗、下拉框等悬浮层背景 */
+
+   /* 填充色阶梯 (禁用状态的输入框、表格斑马纹等)  */
+   --el-fill-color: var(--gray-05);
+   --el-fill-color-light: var(--gray-05);
+   --el-fill-color-lighter: var(--brand-50);
+   --el-fill-color-extra-light: var(--brand-50);
+   --el-fill-color-dark: var(--gray-10);
+   --el-fill-color-darker: var(--brand-20);
+   --el-fill-color-blank: var(--color-bg-2);
+
+   /* 边框颜色阶梯 */
+   /* 基础边框 */
+   --el-border-color: var(--border);
+   /* 浅边框  */
+   --el-border-color-light: var(--gray-05);
+   /* 更浅边框 */
+   --el-border-color-lighter: var(--gray-10);
+   /* 最浅边框 */
+   --el-border-color-extra-light: var(--gray-0);
+   --el-border-color-dark: var(--gray-30);
+   --el-border-color-darker: var(--gray-40);
+   --el-border-color-hover: var(--gray-90);
+
+   /* 边框样式 */
+   --el-border-width: 1px;
+   --el-border-style: solid;
+   --el-border: var(--el-border-width) var(--el-border-style) var(--el-border-color);
+   --el-disabled-border-color: var(--el-border-color-lighter);
+
+   /* 圆角大小 */
+   --el-border-radius-base: var(--radius-base);
+   --el-border-radius-small: var(--radius-xs);
+   --el-border-radius-round: var(--radius-lg);
+   --el-border-radius-circle: var(--radius-full);
+
+   /* 投影阴影 */
+   --el-box-shadow: var(--shadow-base);
+   --el-box-shadow-light: var(--shadow-sm);
+   --el-box-shadow-lighter: none;
+   --el-box-shadow-dark: var(--shadow-lg);
+
+   /* 层级 */
+   --el-index-normal: 1;
+   --el-index-top: 1000;
+   --el-index-popper: 2000;
+
+   /* 黑色半透明遮罩 待定 light lighter */
+   --el-overlay-color: rgb(from var(--gray-90) r g b / 0.3);
+   --el-overlay-color-light: rgba(0, 0, 0, 0.3);
+   --el-overlay-color-lighter: rgba(0, 0, 0, 0.1);
+
+   /* 白色半透明遮罩 (Loading 常驻) 待定 所有 */
+   --el-mask-color: rgba(255, 255, 255, 0.9);
+   --el-mask-color-extra-light: rgba(255, 255, 255, 0.3);
+
+}
+
+
+/* ================= 多个组件共用到的样式 ================= */
+/* ================= Input ================= */
+.el-input {
+   --el-input-text-color: var(--el-text-color-primary);
+   --el-input-hover-border-color: var(--el-border-color-hover);
+   --el-input-height: 32px;
+}
+.el-input__wrapper {
+  padding: 1px 12px;
+}
+
+.el-popper {
+  --el-popper-bg-color-light: var(--el-bg-color-overlay);
+  --el-popper-bg-color-dark: var(--el-text-color-primary);
+  border-radius: var(--radius-md);
+  &[data-popper-placement="top-start"],
+  &[data-popper-placement="top"],
+  &[data-popper-placement="top-end"] {
+    margin-bottom: -8px;
+  }
+
+  &[data-popper-placement="bottom-start"],
+  &[data-popper-placement="bottom"],
+  &[data-popper-placement="bottom-end"] {
+    margin-top: -8px;
+  }
+  .el-popper__arrow {
+    display: none;
+  }
+}
+
+.el-popper.is-dark {
+   --el-fill-color-blank: var(--el-popper-bg-color-light);
+   background: var(--el-popper-bg-color-light);
+   border: none;
+   box-shadow: var(--el-box-shadow-light);
+   color: var(--el-text-color-regular);
+
+}
+
+/* ================= Dropdown ================= */
+.el-dropdown__popper.el-popper {
+  --el-dropdown-menu-box-shadow: var(--el-box-shadow-light);
+  --el-dropdown-menuItem-hover-fill: var(--el-fill-color-light);
+  --el-dropdown-menuItem-hover-color: var(--brand-50);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  .el-dropdown-menu {
+    padding: 0px;
+  }
+  .el-dropdown-menu__item {
+    padding:5px 4px 5px 8px;
+    margin-bottom: 4px;
+    min-width: 88px;
+    border-radius: var(--radius-base);
+    &:last-child {
+      margin-bottom: 0px;
+    }
+  }
+}
+/* ================= Select ================= */
+.el-select {
+  --el-select-input-font-size: var(--el-font-size-base);
+  --el-select-multiple-input-color: var(--gray-90);
+  --el-text-color-placeholder: var(--gray-90);
+}
+.el-select__wrapper.is-focused {
+  border: 1px solid var(--brand-10);
+}
+
+.el-select-dropdown {
+  border-radius: var(--radius-md);
+  .el-select-dropdown__wrap {
+    padding: 4px;
+  }
+}
+
+.el-select-dropdown__item {
+  height: 32px;
+  line-height: 32px;
+  padding: 0 8px;
+  border-radius: var(--radius-base);
+  &:not(&:nth-last-of-type(1)) {
+    margin-bottom: 4px;
+  }
+  &.is-hovering {
+    background-color: var(--el-fill-color-light);
+    color: var(--brand-40);
+  }
+  &.is-selected {
+    color: var(--brand-50);
+    font-weight: var(--el-font-weight-primary);
+    background-color: var(--brand-05);
+  }
+}
+
+.el-select-dropdown__list {
+  padding: 0px;
+}
+
+/* ================= checkbox ================= */
+.el-checkbox {
+  --el-checkbox-font-size: var(--el-font-size-base);
+  --el-checkbox-text-color: var(--el-text-color-primary);
+  --el-checkbox-input-width: 16px;
+  --el-checkbox-input-height: 16px;
+  --el-checkbox-bg-color: var(--el-fill-color-blank);
+  --el-checkbox-input-border: var(--el-border);
+  --el-checkbox-checked-text-color: var(--el-text-color-primary);
+  --el-checkbox-checked-bg-color: var(--el-color-primary);
+}
+.el-checkbox__inner:after {
+  width: 3px;
+  height: 7px;
+}
+
+.hui-svg-icon svg {
+  width: 100%;
+  height: 100%;
+}

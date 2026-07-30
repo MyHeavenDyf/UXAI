@@ -37,6 +37,10 @@ export interface NestedTreeNode {
   parentId?: number
   deliveryTypeId?: number
   baseTeam?: number
+  canClick?: boolean
+  userTeamType?: number
+  _hide?: boolean
+  disabled?: boolean
   children?: NestedTreeNode[]
 }
 
@@ -69,6 +73,7 @@ interface InternalTreeNode {
   hasChildren: boolean
   children: InternalTreeNode[]
   originalData: TreeNodeItem
+  disabled?: boolean
 }
 
 function buildProductTree(data: ProductTreeData): InternalTreeNode[] {
@@ -166,18 +171,21 @@ function buildProductTree(data: ProductTreeData): InternalTreeNode[] {
 }
 
 function buildNestedTree(data: NestedTreeNode[], level: number = 0): InternalTreeNode[] {
-  return data.map(node => {
-    const children = node.children ? buildNestedTree(node.children, level + 1) : []
-    return {
-      id: node.id,
-      name: node.label,
-      level,
-      isLeaf: children.length === 0,
-      hasChildren: children.length > 0,
-      children,
-      originalData: node
-    }
-  })
+  return data
+    .filter(node => !node._hide)
+    .map(node => {
+      const children = node.children ? buildNestedTree(node.children, level + 1) : []
+      return {
+        id: node.id,
+        name: node.label,
+        level,
+        isLeaf: children.length === 0,
+        hasChildren: children.length > 0,
+        children,
+        originalData: node,
+        disabled: node.disabled
+      }
+    })
 }
 
 function flattenTreeForSearch(nodes: InternalTreeNode[]): InternalTreeNode[] {
@@ -258,6 +266,7 @@ export function ArchiveTreeSelector(props: Props): JSX.Element {
 
   const handleSelect = (node: InternalTreeNode) => {
     if (props.leafOnly && !node.isLeaf) return
+    if (node.disabled) return
     props.onSelect(node.id, node.originalData)
     setOpen(false)
     setSearchText("")
@@ -392,6 +401,7 @@ export function ArchiveTreeSelector(props: Props): JSX.Element {
         ref={triggerRef}
         type="button"
         class="archive-tree-trigger"
+        classList={{ "archive-tree-trigger-active": open() }}
         onClick={() => setOpen(!open())}
       >
         <span class="archive-tree-trigger-text">{displayText()}</span>
@@ -451,7 +461,10 @@ export function ArchiveTreeSelector(props: Props): JSX.Element {
           box-sizing: border-box;
         }
         .archive-tree-trigger:hover {
-          border-color: var(--octo-border-focus);
+          border-color: #0a59f7;
+        }
+        .archive-tree-trigger-active {
+          border-color: #0a59f7;
         }
         .archive-tree-trigger-text {
           flex: 1;
@@ -489,12 +502,8 @@ export function ArchiveTreeSelector(props: Props): JSX.Element {
           font-size: 12px;
           line-height: 18px;
           outline: none;
-          background: var(--octo-surface-selected, #ffffff);
           color: var(--octo-text-primary, rgba(0, 0, 0, 0.9));
           box-sizing: border-box;
-        }
-        .archive-tree-search input:focus {
-          background: var(--octo-surface-selected, #ffffff);
         }
         .archive-tree-list {
           overflow-y: auto;

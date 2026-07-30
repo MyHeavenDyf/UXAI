@@ -36,12 +36,13 @@ export function createMentionTriggerPlugin(
           const prevTrigger = mentionTriggerKey.getState(prevState)
           
           const textBefore = state.doc.textBetween(Math.max(0, from - 50), from)
-          const match = textBefore.match(/@([^\s@]*)$/)
+          const match = textBefore.match(/(?:^|\s)@([^\s@]*)$/)
           
           if (match) {
             // Only update if state changed (avoid infinite loop)
             if (!prevTrigger?.active || prevTrigger.query !== match[1]) {
-              const start = from - match[0].length
+              // match[0] includes leading space, adjust start position
+              const start = from - match[1].length - 1  // -1 for @
               const newState = { active: true, query: match[1] || "", from: start, to: from }
               
               const tr = view.state.tr.setMeta(mentionTriggerKey, newState)

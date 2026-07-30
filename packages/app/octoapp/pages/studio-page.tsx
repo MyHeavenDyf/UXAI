@@ -2575,7 +2575,6 @@ export default function StudioPage() {
         sessionId: input.sessionID,
         filename: `${input.role}-${crypto.randomUUID()}.${studioImageExtension(payload.mime)}`,
         content: payload.content,
-        path: "studio-inputs",
       }),
     })
     if (!response.ok) throw new Error(`Failed to persist Studio image: ${response.statusText}`)

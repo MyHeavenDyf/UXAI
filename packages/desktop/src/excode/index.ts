@@ -72,7 +72,7 @@ const config: {
   templateDir: './templates',
   targetLib: 'eview-react',
   css: true,
-  id: true,
+  id: false,
 }
 
 /**
@@ -80,17 +80,22 @@ const config: {
  *   - options.templateDir 提供 → 绝对路径直接用，相对路径相对 __dirname 解析
  *   - 未提供 → 默认 './templates'（相对 __dirname）
  *   - 解析后目录不存在 → 回退到 monorepo 源路径 '../../src/excode/templates'
+ *   - 末尾拼接 targetLib 子目录（templates 按库名拆分：templates/{lib}/）
  *
- * Electron 打包时 IPC 传 process.resourcesPath/hui-templates（绝对路径），直接采用。
+ * Electron 打包时 IPC 传 process.resourcesPath/hui-templates（绝对路径），直接采用；
+ * 该绝对路径下也需含 {lib} 子目录（eview-react / eview-ui）。
  */
-function resolveTemplateDir(dir?: string): string {
+function resolveTemplateDir(dir?: string, targetLib?: string): string {
+  const lib = targetLib || 'eview-react'
   const base = dir && dir.trim() ? dir : './templates'
   const resolved = path.isAbsolute(base) ? base : path.resolve(__dirname, base)
-  if (fs.existsSync(resolved)) return resolved
+  const libDir = path.join(resolved, lib)
+  if (fs.existsSync(libDir)) return libDir
   // electron-vite 构建后 ./templates 不会自动复制到 out/main/，回退到 monorepo 源路径。
   const fallback = path.resolve(__dirname, '../../src/excode/templates')
-  if (fs.existsSync(fallback)) return fallback
-  return resolved
+  const fallbackLib = path.join(fallback, lib)
+  if (fs.existsSync(fallbackLib)) return fallbackLib
+  return libDir
 }
 
 /**
@@ -149,8 +154,8 @@ export async function downloadHuiCode(
 
   // ── 合并 config + options ──
   config.targetLib = options.targetLib ?? 'eview-react'
-  // 模板目录按 options 解析（绝对路径直接用；默认 ./templates；不存在回退源路径）
-  config.templateDir = resolveTemplateDir(options.templateDir)
+  // 模板目录按 options 解析（绝对路径直接用；默认 ./templates/{lib}；不存在回退源路径/{lib}）
+  config.templateDir = resolveTemplateDir(options.templateDir, config.targetLib)
 
   const registry = new ComponentRegistry()
   const ctx = new PipelineContext(config, registry)

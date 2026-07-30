@@ -6,6 +6,7 @@ import { TaskCardView } from "../components/task-card"
 import { type TaskCardEntry, type TaskStatus } from "../utils/task-detect"
 import type { OutputCard, OutputCardType } from "../components/insight-turn"
 import { OutputEntryCard } from "../components/output-entry-card"
+import { __devSeedMaterializeState } from "../utils/local-resource"
 
 /**
  * Dev-only 预览页 — 展示所有任务卡片态(5)与文件结果卡片类型(6)。
@@ -45,6 +46,23 @@ export default function CardsPreviewPage(): JSX.Element {
             {(card) => (
               <Frame label={`type: ${card.type}`}>
                 <OutputEntryCard card={card} onClick={() => console.log("[dev:preview] open card", card.id)} />
+              </Frame>
+            )}
+          </For>
+        </Section>
+
+        <Section
+          title="产物落盘三态(uri 卡先出卡、后台下载)"
+          subtitle="OutputEntryCard · 状态由 utils/local-resource.ts materializeStateOf 提供"
+        >
+          <For each={materializeStateMocks()}>
+            {(item) => (
+              <Frame label={item.label}>
+                <OutputEntryCard
+                  card={item.card}
+                  onClick={() => console.log("[dev:preview] open card", item.card.id)}
+                  onRetry={() => console.log("[dev:preview] retry materialize", item.card.id)}
+                />
               </Frame>
             )}
           </For>
@@ -206,6 +224,36 @@ function outputMocks(): OutputCard[] {
         createdAt,
       }) satisfies OutputCard,
   )
+}
+
+// 落盘三态样例。状态不 mock 在组件 props 上,而是**种进真实的状态表**(__devSeedMaterializeState),
+// 让预览页走的渲染路径与线上完全一致(同源原则,见文件头)。
+function materializeStateMocks(): Array<{ label: string; card: OutputCard }> {
+  const createdAt = new Date("2026-04-27T15:38:00")
+  const make = (id: string, title: string): OutputCard => ({
+    id,
+    title,
+    type: "mindmap",
+    source: "uri",
+    uri: `https://example.com/${id}.json`,
+    mimeType: "application/json",
+    fileName: `${title}.json`,
+    createdAt,
+  })
+
+  const pending = make("demo-state-pending", "访谈观点思维导图")
+  const ready = make("demo-state-ready", "访谈观点思维导图")
+  const failed = make("demo-state-failed", "访谈观点思维导图")
+
+  __devSeedMaterializeState(pending.id, { state: "pending" })
+  __devSeedMaterializeState(ready.id, { state: "ready" })
+  __devSeedMaterializeState(failed.id, { state: "failed", error: "下载失败: 连接超时" })
+
+  return [
+    { label: "pending — 准备中(后台下载,仍可点开)", card: pending },
+    { label: "ready — 就绪(现状)", card: ready },
+    { label: "failed — 获取失败(整卡点击 = 重试)", card: failed },
+  ]
 }
 
 function statusLabel(s: TaskStatus): string {

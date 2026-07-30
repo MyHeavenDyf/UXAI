@@ -555,68 +555,69 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     fileStore.store.generatedFiles.length > 0 || fileStore.store.uploadedFiles.length > 0)
 
   return (
-    <div class="flex h-full overflow-hidden" style={{ background: "var(--octo-surface-page)" }}>
-      <div
-        class="flex flex-col flex-1 min-w-0 overflow-hidden relative"
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
-        <Show when={isDragOver()}>
-          <div
-            class="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none"
-            style={{
-              background: "rgba(194, 214, 255, 0.11)",
-              border: "2px dashed rgba(10, 89, 247, 1)",
-            }}
-          >
-            <img src={emptyFolderPng} style={{ width: "52px", height: "52px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
-            <span
-              class="text-[16px]"
-              style={{ color: "#191919", "line-height": "24px", "margin-top": "12px" }}
+    <div class="flex flex-col h-full overflow-hidden" style={{ background: "var(--octo-surface-page)" }}>
+      <Show when={hasAnyFiles()}>
+        <DesignFilesToolbar
+          fileStore={fileStore}
+          onRefresh={refresh}
+          onUploadFile={() => fileInputRef?.click()}
+          onUploadFolder={() => folderInputRef?.click()}
+          onBatchDownload={handleBatchDownload}
+          onBatchDelete={handleBatchDelete}
+        />
+      </Show>
+
+      <div class="flex flex-1 min-h-0 overflow-hidden">
+        <div
+          class="flex flex-col flex-1 min-w-0 overflow-hidden relative"
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <Show when={isDragOver()}>
+            <div
+              class="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none"
+              style={{
+                background: "rgba(194, 214, 255, 0.11)",
+                border: "2px dashed rgba(10, 89, 247, 1)",
+              }}
             >
-              释放鼠标上传文件
-            </span>
-          </div>
-        </Show>
-        <input
-          type="file"
-          multiple
-          ref={fileInputRef}
-          onChange={(e) => {
-            if (e.currentTarget.files) {
-              handleUpload(e.currentTarget.files)
-              e.currentTarget.value = ""
-            }
-          }}
-          class="hidden"
-        />
-        <input
-          type="file"
-          ref={folderInputRef}
-          // @ts-ignore - webkitdirectory is non-standard but widely supported
-          webkitdirectory=""
-          onChange={(e) => {
-            if (e.currentTarget.files) {
-              void handleFolderUpload(e.currentTarget.files)
-              e.currentTarget.value = ""
-            }
-          }}
-          class="hidden"
-        />
-
-        <Show when={hasAnyFiles()}>
-          <DesignFilesToolbar
-            fileStore={fileStore}
-            onRefresh={refresh}
-            onUploadFile={() => fileInputRef?.click()}
-            onUploadFolder={() => folderInputRef?.click()}
-            onBatchDownload={handleBatchDownload}
-            onBatchDelete={handleBatchDelete}
+              <img src={emptyFolderPng} style={{ width: "52px", height: "52px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
+              <span
+                class="text-[16px]"
+                style={{ color: "#191919", "line-height": "24px", "margin-top": "12px" }}
+              >
+                释放鼠标上传文件
+              </span>
+            </div>
+          </Show>
+          <input
+            type="file"
+            multiple
+            ref={fileInputRef}
+            onChange={(e) => {
+              if (e.currentTarget.files) {
+                handleUpload(e.currentTarget.files)
+                e.currentTarget.value = ""
+              }
+            }}
+            class="hidden"
           />
-        </Show>
+          <input
+            type="file"
+            ref={folderInputRef}
+            // @ts-ignore - webkitdirectory is non-standard but widely supported
+            webkitdirectory=""
+            onChange={(e) => {
+              if (e.currentTarget.files) {
+                void handleFolderUpload(e.currentTarget.files)
+                e.currentTarget.value = ""
+              }
+            }}
+            class="hidden"
+          />
 
-        <div class="flex-1 min-h-0 flex flex-col">
+          <div class="flex-1 min-h-0 flex flex-col">
           <Show when={hasAnyFiles()}>
             <Breadcrumb
               currentPath={fileStore.store.currentPath}
@@ -672,7 +673,12 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                     width: "108px",
                     "font-size": "14px",
                     "line-height": "22px",
+                    cursor: "pointer",
                   }}
+                  onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "#0950de") }}
+                  onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "#0a59F7") }}
+                  onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "#0a55eb") }}
+                  onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "#0a55eb") }}
                 >
                   <IconUpload size={16} />
                   <span>{language.t("designFiles.uploadFileAction")}</span>
@@ -731,6 +737,10 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                     color: "white",
                     "border-radius": "999px",
                   }}
+                  onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "#0950de") }}
+                  onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand)") }}
+                  onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "#0a55eb") }}
+                  onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "#0a55eb") }}
                 >
                   <IconUpload size={16} />
                   <span>{language.t("designFiles.uploadFileAction")}</span>
@@ -831,9 +841,9 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                         }
                       }}
                       class="flex items-center gap-1 hover:text-text-interactive-base transition-colors"
-                      style={{ color: "rgba(0, 0, 0, 0.9)", "font-weight": "normal" }}
+                      style={{ color: "rgba(0, 0, 0, 0.9)", "font-weight": "normal", "min-width": "0" }}
                     >
-                      {language.t("designFiles.columnModified")}
+                      <span style={{ "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>{language.t("designFiles.columnModified")}</span>
                       <IconSortArrow size={14} dir={fileStore.store.sortDir} active={fileStore.store.sortKey === "mtime"} />
                     </button>
                   </th>
@@ -918,20 +928,21 @@ onDelete={handleDelete}
           </Show>
           </ScrollView>
         </div>
-      </div>
+        </div>
 
-      <Show when={fileStore.previewFile()}>
-        {(file) => (
-          <PreviewPane
-            file={file()}
-            sdkUrl={globalSDK.url}
-            sdkDirectory={sdk.directory || ""}
-            onClose={() => fileStore.setPreviewFile(null)}
-            onOpen={() => handleOpenFile(file())}
-            onDownload={() => handleDownload(file())}
-          />
-        )}
-      </Show>
+        <Show when={fileStore.previewFile()}>
+          {(file) => (
+            <PreviewPane
+              file={file()}
+              sdkUrl={globalSDK.url}
+              sdkDirectory={sdk.directory || ""}
+              onClose={() => fileStore.setPreviewFile(null)}
+              onOpen={() => handleOpenFile(file())}
+              onDownload={() => handleDownload(file())}
+            />
+          )}
+        </Show>
+      </div>
     </div>
   )
 }
@@ -1154,7 +1165,7 @@ function FileRow(props: {
       <td class="px-4 text-[14px] leading-[22px]" style={{ color: "rgba(0, 0, 0, 0.9)", "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>
         {language.t(kindToI18nKey(props.file.kind))}
       </td>
-      <td class="px-4 text-[14px] leading-[22px]" style={{ color: "rgba(0, 0, 0, 0.9)", "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>
+      <td class="px-4 text-[14px] leading-[22px]" style={{ color: "rgba(0, 0, 0, 0.9)", "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>
         {formatTimestamp(props.file.mtime, language.t)}
       </td>
       <td class="w-[60px] px-4" style={{ "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>

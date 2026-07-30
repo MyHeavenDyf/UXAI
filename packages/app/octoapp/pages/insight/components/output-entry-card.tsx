@@ -1,5 +1,7 @@
+import { Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { fileTypeIconUrl } from "../icons/illustrations"
+import { materializeStateOf } from "../utils/local-resource"
 import type { OutputCard, OutputCardType } from "./insight-turn"
 
 /**
@@ -30,18 +32,60 @@ function cardIconUrl(card: OutputCard): string {
   return fileTypeIconUrl(synth?.name, synth?.mime)
 }
 
-export function OutputEntryCard(props: { card: OutputCard; onClick: () => void }): JSX.Element {
+/**
+ * 入口卡三态(2026-07 新增,见 spec output-renderers.md §6.B「产物落盘状态」):
+ *
+ * uri 产物是**先出卡、后台再下载**——卡片出现那一刻磁盘上还没有文件。这段窗口过去零反馈:
+ * 下载中点开只看到转圈,下载失败只有 console 知道,用户完全不知道有一份产物没拿到。故显式呈现:
+ *   - pending(准备中):副文案换成「准备中…」,卡片降饱和;**仍可点击**(点开后 tab 内继续等)
+ *   - failed(失败) :副文案换成失败原因摘要 + 右侧「重试」;整卡点击 = 重试
+ *   - ready(就绪)  :维持原样(创建时间)
+ * inline / path 源卡不走落盘,`materializeStateOf` 返回 undefined,按 ready 呈现。
+ */
+export function OutputEntryCard(props: {
+  card: OutputCard
+  onClick: () => void
+  /** 失败态重试(重新触发 eager 落盘);不传则失败态只展示、不可重试 */
+  onRetry?: () => void
+}): JSX.Element {
+  const state = () => materializeStateOf(props.card.id)?.state ?? "ready"
+  const label = () => previewEntryLabel(props.card)
+  const handleClick = () => {
+    if (state() === "failed") {
+      props.onRetry?.()
+      return
+    }
+    props.onClick()
+  }
   return (
-    <button type="button" class="octo-preview-entry" onClick={props.onClick}>
+    <button
+      type="button"
+      class="octo-preview-entry"
+      classList={{
+        "octo-preview-entry--pending": state() === "pending",
+        "octo-preview-entry--failed": state() === "failed",
+      }}
+      onClick={handleClick}
+    >
       <span class="octo-preview-entry__icon">
         <img src={cardIconUrl(props.card)} width={28} height={28} alt="" aria-hidden="true" />
       </span>
       <span class="octo-preview-entry__body">
-        <span class="octo-preview-entry__title">{previewEntryLabel(props.card)}</span>
-        <span class="octo-preview-entry__desc">创建时间: {formatCreatedTime(props.card.createdAt)}</span>
+        {/* 文件名过长会 truncate,title 让 hover 看到全名 */}
+        <span class="octo-preview-entry__title" title={label()}>{label()}</span>
+        <span class="octo-preview-entry__desc">{descText(props.card, state())}</span>
       </span>
+      <Show when={state() === "failed" && props.onRetry}>
+        <span class="octo-preview-entry__action">重试</span>
+      </Show>
     </button>
   )
+}
+
+function descText(card: OutputCard, state: "pending" | "ready" | "failed"): string {
+  if (state === "pending") return "准备中…"
+  if (state === "failed") return "获取失败，点击重试"
+  return `创建时间: ${formatCreatedTime(card.createdAt)}`
 }
 
 /**
