@@ -59,10 +59,10 @@ if (!import.meta.env.DEV) installConsoleObjectSerializer()
 import { MakeSidebar } from "@/pages/make/sidebar"
 import { PatternSidebar } from "@/pages/pattern/modules/sidebar/sidebar"
 import { InsightSidebar } from "@/pages/insight/sidebar"
+import { InsightQueueRunner } from "@/pages/insight/queue-runner"
 import { ProjectInfo } from "@/components/project-info"
 import { SidebarFooter } from "@/pages/insight/components/sidebar-footer"
-import { ResponsiveSidebarLayout } from "@/components/responsive-sidebar-layout"
-import { CollapsedSidebarIcons } from "@/components/collapsed-sidebar-icons"
+import { MakeLayoutProvider, useMakeLayout } from "@/context/make-layout"
 import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
 import { WelcomePage } from "@/components/welcome-page"
 import { useCheckServerHealth } from "./utils/server-health"
@@ -277,23 +277,78 @@ function PatternSidebarLayout(props: ParentProps) {
 }
 
 function MakeSidebarLayout(props: ParentProps) {
-  const navigate = useNavigate()
-  const layout = useLayout()
   return (
-    <ResponsiveSidebarLayout
-      storageKey="make.sidebar.width"
-      sidebar={() => <MakeSidebar />}
-      collapsedIcons={() => (
-        <CollapsedSidebarIcons
-          onConversationClick={() => navigate("/make")}
-          onSkillsClick={() => { layout.sidebarSource.set("make"); navigate("/skills") }}
-        />
-      )}
-      dataAttribute="data-make-area"
-      focusMode={layout.focusMode.get()}
-    >
-      {props.children}
-    </ResponsiveSidebarLayout>
+    <MakeLayoutProvider>
+      <MakeSidebarArea>{props.children}</MakeSidebarArea>
+    </MakeLayoutProvider>
+  )
+}
+
+function MakeSidebarArea(props: ParentProps) {
+  const ml = useMakeLayout()
+  const layout = useLayout()
+  const focusMode = layout.focusMode.get
+
+  function handleResize(e: MouseEvent) {
+    if (ml.leftCollapsed()) return
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = ml.leftW()
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+    const onMove = (ev: MouseEvent) => ml.setLeftW(startW + ev.clientX - startX)
+    const onUp = () => {
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+    }
+    document.addEventListener("mousemove", onMove)
+    document.addEventListener("mouseup", onUp)
+  }
+
+  return (
+    <>
+      <style>{`
+        .make-sidebar { transition: transform 200ms ease; will-change: transform; }
+        .make-sidebar.is-collapsed { position: fixed; top: 48px; bottom: 0; left: 0; height: auto; z-index: 32; transform: translateX(-100%); }
+        body.make-left-drawer-open .make-sidebar.is-collapsed { transform: translateX(0); box-shadow: 11px 0 20px 0 rgba(0,0,0,0.08); }
+        .make-sidebar-overlay { display: none; position: fixed; inset: 0; z-index: 30; }
+        body.make-left-drawer-open .make-sidebar-overlay { display: block; }
+        .make-sidebar-resize { position: absolute; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 10; }
+        .make-right-panel { transition: transform 200ms ease; will-change: transform; }
+        .make-right-panel.is-collapsed { position: fixed; top: 48px; bottom: 0; right: 0; height: auto; width: 650px; max-width: calc(100vw - 24px); z-index: 32; transform: translateX(100%); background: #fff; }
+        body.make-right-drawer-open .make-right-panel.is-collapsed { transform: translateX(0); box-shadow: -11px 0 20px 0 rgba(0,0,0,0.08); }
+        .make-right-overlay { display: none; position: fixed; inset: 0; z-index: 30; }
+        body.make-right-drawer-open .make-right-overlay { display: block; }
+        .make-icon-btn { color: #777; background: transparent; cursor: pointer; }
+        .make-icon-btn [data-component="icon"] { color: #777; transition: color 100ms ease; }
+        .make-icon-btn:hover { color: #0a59f7; }
+        .make-icon-btn:hover [data-component="icon"] { color: #0a59f7; }
+        .make-icon-btn[data-expanded], .make-icon-btn[data-state="open"] { color: #0a59f7; }
+        .make-icon-btn[data-expanded] [data-component="icon"], .make-icon-btn[data-state="open"] [data-component="icon"] { color: #0a59f7; }
+        .make-chat-folded .scroll-view__viewport { max-width: 824px; margin-left: auto; margin-right: auto; }
+        .make-chat-folded .make-composer { max-width: 800px; margin-left: auto; margin-right: auto; }
+      `}</style>
+      <div
+        data-make-area="sidebar"
+        class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative"
+        style={{ "--sidebar-width": `${ml.leftW()}px` }}
+      >
+        <div class="make-sidebar-overlay" onClick={() => ml.toggleLeftDrawer()} />
+        <div
+          class="make-sidebar h-full shrink-0 flex flex-col overflow-hidden"
+          classList={{ "is-collapsed": ml.leftCollapsed() || focusMode() }}
+          style={{ "border-right": "1px solid var(--border-weak-base)", background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)" }}
+        >
+          <MakeSidebar />
+        </div>
+        <Show when={!ml.leftCollapsed() && !focusMode()}>
+          <div class="make-sidebar-resize" style={{ left: `${ml.leftW() - 4}px` }} onMouseDown={handleResize} />
+        </Show>
+        <div class="flex flex-col flex-1 min-w-0 overflow-hidden">{props.children}</div>
+      </div>
+    </>
   )
 }
 
@@ -402,7 +457,23 @@ function FocusModeResetHandler() {
 }
 
 function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
+  return (
+    <SettingsProvider>
+      <PermissionProvider>
+        <LayoutProvider>
+          <RouterInner appChildren={props.appChildren}>
+            {props.children}
+          </RouterInner>
+        </LayoutProvider>
+      </PermissionProvider>
+    </SettingsProvider>
+  )
+}
+
+function RouterInner(props: ParentProps<{ appChildren?: JSX.Element }>) {
   const location = useLocation()
+  const layout = useLayout()
+  const sidebarSource = () => layout.sidebarSource.get()
 
   const isInsightPage = () => {
     const p = location.pathname
@@ -423,42 +494,55 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
     return location.pathname === "/skills"
   }
 
+  // Whether skills is opened from make/pattern context (vs insight/cowork)
+  const skillsFromMake = () => isSkillsPage() && sidebarSource() === "make"
+  const skillsFromPattern = () => isSkillsPage() && sidebarSource() === "pattern"
+
   return (
-    <SettingsProvider>
-      <PermissionProvider>
-        <LayoutProvider>
-          <FocusModeResetHandler />
-          <NotificationProvider>
-            <ModelsProvider>
-              <CommandProvider>
-                <HighlightsProvider>
-                  <Layout>
-                    <OnboardingLayer />
-                    {/* SPEC-INS-010 §11:/insight 由 InsightPage 自带侧栏,不再套 OctoSidebarLayout(否则双侧栏) */}
-                    <Show when={isInsightPage()}>
+    <>
+      <FocusModeResetHandler />
+      <NotificationProvider>
+        <ModelsProvider>
+          <CommandProvider>
+            <HighlightsProvider>
+              <Layout>
+                <OnboardingLayer />
+                {/* SPEC-INS-010 §11:/insight 由 InsightPage 自带侧栏,不再套 OctoSidebarLayout(否则双侧栏) */}
+                <Show when={isInsightPage()}>
+                  {props.children}
+                </Show>
+                {/* Make + skills from make: 共用 MakeSidebarLayout,侧栏不重挂 */}
+                <Show when={isMakePage() || skillsFromMake()}>
+                  <MakeSidebarLayout>
+                    <Show when={isMakePage()} fallback={<SkillsPage />}>
                       {props.children}
                     </Show>
-                    <Show when={isMakePage()}>
-                      <MakeSidebarLayout>{props.children}</MakeSidebarLayout>
-                    </Show>
-                    <Show when={isPatternPage()}>
-                      <PatternSidebarLayout>{props.children}</PatternSidebarLayout>
-                    </Show>
-                    <Show when={isSkillsPage()}>
-                      <SkillsSidebarLayout>{props.children}</SkillsSidebarLayout>
-                    </Show>
-                    <Show when={!isInsightPage() && !isMakePage() && !isPatternPage() && !isSkillsPage()}>
-                      {props.appChildren}
+                  </MakeSidebarLayout>
+                </Show>
+                {/* Pattern + skills from pattern: 共用 PatternSidebarLayout */}
+                <Show when={isPatternPage() || skillsFromPattern()}>
+                  <PatternSidebarLayout>
+                    <Show when={isPatternPage()} fallback={<SkillsPage />}>
                       {props.children}
                     </Show>
-                  </Layout>
-                </HighlightsProvider>
-              </CommandProvider>
-            </ModelsProvider>
-          </NotificationProvider>
-        </LayoutProvider>
-      </PermissionProvider>
-    </SettingsProvider>
+                  </PatternSidebarLayout>
+                </Show>
+                {/* Skills from insight/cowork: InsightSidebarLayout */}
+                <Show when={isSkillsPage() && !skillsFromMake() && !skillsFromPattern()}>
+                  <InsightSidebarLayout>
+                    <SkillsPage />
+                  </InsightSidebarLayout>
+                </Show>
+                <Show when={!isInsightPage() && !isMakePage() && !isPatternPage() && !isSkillsPage()}>
+                  {props.appChildren}
+                  {props.children}
+                </Show>
+              </Layout>
+            </HighlightsProvider>
+          </CommandProvider>
+        </ModelsProvider>
+      </NotificationProvider>
+    </>
   )
 }
 
@@ -646,6 +730,9 @@ export function AppInterface(props: {
               <GlobalSyncProvider>
                 {/* jk-j60099994-replace-with-octo-4-start */}
                 {/* jk-j60099994-replace-with-octo-4-end */}
+                {/* SPEC-INS-027:insight 排队 drain 运行器。挂在 Router 之外,跨 tab/路由常驻,
+                    使会话后台跑完时排队仍能继续 flush(不随 insight 页面卸载而死)。headless。 */}
+                <InsightQueueRunner />
                 <Dynamic
                   component={props.router ?? Router}
                   root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}

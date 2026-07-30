@@ -22,11 +22,12 @@ export const mentionNodeSpec = {
   },
   toDOM: (node: PMNode): readonly [string, ...any[]] => {
     const attrs = node.attrs as MentionAttrs
-    const typeClass = `pm-mention--${attrs.type}`
+    // 类名带 ins- 前缀:make/Design 的同源编辑器用的是无前缀 pm-mention,同名会跨模块串样式
+    const typeClass = `ins-pm-mention--${attrs.type}`
     return [
       "span",
       {
-        class: `pm-mention ${typeClass}`,
+        class: `ins-pm-mention ${typeClass}`,
         contenteditable: "false",
         "data-id": attrs.id || "",
         "data-name": attrs.name,
@@ -68,6 +69,15 @@ export const editorSchema = new Schema({
       group: "inline",
     },
     mention: mentionNodeSpec,
+    hard_break: {
+      inline: true,
+      group: "inline",
+      selectable: false,
+      toDOM() {
+        return ["br"]
+      },
+      parseDOM: [{ tag: "br" }],
+    },
   },
   marks: {},
 })
@@ -89,13 +99,15 @@ export function extractMentionsFromDoc(doc: PMNode): MentionAttrs[] {
 }
 
 export function getDocTextWithMentions(doc: PMNode): string {
-  let text = ""
-  doc.descendants((node: PMNode) => {
-    if (node.type.name === "text") {
-      text += node.text || ""
-    } else if (node.type.name === "mention") {
-      text += `@${node.attrs.name}`
+  return doc.textBetween(0, doc.content.size, "\n", (node) => {
+    if (node.type.name === "mention") {
+      return `@${node.attrs.name}`
     }
+    // hard_break 也是 leaf,会走这个回调;不显式返回 "\n" 的话 Shift+Enter 敲出来的换行
+    // 只存在于编辑器里,取文本时被吞成空串 —— 发给模型的仍是连排一行。
+    if (node.type.name === "hard_break") {
+      return "\n"
+    }
+    return ""
   })
-  return text
 }

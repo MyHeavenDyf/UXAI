@@ -111,6 +111,8 @@ export function ResultViewer(props: {
   childSessionStatus?: { type: string }
   /** 子 session 是否正在生成中（模型输出期间禁用按钮和表单） */
   childBusy?: boolean
+  /** 设计规划是否已结束（退出或确认），plan 视图只读 */
+  planEnded?: boolean
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const projectSelection = useProjectSelection()
@@ -307,6 +309,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           onViewModeChange={props.sessionId ? props.onViewModeChange : undefined}
           showPlanEntry={!!props.planCard}
           planConfirmed={props.isPlanConfirmed?.()}
+          planEnded={props.planEnded}
         />
 
         <Show when={props.viewMode === "files" && props.sessionId}>
@@ -323,8 +326,34 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           )}
         </Show>
 
-        {/* plan 模式 — 策略准备阶段（排除已确认状态） */}
-        <Show when={props.viewMode === "plan" && props.planPhase === "strategy" && !props.childPlanConfirmed && !props.planConfirmPending}>
+        {/* plan 模式 — 已退出/已结束，只读显示 plan 内容 */}
+        <Show when={props.viewMode === "plan" && props.planEnded && !props.planConfirmPending}>
+          <Show when={props.planCard} keyed>
+            {(plan) => (
+              <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+                <DesignPlanRenderer
+                  content={plan.content}
+                  title={plan.title}
+                  artifactIdentifier={plan.artifactIdentifier}
+                  confirmed={true}
+                  disabled={true}
+                  onConfirm={() => {}}
+                  onContentChange={undefined}
+                  onBackToStrategy={() => {}}
+                  currentStep={2}
+                />
+              </div>
+            )}
+          </Show>
+          <Show when={!props.planCard}>
+            <div class="flex flex-col items-center justify-center flex-1 gap-3" style="background: var(--octo-surface-result);">
+              <span style="color: var(--octo-text-secondary); font-size: 14px;">设计规划已结束</span>
+            </div>
+          </Show>
+        </Show>
+
+        {/* plan 模式 — 策略准备阶段（排除已确认和已结束状态） */}
+        <Show when={props.viewMode === "plan" && props.planPhase === "strategy" && !props.childPlanConfirmed && !props.planConfirmPending && !props.planEnded}>
           <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
             <StrategyFormRenderer
               formData={props.strategyFormData ?? {
@@ -340,8 +369,8 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           </div>
         </Show>
 
-        {/* plan 模式 — 设计规划生成阶段,有 planCard 时渲染（未确认状态） */}
-        <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && !props.planConfirmPending && !props.childPlanConfirmed}>
+        {/* plan 模式 — 设计规划生成阶段,有 planCard 时渲染（未确认/未结束状态） */}
+        <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && !props.planConfirmPending && !props.childPlanConfirmed && !props.planEnded}>
           <Show when={props.planCard} keyed>
             {(plan) => (
               <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -365,7 +394,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           </Show>
         </Show>
 
-        {/* plan 模式 — 方案已确认，等待主 agent 生成 HTML（按钮禁用状态） */}
+        {/* plan 模式 — 方案已确认，等待主 agent 生成 HTML（按钮禁用状态，内容只读） */}
         <Show when={props.viewMode === "plan" && props.planConfirmPending}>
           <Show when={props.planCard} keyed>
             {(plan) => (
@@ -375,12 +404,9 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                   title={plan.title}
                   artifactIdentifier={plan.artifactIdentifier}
                   confirmed={true}
+                  disabled={true}
                   onConfirm={() => {}}
-                  onContentChange={(content) => {
-                    if (props.onContentChange && plan.id) {
-                      props.onContentChange(plan.id, content)
-                    }
-                  }}
+                  onContentChange={undefined}
                   onBackToStrategy={() => {}}
                   currentStep={2}
                 />
@@ -402,7 +428,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           </Show>
         </Show>
 
-        {/* plan 模式 — 已确认的第二阶段（跨重启后/已结束），按钮禁用 */}
+        {/* plan 模式 — 已确认的第二阶段（跨重启后/已结束），按钮禁用，内容只读 */}
         <Show when={props.viewMode === "plan" && props.childPlanConfirmed && !props.planConfirmPending}>
           <Show when={props.planCard} keyed>
             {(plan) => (
@@ -412,12 +438,9 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                   title={plan.title}
                   artifactIdentifier={plan.artifactIdentifier}
                   confirmed={true}
+                  disabled={true}
                   onConfirm={() => {}}
-                  onContentChange={(content) => {
-                    if (props.onContentChange && plan.id) {
-                      props.onContentChange(plan.id, content)
-                    }
-                  }}
+                  onContentChange={undefined}
                   onBackToStrategy={() => {}}
                   currentStep={2}
                 />
@@ -426,8 +449,8 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           </Show>
         </Show>
 
-        {/* plan 模式 — 生成阶段等待子 agent 输出 design-plan（排除已确认状态） */}
-        <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && !props.planCard && !props.childPlanConfirmed && !props.planConfirmPending}>
+        {/* plan 模式 — 生成阶段等待子 agent 输出 design-plan（排除已确认/已结束状态） */}
+        <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && !props.planCard && !props.childPlanConfirmed && !props.planConfirmPending && !props.planEnded}>
           <Show when={props.childSessionStatus?.type === "idle" && props.childSessionStatus !== undefined}
             fallback={
               <div class="flex flex-col items-center justify-center flex-1 gap-3" style="background: var(--octo-surface-result);">
@@ -524,7 +547,7 @@ drawing={drawing()}
                    onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
                  />
                 </Show>
-                <div class="flex-1 min-h-0 overflow-hidden">
+                <div class="flex-1 min-h-0 min-w-0 overflow-hidden">
                   <Switch
                     fallback={
                       <div class="p-4 overflow-auto h-full">
@@ -594,8 +617,9 @@ drawing={drawing()}
                         title={tab.title}
                         artifactIdentifier={tab.artifactIdentifier}
                         confirmed={props.isPlanConfirmed?.() ?? false}
+                        disabled={props.planEnded}
                         onConfirm={() => props.onConfirmPlan?.(tab.artifactIdentifier)}
-                        onContentChange={(content) => { props.onContentChange?.(tabId, content) }}
+                        onContentChange={props.planEnded ? undefined : (content) => { props.onContentChange?.(tabId, content) }}
                       />
                     </Match>
                     <Match when={tabType === "local-file"}>

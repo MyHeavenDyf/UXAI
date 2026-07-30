@@ -50,8 +50,8 @@
   outline: none;
 }
 
-.pm-editor.pm-editor--disabled {
-  background: var(--bg-subtle);
+.pm-editor-wrapper .pm-editor.pm-editor--disabled {
+  background: #fff;
   cursor: not-allowed;
 }
 

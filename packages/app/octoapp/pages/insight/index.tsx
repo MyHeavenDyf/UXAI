@@ -47,6 +47,7 @@ import { McpChip } from "./components/mcp-chip"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { materializeUriCardToOutputs } from "./utils/local-resource"
+import { notifyMaterializeFailure } from "./utils/materialize-notify"
 import { PRESET_PROMPTS } from "./store/preset-prompts"
 import {
   buildChipDeclaration,
@@ -1489,7 +1490,7 @@ function InsightContent() {
 
     // ── chip turn(SPEC-INS-017):不设文件门槛——缺材料由模型在对话里向用户索取(我们做的是
     // Agent 不是表单);多角色分桶归模型(拿不准时先向用户确认)。chip 是常驻模式,busy 时照常
-    // 入队,flush 时按当时的 chip 状态携带(见 flushQueueHead),无需特殊拦截。──
+    // 入队,chip 选择态在入队那一刻固化进队列项(SPEC-INS-027),drain 时原样携带,无需特殊拦截。──
     const chipPayload = chipSel ? { selection: chipSel } : undefined
 
     // welcome 入口(无会话或会话尚无用户消息)vs 对话内继续追问,用 source 区分
@@ -1512,9 +1513,27 @@ function InsightContent() {
 
     // busy/retry 时入队(SPEC-INS-007 §3.3.3):FIFO 多容量,push 追加,idle 后逐条 flush。
     // SPEC-INS-023:队列项带 skills/files,flush 时重新注入,排队不丢 @引用。
+    // SPEC-INS-027:drain 已迁到全局 runner(insight 页可能已卸载),故入队即固化发送所需的
+    // directory / model / chip——不能再等到 flush 时读页面态(那时可能没有页面)。
     if (isWorking()) {
-      setQueueFor(params.id, (q) => [...q, { text, skills: mentionSkills, files: mentionFileRefs }])
-      console.log("[octo:queue] enqueued", { sessionID: params.id, len: text.length, depth: queue().length })
+      const m = local.model.current()
+      setQueueFor(params.id, (q) => [
+        ...q,
+        {
+          text,
+          skills: mentionSkills,
+          files: mentionFileRefs,
+          directory: projectDir(),
+          model: m ? { modelID: m.id, providerID: m.provider.id } : undefined,
+          chip: chipPayload,
+        },
+      ])
+      console.log("[octo:queue] enqueued", {
+        sessionID: params.id,
+        len: text.length,
+        depth: queue().length,
+        hasChip: !!chipPayload,
+      })
       return
     }
 
@@ -1529,37 +1548,12 @@ function InsightContent() {
     await sendMessage(sid, text, chipPayload, mentionsPayload)
   }
 
-  // idle 时 flush 当前 session 队首一条(SPEC-INS-007 §3.3.3)。
-  // 链式触发:发出后 session 重新 busy,下次 idle 再 flush 下一条 → 保持顺序、每条独立 turn。
-  function flushQueueHead() {
-    const sid = params.id
-    if (!sid || isWorking()) return // 仍在忙则等 idle
-    const q = queue()
-    if (q.length === 0) return
-    const [next, ...rest] = q
-    setQueueFor(sid, () => rest)
-    console.log("[octo:queue] flushing", { sessionID: sid, len: next.text.length, remaining: rest.length })
-    // chip 是常驻模式:按 flush 那一刻的选择态携带(队列只存文本;发出那一刻输入框是什么模式就是什么模式)
-    const chipSel = mcpSelection()
-    // SPEC-INS-023:排队时随文本存下的 @引用(skills/files)在此重新携带注入
-    const mentionsPayload =
-      next.skills?.length || next.files?.length
-        ? { skills: next.skills ?? [], files: next.files ?? [] }
-        : undefined
-    void sendMessage(sid, next.text, chipSel ? { selection: chipSel } : undefined, mentionsPayload)
-  }
-
-  // busy → idle 那一刻自动 flush 队首
-  createEffect(on(isBusy, (busy, prev) => {
-    if (!prev || busy) return
-    flushQueueHead()
-  }, { defer: true }))
-
-  // 切回某 session 时,若它已 idle 且仍有排队(在别处看时它在后台跑完了),补一次 flush;
-  // 仍 busy 则保留排队展示,交给上面的 busy→idle 触发器。
-  createEffect(on(() => params.id, () => {
-    flushQueueHead()
-  }, { defer: true }))
+  // SPEC-INS-027:队列 flush(drain)已迁到应用根常驻的全局 runner(pages/insight/queue-runner.tsx +
+  // octoapp/utils/session-queue-runner.ts)。此前这里有两处 in-page flush 触发器——
+  //   ① `on(isBusy,…,{defer})` busy→idle 边沿触发;② `on(()=>params.id,…)` 切会话补触发——
+  // 都随 insight 页面卸载被 dispose,导致「切到 /skills 或相邻 agent tab 后会话跑完、排队卡死」
+  // (根因/方案见 SPEC-INS-027)。现由全局 runner level-triggered + per-session in-flight 守卫接管,
+  // 页面组件只负责入队(handleSubmit)/ 展示(队列条)/ 取消(removeQueued / handleAbort)。
 
   // 单条移除:剔除该条;输入框为空时回填便于编辑,非空则直接丢弃不覆盖草稿(SPEC-INS-007 §3.3.4)
   function removeQueued(index: number) {
@@ -1975,7 +1969,10 @@ function InsightContent() {
         if (eagerMaterializedCardIds.has(oc.id)) continue
         eagerMaterializedCardIds.add(oc.id)
         // 落盘后通知文件管理表格重拉:否则任务产物进了 outputs 目录,列表仍要手动切面板才看得到。
-        void materializeUriCardToOutputs(oc, dir, sid).then(() => setFilesRefreshKey((k) => k + 1))
+        void materializeUriCardToOutputs(oc, dir, sid).then((r) => {
+          notifyMaterializeFailure(r)
+          setFilesRefreshKey((k) => k + 1)
+        })
       }
     }
   })
@@ -2198,6 +2195,7 @@ function InsightContent() {
                       {/* SPEC-INS-023 方案 B:ProseMirror 编辑器(行内 @ 灰胶囊 + 内置 @ 面板) */}
                       <ProseMirrorEditor
                         ref={(el) => (pmRefWelcome = el)}
+                        autofocus
                         platformSkills={insightSkills().platform}
                         customSkills={insightSkills().custom}
                         files={mentionFiles() ?? null}
@@ -2431,6 +2429,7 @@ function InsightContent() {
                   {/* SPEC-INS-023 方案 B:ProseMirror 编辑器(行内 @ 灰胶囊 + 内置 @ 面板) */}
                   <ProseMirrorEditor
                     ref={(el) => (pmRefConv = el)}
+                    autofocus
                     platformSkills={insightSkills().platform}
                     customSkills={insightSkills().custom}
                     files={mentionFiles() ?? null}

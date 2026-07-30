@@ -21,6 +21,29 @@ import { getDesktopApi } from "../lib/electron-api"
 import type { ResultTab } from "../components/result-viewer/tab-store"
 import { defaultFilename, ensureMarkdownExt } from "./local-file"
 
+/**
+ * 主进程判定「文件名不合法、拒绝落盘」时的 message 前缀(SPEC-INS-026 §4.1)。
+ * 与网络类失败的区别:拒绝重试无用,要响亮 toast 告诉用户这份产物拿不到本地副本。
+ *
+ * **跨进程边界的同步点**:主进程定义在 `packages/desktop/src/main/landing-name.ts` 的
+ * `LANDING_NAME_REJECTED`。主进程不 import 渲染端包(见 worktree-layout.ts 文件头),
+ * 只能两侧各留一份字面量,改一侧必须同步另一侧。
+ */
+const NAME_REJECTED_PREFIX = "[octo:name-rejected]"
+
+function isNameRejected(reason: string): boolean {
+  return reason.includes(NAME_REJECTED_PREFIX)
+}
+
+/**
+ * 错误信息展示前剥掉机器标记(前缀只用于渲染端分流,不该出现在用户看到的文案里)。
+ * 剥完剩下的是主进程写好的中文原因,如「文件名含路径分隔符:"a/b.json"」。
+ */
+export function describeResourceError(err: unknown): string {
+  const reason = err instanceof Error ? err.message : String(err)
+  return reason.replace(NAME_REJECTED_PREFIX, "").trim()
+}
+
 // eager 落盘产出的本地副本路径(card.id → outputs 下的绝对路径)。
 // 用途:uri 卡与「文件管理打开的同一文件」本是磁盘同一份,但两者去重键不相交
 // (uri 卡有 uri 无 filePath、文件管理卡有 filePath 无 uri),不登记就会开出两个 tab。
@@ -102,16 +125,26 @@ export async function ensureLocalMarkdownFile(
  *   其余类型保留 resource_link.name 原扩展名(mindmap.json 落成 .json)。
  * - 降级 / 尽力而为:非桌面端 / 无 projectDir / 无 sessionId → 静默跳过(eager 只对可持久化落点有意义,
  *   不落 OS 临时目录);失败不抛(不阻断出卡 / 渲染)。inline / path 源直接跳过(非本函数职责)。
+ *
+ * 返回结果供调用方决定是否提示用户(§4.1 拒绝类失败要 toast)。**本模块不 import UI**:它被
+ * tab-store 依赖、进而进单测,拉进 toast 会让 solid/react 运行时解析失败拖垮整组测试。
+ * 提示在 ./materialize-notify.ts。
  */
+export type MaterializeResult =
+  | { ok: true }
+  /** skipped:不具备落盘条件(非 uri 卡 / 无项目目录 / 非桌面端),不是失败,不提示 */
+  | { ok: false; skipped: true }
+  | { ok: false; skipped?: false; filename: string; reason: string; nameRejected: boolean }
+
 export async function materializeUriCardToOutputs(
   card: { id: string; type: string; source: "inline" | "uri" | "path"; uri?: string; fileName?: string; title?: string },
   projectDir: string,
   sessionId: string,
-): Promise<void> {
-  if (card.source !== "uri" || !card.uri) return
-  if (!projectDir || !sessionId) return
+): Promise<MaterializeResult> {
+  if (card.source !== "uri" || !card.uri) return { ok: false, skipped: true }
+  if (!projectDir || !sessionId) return { ok: false, skipped: true }
   const api = getDesktopApi()
-  if (typeof api?.downloadResourceToTemp !== "function") return
+  if (typeof api?.downloadResourceToTemp !== "function") return { ok: false, skipped: true }
   const base = defaultFilename(card)
   const filename = card.type === "markdown" ? ensureMarkdownExt(base) : base
   setMaterializeState(card.id, { state: "pending" })
@@ -123,10 +156,12 @@ export async function materializeUriCardToOutputs(
     setMaterializeState(card.id, { state: "ready" })
     // 客户端触发侧日志(主进程落地本身另打 [octo:worktree] result-materialize);两者配对定位「出卡了没落盘」。
     console.log("[octo:resource] eager-materialize", { cardId: card.id, type: card.type, filename, sessionId, localPath })
+    return { ok: true }
   } catch (err) {
     // 失败要能被用户看见并重试:入口卡据此渲染失败态(旧实现只 warn,产物静默消失)。
     const reason = err instanceof Error ? err.message : String(err)
     setMaterializeState(card.id, { state: "failed", error: reason })
     console.warn("[octo:resource] eager-materialize-failed", { cardId: card.id, uri: card.uri, reason })
+    return { ok: false, filename, reason, nameRejected: isNameRejected(reason) }
   }
 }

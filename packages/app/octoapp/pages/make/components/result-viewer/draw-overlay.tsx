@@ -380,7 +380,14 @@ export function DrawOverlay(props: Props): JSX.Element {
   async function requestSnapshot(): Promise<{ dataUrl: string; w: number; h: number } | null> {
     const iframe = snapshotHostIframe()
     if (!iframe) return null
-    const timeouts = [1500, 3000, 6000]
+    
+    const rect = iframe.getBoundingClientRect()
+    if (rect.width > 0 && rect.height > 0) {
+      const nativeSnap = await tryNativeCapture(iframe, rect.width, rect.height)
+      if (nativeSnap) return nativeSnap
+    }
+    
+    const timeouts = [1000, 3000]
     for (const timeout of timeouts) {
       const snapshot = await requestPreviewSnapshot(iframe, timeout)
       if (snapshot) {
@@ -390,11 +397,6 @@ export function DrawOverlay(props: Props): JSX.Element {
         }
         return snapshot
       }
-    }
-    const rect = iframe.getBoundingClientRect()
-    if (rect.width > 0 && rect.height > 0) {
-      const nativeSnap = await tryNativeCapture(iframe, rect.width, rect.height)
-      if (nativeSnap) return nativeSnap
     }
     return null
   }

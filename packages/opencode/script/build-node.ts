@@ -92,6 +92,15 @@ if (fs.existsSync(prototypeSrc)) {
   console.log(`Copied prototype/ to ${prototypeDest}`)
 }
 
+// 将 resourceLibraryScript 复制到 dist/node/scripts/，供 deployResourceLibraryScripts 部署
+const resourceLibrarySrc = path.join(dir, "src", "scripts", "resourceLibraryScript")
+if (fs.existsSync(resourceLibrarySrc)) {
+  const resourceLibraryDest = path.join(distNodeDir, "scripts", "resourceLibraryScript")
+  fs.mkdirSync(path.dirname(resourceLibraryDest), { recursive: true })
+  fs.cpSync(resourceLibrarySrc, resourceLibraryDest, { recursive: true })
+  console.log(`Copied resourceLibraryScript/ to ${resourceLibraryDest}`)
+}
+
 await Bun.build({
   target: "node",
   entrypoints: ["./src/node.ts"],

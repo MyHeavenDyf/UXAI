@@ -13,12 +13,16 @@ import path from "node:path"
 // 文件名即可、无需知道绝对路径,`[输出目录]` 注入随之删除,暴露问题从根上消失。
 //
 // 隔离(不影响其他模块)——两道确定性闸门:
-//   1. input.tool === "write"        —— 只碰 write,其它工具零改写、零开销放行
-//   2. session.agent === "octo_insight" —— 只碰 insight 会话,Chat/Design/Studio 的 write 走原生行为
+//   1. 落盘产物工具集 —— 只碰以 filePath 落盘产物的工具(见 REDIRECT_TOOLS),其它工具零改写、零开销放行。
+//      判据是"是否以 filePath 落盘产物",不是工具名;新增同类落盘工具往这个集合加即可。
+//      (apply_patch 不在此:参数是整段 patchText、无单一 filePath,无法同款重定向;insight 也已摘除它。)
+//   2. session.agent === "octo_insight" —— 只碰 insight 会话,Chat/Design/Studio 的写入走原生行为。
 // 绝对路径原样尊重(用户/模型显式指定的位置不改;也兼容过渡期模型仍产出的绝对 outputs 路径)。
 
 const LOG = "[octo:outputs-redirect]"
 const INSIGHT_AGENT = "octo_insight"
+// 以 filePath 落盘产物、需要重定向到会话 outputs 的工具集(write=新建,edit=改写既有产物)。
+const REDIRECT_TOOLS = new Set(["write", "edit"])
 
 type SessionMeta = { isInsight: boolean; directory?: string }
 
@@ -28,8 +32,8 @@ const cache = new Map<string, SessionMeta>()
 export const OctoOutputsRedirectPlugin: Plugin = async ({ client }) => {
   return {
     "tool.execute.before": async (input, output) => {
-      // 闸门 1:只处理 write —— 其它所有工具/会话在这里零成本放行。
-      if (input.tool !== "write") return
+      // 闸门 1:只处理落盘产物工具(write/edit)—— 其它所有工具/会话在这里零成本放行。
+      if (!REDIRECT_TOOLS.has(input.tool)) return
 
       const args = output.args as { filePath?: unknown } | undefined
       const filePath = args?.filePath
@@ -58,7 +62,7 @@ export const OctoOutputsRedirectPlugin: Plugin = async ({ client }) => {
       const before = filePath
       const after = path.join(outputsDir, filePath)
       ;(output.args as { filePath: string }).filePath = after
-      console.log(`${LOG} write 落点重定向`, { sessionID: input.sessionID, before, after })
+      console.log(`${LOG} 落点重定向`, { tool: input.tool, sessionID: input.sessionID, before, after })
     },
   }
 }

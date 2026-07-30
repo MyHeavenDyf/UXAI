@@ -599,6 +599,10 @@
   gap: 2px;
 }
 
+.studio-composer-toolbar-item--expanded .studio-composer-tool-btn {
+  max-width: none;
+}
+
 .studio-composer-tool-btn:hover,
 .studio-composer-icon-tool:hover {
   background: #dfdfdf;
@@ -653,7 +657,7 @@
     right: 0;
     bottom: 0;
     width: 800px;
-    z-index: 50;
+    z-index: 40;
     box-shadow: -4px 0 24px rgba(0, 0, 0, 0.12);
   }
 }
@@ -671,5 +675,15 @@
 
   .studio-composer-wrap {
     padding: 0 6%;
+  }
+}
+
+@media (max-width: 699px) {
+  .studio-center-scroll .scroll-view__viewport {
+    padding: 36px 0 22px;
+  }
+
+  .studio-composer-wrap {
+    padding: 0;
   }
 }

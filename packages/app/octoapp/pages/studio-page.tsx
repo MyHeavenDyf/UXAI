@@ -222,30 +222,36 @@ export default function StudioPage() {
 
   const [prompt, setPrompt] = createSignal("")
   const [imageSettingStore, setImageSettingStore] = persisted(
-    { ...Persist.global("studio.image.settings"), migrate: (value: unknown) => {
-      if (value && typeof value === "object" && (value as Record<string, unknown>).count === 1) {
-        return { ...(value as Record<string, unknown>), count: 4 }
-      }
-      return value
-    } },
+    Persist.global("studio.image.settings"),
     createStore({
       capability: "image.generate" as StudioCapability,
+      styleModel: "seedream-5-lite",
+    }),
+  )
+  const [imageSessionStore, setImageSessionStore] = persisted(
+    Persist.sessionGlobal("studio.image.session"),
+    createStore({
       aspectRatio: "3:4" as StudioAspectRatio,
       count: 4 as 1 | 2 | 3 | 4,
-      styleModel: "seedream-5-lite",
+      customWidth: 0,
+      customHeight: 0,
+      isCustom: false,
     }),
   )
   const capability = () => imageSettingStore.capability
   const setCapability = (v: StudioCapability) => setImageSettingStore("capability", v)
-  const aspectRatio = () => imageSettingStore.aspectRatio
-  const setAspectRatio = (v: StudioAspectRatio) => setImageSettingStore("aspectRatio", v)
-  const count = () => imageSettingStore.count
-  const setCount = (v: 1 | 2 | 3 | 4) => setImageSettingStore("count", v)
+  const aspectRatio = () => imageSessionStore.aspectRatio
+  const setAspectRatio = (v: StudioAspectRatio) => setImageSessionStore("aspectRatio", v)
+  const count = () => imageSessionStore.count
+  const setCount = (v: 1 | 2 | 3 | 4) => setImageSessionStore("count", v)
   const styleModel = () => imageSettingStore.styleModel
   const setStyleModel = (v: string) => setImageSettingStore("styleModel", v)
-  const [customWidth, setCustomWidth] = createSignal(0)
-  const [customHeight, setCustomHeight] = createSignal(0)
-  const [isCustomStore, setIsCustomStore] = createSignal(false)
+  const customWidth = () => imageSessionStore.customWidth
+  const setCustomWidth = (v: number) => setImageSessionStore("customWidth", v)
+  const customHeight = () => imageSessionStore.customHeight
+  const setCustomHeight = (v: number) => setImageSessionStore("customHeight", v)
+  const isCustomStore = () => imageSessionStore.isCustom
+  const setIsCustomStore = (v: boolean) => setImageSessionStore("isCustom", v)
   const maxReferenceImages = () => referenceImageLimit(styleModel())
   const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [assets, setAssets] = createSignal<StudioAsset[]>([])
@@ -1537,15 +1543,15 @@ export default function StudioPage() {
     ),
   )
 
-  // 生成完成（busy→idle）：贴近底部时滚动到底部展示新结果。
+  // 生成完成（busy→idle）：滚动到底部展示新结果。
   // 独立监听 isBusy 以覆盖内容变更先于 session 状态置 idle 到达的时序。
+  // 成功后默认置底（无论用户生成中是否上滑查看历史）。
   createEffect(
     on(
       isBusy,
       (busy, prev) => {
         if (!params.id || !conversationScrollRef) return
         if (!(prev && !busy)) return
-        if (!stickToBottom()) return
         cancelAnimationFrame(scrollFrame)
         scrollFrame = requestAnimationFrame(() => {
           conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
@@ -2439,9 +2445,7 @@ export default function StudioPage() {
           ? undefined
           : input.capability === "image.generate" || input.capability === "video.generate"
             ? input.aspectRatio ?? aspectRatio()
-            : input.capability === "image.inpaint"
-              ? input.aspectRatio
-              : undefined,
+            : input.aspectRatio,
         count: input.capability === "image.generate" || input.capability === "video.generate" ? input.count ?? count() : undefined,
         isCustom: Boolean(input.width && input.height),
         ...(input.width && input.height ? { target_size: { width: input.width, height: input.height } } : {}),
@@ -2571,7 +2575,6 @@ export default function StudioPage() {
         sessionId: input.sessionID,
         filename: `${input.role}-${crypto.randomUUID()}.${studioImageExtension(payload.mime)}`,
         content: payload.content,
-        path: "studio-inputs",
       }),
     })
     if (!response.ok) throw new Error(`Failed to persist Studio image: ${response.statusText}`)
@@ -2886,6 +2889,13 @@ export default function StudioPage() {
           }
         : {}),
     })
+    // 发送瞬间强制滚动到底部，展示新发起的消息
+    if (conversationScrollRef) {
+      cancelAnimationFrame(scrollFrame)
+      scrollFrame = requestAnimationFrame(() => {
+        conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
+      })
+    }
     if (!overrides?.useRestoredInputs) {
       setPrompt("")
       setAssets([])
@@ -3247,9 +3257,21 @@ export default function StudioPage() {
         isUploadedImage: !!workspaceImage(),
       }),
     })
+    // 扩图结果比例：优先用画布框实际像素尺寸(realWidth/realHeight)推算，
+    // 覆盖用户自由拖动（不匹配预设比例）的场景；否则回退 extra.ratio
+    const extra = input.extra
+    const realW = typeof extra?.realWidth === "number" ? extra.realWidth : undefined
+    const realH = typeof extra?.realHeight === "number" ? extra.realHeight : undefined
+    const ratioRaw = extra?.ratio
+    const targetAspectRatio = realW && realH
+      ? closestStudioAspectRatio(realW, realH)
+      : typeof ratioRaw === "string" && (STUDIO_ASPECT_RATIOS as string[]).includes(ratioRaw)
+        ? (ratioRaw as StudioAspectRatio)
+        : undefined
     void runGeneration({
       capability: "image.outpaint",
       sourceImage: sourceUrl,
+      aspectRatio: targetAspectRatio,
       prompt: input.prompt || "保留主体和画面风格，扩展更大尺寸和更多环境内容",
       extra: input.extra,
     })
@@ -3397,9 +3419,12 @@ export default function StudioPage() {
     }
 
     tracker.interaction({ module: "studio", name: "upscale", extend: JSON.stringify({ mode: input.mode, hasSourceImage: !!image, isUploadedImage: !!workspaceImage() }) })
+    // 变清晰保留源图比例，探测实际宽高以避免结果被默认为 3:4
+    const sourceAspectRatio = await probeImageAspectRatio(sourceUrl)
     void runGeneration({
       capability: "image.upscale",
       sourceImage: sourceUrl,
+      aspectRatio: sourceAspectRatio,
       prompt: "将当前图片变清晰，提升分辨率和细节",
       extra: {
         mode: input.mode,
@@ -3418,9 +3443,12 @@ export default function StudioPage() {
     }
 
     tracker.interaction({ module: "studio", name: "cutout", extend: JSON.stringify({ hasSourceImage: !!image, isUploadedImage: !!workspaceImage() }) })
+    // 抠图保留源图比例，探测实际宽高以避免结果被默认为 3:4
+    const sourceAspectRatio = await probeImageAspectRatio(sourceUrl)
     void runGeneration({
       capability: "image.cutout",
       sourceImage: sourceUrl,
+      aspectRatio: sourceAspectRatio,
       prompt: "对当前图片进行抠图，移除背景并保留主体",
     })
   }
@@ -3815,7 +3843,7 @@ if (!headerTitle.pendingRename) return
       <Show when={!showStudioWorkspace() && studioWorkspaceOverlayOpen()}>
         <div
           class="absolute inset-0"
-          style={{ "z-index": "49" }}
+          style={{ "z-index": "39" }}
           onClick={(e) => {
             const hit = document.elementsFromPoint(e.clientX, e.clientY)
               .find(el => (el as HTMLElement).closest(".studio-assistant-editor-link"))
@@ -4055,7 +4083,6 @@ if (!headerTitle.pendingRename) return
             position: "absolute",
             inset: "0",
             "z-index": "100",
-            background: "rgba(0, 0, 0, 0.2)",
           }}
           onClick={() => setStudioLeftOverlayOpen(false)}
         />
@@ -4069,6 +4096,7 @@ if (!headerTitle.pendingRename) return
             "z-index": "101",
             background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
             "border-right": "1px solid var(--border-weak-base)",
+            "box-shadow": "4px 0 24px rgba(0, 0, 0, 0.12)",
             overflow: "hidden",
           }}
         >

@@ -53,7 +53,7 @@ import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useTabModel } from "@/hooks/use-tab-model"
 import { useLayout } from "@/context/layout"
-import { useResponsiveBreakpoints } from "@/components/responsive-layout"
+import { useMakeLayout, MAKE_CENTER_MIN, MAKE_RIGHT_MIN } from "@/context/make-layout"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { useProviders } from "@/hooks/use-providers"
@@ -78,6 +78,7 @@ import { TemplatePicker } from "./components/template-picker"
 import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Icon } from "@opencode-ai/ui/icon"
+import { IconNotepad } from "@/pages/_shell/icons"
 import { loadDesignSystem } from "./utils/design-system-loader"
 import { loadCrafts } from "./utils/craft-loader"
 import { createSnapshotStore } from "./utils/snapshot-store"
@@ -134,7 +135,7 @@ function MakeContent() {
   const command = useCommand()
   const sync = useSync()
   const layout = useLayout()
-  const { isNarrow } = useResponsiveBreakpoints()
+  const ml = useMakeLayout()
   const language = useLanguage()
   const settings = useSettings()
   const dialog = useDialog()
@@ -613,6 +614,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const loadedChildSessions = new Set<string>()
 
   const PLAN_CHILD_LOCALSTORAGE_PREFIX = "octo_make_plan_child:"
+  const PLAN_ENDED_LOCALSTORAGE_PREFIX = "octo_make_plan_ended:"
 
   /** 当前活跃的设计规划子 session ID（存在时表示正在规划阶段） */
   const [activePlanSessionId, setActivePlanSessionId] = createSignal<string | null>(null)
@@ -620,6 +622,10 @@ const sessionMessagesLoaded = createMemo(() => {
   const [planParentSessionId, setPlanParentSessionId] = createSignal<string | null>(null)
   /** 跨 session 切换缓存: { mainSessionId: childSessionId }，切回时立即恢复 */
   const _planChildSessionCache: Record<string, string> = {}
+
+  /** 设计规划是否已结束（退出或确认），用于控制 plan 视图只读模式 */
+  // 从 localStorage 同步初始化，确保页面刷新/路由切换后立即生效
+  const [planEnded, setPlanEnded] = createSignal(!!(params.id && localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + params.id)))
 
   /** 两步走工作流：当前阶段 */
   const [planPhase, setPlanPhase] = createSignal<"strategy" | "generate">("strategy")
@@ -743,6 +749,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const isBusy = createMemo(() => sessionStatus().type !== "idle")
 
   // 子 session 的 busy 状态检测：子 session 生成中时锁定输入框
+  // 同时检测主 session 和子 session 的 busy 状态
   const childBusy = createMemo(() => {
     const childId = activePlanSessionId()
     if (!childId) return false
@@ -1044,62 +1051,29 @@ const sessionMessagesLoaded = createMemo(() => {
     currentSessionIdForPrompt = newId
     setPrompt(loadPromptFromStorage(newId))
   }))
-  // 对话面板宽度：从 localStorage 恢复，无存储值时取默认 460px
-  const CHAT_WIDTH_KEY = "octo:make:chat-width"
-  function getInitialChatWidth(): number {
-    const stored = localStorage.getItem(CHAT_WIDTH_KEY)
-    if (stored) {
-      const n = parseInt(stored, 10)
-      if (!isNaN(n) && n >= 360 && n <= 720) return n
-    }
-    return 460
-  }
-  const [chatWidth, setChatWidth] = createSignal(getInitialChatWidth())
   const focusMode = layout.focusMode.get
-  const hideChat = () => focusMode() || (hasContent() && isNarrow())
+  const hideChat = () => focusMode()
 
-  const MIN_CHAT = 360
-  const MAX_CHAT = 720
+  let gridEl: HTMLDivElement | undefined
 
-  let dragCleanup: (() => void) | null = null
-
-  /** 聊天面板分隔线拖拽调整宽度 */
   function handleDividerMouseDown(e: MouseEvent) {
     e.preventDefault()
-    const startX = e.clientX
-    const startWidth = chatWidth()
-    
+    if (!gridEl) return
+    const rect = gridEl.getBoundingClientRect()
+    const free = rect.width
+    if (free <= 0) return
     const overlay = document.createElement("div")
-    overlay.style.cssText = `
-      position: fixed;
-      inset: 0;
-      z-index: 9999;
-      cursor: col-resize;
-      background: transparent;
-    `
+    overlay.style.cssText = "position:fixed;inset:0;z-index:9999;cursor:col-resize;background:transparent;"
     document.body.appendChild(overlay)
-    
-    const onMove = (ev: MouseEvent) => {
-      setChatWidth(Math.max(MIN_CHAT, Math.min(MAX_CHAT, startWidth + ev.clientX - startX)))
-    }
+    const onMove = (ev: MouseEvent) => ml.setCRatio((ev.clientX - rect.left) / free)
     const onUp = () => {
       overlay.remove()
-      localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth()))
       overlay.removeEventListener("mousemove", onMove)
       overlay.removeEventListener("mouseup", onUp)
-      dragCleanup = null
     }
     overlay.addEventListener("mousemove", onMove)
     overlay.addEventListener("mouseup", onUp)
-    dragCleanup = () => {
-      overlay.remove()
-      overlay.removeEventListener("mousemove", onMove)
-      overlay.removeEventListener("mouseup", onUp)
-      dragCleanup = null
-    }
   }
-
-  onCleanup(() => { dragCleanup?.() })
 
   const tabStore = createTabStore()
   const snapshotStore = createSnapshotStore(() => params.id)
@@ -1276,8 +1250,11 @@ const sessionMessagesLoaded = createMemo(() => {
     // 清理子 session 状态，保留子 session 的记录（不清理 childSessionIDs）
     localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + mainSid)
     delete _planChildSessionCache[mainSid]
+    // 持久化"已结束"标记，确保切换 session / 重启后 plan 视图只读
+    localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + mainSid, "true")
     const currentPhase = planPhase()
     setPlanEndedForSession(mainSid)
+    setPlanEnded(true)
     setActivePlanSessionId(null)
     setPlanParentSessionId(null)
     setHasChildPlanSession(false)
@@ -1293,15 +1270,13 @@ const sessionMessagesLoaded = createMemo(() => {
     requestAnimationFrame(() => textareaRef?.focus())
   }
 
-  /** 用户点击 [结束子agent] → 归档子 session + 中止运行 + 清理状态 */
+  /** 用户点击 [结束子agent] → 中止子 agent 运行 + 退出 plan 模式，保留子 session 的对话数据 */
   function handleEndPlan() {
     const currentChildId = activePlanSessionId()
     if (currentChildId) {
       // 中止子 session 正在运行的 agent
       sdk.client.session.abort({ sessionID: currentChildId }).catch(() => {})
-      // 归档子 session,使其不被 session.list() 检测到,跨重启不再进入 plan 模式
-      sdk.client.session.update({ sessionID: currentChildId, time: { archived: Date.now() } }).catch(() => {})
-      // 注意：不清理 childSessionIDs，保留子 session 的历史消息显示
+      // 注意：不归档子 session，保留其消息数据供后续查看
     }
     const endedSid = params.id
     setActivePlanSessionId(null)
@@ -1311,10 +1286,12 @@ const sessionMessagesLoaded = createMemo(() => {
     setResultViewMode("files")
     setPlanPhase("strategy")
     setSending(false)
-    // 清除缓存，防止下次进入时误恢复
+    setPlanEnded(true)
+    // 注意：不清除 localStorage 缓存和 _planChildSessionCache，
+    // 保留子 session 的引用以便跨重启恢复和消息历史查看
+    // 持久化"已退出"标记，防止切换 session / 重启后重新激活
     if (endedSid) {
-      localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + endedSid)
-      delete _planChildSessionCache[endedSid]
+      localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + endedSid, "true")
     }
     // 记录当前主 session 的设计规划已被用户结束,防止 banner 再次弹出
     setPlanEndedForSession(params.id ?? null)
@@ -1364,6 +1341,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!sid || !modelKey) return
     if (optimisticIntentResolved()) return
     setOptimisticIntentResolved(true)
+    setPlanEnded(false)
+    if (sid) localStorage.removeItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid)
 
     try {
       const dir = sdk.directory
@@ -1503,6 +1482,20 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       }
       if (restoredPlanSid) {
+        // 检查是否已被用户退出（持久化标记）
+        const isEnded = !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid)
+        if (isEnded) {
+          // 已退出：只保留历史记录，不恢复为活跃状态
+          if (!loadedChildSessions.has(restoredPlanSid)) {
+            loadedChildSessions.add(restoredPlanSid)
+            setChildSessionIDs((prev) => { const next = new Set(prev); next.add(restoredPlanSid); return next })
+            sync.session.sync(restoredPlanSid).catch(() => {})
+          }
+          setPlanEndedForSession(newSid)
+          setPlanEnded(true)
+          return
+        }
+
         if (!loadedChildSessions.has(restoredPlanSid)) {
           loadedChildSessions.add(restoredPlanSid)
           setChildSessionIDs((prev) => { const next = new Set(prev); next.add(restoredPlanSid); return next })
@@ -1531,6 +1524,8 @@ const sessionMessagesLoaded = createMemo(() => {
           // 已确认：只保留历史记录，不设为活跃
           setHasChildPlanSession(false)
           setPlanEndedForSession(newSid)
+          setPlanEnded(true)
+          localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid, "true")
           // 设置 planPhase 为 generate，以便用户点击 tab 时正确显示第二阶段内容
           setPlanPhase(hasDesignPlan ? "generate" : "strategy")
           // 清理 localStorage 缓存
@@ -1555,6 +1550,12 @@ const sessionMessagesLoaded = createMemo(() => {
           setPhase2Pending(false)
           // 防护: childId 为空 / 已被其他路径设置 / params.id 已切换(竞态) 时跳过
           if (!childId || activePlanSessionId() || params.id !== capturedSid) return
+          // 检查是否已被用户退出（持久化标记）
+          if (localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + capturedSid)) {
+            setPlanEndedForSession(capturedSid)
+            setPlanEnded(true)
+            return
+          }
           loadedChildSessions.add(childId)
           setChildSessionIDs((prev) => { const next = new Set(prev); next.add(childId); return next })
           sync.session.sync(childId).catch(() => {})
@@ -1580,6 +1581,8 @@ const sessionMessagesLoaded = createMemo(() => {
               // 已确认：不设为活跃，只保留历史记录
               setHasChildPlanSession(false)
               setPlanEndedForSession(capturedSid)
+              setPlanEnded(true)
+              localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + capturedSid, "true")
               setPlanPhase(hasDesignPlan ? "generate" : "strategy")
             } else {
               // 未确认：恢复为活跃状态
@@ -1634,6 +1637,7 @@ const sessionMessagesLoaded = createMemo(() => {
           setHasChildPlanSession(false)
           setPlanEndedForSession(mainSid)
           if (activePlanSessionId() === childId) {
+            setPlanEnded(true)
             setActivePlanSessionId(null)
             setPlanParentSessionId(null)
           }
@@ -1656,6 +1660,7 @@ const sessionMessagesLoaded = createMemo(() => {
         }
         setPlanConfirmPending(false)
         setPlanEndedForSession(mainSid ?? null)
+        setPlanEnded(true)
         setActivePlanSessionId(null)
         setPlanParentSessionId(null)
         setHasChildPlanSession(false)
@@ -1985,6 +1990,20 @@ const sessionMessagesLoaded = createMemo(() => {
         promptText = folderPrefix + "\n" + promptText
       }
 
+      // resourceLibrary skill injection: 告诉 agent resourceLibrary skill 的使用方式。
+      // 每轮注入,确保 agent 始终知道如何获取视觉资源。
+      const resourceLibraryPrefix = [
+        `[Resource Library]`,
+        `当需要图标、插画、图片等视觉资源时，如果用户未指定来源，且如果存在resourceLibrary这个skill，必须使用 resourceLibrary skill 来获取这些资源。`,
+        `resourceLibrary 不在 available_skills 列表中，是一个独立路径的 skill，不能通过 skill 工具调用。`,
+        `使用方式：`,
+        `1. 用 glob 工具查找 SKILL.md：glob path="~/.config/octo" pattern="**/resourceLibraryScript/resourceLibrary/SKILL.md"`,
+        `   （~ 表示用户主目录，Windows 上通常是 C:\\Users\\{用户名}）`,
+        `2. 用 read 工具读取找到的 SKILL.md 文件，严格按照文件中的说明执行获取资源流程。`,
+        `---`,
+      ].join("\n")
+      promptText = resourceLibraryPrefix + "\n" + promptText
+
       const textPart: TextPartInput = { 
         type: "text", 
         text: promptText,
@@ -2104,8 +2123,8 @@ if (dsId) {
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
     } finally {
-      // Only reset if we're still on the same session (or still on no session)
-      if (!submitSessionId || params.id === submitSessionId) {
+      // 重置 sending：如果是主 session 或 plan 子 session 且未切换，则允许重置
+      if (!submitSessionId || params.id === submitSessionId || (planSid && activePlanSessionId() === planSid)) {
         setSending(false)
       }
     }
@@ -2895,22 +2914,19 @@ if (dsId) {
       <div
         class="octo-make octo-split bg-background-base"
         data-focus={hideChat() ? "true" : undefined}
-        style={{
-          "grid-template-columns": !hideChat()
-            ? gridHasContent()
-              ? `${chatWidth()}px 0px minmax(0, 1fr)`
-              : "1fr"
-            : undefined,
-        }}
+        ref={(el) => { gridEl = el }}
+        style={{ display: "flex", position: "relative" }}
       >
 
         {/* ── 左栏：对话面板 ──── */}
         <Show when={!hideChat()}>
           <div
-            class="flex flex-col overflow-hidden"
+            classList={{ "flex": true, "flex-col": true, "overflow-hidden": true, "make-chat-folded": ml.rightCollapsed() || ml.rightManuallyHidden() }}
             style={{
               background: isDragOver() ? "var(--octo-brand-a3)" : "#fff",
               outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
+              flex: (gridHasContent() && !ml.rightCollapsed() && !ml.rightManuallyHidden()) ? `${ml.cRatio()} 1 0%` : "1 1 0%",
+              "min-width": `${MAKE_CENTER_MIN}px`,
             }}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -2934,9 +2950,21 @@ if (dsId) {
                 </Show>
                 <div
                   class="shrink-0 flex items-center justify-between"
-                  style={{ padding: "12px 24px", height: "56px", background: "#fff", "border-bottom": "1px solid rgba(0,0,0,0.1)" }}
+                  style={{ padding: "12px", height: "56px", background: "#fff", "border-bottom": "1px solid rgba(0,0,0,0.1)" }}
                 >
                 <div class="flex items-center gap-2 min-w-0 flex-1 pr-3">
+                  <Show when={ml.leftCollapsed()}>
+                    <button
+                      type="button"
+                      data-drawer-toggle="make-left"
+                      class="make-icon-btn"
+                      style={{ display: "flex", "align-items": "center", "justify-content": "center", width: "24px", height: "24px", cursor: "pointer", background: "none", border: "none", padding: "0", "border-radius": "4px", flex: "none" }}
+                      onClick={ml.toggleLeftDrawer}
+                      title="对话列表"
+                    >
+                      <IconNotepad size={16} />
+                    </button>
+                  </Show>
                   <Show when={isBusy()}>
                     <div class="shrink-0 flex items-center gap-1.5">
                       <Spinner class="size-4" />
@@ -2976,11 +3004,10 @@ if (dsId) {
                 >
                   <DropdownMenu.Trigger
                     as="button"
-                    class="flex items-center justify-center size-7 rounded-[4px] transition-colors hover:bg-[rgba(0,0,0,0.03)] data-[expanded]:bg-[rgba(0,0,0,0.03)]"
+                    class="make-icon-btn flex items-center justify-center size-4"
                     aria-label={language.t("common.moreOptions")}
-                    style={{ color: "rgba(0,0,0,0.6)" }}
                   >
-                    <Icon name="ellipsis" class="size-5" />
+                    <Icon name="ellipsis" class="size-4" />
                   </DropdownMenu.Trigger>
                   <DropdownMenu.Portal>
                     <DropdownMenu.Content
@@ -3005,6 +3032,16 @@ if (dsId) {
                     </DropdownMenu.Content>
                   </DropdownMenu.Portal>
                 </DropdownMenu>
+                <button
+                  type="button"
+                  data-drawer-toggle="make-right"
+                  class="make-icon-btn"
+                  style={{ display: "flex", "align-items": "center", "justify-content": "center", width: "24px", height: "24px", cursor: "pointer", background: "none", border: "none", padding: "0", "border-radius": "4px", flex: "none", "margin-left": "4px" }}
+                  onClick={ml.toggleRight}
+                  title="文件管理"
+                >
+                  <IconNotepad size={16} />
+                </button>
               </div>
               </div>
             </Show>
@@ -3015,7 +3052,9 @@ if (dsId) {
                 </div>
               }>
                 <div class="flex-1 flex flex-col items-center justify-center min-h-0 px-6 py-6">
-                  <NewSessionView worktree="" title="Octo Design" subtitle="描述需求，开始生成原型" />
+                  <div class="w-full">
+                    <NewSessionView worktree="" title="Octo Design" subtitle="描述需求，开始生成原型" />
+                  </div>
                 <div class="w-full max-w-[800px]">
                   {/* Pending skill tag */}
                     <Show when={pendingSkill()}>
@@ -3211,7 +3250,7 @@ if (dsId) {
                         sessionID={userMessages()[0].sessionID || params.id!}
                         messageID={userMessages()[0].id}
                         status={sync.data.session_status[userMessages()[0].sessionID] ?? sessionStatus()}
-                        active={isBusy()}
+                        active={sync.data.session_status[userMessages()[0].sessionID ?? params.id!]?.type === "busy"}
                         elapsedText={elapsedText()}
                         blockTime={blockTime()}
                         onAbort={halt}
@@ -3272,7 +3311,7 @@ if (dsId) {
                         sessionID={msg.sessionID || params.id!}
                         messageID={msg.id}
                         status={sync.data.session_status[msg.sessionID] ?? sessionStatus()}
-                        active={isBusy()}
+                        active={sync.data.session_status[msg.sessionID ?? params.id!]?.type === "busy"}
                         elapsedText={elapsedText()}
                         blockTime={blockTime()}
                         onAbort={halt}
@@ -3354,7 +3393,7 @@ if (dsId) {
                 </Show>
 
                 <div
-                  class="rounded-[16px] transition-all duration-300 relative group"
+                  class="make-composer rounded-[16px] transition-all duration-300 relative group"
                   style={{
                     border: "1px solid transparent",
                     background: `
@@ -3504,15 +3543,20 @@ onSlashTrigger={(query) => {
         </Show>
 
         {/* ── 拖拽分隔线（Grid 中间列） ──── */}
-        <Show when={gridHasContent() && !hideChat()}>
-          <div class="octo-split-handle" onMouseDown={handleDividerMouseDown} />
+        <Show when={gridHasContent() && !hideChat() && !ml.rightCollapsed() && !ml.rightManuallyHidden()}>
+          <div class="octo-split-handle" style={{ position: "absolute", left: `${ml.centerW() - 4}px`, top: "0", bottom: "0", width: "8px", margin: "0" }} onMouseDown={handleDividerMouseDown} />
         </Show>
 
         {/* ── 右栏：ResultViewer + Version Panel ──── */}
         <Show when={gridHasContent()}>
-        <div class="flex flex-col overflow-hidden" >
-          <div class="flex flex-1 min-h-0 overflow-auto">
-            <div class="flex flex-col flex-1" style="min-width:800px">
+        <div class="make-right-overlay" onClick={() => ml.toggleRightDrawer()} />
+        <div
+          class="flex flex-col overflow-hidden"
+          classList={{ "make-right-panel": true, "is-collapsed": !hideChat() && (ml.rightCollapsed() || ml.rightManuallyHidden()) }}
+          style={hideChat() ? { flex: "1", "min-width": "0" } : (ml.rightCollapsed() || ml.rightManuallyHidden()) ? { background: "#fff", "border-left": "1px solid var(--border-weak-base)" } : { flex: `${1 - ml.cRatio()} 1 0%`, "min-width": `${MAKE_RIGHT_MIN}px` }}
+        >
+          <div class="flex flex-1 min-h-0 min-w-0">
+            <div class="flex flex-col flex-1 min-w-0">
               {/* 焦点模式 + 版本历史 切换按钮 */}
               <div class="flex hidden items-center justify-end px-2 shrink-0 gap-1" style={{ "min-height": "32px" }}>
                 <button
@@ -3589,6 +3633,7 @@ onSlashTrigger={(query) => {
                 childPlanConfirmed={childPlanConfirmed()}
                 childSessionStatus={sync.data.session_status[activePlanSessionId() ?? ""]}
                 childBusy={childBusy()}
+                planEnded={planEnded()}
               />
             </div>
             <Show when={showVersionPanel()}>

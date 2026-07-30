@@ -1,7 +1,7 @@
 import "./make/octo-tokens.css"
 import { createMemo, createEffect, createSignal, on, Show, Suspense, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useParams } from "@solidjs/router"
+import { useParams, useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { tracker } from "@/utils/tracker"
 import { AgentSidebar } from "@/components/agent-sidebar"
@@ -18,6 +18,7 @@ import { FileProvider } from "@/context/file"
 import { PromptProvider } from "@/context/prompt"
 import { CommentsProvider } from "@/context/comments"
 import type { Session } from "@opencode-ai/sdk/v2/client"
+import { SkillsContent } from "@/components/skills-content"
 
 const SessionPage = lazy(() => import("@/pages/session"))
 
@@ -71,6 +72,25 @@ export default function ChatPage() {
   const [drawerOpen, setDrawerOpen] = createSignal(false)
   const [drawerClosing, setDrawerClosing] = createSignal(false)
   let sidebarEl: HTMLDivElement | undefined
+
+  // Skills panel state — 与会话选中互斥
+  const [skillsPanelOpen, setSkillsPanelOpen] = createSignal(false)
+  const navigate = useNavigate()
+
+  function toggleSkillsPanel() {
+    if (skillsPanelOpen()) {
+      setSkillsPanelOpen(false)
+    } else {
+      setSkillsPanelOpen(true)
+      const dir = resolvedDirectory()
+      if (dir && params.id) navigate(`/${base64Encode(dir)}/chat`)
+    }
+  }
+
+  // 选中会话时关闭技能库
+  createEffect(on(() => params.id, (id) => {
+    if (id) setSkillsPanelOpen(false)
+  }, { defer: true }))
 
   const displayWidth = () => {
     if (drawerOpen()) return 296
@@ -201,6 +221,8 @@ export default function ChatPage() {
               trackerModule="chat"
               showSettings
               sidebarSourceKey="cowork"
+              onSkillClick={toggleSkillsPanel}
+              skillsActive={skillsPanelOpen()}
             />
           </div>
           <div
@@ -211,11 +233,20 @@ export default function ChatPage() {
         </>
       )}
       <div class="flex-1 min-w-0 min-h-0">
-        <Suspense fallback={<div class="p-3 text-14-regular text-text-weak">Loading session...</div>}>
-          <SessionProviders>
-            <SessionPage />
-          </SessionProviders>
-        </Suspense>
+        <Show
+          when={skillsPanelOpen()}
+          fallback={
+            <Suspense fallback={<div class="p-3 text-14-regular text-text-weak">Loading session...</div>}>
+              <SessionProviders>
+                <SessionPage />
+              </SessionProviders>
+            </Suspense>
+          }
+        >
+          <div class="h-full overflow-y-auto" style={{ background: "var(--surface-strong)" }}>
+            <SkillsContent />
+          </div>
+        </Show>
       </div>
     </div>
   )
