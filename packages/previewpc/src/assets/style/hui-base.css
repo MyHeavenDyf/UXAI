@@ -373,6 +373,9 @@
   &[data-popper-placement="bottom"],
   &[data-popper-placement="bottom-end"] {
     margin-top: -8px;
+    &.el-table-filter{
+      margin-top: 0px;
+    }
   }
   .el-popper__arrow {
     display: none;
@@ -449,6 +452,20 @@
 
 .el-select-dropdown__list {
   padding: 0px;
+}
+.el-select__popper {
+  .el-select-dropdown {
+    .el-select-dropdown__item {
+      &.is-hovering {
+        color: var(--gray-90);
+        background-color: rgb(from var(--gray-90) r g b / 0.05);
+      }
+      &.is-selected {
+        color: var(--brand-50);
+        background-color: var(--brand-05);
+      } 
+    }
+  }
 }
 
 /* ================= checkbox ================= */
