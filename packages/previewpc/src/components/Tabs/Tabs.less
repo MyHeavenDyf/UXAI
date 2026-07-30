@@ -171,7 +171,7 @@
       border-radius: var(--spacing-1) var(--spacing-1) 0 0;
 
       &:not(.is-active) {
-        border: none;
+        border: 1px solid transparent;
         background-color: rgb(from var(--gray-30) r g b / 0.05);
       }
 
@@ -211,6 +211,7 @@
     }
 
     &.is-active {
+      color: var(--brand-30);
       .lucide,
       .is-icon-close,
       .is-icon-close:hover {
@@ -226,6 +227,12 @@
       background:  var(--gray-80);
     }
   }
-  
+  .el-tabs__active-bar {
+    background-color: var(--brand-30);
+  }
+
+  .el-tabs__item:not(.is-active):not(.is-disabled):hover {
+    color: var(--color-text-inverse);
+  }
 
 }
