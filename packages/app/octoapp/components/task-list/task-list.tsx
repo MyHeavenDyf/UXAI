@@ -1,4 +1,4 @@
-import { createSignal, createMemo, Show, For } from "solid-js"
+import { createSignal, createMemo, createEffect, Show, For } from "solid-js"
 import { Popover } from "@opencode-ai/ui/popover"
 import { TaskStore } from "@/context/task"
 import { TaskItemRow } from "./task-item"
@@ -22,6 +22,10 @@ export function TaskList() {
     const cancelled = cancelledItems()
     return [...active, ...paused, ...errors, ...completed, ...cancelled]
   })
+
+  // 列表清空后(自动删除耗尽最后一项)重置打开态:Show 卸载不触发 Kobalte onOpenChange,
+  // 否则 shown 残留 true,下次 add 重新挂载 Popover 时会自动弹出面板
+  createEffect(() => { if (allItems().length === 0) setShown(false) })
 
   return (
     <Show when={allItems().length > 0}>

@@ -149,10 +149,11 @@ export const TaskStore = {
       setStore("items", idx, { status: u.status ?? "error" })
     }
   },
-  // 取消任务：将该任务项（按 key）置为 cancelled，并按 serviceType 派发到已注册的服务句柄中止传输
+  // 取消任务：按 serviceType 派发到已注册服务句柄中止底层传输,并立即从任务中心删除该任务项
+  // (用户主动取消的没有留存价值;archive-flow onFinish 据此将缺失项视为已取消,排除出 deliverable)
   cancel(data: TaskItem) {
-    setStore("items", i => i.key === data.key, "status", "cancelled")
     services.get(data.serviceType)?.cancel?.(data)
+    setStore("items", prev => prev.filter(i => i.key !== data.key))
   },
   // TODO: FileService 暂无 pause/resume,当前仅翻转 store 状态、未暂停底层传输;待 FileService 支持后补接(经注册表 pause 句柄派发)。
   togglePause(data: TaskItem) {
