@@ -9,19 +9,18 @@ import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
 
-import { ComponentRegistry } from './src/core/componentRegistry'
-import { Pipeline } from './src/pipeline/pipeline'
-import { PipelineContext } from './src/pipeline/pipelineContext'
+import { ComponentRegistry } from './src/core/ComponentRegistry'
+import { Pipeline } from './src/pipeline/Pipeline'
+import { PipelineContext } from './src/pipeline/PipelineContext'
 
-// 步骤
-import { RegisterComponents } from './src/steps/registerComponents'
-import { BuildTrees } from './src/steps/buildTrees'
+import { RegisterComponents } from './src/steps/RegisterComponents'
+import { BuildTrees } from './src/steps/BuildTrees'
 import { NodeMapper } from './src/steps/nodeMapper'
 import { GenerateStyles } from './src/steps/generateStyles'
 import { FileGenerator } from './src/steps/fileGenerator'
-import { GenerateRoutes } from './src/steps/generateRoutes'
-import { WriteOutput } from './src/steps/writeOutput'
-import { GenerateReport } from './src/steps/generateReport'
+import { GenerateRoutes } from './src/steps/GenerateRoutes'
+import { WriteOutput } from './src/steps/WriteOutput'
+import { GenerateReport } from './src/steps/GenerateReport'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
