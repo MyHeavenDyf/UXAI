@@ -43,8 +43,6 @@ function tabArchiveName(tab: ResultTab): string {
   switch (tab.type) {
     case "markdown": return `${base}.md`
     case "json": return `${base}.json`
-    case "mindmap": return `${base}.json`
-    case "table": return `${base}.md`
     case "code": return `${base}.txt`
     default: return base
   }
@@ -54,8 +52,6 @@ function tabArchiveMime(tab: ResultTab): string {
   switch (tab.type) {
     case "markdown": return "text/markdown;charset=utf-8"
     case "json": return "application/json;charset=utf-8"
-    case "mindmap": return "application/json;charset=utf-8"
-    case "table": return "text/markdown;charset=utf-8"
     case "code": return "text/plain;charset=utf-8"
     default: return tab.mimeType || "application/octet-stream"
   }
