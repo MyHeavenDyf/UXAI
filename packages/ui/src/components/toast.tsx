@@ -112,6 +112,7 @@ export interface ToastOptions {
   variant?: ToastVariant
   duration?: number
   persistent?: boolean
+  closable?: boolean
   actions?: ToastAction[]
 }
 
@@ -163,7 +164,9 @@ export function showToast(options: ToastOptions | string) {
           </Toast.Actions>
         </Show>
       </Toast.Content>
-      <Toast.CloseButton />
+      <Show when={opts.closable !== false}>
+        <Toast.CloseButton />
+      </Show>
     </Toast>
   )
   })
