@@ -2195,6 +2195,7 @@ function InsightContent() {
                       {/* SPEC-INS-023 方案 B:ProseMirror 编辑器(行内 @ 灰胶囊 + 内置 @ 面板) */}
                       <ProseMirrorEditor
                         ref={(el) => (pmRefWelcome = el)}
+                        autofocus
                         platformSkills={insightSkills().platform}
                         customSkills={insightSkills().custom}
                         files={mentionFiles() ?? null}
@@ -2428,6 +2429,7 @@ function InsightContent() {
                   {/* SPEC-INS-023 方案 B:ProseMirror 编辑器(行内 @ 灰胶囊 + 内置 @ 面板) */}
                   <ProseMirrorEditor
                     ref={(el) => (pmRefConv = el)}
+                    autofocus
                     platformSkills={insightSkills().platform}
                     customSkills={insightSkills().custom}
                     files={mentionFiles() ?? null}
