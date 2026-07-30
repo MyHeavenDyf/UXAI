@@ -201,7 +201,7 @@ export function SkillsContent(): JSX.Element {
   }
 
   return (
-    <div class="h-full overflow-y-auto" style={{ background: "var(--octo-shell-bg)" }}>
+    <div class="h-full overflow-y-auto" style={{ background: "#fff" }}>
       {/* jk-j60099994-replace-with-60062650-components-skills-content-10-start */}
       <div class="max-w-[640px] mx-auto px-6 py-6 flex flex-col gap-4">
         <div class="flex items-center justify-between">

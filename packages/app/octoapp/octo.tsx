@@ -447,7 +447,23 @@ function FocusModeResetHandler() {
 }
 
 function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
+  return (
+    <SettingsProvider>
+      <PermissionProvider>
+        <LayoutProvider>
+          <RouterInner appChildren={props.appChildren}>
+            {props.children}
+          </RouterInner>
+        </LayoutProvider>
+      </PermissionProvider>
+    </SettingsProvider>
+  )
+}
+
+function RouterInner(props: ParentProps<{ appChildren?: JSX.Element }>) {
   const location = useLocation()
+  const layout = useLayout()
+  const sidebarSource = () => layout.sidebarSource.get()
 
   const isInsightPage = () => {
     const p = location.pathname
@@ -468,42 +484,55 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
     return location.pathname === "/skills"
   }
 
+  // Whether skills is opened from make/pattern context (vs insight/cowork)
+  const skillsFromMake = () => isSkillsPage() && sidebarSource() === "make"
+  const skillsFromPattern = () => isSkillsPage() && sidebarSource() === "pattern"
+
   return (
-    <SettingsProvider>
-      <PermissionProvider>
-        <LayoutProvider>
-          <FocusModeResetHandler />
-          <NotificationProvider>
-            <ModelsProvider>
-              <CommandProvider>
-                <HighlightsProvider>
-                  <Layout>
-                    <OnboardingLayer />
-                    {/* SPEC-INS-010 §11:/insight 由 InsightPage 自带侧栏,不再套 OctoSidebarLayout(否则双侧栏) */}
-                    <Show when={isInsightPage()}>
+    <>
+      <FocusModeResetHandler />
+      <NotificationProvider>
+        <ModelsProvider>
+          <CommandProvider>
+            <HighlightsProvider>
+              <Layout>
+                <OnboardingLayer />
+                {/* SPEC-INS-010 §11:/insight 由 InsightPage 自带侧栏,不再套 OctoSidebarLayout(否则双侧栏) */}
+                <Show when={isInsightPage()}>
+                  {props.children}
+                </Show>
+                {/* Make + skills from make: 共用 MakeSidebarLayout,侧栏不重挂 */}
+                <Show when={isMakePage() || skillsFromMake()}>
+                  <MakeSidebarLayout>
+                    <Show when={isMakePage()} fallback={<SkillsPage />}>
                       {props.children}
                     </Show>
-                    <Show when={isMakePage()}>
-                      <MakeSidebarLayout>{props.children}</MakeSidebarLayout>
-                    </Show>
-                    <Show when={isPatternPage()}>
-                      <PatternSidebarLayout>{props.children}</PatternSidebarLayout>
-                    </Show>
-                    <Show when={isSkillsPage()}>
-                      <SkillsSidebarLayout>{props.children}</SkillsSidebarLayout>
-                    </Show>
-                    <Show when={!isInsightPage() && !isMakePage() && !isPatternPage() && !isSkillsPage()}>
-                      {props.appChildren}
+                  </MakeSidebarLayout>
+                </Show>
+                {/* Pattern + skills from pattern: 共用 PatternSidebarLayout */}
+                <Show when={isPatternPage() || skillsFromPattern()}>
+                  <PatternSidebarLayout>
+                    <Show when={isPatternPage()} fallback={<SkillsPage />}>
                       {props.children}
                     </Show>
-                  </Layout>
-                </HighlightsProvider>
-              </CommandProvider>
-            </ModelsProvider>
-          </NotificationProvider>
-        </LayoutProvider>
-      </PermissionProvider>
-    </SettingsProvider>
+                  </PatternSidebarLayout>
+                </Show>
+                {/* Skills from insight/cowork: InsightSidebarLayout */}
+                <Show when={isSkillsPage() && !skillsFromMake() && !skillsFromPattern()}>
+                  <InsightSidebarLayout>
+                    <SkillsPage />
+                  </InsightSidebarLayout>
+                </Show>
+                <Show when={!isInsightPage() && !isMakePage() && !isPatternPage() && !isSkillsPage()}>
+                  {props.appChildren}
+                  {props.children}
+                </Show>
+              </Layout>
+            </HighlightsProvider>
+          </CommandProvider>
+        </ModelsProvider>
+      </NotificationProvider>
+    </>
   )
 }
 
