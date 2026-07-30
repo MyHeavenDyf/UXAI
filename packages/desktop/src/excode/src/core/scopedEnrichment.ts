@@ -27,6 +27,7 @@ import type {
   BuildNode,
   RegularNode,
 } from './nodeTypes'
+import { pathToJsAccess } from './accessPath'
 
 // ─── collectRelativeCVs ───
 
@@ -119,16 +120,147 @@ export function collectRelativeFields(root: BuildNode): Set<string> {
   return fields
 }
 
+// ─── collectRelativeCVsDeep（enrichScopedData 专用） ───
+
+interface ScopedCV {
+  cv: ComputedValue
+  /**
+   * 外层循环 data 路径链（accessPath），从外到内。
+   * 空 = CV 直接在数据源项上（如 row.title）；['actions'] = CV 在 row.actions[i] 上。
+   */
+  loopChain: string[]
+}
+
+/**
+ * 深度收集 body 中的 relative ComputedValue，深入嵌套 LoopNode 的 template body，
+ * 每个 CV 带上其外层循环 data 路径链（loopChain），供 enrichScopedData 沿链逐层 map 应用。
+ *
+ * 区别于 collectRelativeCVs（浅、跳过循环，供 stateBuilder processLoop 处理正常嵌套循环）：
+ * enrichScopedData 的数据源是外层数据（如 Table 的 twoWorkorderList），内层循环（如 actions）
+ * 的 CV 需应用到 row.actions[i] 上 → 必须深入并记录 loopChain。
+ */
+export function collectRelativeCVsDeep(body: RegularNode[]): ScopedCV[] {
+  const out: ScopedCV[] = []
+  const walk = (n: any, chain: string[]): void => {
+    if (!n) return
+    // ComponentNode / HtmlNode 的 props（当前层 CV）
+    for (const v of Object.values(n.props ?? {})) {
+      if (v && typeof v === 'object' && (v as any).type === 'computed' && (v as any).pathType === 'relative') {
+        out.push({ cv: v as ComputedValue, loopChain: chain })
+      }
+    }
+    // TextNode 的 value 也可能是 ComputedValue
+    if (n.kind === 'text') {
+      const v = n.value
+      if (v && typeof v === 'object' && (v as any).type === 'computed' && (v as any).pathType === 'relative') {
+        out.push({ cv: v as ComputedValue, loopChain: chain })
+      }
+    }
+    // children：loop → 深入 template body（链加上 loop data 路径）；数组 → 递归
+    if (n.kind === 'component' || n.kind === 'html') {
+      const ch = n.children
+      if (ch && ch.kind === 'loop') {
+        const d = ch.data
+        const loopPath = d && typeof d === 'object' ? (d.accessPath ?? d.path) : null
+        const newChain = loopPath ? [...chain, loopPath] : chain
+        for (const c of ch.template?.body ?? []) walk(c, newChain)
+      } else if (Array.isArray(ch)) {
+        for (const c of ch) walk(c, chain)
+      }
+    }
+  }
+  for (const n of body) walk(n, [])
+  return out
+}
+
+// ─── 嵌套 enrichment 辅助（内联；core 层不反向依赖 codegen/stateBuilder） ───
+
+function pathToSegments(path: string): string[] {
+  return path.replace(/^\//, '').split('/').filter(Boolean)
+}
+
+function resolveBySegments(root: any, segments: string[]): any {
+  let cur: any = root
+  for (const seg of segments) {
+    if (cur == null) return undefined
+    cur = cur[seg]
+  }
+  return cur
+}
+
+function parseAccessors(key: string): Array<{ kind: 'field'; field: string } | { kind: 'index'; index: number }> {
+  const out: Array<{ kind: 'field'; field: string } | { kind: 'index'; index: number }> = []
+  for (const part of key.split('.')) {
+    const m = part.match(/^([^\[]*)((?:\[\d+\])*)$/)
+    if (!m) continue
+    const field = m[1]
+    const indices = (m[2].match(/\[(\d+)\]/g) || []).map(s => parseInt(s.slice(1, -1), 10))
+    if (field) out.push({ kind: 'field', field })
+    for (const idx of indices) out.push({ kind: 'index', index: idx })
+  }
+  return out
+}
+
+function setNested(obj: Record<string, any>, key: string, value: any): void {
+  const accessors = parseAccessors(key)
+  let cur: any = obj
+  for (let i = 0; i < accessors.length; i++) {
+    const a = accessors[i]
+    const isLast = i === accessors.length - 1
+    if (a.kind === 'field') {
+      if (isLast) { cur[a.field] = value; return }
+      const wantArray = accessors[i + 1]?.kind === 'index'
+      if (cur[a.field] == null || typeof cur[a.field] !== 'object') cur[a.field] = wantArray ? [] : {}
+      cur = cur[a.field]
+    } else {
+      if (!Array.isArray(cur)) cur = []
+      if (isLast) { cur[a.index] = value; return }
+      const wantArray = accessors[i + 1]?.kind === 'index'
+      if (cur[a.index] == null || typeof cur[a.index] !== 'object') cur[a.index] = wantArray ? [] : {}
+      cur = cur[a.index]
+    }
+  }
+}
+
+/**
+ * 沿 loopChain 逐层 map 进嵌套循环数据数组，最里层应用 cv：
+ *   loopChain 空 → obj[cv.accessPath] = cv.transform(obj[cv.path])
+ *   loopChain=['actions', ...] → 对 obj.actions 每项递归（剥一层）
+ *   （如 row.actions[i].icon = resolveIcon(row.actions[i].icon)）
+ */
+function applyScopedCV(obj: any, loopChain: string[], cv: ComputedValue, cvCtx?: any): void {
+  if (obj == null || typeof obj !== 'object') return
+  if (loopChain.length === 0) {
+    try {
+      const rawValue = resolveBySegments(obj, pathToSegments(cv.path))
+      const writeKey = pathToJsAccess(cv.accessPath ?? cv.path)
+      setNested(obj, writeKey, cv.transform(rawValue, cvCtx))
+    } catch {
+      // skip 单个 CV 失败不影响其余
+    }
+    return
+  }
+  const arr = resolveBySegments(obj, pathToSegments(loopChain[0]))
+  if (Array.isArray(arr)) {
+    const rest = loopChain.slice(1)
+    for (const sub of arr) applyScopedCV(sub, rest, cv, cvCtx)
+  }
+}
+
 // ─── enrichScopedData ───
 
 /**
- * 从已 resolve 的 body 节点中收集 relative ComputedValue，
- * 对数据源做整体 enrichment。
+ * 从已 resolve 的 body 节点中深度收集 relative ComputedValue（含嵌套循环内），
+ * 对数据源逐项做嵌套 enrichment。
  *
- * 等价于 processLoop 的主体逻辑（对每项 map），但不涉及 template 文件拆分。
- * 返回的 ComputedValue 可直接作为 props.dataset 等数据 prop 的值。
+ * 等价于 processLoop 的主体逻辑（对每项 map），但不涉及 template 文件拆分，
+ * 且能处理 body 内的嵌套循环（循环套循环）：内层循环的 CV 沿 loopChain 应用到
+ * row.innerArr[i] 上。返回的 ComputedValue 可直接作为 props.dataset 等数据 prop 的值。
  *
- * @param scopedBinding - 循环数据源（loop.data）
+ * containsJSX 由收集到的 CV 决定：任一含 JSX → 整个数据源归属文件单元 jsxLiteralConsts
+ * （不进 state.js），由 stateBuilder 分流。
+ *
+ * @param scopedBinding - 循环数据源（loop.data / dataSource）
  * @param enrichedBodies - 已 resolve 的 body 节点（如 cells 数组），内部含 relative CV
  * @returns 带 enrichment 的 ComputedValue
  */
@@ -136,8 +268,8 @@ export function enrichScopedData(
   scopedBinding: BindingValue,
   enrichedBodies: BuildNode[],
 ): ComputedValue {
-  const relativeCVs = collectRelativeCVs(enrichedBodies as RegularNode[])
-  const containsJSX = relativeCVs.some(cv => cv.containsJSX)
+  const scopedCVs = collectRelativeCVsDeep(enrichedBodies as RegularNode[])
+  const containsJSX = scopedCVs.some(({ cv }) => cv.containsJSX)
 
   return Value.computed({
     path: scopedBinding.path,
@@ -149,13 +281,10 @@ export function enrichScopedData(
       if (!Array.isArray(rawData)) return []
       return rawData.map((item: any) => {
         if (item === null || typeof item !== 'object') return item
-        const out = { ...item }
-        for (const cv of relativeCVs) {
-          try {
-            out[cv.path] = cv.transform(out[cv.path], cvCtx)
-          } catch {
-            // skip
-          }
+        // deep clone：setNested 写嵌套路径会改 sub-object，shallow copy 会污染 rawState
+        const out = structuredClone(item)
+        for (const { cv, loopChain } of scopedCVs) {
+          applyScopedCV(out, loopChain, cv, cvCtx)
         }
         return out
       })

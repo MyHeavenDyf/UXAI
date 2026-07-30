@@ -41,6 +41,12 @@ import type { PropValue } from '../core/valueTypes'
 import type { PipelineContext } from '../pipeline/pipelineContext'
 import type { BuiltPage } from '../pipeline/pipelineContext'
 
+// ─── 循环模板不抽离的白名单 ───────────────────────────────────────
+// 这些组件是父组件的直接子组件（如 TabItem 之于 Tab），循环 children 不应
+// 抽成单独的 components/{Name}Template.tsx，而是 inline 在 map 回调里渲染。
+// buildTrees 建树时检查 template body 的 component 名，命中则 LoopNode.inline=true。
+const INLINE_LOOP_COMPONENTS = new Set(['TabItem'])
+
 // ─── state path 工具（inline；后续可与 icon-collection.ts#resolvePath 合并到 core/state-path.ts） ───
 
 /** 把 "/a/b/0/c" 或 "a/b/0/c" 归一为 segments */
@@ -375,7 +381,24 @@ export class BuildTrees extends Step {
     // {path} → BindingValue
     if (value && typeof value === 'object' && 'path' in (value as any)) {
       const path = (value as any).path as string
-      const pathType = path.startsWith('/') ? 'absolute' : 'relative'
+      // 路径分类 + 兜底：
+      //   - `/` 前缀 → absolute（真绝对路径，保持原语义）
+      //   - 无 `/` 且在循环内 → relative（沿 loopStack 找 absolute 数据源解析）
+      //   - 无 `/` 且不在循环内 → 兜底：相对路径无 loop 可解析，本应是顶层 state 字段。
+      //     按 absolute 从 state 取值；取到数据 → 当 absolute；取不到 → 丢弃（返回 null），
+      //     避免 emit 成游离裸标识符（useState 初始值 / 引用名不在作用域内，产物不可用）。
+      const hasLeadingSlash = path.startsWith('/')
+      const inLoop = ctx.loopStack.length > 0
+      let pathType: 'absolute' | 'relative'
+      if (hasLeadingSlash) {
+        pathType = 'absolute'
+      } else if (inLoop) {
+        pathType = 'relative'
+      } else {
+        const resolved = resolveBySegments(ctx.state, pathToSegments(path))
+        if (resolved === undefined) return null // 兜底无数据 → 丢弃
+        pathType = 'absolute'
+      }
 
       const binding = Value.binding({
         path,
@@ -500,7 +523,17 @@ export class BuildTrees extends Step {
     // ③ body 建完再填
     extract.body = [templateNode]
 
-    ctx.extracts.push(extract)
+    // 白名单：TabItem 等直接子组件型循环不抽离（inline 在 map 回调里渲染，
+    // 不生成单独的 components/{Name}Template.tsx）
+    if ((templateNode as any).component && INLINE_LOOP_COMPONENTS.has((templateNode as any).component)) {
+      loopNode.inline = true
+    }
+
+    // inline loop 的 extract 不注册到 ctx.extracts——
+    // 否则 GenerateStyles 会为它生成 .less（但 .tsx 不会生成，造成 stale 引用）
+    if (!loopNode.inline) {
+      ctx.extracts.push(extract)
+    }
     return loopNode
   }
 

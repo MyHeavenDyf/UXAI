@@ -19,6 +19,7 @@ import type { BuildNode, ComponentNode, HtmlNode, TextNode, LoopNode, RegularNod
 import type { PropValue } from '../core/valueTypes'
 import { collectRelativeFields } from '../core/scopedEnrichment'
 import { stateRef, computedJsxConstName } from '../core/accessPath'
+import { pathToJsAccess } from '../core/accessPath'
 
 // ─── 选项 ───
 
@@ -41,6 +42,8 @@ export interface EmitOptions {
   selfId?: string
   /** 是否在产物 JSX 标签上输出 id 属性（默认 true） */
   emitId?: boolean
+  /** inline loop 解构时需排除的字段名（enrichment/const 名撞名，由 fileAssembler 从 fileUnit 收集传入） */
+  inlineLoopExcludedFields?: Set<string>
 }
 
 const DEFAULT_OPTS: Required<EmitOptions> = {
@@ -53,6 +56,7 @@ const DEFAULT_OPTS: Required<EmitOptions> = {
   cssModuleVarName: 'styles',
   selfId: '',
   emitId: EMIT_ID_DEFAULT,
+  inlineLoopExcludedFields: new Set<string>(),
 }
 
 function mergedOpts(opts?: EmitOptions): Required<EmitOptions> {
@@ -150,7 +154,8 @@ function emitValue(value: PropValue, opts: Required<EmitOptions>, isPropValue?: 
   // BindingValue / ComputedValue：直接 emit 引用名（state.js destructure 后即为 local var）
   if (v.type === 'binding' || v.type === 'computed') {
     // 相对路径用 `/` 分隔（JSON Pointer），emit 时转 `.` 做属性访问
-    const relPath = (v.accessPath ?? v.path).replace(/\//g, '.')
+    // 相对路径用 `/` 分隔（JSON Pointer），转 JS 属性访问（数字段用 [n]）
+    const relPath = pathToJsAccess(v.accessPath ?? v.path)
     if (v.pathType === 'relative') {
       // 优先级：inTemplate > inRenderFnBody > 主树循环
       if (opts.inTemplate) return `{${relPath}}`
@@ -387,14 +392,66 @@ function emitBuildNodeExpr(v: { tag: string; props: Record<string, any>; selfClo
 
 // ─── 循环 children ───
 //
-// 父组件 emit 形式：{(data || []).map((item, idx) => <Template data={item} key={idx} />)}
-// 模板本身在 assembleComponentTemplate 中渲染，body 内容走 inTemplate 上下文。
+// 抽离模式：{(data || []).map((item, idx) => <Template data={item} key={idx} />)}
+//   模板本身在 assembleComponentTemplate 中渲染，body 内容走 inTemplate 上下文。
+// inline 模式（loop.inline=true，如 TabItem）：body 直接在 map 回调里渲染，
+//   {(data || []).map((item, idx) => <TabItem key={idx} ...>{item.field}</TabItem>)}
+//   相对绑定渲染为 item.field（isInLoop 上下文），不抽成单独文件。
 
 function emitLoop(loop: LoopNode, opts: Required<EmitOptions>): string {
-  // data 已被 tree-finalizer 替换为 VarRefValue({name: constName})
-  const dataVar = (loop.data as any).type === 'varRef' ? (loop.data as any).name : 'data'
+  // data 已被 tree-finalizer 替换为 VarRefValue({name: constName})；
+  // render fn body 内的循环不经 tree-finalizer，loop.data 仍是 BindingValue。
+  //   - varRef → name（主树循环，已被 routeLoopNode 替换）
+  //   - relative binding → accessPath（render fn body 循环，数据源是外层
+  //     render fn destructure 出的字段，如 row.rawData.actions → actions）
+  //   - 兜底 'data'
+  const dataBinding = loop.data as any
+  let dataVar: string
+  if (dataBinding?.type === 'varRef') {
+    dataVar = dataBinding.name
+  } else if (dataBinding?.type === 'binding' && dataBinding.pathType === 'relative') {
+    dataVar = dataBinding.accessPath ?? dataBinding.path ?? 'data'
+  } else {
+    dataVar = 'data'
+  }
   const paramName = loop.loopVar ?? 'item'
-  const templateName = loop.template.componentName ?? 'LoopTemplate'
 
+  // render fn body 内的循环强制 inline：render fn body 本就是 inline 上下文
+  //（无单独模板文件），循环 body 直接在 map 回调里渲染，避免引用未生成的
+  // Template 组件文件。相对绑定在此上下文 emit 为 {item.field}（运行时逐项值）。
+  const forceInline = loop.inline || opts.inRenderFnBody
+
+  // inline：body 直接在 map 回调里渲染（不引用 Template 组件）
+  // 提前解构相对字段（const { f1, f2 } = item），body 内用裸 {f1}（inTemplate 模式，
+  // 与抽离模板一致），避免循环模板复杂时满屏 item.xxx
+  if (forceInline) {
+    const bodyOpts = { ...opts, inTemplate: true }
+    const bodies = loop.template.body
+    const bodyJsx = bodies
+      .map(n => emitNode(n, bodyOpts))
+      .filter(s => s && s !== 'null')
+      .join('\n')
+
+    // 收集相对字段 → 解构行（排除 enrichment/const 名，避免撞名）
+    const excluded = opts.inlineLoopExcludedFields ?? new Set<string>()
+    const fields = new Set<string>()
+    for (const b of bodies) {
+      const f = collectRelativeFields(b)
+      for (const field of f) {
+        if (!excluded.has(field)) fields.add(field)
+      }
+    }
+
+    // 第一个 JSX 元素注入 key={idx}（React list key 要求）
+    const withKey = bodyJsx.replace(/^<([A-Za-z][A-Za-z0-9.]*)/, '<$1 key={idx}')
+
+    if (fields.size > 0) {
+      const sortedFields = [...fields].sort().join(', ')
+      return `{(${dataVar} || []).map((${paramName}, idx) => {\n  const { ${sortedFields} } = ${paramName};\n  return (\n${indent(withKey, 4)}\n  );\n})}`
+    }
+    return `{(${dataVar} || []).map((${paramName}, idx) => ${withKey})}`
+  }
+
+  const templateName = loop.template.componentName ?? 'LoopTemplate'
   return `{(${dataVar} || []).map((${paramName}, idx) => <${templateName} data={${paramName}} key={idx} />)}`
 }
