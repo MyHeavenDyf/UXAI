@@ -1895,6 +1895,7 @@ export default function Page() {
                   followup={undefined}
                   revert={undefined}
                   setPromptDockRef={(el) => { promptDock = el }}
+                  disableAtMention={local.agent.current()?.name === "octo_ai"}
                 />
               </div>
             </div>
@@ -2004,6 +2005,7 @@ export default function Page() {
             setPromptDockRef={(el) => {
               promptDock = el
             }}
+              disableAtMention={local.agent.current()?.name === "octo_ai"}
               />
             </>
           </Show>

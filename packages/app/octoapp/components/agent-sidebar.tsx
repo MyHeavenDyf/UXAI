@@ -50,6 +50,10 @@ export type AgentSidebarProps = {
 
   // ── Nav (optional) ──
   sidebarSourceKey?: "cowork" | "make"
+  /** Custom handler for skill button click. If provided, overrides default navigation to /skills. */
+  onSkillClick?: () => void
+  /** When true, highlights the skill button (for inline panel mode). */
+  skillsActive?: boolean
 }
 
 export function AgentSidebar(props: AgentSidebarProps) {
@@ -321,11 +325,15 @@ export function AgentSidebar(props: AgentSidebarProps) {
       sectionIcon={props.sectionIcon}
       collapsed={collapsed()}
       onToggleCollapse={() => setCollapsed(v => !v)}
-      activeNav={location.pathname === "/skills" ? "skill_market" : activeNav()}
+      activeNav={props.skillsActive || location.pathname === "/skills" ? "skill_market" : activeNav()}
       onNavClick={(key) => {
         if (key === "skill_market") {
-          if (props.sidebarSourceKey) layout.sidebarSource.set(props.sidebarSourceKey)
-          navigate("/skills")
+          if (props.onSkillClick) {
+            props.onSkillClick()
+          } else {
+            if (props.sidebarSourceKey) layout.sidebarSource.set(props.sidebarSourceKey)
+            navigate("/skills")
+          }
         } else {
           setActiveNav(v => v === key ? null : v)
         }
