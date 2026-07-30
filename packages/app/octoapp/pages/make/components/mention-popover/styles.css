@@ -252,3 +252,17 @@
 .mention-secondary-content::-webkit-scrollbar-track {
   background: transparent;
 }
+
+.mention-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 0;
+}
+
+.mention-empty-state-text {
+  margin-top: 18px;
+  font-size: 14px;
+  color: #777777;
+}

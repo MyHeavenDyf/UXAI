@@ -107,6 +107,8 @@ export function ResultViewer(props: {
   planConfirmPending?: boolean
   /** 子 agent 最终确认状态（基于 childSessionIDs 消息流扫描） */
   childPlanConfirmed?: boolean
+  /** 右侧面板抽屉展开时,头部右侧收起按钮回调 */
+  onCollapseDrawer?: () => void
   /** 子 session 的 session_status（用于检测子 agent 是否已完成但未输出有效 plan） */
   childSessionStatus?: { type: string }
   /** 子 session 是否正在生成中（模型输出期间禁用按钮和表单） */
@@ -130,6 +132,7 @@ export function ResultViewer(props: {
   const [commenting, setCommenting] = createSignal(false)
   const [archiving, setArchiving] = createSignal(false)
   const [refreshKey, setRefreshKey] = createSignal(0)
+  const combinedRefreshKey = createMemo(() => refreshKey() + (props.filesRefreshKey ?? 0))
 
   const handleViewportChange = (vp: ViewportPreset) => {
     tracker.interaction({ module: "design", name: "change-viewport", extend: JSON.stringify({ viewport: vp }) })
@@ -310,6 +313,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           showPlanEntry={!!props.planCard}
           planConfirmed={props.isPlanConfirmed?.()}
           planEnded={props.planEnded}
+          onCollapseDrawer={props.onCollapseDrawer}
         />
 
         <Show when={props.viewMode === "files" && props.sessionId}>
@@ -371,26 +375,24 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
 
         {/* plan 模式 — 设计规划生成阶段,有 planCard 时渲染（未确认/未结束状态） */}
         <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && !props.planConfirmPending && !props.childPlanConfirmed && !props.planEnded}>
-          <Show when={props.planCard} keyed>
-            {(plan) => (
-              <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
-                <DesignPlanRenderer
-                  content={plan.content}
-                  title={plan.title}
-                  artifactIdentifier={plan.artifactIdentifier}
-                  confirmed={props.isPlanConfirmed?.() ?? false}
-                  disabled={props.childBusy}
-                  onConfirm={() => props.onConfirmPlan?.(plan.artifactIdentifier)}
-                  onContentChange={(content) => {
-                    if (props.onContentChange && plan.id) {
-                      props.onContentChange(plan.id, content)
-                    }
-                  }}
-                  onBackToStrategy={() => props.onBackToStrategy?.()}
-                  currentStep={2}
-                />
-              </div>
-            )}
+          <Show when={props.planCard}>
+            <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <DesignPlanRenderer
+                content={props.planCard?.content ?? ""}
+                title={props.planCard?.title ?? ""}
+                artifactIdentifier={props.planCard?.artifactIdentifier}
+                confirmed={props.isPlanConfirmed?.() ?? false}
+                disabled={props.childBusy}
+                onConfirm={() => props.onConfirmPlan?.(props.planCard?.artifactIdentifier)}
+                onContentChange={(content) => {
+                  if (props.onContentChange && props.planCard?.id) {
+                    props.onContentChange(props.planCard.id, content)
+                  }
+                }}
+                onBackToStrategy={() => props.onBackToStrategy?.()}
+                currentStep={2}
+              />
+            </div>
           </Show>
         </Show>
 
@@ -584,7 +586,7 @@ drawing={drawing()}
                           onInspectTarget={setInspectTarget}
                           onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
                           onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
-                          refreshKey={refreshKey()}
+                          refreshKey={combinedRefreshKey()}
                           filePath={tab.filePath}
                           commentFilePath={tab.commentFilePath}
                           sessionId={tab.sessionId ?? props.sessionId}
@@ -604,7 +606,7 @@ drawing={drawing()}
                     </Match>
                     <Match when={tabType === "svg"}>
                       <iframe
-                        src={`local:///${tab.filePath?.replace(/\\/g, '/')}?v=${refreshKey()}`}
+                        src={`local:///${tab.filePath?.replace(/\\/g, '/')}?v=${combinedRefreshKey()}`}
                         style={{ width: "100%", height: "100%", border: "none" }}
                       />
                     </Match>
@@ -631,19 +633,19 @@ drawing={drawing()}
                       />
                     </Match>
                     <Match when={tabType === "image"}>
-                      <ImageRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <ImageRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "video"}>
-                      <VideoRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <VideoRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "audio"}>
-                      <AudioRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <AudioRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "pdf"}>
-                      <PdfRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <PdfRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "text"}>
-                      <TextRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <TextRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "file"}>
                       <div class="flex items-center justify-center h-full">

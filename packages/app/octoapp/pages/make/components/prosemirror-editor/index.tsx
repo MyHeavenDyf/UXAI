@@ -30,6 +30,7 @@ interface Props {
   mentionSelections: MentionSelection[]
   setMentionSelections: (selections: MentionSelection[]) => void
   disabled?: boolean
+  autofocus?: boolean
   onSubmit?: () => void
   onTriggerMention?: () => void
   onContentChange?: (text: string) => void
@@ -79,6 +80,8 @@ export const ProseMirrorEditor = (props: Props) => {
     props.setMentionSelections(selections)
     setIsEmpty(empty)
   }, props.onContentChange)
+
+  const connected = (v: EditorView | undefined): v is EditorView => !!v && !!v.dom?.isConnected
 
   onMount(() => {
     if (!containerRef) return
@@ -189,6 +192,15 @@ export const ProseMirrorEditor = (props: Props) => {
           const tr = v.state.tr.insertText(text)
           v.dispatch(tr)
         },
+      })
+    }
+
+    // 自动聚焦放到下一帧:此刻 DOM 刚插入,同帧 focus() 会被随后的布局/父级渲染抢掉
+    if (props.autofocus && !props.disabled) {
+      requestAnimationFrame(() => {
+        if (editorView.dom?.isConnected) {
+          editorView.focus()
+        }
       })
     }
 

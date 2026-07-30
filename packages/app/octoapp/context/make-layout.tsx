@@ -3,6 +3,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  on,
   onCleanup,
   onMount,
   useContext,
@@ -16,6 +17,7 @@ export const MAKE_LEFT_DEFAULT = 296
 export const MAKE_CENTER_MIN = 360
 export const MAKE_RIGHT_MIN = 500
 export const MAKE_CRATIO_DEFAULT = 0.5
+export const MAKE_LEFT_COLLAPSE_BP = 650
 
 const LEFT_KEY = "octo:make:left-width"
 const RATIO_KEY = "octo:make:split-ratio"
@@ -46,6 +48,7 @@ export type MakeLayoutValue = {
   toggleRightDrawer: () => void
   rightManuallyHidden: Accessor<boolean>
   toggleRight: () => void
+  showRight: () => void
 }
 
 const MakeLayoutContext = createContext<MakeLayoutValue>()
@@ -86,7 +89,9 @@ export function MakeLayoutProvider(props: ParentProps) {
     })
   })
 
-  const leftCollapsed = createMemo(() => windowW() <= leftW() + MAKE_CENTER_MIN)
+  const leftCollapsed = createMemo(
+    () => windowW() <= MAKE_LEFT_COLLAPSE_BP || windowW() <= leftW() + MAKE_CENTER_MIN,
+  )
   const rightCollapsed = createMemo(() => windowW() <= leftW() + MAKE_CENTER_MIN + MAKE_RIGHT_MIN)
 
   const centerW = createMemo(() => {
@@ -140,6 +145,12 @@ export function MakeLayoutProvider(props: ParentProps) {
   createEffect(() => {
     document.body.classList.toggle("make-right-drawer-open", rightDrawerOpen())
   })
+  // 窗口收窄到抽屉阈值时,自动收起左侧抽屉,避免遮挡内容
+  createEffect(
+    on(leftCollapsed, (c) => {
+      if (c) setLeftDrawerOpen(false)
+    }),
+  )
   onCleanup(() => {
     document.body.classList.remove("make-left-drawer-open")
     document.body.classList.remove("make-right-drawer-open")
@@ -148,6 +159,15 @@ export function MakeLayoutProvider(props: ParentProps) {
   const toggleRight = () => {
     if (rightCollapsed()) setRightDrawerOpen((v) => !v)
     else setRightManuallyHidden((v) => !v)
+  }
+
+  // 聊天区点击需要在右侧展示内容时:若右侧处于抽屉收起或手动隐藏状态,展开显示
+  const showRight = () => {
+    if (rightCollapsed()) {
+      setRightDrawerOpen(true)
+      return
+    }
+    if (rightManuallyHidden()) setRightManuallyHidden(false)
   }
 
   const value: MakeLayoutValue = {
@@ -166,6 +186,7 @@ export function MakeLayoutProvider(props: ParentProps) {
     toggleRightDrawer: () => setRightDrawerOpen((v) => !v),
     rightManuallyHidden,
     toggleRight,
+    showRight,
   }
 
   return <MakeLayoutContext.Provider value={value}>{props.children}</MakeLayoutContext.Provider>

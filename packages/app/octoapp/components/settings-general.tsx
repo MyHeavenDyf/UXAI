@@ -110,7 +110,7 @@ export const SettingsGeneral: Component = () => {
     try {
       const result = await api.configureProxy(proxyAccount(), proxyPassword())
       if (result.success) {
-        showToast({ variant: "success", title: "已成功配置" })
+        showToast({ variant: "success", title: "已配置成功，如不生效请重启应用" })
       } else {
         showToast({ variant: "error", title: "配置值不正确" })
       }

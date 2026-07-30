@@ -63,7 +63,7 @@ import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
 import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, UploadError } from "../insight/lib/upload"
 import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
-import { type ToolCallInfo } from "./components/tool-call-card"
+import { type ToolCallInfo, toolFamily } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
 import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2"
@@ -601,6 +601,24 @@ const sessionMessagesLoaded = createMemo(() => {
             }
           ])
         }
+      } else if (e.type === "session.next.tool.called") {
+        const callID = props?.callID as string | undefined
+        const toolName = props?.tool as string | undefined
+        if (callID && toolName) {
+          toolCallMap.set(callID, toolName)
+        }
+      } else if (e.type === "session.next.tool.success") {
+        const callID = props?.callID as string | undefined
+        if (callID) {
+          const toolName = toolCallMap.get(callID)
+          if (toolName) {
+            const family = toolFamily(toolName)
+            if (family === "write" || family === "edit") {
+              setFilesRefreshKey(k => k + 1)
+            }
+            toolCallMap.delete(callID)
+          }
+        }
       } else {
         const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
         console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 
@@ -612,6 +630,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const [childSessionIDs, setChildSessionIDs] = createSignal<Set<string>>(new Set())
   const [deltaLog, setDeltaLog] = createSignal<DeltaLogEntry[]>([])
   const loadedChildSessions = new Set<string>()
+  const toolCallMap = new Map<string, string>()
 
   const PLAN_CHILD_LOCALSTORAGE_PREFIX = "octo_make_plan_child:"
   const PLAN_ENDED_LOCALSTORAGE_PREFIX = "octo_make_plan_ended:"
@@ -625,7 +644,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 设计规划是否已结束（退出或确认），用于控制 plan 视图只读模式 */
   // 从 localStorage 同步初始化，确保页面刷新/路由切换后立即生效
-  const [planEnded, setPlanEnded] = createSignal(!!(params.id && localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + params.id)))
+  const [planEnded, setPlanEnded] = createSignal(false)
 
   /** 两步走工作流：当前阶段 */
   const [planPhase, setPlanPhase] = createSignal<"strategy" | "generate">("strategy")
@@ -1176,9 +1195,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (id) setIsGenerating(false)  // plan 出现时复位 isGenerating
   }, { defer: true }))
 
-  // 当模型输出 text/design-plan artifact 或用户发送 [strategy-complete] 时，自动切换到 generate 阶段
-  // - 用户消息中的 [strategy-complete]：用户主动触发生成
-  // - 助手消息中的 text/design-plan：模型已输出设计规划文档
+  // 当模型输出 text/design-plan artifact 时，自动切换到 generate 阶段
+  // 注意：不检测 [strategy-complete]（handleGenerateStrategy 已同步设置 phase，不需要自动检测）
   createEffect(on(
     () => {
       const planSid = activePlanSessionId()
@@ -1190,13 +1208,11 @@ const sessionMessagesLoaded = createMemo(() => {
       if (currentPhase === "generate") return null
       const msgs = sync.data.message?.[planSid]
       if (!msgs) return null
-      // 检测两种条件：用户发送 strategy-complete 或助手输出 design-plan
+      // 只检测助手消息中的 text/design-plan artifact
       for (const m of msgs) {
+        if (m.role !== "assistant") continue
         const text = (sync.data.part?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
-        if (m.role === "user" && text?.includes("[strategy-complete]")) {
-          return "generate"
-        }
-        if (m.role === "assistant" && text?.includes('type="text/design-plan"')) {
+        if (text?.includes('type="text/design-plan"')) {
           return "generate"
         }
       }
@@ -1225,10 +1241,17 @@ const sessionMessagesLoaded = createMemo(() => {
     setPlanPhase("generate")
   }
 
-  /** 用户点击 [上一步] → 返回策略准备阶段 */
+  /** 用户点击 [上一步] / [返回策略准备] → 返回策略准备阶段 */
   function handleBackToStrategy() {
+    const planSid = activePlanSessionId()
+    const key = activeModelKey()
     setUserChangedPhase(true)  // 标记用户手动切换
     setPlanPhase("strategy")
+    setIsGenerating(false)  // 复位生成状态，让按钮可点击、表单可填写
+    // 通知子 agent 回到策略准备阶段，让后续对话上下文正确
+    if (planSid && key) {
+      sendMessage(planSid, "[back-to-strategy]\n\n我们已回到策略准备阶段，之前的策略生成已取消，请忽略之前生成的设计规划文档，继续帮助用户填写策略表单字段。", key).catch(() => {})
+    }
   }
 
   /** 用户点击 [确认开始生成] → 向主 session 发送确认指令，通知主 agent 设计规划已完成，开始生成 HTML */
@@ -1461,6 +1484,7 @@ const sessionMessagesLoaded = createMemo(() => {
         setUserChangedPhase(false)  // 重置手动切换标记
         setManualStrategyFormData({})
         setPhase2Pending(false)
+        setPlanEnded(false)  // 复位结束状态，新 session 的恢复逻辑会重新设置
       }
       // 尝试恢复当前主 session 的设计规划子 session
       let restoredPlanSid: string | null = null
@@ -1513,11 +1537,11 @@ const sessionMessagesLoaded = createMemo(() => {
         // 使用 isPlanConfirmed 检测确认状态（包括 [confirm-plan] 和 text/html artifact）
         const isConfirmed = planIdent ? isPlanConfirmed(childMessages, childParts, planIdent) : false
 
-        // 检测子 session 消息流中是否已有 design-plan artifact 或 strategy-complete 标记
+        // 检测子 session 消息流中是否已有 design-plan artifact
         const hasDesignPlan = childMessages?.some((m: any) => {
           if (m.role !== "assistant") return false
           const text = (childParts?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
-          return text?.includes('type="text/design-plan"') || text?.includes("[strategy-complete]")
+          return text?.includes('type="text/design-plan"')
         })
 
         if (isConfirmed) {
@@ -1671,7 +1695,31 @@ const sessionMessagesLoaded = createMemo(() => {
     { defer: true }
   ))
 
-    // 设计方案(design-plan)显示策略:plan 不再自动占用右侧 ResultViewer。
+    // 监控子 session 状态：子 agent 空闲但无有效 plan 时复位 isGenerating（弱模型格式异常兜底）
+  createEffect(on(
+    () => {
+      const planSid = activePlanSessionId()
+      return planSid ? sync.data.session_status[planSid]?.type : null
+    },
+    (statusType) => {
+      if (statusType === "idle" && isGenerating()) {
+        // 子 agent 空闲了但 isGenerating 仍为 true，说明模型未输出有效 design-plan
+        // 检查是否确实没有 planCard
+        const planSid = activePlanSessionId()
+        if (!planSid) return
+        const card = scanDesignPlanFromMessages(sync.data.message?.[planSid], sync.data.part, planSid)
+        if (!card) {
+          // 无有效 plan，安全复位
+          setIsGenerating(false)
+          setPlanPhase("strategy")
+          setUserChangedPhase(true)
+        }
+      }
+    },
+    { defer: true }
+  ))
+
+  // 设计方案(design-plan)显示策略:plan 不再自动占用右侧 ResultViewer。
   // 而是显示为输入框上方的横条(banner),用户主动点击后才把 plan 放进 ResultViewer。
   // 用户一旦查看过(plan tab 已存在),后续 plan 内容更新会通过 openTab 的 existing 分支自动刷新。
 
@@ -1994,7 +2042,7 @@ const sessionMessagesLoaded = createMemo(() => {
       // 每轮注入,确保 agent 始终知道如何获取视觉资源。
       const resourceLibraryPrefix = [
         `[Resource Library]`,
-        `当需要图标、插画、图片等视觉资源时，如果用户未指定来源，且如果存在resourceLibrary这个skill，必须使用 resourceLibrary skill 来获取这些资源。`,
+        `当需要图标、插画、图片等视觉资源时，如果用户未指定来源，必须先去当前注入的artifact路径去找这个配置文件：{session-dir}/resource/assets_config.json，然后去找这个json里面的user字段里面的useResourceLibrary字段，如果存在这个字段且值为true而且如果存在resourceLibrary这个skill就必须使用 resourceLibrary skill 来获取这些资源。`,
         `resourceLibrary 不在 available_skills 列表中，是一个独立路径的 skill，不能通过 skill 工具调用。`,
         `使用方式：`,
         `1. 用 glob 工具查找 SKILL.md：glob path="~/.config/octo" pattern="**/resourceLibraryScript/resourceLibrary/SKILL.md"`,
@@ -2630,7 +2678,7 @@ if (dsId) {
           }
         }
       } catch (err) {
-        console.error("[handleSpecSelect] Failed to parse dialog response:", err)
+        console.warn("[handleSpecSelect] Failed to parse dialog response:", err)
       }
     })
   }
@@ -2713,6 +2761,7 @@ if (dsId) {
   /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
   async function handleOpenResult(card: OutputCard) {
     setResultViewMode("tabs")
+    ml.showRight()
     
     // URL 类型：跳过文件推断和加载
     const isUrl = card.filePath?.match(/^https?:\/\//i)
@@ -3138,6 +3187,7 @@ if (dsId) {
                        mentionSelections={mentionSelections()}
                        setMentionSelections={setMentionSelections}
                        disabled={inputDisabled()}
+                       autofocus
                        onTriggerMention={loadSkillConfig}
                        onContentChange={setPrompt}
                        onSubmit={() => void handleSubmit()}
@@ -3448,13 +3498,14 @@ if (dsId) {
                   />
 
 <ProseMirrorEditor
-                     sessionId={params.id!}
-                     skillConfig={skillConfig() ?? {}}
-                     artifactFiles={artifactFilesMirror()}
-                     mentionSelections={mentionSelections()}
-                     setMentionSelections={setMentionSelections}
-                     disabled={inputDisabled()}
-                     onTriggerMention={loadSkillConfig}
+                      sessionId={params.id!}
+                      skillConfig={skillConfig() ?? {}}
+                      artifactFiles={artifactFilesMirror()}
+                      mentionSelections={mentionSelections()}
+                      setMentionSelections={setMentionSelections}
+                      disabled={inputDisabled()}
+                      autofocus
+                      onTriggerMention={loadSkillConfig}
                      onContentChange={setPrompt}
                      onSubmit={() => void handleSubmit()}
                      onPaste={handlePaste}
@@ -3549,7 +3600,9 @@ onSlashTrigger={(query) => {
 
         {/* ── 右栏：ResultViewer + Version Panel ──── */}
         <Show when={gridHasContent()}>
-        <div class="make-right-overlay" onClick={() => ml.toggleRightDrawer()} />
+        <Show when={!focusMode()}>
+          <div class="make-right-overlay" onClick={() => ml.toggleRightDrawer()} />
+        </Show>
         <div
           class="flex flex-col overflow-hidden"
           classList={{ "make-right-panel": true, "is-collapsed": !hideChat() && (ml.rightCollapsed() || ml.rightManuallyHidden()) }}
@@ -3615,6 +3668,11 @@ onSlashTrigger={(query) => {
                 sdkDirectory={sdk.directory || ""}
                 focusMode={focusMode()}
                 onFocusModeToggle={() => layout.focusMode.toggle()}
+                onCollapseDrawer={
+                  !focusMode() && ml.rightCollapsed() && ml.rightDrawerOpen()
+                    ? ml.toggleRightDrawer
+                    : undefined
+                }
                 onConfirmPlan={handleConfirmPlan}
                 onAdjustPlan={handleAdjustPlan}
                 isPlanConfirmed={planButtonDisabled}
