@@ -11,9 +11,9 @@
  *   下。walkPropsForImports 负责递归扫描 prop 值，收集这些内嵌节点的 import。
  */
 
-import type { BuildNode, ComponentNode, HtmlNode, ExtractNode, LoopNode, RegularNode } from '../core/nodeTypes'
-import type { ImportSpec, PropValue } from '../core/valueTypes'
-import { getIconPackage } from '../core/iconCollection'
+import type { BuildNode, ComponentNode, HtmlNode, ExtractNode, LoopNode, RegularNode } from '../core/node-types'
+import type { ImportSpec, PropValue } from '../core/value-types'
+import { getIconPackage } from '../core/icon-collection'
 
 interface ImportEntry {
   default: string | null

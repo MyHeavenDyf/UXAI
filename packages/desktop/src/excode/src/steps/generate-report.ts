@@ -8,8 +8,8 @@
  */
 
 import { Step } from '../core/step'
-import type { PipelineContext } from '../pipeline/pipelineContext'
-import { buildStatsFromContext, buildReportMarkdown } from '../codegen/reportGenerator'
+import type { PipelineContext } from '../pipeline/pipeline-context'
+import { buildStatsFromContext, buildReportMarkdown } from '../codegen/report-generator'
 
 export class GenerateReport extends Step {
   async execute(ctx: PipelineContext): Promise<void> {

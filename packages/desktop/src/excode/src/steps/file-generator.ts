@@ -13,12 +13,12 @@
  */
 
 import { Step } from '../core/step'
-import type { PipelineContext } from '../pipeline/pipelineContext'
-import type { MappedPage } from '../pipeline/pipelineContext'
-import { buildState, type StateBuilderResult } from '../codegen/stateBuilder'
-import { finalizeTree, type TreeFinalizerResult } from '../codegen/treeFinalizer'
-import { assembleAllFiles } from '../codegen/fileAssembler'
-import { fileKeyOf } from '../core/fileKeys'
+import type { PipelineContext } from '../pipeline/pipeline-context'
+import type { MappedPage } from '../pipeline/pipeline-context'
+import { buildState, type StateBuilderResult } from '../codegen/state-builder'
+import { finalizeTree, type TreeFinalizerResult } from '../codegen/tree-finalizer'
+import { assembleAllFiles } from '../codegen/file-assembler'
+import { fileKeyOf } from '../core/file-keys'
 import {
   StyleConverter,
   buildStyleImportMap,
@@ -27,7 +27,7 @@ import {
   toPascalCase,
   type LessRule,
   type StyleResult,
-} from '../codegen/styleConverter'
+} from '../codegen/style-converter'
 
 export class FileGenerator extends Step {
   async execute(ctx: PipelineContext): Promise<void> {

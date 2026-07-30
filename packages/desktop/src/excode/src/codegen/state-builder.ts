@@ -25,14 +25,14 @@
  * tree-finalizer 不再需要 rewriteValueForVars。
  */
 
-import type { MappedPage } from '../pipeline/pipelineContext'
-import type { BuildNode, LoopNode, ExtractNode, RegularNode, LoopScope, RenderFnScope, Scope } from '../core/nodeTypes'
-import type { BindingValue, ComputedValue, ComputedTransformCtx, PropValue } from '../core/valueTypes'
-import { resolveIcon } from '../core/iconCollection'
-import { collectRelativeCVs } from '../core/scopedEnrichment'
-import { rewriteResourcePathsInValue } from '../core/resourcePath'
-import { jsxConstName, pathToJsAccess } from '../core/accessPath'
-import { serializePlainJs } from './jsSerializer'
+import type { MappedPage } from '../pipeline/pipeline-context'
+import type { BuildNode, LoopNode, ExtractNode, RegularNode, LoopScope, RenderFnScope, Scope } from '../core/node-types'
+import type { BindingValue, ComputedValue, ComputedTransformCtx, PropValue } from '../core/value-types'
+import { resolveIcon } from '../core/icon-collection'
+import { collectRelativeCVs } from '../core/scoped-enrichment'
+import { rewriteResourcePathsInValue } from '../core/resource-path'
+import { jsxConstName, pathToJsAccess } from '../core/access-path'
+import { serializePlainJs } from './js-serializer'
 
 // ─── 文件单元 ───
 
@@ -288,7 +288,7 @@ function generateStateFileContent(stateEntries: Record<string, any>): string {
 }
 
 // ─── 构建 computed key ───
-// 语义已收拢到 core/accessPath.ts（jsxConstName / computedJsxConstName / stateRef / isFlatAccessPath），
+// 语义已收拢到 core/access-path.ts（jsxConstName / computedJsxConstName / stateRef / isFlatAccessPath），
 // stateBuilder 与 jsxEmitter / treeFinalizer / fileAssembler 共用，保证 const 名、引用、destructure 一致。
 
 function makeComputedKey(cv: ComputedValue, nodeId?: string, propKey?: string): string {

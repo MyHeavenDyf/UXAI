@@ -9,9 +9,9 @@ import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
 
-import { ComponentRegistry } from './src/core/componentRegistry'
+import { ComponentRegistry } from './src/core/component-registry'
 import { Pipeline } from './src/pipeline/pipeline'
-import { PipelineContext } from './src/pipeline/pipelineContext'
+import { PipelineContext } from './src/pipeline/pipeline-context'
 
 // 步骤
 import { RegisterComponents } from './src/steps/register-components'

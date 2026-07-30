@@ -15,11 +15,11 @@
 /** 是否在产物 JSX 标签上输出 `id` 属性。设为 false 则所有标签不带 id。className 不受影响。 */
 const EMIT_ID_DEFAULT = true
 
-import type { BuildNode, ComponentNode, HtmlNode, TextNode, LoopNode, RegularNode } from '../core/nodeTypes'
-import type { PropValue } from '../core/valueTypes'
-import { collectRelativeFields } from '../core/scopedEnrichment'
-import { stateRef, computedJsxConstName } from '../core/accessPath'
-import { pathToJsAccess } from '../core/accessPath'
+import type { BuildNode, ComponentNode, HtmlNode, TextNode, LoopNode, RegularNode } from '../core/node-types'
+import type { PropValue } from '../core/value-types'
+import { collectRelativeFields } from '../core/scoped-enrichment'
+import { stateRef, computedJsxConstName } from '../core/access-path'
+import { pathToJsAccess } from '../core/access-path'
 
 // ─── 选项 ───
 
