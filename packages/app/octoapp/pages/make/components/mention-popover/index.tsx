@@ -4,6 +4,7 @@ import type { PanelSkill } from "../skill-config-types"
 import type { ArtifactFile } from "../../utils/artifact-file-api"
 import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "./icons"
 import { getFileIcon } from "../../icons/file-type-icons"
+import { IconActionFolder } from "../../../insight/icons"
 import "./styles.css"
 
 export type MentionTab = 'skills' | 'files'
@@ -74,7 +75,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const filteredFiles = createMemo(() => {
     const q = props.query.toLowerCase()
     const files = props.artifactFiles
-    if (!files) return null
+    if (!files) return { generated: [], uploaded: [] }
     
     const generated = files.generated.filter(f => f.name.toLowerCase().includes(q))
     const uploaded = files.uploaded.filter(f => f.name.toLowerCase().includes(q))
@@ -279,6 +280,12 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <div class="mention-secondary-panel" style={secondaryPanelStyle()}>
             <div class="mention-files-header">当前会话</div>
             <div class="mention-secondary-content mention-secondary-content--files">
+              <Show when={files().generated.length === 0 && files().uploaded.length === 0}>
+                <div class="mention-empty-state">
+                  <IconActionFolder />
+                  <span class="mention-empty-state-text">暂无内容</span>
+                </div>
+              </Show>
               <Show when={files().generated.length > 0}>
                 <div class="mention-section-title">生成文件</div>
                 <For each={files().generated}>

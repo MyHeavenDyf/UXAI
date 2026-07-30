@@ -63,7 +63,7 @@ import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
 import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, UploadError } from "../insight/lib/upload"
 import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
-import { type ToolCallInfo } from "./components/tool-call-card"
+import { type ToolCallInfo, toolFamily } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
 import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2"
@@ -600,6 +600,14 @@ const sessionMessagesLoaded = createMemo(() => {
               delta: partText,
             }
           ])
+        }
+      } else if (e.type === "session.next.tool.success") {
+        const toolName = props?.name as string | undefined
+        if (toolName) {
+          const family = toolFamily(toolName)
+          if (family === "write" || family === "edit") {
+            setFilesRefreshKey(k => k + 1)
+          }
         }
       } else {
         const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
@@ -2630,7 +2638,7 @@ if (dsId) {
           }
         }
       } catch (err) {
-        console.error("[handleSpecSelect] Failed to parse dialog response:", err)
+        console.warn("[handleSpecSelect] Failed to parse dialog response:", err)
       }
     })
   }
