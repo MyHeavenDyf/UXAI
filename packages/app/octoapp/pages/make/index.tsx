@@ -601,12 +601,22 @@ const sessionMessagesLoaded = createMemo(() => {
             }
           ])
         }
+      } else if (e.type === "session.next.tool.called") {
+        const callID = props?.callID as string | undefined
+        const toolName = props?.tool as string | undefined
+        if (callID && toolName) {
+          toolCallMap.set(callID, toolName)
+        }
       } else if (e.type === "session.next.tool.success") {
-        const toolName = props?.name as string | undefined
-        if (toolName) {
-          const family = toolFamily(toolName)
-          if (family === "write" || family === "edit") {
-            setFilesRefreshKey(k => k + 1)
+        const callID = props?.callID as string | undefined
+        if (callID) {
+          const toolName = toolCallMap.get(callID)
+          if (toolName) {
+            const family = toolFamily(toolName)
+            if (family === "write" || family === "edit") {
+              setFilesRefreshKey(k => k + 1)
+            }
+            toolCallMap.delete(callID)
           }
         }
       } else {
@@ -620,6 +630,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const [childSessionIDs, setChildSessionIDs] = createSignal<Set<string>>(new Set())
   const [deltaLog, setDeltaLog] = createSignal<DeltaLogEntry[]>([])
   const loadedChildSessions = new Set<string>()
+  const toolCallMap = new Map<string, string>()
 
   const PLAN_CHILD_LOCALSTORAGE_PREFIX = "octo_make_plan_child:"
   const PLAN_ENDED_LOCALSTORAGE_PREFIX = "octo_make_plan_ended:"
@@ -3175,6 +3186,7 @@ if (dsId) {
                        mentionSelections={mentionSelections()}
                        setMentionSelections={setMentionSelections}
                        disabled={inputDisabled()}
+                       autofocus
                        onTriggerMention={loadSkillConfig}
                        onContentChange={setPrompt}
                        onSubmit={() => void handleSubmit()}
@@ -3485,13 +3497,14 @@ if (dsId) {
                   />
 
 <ProseMirrorEditor
-                     sessionId={params.id!}
-                     skillConfig={skillConfig() ?? {}}
-                     artifactFiles={artifactFilesMirror()}
-                     mentionSelections={mentionSelections()}
-                     setMentionSelections={setMentionSelections}
-                     disabled={inputDisabled()}
-                     onTriggerMention={loadSkillConfig}
+                      sessionId={params.id!}
+                      skillConfig={skillConfig() ?? {}}
+                      artifactFiles={artifactFilesMirror()}
+                      mentionSelections={mentionSelections()}
+                      setMentionSelections={setMentionSelections}
+                      disabled={inputDisabled()}
+                      autofocus
+                      onTriggerMention={loadSkillConfig}
                      onContentChange={setPrompt}
                      onSubmit={() => void handleSubmit()}
                      onPaste={handlePaste}
