@@ -24,6 +24,8 @@
  *
  * - Crumbs 的 `seprator` prop 名含拼写变体（文档如此），非笔误
  * - separator 为全局分隔符，A2UI items 中每个 item 的独立 separator 不保留
+ *
+ * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
  */
 
 import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
@@ -50,66 +52,66 @@ function normalizeCrumb(item: any): any {
 
 // ─── Breadcrumb → Crumbs 映射定义 ───
 
-const BreadcrumbMapping: MappingDef = {
-  tag: 'Crumbs',
-  import: '@nce/eview-react/Crumbs',
+export function createBreadcrumbMapping(pkg: string): MappingDef {
+  return {
+    tag: 'Crumbs',
+    import: `${pkg}/Crumbs`,
 
-  transform(node: any, _ctx: TransformContext) {
-    const props = node.props || {}
-    const outputProps: Record<string, PropValue> = {}
-    const SKIP_KEYS = new Set(['items', 'separator', 'className'])
+    transform(node: any, _ctx: TransformContext) {
+      const props = node.props || {}
+      const outputProps: Record<string, PropValue> = {}
+      const SKIP_KEYS = new Set(['items', 'separator', 'className'])
 
-    // ─── items → data（过滤 + 归一化） ───
-    if ('items' in props) {
-      const items = props.items
-      if (items && typeof items === 'object' && items.type === 'binding') {
-        // DataBinding → ComputedValue
-        outputProps.data = Value.computed({
-          path: items.path,
-          pathType: items.pathType ?? 'absolute',
-          accessPath: items.accessPath,
-          containsJSX: false,
-          transform: (rawItems) => {
-            const arr = Array.isArray(rawItems) ? rawItems : []
-            return arr.map(normalizeCrumb).filter(Boolean)
-          },
-        })
-      } else if (Array.isArray(items)) {
-        // 字面量 → 直接转换
-        outputProps.data = items
-          .map(normalizeCrumb)
-          .filter(Boolean) as PropValue
+      // ─── items → data（过滤 + 归一化） ───
+      if ('items' in props) {
+        const items = props.items
+        if (items && typeof items === 'object' && items.type === 'binding') {
+          // DataBinding → ComputedValue
+          outputProps.data = Value.computed({
+            path: items.path,
+            pathType: items.pathType ?? 'absolute',
+            accessPath: items.accessPath,
+            containsJSX: false,
+            transform: (rawItems) => {
+              const arr = Array.isArray(rawItems) ? rawItems : []
+              return arr.map(normalizeCrumb).filter(Boolean)
+            },
+          })
+        } else if (Array.isArray(items)) {
+          // 字面量 → 直接转换
+          outputProps.data = items
+            .map(normalizeCrumb)
+            .filter(Boolean) as PropValue
+        }
       }
-    }
 
-    // ─── separator → seprator（改名透传） ───
-    if ('separator' in props) {
-      const sep = props.separator
-      if (sep && typeof sep === 'object' && sep.type === 'binding') {
-        // DataBinding → BindingValue 原样透传（只改名）
-        outputProps.seprator = sep as PropValue
-      } else if (typeof sep === 'string') {
-        outputProps.seprator = sep
+      // ─── separator → seprator（改名透传） ───
+      if ('separator' in props) {
+        const sep = props.separator
+        if (sep && typeof sep === 'object' && sep.type === 'binding') {
+          // DataBinding → BindingValue 原样透传（只改名）
+          outputProps.seprator = sep as PropValue
+        } else if (typeof sep === 'string') {
+          outputProps.seprator = sep
+        }
       }
-    }
 
-    // ─── className 透传 ───
-    if (props.className) {
-      outputProps.className = props.className
-    }
-
-    // ─── 剩余 prop 透传 ───
-    for (const [key, value] of Object.entries(props)) {
-      if (!SKIP_KEYS.has(key)) {
-        outputProps[key] = value as PropValue
+      // ─── className 透传 ───
+      if (props.className) {
+        outputProps.className = props.className
       }
-    }
 
-    return {
-      props: outputProps,
-      children: null,
-    }
-  },
+      // ─── 剩余 prop 透传 ───
+      for (const [key, value] of Object.entries(props)) {
+        if (!SKIP_KEYS.has(key)) {
+          outputProps[key] = value as PropValue
+        }
+      }
+
+      return {
+        props: outputProps,
+        children: null,
+      }
+    },
+  }
 }
-
-export default BreadcrumbMapping

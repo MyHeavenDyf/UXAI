@@ -1205,7 +1205,7 @@ return (
               />
             </div>
           ) : (
-            <div style={{ "min-width": "800px", height: "100%" }}>
+            <div style={{ height: "100%", overflow: "auto" }}>
               <iframe
                 ref={iframeRef}
                 src={shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined)}

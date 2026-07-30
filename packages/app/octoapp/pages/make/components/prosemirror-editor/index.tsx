@@ -9,7 +9,6 @@ import { editorSchema, getDocTextWithMentions, extractMentionsFromDoc, type Ment
 import { createMentionTriggerPlugin, mentionTriggerKey, closeMentionTrigger, type MentionTriggerState } from "./plugins/mention-trigger"
 import { createSyncPlugin } from "./plugins/sync"
 import { atomKeymap } from "./plugins/atom-keymap"
-import { createNoEmptyParagraphPlugin } from "./plugins/no-empty-paragraph"
 import { createSlashTriggerPlugin, slashTriggerKey, type SlashTriggerState } from "./plugins/slash-trigger"
 import { MentionPopover, type MentionSelection } from "../mention-popover"
 import type { PanelSkill } from "../skill-config-types"
@@ -95,6 +94,18 @@ export const ProseMirrorEditor = (props: Props) => {
           "Enter": (state, dispatch, view) => {
             if (props.disabled) return false
             
+            // If mention popover is open, don't send message
+            const mentionTrigger = mentionTriggerKey.getState(state)
+            if (mentionTrigger?.active) {
+              return false
+            }
+            
+            // If slash popover is open, don't send message
+            const slashTrigger = slashTriggerKey.getState(state)
+            if (slashTrigger?.active) {
+              return false
+            }
+            
             // Check for /preview command
             const text = getDocTextWithMentions(state.doc).trim()
             const previewMatch = text.match(/^\/preview\s+(.+)$/)
@@ -108,6 +119,25 @@ export const ProseMirrorEditor = (props: Props) => {
             return true
           },
           "Shift-Enter": (state, dispatch) => {
+            if (props.disabled) return false
+            const hardBreak = state.schema.nodes.hard_break
+            if (dispatch) {
+              dispatch(state.tr.replaceSelectionWith(hardBreak.create()))
+            }
+            return true
+          },
+          "ArrowUp": (state, dispatch) => {
+            const mentionTrigger = mentionTriggerKey.getState(state)
+            if (mentionTrigger?.active) {
+              return false  // Let MentionPopover handle it
+            }
+            return false
+          },
+          "ArrowDown": (state, dispatch) => {
+            const mentionTrigger = mentionTriggerKey.getState(state)
+            if (mentionTrigger?.active) {
+              return false  // Let MentionPopover handle it
+            }
             return false
           },
         }),
@@ -116,7 +146,6 @@ export const ProseMirrorEditor = (props: Props) => {
         mentionTriggerPlugin,
         slashTriggerPlugin,
         syncPlugin,
-        createNoEmptyParagraphPlugin(),
       ],
     })
 

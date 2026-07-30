@@ -6,6 +6,7 @@ import { createEffect, createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { materializeUriCardToOutputs } from "../utils/local-resource"
+import { notifyMaterializeFailure } from "../utils/materialize-notify"
 import { OutputEntryCard } from "./output-entry-card"
 import { scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
 import { isMindmapJSON } from "../utils/mindmap-adapter"
@@ -370,9 +371,26 @@ export function InsightTurn(props: {
       if (card.source !== "uri" || !card.uri) continue
       if (!dir || !props.sessionID) continue
       eagerMaterializedCardIds.add(card.id)
-      void materializeUriCardToOutputs(card, dir, props.sessionID).then(() => props.onFilesRefresh?.())
+      void materializeUriCardToOutputs(card, dir, props.sessionID).then((r) => {
+        notifyMaterializeFailure(r)
+        props.onFilesRefresh?.()
+      })
     }
   })
+
+  // 失败卡「重试」:eagerMaterializedCardIds 是「已发起过」的去重集,重试要先摘掉这张卡的记号,
+  // 否则上面的 effect 认为已发起、不会再跑。摘完直接重新发起一次(不依赖 effect 重跑,
+  // 用户点了就该立刻有反应),状态由 materializeUriCardToOutputs 自己置回 pending。
+  function retryMaterialize(card: OutputCard): void {
+    const dir = eagerProjectDir()
+    if (!dir || !props.sessionID) return
+    eagerMaterializedCardIds.delete(card.id)
+    eagerMaterializedCardIds.add(card.id)
+    void materializeUriCardToOutputs(card, dir, props.sessionID).then((r) => {
+      notifyMaterializeFailure(r)
+      props.onFilesRefresh?.()
+    })
+  }
 
   // 文件管理刷新覆盖**全部** write 产物(不止出卡的 md/html):任何 write 都落 outputs,写完要通知文件
   // 管理刷新,否则新文件要用户手点刷新才出现。故此处仍扫全量 findWriteCards(不按白名单过滤),与出卡的
@@ -522,7 +540,13 @@ export function InsightTurn(props: {
           - 入口卡是"附加预览能力",不替代对话内容
           - 类型差异化文案:html 称"可视化"、mindmap 称"思维导图"、table 称"表格"等 */}
       <For each={outputCards()}>
-        {(card) => <OutputEntryCard card={card} onClick={() => props.onOpenResult(card)} />}
+        {(card) => (
+          <OutputEntryCard
+            card={card}
+            onClick={() => props.onOpenResult(card)}
+            onRetry={() => retryMaterialize(card)}
+          />
+        )}
       </For>
 
       {/* 长任务卡片(spec: docs/specs/ui/task-card.md §5) */}

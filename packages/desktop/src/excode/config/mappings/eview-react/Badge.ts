@@ -24,6 +24,8 @@
  * - color → badgeStyle.backgroundColor，与已有的 badgeStyle 合并
  * - status processing 在 eview-react 中无对应枚举，降级为 default
  * - children 透传（Badge 需要包裹一个子元素）
+ *
+ * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
  */
 
 import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
@@ -41,65 +43,65 @@ const STATUS_MAP: Record<string, string> = {
 
 // ─── Badge 映射定义 ───
 
-const BadgeMapping: MappingDef = {
-  tag: 'Badge',
-  import: '@nce/eview-react/Badge',
+export function createBadgeMapping(pkg: string): MappingDef {
+  return {
+    tag: 'Badge',
+    import: `${pkg}/Badge`,
 
-  transform(node: any, ctx: TransformContext) {
-    const props = node.props || {}
-    const outputProps: Record<string, PropValue> = {}
-    const SKIP_KEYS = new Set([
-      'count', 'overflowCount', 'status', 'color', 'dot', 'offset',
-      'showZero', 'className',
-    ])
+    transform(node: any, ctx: TransformContext) {
+      const props = node.props || {}
+      const outputProps: Record<string, PropValue> = {}
+      const SKIP_KEYS = new Set([
+        'count', 'overflowCount', 'status', 'color', 'dot', 'offset',
+        'showZero', 'className',
+      ])
 
-    // ─── count → content（双形态） ───
-    if ('count' in props) {
-      // DataBinding → 保持原样；字面量 → 直接赋值
-      outputProps.content = props.count as PropValue
-    }
-
-    // ─── overflowCount → max ───
-    if (props.overflowCount !== undefined) {
-      outputProps.max = props.overflowCount
-    }
-
-    // ─── status 值映射 ───
-    if (props.status) {
-      outputProps.status = STATUS_MAP[props.status] ?? props.status
-    }
-
-    // ─── color → badgeStyle.backgroundColor ───
-    if ('color' in props && typeof props.color === 'string') {
-      const existingStyle = outputProps.badgeStyle
-        ? { ...(outputProps.badgeStyle as any) }
-        : {}
-      outputProps.badgeStyle = {
-        ...existingStyle,
-        backgroundColor: props.color,
-      } as any
-    }
-
-    // ─── dot / offset / showZero 透传 ───
-    if (props.dot !== undefined) outputProps.dot = props.dot
-    if (props.offset !== undefined) outputProps.offset = props.offset
-    if (props.showZero !== undefined) outputProps.showZero = props.showZero
-
-    // ─── className 透传 ───
-    if (props.className) outputProps.className = props.className
-
-    // ─── 透传剩余 prop ───
-    for (const [key, value] of Object.entries(props)) {
-      if (!SKIP_KEYS.has(key)) {
-        outputProps[key] = value as PropValue
+      // ─── count → content（双形态） ───
+      if ('count' in props) {
+        // DataBinding → 保持原样；字面量 → 直接赋值
+        outputProps.content = props.count as PropValue
       }
-    }
 
-    return {
-      props: outputProps,
-      // children 透传（Badge 需要包裹子元素）
-    }
-  },
+      // ─── overflowCount → max ───
+      if (props.overflowCount !== undefined) {
+        outputProps.max = props.overflowCount
+      }
+
+      // ─── status 值映射 ───
+      if (props.status) {
+        outputProps.status = STATUS_MAP[props.status] ?? props.status
+      }
+
+      // ─── color → badgeStyle.backgroundColor ───
+      if ('color' in props && typeof props.color === 'string') {
+        const existingStyle = outputProps.badgeStyle
+          ? { ...(outputProps.badgeStyle as any) }
+          : {}
+        outputProps.badgeStyle = {
+          ...existingStyle,
+          backgroundColor: props.color,
+        } as any
+      }
+
+      // ─── dot / offset / showZero 透传 ───
+      if (props.dot !== undefined) outputProps.dot = props.dot
+      if (props.offset !== undefined) outputProps.offset = props.offset
+      if (props.showZero !== undefined) outputProps.showZero = props.showZero
+
+      // ─── className 透传 ───
+      if (props.className) outputProps.className = props.className
+
+      // ─── 透传剩余 prop ───
+      for (const [key, value] of Object.entries(props)) {
+        if (!SKIP_KEYS.has(key)) {
+          outputProps[key] = value as PropValue
+        }
+      }
+
+      return {
+        props: outputProps,
+        // children 透传（Badge 需要包裹子元素）
+      }
+    },
+  }
 }
-
-export default BadgeMapping

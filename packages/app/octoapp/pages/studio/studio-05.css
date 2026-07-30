@@ -148,6 +148,12 @@
   gap: 12px;
 }
 
+.studio-inpaint-prompt-wrap {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+}
+
 .studio-inpaint-prompt {
   min-width: 0;
   width: 100%;
@@ -170,8 +176,24 @@
   border: 0;
 }
 
-.studio-inpaint-prompt::placeholder {
+/* 浮层 placeholder：textarea 原生 ::placeholder 不支持 text-overflow:ellipsis，
+   用 div 浮层承载，超出宽度省略号截断并随宽度自适应 */
+.studio-inpaint-prompt-placeholder {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  padding: 9px 12px;
+  box-sizing: border-box;
+  border-radius: 8px;
   color: rgba(25, 25, 25, 0.42);
+  font-size: 14px;
+  line-height: 22px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
 }
 
 .studio-detail-panel {

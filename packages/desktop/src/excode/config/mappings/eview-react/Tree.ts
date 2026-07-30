@@ -21,6 +21,8 @@
  * ```
  * - children 递归应用相同转换规则
  * - icon（Lucide string）→ resolveIcon 转为 BuildNode（不包 slotNode）
+ *
+ * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
  */
 
 import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
@@ -68,77 +70,77 @@ function normalizeTreeNode(
 
 // ─── Tree 映射定义 ───
 
-const TreeMapping: MappingDef = {
-  tag: 'Tree',
-  import: '@nce/eview-react/Tree',
+export function createTreeMapping(pkg: string): MappingDef {
+  return {
+    tag: 'Tree',
+    import: `${pkg}/Tree`,
 
-  transform(node: any, ctx: TransformContext) {
-    const props = node.props || {}
-    const outputProps: Record<string, PropValue> = {}
-    const SKIP_KEYS = new Set([
-      'checkable',
-      'defaultExpandedKeys',
-      'defaultSelectedKeys',
-      'options',
-      'className',
-    ])
+    transform(node: any, ctx: TransformContext) {
+      const props = node.props || {}
+      const outputProps: Record<string, PropValue> = {}
+      const SKIP_KEYS = new Set([
+        'checkable',
+        'defaultExpandedKeys',
+        'defaultSelectedKeys',
+        'options',
+        'className',
+      ])
 
-    // ─── checkable → enableCheckbox ───
-    if (props.checkable !== undefined) {
-      outputProps.enableCheckbox = props.checkable
-    }
-
-    // ─── defaultExpandedKeys → expandedKeys（双形态透传，只改名不改值） ───
-    if ('defaultExpandedKeys' in props && props.defaultExpandedKeys != null) {
-      outputProps.expandedKeys = props.defaultExpandedKeys as PropValue
-    }
-
-    // ─── defaultSelectedKeys → selectedKeys（双形态透传，只改名不改值） ───
-    if ('defaultSelectedKeys' in props && props.defaultSelectedKeys != null) {
-      outputProps.selectedKeys = props.defaultSelectedKeys as PropValue
-    }
-
-    // ─── options → data（递归转换 title→text, key→id, icon resolve） ───
-    if ('options' in props) {
-      const opts = props.options
-      if (opts && typeof opts === 'object' && opts.type === 'binding') {
-        outputProps.data = Value.computed({
-          path: opts.path,
-          pathType: opts.pathType ?? 'absolute',
-          accessPath: opts.accessPath,
-          containsJSX: true,
-          transform: (rawItems, cvCtx) => {
-            const itemsArray = Array.isArray(rawItems) ? rawItems : []
-            const iconResolver = cvCtx?.resolveIcon ?? ctx.resolveIcon
-            return itemsArray.map((item: any) =>
-              normalizeTreeNode(item, iconResolver),
-            )
-          },
-        })
-      } else if (Array.isArray(opts)) {
-        outputProps.data = opts.map((item: any) =>
-          normalizeTreeNode(item, ctx.resolveIcon),
-        )
+      // ─── checkable → enableCheckbox ───
+      if (props.checkable !== undefined) {
+        outputProps.enableCheckbox = props.checkable
       }
-    }
 
-    // ─── className 透传 ───
-    if (props.className) {
-      outputProps.className = props.className
-    }
-
-    // ─── 剩余 prop 透传 ───
-    for (const [key, value] of Object.entries(props)) {
-      if (!SKIP_KEYS.has(key)) {
-        outputProps[key] = value as PropValue
+      // ─── defaultExpandedKeys → expandedKeys（双形态透传，只改名不改值） ───
+      if ('defaultExpandedKeys' in props && props.defaultExpandedKeys != null) {
+        outputProps.expandedKeys = props.defaultExpandedKeys as PropValue
       }
-    }
 
-    return {
-      props: outputProps,
-      children: null,
-    }
-  },
+      // ─── defaultSelectedKeys → selectedKeys（双形态透传，只改名不改值） ───
+      if ('defaultSelectedKeys' in props && props.defaultSelectedKeys != null) {
+        outputProps.selectedKeys = props.defaultSelectedKeys as PropValue
+      }
+
+      // ─── options → data（递归转换 title→text, key→id, icon resolve） ───
+      if ('options' in props) {
+        const opts = props.options
+        if (opts && typeof opts === 'object' && opts.type === 'binding') {
+          outputProps.data = Value.computed({
+            path: opts.path,
+            pathType: opts.pathType ?? 'absolute',
+            accessPath: opts.accessPath,
+            containsJSX: true,
+            transform: (rawItems, cvCtx) => {
+              const itemsArray = Array.isArray(rawItems) ? rawItems : []
+              const iconResolver = cvCtx?.resolveIcon ?? ctx.resolveIcon
+              return itemsArray.map((item: any) =>
+                normalizeTreeNode(item, iconResolver),
+              )
+            },
+          })
+        } else if (Array.isArray(opts)) {
+          outputProps.data = opts.map((item: any) =>
+            normalizeTreeNode(item, ctx.resolveIcon),
+          )
+        }
+      }
+
+      // ─── className 透传 ───
+      if (props.className) {
+        outputProps.className = props.className
+      }
+
+      // ─── 剩余 prop 透传 ───
+      for (const [key, value] of Object.entries(props)) {
+        if (!SKIP_KEYS.has(key)) {
+          outputProps[key] = value as PropValue
+        }
+      }
+
+      return {
+        props: outputProps,
+        children: null,
+      }
+    },
+  }
 }
-
-export default TreeMapping

@@ -108,10 +108,9 @@ export function SkillsContent(): JSX.Element {
   // jk-j60099994-replace-with-60062650-components-skills-content-3-start
   // jk-j60099994-replace-with-60062650-components-skills-content-3-end
 
+  // jk-j60099994-replace-with-60062650-components-skills-content-4-start
   async function loadConfig() {
-    // jk-j60099994-replace-with-60062650-components-skills-content-4-start
     const api = (window as unknown as { api?: { getSkillConfig?: () => Promise<SkillsConfig>; ensureSkillConfig?: () => Promise<void> } }).api
-    // jk-j60099994-replace-with-60062650-components-skills-content-4-end
     if (api?.getSkillConfig) {
       try {
         // 确保 skill_config.json 存在（不存在时从 skills.json 构建）
@@ -124,6 +123,7 @@ export function SkillsContent(): JSX.Element {
     }
     setLoaded(true)
   }
+  // jk-j60099994-replace-with-60062650-components-skills-content-4-end
 
   // jk-j60099994-replace-with-60062650-components-skills-content-5-start
   // jk-j60099994-replace-with-60062650-components-skills-content-5-end
