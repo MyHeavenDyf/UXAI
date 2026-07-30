@@ -179,7 +179,7 @@ const handleClick = () => {
       {{ label }}
       <component
         v-if="iconPlacement === 'end'"
-        :class="label ? 'ml-1' : ''"
+        :class="label ? 'ml-1.5' : ''"
         :is="resolvedIcon.component"
         v-bind="resolvedIcon.props"
       />
