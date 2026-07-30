@@ -401,12 +401,13 @@
 /* ================= Dropdown ================= */
 .el-dropdown__popper.el-popper {
   --el-dropdown-menu-box-shadow: var(--el-box-shadow);
-  --el-dropdown-menuItem-hover-fill: var(--el-fill-color-light);
+  --el-dropdown-menuItem-hover-fill: rgb(from var(--gray-05) r g b / 0.2);
   --el-dropdown-menuItem-hover-color: var(--brand-30);
   border-radius: var(--radius-base);
   padding: 4px;
     .el-dropdown-menu {
     padding: 0px;
+    background-color: transparent;
   }
   .el-dropdown-menu__item {
     padding:5px 4px 5px 8px;
