@@ -16,8 +16,8 @@
 import fs from 'fs'
 import path from 'path'
 
-import { Step } from '../core/Step'
-import type { PipelineContext } from '../pipeline/PipelineContext'
+import { Step } from '../core/step'
+import type { PipelineContext } from '../pipeline/pipeline-context'
 
 export class WriteOutput extends Step {
   async execute(ctx: PipelineContext): Promise<void> {

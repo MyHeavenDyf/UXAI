@@ -1,9 +1,13 @@
 /**
- * Menu → Accordion 映射（新架构）
+ * Menu → Accordion / Tab 映射（新架构）
  *
- * A2UI Menu → eview-react Accordion 组件。
+ * A2UI Menu 按 `mode` 分两个分支：
+ *   - mode=horizontal → eview-react **Tab** 组件，items → TabItem children（inline LoopNode / 静态节点）
+ *   - 其他（vertical/缺省） → eview-react **Accordion** 组件，items → data prop
  *
- * ## Props 对照
+ * 无静态 defaults——两分支各自在 transform 内加（Accordion: hideTitleBar/enableMultiOpen/enableExpand；Tab: lazyLoad）。
+ *
+ * ## Props 对照（Accordion 分支）
  *
  * | A2UI prop | eview-react prop | 处理方式 |
  * |-----------|-----------------|---------|
@@ -14,29 +18,49 @@
  * | openKeys（DataBinding + items DataBinding） | dataItem.isExpand | 挪进 items ComputedValue.transform，用 `cvCtx.resolveValueFromPath`（绝对/相对都对） |
  * | openKeys（字面量 / items 字面量场景） | dataItem.isExpand | transform 期构建 Set（字面量直取；绝对 binding 用 `ctx.resolveAbsoluteStateValue`） |
  * | inlineCollapsed | expanded | 1:1 透传 |
- * | mode: vertical/horizontal | — | 丢弃（Accordion 无此概念） |
+ * | mode: vertical | — | 走 Accordion 分支 |
  * | className | className | 透传 |
- * | — | hideTitleBar | `defaults: true` |
- * | — | enableMultiOpen | `defaults: true` |
- * | — | isControlSelectedValue | `defaults: true` |
- * | — | enableExpand | `defaults: true` |
+ * | — | hideTitleBar/enableMultiOpen/enableExpand | transform 内加 |
+ *
+ * ## Props 对照（Tab 分支，mode=horizontal）
+ *
+ * | A2UI prop | eview-react prop | 处理方式 |
+ * |-----------|-----------------|---------|
+ * | items（字面量） | children（TabItem[]） | item.title→label、item.icon→icon，TabItem 映射处理（_resolved:false） |
+ * | items（DataBinding） | children（inline LoopNode） | TabItem 模板相对绑定 title/icon，TabItem 映射处理；inline 不抽离 |
+ * | selectedKeys（字面量数组） | selectedIndex | key→index 匹配 → `LiteralValue.useState` + onClick |
+ * | selectedKeys（DataBinding） | selectedIndex | **ComputedValue.useState** + onClick（transform 内 cvCtx 解析 items 算 index） |
+ * | openKeys | — | 丢弃（Tab 无展开概念） |
+ * | inlineCollapsed | — | 丢弃（Tab 无 expanded） |
+ * | className | className | 透传 |
+ * | — | lazyLoad | transform 内加 |
  *
  * ## 特殊逻辑
  *
- * - items 双形态分叉：字面量直接转换，DataBinding 走 ComputedValue
- * - selectedKeys 双形态分叉：字面量→LiteralValue.useState，DataBinding→ComputedValue.useState
- * - openKeys 作为辅助决策（不进 outputProps），仅用于计算 isExpand：
- *   items 是 DataBinding 时挪进 transform 内用 cvCtx 解析（per-item 正确）；
- *   items 是字面量时 transform 期构建（顶层 Menu 绝对路径场景）
- * - items[i].icon 是纯 string（非 DataBinding），始终用 ctx.resolveIcon 直接转
+ * - mode=horizontal → Tab + TabItem children（items 转为 TabItem，交给 TabItem 映射处理 label→title、icon→resolveIcon）
+ * - items DataBinding 时 Tab 分支用 inline LoopNode（TabItem 在 INLINE_LOOP_COMPONENTS 白名单，不抽离）
+ * - selectedKeys → selectedIndex（Tab）用 `(index) => setter(index)` extractor（不同于 Accordion 的 `(node) => setter(node.value)`）
+ * - openKeys 作为辅助决策（不进 outputProps），仅用于 Accordion 分支计算 isExpand
  *
  * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
  */
 
-import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
-import type { PropValue } from '../../../src/core/valueTypes'
+import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
+import type { PropValue } from '../../../src/core/value-types'
 import { Value } from '../../../src/core/value'
-import type { BuildNode } from '../../../src/core/nodeTypes'
+import { Node } from '../../../src/core/node'
+import type { BuildNode } from '../../../src/core/node-types'
+
+/**
+ * 从 items 数组中按 key 查找索引（horizontal → Tab 的 selectedKeys → selectedIndex 用）
+ */
+function findIndexInRawItems(rawItems: any[], keyVal: string): number {
+  if (!Array.isArray(rawItems)) return -1
+  for (let i = 0; i < rawItems.length; i++) {
+    if (rawItems[i]?.key === keyVal) return i
+  }
+  return -1
+}
 
 // ─── 工具 ───
 
@@ -74,14 +98,116 @@ export function createMenuMapping(pkg: string): MappingDef {
     tag: 'Accordion',
     import: `${pkg}/Accordion`,
 
-    defaults: {
-      hideTitleBar: true,
-      enableMultiOpen: true,
-      enableExpand: true,
-    },
+    // 无静态 defaults——两分支各自在 transform 内加（Accordion: hideTitleBar/enableMultiOpen/enableExpand；Tab: lazyLoad）
 
     transform(node: any, ctx: TransformContext) {
       const props = node.props || {}
+
+      // ─── mode: horizontal → Tab + TabItem children ───
+      // items → TabItem（字面量：直接构造节点；DataBinding：inline LoopNode）
+      // selectedKeys → selectedIndex（Tab 用 index，不是 key）
+      if (props.mode === 'horizontal') {
+        const tabOutputProps: Record<string, PropValue> = {}
+
+        // selectedKeys → selectedIndex
+        const hasSK = Object.prototype.hasOwnProperty.call(props, 'selectedKeys')
+        if (hasSK) {
+          const sk = props.selectedKeys
+          const extractor = (setter: string) => `(index) => ${setter}(index)`
+          const itemsBinding = props.items?.type === 'binding' ? props.items : null
+          const literalItems: any[] = Array.isArray(props.items) ? props.items : []
+
+          if (sk && typeof sk === 'object' && sk.type === 'binding') {
+            tabOutputProps.selectedIndex = Value.computed({
+              path: sk.path,
+              pathType: sk.pathType ?? 'absolute',
+              accessPath: sk.accessPath,
+              containsJSX: false,
+              useState: { event: 'onClick', extractor },
+              transform: (rawSK: any, cvCtx?: any) => {
+                const keyVal = Array.isArray(rawSK) && rawSK.length > 0 ? String(rawSK[0]) : ''
+                if (!keyVal) return 0
+                const rawItems = itemsBinding && cvCtx
+                  ? (cvCtx.resolveValueFromPath(itemsBinding.path) ?? [])
+                  : literalItems
+                const idx = findIndexInRawItems(rawItems, keyVal)
+                return idx !== -1 ? idx : 0
+              },
+            })
+          } else if (Array.isArray(sk)) {
+            const keyVal = sk.length > 0 ? String(sk[0]) : ''
+            let idx = 0
+            if (keyVal) {
+              const found = findIndexInRawItems(literalItems, keyVal)
+              if (found !== -1) idx = found
+            }
+            tabOutputProps.selectedIndex = Value.literal({
+              value: idx,
+              useState: { event: 'onClick', extractor },
+            })
+          }
+        }
+
+        // items → TabItem children
+        let tabChildren: any = null
+        const items = props.items
+        if (items && typeof items === 'object' && items.type === 'binding') {
+          // DataBinding → inline LoopNode（TabItem 模板，交给 TabItem 映射处理 label→title、icon→resolveIcon）
+          const dataBinding = {
+            type: 'binding' as const,
+            path: items.path,
+            pathType: items.pathType ?? 'absolute',
+            accessPath: items.accessPath ?? 'menuData',
+          }
+          const templateItem = Node.component({
+            component: 'TabItem',
+            tag: 'TabItem',
+            // _resolved:false → NodeMapper 走 TabItem 映射：label→title 透传、icon→resolveIcon
+            props: {
+              label: Value.binding({ path: 'title', pathType: 'relative', accessPath: 'title' }),
+              icon: Value.binding({ path: 'icon', pathType: 'relative', accessPath: 'icon' }),
+            },
+          }) as any
+          templateItem._resolved = false
+          const extract = {
+            kind: 'extract' as const,
+            componentName: `${node.id || 'Menu'}TabItemTemplate`,
+            purpose: 'component' as const,
+            body: [templateItem],
+            _resolved: false,
+          }
+          const loopNode = Node.loop({ data: dataBinding as any, template: extract })
+          loopNode.inline = true
+          tabChildren = loopNode
+        } else if (Array.isArray(items)) {
+          // 字面量 → TabItem 节点（_resolved:false，交给 TabItem 映射处理 icon resolve）
+          tabChildren = items.map((item: any) => {
+            const itemProps: Record<string, any> = { label: item.title }
+            if (item.icon !== undefined) itemProps.icon = item.icon
+            const n = Node.component({
+              component: 'TabItem',
+              tag: 'TabItem',
+              props: itemProps,
+            }) as any
+            n._resolved = false
+            return n
+          })
+        }
+
+        // Tab defaults + className
+        if (!('lazyLoad' in tabOutputProps)) tabOutputProps.lazyLoad = true
+        if (props.className) tabOutputProps.className = props.className
+
+        return {
+          tag: 'Tab',
+          import: `${pkg}/Tab`,
+          props: tabOutputProps,
+          children: tabChildren,
+          propRoute: hasSK ? { selectedIndex: 'component-internal' } as Record<string, any> : undefined,
+        }
+      }
+
+      // ─── 非 horizontal → Accordion（现有逻辑） ───
 
       // selectedKeys → selectedValue（单项双绑，双形态）
       //   字面量数组 → Value.literal（取首项 hardcode）
@@ -116,6 +242,11 @@ export function createMenuMapping(pkg: string): MappingDef {
 
       // 构建 output props
       const outputProps: Record<string, PropValue> = {}
+
+      // Accordion defaults（从静态 defaults 移到此处，仅 Accordion 分支生效）
+      if (!('hideTitleBar' in outputProps)) outputProps.hideTitleBar = true
+      if (!('enableMultiOpen' in outputProps)) outputProps.enableMultiOpen = true
+      if (!('enableExpand' in outputProps)) outputProps.enableExpand = true
 
       // items → data：字面量直接转换，path 绑定走 ComputedValue
       const itemsIsBinding = props.items && typeof props.items === 'object' && props.items.type === 'binding'
