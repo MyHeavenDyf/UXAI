@@ -18,11 +18,11 @@
  *   D. state.js（由 state-builder 产物落盘）
  */
 
-import type { GeneratedFile } from '../pipeline/pipelineContext'
+import type { GeneratedFile } from '../pipeline/PipelineContext'
 import type { FileDraft, PendingExtractedFile, PendingConstDecl } from './treeFinalizer'
 import type { StateBuilderResult, FileUnit } from './stateBuilder'
 import { fileKeyOf } from '../core/fileKeys'
-import { collectImports, renderImportBlock, injectImport, type ImportMap } from './importCollector'
+import { collectImports, renderImportBlock, injectImport, type ImportMap } from './ImportCollector'
 import { emitNode, indent } from './jsxEmitter'
 import { collectRelativeFields } from '../core/scopedEnrichment'
 import { isFlatAccessPath } from '../core/accessPath'

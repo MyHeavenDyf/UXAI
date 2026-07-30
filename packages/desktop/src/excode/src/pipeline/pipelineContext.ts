@@ -20,7 +20,7 @@
  * generationReport    Step 7: 报告
  */
 
-import type { ComponentRegistry } from '../core/componentRegistry'
+import type { ComponentRegistry } from '../core/ComponentRegistry'
 import type { BuildNode, ExtractNode } from '../core/nodeTypes'
 
 export interface BuiltPage {

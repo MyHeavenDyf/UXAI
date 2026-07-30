@@ -7,7 +7,7 @@
  * 主要汇总：pages / state 字段数 / loops / extracted files。
  */
 
-import type { PipelineContext } from '../pipeline/pipelineContext'
+import type { PipelineContext } from '../pipeline/PipelineContext'
 import type { StateBuilderResult } from './stateBuilder'
 import type { TreeFinalizerResult } from './treeFinalizer'
 

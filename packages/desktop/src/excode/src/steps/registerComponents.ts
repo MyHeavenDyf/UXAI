@@ -5,8 +5,8 @@
  * 使用 ESM 静态 import，编译期完成路径解析。
  */
 
-import { Step } from '../core/step'
-import type { PipelineContext } from '../pipeline/pipelineContext'
+import { Step } from '../core/Step'
+import type { PipelineContext } from '../pipeline/PipelineContext'
 import { mappingRegistry } from '../../config/mappings/index'
 import { setIconPackage } from '../core/iconCollection'
 

@@ -16,7 +16,7 @@
  * 不做：transform 调用（NodeMapper 阶段处理）。
  */
 
-import { Step } from '../core/step'
+import { Step } from '../core/Step'
 import { Value } from '../core/value'
 import { Node } from '../core/node'
 import { IconCollector } from '../core/iconCollection'
@@ -38,8 +38,8 @@ import type {
   RegularNode,
 } from '../core/nodeTypes'
 import type { PropValue } from '../core/valueTypes'
-import type { PipelineContext } from '../pipeline/pipelineContext'
-import type { BuiltPage } from '../pipeline/pipelineContext'
+import type { PipelineContext } from '../pipeline/PipelineContext'
+import type { BuiltPage } from '../pipeline/PipelineContext'
 
 // ─── state path 工具（inline；后续可与 icon-collection.ts#resolvePath 合并到 core/state-path.ts） ───
 

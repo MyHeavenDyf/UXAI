@@ -2,7 +2,7 @@
  * Step — 管线步骤基类
  */
 
-import type { PipelineContext } from '../pipeline/pipelineContext'
+import type { PipelineContext } from '../pipeline/PipelineContext'
 
 export class Step {
   async execute(ctx: PipelineContext): Promise<void> {
