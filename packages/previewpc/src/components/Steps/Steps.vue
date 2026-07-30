@@ -7,6 +7,7 @@ import { useA2UIComponent, type A2UIComponentProps } from "../../renderer"
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
 import { getIconComponentRef } from "../Icon/IconBase"
 import { svgCacheVersion } from "../../composables/useIconProvider"
+import { useTheme } from "../../composables/useTheme"
 import "./Steps.less"
 const statusEnum = {
   wait: "wait",
@@ -75,16 +76,18 @@ const items = computed(() => {
 })
 
 // ---- 图标解析（同步，追踪 svgCacheVersion 以响应 SVG 到达） ----
+const { isDark } = useTheme()
 const resolvedStepIcons = ref<Record<number, { component: Component | null; props: Record<string, any> } | null>>({})
 
 watch(
-  [items, svgCacheVersion],
+  [items, svgCacheVersion, isDark],
   ([newItems]) => {
     const map: Record<number, any> = {}
+    const shape = isDark.value ? 'fill' : 'lined'
     for (let index = 0; index < newItems.length; index++) {
       const item = newItems[index] as any
       if (item.icon) {
-        map[index] = getIconComponentRef(item.icon, { size: 24 })
+        map[index] = getIconComponentRef(item.icon, { size: 24, shape })
       }
     }
     resolvedStepIcons.value = map

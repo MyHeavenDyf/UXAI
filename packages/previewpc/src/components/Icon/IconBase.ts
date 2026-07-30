@@ -3,6 +3,7 @@ import { h, markRaw, shallowRef, watch, type Ref } from "vue"
 import type { Component, VNode } from "vue"
 import HuiSvgIcon from "./HuiSvgIcon.vue"
 import { hasHuiIcons, iconInfoMap, svgCache, svgCacheVersion, resolveSvgCacheKey, requestSvg, requestIconInfo } from "../../composables/useIconProvider"
+import { useTheme } from "../../composables/useTheme";
 
 export const sizeConfig = { xs: 12, sm: 16, md: 24, lg: 32, xl: 40 } as const
 export const HUI_ICON_SIZE = 16
@@ -161,8 +162,17 @@ export function useIconComponentRef(
   options?: IconComponentRefOptions,
 ): Ref<{ component: Component | null; props: Record<string, any> } | null> {
   const resolved = shallowRef<{ component: Component | null; props: Record<string, any> } | null>(null)
-  watch([nameRef, svgCacheVersion], ([val]) => {
-    resolved.value = val ? getIconComponentRef(val, options) : null
+  // 主题切换（全局状态）
+  const { isDark } = useTheme();
+  watch([nameRef, svgCacheVersion, isDark], ([val]) => {
+    let newOptions = {}
+    if (options?.shape) {
+      newOptions = options
+    } else {
+      const shape = isDark.value ? 'fill' : 'lined'
+      newOptions = options ? {...options, shape} : {shape}
+    }
+    resolved.value = val ? getIconComponentRef(val, newOptions) : null
   }, { immediate: true })
   return resolved
 }

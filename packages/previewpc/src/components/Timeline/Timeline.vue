@@ -6,6 +6,7 @@ import { useA2UIComponent, type A2UIComponentProps } from "../../renderer"
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
 import { getIconComponentRef, createIconRenderer } from "../Icon/IconBase"
 import { svgCacheVersion } from "../../composables/useIconProvider"
+import { useTheme } from "../../composables/useTheme"
 import "./Timeline.less"
 
 const modeEnum = {
@@ -84,6 +85,7 @@ const rawItems = computed(() => {
 })
 
 // ---- 图标解析（同步，使用 createIconRenderer 封装为 Element Plus 可接受的 Component） ----
+const { isDark } = useTheme()
 type ResolvedItem = {
   title: any
   icon: (() => any) | undefined
@@ -95,13 +97,14 @@ type ResolvedItem = {
 const resolvedItems = ref<ResolvedItem[]>([])
 
 watch(
-  [rawItems, svgCacheVersion],
+  [rawItems, svgCacheVersion, isDark],
   ([raw]) => {
+    const shape = isDark.value ? 'fill' : 'lined'
     resolvedItems.value = raw.map((r: any) => {
       if (!r.iconName) {
         return { title: r.title, icon: undefined, color: r.color, placement: r.placement, className: r.className, content: r.content }
       }
-      const refComp = getIconComponentRef(r.iconName, { size: 16 })
+      const refComp = getIconComponentRef(r.iconName, { size: 16, shape })
       return {
         title: r.title,
         icon: createIconRenderer(refComp) ?? undefined,

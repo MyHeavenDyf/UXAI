@@ -2,9 +2,7 @@
 import { computed, onMounted, ref, useAttrs, watch } from "vue"
 import { ElTag } from "element-plus"
 
-import { getIconComponentRef } from "../Icon/IconBase"
-import { svgCacheVersion } from "../../composables/useIconProvider"
-import type { Component } from "vue"
+import { useIconComponentRef } from "../Icon/IconBase"
 import type { TagNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
@@ -131,15 +129,7 @@ const closable = computed(() => properties?.closable)
 const iconName = computed(() => resolveValue(properties?.icon) as string)
 const iconSize = computed(() => (size.value ? iconSizeEnum[size.value as keyof typeof iconSizeEnum] : 10))
 
-const resolvedIcon = ref<{ component: Component | null; props: Record<string, any> } | null>(null)
-watch(
-  [iconName, iconSize, svgCacheVersion],
-  ([name, sz]) => {
-    if (!name) { resolvedIcon.value = null; return }
-    resolvedIcon.value = getIconComponentRef(name, { size: sz })
-  },
-  { immediate: true },
-)
+const resolvedIcon = useIconComponentRef(iconName, { size: iconSize.value })
 
 const variant = computed(() => resolveValue(properties?.variant as any) as string || 'filled')
 const effect = computed(() => {
