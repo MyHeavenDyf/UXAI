@@ -16,7 +16,7 @@
  * 不做：transform 调用（NodeMapper 阶段处理）。
  */
 
-import { Step } from '../core/Step'
+import { Step } from '../core/step'
 import { Value } from '../core/value'
 import { Node } from '../core/node'
 import { IconCollector } from '../core/icon-collection'
