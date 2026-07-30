@@ -120,9 +120,6 @@ watch(
   { immediate: true, deep: true },
 )
 
-// ---- 展开/折叠图标 ----
-const expandIconRef = getIconComponentRef("chevron-right", { size: 14 })
-const expandIcon = ref<(() => any) | undefined>(createIconRenderer(expandIconRef))
 
 const treeRef = ref<InstanceType<typeof ElTree>>()
 
@@ -167,7 +164,6 @@ const handleNodeClick = (data: TreeNodeData) => {
     :data="treeData"
     node-key="id"
     label="label"
-    :icon="expandIcon"
     :show-checkbox="checkable"
     :default-expanded-keys="defaultExpandedKeys"
     :highlight-current="!checkable"
