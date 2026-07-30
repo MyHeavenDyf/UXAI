@@ -810,7 +810,7 @@ function VideoFrameButton(props: { label: string; asset?: StudioAsset; disabled?
           aria-label={`删除${props.label}`}
           title={`删除${props.label}`}
         >
-          ×
+          <img src="/studio/studio-img-delete-icon.svg" class="studio-composer-video-remove-icon" alt="" />
         </button>
       </Show>
     </div>
