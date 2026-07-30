@@ -419,8 +419,10 @@
 
 .octo-action-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 12px 8px;
   width: 100%;
 }
 
@@ -441,6 +443,26 @@
   height: 14px;
   background: var(--octo-border-divider);
   margin-left: 8px;
+}
+
+.octo-action-bar-collapsible {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.octo-action-bar-fixed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* ── Action bar responsive (container query) ─── */
+.octo-action-bar { container-type: inline-size; container-name: octo-action-bar; }
+
+@container octo-action-bar (max-width: 780px) {
+  .octo-action-bar-collapsible .octo-action-btn span { display: none; }
 }
 
 /* ── Dropdown ──────────────────── */
@@ -689,3 +711,5 @@ button.delete-dialog-btn-primary {
 .make-operations-btn[data-expanded="true"]::before {
   background: rgba(0, 0, 0, 0.06);
 }
+
+

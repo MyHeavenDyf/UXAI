@@ -31,7 +31,7 @@ import type { BindingValue, ComputedValue, ComputedTransformCtx, PropValue } fro
 import { resolveIcon } from '../core/iconCollection'
 import { collectRelativeCVs } from '../core/scopedEnrichment'
 import { rewriteResourcePathsInValue } from '../core/resourcePath'
-import { jsxConstName } from '../core/accessPath'
+import { jsxConstName, pathToJsAccess } from '../core/accessPath'
 import { serializePlainJs } from './jsSerializer'
 
 // ─── 文件单元 ───
@@ -475,6 +475,19 @@ function consumeValue(v: any, ctx: StateBuilderContext): void {
 // ─── processLoop ───
 
 function processLoop(loop: LoopNode, ctx: StateBuilderContext, parentNodeId: string): void {
+  // render fn body 内的循环：enrichment 已由 dataset（enrichScopedData）接管，
+  // 且 emit 时强制 inline（jsxEmitter forceInline）→ 不产生单独模板文件。
+  // 这里只把 template body 走进当前单元（收集 absolute binding 等），不建孤儿模板单元、不做 enrichment。
+  // 检测：ctx.currentScope 为 RenderFnScope（仅 render fn body walk 时设，processLoop 不改它）。
+  if (ctx.currentScope && 'paramBindings' in (ctx.currentScope as any)) {
+    withUnit(ctx, ctx.currentUnit, () => {
+      for (const child of loop.template.body) walk(child, ctx)
+    })
+    return
+  }
+
+  // inline loop（如 TabItem）：模板 body 走当前文件单元，不产生单独 components/ 文件
+  const isInline = !!loop.inline
   // 1. 解析原始数据源
   const rawData = resolveLoopData(loop, ctx)
   if (rawData.length === 0) {
@@ -482,7 +495,7 @@ function processLoop(loop: LoopNode, ctx: StateBuilderContext, parentNodeId: str
       `  [warn] state-builder: 循环 "${loop.template.componentName}" 数据为空（path: ${(loop.data as BindingValue).path}），跳过 enrichment`
     )
     // 空数据 → 不产生 enrichment，走 body 即可
-    const templateUnit = getOrCreateUnit(ctx, `components/${loop.template.componentName}`)
+    const templateUnit = isInline ? ctx.currentUnit : getOrCreateUnit(ctx, `components/${loop.template.componentName}`)
     withUnit(ctx, templateUnit, () => {
       for (const child of loop.template.body) walk(child, ctx)
     })
@@ -538,8 +551,8 @@ function processLoop(loop: LoopNode, ctx: StateBuilderContext, parentNodeId: str
           // 用原始 item 读（不被前一个 CV 产物污染）。
           const rawValue = resolveBySegments(item, pathToSegments(cv.path))
           // 写到 out：accessPath 去重后可能是嵌套（如 user.avatar_1），setNested 写嵌套位置。
-          // 相对 accessPath 用 `/` 分隔（user/avatar），归一为 `.` 与 emit relPath 对齐。
-          const writeKey = ((cv as any).accessPath ?? cv.path).replace(/\//g, '.')
+          // 转 JS 属性访问（数字段用 [n]），与 emit relPath 对齐。
+          const writeKey = pathToJsAccess((cv as any).accessPath ?? cv.path)
           setNested(out, writeKey, cv.transform(rawValue, ctxForCv))
         } catch (err: any) {
           console.warn(`  [warn] state-builder: loop enrichment 失败 (path: ${cv.path}): ${err.message}`)
@@ -573,8 +586,8 @@ function processLoop(loop: LoopNode, ctx: StateBuilderContext, parentNodeId: str
     }
   }
 
-  // 6. 切到模板文件单元，继续走 template.body
-  const templateUnit = getOrCreateUnit(ctx, `components/${loop.template.componentName}`)
+  // 6. 切到模板文件单元，继续走 template.body（inline 时走当前单元）
+  const templateUnit = isInline ? ctx.currentUnit : getOrCreateUnit(ctx, `components/${loop.template.componentName}`)
   withUnit(ctx, templateUnit, () => {
     for (const child of loop.template.body) walk(child, ctx)
   })

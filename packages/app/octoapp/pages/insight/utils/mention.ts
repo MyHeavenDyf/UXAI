@@ -59,7 +59,9 @@ export function buildParagraphs(text: string, mentions: MentionAttrs[]): PMNode[
     .map((m) => ({ token: `@${m.name}`, attrs: m }))
     .sort((a, b) => b.token.length - a.token.length)
 
-  return text.split("\n").map((line) => {
+  // 按 CRLF / CR / LF 三种换行拆:粘贴路径也走这里,Windows 剪贴板是 CRLF,
+  // 只 split("\n") 会在行尾留下 \r(渲染成不可见字符,还会一起发给模型)。
+  return text.split(/\r\n?|\n/).map((line) => {
     const inline: PMNode[] = []
     let buf = ""
     let i = 0

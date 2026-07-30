@@ -171,6 +171,13 @@ export interface LoopNode {
 
   route?: ExtractRoute
 
+  /**
+   * inline=true 时模板不抽离到单独 components/ 文件，body 直接在 loop map 回调里渲染
+   * （emitLoop emit `<Body key={idx} />` 而非 `<Template data={item} key={idx} />`）。
+   * 适用场景：Tab 的循环 TabItem（TabItem 是 Tab 的直接子组件，不应抽成独立文件）。
+   */
+  inline?: boolean
+
   /** 循环作用域（内层循环时指向外层） */
   loopScope?: Scope
 }

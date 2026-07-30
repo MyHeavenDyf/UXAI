@@ -183,10 +183,10 @@ function extractMediaFromTurns(turns: StudioTurnData[]): FileManagerMedia[] {
         kind: image.kind === "video" ? "video" : "image",
         width: itemWidth,
         height: itemHeight,
-        // For edit results with actual pixel dimensions, skip the result-level
-        // aspectRatio (which may be a fabricated default) and use pixel-based
-        // ratio detection via isCustom instead.
-        aspectRatio: hasExplicitDimensions ? undefined : turn.result?.aspectRatio,
+        // 保留 result 级别的 aspectRatio（如智能重绘探测到的源图比例），
+        // getRatioCategory 中 aspectRatio 优先于像素尺寸判断，避免被 API
+        // 返回的默认输出尺寸（可能非 1:1）误判为竖版。
+        aspectRatio: turn.result?.aspectRatio,
         isCustom: hasExplicitDimensions || turn.result?.isCustom,
         capability: turn.result?.capability ?? turn.editCapability,
         duration: turn.result?.duration,

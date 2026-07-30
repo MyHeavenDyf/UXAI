@@ -72,8 +72,9 @@ export function buildToolGate(selectedTool?: string): Record<string, boolean> {
     // chip turn 顺手关掉即兴逃生口(2026-07-07 内网验证教训):该 turn 的职责是一次**直接**工具
     // 调用,shell / webfetch 在本 turn 没有正当用途,却是弱模型在 MCP 工具缺失(如内网连接故障)
     // 时的模拟通道——实测出现过委托 task 子代理、用 shell 裸调 MCP HTTP、进而编造 task_id。
-    // (webfetch/websearch 非 chip turn 常驻可用,SPEC-INS-021 §1;bash 已在 agent 权限层常驻
-    // deny,此处再关一道无害。)
+    // (webfetch/websearch 非 chip turn 常驻可用,SPEC-INS-021 §1。)bash 现已在 agent 权限层放开
+    // (供 interview-analysis skill,见 agent.ts octo_insight),故本行是 chip turn 关闭 bash 的**唯一守卫**
+    // (不再是从前那道"已常驻 deny、再关无害"的冗余)——删它会让研究工具那轮重新暴露 shell 逃生口。
     gate["bash"] = false // shell 工具注册键(tool/shell/id.ts ToolID),显示名 Shell,含 pwsh/cmd 变体
     gate["webfetch"] = false
   }

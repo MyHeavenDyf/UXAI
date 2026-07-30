@@ -841,9 +841,9 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                         }
                       }}
                       class="flex items-center gap-1 hover:text-text-interactive-base transition-colors"
-                      style={{ color: "rgba(0, 0, 0, 0.9)", "font-weight": "normal" }}
+                      style={{ color: "rgba(0, 0, 0, 0.9)", "font-weight": "normal", "min-width": "0" }}
                     >
-                      {language.t("designFiles.columnModified")}
+                      <span style={{ "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>{language.t("designFiles.columnModified")}</span>
                       <IconSortArrow size={14} dir={fileStore.store.sortDir} active={fileStore.store.sortKey === "mtime"} />
                     </button>
                   </th>
@@ -1165,7 +1165,7 @@ function FileRow(props: {
       <td class="px-4 text-[14px] leading-[22px]" style={{ color: "rgba(0, 0, 0, 0.9)", "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>
         {language.t(kindToI18nKey(props.file.kind))}
       </td>
-      <td class="px-4 text-[14px] leading-[22px]" style={{ color: "rgba(0, 0, 0, 0.9)", "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>
+      <td class="px-4 text-[14px] leading-[22px]" style={{ color: "rgba(0, 0, 0, 0.9)", "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>
         {formatTimestamp(props.file.mtime, language.t)}
       </td>
       <td class="w-[60px] px-4" style={{ "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>

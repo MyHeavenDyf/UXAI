@@ -266,6 +266,19 @@ function routeLoopNode(loop: LoopNode, parentNodeId: string, ctx: TreeCtx): Loop
     dataRefName = dataBinding.accessPath ?? dataBinding.path ?? 'data'
   }
 
+  // inline loop（如 TabItem）：模板不抽离，body 走当前 draft，不注册 extractedFiles
+  if (loop.inline) {
+    const newBody = loop.template.body.map(c => walkNode(c, ctx))
+    return {
+      ...loop,
+      data: Value.varRef({ name: dataRefName }),
+      template: {
+        ...loop.template,
+        body: newBody as RegularNode[],
+      },
+    }
+  }
+
   // 切到 template 的 childDraft
   const targetPath = buildExtractedFilePath(ctx.pageName, loop.template.componentName, 'component')
   const childDraft: FileDraft = {

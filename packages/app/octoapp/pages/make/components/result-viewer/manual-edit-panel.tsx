@@ -219,19 +219,6 @@ export function ManualEditPanel(props: {
     >
       <section class="manual-edit-modal cc-panel octo-thin-scroll">
         <div class="manual-edit-titlebar" onPointerDown={startPanelDrag}>
-          {/* 拖拽按钮（只在floating模式下显示） */}
-          <Show when={props.floatingStyle}>
-            <button
-              type="button"
-              class="manual-edit-drag-handle"
-              aria-label="Move panel"
-              title="Move panel"
-              onPointerDown={(e) => { e.stopPropagation(); startPanelDrag(e) }}
-            >
-              ⋮⋮
-            </button>
-          </Show>
-          
           <span title={panelTitle()}>{panelTitle()}</span>
           
           <Show when={props.onExit}>
@@ -412,8 +399,12 @@ function StyleInspector(props: {
 
       <Show when={props.targetKind !== 'text' && props.targetKind !== 'link' && props.targetKind !== 'token' && props.targetKind !== 'mixed'}>
         <Section title="SIZE">
-          <UnitRow label="Width" value={props.styles.width} onChange={(v) => u('width', v)} unit="px" autoUnit />
-          <UnitRow label="Height" value={props.styles.height} onChange={(v) => u('height', v)} unit="px" autoUnit />
+          <SizePairRow
+            width={props.styles.width}
+            height={props.styles.height}
+            onWidthChange={(v) => u('width', v)}
+            onHeightChange={(v) => u('height', v)}
+          />
         </Section>
       </Show>
 
@@ -465,6 +456,47 @@ function PairRow(props: { children: any }) {
   return <div class="cc-pair">{props.children}</div>
 }
 
+function SizePairRow(props: {
+  width: string
+  height: string
+  onWidthChange: (v: string) => void
+  onHeightChange: (v: string) => void
+}) {
+  const autoUnit = (raw: string) => {
+    const trimmed = raw.trim()
+    if (trimmed && /^-?\d+(\.\d+)?$/.test(trimmed)) return `${trimmed}px`
+    return raw
+  }
+
+  const display = (value: string) => {
+    const match = value.trim().match(/^(-?\d+(?:\.\d+)?)px$/i)
+    return match?.[1] ?? value
+  }
+
+  return (
+    <div class="cc-size-pair">
+      <span class="cc-size-cell">
+        <span class="cc-size-label">W</span>
+        <input
+          value={display(props.width)}
+          onInput={(e) => props.onWidthChange(e.currentTarget.value)}
+          onBlur={(e) => props.onWidthChange(autoUnit(e.currentTarget.value))}
+          placeholder="0"
+        />
+      </span>
+      <span class="cc-size-cell">
+        <span class="cc-size-label">H</span>
+        <input
+          value={display(props.height)}
+          onInput={(e) => props.onHeightChange(e.currentTarget.value)}
+          onBlur={(e) => props.onHeightChange(autoUnit(e.currentTarget.value))}
+          placeholder="0"
+        />
+      </span>
+    </div>
+  )
+}
+
 function UnitRow(props: {
   label: string
   value: string
@@ -472,42 +504,28 @@ function UnitRow(props: {
   unit: string
   autoUnit?: boolean
 }) {
-  const hadPxUnit = () => /^-?\d+(\.\d+)?px$/i.test(props.value.trim())
-  const display = () => props.unit === "" && !hadPxUnit() ? props.value : stripPxUnit(props.value)
-  const canStep = () => isNumericInput(display())
+  const display = () => stripPxUnit(props.value)
 
   const valueFromDisplay = (raw: string) => {
     const trimmed = raw.trim()
     if (/^-?\d+(\.\d+)?px$/i.test(trimmed)) return trimmed.toLowerCase()
-    if (props.unit === "" && hadPxUnit() && isNumericInput(trimmed)) return `${trimmed}px`
     if (props.autoUnit && trimmed && isNumericInput(trimmed)) return `${trimmed}px`
     return raw
-  }
-
-  const handle = (raw: string) => {
-    const next = valueFromDisplay(raw)
-    if (next !== props.value) props.onChange(next)
-  }
-
-  const stepBy = (direction: -1 | 1) => {
-    if (!canStep()) return
-    const step = props.unit === 'px' ? 1 : 0.1
-    const next = formatSteppedNumber(Number(display()) + direction * step, display(), step)
-    props.onChange(valueFromDisplay(next))
   }
 
   return (
     <div class="cc-row">
       <span class="cc-label">{props.label}</span>
-      <span class="cc-value">
-        <button type="button" class="cc-step" disabled={!canStep()} onClick={() => stepBy(-1)}>−</button>
+      <span class="cc-input-cell">
         <input
           value={display()}
-          onChange={(e) => props.onChange(valueFromDisplay(e.currentTarget.value))}
-          onBlur={(e) => handle(e.currentTarget.value)}
+          onInput={(e) => props.onChange(e.currentTarget.value)}
+          onBlur={(e) => {
+            const next = valueFromDisplay(e.currentTarget.value)
+            if (next !== props.value) props.onChange(next)
+          }}
+          placeholder="0"
         />
-        <button type="button" class="cc-step" disabled={!canStep()} onClick={() => stepBy(1)}>+</button>
-        <Show when={props.unit && !isKeyword(display())}><em class="cc-unit">{props.unit}</em></Show>
       </span>
     </div>
   )
@@ -852,7 +870,7 @@ function ColorRow(props: {
   return (
     <div ref={containerRef} class={`cc-row cc-color ${props.compact ? 'cc-color-compact' : ''}`}>
       <Show when={!props.compact}><span class="cc-label">{props.label}</span></Show>
-      <span class="cc-value">
+      <span class="cc-input-cell" style={{ gap: '16px' }}>
         <button
           ref={swatchRef}
           type="button"
@@ -942,12 +960,6 @@ function QuadRow(props: {
 
 function QuadCell(props: { axis: string; value: string; onChange: (v: string) => void }) {
   const display = () => stripPxUnit(props.value)
-  const canStep = () => isNumericInput(display())
-
-  const stepBy = (direction: -1 | 1) => {
-    if (!canStep()) return
-    props.onChange(`${formatSteppedNumber(Number(display()) + direction, display(), 1)}px`)
-  }
 
   const handleChange = (e: Event) => {
     const raw = (e.currentTarget as HTMLInputElement).value.trim()
@@ -966,10 +978,7 @@ function QuadCell(props: { axis: string; value: string; onChange: (v: string) =>
   return (
     <span class="cc-quad-cell">
       <em class="cc-quad-axis">{props.axis}</em>
-      <button type="button" class="cc-step cc-step-quad" disabled={!canStep()} onClick={() => stepBy(-1)}>−</button>
       <input value={display()} placeholder="0" onChange={handleChange} onBlur={handleBlur} />
-      <button type="button" class="cc-step cc-step-quad" disabled={!canStep()} onClick={() => stepBy(1)}>+</button>
-      <em class="cc-quad-unit">px</em>
     </span>
   )
 }
@@ -981,22 +990,6 @@ function stripPxUnit(value: string): string {
 
 function isNumericInput(value: string): boolean {
   return /^-?\d+(\.\d+)?$/.test(value.trim())
-}
-
-function isKeyword(value: string): boolean {
-  return /^(normal|auto|inherit|initial|unset|none)$/i.test(value.trim())
-}
-
-function formatSteppedNumber(value: number, current: string, step: number): string {
-  const decimals = Math.max(decimalPlaces(current), decimalPlaces(String(step)))
-  return decimals > 0
-    ? value.toFixed(decimals).replace(/\.?0+$/, '')
-    : String(Math.round(value))
-}
-
-function decimalPlaces(value: string): number {
-  const match = value.match(/\.(\d+)/)
-  return match?.[1]?.length ?? 0
 }
 
 function sideToProp(base: 'padding' | 'margin', side: 't' | 'r' | 'b' | 'l'): keyof ManualEditStyles {

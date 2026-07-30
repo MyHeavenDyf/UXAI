@@ -112,7 +112,13 @@ function walkChildren(
 ): void {
   if (!children) return
   if ((children as any).kind === 'loop') {
-    // Loop template body 的 import 归属模板自身文件单元，不在当前文件收集
+    // inline loop：模板 body 内联在当前文件，需要收集其 import
+    if ((children as any).inline) {
+      for (const c of (children as any).template?.body ?? []) {
+        walkForImports(c, imports, warnings)
+      }
+    }
+    // 非 inline：模板 body 的 import 归属模板自身文件单元，不在当前文件收集
     return
   }
   if (Array.isArray(children)) {

@@ -14,14 +14,13 @@ import { Pipeline } from './src/pipeline/pipeline'
 import { PipelineContext } from './src/pipeline/pipelineContext'
 
 // 步骤
-import { RegisterComponents } from './src/steps/registerComponents'
-import { BuildTrees } from './src/steps/buildTrees'
-import { NodeMapper } from './src/steps/nodeMapper'
-import { GenerateStyles } from './src/steps/generateStyles'
-import { FileGenerator } from './src/steps/fileGenerator'
-import { GenerateRoutes } from './src/steps/generateRoutes'
-import { WriteOutput } from './src/steps/writeOutput'
-import { GenerateReport } from './src/steps/generateReport'
+import { RegisterComponents } from './src/steps/register-components'
+import { BuildTrees } from './src/steps/build-trees'
+import { NodeMapper } from './src/steps/node-mapper'
+import { FileGenerator } from './src/steps/file-generator'
+import { GenerateRoutes } from './src/steps/generate-routes'
+import { WriteOutput } from './src/steps/write-output'
+import { GenerateReport } from './src/steps/generate-report'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -106,7 +105,6 @@ const DEFAULT_STEPS = [
   'RegisterComponents',
   'BuildTrees',
   'NodeMapper',
-  'GenerateStyles',
   'FileGenerator',
   'GenerateRoutes',
   'GenerateReport',
@@ -117,7 +115,6 @@ const STEP_MAP: Record<string, any> = {
   RegisterComponents,
   BuildTrees,
   NodeMapper,
-  GenerateStyles,
   FileGenerator,
   GenerateRoutes,
   GenerateReport,

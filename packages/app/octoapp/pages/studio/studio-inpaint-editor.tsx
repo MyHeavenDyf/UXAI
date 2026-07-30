@@ -400,10 +400,11 @@ export function StudioInpaintEditor(props: {
             </div>
           </div>
           <div class="studio-inpaint-prompt-row">
+          <div class="studio-inpaint-prompt-wrap">
             <textarea
               class="studio-inpaint-prompt"
               maxlength="2000"
-              placeholder={promptPlaceholder()}
+              aria-label={promptPlaceholder()}
               value={editorPrompt()}
               disabled={props.busy}
               onInput={(event) => setEditorPrompt(event.currentTarget.value)}
@@ -413,6 +414,10 @@ export function StudioInpaintEditor(props: {
                 submit()
               }}
             />
+            <Show when={!editorPrompt()}>
+              <div class="studio-inpaint-prompt-placeholder">{promptPlaceholder()}</div>
+            </Show>
+          </div>
             <button type="button" class="studio-editor-delete" onClick={props.onDelete}>删除</button>
             <button
               type="button"

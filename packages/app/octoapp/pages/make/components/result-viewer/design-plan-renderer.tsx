@@ -230,6 +230,7 @@ export function DesignPlanRenderer(props: {
               padding: "2px",
               "border-radius": "999px",
               background: "rgba(0,0,0,0.05)",
+              opacity: props.confirmed || props.disabled ? 0.5 : 1,
             }}
           >
             <button
@@ -240,13 +241,13 @@ export function DesignPlanRenderer(props: {
                 "border-radius": "999px",
                 "font-size": "14px",
                 "line-height": "22px",
-                cursor: "pointer",
+                cursor: (props.confirmed || props.disabled) ? "not-allowed" : "pointer",
                 border: "none",
                 background: !isEditing() ? "#fff" : "transparent",
                 color: !isEditing() ? "#0a59f7" : "rgba(0,0,0,0.6)",
                 "box-shadow": !isEditing() ? "0 1px 6px 0 rgba(0,0,0,0.08)" : "none",
               }}
-              onClick={handlePreview}
+              onClick={() => { if (!props.confirmed && !props.disabled) handlePreview() }}
             >
               预览
             </button>
@@ -258,13 +259,13 @@ export function DesignPlanRenderer(props: {
                 "border-radius": "999px",
                 "font-size": "14px",
                 "line-height": "22px",
-                cursor: "pointer",
+                cursor: (props.confirmed || props.disabled) ? "not-allowed" : "pointer",
                 border: "none",
                 background: isEditing() ? "#fff" : "transparent",
                 color: isEditing() ? "#0a59f7" : "rgba(0,0,0,0.6)",
                 "box-shadow": isEditing() ? "0 1px 6px 0 rgba(0,0,0,0.08)" : "none",
               }}
-              onClick={handleEdit}
+              onClick={() => { if (!props.confirmed && !props.disabled) handleEdit() }}
             >
               编辑
             </button>

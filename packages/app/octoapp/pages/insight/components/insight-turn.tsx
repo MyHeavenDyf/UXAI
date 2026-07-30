@@ -6,6 +6,7 @@ import { createEffect, createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { materializeUriCardToOutputs } from "../utils/local-resource"
+import { notifyMaterializeFailure } from "../utils/materialize-notify"
 import { OutputEntryCard } from "./output-entry-card"
 import { scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
 import { isMindmapJSON } from "../utils/mindmap-adapter"
@@ -370,7 +371,10 @@ export function InsightTurn(props: {
       if (card.source !== "uri" || !card.uri) continue
       if (!dir || !props.sessionID) continue
       eagerMaterializedCardIds.add(card.id)
-      void materializeUriCardToOutputs(card, dir, props.sessionID).then(() => props.onFilesRefresh?.())
+      void materializeUriCardToOutputs(card, dir, props.sessionID).then((r) => {
+        notifyMaterializeFailure(r)
+        props.onFilesRefresh?.()
+      })
     }
   })
 
@@ -382,7 +386,10 @@ export function InsightTurn(props: {
     if (!dir || !props.sessionID) return
     eagerMaterializedCardIds.delete(card.id)
     eagerMaterializedCardIds.add(card.id)
-    void materializeUriCardToOutputs(card, dir, props.sessionID).then(() => props.onFilesRefresh?.())
+    void materializeUriCardToOutputs(card, dir, props.sessionID).then((r) => {
+      notifyMaterializeFailure(r)
+      props.onFilesRefresh?.()
+    })
   }
 
   // 文件管理刷新覆盖**全部** write 产物(不止出卡的 md/html):任何 write 都落 outputs,写完要通知文件
