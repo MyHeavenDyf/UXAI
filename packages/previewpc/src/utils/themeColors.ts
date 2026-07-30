@@ -231,6 +231,79 @@ const iconColors = {
   },
 }
 
+const iconDarkColors = {
+  default: {
+    color: "--gray-90",
+    twoColor: "--gray-90, --gray-30",
+    threeColor: "--gray-90, --gray-30, --gray-0",
+  },
+  info: {
+    color: "--blue-50",
+    twoColor: "--blue-50, --blue-30",
+    threeColor: "--blue-50, --blue-30, --blue-05",
+  },
+  error: {
+    color: "--red-50",
+    twoColor: "--red-50, --red-30",
+    threeColor: "--red-50, --red-30, --red-05",
+  },
+  alert: {
+    color: "--orange-50",
+    twoColor: "--orange-50, --orange-30",
+    threeColor: "--orange-50, --orange-30, --orange-05",
+  },
+  warning: {
+    color: "--yellow-50",
+    twoColor: "--yellow-50, --yellow-30",
+    threeColor: "--yellow-50, --yellow-30, --yellow-05",
+  },
+  success: {
+    color: "--mint-50",
+    twoColor: "--mint-50, --mint-30",
+    threeColor: "--mint-50, --mint-30, --mint-05",
+  },
+  disabled: {
+    color: "--gray-30",
+    twoColor: "--gray-30, --gray-50",
+    threeColor: "--gray-30, --gray-50, --gray-0",
+  },
+  brand: {
+    color: "--brand-50",
+    twoColor: "--brand-50, --brand-30",
+    threeColor: "--brand-50, --brand-30, --brand-05",
+  },
+  rose: {
+    color: "--rose-50",
+    twoColor: "--rose-50, --rose-30",
+    threeColor: "--rose-50, --rose-30, --rose-05",
+  },
+  pink: {
+    color: "--pink-50",
+    twoColor: "--pink-50, --pink-30",
+    threeColor: "--pink-50, --pink-30, --pink-05",
+  },
+  purple: {
+    color: "--purple-50",
+    twoColor: "--purple-50, --purple-30",
+    threeColor: "--purple-50, --purple-30, --purple-05",
+  },
+  indigo: {
+    color: "--indigo-50",
+    twoColor: "--indigo-50, --indigo-30",
+    threeColor: "--indigo-50, --indigo-30, --indigo-05",
+  },
+  cyan: {
+    color: "--cyan-50",
+    twoColor: "--cyan-50, --cyan-30",
+    threeColor: "--cyan-50, --cyan-30, --cyan-05",
+  },
+  green: {
+    color: "--green-50",
+    twoColor: "--green-50, --green-30",
+    threeColor: "--green-50, --green-30, --green-05",
+  },
+}
+
 interface TagColorEntry {
   text: string;
   bg: string;
@@ -327,4 +400,94 @@ const tagColors: Record<string, Record<string, TagColorEntry>> = {
   },
 }
 
-export { themeColors, iconColors, tagColors }
+const tagDarkColors: Record<string, Record<string, TagColorEntry>> = {
+  solid: {
+    info: {
+      text: "--gray-0",
+      bg: "--blue-50"
+    },
+    error: {
+      text: "--gray-0",
+      bg: "--red-50",
+    },
+    alert: {
+      text: "--gray-0",
+      bg: "--orange-50",
+    },
+    warning: {
+      text: "--gray-0",
+      bg: "--yellow-50",
+    },
+    success: {
+      text: "--gray-0",
+      bg: "--mint-50",
+    },
+    disabled: {
+      text: "--gray-0",
+      bg: "--gray-30",
+    },
+  },
+  filled: {
+    default: {
+      text: "--gray-70",
+      bg: "--gray-90",
+      bgOpacity: 0.05,
+    },
+    info: {
+      text: "--brand-60",
+      bg: "--brand-05",
+    },
+    error: {
+      text: "--red-60",
+      bg: "--red-05",
+    },
+    alert: {
+      text: "--orange-70",
+      bg: "--orange-10",
+    },
+    warning: {
+      text: "--yellow-80",
+      bg: "--yellow-30",
+      bgOpacity: 0.6,
+    },
+    success: {
+      text: "--mint-70",
+      bg: "--mint-10",
+      bgOpacity: 0.6,
+    },
+    disabled: {
+      text: "--gray-70",
+      bg: "--gray-90",
+      bgOpacity: 0.05,
+    },
+    green: {
+      text: "--mint-70",
+      bg: "--green-10",
+    },
+    rose: {
+      text: "--rose-60",
+      bg: "--rose-05",
+    },
+    pink: {
+      text: "--pink-60",
+      bg: "--pink-05",
+    },
+    purple: {
+      text: "--purple-60",
+      bg: "--purple-10",
+      bgOpacity: 0.6,
+    },
+    indigo: {
+      text: "--indigo-80",
+      bg: "--indigo-10",
+      bgOpacity: 0.6,
+    },
+    cyan: {
+      text: "--cyan-80",
+      bg: "--cyan-60",
+      bgOpacity: 0.15,
+    },
+  },
+}
+
+export { themeColors, iconColors, iconDarkColors, tagColors, tagDarkColors }

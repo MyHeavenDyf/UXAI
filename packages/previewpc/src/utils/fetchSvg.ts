@@ -24,8 +24,11 @@ export const svgCache = new Map<string, string>()
 /** 默认颜色 ID fallback */
 export let defaultColorId = ""
 
-/** 从 useTheme 获取当前主题的 icon 颜色映射（语义色→hex） */
-import { iconColorMap } from '../composables/useTheme'
+/** 语义色名 / CSS 变量名 → hex 色值解析 */
+import { themeColors, iconColors, iconDarkColors } from './themeColors'
+import { useTheme } from '../composables/useTheme'
+
+const { isDark } = useTheme()
 
 export interface IconConfig {
   size: Array<{ key: string; value: string }>
@@ -65,9 +68,10 @@ export function resolveSvgCacheKey(name: string, shape?: string, color?: string)
  * 步骤：
  *   1. shape → styleKey → styleValue（如 circle → round_bottom2 → 圆底托）
  *   2. 从 iconConfig.colors 中筛选 c.style === styleValue 的颜色列表
- *   3. a2uiColor → 先通过 iconColorMap 转为 hex，再在颜色列表中匹配 c.key 或 c.value
+ *   3. a2uiColor → 先通过 iconColors/themeColors 解析为 hex，再在颜色列表中匹配 c.key 或 c.value
  *   4. 未匹配到则取该类型下的第一个颜色作为默认
  */
+
 export function resolveApiColorId(shape: string, a2uiColor?: string): string {
   // ① shape → styleValue
   const styleValue = getStyleValue(shapeToStyleKey(shape))
@@ -76,10 +80,11 @@ export function resolveApiColorId(shape: string, a2uiColor?: string): string {
   const colorsByType = (iconConfig?.colors || []).filter(c => c.style === styleValue)
   if (!colorsByType.length) return defaultColorId
 
-  // ③ 匹配颜色：语义色先转 hex，再用 hex/key 匹配
+  // ③ 匹配颜色：语义色/CSS变量 → hex，再用 hex/key 匹配
   if (a2uiColor) {
-    // iconColorMap（computed）把语义色名转为当前主题下的 hex 值
-    const hexColor = iconColorMap.value[a2uiColor] || a2uiColor
+    const currentIconColors = isDark.value ? iconDarkColors : iconColors
+    const cssVar = (currentIconColors as Record<string, { color: string }>)[a2uiColor]?.color || a2uiColor
+    const hexColor = (themeColors as Record<string, string>)[cssVar] || a2uiColor
 
     const match = colorsByType.find(c => c.value.split(',').includes(hexColor))
     if (match) return match.id

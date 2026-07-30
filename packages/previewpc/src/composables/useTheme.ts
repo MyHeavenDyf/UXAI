@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue';
+import { ref } from 'vue';
 
 const isDark = ref(false);
 
@@ -45,38 +45,6 @@ function applyTheme() {
   }
 }
 
-// ========== icon 颜色映射（跟随主题切换） ==========
-
-// 亮色：用 -50 系列色值，暗色：用 -30 系列色值
-const LIGHT_ICON_COLORS: Record<string, string> = {
-  success:   "#09AA71",  // mint-50
-  primary:   "#0067D1",  // brand-50
-  error:     "#E02128",  // red-50
-  warning:   "#FCC800",  // yellow-50
-  critical:  "#F4840C",  // orange-50
-  default:   "#191919",  // gray-90
-  inverse:   "#FFFFFF",
-  info:      "#191919",  // gray-90
-  neutral:   "#191919",
-  normal:    "#191919",
-}
-
-const DARK_ICON_COLORS: Record<string, string> = {
-  success:   "#63D5A8",  // mint-30
-  primary:   "#5CA2E9",  // brand-30
-  error:     "#EE696F",  // red-30
-  warning:   "#FDE55C",  // yellow-30
-  critical:  "#F9B766",  // orange-30
-  default:   "#DFDFDF",  // gray-10
-  inverse:   "#191919",  // gray-90
-  info:      "#DFDFDF",  // gray-10
-  neutral:   "#DFDFDF",
-  normal:    "#DFDFDF",
-}
-
-/** 根据 isDark 返回当前主题下的 icon 颜色映射 */
-export const iconColorMap = computed(() => isDark.value ? DARK_ICON_COLORS : LIGHT_ICON_COLORS)
-
 export function initTheme() {
   applyTheme();
 }
@@ -85,6 +53,5 @@ export function useTheme() {
   return {
     isDark,
     toggleTheme,
-    iconColorMap,
   };
 }
