@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
 import { mkdir, readFile, writeFile, lstat, stat, unlink, rm, copyFile, rename } from "node:fs/promises"
+import * as http from "node:http"
 import { dirname, extname, join, basename, resolve as resolvePath, sep } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
@@ -1214,7 +1215,7 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("pipeline-request", (_event: IpcMainInvokeEvent, url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) =>
     pipelineRequest(url, method, uiplusToken, body, headers))
 
-  // Proxy 配置: curl 测试代理连通性, 成功后写入 ~/.config/octo/proxy_config.json
+  // Proxy 配置: curl 测试代理连通性, 成功后写入 ~/.config/octo/proxy_config.json 并注入环境变量即时生效
   ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string) => {
     const encodedPwd = encodeURIComponent(password)
       .replace(/['()!*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
@@ -1268,13 +1269,17 @@ export function registerIpcHandlers(deps: Deps) {
         no_proxy: noProxy,
       }, null, 2), "utf-8")
       log.info("[configure-proxy] 配置写入成功", { configFile })
+
+      // 保持环境变量注入状态，让 Node.js HTTP 模块即时生效
+      try {
+        ;(http as any).setGlobalProxyFromEnv()
+      } catch (e) {
+        log.warn("[configure-proxy] setGlobalProxyFromEnv 失败", e)
+      }
+
       return { success: true, curlUrl: curlTarget }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err)
-      log.error("[configure-proxy] 配置失败", { error: errorMessage })
-      return { success: false, curlUrl: curlTarget, error: errorMessage }
-    } finally {
-      // 恢复之前的环境变量
+      // 失败时恢复之前的环境变量
       for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"] as const) {
         const val = prevEnv[key]
         if (val === undefined) {
@@ -1283,6 +1288,9 @@ export function registerIpcHandlers(deps: Deps) {
           process.env[key] = val
         }
       }
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      log.error("[configure-proxy] 配置失败", { error: errorMessage })
+      return { success: false, curlUrl: curlTarget, error: errorMessage }
     }
   })
 }

@@ -371,26 +371,24 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
 
         {/* plan 模式 — 设计规划生成阶段,有 planCard 时渲染（未确认/未结束状态） */}
         <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && !props.planConfirmPending && !props.childPlanConfirmed && !props.planEnded}>
-          <Show when={props.planCard} keyed>
-            {(plan) => (
-              <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
-                <DesignPlanRenderer
-                  content={plan.content}
-                  title={plan.title}
-                  artifactIdentifier={plan.artifactIdentifier}
-                  confirmed={props.isPlanConfirmed?.() ?? false}
-                  disabled={props.childBusy}
-                  onConfirm={() => props.onConfirmPlan?.(plan.artifactIdentifier)}
-                  onContentChange={(content) => {
-                    if (props.onContentChange && plan.id) {
-                      props.onContentChange(plan.id, content)
-                    }
-                  }}
-                  onBackToStrategy={() => props.onBackToStrategy?.()}
-                  currentStep={2}
-                />
-              </div>
-            )}
+          <Show when={props.planCard}>
+            <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <DesignPlanRenderer
+                content={props.planCard?.content ?? ""}
+                title={props.planCard?.title ?? ""}
+                artifactIdentifier={props.planCard?.artifactIdentifier}
+                confirmed={props.isPlanConfirmed?.() ?? false}
+                disabled={props.childBusy}
+                onConfirm={() => props.onConfirmPlan?.(props.planCard?.artifactIdentifier)}
+                onContentChange={(content) => {
+                  if (props.onContentChange && props.planCard?.id) {
+                    props.onContentChange(props.planCard.id, content)
+                  }
+                }}
+                onBackToStrategy={() => props.onBackToStrategy?.()}
+                currentStep={2}
+              />
+            </div>
           </Show>
         </Show>
 
