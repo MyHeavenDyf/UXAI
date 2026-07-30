@@ -6,13 +6,19 @@
   justify-content: flex-start;
   margin: 0;
 }
-
+.el-tab-pane {
+  margin-top: 16px;
+}
 .el-tabs__nav-wrap {
 
   &::after {
     height: 1px;
     background-color: var(--border-light);
   }
+}
+
+.el-tabs--card>.el-tabs__header {
+  border-color:  var(--border-light);
 }
 
 .el-tabs__new-tab {
@@ -34,7 +40,7 @@
   padding: 0 16px;
   color: var(--el-text-color-secondary);
   font-size: 16px;
-
+  font-weight: var(--el-font-weight-primary);
   &:not(.is-active):not(.is-disabled):hover {
     color: var(--color-brand-hover);
   }

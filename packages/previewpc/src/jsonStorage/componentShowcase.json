@@ -3990,8 +3990,8 @@
       "children": [
         "tabsCardTitle",
         "tabsRowLine",
+        "tabsRowLineEditable",
         "tabsRowCard",
-        "tabsRowSeparator",
         "tabsRowEditableCard",
         "tabsRowSize"
       ]
@@ -4042,7 +4042,7 @@
       "props": {
         "key": "tab1",
         "label": "概述",
-        "icon": "info",
+        "icon": "home",
         "content": "这是概述页面的内容，包含项目的整体介绍和关键信息摘要。"
       }
     },
@@ -4052,7 +4052,7 @@
       "props": {
         "key": "tab2",
         "label": "详情",
-        "icon": "file-text",
+        "icon": "file",
         "content": "这是详情页面的内容，包含项目的详细说明和技术规格参数。"
       }
     },
@@ -4064,6 +4064,68 @@
         "label": "设置",
         "icon": "settings",
         "content": "这是设置页面的内容，包含各项配置选项。"
+      }
+    },
+    {
+      "id": "tabsRowLineEditable",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tabsRowLineEditableLabel",
+        "tabsLineEditable"
+      ]
+    },
+    {
+      "id": "tabsRowLineEditableLabel",
+      "component": "span",
+      "props": {
+        "value": "删除形态",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsLineEditable",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "tab1",
+        "types": "editable-card"
+      },
+      "children": [
+        "tabLineEditable1",
+        "tabLineEditable2",
+        "tabLineEditable3"
+      ]
+    },
+    {
+      "id": "tabLineEditable1",
+      "component": "TabItem",
+      "props": {
+        "key": "tab1",
+        "label": "概述",
+        "icon": "home",
+        "content": "可删除的线条标签页概述内容。"
+      }
+    },
+    {
+      "id": "tabLineEditable2",
+      "component": "TabItem",
+      "props": {
+        "key": "tab2",
+        "label": "详情",
+        "icon": "file",
+        "content": "可删除的线条标签页详情内容。"
+      }
+    },
+    {
+      "id": "tabLineEditable3",
+      "component": "TabItem",
+      "props": {
+        "key": "tab3",
+        "label": "设置",
+        "icon": "settings",
+        "content": "可删除的线条标签页设置内容。"
       }
     },
     {
@@ -4123,56 +4185,6 @@
         "key": "tab3",
         "label": "历史记录",
         "content": "历史记录内容区域"
-      }
-    },
-    {
-      "id": "tabsRowSeparator",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-2"
-      },
-      "children": [
-        "tabsRowSeparatorLabel",
-        "tabsSeparator"
-      ]
-    },
-    {
-      "id": "tabsRowSeparatorLabel",
-      "component": "span",
-      "props": {
-        "value": "分割线样式",
-        "className": "text-sm text-on-surface-variant"
-      }
-    },
-    {
-      "id": "tabsSeparator",
-      "component": "Tabs",
-      "props": {
-        "activeKey": "tab1",
-        "types": "separator",
-        "tabPlacement": "start"
-      },
-      "children": [
-        "tabSeparator1",
-        "tabSeparator2"
-      ]
-    },
-    {
-      "id": "tabSeparator1",
-      "component": "TabItem",
-      "props": {
-        "key": "tab1",
-        "label": "标签一",
-        "content": "标签一内容"
-      }
-    },
-    {
-      "id": "tabSeparator2",
-      "component": "TabItem",
-      "props": {
-        "key": "tab2",
-        "label": "标签二",
-        "content": "标签二内容"
       }
     },
     {
@@ -4316,7 +4328,7 @@
       "props": {
         "key": "tab1",
         "label": "大尺寸",
-        "icon": "info",
+        "icon": "home",
         "content": "大尺寸线条标签页内容"
       }
     },
@@ -4326,7 +4338,7 @@
       "props": {
         "key": "tab2",
         "label": "详情",
-        "icon": "file-text",
+        "icon": "file",
         "content": "大尺寸线条标签二内容"
       }
     },
@@ -4360,7 +4372,7 @@
       "props": {
         "key": "tab1",
         "label": "中尺寸",
-        "icon": "info",
+        "icon": "home",
         "content": "中尺寸线条标签页内容"
       }
     },
@@ -4370,7 +4382,7 @@
       "props": {
         "key": "tab2",
         "label": "详情",
-        "icon": "file-text",
+        "icon": "file",
         "content": "中尺寸线条标签二内容"
       }
     },
@@ -4404,7 +4416,7 @@
       "props": {
         "key": "tab1",
         "label": "小尺寸",
-        "icon": "info",
+        "icon": "home",
         "content": "小尺寸线条标签页内容"
       }
     },
@@ -4414,7 +4426,7 @@
       "props": {
         "key": "tab2",
         "label": "详情",
-        "icon": "file-text",
+        "icon": "file",
         "content": "小尺寸线条标签二内容"
       }
     },
