@@ -17,12 +17,12 @@
  * TransformContext 提供 resolveNode 供 transform 内调用子树展开。
  */
 
-import { Step } from '../core/Step'
-import type { ComponentRegistry } from '../core/ComponentRegistry'
+import { Step } from '../core/step'
+import type { ComponentRegistry } from '../core/component-registry'
 import type {
   TransformContext,
   TransformResult,
-} from '../core/componentMapping'
+} from '../core/component-mapping'
 import type {
   BuildNode,
   ComponentNode,
@@ -34,10 +34,10 @@ import type {
   LoopScope,
   RenderFnScope,
   Scope,
-} from '../core/nodeTypes'
-import type { PipelineContext, MappedPage } from '../pipeline/PipelineContext'
-import { resolveIcon } from '../core/iconCollection'
-import type { BindingValue } from '../core/valueTypes'
+} from '../core/node-types'
+import type { PipelineContext, MappedPage } from '../pipeline/pipeline-context'
+import { resolveIcon } from '../core/icon-collection'
+import type { BindingValue } from '../core/value-types'
 
 // ─── 路径取值辅助 ───
 

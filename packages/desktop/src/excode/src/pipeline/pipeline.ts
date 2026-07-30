@@ -4,8 +4,8 @@
  * 按顺序执行注册的步骤，支持链式 .add() 和 .run()。
  */
 
-import { Step } from '../core/Step'
-import type { PipelineContext } from './PipelineContext'
+import { Step } from '../core/step'
+import type { PipelineContext } from './pipeline-context'
 
 type StepConstructor = { new(): Step }
 

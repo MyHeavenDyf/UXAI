@@ -9,7 +9,7 @@
  * 统一从这里取 key，保证三处一致。
  */
 
-import type { ExtractNode } from './nodeTypes'
+import type { ExtractNode } from './node-types'
 
 export const fileKeyOf = {
   /** 主页面文件 */

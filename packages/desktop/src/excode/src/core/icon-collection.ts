@@ -12,9 +12,9 @@
 import {
   ICON_PROPS_BY_COMPONENT,
   ICON_PROPS_NESTED_IN_ARRAYS,
-} from './iconProps'
-import type { BuildNode } from './nodeTypes'
-import type { PropValue } from './valueTypes'
+} from './icon-props'
+import type { BuildNode } from './node-types'
+import type { PropValue } from './value-types'
 
 const PLACEHOLDER_ICON = 'IconPlusIcPublicTransverseRectangleTemplate'
 

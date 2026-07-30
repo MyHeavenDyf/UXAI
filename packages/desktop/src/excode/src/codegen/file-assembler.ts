@@ -18,18 +18,18 @@
  *   D. state.js（由 state-builder 产物落盘）
  */
 
-import type { GeneratedFile } from '../pipeline/PipelineContext'
-import type { FileDraft, PendingExtractedFile, PendingConstDecl } from './treeFinalizer'
-import type { StateBuilderResult, FileUnit } from './stateBuilder'
-import { fileKeyOf } from '../core/fileKeys'
-import { collectImports, renderImportBlock, injectImport, type ImportMap } from './ImportCollector'
-import { emitNode, indent } from './jsxEmitter'
-import { collectRelativeFields } from '../core/scopedEnrichment'
-import { isFlatAccessPath } from '../core/accessPath'
-import { emitKey, serializePlainJs } from './jsSerializer'
-import type { EmitOptions } from './jsxEmitter'
-import type { PropValue } from '../core/valueTypes'
-import type { BuildNode, LoopNode, ComponentNode, TextNode, RegularNode } from '../core/nodeTypes'
+import type { GeneratedFile } from '../pipeline/pipeline-context'
+import type { FileDraft, PendingExtractedFile, PendingConstDecl } from './tree-finalizer'
+import type { StateBuilderResult, FileUnit } from './state-builder'
+import { fileKeyOf } from '../core/file-keys'
+import { collectImports, renderImportBlock, injectImport, type ImportMap } from './import-collector'
+import { emitNode, indent } from './jsx-emitter'
+import { collectRelativeFields } from '../core/scoped-enrichment'
+import { isFlatAccessPath } from '../core/access-path'
+import { emitKey, serializePlainJs } from './js-serializer'
+import type { EmitOptions } from './jsx-emitter'
+import type { PropValue } from '../core/value-types'
+import type { BuildNode, LoopNode, ComponentNode, TextNode, RegularNode } from '../core/node-types'
 
 // ─── 主入口 ───
 
@@ -212,7 +212,15 @@ function assembleMainPage(
     useCssModules,
   )
 
-  const rootJsx = emitNode(draft.rootTree, { useCssModules, emitId })
+  // inline loop 解构排除集：enrichment/const 名（避免与 item 字段撞名）
+  const inlineLoopExcludedFields = new Set<string>()
+  if (fUnitMain) {
+    for (const ec of fUnitMain.enrichmentConsts) inlineLoopExcludedFields.add(ec.name)
+    for (const jlc of fUnitMain.jsxLiteralConsts) inlineLoopExcludedFields.add(jlc.name)
+  }
+  for (const dc of (draft.moduleTopConsts ?? [])) inlineLoopExcludedFields.add(dc.name)
+
+  const rootJsx = emitNode(draft.rootTree, { useCssModules, emitId, inlineLoopExcludedFields })
 
   // 函数体组装：数据/useState/模板之间空行
   const bodyLines: string[] = [
@@ -315,9 +323,17 @@ function assembleModuleFile(
     useCssModules,
   )
 
+  // inline loop 解构排除集（同 assembleMainPage）
+  const inlineLoopExcludedFields = new Set<string>()
+  if (moduleFileUnit) {
+    for (const ec of moduleFileUnit.enrichmentConsts) inlineLoopExcludedFields.add(ec.name)
+    for (const jlc of moduleFileUnit.jsxLiteralConsts) inlineLoopExcludedFields.add(jlc.name)
+  }
+  for (const dc of (ext.moduleTopConsts ?? [])) inlineLoopExcludedFields.add(dc.name)
+
   const rootJsx = ext.body.length === 1
-    ? emitNode(ext.body[0], { useCssModules, emitId })
-    : emitFragment(ext.body, { useCssModules, emitId })
+    ? emitNode(ext.body[0], { useCssModules, emitId, inlineLoopExcludedFields })
+    : emitFragment(ext.body, { useCssModules, emitId, inlineLoopExcludedFields })
 
   const params = ext.params ?? {}
   const propsSnippet = Object.keys(params).length > 0 ? '(props)' : '()'
@@ -484,10 +500,16 @@ function collectLoopRefs(node: BuildNode, refs: Set<string>): void {
   if (node.kind === 'component' || node.kind === 'html') {
     const ch = node.children
     if (ch && (ch as any).kind === 'loop') {
-      // 只收当前文件直接渲染的循环模板；内层循环（在 template body 里）由外层模板文件
-      // 自己 assembleComponentTemplate 时收集，否则内层模板 import 会被错写到上层文件。
-      const cn = (ch as any).template?.componentName
-      if (cn) refs.add(cn)
+      if (!(ch as any).inline) {
+        // 非 inline：模板在单独文件，记录引用，不递归（嵌套循环由 assembleComponentTemplate 处理）
+        const cn = (ch as any).template?.componentName
+        if (cn) refs.add(cn)
+      } else {
+        // inline：模板 body 在当前文件，递归找嵌套循环（嵌套的非 inline 循环需要注入 import）
+        for (const c of (ch as any).template?.body ?? []) {
+          collectLoopRefs(c as BuildNode, refs)
+        }
+      }
       return
     }
     if (Array.isArray(ch)) {
@@ -767,8 +789,13 @@ function collectImportsFromConsts(
     }
     // 递归 props
     if (v.props && typeof v.props === 'object') walk(Object.values(v.props))
-    // 递归普通对象键
-    for (const item of Object.values(v)) walk(item)
+    // 递归普通对象键。跳过 loopScope：它是遍历期附加的反向引用字段
+    // （node.loopScope.loopNode 指回父循环，而父循环 template 又含本节点 → 天然环），
+    // 不属于节点的可序列化值结构，走入会爆栈。
+    for (const [k, item] of Object.entries(v)) {
+      if (k === 'loopScope') continue
+      walk(item)
+    }
   }
   for (const c of consts) walk(c.value)
 }
@@ -792,8 +819,11 @@ function collectImportsFromConstValues(values: any[], imports: Map<string, any>)
     }
     // 递归 props
     if (v.props && typeof v.props === 'object') walk(Object.values(v.props))
-    // 递归普通对象键
-    for (const item of Object.values(v)) walk(item)
+    // 递归普通对象键。跳过 loopScope（见 collectImportsFromConsts 注释）。
+    for (const [k, item] of Object.entries(v)) {
+      if (k === 'loopScope') continue
+      walk(item)
+    }
   }
   for (const val of values) walk(val)
 }

@@ -5,8 +5,8 @@
  * 新架构中 MappingDef 精简为 tag + import + defaults + transform 四个字段。
  */
 
-import type { MappingDef, TransformContext, TransformResult } from './componentMapping'
-import type { BuildNode } from './nodeTypes'
+import type { MappingDef, TransformContext, TransformResult } from './component-mapping'
+import type { BuildNode } from './node-types'
 
 export class ComponentRegistry {
   #mappingDefs: Map<string, MappingDef> = new Map()

@@ -4,12 +4,12 @@
  * 每个 A2UI 组件对应一个 MappingDef，声明其目标组件映射和转换逻辑。
  */
 
-import type { BuildNode, LoopNode } from './nodeTypes'
+import type { BuildNode, LoopNode } from './node-types'
 import type {
   PropValue,
   ImportSpec,
   ExtractRoute,
-} from './valueTypes'
+} from './value-types'
 
 // ─── TransformContext（transform 运行时注入） ───
 

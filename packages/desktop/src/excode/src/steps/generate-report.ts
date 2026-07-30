@@ -7,9 +7,9 @@
  * ctx.generationReport 不再写入（保留字段仅供向后兼容 / 调试）。
  */
 
-import { Step } from '../core/Step'
-import type { PipelineContext } from '../pipeline/PipelineContext'
-import { buildStatsFromContext, buildReportMarkdown } from '../codegen/reportGenerator'
+import { Step } from '../core/step'
+import type { PipelineContext } from '../pipeline/pipeline-context'
+import { buildStatsFromContext, buildReportMarkdown } from '../codegen/report-generator'
 
 export class GenerateReport extends Step {
   async execute(ctx: PipelineContext): Promise<void> {
