@@ -17,8 +17,8 @@
  * TransformContext 提供 resolveNode 供 transform 内调用子树展开。
  */
 
-import { Step } from '../core/step'
-import type { ComponentRegistry } from '../core/componentRegistry'
+import { Step } from '../core/Step'
+import type { ComponentRegistry } from '../core/ComponentRegistry'
 import type {
   TransformContext,
   TransformResult,
@@ -35,7 +35,7 @@ import type {
   RenderFnScope,
   Scope,
 } from '../core/nodeTypes'
-import type { PipelineContext, MappedPage } from '../pipeline/pipelineContext'
+import type { PipelineContext, MappedPage } from '../pipeline/PipelineContext'
 import { resolveIcon } from '../core/iconCollection'
 import type { BindingValue } from '../core/valueTypes'
 

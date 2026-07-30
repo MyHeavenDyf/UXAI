@@ -25,7 +25,7 @@
  * tree-finalizer 不再需要 rewriteValueForVars。
  */
 
-import type { MappedPage } from '../pipeline/pipelineContext'
+import type { MappedPage } from '../pipeline/PipelineContext'
 import type { BuildNode, LoopNode, ExtractNode, RegularNode, LoopScope, RenderFnScope, Scope } from '../core/nodeTypes'
 import type { BindingValue, ComputedValue, ComputedTransformCtx, PropValue } from '../core/valueTypes'
 import { resolveIcon } from '../core/iconCollection'

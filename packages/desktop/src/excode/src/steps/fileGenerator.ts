@@ -12,9 +12,9 @@
  * ctx.outputFiles 的最终组装由 Step 7 WriteOutput 接管。
  */
 
-import { Step } from '../core/step'
-import type { PipelineContext } from '../pipeline/pipelineContext'
-import type { MappedPage } from '../pipeline/pipelineContext'
+import { Step } from '../core/Step'
+import type { PipelineContext } from '../pipeline/PipelineContext'
+import type { MappedPage } from '../pipeline/PipelineContext'
 import { buildState, type StateBuilderResult } from '../codegen/stateBuilder'
 import { finalizeTree, type TreeFinalizerResult } from '../codegen/treeFinalizer'
 import { assembleAllFiles } from '../codegen/fileAssembler'

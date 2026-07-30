@@ -63,7 +63,7 @@ import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
 import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, UploadError } from "../insight/lib/upload"
 import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
-import { type ToolCallInfo } from "./components/tool-call-card"
+import { type ToolCallInfo, toolFamily } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
 import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2"
@@ -601,6 +601,24 @@ const sessionMessagesLoaded = createMemo(() => {
             }
           ])
         }
+      } else if (e.type === "session.next.tool.called") {
+        const callID = props?.callID as string | undefined
+        const toolName = props?.tool as string | undefined
+        if (callID && toolName) {
+          toolCallMap.set(callID, toolName)
+        }
+      } else if (e.type === "session.next.tool.success") {
+        const callID = props?.callID as string | undefined
+        if (callID) {
+          const toolName = toolCallMap.get(callID)
+          if (toolName) {
+            const family = toolFamily(toolName)
+            if (family === "write" || family === "edit") {
+              setFilesRefreshKey(k => k + 1)
+            }
+            toolCallMap.delete(callID)
+          }
+        }
       } else {
         const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
         console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 
@@ -612,6 +630,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const [childSessionIDs, setChildSessionIDs] = createSignal<Set<string>>(new Set())
   const [deltaLog, setDeltaLog] = createSignal<DeltaLogEntry[]>([])
   const loadedChildSessions = new Set<string>()
+  const toolCallMap = new Map<string, string>()
 
   const PLAN_CHILD_LOCALSTORAGE_PREFIX = "octo_make_plan_child:"
   const PLAN_ENDED_LOCALSTORAGE_PREFIX = "octo_make_plan_ended:"
@@ -2659,7 +2678,7 @@ if (dsId) {
           }
         }
       } catch (err) {
-        console.error("[handleSpecSelect] Failed to parse dialog response:", err)
+        console.warn("[handleSpecSelect] Failed to parse dialog response:", err)
       }
     })
   }
@@ -3161,14 +3180,14 @@ if (dsId) {
                     />
 
                     <div class="flex-1 min-h-0 overflow-hidden rounded-[inherit]">
-<ProseMirrorEditor
-                      sessionId={params.id!}
-                      skillConfig={skillConfig() ?? {}}
-                      artifactFiles={artifactFilesMirror()}
-                      mentionSelections={mentionSelections()}
-                      setMentionSelections={setMentionSelections}
-                      disabled={inputDisabled()}
-                      autofocus
+                    <ProseMirrorEditor
+                       sessionId={params.id!}
+                       skillConfig={skillConfig() ?? {}}
+                       artifactFiles={artifactFilesMirror()}
+                       mentionSelections={mentionSelections()}
+                       setMentionSelections={setMentionSelections}
+                       disabled={inputDisabled()}
+                       autofocus
                        onTriggerMention={loadSkillConfig}
                        onContentChange={setPrompt}
                        onSubmit={() => void handleSubmit()}
@@ -3485,8 +3504,8 @@ if (dsId) {
                       mentionSelections={mentionSelections()}
                       setMentionSelections={setMentionSelections}
                       disabled={inputDisabled()}
-                     autofocus
-                     onTriggerMention={loadSkillConfig}
+                      autofocus
+                      onTriggerMention={loadSkillConfig}
                      onContentChange={setPrompt}
                      onSubmit={() => void handleSubmit()}
                      onPaste={handlePaste}

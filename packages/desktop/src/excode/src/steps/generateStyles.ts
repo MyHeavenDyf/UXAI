@@ -10,8 +10,8 @@
  *   - ctx.styleImportMap   : Map<jsxFilePath, relativeCssModulePath>
  */
 
-import { Step } from '../core/step'
-import type { PipelineContext } from '../pipeline/pipelineContext'
+import { Step } from '../core/Step'
+import type { PipelineContext } from '../pipeline/PipelineContext'
 import { StyleConverter, type StyleResult } from '../codegen/styleConverter'
 import type { BuildNode } from '../core/nodeTypes'
 import type { PendingExtractedFile } from '../codegen/treeFinalizer'
