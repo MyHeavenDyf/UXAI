@@ -101,7 +101,7 @@ function ShellSubmessage(props: { text: string; animate?: boolean }) {
 const COLLAPSIBLE_MAX_HEIGHT = 222
 const COLLAPSIBLE_MASK_HEIGHT = 60
 
-function CollapsibleBubble(props: { children: JSX.Element; maskGradient?: string; borderRadius?: string }): JSX.Element {
+function CollapsibleBubble(props: { children: JSX.Element; maskGradient?: string }): JSX.Element {
   const [expanded, setExpanded] = createSignal(false)
   const [needsExpand, setNeedsExpand] = createSignal(false)
   let contentRef: HTMLDivElement | undefined
@@ -125,8 +125,24 @@ function CollapsibleBubble(props: { children: JSX.Element; maskGradient?: string
 
   const collapsed = () => needsExpand() && !expanded()
 
+  const ChevronIcon = (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 20 20"
+      width="16"
+      height="16"
+      fill="none"
+      style={{ "flex-shrink": "0" }}
+    >
+      <path
+        d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z"
+        fill="rgba(0,0,0,0.6)"
+      />
+    </svg>
+  )
+
   return (
-    <div style={{ position: "relative", "padding-bottom": expanded() && needsExpand() ? "38px" : undefined, "border-radius": props.borderRadius, overflow: props.borderRadius ? "hidden" : undefined }}>
+    <>
       <div
         ref={contentRef}
         style={{
@@ -135,6 +151,31 @@ function CollapsibleBubble(props: { children: JSX.Element; maskGradient?: string
         }}
       >
         {props.children}
+        <Show when={needsExpand() && expanded()}>
+          <div style={{ display: "flex", "justify-content": "flex-end", "padding-top": "8px" }}>
+            <button
+              type="button"
+              onClick={() => setExpanded(false)}
+              style={{
+                display: "inline-flex",
+                "align-items": "center",
+                gap: "4px",
+                padding: "0",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: "rgba(0,0,0,0.6)",
+                "font-size": "14px",
+                "line-height": "22px",
+              }}
+            >
+              <span>收起</span>
+              <span style={{ display: "inline-flex", "align-items": "center", transform: "rotate(180deg)" }}>
+                {ChevronIcon}
+              </span>
+            </button>
+          </div>
+        </Show>
       </div>
 
       <Show when={collapsed()}>
@@ -149,12 +190,9 @@ function CollapsibleBubble(props: { children: JSX.Element; maskGradient?: string
             "pointer-events": "none",
           }}
         />
-      </Show>
-
-      <Show when={needsExpand()}>
         <button
           type="button"
-          onClick={() => setExpanded(!expanded())}
+          onClick={() => setExpanded(true)}
           style={{
             position: "absolute",
             bottom: "12px",
@@ -172,32 +210,13 @@ function CollapsibleBubble(props: { children: JSX.Element; maskGradient?: string
             "z-index": "1",
           }}
         >
-          <span>{expanded() ? "收起" : "展开"}</span>
-          <span
-            style={{
-              display: "inline-flex",
-              "align-items": "center",
-              transition: "transform 200ms cubic-bezier(0.4,0,0.2,1)",
-              transform: expanded() ? "rotate(180deg)" : "rotate(0deg)",
-            }}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 20 20"
-              width="16"
-              height="16"
-              fill="none"
-              style={{ "flex-shrink": "0" }}
-            >
-              <path
-                d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z"
-                fill="rgba(0,0,0,0.6)"
-              />
-            </svg>
+          <span>展开</span>
+          <span style={{ display: "inline-flex", "align-items": "center" }}>
+            {ChevronIcon}
           </span>
         </button>
       </Show>
-    </div>
+    </>
   )
 }
 
@@ -1213,11 +1232,11 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
       <Show when={text()}>
         <>
           <div data-slot="user-message-body">
-            <CollapsibleBubble borderRadius="16px 16px 2px 16px">
-              <div data-slot="user-message-text">
+            <div data-slot="user-message-text" style={{ position: "relative" }}>
+              <CollapsibleBubble>
                 <HighlightedText text={text()} references={inlineFiles()} agents={agents()} />
-              </div>
-            </CollapsibleBubble>
+              </CollapsibleBubble>
+            </div>
           </div>
           <div data-slot="user-message-copy-wrapper">
             <Show when={metaHead() || metaTail()}>
@@ -1588,13 +1607,11 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
   return (
     <Show when={text()}>
       <div data-component="text-part">
-        <CollapsibleBubble>
-          <div data-slot="text-part-body">
-            <Show when={streaming()} fallback={<Markdown text={text()} cacheKey={part().id} streaming={false} />}>
-              <PacedMarkdown text={text()} cacheKey={part().id} streaming={streaming()} />
-            </Show>
-          </div>
-        </CollapsibleBubble>
+        <div data-slot="text-part-body">
+          <Show when={streaming()} fallback={<Markdown text={text()} cacheKey={part().id} streaming={false} />}>
+            <PacedMarkdown text={text()} cacheKey={part().id} streaming={streaming()} />
+          </Show>
+        </div>
         <Show when={showCopy()}>
           <div data-slot="text-part-copy-wrapper" data-interrupted={interrupted() ? "" : undefined}>
             <Tooltip
