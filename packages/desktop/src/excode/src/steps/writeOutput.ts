@@ -5,7 +5,7 @@
  *   1. 复制 templates/ 目录整树（递归扫描）
  *   2. 追加路由文件（来自 Step 6）
  *   3. 追加页面文件（来自 Step 5，ctx.generatedFiles）
- *   4. 追加样式产物（*.module.less / *.less + 全局 variables.less）
+ *   4. 追加样式产物（*.module.less / *.less）
  *
  * 注：generation-report 不再产出 markdown 文件（Step 8 已改为只在控制台打印）。
  * 输出 ctx.outputFiles 应是纯净的项目代码，不含任何 manifest 文件。
@@ -42,18 +42,10 @@ export class WriteOutput extends Step {
       ctx.outputFiles.push(...ctx.generatedFiles)
     }
 
-    // 4. 样式产物（*.module.less / *.less + 全局 variables.less）
+    // 4. 样式产物（*.module.less / *.less）
     if (ctx.styleResults && ctx.styleResults.length > 0) {
       for (const ps of ctx.styleResults) {
         for (const lf of ps.lessFiles) ctx.outputFiles.push(lf)
-      }
-      // 全局 variables.less（取第一份，所有页面共用）
-      const anyGlobal = ctx.styleResults.find(s => s.globalLess)
-      if (anyGlobal) {
-        ctx.outputFiles.push({
-          path: 'src/styles/variables.less',
-          content: anyGlobal.globalLess,
-        })
       }
     }
 

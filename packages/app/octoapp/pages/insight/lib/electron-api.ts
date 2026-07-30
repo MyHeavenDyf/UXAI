@@ -38,6 +38,11 @@ export type DesktopApi = {
   fileExists?: (path: string) => Promise<boolean>
   /** 用系统默认浏览器打开外链(shell.openExternal);避免在 Electron webview 内导航后无法返回 */
   openLink?: (url: string) => void
+  /** SPEC-INS-023:读技能 SKILL.md 正文(@技能 注入用);命中→{success:true,content},否则 {success:false,error} */
+  getSkillContent?: (skillName: string) => Promise<
+    | { success: true; name: string; content: string; baseDir: string; files: string }
+    | { success: false; error: string }
+  >
   writeClipboardText?: (text: string) => Promise<void>
   /** 下载完成后的保存路径回调(主进程仅观察默认保存对话框的结果) */
   onDownloadSavePath?: (cb: (info: {

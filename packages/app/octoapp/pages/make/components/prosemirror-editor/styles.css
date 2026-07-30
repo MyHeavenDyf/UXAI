@@ -1,26 +1,57 @@
 .pm-editor-wrapper {
   position: relative;
   width: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+  padding-right: 4px;
+}
+.pm-editor-wrapper::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 24px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 1) 100%);
+  pointer-events: none;
+  z-index: 1;
 }
 
 .pm-editor {
   min-height: 88px;
-  max-height: 184px;
+  max-height: 240px;
   overflow-y: auto;
-  padding: 1rem;
+  padding: 1rem 12px 1rem 1rem;
   outline: none;
   font-family: var(--octo-font);
   font-size: 14px;
   line-height: 1.5;
   white-space: pre-wrap;
+  scrollbar-width: auto;
+  -ms-overflow-style: auto;
+}
+.pm-editor::-webkit-scrollbar {
+  display: block;
+  width: 4px;
+  height: 4px;
+}
+.pm-editor::-webkit-scrollbar-thumb {
+  background-color: var(--border-weak-base);
+  border-radius: 9999px;
+}
+.pm-editor::-webkit-scrollbar-thumb:hover {
+  background-color: var(--border-strong-base);
+}
+.pm-editor::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .pm-editor:focus {
   outline: none;
 }
 
-.pm-editor.pm-editor--disabled {
-  background: var(--bg-subtle);
+.pm-editor-wrapper .pm-editor.pm-editor--disabled {
+  background: #fff;
   cursor: not-allowed;
 }
 

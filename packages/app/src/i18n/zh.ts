@@ -219,6 +219,7 @@ export const dict = {
 
   "model.tag.free": "免费",
   "model.tag.latest": "最新",
+  "model.tag.multimodal": "多模态",
   "model.provider.anthropic": "Anthropic",
   "model.provider.openai": "OpenAI",
   "model.provider.google": "Google",

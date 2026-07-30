@@ -70,6 +70,8 @@ interface PromptInputProps {
   onAbort?: () => void
   onSubmit?: () => void
   disabled?: boolean
+  /** Disable @ mention popover */
+  disableAtMention?: boolean
 }
 
 const EXAMPLES = [
@@ -925,7 +927,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     const shellMode = store.mode === "shell"
 
     if (!shellMode) {
-      const atMatch = rawText.substring(0, cursorPosition).match(/@(\S*)$/)
+      const atMatch = props.disableAtMention ? null : rawText.substring(0, cursorPosition).match(/@(\S*)$/)
       const slashMatch = rawText.match(/^\/(\S*)$/)
 
       if (atMatch) {

@@ -16,8 +16,6 @@ import { SidebarShell } from "@/components/sidebar-shell"
 import { SessionList } from "@/components/session-list"
 
 export type AgentSidebarProps = {
-  width: number
-
   // ── Data ──
   /** Current project directory. Caller is responsible for resolving this. */
   directory: string | null | undefined
@@ -52,6 +50,10 @@ export type AgentSidebarProps = {
 
   // ── Nav (optional) ──
   sidebarSourceKey?: "cowork" | "make"
+  /** Custom handler for skill button click. If provided, overrides default navigation to /skills. */
+  onSkillClick?: () => void
+  /** When true, highlights the skill button (for inline panel mode). */
+  skillsActive?: boolean
 }
 
 export function AgentSidebar(props: AgentSidebarProps) {
@@ -315,7 +317,6 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   return (
     <SidebarShell
-      width={props.width}
       showProjectInfo={props.showProjectInfo}
       showBottomNav={props.showBottomNav}
       newButtonText={props.newButtonText ?? "新建对话"}
@@ -324,11 +325,15 @@ export function AgentSidebar(props: AgentSidebarProps) {
       sectionIcon={props.sectionIcon}
       collapsed={collapsed()}
       onToggleCollapse={() => setCollapsed(v => !v)}
-      activeNav={location.pathname === "/skills" ? "skill_market" : location.pathname === "/assets" ? "knowledge_base" : activeNav()}
+      activeNav={props.skillsActive || location.pathname === "/skills" ? "skill_market" : location.pathname === "/assets" ? "knowledge_base" : activeNav()}
       onNavClick={(key) => {
         if (key === "skill_market" || key === "knowledge_base") {
-          if (props.sidebarSourceKey) layout.sidebarSource.set(props.sidebarSourceKey)
-          navigate(key === "skill_market" ? "/skills" : "/assets")
+          if (key === "skill_market" && props.onSkillClick) {
+            props.onSkillClick()
+          } else {
+            if (props.sidebarSourceKey) layout.sidebarSource.set(props.sidebarSourceKey)
+            navigate(key === "skill_market" ? "/skills" : "/assets")
+          }
           return
         }
         setActiveNav(v => v === key ? null : v)

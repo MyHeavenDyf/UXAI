@@ -6,6 +6,7 @@ import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import {
   createEffect,
   createMemo,
+  createResource,
   createSignal,
   ErrorBoundary,
   For,
@@ -46,6 +47,7 @@ import { McpChip } from "./components/mcp-chip"
 import { ResultViewer } from "./components/result-viewer/index"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { materializeUriCardToOutputs } from "./utils/local-resource"
+import { notifyMaterializeFailure } from "./utils/materialize-notify"
 import { PRESET_PROMPTS } from "./store/preset-prompts"
 import {
   buildChipDeclaration,
@@ -68,11 +70,15 @@ import { tracker } from "@/utils/tracker"
 import { linkToOutputType } from "./utils/resource-link"
 import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
+import { splitMentions, queuedMentions } from "./utils/mention"
 import { showToast } from "@opencode-ai/ui/toast"
 import { extToOutputType } from "./utils/write-output"
 import { isPendingUploadPath } from "./utils/worktree-layout"
 import type { InsightFile, InsightFileEntry } from "./utils/insight-file-api"
-import { mimeForName, pathToLocalUrl } from "./utils/insight-file-api"
+import { mimeForName, pathToLocalUrl, fetchInsightFiles } from "./utils/insight-file-api"
+import { type MentionSelection, type MentionSkill } from "./components/mention-popover"
+import { ProseMirrorEditor, type InsightEditorRef, type MentionAttrs } from "./components/prosemirror-editor"
+import { loadSkillsFromPanel } from "@/utils/skill-config"
 
 // 稳定空数组:作为 userMessages memo 的初值与无 id 时的返回,配合 equals:same 避免每帧吐新空数组
 const EMPTY_MESSAGES: Message[] = []
@@ -585,9 +591,6 @@ function InsightContent() {
   }, { defer: true }))
 
   const [prompt, setPrompt] = createSignal("")
-  // 输入法合成态:macOS 上「确认候选」的 Enter keydown 先于 compositionend 触发,
-  // 此时 event.isComposing 在部分 Chromium 版本已是 false 会漏判,故另用手动信号兜底
-  const [composing, setComposing] = createSignal(false)
   // MCP「研究工具」chip 选择(SPEC-INS-017):非空 = 解析模式开启——若模型发起 MCP 业务调用,
   // 只能是所选工具(范围限制);是否调用由模型按用户消息判断。纯常驻:只有手动 × 才取消,
   // 无任何自动清除副作用(重复提交由模板判断规则 + 查询仪式防,非客户端状态机)。
@@ -610,7 +613,6 @@ function InsightContent() {
   // 但首次发送的这批附件要留给 doSendPrompt consume,不能被 effect 抢清 → 用此 flag 标记
   // "发送导致的导航",effect 消费一次后跳过清空(其余新建/切换 session 正常清)。
   let sendingNavigation = false
-  let textareaRef!: HTMLTextAreaElement
 
   // 聊天区宽度：从 localStorage 恢复，无存储值时取约 50% 可用宽（扣除侧边栏约 240px）
   const CHAT_WIDTH_KEY = "octo:insight:chat-width"
@@ -665,6 +667,85 @@ function InsightContent() {
   // 文件管理表格外部刷新触发:对话上传文件落地会话目录(insight/<sid>/uploads/)后递增,
   // 驱动 ResultViewer → InsightFileManager 的 refreshKey effect 重拉文件列表(对齐 make 模块的 filesRefreshKey)。
   const [filesRefreshKey, setFilesRefreshKey] = createSignal(0)
+
+  // ── @ 引用面板(SPEC-INS-023,方案 B:ProseMirror 行内胶囊)────────────────
+  // 已选引用(技能 / 文件):由编辑器 syncPlugin 从 doc 中的 mention 节点派生,发送时拆桶注入;发送后随清空。
+  const [mentionSelections, setMentionSelections] = createSignal<MentionSelection[]>([])
+  // 两处输入框各持一个编辑器引用(welcome 态 / 对话态,同一时刻只挂载一个);发送后清空、排队回填走它。
+  let pmRefWelcome: InsightEditorRef | undefined
+  let pmRefConv: InsightEditorRef | undefined
+  /** 清空当前输入框(两个 ref 都调,未挂载/已销毁的被 isConnected 守卫跳过) */
+  function clearComposers() {
+    pmRefWelcome?.clear()
+    pmRefConv?.clear()
+    setPrompt("")
+  }
+  /** 覆盖回填输入框(排队项回填):文本 + 引用一起还原,@名 重新变回胶囊 */
+  function setComposerContent(text: string, mentions: MentionAttrs[]) {
+    pmRefWelcome?.setContent(text, mentions)
+    pmRefConv?.setContent(text, mentions)
+  }
+  /** 聚焦当前输入框(模型选择器关闭等场景回焦) */
+  function focusComposer() {
+    requestAnimationFrame(() => {
+      pmRefWelcome?.focus()
+      pmRefConv?.focus()
+    })
+  }
+  // 技能面板数据:平台(octo_insight)+ 自定义(common),@ 首次触发时惰性加载一次。
+  const [insightSkills, setInsightSkills] = createSignal<{ platform: MentionSkill[]; custom: MentionSkill[] }>({
+    platform: [],
+    custom: [],
+  })
+  let skillsLoaded = false
+  // 加载态单独暴露:首次 @ 唤起时列表还没到,面板要显示「正在加载」而不是「暂无技能」(后者是错误陈述)
+  const [skillsLoading, setSkillsLoading] = createSignal(false)
+  async function loadInsightSkills() {
+    if (skillsLoaded) return
+    skillsLoaded = true
+    setSkillsLoading(true)
+    try {
+      const [platform, custom] = await Promise.all([
+        loadSkillsFromPanel("octo_insight"),
+        loadSkillsFromPanel("common"),
+      ])
+      setInsightSkills({ platform, custom })
+    } catch (err) {
+      skillsLoaded = false
+      console.error("[octo:mention] load skills failed", err)
+    } finally {
+      setSkillsLoading(false)
+    }
+  }
+
+  // 会话文件数据源:生成 = outputs、上传 = uploads;挂 filesRefreshKey(带附件发送后自动重拉)。
+  const [mentionFiles] = createResource(
+    () => ({ sid: params.id, url: sdk.url, dir: sdk.directory, refreshKey: filesRefreshKey() }),
+    async ({ sid, url, dir }) => {
+      if (!sid) return null
+      try {
+        const [outputs, uploads] = await Promise.all([
+          fetchInsightFiles(url, dir, sid, "outputs"),
+          fetchInsightFiles(url, dir, sid, "uploads"),
+        ])
+        return {
+          generated: outputs.filter((f) => !f.isFolder),
+          uploaded: uploads.filter((f) => !f.isFolder),
+        }
+      } catch (err) {
+        console.error("[octo:mention] load files failed", err)
+        return null
+      }
+    },
+  )
+
+  // 打点:面板首次唤起 / 选中一项(编辑器内部触发回调,transition 判据在编辑器里)
+  function trackMentionOpen() {
+    tracker.interaction({ module: "insight", name: "mention-open" })
+  }
+  function trackMentionSelect(sel: MentionSelection) {
+    tracker.interaction({ module: "insight", name: "mention-select", extend: JSON.stringify({ type: sel.type }) })
+  }
 
   // ── 任务面板按需弹出 + 过渡动画 (SPEC-INS-009;v2 常驻可见改动见 SPEC-INS-014 §10) ────
   // panelCollapsed:用户手动收起(保留 tab,仅隐藏容器);与"无产物"区分两种收起来源。
@@ -875,7 +956,7 @@ function InsightContent() {
       revokeAllPreviews()
       filesById.clear()
       setAttachments([])
-      setPrompt("")
+      clearComposers()
       setMcpSelection(null)
     }
     console.log("[octo:task] session switched, view state reset (refresh cooldown preserved)", { sessionID: params.id })
@@ -1025,6 +1106,8 @@ function InsightContent() {
       /** SPEC-INS-017 chip turn:注入 [MCP解析模式] 模板 + [MCP声明],tools gate 只放行所选工具。
        *  text 参数即用户键入原文(空输入不可发送,气泡文案 = user_prompt 原文,无回落) */
       chip?: { selection: McpSelection }
+      /** SPEC-INS-023 @ 引用:技能 → 注入 SKILL.md synthetic;文件 → 注入 [引用文件] synthetic(均气泡不显) */
+      mentions?: { skills: string[]; files: Array<{ filename: string; path: string }> }
     },
   ) {
     // SPEC-INS-015 文件传参路由:发送时按「文件类 × 用途」分流(spec docs/specs/infra/insight-file-passing.md)。
@@ -1089,6 +1172,46 @@ function InsightContent() {
       parts.push({ type: "text", text: chipTemplate, synthetic: true })
       parts.push({ type: "text", text: chipDeclaration, synthetic: true })
     }
+    // SPEC-INS-023 @ 引用注入:技能读 SKILL.md、文件列引用清单,均 synthetic(模型可见、气泡不显、不暴露路径)。
+    // 3b:不走 session.command,自读 SKILL.md 作 synthetic 注入 → 技能指令每轮确定进上下文。
+    const mentionBlocks: string[] = []
+    // 读不到 SKILL.md 的技能要显式告知:胶囊已在气泡里,若静默跳过,用户会以为技能已生效(实际没进上下文)。
+    // 覆盖三种失败:SKILL.md 缺失({success:false})、IPC 抛错、非 Electron 渠道(getSkillContent 不存在 → res undefined)。
+    const failedSkills: string[] = []
+    if (opts.mentions?.skills.length) {
+      const api = getDesktopApi()
+      for (const name of opts.mentions.skills) {
+        try {
+          const res = await api?.getSkillContent?.(name)
+          if (res?.success && res.content) {
+            mentionBlocks.push(`<skill_content name="${name}">\n${res.content}\n</skill_content>`)
+          } else {
+            failedSkills.push(name)
+            console.warn("[octo:mention] skill content missing, skip inject", { name, ok: res?.success })
+          }
+        } catch (err) {
+          failedSkills.push(name)
+          console.warn("[octo:mention] getSkillContent failed, skip inject", { name, err })
+        }
+      }
+    }
+    if (failedSkills.length) {
+      showToast({
+        title: "技能未生效",
+        description: `${failedSkills.map((n) => `「${n}」`).join("")}的技能内容读取失败,本轮未纳入上下文`,
+        variant: "error",
+        duration: 4000,
+      })
+    }
+    if (opts.mentions?.files.length) {
+      mentionBlocks.push(
+        [
+          "[引用文件] 用户本轮引用了以下已存在的会话文件,需要时用 extract_document 按路径读取:",
+          ...opts.mentions.files.map((f) => `- ${f.filename}: ${f.path}`),
+        ].join("\n"),
+      )
+    }
+    for (const b of mentionBlocks) parts.push({ type: "text", text: b, synthetic: true })
     // ① txt/md → FilePart(file://, text/plain):opencode 组 prompt 时自动 Read 内联正文给本地模型读。
     //   (office 不走此路 —— FilePart 二进制会被 base64,② 由模型调 extract_document 读。)
     for (const a of localFiles) {
@@ -1143,8 +1266,8 @@ function InsightContent() {
         synthetic: true,
       } as Part)
     }
-    // chip 模板/声明镜像进 optimistic:与 server 回传同构,替换无闪烁(气泡本就不渲染 synthetic)
-    for (const t of [chipTemplate, chipDeclaration]) {
+    // chip 模板/声明 + @ 引用块镜像进 optimistic:与 server 回传同构,替换无闪烁(气泡本就不渲染 synthetic)
+    for (const t of [chipTemplate, chipDeclaration, ...mentionBlocks]) {
       if (!t) continue
       optimisticParts.push({
         id: Identifier.ascending("part"),
@@ -1269,8 +1392,13 @@ function InsightContent() {
     }
   }
 
-  function sendMessage(sessionId: string, text: string, chip?: { selection: McpSelection }) {
-    return doSendPrompt(sessionId, text, { consumeAttachments: true, source: chip ? "mcp-chip" : "user", chip })
+  function sendMessage(
+    sessionId: string,
+    text: string,
+    chip?: { selection: McpSelection },
+    mentions?: { skills: string[]; files: Array<{ filename: string; path: string }> },
+  ) {
+    return doSendPrompt(sessionId, text, { consumeAttachments: true, source: chip ? "mcp-chip" : "user", chip, mentions })
   }
 
   /** 任务卡片"刷新 / 终止 / follow-up"按钮通过本函数 inject prompt;不消费附件状态 */
@@ -1324,7 +1452,7 @@ function InsightContent() {
         tokenEstimate: Math.round(pendingBytes / 4),
       }),
     })
-    requestAnimationFrame(() => textareaRef?.focus())
+    focusComposer()
   }
 
   function handleMcpClear() {
@@ -1338,7 +1466,12 @@ function InsightContent() {
   async function handleSubmit(trigger: "button" | "enter" = "button") {
     const text = prompt().trim()
     const chipSel = mcpSelection()
-    // 空输入一律不可发送(与业界一致,chip 选中也不豁免):气泡与 user_prompt 恒为用户原话
+    // SPEC-INS-023 @ 引用:发送前拆桶(技能 / 文件),清空选择;可见文本保持 @名 原样(text 已含,不额外处理)。
+    const { skills: mentionSkills, files: mentionFileRefs } = splitMentions(mentionSelections())
+    const mentionsPayload =
+      mentionSkills.length || mentionFileRefs.length ? { skills: mentionSkills, files: mentionFileRefs } : undefined
+    // 空输入一律不可发送(与业界一致,chip 选中也不豁免):气泡与 user_prompt 恒为用户原话。
+    // @引用会把 @名 留在 text 里,故有引用时 text 必非空,无需额外豁免。
     if (!text || hasUploadingAttachments()) return
 
     // 未选模型时提示并中止,与 chat 一致(prompt-input/submit.ts handleSubmit);输入内容保留不清空
@@ -1374,12 +1507,14 @@ function InsightContent() {
       }),
     })
 
-    setPrompt("")
+    clearComposers()
+    setMentionSelections([]) // @引用已拆桶进 mentionsPayload,清空选择态
     // chip 不随发送复位(纯常驻,对齐 GPT/Gemini 工具模式,只手动 × 取消)
 
-    // busy/retry 时入队(SPEC-INS-007 §3.3.3):FIFO 多容量,push 追加,idle 后逐条 flush
+    // busy/retry 时入队(SPEC-INS-007 §3.3.3):FIFO 多容量,push 追加,idle 后逐条 flush。
+    // SPEC-INS-023:队列项带 skills/files,flush 时重新注入,排队不丢 @引用。
     if (isWorking()) {
-      setQueueFor(params.id, (q) => [...q, text])
+      setQueueFor(params.id, (q) => [...q, { text, skills: mentionSkills, files: mentionFileRefs }])
       console.log("[octo:queue] enqueued", { sessionID: params.id, len: text.length, depth: queue().length })
       return
     }
@@ -1392,7 +1527,7 @@ function InsightContent() {
       if (!sid) { sendingNavigation = false; return }
     }
     autoScroll.forceScrollToBottom()
-    await sendMessage(sid, text, chipPayload)
+    await sendMessage(sid, text, chipPayload, mentionsPayload)
   }
 
   // idle 时 flush 当前 session 队首一条(SPEC-INS-007 §3.3.3)。
@@ -1404,10 +1539,15 @@ function InsightContent() {
     if (q.length === 0) return
     const [next, ...rest] = q
     setQueueFor(sid, () => rest)
-    console.log("[octo:queue] flushing", { sessionID: sid, len: next.length, remaining: rest.length })
+    console.log("[octo:queue] flushing", { sessionID: sid, len: next.text.length, remaining: rest.length })
     // chip 是常驻模式:按 flush 那一刻的选择态携带(队列只存文本;发出那一刻输入框是什么模式就是什么模式)
     const chipSel = mcpSelection()
-    void sendMessage(sid, next, chipSel ? { selection: chipSel } : undefined)
+    // SPEC-INS-023:排队时随文本存下的 @引用(skills/files)在此重新携带注入
+    const mentionsPayload =
+      next.skills?.length || next.files?.length
+        ? { skills: next.skills ?? [], files: next.files ?? [] }
+        : undefined
+    void sendMessage(sid, next.text, chipSel ? { selection: chipSel } : undefined, mentionsPayload)
   }
 
   // busy → idle 那一刻自动 flush 队首
@@ -1427,7 +1567,9 @@ function InsightContent() {
     const item = queue()[index]
     if (item === undefined) return
     setQueueFor(params.id, (q) => q.filter((_, i) => i !== index))
-    setPrompt((cur) => cur ? cur : item)
+    // 输入框为空才回填(编辑器覆盖式);非空不覆盖草稿。
+    // 引用随文本一并还原成胶囊 —— 只回填文本会让 @名 变成失效的纯文本残留,用户无从察觉引用已丢。
+    if (!prompt().trim()) setComposerContent(item.text, queuedMentions(item))
     console.log("[octo:queue] removed", { index, remaining: queue().length })
   }
 
@@ -1450,24 +1592,8 @@ function InsightContent() {
   // 发送键禁用:空输入或附件上传中(chip 选中不豁免——空输入一律不可发送,与业界一致)
   const sendDisabled = createMemo(() => !stopping() && (!prompt().trim() || hasUploadingAttachments()))
 
-  // 输入法合成态:macOS 上「确认候选」的 Enter keydown 先于 compositionend 触发,
-  // 此时 event.isComposing 在部分 Chromium 版本已是 false 会漏判,故另用手动信号兜底
-  function handleCompositionStart() {
-    setComposing(true)
-  }
-  function handleCompositionEnd() {
-    setComposing(false)
-  }
-
-  function handleKeyDown(e: KeyboardEvent) {
-    // 输入法合成期间(如拼音 "nh" 待选)的回车用于确认候选词,不应触发发送。
-    // 三重判定兼容各平台:isComposing(标准)/ composing()(macOS 确认回车的兜底)/ keyCode 229
-    if (e.isComposing || composing() || e.keyCode === 229) return
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      void handleSubmit("enter")
-    }
-  }
+  // 注:方案 B 换 ProseMirror 后,输入法合成、Enter 发送、退格删胶囊、@ 面板开关均由编辑器内部处理
+  // (Enter keymap → onSubmit;atomKeymap 退格删原子节点;mention-trigger 插件管面板);此处不再需要 textarea 版键盘/合成逻辑。
 
   // ── 附件管理 ─────────────────────────────────────────────
 
@@ -1850,7 +1976,10 @@ function InsightContent() {
         if (eagerMaterializedCardIds.has(oc.id)) continue
         eagerMaterializedCardIds.add(oc.id)
         // 落盘后通知文件管理表格重拉:否则任务产物进了 outputs 目录,列表仍要手动切面板才看得到。
-        void materializeUriCardToOutputs(oc, dir, sid).then(() => setFilesRefreshKey((k) => k + 1))
+        void materializeUriCardToOutputs(oc, dir, sid).then((r) => {
+          notifyMaterializeFailure(r)
+          setFilesRefreshKey((k) => k + 1)
+        })
       }
     }
   })
@@ -1933,14 +2062,7 @@ function InsightContent() {
     lastTaskSnapshot = currentSnap
   })
 
-  // textarea 高度随内容自适应(min-height 由 CSS 控制)
-  createEffect(() => {
-    prompt()
-    const el = textareaRef
-    if (!el) return
-    el.style.height = "auto"
-    el.style.height = el.scrollHeight + "px"
-  })
+  // (方案 B)ProseMirror 编辑器自带 min/max-height + overflow 自适应,不再需要 textarea 版高度计算。
 
   const maxAttachments = () => attachments().length >= MAX_ATTACHMENTS
   function hasUploadingAttachments() {
@@ -1965,6 +2087,7 @@ function InsightContent() {
       onCloseTabsByPath={closeTabsByPath}
       onRemoveAttachmentsByPath={removeAttachmentsByPath}
       refreshKey={filesRefreshKey()}
+      onFilesRefresh={() => setFilesRefreshKey((k) => k + 1)}
     />
   )
 
@@ -2051,6 +2174,7 @@ function InsightContent() {
                   <NewSessionView worktree="" title="Octo Insight" subtitle="AI辅助用户洞察研究" />
 
                   <div style={{ width: "100%", "max-width": "800px" }}>
+                    {/* @ 面板走 Portal + fixed(编辑器内),脱离本胶囊裁剪 → 胶囊可保留 overflow-hidden 圆角 */}
                     <div
                       class="rounded-[24px] transition-all duration-300 relative group flex flex-col overflow-hidden"
                       style={{
@@ -2075,23 +2199,23 @@ function InsightContent() {
                         onRemove={removeAttachment}
                         onRetry={retryUpload}
                       />
-                      <textarea
-                        ref={textareaRef!}
-                        value={prompt()}
-                        onInput={(e) => setPrompt(e.currentTarget.value)}
-                        onCompositionStart={handleCompositionStart}
-                        onCompositionEnd={handleCompositionEnd}
-                        onKeyDown={handleKeyDown}
-                        onPaste={handlePaste}
+                      {/* SPEC-INS-023 方案 B:ProseMirror 编辑器(行内 @ 灰胶囊 + 内置 @ 面板) */}
+                      <ProseMirrorEditor
+                        ref={(el) => (pmRefWelcome = el)}
+                        platformSkills={insightSkills().platform}
+                        customSkills={insightSkills().custom}
+                        files={mentionFiles() ?? null}
+                        skillsLoading={skillsLoading()}
+                        filesLoading={mentionFiles.loading}
+                        mentionSelections={mentionSelections()}
+                        setMentionSelections={setMentionSelections}
                         placeholder={mcpSelection()?.preset.placeholder ?? "请描述您的需求..."}
-                        class="octo-input-scroll w-full resize-none px-4 pt-4 pb-0 bg-transparent text-sm outline-none relative z-10"
-                        style={{
-                          color: "var(--octo-text-primary)",
-                          "font-family": "var(--octo-font)",
-                          "min-height": "100px",
-                          "max-height": "240px",
-                          "overflow-y": "auto",
-                        }}
+                        onContentChange={setPrompt}
+                        onSubmit={() => void handleSubmit("enter")}
+                        onTriggerMention={loadInsightSkills}
+                        onMentionOpen={trackMentionOpen}
+                        onMentionSelect={trackMentionSelect}
+                        onPaste={handlePaste}
                       />
 
                       <div class="flex items-center gap-2 px-4 pb-4 relative z-10">
@@ -2127,7 +2251,7 @@ function InsightContent() {
                             class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
                             "data-action": "prompt-model",
                           }}
-                          onClose={() => { requestAnimationFrame(() => textareaRef?.focus()) }}
+                          onClose={() => focusComposer()}
                         >
                           {/* 不渲染 ProviderIcon:内网自部署的 provider id 不在 ui sprite 内会落到
                               synthetic 占位图标,跟 UXAI chat 一致(屏蔽 icon 只显示模型名)。 */}
@@ -2265,7 +2389,7 @@ function InsightContent() {
                         {(item, i) => (
                           <div class="octo-queue-banner-item">
                             <span class="octo-queue-banner-index">{i() + 1}</span>
-                            <span class="octo-queue-banner-text">{item}</span>
+                            <span class="octo-queue-banner-text">{item.text}</span>
                             <button
                               type="button"
                               onClick={() => removeQueued(i())}
@@ -2282,6 +2406,7 @@ function InsightContent() {
                   </div>
                 </Show>
 
+                {/* @ 面板走 Portal + fixed(编辑器内),脱离本胶囊裁剪 → 胶囊可保留 overflow-hidden 圆角 */}
                 <div
                   class="rounded-[16px] transition-all duration-300 relative group flex flex-col overflow-hidden"
                   style={{
@@ -2307,23 +2432,23 @@ function InsightContent() {
                     onRemove={removeAttachment}
                     onRetry={retryUpload}
                   />
-                  <textarea
-                    ref={textareaRef!}
-                    value={prompt()}
-                    onInput={(e) => setPrompt(e.currentTarget.value)}
-                    onCompositionStart={() => setComposing(true)}
-                    onCompositionEnd={() => setComposing(false)}
-                    onKeyDown={handleKeyDown}
-                    onPaste={handlePaste}
+                  {/* SPEC-INS-023 方案 B:ProseMirror 编辑器(行内 @ 灰胶囊 + 内置 @ 面板) */}
+                  <ProseMirrorEditor
+                    ref={(el) => (pmRefConv = el)}
+                    platformSkills={insightSkills().platform}
+                    customSkills={insightSkills().custom}
+                    files={mentionFiles() ?? null}
+                    skillsLoading={skillsLoading()}
+                    filesLoading={mentionFiles.loading}
+                    mentionSelections={mentionSelections()}
+                    setMentionSelections={setMentionSelections}
                     placeholder={mcpSelection()?.preset.placeholder ?? "请描述您的需求..."}
-                    class="octo-input-scroll w-full resize-none px-4 pt-4 pb-0 bg-transparent text-sm outline-none relative z-10"
-                    style={{
-                      color: "var(--octo-text-primary)",
-                      "font-family": "var(--octo-font)",
-                      "min-height": "100px",
-                      "max-height": "240px",
-                      "overflow-y": "auto",
-                    }}
+                    onContentChange={setPrompt}
+                    onSubmit={() => void handleSubmit("enter")}
+                    onTriggerMention={loadInsightSkills}
+                    onMentionOpen={trackMentionOpen}
+                    onMentionSelect={trackMentionSelect}
+                    onPaste={handlePaste}
                   />
 
                   <div class="flex items-center gap-2 px-4 pb-4 relative z-10">
@@ -2359,7 +2484,7 @@ function InsightContent() {
                         class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
                         "data-action": "prompt-model",
                       }}
-                      onClose={() => { requestAnimationFrame(() => textareaRef?.focus()) }}
+                      onClose={() => focusComposer()}
                     >
                       {/* 不渲染 ProviderIcon:内网自部署的 provider id 不在 ui sprite 内会落到
                           synthetic 占位图标,跟 UXAI chat 一致(屏蔽 icon 只显示模型名)。 */}

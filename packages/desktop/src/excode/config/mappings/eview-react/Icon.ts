@@ -23,6 +23,9 @@
  *   - cvPath 取 name（name 是 binding 时）或 color，transform 内用 cvCtx 解析另一个
  *   - 绝对/相对路径都正确（cvCtx per-item 执行）
  * - 不再使用 ctx.resolveAbsoluteStateValue（相对路径只取首项的设计瑕疵已消除）
+ *
+ * 工厂化：接收目标组件库包名 `pkg`，构建 Icon 组件 import 路径（图标本身的包名由
+ * iconCollection 模块级 iconPkg 决定，经 registerComponents 注入，非此处的 pkg）。
  */
 
 import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
@@ -44,59 +47,59 @@ function extractLiteralIconProps(props: Record<string, any>): Record<string, any
   return iconProps
 }
 
-const IconMapping: MappingDef = {
-  tag: 'Icon',
-  import: '@nce/eview-react/Icon',
+export function createIconMapping(pkg: string): MappingDef {
+  return {
+    tag: 'Icon',
+    import: `${pkg}/Icon`,
 
-  transform(node: any, ctx: TransformContext) {
-    const props = node.props || {}
-    const name = props.name
-    const color = props.color
-    const iconProps = extractLiteralIconProps(props)
+    transform(node: any, ctx: TransformContext) {
+      const props = node.props || {}
+      const name = props.name
+      const color = props.color
+      const iconProps = extractLiteralIconProps(props)
 
-    const nameIsBinding = !!(name && typeof name === 'object' && name.type === 'binding')
-    const colorIsBinding = !!(color && typeof color === 'object' && color.type === 'binding')
+      const nameIsBinding = !!(name && typeof name === 'object' && name.type === 'binding')
+      const colorIsBinding = !!(color && typeof color === 'object' && color.type === 'binding')
 
-    // ─── 无任何 binding → 静态 resolveIcon 直出 ───
-    if (!nameIsBinding && !colorIsBinding) {
-      const literalName = typeof name === 'string' ? name : ''
-      return ctx.resolveIcon(literalName, iconProps) as any
-    }
+      // ─── 无任何 binding → 静态 resolveIcon 直出 ───
+      if (!nameIsBinding && !colorIsBinding) {
+        const literalName = typeof name === 'string' ? name : ''
+        return ctx.resolveIcon(literalName, iconProps) as any
+      }
 
-    // ─── 有 binding → ComputedValue + Fragment + Node.text ───
-    // cvPath：name 是 binding 时取 name（transform 的 rawValue 即 name 值）；否则取 color
-    const cvPath = nameIsBinding ? name : color
-    const cv = Value.computed({
-      path: cvPath.path,
-      pathType: cvPath.pathType ?? 'absolute',
-      accessPath: cvPath.accessPath,
-      containsJSX: true,
-      transform: (rawCvValue: any, cvCtx?: any) => {
-        const rIcon = cvCtx?.resolveIcon ?? ctx.resolveIcon
-        // name：binding 时 cvPath=name → raw 就是 name；否则字面量
-        const rawName = nameIsBinding ? rawCvValue : name
-        if (typeof rawName !== 'string') return null
-        // color：binding 时，若 cvPath=color → raw 就是 color；否则用 cvCtx 解析
-        let finalProps = iconProps
-        if (colorIsBinding) {
-          const rawColor = (cvPath === color) ? rawCvValue : cvCtx?.resolveValueFromPath(color.path)
-          if (typeof rawColor === 'string') finalProps = { ...iconProps, color: rawColor }
-        }
-        const iconNode = rIcon(rawName, finalProps)
-        // 透传原始元素 id：图标被提升为 jsxLiteralConst 时，id 作为 styles 选择器 key
-        // （与非 binding 静态图标经 NodeMapper `{...node}` 保留 id 的行为对齐）
-        if (iconNode && node.id) iconNode.id = node.id
-        return iconNode
-      },
-    })
+      // ─── 有 binding → ComputedValue + Fragment + Node.text ───
+      // cvPath：name 是 binding 时取 name（transform 的 rawValue 即 name 值）；否则取 color
+      const cvPath = nameIsBinding ? name : color
+      const cv = Value.computed({
+        path: cvPath.path,
+        pathType: cvPath.pathType ?? 'absolute',
+        accessPath: cvPath.accessPath,
+        containsJSX: true,
+        transform: (rawCvValue: any, cvCtx?: any) => {
+          const rIcon = cvCtx?.resolveIcon ?? ctx.resolveIcon
+          // name：binding 时 cvPath=name → raw 就是 name；否则字面量
+          const rawName = nameIsBinding ? rawCvValue : name
+          if (typeof rawName !== 'string') return null
+          // color：binding 时，若 cvPath=color → raw 就是 color；否则用 cvCtx 解析
+          let finalProps = iconProps
+          if (colorIsBinding) {
+            const rawColor = (cvPath === color) ? rawCvValue : cvCtx?.resolveValueFromPath(color.path)
+            if (typeof rawColor === 'string') finalProps = { ...iconProps, color: rawColor }
+          }
+          const iconNode = rIcon(rawName, finalProps)
+          // 透传原始元素 id：图标被提升为 jsxLiteralConst 时，id 作为 styles 选择器 key
+          // （与非 binding 静态图标经 NodeMapper `{...node}` 保留 id 的行为对齐）
+          if (iconNode && node.id) iconNode.id = node.id
+          return iconNode
+        },
+      })
 
-    return {
-      tag: 'Fragment',
-      import: { source: 'react', named: true },
-      props: {},
-      children: [Node.text({ value: cv })],
-    } as any
-  },
+      return {
+        tag: 'Fragment',
+        import: { source: 'react', named: true },
+        props: {},
+        children: [Node.text({ value: cv })],
+      } as any
+    },
+  }
 }
-
-export default IconMapping

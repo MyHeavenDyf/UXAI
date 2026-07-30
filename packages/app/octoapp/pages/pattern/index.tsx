@@ -397,14 +397,14 @@ function PatternContent() {
   // 历史文件存储目录，优先使用关联目录下的 .octo/design/history
   const patternHistoryDir = createMemo(() => {
     const home = sdk.directory
-    return `${home}\\.octo\\design\\history`
+    return `${home}/.octo/design/history`
   })
 
   createEffect(() => {
     const home = sdk.directory
     if (!home) return
     const api = (window as unknown as { api?: { setUploadsDir?: (dir: string) => Promise<void> } }).api
-    api?.setUploadsDir?.(`${home}\\.octo\\design\\history`)
+    api?.setUploadsDir?.(`${home}/.octo/design/history`)
   })
 
   // pipeline 忙状态（用于生成卡片状态）
@@ -415,8 +415,17 @@ function PatternContent() {
 
   // 从预览页选中元素后触发的修改回调
   function handlePickerSubmit(text: string, id: string) {
-    setPrompt(`[选中元素: ${id}] ${text}`)
-    handleSubmit()
+    const line = text ? `[选中元素: ${id}] ${text};` : ""
+    const prev = prompt()
+    const next = line ? (prev ? `${prev}\n${line}` : line) : prev
+    setPrompt(next)
+    if (next.trim()) handleSubmit()
+  }
+
+  function handlePickerAppend(text: string, id: string) {
+    const line = `[选中元素: ${id}] ${text};`
+    const prev = prompt()
+    setPrompt(prev ? `${prev}\n${line}` : line)
   }
 
   const handleReorder = createReorderHandler({
@@ -1260,6 +1269,7 @@ function PatternContent() {
                     dir={sdk.directory}
                     onModifyElement={handleModifyElement}
                     onPickerSubmit={handlePickerSubmit}
+                    onPickerAppend={handlePickerAppend}
                     onDownload={handleDownload}
                     onShare={handleShare}
                     onCanvasEditing={handleCanvasEditing}
