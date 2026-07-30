@@ -300,6 +300,11 @@ export function ActionBar(props: {
   // ── 归档(所有文件类型,头部最右侧按钮;逻辑抽到 ../archive-flow)──────────────────────
   const [archiveTarget, setArchiveTarget] = createSignal<ArchiveTarget | null>(null)
   const [archiveDialogOpen, setArchiveDialogOpen] = createSignal(false)
+  // HTML 切到代码视图时无 live iframe(渲染的是 SourceCodeView),截图只能拿白图;该态禁用归档,提示切回预览
+  const archiveDisabled = () => !ready() || (props.tab.type === "html" && props.viewMode === "source")
+  const archiveTitle = () => props.tab.type === "html" && props.viewMode === "source"
+    ? "请切换到预览视图后再归档"
+    : "归档"
 
   function handleArchiveClick() {
     setArchiveTarget(tabToArchiveTarget(() => props.tab, projectDir() || "", params.id ?? "", props.getIframe))
@@ -373,15 +378,15 @@ export function ActionBar(props: {
           />
           <DownloadMenu tab={props.tab} disabled={!ready()} />
         </Show>
-        {/* 归档(60×32,#0A59F7):所有文件类型均可归档,置于头部操作项最右侧;未 ready 时置灰 */}
+        {/* 归档(60×32,#0A59F7):所有文件类型均可归档,置于头部操作项最右侧;未 ready 或 HTML 代码视图时置灰 */}
         <button
           type="button"
           onClick={handleArchiveClick}
-          disabled={!ready()}
+          disabled={archiveDisabled()}
           class="flex items-center justify-center transition-opacity"
           classList={{
-            "hover:opacity-90 cursor-pointer": ready(),
-            "opacity-40 cursor-not-allowed": !ready(),
+            "hover:opacity-90 cursor-pointer": !archiveDisabled(),
+            "opacity-40 cursor-not-allowed": archiveDisabled(),
           }}
           style={{
             width: "60px",
@@ -393,7 +398,7 @@ export function ActionBar(props: {
             "line-height": "22px",
             "flex-shrink": "0",
           }}
-          title="归档"
+          title={archiveTitle()}
         >
           归档
         </button>
