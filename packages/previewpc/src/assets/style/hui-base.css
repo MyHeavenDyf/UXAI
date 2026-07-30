@@ -389,6 +389,9 @@
 }
 
 /* ================= Dropdown ================= */
+.el-dropdown .el-tooltip__trigger:focus-visible {
+  outline: none;
+}
 .el-dropdown__popper.el-popper {
   --el-dropdown-menu-box-shadow: var(--el-box-shadow-light);
   --el-dropdown-menuItem-hover-fill: var(--el-fill-color-light);
