@@ -570,7 +570,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 设计规划是否已结束（退出或确认），用于控制 plan 视图只读模式 */
   // 从 localStorage 同步初始化，确保页面刷新/路由切换后立即生效
-  const [planEnded, setPlanEnded] = createSignal(!!(params.id && localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + params.id)))
+  const [planEnded, setPlanEnded] = createSignal(false)
 
   /** 两步走工作流：当前阶段 */
   const [planPhase, setPlanPhase] = createSignal<"strategy" | "generate">("strategy")
@@ -1247,10 +1247,17 @@ const sessionMessagesLoaded = createMemo(() => {
     setPlanPhase("generate")
   }
 
-  /** 用户点击 [上一步] → 返回策略准备阶段 */
+  /** 用户点击 [上一步] / [返回策略准备] → 返回策略准备阶段 */
   function handleBackToStrategy() {
+    const planSid = activePlanSessionId()
+    const key = activeModelKey()
     setUserChangedPhase(true)  // 标记用户手动切换
     setPlanPhase("strategy")
+    setIsGenerating(false)  // 复位生成状态，让按钮可点击、表单可填写
+    // 通知子 agent 回到策略准备阶段，让后续对话上下文正确
+    if (planSid && key) {
+      sendMessage(planSid, "[back-to-strategy]\n\n我们已回到策略准备阶段，之前的策略生成已取消，请忽略之前生成的设计规划文档，继续帮助用户填写策略表单字段。", key).catch(() => {})
+    }
   }
 
   /** 用户点击 [确认开始生成] → 向主 session 发送确认指令，通知主 agent 设计规划已完成，开始生成 HTML */

@@ -52,7 +52,7 @@ export function TabBar(props: {
         </button>
 
         {/* 设计规划入口 — plan artifact 存在时出现,点击切换到 plan 模式 */}
-        <Show when={(props.showPlanEntry || props.planEnded || props.viewMode === "plan") && props.onViewModeChange}>
+        <Show when={(props.showPlanEntry || props.viewMode === "plan") && props.onViewModeChange}>
           <div
             class="shrink-0"
             style={{
