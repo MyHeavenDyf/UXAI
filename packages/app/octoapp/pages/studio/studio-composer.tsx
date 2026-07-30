@@ -297,11 +297,10 @@ export function StudioComposer(props: {
     onCleanup(() => window.removeEventListener("resize", onResize))
   })
 
-  // Close more menu when any main popup opens from outside the more menu
+  // Close more menu when a popup opens from toolbar (not from more menu)
   createEffect(() => {
     const menu = props.openMenu
     if (menu && !toolbarOverflow().includes(menu)) {
-      // opened from toolbar button, close more menu
       setMoreMenuOpen(false)
     }
   })
@@ -310,6 +309,16 @@ export function StudioComposer(props: {
   createEffect(() => {
     if (moreMenuOpen() && toolbarOverflow().length === 0) {
       setMoreMenuOpen(false)
+    }
+  })
+
+  // 弹窗打开时，若对应按钮进入溢出区且更多菜单未展开 → 关闭弹窗
+  createEffect(() => {
+    const menu = props.openMenu
+    if (!menu) return
+    const overflow = toolbarOverflow()
+    if (overflow.includes(menu) && !moreMenuOpen()) {
+      props.onOpenMenu(null)
     }
   })
 
@@ -336,7 +345,36 @@ export function StudioComposer(props: {
     if (!btn) return
     const btnRect = btn.getBoundingClientRect()
     const toolbarRect2 = toolbarRef.getBoundingClientRect()
-    anchor.style.left = `${btnRect.left - toolbarRect2.left}px`
+    if (window.innerWidth < 1024) {
+      // 窄视口：弹窗与按钮居中对齐，空间不足时自动收窄避免被 overflow:hidden 裁切
+      const popup = anchor.firstElementChild as HTMLElement
+      if (popup) {
+        popup.style.maxWidth = ""
+        const naturalWidth = popup.offsetWidth
+        if (naturalWidth > 0) {
+          const availableWidth = window.innerWidth - toolbarRect2.left - 16
+          if (availableWidth < naturalWidth) {
+            popup.style.maxWidth = `${availableWidth}px`
+            anchor.style.left = "0px"
+          } else {
+            const btnCenter = btnRect.left - toolbarRect2.left + btnRect.width / 2
+            let left = btnCenter - naturalWidth / 2
+            const maxLeft = window.innerWidth - 8 - naturalWidth - toolbarRect2.left
+            left = Math.max(0, Math.min(left, maxLeft))
+            anchor.style.left = `${left}px`
+          }
+        } else {
+          anchor.style.left = `${btnRect.left - toolbarRect2.left}px`
+        }
+      } else {
+        anchor.style.left = `${btnRect.left - toolbarRect2.left}px`
+      }
+    } else {
+      // 宽视口：保持原有左对齐行为，不约束弹窗宽度
+      const popup = anchor.firstElementChild as HTMLElement
+      if (popup) popup.style.maxWidth = ""
+      anchor.style.left = `${btnRect.left - toolbarRect2.left}px`
+    }
     anchor.style.top = ""
     anchor.style.bottom = ""
   }
@@ -357,6 +395,15 @@ export function StudioComposer(props: {
     })
     if (toolbarRef) observer.observe(toolbarRef)
     onCleanup(() => observer.disconnect())
+  })
+
+  // 窗口尺寸变化时重新定位弹窗（居中弹窗可能在窄窗口下溢出视口）
+  createEffect(() => {
+    const menu = props.openMenu
+    if (!menu) return
+    const onResize = () => positionDropdown(menu)
+    window.addEventListener("resize", onResize)
+    onCleanup(() => window.removeEventListener("resize", onResize))
   })
 
   function handlePaste(event: ClipboardEvent) {
