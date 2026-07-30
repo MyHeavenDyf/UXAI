@@ -186,6 +186,7 @@ export function StudioComposer(props: {
 
   // Toolbar overflow detection
   const [toolbarOverflow, setToolbarOverflow] = createSignal<string[]>([])
+  const [styleExpanded, setStyleExpanded] = createSignal(false)
   const [moreMenuOpen, setMoreMenuOpen] = createSignal(false)
   const [moreMenuTick, setMoreMenuTick] = createSignal(0)
   const moreMenuStyle = (): JSX.CSSProperties => {
@@ -220,6 +221,36 @@ export function StudioComposer(props: {
       if (key && item.offsetWidth > 0) itemWidthCache.set(key, item.offsetWidth)
     }
 
+    // Measure style label natural width to decide if it can be fully shown
+    const styleLabel = toolbarItemsRef.querySelector<HTMLElement>('[data-toolbar-item="style"] .studio-composer-tool-label')
+    let styleNaturalWidth = 0
+    let styleTruncatedWidth = 0
+    if (styleLabel) {
+      // natural button width = label content + padding(24) + caret(16) + gap(2)
+      const naturalWidth = styleLabel.scrollWidth + 42
+      styleNaturalWidth = Math.max(70, naturalWidth)
+      styleTruncatedWidth = Math.max(70, Math.min(naturalWidth, 98))
+      itemWidthCache.set("style", styleTruncatedWidth)
+    }
+
+    // Try fitting everything with the style label fully shown
+    if (styleNaturalWidth > styleTruncatedWidth) {
+      let totalExpanded = 0
+      for (const key of keys) {
+        const w = key === "style" ? styleNaturalWidth : (itemWidthCache.get(key) ?? 0)
+        totalExpanded += w + 8 // item + gap
+      }
+      if (totalExpanded > 0) totalExpanded -= 8 // remove last gap
+      if (totalExpanded <= containerWidth) {
+        setStyleExpanded(true)
+        if (toolbarOverflow().length > 0) setToolbarOverflow([])
+        return
+      }
+    }
+
+    // Width not enough — keep style label truncated (current style)
+    setStyleExpanded(false)
+
     // Calculate total width of all items
     let totalWidth = 0
     for (const key of keys) {
@@ -244,6 +275,11 @@ export function StudioComposer(props: {
     if (overflow.filter(k => (itemWidthCache.get(k) ?? 0) > 0).length <= 1) {
       if (toolbarOverflow().length > 0) setToolbarOverflow([])
       return
+    }
+    // More button is shown — if the remaining slack can fit the full style label, expand it
+    if (styleNaturalWidth > styleTruncatedWidth) {
+      const visibleExpanded = visibleWidth - styleTruncatedWidth + styleNaturalWidth
+      if (visibleExpanded + moreBtnWidth <= containerWidth) setStyleExpanded(true)
     }
     const current = toolbarOverflow()
     if (overflow.length !== current.length || !overflow.every((k, i) => k === current[i])) {
@@ -589,7 +625,7 @@ export function StudioComposer(props: {
               />
             </div>
             <Show when={isImageGeneration()}>
-              <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--style" ref={(el) => buttonRefs.set("style", el)} data-toolbar-item="style">
+              <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--style" classList={{ "studio-composer-toolbar-item--expanded": styleExpanded() }} ref={(el) => buttonRefs.set("style", el)} data-toolbar-item="style">
                 <ToolButton
                   label={styleModelLabel(props.styleModel)}
                   active={props.openMenu === "style"}
