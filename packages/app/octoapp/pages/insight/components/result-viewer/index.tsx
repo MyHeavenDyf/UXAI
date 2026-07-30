@@ -63,6 +63,8 @@ export function ResultViewer(props: {
 }): JSX.Element {
   const activeTab = createMemo(() => props.tabs.find((t) => t.id === props.activeId) ?? null)
   const projectDir = useProjectDir()
+  // 当前 tab 内容容器 ref:供 ActionBar 归档截图时在容器作用域内查 iframe,避免全局 querySelector 取到其他 tab/分屏
+  let tabContainer: HTMLDivElement | undefined
   // 正在全屏编辑的 tab id(markdown 编辑器 overlay)。用 id 而非 tab 对象,
   // 这样内容回写(cacheContent 换新对象)后仍指向同一 tab。
   const [editingId, setEditingId] = createSignal<string | null>(null)
@@ -98,12 +100,13 @@ export function ResultViewer(props: {
         </Show>
         <Show when={props.viewMode === "tabs" && activeTab()}>
           {(tab) => (
-            <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+            <div class="flex flex-col flex-1 min-h-0 overflow-hidden" ref={(el: HTMLDivElement) => { tabContainer = el }}>
               <ActionBar
                 tab={tab()}
                 viewMode={tab().viewMode ?? "preview"}
                 onSetViewMode={(mode) => props.onSetViewMode?.(tab().id, mode)}
                 onEdit={() => setEditingId(tab().id)}
+                getIframe={() => tabContainer?.querySelector("iframe") ?? null}
               />
               <div class="flex-1 overflow-hidden">
                 <TabBody tab={tab()} onCacheContent={props.onCacheContent} refreshKey={props.refreshKey} />
