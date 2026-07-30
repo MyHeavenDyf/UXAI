@@ -559,6 +559,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const loadedChildSessions = new Set<string>()
 
   const PLAN_CHILD_LOCALSTORAGE_PREFIX = "octo_make_plan_child:"
+  const PLAN_ENDED_LOCALSTORAGE_PREFIX = "octo_make_plan_ended:"
 
   /** 当前活跃的设计规划子 session ID（存在时表示正在规划阶段） */
   const [activePlanSessionId, setActivePlanSessionId] = createSignal<string | null>(null)
@@ -566,6 +567,10 @@ const sessionMessagesLoaded = createMemo(() => {
   const [planParentSessionId, setPlanParentSessionId] = createSignal<string | null>(null)
   /** 跨 session 切换缓存: { mainSessionId: childSessionId }，切回时立即恢复 */
   const _planChildSessionCache: Record<string, string> = {}
+
+  /** 设计规划是否已结束（退出或确认），用于控制 plan 视图只读模式 */
+  // 从 localStorage 同步初始化，确保页面刷新/路由切换后立即生效
+  const [planEnded, setPlanEnded] = createSignal(!!(params.id && localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + params.id)))
 
   /** 两步走工作流：当前阶段 */
   const [planPhase, setPlanPhase] = createSignal<"strategy" | "generate">("strategy")
@@ -689,6 +694,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const isBusy = createMemo(() => sessionStatus().type !== "idle")
 
   // 子 session 的 busy 状态检测：子 session 生成中时锁定输入框
+  // 同时检测主 session 和子 session 的 busy 状态
   const childBusy = createMemo(() => {
     const childId = activePlanSessionId()
     if (!childId) return false
@@ -1266,8 +1272,11 @@ const sessionMessagesLoaded = createMemo(() => {
     // 清理子 session 状态，保留子 session 的记录（不清理 childSessionIDs）
     localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + mainSid)
     delete _planChildSessionCache[mainSid]
+    // 持久化"已结束"标记，确保切换 session / 重启后 plan 视图只读
+    localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + mainSid, "true")
     const currentPhase = planPhase()
     setPlanEndedForSession(mainSid)
+    setPlanEnded(true)
     setActivePlanSessionId(null)
     setPlanParentSessionId(null)
     setHasChildPlanSession(false)
@@ -1283,15 +1292,13 @@ const sessionMessagesLoaded = createMemo(() => {
     requestAnimationFrame(() => textareaRef?.focus())
   }
 
-  /** 用户点击 [结束子agent] → 归档子 session + 中止运行 + 清理状态 */
+  /** 用户点击 [结束子agent] → 中止子 agent 运行 + 退出 plan 模式，保留子 session 的对话数据 */
   function handleEndPlan() {
     const currentChildId = activePlanSessionId()
     if (currentChildId) {
       // 中止子 session 正在运行的 agent
       sdk.client.session.abort({ sessionID: currentChildId }).catch(() => {})
-      // 归档子 session,使其不被 session.list() 检测到,跨重启不再进入 plan 模式
-      sdk.client.session.update({ sessionID: currentChildId, time: { archived: Date.now() } }).catch(() => {})
-      // 注意：不清理 childSessionIDs，保留子 session 的历史消息显示
+      // 注意：不归档子 session，保留其消息数据供后续查看
     }
     const endedSid = params.id
     setActivePlanSessionId(null)
@@ -1301,10 +1308,12 @@ const sessionMessagesLoaded = createMemo(() => {
     setResultViewMode("files")
     setPlanPhase("strategy")
     setSending(false)
-    // 清除缓存，防止下次进入时误恢复
+    setPlanEnded(true)
+    // 注意：不清除 localStorage 缓存和 _planChildSessionCache，
+    // 保留子 session 的引用以便跨重启恢复和消息历史查看
+    // 持久化"已退出"标记，防止切换 session / 重启后重新激活
     if (endedSid) {
-      localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + endedSid)
-      delete _planChildSessionCache[endedSid]
+      localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + endedSid, "true")
     }
     // 记录当前主 session 的设计规划已被用户结束,防止 banner 再次弹出
     setPlanEndedForSession(params.id ?? null)
@@ -1354,6 +1363,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!sid || !modelKey) return
     if (optimisticIntentResolved()) return
     setOptimisticIntentResolved(true)
+    setPlanEnded(false)
+    if (sid) localStorage.removeItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid)
 
     try {
       const dir = sdk.directory
@@ -1493,6 +1504,20 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       }
       if (restoredPlanSid) {
+        // 检查是否已被用户退出（持久化标记）
+        const isEnded = !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid)
+        if (isEnded) {
+          // 已退出：只保留历史记录，不恢复为活跃状态
+          if (!loadedChildSessions.has(restoredPlanSid)) {
+            loadedChildSessions.add(restoredPlanSid)
+            setChildSessionIDs((prev) => { const next = new Set(prev); next.add(restoredPlanSid); return next })
+            sync.session.sync(restoredPlanSid).catch(() => {})
+          }
+          setPlanEndedForSession(newSid)
+          setPlanEnded(true)
+          return
+        }
+
         if (!loadedChildSessions.has(restoredPlanSid)) {
           loadedChildSessions.add(restoredPlanSid)
           setChildSessionIDs((prev) => { const next = new Set(prev); next.add(restoredPlanSid); return next })
@@ -1521,6 +1546,8 @@ const sessionMessagesLoaded = createMemo(() => {
           // 已确认：只保留历史记录，不设为活跃
           setHasChildPlanSession(false)
           setPlanEndedForSession(newSid)
+          setPlanEnded(true)
+          localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid, "true")
           // 设置 planPhase 为 generate，以便用户点击 tab 时正确显示第二阶段内容
           setPlanPhase(hasDesignPlan ? "generate" : "strategy")
           // 清理 localStorage 缓存
@@ -1545,6 +1572,12 @@ const sessionMessagesLoaded = createMemo(() => {
           setPhase2Pending(false)
           // 防护: childId 为空 / 已被其他路径设置 / params.id 已切换(竞态) 时跳过
           if (!childId || activePlanSessionId() || params.id !== capturedSid) return
+          // 检查是否已被用户退出（持久化标记）
+          if (localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + capturedSid)) {
+            setPlanEndedForSession(capturedSid)
+            setPlanEnded(true)
+            return
+          }
           loadedChildSessions.add(childId)
           setChildSessionIDs((prev) => { const next = new Set(prev); next.add(childId); return next })
           sync.session.sync(childId).catch(() => {})
@@ -1570,6 +1603,8 @@ const sessionMessagesLoaded = createMemo(() => {
               // 已确认：不设为活跃，只保留历史记录
               setHasChildPlanSession(false)
               setPlanEndedForSession(capturedSid)
+              setPlanEnded(true)
+              localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + capturedSid, "true")
               setPlanPhase(hasDesignPlan ? "generate" : "strategy")
             } else {
               // 未确认：恢复为活跃状态
@@ -1624,6 +1659,7 @@ const sessionMessagesLoaded = createMemo(() => {
           setHasChildPlanSession(false)
           setPlanEndedForSession(mainSid)
           if (activePlanSessionId() === childId) {
+            setPlanEnded(true)
             setActivePlanSessionId(null)
             setPlanParentSessionId(null)
           }
@@ -1646,6 +1682,7 @@ const sessionMessagesLoaded = createMemo(() => {
         }
         setPlanConfirmPending(false)
         setPlanEndedForSession(mainSid ?? null)
+        setPlanEnded(true)
         setActivePlanSessionId(null)
         setPlanParentSessionId(null)
         setHasChildPlanSession(false)
@@ -2010,8 +2047,8 @@ if (dsId) {
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
     } finally {
-      // Only reset if we're still on the same session (or still on no session)
-      if (!submitSessionId || params.id === submitSessionId) {
+      // 重置 sending：如果是主 session 或 plan 子 session 且未切换，则允许重置
+      if (!submitSessionId || params.id === submitSessionId || (planSid && activePlanSessionId() === planSid)) {
         setSending(false)
       }
     }
@@ -3094,7 +3131,7 @@ if (dsId) {
                         sessionID={userMessages()[0].sessionID || params.id!}
                         messageID={userMessages()[0].id}
                         status={sync.data.session_status[userMessages()[0].sessionID] ?? sessionStatus()}
-                        active={isBusy()}
+                        active={sync.data.session_status[userMessages()[0].sessionID ?? params.id!]?.type === "busy"}
                         elapsedText={elapsedText()}
                         blockTime={blockTime()}
                         onAbort={halt}
@@ -3155,7 +3192,7 @@ if (dsId) {
                         sessionID={msg.sessionID || params.id!}
                         messageID={msg.id}
                         status={sync.data.session_status[msg.sessionID] ?? sessionStatus()}
-                        active={isBusy()}
+                        active={sync.data.session_status[msg.sessionID ?? params.id!]?.type === "busy"}
                         elapsedText={elapsedText()}
                         blockTime={blockTime()}
                         onAbort={halt}
@@ -3564,6 +3601,7 @@ if (dsId) {
                 childPlanConfirmed={childPlanConfirmed()}
                 childSessionStatus={sync.data.session_status[activePlanSessionId() ?? ""]}
                 childBusy={childBusy()}
+                planEnded={planEnded()}
               />
             </div>
             <Show when={showVersionPanel()}>
