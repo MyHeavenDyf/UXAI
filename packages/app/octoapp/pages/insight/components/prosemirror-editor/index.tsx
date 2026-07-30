@@ -39,6 +39,8 @@ interface Props {
   mentionSelections: MentionSelection[]
   setMentionSelections: (selections: MentionSelection[]) => void
   disabled?: boolean
+  /** 挂载后自动聚焦(新建对话页 / 进入会话就能直接打字;旧 textarea 时代没做,换 PM 后一并补上) */
+  autofocus?: boolean
   placeholder?: string
   onSubmit?: () => void
   onTriggerMention?: () => void
@@ -172,6 +174,13 @@ export function ProseMirrorEditor(props: Props) {
       },
     })
 
+    // 自动聚焦放到下一帧:此刻 DOM 刚插入,同帧 focus() 会被随后的布局/父级渲染抢掉
+    if (props.autofocus && !props.disabled) {
+      requestAnimationFrame(() => {
+        if (connected(editorView)) editorView.focus()
+      })
+    }
+
     onCleanup(() => editorView.destroy())
   })
 
@@ -188,7 +197,7 @@ export function ProseMirrorEditor(props: Props) {
     if (!triggerState()?.active) return
     const handler = (e: MouseEvent) => {
       const target = e.target as HTMLElement
-      if (target.closest(".pm-editor")) return
+      if (target.closest(".ins-pm-editor")) return
       if (!target.closest(".ins-mention-container")) {
         const v = view()
         if (v) v.dispatch(v.state.tr.setMeta(mentionTriggerKey, null))
@@ -240,14 +249,14 @@ export function ProseMirrorEditor(props: Props) {
   }
 
   return (
-    <div class="pm-editor-wrapper">
+    <div class="ins-pm-editor-wrapper">
       <Show when={isEmpty() && !props.disabled && props.placeholder}>
-        <div class="pm-placeholder">{props.placeholder}</div>
+        <div class="ins-pm-placeholder">{props.placeholder}</div>
       </Show>
       <div
         ref={containerRef}
-        class="pm-editor"
-        classList={{ "pm-editor--disabled": props.disabled }}
+        class="ins-pm-editor octo-input-scroll"
+        classList={{ "ins-pm-editor--disabled": props.disabled }}
         onPaste={(e) => props.onPaste?.(e)}
       />
 

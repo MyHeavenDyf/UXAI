@@ -25,6 +25,29 @@ export function DesignPlanRenderer(props: {
   const [draft, setDraft] = createSignal(props.content)
   let editorRef: HTMLDivElement | undefined
   let vditorInstance: Vditor | undefined
+  let scrollRef: HTMLDivElement | undefined
+
+  createEffect(on(() => props.content, (c) => {
+    if (!isEditing()) setDraft(c)
+  }))
+
+  // 策略文档流式输出时保持滚动位置
+  createEffect(on(() => draft(), () => {
+    if (!scrollRef || isEditing()) return
+    const top = scrollRef.scrollTop
+    const height = scrollRef.scrollHeight
+    const clientHeight = scrollRef.clientHeight
+    // 延迟到 DOM 更新后恢复
+    requestAnimationFrame(() => {
+      if (!scrollRef) return
+      // 如果之前已滚动到底部附近（<100px），则自动跟随新内容
+      if (height - top - clientHeight < 100) {
+        scrollRef.scrollTop = scrollRef.scrollHeight
+      } else {
+        scrollRef.scrollTop = top
+      }
+    })
+  }))
 
   createEffect(on(() => props.content, (c) => {
     if (!isEditing()) setDraft(c)
@@ -230,6 +253,7 @@ export function DesignPlanRenderer(props: {
               padding: "2px",
               "border-radius": "999px",
               background: "rgba(0,0,0,0.05)",
+              opacity: props.confirmed || props.disabled ? 0.5 : 1,
             }}
           >
             <button
@@ -240,13 +264,13 @@ export function DesignPlanRenderer(props: {
                 "border-radius": "999px",
                 "font-size": "14px",
                 "line-height": "22px",
-                cursor: "pointer",
+                cursor: (props.confirmed || props.disabled) ? "not-allowed" : "pointer",
                 border: "none",
                 background: !isEditing() ? "#fff" : "transparent",
                 color: !isEditing() ? "#0a59f7" : "rgba(0,0,0,0.6)",
                 "box-shadow": !isEditing() ? "0 1px 6px 0 rgba(0,0,0,0.08)" : "none",
               }}
-              onClick={handlePreview}
+              onClick={() => { if (!props.confirmed && !props.disabled) handlePreview() }}
             >
               预览
             </button>
@@ -258,13 +282,13 @@ export function DesignPlanRenderer(props: {
                 "border-radius": "999px",
                 "font-size": "14px",
                 "line-height": "22px",
-                cursor: "pointer",
+                cursor: (props.confirmed || props.disabled) ? "not-allowed" : "pointer",
                 border: "none",
                 background: isEditing() ? "#fff" : "transparent",
                 color: isEditing() ? "#0a59f7" : "rgba(0,0,0,0.6)",
                 "box-shadow": isEditing() ? "0 1px 6px 0 rgba(0,0,0,0.08)" : "none",
               }}
-              onClick={handleEdit}
+              onClick={() => { if (!props.confirmed && !props.disabled) handleEdit() }}
             >
               编辑
             </button>
@@ -273,7 +297,7 @@ export function DesignPlanRenderer(props: {
       </div>
 
       {/* Content */}
-      <div class="flex-1 overflow-y-auto" style={{ padding: isEditing() ? "0" : "24px" }}>
+      <div class="flex-1 overflow-y-auto" ref={scrollRef} style={{ padding: isEditing() ? "0" : "24px" }}>
         <Show
           when={!isEditing()}
           fallback={

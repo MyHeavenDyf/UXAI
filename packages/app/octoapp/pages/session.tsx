@@ -1807,7 +1807,7 @@ export default function Page() {
     on(
       () => params.id,
       (id) => {
-        if (!id) requestAnimationFrame(() => inputRef?.focus())
+        requestAnimationFrame(() => inputRef?.focus())
         if (id) requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
@@ -1881,7 +1881,7 @@ export default function Page() {
               class="flex-1 min-h-0 flex flex-col items-center justify-center"
               style={{ background: "#fff" }}
             >
-              <div classList={{ "w-full": true, "md:max-w-[800px]": centered() }}>
+              <div classList={{ "w-full": true, "md:max-w-[848px]": centered() }}>
                 <NewSessionView worktree={newSessionWorktree()} title="Octo Chat" subtitle="告诉我您的目标，我将为您深度调研并一键生成设计方案。" />
                 <SessionComposerRegion
                   state={composer}
@@ -1895,6 +1895,7 @@ export default function Page() {
                   followup={undefined}
                   revert={undefined}
                   setPromptDockRef={(el) => { promptDock = el }}
+                  disableAtMention={local.agent.current()?.name === "octo_ai"}
                 />
               </div>
             </div>
@@ -2004,6 +2005,7 @@ export default function Page() {
             setPromptDockRef={(el) => {
               promptDock = el
             }}
+              disableAtMention={local.agent.current()?.name === "octo_ai"}
               />
             </>
           </Show>

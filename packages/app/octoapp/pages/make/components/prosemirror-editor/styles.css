@@ -4,6 +4,9 @@
   overflow: hidden;
   border-radius: inherit;
   padding-right: 4px;
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
 }
 .pm-editor-wrapper::after {
   content: "";
@@ -21,7 +24,6 @@
   min-height: 88px;
   max-height: 240px;
   overflow-y: auto;
-  padding: 1rem 12px 1rem 1rem;
   outline: none;
   font-family: var(--octo-font);
   font-size: 14px;
@@ -29,6 +31,9 @@
   white-space: pre-wrap;
   scrollbar-width: auto;
   -ms-overflow-style: auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
 }
 .pm-editor::-webkit-scrollbar {
   display: block;
@@ -50,12 +55,14 @@
   outline: none;
 }
 
-.pm-editor.pm-editor--disabled {
-  background: var(--bg-subtle);
+.pm-editor-wrapper .pm-editor.pm-editor--disabled {
+  background: #fff;
   cursor: not-allowed;
 }
 
 .pm-editor .ProseMirror {
+  flex: 1 0 auto;
+  padding: 1rem 12px 1rem 1rem;
   outline: none;
 }
 

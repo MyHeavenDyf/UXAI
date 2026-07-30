@@ -614,6 +614,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const loadedChildSessions = new Set<string>()
 
   const PLAN_CHILD_LOCALSTORAGE_PREFIX = "octo_make_plan_child:"
+  const PLAN_ENDED_LOCALSTORAGE_PREFIX = "octo_make_plan_ended:"
 
   /** 当前活跃的设计规划子 session ID（存在时表示正在规划阶段） */
   const [activePlanSessionId, setActivePlanSessionId] = createSignal<string | null>(null)
@@ -621,6 +622,10 @@ const sessionMessagesLoaded = createMemo(() => {
   const [planParentSessionId, setPlanParentSessionId] = createSignal<string | null>(null)
   /** 跨 session 切换缓存: { mainSessionId: childSessionId }，切回时立即恢复 */
   const _planChildSessionCache: Record<string, string> = {}
+
+  /** 设计规划是否已结束（退出或确认），用于控制 plan 视图只读模式 */
+  // 从 localStorage 同步初始化，确保页面刷新/路由切换后立即生效
+  const [planEnded, setPlanEnded] = createSignal(false)
 
   /** 两步走工作流：当前阶段 */
   const [planPhase, setPlanPhase] = createSignal<"strategy" | "generate">("strategy")
@@ -744,6 +749,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const isBusy = createMemo(() => sessionStatus().type !== "idle")
 
   // 子 session 的 busy 状态检测：子 session 生成中时锁定输入框
+  // 同时检测主 session 和子 session 的 busy 状态
   const childBusy = createMemo(() => {
     const childId = activePlanSessionId()
     if (!childId) return false
@@ -1170,9 +1176,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (id) setIsGenerating(false)  // plan 出现时复位 isGenerating
   }, { defer: true }))
 
-  // 当模型输出 text/design-plan artifact 或用户发送 [strategy-complete] 时，自动切换到 generate 阶段
-  // - 用户消息中的 [strategy-complete]：用户主动触发生成
-  // - 助手消息中的 text/design-plan：模型已输出设计规划文档
+  // 当模型输出 text/design-plan artifact 时，自动切换到 generate 阶段
+  // 注意：不检测 [strategy-complete]（handleGenerateStrategy 已同步设置 phase，不需要自动检测）
   createEffect(on(
     () => {
       const planSid = activePlanSessionId()
@@ -1184,13 +1189,11 @@ const sessionMessagesLoaded = createMemo(() => {
       if (currentPhase === "generate") return null
       const msgs = sync.data.message?.[planSid]
       if (!msgs) return null
-      // 检测两种条件：用户发送 strategy-complete 或助手输出 design-plan
+      // 只检测助手消息中的 text/design-plan artifact
       for (const m of msgs) {
+        if (m.role !== "assistant") continue
         const text = (sync.data.part?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
-        if (m.role === "user" && text?.includes("[strategy-complete]")) {
-          return "generate"
-        }
-        if (m.role === "assistant" && text?.includes('type="text/design-plan"')) {
+        if (text?.includes('type="text/design-plan"')) {
           return "generate"
         }
       }
@@ -1219,10 +1222,17 @@ const sessionMessagesLoaded = createMemo(() => {
     setPlanPhase("generate")
   }
 
-  /** 用户点击 [上一步] → 返回策略准备阶段 */
+  /** 用户点击 [上一步] / [返回策略准备] → 返回策略准备阶段 */
   function handleBackToStrategy() {
+    const planSid = activePlanSessionId()
+    const key = activeModelKey()
     setUserChangedPhase(true)  // 标记用户手动切换
     setPlanPhase("strategy")
+    setIsGenerating(false)  // 复位生成状态，让按钮可点击、表单可填写
+    // 通知子 agent 回到策略准备阶段，让后续对话上下文正确
+    if (planSid && key) {
+      sendMessage(planSid, "[back-to-strategy]\n\n我们已回到策略准备阶段，之前的策略生成已取消，请忽略之前生成的设计规划文档，继续帮助用户填写策略表单字段。", key).catch(() => {})
+    }
   }
 
   /** 用户点击 [确认开始生成] → 向主 session 发送确认指令，通知主 agent 设计规划已完成，开始生成 HTML */
@@ -1244,8 +1254,11 @@ const sessionMessagesLoaded = createMemo(() => {
     // 清理子 session 状态，保留子 session 的记录（不清理 childSessionIDs）
     localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + mainSid)
     delete _planChildSessionCache[mainSid]
+    // 持久化"已结束"标记，确保切换 session / 重启后 plan 视图只读
+    localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + mainSid, "true")
     const currentPhase = planPhase()
     setPlanEndedForSession(mainSid)
+    setPlanEnded(true)
     setActivePlanSessionId(null)
     setPlanParentSessionId(null)
     setHasChildPlanSession(false)
@@ -1261,15 +1274,13 @@ const sessionMessagesLoaded = createMemo(() => {
     requestAnimationFrame(() => textareaRef?.focus())
   }
 
-  /** 用户点击 [结束子agent] → 归档子 session + 中止运行 + 清理状态 */
+  /** 用户点击 [结束子agent] → 中止子 agent 运行 + 退出 plan 模式，保留子 session 的对话数据 */
   function handleEndPlan() {
     const currentChildId = activePlanSessionId()
     if (currentChildId) {
       // 中止子 session 正在运行的 agent
       sdk.client.session.abort({ sessionID: currentChildId }).catch(() => {})
-      // 归档子 session,使其不被 session.list() 检测到,跨重启不再进入 plan 模式
-      sdk.client.session.update({ sessionID: currentChildId, time: { archived: Date.now() } }).catch(() => {})
-      // 注意：不清理 childSessionIDs，保留子 session 的历史消息显示
+      // 注意：不归档子 session，保留其消息数据供后续查看
     }
     const endedSid = params.id
     setActivePlanSessionId(null)
@@ -1279,10 +1290,12 @@ const sessionMessagesLoaded = createMemo(() => {
     setResultViewMode("files")
     setPlanPhase("strategy")
     setSending(false)
-    // 清除缓存，防止下次进入时误恢复
+    setPlanEnded(true)
+    // 注意：不清除 localStorage 缓存和 _planChildSessionCache，
+    // 保留子 session 的引用以便跨重启恢复和消息历史查看
+    // 持久化"已退出"标记，防止切换 session / 重启后重新激活
     if (endedSid) {
-      localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + endedSid)
-      delete _planChildSessionCache[endedSid]
+      localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + endedSid, "true")
     }
     // 记录当前主 session 的设计规划已被用户结束,防止 banner 再次弹出
     setPlanEndedForSession(params.id ?? null)
@@ -1332,6 +1345,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!sid || !modelKey) return
     if (optimisticIntentResolved()) return
     setOptimisticIntentResolved(true)
+    setPlanEnded(false)
+    if (sid) localStorage.removeItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid)
 
     try {
       const dir = sdk.directory
@@ -1450,6 +1465,7 @@ const sessionMessagesLoaded = createMemo(() => {
         setUserChangedPhase(false)  // 重置手动切换标记
         setManualStrategyFormData({})
         setPhase2Pending(false)
+        setPlanEnded(false)  // 复位结束状态，新 session 的恢复逻辑会重新设置
       }
       // 尝试恢复当前主 session 的设计规划子 session
       let restoredPlanSid: string | null = null
@@ -1471,6 +1487,20 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       }
       if (restoredPlanSid) {
+        // 检查是否已被用户退出（持久化标记）
+        const isEnded = !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid)
+        if (isEnded) {
+          // 已退出：只保留历史记录，不恢复为活跃状态
+          if (!loadedChildSessions.has(restoredPlanSid)) {
+            loadedChildSessions.add(restoredPlanSid)
+            setChildSessionIDs((prev) => { const next = new Set(prev); next.add(restoredPlanSid); return next })
+            sync.session.sync(restoredPlanSid).catch(() => {})
+          }
+          setPlanEndedForSession(newSid)
+          setPlanEnded(true)
+          return
+        }
+
         if (!loadedChildSessions.has(restoredPlanSid)) {
           loadedChildSessions.add(restoredPlanSid)
           setChildSessionIDs((prev) => { const next = new Set(prev); next.add(restoredPlanSid); return next })
@@ -1488,17 +1518,19 @@ const sessionMessagesLoaded = createMemo(() => {
         // 使用 isPlanConfirmed 检测确认状态（包括 [confirm-plan] 和 text/html artifact）
         const isConfirmed = planIdent ? isPlanConfirmed(childMessages, childParts, planIdent) : false
 
-        // 检测子 session 消息流中是否已有 design-plan artifact 或 strategy-complete 标记
+        // 检测子 session 消息流中是否已有 design-plan artifact
         const hasDesignPlan = childMessages?.some((m: any) => {
           if (m.role !== "assistant") return false
           const text = (childParts?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
-          return text?.includes('type="text/design-plan"') || text?.includes("[strategy-complete]")
+          return text?.includes('type="text/design-plan"')
         })
 
         if (isConfirmed) {
           // 已确认：只保留历史记录，不设为活跃
           setHasChildPlanSession(false)
           setPlanEndedForSession(newSid)
+          setPlanEnded(true)
+          localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid, "true")
           // 设置 planPhase 为 generate，以便用户点击 tab 时正确显示第二阶段内容
           setPlanPhase(hasDesignPlan ? "generate" : "strategy")
           // 清理 localStorage 缓存
@@ -1523,6 +1555,12 @@ const sessionMessagesLoaded = createMemo(() => {
           setPhase2Pending(false)
           // 防护: childId 为空 / 已被其他路径设置 / params.id 已切换(竞态) 时跳过
           if (!childId || activePlanSessionId() || params.id !== capturedSid) return
+          // 检查是否已被用户退出（持久化标记）
+          if (localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + capturedSid)) {
+            setPlanEndedForSession(capturedSid)
+            setPlanEnded(true)
+            return
+          }
           loadedChildSessions.add(childId)
           setChildSessionIDs((prev) => { const next = new Set(prev); next.add(childId); return next })
           sync.session.sync(childId).catch(() => {})
@@ -1548,6 +1586,8 @@ const sessionMessagesLoaded = createMemo(() => {
               // 已确认：不设为活跃，只保留历史记录
               setHasChildPlanSession(false)
               setPlanEndedForSession(capturedSid)
+              setPlanEnded(true)
+              localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + capturedSid, "true")
               setPlanPhase(hasDesignPlan ? "generate" : "strategy")
             } else {
               // 未确认：恢复为活跃状态
@@ -1602,6 +1642,7 @@ const sessionMessagesLoaded = createMemo(() => {
           setHasChildPlanSession(false)
           setPlanEndedForSession(mainSid)
           if (activePlanSessionId() === childId) {
+            setPlanEnded(true)
             setActivePlanSessionId(null)
             setPlanParentSessionId(null)
           }
@@ -1624,6 +1665,7 @@ const sessionMessagesLoaded = createMemo(() => {
         }
         setPlanConfirmPending(false)
         setPlanEndedForSession(mainSid ?? null)
+        setPlanEnded(true)
         setActivePlanSessionId(null)
         setPlanParentSessionId(null)
         setHasChildPlanSession(false)
@@ -1634,7 +1676,31 @@ const sessionMessagesLoaded = createMemo(() => {
     { defer: true }
   ))
 
-    // 设计方案(design-plan)显示策略:plan 不再自动占用右侧 ResultViewer。
+    // 监控子 session 状态：子 agent 空闲但无有效 plan 时复位 isGenerating（弱模型格式异常兜底）
+  createEffect(on(
+    () => {
+      const planSid = activePlanSessionId()
+      return planSid ? sync.data.session_status[planSid]?.type : null
+    },
+    (statusType) => {
+      if (statusType === "idle" && isGenerating()) {
+        // 子 agent 空闲了但 isGenerating 仍为 true，说明模型未输出有效 design-plan
+        // 检查是否确实没有 planCard
+        const planSid = activePlanSessionId()
+        if (!planSid) return
+        const card = scanDesignPlanFromMessages(sync.data.message?.[planSid], sync.data.part, planSid)
+        if (!card) {
+          // 无有效 plan，安全复位
+          setIsGenerating(false)
+          setPlanPhase("strategy")
+          setUserChangedPhase(true)
+        }
+      }
+    },
+    { defer: true }
+  ))
+
+  // 设计方案(design-plan)显示策略:plan 不再自动占用右侧 ResultViewer。
   // 而是显示为输入框上方的横条(banner),用户主动点击后才把 plan 放进 ResultViewer。
   // 用户一旦查看过(plan tab 已存在),后续 plan 内容更新会通过 openTab 的 existing 分支自动刷新。
 
@@ -2086,8 +2152,8 @@ if (dsId) {
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
     } finally {
-      // Only reset if we're still on the same session (or still on no session)
-      if (!submitSessionId || params.id === submitSessionId) {
+      // 重置 sending：如果是主 session 或 plan 子 session 且未切换，则允许重置
+      if (!submitSessionId || params.id === submitSessionId || (planSid && activePlanSessionId() === planSid)) {
         setSending(false)
       }
     }
@@ -2676,6 +2742,7 @@ if (dsId) {
   /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
   async function handleOpenResult(card: OutputCard) {
     setResultViewMode("tabs")
+    ml.showRight()
     
     // URL 类型：跳过文件推断和加载
     const isUrl = card.filePath?.match(/^https?:\/\//i)
@@ -2878,7 +2945,7 @@ if (dsId) {
         class="octo-make octo-split bg-background-base"
         data-focus={hideChat() ? "true" : undefined}
         ref={(el) => { gridEl = el }}
-        style={{ display: "flex" }}
+        style={{ display: "flex", position: "relative" }}
       >
 
         {/* ── 左栏：对话面板 ──── */}
@@ -3094,13 +3161,14 @@ if (dsId) {
                     />
 
                     <div class="flex-1 min-h-0 overflow-hidden rounded-[inherit]">
-                    <ProseMirrorEditor
-                       sessionId={params.id!}
-                       skillConfig={skillConfig() ?? {}}
-                       artifactFiles={artifactFilesMirror()}
-                       mentionSelections={mentionSelections()}
-                       setMentionSelections={setMentionSelections}
-                       disabled={inputDisabled()}
+<ProseMirrorEditor
+                      sessionId={params.id!}
+                      skillConfig={skillConfig() ?? {}}
+                      artifactFiles={artifactFilesMirror()}
+                      mentionSelections={mentionSelections()}
+                      setMentionSelections={setMentionSelections}
+                      disabled={inputDisabled()}
+                      autofocus
                        onTriggerMention={loadSkillConfig}
                        onContentChange={setPrompt}
                        onSubmit={() => void handleSubmit()}
@@ -3213,7 +3281,7 @@ if (dsId) {
                         sessionID={userMessages()[0].sessionID || params.id!}
                         messageID={userMessages()[0].id}
                         status={sync.data.session_status[userMessages()[0].sessionID] ?? sessionStatus()}
-                        active={isBusy()}
+                        active={sync.data.session_status[userMessages()[0].sessionID ?? params.id!]?.type === "busy"}
                         elapsedText={elapsedText()}
                         blockTime={blockTime()}
                         onAbort={halt}
@@ -3274,7 +3342,7 @@ if (dsId) {
                         sessionID={msg.sessionID || params.id!}
                         messageID={msg.id}
                         status={sync.data.session_status[msg.sessionID] ?? sessionStatus()}
-                        active={isBusy()}
+                        active={sync.data.session_status[msg.sessionID ?? params.id!]?.type === "busy"}
                         elapsedText={elapsedText()}
                         blockTime={blockTime()}
                         onAbort={halt}
@@ -3411,12 +3479,13 @@ if (dsId) {
                   />
 
 <ProseMirrorEditor
-                     sessionId={params.id!}
-                     skillConfig={skillConfig() ?? {}}
-                     artifactFiles={artifactFilesMirror()}
-                     mentionSelections={mentionSelections()}
-                     setMentionSelections={setMentionSelections}
-                     disabled={inputDisabled()}
+                      sessionId={params.id!}
+                      skillConfig={skillConfig() ?? {}}
+                      artifactFiles={artifactFilesMirror()}
+                      mentionSelections={mentionSelections()}
+                      setMentionSelections={setMentionSelections}
+                      disabled={inputDisabled()}
+                     autofocus
                      onTriggerMention={loadSkillConfig}
                      onContentChange={setPrompt}
                      onSubmit={() => void handleSubmit()}
@@ -3507,16 +3576,18 @@ onSlashTrigger={(query) => {
 
         {/* ── 拖拽分隔线（Grid 中间列） ──── */}
         <Show when={gridHasContent() && !hideChat() && !ml.rightCollapsed() && !ml.rightManuallyHidden()}>
-          <div class="octo-split-handle" style={{ flex: "none", width: "0" }} onMouseDown={handleDividerMouseDown} />
+          <div class="octo-split-handle" style={{ position: "absolute", left: `${ml.centerW() - 4}px`, top: "0", bottom: "0", width: "8px", margin: "0" }} onMouseDown={handleDividerMouseDown} />
         </Show>
 
         {/* ── 右栏：ResultViewer + Version Panel ──── */}
         <Show when={gridHasContent()}>
-        <div class="make-right-overlay" />
+        <Show when={!focusMode()}>
+          <div class="make-right-overlay" onClick={() => ml.toggleRightDrawer()} />
+        </Show>
         <div
           class="flex flex-col overflow-hidden"
-          classList={{ "make-right-panel": true, "is-collapsed": ml.rightCollapsed() || ml.rightManuallyHidden() }}
-          style={(ml.rightCollapsed() || ml.rightManuallyHidden()) ? { background: "#fff", "border-left": "1px solid var(--border-weak-base)" } : { flex: `${1 - ml.cRatio()} 1 0%`, "min-width": `${MAKE_RIGHT_MIN}px` }}
+          classList={{ "make-right-panel": true, "is-collapsed": !hideChat() && (ml.rightCollapsed() || ml.rightManuallyHidden()) }}
+          style={hideChat() ? { flex: "1", "min-width": "0" } : (ml.rightCollapsed() || ml.rightManuallyHidden()) ? { background: "#fff", "border-left": "1px solid var(--border-weak-base)" } : { flex: `${1 - ml.cRatio()} 1 0%`, "min-width": `${MAKE_RIGHT_MIN}px` }}
         >
           <div class="flex flex-1 min-h-0 min-w-0">
             <div class="flex flex-col flex-1 min-w-0">
@@ -3578,6 +3649,11 @@ onSlashTrigger={(query) => {
                 sdkDirectory={sdk.directory || ""}
                 focusMode={focusMode()}
                 onFocusModeToggle={() => layout.focusMode.toggle()}
+                onCollapseDrawer={
+                  !focusMode() && ml.rightCollapsed() && ml.rightDrawerOpen()
+                    ? ml.toggleRightDrawer
+                    : undefined
+                }
                 onConfirmPlan={handleConfirmPlan}
                 onAdjustPlan={handleAdjustPlan}
                 isPlanConfirmed={planButtonDisabled}
@@ -3596,6 +3672,7 @@ onSlashTrigger={(query) => {
                 childPlanConfirmed={childPlanConfirmed()}
                 childSessionStatus={sync.data.session_status[activePlanSessionId() ?? ""]}
                 childBusy={childBusy()}
+                planEnded={planEnded()}
               />
             </div>
             <Show when={showVersionPanel()}>

@@ -161,7 +161,18 @@ To indicate semantic states (error, warning, success, info), apply the respectiv
 
 - Card 是布局容器，不是开发组件；使用 `div` 或 `section`。
 - 使用 `bg-surface-container-highest rounded-container shadow-card`；有阴影时不加结构性边框。
+- 承载页面主要内容的底卡占满内容区可用高度，不随表格行数或内部内容多少改变高度；内容超出时在卡片内部滚动。
 - 避免无意义嵌套；同类 Card 保持一致结构。主操作放在页面或区域操作区，Footer 只放次要操作。
+
+### Table Header & Toolbar
+
+- 表格标题单独占一行，搜索与筛选工具栏放在标题下方。
+- 工具栏左侧按“搜索框 → 下拉筛选 → 其他筛选”的顺序排列，搜索框固定在最左侧。
+- 操作区右对齐，按“其他操作 → 主按钮 → 刷新”的顺序排列，刷新按钮固定在最右侧。
+
+### Form Layout
+
+- 横向空间足够时，同一逻辑组的表单字段优先保持在一行，仅在空间不足或内容过长时换行。
 
 ### Header Navigation
 
