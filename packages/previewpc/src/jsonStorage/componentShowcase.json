@@ -4645,6 +4645,7 @@
       "props": {
         "key": "tab1",
         "label": "标签一",
+        "icon": "settings",
         "content": "大尺寸分割线标签一内容"
       }
     },
@@ -4654,6 +4655,7 @@
       "props": {
         "key": "tab2",
         "label": "标签二",
+        "icon": "settings",
         "content": "大尺寸分割线标签二内容"
       }
     },
@@ -4677,6 +4679,7 @@
       "props": {
         "key": "tab1",
         "label": "标签一",
+        "icon": "settings",
         "content": "中尺寸分割线标签一内容"
       }
     },
@@ -4686,6 +4689,7 @@
       "props": {
         "key": "tab2",
         "label": "标签二",
+        "icon": "settings",
         "content": "中尺寸分割线标签二内容"
       }
     },
@@ -4709,6 +4713,7 @@
       "props": {
         "key": "tab1",
         "label": "标签一",
+        "icon": "settings",
         "content": "小尺寸分割线标签一内容"
       }
     },
@@ -4718,6 +4723,7 @@
       "props": {
         "key": "tab2",
         "label": "标签二",
+        "icon": "settings",
         "content": "小尺寸分割线标签二内容"
       }
     },
