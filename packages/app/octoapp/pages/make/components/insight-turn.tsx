@@ -13,6 +13,7 @@ import { QuickBriefFormView } from "./quick-brief-form"
 import './quick-brief-form.css'
 import { autoSaveArtifact } from "../utils/artifact-auto-save"
 import { parseUploadedFiles } from "../../insight/lib/upload"
+import { ExpandableBubble } from "@/components/expandable-bubble"
 
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
@@ -1011,11 +1012,11 @@ const stateStatus = state.status as string | undefined
       <Show when={userText() || userAttachments().length > 0}>
         <div class="flex flex-col items-end gap-2 px-3 py-2.5">
           <Show when={userText()}>
-            <div
+            <ExpandableBubble
               class="break-words"
               style={{
                 background: "var(--octo-brand-a8)",
-                padding: "8px 12px",
+                padding: "12px 16px",
                 "border-radius": "16px 16px 2px 16px",
                 color: "#191919",
                 "font-size": "14px",
@@ -1026,7 +1027,7 @@ const stateStatus = state.status as string | undefined
               }}
             >
               {renderMentionText(userText())}
-            </div>
+            </ExpandableBubble>
           </Show>
           <Show when={userAttachments().length > 0}>
             <div class="flex flex-col gap-2">
@@ -1036,7 +1037,7 @@ const stateStatus = state.status as string | undefined
                     class="break-words flex items-center gap-2"
                     style={{
                       background: "var(--octo-brand-a8)",
-                      padding: "8px 12px",
+                      padding: "12px 16px",
                       "border-radius": "12px",
                       color: "#191919",
                       "font-size": "13px",
@@ -1104,7 +1105,7 @@ const stateStatus = state.status as string | undefined
       {/* AI 文字回复（proseText 已剥离 artifact 内容，使用 segments 渲染） */}
       <Show when={proseSegments().length > 0}>
         <div
-          class="mb-2 px-3 py-2"
+          class="mb-2 px-4 py-3"
           style={{ color: "#191919", "font-size": "14px", "line-height": "22px", "user-select": "text" }}
         >
           <For each={proseSegments()}>
