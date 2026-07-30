@@ -81,6 +81,8 @@ export const ProseMirrorEditor = (props: Props) => {
     setIsEmpty(empty)
   }, props.onContentChange)
 
+  const connected = (v: EditorView | undefined): v is EditorView => !!v && !!v.dom?.isConnected
+
   onMount(() => {
     if (!containerRef) return
 

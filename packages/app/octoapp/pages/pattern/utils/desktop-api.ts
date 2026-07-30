@@ -27,6 +27,7 @@ export type DesktopApi = {
   openLink?: (url: string) => void
   codeToHtml?: (opts: { url: string; theme?: "light" | "dark"; waitForMs?: number }) => Promise<{ html: string; resourceCount: number }>
   capturePreviewPage?: (opts: { pageJson: unknown; waitForMs?: number }) => Promise<string | null>
+  getTopixsoDir?: () => Promise<string>  
 }
 
 export function getDesktopApi(): DesktopApi | undefined {
