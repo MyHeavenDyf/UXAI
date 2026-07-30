@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test"
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { join, resolve } from "node:path"
-import { extToOutputType, findWriteCards } from "../../utils/write-output"
-import type { OutputCardType } from "../insight-turn"
+import { findWriteCards } from "../../utils/write-output"
+import { resolveOutputType, type OutputCardType } from "../../utils/output-type"
 
 // SPEC-INS-014 §10.2 W1–W3:「删掉预览面板第四栏,单击文件行直接开 tab」的回归防线。
 //
 // 被删掉的 preview-pane.tsx 自带一套独立的 Switch(image/video/audio/html/markdown/code),
 // **没有 default 分支** —— pdf/docx/pptx/xlsx/csv/zip/psd 全落到「无 Match」渲染成空白。
-// 删掉它之后,「文件管理单击 → 打开后走哪条渲染」只剩 extToOutputType 一个判定入口
-// (页面级 pages/insight/index.tsx 的 openFileFromManager 调用),与对话产物卡片同源。
-// 本文件锁死这一点:没有第二套白名单、没有扩展名落到无分支。
+// 删掉它之后,「文件管理单击 → 打开后走哪条渲染」只剩 resolveOutputType 一个判定入口
+// (SPEC-INS-026 §4.2;页面级 pages/insight/index.tsx 的 openFileFromManager 调用),
+// 与对话产物卡片同源。本文件锁死这一点:没有第二套白名单、没有扩展名落到无分支。
 
 const INSIGHT_DIR = resolve(import.meta.dir, "../..")
 
@@ -45,9 +45,10 @@ describe("W1 预览面板第四栏已彻底移除", () => {
 
 // result-viewer 对 source:"path" 的 tab 分流(components/result-viewer/index.tsx):
 //   image → ImageRenderer;file → FileFallback 中间页;其余 → PathTabBody 读盘后应用内渲染。
-// OutputCardType 的每个取值都在其中有分支,故只要 extToOutputType 的返回值落在这个集合里,
+// OutputCardType 的每个取值都在其中有分支,故只要 resolveOutputType 的返回值落在这个集合里,
 // 就不可能重现「面板 Switch 无 Match → 空白」。
-const RENDERABLE: readonly OutputCardType[] = ["table", "mindmap", "markdown", "file", "json", "html", "code", "image"]
+// 这里是 SPEC-INS-026 §4.2 收敛后的 6 个(mindmap 退役为 json 的内容形态、table 整条链路退役)。
+const RENDERABLE: readonly OutputCardType[] = ["markdown", "file", "json", "html", "code", "image"]
 
 // §10.2 决定表 + W2 用例列出的扩展名。左列是文件管理里能点到的文件名,右列是打开后的落点。
 const CASES: Array<[string, OutputCardType]> = [
@@ -83,7 +84,7 @@ const CASES: Array<[string, OutputCardType]> = [
 describe("W2 文件管理单击 → 打开后的渲染落点", () => {
   for (const [name, expected] of CASES) {
     test(`${name} → ${expected}`, () => {
-      expect(extToOutputType(name)).toBe(expected)
+      expect(resolveOutputType(name)).toBe(expected)
     })
   }
 
@@ -101,13 +102,13 @@ describe("W2 文件管理单击 → 打开后的渲染落点", () => {
       "Dockerfile", "LICENSE", "a.unknownext", "a.", "带空格 的 名字.md", "归档(1).zip",
     ]
     for (const name of probes) {
-      const type = extToOutputType(name)
+      const type = resolveOutputType(name)
       expect(RENDERABLE, `${name} 落到未知类型 ${type}`).toContain(type)
     }
   })
 })
 
-describe("W3 extToOutputType 是唯一分类依据", () => {
+describe("W3 resolveOutputType 是唯一分类依据", () => {
   test("文件管理入口与对话卡片入口对同一文件名得出相同结论", () => {
     for (const [name, expected] of CASES) {
       const filePath = `/tmp/.octo/s1/outputs/${name}`
@@ -118,7 +119,7 @@ describe("W3 extToOutputType 是唯一分类依据", () => {
       expect(cards).toHaveLength(1)
       expect(cards[0]!.type).toBe(expected)
       // 文件管理入口:openFileFromManager 对同一文件名的判定
-      expect(extToOutputType(name)).toBe(cards[0]!.type)
+      expect(resolveOutputType(name)).toBe(cards[0]!.type)
     }
   })
 
@@ -126,8 +127,8 @@ describe("W3 extToOutputType 是唯一分类依据", () => {
     const src = readFileSync(join(INSIGHT_DIR, "index.tsx"), "utf8")
     const fn = src.slice(src.indexOf("function openFileFromManager"))
     const body = fn.slice(0, fn.indexOf("\n  }\n"))
-    expect(body).toContain("extToOutputType(file.name)")
-    // 白名单只允许存在于 write-output.ts:这里出现扩展名字面量就意味着又长出一套判定
+    expect(body).toContain("resolveOutputType(file.name)")
+    // 白名单只允许存在于 output-type.ts:这里出现扩展名字面量就意味着又长出一套判定
     expect(body).not.toMatch(/["'](?:md|pdf|docx|xlsx|png|mp4)["']/)
   })
 })
