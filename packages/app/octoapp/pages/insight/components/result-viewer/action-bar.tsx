@@ -91,8 +91,8 @@ async function getTabFile(tab: ResultTab): Promise<File | null> {
 
 // 把 ResultTab 转成归档 target:HTML → 复刻 Design 流程(DOM 取预览 iframe 截图);其他 → file 流(EdmUtil)。
 // 传 getter 而非快照:uri/path tab 的 content 是异步回写(cacheContent 换新对象),confirm 时读最新值。
-// getIframe 必填:由 result-viewer 容器作用域提供,避免全局 query 取错;取空(源码视图)在归档任务里响亮失败。
-function tabToArchiveTarget(getTab: () => ResultTab, projectDir: string, sessionId: string, getIframe: () => HTMLIFrameElement | null): ArchiveTarget {
+// getIframe 可选:由 result-viewer 容器作用域提供,避免全局 query 取错;缺省走 1×1 白图兜底(设计如此)。
+function tabToArchiveTarget(getTab: () => ResultTab, projectDir: string, sessionId: string, getIframe?: () => HTMLIFrameElement | null): ArchiveTarget {
   const tab = getTab()
   if (tab.type === "html") {
     return {
@@ -102,7 +102,7 @@ function tabToArchiveTarget(getTab: () => ResultTab, projectDir: string, session
       getHtmlContent: () => Promise.resolve(stripCodeFence(getTab().content ?? "")),
       htmlFileName: tab.fileName || tab.title || "preview.html",
       htmlFilePath: tab.filePath || "",
-      getIframe,
+      getIframe: getIframe ?? (() => null),
     }
   }
   return {
@@ -274,7 +274,7 @@ export function ActionBar(props: {
   /** 进入全屏 markdown 编辑器(仅 markdown 卡且有本地文件时给出) */
   onEdit?: () => void
   /** 取预览 iframe(由 result-viewer 容器作用域提供,避免全局 querySelector 取到其他 tab/分屏的 iframe) */
-  getIframe: () => HTMLIFrameElement | null
+  getIframe?: () => HTMLIFrameElement | null
 }): JSX.Element {
   const projectDir = useProjectDir()
   const params = useParams<{ id?: string }>()
@@ -300,11 +300,6 @@ export function ActionBar(props: {
   // ── 归档(所有文件类型,头部最右侧按钮;逻辑抽到 ../archive-flow)──────────────────────
   const [archiveTarget, setArchiveTarget] = createSignal<ArchiveTarget | null>(null)
   const [archiveDialogOpen, setArchiveDialogOpen] = createSignal(false)
-  // HTML 在源码视图下无 live iframe(渲染的是 SourceCodeView),截图会退回 1×1 白图,故该态禁用归档
-  const archiveDisabled = () => !ready() || (props.tab.type === "html" && props.viewMode === "source")
-  const archiveTitle = () => archiveDisabled() && props.tab.type === "html" && props.viewMode === "source"
-    ? "请切换到预览视图后再归档"
-    : "归档"
 
   function handleArchiveClick() {
     setArchiveTarget(tabToArchiveTarget(() => props.tab, projectDir() || "", params.id ?? "", props.getIframe))
@@ -378,15 +373,15 @@ export function ActionBar(props: {
           />
           <DownloadMenu tab={props.tab} disabled={!ready()} />
         </Show>
-        {/* 归档(60×32,#0A59F7):所有文件类型均可归档,置于头部操作项最右侧;未 ready 或 HTML 源码视图时置灰 */}
+        {/* 归档(60×32,#0A59F7):所有文件类型均可归档,置于头部操作项最右侧;未 ready 时置灰 */}
         <button
           type="button"
           onClick={handleArchiveClick}
-          disabled={archiveDisabled()}
+          disabled={!ready()}
           class="flex items-center justify-center transition-opacity"
           classList={{
-            "hover:opacity-90 cursor-pointer": !archiveDisabled(),
-            "opacity-40 cursor-not-allowed": archiveDisabled(),
+            "hover:opacity-90 cursor-pointer": ready(),
+            "opacity-40 cursor-not-allowed": !ready(),
           }}
           style={{
             width: "60px",
@@ -398,7 +393,7 @@ export function ActionBar(props: {
             "line-height": "22px",
             "flex-shrink": "0",
           }}
-          title={archiveTitle()}
+          title="归档"
         >
           归档
         </button>

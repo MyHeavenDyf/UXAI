@@ -29,8 +29,8 @@ export type ArchiveTarget =
       getHtmlContent: () => Promise<string>
       htmlFileName: string
       htmlFilePath: string
-      /** 预览 iframe 用于截图;取不到(null)视为不可归档(如源码视图),任务置 error 并提示切换预览视图 */
-      getIframe: () => HTMLIFrameElement | null
+      /** 预览 iframe 用于截图;取不到(源码视图 / 文件管理无 live iframe)走 1×1 白图兜底(设计如此,不阻塞归档) */
+      getIframe?: () => HTMLIFrameElement | null
     }
   | {
       mode: "file"
@@ -118,6 +118,20 @@ function htmlArchiveTask(taskId: string, name: string, progress: number, status:
   }
 }
 
+// 无 live iframe 时用 1×1 白图占位(设计兜底:源码视图 / 无预览 iframe 时不阻塞归档,封面以白图交付)
+function placeholderScreenshot(): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const canvas = document.createElement("canvas")
+    canvas.width = 1
+    canvas.height = 1
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return reject(new Error("无法生成截图"))
+    ctx.fillStyle = "#ffffff"
+    ctx.fillRect(0, 0, 1, 1)
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("无法生成截图"))), "image/jpeg", 0.9)
+  })
+}
+
 async function runArchiveHtmlTask(
   target: HtmlTarget,
   data: ArchiveConfirmData,
@@ -129,14 +143,9 @@ async function runArchiveHtmlTask(
   TaskStore.progress([{ key: taskId, progress: 0, status: "in_progress" }])
   showToast({ title: "该任务已添加到任务列表" })
   try {
-    // 取不到 iframe(源码视图 / tab 不可见)不静默降级成 1×1 白图封面,直接失败提示切换预览视图。
-    const iframe = target.getIframe()
-    if (!iframe) {
-      TaskStore.error([{ key: taskId, status: "error" }])
-      showToast({ title: "归档失败", description: "请切换到预览视图后再归档" })
-      return
-    }
-    const screenshotBlob = await capturePageScreenshot(iframe)
+    // 取不到 iframe(源码视图 / tab 不可见)走 1×1 白图兜底,不阻塞归档。
+    const iframe = target.getIframe?.() ?? null
+    const screenshotBlob = iframe ? await capturePageScreenshot(iframe) : await placeholderScreenshot()
 
     const zipBlob = await createArchiveZip({
       screenshotBlob,
