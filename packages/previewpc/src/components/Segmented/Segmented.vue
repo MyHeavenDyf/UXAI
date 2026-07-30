@@ -6,6 +6,7 @@ import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import { getIconComponentRef, createIconRenderer } from "../Icon/IconBase"
 import { svgCacheVersion } from "../../composables/useIconProvider"
+import { useTheme } from "../../composables/useTheme"
 import "./Segmented.less"
 
 const sizeEnum: Record<string, "" | "small" | "large" | "default" | undefined> = {
@@ -62,14 +63,16 @@ const normalizedOptions = computed(() => {
 })
 
 // ---- 图标解析（同步，追踪 svgCacheVersion 以响应 SVG 到达） ----
+const { isDark } = useTheme()
 const resolvedOptions = ref<any[]>([])
 
 watch(
-  [normalizedOptions, svgCacheVersion],
+  [normalizedOptions, svgCacheVersion, isDark],
   ([opts]) => {
+    const shape = isDark.value ? 'fill' : 'lined'
     resolvedOptions.value = opts.map((opt: any) => {
       if (!opt.iconName) return { label: opt.label, value: opt.value, icon: undefined }
-      const iconRef = getIconComponentRef(opt.iconName, { size: 16 })
+      const iconRef = getIconComponentRef(opt.iconName, { size: 16, shape })
       return { label: opt.label, value: opt.value, icon: createIconRenderer(iconRef) ?? undefined }
     })
   },

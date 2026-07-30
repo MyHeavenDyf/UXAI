@@ -8,6 +8,7 @@ import { useA2UIComponent } from "../../renderer/render/hooks"
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
 import { getIconComponentRef } from "../Icon/IconBase"
 import { svgCacheVersion } from "../../composables/useIconProvider"
+import { useTheme } from "../../composables/useTheme"
 import "./Tabs.less"
 
 const sizeEnum = {
@@ -113,15 +114,17 @@ const items = computed(() => {
 
 // ---- 异步图标解析 ----
 // ---- 图标解析（同步，追踪 svgCacheVersion 以响应 SVG 到达） ----
+const { isDark } = useTheme()
 const resolvedTabIcons = ref<Record<string, { component: Component | null; props: Record<string, any> } | null>>({})
 
 watch(
-  [items, iconSize, svgCacheVersion],
+  [items, iconSize, svgCacheVersion, isDark],
   ([newItems, sz]) => {
     const map: Record<string, any> = {}
+    const shape = isDark.value ? 'fill' : 'lined'
     for (const item of (newItems as any[])) {
       if (item.icon) {
-        map[item.name] = getIconComponentRef(item.icon, { size: sz as number, strokeWidth: 1 })
+        map[item.name] = getIconComponentRef(item.icon, { size: sz as number, strokeWidth: 1, shape })
       }
     }
     resolvedTabIcons.value = map
