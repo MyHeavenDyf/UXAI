@@ -84,6 +84,14 @@ function isTerminal(idx: number) {
   return s === "completed" || s === "error" || s === "cancelled"
 }
 
+// 已完成任务自动移除延时(ms):完成后短暂保留完成态供用户确认,随后自动从任务中心删除
+const AUTO_REMOVE_DELAY = 3000
+
+// 按 key 延时自动删除任务项
+function scheduleAutoRemove(key: string) {
+  setTimeout(() => setStore("items", prev => prev.filter(i => i.key !== key)), AUTO_REMOVE_DELAY)
+}
+
 // 服务句柄注册表：新服务在此注册 cancel/pause，TaskStore.cancel/togglePause 按 serviceType 派发，
 // 避免在公共 store 里写 if-else（s3 或新模块接进来无需改本文件）。
 type ServiceHandlers = { cancel?: (item: TaskItem) => void; pause?: (item: TaskItem, paused: boolean) => void }
@@ -118,16 +126,19 @@ export const TaskStore = {
     }
   },
   // 传输完成；写入 progress/status 与 docId/version(供后续按文档 id 跳转)。终态项跳过(取消的不被改回完成)
+  // 完成的任务短暂保留后自动从任务中心删除(scheduleAutoRemove)
   finish(data: Array<TaskFinishUpdate>) {
     for (const u of data) {
       const idx = findIndex(u.key)
       if (idx < 0 || isTerminal(idx)) continue
+      const next = u.status ?? "completed"
       setStore("items", idx, {
         progress: u.progress ?? store.items[idx].progress,
-        status: u.status ?? "completed",
+        status: next,
         ...(u.docId !== undefined ? { docId: u.docId } : {}),
         ...(u.version !== undefined ? { version: u.version } : {}),
       })
+      if (next === "completed") scheduleAutoRemove(u.key)
     }
   },
   // 传输失败。终态项跳过(已完成的不被迟到的 onError 改成失败)
