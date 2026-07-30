@@ -33,6 +33,16 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const [positionLeft, setPositionLeft] = createSignal(false)
   let containerRef: HTMLDivElement | undefined
 
+  const updateSecondaryPosition = () => {
+    if (!containerRef) return
+    const selectedEl = containerRef.querySelector('.mention-primary-item--selected') as HTMLElement | null
+    const secondaryPanel = containerRef.querySelector('.mention-secondary-panel') as HTMLElement | null
+    if (!selectedEl || !secondaryPanel) return
+    const containerRect = containerRef.getBoundingClientRect()
+    const itemRect = selectedEl.getBoundingClientRect()
+    secondaryPanel.style.bottom = `${containerRect.bottom - itemRect.bottom}px`
+  }
+
   const checkPosition = () => {
     if (!containerRef) return
     const rect = containerRef.getBoundingClientRect()
@@ -45,6 +55,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     activeTab()
     selectedCategory()
     checkPosition()
+    updateSecondaryPosition()
   })
 
   const platformSkills = createMemo(() => {
@@ -154,22 +165,18 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
 
   const secondaryPanelStyle = () => {
     const left = positionLeft()
+    const bottom = '0'
+    const sideStyle = left
+      ? { right: '100%', marginRight: '8px' }
+      : { left: '100%', marginLeft: '8px' }
     if (activeTab() === 'skills') {
-      return {
-        width: '257px',
-        bottom: '0',
-        ...(left ? { right: '100%', marginRight: '8px' } : { left: '100%', marginLeft: '8px' })
-      }
+      return { width: '257px', bottom, ...sideStyle }
     }
-    return {
-      width: '400px',
-      bottom: '0',
-      ...(left ? { right: '100%', marginRight: '8px' } : { left: '100%', marginLeft: '8px' })
-    }
+    return { width: '400px', bottom, ...sideStyle }
   }
 
   return (
-    <div class="mention-popover-container">
+    <div class="mention-popover-container" ref={containerRef}>
       {/* Tab Switch */}
       <div class="mention-tab-container">
         <button
