@@ -70,7 +70,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
 
   return (
     <div
-      class="design-files-toolbar flex items-center flex-wrap px-6 py-3 shrink-0 gap-y-2"
+      class="design-files-toolbar flex items-center justify-between flex-wrap px-6 py-3 shrink-0 gap-y-2"
       style={{ "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}
     >
       <div class="flex items-center gap-2 min-w-0 shrink">

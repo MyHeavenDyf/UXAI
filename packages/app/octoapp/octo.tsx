@@ -59,6 +59,7 @@ if (!import.meta.env.DEV) installConsoleObjectSerializer()
 import { MakeSidebar } from "@/pages/make/sidebar"
 import { PatternSidebar } from "@/pages/pattern/modules/sidebar/sidebar"
 import { InsightSidebar } from "@/pages/insight/sidebar"
+import { InsightQueueRunner } from "@/pages/insight/queue-runner"
 import { ProjectInfo } from "@/components/project-info"
 import { SidebarFooter } from "@/pages/insight/components/sidebar-footer"
 import { MakeLayoutProvider, useMakeLayout } from "@/context/make-layout"
@@ -285,6 +286,8 @@ function MakeSidebarLayout(props: ParentProps) {
 
 function MakeSidebarArea(props: ParentProps) {
   const ml = useMakeLayout()
+  const layout = useLayout()
+  const focusMode = layout.focusMode.get
 
   function handleResize(e: MouseEvent) {
     if (ml.leftCollapsed()) return
@@ -303,18 +306,6 @@ function MakeSidebarArea(props: ParentProps) {
     document.addEventListener("mousemove", onMove)
     document.addEventListener("mouseup", onUp)
   }
-
-  onMount(() => {
-    document.addEventListener("click", (e) => {
-      const target = e.target as HTMLElement
-      if (ml.leftDrawerOpen() && !target.closest(".make-sidebar") && !target.closest("[data-drawer-toggle='make-left']")) {
-        ml.toggleLeftDrawer()
-      }
-      if (ml.rightDrawerOpen() && !target.closest(".make-right-panel") && !target.closest("[data-drawer-toggle='make-right']")) {
-        ml.toggleRightDrawer()
-      }
-    })
-  })
 
   return (
     <>
@@ -344,15 +335,15 @@ function MakeSidebarArea(props: ParentProps) {
         class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative"
         style={{ "--sidebar-width": `${ml.leftW()}px` }}
       >
-        <div class="make-sidebar-overlay" />
+        <div class="make-sidebar-overlay" onClick={() => ml.toggleLeftDrawer()} />
         <div
           class="make-sidebar h-full shrink-0 flex flex-col overflow-hidden"
-          classList={{ "is-collapsed": ml.leftCollapsed() }}
+          classList={{ "is-collapsed": ml.leftCollapsed() || focusMode() }}
           style={{ "border-right": "1px solid var(--border-weak-base)", background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)" }}
         >
           <MakeSidebar />
         </div>
-        <Show when={!ml.leftCollapsed()}>
+        <Show when={!ml.leftCollapsed() && !focusMode()}>
           <div class="make-sidebar-resize" style={{ left: `${ml.leftW() - 4}px` }} onMouseDown={handleResize} />
         </Show>
         <div class="flex flex-col flex-1 min-w-0 overflow-hidden">{props.children}</div>
@@ -466,7 +457,23 @@ function FocusModeResetHandler() {
 }
 
 function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
+  return (
+    <SettingsProvider>
+      <PermissionProvider>
+        <LayoutProvider>
+          <RouterInner appChildren={props.appChildren}>
+            {props.children}
+          </RouterInner>
+        </LayoutProvider>
+      </PermissionProvider>
+    </SettingsProvider>
+  )
+}
+
+function RouterInner(props: ParentProps<{ appChildren?: JSX.Element }>) {
   const location = useLocation()
+  const layout = useLayout()
+  const sidebarSource = () => layout.sidebarSource.get()
 
   const isInsightPage = () => {
     const p = location.pathname
@@ -487,42 +494,55 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
     return location.pathname === "/skills"
   }
 
+  // Whether skills is opened from make/pattern context (vs insight/cowork)
+  const skillsFromMake = () => isSkillsPage() && sidebarSource() === "make"
+  const skillsFromPattern = () => isSkillsPage() && sidebarSource() === "pattern"
+
   return (
-    <SettingsProvider>
-      <PermissionProvider>
-        <LayoutProvider>
-          <FocusModeResetHandler />
-          <NotificationProvider>
-            <ModelsProvider>
-              <CommandProvider>
-                <HighlightsProvider>
-                  <Layout>
-                    <OnboardingLayer />
-                    {/* SPEC-INS-010 §11:/insight 由 InsightPage 自带侧栏,不再套 OctoSidebarLayout(否则双侧栏) */}
-                    <Show when={isInsightPage()}>
+    <>
+      <FocusModeResetHandler />
+      <NotificationProvider>
+        <ModelsProvider>
+          <CommandProvider>
+            <HighlightsProvider>
+              <Layout>
+                <OnboardingLayer />
+                {/* SPEC-INS-010 §11:/insight 由 InsightPage 自带侧栏,不再套 OctoSidebarLayout(否则双侧栏) */}
+                <Show when={isInsightPage()}>
+                  {props.children}
+                </Show>
+                {/* Make + skills from make: 共用 MakeSidebarLayout,侧栏不重挂 */}
+                <Show when={isMakePage() || skillsFromMake()}>
+                  <MakeSidebarLayout>
+                    <Show when={isMakePage()} fallback={<SkillsPage />}>
                       {props.children}
                     </Show>
-                    <Show when={isMakePage()}>
-                      <MakeSidebarLayout>{props.children}</MakeSidebarLayout>
-                    </Show>
-                    <Show when={isPatternPage()}>
-                      <PatternSidebarLayout>{props.children}</PatternSidebarLayout>
-                    </Show>
-                    <Show when={isSkillsPage()}>
-                      <SkillsSidebarLayout>{props.children}</SkillsSidebarLayout>
-                    </Show>
-                    <Show when={!isInsightPage() && !isMakePage() && !isPatternPage() && !isSkillsPage()}>
-                      {props.appChildren}
+                  </MakeSidebarLayout>
+                </Show>
+                {/* Pattern + skills from pattern: 共用 PatternSidebarLayout */}
+                <Show when={isPatternPage() || skillsFromPattern()}>
+                  <PatternSidebarLayout>
+                    <Show when={isPatternPage()} fallback={<SkillsPage />}>
                       {props.children}
                     </Show>
-                  </Layout>
-                </HighlightsProvider>
-              </CommandProvider>
-            </ModelsProvider>
-          </NotificationProvider>
-        </LayoutProvider>
-      </PermissionProvider>
-    </SettingsProvider>
+                  </PatternSidebarLayout>
+                </Show>
+                {/* Skills from insight/cowork: InsightSidebarLayout */}
+                <Show when={isSkillsPage() && !skillsFromMake() && !skillsFromPattern()}>
+                  <InsightSidebarLayout>
+                    <SkillsPage />
+                  </InsightSidebarLayout>
+                </Show>
+                <Show when={!isInsightPage() && !isMakePage() && !isPatternPage() && !isSkillsPage()}>
+                  {props.appChildren}
+                  {props.children}
+                </Show>
+              </Layout>
+            </HighlightsProvider>
+          </CommandProvider>
+        </ModelsProvider>
+      </NotificationProvider>
+    </>
   )
 }
 
@@ -710,6 +730,9 @@ export function AppInterface(props: {
               <GlobalSyncProvider>
                 {/* jk-j60099994-replace-with-octo-4-start */}
                 {/* jk-j60099994-replace-with-octo-4-end */}
+                {/* SPEC-INS-027:insight 排队 drain 运行器。挂在 Router 之外,跨 tab/路由常驻,
+                    使会话后台跑完时排队仍能继续 flush(不随 insight 页面卸载而死)。headless。 */}
+                <InsightQueueRunner />
                 <Dynamic
                   component={props.router ?? Router}
                   root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}

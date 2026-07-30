@@ -419,8 +419,10 @@
 
 .octo-action-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 12px 8px;
   width: 100%;
 }
 
@@ -461,12 +463,6 @@
 
 @container octo-action-bar (max-width: 780px) {
   .octo-action-bar-collapsible .octo-action-btn span { display: none; }
-}
-
-@container octo-action-bar (max-width: 520px) {
-  .octo-action-bar { flex-wrap: wrap; justify-content: center; gap: 8px; padding: 8px 16px; }
-  .octo-action-bar-left { width: 100%; justify-content: center; }
-  .octo-action-bar-right { width: 100%; justify-content: center; flex-wrap: wrap; }
 }
 
 /* ── Dropdown ──────────────────── */
@@ -716,24 +712,4 @@ button.delete-dialog-btn-primary {
   background: rgba(0, 0, 0, 0.06);
 }
 
-/* ── Design files toolbar responsive ───────── */
-.design-files-toolbar {
-  container-type: inline-size;
-  container-name: design-files-toolbar;
-}
 
-@container design-files-toolbar (max-width: 480px) {
-  .design-files-toolbar .toolbar-btn-text {
-    display: none;
-  }
-  .design-files-toolbar .toolbar-group-toggle {
-    min-width: auto !important;
-    padding: 0 8px !important;
-  }
-}
-
-@container design-files-toolbar (max-width: 360px) {
-  .design-files-toolbar .toolbar-divider {
-    display: none;
-  }
-}
