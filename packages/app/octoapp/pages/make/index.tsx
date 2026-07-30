@@ -2713,6 +2713,7 @@ if (dsId) {
   /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
   async function handleOpenResult(card: OutputCard) {
     setResultViewMode("tabs")
+    ml.showRight()
     
     // URL 类型：跳过文件推断和加载
     const isUrl = card.filePath?.match(/^https?:\/\//i)
@@ -3131,13 +3132,14 @@ if (dsId) {
                     />
 
                     <div class="flex-1 min-h-0 overflow-hidden rounded-[inherit]">
-                    <ProseMirrorEditor
-                       sessionId={params.id!}
-                       skillConfig={skillConfig() ?? {}}
-                       artifactFiles={artifactFilesMirror()}
-                       mentionSelections={mentionSelections()}
-                       setMentionSelections={setMentionSelections}
-                       disabled={inputDisabled()}
+<ProseMirrorEditor
+                      sessionId={params.id!}
+                      skillConfig={skillConfig() ?? {}}
+                      artifactFiles={artifactFilesMirror()}
+                      mentionSelections={mentionSelections()}
+                      setMentionSelections={setMentionSelections}
+                      disabled={inputDisabled()}
+                      autofocus
                        onTriggerMention={loadSkillConfig}
                        onContentChange={setPrompt}
                        onSubmit={() => void handleSubmit()}
@@ -3448,12 +3450,13 @@ if (dsId) {
                   />
 
 <ProseMirrorEditor
-                     sessionId={params.id!}
-                     skillConfig={skillConfig() ?? {}}
-                     artifactFiles={artifactFilesMirror()}
-                     mentionSelections={mentionSelections()}
-                     setMentionSelections={setMentionSelections}
-                     disabled={inputDisabled()}
+                      sessionId={params.id!}
+                      skillConfig={skillConfig() ?? {}}
+                      artifactFiles={artifactFilesMirror()}
+                      mentionSelections={mentionSelections()}
+                      setMentionSelections={setMentionSelections}
+                      disabled={inputDisabled()}
+                     autofocus
                      onTriggerMention={loadSkillConfig}
                      onContentChange={setPrompt}
                      onSubmit={() => void handleSubmit()}
@@ -3549,7 +3552,9 @@ onSlashTrigger={(query) => {
 
         {/* ── 右栏：ResultViewer + Version Panel ──── */}
         <Show when={gridHasContent()}>
-        <div class="make-right-overlay" onClick={() => ml.toggleRightDrawer()} />
+        <Show when={!focusMode()}>
+          <div class="make-right-overlay" onClick={() => ml.toggleRightDrawer()} />
+        </Show>
         <div
           class="flex flex-col overflow-hidden"
           classList={{ "make-right-panel": true, "is-collapsed": !hideChat() && (ml.rightCollapsed() || ml.rightManuallyHidden()) }}
@@ -3615,6 +3620,11 @@ onSlashTrigger={(query) => {
                 sdkDirectory={sdk.directory || ""}
                 focusMode={focusMode()}
                 onFocusModeToggle={() => layout.focusMode.toggle()}
+                onCollapseDrawer={
+                  !focusMode() && ml.rightCollapsed() && ml.rightDrawerOpen()
+                    ? ml.toggleRightDrawer
+                    : undefined
+                }
                 onConfirmPlan={handleConfirmPlan}
                 onAdjustPlan={handleAdjustPlan}
                 isPlanConfirmed={planButtonDisabled}

@@ -1807,7 +1807,7 @@ export default function Page() {
     on(
       () => params.id,
       (id) => {
-        if (!id) requestAnimationFrame(() => inputRef?.focus())
+        requestAnimationFrame(() => inputRef?.focus())
         if (id) requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),

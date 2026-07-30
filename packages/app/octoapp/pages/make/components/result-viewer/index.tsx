@@ -107,6 +107,8 @@ export function ResultViewer(props: {
   planConfirmPending?: boolean
   /** 子 agent 最终确认状态（基于 childSessionIDs 消息流扫描） */
   childPlanConfirmed?: boolean
+  /** 右侧面板抽屉展开时,头部右侧收起按钮回调 */
+  onCollapseDrawer?: () => void
   /** 子 session 的 session_status（用于检测子 agent 是否已完成但未输出有效 plan） */
   childSessionStatus?: { type: string }
   /** 子 session 是否正在生成中（模型输出期间禁用按钮和表单） */
@@ -310,6 +312,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           showPlanEntry={!!props.planCard}
           planConfirmed={props.isPlanConfirmed?.()}
           planEnded={props.planEnded}
+          onCollapseDrawer={props.onCollapseDrawer}
         />
 
         <Show when={props.viewMode === "files" && props.sessionId}>
