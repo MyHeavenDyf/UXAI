@@ -85,6 +85,7 @@ function handleDateChange(val: any) {
     :is-range="range"
     :size="size as any"
     :format="format"
+    :clearable="false"
     @change="handleDateChange"
   />
 </template>

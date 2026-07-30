@@ -2611,7 +2611,7 @@
       "id": "datePickerSingle",
       "component": "DatePicker",
       "props": {
-        "value": "2026-06-23",
+        "value": "",
         "placeholder": "请选择日期",
         "format": "YYYY-MM-DD"
       }
@@ -3053,7 +3053,7 @@
       "id": "timePickerDefault",
       "component": "TimePicker",
       "props": {
-        "value": "2023-10-01 14:30:00",
+        "value": "",
         "placeholder": "请选择时间"
       }
     },
@@ -3081,8 +3081,8 @@
       "component": "TimePicker",
       "props": {
         "value": [
-          "2023-10-01 08:00:00",
-          "2023-10-01 18:00:00"
+          "",
+          ""
         ],
         "range": true,
         "placeholder": [
