@@ -259,8 +259,15 @@ export function ActionBar(props: {
   // ── 归档(所有文件类型,头部最右侧按钮;逻辑抽到 ../archive-flow)──────────────────────
   const [archiveTarget, setArchiveTarget] = createSignal<ArchiveTarget | null>(null)
   const [archiveDialogOpen, setArchiveDialogOpen] = createSignal(false)
-  // HTML 切到代码视图时无 live iframe(渲染的是 SourceCodeView),截图只能拿白图;该态禁用归档,提示切回预览
-  const archiveDisabled = () => !ready() || (props.tab.type === "html" && props.viewMode === "source")
+  // 归档禁用判定:
+  //   - file / image(二进制):FileFallback / ImageRenderer 不回填 content,归档读盘(filePath)或拉 uri,
+  //     不依赖 content —— 按身份判定即可;否则这两类从文件管理开进新页签后归档恒被置灰。
+  //   - 其余类型(markdown/json/code/html):归档需 content(HTML 源码 / 文本兜底),沿用 ready 判定;
+  //     HTML 代码视图无 live iframe,截图只能拿白图,提示切回预览后再归档。
+  const archiveDisabled = () =>
+    props.tab.type === "file" || props.tab.type === "image"
+      ? !props.tab.filePath && !props.tab.uri
+      : !ready() || (props.tab.type === "html" && props.viewMode === "source")
   const archiveTitle = () => props.tab.type === "html" && props.viewMode === "source"
     ? "请切换到预览视图后再归档"
     : "归档"
@@ -336,7 +343,7 @@ export function ActionBar(props: {
           />
           <DownloadMenu tab={props.tab} disabled={!ready()} />
         </Show>
-        {/* 归档(60×32,#0A59F7):所有文件类型均可归档,置于头部操作项最右侧;未 ready 或 HTML 代码视图时置灰 */}
+        {/* 归档(60×32,#0A59F7):所有文件类型均可归档,置于头部操作项最右侧;二进制无来源、文本未 ready 或 HTML 代码视图时置灰 */}
         <button
           type="button"
           onClick={handleArchiveClick}
