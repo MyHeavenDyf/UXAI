@@ -59,6 +59,7 @@ if (!import.meta.env.DEV) installConsoleObjectSerializer()
 import { MakeSidebar } from "@/pages/make/sidebar"
 import { PatternSidebar } from "@/pages/pattern/modules/sidebar/sidebar"
 import { InsightSidebar } from "@/pages/insight/sidebar"
+import { InsightQueueRunner } from "@/pages/insight/queue-runner"
 import { ProjectInfo } from "@/components/project-info"
 import { SidebarFooter } from "@/pages/insight/components/sidebar-footer"
 import { MakeLayoutProvider, useMakeLayout } from "@/context/make-layout"
@@ -729,6 +730,9 @@ export function AppInterface(props: {
               <GlobalSyncProvider>
                 {/* jk-j60099994-replace-with-octo-4-start */}
                 {/* jk-j60099994-replace-with-octo-4-end */}
+                {/* SPEC-INS-027:insight 排队 drain 运行器。挂在 Router 之外,跨 tab/路由常驻,
+                    使会话后台跑完时排队仍能继续 flush(不随 insight 页面卸载而死)。headless。 */}
+                <InsightQueueRunner />
                 <Dynamic
                   component={props.router ?? Router}
                   root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
