@@ -27,6 +27,7 @@ import { INSIGHT_AGENT } from "@/constants/agent"
 import { Identifier } from "@/utils/id"
 import { same } from "@/utils/same"
 import { Icon } from "@opencode-ai/ui/icon"
+import { IconNotepad } from "@/pages/_shell/icons"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
@@ -37,7 +38,7 @@ import { useLanguage } from "@/context/language"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { ConversationHeader } from "./components/conversation-header"
-import { InsightSidebar } from "./sidebar"
+import { InsightSidebar, initialSidebarWidth } from "./sidebar"
 import { SidebarFooter } from "./components/sidebar-footer"
 import { ProjectInfo } from "@/components/project-info"
 import { InsightTurn, type OutputCard } from "./components/insight-turn"
@@ -614,40 +615,58 @@ function InsightContent() {
   // "发送导致的导航",effect 消费一次后跳过清空(其余新建/切换 session 正常清)。
   let sendingNavigation = false
 
-  // 聊天区宽度：从 localStorage 恢复，无存储值时取约 50% 可用宽（扣除侧边栏约 240px）
-  const CHAT_WIDTH_KEY = "octo:insight:chat-width"
-  function getInitialChatWidth(): number {
-    const stored = localStorage.getItem(CHAT_WIDTH_KEY)
-    if (stored) {
-      const n = parseInt(stored, 10)
-      if (!isNaN(n) && n >= 345 && n <= 720) return n
-    }
-    return 460 // 参考 UX AI make 的对话面板默认宽
-  }
-  const [chatWidth, setChatWidth] = createSignal(getInitialChatWidth())
+  // ── 三列布局(对齐 Design make-layout)──────────────────────────
+  // 中栏(会话)/右栏(文件管理)按 cRatio 比例分,默认 0.5;最小宽 360/500;持久化为比例(非像素)。
+  const CENTER_MIN = 360
+  const RIGHT_MIN = 500
+  const CRATIO_DEFAULT = 0.5
+  const CRATIO_KEY = "octo:insight:split-ratio"
 
+  function loadCRatio(): number {
+    try {
+      const n = parseFloat(localStorage.getItem(CRATIO_KEY) ?? "")
+      if (!isNaN(n) && n >= 0.05 && n <= 0.95) return n
+    } catch { /* ignore */ }
+    return CRATIO_DEFAULT
+  }
+  const [cRatio, setCRatioRaw] = createSignal(loadCRatio())
+
+  // cRatio 钳制 + 持久化(镜像 make-layout.setCRatio):保证中栏≥CENTER_MIN、右栏≥RIGHT_MIN。
+  // windowW/sidebarW 在下方响应式块定义;本函数仅在拖拽时调用,届时二者已就绪。
+  const setCRatio = (r: number) => {
+    const free = windowW() - sidebarW()
+    let lo = 0.05
+    let hi = 0.95
+    if (free > 0) {
+      lo = Math.max(lo, CENTER_MIN / free)
+      hi = Math.min(hi, (free - RIGHT_MIN) / free)
+    }
+    if (lo > hi) lo = hi = CRATIO_DEFAULT
+    const clamped = Math.max(lo, Math.min(hi, r))
+    setCRatioRaw(clamped)
+    try { localStorage.setItem(CRATIO_KEY, String(clamped)) } catch { /* ignore */ }
+  }
+
+  let gridEl: HTMLDivElement | undefined
+  // 分隔线拖拽:按"指针 X / 容器宽"换算成 cRatio(对齐 make.handleDividerMouseDown)。
   function handleDividerPointerDown(e: PointerEvent) {
     e.preventDefault()
-    const startX = e.clientX
-    const startWidth = chatWidth()
+    if (!gridEl) return
+    const rect = gridEl.getBoundingClientRect()
+    const free = rect.width
+    if (free <= 0) return
     const target = e.currentTarget as HTMLElement
     // pointer capture:确保 pointermove / pointerup 即使光标移出 webview 也照常派发到本元素,
-    // 避免 mouseup 丢失导致 body 样式(userSelect/cursor/overflow) stuck → 输入框看似不可 focus
+    // 避免 mouseup 丢失导致 body 样式(userSelect/cursor/overflow) stuck
     target.setPointerCapture(e.pointerId)
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
     document.body.style.overflow = "hidden"
-    const restore = () => {
+    const onMove = (ev: PointerEvent) => setCRatio((ev.clientX - rect.left) / free)
+    const cleanup = () => {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
       document.body.style.overflow = ""
-      localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth()))
-    }
-    const onMove = (ev: PointerEvent) => {
-      setChatWidth(Math.max(345, Math.min(720, startWidth + ev.clientX - startX))) // 钳制参考 UX AI make
-    }
-    const cleanup = () => {
-      restore()
       target.removeEventListener("pointermove", onMove)
       target.removeEventListener("pointerup", cleanup)
       target.removeEventListener("pointercancel", cleanup)
@@ -749,75 +768,67 @@ function InsightContent() {
 
   // ── 任务面板按需弹出 + 过渡动画 (SPEC-INS-009;v2 常驻可见改动见 SPEC-INS-014 §10) ────
   // panelCollapsed:用户手动收起(保留 tab,仅隐藏容器);与"无产物"区分两种收起来源。
-  // panelVisible = 有会话 且 未手动收起(v2:不再要求 tabs.length>0——文件管理常驻,
+  // panelInline = 有会话 且 未手动收起 且 未响应式收起(v2:不再要求 tabs.length>0——文件管理常驻,
   // 进入会话就有内容可看,不必等第一个产物 tab 打开)。无会话时聊天居中铺满。
   const [panelCollapsed, setPanelCollapsed] = createSignal(false)
 
-  // ── 响应式布局(对齐 Claude;草案,待设计确认)────────────────────────────────
-  // 全局窗口 minWidth 已降到 600(见 packages/desktop windows.ts)。窗口变窄时:
-  //   1) 先挤压聊天列,右侧面板守住 PANEL_MIN(effectiveChatWidth 钳制实现);
-  //   2) 可用宽(对话↔面板容器)< CHAT_MIN+PANEL_MIN → 收起右侧面板,顶栏按钮唤出右侧抽屉(无遮罩);
-  //   3) 窗口 < 侧栏宽(296)+CHAT_MIN → 收起左侧栏,汉堡唤出左侧抽屉(无遮罩)。
-  // 断点动态(随侧栏拖拽自适应),不用固定 media-query 数值,避免与最小宽互相打架。
-  const CHAT_MIN = 450
-  const PANEL_MIN = 480
-  const [containerWidth, setContainerWidth] = createSignal(0) // 对话↔面板容器实测宽(≈ 窗口 − 侧栏)
+  // ── 三列响应式(对齐 Design make-layout)──────────────────────────
+  // 全部断点动态(随侧栏拖拽自适应),不用固定 media-query 数值:
+  //   1) 右栏收起:窗口宽 ≤ 侧栏宽 + 360 + 500 → 右栏转抽屉,顶栏按钮唤出;
+  //   2) 侧栏收起:窗口宽 ≤ 侧栏宽 + 360 → 侧栏转抽屉,汉堡唤出。
   const [sidebarOverlayOpen, setSidebarOverlayOpen] = createSignal(false)
   const [panelOverlayOpen, setPanelOverlayOpen] = createSignal(false)
 
-  const observePageArea = (el: HTMLDivElement) => {
-    const ro = new ResizeObserver((entries) => {
-      // 忽略 0 宽:切到别的模块时本页被隐藏(display:none)会量到 0,
-      // 不能让它污染 containerWidth → 保留最后已知宽,切回来不闪。
-      for (const e of entries) if (e.contentRect.width > 0) setContainerWidth(e.contentRect.width)
-    })
-    ro.observe(el)
-    onCleanup(() => ro.disconnect())
-  }
-
-  // 右侧面板:可用宽不足以同时容纳「聊天最小 + 面板最小」时收起
-  const responsivePanelCollapsed = createMemo(() => containerWidth() > 0 && containerWidth() < CHAT_MIN + PANEL_MIN)
-  createEffect(on(responsivePanelCollapsed, (c) => { if (!c) setPanelOverlayOpen(false) }))
-
-  // 左侧栏:窗口 < 侧栏宽 + 聊天最小(296 + 450 ≈ 746)时收起
-  const [responsiveSidebarHidden, setResponsiveSidebarHidden] = createSignal(false)
-  createEffect(() => {
-    const mql = window.matchMedia("(max-width: 745px)")
+  const [sidebarW, setSidebarW] = createSignal(initialSidebarWidth())
+  const [windowW, setWindowW] = createSignal(typeof window !== "undefined" ? window.innerWidth : 1920)
+  onMount(() => {
+    let raf = 0
     const update = () => {
-      setResponsiveSidebarHidden(mql.matches)
-      if (!mql.matches) setSidebarOverlayOpen(false)
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => setWindowW((prev) => (prev !== window.innerWidth ? window.innerWidth : prev)))
     }
     update()
-    mql.addEventListener("change", update)
-    onCleanup(() => mql.removeEventListener("change", update))
+    window.addEventListener("resize", update)
+    onCleanup(() => { cancelAnimationFrame(raf); window.removeEventListener("resize", update) })
   })
+
+  // 侧栏收起(对齐 make-layout.leftCollapsed)
+  const sidebarCollapsed = createMemo(() => windowW() > 0 && windowW() <= sidebarW() + CENTER_MIN)
+  // 右栏收起(对齐 make-layout.rightCollapsed)
+  const rightCollapsed = createMemo(() => windowW() > 0 && windowW() <= sidebarW() + CENTER_MIN + RIGHT_MIN)
+  createEffect(on(rightCollapsed, (c) => { if (!c) setPanelOverlayOpen(false) }))
+  createEffect(on(sidebarCollapsed, (hidden) => { if (!hidden) setSidebarOverlayOpen(false) }))
 
   // 导航切换会话时关闭两个抽屉
   createEffect(on(() => params.id, () => { setSidebarOverlayOpen(false); setPanelOverlayOpen(false) }))
 
-  const panelVisible = createMemo(() => !!params.id && !panelCollapsed() && !responsivePanelCollapsed())
-
-  // 聊天列有效宽:在 [CHAT_MIN, 容器宽 − PANEL_MIN] 内钳制用户拖拽宽,保证面板恒 ≥ PANEL_MIN → 窄屏先挤聊天
-  const effectiveChatWidth = createMemo(() => {
-    const cw = containerWidth()
-    if (cw <= 0) return chatWidth()
-    return Math.max(CHAT_MIN, Math.min(chatWidth(), cw - PANEL_MIN))
+  // 中栏宽度(像素,用于分隔线定位;镜像 make-layout.centerW)。
+  // freeW = 中栏+右栏可用宽(= 窗口 − 侧栏;侧栏收起时取满窗)。
+  const freeW = createMemo(() => sidebarCollapsed() ? windowW() : Math.max(0, windowW() - sidebarW()))
+  const centerW = createMemo(() => {
+    const f = freeW()
+    // 右栏不 inline(收起/手动隐藏)时,中栏撑满
+    if (rightCollapsed() || panelCollapsed()) return f
+    const cIdeal = cRatio() * f
+    if (cIdeal < CENTER_MIN) return CENTER_MIN
+    if (f - cIdeal < RIGHT_MIN) return f - RIGHT_MIN
+    return cIdeal
   })
 
-  // 两个抽屉互斥(<746 时左右都收起,可能同时被唤起 → 开一个自动关另一个,避免透明点击层跨容器叠加)
+  // 右栏 inline 可见:有会话 且 未手动收起 且 未响应式收起
+  const panelInline = createMemo(() => !!params.id && !panelCollapsed() && !rightCollapsed())
+
+  // 两个抽屉互斥:同时被唤起时开一个自动关另一个,避免透明点击层跨容器叠加
   const toggleSidebarDrawer = () => { setPanelOverlayOpen(false); setSidebarOverlayOpen((v) => !v) }
   const togglePanelDrawer = () => { setSidebarOverlayOpen(false); setPanelOverlayOpen((v) => !v) }
 
-  // 面板挂载/聊天宽度直接跟 panelVisible(无过渡动画)。
-  // 旧版的 panelMounted/panelExpanded/panelAnimating + 双 rAF 动画状态机已移除:
-  // 它与响应式 containerWidth 会在"切走→切回/快速改宽"时竞态(漏取消的 rAF 把 expanded
-  // 拉回 true 却已卸载面板 → 右侧灰底)。鲁棒性优先,去掉动画,状态无从 desync。
+  // 面板挂载/聊天宽度直接跟 panelInline(无过渡动画,鲁棒性优先,状态无从 desync)。
 
   /** 打开/激活产物时统一清掉手动收起态,确保面板滑入(即便之前被收起) */
   function revealPanel() {
     if (panelCollapsed()) setPanelCollapsed(false)
     // 窄屏收起态(面板不 inline)下打开产物 → 唤起右侧抽屉,避免"点了卡片没反应"的不可用
-    if (responsivePanelCollapsed()) { setSidebarOverlayOpen(false); setPanelOverlayOpen(true) }
+    if (rightCollapsed()) { setSidebarOverlayOpen(false); setPanelOverlayOpen(true) }
   }
 
   // 打开产物 tab 后统一切到 tabs 视图并展开面板。viewMode 默认停在「文件管理」(files),
@@ -2063,7 +2074,7 @@ function InsightContent() {
   }
 
   // ResultViewer 渲染在两处复用:常态 inline(收起按钮=手动收起)与窄屏抽屉(收起按钮=关抽屉)。
-  // 二者按宽度互斥挂载(抽屉仅在 responsivePanelCollapsed 时可开,此时 inline 的 panelVisible 恒为 false)。
+  // 二者按宽度互斥挂载(抽屉仅在 rightCollapsed 时可开,此时 inline 的 panelInline 恒为 false)。
   const renderResultViewer = (onCollapse: () => void) => (
     <ResultViewer
       tabs={tabStore.tabs()}
@@ -2106,32 +2117,28 @@ function InsightContent() {
             与 _shell/sidebar.tsx + make/sidebar.tsx 同一实例,onboarding 元数据持久化共用)。
             octo-agent 同位置注入的是同事 fcd100b 那套简版 ProjectInfo(在 project-selector/),
             两仓注入物不同但 InsightSidebar 接口相同,不影响同步。*/}
-        <Show when={!responsiveSidebarHidden()}>
-          <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
+        <Show when={!sidebarCollapsed()}>
+          <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} onWidthChange={setSidebarW} />
         </Show>
-        {/* 窄屏(<746px)左侧栏抽屉:无可见遮罩(对齐 Claude),经汉堡唤出,贴左侧。
-            透明点击层兜住抽屉外点击 → 点空白/导航/再点汉堡都关闭。 */}
-        <Show when={responsiveSidebarHidden() && sidebarOverlayOpen()}>
+        {/* 窄屏左侧栏抽屉:经汉堡唤出,贴左侧;透明点击层兜住抽屉外点击 → 点空白/导航/再点汉堡都关闭。 */}
+        <Show when={sidebarCollapsed() && sidebarOverlayOpen()}>
           <div class="absolute inset-0 z-20" onClick={() => setSidebarOverlayOpen(false)} />
           <div class="absolute left-0 top-0 bottom-0 z-30" style={{ "box-shadow": "8px 0 24px rgba(0,0,0,0.12)" }}>
-            <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
+            <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} onWidthChange={setSidebarW} />
           </div>
         </Show>
 
-        {/* 对话↔任务面板区(data-page 作用域;拖拽分隔线相对它左边缘绝对定位,故侧栏必须在它之外)
-            ref 观测容器实测宽 → 驱动 responsivePanelCollapsed / effectiveChatWidth */}
-        <div ref={observePageArea} class="flex-1 min-w-0 flex overflow-hidden relative" data-page="insight">
+        {/* 对话↔文件管理区(data-page 作用域;拖拽分隔线相对它左边缘绝对定位,故侧栏必须在它之外) */}
+        <div ref={(el) => { gridEl = el }} class="flex-1 min-w-0 flex overflow-hidden relative" data-page="insight">
 
-        {/* ── 左栏：对话面板 ────
-             面板可见时:宽度 = effectiveChatWidth(用户拖拽宽,被容器宽钳制;窄屏先挤聊天、面板守 480)。
-             面板不可见(收起/无会话)时:撑满 100%,内容居中 reading-width。任务面板 flex:1 跟随重排。
-             无 width 过渡动画(直接跟 panelVisible),分隔线拖拽跟手。 */}
+        {/* ── 中栏:对话面板(对齐 make)────
+             面板 inline 时:flex = cRatio;面板不 inline(收起/无会话)时:flex=1 撑满。
+             分隔线按 centerW 定位,跟手。 */}
         <div
           class="flex flex-col overflow-hidden relative"
           style={{
-            width: panelVisible() ? `${effectiveChatWidth()}px` : "100%",
-            flex: "0 0 auto",
-            "min-width": "0",
+            flex: panelInline() ? `${cRatio()} 1 0%` : "1 1 0%",
+            "min-width": `${CENTER_MIN}px`,
             background: isDragOver() ? "var(--octo-brand-a3)" : "var(--octo-surface-page)",
             outline: isDragOver() ? "inset 0 0 0 2px var(--octo-brand-a25)" : "none",
           }}
@@ -2139,7 +2146,7 @@ function InsightContent() {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
-            <Show when={responsiveSidebarHidden() && !(params.id && userMessages().length > 0)}>
+            <Show when={sidebarCollapsed() && !(params.id && userMessages().length > 0)}>
               <button
                 type="button"
                 onClick={toggleSidebarDrawer}
@@ -2147,7 +2154,7 @@ function InsightContent() {
                 class="absolute top-3 left-3 z-10 flex items-center justify-center size-8 rounded-md transition-colors"
                 style={{ color: "var(--octo-text-secondary)", background: sidebarOverlayOpen() ? "var(--octo-surface-hover)" : "transparent" }}
               >
-                <Icon name="menu" class="size-5" />
+                <IconNotepad size={16} />
               </button>
             </Show>
             <Show
@@ -2294,7 +2301,7 @@ function InsightContent() {
               {/* 对话面板顶部标题栏（会话标题 + 改名 + 删除） */}
               {/* 收起态唤回浮标：放进 header 行内，与三点菜单同行，避免绝对定位遮挡三点按钮 */}
               <ConversationHeader
-                sidebarToggle={responsiveSidebarHidden() ? (
+                sidebarToggle={sidebarCollapsed() ? (
                   <button
                     type="button"
                     onClick={toggleSidebarDrawer}
@@ -2302,20 +2309,18 @@ function InsightContent() {
                     class="flex items-center justify-center size-6 rounded-md transition-colors"
                     style={{ color: "var(--octo-text-secondary)", background: sidebarOverlayOpen() ? "var(--octo-surface-hover)" : "transparent" }}
                   >
-                    <Icon name="menu" class="size-4" />
+                    <IconNotepad size={16} />
                   </button>
                 ) : undefined}
                 panelToggle={!!params.id ? (
                   <button
                     type="button"
-                    onClick={() => { if (responsivePanelCollapsed()) togglePanelDrawer(); else setPanelCollapsed((v) => !v) }}
-                    title="文件面板"
+                    onClick={() => { if (rightCollapsed()) togglePanelDrawer(); else setPanelCollapsed((v) => !v) }}
+                    title="文件管理"
                     class="flex items-center justify-center size-6 rounded-md transition-colors hover:bg-black/5 active:bg-black/10"
                     style={{ color: "var(--octo-text-secondary)" }}
                   >
-                    {/* 统一面板开关(对齐 Claude):所有宽度都可开合——宽屏 inline 收/显、窄屏抽屉。
-                        图标实心=面板当前展开、描边=已收起。 */}
-                    <Icon name={(responsivePanelCollapsed() ? panelOverlayOpen() : !panelCollapsed()) ? "layout-right-full" : "layout-right"} class="size-4" />
+                    <IconNotepad size={16} />
                   </button>
                 ) : undefined}
               />
@@ -2525,45 +2530,33 @@ function InsightContent() {
 
         </div>
 
-        {/* ── 任务面板:有产物且未收起时挂载;收起动画播完才卸载(SPEC-INS-009) ── */}
-        <Show when={panelVisible()}>
-          {/* 聊天/结果 拖拽分隔线（半侧贴边胶囊）
-              top/bottom 缩进 20px：避免与 Windows classic 滚动条两端箭头（~17px）热区重合 */}
+        {/* ── 右栏:文件管理(对齐 make)────
+             inline 时:flex = 1−cRatio;收起(响应式/手动)时转抽屉。 */}
+        <Show when={panelInline()}>
+          {/* 聊天/结果 拖拽分隔线(半侧贴边热区)。
+              top/bottom 缩进 20px:避免与 Windows classic 滚动条两端箭头(~17px)热区重合 */}
           <div
             class="absolute flex items-center justify-center group"
-            style={{ top: "20px", bottom: "20px", left: `${effectiveChatWidth() - 4}px`, width: "8px", cursor: "col-resize", "z-index": 10 }}
+            style={{ top: "20px", bottom: "20px", left: `${centerW() - 4}px`, width: "8px", cursor: "col-resize", "z-index": 10 }}
             onPointerDown={handleDividerPointerDown}
-          >
-            {/* 拖拽手柄视觉胶囊已隐藏(dev-yfy d8bc3d4):保留热区与拖拽手感,仅去掉胶囊视觉
-            <div
-              class="absolute right-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
-              style={{
-                width: "12px",
-                height: "36px",
-                "border-radius": "10px 0 0 10px",
-                "box-shadow": "-2px 0 4px rgba(0,0,0,0.04), inset 1px 0 0 rgba(0,0,0,0.02)",
-                border: "1px solid var(--octo-border-divider)",
-                "border-right": "none",
-              }}
-            >
-              <div
-                class="w-[2px] h-[14px] rounded-full mr-[2px]"
-                style={{ background: "var(--octo-border-input, #c9c9c9)" }}
-              />
-            </div> */}
-          </div>
+          />
 
-          {/* 中栏：ResultViewer(flex:1 跟随聊天列宽度重排) */}
-          {renderResultViewer(() => setPanelCollapsed(true))}
+          {/* ResultViewer:flex:1 跟随 1−cRatio 重排 */}
+          <div class="flex min-h-0 min-w-0" style={{ flex: `${1 - cRatio()} 1 0%`, "min-width": `${RIGHT_MIN}px` }}>
+            {renderResultViewer(() => setPanelCollapsed(true))}
+          </div>
         </Show>
 
-        {/* 窄屏收起后的右侧面板抽屉:无可见遮罩(对齐 Claude),经顶栏按钮唤出,贴右侧滑出(480 宽,守住内容不折叠);
-            盖在聊天右侧、左侧聊天仍可见。透明点击层兜住抽屉外点击 → 点空白/切会话/再点按钮都关闭。 */}
-        <Show when={responsivePanelCollapsed() && panelOverlayOpen()}>
-          <div class="absolute inset-0 z-20" onClick={() => setPanelOverlayOpen(false)} />
+        {/* 窄屏收起后的右侧面板抽屉:经顶栏按钮唤出,贴右侧滑出。
+            用 fixed(对齐 make-right-panel.is-collapsed)而非 absolute:抽屉是 page-area 的子节点,
+            而 page-area 有 overflow:hidden,absolute 会被裁掉左侧、看似被侧栏遮住;fixed 脱离裁剪、
+            跨侧栏覆盖。宽 650px、max-width: calc(100vw − 24px);top:48px 让位 titlebar。
+            透明点击层兜住抽屉外点击 → 点空白/切会话/再点按钮都关闭。 */}
+        <Show when={rightCollapsed() && panelOverlayOpen()}>
+          <div class="fixed inset-0" style={{ "z-index": "30" }} onClick={() => setPanelOverlayOpen(false)} />
           <div
-            class="absolute right-0 top-0 bottom-0 z-30 flex"
-            style={{ width: `${PANEL_MIN}px`, "max-width": "100%", background: "var(--octo-surface-page)", "box-shadow": "-8px 0 24px rgba(0,0,0,0.12)" }}
+            class="fixed right-0 bottom-0 flex"
+            style={{ top: "48px", width: "650px", "max-width": "calc(100vw - 24px)", background: "var(--octo-surface-page)", "box-shadow": "-11px 0 20px 0 rgba(0,0,0,0.08)", "z-index": "32" }}
           >
             {renderResultViewer(() => setPanelOverlayOpen(false))}
           </div>

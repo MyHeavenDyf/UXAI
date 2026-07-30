@@ -177,6 +177,18 @@
   background: rgba(0,0,0,0.05);
 }
 
+/* ── ResultViewer 头部操作栏:窄屏换行 + 收起按钮文字(对齐 make octo-action-bar)──
+   根容器 flex-wrap:wrap + justify-between → 右侧操作组被挤压时整体换行到下一行;
+   容器查询 ≤780px 时隐藏 ActionBtn 文字标签(仅留图标),与 make 的
+   @container octo-action-bar (max-width:780px) { .octo-action-bar-collapsible .octo-action-btn span { display:none } } 同款。 */
+.insight-action-bar {
+  container-type: inline-size;
+  container-name: insight-action-bar;
+}
+@container insight-action-bar (max-width: 780px) {
+  .insight-action-bar .octo-btn-action span { display: none; }
+}
+
 /* 输入框 textarea:可滚动但滚动条透明 */
 .octo-input-scroll {
   scrollbar-width: thin;                       /* Firefox */

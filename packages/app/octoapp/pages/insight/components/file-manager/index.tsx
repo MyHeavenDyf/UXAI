@@ -635,8 +635,8 @@ function FileTable(props: {
             <button type="button" onClick={() => props.onHeaderSort("kind")} class="flex items-center gap-1 transition-colors hover:text-[var(--octo-brand)]" style={{ color: "var(--octo-text-primary)", "font-weight": "normal" }}>类型</button>
           </th>
           <th class="px-4 py-2 text-left" style={{ width: "25%", "border-bottom": "1px solid var(--octo-border-divider)" }}>
-            <button type="button" onClick={() => props.onHeaderSort("mtime")} class="flex items-center gap-1 transition-colors hover:text-[var(--octo-brand)]" style={{ color: "var(--octo-text-primary)", "font-weight": "normal" }}>
-              修改时间
+            <button type="button" onClick={() => props.onHeaderSort("mtime")} class="flex items-center gap-1 transition-colors hover:text-[var(--octo-brand)]" style={{ color: "var(--octo-text-primary)", "font-weight": "normal", "min-width": "0" }}>
+              <span style={{ "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>修改时间</span>
               <IconSortArrow size={14} dir={store().sortDir} active={store().sortKey === "mtime"} />
             </button>
           </th>
@@ -799,7 +799,7 @@ function FileRow(props: {
         </div>
       </td>
       <td class="px-4 text-[14px] leading-[22px]" style={{ color: "var(--octo-text-primary)", "vertical-align": "middle", "border-bottom": "1px solid var(--octo-border-divider)" }}>{kindLabel(props.file.kind)}</td>
-      <td class="px-4 text-[14px] leading-[22px]" style={{ color: "var(--octo-text-primary)", "vertical-align": "middle", "border-bottom": "1px solid var(--octo-border-divider)" }}>{formatTimeAgo(props.file.mtime)}</td>
+      <td class="px-4 text-[14px] leading-[22px]" style={{ color: "var(--octo-text-primary)", "vertical-align": "middle", "border-bottom": "1px solid var(--octo-border-divider)", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>{formatTimeAgo(props.file.mtime)}</td>
       <td class="w-[60px] px-4" style={{ "vertical-align": "middle", "border-bottom": "1px solid var(--octo-border-divider)" }}>
         <Kobalte open={menuOpen()} onOpenChange={setMenuOpen} modal={false} placement="bottom-end" gutter={4}>
           <Kobalte.Trigger

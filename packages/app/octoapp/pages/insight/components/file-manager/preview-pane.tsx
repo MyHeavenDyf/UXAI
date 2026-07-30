@@ -73,7 +73,7 @@ export function PreviewPane(props: Props): JSX.Element {
   return (
     <div
       ref={containerRef}
-      class="shrink-0 flex flex-col overflow-hidden border-l"
+      class="shrink w-[30%] min-w-0 flex flex-col overflow-hidden border-l"
       style={{ "border-color": "var(--octo-border-divider)", background: "var(--octo-surface-page)" }}
     >
       {/* 头部:关闭按钮 */}
