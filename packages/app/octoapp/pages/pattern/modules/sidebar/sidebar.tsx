@@ -202,19 +202,8 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
   }
 
   function newSession() {
-    if (creating()) return
-    setCreating(true)
-    const dir = resolvedDir()
-    if (!dir) return
-    const client = globalSDK.createClient({ directory: dir })
-    void client.session.create({ directory: dir, agent: "proto_triage" }).then((result) => {
-      setCreating(false)
-      const session = result.data as Session | undefined
-      if (session) {
-        tracker.interaction({ module: "prototype", name: "new-session" })
-        navigate(`/pattern/${session.id}`)
-      }
-    })
+    tracker.interaction({ module: "prototype", name: "new-session" })
+    navigate("/pattern")
   }
 
   async function handleFileImport() {
@@ -342,7 +331,7 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
                   when={sessionList.length > 0}
                   fallback={
                     <div class="px-[8px] py-[5px] text-[12px] leading-[20px]" style={{ color: "var(--octo-text-secondary, #777777)" }}>
-                      {isOnboarding() ? "请先选择项目目录" : "暂无 Pattern"}
+                      {isOnboarding() ? "请先选择项目目录" : "暂无对话"}
                     </div>
                   }
                 >

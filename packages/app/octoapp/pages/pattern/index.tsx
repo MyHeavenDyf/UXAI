@@ -141,6 +141,10 @@ function PatternContent() {
         discoverVersion++
         previewApi.sendToPreview(null)
         if (id) delete lastSentPreviewJson[id]
+        if (!id) {
+          setPrompt("")
+          setAttachments([])
+        }
 
         // ── 3. 进入新 session：追踪 + 清空 + 异步加载 ──
         if (id) {

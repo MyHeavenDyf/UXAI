@@ -37,6 +37,7 @@ interface Props {
   onSlashClose?: () => void
   onPreview?: (url: string) => void
   onPaste?: (e: ClipboardEvent) => void
+  placeholder?: string
   ref?: (el: EditorRef) => void
 }
 
@@ -346,7 +347,7 @@ export const ProseMirrorEditor = (props: Props) => {
   return (
     <div class="pm-editor-wrapper">
       <Show when={isEmpty() && !props.disabled}>
-        <div class="pm-placeholder">输入你的想法生成可交互的原型效果...</div>
+        <div class="pm-placeholder">{props.placeholder ?? "输入你的想法生成可交互的原型效果..."}</div>
       </Show>
       <div 
         ref={containerRef} 
