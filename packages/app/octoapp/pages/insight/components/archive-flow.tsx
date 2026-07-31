@@ -249,11 +249,12 @@ async function runArchiveFileTask(
         })))
       },
       onFinish: (taskId, files) => {
-        // EdmUtil.onFinish 是整批回调,用户中途取消的项(key 对应 store 已 cancelled)不能被改回 completed,
-        // 也不能进 uploadDeliverable(取消语义要贯穿到业务)。全部取消则直接 return,不建 deliverable。
+        // EdmUtil.onFinish 是整批回调,用户中途取消的项不能被改回 completed,也不能进 uploadDeliverable。
+        // 取消记录独立于 items 生命周期(wasCancelled),故迟到的 onFinish(取消项已被自动删除)仍能正确排除。
+        // 全部取消则直接 return,不建 deliverable。
         const live = files
           .map((file, index) => ({ file, index, key: `${taskId}-${index}` }))
-          .filter((e) => TaskStore.items().find((f) => f.key === e.key)?.status !== "cancelled")
+          .filter((e) => !TaskStore.wasCancelled(e.key))
         if (live.length === 0) return
         TaskStore.finish(live.map((e) => ({
           key: e.key,

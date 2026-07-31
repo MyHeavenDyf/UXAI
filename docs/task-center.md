@@ -66,7 +66,23 @@ TaskStore.error([{ key, status: "error" }])
 TaskStore.cancel(item)
 ```
 
-将该任务项（按 `key`）置为 `cancelled`，并通知底层服务中止传输（`edm_upload` 调 `FileService.cancelUpload(taskId, fileIndex)`，`edm_download` 调 `FileService.cancelDownload(taskId)`）。
+将该任务项（按 `key`）置为 `cancelled`，并通知底层服务中止传输（`edm_upload` 调 `FileService.cancelUpload(taskId, fileIndex)`，`edm_download` 调 `FileService.cancelDownload(taskId)`）。随后按 `AUTO_REMOVE_DELAY`（默认 3s）自动从任务中心删除，短暂保留「已取消」反馈，与 `completed` 同节奏、状态机保持完整。取消记录另存于独立集合（见 `wasCancelled`），不随 `items` 删除而丢失，业务层据此判定取消。
+
+### `TaskStore.remove` — 手动删除任务项
+
+```ts
+TaskStore.remove(item)
+```
+
+按 `key` 立即从任务中心删除指定任务项，并清掉其待执行的自动移除句柄。失败项（`error`）hover 出现的「关闭」按钮即调用它——失败已另有 toast，任务中心这条属于补充记录，用户确认后即可清掉。
+
+### `TaskStore.wasCancelled` — 判定是否取消过
+
+```ts
+TaskStore.wasCancelled(key)
+```
+
+返回某 `key` 是否被用户取消过。取消记录独立于 `items` 生命周期（`cancel()` 写入，`add()` 复用同 `key` 时清除）：即使该任务已被自动移除，迟到的业务回调（如归档 `onFinish`）仍能据此排除取消项，正确性与展示时长 / 自动清理策略解耦。
 
 ### `TaskStore.togglePause` — 暂停 / 继续
 
@@ -130,11 +146,23 @@ TaskStore.registerService("edm_upload", {
 | `pending` | 等待中 | 已入队未开始传输 |
 | `in_progress` | 传输中 | 正在传输 |
 | `paused` | 已暂停 | 手动暂停，可继续 |
-| `completed` | 已完成 | 传输成功结束 |
-| `error` | 失败 | 传输出错 |
-| `cancelled` | 已取消 | 手动取消 |
+| `completed` | 已完成 | 传输成功结束；`AUTO_REMOVE_DELAY`（默认 3s）后自动从任务中心删除 |
+| `error` | 失败 | 传输出错；不自动删除，失败项 hover「关闭」按钮调 `TaskStore.remove` 手动清掉 |
+| `cancelled` | 已取消 | 手动取消；与 `completed` 同节奏，`AUTO_REMOVE_DELAY` 后自动从任务中心删除 |
 
-终态（`completed` / `error` / `cancelled`）下：不显示大小与百分比、不显示进度条、不显示暂停/取消按钮。
+终态（`completed` / `error` / `cancelled`）下：不显示大小与百分比、不显示进度条、不显示暂停/取消按钮；`completed` / `cancelled` 短暂保留后自动删除，`error` 需手动关闭。
+
+## 任务生命周期与自动清理
+
+任务中心不会无限增长，终态项按以下策略清理，列表清空后标题栏入口整入口隐藏：
+
+| 终态 | 清理方式 |
+|------|----------|
+| `completed` | `finish()` 置态后，`AUTO_REMOVE_DELAY`（默认 3s）自动删除——短暂保留「上传/下载/归档完成」反馈 |
+| `cancelled` | `cancel()` 置态后同样 `AUTO_REMOVE_DELAY` 自动删除——短暂保留「已取消」反馈，状态机保持完整 |
+| `error` | 不自动删除（失败要响亮）；失败项 hover 出现「关闭」按钮，调 `TaskStore.remove` 手动清掉 |
+
+自动移除用按 `key` 持有的 `setTimeout` 句柄（`Map`）管理：同 `key` 复用时清掉旧句柄，`add` 入队时也清掉该 `key` 的旧句柄，避免旧删除回调误删新任务项。取消记录（`cancelledKeys`）独立于 `items`，业务层用 `wasCancelled` 判定取消，不受自动清理影响。面板打开态在列表清空（`allItems()` 为空）时由 `createEffect` 重置，避免下次入队自动弹出面板。
 
 ## 业务接入示例
 
@@ -213,7 +241,7 @@ EdmUtil.upload(files, {
 | 文件 | 用途 |
 |------|------|
 | `task-center.svg` | 入口图标（空闲态与有任务态共用，有任务时叠加旋转圈） |
-| `task-panel-close.svg` | 面板关闭按钮 |
+| `task-panel-close.svg` | 面板关闭按钮；失败项 hover「关闭」按钮复用 |
 | `task-pause.svg` | 暂停 |
 | `task-play.svg` | 继续 |
 | `task-cancel.svg` | 取消 |
