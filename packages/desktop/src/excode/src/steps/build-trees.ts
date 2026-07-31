@@ -64,6 +64,38 @@ function resolveBySegments(root: any, segments: string[]): any {
   return cur
 }
 
+/**
+ * 原生 H5 inline style 字符串 → React style 对象。
+ *   "background-color: rgba(239,68,68,0.12); color: red;" → { backgroundColor: 'rgba(239,68,68,0.12)', color: 'red' }
+ * CSS 属性名 kebab → camelCase（含 vendor 前缀 -webkit-/-moz-/-ms-/-o- → 首字母大写）；
+ * 值原样保留为字符串。
+ */
+function parseInlineStyle(css: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const decl of css.split(';')) {
+    const idx = decl.indexOf(':')
+    if (idx < 0) continue
+    const prop = decl.slice(0, idx).trim()
+    const val = decl.slice(idx + 1).trim()
+    if (!prop || !val) continue
+    out[cssPropToCamel(prop)] = val
+  }
+  return out
+}
+
+const CSS_VENDOR_PREFIXES = new Set(['webkit', 'moz', 'ms', 'o'])
+function cssPropToCamel(prop: string): string {
+  const parts = prop.split('-').filter(Boolean)
+  return parts
+    .map((w, i) => {
+      const lower = w.toLowerCase()
+      if (i === 0 && CSS_VENDOR_PREFIXES.has(lower)) return w.charAt(0).toUpperCase() + lower.slice(1)
+      if (i === 0) return lower
+      return w.charAt(0).toUpperCase() + lower.slice(1)
+    })
+    .join('')
+}
+
 /** 从当前的 loopStack 构建 LoopScope 链（从外到内） */
 function buildLoopScope(stack: Array<{ loopNode: LoopNode }>): LoopScope | undefined {
   if (stack.length === 0) return undefined
@@ -366,6 +398,13 @@ export class BuildTrees extends Step {
     propKey?: string
   ): PropValue {
     if (value === null || value === undefined) return null
+
+    // 原生 H5 inline style 字符串 → React style 对象（camelCase 键）。
+    // A2UI HTML 节点 style 是 CSS 字符串（"background-color: rgba(...);"），React JSX 需对象。
+    // 早期归一：两条 emit 路径（emitProps / serializeForConstValue）都能统一序列化 plain object。
+    if (propKey === 'style' && typeof value === 'string') {
+      return parseInlineStyle(value)
+    }
 
     // {componentId} → SlotNodeValue
     if (

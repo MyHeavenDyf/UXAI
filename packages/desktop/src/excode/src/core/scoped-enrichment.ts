@@ -81,7 +81,10 @@ export function collectRelativeFields(root: BuildNode): Set<string> {
       // 绝对嵌套 → initialState.xxx（不带 destructure），故只收非 initialState. 前缀的裸名。
       const d = (n as any).data
       if (d && typeof d === 'object' && !d.kind) {  // 值类，非 BuildNode
-        if (d.type === 'varRef' && typeof d.name === 'string' && !d.name.startsWith('initialState.')) {
+        // varRef：仅 relative（外层 item 字段）才进外层 destructure；
+        // absolute（顶层 state/const，如嵌套循环的绝对路径数据源）跳过——
+        // 否则外层会错误地 `const { stlTabsItemTabs } = item` 解构顶层字段。
+        if (d.type === 'varRef' && typeof d.name === 'string' && !d.name.startsWith('initialState.') && d.pathType !== 'absolute') {
           const seg = d.name.split(/[./]/)[0]
           if (seg) fields.add(seg)
         } else if ((d.type === 'binding' || d.type === 'computed') && d.pathType === 'relative') {

@@ -139,6 +139,12 @@ export interface VarRefValue {
   type: 'varRef'
   /** 变量名，序列化为 {name} */
   name: string
+  /**
+   * 仅 loop.data 的 varRef 设置（routeLoopNode）：标识数据源是 absolute（顶层 state/const，
+   * 嵌套循环时外层不该 destructure）还是 relative（外层 item 字段，外层需 destructure）。
+   * 供 collectRelativeFields 区分；其它 varRef（useState 等）不设。
+   */
+  pathType?: 'absolute' | 'relative'
 }
 
 // ─── RawExprValue（逃生舱） ───

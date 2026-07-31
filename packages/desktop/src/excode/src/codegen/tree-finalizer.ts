@@ -255,6 +255,9 @@ function routeLoopNode(loop: LoopNode, parentNodeId: string, ctx: TreeCtx): Loop
   const enrich = ctx.loopEnrichmentMap.get(loopId)
   const dataBinding = loop.data as any
   let dataRefName: string
+  // pathType 标记 loop.data 来源：absolute（顶层 state/const，嵌套时外层不该 destructure）
+  // vs relative（外层 item 字段，外层需 destructure）。供 collectRelativeFields 区分。
+  let dataPathType: 'absolute' | 'relative' = 'absolute'
   if (enrich) {
     // 富集：const 名（如 images_galImageGridEnriched），由文件顶部声明，裸引用即可
     dataRefName = enrich.constName
@@ -264,6 +267,7 @@ function routeLoopNode(loop: LoopNode, parentNodeId: string, ctx: TreeCtx): Loop
   } else {
     // 相对路径（模板内从 data 解构）→ 裸引用
     dataRefName = dataBinding.accessPath ?? dataBinding.path ?? 'data'
+    dataPathType = 'relative'
   }
 
   // inline loop（如 TabItem）：模板不抽离，body 走当前 draft，不注册 extractedFiles
@@ -271,7 +275,7 @@ function routeLoopNode(loop: LoopNode, parentNodeId: string, ctx: TreeCtx): Loop
     const newBody = loop.template.body.map(c => walkNode(c, ctx))
     return {
       ...loop,
-      data: Value.varRef({ name: dataRefName }),
+      data: Value.varRef({ name: dataRefName, pathType: dataPathType }),
       template: {
         ...loop.template,
         body: newBody as RegularNode[],
@@ -308,7 +312,7 @@ function routeLoopNode(loop: LoopNode, parentNodeId: string, ctx: TreeCtx): Loop
 
   return {
     ...loop,
-    data: Value.varRef({ name: dataRefName }),
+    data: Value.varRef({ name: dataRefName, pathType: dataPathType }),
     template: {
       ...loop.template,
       body: newBody as RegularNode[],

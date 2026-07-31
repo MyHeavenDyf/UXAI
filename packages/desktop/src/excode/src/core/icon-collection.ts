@@ -280,6 +280,38 @@ export function getIconPackage(): string {
   return iconPkg
 }
 
+// ─── Icon color 枚举 → 真实 hex 颜色值映射 ───
+//
+// Icon 组件的 color prop 是枚举值（default/info/error/...），需要映射为真实 hex 颜色。
+// 映射关系参考 UXAI-dev_pattern 的 iconColors + themeColors：
+//   iconColors[colorEnum].color → CSS 变量（如 "--gray-90"）→ themeColors 中对应的真实值（如 "#191919"）
+// 仅使用 color（单色），不使用 twoColor / threeColor。
+const ICON_COLOR_TO_HEX: Record<string, string> = {
+  default:  '#191919', // --gray-90
+  info:     '#2070F3', // --blue-50
+  error:    '#E02128', // --red-50
+  alert:    '#F4840C', // --orange-50
+  warning:  '#FCC800', // --yellow-50
+  success:  '#09AA71', // --mint-50
+  disabled: '#AEAEAE', // --gray-30
+  brand:    '#0067D1', // --brand-50
+  rose:     '#E61866', // --rose-50
+  pink:     '#D41DBC', // --pink-50
+  purple:   '#B62BF7', // --purple-50
+  indigo:   '#715AFB', // --indigo-50
+  cyan:     '#2CB8C9', // --cyan-50
+  green:    '#62B42E', // --green-50
+  primary:    '#0067D1', // --brand-50
+}
+
+/**
+ * 将 Icon color 枚举值解析为真实 hex 颜色值。
+ * 若枚举值不在映射表中，原样返回（兼容其他组件透传的非标准 color 值）。
+ */
+function resolveIconColor(color: string): string {
+  return ICON_COLOR_TO_HEX[color] ?? color
+}
+
 export function resolveIcon(
   iconName: string,
   iconNameMap: Record<string, string>,
@@ -289,10 +321,16 @@ export function resolveIcon(
 
   const props: Record<string, any> = {}
   if (iconProps) {
-    // @nce/icon-plus 的 iconColor prop 接受数组：["primary"]
-    // （单个颜色以数组形式传入，支持后续扩展多色）
-    if (iconProps.color) props.iconColor = [iconProps.color]
+    // @nce/icon-plus 的 iconColor prop 接受数组：["#191919"]
+    // color 枚举值（default/info/error/...）→ 真实 hex 颜色值（参考 iconColors + themeColors）
+    // ⚠️ color 来源不限于 A2UI Icon 组件 schema 定义的枚举
+    // （default/info/error/alert/warning/success/disabled/brand/rose/...）——
+    // 其他组件（如 Button）调 resolveIcon 时也会把自己的 color 透传过来，
+    // 故值范围以调用方传入为准，不在映射表中的值原样保留。
+    if (iconProps.color) props.iconColor = [resolveIconColor(iconProps.color)]
     if (iconProps.className) props.className = iconProps.className
+    // iconSize：图标像素尺寸（数字，由调用方如 Button.size 转换传入）
+    if (iconProps.iconSize !== undefined) props.iconSize = iconProps.iconSize
     if (iconProps.shape) {
       const shapeMap: Record<string, string> = {
         outline: 'lined',
@@ -303,13 +341,14 @@ export function resolveIcon(
       if (shapeMap[iconProps.shape]) props.type = shapeMap[iconProps.shape]
     }
     for (const [k, v] of Object.entries(iconProps)) {
-      if (!['name', 'shape', 'color', 'className'].includes(k) && !k.startsWith('__')) {
+      if (!['name', 'shape', 'color', 'className', 'iconSize', 'id'].includes(k) && !k.startsWith('__')) {
         props[k] = v
       }
     }
   }
 
-  return {
+  // id：由调用方（如 IconButton 传 node.id）提供，用于 CSS Modules 选择器键 + emit className → styles.{id}
+  const node: any = {
     kind: 'component',
     component: 'Icon',
     tag: targetIconName,
@@ -317,4 +356,6 @@ export function resolveIcon(
     props,
     selfClosing: true,
   }
+  if (iconProps?.id) node.id = iconProps.id
+  return node
 }

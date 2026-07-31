@@ -206,297 +206,43 @@
    --shadow-l-base: -2px 0 12px 0 rgba(0, 0, 0, 0.5);
    --shadow-l-md: -2px 0 24px 0 rgba(0, 0, 0, 0.5);
 
-
-  /* ==========================================================================
-      Element Plus 变量覆盖 (映射到设计系统)
-     ========================================================================== */
-  /* 主色基准色 */
-  --el-color-primary: var(--brand-50);
-  --el-color-success: var(--mint-60);
-  --el-color-warning: var(--yellow-40);
-  --el-color-danger: var(--red-40);
-  --el-color-error: var(--red-40);
-
-  --el-color-info: var(--gray-30);
-  /*tag todo*/
-  --el-color-white: var(--gray-0);
-
-
-  /* 衍生浅色 (由设计系统色阶平替映射)  待定，动态计算 或者 base 补全 */
-  --el-color-primary-light-1: var(--brand-40);
-  /* 10% */
-
-  /* 介于300-400之间，自动计算或略微插值 */
-  --el-color-info-light-3: var(--gray-30);
-  --el-color-info-light-5: var(--gray-20);
-  --el-color-info-light-8: var(--gray-10);
-  --el-color-info-light-9: var(--gray-05);
-
-  --el-color-primary-light-3: var(--brand-30);
-  --el-color-primary-light-5: var(--brand-20);
-  --el-color-primary-light-8: var(--brand-10);
-  --el-color-primary-light-9: rgba(0, 103, 209, 0.4);
-
-  --el-color-success-light-3: var(--mint-30);
-  --el-color-success-light-5: var(--mint-20);
-  --el-color-success-light-8: var(--mint-10);
-  --el-color-success-light-9: var(--mint-05);
-
-  --el-color-warning-light-3: var(--yellow-30);
-  --el-color-warning-light-5: var(--yellow-20);
-  --el-color-warning-light-8: var(--yellow-10);
-  --el-color-warning-light-9: var(--yellow-05);
-
-  --el-color-danger-light-3: var(--red-30);
-  --el-color-danger-light-5: var(--red-20);
-  --el-color-danger-light-8: var(--red-10);
-  --el-color-danger-light-9: var(--red-05);
-
-  /* 衍生深色 (与黑色混合加深，用于 Active 按压状态)  待定  */
-  /* 文字颜色阶梯 */
-  --el-color-primary-dark-2: var(--brand-40);
-  /* 主要文字 */
-  --el-text-color-primary: var(--color-text-primary);
-  /* 常规正文 */
-  --el-text-color-regular: var(--color-text-primary);
-  /* 次要说明 */
-  --el-text-color-secondary: var(--gray-20);
-  /* 占位符提示 */
-  --el-text-color-placeholder: var(--gray-40);
-  /* 禁用状态文字 */
-  --el-text-color-disabled: var(--gray-40);
-
-
-  /* 字号大小 (对齐系统要求：md 为 16px 为默认正文) */
-  --el-font-size-extra-large: var(--font-size-2xl);
-  --el-font-size-large: var(--font-size-xl);
-  --el-font-size-medium: var(--font-size-lg);
-  /*  (默认正文) */
-  --el-font-size-base: var(--font-size-md);
-  --el-font-size-small: var(--font-size-base);
-  --el-font-size-extra-small: var(--font-size-xs);
-
-  /* 字体家族 */
-  --el-font-family: var(--font-family);
-  --el-font-weight-primary: var(--font-weight-normal);
-
-  /* 页面级背景 */
-  --el-bg-color: var(--color-bg-2);
-  /* 组件基础背景 */
-  --el-bg-color-page: var(--gray-100);
-  /* 页面底层背景 */
-  --el-bg-color-overlay: var(--color-bg-2);
-  /* 弹窗、下拉框等悬浮层背景 */
-
-  /* 填充色阶梯 (禁用状态的输入框、表格斑马纹等)  */
-  --el-fill-color: var(--gray-80);
-  --el-fill-color-light: var(--gray-80);
-  --el-fill-color-lighter: var(--brand-30);
-  --el-fill-color-extra-light: var(--brand-30);
-  --el-fill-color-dark: var(--gray-70);
-  --el-fill-color-darker: var(--brand-20);
-  --el-fill-color-blank: var(--color-bg-2);
-
-  /* 边框颜色阶梯 */
-  /* 基础边框 */
-  --el-border-color: var(--border);
-  /* 浅边框  */
-  --el-border-color-light: var(--border-light);
-  /* 更浅边框 */
-  --el-border-color-lighter: var(--border-light);
-  /* 最浅边框 */
-  --el-border-color-extra-light: var(--gray-0);
-  --el-border-color-dark: var(--gray-30);
-  --el-border-color-darker: var(--gray-40);
-  --el-border-color-hover: var(--gray-05);
-
-  /* 边框样式 */
-  --el-border-width: 1px;
-  --el-border-style: solid;
-  --el-border: var(--el-border-width) var(--el-border-style) var(--el-border-color);
-  --el-disabled-border-color: var(--el-border-color-lighter);
-
-  /* 圆角大小 */
-  --el-border-radius-base: var(--radius-base);
-  --el-border-radius-small: var(--radius-xs);
-  --el-border-radius-round: var(--radius-lg);
-  --el-border-radius-circle: var(--radius-full);
-
-  /* 投影阴影 */
-  --el-box-shadow: var(--shadow-base);
-  --el-box-shadow-light: var(--shadow-sm);
-  --el-box-shadow-lighter: none;
-  --el-box-shadow-dark: var(--shadow-lg);
-
-  /* 层级 */
-  --el-index-normal: 1;
-  --el-index-top: 1000;
-  --el-index-popper: 2000;
-
-  /* 黑色半透明遮罩 待定 light lighter */
-  --el-overlay-color: rgb(from var(--gray-100) r g b / 0.6);
-  --el-overlay-color-light: rgba(0, 0, 0, 0.3);
-  --el-overlay-color-lighter: rgba(0, 0, 0, 0.1);
-
-  /* 白色半透明遮罩 (Loading 常驻) 待定 所有 */
-  --el-mask-color: rgba(255, 255, 255, 0.9);
-  --el-mask-color-extra-light: rgba(255, 255, 255, 0.3);
+}
+/* ==========================================================================
+  eview react 样式覆盖
+  ========================================================================== */
+.ev_tag.green { 
+  color: var(--mint-70) !important;
+  background: var(--green-10) !important;
+  border-color: transparent;
+}
+.ev_tag.rose {
+  color: var(--rose-60) !important;
+  background: var(--rose-05) !important;
+  border-color: transparent;
 }
 
-
-/* ================= 多个组件共用到的样式 ================= */
-/* ================= Input ================= */
-.el-input {
-  --el-input-text-color: var(--el-text-color-primary);
-  --el-input-hover-border-color: var(--el-border-color-hover);
-  --el-input-focus-border-color: var(--brand-40);
-  --el-input-bg-color: transparent;
-  --el-input-height: 32px;
-}
-.el-input__wrapper {
-  padding: 1px 12px;
+.ev_tag.pink {
+  color: var(--pink-60) !important;
+  background: var(--pink-05) !important;
+  border-color: transparent;
 }
 
-.el-popper {
-  --el-popper-bg-color-light: var(--gray-70);
-  --el-popper-bg-color-dark: var(--el-text-color-primary);
-  border-radius: var(--radius-md);
-  &[data-popper-placement="top-start"],
-  &[data-popper-placement="top"],
-  &[data-popper-placement="top-end"] {
-    margin-bottom: -8px;
-  }
-
-  &[data-popper-placement="bottom-start"],
-  &[data-popper-placement="bottom"],
-  &[data-popper-placement="bottom-end"] {
-    margin-top: -8px;
-  }
-  .el-popper__arrow {
-    display: none;
-  }
+.ev_tag.purple {
+  color: var(--purple-60) !important;
+  background: rgb(from var(--purple-10) r g b / 0.6) !important;
+  border-color: transparent;
 }
 
-.el-popper.is-dark,
-.el-popper.is-light {
-  --el-fill-color-blank: var(--el-popper-bg-color-light);
-  background: var(--el-popper-bg-color-light);
-  border: none;
-  box-shadow: var(--el-box-shadow);
-  color: var(--el-text-color-regular);
-
-  /* &>.el-popper__arrow:before {
-    border: 1px solid var(--el-border-color-light);
-    background: var(--el-popper-bg-color-light);
-  } */
-}
-.el-popper.is-light {
-    border: none;
-}
-/* .el-popper[data-popper-placement^=bottom]>.el-popper__arrow:before {
-    border-bottom-color: var(--el-bg-color-overlay) !important;
-    border-right-color: var(--el-bg-color-overlay) !important;
-} */
-
-/* ================= Dropdown ================= */
-.el-dropdown__popper.el-popper {
-  --el-dropdown-menu-box-shadow: var(--el-box-shadow);
-  --el-dropdown-menuItem-hover-fill: var(--el-fill-color-light);
-  --el-dropdown-menuItem-hover-color: var(--brand-30);
-  border-radius: var(--radius-base);
-  padding: 4px;
-    .el-dropdown-menu {
-    padding: 0px;
-  }
-  .el-dropdown-menu__item {
-    padding:5px 4px 5px 8px;
-    margin-bottom: 4px;
-    min-width: 88px;
-    border-radius: var(--radius-base);
-    &:last-child {
-      margin-bottom: 0px;
-    }
-  }
+.ev_tag.indigo {
+  color: var(--indigo-80) !important;
+  background: rgb(from var(--indigo-10) r g b / 0.6) !important;
+  border-color: transparent;
 }
 
-/* ================= Select ================= */
-.el-select {
-  --el-select-input-font-size: var(--el-font-size-base);
-  --el-select-multiple-input-color: var(--gray-0);
-  --el-text-color-placeholder: var(--gray-0);
-}
-
-.el-select__wrapper {
-  background-color: transparent;
-    &.is-focused {
-    border: 1px solid var(--brand-80);
-    box-shadow: 0 0 0 1px var(--brand-40) inset;
-  }
-}
-.el-select__prefix,
-.el-select__suffix {
-  color: var(--gray-10);
-}
-
-.el-select__popper {
-  .el-select-dropdown + .el-popper__arrow {
-    display: none;
-  }
-}
-
-.el-select-dropdown {
-  border-radius: var(--radius-md);
-  .el-select-dropdown__wrap {
-    padding: 4px;
-  }
-}
-
-.el-select-dropdown__item {
-  height: 32px;
-  line-height: 32px;
-  padding: 0 8px;
-  border-radius: var(--radius-base);
-  &:not(&:nth-last-of-type(1)) {
-    margin-bottom: 4px;
-  }
-  &.is-hovering {
-    background-color: rgb(from var(--gray-05) r g b / 0.2);
-    color: var(--gray-0);
-  }
-  &.is-selected {
-    color: var(--gray-0);
-    font-weight: var(--el-font-weight-primary);
-    background-color: rgb(from var(--brand-50) r g b / 0.4);
-  }
-}
-
-
-.el-select-dropdown__list {
-  padding: 0px;
-}
-
-/* ================= checkbox ================= */
-.el-checkbox {
-  --el-checkbox-font-size: var(--el-font-size-base);
-  --el-checkbox-text-color: var(--el-text-color-primary);
-  --el-checkbox-input-width: 16px;
-  --el-checkbox-input-height: 16px;
-  --el-checkbox-bg-color: rgb(from var(--gray-100) r g b / 0);;
-  --el-checkbox-input-border: var(--el-border);
-  --el-checkbox-input-border-color-hover: var(--brand-40);
-  --el-checkbox-checked-text-color: var(--el-text-color-primary);
-  --el-checkbox-checked-bg-color: var(--el-color-primary);
-  --el-checkbox-checked-input-border-color: var(--brand-50);
-}
-.el-checkbox__inner {
-  &:hover {
-    --el-checkbox-checked-bg-color: var(--brand-40);
-    --el-checkbox-checked-input-border-color: var(--brand-40);
-  }
-  &::after {
-    width: 3px;
-    height: 7px;
-  }
+.ev_tag.cyan {
+  color: var(--cyan-80) !important;
+  background: rgb(from var(--cyan-60) r g b / 0.15) !important;
+  border-color: transparent;
 }
 
 .theme-dark {
