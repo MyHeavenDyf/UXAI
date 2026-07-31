@@ -632,9 +632,9 @@ function InsightContent() {
   const [cRatio, setCRatioRaw] = createSignal(loadCRatio())
 
   // cRatio 钳制 + 持久化(镜像 make-layout.setCRatio):保证中栏≥CENTER_MIN、右栏≥RIGHT_MIN。
-  // windowW/sidebarW 在下方响应式块定义;本函数仅在拖拽时调用,届时二者已就绪。
-  const setCRatio = (r: number) => {
-    const free = windowW() - sidebarW()
+  // free 由调用方(handleDividerPointerDown 的 onMove)按实测 rect.width 传入,与 ratio 分母同源;
+  // 不在此处用 windowW()−sidebarW() 推算,避免引用下方才声明的信号(TDZ)且两源不一致。
+  const setCRatio = (r: number, free: number) => {
     let lo = 0.05
     let hi = 0.95
     if (free > 0) {
@@ -662,7 +662,7 @@ function InsightContent() {
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
     document.body.style.overflow = "hidden"
-    const onMove = (ev: PointerEvent) => setCRatio((ev.clientX - rect.left) / free)
+    const onMove = (ev: PointerEvent) => setCRatio((ev.clientX - rect.left) / free, free)
     const cleanup = () => {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
@@ -804,6 +804,9 @@ function InsightContent() {
 
   // 中栏宽度(像素,用于分隔线定位;镜像 make-layout.centerW)。
   // freeW = 中栏+右栏可用宽(= 窗口 − 侧栏;侧栏收起时取满窗)。
+  // 前提:page-area 实测宽 == windowW − sidebarW(外层只有纵向 titlebar,无横向壳/padding)。
+  //   分隔线 left=centerW()(推算)定位在实测 gridEl——一旦外层加横向壳/padding 或复用本布局,
+  //   推算值会偏离实测,需改回 ResizeObserver 实测 page-area 宽。
   const freeW = createMemo(() => sidebarCollapsed() ? windowW() : Math.max(0, windowW() - sidebarW()))
   const centerW = createMemo(() => {
     const f = freeW()
@@ -2321,7 +2324,7 @@ function InsightContent() {
                     onClick={() => { if (rightCollapsed()) togglePanelDrawer(); else setPanelCollapsed((v) => !v) }}
                     title="文件管理"
                     class="flex items-center justify-center size-6 rounded-md transition-colors hover:bg-black/5 active:bg-black/10"
-                    style={{ color: "var(--octo-text-secondary)" }}
+                    style={{ color: (panelInline() || panelOverlayOpen()) ? "var(--octo-brand)" : "var(--octo-text-secondary)", background: (panelInline() || panelOverlayOpen()) ? "var(--octo-surface-hover)" : "transparent" }}
                   >
                     <IconNotepad size={16} />
                   </button>
@@ -2551,21 +2554,25 @@ function InsightContent() {
           </div>
         </Show>
 
-        {/* 窄屏收起后的右侧面板抽屉:经顶栏按钮唤出,贴右侧滑出。
-            用 fixed(对齐 make-right-panel.is-collapsed)而非 absolute:抽屉是 page-area 的子节点,
-            而 page-area 有 overflow:hidden,absolute 会被裁掉左侧、看似被侧栏遮住;fixed 脱离裁剪、
-            跨侧栏覆盖。宽 650px、max-width: calc(100vw − 24px);top:48px 让位 titlebar。
-            透明点击层兜住抽屉外点击 → 点空白/切会话/再点按钮都关闭。 */}
+        {/* 窄屏右栏抽屉——遮罩限在 page-area(absolute inset-0,只盖中栏区):侧栏不在 page-area 内、
+            仍可点 → 切会话由 params.id effect 关抽屉,与注释"点空白/切会话/再点按钮都关闭"自洽。
+            抽屉本体挂 root(见下),absolute 逃 page-area 的 overflow:hidden、盖在侧栏之上(满足"不被侧栏遮住")。 */}
         <Show when={rightCollapsed() && panelOverlayOpen()}>
-          <div class="fixed inset-0" style={{ "z-index": "30" }} onClick={() => setPanelOverlayOpen(false)} />
+          <div class="absolute inset-0 z-20" onClick={() => setPanelOverlayOpen(false)} />
+        </Show>
+        </div>
+
+        {/* 右栏抽屉本体:挂 root(非 page-area),absolute right:0 top:0 bottom:0 →
+            root 在 titlebar 之下流式排列,top:0 即 titlebar 底,不与 titlebar 重叠/争 z(无需硬编码 top);
+            脱离 page-area 的 overflow:hidden,可跨侧栏覆盖。宽 650 / max calc(100vw−24px)(对齐 make-right-panel.is-collapsed)。 */}
+        <Show when={rightCollapsed() && panelOverlayOpen()}>
           <div
-            class="fixed right-0 bottom-0 flex"
-            style={{ top: "48px", width: "650px", "max-width": "calc(100vw - 24px)", background: "var(--octo-surface-page)", "box-shadow": "-11px 0 20px 0 rgba(0,0,0,0.08)", "z-index": "32" }}
+            class="absolute right-0 top-0 bottom-0 flex"
+            style={{ width: "650px", "max-width": "calc(100vw - 24px)", background: "var(--octo-surface-page)", "box-shadow": "-11px 0 20px 0 rgba(0,0,0,0.08)", "z-index": "32" }}
           >
             {renderResultViewer(() => setPanelOverlayOpen(false))}
           </div>
         </Show>
-        </div>
       </div>
     </DataProvider>
   )

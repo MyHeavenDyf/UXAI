@@ -631,7 +631,7 @@ function FileTable(props: {
           </th>
           <th class="px-4 py-2 text-left" style={{ width: "25%", "border-bottom": "1px solid var(--octo-border-divider)" }}>
             <button type="button" onClick={() => props.onHeaderSort("mtime")} class="flex items-center gap-1 transition-colors hover:text-[var(--octo-brand)]" style={{ color: "var(--octo-text-primary)", "font-weight": "normal", "min-width": "0" }}>
-              <span style={{ "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>修改时间</span>
+              <span style={{ "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis", "min-width": "0" }}>修改时间</span>
               <IconSortArrow size={14} dir={store().sortDir} active={store().sortKey === "mtime"} />
             </button>
           </th>
