@@ -281,7 +281,7 @@ export function ActionBar(props: {
   return (
     <>
     <div
-      class="flex items-center justify-between px-4 py-1.5 shrink-0 gap-2"
+      class="insight-action-bar flex items-center justify-between flex-wrap px-4 py-1.5 shrink-0 gap-x-2 gap-y-3"
       style={{
         "border-bottom": "1px solid var(--octo-border-divider)",
         background: "var(--octo-surface-page)",
