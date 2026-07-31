@@ -3134,8 +3134,7 @@
       "children": [
         "timePickerCardTitle",
         "timePickerRowDefault",
-        "timePickerRowRange",
-        "timePickerRowSizes"
+        "timePickerRowRange"
       ]
     },
     {
@@ -3205,64 +3204,6 @@
           "开始时间",
           "结束时间"
         ]
-      }
-    },
-    {
-      "id": "timePickerRowSizes",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-2"
-      },
-      "children": [
-        "timePickerRowSizesLabel",
-        "timePickerRowSizesContent"
-      ]
-    },
-    {
-      "id": "timePickerRowSizesLabel",
-      "component": "span",
-      "props": {
-        "value": "尺寸变体",
-        "className": "text-sm text-on-surface-variant"
-      }
-    },
-    {
-      "id": "timePickerRowSizesContent",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-3 flex-wrap"
-      },
-      "children": [
-        "timePickerLarge",
-        "timePickerMedium",
-        "timePickerSmall"
-      ]
-    },
-    {
-      "id": "timePickerLarge",
-      "component": "TimePicker",
-      "props": {
-        "value": "2023-10-01 14:30:00",
-        "size": "large",
-        "placeholder": "大尺寸"
-      }
-    },
-    {
-      "id": "timePickerMedium",
-      "component": "TimePicker",
-      "props": {
-        "value": "2023-10-01 14:30:00",
-        "size": "medium",
-        "placeholder": "中尺寸"
-      }
-    },
-    {
-      "id": "timePickerSmall",
-      "component": "TimePicker",
-      "props": {
-        "value": "2023-10-01 14:30:00",
-        "size": "small",
-        "placeholder": "小尺寸"
       }
     },
     {
