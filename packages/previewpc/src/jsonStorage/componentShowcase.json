@@ -1589,7 +1589,8 @@
       },
       "children": [
         "collapseCardTitle",
-        "collapseRowDefault"
+        "collapseRowDefault",
+        "collapseRowIconLeft"
       ]
     },
     {
@@ -1656,6 +1657,65 @@
         "key": "panel3",
         "label": "教育背景",
         "content": "2016-2020年，北京大学，计算机科学与技术专业。"
+      }
+    },
+    {
+      "id": "collapseRowIconLeft",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "collapseRowIconLeftLabel",
+        "collapseIconLeft"
+      ]
+    },
+    {
+      "id": "collapseRowIconLeftLabel",
+      "component": "span",
+      "props": {
+        "value": "展开图标在左侧",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "collapseIconLeft",
+      "component": "Collapse",
+      "props": {
+        "activeKey": "iconPanel1",
+        "expandIconPlacement": "start"
+      },
+      "children": [
+        "collapseIconItem1",
+        "collapseIconItem2",
+        "collapseIconItem3"
+      ]
+    },
+    {
+      "id": "collapseIconItem1",
+      "component": "CollapseItem",
+      "props": {
+        "key": "iconPanel1",
+        "label": "基础信息",
+        "content": "姓名：李四，年龄：32岁，部门：产品部。"
+      }
+    },
+    {
+      "id": "collapseIconItem2",
+      "component": "CollapseItem",
+      "props": {
+        "key": "iconPanel2",
+        "label": "工作经历",
+        "content": "2018年至今，就职于XYZ互联网公司，担任产品经理。"
+      }
+    },
+    {
+      "id": "collapseIconItem3",
+      "component": "CollapseItem",
+      "props": {
+        "key": "iconPanel3",
+        "label": "教育背景",
+        "content": "2014-2018年，清华大学，工业设计专业。"
       }
     },
     {
@@ -1812,6 +1872,8 @@
       "children": [
         "segmentedCardTitle",
         "segmentedRowSizes",
+        "segmentedRowTextIcon",
+        "segmentedRowIcon",
         "segmentedRowBlock"
       ]
     },
@@ -1849,24 +1911,10 @@
         "className": "flex items-center gap-4 flex-wrap"
       },
       "children": [
-        "segmentedLarge",
-        "segmentedMedium",
-        "segmentedSmall"
+        "segmentedMedium"
       ]
     },
-    {
-      "id": "segmentedLarge",
-      "component": "Segmented",
-      "props": {
-        "value": "选项一",
-        "options": [
-          "选项一",
-          "选项二",
-          "选项三"
-        ],
-        "size": "large"
-      }
-    },
+
     {
       "id": "segmentedMedium",
       "component": "Segmented",
@@ -1881,16 +1929,87 @@
       }
     },
     {
-      "id": "segmentedSmall",
+      "id": "segmentedRowTextIcon",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "segmentedRowTextIconLabel",
+        "segmentedRowTextIconContent"
+      ]
+    },
+    {
+      "id": "segmentedRowTextIconLabel",
+      "component": "span",
+      "props": {
+        "value": "文字带图标",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "segmentedRowTextIconContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 flex-wrap"
+      },
+      "children": [
+        "segmentedTextIcon"
+      ]
+    },
+    {
+      "id": "segmentedTextIcon",
       "component": "Segmented",
       "props": {
-        "value": "选项一",
+        "value": "list",
         "options": [
-          "选项一",
-          "选项二",
-          "选项三"
+          { "label": "列表", "value": "list", "icon": "list" },
+          { "label": "卡片", "value": "card", "icon": "layout-grid" },
+          { "label": "表格", "value": "table", "icon": "table" }
         ],
-        "size": "small"
+        "size": "medium"
+      }
+    },
+    {
+      "id": "segmentedRowIcon",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "segmentedRowIconLabel",
+        "segmentedRowIconContent"
+      ]
+    },
+    {
+      "id": "segmentedRowIconLabel",
+      "component": "span",
+      "props": {
+        "value": "纯图标",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "segmentedRowIconContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 flex-wrap"
+      },
+      "children": [
+        "segmentedIcon"
+      ]
+    },
+    {
+      "id": "segmentedIcon",
+      "component": "Segmented",
+      "props": {
+        "value": "list",
+        "options": [
+          { "label": "", "value": "list", "icon": "list" },
+          { "label": "", "value": "card", "icon": "layout-grid" },
+          { "label": "", "value": "table", "icon": "table" }
+        ],
+        "size": "medium"
       }
     },
     {
@@ -2476,7 +2595,6 @@
             "value": "guangzhou"
           }
         ],
-        "optionType": "button",
         "size": "large"
       }
     },
@@ -2499,7 +2617,6 @@
             "value": "guangzhou"
           }
         ],
-        "optionType": "button",
         "size": "medium"
       }
     },
@@ -2522,7 +2639,6 @@
             "value": "guangzhou"
           }
         ],
-        "optionType": "button",
         "size": "small"
       }
     },
@@ -3938,7 +4054,6 @@
       "component": "Button",
       "props": {
         "value": "点击展开",
-        "color": "primary",
         "icon": "chevron-down",
         "iconPlacement": "end"
       }
