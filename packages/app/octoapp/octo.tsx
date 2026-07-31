@@ -333,7 +333,7 @@ function MakeSidebarArea(props: ParentProps) {
       <div
         data-make-area="sidebar"
         class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative"
-        style={{ "--sidebar-width": `${ml.leftW()}px` }}
+        style={{ "--sidebar-width": `${ml.displayLeftW()}px` }}
       >
         <div class="make-sidebar-overlay" onClick={() => ml.toggleLeftDrawer()} />
         <div

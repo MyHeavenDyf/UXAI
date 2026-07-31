@@ -202,8 +202,6 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
             </Show>
           </div>
 
-          {props.panelToggle}
-
           <DropdownMenu
             gutter={4}
             placement="bottom-end"
@@ -239,6 +237,8 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu>
+
+          {props.panelToggle}
         </div>
       )}
     </Show>

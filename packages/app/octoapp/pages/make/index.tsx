@@ -2135,7 +2135,7 @@ const sessionMessagesLoaded = createMemo(() => {
     setPrompt("")
     proseMirrorRef1?.clear()
     proseMirrorRef2?.clear()
-    const planSid = resultViewMode() === "plan" && planParentSessionId() === params.id ? activePlanSessionId() : null
+    const planSid = activePlanSessionId() && planParentSessionId() === params.id ? activePlanSessionId() : null
     const submitSessionId = planSid || params.id
     try {
       let sid = submitSessionId

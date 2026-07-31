@@ -1,8 +1,7 @@
-import { Component, createMemo, Show } from "solid-js"
+import { Component, createMemo } from "solid-js"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { List } from "@opencode-ai/ui/list"
-import { Tag } from "@opencode-ai/ui/tag"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useModels } from "@/context/models"
@@ -10,9 +9,6 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { popularProviders } from "@/hooks/use-providers"
 import { ModelTooltip } from "./model-tooltip"
-
-const isFree = (provider: string, cost: { input: number } | undefined) =>
-  provider === "opencode" && (!cost || cost.input === 0)
 
 export const DialogSelectDefaultModel: Component<{
   onSelect?: (model: { providerID: string; modelID: string }) => void
@@ -74,7 +70,7 @@ export const DialogSelectDefaultModel: Component<{
             class="w-full"
             placement="right-start"
             gutter={12}
-            value={<ModelTooltip model={item} latest={item.latest} free={isFree(item.provider.id, item.cost)} />}
+            value={<ModelTooltip model={item} />}
           >
             {node}
           </Tooltip>
@@ -82,14 +78,8 @@ export const DialogSelectDefaultModel: Component<{
         onSelect={handleSelect}
       >
         {(i) => (
-          <div class="w-full flex items-center gap-x-2 text-13-regular">
+          <div class="w-full flex items-center text-13-regular">
             <span class="truncate">{i.name}</span>
-            <Show when={isFree(i.provider.id, i.cost)}>
-              <Tag>{language.t("model.tag.free")}</Tag>
-            </Show>
-            <Show when={i.latest}>
-              <Tag>{language.t("model.tag.latest")}</Tag>
-            </Show>
           </div>
         )}
       </List>
