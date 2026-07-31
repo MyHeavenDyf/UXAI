@@ -2324,7 +2324,7 @@ function InsightContent() {
                     onClick={() => { if (rightCollapsed()) togglePanelDrawer(); else setPanelCollapsed((v) => !v) }}
                     title="文件管理"
                     class="flex items-center justify-center size-6 rounded-md transition-colors hover:bg-black/5 active:bg-black/10"
-                    style={{ color: (panelInline() || panelOverlayOpen()) ? "var(--octo-brand)" : "var(--octo-text-secondary)", background: (panelInline() || panelOverlayOpen()) ? "var(--octo-surface-hover)" : "transparent" }}
+                    style={{ color: (panelInline() || panelOverlayOpen()) ? "var(--octo-brand)" : "var(--octo-text-secondary)", background: (panelInline() || panelOverlayOpen()) ? "var(--octo-surface-hover)" : undefined }}
                   >
                     <IconNotepad size={16} />
                   </button>
@@ -2564,11 +2564,12 @@ function InsightContent() {
 
         {/* 右栏抽屉本体:挂 root(非 page-area),absolute right:0 top:0 bottom:0 →
             root 在 titlebar 之下流式排列,top:0 即 titlebar 底,不与 titlebar 重叠/争 z(无需硬编码 top);
-            脱离 page-area 的 overflow:hidden,可跨侧栏覆盖。宽 650 / max calc(100vw−24px)(对齐 make-right-panel.is-collapsed)。 */}
+            脱离 page-area 的 overflow:hidden。宽 = min(650, freeW−24):恒给 page-area 遮罩留 24px 可点
+            (窄屏主场景 656<windowW≤946 时,固定 650 会整块盖住遮罩致"点空白关不掉")。 */}
         <Show when={rightCollapsed() && panelOverlayOpen()}>
           <div
             class="absolute right-0 top-0 bottom-0 flex"
-            style={{ width: "650px", "max-width": "calc(100vw - 24px)", background: "var(--octo-surface-page)", "box-shadow": "-11px 0 20px 0 rgba(0,0,0,0.08)", "z-index": "32" }}
+            style={{ width: `${Math.min(650, Math.max(0, freeW() - 24))}px`, background: "var(--octo-surface-page)", "box-shadow": "-11px 0 20px 0 rgba(0,0,0,0.08)", "z-index": "32" }}
           >
             {renderResultViewer(() => setPanelOverlayOpen(false))}
           </div>

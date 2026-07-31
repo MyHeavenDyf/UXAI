@@ -23,7 +23,8 @@ export function initialSidebarWidth(): number {
   const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY)
   if (stored) {
     const n = parseInt(stored, 10)
-    if (!isNaN(n) && n >= SIDEBAR_MIN_W && n <= SIDEBAR_MAX_W) return n
+    // 钳制而非丢弃:max 从 420→360 后,已存 360–420 的值会被静默重置回默认;这里钳到 [MIN,MAX]。
+    if (!isNaN(n)) return Math.max(SIDEBAR_MIN_W, Math.min(SIDEBAR_MAX_W, n))
   }
   return SIDEBAR_DEFAULT_W
 }
