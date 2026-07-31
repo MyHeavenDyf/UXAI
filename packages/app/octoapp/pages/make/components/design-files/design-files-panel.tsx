@@ -102,6 +102,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           fileStore.clearKindFilter()
           fileStore.setGeneratedFiles([])
           fileStore.setUploadedFiles([])
+          fileStore.setPreviewFile(null)
         })
       }
       void refresh()
