@@ -38,7 +38,8 @@
 					"description": "Button text"
 				},
 				"color": {
-					"type": "string"
+					"type": "string",
+					"enum": ["default", "primary", "danger"]
 				},
 				"types": {
 					"type": "string",
