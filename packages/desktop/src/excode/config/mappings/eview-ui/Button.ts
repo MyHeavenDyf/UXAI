@@ -45,7 +45,7 @@ function resolveColor(color: string): { status?: string; style?: Record<string, 
   ])
 
   if (color === 'primary') return { status: 'primary' }
-  if (color === 'danger') return { status: 'risk' }
+  if (color === 'danger' || color === 'error') return { status: 'risk' }
   if (color === 'default') return { status: 'default' }
   if (PALETTE.has(color)) return { style: { backgroundColor: color } }
   if (/^#[0-9a-f]{3,6}$/i.test(color)) return { style: { backgroundColor: color } }

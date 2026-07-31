@@ -23,7 +23,7 @@ import type { FileDraft, PendingExtractedFile, PendingConstDecl } from './tree-f
 import type { StateBuilderResult, FileUnit } from './state-builder'
 import { fileKeyOf } from '../core/file-keys'
 import { collectImports, renderImportBlock, injectImport, type ImportMap } from './import-collector'
-import { emitNode, indent } from './jsx-emitter'
+import { emitNode, indent, bindingRef } from './jsx-emitter'
 import { collectRelativeFields } from '../core/scoped-enrichment'
 import { isFlatAccessPath } from '../core/access-path'
 import { emitKey, serializePlainJs } from './js-serializer'
@@ -167,8 +167,13 @@ function assembleMainPage(
   // .tsx 文件注入 React
   injectImport(imports, 'react', 'React', false)
 
-  // 主页一定引入 `./state`
-  injectImport(imports, `./state`, 'initialState', false)
+  // 主页引用 state 时才引入 `./state`（main unit 有 bindingRefs/computedRefs →
+  // destructure 或内联 initialState.xxx；无引用则不 import，避免死 import）
+  const fUnitForStateCheck = stateResult.fileUnits.get(fileKeyOf.main())
+  const usesState = !!(fUnitForStateCheck && (fUnitForStateCheck.bindingRefs.length > 0 || fUnitForStateCheck.computedRefs.length > 0))
+  if (usesState) {
+    injectImport(imports, `./state`, 'initialState', false)
+  }
 
   // 字面量双绑 lift 后会需要 useState
   if (draft.componentInternalConsts.some(c => c.isUseState)) {
@@ -627,6 +632,11 @@ function serializeForConstValue(value: unknown, lvl: number = 0, compact: boolea
     const v = value as any
     if (v.type === 'varRef') return v.name
     if (v.type === 'rawExpr') return v.value
+    // binding/computed → 裸引用（与 jsxEmitter.emitValue 共用 bindingRef，规则只在一处）。
+    // const 值已在对象字面量内，裸引用不包 {}（否则 key: {expr} 的 {} 是块语句，语法非法）。
+    if (v.type === 'binding' || v.type === 'computed') {
+      return bindingRef(v)
+    }
     if (typeof v.type === 'string' && typeof v.props === 'object' && v.props !== null) {
       return serializeReactElement(v)
     }

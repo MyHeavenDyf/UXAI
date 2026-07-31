@@ -68,7 +68,7 @@ export const Value = {
   },
 
   /** 编译期常量引用 */
-  varRef(opts: { name: string }): VarRefValue {
+  varRef(opts: { name: string; pathType?: 'absolute' | 'relative' }): VarRefValue {
     return { type: 'varRef', ...opts }
   },
 

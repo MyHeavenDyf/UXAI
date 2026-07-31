@@ -84,6 +84,29 @@ export function indent(code: string, spaces: number): string {
 
 // ─── PropValue 分发 ───
 
+/**
+ * BindingValue / ComputedValue → 裸引用名（不带 `{}`，由调用方按上下文决定是否包）。
+ *
+ * 模板（emitValue）与抽离 const（fileAssembler.serializeForConstValue）共用本函数，
+ * binding→引用规则只在此一处维护，避免两边各写一份改一边漏另一边。
+ *
+ *   - containsJSX computed → 文件顶部 const 名（computedJsxConstName）
+ *   - absolute → stateRef（平面裸名已 destructure / 嵌套 initialState.ap）
+ *   - relative → 按 opts（inTemplate/inRenderFnBody 裸字段，主树循环 loopVar.field）；
+ *     const 场景（opts 未传/无 loopVar）理论上不出现 relative（模块顶部不在作用域），best-effort 裸 accessPath
+ */
+export function bindingRef(v: any, opts?: Required<EmitOptions>): string {
+  if (v.type === 'computed' && v.containsJSX) return computedJsxConstName(v)
+  const relPath = pathToJsAccess(v.accessPath ?? v.path)
+  if (v.pathType === 'relative') {
+    if (!opts) return relPath
+    if (opts.inTemplate) return relPath
+    if (opts.inRenderFnBody) return relPath
+    return `${opts.loopVar}.${relPath}`
+  }
+  return stateRef(v.accessPath ?? v.path)
+}
+
 function emitValue(value: PropValue, opts: Required<EmitOptions>, isPropValue?: boolean): string {
   if (value === null || value === undefined) return '{null}'
 
@@ -151,28 +174,13 @@ function emitValue(value: PropValue, opts: Required<EmitOptions>, isPropValue?: 
     return emitNode(v.node, opts)
   }
 
-  // BindingValue / ComputedValue：直接 emit 引用名（state.js destructure 后即为 local var）
+  // BindingValue / ComputedValue → 引用名（规则见 bindingRef，模板/const 共用）
   if (v.type === 'binding' || v.type === 'computed') {
-    // 相对路径用 `/` 分隔（JSON Pointer），emit 时转 `.` 做属性访问
-    // 相对路径用 `/` 分隔（JSON Pointer），转 JS 属性访问（数字段用 [n]）
-    const relPath = pathToJsAccess(v.accessPath ?? v.path)
-    if (v.pathType === 'relative') {
-      // 优先级：inTemplate > inRenderFnBody > 主树循环
-      if (opts.inTemplate) return `{${relPath}}`
-      if (opts.inRenderFnBody) return `{${relPath}}`
-      // 主树循环：渲染为 `{item.xxx}`
-      return `{${opts.loopVar}.${relPath}}`
-    }
-    // containsJSX:true 的绝对 computed → 值在文件顶部 const（不在 initialState），
-    // 引用 const 名（合法标识符，平面/嵌套统一），与 stateBuilder 的 jsxLiteralConst 名一致。
-    // 嵌套 accessPath（brandInfo.logoIcon）若走 initialState 会引用错且 const 名带 `.` 非法。
-    if (v.type === 'computed' && v.containsJSX) {
-      return `{${computedJsxConstName(v)}}`
-    }
-    // 绝对路径：平面→本地变量（已 destructure）；嵌套→initialState.ap（值在 state.js）
-    // 收拢到 accessPath.stateRef，与 treeFinalizer（useState / loop data）一致。
-    const ap = v.accessPath ?? v.path
-    return `{${stateRef(ap)}}`
+    const expr = bindingRef(v, opts)
+    // isPropValue（= JSX 独立表达式位置：顶级 prop 值 / 文本子节点）包 {…}；
+    // 嵌套在对象/数组内（isPropValue=false）或 const 序列化（serializeForConstValue，不调此分支的包装）
+    // 时裸引用——否则 key: {expr} 的 {} 在对象值位置是块语句，语法非法（如 Chart option.data）。
+    return isPropValue ? `{${expr}}` : expr
   }
 
   // 嵌套数据对象（table datasets / columns 等） → JSON 形态
@@ -180,7 +188,7 @@ function emitValue(value: PropValue, opts: Required<EmitOptions>, isPropValue?: 
     // BuildNode 组件（kind:'component'，来自 resolveIcon 等）→ JSX 元素
     // 作为 prop value 时需要包 {…}，嵌套在对象/数组内时不包
     if (v.kind === 'component' && typeof v.tag === 'string' && typeof v.props === 'object') {
-      const expr = emitBuildNodeExpr(v)
+      const expr = emitBuildNodeExpr(v, opts)
       return isPropValue ? `{${expr}}` : expr
     }
     const entries = Object.entries(value)
@@ -234,7 +242,7 @@ function emitProps(props: Record<string, PropValue> | undefined, opts: Required<
 function emitClassName(value: PropValue, opts: Required<EmitOptions>): string | null {
   // 非字符串：交给 emitValue
   if (typeof value !== 'string') {
-    return `className=${emitValue(value, opts)}`
+    return `className=${emitValue(value, opts, true)}`
   }
 
   // 自动基类 = selfId（CSS Modules 时直接做 styles.{id}）
@@ -350,8 +358,8 @@ function emitHtml(node: HtmlNode, opts: Required<EmitOptions>): string {
 
 function emitText(node: TextNode, _opts: Required<EmitOptions>): string {
   if (typeof node.value === 'string') return escapeJSX(node.value)
-  // value 是 varRef / rawExpr / 占位 binding
-  return emitValue(node.value, _opts)
+  // value 是 varRef / rawExpr / binding（JSX 文本子节点 = 独立表达式位置，需包 {}）
+  return emitValue(node.value, _opts, true)
 }
 
 // ─── BuildNode 组件表达式（kind:'component'，在 prop 值中嵌入 JSX 元素） ───
@@ -359,17 +367,24 @@ function emitText(node: TextNode, _opts: Required<EmitOptions>): string {
 // 适用场景：resolveIcon 产出的图标节点被嵌入到 data 数组等字面量 prop 值中。
 // 区别于 emitComponent（用于独立的 ComponentNode 节点），这个是 JSX 表达式值形态。
 
-function emitBuildNodeExpr(v: { tag: string; props: Record<string, any>; selfClosing?: boolean; children?: any }): string {
+function emitBuildNodeExpr(v: { tag: string; props: Record<string, any>; selfClosing?: boolean; children?: any; id?: string }, opts: Required<EmitOptions>): string {
   const tagName = v.tag
   const props = v.props ?? {}
   const propParts: string[] = []
   for (const [k, vv] of Object.entries(props)) {
+    // className 走 emitClassName（CSS Modules → styles.{id}，与 StyleConverter 收集的选择器对齐）；
+    // 无 id 时回退裸字符串（旧行为）。selfId 取 BuildNode 自身 id（resolveIcon 由调用方传入）。
+    if (k === 'className' || k === 'class') {
+      const cn = emitClassName(vv as PropValue, { ...opts, selfId: v.id ?? opts.selfId })
+      if (cn) propParts.push(cn)
+      continue
+    }
     if (vv === true) propParts.push(k)
     else if (vv === false || vv === null || vv === undefined) continue
     else if (typeof vv === 'string') propParts.push(`${k}=${JSON.stringify(vv)}`)
     else if (typeof vv === 'number') propParts.push(`${k}={${vv}}`)
     else if (typeof vv === 'boolean') propParts.push(`${k}={${String(vv)}}`)
-    else propParts.push(`${k}={${emitValue(vv as PropValue, { ...mergedOpts() }, false)}}`)
+    else propParts.push(`${k}={${emitValue(vv as PropValue, opts, false)}}`)
   }
   const propsStr = propParts.join(' ')
   const attrs = propsStr ? ' ' + propsStr : ''
@@ -380,7 +395,7 @@ function emitBuildNodeExpr(v: { tag: string; props: Record<string, any>; selfClo
   if (v.selfClosing || !children) return `<${tagName}${attrs} />`
   if (Array.isArray(children)) {
     const childContent = children
-      .map(c => emitNode(c as BuildNode, mergedOpts()))
+      .map(c => emitNode(c as BuildNode, opts))
       .filter(s => s && s !== 'null')
       .join('\n')
     if (!childContent) return `<${tagName}${attrs} />`

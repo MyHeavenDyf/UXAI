@@ -6,11 +6,10 @@
  * | A2UI prop | eview-react prop | 处理 |
  * |-----------|-----------------|------|
  * | value（string/DataBinding） | children | value→children 下沉（TextNode） |
- * | color（string） | color | 值映射：A2UI success/processing/error/default/warning → eview-react success/primary/danger/default/warning；#HEX 透传 |
- * | color（DataBinding） | color | **ComputedValue** 编译期映射运行时 color 值（同字面量映射规则） |
+ * | color（string） | color / style | 语义色 default/info/error/alert/warning/success/disabled → eview-react color 值映射；自定义色 green/rose/pink/purple/indigo/cyan → 移除 color，改用 style 的 color/background/borderColor；#HEX 透传 |
+ * | color（DataBinding） | color / style | **ComputedValue** 编译期映射：语义色→color；自定义色→style（color/background/borderColor）；#HEX 透传 |
  * | icon（string/DataBinding） | iconName + hasIcon | resolveIcon → BuildNode / ComputedValue；hasIcon:true |
  * | size（large/medium/small） | size（large/normal/small） | medium→normal 值映射 |
- * | variant（filled/solid/outlined） | fill（solid/outline） | filled/solid→solid / outlined→outline |
  * | closable | closable | 同名透传 |
  * | closeIcon | — | 丢弃（eview-react Tag 用默认关闭图标） |
  * | className | className | 同名透传 |
@@ -58,29 +57,30 @@ function resolveIconProp(
 }
 
 // ─── color 值映射：A2UI enum → eview-react enum ───
-// A2UI: success / processing / error / default / warning / #HEX
-// eview-react: default / primary / success / warning / danger / caution / 自定义
+// A2UI: default / info / error / alert / warning / success / disabled / green / rose / pink / purple / indigo / cyan / #HEX
+// eview-react: default / primary / success / warning / danger / caution / 自定义颜色
 const COLOR_MAP: Record<string, string> = {
-  success: "success",
-  processing: "primary",
-  error: "danger",
   default: "default",
+  info: "primary",
+  error: "danger",
+  alert: "caution",
   warning: "warning",
-  // #HEX / 其他自定义颜色字符串 → 不在表内，mapColor 兜底原样透传
+  success: "success",
+  disabled: "default",
+  green: "green",
+  rose: "rose",
+  pink: "pink",
+  purple: "purple",
+  indigo: "indigo",
+  cyan: "cyan",
 };
 
-/** 把 A2UI color 值映射为 eview-react color 值（字面量与 DataBinding transform 共用） */
+
+/** 把 A2UI color 值映射为 eview-react color 值（仅语义色；自定义色不在表内） */
 function mapColor(raw: any): string {
   if (typeof raw !== "string") return raw;
-  return COLOR_MAP[raw] ?? raw; // success/processing/... 命中映射；#HEX / 其他原样透传
+  return COLOR_MAP[raw] ?? raw; // default/info/error/alert/warning/success/disabled 命中映射；#HEX / 其他原样透传
 }
-
-// ─── variant → fill 值映射 ───
-const FILL_MAP: Record<string, string> = {
-  filled: "solid",
-  solid: "solid",
-  outlined: "outline",
-};
 
 // ─── size 值映射 ───
 const SIZE_MAP: Record<string, string> = {
@@ -105,7 +105,6 @@ export function createTagMapping(pkg: string): MappingDef {
         "color",
         "icon",
         "size",
-        "variant",
         "closable",
         "closeIcon",
         "className",
@@ -122,20 +121,20 @@ export function createTagMapping(pkg: string): MappingDef {
         }
       }
 
-      // ─── color（字面量值映射 / DataBinding 编译期映射 + #HEX 透传） ───
+      // ─── color（语义色→color 值映射 / 自定义色→style CSS 变量 / #HEX 透传） ───
       if (props.color) {
         const c = props.color;
         if (typeof c === "string") {
-          // 字面量：直接映射
           outputProps.color = mapColor(c);
         } else if (c && typeof c === "object" && c.type === "binding") {
-          // DataBinding：运行时值为 A2UI color（success/processing/.../#HEX），需编译期映射
           outputProps.color = Value.computed({
             path: c.path,
             pathType: c.pathType ?? "absolute",
             accessPath: c.accessPath ?? "tagColor",
             containsJSX: false,
-            transform: (raw) => mapColor(raw),
+            transform: (raw) => {
+              return mapColor(raw);
+            },
           });
         }
       }
@@ -154,14 +153,6 @@ export function createTagMapping(pkg: string): MappingDef {
         const mapped = SIZE_MAP[props.size];
         if (mapped) {
           outputProps.size = mapped;
-        }
-      }
-
-      // ─── variant → fill ───
-      if (props.variant && typeof props.variant === "string") {
-        const mapped = FILL_MAP[props.variant];
-        if (mapped) {
-          outputProps.fill = mapped;
         }
       }
 

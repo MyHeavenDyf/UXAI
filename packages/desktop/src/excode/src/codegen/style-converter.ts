@@ -153,27 +153,39 @@ export class StyleConverter {
     if (node.kind === 'component' || node.kind === 'html') {
       const id = node.id
       const cn = readPropClassName(node.props)
+      // chart（tag='Chart'）尺寸加 !important，压过组件默认 `.aui3_1 .ev-chart { width; height }`（两类选择器）
+      const isChart = (node as any).tag === 'Chart'
 
       if (id && cn) {
         const { regular, hover } = splitClasses(cn)
         if (regular.length > 0) {
           const css = safeConvert(regular.join(' '))
           if (Object.keys(css).length > 0) {
+            let decls = styleObjToDecls(css)
+            if (isChart) decls = withSizingImportant(decls)
             out.push({
               selector: `.${id}`,
-              declarations: styleObjToDecls(css),
+              declarations: decls,
             })
           }
         }
         if (hover.length > 0) {
           const css = safeConvert(hover.join(' '))
           if (Object.keys(css).length > 0) {
+            let decls = styleObjToDecls(css)
+            if (isChart) decls = withSizingImportant(decls)
             out.push({
               selector: `.${id}:hover`,
-              declarations: styleObjToDecls(css),
+              declarations: decls,
             })
           }
         }
+      }
+
+      // walk prop 值里嵌入的 BuildNode（如 IconButton.iconName 的 icon）——
+      // icon 的 className 在 prop 值内，主树 children 走不到，此处补收。
+      if (node.props) {
+        for (const v of Object.values(node.props)) collectRulesFromValue(v as PropValue, out)
       }
     }
 
@@ -243,6 +255,20 @@ function styleObjToDecls(styleObj: Record<string, string>): StyleDeclaration[] {
     prop: camelToKebab(k),
     value: v,
   }))
+}
+
+/**
+ * 给尺寸类声明（width/height 及 min/max 变体）加 !important。
+ * 仅用于 chart：eview-react Chart 外层默认 `.aui3_1 .ev-chart { width; height }` 是两类选择器 (0,2,0)，
+ * 单类 `.audTrdChart` (0,1,0) 压不过；chart 的尺寸由 A2UI className 控制，加 !important 保证生效。
+ */
+function withSizingImportant(decls: StyleDeclaration[]): StyleDeclaration[] {
+  return decls.map(d => {
+    const p = d.prop.toLowerCase()
+    return (p === 'width' || p === 'height' || p.endsWith('-width') || p.endsWith('-height'))
+      ? { ...d, value: `${d.value} !important` }
+      : d
+  })
 }
 
 function camelToKebab(s: string): string {
