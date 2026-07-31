@@ -3692,6 +3692,7 @@ onSlashTrigger={(query) => {
                 childSessionStatus={sync.data.session_status[activePlanSessionId() ?? ""]}
                 childBusy={childBusy()}
                 planEnded={planEnded()}
+                planActive={activePlanSessionId() !== null}
               />
             </div>
             <Show when={showVersionPanel()}>

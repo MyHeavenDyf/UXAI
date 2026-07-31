@@ -115,6 +115,8 @@ export function ResultViewer(props: {
   childBusy?: boolean
   /** 设计规划是否已结束（退出或确认），plan 视图只读 */
   planEnded?: boolean
+  /** 设计规划流程是否活跃（即使 plan artifact 尚未生成） */
+  planActive?: boolean
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const projectSelection = useProjectSelection()
@@ -311,6 +313,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           viewMode={props.viewMode}
           onViewModeChange={props.sessionId ? props.onViewModeChange : undefined}
           showPlanEntry={!!props.planCard}
+          planActive={props.planActive}
           planConfirmed={props.isPlanConfirmed?.()}
           planEnded={props.planEnded}
           onCollapseDrawer={props.onCollapseDrawer}
