@@ -26,6 +26,13 @@
   }
 }
 
+.el-segmented__item-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
 .el-segmented__item {
   padding: 0 16px !important;
   border-radius: 4px !important;
@@ -38,6 +45,10 @@
 
 .el-segmented__item.is-selected {
   pointer-events: none;
+}
+
+.el-segmented.icon-only .el-segmented__item {
+  padding: 0 7px !important;
 }
 
 .el-segmented--small {
@@ -75,5 +86,8 @@
     --el-segmented-item-active-bg-color: var(--brand-40);
     --el-segmented-item-selected-bg-color: var(--el-color-primary);
     --el-segmented-item-selected-disabled-bg-color: var(--el-color-primary-light-5);
+  }
+  .el-segmented__item:not(.is-disabled):not(.is-selected):hover {
+    background: rgb(from var(--gray-20) r g b / 0.2);
   }
 }

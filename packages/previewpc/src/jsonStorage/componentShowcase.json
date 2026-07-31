@@ -1812,6 +1812,8 @@
       "children": [
         "segmentedCardTitle",
         "segmentedRowSizes",
+        "segmentedRowTextIcon",
+        "segmentedRowIcon",
         "segmentedRowBlock"
       ]
     },
@@ -1849,24 +1851,10 @@
         "className": "flex items-center gap-4 flex-wrap"
       },
       "children": [
-        "segmentedLarge",
-        "segmentedMedium",
-        "segmentedSmall"
+        "segmentedMedium"
       ]
     },
-    {
-      "id": "segmentedLarge",
-      "component": "Segmented",
-      "props": {
-        "value": "选项一",
-        "options": [
-          "选项一",
-          "选项二",
-          "选项三"
-        ],
-        "size": "large"
-      }
-    },
+
     {
       "id": "segmentedMedium",
       "component": "Segmented",
@@ -1881,16 +1869,87 @@
       }
     },
     {
-      "id": "segmentedSmall",
+      "id": "segmentedRowTextIcon",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "segmentedRowTextIconLabel",
+        "segmentedRowTextIconContent"
+      ]
+    },
+    {
+      "id": "segmentedRowTextIconLabel",
+      "component": "span",
+      "props": {
+        "value": "文字带图标",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "segmentedRowTextIconContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 flex-wrap"
+      },
+      "children": [
+        "segmentedTextIcon"
+      ]
+    },
+    {
+      "id": "segmentedTextIcon",
       "component": "Segmented",
       "props": {
-        "value": "选项一",
+        "value": "list",
         "options": [
-          "选项一",
-          "选项二",
-          "选项三"
+          { "label": "列表", "value": "list", "icon": "list" },
+          { "label": "卡片", "value": "card", "icon": "layout-grid" },
+          { "label": "表格", "value": "table", "icon": "table" }
         ],
-        "size": "small"
+        "size": "medium"
+      }
+    },
+    {
+      "id": "segmentedRowIcon",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "segmentedRowIconLabel",
+        "segmentedRowIconContent"
+      ]
+    },
+    {
+      "id": "segmentedRowIconLabel",
+      "component": "span",
+      "props": {
+        "value": "纯图标",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "segmentedRowIconContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 flex-wrap"
+      },
+      "children": [
+        "segmentedIcon"
+      ]
+    },
+    {
+      "id": "segmentedIcon",
+      "component": "Segmented",
+      "props": {
+        "value": "list",
+        "options": [
+          { "label": "", "value": "list", "icon": "list" },
+          { "label": "", "value": "card", "icon": "layout-grid" },
+          { "label": "", "value": "table", "icon": "table" }
+        ],
+        "size": "medium"
       }
     },
     {

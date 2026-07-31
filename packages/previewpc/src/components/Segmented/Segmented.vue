@@ -4,7 +4,7 @@ import { ElSegmented } from "element-plus"
 import type { SegmentedNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
-import { getIconComponentRef, createIconRenderer } from "../Icon/IconBase"
+import { getIconComponentRef } from "../Icon/IconBase"
 import { svgCacheVersion } from "../../composables/useIconProvider"
 import "./Segmented.less"
 
@@ -12,6 +12,12 @@ const sizeEnum: Record<string, "" | "small" | "large" | "default" | undefined> =
   large: "large",
   medium: "default",
   small: "small",
+}
+
+const iconSizeEnum: Record<string, number> = {
+  large: 16,
+  default: 14,
+  small: 12,
 }
 
 const props = defineProps<A2UIComponentProps<SegmentedNode>>()
@@ -61,17 +67,44 @@ const normalizedOptions = computed(() => {
   })
 })
 
+const size = computed(() => properties.size ? sizeEnum[properties.size] : "default")
+const iconSize = computed(() => iconSizeEnum[size.value ?? "default"] ?? iconSizeEnum.default)
+
+// 参考 Button 的图标处理：区分 hui / lucide，按尺寸取大小；颜色按选中态动态计算
+const resolveOptionIcon = (iconName: string | undefined) => {
+  if (!iconName) return null
+  const base = getIconComponentRef(iconName, { strokeWidth: 1 })
+  if (!base?.component) return null
+  return {
+    component: base.component,
+    isHui: "iconColor" in base.props,
+    baseProps: base.props,
+    size: iconSize.value,
+  }
+}
+
+// 选中态：白色；未选中：跟随分段控制器文本色。响应 currentValue 变化重新求值
+const iconAttrs = (item: any) => {
+  const ic = item.icon
+  if (!ic) return {}
+  const selected = item.value === currentValue.value
+  const color = selected ? "var(--el-segmented-item-selected-color)" : "var(--el-segmented-color)"
+  return ic.isHui
+    ? { ...ic.baseProps, size: ic.size, type: ic.baseProps.type, iconColor: [color] }
+    : { size: ic.size, color, "stroke-width": 1 }
+}
+
 // ---- 图标解析（同步，追踪 svgCacheVersion 以响应 SVG 到达） ----
 const resolvedOptions = ref<any[]>([])
 
 watch(
-  [normalizedOptions, svgCacheVersion],
+  [normalizedOptions, svgCacheVersion, iconSize],
   ([opts]) => {
-    resolvedOptions.value = opts.map((opt: any) => {
-      if (!opt.iconName) return { label: opt.label, value: opt.value, icon: undefined }
-      const iconRef = getIconComponentRef(opt.iconName, { size: 16 })
-      return { label: opt.label, value: opt.value, icon: createIconRenderer(iconRef) ?? undefined }
-    })
+    resolvedOptions.value = opts.map((opt: any) => ({
+      label: opt.label,
+      value: opt.value,
+      icon: resolveOptionIcon(opt.iconName),
+    }))
   },
   { immediate: true },
 )
@@ -79,6 +112,12 @@ watch(
 // ElSegmented 根 div 用 v-if="options.length" 控制渲染，resolvedOptions 异步更新，
 // onMounted 时 $el 还是注释节点，需在 options 就绪、DOM 更新后再挂属性
 watch(resolvedOptions, applyPickerAttrs, { flush: 'post', immediate: true })
+
+// 纯图标：所有项都有图标且无文字，收紧每项内边距
+const isIconOnly = computed(() =>
+  resolvedOptions.value.length > 0 &&
+  resolvedOptions.value.every((opt: any) => opt.icon && !opt.label),
+)
 
 
 const initvalue = computed(() => {
@@ -92,9 +131,6 @@ const currentValue = ref(initvalue.value)
 
 const block = computed(() => properties.block || false)
 const direction = computed(() => properties.orientation || "horizontal")
-const size = computed(() => {
-  return (properties.size ? sizeEnum[properties.size] : "default") 
-})
 
 const handleChange = (val: string | number) => {
   const raw = properties.value
@@ -108,12 +144,21 @@ const handleChange = (val: string | number) => {
   <ElSegmented
     ref="elSegmentedRef"
     :id="id"
-    :class="className"
+    :class="[className, { 'icon-only': isIconOnly }]"
     v-model="currentValue"
     :options="resolvedOptions"
     :direction
     :size="size"
     :block="block"
-    @update:model-value="handleChange"
-  />
+    @update:model-value="handleChange">
+    <template #default="{ item }">
+      <component
+        v-if="item.icon"
+        :is="item.icon.component"
+        v-bind="iconAttrs(item)"
+        class="segmented-item-icon"
+      />
+      <span v-if="item.label">{{ item.label }}</span>
+    </template>
+  </ElSegmented>
 </template>
