@@ -4,6 +4,7 @@ interface ResolvedCheckbox {
   label?: string | DataBinding;
   checked?: string | DataBinding;
   disabled?: string | DataBinding;
+  indeterminate?: DynamicBoolean;
   children?: AnyComponentNode[];
   className?: string;
 }
@@ -16,6 +17,8 @@ interface ResolvedCheckboxGroup {
     label: string;
     value: string;
   }[] | DataBinding;
+  disabled?: DynamicBoolean;
+  indeterminate?: DynamicBoolean;
   className?: string;
 }
 interface CheckboxGroupNode extends AnyComponentNode<ResolvedCheckboxGroup> {
@@ -118,6 +121,7 @@ interface ResolvedSwitch {
   unCheckedChildren?: string;
   checkedChildrenIcon?: DynamicString;
   unCheckedChildrenIcon?: DynamicString;
+  disabled?: DynamicBoolean;
 }
 interface SwitchNode extends AnyComponentNode<ResolvedSwitch> {
   type: "Switch";

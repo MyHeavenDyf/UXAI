@@ -44,6 +44,8 @@ const size = computed(() => {
 const checkedChildren = computed(() => properties.checkedChildren)
 const unCheckedChildren = computed(() => properties.unCheckedChildren)
 
+const disabled = computed(() => (resolveValue(properties.disabled) as boolean) || false)
+
 // ---- 图标解析（同步，追踪 svgCacheVersion，响应式 iconSize） ----
 const iconSize = computed(() => {
   // switch-button-size: default=16px, small=12px → 图标略小
@@ -95,6 +97,7 @@ const onSwitch = (val: string | number | boolean) => {
     :inactive-text="unCheckedChildren"
     :active-action-icon="checkedChildrenIcon as any"
     :inactive-action-icon="unCheckedChildrenIcon as any"
+    :disabled="disabled"
     @change="onSwitch"
   />
 </template>
