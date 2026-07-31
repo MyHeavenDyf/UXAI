@@ -112,7 +112,7 @@ export function TaskItemRow(props: {
           </div>
         </div>
         {/* 右侧操作区：hover 才显示暂停/取消按钮；下方百分比仅 hasProgress 且非终态显示 */}
-        <div class="flex flex-col items-end gap-1 shrink-0" classList={{ "self-start": !item().hasProgress }}>
+        <div class="flex flex-col items-end gap-1 shrink-0" classList={{ "self-start": !item().hasProgress || isError() }}>
           <div class="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
             <Show when={showPause()}>
               <button
@@ -144,7 +144,7 @@ export function TaskItemRow(props: {
               <button
                 type="button"
                 class="rounded-full transition-colors hover:bg-black/[0.06] cursor-pointer"
-                style={{ width: "16px", height: "16px", "background-image": "url(/task/task-panel-close.svg)", "background-size": "contain", "background-repeat": "no-repeat", "background-position": "center" }}
+                style={{ width: "16px", height: "16px", "background-image": "url(/task/task-cancel.svg)", "background-size": "contain", "background-repeat": "no-repeat", "background-position": "center" }}
                 onClick={() => props.onRemove(item())}
               />
             </Show>
