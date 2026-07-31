@@ -97,6 +97,10 @@
     }
   }
 
+  &[data-variant="loading"] [data-slot="toast-icon"] [data-slot="icon-svg"] {
+    animation: toast-spin 0.8s linear infinite;
+  }
+
   [data-slot="toast-content"] {
     flex: 1;
     display: flex;
@@ -232,5 +236,14 @@
   }
   to {
     transform: translateX(100%);
+  }
+}
+
+@keyframes toast-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
   }
 }

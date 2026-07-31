@@ -150,7 +150,7 @@ async function fillIconInfoFromApi(
 
   for (const batch of batches) {
     const keyword = encodeURIComponent(batch.join(','))
-    const apiUrl = `${ICON_API_URL}?keyword=${keyword}&topK=2&source_id=6`
+    const apiUrl = `${ICON_API_URL}?keyword=${keyword}&topK=2&source_id=6&group_id=185,189,81,84,88,92,94,97`
 
     try {
       const resp = await fetch(apiUrl)

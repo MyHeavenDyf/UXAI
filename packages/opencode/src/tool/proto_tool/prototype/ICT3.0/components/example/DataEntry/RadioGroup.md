@@ -38,31 +38,3 @@
 	]
 }
 ```
-
-### Example: RadioGroup button
-
-```json
-{
-	"id": "fruit",
-	"component": "RadioGroup",
-	"props": {
-		"options": [
-			{
-				"label": "苹果",
-				"value": "Apple"
-			},
-			{
-				"label": "梨子",
-				"value": "Pear"
-			},
-			{
-				"label": "橘子",
-				"value": "Orange"
-			}
-		],
-		"value": "Orange",
-		"optionType": "button",
-		"size": "large"
-	}
-}
-```

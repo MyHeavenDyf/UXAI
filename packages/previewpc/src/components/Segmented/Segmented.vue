@@ -6,6 +6,7 @@ import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import { getIconComponentRef } from "../Icon/IconBase"
 import { svgCacheVersion } from "../../composables/useIconProvider"
+import { useTheme } from "../../composables/useTheme"
 import "./Segmented.less"
 
 const sizeEnum: Record<string, "" | "small" | "large" | "default" | undefined> = {
@@ -95,6 +96,7 @@ const iconAttrs = (item: any) => {
 }
 
 // ---- 图标解析（同步，追踪 svgCacheVersion 以响应 SVG 到达） ----
+const { isDark } = useTheme()
 const resolvedOptions = ref<any[]>([])
 
 watch(

@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { ref, watch, computed, onMounted, useAttrs } from "vue"
-import type { Component } from "vue"
 import { ElSwitch } from "element-plus"
 import type { SwitchNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import "./Switch.less"
-import { getIconComponentRef, createIconRenderer } from "../Icon/IconBase"
-import { svgCacheVersion } from "../../composables/useIconProvider"
+import { useIconComponentRef, createIconRenderer } from "../Icon/IconBase"
 
 const sizeEnum = {
   medium: "default",
@@ -54,30 +52,20 @@ const iconSize = computed(() => {
 })
 
 const checkedIconName = computed(() => resolveValue(properties.checkedChildrenIcon) as string | undefined)
-const checkedIconRef = ref<{ component: Component | null; props: Record<string, any> } | null>(null)
-
-watch(
-  [checkedIconName, iconSize, svgCacheVersion],
-  ([name, sz]) => {
-    if (!name) { checkedIconRef.value = null; return }
-    checkedIconRef.value = getIconComponentRef(name, { size: sz, strokeWidth: 2 })
-  },
-  { immediate: true },
-)
-const checkedChildrenIcon = computed(() => createIconRenderer(checkedIconRef.value) ?? null)
+const checkedIconRef = useIconComponentRef(checkedIconName, { strokeWidth: 2 })
+const checkedChildrenIcon = computed(() => {
+  if (!checkedIconRef.value?.component) return null
+  const iconRef = { ...checkedIconRef.value, props: { ...checkedIconRef.value.props, size: iconSize.value } }
+  return createIconRenderer(iconRef) ?? null
+})
 
 const uncheckedIconName = computed(() => resolveValue(properties.unCheckedChildrenIcon) as string | undefined)
-const uncheckedIconRef = ref<{ component: Component | null; props: Record<string, any> } | null>(null)
-
-watch(
-  [uncheckedIconName, iconSize, svgCacheVersion],
-  ([name, sz]) => {
-    if (!name) { uncheckedIconRef.value = null; return }
-    uncheckedIconRef.value = getIconComponentRef(name, { size: sz, strokeWidth: 2 })
-  },
-  { immediate: true },
-)
-const unCheckedChildrenIcon = computed(() => createIconRenderer(uncheckedIconRef.value) ?? null)
+const uncheckedIconRef = useIconComponentRef(uncheckedIconName, { strokeWidth: 2 })
+const unCheckedChildrenIcon = computed(() => {
+  if (!uncheckedIconRef.value?.component) return null
+  const iconRef = { ...uncheckedIconRef.value, props: { ...uncheckedIconRef.value.props, size: iconSize.value } }
+  return createIconRenderer(iconRef) ?? null
+})
 
 const initVal = computed(() => resolveValue(properties.value) as boolean ?? false)
 const value = ref(initVal.value)

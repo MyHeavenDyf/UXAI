@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, useAttrs } from "vue"
+import { computed, onMounted, ref, useAttrs,h } from "vue"
 import { ElRate } from "element-plus"
 import type { RateNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
@@ -47,11 +47,28 @@ const disabled = computed(() => properties?.disabled || false)
 const size = computed(() => {
   return properties.size ? sizeEnum[properties.size] : "default"
 })
+
+const StarIcon = {
+  render() {
+    return h('svg', {
+      viewBox: '0 0 1024 1024',
+      width: '1rem',
+      height: '1rem',
+      fill: 'currentColor'
+    }, [
+      h('path', {
+        d: 'M512 64l140 284 313 45-226 221 53  312-280-147-280 147 53-312-226-221 313-45z'
+      })
+    ])
+  }
+}
 </script>
 
 <template>
   <ElRate
     ref="elRateRef"
+    :void-icon="StarIcon"
+    void-color="#DFDFDF"
     :id="id"
     :class="className"
     :max="count"

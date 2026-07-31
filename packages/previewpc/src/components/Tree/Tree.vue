@@ -6,6 +6,7 @@ import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import { getIconComponentRef, createIconRenderer } from "../Icon/IconBase"
 import { svgCacheVersion } from "../../composables/useIconProvider"
+import { useTheme } from "../../composables/useTheme"
 import "./Tree.less"
 
 interface TreeNodeData {
@@ -94,11 +95,13 @@ const rawTreeData = computed<RawNode[]>(() => {
 })
 
 // ---- 图标解析（同步，使用 createIconRenderer 封装为 Element Plus 可接受的 Component） ----
+const { isDark } = useTheme()
 function resolveIcons(nodes: RawNode[]): TreeNodeData[] {
+  const shape = isDark.value ? 'fill' : 'lined'
   return nodes.map((node) => {
     let icon: (() => any) | undefined
     if (node.iconName) {
-      const refComp = getIconComponentRef(node.iconName, { size: 14 })
+      const refComp = getIconComponentRef(node.iconName, { size: 14, shape })
       icon = createIconRenderer(refComp) ?? undefined
     }
     return {
@@ -113,7 +116,7 @@ function resolveIcons(nodes: RawNode[]): TreeNodeData[] {
 const treeData = ref<TreeNodeData[]>([])
 
 watch(
-  [rawTreeData, svgCacheVersion],
+  [rawTreeData, svgCacheVersion, isDark],
   ([raw]) => {
     treeData.value = resolveIcons(raw)
   },
