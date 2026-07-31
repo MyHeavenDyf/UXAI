@@ -2956,7 +2956,7 @@ if (dsId) {
       })
   }
 
-  const inputDisabled = () => sending() || isBusy() || childBusy() || !activeModelKey() || !!questionRequest() || !!permissionRequest()
+  const inputDisabled = () => !activeModelKey() || !!questionRequest() || !!permissionRequest()
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
