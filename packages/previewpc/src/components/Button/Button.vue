@@ -120,9 +120,11 @@ const iconNameForRef = computed(() => {
   const name = resolveValue(properties?.icon) as string
   return name || undefined
 })
-const baseIconRef = useIconComponentRef(iconNameForRef, { strokeWidth: 1 })
 
 const resolvedIcon = computed(() => {
+  const iconColor = onlyIcon.value ? '#0067D1' : 
+  (!type.value || type.value === 'default') ? '#191919' : '#FFFFFF'
+  const baseIconRef = useIconComponentRef(iconNameForRef, { strokeWidth: 1, color: iconColor})
   if (!baseIconRef.value?.component || !iconName.value) return null
   const base = baseIconRef.value
   const isHui = "iconColor" in base.props

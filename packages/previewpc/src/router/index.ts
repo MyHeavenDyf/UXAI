@@ -20,8 +20,8 @@ const router = createRouter({
       component: () => import("../views/ComponentPage.vue"),
     },
     {
-      path: "/custom",
-      name: "Custom",
+      path: "/chart",
+      name: "Charts",
       component: () => import("../views/CustomPage.vue"),
     },
   ],
