@@ -60,8 +60,17 @@
 				"className": {
 					"type": "string",
 					"description": "Tailwind CSS classes for the component."
+				},
+				"indeterminate": {
+					"oneOf": [{
+							"type": "boolean"
+						},
+						{
+							"$ref": "#/$defs/DataBinding"
+						}
+					],
+					"description": "Determines if the checkbox is indeterminate."
 				}
-
 			},
 			"required": []
 		},

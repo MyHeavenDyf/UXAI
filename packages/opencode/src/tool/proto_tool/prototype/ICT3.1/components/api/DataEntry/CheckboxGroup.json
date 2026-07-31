@@ -47,6 +47,26 @@
 					],
 					"description": "Semantic checkbox options."
 				},
+				"disabled": {
+					"oneOf": [{
+							"type": "boolean"
+						},
+						{
+							"$ref": "#/$defs/DataBinding"
+						}
+					],
+					"description": "Determines if the checkbox is disabled."
+				},
+				"indeterminate": {
+					"oneOf": [{
+							"type": "boolean"
+						},
+						{
+							"$ref": "#/$defs/DataBinding"
+						}
+					],
+					"description": "Determines if the checkbox is indeterminate."
+				},
 				"className": {
 					"type": "string",
 					"description": "Tailwind CSS classes for the component."
