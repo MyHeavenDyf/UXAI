@@ -102,10 +102,15 @@ export function useTabModel(tab: TabName) {
     ),
   )
 
-  // Patch local.model.set to detect user-initiated selections.
+  // Patch local.model.set to detect user-initiated selections
+  // and prevent automatic restoration from re-enabling hidden models.
   const origSet = local.model.set.bind(local.model)
   local.model.set = (item, options) => {
     if (options?.recent) userInitiated = true
-    return origSet(item, options)
+    if (!item) return origSet(item, options)
+    const wasVisible = local.model.visible(item)
+    const result = origSet(item, options)
+    if (!wasVisible) local.model.setVisibility(item, false)
+    return result
   }
 }
