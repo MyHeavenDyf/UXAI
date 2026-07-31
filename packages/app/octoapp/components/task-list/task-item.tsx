@@ -49,6 +49,7 @@ export function TaskItemRow(props: {
   item: TaskItem
   onPause: (item: TaskItem) => void
   onCancel: (item: TaskItem) => void
+  onRemove: (item: TaskItem) => void
 }) {
   const item = () => props.item
   const progressPercent = () => Math.round(item().progress ?? 0)
@@ -63,6 +64,8 @@ export function TaskItemRow(props: {
   const showPause = () => item().canPause && (isInProgress() || isPaused())
   // 取消按钮：非终态且 canCancel 时显示
   const showCancel = () => item().canCancel && (isPending() || isInProgress() || isPaused())
+  // 关闭按钮：仅失败任务显示,hover 点击移除该条(失败已另有 toast,任务中心记录消费后即可清掉)
+  const showRemove = () => isError()
   // 进度条填充色：进行中蓝、暂停灰（pending 为 0% 不显形）
   const barColor = () => isInProgress() ? "#0A59F7" : "#777777"
   const totalSize = () => item().size > 0 ? TaskStore.formatFileSize(item().size) : ""
@@ -135,6 +138,14 @@ export function TaskItemRow(props: {
                 }}
                 style={{ width: "16px", height: "16px", "background-image": "url(/task/task-cancel.svg)", "background-size": "contain", "background-repeat": "no-repeat", "background-position": "center" }}
                 onClick={() => props.onCancel(item())}
+              />
+            </Show>
+            <Show when={showRemove()}>
+              <button
+                type="button"
+                class="rounded-full transition-colors hover:bg-black/[0.06] cursor-pointer"
+                style={{ width: "16px", height: "16px", "background-image": "url(/task/task-panel-close.svg)", "background-size": "contain", "background-repeat": "no-repeat", "background-position": "center" }}
+                onClick={() => props.onRemove(item())}
               />
             </Show>
           </div>

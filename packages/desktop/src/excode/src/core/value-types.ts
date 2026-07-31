@@ -7,7 +7,7 @@
  *   string / number / boolean / null + 数组 + 嵌套对象
  */
 
-import type { BuildNode } from './nodeTypes'
+import type { BuildNode } from './node-types'
 
 // ─── ExtractRoute（三路由） ───
 

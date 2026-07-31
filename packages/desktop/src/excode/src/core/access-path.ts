@@ -12,7 +12,28 @@
  *   - 相对嵌套：值在循环项（enrichment 写嵌套位置）→ 模板 destructure 顶级字段 + 属性访问
  */
 
-import type { ComputedValue } from './valueTypes'
+import type { ComputedValue } from './value-types'
+
+/**
+ * 将 JSON Pointer 路径转为 JS 属性访问表达式。
+ *
+ * - 绝对路径 `/a/b/0/c` → `a.b[0].c`
+ * - 相对路径 `field/0/0/label` → `field[0][0].label`
+ * - 平面路径 `name` → `name`
+ *
+ * 数字段用 `[n]`（数组索引），字符串段用 `.name`。
+ * 用于 emitValue（relPath）和 stateBuilder（writeKey）等需要产 JS 代码的位置。
+ * 不改变 accessPath 的存储格式（保留 `/` 以兼容 collectRelativeFields / resolveBySegments）。
+ */
+export function pathToJsAccess(path: string): string {
+  const segments = path.replace(/^\//, '').split('/').filter(Boolean)
+  if (segments.length === 0) return ''
+  let r = segments[0]
+  for (let i = 1; i < segments.length; i++) {
+    r += /^\d+$/.test(segments[i]) ? `[${segments[i]}]` : `.${segments[i]}`
+  }
+  return r
+}
 
 /** accessPath 是否平面（无 `.` `[` `]`）→ 进文件顶部 destructure 为本地变量 */
 export function isFlatAccessPath(ap: string | undefined | null): boolean {

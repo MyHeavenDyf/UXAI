@@ -6,9 +6,9 @@
  */
 
 import { Step } from '../core/step'
-import type { PipelineContext } from '../pipeline/pipelineContext'
+import type { PipelineContext } from '../pipeline/pipeline-context'
 import { mappingRegistry } from '../../config/mappings/index'
-import { setIconPackage } from '../core/iconCollection'
+import { setIconPackage } from '../core/icon-collection'
 
 export class RegisterComponents extends Step {
   async execute(ctx: PipelineContext): Promise<void> {

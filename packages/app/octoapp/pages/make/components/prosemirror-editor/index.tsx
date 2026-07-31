@@ -195,9 +195,12 @@ export const ProseMirrorEditor = (props: Props) => {
       })
     }
 
+    // 自动聚焦放到下一帧:此刻 DOM 刚插入,同帧 focus() 会被随后的布局/父级渲染抢掉
     if (props.autofocus && !props.disabled) {
       requestAnimationFrame(() => {
-        if (connected(editorView)) editorView.focus()
+        if (editorView.dom?.isConnected) {
+          editorView.focus()
+        }
       })
     }
 
@@ -207,11 +210,7 @@ export const ProseMirrorEditor = (props: Props) => {
   createEffect(() => {
     const v = view()
     if (!v) return
-    
-    const isEditable = !props.disabled
-    if (v.editable !== isEditable) {
-      v.setProps({ ...v.props, editable: () => isEditable })
-    }
+    v.setProps({ ...v.props, editable: () => !props.disabled })
   })
 
   // Close popover when clicking outside

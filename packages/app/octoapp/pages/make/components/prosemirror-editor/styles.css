@@ -64,6 +64,8 @@
   flex: 1 0 auto;
   padding: 1rem 12px 1rem 1rem;
   outline: none;
+  flex: 1 0 auto;
+  padding: 1rem 12px 1rem 1rem;
 }
 
 .pm-editor .ProseMirror:focus {

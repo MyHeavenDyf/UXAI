@@ -13,24 +13,30 @@
  */
 
 import { Step } from '../core/step'
-import type { PipelineContext } from '../pipeline/pipelineContext'
-import type { MappedPage } from '../pipeline/pipelineContext'
-import { buildState, type StateBuilderResult } from '../codegen/stateBuilder'
-import { finalizeTree, type TreeFinalizerResult } from '../codegen/treeFinalizer'
-import { assembleAllFiles } from '../codegen/fileAssembler'
-import { fileKeyOf } from '../core/fileKeys'
+import type { PipelineContext } from '../pipeline/pipeline-context'
+import type { MappedPage } from '../pipeline/pipeline-context'
+import { buildState, type StateBuilderResult } from '../codegen/state-builder'
+import { finalizeTree, type TreeFinalizerResult } from '../codegen/tree-finalizer'
+import { assembleAllFiles } from '../codegen/file-assembler'
+import { fileKeyOf } from '../core/file-keys'
 import {
+  StyleConverter,
+  buildStyleImportMap,
   collectRulesFromValue,
   appendConstRules,
   toPascalCase,
   type LessRule,
   type StyleResult,
-} from '../codegen/styleConverter'
+} from '../codegen/style-converter'
 
 export class FileGenerator extends Step {
   async execute(ctx: PipelineContext): Promise<void> {
     const stateResults = new Map<string, StateBuilderResult>()
     const finalResults = new Map<string, TreeFinalizerResult>()
+    const styleResults: StyleResult[] = []
+    const styleImportMap = new Map<string, string>()
+    const cssModules = ctx.config?.css !== false
+    const emitId = ctx.config?.id !== false   // 默认 true，可翻 false
     const generatedFiles: Array<{ path: string; content: string }> = []
 
     for (const mappedPage of ctx.mappedPages) {
@@ -40,8 +46,22 @@ export class FileGenerator extends Step {
       const finalResult = finalizeTree(mappedPage as any, stateResult)
       finalResults.set(mappedPage.pageName, finalResult)
 
-      const styleImportMap = (ctx as any).styleImportMap as Map<string, string> | undefined
-      const emitId = ctx.config?.id !== false   // 默认 true，可翻 false
+      // 样式提取：在 tree-finalizer 之后用 final extractedFiles（已过滤掉被 mapping
+      // 消化 / force-inline 的循环模板），避免生成有 .less 无 .tsx 的孤儿文件。
+      // （原先在 GenerateStyles 步骤用 mp.extracts，那时 treeFinalizer 还没过滤。）
+      const sc = new StyleConverter()
+      const styleResult = sc.convertPage(
+        mappedPage.pageName,
+        finalResult.mainFile.rootTree,
+        finalResult.extractedFiles,
+        { cssModules },
+      )
+      styleResults.push(styleResult)
+      // 增量构建 styleImportMap（assembleAllFiles 按本页 jsx 路径查相对 .less 路径）
+      for (const [k, v] of buildStyleImportMap([styleResult], cssModules)) {
+        styleImportMap.set(k, v)
+      }
+
       const files = assembleAllFiles(
         mappedPage.pageName,
         stateResult,
@@ -53,15 +73,13 @@ export class FileGenerator extends Step {
       // 被提升为文件顶部 const 的值（jsxLiteralConsts / enrichmentConsts /
       // moduleTopConsts）已脱离主树，#collectRules 走主树时拿不到它们的 className。
       // state-builder / tree-finalizer 产物就绪后，在此补全对应 lessFile 的规则。
-      const styleResults = (ctx as any).styleResults as StyleResult[] | undefined
-      const styleResult = styleResults?.find(s => s.pageName === mappedPage.pageName)
-      if (styleResult) {
-        this.#augmentStyleFromConsts(mappedPage.pageName, stateResult, finalResult, styleResult)
-      }
+      this.#augmentStyleFromConsts(mappedPage.pageName, stateResult, finalResult, styleResult)
     }
 
     ;(ctx as any).stateResults = stateResults
     ;(ctx as any).finalResults = finalResults
+    ;(ctx as any).styleResults = styleResults
+    ;(ctx as any).styleImportMap = styleImportMap
     ctx.generatedFiles = generatedFiles
   }
 

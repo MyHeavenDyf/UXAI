@@ -132,6 +132,7 @@ export function ResultViewer(props: {
   const [commenting, setCommenting] = createSignal(false)
   const [archiving, setArchiving] = createSignal(false)
   const [refreshKey, setRefreshKey] = createSignal(0)
+  const combinedRefreshKey = createMemo(() => refreshKey() + (props.filesRefreshKey ?? 0))
 
   const handleViewportChange = (vp: ViewportPreset) => {
     tracker.interaction({ module: "design", name: "change-viewport", extend: JSON.stringify({ viewport: vp }) })
@@ -374,26 +375,24 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
 
         {/* plan 模式 — 设计规划生成阶段,有 planCard 时渲染（未确认/未结束状态） */}
         <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && !props.planConfirmPending && !props.childPlanConfirmed && !props.planEnded}>
-          <Show when={props.planCard} keyed>
-            {(plan) => (
-              <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
-                <DesignPlanRenderer
-                  content={plan.content}
-                  title={plan.title}
-                  artifactIdentifier={plan.artifactIdentifier}
-                  confirmed={props.isPlanConfirmed?.() ?? false}
-                  disabled={props.childBusy}
-                  onConfirm={() => props.onConfirmPlan?.(plan.artifactIdentifier)}
-                  onContentChange={(content) => {
-                    if (props.onContentChange && plan.id) {
-                      props.onContentChange(plan.id, content)
-                    }
-                  }}
-                  onBackToStrategy={() => props.onBackToStrategy?.()}
-                  currentStep={2}
-                />
-              </div>
-            )}
+          <Show when={props.planCard}>
+            <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <DesignPlanRenderer
+                content={props.planCard?.content ?? ""}
+                title={props.planCard?.title ?? ""}
+                artifactIdentifier={props.planCard?.artifactIdentifier}
+                confirmed={props.isPlanConfirmed?.() ?? false}
+                disabled={props.childBusy}
+                onConfirm={() => props.onConfirmPlan?.(props.planCard?.artifactIdentifier)}
+                onContentChange={(content) => {
+                  if (props.onContentChange && props.planCard?.id) {
+                    props.onContentChange(props.planCard.id, content)
+                  }
+                }}
+                onBackToStrategy={() => props.onBackToStrategy?.()}
+                currentStep={2}
+              />
+            </div>
           </Show>
         </Show>
 
@@ -587,7 +586,7 @@ drawing={drawing()}
                           onInspectTarget={setInspectTarget}
                           onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
                           onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
-                          refreshKey={refreshKey()}
+                          refreshKey={combinedRefreshKey()}
                           filePath={tab.filePath}
                           commentFilePath={tab.commentFilePath}
                           sessionId={tab.sessionId ?? props.sessionId}
@@ -607,7 +606,7 @@ drawing={drawing()}
                     </Match>
                     <Match when={tabType === "svg"}>
                       <iframe
-                        src={`local:///${tab.filePath?.replace(/\\/g, '/')}?v=${refreshKey()}`}
+                        src={`local:///${tab.filePath?.replace(/\\/g, '/')}?v=${combinedRefreshKey()}`}
                         style={{ width: "100%", height: "100%", border: "none" }}
                       />
                     </Match>
@@ -634,19 +633,19 @@ drawing={drawing()}
                       />
                     </Match>
                     <Match when={tabType === "image"}>
-                      <ImageRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <ImageRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "video"}>
-                      <VideoRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <VideoRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "audio"}>
-                      <AudioRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <AudioRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "pdf"}>
-                      <PdfRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <PdfRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "text"}>
-                      <TextRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <TextRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "file"}>
                       <div class="flex items-center justify-center h-full">

@@ -8,8 +8,8 @@
  */
 
 import { Step } from '../core/step'
-import type { PipelineContext } from '../pipeline/pipelineContext'
-import { buildRouterFile } from '../codegen/routeGenerator'
+import type { PipelineContext } from '../pipeline/pipeline-context'
+import { buildRouterFile } from '../codegen/route-generator'
 
 export class GenerateRoutes extends Step {
   async execute(ctx: PipelineContext): Promise<void> {

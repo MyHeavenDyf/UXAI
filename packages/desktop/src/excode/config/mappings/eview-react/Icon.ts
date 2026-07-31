@@ -28,7 +28,7 @@
  * iconCollection 模块级 iconPkg 决定，经 registerComponents 注入，非此处的 pkg）。
  */
 
-import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
+import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import { Value } from '../../../src/core/value'
 import { Node } from '../../../src/core/node'
 
