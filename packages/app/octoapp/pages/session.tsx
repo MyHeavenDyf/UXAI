@@ -1982,6 +1982,7 @@ export default function Page() {
                           setFollowup("items", id, [])
                           setFollowup("failed", id, undefined)
                           setFollowup("paused", id, true)
+                          void halt(id)
                         },
                         onRemove: removeQueued,
                         onSend: (id) => {
