@@ -91,7 +91,9 @@ export function MakeLayoutProvider(props: ParentProps) {
     })
   })
 
-  const leftCollapsed = createMemo(() => windowW() <= MAKE_LEFT_COLLAPSE_BP)
+  const leftCollapsed = createMemo(
+    () => windowW() <= MAKE_LEFT_COLLAPSE_BP || windowW() <= leftW() + MAKE_CENTER_MIN,
+  )
   const rightCollapsed = createMemo(() => windowW() <= leftW() + MAKE_CENTER_MIN + MAKE_RIGHT_MIN)
 
   // 抽屉态固定宽度(参考 chat:抽屉展开时显示 296,宽屏恢复可拖拽宽度)
