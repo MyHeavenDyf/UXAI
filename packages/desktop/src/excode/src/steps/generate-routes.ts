@@ -7,9 +7,9 @@
  * 产物由 WriteOutput（Step 7）写到 `src/routes/index.jsx`。
  */
 
-import { Step } from '../core/Step'
-import type { PipelineContext } from '../pipeline/PipelineContext'
-import { buildRouterFile } from '../codegen/routeGenerator'
+import { Step } from '../core/step'
+import type { PipelineContext } from '../pipeline/pipeline-context'
+import { buildRouterFile } from '../codegen/route-generator'
 
 export class GenerateRoutes extends Step {
   async execute(ctx: PipelineContext): Promise<void> {

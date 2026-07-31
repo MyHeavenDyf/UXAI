@@ -9,18 +9,18 @@ import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
 
-import { ComponentRegistry } from './src/core/ComponentRegistry'
-import { Pipeline } from './src/pipeline/Pipeline'
-import { PipelineContext } from './src/pipeline/PipelineContext'
+import { ComponentRegistry } from './src/core/component-registry'
+import { Pipeline } from './src/pipeline/pipeline'
+import { PipelineContext } from './src/pipeline/pipeline-context'
 
-import { RegisterComponents } from './src/steps/RegisterComponents'
-import { BuildTrees } from './src/steps/BuildTrees'
-import { NodeMapper } from './src/steps/nodeMapper'
-import { GenerateStyles } from './src/steps/generateStyles'
-import { FileGenerator } from './src/steps/fileGenerator'
-import { GenerateRoutes } from './src/steps/GenerateRoutes'
-import { WriteOutput } from './src/steps/WriteOutput'
-import { GenerateReport } from './src/steps/GenerateReport'
+// 步骤
+import { RegisterComponents } from './src/steps/register-components'
+import { BuildTrees } from './src/steps/build-trees'
+import { NodeMapper } from './src/steps/node-mapper'
+import { FileGenerator } from './src/steps/file-generator'
+import { GenerateRoutes } from './src/steps/generate-routes'
+import { WriteOutput } from './src/steps/write-output'
+import { GenerateReport } from './src/steps/generate-report'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -105,7 +105,6 @@ const DEFAULT_STEPS = [
   'RegisterComponents',
   'BuildTrees',
   'NodeMapper',
-  'GenerateStyles',
   'FileGenerator',
   'GenerateRoutes',
   'GenerateReport',
@@ -116,7 +115,6 @@ const STEP_MAP: Record<string, any> = {
   RegisterComponents,
   BuildTrees,
   NodeMapper,
-  GenerateStyles,
   FileGenerator,
   GenerateRoutes,
   GenerateReport,

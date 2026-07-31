@@ -10,16 +10,16 @@
  */
 
 // ─── tailwind → CSS 转换器 ──────────────────────────────────
-// CLI 模式用（使用 tw-to-css 的本地实现）
+// CLI 模式用（tailwindcss v4 __unstable__loadDesignSystem 本地实现）
 // import { convertTailwindToCSS } from '../../../lib/convertTailwindToCSS'
 // Electron 模式用（引用 Electron 主进程已有模块）
 import { convertTailwindToCSS } from '../../../main/tailwind-to-css'
 // ────────────────────────────────────────────────────────────
 
-import type { BuildNode, ComponentNode, HtmlNode, LoopNode, RegularNode } from '../core/nodeTypes'
-import type { PropValue } from '../core/valueTypes'
-import type { PendingExtractedFile } from './treeFinalizer'
-import { rewriteCssUrlPaths } from '../core/resourcePath'
+import type { BuildNode, ComponentNode, HtmlNode, LoopNode, RegularNode } from '../core/node-types'
+import type { PropValue } from '../core/value-types'
+import type { PendingExtractedFile } from './tree-finalizer'
+import { rewriteCssUrlPaths } from '../core/resource-path'
 
 /** ─── 手动开关 ─── */
 /** 是否使用 CSS Modules（*.module.less）。可在调用方覆盖。 */
@@ -229,7 +229,7 @@ function safeConvert(cn: string): Record<string, string> {
     // 调用前先改写 className 里的本地资源 url()（bg-[url(/uploads/...)] → /assets/...），
     // convertTailwindToCSS 是封装好的纯转换，不在此函数内塞资源路径逻辑。
     const rewritten = rewriteCssUrlPaths(cn)
-    const r = convertTailwindToCSS(rewritten, true) as Record<string, string | number>
+    const r = convertTailwindToCSS(rewritten,true) as Record<string, string | number>
     const out: Record<string, string> = {}
     for (const [k, v] of Object.entries(r)) out[k] = String(v)
     return out
@@ -278,6 +278,53 @@ export function toPascalCase(s: string): string {
     .filter(Boolean)
     .map(w => w.charAt(0).toUpperCase() + w.slice(1))
     .join('')
+}
+
+/**
+ * 把 less file path 反查为 jsx file path，并给出 jsx 内应写的相对 import 路径。
+ *
+ * lessFiles.path 形如：
+ *   'src/pages/{pageName}/styles/{PascalName}.module.less'  (CSS Modules)
+ *   'src/pages/{pageName}/styles/{PascalName}.less'           (全局)
+ *
+ * 对应 jsx（每个都用自己的相对路径）：
+ *   'src/pages/{pageName}/index.jsx'                  → './styles/{PascalName}.module.less' 或 './styles/{PascalName}.less'
+ *   'src/pages/{pageName}/modules/{PascalName}.jsx'    → '../styles/{PascalName}.<ext>'
+ *   'src/pages/{pageName}/components/{PascalName}.jsx' → '../styles/{PascalName}.<ext>'
+ */
+export function buildStyleImportMap(
+  results: StyleResult[],
+  cssModules: boolean
+): Map<string, string> {
+  // 非 CSS Modules 模式：*.less 是全局 CSS，没有默认导出，不需要 import styles。
+  // 返回空 map 让 file-assembler 走原始 className 字符串路径。
+  if (!cssModules) return new Map()
+
+  const map = new Map<string, string>()
+  const ext = 'module.less'
+  for (const ps of results) {
+    for (const lf of ps.lessFiles) {
+      const m = lf.path.match(/^src\/pages\/([^/]+)\/styles\/([^/]+?)(?:\.module)?\.less$/)
+      if (!m) continue
+      const pageName = m[1]
+      const fileName = m[2]
+
+      // 主页面 vs 抽取判定：fileName 是 pageName 的 PascalCase → 主页面
+      if (fileName === toPascalCase(pageName)) {
+        map.set(`src/pages/${pageName}/index.tsx`, `./styles/${fileName}.${ext}`)
+      } else {
+        map.set(
+          `src/pages/${pageName}/modules/${fileName}.tsx`,
+          `../styles/${fileName}.${ext}`
+        )
+        map.set(
+          `src/pages/${pageName}/components/${fileName}.tsx`,
+          `../styles/${fileName}.${ext}`
+        )
+      }
+    }
+  }
+  return map
 }
 
 // ─── 被提升为文件顶部 const 的值（jsxLiteralConsts / enrichmentConsts / moduleTopConsts）

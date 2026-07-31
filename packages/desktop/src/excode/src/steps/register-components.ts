@@ -5,10 +5,10 @@
  * 使用 ESM 静态 import，编译期完成路径解析。
  */
 
-import { Step } from '../core/Step'
-import type { PipelineContext } from '../pipeline/PipelineContext'
+import { Step } from '../core/step'
+import type { PipelineContext } from '../pipeline/pipeline-context'
 import { mappingRegistry } from '../../config/mappings/index'
-import { setIconPackage } from '../core/iconCollection'
+import { setIconPackage } from '../core/icon-collection'
 
 export class RegisterComponents extends Step {
   async execute(ctx: PipelineContext): Promise<void> {

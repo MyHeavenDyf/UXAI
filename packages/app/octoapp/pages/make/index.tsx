@@ -2042,7 +2042,7 @@ const sessionMessagesLoaded = createMemo(() => {
       // 每轮注入,确保 agent 始终知道如何获取视觉资源。
       const resourceLibraryPrefix = [
         `[Resource Library]`,
-        `当需要图标、插画、图片等视觉资源时，如果用户未指定来源，且如果存在resourceLibrary这个skill，必须使用 resourceLibrary skill 来获取这些资源。`,
+        `当需要图标、插画、图片等视觉资源时，如果用户未指定来源，必须先去当前注入的artifact路径去找这个配置文件：{session-dir}/resource/assets_config.json，然后去找这个json里面的user字段里面的useResourceLibrary字段，如果存在这个字段且值为true而且如果存在resourceLibrary这个skill就必须使用 resourceLibrary skill 来获取这些资源。`,
         `resourceLibrary 不在 available_skills 列表中，是一个独立路径的 skill，不能通过 skill 工具调用。`,
         `使用方式：`,
         `1. 用 glob 工具查找 SKILL.md：glob path="~/.config/octo" pattern="**/resourceLibraryScript/resourceLibrary/SKILL.md"`,

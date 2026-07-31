@@ -138,8 +138,7 @@ SPEC-INS-014 文件管理器面板的用户操作。删除（单个 / 批量）�
 |---|---|---|---|
 | `files-download-file` | 下载单个文件 | `file-manager/index.tsx` `handleDownload` | — |
 | `files-batch-download` | 批量打包（zip）下载 | `handleBatchDownload` | `{count}` |
-| `files-preview-file` | 单击文件到右侧预览 | `handlePreview` | — |
-| `files-open-in-tab` | 打开文件到结果 tab | `handleOpenFile` | — |
+| `files-open-in-tab` | 打开文件到结果 tab（单击文件行 / 行尾菜单「在标签页中打开」） | `handleOpenFile` | — |
 | `files-add-to-session` | 「加入会话」把文件挂到输入 | `handleAddToSession` | — |
 | `files-open-in-explorer` | 「在文件夹中显示」 | `handleOpenInExplorer` | — |
 | `files-navigate-folder` | 进入子目录 | 目录行 onClick | — |
