@@ -17,7 +17,7 @@ export const MAKE_LEFT_DEFAULT = 296
 export const MAKE_CENTER_MIN = 360
 export const MAKE_RIGHT_MIN = 500
 export const MAKE_CRATIO_DEFAULT = 0.5
-export const MAKE_LEFT_COLLAPSE_BP = 650
+export const MAKE_LEFT_COLLAPSE_BP = 656
 
 const LEFT_KEY = "octo:make:left-width"
 const RATIO_KEY = "octo:make:split-ratio"
@@ -35,6 +35,8 @@ function loadNum(key: string, fallback: number, min: number, max: number): numbe
 export type MakeLayoutValue = {
   leftW: Accessor<number>
   setLeftW: (w: number) => void
+  /** 实际渲染宽度:抽屉态固定为默认宽度,宽屏态为可拖拽的 leftW */
+  displayLeftW: Accessor<number>
   cRatio: Accessor<number>
   setCRatio: (r: number) => void
   windowW: Accessor<number>
@@ -94,6 +96,9 @@ export function MakeLayoutProvider(props: ParentProps) {
   )
   const rightCollapsed = createMemo(() => windowW() <= leftW() + MAKE_CENTER_MIN + MAKE_RIGHT_MIN)
 
+  // 抽屉态固定宽度(参考 chat:抽屉展开时显示 296,宽屏恢复可拖拽宽度)
+  const displayLeftW = createMemo(() => (leftCollapsed() ? MAKE_LEFT_DEFAULT : leftW()))
+
   const centerW = createMemo(() => {
     const W = windowW()
     if (leftCollapsed()) return W
@@ -145,10 +150,10 @@ export function MakeLayoutProvider(props: ParentProps) {
   createEffect(() => {
     document.body.classList.toggle("make-right-drawer-open", rightDrawerOpen())
   })
-  // 窗口收窄到抽屉阈值时,自动收起左侧抽屉,避免遮挡内容
+  // 窗口跨越抽屉阈值时收起左侧抽屉:收窄避免遮挡,放宽避免残留遮罩
   createEffect(
-    on(leftCollapsed, (c) => {
-      if (c) setLeftDrawerOpen(false)
+    on(leftCollapsed, () => {
+      setLeftDrawerOpen(false)
     }),
   )
   onCleanup(() => {
@@ -173,6 +178,7 @@ export function MakeLayoutProvider(props: ParentProps) {
   const value: MakeLayoutValue = {
     leftW,
     setLeftW,
+    displayLeftW,
     cRatio,
     setCRatio,
     windowW,
