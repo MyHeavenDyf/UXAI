@@ -74,7 +74,7 @@ export function TaskList() {
         {/* 列表区：撑满剩余高度并滚动；space-y-1 提供项间距，scrollbar-gutter 保证有/无滚动条时间距一致 */}
         <div class="task-center-scroll flex-1 pb-4 overflow-y-auto space-y-1" style={{ "padding-left": "calc(var(--spacing) * 4)", "padding-right": "calc(var(--spacing) * 2.5)", "scrollbar-gutter": "stable" }}>
           <For each={allItems()}>
-            {(item) => <TaskItemRow item={item} onPause={TaskStore.togglePause} onCancel={TaskStore.cancel} />}
+            {(item) => <TaskItemRow item={item} onPause={TaskStore.togglePause} onCancel={TaskStore.cancel} onRemove={TaskStore.remove} />}
           </For>
         </div>
       </div>
