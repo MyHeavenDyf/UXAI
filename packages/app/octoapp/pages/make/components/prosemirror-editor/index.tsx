@@ -210,11 +210,7 @@ export const ProseMirrorEditor = (props: Props) => {
   createEffect(() => {
     const v = view()
     if (!v) return
-    
-    const isEditable = !props.disabled
-    if (v.editable !== isEditable) {
-      v.setProps({ ...v.props, editable: () => isEditable })
-    }
+    v.setProps({ ...v.props, editable: () => !props.disabled })
   })
 
   // Close popover when clicking outside
