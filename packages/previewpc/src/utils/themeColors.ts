@@ -233,74 +233,74 @@ const iconColors = {
 
 const iconDarkColors = {
   default: {
-    color: "--gray-90",
-    twoColor: "--gray-90, --gray-30",
-    threeColor: "--gray-90, --gray-30, --gray-0",
+    color: "--gray-10",
+    twoColor: "--gray-10, --gray-30",
+    threeColor: "--gray-80, --gray-40, --gray-30",
   },
   info: {
     color: "--blue-50",
     twoColor: "--blue-50, --blue-30",
-    threeColor: "--blue-50, --blue-30, --blue-05",
+    threeColor: "--blue-80, --blue-40, --blue-30",
   },
   error: {
     color: "--red-50",
     twoColor: "--red-50, --red-30",
-    threeColor: "--red-50, --red-30, --red-05",
+    threeColor: "--red-80, --red-40, --red-30",
   },
   alert: {
     color: "--orange-50",
     twoColor: "--orange-50, --orange-30",
-    threeColor: "--orange-50, --orange-30, --orange-05",
+    threeColor: "--orange-80, --orange-40, --orange-30",
   },
   warning: {
     color: "--yellow-50",
     twoColor: "--yellow-50, --yellow-30",
-    threeColor: "--yellow-50, --yellow-30, --yellow-05",
+    threeColor: "--yellow-80, --yellow-40, --yellow-30",
   },
   success: {
     color: "--mint-50",
     twoColor: "--mint-50, --mint-30",
-    threeColor: "--mint-50, --mint-30, --mint-05",
+    threeColor: "--mint-80, --mint-40, --mint-30",
   },
   disabled: {
     color: "--gray-30",
     twoColor: "--gray-30, --gray-50",
-    threeColor: "--gray-30, --gray-50, --gray-0",
+    threeColor: "--gray-60, --gray-0, --gray-20",
   },
   brand: {
     color: "--brand-50",
     twoColor: "--brand-50, --brand-30",
-    threeColor: "--brand-50, --brand-30, --brand-05",
+    threeColor: "--brand-80, --brand-40, --brand-30",
   },
   rose: {
     color: "--rose-50",
     twoColor: "--rose-50, --rose-30",
-    threeColor: "--rose-50, --rose-30, --rose-05",
+    threeColor: "--rose-80, --rose-40, --rose-30",
   },
   pink: {
     color: "--pink-50",
     twoColor: "--pink-50, --pink-30",
-    threeColor: "--pink-50, --pink-30, --pink-05",
+    threeColor: "--pink-80, --pink-40, --pink-30",
   },
   purple: {
     color: "--purple-50",
     twoColor: "--purple-50, --purple-30",
-    threeColor: "--purple-50, --purple-30, --purple-05",
+    threeColor: "--purple-80, --purple-40, --purple-30",
   },
   indigo: {
     color: "--indigo-50",
     twoColor: "--indigo-50, --indigo-30",
-    threeColor: "--indigo-50, --indigo-30, --indigo-05",
+    threeColor: "--indigo-80, --indigo-40, --indigo-30",
   },
   cyan: {
     color: "--cyan-50",
     twoColor: "--cyan-50, --cyan-30",
-    threeColor: "--cyan-50, --cyan-30, --cyan-05",
+    threeColor: "--cyan-80, --cyan-40, --cyan-30",
   },
   green: {
     color: "--green-50",
     twoColor: "--green-50, --green-30",
-    threeColor: "--green-50, --green-30, --green-05",
+    threeColor: "--green-80, --green-40, --green-30",
   },
 }
 
