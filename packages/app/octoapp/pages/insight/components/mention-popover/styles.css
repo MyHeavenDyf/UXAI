@@ -19,7 +19,7 @@
 .ins-mention-tabs {
   display: flex;
   align-items: center;
-  border-radius: 8px;
+  border-radius: 999px;
   padding: 3px;
   background: var(--octo-surface-hover, rgba(0, 0, 0, 0.06));
   margin-bottom: 8px;
@@ -34,7 +34,7 @@
   color: var(--octo-text-secondary);
   background: transparent;
   border: none;
-  border-radius: 6px;
+  border-radius: 999px;
   cursor: pointer;
   transition: color 150ms ease, background-color 150ms ease;
 }
@@ -67,12 +67,12 @@
   transition: background-color 150ms ease;
 }
 
-.ins-mention-primary-item:hover {
-  background-color: var(--octo-brand-a8, rgba(10, 89, 247, 0.08));
+.ins-mention-primary-item:not(.ins-mention-primary-item--selected):hover {
+  background-color: rgba(0, 0, 0, 0.05);
 }
 
 .ins-mention-primary-item--selected {
-  background-color: var(--octo-brand-a12, rgba(10, 89, 247, 0.12));
+  background-color: rgba(10, 89, 247, 0.1);
   color: var(--octo-brand, #0a59f7);
 }
 
@@ -139,18 +139,17 @@
   box-sizing: border-box;
 }
 
-.ins-mention-item:hover {
-  background-color: var(--octo-brand-a8, rgba(10, 89, 247, 0.08));
+.ins-mention-item:not(.ins-mention-item--selected):hover {
+  background-color: rgba(0, 0, 0, 0.05);
 }
 
 .ins-mention-item--selected {
-  background-color: var(--octo-brand-a8, rgba(10, 89, 247, 0.08));
+  background-color: rgba(10, 89, 247, 0.08);
 }
 
-/* 键盘高亮(↑↓ 走到的那项)。与「已勾选」同底色会分不清,故另加左侧色条区分。 */
+/* 键盘高亮(↑↓ 走到的那项)。与 Design 一致:仅底色,不加左侧色条。 */
 .ins-mention-item--active {
-  background-color: var(--octo-brand-a8, rgba(10, 89, 247, 0.08));
-  box-shadow: inset 2px 0 0 var(--octo-brand, #0a59f7);
+  background-color: var(--octo-brand-a12, rgba(10, 89, 247, 0.12));
 }
 
 .ins-mention-item-text {
@@ -172,7 +171,7 @@
 .ins-mention-checkbox {
   width: 16px;
   height: 16px;
-  border-radius: 4px;
+  border-radius: 2px;
   border: 1.5px solid var(--octo-border-strong, rgba(0, 0, 0, 0.3));
   background: transparent;
   display: flex;
