@@ -57,7 +57,10 @@ export function MindmapRenderer(props: { content: string }): JSX.Element {
   onCleanup(() => instance?.destroy())
 
   return (
-    <div ref={wrapperRef} class="w-full h-full overflow-hidden" style={{ background: "white" }}>
+    // select-none:父层内容容器整体开了 select-text(见 result-viewer/index.tsx),但 markmap 自带
+    // 拖拽平移/缩放,画布上可选文本会让每次拖动都拉出一条选区高亮。图形视图靠「复制」按钮取整份
+    // 内容即可,这里显式关掉。
+    <div ref={wrapperRef} class="w-full h-full overflow-hidden select-none" style={{ background: "white" }}>
       <Show
         when={markdown()}
         fallback={<MindmapFormatError />}

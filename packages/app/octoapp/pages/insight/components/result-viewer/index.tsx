@@ -108,7 +108,13 @@ export function ResultViewer(props: {
                 onEdit={() => setEditingId(tab().id)}
                 getIframe={() => tabContainer?.querySelector("iframe") ?? null}
               />
-              <div class="flex-1 overflow-hidden">
+              {/* select-text:应用外壳(pages/layoutnet.tsx)整体 `select-none`(Electron 原生手感,
+                  避免拖窗/拖分隔线误选),白名单只有 input/textarea/contenteditable。产物预览是**内容**,
+                  用户要能划词复制,故在内容容器这一层开口 —— 只覆盖 TabBody,不含 TabBar / ActionBar
+                  等 chrome(它们是兄弟节点,保持不可选)。
+                  对话区同理由上游 message-part.css 的 text-part / user-message-text 白名单放开。
+                  图形类视图(markmap)需要拖拽平移,自行 select-none 关掉,见 mindmap-renderer.tsx。 */}
+              <div class="flex-1 overflow-hidden select-text">
                 <TabBody
                   tab={tab()}
                   onCacheContent={props.onCacheContent}
