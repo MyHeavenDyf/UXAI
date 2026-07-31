@@ -8,7 +8,7 @@ import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import "./Tag.less"
 import { useTheme } from "../../composables/useTheme"
-import {tagColors} from "../../utils/themeColors"
+import {tagColors, tagDarkColors} from "../../utils/themeColors"
 
 const { isDark } = useTheme()
 const sizeEnum = {
@@ -145,7 +145,8 @@ watch(
     
     if (!curColor) return false
     const newColor = resolveValue(curColor) as string
-    const typeColors = tagColors[variant.value as keyof typeof tagColors] || {}
+    const currentTagColors = isDark.value ? tagDarkColors : tagColors
+    const typeColors = currentTagColors[variant.value as keyof typeof currentTagColors] || {}
     const colorObj = typeColors[newColor as keyof typeof typeColors]
     if (colorObj) {
       const {text, bg, bgOpacity } = colorObj
