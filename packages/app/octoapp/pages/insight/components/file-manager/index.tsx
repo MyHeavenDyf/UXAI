@@ -48,7 +48,7 @@ import { getDesktopApi } from "../../lib/electron-api"
 import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
 import emptyFolderPng from "../../icons/empty_folder.png"
-import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload } from "../../icons/design-files-icons"
+import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload, IconFolder, IconFile } from "../../icons/design-files-icons"
 import { ALLOWED_EXT, getExt } from "../../lib/upload"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { FileManagerToolbar } from "./toolbar"
@@ -132,6 +132,7 @@ function FileManagerInner(props: {
   const fileStore = createInsightFileStore()
   const store = () => fileStore.store
   const [isDragOver, setIsDragOver] = createSignal(false)
+  const [emptyUploadOpen, setEmptyUploadOpen] = createSignal(false)
   let fileInputRef!: HTMLInputElement
   let folderInputRef!: HTMLInputElement
 
@@ -540,16 +541,57 @@ function FileManagerInner(props: {
         <Match when={!hasAnyFiles()}>
           <div class="flex flex-col items-center justify-center flex-1 min-h-0 text-center px-8">
             <img src={emptyPng} style={{ width: "150px", height: "150px" }} alt="" draggable={false} />
-            <span class="text-[14px] leading-[22px]" style={{ color: "var(--octo-text-secondary)", "margin-bottom": "20px" }}>暂无内容，点击上传新增文件吧</span>
-            <button
-              type="button"
-              onClick={() => fileInputRef?.click()}
-              class="flex items-center justify-center gap-2 transition-colors"
-              style={{ background: "var(--octo-brand)", color: "white", "border-radius": "var(--octo-radius-sm)", height: "32px", width: "108px", "font-size": "14px", "line-height": "22px", cursor: "pointer" }}
-            >
-              <IconUpload size={16} style={{ color: "white" }} />
-              <span>上传文件</span>
-            </button>
+            <span class="text-[14px] leading-[22px]" style={{ color: "var(--octo-text-secondary)", "margin-bottom": "20px" }}>暂无文件</span>
+            <span class="text-[14px] leading-[22px]" style={{ color: "var(--octo-text-primary)", "margin-bottom": "20px" }}>点击上传或拖入本地文件，统一管理会话文件</span>
+            <Kobalte open={emptyUploadOpen()} onOpenChange={setEmptyUploadOpen} modal={false} placement="bottom" gutter={4}>
+              <Kobalte.Trigger
+                as="button"
+                type="button"
+                class="flex items-center justify-center gap-2 transition-colors"
+                style={{
+                  background: "var(--octo-brand)",
+                  color: "white",
+                  "border-radius": "999px",
+                  height: "32px",
+                  width: "108px",
+                  "font-size": "14px",
+                  "line-height": "22px",
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-hover)") }}
+                onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand)") }}
+                onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-active)") }}
+                onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-active)") }}
+              >
+                <IconUpload size={16} />
+                <span>上传文件</span>
+              </Kobalte.Trigger>
+              <Kobalte.Portal>
+                <Kobalte.Content
+                  class="z-50 flex flex-col gap-1 rounded-md p-2"
+                  style={{ "box-shadow": "0 4px 12px rgba(0,0,0,0.16)", "min-width": "122px", "background-color": "var(--octo-surface-page)" }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => { folderInputRef?.click(); setEmptyUploadOpen(false) }}
+                    class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[var(--octo-surface-hover)]"
+                    style={{ height: "36px", "border-radius": "var(--octo-radius-md)", "font-size": "14px", "line-height": "22px", color: "var(--octo-text-primary)" }}
+                  >
+                    <IconFolder size={16} />
+                    <span>上传文件夹</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { fileInputRef?.click(); setEmptyUploadOpen(false) }}
+                    class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[var(--octo-surface-hover)]"
+                    style={{ height: "36px", "border-radius": "var(--octo-radius-md)", "font-size": "14px", "line-height": "22px", color: "var(--octo-text-primary)" }}
+                  >
+                    <IconFile size={16} />
+                    <span>上传文件</span>
+                  </button>
+                </Kobalte.Content>
+              </Kobalte.Portal>
+            </Kobalte>
           </div>
         </Match>
         <Match when={hasAnyFiles()}>

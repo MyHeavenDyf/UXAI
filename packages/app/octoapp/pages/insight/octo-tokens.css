@@ -5,9 +5,9 @@
  */
 :root {
   /* ── Brand ─────────────────────────────── */
-  --octo-brand:        #0067D1;
-  --octo-brand-hover:  #2E86DE;
-  --octo-brand-active: #004EA8;
+  --octo-brand:        #0A59F7;
+  --octo-brand-hover:  #0950DE;
+  --octo-brand-active: #0A55EB;
   --octo-brand-subtle: #EFF6FF;   /* surface.selected */
 
   /* brand alpha 层级 */
