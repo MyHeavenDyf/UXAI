@@ -2044,7 +2044,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
     setSending(true)
     setPrompt("")
-    const planSid = resultViewMode() === "plan" && planParentSessionId() === params.id ? activePlanSessionId() : null
+    const planSid = activePlanSessionId() && planParentSessionId() === params.id ? activePlanSessionId() : null
     const submitSessionId = planSid || params.id
     try {
       let sid = submitSessionId
