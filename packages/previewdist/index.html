@@ -15,18 +15,18 @@
   /* ── colors → --color-* ── */
   --color-primary: var(--color-brand, #0067D1);
   --color-on-primary: var(--color-text-inverse, #FFFFFF);
-  --color-primary-container: var(--color-info-primary-subtler, #E6F2FD);
+  --color-primary-container: var(--color-info-primary-subtler, #EEF3FE);
   --color-on-primary-container: var(--color-text-primary, #191919);
   --color-primary-fixed: var(--color-brand, #0067D1);
   --color-primary-fixed-dim: var(--color-brand-active, #004EA8);
   --color-on-primary-fixed: var(--color-text-inverse, #FFFFFF);
-  --color-on-primary-fixed-variant: var(--color-text-inverse, #F3F3F3);
+  --color-on-primary-fixed-variant: var(--color-text-inverse, #FFFFFF);
 
   --color-surface: var(--color-bg-1, #F3F3F3);
   --color-surface-dim: var(--color-bg-2, #FFFFFF);
   --color-surface-bright: var(--color-bg-2, #FFFFFF);
   --color-on-surface: var(--color-text-primary, #191919);
-  --color-surface-variant: var(--color-bg-1, rgba(192,192,192,0.2));
+  --color-surface-variant: var(--color-bg-1, #F3F3F3);
   --color-on-surface-variant: var(--color-text-secondary, #777777);
   --color-surface-container-lowest: var(--color-bg-1, #F3F3F3);
   --color-surface-container-low: var(--color-bg-2, #FFFFFF);
@@ -36,7 +36,7 @@
 
   --color-inverse-surface: var(--color-text-primary, #191919);
   --color-inverse-on-surface: var(--color-text-inverse, #FFFFFF);
-  --color-inverse-on-surface-variant: var(--color-text-disabled, #C9C9C9);
+  --color-inverse-on-surface-variant: var(--color-text-inverse-disabled, #FFFFFF);
   --color-inverse-primary: var(--color-brand, #0067D1);
 
   --color-error: var(--color-error, #E02128);
@@ -59,17 +59,25 @@
   --color-warning-container: var(--color-message-bg-warning, #FEFCE0);
   --color-on-warning-container: var(--color-text-primary, #191919);
 
-  --color-info: var(--color-info-primary, #0067D1);
+  --color-info: var(--color-info-primary, #2070F3);
   --color-on-info: var(--color-text-inverse, #FFFFFF);
-  --color-info-container: var(--color-message-bg-info, #E6F2FD);
+  --color-info-container: var(--color-message-bg-info, #EEF3FE);
   --color-on-info-container: var(--color-text-primary, #191919);
 
+  --color-content-placeholder: var(--color-text-placeholder, #AEAEAE);
+  --color-content-disabled: var(--color-text-disabled, #C9C9C9);
+  --color-content-inverse-disabled: var(--color-text-inverse-disabled, #FFFFFF);
+  --color-interactive-link: var(--color-link, #0067D1);
+  --color-interactive-link-hover: var(--color-link-hover, #2E86DE);
+  --color-interactive-link-active: var(--color-link-active, #004EA8);
+  --color-interactive-link-visited: var(--color-link-visited, #715AFB);
+  --color-interactive-link-disabled: var(--color-link-disabled, #8ABEF3);
+  --color-scrim: var(--color-bg-mask, rgba(25, 25, 25, 0.3));
+  --color-outline: var(--color-border, #C9C9C9);
+  --color-outline-variant: var(--color-border-separator, #DFDFDF);
   --color-divider: var(--color-border-separator, #DFDFDF);
-
-  /* borderColor / outlineColor → --color-* */
-  --color-base: var(--color-border, #C9C9C9);
+  --color-focus-ring: var(--color-border-focus, #0067D1);
   --color-selected: var(--color-border-focus, #0067D1);
-  --color-brand: var(--color-border-focus, #0067D1);
 
   /* ── spacing → --spacing-* ── */
   --spacing-inline: 0.5rem;
@@ -80,12 +88,12 @@
   --spacing-page: 2rem;
 
   /* ── boxShadow → --shadow-* ── */
-  --shadow-sm: var(--shadow-sm, 0px 1px 6px 0 rgba(0, 0, 0, 0.08));
-  --shadow-base: var(--shadow-base, 0 4px 12px 0px rgba(0, 0, 0, 0.16));
-  --shadow-md: var(--shadow-md,0 8px 24px rgba(0, 0, 0, 0.08));
-  --shadow-lg: var(--shadow-lg, 0 8px 24px 0px rgba(0, 0, 0, 0.16));
-  --shadow-xl: var(--shadow-xl, 0 16px 48px 0px rgba(0, 0, 0, 0.16));
-  --shadow-card: var(--shadow-sm, 1px 1px 6px 0 rgba(0, 0, 0, 0.08));
+  --shadow-sm: 0px 1px 6px 0 rgba(0, 0, 0, 0.08);
+  --shadow-base: 0 4px 12px 0 rgba(0, 0, 0, 0.16);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px 0 rgba(0, 0, 0, 0.16);
+  --shadow-xl: 0 16px 48px 0 rgba(0, 0, 0, 0.16);
+  --shadow-card: var(--shadow-sm, 0px 1px 6px 0 rgba(0, 0, 0, 0.08));
   --shadow-popover: var(--shadow-lg, 0 8px 24px 0px rgba(0, 0, 0, 0.16));
   --shadow-modal: var(--shadow-xl, 0 16px 48px 0px rgba(0, 0, 0, 0.16));
 
@@ -107,8 +115,6 @@
   --outline-offset-gap: 2px;
 
   /* ── fontSize → --text-* (+ --text-*--line-height) ── */
-  --text-xs: 10px;
-  --text-xs--line-height: 1.8;
   --text-sm: 12px;
   --text-sm--line-height: 1.6;
   --text-md: 14px;
@@ -431,7 +437,7 @@
   --color-hui-tag-bg-info: var(--color-tag-bg-info);
 }
     </style>
-    <script defer src="./assets/index-z5wXp96x.js"></script>
+    <script defer src="./assets/index-D8x94Rqu.js"></script>
   </head>
   <body>
     <div id="app"></div>
