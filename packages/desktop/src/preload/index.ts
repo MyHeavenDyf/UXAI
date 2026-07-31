@@ -59,6 +59,10 @@ const api: ElectronAPI = {
   openPath: (path, app) => ipcRenderer.invoke("open-path", path, app),
   showItemInFolder: (path) => ipcRenderer.invoke("show-item-in-folder", path),
   downloadResource: (url, destPath) => ipcRenderer.invoke("download-resource", url, destPath),
+  // office「下载」按钮:解析资源已落地的本地副本(不拉网络,缺失返回 null)+ 把本地副本拷到用户选定路径(fs.copyFile)。
+  resolveMaterializedPath: (namespace, baseDir, sessionId) =>
+    ipcRenderer.invoke("resolve-materialized-path", namespace, baseDir, sessionId),
+  copyFileTo: (srcPath, destPath) => ipcRenderer.invoke("copy-file-to", srcPath, destPath),
   downloadResourceToTemp: (url, namespace, filename, baseDir, sessionId) =>
     ipcRenderer.invoke("download-resource-to-temp", url, namespace, filename, baseDir, sessionId),
   // SPEC-INS-014 v2(会话隔离):把源文件拷贝进 <baseDir>/.octo/tmps/(预会话落地区,主进程 fs.copyFile);返回落地路径。
@@ -105,6 +109,7 @@ const api: ElectronAPI = {
   deleteFile: (path) => ipcRenderer.invoke("delete-file", path),
   writeClipboardText: (text) => ipcRenderer.invoke("write-clipboard-text", text),
   capturePreviewRect: (rect) => ipcRenderer.invoke("capture-preview-rect", rect),
+  capturePreviewPage: (opts) => ipcRenderer.invoke("capture-preview-page", opts),
   tailwindToCss: (className) => ipcRenderer.invoke("tailwind-to-css", className),
   cssToTailwind: (cssObject) => ipcRenderer.invoke("css-to-tailwind", cssObject),
   getPreviewDistDir: () => ipcRenderer.invoke("get-preview-dist-dir"),
@@ -113,8 +118,9 @@ const api: ElectronAPI = {
   getPatternPreview: (category, filename, theme) => ipcRenderer.invoke("get-pattern-preview", category, filename, theme),
   getPatternAssets: (category, folderName, theme) => ipcRenderer.invoke("get-pattern-assets", category, folderName, theme),
   getDesignSystems: () => ipcRenderer.invoke("get-design-systems"),
-  downloadHuiCode: (jsonData) => ipcRenderer.invoke("download-hui-code", jsonData),
+  downloadHuiCode: (jsonData, options?: { targetLib?: string }) => ipcRenderer.invoke("download-hui-code", jsonData, options),
   runPixsoBuild: (input) => ipcRenderer.invoke("run-pixso-build", input),
+  getTopixsoDir: () => ipcRenderer.invoke("get-topixso-dir"),
   exportZip: (opts) => ipcRenderer.invoke("export-zip", opts),
   importZip: () => ipcRenderer.invoke("import-zip"),
   codeToHtml: (opts) => ipcRenderer.invoke("capture-page", opts),

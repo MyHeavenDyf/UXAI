@@ -107,6 +107,8 @@ export function ResultViewer(props: {
   planConfirmPending?: boolean
   /** 子 agent 最终确认状态（基于 childSessionIDs 消息流扫描） */
   childPlanConfirmed?: boolean
+  /** 右侧面板抽屉展开时,头部右侧收起按钮回调 */
+  onCollapseDrawer?: () => void
   /** 子 session 的 session_status（用于检测子 agent 是否已完成但未输出有效 plan） */
   childSessionStatus?: { type: string }
   /** 子 session 是否正在生成中（模型输出期间禁用按钮和表单） */
@@ -130,27 +132,32 @@ export function ResultViewer(props: {
   const [commenting, setCommenting] = createSignal(false)
   const [archiving, setArchiving] = createSignal(false)
   const [refreshKey, setRefreshKey] = createSignal(0)
+  const combinedRefreshKey = createMemo(() => refreshKey() + (props.filesRefreshKey ?? 0))
+
+  const handleViewportChange = (vp: ViewportPreset) => {
+    tracker.interaction({ module: "design", name: "change-viewport", extend: JSON.stringify({ viewport: vp }) })
+    setViewport(vp)
+  }
 
   const handleCanvasToDesign = async () => {
-    const tab = activeTab()
-    if (!tab || tab.type !== "html") {
-      showToast({ title: "请先打开HTML文件" })
-      return
-    }
-
+    tracker.interaction({ module: "design", name: "canvas-to-design" })
     try {
-      showToast({ title: "生成ZIP文件..." })
-      
-      const htmlContent = extractCodeBlock(tab.content, "html")
-      const zipBlob = await createC2DZip({
-        htmlContent,
-        htmlFilePath: tab.filePath || "",
-        tabTitle: tab.title
-      })
+      const tab = activeTab()
+      if (!tab || tab.type !== "html") {
+        showToast({ title: "请先打开HTML文件" })
+        return
+      }
 
       const isLoggedIn = !!localStorage.getItem('uiplusToken')
-      
+
       if (!isLoggedIn) {
+        showToast({ title: "生成ZIP文件..." })
+        const htmlContent = extractCodeBlock(tab.content, "html")
+        const zipBlob = await createC2DZip({
+          htmlContent,
+          htmlFilePath: tab.filePath || "",
+          tabTitle: tab.title
+        })
         const fileName = `${tab.title}-c2d.zip`
         const url = URL.createObjectURL(zipBlob)
         const a = document.createElement("a")
@@ -164,32 +171,27 @@ export function ResultViewer(props: {
         return
       }
 
-      showToast({ title: "上传中..." })
-      
-      const result = await uploadZip(zipBlob, {
-        containerId: "root",
-        deathDay: 7,
-        limitTimes: 1
+      const result = await uploadZip(async () => {
+        showToast({ title: "生成ZIP文件..." })
+        const htmlContent = extractCodeBlock(tab.content, "html")
+        return await createC2DZip({
+          htmlContent,
+          htmlFilePath: tab.filePath || "",
+          tabTitle: tab.title
+        })
       }, projectSelection())
+
+      console.log('pixsourl', result?.pixsoUrl)
 
       if (!result.webview) {
         showToast({ title: "创建失败" })
         return
       }
 
-      showToast({
-        title: "创建成功",
-        description: `传送码: ${result.code}`
-      })
-
-      result.onMessage('render-complete', () => {
-        showToast({ title: "渲染完成" })
-      })
-    } catch (err) {
-      showToast({
-        title: "上传失败",
-        description: err instanceof Error ? err.message : String(err)
-      })
+      console.log('pixso loaded')
+    } catch (error) {
+      console.error("[handleCanvasToDesign] Error:", error)
+      showToast({ title: "操作失败", description: String(error) })
     }
   }
 
@@ -198,6 +200,7 @@ export function ResultViewer(props: {
   const toggleHtmlMode = (id: string) => {
     const current = getHtmlMode(id)
     const nextMode = current === "preview" ? "edit" : "preview"
+    tracker.interaction({ module: "design", name: "toggle-preview-source", extend: JSON.stringify({ mode: nextMode }) })
     setHtmlModes((prev) => ({ ...prev, [id]: nextMode }))
     if (nextMode === "edit") {
       setInspecting(false)
@@ -227,7 +230,13 @@ export function ResultViewer(props: {
   })
 
   const handleRefresh = () => {
+    tracker.interaction({ module: "design", name: "refresh-preview" })
     setRefreshKey((prev) => prev + 1)
+  }
+
+  const handleFocusModeToggle = () => {
+    tracker.interaction({ module: "design", name: "toggle-focus-mode", extend: JSON.stringify({ action: props.focusMode ? "close" : "open" }) })
+    props.onFocusModeToggle?.()
   }
 
 const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId: string; prop: string; value: string }>) => {
@@ -290,7 +299,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
 
   return (
     <div
-      class="flex flex-col flex-1 min-w-0 overflow-hidden"
+      class="flex flex-col flex-1 min-w-0 min-h-0"
       style={{ background: "var(--octo-surface-result)" }}
     >
       <Show when={props.tabs.length > 0 || props.viewMode === "files" || props.viewMode === "plan"} fallback={<ResultViewerEmpty />}>
@@ -304,6 +313,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           showPlanEntry={!!props.planCard}
           planConfirmed={props.isPlanConfirmed?.()}
           planEnded={props.planEnded}
+          onCollapseDrawer={props.onCollapseDrawer}
         />
 
         <Show when={props.viewMode === "files" && props.sessionId}>
@@ -487,14 +497,14 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
             const showFocusToggle = tabType !== "design-plan"
 
             return (
-              <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
                 <Show when={tabType !== "design-plan"}>
 <ActionBar
                    tab={tab}
                    mode={canToggle ? htmlMode() : undefined}
                    onModeChange={canToggle ? () => toggleHtmlMode(tabId) : undefined}
                    viewport={viewport()}
-                   onViewportChange={setViewport}
+                   onViewportChange={handleViewportChange}
                    palette={palette()}
                    onPaletteChange={setPalette}
                    editing={editing()}
@@ -506,15 +516,15 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                      if (nextEditing && commenting()) setCommenting(false)
                      if (nextEditing && archiving()) setArchiving(false)
                    }}
-                   drawing={drawing()}
-                   onDrawToggle={htmlMode() === "edit" ? undefined : () => {
-                     const nextDrawing = !drawing()
-                     setDrawing(nextDrawing)
-                     tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
-                     if (nextDrawing && editing()) setEditing(false)
-                     if (nextDrawing && commenting()) setCommenting(false)
-                     if (nextDrawing && archiving()) setArchiving(false)
-                   }}
+drawing={drawing()}
+                    onDrawToggle={htmlMode() === "edit" ? undefined : () => {
+                      const nextDrawing = !drawing()
+                      setDrawing(nextDrawing)
+                      tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
+                      if (nextDrawing && editing()) setEditing(false)
+                      if (nextDrawing && commenting()) setCommenting(false)
+                      if (nextDrawing && archiving()) setArchiving(false)
+                    }}
                    commenting={commenting()}
                    onCommentToggle={htmlMode() === "edit" ? undefined : () => {
                      const nextCommenting = !commenting()
@@ -536,10 +546,10 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                     onCanvasToDesign={handleCanvasToDesign}
                     onRefresh={handleRefresh}
                    focusMode={props.focusMode}
-                   onFocusModeToggle={tabType !== "design-plan" ? props.onFocusModeToggle : undefined}
+                   onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
                  />
                 </Show>
-                <div class="flex-1 min-h-0 overflow-hidden">
+                <div class="flex-1 min-h-0 min-w-0 overflow-hidden">
                   <Switch
                     fallback={
                       <div class="p-4 overflow-auto h-full">
@@ -576,7 +586,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                           onInspectTarget={setInspectTarget}
                           onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
                           onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
-                          refreshKey={refreshKey()}
+                          refreshKey={combinedRefreshKey()}
                           filePath={tab.filePath}
                           commentFilePath={tab.commentFilePath}
                           sessionId={tab.sessionId ?? props.sessionId}
@@ -596,7 +606,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                     </Match>
                     <Match when={tabType === "svg"}>
                       <iframe
-                        src={`local:///${tab.filePath?.replace(/\\/g, '/')}?v=${refreshKey()}`}
+                        src={`local:///${tab.filePath?.replace(/\\/g, '/')}?v=${combinedRefreshKey()}`}
                         style={{ width: "100%", height: "100%", border: "none" }}
                       />
                     </Match>
@@ -623,19 +633,19 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                       />
                     </Match>
                     <Match when={tabType === "image"}>
-                      <ImageRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <ImageRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "video"}>
-                      <VideoRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <VideoRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "audio"}>
-                      <AudioRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <AudioRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "pdf"}>
-                      <PdfRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <PdfRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "text"}>
-                      <TextRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <TextRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "file"}>
                       <div class="flex items-center justify-center h-full">

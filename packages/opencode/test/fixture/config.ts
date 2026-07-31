@@ -9,6 +9,8 @@ export function make(overrides: Partial<Config.Interface> = {}) {
     getConsoleState: () => Effect.succeed(emptyConsoleState),
     update: () => Effect.void,
     updateGlobal: (config) => Effect.succeed({ info: config, changed: false }),
+    replaceGlobalProvider: (providerID, provider) =>
+      Effect.succeed({ info: { provider: { [providerID]: provider } }, changed: false }),
     invalidate: () => Effect.void,
     directories: () => Effect.succeed([]),
     waitForDependencies: () => Effect.void,

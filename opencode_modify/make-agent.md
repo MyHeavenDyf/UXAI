@@ -98,7 +98,7 @@ Make agent 从通用英文提示演进为中文 `<artifact>` 标签格式，支�
 
 ### 允许 write 工具但约束到 artifact 目录（2026-06-30）
 
-- `src/agent/prompt/octo_make.txt`：放宽三处对 write 工具的硬性禁止（第 6、29、173 行），改为条件允许——默认仍用 `<artifact>` 标签；仅当用户明确要求用 write 工具时才允许，且写入路径必须限定在 `.octo/artifacts/make/<sessionId>/` 目录内。
+- `src/agent/prompt/octo_make.txt`：放宽三处对 write 工具的硬性禁止（第 6、29、173 行），改为条件允许——默认仍用 `<artifact>` 标签；仅当用户明确要求用 write 工具时才允许，且写入路径必须限定在 `.octo/<sessionId>/outputs/` 目录内。
 - 新增「文件写入规则（write 工具路径约束）」章节（插入在「产物交接」之后、「生成策略」之前），说明路径前缀固定、文件名规范、禁止路径、默认仍优先 artifact。
 - 配套前端改动（在 packages/app，非本目录）：`pages/make/index.tsx` 的 `sendMessage()` 在 prompt 最前面无条件注入 `[Artifact Folder]: <绝对路径>` 前缀，让 agent 知道当前会话的 artifact 目录绝对路径（含 sessionId）。
 - 原因：write 工具的 agent 权限已是 `allow`，但旧提示词明确禁止使用 write。用户希望保留 `<artifact>` 为默认输出方式的同时，允许 agent 在用户明确要求时用 write 工具——但严格约束到 artifact 目录，避免散落项目各处。前端注入绝对路径是因为 write 工具 schema 要求绝对路径，且 sessionId 只有前端知道。
@@ -106,7 +106,7 @@ Make agent 从通用英文提示演进为中文 `<artifact>` 标签格式，支�
 ### 同会话修改产物用 edit 工具（2026-06-30）
 
 - `src/agent/prompt/octo_make.txt`：在「文件写入规则」之后新增「文件编辑规则（edit 工具路径约束）」章节——仅当用户在同会话中明确引用之前的产物要修改时，才用 edit 工具直接改文件；路径必须来自前端注入的 `[Existing artifacts in this session]` 列表；跨会话或全新生成都不能用 edit。edit 权限保持 `ask`，触发弹窗由用户授权。
-- 配套前端改动（在 packages/app，非本目录）：`pages/make/index.tsx` 的 `sendMessage()` 在原有 `[Artifact Folder]` 注入基础上，调 `sdk.client.file.list` 扫描 `.octo/artifacts/make/<sessionId>/` 目录下已存在的文件，注入 `[Existing artifacts in this session]` 列表（每轮 sendMessage 重新扫盘，保证列表新鲜）。
+- 配套前端改动（在 packages/app，非本目录）：`pages/make/index.tsx` 的 `sendMessage()` 在原有 `[Artifact Folder]` 注入基础上，调 `sdk.client.file.list` 扫描 `.octo/<sessionId>/outputs/` 目录下已存在的文件，注入 `[Existing artifacts in this session]` 列表（每轮 sendMessage 重新扫盘，保证列表新鲜）。
 - 原因：用户希望同会话里改之前的产物时，agent 直接 edit 文件而非重新输出完整 `<artifact>`，省 token 也更符合"修改"语义。文件列表由前端注入而非 agent 自行 ls，是为了减少 tool call 轮次，并确保 agent 拿到准确的绝对路径。
 
 ### 设计规划改为两步走工作流（2026-07-16）

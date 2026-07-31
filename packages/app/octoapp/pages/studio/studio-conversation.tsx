@@ -4,8 +4,8 @@ import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { buildStudioDisplayPrompt, type StudioTurnData } from "./turns"
 import { StudioResultCard } from "./studio-result-card"
-import { isStudioEditResult, isVideoMedia, getImageOrientation } from "./studio-shared"
-import { STUDIO_STYLE_MODELS } from "./data"
+import { getDefaultDimensions, isStudioEditResult, isVideoMedia, getImageOrientation } from "./studio-shared"
+import { capabilityLabel, STUDIO_STYLE_MODELS } from "./data"
 import { StudioVideoPlayer } from "./studio-video-player"
 import { getArtifactRelativePath, getArtifactServeUrl } from "../make/utils/artifact-file-api"
 import { StudioFileManager } from "./studio-file-manager"
@@ -407,7 +407,7 @@ export function StudioResultCanvas(props: {
                 />
               </div>
               <Show when={!props.showFileManager || (props.showFileManager && props.fileManagerDetailView) || props.status === "running" || props.status === "queued" || props.status === "submitting"}>
-                <div style="display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;">
+                <div style="display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;container-type:inline-size;">
                 <Show when={props.showFileManager && props.fileManagerDetailView}>
                   <div class="studio-file-manager-back-bar">
                     <button
@@ -633,6 +633,30 @@ export function StudioDetails(props: {
 }): JSX.Element {
   const isEditResult = createMemo(() => isStudioEditResult(props.result))
   const isVideoResult = createMemo(() => props.result.capability === "video.generate" || isVideoMedia(props.image))
+  const editorTitle = createMemo(() => {
+    if (props.result.capability === "image.upscale") return capabilityLabel(props.result.capability)
+    if (props.result.capability === "image.cutout") return capabilityLabel(props.result.capability)
+    if (props.result.capability === "image.inpaint" || props.result.toolAction === "inpainting") return "智能重绘"
+    if (props.result.capability === "image.outpaint" || props.result.toolAction === "outpainting") return "扩图"
+    if (props.result.toolAction === "super_resolution") return "变清晰"
+    if (props.result.toolAction === "cutout") return "抠图"
+    return capabilityLabel(props.result.capability)
+  })
+  const detailTitle = createMemo(() => isEditResult()
+    ? editorTitle()
+    : props.result.detailTitle ?? buildStudioDisplayPrompt(props.result.prompt))
+  const detailCopy = createMemo(() => {
+    if (!isEditResult()) return props.result.prompt
+    if (props.result.capability === "image.inpaint" || props.result.capability === "image.outpaint" || props.result.toolAction === "inpainting" || props.result.toolAction === "outpainting") {
+      return props.result.detailPrompt?.trim() || "-"
+    }
+    return "-"
+  })
+  const resolution = createMemo(() => {
+    if (props.image?.width && props.image.height) return `${props.image.width} x ${props.image.height}`
+    const dimensions = getDefaultDimensions(props.result.styleModel ?? props.result.model, props.result.aspectRatio)
+    return dimensions ? `${dimensions.width} x ${dimensions.height}` : "-"
+  })
   const modelLabel = createMemo(() => {
     const m = props.result.styleModel || props.result.model
     const found = STUDIO_STYLE_MODELS.find((item) => item.id === m || item.label === m)
@@ -655,9 +679,9 @@ export function StudioDetails(props: {
         </For>
       </div>
       <section class="studio-detail-section">
-        <div class="studio-detail-title">{buildStudioDisplayPrompt(props.result.prompt)}</div>
+        <div class="studio-detail-title">{detailTitle()}</div>
         <p class="studio-detail-copy">
-          {props.result.prompt}
+          {detailCopy()}
         </p>
       </section>
       <section class="studio-detail-section">
@@ -671,7 +695,7 @@ export function StudioDetails(props: {
           <InfoRow label="时长" value={props.result.duration ? `${props.result.duration}秒` : "-"} />
         </Show>
         <Show when={!isVideoResult() && !isEditResult()}>
-          <InfoRow label="分辨率" value={props.image?.width && props.image?.height ? `${props.image.width} x ${props.image.height}` : "-"} />
+          <InfoRow label="分辨率" value={resolution()} />
         </Show>
         <InfoRow label="数量" value={`${props.result.images.length}`} />
         <InfoRow label="当前" value={`${Math.max(props.result.images.findIndex((item) => item.id === (props.selectedImageId ?? props.result.images[0]?.id)) + 1, 1)}/${props.result.images.length}`} />

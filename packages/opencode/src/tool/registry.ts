@@ -321,12 +321,14 @@ export const layer: Layer.Layer<
           return input.agent.name === "octo_insight"
         }
 
-        // insight 不放编辑类工具(SPEC-INS-021 §1:edit 归二次生成 ROADMAP D,v1 不放;
-        // write 保留给产物落盘)。不能走 agent 权限层 deny——Permission.disabled 把
-        // edit/write/apply_patch 都映射到 "edit" 权限键(EDIT_TOOLS),deny edit 会连带隐藏 write,
-        // 故在此按 agent 裁剪。副作用:gpt 系模型(下方 usePatch 用 apply_patch 替代 edit/write)
-        // 在 insight 无落盘通道,当前内网 GLM / 外网 Claude 不受影响,接 gpt 系时再单独处理。
-        if ((tool.id === EditTool.id || tool.id === ApplyPatchTool.id) && input.agent.name === "octo_insight") {
+        // insight 只摘除 apply_patch(2026-07-30:edit 放开——供编辑 md 交付物,outputs 重定向插件
+        // 已同步覆盖 edit 的 filePath,见 agent/octo-outputs-redirect.ts)。编辑类工具的裁剪一律在此、
+        // 不走 agent 权限层:Permission.disabled 把 edit/write/apply_patch 都映射到 "edit" 权限键
+        // (EDIT_TOOLS),在权限层动 edit 会连带隐藏要保留的 write。
+        // apply_patch 仍摘:它是 gpt 系的 edit 变体(下方 usePatch),参数是整段 patchText、无单一
+        // filePath,outputs 插件无法像 write/edit 那样重定向;当前内网 GLM / 外网 Claude 不走它,接
+        // gpt 系时再单独处理。
+        if (tool.id === ApplyPatchTool.id && input.agent.name === "octo_insight") {
           return false
         }
 

@@ -1,0 +1,99 @@
+/* Insight 输入框(ProseMirror)样式(SPEC-INS-023,本地化自 Design prosemirror-editor)。
+   与 mention-popover/styles.css 口径一致:一律走 --octo-* token,不留裸 rgba 与悬空变量
+   (拷贝来的原版用的 --bg-subtle 在本仓没有定义,disabled 底色其实一直没生效)。
+
+   类名一律 ins-pm-* 前缀:make/Design 各有一份同源编辑器,原版类名(pm-editor / pm-mention …)
+   完全同名,而 CSS 一旦加载就是全局的 —— 两份样式表会互相覆盖(实测 insight 页面上生效的是
+   make 的 .pm-editor padding 和 .pm-editor-wrapper::after 渐变)。同名就必然串味,只能靠命名空间隔开。 */
+
+/* 可点区域三段式(旧 textarea 时代整块都能聚焦,换 PM 后只剩第一行能点):
+   contenteditable 是 .ins-pm-editor 的**子**元素,内容一行时它就只有一行高,
+   剩下的高度属于不可编辑的父盒 → 点第二行以下不聚焦。
+   解法:wrapper 吃掉胶囊里的剩余高度 → .ins-pm-editor 撑满 wrapper → .ProseMirror 撑满它
+   并把 padding 移进 .ProseMirror(padding 也要算作可编辑区)。
+   注意 padding 只能有一层:placeholder 按 1rem 绝对定位对齐首行文字,父子都留 padding 会错开一行。 */
+.ins-pm-editor-wrapper {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  /* 胶囊(flex-col,min-height 150px)里附件条 / 按钮行之外的剩余高度全归编辑器,不留死区 */
+  flex: 1 0 auto;
+}
+
+.ins-pm-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+  min-height: 88px;
+  max-height: 184px;
+  overflow-y: auto;
+  outline: none;
+  font-family: var(--octo-font);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.ins-pm-editor:focus {
+  outline: none;
+}
+
+.ins-pm-editor.ins-pm-editor--disabled {
+  background: var(--octo-surface-disabled);
+  cursor: not-allowed;
+}
+
+.ins-pm-editor .ProseMirror {
+  flex: 1 0 auto;
+  padding: 1rem;
+  outline: none;
+}
+
+.ins-pm-editor .ProseMirror:focus {
+  outline: none;
+}
+
+.ins-pm-editor p {
+  margin: 0;
+}
+
+/* 行内灰胶囊。原版为 skill / file 各写了一条与基类完全同值的规则,已合并;
+   toDOM 仍输出 ins-pm-mention--skill / --file 类名,将来要区分两者直接加规则即可。 */
+.ins-pm-mention {
+  display: inline;
+  padding: 3px 0;
+  font-size: 12px;
+  border-radius: 999px;
+  background: var(--octo-surface-hover);
+  color: var(--octo-text-secondary);
+  cursor: pointer;
+}
+
+/* 选中态需要比胶囊底色更深一级的灰,token 表里没有对应层级(surface-hover / -disabled 同为 #F5F5F5),
+   故此处保留字面量,不拿 border/brand token 硬凑——换蓝底会改掉设计确认过的观感。 */
+.ins-pm-mention.ProseMirror-selectednode {
+  background: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+}
+
+.ins-pm-editor .ProseMirror-separator {
+  display: inline-block !important;
+  width: 1px;
+  height: 1.2em;
+  vertical-align: text-bottom;
+}
+
+.ins-pm-editor .ProseMirror-trailingBreak {
+  display: inline !important;
+}
+
+.ins-pm-placeholder {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  color: var(--octo-text-placeholder);
+  pointer-events: none;
+  font-size: 14px;
+  font-family: var(--octo-font);
+}

@@ -1,6 +1,10 @@
+import { Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { fileTypeIconUrl } from "../icons/illustrations"
-import type { OutputCard, OutputCardType } from "./insight-turn"
+import { materializeStateOf } from "../utils/local-resource"
+import { isMindmapJSON } from "../utils/mindmap-adapter"
+import type { OutputCard } from "./insight-turn"
+import type { OutputCardType } from "../utils/output-type"
 
 /**
  * 文件结果卡片(紧凑预览入口) — 2026-06 设计稿改版。
@@ -20,28 +24,82 @@ import type { OutputCard, OutputCardType } from "./insight-turn"
 const TYPE_SYNTH: Partial<Record<OutputCardType, { name?: string; mime?: string }>> = {
   html: { name: "x.html" },
   markdown: { name: "x.md" },
-  mindmap: { name: "x.json", mime: "application/json+mindmap" },
   json: { name: "x.json" },
 }
 
+/**
+ * 内容是思维导图 shape 吗。**只在已有 content 时判**(inline 卡出卡即带内容;
+ * uri 卡落盘前没有内容,不在这里读盘)。
+ *
+ * SPEC-INS-026 §4.4:**名字必须一致(那是身份),图标和文案不必**。对话入口卡是「这次产出了
+ * 什么」的语义视图,内容是导图就给思维导图图标 + 文案;文件管理是「磁盘上有什么」的文件视图,
+ * 按扩展名给图标即可(Finder 也不会因为 json 内容是导图就换图标)。两者不构成分叉。
+ */
+function looksLikeMindmap(card: OutputCard): boolean {
+  return card.type === "json" && !!card.content && isMindmapJSON(card.content)
+}
+
 function cardIconUrl(card: OutputCard): string {
+  if (looksLikeMindmap(card)) return fileTypeIconUrl("x.json", "application/json+mindmap")
   if (card.fileName || card.mimeType) return fileTypeIconUrl(card.fileName, card.mimeType)
   const synth = TYPE_SYNTH[card.type]
   return fileTypeIconUrl(synth?.name, synth?.mime)
 }
 
-export function OutputEntryCard(props: { card: OutputCard; onClick: () => void }): JSX.Element {
+/**
+ * 入口卡三态(2026-07 新增,见 spec output-renderers.md §6.B「产物落盘状态」):
+ *
+ * uri 产物是**先出卡、后台再下载**——卡片出现那一刻磁盘上还没有文件。这段窗口过去零反馈:
+ * 下载中点开只看到转圈,下载失败只有 console 知道,用户完全不知道有一份产物没拿到。故显式呈现:
+ *   - pending(准备中):副文案换成「准备中…」,卡片降饱和;**仍可点击**(点开后 tab 内继续等)
+ *   - failed(失败) :副文案换成失败原因摘要 + 右侧「重试」;整卡点击 = 重试
+ *   - ready(就绪)  :维持原样(创建时间)
+ * inline / path 源卡不走落盘,`materializeStateOf` 返回 undefined,按 ready 呈现。
+ */
+export function OutputEntryCard(props: {
+  card: OutputCard
+  onClick: () => void
+  /** 失败态重试(重新触发 eager 落盘);不传则失败态只展示、不可重试 */
+  onRetry?: () => void
+}): JSX.Element {
+  const state = () => materializeStateOf(props.card.id)?.state ?? "ready"
+  const label = () => previewEntryLabel(props.card)
+  const handleClick = () => {
+    if (state() === "failed") {
+      props.onRetry?.()
+      return
+    }
+    props.onClick()
+  }
   return (
-    <button type="button" class="octo-preview-entry" onClick={props.onClick}>
+    <button
+      type="button"
+      class="octo-preview-entry"
+      classList={{
+        "octo-preview-entry--pending": state() === "pending",
+        "octo-preview-entry--failed": state() === "failed",
+      }}
+      onClick={handleClick}
+    >
       <span class="octo-preview-entry__icon">
         <img src={cardIconUrl(props.card)} width={28} height={28} alt="" aria-hidden="true" />
       </span>
       <span class="octo-preview-entry__body">
-        <span class="octo-preview-entry__title">{previewEntryLabel(props.card)}</span>
-        <span class="octo-preview-entry__desc">创建时间: {formatCreatedTime(props.card.createdAt)}</span>
+        {/* 文件名过长会 truncate,title 让 hover 看到全名 */}
+        <span class="octo-preview-entry__title" title={label()}>{label()}</span>
+        <span class="octo-preview-entry__desc">{descText(props.card, state())}</span>
       </span>
+      <Show when={state() === "failed" && props.onRetry}>
+        <span class="octo-preview-entry__action">重试</span>
+      </Show>
     </button>
   )
+}
+
+function descText(card: OutputCard, state: "pending" | "ready" | "failed"): string {
+  if (state === "pending") return "准备中…"
+  if (state === "failed") return "获取失败，点击重试"
+  return `创建时间: ${formatCreatedTime(card.createdAt)}`
 }
 
 /**
@@ -50,10 +108,9 @@ export function OutputEntryCard(props: { card: OutputCard; onClick: () => void }
  */
 function previewEntryLabel(card: OutputCard): string {
   if (card.title && card.title.length > 0 && card.title !== "分析结果") return card.title
+  if (looksLikeMindmap(card)) return "思维导图"
   switch (card.type) {
     case "html": return "可视化页面"
-    case "mindmap": return "思维导图"
-    case "table": return "分析表格"
     case "markdown": return "Markdown 文档"
     case "json": return "JSON 数据"
     case "code": return card.fileName || "代码文件"

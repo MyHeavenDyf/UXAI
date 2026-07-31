@@ -13,9 +13,15 @@ import { QuickBriefFormView } from "./quick-brief-form"
 import './quick-brief-form.css'
 import { autoSaveArtifact } from "../utils/artifact-auto-save"
 import { parseUploadedFiles } from "../../insight/lib/upload"
+import { ExpandableBubble } from "@/components/expandable-bubble"
 
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
+
+// Render text with @mentions - plain text only, no chip styling
+function renderMentionText(text: string): JSX.Element {
+  return text
+}
 
 // 跟踪已 autoSave 的 artifact（避免重复调用）
 const autoSavedArtifacts = new Set<string>()
@@ -513,8 +519,20 @@ export function InsightTurn(props: {
 
   const userText = createMemo(() => {
     const parts = partStore?.[props.messageID] ?? []
+    
+    // 优先查找带有 metadata.displayText 的 text part（用于 @mention 显示）
+    const displayTextPart = parts.find(
+      (p) => p.type === "text" && (p as { metadata?: { displayText?: string } }).metadata?.displayText
+    )
+    if (displayTextPart) {
+      const metadata = (displayTextPart as { metadata?: { displayText?: string } }).metadata
+      return metadata?.displayText?.trim() ?? ""
+    }
+    
+    // 否则查找第一个 text part
     const textPart = parts.find((p) => p.type === "text")
     if (!textPart?.text) return ""
+    
     const raw = textPart.text
     const sepIdx = raw.lastIndexOf("\n---\n")
     if (sepIdx !== -1) return raw.slice(sepIdx + 5).trim()
@@ -994,11 +1012,11 @@ const stateStatus = state.status as string | undefined
       <Show when={userText() || userAttachments().length > 0}>
         <div class="flex flex-col items-end gap-2 px-3 py-2.5">
           <Show when={userText()}>
-            <div
+            <ExpandableBubble
               class="break-words"
               style={{
                 background: "var(--octo-brand-a8)",
-                padding: "8px 12px",
+                padding: "12px 16px",
                 "border-radius": "16px 16px 2px 16px",
                 color: "#191919",
                 "font-size": "14px",
@@ -1008,8 +1026,8 @@ const stateStatus = state.status as string | undefined
                 "max-width": "85%",
               }}
             >
-              {userText()}
-            </div>
+              {renderMentionText(userText())}
+            </ExpandableBubble>
           </Show>
           <Show when={userAttachments().length > 0}>
             <div class="flex flex-col gap-2">
@@ -1019,7 +1037,7 @@ const stateStatus = state.status as string | undefined
                     class="break-words flex items-center gap-2"
                     style={{
                       background: "var(--octo-brand-a8)",
-                      padding: "8px 12px",
+                      padding: "12px 16px",
                       "border-radius": "12px",
                       color: "#191919",
                       "font-size": "13px",
@@ -1087,7 +1105,7 @@ const stateStatus = state.status as string | undefined
       {/* AI 文字回复（proseText 已剥离 artifact 内容，使用 segments 渲染） */}
       <Show when={proseSegments().length > 0}>
         <div
-          class="mb-2 px-3 py-2"
+          class="mb-2 px-4 py-3"
           style={{ color: "#191919", "font-size": "14px", "line-height": "22px", "user-select": "text" }}
         >
           <For each={proseSegments()}>

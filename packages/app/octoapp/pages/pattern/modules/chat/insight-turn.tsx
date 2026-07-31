@@ -134,6 +134,7 @@ export function InsightTurn(props: {
   messageID: string
   status: SessionStatus
   pipelineBusy: boolean
+  errorCallId?: string
 }): JSX.Element {
   const data = useData()
   const partStore = data.store.part as Record<string, { type: string; text?: string }[]>
@@ -182,35 +183,27 @@ export function InsightTurn(props: {
 
   const customCardLabel = createMemo(() => {
     const text = userText()
-    if (text.endsWith("请分析用户需求中尚未明确的维度，输出缺失维度的选项清单。")) return "分析用户需求"
-    if (text.endsWith("请开始意图扩展。")) return "意图扩展"
+    if (text.endsWith("请分析用户需求，匹配合适的Pattern。")) return "需求确认"
+    if (text.endsWith("请开始意图扩展。")) return "功能完善"
     if (text.startsWith("请根据以下页面蓝图，设计外壳布局并指定下一步细化模块：")) return "布局规划"
-    if (text.startsWith("请为以下模块生成 A2UI JSON：")) return "模块生成"
+    if (text.startsWith("请为以下模块生成 A2UI JSON：")) return "区域生成"
     if (text.startsWith("请根据以下内容，修改外壳布局并指定下一步细化模块")) return "细化模块"
     if (text.startsWith("[顶层布局和Slots]:")) return "更新页面"
-    if (text.startsWith("[用户修改请求]: ")) return "分诊"
+    if (text.startsWith("[用户修改请求]: ")) return "思考分析"
+    if (text.includes("[分诊操作列表]:")) return "修改"
     return null
   })
 
   const showUserInput = createMemo(() =>
-    userText().endsWith("请分析用户需求中尚未明确的维度，输出缺失维度的选项清单。")
-    || userText().startsWith("[用户修改请求]:")
+    userText().startsWith("[用户修改请求]:")
   )
 
   // 用户输入卡片展示的精简文本：从完整 prompt 中提取用户实际输入部分
   const userInputDisplay = createMemo(() => {
     const text = userText()
-    // 首次输入: "[用户的需求:] ===...\n{用户输入}\n\n请分析..."
-    if (text.endsWith("请分析用户需求中尚未明确的维度，输出缺失维度的选项清单。")) {
-      const m = text.match(/\] *=+\s*([\s\S]*?)\s*\n+请分析用户需求/)
-      return m?.[1]?.trim() ?? text
-    }
     // 修改/分诊: "[用户修改请求]: {用户输入}\n\n[当前..." 或 "[用户修改请求]: ===\n{用户输入}\n\n[JSON..."
-    if (text.startsWith("[用户修改请求]:")) {
-      const m = text.match(/^\[用户修改请求\]:\s*(?:=+\s*\n)?([\s\S]*?)\n+\[/)
-      return m?.[1]?.trim() ?? text
-    }
-    return text
+    const m = text.match(/^\[用户修改请求\]:\s*(?:=+\s*\n)?([\s\S]*?)\n{2,}\[/)
+    return m?.[1]?.trim() ?? text
   })
 
   // 提取 reasoning 内容（包括 DeepSeek 的 <think> 标签）
@@ -266,11 +259,15 @@ export function InsightTurn(props: {
           input: input ?? undefined,
           output: hasOutput ? (state.output as string) : undefined,
           filePath: filePath || undefined,
+          error: isError ? stateError : undefined,
         }
       })
   })
 
-  const hasError = createMemo(() => toolCalls().some((c) => c.status === "error"))
+  const hasError = createMemo(() =>
+    toolCalls().some((c) => c.status === "error") ||
+    (!!props.errorCallId && props.errorCallId.split(",").includes(props.sessionID)),
+  )
   const fileOpsEntries = createMemo(() => deriveFileOps(toolCalls()))
 
   // ── NEW: prose text (stripped of artifacts and <think> tags) ──
@@ -498,8 +495,8 @@ export function InsightTurn(props: {
           <div
             class="mx-3 mb-1 captured-card-btn"
             classList={{
-              generating: assistantGenerating(),
-              error: !assistantGenerating() && hasError(),
+              generating: assistantGenerating() && !hasError(),
+              error: hasError(),
             }}
           >
             <div
@@ -526,7 +523,7 @@ export function InsightTurn(props: {
                   </svg>
                 </span>
               </div>
-              <Show when={!assistantGenerating() && hasError()} fallback={
+              <Show when={hasError()} fallback={
                 <Show when={assistantGenerating()} fallback={
                   <span class="gc-done-badge">完成</span>
                 }>
@@ -536,10 +533,7 @@ export function InsightTurn(props: {
                   </svg>
                 </Show>
               }>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="10" stroke="#D32F2F" stroke-width="2" />
-                  <path d="M9 9L15 15M15 9L9 15" stroke="#D32F2F" stroke-width="2" stroke-linecap="round" />
-                </svg>
+                <span class="gc-error-badge">错误</span>
               </Show>
             </div>
           </div>
@@ -559,7 +553,7 @@ export function InsightTurn(props: {
             }}
             class="mx-3 mb-2 px-3 py-2 rounded-md text-xs leading-relaxed overflow-auto reasoning-text"
           >
-            <Show when={assistantGenerating()}>
+            <Show when={assistantGenerating() && !hasError()}>
               <div class="text-[12px] text-[#999] reasoning-text-tip">思考中...</div>
             </Show>
             <For each={reasoningTexts()}>
@@ -587,10 +581,10 @@ export function InsightTurn(props: {
               }}
               class="mx-3 mb-2 px-3 py-2 rounded-md text-xs leading-relaxed overflow-auto prose-text"
             >
-              <Show when={assistantGenerating()}>
+              <Show when={assistantGenerating() && !hasError()}>
                 <div class="text-[12px] text-[#999] reasoning-text-tip">思考中...</div>
               </Show>
-              <Markdown text={proseText()} streaming={assistantGenerating()} />
+              <Markdown text={proseText()} streaming={assistantGenerating() && !hasError()} />
             </div>
           }>
             <pre
@@ -601,9 +595,9 @@ export function InsightTurn(props: {
                 })
               }}
               class="prose-json-pre mx-3 mb-2"
-              classList={{ completed: !assistantGenerating() }}
+              classList={{ completed: !assistantGenerating() || hasError() }}
             >
-              <Show when={assistantGenerating()}>
+              <Show when={assistantGenerating() && !hasError()}>
                 <div class="text-[12px] text-[#999] prose-text-tip">输出中...</div>
               </Show>
               {proseText()}

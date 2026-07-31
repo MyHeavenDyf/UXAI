@@ -62,11 +62,7 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState; children?:
                   placement="right-start"
                   gutter={12}
                   value={
-                    <ModelTooltip
-                      model={item}
-                      latest={item.latest}
-                      free={item.provider.id === "opencode" && (!item.cost || item.cost.input === 0)}
-                    />
+                    <ModelTooltip model={item} />
                   }
                 >
                   {node}
@@ -80,12 +76,8 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState; children?:
               }}
             >
               {(i) => (
-                <div class="w-full flex items-center gap-x-2.5">
+                <div class="w-full flex items-center">
                   <span>{i.name}</span>
-                  <Tag>{language.t("model.tag.free")}</Tag>
-                  <Show when={i.latest}>
-                    <Tag>{language.t("model.tag.latest")}</Tag>
-                  </Show>
                 </div>
               )}
             </List>

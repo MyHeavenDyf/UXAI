@@ -1,0 +1,127 @@
+.pm-editor-wrapper {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+  padding-right: 4px;
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+}
+.pm-editor-wrapper::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 24px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 1) 100%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.pm-editor {
+  min-height: 88px;
+  max-height: 240px;
+  overflow-y: auto;
+  outline: none;
+  font-family: var(--octo-font);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  scrollbar-width: auto;
+  -ms-overflow-style: auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+}
+.pm-editor::-webkit-scrollbar {
+  display: block;
+  width: 4px;
+  height: 4px;
+}
+.pm-editor::-webkit-scrollbar-thumb {
+  background-color: var(--border-weak-base);
+  border-radius: 9999px;
+}
+.pm-editor::-webkit-scrollbar-thumb:hover {
+  background-color: var(--border-strong-base);
+}
+.pm-editor::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.pm-editor:focus {
+  outline: none;
+}
+
+.pm-editor-wrapper .pm-editor.pm-editor--disabled {
+  background: #fff;
+  cursor: not-allowed;
+}
+
+.pm-editor .ProseMirror {
+  flex: 1 0 auto;
+  padding: 1rem 12px 1rem 1rem;
+  outline: none;
+  flex: 1 0 auto;
+  padding: 1rem 12px 1rem 1rem;
+}
+
+.pm-editor .ProseMirror:focus {
+  outline: none;
+}
+
+.pm-editor p {
+  margin: 0;
+}
+
+.pm-mention {
+  display: inline;
+  padding: 3px 0;
+  font-size: 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+}
+
+.pm-mention.pm-mention--skill {
+  background: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.pm-mention.pm-mention--file {
+  background: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.pm-mention.ProseMirror-selectednode {
+  background: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+}
+
+.pm-editor .ProseMirror-separator {
+  display: inline-block !important;
+  width: 1px;
+  height: 1.2em;
+  vertical-align: text-bottom;
+}
+
+.pm-editor .ProseMirror-trailingBreak {
+  display: inline !important;
+}
+
+.pm-editor .ProseMirror-trailingBreak {
+  display: inline !important;
+}
+
+.pm-placeholder {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  color: rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  font-size: 14px;
+  font-family: var(--octo-font);
+}

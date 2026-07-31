@@ -14,36 +14,8 @@ export type ModifiedSection = "today" | "yesterday" | "previous7Days" | "previou
 export type SortKey = "name" | "kind" | "mtime"
 export type SortDir = "asc" | "desc"
 
-const VIEW_STATE_KEY_PREFIX = "octo:insight:file-manager:view-state:v1:"
 const DEFAULT_SORT_KEY: SortKey = "mtime"
 const DEFAULT_SORT_DIR: SortDir = "desc"
-
-interface PersistedViewState {
-  sortKey?: SortKey
-  sortDir?: SortDir
-  kindFilter?: InsightFileKind[]
-  groupMode?: GroupMode
-  collapsedUploaded?: boolean
-  collapsedGenerated?: boolean
-}
-
-function readViewState(sessionId: string): PersistedViewState {
-  try {
-    const raw = localStorage.getItem(VIEW_STATE_KEY_PREFIX + sessionId)
-    if (!raw) return {}
-    const parsed = JSON.parse(raw) as unknown
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {}
-    return parsed as PersistedViewState
-  } catch {
-    return {}
-  }
-}
-
-function writeViewState(sessionId: string, state: PersistedViewState): void {
-  try {
-    localStorage.setItem(VIEW_STATE_KEY_PREFIX + sessionId, JSON.stringify(state))
-  } catch {}
-}
 
 function dateDaysBefore(date: Date, days: number): Date {
   const result = new Date(date)
@@ -161,27 +133,21 @@ function createFileListComputed(
   return { filteredFiles, sortedFiles, kindGroupEntries, modifiedGroups, visibleModifiedSections }
 }
 
-export function createInsightFileStore(sessionId: string) {
-  const saved = readViewState(sessionId)
-
+export function createInsightFileStore() {
   const [store, setStore] = createStore<InsightFileStore>({
     currentPath: "",
     uploadedFiles: [],
     generatedFiles: [],
-    collapsedUploaded: saved.collapsedUploaded ?? false,
-    collapsedGenerated: saved.collapsedGenerated ?? false,
+    collapsedUploaded: false,
+    collapsedGenerated: false,
     selected: new Set(),
-    sortKey: saved.sortKey ?? DEFAULT_SORT_KEY,
-    sortDir: saved.sortDir ?? DEFAULT_SORT_DIR,
-    kindFilter: new Set(saved.kindFilter ?? []),
-    groupMode: saved.groupMode ?? "kind",
+    sortKey: DEFAULT_SORT_KEY,
+    sortDir: DEFAULT_SORT_DIR,
+    kindFilter: new Set(),
+    groupMode: "kind",
     loading: false,
     error: null,
   })
-
-  // 右侧预览面板的目标文件:对齐 make/utils/artifact-file-store.ts 的 previewFile 信号模式。
-  // 与批量多选(selected Set)不同,这是单文件预览目标;在切路径 / 删文件时自动清空,避免悬空预览。
-  const [previewFile, setPreviewFile] = createSignal<InsightFile | null>(null)
 
   // 跨午夜时"今天/昨天"分桶会漂移:到下一个零点重算一次 dayBoundary,触发 modifiedGroups 重新分桶。
   const [dayBoundary, setDayBoundary] = createSignal(Date.now())
@@ -215,32 +181,10 @@ export function createInsightFileStore(sessionId: string) {
   // 改筛选条件后清掉已选(被筛掉的行不该继续算在选中里)
   createEffect(on(() => store.kindFilter, () => setStore("selected", new Set()), { defer: true }))
 
-  // 切换文件夹路径:清选中(旧路径的选中不再适用)+ 清预览(旧路径下的预览文件不再可见)。
+  // 切换文件夹路径:清选中(旧路径的选中不再适用)。
   createEffect(on(() => store.currentPath, () => {
     setStore("selected", new Set())
-    setPreviewFile(null)
   }, { defer: true }))
-
-  createEffect(on(
-    [
-      () => store.sortKey,
-      () => store.sortDir,
-      () => store.kindFilter,
-      () => store.groupMode,
-      () => store.collapsedUploaded,
-      () => store.collapsedGenerated,
-    ],
-    () => {
-      writeViewState(sessionId, {
-        sortKey: store.sortKey,
-        sortDir: store.sortDir,
-        kindFilter: Array.from(store.kindFilter),
-        groupMode: store.groupMode,
-        collapsedUploaded: store.collapsedUploaded,
-        collapsedGenerated: store.collapsedGenerated,
-      })
-    },
-  ))
 
   // kind 筛选可选项 + 各类型 count(两段文件合并统计,供工具栏筛选 popover 用)
   const kindCounts = createMemo(() => {
@@ -271,8 +215,6 @@ export function createInsightFileStore(sessionId: string) {
   return {
     store,
     setStore,
-    previewFile,
-    setPreviewFile,
     uploaded,
     generated,
     kindCounts,
@@ -344,7 +286,6 @@ export function createInsightFileStore(sessionId: string) {
       const nextSelected = new Set(store.selected)
       nextSelected.delete(path)
       setStore("selected", nextSelected)
-      if (previewFile()?.path === path) setPreviewFile(null)
     },
     navigateToFolder(folder: InsightFile) {
       if (!folder.isFolder) return

@@ -1,8 +1,9 @@
 import { mkdirSync, unlinkSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { isAbsolute, join } from "node:path"
-import { CHANNEL } from "./constants"
 import { getStore } from "./store"
+
+declare const OPENCODE_CHANNEL: string | undefined
 
 const STORAGE_MODE_KEY = "desktopStorageMode"
 
@@ -36,13 +37,14 @@ export function resolveDesktopStorage(userDataPath: string) {
 export function createAppDataFallbackStorage(userDataPath: string, reason?: string): DesktopStorage {
   const dataHome = userDataPath
   const dataDirectory = join(dataHome, "opencode")
+  const databasePath = join(dataDirectory, databaseFileName())
   const storage = {
     mode: "app-data-fallback" as const,
     dataHome,
     dataDirectory,
-    databasePath: join(dataDirectory, databaseFileName()),
+    databasePath,
     env: {
-      OPENCODE_DB: join(dataDirectory, databaseFileName()),
+      OPENCODE_DB: databasePath,
       XDG_DATA_HOME: dataHome,
       XDG_CONFIG_HOME: join(userDataPath, "xdg-config"),
       XDG_CACHE_HOME: join(userDataPath, "xdg-cache"),
@@ -66,7 +68,8 @@ export function persistAppDataFallback() {
 export function shouldRetryWithAppDataFallback(error: unknown, storage: DesktopStorage) {
   if (storage.mode !== "legacy") return false
   if (storage.explicitDatabase) return false
-  return serializeErrorMessage(error).toLowerCase().includes("unable to open database file")
+  const message = serializeErrorMessage(error).toLowerCase()
+  return message.includes("unable to open database file") || message.includes("sqlite_cantopen")
 }
 
 function createLegacyStorage(userDataPath: string): DesktopStorage {
@@ -104,8 +107,14 @@ function ensureWritableDirectory(directory: string) {
 }
 
 function databaseFileName() {
-  if (CHANNEL === "beta" || CHANNEL === "prod") return "opencode.db"
-  return `opencode-${CHANNEL}.db`
+  const channel = typeof OPENCODE_CHANNEL === "string" ? OPENCODE_CHANNEL : process.env.OPENCODE_CHANNEL ?? "local"
+  if (["latest", "beta", "prod"].includes(channel) || truthy(process.env.OPENCODE_DISABLE_CHANNEL_DB)) return "opencode.db"
+  return `opencode-${channel.replace(/[^a-zA-Z0-9._-]/g, "-")}.db`
+}
+
+function truthy(value: string | undefined) {
+  if (!value) return false
+  return !["0", "false"].includes(value.toLowerCase())
 }
 
 function serializeErrorMessage(error: unknown) {

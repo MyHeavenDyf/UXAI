@@ -16,8 +16,9 @@ export function stripCodeFence(text: string): string {
 }
 
 // markdown 表格检测(isMarkdownTable)已于 2026-06 移除:路径 B 不再把对话里的 md 表格嗅探成 table 卡。
-// 业务表格走路径 A(text/csv resource_link → TableRenderer);对话里 LLM 直出表格由上游 <Markdown> 原样渲染。
-// 表格解析/导出仍在 markdown-table.ts(parseMarkdownTable / tableToCSV),供路径 A 的 csv→table 复用。
+// table 类型本身已于 SPEC-INS-026 §7 退役(唯一生产者 text/csv 归 file);对话里 LLM 直出的表格
+// 由上游 <Markdown> 原样渲染,业务表格产物走 xlsx/csv 文件、用本地应用打开。
+// 随之删除的还有 markdown-table.ts 整个模块(表格解析/导出),它只服务于那条已死的链路。
 
 // mindmap 检测已迁至 mindmap-adapter.isMindmapJSON(与渲染共用 uxrJsonToMarkdown 同一规则,
 // 避免"判定命中但渲染为空"的漂移)。detect 不再重复实现 shape 嗅探。

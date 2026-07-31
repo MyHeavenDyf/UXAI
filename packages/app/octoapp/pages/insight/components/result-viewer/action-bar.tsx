@@ -1,10 +1,8 @@
 import { createSignal, onCleanup, Show, For } from "solid-js"
 import type { JSX } from "solid-js"
-import writeXlsxFile from "write-excel-file/browser"
 import type { ResultTab, TabViewMode } from "./tab-store"
 import { isToggleType } from "./tab-store"
 import { IconActionCopy, IconActionDownload, IconActionOpen, IconActionFolder } from "../../icons"
-import { parseMarkdownTable, tableToCSV, extractTableMarkdown } from "../../utils/markdown-table"
 import { stripCodeFence } from "../../utils/detect"
 import { isMindmapJSON, uxrJsonToOctoWhiteboard } from "../../utils/mindmap-adapter"
 import { getDesktopApi } from "../../lib/electron-api"
@@ -14,6 +12,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { tracker } from "@/utils/tracker"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useParams } from "@solidjs/router"
+import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).then(() => {
@@ -35,6 +34,79 @@ function downloadBlob(content: string, filename: string, mimeType: string) {
 
 function sanitizeFilename(name: string): string {
   return name.replace(/[\\/:*?"<>|]/g, "_").trim() || "untitled"
+}
+
+// 归档用文件名:text 类型按 type 补扩展名;有 fileName(office/二进制/path 源)直接复用。
+function tabArchiveName(tab: ResultTab): string {
+  if (tab.fileName) return tab.fileName
+  const base = sanitizeFilename(tab.title || "download")
+  switch (tab.type) {
+    case "markdown": return `${base}.md`
+    case "json": return `${base}.json`
+    case "code": return `${base}.txt`
+    default: return base
+  }
+}
+
+function tabArchiveMime(tab: ResultTab): string {
+  switch (tab.type) {
+    case "markdown": return "text/markdown;charset=utf-8"
+    case "json": return "application/json;charset=utf-8"
+    case "code": return "text/plain;charset=utf-8"
+    default: return tab.mimeType || "application/octet-stream"
+  }
+}
+
+// 把 tab 物化成 File 供 EdmUtil.upload:优先本地读盘 → 远程拉取 → 文本内容兜底。
+async function getTabFile(tab: ResultTab): Promise<File | null> {
+  const name = tabArchiveName(tab)
+  const api = getDesktopApi()
+  if (tab.filePath && api?.readFileBuffer) {
+    try {
+      const buf = await api.readFileBuffer(tab.filePath)
+      if (buf) return new File([buf], name, { type: tab.mimeType || undefined })
+    } catch (err) {
+      console.warn("[octo:archive] read-local-failed", { filePath: tab.filePath, err })
+    }
+  }
+  if (tab.uri) {
+    try {
+      const blob = await fetch(tab.uri).then((r) => r.blob())
+      if (blob && blob.size > 0) return new File([blob], name, { type: tab.mimeType || blob.type || undefined })
+    } catch (err) {
+      console.warn("[octo:archive] fetch-uri-failed", { uri: tab.uri, err })
+    }
+  }
+  if (typeof tab.content === "string" && tab.content) {
+    return new File([tab.content], name, { type: tabArchiveMime(tab) })
+  }
+  return null
+}
+
+// 把 ResultTab 转成归档 target:HTML → 复刻 Design 流程(DOM 取预览 iframe 截图);其他 → file 流(EdmUtil)。
+// 传 getter 而非快照:uri/path tab 的 content 是异步回写(cacheContent 换新对象),confirm 时读最新值。
+// getIframe 可选:由 result-viewer 容器作用域提供,避免全局 query 取错;缺省走 1×1 白图兜底(设计如此)。
+function tabToArchiveTarget(getTab: () => ResultTab, projectDir: string, sessionId: string, getIframe?: () => HTMLIFrameElement | null): ArchiveTarget {
+  const tab = getTab()
+  if (tab.type === "html") {
+    return {
+      mode: "html",
+      sessionId,
+      projectDir,
+      getHtmlContent: () => Promise.resolve(stripCodeFence(getTab().content ?? "")),
+      htmlFileName: tab.fileName || tab.title || "preview.html",
+      htmlFilePath: tab.filePath || "",
+      getIframe: getIframe ?? (() => null),
+    }
+  }
+  return {
+    mode: "file",
+    sessionId,
+    projectDir,
+    fileName: tabArchiveName(tab),
+    filePath: tab.filePath || "",
+    getFile: () => getTabFile(getTab()),
+  }
 }
 
 // path 源(write 文本产物)的本地打开 / 文件夹定位:文件已在磁盘,直接传 filePath。
@@ -80,13 +152,6 @@ async function downloadOriginal(tab: ResultTab, projectBase: string) {
   }
 }
 
-async function tableToXlsx(md: string, filename: string) {
-  const rows = parseMarkdownTable(md)
-  if (rows.length === 0) return
-  const data = rows.map((row) => row.map((c) => ({ value: c, type: String })))
-  await writeXlsxFile(data).toFile(filename)
-}
-
 type DownloadOption = { label: string; format: string; onClick: () => void }
 
 // 思维导图 → Octo 内网白板导入 JSON:转换后另存为 <base>_octo.json,与「原始格式」的 <base>.json 不撞名。
@@ -108,34 +173,15 @@ function octoWhiteboardOption(base: string, content: string): DownloadOption {
   }
 }
 
-// 单格式类型的原生下载统一命名「原始格式」;思维导图额外挂「Octo 白板格式」。table 保留多格式导出不动。
+// 单格式类型的原生下载统一命名「原始格式」;内容为思维导图 shape 的 json 额外挂「Octo 白板格式」。
+//
+// §7:原 table 卡独有的「导出 Markdown / CSV / Excel」多格式菜单**已随 table 退役删除,不迁到
+// markdown 卡**——一篇 markdown 可含 N 张表,导出到单个 csv 没有合理语义(xlsx 可多 sheet、
+// csv 不能;拆成多文件是另一个产品决策)。没有站得住的做法就不做,需要时另立需求。
 function downloadOptions(tab: ResultTab): DownloadOption[] {
   const base = sanitizeFilename(tab.fileName?.replace(/\.[^.]+$/, "") || tab.title)
   const content = tab.content ?? ""
   switch (tab.type) {
-    case "table":
-      return [
-        {
-          label: "Markdown (.md)",
-          format: "md",
-          onClick: () => downloadBlob(extractTableMarkdown(content), `${base}.md`, "text/markdown;charset=utf-8"),
-        },
-        {
-          label: "CSV (.csv)",
-          format: "csv",
-          onClick: () =>
-            downloadBlob("﻿" + tableToCSV(content), `${base}.csv`, "text/csv;charset=utf-8"),
-        },
-        {
-          label: "Excel (.xlsx)",
-          format: "xlsx",
-          onClick: () => {
-            tableToXlsx(content, `${base}.xlsx`).catch((err) => {
-              console.error("Excel 导出失败:", err)
-            })
-          },
-        },
-      ]
     case "html":
       return [
         {
@@ -145,16 +191,6 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
             downloadBlob(stripCodeFence(content), `${base}.html`, "text/html;charset=utf-8"),
         },
       ]
-    case "mindmap":
-      return [
-        {
-          label: "原始格式",
-          format: "json",
-          onClick: () =>
-            downloadBlob(stripCodeFence(content), `${base}.json`, "application/json;charset=utf-8"),
-        },
-        octoWhiteboardOption(base, content),
-      ]
     case "json":
       return [
         {
@@ -163,8 +199,9 @@ function downloadOptions(tab: ResultTab): DownloadOption[] {
           onClick: () =>
             downloadBlob(stripCodeFence(content), `${base}.json`, "application/json;charset=utf-8"),
         },
-        // json 卡内容恰为思维导图 shape(路径 A application/json / 路径 C .json 文件)时,也提供 Octo 白板导出——
-        // 与「渲染成 markmap」的判定同源(isMindmapJSON),口径一致。
+        // json 卡内容恰为思维导图 shape 时提供 Octo 白板导出 —— 与「渲染成 markmap」判定同源
+        // (isMindmapJSON),口径一致。§4.2 后这是导图的**唯一**判定方式:不再有 mindmap 类型,
+        // 也不看 business_type,一律看内容。
         ...(isMindmapJSON(content) ? [octoWhiteboardOption(base, content)] : []),
       ]
     case "code": {
@@ -195,6 +232,8 @@ export function ActionBar(props: {
   onSetViewMode: (mode: TabViewMode) => void
   /** 进入全屏 markdown 编辑器(仅 markdown 卡且有本地文件时给出) */
   onEdit?: () => void
+  /** 取预览 iframe(由 result-viewer 容器作用域提供,避免全局 querySelector 取到其他 tab/分屏的 iframe) */
+  getIframe?: () => HTMLIFrameElement | null
 }): JSX.Element {
   const projectDir = useProjectDir()
   const params = useParams<{ id?: string }>()
@@ -206,7 +245,7 @@ export function ActionBar(props: {
   // file 类型(Office/PDF/二进制):FileFallback 自带"用本地应用打开 / 在文件夹中打开 / 另存为",
   // ActionBar 的复制/下载对它无意义(content 为空,复制不出东西),整组隐藏。
   const showActions = () => props.tab.type !== "file"
-  // 切换可见性:静态 toggle 类型(mindmap/html/table/markdown)恒显;json 卡按内容判定——
+  // 切换可见性:静态 toggle 类型(html/markdown)恒显;json 卡按内容判定——
   // 内容是思维导图 shape(顶层带 children 的树)时才出「预览(markmap)/代码(json)」切换,
   // 普通配置 JSON 无切换单显源。内容随 path/uri 读取后回填,本函数响应式重算。见 output-renderers.md §1。
   const showToggle = () =>
@@ -216,7 +255,31 @@ export function ActionBar(props: {
   // inline 无本地文件不给编辑。见 docs/specs/ui/insight-markdown-editor.md §2.1。
   const canEdit = () =>
     !!props.onEdit && props.tab.type === "markdown" && (props.tab.source === "uri" || props.tab.source === "path") && ready()
+
+  // ── 归档(所有文件类型,头部最右侧按钮;逻辑抽到 ../archive-flow)──────────────────────
+  const [archiveTarget, setArchiveTarget] = createSignal<ArchiveTarget | null>(null)
+  const [archiveDialogOpen, setArchiveDialogOpen] = createSignal(false)
+  // 归档禁用判定:
+  //   - file / image(二进制):FileFallback / ImageRenderer 不回填 content,归档读盘(filePath)或拉 uri,
+  //     不依赖 content —— 按身份判定即可;否则这两类从文件管理开进新页签后归档恒被置灰。
+  //   - 其余类型(markdown/json/code/html):归档需 content(HTML 源码 / 文本兜底),沿用 ready 判定;
+  //     HTML 代码视图无 live iframe,截图只能拿白图,提示切回预览后再归档。
+  const archiveDisabled = () =>
+    props.tab.type === "file" || props.tab.type === "image"
+      ? !props.tab.filePath && !props.tab.uri
+      : !ready() || (props.tab.type === "html" && props.viewMode === "source")
+  const archiveTitle = () => props.tab.type === "html" && props.viewMode === "source"
+    ? "请切换到预览视图后再归档"
+    : "归档"
+
+  function handleArchiveClick() {
+    setArchiveTarget(tabToArchiveTarget(() => props.tab, projectDir() || "", params.id ?? "", props.getIframe))
+    setArchiveDialogOpen(true)
+    tracker.interaction({ module: "insight", name: "result-archive", extend: JSON.stringify({ tabType: props.tab.type }) })
+  }
+
   return (
+    <>
     <div
       class="flex items-center justify-between px-4 py-1.5 shrink-0 gap-2"
       style={{
@@ -233,8 +296,8 @@ export function ActionBar(props: {
       >
         <ViewModeToggle mode={props.viewMode} onSet={props.onSetViewMode} />
       </Show>
-      <Show when={showActions()}>
-        <div class="flex items-center gap-0.5">
+      <div class="flex items-center gap-0.5">
+        <Show when={showActions()}>
           {/* path 源(write 文本产物):额外给"本地打开/文件夹打开"——文件在本地磁盘,
               方便用 Typora / VSCode 等原生应用打开编辑。见 output-renderers.md §2.6.8。 */}
           <Show when={props.tab.source === "path" && props.tab.filePath}>
@@ -273,20 +336,49 @@ export function ActionBar(props: {
                 name: "result-copy-content",
                 extend: JSON.stringify({ tabType: props.tab.type, viewMode: props.viewMode }),
               })
-              const text = props.tab.type === "table"
-                ? extractTableMarkdown(props.tab.content!)
-                : props.tab.content!
-              copyToClipboard(text)
+              // 复制整份内容。原 table 卡曾在这里抽表格本体(extractTableMarkdown),
+              // 随 table 退役一并去掉(§7)。
+              copyToClipboard(props.tab.content!)
             }}
           />
           <DownloadMenu tab={props.tab} disabled={!ready()} />
-        </div>
-      </Show>
+        </Show>
+        {/* 归档(60×32,#0A59F7):所有文件类型均可归档,置于头部操作项最右侧;二进制无来源、文本未 ready 或 HTML 代码视图时置灰 */}
+        <button
+          type="button"
+          onClick={handleArchiveClick}
+          disabled={archiveDisabled()}
+          class="flex items-center justify-center transition-opacity"
+          classList={{
+            "hover:opacity-90 cursor-pointer": !archiveDisabled(),
+            "opacity-40 cursor-not-allowed": archiveDisabled(),
+          }}
+          style={{
+            width: "60px",
+            height: "32px",
+            "border-radius": "20px",
+            background: "#0A59F7",
+            color: "#FFFFFF",
+            "font-size": "14px",
+            "line-height": "22px",
+            "flex-shrink": "0",
+          }}
+          title={archiveTitle()}
+        >
+          归档
+        </button>
+      </div>
     </div>
+    <ArchiveDialogs
+      target={archiveTarget()}
+      open={archiveDialogOpen()}
+      onClose={() => setArchiveDialogOpen(false)}
+    />
+    </>
   )
 }
 
-// 预览/代码 分段切换(仅 mindmap/html/table/markdown)
+// 预览/代码 分段切换(仅 html/markdown,及内容为导图 shape 的 json)
 function ViewModeToggle(props: { mode: TabViewMode; onSet: (mode: TabViewMode) => void }): JSX.Element {
   const seg = (mode: TabViewMode, label: string) => {
     const active = () => props.mode === mode

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import { isStudioGenerationStatusRegression } from "./studio-shared"
+import { getDefaultDimensions, getModelResolutionKey, isStudioGenerationStatusRegression } from "./studio-shared"
 import { buildStudioConversationContext, buildStudioTurns } from "./turns"
 import type { StudioGenerationResult } from "./types"
 
@@ -19,6 +19,13 @@ describe("Studio generation status merging", () => {
     expect(isStudioGenerationStatusRegression("running", "queued")).toBe(false)
     expect(isStudioGenerationStatusRegression("running", "failed")).toBe(false)
     expect(isStudioGenerationStatusRegression("running", "succeeded")).toBe(false)
+  })
+})
+
+describe("Studio model resolution mapping", () => {
+  test("recognizes the persisted Seedream display name", () => {
+    expect(getModelResolutionKey("Seedream 5.0 Lite")).toBe("2k")
+    expect(getDefaultDimensions("Seedream 5.0 Lite", "3:4")).toEqual({ width: 1728, height: 2304 })
   })
 })
 
@@ -467,6 +474,7 @@ describe("buildStudioTurns", () => {
             prompt: "一只大黄狗",
             displayPrompt: "再次生成",
             detailPrompt: "一只大黄狗在草地上奔跑",
+            detailTitle: "草地大黄狗",
             refinedPrompt: "一只大黄狗，阳光草地，胶片质感",
             effectivePrompt: "一只大黄狗，阳光草地，胶片质感",
             aspectRatio: "3:4",
@@ -480,6 +488,7 @@ describe("buildStudioTurns", () => {
     expect(turns[0].result?.prompt).toBe("一只大黄狗，阳光草地，胶片质感")
     expect(turns[0].result?.displayPrompt).toBe("再次生成")
     expect(turns[0].result?.detailPrompt).toBe("一只大黄狗在草地上奔跑")
+    expect(turns[0].result?.detailTitle).toBe("草地大黄狗")
   })
 
   test("uses the original user bubble as the detail prompt for legacy turns", () => {

@@ -6,6 +6,7 @@ import { TaskCardView } from "../components/task-card"
 import { type TaskCardEntry, type TaskStatus } from "../utils/task-detect"
 import type { OutputCard, OutputCardType } from "../components/insight-turn"
 import { OutputEntryCard } from "../components/output-entry-card"
+import { __devSeedMaterializeState } from "../utils/local-resource"
 
 /**
  * Dev-only 预览页 — 展示所有任务卡片态(5)与文件结果卡片类型(6)。
@@ -40,11 +41,35 @@ export default function CardsPreviewPage(): JSX.Element {
           </For>
         </Section>
 
-        <Section title="文件结果卡片(6 类 · 统一紫色图标)" subtitle="OutputEntryCard · components/output-entry-card.tsx">
+        <Section title="文件结果卡片(按类型 · 统一紫色图标)" subtitle="OutputEntryCard · components/output-entry-card.tsx">
           <For each={outputMocks()}>
             {(card) => (
               <Frame label={`type: ${card.type}`}>
                 <OutputEntryCard card={card} onClick={() => console.log("[dev:preview] open card", card.id)} />
+              </Frame>
+            )}
+          </For>
+          {/* 图标/文案按内容升级(§4.4):类型仍是 json,因内容是导图 shape 而显示思维导图 */}
+          <Frame label="type: json(内容为导图 shape → 思维导图图标 + 文案)">
+            <OutputEntryCard
+              card={mindmapCardMock()}
+              onClick={() => console.log("[dev:preview] open card", mindmapCardMock().id)}
+            />
+          </Frame>
+        </Section>
+
+        <Section
+          title="产物落盘三态(uri 卡先出卡、后台下载)"
+          subtitle="OutputEntryCard · 状态由 utils/local-resource.ts materializeStateOf 提供"
+        >
+          <For each={materializeStateMocks()}>
+            {(item) => (
+              <Frame label={item.label}>
+                <OutputEntryCard
+                  card={item.card}
+                  onClick={() => console.log("[dev:preview] open card", item.card.id)}
+                  onRetry={() => console.log("[dev:preview] retry materialize", item.card.id)}
+                />
               </Frame>
             )}
           </For>
@@ -180,10 +205,10 @@ function taskMocks(): TaskCardEntry[] {
 
 function outputMocks(): OutputCard[] {
   const createdAt = new Date("2026-04-27T15:38:00")
-  const types: OutputCardType[] = ["table", "mindmap", "json", "file", "markdown", "html", "code", "image"]
+  // 思维导图不是独立类型(§4.2):它是 json 卡的一种内容形态,入口卡的图标/文案按内容升级(§4.4),
+  // 故这里没有 mindmap 样例条目 —— 导图形态由下方 mindmapCardMock() 用真实内容触发。
+  const types: OutputCardType[] = ["json", "file", "markdown", "html", "code", "image"]
   const titles: Record<OutputCardType, string> = {
-    table: "用户痛点频次分析表",
-    mindmap: "访谈观点思维导图",
     json: "原始访谈数据 JSON",
     file: "算子开发工具 访谈观点聚类报告.docx",
     markdown: "可用性测试小结 Markdown",
@@ -206,6 +231,56 @@ function outputMocks(): OutputCard[] {
         createdAt,
       }) satisfies OutputCard,
   )
+}
+
+// 思维导图形态的 json 卡:类型是 json,靠**内容**让入口卡升级成思维导图图标 + 「思维导图」文案
+// (SPEC-INS-026 §4.4)。与线上完全同源 —— 线上也没有 mindmap 类型可选。
+function mindmapCardMock(): OutputCard {
+  return {
+    id: "demo-card-mindmap-shape",
+    title: "访谈观点思维导图",
+    type: "json",
+    source: "inline",
+    content: JSON.stringify({
+      name: "访谈观点",
+      children: [
+        { name: "上手成本", children: [{ name: "文档难找" }, { name: "术语不一致" }] },
+        { name: "协作", children: [{ name: "评论无提醒" }] },
+      ],
+    }),
+    description: "内容为导图 shape 的 json 卡",
+    createdAt: new Date("2026-04-27T15:38:00"),
+  }
+}
+
+// 落盘三态样例。状态不 mock 在组件 props 上,而是**种进真实的状态表**(__devSeedMaterializeState),
+// 让预览页走的渲染路径与线上完全一致(同源原则,见文件头)。
+function materializeStateMocks(): Array<{ label: string; card: OutputCard }> {
+  const createdAt = new Date("2026-04-27T15:38:00")
+  const make = (id: string, title: string): OutputCard => ({
+    id,
+    title,
+    type: "json",
+    source: "uri",
+    uri: `https://example.com/${id}.json`,
+    mimeType: "application/json",
+    fileName: `${title}.json`,
+    createdAt,
+  })
+
+  const pending = make("demo-state-pending", "访谈观点思维导图")
+  const ready = make("demo-state-ready", "访谈观点思维导图")
+  const failed = make("demo-state-failed", "访谈观点思维导图")
+
+  __devSeedMaterializeState(pending.id, { state: "pending" })
+  __devSeedMaterializeState(ready.id, { state: "ready" })
+  __devSeedMaterializeState(failed.id, { state: "failed", error: "下载失败: 连接超时" })
+
+  return [
+    { label: "pending — 准备中(后台下载,仍可点开)", card: pending },
+    { label: "ready — 就绪(现状)", card: ready },
+    { label: "failed — 获取失败(整卡点击 = 重试)", card: failed },
+  ]
 }
 
 function statusLabel(s: TaskStatus): string {

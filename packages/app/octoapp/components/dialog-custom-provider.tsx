@@ -12,11 +12,12 @@ import { Link } from "@/components/link"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
-import { type FormState, headerRow, modelRow, validateCustomProvider } from "./dialog-custom-provider-form"
+import { type FormState, headerRow, modalityRow, modelRow, validateCustomProvider } from "./dialog-custom-provider-form"
 import { DialogSelectProvider } from "./dialog-select-provider"
 
 type Props = {
   back?: "providers" | "close"
+  providerID?: string
 }
 
 export function DialogCustomProvider(props: Props) {
@@ -24,14 +25,34 @@ export function DialogCustomProvider(props: Props) {
   const globalSync = useGlobalSync()
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
+  const current = props.providerID ? globalSync.data.config.provider?.[props.providerID] : undefined
+  const currentModels = Object.entries(current?.models ?? {})
+  const currentHeaders =
+    current?.options?.headers && typeof current.options.headers === "object" && !Array.isArray(current.options.headers)
+      ? Object.entries(current.options.headers).filter((item): item is [string, string] => typeof item[1] === "string")
+      : []
 
   const [form, setForm] = createStore<FormState>({
-    providerID: "",
-    name: "",
-    baseURL: "",
-    apiKey: "",
-    models: [modelRow()],
-    headers: [headerRow()],
+    providerID: props.providerID ?? "",
+    name: current?.name ?? "",
+    baseURL: typeof current?.options?.baseURL === "string" ? current.options.baseURL : "",
+    apiKey: current?.env?.[0] ? `{env:${current.env[0]}}` : "",
+    models:
+      currentModels.length > 0
+        ? currentModels.map(([id, model]) => ({
+            row: modelRow().row,
+            id,
+            name: model.name ?? id,
+            modalities: Object.entries(model.modalities ?? {}).map(([key, value]) =>
+              modalityRow(key, JSON.stringify(value)),
+            ),
+            err: { modalities: [] },
+          }))
+        : [modelRow()],
+    headers:
+      currentHeaders.length > 0
+        ? currentHeaders.map(([key, value]) => ({ ...headerRow(), key, value }))
+        : [headerRow()],
     err: {},
   })
 
@@ -94,6 +115,35 @@ export function DialogCustomProvider(props: Props) {
     })
   }
 
+  const addModality = (modelIndex: number) => {
+    setForm(
+      "models",
+      modelIndex,
+      "modalities",
+      produce((rows) => {
+        rows.push(modalityRow())
+      }),
+    )
+  }
+
+  const removeModality = (modelIndex: number, index: number) => {
+    setForm(
+      "models",
+      modelIndex,
+      "modalities",
+      produce((rows) => {
+        rows.splice(index, 1)
+      }),
+    )
+  }
+
+  const setModality = (modelIndex: number, index: number, key: "key" | "value", value: string) => {
+    batch(() => {
+      setForm("models", modelIndex, "modalities", index, key, value)
+      setForm("models", modelIndex, "modalities", index, "err", key, undefined)
+    })
+  }
+
   const setHeader = (index: number, key: "key" | "value", value: string) => {
     batch(() => {
       setForm("headers", index, key, value)
@@ -107,10 +157,16 @@ export function DialogCustomProvider(props: Props) {
       t: language.t,
       disabledProviders: globalSync.data.config.disabled_providers ?? [],
       existingProviderIDs: new Set(globalSync.data.provider.all.map((p) => p.id)),
+      editingProviderID: props.providerID,
     })
     batch(() => {
       setForm("err", output.err)
-      output.models.forEach((err, index) => setForm("models", index, "err", err))
+      output.models.forEach((err, index) => {
+        setForm("models", index, "err", err)
+        err.modalities.forEach((item, modalityIndex) =>
+          setForm("models", index, "modalities", modalityIndex, "err", item),
+        )
+      })
       output.headers.forEach((err, index) => setForm("headers", index, "err", err))
     })
     return output.result
@@ -131,13 +187,31 @@ export function DialogCustomProvider(props: Props) {
         })
       }
 
-      await globalSDK.client.global.config.update({
-        config: {
-          provider: { [result.providerID]: result.config },
-          disabled_providers: nextDisabled,
+      const existing = globalSync.data.config.provider?.[result.providerID]
+      const models = Object.fromEntries(
+        Object.entries(result.config.models).map(([id, model]) => {
+          const { modalities: _, ...before } = existing?.models?.[id] ?? {}
+          return [id, { ...before, ...model }]
+        }),
+      )
+      const { baseURL: _, headers: __, ...options } = existing?.options ?? {}
+
+      await globalSDK.client.global.config.replaceProvider({
+        providerID: result.providerID,
+        providerConfig: {
+          ...existing,
+          ...result.config,
+          ...(result.key ? { env: [] } : {}),
+          options: {
+            ...options,
+            ...result.config.options,
+          },
+          models,
         },
       })
-      await globalSDK.client.global.dispose()
+      if (nextDisabled.length !== disabledProviders.length) {
+        await globalSync.updateConfig({ disabled_providers: nextDisabled })
+      }
       return result
     },
     onSuccess: (result) => {
@@ -201,6 +275,7 @@ export function DialogCustomProvider(props: Props) {
               description={language.t("provider.custom.field.providerID.description")}
               value={form.providerID}
               onChange={(v) => setField("providerID", v)}
+              readOnly={!!props.providerID}
               validationState={form.err.providerID ? "invalid" : undefined}
               error={form.err.providerID}
             />
@@ -223,7 +298,11 @@ export function DialogCustomProvider(props: Props) {
             <TextField
               label={language.t("provider.custom.field.apiKey.label")}
               placeholder={language.t("provider.custom.field.apiKey.placeholder")}
-              description={language.t("provider.custom.field.apiKey.description")}
+              description={language.t(
+                props.providerID
+                  ? "provider.custom.field.apiKey.editDescription"
+                  : "provider.custom.field.apiKey.description",
+              )}
               value={form.apiKey}
               onChange={(v) => setField("apiKey", v)}
             />
@@ -233,38 +312,91 @@ export function DialogCustomProvider(props: Props) {
             <label class="text-12-medium text-text-weak">{language.t("provider.custom.models.label")}</label>
             <For each={form.models}>
               {(m, i) => (
-                <div class="flex gap-2 items-start" data-row={m.row}>
-                  <div class="flex-1">
-                    <TextField
-                      label={language.t("provider.custom.models.id.label")}
-                      hideLabel
-                      placeholder={language.t("provider.custom.models.id.placeholder")}
-                      value={m.id}
-                      onChange={(v) => setModel(i(), "id", v)}
-                      validationState={m.err.id ? "invalid" : undefined}
-                      error={m.err.id}
+                <div class="flex flex-col gap-3 rounded-md border border-border-weak-base p-3" data-row={m.row}>
+                  <div class="flex gap-2 items-start">
+                    <div class="flex-1">
+                      <TextField
+                        label={language.t("provider.custom.models.id.label")}
+                        hideLabel
+                        placeholder={language.t("provider.custom.models.id.placeholder")}
+                        value={m.id}
+                        onChange={(v) => setModel(i(), "id", v)}
+                        validationState={m.err.id ? "invalid" : undefined}
+                        error={m.err.id}
+                      />
+                    </div>
+                    <div class="flex-1">
+                      <TextField
+                        label={language.t("provider.custom.models.name.label")}
+                        hideLabel
+                        placeholder={language.t("provider.custom.models.name.placeholder")}
+                        value={m.name}
+                        onChange={(v) => setModel(i(), "name", v)}
+                        validationState={m.err.name ? "invalid" : undefined}
+                        error={m.err.name}
+                      />
+                    </div>
+                    <IconButton
+                      type="button"
+                      icon="trash"
+                      variant="ghost"
+                      class="mt-1.5"
+                      onClick={() => removeModel(i())}
+                      disabled={form.models.length <= 1}
+                      aria-label={language.t("provider.custom.models.remove")}
                     />
                   </div>
-                  <div class="flex-1">
-                    <TextField
-                      label={language.t("provider.custom.models.name.label")}
-                      hideLabel
-                      placeholder={language.t("provider.custom.models.name.placeholder")}
-                      value={m.name}
-                      onChange={(v) => setModel(i(), "name", v)}
-                      validationState={m.err.name ? "invalid" : undefined}
-                      error={m.err.name}
-                    />
+                  <div class="flex flex-col gap-2">
+                    <label class="text-12-medium text-text-weak">
+                      {language.t("provider.custom.models.modalities.label")}
+                    </label>
+                    <For each={m.modalities}>
+                      {(item, modalityIndex) => (
+                        <div class="flex gap-2 items-start" data-row={item.row}>
+                          <div class="w-1/3">
+                            <TextField
+                              label={language.t("provider.custom.models.modalities.key.label")}
+                              hideLabel
+                              placeholder={language.t("provider.custom.models.modalities.key.placeholder")}
+                              value={item.key}
+                              onChange={(value) => setModality(i(), modalityIndex(), "key", value)}
+                              validationState={item.err.key ? "invalid" : undefined}
+                              error={item.err.key}
+                            />
+                          </div>
+                          <div class="flex-1">
+                            <TextField
+                              label={language.t("provider.custom.models.modalities.value.label")}
+                              hideLabel
+                              placeholder={language.t("provider.custom.models.modalities.value.placeholder")}
+                              value={item.value}
+                              onChange={(value) => setModality(i(), modalityIndex(), "value", value)}
+                              validationState={item.err.value ? "invalid" : undefined}
+                              error={item.err.value}
+                            />
+                          </div>
+                          <IconButton
+                            type="button"
+                            icon="trash"
+                            variant="ghost"
+                            class="mt-1.5"
+                            onClick={() => removeModality(i(), modalityIndex())}
+                            aria-label={language.t("provider.custom.models.modalities.remove")}
+                          />
+                        </div>
+                      )}
+                    </For>
+                    <Button
+                      type="button"
+                      size="small"
+                      variant="ghost"
+                      icon="plus-small"
+                      onClick={() => addModality(i())}
+                      class="self-start"
+                    >
+                      {language.t("provider.custom.models.modalities.add")}
+                    </Button>
                   </div>
-                  <IconButton
-                    type="button"
-                    icon="trash"
-                    variant="ghost"
-                    class="mt-1.5"
-                    onClick={() => removeModel(i())}
-                    disabled={form.models.length <= 1}
-                    aria-label={language.t("provider.custom.models.remove")}
-                  />
                 </div>
               )}
             </For>

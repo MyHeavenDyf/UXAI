@@ -1,4 +1,5 @@
 import type { StudioAsset, StudioCapability, StudioGenerationResult, StudioImage, StudioInputImage, StudioMode } from "./types"
+import { styleModelId } from "./data"
 
 export const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 export const SUPPORTED_STUDIO_CAPABILITIES = new Set<StudioCapability>([
@@ -171,11 +172,12 @@ export function triggerBrowserDownload(url: string, filename: string) {
 }
 
 export function getModelResolutionKey(styleModel: string): string {
-  if (styleModel === "hdesign") return "hdesign"
-  if (styleModel === "seedream-5-lite") return "2k"
-  if (styleModel.includes("2k")) return "2k"
-  if (styleModel.includes("3k")) return "3k"
-  if (styleModel.includes("4k")) return "4k"
+  const id = styleModelId(styleModel) ?? styleModel
+  if (id === "hdesign") return "hdesign"
+  if (id === "seedream-5-lite") return "2k"
+  if (id.includes("2k")) return "2k"
+  if (id.includes("3k")) return "3k"
+  if (id.includes("4k")) return "4k"
   return "default"
 }
 

@@ -1,10 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import { isHTML, stripCodeFence, scanFencedHtml } from "./detect"
 import { isMindmapJSON, uxrJsonToMarkdown } from "./mindmap-adapter"
-import { parseMarkdownTable, tableToCSV } from "./markdown-table"
 
 // 注:isMarkdownTable 已移除(路径 B 不再嗅探 md 表格成卡,2026-06)。
-// 表格解析/导出的单测见下方 parseMarkdownTable / tableToCSV(路径 A csv→table 复用)。
+// 表格解析/导出的用例随 markdown-table.ts 模块一并删除(SPEC-INS-026 §7 table 类型退役)。
 
 describe("isMindmapJSON", () => {
   test("识别 UXR 双层数组 shape", () => {
@@ -221,20 +220,3 @@ describe("uxrJsonToMarkdown", () => {
   })
 })
 
-describe("parseMarkdownTable", () => {
-  test("解析两列表格", () => {
-    const md = "| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |"
-    expect(parseMarkdownTable(md)).toEqual([
-      ["A", "B"],
-      ["1", "2"],
-      ["3", "4"],
-    ])
-  })
-})
-
-describe("tableToCSV", () => {
-  test("含引号的单元格被转义", () => {
-    const md = `| A | B |\n|---|---|\n| he said "hi" | x |`
-    expect(tableToCSV(md)).toBe(`"A","B"\n"he said ""hi""","x"`)
-  })
-})

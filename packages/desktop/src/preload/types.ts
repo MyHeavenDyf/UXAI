@@ -89,6 +89,10 @@ export type ElectronAPI = {
   /** 在系统文件管理器中定位;文件不存在时返回 { ok: false, reason: "not-found" } 而非 throw */
   showItemInFolder: (path: string) => Promise<{ ok: boolean; reason?: "not-found" }>
   downloadResource: (url: string, destPath: string) => Promise<void>
+  /** office「下载」:解析资源 URI 已落地的本地副本路径(不拉网络);命中且文件在→绝对路径,否则 null */
+  resolveMaterializedPath: (namespace: string, baseDir?: string, sessionId?: string) => Promise<string | null>
+  /** office「下载」:把本地副本原样拷到用户选定路径(fs.copyFile,走复制不读+写) */
+  copyFileTo: (srcPath: string, destPath: string) => Promise<void>
   downloadResourceToTemp: (
     url: string,
     namespace: string,
@@ -142,6 +146,7 @@ export type ElectronAPI = {
   deleteFile: (path: string) => Promise<void>
   writeClipboardText: (text: string) => Promise<void>
   capturePreviewRect: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
+  capturePreviewPage: (opts: { pageJson: unknown; waitForMs?: number }) => Promise<string | null>
   tailwindToCss: (className: string) => Promise<Record<string, string>>
   cssToTailwind: (cssObject: Record<string, unknown>) => Promise<string>
   getPreviewDistDir: () => Promise<string>
@@ -150,9 +155,10 @@ export type ElectronAPI = {
   getPatternPreview: (category: string, filename: string, theme?: string) => Promise<string | null>
   getPatternAssets: (category: string, folderName: string, theme?: string) => Promise<{ filename: string; buffer: ArrayBuffer }[]>
   getDesignSystems: () => Promise<string[]>
-  downloadHuiCode: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[]) => Promise<{ files: { path: string; content: string }[] }>
+  downloadHuiCode: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[], options?: { targetLib?: string }) => Promise<{ files: { path: string; content: string }[] }>
   runPixsoBuild: (input: string) => Promise<string>
-  exportZip: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; comment?: string }) => Promise<string | null>
+  getTopixsoDir: () => Promise<string>
+  exportZip: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; destFolder?: string; comment?: string }) => Promise<string | null>
   importZip: () => Promise<{ name: string; content: string }[] | null>
   codeToHtml: (opts: { url: string; theme?: "light" | "dark"; waitForMs?: number }) => Promise<{ html: string; resourceCount: number }>
   listDirectory: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>

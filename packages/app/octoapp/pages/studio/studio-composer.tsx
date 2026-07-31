@@ -63,12 +63,15 @@ export function StudioComposer(props: {
   onRemoveAsset: (id: string) => void
   onRemoveVideoFrame: (slot: StudioVideoFrameSlot) => void
   onSwapVideoFrames: () => void
+  onToolClick?: () => void
 }): JSX.Element {
   const platform = usePlatform()
   let inputRef!: HTMLTextAreaElement
   let pointerDownOpenMenu: typeof props.openMenu = null
+  let referenceHoverFrame: number | undefined
   const [composing, setComposing] = createSignal(false)
   const [referenceExpanded, setReferenceExpanded] = createSignal(false)
+  const [referenceHoverReady, setReferenceHoverReady] = createSignal(false)
   const referenceAssets = createMemo(() => props.assets.slice(0, props.maxReferenceImages))
   const referenceAsset = createMemo(() => referenceAssets()[0])
   const canAddReferenceAsset = createMemo(() => referenceAssets().length < props.maxReferenceImages)
@@ -77,6 +80,25 @@ export function StudioComposer(props: {
   const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
   const isImeComposing = (event: KeyboardEvent) => event.isComposing || composing() || event.keyCode === 229
   const isBusy = createMemo(() => props.status === "queued" || props.status === "running" || props.status === "submitting")
+  onCleanup(() => {
+    if (referenceHoverFrame !== undefined) cancelAnimationFrame(referenceHoverFrame)
+  })
+  createEffect((previousReferenceCount = 0) => {
+    const referenceCount = referenceAssets().length
+    if (!referenceCount) {
+      setReferenceExpanded(false)
+      setReferenceHoverReady(false)
+      return referenceCount
+    }
+    if (previousReferenceCount) return referenceCount
+    setReferenceExpanded(false)
+    setReferenceHoverReady(false)
+    referenceHoverFrame = requestAnimationFrame(() => {
+      referenceHoverFrame = undefined
+      setReferenceHoverReady(true)
+    })
+    return referenceCount
+  }, 0)
   const resizeInput = () => {
     if (!inputRef) return
     inputRef.style.height = "auto"
@@ -164,8 +186,12 @@ export function StudioComposer(props: {
 
   // Toolbar overflow detection
   const [toolbarOverflow, setToolbarOverflow] = createSignal<string[]>([])
+  const [styleExpanded, setStyleExpanded] = createSignal(false)
   const [moreMenuOpen, setMoreMenuOpen] = createSignal(false)
+  const [moreMenuTick, setMoreMenuTick] = createSignal(0)
   const moreMenuStyle = (): JSX.CSSProperties => {
+    // 窗口尺寸变化时重新计算位置，使菜单跟随更多按钮
+    moreMenuTick()
     if (!moreButtonRef) return {}
     const rect = moreButtonRef.getBoundingClientRect()
     const menuWidth = 175
@@ -195,6 +221,36 @@ export function StudioComposer(props: {
       if (key && item.offsetWidth > 0) itemWidthCache.set(key, item.offsetWidth)
     }
 
+    // Measure style label natural width to decide if it can be fully shown
+    const styleLabel = toolbarItemsRef.querySelector<HTMLElement>('[data-toolbar-item="style"] .studio-composer-tool-label')
+    let styleNaturalWidth = 0
+    let styleTruncatedWidth = 0
+    if (styleLabel) {
+      // natural button width = label content + padding(24) + caret(16) + gap(2)
+      const naturalWidth = styleLabel.scrollWidth + 42
+      styleNaturalWidth = Math.max(70, naturalWidth)
+      styleTruncatedWidth = Math.max(70, Math.min(naturalWidth, 98))
+      itemWidthCache.set("style", styleTruncatedWidth)
+    }
+
+    // Try fitting everything with the style label fully shown
+    if (styleNaturalWidth > styleTruncatedWidth) {
+      let totalExpanded = 0
+      for (const key of keys) {
+        const w = key === "style" ? styleNaturalWidth : (itemWidthCache.get(key) ?? 0)
+        totalExpanded += w + 8 // item + gap
+      }
+      if (totalExpanded > 0) totalExpanded -= 8 // remove last gap
+      if (totalExpanded <= containerWidth) {
+        setStyleExpanded(true)
+        if (toolbarOverflow().length > 0) setToolbarOverflow([])
+        return
+      }
+    }
+
+    // Width not enough — keep style label truncated (current style)
+    setStyleExpanded(false)
+
     // Calculate total width of all items
     let totalWidth = 0
     for (const key of keys) {
@@ -219,6 +275,11 @@ export function StudioComposer(props: {
     if (overflow.filter(k => (itemWidthCache.get(k) ?? 0) > 0).length <= 1) {
       if (toolbarOverflow().length > 0) setToolbarOverflow([])
       return
+    }
+    // More button is shown — if the remaining slack can fit the full style label, expand it
+    if (styleNaturalWidth > styleTruncatedWidth) {
+      const visibleExpanded = visibleWidth - styleTruncatedWidth + styleNaturalWidth
+      if (visibleExpanded + moreBtnWidth <= containerWidth) setStyleExpanded(true)
     }
     const current = toolbarOverflow()
     if (overflow.length !== current.length || !overflow.every((k, i) => k === current[i])) {
@@ -264,12 +325,36 @@ export function StudioComposer(props: {
     onCleanup(() => document.removeEventListener("pointerdown", handler))
   })
 
-  // Close more menu when any main popup opens from outside the more menu
+  // 更多菜单展开时，窗口尺寸变化重新定位以跟随更多按钮
+  createEffect(() => {
+    if (!moreMenuOpen()) return
+    const onResize = () => requestAnimationFrame(() => setMoreMenuTick((v) => v + 1))
+    window.addEventListener("resize", onResize)
+    onCleanup(() => window.removeEventListener("resize", onResize))
+  })
+
+  // Close more menu when a popup opens from toolbar (not from more menu)
   createEffect(() => {
     const menu = props.openMenu
     if (menu && !toolbarOverflow().includes(menu)) {
-      // opened from toolbar button, close more menu
       setMoreMenuOpen(false)
+    }
+  })
+
+  // 更多按钮不显示时（工具栏无溢出）自动收起更多菜单
+  createEffect(() => {
+    if (moreMenuOpen() && toolbarOverflow().length === 0) {
+      setMoreMenuOpen(false)
+    }
+  })
+
+  // 弹窗打开时，若对应按钮进入溢出区且更多菜单未展开 → 关闭弹窗
+  createEffect(() => {
+    const menu = props.openMenu
+    if (!menu) return
+    const overflow = toolbarOverflow()
+    if (overflow.includes(menu) && !moreMenuOpen()) {
+      props.onOpenMenu(null)
     }
   })
 
@@ -296,7 +381,36 @@ export function StudioComposer(props: {
     if (!btn) return
     const btnRect = btn.getBoundingClientRect()
     const toolbarRect2 = toolbarRef.getBoundingClientRect()
-    anchor.style.left = `${btnRect.left - toolbarRect2.left}px`
+    if (window.innerWidth < 1024) {
+      // 窄视口：弹窗与按钮居中对齐，空间不足时自动收窄避免被 overflow:hidden 裁切
+      const popup = anchor.firstElementChild as HTMLElement
+      if (popup) {
+        popup.style.maxWidth = ""
+        const naturalWidth = popup.offsetWidth
+        if (naturalWidth > 0) {
+          const availableWidth = window.innerWidth - toolbarRect2.left - 16
+          if (availableWidth < naturalWidth) {
+            popup.style.maxWidth = `${availableWidth}px`
+            anchor.style.left = "0px"
+          } else {
+            const btnCenter = btnRect.left - toolbarRect2.left + btnRect.width / 2
+            let left = btnCenter - naturalWidth / 2
+            const maxLeft = window.innerWidth - 8 - naturalWidth - toolbarRect2.left
+            left = Math.max(0, Math.min(left, maxLeft))
+            anchor.style.left = `${left}px`
+          }
+        } else {
+          anchor.style.left = `${btnRect.left - toolbarRect2.left}px`
+        }
+      } else {
+        anchor.style.left = `${btnRect.left - toolbarRect2.left}px`
+      }
+    } else {
+      // 宽视口：保持原有左对齐行为，不约束弹窗宽度
+      const popup = anchor.firstElementChild as HTMLElement
+      if (popup) popup.style.maxWidth = ""
+      anchor.style.left = `${btnRect.left - toolbarRect2.left}px`
+    }
     anchor.style.top = ""
     anchor.style.bottom = ""
   }
@@ -304,6 +418,8 @@ export function StudioComposer(props: {
   createEffect(() => {
     const menu = props.openMenu
     if (!menu) return
+    // 工具栏溢出变化时重新定位：按钮在工具栏与更多菜单间切换时弹框需重新对齐
+    toolbarOverflow()
     // Defer measurement to next microtask so the DOM has updated
     queueMicrotask(() => positionDropdown(menu))
   })
@@ -315,6 +431,15 @@ export function StudioComposer(props: {
     })
     if (toolbarRef) observer.observe(toolbarRef)
     onCleanup(() => observer.disconnect())
+  })
+
+  // 窗口尺寸变化时重新定位弹窗（居中弹窗可能在窄窗口下溢出视口）
+  createEffect(() => {
+    const menu = props.openMenu
+    if (!menu) return
+    const onResize = () => positionDropdown(menu)
+    window.addEventListener("resize", onResize)
+    onCleanup(() => window.removeEventListener("resize", onResize))
   })
 
   function handlePaste(event: ClipboardEvent) {
@@ -383,7 +508,10 @@ export function StudioComposer(props: {
                 <div
                   class="studio-composer-ref-stack"
                   classList={{ expanded: referenceExpanded() }}
-                  onPointerEnter={() => setReferenceExpanded(true)}
+                  onPointerMove={(event) => {
+                    if (!referenceHoverReady() || (!event.movementX && !event.movementY) || referenceExpanded()) return
+                    setReferenceExpanded(true)
+                  }}
                   onPointerLeave={() => setReferenceExpanded(false)}
                 >
                   <For each={referenceAssets()}>
@@ -409,7 +537,7 @@ export function StudioComposer(props: {
                           aria-label="删除参考图"
                           title="删除参考图"
                         >
-                          ×
+                          <img src="/studio/studio-img-delete-icon.svg" class="studio-composer-ref-remove-icon" alt="" />
                         </button>
                       </div>
                     )}
@@ -460,7 +588,7 @@ export function StudioComposer(props: {
               onPaste={handlePaste}
               placeholder={isVideoGeneration() ? undefined : isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : "上传参考图、输入文字，描述你想生成的图片。"}
               class="studio-composer-input"
-              disabled={isEditingCapability() || props.status === "queued" || props.status === "running" || props.status === "submitting"}
+              disabled={isEditingCapability()}
             />
             <Show when={isVideoGeneration() && !props.prompt}>
               <div class="studio-composer-video-placeholder" onClick={() => inputRef.focus()}>
@@ -497,7 +625,7 @@ export function StudioComposer(props: {
               />
             </div>
             <Show when={isImageGeneration()}>
-              <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--style" ref={(el) => buttonRefs.set("style", el)} data-toolbar-item="style">
+              <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--style" classList={{ "studio-composer-toolbar-item--expanded": styleExpanded() }} ref={(el) => buttonRefs.set("style", el)} data-toolbar-item="style">
                 <ToolButton
                   label={styleModelLabel(props.styleModel)}
                   active={props.openMenu === "style"}
@@ -632,7 +760,7 @@ export function StudioComposer(props: {
               <CapabilityMenu
                 value={props.capability}
                 canGenerateVideo={props.canGenerateVideo}
-                onSelect={(value) => { props.onCapability(value); props.onOpenMenu(null) }}
+                onSelect={(value) => { if (workspaceModeForCapability(value)) props.onToolClick?.(); props.onCapability(value); props.onOpenMenu(null) }}
               />
             </div>
           </Show>
@@ -707,7 +835,10 @@ export function StudioComposer(props: {
           <button type="button" class="studio-composer-compliance-trigger">合规指引</button>
           <span>，</span>
           <div role="tooltip" class="studio-composer-compliance-tooltip">
-            <StudioVideoRiskContent class="studio-composer-compliance-tooltip-content" />
+            <StudioVideoRiskContent
+              class="studio-composer-compliance-tooltip-content"
+              isVideoGeneration={props.capability === "video.generate"}
+            />
             <span class="studio-composer-compliance-tooltip-arrow" />
           </div>
         </div>
@@ -1307,8 +1438,8 @@ function VideoSettings(props: {
       <div class="studio-image-settings-label">生成模式</div>
       <div class="studio-image-settings-counts studio-video-settings-quality">
         <For each={[
-          { label: "标准", value: "std" },
-          { label: "高质量", value: "pro" },
+          { label: "标准模式", value: "std" },
+          { label: "高质量模式", value: "pro" },
         ] as const}>
           {(item) => (
             <button

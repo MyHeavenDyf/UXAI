@@ -1,13 +1,14 @@
 import { execFile, execSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, globSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, globSync, createWriteStream } from "node:fs"
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
 import { mkdir, readFile, writeFile, lstat, stat, unlink, rm, copyFile, rename } from "node:fs/promises"
 import * as http from "node:http"
 import { dirname, extname, join, basename, resolve as resolvePath, sep } from "node:path"
 import { homedir, tmpdir } from "node:os"
-import { pathToFileURL } from "node:url"
+import { pathToFileURL, fileURLToPath } from "node:url"
+import archiver from "archiver"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell, net } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 import log from "electron-log/main.js"
@@ -38,11 +39,16 @@ import { convertCssToTailwind } from "./tailwind-from-css"
 import { previewDistDir, getUploadsDir, setUploadsDir } from "./preview-server"
 import { pipelineRequest } from "../network/pipelineRequest"
 import { codeToHtml } from "./page-capture"
+import { landingName } from "./landing-name"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
   return [{ name: "Files", extensions: ext }]
 }
+
+const topixsoDir = app.isPackaged
+  ? join(process.resourcesPath, "topixso")
+  : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "app", "octoapp", "pages", "pattern", "topixso")
 
 // 判断图片类型
 function detectImageExt(buf: Buffer): string {
@@ -57,22 +63,14 @@ function detectImageExt(buf: Buffer): string {
 }
 
 // ── SPEC-INS-014 Insight 本地工作目录布局(worktree)共享工具 ────────────────
-// uploads(附件拷贝,v2 由 sources 改名)与 outputs(产物落地)用同一套文件名规则:sanitize + 撞名加后缀。
+// uploads(附件拷贝,v2 由 sources 改名)与 outputs(产物落地)用同一套文件名规则:landingName + 撞名加后缀。
 // v2(会话隔离):outputs 从一开始按 <sessionId> 分桶;uploads 分两段——
 //   预会话落地区 .octo/tmps/(扁平,不属于任何会话)→ 发送时 rename 进 .octo/<sessionId>/uploads/。
 // (全局约定:所有本地落点收进 .octo 根,不再有 agent 命名层——会话归属哪个 agent 可由 sessionId 反查。)
 // spec docs/specs/infra/insight-worktree-layout.md §2-4。
 
-// 文件名清洗(spec §3.1):保留 字母/数字/中文/-/_/./;空格→_;其他→_;主名截 100;空名兜底 unnamed。
-function sanitizeWorktreeName(raw: string): string {
-  const replaced = raw.replace(/\s+/g, "_").replace(/[^\p{L}\p{N}._-]/gu, "_")
-  const dot = replaced.lastIndexOf(".")
-  if (dot > 0 && dot < replaced.length - 1) {
-    const stem = replaced.slice(0, dot).slice(0, 100)
-    return (stem || "unnamed") + replaced.slice(dot)
-  }
-  return replaced.slice(0, 100) || "unnamed"
-}
+// 文件名规则见 ./landing-name.ts(SPEC-INS-026 §4.1 唯一清洗入口)。旧的 sanitizeWorktreeName
+// (空格/括号→`_`、主名截 100)已废除:那条约束源自「文件名随 basename 进 S3 URL」,而文件名已退出 URL。
 
 // 撞名加后缀(spec §3.3):目标已存在就 `name (2).ext`(操作系统下载器习惯),不覆盖。
 function collisionFreePath(dir: string, filename: string): string {
@@ -101,7 +99,7 @@ function sanitizeSessionSegment(raw: string): string {
 
 // write-file 白名单用(v2 会话隔离新增):判断路径是否落在 .octo/<sessionId>/{uploads,outputs} 下。
 // sessionId 段可变,不能用固定子串匹配,按路径分段比对—— .octo 之后第一段是会话段、第二段必须是
-// uploads/outputs(这样 .octo/artifacts/make/... 这类其它命名空间的第二段不是 uploads/outputs,天然不放行)。
+// uploads/outputs(这样 .octo/<sessionId>/comments/... 等其它命名空间的第二段不是 uploads/outputs,天然不放行)。
 function isInsightSessionWorktreePath(resolved: string): boolean {
   const segs = resolved.split(sep)
   const i = segs.lastIndexOf(".octo")
@@ -117,14 +115,44 @@ function describeNetworkError(err: unknown): string {
   return parts.length > 0 ? parts.join(" ← ") : String(err)
 }
 
-// 产物落地幂等(spec §2/§4.2):同一个资源(namespace=资源 URI)首次 materialize 后记下其
-// outputs 本地路径,本会话内稳定 —— 后续预览/编辑/打开都命中这份(含用户改动),绝不 re-fetch。
-// 用主进程内存表替代旧的 `.octo/downloads/<id>/` 目录分桶,使 outputs 扁平、显性。
-// namespace 必须是资源身份(URI)而非卡片身份(tab.id/card.id):同一份产物会被多张卡引用
-// (任务卡 vs「查询结果」turn 的路径 A 卡),按卡片 id 记会让同一 URI 各落一份、第二份撞名成
-// `xxx (2)`,且每查询一次多一份。调用方约定见 app 侧 utils/local-resource.ts 文件头。
-// 跨重启该表清空 → 同名产物会按 §3.3 加后缀新建(少见边界,spec 接受)。
+// 产物落地幂等(spec §2/§4.2):幂等键 = **资源 URI(namespace)**——同一资源被多张卡引用、
+// 或跨重启重开旧会话再触发 eager 落盘时,都复用首次落地的那一份(含用户改动),绝不 re-fetch/覆盖。
+// **必须按 URI 记身份、不能按文件名**:文件名 ≠ 身份,两个不同 URI 都叫 report.md 不能 alias 成同一份
+// (故撞名仍走 collisionFreePath 各留一份)。
+//
+// 幂等落在**磁盘持久清单** .octo/<sessionId>/outputs/.materialized.json(dotfile,服务端 listFiles 过滤,
+// 不进文件管理;随会话目录生命周期,天然活过重启/重装)——这是修 #90 的关键:旧实现只有下面的进程内
+// Map、跨重启即清空,重开旧会话查不到 → 撞名重落 `xxx (2)`,每装一次多一份。
+// (业界同款:npm cacache / pip / MCP 缓存代理都用「跨重启存活的 逻辑键→已落地条目 清单」。)
+//
+// 下面这张内存 Map 仅作进程内快路径(免每次 materialize 读一次 JSON),键 = `${outputsDir}::${URI}`
+// ——**带 outputsDir 前缀**是必须的:Map 是模块级跨会话共享,只按 URI 记会让同一 URI 在会话 A/B 间串场
+// (B 命中 A 的落点)。带 dir 后它与「本会话持久清单」答案一致,纯缓存、无跨会话 alias。
 const materializedByNamespace = new Map<string, string>()
+
+const MATERIALIZED_MANIFEST = ".materialized.json"
+type MaterializedEntry = { file: string; fetchedAt: number }
+
+// 读某会话 outputs 的持久幂等清单(URI → {落地文件名, 时间})。缺文件/坏 JSON → 空表(退化为重新落盘)。
+function readMaterializedManifest(outputsDir: string): Record<string, MaterializedEntry> {
+  try {
+    const parsed = JSON.parse(readFileSync(join(outputsDir, MATERIALIZED_MANIFEST), "utf-8"))
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, MaterializedEntry>) : {}
+  } catch {
+    return {}
+  }
+}
+
+// 记一条 URI→文件名 到清单(读改写)。失败仅告警:内存 Map 仍在,只是这次跨重启幂等失效,不阻断落盘。
+function recordMaterialized(outputsDir: string, namespace: string, file: string): void {
+  try {
+    const map = readMaterializedManifest(outputsDir)
+    map[namespace] = { file, fetchedAt: Date.now() }
+    writeFileSync(join(outputsDir, MATERIALIZED_MANIFEST), JSON.stringify(map, null, 2), "utf-8")
+  } catch (err) {
+    log.warn("[octo:worktree] materialize-manifest write failed", { outputsDir, err })
+  }
+}
 
 type Deps = {
   killSidecar: () => Promise<void> | void
@@ -326,6 +354,41 @@ export function registerIpcHandlers(deps: Deps) {
     await writeFile(destPath, buf)
   })
 
+  // office「下载」按钮(§下载走本地拷贝):解析某资源 URI 已落地的本地副本路径,**不拉网络**。
+  // 命中(内存 Map 快路径 / 磁盘持久清单)且文件仍在 → 返回绝对路径;否则返回 null(调用方兜底 web 下载)。
+  // 查找口径与 download-resource-to-temp 一致(键=资源 URI + outputsDir),只是去掉 fetch 分支。
+  ipcMain.handle(
+    "resolve-materialized-path",
+    async (_event: IpcMainInvokeEvent, namespace: string, baseDir?: string, sessionId?: string) => {
+      const persistent = !!(baseDir && baseDir.length > 0 && sessionId && sessionId.length > 0)
+      const dir = persistent
+        ? join(baseDir!, ".octo", sanitizeSessionSegment(sessionId!), "outputs")
+        : join(app.getPath("temp"), "octo")
+      const cacheKey = `${dir}::${namespace}`
+      const cached = materializedByNamespace.get(cacheKey)
+      if (cached && existsSync(cached)) return cached
+      if (persistent) {
+        const entry = readMaterializedManifest(dir)[namespace]
+        if (entry?.file) {
+          const abs = join(dir, entry.file)
+          if (existsSync(abs)) {
+            materializedByNamespace.set(cacheKey, abs) // 回填快路径
+            return abs
+          }
+        }
+      }
+      return null
+    },
+  )
+
+  // office「下载」按钮:把**已落地的本地副本**原样拷到用户选定的目标路径。走 fs.copyFile 磁盘级拷贝
+  // (二进制原样、不读进内存再写),而非 readFileBuffer + writeFileBuffer 的「读+写」。与 download-resource
+  // (走网络拉 S3)互补:调用方优先 resolve-materialized-path + 本拷贝,本地副本不存在时才兜底 download-resource。
+  ipcMain.handle("copy-file-to", async (_event: IpcMainInvokeEvent, srcPath: string, destPath: string) => {
+    await mkdir(dirname(destPath), { recursive: true })
+    await copyFile(srcPath, destPath)
+  })
+
   // SPEC-INS-014 §4.1:把用户选的源文件**拷贝**进 worktree 预会话落地区(<baseDir>/.octo/tmps/)。
   // 对本地路径而言这不是上传,是磁盘流式拷贝(100MB 也无压力);原样拷贝、绝不转格式。
   // S3 上传是另一件只为 MCP 服务的事(走 lib/upload.ts,发预置时 lazy 触发),与本拷贝解耦。
@@ -333,9 +396,22 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle(
     "copy-file-to-worktree",
     async (_event: IpcMainInvokeEvent, srcPath: string, baseDir: string, filename: string) => {
+      // 布局 SOT = SPEC-INS-014 §2。`.octo`/`tmps` 与渲染端判据
+      // (packages/app/octoapp/pages/insight/utils/worktree-layout.ts)受进程边界隔离、不共享常量;
+      // 改这里的落点必须同步改渲染端 worktree-layout.ts 与 spec §2(v7 曾漏改渲染端 → PR #424)。
       const dir = join(baseDir, ".octo", "tmps")
       await ensureWorktreeDir(dir)
-      const dest = collisionFreePath(dir, sanitizeWorktreeName(filename))
+      // 拒绝类失败响亮报错(SPEC-INS-026 §4.1):含分隔符 / `..` 的名字不静默改名,直接抛回渲染端提示用户。
+      let safeName: string
+      try {
+        safeName = landingName(filename)
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        log.error("[octo:worktree] upload-name-rejected", { srcPath, filename, reason })
+        console.error("[octo:worktree] upload-name-rejected", { srcPath, filename, reason })
+        throw err
+      }
+      const dest = collisionFreePath(dir, safeName)
       try {
         await copyFile(srcPath, dest)
         console.log("[octo:worktree] upload-copy ok", { srcPath, dest })
@@ -358,6 +434,7 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle(
     "move-pending-upload-to-session",
     async (_event: IpcMainInvokeEvent, srcPath: string, baseDir: string, sessionId: string) => {
+      // 布局 SOT = SPEC-INS-014 §2;`.octo`/`uploads` 落点与渲染端判据须同步(见 copy-file-to-worktree 上方注释)。
       const dir = join(baseDir, ".octo", sanitizeSessionSegment(sessionId), "uploads")
       await ensureWorktreeDir(dir)
       const dest = collisionFreePath(dir, basename(srcPath))
@@ -387,22 +464,52 @@ export function registerIpcHandlers(deps: Deps) {
       baseDir?: string,
       sessionId?: string,
     ) => {
-      const safeName = sanitizeWorktreeName(filename)
-      // 本会话幂等(spec §2/§4.2):同一张卡已落地的本地副本即用户的「工作文件」——直接复用,
-      // 绝不 re-fetch / 覆盖,否则「本地打开/编辑 → 改 → 关闭 → 再打开」会被重新下载的原版盖掉。
-      // 落点改为显性的 .octo/<sessionId>/outputs(扁平、撞名加后缀),幂等键由旧的 <id> 目录改为内存表。
-      const known = materializedByNamespace.get(namespace)
-      if (known && existsSync(known)) {
-        console.log("[octo:worktree] result-materialize", { filename: safeName, path: known, sessionId, reused: true })
-        return known
+      // 拒绝类失败响亮报错(SPEC-INS-026 §4.1):含分隔符 / `..` 的名字不静默改名。渲染端按
+      // LANDING_NAME_REJECTED 前缀识别为「重试无用」,toast 提示并保留原链接供手动下载。
+      let safeName: string
+      try {
+        safeName = landingName(filename)
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        log.error("[octo:worktree] materialize-rejected", { url, filename, sessionId, reason })
+        console.error("[octo:worktree] materialize-rejected", { url, filename, sessionId, reason })
+        throw err
       }
       // baseDir 与 sessionId 都提供时落 <baseDir>/.octo/<sessionId>/outputs/(用户可见、可管理、按会话隔离);
       // 缺一不可时 fallback 走 OS 临时目录(无项目场景 / 无会话 / 纯一次性预览,非持久)。
-      const dir =
-        baseDir && baseDir.length > 0 && sessionId && sessionId.length > 0
-          ? join(baseDir, ".octo", sanitizeSessionSegment(sessionId), "outputs")
-          : join(app.getPath("temp"), "octo")
+      const persistent = !!(baseDir && baseDir.length > 0 && sessionId && sessionId.length > 0)
+      const dir = persistent
+        ? join(baseDir!, ".octo", sanitizeSessionSegment(sessionId!), "outputs")
+        : join(app.getPath("temp"), "octo")
+
+      // 内存快路径的键带上 dir(已含 sessionId):Map 是模块级、跨会话共享,只按 URI 记会让「同一 URI 被
+      // 会话 A、B 分别引用」时 B 命中 A 的落点、指向 A 的会话目录。带 dir 前缀后,Map 成为「本会话清单」的
+      // 忠实缓存,与持久清单答案一致(纯提速、无跨会话 alias)。
+      const cacheKey = `${dir}::${namespace}`
+
+      // 幂等 ①:进程内快路径。命中且文件仍在 → 复用,绝不 re-fetch/覆盖。
+      const cached = materializedByNamespace.get(cacheKey)
+      if (cached && existsSync(cached)) {
+        console.log("[octo:worktree] result-materialize", { filename: safeName, path: cached, sessionId, reused: true })
+        return cached
+      }
+
       await ensureWorktreeDir(dir)
+
+      // 幂等 ②:磁盘持久清单(跨重启/重装存活,#90)。同样按 URI 命中、且落地文件仍在 → 复用并回填内存 Map。
+      if (persistent) {
+        const entry = readMaterializedManifest(dir)[namespace]
+        if (entry?.file) {
+          const abs = join(dir, entry.file)
+          if (existsSync(abs)) {
+            materializedByNamespace.set(cacheKey, abs)
+            console.log("[octo:worktree] result-materialize", { filename: safeName, path: abs, sessionId, reused: true })
+            return abs
+          }
+        }
+      }
+
+      // 未命中 → 落盘。撞名仍走 collisionFreePath(两个不同 URI 撞同名各留一份,不 alias),再把 URI→文件名 写回清单。
       const destPath = collisionFreePath(dir, safeName)
       // net.fetch 走 Chromium 网络栈,理由同 download-resource;失败落 main.log(electron-log),
       // 裸 console.log 进不了 main.log,内网远程排障只有这份文件可看。
@@ -423,7 +530,8 @@ export function registerIpcHandlers(deps: Deps) {
       }
       const buf = Buffer.from(await res.arrayBuffer())
       await writeFile(destPath, buf)
-      materializedByNamespace.set(namespace, destPath)
+      materializedByNamespace.set(cacheKey, destPath)
+      if (persistent) recordMaterialized(dir, namespace, basename(destPath))
       console.log("[octo:worktree] result-materialize", { filename: safeName, path: destPath, sessionId, reused: false })
       return destPath
     },
@@ -823,6 +931,54 @@ export function registerIpcHandlers(deps: Deps) {
     },
   )
 
+  // 离屏窗口截图:先把当前页面 JSON 写入 previewdist/data.js 的 window.__A2UI_DATA__,
+  // 让隐藏窗口启动时直接渲染当前页面(顶层窗口走 __A2UI_DATA__ 路径,不走 postMessage),
+  // 截完恢复 data.js。可见界面(含归档弹窗/批注)完全不动,避免遮罩污染与闪烁。
+  ipcMain.handle(
+    "capture-preview-page",
+    async (_event: IpcMainInvokeEvent, opts: { pageJson: unknown; waitForMs?: number }) => {
+      const dataJsPath = join(previewDistDir(), "data.js")
+      let backup = ""
+      try {
+        backup = await readFile(dataJsPath, "utf8").catch(() => "")
+        const pageJsonObj = typeof opts.pageJson === "string" ? JSON.parse(opts.pageJson) : opts.pageJson
+        await writeFile(dataJsPath, `window.__A2UI_DATA__ = ${JSON.stringify(pageJsonObj)};`, "utf8")
+
+        const win = new BrowserWindow({
+          width: 1920,
+          height: 1080,
+          show: false,
+          frame: false,
+          webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+          },
+        })
+        try {
+          await new Promise<void>((resolve) => {
+            let done = false
+            const finish = () => { if (!done) { done = true; resolve() } }
+            win.webContents.once("did-finish-load", finish)
+            win.webContents.once("did-fail-load", finish)
+            win.webContents.loadURL("http://127.0.0.1:51856").then(finish).catch(finish)
+            setTimeout(finish, 15000)
+          })
+          // 等 runtime 渲染(含图标处理,必要时调用方可调大 waitForMs)
+          await new Promise((r) => setTimeout(r, opts.waitForMs ?? 2000))
+          const image = await win.webContents.capturePage({ x: 0, y: 0, width: 1920, height: 1080 })
+          if (image.isEmpty()) return null
+          return image.toDataURL()
+        } finally {
+          if (!win.isDestroyed()) win.destroy()
+        }
+      } finally {
+        // 回退 data.js,不影响可见 iframe 与后续启动
+        await writeFile(dataJsPath, backup, "utf8").catch(() => {})
+      }
+    },
+  )
+
   // 将 Tailwind 转换为 CSS - By WangQiang - 该注释请勿删除
   ipcMain.handle("tailwind-to-css", (_event: IpcMainInvokeEvent, className: string) => {
     return convertTailwindToCSS(className)
@@ -907,12 +1063,18 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   // 导出 HUI 代码 - By WangQiang - 该注释请勿删除
-  ipcMain.handle("download-hui-code", (_event: IpcMainInvokeEvent, input: HuiCodeInput[]) => {
-    const options = app.isPackaged
-      ? { templateDir: join(process.resourcesPath, "hui-templates") }
-      : {}
-    return downloadHuiCode(input, options)
-  })
+  // 上层 options 只暴露 targetLib（选目标组件库 eview-react/eview-ui，可选）；
+  // ipc 注入 templateDir（打包态 process.resourcesPath/hui-templates，按 lib 拆子目录由 resolveTemplateDir 拼）；
+  // 二者合并后传给 downloadHuiCode 的 options。
+  ipcMain.handle(
+    "download-hui-code",
+    (_event: IpcMainInvokeEvent, input: HuiCodeInput[], options?: { targetLib?: string }) => {
+      const ipcOptions = app.isPackaged
+        ? { templateDir: join(process.resourcesPath, "hui-templates") }
+        : {}
+      return downloadHuiCode(input, { ...ipcOptions, ...options })
+    },
+  )
 
   // 获取当前预览页面地址的文件路径 - By WangQiang - 该注释请勿删除
   ipcMain.handle("get-preview-dist-dir", () => previewDistDir())
@@ -949,10 +1111,15 @@ export function registerIpcHandlers(deps: Deps) {
         defaultName: string
         files?: { path: string; content: string }[]
         sourceDir?: string
+        /** sourceDir 内容在 zip 内的落点（相对路径，默认 ""＝根，如 "assets"） */
+        destFolder?: string
         comment?: string
       },
     ) => {
-      if (opts.sourceDir && !existsSync(opts.sourceDir)) return null
+      // sourceDir 不存在时：有 files 就跳过 sourceDir 继续打代码；
+      // 既无 files 又无可用 sourceDir → 无内容，取消。
+      const sourceDirExists = opts.sourceDir ? existsSync(opts.sourceDir) : false
+      if (!opts.files?.length && !sourceDirExists) return null
 
       const win = BrowserWindow.fromWebContents(event.sender)
       const dialogOpts = {
@@ -966,43 +1133,38 @@ export function registerIpcHandlers(deps: Deps) {
       if (result.canceled || !result.filePath) return null
 
       const destZip = result.filePath
-      const isDirect = !!opts.sourceDir
-      const workDir = opts.sourceDir ?? join(tmpdir(), `octo-export-${Date.now()}`)
+      // sourceDir 在 zip 内的落点：相对路径，去前导/尾随 /；"" → 打到根（archive.directory 第二参 false）
+      const destFolder = (opts.destFolder ?? "").replace(/^\/+/, "").replace(/\/+$/, "")
 
-      if (!isDirect) {
-        await mkdir(workDir, { recursive: true })
-        for (const file of opts.files ?? []) {
-          const filePath = join(workDir, file.path)
-          await mkdir(dirname(filePath), { recursive: true })
-          await writeFile(filePath, file.content, "utf-8")
-        }
-      }
+      // archiver 合并 files + sourceDir（落到 destFolder）成一个 zip，替换原 powershell/tar + tmp workDir。
+      // 三种输入都支持：仅 files / 仅 sourceDir / files + sourceDir。
+      await new Promise<void>((resolve, reject) => {
+        const output = createWriteStream(destZip)
+        const archive = archiver("zip", { zlib: { level: 9 } })
+        output.on("close", () => resolve())
+        output.on("error", (err) => reject(err))
+        archive.on("error", (err) => reject(err))
+        archive.pipe(output)
 
-      try {
-        await new Promise<void>((resolve, reject) => {
-          if (process.platform === "win32") {
-            execFile(
-              "powershell",
-              [
-                "-NoProfile",
-                "-Command",
-                `Compress-Archive -Path '${workDir}\\*' -DestinationPath '${destZip}' -Force`,
-              ],
-              (err) => (err ? reject(err) : resolve()),
-            )
-          } else {
-            execFile("zip", ["-r", destZip, "."], { cwd: workDir }, (err) =>
-              err ? reject(err) : resolve(),
-            )
+        // ① files：文本文件按 path 写入 zip
+        if (opts.files) {
+          for (const file of opts.files) {
+            archive.append(Buffer.from(file.content, "utf-8"), { name: file.path })
           }
-        })
+        }
 
-        if (opts.comment) addZipComment(destZip, opts.comment)
+        // ② sourceDir：目录内容整体写入 zip 的 destFolder 下（仅当目录存在）
+        //    archive.directory(src, false) → 内容打到根；传字符串 → 打到该子目录
+        if (opts.sourceDir && sourceDirExists) {
+          archive.directory(opts.sourceDir, destFolder || false)
+        }
 
-        return destZip
-      } finally {
-        if (!isDirect) await rm(workDir, { recursive: true, force: true }).catch(() => { })
-      }
+        void archive.finalize()
+      })
+
+      if (opts.comment) addZipComment(destZip, opts.comment)
+
+      return destZip
     },
   )
 
@@ -1135,6 +1297,9 @@ export function registerIpcHandlers(deps: Deps) {
       return { success: false, curlUrl: curlTarget, error: errorMessage }
     }
   })
+
+  // 查找topixso文件夹
+  ipcMain.handle("get-topixso-dir", () => topixsoDir)
 }
 
 export function sendSqliteMigrationProgress(win: BrowserWindow, progress: SqliteMigrationProgress) {

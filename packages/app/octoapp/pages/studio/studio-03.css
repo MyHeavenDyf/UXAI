@@ -124,9 +124,9 @@
   background: #fff;
 }
 
-.studio-result-progress-preview .studio-result-error {
+/* .studio-result-progress-preview .studio-result-error {
   margin: 16px;
-}
+} */
 
 
 .studio-result-badge-icon {
@@ -153,14 +153,23 @@
   line-height: 16px;
 }
 
+.studio-result-error-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.studio-result-error-icon {
+  width: 14px;
+  height: 14px;
+}
+
 .studio-result-error {
-  margin-top: 16px;
-  padding: 10px 12px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.72);
-  color: #b42318;
+  color: #191919;
   font-size: 12px;
-  line-height: 18px;
+  line-height: 20px;
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -225,10 +234,9 @@
   object-fit: contain;
 }
 
-/* ── 单张横构图：高度 180px、图片宽度撑满高度自适应、垂直居中 ── */
+/* ── 单张横构图：宽度铺满、高度跟随图片，最大 180px ── */
 
 .studio-result-grid.single-landscape {
-  height: 180px;
   align-items: center;
   justify-content: center;
   overflow-x: hidden;
@@ -239,9 +247,9 @@
   align-items: center;
   justify-content: center;
   width: 100%;
-  height: 180px;
+  height: auto;
+  max-height: 180px;
   min-width: unset;
-  background: #f7f7f7;
   box-shadow: none;
 }
 
@@ -250,13 +258,13 @@
 .studio-result-grid.single-landscape .studio-result-thumb-media {
   width: 100%;
   height: auto;
+  max-height: 180px;
   object-fit: contain;
 }
 
-/* ── 多张横构图：等分宽度、高度 180px、间距 4px ── */
+/* ── 多张横构图：等分宽度、高度跟随图片，最大 180px、间距 4px ── */
 
 .studio-result-grid.multi-landscape {
-  height: 180px;
   gap: 4px;
   overflow-x: hidden;
 }
@@ -267,8 +275,8 @@
   justify-content: center;
   flex: 1;
   min-width: 0;
-  height: 180px;
-  background: #f7f7f7;
+  height: auto;
+  max-height: 180px;
   box-shadow: none;
 }
 
@@ -277,6 +285,7 @@
 .studio-result-grid.multi-landscape .studio-result-thumb-media {
   width: 100%;
   height: auto;
+  max-height: 180px;
   object-fit: contain;
 }
 
@@ -292,8 +301,8 @@
   align-items: center;
   justify-content: center;
   flex: 0 0 calc(50% - 2px);
-  height: 180px;
-  background: #f7f7f7;
+  height: auto;
+  max-height: 180px;
   box-shadow: none;
 }
 
@@ -302,6 +311,7 @@
 .studio-result-grid.multi-landscape-4 .studio-result-thumb-media {
   width: 100%;
   height: auto;
+  max-height: 180px;
   object-fit: contain;
 }
 
@@ -376,14 +386,6 @@
   min-width: 0;
   height: 210px;
 }
-
-.studio-result-thumb video,
-.studio-detail-preview-button video {
-  background:
-    linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(37, 99, 235, 0.76)),
-    #111827;
-}
-
 .studio-generation-skeleton {
   position: relative;
   height: 160px;
@@ -954,7 +956,8 @@
 
 .studio-video-player {
   position: absolute;
-  z-index: 20;
+  /* 高于悬浮抽屉 .studio-workspace-overlay(z-index:40)，低于 .studio-menu(42)/顶栏控件(60)/全屏(1000) */
+  z-index: 41;
   overflow: hidden;
   border-radius: 6px;
   background: #000;

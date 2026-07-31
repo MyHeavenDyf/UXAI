@@ -19,8 +19,8 @@ import { AttachmentBar, type Attachment } from "./attachment-bar"
 import { InsightTurn } from "./insight-turn"
 import { GenerationCard } from "./generation-card"
 import { IntentConfirmCard, type IntentConfirmAnswers } from "./intent-confirm-card"
-import type { IntentConfirmResult } from "../../agents/proto-intent-confirm"
-import type { PatternMatchItem } from "../../utils/pattern-resource"
+import type { IntentConfirmDimension, IntentConfirmResult } from "../../agents/proto-intent-confirm"
+import type { BlockModuleItem } from "../../utils/pattern-resource"
 import { TurnDuration } from "./turn-duration"
 import { ProtoIntroduction } from "./proto-introduction"
 import { ChartInput, type ChartInputProps } from "./chart-input"
@@ -39,6 +39,8 @@ function RoundCard(props: {
   startTime: number
   endTime?: number
   error?: string
+  errorAgent?: string
+  errorCallId?: string
   needsConfirm: boolean
   confirmText?: { title: string; subtitle: string } | null
   pauseMs: number
@@ -56,6 +58,8 @@ function RoundCard(props: {
         canPreview={done() && !cancelled() && !props.error}
         cancelled={cancelled()}
         error={props.error}
+        errorAgent={props.errorAgent}
+        errorCallId={props.errorCallId}
         needsConfirm={props.needsConfirm}
         confirmText={props.confirmText}
         onRetry={props.onRetry}
@@ -110,19 +114,20 @@ export function ChatPanel(props: {
   onTitleChanged: (title: string) => void
   /** 重试失败的 pipeline */
   onRetry?: () => void
-  intentConfirmResult?: IntentConfirmResult | null
-  /** block 模板匹配结果列表（用户选完维度后匹配出来的候选模板） */
-  blockMatches?: PatternMatchItem[]
+  /** page pattern 匹配结果（Pattern 匹配阶段返回的候选页面布局） */
+  pageMatches?: IntentConfirmResult | null
+  /** block 模板匹配结果列表（用户选完 Pattern 后匹配出来的候选模板） */
+  blockMatches?: BlockModuleItem[]
   /** 是否正在匹配 block 模板（loading 状态） */
   blockMatching?: boolean
   /** block 匹配是否出错（卡片内显示重试） */
   blockMatchError?: boolean
   /** 卡片初始步骤（恢复断点时直接跳到 blocks） */
-  initialStep?: "dimensions" | "blocks"
-  /** 用户点「匹配pattern」时触发，传入维度确认后的 enrichedInput */
-  onMatchPattern?: (enrichedInput: string) => void
+  initialStep?: "patterns" | "blocks"
+  /** page pattern 选定后点「下一步」/「跳过」时触发，传入选中的 item（跳过时为 null） */
+  onMatchPattern?: (selectedItem: IntentConfirmDimension | null) => void
   /** 用户点「下一步」确认时触发，传入维度答案 + enrichedInput + 选中的 block 列表 */
-  onConfirmIntent?: (answers: IntentConfirmAnswers, enrichedInput: string, selectedBlocks: PatternMatchItem[]) => void
+  onConfirmIntent?: (answers: IntentConfirmAnswers, enrichedInput: string, selectedBlocks: BlockModuleItem[]) => void
 }) {
   const params = useParams<{ id?: string }>()
   const sdk = useSDK()
@@ -176,6 +181,11 @@ export function ChatPanel(props: {
   // ── 会话进度条动画状态 ──
   const [timeoutDone, setTimeoutDone] = createSignal(true)
   const workingStatus = createMemo<"hidden" | "showing" | "hiding">((prev) => {
+    // 意图确认 / 模板匹配等待期间不显示进度条
+    if (props.needsConfirm || props.blockMatching) {
+      if (prev === "showing" || !timeoutDone()) return "hiding"
+      return "hidden"
+    }
     if (props.pipelineBusy) return "showing"
     if (prev === "showing" || !timeoutDone()) return "hiding"
     return "hidden"
@@ -333,6 +343,7 @@ export function ChatPanel(props: {
                               messageID={item.messageID}
                               status={props.sessionStatus}
                               pipelineBusy={props.pipelineBusy}
+                              errorCallId={round().errorCallId}
                             />
                           )}
                         </For>
@@ -344,10 +355,12 @@ export function ChatPanel(props: {
                           startTime={round().startTime}
                           endTime={round().endTime}
                           error={round().error}
+                          errorAgent={round().errorAgent}
+                          errorCallId={round().errorCallId}
                           needsConfirm={props.needsConfirm}
                           confirmText={props.confirmText}
-                          pauseMs={props.pauseMs}
-                          pauseStartedAt={props.pauseStartedAt}
+                          pauseMs={ri === 0 ? props.pauseMs : 0}
+                          pauseStartedAt={ri === 0 ? props.pauseStartedAt : undefined}
                           onRetry={props.onRetry}
                         />
                       </>
@@ -364,10 +377,11 @@ export function ChatPanel(props: {
           <ChartInput {...props.inputProps} rows={3} />
         </div>
 
-        <Show when={props.intentConfirmResult && props.onConfirmIntent}>
+        <Show when={props.pageMatches && props.onConfirmIntent}>
           <div class="ic-card-overlay">
             <IntentConfirmCard
-              result={props.intentConfirmResult!}
+              sessionId={params.id!}
+              result={props.pageMatches!}
               blockMatches={props.blockMatches ?? []}
               blockMatching={props.blockMatching ?? false}
               blockMatchError={props.blockMatchError ?? false}

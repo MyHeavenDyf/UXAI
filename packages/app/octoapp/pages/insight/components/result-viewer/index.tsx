@@ -2,27 +2,24 @@ import { createMemo, createResource, createSignal, Show, Switch, Match } from "s
 import { Portal } from "solid-js/web"
 import type { JSX } from "solid-js"
 import { showToast } from "@opencode-ai/ui/toast"
-import type { ResultTab, TabViewMode } from "./tab-store"
+import { tabLocalPath, type ResultTab, type TabViewMode } from "./tab-store"
 import { TabBar } from "./tab-bar"
 import { ActionBar } from "./action-bar"
-import { TableRenderer } from "./table-renderer"
 import { MindmapRenderer } from "./mindmap-renderer"
 import { HtmlRenderer } from "./html-renderer"
 import { ImageRenderer } from "./image-renderer"
 import { SourceCodeView } from "./source-code-view"
 import { IllustrationResultEmpty, fileTypeIconUrl } from "../../icons/illustrations"
-import { extractTableMarkdown } from "../../utils/markdown-table"
 import { isMindmapJSON } from "../../utils/mindmap-adapter"
 import { fetchResourceText } from "../../utils/resource-link"
-import { defaultFilename as defaultLocalFilename } from "../../utils/local-file"
-import { ensureLocalMarkdownFile } from "../../utils/local-resource"
+import { defaultFilename as defaultLocalFilename, saveDialogName } from "../../utils/local-file"
+import { describeResourceError } from "../../utils/local-resource"
 import { openFileLocally, revealFileInFolder, NO_APP_HINT } from "../../utils/local-file-ops"
 import { MarkdownEditor } from "../markdown-editor"
 import { MarkdownPreview } from "../markdown-editor/markdown-preview"
 import { langFromPath, canOpenLocally } from "../../utils/write-output"
 import { getDesktopApi } from "../../lib/electron-api"
 import { tracker } from "@/utils/tracker"
-import { useSDK } from "@/context/sdk"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useParams } from "@solidjs/router"
 import folderBlueUrl from "../../icons/IconFolderBlue.svg?url"
@@ -63,6 +60,8 @@ export function ResultViewer(props: {
 }): JSX.Element {
   const activeTab = createMemo(() => props.tabs.find((t) => t.id === props.activeId) ?? null)
   const projectDir = useProjectDir()
+  // 当前 tab 内容容器 ref:供 ActionBar 归档截图时在容器作用域内查 iframe,避免全局 querySelector 取到其他 tab/分屏
+  let tabContainer: HTMLDivElement | undefined
   // 正在全屏编辑的 tab id(markdown 编辑器 overlay)。用 id 而非 tab 对象,
   // 这样内容回写(cacheContent 换新对象)后仍指向同一 tab。
   const [editingId, setEditingId] = createSignal<string | null>(null)
@@ -70,6 +69,9 @@ export function ResultViewer(props: {
     const id = editingId()
     return id ? props.tabs.find((t) => t.id === id) ?? null : null
   })
+  // 磁盘内容版本:编辑器保存后关闭时 +1,驱动 LocalFileTabBody 重新读盘。
+  // 磁盘是真相源(§5)——编辑器写的是磁盘,预览就该回去读磁盘,而不是显示一份内存里的回写值。
+  const [diskVersion, setDiskVersion] = createSignal(0)
 
   return (
     <div
@@ -98,15 +100,27 @@ export function ResultViewer(props: {
         </Show>
         <Show when={props.viewMode === "tabs" && activeTab()}>
           {(tab) => (
-            <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+            <div class="flex flex-col flex-1 min-h-0 overflow-hidden" ref={(el: HTMLDivElement) => { tabContainer = el }}>
               <ActionBar
                 tab={tab()}
                 viewMode={tab().viewMode ?? "preview"}
                 onSetViewMode={(mode) => props.onSetViewMode?.(tab().id, mode)}
                 onEdit={() => setEditingId(tab().id)}
+                getIframe={() => tabContainer?.querySelector("iframe") ?? null}
               />
-              <div class="flex-1 overflow-hidden">
-                <TabBody tab={tab()} onCacheContent={props.onCacheContent} refreshKey={props.refreshKey} />
+              {/* select-text:应用外壳(pages/layoutnet.tsx)整体 `select-none`(Electron 原生手感,
+                  避免拖窗/拖分隔线误选),白名单只有 input/textarea/contenteditable。产物预览是**内容**,
+                  用户要能划词复制,故在内容容器这一层开口 —— 只覆盖 TabBody,不含 TabBar / ActionBar
+                  等 chrome(它们是兄弟节点,保持不可选)。
+                  对话区同理由上游 message-part.css 的 text-part / user-message-text 白名单放开。
+                  图形类视图(markmap)需要拖拽平移,自行 select-none 关掉,见 mindmap-renderer.tsx。 */}
+              <div class="flex-1 overflow-hidden select-text">
+                <TabBody
+                  tab={tab()}
+                  onCacheContent={props.onCacheContent}
+                  refreshKey={props.refreshKey}
+                  diskVersion={diskVersion()}
+                />
               </div>
             </div>
           )}
@@ -114,7 +128,8 @@ export function ResultViewer(props: {
       </Show>
 
       {/* 全屏 markdown 编辑器:Portal 到 body,盖住整个 insight 三栏布局。
-          关闭后把编辑内容回写 tab(cacheContent),使「预览/代码」显示编辑后内容。见 §2.2 / §2.3。 */}
+          关闭后回写 tab.content(供 ActionBar 复制/下载)并 bump diskVersion —— 编辑器写的是磁盘,
+          预览重新读一次磁盘,而不是显示内存里的回写值(§5 磁盘是真相源)。见 §2.2 / §2.3。 */}
       <Show when={editingTab()}>
         {(tab) => (
           <Portal>
@@ -123,6 +138,7 @@ export function ResultViewer(props: {
               projectDir={projectDir() || ""}
               onClose={(latest) => {
                 props.onCacheContent?.(tab().id, latest)
+                setDiskVersion((v) => v + 1)
                 setEditingId(null)
               }}
             />
@@ -133,33 +149,50 @@ export function ResultViewer(props: {
   )
 }
 
-// ── Tab 内容容器:按 source 分流(inline 直渲染 / uri 走 fetch / path 走 SDK 读盘) ──
+// ── Tab 内容容器:按**身份**分流(SPEC-INS-026 §5「一个身份一份内容」) ──
+//
+// 已 ready 的产物一律读磁盘,不读远端原件 —— 产物是可编辑的(markdown 编辑器 + 用户直接改
+// 磁盘文件),一旦可编辑,远端原件就不再是真相源。要原件走 ActionBar 的「下载原件」。
+//
+// 分支条件的真值集合(往这条 Switch 里插分支前**先枚举清楚**,别凭「我打算改谁」判断 ——
+// 曾有一个新 Match 插在 markdown 分支之前、条件只排除了 file/image,结果静默改写了
+// markdown 卡的读法):
+//
+//   1. image + 有 filePath/uri  → ImageRenderer(二进制,不能走任何文本读法)
+//   2. file                     → FileFallback(Office/二进制,压根不读内容)
+//   3. 有磁盘路径               → LocalFileTabBody:markdown/html/json/code,IPC 读原字节
+//   4. uri 且未缓存             → UriTabBody:非桌面端 / 尚未落盘时的只读预览兜底
+//   fallback                    → TabContent:inline 卡,或已 fetch 缓存的 uri 卡
+//
+// 3 覆盖了原先的 PathTabBody(write 产物)与 UriMarkdownTabBody(uri md 卡)两条路径 ——
+// 它们的差别本来只是「怎么拿到那个路径」,拿到之后读法应当一样。
 function TabBody(props: {
   tab: ResultTab
   onCacheContent?: (id: string, content: string) => void
   refreshKey?: number
+  /** 磁盘内容可能已变(write 覆盖 / 编辑器保存)时 +1,驱动重新读盘 */
+  diskVersion?: number
 }): JSX.Element {
+  const localPath = () => tabLocalPath(props.tab)
   return (
     <Switch fallback={<TabContent tab={props.tab} />}>
-      {/* image 模式(filePath:local:// 协议读盘渲染 / uri:直接加载):
-           不走 PathTabBody 的 sdk.client.file.read(那是文本读法,会把二进制当 UTF-8 解,内容损坏)。
-           也不走 UriTabBody 的 fetch+text(同样损坏二进制)。 */}
       <Match when={props.tab.type === "image" && (props.tab.filePath || props.tab.uri)}>
         <ImageRenderer filePath={props.tab.filePath} uri={props.tab.uri} refreshKey={props.refreshKey} />
       </Match>
-      {/* path 模式(路径 C,write 文本产物):走 SDK file.read 读盘取最新内容,不复用快照。
-          见 output-renderers.md §2.6.3。file 类型(表格/office/二进制)不读盘,直接 fallback 到
-          TabContent → FileFallback(本地 openPath / showItemInFolder)。 */}
-      <Match when={props.tab.source === "path" && props.tab.type !== "file"}>
-        <PathTabBody tab={props.tab} onCacheContent={props.onCacheContent} />
+      <Match when={props.tab.type === "file"}>
+        <TabContent tab={props.tab} />
       </Match>
-      {/* uri markdown 卡:不直接 fetch(url),而是先把产物落成本地「工作副本」(download-resource-to-temp
-          已幂等:首次下原件、之后复用用户改过的那份),再读这份本地文件。于是卡片预览 / 编辑 / 重开卡
-          看到的都是同一份;要原件走「下载原件」(ActionBar)。见 spec insight-markdown-editor.md §3。 */}
-      <Match when={props.tab.source === "uri" && props.tab.type === "markdown" && !props.tab.content}>
-        <UriMarkdownTabBody tab={props.tab} onCacheContent={props.onCacheContent} />
+      <Match when={localPath()}>
+        {(path) => (
+          <LocalFileTabBody
+            tab={props.tab}
+            path={path()}
+            diskVersion={props.diskVersion}
+            refreshKey={props.refreshKey}
+            onCacheContent={props.onCacheContent}
+          />
+        )}
       </Match>
-      {/* 其余 uri 模式(json/html/table/mindmap/file)未缓存:fetch → 回写 cache → 父层切到 inline 分支 */}
       <Match when={props.tab.source === "uri" && !props.tab.content}>
         <UriTabBody tab={props.tab} onCacheContent={props.onCacheContent} />
       </Match>
@@ -167,27 +200,36 @@ function TabBody(props: {
   )
 }
 
-// path 模式:write 工具写到本地的文件,用 opencode SDK `file.read` 读盘(零新增 IPC,
-// 与 review-tab.tsx 的 readFile 同源)。每次挂载都重读 → 文件被后续 write 覆盖也能反映最新。
-// 读到 text 后走与 uri/inline 完全相同的按 type 分发(TabContent)。见 output-renderers.md §2.6.3。
-function PathTabBody(props: {
+// 已 ready 的产物:**统一从磁盘读原字节**(§5)。
+//
+// 不用 `sdk.client.file.read`:服务端会对内容 `.trim()`(packages/opencode/src/file/index.ts),
+// 二进制返回空串。markdown 编辑器以 tab.content 为初始值并写回磁盘,trim 会静默吃掉文件
+// 首尾空白 —— 用户改一次就少一个尾部换行,而且看不出是谁干的。
+//
+// 每次挂载都重读,且 refreshKey / diskVersion 变化时 refetch:write 覆盖同名文件、编辑器保存、
+// 用户在 Finder 里直接改,都能反映到预览。
+function LocalFileTabBody(props: {
   tab: ResultTab
+  path: string
+  diskVersion?: number
+  refreshKey?: number
   onCacheContent?: (id: string, content: string) => void
 }): JSX.Element {
-  const sdk = useSDK()
-  // source 必须返回稳定的 path 字符串(而非新对象):createResource 按值比较,
-  // 字符串不变就不会重 fetch。否则 onCacheContent 回写 content → props.tab 换新对象
-  // → source 重跑返回新对象 → 触发重 fetch → 又回写 → 死循环(path 分支常挂载断不了)。
   const [resource, { refetch }] = createResource(
-    () => props.tab.filePath ?? null,
-    async (path) => {
-      console.log("[octo:path] read start", { path })
-      const res = await sdk.client.file.read({ path })
-      const data = res.data as unknown
-      // 兼容 SDK 返回 string(直接内容)或 FileContent({ content })两种形态
-      const text = typeof data === "string" ? data : ((data as { content?: string } | null)?.content ?? "")
-      console.log("[octo:path] read ok", { path, bytes: text.length })
-      // 回写 cache 供 ActionBar 复制/下载;显示仍由本组件渲染 resource() 保证已读最新
+    // source 必须是可按值比较的结构:返回新对象会让 createResource 每次 effect 都重跑,
+    // 而 onCacheContent 回写又会换 props.tab 对象 → 死循环。故只放三个原始值。
+    () => ({ path: props.path, disk: props.diskVersion ?? 0, key: props.refreshKey ?? 0 }),
+    async (src) => {
+      const api = getDesktopApi()
+      if (typeof api?.readFileBuffer !== "function") {
+        throw new Error("缺少 window.api.readFileBuffer,无法读取本地产物")
+      }
+      console.log("[octo:local] read start", { path: src.path })
+      const buf = await api.readFileBuffer(src.path)
+      // 读原字节自己解码,不经服务端 —— 尾部换行等空白逐字保留
+      const text = buf ? new TextDecoder("utf-8").decode(new Uint8Array(buf)) : ""
+      console.log("[octo:local] read ok", { path: src.path, bytes: text.length })
+      // 回写 cache 供 ActionBar 复制/下载;显示仍渲染 resource() 以保证是刚读到的那份
       props.onCacheContent?.(props.tab.id, text)
       return text
     },
@@ -198,9 +240,9 @@ function PathTabBody(props: {
       when={!resource.error}
       fallback={
         // refetch 期间 error 不清空(Solid resource 语义),不包 loading 态错误页会纹丝不动,
-        // 用户分不清「没点上」还是「又失败了」。三个 TabBody 的错误兜底同此。
+        // 用户分不清「没点上」还是「又失败了」。两个 TabBody 的错误兜底同此。
         <Show when={!resource.loading} fallback={<ResourceLoading />}>
-          <PathErrorFallback tab={props.tab} error={resource.error} onRetry={() => refetch()} />
+          <PathErrorFallback tab={props.tab} path={props.path} error={resource.error} onRetry={() => void refetch()} />
         </Show>
       }
     >
@@ -211,9 +253,13 @@ function PathTabBody(props: {
   )
 }
 
-// URI 模式 + 未缓存:fetch → 回写 cache → 由父层 Show 自动切到 inline 分支渲染。
-// tab.type 在对话流出卡阶段已由 business_type(优先) / mimeType(兜底)确定(spec: output-renderers.md §2.5.2);
-// 此处不再做"application/json 二次判断 retype"——服务端 business_type 显式声明即真理,客户端零嗅探。
+// URI 模式 + 未缓存 + **无磁盘副本**:fetch 远端只读预览 → 回写 cache → 父层切到 inline 分支。
+//
+// 这是兜底路径,不是主路径(§5):非桌面端(浏览器 __dev / 测试)没有落盘能力,以及桌面端
+// eager 落盘尚未完成(pending)的那段窗口。落盘完成后 bindLocalPath 补上 filePath,
+// 父层 Switch 就切到 LocalFileTabBody 读磁盘了 —— 一个身份一份内容。
+//
+// tab.type 在出卡阶段已由 resolveOutputType 定死(§4.2),此处不做任何二次判断。
 function UriTabBody(props: {
   tab: ResultTab
   onCacheContent?: (id: string, content: string) => void
@@ -254,63 +300,8 @@ function UriTabBody(props: {
   )
 }
 
-// uri markdown 模式:先把产物落成本地工作副本(download-resource-to-temp 幂等),再读这份本地文件,
-// 使「卡片预览 / 编辑 / 本地打开 / 重开卡」回显的都是同一份(含用户改动)。要原件走「下载原件」。
-// 落点 <projectDir>/.octo/<sessionId>/outputs/<file>(SPEC-INS-014 v2,扁平、撞名加后缀);无项目目录/无会话时落 OS 临时目录(非持久,重启可能丢)。
-// 桌面端能力缺失(浏览器 __dev / 测试)时退回直接 fetch(url) 只读预览。见 insight-markdown-editor.md §3。
-function UriMarkdownTabBody(props: {
-  tab: ResultTab
-  onCacheContent?: (id: string, content: string) => void
-}): JSX.Element {
-  const projectDir = useProjectDir()
-  const params = useParams<{ id?: string }>()
-  const [resource, { refetch }] = createResource(
-    () => (props.tab.uri ? { id: props.tab.id, uri: props.tab.uri, dir: projectDir() || "" } : null),
-    async (src) => {
-      const api = getDesktopApi()
-      if (typeof api?.downloadResourceToTemp !== "function" || typeof api?.readFileBuffer !== "function") {
-        // 非桌面端:无本地落地能力,退回直接 fetch url(只读,不持久)
-        const text = await fetchResourceText(src.uri)
-        props.onCacheContent?.(src.id, text)
-        return text
-      }
-      // 与编辑器共用 ensureLocalMarkdownFile → 命中同一份本地工作副本(幂等:已落地复用,不重复下载)
-      const { path: localPath } = await ensureLocalMarkdownFile(props.tab, src.dir, params.id ?? "")
-      const buf = await api.readFileBuffer!(localPath)
-      const text = buf ? new TextDecoder("utf-8").decode(new Uint8Array(buf)) : ""
-      console.log("[octo:resource] md-local", { localPath, bytes: text.length })
-      props.onCacheContent?.(src.id, text)
-      return text
-    },
-  )
-
-  return (
-    <Show
-      when={!resource.error}
-      fallback={
-        <Show when={!resource.loading} fallback={<ResourceLoading />}>
-          <ResourceErrorFallback
-            tab={props.tab}
-            error={resource.error}
-            onRetry={() => {
-              tracker.interaction({ module: "insight", name: "result-retry", extend: JSON.stringify({ tabType: props.tab.type }) })
-              void refetch()
-            }}
-          />
-        </Show>
-      }
-    >
-      <Show when={!resource.loading} fallback={<ResourceLoading />}>
-        <Show when={!props.onCacheContent}>
-          <TabContent tab={{ ...props.tab, content: resource() }} />
-        </Show>
-      </Show>
-    </Show>
-  )
-}
-
 // 实际内容渲染(content 已就位,inline 或缓存后均走这里)
-// toggle 类型(mindmap/html/table/markdown):viewMode==="source" 走 SourceCodeView(原始源),否则渲染态。
+// toggle 类型(html/markdown):viewMode==="source" 走 SourceCodeView(原始源),否则渲染态。
 // json 单视图(源),file 单视图(本地打开/下载)。见 output-renderers.md §1 视图切换。
 function TabContent(props: { tab: ResultTab }): JSX.Element {
   const content = () => props.tab.content ?? ""
@@ -323,25 +314,19 @@ function TabContent(props: { tab: ResultTab }): JSX.Element {
         </div>
       }
     >
-      <Match when={props.tab.type === "table"}>
-        {/* table 卡四视图(预览/代码/复制/下载)统一只呈现表格本体:
-            预览抽 table token、复制/下载走 extractTableMarkdown,代码视图同样抽表格源,
-            避免把上方对话正文带进来(全文仍在对话区 + 磁盘文件)。 */}
-        <Show when={!isSource()} fallback={<SourceCodeView content={extractTableMarkdown(content())} lang="markdown" />}>
-          <TableRenderer content={content()} />
-        </Show>
-      </Match>
       <Match when={props.tab.type === "markdown"}>
         <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="markdown" />}>
           <MarkdownRenderer content={content()} />
         </Show>
       </Match>
-      <Match when={props.tab.type === "mindmap" || props.tab.type === "json"}>
-        {/* mindmap 卡(路径 A business_type:"mindmap")与 json 卡(路径 C .json / 路径 A application/json /
-            路径 B 嗅探)共用渲染:内容是思维导图 shape 且处于预览态 → markmap;否则(源码态 / 非 shape)→ 原始 JSON(shiki)。
-            - json 卡内容恰为树形(顶层带 children)→ `isMindmapJSON` 真 → 默认打开即 markmap 预览,并出「预览/代码」切换
-              (切换可见性见 action-bar.showToggle:json 卡按内容判定);普通配置 JSON(无 children)单显源。
-            - mindmap 卡内容违约(非 shape)→ 降级源视图,不空白/不另起卡。详见 output-renderers.md §1 + §6.A。
+      <Match when={props.tab.type === "json"}>
+        {/* json 卡(路径 A application/json / 路径 C .json / 路径 B 嗅探)按**内容**分流:
+            内容是思维导图 shape 且处于预览态 → markmap;否则(源码态 / 非 shape)→ 原始 JSON(shiki)。
+            - 内容恰为树形(顶层带 children / {mindmaps:[…]} / {nodes:[…]})→ `isMindmapJSON` 真 →
+              默认打开即 markmap 预览,并出「预览/代码」切换(可见性见 action-bar.showToggle);
+              普通配置 JSON 单显源。
+            - SPEC-INS-026 §4.2:思维导图是「json 的一种内容形态」,不是独立类型。此前 business_type
+              声明为 mindmap 却内容违约的卡会降级到这里的源视图 —— 现在没有那条路径了,一律看内容。
             判定与渲染共用同一条 isMindmapJSON,杜绝"判中但渲空"漂移。 */}
         <Show
           when={!isSource() && isMindmapJSON(content())}
@@ -382,7 +367,8 @@ function ResourceErrorFallback(props: {
   error: unknown
   onRetry: () => void
 }): JSX.Element {
-  const message = () => (props.error instanceof Error ? props.error.message : String(props.error))
+  // 剥掉 [octo:name-rejected] 这类机器标记再展示(§4.1 拒绝类失败的原因文案本身是中文可读的)
+  const message = () => describeResourceError(props.error)
   return (
     <div class="flex flex-col items-center justify-center h-full gap-3 px-8 text-center">
       <div class="text-sm" style={{ color: "var(--octo-text-secondary)" }}>
@@ -423,18 +409,19 @@ function ResourceErrorFallback(props: {
   )
 }
 
-// path 模式读盘失败(文件被删 / 路径不存在 / SDK 异常):显示路径 + 重试。
+// 读盘失败(文件被删 / 路径不存在 / 缺桌面端能力):显示路径 + 重试。
 function PathErrorFallback(props: {
   tab: ResultTab
+  path?: string
   error: unknown
   onRetry: () => void
 }): JSX.Element {
-  const message = () => (props.error instanceof Error ? props.error.message : String(props.error))
+  const message = () => describeResourceError(props.error)
   return (
     <div class="flex flex-col items-center justify-center h-full gap-3 px-8 text-center">
       <div class="text-sm" style={{ color: "var(--octo-text-secondary)" }}>读取本地文件失败</div>
       <div class="text-xs break-all" style={{ color: "var(--octo-text-disabled)" }}>
-        {props.tab.filePath}
+        {props.path ?? props.tab.filePath}
       </div>
       <div class="text-xs" style={{ color: "var(--octo-text-disabled)" }}>{message()}</div>
       <button
@@ -454,7 +441,7 @@ function PathErrorFallback(props: {
 //
 // 返回桌面壳缺失的 API 方法名列表(便于 toast 给用户精确报错 + 知会开发团队补壳)。
 // SOT: ../../lib/electron-api.ts 的 DesktopApi;handoff 同步清单见 octo-agent 文档仓 docs/intranet-handoff.md §4。
-type ApiKey = "openPath" | "saveFilePicker" | "downloadResource" | "downloadResourceToTemp" | "showItemInFolder"
+type ApiKey = "openPath" | "saveFilePicker" | "downloadResource" | "downloadResourceToTemp" | "showItemInFolder" | "resolveMaterializedPath" | "copyFileTo"
 function missingDesktopApi(required: ApiKey[]): string[] {
   const api = getDesktopApi()
   if (!api) return required.slice()
@@ -483,7 +470,8 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     return ext || props.tab.mimeType || ""
   }
 
-  // 默认落地文件名:复用共享 util(与 markdown 编辑器同一套规则,见 utils/local-file.ts)
+  // 默认落地文件名:复用共享 util(与 markdown 编辑器同一套规则,见 utils/local-file.ts)。
+  // 逐字保留 —— 落盘是否要清洗/拒绝由主进程 landingName 单点决定(SPEC-INS-026 §4.1)。
   const defaultFilename = () => defaultLocalFilename(props.tab)
 
   // path 源(write 产物):文件已在本地磁盘,直接 openPath(filePath),无需下载。
@@ -541,10 +529,12 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     }
   }
 
+  // 「下载」= 优先拷贝已落地的本地副本(走 fs.copyFile,不读进内存再写);本地副本找不到(如被删/移走)
+  // 再兜底走 web 拉 S3 直落目标路径。office 卡本就 eager 落到 .octo/<sessionId>/outputs/,常态命中本地拷贝。
   async function handleSaveAs() {
     if (!props.tab.uri || downloadBusy()) return
     tracker.interaction({ module: "insight", name: "file-save-as", extend: JSON.stringify({ fileType: trackFileType() }) })
-    const missing = missingDesktopApi(["saveFilePicker", "downloadResource"])
+    const missing = missingDesktopApi(["saveFilePicker", "resolveMaterializedPath", "copyFileTo", "downloadResource"])
     if (missing.length > 0) {
       notifyMissingApi(missing)
       return
@@ -552,22 +542,32 @@ function FileFallback(props: { tab: ResultTab }): JSX.Element {
     const api = getDesktopApi()!
     setDownloadBusy(true)
     try {
-      // 另存为默认路径:有项目目录则落项目内,无则让 OS 弹空白(用户自选)
+      // 保存位置:有项目目录则落项目内,无则让 OS 弹空白(用户自选)。
+      // defaultPath 会被 OS 当路径解析,故这里(且仅这里)过一道 saveDialogName —— 与落盘链路无关。
       const projectBase = projectDir()
-      const defaultPath = projectBase ? `${projectBase}/${defaultFilename()}` : defaultFilename()
+      const dialogName = saveDialogName(defaultFilename())
+      const defaultPath = projectBase ? `${projectBase}/${dialogName}` : dialogName
       const chosen = await api.saveFilePicker!({ defaultPath })
       if (!chosen) {
         setDownloadBusy(false)
         return
       }
-      console.log("[octo:office] saveas-start", { uri: props.tab.uri, destPath: chosen })
-      await api.downloadResource!(props.tab.uri, chosen)
-      console.log("[octo:office] saveas-ok", { destPath: chosen })
-      showToast({ description: "已另存", variant: "success", duration: 2000 })
+      // 幂等键传 uri(资源身份),与本地打开/文件夹打开共用同一份落地副本。
+      const localPath = await api.resolveMaterializedPath!(props.tab.uri, projectBase || undefined, params.id)
+      if (localPath) {
+        console.log("[octo:office] saveas-copy-local", { localPath, destPath: chosen })
+        await api.copyFileTo!(localPath, chosen)
+      } else {
+        // 本地副本找不到 → 兜底 web 下载直落目标路径
+        console.log("[octo:office] saveas-web-fallback", { uri: props.tab.uri, destPath: chosen })
+        await api.downloadResource!(props.tab.uri, chosen)
+      }
+      console.log("[octo:office] saveas-ok", { destPath: chosen, source: localPath ? "local-copy" : "web" })
+      showToast({ description: "已下载", variant: "success", duration: 2000 })
     } catch (err) {
       console.error("[octo:office] saveas-failed", { uri: props.tab.uri, err })
       showToast({
-        title: "另存失败",
+        title: "下载失败",
         description: err instanceof Error ? err.message : String(err),
         variant: "error",
       })

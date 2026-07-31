@@ -77,6 +77,7 @@ export function ArchiveSearchDropdown(props: Props): JSX.Element {
         ref={triggerRef}
         type="button"
         class="archive-search-trigger"
+        classList={{ "archive-search-trigger-active": open() }}
         onClick={() => setOpen(!open())}
       >
         <span class="archive-search-trigger-text">{displayText()}</span>
@@ -144,7 +145,10 @@ export function ArchiveSearchDropdown(props: Props): JSX.Element {
           box-sizing: border-box;
         }
         .archive-search-trigger:hover {
-          border-color: var(--octo-border-focus);
+          border-color: #0a59f7;
+        }
+        .archive-search-trigger-active {
+          border-color: #0a59f7;
         }
         .archive-search-trigger-text {
           flex: 1;

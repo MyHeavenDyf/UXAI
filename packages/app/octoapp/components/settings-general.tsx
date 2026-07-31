@@ -747,49 +747,68 @@ export const SettingsGeneral: Component = () => {
 
   const ProxySection = () => (
     <div class="flex flex-col gap-1">
-      <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>Proxy 配置</div>
-      <SettingsList>
-        <SettingsRow title="W3 账号" description="请输入W3账号">
-          <div style={{ width: "200px" }}>
-            <TextField
-              type="text"
-              value={proxyAccount()}
-              onChange={(v) => setProxyAccount(v)}
-              placeholder="请输入W3账号"
-              spellcheck={false}
-              autocorrect="off"
-              autocomplete="off"
-              autocapitalize="off"
-              class="text-12-regular"
-            />
-          </div>
-        </SettingsRow>
-        <SettingsRow title="W3 密码" description="请输入W3密码">
-          <div style={{ width: "200px" }}>
-            <TextField
-              type="password"
-              value={proxyPassword()}
-              onChange={(v) => setProxyPassword(v)}
-              placeholder="请输入W3密码"
-              spellcheck={false}
-              autocorrect="off"
-              autocomplete="off"
-              autocapitalize="off"
-              class="text-12-regular"
-            />
-          </div>
-        </SettingsRow>
-        <SettingsRow title="" description="">
-          <Button
-            size="small"
-            variant="secondary"
-            disabled={proxyConfiguring() || !proxyAccount() || !proxyPassword()}
-            onClick={configureProxy}
-          >
-            {proxyConfiguring() ? "配置中..." : "配置"}
-          </Button>
-        </SettingsRow>
-      </SettingsList>
+      <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>Proxy</div>
+      <div style={{ display: "flex", "flex-direction": "column", gap: "12px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px" }}>
+        <div class="flex items-center gap-2">
+          <span style={{ "white-space": "nowrap", color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "20px" }}>登录:</span>
+          <input
+            type="text"
+            value={proxyAccount()}
+            onInput={(e) => setProxyAccount(e.currentTarget.value)}
+            onFocus={(e) => e.currentTarget.style.borderColor = "#0a59f7"}
+            onBlur={(e) => e.currentTarget.style.borderColor = "rgba(201,201,201,1)"}
+            placeholder="请输入账号"
+            spellcheck={false}
+            autocorrect="off"
+            autocomplete="off"
+            autocapitalize="off"
+            style={{
+              "height": "28px",
+              "border": "1px solid rgba(201,201,201,1)",
+              "border-radius": "4px",
+              "padding": "4px 12px",
+              "flex": "1",
+              "outline": "none",
+              "font-size": "12px",
+              "line-height": "20px"
+            }}
+          />
+        </div>
+        <div class="flex items-center gap-2">
+          <span style={{ "white-space": "nowrap", color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "20px" }}>密码:</span>
+          <input
+            type="password"
+            value={proxyPassword()}
+            onInput={(e) => setProxyPassword(e.currentTarget.value)}
+            onFocus={(e) => e.currentTarget.style.borderColor = "#0a59f7"}
+            onBlur={(e) => e.currentTarget.style.borderColor = "rgba(201,201,201,1)"}
+            placeholder="请输入密码"
+            spellcheck={false}
+            autocorrect="off"
+            autocomplete="off"
+            autocapitalize="off"
+            style={{
+              "height": "28px",
+              "border": "1px solid rgba(201,201,201,1)",
+              "border-radius": "4px",
+              "padding": "4px 12px",
+              "flex": "1",
+              "outline": "none",
+              "font-size": "12px",
+              "line-height": "20px"
+            }}
+          />
+        </div>
+        <Button
+          size="small"
+          variant="secondary"
+          disabled={proxyConfiguring() || !proxyAccount() || !proxyPassword()}
+          onClick={configureProxy}
+          style={{ width: "88px", "border": "1px solid rgba(201,201,201,1)", "font-size": "12px", "line-height": "20px" }}
+        >
+          {proxyConfiguring() ? "配置中..." : "配置"}
+        </Button>
+      </div>
     </div>
   )
 

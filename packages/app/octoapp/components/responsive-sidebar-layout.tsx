@@ -7,8 +7,8 @@ import {
 
 export type ResponsiveSidebarLayoutProps = ParentProps &
   UseResponsiveLayoutOptions & {
-    /** Render the full sidebar content. Receives current width. */
-    sidebar: (width: number) => JSX.Element
+    /** Render the full sidebar content. Width is set via CSS variable --sidebar-width. */
+    sidebar: () => JSX.Element
     /** Render the collapsed 68px icon strip. */
     collapsedIcons: () => JSX.Element
     /** Optional: data attribute on the root container, e.g. "data-make-area" */
@@ -88,15 +88,16 @@ export function ResponsiveSidebarLayout(props: ResponsiveSidebarLayoutProps) {
     <div
       {...dataAttr()}
       class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative"
-      style={{ "min-width": props.minContainerWidth ?? "1024px" }}
+      style={{
+        "min-width": props.minContainerWidth ?? "1024px",
+        "--sidebar-width": `${responsive.sidebarWidth()}px`,
+      }}
     >
-      <Show
-        when={!props.focusMode}
-        fallback={<div class="flex flex-col flex-1 min-w-0 overflow-hidden">{props.children}</div>}
-      >
+      {/* Sidebar area - CSS hidden in focusMode to avoid remounting children */}
+      <Show when={!props.focusMode}>
         {/* Full sidebar (>= 1456px) */}
         <Show when={!responsive.sidebarCollapsed()}>
-          {props.sidebar(responsive.sidebarWidth())}
+          {props.sidebar()}
           <div
             class="absolute top-0 bottom-0 flex items-center justify-center group"
             style={{
@@ -144,9 +145,6 @@ export function ResponsiveSidebarLayout(props: ResponsiveSidebarLayoutProps) {
           </div>
         </Show>
 
-        {/* Content area */}
-        <div class="flex flex-col flex-1 min-w-0 overflow-hidden">{props.children}</div>
-
         {/* Drawer overlay */}
         <Show when={responsive.isOverlayMode() && responsive.drawerOpen()}>
           <div
@@ -171,10 +169,13 @@ export function ResponsiveSidebarLayout(props: ResponsiveSidebarLayoutProps) {
               overflow: "hidden",
             }}
           >
-            {props.sidebar(responsive.sidebarWidth())}
+            {props.sidebar()}
           </div>
         </Show>
       </Show>
+
+      {/* Content area - always rendered, never destroyed */}
+      <div class="flex flex-col flex-1 min-w-0 overflow-hidden">{props.children}</div>
     </div>
   )
 }

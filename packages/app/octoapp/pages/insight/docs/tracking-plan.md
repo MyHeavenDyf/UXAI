@@ -138,8 +138,7 @@ SPEC-INS-014 文件管理器面板的用户操作。删除（单个 / 批量）�
 |---|---|---|---|
 | `files-download-file` | 下载单个文件 | `file-manager/index.tsx` `handleDownload` | — |
 | `files-batch-download` | 批量打包（zip）下载 | `handleBatchDownload` | `{count}` |
-| `files-preview-file` | 单击文件到右侧预览 | `handlePreview` | — |
-| `files-open-in-tab` | 打开文件到结果 tab | `handleOpenFile` | — |
+| `files-open-in-tab` | 打开文件到结果 tab（单击文件行 / 行尾菜单「在标签页中打开」） | `handleOpenFile` | — |
 | `files-add-to-session` | 「加入会话」把文件挂到输入 | `handleAddToSession` | — |
 | `files-open-in-explorer` | 「在文件夹中显示」 | `handleOpenInExplorer` | — |
 | `files-navigate-folder` | 进入子目录 | 目录行 onClick | — |
@@ -174,6 +173,21 @@ SPEC-INS-014 文件管理器面板的用户操作。删除（单个 / 批量）�
 - `status` 归一化为 `success` / `failure`（不直接透传 TaskStatus 枚举，分析侧只关心成败二分）。
 - **必须配 baseline 快照 + 去重 set**（与 `server-mcp-used` 同规则）：复用模块级 `trackedServerUsageKeys`，key 用 `mcp-result:${taskId}` 前缀（与提交侧 `mcp:${taskId}` 区分）；首次观测本 turn 时把已终态的历史任务记入 baseline 不上报，避免刷新 / 切回历史会话把旧结果当新事件虚增。
 - **已知偏差（分析侧必读）：`result` 相对 `used` 会系统性偏低（低估完成率）。** 有一种情况会漏 `result`：用户在长任务**运行中切走**该会话，任务在 turn 卸载期间跑完，再切回时首次观测已是终态 → 被 baseline 当历史吞掉不上报；而 `used` 此前已在提交侧实时报过。结果这类任务**有 `used` 无 `result`**。这是 baseline「宁可少报、不虚增」取舍的固有代价（不补一个没真观测到的终态事件），偏差方向恒为「偏低」。**用 `taskId` 对齐 `used`/`result` 算成功率 / 完成漏斗时：`result` 缺口 = 未观测到终态，不等于失败，别把缺口计入失败分母。** 要精确成功率需服务端在 turn 之外补事件，不在前端 effect 内解决。
+
+### 批次 5 — @ 引用面板（SPEC-INS-023）
+
+输入框 `@` 唤起、引用**技能 / 会话文件**的用户操作层。只打两条核心用户行为，纯 tab 切换 / hover / 取消勾选不打（低价值、纯视觉）。
+
+| name | 功能（统计什么） | 打在哪 | extend |
+|---|---|---|---|
+| `mention-open` | 用户键入 `@` 唤起引用面板（衡量入口触达） | `index.tsx` `handleMentionInput`（面板由关到开那一次） | — |
+| `mention-select` | 用户选中一项引用（衡量技能 / 文件引用使用率与占比） | `index.tsx` `handleMentionSelect` | `{type: "skill" \| "file"}` |
+
+命名 / 落点约定：
+
+- `mention-` 前缀,与 `mcp-chip-` 平级(都是「输入框内的引用 / 挂载」交互族),但 mention 是 @ 唤起的即选即插,无常驻态,故只有 open/select 两态,不设 clear(取消勾选是低频微操,不打)。
+- `mention-open` 一次 `@` 输入过程只打一次,连续输入 `@abc` 的每次 keystroke 不重复打。判据是编辑器内的 `openReported` 标记,**以 `@` 触发文本消失(选中成胶囊 / 删掉 / 敲空格)为重置点**,不是以面板的显示状态为准——点面板外关闭时文本里的 `@query` 还在,若按显示状态重置,继续输入会被判成「重新打开」虚增 open 数。
+- `mention-select` 的 `type` 二分(skill/file)供分析侧切「技能引用 vs 文件引用」占比。**注意**:@技能走 synthetic 注入(3b,不调 skill 工具),故 §九 `server-skill-used` **不覆盖** @技能;`mention-select{type:skill}` 是 @技能 唯一的用户侧口径。
 
 ## 五、验证
 

@@ -23,7 +23,7 @@ type ModelInfo = {
   }
 }
 
-export const ModelTooltip: Component<{ model: ModelInfo; latest?: boolean; free?: boolean }> = (props) => {
+export const ModelTooltip: Component<{ model: ModelInfo }> = (props) => {
   const language = useLanguage()
   const sourceName = (model: ModelInfo) => {
     const value = `${model.id} ${model.name}`.toLowerCase()
@@ -44,13 +44,7 @@ export const ModelTooltip: Component<{ model: ModelInfo; latest?: boolean; free?
     if (value === "pdf") return language.t("model.input.pdf")
     return value
   }
-  const title = () => {
-    const tags: Array<string> = []
-    if (props.latest) tags.push(language.t("model.tag.latest"))
-    if (props.free) tags.push(language.t("model.tag.free"))
-    const suffix = tags.length ? ` (${tags.join(", ")})` : ""
-    return `${sourceName(props.model)} ${props.model.name}${suffix}`
-  }
+  const title = () => `${sourceName(props.model)} ${props.model.name}`
   const inputs = () => {
     if (props.model.capabilities) {
       const input = props.model.capabilities.input

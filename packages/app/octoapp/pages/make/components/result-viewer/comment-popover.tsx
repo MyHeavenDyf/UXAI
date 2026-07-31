@@ -18,6 +18,8 @@ export interface FileComment {
   filePath: string
   elementId: string
   selector: string
+  contentSignature?: string
+  nativeId?: string
   label: string
   text: string
   position: { x: number; y: number; w: number; h: number }
@@ -34,7 +36,10 @@ export interface FileComment {
 
 export interface CommentPopoverTarget {
   elementId: string | null
+  tag?: string
   selector: string
+  contentSignature?: string
+  nativeId?: string
   label: string
   text: string
   position: { x: number; y: number; w: number; h: number }
@@ -45,12 +50,9 @@ export interface CommentPopoverTarget {
 
 export function formatCommentTime(timestamp: number): string {
   const date = new Date(timestamp)
-  const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  return `${year}-${month}-${day} ${hours}:${minutes}`
+  return `${month}-${day}`
 }
 
 export function CommentPopover(props: {
@@ -82,10 +84,26 @@ export function CommentPopover(props: {
     setIsEditing(false)
   })
   
+  let newTextarea: HTMLTextAreaElement | undefined
   let editTextarea: HTMLTextAreaElement | undefined
-  const autoResizeTextarea = (el: HTMLTextAreaElement) => {
+
+  // 新建标注时自动 focus
+  createEffect(() => {
+    if (!props.comment && newTextarea) {
+      newTextarea.focus()
+    }
+  })
+  
+  // 编辑标注时自动 focus
+  createEffect(() => {
+    if (isEditing() && editTextarea) {
+      editTextarea.focus()
+    }
+  })
+  
+  const autoResizeTextarea = (el: HTMLTextAreaElement, max = 66) => {
     el.style.height = "auto"
-    el.style.height = Math.min(el.scrollHeight, 66) + "px"
+    el.style.height = Math.min(el.scrollHeight, max) + "px"
   }
   const attachments = () => props.comment?.attachments || []
 
@@ -442,11 +460,13 @@ export function CommentPopover(props: {
       <Show when={!props.readOnly}>
         <div class="comment-input-field" classList={{ "comment-input-field-with-content": hasContent() }}>
           <textarea
+            ref={newTextarea}
             class="comment-input-text"
             value={note()}
             onInput={(e) => {
               setNote(e.currentTarget.value)
               setExternalClickCount(0)
+              autoResizeTextarea(e.currentTarget, 88)
             }}
             placeholder="请在此处添加备注"
             rows={1}

@@ -5,7 +5,7 @@
 /* 标注图标 logo — 元素右上角，内含紫色圆与首字母 */
 .annotation-badge {
   position: absolute;
-  z-index: 201;
+  z-index: 41;
   width: 40px;
   height: 40px;
   display: flex;
@@ -41,7 +41,7 @@
 /* 标注高亮框 */
 .annotation-highlight {
   position: absolute;
-  z-index: 200;
+  z-index: 40;
   border: 2px solid #007bff;
   background-color: rgba(0, 123, 255, 0.1);
   pointer-events: none;
@@ -50,7 +50,7 @@
 /* 标注弹框 */
 .annotation-popup {
   position: absolute;
-  z-index: 201;
+  z-index: 41;
   width: 320px;
   background: #ffffff;
   border-radius: 10px;

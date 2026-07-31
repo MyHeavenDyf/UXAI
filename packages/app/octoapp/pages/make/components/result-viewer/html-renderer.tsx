@@ -18,6 +18,7 @@ import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
 import { showToast } from "@opencode-ai/ui/toast"
 import { tracker } from "@/utils/tracker"
+import { TaskStore } from "@/context/task"
 import "./inspect-panel.css"
 import "./manual-edit-panel.css"
 
@@ -174,6 +175,8 @@ export function HtmlRenderer(props: {
     elementId: string | null
     tag: string
     selector: string
+    contentSignature?: string
+    nativeId?: string
     text: string
     position: { x: number; y: number; w: number; h: number }
     htmlHint: string
@@ -265,28 +268,58 @@ export function HtmlRenderer(props: {
   
   // Handle archive confirm
   async function handleArchiveConfirm(data: ArchiveConfirmData): Promise<void> {
+    const isLoggedIn = !!localStorage.getItem("uiplusToken")
+    const fileName = getArtifactFilename(props.filePath).replace(/\.html?$/i, "")
+    const taskId = `archive-${Date.now()}`
+    
+    // 创建任务
+    TaskStore.add([{
+      key: taskId,
+      taskId,
+      type: "archive",
+      serviceType: "octo_archive",
+      name: fileName,
+      size: 0,
+      status: "in_progress",
+      hasProgress: false,
+      canCancel: false,
+      createdAt: Date.now(),
+    }])
+    
+    tracker.interaction({ 
+      module: "design", 
+      name: "confirm-archive", 
+      extend: JSON.stringify({ 
+        isLoggedIn,
+        isOverwrite: data.isOverwrite,
+        spaceType: data.spaceType 
+      }) 
+    })
+    
     const overlay = document.querySelector('.archive-dialog-overlay') as HTMLElement | null
     const collisionOverlay = document.querySelector('.archive-collision-overlay') as HTMLElement | null
     
     try {
       if (!iframeRef) {
+        TaskStore.error([{ key: taskId, status: "error" }])
         showToast({ title: "归档失败", description: "无法获取页面内容" })
         return
       }
       
       if (overlay) {
-        overlay.style.visibility = 'hidden'
+        overlay.style.display = 'none'
       }
       if (collisionOverlay) {
-        collisionOverlay.style.visibility = 'hidden'
+        collisionOverlay.style.display = 'none'
       }
       
+      await new Promise(resolve => requestAnimationFrame(resolve))
       await new Promise(resolve => requestAnimationFrame(resolve))
       
       const screenshotBlob = await capturePageScreenshot(iframeRef)
       
       if (overlay) {
-        overlay.style.visibility = 'visible'
+        overlay.style.display = ''
       }
       
       const comments = savedComments()
@@ -302,11 +335,7 @@ export function HtmlRenderer(props: {
         projectDir: props.sdkDirectory || ""
       })
       
-      const isLoggedIn = !!localStorage.getItem("uiplusToken")
-      
       if (isLoggedIn) {
-        const fileName = getArtifactFilename(props.filePath).replace(/\.html?$/i, "")
-        
         let uploadResult: { success: boolean }
         let uniqueId: string = ""
         
@@ -327,6 +356,8 @@ export function HtmlRenderer(props: {
           throw new Error("归档上传失败")
         }
         
+        TaskStore.finish([{ key: taskId, status: "completed" }])
+        
         const pathStr = buildArchivePath({
           spaceType: data.spaceType,
           productName: data.productName,
@@ -338,25 +369,28 @@ export function HtmlRenderer(props: {
         setArchiveSuccessOpen(true)
         showToast({ title: "归档成功" })
       } else {
-        const fileName = `${getArtifactFilename(props.filePath).replace(/\.html?$/i, "")}-archive.zip`
+        const zipFileName = `${fileName}-archive.zip`
         const url = URL.createObjectURL(zipBlob)
         const a = document.createElement("a")
         a.href = url
-        a.download = fileName
+        a.download = zipFileName
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
         URL.revokeObjectURL(url)
+        
+        TaskStore.finish([{ key: taskId, status: "completed" }])
         showToast({ title: "归档完成", description: "ZIP文件已下载" })
       }
     } catch (err) {
       if (overlay) {
-        overlay.style.visibility = 'visible'
+        overlay.style.display = ''
       }
       if (collisionOverlay) {
-        collisionOverlay.style.visibility = 'visible'
+        collisionOverlay.style.display = ''
       }
       console.error("[Archive] Failed:", err)
+      TaskStore.error([{ key: taskId, status: "error" }])
       showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
       throw err
     }
@@ -897,6 +931,8 @@ createEffect(() => {
         elementId: d.elementId || null,
         tag: d.tag,
         selector: d.selector,
+        contentSignature: d.contentSignature || '',
+        nativeId: d.nativeId,
         text: d.text,
         position: d.position,
         htmlHint: d.htmlHint,
@@ -925,6 +961,8 @@ createEffect(() => {
           elementId: comment.elementId,
           tag: comment.elementId.split('-')[0] || 'div',
           selector: comment.selector,
+          contentSignature: comment.contentSignature,
+          nativeId: comment.nativeId,
           text: comment.text,
           position: comment.position,
           htmlHint: comment.htmlHint,
@@ -949,6 +987,8 @@ createEffect(() => {
           elementId: comment.elementId,
           tag: comment.elementId.split('-')[0] || 'div',
           selector: comment.selector,
+          contentSignature: comment.contentSignature,
+          nativeId: comment.nativeId,
           text: comment.text,
           position: comment.position,
           htmlHint: comment.htmlHint,
@@ -976,6 +1016,10 @@ createEffect(() => {
     iframeRef?.contentWindow?.postMessage({
       type: 'od:comment-set-active',
       elementId: prevComment.elementId,
+      selector: prevComment.selector,
+      contentSignature: prevComment.contentSignature,
+      nativeId: prevComment.nativeId,
+      position: prevComment.position,
       commentId: prevComment.id
     }, '*')
   }
@@ -988,6 +1032,10 @@ createEffect(() => {
     iframeRef?.contentWindow?.postMessage({
       type: 'od:comment-set-active',
       elementId: nextComment.elementId,
+      selector: nextComment.selector,
+      contentSignature: nextComment.contentSignature,
+      nativeId: nextComment.nativeId,
+      position: nextComment.position,
       commentId: nextComment.id
     }, '*')
   }
@@ -1145,7 +1193,7 @@ return (
     <div
       ref={containerRef}
       class="h-full w-full"
-      style={{ overflow: "auto", background: isResponsive() ? "var(--octo-shell-bg, #F3F6FB)" : "white", position: "relative", ...containerStyle() }}
+      style={{ overflow: "hidden", background: isResponsive() ? "var(--octo-shell-bg, #F3F6FB)" : "white", position: "relative", ...containerStyle() }}
     >
       {props.mode === "preview" ? (
         <DrawOverlay
@@ -1179,7 +1227,7 @@ return (
               />
             </div>
           ) : (
-            <div style={{ "min-width": "800px", height: "100%" }}>
+            <div style={{ height: "100%", overflow: "auto" }}>
               <iframe
                 ref={iframeRef}
                 src={shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined)}
@@ -1378,25 +1426,31 @@ onFloatingPositionChange={setEditPanelPosition}
                     const hoverTarget = commentHoverTarget()
                     const comment = savedComments().find(c => c.id === hoverTarget?.commentId)
                     if (comment && hoverTarget?.pinPosition) {
-                      setEditingComment(comment)
-                      setCommentReadOnly(true)
-                      setCommentTarget({
-                        elementId: comment.elementId,
-                        tag: comment.elementId.split('-')[0] || 'div',
-                        selector: comment.selector,
-                        text: comment.text,
-                        position: comment.position,
-                        htmlHint: comment.htmlHint,
-                        label: comment.label,
-                        hoverPoint: {
-                          x: hoverTarget.pinPosition.left + hoverTarget.pinPosition.width + 8,
-                          y: hoverTarget.pinPosition.top
-                        },
-                        pinPosition: hoverTarget.pinPosition,
-                      })
+setEditingComment(comment)
+                       setCommentReadOnly(true)
+                       setCommentTarget({
+                         elementId: comment.elementId,
+                         tag: comment.elementId.split('-')[0] || 'div',
+                         selector: comment.selector,
+                         contentSignature: comment.contentSignature,
+                         nativeId: comment.nativeId,
+                         text: comment.text,
+                         position: comment.position,
+                         htmlHint: comment.htmlHint,
+                         label: comment.label,
+                         hoverPoint: {
+                           x: hoverTarget.pinPosition.left + hoverTarget.pinPosition.width + 8,
+                           y: hoverTarget.pinPosition.top
+                         },
+                         pinPosition: hoverTarget.pinPosition,
+                       })
                       iframeRef?.contentWindow?.postMessage({
                         type: 'od:comment-set-active',
                         elementId: comment.elementId,
+                        selector: comment.selector,
+                        contentSignature: comment.contentSignature,
+                        nativeId: comment.nativeId,
+                        position: comment.position,
                         commentId: comment.id
                       }, '*')
                       setCommentHoverTarget(null)
@@ -1407,31 +1461,35 @@ onFloatingPositionChange={setEditPanelPosition}
 <Show when={props.commenting && (commentTarget() || editingComment())}>
 <CommentPopover
                    iframeBounds={iframeRef?.getBoundingClientRect() ? { width: iframeRef.getBoundingClientRect().width, height: iframeRef.getBoundingClientRect().height } : { width: 800, height: 600 }}
-                   target={editingComment() ? {
-                     elementId: editingComment()!.elementId,
-                     selector: editingComment()!.selector,
-                     label: editingComment()!.label,
-                     text: editingComment()!.text,
-                     position: editingComment()!.position,
-                     htmlHint: editingComment()!.htmlHint,
-                     hoverPoint: commentTarget()?.hoverPoint || (() => {
-                       const bounds = iframeRef?.getBoundingClientRect()
-                       return {
-                         x: editingComment()!.position.x * (bounds?.width || 800),
-                         y: editingComment()!.position.y * (bounds?.height || 600)
-                       }
-                     })(),
-                     pinPosition: commentTarget()?.pinPosition,
-                   } : {
-                     elementId: commentTarget()!.elementId,
-                     selector: commentTarget()!.selector,
-                     label: commentTarget()!.label,
-                     text: commentTarget()!.text,
-                     position: commentTarget()!.position,
-                     htmlHint: commentTarget()!.htmlHint,
-                     hoverPoint: commentTarget()!.hoverPoint,
-                     pinPosition: commentTarget()?.pinPosition,
-                   }}
+target={editingComment() ? {
+                      elementId: editingComment()!.elementId,
+                      selector: editingComment()!.selector,
+                      contentSignature: editingComment()!.contentSignature,
+                      nativeId: editingComment()!.nativeId,
+                      label: editingComment()!.label,
+                      text: editingComment()!.text,
+                      position: editingComment()!.position,
+                      htmlHint: editingComment()!.htmlHint,
+                      hoverPoint: commentTarget()?.hoverPoint || (() => {
+                        const bounds = iframeRef?.getBoundingClientRect()
+                        return {
+                          x: editingComment()!.position.x * (bounds?.width || 800),
+                          y: editingComment()!.position.y * (bounds?.height || 600)
+                        }
+                      })(),
+                      pinPosition: commentTarget()?.pinPosition,
+                    } : {
+                      elementId: commentTarget()!.elementId,
+                      selector: commentTarget()!.selector,
+                      contentSignature: commentTarget()!.contentSignature,
+                      nativeId: commentTarget()!.nativeId,
+                      label: commentTarget()!.label,
+                      text: commentTarget()!.text,
+                      position: commentTarget()!.position,
+                      htmlHint: commentTarget()!.htmlHint,
+                      hoverPoint: commentTarget()!.hoverPoint,
+                      pinPosition: commentTarget()?.pinPosition,
+                    }}
 comment={editingComment()}
   externalClickSignal={externalClickSignal()}
   allComments={sortedComments()}
@@ -1449,22 +1507,24 @@ onSave={(note, attachments, pendingFiles) => {
                       } : getCommenterInfo()
 
 const comment: FileComment = {
-                         id: existing?.id || `comment-${Date.now()}`,
-                         filePath: props.filePath || '',
-                         elementId: existing?.elementId || target?.elementId || '',
-                         selector: existing?.selector || target?.selector || '',
-                         label: existing?.label || target?.label || '',
-                         text: existing?.text || target?.text || '',
-                         position: existing?.position || target?.position || { x: 0, y: 0, w: 0, h: 0 },
-                         htmlHint: existing?.htmlHint || target?.htmlHint || '',
-                         note,
-                         attachments,
-                         createdAt: existing?.createdAt || Date.now(),
-                         updatedAt: Date.now(),
-                         commenterName: commenterInfo.commenterName,
-                         commenterAccount: commenterInfo.commenterAccount,
-                         commenterAvatar: commenterInfo.commenterAvatar,
-                       }
+                          id: existing?.id || `comment-${Date.now()}`,
+                          filePath: props.filePath || '',
+                          elementId: existing?.elementId || target?.elementId || '',
+                          selector: existing?.selector || target?.selector || '',
+                          contentSignature: existing?.contentSignature || target?.contentSignature || '',
+                          nativeId: existing?.nativeId || target?.nativeId,
+                          label: existing?.label || target?.label || '',
+                          text: existing?.text || target?.text || '',
+                          position: existing?.position || target?.position || { x: 0, y: 0, w: 0, h: 0 },
+                          htmlHint: existing?.htmlHint || target?.htmlHint || '',
+                          note,
+                          attachments,
+                          createdAt: existing?.createdAt || Date.now(),
+                          updatedAt: Date.now(),
+                          commenterName: commenterInfo.commenterName,
+                          commenterAccount: commenterInfo.commenterAccount,
+                          commenterAvatar: commenterInfo.commenterAvatar,
+                        }
                     
                     // Save to backend API
                     if (!props.sdkUrl || !props.sdkDirectory) {
@@ -1479,26 +1539,28 @@ fetch(`${props.sdkUrl}/comment/file`, {
                           ...directoryHeader(props.sdkDirectory)
                         },
 body: JSON.stringify({
-                             sessionId: props.sessionId,
-                             commentFilePath: props.commentFilePath || extractCommentFilePath(comment.filePath, props.sessionId || ''),
-                             comment: {
-                              id: comment.id,
-                              filePath: comment.filePath,
-                             elementId: comment.elementId,
-                             selector: comment.selector,
-                             label: comment.label,
-                             text: comment.text,
-                             position: comment.position,
-                             htmlHint: comment.htmlHint,
-                             note: comment.note,
-                             attachments: comment.attachments || [],
-                             createdAt: comment.createdAt,
-                             updatedAt: comment.updatedAt,
-                             commenterName: comment.commenterName,
-                             commenterAccount: comment.commenterAccount,
-                             commenterAvatar: comment.commenterAvatar,
-                           }
-                         })
+                              sessionId: props.sessionId,
+                              commentFilePath: props.commentFilePath || extractCommentFilePath(comment.filePath, props.sessionId || ''),
+                              comment: {
+                               id: comment.id,
+                               filePath: comment.filePath,
+                              elementId: comment.elementId,
+                              selector: comment.selector,
+                              contentSignature: comment.contentSignature,
+                              nativeId: comment.nativeId,
+                              label: comment.label,
+                              text: comment.text,
+                              position: comment.position,
+                              htmlHint: comment.htmlHint,
+                              note: comment.note,
+                              attachments: comment.attachments || [],
+                              createdAt: comment.createdAt,
+                              updatedAt: comment.updatedAt,
+                              commenterName: comment.commenterName,
+                              commenterAccount: comment.commenterAccount,
+                              commenterAvatar: comment.commenterAvatar,
+                            }
+                          })
                       })
                      .then(res => {
                        console.log('[Comment] First save response status:', res.status)

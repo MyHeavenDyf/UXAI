@@ -1,3 +1,8 @@
+declare module "*?raw" {
+  const content: string
+  export default content
+}
+
 interface ImportMetaEnv {
   readonly OCTO_CHANNEL: string
   readonly OCTO_KB_BASE_URL: string

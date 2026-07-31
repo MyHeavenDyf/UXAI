@@ -3,6 +3,7 @@ import proto_modify from "../agents/proto-modify/index"
 import { mergeModules } from "../agents/merge"
 import { saveDebugSnapshot } from "../utils/debug-log"
 import { loadCurrentPatternState } from "../utils/version-history"
+import { withAgentError } from "../utils/error-msg"
 
 type ProtoModifyJsonInput = {
   sdk: any
@@ -31,7 +32,7 @@ export default async function modify_json_ai(
   const lastModules = lastData.lastModules
   const historyDir = `${inputCtx.sdk.directory}/.octo/design/history`
 
-  const triage = await proto_triage({ ...inputCtx, ...lastData })
+  const triage = await withAgentError("proto_triage", () => proto_triage({ ...inputCtx, ...lastData }))
   void saveDebugSnapshot(historyDir, inputCtx.rootSession, "modify_triage")
 
   if (triage.routing === "chat") return { routing: "chat" as const, reply: triage.reply }
@@ -57,7 +58,7 @@ export default async function modify_json_ai(
     ...triage.modify.map((m) => ({ element_id: m.element_id, action: m.action })),
   ]
 
-  const modifyResult = await proto_modify({
+  const modifyResult = await withAgentError("proto_modify", () => proto_modify({
     sdk: inputCtx.sdk,
     sync: inputCtx.sync,
     modelKey: inputCtx.modelKey,
@@ -75,7 +76,7 @@ export default async function modify_json_ai(
       modifications: {},
       intentDescription: undefined,
     },
-  })
+  }))
 
   void saveDebugSnapshot(historyDir, inputCtx.rootSession, "modify")
 

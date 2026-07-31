@@ -1,5 +1,7 @@
 import type { Model } from "@opencode-ai/sdk/v2/client"
 
+type Modality = keyof Model["capabilities"]["input"]
+
 type ApiModel = {
   id?: string
   name?: string
@@ -11,6 +13,10 @@ type ApiModel = {
   status?: Model["status"]
   options?: Model["options"]
   variants?: Model["variants"]
+  modalities?: {
+    input?: Modality[]
+    output?: Modality[]
+  }
   limit?: {
     context?: number
     input?: number
@@ -261,6 +267,16 @@ export function modelsLocalListForProviders<TProvider extends ProviderLike & { m
   return providers.flatMap((provider) => Object.values(provider.models).map((model) => ({ ...model, provider })))
 }
 
+function capabilitiesFromModalities(modalities: Modality[]) {
+  return {
+    text: modalities.includes("text"),
+    audio: modalities.includes("audio"),
+    image: modalities.includes("image"),
+    video: modalities.includes("video"),
+    pdf: modalities.includes("pdf"),
+  }
+}
+
 export function modelsApiListForProviders<TProvider extends ProviderLike>(api: ApiModels | undefined, providers: TProvider[]) {
   if (!api) return []
   const apiProviders = new Map(
@@ -290,14 +306,18 @@ export function modelsApiListForProviders<TProvider extends ProviderLike>(api: A
           api: { id, url: "", npm: "" },
           name: typeof item.name === "string" && item.name ? item.name : modelKey,
           family: typeof item.family === "string" ? item.family : "",
-          capabilities: item.capabilities ?? {
-            temperature: false,
-            reasoning: false,
-            attachment: false,
-            toolcall: false,
-            input: { text: true, audio: false, image: false, video: false, pdf: false },
-            output: { text: true, audio: false, image: false, video: false, pdf: false },
-            interleaved: false,
+          capabilities: {
+            temperature: item.capabilities?.temperature ?? false,
+            reasoning: item.capabilities?.reasoning ?? false,
+            attachment: item.capabilities?.attachment ?? false,
+            toolcall: item.capabilities?.toolcall ?? false,
+            input: item.modalities?.input
+              ? capabilitiesFromModalities(item.modalities.input)
+              : (item.capabilities?.input ?? capabilitiesFromModalities(["text"])),
+            output: item.modalities?.output
+              ? capabilitiesFromModalities(item.modalities.output)
+              : (item.capabilities?.output ?? capabilitiesFromModalities(["text"])),
+            interleaved: item.capabilities?.interleaved ?? false,
           },
           cost: item.cost ?? { input: 0, output: 0, cache: { read: 0, write: 0 } },
           limit: {
