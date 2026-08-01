@@ -192,7 +192,7 @@ function setupApp() {
       deploySkillsJson()
       deployBuiltinSkills()
       deployProtoTools()
-      deployResourceLibraryScripts()
+      await deployResourceLibraryScripts()
       deployRipgrep()
     }
     app.setAsDefaultProtocolClient("opencode")
