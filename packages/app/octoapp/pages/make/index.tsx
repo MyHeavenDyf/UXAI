@@ -2145,16 +2145,7 @@ const sessionMessagesLoaded = createMemo(() => {
     const capturedModelKey = activeModelKey()
     if (!capturedModelKey) return
 
-    // 捕获待发送技能
-    const skill = pendingSkill()
-    setPendingSkill(null)
-
-    // 构建消息：技能内容 + 用户文本
-    const messageText = skill
-      ? `<skill_content name="${skill.name}">\n${skill.content}\n</skill_content>\n\n${text}`
-      : text
-
-    if (!messageText.trim()) return
+    if (!text.trim()) return
 
     setSending(true)
     setPrompt("")
@@ -2180,14 +2171,9 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
           try {
             const info = await api.getAssetsConfig() as AssetsConfig
             
-            // 获取技能内容并设置 pendingSkill
+            // 设置技能名称
             const designSpec = info?.user?.designSpec
-            if (designSpec && api?.getSkillContent) {
-              const res = await api.getSkillContent(designSpec)
-              if (res?.success && res.content) {
-                setPendingSkill({ name: designSpec, content: res.content })
-              }
-            }
+            if (designSpec) setSelectedSpec(designSpec)
             
             // 保存 sessionJson 到临时文件
             const sessionJson = info?.user?.sessionJson
@@ -2216,16 +2202,7 @@ if (dsId) {
         navigate(`/make/${session.id}`)
         sid = session.id
       }
-      await sendMessage(sid, messageText, capturedModelKey, mentions)
-      
-      // 发送成功后追踪技能使用
-      if (skill) {
-        tracker.interaction({ 
-          module: "design", 
-          name: "skill-used", 
-          extend: JSON.stringify({ skillName: skill.name }) 
-        })
-      }
+      await sendMessage(sid, text, capturedModelKey, mentions)
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
     } finally {
@@ -2722,20 +2699,11 @@ if (dsId) {
       try {
         const info = await api.getAssetsConfig() as AssetsConfig
         
-        // 1. 设置显示值（placeholder）
-        const placeholder = info?.user?.placeholder
-        if (placeholder) setSelectedSpec(placeholder)
-        
-        // 2. 获取技能内容并设置 pendingSkill
+        // 设置技能名称（用于 @技能名 引用）
         const designSpec = info?.user?.designSpec
-        if (designSpec && api?.getSkillContent) {
-          const res = await api.getSkillContent(designSpec)
-          if (res?.success && res.content) {
-            setPendingSkill({ name: designSpec, content: res.content })
-          }
-        }
+        if (designSpec) setSelectedSpec(designSpec)
         
-        // 3. 保存 sessionJson 到临时文件
+        // 保存 sessionJson 到临时文件
         const sessionJson = info?.user?.sessionJson
         const projectDirValue = projectDir()
         if (sessionJson && projectDirValue && api?.writeFileBuffer) {

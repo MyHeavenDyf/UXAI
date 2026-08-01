@@ -275,6 +275,22 @@ const findFolderById = (nodes: NestedTreeNode[], id: number): NestedTreeNode | n
   return null
 }
 
+const filterPersonalFolderList = (nodes: NestedTreeNode[]): NestedTreeNode[] => {
+  return nodes
+    .filter(node => node.permissionFlag === true)
+    .map(node => ({
+      ...node,
+      children: node.children ? filterPersonalFolderList(node.children) : []
+    }))
+}
+
+const findFirstSelectablePersonal = (nodes: NestedTreeNode[]): NestedTreeNode | null => {
+  for (const node of nodes) {
+    return node
+  }
+  return null
+}
+
 const MOCK_PRODUCT_TEAM: NestedTreeNode[] = [
   {
     id: 339042,
@@ -351,6 +367,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
   const [productTeamList, setProductTeamList] = createSignal<NestedTreeNode[]>(MOCK_PRODUCT_TEAM)
   const [isProjectArchive, setIsProjectArchive] = createSignal(false)
   const [filteredFolderList, setFilteredFolderList] = createSignal<NestedTreeNode[]>([])
+  const [filteredPersonalFolderList, setFilteredPersonalFolderList] = createSignal<NestedTreeNode[]>([])
   
   const projectSelection = useProjectSelection()
   
@@ -552,7 +569,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
       }
       return filteredFolderList()
     } else {
-      return teamByVersionList()
+      return filteredPersonalFolderList()
     }
   }
 
@@ -567,6 +584,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
     setSelectedTeamName(null)
     setDeliverables([])
     setIsProjectArchive(false)
+    setFilteredPersonalFolderList([])
   }
 
   const autoSelectFirstProduct = async () => {
@@ -623,6 +641,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
   }
 
   const handleSpaceTypeChange = (newType: SpaceType) => {
+    if (spaceType() === newType) return
     setSpaceType(newType)
     clearAllSelections()
     
@@ -704,11 +723,39 @@ export function ArchiveDialog(props: Props): JSX.Element {
     
     if (isLoggedIn()) {
       fetchTeamByVersion(id).then((tree) => {
-        if (tree) autoSelectFirstFolder(tree)
-        else autoSelectFirstFolder()
+        if (tree) {
+          const filtered = filterPersonalFolderList(tree)
+          setFilteredPersonalFolderList(filtered)
+          const first = findFirstSelectablePersonal(filtered)
+          if (first) {
+            setSelectedFolderId(first.id)
+            setSelectedFolder({ label: first.label })
+            if (showDeliverablesSection()) fetchDeliverables(first.id)
+          } else {
+            setSelectedFolderId(null)
+            setSelectedFolder(null)
+            setDeliverables([])
+          }
+        } else {
+          setFilteredPersonalFolderList([])
+          setSelectedFolderId(null)
+          setSelectedFolder(null)
+          setDeliverables([])
+        }
       })
     } else {
-      autoSelectFirstFolder()
+      const filtered = filterPersonalFolderList(teamByVersionList())
+      setFilteredPersonalFolderList(filtered)
+      const first = findFirstSelectablePersonal(filtered)
+      if (first) {
+        setSelectedFolderId(first.id)
+        setSelectedFolder({ label: first.label })
+        if (showDeliverablesSection()) fetchDeliverables(first.id)
+      } else {
+        setSelectedFolderId(null)
+        setSelectedFolder(null)
+        setDeliverables([])
+      }
     }
   }
 
@@ -792,12 +839,18 @@ export function ArchiveDialog(props: Props): JSX.Element {
           if (isLoggedIn()) {
             const folderTree = await fetchTeamByVersion(team.teamId)
             if (folderTree) {
-              restoreFolderSelection(folderTree, persistedSelections.folderId)
+              const filtered = filterPersonalFolderList(folderTree)
+              setFilteredPersonalFolderList(filtered)
+              restoreFolderSelection(filtered, persistedSelections.folderId)
             } else {
-              autoSelectFirstFolder()
+              setFilteredPersonalFolderList([])
+              setSelectedFolderId(null)
+              setSelectedFolder(null)
             }
           } else {
-            restoreFolderSelection(teamByVersionList(), persistedSelections.folderId)
+            const filtered = filterPersonalFolderList(teamByVersionList())
+            setFilteredPersonalFolderList(filtered)
+            restoreFolderSelection(filtered, persistedSelections.folderId)
           }
         } else {
           autoSelectFirstTeam()
