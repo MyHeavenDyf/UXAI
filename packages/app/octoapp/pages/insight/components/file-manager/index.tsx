@@ -241,8 +241,18 @@ function FileManagerInner(props: {
   }
 
   // 拖拽上传:支持整文件夹(DataTransferItem + webkitGetAsEntry 递归)。
+  // 从 OS 拖文件进来 dataTransfer.types 只有 "Files";页面内元素/网页图片拖动会
+  // 附带 text/uri-list,带 uri-list 的一律拒收,避免误触"释放鼠标上传文件"提示。
+  function isExternalFileDrag(e: DragEvent) {
+    const types = e.dataTransfer?.types ?? []
+    return types.includes("Files") && !types.includes("text/uri-list")
+  }
   function handleDragOver(e: DragEvent) {
     e.preventDefault()
+    if (!isExternalFileDrag(e)) {
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "none"
+      return
+    }
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"
     setIsDragOver(true)
   }
@@ -256,6 +266,7 @@ function FileManagerInner(props: {
   function handleDrop(e: DragEvent) {
     e.preventDefault()
     setIsDragOver(false)
+    if (!isExternalFileDrag(e)) return
     const items = e.dataTransfer?.items
     if (items) {
       const entries: FileSystemEntry[] = []
