@@ -199,6 +199,41 @@ function MakeContent() {
   const dialogPop = useDialogIframe()
   const [selectedSpec, setSelectedSpec] = createSignal<string | null>(null)
 
+  // 新建对话时获取存量配置
+  createEffect(on(
+    () => params.id,
+    (id) => {
+      if (id) return
+      const api = getDesktopApi()
+      if (!api?.getAssetsConfig) return
+      api.getAssetsConfig()
+        .then((data) => {
+          if (data?.user?.isRemember === true) {
+            const value = data.user.designSpec
+            if (value && typeof value === 'string') {
+              setSelectedSpec(value)
+            }
+            // 写入临时文件
+            const projectDirValue = projectDir()
+            if (projectDirValue && api?.writeFileBuffer) {
+              const sep = projectDirValue.includes("\\") ? "\\" : "/"
+              const configPath = [projectDirValue, ".octo", "tmps", "make", "resource", "assets_config.json"].join(sep)
+              const encoder = new TextEncoder()
+              const str = JSON.stringify(data)
+              const buffer = encoder.encode(str).buffer as ArrayBuffer
+              api.writeFileBuffer(configPath, buffer).catch(err => {
+                console.error("[MakePage] Failed to save assets_config.json:", err)
+              })
+            }
+          }
+        })
+        .catch((err) => {
+          console.error("[MakePage] Failed to get assets config:", err)
+        })
+    },
+    { defer: true }
+  ))
+
   createEffect(
     on(
       () => globalSync.data.config.model,
@@ -3264,7 +3299,7 @@ if (dsId) {
                           onClick={handleSpecSelect}
                         >
                           <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
-                            {selectedSpec() ?? "请选择设计规范"}
+                            {selectedSpec() || "请选择设计规范"}
                           </span>
                           <Icon name="chevron-down" class="size-3.5 shrink-0" style="color: #000" />
                         </button>

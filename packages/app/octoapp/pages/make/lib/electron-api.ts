@@ -17,6 +17,7 @@ export type DesktopApi = {
     path: string | null
     state: "completed" | "cancelled" | "interrupted"
   }) => void) => () => void
+  getAssetsConfig?: () => Promise<Record<string, unknown>>
 }
 
 export function getDesktopApi(): DesktopApi | undefined {
