@@ -11,11 +11,11 @@
   --octo-brand-subtle: #EFF6FF;   /* surface.selected */
 
   /* brand alpha 层级 */
-  --octo-brand-a3:  rgba(0, 103, 209, 0.03);
-  --octo-brand-a8:  rgba(0, 103, 209, 0.08);
-  --octo-brand-a20: rgba(0, 103, 209, 0.20);
-  --octo-brand-a25: rgba(0, 103, 209, 0.25);
-  --octo-brand-a40: rgba(0, 103, 209, 0.40);
+  --octo-brand-a3:  rgba(10, 89, 247, 0.03);
+  --octo-brand-a8:  rgba(10, 89, 247, 0.08);
+  --octo-brand-a20: rgba(10, 89, 247, 0.20);
+  --octo-brand-a25: rgba(10, 89, 247, 0.25);
+  --octo-brand-a40: rgba(10, 89, 247, 0.40);
 
   /* ── Text ───────────────────────────────── */
   --octo-text-strong:      #101828;
@@ -69,10 +69,9 @@
 }
 /* 对话内行内代码(特殊标记文字)颜色覆盖：
    上游 markdown.css 用 var(--syntax-string)(opencode 主题解析为绿色 #3d9a57)，
-   insight 改为品牌蓝 rgb(10,89,247)=#0A59F7。不动上游核心，这里按作用域覆盖。
-   注：insight 的 --octo-brand 是 #0067D1，与本值不同，故直接用字面量(与用户气泡 rgba(10,89,247,.08) 一致)。 */
+   insight 改为品牌蓝。不动上游核心，这里按作用域覆盖。 */
 [data-component="session-turn"] [data-component="markdown"] :not(pre) > code {
-  color: rgb(10, 89, 247);
+  color: var(--octo-brand);
 }
 
 /* hr 间距收紧：上游 markdown.css 的 40px 是 2.5rem 原值换算(opencode #20839 只统一了单位，数值未变)，
@@ -394,20 +393,20 @@
   --text-base:                    #6F6F6F;
   --text-weak:                    #8F8F8F;
   --text-weaker:                  #C7C7C7;
-  --text-interactive-base:        #0067D1;
+  --text-interactive-base:        #0A59F7;
   --text-on-critical-base:        #ffffff;
   --text-on-critical-weak:        #dc2626;
   --border-weak-base:             #DBDBDB;
   --border-weaker-base:           #E8E8E8;
   --border-strong-base:           #b0b0b0;
-  --border-interactive-base:      #0067D1;
+  --border-interactive-base:      #0A59F7;
   --border-critical-base:         #dc2626;
   --icon-base:                    #8F8F8F;
   --icon-strong-base:             #171717;
   --icon-weak-base:               #C7C7C7;
   --icon-weak:                    #C7C7C7;
   --icon-weaker:                  #e0e0e0;
-  --icon-interactive-base:        #0067D1;
+  --icon-interactive-base:        #0A59F7;
   --icon-invert-base:             #ffffff;
 }
 
@@ -711,8 +710,8 @@ button.delete-dialog-btn {
 }
 
 button.delete-dialog-btn-primary {
-  background: #0a59f7;
-  border-color: #0a59f7;
+  background: var(--octo-brand);
+  border-color: var(--octo-brand);
   color: #fff;
 }
 

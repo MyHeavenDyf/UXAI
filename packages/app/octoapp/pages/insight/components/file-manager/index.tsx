@@ -561,7 +561,7 @@ function FileManagerInner(props: {
                 onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-hover)") }}
                 onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand)") }}
                 onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-active)") }}
-                onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-active)") }}
+                onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-hover)") }}
               >
                 <IconUpload size={16} />
                 <span>上传文件</span>
