@@ -555,9 +555,11 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const hasAnyFiles = createMemo(() =>
     fileStore.store.generatedFiles.length > 0 || fileStore.store.uploadedFiles.length > 0)
 
+  const showHeader = createMemo(() => hasAnyFiles() || !fileStore.isTopLevel())
+
   return (
     <div class="flex flex-col h-full overflow-hidden" style={{ background: "var(--octo-surface-page)" }}>
-      <Show when={hasAnyFiles()}>
+      <Show when={showHeader()}>
         <DesignFilesToolbar
           fileStore={fileStore}
           onRefresh={refresh}
@@ -619,7 +621,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           />
 
           <div class="flex-1 min-h-0 flex flex-col">
-          <Show when={hasAnyFiles()}>
+          <Show when={showHeader()}>
             <Breadcrumb
               currentPath={fileStore.store.currentPath}
               currentCategory={fileStore.store.currentCategory}
