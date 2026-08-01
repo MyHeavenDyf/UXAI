@@ -92,7 +92,7 @@ import { scanDesignPlanFromMessages, isPlanConfirmed, isPlanIntentResolved } fro
 import { scanStrategyFields, EMPTY_STRATEGY_FORM, type StrategyFormData } from "./utils/strategy-form-scanner"
 import { useMakeCommands } from "./use-make-commands"
 import { useDialogIframe } from '@/context/dialog-iframe'
-import { getDesktopApi } from "./lib/electron-api"
+import { getDesktopApi, type AssetsConfig } from "./lib/electron-api"
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
@@ -208,8 +208,9 @@ function MakeContent() {
       if (!api?.getAssetsConfig) return
       api.getAssetsConfig()
         .then((data) => {
-          if (data?.user?.isRemember === true) {
-            const value = data.user.designSpec
+          const config = data as AssetsConfig
+          if (config?.user?.isRemember === true) {
+            const value = config.user.designSpec
             if (value && typeof value === 'string') {
               setSelectedSpec(value)
             }
