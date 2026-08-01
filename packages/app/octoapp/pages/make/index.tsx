@@ -3223,6 +3223,7 @@ if (dsId) {
                        mentionSelections={mentionSelections()}
                        setMentionSelections={setMentionSelections}
                        disabled={inputDisabled()}
+                       busy={isBusy()}
                        autofocus
                        onTriggerMention={loadSkillConfig}
                        onContentChange={setPrompt}
@@ -3540,6 +3541,7 @@ if (dsId) {
                       mentionSelections={mentionSelections()}
                       setMentionSelections={setMentionSelections}
                       disabled={inputDisabled()}
+                      busy={isBusy()}
                       autofocus
                       onTriggerMention={loadSkillConfig}
                      onContentChange={setPrompt}
