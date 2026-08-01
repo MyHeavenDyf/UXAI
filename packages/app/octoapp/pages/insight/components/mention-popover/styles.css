@@ -88,6 +88,10 @@
   color: var(--octo-text-tertiary, rgba(0, 0, 0, 0.4));
 }
 
+.ins-mention-primary-item--selected .ins-mention-primary-arrow {
+  color: var(--octo-brand, #0a59f7);
+}
+
 /* 二级面板 */
 .ins-mention-secondary {
   position: absolute;
@@ -139,7 +143,7 @@
   box-sizing: border-box;
 }
 
-.ins-mention-item:not(.ins-mention-item--selected):hover {
+.ins-mention-item:not(.ins-mention-item--selected):not(.ins-mention-item--active):hover {
   background-color: rgba(0, 0, 0, 0.05);
 }
 
