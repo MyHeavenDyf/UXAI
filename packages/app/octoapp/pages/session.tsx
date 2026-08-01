@@ -1800,6 +1800,10 @@ export default function Page() {
     flushQueueHead()
   }, { defer: true }))
 
+  // 页面重新挂载（如头部 tab 切走再切回）时,两个 defer effect 都不触发。
+  // 若 session 已 idle 且仍有排队,此处补一次 flush,避免排队卡死。
+  onMount(() => flushQueueHead())
+
   createResizeObserver(
     () => promptDock,
     ({ height }) => {

@@ -39,6 +39,12 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     const selectedEl = containerRef.querySelector('.mention-primary-item--selected') as HTMLElement | null
     const secondaryPanel = containerRef.querySelector('.mention-secondary-panel') as HTMLElement | null
     if (!selectedEl || !secondaryPanel) return
+    const primaryItems = containerRef.querySelectorAll('.mention-primary-item')
+    const isLast = primaryItems.length > 0 && primaryItems[primaryItems.length - 1] === selectedEl
+    if (isLast) {
+      secondaryPanel.style.bottom = '0px'
+      return
+    }
     const containerRect = containerRef.getBoundingClientRect()
     const itemRect = selectedEl.getBoundingClientRect()
     secondaryPanel.style.bottom = `${containerRect.bottom - itemRect.bottom}px`
@@ -168,8 +174,8 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     const left = positionLeft()
     const bottom = '0'
     const sideStyle = left
-      ? { right: '100%', marginRight: '8px' }
-      : { left: '100%', marginLeft: '8px' }
+      ? { right: '100%', marginRight: '4px' }
+      : { left: '100%', marginLeft: '4px' }
     if (activeTab() === 'skills') {
       return { width: '257px', bottom, ...sideStyle }
     }

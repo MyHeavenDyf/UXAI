@@ -373,7 +373,7 @@ export const ProseMirrorEditor = (props: Props) => {
             style={{
               position: "fixed",
               left: `${popoverPosition()!.left}px`,
-              bottom: `${popoverPosition()!.bottom + 12}px`,
+              bottom: `${popoverPosition()!.bottom + 1}px`,
               "z-index": 1000,
             }}
           >

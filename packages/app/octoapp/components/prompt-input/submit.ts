@@ -261,6 +261,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       queued.abort.abort()
       queued.cleanup()
       pending.delete(sessionID)
+      optimisticIdle()
       return Promise.resolve()
     }
     console.log("[octo:abort] calling sdk.client.session.abort", { sessionID })

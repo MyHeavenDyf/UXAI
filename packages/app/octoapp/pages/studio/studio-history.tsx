@@ -15,6 +15,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { DialogSettings } from "@/components/dialog-settings"
+import { IconSettings } from "@/pages/_shell/icons"
 import { sessionTitle } from "@/utils/session-title"
 import { decode64 } from "@/utils/base64"
 
@@ -573,12 +574,12 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
 
       <button
         type="button"
-        class="flex items-center gap-3 w-full rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
-        style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
+        class="flex items-center gap-[12px] w-full rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+        style={{ height: "36px", padding: "0 12px", color: "rgba(0,0,0,0.9)", "font-size": "12px", "line-height": "20px" }}
         onClick={() => dialog.show(() => <DialogSettings />)}
       >
-        <Icon name="settings-gear" size="small" class="shrink-0" />
-        <span class="text-[14px] leading-[22px]">{language.t("sidebar.settings")}</span>
+        <IconSettings size={20} />
+        <span class="text-[12px] leading-[20px]">{language.t("sidebar.settings")}</span>
       </button>
     </div>
   )
