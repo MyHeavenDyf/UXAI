@@ -1,3 +1,12 @@
+export type AssetsConfigUser = {
+  isRemember?: boolean
+  designSpec?: string
+}
+
+export type AssetsConfig = {
+  user?: AssetsConfigUser
+}
+
 export type DesktopApi = {
   setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
   openPath?: (path: string, app?: string) => Promise<unknown>
@@ -17,6 +26,7 @@ export type DesktopApi = {
     path: string | null
     state: "completed" | "cancelled" | "interrupted"
   }) => void) => () => void
+  getAssetsConfig?: () => Promise<Record<string, unknown>>
 }
 
 export function getDesktopApi(): DesktopApi | undefined {

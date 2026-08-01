@@ -164,6 +164,7 @@ export type ElectronAPI = {
   listDirectory: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>
   // Pipeline API IPC bridge 类型定义
   pipelineRequest: (url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) => Promise<any>
+  getAssetsConfig: () => Promise<Record<string, unknown>>
 
   /** 配置 W3 代理: 测试连通性后写入 ~/.config/octo/octo.json */
   configureProxy: (account: string, password: string) => Promise<{
