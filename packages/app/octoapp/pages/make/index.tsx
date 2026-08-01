@@ -2183,6 +2183,39 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
       if (!session) return
       
       await movePendingUploadsToSession(session.id)
+      
+      // 如果用户没有手动选择 spec，检查是否有存量配置
+      if (!selectedSpec()) {
+        const api = getDesktopApi()
+        if (api?.getAssetsConfig) {
+          try {
+            const info = await api.getAssetsConfig() as AssetsConfig
+            
+            // 获取技能内容并设置 pendingSkill
+            const designSpec = info?.user?.designSpec
+            if (designSpec && api?.getSkillContent) {
+              const res = await api.getSkillContent(designSpec)
+              if (res?.success && res.content) {
+                setPendingSkill({ name: designSpec, content: res.content })
+              }
+            }
+            
+            // 保存 sessionJson 到临时文件
+            const sessionJson = info?.user?.sessionJson
+            const projectDirValue = projectDir()
+            if (sessionJson && projectDirValue && api?.writeFileBuffer) {
+              const sep = projectDirValue.includes("\\") ? "\\" : "/"
+              const configPath = [projectDirValue, ".octo", "tmps", "make", "resource", "assets_config.json"].join(sep)
+              const encoder = new TextEncoder()
+              const buffer = encoder.encode(sessionJson).buffer as ArrayBuffer
+              await api.writeFileBuffer(configPath, buffer)
+            }
+          } catch (err) {
+            console.error("[handleSubmit] Failed to get assets config:", err)
+          }
+        }
+      }
+      
       await moveAssetsConfigToSession(session.id)
       
       local.session.promote(sdk.directory, session.id)
@@ -2693,28 +2726,38 @@ if (dsId) {
   }
 
   function handleSpecSelect() {
-    dialogPop.show((str) => {
+    dialogPop.show(async () => {
+      const api = getDesktopApi()
+      if (!api?.getAssetsConfig) return
+      
       try {
-        const data = JSON.parse(str)
-        const value = data.user.designSpec
+        const info = await api.getAssetsConfig() as AssetsConfig
         
-        setSelectedSpec(value)
+        // 1. 设置显示值（placeholder）
+        const placeholder = info?.user?.placeholder
+        if (placeholder) setSelectedSpec(placeholder)
         
-        const projectDirValue = projectDir()
-        if (projectDirValue) {
-          const api = getDesktopApi()
-          if (api?.writeFileBuffer) {
-            const sep = projectDirValue.includes("\\") ? "\\" : "/"
-            const configPath = [projectDirValue, ".octo", "tmps", "make", "resource", "assets_config.json"].join(sep)
-            const encoder = new TextEncoder()
-            const buffer = encoder.encode(str).buffer as ArrayBuffer
-            api.writeFileBuffer(configPath, buffer).catch(err => {
-              console.error("[handleSpecSelect] Failed to save assets_config.json:", err)
-            })
+        // 2. 获取技能内容并设置 pendingSkill
+        const designSpec = info?.user?.designSpec
+        if (designSpec && api?.getSkillContent) {
+          const res = await api.getSkillContent(designSpec)
+          if (res?.success && res.content) {
+            setPendingSkill({ name: designSpec, content: res.content })
           }
         }
+        
+        // 3. 保存 sessionJson 到临时文件
+        const sessionJson = info?.user?.sessionJson
+        const projectDirValue = projectDir()
+        if (sessionJson && projectDirValue && api?.writeFileBuffer) {
+          const sep = projectDirValue.includes("\\") ? "\\" : "/"
+          const configPath = [projectDirValue, ".octo", "tmps", "make", "resource", "assets_config.json"].join(sep)
+          const encoder = new TextEncoder()
+          const buffer = encoder.encode(sessionJson).buffer as ArrayBuffer
+          await api.writeFileBuffer(configPath, buffer)
+        }
       } catch (err) {
-        console.warn("[handleSpecSelect] Failed to parse dialog response:", err)
+        console.error("[handleSpecSelect] Failed:", err)
       }
     })
   }

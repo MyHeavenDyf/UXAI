@@ -759,10 +759,10 @@ createEffect(() => {
     const iframe = iframeRef
     if (!iframe || !props.inspecting) return
 
-    const handleMessage = (e: MessageEvent) => {
-      if (e.source !== iframe.contentWindow) return
-      const d = e.data
-      if (!d || typeof d !== "object") return
+const handleMessage = (e: MessageEvent) => {
+    if (e.source !== iframe.contentWindow) return
+    const d = e.data
+    if (!d || typeof d !== "object") return
 
       if (d.type === "od:inspect-target" && d.clicked === true) {
         const target: InspectTarget = {
@@ -883,11 +883,10 @@ createEffect(() => {
 
 // Listen to comment messages from iframe (always registered, not dependent on props.commenting)
 createEffect(() => {
-  const iframe = iframeRef
-  if (!iframe) return
-
   const handleMessage = (e: MessageEvent) => {
-    if (e.source !== iframe.contentWindow) return
+    const currentIframe = iframeRef
+    if (!currentIframe) return
+    if (e.source !== currentIframe.contentWindow) return
     const d = e.data
     if (!d || typeof d !== "object") return
 
@@ -1074,7 +1073,6 @@ createEffect(() => {
         { type: "od:comment-mode", enabled: !!props.commenting },
         "*"
       )
-      // 评论模式开启时，主动发送评论数据
       if (props.commenting) {
         const comments = savedComments()
         iframeRef.contentWindow?.postMessage(
@@ -1115,6 +1113,11 @@ createEffect(() => {
       if (props.commenting) {
         iframe.contentWindow?.postMessage(
           { type: "od:comment-mode", enabled: true },
+          "*"
+        )
+        const comments = savedComments()
+        iframe.contentWindow?.postMessage(
+          { type: "od:comment-saved-pins", comments },
           "*"
         )
       }
@@ -1224,6 +1227,41 @@ return (
                   height: `${VIEWPORT_DIMS[props.viewport!].height}px`,
                   border: "none",
                 }}
+                onLoad={() => {
+                  if (!iframeRef) {
+                    console.log('[HtmlRenderer] iframeRef is null')
+                    return
+                  }
+                  if (props.editing) {
+                    console.log('[HtmlRenderer] sending od:edit-mode')
+                    iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
+                  }
+                  if (props.inspecting) {
+                    console.log('[HtmlRenderer] sending od:inspect-mode')
+                    iframeRef.contentWindow?.postMessage({ type: "od:inspect-mode", enabled: true }, "*")
+                  }
+                  if (props.commenting) {
+                    console.log('[HtmlRenderer] sending od:comment-mode')
+                    iframeRef.contentWindow?.postMessage({ type: "od:comment-mode", enabled: true }, "*")
+                    const comments = savedComments()
+                    console.log('[HtmlRenderer] sending od:comment-saved-pins, count:', comments.length)
+                    iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
+                  }
+                  if (props.palette) {
+                    console.log('[HtmlRenderer] sending od:palette')
+                    iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
+                  }
+                  const overrides = savedOverrides()
+                  if (overrides.length > 0) {
+                    console.log('[HtmlRenderer] sending overrides, count:', overrides.length)
+                    overrides.forEach((override) => {
+                      iframeRef.contentWindow?.postMessage(
+                        { type: "od:inspect-set", elementId: override.elementId, prop: override.prop, value: override.value },
+                        "*"
+                      )
+                    })
+                  }
+                }}
               />
             </div>
           ) : (
@@ -1235,6 +1273,41 @@ return (
                 sandbox="allow-scripts"
                 class="w-full h-full border-0"
                 style={{ "min-height": "200px" }}
+                onLoad={() => {
+                  if (!iframeRef) {
+                    console.log('[HtmlRenderer] iframeRef is null')
+                    return
+                  }
+                  if (props.editing) {
+                    console.log('[HtmlRenderer] sending od:edit-mode')
+                    iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
+                  }
+                  if (props.inspecting) {
+                    console.log('[HtmlRenderer] sending od:inspect-mode')
+                    iframeRef.contentWindow?.postMessage({ type: "od:inspect-mode", enabled: true }, "*")
+                  }
+                  if (props.commenting) {
+                    console.log('[HtmlRenderer] sending od:comment-mode')
+                    iframeRef.contentWindow?.postMessage({ type: "od:comment-mode", enabled: true }, "*")
+                    const comments = savedComments()
+                    console.log('[HtmlRenderer] sending od:comment-saved-pins, count:', comments.length)
+                    iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
+                  }
+                  if (props.palette) {
+                    console.log('[HtmlRenderer] sending od:palette')
+                    iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
+                  }
+                  const overrides = savedOverrides()
+                  if (overrides.length > 0) {
+                    console.log('[HtmlRenderer] sending overrides, count:', overrides.length)
+                    overrides.forEach((override) => {
+                      iframeRef.contentWindow?.postMessage(
+                        { type: "od:inspect-set", elementId: override.elementId, prop: override.prop, value: override.value },
+                        "*"
+                      )
+                    })
+                  }
+                }}
               />
             </div>
           )}

@@ -1,6 +1,8 @@
 export type AssetsConfigUser = {
   isRemember?: boolean
   designSpec?: string
+  placeholder?: string
+  sessionJson?: string
 }
 
 export type AssetsConfig = {
@@ -27,6 +29,7 @@ export type DesktopApi = {
     state: "completed" | "cancelled" | "interrupted"
   }) => void) => () => void
   getAssetsConfig?: () => Promise<Record<string, unknown>>
+  getSkillContent?: (skillName: string) => Promise<{ success: boolean; name?: string; content?: string; baseDir?: string; files?: string; error?: string }>
 }
 
 export function getDesktopApi(): DesktopApi | undefined {
