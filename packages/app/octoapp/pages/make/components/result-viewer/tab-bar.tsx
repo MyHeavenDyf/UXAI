@@ -14,6 +14,8 @@ export function TabBar(props: {
   onViewModeChange?: (mode: "tabs" | "files" | "plan") => void
   /** 设计规划入口 — plan artifact 存在时显示,点击切换到 plan 模式 */
   showPlanEntry?: boolean
+  /** 设计规划流程是否活跃（即使 plan artifact 尚未生成） */
+  planActive?: boolean
   planConfirmed?: boolean
   planEnded?: boolean
   /** 右侧面板以抽屉展开时显示的收起回调,提供则在头部右侧渲染收起按钮 */
@@ -54,7 +56,7 @@ export function TabBar(props: {
         </button>
 
         {/* 设计规划入口 — plan artifact 存在时出现,点击切换到 plan 模式 */}
-        <Show when={(props.showPlanEntry || props.viewMode === "plan") && props.onViewModeChange}>
+        <Show when={(props.showPlanEntry || props.viewMode === "plan" || props.planActive) && props.onViewModeChange}>
           <div
             class="shrink-0"
             style={{

@@ -4,7 +4,7 @@ import type { PanelSkill } from "../skill-config-types"
 import type { ArtifactFile } from "../../utils/artifact-file-api"
 import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "./icons"
 import { getFileIcon } from "../../icons/file-type-icons"
-import { IconActionFolder } from "../../../insight/icons"
+import emptyPng from "../../icons/empty.png"
 import "./styles.css"
 
 export type MentionTab = 'skills' | 'files'
@@ -244,7 +244,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <div class="mention-secondary-content">
             <Show when={filteredPlatformSkills().length === 0}>
               <div class="mention-empty-state">
-                <IconActionFolder />
+                <img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
                 <span class="mention-empty-state-text">暂无内容</span>
               </div>
             </Show>
@@ -274,7 +274,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <div class="mention-secondary-content">
             <Show when={filteredCustomSkills().length === 0}>
               <div class="mention-empty-state">
-                <IconActionFolder />
+                <img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
                 <span class="mention-empty-state-text">暂无内容</span>
               </div>
             </Show>
@@ -307,7 +307,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
             <div class="mention-secondary-content mention-secondary-content--files">
               <Show when={files().generated.length === 0 && files().uploaded.length === 0}>
                 <div class="mention-empty-state">
-                  <IconActionFolder />
+                  <img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
                   <span class="mention-empty-state-text">暂无内容</span>
                 </div>
               </Show>

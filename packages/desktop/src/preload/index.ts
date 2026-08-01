@@ -127,6 +127,7 @@ const api: ElectronAPI = {
   listDirectory: (path) => ipcRenderer.invoke("list-directory", path),
   // Pipeline API IPC bridge — renderer 内网调用时通过此通道请求主进程 net.fetch(绕 CORS)
   pipelineRequest: (url, method, uiplusToken, body, headers) => ipcRenderer.invoke("pipeline-request", url, method, uiplusToken, body, headers),
+  getAssetsConfig: () => ipcRenderer.invoke("get-assets-config"),
   // jk-j60099994-replace-with-index-1-start
   // jk-j60099994-replace-with-index-1-end
   configureProxy: (account, password) => ipcRenderer.invoke("configure-proxy", account, password),
