@@ -68,12 +68,21 @@ export function ProseMirrorEditor(props: Props) {
   // 之后每敲一个字插件都会判成「由关到开」再报一次。以 @ 触发文本真正消失(插件回调传 null)为重置点。
   let openReported = false
   const mentionTriggerPlugin = createMentionTriggerPlugin((state) => {
+    const prev = triggerState()
     setTriggerState(state)
     if (state?.active && containerRef) {
       const rect = containerRef.getBoundingClientRect()
       setPopoverPos({ left: rect.left, bottom: window.innerHeight - rect.top })
     } else {
       setPopoverPos(null)
+    }
+    // 失活清理:多选模式下 @query 不随选中消耗,光标移离后残留的 @query 文本在此删除
+    if (!state && prev?.active) {
+      const v = view()
+      if (v && prev.to !== v.state.selection.from) {
+        const text = v.state.doc.textBetween(prev.from, prev.to)
+        if (text === `@${prev.query}`) v.dispatch(v.state.tr.delete(prev.from, prev.to))
+      }
     }
     if (!state?.active) {
       openReported = false
@@ -192,17 +201,26 @@ export function ProseMirrorEditor(props: Props) {
     if (v.editable !== isEditable) v.setProps({ ...v.props, editable: () => isEditable })
   })
 
+  // 关闭 @ 面板:用 triggerState 的精确 from/to 删除 @query 文本并置空 trigger
+  // (不能用光标前 textBefore + 正则估算位置:光标若落在 mention 胶囊上,中间的 mention 贡献空文本会让起点错位、误删胶囊)
+  const closeMention = () => {
+    const v = view()
+    const trigger = triggerState()
+    if (v && trigger) {
+      const tr = v.state.tr.delete(trigger.from, trigger.to)
+      tr.setMeta(mentionTriggerKey, null)
+      v.dispatch(tr)
+    }
+    setTriggerState(null)
+  }
+
   // 点击面板外关闭
   createEffect(() => {
     if (!triggerState()?.active) return
     const handler = (e: MouseEvent) => {
       const target = e.target as HTMLElement
       if (target.closest(".ins-pm-editor")) return
-      if (!target.closest(".ins-mention-container")) {
-        const v = view()
-        if (v) v.dispatch(v.state.tr.setMeta(mentionTriggerKey, null))
-        setTriggerState(null)
-      }
+      if (!target.closest(".ins-mention-container")) closeMention()
     }
     document.addEventListener("mousedown", handler)
     onCleanup(() => document.removeEventListener("mousedown", handler))
@@ -220,6 +238,16 @@ export function ProseMirrorEditor(props: Props) {
         : { id: selection.filename, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
 
     const node = editorSchema.nodes.mention.create(attrs)
+    // 文件走多选:在 @query 后(光标处)插入胶囊,保留 @query 与浮窗以继续选择下一项;
+    // 技能走单选:把 @query 替换成胶囊并关闭浮窗。
+    if (selection.type === "file") {
+      const tr = v.state.tr.insert(trigger.to, node)
+      tr.setSelection(TextSelection.create(tr.doc, trigger.to))
+      v.dispatch(tr)
+      v.focus()
+      props.onMentionSelect?.(selection)
+      return
+    }
     const tr = v.state.tr.replaceWith(trigger.from, trigger.to, node)
     tr.setSelection(TextSelection.create(tr.doc, trigger.from + node.nodeSize))
     v.dispatch(tr)
@@ -228,17 +256,23 @@ export function ProseMirrorEditor(props: Props) {
     props.onMentionSelect?.(selection)
   }
 
-  // 取消:删掉对应 mention 节点 + 光标前残留的 @query 文本
+  // 取消:删掉对应 mention 节点;技能额外清掉 @query 并关闭浮窗,文件保留 @query 与浮窗以继续多选
   const handleMentionDeselect = (selection: MentionSelection) => {
     const v = view()
     if (!v) return
     const name = selection.type === "skill" ? selection.name : selection.filename
+    const trigger = triggerState()
 
     const tr1 = v.state.tr
     v.state.doc.descendants((node, pos) => {
       if (node.type.name === "mention" && node.attrs.name === name) tr1.delete(pos, pos + node.nodeSize)
     })
     if (tr1.docChanged) v.dispatch(tr1)
+
+    if (selection.type === "file") {
+      if (trigger) v.dispatch(v.state.tr.setSelection(TextSelection.create(v.state.doc, trigger.to)))
+      return
+    }
 
     const { from } = v.state.selection
     const textBefore = v.state.doc.textBetween(Math.max(0, from - 50), from)
@@ -280,7 +314,7 @@ export function ProseMirrorEditor(props: Props) {
               selections={props.mentionSelections}
               onSelect={handleMentionSelect}
               onDeselect={handleMentionDeselect}
-              onClose={() => setTriggerState(null)}
+              onClose={closeMention}
             />
           </div>
         </Portal>
