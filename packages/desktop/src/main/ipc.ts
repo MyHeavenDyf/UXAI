@@ -97,6 +97,16 @@ function sanitizeSessionSegment(raw: string): string {
   return cleaned || "session"
 }
 
+// uploads 子路径清洗(design-files 面板「上传」):与 handlers/artifact.ts:16 同语义,
+// 拒绝 .. / ~ / 空,去首尾斜杠。渲染端不是安全边界,主进程必须独立校验。
+function sanitizeUploadsSubPath(rawPath: string): string {
+  const normalized = rawPath.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
+  if (normalized.includes("..") || normalized.includes("~") || normalized.length === 0) {
+    return ""
+  }
+  return normalized
+}
+
 // write-file 白名单用(v2 会话隔离新增):判断路径是否落在 .octo/<sessionId>/{uploads,outputs} 下。
 // sessionId 段可变,不能用固定子串匹配,按路径分段比对—— .octo 之后第一段是会话段、第二段必须是
 // uploads/outputs(这样 .octo/<sessionId>/comments/... 等其它命名空间的第二段不是 uploads/outputs,天然不放行)。
@@ -444,6 +454,50 @@ export function registerIpcHandlers(deps: Deps) {
         return dest
       } catch (err) {
         console.error("[octo:worktree] upload-move failed", {
+          srcPath,
+          dest,
+          sessionId,
+          reason: err instanceof Error ? err.message : String(err),
+        })
+        throw err
+      }
+    },
+  )
+
+  // design-files 面板「上传」:把用户选的源文件**直接拷贝**进 <baseDir>/.octo/<sessionId>/uploads/[<subPath>/]。
+  // 桌面端不走 HTTP/base64 —— fs.copyFile 走内核,无内存压力,500MB+ 也无压力(原先 base64+JSON 链路在
+  // 大文件下会让 FileReader 静默返回空 data URL,后端写出 0 字节文件)。
+  // 撞名走 collisionFreePath、名字清洗走 landingName,与 worktree 落地规则一致。
+  ipcMain.handle(
+    "copy-file-to-session-uploads",
+    async (
+      _event: IpcMainInvokeEvent,
+      srcPath: string,
+      baseDir: string,
+      sessionId: string,
+      subPath: string,
+      filename: string,
+    ) => {
+      const uploadsRoot = join(baseDir, ".octo", sanitizeSessionSegment(sessionId), "uploads")
+      const cleanSub = sanitizeUploadsSubPath(subPath)
+      const targetDir = cleanSub ? join(uploadsRoot, cleanSub) : uploadsRoot
+      await ensureWorktreeDir(targetDir)
+
+      let safeName: string
+      try {
+        safeName = landingName(filename)
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        log.error("[octo:worktree] upload-name-rejected", { srcPath, filename, reason })
+        throw err
+      }
+      const dest = collisionFreePath(targetDir, safeName)
+      try {
+        await copyFile(srcPath, dest)
+        console.log("[octo:worktree] upload-copy-to-session ok", { srcPath, dest, sessionId, subPath: cleanSub })
+        return dest
+      } catch (err) {
+        console.error("[octo:worktree] upload-copy-to-session failed", {
           srcPath,
           dest,
           sessionId,

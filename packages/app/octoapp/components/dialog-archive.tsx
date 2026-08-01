@@ -1095,13 +1095,13 @@ export function ArchiveDialog(props: Props): JSX.Element {
                     <div class="archive-step-title">文件夹</div>
                     <div class="archive-step-content">
                       <ArchiveTreeSelector
-                        data={teamByVersionList()}
+                        data={getFolderTree()}
                         leafOnly={false}
                         selectedId={selectedFolderId()}
                         selectedLabel={selectedFolder()?.label}
                         onSelect={handleFolderSelect}
                         searchPlaceholder="搜索文件夹..."
-                        triggerPlaceholder={teamByVersionList().length === 0 ? "暂无数据" : "请选择文件夹"}
+                        triggerPlaceholder={getFolderTree().length === 0 ? "暂无数据" : "请选择文件夹"}
                         maxHeight="250px"
                       />
                     </div>
