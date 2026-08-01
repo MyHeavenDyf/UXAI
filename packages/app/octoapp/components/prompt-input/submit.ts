@@ -4,6 +4,7 @@ import { base64Encode } from "@opencode-ai/core/util/encode"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { useNavigate, useParams } from "@solidjs/router"
 import { batch, type Accessor } from "solid-js"
+import { produce } from "solid-js/store"
 import type { FileSelection } from "@/context/file"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -226,21 +227,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
   const abort = async () => {
     const sessionID = params.id
-    if (!sessionID) {
-      console.log("[octo:abort] skip — no sessionID")
-      return Promise.resolve()
-    }
-
-    const statusBefore = sync.data.session_status[sessionID]?.type ?? "idle"
-    const msgs = (sync.data.message[sessionID] ?? []) as Array<{ role: string; time: { completed?: number } }>
-    const incompleteAssistant = msgs.filter((m) => m.role === "assistant" && typeof m.time.completed !== "number")
-    console.log("[octo:abort] begin", {
-      sessionID,
-      statusBefore,
-      messageCount: msgs.length,
-      incompleteAssistantCount: incompleteAssistant.length,
-      incompleteAssistantIDs: incompleteAssistant.map((m) => m.time),
-    })
+    if (!sessionID) return Promise.resolve()
 
     tracker.interaction({ module: "chat", name: "abort-session" })
 
@@ -250,35 +237,37 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
     input.onAbort?.()
 
-    const optimisticIdle = () => {
-      console.log("[octo:abort] optimistic idle", { sessionID, statusBefore: sync.data.session_status[sessionID]?.type })
-      setStore("session_status", sessionID, { type: "idle" })
-    }
+    const incompleteAssistant = (sync.data.message[sessionID] ?? [])
+      .filter((m) => m.role === "assistant" && typeof m.time.completed !== "number")
+
+    const optimisticIdle = () =>
+      batch(() => {
+        setStore("session_status", sessionID, { type: "idle" })
+        const now = Date.now()
+        for (const msg of incompleteAssistant) {
+          setStore("message", sessionID, produce((messages: Message[]) => {
+            const result = Binary.search(messages, msg.id, (m: Message) => m.id)
+            if (!result.found) return
+            const m = messages[result.index]
+            m.time = { ...m.time, completed: now }
+            if (m.role === "assistant") {
+              m.error = { name: "MessageAbortedError" as const, data: { message: "aborted by user" } }
+            }
+          }))
+        }
+      })
 
     const queued = pending.get(sessionID)
     if (queued) {
-      console.log("[octo:abort] worktree-pending branch")
       queued.abort.abort()
       queued.cleanup()
       pending.delete(sessionID)
       optimisticIdle()
       return Promise.resolve()
     }
-    console.log("[octo:abort] calling sdk.client.session.abort", { sessionID })
     return sdk.client.session
-      .abort({
-        sessionID,
-      })
-      .then(
-        (res) => {
-          console.log("[octo:abort] sdk abort success", { sessionID, res })
-          optimisticIdle()
-        },
-        (err) => {
-          console.error("[octo:abort] sdk abort failed", { sessionID, err })
-          optimisticIdle()
-        },
-      )
+      .abort({ sessionID })
+      .then(optimisticIdle, optimisticIdle)
   }
 
   const restoreCommentItems = (items: CommentItem[]) => {
@@ -332,11 +321,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const mode = input.mode()
 
     if (text.trim().length === 0 && images.length === 0 && input.commentCount() === 0) {
-      console.log("[octo:submit] empty input + working check", {
-        working: input.working(),
-        sessionID: params.id,
-        status: sync.data.session_status[params.id ?? ""]?.type ?? "idle",
-      })
       if (input.working()) void abort()
       return
     }
