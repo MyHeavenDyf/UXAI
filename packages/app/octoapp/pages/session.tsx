@@ -1755,10 +1755,32 @@ export default function Page() {
     flushQueueHead()
   }, { defer: true }))
 
+  // busy 超时看门狗：session 长时间停留 busy 且无新 assistant 响应时，
+  // 乐观重置为 idle，避免 abort 失败 / SSE 断连导致 status 永久卡 busy
+  createEffect(on(isBusy, (busy) => {
+    if (!busy) return
+    const sessionID = params.id
+    if (!sessionID) return
+    const assistantBefore = (sync.data.message[sessionID] ?? []).filter((m) => m.role === "assistant").length
+    const timer = setTimeout(() => {
+      const status = sync.data.session_status[sessionID]?.type ?? "idle"
+      const assistantNow = (sync.data.message[sessionID] ?? []).filter((m) => m.role === "assistant").length
+      if (status === "busy" && assistantNow <= assistantBefore) {
+        const [, setStore] = globalSync.child(sdk.directory)
+        setStore("session_status", sessionID, { type: "idle" })
+      }
+    }, 60_000)
+    onCleanup(() => clearTimeout(timer))
+  }, { defer: true }))
+
   // 切回某 session 时,若它已 idle 且仍有排队,补一次 flush
   createEffect(on(() => params.id, () => {
     flushQueueHead()
   }, { defer: true }))
+
+  // 页面重新挂载（如头部 tab 切走再切回）时,两个 defer effect 都不触发。
+  // 若 session 已 idle 且仍有排队,此处补一次 flush,避免排队卡死。
+  onMount(() => flushQueueHead())
 
   createResizeObserver(
     () => promptDock,
