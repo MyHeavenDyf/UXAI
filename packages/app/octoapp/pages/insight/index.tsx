@@ -2108,9 +2108,9 @@ function InsightContent() {
     return attachments().some((a) => a.status === "uploading")
   }
 
-  // ResultViewer 渲染在两处复用:常态 inline(收起按钮=手动收起)与窄屏抽屉(收起按钮=关抽屉)。
+  // ResultViewer 渲染在两处复用:常态 inline(不传 onCollapse,TabBar 无收起按钮;收起由会话 header「文件管理」按钮触发)与窄屏抽屉(收起按钮=关抽屉)。
   // 二者按宽度互斥挂载(抽屉仅在 rightCollapsed 时可开,此时 inline 的 panelInline 恒为 false)。
-  const renderResultViewer = (onCollapse: () => void) => (
+  const renderResultViewer = (onCollapse?: () => void) => (
     <ResultViewer
       tabs={tabStore.tabs()}
       activeId={tabStore.activeId()}
@@ -2341,7 +2341,7 @@ function InsightContent() {
                     type="button"
                     onClick={toggleSidebarDrawer}
                     title="侧栏"
-                    class="flex items-center justify-center size-6 rounded-md transition-colors"
+                    class="flex items-center justify-center size-6 cursor-pointer rounded-md transition-colors"
                     style={{ color: "var(--octo-text-secondary)", background: sidebarOverlayOpen() ? "var(--octo-surface-hover)" : "transparent" }}
                   >
                     <IconNotepad size={16} />
@@ -2352,8 +2352,8 @@ function InsightContent() {
                     type="button"
                     onClick={() => { if (rightCollapsed()) togglePanelDrawer(); else setPanelCollapsed((v) => !v) }}
                     title="文件管理"
-                    class="flex items-center justify-center size-6 rounded-md transition-colors hover:bg-black/5 active:bg-black/10"
-                    style={{ color: (panelInline() || panelOverlayOpen()) ? "var(--octo-brand)" : "var(--octo-text-secondary)", background: (panelInline() || panelOverlayOpen()) ? "var(--octo-surface-hover)" : undefined }}
+                    class="flex items-center justify-center size-6 rounded-md transition-colors cursor-pointer hover:bg-black/5 active:bg-black/10"
+                    style={{ color: "var(--octo-text-secondary)" }}
                   >
                     <IconNotepad size={16} />
                   </button>
@@ -2577,9 +2577,10 @@ function InsightContent() {
             onPointerDown={handleDividerPointerDown}
           />
 
-          {/* ResultViewer:flex:1 跟随 1−cRatio 重排 */}
+          {/* ResultViewer:flex:1 跟随 1−cRatio 重排;inline 不传 onCollapse → TabBar 无「收起面板」按钮
+              (收起改由会话 header「文件管理」按钮 setPanelCollapsed),仅抽屉态显示该按钮(对齐 make) */}
           <div class="flex min-h-0 min-w-0" style={{ flex: `${1 - cRatio()} 1 0%`, "min-width": `${RIGHT_MIN}px` }}>
-            {renderResultViewer(() => setPanelCollapsed(true))}
+            {renderResultViewer()}
           </div>
         </Show>
 
