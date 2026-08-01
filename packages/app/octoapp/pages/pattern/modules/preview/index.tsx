@@ -425,6 +425,13 @@ export function PreviewPage(props: {
   }
 
   const handlePickerMessage = (e: MessageEvent) => {
+    if (e.data?.type === "DOM_PICKER_RECT_UPDATE") {
+      // iframe 内选中元素尺寸变化后回传的新 rect：重算遮罩锚点，使黑色遮罩/蓝框跟随。
+      // 仅当有面板打开且当前启用锚点定位时才更新，COPY 无 rect 路径(hasRect=false)忽略。
+      if (!(propertyEditor.show || pickerVisible()) || !pickerAnchor.hasRect) return
+      setPickerAnchor({ hasRect: true, ...computeElementRect(e.data.rect) })
+      return
+    }
     if (e.data?.type === "DOM_PICKER_CLOSE_PANELS") {
       if (anno.annotationPopup.show) {
         anno.handleAnnotationClose()
