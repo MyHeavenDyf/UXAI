@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, watchEffect } from "vue"
-import { getIconComponentRef, sizeConfig, HUI_ICON_SIZE, mapShapeToHuiType, mapColorToHuiColor } from "./IconBase"
+import { getIconComponentRef, sizeConfig, mapShapeToHuiType, mapColorToHuiColor } from "./IconBase"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import type { IconNode } from "../types"
 import { useIconProvider, iconInfoMap, svgCache, svgCacheVersion, resolveSvgCacheKey, requestSvg } from "../../composables/useIconProvider"
-import { iconColors } from "../../utils/themeColors"
+import { iconColors, iconDarkColors } from "../../utils/themeColors"
+import { useTheme } from "../../composables/useTheme"
 
 const { hasHuiIcons } = useIconProvider()
+const { isDark } = useTheme()
 
 const BACKGROUND_OPACITY = 0.15
 
@@ -75,7 +77,8 @@ const iconSizeStyle = computed(() => {
 
 const iconColor = computed(() => {
   const c = color.value
-  const iconColorEntry = iconColors[c as keyof typeof iconColors]
+  const currentIconColors = isDark.value ? iconDarkColors : iconColors
+  const iconColorEntry = currentIconColors[c as keyof typeof iconColors]
   if (iconColorEntry) {
     return `var(${iconColorEntry.color})`
   }

@@ -4,7 +4,7 @@ import { createStore } from "solid-js/store"
 import { useParams } from "@solidjs/router"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
-import { IconButton } from "@opencode-ai/ui/icon-button"
+import { Icon } from "@opencode-ai/ui/icon"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -222,7 +222,7 @@ export function ChatPanel(props: {
           </Show>
           <div
             class="shrink-0 flex items-center justify-between"
-            style={{ padding: "12px 24px", background: "#fff" }}
+            style={{ padding: "12px", height: "56px", background: "#fff", "border-bottom": "1px solid rgba(0,0,0,0.1)" }}
           >
           <div class="flex items-center gap-2 min-w-0 flex-1 pr-3">
             <Show when={props.isBusy}>
@@ -248,7 +248,8 @@ export function ChatPanel(props: {
               }
             >
               <h1
-                class="truncate min-w-0 title"
+                class="truncate min-w-0"
+                style={{ "font-size": "14px", "line-height": "22px", "font-weight": "600", color: "#191919" }}
                 onDblClick={openTitleEditor}
               >
                 {sessionTitle(props.sessionInfo?.title) ?? "Pattern"}
@@ -262,12 +263,12 @@ export function ChatPanel(props: {
             onOpenChange={(open) => setTitleState("menuOpen", open)}
           >
             <DropdownMenu.Trigger
-              as={IconButton}
-              icon="dot-grid"
-              variant="ghost"
-              class="size-6 rounded-md data-[expanded]:bg-surface-base-active"
+              as="button"
+              class="make-icon-btn flex items-center justify-center size-4"
               aria-label={language.t("common.moreOptions")}
-            />
+            >
+              <Icon name="ellipsis" class="size-4" />
+            </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
               <DropdownMenu.Content
                 style={{ "min-width": "104px" }}
@@ -400,23 +401,27 @@ function PatternDialogDeleteSession(props: { sessionID: string; name: string; on
   const language = useLanguage()
   const dialog = useDialog()
   return (
-    <Dialog title={language.t("session.delete.title")} fit>
-      <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-        <span class="text-14-regular text-text-strong">
-          {language.t("session.delete.confirm", { name: props.name })}
-        </span>
-        <div class="flex justify-end gap-2">
-          <Button variant="ghost" size="large" onClick={() => dialog.close()}>
-            {language.t("common.cancel")}
-          </Button>
-          <Button
-            variant="primary"
-            size="large"
-            onClick={() => void props.onDelete(props.sessionID).then(() => dialog.close())}
-          >
-            {language.t("session.delete.button")}
-          </Button>
-        </div>
+    <Dialog title={language.t("session.delete.title")} fit class="delete-dialog">
+      <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
+        {language.t("session.delete.confirm", { name: props.name })}
+      </span>
+      <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
+        <Button
+          variant="ghost"
+          size="large"
+          class="delete-dialog-btn"
+          onClick={() => dialog.close()}
+        >
+          {language.t("common.cancel")}
+        </Button>
+        <Button
+          variant="primary"
+          size="large"
+          class="delete-dialog-btn delete-dialog-btn-primary"
+          onClick={() => void props.onDelete(props.sessionID).then(() => dialog.close())}
+        >
+          {language.t("session.delete.button")}
+        </Button>
       </div>
     </Dialog>
   )

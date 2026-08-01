@@ -234,10 +234,9 @@
   object-fit: contain;
 }
 
-/* ── 单张横构图：高度 180px、图片宽度撑满高度自适应、垂直居中 ── */
+/* ── 单张横构图：宽度铺满、高度跟随图片，最大 180px ── */
 
 .studio-result-grid.single-landscape {
-  height: 180px;
   align-items: center;
   justify-content: center;
   overflow-x: hidden;
@@ -248,9 +247,9 @@
   align-items: center;
   justify-content: center;
   width: 100%;
-  height: 180px;
+  height: auto;
+  max-height: 180px;
   min-width: unset;
-  background: #f7f7f7;
   box-shadow: none;
 }
 
@@ -259,13 +258,13 @@
 .studio-result-grid.single-landscape .studio-result-thumb-media {
   width: 100%;
   height: auto;
+  max-height: 180px;
   object-fit: contain;
 }
 
-/* ── 多张横构图：等分宽度、高度 180px、间距 4px ── */
+/* ── 多张横构图：等分宽度、高度跟随图片，最大 180px、间距 4px ── */
 
 .studio-result-grid.multi-landscape {
-  height: 180px;
   gap: 4px;
   overflow-x: hidden;
 }
@@ -276,8 +275,8 @@
   justify-content: center;
   flex: 1;
   min-width: 0;
-  height: 180px;
-  background: #f7f7f7;
+  height: auto;
+  max-height: 180px;
   box-shadow: none;
 }
 
@@ -286,6 +285,7 @@
 .studio-result-grid.multi-landscape .studio-result-thumb-media {
   width: 100%;
   height: auto;
+  max-height: 180px;
   object-fit: contain;
 }
 
@@ -301,8 +301,8 @@
   align-items: center;
   justify-content: center;
   flex: 0 0 calc(50% - 2px);
-  height: 180px;
-  background: #f7f7f7;
+  height: auto;
+  max-height: 180px;
   box-shadow: none;
 }
 
@@ -311,6 +311,7 @@
 .studio-result-grid.multi-landscape-4 .studio-result-thumb-media {
   width: 100%;
   height: auto;
+  max-height: 180px;
   object-fit: contain;
 }
 
@@ -963,7 +964,8 @@
 
 .studio-video-player {
   position: absolute;
-  z-index: 20;
+  /* 高于悬浮抽屉 .studio-workspace-overlay(z-index:40)，低于 .studio-menu(42)/顶栏控件(60)/全屏(1000) */
+  z-index: 41;
   overflow: hidden;
   border-radius: 6px;
   background: #000;

@@ -8,13 +8,13 @@
  * | A2UI prop | eview-react prop | 处理方式 |
  * |-----------|-----------------|---------|
  * | component | name | 透传 A2UI 组件名作为图表类型标识 |
- * | option（字面量） | option | 与默认 option 深合并 + a2:true + theme |
+ * | option（字面量） | option | 与默认 option 深合并 + a2ui:true + theme |
  * | option.data（{path} 绑定） | option.data | 管线自动转 BindingValue，保持引用 |
  * | option.color（{path} 绑定） | option.color | 管线自动转 BindingValue，保持引用 |
  * | option.yAxisTitle | option.yAxis.name | 仅 Bar/Line/Scatter/Bubble/BulletChart，透传 rename |
  * | className | className | 透传 |
  * | id | id | 透传 |
- * | — | option.a2 | 固定注入 `true` |
+ * | — | option.a2ui | 固定注入 `true` |
  * | — | option.theme | 默认 `'hdesign-light'` |
  * | children | — | 吞噬（图表组件不支持 children） |
  *
@@ -28,8 +28,8 @@
  * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
  */
 
-import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
-import type { PropValue } from '../../../src/core/valueTypes'
+import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
+import type { PropValue } from '../../../src/core/value-types'
 import { buildChartOption, SPECIAL_YAXIS } from '../../chartDefaults'
 
 export function createChartMapping(pkg: string): MappingDef {
@@ -79,6 +79,9 @@ export function createChartMapping(pkg: string): MappingDef {
         props: outputProps,
         children: null,
         selfClosing: true,
+        // option 提取到文件顶部 const（避免内联巨型对象字面量）；
+        // 含 {path} 绑定时 const 内引用 state 字段（destructure 在 module-top const 之前，作用域可达）
+        propRoute: { option: 'module-top' as const },
       }
     },
   }

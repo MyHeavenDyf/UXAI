@@ -24,8 +24,8 @@
  * 这是 eview-ui 专属 bespoke 映射（非工厂、非复用 eview-react）。import 硬编码 @cloudsop/eview-ui。
  */
 
-import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
-import type { PropValue } from '../../../src/core/valueTypes'
+import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
+import type { PropValue } from '../../../src/core/value-types'
 import { Value } from '../../../src/core/value'
 
 // ─── 工具（与 eview-react Button 一致） ───
@@ -45,7 +45,7 @@ function resolveColor(color: string): { status?: string; style?: Record<string, 
   ])
 
   if (color === 'primary') return { status: 'primary' }
-  if (color === 'danger') return { status: 'risk' }
+  if (color === 'danger' || color === 'error') return { status: 'risk' }
   if (color === 'default') return { status: 'default' }
   if (PALETTE.has(color)) return { style: { backgroundColor: color } }
   if (/^#[0-9a-f]{3,6}$/i.test(color)) return { style: { backgroundColor: color } }

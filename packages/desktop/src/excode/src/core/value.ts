@@ -8,7 +8,7 @@
  *   Value.binding({ path: '/xxx', pathType: 'absolute', ... })
  */
 
-import type { BuildNode } from './nodeTypes'
+import type { BuildNode } from './node-types'
 import type {
   BindingValue,
   ComputedValue,
@@ -21,7 +21,7 @@ import type {
   SlotNodeValue,
   ExtractRoute,
   UseStateMarker,
-} from './valueTypes'
+} from './value-types'
 
 export const Value = {
   /** 路径绑定（基础结构，由 BuildTrees / transform 构造） */
@@ -68,7 +68,7 @@ export const Value = {
   },
 
   /** 编译期常量引用 */
-  varRef(opts: { name: string }): VarRefValue {
+  varRef(opts: { name: string; pathType?: 'absolute' | 'relative' }): VarRefValue {
     return { type: 'varRef', ...opts }
   },
 

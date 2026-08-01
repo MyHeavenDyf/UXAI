@@ -21,8 +21,8 @@
 import type {
   MappingDef,
   TransformContext,
-} from "../../../src/core/componentMapping";
-import type { PropValue } from "../../../src/core/valueTypes";
+} from "../../../src/core/component-mapping";
+import type { PropValue } from "../../../src/core/value-types";
 import { Value } from "../../../src/core/value";
 
 // ─── size 值映射 ───

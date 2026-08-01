@@ -27,8 +27,8 @@
  * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
  */
 
-import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
-import type { PropValue } from '../../../src/core/valueTypes'
+import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
+import type { PropValue } from '../../../src/core/value-types'
 import { Value } from '../../../src/core/value'
 
 // ─── marks 对象 → markIndexes 数组 ───

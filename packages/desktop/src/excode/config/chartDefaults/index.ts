@@ -77,8 +77,8 @@ export function buildChartOption(
   // 2. 深合并（用户优先）
   const merged = deepMerge({ ...defaultOpt }, userOption)
 
-  // 3. 注入 a2: true + theme
-  merged.a2 = true
+  // 3. 注入 a2ui: true + theme
+  merged.a2ui = true
   if (!merged.theme) merged.theme = 'hdesign-light'
   // 如果 data 是空数组或 undefined，避免 Chart 组件报错
   if (merged.data === undefined) merged.data = []

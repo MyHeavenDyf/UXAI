@@ -1,4 +1,4 @@
-import { JSX } from "solid-js"
+import { JSX, createEffect, onCleanup } from "solid-js"
 import "./comment-hover-tooltip.css"
 import { formatCommentTime } from "./comment-popover"
 
@@ -27,41 +27,60 @@ export function CommentHoverTooltip(props: {
   if (!props.target) return null
 
   const tooltipWidth = 320
-  const tooltipMinHeight = 60
-
-  let left: number
-  let top: number
-
   const commenterName = props.target.commenterName || "用户"
   const commenterAvatar = props.target.commenterAvatar
 
-  if (props.target.pinPosition) {
-    const pinLeft = props.target.pinPosition.left
-    const pinTop = props.target.pinPosition.top
-    const pinHeight = props.target.pinPosition.height
+  let tooltipRef: HTMLDivElement | undefined
+  let animationFrameId: number | undefined
 
-    left = pinLeft
-    top = pinTop + pinHeight
+  createEffect(() => {
+    if (!tooltipRef || !props.target?.pinPosition) return
 
-    if (left + tooltipWidth > props.iframeBounds.width) {
-      left = props.iframeBounds.width - tooltipWidth - 8
+    animationFrameId = requestAnimationFrame(() => {
+      if (!tooltipRef) return
+      
+      const tooltipHeight = tooltipRef.offsetHeight
+      const pinLeft = props.target!.pinPosition!.left
+      const pinTop = props.target!.pinPosition!.top
+      const pinWidth = props.target!.pinPosition!.width
+      const pinHeight = props.target!.pinPosition!.height
+
+      let left = pinLeft
+      let top = pinTop + pinHeight - tooltipHeight
+
+      const rightOverflow = left + tooltipWidth > props.iframeBounds.width
+      const topOverflow = top < 0
+
+      let radiusClass = "radius-bottom-left"
+
+      if (rightOverflow && topOverflow) {
+        left = pinLeft + pinWidth - tooltipWidth
+        top = pinTop
+        radiusClass = "radius-top-right"
+      } else if (rightOverflow) {
+        left = pinLeft + pinWidth - tooltipWidth
+        radiusClass = "radius-bottom-right"
+      } else if (topOverflow) {
+        top = pinTop
+        radiusClass = "radius-top-left"
+      }
+
+      tooltipRef.style.setProperty("--tooltip-x", `${left}px`)
+      tooltipRef.style.setProperty("--tooltip-y", `${top}px`)
+      tooltipRef.className = `comment-hover-tooltip visible ${radiusClass}`
+    })
+  })
+
+  onCleanup(() => {
+    if (animationFrameId) {
+      cancelAnimationFrame(animationFrameId)
     }
-    if (left < 8) {
-      left = 8
-    }
-  } else {
-    left = props.target.position.x * props.iframeBounds.width + 20
-    top = props.target.position.y * props.iframeBounds.height + 20
-  }
+  })
 
   return (
     <div
+      ref={tooltipRef}
       class="comment-hover-tooltip"
-      style={{
-        left: `${left}px`,
-        top: `${top}px`,
-        transform: 'translateY(-100%)',
-      }}
       onPointerLeave={() => {
         props.onClose?.()
       }}

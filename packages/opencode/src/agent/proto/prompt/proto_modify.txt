@@ -23,6 +23,14 @@
 
 -----
 
+# Input Interpretation (分诊操作列表)
+**`action` is the user's natural-language intent, NOT a property spec.** Triage does not have access to component schemas, so it MUST NOT (and does not) name properties. Your job is to translate each `action` into valid patch operations:
+1. For each item, look up `element_id` in `[JSON数据为]` to find its `component` (if `element_id` is empty or marked as not-found, re-locate the target element from the intent within `[JSON数据为]`).
+2. Call `load_components_docs` with the `component`(s) involved — see Tool Use Constraint below.
+3. Translate the intent into valid patch operations.
+
+**NEVER copy property names from the `action` text** — they may be wrong. The only source of truth for valid properties is the `load_components_docs` output.
+
 # Tool Use Constraint:
   Must use `load_components_docs` 工具:
   在修改涉及具体 A2UI 组件（如 Table, Tabs, Button 等）的属性时，必须先调用 `load_components_docs` 工具查询该组件的 API Schema 和 Example，以确认需要修改的属性是否合法以及正确的使用方式。

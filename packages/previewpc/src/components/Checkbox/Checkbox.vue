@@ -36,6 +36,7 @@ const className = computed(() => node.properties.className)
 
 
 const disabled = computed(() => (resolveValue(node.properties.disabled) as boolean) || false)
+const indeterminate = computed(() => (resolveValue(node.properties.indeterminate) as boolean) || false)
 const label = computed(() => (resolveValue(node.properties.label) as string))
 const initVal = computed(() => (resolveValue(node.properties.checked) as boolean) || false)
 const checked = ref<boolean>(initVal.value)
@@ -58,6 +59,7 @@ function handleChange(value: any) {
     :id="id" 
     v-model="checked" 
     :disabled="disabled"
+    :indeterminate="indeterminate"
     :class="className"
     @change="handleChange">
     <template v-if="children.length === 0">{{ label }}</template>

@@ -31,6 +31,9 @@ onMounted(() => {
 const id = computed(() => node.id)
 const className = computed(() => node.properties.className)
 
+const disabled = computed(() => (resolveValue(node.properties.disabled) as boolean) || false)
+const indeterminate = computed(() => (resolveValue(node.properties.indeterminate) as boolean) || false)
+
 const data = computed(() => {
   const opts = node.properties.options
   if (Array.isArray(opts)) {
@@ -61,16 +64,18 @@ function handleChange(value: any[]) {
 </script>
 
 <template>
-  <ElCheckboxGroup 
+  <ElCheckboxGroup
     ref="elCheckboxGroupRef"
-    :id="id" 
-    v-model="checked" 
+    :id="id"
+    v-model="checked"
+    :disabled="disabled"
     :class="className"
     @change="handleChange">
-    <ElCheckbox 
-      v-for="item in data" 
-      :key="item.value" 
-      :value="item.value" 
-      :label="item.label" />
+    <ElCheckbox
+      v-for="item in data"
+      :key="item.value"
+      :value="item.value"
+      :label="item.label"
+      :indeterminate="indeterminate" />
   </ElCheckboxGroup>
 </template>

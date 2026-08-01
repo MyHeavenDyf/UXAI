@@ -1589,7 +1589,8 @@
       },
       "children": [
         "collapseCardTitle",
-        "collapseRowDefault"
+        "collapseRowDefault",
+        "collapseRowIconLeft"
       ]
     },
     {
@@ -1656,6 +1657,65 @@
         "key": "panel3",
         "label": "教育背景",
         "content": "2016-2020年，北京大学，计算机科学与技术专业。"
+      }
+    },
+    {
+      "id": "collapseRowIconLeft",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "collapseRowIconLeftLabel",
+        "collapseIconLeft"
+      ]
+    },
+    {
+      "id": "collapseRowIconLeftLabel",
+      "component": "span",
+      "props": {
+        "value": "展开图标在左侧",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "collapseIconLeft",
+      "component": "Collapse",
+      "props": {
+        "activeKey": "iconPanel1",
+        "expandIconPlacement": "start"
+      },
+      "children": [
+        "collapseIconItem1",
+        "collapseIconItem2",
+        "collapseIconItem3"
+      ]
+    },
+    {
+      "id": "collapseIconItem1",
+      "component": "CollapseItem",
+      "props": {
+        "key": "iconPanel1",
+        "label": "基础信息",
+        "content": "姓名：李四，年龄：32岁，部门：产品部。"
+      }
+    },
+    {
+      "id": "collapseIconItem2",
+      "component": "CollapseItem",
+      "props": {
+        "key": "iconPanel2",
+        "label": "工作经历",
+        "content": "2018年至今，就职于XYZ互联网公司，担任产品经理。"
+      }
+    },
+    {
+      "id": "collapseIconItem3",
+      "component": "CollapseItem",
+      "props": {
+        "key": "iconPanel3",
+        "label": "教育背景",
+        "content": "2014-2018年，清华大学，工业设计专业。"
       }
     },
     {
@@ -1812,6 +1872,8 @@
       "children": [
         "segmentedCardTitle",
         "segmentedRowSizes",
+        "segmentedRowTextIcon",
+        "segmentedRowIcon",
         "segmentedRowBlock"
       ]
     },
@@ -1849,24 +1911,10 @@
         "className": "flex items-center gap-4 flex-wrap"
       },
       "children": [
-        "segmentedLarge",
-        "segmentedMedium",
-        "segmentedSmall"
+        "segmentedMedium"
       ]
     },
-    {
-      "id": "segmentedLarge",
-      "component": "Segmented",
-      "props": {
-        "value": "选项一",
-        "options": [
-          "选项一",
-          "选项二",
-          "选项三"
-        ],
-        "size": "large"
-      }
-    },
+
     {
       "id": "segmentedMedium",
       "component": "Segmented",
@@ -1881,16 +1929,87 @@
       }
     },
     {
-      "id": "segmentedSmall",
+      "id": "segmentedRowTextIcon",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "segmentedRowTextIconLabel",
+        "segmentedRowTextIconContent"
+      ]
+    },
+    {
+      "id": "segmentedRowTextIconLabel",
+      "component": "span",
+      "props": {
+        "value": "文字带图标",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "segmentedRowTextIconContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 flex-wrap"
+      },
+      "children": [
+        "segmentedTextIcon"
+      ]
+    },
+    {
+      "id": "segmentedTextIcon",
       "component": "Segmented",
       "props": {
-        "value": "选项一",
+        "value": "list",
         "options": [
-          "选项一",
-          "选项二",
-          "选项三"
+          { "label": "列表", "value": "list", "icon": "list" },
+          { "label": "卡片", "value": "card", "icon": "layout-grid" },
+          { "label": "表格", "value": "table", "icon": "table" }
         ],
-        "size": "small"
+        "size": "medium"
+      }
+    },
+    {
+      "id": "segmentedRowIcon",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "segmentedRowIconLabel",
+        "segmentedRowIconContent"
+      ]
+    },
+    {
+      "id": "segmentedRowIconLabel",
+      "component": "span",
+      "props": {
+        "value": "纯图标",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "segmentedRowIconContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 flex-wrap"
+      },
+      "children": [
+        "segmentedIcon"
+      ]
+    },
+    {
+      "id": "segmentedIcon",
+      "component": "Segmented",
+      "props": {
+        "value": "list",
+        "options": [
+          { "label": "", "value": "list", "icon": "list" },
+          { "label": "", "value": "card", "icon": "layout-grid" },
+          { "label": "", "value": "table", "icon": "table" }
+        ],
+        "size": "medium"
       }
     },
     {
@@ -2476,7 +2595,6 @@
             "value": "guangzhou"
           }
         ],
-        "optionType": "button",
         "size": "large"
       }
     },
@@ -2499,7 +2617,6 @@
             "value": "guangzhou"
           }
         ],
-        "optionType": "button",
         "size": "medium"
       }
     },
@@ -2522,7 +2639,6 @@
             "value": "guangzhou"
           }
         ],
-        "optionType": "button",
         "size": "small"
       }
     },
@@ -2611,7 +2727,7 @@
       "id": "datePickerSingle",
       "component": "DatePicker",
       "props": {
-        "value": "2026-06-23",
+        "value": "",
         "placeholder": "请选择日期",
         "format": "YYYY-MM-DD"
       }
@@ -3018,8 +3134,7 @@
       "children": [
         "timePickerCardTitle",
         "timePickerRowDefault",
-        "timePickerRowRange",
-        "timePickerRowSizes"
+        "timePickerRowRange"
       ]
     },
     {
@@ -3053,7 +3168,7 @@
       "id": "timePickerDefault",
       "component": "TimePicker",
       "props": {
-        "value": "2023-10-01 14:30:00",
+        "value": "",
         "placeholder": "请选择时间"
       }
     },
@@ -3081,72 +3196,14 @@
       "component": "TimePicker",
       "props": {
         "value": [
-          "2023-10-01 08:00:00",
-          "2023-10-01 18:00:00"
+          "",
+          ""
         ],
         "range": true,
         "placeholder": [
           "开始时间",
           "结束时间"
         ]
-      }
-    },
-    {
-      "id": "timePickerRowSizes",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-2"
-      },
-      "children": [
-        "timePickerRowSizesLabel",
-        "timePickerRowSizesContent"
-      ]
-    },
-    {
-      "id": "timePickerRowSizesLabel",
-      "component": "span",
-      "props": {
-        "value": "尺寸变体",
-        "className": "text-sm text-on-surface-variant"
-      }
-    },
-    {
-      "id": "timePickerRowSizesContent",
-      "component": "div",
-      "props": {
-        "className": "flex items-center gap-3 flex-wrap"
-      },
-      "children": [
-        "timePickerLarge",
-        "timePickerMedium",
-        "timePickerSmall"
-      ]
-    },
-    {
-      "id": "timePickerLarge",
-      "component": "TimePicker",
-      "props": {
-        "value": "2023-10-01 14:30:00",
-        "size": "large",
-        "placeholder": "大尺寸"
-      }
-    },
-    {
-      "id": "timePickerMedium",
-      "component": "TimePicker",
-      "props": {
-        "value": "2023-10-01 14:30:00",
-        "size": "medium",
-        "placeholder": "中尺寸"
-      }
-    },
-    {
-      "id": "timePickerSmall",
-      "component": "TimePicker",
-      "props": {
-        "value": "2023-10-01 14:30:00",
-        "size": "small",
-        "placeholder": "小尺寸"
       }
     },
     {
@@ -3938,7 +3995,6 @@
       "component": "Button",
       "props": {
         "value": "点击展开",
-        "color": "primary",
         "icon": "chevron-down",
         "iconPlacement": "end"
       }
@@ -3990,8 +4046,8 @@
       "children": [
         "tabsCardTitle",
         "tabsRowLine",
+        "tabsRowLineEditable",
         "tabsRowCard",
-        "tabsRowSeparator",
         "tabsRowEditableCard",
         "tabsRowSize"
       ]
@@ -4042,7 +4098,7 @@
       "props": {
         "key": "tab1",
         "label": "概述",
-        "icon": "info",
+        "icon": "home",
         "content": "这是概述页面的内容，包含项目的整体介绍和关键信息摘要。"
       }
     },
@@ -4052,7 +4108,7 @@
       "props": {
         "key": "tab2",
         "label": "详情",
-        "icon": "file-text",
+        "icon": "file",
         "content": "这是详情页面的内容，包含项目的详细说明和技术规格参数。"
       }
     },
@@ -4064,6 +4120,68 @@
         "label": "设置",
         "icon": "settings",
         "content": "这是设置页面的内容，包含各项配置选项。"
+      }
+    },
+    {
+      "id": "tabsRowLineEditable",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tabsRowLineEditableLabel",
+        "tabsLineEditable"
+      ]
+    },
+    {
+      "id": "tabsRowLineEditableLabel",
+      "component": "span",
+      "props": {
+        "value": "删除形态",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsLineEditable",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "tab1",
+        "types": "editable-card"
+      },
+      "children": [
+        "tabLineEditable1",
+        "tabLineEditable2",
+        "tabLineEditable3"
+      ]
+    },
+    {
+      "id": "tabLineEditable1",
+      "component": "TabItem",
+      "props": {
+        "key": "tab1",
+        "label": "概述",
+        "icon": "home",
+        "content": "可删除的线条标签页概述内容。"
+      }
+    },
+    {
+      "id": "tabLineEditable2",
+      "component": "TabItem",
+      "props": {
+        "key": "tab2",
+        "label": "详情",
+        "icon": "file",
+        "content": "可删除的线条标签页详情内容。"
+      }
+    },
+    {
+      "id": "tabLineEditable3",
+      "component": "TabItem",
+      "props": {
+        "key": "tab3",
+        "label": "设置",
+        "icon": "settings",
+        "content": "可删除的线条标签页设置内容。"
       }
     },
     {
@@ -4123,56 +4241,6 @@
         "key": "tab3",
         "label": "历史记录",
         "content": "历史记录内容区域"
-      }
-    },
-    {
-      "id": "tabsRowSeparator",
-      "component": "div",
-      "props": {
-        "className": "flex flex-col gap-2"
-      },
-      "children": [
-        "tabsRowSeparatorLabel",
-        "tabsSeparator"
-      ]
-    },
-    {
-      "id": "tabsRowSeparatorLabel",
-      "component": "span",
-      "props": {
-        "value": "分割线样式",
-        "className": "text-sm text-on-surface-variant"
-      }
-    },
-    {
-      "id": "tabsSeparator",
-      "component": "Tabs",
-      "props": {
-        "activeKey": "tab1",
-        "types": "separator",
-        "tabPlacement": "start"
-      },
-      "children": [
-        "tabSeparator1",
-        "tabSeparator2"
-      ]
-    },
-    {
-      "id": "tabSeparator1",
-      "component": "TabItem",
-      "props": {
-        "key": "tab1",
-        "label": "标签一",
-        "content": "标签一内容"
-      }
-    },
-    {
-      "id": "tabSeparator2",
-      "component": "TabItem",
-      "props": {
-        "key": "tab2",
-        "label": "标签二",
-        "content": "标签二内容"
       }
     },
     {
@@ -4316,7 +4384,7 @@
       "props": {
         "key": "tab1",
         "label": "大尺寸",
-        "icon": "info",
+        "icon": "home",
         "content": "大尺寸线条标签页内容"
       }
     },
@@ -4326,7 +4394,7 @@
       "props": {
         "key": "tab2",
         "label": "详情",
-        "icon": "file-text",
+        "icon": "file",
         "content": "大尺寸线条标签二内容"
       }
     },
@@ -4360,7 +4428,7 @@
       "props": {
         "key": "tab1",
         "label": "中尺寸",
-        "icon": "info",
+        "icon": "home",
         "content": "中尺寸线条标签页内容"
       }
     },
@@ -4370,7 +4438,7 @@
       "props": {
         "key": "tab2",
         "label": "详情",
-        "icon": "file-text",
+        "icon": "file",
         "content": "中尺寸线条标签二内容"
       }
     },
@@ -4404,7 +4472,7 @@
       "props": {
         "key": "tab1",
         "label": "小尺寸",
-        "icon": "info",
+        "icon": "home",
         "content": "小尺寸线条标签页内容"
       }
     },
@@ -4414,7 +4482,7 @@
       "props": {
         "key": "tab2",
         "label": "详情",
-        "icon": "file-text",
+        "icon": "file",
         "content": "小尺寸线条标签二内容"
       }
     },
@@ -4633,6 +4701,7 @@
       "props": {
         "key": "tab1",
         "label": "标签一",
+        "icon": "settings",
         "content": "大尺寸分割线标签一内容"
       }
     },
@@ -4642,6 +4711,7 @@
       "props": {
         "key": "tab2",
         "label": "标签二",
+        "icon": "settings",
         "content": "大尺寸分割线标签二内容"
       }
     },
@@ -4665,6 +4735,7 @@
       "props": {
         "key": "tab1",
         "label": "标签一",
+        "icon": "settings",
         "content": "中尺寸分割线标签一内容"
       }
     },
@@ -4674,6 +4745,7 @@
       "props": {
         "key": "tab2",
         "label": "标签二",
+        "icon": "settings",
         "content": "中尺寸分割线标签二内容"
       }
     },
@@ -4697,6 +4769,7 @@
       "props": {
         "key": "tab1",
         "label": "标签一",
+        "icon": "settings",
         "content": "小尺寸分割线标签一内容"
       }
     },
@@ -4706,6 +4779,7 @@
       "props": {
         "key": "tab2",
         "label": "标签二",
+        "icon": "settings",
         "content": "小尺寸分割线标签二内容"
       }
     },

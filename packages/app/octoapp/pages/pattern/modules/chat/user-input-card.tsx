@@ -89,11 +89,11 @@ export function UserInputCard(props: { text: string }): JSX.Element {
               >
                 <Show when={userExpanded()} fallback={
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M4 10L8 6L12 10" />
+                    <path d="M4 6L8 10L12 6" />
                   </svg>
                 }>
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M4 6L8 10L12 6" />
+                    <path d="M4 10L8 6L12 10" />
                   </svg>
                 </Show>
               </button>

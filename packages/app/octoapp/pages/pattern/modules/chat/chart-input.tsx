@@ -1,11 +1,14 @@
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Icon } from "@opencode-ai/ui/icon"
+import { Button } from "@opencode-ai/ui/button"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { DesignSystemPicker } from "./design-system-picker"
 import { useLocal } from "@/context/local"
-import type { JSX } from "solid-js"
+import { createSignal, createEffect, Show, type JSX } from "solid-js"
 import "../../assets/style/chat/chart_input.css"
 import { tracker } from "@/utils/tracker"
+import { ProseMirrorEditor } from "@/pages/make/components/prosemirror-editor"
 
 export type Attachment = {
   id: string
@@ -17,7 +20,7 @@ export type Attachment = {
 type ModelState = ReturnType<typeof useLocal>["model"]
 
 export type ChartInputProps = {
-  /** 文本框行数，undefined 时撑满 150px（首页态），数字时固定行数（对话态） */
+  /** 文本框行数，undefined 时撑满（首页态），数字时固定行数（对话态） */
   rows: number | undefined
   /** 输入框当前值 */
   value: string
@@ -53,27 +56,59 @@ export type ChartInputProps = {
 
 export function ChartInput(props: ChartInputProps): JSX.Element {
   let fileInputRef!: HTMLInputElement
+  const [mentionSelections, setMentionSelections] = createSignal<unknown[]>([])
+  let editorRef: { clear: () => void } | undefined
+
+  createEffect(() => {
+    if (props.value === "" && editorRef) editorRef.clear()
+  })
+
+  const isHome = () => props.rows === undefined
+
+  const composerStyle = (): JSX.CSSProperties => {
+    const base: Record<string, string> = {
+      border: "1px solid transparent",
+      background: `
+        linear-gradient(var(--octo-surface-page), var(--octo-surface-page)) padding-box,
+        linear-gradient(135deg,
+          rgba(246, 97, 23, 0.7) 1%,
+          rgba(95, 45, 255, 0.7) 8%,
+          rgba(61, 93, 255, 0.7) 22%,
+          rgba(104, 138, 255, 0.7) 43%,
+          rgba(28, 171, 111, 0.7) 54%,
+          rgba(61, 93, 255, 0.7) 87%,
+          rgba(206, 7, 232, 0.7) 92%) border-box`,
+      "box-shadow": "0 0 5px rgba(0, 0, 0, 0.08), 0 0 10px rgba(74, 81, 255, 0.18), 0 0 20px rgba(89, 74, 255, 0.12)",
+    }
+    if (isHome()) base["min-height"] = "150px"
+    return base
+  }
+
+  const editor = () => (
+    <ProseMirrorEditor
+      sessionId=""
+      skillConfig={{}}
+      artifactFiles={null}
+      mentionSelections={mentionSelections() as never}
+      setMentionSelections={setMentionSelections as never}
+      disabled={props.disabled}
+      placeholder="描述你想要的界面，按 Enter 生成页面原型"
+      onContentChange={props.onValueChange}
+      onSubmit={props.onSubmit}
+      ref={(el: { clear: () => void }) => { editorRef = el }}
+    />
+  )
+
   return (
     <div
-      class="rounded-[24px]  flex flex-col transition-all duration-300 relative group chat-input-content"
-      style={{
-        "margin-top": props.attachments.length > 0 ? "6px" : "0",
-        ...(props.rows === undefined ? { height: "150px" } : {}),
-      }}
+      class={`${isHome() ? "rounded-[24px]" : "rounded-[16px]"} flex flex-col transition-all duration-300 relative group`}
+      style={composerStyle()}
     >
-      <textarea
-        value={props.value}
-        onInput={(e) => props.onValueChange(e.currentTarget.value)}
-        onKeyDown={props.onKeyDown}
-        placeholder="描述你想要的界面，按 Enter 生成页面原型"
-        rows={props.rows}
-        disabled={props.disabled}
-        class="w-full flex-1 resize-none bg-transparent text-14-regular text-text-strong outline-none relative z-10 px-4 pt-3"
-        style={{
-          "font-family": "var(--octo-font)",
-          ...(props.rows === undefined ? { flex: "1", "max-height": "none", "overflow-y": "auto" } : { "max-height": "120px", "overflow-y": "auto" }),
-        }}
-      />
+      {isHome() ? (
+        <div class="flex-1 min-h-0 overflow-hidden rounded-[inherit]">{editor()}</div>
+      ) : (
+        editor()
+      )}
       <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
         <div class="flex items-center gap-1 min-w-0">
           <input
@@ -84,15 +119,17 @@ export function ChartInput(props: ChartInputProps): JSX.Element {
             accept="*/*"
             onChange={props.onFileChange}
           />
-          <button
-            type="button"
-            onClick={() => { if (!props.maxAttachments) fileInputRef.click() }}
-            disabled={props.maxAttachments}
-            class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors bg-transparent hover:bg-[#e8e8e8] active:bg-[#dedede] text-gray-800 hover:text-black disabled:text-gray-400"
-            title={props.maxAttachments ? "最多 5 个文件" : "上传附件"}
-          >
-            <Icon name="plus" class="size-5" />
-          </button>
+          <Tooltip placement="top" value="添加附件">
+            <Button
+              type="button"
+              variant="ghost"
+              class="size-8 p-0"
+              disabled={props.maxAttachments}
+              onClick={() => { if (!props.maxAttachments) fileInputRef.click() }}
+            >
+              <Icon name="plus" class="size-5" />
+            </Button>
+          </Tooltip>
           <DesignSystemPicker
             selected={props.selectedDesignSystem}
             onSelect={props.onSelectDesignSystem}

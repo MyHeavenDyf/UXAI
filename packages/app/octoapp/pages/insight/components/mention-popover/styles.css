@@ -1,0 +1,227 @@
+/* Insight @ 引用面板样式（SPEC-INS-023，本地化自 Design mention-popover）。
+   类名前缀 ins-mention-*，用 --octo-* token，避免与 make 版冲突。 */
+
+.ins-mention-container {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  min-width: 220px;
+  background: var(--octo-surface-page);
+  border: 1px solid var(--octo-border-default);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.14);
+  padding: 8px;
+  z-index: 1000;
+  margin-bottom: 10px;
+}
+
+/* Tab 切换 */
+.ins-mention-tabs {
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+  padding: 3px;
+  background: var(--octo-surface-hover, rgba(0, 0, 0, 0.06));
+  margin-bottom: 8px;
+}
+
+.ins-mention-tab {
+  flex: 1;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--octo-text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+
+.ins-mention-tab--active {
+  color: var(--octo-brand, #0a59f7);
+  background: var(--octo-surface-page);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* 一级面板 */
+.ins-mention-primary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ins-mention-primary-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  text-align: left;
+  color: var(--octo-text-primary);
+  transition: background-color 150ms ease;
+}
+
+.ins-mention-primary-item:hover {
+  background-color: var(--octo-brand-a8, rgba(10, 89, 247, 0.08));
+}
+
+.ins-mention-primary-item--selected {
+  background-color: var(--octo-brand-a12, rgba(10, 89, 247, 0.12));
+  color: var(--octo-brand, #0a59f7);
+}
+
+.ins-mention-primary-text {
+  flex: 1;
+  font-size: 14px;
+  line-height: 20px;
+  color: inherit;
+}
+
+.ins-mention-primary-arrow {
+  flex-shrink: 0;
+  color: var(--octo-text-tertiary, rgba(0, 0, 0, 0.4));
+}
+
+/* 二级面板 */
+.ins-mention-secondary {
+  position: absolute;
+  right: 0;
+  transform: translateX(calc(100% + 4px));
+  min-width: 240px;
+  max-width: 360px;
+  background: var(--octo-surface-page);
+  border: 1px solid var(--octo-border-default);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.14);
+  overflow: hidden;
+  z-index: 1001;
+}
+
+.ins-mention-secondary--files {
+  min-width: 300px;
+}
+
+.ins-mention-secondary-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.ins-mention-secondary-content--files {
+  max-height: 320px;
+}
+
+.ins-mention-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 40px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  text-align: left;
+  color: var(--octo-text-primary);
+  transition: background-color 150ms ease;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.ins-mention-item:hover {
+  background-color: var(--octo-brand-a8, rgba(10, 89, 247, 0.08));
+}
+
+.ins-mention-item--selected {
+  background-color: var(--octo-brand-a8, rgba(10, 89, 247, 0.08));
+}
+
+/* 键盘高亮(↑↓ 走到的那项)。与「已勾选」同底色会分不清,故另加左侧色条区分。 */
+.ins-mention-item--active {
+  background-color: var(--octo-brand-a8, rgba(10, 89, 247, 0.08));
+  box-shadow: inset 2px 0 0 var(--octo-brand, #0a59f7);
+}
+
+.ins-mention-item-text {
+  flex: 1;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--octo-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ins-mention-check {
+  flex-shrink: 0;
+  color: var(--octo-brand, #0a59f7);
+}
+
+/* 文件复选框 */
+.ins-mention-checkbox {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid var(--octo-border-strong, rgba(0, 0, 0, 0.3));
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ins-mention-checkbox--checked {
+  background: var(--octo-brand, #0a59f7);
+  border-color: var(--octo-brand, #0a59f7);
+}
+
+.ins-mention-checkbox-icon {
+  color: #fff;
+}
+
+/* 分节标题 / 文件头 */
+.ins-mention-section-title {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--octo-text-secondary);
+  padding: 8px 12px 4px;
+}
+
+.ins-mention-files-header {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+  color: var(--octo-text-primary);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--octo-border-subtle, rgba(0, 0, 0, 0.06));
+}
+
+.ins-mention-empty {
+  padding: 16px 12px;
+  font-size: 13px;
+  color: var(--octo-text-tertiary, rgba(0, 0, 0, 0.4));
+  text-align: center;
+}
+
+/* 滚动条 */
+.ins-mention-secondary-content::-webkit-scrollbar {
+  width: 4px;
+}
+.ins-mention-secondary-content::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 2px;
+}
+.ins-mention-secondary-content::-webkit-scrollbar-track {
+  background: transparent;
+}

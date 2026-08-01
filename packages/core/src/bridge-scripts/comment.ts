@@ -225,7 +225,7 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
   }, true)
 
   function findCommentTarget(el) {
-    while (el && el !== document.body) {
+    while (el && el !== document.documentElement) {
       if (el.getAttribute && el.getAttribute('data-od-id')) {
         return { target: el }
       }
@@ -261,6 +261,10 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
   }
 
   function buildSelector(el) {
+    if (el === document.body) {
+      return 'body'
+    }
+    
     var parts = []
     while (el && el !== document.body) {
       var part = el.tagName.toLowerCase()
@@ -444,10 +448,15 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
       var viewportWidth = document.documentElement.clientWidth
       
       var leftPx = rect.left + scrollX + rect.width
-      var topPx = rect.top + scrollY
-      var showOverlap = topPx < 40 || (leftPx + 40 > viewportWidth + scrollX)
-      var pinLeft = showOverlap ? (rect.left + scrollX + rect.width - 40) : leftPx
-      var pinTop = showOverlap ? topPx : (topPx - 40)
+      var topPx = rect.top + scrollY - 40
+      
+      var overflowTop = rect.top + scrollY < 40
+      var overflowRight = leftPx + 40 > viewportWidth + scrollX
+      
+      var pinLeft = overflowRight ? (leftPx - 40) : leftPx
+      var pinTop = overflowTop ? (rect.top + scrollY) : topPx
+      
+      var showOverlap = overflowTop || overflowRight
       
       if (existingPin) {
         existingPin.style.display = 'flex'

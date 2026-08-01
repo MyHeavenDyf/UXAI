@@ -27,6 +27,7 @@ export function SessionComposerRegion(props: {
   onNewSessionWorktreeReset: () => void
   onSubmit: () => void
   onResponseSubmit: () => void
+  disableAtMention?: boolean
   followup?: {
     queue: () => boolean
     items: { id: string; text: string }[]
@@ -138,7 +139,7 @@ export function SessionComposerRegion(props: {
     >
       <div
         classList={{
-          "w-full px-10 pointer-events-auto": true,
+          "w-full px-6 pointer-events-auto": true,
           "md:max-w-[848px] md:mx-auto 2xl:max-w-[848px]": props.centered,
         }}
       >
@@ -268,6 +269,7 @@ export function SessionComposerRegion(props: {
                     onQueue={props.followup?.onQueue}
                     onAbort={props.followup?.onAbort}
                     onSubmit={props.onSubmit}
+                    disableAtMention={props.disableAtMention}
                   />
                 }
               >

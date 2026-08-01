@@ -50,8 +50,8 @@ const strokeWidth = computed(() => {
   const size = resolveValue(properties.size)
   let width = 8
   switch (size) {
-    case "medium":
-      width = 8
+    case "small":
+      width = 4
       break
     default:
       width = 8

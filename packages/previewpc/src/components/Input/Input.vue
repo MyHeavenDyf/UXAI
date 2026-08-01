@@ -81,11 +81,11 @@ function change(val: string) {
     :show-password="type==='password'"
     @change="change"
   >
-    <template v-if="prefix && resolvedPrefix?.component" #prefix>
-      <component :is="resolvedPrefix.component" v-bind="resolvedPrefix.props" />
+    <template #prefix>
+      <component v-if="prefix && resolvedPrefix?.component" :is="resolvedPrefix.component" v-bind="resolvedPrefix.props" />
     </template>
-    <template v-if="suffix && resolvedSuffix?.component" #suffix>
-      <component :is="resolvedSuffix.component" v-bind="resolvedSuffix.props" />
+    <template #suffix>
+      <component v-if="suffix && resolvedSuffix?.component" :is="resolvedSuffix.component" v-bind="resolvedSuffix.props" />
     </template>
   </ElInput>
 </template>

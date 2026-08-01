@@ -66,6 +66,12 @@
 					],
           "description": "Tab header icon (Lucide icon name in kebab-case, e.g., 'chevron-right')"
         },
+         "disabled": {
+          "oneOf": [
+            { "type": "boolean" },
+            { "$ref": "#/$defs/DataBinding" }
+          ]
+        },
         "content": { 
           "oneOf": [{
 							"type": "string",

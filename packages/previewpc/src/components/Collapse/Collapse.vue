@@ -59,7 +59,7 @@ const expandIconPlacement = computed(() => {
 const activeKey = ref(resolveValue(properties.activeKey) as string | string[])
 
 // ---- 异步图标解析 ----
-const resolvedIcon = useIconComponentRef(expandIcon, { size: 16 })
+const resolvedIcon = useIconComponentRef(expandIcon, { size: 12 })
 
 // const size = computed(() => {
 //   return properties.size ? sizeEnum[properties.size] : "default"

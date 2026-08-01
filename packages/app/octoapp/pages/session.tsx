@@ -16,8 +16,8 @@ import {
   createResource,
 } from "solid-js"
 import { makeEventListener } from "@solid-primitives/event-listener"
-import { createMediaQuery } from "@solid-primitives/media"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
+import { useResponsiveBreakpoints } from "@/components/responsive-layout"
 import { useLocal } from "@/context/local"
 import { selectionFromLines, useFile, type FileSelection, type SelectedLineRange } from "@/context/file"
 import { createStore } from "solid-js/store"
@@ -63,6 +63,7 @@ import { Persist, persisted } from "@/utils/persist"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { same } from "@/utils/same"
 import { formatServerError } from "@/utils/server-errors"
+import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 
 const emptyUserMessages: UserMessage[] = []
 type FollowupItem = FollowupDraft & { id: string }
@@ -397,17 +398,17 @@ export default function Page() {
     ),
   )
 
-  const isDesktop = createMediaQuery("(min-width: 768px)")
+  const { isWide, isNarrow } = useResponsiveBreakpoints()
   const size = createSizing()
-  const desktopReviewOpen = createMemo(() => isDesktop() && view().reviewPanel.opened())
-  const desktopFileTreeOpen = createMemo(() => isDesktop() && layout.fileTree.opened())
+  const desktopReviewOpen = createMemo(() => isWide() && view().reviewPanel.opened())
+  const desktopFileTreeOpen = createMemo(() => isWide() && layout.fileTree.opened())
   const desktopSidePanelOpen = createMemo(() => desktopReviewOpen() || desktopFileTreeOpen())
   const sessionPanelWidth = createMemo(() => {
     if (!desktopSidePanelOpen()) return "100%"
     if (desktopReviewOpen()) return `${layout.session.width()}px`
     return `calc(100% - ${layout.fileTree.width()}px)`
   })
-  const centered = createMemo(() => isDesktop() && !desktopReviewOpen())
+  const centered = createMemo(() => !desktopSidePanelOpen())
 
   function normalizeTab(tab: string) {
     if (!tab.startsWith("file://")) return tab
@@ -434,7 +435,7 @@ export default function Page() {
   const isChildSession = createMemo(() => !!info()?.parentID)
   const diffs = createMemo(() => (params.id ? list(sync.data.session_diff[params.id]) : []))
   const canReview = createMemo(() => !!sync.project)
-  const reviewTab = createMemo(() => isDesktop())
+  const reviewTab = createMemo(() => isWide())
   const tabState = createSessionTabs({
     tabs,
     pathFromTab: file.pathFromTab,
@@ -585,9 +586,9 @@ export default function Page() {
     list.push("turn")
     return list
   })
-  const mobileChanges = createMemo(() => !isDesktop() && store.mobileTab === "changes")
+  const mobileChanges = createMemo(() => !isWide() && store.mobileTab === "changes")
   const wantsReview = createMemo(() =>
-    isDesktop()
+    isWide()
       ? desktopFileTreeOpen() || (desktopReviewOpen() && activeTab() === "review")
       : store.mobileTab === "changes",
   )
@@ -1309,7 +1310,7 @@ export default function Page() {
   let treeDir: string | undefined
   createEffect(() => {
     const dir = sdk.directory
-    if (!isDesktop()) return
+    if (!isWide()) return
     if (!layout.fileTree.opened()) return
     if (sync.status === "loading") return
 
@@ -1836,7 +1837,7 @@ export default function Page() {
       {sessionSync() ?? ""}
       <SessionHeader />
       <div class="flex-1 min-h-0 flex flex-col md:flex-row">
-        <Show when={!isDesktop() && !!params.id}>
+        <Show when={false && !isWide() && !!params.id}>
           <Tabs value={store.mobileTab} class="h-auto">
             <Tabs.List>
               <Tabs.Trigger
@@ -1894,6 +1895,7 @@ export default function Page() {
                   followup={undefined}
                   revert={undefined}
                   setPromptDockRef={(el) => { promptDock = el }}
+                  disableAtMention={local.agent.current()?.name === "octo_ai"}
                 />
               </div>
             </div>
@@ -2003,6 +2005,7 @@ export default function Page() {
             setPromptDockRef={(el) => {
               promptDock = el
             }}
+              disableAtMention={local.agent.current()?.name === "octo_ai"}
               />
             </>
           </Show>

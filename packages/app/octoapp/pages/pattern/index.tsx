@@ -2,7 +2,7 @@ import "./assets/style/pattern-tokens.css"
 import type { Message, Session, SessionStatus, UserMessage, FilePartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
-import { showToast, Toast } from "@opencode-ai/ui/toast"
+import { showToast, Toast, toaster } from "@opencode-ai/ui/toast"
 import {
   createEffect,
   createMemo,
@@ -53,6 +53,7 @@ import { getArchiveBaseUrl } from "./utils/pattern-archive-utils"
 import { getDesktopApi } from "./utils/desktop-api"
 import { ArchiveDialog } from "@/components/dialog-archive"
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
+import { useProjectSelection } from "@/hooks/use-project-selection"
 import * as sessionMap from "./utils/session-map"
 
 const AGENT_NAME = "proto_triage"
@@ -83,6 +84,8 @@ function PatternContent() {
   const layout = useLayout()
   const local = useLocal()
   useTabModel("pattern")
+
+  const projectSelection = useProjectSelection()
 
   onMount(() => { tracker.page({ module: "prototype", name: "pattern-page" }) })
 
@@ -138,6 +141,10 @@ function PatternContent() {
         discoverVersion++
         previewApi.sendToPreview(null)
         if (id) delete lastSentPreviewJson[id]
+        if (!id) {
+          setPrompt("")
+          setAttachments([])
+        }
 
         // ── 3. 进入新 session：追踪 + 清空 + 异步加载 ──
         if (id) {
@@ -1110,30 +1117,41 @@ function PatternContent() {
       return
     }
 
-    // 独立流程：重新生成 planner 后下载，不影响主流程数据
-    let planner: Record<string, unknown> | null = null
-    let replannerSessionId: string | undefined
+    const loadingToastId = showToast({
+      persistent: true,
+      variant: "loading",
+      icon: "loader",
+      closable: false,
+      title: "代码转换中，请勿关闭本页",
+    })
     try {
-      const result = await proto_replanner({
-        sdk,
-        sync,
-        modelKey: mk,
-        rootSession: sid,
-        finalA2UIJson: mergedA2UI,
-        onSessionCreated: (childID: string) => { replannerSessionId = childID },
-      })
-      planner = result as unknown as Record<string, unknown>
-    } catch (err) {
-      console.error("[PatternPage] proto_replanner failed", err)
-      if (err instanceof Error && err.message === "aborted") return
-      const error = classifyAIError(err)
-      showToast({ title: error.title || "重新生成失败" })
-      return
-    } finally {
-      if (replannerSessionId) await sdk.client.session.delete({ sessionID: replannerSessionId }).catch(() => {})
-    }
+      // 独立流程：重新生成 planner 后下载，不影响主流程数据
+      let planner: Record<string, unknown> | null = null
+      let replannerSessionId: string | undefined
+      try {
+        const result = await proto_replanner({
+          sdk,
+          sync,
+          modelKey: mk,
+          rootSession: sid,
+          finalA2UIJson: mergedA2UI,
+          onSessionCreated: (childID: string) => { replannerSessionId = childID },
+        })
+        planner = result as unknown as Record<string, unknown>
+      } catch (err) {
+        console.error("[PatternPage] proto_replanner failed", err)
+        if (err instanceof Error && err.message === "aborted") return
+        const error = classifyAIError(err)
+        showToast({ title: error.title || "重新生成失败" })
+        return
+      } finally {
+        if (replannerSessionId) await sdk.client.session.delete({ sessionID: replannerSessionId }).catch(() => {})
+      }
 
-    await download({ planner, mergedA2UI, sessionId: sid })
+      await download({ planner, mergedA2UI, sessionId: sid })
+    } finally {
+      toaster.dismiss(loadingToastId)
+    }
   }
 
   // 分享 — 打包 intent / planner / modules / preview JSON 为 ZIP
@@ -1143,8 +1161,16 @@ function PatternContent() {
   }
 
   // 画布编辑  跳转pixso
-  function handleCanvasEditing() {
-    console.log('跳转pixso')
+  async function handleCanvasEditing() {
+    const sid = params.id
+    if(!sid) return
+
+    // await transformerPipeline?.({
+    //   previewData: pendingPreviewData()[sid],
+    //   sessionId: sid,
+    //   title: sessionInfo()?.title ?? sid ?? "export",
+    //   projectSelection,
+    // })
   }
 
   // 实时预览

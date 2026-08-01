@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync
 import { mkdir, readFile, writeFile, lstat, stat, unlink, rm, copyFile, rename } from "node:fs/promises"
 import { dirname, extname, join, basename, resolve as resolvePath, sep } from "node:path"
 import { homedir, tmpdir } from "node:os"
-import { pathToFileURL } from "node:url"
+import { pathToFileURL, fileURLToPath } from "node:url"
 import archiver from "archiver"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell, net } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
@@ -38,11 +38,16 @@ import { convertCssToTailwind } from "./tailwind-from-css"
 import { previewDistDir, getUploadsDir, setUploadsDir } from "./preview-server"
 import { pipelineRequest } from "../network/pipelineRequest"
 import { codeToHtml } from "./page-capture"
+import { landingName } from "./landing-name"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
   return [{ name: "Files", extensions: ext }]
 }
+
+const topixsoDir = app.isPackaged
+  ? join(process.resourcesPath, "topixso")
+  : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "app", "octoapp", "pages", "pattern", "topixso")
 
 // 判断图片类型
 function detectImageExt(buf: Buffer): string {
@@ -57,22 +62,14 @@ function detectImageExt(buf: Buffer): string {
 }
 
 // ── SPEC-INS-014 Insight 本地工作目录布局(worktree)共享工具 ────────────────
-// uploads(附件拷贝,v2 由 sources 改名)与 outputs(产物落地)用同一套文件名规则:sanitize + 撞名加后缀。
+// uploads(附件拷贝,v2 由 sources 改名)与 outputs(产物落地)用同一套文件名规则:landingName + 撞名加后缀。
 // v2(会话隔离):outputs 从一开始按 <sessionId> 分桶;uploads 分两段——
 //   预会话落地区 .octo/tmps/(扁平,不属于任何会话)→ 发送时 rename 进 .octo/<sessionId>/uploads/。
 // (全局约定:所有本地落点收进 .octo 根,不再有 agent 命名层——会话归属哪个 agent 可由 sessionId 反查。)
 // spec docs/specs/infra/insight-worktree-layout.md §2-4。
 
-// 文件名清洗(spec §3.1):保留 字母/数字/中文/-/_/./;空格→_;其他→_;主名截 100;空名兜底 unnamed。
-function sanitizeWorktreeName(raw: string): string {
-  const replaced = raw.replace(/\s+/g, "_").replace(/[^\p{L}\p{N}._-]/gu, "_")
-  const dot = replaced.lastIndexOf(".")
-  if (dot > 0 && dot < replaced.length - 1) {
-    const stem = replaced.slice(0, dot).slice(0, 100)
-    return (stem || "unnamed") + replaced.slice(dot)
-  }
-  return replaced.slice(0, 100) || "unnamed"
-}
+// 文件名规则见 ./landing-name.ts(SPEC-INS-026 §4.1 唯一清洗入口)。旧的 sanitizeWorktreeName
+// (空格/括号→`_`、主名截 100)已废除:那条约束源自「文件名随 basename 进 S3 URL」,而文件名已退出 URL。
 
 // 撞名加后缀(spec §3.3):目标已存在就 `name (2).ext`(操作系统下载器习惯),不覆盖。
 function collisionFreePath(dir: string, filename: string): string {
@@ -403,7 +400,17 @@ export function registerIpcHandlers(deps: Deps) {
       // 改这里的落点必须同步改渲染端 worktree-layout.ts 与 spec §2(v7 曾漏改渲染端 → PR #424)。
       const dir = join(baseDir, ".octo", "tmps")
       await ensureWorktreeDir(dir)
-      const dest = collisionFreePath(dir, sanitizeWorktreeName(filename))
+      // 拒绝类失败响亮报错(SPEC-INS-026 §4.1):含分隔符 / `..` 的名字不静默改名,直接抛回渲染端提示用户。
+      let safeName: string
+      try {
+        safeName = landingName(filename)
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        log.error("[octo:worktree] upload-name-rejected", { srcPath, filename, reason })
+        console.error("[octo:worktree] upload-name-rejected", { srcPath, filename, reason })
+        throw err
+      }
+      const dest = collisionFreePath(dir, safeName)
       try {
         await copyFile(srcPath, dest)
         console.log("[octo:worktree] upload-copy ok", { srcPath, dest })
@@ -456,7 +463,17 @@ export function registerIpcHandlers(deps: Deps) {
       baseDir?: string,
       sessionId?: string,
     ) => {
-      const safeName = sanitizeWorktreeName(filename)
+      // 拒绝类失败响亮报错(SPEC-INS-026 §4.1):含分隔符 / `..` 的名字不静默改名。渲染端按
+      // LANDING_NAME_REJECTED 前缀识别为「重试无用」,toast 提示并保留原链接供手动下载。
+      let safeName: string
+      try {
+        safeName = landingName(filename)
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        log.error("[octo:worktree] materialize-rejected", { url, filename, sessionId, reason })
+        console.error("[octo:worktree] materialize-rejected", { url, filename, sessionId, reason })
+        throw err
+      }
       // baseDir 与 sessionId 都提供时落 <baseDir>/.octo/<sessionId>/outputs/(用户可见、可管理、按会话隔离);
       // 缺一不可时 fallback 走 OS 临时目录(无项目场景 / 无会话 / 纯一次性预览,非持久)。
       const persistent = !!(baseDir && baseDir.length > 0 && sessionId && sessionId.length > 0)
@@ -1272,6 +1289,9 @@ export function registerIpcHandlers(deps: Deps) {
       }
     }
   })
+
+  // 查找topixso文件夹
+  ipcMain.handle("get-topixso-dir", () => topixsoDir)
 }
 
 export function sendSqliteMigrationProgress(win: BrowserWindow, progress: SqliteMigrationProgress) {

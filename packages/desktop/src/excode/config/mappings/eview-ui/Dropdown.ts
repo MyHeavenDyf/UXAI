@@ -22,9 +22,9 @@
  * 测试页，需后续用测试页验证。字面量分支已确定。
  */
 
-import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
-import type { PropValue, BindingValue } from '../../../src/core/valueTypes'
-import type { ComponentNode, LoopNode, ExtractNode } from '../../../src/core/nodeTypes'
+import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
+import type { PropValue, BindingValue } from '../../../src/core/value-types'
+import type { ComponentNode, LoopNode, ExtractNode } from '../../../src/core/node-types'
 import { Value } from '../../../src/core/value'
 import { Node } from '../../../src/core/node'
 
@@ -200,7 +200,7 @@ const DropdownMapping: MappingDef = {
     // ─── menu → overlay（Menu 组件节点，直接作 prop 值） ───
     // overlay 是 prop 值里的 BuildNode 子树。jsxEmitter.emitValue 对 prop 值 BuildNode 走
     // emitBuildNodeExpr——该函数原仅处理图标节点（自闭合、不 emit children），已扩展支持 children
-    // （见 jsxEmitter.ts emitBuildNodeExpr），故 <Menu><Menu.Item/>...</Menu> 能正确 emit。
+    // （见 jsx-emitter.ts emitBuildNodeExpr），故 <Menu><Menu.Item/>...</Menu> 能正确 emit。
     if (props.menu) {
       const menu = props.menu
       if (menu && typeof menu === 'object' && menu.type === 'binding') {

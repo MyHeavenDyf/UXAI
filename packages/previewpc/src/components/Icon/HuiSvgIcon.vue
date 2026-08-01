@@ -21,9 +21,6 @@ const normalizedSvg = computed(() => {
   // 分别移除 width 和 height，避免正则只匹配第一个属性的问题
   svg = svg.replace(/(<svg[^>]*?)\swidth="[^"]*"/, '$1')
   svg = svg.replace(/(<svg[^>]*?)\sheight="[^"]*"/, '$1')
-  if (!isBgType.value) {
-    svg = svg.replace(/fill="(?!none)[^"]*"/g, 'fill="currentColor"')
-  }
   return svg
 })
 

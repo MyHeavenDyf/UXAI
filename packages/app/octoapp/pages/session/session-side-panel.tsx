@@ -1,6 +1,5 @@
 import { For, Match, Show, Switch, createEffect, createMemo, onCleanup, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
-import { createMediaQuery } from "@solid-primitives/media"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
@@ -22,6 +21,7 @@ import { useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
+import { useResponsiveBreakpoints } from "@/components/responsive-layout"
 import { createFileTabListSync } from "@/pages/session/file-tab-scroll"
 import { FileTabContent } from "@/pages/session/file-tabs"
 import { createOpenSessionFileTab, createSessionTabs, getTabReorderIndex, type Sizing } from "@/pages/session/helpers"
@@ -51,7 +51,7 @@ export function SessionSidePanel(props: {
   const dialog = useDialog()
   const { sessionKey, tabs, view } = useSessionLayout()
 
-  const isDesktop = createMediaQuery("(min-width: 768px)")
+  const { isWide } = useResponsiveBreakpoints()
   const shown = createMemo(
     () =>
       platform.platform !== "desktop" ||
@@ -59,10 +59,10 @@ export function SessionSidePanel(props: {
       settings.general.showFileTree(),
   )
 
-  const reviewOpen = createMemo(() => isDesktop() && view().reviewPanel.opened())
-  const fileOpen = createMemo(() => isDesktop() && shown() && layout.fileTree.opened())
+  const reviewOpen = createMemo(() => isWide() && view().reviewPanel.opened())
+  const fileOpen = createMemo(() => isWide() && shown() && layout.fileTree.opened())
   const open = createMemo(() => reviewOpen() || fileOpen())
-  const reviewTab = createMemo(() => isDesktop())
+  const reviewTab = createMemo(() => isWide())
   const panelWidth = createMemo(() => {
     if (!open()) return "0px"
     if (reviewOpen()) return `calc(100% - ${layout.session.width()}px)`
@@ -200,7 +200,7 @@ export function SessionSidePanel(props: {
   })
 
   return (
-    <Show when={isDesktop()}>
+    <Show when={isWide()}>
       <aside
         id="review-panel"
         aria-label={language.t("session.panel.reviewAndFiles")}

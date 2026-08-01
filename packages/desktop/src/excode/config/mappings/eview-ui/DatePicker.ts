@@ -23,8 +23,8 @@
  * 这是 eview-ui 专属 bespoke 映射（非工厂、非复用 eview-react）。import 硬编码 @cloudsop/eview-ui。
  */
 
-import type { MappingDef, TransformContext } from '../../../src/core/componentMapping'
-import type { PropValue } from '../../../src/core/valueTypes'
+import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
+import type { PropValue } from '../../../src/core/value-types'
 import { Value } from '../../../src/core/value'
 
 const DatePickerMapping: MappingDef = {
