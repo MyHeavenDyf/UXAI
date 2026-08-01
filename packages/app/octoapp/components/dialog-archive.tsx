@@ -642,7 +642,6 @@ export function ArchiveDialog(props: Props): JSX.Element {
   }
 
   const handleProductSelect = (id: number, item: TreeNodeItem) => {
-    lastUsedSelectionKey = null
     const product = item as { name: string; commonTeam?: number }
     setSelectedProductId(id)
     setSelectedProduct({ name: product.name, commonTeam: product.commonTeam })
@@ -670,7 +669,6 @@ export function ArchiveDialog(props: Props): JSX.Element {
       setFilteredFolderList([])
       autoSelectFirstFolder(productTeamList())
     } else {
-      lastUsedSelectionKey = null
       setIsProjectArchive(false)
       setSelectedVersionId(id)
       
