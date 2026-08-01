@@ -132,6 +132,7 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
             font-size: 14px;
             line-height: 22px;
             color: rgba(0, 0, 0, 0.9);
+            word-break: break-all;
           }
           .archive-path-value {
             color: rgba(0, 0, 0, 0.9);

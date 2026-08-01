@@ -310,7 +310,7 @@ function MakeSidebarArea(props: ParentProps) {
   return (
     <>
       <style>{`
-        .make-sidebar { transition: transform 200ms ease; will-change: transform; }
+        .make-sidebar { transition: transform 200ms ease; will-change: transform; z-index: 12; }
         .make-sidebar.is-collapsed { position: fixed; top: 48px; bottom: 0; left: 0; height: auto; z-index: 32; transform: translateX(-100%); }
         body.make-left-drawer-open .make-sidebar.is-collapsed { transform: translateX(0); box-shadow: 11px 0 20px 0 rgba(0,0,0,0.08); }
         .make-sidebar-overlay { display: none; position: fixed; inset: 0; z-index: 30; }
