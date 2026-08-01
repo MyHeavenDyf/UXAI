@@ -272,12 +272,24 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       },
   )
   const working = createMemo(() => {
-    if (status()?.type !== "idle") return true
+    const st = status()?.type
+    const statusBusy = st !== "idle"
     const id = params.id
-    if (!id) return false
-    return (sync.data.message[id] ?? []).some(
-      (item) => item.role === "assistant" && typeof item.time.completed !== "number",
-    )
+    let messageBusy = false
+    if (id) {
+      messageBusy = (sync.data.message[id] ?? []).some(
+        (item) => item.role === "assistant" && typeof item.time.completed !== "number",
+      )
+    }
+    if (statusBusy || messageBusy) {
+      console.log("[octo:working] true", {
+        sessionID: id,
+        statusType: st,
+        statusBusy,
+        messageBusy,
+      })
+    }
+    return statusBusy || messageBusy
   })
   const imageAttachments = createMemo(() =>
     prompt.current().filter((part): part is ImageAttachmentPart => part.type === "image"),
@@ -323,7 +335,13 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       .join("")
     return text.trim().length === 0 && imageAttachments().length === 0 && commentCount() === 0
   })
-  const stopping = createMemo(() => working() && blank())
+  const stopping = createMemo(() => {
+    const w = working()
+    const b = blank()
+    const result = w && b
+    console.log("[octo:stopping]", { working: w, blank: b, result })
+    return result
+  })
   const tip = () => {
     if (stopping()) {
       return (

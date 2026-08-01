@@ -1510,10 +1510,22 @@ export default function Page() {
     })
 
   const busy = (sessionID: string) => {
-    if ((sync.data.session_status[sessionID] ?? { type: "idle" as const }).type !== "idle") return true
-    return (sync.data.message[sessionID] ?? []).some(
+    const status = sync.data.session_status[sessionID] ?? { type: "idle" as const }
+    const msgs = sync.data.message[sessionID] ?? []
+    const incomplete = msgs.filter(
       (item) => item.role === "assistant" && typeof item.time.completed !== "number",
     )
+    const statusBusy = status.type !== "idle"
+    const messageBusy = incomplete.length > 0
+    if (statusBusy || messageBusy) {
+      console.log("[octo:busy] true", {
+        sessionID,
+        statusType: status.type,
+        incompleteAssistant: incomplete.length,
+        incompleteIDs: incomplete.map((m) => ({ id: m.id, time: m.time })),
+      })
+    }
+    return statusBusy || messageBusy
   }
 
   // 响应式 busy：显式追踪 session busy 状态，用于 busy→idle 监听
@@ -1753,6 +1765,34 @@ export default function Page() {
   createEffect(on(isBusy, (busy, prev) => {
     if (!prev || busy) return
     flushQueueHead()
+  }, { defer: true }))
+
+  // busy 超时看门狗：session 长时间停留 busy 且无新 assistant 响应时，
+  // 乐观重置为 idle，避免 abort 失败 / SSE 断连导致 status 永久卡 busy
+  createEffect(on(isBusy, (busy) => {
+    if (!busy) return
+    const sessionID = params.id
+    if (!sessionID) return
+    const assistantBefore = (sync.data.message[sessionID] ?? []).filter((m) => m.role === "assistant").length
+    const statusAtArm = sync.data.session_status[sessionID]?.type ?? "idle"
+    console.log("[octo:watchdog] armed", { sessionID, statusAtArm, assistantBefore })
+    const timer = setTimeout(() => {
+      const status = sync.data.session_status[sessionID]?.type ?? "idle"
+      const assistantNow = (sync.data.message[sessionID] ?? []).filter((m) => m.role === "assistant").length
+      console.log("[octo:watchdog] fired", {
+        sessionID,
+        status,
+        assistantBefore,
+        assistantNow,
+        willReset: status === "busy" && assistantNow <= assistantBefore,
+      })
+      if (status === "busy" && assistantNow <= assistantBefore) {
+        const [, setStore] = globalSync.child(sdk.directory)
+        setStore("session_status", sessionID, { type: "idle" })
+        console.log("[octo:watchdog] force-idle", { sessionID })
+      }
+    }, 60_000)
+    onCleanup(() => clearTimeout(timer))
   }, { defer: true }))
 
   // 切回某 session 时,若它已 idle 且仍有排队,补一次 flush
