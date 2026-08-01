@@ -1,0 +1,2997 @@
+{
+  "lastIntent": null,
+  "lastPlanner": {
+    "rootId": "appRoot",
+    "elements": [
+      {
+        "id": "appRoot",
+        "component": "div",
+        "props": {
+          "className": "h-screen w-full bg-surface-container-lowest flex flex-col"
+        },
+        "children": [
+          "pageHeader",
+          "mainContent"
+        ]
+      },
+      {
+        "id": "pageHeader",
+        "component": "header",
+        "props": {
+          "className": "h-12 bg-surface-container-highest shadow-sm flex items-center px-6 shrink-0"
+        },
+        "children": [
+          "pageTitle"
+        ]
+      },
+      {
+        "id": "pageTitle",
+        "component": "h1",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": "Allowed-address-pair 报文"
+        },
+        "children": []
+      },
+      {
+        "id": "mainContent",
+        "component": "main",
+        "props": {
+          "className": "flex-1 overflow-auto p-6 flex flex-col gap-6"
+        },
+        "children": [
+          "statsGlobalContainer",
+          "tabContainer"
+        ]
+      },
+      {
+        "id": "statsGlobalContainer",
+        "component": "div",
+        "props": {
+          "className": "grid grid-cols-3 gap-4"
+        },
+        "children": [
+          "gsCard1",
+          "gsCard2",
+          "gsCard3"
+        ]
+      },
+      {
+        "id": "probeModuleContainer",
+        "component": "div",
+        "props": {
+          "className": "bg-surface-container-highest rounded-container shadow-card p-6 flex flex-col gap-4"
+        },
+        "children": [
+          "pmModuleTitle",
+          "pmToolbar",
+          "pmTable"
+        ]
+      },
+      {
+        "id": "packetModuleContainer",
+        "component": "div",
+        "props": {
+          "className": "bg-surface-container-highest rounded-container shadow-card p-6 flex flex-col gap-4"
+        },
+        "children": [
+          "pkModuleTitle",
+          "pkFilterBar",
+          "pkTable"
+        ]
+      },
+      {
+        "id": "gsCard1",
+        "component": "div",
+        "props": {
+          "className": "bg-surface-container-highest rounded-container shadow-card p-6 flex items-center gap-4"
+        },
+        "children": [
+          "gsIcon1",
+          "gsContent1"
+        ]
+      },
+      {
+        "id": "gsIcon1",
+        "component": "Icon",
+        "props": {
+          "name": "activity",
+          "color": "on-surface",
+          "shape": "circle",
+          "className": "w-12 h-12"
+        }
+      },
+      {
+        "id": "gsContent1",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-1"
+        },
+        "children": [
+          "gsTitle1",
+          "gsValue1"
+        ]
+      },
+      {
+        "id": "gsTitle1",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": "总探测记录"
+        }
+      },
+      {
+        "id": "gsValue1",
+        "component": "span",
+        "props": {
+          "className": "text-3xl font-bold text-on-surface",
+          "value": "1248 条"
+        }
+      },
+      {
+        "id": "gsCard2",
+        "component": "div",
+        "props": {
+          "className": "bg-surface-container-highest rounded-container shadow-card p-6 flex items-center gap-4"
+        },
+        "children": [
+          "gsIcon2",
+          "gsContent2"
+        ]
+      },
+      {
+        "id": "gsIcon2",
+        "component": "Icon",
+        "props": {
+          "name": "check-circle",
+          "color": "on-surface",
+          "shape": "circle",
+          "className": "w-12 h-12"
+        }
+      },
+      {
+        "id": "gsContent2",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-1"
+        },
+        "children": [
+          "gsTitle2",
+          "gsValue2"
+        ]
+      },
+      {
+        "id": "gsTitle2",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": "激活状态"
+        }
+      },
+      {
+        "id": "gsValue2",
+        "component": "span",
+        "props": {
+          "className": "text-3xl font-bold text-on-surface",
+          "value": "1102 条"
+        }
+      },
+      {
+        "id": "gsCard3",
+        "component": "div",
+        "props": {
+          "className": "bg-surface-container-highest rounded-container shadow-card p-6 flex items-center gap-4"
+        },
+        "children": [
+          "gsIcon3",
+          "gsContent3"
+        ]
+      },
+      {
+        "id": "gsIcon3",
+        "component": "Icon",
+        "props": {
+          "name": "alert-triangle",
+          "color": "on-surface",
+          "shape": "circle",
+          "className": "w-12 h-12"
+        }
+      },
+      {
+        "id": "gsContent3",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-1"
+        },
+        "children": [
+          "gsTitle3",
+          "gsValue3"
+        ]
+      },
+      {
+        "id": "gsTitle3",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": "异常报文"
+        }
+      },
+      {
+        "id": "gsValue3",
+        "component": "span",
+        "props": {
+          "className": "text-3xl font-bold text-on-surface",
+          "value": "15 条"
+        }
+      },
+      {
+        "id": "pmModuleTitle",
+        "component": "h3",
+        "props": {
+          "className": "text-xl font-semibold text-on-surface",
+          "value": "探测记录管理"
+        }
+      },
+      {
+        "id": "pmToolbar",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between gap-4"
+        },
+        "children": [
+          "pmSearchInput",
+          "pmActionContainer"
+        ]
+      },
+      {
+        "id": "pmSearchInput",
+        "component": "Input",
+        "props": {
+          "value": {
+            "path": "/pmSearchValue"
+          },
+          "placeholder": "请输入AAP地址或设备IP进行模糊查询",
+          "prefix": "search",
+          "className": "w-80"
+        }
+      },
+      {
+        "id": "pmActionContainer",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "pmFullProbeBtn",
+          "pmRefreshBtn"
+        ]
+      },
+      {
+        "id": "pmFullProbeBtn",
+        "component": "Button",
+        "props": {
+          "value": "全量探测",
+          "icon": "radar",
+          "iconPlacement": "start",
+          "color": "primary",
+          "className": "text-on-primary"
+        }
+      },
+      {
+        "id": "pmRefreshBtn",
+        "component": "Button",
+        "props": {
+          "value": "刷新",
+          "icon": "refresh-cw",
+          "iconPlacement": "start",
+          "color": "default"
+        }
+      },
+      {
+        "id": "pmTable",
+        "component": "Table",
+        "props": {
+          "rowKey": "key",
+          "dataSource": {
+            "path": "/pmProbeList"
+          },
+          "columns": [
+            {
+              "title": "AAP地址",
+              "dataIndex": "aapAddress"
+            },
+            {
+              "title": "端口ID",
+              "dataIndex": "portId"
+            },
+            {
+              "title": "AAP MAC地址",
+              "dataIndex": "aapMac"
+            },
+            {
+              "title": "端口MAC地址",
+              "dataIndex": "portMac"
+            },
+            {
+              "title": "L2VNI",
+              "dataIndex": "l2vni"
+            },
+            {
+              "title": "设备ID",
+              "dataIndex": "deviceId"
+            },
+            {
+              "title": "设备IP",
+              "dataIndex": "deviceIp"
+            },
+            {
+              "title": "生成时间",
+              "dataIndex": "createTime"
+            },
+            {
+              "title": "状态",
+              "dataIndex": "status"
+            },
+            {
+              "title": "操作",
+              "dataIndex": "action",
+              "width": 100
+            }
+          ]
+        },
+        "children": {
+          "path": "/pmProbeList",
+          "componentId": "pmTableRow"
+        }
+      },
+      {
+        "id": "pmTableRow",
+        "component": "TableRow",
+        "children": [
+          "pmCellAapAddress",
+          "pmCellPortId",
+          "pmCellAapMac",
+          "pmCellPortMac",
+          "pmCellL2vni",
+          "pmCellDeviceId",
+          "pmCellDeviceIp",
+          "pmCellCreateTime",
+          "pmCellStatus",
+          "pmCellAction"
+        ],
+        "props": {}
+      },
+      {
+        "id": "pmCellAapAddress",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "aapAddress"
+          }
+        }
+      },
+      {
+        "id": "pmCellPortId",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "portId"
+          }
+        }
+      },
+      {
+        "id": "pmCellAapMac",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "aapMac"
+          }
+        }
+      },
+      {
+        "id": "pmCellPortMac",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "portMac"
+          }
+        }
+      },
+      {
+        "id": "pmCellL2vni",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "l2vni"
+          }
+        }
+      },
+      {
+        "id": "pmCellDeviceId",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "deviceId"
+          }
+        }
+      },
+      {
+        "id": "pmCellDeviceIp",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "deviceIp"
+          }
+        }
+      },
+      {
+        "id": "pmCellCreateTime",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "createTime"
+          }
+        }
+      },
+      {
+        "id": "pmCellStatus",
+        "component": "Tag",
+        "props": {
+          "value": {
+            "path": "statusText"
+          },
+          "color": "#0067D1",
+          "icon": {
+            "path": "statusIcon"
+          },
+          "variant": "solid",
+          "size": "medium",
+          "closable": false,
+          "className": "!text-white"
+        }
+      },
+      {
+        "id": "pmCellAction",
+        "component": "Button",
+        "props": {
+          "value": "修改",
+          "size": "small",
+          "types": "link"
+        }
+      },
+      {
+        "id": "pkModuleTitle",
+        "component": "h3",
+        "props": {
+          "className": "text-xl font-semibold text-on-surface",
+          "value": "报文记录管理"
+        }
+      },
+      {
+        "id": "pkFilterBar",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between gap-4"
+        },
+        "children": [
+          "pkSearchInput",
+          "pkRefreshBtn"
+        ]
+      },
+      {
+        "id": "pkSearchInput",
+        "component": "Input",
+        "props": {
+          "value": {
+            "path": "/packetSearchValue"
+          },
+          "placeholder": "请输入 AAP 地址或设备 IP 进行模糊查询",
+          "prefix": "search",
+          "className": "w-96"
+        }
+      },
+      {
+        "id": "pkRefreshBtn",
+        "component": "Button",
+        "props": {
+          "value": "刷新",
+          "icon": "refresh-cw",
+          "iconPlacement": "start",
+          "types": "default"
+        }
+      },
+      {
+        "id": "pkTable",
+        "component": "Table",
+        "props": {
+          "rowKey": "key",
+          "dataSource": {
+            "path": "/packetList"
+          },
+          "columns": [
+            {
+              "title": "AAP 地址",
+              "dataIndex": "aapAddress"
+            },
+            {
+              "title": "生成时间",
+              "dataIndex": "createTime"
+            },
+            {
+              "title": "设备 IP",
+              "dataIndex": "deviceIp"
+            },
+            {
+              "title": "端口 ID",
+              "dataIndex": "portId"
+            },
+            {
+              "title": "L2vni",
+              "dataIndex": "l2vni"
+            },
+            {
+              "title": "服务名（节点名）",
+              "dataIndex": "serviceName"
+            },
+            {
+              "title": "错误信息",
+              "dataIndex": "errorMessage",
+              "width": 200
+            }
+          ],
+          "pagination": true
+        },
+        "children": {
+          "path": "/packetList",
+          "componentId": "pkTableRow"
+        }
+      },
+      {
+        "id": "pkTableRow",
+        "component": "TableRow",
+        "children": [
+          "pkCellAapAddress",
+          "pkCellCreateTime",
+          "pkCellDeviceIp",
+          "pkCellPortId",
+          "pkCellL2vni",
+          "pkCellServiceName",
+          "pkCellErrorMessage"
+        ],
+        "props": {}
+      },
+      {
+        "id": "pkCellAapAddress",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "aapAddress"
+          },
+          "className": "text-on-surface"
+        }
+      },
+      {
+        "id": "pkCellCreateTime",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "createTime"
+          },
+          "className": "text-on-surface-variant"
+        }
+      },
+      {
+        "id": "pkCellDeviceIp",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "deviceIp"
+          },
+          "className": "text-on-surface"
+        }
+      },
+      {
+        "id": "pkCellPortId",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "portId"
+          },
+          "className": "text-on-surface-variant"
+        }
+      },
+      {
+        "id": "pkCellL2vni",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "l2vni"
+          },
+          "className": "text-on-surface-variant"
+        }
+      },
+      {
+        "id": "pkCellServiceName",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "serviceName"
+          },
+          "className": "text-on-surface"
+        }
+      },
+      {
+        "id": "pkCellErrorMessage",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "pkSeverityIcon",
+          "pkErrorMessageText"
+        ]
+      },
+      {
+        "id": "pkSeverityIcon",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "path": "severityIcon"
+          },
+          "color": "on-surface",
+          "className": "w-4 h-4"
+        }
+      },
+      {
+        "id": "pkErrorMessageText",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "errorMessage"
+          },
+          "className": "text-on-surface"
+        }
+      },
+      {
+        "id": "tabContainer",
+        "component": "Tabs",
+        "props": {
+          "activeKey": {
+            "path": "/activeTab"
+          },
+          "types": "line"
+        },
+        "children": [
+          "tabItemProbe",
+          "tabItemPacket"
+        ]
+      },
+      {
+        "id": "tabItemProbe",
+        "component": "TabItem",
+        "props": {
+          "key": "probe",
+          "label": "探测",
+          "content": {
+            "componentId": "probeModuleContainer"
+          }
+        }
+      },
+      {
+        "id": "tabItemPacket",
+        "component": "TabItem",
+        "props": {
+          "key": "packet",
+          "label": "报文",
+          "content": {
+            "componentId": "packetModuleContainer"
+          }
+        }
+      }
+    ],
+    "state": {
+      "stats": [
+        {
+          "cardTitle": "总探测记录",
+          "totalProbes": 1248,
+          "trendIcon": "activity",
+          "unit": "条"
+        },
+        {
+          "cardTitle": "激活状态",
+          "activeCount": 1102,
+          "trendIcon": "check-circle",
+          "unit": "条",
+          "statusColor": "green"
+        },
+        {
+          "cardTitle": "异常报文",
+          "errorPacketCount": 15,
+          "trendIcon": "alert-triangle",
+          "unit": "条",
+          "statusColor": "red"
+        }
+      ],
+      "pmSearchValue": "",
+      "pmProbeList": [
+        {
+          "key": "1",
+          "aapAddress": "192.168.10.5",
+          "portId": "eth0-vm-01",
+          "aapMac": "00:50:56:C0:00:08",
+          "portMac": "00:50:56:C0:00:01",
+          "l2vni": "10001",
+          "deviceId": "sw-core-01",
+          "deviceIp": "10.0.0.1",
+          "createTime": "2026-07-30 10:23:45",
+          "status": "active",
+          "statusText": "激活",
+          "statusIcon": "check-circle"
+        },
+        {
+          "key": "2",
+          "aapAddress": "192.168.10.6",
+          "portId": "eth0-vm-02",
+          "aapMac": "00:50:56:C0:00:09",
+          "portMac": "00:50:56:C0:00:02",
+          "l2vni": "10001",
+          "deviceId": "sw-core-01",
+          "deviceIp": "10.0.0.1",
+          "createTime": "2026-07-30 10:25:12",
+          "status": "inactive",
+          "statusText": "未激活",
+          "statusIcon": "circle-off"
+        },
+        {
+          "key": "3",
+          "aapAddress": "192.168.10.8",
+          "portId": "eth1-vm-03",
+          "aapMac": "00:50:56:C0:00:10",
+          "portMac": "00:50:56:C0:00:03",
+          "l2vni": "10002",
+          "deviceId": "sw-core-02",
+          "deviceIp": "10.0.0.2",
+          "createTime": "2026-07-30 10:28:33",
+          "status": "active",
+          "statusText": "激活",
+          "statusIcon": "check-circle"
+        },
+        {
+          "key": "4",
+          "aapAddress": "192.168.10.12",
+          "portId": "eth0-vm-04",
+          "aapMac": "00:50:56:C0:00:11",
+          "portMac": "00:50:56:C0:00:04",
+          "l2vni": "10002",
+          "deviceId": "sw-core-02",
+          "deviceIp": "10.0.0.2",
+          "createTime": "2026-07-30 10:30:05",
+          "status": "active",
+          "statusText": "激活",
+          "statusIcon": "check-circle"
+        },
+        {
+          "key": "5",
+          "aapAddress": "192.168.10.15",
+          "portId": "eth2-vm-05",
+          "aapMac": "00:50:56:C0:00:12",
+          "portMac": "00:50:56:C0:00:05",
+          "l2vni": "10003",
+          "deviceId": "sw-edge-01",
+          "deviceIp": "10.0.1.1",
+          "createTime": "2026-07-30 10:32:18",
+          "status": "inactive",
+          "statusText": "未激活",
+          "statusIcon": "circle-off"
+        },
+        {
+          "key": "6",
+          "aapAddress": "192.168.10.20",
+          "portId": "eth0-vm-06",
+          "aapMac": "00:50:56:C0:00:13",
+          "portMac": "00:50:56:C0:00:06",
+          "l2vni": "10003",
+          "deviceId": "sw-edge-01",
+          "deviceIp": "10.0.1.1",
+          "createTime": "2026-07-30 10:35:42",
+          "status": "active",
+          "statusText": "激活",
+          "statusIcon": "check-circle"
+        },
+        {
+          "key": "7",
+          "aapAddress": "192.168.10.22",
+          "portId": "eth1-vm-07",
+          "aapMac": "00:50:56:C0:00:14",
+          "portMac": "00:50:56:C0:00:07",
+          "l2vni": "10004",
+          "deviceId": "sw-edge-02",
+          "deviceIp": "10.0.1.2",
+          "createTime": "2026-07-30 10:38:15",
+          "status": "active",
+          "statusText": "激活",
+          "statusIcon": "check-circle"
+        },
+        {
+          "key": "8",
+          "aapAddress": "192.168.10.25",
+          "portId": "eth0-vm-08",
+          "aapMac": "00:50:56:C0:00:15",
+          "portMac": "00:50:56:C0:00:08",
+          "l2vni": "10004",
+          "deviceId": "sw-edge-02",
+          "deviceIp": "10.0.1.2",
+          "createTime": "2026-07-30 10:40:55",
+          "status": "inactive",
+          "statusText": "未激活",
+          "statusIcon": "circle-off"
+        },
+        {
+          "key": "9",
+          "aapAddress": "192.168.10.30",
+          "portId": "eth3-vm-09",
+          "aapMac": "00:50:56:C0:00:16",
+          "portMac": "00:50:56:C0:00:09",
+          "l2vni": "10005",
+          "deviceId": "sw-core-01",
+          "deviceIp": "10.0.0.1",
+          "createTime": "2026-07-30 10:42:10",
+          "status": "active",
+          "statusText": "激活",
+          "statusIcon": "check-circle"
+        },
+        {
+          "key": "10",
+          "aapAddress": "192.168.10.33",
+          "portId": "eth0-vm-10",
+          "aapMac": "00:50:56:C0:00:17",
+          "portMac": "00:50:56:C0:00:10",
+          "l2vni": "10005",
+          "deviceId": "sw-core-01",
+          "deviceIp": "10.0.0.1",
+          "createTime": "2026-07-30 10:45:30",
+          "status": "active",
+          "statusText": "激活",
+          "statusIcon": "check-circle"
+        },
+        {
+          "key": "11",
+          "aapAddress": "192.168.10.40",
+          "portId": "eth1-vm-11",
+          "aapMac": "00:50:56:C0:00:18",
+          "portMac": "00:50:56:C0:00:11",
+          "l2vni": "10006",
+          "deviceId": "sw-core-02",
+          "deviceIp": "10.0.0.2",
+          "createTime": "2026-07-30 10:48:05",
+          "status": "inactive",
+          "statusText": "未激活",
+          "statusIcon": "circle-off"
+        }
+      ],
+      "packetList": [
+        {
+          "key": "1",
+          "aapAddress": "192.168.10.5",
+          "createTime": "2026-07-30 10:23:46",
+          "deviceIp": "10.0.0.1",
+          "portId": "eth0-vm-01",
+          "l2vni": "10001",
+          "serviceName": "node-web-01",
+          "errorMessage": "无",
+          "severityIcon": "check"
+        },
+        {
+          "key": "2",
+          "aapAddress": "192.168.10.6",
+          "createTime": "2026-07-30 10:25:15",
+          "deviceIp": "10.0.0.1",
+          "portId": "eth0-vm-02",
+          "l2vni": "10001",
+          "serviceName": "node-db-01",
+          "errorMessage": "ARP Reply Timeout",
+          "severityIcon": "alert-triangle"
+        },
+        {
+          "key": "3",
+          "aapAddress": "192.168.10.8",
+          "createTime": "2026-07-30 10:28:35",
+          "deviceIp": "10.0.0.2",
+          "portId": "eth1-vm-03",
+          "l2vni": "10002",
+          "serviceName": "node-cache-01",
+          "errorMessage": "无",
+          "severityIcon": "check"
+        },
+        {
+          "key": "4",
+          "aapAddress": "192.168.10.12",
+          "createTime": "2026-07-30 10:30:08",
+          "deviceIp": "10.0.0.2",
+          "portId": "eth0-vm-04",
+          "l2vni": "10002",
+          "serviceName": "node-api-01",
+          "errorMessage": "MAC Address Mismatch",
+          "severityIcon": "alert-circle"
+        },
+        {
+          "key": "5",
+          "aapAddress": "192.168.10.15",
+          "createTime": "2026-07-30 10:32:20",
+          "deviceIp": "10.0.1.1",
+          "portId": "eth2-vm-05",
+          "l2vni": "10003",
+          "serviceName": "node-worker-01",
+          "errorMessage": "无",
+          "severityIcon": "check"
+        },
+        {
+          "key": "6",
+          "aapAddress": "192.168.10.20",
+          "createTime": "2026-07-30 10:35:45",
+          "deviceIp": "10.0.1.1",
+          "portId": "eth0-vm-06",
+          "l2vni": "10003",
+          "serviceName": "node-worker-02",
+          "errorMessage": "VNI Not Found",
+          "severityIcon": "alert-octagon"
+        },
+        {
+          "key": "7",
+          "aapAddress": "192.168.10.22",
+          "createTime": "2026-07-30 10:38:18",
+          "deviceIp": "10.0.1.2",
+          "portId": "eth1-vm-07",
+          "l2vni": "10004",
+          "serviceName": "node-log-01",
+          "errorMessage": "无",
+          "severityIcon": "check"
+        },
+        {
+          "key": "8",
+          "aapAddress": "192.168.10.25",
+          "createTime": "2026-07-30 10:40:58",
+          "deviceIp": "10.0.1.2",
+          "portId": "eth0-vm-08",
+          "l2vni": "10004",
+          "serviceName": "node-mq-01",
+          "errorMessage": "Port Security Violation",
+          "severityIcon": "shield-alert"
+        },
+        {
+          "key": "9",
+          "aapAddress": "192.168.10.30",
+          "createTime": "2026-07-30 10:42:12",
+          "deviceIp": "10.0.0.1",
+          "portId": "eth3-vm-09",
+          "l2vni": "10005",
+          "serviceName": "node-monitor-01",
+          "errorMessage": "无",
+          "severityIcon": "check"
+        },
+        {
+          "key": "10",
+          "aapAddress": "192.168.10.33",
+          "createTime": "2026-07-30 10:45:32",
+          "deviceIp": "10.0.0.1",
+          "portId": "eth0-vm-10",
+          "l2vni": "10005",
+          "serviceName": "node-backup-01",
+          "errorMessage": "ARP Request Flood",
+          "severityIcon": "zap"
+        },
+        {
+          "key": "11",
+          "aapAddress": "192.168.10.40",
+          "createTime": "2026-07-30 10:48:08",
+          "deviceIp": "10.0.0.2",
+          "portId": "eth1-vm-11",
+          "l2vni": "10006",
+          "serviceName": "node-storage-01",
+          "errorMessage": "无",
+          "severityIcon": "check"
+        }
+      ],
+      "packetSearchValue": "",
+      "activeTab": "probe"
+    }
+  },
+  "lastModules": [
+    {
+      "rootId": "appRoot",
+      "elements": [
+        {
+          "id": "appRoot",
+          "component": "div",
+          "props": {
+            "className": "h-screen w-full bg-surface-container-lowest flex flex-col"
+          },
+          "children": [
+            "pageHeader",
+            "mainContent"
+          ]
+        },
+        {
+          "id": "pageHeader",
+          "component": "header",
+          "props": {
+            "className": "h-12 bg-surface-container-highest shadow-sm flex items-center px-6 shrink-0"
+          },
+          "children": [
+            "pageTitle"
+          ]
+        },
+        {
+          "id": "pageTitle",
+          "component": "h1",
+          "props": {
+            "className": "text-lg font-bold text-on-surface",
+            "value": "Allowed-address-pair 报文"
+          },
+          "children": []
+        },
+        {
+          "id": "mainContent",
+          "component": "main",
+          "props": {
+            "className": "flex-1 overflow-auto p-6 flex flex-col gap-6"
+          },
+          "children": [
+            "statsGlobalContainer",
+            "tabContainer"
+          ]
+        },
+        {
+          "id": "statsGlobalContainer",
+          "component": "div",
+          "props": {
+            "className": "grid grid-cols-3 gap-4"
+          },
+          "children": [
+            "gsCard1",
+            "gsCard2",
+            "gsCard3"
+          ]
+        },
+        {
+          "id": "probeModuleContainer",
+          "component": "div",
+          "props": {
+            "className": "bg-surface-container-highest rounded-container shadow-card p-6 flex flex-col gap-4"
+          },
+          "children": [
+            "pmModuleTitle",
+            "pmToolbar",
+            "pmTable"
+          ]
+        },
+        {
+          "id": "packetModuleContainer",
+          "component": "div",
+          "props": {
+            "className": "bg-surface-container-highest rounded-container shadow-card p-6 flex flex-col gap-4"
+          },
+          "children": [
+            "pkModuleTitle",
+            "pkFilterBar",
+            "pkTable"
+          ]
+        },
+        {
+          "id": "gsCard1",
+          "component": "div",
+          "props": {
+            "className": "bg-surface-container-highest rounded-container shadow-card p-6 flex items-center gap-4"
+          },
+          "children": [
+            "gsIcon1",
+            "gsContent1"
+          ]
+        },
+        {
+          "id": "gsIcon1",
+          "component": "Icon",
+          "props": {
+            "name": "activity",
+            "color": "on-surface",
+            "shape": "circle",
+            "className": "w-12 h-12"
+          }
+        },
+        {
+          "id": "gsContent1",
+          "component": "div",
+          "props": {
+            "className": "flex flex-col gap-1"
+          },
+          "children": [
+            "gsTitle1",
+            "gsValue1"
+          ]
+        },
+        {
+          "id": "gsTitle1",
+          "component": "span",
+          "props": {
+            "className": "text-sm text-on-surface-variant",
+            "value": "总探测记录"
+          }
+        },
+        {
+          "id": "gsValue1",
+          "component": "span",
+          "props": {
+            "className": "text-3xl font-bold text-on-surface",
+            "value": "1248 条"
+          }
+        },
+        {
+          "id": "gsCard2",
+          "component": "div",
+          "props": {
+            "className": "bg-surface-container-highest rounded-container shadow-card p-6 flex items-center gap-4"
+          },
+          "children": [
+            "gsIcon2",
+            "gsContent2"
+          ]
+        },
+        {
+          "id": "gsIcon2",
+          "component": "Icon",
+          "props": {
+            "name": "check-circle",
+            "color": "on-surface",
+            "shape": "circle",
+            "className": "w-12 h-12"
+          }
+        },
+        {
+          "id": "gsContent2",
+          "component": "div",
+          "props": {
+            "className": "flex flex-col gap-1"
+          },
+          "children": [
+            "gsTitle2",
+            "gsValue2"
+          ]
+        },
+        {
+          "id": "gsTitle2",
+          "component": "span",
+          "props": {
+            "className": "text-sm text-on-surface-variant",
+            "value": "激活状态"
+          }
+        },
+        {
+          "id": "gsValue2",
+          "component": "span",
+          "props": {
+            "className": "text-3xl font-bold text-on-surface",
+            "value": "1102 条"
+          }
+        },
+        {
+          "id": "gsCard3",
+          "component": "div",
+          "props": {
+            "className": "bg-surface-container-highest rounded-container shadow-card p-6 flex items-center gap-4"
+          },
+          "children": [
+            "gsIcon3",
+            "gsContent3"
+          ]
+        },
+        {
+          "id": "gsIcon3",
+          "component": "Icon",
+          "props": {
+            "name": "alert-triangle",
+            "color": "on-surface",
+            "shape": "circle",
+            "className": "w-12 h-12"
+          }
+        },
+        {
+          "id": "gsContent3",
+          "component": "div",
+          "props": {
+            "className": "flex flex-col gap-1"
+          },
+          "children": [
+            "gsTitle3",
+            "gsValue3"
+          ]
+        },
+        {
+          "id": "gsTitle3",
+          "component": "span",
+          "props": {
+            "className": "text-sm text-on-surface-variant",
+            "value": "异常报文"
+          }
+        },
+        {
+          "id": "gsValue3",
+          "component": "span",
+          "props": {
+            "className": "text-3xl font-bold text-on-surface",
+            "value": "15 条"
+          }
+        },
+        {
+          "id": "pmModuleTitle",
+          "component": "h3",
+          "props": {
+            "className": "text-xl font-semibold text-on-surface",
+            "value": "探测记录管理"
+          }
+        },
+        {
+          "id": "pmToolbar",
+          "component": "div",
+          "props": {
+            "className": "flex items-center justify-between gap-4"
+          },
+          "children": [
+            "pmSearchInput",
+            "pmActionContainer"
+          ]
+        },
+        {
+          "id": "pmSearchInput",
+          "component": "Input",
+          "props": {
+            "value": {
+              "path": "/pmSearchValue"
+            },
+            "placeholder": "请输入AAP地址或设备IP进行模糊查询",
+            "prefix": "search",
+            "className": "w-80"
+          }
+        },
+        {
+          "id": "pmActionContainer",
+          "component": "div",
+          "props": {
+            "className": "flex items-center gap-2"
+          },
+          "children": [
+            "pmFullProbeBtn",
+            "pmRefreshBtn"
+          ]
+        },
+        {
+          "id": "pmFullProbeBtn",
+          "component": "Button",
+          "props": {
+            "value": "全量探测",
+            "icon": "radar",
+            "iconPlacement": "start",
+            "color": "primary",
+            "className": "text-on-primary"
+          }
+        },
+        {
+          "id": "pmRefreshBtn",
+          "component": "Button",
+          "props": {
+            "value": "刷新",
+            "icon": "refresh-cw",
+            "iconPlacement": "start",
+            "color": "default"
+          }
+        },
+        {
+          "id": "pmTable",
+          "component": "Table",
+          "props": {
+            "rowKey": "key",
+            "dataSource": {
+              "path": "/pmProbeList"
+            },
+            "columns": [
+              {
+                "title": "AAP地址",
+                "dataIndex": "aapAddress"
+              },
+              {
+                "title": "端口ID",
+                "dataIndex": "portId"
+              },
+              {
+                "title": "AAP MAC地址",
+                "dataIndex": "aapMac"
+              },
+              {
+                "title": "端口MAC地址",
+                "dataIndex": "portMac"
+              },
+              {
+                "title": "L2VNI",
+                "dataIndex": "l2vni"
+              },
+              {
+                "title": "设备ID",
+                "dataIndex": "deviceId"
+              },
+              {
+                "title": "设备IP",
+                "dataIndex": "deviceIp"
+              },
+              {
+                "title": "生成时间",
+                "dataIndex": "createTime"
+              },
+              {
+                "title": "状态",
+                "dataIndex": "status"
+              },
+              {
+                "title": "操作",
+                "dataIndex": "action",
+                "width": 100
+              }
+            ]
+          },
+          "children": {
+            "path": "/pmProbeList",
+            "componentId": "pmTableRow"
+          }
+        },
+        {
+          "id": "pmTableRow",
+          "component": "TableRow",
+          "children": [
+            "pmCellAapAddress",
+            "pmCellPortId",
+            "pmCellAapMac",
+            "pmCellPortMac",
+            "pmCellL2vni",
+            "pmCellDeviceId",
+            "pmCellDeviceIp",
+            "pmCellCreateTime",
+            "pmCellStatus",
+            "pmCellAction"
+          ],
+          "props": {}
+        },
+        {
+          "id": "pmCellAapAddress",
+          "component": "span",
+          "props": {
+            "value": {
+              "path": "aapAddress"
+            }
+          }
+        },
+        {
+          "id": "pmCellPortId",
+          "component": "span",
+          "props": {
+            "value": {
+              "path": "portId"
+            }
+          }
+        },
+        {
+          "id": "pmCellAapMac",
+          "component": "span",
+          "props": {
+            "value": {
+              "path": "aapMac"
+            }
+          }
+        },
+        {
+          "id": "pmCellPortMac",
+          "component": "span",
+          "props": {
+            "value": {
+              "path": "portMac"
+            }
+          }
+        },
+        {
+          "id": "pmCellL2vni",
+          "component": "span",
+          "props": {
+            "value": {
+              "path": "l2vni"
+            }
+          }
+        },
+        {
+          "id": "pmCellDeviceId",
+          "component": "span",
+          "props": {
+            "value": {
+              "path": "deviceId"
+            }
+          }
+        },
+        {
+          "id": "pmCellDeviceIp",
+          "component": "span",
+          "props": {
+            "value": {
+              "path": "deviceIp"
+            }
+          }
+        },
+        {
+          "id": "pmCellCreateTime",
+          "component": "span",
+          "props": {
+            "value": {
+              "path": "createTime"
+            }
+          }
+        },
+        {
+          "id": "pmCellStatus",
+          "component": "Tag",
+          "props": {
+            "value": {
+              "path": "statusText"
+            },
+            "color": "success",
+            "icon": {
+              "path": "statusIcon"
+            },
+            "variant": "outlined",
+            "size": "medium",
+            "closable": false,
+            "className": "!text-white",
+            "closeIcon": "active"
+          }
+        },
+        {
+          "id": "pmCellAction",
+          "component": "Button",
+          "props": {
+            "value": "修改",
+            "size": "small",
+            "types": "link"
+          }
+        },
+        {
+          "id": "pkModuleTitle",
+          "component": "h3",
+          "props": {
+            "className": "text-xl font-semibold text-on-surface",
+            "value": "报文记录管理"
+          }
+        },
+        {
+          "id": "pkFilterBar",
+          "component": "div",
+          "props": {
+            "className": "flex items-center justify-between gap-4"
+          },
+          "children": [
+            "pkSearchInput",
+            "pkRefreshBtn"
+          ]
+        },
+        {
+          "id": "pkSearchInput",
+          "component": "Input",
+          "props": {
+            "value": {
+              "path": "/packetSearchValue"
+            },
+            "placeholder": "请输入 AAP 地址或设备 IP 进行模糊查询",
+            "prefix": "search",
+            "className": "w-96"
+          }
+        },
+        {
+          "id": "pkRefreshBtn",
+          "component": "Button",
+          "props": {
+            "value": "刷新",
+            "icon": "refresh-cw",
+            "iconPlacement": "start",
+            "types": "default"
+          }
+        },
+        {
+          "id": "pkTable",
+          "component": "Table",
+          "props": {
+            "rowKey": "key",
+            "dataSource": {
+              "path": "/packetList"
+            },
+            "columns": [
+              {
+                "title": "AAP 地址",
+                "dataIndex": "aapAddress"
+              },
+              {
+                "title": "生成时间",
+                "dataIndex": "createTime"
+              },
+              {
+                "title": "设备 IP",
+                "dataIndex": "deviceIp"
+              },
+              {
+                "title": "端口 ID",
+                "dataIndex": "portId"
+              },
+              {
+                "title": "L2vni",
+                "dataIndex": "l2vni"
+              },
+              {
+                "title": "服务名（节点名）",
+                "dataIndex": "serviceName"
+              },
+              {
+                "title": "错误信息",
+                "dataIndex": "errorMessage",
+                "width": 200
+              }
+            ],
+            "pagination": true
+          },
+          "children": {
+            "path": "/packetList",
+            "componentId": "pkTableRow"
+          }
+        },
+        {
+          "id": "pkTableRow",
+          "component": "TableRow",
+          "children": [
+            "pkCellAapAddress",
+            "pkCellCreateTime",
+            "pkCellDeviceIp",
+            "pkCellPortId",
+            "pkCellL2vni",
+            "pkCellServiceName",
+            "pkCellErrorMessage"
+          ],
+          "props": {}
+        },
+        {
+          "id": "pkCellAapAddress",
+          "component": "span",
+          "props": {
+            "value": {
+              "path": "aapAddress"
+            },
+            "className": "text-on-surface"
+          }
+        },
+        {
+          "id": "pkCellCreateTime",
+          "component": "span",
+          "props": {
+            "value": {
+              "path": "createTime"
+            },
+            "className": "text-on-surface-variant"
+          }
+        },
+        {
+          "id": "pkCellDeviceIp",
+          "component": "span",
+          "props": {
+            "value": {
+              "path": "deviceIp"
+            },
+            "className": "text-on-surface"
+          }
+        },
+        {
+          "id": "pkCellPortId",
+          "component": "span",
+          "props": {
+            "value": {
+              "path": "portId"
+            },
+            "className": "text-on-surface-variant"
+          }
+        },
+        {
+          "id": "pkCellL2vni",
+          "component": "span",
+          "props": {
+            "value": {
+              "path": "l2vni"
+            },
+            "className": "text-on-surface-variant"
+          }
+        },
+        {
+          "id": "pkCellServiceName",
+          "component": "span",
+          "props": {
+            "value": {
+              "path": "serviceName"
+            },
+            "className": "text-on-surface"
+          }
+        },
+        {
+          "id": "pkCellErrorMessage",
+          "component": "div",
+          "props": {
+            "className": "flex items-center gap-2"
+          },
+          "children": [
+            "pkSeverityIcon",
+            "pkErrorMessageText"
+          ]
+        },
+        {
+          "id": "pkSeverityIcon",
+          "component": "Icon",
+          "props": {
+            "name": {
+              "path": "severityIcon"
+            },
+            "color": "default",
+            "className": "!w-4 !h-4",
+            "shape": "fill"
+          }
+        },
+        {
+          "id": "pkErrorMessageText",
+          "component": "span",
+          "props": {
+            "value": {
+              "path": "errorMessage"
+            },
+            "className": "text-on-surface"
+          }
+        },
+        {
+          "id": "tabContainer",
+          "component": "Tabs",
+          "props": {
+            "activeKey": {
+              "path": "/activeTab"
+            },
+            "types": "line"
+          },
+          "children": [
+            "tabItemProbe",
+            "tabItemPacket"
+          ]
+        },
+        {
+          "id": "tabItemProbe",
+          "component": "TabItem",
+          "props": {
+            "key": "probe",
+            "label": "探测",
+            "content": {
+              "componentId": "probeModuleContainer"
+            }
+          }
+        },
+        {
+          "id": "tabItemPacket",
+          "component": "TabItem",
+          "props": {
+            "key": "packet",
+            "label": "报文",
+            "content": {
+              "componentId": "packetModuleContainer"
+            }
+          }
+        }
+      ],
+      "state": {
+        "stats": [
+          {
+            "cardTitle": "总探测记录",
+            "totalProbes": 1248,
+            "trendIcon": "activity",
+            "unit": "条"
+          },
+          {
+            "cardTitle": "激活状态",
+            "activeCount": 1102,
+            "trendIcon": "check-circle",
+            "unit": "条",
+            "statusColor": "green"
+          },
+          {
+            "cardTitle": "异常报文",
+            "errorPacketCount": 15,
+            "trendIcon": "alert-triangle",
+            "unit": "条",
+            "statusColor": "red"
+          }
+        ],
+        "pmSearchValue": "",
+        "pmProbeList": [
+          {
+            "key": "1",
+            "aapAddress": "192.168.10.5",
+            "portId": "eth0-vm-01",
+            "aapMac": "00:50:56:C0:00:08",
+            "portMac": "00:50:56:C0:00:01",
+            "l2vni": "10001",
+            "deviceId": "sw-core-01",
+            "deviceIp": "10.0.0.1",
+            "createTime": "2026-07-30 10:23:45",
+            "status": "active",
+            "statusText": "激活",
+            "statusIcon": "check-circle"
+          },
+          {
+            "key": "2",
+            "aapAddress": "192.168.10.6",
+            "portId": "eth0-vm-02",
+            "aapMac": "00:50:56:C0:00:09",
+            "portMac": "00:50:56:C0:00:02",
+            "l2vni": "10001",
+            "deviceId": "sw-core-01",
+            "deviceIp": "10.0.0.1",
+            "createTime": "2026-07-30 10:25:12",
+            "status": "inactive",
+            "statusText": "未激活",
+            "statusIcon": "circle-off"
+          },
+          {
+            "key": "3",
+            "aapAddress": "192.168.10.8",
+            "portId": "eth1-vm-03",
+            "aapMac": "00:50:56:C0:00:10",
+            "portMac": "00:50:56:C0:00:03",
+            "l2vni": "10002",
+            "deviceId": "sw-core-02",
+            "deviceIp": "10.0.0.2",
+            "createTime": "2026-07-30 10:28:33",
+            "status": "active",
+            "statusText": "激活",
+            "statusIcon": "check-circle"
+          },
+          {
+            "key": "4",
+            "aapAddress": "192.168.10.12",
+            "portId": "eth0-vm-04",
+            "aapMac": "00:50:56:C0:00:11",
+            "portMac": "00:50:56:C0:00:04",
+            "l2vni": "10002",
+            "deviceId": "sw-core-02",
+            "deviceIp": "10.0.0.2",
+            "createTime": "2026-07-30 10:30:05",
+            "status": "active",
+            "statusText": "激活",
+            "statusIcon": "check-circle"
+          },
+          {
+            "key": "5",
+            "aapAddress": "192.168.10.15",
+            "portId": "eth2-vm-05",
+            "aapMac": "00:50:56:C0:00:12",
+            "portMac": "00:50:56:C0:00:05",
+            "l2vni": "10003",
+            "deviceId": "sw-edge-01",
+            "deviceIp": "10.0.1.1",
+            "createTime": "2026-07-30 10:32:18",
+            "status": "inactive",
+            "statusText": "未激活",
+            "statusIcon": "circle-off"
+          },
+          {
+            "key": "6",
+            "aapAddress": "192.168.10.20",
+            "portId": "eth0-vm-06",
+            "aapMac": "00:50:56:C0:00:13",
+            "portMac": "00:50:56:C0:00:06",
+            "l2vni": "10003",
+            "deviceId": "sw-edge-01",
+            "deviceIp": "10.0.1.1",
+            "createTime": "2026-07-30 10:35:42",
+            "status": "active",
+            "statusText": "激活",
+            "statusIcon": "check-circle"
+          },
+          {
+            "key": "7",
+            "aapAddress": "192.168.10.22",
+            "portId": "eth1-vm-07",
+            "aapMac": "00:50:56:C0:00:14",
+            "portMac": "00:50:56:C0:00:07",
+            "l2vni": "10004",
+            "deviceId": "sw-edge-02",
+            "deviceIp": "10.0.1.2",
+            "createTime": "2026-07-30 10:38:15",
+            "status": "active",
+            "statusText": "激活",
+            "statusIcon": "check-circle"
+          },
+          {
+            "key": "8",
+            "aapAddress": "192.168.10.25",
+            "portId": "eth0-vm-08",
+            "aapMac": "00:50:56:C0:00:15",
+            "portMac": "00:50:56:C0:00:08",
+            "l2vni": "10004",
+            "deviceId": "sw-edge-02",
+            "deviceIp": "10.0.1.2",
+            "createTime": "2026-07-30 10:40:55",
+            "status": "inactive",
+            "statusText": "未激活",
+            "statusIcon": "circle-off"
+          },
+          {
+            "key": "9",
+            "aapAddress": "192.168.10.30",
+            "portId": "eth3-vm-09",
+            "aapMac": "00:50:56:C0:00:16",
+            "portMac": "00:50:56:C0:00:09",
+            "l2vni": "10005",
+            "deviceId": "sw-core-01",
+            "deviceIp": "10.0.0.1",
+            "createTime": "2026-07-30 10:42:10",
+            "status": "active",
+            "statusText": "激活",
+            "statusIcon": "check-circle"
+          },
+          {
+            "key": "10",
+            "aapAddress": "192.168.10.33",
+            "portId": "eth0-vm-10",
+            "aapMac": "00:50:56:C0:00:17",
+            "portMac": "00:50:56:C0:00:10",
+            "l2vni": "10005",
+            "deviceId": "sw-core-01",
+            "deviceIp": "10.0.0.1",
+            "createTime": "2026-07-30 10:45:30",
+            "status": "active",
+            "statusText": "激活",
+            "statusIcon": "check-circle"
+          },
+          {
+            "key": "11",
+            "aapAddress": "192.168.10.40",
+            "portId": "eth1-vm-11",
+            "aapMac": "00:50:56:C0:00:18",
+            "portMac": "00:50:56:C0:00:11",
+            "l2vni": "10006",
+            "deviceId": "sw-core-02",
+            "deviceIp": "10.0.0.2",
+            "createTime": "2026-07-30 10:48:05",
+            "status": "inactive",
+            "statusText": "未激活",
+            "statusIcon": "circle-off"
+          }
+        ],
+        "packetList": [
+          {
+            "key": "1",
+            "aapAddress": "192.168.10.5",
+            "createTime": "2026-07-30 10:23:46",
+            "deviceIp": "10.0.0.1",
+            "portId": "eth0-vm-01",
+            "l2vni": "10001",
+            "serviceName": "node-web-01",
+            "errorMessage": "无",
+            "severityIcon": "check"
+          },
+          {
+            "key": "2",
+            "aapAddress": "192.168.10.6",
+            "createTime": "2026-07-30 10:25:15",
+            "deviceIp": "10.0.0.1",
+            "portId": "eth0-vm-02",
+            "l2vni": "10001",
+            "serviceName": "node-db-01",
+            "errorMessage": "ARP Reply Timeout",
+            "severityIcon": "alert-triangle"
+          },
+          {
+            "key": "3",
+            "aapAddress": "192.168.10.8",
+            "createTime": "2026-07-30 10:28:35",
+            "deviceIp": "10.0.0.2",
+            "portId": "eth1-vm-03",
+            "l2vni": "10002",
+            "serviceName": "node-cache-01",
+            "errorMessage": "无",
+            "severityIcon": "check"
+          },
+          {
+            "key": "4",
+            "aapAddress": "192.168.10.12",
+            "createTime": "2026-07-30 10:30:08",
+            "deviceIp": "10.0.0.2",
+            "portId": "eth0-vm-04",
+            "l2vni": "10002",
+            "serviceName": "node-api-01",
+            "errorMessage": "MAC Address Mismatch",
+            "severityIcon": "alert-circle"
+          },
+          {
+            "key": "5",
+            "aapAddress": "192.168.10.15",
+            "createTime": "2026-07-30 10:32:20",
+            "deviceIp": "10.0.1.1",
+            "portId": "eth2-vm-05",
+            "l2vni": "10003",
+            "serviceName": "node-worker-01",
+            "errorMessage": "无",
+            "severityIcon": "check"
+          },
+          {
+            "key": "6",
+            "aapAddress": "192.168.10.20",
+            "createTime": "2026-07-30 10:35:45",
+            "deviceIp": "10.0.1.1",
+            "portId": "eth0-vm-06",
+            "l2vni": "10003",
+            "serviceName": "node-worker-02",
+            "errorMessage": "VNI Not Found",
+            "severityIcon": "alert-octagon"
+          },
+          {
+            "key": "7",
+            "aapAddress": "192.168.10.22",
+            "createTime": "2026-07-30 10:38:18",
+            "deviceIp": "10.0.1.2",
+            "portId": "eth1-vm-07",
+            "l2vni": "10004",
+            "serviceName": "node-log-01",
+            "errorMessage": "无",
+            "severityIcon": "check"
+          },
+          {
+            "key": "8",
+            "aapAddress": "192.168.10.25",
+            "createTime": "2026-07-30 10:40:58",
+            "deviceIp": "10.0.1.2",
+            "portId": "eth0-vm-08",
+            "l2vni": "10004",
+            "serviceName": "node-mq-01",
+            "errorMessage": "Port Security Violation",
+            "severityIcon": "shield-alert"
+          },
+          {
+            "key": "9",
+            "aapAddress": "192.168.10.30",
+            "createTime": "2026-07-30 10:42:12",
+            "deviceIp": "10.0.0.1",
+            "portId": "eth3-vm-09",
+            "l2vni": "10005",
+            "serviceName": "node-monitor-01",
+            "errorMessage": "无",
+            "severityIcon": "check"
+          },
+          {
+            "key": "10",
+            "aapAddress": "192.168.10.33",
+            "createTime": "2026-07-30 10:45:32",
+            "deviceIp": "10.0.0.1",
+            "portId": "eth0-vm-10",
+            "l2vni": "10005",
+            "serviceName": "node-backup-01",
+            "errorMessage": "ARP Request Flood",
+            "severityIcon": "zap"
+          },
+          {
+            "key": "11",
+            "aapAddress": "192.168.10.40",
+            "createTime": "2026-07-30 10:48:08",
+            "deviceIp": "10.0.0.2",
+            "portId": "eth1-vm-11",
+            "l2vni": "10006",
+            "serviceName": "node-storage-01",
+            "errorMessage": "无",
+            "severityIcon": "check"
+          }
+        ],
+        "packetSearchValue": "",
+        "activeTab": "probe"
+      }
+    }
+  ],
+  "mergedA2UI": {
+    "rootId": "appRoot",
+    "elements": [
+      {
+        "id": "appRoot",
+        "component": "div",
+        "props": {
+          "className": "h-screen w-full bg-surface-container-lowest flex flex-col"
+        },
+        "children": [
+          "pageHeader",
+          "mainContent"
+        ]
+      },
+      {
+        "id": "pageHeader",
+        "component": "header",
+        "props": {
+          "className": "h-12 bg-surface-container-highest shadow-sm flex items-center px-6 shrink-0"
+        },
+        "children": [
+          "pageTitle"
+        ]
+      },
+      {
+        "id": "pageTitle",
+        "component": "h1",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": "Allowed-address-pair 报文"
+        },
+        "children": []
+      },
+      {
+        "id": "mainContent",
+        "component": "main",
+        "props": {
+          "className": "flex-1 overflow-auto p-6 flex flex-col gap-6"
+        },
+        "children": [
+          "statsGlobalContainer",
+          "tabContainer"
+        ]
+      },
+      {
+        "id": "statsGlobalContainer",
+        "component": "div",
+        "props": {
+          "className": "grid grid-cols-3 gap-4"
+        },
+        "children": [
+          "gsCard1",
+          "gsCard2",
+          "gsCard3"
+        ]
+      },
+      {
+        "id": "probeModuleContainer",
+        "component": "div",
+        "props": {
+          "className": "bg-surface-container-highest rounded-container shadow-card p-6 flex flex-col gap-4"
+        },
+        "children": [
+          "pmModuleTitle",
+          "pmToolbar",
+          "pmTable"
+        ]
+      },
+      {
+        "id": "packetModuleContainer",
+        "component": "div",
+        "props": {
+          "className": "bg-surface-container-highest rounded-container shadow-card p-6 flex flex-col gap-4"
+        },
+        "children": [
+          "pkModuleTitle",
+          "pkFilterBar",
+          "pkTable"
+        ]
+      },
+      {
+        "id": "gsCard1",
+        "component": "div",
+        "props": {
+          "className": "bg-surface-container-highest rounded-container shadow-card p-6 flex items-center gap-4"
+        },
+        "children": [
+          "gsIcon1",
+          "gsContent1"
+        ]
+      },
+      {
+        "id": "gsIcon1",
+        "component": "Icon",
+        "props": {
+          "name": "activity",
+          "color": "on-surface",
+          "shape": "circle",
+          "className": "w-12 h-12"
+        }
+      },
+      {
+        "id": "gsContent1",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-1"
+        },
+        "children": [
+          "gsTitle1",
+          "gsValue1"
+        ]
+      },
+      {
+        "id": "gsTitle1",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": "总探测记录"
+        }
+      },
+      {
+        "id": "gsValue1",
+        "component": "span",
+        "props": {
+          "className": "text-3xl font-bold text-on-surface",
+          "value": "1248 条"
+        }
+      },
+      {
+        "id": "gsCard2",
+        "component": "div",
+        "props": {
+          "className": "bg-surface-container-highest rounded-container shadow-card p-6 flex items-center gap-4"
+        },
+        "children": [
+          "gsIcon2",
+          "gsContent2"
+        ]
+      },
+      {
+        "id": "gsIcon2",
+        "component": "Icon",
+        "props": {
+          "name": "gsIcon2",
+          "color": "on-surface",
+          "shape": "circle",
+          "className": "!w-12 !h-12"
+        }
+      },
+      {
+        "id": "gsContent2",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-1"
+        },
+        "children": [
+          "gsTitle2",
+          "gsValue2"
+        ]
+      },
+      {
+        "id": "gsTitle2",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": "激活状态"
+        }
+      },
+      {
+        "id": "gsValue2",
+        "component": "span",
+        "props": {
+          "className": "text-3xl font-bold text-on-surface",
+          "value": "1102 条"
+        }
+      },
+      {
+        "id": "gsCard3",
+        "component": "div",
+        "props": {
+          "className": "bg-surface-container-highest rounded-container shadow-card p-6 flex items-center gap-4"
+        },
+        "children": [
+          "gsIcon3",
+          "gsContent3"
+        ]
+      },
+      {
+        "id": "gsIcon3",
+        "component": "Icon",
+        "props": {
+          "name": "alert-triangle",
+          "color": "on-surface",
+          "shape": "circle",
+          "className": "w-12 h-12"
+        }
+      },
+      {
+        "id": "gsContent3",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-1"
+        },
+        "children": [
+          "gsTitle3",
+          "gsValue3"
+        ]
+      },
+      {
+        "id": "gsTitle3",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": "异常报文"
+        }
+      },
+      {
+        "id": "gsValue3",
+        "component": "span",
+        "props": {
+          "className": "text-3xl font-bold text-on-surface",
+          "value": "15 条"
+        }
+      },
+      {
+        "id": "pmModuleTitle",
+        "component": "h3",
+        "props": {
+          "className": "text-xl font-semibold text-on-surface",
+          "value": "探测记录管理"
+        }
+      },
+      {
+        "id": "pmToolbar",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between gap-4"
+        },
+        "children": [
+          "pmSearchInput",
+          "pmActionContainer"
+        ]
+      },
+      {
+        "id": "pmSearchInput",
+        "component": "Input",
+        "props": {
+          "value": {
+            "path": "/pmSearchValue"
+          },
+          "placeholder": "请输入AAP地址或设备IP进行模糊查询",
+          "prefix": "search",
+          "className": "w-80"
+        }
+      },
+      {
+        "id": "pmActionContainer",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "pmFullProbeBtn",
+          "pmRefreshBtn"
+        ]
+      },
+      {
+        "id": "pmFullProbeBtn",
+        "component": "Button",
+        "props": {
+          "value": "全量探测",
+          "icon": "radar",
+          "iconPlacement": "start",
+          "color": "primary",
+          "className": "text-on-primary"
+        }
+      },
+      {
+        "id": "pmRefreshBtn",
+        "component": "Button",
+        "props": {
+          "value": "刷新",
+          "icon": "refresh-cw",
+          "iconPlacement": "start",
+          "color": "default"
+        }
+      },
+      {
+        "id": "pmTable",
+        "component": "Table",
+        "props": {
+          "rowKey": "key",
+          "dataSource": {
+            "path": "/pmProbeList"
+          },
+          "columns": [
+            {
+              "title": "AAP地址",
+              "dataIndex": "aapAddress"
+            },
+            {
+              "title": "端口ID",
+              "dataIndex": "portId"
+            },
+            {
+              "title": "AAP MAC地址",
+              "dataIndex": "aapMac"
+            },
+            {
+              "title": "端口MAC地址",
+              "dataIndex": "portMac"
+            },
+            {
+              "title": "L2VNI",
+              "dataIndex": "l2vni"
+            },
+            {
+              "title": "设备ID",
+              "dataIndex": "deviceId"
+            },
+            {
+              "title": "设备IP",
+              "dataIndex": "deviceIp"
+            },
+            {
+              "title": "生成时间",
+              "dataIndex": "createTime"
+            },
+            {
+              "title": "状态",
+              "dataIndex": "status"
+            },
+            {
+              "title": "操作",
+              "dataIndex": "action",
+              "width": 100
+            }
+          ]
+        },
+        "children": {
+          "path": "/pmProbeList",
+          "componentId": "pmTableRow"
+        }
+      },
+      {
+        "id": "pmTableRow",
+        "component": "TableRow",
+        "children": [
+          "pmCellAapAddress",
+          "pmCellPortId",
+          "pmCellAapMac",
+          "pmCellPortMac",
+          "pmCellL2vni",
+          "pmCellDeviceId",
+          "pmCellDeviceIp",
+          "pmCellCreateTime",
+          "pmCellStatus",
+          "pmCellAction"
+        ],
+        "props": {}
+      },
+      {
+        "id": "pmCellAapAddress",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "aapAddress"
+          }
+        }
+      },
+      {
+        "id": "pmCellPortId",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "portId"
+          }
+        }
+      },
+      {
+        "id": "pmCellAapMac",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "aapMac"
+          }
+        }
+      },
+      {
+        "id": "pmCellPortMac",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "portMac"
+          }
+        }
+      },
+      {
+        "id": "pmCellL2vni",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "l2vni"
+          }
+        }
+      },
+      {
+        "id": "pmCellDeviceId",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "deviceId"
+          }
+        }
+      },
+      {
+        "id": "pmCellDeviceIp",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "deviceIp"
+          }
+        }
+      },
+      {
+        "id": "pmCellCreateTime",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "createTime"
+          }
+        }
+      },
+      {
+        "id": "pmCellStatus",
+        "component": "Tag",
+        "props": {
+          "value": {
+            "path": "statusText"
+          },
+          "color": "success",
+          "icon": {
+            "path": "statusIcon"
+          },
+          "variant": "outlined",
+          "size": "medium",
+          "closable": false,
+          "className": "!text-white",
+          "closeIcon": "active"
+        }
+      },
+      {
+        "id": "pmCellAction",
+        "component": "Button",
+        "props": {
+          "value": "修改",
+          "size": "small",
+          "types": "link"
+        }
+      },
+      {
+        "id": "pkModuleTitle",
+        "component": "h3",
+        "props": {
+          "className": "text-xl font-semibold text-on-surface",
+          "value": "报文记录管理"
+        }
+      },
+      {
+        "id": "pkFilterBar",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between gap-4"
+        },
+        "children": [
+          "pkSearchInput",
+          "pkRefreshBtn"
+        ]
+      },
+      {
+        "id": "pkSearchInput",
+        "component": "Input",
+        "props": {
+          "value": {
+            "path": "/packetSearchValue"
+          },
+          "placeholder": "请输入 AAP 地址或设备 IP 进行模糊查询",
+          "prefix": "search",
+          "className": "w-96"
+        }
+      },
+      {
+        "id": "pkRefreshBtn",
+        "component": "Button",
+        "props": {
+          "value": "刷新",
+          "icon": "refresh-cw",
+          "iconPlacement": "start",
+          "types": "default"
+        }
+      },
+      {
+        "id": "pkTable",
+        "component": "Table",
+        "props": {
+          "rowKey": "key",
+          "dataSource": {
+            "path": "/packetList"
+          },
+          "columns": [
+            {
+              "title": "AAP 地址",
+              "dataIndex": "aapAddress"
+            },
+            {
+              "title": "生成时间",
+              "dataIndex": "createTime"
+            },
+            {
+              "title": "设备 IP",
+              "dataIndex": "deviceIp"
+            },
+            {
+              "title": "端口 ID",
+              "dataIndex": "portId"
+            },
+            {
+              "title": "L2vni",
+              "dataIndex": "l2vni"
+            },
+            {
+              "title": "服务名（节点名）",
+              "dataIndex": "serviceName"
+            },
+            {
+              "title": "错误信息",
+              "dataIndex": "errorMessage",
+              "width": 200
+            }
+          ],
+          "pagination": true
+        },
+        "children": {
+          "path": "/packetList",
+          "componentId": "pkTableRow"
+        }
+      },
+      {
+        "id": "pkTableRow",
+        "component": "TableRow",
+        "children": [
+          "pkCellAapAddress",
+          "pkCellCreateTime",
+          "pkCellDeviceIp",
+          "pkCellPortId",
+          "pkCellL2vni",
+          "pkCellServiceName",
+          "pkCellErrorMessage"
+        ],
+        "props": {}
+      },
+      {
+        "id": "pkCellAapAddress",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "aapAddress"
+          },
+          "className": "text-on-surface"
+        }
+      },
+      {
+        "id": "pkCellCreateTime",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "createTime"
+          },
+          "className": "text-on-surface-variant"
+        }
+      },
+      {
+        "id": "pkCellDeviceIp",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "deviceIp"
+          },
+          "className": "text-on-surface"
+        }
+      },
+      {
+        "id": "pkCellPortId",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "portId"
+          },
+          "className": "text-on-surface-variant"
+        }
+      },
+      {
+        "id": "pkCellL2vni",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "l2vni"
+          },
+          "className": "text-on-surface-variant"
+        }
+      },
+      {
+        "id": "pkCellServiceName",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "serviceName"
+          },
+          "className": "text-on-surface"
+        }
+      },
+      {
+        "id": "pkCellErrorMessage",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "pkSeverityIcon",
+          "pkErrorMessageText"
+        ]
+      },
+      {
+        "id": "pkSeverityIcon",
+        "component": "Icon",
+        "props": {
+          "name": {
+            "path": "severityIcon"
+          },
+          "color": "default",
+          "className": "!w-4 !h-4",
+          "shape": "fill"
+        }
+      },
+      {
+        "id": "pkErrorMessageText",
+        "component": "span",
+        "props": {
+          "value": {
+            "path": "errorMessage"
+          },
+          "className": "text-on-surface"
+        }
+      },
+      {
+        "id": "tabContainer",
+        "component": "Tabs",
+        "props": {
+          "activeKey": {
+            "path": "/activeTab"
+          },
+          "types": "line"
+        },
+        "children": [
+          "tabItemProbe",
+          "tabItemPacket"
+        ]
+      },
+      {
+        "id": "tabItemProbe",
+        "component": "TabItem",
+        "props": {
+          "key": "probe",
+          "label": "探测",
+          "content": {
+            "componentId": "probeModuleContainer"
+          }
+        }
+      },
+      {
+        "id": "tabItemPacket",
+        "component": "TabItem",
+        "props": {
+          "key": "packet",
+          "label": "报文",
+          "content": {
+            "componentId": "packetModuleContainer"
+          }
+        }
+      }
+    ],
+    "state": {
+      "stats": [
+        {
+          "cardTitle": "总探测记录",
+          "totalProbes": 1248,
+          "trendIcon": "activity",
+          "unit": "条"
+        },
+        {
+          "cardTitle": "激活状态",
+          "activeCount": 1102,
+          "trendIcon": "check-circle",
+          "unit": "条",
+          "statusColor": "green"
+        },
+        {
+          "cardTitle": "异常报文",
+          "errorPacketCount": 15,
+          "trendIcon": "alert-triangle",
+          "unit": "条",
+          "statusColor": "red"
+        }
+      ],
+      "pmSearchValue": "",
+      "pmProbeList": [
+        {
+          "key": "1",
+          "aapAddress": "192.168.10.5",
+          "portId": "eth0-vm-01",
+          "aapMac": "00:50:56:C0:00:08",
+          "portMac": "00:50:56:C0:00:01",
+          "l2vni": "10001",
+          "deviceId": "sw-core-01",
+          "deviceIp": "10.0.0.1",
+          "createTime": "2026-07-30 10:23:45",
+          "status": "active",
+          "statusText": "激活",
+          "statusIcon": "check-circle"
+        },
+        {
+          "key": "2",
+          "aapAddress": "192.168.10.6",
+          "portId": "eth0-vm-02",
+          "aapMac": "00:50:56:C0:00:09",
+          "portMac": "00:50:56:C0:00:02",
+          "l2vni": "10001",
+          "deviceId": "sw-core-01",
+          "deviceIp": "10.0.0.1",
+          "createTime": "2026-07-30 10:25:12",
+          "status": "inactive",
+          "statusText": "未激活",
+          "statusIcon": "circle-off"
+        },
+        {
+          "key": "3",
+          "aapAddress": "192.168.10.8",
+          "portId": "eth1-vm-03",
+          "aapMac": "00:50:56:C0:00:10",
+          "portMac": "00:50:56:C0:00:03",
+          "l2vni": "10002",
+          "deviceId": "sw-core-02",
+          "deviceIp": "10.0.0.2",
+          "createTime": "2026-07-30 10:28:33",
+          "status": "active",
+          "statusText": "激活",
+          "statusIcon": "check-circle"
+        },
+        {
+          "key": "4",
+          "aapAddress": "192.168.10.12",
+          "portId": "eth0-vm-04",
+          "aapMac": "00:50:56:C0:00:11",
+          "portMac": "00:50:56:C0:00:04",
+          "l2vni": "10002",
+          "deviceId": "sw-core-02",
+          "deviceIp": "10.0.0.2",
+          "createTime": "2026-07-30 10:30:05",
+          "status": "active",
+          "statusText": "激活",
+          "statusIcon": "check-circle"
+        },
+        {
+          "key": "5",
+          "aapAddress": "192.168.10.15",
+          "portId": "eth2-vm-05",
+          "aapMac": "00:50:56:C0:00:12",
+          "portMac": "00:50:56:C0:00:05",
+          "l2vni": "10003",
+          "deviceId": "sw-edge-01",
+          "deviceIp": "10.0.1.1",
+          "createTime": "2026-07-30 10:32:18",
+          "status": "inactive",
+          "statusText": "未激活",
+          "statusIcon": "circle-off"
+        },
+        {
+          "key": "6",
+          "aapAddress": "192.168.10.20",
+          "portId": "eth0-vm-06",
+          "aapMac": "00:50:56:C0:00:13",
+          "portMac": "00:50:56:C0:00:06",
+          "l2vni": "10003",
+          "deviceId": "sw-edge-01",
+          "deviceIp": "10.0.1.1",
+          "createTime": "2026-07-30 10:35:42",
+          "status": "active",
+          "statusText": "激活",
+          "statusIcon": "check-circle"
+        },
+        {
+          "key": "7",
+          "aapAddress": "192.168.10.22",
+          "portId": "eth1-vm-07",
+          "aapMac": "00:50:56:C0:00:14",
+          "portMac": "00:50:56:C0:00:07",
+          "l2vni": "10004",
+          "deviceId": "sw-edge-02",
+          "deviceIp": "10.0.1.2",
+          "createTime": "2026-07-30 10:38:15",
+          "status": "active",
+          "statusText": "激活",
+          "statusIcon": "check-circle"
+        },
+        {
+          "key": "8",
+          "aapAddress": "192.168.10.25",
+          "portId": "eth0-vm-08",
+          "aapMac": "00:50:56:C0:00:15",
+          "portMac": "00:50:56:C0:00:08",
+          "l2vni": "10004",
+          "deviceId": "sw-edge-02",
+          "deviceIp": "10.0.1.2",
+          "createTime": "2026-07-30 10:40:55",
+          "status": "inactive",
+          "statusText": "未激活",
+          "statusIcon": "circle-off"
+        },
+        {
+          "key": "9",
+          "aapAddress": "192.168.10.30",
+          "portId": "eth3-vm-09",
+          "aapMac": "00:50:56:C0:00:16",
+          "portMac": "00:50:56:C0:00:09",
+          "l2vni": "10005",
+          "deviceId": "sw-core-01",
+          "deviceIp": "10.0.0.1",
+          "createTime": "2026-07-30 10:42:10",
+          "status": "active",
+          "statusText": "激活",
+          "statusIcon": "check-circle"
+        },
+        {
+          "key": "10",
+          "aapAddress": "192.168.10.33",
+          "portId": "eth0-vm-10",
+          "aapMac": "00:50:56:C0:00:17",
+          "portMac": "00:50:56:C0:00:10",
+          "l2vni": "10005",
+          "deviceId": "sw-core-01",
+          "deviceIp": "10.0.0.1",
+          "createTime": "2026-07-30 10:45:30",
+          "status": "active",
+          "statusText": "激活",
+          "statusIcon": "check-circle"
+        },
+        {
+          "key": "11",
+          "aapAddress": "192.168.10.40",
+          "portId": "eth1-vm-11",
+          "aapMac": "00:50:56:C0:00:18",
+          "portMac": "00:50:56:C0:00:11",
+          "l2vni": "10006",
+          "deviceId": "sw-core-02",
+          "deviceIp": "10.0.0.2",
+          "createTime": "2026-07-30 10:48:05",
+          "status": "inactive",
+          "statusText": "未激活",
+          "statusIcon": "circle-off"
+        }
+      ],
+      "packetList": [
+        {
+          "key": "1",
+          "aapAddress": "192.168.10.5",
+          "createTime": "2026-07-30 10:23:46",
+          "deviceIp": "10.0.0.1",
+          "portId": "eth0-vm-01",
+          "l2vni": "10001",
+          "serviceName": "node-web-01",
+          "errorMessage": "无",
+          "severityIcon": "check"
+        },
+        {
+          "key": "2",
+          "aapAddress": "192.168.10.6",
+          "createTime": "2026-07-30 10:25:15",
+          "deviceIp": "10.0.0.1",
+          "portId": "eth0-vm-02",
+          "l2vni": "10001",
+          "serviceName": "node-db-01",
+          "errorMessage": "ARP Reply Timeout",
+          "severityIcon": "alert-triangle"
+        },
+        {
+          "key": "3",
+          "aapAddress": "192.168.10.8",
+          "createTime": "2026-07-30 10:28:35",
+          "deviceIp": "10.0.0.2",
+          "portId": "eth1-vm-03",
+          "l2vni": "10002",
+          "serviceName": "node-cache-01",
+          "errorMessage": "无",
+          "severityIcon": "check"
+        },
+        {
+          "key": "4",
+          "aapAddress": "192.168.10.12",
+          "createTime": "2026-07-30 10:30:08",
+          "deviceIp": "10.0.0.2",
+          "portId": "eth0-vm-04",
+          "l2vni": "10002",
+          "serviceName": "node-api-01",
+          "errorMessage": "MAC Address Mismatch",
+          "severityIcon": "alert-circle"
+        },
+        {
+          "key": "5",
+          "aapAddress": "192.168.10.15",
+          "createTime": "2026-07-30 10:32:20",
+          "deviceIp": "10.0.1.1",
+          "portId": "eth2-vm-05",
+          "l2vni": "10003",
+          "serviceName": "node-worker-01",
+          "errorMessage": "无",
+          "severityIcon": "check"
+        },
+        {
+          "key": "6",
+          "aapAddress": "192.168.10.20",
+          "createTime": "2026-07-30 10:35:45",
+          "deviceIp": "10.0.1.1",
+          "portId": "eth0-vm-06",
+          "l2vni": "10003",
+          "serviceName": "node-worker-02",
+          "errorMessage": "VNI Not Found",
+          "severityIcon": "alert-octagon"
+        },
+        {
+          "key": "7",
+          "aapAddress": "192.168.10.22",
+          "createTime": "2026-07-30 10:38:18",
+          "deviceIp": "10.0.1.2",
+          "portId": "eth1-vm-07",
+          "l2vni": "10004",
+          "serviceName": "node-log-01",
+          "errorMessage": "无",
+          "severityIcon": "check"
+        },
+        {
+          "key": "8",
+          "aapAddress": "192.168.10.25",
+          "createTime": "2026-07-30 10:40:58",
+          "deviceIp": "10.0.1.2",
+          "portId": "eth0-vm-08",
+          "l2vni": "10004",
+          "serviceName": "node-mq-01",
+          "errorMessage": "Port Security Violation",
+          "severityIcon": "shield-alert"
+        },
+        {
+          "key": "9",
+          "aapAddress": "192.168.10.30",
+          "createTime": "2026-07-30 10:42:12",
+          "deviceIp": "10.0.0.1",
+          "portId": "eth3-vm-09",
+          "l2vni": "10005",
+          "serviceName": "node-monitor-01",
+          "errorMessage": "无",
+          "severityIcon": "check"
+        },
+        {
+          "key": "10",
+          "aapAddress": "192.168.10.33",
+          "createTime": "2026-07-30 10:45:32",
+          "deviceIp": "10.0.0.1",
+          "portId": "eth0-vm-10",
+          "l2vni": "10005",
+          "serviceName": "node-backup-01",
+          "errorMessage": "ARP Request Flood",
+          "severityIcon": "zap"
+        },
+        {
+          "key": "11",
+          "aapAddress": "192.168.10.40",
+          "createTime": "2026-07-30 10:48:08",
+          "deviceIp": "10.0.0.2",
+          "portId": "eth1-vm-11",
+          "l2vni": "10006",
+          "serviceName": "node-storage-01",
+          "errorMessage": "无",
+          "severityIcon": "check"
+        }
+      ],
+      "packetSearchValue": "",
+      "activeTab": "probe"
+    }
+  }
+}

@@ -86,10 +86,10 @@ function resolveDataPath(
   elements: { id: string; props?: Record<string, unknown>; children?: unknown }[],
   parentMap: Map<string, string>,
   indices: number[],
-): string[] | null {
+): { pathParts: string[]; index: number }[] | null {
   let current = elementId
   let idx = 0
-  const segments: string[][] = []
+  const levels: { pathParts: string[]; index: number }[] = []
   while (true) {
     const parentId = parentMap.get(current)
     if (!parentId) break
@@ -98,38 +98,37 @@ function resolveDataPath(
     if (parent.children && typeof parent.children === "object" && !Array.isArray(parent.children)) {
       const p = (parent.children as Record<string, unknown>).path
       if (typeof p === "string") {
-        const parts = p.replace(/^\//, "").split("/").filter(Boolean)
-        const seg: string[] = []
-        for (const part of parts) seg.push(part)
+        const pathParts = p.replace(/^\//, "").split("/").filter(Boolean)
         const ii = indices.length - 1 - idx
-        if (ii >= 0) seg.push(String(indices[ii]))
-        segments.unshift(seg)
+        if (ii >= 0) levels.unshift({ pathParts, index: indices[ii] })
         idx++
       }
     }
     current = parentId
   }
-  if (segments.length === 0) return null
-  return segments.flat()
+  if (levels.length === 0) return null
+  return levels
 }
 
 function isDataBinding(value: unknown): value is { path: string } {
   return !!value && typeof value === "object" && !Array.isArray(value) && typeof (value as Record<string, unknown>).path === "string"
 }
 
+function coerceValue(prev: unknown, val: string | boolean): string | boolean | number {
+  if (typeof val === "boolean") return val
+  if (typeof prev === "boolean") return val === "true"
+  if (typeof prev === "number") {
+    const n = Number(val)
+    return isNaN(n) ? val : n
+  }
+  return val
+}
+
 function mergePropsSafe(target: Record<string, unknown>, source: Record<string, string | boolean>, before: Record<string, unknown>, skipBindings: boolean) {
   for (const key of Object.keys(source)) {
     const prev = before[key]
     if (skipBindings && isDataBinding(prev)) continue
-    const val = source[key]
-    if (typeof prev === "boolean" && typeof val === "string") {
-      target[key] = val === "true"
-    } else if (typeof prev === "number") {
-      const n = Number(val)
-      target[key] = isNaN(n) ? val : n
-    } else {
-      target[key] = val
-    }
+    target[key] = coerceValue(prev, source[key])
   }
 }
 
@@ -141,44 +140,54 @@ function applyStateBindings(
   baseId: string,
   elements: { id: string; props?: Record<string, unknown>; children?: unknown }[],
   parsed: { baseId: string; indices: number[] } | null,
-): boolean {
-  const bindings: { path: string; newValue: string }[] = []
+): { applied: boolean; failed: { key: string; val: string }[] } {
+  if (!state || typeof state !== "object") return { applied: false, failed: [] }
+  const bindings: { path: string; newValue: string; key: string; val: string }[] = []
 
   const valueBinding = beforeProps.value
-  if (textContent && isDataBinding(valueBinding)) {
-    bindings.push({ path: valueBinding.path, newValue: textContent })
+  const hasValueInProps = "value" in componentProps
+  if (!hasValueInProps && textContent && isDataBinding(valueBinding)) {
+    bindings.push({ path: valueBinding.path, newValue: textContent, key: "value", val: textContent })
   }
 
   for (const key of Object.keys(componentProps)) {
     const prev = beforeProps[key]
     if (isDataBinding(prev)) {
-      bindings.push({ path: prev.path, newValue: String(componentProps[key]) })
+      const val = String(componentProps[key])
+      bindings.push({ path: prev.path, newValue: val, key, val })
     }
   }
 
-  if (bindings.length === 0) return false
+  if (bindings.length === 0) return { applied: true, failed: [] }
 
   if (parsed) {
     const parentMap = buildParentMap(elements)
-    const segments = resolveDataPath(baseId, elements, parentMap, parsed.indices)
-    if (!segments) return false
+    const levels = resolveDataPath(baseId, elements, parentMap, parsed.indices)
+    if (!levels) return { applied: false, failed: [] }
 
     let target: any = state
-    const steps = segments.length - 2
-    for (let i = 0; i < steps; i += 2) {
-      const key = segments[i]
-      const idx = Number(segments[i + 1])
-      if (!Array.isArray(target[key]) || idx >= target[key].length) return false
-      target = target[key][idx]
+    for (let i = 0; i < levels.length - 1; i++) {
+      const lv = levels[i]
+      let arr: any = target
+      for (const p of lv.pathParts) {
+        if (!arr || typeof arr !== "object") return { applied: false, failed: [] }
+        arr = arr[p]
+      }
+      if (!Array.isArray(arr) || lv.index >= arr.length) return { applied: false, failed: [] }
+      target = arr[lv.index]
     }
-    if (!target) return false
+    if (!target || typeof target !== "object") return { applied: false, failed: [] }
 
-    const arrName = segments[segments.length - 2]
-    const itemIdx = Number(segments[segments.length - 1])
-    if (!Array.isArray(target[arrName]) || itemIdx >= target[arrName].length) return false
+    const last = levels[levels.length - 1]
+    let leafArr: any = target
+    for (const p of last.pathParts) {
+      if (!leafArr || typeof leafArr !== "object") return { applied: false, failed: [] }
+      leafArr = leafArr[p]
+    }
+    if (!Array.isArray(leafArr) || last.index >= leafArr.length) return { applied: false, failed: [] }
 
-    const arr = [...target[arrName]]
-    const item = { ...arr[itemIdx] }
+    const arr = [...leafArr]
+    const item = { ...arr[last.index] }
     for (const b of bindings) {
       const pathParts = b.path.replace(/^\//, "").split("/")
       let t: any = item
@@ -186,23 +195,31 @@ function applyStateBindings(
         if (!t[pathParts[j]] || typeof t[pathParts[j]] !== "object") t[pathParts[j]] = {}
         t = t[pathParts[j]]
       }
-      t[pathParts[pathParts.length - 1]] = b.newValue
+      const lastKey = pathParts[pathParts.length - 1]
+      t[lastKey] = coerceValue(t[lastKey], b.newValue)
     }
-    arr[itemIdx] = item
-    target[arrName] = arr
-    return true
+    arr[last.index] = item
+    let owner: any = target
+    for (let i = 0; i < last.pathParts.length - 1; i++) owner = owner[last.pathParts[i]]
+    owner[last.pathParts[last.pathParts.length - 1]] = arr
+    return { applied: true, failed: [] }
   } else {
+    let applied = false
+    const failed: { key: string; val: string }[] = []
     for (const b of bindings) {
       const pathParts = b.path.replace(/^\//, "").split("/")
       let t: any = state
+      let ok = true
       for (let i = 0; i < pathParts.length - 1; i++) {
         const k = pathParts[i]
-        if (!t[k] || typeof t[k] !== "object" || Array.isArray(t[k])) return false
+        if (!t[k] || typeof t[k] !== "object" || Array.isArray(t[k])) { ok = false; break }
         t = t[k]
       }
-      t[pathParts[pathParts.length - 1]] = b.newValue
+      if (!ok) { failed.push({ key: b.key, val: b.val }); continue }
+      const lastKey = pathParts[pathParts.length - 1]
+      if (lastKey in t) { t[lastKey] = coerceValue(t[lastKey], b.newValue); applied = true }
     }
-    return true
+    return { applied, failed }
   }
 }
 
@@ -221,7 +238,8 @@ const lastVersionSave = new Map<string, number>()
  * 1. 深拷贝当前预览数据（JSON.parse/stringify）
  * 2. 在 elements 数组中定位目标元素
  * 3. 非绑定属性直接写入 el.props；绑定属性保留不动，转而更新 doc.state
- * 4. 若无法解析绑定路径，降级为直接覆写（绑定变静态值）
+ * 4. 非实例化元素若无法解析绑定路径，降级为直接覆写（绑定变静态值）；
+ *    实例化元素（parsed）失败时不降级，保留原绑定以避免破坏模板
  * 5. 将修改后的 JSON 推送到预览区
  * 6. 若 saveToHistory 为 true，则在节流后追加版本历史
  */
@@ -250,15 +268,16 @@ export async function handleModifyElement(
       beforeProps = JSON.parse(JSON.stringify(el.props ?? {}))
       el.props = el.props || {}
 
-      if (data.className) el.props.className = data.className
+      el.props.className = data.className
 
       if (data.componentProps) mergePropsSafe(el.props, data.componentProps, beforeProps as Record<string, unknown>, true)
 
-      if (data.textContent && !isDataBinding((beforeProps as Record<string, unknown>).value)) {
+      const hasValueInProps = !!data.componentProps && "value" in data.componentProps
+      if (!hasValueInProps && "value" in (beforeProps as Record<string, unknown>) && !isDataBinding((beforeProps as Record<string, unknown>).value)) {
         el.props.value = data.textContent
       }
 
-      const stateUpdated = applyStateBindings(
+      const result = applyStateBindings(
         beforeProps as Record<string, unknown>,
         data.componentProps ?? {},
         data.textContent,
@@ -268,9 +287,14 @@ export async function handleModifyElement(
         parsed,
       )
 
-      if (!stateUpdated) {
-        if (data.componentProps) mergePropsSafe(el.props, data.componentProps, beforeProps as Record<string, unknown>, false)
-        if (data.textContent) el.props.value = data.textContent
+      if (parsed && !result.applied) {
+        console.warn("[Pattern] 实例化 state 回写失败，绑定保留，用户改动未应用:", data.elementId)
+      }
+
+      if (!parsed) {
+        for (const f of result.failed) {
+          (el.props as Record<string, unknown>)[f.key] = coerceValue((beforeProps as Record<string, unknown>)[f.key], f.val)
+        }
       }
 
       break
@@ -284,6 +308,8 @@ export async function handleModifyElement(
     before: beforeProps,
     after: found ? elements.find((el) => el.id === baseElementId)?.props : null,
   })
+
+  if (!found) return
 
   // 推送到预览区
   ctx.sendToPreview(doc)
