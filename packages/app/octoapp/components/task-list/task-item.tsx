@@ -112,7 +112,7 @@ export function TaskItemRow(props: {
           </div>
         </div>
         {/* 右侧操作区：hover 才显示暂停/取消按钮；下方百分比仅 hasProgress 且非终态显示 */}
-        <div class="flex flex-col items-end gap-1 shrink-0" classList={{ "self-start": !item().hasProgress || isError() }}>
+        <div class="flex flex-col items-end gap-1 shrink-0" classList={{ "self-start": !item().hasProgress || isTerminal() }}>
           <div class="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
             <Show when={showPause()}>
               <button
