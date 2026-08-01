@@ -236,18 +236,22 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
     input.onAbort?.()
 
+    const optimisticIdle = () =>
+      setStore("session_status", sessionID, { type: "idle" })
+
     const queued = pending.get(sessionID)
     if (queued) {
       queued.abort.abort()
       queued.cleanup()
       pending.delete(sessionID)
+      optimisticIdle()
       return Promise.resolve()
     }
     return sdk.client.session
       .abort({
         sessionID,
       })
-      .catch(() => {})
+      .then(optimisticIdle, optimisticIdle)
   }
 
   const restoreCommentItems = (items: CommentItem[]) => {
