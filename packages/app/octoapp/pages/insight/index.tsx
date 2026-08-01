@@ -1,6 +1,5 @@
 import "./octo-tokens.css"
 import type { Message, Part, Session, SessionStatus, UserMessage } from "@opencode-ai/sdk/v2/client"
-import type { TextPartInput, FilePartInput } from "@opencode-ai/sdk/v2/client"
 import { DataProvider } from "@opencode-ai/ui/context/data"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import {
@@ -59,8 +58,7 @@ import {
 } from "./store/mcp-trigger"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
 import { NewSessionView } from "@/components/session"
-import { uploadFile, validateFile, formatUploadsForPrompt, parseUploadedFiles, isImageFile, isTextInlineFile, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
-import { encodeFilePath } from "../../context/file/path"
+import { uploadFile, validateFile, formatUploadsForPrompt, parseUploadedFiles, isImageFile, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { getDesktopApi } from "./lib/electron-api"
 import { copyLastError, recordError, setBeaconContext } from "./lib/error-beacon"
@@ -71,6 +69,8 @@ import { tracker } from "@/utils/tracker"
 import { linkToOutputType } from "./utils/resource-link"
 import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
+import { assembleInsightParts } from "./utils/build-prompt-parts"
+import { snapshotAttachmentsForQueue } from "./utils/queue-drain"
 import { splitMentions, queuedMentions } from "./utils/mention"
 import { showToast } from "@opencode-ai/ui/toast"
 import { resolveOutputType } from "./utils/output-type"
@@ -1172,9 +1172,6 @@ function InsightContent() {
     const uploadBlock = formatUploadsForPrompt(
       localFiles.map((a) => ({ filename: a.filename, path: resolvedPath(a) })),
     )
-    const cleanTextPart: TextPartInput = { type: "text", text }
-    const parts: Array<TextPartInput | FilePartInput> = [cleanTextPart]
-    if (uploadBlock) parts.push({ type: "text", text: uploadBlock, synthetic: true })
     // 落点重定向:write 产物进 .octo/<sessionId>/outputs/ 由服务端插件 octo-outputs-redirect 确定性完成
     // (相对路径 → 会话 outputs/,只对 octo_insight 会话生效)。此前这里每轮注入 `[输出目录] 绝对路径`
     // synthetic 指令纠偏,弱模型会把它当当前任务复述(空问候"你好"也触发、把路径暴露给用户),故删除。
@@ -1183,10 +1180,6 @@ function InsightContent() {
     // 注意顺序:必须在 [附件] 清单之后 —— InsightTurn 按 "[附件]" 头定位清单渲染文件卡片。
     const chipTemplate = opts.chip ? buildChipTemplate(opts.chip.selection, text) : undefined
     const chipDeclaration = opts.chip ? buildChipDeclaration(opts.chip.selection, text) : undefined
-    if (chipTemplate && chipDeclaration) {
-      parts.push({ type: "text", text: chipTemplate, synthetic: true })
-      parts.push({ type: "text", text: chipDeclaration, synthetic: true })
-    }
     // SPEC-INS-023 @ 引用注入:技能读 SKILL.md、文件列引用清单,均 synthetic(模型可见、气泡不显、不暴露路径)。
     // 3b:不走 session.command,自读 SKILL.md 作 synthetic 注入 → 技能指令每轮确定进上下文。
     const mentionBlocks: string[] = []
@@ -1226,21 +1219,18 @@ function InsightContent() {
         ].join("\n"),
       )
     }
-    for (const b of mentionBlocks) parts.push({ type: "text", text: b, synthetic: true })
-    // ① txt/md → FilePart(file://, text/plain):opencode 组 prompt 时自动 Read 内联正文给本地模型读。
-    //   (office 不走此路 —— FilePart 二进制会被 base64,② 由模型调 extract_document 读。)
-    for (const a of localFiles) {
-      if (!isTextInlineFile(a.filename)) continue
-      parts.push({ type: "file", mime: "text/plain", url: `file://${encodeFilePath(resolvedPath(a))}`, filename: a.filename })
-    }
-    // ③ 图片 → vision FilePart{url:S3}:交多模态模型看(非多模态由 opencode stripMedia 换占位)。
-    const imageParts: FilePartInput[] = imageFiles.map((a) => ({
-      type: "file" as const,
-      mime: a.mime || "image/png",
-      url: a.url!,
-      filename: a.filename,
-    }))
-    parts.push(...imageParts)
+    // SPEC-INS-027:组 parts 走公共骨架 assembleInsightParts(与排队 drain sendQueuedItem 共用,防两套漂移)。
+    // uploadBlock / chipTemplate / chipDeclaration / mentionBlocks 仍在上方各自算好(optimistic 镜像与日志继续引用),
+    // 此处只按既定顺序组装 + 映射 txt/md·图片 FilePart。顺序:cleanText → [附件] → chip → @技能/@文件 → txt/md → 图片。
+    const syntheticTexts = [uploadBlock, chipTemplate, chipDeclaration, ...mentionBlocks].filter(
+      (t): t is string => !!t,
+    )
+    const { parts, imageParts } = assembleInsightParts({
+      text,
+      syntheticTexts,
+      textInlineFiles: localFiles.map((a) => ({ filename: a.filename, path: resolvedPath(a) })),
+      imageFiles: imageFiles.map((a) => ({ filename: a.filename, mime: a.mime, url: a.url! })),
+    })
     const messageID = Identifier.ascending("message")
     const agent = INSIGHT_AGENT
 
@@ -1532,6 +1522,17 @@ function InsightContent() {
     // directory / model / chip——不能再等到 flush 时读页面态(那时可能没有页面)。
     if (isWorking()) {
       const m = local.model.current()
+      // SPEC-INS-027 §3.7:把**上传的附件**快照进这条排队消息(搬进会话目录 + 从共享附件栏移除),
+      // 使其随该条消息一起 drain——不再靠 flush 时从附件栏顺手抓(多条排队会绑错、且页面无关 runner
+      // 读不到附件栏 → 文件丢失,正是内网测出的回归)。附件此刻必为 done(上方 hasUploadingAttachments 拦截)。
+      const done = attachments().filter((a) => a.status === "done")
+      const snap = await snapshotAttachmentsForQueue(done, params.id, projectDir())
+      if (done.length > 0) {
+        revokeAllPreviews()
+        filesById.clear()
+        setAttachments([])
+        if (snap.uploads.length > 0) setFilesRefreshKey((k) => k + 1)
+      }
       setQueueFor(params.id, (q) => [
         ...q,
         {
@@ -1541,6 +1542,8 @@ function InsightContent() {
           directory: projectDir(),
           model: m ? { modelID: m.id, providerID: m.provider.id } : undefined,
           chip: chipPayload,
+          uploads: snap.uploads.length ? snap.uploads : undefined,
+          images: snap.images.length ? snap.images : undefined,
         },
       ])
       console.log("[octo:queue] enqueued", {
@@ -1548,6 +1551,8 @@ function InsightContent() {
         len: text.length,
         depth: queue().length,
         hasChip: !!chipPayload,
+        uploads: snap.uploads.length,
+        images: snap.images.length,
       })
       return
     }
@@ -1578,6 +1583,30 @@ function InsightContent() {
     // 输入框为空才回填(编辑器覆盖式);非空不覆盖草稿。
     // 引用随文本一并还原成胶囊 —— 只回填文本会让 @名 变成失效的纯文本残留,用户无从察觉引用已丢。
     if (!prompt().trim()) setComposerContent(item.text, queuedMentions(item))
+    // SPEC-INS-027 §3.7:取消排队 = 回到编辑态,把随这条消息快照走的附件也还原到附件栏(栏为空才还原,
+    // 不覆盖用户正在选的附件),使编辑后可原样重发;文件本就在会话目录、不会丢,这里补回可见的 chip。
+    if (attachments().length === 0 && (item.uploads?.length || item.images?.length)) {
+      const restored: Attachment[] = [
+        ...(item.uploads ?? []).map((u) => ({
+          id: crypto.randomUUID(),
+          filename: u.filename,
+          mime: "",
+          size: 0,
+          status: "done" as const,
+          path: u.path,
+        })),
+        ...(item.images ?? []).map((im) => ({
+          id: crypto.randomUUID(),
+          filename: im.filename,
+          mime: im.mime ?? "image/png",
+          size: 0,
+          status: "done" as const,
+          url: im.url,
+          previewUrl: im.url,
+        })),
+      ]
+      setAttachments(restored)
+    }
     console.log("[octo:queue] removed", { index, remaining: queue().length })
   }
 

@@ -32,6 +32,14 @@ export interface QueuedSend {
   model?: { modelID: string; providerID: string }
   /** SPEC-INS-027:入队时的 MCP chip 选择态(此前在 flush 时读当前输入框态,后台发送没有输入框,改为入队即固化) */
   chip?: { selection: McpSelection }
+  /**
+   * SPEC-INS-027:入队时**上传的**非图片附件快照(已 done、已从 .octo/tmps 搬进会话 uploads/ 的最终 path)。
+   * 附件属于「排队的这条消息」,drain 时据此重建 [附件] 清单 synthetic + txt/md FilePart。
+   * (旧版把附件留在共享附件栏、靠 flush 时 consumeAttachments 顺手抓 → 多条排队会绑错/丢，见 spec §3.7。)
+   */
+  uploads?: Array<{ filename: string; path: string }>
+  /** SPEC-INS-027:入队时**上传的**图片附件快照(已 done 的 S3 url + mime);drain 时重建 vision FilePart */
+  images?: Array<{ filename: string; url: string; mime?: string }>
 }
 
 const [queues, setQueues] = createSignal<Record<string, QueuedSend[]>>({})
