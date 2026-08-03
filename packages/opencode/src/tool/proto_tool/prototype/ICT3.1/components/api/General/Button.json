@@ -13,6 +13,33 @@
 					"examples": ["/value", "/form/value"]
 				}
 			}	
+		},
+		"Action": {
+			"type": "object",
+			"description": "Declarative event action. When the event fires, the declared action mutates state.",
+			"required": ["action", "args"],
+			"additionalProperties": false,
+			"properties": {
+				"action": {
+					"type": "string",
+					"enum": ["setState"],
+					"description": "The action to perform when the event fires."
+				},
+				"args": {
+					"type": "object",
+					"required": ["path", "value"],
+					"additionalProperties": false,
+					"properties": {
+						"path": {
+							"type": "string",
+							"description": "JSON Pointer path to the state key to update."
+						},
+						"value": {
+							"description": "The value to write into the state path."
+						}
+					}
+				}
+			}
 		}
 	},
 	"properties": {
@@ -71,6 +98,10 @@
 				},
 				"disabled": {
 					"type": "boolean"
+				},
+				"onClick": {
+					"$ref": "#/$defs/Action",
+					"description": "Fires when the button is clicked. Typically a setState action."
 				},
 				"className": {
 					"type": "string",

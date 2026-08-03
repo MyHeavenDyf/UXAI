@@ -212,10 +212,11 @@ function buildSharedHeader(sharedDefs: Record<string, JsonSchema>): string {
         const opt = defRequired.has(pname) ? "" : "?"
         const examples = (pschema as any).examples as unknown[] | undefined
         const exStr = examples ? ` (e.g., ${examples.map(String).join(", ")})` : ""
+        const typeStr = formatType(pschema, sharedDefs, sharedDefs, new Set())
         if (pdesc || exStr) {
-          lines.push(`- \`${pname}${opt}\`: ${pschema.type ?? "any"}${exStr} — ${pdesc}`)
+          lines.push(`- \`${pname}${opt}\`: ${typeStr}${exStr} — ${pdesc}`)
         } else {
-          lines.push(`- \`${pname}${opt}\`: ${pschema.type ?? "any"}`)
+          lines.push(`- \`${pname}${opt}\`: ${typeStr}`)
         }
       }
     } else if (defn.type === "array" && defn.items) {

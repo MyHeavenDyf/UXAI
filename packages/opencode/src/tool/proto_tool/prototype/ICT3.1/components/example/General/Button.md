@@ -62,3 +62,20 @@
 	}
 }
 ```
+
+### Example: Button onClick event
+
+```json
+{
+	"id": "toggleBtn",
+	"component": "Button",
+	"props": {
+		"value": "展开详情",
+		"color": "primary",
+		"onClick": {
+			"action": "setState",
+			"args": { "path": "/isDetailOpen", "value": true }
+		}
+	}
+}
+```

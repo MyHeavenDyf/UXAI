@@ -1,11 +1,11 @@
-# Modal
+# Drawer
 
-### Example: A detail modal triggered by a button. `open` / `onClose` bind to the same shared boolean state, the body is a single wrapper node passed to `children`, and the footer is rendered via a SlotNode.
+### Example: A detail drawer triggered by a button, sliding in from the right. `open` / `onClose` bind to the same shared boolean state, the body is a single wrapper node passed to `children`, and the footer is rendered via a SlotNode.
 
 ```json
 {
   "state": {
-    "isDetailModalOpen": false
+    "isDetailDrawerOpen": false
   },
   "rootId": "demoRoot",
   "elements": [
@@ -13,7 +13,7 @@
       "id": "demoRoot",
       "component": "div",
       "props": { "className": "p-inset" },
-      "children": ["openBtn", "detailModal"]
+      "children": ["openBtn", "detailDrawer"]
     },
     {
       "id": "openBtn",
@@ -23,27 +23,28 @@
         "color": "primary",
         "onClick": {
           "action": "setState",
-          "args": { "path": "/isDetailModalOpen", "value": true }
+          "args": { "path": "/isDetailDrawerOpen", "value": true }
         }
       }
     },
     {
-      "id": "detailModal",
-      "component": "Modal",
+      "id": "detailDrawer",
+      "component": "Drawer",
       "props": {
-        "open": { "path": "/isDetailModalOpen" },
+        "open": { "path": "/isDetailDrawerOpen" },
+        "placement": "right",
         "title": "订单详情",
         "mask": true,
-        "footer": { "componentId": "modalFooter" },
+        "footer": { "componentId": "drawerFooter" },
         "onClose": {
           "action": "setState",
-          "args": { "path": "/isDetailModalOpen", "value": false }
+          "args": { "path": "/isDetailDrawerOpen", "value": false }
         }
       },
-      "children": ["modalBody"]
+      "children": ["drawerBody"]
     },
     {
-      "id": "modalBody",
+      "id": "drawerBody",
       "component": "div",
       "props": { "className": "flex flex-col gap-inline" },
       "children": ["bodyLabel", "bodyText"]
@@ -59,10 +60,10 @@
       "props": { "className": "text-sm text-on-surface", "value": "订单 SO-20260802-0042 已发货，预计明日送达。" }
     },
     {
-      "id": "modalFooter",
+      "id": "drawerFooter",
       "component": "div",
       "props": { "className": "flex justify-end gap-inline" },
-      "children": ["cancelBtn", "confirmBtn"]
+      "children": ["cancelBtn", "applyBtn"]
     },
     {
       "id": "cancelBtn",
@@ -71,19 +72,19 @@
         "value": "关闭",
         "onClick": {
           "action": "setState",
-          "args": { "path": "/isDetailModalOpen", "value": false }
+          "args": { "path": "/isDetailDrawerOpen", "value": false }
         }
       }
     },
     {
-      "id": "confirmBtn",
+      "id": "applyBtn",
       "component": "Button",
       "props": {
         "value": "确认",
         "color": "primary",
         "onClick": {
           "action": "setState",
-          "args": { "path": "/isDetailModalOpen", "value": false }
+          "args": { "path": "/isDetailDrawerOpen", "value": false }
         }
       }
     }
@@ -91,26 +92,27 @@
 }
 ```
 
-### Example: Modal element only, no footer (`footer` omitted). Body content is still a single wrapper node.
+### Example: Drawer element only, no footer (`footer` omitted). Body content is still a single wrapper node.
 
 ```json
 {
-  "id": "deleteModal",
-  "component": "Modal",
+  "id": "filterDrawer",
+  "component": "Drawer",
   "props": {
-    "open": { "path": "/isDeleteModalOpen" },
-    "title": "确认删除",
+    "open": { "path": "/isFilterDrawerOpen" },
+    "placement": "left",
+    "title": "筛选条件",
     "mask": true,
     "onClose": {
       "action": "setState",
-      "args": { "path": "/isDeleteModalOpen", "value": false }
+      "args": { "path": "/isFilterDrawerOpen", "value": false }
     }
   },
-  "children": ["deleteBody"]
+  "children": ["filterBody"]
 },
 {
-  "id": "deleteBody",
+  "id": "filterBody",
   "component": "span",
-  "props": { "className": "text-sm text-on-surface", "value": "删除后不可恢复，确定要继续吗？" }
+  "props": { "className": "text-sm text-on-surface", "value": "在此放置筛选表单内容。" }
 }
 ```

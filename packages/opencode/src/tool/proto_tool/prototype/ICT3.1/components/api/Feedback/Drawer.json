@@ -1,5 +1,5 @@
 {
-  "name": "Modal",
+  "name": "Drawer",
   "type": "object",
   "$defs": {
     "DataBinding": {
@@ -68,7 +68,7 @@
     },
     "component": {
       "type": "string",
-      "const": "Modal"
+      "const": "Drawer"
     },
     "props": {
       "type": "object",
@@ -78,7 +78,12 @@
         },
         "onClose": {
           "$ref": "#/$defs/Action",
-          "description": "Fires when the modal requests to close. Typically a setState that writes false to the same path bound to `open`."
+          "description": "Fires when the drawer requests to close. Typically a setState that writes false to the same path bound to `open`."
+        },
+        "placement": {
+          "type": "string",
+          "enum": ["right", "left", "top", "bottom"],
+          "default": "right"
         },
         "mask": {
           "type": "boolean",
@@ -89,7 +94,7 @@
             { "type": "string" },
             { "$ref": "#/$defs/DataBinding" }
           ],
-          "description": "Modal header title."
+          "description": "Drawer header title."
         },
         "footer": {
           "$ref": "#/$defs/SlotNode",
@@ -104,7 +109,7 @@
     },
     "children": {
       "$ref": "#/$defs/StaticChildren",
-      "description": "The modal body content."
+      "description": "The drawer body content."
     }
   },
   "required": ["id", "component", "props", "children"]
