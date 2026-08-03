@@ -223,4 +223,18 @@ describe("nextInsertPos", () => {
     const doc = editorSchema.node("doc", null, [p(t("@"))])
     expect(nextInsertPos(doc, trig(2))).toBe(2)
   })
+
+  // para: @, mA, " hello" → pos:1=@,2=mA,3=space,4=h…;to=2
+  // 配对空格与后续文本并成一个 text node(排队项回填就是这种结构),只吃 1 个空格、不整段比对,
+  // 否则位点停在 mA 后 → 新胶囊与 mA 粘连成 @A@B
+  test("配对空格与后续文本并成一个 text node:仍跳过该空格", () => {
+    const doc = editorSchema.node("doc", null, [p(t("@"), m("A"), t(" hello"))])
+    expect(nextInsertPos(doc, trig(2))).toBe(4)
+  })
+
+  // para: @, mA, "x" → pos:1=@,2=mA,3=x;to=2(undo 掉了配对空格)
+  test("mention 后不是空格:停在 mention 后,不跨过正文", () => {
+    const doc = editorSchema.node("doc", null, [p(t("@"), m("A"), t("x"))])
+    expect(nextInsertPos(doc, trig(2))).toBe(3)
+  })
 })

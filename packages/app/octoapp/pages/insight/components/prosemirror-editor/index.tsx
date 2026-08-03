@@ -287,7 +287,8 @@ export function ProseMirrorEditor(props: Props) {
       if (selection.type === "file" ? node.attrs.path !== path : node.attrs.type !== "skill") return
       let end = pos + node.nodeSize
       const after = v.state.doc.resolve(end).nodeAfter
-      if (after && after.isText && after.text === " ") end += after.nodeSize
+      // 与 nextInsertPos 同一口径:相邻文本会并成一个 text node,只看首字符、只吃 1 个空格
+      if (after?.isText && after.text?.startsWith(" ")) end += 1
       hits.push({ pos, end })
     })
     const tr1 = v.state.tr
@@ -301,13 +302,20 @@ export function ProseMirrorEditor(props: Props) {
         const safe = Math.min(Math.max(mappedTo, 0), v.state.doc.content.size)
         v.dispatch(v.state.tr.setSelection(TextSelection.near(v.state.doc.resolve(safe))))
       }
-      resetRound()
+      // 这里不能 resetRound():insertedThisRound 记的是「本轮发生过多选交互」,
+      // 取消一项后浮窗还开着、@query 还在,清掉它会让随后的关闭走成「纯手打 @文字」分支
+      // → @query 残留进正文(选 A、B 再取消 B 时会发出 "…@访谈@B")
       return
     }
 
     // 技能取消:删对应胶囊后,用 validTrigger 在删后 doc 上校验并精确删 @query
-    // (老正则估算会被中间 mention 的空文本带偏起点、误删胶囊),setMeta null 关浮窗
-    const tv = validTrigger(tr1.doc, trigger)
+    // (老正则估算会被中间 mention 的空文本带偏起点、误删胶囊),setMeta null 关浮窗。
+    // 坐标先过 mapping:被删胶囊在 @query 之前时 trigger.from/to 已漂移,不映射会校验失败 → @query 残留
+    const mapped =
+      trigger && tr1.docChanged
+        ? { ...trigger, from: tr1.mapping.map(trigger.from), to: tr1.mapping.map(trigger.to) }
+        : trigger
+    const tv = validTrigger(tr1.doc, mapped)
     if (tv) tr1.delete(tv.from, tv.to)
     tr1.setMeta(mentionTriggerKey, null)
     v.dispatch(tr1)
