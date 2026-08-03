@@ -5237,7 +5237,8 @@
       },
       "children": [
         "tabsRowDisabledLabel",
-        "tabsDisabled"
+        "tabsDisabled",
+        "tabsDisabledCard"
       ]
     },
     {
@@ -5290,6 +5291,50 @@
         "label": "可用",
         "icon": "settings",
         "content": "这是另一个可用的标签页内容。"
+      }
+    },
+    {
+      "id": "tabsDisabledCard",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "tab1",
+        "types": "card"
+      },
+      "children": [
+        "tabDisabledCard1",
+        "tabDisabledCard2",
+        "tabDisabledCard3"
+      ]
+    },
+    {
+      "id": "tabDisabledCard1",
+      "component": "TabItem",
+      "props": {
+        "key": "tab1",
+        "label": "可用",
+        "icon": "home",
+        "content": "这是卡片形态可用的标签页内容。"
+      }
+    },
+    {
+      "id": "tabDisabledCard2",
+      "component": "TabItem",
+      "props": {
+        "key": "tab2",
+        "label": "禁用",
+        "disabled": true,
+        "icon": "file",
+        "content": "这是卡片形态禁用的标签页内容。"
+      }
+    },
+    {
+      "id": "tabDisabledCard3",
+      "component": "TabItem",
+      "props": {
+        "key": "tab3",
+        "label": "可用",
+        "icon": "settings",
+        "content": "这是卡片形态另一个可用的标签页内容。"
       }
     },
     {
