@@ -23,7 +23,15 @@ type StudioResultCardProps = {
 function StudioMediaPreview(props: { image: StudioImage }) {
   return (
     <Show when={isVideoMedia(props.image)} fallback={
-      <img src={props.image.thumbnailUrl ?? props.image.url} class="studio-result-thumb-media" alt="" />
+      <img
+        src={props.image.thumbnailUrl ?? props.image.url}
+        class="studio-result-thumb-media"
+        alt=""
+        onDragStart={(event) => {
+          event.dataTransfer?.setData("application/x-octo-studio-image", props.image.remoteUrl ?? props.image.url)
+          if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy"
+        }}
+      />
     }>
       <video
         src={props.image.remoteUrl ?? props.image.url}

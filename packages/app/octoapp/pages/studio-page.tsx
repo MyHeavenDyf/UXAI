@@ -1780,9 +1780,9 @@ export default function StudioPage() {
     return "last"
   }
 
-  async function addVideoFrameAsset(asset: StudioAsset) {
+  async function addVideoFrameAsset(asset: StudioAsset, slot: StudioVideoFrameSlot = nextVideoFrameSlot()) {
     await validateVideoFrameAsset(asset)
-    setVideoFrames(nextVideoFrameSlot(), asset)
+    setVideoFrames(slot, asset)
   }
 
   function useConversationInputImage(url: string) {
@@ -1858,6 +1858,23 @@ export default function StudioPage() {
       return
     }
     addAssets(files.filter((file) => file.type.startsWith("image/")))
+  }
+
+  function handleDropFiles(files: File[], slot?: StudioVideoFrameSlot) {
+    if (capability() === "video.generate") {
+      addVideoFrame(slot ?? nextVideoFrameSlot(), files)
+      return
+    }
+    addAssets(files)
+  }
+
+  function handleDropImageUrl(url: string, slot?: StudioVideoFrameSlot) {
+    if (capability() !== "image.generate" && capability() !== "video.generate") return
+    inputImageAssetFromUrl(url)
+      .then((asset) => capability() === "video.generate" ? addVideoFrameAsset(asset, slot) : addReferenceAsset(asset))
+      .catch((error) => {
+        showFloatingNotice("error", `上传失败：${error instanceof Error ? error.message : String(error)}`)
+      })
   }
 
   function uploadWorkspaceImage(files: File[]) {
@@ -3647,6 +3664,8 @@ export default function StudioPage() {
                     videoFrameInputRef.click()
                   }}
                   onPasteImage={handlePasteReferenceImage}
+                  onDropFiles={handleDropFiles}
+                  onDropImageUrl={handleDropImageUrl}
                   onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
                   onRemoveVideoFrame={(slot) => setVideoFrames(slot, undefined)}
                   onSwapVideoFrames={() => replaceVideoFrames({ first: videoFrames.last, last: videoFrames.first })}
@@ -3843,6 +3862,8 @@ if (!headerTitle.pendingRename) return
               videoFrameInputRef.click()
             }}
             onPasteImage={handlePasteReferenceImage}
+            onDropFiles={handleDropFiles}
+            onDropImageUrl={handleDropImageUrl}
             onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
             onRemoveVideoFrame={(slot) => setVideoFrames(slot, undefined)}
             onSwapVideoFrames={() => replaceVideoFrames({ first: videoFrames.last, last: videoFrames.first })}
