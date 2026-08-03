@@ -131,6 +131,7 @@ const currentValue = ref(initvalue.value)
 
 const block = computed(() => properties.block || false)
 const direction = computed(() => properties.orientation || "horizontal")
+const disabled = computed(() => (resolveValue(properties.disabled) as boolean) || false)
 
 const handleChange = (val: string | number) => {
   const raw = properties.value
@@ -149,6 +150,7 @@ const handleChange = (val: string | number) => {
     :options="resolvedOptions"
     :direction
     :size="size"
+    :disabled="disabled"
     :block="block"
     @update:model-value="handleChange">
     <template #default="{ item }">

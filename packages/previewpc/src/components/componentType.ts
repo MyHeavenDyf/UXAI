@@ -372,6 +372,7 @@ interface ResolvedSegmented {
   block?: boolean;
   orientation?: "vertical" | "horizontal";
   size?: "large" | "medium" | "small";
+  disabled?: DynamicBoolean;
   className?: string;
 }
 interface SegmentedNode extends AnyComponentNode<ResolvedSegmented> {
