@@ -210,7 +210,7 @@ function MakeContent() {
       api.getAssetsConfig()
         .then((data) => {
           const config = data as AssetsConfig
-          if (config?.user?.isRemember === true) {
+          if (config?.user) {
             const designSpec = config.user.designSpec
             const placeholder = config.user.placeholder
             if (designSpec && typeof designSpec === 'string') {
