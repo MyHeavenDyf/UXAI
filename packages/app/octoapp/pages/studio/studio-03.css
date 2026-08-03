@@ -292,12 +292,16 @@
 /* ── 横构图：图片高度随宽度收缩，卡片与预览区不再保留固定最小高度，避免窄窗口下大量留白 ── */
 
 .studio-result-card:has(.studio-result-grid.single-landscape),
-.studio-result-card:has(.studio-result-grid.multi-landscape) {
+.studio-result-card:has(.studio-result-grid.multi-landscape),
+.studio-result-card:has(.studio-result-grid.single-1x1),
+.studio-result-card:has(.studio-result-grid.multi-1x1) {
   min-height: 0;
 }
 
 .studio-result-card:has(.studio-result-grid.single-landscape) .studio-result-progress-preview,
-.studio-result-card:has(.studio-result-grid.multi-landscape) .studio-result-progress-preview {
+.studio-result-card:has(.studio-result-grid.multi-landscape) .studio-result-progress-preview,
+.studio-result-card:has(.studio-result-grid.single-1x1) .studio-result-progress-preview,
+.studio-result-card:has(.studio-result-grid.multi-1x1) .studio-result-progress-preview {
   min-height: 0;
 }
 
@@ -327,10 +331,9 @@
   object-fit: contain;
 }
 
-/* ── 单张 1:1：居中显示 ── */
+/* ── 单张 1:1：宽度铺满、高度跟随图片，最大 180px ── */
 
 .studio-result-grid.single-1x1 {
-  height: 180px;
   align-items: center;
   justify-content: center;
   overflow-x: hidden;
@@ -340,23 +343,23 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 180px;
-  min-width: 180px;
-  height: 180px;
-  background: #f7f7f7;
+  width: 100%;
+  height: auto;
+  max-height: 180px;
+  min-width: unset;
   box-shadow: none;
 }
 
 .studio-result-grid.single-1x1 .studio-result-thumb img,
 .studio-result-grid.single-1x1 .studio-result-thumb video,
 .studio-result-grid.single-1x1 .studio-result-thumb-media {
-  width: auto;
+  width: 100%;
   height: auto;
-  max-width: 100%;
-  max-height: 100%;
+  max-height: 180px;
+  object-fit: contain;
 }
 
-/* ── 多张 1:1：等分宽度、间距 4px ── */
+/* ── 多张 1:1：等分宽度、高度跟随图片，最大 180px、间距 4px ── */
 
 .studio-result-grid.multi-1x1 {
   gap: 4px;
@@ -369,19 +372,17 @@
   justify-content: center;
   flex: 1;
   min-width: 0;
-  height: 180px;
-  background: #f7f7f7;
+  height: auto;
+  max-height: 180px;
   box-shadow: none;
 }
 
 .studio-result-grid.multi-1x1 .studio-result-thumb img,
 .studio-result-grid.multi-1x1 .studio-result-thumb video,
 .studio-result-grid.multi-1x1 .studio-result-thumb-media {
-  width: auto;
+  width: 100%;
   height: auto;
-  max-width: 100%;
-  max-height: 100%;
-  aspect-ratio: 1 / 1;
+  max-height: 180px;
   object-fit: contain;
 }
 
@@ -775,6 +776,10 @@
   flex-wrap: wrap;
   gap: 32px;
   margin-top: 8px;
+}
+
+.studio-filter-section:nth-child(1) .studio-filter-section-options {
+  gap: clamp(4px, 2vw, 32px);
 }
 
 .studio-filter-section:nth-child(2) .studio-filter-section-options {
