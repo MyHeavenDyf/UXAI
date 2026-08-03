@@ -95,3 +95,21 @@ export function validTrigger(doc: PMNode, t: MentionTriggerState | null): Mentio
   if (t.from < 0 || t.to > doc.content.size) return null
   return doc.textBetween(t.from, t.to) === `@${t.query}` ? t : null
 }
+
+/**
+ * 从 @query 末尾(trigger.to)起向后跳过连续的 mention + 配对单空格,返回下一个胶囊的插入位点。
+ * 扫描法不维护可变计数器,每次插入前现算 —— 永远落在已有胶囊序列末尾,
+ * 对 query 变化 / deselect / undo-redo 全免疫。配对空格是插入时补的,undo 掉了就停在 mention 后。
+ */
+export function nextInsertPos(doc: PMNode, trigger: MentionTriggerState): number {
+  let pos = trigger.to
+  let after = doc.resolve(pos).nodeAfter
+  while (after && after.type.name === "mention") {
+    pos += after.nodeSize
+    const space = doc.resolve(pos).nodeAfter
+    if (space && space.isText && space.text === " ") pos += space.nodeSize
+    else break
+    after = doc.resolve(pos).nodeAfter
+  }
+  return pos
+}

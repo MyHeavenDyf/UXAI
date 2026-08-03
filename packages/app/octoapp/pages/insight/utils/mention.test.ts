@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { splitMentions, queuedMentions, buildParagraphs, validTrigger } from "./mention"
+import { splitMentions, queuedMentions, buildParagraphs, validTrigger, nextInsertPos } from "./mention"
 import { getDocTextWithMentions, editorSchema, type MentionAttrs } from "../components/prosemirror-editor/schema"
 import type { MentionTriggerState } from "../components/prosemirror-editor/plugins/mention-trigger"
 import type { MentionSelection } from "../components/mention-popover"
@@ -189,5 +189,38 @@ describe("validTrigger", () => {
   test("null trigger 返回 null", () => {
     const doc = editorSchema.node("doc", null, [p(t("@访谈"))])
     expect(validTrigger(doc, null)).toBeNull()
+  })
+})
+
+// 多选插入位点:扫描法从 @query 末尾起跳过连续 mention + 配对空格,落在序列末尾。
+// 不维护可变计数器 —— 对 query 变化 / deselect / undo 全免疫,这是倒序 bug 的根治点
+describe("nextInsertPos", () => {
+  const t = (s: string) => editorSchema.text(s)
+  const m = (name: string) =>
+    editorSchema.nodes.mention.create({ id: name, name, type: "file", label: name, path: `/p/${name}` })
+  const p = (...c: ReturnType<typeof t>[]) => editorSchema.node("paragraph", null, c)
+  const trig = (to: number): MentionTriggerState => ({ active: true, from: 1, to, query: "" })
+
+  // para: @, mA, " ", mB, " " → pos:1=@,2=mA,3=space,4=mB,5=space,6=para content end;to=2
+  test("同 query 连选:跳过已有 mention+空格到序列末尾(正序)", () => {
+    const doc = editorSchema.node("doc", null, [p(t("@"), m("A"), t(" "), m("B"), t(" "))])
+    expect(nextInsertPos(doc, trig(2))).toBe(6)
+  })
+
+  // para: @xy, mA, " " → pos:1=@,2=x,3=y,4=mA,5=space,6=end;to=4(改 query 补字后,mA 仍在 to 之后)
+  test("改 query 后再选:to 已前移,仍跳过已有胶囊到末尾(不退回 to 致倒序)", () => {
+    const doc = editorSchema.node("doc", null, [p(t("@xy"), m("A"), t(" "))])
+    expect(nextInsertPos(doc, trig(4))).toBe(6)
+  })
+
+  // para: @, mB, " " → pos:1=@,2=mB,3=space,4=end;to=2(deselect 删掉 mA 后只剩 mB)
+  test("deselect 后再选:跳过剩余胶囊到末尾,不受残留影响", () => {
+    const doc = editorSchema.node("doc", null, [p(t("@"), m("B"), t(" "))])
+    expect(nextInsertPos(doc, trig(2))).toBe(4)
+  })
+
+  test("无已选胶囊:返回 trigger.to 本身", () => {
+    const doc = editorSchema.node("doc", null, [p(t("@"))])
+    expect(nextInsertPos(doc, trig(2))).toBe(2)
   })
 })

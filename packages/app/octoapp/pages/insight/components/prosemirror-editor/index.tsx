@@ -3,7 +3,7 @@ import { Portal } from "solid-js/web"
 import { EditorState, Transaction, TextSelection } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
 import { Slice, Fragment } from "prosemirror-model"
-import { buildParagraphs, validTrigger } from "../../utils/mention"
+import { buildParagraphs, validTrigger, nextInsertPos } from "../../utils/mention"
 import { history, undo, redo } from "prosemirror-history"
 import { keymap } from "prosemirror-keymap"
 import { baseKeymap } from "prosemirror-commands"
@@ -67,10 +67,12 @@ export function ProseMirrorEditor(props: Props) {
   // 不能拿 triggerState 的 active 当判据 —— 点面板外关闭只置空了本地 state,文本里的 @query 还在,
   // 之后每敲一个字插件都会判成「由关到开」再报一次。以 @ 触发文本真正消失(插件回调传 null)为重置点。
   let openReported = false
-  // 多选模式:本轮是否插入过文件胶囊(决定关闭时是否清理 @query)与下一次插入位点(正序累积)
+  // 多选模式:本轮是否插入过文件胶囊(决定关闭时是否清理 @query)。插入位点不维护可变计数器,
+  // 每次插入前用 nextInsertPos(doc, trigger) 现算 —— 对 query 变化 / deselect / undo 全免疫
   let insertedThisRound = false
-  let fileInsertPos: number | null = null
-  let lastFileTriggerTo: number | null = null
+  const resetRound = () => {
+    insertedThisRound = false
+  }
   const mentionTriggerPlugin = createMentionTriggerPlugin((state) => {
     const prev = triggerState()
     setTriggerState(state)
@@ -87,9 +89,7 @@ export function ProseMirrorEditor(props: Props) {
       if (v && tv && insertedThisRound && tv.to !== v.state.selection.from) {
         v.dispatch(v.state.tr.delete(tv.from, tv.to))
       }
-      insertedThisRound = false
-      fileInsertPos = null
-      lastFileTriggerTo = null
+      resetRound()
     }
     if (!state?.active) {
       openReported = false
@@ -215,9 +215,7 @@ export function ProseMirrorEditor(props: Props) {
     const trigger = v ? validTrigger(v.state.doc, triggerState()) : null
     const clearQuery = insertedThisRound && !!trigger
     setTriggerState(null)
-    insertedThisRound = false
-    fileInsertPos = null
-    lastFileTriggerTo = null
+    resetRound()
     if (v) {
       const tr = v.state.tr.setMeta(mentionTriggerKey, null)
       if (clearQuery && trigger) tr.delete(trigger.from, trigger.to)
@@ -253,17 +251,13 @@ export function ProseMirrorEditor(props: Props) {
     // 文件走多选:在 @query 后(光标处)插入胶囊,保留 @query 与浮窗以继续选择下一项;
     // 技能走单选:把 @query 替换成胶囊并关闭浮窗。
     if (selection.type === "file") {
-      // 维护递增插入位点让胶囊按选择顺序正排,并在胶囊间补空格分隔(否则发给模型的文本会粘连)
-      if (lastFileTriggerTo !== trigger.to) {
-        fileInsertPos = null
-        lastFileTriggerTo = trigger.to
-      }
-      const insertAt = fileInsertPos ?? trigger.to
+      // 插入位点用扫描法现算:从 trigger.to 起跳过已有 mention + 配对空格,落在序列末尾
+      // (对 query 变化 / deselect / undo 免疫,不依赖可变计数器);胶囊间补空格分隔避免粘连
+      const insertAt = nextInsertPos(v.state.doc, trigger)
       const tr = v.state.tr.insert(insertAt, node)
       tr.insert(insertAt + node.nodeSize, editorSchema.text(" "))
       tr.setSelection(TextSelection.create(tr.doc, trigger.to))
       v.dispatch(tr)
-      fileInsertPos = insertAt + node.nodeSize + 1
       insertedThisRound = true
       v.focus()
       props.onMentionSelect?.(selection)
@@ -286,34 +280,39 @@ export function ProseMirrorEditor(props: Props) {
     const trigger = triggerState()
 
     // 收集要删的胶囊(原 doc 坐标)倒序删除,避免累积 delete 致后续节点位置漂移;
-    // 文件按 name+path 区分,避免同名不同目录被一起删
-    const hits: Array<{ pos: number; size: number }> = []
+    // 文件按 name+path 区分,避免同名不同目录被一起删;同时删 mention 后配对的空格,避免残留致扫描位点错乱
+    const hits: Array<{ pos: number; end: number }> = []
     v.state.doc.descendants((node, pos) => {
       if (node.type.name !== "mention" || node.attrs.name !== name) return
       if (selection.type === "file" ? node.attrs.path !== path : node.attrs.type !== "skill") return
-      hits.push({ pos, size: node.nodeSize })
+      let end = pos + node.nodeSize
+      const after = v.state.doc.resolve(end).nodeAfter
+      if (after && after.isText && after.text === " ") end += after.nodeSize
+      hits.push({ pos, end })
     })
     const tr1 = v.state.tr
-    for (let i = hits.length - 1; i >= 0; i--) tr1.delete(hits[i].pos, hits[i].pos + hits[i].size)
-    if (tr1.docChanged) v.dispatch(tr1)
+    for (let i = hits.length - 1; i >= 0; i--) tr1.delete(hits[i].pos, hits[i].end)
 
     if (selection.type === "file") {
-      // 用 mapping 把 trigger.to 映射到删胶囊后的新位置,避免胶囊在 @query 之前时位置偏移致越界
+      if (tr1.docChanged) v.dispatch(tr1)
+      // 用 mapping 把 trigger.to 映射到删胶囊后的新位置,TextSelection.near 取就近的合法 inline 位点
       if (trigger) {
         const mappedTo = tr1.docChanged ? tr1.mapping.map(trigger.to) : trigger.to
-        const target = Math.min(Math.max(mappedTo, 0), v.state.doc.content.size)
-        v.dispatch(v.state.tr.setSelection(TextSelection.create(v.state.doc, target)))
+        const safe = Math.min(Math.max(mappedTo, 0), v.state.doc.content.size)
+        v.dispatch(v.state.tr.setSelection(TextSelection.near(v.state.doc.resolve(safe))))
       }
-      fileInsertPos = null
+      resetRound()
       return
     }
 
-    const { from } = v.state.selection
-    const textBefore = v.state.doc.textBetween(Math.max(0, from - 50), from)
-    const match = textBefore.match(/@([^\s@]*)$/)
-    if (match) v.dispatch(v.state.tr.delete(from - match[0].length, from))
-
+    // 技能取消:删对应胶囊后,用 validTrigger 在删后 doc 上校验并精确删 @query
+    // (老正则估算会被中间 mention 的空文本带偏起点、误删胶囊),setMeta null 关浮窗
+    const tv = validTrigger(tr1.doc, trigger)
+    if (tv) tr1.delete(tv.from, tv.to)
+    tr1.setMeta(mentionTriggerKey, null)
+    v.dispatch(tr1)
     setTriggerState(null)
+    resetRound()
   }
 
   return (
