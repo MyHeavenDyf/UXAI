@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
-import { splitMentions, queuedMentions, buildParagraphs } from "./mention"
+import { splitMentions, queuedMentions, buildParagraphs, validTrigger } from "./mention"
 import { getDocTextWithMentions, editorSchema, type MentionAttrs } from "../components/prosemirror-editor/schema"
+import type { MentionTriggerState } from "../components/prosemirror-editor/plugins/mention-trigger"
 import type { MentionSelection } from "../components/mention-popover"
 
 const skill = (name: string): MentionSelection => ({ type: "skill", name, label: name })
@@ -154,5 +155,39 @@ describe("buildParagraphs", () => {
   test("CRLF 与 CR 也按行拆", () => {
     expect(buildParagraphs("a\r\nb", [])).toHaveLength(2)
     expect(buildParagraphs("a\rb", [])).toHaveLength(2)
+  })
+})
+
+// trigger 的 from/to 不随文档位移 map(@query 之前有删除/插入时坐标会失效),
+// 所有拿这对坐标做 delete/insert 的路径都靠 validTrigger 守卫,防越界与误删
+describe("validTrigger", () => {
+  const t = (s: string) => editorSchema.text(s)
+  const p = (...c: ReturnType<typeof t>[]) => editorSchema.node("paragraph", null, c)
+  const trig = (from: number, to: number, query: string): MentionTriggerState => ({ active: true, from, to, query })
+
+  test("区间文本仍是 @query 时通过", () => {
+    const doc = editorSchema.node("doc", null, [p(t("@访谈"))])
+    expect(validTrigger(doc, trig(1, 4, "访谈"))).toEqual(trig(1, 4, "访谈"))
+  })
+
+  test("to 越界返回 null", () => {
+    const doc = editorSchema.node("doc", null, [p(t("@访谈"))])
+    expect(validTrigger(doc, trig(1, 99, "访谈"))).toBeNull()
+  })
+
+  test("区间被 mention 胶囊占据(textBetween 为空)返回 null", () => {
+    const m = editorSchema.nodes.mention.create({ id: "x", name: "访谈", type: "skill", label: "访谈", path: "" })
+    const doc = editorSchema.node("doc", null, [p(m)])
+    expect(validTrigger(doc, trig(1, 2, "访谈"))).toBeNull()
+  })
+
+  test("@query 之前插入文本致坐标漂移,区间不再是 @query 返回 null", () => {
+    const doc = editorSchema.node("doc", null, [p(t("前缀@访谈"))])
+    expect(validTrigger(doc, trig(1, 4, "访谈"))).toBeNull()
+  })
+
+  test("null trigger 返回 null", () => {
+    const doc = editorSchema.node("doc", null, [p(t("@访谈"))])
+    expect(validTrigger(doc, null)).toBeNull()
   })
 })

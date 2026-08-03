@@ -1,6 +1,7 @@
 import type { Node as PMNode } from "prosemirror-model"
 import type { MentionSelection } from "../components/mention-popover"
 import { editorSchema, type MentionAttrs } from "../components/prosemirror-editor/schema"
+import type { MentionTriggerState } from "../components/prosemirror-editor/plugins/mention-trigger"
 import type { QueuedSend } from "./send-queue"
 
 /**
@@ -82,4 +83,15 @@ export function buildParagraphs(text: string, mentions: MentionAttrs[]): PMNode[
     if (buf) inline.push(editorSchema.text(buf))
     return editorSchema.nodes.paragraph.create(null, inline)
   })
+}
+
+/**
+ * 校验 trigger 的 from/to 在当前 doc 仍是真实的 @query 区间。
+ * mention-trigger 插件的 from/to 不随文档位移 map(@query 之前有删除/插入时坐标会失效),
+ * 凡要拿这对坐标做 delete / insert 前都先过这道守卫,避免越界或删错内容。
+ */
+export function validTrigger(doc: PMNode, t: MentionTriggerState | null): MentionTriggerState | null {
+  if (!t) return null
+  if (t.from < 0 || t.to > doc.content.size) return null
+  return doc.textBetween(t.from, t.to) === `@${t.query}` ? t : null
 }
