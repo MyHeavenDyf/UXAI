@@ -344,10 +344,28 @@ export function ActionBar(props: {
   }): JSX.Element {
   async function handleDownload() {
     tracker.interaction({ module: "design", name: "download-file", extend: JSON.stringify({ type: props.tab.type }) })
+    
     if (props.tab.type === "deck") {
       exportDeckAsPDF(props.tab.content, props.tab.title)
       return
     }
+    
+    const api = getDesktopApi()
+    const supportedTypes = ["html", "svg", "image", "video", "audio", "pdf", "text"]
+    
+    if (props.tab.filePath && supportedTypes.includes(props.tab.type) && api?.saveFilePicker && api?.readFileBuffer && api?.writeFileBuffer) {
+      const chosen = await api.saveFilePicker({ defaultPath: props.tab.title })
+      if (!chosen) return
+      const buffer = await api.readFileBuffer(props.tab.filePath)
+      if (!buffer) {
+        showToast({ title: "读取文件失败", variant: "error" })
+        return
+      }
+      await api.writeFileBuffer(chosen, buffer)
+      showToast({ title: "已保存" })
+      return
+    }
+    
     const info = getDownloadInfo(props.tab)
     const content = extractDownloadContent(props.tab)
     await downloadBlob(content, info.filename, info.mime)
