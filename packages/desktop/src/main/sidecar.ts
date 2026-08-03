@@ -1,6 +1,3 @@
-import { existsSync, readFileSync } from "node:fs"
-import { homedir } from "node:os"
-import { join } from "node:path"
 import { drizzle } from "drizzle-orm/node-sqlite/driver"
 import * as http from "node:http"
 import * as tls from "node:tls"
@@ -149,30 +146,6 @@ function useSystemCertificates() {
 }
 
 function useEnvProxy() {
-  // sidecar 是独立 utility process，其 process.env 由 createSidecarEnv() 从主进程 env 快照生成，
-  // 不继承主进程后续(useEnvProxy 之后)写入的代理变量，也不读取 ~/.config/octo/proxy_config.json。
-  // 因此在 `setGlobalProxyFromEnv()` 前，先主动把 proxy_config.json 里的代理注入到 sidecar 自身 env。
-  //
-  // 仅 macOS 生效：主进程注入的 proxy 在 macOS 会被 preferAppEnv/loadShellEnv(shell 探测) 覆盖，
-  // 导致重启后配置丢失；Windows/Linux 不走该覆盖路径，主进程注入已足以生效，无需重复注入。
-  if (process.platform === "darwin") {
-    try {
-      const xdgConfig = process.env.XDG_CONFIG_HOME || join(homedir(), ".config")
-      const configFile = join(xdgConfig, "octo", "proxy_config.json")
-      if (existsSync(configFile)) {
-        const config = JSON.parse(readFileSync(configFile, "utf-8")) as Record<string, string | undefined>
-        for (const key of ["http_proxy", "https_proxy", "no_proxy"]) {
-          const value = config[key]
-          if (!value) continue
-          process.env[key] = value
-          process.env[key.toUpperCase()] = value
-        }
-      }
-    } catch (error) {
-      console.warn("failed to load octo proxy config", error)
-    }
-  }
-
   try {
     ;(http as NodeHttpWithEnvProxy).setGlobalProxyFromEnv()
   } catch (error) {
