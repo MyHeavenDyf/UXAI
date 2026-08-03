@@ -22,6 +22,7 @@
         "icon": "calendar-range"
       }
     ],
+    "checkboxChecked": true,
     "checkboxValues": [
       "option1",
       "option3"
@@ -497,7 +498,8 @@
         "buttonRowColors",
         "buttonRowSizes",
         "buttonRowTypes",
-        "buttonRowIcons"
+        "buttonRowIcons",
+        "buttonRowDisabled"
       ]
     },
     {
@@ -744,6 +746,46 @@
         "color": "primary",
         "shape": "circle",
         "size": "small"
+      }
+    },
+    {
+      "id": "buttonRowDisabled",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "buttonRowDisabledLabel",
+        "buttonRowDisabledContent"
+      ]
+    },
+    {
+      "id": "buttonRowDisabledLabel",
+      "component": "span",
+      "props": {
+        "value": "禁用状态",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "buttonRowDisabledContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "btnDisabledIcon"
+      ]
+    },
+    {
+      "id": "btnDisabledIcon",
+      "component": "Button",
+      "props": {
+        "value": "搜索",
+        "icon": "search",
+        "iconPlacement": "start",
+        "color": "primary",
+        "disabled": true
       }
     },
     {
@@ -2400,6 +2442,7 @@
       },
       "children": [
         "sectionDataEntryTitle",
+        "checkboxCard",
         "checkboxGroupCard",
         "radioGroupCard",
         "datePickerCard",
@@ -2422,6 +2465,173 @@
       }
     },
     {
+      "id": "checkboxCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "checkboxCardTitle",
+        "checkboxRowDefault",
+        "checkboxRowDisabled",
+        "checkboxRowIndeterminate"
+      ]
+    },
+    {
+      "id": "checkboxCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Checkbox 复选框",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "checkboxRowDefault",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "checkboxRowDefaultLabel",
+        "checkboxRowDefaultContent"
+      ]
+    },
+    {
+      "id": "checkboxRowDefaultLabel",
+      "component": "span",
+      "props": {
+        "value": "基础用法",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "checkboxRowDefaultContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 flex-wrap"
+      },
+      "children": [
+        "checkboxDefault",
+        "checkboxChecked"
+      ]
+    },
+    {
+      "id": "checkboxDefault",
+      "component": "Checkbox",
+      "props": {
+        "label": "未选中",
+        "checked": false
+      }
+    },
+    {
+      "id": "checkboxChecked",
+      "component": "Checkbox",
+      "props": {
+        "label": "已选中",
+        "checked": {
+          "type": "state",
+          "path": "checkboxChecked"
+        }
+      }
+    },
+    {
+      "id": "checkboxRowDisabled",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "checkboxRowDisabledLabel",
+        "checkboxRowDisabledContent"
+      ]
+    },
+    {
+      "id": "checkboxRowDisabledLabel",
+      "component": "span",
+      "props": {
+        "value": "禁用状态",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "checkboxRowDisabledContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 flex-wrap"
+      },
+      "children": [
+        "checkboxDisabledOff",
+        "checkboxDisabledOn"
+      ]
+    },
+    {
+      "id": "checkboxDisabledOff",
+      "component": "Checkbox",
+      "props": {
+        "label": "禁用-未选中",
+        "checked": false,
+        "disabled": true
+      }
+    },
+    {
+      "id": "checkboxDisabledOn",
+      "component": "Checkbox",
+      "props": {
+        "label": "禁用-已选中",
+        "checked": true,
+        "disabled": true
+      }
+    },
+    {
+      "id": "checkboxRowIndeterminate",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "checkboxRowIndeterminateLabel",
+        "checkboxRowIndeterminateContent"
+      ]
+    },
+    {
+      "id": "checkboxRowIndeterminateLabel",
+      "component": "span",
+      "props": {
+        "value": "半选状态",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "checkboxRowIndeterminateContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 flex-wrap"
+      },
+      "children": [
+        "checkboxIndeterminate",
+        "checkboxIndeterminateDisabled"
+      ]
+    },
+    {
+      "id": "checkboxIndeterminate",
+      "component": "Checkbox",
+      "props": {
+        "label": "半选",
+        "checked": false,
+        "indeterminate": true
+      }
+    },
+    {
+      "id": "checkboxIndeterminateDisabled",
+      "component": "Checkbox",
+      "props": {
+        "label": "半选-禁用",
+        "checked": false,
+        "indeterminate": true,
+        "disabled": true
+      }
+    },
+    {
       "id": "checkboxGroupCard",
       "component": "div",
       "props": {
@@ -2429,7 +2639,9 @@
       },
       "children": [
         "checkboxGroupCardTitle",
-        "checkboxGroupRow"
+        "checkboxGroupRow",
+        "checkboxGroupRowDisabled",
+        "checkboxGroupRowIndeterminate"
       ]
     },
     {
@@ -2481,6 +2693,112 @@
             "value": "option3"
           }
         ]
+      }
+    },
+    {
+      "id": "checkboxGroupRowDisabled",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "checkboxGroupRowDisabledLabel",
+        "checkboxGroupRowDisabledContent"
+      ]
+    },
+    {
+      "id": "checkboxGroupRowDisabledLabel",
+      "component": "span",
+      "props": {
+        "value": "禁用状态",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "checkboxGroupRowDisabledContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 flex-wrap"
+      },
+      "children": [
+        "checkboxGroupDisabled"
+      ]
+    },
+    {
+      "id": "checkboxGroupDisabled",
+      "component": "CheckboxGroup",
+      "props": {
+        "value": [
+          "option1"
+        ],
+        "options": [
+          {
+            "label": "选项一",
+            "value": "option1"
+          },
+          {
+            "label": "选项二",
+            "value": "option2"
+          },
+          {
+            "label": "选项三",
+            "value": "option3"
+          }
+        ],
+        "disabled": true
+      }
+    },
+    {
+      "id": "checkboxGroupRowIndeterminate",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "checkboxGroupRowIndeterminateLabel",
+        "checkboxGroupRowIndeterminateContent"
+      ]
+    },
+    {
+      "id": "checkboxGroupRowIndeterminateLabel",
+      "component": "span",
+      "props": {
+        "value": "半选状态",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "checkboxGroupRowIndeterminateContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 flex-wrap"
+      },
+      "children": [
+        "checkboxGroupIndeterminate"
+      ]
+    },
+    {
+      "id": "checkboxGroupIndeterminate",
+      "component": "CheckboxGroup",
+      "props": {
+        "value": [
+          "option1"
+        ],
+        "options": [
+          {
+            "label": "选项一",
+            "value": "option1"
+          },
+          {
+            "label": "选项二",
+            "value": "option2"
+          },
+          {
+            "label": "选项三",
+            "value": "option3"
+          }
+        ],
+        "indeterminate": true
       }
     },
     {
@@ -2693,7 +3011,8 @@
         "datePickerCardTitle",
         "datePickerRowSingle",
         "datePickerRowRange",
-        "datePickerRowSizes"
+        "datePickerRowSizes",
+        "datePickerRowDisabled"
       ]
     },
     {
@@ -2822,6 +3141,45 @@
         "value": "2026-06-23",
         "size": "small",
         "placeholder": "小尺寸"
+      }
+    },
+    {
+      "id": "datePickerRowDisabled",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "datePickerRowDisabledLabel",
+        "datePickerRowDisabledContent"
+      ]
+    },
+    {
+      "id": "datePickerRowDisabledLabel",
+      "component": "span",
+      "props": {
+        "value": "禁用状态",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "datePickerRowDisabledContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 flex-wrap"
+      },
+      "children": [
+        "datePickerDisabled"
+      ]
+    },
+    {
+      "id": "datePickerDisabled",
+      "component": "DatePicker",
+      "props": {
+        "value": "2026-06-23",
+        "placeholder": "请选择日期",
+        "format": "YYYY-MM-DD",
+        "disabled": true
       }
     },
     {
@@ -3134,7 +3492,8 @@
       "children": [
         "timePickerCardTitle",
         "timePickerRowDefault",
-        "timePickerRowRange"
+        "timePickerRowRange",
+        "timePickerRowDisabled"
       ]
     },
     {
@@ -3204,6 +3563,44 @@
           "开始时间",
           "结束时间"
         ]
+      }
+    },
+    {
+      "id": "timePickerRowDisabled",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "timePickerRowDisabledLabel",
+        "timePickerRowDisabledContent"
+      ]
+    },
+    {
+      "id": "timePickerRowDisabledLabel",
+      "component": "span",
+      "props": {
+        "value": "禁用状态",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "timePickerRowDisabledContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 flex-wrap"
+      },
+      "children": [
+        "timePickerDisabled"
+      ]
+    },
+    {
+      "id": "timePickerDisabled",
+      "component": "TimePicker",
+      "props": {
+        "value": "14:30:00",
+        "placeholder": "请选择时间",
+        "disabled": true
       }
     },
     {
@@ -3562,7 +3959,8 @@
         "switchCardTitle",
         "switchRowDefault",
         "switchRowText",
-        "switchRowIcon"
+        "switchRowIcon",
+        "switchRowDisabled"
       ]
     },
     {
@@ -3671,6 +4069,52 @@
         "value": true,
         "checkedChildrenIcon": "check",
         "unCheckedChildrenIcon": "x"
+      }
+    },
+    {
+      "id": "switchRowDisabled",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "switchRowDisabledLabel",
+        "switchRowDisabledContent"
+      ]
+    },
+    {
+      "id": "switchRowDisabledLabel",
+      "component": "span",
+      "props": {
+        "value": "禁用状态",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "switchRowDisabledContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 flex-wrap"
+      },
+      "children": [
+        "switchDisabledOn",
+        "switchDisabledOff"
+      ]
+    },
+    {
+      "id": "switchDisabledOn",
+      "component": "Switch",
+      "props": {
+        "value": true,
+        "disabled": true
+      }
+    },
+    {
+      "id": "switchDisabledOff",
+      "component": "Switch",
+      "props": {
+        "value": false,
+        "disabled": true
       }
     },
     {
@@ -4049,7 +4493,8 @@
         "tabsRowLineEditable",
         "tabsRowCard",
         "tabsRowEditableCard",
-        "tabsRowSize"
+        "tabsRowSize",
+        "tabsRowDisabled"
       ]
     },
     {
@@ -4118,6 +4563,7 @@
       "props": {
         "key": "tab3",
         "label": "设置",
+        "disabled": true,
         "icon": "settings",
         "content": "这是设置页面的内容，包含各项配置选项。"
       }
@@ -4781,6 +5227,69 @@
         "label": "标签二",
         "icon": "settings",
         "content": "小尺寸分割线标签二内容"
+      }
+    },
+    {
+      "id": "tabsRowDisabled",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tabsRowDisabledLabel",
+        "tabsDisabled"
+      ]
+    },
+    {
+      "id": "tabsRowDisabledLabel",
+      "component": "span",
+      "props": {
+        "value": "禁用状态",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsDisabled",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "tab1",
+        "types": "line"
+      },
+      "children": [
+        "tabDisabled1",
+        "tabDisabled2",
+        "tabDisabled3"
+      ]
+    },
+    {
+      "id": "tabDisabled1",
+      "component": "TabItem",
+      "props": {
+        "key": "tab1",
+        "label": "可用",
+        "icon": "home",
+        "content": "这是可用的标签页内容。"
+      }
+    },
+    {
+      "id": "tabDisabled2",
+      "component": "TabItem",
+      "props": {
+        "key": "tab2",
+        "label": "禁用",
+        "disabled": true,
+        "icon": "file",
+        "content": "这是禁用的标签页内容。"
+      }
+    },
+    {
+      "id": "tabDisabled3",
+      "component": "TabItem",
+      "props": {
+        "key": "tab3",
+        "label": "可用",
+        "icon": "settings",
+        "content": "这是另一个可用的标签页内容。"
       }
     },
     {
