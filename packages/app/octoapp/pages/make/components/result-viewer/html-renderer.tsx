@@ -323,7 +323,24 @@ export function HtmlRenderer(props: {
       }
       
       const comments = savedComments()
-      const htmlContent = extractHtmlContent(props.content)
+      
+      // 从文件系统读取最新 HTML 内容
+      const api = getDesktopApi()
+      let htmlContent: string
+      
+      if (api?.readFileBuffer && props.filePath) {
+        const buffer = await api.readFileBuffer(props.filePath)
+        if (buffer) {
+          const decoder = new TextDecoder('utf-8')
+          htmlContent = decoder.decode(buffer)
+        } else {
+          htmlContent = props.content
+        }
+      } else {
+        htmlContent = props.content
+      }
+      
+      htmlContent = extractHtmlContent(htmlContent)
       
       const zipBlob = await createArchiveZip({
         comments,
