@@ -184,23 +184,69 @@ function FileManagerInner(props: {
   createEffect(on(() => props.refreshKey, () => { void refresh() }, { defer: true }))
 
   // ── 上传 ────────────────────────────────────────────────────────
+  // 大文件完整性:桌面端走 tryStreamUpload(主进程 fs.copyFile 流式拷贝,与 make design-files-panel 同款),
+  // 不把整文件读成 base64 塞进 JSON body。仅在拿不到真实本地路径(剪贴板内存 blob)/ 非桌面端时,
+  // 才回退到下面的 base64 over HTTP。
+
+  // base64 回退通道的大小上限。这条通道会把整个文件读进 JS 堆——ArrayBuffer + binary 中间串 +
+  // base64 串 + JSON body 串,峰值约为文件大小的 3~4 倍——大文件下渲染进程直接 OOM,白屏且连
+  // toast 都弹不出来,比"落盘 0 字节"更难排查。宁可在入口响亮拒绝,也不让它跑到崩。
+  // 注意本函数同时服务文件夹上传(handleFolderUpload / 拖拽文件夹),那条路径目前只有 base64 一种走法。
+  // 待服务端 upload 支持「按源路径复制」后,回退通道不再承载大文件,此上限可撤除。
+  const BASE64_FALLBACK_MAX = 100 * 1024 * 1024 // 100 MB
+
+  // 产出干净 base64(无 data: 前缀),服务端 Buffer.from(..., "base64") 全量解码。
+  // 分块 String.fromCharCode 是为绕开单次调用的参数个数上限,不是为了省内存——内存仍是全量常驻。
   function readFileAsBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const result = reader.result as string
-        resolve(result.split(",")[1] || result)
+    if (file.size > BASE64_FALLBACK_MAX) {
+      return Promise.reject(
+        new Error(
+          `该文件超过 ${formatFileSize(BASE64_FALLBACK_MAX)},无法通过当前方式上传。请先将文件保存到本地磁盘,再从本地拖入或选择上传。`,
+        ),
+      )
+    }
+    return file.arrayBuffer().then((buf) => {
+      const bytes = new Uint8Array(buf)
+      let binary = ""
+      const CHUNK = 0x8000
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
       }
-      reader.onerror = () => reject(reader.error)
-      reader.readAsDataURL(file)
+      return btoa(binary)
     })
+  }
+
+  // 桌面端流式上传:取真实本地路径 → copyFileToSessionUploads(直接 fs.copyFile 进 uploads/[currentPath])。
+  // 返回 true 表示已落地;false 表示不可走流式(非桌面 / 无本地路径),调用方回退 base64。
+  async function tryStreamUpload(file: File, currentPath: string): Promise<boolean> {
+    const api = getDesktopApi()
+    const baseDir = sdk.directory
+    if (
+      !baseDir ||
+      typeof api?.getPathForFile !== "function" ||
+      typeof api?.copyFileToSessionUploads !== "function"
+    ) {
+      return false
+    }
+    let srcPath = ""
+    try {
+      srcPath = api.getPathForFile(file)
+    } catch {
+      // 取不到真实路径(剪贴板内存 blob,无落盘来源)→ 回退 base64
+    }
+    if (!srcPath) return false
+    await api.copyFileToSessionUploads(srcPath, baseDir, props.sessionId, currentPath, file.name)
+    return true
   }
 
   async function uploadSingleFile(file: File) {
     const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
-    const base64 = await readFileAsBase64(file)
     try {
-      await uploadInsightFile(sdk.url, sdk.directory, props.sessionId, file.name, base64, currentPath)
+      const streamed = await tryStreamUpload(file, currentPath)
+      if (!streamed) {
+        const base64 = await readFileAsBase64(file)
+        await uploadInsightFile(sdk.url, sdk.directory, props.sessionId, file.name, base64, currentPath)
+      }
       showToast({ title: "上传完成", description: file.name, variant: "success", duration: 2000 })
       await refresh()
       props.onFilesRefresh?.()
@@ -225,12 +271,14 @@ function FileManagerInner(props: {
     }
     const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
     const fileEntries: InsightFolderUploadFile[] = []
-    for (const file of Array.from(files)) {
-      const relativePath = file.webkitRelativePath.slice(folderName.length + 1)
-      const base64 = await readFileAsBase64(file)
-      fileEntries.push({ relativePath, content: base64 })
-    }
+    // 读取(readFileAsBase64)必须和上传在同一个 try 内:它会因超出回退通道上限而 reject,
+    // 留在 try 外会变成 unhandled rejection —— 用户点了上传却什么提示都没有。
     try {
+      for (const file of Array.from(files)) {
+        const relativePath = file.webkitRelativePath.slice(folderName.length + 1)
+        const base64 = await readFileAsBase64(file)
+        fileEntries.push({ relativePath, content: base64 })
+      }
       const result = await uploadInsightFolder(sdk.url, sdk.directory, props.sessionId, folderName, fileEntries, currentPath)
       showToast({ title: "上传完成", description: `${folderName} (${result.fileCount} 个文件)`, variant: "success", duration: 2000 })
       await refresh()
@@ -306,9 +354,11 @@ function FileManagerInner(props: {
     }
     const reader = dirEntry.createReader()
     const entries = await readAllDirectoryEntries(reader)
-    for (const entry of entries) await collectFiles(entry)
-    if (fileEntries.length === 0) return
+    // 同 handleFolderUpload:collectFiles 内的 readFileAsBase64 会因超上限 reject,
+    // 且这里外层是 handleDrop 的 void processEntries(...),没有任何 catch —— 必须在此收住。
     try {
+      for (const entry of entries) await collectFiles(entry)
+      if (fileEntries.length === 0) return
       const result = await uploadInsightFolder(sdk.url, sdk.directory, props.sessionId, folderName, fileEntries, currentPath)
       showToast({ title: "上传完成", description: `${folderName} (${result.fileCount} 个文件)`, variant: "success", duration: 2000 })
       await refresh()
