@@ -160,10 +160,12 @@ function extractMessageError(
   }
   const msgError = target?.error as Record<string, unknown> | undefined
   if (!msgError) return undefined
+  // opencode 的 NamedError wire shape 为 { name, data: { message, statusCode, isRetryable, ... } }，字段嵌套在 data 下
+  const data = (msgError.data as Record<string, unknown> | undefined) ?? {}
   const name = msgError.name as string | undefined
-  const msg = msgError.message as string | undefined
-  const statusCode = msgError.statusCode as number | undefined
-  const isRetryable = msgError.isRetryable as boolean | undefined
+  const msg = (data.message ?? msgError.message) as string | undefined
+  const statusCode = (data.statusCode ?? msgError.statusCode) as number | undefined
+  const isRetryable = (data.isRetryable ?? msgError.isRetryable) as boolean | undefined
   const parts: string[] = []
   if (name) parts.push(`[${name}]`)
   if (msg) parts.push(msg)

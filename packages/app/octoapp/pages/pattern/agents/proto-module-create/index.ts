@@ -87,7 +87,12 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
     schema: MODULE_CREATE_FORMAT.schema,
   })
   console.log("----- 模块渲染Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
-  // 转换成 a2ui json
+  // 拦底层错误：moduleResult.error 携带 opencode 报错（限流/超限/网络/认证等）
+  if (moduleResult.error) {
+    logAgentParsed(moduleResult.childSessionId, { error: moduleResult.error, raw: moduleResult.text })
+    agentThrow(AGENT_NAME, moduleResult.childSessionId, `Module generation error: ${moduleResult.error}`)
+  }
+  // 模型正常返回但输出无法解析为 JSON的错误
   const moduleJson = extractJson(moduleResult.text)
   if (!moduleJson) {
     logAgentParsed(moduleResult.childSessionId, { error: "Failed to parse JSON", raw: moduleResult.text })

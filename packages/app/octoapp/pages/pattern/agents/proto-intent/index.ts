@@ -3,6 +3,7 @@ import { runChildSession } from '../run-child-session';
 import { logAgentParsed } from "../../utils/debug-log"
 import { INTENT_FORMAT } from "./schema"
 import { agentThrow } from "../../utils/error-msg"
+import { flattenSections } from "../../utils/flatten-sections"
 
 const AGENT_NAME = "proto_intent"
 type ProtoIntentInput = {
@@ -32,7 +33,7 @@ export default async function proto_intent(input: ProtoIntentInput) {
   const { sdk, sync, modelKey, rootSession, userInput, auditFeedback, intentAuditPass, pageDescription, onSessionCreated } = input
   const patterns = input.extra?.patterns as any[] | undefined
   const humanMessage = buildHumanMessage(userInput, auditFeedback, intentAuditPass, pageDescription, patterns)
-  console.log("----- 意图扩展Agent开始执行 ----- ");
+
   const startTime = Date.now();
   // 执行 Agent
   const intentResult = await runChildSession({
@@ -46,13 +47,21 @@ export default async function proto_intent(input: ProtoIntentInput) {
     parentSessionID: rootSession,
     schema: INTENT_FORMAT.schema,
   })
-  console.log("----- 意图扩展Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
+
   // 转换成 json 数据
   const intentJson = extractJson(intentResult.text)
   if (!intentJson) {
     logAgentParsed(intentResult.childSessionId, { error: "Failed to parse JSON", raw: intentResult.text })
     agentThrow(AGENT_NAME, intentResult.childSessionId, "Intent Audit did not return valid JSON")
   }
+
+  if (intentJson && Array.isArray(intentJson.sections)) {
+    const flat = flattenSections(intentJson.sections)
+    if (flat.changed) {
+      intentJson.sections = flat.sections
+    }
+  }
+  debugger
   const returnValue = {
     "intent_description": intentJson,
     "current_step": "intent_expansion"
