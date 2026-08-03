@@ -197,7 +197,8 @@ function MakeContent() {
   }
 
   const dialogPop = useDialogIframe()
-  const [selectedSpec, setSelectedSpec] = createSignal<string | null>(null)
+  const [selectedSpecDisplay, setSelectedSpecDisplay] = createSignal<string | null>(null)
+  const [selectedSpecName, setSelectedSpecName] = createSignal<string | null>(null)
 
   // 新建对话时获取存量配置
   createEffect(on(
@@ -210,9 +211,13 @@ function MakeContent() {
         .then((data) => {
           const config = data as AssetsConfig
           if (config?.user?.isRemember === true) {
-            const value = config.user.designSpec
-            if (value && typeof value === 'string') {
-              setSelectedSpec(value)
+            const designSpec = config.user.designSpec
+            const placeholder = config.user.placeholder
+            if (designSpec && typeof designSpec === 'string') {
+              setSelectedSpecName(designSpec)
+            }
+            if (placeholder && typeof placeholder === 'string') {
+              setSelectedSpecDisplay(placeholder)
             }
             // 写入临时文件
             const projectDirValue = projectDir()
@@ -283,7 +288,8 @@ function MakeContent() {
       (id, prevId) => {
         // 切换 session 时重置 specSelector 状态
         if (id !== prevId) {
-          setSelectedSpec(null)
+          setSelectedSpecDisplay(null)
+          setSelectedSpecName(null)
         }
         
         // 回填模型选择
@@ -2128,10 +2134,11 @@ const sessionMessagesLoaded = createMemo(() => {
     let mentions = proseMirrorRef1?.getMentions?.() || proseMirrorRef2?.getMentions?.() || []
     
     // 注入 specSelector 的 skill
-    const spec = selectedSpec()
-    if (spec) {
-      text = `@${spec} ` + text
-      mentions = [{ type: 'skill', name: spec, label: spec }, ...mentions]
+    const specName = selectedSpecName()
+    const specDisplay = selectedSpecDisplay()
+    if (specName && specDisplay) {
+      text = `@${specName} ` + text
+      mentions = [{ type: 'skill', name: specName, label: specDisplay }, ...mentions]
     }
     
     if (sending() || !activeModelKey()) return
@@ -2165,15 +2172,17 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
       await movePendingUploadsToSession(session.id)
       
       // 如果用户没有手动选择 spec，检查是否有存量配置
-      if (!selectedSpec()) {
+      if (!selectedSpecDisplay()) {
         const api = getDesktopApi()
         if (api?.getAssetsConfig) {
           try {
             const info = await api.getAssetsConfig() as AssetsConfig
             
-            // 设置技能名称
+            // 设置显示值和技能名称
             const designSpec = info?.user?.designSpec
-            if (designSpec) setSelectedSpec(designSpec)
+            const placeholder = info?.user?.placeholder
+            if (designSpec) setSelectedSpecName(designSpec)
+            if (placeholder) setSelectedSpecDisplay(placeholder)
             
             // 保存 sessionJson 到临时文件
             const sessionJson = info?.user?.sessionJson
@@ -2699,9 +2708,11 @@ if (dsId) {
       try {
         const info = await api.getAssetsConfig() as AssetsConfig
         
-        // 设置技能名称（用于 @技能名 引用）
+        // 设置显示值和技能名称
         const designSpec = info?.user?.designSpec
-        if (designSpec) setSelectedSpec(designSpec)
+        const placeholder = info?.user?.placeholder
+        if (designSpec) setSelectedSpecName(designSpec)
+        if (placeholder) setSelectedSpecDisplay(placeholder)
         
         // 保存 sessionJson 到临时文件
         const sessionJson = info?.user?.sessionJson
@@ -3301,7 +3312,7 @@ if (dsId) {
                           onClick={handleSpecSelect}
                         >
                           <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
-                            {selectedSpec() || "请选择设计规范"}
+                            {selectedSpecDisplay() || "请选择设计规范"}
                           </span>
                           <Icon name="chevron-down" class="size-3.5 shrink-0" style="color: #000" />
                         </button>
