@@ -16,6 +16,7 @@ render(() => {
   const [step, setStep] = createSignal<InitStep | null>(null)
   const [line, setLine] = createSignal(0)
   const [percent, setPercent] = createSignal(0)
+  const [logoFailed, setLogoFailed] = createSignal(false)
 
   const phase = createMemo(() => step()?.phase)
 
@@ -64,7 +65,16 @@ render(() => {
       <div class="w-screen h-screen bg-background-base flex items-center justify-center">
         <Font />
         <div class="flex flex-col items-center gap-11">
-          <Splash class="w-20 h-25 opacity-15" />
+          {logoFailed() ? (
+            <Splash class="w-20 h-25 opacity-15" />
+          ) : (
+            <img
+              src="/octo-agent.png"
+              alt=""
+              class="w-20 h-25 object-contain opacity-15"
+              onError={() => setLogoFailed(true)}
+            />
+          )}
           <div class="w-60 flex flex-col items-center gap-4" aria-live="polite">
             <span class="w-full overflow-hidden text-center text-ellipsis whitespace-nowrap text-text-strong text-14-normal">
               {status()}
