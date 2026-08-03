@@ -32,6 +32,7 @@ interface ResolvedDatePicker {
   range?: DynamicBoolean;
   size?: 'large' | 'medium' | 'small';
   format?: string;
+  disabled?: DynamicBoolean;
   className?: string;
 }
 interface DatePickerNode extends AnyComponentNode<ResolvedDatePicker> {
@@ -150,6 +151,7 @@ interface ResolvedTimePicker {
   range?: DynamicBoolean;
   size?: 'large' | 'medium' | 'small';
   format?: string;
+  disabled?: DynamicBoolean;
   className?: string;
 }
 interface TimePickerNode extends AnyComponentNode<ResolvedTimePicker> {
@@ -165,6 +167,7 @@ interface ResolvedButton {
   iconPlacement?: "start" | "end";
   shape?: "default" | "circle" | "round";
   types?: "default" | "link";
+  disabled?: DynamicBoolean;
   className?: string
 }
 interface ButtonNode extends AnyComponentNode<ResolvedButton> {

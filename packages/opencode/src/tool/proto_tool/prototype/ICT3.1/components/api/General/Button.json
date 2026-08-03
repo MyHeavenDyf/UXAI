@@ -69,6 +69,9 @@
 					"type": "string",
 					"enum": ["default", "circle", "round"]
 				},
+				"disabled": {
+					"type": "boolean"
+				},
 				"className": {
 					"type": "string",
 					"description": "Tailwind CSS classes for the component. To specify the button color, use the color property instead (default | primary | danger)."

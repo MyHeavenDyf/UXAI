@@ -58,6 +58,8 @@ const size = computed(() => {
 })
 const format = computed(() => properties.format)
 
+const disabled = computed(() => (resolveValue(properties.disabled) as boolean) || false)
+
 const range = computed(() => resolveValue(properties.range))
 
 
@@ -105,6 +107,7 @@ function handleDateChange(val: any) {
     v-bind="placeholderBinding"
     :type="picker as any"
     :size="size as any"
-    :format="format" 
+    :format="format"
+    :disabled="disabled"
     @change="handleDateChange" />
 </template>
