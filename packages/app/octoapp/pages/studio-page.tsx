@@ -222,30 +222,36 @@ export default function StudioPage() {
 
   const [prompt, setPrompt] = createSignal("")
   const [imageSettingStore, setImageSettingStore] = persisted(
-    { ...Persist.global("studio.image.settings"), migrate: (value: unknown) => {
-      if (value && typeof value === "object" && (value as Record<string, unknown>).count === 1) {
-        return { ...(value as Record<string, unknown>), count: 4 }
-      }
-      return value
-    } },
+    Persist.global("studio.image.settings"),
     createStore({
       capability: "image.generate" as StudioCapability,
+      styleModel: "seedream-5-lite",
+    }),
+  )
+  const [imageSessionStore, setImageSessionStore] = persisted(
+    Persist.sessionGlobal("studio.image.session"),
+    createStore({
       aspectRatio: "3:4" as StudioAspectRatio,
       count: 4 as 1 | 2 | 3 | 4,
-      styleModel: "seedream-5-lite",
+      customWidth: 0,
+      customHeight: 0,
+      isCustom: false,
     }),
   )
   const capability = () => imageSettingStore.capability
   const setCapability = (v: StudioCapability) => setImageSettingStore("capability", v)
-  const aspectRatio = () => imageSettingStore.aspectRatio
-  const setAspectRatio = (v: StudioAspectRatio) => setImageSettingStore("aspectRatio", v)
-  const count = () => imageSettingStore.count
-  const setCount = (v: 1 | 2 | 3 | 4) => setImageSettingStore("count", v)
+  const aspectRatio = () => imageSessionStore.aspectRatio
+  const setAspectRatio = (v: StudioAspectRatio) => setImageSessionStore("aspectRatio", v)
+  const count = () => imageSessionStore.count
+  const setCount = (v: 1 | 2 | 3 | 4) => setImageSessionStore("count", v)
   const styleModel = () => imageSettingStore.styleModel
   const setStyleModel = (v: string) => setImageSettingStore("styleModel", v)
-  const [customWidth, setCustomWidth] = createSignal(0)
-  const [customHeight, setCustomHeight] = createSignal(0)
-  const [isCustomStore, setIsCustomStore] = createSignal(false)
+  const customWidth = () => imageSessionStore.customWidth
+  const setCustomWidth = (v: number) => setImageSessionStore("customWidth", v)
+  const customHeight = () => imageSessionStore.customHeight
+  const setCustomHeight = (v: number) => setImageSessionStore("customHeight", v)
+  const isCustomStore = () => imageSessionStore.isCustom
+  const setIsCustomStore = (v: boolean) => setImageSessionStore("isCustom", v)
   const maxReferenceImages = () => referenceImageLimit(styleModel())
   const [imageTool, setImageTool] = createSignal<StudioImageTool>("internel")
   const [assets, setAssets] = createSignal<StudioAsset[]>([])

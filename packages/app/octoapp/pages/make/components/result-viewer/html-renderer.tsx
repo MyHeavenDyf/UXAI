@@ -18,6 +18,7 @@ import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
 import { showToast } from "@opencode-ai/ui/toast"
 import { tracker } from "@/utils/tracker"
+import { TaskStore } from "@/context/task"
 import "./inspect-panel.css"
 import "./manual-edit-panel.css"
 
@@ -268,6 +269,23 @@ export function HtmlRenderer(props: {
   // Handle archive confirm
   async function handleArchiveConfirm(data: ArchiveConfirmData): Promise<void> {
     const isLoggedIn = !!localStorage.getItem("uiplusToken")
+    const fileName = getArtifactFilename(props.filePath).replace(/\.html?$/i, "")
+    const taskId = `archive-${Date.now()}`
+    
+    // 创建任务
+    TaskStore.add([{
+      key: taskId,
+      taskId,
+      type: "archive",
+      serviceType: "octo_archive",
+      name: fileName,
+      size: 0,
+      status: "in_progress",
+      hasProgress: false,
+      canCancel: false,
+      createdAt: Date.now(),
+    }])
+    
     tracker.interaction({ 
       module: "design", 
       name: "confirm-archive", 
@@ -283,6 +301,7 @@ export function HtmlRenderer(props: {
     
     try {
       if (!iframeRef) {
+        TaskStore.error([{ key: taskId, status: "error" }])
         showToast({ title: "归档失败", description: "无法获取页面内容" })
         return
       }
@@ -317,8 +336,6 @@ export function HtmlRenderer(props: {
       })
       
       if (isLoggedIn) {
-        const fileName = getArtifactFilename(props.filePath).replace(/\.html?$/i, "")
-        
         let uploadResult: { success: boolean }
         let uniqueId: string = ""
         
@@ -339,6 +356,8 @@ export function HtmlRenderer(props: {
           throw new Error("归档上传失败")
         }
         
+        TaskStore.finish([{ key: taskId, status: "completed" }])
+        
         const pathStr = buildArchivePath({
           spaceType: data.spaceType,
           productName: data.productName,
@@ -350,15 +369,17 @@ export function HtmlRenderer(props: {
         setArchiveSuccessOpen(true)
         showToast({ title: "归档成功" })
       } else {
-        const fileName = `${getArtifactFilename(props.filePath).replace(/\.html?$/i, "")}-archive.zip`
+        const zipFileName = `${fileName}-archive.zip`
         const url = URL.createObjectURL(zipBlob)
         const a = document.createElement("a")
         a.href = url
-        a.download = fileName
+        a.download = zipFileName
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
         URL.revokeObjectURL(url)
+        
+        TaskStore.finish([{ key: taskId, status: "completed" }])
         showToast({ title: "归档完成", description: "ZIP文件已下载" })
       }
     } catch (err) {
@@ -369,6 +390,7 @@ export function HtmlRenderer(props: {
         collisionOverlay.style.display = ''
       }
       console.error("[Archive] Failed:", err)
+      TaskStore.error([{ key: taskId, status: "error" }])
       showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
       throw err
     }
@@ -737,10 +759,10 @@ createEffect(() => {
     const iframe = iframeRef
     if (!iframe || !props.inspecting) return
 
-    const handleMessage = (e: MessageEvent) => {
-      if (e.source !== iframe.contentWindow) return
-      const d = e.data
-      if (!d || typeof d !== "object") return
+const handleMessage = (e: MessageEvent) => {
+    if (e.source !== iframe.contentWindow) return
+    const d = e.data
+    if (!d || typeof d !== "object") return
 
       if (d.type === "od:inspect-target" && d.clicked === true) {
         const target: InspectTarget = {
@@ -861,11 +883,10 @@ createEffect(() => {
 
 // Listen to comment messages from iframe (always registered, not dependent on props.commenting)
 createEffect(() => {
-  const iframe = iframeRef
-  if (!iframe) return
-
   const handleMessage = (e: MessageEvent) => {
-    if (e.source !== iframe.contentWindow) return
+    const currentIframe = iframeRef
+    if (!currentIframe) return
+    if (e.source !== currentIframe.contentWindow) return
     const d = e.data
     if (!d || typeof d !== "object") return
 
@@ -1052,7 +1073,6 @@ createEffect(() => {
         { type: "od:comment-mode", enabled: !!props.commenting },
         "*"
       )
-      // 评论模式开启时，主动发送评论数据
       if (props.commenting) {
         const comments = savedComments()
         iframeRef.contentWindow?.postMessage(
@@ -1093,6 +1113,11 @@ createEffect(() => {
       if (props.commenting) {
         iframe.contentWindow?.postMessage(
           { type: "od:comment-mode", enabled: true },
+          "*"
+        )
+        const comments = savedComments()
+        iframe.contentWindow?.postMessage(
+          { type: "od:comment-saved-pins", comments },
           "*"
         )
       }
@@ -1202,6 +1227,41 @@ return (
                   height: `${VIEWPORT_DIMS[props.viewport!].height}px`,
                   border: "none",
                 }}
+                onLoad={() => {
+                  if (!iframeRef) {
+                    console.log('[HtmlRenderer] iframeRef is null')
+                    return
+                  }
+                  if (props.editing) {
+                    console.log('[HtmlRenderer] sending od:edit-mode')
+                    iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
+                  }
+                  if (props.inspecting) {
+                    console.log('[HtmlRenderer] sending od:inspect-mode')
+                    iframeRef.contentWindow?.postMessage({ type: "od:inspect-mode", enabled: true }, "*")
+                  }
+                  if (props.commenting) {
+                    console.log('[HtmlRenderer] sending od:comment-mode')
+                    iframeRef.contentWindow?.postMessage({ type: "od:comment-mode", enabled: true }, "*")
+                    const comments = savedComments()
+                    console.log('[HtmlRenderer] sending od:comment-saved-pins, count:', comments.length)
+                    iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
+                  }
+                  if (props.palette) {
+                    console.log('[HtmlRenderer] sending od:palette')
+                    iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
+                  }
+                  const overrides = savedOverrides()
+                  if (overrides.length > 0) {
+                    console.log('[HtmlRenderer] sending overrides, count:', overrides.length)
+                    overrides.forEach((override) => {
+                      iframeRef.contentWindow?.postMessage(
+                        { type: "od:inspect-set", elementId: override.elementId, prop: override.prop, value: override.value },
+                        "*"
+                      )
+                    })
+                  }
+                }}
               />
             </div>
           ) : (
@@ -1213,6 +1273,41 @@ return (
                 sandbox="allow-scripts"
                 class="w-full h-full border-0"
                 style={{ "min-height": "200px" }}
+                onLoad={() => {
+                  if (!iframeRef) {
+                    console.log('[HtmlRenderer] iframeRef is null')
+                    return
+                  }
+                  if (props.editing) {
+                    console.log('[HtmlRenderer] sending od:edit-mode')
+                    iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
+                  }
+                  if (props.inspecting) {
+                    console.log('[HtmlRenderer] sending od:inspect-mode')
+                    iframeRef.contentWindow?.postMessage({ type: "od:inspect-mode", enabled: true }, "*")
+                  }
+                  if (props.commenting) {
+                    console.log('[HtmlRenderer] sending od:comment-mode')
+                    iframeRef.contentWindow?.postMessage({ type: "od:comment-mode", enabled: true }, "*")
+                    const comments = savedComments()
+                    console.log('[HtmlRenderer] sending od:comment-saved-pins, count:', comments.length)
+                    iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
+                  }
+                  if (props.palette) {
+                    console.log('[HtmlRenderer] sending od:palette')
+                    iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
+                  }
+                  const overrides = savedOverrides()
+                  if (overrides.length > 0) {
+                    console.log('[HtmlRenderer] sending overrides, count:', overrides.length)
+                    overrides.forEach((override) => {
+                      iframeRef.contentWindow?.postMessage(
+                        { type: "od:inspect-set", elementId: override.elementId, prop: override.prop, value: override.value },
+                        "*"
+                      )
+                    })
+                  }
+                }}
               />
             </div>
           )}

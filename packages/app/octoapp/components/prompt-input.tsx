@@ -70,6 +70,8 @@ interface PromptInputProps {
   onAbort?: () => void
   onSubmit?: () => void
   disabled?: boolean
+  /** Disable @ mention popover */
+  disableAtMention?: boolean
 }
 
 const EXAMPLES = [
@@ -269,7 +271,14 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         type: "idle",
       },
   )
-  const working = createMemo(() => status()?.type !== "idle")
+  const working = createMemo(() => {
+    if (status()?.type !== "idle") return true
+    const id = params.id
+    if (!id) return false
+    return (sync.data.message[id] ?? []).some(
+      (item) => item.role === "assistant" && typeof item.time.completed !== "number",
+    )
+  })
   const imageAttachments = createMemo(() =>
     prompt.current().filter((part): part is ImageAttachmentPart => part.type === "image"),
   )
@@ -925,7 +934,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     const shellMode = store.mode === "shell"
 
     if (!shellMode) {
-      const atMatch = rawText.substring(0, cursorPosition).match(/@(\S*)$/)
+      const atMatch = props.disableAtMention ? null : rawText.substring(0, cursorPosition).match(/@(\S*)$/)
       const slashMatch = rawText.match(/^\/(\S*)$/)
 
       if (atMatch) {

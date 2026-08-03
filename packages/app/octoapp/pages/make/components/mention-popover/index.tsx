@@ -4,6 +4,7 @@ import type { PanelSkill } from "../skill-config-types"
 import type { ArtifactFile } from "../../utils/artifact-file-api"
 import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "./icons"
 import { getFileIcon } from "../../icons/file-type-icons"
+import emptyPng from "../../icons/empty.png"
 import "./styles.css"
 
 export type MentionTab = 'skills' | 'files'
@@ -33,6 +34,22 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const [positionLeft, setPositionLeft] = createSignal(false)
   let containerRef: HTMLDivElement | undefined
 
+  const updateSecondaryPosition = () => {
+    if (!containerRef) return
+    const selectedEl = containerRef.querySelector('.mention-primary-item--selected') as HTMLElement | null
+    const secondaryPanel = containerRef.querySelector('.mention-secondary-panel') as HTMLElement | null
+    if (!selectedEl || !secondaryPanel) return
+    const primaryItems = containerRef.querySelectorAll('.mention-primary-item')
+    const isLast = primaryItems.length > 0 && primaryItems[primaryItems.length - 1] === selectedEl
+    if (isLast) {
+      secondaryPanel.style.bottom = '0px'
+      return
+    }
+    const containerRect = containerRef.getBoundingClientRect()
+    const itemRect = selectedEl.getBoundingClientRect()
+    secondaryPanel.style.bottom = `${containerRect.bottom - itemRect.bottom}px`
+  }
+
   const checkPosition = () => {
     if (!containerRef) return
     const rect = containerRef.getBoundingClientRect()
@@ -45,6 +62,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     activeTab()
     selectedCategory()
     checkPosition()
+    updateSecondaryPosition()
   })
 
   const platformSkills = createMemo(() => {
@@ -74,7 +92,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const filteredFiles = createMemo(() => {
     const q = props.query.toLowerCase()
     const files = props.artifactFiles
-    if (!files) return null
+    if (!files) return { generated: [], uploaded: [] }
     
     const generated = files.generated.filter(f => f.name.toLowerCase().includes(q))
     const uploaded = files.uploaded.filter(f => f.name.toLowerCase().includes(q))
@@ -154,22 +172,18 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
 
   const secondaryPanelStyle = () => {
     const left = positionLeft()
+    const bottom = '0'
+    const sideStyle = left
+      ? { right: '100%', marginRight: '4px' }
+      : { left: '100%', marginLeft: '4px' }
     if (activeTab() === 'skills') {
-      return {
-        width: '257px',
-        bottom: '0',
-        ...(left ? { right: '100%', marginRight: '8px' } : { left: '100%', marginLeft: '8px' })
-      }
+      return { width: '257px', bottom, ...sideStyle }
     }
-    return {
-      width: '400px',
-      bottom: '0',
-      ...(left ? { right: '100%', marginRight: '8px' } : { left: '100%', marginLeft: '8px' })
-    }
+    return { width: '400px', bottom, ...sideStyle }
   }
 
   return (
-    <div class="mention-popover-container">
+    <div class="mention-popover-container" ref={containerRef}>
       {/* Tab Switch */}
       <div class="mention-tab-container">
         <button
@@ -225,9 +239,15 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
       </div>
 
       {/* Secondary Panel - Skills */}
-      <Show when={activeTab() === 'skills' && selectedCategory() === 'platform' && filteredPlatformSkills().length > 0}>
+      <Show when={activeTab() === 'skills' && selectedCategory() === 'platform'}>
         <div class="mention-secondary-panel" style={secondaryPanelStyle()}>
           <div class="mention-secondary-content">
+            <Show when={filteredPlatformSkills().length === 0}>
+              <div class="mention-empty-state">
+                <img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
+                <span class="mention-empty-state-text">暂无内容</span>
+              </div>
+            </Show>
             <For each={filteredPlatformSkills()}>
               {(skill, i) => {
                 const sel: MentionSelection = { type: 'skill', name: skill.label, label: skill.label }
@@ -249,9 +269,15 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         </div>
       </Show>
 
-      <Show when={activeTab() === 'skills' && selectedCategory() === 'custom' && filteredCustomSkills().length > 0}>
+      <Show when={activeTab() === 'skills' && selectedCategory() === 'custom'}>
         <div class="mention-secondary-panel" style={secondaryPanelStyle()}>
           <div class="mention-secondary-content">
+            <Show when={filteredCustomSkills().length === 0}>
+              <div class="mention-empty-state">
+                <img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
+                <span class="mention-empty-state-text">暂无内容</span>
+              </div>
+            </Show>
             <For each={filteredCustomSkills()}>
               {(skill, i) => {
                 const sel: MentionSelection = { type: 'skill', name: skill.label, label: skill.label }
@@ -279,6 +305,12 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <div class="mention-secondary-panel" style={secondaryPanelStyle()}>
             <div class="mention-files-header">当前会话</div>
             <div class="mention-secondary-content mention-secondary-content--files">
+              <Show when={files().generated.length === 0 && files().uploaded.length === 0}>
+                <div class="mention-empty-state">
+                  <img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
+                  <span class="mention-empty-state-text">暂无内容</span>
+                </div>
+              </Show>
               <Show when={files().generated.length > 0}>
                 <div class="mention-section-title">生成文件</div>
                 <For each={files().generated}>

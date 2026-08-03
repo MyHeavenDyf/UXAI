@@ -1,6 +1,8 @@
 import { createSignal, createMemo, createEffect, onMount, onCleanup, For, Show, type JSX } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
-import type { InsightFileEntry } from "../../utils/insight-file-api"
+import { fileKind, type InsightFileEntry } from "../../utils/insight-file-api"
+import { PlatformSkillIcon, CustomSkillIcon, ResearchAssetIcon } from "./icons"
+import { getFileIcon } from "../../icons/file-type-icons"
 import "./styles.css"
 
 // insight 自包含：面板技能只用到 label/description，本地定义一个最小结构，
@@ -190,7 +192,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
             class={`ins-mention-primary-item ${category() === "platform" ? "ins-mention-primary-item--selected" : ""}`}
             onClick={() => setCategory("platform")}
           >
-            <Icon name="brain" size="small" />
+            <PlatformSkillIcon />
             <span class="ins-mention-primary-text">平台技能</span>
             <Icon name="chevron-right" size="small" class="ins-mention-primary-arrow" />
           </button>
@@ -199,7 +201,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
             class={`ins-mention-primary-item ${category() === "custom" ? "ins-mention-primary-item--selected" : ""}`}
             onClick={() => setCategory("custom")}
           >
-            <Icon name="sliders" size="small" />
+            <CustomSkillIcon />
             <span class="ins-mention-primary-text">自定义技能</span>
             <Icon name="chevron-right" size="small" class="ins-mention-primary-arrow" />
           </button>
@@ -210,7 +212,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
             class={`ins-mention-primary-item ${category() === "session" ? "ins-mention-primary-item--selected" : ""}`}
             onClick={() => setCategory("session")}
           >
-            <Icon name="folder" size="small" />
+            <ResearchAssetIcon />
             <span class="ins-mention-primary-text">用研资产</span>
             <Icon name="chevron-right" size="small" class="ins-mention-primary-arrow" />
           </button>
@@ -297,6 +299,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                 <For each={filteredFiles()!.generated}>
                   {(file, i) => {
                     const sel: MentionSelection = { type: "file", filename: file.name, path: file.path }
+                    const FileIcon = getFileIcon(fileKind(file.name))
                     return (
                       <button
                         type="button"
@@ -310,7 +313,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                             <Icon name="check" size="small" class="ins-mention-checkbox-icon" />
                           </Show>
                         </div>
-                        <Icon name="folder" size="small" />
+                        <FileIcon size={20} />
                         <span class="ins-mention-item-text" title={file.name}>{file.name}</span>
                       </button>
                     )
@@ -324,6 +327,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                     const sel: MentionSelection = { type: "file", filename: file.name, path: file.path }
                     // 上传段接在生成段之后编号,与 rows() 的扁平顺序对齐
                     const row = () => filteredFiles()!.generated.length + i()
+                    const FileIcon = getFileIcon(fileKind(file.name))
                     return (
                       <button
                         type="button"
@@ -337,7 +341,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                             <Icon name="check" size="small" class="ins-mention-checkbox-icon" />
                           </Show>
                         </div>
-                        <Icon name="folder" size="small" />
+                        <FileIcon size={20} />
                         <span class="ins-mention-item-text" title={file.name}>{file.name}</span>
                       </button>
                     )

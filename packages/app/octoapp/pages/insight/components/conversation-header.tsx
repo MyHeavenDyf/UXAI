@@ -202,8 +202,6 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
             </Show>
           </div>
 
-          {props.panelToggle}
-
           <DropdownMenu
             gutter={4}
             placement="bottom-end"
@@ -214,7 +212,7 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
               as={IconButton}
               icon="ellipsis"
               variant="ghost"
-              class="size-6 rounded-md shrink-0 data-[expanded]:bg-surface-base-active"
+              class="size-6 rounded-md shrink-0 cursor-pointer data-[expanded]:bg-surface-base-active"
               aria-label="更多操作"
             />
             <DropdownMenu.Portal>
@@ -239,6 +237,8 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu>
+
+          {props.panelToggle}
         </div>
       )}
     </Show>

@@ -14,10 +14,10 @@
 
 import type {
   RegularNode, ComponentNode, HtmlNode, TextNode, ExtractNode, LoopNode,
-} from './nodeTypes'
+} from './node-types'
 import type {
   BindingValue, ComputedValue, PropValue, ImportSpec, ExtractRoute, VarRefValue,
-} from './valueTypes'
+} from './value-types'
 
 export const Node = {
   /** 组件节点 — 对应 mapped 的 eview-react 或自定义组件 */
@@ -28,7 +28,7 @@ export const Node = {
     id?: string
     children?: RegularNode[] | LoopNode | null
     import?: ImportSpec
-    wrapper?: import('./nodeTypes').BuildNode
+    wrapper?: import('./node-types').BuildNode
     selfClosing?: boolean
     propRoute?: Record<string, ExtractRoute>
   }): ComponentNode {

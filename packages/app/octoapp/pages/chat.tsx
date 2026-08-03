@@ -1,7 +1,7 @@
 import "./make/octo-tokens.css"
 import { createMemo, createEffect, createSignal, on, Show, Suspense, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useParams } from "@solidjs/router"
+import { useParams, useSearchParams } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { tracker } from "@/utils/tracker"
 import { AgentSidebar } from "@/components/agent-sidebar"
@@ -18,6 +18,7 @@ import { FileProvider } from "@/context/file"
 import { PromptProvider } from "@/context/prompt"
 import { CommentsProvider } from "@/context/comments"
 import type { Session } from "@opencode-ai/sdk/v2/client"
+import { SkillsContent } from "@/components/skills-content"
 
 const SessionPage = lazy(() => import("@/pages/session"))
 
@@ -71,6 +72,22 @@ export default function ChatPage() {
   const [drawerOpen, setDrawerOpen] = createSignal(false)
   const [drawerClosing, setDrawerClosing] = createSignal(false)
   let sidebarEl: HTMLDivElement | undefined
+
+  // Skills panel state — route-derived, 参考 design 页 /skills 路由做法:
+  // 打开时仅追加 ?view=skills,不清除 session id——这样头部 tab 的
+  // isCurrentTabNewConversation() 仍能正确判断非新建对话,从而恢复上次会话
+  // (与 design 页 /skills 独立路由不触碰 /make/:id 同理)。
+  // <Show> 已保证 SkillsContent 与 SessionPage 互斥,session id 留在 URL 无副作用。
+  const [searchParams, setSearchParams] = useSearchParams<{ view?: string }>()
+  const skillsPanelOpen = () => searchParams.view === "skills"
+
+  function toggleSkillsPanel() {
+    if (skillsPanelOpen()) {
+      setSearchParams({ view: undefined }, { replace: true })
+    } else {
+      setSearchParams({ view: "skills" })
+    }
+  }
 
   const displayWidth = () => {
     if (drawerOpen()) return 296
@@ -194,13 +211,15 @@ export default function ChatPage() {
                 return dir ? `/${base64Encode(dir)}/chat?hint=${Date.now()}` : "/chat"
               }}
               buildDeleteFallback={(s: Session) => `/${base64Encode(s.directory)}/chat`}
-              activeSessionId={() => params.id}
+              activeSessionId={() => (skillsPanelOpen() ? undefined : params.id)}
               sectionTitle="Octo Chat"
               sectionIcon={() => <img src="/IconChat1.svg" alt="" style={{ width: "20px", height: "20px" }} />}
               newButtonText="新建对话"
               trackerModule="chat"
               showSettings
               sidebarSourceKey="cowork"
+              onSkillClick={toggleSkillsPanel}
+              skillsActive={skillsPanelOpen()}
             />
           </div>
           <div
@@ -211,11 +230,20 @@ export default function ChatPage() {
         </>
       )}
       <div class="flex-1 min-w-0 min-h-0">
-        <Suspense fallback={<div class="p-3 text-14-regular text-text-weak">Loading session...</div>}>
-          <SessionProviders>
-            <SessionPage />
-          </SessionProviders>
-        </Suspense>
+        <Show
+          when={skillsPanelOpen()}
+          fallback={
+            <Suspense fallback={<div class="p-3 text-14-regular text-text-weak">Loading session...</div>}>
+              <SessionProviders>
+                <SessionPage />
+              </SessionProviders>
+            </Suspense>
+          }
+        >
+          <div class="h-full overflow-y-auto" style={{ background: "var(--surface-strong)" }}>
+            <SkillsContent />
+          </div>
+        </Show>
       </div>
     </div>
   )

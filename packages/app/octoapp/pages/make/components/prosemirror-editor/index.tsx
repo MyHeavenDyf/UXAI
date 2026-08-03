@@ -30,6 +30,8 @@ interface Props {
   mentionSelections: MentionSelection[]
   setMentionSelections: (selections: MentionSelection[]) => void
   disabled?: boolean
+  busy?: boolean
+  autofocus?: boolean
   onSubmit?: () => void
   onTriggerMention?: () => void
   onContentChange?: (text: string) => void
@@ -80,6 +82,8 @@ export const ProseMirrorEditor = (props: Props) => {
     setIsEmpty(empty)
   }, props.onContentChange)
 
+  const connected = (v: EditorView | undefined): v is EditorView => !!v && !!v.dom?.isConnected
+
   onMount(() => {
     if (!containerRef) return
 
@@ -93,6 +97,7 @@ export const ProseMirrorEditor = (props: Props) => {
           "Mod-shift-z": redo,
           "Enter": (state, dispatch, view) => {
             if (props.disabled) return false
+            if (props.busy) return true
             
             // If mention popover is open, don't send message
             const mentionTrigger = mentionTriggerKey.getState(state)
@@ -192,17 +197,22 @@ export const ProseMirrorEditor = (props: Props) => {
       })
     }
 
+    // 自动聚焦放到下一帧:此刻 DOM 刚插入,同帧 focus() 会被随后的布局/父级渲染抢掉
+    if (props.autofocus && !props.disabled) {
+      requestAnimationFrame(() => {
+        if (editorView.dom?.isConnected) {
+          editorView.focus()
+        }
+      })
+    }
+
     onCleanup(() => editorView.destroy())
   })
 
   createEffect(() => {
     const v = view()
     if (!v) return
-    
-    const isEditable = !props.disabled
-    if (v.editable !== isEditable) {
-      v.setProps({ ...v.props, editable: () => isEditable })
-    }
+    v.setProps({ ...v.props, editable: () => !props.disabled })
   })
 
   // Close popover when clicking outside
@@ -363,7 +373,7 @@ export const ProseMirrorEditor = (props: Props) => {
             style={{
               position: "fixed",
               left: `${popoverPosition()!.left}px`,
-              bottom: `${popoverPosition()!.bottom + 12}px`,
+              bottom: `${popoverPosition()!.bottom + 1}px`,
               "z-index": 1000,
             }}
           >

@@ -275,6 +275,22 @@ const findFolderById = (nodes: NestedTreeNode[], id: number): NestedTreeNode | n
   return null
 }
 
+const filterPersonalFolderList = (nodes: NestedTreeNode[]): NestedTreeNode[] => {
+  return nodes
+    .filter(node => node.permissionFlag === true)
+    .map(node => ({
+      ...node,
+      children: node.children ? filterPersonalFolderList(node.children) : []
+    }))
+}
+
+const findFirstSelectablePersonal = (nodes: NestedTreeNode[]): NestedTreeNode | null => {
+  for (const node of nodes) {
+    return node
+  }
+  return null
+}
+
 const MOCK_PRODUCT_TEAM: NestedTreeNode[] = [
   {
     id: 339042,
@@ -346,12 +362,12 @@ export function ArchiveDialog(props: Props): JSX.Element {
   const [selectedFolderId, setSelectedFolderId] = createSignal<number | null>(null)
   const [selectedFolder, setSelectedFolder] = createSignal<{ label: string } | null>(null)
   const [deliverables, setDeliverables] = createSignal<DeliverableItem[]>(MOCK_SEARCH_RESULTS)
-  const [loading, setLoading] = createSignal(false)
   const [showCollisionOverlay, setShowCollisionOverlay] = createSignal(false)
   const [initialized, setInitialized] = createSignal(false)
   const [productTeamList, setProductTeamList] = createSignal<NestedTreeNode[]>(MOCK_PRODUCT_TEAM)
   const [isProjectArchive, setIsProjectArchive] = createSignal(false)
   const [filteredFolderList, setFilteredFolderList] = createSignal<NestedTreeNode[]>([])
+  const [filteredPersonalFolderList, setFilteredPersonalFolderList] = createSignal<NestedTreeNode[]>([])
   
   const projectSelection = useProjectSelection()
   
@@ -553,7 +569,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
       }
       return filteredFolderList()
     } else {
-      return teamByVersionList()
+      return filteredPersonalFolderList()
     }
   }
 
@@ -568,6 +584,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
     setSelectedTeamName(null)
     setDeliverables([])
     setIsProjectArchive(false)
+    setFilteredPersonalFolderList([])
   }
 
   const autoSelectFirstProduct = async () => {
@@ -624,6 +641,7 @@ export function ArchiveDialog(props: Props): JSX.Element {
   }
 
   const handleSpaceTypeChange = (newType: SpaceType) => {
+    if (spaceType() === newType) return
     setSpaceType(newType)
     clearAllSelections()
     
@@ -643,7 +661,6 @@ export function ArchiveDialog(props: Props): JSX.Element {
   }
 
   const handleProductSelect = (id: number, item: TreeNodeItem) => {
-    lastUsedSelectionKey = null
     const product = item as { name: string; commonTeam?: number }
     setSelectedProductId(id)
     setSelectedProduct({ name: product.name, commonTeam: product.commonTeam })
@@ -671,7 +688,6 @@ export function ArchiveDialog(props: Props): JSX.Element {
       setFilteredFolderList([])
       autoSelectFirstFolder(productTeamList())
     } else {
-      lastUsedSelectionKey = null
       setIsProjectArchive(false)
       setSelectedVersionId(id)
       
@@ -707,11 +723,39 @@ export function ArchiveDialog(props: Props): JSX.Element {
     
     if (isLoggedIn()) {
       fetchTeamByVersion(id).then((tree) => {
-        if (tree) autoSelectFirstFolder(tree)
-        else autoSelectFirstFolder()
+        if (tree) {
+          const filtered = filterPersonalFolderList(tree)
+          setFilteredPersonalFolderList(filtered)
+          const first = findFirstSelectablePersonal(filtered)
+          if (first) {
+            setSelectedFolderId(first.id)
+            setSelectedFolder({ label: first.label })
+            if (showDeliverablesSection()) fetchDeliverables(first.id)
+          } else {
+            setSelectedFolderId(null)
+            setSelectedFolder(null)
+            setDeliverables([])
+          }
+        } else {
+          setFilteredPersonalFolderList([])
+          setSelectedFolderId(null)
+          setSelectedFolder(null)
+          setDeliverables([])
+        }
       })
     } else {
-      autoSelectFirstFolder()
+      const filtered = filterPersonalFolderList(teamByVersionList())
+      setFilteredPersonalFolderList(filtered)
+      const first = findFirstSelectablePersonal(filtered)
+      if (first) {
+        setSelectedFolderId(first.id)
+        setSelectedFolder({ label: first.label })
+        if (showDeliverablesSection()) fetchDeliverables(first.id)
+      } else {
+        setSelectedFolderId(null)
+        setSelectedFolder(null)
+        setDeliverables([])
+      }
     }
   }
 
@@ -795,12 +839,18 @@ export function ArchiveDialog(props: Props): JSX.Element {
           if (isLoggedIn()) {
             const folderTree = await fetchTeamByVersion(team.teamId)
             if (folderTree) {
-              restoreFolderSelection(folderTree, persistedSelections.folderId)
+              const filtered = filterPersonalFolderList(folderTree)
+              setFilteredPersonalFolderList(filtered)
+              restoreFolderSelection(filtered, persistedSelections.folderId)
             } else {
-              autoSelectFirstFolder()
+              setFilteredPersonalFolderList([])
+              setSelectedFolderId(null)
+              setSelectedFolder(null)
             }
           } else {
-            restoreFolderSelection(teamByVersionList(), persistedSelections.folderId)
+            const filtered = filterPersonalFolderList(teamByVersionList())
+            setFilteredPersonalFolderList(filtered)
+            restoreFolderSelection(filtered, persistedSelections.folderId)
           }
         } else {
           autoSelectFirstTeam()
@@ -844,38 +894,33 @@ export function ArchiveDialog(props: Props): JSX.Element {
     }
   })
 
-  const executeArchive = async (isOverwrite: boolean) => {
-    setLoading(true)
+  const executeArchive = (isOverwrite: boolean) => {
     setShowCollisionOverlay(false)
 
-    try {
-      const matchingDeliverable = deliverables().find(
-        d => d.fileName === props.tabTitle.replace(/\.html?$/i, "")
-      )
-      
-      const data: ArchiveConfirmData = {
-        spaceType: spaceType(),
-        productId: spaceType() === "project" ? selectedProductId() || undefined : undefined,
-        productName: spaceType() === "project" ? selectedProduct()?.name : undefined,
-        commonTeam: spaceType() === "project" ? selectedProduct()?.commonTeam : undefined,
-        versionDeliveryId: spaceType() === "project" ? selectedVersionId() || undefined : undefined,
-        versionDeliveryName: spaceType() === "project" ? selectedVersion()?.label : undefined,
-        folderId: selectedFolderId() || 0,
-        folderName: selectedFolder()?.label || "",
-        teamId: selectedFolderId() || 0,
-        isOverwrite,
-        existingDeliverableId: isOverwrite ? matchingDeliverable?.id : undefined,
-        existingDocId: isOverwrite ? matchingDeliverable?.docId : undefined,
-        existingDeliverables: showDeliverablesSection() ? deliverables() : []
-      }
-
-      await props.onConfirm(data)
-      handleClose()
-    } catch (err) {
-      console.error("[Archive] Failed:", err)
-    } finally {
-      setLoading(false)
+    const matchingDeliverable = deliverables().find(
+      d => d.fileName === props.tabTitle.replace(/\.html?$/i, "")
+    )
+    
+    const data: ArchiveConfirmData = {
+      spaceType: spaceType(),
+      productId: spaceType() === "project" ? selectedProductId() || undefined : undefined,
+      productName: spaceType() === "project" ? selectedProduct()?.name : undefined,
+      commonTeam: spaceType() === "project" ? selectedProduct()?.commonTeam : undefined,
+      versionDeliveryId: spaceType() === "project" ? selectedVersionId() || undefined : undefined,
+      versionDeliveryName: spaceType() === "project" ? selectedVersion()?.label : undefined,
+      folderId: selectedFolderId() || 0,
+      folderName: selectedFolder()?.label || "",
+      teamId: selectedFolderId() || 0,
+      isOverwrite,
+      existingDeliverableId: isOverwrite ? matchingDeliverable?.id : undefined,
+      existingDocId: isOverwrite ? matchingDeliverable?.docId : undefined,
+      existingDeliverables: showDeliverablesSection() ? deliverables() : []
     }
+
+    handleClose()
+    props.onConfirm(data).catch(err => {
+      console.error("[Archive] Failed:", err)
+    })
   }
 
   const handleConfirm = async () => {
@@ -1050,13 +1095,13 @@ export function ArchiveDialog(props: Props): JSX.Element {
                     <div class="archive-step-title">文件夹</div>
                     <div class="archive-step-content">
                       <ArchiveTreeSelector
-                        data={teamByVersionList()}
+                        data={getFolderTree()}
                         leafOnly={false}
                         selectedId={selectedFolderId()}
                         selectedLabel={selectedFolder()?.label}
                         onSelect={handleFolderSelect}
                         searchPlaceholder="搜索文件夹..."
-                        triggerPlaceholder={teamByVersionList().length === 0 ? "暂无数据" : "请选择文件夹"}
+                        triggerPlaceholder={getFolderTree().length === 0 ? "暂无数据" : "请选择文件夹"}
                         maxHeight="250px"
                       />
                     </div>
@@ -1092,11 +1137,11 @@ export function ArchiveDialog(props: Props): JSX.Element {
               <button
                 type="button"
                 class="archive-confirm-btn"
-                classList={{ "archive-confirm-btn-disabled": !canConfirm() || loading() }}
-                disabled={!canConfirm() || loading()}
+                classList={{ "archive-confirm-btn-disabled": !canConfirm() }}
+                disabled={!canConfirm()}
                 onClick={handleConfirm}
               >
-                {loading() ? "处理中..." : "确定"}
+                确定
               </button>
             </div>
 

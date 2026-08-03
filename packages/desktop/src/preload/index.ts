@@ -63,6 +63,8 @@ const api: ElectronAPI = {
   resolveMaterializedPath: (namespace, baseDir, sessionId) =>
     ipcRenderer.invoke("resolve-materialized-path", namespace, baseDir, sessionId),
   copyFileTo: (srcPath, destPath) => ipcRenderer.invoke("copy-file-to", srcPath, destPath),
+  copyFileToSessionUploads: (srcPath, baseDir, sessionId, subPath, filename) =>
+    ipcRenderer.invoke("copy-file-to-session-uploads", srcPath, baseDir, sessionId, subPath, filename),
   downloadResourceToTemp: (url, namespace, filename, baseDir, sessionId) =>
     ipcRenderer.invoke("download-resource-to-temp", url, namespace, filename, baseDir, sessionId),
   // SPEC-INS-014 v2(会话隔离):把源文件拷贝进 <baseDir>/.octo/tmps/(预会话落地区,主进程 fs.copyFile);返回落地路径。
@@ -120,12 +122,14 @@ const api: ElectronAPI = {
   getDesignSystems: () => ipcRenderer.invoke("get-design-systems"),
   downloadHuiCode: (jsonData, options?: { targetLib?: string }) => ipcRenderer.invoke("download-hui-code", jsonData, options),
   runPixsoBuild: (input) => ipcRenderer.invoke("run-pixso-build", input),
+  getTopixsoDir: () => ipcRenderer.invoke("get-topixso-dir"),
   exportZip: (opts) => ipcRenderer.invoke("export-zip", opts),
   importZip: () => ipcRenderer.invoke("import-zip"),
   codeToHtml: (opts) => ipcRenderer.invoke("capture-page", opts),
   listDirectory: (path) => ipcRenderer.invoke("list-directory", path),
   // Pipeline API IPC bridge — renderer 内网调用时通过此通道请求主进程 net.fetch(绕 CORS)
   pipelineRequest: (url, method, uiplusToken, body, headers) => ipcRenderer.invoke("pipeline-request", url, method, uiplusToken, body, headers),
+  getAssetsConfig: () => ipcRenderer.invoke("get-assets-config"),
   // jk-j60099994-replace-with-index-1-start
   // jk-j60099994-replace-with-index-1-end
   configureProxy: (account, password) => ipcRenderer.invoke("configure-proxy", account, password),

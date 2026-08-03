@@ -1,4 +1,4 @@
-import { createSignal, createMemo, Show, For } from "solid-js"
+import { createSignal, createMemo, createEffect, Show, For } from "solid-js"
 import { Popover } from "@opencode-ai/ui/popover"
 import { TaskStore } from "@/context/task"
 import { TaskItemRow } from "./task-item"
@@ -22,6 +22,10 @@ export function TaskList() {
     const cancelled = cancelledItems()
     return [...active, ...paused, ...errors, ...completed, ...cancelled]
   })
+
+  // 列表清空后(自动删除耗尽最后一项)重置打开态:Show 卸载不触发 Kobalte onOpenChange,
+  // 否则 shown 残留 true,下次 add 重新挂载 Popover 时会自动弹出面板
+  createEffect(() => { if (allItems().length === 0) setShown(false) })
 
   return (
     <Show when={allItems().length > 0}>
@@ -70,7 +74,7 @@ export function TaskList() {
         {/* 列表区：撑满剩余高度并滚动；space-y-1 提供项间距，scrollbar-gutter 保证有/无滚动条时间距一致 */}
         <div class="task-center-scroll flex-1 pb-4 overflow-y-auto space-y-1" style={{ "padding-left": "calc(var(--spacing) * 4)", "padding-right": "calc(var(--spacing) * 2.5)", "scrollbar-gutter": "stable" }}>
           <For each={allItems()}>
-            {(item) => <TaskItemRow item={item} onPause={TaskStore.togglePause} onCancel={TaskStore.cancel} />}
+            {(item) => <TaskItemRow item={item} onPause={TaskStore.togglePause} onCancel={TaskStore.cancel} onRemove={TaskStore.remove} />}
           </For>
         </div>
       </div>
