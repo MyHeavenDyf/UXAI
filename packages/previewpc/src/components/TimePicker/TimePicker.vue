@@ -42,6 +42,8 @@ const size = computed(() => {
 })
 const format = computed(() => properties.format)
 
+const disabled = computed(() => (resolveValue(properties.disabled) as boolean) || false)
+
 const range = computed(() => resolveValue(properties.range as any) as boolean)
 
 const placeholder = computed(() => {
@@ -85,6 +87,7 @@ function handleDateChange(val: any) {
     :is-range="range"
     :size="size as any"
     :format="format"
+    :disabled="disabled"
     :clearable="false"
     @change="handleDateChange"
   />

@@ -71,6 +71,8 @@ const className = computed(() => node.properties.className)
 
 const label = computed(() => resolveValue(properties.value) as string)
 
+const disabled = computed(() => (resolveValue(properties.disabled) as boolean) || false)
+
 const type = ref<ButtonType>("")
 const isLink = ref(resolveValue(properties?.types) === "link")
 const color = computed(() => {
@@ -169,7 +171,8 @@ const handleClick = () => {
     :type="type"
     :color="color"
     :size="size"
-    :link="isLink" 
+    :disabled="disabled"
+    :link="isLink"
     @click="handleClick">
     <template v-if="iconName && resolvedIcon">
       <component 
