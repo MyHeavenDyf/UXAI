@@ -136,6 +136,16 @@ export function ResultViewer(props: {
     return tab ? tab.content : (plan.content ?? "")
   })
 
+  /**
+   * 当前激活的 plan tab（编辑态时优先用它在 tabStore 中的最新内容）。
+   * 用于 tab 栏点击 design-plan tab 后切换到 tabs 模式渲染，保证编辑不被回退。
+   */
+  const activePlanTab = createMemo(() => {
+    const tab = activeTab()
+    if (tab?.type === "design-plan") return tab
+    return null
+  })
+
   const [htmlModes, setHtmlModes] = createSignal<Record<string, "preview" | "edit">>({})
   const [viewport, setViewport] = createSignal<ViewportPreset>("desktop")
   const [palette, setPalette] = createSignal<PaletteId | null>(null)
