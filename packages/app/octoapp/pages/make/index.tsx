@@ -840,10 +840,12 @@ const sessionMessagesLoaded = createMemo(() => {
     return status?.type === "busy"
   })
 
+  const effectiveBusy = createMemo(() => isBusy() || childBusy())
+
   // ── 会话进度条动画状态 ────────────────────────────────────
   const [timeoutDone, setTimeoutDone] = createSignal(true)
   const workingStatus = createMemo<"hidden" | "showing" | "hiding">((prev) => {
-    if (isBusy()) return "showing"
+    if (effectiveBusy()) return "showing"
     if (prev === "showing" || !timeoutDone()) return "hiding"
     return "hidden"
   })
@@ -860,7 +862,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const [elapsedText, setElapsedText] = createSignal("")
   let elapsedTimer: ReturnType<typeof setInterval> | undefined
   createEffect(() => {
-    if (isBusy()) {
+    if (effectiveBusy()) {
       const id = params.id
       if (id) {
         const messages = (sync.data.message?.[id] ?? []) as Message[]
@@ -890,7 +892,7 @@ const sessionMessagesLoaded = createMemo(() => {
   let blockTimer: ReturnType<typeof setInterval> | undefined
   createEffect(() => {
     const hasQuestion = sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
-    if (isBusy() && !hasQuestion) {
+    if (effectiveBusy() && !hasQuestion) {
       setLastDeltaTime(Date.now())
       blockTimer = setInterval(() => {
         const blockedMs = Date.now() - lastDeltaTime()
@@ -2163,7 +2165,7 @@ const sessionMessagesLoaded = createMemo(() => {
       mentions = [{ type: 'skill', name: specName, label: specDisplay }, ...mentions]
     }
     
-    if (sending() || !activeModelKey()) return
+    if (effectiveBusy() || !activeModelKey()) return
 
     if (hasImageAttachments() && !ensureMultimodalModel()) {
       showToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型", variant: "error" })
@@ -2246,6 +2248,12 @@ if (dsId) {
 
   /** 终止当前生成 */
   async function halt() {
+    const childId = activePlanSessionId()
+    if (childId && childBusy()) {
+      tracker.interaction({ module: "design", name: "stop-generation" })
+      await sdk.client.session.abort({ sessionID: childId }).catch(() => {})
+      return
+    }
     const sid = params.id
     if (!sid) return
     tracker.interaction({ module: "design", name: "stop-generation" })
@@ -3083,7 +3091,7 @@ if (dsId) {
                       <IconNotepad size={16} />
                     </button>
                   </Show>
-                  <Show when={isBusy()}>
+                  <Show when={effectiveBusy()}>
                     <div class="shrink-0 flex items-center gap-1.5">
                       <Spinner class="size-4" />
                     </div>
@@ -3249,24 +3257,24 @@ if (dsId) {
                     />
 
                     <div class="flex-1 min-h-0 overflow-hidden rounded-[inherit]">
-                    <ProseMirrorEditor
-                       sessionId={params.id!}
-                       skillConfig={skillConfig() ?? {}}
-                       artifactFiles={artifactFilesMirror()}
-                       mentionSelections={mentionSelections()}
-                       setMentionSelections={setMentionSelections}
-                       disabled={inputDisabled()}
-                       busy={isBusy()}
-                       autofocus
-                       onTriggerMention={loadSkillConfig}
-                       onContentChange={setPrompt}
-                       onSubmit={() => void handleSubmit()}
-                       onPaste={handlePaste}
-                       onSlashTrigger={(query) => {
-                         setSlashState({ query, cursor: 0 })
-                         setSlashIndex(0)
-                       }}
-                       onSlashClose={() => setSlashState(null)}
+<ProseMirrorEditor
+                        sessionId={params.id!}
+                        skillConfig={skillConfig() ?? {}}
+                        artifactFiles={artifactFilesMirror()}
+                        mentionSelections={mentionSelections()}
+                        setMentionSelections={setMentionSelections}
+                        disabled={inputDisabled()}
+                        busy={effectiveBusy()}
+                        autofocus
+                        onTriggerMention={loadSkillConfig}
+                        onContentChange={setPrompt}
+                        onSubmit={() => void handleSubmit()}
+                        onPaste={handlePaste}
+                        onSlashTrigger={(query) => {
+                          setSlashState({ query, cursor: 0 })
+                          setSlashIndex(0)
+                        }}
+                        onSlashClose={() => setSlashState(null)}
                        onPreview={(url) => {
                          handleOpenLocalFile(url)
                          proseMirrorRef1?.clear()
@@ -3339,14 +3347,14 @@ if (dsId) {
                           <Icon name="chevron-down" class="size-3.5 shrink-0" style="color: #000" />
                         </button>
                       </div>
-                      <IconButton
-                        data-action="prompt-submit"
-                        type="submit"
-                        icon={isBusy() ? "stop" : "arrow-up"}
-                        class="size-8 flex-shrink-0"
-                        onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
-                        disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
-                        aria-label={isBusy() ? "停止生成" : undefined}
+<IconButton
+                         data-action="prompt-submit"
+                         type="submit"
+                         icon={effectiveBusy() ? "stop" : "arrow-up"}
+                         class="size-8 flex-shrink-0"
+                         onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
+                         disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
+                         aria-label={effectiveBusy() ? "停止生成" : undefined}
 />
                     </div>
                    </div>
@@ -3568,23 +3576,23 @@ if (dsId) {
                   />
 
 <ProseMirrorEditor
-                      sessionId={params.id!}
-                      skillConfig={skillConfig() ?? {}}
-                      artifactFiles={artifactFilesMirror()}
-                      mentionSelections={mentionSelections()}
-                      setMentionSelections={setMentionSelections}
-                      disabled={inputDisabled()}
-                      busy={isBusy()}
-                      autofocus
-                      onTriggerMention={loadSkillConfig}
-                     onContentChange={setPrompt}
-                     onSubmit={() => void handleSubmit()}
-                     onPaste={handlePaste}
-onSlashTrigger={(query) => {
-                        setSlashState({ query, cursor: 0 })
-                        setSlashIndex(0)
-                      }}
-                      onSlashClose={() => setSlashState(null)}
+                       sessionId={params.id!}
+                       skillConfig={skillConfig() ?? {}}
+                       artifactFiles={artifactFilesMirror()}
+                       mentionSelections={mentionSelections()}
+                       setMentionSelections={setMentionSelections}
+                       disabled={inputDisabled()}
+                       busy={effectiveBusy()}
+                       autofocus
+                       onTriggerMention={loadSkillConfig}
+                      onContentChange={setPrompt}
+                      onSubmit={() => void handleSubmit()}
+                      onPaste={handlePaste}
+ onSlashTrigger={(query) => {
+                         setSlashState({ query, cursor: 0 })
+                         setSlashIndex(0)
+                       }}
+                       onSlashClose={() => setSlashState(null)}
                       onPreview={(url) => {
                         handleOpenLocalFile(url)
                         proseMirrorRef1?.clear()
@@ -3646,16 +3654,16 @@ onSlashTrigger={(query) => {
                         <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
                       </ModelSelectorPopover>
                     </div>
-                    <IconButton
-                      data-action="prompt-submit"
-                      type="submit"
-                      icon={isBusy() ? "stop" : "arrow-up"}
-                      variant="primary"
-                      class="size-8 flex-shrink-0"
-                      onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
-                      disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
-                      aria-label={isBusy() ? "停止生成" : undefined}
-                    />
+<IconButton
+                       data-action="prompt-submit"
+                       type="submit"
+                       icon={effectiveBusy() ? "stop" : "arrow-up"}
+                       variant="primary"
+                       class="size-8 flex-shrink-0"
+                       onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
+                       disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
+                       aria-label={effectiveBusy() ? "停止生成" : undefined}
+                     />
                   </div>
                 </div>
               </div>
