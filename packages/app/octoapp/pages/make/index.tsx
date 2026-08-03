@@ -200,44 +200,66 @@ function MakeContent() {
   const [selectedSpecDisplay, setSelectedSpecDisplay] = createSignal<string | null>(null)
   const [selectedSpecName, setSelectedSpecName] = createSignal<string | null>(null)
 
-  // 新建对话时获取存量配置
+  let configFetched = false
+
+  // 获取存量配置并设置状态
+  function fetchAndSetConfig() {
+    const api = getDesktopApi()
+    if (!api?.getAssetsConfig) return
+    api.getAssetsConfig()
+      .then((data) => {
+        const config = data as AssetsConfig
+        if (config?.user) {
+          const designSpec = config.user.designSpec
+          const placeholder = config.user.placeholder
+          if (designSpec && typeof designSpec === 'string') {
+            setSelectedSpecName(designSpec)
+          }
+          if (placeholder && typeof placeholder === 'string') {
+            setSelectedSpecDisplay(placeholder)
+          }
+          // 写入临时文件
+          const projectDirValue = projectDir()
+          if (projectDirValue && api?.writeFileBuffer) {
+            const sep = projectDirValue.includes("\\") ? "\\" : "/"
+            const configPath = [projectDirValue, ".octo", "tmps", "make", "resource", "assets_config.json"].join(sep)
+            const encoder = new TextEncoder()
+            const str = JSON.stringify(data)
+            const buffer = encoder.encode(str).buffer as ArrayBuffer
+            api.writeFileBuffer(configPath, buffer).catch(err => {
+              console.error("[MakePage] Failed to save assets_config.json:", err)
+            })
+          }
+        }
+      })
+      .catch((err) => {
+        console.error("[MakePage] Failed to get assets config:", err)
+      })
+  }
+
+  // 1. 挂载时获取（只在空态且未获取过时）
+  onMount(() => {
+    if (!params.id && !configFetched) {
+      configFetched = true
+      fetchAndSetConfig()
+    }
+  })
+
+  // 2. 参数变化时获取（变为空态且未获取过时）
   createEffect(on(
     () => params.id,
     (id) => {
-      if (id) return
-      const api = getDesktopApi()
-      if (!api?.getAssetsConfig) return
-      api.getAssetsConfig()
-        .then((data) => {
-          const config = data as AssetsConfig
-          if (config?.user) {
-            const designSpec = config.user.designSpec
-            const placeholder = config.user.placeholder
-            if (designSpec && typeof designSpec === 'string') {
-              setSelectedSpecName(designSpec)
-            }
-            if (placeholder && typeof placeholder === 'string') {
-              setSelectedSpecDisplay(placeholder)
-            }
-            // 写入临时文件
-            const projectDirValue = projectDir()
-            if (projectDirValue && api?.writeFileBuffer) {
-              const sep = projectDirValue.includes("\\") ? "\\" : "/"
-              const configPath = [projectDirValue, ".octo", "tmps", "make", "resource", "assets_config.json"].join(sep)
-              const encoder = new TextEncoder()
-              const str = JSON.stringify(data)
-              const buffer = encoder.encode(str).buffer as ArrayBuffer
-              api.writeFileBuffer(configPath, buffer).catch(err => {
-                console.error("[MakePage] Failed to save assets_config.json:", err)
-              })
-            }
-          }
-        })
-        .catch((err) => {
-          console.error("[MakePage] Failed to get assets config:", err)
-        })
-    },
-    { defer: true }
+      // 离开空态时重置标志
+      if (id) {
+        configFetched = false
+        return
+      }
+      // 变为空态时，如果未获取过，则获取
+      if (!id && !configFetched) {
+        configFetched = true
+        fetchAndSetConfig()
+      }
+    }
   ))
 
   createEffect(
