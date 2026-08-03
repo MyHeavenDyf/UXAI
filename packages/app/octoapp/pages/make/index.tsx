@@ -1581,6 +1581,12 @@ const sessionMessagesLoaded = createMemo(() => {
           if (localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + capturedSid)) {
             setPlanEndedForSession(capturedSid)
             setPlanEnded(true)
+            // 已结束的子 session 仍需加入 childSessionIDs 并同步消息，
+            // 让 planCard 能扫描到 design-plan artifact，保持 [方案已确认] 按钮可见
+            loadedChildSessions.add(childId)
+            setChildSessionIDs((prev) => { const next = new Set(prev); next.add(childId); return next })
+            sync.session.sync(childId).catch(() => {})
+            setPlanPhase("generate")
             return
           }
           loadedChildSessions.add(childId)
