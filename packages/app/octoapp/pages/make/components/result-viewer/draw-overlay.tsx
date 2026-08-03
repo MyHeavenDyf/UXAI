@@ -653,7 +653,7 @@ export function DrawOverlay(props: Props): JSX.Element {
             width: '100%',
             height: '100%',
             'pointer-events': overlayPointer(),
-            cursor: props.active ? 'crosshair' : 'default',
+            cursor: sending() ? 'wait' : (props.active ? 'crosshair' : 'default'),
           }}
         />
       </Show>
