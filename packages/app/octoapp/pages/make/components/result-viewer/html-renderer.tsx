@@ -2010,8 +2010,8 @@ fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath
           </DrawOverlay>
        ) : (
         <textarea
+          readonly={true}
           value={extractHtmlContent(props.content)}
-          onInput={(e) => props.onContentChange?.(e.currentTarget.value)}
           class="w-full h-full resize-none p-4 text-sm font-mono outline-none"
           style={{
             background: "rgba(243,244,246,1)",
