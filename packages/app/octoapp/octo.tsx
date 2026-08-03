@@ -60,6 +60,7 @@ import { MakeSidebar } from "@/pages/make/sidebar"
 import { PatternSidebar } from "@/pages/pattern/modules/sidebar/sidebar"
 import { InsightSidebar } from "@/pages/insight/sidebar"
 import { InsightQueueRunner } from "@/pages/insight/queue-runner"
+import { ChatFollowupQueueRunner } from "@/pages/chat/followup-runner"
 import { ProjectInfo } from "@/components/project-info"
 import { SidebarFooter } from "@/pages/insight/components/sidebar-footer"
 import { MakeLayoutProvider, useMakeLayout } from "@/context/make-layout"
@@ -733,6 +734,9 @@ export function AppInterface(props: {
                 {/* SPEC-INS-027:insight 排队 drain 运行器。挂在 Router 之外,跨 tab/路由常驻,
                     使会话后台跑完时排队仍能继续 flush(不随 insight 页面卸载而死)。headless。 */}
                 <InsightQueueRunner />
+                {/* chat followup 排队 drain 运行器。通过 localStorage 桥接 session.tsx 的
+                    persisted followup store,在 chat 页面卸载后继续 drain 排队消息。headless。 */}
+                <ChatFollowupQueueRunner />
                 <Dynamic
                   component={props.router ?? Router}
                   root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
