@@ -151,10 +151,6 @@ function setupApp() {
   }
 
   preferAppEnv(app.getPath("userData"))
-  // macOS 上 preferAppEnv 的 loadShellEnv(shell 探测) 会覆盖 process.env，
-  // 导致之前 useEnvProxy 注入的 proxy 被清掉，重启后配置丢失。
-  // Windows 不走 shell 探测，多调一次幂等无影响。故统一在 preferAppEnv 后再注入一次。
-  useEnvProxy()
 
   app.on("second-instance", (_event: Event, argv: string[]) => {
     const urls = argv.filter((arg: string) => arg.startsWith("opencode://"))
