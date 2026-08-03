@@ -94,6 +94,9 @@ export function classifyAIError(err: unknown): { title: string; description: str
     return { title: "认证失败", description: "API Key 无效或已过期，请检查模型配置", agentLabel, agentCallId }
   if (msg.includes("token") || msg.includes("ContextOverflowError") || msg.includes("MessageOutputLengthError"))
     return { title: "Token 超限", description: "上下文长度超出模型限制，请尝试简化输入内容", agentLabel, agentCallId }
+  // 欠费/额度耗尽：必须在 APIError→网络错误 分支之前命中，否则 insufficient_quota / Insufficient Balance 这类 APIError 会被误判为网络错误
+  if (msg.includes("欠费") || msg.includes("额度耗尽") || msg.includes("insufficient_quota") || msg.includes("quota_exceeded") || msg.includes("quota exceeded") || msg.includes("insufficient balance") || msg.includes("余额不足") || msg.includes("FreeUsageLimitError") || msg.includes("GoUsageLimitError") || msg.includes("payment required"))
+    return { title: "欠费/额度耗尽", description: "模型账号额度已耗尽或欠费，请检查账户余额与套餐", agentLabel, agentCallId }
   if (msg.includes("APIError") || msg.includes("fetch") || msg.includes("network") || msg.includes("ECONNREFUSED") || msg.includes("ENOTFOUND") || msg.includes("timeout"))
     return { title: "网络错误", description: "网络连接异常，请检查网络后重试", agentLabel, agentCallId }
   if (msg.includes("not return valid JSON") || msg.includes("SyntaxError") || msg.includes("Unexpected token") || msg.includes("JSON.parse"))

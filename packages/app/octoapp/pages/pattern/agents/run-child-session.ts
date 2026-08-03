@@ -5,6 +5,7 @@ import { getResultFromMessages, extractJson } from '../utils/json-parser'
 import { logAgentCall } from "../utils/debug-log"
 import { validateSchema } from "../utils/schema-validator"
 import { type AgentError } from "../utils/error-msg"
+import { getDesktopApi } from "../utils/desktop-api"
 
 export type RunChildSessionInput = {
   sync?: any
@@ -84,8 +85,9 @@ export async function runChildSession(input: RunChildSessionInput): Promise<{ te
     tagError(err, (err as { _childSessionId?: string })?._childSessionId ?? parentSessionID)
     const message = err instanceof Error ? err.message : String(err)
     console.error(`[runChildSession] ${agent} 执行失败:`, message)
-    if (message === "aborted") throw err
-    return { text: "", childSessionId: parentSessionID, error: message }
+    // 始终 rethrow：让真实错误（欠费/鉴权/超长等）带类型信息传到 workflow 的 classifyAIError，
+    // 否则上层只能看到 caller 因 text 为空而抛的 "did not return valid JSON"，真实错误类型被掩盖
+    throw err
   }
 }
 
@@ -123,17 +125,23 @@ async function processAgentResult(params: {
   const stopWatch = watchRetryStatus(sync, childSessionID)
   try {
     const result = await getResultFromMessages(sync, childSessionID, knownIds)
-    if (!result) throw new Error(`[${agent}] 模型未返回有效内容`)
     const sessionId = isRoot ? parentSessionID : childSessionID
-    const cleaned = extractJson(result)
-    if (schema && cleaned) validateSchema(cleaned, schema, agent)
-    logAgentCall(agent, sessionId, promptText, cleaned ? JSON.stringify(cleaned, null, 2) : result)
-
+    // 必须先查 assistant 消息上的 .error：欠费/鉴权/超长等不可重试错误会让模型不返回文本，
+    // getResultFromMessages 此时会 resolve 空字符串，若先走 "未返回有效内容" 检查，真实错误类型会被掩盖
     const messageError = extractMessageError(sync, childSessionID, knownIds)
     if (messageError) {
       console.error(`[runChildSession] ${agent} 模型返回了错误:`, messageError)
-      return { text: result, childSessionId: sessionId, error: messageError }
+      // 抛错而非返回 error 字段：caller 都不读 result.error，只有抛出才能让真实错误类型传到 workflow 的 classifyAIError
+      const e = new Error(messageError) as AgentError & { _childSessionId?: string }
+      e.agentName = agent
+      e.agentCallId = sessionId
+      e._childSessionId = sessionId
+      throw e
     }
+    if (!result) throw new Error(`[${agent}] 模型未返回有效内容`)
+    const cleaned = extractJson(result)
+    if (schema && cleaned) validateSchema(cleaned, schema, agent)
+    logAgentCall(agent, sessionId, promptText, cleaned ? JSON.stringify(cleaned, null, 2) : result)
 
     return { text: result, childSessionId: sessionId }
   } catch (err) {
@@ -158,33 +166,106 @@ function extractMessageError(
       break
     }
   }
-  const msgError = target?.error as Record<string, unknown> | undefined
-  if (!msgError) return undefined
-  const name = msgError.name as string | undefined
-  const msg = msgError.message as string | undefined
-  const statusCode = msgError.statusCode as number | undefined
-  const isRetryable = msgError.isRetryable as boolean | undefined
-  const parts: string[] = []
-  if (name) parts.push(`[${name}]`)
-  if (msg) parts.push(msg)
-  if (statusCode) parts.push(`(HTTP ${statusCode})`)
+  // opencode 错误对象序列化形如 { name, data: {...} }（NamedError.toObject），字段全在 data 下，
+  // 直接读 msgError.statusCode / msgError.isRetryable 永远是 undefined —— 这是之前拿不到错误类型的根因
+  const msgError = target?.error as { name?: string; data?: Record<string, unknown> } | undefined
+  if (!msgError?.name || !msgError.data) return undefined
+  return formatMessageError(msgError.name, msgError.data)
+}
+
+// 把 { name, data } 信封格式化成带中文标签 + 英文判别符 + provider code + HTTP 状态 + 可重试标记的字符串。
+// 保留英文 name（如 APIError / ProviderAuthError）是为了让上层 classifyAIError 的关键词匹配继续生效。
+function formatMessageError(name: string, data: Record<string, unknown>): string {
+  const message = data.message as string | undefined
+  const statusCode = data.statusCode as number | undefined
+  const isRetryable = data.isRetryable as boolean | undefined
+  const responseBody = data.responseBody as string | undefined
+  const providerCode = parseProviderCode(responseBody)
+  const label = classifyErrorLabel(name, message, responseBody, providerCode)
+  const parts: string[] = [`[${label} | ${name}]`]
+  if (message) parts.push(message)
+  if (providerCode) parts.push(`(${providerCode})`)
+  if (statusCode) parts.push(`HTTP ${statusCode}`)
   if (isRetryable !== undefined) parts.push(isRetryable ? "可重试" : "不可重试")
-  return parts.join(" ") || undefined
+  return parts.join(" ")
+}
+
+// 欠费判定必须把 data.message 也纳入匹配：DeepSeek 等厂商把 "Insufficient Balance" 放在 message，
+// 而 code 是通用的 invalid_request_error，只看 code/responseBody 会漏判成普通 APIError
+function classifyErrorLabel(
+  name: string,
+  message: string | undefined,
+  responseBody: string | undefined,
+  providerCode: string | undefined,
+): string {
+  if (name === "ProviderAuthError") return "鉴权失败"
+  if (name === "ContextOverflowError") return "上下文超长"
+  if (name === "MessageAbortedError") return "已中止"
+  if (name === "MessageOutputLengthError") return "输出超长"
+  if (name === "StructuredOutputError") return "结构化输出失败"
+  if (name === "APIError") {
+    const hay = `${providerCode ?? ""} ${message ?? ""} ${responseBody ?? ""}`.toLowerCase()
+    if (hay.includes("insufficient_quota") || hay.includes("quota_exceeded") || hay.includes("insufficient balance") || hay.includes("余额不足") || hay.includes("freeusagelimit") || hay.includes("gousagelimit")) {
+      return "欠费/额度耗尽"
+    }
+    return "API错误"
+  }
+  return "未知错误"
+}
+
+// 从 provider 原始响应体里挖 error.code / error.type（如 insufficient_quota、context_length_exceeded）
+function parseProviderCode(responseBody: string | undefined): string | undefined {
+  if (!responseBody) return undefined
+  try {
+    const json = JSON.parse(responseBody) as { error?: { code?: string; type?: string } }
+    return json?.error?.code ?? json?.error?.type
+  } catch {
+    return undefined
+  }
 }
 
 function watchRetryStatus(sync: any, sessionID: string): () => void {
   return createRoot((dispose) => {
     let lastAttempt = 0
+    let lastActionReason: string | undefined
     createEffect(() => {
       const status = sync?.data?.session_status?.[sessionID]
       if (!status || status.type !== "retry") return
+      // 带 action 的（FreeUsageLimitError / GoUsageLimitError）：这类错误会无限重试，永远落不到 assistantMessage.error，
+      // action.reason 是 UI 感知它们的唯一信号；同一 reason 只弹一次，避免重试刷屏
+      const action = status.action as
+        | { reason?: string; title?: string; message?: string; link?: string }
+        | undefined
+      if (action?.reason) {
+        if (action.reason === lastActionReason) return
+        lastActionReason = action.reason
+        showToast({
+          title: action.title ?? `模型调用出错（第 ${status.attempt} 次重试中）`,
+          description: action.message ?? status.message,
+          variant: "error",
+          persistent: true,
+          actions: action.link
+            ? [{ label: "前往处理", onClick: () => openExternalUrl(action.link!) }]
+            : undefined,
+        })
+        return
+      }
+      // 通用可重试错误（429 / 5xx / rate limit）：每次 attempt 递增弹一次
       if (status.attempt <= lastAttempt) return
       lastAttempt = status.attempt
       showToast({
         title: `模型调用出错（第 ${status.attempt} 次重试中）`,
         description: status.message,
+        variant: "error",
       })
     })
     return dispose
   })
+}
+
+// 唤起系统浏览器打开外链：Electron 走 desktopApi.openLink 避免 webview 导航后无返回入口，web 走 window.open
+function openExternalUrl(url: string) {
+  const api = getDesktopApi()
+  if (typeof api?.openLink === "function") api.openLink(url)
+  else window.open(url, "_blank", "noopener")
 }
