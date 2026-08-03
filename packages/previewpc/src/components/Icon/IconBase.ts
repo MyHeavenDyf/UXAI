@@ -3,6 +3,7 @@ import { h, markRaw, shallowRef, watch, type Ref } from "vue"
 import type { Component, VNode } from "vue"
 import HuiSvgIcon from "./HuiSvgIcon.vue"
 import { hasHuiIcons, iconInfoMap, svgCache, svgCacheVersion, resolveSvgCacheKey, requestSvg, requestIconInfo } from "../../composables/useIconProvider"
+import { resolveApiShape } from "../../utils/fetchSvg"
 import { useTheme } from "../../composables/useTheme";
 
 export const sizeConfig = { xs: 12, sm: 16, md: 24, lg: 32, xl: 40 } as const
@@ -35,13 +36,25 @@ export function resolveIconColor(color: string | undefined): string {
   return SEMANTIC_COLOR_MAP[color] || color
 }
 
-/** shape → hui type */
-export function mapShapeToHuiType(shape: string | undefined): "lined" | "filled" | "lined-twotone" | "filled-twotone" | "round-bg" | "square-bg" {
+/**
+ * shape → hui type（主题感知）
+ *
+ * - outline: 浅色 → lined, 深色 → filled
+ * - two-tone: 浅色 → lined-twotone, 深色 → filled-twotone
+ * - circle/square: 不变（不随主题切换）
+ * - lined/filled: 显式指定，不随主题切换（其他组件用 lined）
+ */
+export function mapShapeToHuiType(
+  shape: string | undefined,
+  isDark?: boolean,
+): "lined" | "filled" | "lined-twotone" | "filled-twotone" | "round-bg" | "square-bg" {
   switch (shape) {
-    case "fill": return "filled"
-    case "circle": return "round-bg"
-    case "square": return "square-bg"
-    default: return "lined"
+    case "outline":  return isDark ? "filled" : "lined"
+    case "two-tone": return isDark ? "filled-twotone" : "lined-twotone"
+    case "filled":   return "filled"
+    case "circle":   return "round-bg"
+    case "square":   return "square-bg"
+    default:         return "lined"
   }
 }
 
@@ -64,11 +77,13 @@ export function getHuiIconComponentRef(
   name: string,
   shape?: string,
   color?: string,
+  isDark?: boolean,
 ): { component: Component; props: Record<string, any> } | null {
   if (!name || !hasHuiIcons.value) return null
 
   const s = shape || 'outline'
   const c = color || 'default'
+  const resolvedShape = resolveApiShape(s, isDark)
 
   // 1. 查 iconInfoMap[name] 获取 url
   const entry = iconInfoMap.value[name]
@@ -78,34 +93,35 @@ export function getHuiIconComponentRef(
   }
   if (!entry.url) return null  // 有 entry 但无 url → 已请求过但 API 未找到，不再重复
 
-  // 2. 用 JSON 数据值拼 svgCache key
-  const cacheKey = resolveSvgCacheKey(name, s, c)
+  // 2. 用 resolved shape 拼 svgCache key（color 部分使用 hex 值，避免主题切换后碰撞）
+  const cacheKey = resolveSvgCacheKey(name, resolvedShape, c, isDark)
 
   // 3. 查 svgCache
   const svg = svgCache.get(cacheKey)
   if (svg) {
     return { component: markRaw(HuiSvgIcon), props: {
       svgHtml: svg, iconUrl: entry.url,
-      type: mapShapeToHuiType(s),
+      type: mapShapeToHuiType(s, isDark),
       iconColor: mapColorToHuiColor(c === 'default' ? undefined : c),
     }}
   }
 
-  // 4. 简化降级：查同 name 的 outline&同 color 变体缓存
+  // 4. 简化降级：查同 name 的 outline 降级变体缓存
   if (s !== 'outline') {
-    const fallbackKey = resolveSvgCacheKey(name, 'outline', c)
+    const fallbackShape = resolveApiShape('outline', isDark)
+    const fallbackKey = resolveSvgCacheKey(name, fallbackShape, c, isDark)
     const fallbackSvg = svgCache.get(fallbackKey)
     if (fallbackSvg) {
       return { component: markRaw(HuiSvgIcon), props: {
         svgHtml: fallbackSvg, iconUrl: entry.url,
-        type: mapShapeToHuiType(s),
+        type: mapShapeToHuiType(s, isDark),
         iconColor: mapColorToHuiColor(c === 'default' ? undefined : c),
       }}
     }
   }
 
   // 5. 无缓存 → 请求并返回 null（图标空白，SVG 到达后响应式显示）
-  requestSvg(name, s, c)
+  requestSvg(name, resolvedShape, c, isDark)
   return null
 }
 
@@ -127,6 +143,7 @@ export interface IconComponentRefOptions {
   color?: string
   strokeWidth?: number
   shape?: string
+  isDark?: boolean
 }
 
 /**
@@ -140,10 +157,11 @@ export function getIconComponentRef(
   if (!name) return null
   const shape = options?.shape || 'outline'
   const color = options?.color || 'default'
+  const isDark = options?.isDark
 
   if (hasHuiIcons.value) {
     // hui API 可用 → 只走 hui，SVG 未缓存则空白
-    const huiRef = getHuiIconComponentRef(name, shape, color)
+    const huiRef = getHuiIconComponentRef(name, shape, color, isDark)
     if (huiRef) {
       if (options?.size) huiRef.props.size = options.size
       return huiRef
@@ -156,23 +174,24 @@ export function getIconComponentRef(
   return { component: markRaw(component), props: { size: options?.size ?? 24, color: resolveIconColor(options?.color), "stroke-width": options?.strokeWidth ?? 2 }}
 }
 
-/** 响应式图标解析（同时追踪 svgCacheVersion，SVG 到达后重新解析） */
+/** 响应式图标解析（追踪 svgCacheVersion 和 isDark，SVG 到达或主题切换后重新解析） */
 export function useIconComponentRef(
   nameRef: Ref<string | undefined | null>,
   options?: IconComponentRefOptions,
 ): Ref<{ component: Component | null; props: Record<string, any> } | null> {
   const resolved = shallowRef<{ component: Component | null; props: Record<string, any> } | null>(null)
-  // 主题切换（全局状态）
   const { isDark } = useTheme();
   watch([nameRef, svgCacheVersion, isDark], ([val]) => {
-    let newOptions = {}
-    if (options?.shape) {
-      newOptions = options
-    } else {
-      const shape = isDark.value ? 'fill' : 'lined'
-      newOptions = options ? {...options, shape} : {shape}
+    if (!val) {
+      resolved.value = null
+      return
     }
-    resolved.value = val ? getIconComponentRef(val, newOptions) : null
+    // 其他组件（无 options.shape）：始终使用 'lined' shape（线性，不随主题切换）
+    // Icon 组件（传入 options.shape）：shape 由 options 传入，isDark 传入以支持主题感知
+    const newOptions = options
+      ? { ...options, isDark: isDark.value }
+      : { shape: 'lined', isDark: isDark.value }
+    resolved.value = getIconComponentRef(val, newOptions)
   }, { immediate: true })
   return resolved
 }

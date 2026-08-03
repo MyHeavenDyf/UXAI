@@ -177,7 +177,7 @@ interface ButtonNode extends AnyComponentNode<ResolvedButton> {
 
 interface ResolvedIcon {
   name: DynamicString;
-  shape?: "outline" | "fill" | "square" | "circle";
+  shape?: "outline" | "two-tone" | "square" | "circle" | "lined" | "filled";
   color?: string;
   className?: string;
 }
@@ -372,6 +372,7 @@ interface ResolvedSegmented {
   block?: boolean;
   orientation?: "vertical" | "horizontal";
   size?: "large" | "medium" | "small";
+  disabled?: DynamicBoolean;
   className?: string;
 }
 interface SegmentedNode extends AnyComponentNode<ResolvedSegmented> {

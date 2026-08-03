@@ -159,12 +159,34 @@ export function installDomPicker(options = {}) {
   let lastContextMenuX = 0
   let lastContextMenuY = 0
   let resizeObserver = null
+  let rectRafPending = false
+
+  // 元素尺寸变化后，把新 rect 回传父层，使其黑色遮罩/蓝框(.picker-mask)跟随更新。
+  // rAF 合并：连续 resize 每帧最多回传一条，避免刷屏。
+  const postRectUpdate = () => {
+    if (rectRafPending) return
+    rectRafPending = true
+    requestAnimationFrame(() => {
+      rectRafPending = false
+      if (!frozen || !activeElement) return
+      const r = activeElement.getBoundingClientRect()
+      window.parent.postMessage(
+        {
+          type: 'DOM_PICKER_RECT_UPDATE',
+          id: activeLocation,
+          rect: { top: r.top, left: r.left, width: r.width, height: r.height },
+        },
+        '*',
+      )
+    })
+  }
 
   const ensureResizeObserver = () => {
     if (resizeObserver) return
     resizeObserver = new ResizeObserver(() => {
       if (!frozen || !activeElement) return
       updateOverlay(overlay, activeElement)
+      postRectUpdate()
     })
   }
 

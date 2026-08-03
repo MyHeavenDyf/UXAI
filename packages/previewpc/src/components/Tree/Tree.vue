@@ -97,11 +97,11 @@ const rawTreeData = computed<RawNode[]>(() => {
 // ---- 图标解析（同步，使用 createIconRenderer 封装为 Element Plus 可接受的 Component） ----
 const { isDark } = useTheme()
 function resolveIcons(nodes: RawNode[]): TreeNodeData[] {
-  const shape = isDark.value ? 'fill' : 'lined'
+
   return nodes.map((node) => {
     let icon: (() => any) | undefined
     if (node.iconName) {
-      const refComp = getIconComponentRef(node.iconName, { size: 14, shape })
+      const refComp = getIconComponentRef(node.iconName, { size: 14, shape: 'lined' })
       icon = createIconRenderer(refComp) ?? undefined
     }
     return {

@@ -99,12 +99,11 @@ const resolvedItems = ref<ResolvedItem[]>([])
 watch(
   [rawItems, svgCacheVersion, isDark],
   ([raw]) => {
-    const shape = isDark.value ? 'fill' : 'lined'
     resolvedItems.value = raw.map((r: any) => {
       if (!r.iconName) {
         return { title: r.title, icon: undefined, color: r.color, placement: r.placement, className: r.className, content: r.content }
       }
-      const refComp = getIconComponentRef(r.iconName, { size: 16, shape })
+      const refComp = getIconComponentRef(r.iconName, { size: 16, shape: 'lined' })
       return {
         title: r.title,
         icon: createIconRenderer(refComp) ?? undefined,

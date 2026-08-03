@@ -4,9 +4,10 @@
  * 新架构（按需获取）：
  *   1. getConfig — 获取配置 + 检测 API 可用性
  *   2. getIconInfo — 搜索图标（返回 url），存入 iconInfoMap (name → {name, url})
- *   3. getIcon — 渲染时按需获取 SVG，存入 svgCache (name&shape&color → svg)
+ *   3. getIcon — 渲染时按需获取 SVG，存入 svgCache (name&shape&hex(color) → svg)
  *
- * svgCache 键格式 name&shape&color（直接用 JSON 数据值），渲染时主查找
+ * svgCache 键格式 name&shape&hex(color)：color 部分使用解析后的 hex 值，
+ * 不同主题下同色名映射到不同 hex 值，避免 cache key 碰撞。
  * svgCacheVersion 每次 svgCache 写入后自增，驱动 Vue 响应式更新
  */
 
@@ -18,7 +19,7 @@ const ICON_API_URL = `${API_BASE}/assetRepository/iconPlus/getIcon`
 /** svgCache 版本号，每次写入自增，驱动 Vue 响应式更新 */
 export const svgCacheVersion = ref(0)
 
-/** SVG 缓存，键为 name&shape&color（JSON 数据值），值为 SVG 字符串 */
+/** SVG 缓存，键为 name&shape&hex(color)，值为 SVG 字符串 */
 export const svgCache = new Map<string, string>()
 
 /** 默认颜色 ID fallback */
@@ -45,47 +46,134 @@ export function getStyleValue(styleKey: string): string {
   return entry?.value || styleKey
 }
 
-/** shape → API styleKey（导出，供请求队列等使用） */
-export function shapeToStyleKey(shape: string): string {
+/**
+ * 将语义 shape 解析为具体 API shape（主题感知）
+ *
+ * - outline: 浅色 → lined, 深色 → filled
+ * - two-tone: 浅色 → lined-twotone, 深色 → filled-twotone
+ * - circle/square: 始终不变（不随主题切换）
+ * - lined/filled: 显式指定，不随主题切换（其他组件用）
+ */
+export function resolveApiShape(shape: string, isDark?: boolean): string {
   switch (shape) {
-    case 'fill': return 'filled'
-    case 'circle': return 'round_bottom2'
-    case 'square': return 'square_bottom2'
-    default: return 'border'
+    case 'outline':   return isDark ? 'filled' : 'lined'
+    case 'two-tone':  return isDark ? 'filled-twotone' : 'lined-twotone'
+    case 'circle':    return 'circle'
+    case 'square':    return 'square'
+    case 'lined':     return 'lined'
+    case 'filled':    return 'filled'
+    default:          return isDark ? 'filled' : 'lined'
   }
 }
 
-/** svgCache key：直接用 JSON 数据值拼接，shape 缺省 outline，color 缺省 default */
-export function resolveSvgCacheKey(name: string, shape?: string, color?: string): string {
-  const s = shape || 'outline'
+/** resolved shape → API styleKey（导出，供请求队列等使用） */
+export function shapeToStyleKey(resolvedShape: string): string {
+  switch (resolvedShape) {
+    case 'filled':          return 'filled'
+    case 'lined-twotone':   return 'two_colors1'
+    case 'filled-twotone':  return 'two_colors2'
+    case 'circle':          return 'round_bottom2'
+    case 'square':          return 'square_bottom2'
+    default:                return 'border'  // lined 等
+  }
+}
+
+/**
+ * 解析语义色名为 hex 值（用于 cache key），根据 resolved shape 选择 color/twoColor/threeColor
+ *
+ * 不同主题下语义色映射到不同 hex 值，因此 cache key 需用 hex 值避免碰撞。
+ * - 同色（如 info 两主题下色值相同）→ 同一 cache key，只缓存一次
+ * - 异色（default 浅色=黑 / 深色=白）→ 不同 cache key，自然区分
+ */
+export function resolveColorHex(color: string | undefined, resolvedShape: string, isDark?: boolean): string {
   const c = color || 'default'
-  return `${name}&${s}&${c}`
+  const currentIconColors = isDark ? iconDarkColors : iconColors
+  const entry = (currentIconColors as Record<string, { color: string; twoColor?: string; threeColor?: string }>)[c]
+
+  if (!entry) return c  // 未知色名，原样返回
+
+  // 根据 resolved shape 选择颜色条目
+  let colorValue: string
+  if (resolvedShape === 'filled-twotone') {
+    colorValue = entry.twoColor || entry.color
+  } else if (resolvedShape === 'circle' || resolvedShape === 'square') {
+    colorValue = entry.threeColor || entry.color
+  } else {
+    colorValue = entry.color
+  }
+
+  // 将 CSS 变量解析为 hex
+  const hexValues = colorValue.split(',').map(v => {
+    const trimmed = v.trim()
+    return (themeColors as Record<string, string>)[trimmed] || trimmed
+  })
+
+  return hexValues.join(',')
+}
+
+/**
+ * svgCache key：使用 resolved shape 拼接，shape 缺省 lined，color 缺省 default
+ *
+ * color 部分使用解析后的 hex 颜色值（而非语义色名），避免浅色/深色主题下同色名碰撞。
+ */
+export function resolveSvgCacheKey(name: string, resolvedShape?: string, color?: string, isDark?: boolean): string {
+  const s = resolvedShape || 'lined'
+  const resolvedColor = resolveColorHex(color, s, isDark)
+  return `${name}&${s}&${resolvedColor}`
 }
 
 /**
  * 解析 API colorId：先按类型匹配颜色列表，再按颜色值匹配具体 colorId
  *
  * 步骤：
- *   1. shape → styleKey → styleValue（如 circle → round_bottom2 → 圆底托）
+ *   1. resolvedShape → styleKey → styleValue（如 circle → round_bottom2 → 圆底托）
  *   2. 从 iconConfig.colors 中筛选 c.style === styleValue 的颜色列表
- *   3. a2uiColor → 先通过 iconColors/themeColors 解析为 hex，再在颜色列表中匹配 c.key 或 c.value
+ *   3. a2uiColor → 根据 resolvedShape 选择 color/twoColor/threeColor 条目，解析为 hex 后匹配
  *   4. 未匹配到则取该类型下的第一个颜色作为默认
  */
 
-export function resolveApiColorId(shape: string, a2uiColor?: string): string {
-  // ① shape → styleValue
-  const styleValue = getStyleValue(shapeToStyleKey(shape))
+export function resolveApiColorId(resolvedShape: string, a2uiColor?: string): string {
+  // ① resolvedShape → styleValue
+  const styleValue = getStyleValue(shapeToStyleKey(resolvedShape))
 
   // ② 按类型筛选颜色列表
   const colorsByType = (iconConfig?.colors || []).filter(c => c.style === styleValue)
   if (!colorsByType.length) return defaultColorId
 
-  // ③ 匹配颜色：语义色/CSS变量 → hex，再用 hex/key 匹配
+  // ③ 匹配颜色：根据 resolvedShape 选择对应的颜色条目
   if (a2uiColor) {
     const currentIconColors = isDark.value ? iconDarkColors : iconColors
-    const cssVar = (currentIconColors as Record<string, { color: string }>)[a2uiColor]?.color || a2uiColor
-    const hexColor = (themeColors as Record<string, string>)[cssVar] || a2uiColor
+    const iconColorEntry = (currentIconColors as Record<string, { color: string; twoColor?: string; threeColor?: string }>)[a2uiColor]
 
+    // 根据 resolvedShape 决定使用哪个颜色条目
+    let colorValue: string | undefined
+    if (resolvedShape === 'filled-twotone') {
+      colorValue = iconColorEntry?.twoColor
+    } else if (resolvedShape === 'circle' || resolvedShape === 'square') {
+      colorValue = iconColorEntry?.threeColor
+    } else {
+      // lined, filled, lined-twotone → 单色
+      colorValue = iconColorEntry?.color
+    }
+
+    if (colorValue) {
+      // 将逗号分隔的 CSS 变量逐个解析为 hex
+      const hexValues = colorValue.split(',').map(v => {
+        const trimmed = v.trim()
+        return (themeColors as Record<string, string>)[trimmed] || trimmed
+      })
+
+      // 匹配 API color 条目：检查所有 hex 值是否都在 API color 的 value 中
+      const match = colorsByType.find(c => {
+        const apiValues = c.value.split(',').map(v => v.trim())
+        return hexValues.every(h => apiValues.includes(h))
+      })
+      if (match) return match.id
+    }
+
+    // fallback：用 color 单色条目尝试匹配
+    const cssVar = iconColorEntry?.color || a2uiColor
+    const hexColor = (themeColors as Record<string, string>)[cssVar] || a2uiColor
     const match = colorsByType.find(c => c.value.split(',').includes(hexColor))
     if (match) return match.id
   }
@@ -182,12 +270,14 @@ export function clearSvgCache(): void {
   svgCacheVersion.value++
 }
 
-/** shape → API style value */
-export function mapShapeToApiStyle(shape?: string): string {
-  switch (shape) {
-    case "fill": return getStyleValue("filled")
-    case "circle": return getStyleValue("round_bottom2")
-    case "square": return getStyleValue("square_bottom2")
-    default: return getStyleValue("border")
+/** resolved shape → API style value */
+export function mapShapeToApiStyle(resolvedShape?: string): string {
+  switch (resolvedShape) {
+    case "filled":          return getStyleValue("filled")
+    case "lined-twotone":   return getStyleValue("two_colors1")
+    case "filled-twotone":  return getStyleValue("two_colors2")
+    case "circle":          return getStyleValue("round_bottom2")
+    case "square":          return getStyleValue("square_bottom2")
+    default:                return getStyleValue("border")  // lined 等
   }
 }

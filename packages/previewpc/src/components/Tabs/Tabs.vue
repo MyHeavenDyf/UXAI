@@ -33,7 +33,7 @@ const positionEnum = {
 const props = defineProps<A2UIComponentProps<TabsNode>>()
 const { properties } = props.node
 
-const { resolveValue } = useA2UIComponent(props.node, props.surfaceId)
+const { resolveValue, commitActivation } = useA2UIComponent(props.node, props.surfaceId)
 
 defineOptions({ inheritAttrs: false })
 
@@ -87,6 +87,10 @@ const position = computed(() => {
 
 const activeKey = ref(resolveValue(properties.activeKey) as string)
 
+watch(activeKey, (val) => {
+  if (val != null) commitActivation('activeKey', val)
+})
+
 
 const items = computed(() => {
   const tabs = properties.children || []
@@ -121,10 +125,14 @@ watch(
   [items, iconSize, svgCacheVersion, isDark],
   ([newItems, sz]) => {
     const map: Record<string, any> = {}
-    const shape = isDark.value ? 'fill' : 'lined'
+
     for (const item of (newItems as any[])) {
       if (item.icon) {
-        map[item.name] = getIconComponentRef(item.icon, { size: sz as number, strokeWidth: 1, shape })
+        map[item.name] = getIconComponentRef(item.icon, { 
+          size: sz as number, 
+          strokeWidth: 1, 
+          shape: 'lined' 
+        })
       }
     }
     resolvedTabIcons.value = map

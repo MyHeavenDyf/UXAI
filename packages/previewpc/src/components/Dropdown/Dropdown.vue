@@ -82,10 +82,9 @@ watch(
   [items, svgCacheVersion, isDark],
   ([newItems]) => {
     const map: Record<string | number, any> = {}
-    const shape = isDark.value ? 'fill' : 'lined'
     for (const item of (newItems as any[])) {
       if (item.icon) {
-        map[item.key] = getIconComponentRef(item.icon, { size: 14, shape })
+        map[item.key] = getIconComponentRef(item.icon, { size: 14, shape: 'lined' })
       }
     }
     resolvedDropdownIcons.value = map

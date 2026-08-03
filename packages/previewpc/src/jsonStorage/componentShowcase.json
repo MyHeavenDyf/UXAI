@@ -1916,7 +1916,8 @@
         "segmentedRowSizes",
         "segmentedRowTextIcon",
         "segmentedRowIcon",
-        "segmentedRowBlock"
+        "segmentedRowBlock",
+        "segmentedRowDisabled"
       ]
     },
     {
@@ -2084,6 +2085,64 @@
           "选项三"
         ],
         "block": true
+      }
+    },
+    {
+      "id": "segmentedRowDisabled",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "segmentedRowDisabledLabel",
+        "segmentedRowDisabledContent"
+      ]
+    },
+    {
+      "id": "segmentedRowDisabledLabel",
+      "component": "span",
+      "props": {
+        "value": "禁用状态",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "segmentedRowDisabledContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 flex-wrap"
+      },
+      "children": [
+        "segmentedDisabledTextIcon",
+        "segmentedDisabledIcon"
+      ]
+    },
+    {
+      "id": "segmentedDisabledTextIcon",
+      "component": "Segmented",
+      "props": {
+        "value": "list",
+        "options": [
+          { "label": "列表", "value": "list", "icon": "list" },
+          { "label": "卡片", "value": "card", "icon": "layout-grid" },
+          { "label": "表格", "value": "table", "icon": "table" }
+        ],
+        "size": "medium",
+        "disabled": true
+      }
+    },
+    {
+      "id": "segmentedDisabledIcon",
+      "component": "Segmented",
+      "props": {
+        "value": "list",
+        "options": [
+          { "value": "list", "icon": "list" },
+          { "value": "card", "icon": "layout-grid" },
+          { "value": "table", "icon": "table" }
+        ],
+        "size": "medium",
+        "disabled": true
       }
     },
     {

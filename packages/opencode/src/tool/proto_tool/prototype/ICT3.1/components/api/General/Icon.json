@@ -61,7 +61,7 @@
 					"description": "Icon background shape with auto-tinted color.",
 					"enum": [
 						"outline",
-						"fill",
+						"two-tone",
 						"square",
 						"circle"
 					]
