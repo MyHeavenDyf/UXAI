@@ -1531,9 +1531,12 @@ const sessionMessagesLoaded = createMemo(() => {
         }
         return
       }
-      tabStore.reset()
+      // 把当前 session 的 design-plan 编辑持久化到 snapshotStore（由 updateTabContent 覆盖），
+      // 这样 tabStore.reset() 后，切回时 plan tab 能恢复用户上次的编辑，而不是被 agent 重新输出覆盖。
+      persistActivePlanDraft()
       // 仅在 session 实际切换时清理规划状态,避免 handleEnterPlan 等操作
       // 触发 sync.data.session 更新后重新进入此 effect 时错误地清除状态。
+      tabStore.reset()
       if (newSid !== prevSid) {
         // 缓存前一个 session 的规划子 session，切回时立即恢复
         if (prevSid && activePlanSessionId()) {
@@ -1644,6 +1647,12 @@ const sessionMessagesLoaded = createMemo(() => {
           if (localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + capturedSid)) {
             setPlanEndedForSession(capturedSid)
             setPlanEnded(true)
+            // 已结束的子 session 仍需加入 childSessionIDs 并同步消息，
+            // 让 planCard 能扫描到 design-plan artifact，保持 [方案已确认] 按钮可见
+            loadedChildSessions.add(childId)
+            setChildSessionIDs((prev) => { const next = new Set(prev); next.add(childId); return next })
+            sync.session.sync(childId).catch(() => {})
+            setPlanPhase("generate")
             return
           }
           loadedChildSessions.add(childId)
@@ -1789,6 +1798,20 @@ const sessionMessagesLoaded = createMemo(() => {
   // 而是显示为输入框上方的横条(banner),用户主动点击后才把 plan 放进 ResultViewer。
   // 用户一旦查看过(plan tab 已存在),后续 plan 内容更新会通过 openTab 的 existing 分支自动刷新。
 
+  /** 持久化当前 session 中 design-plan tab 的编辑内容到 snapshotStore，
+   *  确保切换 session 再切回后用户编辑不被 agent 重新输出覆盖。 */
+  function persistActivePlanDraft() {
+    const planSid = activePlanSessionId()
+    if (!planSid) return
+    const planTabPrefix = `plan:${planSid}:`
+    for (const tab of tabStore.tabs()) {
+      if (tab.type === "design-plan" && tab.id.startsWith(planTabPrefix)) {
+        snapshotStore.save(tab)
+        refreshSnapshots()
+        return
+      }
+    }
+  }
   /** 用户点击 plan 横条/TabBar 按钮 → 切换到 plan 模式,直接在 ResultViewer 渲染设计规划内容 */
   function handleViewPlan() {
     setResultViewMode("plan")
@@ -1810,20 +1833,10 @@ const sessionMessagesLoaded = createMemo(() => {
         refreshSnapshots: refreshSnapshots,
       })
     }
-
-    // 如果是 design-plan 类型，还需要发送消息给子 agent 更新内容
-    if (tab?.type === "design-plan" && tab.artifactIdentifier) {
-      const planSid = activePlanSessionId()
-      if (planSid) {
-        const key = activeModelKey()
-        if (!key) return
-        // 发送更新指令让子 agent 重新输出更新后的 plan
-        const updatePrompt = `[update-plan ${tab.artifactIdentifier}]\n\n${content}`
-        sendMessage(planSid, updatePrompt, key).catch((err) => {
-          console.error("[MakePage] update plan failed", err)
-        })
-      }
-    }
+    // 注：design-plan tab 的编辑不走 persistTabChanges(finalContent 是 draft,
+    // 且 agent 端没有对应的 [update-plan] 指令).编辑内容已存在 tabStore +
+    // snapshotStore(见 persistActivePlanDraft),切回时从 snapshot 恢复即可,
+    // 不需要发消息回灌给 agent,避免 agent 重写 artifact 覆盖用户编辑。
   }
 
   /** 关闭 tab：关闭最后一个时切换到 files 视图 */
