@@ -115,7 +115,34 @@ function renameTabByPath(oldPath: string, newPath: string, newTitle: string) {
     setActiveId(null)
   }
 
-  return { tabs, activeId, activate, openTab, openLocalFileTab, closeTab, updateTabContent, renameTabByPath, reset }
+  function addTabSilently(card: OutputCard) {
+    const existing = tabs().find((t) => t.id === card.id)
+    if (existing) {
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === card.id
+            ? { ...t, content: card.content, title: card.title, artifactIdentifier: card.artifactIdentifier ?? t.artifactIdentifier }
+            : t,
+        ),
+      )
+      return
+    }
+    const tab: ResultTab = {
+      id: card.id,
+      title: card.title,
+      type: card.type,
+      content: card.content,
+      filePath: card.filePath,
+      commentFilePath: card.commentFilePath,
+      sessionId: card.sessionId,
+      exports: card.exports,
+      artifactIdentifier: card.artifactIdentifier,
+      createdAt: card.createdAt,
+    }
+    setTabs((prev) => [...prev, tab])
+  }
+
+  return { tabs, activeId, activate, openTab, openLocalFileTab, closeTab, updateTabContent, addTabSilently, renameTabByPath, reset }
 }
 
 export type TabStore = ReturnType<typeof createTabStore>

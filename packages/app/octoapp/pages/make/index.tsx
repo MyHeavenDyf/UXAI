@@ -1748,11 +1748,24 @@ const sessionMessagesLoaded = createMemo(() => {
   }
   /** 用户点击 plan 横条/TabBar 按钮 → 切换到 plan 模式,直接在 ResultViewer 渲染设计规划内容 */
   function handleViewPlan() {
+    const plan = planCard()
+    if (plan?.id) {
+      // 确保 plan tab 存在于 tabStore,以便编辑内容能被持久化
+      tabStore.addTabSilently(plan)
+    }
     setResultViewMode("plan")
   }
 
   /** 处理 ResultViewer 内容编辑保存 */
   async function handleContentChange(tabId: string, content: string) {
+    // design-plan 在 plan 模式下渲染时,tab 可能未通过 openTab 注册到 tabStore,
+    // 导致 updateTabContent 是空操作。首次编辑时先注册。
+    if (!tabStore.tabs().find((t) => t.id === tabId)) {
+      const plan = planCard()
+      if (plan?.id === tabId) {
+        tabStore.addTabSilently(plan)
+      }
+    }
     // 先更新 tabStore
     tabStore.updateTabContent(tabId, content)
     const tab = tabStore.tabs().find((t) => t.id === tabId)
