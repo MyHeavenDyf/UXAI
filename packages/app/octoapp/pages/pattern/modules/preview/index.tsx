@@ -41,6 +41,7 @@ export function PreviewPage(props: {
   currentVersionId?: string | null
   onSelectVersion?: (versionId: string) => void
   onReorder?: (elementId: string, targetSiblingId: string, position: "before" | "after") => void
+  onIframeStateChange?: (data: { elementId: string; propName: string; value: unknown; path?: string }) => void
   archiving?: boolean
   onArchiveToggle?: () => void
 }) {
@@ -519,6 +520,14 @@ export function PreviewPage(props: {
     if (e.data?.type === "DRAG_REORDER" && props.onReorder) {
       props.onReorder(e.data.elementId, e.data.targetSiblingId, e.data.position)
     }
+    if (e.data?.type === "A2UI_STATE_CHANGE" && props.onIframeStateChange) {
+      props.onIframeStateChange({
+        elementId: e.data.elementId,
+        propName: e.data.propName,
+        value: e.data.value,
+        ...(e.data.path ? { path: e.data.path } : {}),
+      })
+    }
   }
 
   function onClickOutside(e: MouseEvent) {
@@ -661,9 +670,6 @@ export function PreviewPage(props: {
         <iframe
           ref={(el) => { previewIframeRef = el }}
           src="http://127.0.0.1:51856"
-          onLoad={() => {
-            if (props.pendingData) sendToPreview(props.pendingData)
-          }}
           style={{ width: "100%", height: "100%", border: "none" }}
         />
       </CanvasView>

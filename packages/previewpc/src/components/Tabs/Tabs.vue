@@ -33,7 +33,7 @@ const positionEnum = {
 const props = defineProps<A2UIComponentProps<TabsNode>>()
 const { properties } = props.node
 
-const { resolveValue } = useA2UIComponent(props.node, props.surfaceId)
+const { resolveValue, commitActivation } = useA2UIComponent(props.node, props.surfaceId)
 
 defineOptions({ inheritAttrs: false })
 
@@ -86,6 +86,10 @@ const position = computed(() => {
 })
 
 const activeKey = ref(resolveValue(properties.activeKey) as string)
+
+watch(activeKey, (val) => {
+  if (val != null) commitActivation('activeKey', val)
+})
 
 
 const items = computed(() => {

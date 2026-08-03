@@ -24,7 +24,7 @@ const iconSizeEnum: Record<string, number> = {
 const props = defineProps<A2UIComponentProps<SegmentedNode>>()
 const { node, surfaceId } = props
 const properties = node.properties
-const { resolveValue, setValue } = useA2UIComponent(node, surfaceId)
+const { resolveValue, commitActivation } = useA2UIComponent(node, surfaceId)
 
 defineOptions({ inheritAttrs: false })
 
@@ -133,10 +133,7 @@ const block = computed(() => properties.block || false)
 const direction = computed(() => properties.orientation || "horizontal")
 
 const handleChange = (val: string | number) => {
-  const raw = properties.value
-  if (raw && typeof raw === "object" && "path" in raw) {
-    setValue(raw.path, val)
-  }
+  commitActivation('value', val)
 }
 </script>
 
