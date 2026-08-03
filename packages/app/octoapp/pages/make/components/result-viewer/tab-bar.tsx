@@ -97,7 +97,7 @@ export function TabBar(props: {
       <div
         class="octo-tab-scroller flex items-center gap-2 flex-1 min-w-0 overflow-x-auto"
       >
-        <For each={props.tabs}>
+        <For each={props.tabs.filter((t) => t.type !== "design-plan")}>
           {(tab) => {
             const isActive = () => tab.id === props.activeId && props.viewMode === "tabs"
             return (
