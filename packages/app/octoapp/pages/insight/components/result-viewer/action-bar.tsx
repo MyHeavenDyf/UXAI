@@ -77,7 +77,7 @@ async function getTabFile(tab: ResultTab): Promise<File | null> {
       console.warn("[octo:archive] fetch-uri-failed", { uri: tab.uri, err })
     }
   }
-  if (typeof tab.content === "string" && tab.content) {
+  if (typeof tab.content === "string") {
     return new File([tab.content], name, { type: tabArchiveMime(tab) })
   }
   return null
@@ -237,8 +237,9 @@ export function ActionBar(props: {
 }): JSX.Element {
   const projectDir = useProjectDir()
   const params = useParams<{ id?: string }>()
-  // URI 模式 fetch 未完成时 content 为空,禁用复制 / 下载
-  const ready = () => typeof props.tab.content === "string" && props.tab.content.length > 0
+  // content 已就绪:加载成 string 即可(含空文件 content="");URI fetch 未完成时仍为 undefined → 禁用。
+  // 不再用 length > 0:空 md 文件加载后 content="",但复制/下载/归档/编辑均应可用(用户要编辑空文件加内容)。
+  const ready = () => typeof props.tab.content === "string"
   // uri md 卡「文件夹」:产物落在可见的 .octo/<sessionId>/outputs,给定位入口(与 path 源的「文件夹」对齐)。
   const canRevealUri = () =>
     props.tab.type === "markdown" && props.tab.source === "uri" && !!props.tab.uri && ready()
