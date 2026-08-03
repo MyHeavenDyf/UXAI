@@ -86,12 +86,15 @@ watch(
   [items, svgCacheVersion, isDark],
   ([newItems]) => {
     const map: Record<string | number, ResolvedIcon> = {}
-    const shape = isDark.value ? 'fill' : 'lined'
 
     function collect(items: MenuItemData[]) {
       for (const item of items) {
         if (item.icon) {
-          map[item.key] = getIconComponentRef(item.icon, { size: 16, strokeWidth: 2, shape })
+          map[item.key] = getIconComponentRef(item.icon, { 
+            size: 16, 
+            strokeWidth: 2, 
+            shape: 'lined' 
+          })
         } else {
           map[item.key] = null
         }

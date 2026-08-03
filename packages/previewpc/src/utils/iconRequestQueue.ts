@@ -4,9 +4,9 @@
  * 解决 Step 3 高频 getIcon 调用的性能问题：
  *   - Debounce 50ms：收集同一渲染批次的所有请求
  *   - 按 (styleValue, colorId) 分组：同组 URL 合并为一次 getIcon 批量调用
- *   - 去重：相同 svgCache key (name&shape&color) 只产生一次 API 请求
+ *   - 去重：相同 svgCache key (name&shape&hex(color)) 只产生一次 API 请求
  *   - 缓存快速路径：enqueue 先查 svgCache，已缓存则跳过
- *   - flush() 后统一写入 svgCache（key = name&shape&color），自增 svgCacheVersion
+ *   - flush() 后统一写入 svgCache（key = name&shape&hex(color)），自增 svgCacheVersion
  */
 
 import {
@@ -25,6 +25,7 @@ interface PendingEntry {
   url: string
   styleValue: string
   colorId: string
+  isDark?: boolean
 }
 
 export class IconRequestQueue {
@@ -49,11 +50,12 @@ export class IconRequestQueue {
   /**
    * 入队一个 SVG 请求
    *
+   * @param isDark 当前主题（用于 cache key 解析 hex 颜色）
    * @returns true 表示成功入队，false 表示已缓存或已在队列中
    */
-  enqueue(name: string, shape: string, color: string, url: string): boolean {
-    // 1. 计算 svgCache key
-    const cacheKey = resolveSvgCacheKey(name, shape, color)
+  enqueue(name: string, shape: string, color: string, url: string, isDark?: boolean): boolean {
+    // 1. 计算 svgCache key（color 部分使用 hex 值，避免主题切换后碰撞）
+    const cacheKey = resolveSvgCacheKey(name, shape, color, isDark)
 
     // 2. 已缓存 → 跳过
     if (svgCache.has(cacheKey)) return false
@@ -71,7 +73,7 @@ export class IconRequestQueue {
       this.groups.set(groupKey, { entries: [], styleValue, colorId })
     }
     this.groups.get(groupKey)!.entries.push({
-      name, shape, color, url, styleValue, colorId,
+      name, shape, color, url, styleValue, colorId, isDark,
     })
     this.enqueuedKeys.add(cacheKey)
 
@@ -84,7 +86,7 @@ export class IconRequestQueue {
 
   /**
    * 刷新队列：对每个分组发起一次 fetchIconBatch，
-   * 将结果写入 svgCache（key = name&shape&color），自增 svgCacheVersion
+   * 将结果写入 svgCache（key = name&shape&hex(color)），自增 svgCacheVersion
    */
   async flush() {
     this.timer = null
@@ -115,9 +117,9 @@ export class IconRequestQueue {
             group.colorId,
           )
 
-          // 将结果写入 svgCache：用每个 entry 的 name&shape&color 作为 key
+          // 将结果写入 svgCache：用每个 entry 的 name&shape&hex(color) 作为 key
           for (const entry of group.entries) {
-            const cacheKey = resolveSvgCacheKey(entry.name, entry.shape, entry.color)
+            const cacheKey = resolveSvgCacheKey(entry.name, entry.shape, entry.color, entry.isDark)
             const result = results.get(entry.url)
             if (result?.data) {
               svgCache.set(cacheKey, result.data)

@@ -124,8 +124,13 @@ const iconNameForRef = computed(() => {
 })
 
 const resolvedIcon = computed(() => {
-  const iconColor = onlyIcon.value ? '#0067D1' : 
-  (!type.value || type.value === 'default') ? '#191919' : '#FFFFFF'
+  let iconColor = '#191919'
+  if (isLink.value) {
+    iconColor = '#0067D1' 
+  } else {
+    const isWhiteText = ["primary", "danger", "success", "warning"].some(i => i === type.value)
+    iconColor = (isWhiteText || isDark.value) ? '#FFFFFF' : '#191919'
+  }
   const baseIconRef = useIconComponentRef(iconNameForRef, { strokeWidth: 1, color: iconColor})
   if (!baseIconRef.value?.component || !iconName.value) return null
   const base = baseIconRef.value
@@ -138,7 +143,6 @@ const resolvedIcon = computed(() => {
           size: resolveIconSize(),
           type: base.props.type,
           iconColor: [colorValue],
-          hoverColor: onlyIcon.value ? [isDark.value ? 'var(--brand-20)' : 'var(--brand-40)'] : undefined,
         }
       : { size: resolveIconSize(), color: colorValue, "stroke-width": 1 },
   }

@@ -83,11 +83,11 @@ watch(
   [items, svgCacheVersion, isDark],
   ([newItems]) => {
     const map: Record<number, any> = {}
-    const shape = isDark.value ? 'fill' : 'lined'
+
     for (let index = 0; index < newItems.length; index++) {
       const item = newItems[index] as any
       if (item.icon) {
-        map[index] = getIconComponentRef(item.icon, { size: 24, shape })
+        map[index] = getIconComponentRef(item.icon, { size: 24, shape: 'lined' })
       }
     }
     resolvedStepIcons.value = map

@@ -15,7 +15,7 @@ export interface IconProviderContext {
   iconInfoMap: Ref<Record<string, IconInfoEntry>>
   svgCache: Map<string, string>
   svgCacheVersion: Ref<number>
-  requestSvg: (name: string, shape: string, color: string) => void
+  requestSvg: (name: string, shape: string, color: string, isDark?: boolean) => void
 }
 
 // ========== 全局单例 ==========
@@ -58,14 +58,14 @@ export function useIconProvider(): IconProviderContext {
 }
 
 /** 渲染时按需请求 SVG：查缓存→无则入队 */
-export function requestSvg(name: string, shape: string, color: string): void {
+export function requestSvg(name: string, shape: string, color: string, isDark?: boolean): void {
   const entry = iconInfoMap.value[name]
   if (!entry?.url) return
 
-  const cacheKey = resolveSvgCacheKey(name, shape, color)
+  const cacheKey = resolveSvgCacheKey(name, shape, color, isDark)
   if (svgCache.has(cacheKey)) return  // 已缓存，无需请求
 
-  iconRequestQueue.enqueue(name, shape, color, entry.url)
+  iconRequestQueue.enqueue(name, shape, color, entry.url, isDark)
 }
 
 // ========== 兜底：单图标名 iconInfo 请求 ==========

@@ -125,10 +125,14 @@ watch(
   [items, iconSize, svgCacheVersion, isDark],
   ([newItems, sz]) => {
     const map: Record<string, any> = {}
-    const shape = isDark.value ? 'fill' : 'lined'
+
     for (const item of (newItems as any[])) {
       if (item.icon) {
-        map[item.name] = getIconComponentRef(item.icon, { size: sz as number, strokeWidth: 1, shape })
+        map[item.name] = getIconComponentRef(item.icon, { 
+          size: sz as number, 
+          strokeWidth: 1, 
+          shape: 'lined' 
+        })
       }
     }
     resolvedTabIcons.value = map

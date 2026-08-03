@@ -177,7 +177,7 @@ interface ButtonNode extends AnyComponentNode<ResolvedButton> {
 
 interface ResolvedIcon {
   name: DynamicString;
-  shape?: "outline" | "fill" | "square" | "circle";
+  shape?: "outline" | "two-tone" | "square" | "circle" | "lined" | "filled";
   color?: string;
   className?: string;
 }
