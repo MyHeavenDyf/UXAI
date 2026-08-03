@@ -48,20 +48,20 @@ export function SidebarFooter(): JSX.Element {
                 }}
                 title={item.label}
                 classList={{
-                  "w-full relative flex items-center gap-[8px] px-[12px] rounded-[4px] transition-colors text-[14px] leading-[22px]": true,
+                  "w-full relative flex items-center gap-[12px] px-[12px] rounded-[4px] transition-colors text-[12px] leading-[20px]": true,
                 }}
                 style={{
                   height: "36px",
                   background: isActive() ? "var(--surface-base-interactive-active)" : "transparent",
-                  color: isActive() ? "var(--text-interactive-base)" : "var(--text-strong)",
+                  color: "rgba(0,0,0,0.9)",
                   "font-weight": isActive() ? "500" : "400",
                 }}
                 onMouseEnter={(e) => { if (!isActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
                 onMouseLeave={(e) => { if (!isActive()) e.currentTarget.style.background = "transparent" }}
               >
                 <span class="flex items-center justify-center shrink-0">
-                  <Show when={isActive()} fallback={<item.Icon size={16} />}>
-                    <item.IconActive size={16} />
+                  <Show when={isActive()} fallback={<item.Icon size={20} />}>
+                    <item.IconActive size={20} />
                   </Show>
                 </span>
                 <span class="truncate">{item.label}</span>
@@ -88,13 +88,13 @@ export function SidebarFooter(): JSX.Element {
           type="button"
           title="设置"
           class="w-full flex items-center gap-[12px] px-[12px] rounded-[4px] transition-colors"
-          style={{ height: "36px", color: "var(--text-strong)" }}
+          style={{ height: "36px", color: "rgba(0,0,0,0.9)" }}
           onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-base-hover)" }}
           onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
           onClick={() => dialog.show(() => <DialogSettings />)}
         >
-          <IconSettings size={16} />
-          <span class="text-[14px] leading-[22px]">设置</span>
+          <IconSettings size={20} />
+          <span class="text-[12px] leading-[20px]">设置</span>
         </button>
       </div>
     </>

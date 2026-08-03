@@ -289,6 +289,18 @@
   object-fit: contain;
 }
 
+/* ── 横构图：图片高度随宽度收缩，卡片与预览区不再保留固定最小高度，避免窄窗口下大量留白 ── */
+
+.studio-result-card:has(.studio-result-grid.single-landscape),
+.studio-result-card:has(.studio-result-grid.multi-landscape) {
+  min-height: 0;
+}
+
+.studio-result-card:has(.studio-result-grid.single-landscape) .studio-result-progress-preview,
+.studio-result-card:has(.studio-result-grid.multi-landscape) .studio-result-progress-preview {
+  min-height: 0;
+}
+
 /* ── 横构图 4 张：两排、宽度均分 ── */
 
 .studio-result-grid.multi-landscape-4 {
@@ -386,14 +398,6 @@
   min-width: 0;
   height: 210px;
 }
-
-.studio-result-thumb video,
-.studio-detail-preview-button video {
-  background:
-    linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(37, 99, 235, 0.76)),
-    #111827;
-}
-
 .studio-generation-skeleton {
   position: relative;
   height: 160px;
@@ -703,6 +707,7 @@
 
 .studio-filter-dialog {
   width: 648px;
+  max-width: calc(100% - 32px);
   height: auto;
   padding: 20px 24px;
   box-sizing: border-box;
@@ -751,7 +756,7 @@
 }
 
 .studio-filter-section {
-  height: 52px;
+  min-height: 52px;
 }
 
 .studio-filter-section-title {
@@ -777,7 +782,7 @@
 }
 
 .studio-filter-section:nth-child(3) .studio-filter-section-options {
-  gap: 48px;
+  gap: clamp(8px, 3vw, 48px);
 }
 
 .studio-filter-checkbox {

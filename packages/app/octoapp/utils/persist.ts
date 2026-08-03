@@ -19,6 +19,9 @@ type PersistTarget = {
   key: string
   legacy?: string[]
   migrate?: (value: unknown) => unknown
+  session?: boolean
+  /** 桌面端也强制写 localStorage(供模块级 runner 扫描),见 Persist.workspace 调用方注释 */
+  webStorage?: boolean
 }
 
 const LEGACY_STORAGE = "default.dat"
@@ -444,9 +447,51 @@ function localStorageDirect(): SyncStorage {
   }
 }
 
+function sessionStorageDirect(): SyncStorage {
+  const scope = "session-direct"
+  return {
+    getItem: (key) => {
+      const cached = cacheGet(key)
+      if (fallbackDisabled(scope)) return cached ?? null
+
+      const stored = (() => {
+        try {
+          return sessionStorage.getItem(key)
+        } catch {
+          fallbackSet(scope)
+          return null
+        }
+      })()
+      if (stored === null) return cached ?? null
+      cacheSet(key, stored)
+      return stored
+    },
+    setItem: (key, value) => {
+      if (fallbackDisabled(scope)) return
+      try {
+        if (write(sessionStorage, key, value)) return
+      } catch {
+        fallbackSet(scope)
+        return
+      }
+      fallbackSet(scope)
+    },
+    removeItem: (key) => {
+      cacheDelete(key)
+      if (fallbackDisabled(scope)) return
+      try {
+        sessionStorage.removeItem(key)
+      } catch {
+        fallbackSet(scope)
+      }
+    },
+  }
+}
+
 export const PersistTesting = {
   localStorageDirect,
   localStorageWithPrefix,
+  sessionStorageDirect,
   migrateLegacy,
   normalize,
   workspaceStorage,
@@ -456,9 +501,18 @@ export const Persist = {
   global(key: string, legacy?: string[]): PersistTarget {
     return { storage: GLOBAL_STORAGE, key, legacy }
   },
-  workspace(dir: string, key: string, legacy?: string[]): PersistTarget {
+  sessionGlobal(key: string, legacy?: string[]): PersistTarget {
+    return { key, legacy, session: true }
+  },
+  workspace(dir: string, key: string, legacy?: string[], webStorage?: boolean): PersistTarget {
     const storage = workspaceStorage(pathKey(dir))
-    return { storage, legacyStorageNames: legacyWorkspaceStorage(dir), key: `workspace:${key}`, legacy }
+    return {
+      storage,
+      legacyStorageNames: legacyWorkspaceStorage(dir),
+      key: `workspace:${key}`,
+      legacy,
+      webStorage,
+    }
   },
   session(dir: string, session: string, key: string, legacy?: string[]): PersistTarget {
     const storage = workspaceStorage(pathKey(dir))
@@ -510,9 +564,13 @@ export function persisted<T>(
   const defaults = snapshot(store[0])
   const legacy = config.legacy ?? []
 
-  const isDesktop = platform.platform === "desktop" && !!platform.storage
+  // webStorage: 即使桌面端也用 localStorage 持久化(不走 platform.storage)——
+  // chat followup 排队数据需要被模块级 runner(followup-queue)扫描 localStorage 读取,
+  // 桌面端若落 Tauri store,runner 找不到队列导致切 tab 后无法继续 drain。
+  const isDesktop = !config.session && !config.webStorage && platform.platform === "desktop" && !!platform.storage
 
   const currentStorage = (() => {
+    if (config.session) return sessionStorageDirect()
     if (isDesktop) return platform.storage?.(config.storage)
     if (!config.storage) return localStorageDirect()
     return localStorageWithPrefix(config.storage)

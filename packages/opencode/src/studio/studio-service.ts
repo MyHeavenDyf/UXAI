@@ -1820,13 +1820,16 @@ async function runGenerationCreatePipeline(id: string) {
       return
     }
     const task = created.task
+    const persistedInput = task?.input
+      ? { ...displayInput(generationInput, task), aspectRatio: task.input.aspectRatio ?? generationInput.aspectRatio }
+      : generationInput
     Database.use((db) =>
       db
         .update(StudioGenerationTable)
         .set({
           provider_task_id: task?.taskId,
           status: task ? "running" : "queued",
-          request: stripUndefined({ input: displayInput(generationInput, task), task }) as Record<string, unknown>,
+          request: stripUndefined({ input: persistedInput, task }) as Record<string, unknown>,
           next_poll_at: Date.now(),
           time_updated: Date.now(),
         })

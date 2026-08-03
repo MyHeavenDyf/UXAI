@@ -115,7 +115,7 @@ export async function ensureLocalMarkdownFile(
 
 /**
  * eager 落地(SPEC-INS-014 v4):MCP `uri` 产物卡「出卡即落」进 <projectDir>/.octo/<sessionId>/outputs/,
- * 不等用户点开。覆盖所有 uri 卡类型(json/mindmap/html/table/markdown/file)——此前只有 markdown 卡在点开
+ * 不等用户点开。覆盖所有 uri 卡类型(json/html/markdown/file/code/image)——此前只有 markdown 卡在点开
  * 渲染时才落、其余 uri 卡走 UriTabBody 只 fetch 不落盘,故思维导图等产物永不进「文件管理」(见 v4 修订)。
  *
  * - 幂等:按 `uri` 作幂等键(主进程 result-materialize reuse-existing 内存表),重复调复用同一份、
@@ -131,7 +131,8 @@ export async function ensureLocalMarkdownFile(
  * 提示在 ./materialize-notify.ts。
  */
 export type MaterializeResult =
-  | { ok: true }
+  /** 落盘成功:`path` 是产物的**身份**(§5),调用方据此给 pending tab 绑定磁盘路径(§6.2) */
+  | { ok: true; cardId: string; path: string }
   /** skipped:不具备落盘条件(非 uri 卡 / 无项目目录 / 非桌面端),不是失败,不提示 */
   | { ok: false; skipped: true }
   | { ok: false; skipped?: false; filename: string; reason: string; nameRejected: boolean }
@@ -156,7 +157,7 @@ export async function materializeUriCardToOutputs(
     setMaterializeState(card.id, { state: "ready" })
     // 客户端触发侧日志(主进程落地本身另打 [octo:worktree] result-materialize);两者配对定位「出卡了没落盘」。
     console.log("[octo:resource] eager-materialize", { cardId: card.id, type: card.type, filename, sessionId, localPath })
-    return { ok: true }
+    return { ok: true, cardId: card.id, path: localPath }
   } catch (err) {
     // 失败要能被用户看见并重试:入口卡据此渲染失败态(旧实现只 warn,产物静默消失)。
     const reason = err instanceof Error ? err.message : String(err)

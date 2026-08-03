@@ -41,6 +41,7 @@ import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
+import { setActiveChatSession } from "@/pages/chat/utils/followup-queue"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
 import {
   createOpenReviewFile,
@@ -524,7 +525,9 @@ export default function Page() {
   })
 
   const [followup, setFollowup] = persisted(
-    Persist.workspace(sdk.directory, "followup", ["followup.v1"]),
+    // webStorage: followup 数据强制落 localStorage,供跨 tab 常驻的 ChatFollowupQueueRunner
+    // 扫描读取;桌面端若走 platform.storage,runner 找不到队列,切顶栏 tab 后排队无法继续发送。
+    Persist.workspace(sdk.directory, "followup", ["followup.v1"], true),
     createStore<{
       items: Record<string, FollowupItem[] | undefined>
       failed: Record<string, string | undefined>
@@ -1755,10 +1758,39 @@ export default function Page() {
     flushQueueHead()
   }, { defer: true }))
 
+  // busy 超时看门狗：session 长时间停留 busy 且无新 assistant 响应时，
+  // 乐观重置为 idle，避免 abort 失败 / SSE 断连导致 status 永久卡 busy
+  createEffect(on(isBusy, (busy) => {
+    if (!busy) return
+    const sessionID = params.id
+    if (!sessionID) return
+    const assistantBefore = (sync.data.message[sessionID] ?? []).filter((m) => m.role === "assistant").length
+    const timer = setTimeout(() => {
+      const status = sync.data.session_status[sessionID]?.type ?? "idle"
+      const assistantNow = (sync.data.message[sessionID] ?? []).filter((m) => m.role === "assistant").length
+      if (status === "busy" && assistantNow <= assistantBefore) {
+        const [, setStore] = globalSync.child(sdk.directory)
+        setStore("session_status", sessionID, { type: "idle" })
+      }
+    }, 60_000)
+    onCleanup(() => clearTimeout(timer))
+  }, { defer: true }))
+
   // 切回某 session 时,若它已 idle 且仍有排队,补一次 flush
   createEffect(on(() => params.id, () => {
     flushQueueHead()
   }, { defer: true }))
+
+  // 通知全局 runner 当前正在查看的会话,让 runner 跳过该会话的 drain,
+  // 由本页面的 flushQueueHead 处理,避免 runner 与页面级 drain 竞争导致同一条排队被重复发送。
+  createEffect(() => {
+    setActiveChatSession(params.id)
+    onCleanup(() => setActiveChatSession(undefined))
+  })
+
+  // 页面重新挂载（如头部 tab 切走再切回）时,两个 defer effect 都不触发。
+  // 若 session 已 idle 且仍有排队,此处补一次 flush,避免排队卡死。
+  onMount(() => flushQueueHead())
 
   createResizeObserver(
     () => promptDock,
@@ -1807,7 +1839,7 @@ export default function Page() {
     on(
       () => params.id,
       (id) => {
-        if (!id) requestAnimationFrame(() => inputRef?.focus())
+        requestAnimationFrame(() => inputRef?.focus())
         if (id) requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
@@ -1881,7 +1913,7 @@ export default function Page() {
               class="flex-1 min-h-0 flex flex-col items-center justify-center"
               style={{ background: "#fff" }}
             >
-              <div classList={{ "w-full": true, "md:max-w-[800px]": centered() }}>
+              <div classList={{ "w-full": true, "md:max-w-[848px]": centered() }}>
                 <NewSessionView worktree={newSessionWorktree()} title="Octo Chat" subtitle="告诉我您的目标，我将为您深度调研并一键生成设计方案。" />
                 <SessionComposerRegion
                   state={composer}
@@ -1982,6 +2014,7 @@ export default function Page() {
                           setFollowup("items", id, [])
                           setFollowup("failed", id, undefined)
                           setFollowup("paused", id, true)
+                          void halt(id)
                         },
                         onRemove: removeQueued,
                         onSend: (id) => {

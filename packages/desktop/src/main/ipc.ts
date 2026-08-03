@@ -4,9 +4,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
 import { mkdir, readFile, writeFile, lstat, stat, unlink, rm, copyFile, rename } from "node:fs/promises"
+import * as http from "node:http"
 import { dirname, extname, join, basename, resolve as resolvePath, sep } from "node:path"
 import { homedir, tmpdir } from "node:os"
-import { pathToFileURL } from "node:url"
+import { pathToFileURL, fileURLToPath } from "node:url"
 import archiver from "archiver"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell, net } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
@@ -44,6 +45,10 @@ const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
   return [{ name: "Files", extensions: ext }]
 }
+
+const topixsoDir = app.isPackaged
+  ? join(process.resourcesPath, "topixso")
+  : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "app", "octoapp", "pages", "pattern", "topixso")
 
 // 判断图片类型
 function detectImageExt(buf: Buffer): string {
@@ -90,6 +95,16 @@ async function ensureWorktreeDir(dir: string): Promise<void> {
 function sanitizeSessionSegment(raw: string): string {
   const cleaned = raw.replace(/[^A-Za-z0-9_-]/g, "_")
   return cleaned || "session"
+}
+
+// uploads 子路径清洗(design-files 面板「上传」):与 handlers/artifact.ts:16 同语义,
+// 拒绝 .. / ~ / 空,去首尾斜杠。渲染端不是安全边界,主进程必须独立校验。
+function sanitizeUploadsSubPath(rawPath: string): string {
+  const normalized = rawPath.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
+  if (normalized.includes("..") || normalized.includes("~") || normalized.length === 0) {
+    return ""
+  }
+  return normalized
 }
 
 // write-file 白名单用(v2 会话隔离新增):判断路径是否落在 .octo/<sessionId>/{uploads,outputs} 下。
@@ -439,6 +454,50 @@ export function registerIpcHandlers(deps: Deps) {
         return dest
       } catch (err) {
         console.error("[octo:worktree] upload-move failed", {
+          srcPath,
+          dest,
+          sessionId,
+          reason: err instanceof Error ? err.message : String(err),
+        })
+        throw err
+      }
+    },
+  )
+
+  // design-files 面板「上传」:把用户选的源文件**直接拷贝**进 <baseDir>/.octo/<sessionId>/uploads/[<subPath>/]。
+  // 桌面端不走 HTTP/base64 —— fs.copyFile 走内核,无内存压力,500MB+ 也无压力(原先 base64+JSON 链路在
+  // 大文件下会让 FileReader 静默返回空 data URL,后端写出 0 字节文件)。
+  // 撞名走 collisionFreePath、名字清洗走 landingName,与 worktree 落地规则一致。
+  ipcMain.handle(
+    "copy-file-to-session-uploads",
+    async (
+      _event: IpcMainInvokeEvent,
+      srcPath: string,
+      baseDir: string,
+      sessionId: string,
+      subPath: string,
+      filename: string,
+    ) => {
+      const uploadsRoot = join(baseDir, ".octo", sanitizeSessionSegment(sessionId), "uploads")
+      const cleanSub = sanitizeUploadsSubPath(subPath)
+      const targetDir = cleanSub ? join(uploadsRoot, cleanSub) : uploadsRoot
+      await ensureWorktreeDir(targetDir)
+
+      let safeName: string
+      try {
+        safeName = landingName(filename)
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        log.error("[octo:worktree] upload-name-rejected", { srcPath, filename, reason })
+        throw err
+      }
+      const dest = collisionFreePath(targetDir, safeName)
+      try {
+        await copyFile(srcPath, dest)
+        console.log("[octo:worktree] upload-copy-to-session ok", { srcPath, dest, sessionId, subPath: cleanSub })
+        return dest
+      } catch (err) {
+        console.error("[octo:worktree] upload-copy-to-session failed", {
           srcPath,
           dest,
           sessionId,
@@ -1214,7 +1273,7 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("pipeline-request", (_event: IpcMainInvokeEvent, url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) =>
     pipelineRequest(url, method, uiplusToken, body, headers))
 
-  // Proxy 配置: curl 测试代理连通性, 成功后写入 ~/.config/octo/proxy_config.json
+  // Proxy 配置: curl 测试代理连通性, 成功后写入 ~/.config/octo/proxy_config.json 并注入环境变量即时生效
   ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string) => {
     const encodedPwd = encodeURIComponent(password)
       .replace(/['()!*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
@@ -1268,13 +1327,17 @@ export function registerIpcHandlers(deps: Deps) {
         no_proxy: noProxy,
       }, null, 2), "utf-8")
       log.info("[configure-proxy] 配置写入成功", { configFile })
+
+      // 保持环境变量注入状态，让 Node.js HTTP 模块即时生效
+      try {
+        ;(http as any).setGlobalProxyFromEnv()
+      } catch (e) {
+        log.warn("[configure-proxy] setGlobalProxyFromEnv 失败", e)
+      }
+
       return { success: true, curlUrl: curlTarget }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err)
-      log.error("[configure-proxy] 配置失败", { error: errorMessage })
-      return { success: false, curlUrl: curlTarget, error: errorMessage }
-    } finally {
-      // 恢复之前的环境变量
+      // 失败时恢复之前的环境变量
       for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"] as const) {
         const val = prevEnv[key]
         if (val === undefined) {
@@ -1283,8 +1346,14 @@ export function registerIpcHandlers(deps: Deps) {
           process.env[key] = val
         }
       }
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      log.error("[configure-proxy] 配置失败", { error: errorMessage })
+      return { success: false, curlUrl: curlTarget, error: errorMessage }
     }
   })
+
+  // 查找topixso文件夹
+  ipcMain.handle("get-topixso-dir", () => topixsoDir)
 }
 
 export function sendSqliteMigrationProgress(win: BrowserWindow, progress: SqliteMigrationProgress) {

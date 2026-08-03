@@ -599,6 +599,10 @@
   gap: 2px;
 }
 
+.studio-composer-toolbar-item--expanded .studio-composer-tool-btn {
+  max-width: none;
+}
+
 .studio-composer-tool-btn:hover,
 .studio-composer-icon-tool:hover {
   background: #dfdfdf;
