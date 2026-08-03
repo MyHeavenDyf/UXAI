@@ -184,23 +184,53 @@ function FileManagerInner(props: {
   createEffect(on(() => props.refreshKey, () => { void refresh() }, { defer: true }))
 
   // ── 上传 ────────────────────────────────────────────────────────
+  // 大文件完整性:桌面端走主进程 fs.copyFile 流式拷贝(copyFileToSessionUploads,与 make design-files-panel 同款),
+  // 不把整文件读成 base64 塞进 JSON body —— 后者对大文件会让 FileReader 静默返回空 data URL,服务端落盘不完整。
+  // 仅在拿不到真实本地路径(剪贴板内存 blob)/非桌面端时,才回退 base64 over HTTP。
+  // 分块 btoa 避免单次 fromCharCode 超参/超内存;产出干净 base64(无 data: 前缀),服务端 Buffer.from(...,"base64") 全量解码。
   function readFileAsBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const result = reader.result as string
-        resolve(result.split(",")[1] || result)
+    return file.arrayBuffer().then((buf) => {
+      const bytes = new Uint8Array(buf)
+      let binary = ""
+      const CHUNK = 0x8000
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
       }
-      reader.onerror = () => reject(reader.error)
-      reader.readAsDataURL(file)
+      return btoa(binary)
     })
+  }
+
+  // 桌面端流式上传:取真实本地路径 → copyFileToSessionUploads(直接 fs.copyFile 进 uploads/[currentPath])。
+  // 返回 true 表示已落地;false 表示不可走流式(非桌面 / 无本地路径),调用方回退 base64。
+  async function tryStreamUpload(file: File, currentPath: string): Promise<boolean> {
+    const api = getDesktopApi()
+    const baseDir = sdk.directory
+    if (
+      !baseDir ||
+      typeof api?.getPathForFile !== "function" ||
+      typeof api?.copyFileToSessionUploads !== "function"
+    ) {
+      return false
+    }
+    let srcPath = ""
+    try {
+      srcPath = api.getPathForFile(file)
+    } catch {
+      // 取不到真实路径(剪贴板内存 blob,无落盘来源)→ 回退 base64
+    }
+    if (!srcPath) return false
+    await api.copyFileToSessionUploads(srcPath, baseDir, props.sessionId, currentPath, file.name)
+    return true
   }
 
   async function uploadSingleFile(file: File) {
     const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
-    const base64 = await readFileAsBase64(file)
     try {
-      await uploadInsightFile(sdk.url, sdk.directory, props.sessionId, file.name, base64, currentPath)
+      const streamed = await tryStreamUpload(file, currentPath)
+      if (!streamed) {
+        const base64 = await readFileAsBase64(file)
+        await uploadInsightFile(sdk.url, sdk.directory, props.sessionId, file.name, base64, currentPath)
+      }
       showToast({ title: "上传完成", description: file.name, variant: "success", duration: 2000 })
       await refresh()
       props.onFilesRefresh?.()
