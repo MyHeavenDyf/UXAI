@@ -286,8 +286,8 @@ function MakeContent() {
     on(
       () => params.id,
       (id, prevId) => {
-        // 切换 session 时重置 specSelector 状态
-        if (id !== prevId) {
+        // 只在真正切换 session 时重置（两个都不为 null）
+        if (id !== prevId && prevId !== null) {
           setSelectedSpecDisplay(null)
           setSelectedSpecName(null)
         }
