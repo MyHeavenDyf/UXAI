@@ -41,6 +41,7 @@ import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
+import { setActiveChatSession } from "@/pages/chat/utils/followup-queue"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
 import {
   createOpenReviewFile,
@@ -524,7 +525,9 @@ export default function Page() {
   })
 
   const [followup, setFollowup] = persisted(
-    Persist.workspace(sdk.directory, "followup", ["followup.v1"]),
+    // webStorage: followup 数据强制落 localStorage,供跨 tab 常驻的 ChatFollowupQueueRunner
+    // 扫描读取;桌面端若走 platform.storage,runner 找不到队列,切顶栏 tab 后排队无法继续发送。
+    Persist.workspace(sdk.directory, "followup", ["followup.v1"], true),
     createStore<{
       items: Record<string, FollowupItem[] | undefined>
       failed: Record<string, string | undefined>
@@ -1777,6 +1780,13 @@ export default function Page() {
   createEffect(on(() => params.id, () => {
     flushQueueHead()
   }, { defer: true }))
+
+  // 通知全局 runner 当前正在查看的会话,让 runner 跳过该会话的 drain,
+  // 由本页面的 flushQueueHead 处理,避免 runner 与页面级 drain 竞争导致同一条排队被重复发送。
+  createEffect(() => {
+    setActiveChatSession(params.id)
+    onCleanup(() => setActiveChatSession(undefined))
+  })
 
   // 页面重新挂载（如头部 tab 切走再切回）时,两个 defer effect 都不触发。
   // 若 session 已 idle 且仍有排队,此处补一次 flush,避免排队卡死。

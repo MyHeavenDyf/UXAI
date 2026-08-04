@@ -3,7 +3,7 @@ import { Portal } from "solid-js/web"
 import { EditorState, Transaction, TextSelection } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
 import { Slice, Fragment } from "prosemirror-model"
-import { buildParagraphs } from "../../utils/mention"
+import { buildParagraphs, validTrigger, nextInsertPos } from "../../utils/mention"
 import { history, undo, redo } from "prosemirror-history"
 import { keymap } from "prosemirror-keymap"
 import { baseKeymap } from "prosemirror-commands"
@@ -67,13 +67,29 @@ export function ProseMirrorEditor(props: Props) {
   // 不能拿 triggerState 的 active 当判据 —— 点面板外关闭只置空了本地 state,文本里的 @query 还在,
   // 之后每敲一个字插件都会判成「由关到开」再报一次。以 @ 触发文本真正消失(插件回调传 null)为重置点。
   let openReported = false
+  // 多选模式:本轮是否插入过文件胶囊(决定关闭时是否清理 @query)。插入位点不维护可变计数器,
+  // 每次插入前用 nextInsertPos(doc, trigger) 现算 —— 对 query 变化 / deselect / undo 全免疫
+  let insertedThisRound = false
+  const resetRound = () => {
+    insertedThisRound = false
+  }
   const mentionTriggerPlugin = createMentionTriggerPlugin((state) => {
+    const prev = triggerState()
     setTriggerState(state)
     if (state?.active && containerRef) {
       const rect = containerRef.getBoundingClientRect()
       setPopoverPos({ left: rect.left, bottom: window.innerHeight - rect.top })
     } else {
       setPopoverPos(null)
+    }
+    // 失活清理:仅本轮插入过胶囊时才删残留 @query(纯手打 @文字视为正文保留);validTrigger 守卫防位置漂移致越界
+    if (!state && prev?.active) {
+      const v = view()
+      const tv = v ? validTrigger(v.state.doc, prev) : null
+      if (v && tv && insertedThisRound && tv.to !== v.state.selection.from) {
+        v.dispatch(v.state.tr.delete(tv.from, tv.to))
+      }
+      resetRound()
     }
     if (!state?.active) {
       openReported = false
@@ -192,17 +208,28 @@ export function ProseMirrorEditor(props: Props) {
     if (v.editable !== isEditable) v.setProps({ ...v.props, editable: () => isEditable })
   })
 
+  // 关闭 @ 面板:先置空本地 state 再 dispatch,避免 dispatch 触发的 onChange(null) 拿到失效 prev 越界;
+  // 仅本轮插入过胶囊才删 @query(纯手打 @文字保留),用 validTrigger 守卫真实区间
+  const closeMention = () => {
+    const v = view()
+    const trigger = v ? validTrigger(v.state.doc, triggerState()) : null
+    const clearQuery = insertedThisRound && !!trigger
+    setTriggerState(null)
+    resetRound()
+    if (v) {
+      const tr = v.state.tr.setMeta(mentionTriggerKey, null)
+      if (clearQuery && trigger) tr.delete(trigger.from, trigger.to)
+      v.dispatch(tr)
+    }
+  }
+
   // 点击面板外关闭
   createEffect(() => {
     if (!triggerState()?.active) return
     const handler = (e: MouseEvent) => {
       const target = e.target as HTMLElement
       if (target.closest(".ins-pm-editor")) return
-      if (!target.closest(".ins-mention-container")) {
-        const v = view()
-        if (v) v.dispatch(v.state.tr.setMeta(mentionTriggerKey, null))
-        setTriggerState(null)
-      }
+      if (!target.closest(".ins-mention-container")) closeMention()
     }
     document.addEventListener("mousedown", handler)
     onCleanup(() => document.removeEventListener("mousedown", handler))
@@ -211,8 +238,9 @@ export function ProseMirrorEditor(props: Props) {
   // 选中:把触发区间的 @query 替换成 mention 原子节点(灰胶囊);selections 由 syncPlugin 从 doc 派生
   const handleMentionSelect = (selection: MentionSelection) => {
     const v = view()
-    const trigger = triggerState()
-    if (!v || !trigger) return
+    if (!v) return
+    const trigger = validTrigger(v.state.doc, triggerState())
+    if (!trigger) return
 
     const attrs =
       selection.type === "skill"
@@ -220,6 +248,21 @@ export function ProseMirrorEditor(props: Props) {
         : { id: selection.filename, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
 
     const node = editorSchema.nodes.mention.create(attrs)
+    // 文件走多选:在 @query 后(光标处)插入胶囊,保留 @query 与浮窗以继续选择下一项;
+    // 技能走单选:把 @query 替换成胶囊并关闭浮窗。
+    if (selection.type === "file") {
+      // 插入位点用扫描法现算:从 trigger.to 起跳过已有 mention + 配对空格,落在序列末尾
+      // (对 query 变化 / deselect / undo 免疫,不依赖可变计数器);胶囊间补空格分隔避免粘连
+      const insertAt = nextInsertPos(v.state.doc, trigger)
+      const tr = v.state.tr.insert(insertAt, node)
+      tr.insert(insertAt + node.nodeSize, editorSchema.text(" "))
+      tr.setSelection(TextSelection.create(tr.doc, trigger.to))
+      v.dispatch(tr)
+      insertedThisRound = true
+      v.focus()
+      props.onMentionSelect?.(selection)
+      return
+    }
     const tr = v.state.tr.replaceWith(trigger.from, trigger.to, node)
     tr.setSelection(TextSelection.create(tr.doc, trigger.from + node.nodeSize))
     v.dispatch(tr)
@@ -228,24 +271,56 @@ export function ProseMirrorEditor(props: Props) {
     props.onMentionSelect?.(selection)
   }
 
-  // 取消:删掉对应 mention 节点 + 光标前残留的 @query 文本
+  // 取消:删掉对应 mention 节点;技能额外清掉 @query 并关闭浮窗,文件保留 @query 与浮窗以继续多选
   const handleMentionDeselect = (selection: MentionSelection) => {
     const v = view()
     if (!v) return
     const name = selection.type === "skill" ? selection.name : selection.filename
+    const path = selection.type === "file" ? selection.path : ""
+    const trigger = triggerState()
 
-    const tr1 = v.state.tr
+    // 收集要删的胶囊(原 doc 坐标)倒序删除,避免累积 delete 致后续节点位置漂移;
+    // 文件按 name+path 区分,避免同名不同目录被一起删;同时删 mention 后配对的空格,避免残留致扫描位点错乱
+    const hits: Array<{ pos: number; end: number }> = []
     v.state.doc.descendants((node, pos) => {
-      if (node.type.name === "mention" && node.attrs.name === name) tr1.delete(pos, pos + node.nodeSize)
+      if (node.type.name !== "mention" || node.attrs.name !== name) return
+      if (selection.type === "file" ? node.attrs.path !== path : node.attrs.type !== "skill") return
+      let end = pos + node.nodeSize
+      const after = v.state.doc.resolve(end).nodeAfter
+      // 与 nextInsertPos 同一口径:相邻文本会并成一个 text node,只看首字符、只吃 1 个空格
+      if (after?.isText && after.text?.startsWith(" ")) end += 1
+      hits.push({ pos, end })
     })
-    if (tr1.docChanged) v.dispatch(tr1)
+    const tr1 = v.state.tr
+    for (let i = hits.length - 1; i >= 0; i--) tr1.delete(hits[i].pos, hits[i].end)
 
-    const { from } = v.state.selection
-    const textBefore = v.state.doc.textBetween(Math.max(0, from - 50), from)
-    const match = textBefore.match(/@([^\s@]*)$/)
-    if (match) v.dispatch(v.state.tr.delete(from - match[0].length, from))
+    if (selection.type === "file") {
+      if (tr1.docChanged) v.dispatch(tr1)
+      // 用 mapping 把 trigger.to 映射到删胶囊后的新位置,TextSelection.near 取就近的合法 inline 位点
+      if (trigger) {
+        const mappedTo = tr1.docChanged ? tr1.mapping.map(trigger.to) : trigger.to
+        const safe = Math.min(Math.max(mappedTo, 0), v.state.doc.content.size)
+        v.dispatch(v.state.tr.setSelection(TextSelection.near(v.state.doc.resolve(safe))))
+      }
+      // 这里不能 resetRound():insertedThisRound 记的是「本轮发生过多选交互」,
+      // 取消一项后浮窗还开着、@query 还在,清掉它会让随后的关闭走成「纯手打 @文字」分支
+      // → @query 残留进正文(选 A、B 再取消 B 时会发出 "…@访谈@B")
+      return
+    }
 
+    // 技能取消:删对应胶囊后,用 validTrigger 在删后 doc 上校验并精确删 @query
+    // (老正则估算会被中间 mention 的空文本带偏起点、误删胶囊),setMeta null 关浮窗。
+    // 坐标先过 mapping:被删胶囊在 @query 之前时 trigger.from/to 已漂移,不映射会校验失败 → @query 残留
+    const mapped =
+      trigger && tr1.docChanged
+        ? { ...trigger, from: tr1.mapping.map(trigger.from), to: tr1.mapping.map(trigger.to) }
+        : trigger
+    const tv = validTrigger(tr1.doc, mapped)
+    if (tv) tr1.delete(tv.from, tv.to)
+    tr1.setMeta(mentionTriggerKey, null)
+    v.dispatch(tr1)
     setTriggerState(null)
+    resetRound()
   }
 
   return (
@@ -280,7 +355,7 @@ export function ProseMirrorEditor(props: Props) {
               selections={props.mentionSelections}
               onSelect={handleMentionSelect}
               onDeselect={handleMentionDeselect}
-              onClose={() => setTriggerState(null)}
+              onClose={closeMention}
             />
           </div>
         </Portal>

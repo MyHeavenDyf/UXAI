@@ -28,6 +28,8 @@ export type DesktopApi = {
   copyFileToWorktree?: (srcPath: string, baseDir: string, filename: string) => Promise<string>
   /** SPEC-INS-014 §4.1.2(v2 新增):发送时把 .octo/tmps/ 里的附件 rename 进 <baseDir>/.octo/<sessionId>/uploads/ */
   movePendingUploadToSession?: (srcPath: string, baseDir: string, sessionId: string) => Promise<string>
+  /** 文件管理「上传」:把本地文件直接 fs.copyFile 进 <baseDir>/.octo/<sessionId>/uploads/[subPath/],返回落地绝对路径。大文件走流式拷贝,不经 base64/JSON(避免落盘不完整) */
+  copyFileToSessionUploads?: (srcPath: string, baseDir: string, sessionId: string, subPath: string, filename: string) => Promise<string>
   /** 取拖拽/选取 File 的真实本地路径(Electron webUtils.getPathForFile;非桌面端为 undefined) */
   getPathForFile?: (file: File) => string
   /** 覆盖写本地文本文件(markdown 编辑器自动保存;主进程校验路径白名单) */

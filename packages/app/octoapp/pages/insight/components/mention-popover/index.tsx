@@ -81,7 +81,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const handleFileClick = (file: InsightFileEntry) => {
     const sel: MentionSelection = { type: "file", filename: file.name, path: file.path }
     isSelected(sel) ? props.onDeselect(sel) : props.onSelect(sel)
-    props.onClose()
+    // 多选:不关闭浮窗,保留 @query 以便继续选择下一项(Esc / 点外关闭时再清理 @query)
   }
 
   // ── 键盘导航 ────────────────────────────────────────────────────────────

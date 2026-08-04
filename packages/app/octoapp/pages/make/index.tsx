@@ -197,42 +197,69 @@ function MakeContent() {
   }
 
   const dialogPop = useDialogIframe()
-  const [selectedSpec, setSelectedSpec] = createSignal<string | null>(null)
+  const [selectedSpecDisplay, setSelectedSpecDisplay] = createSignal<string | null>(null)
+  const [selectedSpecName, setSelectedSpecName] = createSignal<string | null>(null)
 
-  // 新建对话时获取存量配置
+  let configFetched = false
+
+  // 获取存量配置并设置状态
+  function fetchAndSetConfig() {
+    const api = getDesktopApi()
+    if (!api?.getAssetsConfig) return
+    api.getAssetsConfig()
+      .then((data) => {
+        const config = data as AssetsConfig
+        if (config?.user) {
+          const designSpec = config.user.designSpec
+          const placeholder = config.user.placeholder
+          if (designSpec && typeof designSpec === 'string') {
+            setSelectedSpecName(designSpec)
+          }
+          if (placeholder && typeof placeholder === 'string') {
+            setSelectedSpecDisplay(placeholder)
+          }
+          // 写入临时文件
+          const projectDirValue = projectDir()
+          if (projectDirValue && api?.writeFileBuffer) {
+            const sep = projectDirValue.includes("\\") ? "\\" : "/"
+            const configPath = [projectDirValue, ".octo", "tmps", "make", "resource", "assets_config.json"].join(sep)
+            const encoder = new TextEncoder()
+            const str = JSON.stringify(data)
+            const buffer = encoder.encode(str).buffer as ArrayBuffer
+            api.writeFileBuffer(configPath, buffer).catch(err => {
+              console.error("[MakePage] Failed to save assets_config.json:", err)
+            })
+          }
+        }
+      })
+      .catch((err) => {
+        console.error("[MakePage] Failed to get assets config:", err)
+      })
+  }
+
+  // 1. 挂载时获取（只在空态且未获取过时）
+  onMount(() => {
+    if (!params.id && !configFetched) {
+      configFetched = true
+      fetchAndSetConfig()
+    }
+  })
+
+  // 2. 参数变化时获取（变为空态且未获取过时）
   createEffect(on(
     () => params.id,
     (id) => {
-      if (id) return
-      const api = getDesktopApi()
-      if (!api?.getAssetsConfig) return
-      api.getAssetsConfig()
-        .then((data) => {
-          const config = data as AssetsConfig
-          if (config?.user?.isRemember === true) {
-            const value = config.user.designSpec
-            if (value && typeof value === 'string') {
-              setSelectedSpec(value)
-            }
-            // 写入临时文件
-            const projectDirValue = projectDir()
-            if (projectDirValue && api?.writeFileBuffer) {
-              const sep = projectDirValue.includes("\\") ? "\\" : "/"
-              const configPath = [projectDirValue, ".octo", "tmps", "make", "resource", "assets_config.json"].join(sep)
-              const encoder = new TextEncoder()
-              const str = JSON.stringify(data)
-              const buffer = encoder.encode(str).buffer as ArrayBuffer
-              api.writeFileBuffer(configPath, buffer).catch(err => {
-                console.error("[MakePage] Failed to save assets_config.json:", err)
-              })
-            }
-          }
-        })
-        .catch((err) => {
-          console.error("[MakePage] Failed to get assets config:", err)
-        })
-    },
-    { defer: true }
+      // 离开空态时重置标志
+      if (id) {
+        configFetched = false
+        return
+      }
+      // 变为空态时，如果未获取过，则获取
+      if (!id && !configFetched) {
+        configFetched = true
+        fetchAndSetConfig()
+      }
+    }
   ))
 
   createEffect(
@@ -281,9 +308,10 @@ function MakeContent() {
     on(
       () => params.id,
       (id, prevId) => {
-        // 切换 session 时重置 specSelector 状态
-        if (id !== prevId) {
-          setSelectedSpec(null)
+        // 只在真正切换 session 时重置（两个都不为 null）
+        if (id !== prevId && prevId !== null) {
+          setSelectedSpecDisplay(null)
+          setSelectedSpecName(null)
         }
         
         // 回填模型选择
@@ -655,6 +683,8 @@ const sessionMessagesLoaded = createMemo(() => {
             toolCallMap.delete(callID)
           }
         }
+      } else if (e.type === "session.next.step.ended") {
+        setFilesRefreshKey(k => k + 1)
       } else {
         const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
         console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 
@@ -812,10 +842,12 @@ const sessionMessagesLoaded = createMemo(() => {
     return status?.type === "busy"
   })
 
+  const effectiveBusy = createMemo(() => isBusy() || childBusy())
+
   // ── 会话进度条动画状态 ────────────────────────────────────
   const [timeoutDone, setTimeoutDone] = createSignal(true)
   const workingStatus = createMemo<"hidden" | "showing" | "hiding">((prev) => {
-    if (isBusy()) return "showing"
+    if (effectiveBusy()) return "showing"
     if (prev === "showing" || !timeoutDone()) return "hiding"
     return "hidden"
   })
@@ -832,7 +864,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const [elapsedText, setElapsedText] = createSignal("")
   let elapsedTimer: ReturnType<typeof setInterval> | undefined
   createEffect(() => {
-    if (isBusy()) {
+    if (effectiveBusy()) {
       const id = params.id
       if (id) {
         const messages = (sync.data.message?.[id] ?? []) as Message[]
@@ -862,7 +894,7 @@ const sessionMessagesLoaded = createMemo(() => {
   let blockTimer: ReturnType<typeof setInterval> | undefined
   createEffect(() => {
     const hasQuestion = sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
-    if (isBusy() && !hasQuestion) {
+    if (effectiveBusy() && !hasQuestion) {
       setLastDeltaTime(Date.now())
       blockTimer = setInterval(() => {
         const blockedMs = Date.now() - lastDeltaTime()
@@ -1501,9 +1533,12 @@ const sessionMessagesLoaded = createMemo(() => {
         }
         return
       }
-      tabStore.reset()
+      // 把当前 session 的 design-plan 编辑持久化到 snapshotStore（由 updateTabContent 覆盖），
+      // 这样 tabStore.reset() 后，切回时 plan tab 能恢复用户上次的编辑，而不是被 agent 重新输出覆盖。
+      persistActivePlanDraft()
       // 仅在 session 实际切换时清理规划状态,避免 handleEnterPlan 等操作
       // 触发 sync.data.session 更新后重新进入此 effect 时错误地清除状态。
+      tabStore.reset()
       if (newSid !== prevSid) {
         // 缓存前一个 session 的规划子 session，切回时立即恢复
         if (prevSid && activePlanSessionId()) {
@@ -1614,6 +1649,12 @@ const sessionMessagesLoaded = createMemo(() => {
           if (localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + capturedSid)) {
             setPlanEndedForSession(capturedSid)
             setPlanEnded(true)
+            // 已结束的子 session 仍需加入 childSessionIDs 并同步消息，
+            // 让 planCard 能扫描到 design-plan artifact，保持 [方案已确认] 按钮可见
+            loadedChildSessions.add(childId)
+            setChildSessionIDs((prev) => { const next = new Set(prev); next.add(childId); return next })
+            sync.session.sync(childId).catch(() => {})
+            setPlanPhase("generate")
             return
           }
           loadedChildSessions.add(childId)
@@ -1759,13 +1800,40 @@ const sessionMessagesLoaded = createMemo(() => {
   // 而是显示为输入框上方的横条(banner),用户主动点击后才把 plan 放进 ResultViewer。
   // 用户一旦查看过(plan tab 已存在),后续 plan 内容更新会通过 openTab 的 existing 分支自动刷新。
 
+  /** 持久化当前 session 中 design-plan tab 的编辑内容到 snapshotStore，
+   *  确保切换 session 再切回后用户编辑不被 agent 重新输出覆盖。 */
+  function persistActivePlanDraft() {
+    const planSid = activePlanSessionId()
+    if (!planSid) return
+    const planTabPrefix = `plan:${planSid}:`
+    for (const tab of tabStore.tabs()) {
+      if (tab.type === "design-plan" && tab.id.startsWith(planTabPrefix)) {
+        snapshotStore.save(tab)
+        refreshSnapshots()
+        return
+      }
+    }
+  }
   /** 用户点击 plan 横条/TabBar 按钮 → 切换到 plan 模式,直接在 ResultViewer 渲染设计规划内容 */
   function handleViewPlan() {
+    const plan = planCard()
+    if (plan?.id) {
+      // 确保 plan tab 存在于 tabStore,以便编辑内容能被持久化
+      tabStore.addTabSilently(plan)
+    }
     setResultViewMode("plan")
   }
 
   /** 处理 ResultViewer 内容编辑保存 */
   async function handleContentChange(tabId: string, content: string) {
+    // design-plan 在 plan 模式下渲染时,tab 可能未通过 openTab 注册到 tabStore,
+    // 导致 updateTabContent 是空操作。首次编辑时先注册。
+    if (!tabStore.tabs().find((t) => t.id === tabId)) {
+      const plan = planCard()
+      if (plan?.id === tabId) {
+        tabStore.addTabSilently(plan)
+      }
+    }
     // 先更新 tabStore
     tabStore.updateTabContent(tabId, content)
     const tab = tabStore.tabs().find((t) => t.id === tabId)
@@ -1780,20 +1848,10 @@ const sessionMessagesLoaded = createMemo(() => {
         refreshSnapshots: refreshSnapshots,
       })
     }
-
-    // 如果是 design-plan 类型，还需要发送消息给子 agent 更新内容
-    if (tab?.type === "design-plan" && tab.artifactIdentifier) {
-      const planSid = activePlanSessionId()
-      if (planSid) {
-        const key = activeModelKey()
-        if (!key) return
-        // 发送更新指令让子 agent 重新输出更新后的 plan
-        const updatePrompt = `[update-plan ${tab.artifactIdentifier}]\n\n${content}`
-        sendMessage(planSid, updatePrompt, key).catch((err) => {
-          console.error("[MakePage] update plan failed", err)
-        })
-      }
-    }
+    // 注：design-plan tab 的编辑不走 persistTabChanges(finalContent 是 draft,
+    // 且 agent 端没有对应的 [update-plan] 指令).编辑内容已存在 tabStore +
+    // snapshotStore(见 persistActivePlanDraft),切回时从 snapshot 恢复即可,
+    // 不需要发消息回灌给 agent,避免 agent 重写 artifact 覆盖用户编辑。
   }
 
   /** 关闭 tab：关闭最后一个时切换到 files 视图 */
@@ -2128,13 +2186,14 @@ const sessionMessagesLoaded = createMemo(() => {
     let mentions = proseMirrorRef1?.getMentions?.() || proseMirrorRef2?.getMentions?.() || []
     
     // 注入 specSelector 的 skill
-    const spec = selectedSpec()
-    if (spec) {
-      text = `@${spec} ` + text
-      mentions = [{ type: 'skill', name: spec, label: spec }, ...mentions]
+    const specName = selectedSpecName()
+    const specDisplay = selectedSpecDisplay()
+    if (specName && specDisplay) {
+      text = `@${specName} ` + text
+      mentions = [{ type: 'skill', name: specName, label: specDisplay }, ...mentions]
     }
     
-    if (sending() || !activeModelKey()) return
+    if (effectiveBusy() || !activeModelKey()) return
 
     if (hasImageAttachments() && !ensureMultimodalModel()) {
       showToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型", variant: "error" })
@@ -2165,15 +2224,17 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
       await movePendingUploadsToSession(session.id)
       
       // 如果用户没有手动选择 spec，检查是否有存量配置
-      if (!selectedSpec()) {
+      if (!selectedSpecDisplay()) {
         const api = getDesktopApi()
         if (api?.getAssetsConfig) {
           try {
             const info = await api.getAssetsConfig() as AssetsConfig
             
-            // 设置技能名称
+            // 设置显示值和技能名称
             const designSpec = info?.user?.designSpec
-            if (designSpec) setSelectedSpec(designSpec)
+            const placeholder = info?.user?.placeholder
+            if (designSpec) setSelectedSpecName(designSpec)
+            if (placeholder) setSelectedSpecDisplay(placeholder)
             
             // 保存 sessionJson 到临时文件
             const sessionJson = info?.user?.sessionJson
@@ -2215,6 +2276,12 @@ if (dsId) {
 
   /** 终止当前生成 */
   async function halt() {
+    const childId = activePlanSessionId()
+    if (childId && childBusy()) {
+      tracker.interaction({ module: "design", name: "stop-generation" })
+      await sdk.client.session.abort({ sessionID: childId }).catch(() => {})
+      return
+    }
     const sid = params.id
     if (!sid) return
     tracker.interaction({ module: "design", name: "stop-generation" })
@@ -2699,9 +2766,11 @@ if (dsId) {
       try {
         const info = await api.getAssetsConfig() as AssetsConfig
         
-        // 设置技能名称（用于 @技能名 引用）
+        // 设置显示值和技能名称
         const designSpec = info?.user?.designSpec
-        if (designSpec) setSelectedSpec(designSpec)
+        const placeholder = info?.user?.placeholder
+        if (designSpec) setSelectedSpecName(designSpec)
+        if (placeholder) setSelectedSpecDisplay(placeholder)
         
         // 保存 sessionJson 到临时文件
         const sessionJson = info?.user?.sessionJson
@@ -3050,7 +3119,7 @@ if (dsId) {
                       <IconNotepad size={16} />
                     </button>
                   </Show>
-                  <Show when={isBusy()}>
+                  <Show when={effectiveBusy()}>
                     <div class="shrink-0 flex items-center gap-1.5">
                       <Spinner class="size-4" />
                     </div>
@@ -3216,24 +3285,24 @@ if (dsId) {
                     />
 
                     <div class="flex-1 min-h-0 overflow-hidden rounded-[inherit]">
-                    <ProseMirrorEditor
-                       sessionId={params.id!}
-                       skillConfig={skillConfig() ?? {}}
-                       artifactFiles={artifactFilesMirror()}
-                       mentionSelections={mentionSelections()}
-                       setMentionSelections={setMentionSelections}
-                       disabled={inputDisabled()}
-                       busy={isBusy()}
-                       autofocus
-                       onTriggerMention={loadSkillConfig}
-                       onContentChange={setPrompt}
-                       onSubmit={() => void handleSubmit()}
-                       onPaste={handlePaste}
-                       onSlashTrigger={(query) => {
-                         setSlashState({ query, cursor: 0 })
-                         setSlashIndex(0)
-                       }}
-                       onSlashClose={() => setSlashState(null)}
+<ProseMirrorEditor
+                        sessionId={params.id!}
+                        skillConfig={skillConfig() ?? {}}
+                        artifactFiles={artifactFilesMirror()}
+                        mentionSelections={mentionSelections()}
+                        setMentionSelections={setMentionSelections}
+                        disabled={inputDisabled()}
+                        busy={effectiveBusy()}
+                        autofocus
+                        onTriggerMention={loadSkillConfig}
+                        onContentChange={setPrompt}
+                        onSubmit={() => void handleSubmit()}
+                        onPaste={handlePaste}
+                        onSlashTrigger={(query) => {
+                          setSlashState({ query, cursor: 0 })
+                          setSlashIndex(0)
+                        }}
+                        onSlashClose={() => setSlashState(null)}
                        onPreview={(url) => {
                          handleOpenLocalFile(url)
                          proseMirrorRef1?.clear()
@@ -3301,19 +3370,19 @@ if (dsId) {
                           onClick={handleSpecSelect}
                         >
                           <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
-                            {selectedSpec() || "请选择设计规范"}
+                            {selectedSpecDisplay() || "请选择设计规范"}
                           </span>
                           <Icon name="chevron-down" class="size-3.5 shrink-0" style="color: #000" />
                         </button>
                       </div>
-                      <IconButton
-                        data-action="prompt-submit"
-                        type="submit"
-                        icon={isBusy() ? "stop" : "arrow-up"}
-                        class="size-8 flex-shrink-0"
-                        onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
-                        disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
-                        aria-label={isBusy() ? "停止生成" : undefined}
+<IconButton
+                         data-action="prompt-submit"
+                         type="submit"
+                         icon={effectiveBusy() ? "stop" : "arrow-up"}
+                         class="size-8 flex-shrink-0"
+                         onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
+                         disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
+                         aria-label={effectiveBusy() ? "停止生成" : undefined}
 />
                     </div>
                    </div>
@@ -3535,23 +3604,23 @@ if (dsId) {
                   />
 
 <ProseMirrorEditor
-                      sessionId={params.id!}
-                      skillConfig={skillConfig() ?? {}}
-                      artifactFiles={artifactFilesMirror()}
-                      mentionSelections={mentionSelections()}
-                      setMentionSelections={setMentionSelections}
-                      disabled={inputDisabled()}
-                      busy={isBusy()}
-                      autofocus
-                      onTriggerMention={loadSkillConfig}
-                     onContentChange={setPrompt}
-                     onSubmit={() => void handleSubmit()}
-                     onPaste={handlePaste}
-onSlashTrigger={(query) => {
-                        setSlashState({ query, cursor: 0 })
-                        setSlashIndex(0)
-                      }}
-                      onSlashClose={() => setSlashState(null)}
+                       sessionId={params.id!}
+                       skillConfig={skillConfig() ?? {}}
+                       artifactFiles={artifactFilesMirror()}
+                       mentionSelections={mentionSelections()}
+                       setMentionSelections={setMentionSelections}
+                       disabled={inputDisabled()}
+                       busy={effectiveBusy()}
+                       autofocus
+                       onTriggerMention={loadSkillConfig}
+                      onContentChange={setPrompt}
+                      onSubmit={() => void handleSubmit()}
+                      onPaste={handlePaste}
+ onSlashTrigger={(query) => {
+                         setSlashState({ query, cursor: 0 })
+                         setSlashIndex(0)
+                       }}
+                       onSlashClose={() => setSlashState(null)}
                       onPreview={(url) => {
                         handleOpenLocalFile(url)
                         proseMirrorRef1?.clear()
@@ -3613,16 +3682,16 @@ onSlashTrigger={(query) => {
                         <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
                       </ModelSelectorPopover>
                     </div>
-                    <IconButton
-                      data-action="prompt-submit"
-                      type="submit"
-                      icon={isBusy() ? "stop" : "arrow-up"}
-                      variant="primary"
-                      class="size-8 flex-shrink-0"
-                      onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
-                      disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
-                      aria-label={isBusy() ? "停止生成" : undefined}
-                    />
+<IconButton
+                       data-action="prompt-submit"
+                       type="submit"
+                       icon={effectiveBusy() ? "stop" : "arrow-up"}
+                       variant="primary"
+                       class="size-8 flex-shrink-0"
+                       onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
+                       disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
+                       aria-label={effectiveBusy() ? "停止生成" : undefined}
+                     />
                   </div>
                 </div>
               </div>

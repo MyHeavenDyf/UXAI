@@ -9,10 +9,12 @@ import { getDesktopApi } from "../../lib/electron-api"
 import { ensureLocalMarkdownFile } from "../../utils/local-resource"
 import { openFileLocally, revealFileInFolder } from "../../utils/local-file-ops"
 import { showToast } from "@opencode-ai/ui/toast"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { tracker } from "@/utils/tracker"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useParams } from "@solidjs/router"
 import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
+import { archiveFileSizeError } from "../../utils/archive-size"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).then(() => {
@@ -77,7 +79,7 @@ async function getTabFile(tab: ResultTab): Promise<File | null> {
       console.warn("[octo:archive] fetch-uri-failed", { uri: tab.uri, err })
     }
   }
-  if (typeof tab.content === "string" && tab.content) {
+  if (typeof tab.content === "string") {
     return new File([tab.content], name, { type: tabArchiveMime(tab) })
   }
   return null
@@ -237,8 +239,9 @@ export function ActionBar(props: {
 }): JSX.Element {
   const projectDir = useProjectDir()
   const params = useParams<{ id?: string }>()
-  // URI 模式 fetch 未完成时 content 为空,禁用复制 / 下载
-  const ready = () => typeof props.tab.content === "string" && props.tab.content.length > 0
+  // content 已就绪:加载成 string 即可(含空文件 content="");URI fetch 未完成时仍为 undefined → 禁用。
+  // 不再用 length > 0:空 md 文件加载后 content="",但复制/下载/归档/编辑均应可用(用户要编辑空文件加内容)。
+  const ready = () => typeof props.tab.content === "string"
   // uri md 卡「文件夹」:产物落在可见的 .octo/<sessionId>/outputs,给定位入口(与 path 源的「文件夹」对齐)。
   const canRevealUri = () =>
     props.tab.type === "markdown" && props.tab.source === "uri" && !!props.tab.uri && ready()
@@ -260,17 +263,34 @@ export function ActionBar(props: {
   const [archiveTarget, setArchiveTarget] = createSignal<ArchiveTarget | null>(null)
   const [archiveDialogOpen, setArchiveDialogOpen] = createSignal(false)
   // 归档禁用判定:
+  //   - 大小:EDM 文件归档(EdmUtil.upload)单文件区间 1B~4GiB,超界前置置灰,少一次「点了才失败」。
+  //     · 文本类(markdown/json/code):**以 content 判空,不能用 size**。content 是活的(编辑保存后
+  //       cacheContent 回写),size 只在 openTab 写入一次、之后永不更新 —— 用 size 会让「打开空 md →
+  //       编辑写入内容 → 保存」后 size 仍是 0,归档恒被置灰,而这正是本 PR 要救的主场景。
+  //       上限对文本类不适用(4GiB 文本读进 content 时早已 OOM),交中央守卫兜底。
+  //     · file/image(二进制):不回填 content,只能用文件管理开页签时带入的 size
+  //       (insight/index.tsx openFileFromManager);uri 源无 size → 交 archive-flow 中央守卫兜底。
+  //     · HTML 不在此列:走另一条归档链路(zip + uploadVersion),无 EDM 大小限制,不置灰。
   //   - file / image(二进制):FileFallback / ImageRenderer 不回填 content,归档读盘(filePath)或拉 uri,
   //     不依赖 content —— 按身份判定即可;否则这两类从文件管理开进新页签后归档恒被置灰。
   //   - 其余类型(markdown/json/code/html):归档需 content(HTML 源码 / 文本兜底),沿用 ready 判定;
+  //     复制/下载/编辑对空文件仍有意义(尤其编辑——空文档最需要打开写),保持可用。
   //     HTML 代码视图无 live iframe,截图只能拿白图,提示切回预览后再归档。
+  const archiveSizeError = (): string | null => {
+    if (props.tab.type === "html") return null
+    if (props.tab.type === "file" || props.tab.type === "image") return archiveFileSizeError(props.tab.size)
+    return props.tab.content === "" ? archiveFileSizeError(0) : null
+  }
   const archiveDisabled = () =>
     props.tab.type === "file" || props.tab.type === "image"
-      ? !props.tab.filePath && !props.tab.uri
-      : !ready() || (props.tab.type === "html" && props.viewMode === "source")
-  const archiveTitle = () => props.tab.type === "html" && props.viewMode === "source"
-    ? "请切换到预览视图后再归档"
-    : "归档"
+      ? (!props.tab.filePath && !props.tab.uri) || archiveSizeError() !== null
+      : !ready() || (props.tab.type === "html" && props.viewMode === "source") || archiveSizeError() !== null
+  const archiveTitle = () => {
+    const e = archiveSizeError()
+    if (e) return e
+    if (props.tab.type === "html" && props.viewMode === "source") return "请切换到预览视图后再归档"
+    return "归档"
+  }
 
   function handleArchiveClick() {
     setArchiveTarget(tabToArchiveTarget(() => props.tab, projectDir() || "", params.id ?? "", props.getIframe))
@@ -343,30 +363,38 @@ export function ActionBar(props: {
           />
           <DownloadMenu tab={props.tab} disabled={!ready()} />
         </Show>
-        {/* 归档(60×32,#0A59F7):所有文件类型均可归档,置于头部操作项最右侧;二进制无来源、文本未 ready 或 HTML 代码视图时置灰 */}
-        <button
-          type="button"
-          onClick={handleArchiveClick}
-          disabled={archiveDisabled()}
-          class="flex items-center justify-center transition-opacity"
-          classList={{
-            "hover:opacity-90 cursor-pointer": !archiveDisabled(),
-            "opacity-40 cursor-not-allowed": archiveDisabled(),
-          }}
-          style={{
-            width: "60px",
-            height: "32px",
-            "border-radius": "20px",
-            background: "#0A59F7",
-            color: "#FFFFFF",
-            "font-size": "14px",
-            "line-height": "22px",
-            "flex-shrink": "0",
-          }}
-          title={archiveTitle()}
+        {/* 归档(60×32,#0A59F7):置于头部操作项最右侧;二进制无来源 / 文本未 ready / HTML 代码视图 / 大小超出 1B~4GiB 时置灰。
+            disabled 按钮原生 title 不显示(浏览器抑制禁用元素的鼠标事件),故用 Tooltip(div trigger)包裹,禁用态也能悬浮出原因。 */}
+        <Tooltip
+          placement="top"
+          value={archiveTitle()}
+          inactive={!archiveDisabled()}
+          contentStyle={{ "white-space": "nowrap", "max-width": "none", "z-index": "60" }}
+          class="shrink-0"
         >
-          归档
-        </button>
+          <button
+            type="button"
+            onClick={handleArchiveClick}
+            disabled={archiveDisabled()}
+            class="flex items-center justify-center transition-opacity"
+            classList={{
+              "hover:opacity-90 cursor-pointer": !archiveDisabled(),
+              "opacity-40 cursor-not-allowed": archiveDisabled(),
+            }}
+            style={{
+              width: "60px",
+              height: "32px",
+              "border-radius": "20px",
+              background: "#0A59F7",
+              color: "#FFFFFF",
+              "font-size": "14px",
+              "line-height": "22px",
+              "flex-shrink": "0",
+            }}
+          >
+            归档
+          </button>
+        </Tooltip>
       </div>
     </div>
     <ArchiveDialogs

@@ -860,6 +860,7 @@ function InsightContent() {
       filePath: file.path,
       fileName: file.name,
       mimeType: mime,
+      size: file.size,
       createdAt: new Date(),
     })
     focusResultTabs()

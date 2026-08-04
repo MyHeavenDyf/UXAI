@@ -2,6 +2,7 @@ import { createMemo, createSignal, createEffect, on, onMount, onCleanup, Show } 
 import type { JSX } from "solid-js"
 import { buildSrcdoc, annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { cleanBridgeContent } from "../../utils/bridge-cleaner"
+import { createResourceTracker, type ResourceTracker } from "../../utils/resource-tracker"
 import { getArtifactServeUrl, getArtifactRelativePath, pathToLocalUrl, isElectronDesktop, extractCommentFilePath } from "../../utils/artifact-file-api"
 import { directoryHeader } from "@/utils/headers"
 import { getDesktopApi } from "../../lib/electron-api"
@@ -145,8 +146,11 @@ export function HtmlRenderer(props: {
   onSaveFile?: (content: string) => Promise<void>
   onRefreshNeeded?: () => void
   tabTitle?: string
+  /** 注册一个获取当前 iframe 已加载资源 URL 的 getter */
+  observedUrlsGetter?: (getter: () => string[]) => void
 }): JSX.Element {
   let iframeRef: HTMLIFrameElement | undefined
+  const resourceTracker: ResourceTracker = createResourceTracker()
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
   const [hoveringInspectPanel, setHoveringInspectPanel] = createSignal(false)
   const [savedOverrides, setSavedOverrides] = createSignal<Array<{ elementId: string; prop: string; value: string }>>([])
@@ -323,7 +327,24 @@ export function HtmlRenderer(props: {
       }
       
       const comments = savedComments()
-      const htmlContent = extractHtmlContent(props.content)
+      
+      // 从文件系统读取最新 HTML 内容
+      const api = getDesktopApi()
+      let htmlContent: string
+      
+      if (api?.readFileBuffer && props.filePath) {
+        const buffer = await api.readFileBuffer(props.filePath)
+        if (buffer) {
+          const decoder = new TextDecoder('utf-8')
+          htmlContent = decoder.decode(buffer)
+        } else {
+          htmlContent = props.content
+        }
+      } else {
+        htmlContent = props.content
+      }
+      
+      htmlContent = extractHtmlContent(htmlContent)
       
       const zipBlob = await createArchiveZip({
         comments,
@@ -332,7 +353,8 @@ export function HtmlRenderer(props: {
         htmlFileName: getArtifactFilename(props.filePath),
         htmlFilePath: props.filePath || "",
         sessionId: props.sessionId || "",
-        projectDir: props.sdkDirectory || ""
+        projectDir: props.sdkDirectory || "",
+        observedUrls: iframeRef ? resourceTracker.getPaths(iframeRef) : []
       })
       
       if (isLoggedIn) {
@@ -681,6 +703,16 @@ createEffect(() => {
   // Initialize history on mount (before any keyboard events)
   onMount(() => {
     initHistory(extractHtmlContent(props.content))
+    props.observedUrlsGetter?.(() => iframeRef ? resourceTracker.getPaths(iframeRef) : [])
+  })
+
+  // refreshKey 变化时清空资源 URL 集合（旧数据来自上一次加载）
+  createEffect(on(() => props.refreshKey, () => {
+    if (iframeRef) resourceTracker.reset(iframeRef)
+  }))
+
+  onCleanup(() => {
+    resourceTracker.disposeAll()
   })
 
   const srcdoc = createMemo(() => {
@@ -695,6 +727,7 @@ createEffect(() => {
       editBridge: true,
       snapshotBridge: true,
       commentBridge: true,
+      resourceCollectorBridge: true,
       annotateElements: true,
     }) + (key > 0 ? `<script data-refresh-key="${key}"></script>` : "")
   })
@@ -1232,6 +1265,7 @@ return (
                     console.log('[HtmlRenderer] iframeRef is null')
                     return
                   }
+                  resourceTracker.observe(iframeRef)
                   if (props.editing) {
                     console.log('[HtmlRenderer] sending od:edit-mode')
                     iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
@@ -1278,6 +1312,7 @@ return (
                     console.log('[HtmlRenderer] iframeRef is null')
                     return
                   }
+                  resourceTracker.observe(iframeRef)
                   if (props.editing) {
                     console.log('[HtmlRenderer] sending od:edit-mode')
                     iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
@@ -2010,8 +2045,8 @@ fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath
           </DrawOverlay>
        ) : (
         <textarea
+          readonly={true}
           value={extractHtmlContent(props.content)}
-          onInput={(e) => props.onContentChange?.(e.currentTarget.value)}
           class="w-full h-full resize-none p-4 text-sm font-mono outline-none"
           style={{
             background: "rgba(243,244,246,1)",
