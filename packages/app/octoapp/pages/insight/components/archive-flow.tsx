@@ -29,7 +29,7 @@ const ARCHIVE_MAX_FILE_SIZE = 4 * 1024 * 1024 * 1024
 // size 非 number(服务端异常缺值)→ 返回 null:不在按钮层前置置灰,交由 runArchiveFileTask 中央守卫读真实 File.size 兜底。
 export function archiveFileSizeError(size: number): string | null {
   if (typeof size !== "number") return null
-  return size < ARCHIVE_MIN_FILE_SIZE || size > ARCHIVE_MAX_FILE_SIZE ? "仅支持 1B~4GiB 的文件" : null
+  return size < ARCHIVE_MIN_FILE_SIZE || size > ARCHIVE_MAX_FILE_SIZE ? "仅支持 1B~4GB 的文件" : null
 }
 
 export type ArchiveTarget =
