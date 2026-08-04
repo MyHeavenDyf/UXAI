@@ -736,7 +736,7 @@ export function AppInterface(props: {
                 <InsightQueueRunner />
                 {/* chat followup 排队 drain 运行器。通过 localStorage 桥接 session.tsx 的
                     persisted followup store,在 chat 页面卸载后继续 drain 排队消息。headless。 */}
-                <ChatFollowupQueueRunner />
+                {/* <ChatFollowupQueueRunner /> */}
                 <Dynamic
                   component={props.router ?? Router}
                   root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
