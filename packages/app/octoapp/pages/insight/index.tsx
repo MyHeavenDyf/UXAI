@@ -2295,7 +2295,7 @@ function InsightContent() {
                           <span class="truncate">
                             {local.model.current()?.name ?? "选择模型"}
                           </span>
-                          <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60 transition-transform duration-200 group-data-[expanded]:rotate-180" />
+                          <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
                         </ModelSelectorPopover>
 
                         {/* 「研究工具」MCP 显式入口(SPEC-INS-017 §1,设计稿:位于模型选择器右侧) */}
@@ -2528,7 +2528,7 @@ function InsightContent() {
                       <span class="truncate">
                         {local.model.current()?.name ?? "选择模型"}
                       </span>
-                      <Icon name="chevron-down" class="size-3.5 shrink-0 opacity-60 transition-transform duration-200 group-data-[expanded]:rotate-180" />
+                      <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
                     </ModelSelectorPopover>
 
                     {/* 「研究工具」MCP 显式入口(SPEC-INS-017 §1,设计稿:位于模型选择器右侧) */}

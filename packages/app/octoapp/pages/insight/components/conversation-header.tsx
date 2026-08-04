@@ -167,7 +167,7 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
               when={title.editing}
               fallback={
                 <h1
-                  class="text-[14px] font-medium truncate min-w-0 cursor-default"
+                  class="text-[14px] font-semibold truncate min-w-0 cursor-default"
                   style={{ color: "var(--octo-text-primary, #191919)" }}
                   title={displayTitle()}
                   onDblClick={openTitleEditor}
