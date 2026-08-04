@@ -1,6 +1,6 @@
 import { For, Show } from "solid-js"
 import { STUDIO_CAPABILITIES, capabilityLabel } from "./data"
-import { isVideoMedia } from "./studio-shared"
+import { isVideoMedia, studioResultCardStatus } from "./studio-shared"
 import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
 import type { StudioTurnData } from "./turns"
 
@@ -50,14 +50,12 @@ export function StudioResultCard(props: StudioResultCardProps) {
     const index = STUDIO_CAPABILITIES.findIndex((item) => item.id === capability())
     return index <= 0 ? "studio-capability-icon" : `studio-capability-icon studio-capability-icon-${index + 1}`
   }
-  const status = (): StudioGenerationStatus => {
-    if (props.turn.result?.status === "create_failed") return "create_failed"
-    if (props.turn.toolError || props.turn.result?.error) return "failed"
-    if (props.turn.result?.images.length) return "succeeded"
-    if (props.turn.result?.status) return props.turn.result.status
-    if (props.busy || props.turn.toolRunning) return "running"
-    return "failed"
-  }
+  const status = (): StudioGenerationStatus => studioResultCardStatus({
+    result: props.turn.result,
+    toolError: props.turn.toolError,
+    busy: props.busy,
+    toolRunning: Boolean(props.turn.toolRunning),
+  })
   const generating = () => status() === "queued" || status() === "running"
   const cancellable = () => generating() && props.turn.result?.id.startsWith("studio_gen")
   const editable = () =>

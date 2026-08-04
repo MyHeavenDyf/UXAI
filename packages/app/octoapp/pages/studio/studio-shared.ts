@@ -1,4 +1,4 @@
-import type { StudioAsset, StudioCapability, StudioGenerationResult, StudioImage, StudioInputImage, StudioMode } from "./types"
+import type { StudioAsset, StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage, StudioInputImage, StudioMode } from "./types"
 import { styleModelId } from "./data"
 
 export const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
@@ -28,6 +28,21 @@ export function isStudioGenerationStatusRegression(
 
 export function isStudioGenerationFailure(status: StudioGenerationResult["status"]) {
   return status === "create_failed" || status === "failed"
+}
+
+export function studioResultCardStatus(input: {
+  result?: Pick<StudioGenerationResult, "status" | "images" | "error">
+  toolError?: string
+  busy: boolean
+  toolRunning: boolean
+}): StudioGenerationStatus {
+  const generationStatus = input.result?.status
+  if (generationStatus === "create_failed" || generationStatus === "failed") return generationStatus
+  if (generationStatus === "queued" || generationStatus === "running") return generationStatus
+  if (generationStatus === "succeeded" || input.result?.images.length) return "succeeded"
+  if (input.toolError || input.result?.error) return "failed"
+  if (input.busy || input.toolRunning) return "running"
+  return "failed"
 }
 
 export type StudioPendingResult = StudioGenerationResult & {

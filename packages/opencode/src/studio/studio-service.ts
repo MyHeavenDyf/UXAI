@@ -1334,6 +1334,7 @@ function failGenerationCreation(input: {
       .set({
         status: "create_failed",
         error: message,
+        last_poll_error: null,
         completed_at: completedAt,
         next_poll_at: Number.MAX_SAFE_INTEGER,
         time_updated: completedAt,
@@ -1452,6 +1453,7 @@ function markGenerationCancelled(input: {
           status: input.status,
           raw_status: "4",
           error: "用户取消生成",
+          last_poll_error: null,
           queue_order: null,
           next_poll_at: Number.MAX_SAFE_INTEGER,
           completed_at: completedAt,
@@ -1496,7 +1498,9 @@ function generationSnapshot(record: StudioGenerationRecord): StudioGenerationAcc
     progress: record.progress,
     order: record.queue_order ?? undefined,
     rawStatus: record.raw_status ?? undefined,
-    ...(record.error ? { error: record.error } : {}),
+    ...(record.status === "create_failed" || record.status === "failed"
+      ? record.error ? { error: record.error } : {}
+      : {}),
     createdAt: record.time_created,
     updatedAt: record.time_updated,
     ...(record.completed_at ? { completedAt: record.completed_at } : {}),
@@ -1513,7 +1517,7 @@ function updateStudioGenerationProgress(record: StudioGenerationRecord, query: I
         raw_status: String(query.rawStatus),
         progress: query.progress,
         queue_order: query.order,
-        error: null,
+        last_poll_error: null,
         poll_attempts: record.poll_attempts + 1,
         next_poll_at: updatedAt + (query.status === "queued" ? 4000 : 2500),
         time_updated: updatedAt,
@@ -1620,6 +1624,7 @@ async function failGeneration(record: StudioGenerationRecord, error: unknown, ra
           status: "failed",
           ...(rawStatus === undefined ? {} : { raw_status: String(rawStatus) }),
           error: message,
+          last_poll_error: null,
           completed_at: completedAt,
           next_poll_at: Number.MAX_SAFE_INTEGER,
           time_updated: completedAt,
@@ -1667,6 +1672,7 @@ async function completeGeneration(record: StudioGenerationRecord, output: ImageG
           progress: 100,
           queue_order: null,
           error: null,
+          last_poll_error: null,
           result: result as unknown as Record<string, unknown>,
           completed_at: result.completedAt,
           next_poll_at: Number.MAX_SAFE_INTEGER,
@@ -1741,13 +1747,13 @@ async function processGeneration(record: StudioGenerationRecord) {
     const message = error instanceof Error ? error.message : String(error)
     if (
       Date.now() - record.time_created < 30 * 60_000 &&
-      (/network failed/i.test(message) || /status=(408|409|425|429|500|502|503|504)/.test(message))
+      (/network failed/i.test(message) || /(?:status=(408|409|425|429|500|502|503|504)|resp_code=\d+)/.test(message))
     ) {
       Database.use((db) =>
         db
           .update(StudioGenerationTable)
           .set({
-            error: message,
+            last_poll_error: message,
             poll_attempts: record.poll_attempts + 1,
             next_poll_at: Date.now() + Math.min(30_000, 1000 * 2 ** Math.min(record.poll_attempts, 5)),
             time_updated: Date.now(),
@@ -2062,6 +2068,7 @@ export async function rebootGeneration(id: string): Promise<StudioGenerationResu
             queue_order: null,
             raw_status: null,
             error: null,
+            last_poll_error: null,
             result: null,
             request: stripUndefined({ input: data.input, task }) as Record<string, unknown>,
             poll_attempts: 0,
@@ -2098,13 +2105,15 @@ export async function getGeneration(id: string): Promise<StudioGenerationResult 
   const snapshot = generationSnapshot(record)
   return {
     ...snapshot,
-    ...(record.result as StudioGenerationResult | undefined),
+    ...(record.status === "succeeded" ? record.result as StudioGenerationResult | undefined : {}),
     sessionID: record.session_id,
     status: record.status,
     progress: record.progress,
     order: record.queue_order ?? undefined,
     rawStatus: record.raw_status ?? undefined,
-    error: record.error ?? undefined,
+    ...(record.status === "create_failed" || record.status === "failed"
+      ? record.error ? { error: record.error } : {}
+      : {}),
     updatedAt: record.time_updated,
     completedAt: record.completed_at ?? undefined,
   }
