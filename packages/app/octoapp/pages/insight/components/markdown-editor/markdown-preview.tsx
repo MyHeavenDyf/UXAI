@@ -49,7 +49,10 @@ export function MarkdownPreview(props: { content: string }): JSX.Element {
     }).then(() => {
       if (seq === renderSeq) return
       // 已过期:Vditor 已把旧内容写进 DOM,纠正回当前状态。
-      // 过期到非空会被后一次 preview 覆盖,只有过期到空需要在这里补。
+      // 过期到非空会被后一次 preview 覆盖,只有过期到空需要在这里补 —— **前提是后一次更晚 resolve**。
+      // 当前 content 按保存 / 刷新粒度更新,两次 preview 并发的窗口极小,故不额外处理乱序;
+      // 若以后把本组件复用到实时预览(编辑器边输边渲),乱序 resolve 会稳定复现(慢的 A 盖掉快的 B),
+      // 届时这里要改成「过期一律按当前 content 重渲染」而非只补空。
       if (el && isEmpty()) el.innerHTML = ""
     })
   })
