@@ -1,42 +1,19 @@
 import JSZip from "jszip"
 import { getDesktopApi } from "../lib/electron-api"
-
-function checkHasRelativeRefs(html: string): boolean {
-  const attrRegex = /(?:href|src)=["'](?!https?:|data:|#|[\/\\])[^"']+["']/i
-  const cssRegex = /url\(["']?(?!https?:|data:|#)[^"')]+["']?\)/i
-  return attrRegex.test(html) || cssRegex.test(html)
-}
-
-function dirname(path: string): string {
-  const normalized = path.replace(/\\/g, '/')
-  const idx = normalized.lastIndexOf('/')
-  return idx >= 0 ? normalized.slice(0, idx) : path
-}
-
-function basename(path: string): string {
-  const normalized = path.replace(/\\/g, '/')
-  const idx = normalized.lastIndexOf('/')
-  return idx >= 0 ? normalized.slice(idx + 1) : path
-}
-
-function joinPath(base: string, relative: string): string {
-  const normalizedBase = base.replace(/\\/g, "/")
-  const normalizedRelative = relative.replace(/\\/g, "/")
-
-  if (normalizedRelative.startsWith(normalizedBase)) {
-    return normalizedRelative
-  }
-
-  if (normalizedBase.endsWith("/")) {
-    return normalizedBase + normalizedRelative
-  }
-  return normalizedBase + "/" + normalizedRelative
-}
+import {
+  collectReferencedFiles,
+  dirname,
+  basename,
+  joinPath,
+} from "./references"
+import { observedUrlsToAbsPaths } from "./resource-tracker"
 
 export interface CreateC2DZipOptions {
   htmlContent: string
   htmlFilePath: string
   tabTitle: string
+  /** 来自 resource-tracker 的 local:// URL 列表（实际加载过的资源） */
+  observedUrls?: string[]
 }
 
 export async function createC2DZip(options: CreateC2DZipOptions): Promise<Blob> {
@@ -45,31 +22,45 @@ export async function createC2DZip(options: CreateC2DZipOptions): Promise<Blob> 
   const htmlZip = new JSZip()
   htmlZip.file("index.html", options.htmlContent)
 
-  const hasRelativeRefs = checkHasRelativeRefs(options.htmlContent)
-  if (hasRelativeRefs && options.htmlFilePath) {
-    const htmlDir = dirname(options.htmlFilePath)
-    const api = getDesktopApi()
+  const api = getDesktopApi()
+  if (options.htmlFilePath && api?.readFileBuffer) {
+    const htmlDir = dirname(options.htmlFilePath).replace(/\\/g, "/")
+    const htmlBase = basename(options.htmlFilePath)
 
-    if (api?.listDirectory && api?.readFileBuffer) {
+    // 静态解析（返回绝对路径集合）
+    const staticAbsPaths = await collectReferencedFiles({
+      rootContent: options.htmlContent,
+      rootType: "html",
+      rootAbsPath: options.htmlFilePath,
+      readFileBuffer: (p) => api.readFileBuffer!(p),
+    })
+
+    // 网络信号 → 绝对路径
+    const observedAbsPaths = observedUrlsToAbsPaths(options.observedUrls || [])
+
+    // C2D 的 html.zip 视图约定 HTML 在根目录，所以不支持跨父级引用：
+    // 仅保留 htmlDir 内的引用文件，跨父级的 `..` 引用会被丢弃。
+    const referencedRel = new Set<string>()
+    for (const abs of [...staticAbsPaths, ...observedAbsPaths]) {
+      const norm = abs.replace(/\\/g, "/")
+      const lower = norm.toLowerCase()
+      if (lower === htmlDir.toLowerCase()) continue
+      if (!lower.startsWith(htmlDir.toLowerCase() + "/")) continue
+      const rel = norm.slice(htmlDir.length + 1)
+      if (rel && rel !== htmlBase && rel !== "index.html") {
+        referencedRel.add(rel)
+      }
+    }
+
+    for (const relPath of referencedRel) {
       try {
-        const files = await api.listDirectory(htmlDir)
-        const htmlFileName = basename(options.htmlFilePath)
-
-        for (const file of files) {
-          if (file.type === 'file' && file.path !== htmlFileName) {
-            try {
-              const absolutePath = joinPath(htmlDir, file.path)
-              const buffer = await api.readFileBuffer(absolutePath)
-              if (buffer) {
-                htmlZip.file(file.path, new Uint8Array(buffer))
-              }
-            } catch (err) {
-              console.warn(`[C2D] Failed to read sibling file:`, file.path, err)
-            }
-          }
+        const absolutePath = joinPath(htmlDir, relPath)
+        const buffer = await api.readFileBuffer(absolutePath)
+        if (buffer) {
+          htmlZip.file(relPath, new Uint8Array(buffer))
         }
       } catch (err) {
-        console.warn('[C2D] Failed to list directory:', err)
+        console.warn(`[C2D] Failed to read referenced file:`, relPath, err)
       }
     }
   }

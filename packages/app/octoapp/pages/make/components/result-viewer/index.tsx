@@ -156,6 +156,8 @@ export function ResultViewer(props: {
   const [commenting, setCommenting] = createSignal(false)
   const [archiving, setArchiving] = createSignal(false)
   const [refreshKey, setRefreshKey] = createSignal(0)
+  // 当前 HTML tab 已加载的资源 URL getter（由 HtmlRenderer 注册）
+  let observedUrlsGetter: (() => string[]) | null = null
   const combinedRefreshKey = createMemo(() => refreshKey() + (props.filesRefreshKey ?? 0))
 
   const handleViewportChange = (vp: ViewportPreset) => {
@@ -180,7 +182,8 @@ export function ResultViewer(props: {
         const zipBlob = await createC2DZip({
           htmlContent,
           htmlFilePath: tab.filePath || "",
-          tabTitle: tab.title
+          tabTitle: tab.title,
+          observedUrls: observedUrlsGetter?.() || [],
         })
         const fileName = `${tab.title}-c2d.zip`
         const url = URL.createObjectURL(zipBlob)
@@ -196,12 +199,12 @@ export function ResultViewer(props: {
       }
 
       const result = await uploadZip(async () => {
-        showToast({ title: "生成ZIP文件..." })
         const htmlContent = extractCodeBlock(tab.content, "html")
         return await createC2DZip({
           htmlContent,
           htmlFilePath: tab.filePath || "",
-          tabTitle: tab.title
+          tabTitle: tab.title,
+          observedUrls: observedUrlsGetter?.() || [],
         })
       }, projectSelection())
 
@@ -570,6 +573,7 @@ drawing={drawing()}
 }}
                     onCanvasToDesign={handleCanvasToDesign}
                     onRefresh={handleRefresh}
+                   observedResourceUrls={() => observedUrlsGetter?.() || []}
                    focusMode={props.focusMode}
                    onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
                  />
@@ -624,6 +628,7 @@ drawing={drawing()}
                           }}
                           onRefreshNeeded={handleRefresh}
                           tabTitle={tab.title}
+                          observedUrlsGetter={(g) => { observedUrlsGetter = g }}
                         />
                     </Match>
                     <Match when={tabType === "deck"}>
