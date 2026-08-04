@@ -213,16 +213,25 @@ watch(
 const resolvedTabIcons = ref<Record<string, { component: Component | null; props: Record<string, any> } | null>>({})
 
 watch(
-  [items, iconSize, svgCacheVersion, isDark],
+  [items, iconSize, svgCacheVersion, isDark, activeKey],
   ([newItems, sz]) => {
     const map: Record<string, any> = {}
 
     for (const item of (newItems as any[])) {
       if (item.icon) {
-        map[item.name] = getIconComponentRef(item.icon, { 
-          size: sz as number, 
-          strokeWidth: 1, 
-          shape: 'lined' 
+        const isActive = activeKey.value === item.name
+        let color = isDark.value ? '#AEAEAE' : '#777777'
+        if(isActive) {
+          color = isDark.value ? '#AEAEAE' : '#000000'
+        } else if (item.disabled) {
+          color = isDark.value ? '#939393' : '#C9C9C9'
+        }
+        map[item.name] = getIconComponentRef(item.icon, {
+          size: sz as number,
+          strokeWidth: 1,
+          shape: 'lined',
+          color,
+          isDark: isDark.value,
         })
       }
     }

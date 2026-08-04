@@ -84,7 +84,11 @@ watch(
     const map: Record<string | number, any> = {}
     for (const item of (newItems as any[])) {
       if (item.icon) {
-        map[item.key] = getIconComponentRef(item.icon, { size: 14, shape: 'lined' })
+        map[item.key] = getIconComponentRef(item.icon, { 
+          size: 14, 
+          shape: 'lined',
+          color: isDark.value ? '#FFFFFF' : '#191919'
+        })
       }
     }
     resolvedDropdownIcons.value = map

@@ -1,5 +1,5 @@
 import * as LucideIcons from "lucide-vue-next"
-import { h, markRaw, shallowRef, watch, type Ref } from "vue"
+import { h, isRef, markRaw, ref, shallowRef, watch, type Ref } from "vue"
 import type { Component, VNode } from "vue"
 import HuiSvgIcon from "./HuiSvgIcon.vue"
 import { hasHuiIcons, iconInfoMap, svgCache, svgCacheVersion, resolveSvgCacheKey, requestSvg, requestIconInfo, resolveApiShape } from "../../composables/useIconProvider"
@@ -115,13 +115,15 @@ export function getIconComponentRef(
   options?: IconComponentRefOptions,
 ): { component: Component | null; props: Record<string, any> } | null {
   if (!name) return null
+
+  const { isDark } = useTheme();
   const shape = options?.shape || 'outline'
-  const color = options?.color || 'default'
-  const isDark = options?.isDark
+  const color = options?.color ??  (isDark.value ? '#FFFFFF' : '#191919')
+  const dark = options?.isDark ?? isDark.value
 
   if (hasHuiIcons.value) {
     // hui API 可用 → 只走 hui，SVG 未缓存则空白
-    const huiRef = getHuiIconComponentRef(name, shape, color, isDark)
+    const huiRef = getHuiIconComponentRef(name, shape, color, dark)
     if (huiRef) {
       if (options?.size) huiRef.props.size = options.size
       return huiRef
@@ -137,19 +139,20 @@ export function getIconComponentRef(
 /** 响应式图标解析（追踪 svgCacheVersion 和 isDark，SVG 到达或主题切换后重新解析） */
 export function useIconComponentRef(
   nameRef: Ref<string | undefined | null>,
-  options?: IconComponentRefOptions,
+  options?: Ref<IconComponentRefOptions> | IconComponentRefOptions,
 ): Ref<{ component: Component | null; props: Record<string, any> } | null> {
   const resolved = shallowRef<{ component: Component | null; props: Record<string, any> } | null>(null)
   const { isDark } = useTheme();
-  watch([nameRef, svgCacheVersion, isDark], ([val]) => {
+  const optionsRef = isRef(options) ? options : ref(options)
+  watch([nameRef, optionsRef, svgCacheVersion, isDark], ([val, opts]) => {
     if (!val) {
       resolved.value = null
       return
     }
     // 其他组件（无 options.shape）：使用 'lined' shape（仍传入 isDark 以确保颜色解析与主题一致）
     // Icon 组件（传入 options.shape）：shape 由 options 传入，isDark 传入以支持主题感知
-    const newOptions = options
-      ? { ...options, isDark: isDark.value }
+    const newOptions = opts
+      ? { ...opts, isDark: isDark.value }
       : { shape: 'lined', isDark: isDark.value }
     resolved.value = getIconComponentRef(val, newOptions)
   }, { immediate: true })

@@ -122,22 +122,27 @@ const iconNameForRef = computed(() => {
   return name || undefined
 })
 
-const resolvedIcon = computed(() => {
-  let iconColor = '#191919'
+const iconColor = computed(() => {
+  let color = '#191919'
   if (isLink.value) {
-    iconColor = disabled.value ? (isDark.value ? '#004EA8' : '#8ABEF3') : '#0067D1'
+    color = disabled.value ? (isDark.value ? '#004EA8' : '#8ABEF3') : '#0067D1'
   } else {
     const isWhiteText = ["primary", "danger", "success", "warning"].some(i => i === type.value)
     if(disabled.value) {
-      iconColor = isDark.value ? '#939393' : (isWhiteText ? '#FFFFFF' : '#c9c9c9')
+      color = isDark.value ? '#939393' : (isWhiteText ? '#FFFFFF' : '#c9c9c9')
     }
-    iconColor = (isWhiteText || isDark.value) ? '#FFFFFF' : '#191919'
+    color = (isWhiteText || isDark.value) ? '#FFFFFF' : '#191919'
   }
-  const baseIconRef = useIconComponentRef(iconNameForRef, { 
-    strokeWidth: 1,
-    shape: 'lined', 
-    color: iconColor
-  })
+  return color
+})
+
+const baseIconRef = useIconComponentRef(iconNameForRef, computed(() => ({
+  strokeWidth: 1,
+  shape: 'lined',
+  color: iconColor.value,
+})))
+
+const resolvedIcon = computed(() => {
   if (!baseIconRef.value?.component || !iconName.value) return null
   const base = baseIconRef.value
   const isHui = "iconColor" in base.props
