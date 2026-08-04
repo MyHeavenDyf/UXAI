@@ -177,7 +177,7 @@ async function searchResources(
   }
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "octo-vs-token": "octo_vs_7e91e862389139bab49247ba2550f366" },
+    headers: { "Content-Type": "application/json", "octo-vs-token": "octo_vs_55a6894bfa8aa976620e3fed6c61ff16" },
     body: JSON.stringify(payload),
   })
   if (!response.ok) {
