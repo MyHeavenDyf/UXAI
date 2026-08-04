@@ -99,7 +99,7 @@ export class SurfaceStore {
         return surface.getData(path)
     }
 
-    private notify(surfaceId: string): void {
+    notify(surfaceId: string): void {
         this.subscribers.get(surfaceId)?.forEach(cb => cb());
     }
 }

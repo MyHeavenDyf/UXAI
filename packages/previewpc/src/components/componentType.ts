@@ -168,7 +168,14 @@ interface ResolvedButton {
   shape?: "default" | "circle" | "round";
   types?: "default" | "link";
   disabled?: DynamicBoolean;
-  className?: string
+  className?: string;
+  onClick?: {
+    action: string;
+    args?: {
+      path: string;
+      value: any;
+    };
+  };
 }
 interface ButtonNode extends AnyComponentNode<ResolvedButton> {
   type: "Button";
@@ -503,6 +510,45 @@ interface ImageNode extends AnyComponentNode<ResolvedImage> {
   type: "Image";
 }
 
+interface ResolvedModal {
+  open: boolean | DataBinding;
+  title: DynamicString;
+  mask?: boolean;
+  footer?: AnyComponentNode;
+  onClose?: {
+    action: string;
+    args?: {
+      path: string;
+      value: any;
+    };
+  };
+  className?: string;
+  children?: AnyComponentNode[];
+}
+interface ModalNode extends AnyComponentNode<ResolvedModal> {
+  type: "Modal";
+}
+
+interface ResolvedDrawer {
+  open: boolean | DataBinding;
+  title: DynamicString;
+  placement?: "right" | "left" | "top" | "bottom";
+  mask?: boolean;
+  footer?: AnyComponentNode;
+  onClose?: {
+    action: string;
+    args?: {
+      path: string;
+      value: any;
+    };
+  };
+  className?: string;
+  children?: AnyComponentNode[];
+}
+interface DrawerNode extends AnyComponentNode<ResolvedDrawer> {
+  type: "Drawer";
+}
+
 interface ResolvedLink {
   text: DynamicString;
 }
@@ -557,5 +603,7 @@ export type {
   TreeNodeNode,
   ImageNode,
   StreamNode,
-  LinkNode
+  LinkNode,
+  ModalNode,
+  DrawerNode
 }

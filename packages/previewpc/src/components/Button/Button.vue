@@ -46,7 +46,7 @@ const { isDark } = useTheme()
 const props = defineProps<A2UIComponentProps<ButtonNode>>()
 const { node, surfaceId } = props
 const properties = node.properties
-const { resolveValue, sendAction } = useA2UIComponent(node, surfaceId)
+const { resolveValue, sendAction, setState } = useA2UIComponent(node, surfaceId)
 
 defineOptions({ inheritAttrs: false })
 
@@ -171,6 +171,16 @@ const shape = computed(() => {
 })
 
 const handleClick = () => {
+  // Handle onClick (setState action)
+  const onClick = properties?.onClick
+  if (onClick && onClick.action === "setState" && onClick.args) {
+    const { path, value } = onClick.args
+    if (path) {
+      setState(path, value)
+    }
+    return
+  }
+  // Handle legacy action format
   if (!properties?.action) return
   try {
     sendAction(properties.action)

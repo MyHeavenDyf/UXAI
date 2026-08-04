@@ -31,6 +31,8 @@ import A2UiMenu from "./Menu/Menu.vue"
 import A2UiSegmented from "./Segmented/Segmented.vue"
 import A2UiTree from "./Tree/Tree.vue"
 import A2UiCarousel from "./Carousel/Carousel.vue"
+import A2UiModal from "./Modal/Modal.vue"
+import A2UiDrawer from "./Drawer/Drawer.vue"
 
 // import A2UiImage from "./Image/Image.vue"
 
@@ -93,6 +95,8 @@ const catelog = {
   Steps: A2UiSteps,
   Tree: A2UiTree,
   Carousel: A2UiCarousel,
+  Modal: A2UiModal,
+  Drawer: A2UiDrawer,
 
   // Image: A2UiImage,
   Stream: A2UiStream,
