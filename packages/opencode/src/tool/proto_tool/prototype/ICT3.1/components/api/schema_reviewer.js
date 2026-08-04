@@ -223,6 +223,40 @@ class UIValidatorService {
     }
   }
 
+  _checkSharedNodes(nodeMap, ctx) {
+    const refs = new Map();
+    const record = (cid, from) => {
+      if (!refs.has(cid)) refs.set(cid, []);
+      refs.get(cid).push(from);
+    };
+    const walk = (obj, from) => {
+      if (Array.isArray(obj)) {
+        for (const it of obj) {
+          if (typeof it === 'string') { if (nodeMap.has(it)) record(it, from); }
+          else if (it && typeof it === 'object') walk(it, from);
+        }
+      } else if (obj && typeof obj === 'object') {
+        if ('componentId' in obj && typeof obj.componentId === 'string' && nodeMap.has(obj.componentId)) {
+          record(obj.componentId, from);
+        }
+        for (const [k, v] of Object.entries(obj)) {
+          if (k !== 'componentId' && v && typeof v === 'object') walk(v, from);
+        }
+      }
+    };
+    for (const [id, node] of nodeMap) {
+      if (!node) continue;
+      walk(node.children, id);
+      walk(node.props, id);
+    }
+    for (const [cid, froms] of refs) {
+      if (froms.length > 1) {
+        const parents = [...new Set(froms)].map((f) => `<${f}>`).join(', ');
+        ctx.errors.push(`❌ 组件 '<${cid}>' 被重复引用 ${froms.length} 次（来自: ${parents}）`);
+      }
+    }
+  }
+
   validate(data) {
     if(data.mergedA2UI)
       data=data.mergedA2UI;
@@ -249,6 +283,8 @@ class UIValidatorService {
         ctx.errors.push(`⚠️ 发现游离节点: ${eid}`);
       }
     }
+
+    this._checkSharedNodes(nodeMap, ctx);
 
     const stateData = data && data.state;
     if (stateData && typeof stateData === 'object' && !Array.isArray(stateData)) {
