@@ -53,7 +53,33 @@ const SOURCE_TO_CAPABILITY: Record<string, string> = {
   "扩图": "image.outpaint",
 }
 
+const EDIT_CAPABILITIES = new Set(["image.upscale", "image.cutout", "image.inpaint", "image.outpaint"])
+
+const dimensionCache = new Map<string, { w: number; h: number }>()
+
+function probeImageDimensions(url: string, onReady: () => void) {
+  if (dimensionCache.has(url)) return
+  const el = new Image()
+  el.onload = () => {
+    const w = el.naturalWidth
+    const h = el.naturalHeight
+    if (w && h) {
+      dimensionCache.set(url, { w, h })
+      onReady()
+    }
+  }
+  el.onerror = () => {}
+  el.src = url
+}
+
 function getRatioCategory(item: FileManagerMedia): string | null {
+  const real = dimensionCache.get(item.url)
+  if (real) {
+    const maxDim = Math.max(real.w, real.h)
+    if (Math.abs(real.w - real.h) / maxDim <= 0.01) return "正方形"
+    if (real.w > real.h) return "横版"
+    if (real.h > real.w) return "竖版"
+  }
   // 自定义尺寸直接用实际宽高判断，避免 aspectRatio 仍是默认值导致误判
   if (item.isCustom) {
     const w = item.width
@@ -85,6 +111,13 @@ function getRatioCategory(item: FileManagerMedia): string | null {
 }
 
 function getSizeCategory(item: FileManagerMedia): string | null {
+  const real = dimensionCache.get(item.url)
+  if (real) {
+    const longSide = Math.max(real.w, real.h)
+    if (longSide < 2000) return "1K"
+    if (longSide < 4000) return "2K"
+    return "4K"
+  }
   const w = item.width
   const h = item.height
   if (w && h) {
@@ -391,10 +424,24 @@ export function StudioFileManager(props: {
     return groupMediaByDate(allMedia)
   })
 
+  const [dimsTick, setDimsTick] = createSignal(0)
+
+  createEffect(() => {
+    const groups = mediaByDate()
+    for (const group of groups) {
+      for (const item of group.items) {
+        if (item.kind === "image" && EDIT_CAPABILITIES.has(item.capability ?? "")) {
+          probeImageDimensions(item.url, () => setDimsTick((t) => t + 1))
+        }
+      }
+    }
+  })
+
   const globalEmpty = createMemo(() => mediaByDate().length === 0)
 
   // Filter media groups by all active filters
   const filteredGroups = createMemo(() => {
+    dimsTick()
     const groups = mediaByDate()
 
     const sourceSelected = confirmedSource()
@@ -461,11 +508,13 @@ export function StudioFileManager(props: {
     const rect = containerRef.getBoundingClientRect()
     if (props.showStudioCenter) {
       const centerWidth = props.studioCenterWidth ?? 468
+      const left = Math.max(0, rect.left - centerWidth)
+      const width = Math.min(rect.width + centerWidth, window.innerWidth - left)
       setOverlayStyle({
         position: "fixed",
         top: `${rect.top}px`,
-        left: `${rect.left - centerWidth}px`,
-        width: `${rect.width + centerWidth}px`,
+        left: `${left}px`,
+        width: `${width}px`,
         height: `${rect.height}px`,
       })
     } else {
