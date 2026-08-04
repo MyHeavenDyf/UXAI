@@ -60,18 +60,21 @@ class UIValidatorService {
 
   _looksLikeSchema(obj) {
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
-    return ['type', 'properties', '$schema', '$defs', 'definitions', 'required', 'additionalProperties', 'items', '$ref']
-      .some((k) => k in obj);
+    if ('properties' in obj || '$defs' in obj || 'definitions' in obj || '$schema' in obj || '$id' in obj || '$ref' in obj || 'additionalProperties' in obj || 'items' in obj || 'required' in obj) return true;
+    const t = obj.type;
+    if (Array.isArray(t)) return true;
+    if (typeof t === 'string' && ['object', 'string', 'array', 'number', 'integer', 'boolean', 'null'].includes(t)) return true;
+    return false;
   }
 
   _collectJsonFiles(dir) {
     const out = [];
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        out.push(...this._collectJsonFiles(full));
+        if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+        out.push(...this._collectJsonFiles(path.join(dir, entry.name)));
       } else if (entry.isFile() && entry.name.endsWith('.json')) {
-        out.push(full);
+        out.push(path.join(dir, entry.name));
       }
     }
     return out;
