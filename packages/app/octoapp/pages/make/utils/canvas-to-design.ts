@@ -6,7 +6,7 @@ import {
   basename,
   joinPath,
 } from "./references"
-import { filterObservedUrlsToRelative } from "./resource-tracker"
+import { observedUrlsToAbsPaths } from "./resource-tracker"
 
 export interface CreateC2DZipOptions {
   htmlContent: string
@@ -23,43 +23,45 @@ export async function createC2DZip(options: CreateC2DZipOptions): Promise<Blob> 
   htmlZip.file("index.html", options.htmlContent)
 
   const api = getDesktopApi()
-  if (options.htmlFilePath && api?.listDirectory && api?.readFileBuffer) {
-    const htmlDir = dirname(options.htmlFilePath)
+  if (options.htmlFilePath && api?.readFileBuffer) {
+    const htmlDir = dirname(options.htmlFilePath).replace(/\\/g, "/")
     const htmlBase = basename(options.htmlFilePath)
 
-    // 静态解析
-    const staticRefs = await collectReferencedFiles({
+    // 静态解析（返回绝对路径集合）
+    const staticAbsPaths = await collectReferencedFiles({
       rootContent: options.htmlContent,
       rootType: "html",
-      htmlDir,
+      rootAbsPath: options.htmlFilePath,
       readFileBuffer: (p) => api.readFileBuffer!(p),
     })
 
-    // 网络信号
-    const observedRelative = filterObservedUrlsToRelative(options.observedUrls || [], htmlDir)
+    // 网络信号 → 绝对路径
+    const observedAbsPaths = observedUrlsToAbsPaths(options.observedUrls || [])
 
-    const referenced = new Set<string>([...staticRefs, ...observedRelative])
-
-    try {
-      const files = await api.listDirectory(htmlDir)
-      for (const file of files) {
-        if (file.type !== "file") continue
-        // Windows 下 listDirectory 返回的 path 用反斜杠，统一成正斜杠再比对
-        const relPath = file.path.replace(/\\/g, "/")
-        if (relPath === htmlBase || relPath === "index.html") continue
-        if (!referenced.has(relPath)) continue
-        try {
-          const absolutePath = joinPath(htmlDir, relPath)
-          const buffer = await api.readFileBuffer(absolutePath)
-          if (buffer) {
-            htmlZip.file(relPath, new Uint8Array(buffer))
-          }
-        } catch (err) {
-          console.warn(`[C2D] Failed to read referenced file:`, relPath, err)
-        }
+    // C2D 的 html.zip 视图约定 HTML 在根目录，所以不支持跨父级引用：
+    // 仅保留 htmlDir 内的引用文件，跨父级的 `..` 引用会被丢弃。
+    const referencedRel = new Set<string>()
+    for (const abs of [...staticAbsPaths, ...observedAbsPaths]) {
+      const norm = abs.replace(/\\/g, "/")
+      const lower = norm.toLowerCase()
+      if (lower === htmlDir.toLowerCase()) continue
+      if (!lower.startsWith(htmlDir.toLowerCase() + "/")) continue
+      const rel = norm.slice(htmlDir.length + 1)
+      if (rel && rel !== htmlBase && rel !== "index.html") {
+        referencedRel.add(rel)
       }
-    } catch (err) {
-      console.warn("[C2D] Failed to list directory:", err)
+    }
+
+    for (const relPath of referencedRel) {
+      try {
+        const absolutePath = joinPath(htmlDir, relPath)
+        const buffer = await api.readFileBuffer(absolutePath)
+        if (buffer) {
+          htmlZip.file(relPath, new Uint8Array(buffer))
+        }
+      } catch (err) {
+        console.warn(`[C2D] Failed to read referenced file:`, relPath, err)
+      }
     }
   }
 

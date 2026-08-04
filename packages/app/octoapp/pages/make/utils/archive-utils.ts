@@ -6,7 +6,7 @@ import {
   basename,
   joinPath,
 } from "./references"
-import { filterObservedUrlsToRelative } from "./resource-tracker"
+import { observedUrlsToAbsPaths } from "./resource-tracker"
 
 export function getNextAvailableFileName(baseName: string, existingNames: string[]): string {
   if (!existingNames.includes(baseName)) {
@@ -169,39 +169,43 @@ export async function createArchiveZip(options: CreateArchiveZipOptions): Promis
   const api = getDesktopApi()
 
   // 引用资源：静态解析 ∪ 网络信号
-  if (api?.listDirectory && api?.readFileBuffer && options.htmlFilePath) {
-    const htmlDir = dirname(options.htmlFilePath)
+  if (api?.readFileBuffer && options.htmlFilePath) {
+    const htmlDir = dirname(options.htmlFilePath).replace(/\\/g, "/")
     const htmlFileName = basename(options.htmlFilePath)
 
-    const staticRefs = await collectReferencedFiles({
+    // 静态解析（返回绝对路径集合）
+    const staticAbsPaths = await collectReferencedFiles({
       rootContent: options.htmlContent,
       rootType: "html",
-      htmlDir,
+      rootAbsPath: options.htmlFilePath,
       readFileBuffer: (p) => api.readFileBuffer!(p),
     })
-    const observedRelative = filterObservedUrlsToRelative(options.observedUrls || [], htmlDir)
-    const referenced = new Set<string>([...staticRefs, ...observedRelative])
+    const observedAbsPaths = observedUrlsToAbsPaths(options.observedUrls || [])
 
-    try {
-      const files = await api.listDirectory(htmlDir)
-      for (const file of files) {
-        if (file.type !== "file") continue
-        // Windows 下 listDirectory 返回的 path 用反斜杠，统一成正斜杠再比对
-        const relPath = file.path.replace(/\\/g, "/")
-        if (relPath === htmlFileName || relPath === options.htmlFileName) continue
-        if (!referenced.has(relPath)) continue
-        try {
-          const absolutePath = joinPath(htmlDir, relPath)
-          const buffer = await api.readFileBuffer(absolutePath)
-          if (buffer) {
-            zip.file(`preview/${relPath}`, new Uint8Array(buffer))
-          }
-        } catch (err) {
-          console.warn(`[Archive] Failed to read referenced file:`, relPath, err)
-        }
+    // 归档视图约定 HTML 在 preview/index.html，所以不支持跨父级引用：
+    // 仅保留 htmlDir 内的引用文件，跨父级的 `..` 引用会被丢弃。
+    const referencedRel = new Set<string>()
+    for (const abs of [...staticAbsPaths, ...observedAbsPaths]) {
+      const norm = abs.replace(/\\/g, "/")
+      const lower = norm.toLowerCase()
+      if (lower === htmlDir.toLowerCase()) continue
+      if (!lower.startsWith(htmlDir.toLowerCase() + "/")) continue
+      const rel = norm.slice(htmlDir.length + 1)
+      if (rel && rel !== htmlFileName && rel !== options.htmlFileName) {
+        referencedRel.add(rel)
       }
-    } catch (err) {
-      console.warn("[Archive] Failed to list directory:", err)
+    }
+
+    for (const relPath of referencedRel) {
+      try {
+        const absolutePath = joinPath(htmlDir, relPath)
+        const buffer = await api.readFileBuffer(absolutePath)
+        if (buffer) {
+          zip.file(`preview/${relPath}`, new Uint8Array(buffer))
+        }
+      } catch (err) {
+        console.warn(`[Archive] Failed to read referenced file:`, relPath, err)
+      }
     }
   }
 

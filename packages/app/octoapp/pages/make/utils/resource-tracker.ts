@@ -131,3 +131,16 @@ export function filterObservedUrlsToRelative(observedUrls: string[], htmlDir: st
 
   return Array.from(new Set(result))
 }
+
+/**
+ * 把 local:// URL 数组转换为绝对文件路径（不做目录过滤）。
+ * 非 local:// 协议的 URL 会被跳过。
+ */
+export function observedUrlsToAbsPaths(observedUrls: string[]): string[] {
+  const result: string[] = []
+  for (const url of observedUrls) {
+    const abs = localUrlToPath(url)
+    if (abs) result.push(abs.replace(/\\/g, "/"))
+  }
+  return Array.from(new Set(result))
+}

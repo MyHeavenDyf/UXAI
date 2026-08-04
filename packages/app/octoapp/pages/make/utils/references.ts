@@ -112,23 +112,27 @@ export function checkHasRelativeRefs(html: string): boolean {
 export interface CollectOptions {
   rootContent: string
   rootType: ContentType
-  htmlDir: string
+  /** 根文件的绝对路径（如 HTML 文件路径）。用于解析 `..` 等相对引用。 */
+  rootAbsPath: string
   readFileBuffer: (path: string) => Promise<ArrayBuffer | null>
   maxDepth?: number
 }
 
 /**
- * 递归收集引用链上的所有相对路径文件。
- * HTML → CSS/JS → CSS/JS → ... 直到无新文件或达深度上限。
- * 返回的 Set 中的路径都是「相对 htmlDir」的标准化路径（正斜杠，无 ./）。
+ * 递归收集引用链上的所有文件，返回**绝对路径**集合（已规范化，无 `..`/`.`）。
+ *
+ * 关键点：每个被解析的 CSS/JS 都按它**自己所在目录**去解析其中的相对引用，
+ * 因此 `../sibling/foo.css` 中再 `url(../images/x.png)` 会被正确解析到
+ * `sibling/images/x.png` 而不是错误地相对 htmlDir。
+ *
+ * HTML → CSS/JS → CSS/JS → ... 直到无新文件或达深度上限（默认 10）。
  */
 export async function collectReferencedFiles(options: CollectOptions): Promise<Set<string>> {
   const referenced = new Set<string>()
-  const visited = new Set<string>()
   const maxDepth = options.maxDepth ?? 10
 
-  let queue: Array<{ content: string; type: ContentType }> = [
-    { content: options.rootContent, type: options.rootType },
+  let queue: Array<{ content: string; type: ContentType; dir: string }> = [
+    { content: options.rootContent, type: options.rootType, dir: dirname(options.rootAbsPath) },
   ]
   let depth = 0
 
@@ -140,21 +144,20 @@ export async function collectReferencedFiles(options: CollectOptions): Promise<S
     for (const item of batch) {
       const refs = extractReferences(item.content, item.type)
       for (const ref of refs) {
-        if (referenced.has(ref)) continue
-        referenced.add(ref)
+        const abs = resolvePath(item.dir, ref)
+        if (referenced.has(abs)) continue
+        referenced.add(abs)
 
-        const lower = ref.toLowerCase()
+        const lower = abs.toLowerCase()
         const isParsable = lower.endsWith(".css") || lower.endsWith(".js") || lower.endsWith(".mjs")
-        if (!isParsable || visited.has(ref)) continue
-        visited.add(ref)
+        if (!isParsable) continue
 
         try {
-          const abs = joinPath(options.htmlDir, ref)
           const buf = await options.readFileBuffer(abs)
           if (!buf) continue
           const subType: ContentType = lower.endsWith(".css") ? "css" : "js"
           const subContent = new TextDecoder("utf-8", { fatal: false }).decode(buf)
-          queue.push({ content: subContent, type: subType })
+          queue.push({ content: subContent, type: subType, dir: dirname(abs) })
         } catch {
           // 文件不存在 / 读失败：忽略
         }
@@ -182,6 +185,76 @@ export function filterObservedPathsToRelative(observedAbsolute: string[], htmlDi
 }
 
 // ===== path 工具：统一从此处导出，替代散落副本 =====
+
+/**
+ * 把相对路径解析到绝对路径，正确处理 `..` 和 `.`。
+ * baseDir 是参考目录（绝对路径），relative 是相对该目录的引用。
+ * 不调用 fs.realpath，仅做字符串层级的规范化。
+ */
+export function resolvePath(baseDir: string, relative: string): string {
+  const baseNorm = baseDir.replace(/\\/g, "/")
+  const relNorm = relative.replace(/\\/g, "/")
+
+  // 已经是绝对路径（Windows 盘符 / Unix 根）直接返回规范化结果
+  if (/^[A-Za-z]:[\/\\]/.test(relNorm) || relNorm.startsWith("/")) {
+    return relNorm
+  }
+
+  const isUnixAbsolute = baseNorm.startsWith("/")
+  const isWindowsDrive = /^[A-Za-z]:/.test(baseNorm)
+  const segments = baseNorm.split("/").filter(Boolean)
+
+  for (const seg of relNorm.split("/")) {
+    if (seg === "" || seg === ".") continue
+    if (seg === "..") {
+      segments.pop()
+    } else {
+      segments.push(seg)
+    }
+  }
+
+  if (isUnixAbsolute) return "/" + segments.join("/")
+  if (isWindowsDrive) return segments.join("/")
+  return segments.join("/")
+}
+
+/**
+ * 找一组绝对路径的最近公共祖先目录。
+ * 输入应是混合的目录和文件路径；返回的是路径分段的最长公共前缀。
+ */
+export function findCommonAncestor(paths: string[]): string {
+  if (paths.length === 0) return ""
+
+  const splitSegs = paths.map((p) => p.replace(/\\/g, "/").split("/").filter(Boolean))
+  let common = splitSegs[0]
+  for (const segs of splitSegs.slice(1)) {
+    const next: string[] = []
+    for (let i = 0; i < Math.min(common.length, segs.length); i++) {
+      if (common[i].toLowerCase() === segs[i].toLowerCase()) {
+        next.push(common[i])
+      } else break
+    }
+    common = next
+    if (common.length === 0) break
+  }
+
+  const first = paths[0].replace(/\\/g, "/")
+  if (first.startsWith("/")) return "/" + common.join("/")
+  if (/^[A-Za-z]:/.test(first)) return common.join("/")
+  return common.join("/")
+}
+
+/**
+ * 假设 target 在 base 内，返回 target 相对 base 的相对路径。
+ * 若 target 不在 base 内，返回空串。
+ */
+export function relativeTo(base: string, target: string): string {
+  const baseNorm = base.replace(/\\/g, "/").replace(/\/+$/, "")
+  const targetNorm = target.replace(/\\/g, "/")
+  if (targetNorm.toLowerCase() === baseNorm.toLowerCase()) return ""
+  if (!targetNorm.toLowerCase().startsWith(baseNorm.toLowerCase() + "/")) return ""
+  return targetNorm.slice(baseNorm.length + 1)
+}
 
 export function dirname(path: string): string {
   const normalized = path.replace(/\\/g, "/")
