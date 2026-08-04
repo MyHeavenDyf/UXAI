@@ -27,7 +27,7 @@ function _loadAjv() {
 
 const Ajv = _loadAjv();
 
-const H5_TAG_RE = /^[a-z]+[1-6]?$/;
+const H5_TAG_RE = /^[a-zA-Z]+[1-6]?$/;
 const H5_KEY = 'H5';
 
 class UIValidatorService {
