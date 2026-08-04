@@ -116,7 +116,6 @@ const items = computed(() => {
   })
 })
 
-// ---- 异步图标解析 ----
 // ---- 图标解析（同步，追踪 svgCacheVersion 以响应 SVG 到达） ----
 const { isDark } = useTheme()
 const resolvedTabIcons = ref<Record<string, { component: Component | null; props: Record<string, any> } | null>>({})

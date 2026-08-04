@@ -62,8 +62,7 @@ watch(activeKey, (val) => {
   if (val != null) commitActivation('activeKey', val)
 })
 
-// ---- 异步图标解析 ----
-const resolvedIcon = useIconComponentRef(expandIcon, { size: 12 })
+const resolvedIcon = useIconComponentRef(expandIcon, { shape: 'lined', size: 12 })
 
 // const size = computed(() => {
 //   return properties.size ? sizeEnum[properties.size] : "default"

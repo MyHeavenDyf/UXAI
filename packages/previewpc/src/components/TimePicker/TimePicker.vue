@@ -41,15 +41,15 @@ const className = computed(() => node.properties.className)
 const size = computed(() => {
   return properties.size ? sizeEnum[properties.size] : "default"
 })
-const format = computed(() => properties.format)
+const format = computed(() => properties.format || "HH:mm:ss")
 
-const disabled = computed(() => (resolveValue(properties.disabled) as boolean) || false)
+const disabled = computed(() => (resolveValue(properties.disabled as any) as boolean) || false)
 
 const { isDark } = useTheme()
 const prefixIcon = defineComponent({
   name: "ClockIcon",
-  render() {
-    return h("svg", {
+  setup() {
+    return () => h("svg", {
       xmlns: "http://www.w3.org/2000/svg",
       width: 14,
       height: 14,
@@ -96,7 +96,6 @@ function handleDateChange(val: any) {
   if (!path) return
   setValue(path, val)
 }
-
 </script>
 
 <template>

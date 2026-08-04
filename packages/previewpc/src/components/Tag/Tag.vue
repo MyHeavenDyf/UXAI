@@ -129,7 +129,7 @@ const closable = computed(() => properties?.closable)
 const iconName = computed(() => resolveValue(properties?.icon) as string)
 const iconSize = computed(() => (size.value ? iconSizeEnum[size.value as keyof typeof iconSizeEnum] : 10))
 
-const resolvedIcon = useIconComponentRef(iconName, { size: iconSize.value })
+const resolvedIcon = useIconComponentRef(iconName, { shape: 'lined', size: iconSize.value })
 
 const variant = computed(() => resolveValue(properties?.variant as any) as string || 'filled')
 const effect = computed(() => {

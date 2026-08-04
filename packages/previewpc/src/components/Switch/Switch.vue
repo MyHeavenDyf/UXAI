@@ -54,7 +54,7 @@ const iconSize = computed(() => {
 })
 
 const checkedIconName = computed(() => resolveValue(properties.checkedChildrenIcon) as string | undefined)
-const checkedIconRef = useIconComponentRef(checkedIconName, { strokeWidth: 2 })
+const checkedIconRef = useIconComponentRef(checkedIconName, { shape: 'lined', strokeWidth: 2 })
 const checkedChildrenIcon = computed(() => {
   if (!checkedIconRef.value?.component) return null
   const iconRef = { ...checkedIconRef.value, props: { ...checkedIconRef.value.props, size: iconSize.value } }
@@ -62,7 +62,7 @@ const checkedChildrenIcon = computed(() => {
 })
 
 const uncheckedIconName = computed(() => resolveValue(properties.unCheckedChildrenIcon) as string | undefined)
-const uncheckedIconRef = useIconComponentRef(uncheckedIconName, { strokeWidth: 2 })
+const uncheckedIconRef = useIconComponentRef(uncheckedIconName, { shape: 'lined', strokeWidth: 2 })
 const unCheckedChildrenIcon = computed(() => {
   if (!uncheckedIconRef.value?.component) return null
   const iconRef = { ...uncheckedIconRef.value, props: { ...uncheckedIconRef.value.props, size: iconSize.value } }
