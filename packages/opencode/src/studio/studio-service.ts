@@ -40,7 +40,7 @@ type StudioAnyPersistedTurn = {
 }
 
 type StudioGenerationRecord = typeof StudioGenerationTable.$inferSelect
-type StudioPromptRefineResult = {
+export type StudioPromptRefineResult = {
   assistantText: string
   refinedPrompt: string
   effectivePrompt: string
@@ -577,6 +577,49 @@ function completePromptRefineResult(parsed: z.infer<typeof promptRefineSchema>):
   }
 }
 
+export function isMeaninglessStudioPromptRefineText(value?: string) {
+  const normalized = value?.trim().toLowerCase()
+  if (!normalized) return true
+  if (["null", "undefined", "none", "n/a", "na"].includes(normalized)) return true
+  return /^[\s.。…·、,，;；:：!！?？~～_\-]+$/.test(normalized)
+}
+
+function studioPromptRefineInvalidFields(result: StudioPromptRefineResult) {
+  return [
+    ...(isMeaninglessStudioPromptRefineText(result.refinedPrompt) ? ["refinedPrompt"] : []),
+    ...(isMeaninglessStudioPromptRefineText(result.assistantText) ? ["assistantText"] : []),
+    ...(isMeaninglessStudioPromptRefineText(result.detailTitle) ? ["detailTitle"] : []),
+  ]
+}
+
+export function normalizeStudioPromptRefineResult(
+  input: StudioGenerationRequest,
+  result: StudioPromptRefineResult,
+): StudioPromptRefineResult {
+  if (isMeaninglessStudioPromptRefineText(result.refinedPrompt)) {
+    const prompt = input.prompt.trim()
+    return {
+      assistantText: buildSubmittingAssistantText(input),
+      refinedPrompt: prompt,
+      effectivePrompt: prompt,
+      detailTitle: fallbackDetailTitle(input),
+      fallback: true,
+      raw: result.raw,
+    }
+  }
+  return {
+    ...result,
+    assistantText: isMeaninglessStudioPromptRefineText(result.assistantText)
+      ? buildSubmittingAssistantText(input)
+      : result.assistantText.trim(),
+    refinedPrompt: result.refinedPrompt.trim(),
+    effectivePrompt: result.refinedPrompt.trim(),
+    detailTitle: isMeaninglessStudioPromptRefineText(result.detailTitle)
+      ? fallbackDetailTitle(input)
+      : result.detailTitle.trim(),
+  }
+}
+
 function promptRefineTextPreview(text: string) {
   return text.trim().replace(/\s+/g, " ").slice(0, 500)
 }
@@ -751,7 +794,7 @@ async function refineStudioPrompt(
   }, PROMPT_REFINE_TIMEOUT_MS)
   const abortSignal = options?.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal
   try {
-    const result = await studioPromptProviderRuntime.runPromise(
+    const response = await studioPromptProviderRuntime.runPromise(
       (provider) =>
         Effect.gen(function* () {
           const config = yield* Effect.promise(() => studioPromptConfigRuntime.runPromise((service) => service.get()))
@@ -816,22 +859,33 @@ async function refineStudioPrompt(
               typeof item.content === "string" ? item.content.length : JSON.stringify(item.content).length,
             ),
           })
-          return yield* Effect.promise(() =>
-            studioPromptLLMRuntime.runPromise(
-              (llm) => readPromptRefineLLMStream(llm.stream(streamInput), Date.now()),
-              { signal: abortSignal },
+          return {
+            result: yield* Effect.promise(() =>
+              studioPromptLLMRuntime.runPromise(
+                (llm) => readPromptRefineLLMStream(llm.stream(streamInput), Date.now()),
+                { signal: abortSignal },
+              ),
             ),
-          )
+            providerID: resolved.providerID,
+            modelID: resolved.id,
+          }
         }),
       { signal: abortSignal },
     )
-    return {
-      assistantText: result.assistantText.trim(),
-      refinedPrompt: result.refinedPrompt.trim(),
-      effectivePrompt: result.refinedPrompt.trim(),
-      detailTitle: result.detailTitle?.trim() || fallbackDetailTitle(input),
-      raw: result,
+    const invalidFields = studioPromptRefineInvalidFields(response.result)
+    if (invalidFields.length > 0) {
+      console.warn("[studio.service] prompt refine meaningless output", {
+        sessionID: session.id,
+        capability: input.capability,
+        providerID: response.providerID,
+        modelID: response.modelID,
+        invalidFields,
+        assistantTextLength: response.result.assistantText.length,
+        refinedPromptLength: response.result.refinedPrompt.length,
+        detailTitleLength: response.result.detailTitle.length,
+      })
     }
+    return normalizeStudioPromptRefineResult(input, { ...response.result, raw: response.result })
   } catch (error) {
     if (options?.signal?.aborted || (isAbortError(error) && !timedOut)) throw error
     console.warn("[studio.service] prompt refine failed", {
