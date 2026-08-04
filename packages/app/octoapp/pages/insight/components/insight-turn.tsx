@@ -33,6 +33,7 @@ export type OutputCard = {
   fileName?: string         // uri 模式来自 resource_link.name
   filePath?: string         // path 模式必填(write 工具目标路径,见 output-renderers.md §2.6)
   description?: string      // uri 模式来自 resource_link.description,卡片副标题
+  size?: number            // 字节数:仅文件管理开页签时带入(InsightFileEntry.size),供归档前置判定超限;其余来源无
   createdAt: Date
 }
 

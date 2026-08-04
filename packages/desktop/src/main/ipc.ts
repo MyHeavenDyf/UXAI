@@ -40,6 +40,7 @@ import { previewDistDir, getUploadsDir, setUploadsDir } from "./preview-server"
 import { pipelineRequest } from "../network/pipelineRequest"
 import { codeToHtml } from "./page-capture"
 import { landingName } from "./landing-name"
+import { toExactArrayBuffer } from "./buffer-slice"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -649,7 +650,7 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("read-file-buffer", async (_event: IpcMainInvokeEvent, path: string) => {
     try {
       const buf = await readFile(path)
-      return buf.buffer
+      return toExactArrayBuffer(buf)
     } catch {
       return null
     }
