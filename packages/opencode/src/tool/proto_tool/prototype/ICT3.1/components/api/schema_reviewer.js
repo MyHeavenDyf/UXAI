@@ -27,8 +27,22 @@ function _loadAjv() {
 
 const Ajv = _loadAjv();
 
-const H5_TAG_RE = /^[a-zA-Z]+[1-6]?$/;
 const H5_KEY = 'H5';
+const HTML_TAGS = new Set([
+  'html', 'head', 'body', 'base', 'link', 'meta', 'style', 'title',
+  'header', 'footer', 'main', 'nav', 'section', 'aside', 'article', 'address', 'hgroup',
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'a', 'div',
+  'strong', 'b', 'em', 'i', 'u', 's', 'small', 'sub', 'sup', 'mark',
+  'code', 'pre', 'samp', 'kbd', 'var', 'cite', 'q', 'abbr', 'dfn', 'time',
+  'bdi', 'bdo', 'wbr', 'br', 'hr', 'blockquote', 'figure', 'figcaption', 'ins', 'del',
+  'ul', 'ol', 'li', 'dl', 'dt', 'dd', 'menu',
+  'table', 'caption', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'col', 'colgroup',
+  'form', 'input', 'button', 'textarea', 'select', 'option', 'optgroup', 'label',
+  'fieldset', 'legend', 'datalist', 'output', 'progress', 'meter',
+  'img', 'picture', 'source', 'video', 'audio', 'iframe', 'canvas',
+  'embed', 'object', 'param', 'track', 'map', 'area',
+  'details', 'summary', 'dialog', 'script', 'noscript', 'template', 'slot'
+]);
 
 class UIValidatorService {
   constructor(apiDir) {
@@ -116,10 +130,15 @@ class UIValidatorService {
     ctx.visitedIds.add(nodeId);
     const display = `<${compType} id='${cid}'>`;
 
-    const schemaKey = H5_TAG_RE.test(compType) ? H5_KEY : compType;
+    const schemaKey = this.validators[compType]
+      ? compType
+      : (HTML_TAGS.has(compType.toLowerCase()) ? H5_KEY : compType);
     const validator = this.validators[schemaKey];
     if (validator) {
-      const ok = validator(node);
+      const nodeForSchema = (schemaKey === H5_KEY && compType !== compType.toLowerCase())
+        ? { ...node, component: compType.toLowerCase() }
+        : node;
+      const ok = validator(nodeForSchema);
       if (!ok && validator.errors) {
         for (const err of validator.errors) {
           if (this._isDataBinding(this._getValueAtPath(node, err.instancePath))) continue;
