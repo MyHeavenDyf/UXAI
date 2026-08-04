@@ -244,6 +244,7 @@ interface ResolvedTableRow {
   children: AnyComponentNode[];
 }
 interface ResolvedTable {
+  size: "" | "large" | "small" | "default";
   rowKey: string;
   columns: Column[];
   dataSource?: DataBinding;
