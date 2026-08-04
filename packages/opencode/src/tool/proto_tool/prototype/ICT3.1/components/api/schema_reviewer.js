@@ -34,6 +34,7 @@ class UIValidatorService {
   constructor(apiDir) {
     this.validators = {};
     this.schemas = {};
+    this._propValCache = new WeakMap();
     if (apiDir) {
       this.apiDir = path.resolve(apiDir);
     } else {
@@ -121,14 +122,14 @@ class UIValidatorService {
       const ok = validator(node);
       if (!ok && validator.errors) {
         for (const err of validator.errors) {
-          if (err.keyword === 'enum' && this._isDataBinding(this._getValueAtPath(node, err.instancePath))) continue;
+          if (this._isDataBinding(this._getValueAtPath(node, err.instancePath))) continue;
           const p = err.instancePath
             ? String(err.instancePath).replace(/^\//, '').replace(/\//g, '.')
             : 'root';
           ctx.errors.push(`❌ ${display} [Schema]: ${p || 'root'} ${err.message}`);
         }
       }
-      this._checkBindingEnumValues(node, schemaKey, currentScope, ctx, display);
+      this._checkBindingValues(node, schemaKey, currentScope, ctx, display);
     } else {
       ctx.errors.push(`⚠️ ${display} [Schema]: 未找到 ${schemaKey}.json 校验定义`);
     }
@@ -206,13 +207,15 @@ class UIValidatorService {
     return cur;
   }
 
-  _extractEnum(schemaProp) {
-    if (!schemaProp || typeof schemaProp !== 'object') return null;
-    if (Array.isArray(schemaProp.enum)) return schemaProp.enum;
-    if (Array.isArray(schemaProp.oneOf)) {
-      for (const b of schemaProp.oneOf) if (b && Array.isArray(b.enum)) return b.enum;
-    }
-    return null;
+  _getPropValidator(schemaProp, parentDefs) {
+    if (this._propValCache.has(schemaProp)) return this._propValCache.get(schemaProp);
+    const wrapped = { ...schemaProp };
+    if (parentDefs && Object.keys(parentDefs).length) wrapped.$defs = parentDefs;
+    let v;
+    try { v = this._ajv.compile(wrapped); }
+    catch (e) { v = null; }
+    this._propValCache.set(schemaProp, v);
+    return v;
   }
 
   _resolveStateValues(fullPath, state) {
@@ -232,21 +235,26 @@ class UIValidatorService {
     return cur;
   }
 
-  _checkBindingEnumValues(node, schemaKey, currentScope, ctx, display) {
+  _checkBindingValues(node, schemaKey, currentScope, ctx, display) {
     const schema = this.schemas[schemaKey];
     if (!schema) return;
     const propsSchema = schema.properties && schema.properties.props;
     if (!propsSchema || !propsSchema.properties) return;
+    const parentDefs = schema.$defs || {};
     const walk = (dataVal, schemaProp, scope, label) => {
       if (!schemaProp) return;
       if (this._isDataBinding(dataVal)) {
-        const enumVals = this._extractEnum(schemaProp);
-        if (!enumVals) return;
         const full = this._resolveStatePath(dataVal.path, scope);
         const values = this._resolveStateValues(full, ctx.state);
+        if (values.length === 0) return;
+        const valValidator = this._getPropValidator(schemaProp, parentDefs);
+        if (!valValidator) return;
         for (const v of values) {
-          if (!enumVals.includes(v)) {
-            ctx.errors.push(`❌ ${display} [DataBinding]: props.${label} 解析值 ${JSON.stringify(v)} 不在允许的枚举里 [${enumVals.join(', ')}] (path '${dataVal.path}' -> '${full}')`);
+          if (v !== null && typeof v === 'object') continue;
+          const ok = valValidator(v);
+          if (!ok && valValidator.errors) {
+            const detail = valValidator.errors.map((e) => e.message).join('; ');
+            ctx.errors.push(`❌ ${display} [DataBinding]: props.${label} 解析值 ${JSON.stringify(v)} 不符合 schema: ${detail} (path '${dataVal.path}' -> '${full}')`);
           }
         }
         return;
