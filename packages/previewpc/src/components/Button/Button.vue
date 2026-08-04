@@ -126,6 +126,10 @@ const iconColor = computed(() => {
   let color = '#191919'
   if (isLink.value) {
     color = disabled.value ? (isDark.value ? '#004EA8' : '#8ABEF3') : '#0067D1'
+  } else if (onlyIcon.value){
+    if(disabled.value) {
+      color = isDark.value ? '#939393' : '#c9c9c9'
+    }
   } else {
     const isWhiteText = ["primary", "danger", "success", "warning"].some(i => i === type.value)
     if(disabled.value) {
