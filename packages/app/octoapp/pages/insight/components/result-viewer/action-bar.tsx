@@ -13,7 +13,8 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { tracker } from "@/utils/tracker"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useParams } from "@solidjs/router"
-import { ArchiveDialogs, archiveFileSizeError, type ArchiveTarget } from "../archive-flow"
+import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
+import { archiveFileSizeError } from "../../utils/archive-size"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).then(() => {
@@ -262,10 +263,13 @@ export function ActionBar(props: {
   const [archiveTarget, setArchiveTarget] = createSignal<ArchiveTarget | null>(null)
   const [archiveDialogOpen, setArchiveDialogOpen] = createSignal(false)
   // 归档禁用判定:
-  //   - 大小:EDM 文件归档(EdmUtil.upload)单文件区间 1B~4GiB,超界前置置灰,避免读到内存再被服务端拒。
-  //     · file/image tab 的 size 来自文件管理开页签(insight/index.tsx openFileFromManager);无 size 的(uri)由
-  //       archive-flow.runArchiveFileTask 中央守卫兜底。
-  //     · markdown/json/code 无 size:空内容(content="")即 0 字节,按此代理判;超限无同步口径,中央守卫兜底。
+  //   - 大小:EDM 文件归档(EdmUtil.upload)单文件区间 1B~4GiB,超界前置置灰,少一次「点了才失败」。
+  //     · 文本类(markdown/json/code):**以 content 判空,不能用 size**。content 是活的(编辑保存后
+  //       cacheContent 回写),size 只在 openTab 写入一次、之后永不更新 —— 用 size 会让「打开空 md →
+  //       编辑写入内容 → 保存」后 size 仍是 0,归档恒被置灰,而这正是本 PR 要救的主场景。
+  //       上限对文本类不适用(4GiB 文本读进 content 时早已 OOM),交中央守卫兜底。
+  //     · file/image(二进制):不回填 content,只能用文件管理开页签时带入的 size
+  //       (insight/index.tsx openFileFromManager);uri 源无 size → 交 archive-flow 中央守卫兜底。
   //     · HTML 不在此列:走另一条归档链路(zip + uploadVersion),无 EDM 大小限制,不置灰。
   //   - file / image(二进制):FileFallback / ImageRenderer 不回填 content,归档读盘(filePath)或拉 uri,
   //     不依赖 content —— 按身份判定即可;否则这两类从文件管理开进新页签后归档恒被置灰。
@@ -274,9 +278,8 @@ export function ActionBar(props: {
   //     HTML 代码视图无 live iframe,截图只能拿白图,提示切回预览后再归档。
   const archiveSizeError = (): string | null => {
     if (props.tab.type === "html") return null
-    if (typeof props.tab.size === "number") return archiveFileSizeError(props.tab.size)
-    if (typeof props.tab.content === "string" && props.tab.content === "") return archiveFileSizeError(0)
-    return null
+    if (props.tab.type === "file" || props.tab.type === "image") return archiveFileSizeError(props.tab.size)
+    return props.tab.content === "" ? archiveFileSizeError(0) : null
   }
   const archiveDisabled = () =>
     props.tab.type === "file" || props.tab.type === "image"

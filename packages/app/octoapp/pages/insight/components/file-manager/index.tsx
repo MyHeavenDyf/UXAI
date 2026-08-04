@@ -53,7 +53,8 @@ import { ALLOWED_EXT, getExt } from "../../lib/upload"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { FileManagerToolbar } from "./toolbar"
 import { Breadcrumb } from "./breadcrumb"
-import { ArchiveDialogs, archiveFileSizeError, type ArchiveTarget } from "../archive-flow"
+import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
+import { archiveFileSizeError } from "../../utils/archive-size"
 
 // 把文件管理列表中的非 HTML InsightFile 转成归档 file target(本地读盘 / uri 拉取 → EdmUtil.upload)。
 // HTML 归档只在 result-viewer ActionBar 提供(那里有 live iframe 可截图,且避免对用户上传目录整包打包),故本入口不处理 HTML。

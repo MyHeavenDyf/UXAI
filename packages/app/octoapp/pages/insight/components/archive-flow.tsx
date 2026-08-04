@@ -19,18 +19,7 @@ import { EdmUtil } from "@/utils/edmUtil"
 import { uploadDeliverable, getActivityByTeam, createDeliverable, uploadCover, uploadVersion } from "@/network/pipelineRequest"
 import { getDesktopApi } from "../lib/electron-api"
 import { TaskStore, type TaskItem } from "@/context/task"
-
-// EDM 文件归档(EdmUtil.upload)单文件大小区间 1B~4GiB(下限 1 字节、上限 4GiB=4*1024³,1024 进制,超界服务端拒)。
-// 仅 file 模式归档用;HTML 走另一条链路(zip + uploadVersion),无此限制。
-const ARCHIVE_MIN_FILE_SIZE = 1
-const ARCHIVE_MAX_FILE_SIZE = 4 * 1024 * 1024 * 1024
-
-// 单文件大小校验(1B~4GiB):返回 null=通过,否则返回拒绝文案,供按钮 tooltip / 中央守卫 toast 复用。
-// size 非 number(服务端异常缺值)→ 返回 null:不在按钮层前置置灰,交由 runArchiveFileTask 中央守卫读真实 File.size 兜底。
-export function archiveFileSizeError(size: number): string | null {
-  if (typeof size !== "number") return null
-  return size < ARCHIVE_MIN_FILE_SIZE || size > ARCHIVE_MAX_FILE_SIZE ? "仅支持 1B~4GB 的文件" : null
-}
+import { archiveFileSizeError } from "../utils/archive-size"
 
 export type ArchiveTarget =
   | {
@@ -226,8 +215,9 @@ async function runArchiveFileTask(
       showToast({ title: "归档失败", description: "无法获取文件内容" })
       return
     }
-    // 中央守卫:EDM 文件归档区间 1B~4GB。调用方未前置置灰的(uri/inline/写产物)在此兜底,
-    // 避免把超界文件读进内存 / 拉取后再被服务端拒(空文件=0 字节也在此拦)。
+    // 中央守卫:EDM 文件归档区间 1B~4GiB。前置置灰只覆盖有同步口径的来源(文件管理带 size、文本类看 content),
+    // uri / 写产物等拿不到大小的在此兜底 —— 此处 File 已物化,读 file.size 是准的,拦在打到服务端之前
+    // (空文件 = 0 字节同样在此拦)。
     const sizeErr = archiveFileSizeError(file.size)
     if (sizeErr) {
       showToast({ title: "归档失败", description: sizeErr })
