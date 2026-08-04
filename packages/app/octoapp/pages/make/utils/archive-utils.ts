@@ -1,5 +1,12 @@
 import { getDesktopApi } from "../lib/electron-api"
 import JSZip from "jszip"
+import {
+  collectReferencedFiles,
+  dirname,
+  basename,
+  joinPath,
+} from "./references"
+import { filterObservedUrlsToRelative } from "./resource-tracker"
 
 export function getNextAvailableFileName(baseName: string, existingNames: string[]): string {
   if (!existingNames.includes(baseName)) {
@@ -68,6 +75,8 @@ export interface CreateArchiveZipOptions {
   htmlFilePath: string
   sessionId: string
   projectDir: string
+  /** 来自 resource-tracker 的 local:// URL 列表（实际加载过的资源） */
+  observedUrls?: string[]
 }
 
 export function transformCommentsForArchive(comments: FileComment[]): ArchiveComment[] {
@@ -142,24 +151,6 @@ async function blobToUint8Array(blob: Blob): Promise<Uint8Array> {
   return new Uint8Array(buffer)
 }
 
-function checkHasRelativeRefs(html: string): boolean {
-  const attrRegex = /(?:href|src)=["'](?!https?:|data:|#|[\/\\])[^"']+["']/i
-  const cssRegex = /url\(["']?(?!https?:|data:|#)[^"')]+["']?\)/i
-  return attrRegex.test(html) || cssRegex.test(html)
-}
-
-function dirname(path: string): string {
-  const normalized = path.replace(/\\/g, '/')
-  const idx = normalized.lastIndexOf('/')
-  return idx >= 0 ? normalized.slice(0, idx) : path
-}
-
-function basename(path: string): string {
-  const normalized = path.replace(/\\/g, '/')
-  const idx = normalized.lastIndexOf('/')
-  return idx >= 0 ? normalized.slice(idx + 1) : path
-}
-
 export async function createArchiveZip(options: CreateArchiveZipOptions): Promise<Blob> {
   const zip = new JSZip()
 
@@ -176,34 +167,41 @@ export async function createArchiveZip(options: CreateArchiveZipOptions): Promis
   zip.file("preview/index.html", options.htmlContent)
 
   const api = getDesktopApi()
-  
-  // 检查是否有相对路径引用，如果有则复制同目录下所有文件
+
+  // 引用资源：静态解析 ∪ 网络信号
   if (api?.listDirectory && api?.readFileBuffer && options.htmlFilePath) {
-    const hasRelativeRefs = checkHasRelativeRefs(options.htmlContent)
-    
-    if (hasRelativeRefs) {
-      const htmlDir = dirname(options.htmlFilePath)
-      const htmlFileName = basename(options.htmlFilePath)
-      
-      try {
-        const files = await api.listDirectory(htmlDir)
-        
-        for (const file of files) {
-          if (file.type === 'file' && file.path !== htmlFileName) {
-            try {
-              const absolutePath = joinPath(htmlDir, file.path)
-              const buffer = await api.readFileBuffer(absolutePath)
-              if (buffer) {
-                zip.file(`preview/${file.path}`, new Uint8Array(buffer))
-              }
-            } catch (err) {
-              console.warn(`[Archive] Failed to read referenced file:`, file.path, err)
-            }
+    const htmlDir = dirname(options.htmlFilePath)
+    const htmlFileName = basename(options.htmlFilePath)
+
+    const staticRefs = await collectReferencedFiles({
+      rootContent: options.htmlContent,
+      rootType: "html",
+      htmlDir,
+      readFileBuffer: (p) => api.readFileBuffer!(p),
+    })
+    const observedRelative = filterObservedUrlsToRelative(options.observedUrls || [], htmlDir)
+    const referenced = new Set<string>([...staticRefs, ...observedRelative])
+
+    try {
+      const files = await api.listDirectory(htmlDir)
+      for (const file of files) {
+        if (file.type !== "file") continue
+        // Windows 下 listDirectory 返回的 path 用反斜杠，统一成正斜杠再比对
+        const relPath = file.path.replace(/\\/g, "/")
+        if (relPath === htmlFileName || relPath === options.htmlFileName) continue
+        if (!referenced.has(relPath)) continue
+        try {
+          const absolutePath = joinPath(htmlDir, relPath)
+          const buffer = await api.readFileBuffer(absolutePath)
+          if (buffer) {
+            zip.file(`preview/${relPath}`, new Uint8Array(buffer))
           }
+        } catch (err) {
+          console.warn(`[Archive] Failed to read referenced file:`, relPath, err)
         }
-      } catch (err) {
-        console.warn('[Archive] Failed to list directory:', err)
       }
+    } catch (err) {
+      console.warn("[Archive] Failed to list directory:", err)
     }
   }
 
@@ -229,20 +227,6 @@ export async function createArchiveZip(options: CreateArchiveZipOptions): Promis
   }
 
   return await zip.generateAsync({ type: "blob" })
-}
-
-function joinPath(base: string, relative: string): string {
-  const normalizedBase = base.replace(/\\/g, "/")
-  const normalizedRelative = relative.replace(/\\/g, "/")
-  
-  if (normalizedRelative.startsWith(normalizedBase)) {
-    return normalizedRelative
-  }
-  
-  if (normalizedBase.endsWith("/")) {
-    return normalizedBase + normalizedRelative
-  }
-  return normalizedBase + "/" + normalizedRelative
 }
 
 export function downloadArchiveZip(zipBlob: Blob, fileName: string): void {

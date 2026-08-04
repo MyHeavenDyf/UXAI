@@ -1,42 +1,19 @@
 import JSZip from "jszip"
 import { getDesktopApi } from "../lib/electron-api"
-
-function checkHasRelativeRefs(html: string): boolean {
-  const attrRegex = /(?:href|src)=["'](?!https?:|data:|#|[\/\\])[^"']+["']/i
-  const cssRegex = /url\(["']?(?!https?:|data:|#)[^"')]+["']?\)/i
-  return attrRegex.test(html) || cssRegex.test(html)
-}
-
-function dirname(path: string): string {
-  const normalized = path.replace(/\\/g, '/')
-  const idx = normalized.lastIndexOf('/')
-  return idx >= 0 ? normalized.slice(0, idx) : path
-}
-
-function basename(path: string): string {
-  const normalized = path.replace(/\\/g, '/')
-  const idx = normalized.lastIndexOf('/')
-  return idx >= 0 ? normalized.slice(idx + 1) : path
-}
-
-function joinPath(base: string, relative: string): string {
-  const normalizedBase = base.replace(/\\/g, "/")
-  const normalizedRelative = relative.replace(/\\/g, "/")
-
-  if (normalizedRelative.startsWith(normalizedBase)) {
-    return normalizedRelative
-  }
-
-  if (normalizedBase.endsWith("/")) {
-    return normalizedBase + normalizedRelative
-  }
-  return normalizedBase + "/" + normalizedRelative
-}
+import {
+  collectReferencedFiles,
+  dirname,
+  basename,
+  joinPath,
+} from "./references"
+import { filterObservedUrlsToRelative } from "./resource-tracker"
 
 export interface CreateC2DZipOptions {
   htmlContent: string
   htmlFilePath: string
   tabTitle: string
+  /** 来自 resource-tracker 的 local:// URL 列表（实际加载过的资源） */
+  observedUrls?: string[]
 }
 
 export async function createC2DZip(options: CreateC2DZipOptions): Promise<Blob> {
@@ -45,32 +22,44 @@ export async function createC2DZip(options: CreateC2DZipOptions): Promise<Blob> 
   const htmlZip = new JSZip()
   htmlZip.file("index.html", options.htmlContent)
 
-  const hasRelativeRefs = checkHasRelativeRefs(options.htmlContent)
-  if (hasRelativeRefs && options.htmlFilePath) {
+  const api = getDesktopApi()
+  if (options.htmlFilePath && api?.listDirectory && api?.readFileBuffer) {
     const htmlDir = dirname(options.htmlFilePath)
-    const api = getDesktopApi()
+    const htmlBase = basename(options.htmlFilePath)
 
-    if (api?.listDirectory && api?.readFileBuffer) {
-      try {
-        const files = await api.listDirectory(htmlDir)
-        const htmlFileName = basename(options.htmlFilePath)
+    // 静态解析
+    const staticRefs = await collectReferencedFiles({
+      rootContent: options.htmlContent,
+      rootType: "html",
+      htmlDir,
+      readFileBuffer: (p) => api.readFileBuffer!(p),
+    })
 
-        for (const file of files) {
-          if (file.type === 'file' && file.path !== htmlFileName) {
-            try {
-              const absolutePath = joinPath(htmlDir, file.path)
-              const buffer = await api.readFileBuffer(absolutePath)
-              if (buffer) {
-                htmlZip.file(file.path, new Uint8Array(buffer))
-              }
-            } catch (err) {
-              console.warn(`[C2D] Failed to read sibling file:`, file.path, err)
-            }
+    // 网络信号
+    const observedRelative = filterObservedUrlsToRelative(options.observedUrls || [], htmlDir)
+
+    const referenced = new Set<string>([...staticRefs, ...observedRelative])
+
+    try {
+      const files = await api.listDirectory(htmlDir)
+      for (const file of files) {
+        if (file.type !== "file") continue
+        // Windows 下 listDirectory 返回的 path 用反斜杠，统一成正斜杠再比对
+        const relPath = file.path.replace(/\\/g, "/")
+        if (relPath === htmlBase || relPath === "index.html") continue
+        if (!referenced.has(relPath)) continue
+        try {
+          const absolutePath = joinPath(htmlDir, relPath)
+          const buffer = await api.readFileBuffer(absolutePath)
+          if (buffer) {
+            htmlZip.file(relPath, new Uint8Array(buffer))
           }
+        } catch (err) {
+          console.warn(`[C2D] Failed to read referenced file:`, relPath, err)
         }
-      } catch (err) {
-        console.warn('[C2D] Failed to list directory:', err)
       }
+    } catch (err) {
+      console.warn("[C2D] Failed to list directory:", err)
     }
   }
 
