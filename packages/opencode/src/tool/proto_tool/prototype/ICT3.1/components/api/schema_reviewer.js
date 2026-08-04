@@ -33,9 +33,12 @@ const H5_KEY = 'H5';
 class UIValidatorService {
   constructor(apiDir) {
     this.validators = {};
-    this.apiDir = apiDir
-      ? path.resolve(apiDir)
-      : path.resolve(__dirname);
+    if (apiDir) {
+      this.apiDir = path.resolve(apiDir);
+    } else {
+      const sub = path.resolve(__dirname, 'api');
+      this.apiDir = fs.existsSync(sub) ? sub : path.resolve(__dirname);
+    }
     this._ajv = new Ajv({ allErrors: true, strict: false });
     this._loadSchemas();
   }
