@@ -2,6 +2,7 @@ import { buildRequestParts } from "@/components/prompt-input/build-request-parts
 import type { useGlobalSDK } from "@/context/global-sdk"
 import type { useGlobalSync } from "@/context/global-sync"
 import type { ImageAttachmentPart } from "@/context/prompt"
+import { Identifier } from "@/utils/id"
 import type { FollowupItem } from "./followup-queue"
 
 type GlobalSDK = ReturnType<typeof useGlobalSDK>
@@ -18,11 +19,11 @@ export async function sendFollowupBackground(
   globalSync: GlobalSync,
   sessionID: string,
   item: FollowupItem,
-): Promise<void> {
+): Promise<string> {
   const directory = item.sessionDirectory
   if (!directory) {
     console.warn("[octo:chat-queue] drain skipped: missing directory", { sessionID })
-    return
+    return ""
   }
 
   // 乐观更新 busy，与 sendFollowupDraft 行为对齐：避免 promptAsync 返回后、SSE 更新到达
@@ -35,12 +36,18 @@ export async function sendFollowupBackground(
   const text = draftText(item.prompt)
   const images = draftImages(item.prompt)
 
+  // 发送时重新生成 messageID(而非复用入队时的 item.id)。排队期间会话的 assistant 回复
+  // 已经带了更高的时间戳 id;若用入队时的低 id,服务端 loop 的 `lastUser.id < lastAssistant.id`
+  // 会误判「该 user 消息已有回复」而跳过,导致排队消息没有回复。页面 sendFollowupDraft 也是
+  // 在发送时生成新 id,这里对齐。
+  const messageID = Identifier.ascending("message")
+
   const { requestParts } = buildRequestParts({
     prompt: item.prompt,
     context: item.context,
     images,
     text,
-    messageID: item.id,
+    messageID,
     sessionID: item.sessionID,
     sessionDirectory: item.sessionDirectory,
   })
@@ -48,7 +55,7 @@ export async function sendFollowupBackground(
   console.log("[octo:chat-queue] drain-send", {
     sessionID,
     directory,
-    messageID: item.id,
+    messageID,
     model: item.model,
   })
 
@@ -57,10 +64,11 @@ export async function sendFollowupBackground(
       sessionID: item.sessionID,
       agent: item.agent,
       model: item.model,
-      messageID: item.id,
+      messageID,
       parts: requestParts,
       variant: item.variant,
     })
+    return messageID
   } catch (err) {
     setStore("session_status", item.sessionID, { type: "idle" })
     throw err

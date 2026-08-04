@@ -22,6 +22,20 @@ const FOLLOWUP_KEY_SUFFIX = ":workspace:followup"
 
 const [queues, setQueues] = createSignal<Record<string, QueueBucket>>({})
 
+// 当前 chat 页面正在查看的 sessionID（页面挂载时设置、卸载时清除）。
+// runner 用它跳过「页面正在处理」的会话,避免 runner 与页面级 flushQueueHead 竞争
+// 导致同一条排队被重复发送（页面 persisted 内存与 runner 写回的 localStorage 会不同步）。
+const [activeSession, setActiveSession] = createSignal<string | undefined>(undefined)
+
+/** 页面在查看某会话时调用,让 runner 不与该会话的页面级 drain 竞争 */
+export function setActiveChatSession(sid: string | undefined): void {
+  setActiveSession(sid)
+}
+
+export function activeChatSession(): string | undefined {
+  return activeSession()
+}
+
 let lastJSON = ""
 
 function serializeQueues(q: Record<string, QueueBucket>): string {
