@@ -69,9 +69,13 @@
         },
         "types": {
           "type": "string",
-          "enum": ["line", "card", "editable-card"],
+          "enum": ["line", "card", "separator"],
           "default": "line",
           "description": "Selection of Tabs Type."
+        },
+        "maxVisible": {
+          "type": "number",
+          "description": "Maximum number of visible tabs. Excess tabs are collapsed into a 'More' dropdown."
         },
         "tabPlacement": {
           "type": "string",
