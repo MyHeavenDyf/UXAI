@@ -189,6 +189,22 @@
     }
 
   }
+
+  &.is-large {
+    --el-tabs-header-height: 36px;
+    .el-tabs__item {
+      font-size: 16px;
+      padding: 0 var(--spacing-5) !important;
+    }
+  }
+
+  &.is-small {
+    --el-tabs-header-height: 28px;
+    .el-tabs__item {
+      font-size: 12px;
+      padding: 0 var(--spacing-3) !important;
+    }
+  }
 }
 
 
@@ -235,6 +251,13 @@
     color: var(--color-text-inverse);
   }
 
+  .tabs-overflow-trigger {
+    &.is-active,
+    &.is-active svg {
+      color: var(--brand-30);
+    }
+  }
+
 }
 
 .is-small .el-tabs__item {
@@ -243,4 +266,92 @@
     width: 14px;
     height: 14px;
   }
+}
+
+// ---- overflow（maxVisible）样式 ----
+.tabs-wrapper {
+  position: relative;
+  width: 100%;
+
+  .el-tabs__header {
+    display: flex;
+    align-items: center;
+
+    &::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background-color: var(--border-light);
+    }
+  }
+
+  .el-tabs__nav-wrap::after {
+    display: none;
+  }
+
+  > .tabs-overflow-content {
+    margin-top: 16px;
+  }
+
+  > .el-tabs.tabs-overflow-active .el-tabs__content {
+    display: none;
+  }
+
+  > .el-dropdown {
+    position: absolute;
+    top: 0;
+    z-index: 2;
+    height: var(--el-tabs-header-height, 32px);
+    display: inline-flex;
+    align-items: center;
+  }
+
+  &.is-large > .el-dropdown { font-size: 18px; }
+  &.is-default > .el-dropdown { font-size: 16px; }
+  &.is-small > .el-dropdown { font-size: 14px; }
+  &.tabs-separator > .el-dropdown { font-size: 20px; }
+  &.tabs-separator.is-small > .el-dropdown { font-size: 16px; }
+}
+
+.tabs-overflow-trigger {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  color: var(--el-text-color-secondary);
+  outline: none;
+  font-size: inherit;
+  padding-left: 16px;
+  padding-right: 16px;
+
+  svg {
+    width: auto;
+    height: auto;
+    transition: transform 0.2s ease;
+  }
+
+  &.is-open svg {
+    transform: rotate(180deg);
+  }
+
+  &.is-active,
+  &.is-active svg {
+    color: var(--brand-50);
+  }
+
+  &:hover {
+    color: var(--color-brand-hover);
+  }
+
+  &.is-active {
+    color: var(--brand-50);
+  }
+}
+
+.el-dropdown-menu .el-dropdown-menu__item.is-active {
+  color: var(--el-color-primary);
 }

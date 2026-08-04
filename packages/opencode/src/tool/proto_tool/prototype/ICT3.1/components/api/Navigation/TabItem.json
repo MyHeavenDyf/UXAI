@@ -72,7 +72,14 @@
             { "$ref": "#/$defs/DataBinding" }
           ]
         },
-        "content": { 
+        "closable": {
+          "oneOf": [
+            { "type": "boolean" },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "Whether the tab shows a close icon and can be removed."
+        },
+        "content": {
           "oneOf": [{
 							"type": "string",
 							"description": "Raw text content to render directly (e.g., 'Submit', 'Hello World')."

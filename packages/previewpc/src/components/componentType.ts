@@ -326,14 +326,16 @@ interface ResolvedTabItem {
   key: DynamicString;
   label?: DynamicString;
   icon?: DynamicString;
+  closable?: DynamicBoolean;
   content?: AnyComponentNode;
 }
 interface ResolvedTabs {
   children?: TabItemNode[];
   activeKey: DynamicString;
-  types?: "line" | "card" | "editable-card";
+  types?: "line" | "card" | "separator";
   tabPlacement?: "top" | "end" | "bottom"| "start";
   size?: "large" | "medium" | "small";
+  maxVisible?: number;
   className?: string;
 }
 interface TabItemNode extends AnyComponentNode<ResolvedTabItem> {
