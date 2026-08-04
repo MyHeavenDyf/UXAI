@@ -27,6 +27,16 @@ const [queues, setQueues] = createSignal<Record<string, QueueBucket>>({})
 // 导致同一条排队被重复发送（页面 persisted 内存与 runner 写回的 localStorage 会不同步）。
 const [activeSession, setActiveSession] = createSignal<string | undefined>(undefined)
 
+// 页面注册的 followup store 移除回调。runner shift 队首后,通过此回调同步移除页面
+// persisted followup store 中的对应 item,防止 makePersisted effect 用旧值覆盖 localStorage
+// 导致已发送的 item 被 discoverAndSync 重新扫回队列、切回页面后被 flushQueueHead 重复发送。
+let followupRemover: ((sessionID: string, itemId: string) => void) | null = null
+
+/** 页面挂载时注册 followup store 的移除回调,卸载时清除 */
+export function setFollowupRemover(fn: ((sessionID: string, itemId: string) => void) | null): void {
+  followupRemover = fn
+}
+
 /** 页面在查看某会话时调用,让 runner 不与该会话的页面级 drain 竞争 */
 export function setActiveChatSession(sid: string | undefined): void {
   setActiveSession(sid)
@@ -53,6 +63,7 @@ function serializeQueues(q: Record<string, QueueBucket>): string {
  */
 export function discoverAndSync(): void {
   const next: Record<string, QueueBucket> = {}
+  let found = false
 
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i)
@@ -87,11 +98,14 @@ export function discoverAndSync(): void {
         failed: data.failed ?? {},
         paused: data.paused ?? {},
       }
+      found = true
     }
   }
 
+  // 无队列且上次也无队列 → 无变化,跳过
+  if (!found && lastJSON === "") return
   // 只在数据实际变化时才更新 signal，避免无意义的 drain 对账
-  const nextJSON = serializeQueues(next)
+  const nextJSON = found ? serializeQueues(next) : ""
   if (nextJSON !== lastJSON) {
     lastJSON = nextJSON
     setQueues(next)
@@ -120,6 +134,10 @@ export function shiftFollowupItem(sessionID: string): FollowupItem | undefined {
 
   const [head, ...tail] = bucket.items
   if (!head) return undefined
+
+  // 同步移除页面 persisted followup store 中的对应 item,防止 makePersisted effect
+  // 用旧值覆盖 localStorage 导致已发送的 item 被重新扫回队列
+  followupRemover?.(sessionID, head.id)
 
   // 原地更新 signal
   const updated: Record<string, QueueBucket> = {}

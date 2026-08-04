@@ -55,7 +55,7 @@ export function runDrainPass<Item>(adapter: QueueRunnerAdapter<Item>, inflight: 
       // 与既有 flushQueueHead 行为一致);剩余队列保留可见——与既有 no-feedback watchdog
       // 同一风险类,不新增处理(SPEC-INS-007 §3.3.3)。
       inflight.delete(sid)
-      console.warn("[octo:queue] drain send failed", { sid, err })
+      console.warn("[octo:chat-queue] drain send failed", { sid, err })
     })
   }
 }

@@ -41,7 +41,7 @@ import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
-import { setActiveChatSession } from "@/pages/chat/utils/followup-queue"
+import { setActiveChatSession, setFollowupRemover } from "@/pages/chat/utils/followup-queue"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
 import {
   createOpenReviewFile,
@@ -1786,6 +1786,16 @@ export default function Page() {
   createEffect(() => {
     setActiveChatSession(params.id)
     onCleanup(() => setActiveChatSession(undefined))
+  })
+
+  // 注册 followup store 移除回调: runner 在后台 shift 队首后,通过此回调同步移除页面
+  // persisted followup store 中的对应 item,防止 makePersisted effect 用旧值覆盖 localStorage
+  // 导致已发送的 item 被 discoverAndSync 重新扫回、切回页面后被 flushQueueHead 重复发送。
+  createEffect(() => {
+    setFollowupRemover((sessionID, itemId) => {
+      setFollowup("items", sessionID, (items) => (items ?? []).filter((entry) => entry.id !== itemId))
+    })
+    onCleanup(() => setFollowupRemover(null))
   })
 
   // 页面重新挂载（如头部 tab 切走再切回）时,两个 defer effect 都不触发。
