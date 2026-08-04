@@ -20,6 +20,16 @@ import { uploadDeliverable, getActivityByTeam, createDeliverable, uploadCover, u
 import { getDesktopApi } from "../lib/electron-api"
 import { TaskStore, type TaskItem } from "@/context/task"
 
+// EDM 文件归档(EdmUtil.upload)单文件大小区间 1B~4GB(下限 1 字节、上限 4GiB,超界服务端拒)。
+// 仅 file 模式归档用;HTML 走另一条链路(zip + uploadVersion),无此限制。
+const ARCHIVE_MIN_FILE_SIZE = 1
+const ARCHIVE_MAX_FILE_SIZE = 4 * 1024 * 1024 * 1024
+
+// 单文件大小校验(1B~4GB):返回 null=通过,否则返回拒绝文案,供按钮 tooltip / 中央守卫 toast 复用。
+export function archiveFileSizeError(size: number): string | null {
+  return size < ARCHIVE_MIN_FILE_SIZE || size > ARCHIVE_MAX_FILE_SIZE ? "仅支持 1B~4GB 的文件" : null
+}
+
 export type ArchiveTarget =
   | {
       mode: "html"
@@ -212,6 +222,13 @@ async function runArchiveFileTask(
     const file = await target.getFile()
     if (!file) {
       showToast({ title: "归档失败", description: "无法获取文件内容" })
+      return
+    }
+    // 中央守卫:EDM 文件归档区间 1B~4GB。调用方未前置置灰的(uri/inline/写产物)在此兜底,
+    // 避免把超界文件读进内存 / 拉取后再被服务端拒(空文件=0 字节也在此拦)。
+    const sizeErr = archiveFileSizeError(file.size)
+    if (sizeErr) {
+      showToast({ title: "归档失败", description: sizeErr })
       return
     }
     const dt = new DataTransfer()
