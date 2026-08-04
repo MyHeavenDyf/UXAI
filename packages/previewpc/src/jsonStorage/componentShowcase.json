@@ -3586,7 +3586,6 @@
       "id": "timePickerDefault",
       "component": "TimePicker",
       "props": {
-        "value": "",
         "placeholder": "请选择时间"
       }
     },
@@ -3613,10 +3612,6 @@
       "id": "timePickerRange",
       "component": "TimePicker",
       "props": {
-        "value": [
-          "",
-          ""
-        ],
         "range": true,
         "placeholder": [
           "开始时间",
@@ -3657,7 +3652,6 @@
       "id": "timePickerDisabled",
       "component": "TimePicker",
       "props": {
-        "value": "14:30:00",
         "placeholder": "请选择时间",
         "disabled": true
       }
@@ -4553,7 +4547,12 @@
         "tabsRowCard",
         "tabsRowEditableCard",
         "tabsRowSize",
-        "tabsRowDisabled"
+        "tabsRowDisabled",
+        "tabsRowOverflow",
+        "tabsRowOverflowCard",
+        "tabsRowOverflowSeparator",
+        "tabsRowClosableLine",
+        "tabsRowClosableSeparator"
       ]
     },
     {
@@ -5394,6 +5393,404 @@
         "label": "可用",
         "icon": "settings",
         "content": "这是卡片形态另一个可用的标签页内容。"
+      }
+    },
+    {
+      "id": "tabsRowOverflow",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tabsRowOverflowLabel",
+        "tabsOverflow"
+      ]
+    },
+    {
+      "id": "tabsRowOverflowLabel",
+      "component": "span",
+      "props": {
+        "value": "溢出更多",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsOverflow",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "tab1",
+        "types": "line",
+        "maxVisible": 4
+      },
+      "children": [
+        "tabOverflow1",
+        "tabOverflow2",
+        "tabOverflow3",
+        "tabOverflow4",
+        "tabOverflow5",
+        "tabOverflow6"
+      ]
+    },
+    {
+      "id": "tabOverflow1",
+      "component": "TabItem",
+      "props": {
+        "key": "otab1",
+        "label": "标签一",
+        "content": "标签一的内容"
+      }
+    },
+    {
+      "id": "tabOverflow2",
+      "component": "TabItem",
+      "props": {
+        "key": "otab2",
+        "label": "标签二",
+        "content": "标签二的内容"
+      }
+    },
+    {
+      "id": "tabOverflow3",
+      "component": "TabItem",
+      "props": {
+        "key": "otab3",
+        "label": "标签三",
+        "content": "标签三的内容"
+      }
+    },
+    {
+      "id": "tabOverflow4",
+      "component": "TabItem",
+      "props": {
+        "key": "otab4",
+        "label": "标签四",
+        "content": "标签四的内容"
+      }
+    },
+    {
+      "id": "tabOverflow5",
+      "component": "TabItem",
+      "props": {
+        "key": "otab5",
+        "label": "标签五",
+        "content": "标签五的内容"
+      }
+    },
+    {
+      "id": "tabOverflow6",
+      "component": "TabItem",
+      "props": {
+        "key": "otab6",
+        "label": "标签六",
+        "content": "标签六的内容"
+      }
+    },
+    {
+      "id": "tabsRowOverflowCard",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tabsRowOverflowCardLabel",
+        "tabsOverflowCard"
+      ]
+    },
+    {
+      "id": "tabsRowOverflowCardLabel",
+      "component": "span",
+      "props": {
+        "value": "溢出更多-卡片",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsOverflowCard",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "coctab1",
+        "types": "editable-card",
+        "maxVisible": 4
+      },
+      "children": [
+        "tabOverflowCard1",
+        "tabOverflowCard2",
+        "tabOverflowCard3",
+        "tabOverflowCard4",
+        "tabOverflowCard5",
+        "tabOverflowCard6"
+      ]
+    },
+    {
+      "id": "tabOverflowCard1",
+      "component": "TabItem",
+      "props": {
+        "key": "coctab1",
+        "label": "标签一",
+        "content": "卡片标签一的内容"
+      }
+    },
+    {
+      "id": "tabOverflowCard2",
+      "component": "TabItem",
+      "props": {
+        "key": "coctab2",
+        "label": "标签二",
+        "content": "卡片标签二的内容"
+      }
+    },
+    {
+      "id": "tabOverflowCard3",
+      "component": "TabItem",
+      "props": {
+        "key": "coctab3",
+        "label": "标签三",
+        "content": "卡片标签三的内容"
+      }
+    },
+    {
+      "id": "tabOverflowCard4",
+      "component": "TabItem",
+      "props": {
+        "key": "coctab4",
+        "label": "标签四",
+        "content": "卡片标签四的内容"
+      }
+    },
+    {
+      "id": "tabOverflowCard5",
+      "component": "TabItem",
+      "props": {
+        "key": "coctab5",
+        "label": "标签五",
+        "content": "卡片标签五的内容"
+      }
+    },
+    {
+      "id": "tabOverflowCard6",
+      "component": "TabItem",
+      "props": {
+        "key": "coctab6",
+        "label": "标签六",
+        "content": "卡片标签六的内容"
+      }
+    },
+    {
+      "id": "tabsRowOverflowSeparator",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tabsRowOverflowSeparatorLabel",
+        "tabsOverflowSeparator"
+      ]
+    },
+    {
+      "id": "tabsRowOverflowSeparatorLabel",
+      "component": "span",
+      "props": {
+        "value": "溢出更多-分割线",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsOverflowSeparator",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "sostab1",
+        "types": "editable-separator",
+        "size": "medium",
+        "maxVisible": 4
+      },
+      "children": [
+        "tabOverflowSep1",
+        "tabOverflowSep2",
+        "tabOverflowSep3",
+        "tabOverflowSep4",
+        "tabOverflowSep5",
+        "tabOverflowSep6"
+      ]
+    },
+    {
+      "id": "tabOverflowSep1",
+      "component": "TabItem",
+      "props": {
+        "key": "sostab1",
+        "label": "标签一",
+        "content": "分割线标签一的内容"
+      }
+    },
+    {
+      "id": "tabOverflowSep2",
+      "component": "TabItem",
+      "props": {
+        "key": "sostab2",
+        "label": "标签二",
+        "content": "分割线标签二的内容"
+      }
+    },
+    {
+      "id": "tabOverflowSep3",
+      "component": "TabItem",
+      "props": {
+        "key": "sostab3",
+        "label": "标签三",
+        "content": "分割线标签三的内容"
+      }
+    },
+    {
+      "id": "tabOverflowSep4",
+      "component": "TabItem",
+      "props": {
+        "key": "sostab4",
+        "label": "标签四",
+        "content": "分割线标签四的内容"
+      }
+    },
+    {
+      "id": "tabOverflowSep5",
+      "component": "TabItem",
+      "props": {
+        "key": "sostab5",
+        "label": "标签五",
+        "content": "分割线标签五的内容"
+      }
+    },
+    {
+      "id": "tabOverflowSep6",
+      "component": "TabItem",
+      "props": {
+        "key": "sostab6",
+        "label": "标签六",
+        "content": "分割线标签六的内容"
+      }
+    },
+    {
+      "id": "tabsRowClosableLine",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tabsRowClosableLineLabel",
+        "tabsClosableLine"
+      ]
+    },
+    {
+      "id": "tabsRowClosableLineLabel",
+      "component": "span",
+      "props": {
+        "value": "可关闭-线条",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsClosableLine",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "cltab1",
+        "types": "editable-line",
+        "closable": true
+      },
+      "children": [
+        "tabClosableLine1",
+        "tabClosableLine2",
+        "tabClosableLine3"
+      ]
+    },
+    {
+      "id": "tabClosableLine1",
+      "component": "TabItem",
+      "props": {
+        "key": "cltab1",
+        "label": "标签一",
+        "icon": "home",
+        "content": "线条标签一的内容"
+      }
+    },
+    {
+      "id": "tabClosableLine2",
+      "component": "TabItem",
+      "props": {
+        "key": "cltab2",
+        "label": "标签二",
+        "icon": "file",
+        "content": "线条标签二的内容"
+      }
+    },
+    {
+      "id": "tabClosableLine3",
+      "component": "TabItem",
+      "props": {
+        "key": "cltab3",
+        "label": "标签三",
+        "icon": "settings",
+        "content": "线条标签三的内容"
+      }
+    },
+    {
+      "id": "tabsRowClosableSeparator",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tabsRowClosableSeparatorLabel",
+        "tabsClosableSeparator"
+      ]
+    },
+    {
+      "id": "tabsRowClosableSeparatorLabel",
+      "component": "span",
+      "props": {
+        "value": "可关闭-分割线",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsClosableSeparator",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "cstab1",
+        "types": "editable-separator",
+        "closable": true,
+        "size": "medium"
+      },
+      "children": [
+        "tabClosableSep1",
+        "tabClosableSep2",
+        "tabClosableSep3"
+      ]
+    },
+    {
+      "id": "tabClosableSep1",
+      "component": "TabItem",
+      "props": {
+        "key": "cstab1",
+        "label": "标签一",
+        "icon": "home",
+        "content": "分割线标签一的内容"
+      }
+    },
+    {
+      "id": "tabClosableSep2",
+      "component": "TabItem",
+      "props": {
+        "key": "cstab2",
+        "label": "标签二",
+        "icon": "file",
+        "content": "分割线标签二的内容"
+      }
+    },
+    {
+      "id": "tabClosableSep3",
+      "component": "TabItem",
+      "props": {
+        "key": "cstab3",
+        "label": "标签三",
+        "icon": "settings",
+        "content": "分割线标签三的内容"
       }
     },
     {
