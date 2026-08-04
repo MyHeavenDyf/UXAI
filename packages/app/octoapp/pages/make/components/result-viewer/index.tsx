@@ -124,6 +124,28 @@ export function ResultViewer(props: {
     props.tabs.find((t) => t.id === props.activeId) ?? null
   )
 
+  /**
+   * 取设计规划的实际内容（优先 tabStore 中该 plan tab 的最新编辑，
+   * 回退到消息流扫描的 planCard）。编辑走 handleContentChange 会更新
+   * tabStore，再点 [预览] 时若不读 tabStore，编辑会丢失。
+   */
+  const planContent = createMemo(() => {
+    const plan = props.planCard
+    if (!plan?.id) return ""
+    const tab = props.tabs.find((t) => t.id === plan.id)
+    return tab ? tab.content : (plan.content ?? "")
+  })
+
+  /**
+   * 当前激活的 plan tab（编辑态时优先用它在 tabStore 中的最新内容）。
+   * 用于 tab 栏点击 design-plan tab 后切换到 tabs 模式渲染，保证编辑不被回退。
+   */
+  const activePlanTab = createMemo(() => {
+    const tab = activeTab()
+    if (tab?.type === "design-plan") return tab
+    return null
+  })
+
   const [htmlModes, setHtmlModes] = createSignal<Record<string, "preview" | "edit">>({})
   const [viewport, setViewport] = createSignal<ViewportPreset>("desktop")
   const [palette, setPalette] = createSignal<PaletteId | null>(null)
@@ -381,7 +403,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           <Show when={props.planCard}>
             <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
               <DesignPlanRenderer
-                content={props.planCard?.content ?? ""}
+                content={planContent()}  // 优先取 tabStore，保留编辑
                 title={props.planCard?.title ?? ""}
                 artifactIdentifier={props.planCard?.artifactIdentifier}
                 confirmed={props.isPlanConfirmed?.() ?? false}

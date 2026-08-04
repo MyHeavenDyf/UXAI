@@ -136,7 +136,7 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
     }
     return (
       <Dialog title="删除会话" fit class="delete-dialog">
-        <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
+        <span class="text-[14px] leading-[22px] min-w-0 break-words" style={{ color: "rgba(0,0,0,0.9)" }}>
           确定删除「{name()}」？
         </span>
         <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>

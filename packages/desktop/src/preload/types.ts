@@ -93,6 +93,14 @@ export type ElectronAPI = {
   resolveMaterializedPath: (namespace: string, baseDir?: string, sessionId?: string) => Promise<string | null>
   /** office「下载」:把本地副本原样拷到用户选定路径(fs.copyFile,走复制不读+写) */
   copyFileTo: (srcPath: string, destPath: string) => Promise<void>
+  /** design-files 面板「上传」:把本地文件直接 fs.copyFile 进 .octo/<sessionId>/uploads/[subPath/],返回落地绝对路径 */
+  copyFileToSessionUploads: (
+    srcPath: string,
+    baseDir: string,
+    sessionId: string,
+    subPath: string,
+    filename: string,
+  ) => Promise<string>
   downloadResourceToTemp: (
     url: string,
     namespace: string,

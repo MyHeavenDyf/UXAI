@@ -140,6 +140,8 @@ export function DesignPlanRenderer(props: {
       },
       input: (val) => {
         setDraft(val)
+        // 每次键击实时同步到 tabStore,避免切换 tab/session 时编辑丢失
+        props.onContentChange?.(val)
       },
     })
   }

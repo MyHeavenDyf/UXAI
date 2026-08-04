@@ -1,6 +1,8 @@
 export type AssetsConfigUser = {
   isRemember?: boolean
   designSpec?: string
+  placeholder?: string
+  sessionJson?: string
 }
 
 export type AssetsConfig = {
@@ -20,6 +22,8 @@ export type DesktopApi = {
   capturePreviewRect?: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
   getPathForFile?: (file: File) => string
   openLink?: (url: string) => void
+  // jk-j60099994-replace-with-60062650-octoapp-make-electron-api-1-start
+  // jk-j60099994-replace-with-60062650-octoapp-make-electron-api-1-end
   onDownloadSavePath?: (cb: (info: {
     url: string
     filename: string

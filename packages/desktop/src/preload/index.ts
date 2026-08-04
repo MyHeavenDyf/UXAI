@@ -63,6 +63,8 @@ const api: ElectronAPI = {
   resolveMaterializedPath: (namespace, baseDir, sessionId) =>
     ipcRenderer.invoke("resolve-materialized-path", namespace, baseDir, sessionId),
   copyFileTo: (srcPath, destPath) => ipcRenderer.invoke("copy-file-to", srcPath, destPath),
+  copyFileToSessionUploads: (srcPath, baseDir, sessionId, subPath, filename) =>
+    ipcRenderer.invoke("copy-file-to-session-uploads", srcPath, baseDir, sessionId, subPath, filename),
   downloadResourceToTemp: (url, namespace, filename, baseDir, sessionId) =>
     ipcRenderer.invoke("download-resource-to-temp", url, namespace, filename, baseDir, sessionId),
   // SPEC-INS-014 v2(会话隔离):把源文件拷贝进 <baseDir>/.octo/tmps/(预会话落地区,主进程 fs.copyFile);返回落地路径。

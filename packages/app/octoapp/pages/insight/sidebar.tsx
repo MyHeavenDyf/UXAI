@@ -71,7 +71,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
 
   return (
     <div
-      class="shrink-0 relative flex flex-col h-full overflow-hidden"
+      class="shrink-0 relative flex flex-col h-full"
       style={{
         width: `${width()}px`,
         background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
@@ -119,7 +119,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
       </div>
 
       {/* 会话列表 — 仅此区域可滚动;收起时容器保留占位,底部槽不上移 */}
-      <div data-slot="list-scroll" class="flex-1 min-h-0 overflow-y-auto px-[12px]">
+      <div data-slot="list-scroll" class="flex-1 min-h-0 overflow-y-auto px-[12px] z-12">
         <Show when={!collapsed()}>
           <InsightSessionList />
         </Show>
