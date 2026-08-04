@@ -262,7 +262,7 @@ export function ActionBar(props: {
   const [archiveTarget, setArchiveTarget] = createSignal<ArchiveTarget | null>(null)
   const [archiveDialogOpen, setArchiveDialogOpen] = createSignal(false)
   // 归档禁用判定:
-  //   - 大小:EDM 文件归档(EdmUtil.upload)单文件区间 1B~4GB,超界前置置灰,避免读到内存再被服务端拒。
+  //   - 大小:EDM 文件归档(EdmUtil.upload)单文件区间 1B~4GiB,超界前置置灰,避免读到内存再被服务端拒。
   //     · file/image tab 的 size 来自文件管理开页签(insight/index.tsx openFileFromManager);无 size 的(uri)由
   //       archive-flow.runArchiveFileTask 中央守卫兜底。
   //     · markdown/json/code 无 size:空内容(content="")即 0 字节,按此代理判;超限无同步口径,中央守卫兜底。
@@ -360,7 +360,7 @@ export function ActionBar(props: {
           />
           <DownloadMenu tab={props.tab} disabled={!ready()} />
         </Show>
-        {/* 归档(60×32,#0A59F7):置于头部操作项最右侧;二进制无来源 / 文本未 ready / HTML 代码视图 / 大小超出 1B~4GB 时置灰。
+        {/* 归档(60×32,#0A59F7):置于头部操作项最右侧;二进制无来源 / 文本未 ready / HTML 代码视图 / 大小超出 1B~4GiB 时置灰。
             disabled 按钮原生 title 不显示(浏览器抑制禁用元素的鼠标事件),故用 Tooltip(div trigger)包裹,禁用态也能悬浮出原因。 */}
         <Tooltip
           placement="top"

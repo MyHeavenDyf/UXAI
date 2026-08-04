@@ -841,6 +841,8 @@ function FileRow(props: {
 }): JSX.Element {
   const [menuOpen, setMenuOpen] = createSignal(false)
   const [imageError, setImageError] = createSignal(false)
+  // 归档大小校验每行算一次(createMemo),供 MenuItem 的 disabled / disabledHint 共用,避免各调一次。
+  const archiveSizeErr = createMemo(() => archiveFileSizeError(props.file.size))
 
   // 单击:文件夹 → 进入下一层;文件 → 直接开 tab 并聚焦(SPEC-INS-014 §10.2,回归 §10 原始决定)。
   // 复选框 / 菜单触发器自行 stopPropagation,不会误触发本行 onClick。
@@ -931,7 +933,7 @@ function FileRow(props: {
               <Show when={!props.file.isFolder}>
                 <MenuItem label="下载" onClick={() => { props.onDownload(props.file); setMenuOpen(false) }} />
                 <Show when={props.onArchive && props.file.kind !== "html"}>
-                  <MenuItem label="归档" disabled={archiveFileSizeError(props.file.size) !== null} disabledHint={archiveFileSizeError(props.file.size) ?? undefined} onClick={() => { props.onArchive!(props.file); setMenuOpen(false) }} />
+                  <MenuItem label="归档" disabled={archiveSizeErr() !== null} disabledHint={archiveSizeErr() ?? undefined} onClick={() => { props.onArchive!(props.file); setMenuOpen(false) }} />
                 </Show>
               </Show>
               <Show when={props.onDelete}>
