@@ -66,7 +66,7 @@ export function resolveApiShape(shape: string, isDark?: boolean): string {
   }
 }
 
-/** resolved shape → API styleKey（导出，供请求队列等使用） */
+/** 内部辅助：resolved shape → API styleKey 字符串，供 resolveApiColorId 和 mapShapeToApiStyle 使用 */
 export function shapeToStyleKey(resolvedShape: string): string {
   switch (resolvedShape) {
     case 'filled':          return 'filled'
@@ -270,14 +270,7 @@ export function clearSvgCache(): void {
   svgCacheVersion.value++
 }
 
-/** resolved shape → API style value */
+/** resolved shape → API style 中文值（组合 shapeToStyleKey + getStyleValue，用于 API 请求参数） */
 export function mapShapeToApiStyle(resolvedShape?: string): string {
-  switch (resolvedShape) {
-    case "filled":          return getStyleValue("filled")
-    case "lined-twotone":   return getStyleValue("two_colors1")
-    case "filled-twotone":  return getStyleValue("two_colors2")
-    case "circle":          return getStyleValue("round_bottom2")
-    case "square":          return getStyleValue("square_bottom2")
-    default:                return getStyleValue("border")  // lined 等
-  }
+  return getStyleValue(shapeToStyleKey(resolvedShape || 'lined'))
 }

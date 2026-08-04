@@ -1,0 +1,1017 @@
+{
+  "state": {},
+  "rootId": "pageRoot",
+  "elements": [
+    {
+      "id": "pageRoot",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col min-h-screen bg-surface-container-lowest p-8 gap-8"
+      },
+      "children": [
+        "mainContent"
+      ]
+    },
+    {
+      "id": "mainContent",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-10"
+      },
+      "children": [
+        "sectionGeneral",
+        "sectionColorShape"
+      ]
+    },
+    {
+      "id": "sectionGeneral",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-6"
+      },
+      "children": [
+        "sectionGeneralTitle",
+        "iconBasicCard"
+      ]
+    },
+    {
+      "id": "sectionGeneralTitle",
+      "component": "span",
+      "props": {
+        "value": "通用组件 (General)",
+        "className": "text-2xl font-semibold text-on-surface border-b border-divider pb-3"
+      }
+    },
+    {
+      "id": "iconBasicCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "iconBasicCardTitle",
+        "iconBasicRowSemantic",
+        "iconBasicRowSize"
+      ]
+    },
+    {
+      "id": "iconBasicCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Icon 图标",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "iconBasicRowSemantic",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "iconBasicRowSemanticLabel",
+        "iconBasicRowSemanticContent"
+      ]
+    },
+    {
+      "id": "iconBasicRowSemanticLabel",
+      "component": "span",
+      "props": {
+        "value": "语义图标（outline 默认形状）",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "iconBasicRowSemanticContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 flex-wrap"
+      },
+      "children": [
+        "iconSemanticInfo",
+        "iconSemanticError",
+        "iconSemanticAlert",
+        "iconSemanticWarning",
+        "iconSemanticSuccess",
+        "iconSemanticDisabled",
+        "iconSemanticBrand"
+      ]
+    },
+    {
+      "id": "iconSemanticInfo",
+      "component": "Icon",
+      "props": {
+        "name": "info",
+        "color": "info",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconSemanticError",
+      "component": "Icon",
+      "props": {
+        "name": "circle-x",
+        "color": "error",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconSemanticAlert",
+      "component": "Icon",
+      "props": {
+        "name": "triangle-alert",
+        "color": "alert",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconSemanticWarning",
+      "component": "Icon",
+      "props": {
+        "name": "alert-triangle",
+        "color": "warning",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconSemanticSuccess",
+      "component": "Icon",
+      "props": {
+        "name": "circle-check",
+        "color": "success",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconSemanticDisabled",
+      "component": "Icon",
+      "props": {
+        "name": "ban",
+        "color": "disabled",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconSemanticBrand",
+      "component": "Icon",
+      "props": {
+        "name": "sparkles",
+        "color": "brand",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconBasicRowSize",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "iconBasicRowSizeLabel",
+        "iconBasicRowSizeContent"
+      ]
+    },
+    {
+      "id": "iconBasicRowSizeLabel",
+      "component": "span",
+      "props": {
+        "value": "尺寸变体（通过 className 控制 w- / h-）",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "iconBasicRowSizeContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-4 flex-wrap"
+      },
+      "children": [
+        "iconSizeSm",
+        "iconSizeMd",
+        "iconSizeLg",
+        "iconSizeXl"
+      ]
+    },
+    {
+      "id": "iconSizeSm",
+      "component": "Icon",
+      "props": {
+        "name": "star",
+        "color": "default",
+        "shape": "outline",
+        "className": "w-4 h-4"
+      }
+    },
+    {
+      "id": "iconSizeMd",
+      "component": "Icon",
+      "props": {
+        "name": "star",
+        "color": "default",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconSizeLg",
+      "component": "Icon",
+      "props": {
+        "name": "star",
+        "color": "default",
+        "shape": "outline",
+        "className": "w-6 h-6"
+      }
+    },
+    {
+      "id": "iconSizeXl",
+      "component": "Icon",
+      "props": {
+        "name": "star",
+        "color": "default",
+        "shape": "outline",
+        "className": "w-8 h-8"
+      }
+    },
+
+    {
+      "id": "sectionColorShape",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-6"
+      },
+      "children": [
+        "sectionColorShapeTitle",
+        "iconCrossCard"
+      ]
+    },
+    {
+      "id": "sectionColorShapeTitle",
+      "component": "span",
+      "props": {
+        "value": "Color × Shape 交叉案例",
+        "className": "text-2xl font-semibold text-on-surface border-b border-divider pb-3"
+      }
+    },
+    {
+      "id": "iconCrossCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-8"
+      },
+      "children": [
+        "iconCrossCardTitle",
+        "shapeOutlineSection",
+        "shapeTwoToneSection",
+        "shapeSquareSection",
+        "shapeCircleSection"
+      ]
+    },
+    {
+      "id": "iconCrossCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Icon 图标 — Color × Shape 全交叉矩阵（14色 × 4形 = 56例）",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+
+    {
+      "id": "shapeOutlineSection",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-3"
+      },
+      "children": [
+        "shapeOutlineLabel",
+        "shapeOutlineRow"
+      ]
+    },
+    {
+      "id": "shapeOutlineLabel",
+      "component": "span",
+      "props": {
+        "value": "shape = outline",
+        "className": "text-sm font-medium text-on-surface-variant"
+      }
+    },
+    {
+      "id": "shapeOutlineRow",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "iconOutlineDefault",
+        "iconOutlineInfo",
+        "iconOutlineError",
+        "iconOutlineAlert",
+        "iconOutlineWarning",
+        "iconOutlineSuccess",
+        "iconOutlineDisabled",
+        "iconOutlineBrand",
+        "iconOutlineRose",
+        "iconOutlinePink",
+        "iconOutlinePurple",
+        "iconOutlineIndigo",
+        "iconOutlineCyan",
+        "iconOutlineGreen"
+      ]
+    },
+    {
+      "id": "iconOutlineDefault",
+      "component": "Icon",
+      "props": {
+        "name": "star",
+        "color": "default",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconOutlineInfo",
+      "component": "Icon",
+      "props": {
+        "name": "info",
+        "color": "info",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconOutlineError",
+      "component": "Icon",
+      "props": {
+        "name": "circle-x",
+        "color": "error",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconOutlineAlert",
+      "component": "Icon",
+      "props": {
+        "name": "triangle-alert",
+        "color": "alert",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconOutlineWarning",
+      "component": "Icon",
+      "props": {
+        "name": "alert-triangle",
+        "color": "warning",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconOutlineSuccess",
+      "component": "Icon",
+      "props": {
+        "name": "circle-check",
+        "color": "success",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconOutlineDisabled",
+      "component": "Icon",
+      "props": {
+        "name": "ban",
+        "color": "disabled",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconOutlineBrand",
+      "component": "Icon",
+      "props": {
+        "name": "sparkles",
+        "color": "brand",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconOutlineRose",
+      "component": "Icon",
+      "props": {
+        "name": "heart",
+        "color": "rose",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconOutlinePink",
+      "component": "Icon",
+      "props": {
+        "name": "flower-2",
+        "color": "pink",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconOutlinePurple",
+      "component": "Icon",
+      "props": {
+        "name": "gem",
+        "color": "purple",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconOutlineIndigo",
+      "component": "Icon",
+      "props": {
+        "name": "infinity",
+        "color": "indigo",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconOutlineCyan",
+      "component": "Icon",
+      "props": {
+        "name": "droplets",
+        "color": "cyan",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconOutlineGreen",
+      "component": "Icon",
+      "props": {
+        "name": "leaf",
+        "color": "green",
+        "shape": "outline",
+        "className": "w-5 h-5"
+      }
+    },
+
+    {
+      "id": "shapeTwoToneSection",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-3"
+      },
+      "children": [
+        "shapeTwoToneLabel",
+        "shapeTwoToneRow"
+      ]
+    },
+    {
+      "id": "shapeTwoToneLabel",
+      "component": "span",
+      "props": {
+        "value": "shape = two-tone",
+        "className": "text-sm font-medium text-on-surface-variant"
+      }
+    },
+    {
+      "id": "shapeTwoToneRow",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "iconTwoToneDefault",
+        "iconTwoToneInfo",
+        "iconTwoToneError",
+        "iconTwoToneAlert",
+        "iconTwoToneWarning",
+        "iconTwoToneSuccess",
+        "iconTwoToneDisabled",
+        "iconTwoToneBrand",
+        "iconTwoToneRose",
+        "iconTwoTonePink",
+        "iconTwoTonePurple",
+        "iconTwoToneIndigo",
+        "iconTwoToneCyan",
+        "iconTwoToneGreen"
+      ]
+    },
+    {
+      "id": "iconTwoToneDefault",
+      "component": "Icon",
+      "props": {
+        "name": "star",
+        "color": "default",
+        "shape": "two-tone",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconTwoToneInfo",
+      "component": "Icon",
+      "props": {
+        "name": "info",
+        "color": "info",
+        "shape": "two-tone",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconTwoToneError",
+      "component": "Icon",
+      "props": {
+        "name": "circle-x",
+        "color": "error",
+        "shape": "two-tone",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconTwoToneAlert",
+      "component": "Icon",
+      "props": {
+        "name": "triangle-alert",
+        "color": "alert",
+        "shape": "two-tone",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconTwoToneWarning",
+      "component": "Icon",
+      "props": {
+        "name": "alert-triangle",
+        "color": "warning",
+        "shape": "two-tone",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconTwoToneSuccess",
+      "component": "Icon",
+      "props": {
+        "name": "circle-check",
+        "color": "success",
+        "shape": "two-tone",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconTwoToneDisabled",
+      "component": "Icon",
+      "props": {
+        "name": "ban",
+        "color": "disabled",
+        "shape": "two-tone",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconTwoToneBrand",
+      "component": "Icon",
+      "props": {
+        "name": "sparkles",
+        "color": "brand",
+        "shape": "two-tone",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconTwoToneRose",
+      "component": "Icon",
+      "props": {
+        "name": "heart",
+        "color": "rose",
+        "shape": "two-tone",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconTwoTonePink",
+      "component": "Icon",
+      "props": {
+        "name": "flower-2",
+        "color": "pink",
+        "shape": "two-tone",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconTwoTonePurple",
+      "component": "Icon",
+      "props": {
+        "name": "gem",
+        "color": "purple",
+        "shape": "two-tone",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconTwoToneIndigo",
+      "component": "Icon",
+      "props": {
+        "name": "infinity",
+        "color": "indigo",
+        "shape": "two-tone",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconTwoToneCyan",
+      "component": "Icon",
+      "props": {
+        "name": "droplets",
+        "color": "cyan",
+        "shape": "two-tone",
+        "className": "w-5 h-5"
+      }
+    },
+    {
+      "id": "iconTwoToneGreen",
+      "component": "Icon",
+      "props": {
+        "name": "leaf",
+        "color": "green",
+        "shape": "two-tone",
+        "className": "w-5 h-5"
+      }
+    },
+
+    {
+      "id": "shapeSquareSection",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-3"
+      },
+      "children": [
+        "shapeSquareLabel",
+        "shapeSquareRow"
+      ]
+    },
+    {
+      "id": "shapeSquareLabel",
+      "component": "span",
+      "props": {
+        "value": "shape = square",
+        "className": "text-sm font-medium text-on-surface-variant"
+      }
+    },
+    {
+      "id": "shapeSquareRow",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "iconSquareDefault",
+        "iconSquareInfo",
+        "iconSquareError",
+        "iconSquareAlert",
+        "iconSquareWarning",
+        "iconSquareSuccess",
+        "iconSquareDisabled",
+        "iconSquareBrand",
+        "iconSquareRose",
+        "iconSquarePink",
+        "iconSquarePurple",
+        "iconSquareIndigo",
+        "iconSquareCyan",
+        "iconSquareGreen"
+      ]
+    },
+    {
+      "id": "iconSquareDefault",
+      "component": "Icon",
+      "props": {
+        "name": "star",
+        "color": "default",
+        "shape": "square",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconSquareInfo",
+      "component": "Icon",
+      "props": {
+        "name": "info",
+        "color": "info",
+        "shape": "square",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconSquareError",
+      "component": "Icon",
+      "props": {
+        "name": "circle-x",
+        "color": "error",
+        "shape": "square",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconSquareAlert",
+      "component": "Icon",
+      "props": {
+        "name": "triangle-alert",
+        "color": "alert",
+        "shape": "square",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconSquareWarning",
+      "component": "Icon",
+      "props": {
+        "name": "alert-triangle",
+        "color": "warning",
+        "shape": "square",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconSquareSuccess",
+      "component": "Icon",
+      "props": {
+        "name": "circle-check",
+        "color": "success",
+        "shape": "square",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconSquareDisabled",
+      "component": "Icon",
+      "props": {
+        "name": "ban",
+        "color": "disabled",
+        "shape": "square",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconSquareBrand",
+      "component": "Icon",
+      "props": {
+        "name": "sparkles",
+        "color": "brand",
+        "shape": "square",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconSquareRose",
+      "component": "Icon",
+      "props": {
+        "name": "heart",
+        "color": "rose",
+        "shape": "square",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconSquarePink",
+      "component": "Icon",
+      "props": {
+        "name": "flower-2",
+        "color": "pink",
+        "shape": "square",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconSquarePurple",
+      "component": "Icon",
+      "props": {
+        "name": "gem",
+        "color": "purple",
+        "shape": "square",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconSquareIndigo",
+      "component": "Icon",
+      "props": {
+        "name": "infinity",
+        "color": "indigo",
+        "shape": "square",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconSquareCyan",
+      "component": "Icon",
+      "props": {
+        "name": "droplets",
+        "color": "cyan",
+        "shape": "square",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconSquareGreen",
+      "component": "Icon",
+      "props": {
+        "name": "leaf",
+        "color": "green",
+        "shape": "square",
+        "className": "w-8 h-8"
+      }
+    },
+
+    {
+      "id": "shapeCircleSection",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-3"
+      },
+      "children": [
+        "shapeCircleLabel",
+        "shapeCircleRow"
+      ]
+    },
+    {
+      "id": "shapeCircleLabel",
+      "component": "span",
+      "props": {
+        "value": "shape = circle",
+        "className": "text-sm font-medium text-on-surface-variant"
+      }
+    },
+    {
+      "id": "shapeCircleRow",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "iconCircleDefault",
+        "iconCircleInfo",
+        "iconCircleError",
+        "iconCircleAlert",
+        "iconCircleWarning",
+        "iconCircleSuccess",
+        "iconCircleDisabled",
+        "iconCircleBrand",
+        "iconCircleRose",
+        "iconCirclePink",
+        "iconCirclePurple",
+        "iconCircleIndigo",
+        "iconCircleCyan",
+        "iconCircleGreen"
+      ]
+    },
+    {
+      "id": "iconCircleDefault",
+      "component": "Icon",
+      "props": {
+        "name": "star",
+        "color": "default",
+        "shape": "circle",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconCircleInfo",
+      "component": "Icon",
+      "props": {
+        "name": "info",
+        "color": "info",
+        "shape": "circle",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconCircleError",
+      "component": "Icon",
+      "props": {
+        "name": "circle-x",
+        "color": "error",
+        "shape": "circle",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconCircleAlert",
+      "component": "Icon",
+      "props": {
+        "name": "triangle-alert",
+        "color": "alert",
+        "shape": "circle",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconCircleWarning",
+      "component": "Icon",
+      "props": {
+        "name": "alert-triangle",
+        "color": "warning",
+        "shape": "circle",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconCircleSuccess",
+      "component": "Icon",
+      "props": {
+        "name": "circle-check",
+        "color": "success",
+        "shape": "circle",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconCircleDisabled",
+      "component": "Icon",
+      "props": {
+        "name": "ban",
+        "color": "disabled",
+        "shape": "circle",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconCircleBrand",
+      "component": "Icon",
+      "props": {
+        "name": "sparkles",
+        "color": "brand",
+        "shape": "circle",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconCircleRose",
+      "component": "Icon",
+      "props": {
+        "name": "heart",
+        "color": "rose",
+        "shape": "circle",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconCirclePink",
+      "component": "Icon",
+      "props": {
+        "name": "flower-2",
+        "color": "pink",
+        "shape": "circle",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconCirclePurple",
+      "component": "Icon",
+      "props": {
+        "name": "gem",
+        "color": "purple",
+        "shape": "circle",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconCircleIndigo",
+      "component": "Icon",
+      "props": {
+        "name": "infinity",
+        "color": "indigo",
+        "shape": "circle",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconCircleCyan",
+      "component": "Icon",
+      "props": {
+        "name": "droplets",
+        "color": "cyan",
+        "shape": "circle",
+        "className": "w-8 h-8"
+      }
+    },
+    {
+      "id": "iconCircleGreen",
+      "component": "Icon",
+      "props": {
+        "name": "leaf",
+        "color": "green",
+        "shape": "circle",
+        "className": "w-8 h-8"
+      }
+    }
+  ]
+}

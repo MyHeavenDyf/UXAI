@@ -49,8 +49,8 @@ const maxlength = computed(() => resolveValue(properties.maxLength))
 const suffix = computed(() => resolveValue(properties.suffix) as string)
 const prefix = computed(() => resolveValue(properties.prefix) as string)
 
-const resolvedPrefix = useIconComponentRef(prefix, { size: 14 })
-const resolvedSuffix = useIconComponentRef(suffix, { size: 14 })
+const resolvedPrefix = useIconComponentRef(prefix, { shape: 'lined',size: 14 })
+const resolvedSuffix = useIconComponentRef(suffix, { shape: 'lined', size: 14 })
 
 const initVal = computed(() => resolveValue(properties.value) as string)
 const value = ref(initVal.value)

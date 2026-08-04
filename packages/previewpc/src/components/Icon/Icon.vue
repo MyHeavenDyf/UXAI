@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed, watchEffect } from "vue"
-import { getIconComponentRef, sizeConfig, mapShapeToHuiType, mapColorToHuiColor } from "./IconBase"
+import { getIconComponentRef, sizeConfig, mapColorToHuiColor } from "./IconBase"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import type { IconNode } from "../types"
-import { useIconProvider, iconInfoMap, svgCache, svgCacheVersion, resolveSvgCacheKey, requestSvg } from "../../composables/useIconProvider"
+import { useIconProvider, iconInfoMap, svgCache, svgCacheVersion, resolveSvgCacheKey, requestSvg, resolveApiShape } from "../../composables/useIconProvider"
 import { iconColors, iconDarkColors } from "../../utils/themeColors"
-import { resolveApiShape } from "../../utils/fetchSvg"
 import { useTheme } from "../../composables/useTheme"
 
 const { hasHuiIcons } = useIconProvider()
@@ -59,13 +58,13 @@ const resolved = computed(() => {
   return getIconComponentRef(name.value, { shape: shape.value, color: color.value, isDark: isDark.value })
 })
 
-const huiIconType = computed(() => mapShapeToHuiType(shape.value, isDark.value))
+const huiIconType = computed(() => resolveApiShape(shape.value, isDark.value))
 const huiIconColor = computed(() => mapColorToHuiColor(color.value))
 const bgShape = computed(() => shape.value)
 
-// Lucide 路径使用的 shape：
-//   two-tone → outline（Lucide 无法做双色）
-//   outline 在深色主题下 → fill（用 CSS 面性效果模拟深色下的实心图标）
+// Lucide 图标的 shape 映射（Lucide 无原生双色/面性，需 CSS 模拟）：
+//   two-tone → outline（Lucide 无双色，降级为线性）
+//   outline + 深色 → fill（CSS 面性效果：白图标 + 彩色背景，模拟深色下实心图标）
 const lucideBgShape = computed(() => {
   if (bgShape.value === 'two-tone') return 'outline'
   if (bgShape.value === 'outline' && isDark.value) return 'fill'

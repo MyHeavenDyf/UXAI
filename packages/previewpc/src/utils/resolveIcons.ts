@@ -21,6 +21,15 @@ export interface IconInfoEntry {
   url: string    // getIconInfo 返回的资源 URL
 }
 
+/** 图标匹配策略：系统图标组 → name 匹配 → 首个 */
+export function selectBestIcon(icons: Array<{ name: string; group: string[]; url: string }>, keyword: string) {
+  return icons.find(icon =>
+    Array.isArray(icon.group) && icon.group.some(g => g.includes('系统图标'))
+  ) || icons.find(icon =>
+    icon.name?.toLowerCase().includes(keyword.toLowerCase())
+  ) || icons[0]
+}
+
 export interface IconResolutionResult {
   iconInfoMap: Record<string, IconInfoEntry>
 }
@@ -182,11 +191,7 @@ async function fillIconInfoFromApi(
     if (!icons?.length) continue
 
     // 匹配策略：系统图标组 → name 匹配 → 首个
-    let selected = icons.find(icon =>
-      Array.isArray(icon.group) && icon.group.some(g => g.includes('系统图标'))
-    ) || icons.find(icon =>
-      icon.name?.toLowerCase().includes(name.toLowerCase())
-    ) || icons[0]
+    let selected = selectBestIcon(icons, name)
 
     iconInfoMap[name] = {
       name: selected.name,

@@ -74,7 +74,7 @@ const iconSize = computed(() => iconSizeEnum[size.value ?? "default"] ?? iconSiz
 // 参考 Button 的图标处理：区分 hui / lucide，按尺寸取大小；颜色按选中态动态计算
 const resolveOptionIcon = (iconName: string | undefined) => {
   if (!iconName) return null
-  const base = getIconComponentRef(iconName, { strokeWidth: 1 })
+  const base = getIconComponentRef(iconName, { shape: 'lined', strokeWidth: 1 })
   if (!base?.component) return null
   return {
     component: base.component,

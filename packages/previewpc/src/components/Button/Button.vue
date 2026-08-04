@@ -97,7 +97,6 @@ const onlyIcon = computed(() => {
 })
 const iconPlacement = computed(() => properties.iconPlacement || "start")
 
-// ---- 异步图标解析 ----
 function resolveIconColorForType(): string {
   if (!onlyIcon.value) return "currentColor"
   switch (type.value) {
@@ -126,12 +125,19 @@ const iconNameForRef = computed(() => {
 const resolvedIcon = computed(() => {
   let iconColor = '#191919'
   if (isLink.value) {
-    iconColor = '#0067D1' 
+    iconColor = disabled.value ? (isDark.value ? '#004EA8' : '#8ABEF3') : '#0067D1'
   } else {
     const isWhiteText = ["primary", "danger", "success", "warning"].some(i => i === type.value)
+    if(disabled.value) {
+      iconColor = isDark.value ? '#939393' : (isWhiteText ? '#FFFFFF' : '#c9c9c9')
+    }
     iconColor = (isWhiteText || isDark.value) ? '#FFFFFF' : '#191919'
   }
-  const baseIconRef = useIconComponentRef(iconNameForRef, { strokeWidth: 1, color: iconColor})
+  const baseIconRef = useIconComponentRef(iconNameForRef, { 
+    strokeWidth: 1,
+    shape: 'lined', 
+    color: iconColor
+  })
   if (!baseIconRef.value?.component || !iconName.value) return null
   const base = baseIconRef.value
   const isHui = "iconColor" in base.props

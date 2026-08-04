@@ -2,8 +2,7 @@ import * as LucideIcons from "lucide-vue-next"
 import { h, markRaw, shallowRef, watch, type Ref } from "vue"
 import type { Component, VNode } from "vue"
 import HuiSvgIcon from "./HuiSvgIcon.vue"
-import { hasHuiIcons, iconInfoMap, svgCache, svgCacheVersion, resolveSvgCacheKey, requestSvg, requestIconInfo } from "../../composables/useIconProvider"
-import { resolveApiShape } from "../../utils/fetchSvg"
+import { hasHuiIcons, iconInfoMap, svgCache, svgCacheVersion, resolveSvgCacheKey, requestSvg, requestIconInfo, resolveApiShape } from "../../composables/useIconProvider"
 import { useTheme } from "../../composables/useTheme";
 
 export const sizeConfig = { xs: 12, sm: 16, md: 24, lg: 32, xl: 40 } as const
@@ -24,38 +23,10 @@ const SEMANTIC_COLOR_MAP: Record<string, string> = {
   inverse: "var(--icon-inverse)",
 }
 
-export interface LucideIconOptions {
-  size?: number
-  color?: string
-  strokeWidth?: number
-}
-
 /** 语义色 → CSS 变量，其他原样返回 */
 export function resolveIconColor(color: string | undefined): string {
   if (!color) return "currentColor"
   return SEMANTIC_COLOR_MAP[color] || color
-}
-
-/**
- * shape → hui type（主题感知）
- *
- * - outline: 浅色 → lined, 深色 → filled
- * - two-tone: 浅色 → lined-twotone, 深色 → filled-twotone
- * - circle/square: 不变（不随主题切换）
- * - lined/filled: 显式指定，不随主题切换（其他组件用 lined）
- */
-export function mapShapeToHuiType(
-  shape: string | undefined,
-  isDark?: boolean,
-): "lined" | "filled" | "lined-twotone" | "filled-twotone" | "round-bg" | "square-bg" {
-  switch (shape) {
-    case "outline":  return isDark ? "filled" : "lined"
-    case "two-tone": return isDark ? "filled-twotone" : "lined-twotone"
-    case "filled":   return "filled"
-    case "circle":   return "round-bg"
-    case "square":   return "square-bg"
-    default:         return "lined"
-  }
 }
 
 /** color → hui iconColor 数组 */
@@ -101,7 +72,7 @@ export function getHuiIconComponentRef(
   if (svg) {
     return { component: markRaw(HuiSvgIcon), props: {
       svgHtml: svg, iconUrl: entry.url,
-      type: mapShapeToHuiType(s, isDark),
+      type: resolveApiShape(s, isDark),
       iconColor: mapColorToHuiColor(c === 'default' ? undefined : c),
     }}
   }
@@ -114,7 +85,7 @@ export function getHuiIconComponentRef(
     if (fallbackSvg) {
       return { component: markRaw(HuiSvgIcon), props: {
         svgHtml: fallbackSvg, iconUrl: entry.url,
-        type: mapShapeToHuiType(s, isDark),
+        type: resolveApiShape(s, isDark),
         iconColor: mapColorToHuiColor(c === 'default' ? undefined : c),
       }}
     }
@@ -123,17 +94,6 @@ export function getHuiIconComponentRef(
   // 5. 无缓存 → 请求并返回 null（图标空白，SVG 到达后响应式显示）
   requestSvg(name, resolvedShape, c, isDark)
   return null
-}
-
-// ========== lucide 图标 ==========
-
-export function getLucideIconComponentRef(name: string): Component | null
-export function getLucideIconComponentRef(name: string, options: LucideIconOptions): { component: Component | null; props: Record<string, any> } | null
-export function getLucideIconComponentRef(name: string, options?: LucideIconOptions): any {
-  if (!name) return null
-  const component = (LucideIcons as any)[toPascalCase(name)] || LucideIcons.CircleEllipsis
-  if (!options) return component
-  return { component, props: { size: options.size ?? 24, color: resolveIconColor(options.color), "stroke-width": options.strokeWidth ?? 2 }}
 }
 
 // ========== 统一入口 ==========
@@ -186,7 +146,7 @@ export function useIconComponentRef(
       resolved.value = null
       return
     }
-    // 其他组件（无 options.shape）：始终使用 'lined' shape（线性，不随主题切换）
+    // 其他组件（无 options.shape）：使用 'lined' shape（仍传入 isDark 以确保颜色解析与主题一致）
     // Icon 组件（传入 options.shape）：shape 由 options 传入，isDark 传入以支持主题感知
     const newOptions = options
       ? { ...options, isDark: isDark.value }
