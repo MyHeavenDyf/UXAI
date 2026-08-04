@@ -41,12 +41,37 @@ export function ChatFollowupQueueRunner() {
   onMount(() => {
     const tick = () => {
       discoverAndSync()
+      watchdogBusy()
       const hasQueues = Object.keys(allFollowupQueues()).length > 0
       timer = setTimeout(tick, hasQueues ? 5000 : 15000)
     }
     let timer = setTimeout(tick, 5000)
     onCleanup(() => clearTimeout(timer))
   })
+
+  /**
+   * busy 超时看门狗：session_status=busy 但最后一条 assistant 消息已完成超过 60s
+   * → SSE 可能断连，乐观重置为 idle，让 drain 继续。
+   * 只遍历有队列的 session（通常 1-3 个），每 5s/15s 跑一次，开销极小。
+   */
+  const watchdogBusy = () => {
+    const queues = allFollowupQueues()
+    for (const [sid, bucket] of Object.entries(queues)) {
+      const dir = bucket.directory
+      if (!dir) continue
+      const [store, setStore] = globalSync.peek(dir, { bootstrap: true })
+      if ((store.session_status[sid]?.type ?? "idle") !== "busy") continue
+      const msgs = store.message[sid]
+      if (!msgs?.length) continue
+      const last = msgs[msgs.length - 1]
+      if (last.role !== "assistant") continue
+      const completed = (last.time as { completed?: number } | undefined)?.completed
+      if (typeof completed !== "number") continue
+      if (Date.now() - completed > 60_000) {
+        setStore("session_status", sid, { type: "idle" })
+      }
+    }
+  }
 
   const busyOf = (sid: string): boolean => {
     const bucket = allFollowupQueues()[sid]
