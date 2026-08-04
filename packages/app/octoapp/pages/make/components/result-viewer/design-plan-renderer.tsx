@@ -310,7 +310,7 @@ export function DesignPlanRenderer(props: {
             />
           }
         >
-          <div>
+          <div class="select-text">
             <div
               class="prose prose-sm max-w-none"
               style={{ color: "var(--octo-text-primary)" }}
