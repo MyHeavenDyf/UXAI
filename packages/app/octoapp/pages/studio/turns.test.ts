@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import { getDefaultDimensions, getModelResolutionKey, isStudioGenerationStatusRegression } from "./studio-shared"
+import { getDefaultDimensions, getModelResolutionKey, isStudioGenerationStatusRegression, studioResultCardStatus } from "./studio-shared"
 import { buildStudioConversationContext, buildStudioTurns } from "./turns"
 import type { StudioGenerationResult } from "./types"
 
@@ -19,6 +19,24 @@ describe("Studio generation status merging", () => {
     expect(isStudioGenerationStatusRegression("running", "queued")).toBe(false)
     expect(isStudioGenerationStatusRegression("running", "failed")).toBe(false)
     expect(isStudioGenerationStatusRegression("running", "succeeded")).toBe(false)
+  })
+})
+
+describe("Studio result-card status", () => {
+  test("keeps a running generation with a legacy transient error in the generating state", () => {
+    expect(studioResultCardStatus({
+      result: { status: "running", images: [], error: "query_task returned status=500" },
+      busy: true,
+      toolRunning: true,
+    })).toBe("running")
+  })
+
+  test("shows an error only after the generation reaches a failure status", () => {
+    expect(studioResultCardStatus({
+      result: { status: "failed", images: [], error: "query_task returned failure" },
+      busy: false,
+      toolRunning: false,
+    })).toBe("failed")
   })
 })
 

@@ -144,6 +144,7 @@
 }
 
 .studio-composer {
+  position: relative;
   margin: 0 24px;
   min-height: 150px;
   padding: 16px 14px 18px;
@@ -153,6 +154,23 @@
     linear-gradient(var(--octo-surface-page), var(--octo-surface-page)) padding-box,
     linear-gradient(135deg, rgba(246, 97, 23, 0.7) 1%, rgba(95, 45, 255, 0.7) 8%, rgba(61, 93, 255, 0.7) 22%, rgba(104, 138, 255, 0.7) 43%, rgba(28, 171, 111, 0.7) 54%, rgba(61, 93, 255, 0.7) 87%, rgba(206, 7, 232, 0.7) 92%) border-box;
   box-shadow: 0 0 5px rgba(0, 0, 0, 0.15), 0 0 10px rgba(74, 81, 255, 0.3), 0 0 20px rgba(89, 74, 255, 0.2);
+}
+
+.studio-composer.dragging::after {
+  content: "松开以上传图片";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed #5f45ff;
+  border-radius: inherit;
+  color: #4936c6;
+  background: rgba(255, 255, 255, 0.82);
+  font-size: 14px;
+  font-weight: 500;
+  pointer-events: none;
 }
 
 .studio-composer-compliance {
@@ -309,21 +327,23 @@
 
 .studio-composer-video-remove {
   position: absolute;
-  top: -7px;
-  right: -7px;
-  width: 18px;
-  height: 18px;
+  top: -2px;
+  right: -2px;
+  width: 12px;
+  height: 12px;
   display: grid;
   place-items: center;
-  border-radius: 999px;
-  background: rgba(8, 12, 20, 0.94);
-  color: #fff;
-  font-size: 15px;
-  line-height: 15px;
+  background: transparent;
   opacity: 0;
   transform: scale(0.9);
   transition: opacity 140ms ease, transform 140ms ease;
   z-index: 2;
+}
+
+.studio-composer-video-remove-icon {
+  width: 12px;
+  height: 12px;
+  display: block;
 }
 
 .studio-composer-video-frame-wrap:hover .studio-composer-video-remove,
