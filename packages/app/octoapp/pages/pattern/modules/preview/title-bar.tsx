@@ -255,14 +255,14 @@ export function TitleBar(props: TitleBarProps) {
           </button>
 
           {/* 按钮：画布编辑 */}
-          {/* <button
+          <button
             class="pattern-action-btn"
             title="画布编辑"
             onClick={() => props.onCanvasEditing?.()}
           >
             <IconActionCanvasEdit size={16} />
             <span>画布编辑</span>
-          </button> */}
+          </button> 
 
           {/* 按钮 4：历史版本 */}
           <div class="dropdown-trigger-container">
