@@ -1704,6 +1704,8 @@ const sessionMessagesLoaded = createMemo(() => {
             }
           }
           checkConfirmed()
+        }).catch(() => {
+          setPhase2Pending(false)
         })
       }
     },
