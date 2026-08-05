@@ -1367,7 +1367,6 @@ const sessionMessagesLoaded = createMemo(() => {
       sdk.client.session.abort({ sessionID: currentChildId }).catch(() => {})
       // 注意：不归档子 session，保留其消息数据供后续查看
     }
-    const endedSid = params.id
     setActivePlanSessionId(null)
     setPlanParentSessionId(null)
     setHasChildPlanSession(false)
@@ -1378,12 +1377,7 @@ const sessionMessagesLoaded = createMemo(() => {
     setPlanEnded(true)
     // 注意：不清除 localStorage 缓存和 _planChildSessionCache，
     // 保留子 session 的引用以便跨重启恢复和消息历史查看
-    // 持久化"已退出"标记，防止切换 session / 重启后重新激活
-    if (endedSid) {
-      localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + endedSid, "true")
-    }
-    // 记录当前主 session 的设计规划已被用户结束,防止 banner 再次弹出
-    setPlanEndedForSession(params.id ?? null)
+    // end 不关闭规划通道，后续仍可再次触发设计规划
   }
 
   // ── 设计规划阶段引导(plan entry banner)─────────────────────
@@ -1497,13 +1491,19 @@ const sessionMessagesLoaded = createMemo(() => {
     }
   }
 
-  /** 用户点 [直接执行] → 发送 [skip-plan],agent 跳过方案直接生成 HTML */
+  /** 用户点 [直接执行] → 发送 [skip-plan],agent 跳过方案直接生成 HTML。跳过将永久关闭该 session 的规划通道 */
   function handleSkipPlan() {
     const sid = params.id
     const modelKey = activeModelKey()
     if (!sid || !modelKey) return
     if (optimisticIntentResolved()) return
     setOptimisticIntentResolved(true)
+    // 持久化"已跳过"标记，后续不再弹出规划 banner
+    if (sid) {
+      localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid, "true")
+    }
+    setPlanEndedForSession(sid)
+    setPlanEnded(true)
     sendMessage(sid, "[skip-plan]", modelKey).catch((err) => {
       console.error("[MakePage] skip plan failed", err)
       setOptimisticIntentResolved(false)
