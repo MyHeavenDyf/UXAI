@@ -368,13 +368,21 @@ export default function StudioPage() {
   let generationToken = 0
   let createGenerationController: AbortController | undefined
   const terminatedGenerationIDs = new Set<string>()
-  const [studioLeftCollapsed, setStudioLeftCollapsed] = createSignal(false)
+  const [studioLeftCollapsedStore, setStudioLeftCollapsedStore] = persisted(
+    Persist.global("studio.left.collapsed"),
+    createStore({ collapsed: false }),
+  )
+  const [studioLeftCollapsed, setStudioLeftCollapsed] = createSignal(studioLeftCollapsedStore.collapsed)
   const [studioLeftStore, setStudioLeftStore] = persisted(
     Persist.global("studio.left.width"),
     createStore({ width: 296 }),
   )
   const [studioLeftWidth, setStudioLeftWidth] = createSignal(studioLeftStore.width)
-  const toggleStudioLeft = () => setStudioLeftCollapsed((v) => !v)
+  const toggleStudioLeft = () => {
+    const next = !studioLeftCollapsed()
+    setStudioLeftCollapsed(next)
+    setStudioLeftCollapsedStore("collapsed", next)
+  }
   const [studioCenterStore, setStudioCenterStore] = persisted(
     Persist.global("studio.center.width"),
     createStore({ width: 468 }),
@@ -562,6 +570,14 @@ export default function StudioPage() {
   const [resizingCenter, setResizingCenter] = createSignal(false)
   const [resizeState, setResizeState] = createStore({ startX: 0, startWidth: 0 })
 
+  // 持久化宽度异步水合后回填到 live signal(桌面端 store 水合晚于 createSignal 初始化)
+  createEffect(on(() => studioLeftStore.width, (width) => {
+    if (!resizingLeft()) setStudioLeftWidth(width)
+  }))
+  createEffect(on(() => studioCenterStore.width, (width) => {
+    if (!resizingCenter()) setStudioCenterWidth(width)
+  }))
+
   function onPagePointerMove(e: PointerEvent) {
     if (resizingLeft()) {
       const delta = e.clientX - resizeState.startX
@@ -665,17 +681,16 @@ export default function StudioPage() {
     onCleanup(() => mql.removeEventListener("change", update))
   })
 
-  // 窗口 <1456px 时左侧栏默认收缩
+  // 窗口 <1456px 时左侧栏强制收缩；≥1456px 时跟随用户持久化的折叠偏好(响应式,支持异步水合)
   createEffect(() => {
     const mql = window.matchMedia("(max-width: 1455px)")
-    const update = () => setStudioLeftCollapsed(mql.matches)
+    const update = () => {
+      if (mql.matches) setStudioLeftCollapsed(true)
+      else setStudioLeftCollapsed(studioLeftCollapsedStore.collapsed)
+    }
     update()
     mql.addEventListener("change", update)
-    window.addEventListener("resize", update)
-    onCleanup(() => {
-      mql.removeEventListener("change", update)
-      window.removeEventListener("resize", update)
-    })
+    onCleanup(() => mql.removeEventListener("change", update))
   })
 
   // 自适应布局：
@@ -706,7 +721,8 @@ export default function StudioPage() {
       calcCenterWidth()
     }
 
-    onMediaChange()
+    setShowToggleDrawer(mqlMedium.matches)
+    setWindowWidth(window.innerWidth)
     mqlWide.addEventListener("change", onMediaChange)
     mqlMedium.addEventListener("change", onMediaChange)
     mqlCenter31.addEventListener("change", onMediaChange)
