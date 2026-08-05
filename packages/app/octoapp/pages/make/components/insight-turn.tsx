@@ -1105,7 +1105,7 @@ const stateStatus = state.status as string | undefined
       {/* AI 文字回复（proseText 已剥离 artifact 内容，使用 segments 渲染） */}
       <Show when={proseSegments().length > 0}>
         <div
-          class="mb-2 px-4 py-3"
+          class="mb-1 px-4 py-3"
           style={{ color: "#191919", "font-size": "14px", "line-height": "22px", "user-select": "text" }}
         >
           <For each={proseSegments()}>

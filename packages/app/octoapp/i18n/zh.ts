@@ -836,7 +836,7 @@ export const dict = {
   "session.delete.failed.title": "删除会话失败",
   "session.delete.title": "删除会话",
   "session.delete.confirm": '确定删除 "{{name}}"？',
-  "session.delete.button": "删除",
+  "session.delete.button": "确定",
 
   "file.delete.title": "删除文件",
   "file.delete.confirm": '删除文件 "{{name}}"？',

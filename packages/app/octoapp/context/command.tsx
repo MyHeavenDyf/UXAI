@@ -358,6 +358,9 @@ export const { use: useCommand, provider: CommandProvider } = createSimpleContex
     const handleKeyDown = (event: KeyboardEvent) => {
       if (suspended() || dialog.active) return
 
+      if (event.key === "." && (event.ctrlKey || event.metaKey) && !event.altKey)
+        return
+
       const sig = signatureFromEvent(event)
       const isPalette = palette().has(sig)
       const option = keymap().get(sig)

@@ -59,6 +59,7 @@ import { useSettings } from "@/context/settings"
 import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
+import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
 import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, UploadError } from "../insight/lib/upload"
@@ -371,7 +372,10 @@ function MakeContent() {
   function openTitleEditor() {
     const sInfo = sessionInfoMirror()
     setTitleState({ editing: true, draft: sessionTitle(overrideTitle() ?? info()?.title ?? sInfo?.title) ?? "" })
-    requestAnimationFrame(() => titleRef?.focus())
+    requestAnimationFrame(() => {
+      titleRef?.focus()
+      titleRef?.select()
+    })
   }
 
   /** 保存标题编辑 */
@@ -406,7 +410,7 @@ function MakeContent() {
   function handleDeleteSession() {
     const id = params.id
     if (!id) return
-    dialog.show(() => <MakeDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfoMirror()?.title) ?? "Octo Design"} onDelete={deleteSession} />)
+    dialog.show(() => <DialogDeleteSession name={sessionTitle(sessionInfoMirror()?.title) ?? "Octo Design"} onDelete={() => deleteSession(id)} />)
   }
 
 // 监听项目切换，清理不属于新项目的 session
@@ -3119,7 +3123,7 @@ if (dsId) {
                   </Show>
                   <Show when={effectiveBusy()}>
                     <div class="shrink-0 flex items-center gap-1.5">
-                      <Spinner class="size-4" />
+                      <Spinner class="size-4" style={{ color: "#0a59f7" }} />
                     </div>
                   </Show>
                   <Show
@@ -3129,6 +3133,7 @@ if (dsId) {
                         ref={(el) => { titleRef = el }}
                         value={titleState.draft}
                         class="text-14-medium text-text-strong grow-1 min-w-0 rounded-[6px] pl-1 -ml-1"
+                        style={{ "font-weight": "600" }}
                         onInput={(e) => setTitleState("draft", e.currentTarget.value)}
                         onKeyDown={(e) => {
                           e.stopPropagation()
@@ -3509,7 +3514,7 @@ if (dsId) {
                 {/* Permission dock - 权限授权 UI */}
                 <Show when={permissionRequest()} keyed>
                   {(request) => (
-                    <div class="w-full pb-3">
+                    <div class="w-full max-w-[800px] mx-auto pb-3">
                       <SessionPermissionDock
                         request={request}
                         responding={permissionResponding()}
@@ -3832,33 +3837,3 @@ if (dsId) {
   )
 }
 
-
-function MakeDialogDeleteSession(props: { sessionID: string; name: string; onDelete: (id: string) => Promise<void> }): JSX.Element {
-  const language = useLanguage()
-  const dialog = useDialog()
-  return (
-    <Dialog title={language.t("session.delete.title")} fit class="delete-dialog">
-      <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
-        {language.t("session.delete.confirm", { name: props.name })}
-      </span>
-      <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
-        <Button
-          variant="ghost"
-          size="large"
-          class="delete-dialog-btn"
-          onClick={() => dialog.close()}
-        >
-          {language.t("common.cancel")}
-        </Button>
-        <Button
-          variant="primary"
-          size="large"
-          class="delete-dialog-btn delete-dialog-btn-primary"
-          onClick={() => void props.onDelete(props.sessionID).then(() => dialog.close())}
-        >
-          {language.t("session.delete.button")}
-        </Button>
-      </div>
-    </Dialog>
-  )
-}
