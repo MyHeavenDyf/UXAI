@@ -1250,11 +1250,17 @@ return (
                 position: "relative",
               }}
             >
+              {/* 
+                Electron 桌面环境使用 allow-same-origin：
+                - 支持 local: 协议加载外部 CDN 资源（Tailwind、Google Fonts 等）
+                - srcdoc 内容为内部构建，安全可控
+                - 参考：design-system-picker.tsx:163
+              */}
               <iframe
                 ref={iframeRef}
                 src={shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined)}
                 {...(!shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
-                sandbox="allow-scripts"
+                sandbox="allow-same-origin allow-scripts"
                 style={{
                   width: `${VIEWPORT_DIMS[props.viewport!].width}px`,
                   height: `${VIEWPORT_DIMS[props.viewport!].height}px`,
@@ -1300,11 +1306,15 @@ return (
             </div>
           ) : (
             <div style={{ height: "100%", overflow: "auto" }}>
+              {/* 
+                Electron 桌面环境使用 allow-same-origin：
+                - 支持 local: 协议加载外部 CDN 资源（Tailwind、Google Fonts 等）
+              */}
               <iframe
                 ref={iframeRef}
                 src={shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined)}
                 {...(!shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
-                sandbox="allow-scripts"
+                sandbox="allow-same-origin allow-scripts"
                 class="w-full h-full border-0"
                 style={{ "min-height": "200px" }}
                 onLoad={() => {
