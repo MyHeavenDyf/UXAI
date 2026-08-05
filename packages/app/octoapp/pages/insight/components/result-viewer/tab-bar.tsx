@@ -62,7 +62,7 @@ export function TabBar(props: {
             >
               <TruncatedText
                 class="flex-1 min-w-0"
-                textClass="block w-full text-[13px] text-left truncate"
+                textClass="block w-full min-w-0 text-[13px] text-left truncate"
                 style={{ "font-weight": isActive() ? "500" : "400" }}
                 text={tab.title}
               />

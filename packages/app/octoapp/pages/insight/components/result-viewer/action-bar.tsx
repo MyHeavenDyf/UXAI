@@ -314,7 +314,7 @@ export function ActionBar(props: {
         fallback={
           <TruncatedText
             class="max-w-[55%]"
-            textClass="block w-full text-xs truncate"
+            textClass="block w-full min-w-0 text-xs truncate"
             style={{ color: "var(--octo-text-secondary)" }}
             text={props.tab.title}
           />

@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, onMount, type JSX } from "solid-js"
+import { createEffect, createSignal, on, onCleanup, type JSX } from "solid-js"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 
 export function TruncatedText(props: {
@@ -20,7 +20,7 @@ export function TruncatedText(props: {
     ro = new ResizeObserver(measure)
     ro.observe(node)
   }
-  onMount(measure)
+  createEffect(on(() => props.text, () => queueMicrotask(measure)))
   onCleanup(() => ro?.disconnect())
   return (
     <div class={props.class}>
@@ -29,7 +29,7 @@ export function TruncatedText(props: {
         openDelay={200}
         value={props.text}
         inactive={!truncated()}
-        contentStyle={{ "white-space": "nowrap", "max-width": "none", "z-index": "60" }}
+        contentStyle={{ "white-space": "normal", "max-width": "90vw", "overflow-wrap": "anywhere" }}
       >
         <span ref={setRef} class={props.textClass} style={props.style}>
           {props.text}
