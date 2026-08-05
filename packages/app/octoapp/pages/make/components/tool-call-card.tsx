@@ -35,7 +35,7 @@ const FAMILY_LABEL: Record<ToolFamily, string> = {
   grep: "搜索内容",
   search: "网络搜索",
   task: "子任务",
-  skill: "调用",
+  skill: "调用技能",
   other: "工具调用",
 }
 
