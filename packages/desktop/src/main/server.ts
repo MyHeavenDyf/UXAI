@@ -1,4 +1,6 @@
 import { dirname, join } from "node:path"
+import { existsSync, readFileSync } from "node:fs"
+import { homedir } from "node:os"
 import { fileURLToPath } from "node:url"
 import { app, utilityProcess } from "electron"
 import type { Details } from "electron"
@@ -250,6 +252,20 @@ function createSidecarEnv(): Record<string, string> {
   )
   delete env.DEBUG
   if (process.platform === "linux") delete env.LD_PRELOAD
+
+  // 从 proxy_config.json 强制覆盖 proxy 变量,确保 sidecar 在 macOS shell 探测干扰后仍能读到代理
+  try {
+    const configFile = join(homedir(), ".config", "octo", "proxy_config.json")
+    if (existsSync(configFile)) {
+      const config = JSON.parse(readFileSync(configFile, "utf-8"))
+      for (const key of ["http_proxy", "https_proxy", "no_proxy"]) {
+        const value = config[key]
+        if (!value) continue
+        env[key] = value
+        env[key.toUpperCase()] = value
+      }
+    }
+  } catch {}
 
   // 把内网知识库 base 注入 sidecar 供 knowledge_search 读(sidecar 进程读不到 .env / VITE_,
   // 故从 main 的编译期常量 import.meta.env.OCTO_KB_BASE_URL 透传)。
