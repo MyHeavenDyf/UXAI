@@ -1363,14 +1363,32 @@ function InsightContent() {
     }
 
     try {
-      const result = await sdk.client.session.promptAsync({
-        sessionID: sessionId,
-        agent,
-        model,
-        parts,
-        messageID,
-        tools: toolGate,
-      })
+      // 检测 /skill 命令:以 / 开头且匹配已注册 source==="skill" 的命令，走 session.command 触发 skill.used
+      const cmdMatch = text.trim().match(/^\/(\S+)(?:\s+(.*))?$/)
+      const matchedCmd = cmdMatch ? sync.data.command.find((c) => c.name === cmdMatch[1]) : undefined
+
+      let result
+      if (matchedCmd && matchedCmd.source === "skill") {
+        const modelStr = model ? `${model.providerID}/${model.modelID}` : undefined
+        result = await sdk.client.session.command({
+          sessionID: sessionId,
+          command: matchedCmd.name,
+          arguments: cmdMatch![2] ?? "",
+          agent,
+          model: modelStr,
+          parts,
+          messageID,
+        })
+      } else {
+        result = await sdk.client.session.promptAsync({
+          sessionID: sessionId,
+          agent,
+          model,
+          parts,
+          messageID,
+          tools: toolGate,
+        })
+      }
       // chip turn 结果对账登记(spec §5:chip turn 工具调用结果):busy→idle 时消费
       if (opts.chip) {
         pendingChipResult = {
