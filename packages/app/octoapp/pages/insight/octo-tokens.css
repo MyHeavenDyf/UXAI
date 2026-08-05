@@ -288,7 +288,7 @@
 /* ── 输入区阻塞 Dock 滚动条(6px,与 question 选项区同款) ─────────────────── */
 .octo-input-docks {
   scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
 }
 .octo-input-docks::-webkit-scrollbar {
   display: block;
@@ -298,11 +298,11 @@
   background: transparent;
 }
 .octo-input-docks::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.2);
+  background-color: rgba(0, 0, 0, 0.18);
   border-radius: 999px;
 }
 .octo-input-docks::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(0, 0, 0, 0.35);
+  background-color: rgba(0, 0, 0, 0.28);
 }
 
 /* ── 队列提示条(spec §3.3.4) ──────────────────────────────── */
@@ -329,13 +329,15 @@
   flex-direction: column;
   gap: 2px;
 }
-/* 队列列表内部单独滚动,滚动条保持原 4px(显式 display:block 让 4px 真正生效,
-   覆盖上游藏滚动条的规则;用 .octo-input-docks .octo-queue-banner-list 提高特异性保证胜出)。 */
+/* 队列列表内部单独滚动,滚动条保持原 4px:全局 style/session-queue-banner.css
+   只写了 width:4px 未写 display:block,这里显式补 display:block + 提高特异性
+   (.octo-input-docks .octo-queue-banner-list)确保 4px 在 insight 页可靠生效;
+   透明度统一全仓 0.18(与 .octo-attach-strip 一致)。 */
 .octo-input-docks .octo-queue-banner-list {
   max-height: calc(12 * (16px + 2px));
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
 }
 .octo-input-docks .octo-queue-banner-list::-webkit-scrollbar {
   display: block;
@@ -345,7 +347,7 @@
   background: transparent;
 }
 .octo-input-docks .octo-queue-banner-list::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.18);
   border-radius: 2px;
 }
 .octo-queue-banner-item {
