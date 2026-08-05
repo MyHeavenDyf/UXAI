@@ -339,7 +339,7 @@ export function TitleBar(props: TitleBarProps) {
           </button>
 
           {/* 按钮 8：归档 */}
-          {/* <button
+          <button
             class="pattern-action-btn"
             classList={{ 'edit-active': !!props.archiving }}
             title="归档"
@@ -347,7 +347,7 @@ export function TitleBar(props: TitleBarProps) {
           >
             <IconActionDownload size={16} />
             <span>归档</span>
-          </button> */}
+          </button>
         </div>
       </div>
     </div>
