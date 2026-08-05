@@ -186,7 +186,7 @@ function setupApp() {
 
   void app.whenReady().then(async () => {
     await session.defaultSession.setProxy({
-      mode: "direct"
+      mode: "system"
     });
     setupDownloadInterceptor()
     if (!TEST_ONBOARDING) {
