@@ -692,8 +692,12 @@ export function InsightTurn(props: {
   })
 
   // Non-task tool calls (for ToolCallGroupCard — task calls shown separately as subtask cards)
-  const nonTaskToolCalls = createMemo(() =>
-    toolCalls().filter((c) => !/task/i.test(c.name))
+  const skillToolCalls = createMemo(() =>
+    toolCalls().filter((c) => c.name === "skill")
+  )
+
+  const otherToolCalls = createMemo(() =>
+    toolCalls().filter((c) => c.name !== "skill" && !/task/i.test(c.name))
   )
 
   // ── NEW: subtask sessions (from Task tool calls) ──
@@ -1135,9 +1139,14 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
-      {/* 工具调用进度（排除 Task 工具，由子任务卡片单独展示） */}
-      <Show when={(props.skillToolCalls?.length ?? 0) > 0 || nonTaskToolCalls().length > 0}>
-        <ToolCallGroupCard calls={[...(props.skillToolCalls ?? []), ...nonTaskToolCalls()]} />
+      {/* 技能调用（单独显示在最前面） */}
+      <Show when={skillToolCalls().length > 0}>
+        <ToolCallGroupCard calls={skillToolCalls()} />
+      </Show>
+
+      {/* 其他工具调用 */}
+      <Show when={otherToolCalls().length > 0}>
+        <ToolCallGroupCard calls={otherToolCalls()} />
       </Show>
 
       {/* 子任务进度（Task tool 调用的子 agent 会话） */}
@@ -1252,9 +1261,9 @@ const stateStatus = state.status as string | undefined
       </For>
 
       {/* 文件操作摘要（生成完成后） */}
-      <Show when={!showGenerating() && nonTaskToolCalls().length > 0}>
+      <Show when={!showGenerating() && otherToolCalls().length > 0}>
         <div class="mb-1">
-          <FileOpsSummary calls={nonTaskToolCalls()} />
+          <FileOpsSummary calls={otherToolCalls()} />
         </div>
       </Show>
 

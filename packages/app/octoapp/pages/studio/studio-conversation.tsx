@@ -67,7 +67,15 @@ export function StudioConversation(props: {
                             onBlur={() => setInputImagePreview(undefined)}
                             onClick={() => props.onUseInputImage(src())}
                           >
-                            <img class="studio-user-input-image" src={src()} alt="" />
+                            <img
+                              class="studio-user-input-image"
+                              src={src()}
+                              alt=""
+                              onDragStart={(event) => {
+                                event.dataTransfer?.setData("application/x-octo-studio-image", src())
+                                if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy"
+                              }}
+                            />
                           </button>
                         )}
                       </Show>

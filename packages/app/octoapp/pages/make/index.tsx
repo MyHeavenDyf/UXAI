@@ -687,6 +687,8 @@ const sessionMessagesLoaded = createMemo(() => {
             toolCallMap.delete(callID)
           }
         }
+      } else if (e.type === "session.next.step.ended") {
+        setFilesRefreshKey(k => k + 1)
       } else {
         const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
         console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 
