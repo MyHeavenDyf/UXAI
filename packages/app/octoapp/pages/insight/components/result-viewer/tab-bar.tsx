@@ -4,6 +4,7 @@ import { IconNotepad } from "@/pages/_shell/icons"
 import type { ResultTab } from "./tab-store"
 import { IconTabClose } from "../../icons"
 import { IconFolder } from "../../icons/design-files-icons"
+import { TruncatedText } from "./truncated-text"
 
 export function TabBar(props: {
   tabs: ResultTab[]
@@ -59,13 +60,12 @@ export function TabBar(props: {
                 props.onViewModeChange?.("tabs")
               }}
             >
-              <button
-                type="button"
-                class="flex-1 min-w-0 text-[13px] text-left truncate transition-colors outline-none"
+              <TruncatedText
+                class="flex-1 min-w-0"
+                textClass="block w-full text-[13px] text-left truncate"
                 style={{ "font-weight": isActive() ? "500" : "400" }}
-              >
-                {tab.title}
-              </button>
+                text={tab.title}
+              />
               <button
                 type="button"
                 onClick={(e) => {
