@@ -35,6 +35,7 @@ export const InsightFileListQuery = Schema.Struct({
   category: InsightFileCategory,
   // 子路径(相对 uploads 根):非空时列 <uploads>/<path>/ 下的文件+文件夹,支持文件夹导航。
   path: Schema.optional(Schema.String),
+  recursive: Schema.optional(Schema.Boolean),
 })
 
 export const InsightFileEntry = Schema.Struct({
@@ -105,7 +106,7 @@ export const InsightApi = HttpApi.make("insight")
             identifier: "insight.files.list",
             summary: "List insight session files",
             description:
-              "List files under <projectDir>/insight/<sessionId>/<category>/ (category: uploads|outputs). SPEC-INS-014 §10.",
+              "List files under <projectDir>/insight/<sessionId>/<category>/ (category: uploads|outputs). SPEC-INS-014 §10. Support optional recursive listing via ?recursive=true.",
           }),
         ),
       )

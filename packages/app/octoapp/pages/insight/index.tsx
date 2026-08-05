@@ -744,8 +744,8 @@ function InsightContent() {
       if (!sid) return null
       try {
         const [outputs, uploads] = await Promise.all([
-          fetchInsightFiles(url, dir, sid, "outputs"),
-          fetchInsightFiles(url, dir, sid, "uploads"),
+          fetchInsightFiles(url, dir, sid, "outputs", { recursive: true }),
+          fetchInsightFiles(url, dir, sid, "uploads", { recursive: true }),
         ])
         return {
           generated: outputs.filter((f) => !f.isFolder),

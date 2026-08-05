@@ -167,7 +167,7 @@ function FileManagerInner(props: {
         fileStore.setGeneratedFiles(outputs.map(toInsightFile))
         fileStore.setUploadedFiles(uploads.map(toInsightFile))
       } else {
-        const uploads = await fetchInsightFiles(sdk.url, sdk.directory, props.sessionId, "uploads", store().currentPath)
+        const uploads = await fetchInsightFiles(sdk.url, sdk.directory, props.sessionId, "uploads", { subPath: store().currentPath })
         fileStore.setUploadedFiles(uploads.map(toInsightFile))
         fileStore.setGeneratedFiles([])
       }
