@@ -6,7 +6,12 @@ export type PanelSkill = {
   id?: number
 }
 
-export type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
+export type SkillConfigEntry = { 
+  name?: string
+  description?: string
+  import?: boolean
+  type?: string 
+}
 
 export type SkillConfig = {
   skill?: Record<string, SkillConfigEntry>
