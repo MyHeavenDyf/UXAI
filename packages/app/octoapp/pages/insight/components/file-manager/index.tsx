@@ -133,7 +133,6 @@ function FileManagerInner(props: {
   const fileStore = createInsightFileStore()
   const store = () => fileStore.store
   const [isDragOver, setIsDragOver] = createSignal(false)
-  const [emptyUploadOpen, setEmptyUploadOpen] = createSignal(false)
   let fileInputRef!: HTMLInputElement
   let folderInputRef!: HTMLInputElement
 
@@ -606,8 +605,6 @@ function FileManagerInner(props: {
         <Match when={!showHeader()}>
           <div class="flex flex-col items-center justify-center flex-1 min-h-0 text-center px-8">
             <EmptyFilesState
-              emptyUploadOpen={emptyUploadOpen()}
-              setEmptyUploadOpen={setEmptyUploadOpen}
               onUploadFile={() => fileInputRef?.click()}
               onUploadFolder={() => folderInputRef?.click()}
             />
@@ -624,8 +621,6 @@ function FileManagerInner(props: {
               <Show when={hasAnyFiles()} fallback={
                 <div class="flex flex-col items-center justify-center h-full text-center px-8">
                   <EmptyFilesState
-                    emptyUploadOpen={emptyUploadOpen()}
-                    setEmptyUploadOpen={setEmptyUploadOpen}
                     onUploadFile={() => fileInputRef?.click()}
                     onUploadFolder={() => folderInputRef?.click()}
                   />
@@ -949,18 +944,19 @@ function MenuDivider(): JSX.Element {
 
 // 无文件空状态(顶层空 / 空子文件夹共用):图片 + 标题 + 描述 + 上传按钮 popover。
 // 外层居中容器由调用方提供(顶层用 flex-1 撑满,子文件夹用 h-full 撑满滚动区)。
+// popover 的 open 状态由本组件自管:两个挂载点互斥,各自持有独立 signal,卸载即重置,
+// 避免跨挂载点残留 open 状态导致下一个空状态挂载时 popover 自动弹出。
 function EmptyFilesState(props: {
-  emptyUploadOpen: boolean
-  setEmptyUploadOpen: (v: boolean) => void
   onUploadFile: () => void
   onUploadFolder: () => void
 }): JSX.Element {
+  const [uploadOpen, setUploadOpen] = createSignal(false)
   return (
     <>
       <img src={emptyPng} style={{ width: "150px", height: "150px" }} alt="" draggable={false} />
       <span class="text-[14px] leading-[22px]" style={{ color: "var(--octo-text-secondary)", "margin-bottom": "20px" }}>暂无文件</span>
       <span class="text-[14px] leading-[22px]" style={{ color: "var(--octo-text-primary)", "margin-bottom": "20px" }}>点击上传或拖入本地文件，统一管理会话文件</span>
-      <Kobalte open={props.emptyUploadOpen} onOpenChange={props.setEmptyUploadOpen} modal={false} placement="bottom" gutter={4}>
+      <Kobalte open={uploadOpen()} onOpenChange={setUploadOpen} modal={false} placement="bottom" gutter={4}>
         <Kobalte.Trigger
           as="button"
           type="button"
@@ -990,7 +986,7 @@ function EmptyFilesState(props: {
           >
             <button
               type="button"
-              onClick={() => { props.onUploadFolder(); props.setEmptyUploadOpen(false) }}
+              onClick={() => { props.onUploadFolder(); setUploadOpen(false) }}
               class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[var(--octo-surface-hover)]"
               style={{ height: "36px", "border-radius": "var(--octo-radius-md)", "font-size": "14px", "line-height": "22px", color: "var(--octo-text-primary)" }}
             >
@@ -999,7 +995,7 @@ function EmptyFilesState(props: {
             </button>
             <button
               type="button"
-              onClick={() => { props.onUploadFile(); props.setEmptyUploadOpen(false) }}
+              onClick={() => { props.onUploadFile(); setUploadOpen(false) }}
               class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[var(--octo-surface-hover)]"
               style={{ height: "36px", "border-radius": "var(--octo-radius-md)", "font-size": "14px", "line-height": "22px", color: "var(--octo-text-primary)" }}
             >
