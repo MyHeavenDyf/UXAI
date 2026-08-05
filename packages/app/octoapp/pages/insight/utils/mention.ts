@@ -1,6 +1,7 @@
 import type { Node as PMNode } from "prosemirror-model"
 import type { MentionSelection } from "../components/mention-popover"
 import { editorSchema, type MentionAttrs } from "../components/prosemirror-editor/schema"
+import type { MentionTriggerState } from "../components/prosemirror-editor/plugins/mention-trigger"
 import type { QueuedSend } from "./send-queue"
 
 /**
@@ -82,4 +83,37 @@ export function buildParagraphs(text: string, mentions: MentionAttrs[]): PMNode[
     if (buf) inline.push(editorSchema.text(buf))
     return editorSchema.nodes.paragraph.create(null, inline)
   })
+}
+
+/**
+ * 校验 trigger 的 from/to 在当前 doc 仍是真实的 @query 区间。
+ * mention-trigger 插件的 from/to 不随文档位移 map(@query 之前有删除/插入时坐标会失效),
+ * 凡要拿这对坐标做 delete / insert 前都先过这道守卫,避免越界或删错内容。
+ */
+export function validTrigger(doc: PMNode, t: MentionTriggerState | null): MentionTriggerState | null {
+  if (!t) return null
+  if (t.from < 0 || t.to > doc.content.size) return null
+  return doc.textBetween(t.from, t.to) === `@${t.query}` ? t : null
+}
+
+/**
+ * 从 @query 末尾(trigger.to)起向后跳过连续的 mention + 配对单空格,返回下一个胶囊的插入位点。
+ * 扫描法不维护可变计数器,每次插入前现算 —— 永远落在已有胶囊序列末尾,
+ * 对 query 变化 / deselect / undo-redo 全免疫。配对空格是插入时补的,undo 掉了就停在 mention 后。
+ *
+ * 空格只按「首字符是不是空格」判、每次只跳 1 个位置:相邻文本在 PM 里会并成一个 text node
+ * (排队项回填的 `[mention, " hello"]` 就是这种结构),比对整段 text === " " 会漏判 → 插入点
+ * 停在 mention 后 → 新旧胶囊粘连成 @A@B。
+ */
+export function nextInsertPos(doc: PMNode, trigger: MentionTriggerState): number {
+  let pos = trigger.to
+  let after = doc.resolve(pos).nodeAfter
+  while (after && after.type.name === "mention") {
+    pos += after.nodeSize
+    const space = doc.resolve(pos).nodeAfter
+    if (space?.isText && space.text?.startsWith(" ")) pos += 1
+    else break
+    after = doc.resolve(pos).nodeAfter
+  }
+  return pos
 }

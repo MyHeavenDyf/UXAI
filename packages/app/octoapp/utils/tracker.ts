@@ -15,7 +15,7 @@ interface InteractionParams {
 
 interface UserInfo {
   account?: string
-  uid?: string
+  userId?: string
 }
 
 function getUserInfo(): UserInfo {
@@ -88,11 +88,12 @@ function getPlatform(): number {
 }
 
 function buildBase() {
-  const { account, uid } = getUserInfo()
+  const { account, userId } = getUserInfo()
   const { browserName, browserVersion } = parseBrowser()
   return {
     account: account ?? "",
-    uid,
+    // 上报字段名为 uid,但来源是 localStorage.userInfo.userId(现状字段命名如此)
+    uid: userId,
     browserName,
     browserVersion,
     os: parseOS(),

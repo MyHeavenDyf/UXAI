@@ -136,7 +136,7 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
     }
     return (
       <Dialog title="删除会话" fit class="delete-dialog">
-        <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
+        <span class="text-[14px] leading-[22px] min-w-0 break-words" style={{ color: "rgba(0,0,0,0.9)" }}>
           确定删除「{name()}」？
         </span>
         <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
@@ -167,7 +167,7 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
               when={title.editing}
               fallback={
                 <h1
-                  class="text-[14px] font-medium truncate min-w-0 cursor-default"
+                  class="text-[14px] font-semibold truncate min-w-0 cursor-default"
                   style={{ color: "var(--octo-text-primary, #191919)" }}
                   title={displayTitle()}
                   onDblClick={openTitleEditor}
@@ -202,8 +202,6 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
             </Show>
           </div>
 
-          {props.panelToggle}
-
           <DropdownMenu
             gutter={4}
             placement="bottom-end"
@@ -214,7 +212,7 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
               as={IconButton}
               icon="ellipsis"
               variant="ghost"
-              class="size-6 rounded-md shrink-0 data-[expanded]:bg-surface-base-active"
+              class="size-6 rounded-md shrink-0 cursor-pointer data-[expanded]:bg-surface-base-active"
               aria-label="更多操作"
             />
             <DropdownMenu.Portal>
@@ -239,6 +237,8 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu>
+
+          {props.panelToggle}
         </div>
       )}
     </Show>

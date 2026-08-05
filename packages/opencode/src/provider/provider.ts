@@ -1998,6 +1998,7 @@ const layer: Layer.Layer<
           let userSignal: AbortSignal | null = null
           let chunkSignal: AbortSignal | null = null
           let optionsTimeoutSignal: AbortSignal | null = null
+          let chunkIdleTimeoutMs: number | undefined
           let combined: AbortSignal | null = null
           let firstAbortSource: { source: string; at_ms: number; reason: string } | undefined
           const sourcesSeen = new Set<string>()
@@ -2016,15 +2017,14 @@ const layer: Layer.Layer<
 
             userSignal = (opts.signal as AbortSignal | undefined) ?? null
             chunkSignal = chunkAbortCtl?.signal ?? null
-            // 本地 provider 兜底：用户没配 timeout 时注入 5 分钟默认值，
-            // 防止 dispatcher headersTimeout/bodyTimeout 之外没有上层超时，
-            // 避免服务端死锁导致 fetch 永远挂起。
-            const effectiveTimeout =
-              options["timeout"] === undefined && shouldUseBypassDispatcher(model.providerID, url)
-                ? 5 * 60 * 1000
-                : options["timeout"]
-            if (effectiveTimeout !== undefined && effectiveTimeout !== null && effectiveTimeout !== false) {
-              optionsTimeoutSignal = AbortSignal.timeout(effectiveTimeout as number)
+            // 本地 provider 兜底 idle timeout：不设固定 wall-clock 超时，
+            // 改由 wrapSSE 对每个 chunk 设 idle timeout —— 最后一个 chunk 之后
+            // 持续无新数据才 abort，防止服务端死锁且不打断正常长输出。
+            // 用户可通过 options.timeout 显式覆盖（设为 false 禁用）。
+            chunkIdleTimeoutMs =
+              chunkTimeout ?? (shouldUseBypassDispatcher(model.providerID, url) ? 5 * 60 * 1000 : undefined)
+            if (options["timeout"] !== undefined && options["timeout"] !== null && options["timeout"] !== false) {
+              optionsTimeoutSignal = AbortSignal.timeout(options["timeout"] as number)
             }
           } catch (e) {
             try {
@@ -2200,7 +2200,7 @@ const layer: Layer.Layer<
             return resOrWrapped
           }
 
-          const wrapped = wrapSSE(resOrWrapped, chunkTimeout, chunkAbortCtl, seq)
+          const wrapped = wrapSSE(resOrWrapped, chunkIdleTimeoutMs ?? 0, chunkAbortCtl, seq)
           try {
             fetchDebug.info(`fetch #${seq} wrapped SSE`, {
               seq,

@@ -19,19 +19,19 @@ import type { ResultTab, ResultTabType } from "../components/result-viewer/tab-s
 // ── mock tab 工厂:覆盖 6 种产出类型,标题长短混合贴近真实文件名 ──────────
 const MOCK_TITLES: { title: string; type: ResultTabType }[] = [
   { title: "用户访谈纪要", type: "markdown" },
-  { title: "竞品功能对比表", type: "table" },
-  { title: "需求优先级思维导图", type: "mindmap" },
+  { title: "竞品功能对比表.csv", type: "file" },
+  { title: "需求优先级思维导图.json", type: "json" },
   { title: "调研报告 V3 终稿", type: "file" },
   { title: "原始问卷数据.json", type: "json" },
   { title: "落地页交互原型", type: "html" },
   { title: "用户画像与典型场景拆解卡片", type: "markdown" },
-  { title: "满意度评分汇总", type: "table" },
-  { title: "用户旅程地图", type: "mindmap" },
+  { title: "满意度评分汇总.xlsx", type: "file" },
+  { title: "用户旅程地图.json", type: "json" },
   { title: "访谈录音转写_第二批.file", type: "file" },
   { title: "埋点字段定义.json", type: "json" },
   { title: "数据看板原型(高保真)", type: "html" },
   { title: "结论与下一步行动建议", type: "markdown" },
-  { title: "渠道转化漏斗表", type: "table" },
+  { title: "渠道转化漏斗表.csv", type: "file" },
 ]
 
 function makeTabs(n: number): ResultTab[] {

@@ -1,4 +1,4 @@
-import { createSignal, Show, type JSX } from "solid-js"
+import { createEffect, createSignal, Show, type JSX } from "solid-js"
 import { useNavigate } from "@solidjs/router"
 import { InsightSessionList } from "./components/session-list"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -14,17 +14,19 @@ import { Icon } from "@opencode-ai/ui/icon"
  *   - bottom 底部 技能库/资产库/设置(D7,同上)
  * octo-agent 本地不传 → 空着即可。
  */
-const WIDTH_KEY = "octo:insight:sidebar-width"
+export const SIDEBAR_WIDTH_KEY = "octo:insight:sidebar-width"
+export const SIDEBAR_MIN_W = 200
+export const SIDEBAR_MAX_W = 360
+export const SIDEBAR_DEFAULT_W = 296
 
-const MIN_W = 200
-const MAX_W = 420
-function initialWidth(): number {
-  const stored = localStorage.getItem(WIDTH_KEY)
+export function initialSidebarWidth(): number {
+  const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY)
   if (stored) {
     const n = parseInt(stored, 10)
-    if (!isNaN(n) && n >= MIN_W && n <= MAX_W) return n
+    // 钳制而非丢弃:max 从 420→360 后,已存 360–420 的值会被静默重置回默认;这里钳到 [MIN,MAX]。
+    if (!isNaN(n)) return Math.max(SIDEBAR_MIN_W, Math.min(SIDEBAR_MAX_W, n))
   }
-  return 296
+  return SIDEBAR_DEFAULT_W
 }
 
 function ChevronIcon(props: { collapsed: boolean }): JSX.Element {
@@ -41,10 +43,13 @@ function ChevronIcon(props: { collapsed: boolean }): JSX.Element {
   )
 }
 
-export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element }): JSX.Element {
-  const [width, setWidth] = createSignal(initialWidth())
+export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element; onWidthChange?: (w: number) => void }): JSX.Element {
+  const [width, setWidth] = createSignal(initialSidebarWidth())
   const [collapsed, setCollapsed] = createSignal(false)
   const navigate = useNavigate()
+
+  // 把当前侧栏宽同步给宿主页面,用于动态计算「侧栏收起」断点(对齐 Design make-layout)。
+  createEffect(() => props.onWidthChange?.(width()))
 
   function handleResize(e: MouseEvent) {
     e.preventDefault()
@@ -52,11 +57,11 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element 
     const startW = width()
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
-    const onMove = (ev: MouseEvent) => setWidth(Math.max(MIN_W, Math.min(MAX_W, startW + ev.clientX - startX)))
+    const onMove = (ev: MouseEvent) => setWidth(Math.max(SIDEBAR_MIN_W, Math.min(SIDEBAR_MAX_W, startW + ev.clientX - startX)))
     const onUp = () => {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
-      localStorage.setItem(WIDTH_KEY, String(width()))
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width()))
       document.removeEventListener("mousemove", onMove)
       document.removeEventListener("mouseup", onUp)
     }
@@ -66,7 +71,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element 
 
   return (
     <div
-      class="shrink-0 relative flex flex-col h-full overflow-hidden"
+      class="shrink-0 relative flex flex-col h-full"
       style={{
         width: `${width()}px`,
         background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
@@ -114,7 +119,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element 
       </div>
 
       {/* 会话列表 — 仅此区域可滚动;收起时容器保留占位,底部槽不上移 */}
-      <div data-slot="list-scroll" class="flex-1 min-h-0 overflow-y-auto px-[12px]">
+      <div data-slot="list-scroll" class="flex-1 min-h-0 overflow-y-auto px-[12px] z-12">
         <Show when={!collapsed()}>
           <InsightSessionList />
         </Show>

@@ -271,7 +271,14 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         type: "idle",
       },
   )
-  const working = createMemo(() => status()?.type !== "idle")
+  const working = createMemo(() => {
+    if (status()?.type !== "idle") return true
+    const id = params.id
+    if (!id) return false
+    return (sync.data.message[id] ?? []).some(
+      (item) => item.role === "assistant" && typeof item.time.completed !== "number",
+    )
+  })
   const imageAttachments = createMemo(() =>
     prompt.current().filter((part): part is ImageAttachmentPart => part.type === "image"),
   )

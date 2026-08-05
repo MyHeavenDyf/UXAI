@@ -1,5 +1,5 @@
 import type { JSX } from "solid-js"
-import { IconCardPlan } from "../../icons"
+import { IconDesignPlan } from "@/pages/_shell/icons"
 
 /**
  * 设计规划阶段引导横条。
@@ -26,7 +26,7 @@ export function PlanEntryBanner(props: {
       }}
     >
       <div class="flex items-center gap-[6px] py-[16px] px-[20px] pb-[12px]">
-        <IconCardPlan size={20} />
+        <IconDesignPlan size={20} />
         <span
           class="text-[14px] font-bold"
           style={{ "line-height": "22px", color: "rgba(0,0,0,0.9)" }}

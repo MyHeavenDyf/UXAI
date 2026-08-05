@@ -3,6 +3,7 @@ import type { JSX } from "solid-js"
 import type { ResultTab } from "./tab-store"
 import { IconTabClose, IconCardPlan } from "../../icons"
 import { IconFolder } from "../../icons/design-files-icons"
+import { IconNotepad } from "@/pages/_shell/icons"
 
 export function TabBar(props: {
   tabs: ResultTab[]
@@ -13,8 +14,12 @@ export function TabBar(props: {
   onViewModeChange?: (mode: "tabs" | "files" | "plan") => void
   /** 设计规划入口 — plan artifact 存在时显示,点击切换到 plan 模式 */
   showPlanEntry?: boolean
+  /** 设计规划流程是否活跃（即使 plan artifact 尚未生成） */
+  planActive?: boolean
   planConfirmed?: boolean
   planEnded?: boolean
+  /** 右侧面板以抽屉展开时显示的收起回调,提供则在头部右侧渲染收起按钮 */
+  onCollapseDrawer?: () => void
 }): JSX.Element {
   return (
     <div
@@ -37,9 +42,8 @@ export function TabBar(props: {
             "line-height": "22px",
             gap: "4px",
             height: "32px",
-            width: "108px",
+            "min-width": "108px",
             "box-sizing": "border-box",
-            "flex": "0 0 108px",
             color: props.viewMode === "files" ? "#0a59f7" : "#666",
             background: props.viewMode === "files" ? "rgba(10, 89, 247, 0.08)" : "rgba(0, 0, 0, 0.05)",
           }}
@@ -52,7 +56,7 @@ export function TabBar(props: {
         </button>
 
         {/* 设计规划入口 — plan artifact 存在时出现,点击切换到 plan 模式 */}
-        <Show when={(props.showPlanEntry || props.planEnded || props.viewMode === "plan") && props.onViewModeChange}>
+        <Show when={(props.showPlanEntry || props.viewMode === "plan" || props.planActive) && props.onViewModeChange}>
           <div
             class="shrink-0"
             style={{
@@ -93,7 +97,7 @@ export function TabBar(props: {
       <div
         class="octo-tab-scroller flex items-center gap-2 flex-1 min-w-0 overflow-x-auto"
       >
-        <For each={props.tabs}>
+        <For each={props.tabs.filter((t) => t.type !== "design-plan")}>
           {(tab) => {
             const isActive = () => tab.id === props.activeId && props.viewMode === "tabs"
             return (
@@ -121,6 +125,22 @@ export function TabBar(props: {
           }}
         </For>
       </div>
+
+      {/* 抽屉收起按钮 — 独立容器,与左侧操作区分,仅抽屉展开时出现 */}
+      <Show when={props.onCollapseDrawer}>
+        <div class="flex items-center justify-end shrink-0" style={{ "margin-left": "4px" }}>
+          <button
+            type="button"
+            data-drawer-toggle="make-right"
+            class="make-icon-btn"
+            style={{ display: "flex", "align-items": "center", "justify-content": "center", width: "24px", height: "24px", cursor: "pointer", background: "none", border: "none", padding: "0", "border-radius": "4px", flex: "none" }}
+            onClick={props.onCollapseDrawer}
+            title="收起"
+          >
+            <IconNotepad size={16} />
+          </button>
+        </div>
+      </Show>
     </div>
   )
 }
