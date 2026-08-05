@@ -1244,6 +1244,8 @@ const sessionMessagesLoaded = createMemo(() => {
 
   // 确认后等待主 agent 响应的过渡状态
   const [planConfirmPending, setPlanConfirmPending] = createSignal(false)
+  // confirm-plan 发送时的界面显示文本（仅显示指令，不显示方案内容）
+  let _confirmPlanDisplayText: string | undefined
 
   // Phase 2 异步检测子 session 期间阻止 banner 闪现（跨重启恢复时的过渡状态）
   const [phase2Pending, setPhase2Pending] = createSignal(false)
@@ -1331,8 +1333,16 @@ const sessionMessagesLoaded = createMemo(() => {
     setPlanConfirmPending(true)  // 过渡状态：保持 plan 视图显示"正在生成 HTML..."
     const cmd = identifier ? `[confirm-plan ${identifier}]` : `[confirm-plan]`
 
-    // 只向主 session 发送确认指令，通知主 agent 设计规划已完成，开始生成 HTML
-    sendMessage(mainSid, cmd, modelKey).catch((err) => {
+    // 获取方案内容，让主 agent 能看到方案上下文
+    const plan = planCard()
+    const planContent = plan?.content ?? ""
+    const message = planContent
+      ? `${cmd}\n\n以下是已确认的设计方案，请基于此方案生成 HTML：\n\n${planContent}`
+      : cmd
+
+    // 向主 session 发送确认指令 + 方案内容：界面只显示 [confirm-plan]，方案内容作为隐藏上下文传给模型
+    _confirmPlanDisplayText = cmd
+    sendMessage(mainSid, message, modelKey).catch((err) => {
       console.error("[MakePage] confirm plan to main session failed", err)
     })
 
@@ -1404,6 +1414,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (hasChildPlanSession()) return false
     // 如果用户已结束该 session 的设计规划,不显示 banner
     if (planEndedForSession() === sid) return false
+    // 如果 skip/confirm 已关闭该 session 的规划通道（localStorage 持久化标记），不显示 banner
+    if (localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid)) return false
     // 如果 localStorage 中有缓存的子 session ID，不显示 banner（跨重启恢复）
     if (localStorage.getItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + sid)) return false
     // 如果 session 切换缓存中有该 session 的规划子 session，不显示 banner
@@ -2011,7 +2023,8 @@ const sessionMessagesLoaded = createMemo(() => {
 
       // Store display text for rendering (user's visible text with @mentions)
       const hasMentions = selections.length > 0
-      const userDisplayText = hasMentions ? displayText : undefined
+      const userDisplayText = _confirmPlanDisplayText ?? (hasMentions ? displayText : undefined)
+      _confirmPlanDisplayText = undefined
 
       let promptText = processedText
 
