@@ -1006,6 +1006,18 @@ const sessionMessagesLoaded = createMemo(() => {
       const api = (window as unknown as { api?: { getSkillConfig?: () => Promise<import("./components/skill-config-types").SkillConfig> } }).api
       const fullConfig = await api?.getSkillConfig?.()
       
+      console.log('[loadSkillConfig] loaded config:', {
+        hasConfig: !!fullConfig,
+        configKeys: fullConfig ? Object.keys(fullConfig) : [],
+        hasSkill: !!fullConfig?.skill,
+        skillKeys: fullConfig?.skill ? Object.keys(fullConfig.skill) : [],
+        firstEntry: fullConfig?.skill ? Object.entries(fullConfig.skill)[0] : null,
+        firstEntryDetail: fullConfig?.skill ? {
+          key: Object.keys(fullConfig.skill)[0],
+          value: Object.values(fullConfig.skill)[0],
+        } : null,
+      })
+      
       if (fullConfig) {
         setSkillConfig(fullConfig)
       } else {
