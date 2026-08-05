@@ -1187,6 +1187,10 @@ function InsightContent() {
     // 读不到 SKILL.md 的技能要显式告知:胶囊已在气泡里,若静默跳过,用户会以为技能已生效(实际没进上下文)。
     // 覆盖三种失败:SKILL.md 缺失({success:false})、IPC 抛错、非 Electron 渠道(getSkillContent 不存在 → res undefined)。
     const failedSkills: string[] = []
+    // SPEC-INS-029:随 promptAsync 的 extra.skills 上报,服务端据此发 skill.used(3b 不经服务端技能概念,
+    // 两个既有发布点都不触发)。**只报注入成功的**——failedSkills 那批没进上下文,报了会让统计虚高,
+    // 也和用户看到的「技能未生效」toast 自相矛盾。
+    const injectedSkills: string[] = []
     if (opts.mentions?.skills.length) {
       const api = getDesktopApi()
       for (const name of opts.mentions.skills) {
@@ -1194,6 +1198,7 @@ function InsightContent() {
           const res = await api?.getSkillContent?.(name)
           if (res?.success && res.content) {
             mentionBlocks.push(`<skill_content name="${name}">\n${res.content}\n</skill_content>`)
+            injectedSkills.push(name)
           } else {
             failedSkills.push(name)
             console.warn("[octo:mention] skill content missing, skip inject", { name, ok: res?.success })
@@ -1371,6 +1376,9 @@ function InsightContent() {
         parts,
         messageID,
         tools: toolGate,
+        // SPEC-INS-029:声明本轮激活的技能,服务端 prompt() 据此 publish skill.used。无技能时不传,
+        // 保持 payload 干净(extra 是共享自由字段,studio 也在用,别塞空对象进去)。
+        ...(injectedSkills.length ? { extra: { skills: injectedSkills } } : {}),
       })
       // chip turn 结果对账登记(spec §5:chip turn 工具调用结果):busy→idle 时消费
       if (opts.chip) {
