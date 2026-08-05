@@ -55,6 +55,8 @@ import { ArchiveDialog } from "@/components/dialog-archive"
 import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import { useProjectSelection } from "@/hooks/use-project-selection"
 import * as sessionMap from "./utils/session-map"
+// jk-j60099994-replace-with-wx372822-pattern-topixso-1-start
+// jk-j60099994-replace-with-wx372822-pattern-topixso-1-end
 
 const AGENT_NAME = "proto_triage"
 
@@ -1199,13 +1201,8 @@ function PatternContent() {
   async function handleCanvasEditing() {
     const sid = params.id
     if(!sid) return
-
-    // await transformerPipeline?.({
-    //   previewData: pendingPreviewData()[sid],
-    //   sessionId: sid,
-    //   title: sessionInfo()?.title ?? sid ?? "export",
-    //   projectSelection,
-    // })
+    // jk-j60099994-replace-with-wx372822-pattern-topixso-2-start
+    // jk-j60099994-replace-with-wx372822-pattern-topixso-2-end
   }
 
   // 实时预览
