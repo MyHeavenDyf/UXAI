@@ -46,6 +46,7 @@ import type {
   StudioGenerationStatus,
   StudioImage,
   StudioImageTool,
+  StudioInputImage,
   StudioMode,
 } from "./studio/types"
 import {
@@ -99,6 +100,12 @@ import { getArtifactRelativePath, getArtifactServeUrl } from "./make/utils/artif
 type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
 const STUDIO_REGENERATE_DISPLAY_PROMPT = "再次生成"
 const STUDIO_REGENERATE_ASSISTANT_TEXT = "好的，我会按当前结果的配置重新生成。"
+
+function sameStudioInputImages(left?: StudioInputImage[], right?: StudioInputImage[]) {
+  if (left === right) return true
+  if ((left?.length ?? 0) !== (right?.length ?? 0)) return false
+  return left?.every((image, index) => image.id === right?.[index]?.id && image.url === right[index]?.url) ?? true
+}
 
 // 探测图片真实宽高，映射到最接近的 Studio 比例；用于编辑类结果保留源图比例
 async function probeImageAspectRatio(url: string): Promise<StudioAspectRatio | undefined> {
@@ -848,7 +855,10 @@ export default function StudioPage() {
   createEffect(on(displayTurns, (next) => {
     const ids = new Set(next.map((turn) => turn.id))
     batch(() => {
-      next.forEach((turn) => setDisplayTurnStore(turn.id, reconcile(turn)))
+      next.forEach((turn) => {
+        const previous = displayTurnStore[turn.id]
+        setDisplayTurnStore(turn.id, reconcile(previous && sameStudioInputImages(previous.inputImages, turn.inputImages) ? { ...turn, inputImages: previous.inputImages } : turn))
+      })
       setDisplayTurnStore(produce((turns) => {
         Object.keys(turns)
           .filter((id) => !ids.has(id))
