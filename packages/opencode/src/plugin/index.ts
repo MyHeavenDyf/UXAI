@@ -22,6 +22,8 @@ import { AzureAuthPlugin } from "./azure"
 import { ModelHeadersPlugin } from "./model-headers"
 // proto agent 提示词按主题动态覆盖(替代 122f218cb 在 llm.ts 里的硬编码)
 import { ProtoThemePlugin } from "./proto-theme"
+// proto agent 按 agent 名控制 DeepSeek-v4 思考模式(module_create=high,其余=disabled)
+import { ProtoThinkingPlugin } from "./proto-thinking"
 // octo 自有 server 插件:MCP 工具执行前注入精确 S3 URL(见 ../agent/octo-upload-inject.ts)
 import { OctoUploadInjectPlugin } from "../agent/octo-upload-inject"
 // octo 自有 server 插件:insight 会话 write 相对落点重定向到会话 outputs/(见 ../agent/octo-outputs-redirect.ts)
@@ -73,6 +75,7 @@ const INTERNAL_PLUGINS: PluginInstance[] = [
   AzureAuthPlugin,
   ModelHeadersPlugin,
   ProtoThemePlugin,
+  ProtoThinkingPlugin,
   OctoUploadInjectPlugin,
   OctoOutputsRedirectPlugin,
 ]
