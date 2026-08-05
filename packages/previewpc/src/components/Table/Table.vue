@@ -6,6 +6,7 @@ import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
 import "./Table.less"
+type TableSize = "" | "large" | "small" | "default"
 const fixedEnum = {
   start: "left",
   end: "right",
@@ -27,6 +28,9 @@ const id = computed(() => node.id)
 const className = computed(() => properties.className)
 const rowClassName = computed(() => properties.rowClassName)
 const rowKey = computed(() => properties.rowKey)
+const size = computed(() => {
+  return (properties.size || "default") as TableSize
+})
 
 // 行展开
 const expandable = computed(() => properties.expandable)
@@ -181,6 +185,7 @@ const tableData = computed(() => {
       :row-key="rowKey"
       :highlight-current-row="selectType === 'radio'"
       :row-class-name="rowClassName"
+      :size="size"
       :expand-row-keys="hasExpandable ? expandedKeys : undefined"
       @selection-change="handleSelectionChange"
       @expand-change="handleExpandChange"

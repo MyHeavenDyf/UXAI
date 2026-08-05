@@ -123,13 +123,84 @@ export function resolveSvgCacheKey(name: string, resolvedShape?: string, color?:
 }
 
 /**
+ * 将 hex 颜色字符串转为 RGB 数组
+ * @param hex 如 "#0067D1" 或 "0067D1"
+ * @returns [R, G, B] 数组，解析失败返回 null
+ */
+function hexToRgb(hex: string): [number, number, number] | null {
+  const h = hex.replace(/^#/, '')
+  if (h.length !== 6) return null
+  const r = parseInt(h.substring(0, 2), 16)
+  const g = parseInt(h.substring(2, 4), 16)
+  const b = parseInt(h.substring(4, 6), 16)
+  if (isNaN(r) || isNaN(g) || isNaN(b)) return null
+  return [r, g, b]
+}
+
+/**
+ * 计算两个 RGB 颜色之间的欧氏距离（越小越相似）
+ */
+function rgbDistance(a: [number, number, number], b: [number, number, number]): number {
+  return Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2)
+}
+
+/**
+ * 计算两组颜色值的相似度距离
+ * - 主色（第一个颜色）权重最高
+ * - 次色权重较低
+ * - 如果两组颜色数量不同，只比较各自的主色
+ */
+function colorGroupDistance(targetHexes: string[], apiHexes: string[]): number {
+  const t0 = hexToRgb(targetHexes[0])
+  const a0 = hexToRgb(apiHexes[0])
+  if (!t0 || !a0) return Infinity
+
+  // 主色距离权重 0.7
+  let distance = rgbDistance(t0, a0) * 0.7
+
+  // 次色距离权重 0.3（如果双方都有次色）
+  if (targetHexes.length > 1 && apiHexes.length > 1) {
+    const t1 = hexToRgb(targetHexes[1])
+    const a1 = hexToRgb(apiHexes[1])
+    if (t1 && a1) {
+      distance += rgbDistance(t1, a1) * 0.3
+    }
+  }
+
+  return distance
+}
+
+/**
+ * 从颜色列表中找到与目标颜色最相似的颜色 ID
+ * @param targetHexes 目标颜色 hex 值数组（如 ["#0067D1"] 或 ["#0067D1", "#8ABEF3"]）
+ * @param colorsByType 同类型下的 API 颜色列表
+ * @returns 最相似颜色的 ID，无法计算时返回 null
+ */
+function findClosestColorId(targetHexes: string[], colorsByType: Array<{ id: string; value: string }>): string | null {
+  let minDistance = Infinity
+  let closestId: string | null = null
+
+  for (const c of colorsByType) {
+    const apiHexes = c.value.split(',').map(v => v.trim())
+    const dist = colorGroupDistance(targetHexes, apiHexes)
+    if (dist < minDistance) {
+      minDistance = dist
+      closestId = c.id
+    }
+  }
+
+  return closestId
+}
+
+/**
  * 解析 API colorId：先按类型匹配颜色列表，再按颜色值匹配具体 colorId
  *
  * 步骤：
  *   1. resolvedShape → styleKey → styleValue（如 circle → round_bottom2 → 圆底托）
  *   2. 从 iconConfig.colors 中筛选 c.style === styleValue 的颜色列表
  *   3. a2uiColor → 根据 resolvedShape 选择 color/twoColor/threeColor 条目，解析为 hex 后匹配
- *   4. 未匹配到则取该类型下的第一个颜色作为默认
+ *   4. 未精确匹配到时，按 RGB 色距匹配最相似的颜色
+ *   5. 仍无法匹配则取该类型下的第一个颜色作为默认
  */
 
 export function resolveApiColorId(resolvedShape: string, a2uiColor?: string): string {
@@ -169,6 +240,10 @@ export function resolveApiColorId(resolvedShape: string, a2uiColor?: string): st
         return hexValues.every(h => apiValues.includes(h))
       })
       if (match) return match.id
+
+      // ④ 精确匹配失败，按 RGB 色距匹配最相似的颜色
+      const closestId = findClosestColorId(hexValues, colorsByType)
+      if (closestId) return closestId
     }
 
     // fallback：用 color 单色条目尝试匹配
@@ -176,9 +251,13 @@ export function resolveApiColorId(resolvedShape: string, a2uiColor?: string): st
     const hexColor = (themeColors as Record<string, string>)[cssVar] || a2uiColor
     const match = colorsByType.find(c => c.value.split(',').includes(hexColor))
     if (match) return match.id
+
+    // 单色 fallback 也尝试相似色匹配
+    const closestId = findClosestColorId([hexColor], colorsByType)
+    if (closestId) return closestId
   }
 
-  // ④ 未匹配到颜色，取该类型下的默认颜色
+  // ⑤ 仍无法匹配，取该类型下的默认颜色
   return colorsByType[0].id
 }
 

@@ -46,7 +46,7 @@ const { isDark } = useTheme()
 const props = defineProps<A2UIComponentProps<ButtonNode>>()
 const { node, surfaceId } = props
 const properties = node.properties
-const { resolveValue, sendAction } = useA2UIComponent(node, surfaceId)
+const { resolveValue, sendAction, setState } = useA2UIComponent(node, surfaceId)
 
 defineOptions({ inheritAttrs: false })
 
@@ -122,22 +122,34 @@ const iconNameForRef = computed(() => {
   return name || undefined
 })
 
-const resolvedIcon = computed(() => {
-  let iconColor = '#191919'
+const iconColor = computed(() => {
+  let color = '#191919'
   if (isLink.value) {
-    iconColor = disabled.value ? (isDark.value ? '#004EA8' : '#8ABEF3') : '#0067D1'
+    color = disabled.value ? (isDark.value ? '#004EA8' : '#8ABEF3') : '#0067D1'
+  } else if (onlyIcon.value){
+    if(disabled.value) {
+      color = isDark.value ? '#939393' : '#c9c9c9'
+    } else {
+      color = isDark.value ? '#FFFFFF' : '#191919'
+    }
   } else {
     const isWhiteText = ["primary", "danger", "success", "warning"].some(i => i === type.value)
     if(disabled.value) {
-      iconColor = isDark.value ? '#939393' : (isWhiteText ? '#FFFFFF' : '#c9c9c9')
+      color = isDark.value ? '#939393' : (isWhiteText ? '#FFFFFF' : '#c9c9c9')
+    } else {
+      color = (isWhiteText || isDark.value) ? '#FFFFFF' : '#191919'
     }
-    iconColor = (isWhiteText || isDark.value) ? '#FFFFFF' : '#191919'
   }
-  const baseIconRef = useIconComponentRef(iconNameForRef, { 
-    strokeWidth: 1,
-    shape: 'lined', 
-    color: iconColor
-  })
+  return color
+})
+
+const baseIconRef = useIconComponentRef(iconNameForRef, computed(() => ({
+  strokeWidth: 1,
+  shape: 'lined',
+  color: iconColor.value,
+})))
+
+const resolvedIcon = computed(() => {
   if (!baseIconRef.value?.component || !iconName.value) return null
   const base = baseIconRef.value
   const isHui = "iconColor" in base.props
@@ -162,6 +174,16 @@ const shape = computed(() => {
 })
 
 const handleClick = () => {
+  // Handle onClick (setState action)
+  const onClick = properties?.onClick
+  if (onClick && onClick.action === "setState" && onClick.args) {
+    const { path, value } = onClick.args
+    if (path) {
+      setState(path, value)
+    }
+    return
+  }
+  // Handle legacy action format
   if (!properties?.action) return
   try {
     sendAction(properties.action)
