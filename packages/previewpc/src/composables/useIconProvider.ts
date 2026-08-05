@@ -1,12 +1,10 @@
 import { ref, provide, inject, type Ref } from 'vue'
-import { resolveAllIcons } from '../utils/resolveIcons'
-import { fetchIconConfig, svgCache, svgCacheVersion } from '../utils/fetchSvg'
+import { resolveAllIcons, selectBestIcon } from '../utils/resolveIcons'
+import { fetchIconConfig, svgCache, svgCacheVersion, resolveSvgCacheKey } from '../utils/fetchSvg'
 import { IconRequestQueue } from '../utils/iconRequestQueue'
-import { resolveSvgCacheKey } from '../utils/fetchSvg'
 import type { IconInfoEntry } from '../utils/resolveIcons'
 export { type IconInfoEntry } from '../utils/resolveIcons'
-export { svgCache, svgCacheVersion } from '../utils/fetchSvg'
-export { resolveSvgCacheKey } from '../utils/fetchSvg'
+export { svgCache, svgCacheVersion, resolveSvgCacheKey, resolveApiShape } from '../utils/fetchSvg'
 
 export const ICON_PROVIDER_KEY = Symbol('IconProvider')
 
@@ -15,7 +13,7 @@ export interface IconProviderContext {
   iconInfoMap: Ref<Record<string, IconInfoEntry>>
   svgCache: Map<string, string>
   svgCacheVersion: Ref<number>
-  requestSvg: (name: string, shape: string, color: string) => void
+  requestSvg: (name: string, shape: string, color: string, isDark?: boolean) => void
 }
 
 // ========== 全局单例 ==========
@@ -58,18 +56,17 @@ export function useIconProvider(): IconProviderContext {
 }
 
 /** 渲染时按需请求 SVG：查缓存→无则入队 */
-export function requestSvg(name: string, shape: string, color: string): void {
+export function requestSvg(name: string, shape: string, color: string, isDark?: boolean): void {
   const entry = iconInfoMap.value[name]
   if (!entry?.url) return
 
-  const cacheKey = resolveSvgCacheKey(name, shape, color)
+  const cacheKey = resolveSvgCacheKey(name, shape, color, isDark)
   if (svgCache.has(cacheKey)) return  // 已缓存，无需请求
 
-  iconRequestQueue.enqueue(name, shape, color, entry.url)
+  iconRequestQueue.enqueue(name, shape, color, entry.url, isDark)
 }
 
 // ========== 兜底：单图标名 iconInfo 请求 ==========
-
 const API_BASE = import.meta.env.VITE_ICON_API_BASE || ''
 const ICON_API_URL = `${API_BASE}/assetRepository/iconPlus/getIconInfo`
 /** 已尝试请求 iconInfo 的 name：正在请求中 或 已请求但未找到 */
@@ -98,12 +95,8 @@ export function requestIconInfo(name: string): void {
           group: icon.group || [],
           url: icon.url || '',
         }))
-        // 匹配策略与 resolveIcons.ts 一致：系统图标组 → name 匹配 → 首个
-        let selected = icons.find((icon: { name: string; group: string[]; url: string }) =>
-          Array.isArray(icon.group) && icon.group.some((g: string) => g.includes('系统图标'))
-        ) || icons.find((icon: { name: string; group: string[]; url: string }) =>
-          icon.name?.toLowerCase().includes(name.toLowerCase())
-        ) || icons[0]
+        // 匹配策略：系统图标组 → name 匹配 → 首个
+        let selected = selectBestIcon(icons, name)
 
         if (selected?.url) {
           iconInfoMap.value = { ...iconInfoMap.value, [name]: { name: selected.name, url: selected.url } }

@@ -46,7 +46,7 @@ const { isDark } = useTheme()
 const props = defineProps<A2UIComponentProps<ButtonNode>>()
 const { node, surfaceId } = props
 const properties = node.properties
-const { resolveValue, sendAction } = useA2UIComponent(node, surfaceId)
+const { resolveValue, sendAction, setState } = useA2UIComponent(node, surfaceId)
 
 defineOptions({ inheritAttrs: false })
 
@@ -70,6 +70,8 @@ const id = computed(() => node.id)
 const className = computed(() => node.properties.className)
 
 const label = computed(() => resolveValue(properties.value) as string)
+
+const disabled = computed(() => (resolveValue(properties.disabled) as boolean) || false)
 
 const type = ref<ButtonType>("")
 const isLink = ref(resolveValue(properties?.types) === "link")
@@ -95,7 +97,6 @@ const onlyIcon = computed(() => {
 })
 const iconPlacement = computed(() => properties.iconPlacement || "start")
 
-// ---- 异步图标解析 ----
 function resolveIconColorForType(): string {
   if (!onlyIcon.value) return "currentColor"
   switch (type.value) {
@@ -121,10 +122,31 @@ const iconNameForRef = computed(() => {
   return name || undefined
 })
 
+const iconColor = computed(() => {
+  let color = '#191919'
+  if (isLink.value) {
+    color = disabled.value ? (isDark.value ? '#004EA8' : '#8ABEF3') : '#0067D1'
+  } else if (onlyIcon.value){
+    if(disabled.value) {
+      color = isDark.value ? '#939393' : '#c9c9c9'
+    }
+  } else {
+    const isWhiteText = ["primary", "danger", "success", "warning"].some(i => i === type.value)
+    if(disabled.value) {
+      color = isDark.value ? '#939393' : (isWhiteText ? '#FFFFFF' : '#c9c9c9')
+    }
+    color = (isWhiteText || isDark.value) ? '#FFFFFF' : '#191919'
+  }
+  return color
+})
+
+const baseIconRef = useIconComponentRef(iconNameForRef, computed(() => ({
+  strokeWidth: 1,
+  shape: 'lined',
+  color: iconColor.value,
+})))
+
 const resolvedIcon = computed(() => {
-  const iconColor = onlyIcon.value ? '#0067D1' : 
-  (!type.value || type.value === 'default') ? '#191919' : '#FFFFFF'
-  const baseIconRef = useIconComponentRef(iconNameForRef, { strokeWidth: 1, color: iconColor})
   if (!baseIconRef.value?.component || !iconName.value) return null
   const base = baseIconRef.value
   const isHui = "iconColor" in base.props
@@ -136,7 +158,6 @@ const resolvedIcon = computed(() => {
           size: resolveIconSize(),
           type: base.props.type,
           iconColor: [colorValue],
-          hoverColor: onlyIcon.value ? [isDark.value ? 'var(--brand-20)' : 'var(--brand-40)'] : undefined,
         }
       : { size: resolveIconSize(), color: colorValue, "stroke-width": 1 },
   }
@@ -150,6 +171,16 @@ const shape = computed(() => {
 })
 
 const handleClick = () => {
+  // Handle onClick (setState action)
+  const onClick = properties?.onClick
+  if (onClick && onClick.action === "setState" && onClick.args) {
+    const { path, value } = onClick.args
+    if (path) {
+      setState(path, value)
+    }
+    return
+  }
+  // Handle legacy action format
   if (!properties?.action) return
   try {
     sendAction(properties.action)
@@ -169,7 +200,8 @@ const handleClick = () => {
     :type="type"
     :color="color"
     :size="size"
-    :link="isLink" 
+    :disabled="disabled"
+    :link="isLink"
     @click="handleClick">
     <template v-if="iconName && resolvedIcon">
       <component 

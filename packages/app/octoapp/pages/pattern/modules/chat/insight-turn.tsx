@@ -511,16 +511,15 @@ export function InsightTurn(props: {
                   <span class="truncate title">{label()}</span>
                 </div>
                 <span class="flex-shrink-0 flex items-center justify-center size-6 rounded-md hover:bg-black/5 transition-colors">
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    class="transition-transform"
-                    style={{ transform: contentCollapsed() ? "rotate(-90deg)" : "rotate(90deg)" }}
-                  >
-                    <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                  </svg>
+                  <Show when={!contentCollapsed()} fallback={
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M4 6L8 10L12 6" />
+                    </svg>
+                  }>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M4 10L8 6L12 10" />
+                    </svg>
+                  </Show>
                 </span>
               </div>
               <Show when={hasError()} fallback={

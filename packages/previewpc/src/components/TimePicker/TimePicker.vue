@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { onMounted, ref, watch, computed, useAttrs } from "vue"
+import { onMounted, ref, watch, computed, useAttrs, h, defineComponent } from "vue"
 import { ElTimePicker } from "element-plus"
 import type { TimePickerNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
+import { useTheme } from "../../composables/useTheme"
 import "./TimePicker.less"
 const sizeEnum = {
   large: "large",
@@ -40,7 +41,30 @@ const className = computed(() => node.properties.className)
 const size = computed(() => {
   return properties.size ? sizeEnum[properties.size] : "default"
 })
-const format = computed(() => properties.format)
+const format = computed(() => properties.format || "HH:mm:ss")
+
+const disabled = computed(() => (resolveValue(properties.disabled as any) as boolean) || false)
+
+const { isDark } = useTheme()
+const prefixIcon = defineComponent({
+  name: "ClockIcon",
+  setup() {
+    return () => h("svg", {
+      xmlns: "http://www.w3.org/2000/svg",
+      width: 14,
+      height: 14,
+      viewBox: "0 0 24 24",
+      fill: isDark.value ? "#AEAEAE" : "none",
+      stroke: isDark.value ? "#1f1f1f" : "currentColor",
+      "stroke-width": 2,
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+    }, [
+      h("circle", { cx: 12, cy: 12, r: 10 }),
+      h("path", { d: "M12 6v6l4 2" }),
+    ])
+  },
+})
 
 const range = computed(() => resolveValue(properties.range as any) as boolean)
 
@@ -85,6 +109,8 @@ function handleDateChange(val: any) {
     :is-range="range"
     :size="size as any"
     :format="format"
+    :disabled="disabled"
+    :prefix-icon="prefixIcon"
     :clearable="false"
     @change="handleDateChange"
   />

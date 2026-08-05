@@ -20,7 +20,7 @@ interface MenuItemData {
 const props = defineProps<A2UIComponentProps<MenuNode>>()
 const { node, surfaceId } = props
 const properties = node.properties
-const { resolveValue } = useA2UIComponent(node, surfaceId)
+const { resolveValue, commitActivation } = useA2UIComponent(node, surfaceId)
 
 defineOptions({ inheritAttrs: false })
 
@@ -86,12 +86,15 @@ watch(
   [items, svgCacheVersion, isDark],
   ([newItems]) => {
     const map: Record<string | number, ResolvedIcon> = {}
-    const shape = isDark.value ? 'fill' : 'lined'
 
     function collect(items: MenuItemData[]) {
       for (const item of items) {
         if (item.icon) {
-          map[item.key] = getIconComponentRef(item.icon, { size: 16, strokeWidth: 2, shape })
+          map[item.key] = getIconComponentRef(item.icon, { 
+            size: 16, 
+            strokeWidth: 2, 
+            shape: 'lined' 
+          })
         } else {
           map[item.key] = null
         }
@@ -105,7 +108,24 @@ watch(
   { immediate: true, deep: true },
 )
 
-const handleSelect = (_key: string) => {
+const currentOpenKeys = ref<string[]>([...openKeys.value])
+
+const handleSelect = (key: string) => {
+  commitActivation('selectedKeys', [key])
+}
+
+const handleOpen = (index: string) => {
+  if (!currentOpenKeys.value.includes(index)) {
+    currentOpenKeys.value = [...currentOpenKeys.value, index]
+    commitActivation('openKeys', currentOpenKeys.value)
+  }
+}
+
+const handleClose = (index: string) => {
+  if (currentOpenKeys.value.includes(index)) {
+    currentOpenKeys.value = currentOpenKeys.value.filter(k => k !== index)
+    commitActivation('openKeys', currentOpenKeys.value)
+  }
 }
 
 // 递归菜单项组件
@@ -170,6 +190,8 @@ const MenuItemNode = defineComponent({
     :default-active="selectedKeys.length > 0 ? String(selectedKeys[0]) : ''"
     :collapse="inlineCollapsed as any"
     @select="handleSelect"
+    @open="handleOpen"
+    @close="handleClose"
   >
     <MenuItemNode
       v-for="item in items"

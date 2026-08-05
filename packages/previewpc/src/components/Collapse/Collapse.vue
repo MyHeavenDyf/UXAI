@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, useAttrs } from "vue"
+import { computed, onMounted, ref, useAttrs, watch } from "vue"
 import {
   ElCollapse,
   ElCollapseItem,
@@ -22,7 +22,7 @@ const placementEnum = {
 }
 
 const props = defineProps<A2UIComponentProps<CollapseNode>>()
-const { resolveValue } = useA2UIComponent(props.node, props.surfaceId)
+const { resolveValue, commitActivation } = useA2UIComponent(props.node, props.surfaceId)
 
 const { properties } = props.node
 
@@ -58,8 +58,11 @@ const expandIconPlacement = computed(() => {
 
 const activeKey = ref(resolveValue(properties.activeKey) as string | string[])
 
-// ---- 异步图标解析 ----
-const resolvedIcon = useIconComponentRef(expandIcon, { size: 12 })
+watch(activeKey, (val) => {
+  if (val != null) commitActivation('activeKey', val)
+})
+
+const resolvedIcon = useIconComponentRef(expandIcon, { shape: 'lined', size: 12 })
 
 // const size = computed(() => {
 //   return properties.size ? sizeEnum[properties.size] : "default"

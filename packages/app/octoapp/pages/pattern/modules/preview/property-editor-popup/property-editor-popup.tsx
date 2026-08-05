@@ -809,6 +809,8 @@ export function PropertyEditorPopup(props: {
   let autoUpdateTimer: ReturnType<typeof setTimeout> | undefined
   let initialized = false
   let initialSnapshotJson = ''
+  let committing = false
+  let pendingRecommit = false
 
   function resetEditorSignals() {
     setEditFontSize(14); setFoundFontSize(false)
@@ -844,6 +846,8 @@ export function PropertyEditorPopup(props: {
       apiCalled = false
       initialized = false
       initialSnapshotJson = ''
+      committing = false
+      pendingRecommit = false
       clearTimeout(autoUpdateTimer)
       return
     }
@@ -1007,7 +1011,7 @@ export function PropertyEditorPopup(props: {
       initialSnapshotJson = JSON.stringify(snap)
       return
     }
-    if (JSON.stringify(snap) === initialSnapshotJson) return
+    if (committing) { pendingRecommit = true; return }
     clearTimeout(autoUpdateTimer)
     autoUpdateTimer = setTimeout(() => handleConfirm(true), 400)
   })
@@ -1209,6 +1213,23 @@ export function PropertyEditorPopup(props: {
   }
 
   async function handleConfirm(skipChangeCheck?: boolean) {
+    if (committing) { pendingRecommit = true; return }
+    committing = true
+    try {
+      await runConfirm(skipChangeCheck)
+    } finally {
+      committing = false
+      if (pendingRecommit && ready() && initialized) {
+        pendingRecommit = false
+        clearTimeout(autoUpdateTimer)
+        autoUpdateTimer = setTimeout(() => handleConfirm(true), 400)
+      } else {
+        pendingRecommit = false
+      }
+    }
+  }
+
+  async function runConfirm(skipChangeCheck?: boolean) {
     logStartSession(`quick-modify-${props.elementId}`, `修改元素 ${props.elementId} [${props.componentType}]`)
     let className = props.currentClass || ''
     if (hasClassEditor()) {
@@ -1222,8 +1243,11 @@ export function PropertyEditorPopup(props: {
       const api = desktopApi?.cssToTailwind
       if (api) {
         const currentCss = buildCssObject(dirtyGroups)
-        if (textColorToken()) delete (currentCss as Record<string, string>)['color']
-        if (bgColorToken()) {
+        const snapTextColorToken = textColorToken()
+        const snapBgColorToken = bgColorToken()
+        const snapEffects = effects.slice()
+        if (snapTextColorToken) delete (currentCss as Record<string, string>)['color']
+        if (snapBgColorToken) {
           delete (currentCss as Record<string, string>)['background-color']
           delete (currentCss as Record<string, string>)['background']
         }
@@ -1244,9 +1268,9 @@ export function PropertyEditorPopup(props: {
         className = ((keepParts.join(' ') + ' ' + normalizedTailwind).trim() + ' ' + extraFlex).trim()
         const colorDirty = !dirtyGroups || dirtyGroups.has('textColor')
         const bgColorDirty = !dirtyGroups || dirtyGroups.has('bgColor')
-        if (textColorToken() && colorDirty) className = (className + ` text-${textColorToken()}`).trim()
-        if (bgColorToken() && bgColorDirty) className = (className + ` bg-${bgColorToken()}`).trim()
-        const effectsUnchanged = JSON.stringify(effects) === initialEffectsJson
+        if (snapTextColorToken && colorDirty) className = (className + ` text-${snapTextColorToken}`).trim()
+        if (snapBgColorToken && bgColorDirty) className = (className + ` bg-${snapBgColorToken}`).trim()
+        const effectsUnchanged = JSON.stringify(snapEffects) === initialEffectsJson
         const originalShadowTokens = (props.currentClass || '').split(/\s+/).filter(c =>
           c.startsWith('shadow-') && c !== 'shadow' && !c.startsWith('shadow-[')
         )
@@ -1254,7 +1278,7 @@ export function PropertyEditorPopup(props: {
           className = className.replace(/\bshadow-\S+/g, '').trim()
           className = (className + ' ' + originalShadowTokens.join(' ')).trim()
         } else {
-          for (const e of effects) {
+          for (const e of snapEffects) {
             const token = matchShadowToken(e)
             if (token) className = className.replace(/shadow-\[[^\]]+\]/, `shadow-${token}`)
           }

@@ -36,7 +36,7 @@
   "properties": {
     "id": {
       "type": "string",
-      "description": "Unique ID for cross-referencing."
+      "description": "Unique ID for cross-referencing. A TabItem id must be used by exactly one Tabs parent and one child position; do not reuse the same TabItem node id in multiple places."
     },
     "component": {
       "type": "string",

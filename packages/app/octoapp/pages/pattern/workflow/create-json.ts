@@ -209,6 +209,11 @@ export async function create_modules_json(
   }
 
   if (failedModules.length > 0) {
+    // 模型报错：抛出首个失败模块的原始错误（保留真实报错 + agentCallId，供 UI 正确分类）
+    for (const r of results) {
+      if (r.status === "rejected" && r.reason instanceof Error) throw r.reason
+    }
+    // JSON报错：保证只要有模块失败就必定抛错，绝不带着 undefined 的 ui_json 继续往下走
     agentThrow("proto_module_create", failedModules[0], `模块生成失败: ${failedModules.join(", ")}`)
   }
 

@@ -13,7 +13,7 @@ const attrs = useAttrs()
 const props = defineProps<A2UIComponentProps<PaginationNode>>()
 const { node, surfaceId } = props
 const properties = node.properties
-const { resolveValue, setValue } = useA2UIComponent(node, surfaceId)
+const { resolveValue, commitActivation } = useA2UIComponent(node, surfaceId)
 
 const elPaginationRef = ref<InstanceType<typeof ElPagination>>()
 
@@ -55,9 +55,7 @@ watch(current, (value) => {
 
 const handleCurrentChange = (value: number) => {
   currentPage.value = value
-  if (properties.current && typeof properties.current === "object" && "path" in properties.current) {
-    setValue(properties.current.path, value)
-  }
+  commitActivation('current', value)
 }
 </script>
 

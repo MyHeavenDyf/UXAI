@@ -28,6 +28,8 @@ export interface UseA2UIComponentResult {
     sendAction: (action: Action) => void;
     getUniqueId: (prefix: string) => string;
     resolveValue: (value: DynamicString | DynamicNumber | DynamicBoolean | null | undefined | DynamicStringList) => string | null | number | boolean | DataValue
+    commitActivation: (propName: string, value: DataValue) => void;
+    setState: (path: string, value: DataValue) => void;
 }
 
 let globalIdCounter = 0
@@ -92,11 +94,36 @@ export function useA2UIComponent<T extends AnyComponentNode<any>>(
         return `${prefix}${baseId}`
     }
 
+    const commitActivation = (propName: string, value: DataValue) => {
+        const raw = (node.properties as Record<string, unknown> | undefined)?.[propName]
+        const bindingPath = raw && typeof raw === 'object' && !Array.isArray(raw) && 'path' in (raw as Record<string, unknown>)
+            ? (raw as { path: string }).path
+            : undefined
+        if (bindingPath) context.setData(surfaceId, bindingPath, value)
+        if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
+            const msg: { type: string; elementId: unknown; propName: string; value: DataValue; path?: string } = {
+                type: 'A2UI_STATE_CHANGE',
+                elementId: node.id,
+                propName,
+                value,
+            }
+            if (bindingPath) msg.path = bindingPath
+            window.parent.postMessage(msg, '*')
+        }
+    }
+
+    const setState = (path: string, value: DataValue) => {
+        context.setData(surfaceId, path, value)
+        context.store.notify(surfaceId)
+    }
+
     return {
         resolveValue,
         setValue,
         getValue,
         sendAction,
         getUniqueId,
+        commitActivation,
+        setState,
     }
 }

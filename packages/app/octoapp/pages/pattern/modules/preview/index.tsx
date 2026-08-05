@@ -41,6 +41,7 @@ export function PreviewPage(props: {
   currentVersionId?: string | null
   onSelectVersion?: (versionId: string) => void
   onReorder?: (elementId: string, targetSiblingId: string, position: "before" | "after") => void
+  onIframeStateChange?: (data: { elementId: string; propName: string; value: unknown; path?: string }) => void
   archiving?: boolean
   onArchiveToggle?: () => void
 }) {
@@ -425,6 +426,13 @@ export function PreviewPage(props: {
   }
 
   const handlePickerMessage = (e: MessageEvent) => {
+    if (e.data?.type === "DOM_PICKER_RECT_UPDATE") {
+      // iframe 内选中元素尺寸变化后回传的新 rect：重算遮罩锚点，使黑色遮罩/蓝框跟随。
+      // 仅当有面板打开且当前启用锚点定位时才更新，COPY 无 rect 路径(hasRect=false)忽略。
+      if (!(propertyEditor.show || pickerVisible()) || !pickerAnchor.hasRect) return
+      setPickerAnchor({ hasRect: true, ...computeElementRect(e.data.rect) })
+      return
+    }
     if (e.data?.type === "DOM_PICKER_CLOSE_PANELS") {
       if (anno.annotationPopup.show) {
         anno.handleAnnotationClose()
@@ -511,6 +519,14 @@ export function PreviewPage(props: {
     }
     if (e.data?.type === "DRAG_REORDER" && props.onReorder) {
       props.onReorder(e.data.elementId, e.data.targetSiblingId, e.data.position)
+    }
+    if (e.data?.type === "A2UI_STATE_CHANGE" && props.onIframeStateChange) {
+      props.onIframeStateChange({
+        elementId: e.data.elementId,
+        propName: e.data.propName,
+        value: e.data.value,
+        ...(e.data.path ? { path: e.data.path } : {}),
+      })
     }
   }
 
@@ -654,9 +670,6 @@ export function PreviewPage(props: {
         <iframe
           ref={(el) => { previewIframeRef = el }}
           src="http://127.0.0.1:51856"
-          onLoad={() => {
-            if (props.pendingData) sendToPreview(props.pendingData)
-          }}
           style={{ width: "100%", height: "100%", border: "none" }}
         />
       </CanvasView>

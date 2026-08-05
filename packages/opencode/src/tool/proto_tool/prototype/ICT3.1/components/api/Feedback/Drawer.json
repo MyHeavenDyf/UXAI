@@ -1,0 +1,116 @@
+{
+  "name": "Drawer",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": ["/value", "/form/value"]
+        }
+      }
+    },
+    "Action": {
+      "type": "object",
+      "description": "Declarative event action. When the event fires, the declared action mutates state.",
+      "required": ["action", "args"],
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["setState"],
+          "description": "The action to perform when the event fires."
+        },
+        "args": {
+          "type": "object",
+          "required": ["path", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "JSON Pointer path to the state key to update."
+            },
+            "value": {
+              "description": "The value to write into the state path."
+            }
+          }
+        }
+      }
+    },
+    "SlotNode": {
+      "type": "object",
+      "required": ["componentId"],
+      "description": "Slot binding: Reference to a specific child node.",
+      "properties": {
+        "componentId": {
+          "type": "string",
+          "description": "Unique ID for cross-referencing."
+        }
+      }
+    },
+    "StaticChildren": {
+			"type": "array",
+			"items": {
+				"type": "string",
+				"description": "The unique identifier for a child component node. Do not reuse the same component id in multiple parents or multiple children positions."
+			},
+			"description": "A static list of child component IDs. Every id in this array must be unique and must not be reused by any other parent node. Create a separate child node for each rendered position."
+		}
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique ID for cross-referencing."
+    },
+    "component": {
+      "type": "string",
+      "const": "Drawer"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "open": {
+          "$ref": "#/$defs/DataBinding"
+        },
+        "onClose": {
+          "$ref": "#/$defs/Action",
+          "description": "Fires when the drawer requests to close. Typically a setState that writes false to the same path bound to `open`."
+        },
+        "placement": {
+          "type": "string",
+          "enum": ["right", "left", "top", "bottom"],
+          "default": "right"
+        },
+        "mask": {
+          "type": "boolean",
+          "default": true
+        },
+        "title": {
+          "oneOf": [
+            { "type": "string" },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "Drawer header title."
+        },
+        "footer": {
+          "$ref": "#/$defs/SlotNode",
+          "description": "Footer content. Omit this prop when no footer is needed."
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component."
+        }
+      },
+      "required": ["open", "onClose"]
+    },
+    "children": {
+      "$ref": "#/$defs/StaticChildren",
+      "description": "The drawer body content."
+    }
+  },
+  "required": ["id", "component", "props", "children"]
+}

@@ -465,6 +465,41 @@ function PatternContent() {
     },
   })
 
+  function handleIframeStateChange(data: { elementId: string; propName: string; value: unknown; path?: string }) {
+    const sid = params.id
+    if (!sid) return
+    const current = pendingPreviewData()[sid]
+    if (!current || typeof current !== 'object') return
+    const doc = JSON.parse(JSON.stringify(current)) as Record<string, unknown>
+    if (data.path) {
+      if (!doc.state || typeof doc.state !== 'object') doc.state = {}
+      const segments = data.path.split('/').filter(s => s.length > 0)
+      if (segments.length > 0) {
+        const last = segments.pop()!
+        let cur: any = doc.state
+        for (let i = 0; i < segments.length; i++) {
+          const seg = segments[i]
+          if (cur[seg] == null) {
+            const next = i < segments.length - 1 ? segments[i + 1] : last
+            cur[seg] = /^\d+$/.test(next) ? [] : {}
+          }
+          cur = cur[seg]
+        }
+        cur[last] = data.value
+      }
+    } else {
+      const elements = (doc.elements ?? []) as Array<{ id: string; props?: Record<string, unknown> }>
+      if (!Array.isArray(elements)) return
+      const baseId = data.elementId.replace(/:\d+$/, '')
+      const idx = elements.findIndex(el => el?.id === baseId)
+      if (idx < 0) return
+      const el = elements[idx]
+      elements[idx] = { ...el, props: { ...(el.props ?? {}), [data.propName]: data.value } }
+      doc.elements = elements
+    }
+    sessionMap.set(setPendingPreviewData, sid, doc)
+  }
+
   const quickModifyCtx: QuickModifyContext = {
     getPendingData: () => {
       const sid = params.id
@@ -1300,6 +1335,7 @@ function PatternContent() {
                     onShare={handleShare}
                     onCanvasEditing={handleCanvasEditing}
                     onReorder={handleReorder}
+                    onIframeStateChange={handleIframeStateChange}
                     onLivePreview={handleLivePreview}
                     onPixsoPreview={handlePixsoPreview}
                     onCodeToHtml={handleCodeToHtml}

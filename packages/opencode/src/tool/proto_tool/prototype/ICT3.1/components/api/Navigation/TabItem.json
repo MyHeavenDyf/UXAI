@@ -36,7 +36,7 @@
   "properties": {
     "id": {
       "type": "string",
-      "description": "Unique ID for cross-referencing."
+      "description": "Unique ID for cross-referencing. A node id must be used by exactly one parent and one child or slot position; do not reuse the same node id in multiple places."
     },
     "component": {
       "type": "string",
@@ -72,7 +72,14 @@
             { "$ref": "#/$defs/DataBinding" }
           ]
         },
-        "content": { 
+        "closable": {
+          "oneOf": [
+            { "type": "boolean" },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "Whether the tab shows a close icon and can be removed."
+        },
+        "content": {
           "oneOf": [{
 							"type": "string",
 							"description": "Raw text content to render directly (e.g., 'Submit', 'Hello World')."

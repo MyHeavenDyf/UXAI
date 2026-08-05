@@ -32,6 +32,7 @@ interface ResolvedDatePicker {
   range?: DynamicBoolean;
   size?: 'large' | 'medium' | 'small';
   format?: string;
+  disabled?: DynamicBoolean;
   className?: string;
 }
 interface DatePickerNode extends AnyComponentNode<ResolvedDatePicker> {
@@ -150,6 +151,7 @@ interface ResolvedTimePicker {
   range?: DynamicBoolean;
   size?: 'large' | 'medium' | 'small';
   format?: string;
+  disabled?: DynamicBoolean;
   className?: string;
 }
 interface TimePickerNode extends AnyComponentNode<ResolvedTimePicker> {
@@ -165,7 +167,15 @@ interface ResolvedButton {
   iconPlacement?: "start" | "end";
   shape?: "default" | "circle" | "round";
   types?: "default" | "link";
-  className?: string
+  disabled?: DynamicBoolean;
+  className?: string;
+  onClick?: {
+    action: string;
+    args?: {
+      path: string;
+      value: any;
+    };
+  };
 }
 interface ButtonNode extends AnyComponentNode<ResolvedButton> {
   type: "Button";
@@ -174,7 +184,7 @@ interface ButtonNode extends AnyComponentNode<ResolvedButton> {
 
 interface ResolvedIcon {
   name: DynamicString;
-  shape?: "outline" | "fill" | "square" | "circle";
+  shape?: "outline" | "two-tone" | "square" | "circle" | "lined" | "filled";
   color?: string;
   className?: string;
 }
@@ -241,6 +251,7 @@ interface ResolvedTableRow {
   children: AnyComponentNode[];
 }
 interface ResolvedTable {
+  size: "" | "large" | "small" | "default";
   rowKey: string;
   columns: Column[];
   dataSource?: DataBinding;
@@ -323,14 +334,16 @@ interface ResolvedTabItem {
   key: DynamicString;
   label?: DynamicString;
   icon?: DynamicString;
+  closable?: DynamicBoolean;
   content?: AnyComponentNode;
 }
 interface ResolvedTabs {
   children?: TabItemNode[];
   activeKey: DynamicString;
-  types?: "line" | "card" | "editable-card";
+  types?: "line" | "card" | "separator";
   tabPlacement?: "top" | "end" | "bottom"| "start";
   size?: "large" | "medium" | "small";
+  maxVisible?: number;
   className?: string;
 }
 interface TabItemNode extends AnyComponentNode<ResolvedTabItem> {
@@ -369,6 +382,7 @@ interface ResolvedSegmented {
   block?: boolean;
   orientation?: "vertical" | "horizontal";
   size?: "large" | "medium" | "small";
+  disabled?: DynamicBoolean;
   className?: string;
 }
 interface SegmentedNode extends AnyComponentNode<ResolvedSegmented> {
@@ -496,6 +510,45 @@ interface ImageNode extends AnyComponentNode<ResolvedImage> {
   type: "Image";
 }
 
+interface ResolvedModal {
+  open: boolean | DataBinding;
+  title: DynamicString;
+  mask?: boolean;
+  footer?: AnyComponentNode;
+  onClose?: {
+    action: string;
+    args?: {
+      path: string;
+      value: any;
+    };
+  };
+  className?: string;
+  children?: AnyComponentNode[];
+}
+interface ModalNode extends AnyComponentNode<ResolvedModal> {
+  type: "Modal";
+}
+
+interface ResolvedDrawer {
+  open: boolean | DataBinding;
+  title: DynamicString;
+  placement?: "right" | "left" | "top" | "bottom";
+  mask?: boolean;
+  footer?: AnyComponentNode;
+  onClose?: {
+    action: string;
+    args?: {
+      path: string;
+      value: any;
+    };
+  };
+  className?: string;
+  children?: AnyComponentNode[];
+}
+interface DrawerNode extends AnyComponentNode<ResolvedDrawer> {
+  type: "Drawer";
+}
+
 interface ResolvedLink {
   text: DynamicString;
 }
@@ -550,5 +603,7 @@ export type {
   TreeNodeNode,
   ImageNode,
   StreamNode,
-  LinkNode
+  LinkNode,
+  ModalNode,
+  DrawerNode
 }

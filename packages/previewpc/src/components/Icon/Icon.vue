@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, watchEffect } from "vue"
-import { getIconComponentRef, sizeConfig, mapShapeToHuiType, mapColorToHuiColor } from "./IconBase"
+import { getIconComponentRef, sizeConfig, mapColorToHuiColor } from "./IconBase"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import type { IconNode } from "../types"
-import { useIconProvider, iconInfoMap, svgCache, svgCacheVersion, resolveSvgCacheKey, requestSvg } from "../../composables/useIconProvider"
+import { useIconProvider, iconInfoMap, svgCache, svgCacheVersion, resolveSvgCacheKey, requestSvg, resolveApiShape } from "../../composables/useIconProvider"
 import { iconColors, iconDarkColors } from "../../utils/themeColors"
 import { useTheme } from "../../composables/useTheme"
 
@@ -24,46 +24,57 @@ const name = computed(() => (resolveValue(properties.name) as string) || "")
 const shape = computed(() => (resolveValue(properties.shape) as string | undefined) || "outline")
 const color = computed(() => (resolveValue(properties.color) as string | undefined) || "default")
 
-// ★ 核心修复：用 watchEffect 确保 requestSvg 总是被调用，
-// 即使模板 v-if 短路求值导致 resolved computed 未被访问
+// watchEffect 主动驱动 requestSvg：即使模板 v-if 短路求值导致 resolved computed 未被访问，
+// 也能确保 SVG 请求被触发并写入 svgCache
 watchEffect(() => {
   svgCacheVersion.value  // 响应式依赖：SVG 到达时重新检查
   if (name.value && hasHuiIcons.value) {
-    // 如果当前变体未缓存，请求 SVG（requestSvg 内部会检查缓存）
-    requestSvg(name.value, shape.value, color.value)
+    // 用 resolved shape 请求 SVG（主题感知：outline→lined/filled, two-tone→lined-twotone/filled-twotone）
+    const resolvedShape = resolveApiShape(shape.value, isDark.value)
+    requestSvg(name.value, resolvedShape, color.value, isDark.value)
     // 如果非 outline 变体也未缓存，也请求 outline 降级变体
     if (shape.value !== 'outline') {
-      requestSvg(name.value, 'outline', color.value)
+      const fallbackShape = resolveApiShape('outline', isDark.value)
+      requestSvg(name.value, fallbackShape, color.value, isDark.value)
     }
   }
 })
 
-// 响应式判断：SVG 是否已缓存
+// 响应式判断：SVG 是否已缓存（依赖 svgCacheVersion，SVG 写入后触发重算）
 const isHuiIcon = computed(() => {
   svgCacheVersion.value  // 响应式依赖：SVG 到达时触发重算
   if (!name.value || !hasHuiIcons.value) return false
   const entry = iconInfoMap.value[name.value]
   if (!entry?.url) return false
-  const key = resolveSvgCacheKey(name.value, shape.value, color.value)
+  const resolvedShape = resolveApiShape(shape.value, isDark.value)
+  const key = resolveSvgCacheKey(name.value, resolvedShape, color.value, isDark.value)
   return svgCache.has(key)
 })
 
-// 统一图标解析（hui 或 lucide 或 null）
-// ★ 修复：加入 svgCacheVersion 依赖，SVG 到达后重算
+// 统一图标解析（hui 或 lucide 或 null），依赖 svgCacheVersion 确保 SVG 到达后重算
 const resolved = computed(() => {
   svgCacheVersion.value  // 响应式依赖：SVG 到达时触发重算
   if (!name.value) return null
-  return getIconComponentRef(name.value, { shape: shape.value, color: color.value })
+  return getIconComponentRef(name.value, { shape: shape.value, color: color.value, isDark: isDark.value })
 })
 
-const huiIconType = computed(() => mapShapeToHuiType(shape.value))
+const huiIconType = computed(() => resolveApiShape(shape.value, isDark.value))
 const huiIconColor = computed(() => mapColorToHuiColor(color.value))
 const bgShape = computed(() => shape.value)
+
+// Lucide 图标的 shape 映射（Lucide 无原生双色/面性，需 CSS 模拟）：
+//   two-tone → outline（Lucide 无双色，降级为线性）
+//   outline + 深色 → fill（CSS 面性效果：白图标 + 彩色背景，模拟深色下实心图标）
+const lucideBgShape = computed(() => {
+  if (bgShape.value === 'two-tone') return 'outline'
+  if (bgShape.value === 'outline' && isDark.value) return 'fill'
+  return bgShape.value
+})
 
 const hasApiBackground = computed(() => isHuiIcon.value && (bgShape.value === "circle" || bgShape.value === "square"))
 
 const iconSizeStyle = computed(() => {
-  switch (bgShape.value) {
+  switch (lucideBgShape.value) {
     case "circle":
       return { width: "min(100%, max(12px, 70%))", height: "min(100%, max(12px, 70%))" }
     case "square":
@@ -86,7 +97,7 @@ const iconColor = computed(() => {
 })
 
 const borderRadius = computed(() => {
-  switch (bgShape.value) {
+  switch (lucideBgShape.value) {
     case "fill":
     case "circle":
       return "50%"
@@ -107,8 +118,8 @@ const wrapperStyle = computed(() => {
       justifyContent: "center"
     }
   }
-  const hasBg = bgShape.value !== "outline"
-  const isWhite = bgShape.value === "fill"
+  const hasBg = lucideBgShape.value !== "outline"
+  const isWhite = lucideBgShape.value === "fill"
   return {
     display: "inline-flex",
     alignItems: "center",
@@ -145,7 +156,7 @@ const wrapperStyle = computed(() => {
     <component
       :is="resolved.component"
       :style="iconSizeStyle"
-      :color="bgShape === 'fill' ? '#fff' : iconColor"
+      :color="lucideBgShape === 'fill' ? '#fff' : iconColor"
       :stroke-width="2"
     />
   </div>
