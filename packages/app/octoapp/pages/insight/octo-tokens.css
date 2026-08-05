@@ -657,16 +657,49 @@
   transform: none;
 }
 
-/* ── Delete Dialog ──────────────────────────
-   左侧栏对话删除确认窗口,与 chat 侧栏(components/sidebar.tsx)完全一致。
-   Dialog 走 Portal 渲染到 document 根,故样式为全局选择器;此处随 insight
-   自带一份,保证不依赖 make/chat 的 octo-tokens.css 已加载(页面自包含)。 */
+/* ── DropdownMenu (标题栏更多操作) ────────── */
 
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-container"] {
+[data-component="dropdown-menu-content"][data-component="dropdown-menu-content"] {
+  background-color: rgba(255, 255, 255, 0.9);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.16);
+  border: none;
+  padding: 8px;
+  min-width: 132px !important;
+  backdrop-filter: blur(16px);
+}
+
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"] {
+  height: 36px;
+  padding: 0 8px 0 12px;
+  font-size: 14px;
+  color: rgba(0,0,0,0.9);
+  line-height: 22px;
+  border-radius: 8px;
+  width: 100%;
+  text-align: left;
+}
+
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"][data-highlighted],
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"]:hover {
+  background: #eee;
+}
+
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-separator"] {
+  height: 1px;
+  margin: 4px -8px 4px;
+  background: rgba(0, 0, 0, 0.1);
+  border: none;
+}
+
+/* ── Delete File Dialog ──────────────────────
+   文件管理器删除确认窗口。Dialog 走 Portal 渲染到 document 根,故样式为全局选择器。 */
+
+[data-component="dialog"]:has(.delete-file-dialog) [data-slot="dialog-container"] {
   width: 436px;
 }
 
-.delete-dialog[data-slot="dialog-content"] {
+.delete-file-dialog[data-slot="dialog-content"] {
   border-radius: 20px;
   box-shadow: 0 16px 48px 0 rgba(0,0,0,0.16);
   padding: 24px 32px;
@@ -674,22 +707,22 @@
   border: none;
 }
 
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-header"] {
+[data-component="dialog"]:has(.delete-file-dialog) [data-slot="dialog-header"] {
   padding: 0;
   margin-bottom: 8px;
 }
 
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-close-button"] {
+[data-component="dialog"]:has(.delete-file-dialog) [data-slot="dialog-close-button"] {
   display: none;
 }
 
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-title"] {
+[data-component="dialog"]:has(.delete-file-dialog) [data-slot="dialog-title"] {
   font-size: 20px;
   line-height: 22px;
   font-weight: 600;
 }
 
-.delete-dialog[data-slot="dialog-content"] [data-slot="dialog-body"] {
+.delete-file-dialog[data-slot="dialog-content"] [data-slot="dialog-body"] {
   padding: 0;
 }
 
