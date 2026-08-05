@@ -1173,7 +1173,7 @@ function InsightContent() {
     const uploadBlock = formatUploadsForPrompt(
       localFiles.map((a) => ({ filename: a.filename, path: resolvedPath(a) })),
     )
-    // 落点重定向:write 产物进 .octo/<sessionId>/outputs/ 由服务端插件 octo-outputs-redirect 确定性完成
+    // 落点重定向:write 产物进 .octo/<sessionId>/outputs/ 由服务端插件 octo-session-workdir 确定性完成
     // (相对路径 → 会话 outputs/,只对 octo_insight 会话生效)。此前这里每轮注入 `[输出目录] 绝对路径`
     // synthetic 指令纠偏,弱模型会把它当当前任务复述(空问候"你好"也触发、把路径暴露给用户),故删除。
     // SPEC-INS-017 chip turn:模板(功能指令 + 文件名 + 迁入的 MCP 仪式段落)与机器可读声明段,
