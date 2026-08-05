@@ -46,7 +46,7 @@ import { Breadcrumb } from "./breadcrumb"
 import { DesignFilesToolbar } from "./design-files-toolbar"
 import emptyPng from "../../icons/empty.png"
 import emptyFolderPng from "../../icons/empty_folder.png"
-import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload, IconFolder, IconFile } from "../../icons/design-files-icons"
+import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload, IconFolder, IconFile, IconRefresh } from "../../icons/design-files-icons"
 import { getFileIcon } from "../../icons/file-type-icons"
 
 const kindToI18nKey = (kind: ArtifactFileKind): string => {
@@ -717,21 +717,38 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           </Show>
 
           <Show when={!fileStore.store.loading && fileStore.store.generatedFiles.length === 0 && fileStore.store.uploadedFiles.length === 0 && fileStore.isTopLevel()}>
-            <div class="flex flex-col items-center justify-center h-full text-center px-8">
-              <img src={emptyPng} style={{ width: "150px", height: "150px" }} alt="" draggable={false} />
-              <span
-                class="text-[14px] leading-[22px]"
-                style={{ color: "#666", "margin-bottom": "20px" }}
-              >
-                暂无文件
-              </span>
-              <span
-                class="text-[14px] leading-[22px]"
-                style={{ color: "#191919", "margin-bottom": "20px" }}
-              >
-                {language.t("designFiles.emptyHint")}
-              </span>
-              <Kobalte open={emptyUploadOpen()} onOpenChange={setEmptyUploadOpen} modal={false} placement="bottom" gutter={4}>
+            <div class="flex flex-col h-full">
+              <div class="flex items-center px-6 pt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    refresh()
+                    tracker.interaction({ module: "design", name: "files-refresh" })
+                  }}
+                  disabled={fileStore.store.loading}
+                  class="flex items-center justify-center p-0 bg-transparent transition-colors cursor-pointer active:text-[#0a59f7]"
+                  title="Refresh"
+                >
+                  <Show when={fileStore.store.loading} fallback={<IconRefresh size={16} />}>
+                    <Spinner class="size-[16px]" />
+                  </Show>
+                </button>
+              </div>
+              <div class="flex flex-col items-center justify-center flex-1 text-center px-8">
+                <img src={emptyPng} style={{ width: "150px", height: "150px" }} alt="" draggable={false} />
+                <span
+                  class="text-[14px] leading-[22px]"
+                  style={{ color: "#666", "margin-bottom": "20px" }}
+                >
+                  暂无文件
+                </span>
+                <span
+                  class="text-[14px] leading-[22px]"
+                  style={{ color: "#191919", "margin-bottom": "20px" }}
+                >
+                  {language.t("designFiles.emptyHint")}
+                </span>
+                <Kobalte open={emptyUploadOpen()} onOpenChange={setEmptyUploadOpen} modal={false} placement="bottom" gutter={4}>
                 <Kobalte.Trigger
                   as="button"
                   type="button"
@@ -792,6 +809,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                   </Kobalte.Content>
                 </Kobalte.Portal>
               </Kobalte>
+              </div>
             </div>
           </Show>
 

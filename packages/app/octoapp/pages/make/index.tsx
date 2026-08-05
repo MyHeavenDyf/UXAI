@@ -1026,6 +1026,13 @@ const sessionMessagesLoaded = createMemo(() => {
       setSkillsLoading(false)
     }
   }
+  
+  // 组件挂载时预加载 skill 配置
+  createEffect(() => {
+    if (params.id && !skillConfig().skill) {
+      loadSkillConfig()
+    }
+  })
 
   // ── Slash Command List ──
   interface SlashCommand {

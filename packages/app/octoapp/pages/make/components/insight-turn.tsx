@@ -690,9 +690,12 @@ export function InsightTurn(props: {
         // 查找 displayName（仅对 skill 工具）
         let displayName: string | undefined
         if (toolName === "skill" && input && typeof input.name === "string" && skillData) {
-          const skillEntry = skillData[input.name]
-          if (skillEntry && typeof skillEntry === "object" && skillEntry.name) {
-            displayName = skillEntry.name
+          // 遍历查找 skillName 匹配的条目
+          for (const [displayNameKey, entry] of Object.entries(skillData)) {
+            if (entry && typeof entry === "object" && entry.skillName === input.name) {
+              displayName = displayNameKey  // key 就是显示名
+              break
+            }
           }
         }
         

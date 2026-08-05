@@ -8,6 +8,7 @@ export type PanelSkill = {
 
 export type SkillConfigEntry = { 
   name?: string
+  skillName?: string
   description?: string
   import?: boolean
   type?: string 
