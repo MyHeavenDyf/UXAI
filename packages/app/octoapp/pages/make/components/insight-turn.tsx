@@ -510,15 +510,6 @@ export function InsightTurn(props: {
   skillToolCalls?: ToolCallInfo[]
   skillConfig?: import("./skill-config-types").SkillConfig
 }): JSX.Element {
-  console.log('[InsightTurn] props received:', {
-    messageID: props.messageID,
-    hasSkillConfig: !!props.skillConfig,
-    skillConfigKeys: props.skillConfig ? Object.keys(props.skillConfig) : [],
-    hasSkill: !!props.skillConfig?.skill,
-    skillKeys: props.skillConfig?.skill ? Object.keys(props.skillConfig.skill) : [],
-    firstSkillEntry: props.skillConfig?.skill ? Object.entries(props.skillConfig.skill)[0] : null,
-  })
-  
   const data = useData()
   const i18n = useI18n()
   const partStore = data.store.part as Record<string, { type: string; text?: string }[]>
@@ -674,13 +665,6 @@ export function InsightTurn(props: {
     const parts = assistantParts()
     const skillData = props.skillConfig?.skill
     
-    console.log('[insight-turn:toolCalls] props.skillConfig:', {
-      hasSkillConfig: !!props.skillConfig,
-      skillConfigKeys: props.skillConfig ? Object.keys(props.skillConfig) : [],
-      hasSkill: !!props.skillConfig?.skill,
-      skillKeys: props.skillConfig?.skill ? Object.keys(props.skillConfig.skill) : [],
-    })
-    
     return parts
       .filter((p) => p.type === "tool")
       .map((p) => {
@@ -705,33 +689,14 @@ export function InsightTurn(props: {
         
         // 查找 displayName（仅对 skill 工具）
         let displayName: string | undefined
-        
-        if (toolName === "skill") {
-          console.log('[insight-turn:toolCalls] skill tool detected:', {
-            hasInput: !!input,
-            inputName: input?.name,
-            inputType: typeof input?.name,
-            hasSkillData: !!skillData,
-          })
-        }
-        
         if (toolName === "skill" && input && typeof input.name === "string" && skillData) {
           const skillEntry = skillData[input.name]
-          console.log('[insight-turn:toolCalls] skill lookup:', {
-            inputName: input.name,
-            skillEntry,
-            skillEntryType: typeof skillEntry,
-            hasName: !!(skillEntry && typeof skillEntry === "object" && skillEntry.name),
-            nameValue: skillEntry && typeof skillEntry === "object" ? skillEntry.name : undefined,
-          })
-          
           if (skillEntry && typeof skillEntry === "object" && skillEntry.name) {
             displayName = skillEntry.name
-            console.log('[insight-turn:toolCalls] displayName set:', displayName)
           }
         }
         
-        const result = {
+        return {
           name: toolName,
           status: isCompleted ? ("done" as const) : isCancelled ? ("error" as const) : isError ? ("error" as const) : ("running" as const),
           input: input ?? undefined,
@@ -739,12 +704,6 @@ export function InsightTurn(props: {
           filePath: filePath || undefined,
           displayName,
         }
-        
-        if (toolName === "skill") {
-          console.log('[insight-turn:toolCalls] returning ToolCallInfo:', result)
-        }
-        
-        return result
       })
   })
 
