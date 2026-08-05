@@ -2408,43 +2408,50 @@ function InsightContent() {
               </div>
 
               {/* 输入区(居中 reading-width,与消息列表对齐) */}
-              <div class="shrink-0 p-4 w-full mx-auto" style={{ "max-width": "800px" }}>
-                {/* 权限询问 Dock(SPEC-INS-021 §2):如读取工作区以外的文件需用户确认,
-                    否则服务端 ask 阻塞、界面停在「正在探索」(spec §0.2 贴路径卡死) */}
-                <InsightPermissionDock sessionID={params.id} />
-                {/* 答题 Dock(SPEC-INS-025):模型调 question 工具时服务端阻塞等答复,
-                    此前 insight 无答题入口 → 会话永久挂起。与上面的权限 Dock 是同级兄弟节点,
-                    两者可同时 pending(并行 tool call / task 子代理),正常纵向堆叠、不重叠。 */}
-                <InsightQuestionDock sessionID={params.id} />
-                {/* 队列提示条:busy 时点了发送会先入队,FIFO 多条逐行列出 (SPEC-INS-007 §3.3.4) */}
-                <Show when={queue().length > 0}>
-                  <div class="octo-queue-banner">
-                    <span class="octo-queue-banner-label">排队中 {queue().length}</span>
-                    <div class="octo-queue-banner-list">
-                      <For each={queue()}>
-                        {(item, i) => (
-                          <div class="octo-queue-banner-item">
-                            <span class="octo-queue-banner-index">{i() + 1}</span>
-                            <span class="octo-queue-banner-text">{item.text}</span>
-                            <button
-                              type="button"
-                              onClick={() => removeQueued(i())}
-                              class="octo-queue-banner-cancel"
-                              title="移除这条(输入框为空时回填,便于编辑)"
-                              aria-label="移除排队项"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        )}
-                      </For>
+              <div class="flex flex-col min-h-0 p-4 w-full mx-auto" style={{ "max-width": "800px" }}>
+                {/* 阻塞 Dock(权限 + 答题)与队列条同处一个可滚动区(6px 细滚动条):
+                    question 工具与队列同时出现、总高溢出时由此区吸收,不再挤压下方 composer
+                    输入框(shrink-0 始终完整可见)。 */}
+                <div class="flex-1 min-h-0 overflow-y-auto octo-input-docks">
+                  {/* 权限询问 Dock(SPEC-INS-021 §2):如读取工作区以外的文件需用户确认,
+                      否则服务端 ask 阻塞、界面停在「正在探索」(spec §0.2 贴路径卡死) */}
+                  <InsightPermissionDock sessionID={params.id} />
+                  {/* 答题 Dock(SPEC-INS-025):模型调 question 工具时服务端阻塞等答复,
+                      此前 insight 无答题入口 → 会话永久挂起。与上面的权限 Dock 是同级兄弟节点,
+                      两者可同时 pending(并行 tool call / task 子代理),正常纵向堆叠、不重叠。 */}
+                  <InsightQuestionDock sessionID={params.id} />
+                  {/* 队列提示条:busy 时点了发送会先入队,FIFO 多条逐行列出 (SPEC-INS-007 §3.3.4)。
+                      与答题/权限 Dock 同处一个滚动区(6px 细滚动条),总高溢出时随 Dock 一起滚动。
+                      列表内部(>12 条)另以 4px 滚动条单独滚动。 */}
+                  <Show when={queue().length > 0}>
+                    <div class="octo-queue-banner">
+                      <span class="octo-queue-banner-label">排队中 {queue().length}</span>
+                      <div class="octo-queue-banner-list">
+                        <For each={queue()}>
+                          {(item, i) => (
+                            <div class="octo-queue-banner-item">
+                              <span class="octo-queue-banner-index">{i() + 1}</span>
+                              <span class="octo-queue-banner-text">{item.text}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeQueued(i())}
+                                class="octo-queue-banner-cancel"
+                                title="移除这条(输入框为空时回填,便于编辑)"
+                                aria-label="移除排队项"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          )}
+                        </For>
+                      </div>
                     </div>
-                  </div>
-                </Show>
+                  </Show>
+                </div>
 
                 {/* @ 面板走 Portal + fixed(编辑器内),脱离本胶囊裁剪 → 胶囊可保留 overflow-hidden 圆角 */}
                 <div
-                  class="rounded-[16px] transition-all duration-300 relative group flex flex-col overflow-hidden"
+                  class="rounded-[16px] shrink-0 transition-all duration-300 relative group flex flex-col overflow-hidden"
                   style={{
                     border: "1px solid transparent",
                     background: `
