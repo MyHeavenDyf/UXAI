@@ -41,7 +41,7 @@ import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
-import { setActiveChatSession } from "@/pages/chat/utils/followup-queue"
+import { setActiveChatSession, setFollowupRemover } from "@/pages/chat/utils/followup-queue"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
 import {
   createOpenReviewFile,
@@ -1752,11 +1752,18 @@ export default function Page() {
     void sendFollowup(sessionID, item.id)
   }
 
-  // busy → idle 那一刻自动 flush 队首（与 insight 一致）
-  createEffect(on(isBusy, (busy, prev) => {
-    if (!prev || busy) return
+  // level-triggered flush：isBusy=false 且队列非空时触发 flushQueueHead。
+  // 不用 edge-triggered（on + defer）因为 defer 在页面挂载时 isBusy 已经 false 的情况下
+  // 永远不触发 → 回答完成后队列卡死。level-triggered 每次 isBusy 或队列变化时检查，
+  // flushQueueHead 内部的 followupBusy 守卫防止重复发送。
+  // composer.blocked / isChildSession 也纳入追踪，确保它们从 true→false 时也能重试 flush。
+  createEffect(() => {
+    if (isBusy()) return
+    if (queuedFollowups().length === 0) return
+    if (composer.blocked()) return
+    if (isChildSession()) return
     flushQueueHead()
-  }, { defer: true }))
+  })
 
   // busy 超时看门狗：session 长时间停留 busy 且无新 assistant 响应时，
   // 乐观重置为 idle，避免 abort 失败 / SSE 断连导致 status 永久卡 busy
@@ -1786,6 +1793,16 @@ export default function Page() {
   createEffect(() => {
     setActiveChatSession(params.id)
     onCleanup(() => setActiveChatSession(undefined))
+  })
+
+  // 注册 followup store 移除回调: runner 在后台 shift 队首后,通过此回调同步移除页面
+  // persisted followup store 中的对应 item,防止 makePersisted effect 用旧值覆盖 localStorage
+  // 导致已发送的 item 被 discoverAndSync 重新扫回、切回页面后被 flushQueueHead 重复发送。
+  createEffect(() => {
+    setFollowupRemover((sessionID, itemId) => {
+      setFollowup("items", sessionID, (items) => (items ?? []).filter((entry) => entry.id !== itemId))
+    })
+    onCleanup(() => setFollowupRemover(null))
   })
 
   // 页面重新挂载（如头部 tab 切走再切回）时,两个 defer effect 都不触发。
