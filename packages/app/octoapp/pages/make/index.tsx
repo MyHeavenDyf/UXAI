@@ -1003,15 +1003,23 @@ const sessionMessagesLoaded = createMemo(() => {
     setSkillsLoading(true)
 
     try {
-      const platformSkills = await loadSkillsFromPanel("octo_make")
-      const customSkills = await loadSkillsFromPanel("common")
+      const api = (window as unknown as { api?: { getSkillConfig?: () => Promise<import("./components/skill-config-types").SkillConfig> } }).api
+      const fullConfig = await api?.getSkillConfig?.()
       
-      setSkillConfig({
-        panel: {
-          octo_make: platformSkills,
-          common: customSkills
-        }
-      })
+      if (fullConfig) {
+        setSkillConfig(fullConfig)
+      } else {
+        // Fallback: only load panel if full config failed
+        const platformSkills = await loadSkillsFromPanel("octo_make")
+        const customSkills = await loadSkillsFromPanel("common")
+        
+        setSkillConfig({
+          panel: {
+            octo_make: platformSkills,
+            common: customSkills
+          }
+        })
+      }
     } catch (err) {
       console.error("[MakePage] Failed to load skill config:", err)
     } finally {
@@ -3422,6 +3430,7 @@ if (dsId) {
                         hasQuestionRequest={!!questionRequest()}
                         onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
                         skillToolCalls={skillToolCalls()}
+                        skillConfig={skillConfig()}
                       />
                     </Show>
                     {/* 设计策略模式气泡 */}
@@ -3483,6 +3492,7 @@ if (dsId) {
                         hasQuestionRequest={!!questionRequest()}
                         onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
                         skillToolCalls={skillToolCalls()}
+                        skillConfig={skillConfig()}
                       />
                     )}
                   </For>
