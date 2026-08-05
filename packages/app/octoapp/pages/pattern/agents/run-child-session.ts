@@ -128,7 +128,6 @@ async function processAgentResult(params: {
     const sessionId = isRoot ? parentSessionID : childSessionID
     // 必须先查 assistant 消息上的 .error：欠费/鉴权/超长等不可重试错误会让模型不返回文本，
     // getResultFromMessages 此时会 resolve 空字符串，若先走 "未返回有效内容" 检查，真实错误类型会被掩盖
-    debugger
     const messageError = extractMessageError(sync, childSessionID, knownIds)
     if (messageError) {
       console.error(`[runChildSession] ${agent} 模型返回了错误:`, messageError)
@@ -182,7 +181,7 @@ function formatMessageError(name: string, data: Record<string, unknown>): string
   const isRetryable = data.isRetryable as boolean | undefined
   const responseBody = data.responseBody as string | undefined
   const providerCode = parseProviderCode(responseBody)
-  const label = classifyErrorLabel(name, message, responseBody, providerCode, statusCode)
+  const label = classifyErrorLabel(name, message, responseBody, providerCode)
   const parts: string[] = [`[${label} | ${name}]`]
   if (message) parts.push(message)
   if (providerCode) parts.push(`(${providerCode})`)
@@ -191,16 +190,13 @@ function formatMessageError(name: string, data: Record<string, unknown>): string
   return parts.join(" ")
 }
 
-// 按 DeepSeek 官方错误码（https://api-docs.deepseek.com/zh-cn/quick_start/error_codes）分类：
-//   400 格式错误 / 401 认证失败 / 402 余额不足 / 422 参数错误 / 429 速率上限 / 500 服务器故障 / 503 服务器繁忙
-// 402 是官方的余额不足码（body code 是通用的 invalid_request_error，message 才是 "Insufficient Balance"），
-// 必须同时按 statusCode 和 message 判定，单看 code/responseBody 会漏判
+// 欠费判定必须把 data.message 也纳入匹配：DeepSeek 等厂商把 "Insufficient Balance" 放在 message，
+// 而 code 是通用的 invalid_request_error，只看 code/responseBody 会漏判成普通 APIError
 function classifyErrorLabel(
   name: string,
   message: string | undefined,
   responseBody: string | undefined,
   providerCode: string | undefined,
-  statusCode: number | undefined,
 ): string {
   if (name === "ProviderAuthError") return "鉴权失败"
   if (name === "ContextOverflowError") return "上下文超长"
@@ -209,20 +205,9 @@ function classifyErrorLabel(
   if (name === "StructuredOutputError") return "结构化输出失败"
   if (name === "APIError") {
     const hay = `${providerCode ?? ""} ${message ?? ""} ${responseBody ?? ""}`.toLowerCase()
-    // 402 余额不足（DeepSeek）/ insufficient_quota / quota_exceeded（OpenAI 系）/ Free/Go Usage Limit（opencode）
-    if (statusCode === 402 || hay.includes("insufficient_quota") || hay.includes("quota_exceeded") || hay.includes("insufficient balance") || hay.includes("余额不足") || hay.includes("freeusagelimit") || hay.includes("gousagelimit")) {
+    if (hay.includes("insufficient_quota") || hay.includes("quota_exceeded") || hay.includes("insufficient balance") || hay.includes("余额不足") || hay.includes("freeusagelimit") || hay.includes("gousagelimit")) {
       return "欠费/额度耗尽"
     }
-    // 401 认证失败 / 403（DeepSeek 文档未列 403，按通用语义归鉴权）
-    if (statusCode === 401 || statusCode === 403 || hay.includes("unauthorized") || hay.includes("authentication")) return "鉴权失败"
-    // 400 格式错误
-    if (statusCode === 400) return "请求格式错误"
-    // 422 参数错误
-    if (statusCode === 422) return "请求参数错误"
-    // 429 速率上限（通常会重试，落不到这里；若落到说明重试已耗尽）
-    if (statusCode === 429) return "限流"
-    // 500 服务器故障 / 503 服务器繁忙（通常会重试）
-    if (statusCode !== undefined && statusCode >= 500) return "服务端错误"
     return "API错误"
   }
   return "未知错误"
