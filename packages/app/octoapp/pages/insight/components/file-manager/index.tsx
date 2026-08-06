@@ -449,7 +449,7 @@ function FileManagerInner(props: {
   // ── 删除 ────────────────────────────────────────────────────────
   function showDeleteDialog(body: JSX.Element, onConfirm: () => void) {
     dialog.show(() => (
-      <Dialog title="删除文件" fit class="delete-dialog">
+      <Dialog title="删除文件" fit class="delete-file-dialog">
         {body}
         <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
           <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>取消</Button>

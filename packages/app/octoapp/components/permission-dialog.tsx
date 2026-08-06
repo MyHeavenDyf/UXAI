@@ -63,6 +63,8 @@ export function PermissionDialog(props: PermissionDialogProps) {
     <div
       data-component="permission-dialog"
       style={{
+        position: "relative",
+        "z-index": 20,
         "background-color": "#fff",
         "border-radius": "16px",
         "box-shadow": "0 8px 24px 0 rgba(0,0,0,0.16)",

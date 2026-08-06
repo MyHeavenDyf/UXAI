@@ -564,12 +564,13 @@ button[title="版本历史"] {
 /* ── DropdownMenu (标题栏更多操作) ────────── */
 
 [data-component="dropdown-menu-content"][data-component="dropdown-menu-content"] {
-  background-color: #fff;
+  background-color: rgba(255, 255, 255, 0.9);
   border-radius: 12px;
-  box-shadow: 0 4px 12px 0 rgba(0,0,0,0.16);
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.16);
   border: none;
   padding: 8px;
   min-width: 132px !important;
+  backdrop-filter: blur(16px);
 }
 
 [data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"] {

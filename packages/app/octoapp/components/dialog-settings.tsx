@@ -48,7 +48,7 @@ const iconBase: Record<string, string> = {
   "-webkit-mask-position": "center",
 }
 
-export const DialogSettings: Component = () => {
+export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
   const language = useLanguage()
 
   return (
@@ -114,7 +114,7 @@ export const DialogSettings: Component = () => {
             border-radius: 999px;
           }
         `}</style>
-        <TabsRoot orientation="vertical" defaultValue="general" class="h-full" style={{ display: "flex" }}>
+        <TabsRoot orientation="vertical" defaultValue={props.initialTab ?? "general"} class="h-full" style={{ display: "flex" }}>
           <TabsList
             style={{
               width: "240px",
