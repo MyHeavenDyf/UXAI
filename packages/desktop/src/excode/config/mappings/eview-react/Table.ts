@@ -16,7 +16,9 @@
  * | rowSelection.type: radio | checkType: single + enableCheckBox: true | 值映射 |
  * | rowSelection.selectedRowKeys（字面量数组） | checkedRows | **LiteralValue.useState** + onRowCheck |
  * | rowSelection.selectedRowKeys（DataBinding） | checkedRows | **ComputedValue.useState** + onRowCheck（值进 state.js，useState 引用 initialState） |
- * | expandable | enableRowExpand: true | 存在即启用 |
+ * | expandable.expandedRowKeys | expandedRowKeys | 双形态 useState（同 selectedRowKeys → checkedRows 结构）；onRowExpendClick 签名 (row) 无新值，extractor 占位 (row) => {} 暂不调 setter |
+| expandable（存在） | enableRowExpand: true + enableMulitiExpand: true | 存在即启用行展开 + 多行展开 |
+| TableRow.expandedRowRender（slot） | onRowExpend | buildRenderFn（与 column render 同构，row.rawData 上下文），propRoute 提升 module-top |
  * | className | className | 透传 |
  * | rowClassName | — | eview-react 无直接对应，暂不处理 |
  *
@@ -34,7 +36,7 @@
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { LoopNode, RegularNode } from '../../../src/core/node-types'
 import type { PropValue, BindingValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
+import { Value } from '../../../src/core/value-factory'
 import { enrichScopedData, buildRenderFn } from '../../../src/core/scoped-enrichment'
 
 /** A2UI 列定义（字面量形态） */
@@ -87,6 +89,28 @@ export function createTableMapping(pkg: string): MappingDef {
           }
           delete (cell as any).loopScope
           if (Array.isArray((cell as any).children)) (cell as any).children.forEach(clean)
+        }
+      }
+
+      // ─── 行展开：TableRow.expandedRowRender (slot) → onRowExpend render fn ───
+      // A2UI TableRow.props.expandedRowRender = { componentId } → SlotNodeValue({ node })
+      // build-trees 已把 { componentId } 转成 SlotNodeValue，node 即展开内容子树（如嵌套子表）
+      // eview-react onRowExpend: (row) => ReactNode（展开内容渲染函数，非事件回调）
+      // 与 column render 同构：row.rawData = 当前 item，子表 dataSource（相对路径如 subList）在 row.rawData 上下文解析
+      const expandedRowRender = (tableRow as any).props?.expandedRowRender
+      let expandedContent: RegularNode | null = null
+      if (expandedRowRender && typeof expandedRowRender === 'object' && expandedRowRender.type === 'slotNode') {
+        const subNode = expandedRowRender.node as RegularNode
+        if (subNode) {
+          expandedContent = ctx.resolveNode(subNode) as RegularNode
+          // 清除 loopScope（断循环引用，与 cells 一致）
+          const cleanExp = (n: any) => {
+            if (!n || typeof n !== 'object') return
+            delete n.loopScope
+            if (Array.isArray(n.children)) n.children.forEach(cleanExp)
+            if (n.kind === 'loop') { cleanExp(n.template); n.template?.body?.forEach(cleanExp) }
+          }
+          cleanExp(expandedContent)
         }
       }
 
@@ -179,8 +203,48 @@ export function createTableMapping(pkg: string): MappingDef {
         }
       }
 
-      // expandable → enableRowExpand（字面量 object，存在即启用）
-      if (node.props.expandable) outputProps.enableRowExpand = true
+      // expandable → 行展开（enableRowExpand + enableMulitiExpand + expandedRowKeys useState）
+      if (node.props.expandable) {
+        // 启用行展开 + 允许多行展开
+        outputProps.enableRowExpand = true
+        outputProps.enableMulitiExpand = true
+        // expandedRowKeys → expandedRowKeys（双形态：字面量 / DataBinding，均触发 useState）
+        // 逻辑同 selectedRowKeys → checkedRows（双形态 useState 结构）
+        // 但 onRowExpendClick 签名 (row) 只一参、无新值可取，extractor 暂占位 (row) => {}（不调 setter）
+        // eview-react expandedRowKeys 接受行索引数组
+        const ek = (node.props.expandable as any).expandedRowKeys
+        if (ek !== undefined) {
+          if (ek && typeof ek === 'object' && (ek as any).type === 'binding') {
+            // DataBinding → ComputedValue + useState（值进 state.js）
+            outputProps.expandedRowKeys = Value.computed({
+              path: (ek as any).path,
+              pathType: (ek as any).pathType ?? 'absolute',
+              accessPath: (ek as any).accessPath ?? 'expandedRowKeys',
+              containsJSX: false,
+              useState: {
+                event: 'onRowExpendClick',
+                extractor: () => '(row) => {}',
+              },
+              transform: (rawValue: any) => Array.isArray(rawValue) ? rawValue : [],
+            })
+          } else if (Array.isArray(ek)) {
+            // 字面量 → LiteralValue + useState（初始值硬编码）
+            outputProps.expandedRowKeys = Value.literal({
+              value: ek,
+              useState: {
+                event: 'onRowExpendClick',
+                extractor: () => '(row) => {}',
+              },
+            })
+          }
+        }
+      }
+      // onRowExpend：由 TableRow.expandedRowRender（slot 子表）构造 render fn（与 column render 同构）
+      if (expandedContent) {
+        outputProps.onRowExpend = buildRenderFn(expandedContent, [
+          { name: 'row', dataSource: dataBinding, dataField: 'rawData' },
+        ])
+      }
 
       // className（字面量 string，透传）
       if (node.props.className) outputProps.className = node.props.className
@@ -197,9 +261,17 @@ export function createTableMapping(pkg: string): MappingDef {
       // ─── propRoute ───
       // columns：字面量数组 → module-top 提升
       // checkedRows：受控 useState → component-internal
-      const propRoute: Record<string, any> = { columns: 'module-top' }
+      const propRoute: Record<string, any> = {}
+      // columns：字面量数组（从 cells 构造）→ module-top 提升
+      // dataset：ComputedValue（enrichScopedData，path 绑定）→ 不走 propRoute（inline stateRef）
+      // onRowExpend：RenderFnValue（含子表 BuildNode，非 path 绑定）→ module-top 提升（仅有 expandedRowRender 时）
+      if (Array.isArray(columns)) propRoute.columns = 'module-top'
+      if (expandedContent) propRoute.onRowExpend = 'module-top'
       if (node.props.rowSelection?.selectedRowKeys !== undefined) {
         propRoute.checkedRows = 'component-internal'
+      }
+      if ((node.props.expandable as any)?.expandedRowKeys !== undefined) {
+        propRoute.expandedRowKeys = 'component-internal'
       }
 
       return {

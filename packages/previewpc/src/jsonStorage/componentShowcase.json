@@ -3586,7 +3586,6 @@
       "id": "timePickerDefault",
       "component": "TimePicker",
       "props": {
-        "value": "",
         "placeholder": "请选择时间"
       }
     },
@@ -3613,10 +3612,6 @@
       "id": "timePickerRange",
       "component": "TimePicker",
       "props": {
-        "value": [
-          "",
-          ""
-        ],
         "range": true,
         "placeholder": [
           "开始时间",
@@ -3657,7 +3652,6 @@
       "id": "timePickerDisabled",
       "component": "TimePicker",
       "props": {
-        "value": "14:30:00",
         "placeholder": "请选择时间",
         "disabled": true
       }
@@ -4549,11 +4543,15 @@
       "children": [
         "tabsCardTitle",
         "tabsRowLine",
-        "tabsRowLineEditable",
         "tabsRowCard",
+        "tabsRowSeparator",
+        "tabsRowLineEditable",
         "tabsRowEditableCard",
         "tabsRowSize",
-        "tabsRowDisabled"
+        "tabsRowDisabled",
+        "tabsRowOverflow",
+        "tabsRowOverflowCard",
+        "tabsRowOverflowSeparator"
       ]
     },
     {
@@ -4622,7 +4620,6 @@
       "props": {
         "key": "tab3",
         "label": "设置",
-        "disabled": true,
         "icon": "settings",
         "content": "这是设置页面的内容，包含各项配置选项。"
       }
@@ -4651,7 +4648,7 @@
       "component": "Tabs",
       "props": {
         "activeKey": "tab1",
-        "types": "editable-card"
+        "types": "line"
       },
       "children": [
         "tabLineEditable1",
@@ -4666,6 +4663,7 @@
         "key": "tab1",
         "label": "概述",
         "icon": "home",
+        "closable": true,
         "content": "可删除的线条标签页概述内容。"
       }
     },
@@ -4676,6 +4674,7 @@
         "key": "tab2",
         "label": "详情",
         "icon": "file",
+        "closable": true,
         "content": "可删除的线条标签页详情内容。"
       }
     },
@@ -4686,7 +4685,70 @@
         "key": "tab3",
         "label": "设置",
         "icon": "settings",
+        "closable": true,
         "content": "可删除的线条标签页设置内容。"
+      }
+    },
+    {
+      "id": "tabsRowSeparator",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tabsRowSeparatorLabel",
+        "tabsSeparator"
+      ]
+    },
+    {
+      "id": "tabsRowSeparatorLabel",
+      "component": "span",
+      "props": {
+        "value": "分割线样式",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsSeparator",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "stab1",
+        "types": "separator"
+      },
+      "children": [
+        "tabSep1",
+        "tabSep2",
+        "tabSep3"
+      ]
+    },
+    {
+      "id": "tabSep1",
+      "component": "TabItem",
+      "props": {
+        "key": "stab1",
+        "label": "概述",
+        "icon": "home",
+        "content": "这是分割线样式概述页面的内容。"
+      }
+    },
+    {
+      "id": "tabSep2",
+      "component": "TabItem",
+      "props": {
+        "key": "stab2",
+        "label": "详情",
+        "icon": "file",
+        "content": "这是分割线样式详情页面的内容。"
+      }
+    },
+    {
+      "id": "tabSep3",
+      "component": "TabItem",
+      "props": {
+        "key": "stab3",
+        "label": "设置",
+        "icon": "settings",
+        "content": "这是分割线样式设置页面的内容。"
       }
     },
     {
@@ -4772,7 +4834,7 @@
       "component": "Tabs",
       "props": {
         "activeKey": "tab1",
-        "types": "editable-card"
+        "types": "card"
       },
       "children": [
         "tabEditableCard1",
@@ -4786,6 +4848,7 @@
       "props": {
         "key": "tab1",
         "label": "文档一",
+        "closable": true,
         "content": "可编辑卡片文档一的内容"
       }
     },
@@ -4795,6 +4858,7 @@
       "props": {
         "key": "tab2",
         "label": "文档二",
+        "closable": true,
         "content": "可编辑卡片文档二的内容"
       }
     },
@@ -4804,6 +4868,7 @@
       "props": {
         "key": "tab3",
         "label": "文档三",
+        "closable": true,
         "content": "可编辑卡片文档三的内容"
       }
     },
@@ -5396,6 +5461,296 @@
         "content": "这是卡片形态另一个可用的标签页内容。"
       }
     },
+    {
+      "id": "tabsRowOverflow",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tabsRowOverflowLabel",
+        "tabsOverflow"
+      ]
+    },
+    {
+      "id": "tabsRowOverflowLabel",
+      "component": "span",
+      "props": {
+        "value": "溢出更多",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsOverflow",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "tab1",
+        "types": "line",
+        "maxVisible": 4
+      },
+      "children": [
+        "tabOverflow1",
+        "tabOverflow2",
+        "tabOverflow3",
+        "tabOverflow4",
+        "tabOverflow5",
+        "tabOverflow6"
+      ]
+    },
+    {
+      "id": "tabOverflow1",
+      "component": "TabItem",
+      "props": {
+        "key": "otab1",
+        "label": "标签一",
+        "icon": "home",
+        "content": "标签一的内容"
+      }
+    },
+    {
+      "id": "tabOverflow2",
+      "component": "TabItem",
+      "props": {
+        "key": "otab2",
+        "label": "标签二",
+        "icon": "file",
+        "content": "标签二的内容"
+      }
+    },
+    {
+      "id": "tabOverflow3",
+      "component": "TabItem",
+      "props": {
+        "key": "otab3",
+        "label": "标签三",
+        "icon": "settings",
+        "content": "标签三的内容"
+      }
+    },
+    {
+      "id": "tabOverflow4",
+      "component": "TabItem",
+      "props": {
+        "key": "otab4",
+        "label": "标签四",
+        "icon": "home",
+        "content": "标签四的内容"
+      }
+    },
+    {
+      "id": "tabOverflow5",
+      "component": "TabItem",
+      "props": {
+        "key": "otab5",
+        "label": "标签五",
+        "icon": "file",
+        "content": "标签五的内容"
+      }
+    },
+    {
+      "id": "tabOverflow6",
+      "component": "TabItem",
+      "props": {
+        "key": "otab6",
+        "label": "标签六",
+        "icon": "settings",
+        "content": "标签六的内容"
+      }
+    },
+    {
+      "id": "tabsRowOverflowCard",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tabsRowOverflowCardLabel",
+        "tabsOverflowCard"
+      ]
+    },
+    {
+      "id": "tabsRowOverflowCardLabel",
+      "component": "span",
+      "props": {
+        "value": "溢出更多-卡片",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsOverflowCard",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "coctab1",
+        "types": "card",
+        "maxVisible": 4
+      },
+      "children": [
+        "tabOverflowCard1",
+        "tabOverflowCard2",
+        "tabOverflowCard3",
+        "tabOverflowCard4",
+        "tabOverflowCard5",
+        "tabOverflowCard6"
+      ]
+    },
+    {
+      "id": "tabOverflowCard1",
+      "component": "TabItem",
+      "props": {
+        "key": "coctab1",
+        "label": "标签一",
+        "icon": "home",
+        "content": "卡片标签一的内容"
+      }
+    },
+    {
+      "id": "tabOverflowCard2",
+      "component": "TabItem",
+      "props": {
+        "key": "coctab2",
+        "label": "标签二",
+        "icon": "file",
+        "content": "卡片标签二的内容"
+      }
+    },
+    {
+      "id": "tabOverflowCard3",
+      "component": "TabItem",
+      "props": {
+        "key": "coctab3",
+        "label": "标签三",
+        "icon": "settings",
+        "content": "卡片标签三的内容"
+      }
+    },
+    {
+      "id": "tabOverflowCard4",
+      "component": "TabItem",
+      "props": {
+        "key": "coctab4",
+        "label": "标签四",
+        "icon": "home",
+        "content": "卡片标签四的内容"
+      }
+    },
+    {
+      "id": "tabOverflowCard5",
+      "component": "TabItem",
+      "props": {
+        "key": "coctab5",
+        "label": "标签五",
+        "icon": "file",
+        "content": "卡片标签五的内容"
+      }
+    },
+    {
+      "id": "tabOverflowCard6",
+      "component": "TabItem",
+      "props": {
+        "key": "coctab6",
+        "label": "标签六",
+        "icon": "settings",
+        "content": "卡片标签六的内容"
+      }
+    },
+    {
+      "id": "tabsRowOverflowSeparator",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "tabsRowOverflowSeparatorLabel",
+        "tabsOverflowSeparator"
+      ]
+    },
+    {
+      "id": "tabsRowOverflowSeparatorLabel",
+      "component": "span",
+      "props": {
+        "value": "溢出更多-分割线",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "tabsOverflowSeparator",
+      "component": "Tabs",
+      "props": {
+        "activeKey": "sostab1",
+        "types": "separator",
+        "size": "medium",
+        "maxVisible": 4
+      },
+      "children": [
+        "tabOverflowSep1",
+        "tabOverflowSep2",
+        "tabOverflowSep3",
+        "tabOverflowSep4",
+        "tabOverflowSep5",
+        "tabOverflowSep6"
+      ]
+    },
+    {
+      "id": "tabOverflowSep1",
+      "component": "TabItem",
+      "props": {
+        "key": "sostab1",
+        "label": "标签一",
+        "icon": "home",
+        "content": "分割线标签一的内容"
+      }
+    },
+    {
+      "id": "tabOverflowSep2",
+      "component": "TabItem",
+      "props": {
+        "key": "sostab2",
+        "label": "标签二",
+        "icon": "file",
+        "content": "分割线标签二的内容"
+      }
+    },
+    {
+      "id": "tabOverflowSep3",
+      "component": "TabItem",
+      "props": {
+        "key": "sostab3",
+        "label": "标签三",
+        "icon": "settings",
+        "content": "分割线标签三的内容"
+      }
+    },
+    {
+      "id": "tabOverflowSep4",
+      "component": "TabItem",
+      "props": {
+        "key": "sostab4",
+        "label": "标签四",
+        "icon": "home",
+        "content": "分割线标签四的内容"
+      }
+    },
+    {
+      "id": "tabOverflowSep5",
+      "component": "TabItem",
+      "props": {
+        "key": "sostab5",
+        "label": "标签五",
+        "icon": "file",
+        "content": "分割线标签五的内容"
+      }
+    },
+    {
+      "id": "tabOverflowSep6",
+      "component": "TabItem",
+      "props": {
+        "key": "sostab6",
+        "label": "标签六",
+        "icon": "settings",
+        "content": "分割线标签六的内容"
+      }
+    },
+    
     {
       "id": "stepsCard",
       "component": "div",

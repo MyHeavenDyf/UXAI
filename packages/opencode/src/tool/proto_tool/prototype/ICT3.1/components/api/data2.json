@@ -1,0 +1,1845 @@
+{
+
+  "planner": {
+    "rootId": "mainPageRoot",
+    "elements": [
+      {
+        "id": "mainPageRoot",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col min-h-screen bg-surface-container-lowest gap-section"
+        },
+        "children": [
+          "headerNavContainer",
+          "filterToolContainer",
+          "cardGridContainer",
+          "footerInfoContainer"
+        ]
+      },
+      {
+        "id": "headerNavContainer",
+        "component": "header",
+        "props": {
+          "className": "h-12 flex items-center px-page bg-surface-container-highest shadow-sm"
+        },
+        "children": []
+      },
+      {
+        "id": "filterToolContainer",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-gutter px-page py-section bg-surface-container-highest shadow-sm"
+        },
+        "children": []
+      },
+      {
+        "id": "cardGridContainer",
+        "component": "main",
+        "props": {
+          "className": "flex-1 px-page"
+        },
+        "children": []
+      },
+      {
+        "id": "footerInfoContainer",
+        "component": "footer",
+        "props": {
+          "className": "h-12 flex items-center justify-center px-page bg-surface-container-highest shadow-sm"
+        },
+        "children": []
+      }
+    ],
+    "slots": [
+      {
+        "section_id": "topNavigation",
+        "element_id": "headerNavContainer",
+        "id_prefix": "topN"
+      },
+      {
+        "section_id": "filterToolbar",
+        "element_id": "filterToolContainer",
+        "id_prefix": "fltr"
+      },
+      {
+        "section_id": "cardGridArea",
+        "element_id": "cardGridContainer",
+        "id_prefix": "crdG"
+      },
+      {
+        "section_id": "pageFooter",
+        "element_id": "footerInfoContainer",
+        "id_prefix": "pgFt"
+      }
+    ]
+  },
+  "mergedA2UI": {
+    "rootId": "mainPageRoot",
+    "elements": [
+      {
+        "id": "mainPageRoot",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col min-h-screen bg-surface-container-lowest gap-section"
+        },
+        "children": [
+          "headerNavContainer",
+          "filterToolContainer",
+          "cardGridContainer",
+          "footerInfoContainer"
+        ]
+      },
+      {
+        "id": "headerNavContainer",
+        "component": "header",
+        "props": {
+          "className": "h-12 flex items-center px-page bg-surface-container-highest shadow-sm"
+        },
+        "children": [
+          "topNLogoArea",
+          "topNSearchInput",
+          "topNRightArea"
+        ]
+      },
+      {
+        "id": "filterToolContainer",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-gutter px-page py-section bg-surface-container-highest shadow-sm"
+        },
+        "children": [
+          "fltrSelectStatus",
+          "fltrInputKeyword",
+          "fltrDateRange",
+          "fltrSpacer",
+          "fltrBtnFilter",
+          "fltrBtnReset"
+        ]
+      },
+      {
+        "id": "cardGridContainer",
+        "component": "main",
+        "props": {
+          "className": "flex-1 px-page"
+        },
+        "children": [
+          "crdGGrid"
+        ]
+      },
+      {
+        "id": "footerInfoContainer",
+        "component": "footer",
+        "props": {
+          "className": "h-12 flex items-center justify-center px-page bg-surface-container-highest shadow-sm"
+        },
+        "children": [
+          "pgFtInnerWrap"
+        ]
+      },
+      {
+        "id": "topNLogoArea",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2"
+        },
+        "children": [
+          "topNLogoIcon",
+          "topNLogoText"
+        ]
+      },
+      {
+        "id": "topNLogoIcon",
+        "component": "Icon",
+        "props": {
+          "name": "app-window",
+          "shape": "outline",
+          "color": "success",
+          "className": "w-6 h-6"
+        }
+      },
+      {
+        "id": "topNLogoText",
+        "component": "span",
+        "props": {
+          "className": "text-lg font-bold text-on-surface",
+          "value": "运营监控平台"
+        }
+      },
+      {
+        "id": "topNSearchInput",
+        "component": "Input",
+        "props": {
+          "value": {
+            "path": "/searchValue"
+          },
+          "placeholder": "搜索任务、工单...",
+          "prefix": "search",
+          "className": "w-80 mx-6"
+        }
+      },
+      {
+        "id": "topNRightArea",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-4 ml-auto"
+        },
+        "children": [
+          "topNNotificationBadge",
+          "topNUserDropdown"
+        ]
+      },
+      {
+        "id": "topNNotificationBadge",
+        "component": "Badge",
+        "props": {
+          "count": {
+            "path": "/notificationCount"
+          },
+          "overflowCount": 99
+        },
+        "children": [
+          "topNBellIcon"
+        ]
+      },
+      {
+        "id": "topNBellIcon",
+        "component": "Icon",
+        "props": {
+          "name": "bell",
+          "shape": "outline",
+          "color": "default",
+          "className": "w-6 h-6"
+        }
+      },
+      {
+        "id": "topNUserDropdown",
+        "component": "Dropdown",
+        "props": {
+          "placement": "bottomRight",
+          "trigger": [
+            "click"
+          ],
+          "menu": [
+            {
+              "label": "个人设置",
+              "key": "settings",
+              "icon": "settings"
+            },
+            {
+              "label": "退出登录",
+              "key": "logout",
+              "icon": "log-out"
+            }
+          ]
+        },
+        "children": [
+          "topNUserTrigger"
+        ]
+      },
+      {
+        "id": "topNUserTrigger",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-2 cursor-pointer"
+        },
+        "children": [
+          "topNUserAvatar",
+          "topNUserInfo"
+        ]
+      },
+      {
+        "id": "topNUserAvatar",
+        "component": "img",
+        "props": {
+          "src": {
+            "path": "/userAvatar"
+          },
+          "alt": "用户头像",
+          "className": "w-8 h-8 rounded-full object-cover"
+        }
+      },
+      {
+        "id": "topNUserInfo",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col leading-tight"
+        },
+        "children": [
+          "topNUserName",
+          "topNUserRole"
+        ]
+      },
+      {
+        "id": "topNUserName",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-medium text-on-surface",
+          "value": {
+            "path": "/userName"
+          }
+        }
+      },
+      {
+        "id": "topNUserRole",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": {
+            "path": "/userRole"
+          }
+        }
+      },
+      {
+        "id": "fltrSelectStatus",
+        "component": "Select",
+        "props": {
+          "value": {
+            "path": "/filterStatusValue"
+          },
+          "placeholder": "请选择状态",
+          "options": {
+            "path": "/filterStatusOptions"
+          },
+          "className": "w-44"
+        }
+      },
+      {
+        "id": "fltrInputKeyword",
+        "component": "Input",
+        "props": {
+          "value": {
+            "path": "/filterKeywordValue"
+          },
+          "placeholder": "搜索关键词",
+          "prefix": "search",
+          "className": "w-60"
+        }
+      },
+      {
+        "id": "fltrDateRange",
+        "component": "DatePicker",
+        "props": {
+          "value": {
+            "path": "/filterDateRangeValue"
+          },
+          "placeholder": [
+            "开始日期",
+            "结束日期"
+          ],
+          "range": true,
+          "className": "w-52"
+        }
+      },
+      {
+        "id": "fltrSpacer",
+        "component": "div",
+        "props": {
+          "className": "flex-1"
+        }
+      },
+      {
+        "id": "fltrBtnFilter",
+        "component": "Button",
+        "props": {
+          "value": "筛选",
+          "color": "primary",
+          "icon": "filter",
+          "iconPlacement": "start"
+        }
+      },
+      {
+        "id": "fltrBtnReset",
+        "component": "Button",
+        "props": {
+          "value": "重置",
+          "icon": "rotate-ccw",
+          "iconPlacement": "start"
+        }
+      },
+      {
+        "id": "crdGGrid",
+        "component": "div",
+        "props": {
+          "className": "grid grid-cols-4 gap-section py-section"
+        },
+        "children": {
+          "path": "/cardList",
+          "componentId": "crdGCard"
+        }
+      },
+      {
+        "id": "crdGCard",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col bg-surface-container-highest shadow-sm rounded-xl overflow-hidden"
+        },
+        "children": [
+          "crdGCardHeader",
+          "crdGCardBody",
+          "crdGCardFooter"
+        ]
+      },
+      {
+        "id": "crdGCardHeader",
+        "component": "div",
+        "props": {
+          "className": "flex items-center justify-between gap-inline px-inset pt-inset pb-2"
+        },
+        "children": [
+          "crdGCardTitle",
+          "crdGCardTag"
+        ]
+      },
+      {
+        "id": "crdGCardTitle",
+        "component": "span",
+        "props": {
+          "className": "text-sm font-semibold text-on-surface truncate flex-1",
+          "value": {
+            "path": "cardTitle"
+          }
+        }
+      },
+      {
+        "id": "crdGCardTag",
+        "component": "Tag",
+        "props": {
+          "value": {
+            "path": "statusTag/statusText"
+          },
+          "color": {
+            "path": "statusTag/tagColor"
+          },
+          "size": "small"
+        }
+      },
+      {
+        "id": "crdGCardBody",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col gap-stack px-inset pb-inset pt-2"
+        },
+        "children": [
+          "crdGCardBodyTop",
+          "crdGCardBodyBottom"
+        ]
+      },
+      {
+        "id": "crdGCardBodyTop",
+        "component": "div",
+        "props": {
+          "className": "flex gap-[2px]"
+        },
+        "children": {
+          "path": "indicators",
+          "componentId": "crdGCardIndicator"
+        }
+      },
+      {
+        "id": "crdGCardIndicator",
+        "component": "div",
+        "props": {
+          "className": "flex-1 flex flex-col items-center"
+        },
+        "children": [
+          "crdGCardIndTopRow",
+          "crdGCardIndLine"
+        ]
+      },
+      {
+        "id": "crdGCardIndTopRow",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-1"
+        },
+        "children": [
+          "crdGCardIndDot",
+          "crdGCardIndLabel",
+          "crdGCardIndValue"
+        ]
+      },
+      {
+        "id": "crdGCardIndDot",
+        "component": "Icon",
+        "props": {
+          "name": "circle",
+          "shape": "fill",
+          "color": {
+            "path": "dotColor"
+          },
+          "className": "w-[6px] h-[6px]"
+        }
+      },
+      {
+        "id": "crdGCardIndLabel",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": {
+            "path": "label"
+          }
+        }
+      },
+      {
+        "id": "crdGCardIndValue",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface font-medium",
+          "value": {
+            "path": "value"
+          }
+        }
+      },
+      {
+        "id": "crdGCardIndLine",
+        "component": "div",
+        "props": {
+          "className": "h-[2px] w-full bg-divider mt-1"
+        }
+      },
+      {
+        "id": "crdGCardBodyBottom",
+        "component": "div",
+        "props": {
+          "className": "grid grid-cols-2 gap-x-4 gap-y-2"
+        },
+        "children": [
+          "crdGCardFormField1",
+          "crdGCardFormField2",
+          "crdGCardFormField3",
+          "crdGCardFormField4"
+        ]
+      },
+      {
+        "id": "crdGCardFormField1",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col"
+        },
+        "children": [
+          "crdGCardFormField1Label",
+          "crdGCardFormField1Value"
+        ]
+      },
+      {
+        "id": "crdGCardFormField1Label",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": {
+            "path": "formFields/0/0/label"
+          }
+        }
+      },
+      {
+        "id": "crdGCardFormField1Value",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface",
+          "value": {
+            "path": "formFields/0/0/value"
+          }
+        }
+      },
+      {
+        "id": "crdGCardFormField2",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col"
+        },
+        "children": [
+          "crdGCardFormField2Label",
+          "crdGCardFormField2Value"
+        ]
+      },
+      {
+        "id": "crdGCardFormField2Label",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": {
+            "path": "formFields/0/1/label"
+          }
+        }
+      },
+      {
+        "id": "crdGCardFormField2Value",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface",
+          "value": {
+            "path": "formFields/0/1/value"
+          }
+        }
+      },
+      {
+        "id": "crdGCardFormField3",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col"
+        },
+        "children": [
+          "crdGCardFormField3Label",
+          "crdGCardFormField3Value"
+        ]
+      },
+      {
+        "id": "crdGCardFormField3Label",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": {
+            "path": "formFields/1/0/label"
+          }
+        }
+      },
+      {
+        "id": "crdGCardFormField3Value",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface",
+          "value": {
+            "path": "formFields/1/0/value"
+          }
+        }
+      },
+      {
+        "id": "crdGCardFormField4",
+        "component": "div",
+        "props": {
+          "className": "flex flex-col"
+        },
+        "children": [
+          "crdGCardFormField4Label",
+          "crdGCardFormField4Value"
+        ]
+      },
+      {
+        "id": "crdGCardFormField4Label",
+        "component": "span",
+        "props": {
+          "className": "text-xs text-on-surface-variant",
+          "value": {
+            "path": "formFields/1/1/label"
+          }
+        }
+      },
+      {
+        "id": "crdGCardFormField4Value",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface",
+          "value": {
+            "path": "formFields/1/1/value"
+          }
+        }
+      },
+      {
+        "id": "crdGCardFooter",
+        "component": "div",
+        "props": {
+          "className": "bg-white h-[54px] px-5 flex items-center justify-end gap-3"
+        },
+        "children": {
+          "path": "bottomActions",
+          "componentId": "crdGCardAction"
+        }
+      },
+      {
+        "id": "crdGCardAction",
+        "component": "Button",
+        "props": {
+          "value": {
+            "path": "actionLabel"
+          },
+          "icon": {
+            "path": "actionIconKebab"
+          },
+          "iconPlacement": "start",
+          "types": "link",
+          "color": "primary"
+        }
+      },
+      {
+        "id": "pgFtInnerWrap",
+        "component": "div",
+        "props": {
+          "className": "flex items-center gap-3"
+        },
+        "children": [
+          "pgFtCopyrightText",
+          "pgFtDividerLine",
+          "pgFtVersionText"
+        ]
+      },
+      {
+        "id": "pgFtCopyrightText",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": {
+            "path": "/copyright"
+          }
+        }
+      },
+      {
+        "id": "pgFtDividerLine",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant select-none",
+          "value": "|"
+        }
+      },
+      {
+        "id": "pgFtVersionText",
+        "component": "span",
+        "props": {
+          "className": "text-sm text-on-surface-variant",
+          "value": {
+            "path": "/version"
+          }
+        }
+      }
+    ],
+    "state": {
+      "searchValue": "",
+      "notificationCount": 5,
+      "userAvatar": "https://randomuser.me/api/portraits/men/42.jpg",
+      "userName": "王明",
+      "userRole": "系统管理员",
+      "filterStatusValue": null,
+      "filterKeywordValue": "",
+      "filterDateRangeValue": null,
+      "filterStatusOptions": [
+        {
+          "label": "全部",
+          "value": ""
+        },
+        {
+          "label": "审核通过",
+          "value": "approved"
+        },
+        {
+          "label": "验证失败",
+          "value": "verify_failed"
+        },
+        {
+          "label": "发放失败",
+          "value": "grant_failed"
+        },
+        {
+          "label": "审核驳回",
+          "value": "rejected"
+        },
+        {
+          "label": "回滚失败",
+          "value": "rollback_failed"
+        },
+        {
+          "label": "验证中",
+          "value": "verifying"
+        },
+        {
+          "label": "审核中",
+          "value": "auditing"
+        },
+        {
+          "label": "发放中",
+          "value": "granting"
+        },
+        {
+          "label": "回滚中",
+          "value": "rollbacking"
+        },
+        {
+          "label": "发放成功",
+          "value": "grant_success"
+        },
+        {
+          "label": "回滚成功",
+          "value": "rollback_success"
+        },
+        {
+          "label": "废弃",
+          "value": "abandoned"
+        }
+      ],
+      "cardList": [
+        {
+          "cardId": "CT-001",
+          "cardTitle": "生产环境数据库自动备份任务异常监控与恢复方案",
+          "statusTag": {
+            "statusText": "审核通过",
+            "statusColor": "green",
+            "tagColor": "success"
+          },
+          "indicators": [
+            {
+              "dotColor": "#90EE90",
+              "label": "可用性",
+              "value": "99.97%",
+              "lineColor": "#808080"
+            },
+            {
+              "dotColor": "#808080",
+              "label": "响应时间",
+              "value": "230ms",
+              "lineColor": "#D3D3D3"
+            },
+            {
+              "dotColor": "#00FF00",
+              "label": "成功率",
+              "value": "98.5%",
+              "lineColor": "#00FF00"
+            }
+          ],
+          "formFields": [
+            [
+              {
+                "label": "任务编号",
+                "value": "CT-001"
+              },
+              {
+                "label": "任务名称",
+                "value": "数据备份监控"
+              }
+            ],
+            [
+              {
+                "label": "处理人",
+                "value": "赵六"
+              },
+              {
+                "label": "创建时间",
+                "value": "2026-06-15 08:30"
+              }
+            ]
+          ],
+          "bottomActions": [
+            {
+              "actionIcon": "Eye",
+              "actionLabel": "查看",
+              "actionIconKebab": "eye"
+            },
+            {
+              "actionIcon": "Edit",
+              "actionLabel": "编辑",
+              "actionIconKebab": "edit"
+            },
+            {
+              "actionIcon": "Activity",
+              "actionLabel": "运行日志",
+              "actionIconKebab": "activity"
+            }
+          ]
+        },
+        {
+          "cardId": "CT-002",
+          "cardTitle": "用户权限同步服务接口调用异常排查与修复",
+          "statusTag": {
+            "statusText": "验证失败",
+            "statusColor": "red",
+            "tagColor": "error"
+          },
+          "indicators": [
+            {
+              "dotColor": "#FF0000",
+              "label": "错误率",
+              "value": "12.3%",
+              "lineColor": "#FFFF00"
+            },
+            {
+              "dotColor": "#FFFF00",
+              "label": "延迟",
+              "value": "850ms",
+              "lineColor": "#FFA500"
+            },
+            {
+              "dotColor": "#FFA500",
+              "label": "吞吐量",
+              "value": "230qps",
+              "lineColor": "#0000FF"
+            }
+          ],
+          "formFields": [
+            [
+              {
+                "label": "任务编号",
+                "value": "CT-002"
+              },
+              {
+                "label": "任务名称",
+                "value": "权限同步修复"
+              }
+            ],
+            [
+              {
+                "label": "处理人",
+                "value": "钱七"
+              },
+              {
+                "label": "创建时间",
+                "value": "2026-06-20 10:15"
+              }
+            ]
+          ],
+          "bottomActions": [
+            {
+              "actionIcon": "Eye",
+              "actionLabel": "查看",
+              "actionIconKebab": "eye"
+            },
+            {
+              "actionIcon": "FileText",
+              "actionLabel": "日志",
+              "actionIconKebab": "file-text"
+            },
+            {
+              "actionIcon": "Trash2",
+              "actionLabel": "删除",
+              "actionIconKebab": "trash-2"
+            }
+          ]
+        },
+        {
+          "cardId": "CT-003",
+          "cardTitle": "实时数据流计算引擎资源扩容与性能调优计划",
+          "statusTag": {
+            "statusText": "发放失败",
+            "statusColor": "red",
+            "tagColor": "error"
+          },
+          "indicators": [
+            {
+              "dotColor": "#808080",
+              "label": "CPU使用率",
+              "value": "87%",
+              "lineColor": "#D3D3D3"
+            },
+            {
+              "dotColor": "#D3D3D3",
+              "label": "内存占用",
+              "value": "1.2GB",
+              "lineColor": "#90EE90"
+            },
+            {
+              "dotColor": "#0000FF",
+              "label": "网络IO",
+              "value": "45MB/s",
+              "lineColor": "#0000FF"
+            }
+          ],
+          "formFields": [
+            [
+              {
+                "label": "任务编号",
+                "value": "CT-003"
+              },
+              {
+                "label": "任务名称",
+                "value": "计算引擎调优"
+              }
+            ],
+            [
+              {
+                "label": "处理人",
+                "value": "孙八"
+              },
+              {
+                "label": "创建时间",
+                "value": "2026-07-01 14:00"
+              }
+            ]
+          ],
+          "bottomActions": [
+            {
+              "actionIcon": "Eye",
+              "actionLabel": "查看",
+              "actionIconKebab": "eye"
+            },
+            {
+              "actionIcon": "Edit",
+              "actionLabel": "编辑",
+              "actionIconKebab": "edit"
+            },
+            {
+              "actionIcon": "RefreshCw",
+              "actionLabel": "重试",
+              "actionIconKebab": "refresh-cw"
+            }
+          ]
+        },
+        {
+          "cardId": "CT-004",
+          "cardTitle": "微服务网关限流策略调整与灰度发布实施计划",
+          "statusTag": {
+            "statusText": "审核驳回",
+            "statusColor": "orange",
+            "tagColor": "warning"
+          },
+          "indicators": [
+            {
+              "dotColor": "#FFA500",
+              "label": "请求量",
+              "value": "12K/min",
+              "lineColor": "#FFFF00"
+            },
+            {
+              "dotColor": "#00FF00",
+              "label": "成功率",
+              "value": "95.2%",
+              "lineColor": "#90EE90"
+            },
+            {
+              "dotColor": "#FFFF00",
+              "label": "限流次数",
+              "value": "320次",
+              "lineColor": "#FF0000"
+            }
+          ],
+          "formFields": [
+            [
+              {
+                "label": "任务编号",
+                "value": "CT-004"
+              },
+              {
+                "label": "任务名称",
+                "value": "限流策略调整"
+              }
+            ],
+            [
+              {
+                "label": "处理人",
+                "value": "周九"
+              },
+              {
+                "label": "创建时间",
+                "value": "2026-07-05 09:00"
+              }
+            ]
+          ],
+          "bottomActions": [
+            {
+              "actionIcon": "Eye",
+              "actionLabel": "查看",
+              "actionIconKebab": "eye"
+            },
+            {
+              "actionIcon": "Edit",
+              "actionLabel": "编辑",
+              "actionIconKebab": "edit"
+            },
+            {
+              "actionIcon": "Send",
+              "actionLabel": "重新提交",
+              "actionIconKebab": "send"
+            }
+          ]
+        },
+        {
+          "cardId": "CT-005",
+          "cardTitle": "数据中心网络割接方案评估与回滚预案编写",
+          "statusTag": {
+            "statusText": "回滚失败",
+            "statusColor": "red",
+            "tagColor": "error"
+          },
+          "indicators": [
+            {
+              "dotColor": "#FF0000",
+              "label": "影响范围",
+              "value": "3个集群",
+              "lineColor": "#FFA500"
+            },
+            {
+              "dotColor": "#FFA500",
+              "label": "回滚时长",
+              "value": "25min",
+              "lineColor": "#FFFF00"
+            },
+            {
+              "dotColor": "#0000FF",
+              "label": "风险等级",
+              "value": "高",
+              "lineColor": "#FF0000"
+            }
+          ],
+          "formFields": [
+            [
+              {
+                "label": "任务编号",
+                "value": "CT-005"
+              },
+              {
+                "label": "任务名称",
+                "value": "网络割接回滚"
+              }
+            ],
+            [
+              {
+                "label": "处理人",
+                "value": "吴十"
+              },
+              {
+                "label": "创建时间",
+                "value": "2026-06-28 16:45"
+              }
+            ]
+          ],
+          "bottomActions": [
+            {
+              "actionIcon": "Eye",
+              "actionLabel": "查看",
+              "actionIconKebab": "eye"
+            },
+            {
+              "actionIcon": "FileText",
+              "actionLabel": "日志",
+              "actionIconKebab": "file-text"
+            },
+            {
+              "actionIcon": "AlertTriangle",
+              "actionLabel": "告警",
+              "actionIconKebab": "alert-triangle"
+            }
+          ]
+        },
+        {
+          "cardId": "CT-006",
+          "cardTitle": "容器化平台日志采集插件兼容性验证任务",
+          "statusTag": {
+            "statusText": "验证中",
+            "statusColor": "blue",
+            "tagColor": "processing"
+          },
+          "indicators": [
+            {
+              "dotColor": "#90EE90",
+              "label": "测试进度",
+              "value": "60%",
+              "lineColor": "#D3D3D3"
+            },
+            {
+              "dotColor": "#808080",
+              "label": "覆盖节点",
+              "value": "45/80",
+              "lineColor": "#808080"
+            },
+            {
+              "dotColor": "#0000FF",
+              "label": "发现缺陷",
+              "value": "7个",
+              "lineColor": "#0000FF"
+            }
+          ],
+          "formFields": [
+            [
+              {
+                "label": "任务编号",
+                "value": "CT-006"
+              },
+              {
+                "label": "任务名称",
+                "value": "日志插件验证"
+              }
+            ],
+            [
+              {
+                "label": "处理人",
+                "value": "郑一"
+              },
+              {
+                "label": "创建时间",
+                "value": "2026-07-08 11:30"
+              }
+            ]
+          ],
+          "bottomActions": [
+            {
+              "actionIcon": "Eye",
+              "actionLabel": "查看",
+              "actionIconKebab": "eye"
+            },
+            {
+              "actionIcon": "Edit",
+              "actionLabel": "编辑",
+              "actionIconKebab": "edit"
+            }
+          ]
+        },
+        {
+          "cardId": "CT-007",
+          "cardTitle": "年度安全审计整改措施落实与跟踪督办",
+          "statusTag": {
+            "statusText": "审核中",
+            "statusColor": "blue",
+            "tagColor": "processing"
+          },
+          "indicators": [
+            {
+              "dotColor": "#FFFF00",
+              "label": "整改项",
+              "value": "24项",
+              "lineColor": "#FFA500"
+            },
+            {
+              "dotColor": "#FFA500",
+              "label": "已完成",
+              "value": "18项",
+              "lineColor": "#00FF00"
+            },
+            {
+              "dotColor": "#00FF00",
+              "label": "完成率",
+              "value": "75%",
+              "lineColor": "#90EE90"
+            }
+          ],
+          "formFields": [
+            [
+              {
+                "label": "任务编号",
+                "value": "CT-007"
+              },
+              {
+                "label": "任务名称",
+                "value": "安全整改跟踪"
+              }
+            ],
+            [
+              {
+                "label": "处理人",
+                "value": "陈二"
+              },
+              {
+                "label": "创建时间",
+                "value": "2026-07-02 08:00"
+              }
+            ]
+          ],
+          "bottomActions": [
+            {
+              "actionIcon": "Eye",
+              "actionLabel": "查看",
+              "actionIconKebab": "eye"
+            },
+            {
+              "actionIcon": "Edit",
+              "actionLabel": "编辑",
+              "actionIconKebab": "edit"
+            },
+            {
+              "actionIcon": "FileText",
+              "actionLabel": "日志",
+              "actionIconKebab": "file-text"
+            }
+          ]
+        },
+        {
+          "cardId": "CT-008",
+          "cardTitle": "线上订单处理链路延迟优化与代码重构",
+          "statusTag": {
+            "statusText": "发放中",
+            "statusColor": "blue",
+            "tagColor": "processing"
+          },
+          "indicators": [
+            {
+              "dotColor": "#D3D3D3",
+              "label": "当前延迟",
+              "value": "320ms",
+              "lineColor": "#808080"
+            },
+            {
+              "dotColor": "#808080",
+              "label": "目标延迟",
+              "value": "100ms",
+              "lineColor": "#90EE90"
+            },
+            {
+              "dotColor": "#90EE90",
+              "label": "优化进度",
+              "value": "70%",
+              "lineColor": "#00FF00"
+            }
+          ],
+          "formFields": [
+            [
+              {
+                "label": "任务编号",
+                "value": "CT-008"
+              },
+              {
+                "label": "任务名称",
+                "value": "订单链路优化"
+              }
+            ],
+            [
+              {
+                "label": "处理人",
+                "value": "张三"
+              },
+              {
+                "label": "创建时间",
+                "value": "2026-06-25 13:20"
+              }
+            ]
+          ],
+          "bottomActions": [
+            {
+              "actionIcon": "Eye",
+              "actionLabel": "查看",
+              "actionIconKebab": "eye"
+            },
+            {
+              "actionIcon": "Edit",
+              "actionLabel": "编辑",
+              "actionIconKebab": "edit"
+            },
+            {
+              "actionIcon": "Activity",
+              "actionLabel": "监控",
+              "actionIconKebab": "activity"
+            }
+          ]
+        },
+        {
+          "cardId": "CT-009",
+          "cardTitle": "多活数据中心数据一致性校验与修复任务",
+          "statusTag": {
+            "statusText": "回滚中",
+            "statusColor": "blue",
+            "tagColor": "processing"
+          },
+          "indicators": [
+            {
+              "dotColor": "#0000FF",
+              "label": "校验进度",
+              "value": "45%",
+              "lineColor": "#0000FF"
+            },
+            {
+              "dotColor": "#FF0000",
+              "label": "不一致数",
+              "value": "128条",
+              "lineColor": "#FFFF00"
+            },
+            {
+              "dotColor": "#FFFF00",
+              "label": "修复速率",
+              "value": "12条/s",
+              "lineColor": "#FFA500"
+            }
+          ],
+          "formFields": [
+            [
+              {
+                "label": "任务编号",
+                "value": "CT-009"
+              },
+              {
+                "label": "任务名称",
+                "value": "数据一致性修复"
+              }
+            ],
+            [
+              {
+                "label": "处理人",
+                "value": "李四"
+              },
+              {
+                "label": "创建时间",
+                "value": "2026-07-10 09:30"
+              }
+            ]
+          ],
+          "bottomActions": [
+            {
+              "actionIcon": "Eye",
+              "actionLabel": "查看",
+              "actionIconKebab": "eye"
+            },
+            {
+              "actionIcon": "FileText",
+              "actionLabel": "日志",
+              "actionIconKebab": "file-text"
+            },
+            {
+              "actionIcon": "PauseCircle",
+              "actionLabel": "暂停",
+              "actionIconKebab": "pause-circle"
+            }
+          ]
+        },
+        {
+          "cardId": "CT-010",
+          "cardTitle": "移动端应用灰度发布与用户体验监控任务",
+          "statusTag": {
+            "statusText": "发放成功",
+            "statusColor": "green",
+            "tagColor": "success"
+          },
+          "indicators": [
+            {
+              "dotColor": "#00FF00",
+              "label": "覆盖用户",
+              "value": "15万",
+              "lineColor": "#90EE90"
+            },
+            {
+              "dotColor": "#90EE90",
+              "label": "崩溃率",
+              "value": "0.02%",
+              "lineColor": "#D3D3D3"
+            },
+            {
+              "dotColor": "#D3D3D3",
+              "label": "加载时长",
+              "value": "1.2s",
+              "lineColor": "#808080"
+            }
+          ],
+          "formFields": [
+            [
+              {
+                "label": "任务编号",
+                "value": "CT-010"
+              },
+              {
+                "label": "任务名称",
+                "value": "灰度发布监控"
+              }
+            ],
+            [
+              {
+                "label": "处理人",
+                "value": "王五"
+              },
+              {
+                "label": "创建时间",
+                "value": "2026-07-09 16:00"
+              }
+            ]
+          ],
+          "bottomActions": [
+            {
+              "actionIcon": "Eye",
+              "actionLabel": "查看",
+              "actionIconKebab": "eye"
+            },
+            {
+              "actionIcon": "Edit",
+              "actionLabel": "编辑",
+              "actionIconKebab": "edit"
+            },
+            {
+              "actionIcon": "Download",
+              "actionLabel": "报告",
+              "actionIconKebab": "download"
+            }
+          ]
+        },
+        {
+          "cardId": "CT-011",
+          "cardTitle": "内部工单系统数据库迁移与索引重建操作",
+          "statusTag": {
+            "statusText": "回滚成功",
+            "statusColor": "green",
+            "tagColor": "success"
+          },
+          "indicators": [
+            {
+              "dotColor": "#FFA500",
+              "label": "迁移数据量",
+              "value": "230GB",
+              "lineColor": "#FFFF00"
+            },
+            {
+              "dotColor": "#FFFF00",
+              "label": "回滚耗时",
+              "value": "12min",
+              "lineColor": "#FF0000"
+            },
+            {
+              "dotColor": "#FF0000",
+              "label": "影响用户",
+              "value": "0",
+              "lineColor": "#00FF00"
+            }
+          ],
+          "formFields": [
+            [
+              {
+                "label": "任务编号",
+                "value": "CT-011"
+              },
+              {
+                "label": "任务名称",
+                "value": "数据库回滚完成"
+              }
+            ],
+            [
+              {
+                "label": "处理人",
+                "value": "赵六"
+              },
+              {
+                "label": "创建时间",
+                "value": "2026-07-07 11:20"
+              }
+            ]
+          ],
+          "bottomActions": [
+            {
+              "actionIcon": "Eye",
+              "actionLabel": "查看",
+              "actionIconKebab": "eye"
+            },
+            {
+              "actionIcon": "FileText",
+              "actionLabel": "日志",
+              "actionIconKebab": "file-text"
+            }
+          ]
+        },
+        {
+          "cardId": "CT-012",
+          "cardTitle": "老旧硬件设备替换计划与资产报废流程",
+          "statusTag": {
+            "statusText": "废弃",
+            "statusColor": "default",
+            "tagColor": "default"
+          },
+          "indicators": [
+            {
+              "dotColor": "#D3D3D3",
+              "label": "设备数量",
+              "value": "45台",
+              "lineColor": "#808080"
+            },
+            {
+              "dotColor": "#808080",
+              "label": "已报废",
+              "value": "45台",
+              "lineColor": "#D3D3D3"
+            },
+            {
+              "dotColor": "#0000FF",
+              "label": "处置状态",
+              "value": "已完成",
+              "lineColor": "#0000FF"
+            }
+          ],
+          "formFields": [
+            [
+              {
+                "label": "任务编号",
+                "value": "CT-012"
+              },
+              {
+                "label": "任务名称",
+                "value": "设备报废完成"
+              }
+            ],
+            [
+              {
+                "label": "处理人",
+                "value": "钱七"
+              },
+              {
+                "label": "创建时间",
+                "value": "2026-05-20 15:00"
+              }
+            ]
+          ],
+          "bottomActions": [
+            {
+              "actionIcon": "Eye",
+              "actionLabel": "查看",
+              "actionIconKebab": "eye"
+            },
+            {
+              "actionIcon": "Archive",
+              "actionLabel": "归档",
+              "actionIconKebab": "archive"
+            }
+          ]
+        },
+        {
+          "cardId": "CT-013",
+          "cardTitle": "夜间自动运维脚本执行结果分析与异常告警",
+          "statusTag": {
+            "statusText": "审核通过",
+            "statusColor": "green",
+            "tagColor": "success"
+          },
+          "indicators": [
+            {
+              "dotColor": "#90EE90",
+              "label": "执行任务",
+              "value": "12个",
+              "lineColor": "#00FF00"
+            },
+            {
+              "dotColor": "#00FF00",
+              "label": "成功",
+              "value": "11个",
+              "lineColor": "#90EE90"
+            },
+            {
+              "dotColor": "#FF0000",
+              "label": "失败",
+              "value": "1个",
+              "lineColor": "#FF0000"
+            }
+          ],
+          "formFields": [
+            [
+              {
+                "label": "任务编号",
+                "value": "CT-013"
+              },
+              {
+                "label": "任务名称",
+                "value": "运维脚本分析"
+              }
+            ],
+            [
+              {
+                "label": "处理人",
+                "value": "孙八"
+              },
+              {
+                "label": "创建时间",
+                "value": "2026-07-10 06:00"
+              }
+            ]
+          ],
+          "bottomActions": [
+            {
+              "actionIcon": "Eye",
+              "actionLabel": "查看",
+              "actionIconKebab": "eye"
+            },
+            {
+              "actionIcon": "Edit",
+              "actionLabel": "编辑",
+              "actionIconKebab": "edit"
+            },
+            {
+              "actionIcon": "Bell",
+              "actionLabel": "告警配置",
+              "actionIconKebab": "bell"
+            }
+          ]
+        },
+        {
+          "cardId": "CT-014",
+          "cardTitle": "第三方支付接口升级对接与回归测试工作",
+          "statusTag": {
+            "statusText": "验证失败",
+            "statusColor": "red",
+            "tagColor": "error"
+          },
+          "indicators": [
+            {
+              "dotColor": "#FFA500",
+              "label": "用例总数",
+              "value": "200个",
+              "lineColor": "#FFFF00"
+            },
+            {
+              "dotColor": "#FFFF00",
+              "label": "通过",
+              "value": "180个",
+              "lineColor": "#00FF00"
+            },
+            {
+              "dotColor": "#00FF00",
+              "label": "失败",
+              "value": "20个",
+              "lineColor": "#FF0000"
+            }
+          ],
+          "formFields": [
+            [
+              {
+                "label": "任务编号",
+                "value": "CT-014"
+              },
+              {
+                "label": "任务名称",
+                "value": "支付接口回归"
+              }
+            ],
+            [
+              {
+                "label": "处理人",
+                "value": "周九"
+              },
+              {
+                "label": "创建时间",
+                "value": "2026-07-04 10:30"
+              }
+            ]
+          ],
+          "bottomActions": [
+            {
+              "actionIcon": "Eye",
+              "actionLabel": "查看",
+              "actionIconKebab": "eye"
+            },
+            {
+              "actionIcon": "Edit",
+              "actionLabel": "编辑",
+              "actionIconKebab": "edit"
+            },
+            {
+              "actionIcon": "RotateCw",
+              "actionLabel": "重跑",
+              "actionIconKebab": "rotate-cw"
+            }
+          ]
+        },
+        {
+          "cardId": "CT-015",
+          "cardTitle": "日志分析平台数据清洗规则更新与验证",
+          "statusTag": {
+            "statusText": "发放中",
+            "statusColor": "blue",
+            "tagColor": "processing"
+          },
+          "indicators": [
+            {
+              "dotColor": "#0000FF",
+              "label": "规则数量",
+              "value": "35条",
+              "lineColor": "#0000FF"
+            },
+            {
+              "dotColor": "#D3D3D3",
+              "label": "已生效",
+              "value": "28条",
+              "lineColor": "#808080"
+            },
+            {
+              "dotColor": "#808080",
+              "label": "覆盖率",
+              "value": "80%",
+              "lineColor": "#D3D3D3"
+            }
+          ],
+          "formFields": [
+            [
+              {
+                "label": "任务编号",
+                "value": "CT-015"
+              },
+              {
+                "label": "任务名称",
+                "value": "清洗规则更新"
+              }
+            ],
+            [
+              {
+                "label": "处理人",
+                "value": "吴十"
+              },
+              {
+                "label": "创建时间",
+                "value": "2026-07-08 13:45"
+              }
+            ]
+          ],
+          "bottomActions": [
+            {
+              "actionIcon": "Eye",
+              "actionLabel": "查看",
+              "actionIconKebab": "eye"
+            },
+            {
+              "actionIcon": "Edit",
+              "actionLabel": "编辑",
+              "actionIconKebab": "edit"
+            },
+            {
+              "actionIcon": "Activity",
+              "actionLabel": "监控",
+              "actionIconKebab": "activity"
+            }
+          ]
+        },
+        {
+          "cardId": "CT-016",
+          "cardTitle": "机房空调故障应急演练与备件申请流程",
+          "statusTag": {
+            "statusText": "审核中",
+            "statusColor": "blue",
+            "tagColor": "processing"
+          },
+          "indicators": [
+            {
+              "dotColor": "#90EE90",
+              "label": "演练时长",
+              "value": "4h",
+              "lineColor": "#00FF00"
+            },
+            {
+              "dotColor": "#00FF00",
+              "label": "参与人员",
+              "value": "12人",
+              "lineColor": "#90EE90"
+            },
+            {
+              "dotColor": "#FFA500",
+              "label": "问题记录",
+              "value": "3个",
+              "lineColor": "#FF0000"
+            }
+          ],
+          "formFields": [
+            [
+              {
+                "label": "任务编号",
+                "value": "CT-016"
+              },
+              {
+                "label": "任务名称",
+                "value": "空调应急演练"
+              }
+            ],
+            [
+              {
+                "label": "处理人",
+                "value": "郑一"
+              },
+              {
+                "label": "创建时间",
+                "value": "2026-07-09 08:00"
+              }
+            ]
+          ],
+          "bottomActions": [
+            {
+              "actionIcon": "Eye",
+              "actionLabel": "查看",
+              "actionIconKebab": "eye"
+            },
+            {
+              "actionIcon": "Edit",
+              "actionLabel": "编辑",
+              "actionIconKebab": "edit"
+            },
+            {
+              "actionIcon": "FileText",
+              "actionLabel": "日志",
+              "actionIconKebab": "file-text"
+            }
+          ]
+        }
+      ],
+      "copyright": "© 2026 星辰科技有限公司 版权所有",
+      "version": "系统版本 v4.2.0"
+    }
+  }
+}

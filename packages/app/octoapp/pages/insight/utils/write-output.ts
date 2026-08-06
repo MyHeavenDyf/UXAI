@@ -1,69 +1,18 @@
-import type { OutputCardType } from "../components/insight-turn"
+import { extOf, resolveOutputType, type OutputCardType } from "./output-type"
 
 /**
  * 路径 C:Agent 写文件工具(write / edit)产物 → OutputCard。
  * 详见 docs/specs/ui/output-renderers.md §2.6。
  *
  * 与路径 A(MCP resource_link,见 resource-link.ts)平行:都是"强信号、零嗅探",
- * 区别仅在内容位置——resource_link 指向内网 S3(http fetch),write 产物在本地磁盘
- * (渲染时走 opencode SDK `file.read({ path })` 读盘,见 result-viewer PathTabBody)。
+ * 区别仅在内容位置——resource_link 指向内网 S3(http fetch),write 产物在本地磁盘。
+ *
+ * 类型判定不在本模块 —— 扩展名表已收进 ./output-type.ts 的 `resolveOutputType`
+ * (SPEC-INS-026 §4.2 单一入口);本模块只负责「从 tool part 里认出 write 产物」。
  */
-
-// ── 扩展名分类(SOT:与 docs/specs/ui/output-renderers.md §2.6.1 扩展名清单同源)──
-//
-// 分流总原则(write 写的都是文本,内容不在对话流里 → 全部出卡):
-//   1. RENDER_EXT —— 我们渲染得好的,应用内专用 renderer(md→markdown / html→iframe / json→shiki)
-//   2. FILE_EXT   —— office / 表格 / 图片 / 媒体 / 压缩 / 字体 / 二进制:拉本地应用打开
-//   3. 兜底 code  —— 其余一律当"能读到文本内容的代码/纯文本",应用内 shiki 预览
-//      (无需穷举代码扩展名——不在 RENDER/FILE 的都走 code,新语言零维护)
-
-const RENDER_EXT: Record<string, OutputCardType> = {
-  md: "markdown", markdown: "markdown", mdown: "markdown", mkd: "markdown",
-  html: "html", htm: "html", xhtml: "html",
-  // .json 扩展名不携带语义 —— 普通配置 JSON 与思维导图 JSON 同扩展名,无法靠扩展名区分。
-  // 故一律出 json 卡(shiki 高亮 + 复制);真正要 markmap 预览的思维导图产物走路径 A
-  // (MCP resource_link + business_type:"mindmap" 显式声明),不靠路径 C 嗅探。见 output-renderers.md §2.6.1。
-  json: "json",
-  // 图片扩展名 → image 卡(走 ImageRenderer,local:// 协议读盘渲染 / uri 直接加载),
-  // 不走 file 卡(FileFallback 三按钮)。与 Design 页签同款行为。
-  png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", bmp: "image",
-  tiff: "image", tif: "image", ico: "image", svg: "image", heic: "image", heif: "image", avif: "image",
-}
-
-// 走 file 卡(本地应用打开)的扩展名。判据:**office/系统能打开但我们应用内渲染无价值或无法渲染**。
-// 列全这一类即可——其余文本自动兜底 code(见 extToOutputType)。
-const FILE_EXT = new Set([
-  // 表格(含 csv:Agent 写的原始逗号数据,Excel/Numbers 打开体验远好过硬渲染)
-  "csv", "tsv", "xls", "xlsx", "xlsm", "xlsb", "ods",
-  // 文档 / 演示
-  "doc", "docx", "ppt", "pptx", "odt", "odp", "rtf", "pdf", "pages", "numbers", "key", "epub",
-  // 图片(仅 psd/ai/sketch/fig 等无法浏览器内渲染的归 file;png/jpg/gif/svg 等已进 RENDER_EXT → image 卡)
-  "psd", "ai", "sketch", "fig",
-  // 音视频
-  "mp4", "mov", "avi", "mkv", "webm", "flv", "wmv", "m4v", "mp3", "wav", "flac", "m4a", "aac", "ogg", "opus",
-  // 压缩 / 镜像 / 安装包
-  "zip", "tar", "gz", "tgz", "bz2", "xz", "zst", "rar", "7z", "iso", "dmg", "pkg", "deb", "rpm", "msi", "apk",
-  // 字体
-  "woff", "woff2", "ttf", "otf", "eot",
-  // 可执行 / 库 / 目标文件(出 file 卡但隐藏打开按钮,见 NON_OPENABLE_EXT)
-  "exe", "dll", "so", "dylib", "bin", "o", "a", "lib", "obj", "class", "wasm", "app",
-])
 
 // 即便出 file 卡也不给"用本地应用打开"(无意义 / 不安全),只留"文件夹中打开"。
 const NON_OPENABLE_EXT = new Set(["exe", "dll", "so", "dylib", "bin", "o", "a", "lib", "obj", "class", "wasm"])
-
-function extOf(filePath: string): string {
-  if (!filePath.includes(".")) return ""
-  return filePath.split(".").pop()?.toLowerCase() ?? ""
-}
-
-export function extToOutputType(filePath: string): OutputCardType {
-  const ext = extOf(filePath)
-  if (ext && RENDER_EXT[ext]) return RENDER_EXT[ext]
-  if (ext && FILE_EXT.has(ext)) return "file"
-  // 其余(代码 / 配置 / 纯文本 / 无扩展名 Makefile-Dockerfile / 未知扩展名)→ 应用内代码预览
-  return "code"
-}
 
 /** file 卡是否显示"用本地应用打开"按钮(可执行/库类无意义,只给文件夹定位)。 */
 export function canOpenLocally(filePath: string): boolean {
@@ -137,7 +86,7 @@ function readMetadataFilepath(metadata: unknown): string | undefined {
  * 解析产物卡应使用的本地路径。**优先 state.metadata.filepath**(服务端 write/edit 实际写盘的绝对路径,
  * 权威且恒等于真实落点),兜底 state.input.filePath。
  *
- * 为什么不能只信 state.input:insight 会话的 write 相对落点由服务端插件(octo-outputs-redirect)重定向到
+ * 为什么不能只信 state.input:insight 会话的 write 相对落点由服务端插件(octo-session-workdir)重定向到
  * 会话 outputs/,但 state.input 记录的是模型产出的原始裸文件名(如 `报告.md`),与真实落点脱钩——客户端拿裸名
  * 走 file.read / openPath 会相对项目根解析而定位失败。metadata.filepath 才是写盘用的那个路径,不受重定向 / 相对
  * join 影响。见 output-renderers.md §2.6.3。
@@ -155,10 +104,13 @@ export type WriteCard = {
   type: OutputCardType
 }
 
+// 类型判定统一走 resolveOutputType(filename)。write 产物在磁盘上,没有 mimeType 可传,
+// 也不需要 —— 扩展名就是结论(§4.2)。
+
 /**
  * 在一组 part 中找所有「写文件工具产物」卡(write 新建 / edit 修改)。
  * 触发条件:type:"tool" + tool ∈ {write,edit} + state.status:"completed"(见 §2.6.2)。
- * 所有写入的文件都出卡(extToOutputType 不返回 null,按内容分流到预览卡 / file 卡)。
+ * 所有写入的文件都出卡(resolveOutputType 不返回 null,按内容分流到预览卡 / file 卡)。
  * 同一 filePath 多次写(覆盖)→ 去重保留最后一次(内容点开时读盘总取最新,只需避免重复卡)。
  */
 export function findWriteCards(parts: unknown[]): WriteCard[] {
@@ -202,11 +154,11 @@ export function findWriteCards(parts: unknown[]): WriteCard[] {
     const filePath = resolved.filePath
     rec.filePath = filePath
     rec.pathSource = resolved.source
-    rec.type = extToOutputType(filePath)
+    rec.type = resolveOutputType(filePath)
     seen.push(rec)
     // 重新插入以更新顺序到最后(覆盖语义)
     byPath.delete(filePath)
-    byPath.set(filePath, { filePath, type: extToOutputType(filePath) })
+    byPath.set(filePath, { filePath, type: resolveOutputType(filePath) })
   }
 
   const out = [...byPath.values()]

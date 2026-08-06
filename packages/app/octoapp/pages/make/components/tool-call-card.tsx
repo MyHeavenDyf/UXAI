@@ -10,7 +10,7 @@ export type ToolCallInfo = {
   filePath?: string
 }
 
-type ToolFamily = "write" | "edit" | "read" | "bash" | "glob" | "grep" | "search" | "task" | "other"
+type ToolFamily = "write" | "edit" | "read" | "bash" | "glob" | "grep" | "search" | "task" | "skill" | "other"
 
 export function toolFamily(name: string): ToolFamily {
   const n = name.toLowerCase()
@@ -22,6 +22,7 @@ export function toolFamily(name: string): ToolFamily {
   if (/grep/.test(n)) return "grep"
   if (/search|websearch|web_search/.test(n)) return "search"
   if (/task/.test(n)) return "task"
+  if (/skill/.test(n)) return "skill"
   return "other"
 }
 
@@ -34,6 +35,7 @@ const FAMILY_LABEL: Record<ToolFamily, string> = {
   grep: "搜索内容",
   search: "网络搜索",
   task: "子任务",
+  skill: "调用技能",
   other: "工具调用",
 }
 
@@ -71,6 +73,7 @@ function SingleToolCard(props: { call: ToolCallInfo }): JSX.Element {
     if (typeof input.command === "string") return input.command.length > 60 ? input.command.slice(0, 60) + "…" : input.command
     if (typeof input.pattern === "string") return input.pattern
     if (typeof input.query === "string") return input.query
+    if (typeof input.name === "string") return input.name
     return ""
   })
   const tooltipText = createMemo(() => {

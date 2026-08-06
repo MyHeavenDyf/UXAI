@@ -25,6 +25,29 @@ export function DesignPlanRenderer(props: {
   const [draft, setDraft] = createSignal(props.content)
   let editorRef: HTMLDivElement | undefined
   let vditorInstance: Vditor | undefined
+  let scrollRef: HTMLDivElement | undefined
+
+  createEffect(on(() => props.content, (c) => {
+    if (!isEditing()) setDraft(c)
+  }))
+
+  // 策略文档流式输出时保持滚动位置
+  createEffect(on(() => draft(), () => {
+    if (!scrollRef || isEditing()) return
+    const top = scrollRef.scrollTop
+    const height = scrollRef.scrollHeight
+    const clientHeight = scrollRef.clientHeight
+    // 延迟到 DOM 更新后恢复
+    requestAnimationFrame(() => {
+      if (!scrollRef) return
+      // 如果之前已滚动到底部附近（<100px），则自动跟随新内容
+      if (height - top - clientHeight < 100) {
+        scrollRef.scrollTop = scrollRef.scrollHeight
+      } else {
+        scrollRef.scrollTop = top
+      }
+    })
+  }))
 
   createEffect(on(() => props.content, (c) => {
     if (!isEditing()) setDraft(c)
@@ -117,6 +140,8 @@ export function DesignPlanRenderer(props: {
       },
       input: (val) => {
         setDraft(val)
+        // 每次键击实时同步到 tabStore,避免切换 tab/session 时编辑丢失
+        props.onContentChange?.(val)
       },
     })
   }
@@ -274,7 +299,7 @@ export function DesignPlanRenderer(props: {
       </div>
 
       {/* Content */}
-      <div class="flex-1 overflow-y-auto" style={{ padding: isEditing() ? "0" : "24px" }}>
+      <div class="flex-1 overflow-y-auto" ref={scrollRef} style={{ padding: isEditing() ? "0" : "24px" }}>
         <Show
           when={!isEditing()}
           fallback={
@@ -285,7 +310,7 @@ export function DesignPlanRenderer(props: {
             />
           }
         >
-          <div>
+          <div class="select-text">
             <div
               class="prose prose-sm max-w-none"
               style={{ color: "var(--octo-text-primary)" }}

@@ -70,6 +70,17 @@ export interface TransformResult {
    * 声明后 Phase B/C 会自动把字面量 prop 提升到对应位置
    */
   propRoute?: Record<string, ExtractRoute>
+
+  /**
+   * className 在产物 JSX 上的输出 key 别名（默认 'className'）。
+   *
+   * 某些目标组件接收的样式 prop 名不是 className 而是别名（如 inputClassName），
+   * 声明后 jsx-emitter/file-assembler emit 时输出 `<别名={styles.id}>` 而非 `className={styles.id}`。
+   *
+   * ⚠️ props 内部 key 仍是 'className'（style-converter 读 props.className 收集样式照常），
+   * 此字段只影响末端 emit 的输出 key，不影响样式收集。
+   */
+  classNameProp?: string
 }
 
 // ─── MappingDef ───
@@ -86,6 +97,9 @@ export interface MappingDef {
 
   /** 自定义转换（最强大的扩展点） */
   transform?: (node: any, context: TransformContext) => TransformResult | null
+
+  /** className 在产物 JSX 上的输出 key 别名（默认 'className'）；详见 TransformResult.classNameProp */
+  classNameProp?: string
 }
 
 // ─── ComponentRegistry 步骤间传递接口 ───

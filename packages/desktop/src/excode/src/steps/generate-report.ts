@@ -7,7 +7,7 @@
  * ctx.generationReport 不再写入（保留字段仅供向后兼容 / 调试）。
  */
 
-import { Step } from '../core/step'
+import { Step } from '../core/step-base'
 import type { PipelineContext } from '../pipeline/pipeline-context'
 import { buildStatsFromContext, buildReportMarkdown } from '../codegen/report-generator'
 

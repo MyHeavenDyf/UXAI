@@ -161,7 +161,7 @@ export function CollapsedSidebarIcons(props: CollapsedSidebarIconsProps) {
           }}
           title={props.skillsTitle ?? "技能库"}
         >
-          <IconSkill size={16} />
+          <IconSkill size={20} />
         </button>
       </Show>
 
@@ -177,7 +177,7 @@ export function CollapsedSidebarIcons(props: CollapsedSidebarIconsProps) {
           }}
           title={props.settingsTitle ?? "设置"}
         >
-          <IconSettings size={16} />
+          <IconSettings size={20} />
         </button>
       </Show>
     </div>

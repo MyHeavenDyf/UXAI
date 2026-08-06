@@ -1,7 +1,7 @@
 /**
  * accessPath — 路径引用语义收拢
  *
- * accessPath 由 BuildTrees `#computeAccessPath` 产出：字段用 `.` 分隔、数字段用 `[n]` 紧跟字段
+ * accessPath 由 `pathToJsAccess` 产出：字段用 `.` 分隔、数字段用 `[n]` 紧跟字段
  * （`/a/b/0/c` → `a.b[0].c`）。
  *
  * 平面（无 `.` `[` `]`）vs 嵌套的处理规则统一收拢于此，stateBuilder / treeFinalizer /
@@ -92,4 +92,31 @@ export function computedJsxConstName(cv: ComputedValue): string {
     })
   }
   return jsxConstName(cv.accessPath)
+}
+
+/**
+ * CSS Modules 引用：合法 JS 标识符用 `styles.id`，含特殊字符（如 `-`）用 `styles['id']`。
+ * 避免产物 `styles.root-page` 被当减法。
+ */
+export function cssModuleRef(varName: string, id: string): string {
+  return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(id)
+    ? `${varName}.${id}`
+    : `${varName}[${JSON.stringify(id)}]`
+}
+
+/**
+ * path 的顶级字段（去前导 / 后首段）。如 `/a/b` → `a`；`masQuickLinks/3` → `masQuickLinks`。
+ * 仅供 makeEnrichmentConstName 用。
+ */
+function pathToTopKey(path: string): string {
+  const seg = path.replace(/^\//, '').split('/').filter(Boolean)[0]
+  return seg || ''
+}
+
+/**
+ * enrichment const 名（stateBuilder 写 const / treeFinalizer 读 loopEnrichmentMap，共用保证一致）。
+ * 格式：`${pathToTopKey(path)}_${parentNodeId}Enriched`。
+ */
+export function makeEnrichmentConstName(path: string, parentNodeId: string): string {
+  return `${pathToTopKey(path)}_${parentNodeId}Enriched`
 }

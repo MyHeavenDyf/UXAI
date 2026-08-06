@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed, watchEffect } from "vue"
-import { getIconComponentRef, sizeConfig, mapShapeToHuiType, mapColorToHuiColor } from "./IconBase"
+import { getIconComponentRef, sizeConfig, mapColorToHuiColor } from "./IconBase"
 import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import type { IconNode } from "../types"
-import { useIconProvider, iconInfoMap, svgCache, svgCacheVersion, resolveSvgCacheKey, requestSvg } from "../../composables/useIconProvider"
+import { useIconProvider, iconInfoMap, svgCache, svgCacheVersion, resolveSvgCacheKey, requestSvg, resolveApiShape } from "../../composables/useIconProvider"
 import { iconColors, iconDarkColors } from "../../utils/themeColors"
-import { resolveApiShape } from "../../utils/fetchSvg"
 import { useTheme } from "../../composables/useTheme"
 
 const { hasHuiIcons } = useIconProvider()
@@ -23,7 +22,19 @@ const id = computed(() => node.id)
 const className = computed(() => properties.className || "")
 const name = computed(() => (resolveValue(properties.name) as string) || "")
 const shape = computed(() => (resolveValue(properties.shape) as string | undefined) || "outline")
-const color = computed(() => (resolveValue(properties.color) as string | undefined) || "default")
+const color = computed(() => {
+  let res = resolveValue(properties.color) as string | undefined
+  if (!res) {
+    if(shape.value === "two-tone") {
+      res = isDark.value ? "#DFDFDF,#AEAEAE" : "#191919,#AEAEAE"
+    } else if (shape.value === "circle" || shape.value === "square") {
+      res = isDark.value ? "#2A2A2A,#939393,#AEAEAE" : "#191919,#AEAEAE,#FFFFFF"
+    } else {
+      res = isDark.value ? "#DFDFDF" : "#191919"
+    }
+  }
+  return res
+})
 
 // watchEffect 主动驱动 requestSvg：即使模板 v-if 短路求值导致 resolved computed 未被访问，
 // 也能确保 SVG 请求被触发并写入 svgCache
@@ -59,20 +70,18 @@ const resolved = computed(() => {
   return getIconComponentRef(name.value, { shape: shape.value, color: color.value, isDark: isDark.value })
 })
 
-const huiIconType = computed(() => mapShapeToHuiType(shape.value, isDark.value))
+const huiIconType = computed(() => resolveApiShape(shape.value, isDark.value))
 const huiIconColor = computed(() => mapColorToHuiColor(color.value))
 const bgShape = computed(() => shape.value)
 
-// Lucide 路径使用的 shape：
-//   two-tone → outline（Lucide 无法做双色）
-//   outline 在深色主题下 → fill（用 CSS 面性效果模拟深色下的实心图标）
+// Lucide 图标的 shape 映射（Lucide 无原生双色/面性，需 CSS 模拟）：
+//   two-tone → outline（Lucide 无双色，降级为线性）
+//   outline + 深色 → fill（CSS 面性效果：白图标 + 彩色背景，模拟深色下实心图标）
 const lucideBgShape = computed(() => {
   if (bgShape.value === 'two-tone') return 'outline'
   if (bgShape.value === 'outline' && isDark.value) return 'fill'
   return bgShape.value
 })
-
-const hasApiBackground = computed(() => isHuiIcon.value && (bgShape.value === "circle" || bgShape.value === "square"))
 
 const iconSizeStyle = computed(() => {
   switch (lucideBgShape.value) {
@@ -112,7 +121,7 @@ const borderRadius = computed(() => {
 const mixPercentage = Math.round(BACKGROUND_OPACITY * 100)
 
 const wrapperStyle = computed(() => {
-  if (hasApiBackground.value) {
+  if (isHuiIcon.value) {
     return {
       display: "inline-flex",
       alignItems: "center",
@@ -138,13 +147,13 @@ const wrapperStyle = computed(() => {
 
 <template>
   <component
-    v-if="isHuiIcon && resolved"
+    v-if="isHuiIcon"
     :id="id" 
     :style="wrapperStyle" 
     class="icon-base" 
     :class="className"
-    :is="resolved.component"
-    v-bind="resolved.props"
+    :is="resolved?.component"
+    v-bind="resolved?.props"
     :type="huiIconType"
     :iconColor="huiIconColor"
   />

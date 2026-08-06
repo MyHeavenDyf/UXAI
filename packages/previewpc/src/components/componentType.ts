@@ -168,7 +168,14 @@ interface ResolvedButton {
   shape?: "default" | "circle" | "round";
   types?: "default" | "link";
   disabled?: DynamicBoolean;
-  className?: string
+  className?: string;
+  onClick?: {
+    action: string;
+    args?: {
+      path: string;
+      value: any;
+    };
+  };
 }
 interface ButtonNode extends AnyComponentNode<ResolvedButton> {
   type: "Button";
@@ -244,6 +251,7 @@ interface ResolvedTableRow {
   children: AnyComponentNode[];
 }
 interface ResolvedTable {
+  size: "" | "large" | "small" | "default";
   rowKey: string;
   columns: Column[];
   dataSource?: DataBinding;
@@ -326,14 +334,16 @@ interface ResolvedTabItem {
   key: DynamicString;
   label?: DynamicString;
   icon?: DynamicString;
+  closable?: DynamicBoolean;
   content?: AnyComponentNode;
 }
 interface ResolvedTabs {
   children?: TabItemNode[];
   activeKey: DynamicString;
-  types?: "line" | "card" | "editable-card";
+  types?: "line" | "card" | "separator";
   tabPlacement?: "top" | "end" | "bottom"| "start";
   size?: "large" | "medium" | "small";
+  maxVisible?: number;
   className?: string;
 }
 interface TabItemNode extends AnyComponentNode<ResolvedTabItem> {
@@ -500,6 +510,45 @@ interface ImageNode extends AnyComponentNode<ResolvedImage> {
   type: "Image";
 }
 
+interface ResolvedModal {
+  open: boolean | DataBinding;
+  title: DynamicString;
+  mask?: boolean;
+  footer?: AnyComponentNode;
+  onClose?: {
+    action: string;
+    args?: {
+      path: string;
+      value: any;
+    };
+  };
+  className?: string;
+  children?: AnyComponentNode[];
+}
+interface ModalNode extends AnyComponentNode<ResolvedModal> {
+  type: "Modal";
+}
+
+interface ResolvedDrawer {
+  open: boolean | DataBinding;
+  title: DynamicString;
+  placement?: "right" | "left" | "top" | "bottom";
+  mask?: boolean;
+  footer?: AnyComponentNode;
+  onClose?: {
+    action: string;
+    args?: {
+      path: string;
+      value: any;
+    };
+  };
+  className?: string;
+  children?: AnyComponentNode[];
+}
+interface DrawerNode extends AnyComponentNode<ResolvedDrawer> {
+  type: "Drawer";
+}
+
 interface ResolvedLink {
   text: DynamicString;
 }
@@ -554,5 +603,7 @@ export type {
   TreeNodeNode,
   ImageNode,
   StreamNode,
-  LinkNode
+  LinkNode,
+  ModalNode,
+  DrawerNode
 }

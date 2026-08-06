@@ -13,6 +13,7 @@ import { QuickBriefFormView } from "./quick-brief-form"
 import './quick-brief-form.css'
 import { autoSaveArtifact } from "../utils/artifact-auto-save"
 import { parseUploadedFiles } from "../../insight/lib/upload"
+import { ExpandableBubble } from "@/components/expandable-bubble"
 
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
@@ -691,8 +692,12 @@ export function InsightTurn(props: {
   })
 
   // Non-task tool calls (for ToolCallGroupCard — task calls shown separately as subtask cards)
-  const nonTaskToolCalls = createMemo(() =>
-    toolCalls().filter((c) => !/task/i.test(c.name))
+  const skillToolCalls = createMemo(() =>
+    toolCalls().filter((c) => c.name === "skill")
+  )
+
+  const otherToolCalls = createMemo(() =>
+    toolCalls().filter((c) => c.name !== "skill" && !/task/i.test(c.name))
   )
 
   // ── NEW: subtask sessions (from Task tool calls) ──
@@ -1011,11 +1016,11 @@ const stateStatus = state.status as string | undefined
       <Show when={userText() || userAttachments().length > 0}>
         <div class="flex flex-col items-end gap-2 px-3 py-2.5">
           <Show when={userText()}>
-            <div
+            <ExpandableBubble
               class="break-words"
               style={{
                 background: "var(--octo-brand-a8)",
-                padding: "8px 12px",
+                padding: "12px 16px",
                 "border-radius": "16px 16px 2px 16px",
                 color: "#191919",
                 "font-size": "14px",
@@ -1026,7 +1031,7 @@ const stateStatus = state.status as string | undefined
               }}
             >
               {renderMentionText(userText())}
-            </div>
+            </ExpandableBubble>
           </Show>
           <Show when={userAttachments().length > 0}>
             <div class="flex flex-col gap-2">
@@ -1036,7 +1041,7 @@ const stateStatus = state.status as string | undefined
                     class="break-words flex items-center gap-2"
                     style={{
                       background: "var(--octo-brand-a8)",
-                      padding: "8px 12px",
+                      padding: "12px 16px",
                       "border-radius": "12px",
                       color: "#191919",
                       "font-size": "13px",
@@ -1104,7 +1109,7 @@ const stateStatus = state.status as string | undefined
       {/* AI 文字回复（proseText 已剥离 artifact 内容，使用 segments 渲染） */}
       <Show when={proseSegments().length > 0}>
         <div
-          class="mb-2 px-3 py-2"
+          class="mb-2 px-4 py-3"
           style={{ color: "#191919", "font-size": "14px", "line-height": "22px", "user-select": "text" }}
         >
           <For each={proseSegments()}>
@@ -1134,9 +1139,14 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
-      {/* 工具调用进度（排除 Task 工具，由子任务卡片单独展示） */}
-      <Show when={(props.skillToolCalls?.length ?? 0) > 0 || nonTaskToolCalls().length > 0}>
-        <ToolCallGroupCard calls={[...(props.skillToolCalls ?? []), ...nonTaskToolCalls()]} />
+      {/* 技能调用（单独显示在最前面） */}
+      <Show when={skillToolCalls().length > 0}>
+        <ToolCallGroupCard calls={skillToolCalls()} />
+      </Show>
+
+      {/* 其他工具调用 */}
+      <Show when={otherToolCalls().length > 0}>
+        <ToolCallGroupCard calls={otherToolCalls()} />
       </Show>
 
       {/* 子任务进度（Task tool 调用的子 agent 会话） */}
@@ -1251,9 +1261,9 @@ const stateStatus = state.status as string | undefined
       </For>
 
       {/* 文件操作摘要（生成完成后） */}
-      <Show when={!showGenerating() && nonTaskToolCalls().length > 0}>
+      <Show when={!showGenerating() && otherToolCalls().length > 0}>
         <div class="mb-1">
-          <FileOpsSummary calls={nonTaskToolCalls()} />
+          <FileOpsSummary calls={otherToolCalls()} />
         </div>
       </Show>
 

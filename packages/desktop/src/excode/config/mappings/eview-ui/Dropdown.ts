@@ -24,9 +24,9 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue, BindingValue } from '../../../src/core/value-types'
-import type { ComponentNode, LoopNode, ExtractNode } from '../../../src/core/node-types'
-import { Value } from '../../../src/core/value'
-import { Node } from '../../../src/core/node'
+import type { ComponentNode, LoopNode } from '../../../src/core/node-types'
+import { Value } from '../../../src/core/value-factory'
+import { Node } from '../../../src/core/node-factory'
 
 // ─── placement 映射表（与 eview-react Dropdown 一致） ───
 const PLACEMENT_MAP: Record<string, { position: string; popupDirection: string }> = {
@@ -152,23 +152,21 @@ function buildMenuOverlayFromBinding(
   ctx: TransformContext,
 ): ComponentNode {
   // 复用 menu binding 的 path/pathType/accessPath 作循环数据源
-  const dataBinding: BindingValue = {
-    type: 'binding',
+  const dataBinding = Value.binding({
     path: menuBinding.path,
     pathType: menuBinding.pathType ?? 'absolute',
     accessPath: menuBinding.accessPath ?? 'dropdownMenu',
-  }
+  })
 
   const componentName = `${nodeId || 'Dropdown'}OverlayTemplate`
   const templateItem = buildMenuItemTemplate(ctx)
 
-  const extract: ExtractNode = {
-    kind: 'extract',
+  const extract = Node.extract({
     componentName,
     purpose: 'component',
     body: [templateItem],
     _resolved: false,
-  }
+  })
 
   const loopNode: LoopNode = Node.loop({ data: dataBinding, template: extract })
   // 注：不手动挂 loopScope —— 会形成 loopNode↔template.body↔loopScope 循环引用，

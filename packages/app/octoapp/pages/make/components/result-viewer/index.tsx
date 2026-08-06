@@ -107,18 +107,44 @@ export function ResultViewer(props: {
   planConfirmPending?: boolean
   /** 子 agent 最终确认状态（基于 childSessionIDs 消息流扫描） */
   childPlanConfirmed?: boolean
+  /** 右侧面板抽屉展开时,头部右侧收起按钮回调 */
+  onCollapseDrawer?: () => void
   /** 子 session 的 session_status（用于检测子 agent 是否已完成但未输出有效 plan） */
   childSessionStatus?: { type: string }
   /** 子 session 是否正在生成中（模型输出期间禁用按钮和表单） */
   childBusy?: boolean
   /** 设计规划是否已结束（退出或确认），plan 视图只读 */
   planEnded?: boolean
+  /** 设计规划流程是否活跃（即使 plan artifact 尚未生成） */
+  planActive?: boolean
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
   const projectSelection = useProjectSelection()
   const activeTab = createMemo(() =>
     props.tabs.find((t) => t.id === props.activeId) ?? null
   )
+
+  /**
+   * 取设计规划的实际内容（优先 tabStore 中该 plan tab 的最新编辑，
+   * 回退到消息流扫描的 planCard）。编辑走 handleContentChange 会更新
+   * tabStore，再点 [预览] 时若不读 tabStore，编辑会丢失。
+   */
+  const planContent = createMemo(() => {
+    const plan = props.planCard
+    if (!plan?.id) return ""
+    const tab = props.tabs.find((t) => t.id === plan.id)
+    return tab ? tab.content : (plan.content ?? "")
+  })
+
+  /**
+   * 当前激活的 plan tab（编辑态时优先用它在 tabStore 中的最新内容）。
+   * 用于 tab 栏点击 design-plan tab 后切换到 tabs 模式渲染，保证编辑不被回退。
+   */
+  const activePlanTab = createMemo(() => {
+    const tab = activeTab()
+    if (tab?.type === "design-plan") return tab
+    return null
+  })
 
   const [htmlModes, setHtmlModes] = createSignal<Record<string, "preview" | "edit">>({})
   const [viewport, setViewport] = createSignal<ViewportPreset>("desktop")
@@ -130,6 +156,9 @@ export function ResultViewer(props: {
   const [commenting, setCommenting] = createSignal(false)
   const [archiving, setArchiving] = createSignal(false)
   const [refreshKey, setRefreshKey] = createSignal(0)
+  // 当前 HTML tab 已加载的资源 URL getter（由 HtmlRenderer 注册）
+  let observedUrlsGetter: (() => string[]) | null = null
+  const combinedRefreshKey = createMemo(() => refreshKey() + (props.filesRefreshKey ?? 0))
 
   const handleViewportChange = (vp: ViewportPreset) => {
     tracker.interaction({ module: "design", name: "change-viewport", extend: JSON.stringify({ viewport: vp }) })
@@ -153,7 +182,8 @@ export function ResultViewer(props: {
         const zipBlob = await createC2DZip({
           htmlContent,
           htmlFilePath: tab.filePath || "",
-          tabTitle: tab.title
+          tabTitle: tab.title,
+          observedUrls: observedUrlsGetter?.() || [],
         })
         const fileName = `${tab.title}-c2d.zip`
         const url = URL.createObjectURL(zipBlob)
@@ -169,12 +199,12 @@ export function ResultViewer(props: {
       }
 
       const result = await uploadZip(async () => {
-        showToast({ title: "生成ZIP文件..." })
         const htmlContent = extractCodeBlock(tab.content, "html")
         return await createC2DZip({
           htmlContent,
           htmlFilePath: tab.filePath || "",
-          tabTitle: tab.title
+          tabTitle: tab.title,
+          observedUrls: observedUrlsGetter?.() || [],
         })
       }, projectSelection())
 
@@ -308,8 +338,10 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           viewMode={props.viewMode}
           onViewModeChange={props.sessionId ? props.onViewModeChange : undefined}
           showPlanEntry={!!props.planCard}
+          planActive={props.planActive}
           planConfirmed={props.isPlanConfirmed?.()}
           planEnded={props.planEnded}
+          onCollapseDrawer={props.onCollapseDrawer}
         />
 
         <Show when={props.viewMode === "files" && props.sessionId}>
@@ -371,26 +403,24 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
 
         {/* plan 模式 — 设计规划生成阶段,有 planCard 时渲染（未确认/未结束状态） */}
         <Show when={props.viewMode === "plan" && props.planPhase !== "strategy" && !props.planConfirmPending && !props.childPlanConfirmed && !props.planEnded}>
-          <Show when={props.planCard} keyed>
-            {(plan) => (
-              <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
-                <DesignPlanRenderer
-                  content={plan.content}
-                  title={plan.title}
-                  artifactIdentifier={plan.artifactIdentifier}
-                  confirmed={props.isPlanConfirmed?.() ?? false}
-                  disabled={props.childBusy}
-                  onConfirm={() => props.onConfirmPlan?.(plan.artifactIdentifier)}
-                  onContentChange={(content) => {
-                    if (props.onContentChange && plan.id) {
-                      props.onContentChange(plan.id, content)
-                    }
-                  }}
-                  onBackToStrategy={() => props.onBackToStrategy?.()}
-                  currentStep={2}
-                />
-              </div>
-            )}
+          <Show when={props.planCard}>
+            <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <DesignPlanRenderer
+                content={planContent()}  // 优先取 tabStore，保留编辑
+                title={props.planCard?.title ?? ""}
+                artifactIdentifier={props.planCard?.artifactIdentifier}
+                confirmed={props.isPlanConfirmed?.() ?? false}
+                disabled={props.childBusy}
+                onConfirm={() => props.onConfirmPlan?.(props.planCard?.artifactIdentifier)}
+                onContentChange={(content) => {
+                  if (props.onContentChange && props.planCard?.id) {
+                    props.onContentChange(props.planCard.id, content)
+                  }
+                }}
+                onBackToStrategy={() => props.onBackToStrategy?.()}
+                currentStep={2}
+              />
+            </div>
           </Show>
         </Show>
 
@@ -543,6 +573,7 @@ drawing={drawing()}
 }}
                     onCanvasToDesign={handleCanvasToDesign}
                     onRefresh={handleRefresh}
+                   observedResourceUrls={() => observedUrlsGetter?.() || []}
                    focusMode={props.focusMode}
                    onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
                  />
@@ -584,7 +615,7 @@ drawing={drawing()}
                           onInspectTarget={setInspectTarget}
                           onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
                           onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
-                          refreshKey={refreshKey()}
+                          refreshKey={combinedRefreshKey()}
                           filePath={tab.filePath}
                           commentFilePath={tab.commentFilePath}
                           sessionId={tab.sessionId ?? props.sessionId}
@@ -597,6 +628,7 @@ drawing={drawing()}
                           }}
                           onRefreshNeeded={handleRefresh}
                           tabTitle={tab.title}
+                          observedUrlsGetter={(g) => { observedUrlsGetter = g }}
                         />
                     </Match>
                     <Match when={tabType === "deck"}>
@@ -604,7 +636,7 @@ drawing={drawing()}
                     </Match>
                     <Match when={tabType === "svg"}>
                       <iframe
-                        src={`local:///${tab.filePath?.replace(/\\/g, '/')}?v=${refreshKey()}`}
+                        src={`local:///${tab.filePath?.replace(/\\/g, '/')}?v=${combinedRefreshKey()}`}
                         style={{ width: "100%", height: "100%", border: "none" }}
                       />
                     </Match>
@@ -631,19 +663,19 @@ drawing={drawing()}
                       />
                     </Match>
                     <Match when={tabType === "image"}>
-                      <ImageRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <ImageRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "video"}>
-                      <VideoRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <VideoRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "audio"}>
-                      <AudioRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <AudioRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "pdf"}>
-                      <PdfRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <PdfRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "text"}>
-                      <TextRenderer filePath={tab.filePath!} refreshKey={refreshKey()} />
+                      <TextRenderer filePath={tab.filePath!} refreshKey={combinedRefreshKey()} />
                     </Match>
                     <Match when={tabType === "file"}>
                       <div class="flex items-center justify-center h-full">

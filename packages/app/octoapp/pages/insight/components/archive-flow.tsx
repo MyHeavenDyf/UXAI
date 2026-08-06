@@ -19,6 +19,7 @@ import { EdmUtil } from "@/utils/edmUtil"
 import { uploadDeliverable, getActivityByTeam, createDeliverable, uploadCover, uploadVersion } from "@/network/pipelineRequest"
 import { getDesktopApi } from "../lib/electron-api"
 import { TaskStore, type TaskItem } from "@/context/task"
+import { archiveFileSizeError } from "../utils/archive-size"
 
 export type ArchiveTarget =
   | {
@@ -214,6 +215,14 @@ async function runArchiveFileTask(
       showToast({ title: "归档失败", description: "无法获取文件内容" })
       return
     }
+    // 中央守卫:EDM 文件归档区间 1B~4GiB。前置置灰只覆盖有同步口径的来源(文件管理带 size、文本类看 content),
+    // uri / 写产物等拿不到大小的在此兜底 —— 此处 File 已物化,读 file.size 是准的,拦在打到服务端之前
+    // (空文件 = 0 字节同样在此拦)。
+    const sizeErr = archiveFileSizeError(file.size)
+    if (sizeErr) {
+      showToast({ title: "归档失败", description: sizeErr })
+      return
+    }
     const dt = new DataTransfer()
     dt.items.add(file)
     // apiFetch 失败时已弹 toast 并返回 null(见 pipelineRequest.reportRequestError),这里仅判空返回。
@@ -249,11 +258,12 @@ async function runArchiveFileTask(
         })))
       },
       onFinish: (taskId, files) => {
-        // EdmUtil.onFinish 是整批回调,用户中途取消的项(key 对应 store 已 cancelled)不能被改回 completed,
-        // 也不能进 uploadDeliverable(取消语义要贯穿到业务)。全部取消则直接 return,不建 deliverable。
+        // EdmUtil.onFinish 是整批回调,用户中途取消的项不能被改回 completed,也不能进 uploadDeliverable。
+        // 取消记录独立于 items 生命周期(wasCancelled),故迟到的 onFinish(取消项已被自动删除)仍能正确排除。
+        // 全部取消则直接 return,不建 deliverable。
         const live = files
           .map((file, index) => ({ file, index, key: `${taskId}-${index}` }))
-          .filter((e) => TaskStore.items().find((f) => f.key === e.key)?.status !== "cancelled")
+          .filter((e) => !TaskStore.wasCancelled(e.key))
         if (live.length === 0) return
         TaskStore.finish(live.map((e) => ({
           key: e.key,

@@ -10,7 +10,7 @@ import fs from 'fs'
 import { fileURLToPath } from 'url'
 
 import { ComponentRegistry } from './src/core/component-registry'
-import { Pipeline } from './src/pipeline/pipeline'
+import { Pipeline } from './src/pipeline/pipeline-engine'
 import { PipelineContext } from './src/pipeline/pipeline-context'
 
 // 步骤

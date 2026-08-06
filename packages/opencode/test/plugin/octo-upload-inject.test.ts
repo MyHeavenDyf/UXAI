@@ -67,7 +67,7 @@ describe("octo-upload-inject 早退顺序(endpoint 未配置时不误杀无关�
 })
 
 // 本地文件工具的 path/filePath 是本地磁盘目标,永不该被换成 S3 URL(回归:内网上传 md → 让其在
-// 末尾追加,write 的 filePath 命中清单被替换成 S3 URL,octo-outputs-redirect 再把非绝对的 https://
+// 末尾追加,write 的 filePath 命中清单被替换成 S3 URL,octo-session-workdir 再把非绝对的 https://
 // 串 join 进 outputs/,建目录时因路径含 URL 成分崩溃 makeDirectory .../outputs/https:/.../...)。
 // 关键点:即便 endpoint 已配置(内网),这些工具也必须原值放行——由排除集早退,而非"没配 endpoint"的兜底。
 describe("本地文件工具排除(write/edit/read 等不被换成 S3 URL)", () => {

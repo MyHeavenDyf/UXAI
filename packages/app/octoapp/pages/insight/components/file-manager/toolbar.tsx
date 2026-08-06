@@ -36,10 +36,10 @@ export function FileManagerToolbar(props: ToolbarProps): JSX.Element {
 
   return (
     <div
-      class="flex items-center justify-between px-4 py-2 shrink-0"
+      class="flex items-center justify-between flex-wrap px-4 py-2 shrink-0 gap-y-2"
       style={{ "border-bottom": "1px solid var(--octo-border-divider)" }}
     >
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 min-w-0 shrink">
         <button
           type="button"
           onClick={() => props.onRefresh()}
@@ -136,7 +136,7 @@ export function FileManagerToolbar(props: ToolbarProps): JSX.Element {
         </Kobalte>
       </div>
 
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 min-w-0 flex-wrap">
         {/* 多选后:批量下载 / 批量删除 */}
         <Show when={hasSelection()}>
           <button

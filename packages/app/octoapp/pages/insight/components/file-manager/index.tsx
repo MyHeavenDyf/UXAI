@@ -1,7 +1,9 @@
-// SPEC-INS-014 §10 / §10.1:「文件管理」——viewMode==="files" 时替换 ResultViewer 整个内容区。
+// SPEC-INS-014 §10 / §10.1 / §10.2:「文件管理」——viewMode==="files" 时替换 ResultViewer 整个内容区。
 // 功能对齐站内 Design 模块(make/components/design-files/design-files-panel.tsx):
-//   面包屑 + 文件夹导航 + 右侧预览面板 + 批量下载/删除 + 上传(文件夹/文件) + 5 项行操作菜单。
-// 数据源走 .octo/<sessionId>/{uploads,outputs}/(uploads 支持子文件夹导航);content/delete/archive
+//   面包屑 + 文件夹导航 + 批量下载/删除 + 上传(文件夹/文件) + 5 项行操作菜单。
+// §10.2:单击文件行直接 openTab(不再开右侧预览面板第四栏——那一栏及其自带的一套渲染分支已删),
+//   打开后的渲染分流由 extToOutputType 这一唯一入口决定,与对话产物卡片同源。
+// 数据源走 .octo/<sessionId>/{uploads,outputs}/(uploads 支持子文件夹导航);delete/archive
 // 复用 artifact 分组同款端点(按绝对 path),upload/upload-folder 走 insight 专属端点。
 // insight 自包含:不 import make 目录下的组件;图标用 design-files-icons(拷贝自 make)。
 // 颜色/圆角统一走 --octo-* 主题变量。
@@ -46,13 +48,13 @@ import { getDesktopApi } from "../../lib/electron-api"
 import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
 import emptyFolderPng from "../../icons/empty_folder.png"
-import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload } from "../../icons/design-files-icons"
+import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload, IconFolder, IconFile } from "../../icons/design-files-icons"
 import { ALLOWED_EXT, getExt } from "../../lib/upload"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { FileManagerToolbar } from "./toolbar"
 import { Breadcrumb } from "./breadcrumb"
-import { PreviewPane } from "./preview-pane"
 import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
+import { archiveFileSizeError } from "../../utils/archive-size"
 
 // 把文件管理列表中的非 HTML InsightFile 转成归档 file target(本地读盘 / uri 拉取 → EdmUtil.upload)。
 // HTML 归档只在 result-viewer ActionBar 提供(那里有 live iframe 可截图,且避免对用户上传目录整包打包),故本入口不处理 HTML。
@@ -131,6 +133,7 @@ function FileManagerInner(props: {
   const fileStore = createInsightFileStore()
   const store = () => fileStore.store
   const [isDragOver, setIsDragOver] = createSignal(false)
+  const [emptyUploadOpen, setEmptyUploadOpen] = createSignal(false)
   let fileInputRef!: HTMLInputElement
   let folderInputRef!: HTMLInputElement
 
@@ -182,23 +185,69 @@ function FileManagerInner(props: {
   createEffect(on(() => props.refreshKey, () => { void refresh() }, { defer: true }))
 
   // ── 上传 ────────────────────────────────────────────────────────
+  // 大文件完整性:桌面端走 tryStreamUpload(主进程 fs.copyFile 流式拷贝,与 make design-files-panel 同款),
+  // 不把整文件读成 base64 塞进 JSON body。仅在拿不到真实本地路径(剪贴板内存 blob)/ 非桌面端时,
+  // 才回退到下面的 base64 over HTTP。
+
+  // base64 回退通道的大小上限。这条通道会把整个文件读进 JS 堆——ArrayBuffer + binary 中间串 +
+  // base64 串 + JSON body 串,峰值约为文件大小的 3~4 倍——大文件下渲染进程直接 OOM,白屏且连
+  // toast 都弹不出来,比"落盘 0 字节"更难排查。宁可在入口响亮拒绝,也不让它跑到崩。
+  // 注意本函数同时服务文件夹上传(handleFolderUpload / 拖拽文件夹),那条路径目前只有 base64 一种走法。
+  // 待服务端 upload 支持「按源路径复制」后,回退通道不再承载大文件,此上限可撤除。
+  const BASE64_FALLBACK_MAX = 100 * 1024 * 1024 // 100 MB
+
+  // 产出干净 base64(无 data: 前缀),服务端 Buffer.from(..., "base64") 全量解码。
+  // 分块 String.fromCharCode 是为绕开单次调用的参数个数上限,不是为了省内存——内存仍是全量常驻。
   function readFileAsBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const result = reader.result as string
-        resolve(result.split(",")[1] || result)
+    if (file.size > BASE64_FALLBACK_MAX) {
+      return Promise.reject(
+        new Error(
+          `该文件超过 ${formatFileSize(BASE64_FALLBACK_MAX)},无法通过当前方式上传。请先将文件保存到本地磁盘,再从本地拖入或选择上传。`,
+        ),
+      )
+    }
+    return file.arrayBuffer().then((buf) => {
+      const bytes = new Uint8Array(buf)
+      let binary = ""
+      const CHUNK = 0x8000
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
       }
-      reader.onerror = () => reject(reader.error)
-      reader.readAsDataURL(file)
+      return btoa(binary)
     })
+  }
+
+  // 桌面端流式上传:取真实本地路径 → copyFileToSessionUploads(直接 fs.copyFile 进 uploads/[currentPath])。
+  // 返回 true 表示已落地;false 表示不可走流式(非桌面 / 无本地路径),调用方回退 base64。
+  async function tryStreamUpload(file: File, currentPath: string): Promise<boolean> {
+    const api = getDesktopApi()
+    const baseDir = sdk.directory
+    if (
+      !baseDir ||
+      typeof api?.getPathForFile !== "function" ||
+      typeof api?.copyFileToSessionUploads !== "function"
+    ) {
+      return false
+    }
+    let srcPath = ""
+    try {
+      srcPath = api.getPathForFile(file)
+    } catch {
+      // 取不到真实路径(剪贴板内存 blob,无落盘来源)→ 回退 base64
+    }
+    if (!srcPath) return false
+    await api.copyFileToSessionUploads(srcPath, baseDir, props.sessionId, currentPath, file.name)
+    return true
   }
 
   async function uploadSingleFile(file: File) {
     const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
-    const base64 = await readFileAsBase64(file)
     try {
-      await uploadInsightFile(sdk.url, sdk.directory, props.sessionId, file.name, base64, currentPath)
+      const streamed = await tryStreamUpload(file, currentPath)
+      if (!streamed) {
+        const base64 = await readFileAsBase64(file)
+        await uploadInsightFile(sdk.url, sdk.directory, props.sessionId, file.name, base64, currentPath)
+      }
       showToast({ title: "上传完成", description: file.name, variant: "success", duration: 2000 })
       await refresh()
       props.onFilesRefresh?.()
@@ -223,12 +272,14 @@ function FileManagerInner(props: {
     }
     const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
     const fileEntries: InsightFolderUploadFile[] = []
-    for (const file of Array.from(files)) {
-      const relativePath = file.webkitRelativePath.slice(folderName.length + 1)
-      const base64 = await readFileAsBase64(file)
-      fileEntries.push({ relativePath, content: base64 })
-    }
+    // 读取(readFileAsBase64)必须和上传在同一个 try 内:它会因超出回退通道上限而 reject,
+    // 留在 try 外会变成 unhandled rejection —— 用户点了上传却什么提示都没有。
     try {
+      for (const file of Array.from(files)) {
+        const relativePath = file.webkitRelativePath.slice(folderName.length + 1)
+        const base64 = await readFileAsBase64(file)
+        fileEntries.push({ relativePath, content: base64 })
+      }
       const result = await uploadInsightFolder(sdk.url, sdk.directory, props.sessionId, folderName, fileEntries, currentPath)
       showToast({ title: "上传完成", description: `${folderName} (${result.fileCount} 个文件)`, variant: "success", duration: 2000 })
       await refresh()
@@ -239,8 +290,18 @@ function FileManagerInner(props: {
   }
 
   // 拖拽上传:支持整文件夹(DataTransferItem + webkitGetAsEntry 递归)。
+  // 从 OS 拖文件进来 dataTransfer.types 只有 "Files";页面内元素/网页图片拖动会
+  // 附带 text/uri-list,带 uri-list 的一律拒收,避免误触"释放鼠标上传文件"提示。
+  function isExternalFileDrag(e: DragEvent) {
+    const types = e.dataTransfer?.types ?? []
+    return types.includes("Files") && !types.includes("text/uri-list")
+  }
   function handleDragOver(e: DragEvent) {
     e.preventDefault()
+    if (!isExternalFileDrag(e)) {
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "none"
+      return
+    }
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"
     setIsDragOver(true)
   }
@@ -254,6 +315,7 @@ function FileManagerInner(props: {
   function handleDrop(e: DragEvent) {
     e.preventDefault()
     setIsDragOver(false)
+    if (!isExternalFileDrag(e)) return
     const items = e.dataTransfer?.items
     if (items) {
       const entries: FileSystemEntry[] = []
@@ -293,9 +355,11 @@ function FileManagerInner(props: {
     }
     const reader = dirEntry.createReader()
     const entries = await readAllDirectoryEntries(reader)
-    for (const entry of entries) await collectFiles(entry)
-    if (fileEntries.length === 0) return
+    // 同 handleFolderUpload:collectFiles 内的 readFileAsBase64 会因超上限 reject,
+    // 且这里外层是 handleDrop 的 void processEntries(...),没有任何 catch —— 必须在此收住。
     try {
+      for (const entry of entries) await collectFiles(entry)
+      if (fileEntries.length === 0) return
       const result = await uploadInsightFolder(sdk.url, sdk.directory, props.sessionId, folderName, fileEntries, currentPath)
       showToast({ title: "上传完成", description: `${folderName} (${result.fileCount} 个文件)`, variant: "success", duration: 2000 })
       await refresh()
@@ -322,12 +386,28 @@ function FileManagerInner(props: {
   }
 
   // ── 下载 ────────────────────────────────────────────────────────
+  // 读原字节:优先 IPC readFileBuffer(SPEC-INS-014 §10.2 / SPEC-INS-026 §5),与上面归档那处同源。
+  // 不能直接走 SDK content 端点——其底层 `File.read` 对文本做 `.trim()`,`内容A\n` 会被返回成 `内容A`,
+  // 下载下来的文本文件尾部换行静默丢失。content 端点只留作非桌面端 / 读盘失败的兜底。
+  async function readFileBlob(file: InsightFile): Promise<Blob> {
+    const api = getDesktopApi()
+    if (api?.readFileBuffer) {
+      try {
+        const buf = await api.readFileBuffer(file.path)
+        if (buf) return new Blob([buf], { type: file.mime || undefined })
+      } catch (err) {
+        console.warn("[octo:files] download-read-local-failed", { path: file.path, err })
+      }
+    }
+    const content = await fetchInsightContent(sdk.url, sdk.directory, file.path)
+    return content.encoding === "base64"
+      ? await fetch(`data:${content.mimeType};base64,${content.content}`).then((r) => r.blob())
+      : new Blob([content.content], { type: content.mimeType })
+  }
+
   async function handleDownload(file: InsightFile) {
     try {
-      const content = await fetchInsightContent(sdk.url, sdk.directory, file.path)
-      const blob = content.encoding === "base64"
-        ? await fetch(`data:${content.mimeType};base64,${content.content}`).then((r) => r.blob())
-        : new Blob([content.content], { type: content.mimeType })
+      const blob = await readFileBlob(file)
       const api = getDesktopApi()
       if (api?.saveFilePicker) {
         const filePath = await api.saveFilePicker({ defaultPath: file.name })
@@ -413,7 +493,6 @@ function FileManagerInner(props: {
     try {
       const result = await deleteInsightBatch(sdk.url, sdk.directory, paths)
       for (const path of paths) fileStore.deleteFile(path)
-      if (fileStore.previewFile() && paths.includes(fileStore.previewFile()!.path)) fileStore.setPreviewFile(null)
       fileStore.clearSelection()
       props.onCloseTabsByPath?.(paths)
       props.onRemoveAttachmentsByPath?.(paths)
@@ -424,13 +503,9 @@ function FileManagerInner(props: {
     }
   }
 
-  // ── 预览 / 打开 ────────────────────────────────────────────────
-  // 单击文件 → 右侧预览面板(对齐 make design-files-panel handlePreview)。
-  function handlePreview(file: InsightFile) {
-    if (file.isFolder) return
-    fileStore.setPreviewFile(file)
-    tracker.interaction({ module: "insight", name: "files-preview-file" })
-  }
+  // ── 打开 ────────────────────────────────────────────────────────
+  // 单击文件行与行尾 `…` →「在标签页中打开」共用这一个入口(SPEC-INS-014 §10.2),
+  // 故两条路径的埋点也共用 files-open-in-tab。
   function handleOpenFile(file: InsightFile) {
     props.onOpenFile(file)
     tracker.interaction({ module: "insight", name: "files-open-in-tab" })
@@ -475,113 +550,138 @@ function FileManagerInner(props: {
         />
       </Show>
 
-      <div class="flex flex-1 min-h-0 overflow-hidden">
-        <div
-          class="flex flex-col flex-1 min-w-0 overflow-hidden relative"
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-        >
-          <input
-            type="file"
-            multiple
-            ref={fileInputRef}
-            class="hidden"
-            onChange={(e) => { if (e.currentTarget.files) { void handleUpload(e.currentTarget.files); e.currentTarget.value = "" } }}
-          />
-          <input
-            type="file"
-            ref={folderInputRef}
-            // @ts-ignore - webkitdirectory 非标准但广泛支持
-            webkitdirectory=""
-            class="hidden"
-            onChange={(e) => { if (e.currentTarget.files) { void handleFolderUpload(e.currentTarget.files); e.currentTarget.value = "" } }}
-          />
+      {/* §10.2 删掉右侧预览面板后,这里不再是"列表 + 预览"的横向双栏,直接由列表铺满剩余高度。 */}
+      <div
+        class="flex flex-col flex-1 min-h-0 overflow-hidden relative"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        <input
+          type="file"
+          multiple
+          ref={fileInputRef}
+          class="hidden"
+          onChange={(e) => { if (e.currentTarget.files) { void handleUpload(e.currentTarget.files); e.currentTarget.value = "" } }}
+        />
+        <input
+          type="file"
+          ref={folderInputRef}
+          // @ts-ignore - webkitdirectory 非标准但广泛支持
+          webkitdirectory=""
+          class="hidden"
+          onChange={(e) => { if (e.currentTarget.files) { void handleFolderUpload(e.currentTarget.files); e.currentTarget.value = "" } }}
+        />
 
-          <Show when={isDragOver()}>
-            <div
-              class="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none"
-              style={{ background: "var(--octo-brand-a8)", border: "2px dashed var(--octo-brand)" }}
-            >
-              <img src={emptyFolderPng} style={{ width: "52px", height: "52px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
-              <span class="text-[16px]" style={{ color: "var(--octo-text-primary)", "line-height": "24px", "margin-top": "12px" }}>释放鼠标上传文件</span>
-            </div>
-          </Show>
-
-          <Switch>
-          <Match when={store().error}>
-            <div class="flex flex-col items-center justify-center flex-1 min-h-0 gap-2" style={{ "font-size": "14px", "line-height": "22px", color: "var(--octo-text-primary)" }}>
-              <span>加载文件列表失败</span>
-              <button
-                type="button"
-                onClick={() => void refresh()}
-                class="flex items-center justify-center gap-2 transition-colors"
-                style={{ background: "var(--octo-brand)", color: "white", "border-radius": "var(--octo-radius-sm)", height: "32px", width: "108px", "font-size": "14px", "line-height": "22px", cursor: "pointer" }}
-              >
-                重试
-              </button>
-            </div>
-          </Match>
-          <Match when={showInitialSpinner()}>
-            <div class="flex items-center justify-center flex-1 min-h-0"><Spinner class="size-[20px]" /></div>
-          </Match>
-          <Match when={!hasAnyFiles()}>
-            <div class="flex flex-col items-center justify-center flex-1 min-h-0 text-center px-8">
-              <img src={emptyPng} style={{ width: "150px", height: "150px" }} alt="" draggable={false} />
-              <span class="text-[14px] leading-[22px]" style={{ color: "var(--octo-text-secondary)", "margin-bottom": "20px" }}>暂无内容，点击上传新增文件吧</span>
-              <button
-                type="button"
-                onClick={() => fileInputRef?.click()}
-                class="flex items-center justify-center gap-2 transition-colors"
-                style={{ background: "var(--octo-brand)", color: "white", "border-radius": "var(--octo-radius-sm)", height: "32px", width: "108px", "font-size": "14px", "line-height": "22px", cursor: "pointer" }}
-              >
-                <IconUpload size={16} style={{ color: "white" }} />
-                <span>上传文件</span>
-              </button>
-            </div>
-          </Match>
-          <Match when={hasAnyFiles()}>
-            <div class="flex flex-col flex-1 min-h-0">
-              {/* 面包屑固定:不随表格滚动 */}
-              <div class="shrink-0" style={{ padding: "24px 24px 0" }}>
-                <Breadcrumb currentPath={store().currentPath} onNavigate={(p) => fileStore.setCurrentPath(p)} />
-              </div>
-              {/* 只滚动表格内容:表头 sticky 吸顶(吸附到本滚动容器顶部,即面包屑下方) */}
-              <div class="flex-1 min-h-0 overflow-auto">
-                <div style={{ padding: "0 24px 24px" }}>
-                  <FileTable
-                    fileStore={fileStore}
-                    onHeaderSort={handleHeaderSort}
-                    onSelectAllPage={handleSelectAllPage}
-                    onOpen={handleOpenFile}
-                    onPreview={handlePreview}
-                    onAddToSession={props.onAddToSession ? handleAddToSession : undefined}
-                    onDownload={handleDownload}
-                    onDelete={handleDelete}
-                    onArchive={handleArchiveFile}
-                    onOpenInExplorer={handleOpenInExplorer}
-                    onNavigateFolder={(f) => fileStore.navigateToFolder(f)}
-                  />
-                </div>
-              </div>
-            </div>
-          </Match>
-        </Switch>
-        </div>
-
-        {/* 右侧预览面板:单击文件行触发(对齐 make design-files-panel.tsx 的同款布局)。 */}
-        <Show when={fileStore.previewFile()}>
-          {(file) => (
-            <PreviewPane
-              file={file()}
-              sdkUrl={sdk.url}
-              sdkDirectory={sdk.directory || ""}
-              onClose={() => fileStore.setPreviewFile(null)}
-              onOpen={() => handleOpenFile(file())}
-              onDownload={() => handleDownload(file())}
-            />
-          )}
+        <Show when={isDragOver()}>
+          <div
+            class="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none"
+            style={{ background: "var(--octo-brand-a8)", border: "2px dashed var(--octo-brand)" }}
+          >
+            <img src={emptyFolderPng} style={{ width: "52px", height: "52px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
+            <span class="text-[16px]" style={{ color: "var(--octo-text-primary)", "line-height": "24px", "margin-top": "12px" }}>释放鼠标上传文件</span>
+          </div>
         </Show>
+
+        <Switch>
+        <Match when={store().error}>
+          <div class="flex flex-col items-center justify-center flex-1 min-h-0 gap-2" style={{ "font-size": "14px", "line-height": "22px", color: "var(--octo-text-primary)" }}>
+            <span>加载文件列表失败</span>
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              class="flex items-center justify-center gap-2 transition-colors"
+              style={{ background: "var(--octo-brand)", color: "white", "border-radius": "var(--octo-radius-sm)", height: "32px", width: "108px", "font-size": "14px", "line-height": "22px", cursor: "pointer" }}
+            >
+              重试
+            </button>
+          </div>
+        </Match>
+        <Match when={showInitialSpinner()}>
+          <div class="flex items-center justify-center flex-1 min-h-0"><Spinner class="size-[20px]" /></div>
+        </Match>
+        <Match when={!hasAnyFiles()}>
+          <div class="flex flex-col items-center justify-center flex-1 min-h-0 text-center px-8">
+            <img src={emptyPng} style={{ width: "150px", height: "150px" }} alt="" draggable={false} />
+            <span class="text-[14px] leading-[22px]" style={{ color: "var(--octo-text-secondary)", "margin-bottom": "20px" }}>暂无文件</span>
+            <span class="text-[14px] leading-[22px]" style={{ color: "var(--octo-text-primary)", "margin-bottom": "20px" }}>点击上传或拖入本地文件，统一管理会话文件</span>
+            <Kobalte open={emptyUploadOpen()} onOpenChange={setEmptyUploadOpen} modal={false} placement="bottom" gutter={4}>
+              <Kobalte.Trigger
+                as="button"
+                type="button"
+                class="flex items-center justify-center gap-2 transition-colors"
+                style={{
+                  background: "var(--octo-brand)",
+                  color: "white",
+                  "border-radius": "999px",
+                  height: "32px",
+                  width: "108px",
+                  "font-size": "14px",
+                  "line-height": "22px",
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-hover)") }}
+                onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand)") }}
+                onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-active)") }}
+                onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-hover)") }}
+              >
+                <IconUpload size={16} />
+                <span>上传文件</span>
+              </Kobalte.Trigger>
+              <Kobalte.Portal>
+                <Kobalte.Content
+                  class="z-50 flex flex-col gap-1 rounded-md p-2"
+                  style={{ "box-shadow": "0 4px 12px rgba(0,0,0,0.16)", "min-width": "122px", "background-color": "var(--octo-surface-page)" }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => { folderInputRef?.click(); setEmptyUploadOpen(false) }}
+                    class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[var(--octo-surface-hover)]"
+                    style={{ height: "36px", "border-radius": "var(--octo-radius-md)", "font-size": "14px", "line-height": "22px", color: "var(--octo-text-primary)" }}
+                  >
+                    <IconFolder size={16} />
+                    <span>上传文件夹</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { fileInputRef?.click(); setEmptyUploadOpen(false) }}
+                    class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[var(--octo-surface-hover)]"
+                    style={{ height: "36px", "border-radius": "var(--octo-radius-md)", "font-size": "14px", "line-height": "22px", color: "var(--octo-text-primary)" }}
+                  >
+                    <IconFile size={16} />
+                    <span>上传文件</span>
+                  </button>
+                </Kobalte.Content>
+              </Kobalte.Portal>
+            </Kobalte>
+          </div>
+        </Match>
+        <Match when={hasAnyFiles()}>
+          <div class="flex flex-col flex-1 min-h-0">
+            {/* 面包屑固定:不随表格滚动 */}
+            <div class="shrink-0" style={{ padding: "24px 24px 0" }}>
+              <Breadcrumb currentPath={store().currentPath} onNavigate={(p) => fileStore.setCurrentPath(p)} />
+            </div>
+            {/* 只滚动表格内容:表头 sticky 吸顶(吸附到本滚动容器顶部,即面包屑下方) */}
+            <div class="flex-1 min-h-0 overflow-auto">
+              <div style={{ padding: "0 24px 24px" }}>
+                <FileTable
+                  fileStore={fileStore}
+                  onHeaderSort={handleHeaderSort}
+                  onSelectAllPage={handleSelectAllPage}
+                  onOpen={handleOpenFile}
+                  onAddToSession={props.onAddToSession ? handleAddToSession : undefined}
+                  onDownload={handleDownload}
+                  onDelete={handleDelete}
+                  onArchive={handleArchiveFile}
+                  onOpenInExplorer={handleOpenInExplorer}
+                  onNavigateFolder={(f) => fileStore.navigateToFolder(f)}
+                />
+              </div>
+            </div>
+          </div>
+        </Match>
+        </Switch>
       </div>
 
       <ArchiveDialogs
@@ -599,7 +699,6 @@ function FileTable(props: {
   onHeaderSort: (key: SortKey) => void
   onSelectAllPage: () => void
   onOpen: (file: InsightFile) => void
-  onPreview: (file: InsightFile) => void
   onAddToSession?: (file: InsightFile) => void
   onDownload: (file: InsightFile) => void
   onDelete: (file: InsightFile) => void
@@ -635,8 +734,8 @@ function FileTable(props: {
             <button type="button" onClick={() => props.onHeaderSort("kind")} class="flex items-center gap-1 transition-colors hover:text-[var(--octo-brand)]" style={{ color: "var(--octo-text-primary)", "font-weight": "normal" }}>类型</button>
           </th>
           <th class="px-4 py-2 text-left" style={{ width: "25%", "border-bottom": "1px solid var(--octo-border-divider)" }}>
-            <button type="button" onClick={() => props.onHeaderSort("mtime")} class="flex items-center gap-1 transition-colors hover:text-[var(--octo-brand)]" style={{ color: "var(--octo-text-primary)", "font-weight": "normal" }}>
-              修改时间
+            <button type="button" onClick={() => props.onHeaderSort("mtime")} class="flex items-center gap-1 transition-colors hover:text-[var(--octo-brand)]" style={{ color: "var(--octo-text-primary)", "font-weight": "normal", "min-width": "0" }}>
+              <span style={{ "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis", "min-width": "0" }}>修改时间</span>
               <IconSortArrow size={14} dir={store().sortDir} active={store().sortKey === "mtime"} />
             </button>
           </th>
@@ -648,15 +747,15 @@ function FileTable(props: {
         <Show when={props.fileStore.isTopLevel()}>
           <SectionHeaderRow title="生成文件" collapsed={store().collapsedGenerated} onToggle={() => props.fileStore.toggleGeneratedSection()} />
           <Show when={!store().collapsedGenerated}>
-            <GroupedRows computed={props.fileStore.generated} fileStore={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onArchive={props.onArchive} onOpenInExplorer={props.onOpenInExplorer} />
+            <GroupedRows computed={props.fileStore.generated} fileStore={props.fileStore} onOpen={props.onOpen} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onArchive={props.onArchive} onOpenInExplorer={props.onOpenInExplorer} />
           </Show>
           <SectionHeaderRow title="上传文件" collapsed={store().collapsedUploaded} onToggle={() => props.fileStore.toggleUploadedSection()} />
           <Show when={!store().collapsedUploaded}>
-            <GroupedRows computed={props.fileStore.uploaded} fileStore={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onArchive={props.onArchive} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />
+            <GroupedRows computed={props.fileStore.uploaded} fileStore={props.fileStore} onOpen={props.onOpen} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onArchive={props.onArchive} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />
           </Show>
         </Show>
         <Show when={!props.fileStore.isTopLevel()}>
-          <GroupedRows computed={props.fileStore.uploaded} fileStore={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />
+          <GroupedRows computed={props.fileStore.uploaded} fileStore={props.fileStore} onOpen={props.onOpen} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />
         </Show>
       </tbody>
     </table>
@@ -681,7 +780,6 @@ function GroupedRows(props: {
   computed: ReturnType<typeof createInsightFileStore>["uploaded"]
   fileStore: ReturnType<typeof createInsightFileStore>
   onOpen: (file: InsightFile) => void
-  onPreview: (file: InsightFile) => void
   onAddToSession?: (file: InsightFile) => void
   onDownload: (file: InsightFile) => void
   onDelete?: (file: InsightFile) => void
@@ -697,7 +795,7 @@ function GroupedRows(props: {
           {([kind, files]) => (
             <>
               <SubGroupHeaderRow label={kindLabel(kind)} />
-              <For each={files}>{(file) => <FileRow file={file} selected={props.fileStore.store.selected.has(file.path)} store={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onArchive={props.onArchive} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />}</For>
+              <For each={files}>{(file) => <FileRow file={file} selected={props.fileStore.store.selected.has(file.path)} store={props.fileStore} onOpen={props.onOpen} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onArchive={props.onArchive} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />}</For>
             </>
           )}
         </For>
@@ -708,7 +806,7 @@ function GroupedRows(props: {
             <>
               <SubGroupHeaderRow label={MODIFIED_SECTION_LABELS[section]} />
               <For each={props.computed.modifiedGroups()[section]}>
-                {(file) => <FileRow file={file} selected={props.fileStore.store.selected.has(file.path)} store={props.fileStore} onOpen={props.onOpen} onPreview={props.onPreview} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onArchive={props.onArchive} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />}
+                {(file) => <FileRow file={file} selected={props.fileStore.store.selected.has(file.path)} store={props.fileStore} onOpen={props.onOpen} onAddToSession={props.onAddToSession} onDownload={props.onDownload} onDelete={props.onDelete} onArchive={props.onArchive} onOpenInExplorer={props.onOpenInExplorer} onNavigateFolder={props.onNavigateFolder} />}
               </For>
             </>
           )}
@@ -735,7 +833,6 @@ function FileRow(props: {
   selected: boolean
   store: ReturnType<typeof createInsightFileStore>
   onOpen: (file: InsightFile) => void
-  onPreview: (file: InsightFile) => void
   onAddToSession?: (file: InsightFile) => void
   onDownload: (file: InsightFile) => void
   onDelete?: (file: InsightFile) => void
@@ -745,11 +842,14 @@ function FileRow(props: {
 }): JSX.Element {
   const [menuOpen, setMenuOpen] = createSignal(false)
   const [imageError, setImageError] = createSignal(false)
+  // 归档大小校验每行算一次(createMemo),供 MenuItem 的 disabled / disabledHint 共用,避免各调一次。
+  const archiveSizeErr = createMemo(() => archiveFileSizeError(props.file.size))
 
-  // 单击:文件夹 → 进入下一层;文件 → 右侧预览面板(对齐 make design-files-panel FileRow 的 onClick)。
+  // 单击:文件夹 → 进入下一层;文件 → 直接开 tab 并聚焦(SPEC-INS-014 §10.2,回归 §10 原始决定)。
   // 复选框 / 菜单触发器自行 stopPropagation,不会误触发本行 onClick。
-  // 在标签页中打开 → 由行尾 `…` 菜单的"在标签页中打开"项触发(对齐 Design 同款交互,无双击打开)。
-  // 埋点统一收口在 handlePreview / handleOpenFile,这里只做行为路由。
+  // 行尾 `…` 的"在标签页中打开"与单击同效(走同一个 onOpen),保留给熟悉旧交互的用户;
+  // tabStore.openTab 按 (filePath,type) 去重,两条路径不会开出第二个 tab。
+  // 埋点统一收口在 handleOpenFile,这里只做行为路由。
   const handleClick = (e: MouseEvent) => {
     if (e.target instanceof HTMLInputElement) return
     if (e.target instanceof HTMLButtonElement) return
@@ -757,7 +857,7 @@ function FileRow(props: {
       props.onNavigateFolder?.(props.file)
       tracker.interaction({ module: "insight", name: "files-navigate-folder" })
     } else {
-      props.onPreview(props.file)
+      props.onOpen(props.file)
     }
   }
 
@@ -799,7 +899,7 @@ function FileRow(props: {
         </div>
       </td>
       <td class="px-4 text-[14px] leading-[22px]" style={{ color: "var(--octo-text-primary)", "vertical-align": "middle", "border-bottom": "1px solid var(--octo-border-divider)" }}>{kindLabel(props.file.kind)}</td>
-      <td class="px-4 text-[14px] leading-[22px]" style={{ color: "var(--octo-text-primary)", "vertical-align": "middle", "border-bottom": "1px solid var(--octo-border-divider)" }}>{formatTimeAgo(props.file.mtime)}</td>
+      <td class="px-4 text-[14px] leading-[22px]" style={{ color: "var(--octo-text-primary)", "vertical-align": "middle", "border-bottom": "1px solid var(--octo-border-divider)", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>{formatTimeAgo(props.file.mtime)}</td>
       <td class="w-[60px] px-4" style={{ "vertical-align": "middle", "border-bottom": "1px solid var(--octo-border-divider)" }}>
         <Kobalte open={menuOpen()} onOpenChange={setMenuOpen} modal={false} placement="bottom-end" gutter={4}>
           <Kobalte.Trigger
@@ -834,7 +934,7 @@ function FileRow(props: {
               <Show when={!props.file.isFolder}>
                 <MenuItem label="下载" onClick={() => { props.onDownload(props.file); setMenuOpen(false) }} />
                 <Show when={props.onArchive && props.file.kind !== "html"}>
-                  <MenuItem label="归档" onClick={() => { props.onArchive!(props.file); setMenuOpen(false) }} />
+                  <MenuItem label="归档" disabled={archiveSizeErr() !== null} disabledHint={archiveSizeErr() ?? undefined} onClick={() => { props.onArchive!(props.file); setMenuOpen(false) }} />
                 </Show>
               </Show>
               <Show when={props.onDelete}>

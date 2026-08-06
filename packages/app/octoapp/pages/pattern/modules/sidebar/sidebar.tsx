@@ -446,11 +446,11 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
         <button
           type="button"
           title="技能库"
-          class="w-full relative flex items-center gap-[8px] px-[12px] rounded-[4px] transition-colors text-[14px] leading-[22px]"
+          class="w-full relative flex items-center gap-[12px] px-[12px] rounded-[4px] transition-colors text-[12px] leading-[20px]"
           style={{
             height: "36px",
             background: isSkillsPath() ? "var(--surface-base-interactive-active)" : "transparent",
-            color: isSkillsPath() ? "var(--text-interactive-base)" : "var(--text-strong)",
+            color: "rgba(0,0,0,0.9)",
             "font-weight": isSkillsPath() ? "500" : "400",
           }}
           onClick={() => { layout.sidebarSource.set("pattern"); navigate("/skills") }}
@@ -458,7 +458,7 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
           onMouseLeave={(e) => { if (!isSkillsPath()) e.currentTarget.style.background = "transparent" }}
         >
           <span class="flex items-center justify-center shrink-0">
-            <IconSkill size={16} />
+            <IconSkill size={20} />
           </span>
           <span class="truncate">技能库</span>
         </button>
@@ -469,13 +469,13 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
           type="button"
           title="设置"
           class="w-full flex items-center gap-[12px] px-[12px] rounded-[4px] transition-colors"
-          style={{ height: "36px", color: "var(--text-strong)" }}
+          style={{ height: "36px", color: "rgba(0,0,0,0.9)" }}
           onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-base-hover)" }}
           onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
           onClick={() => dialog.show(() => <DialogSettings />)}
         >
-          <IconSettings size={16} />
-          <span class="text-[14px] leading-[22px]">设置</span>
+          <IconSettings size={20} />
+          <span class="text-[12px] leading-[20px]">设置</span>
         </button>
       </div>
       <Show when={contextMenu.show && contextMenu.session}>

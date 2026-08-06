@@ -29,6 +29,7 @@ export interface UseA2UIComponentResult {
     getUniqueId: (prefix: string) => string;
     resolveValue: (value: DynamicString | DynamicNumber | DynamicBoolean | null | undefined | DynamicStringList) => string | null | number | boolean | DataValue
     commitActivation: (propName: string, value: DataValue) => void;
+    setState: (path: string, value: DataValue) => void;
 }
 
 let globalIdCounter = 0
@@ -111,6 +112,11 @@ export function useA2UIComponent<T extends AnyComponentNode<any>>(
         }
     }
 
+    const setState = (path: string, value: DataValue) => {
+        context.setData(surfaceId, path, value)
+        context.store.notify(surfaceId)
+    }
+
     return {
         resolveValue,
         setValue,
@@ -118,5 +124,6 @@ export function useA2UIComponent<T extends AnyComponentNode<any>>(
         sendAction,
         getUniqueId,
         commitActivation,
+        setState,
     }
 }

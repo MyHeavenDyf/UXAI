@@ -6,6 +6,7 @@ import type { A2UIComponentProps } from "../../renderer"
 import { useA2UIComponent } from "../../renderer/render/hooks"
 import { getIconComponentRef } from "../Icon/IconBase"
 import { svgCacheVersion } from "../../composables/useIconProvider"
+import { useTheme } from "../../composables/useTheme"
 
 import "./Segmented.less"
 
@@ -71,10 +72,30 @@ const normalizedOptions = computed(() => {
 const size = computed(() => properties.size ? sizeEnum[properties.size] : "default")
 const iconSize = computed(() => iconSizeEnum[size.value ?? "default"] ?? iconSizeEnum.default)
 
+const { isDark } = useTheme()
+const initvalue = computed(() => {
+  const raw = properties.value
+  if (raw && typeof raw === "object" && "path" in raw) {
+    return resolveValue(raw) as string | number
+  }
+  return raw as string | number
+})
+const currentValue = ref(initvalue.value)
+
 // 参考 Button 的图标处理：区分 hui / lucide，按尺寸取大小；颜色按选中态动态计算
-const resolveOptionIcon = (iconName: string | undefined) => {
+const resolveOptionIcon = (item:any) => {
+  const iconName = item.iconName
   if (!iconName) return null
-  const base = getIconComponentRef(iconName, { strokeWidth: 1 })
+  const selected = item.value === currentValue.value
+  let color = isDark.value ? '#AEAEAE' : '#777777'
+  if(selected) {
+    color = '#FFFFFF'
+  }
+  const base = getIconComponentRef(iconName, { 
+    shape: 'lined', 
+    strokeWidth: 1, 
+    color
+  })
   if (!base?.component) return null
   return {
     component: base.component,
@@ -98,12 +119,12 @@ const iconAttrs = (item: any) => {
 const resolvedOptions = ref<any[]>([])
 
 watch(
-  [normalizedOptions, svgCacheVersion, iconSize],
+  [normalizedOptions, svgCacheVersion, iconSize, isDark, currentValue],
   ([opts]) => {
     resolvedOptions.value = opts.map((opt: any) => ({
       label: opt.label,
       value: opt.value,
-      icon: resolveOptionIcon(opt.iconName),
+      icon: resolveOptionIcon(opt),
     }))
   },
   { immediate: true },
@@ -120,14 +141,7 @@ const isIconOnly = computed(() =>
 )
 
 
-const initvalue = computed(() => {
-  const raw = properties.value
-  if (raw && typeof raw === "object" && "path" in raw) {
-    return resolveValue(raw) as string | number
-  }
-  return raw as string | number
-})
-const currentValue = ref(initvalue.value)
+
 
 const block = computed(() => properties.block || false)
 const direction = computed(() => properties.orientation || "horizontal")

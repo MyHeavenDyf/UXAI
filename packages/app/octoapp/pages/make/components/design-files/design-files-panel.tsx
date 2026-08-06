@@ -102,6 +102,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           fileStore.clearKindFilter()
           fileStore.setGeneratedFiles([])
           fileStore.setUploadedFiles([])
+          fileStore.setPreviewFile(null)
         })
       }
       void refresh()
@@ -327,6 +328,46 @@ export function DesignFilesPanel(props: Props): JSX.Element {
 
   const handleUpload = async (files: FileList) => {
     const currentPath = fileStore.isTopLevel() ? "" : fileStore.store.currentPath
+    const desktopApi = (window as any).api
+    const baseDir = sdk.directory
+    if (
+      baseDir &&
+      typeof desktopApi?.copyFileToSessionUploads === "function" &&
+      typeof desktopApi?.getPathForFile === "function"
+    ) {
+      let okCount = 0
+      let failedCount = 0
+      for (const file of Array.from(files)) {
+        let srcPath = ""
+        try {
+          srcPath = desktopApi.getPathForFile(file)
+        } catch {
+          srcPath = ""
+        }
+        if (!srcPath) {
+          failedCount++
+          showToast({ title: "Upload failed", description: `无法获取文件路径:${file.name}` })
+          continue
+        }
+        try {
+          await desktopApi.copyFileToSessionUploads(srcPath, baseDir, props.sessionId, currentPath, file.name)
+          okCount++
+          tracker.interaction({ module: "design", name: "files-upload-file", extend: JSON.stringify({ count: 1 }) })
+        } catch (err) {
+          failedCount++
+          showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
+        }
+      }
+      if (okCount > 0) {
+        showToast({ title: "Uploaded", description: `${okCount} 个文件` })
+      }
+      if (okCount > 0) {
+        await refresh()
+        props.onFilesRefresh?.()
+      }
+      return
+    }
+
     for (const file of Array.from(files)) {
       const reader = new FileReader()
       reader.onload = async (ev) => {
@@ -453,6 +494,34 @@ export function DesignFilesPanel(props: Props): JSX.Element {
 
   async function uploadSingleFile(file: File) {
     const currentPath = fileStore.isTopLevel() ? "" : fileStore.store.currentPath
+    const desktopApi = (window as any).api
+    const baseDir = sdk.directory
+    if (
+      baseDir &&
+      typeof desktopApi?.copyFileToSessionUploads === "function" &&
+      typeof desktopApi?.getPathForFile === "function"
+    ) {
+      let srcPath = ""
+      try {
+        srcPath = desktopApi.getPathForFile(file)
+      } catch {
+        srcPath = ""
+      }
+      if (srcPath) {
+        try {
+          await desktopApi.copyFileToSessionUploads(srcPath, baseDir, props.sessionId, currentPath, file.name)
+          showToast({ title: "Uploaded", description: file.name })
+          tracker.interaction({ module: "design", name: "files-upload-file", extend: JSON.stringify({ count: 1 }) })
+          await refresh()
+          props.onFilesRefresh?.()
+          return
+        } catch (err) {
+          showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
+          return
+        }
+      }
+    }
+
     const base64 = await readFileAsBase64(file)
     try {
       const result = await uploadArtifactFile(
@@ -554,9 +623,11 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const hasAnyFiles = createMemo(() =>
     fileStore.store.generatedFiles.length > 0 || fileStore.store.uploadedFiles.length > 0)
 
+  const showHeader = createMemo(() => hasAnyFiles() || !fileStore.isTopLevel())
+
   return (
     <div class="flex flex-col h-full overflow-hidden" style={{ background: "var(--octo-surface-page)" }}>
-      <Show when={hasAnyFiles()}>
+      <Show when={showHeader()}>
         <DesignFilesToolbar
           fileStore={fileStore}
           onRefresh={refresh}
@@ -618,7 +689,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           />
 
           <div class="flex-1 min-h-0 flex flex-col">
-          <Show when={hasAnyFiles()}>
+          <Show when={showHeader()}>
             <Breadcrumb
               currentPath={fileStore.store.currentPath}
               currentCategory={fileStore.store.currentCategory}

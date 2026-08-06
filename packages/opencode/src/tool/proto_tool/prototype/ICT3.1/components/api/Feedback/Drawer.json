@@ -53,13 +53,13 @@
       }
     },
     "StaticChildren": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "description": "The unique identifier for a component"
-      },
-      "description": "A static list of child component IDs."
-    }
+			"type": "array",
+			"items": {
+				"type": "string",
+				"description": "The unique identifier for a child component node. Do not reuse the same component id in multiple parents or multiple children positions."
+			},
+			"description": "A static list of child component IDs. Every id in this array must be unique and must not be reused by any other parent node. Create a separate child node for each rendered position."
+		}
   },
   "properties": {
     "id": {

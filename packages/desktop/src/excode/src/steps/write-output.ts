@@ -16,7 +16,7 @@
 import fs from 'fs'
 import path from 'path'
 
-import { Step } from '../core/step'
+import { Step } from '../core/step-base'
 import type { PipelineContext } from '../pipeline/pipeline-context'
 
 export class WriteOutput extends Step {
@@ -52,17 +52,37 @@ export class WriteOutput extends Step {
     console.log(`  ℹ  WriteOutput: 共 ${ctx.outputFiles.length} 个产出文件`)
   }
 
-  /** 递归收集 templates 目录下的所有文件到 ctx.outputFiles。 */
-  #collectTemplateFiles(ctx: PipelineContext, srcDir: string, rel: string): void {
+  /**
+   * 递归收集 templates 目录下的所有文件到 ctx.outputFiles。
+   *
+   * 防爆栈兜底：用 realpath 去重，遇到符号链接/junction 环（Windows junction、
+   * node_modules 符号链接等）或 templateDir 误解析到含环目录时直接返回，不再深入，
+   * 避免 #collectTemplateFiles 无限递归 → RangeError: Maximum call stack size exceeded。
+   * 同时跳过 node_modules：模板骨架不应包含它，命中说明 templateDir 解析异常，
+   * 跳过可避免扫进成千上万文件（即便无环也慢且无意义）。
+   */
+  #collectTemplateFiles(ctx: PipelineContext, srcDir: string, rel: string, seen: Set<string> = new Set()): void {
     if (!fs.existsSync(srcDir)) return
+
+    // realpath 去重，断符号链接/junction 环
+    let real: string
+    try {
+      real = fs.realpathSync(srcDir)
+    } catch {
+      real = srcDir
+    }
+    if (seen.has(real)) return
+    seen.add(real)
 
     const entries = fs.readdirSync(srcDir, { withFileTypes: true })
     for (const entry of entries) {
+      // 跳过 node_modules（模板骨架不应含；命中说明 templateDir 解析异常）
+      if (entry.name === 'node_modules') continue
       const full = path.join(srcDir, entry.name)
       const relPath = rel ? `${rel}/${entry.name}` : entry.name
 
       if (entry.isDirectory()) {
-        this.#collectTemplateFiles(ctx, full, relPath)
+        this.#collectTemplateFiles(ctx, full, relPath, seen)
       } else if (entry.isFile()) {
         const content = fs.readFileSync(full, 'utf-8')
         ctx.outputFiles.push({ path: relPath, content })
