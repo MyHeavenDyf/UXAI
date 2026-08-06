@@ -438,6 +438,7 @@ export default function StudioPage() {
   let videoFrameInputRef!: HTMLInputElement
   let pendingVideoFrameSlot: StudioVideoFrameSlot = "first"
   let conversationScrollRef!: HTMLDivElement
+  const [conversationContentEl, setConversationContentEl] = createSignal<HTMLElement | null>(null)
   let scrollFrame = 0
   // 用户是否贴近底部：贴近时新内容自动跟随滚动，向上查看历史时不再强制回到底部
   const [stickToBottom, setStickToBottom] = createSignal(true)
@@ -447,6 +448,22 @@ export default function StudioPage() {
     if (!el) return
     setStickToBottom(el.scrollTop + el.clientHeight >= el.scrollHeight - STUDIO_SCROLL_BOTTOM_THRESHOLD)
   }
+  // 内容尺寸变化（新消息渲染、输入图解码完成等）时贴近底部则跟随置底。
+  // 弥补单次 rAF 无法覆盖异步内容增高（displayTurnStore 延迟同步、图片布局延迟）的时序缺口。
+  // 用 signal + createEffect 以响应 studio-center 在 hasStudioConversation 切换后才挂载的场景。
+  createEffect(() => {
+    const el = conversationContentEl()
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      if (!conversationScrollRef || !stickToBottom()) return
+      cancelAnimationFrame(scrollFrame)
+      scrollFrame = requestAnimationFrame(() => {
+        conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
+      })
+    })
+    ro.observe(el)
+    onCleanup(() => ro.disconnect())
+  })
   let pendingEditorSessionID: string | undefined
   let pendingGenerationSessionID: string | undefined
   // 记录已访问过的 session ID，模块级以在组件卸载/重载之间存活，防止切回时出现空白页
@@ -2940,6 +2957,7 @@ export default function StudioPage() {
         : {}),
     })
     // 发送瞬间强制滚动到底部，展示新发起的消息
+    setStickToBottom(true)
     if (conversationScrollRef) {
       cancelAnimationFrame(scrollFrame)
       scrollFrame = requestAnimationFrame(() => {
@@ -3817,6 +3835,7 @@ if (!headerTitle.pendingRename) return
             onScroll={handleConversationScroll}
             class="studio-center-scroll"
           >
+            <div ref={setConversationContentEl}>
             <Show when={displayTurns().length > 0 || pendingResult() || sending() || isBusy()} fallback={params.id && !sessionDataLoaded() && !visitedSessionIds.has(params.id) ? null : <StudioIntro />}>
               <StudioConversation
                 result={result()}
@@ -3835,6 +3854,7 @@ if (!headerTitle.pendingRename) return
                 onUseInputImage={useConversationInputImage}
               />
             </Show>
+            </div>
           </ScrollView>
 
           <StudioComposer
