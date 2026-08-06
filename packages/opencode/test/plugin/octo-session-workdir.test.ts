@@ -1,4 +1,6 @@
-import { describe, expect, test } from "bun:test"
+import { afterAll, describe, expect, test } from "bun:test"
+import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import { OctoSessionWorkdirPlugin } from "../../src/agent/octo-session-workdir"
 
@@ -16,9 +18,15 @@ type SystemHook = (
   output: { system: string[] },
 ) => Promise<void>
 
-const DIR = "/w/测试 insight"
+// 用真实临时目录:插件在交出默认目录前会 ensureDir(见 SPEC-INS-028 §3.2.3),
+// 假路径会让 mkdir 失败、走「保持原值」分支,测不出真实行为。
+const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "octo-workdir-"))
 const SID = "ses_abc"
 const OUTPUTS = path.join(DIR, ".octo", SID, "outputs")
+
+afterAll(() => {
+  fs.rmSync(DIR, { recursive: true, force: true })
+})
 
 // 每个用例用独立 sessionID 前缀,避免插件模块级 meta 缓存串场。
 let seq = 0
@@ -199,6 +207,65 @@ describe("执行层:shell 与搜索工具的默认目录", () => {
     const args: Record<string, unknown> = { pattern: "*.md", path: "/w/别处" }
     await before({ tool: "glob", sessionID: s.id, callID: "c1" }, { args })
     expect(args.path).toBe("/w/别处")
+  })
+})
+
+describe("目录不存在时先创建（空会话回归）", () => {
+  test("bash:会话目录整体不存在时先建出产物目录，再交出 workdir", async () => {
+    const s = sid("octo_insight")
+    const { before } = await hooks(s)
+    // 前置:整个 .octo/<sid>/ 都不存在(用户没上传过文件、也没开过文件管理)
+    expect(fs.existsSync(path.join(DIR, ".octo", s.id))).toBe(false)
+
+    const args: Record<string, unknown> = { command: "python x.py", description: "跑脚本" }
+    await before({ tool: "bash", sessionID: s.id, callID: "c1" }, { args })
+
+    expect(args.workdir).toBe(outputsOf(s.id))
+    // 不建的话 spawn 直接 ENOENT —— 这正是内网测出来的那个 Shell NotFound
+    expect(fs.existsSync(outputsOf(s.id))).toBe(true)
+  })
+
+  test("grep:会话根不存在时先建出来（否则静默搜错目录，不报错但结果恒为空）", async () => {
+    const s = sid("octo_insight")
+    const { before } = await hooks(s)
+    const sessionRoot = path.join(DIR, ".octo", s.id)
+    expect(fs.existsSync(sessionRoot)).toBe(false)
+
+    const args: Record<string, unknown> = { pattern: "洞察" }
+    await before({ tool: "grep", sessionID: s.id, callID: "c1" }, { args })
+
+    expect(args.path).toBe(sessionRoot)
+    expect(fs.existsSync(sessionRoot)).toBe(true)
+  })
+
+  test("glob:同上", async () => {
+    const s = sid("octo_insight")
+    const { before } = await hooks(s)
+    const args: Record<string, unknown> = { pattern: "*.md" }
+    await before({ tool: "glob", sessionID: s.id, callID: "c1" }, { args })
+    expect(fs.existsSync(args.path as string)).toBe(true)
+  })
+
+  test("目录建不出来:保持原值，不把工具引向不存在的目录", async () => {
+    const s = sid("octo_insight")
+    // 用一个必然创建失败的父路径(把普通文件当目录用)
+    const blocker = path.join(DIR, "not-a-dir")
+    fs.writeFileSync(blocker, "x")
+    const { before } = await hooks(s, blocker)
+
+    const args: Record<string, unknown> = { command: "ls", description: "列目录" }
+    await before({ tool: "bash", sessionID: s.id, callID: "c1" }, { args })
+    expect(args.workdir).toBeUndefined()
+  })
+
+  test("落盘工具不需要预建目录（write 的 writeWithDirs 自己会建父目录）", async () => {
+    const s = sid("octo_insight")
+    const { before } = await hooks(s)
+    const args = { filePath: "过程稿/a.md" }
+    await before({ tool: "write", sessionID: s.id, callID: "c1" }, { args })
+    expect(args.filePath).toBe(path.join(outputsOf(s.id), "过程稿", "a.md"))
+    // 不由插件预建 —— 这条守住「别顺手给 write 也加 ensureDir」的多余改动
+    expect(fs.existsSync(path.join(outputsOf(s.id), "过程稿"))).toBe(false)
   })
 })
 

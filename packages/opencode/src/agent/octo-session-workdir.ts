@@ -1,4 +1,5 @@
 import type { Plugin } from "@opencode-ai/plugin"
+import fs from "node:fs/promises"
 import path from "node:path"
 
 // insight 会话工作目录对齐(SPEC-INS-028,文档仓 docs/specs/infra/insight-workdir-declaration.md)
@@ -54,6 +55,31 @@ function sessionDir(directory: string, sessionID: string) {
 /** 本会话的产物目录(= 对模型声明的 Working directory,相对路径的解析基准)。 */
 function outputsDir(directory: string, sessionID: string) {
   return path.join(sessionDir(directory, sessionID), "outputs")
+}
+
+/**
+ * 把某个目录作为默认值交给工具前,先保证它存在(幂等,已存在即空操作)。
+ *
+ * 会话目录是**惰性创建**的 —— 创建者只有上传接口、文件管理列表接口、write 的 writeWithDirs。
+ * 用户没上传过文件、也没开过文件管理时,`.octo/<sid>/` 整体不存在。而我们把不存在的目录塞给:
+ *   · bash 的 workdir → spawn 直接失败(cwd 必须预先存在,这是它和 write 的本质差别);
+ *   · glob 的 path   → ripgrep 用不存在的 cwd spawn 失败;
+ *   · grep 的 path   → **静默搜错目录** —— grep.ts 在 stat 失败时把该路径当「文件」处理,
+ *                      cwd 退化成父目录 .octo/,结果恒为空且不报错。
+ *
+ * 业界判据:**谁设置工作目录,谁保证它存在**(Docker WORKDIR 自动创建;CI runner 在 spawn
+ * 前 mkdir workspace;Node child_process 对不存在的 cwd 直接 ENOENT、运行时不兜底)。
+ * 我们改写了这些参数,就落在「设置方」这个角色上。仍是惰性 —— 只在真正要交出去的那一刻建。
+ */
+async function ensureDir(dir: string, ctx: { tool: string; sessionID: string }) {
+  try {
+    await fs.mkdir(dir, { recursive: true })
+  } catch (err) {
+    // 建不出来就不改默认值,交回原生行为,别把工具引向一个不存在的目录。
+    console.error(`${LOG} 目录创建失败,保持原值`, { ...ctx, dir, err })
+    return false
+  }
+  return true
 }
 
 /** resolved 是否在 dir 内(dir 自身算在内)。 */
@@ -149,6 +175,8 @@ export const OctoSessionWorkdirPlugin: Plugin = async ({ client }) => {
         // bash 的 cwd = 产物目录(脚本产出即产物);glob/grep 的默认搜索范围 = 会话根
         // (材料在 uploads/,收到 outputs 会让「在材料里找 X」搜不到)。
         const value = isShell ? outputs : sessionDir(meta.directory, input.sessionID)
+        // 交出去之前先保证存在 —— 这三个通道都不像 write 那样会自动建目录,见 ensureDir 注释。
+        if (!(await ensureDir(value, { tool, sessionID: input.sessionID }))) return
         args[key] = value
         console.log(`${LOG} 默认目录补齐`, { tool, sessionID: input.sessionID, key, value })
         return
