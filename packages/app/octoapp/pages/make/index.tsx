@@ -1516,8 +1516,8 @@ const sessionMessagesLoaded = createMemo(() => {
     })
   }
 
-  // 自动滚动：session busy 时保持对话区随新内容跟随到底部
-  const autoScroll = createAutoScroll({ working: isBusy })
+  // 自动滚动：保持对话区随新内容跟随到底部（用户手动上滑则不抢）
+  const autoScroll = createAutoScroll({ working: () => true })
 
   // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs 和关闭 popover
   // 同时尝试恢复当前主 session 的设计规划子 session（包括初次渲染和切换时）
@@ -2178,6 +2178,7 @@ const sessionMessagesLoaded = createMemo(() => {
         parts,
       })
       setAttachments([])
+      requestAnimationFrame(() => autoScroll.forceScrollToBottom())
     } catch (err) {
       console.error("[MakePage] prompt failed", err)
       setAttachments([])
@@ -2267,6 +2268,7 @@ if (dsId) {
         navigate(`/make/${session.id}`)
         sid = session.id
       }
+      autoScroll.forceScrollToBottom()
       await sendMessage(sid, text, capturedModelKey, mentions)
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)

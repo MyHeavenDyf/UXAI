@@ -1017,24 +1017,6 @@ const stateStatus = state.status as string | undefined
       {/* 用户消息气泡（右侧对齐） */}
       <Show when={userText() || userAttachments().length > 0}>
         <div class="flex flex-col items-end gap-4 px-3">
-          <Show when={userText()}>
-            <ExpandableBubble
-              class="break-words"
-              style={{
-                background: "var(--octo-brand-a8)",
-                padding: "12px 16px",
-                "border-radius": "16px 16px 2px 16px",
-                color: "#191919",
-                "font-size": "14px",
-                "line-height": "22px",
-                "white-space": "pre-wrap",
-                display: "inline-block",
-                "max-width": "85%",
-              }}
-            >
-              {renderMentionText(userText())}
-            </ExpandableBubble>
-          </Show>
           <Show when={userAttachments().length > 0}>
             <div class="flex flex-col gap-2">
               <For each={userAttachments()}>
@@ -1070,6 +1052,24 @@ const stateStatus = state.status as string | undefined
                 )}
               </For>
             </div>
+          </Show>
+          <Show when={userText()}>
+            <ExpandableBubble
+              class="break-words"
+              style={{
+                background: "var(--octo-brand-a8)",
+                padding: "12px 16px",
+                "border-radius": "16px 16px 2px 16px",
+                color: "#191919",
+                "font-size": "14px",
+                "line-height": "22px",
+                "white-space": "pre-wrap",
+                display: "inline-block",
+                "max-width": "85%",
+              }}
+            >
+              {renderMentionText(userText())}
+            </ExpandableBubble>
           </Show>
         </div>
       </Show>
