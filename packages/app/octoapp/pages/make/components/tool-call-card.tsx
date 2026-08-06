@@ -188,7 +188,7 @@ function ToolGroupCard(props: { group: GroupedToolCalls }): JSX.Element {
 export function ToolCallGroupCard(props: { calls: ToolCallInfo[] }): JSX.Element {
   const groups = createMemo(() => groupByFamily(props.calls))
   return (
-    <div class="flex flex-col gap-0.5">
+    <div class="flex flex-col gap-4">
       <For each={groups()}>
         {(group) => <ToolGroupCard group={group} />}
       </For>
