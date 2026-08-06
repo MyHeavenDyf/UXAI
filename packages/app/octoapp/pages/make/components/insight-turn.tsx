@@ -1037,7 +1037,7 @@ const stateStatus = state.status as string | undefined
       <Show when={userText() || userAttachments().length > 0}>
         <div class="flex flex-col items-end gap-4 px-3">
           <Show when={userAttachments().length > 0}>
-            <div class="flex flex-col gap-4">
+            <div class="flex flex-col items-end gap-4">
               <For each={userAttachments()}>
                 {(att) => (
                   <Show
