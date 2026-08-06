@@ -18,6 +18,7 @@ import { ExpandableBubble } from "@/components/expandable-bubble"
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
 import { getFileIcon } from "../icons/file-type-icons"
+import { extractSubtypeFromTitle } from "../utils/subtype-extractor"
 import { kindFromMime } from "./attachment-bar"
 
 // Render text with @mentions - plain text only, no chip styling
@@ -51,6 +52,7 @@ export type OutputCard = {
   id: string
   title: string
   type: OutputCardType
+  subtype?: string
   content: string
   filePath?: string
   commentFilePath?: string
@@ -163,6 +165,7 @@ function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "creat
         results.push({
           title: startEvent.title || mappedType,
           type: mappedType,
+          subtype: extractSubtypeFromTitle(startEvent.title),
           content: fullContent,
           artifactKind: startEvent.artifactType,
           artifactIdentifier: startEvent.identifier || undefined,
