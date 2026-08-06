@@ -43,30 +43,43 @@ function classifyStack(stackLines: string[]): {
 } {
   const userCodeFrames: string[] = []
   let fromUserCode = false
+
+  // 跳过的帧：纯 Node 内部（webstreams/http/task_queues 清理）+ 桩自身（patchedAbort），
+  // 后者路径在打包块里也会匹配 isUserCode，必须先排除，否则所有 abort 都会被桩自身帧判成 YES
+  const shouldSkip = (line: string) =>
+    line.includes("node:internal") ||
+    line.includes("node:stream") ||
+    line.includes("node:http") ||
+    line.includes("(node:") ||
+    line.includes("patchedAbort")
+
+  // opencode 业务代码帧：
+  //   - dev：未打包源码路径（packages/opencode、@opencode-ai、/session/ 等）
+  //   - desktop 打包产物：opencode+Effect 全捆进 chunks/node-*.js，源码路径失效，
+  //     改靠帧名（~effect/Effect/、FiberImpl. —— opencode session fiber 调度的特征）
+  //     和打包块路径（/out/main/chunks/）识别
+  const isUserCode = (line: string) =>
+    line.includes("/packages/opencode/") ||
+    line.includes("\\packages\\opencode\\") ||
+    line.includes("@opencode-ai") ||
+    line.includes("/session/") ||
+    line.includes("/provider/") ||
+    line.includes("/effect/") ||
+    line.includes("/cli/") ||
+    line.includes("/plugin/") ||
+    line.includes("/tool/") ||
+    line.includes("/agent/") ||
+    line.includes("/dist/") ||
+    line.includes("~effect/Effect/") ||
+    line.includes("FiberImpl.") ||
+    line.includes("/out/main/chunks/") ||
+    line.includes("\\out\\main\\chunks\\")
+
   for (const line of stackLines.slice(1)) {
     const trimmed = line.trim()
     if (!trimmed) continue
-    if (
-      trimmed.includes("node:internal") ||
-      trimmed.includes("node:stream") ||
-      trimmed.includes("node:http") ||
-      trimmed.includes("(node:")
-    ) {
-      continue
-    }
-    if (
-      trimmed.includes("/packages/opencode/") ||
-      trimmed.includes("\\packages\\opencode\\") ||
-      trimmed.includes("@opencode-ai") ||
-      trimmed.includes("/session/") ||
-      trimmed.includes("/provider/") ||
-      trimmed.includes("/effect/") ||
-      trimmed.includes("/cli/") ||
-      trimmed.includes("/plugin/") ||
-      trimmed.includes("/tool/") ||
-      trimmed.includes("/agent/") ||
-      trimmed.includes("/dist/")
-    ) {
+    if (shouldSkip(trimmed)) continue
+    if (isUserCode(trimmed)) {
       fromUserCode = true
       userCodeFrames.push(trimmed)
     }
