@@ -81,15 +81,16 @@ export async function createHtmlAssetsZip(options: CreateHtmlAssetsZipOptions): 
 
   // 并集（剔除 HTML 自身）
   const htmlAbsNorm = options.htmlFilePath.replace(/\\/g, "/")
+  const htmlDirAbs = dirname(htmlAbsNorm)
   const allAbs = new Set<string>([...staticAbsPaths, ...observedAbsPaths])
   allAbs.delete(htmlAbsNorm)
 
-  // 计算最近公共祖先（包含 HTML 自身，确保 HTML 总在 ZIP 内）
-  const nca = findCommonAncestor([htmlAbsNorm, ...allAbs])
+  // 计算最近公共祖先：至少包含 htmlDir（HTML 自身目录），确保 NCA 是目录而非文件路径。
+  // 否则当 allAbs 为空时，NCA 会退化成 htmlAbsNorm（文件路径），relativeTo 全部返回空。
+  const nca = findCommonAncestor([htmlDirAbs, ...allAbs])
 
   // HTML 在 ZIP 内的位置：相对 NCA。若 NCA == htmlDir，relativeTo 返回 basename，
   // 此时允许用调用方传入的友好文件名；否则保留原 basename（路径结构需要）。
-  const htmlDirAbs = dirname(htmlAbsNorm)
   let htmlZipPath: string
   if (nca === htmlDirAbs || nca === "") {
     htmlZipPath = options.htmlFileNameInZip
