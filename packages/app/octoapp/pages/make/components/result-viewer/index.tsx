@@ -164,6 +164,13 @@ export function ResultViewer(props: {
   const handleViewportChange = (vp: ViewportPreset) => {
     tracker.interaction({ module: "design", name: "change-viewport", extend: JSON.stringify({ viewport: vp }) })
     setViewport(vp)
+    // 视口切换会改变 iframe 尺寸和元素坐标,挂着的交互面板(Inspect/Edit/Draw/Comment/Archive)
+    // 在新视口下 bridge 和元素位置都对不上,统一关闭,让用户重新进入
+    setInspecting(false)
+    setEditing(false)
+    setDrawing(false)
+    setCommenting(false)
+    setArchiving(false)
   }
 
   const handleCanvasToDesign = async () => {
