@@ -792,6 +792,18 @@ button.delete-dialog-btn-primary {
   display: none !important;
 }
 
+/* Vditor 工具栏按钮 :focus 颜色修正:
+   Vditor 自带 .vditor-toolbar__item .vditor-tooltipped:focus { color: var(--toolbar-icon-hover-color) }
+   与激活态 .vditor-menu--current 同色(#4285f4)。点击「预览」进入预览模式 → 再次点击退出后,
+   Vditor 已移除 --current,但按钮仍处 :focus,颜色维持蓝色 → 视觉上"还是预览模式颜色",需点击
+   别处失焦才恢复。退出预览应即时可见。这里把鼠标点击 focus(:focus 但非 :focus-visible)恢复
+   非激活色;键盘 :focus-visible 保留蓝色作无障碍焦点反馈。
+   :not(.vditor-menu--current) 排除激活态——否则本规则特异性高于 --current,会把进入预览时
+   按钮的激活蓝色也盖掉,导致"预览模式不变蓝"。 */
+.octo-md-editor-host .vditor-toolbar__item .vditor-tooltipped:focus:not(:focus-visible):not(.vditor-menu--current) {
+  color: var(--toolbar-icon-color) !important;
+}
+
 /* Vditor 原生「导出」面板:隐藏 PDF 项(其走 window.print() 弹系统打印框,非静默存盘)。
    只留 Markdown / HTML。面板是 .vditor-hint,各项 <button data-type="markdown|pdf|html">。
    见 docs/specs/ui/insight-markdown-editor.md §6.3。 */
