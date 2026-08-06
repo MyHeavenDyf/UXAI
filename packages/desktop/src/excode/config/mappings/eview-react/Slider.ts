@@ -16,7 +16,7 @@
  * | step | — | 丢弃 |
  * | input（boolean） | displayInput | 同名透传 + 覆盖默认（A2UI 默认不显示输入框） |
  * | marks（object） | markIndexes | 对象 key 提取为 number[] |
- * | className | className | 同名透传 |
+ * | className | className + stickStyle | 宽度类(w-*)→stickStyle(内联样式)，其余→className |
  *
  * ## 注意事项
  *
@@ -29,7 +29,8 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
+import { Value } from '../../../src/core/value-factory'
+import { splitWidthToStyle } from '../../../src/codegen/split-width-style'
 
 // ─── marks 对象 → markIndexes 数组 ───
 
@@ -123,9 +124,13 @@ export function createSliderMapping(pkg: string): MappingDef {
         outputProps.markIndexes = marksToIndexes(props.marks)
       }
 
-      // ─── className 透传 ───
-      if (props.className) {
-        outputProps.className = props.className
+      // ─── className: 拆分宽度类 → stickStyle（内联样式），其余 → className ───
+      const { className: remainCn, widthStyle } = splitWidthToStyle(props.className)
+      if (remainCn) {
+        outputProps.className = remainCn
+      }
+      if (widthStyle) {
+        outputProps.stickStyle = widthStyle as any
       }
 
       // ─── 剩余 prop 透传 ───

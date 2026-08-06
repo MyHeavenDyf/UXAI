@@ -9,12 +9,14 @@
  * 直接按 kind 分发，无需任何 nodeType marker。
  */
 
-// ─── tailwind → CSS 转换器 ──────────────────────────────────
-// CLI 模式用（tailwindcss v4 __unstable__loadDesignSystem 本地实现）
-// import { convertTailwindToCSS } from '../../../lib/convertTailwindToCSS'
-// Electron 模式用（引用 Electron 主进程已有模块）
-import { convertTailwindToLessRule, generateLessContent, type LessRule, type StyleDeclaration } from '../../../main/tailwind-to-css'
-// ────────────────────────────────────────────────────────────
+// ─── tailwind → CSS/LESS 转换器（统一从 ./tailwind-converter 导入）──
+// CLI / Electron 双模式的手动切换已收敛到 ./tailwind-converter.ts，
+// 本文件及其它消费方都从那里取，不再各自切换。
+import {
+  convertTailwindToLessRule,
+  generateLessContent,
+  type LessRule,
+} from './tailwind-converter'
 
 import type { BuildNode, ComponentNode, HtmlNode, LoopNode, RegularNode } from '../core/node-types'
 import type { PropValue } from '../core/value-types'
@@ -27,8 +29,7 @@ const USE_CSS_MODULES_DEFAULT = true
 
 // ─── 产出物 ───
 
-// LessRule / StyleDeclaration 现定义于 tailwind-to-css，此处 re-export 供 file-generator 等消费方沿用
-export type { LessRule, StyleDeclaration } from '../../../main/tailwind-to-css'
+
 
 export interface LessFile {
   path: string
@@ -91,6 +92,7 @@ export class StyleConverter {
     // 抽取（module / loop template 各自产 less）
     for (const ef of extractedFiles) {
       if (ef.purpose !== 'module' && ef.purpose !== 'component') continue
+      // 暂不考虑多根 extract（输入必单根）；只取 body[0]
       const root: BuildNode | undefined = ef.body[0]
       if (!root) continue
       const rules: LessRule[] = []
@@ -140,49 +142,13 @@ export class StyleConverter {
    * - 节点 id 不存在 → 不生成规则（jsx-emitter 也不给它 _style），但仍递归 children
    * - className 不是字符串 → 跳过该节点规则生成，children 仍递归
    */
+  /**
+   * 递归收集 LESS 规则 — 委托给共享的 collectRulesFromNode（主树/const 值统一走一条路径）。
+   * collectRulesFromNode 已含 props walk + chart !important + children 递归，
+   * 不再需要独立的 #collectRules + #recurChildren。
+   */
   #collectRules(node: BuildNode, out: LessRule[]): void {
-    if (!node) return
-
-    if (node.kind === 'component' || node.kind === 'html') {
-      const id = node.id
-      const cn = readPropClassName(node.props)
-      // chart（tag='Chart'）尺寸加 !important，压过组件默认 `.aui3_1 .ev-chart { width; height }`（两类选择器）
-      const isChart = (node as any).tag === 'Chart'
-
-      // 所有 variant（响应式 / 伪类 / dark / rtl 等）统一走 toRule -> convertTailwindToLessRule
-      if (id && cn) {
-        const rule = toRule(cn, `.${id}`, isChart)
-        if (rule) out.push(rule)
-      }
-
-      // walk prop 值里嵌入的 BuildNode（如 IconButton.iconName 的 icon）——
-      // icon 的 className 在 prop 值内，主树 children 走不到，此处补收。
-      if (node.props) {
-        for (const v of Object.values(node.props)) collectRulesFromValue(v as PropValue, out)
-      }
-    }
-
-    // 递归 children
-    if (node.kind === 'component' || node.kind === 'html') {
-      const children = (node as ComponentNode | HtmlNode).children
-      this.#recurChildren(children, out)
-    } else if (node.kind === 'extract') {
-      for (const c of node.body) this.#collectRules(c, out)
-    }
-  }
-
-  #recurChildren(children: RegularNode[] | LoopNode | null | undefined, out: LessRule[]): void {
-    if (!children) return
-    if ((children as any).kind === 'loop') {
-      const ln = children as LoopNode
-      for (const c of ln.template.body) this.#collectRules(c, out)
-      return
-    }
-    if (Array.isArray(children)) {
-      for (const c of children) this.#collectRules(c, out)
-      return
-    }
-    void out
+    collectRulesFromNode(node, out)
   }
 }
 
@@ -199,7 +165,10 @@ function readPropClassName(props: Record<string, PropValue> | undefined): string
   return v
 }
 
-// toRule：先改写 className 里的本地资源 url()，再调 convertTailwindToLessRule 产出含 variants 的 LESS 规则。
+// toRule：先改写 className 里的本地资源 url()（bg-[url(/uploads/...)] → /assets/...），再调
+// convertTailwindToLessRule 产出含 variants 的 LESS 规则（base + 伪类/@media variant）。
+// useVar=true：输出 var(--xxx) 形式，保留运行时主题可覆盖（与原 safeConvert 行为一致）。
+// importantSizing=true：给 width/height 加 !important（仅 chart 用，由调用方按库判断后传入）。
 // 失败时返回 null 不抛出，保证代码生成不因单个 className 中断。
 function toRule(cn: string, selector: string, importantSizing: boolean): LessRule | null {
   try {
@@ -208,7 +177,6 @@ function toRule(cn: string, selector: string, importantSizing: boolean): LessRul
     return null
   }
 }
-
 
 /**
  * 任意命名 → PascalCase（首字母大写，分隔符 - 或 _ 或空格）。
@@ -288,10 +256,17 @@ function collectRulesFromNode(node: any, out: LessRule[]): void {
   if (node.kind === 'component' || node.kind === 'html') {
     const id = node.id
     const cn = readPropClassName(node.props)
-    // 同 #collectRules：const 值里的节点（icon / enrichment 项）也走统一 toRule 路径
+    // chart 尺寸加 !important 仅限 eview-react（组件默认 `.aui3_1 .ev-chart` 两类选择器压过单类）；
+    // eview-ui Chart 无此默认样式，不加。通过 import 字段区分库。
+    const importSource = typeof node.import === 'string' ? node.import : node.import?.source
+    const isChart = node.tag === 'Chart' && typeof importSource === 'string' && importSource.includes('eview-react')
     if (id && cn) {
-      const rule = toRule(cn, `.${id}`, false)
+      const rule = toRule(cn, `.${id}`, isChart)
       if (rule) out.push(rule)
+    }
+    // walk props（收嵌入 BuildNode 的 className，如 icon in iconName prop）——与 #collectRules 对齐
+    if (node.props) {
+      for (const v of Object.values(node.props)) collectRulesFromValue(v as PropValue, out)
     }
     // 递归 children
     const ch = node.children

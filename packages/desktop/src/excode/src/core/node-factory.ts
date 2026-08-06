@@ -6,7 +6,7 @@
  *
  * 映射文件中的用法：
  *
- *   import { Node } from '../../../src/core/node'
+ *   import { Node } from '../../../src/core/node-factory'
  *   Node.component({ tag: 'span', props: { className: 'text-sm' } })
  *   Node.text({ value: 'hello' })
  *   Node.html({ tag: 'div', props: { className: 'flex' } })
@@ -33,6 +33,7 @@ export const Node = {
     propRoute?: Record<string, ExtractRoute>
   }): ComponentNode {
     return {
+      __node: true,
       kind: 'component',
       ...opts,
       component: opts.component ?? opts.tag,
@@ -46,14 +47,22 @@ export const Node = {
     id?: string
     children?: RegularNode[] | LoopNode | null
   }): HtmlNode {
-    return { kind: 'html', ...opts }
+    return {
+      __node: true,
+      kind: 'html',
+      ...opts,
+    }
   },
 
   /** 文本节点 — children 中的纯文本或绑定值 */
   text(opts: {
     value: string | BindingValue | ComputedValue
   }): TextNode {
-    return { kind: 'text', value: opts.value }
+    return {
+      __node: true,
+      kind: 'text',
+      value: opts.value,
+    }
   },
 
   /** 循环节点 */
@@ -64,6 +73,26 @@ export const Node = {
     loopVar?: string
     route?: ExtractRoute
   }): LoopNode {
-    return { kind: 'loop', ...opts }
+    return {
+      __node: true,
+      kind: 'loop',
+      ...opts,
+    }
+  },
+
+  /** 抽取节点（跨文件抽取引用） — 给映射文件构造循环模板/模块抽取用，带 __node brand */
+  extract(opts: {
+    componentName: string
+    purpose: 'module' | 'component'
+    body: RegularNode[]
+    refProps?: Record<string, PropValue>
+    fileName?: string
+    _resolved?: boolean
+  }): ExtractNode {
+    return {
+      __node: true,
+      kind: 'extract',
+      ...opts,
+    }
   },
 }

@@ -18,8 +18,8 @@ const EMIT_ID_DEFAULT = true
 import type { BuildNode, ComponentNode, HtmlNode, TextNode, LoopNode, RegularNode } from '../core/node-types'
 import type { PropValue } from '../core/value-types'
 import { collectRelativeFields } from '../core/scoped-enrichment'
-import { stateRef, computedJsxConstName } from '../core/access-path'
-import { pathToJsAccess } from '../core/access-path'
+import { stateRef, computedJsxConstName, pathToJsAccess, cssModuleRef } from '../core/access-path'
+import { emitKey } from './js-serializer'
 
 // ─── 选项 ───
 
@@ -42,6 +42,8 @@ export interface EmitOptions {
   selfId?: string
   /** 是否在产物 JSX 标签上输出 id 属性（默认 true） */
   emitId?: boolean
+  /** className 在产物 JSX 上的输出 key 别名（默认 'className'）；由 emitComponent 从 node.classNameProp 透传，emitClassName 输出时用 */
+  classNameProp?: string
   /** inline loop 解构时需排除的字段名（enrichment/const 名撞名，由 fileAssembler 从 fileUnit 收集传入） */
   inlineLoopExcludedFields?: Set<string>
 }
@@ -56,6 +58,7 @@ const DEFAULT_OPTS: Required<EmitOptions> = {
   cssModuleVarName: 'styles',
   selfId: '',
   emitId: EMIT_ID_DEFAULT,
+  classNameProp: 'className',
   inlineLoopExcludedFields: new Set<string>(),
 }
 
@@ -99,7 +102,12 @@ export function bindingRef(v: any, opts?: Required<EmitOptions>): string {
   if (v.type === 'computed' && v.containsJSX) return computedJsxConstName(v)
   const relPath = pathToJsAccess(v.accessPath ?? v.path)
   if (v.pathType === 'relative') {
-    if (!opts) return relPath
+    if (!opts) {
+      // const 场景（模块顶部不在循环/render fn 作用域）不该出现 relative binding；
+      // 若误入，裸 accessPath 运行时 undefined，加 warn 提示而非静默
+      console.warn(`  [warn] bindingRef: relative binding "${relPath}" in const 场景（模块顶部不在作用域，可能产错代码）`)
+      return relPath
+    }
     if (opts.inTemplate) return relPath
     if (opts.inRenderFnBody) return relPath
     return `${opts.loopVar}.${relPath}`
@@ -107,66 +115,44 @@ export function bindingRef(v: any, opts?: Required<EmitOptions>): string {
   return stateRef(v.accessPath ?? v.path)
 }
 
-function emitValue(value: PropValue, opts: Required<EmitOptions>, isPropValue?: boolean): string {
-  if (value === null || value === undefined) return '{null}'
+/**
+ * 值序列化：PropValue → 裸 JS 表达式（不包 `{}`）。
+ * `{}` 是 JSX 语法层的事（prop 值 `key={...}`、子节点 `{...}`），由调用方按上下文包。
+ * 与 serializeForConstValue（const 路径）一致——两者都返回裸表达式。
+ */
+function emitValue(value: PropValue, opts: Required<EmitOptions>): string {
+  if (value === null || value === undefined) return 'null'
 
-  // 非对象：原语。
-  // isPropValue=true（默认）→ 套 {} 作为 JSX 表达式；
-  // isPropValue=false（嵌套在数组/对象内）→ 裸值，不需要额外 {}（外层表达式已提供）
+  // 非对象：原语 → 裸值（字符串 JSON-quote、数字/布尔 String()）
   if (typeof value !== 'object') {
-    if (typeof value === 'string') return isPropValue !== false ? `{${JSON.stringify(value)}}` : JSON.stringify(value)
-    if (typeof value === 'number' || typeof value === 'boolean') return isPropValue !== false ? `{${String(value)}}` : String(value)
-    return '{null}'
+    if (typeof value === 'string') return JSON.stringify(value)
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+    return 'null'
   }
 
-  // 数组：递归，数组内的值非 prop 上下文（isPropValue=false）。
-  // 顶层 prop 数组 → `{[...]}`（进入 JSX 表达式上下文）；
-  // 嵌套在对象/数组内的数组 → 裸 `[...]`（外层已提供表达式上下文，再包 {} 会变成 `{[...]}` 非法语法）。
+  // 数组：递归，元素为裸值
   if (Array.isArray(value)) {
-    const items = value.map(v => emitValue(v, opts, false)).join(', ')
-    return isPropValue !== false ? `{[${items}]}` : `[${items}]`
+    const items = value.map(v => emitValue(v, opts)).join(', ')
+    return `[${items}]`
   }
 
   const v = value as any
 
-  // VarRefValue：编译期常量引用
-  if (v.type === 'varRef') return `{${v.name}}`
+  // VarRefValue：编译期常量引用 → 裸 name
+  if (v.type === 'varRef') return v.name
 
-  // RawExprValue：原始 JS 表达式
-  if (v.type === 'rawExpr') return `{${v.value}}`
+  // RawExprValue：原始 JS 表达式 → 裸 value
+  if (v.type === 'rawExpr') return v.value
 
   // RenderFnValue：内联渲染函数（结构化 params + destructure 模式）
   if (v.type === 'renderFn') {
     const paramsArr: Array<{ name: string; dataSource?: any; dataField?: string }> = v.params ?? []
-    const sig = paramsArr.map((p: any) => p.name).join(', ')
     const dataSourceParam = paramsArr.find((p: any) => p.dataSource)
     const dataSourceName: string = dataSourceParam?.name ?? ''
     const dataField: string | undefined = dataSourceParam?.dataField
-    // 解构源：dataField 时为 name.dataField（如 row.rawData），否则 name
     const dataAccessor: string = dataField ? `${dataSourceName}.${dataField}` : dataSourceName
-
-    const bodies = Array.isArray(v.body) ? v.body : [v.body]
     const bodyOpts = { ...opts, inRenderFnBody: !!dataSourceName, renderFnDataVarName: dataAccessor }
-
-    // destructure 行（源 = dataAccessor，如 row.rawData；body 内相对绑定裸引用解构出的字段）
-    let destructureLine = ''
-    if (dataSourceName) {
-      const fields = new Set<string>()
-      for (const b of bodies) {
-        const f = collectRelativeFields(b as BuildNode)
-        for (const field of f) fields.add(field)
-      }
-      if (fields.size > 0) {
-        destructureLine = `  const { ${[...fields].sort().join(', ')} } = ${dataAccessor};\n`
-      }
-    }
-
-    const bodyJSX = bodies.map((n: BuildNode) => emitNode(n, bodyOpts)).join('\n')
-
-    if (destructureLine) {
-      return `(${sig}) => {\n${destructureLine}  return (\n${indent(bodyJSX, 4)}\n  )\n}`
-    }
-    return `(${sig}) => (\n${indent(bodyJSX, 2)}\n)`
+    return serializeRenderFnBody(v, bodyOpts, 0)
   }
 
   // SlotNodeValue：渲染子树
@@ -174,32 +160,60 @@ function emitValue(value: PropValue, opts: Required<EmitOptions>, isPropValue?: 
     return emitNode(v.node, opts)
   }
 
-  // BindingValue / ComputedValue → 引用名（规则见 bindingRef，模板/const 共用）
+  // BindingValue / ComputedValue → 裸引用（规则见 bindingRef，模板/const 共用）
   if (v.type === 'binding' || v.type === 'computed') {
-    const expr = bindingRef(v, opts)
-    // isPropValue（= JSX 独立表达式位置：顶级 prop 值 / 文本子节点）包 {…}；
-    // 嵌套在对象/数组内（isPropValue=false）或 const 序列化（serializeForConstValue，不调此分支的包装）
-    // 时裸引用——否则 key: {expr} 的 {} 在对象值位置是块语句，语法非法（如 Chart option.data）。
-    return isPropValue ? `{${expr}}` : expr
+    return bindingRef(v, opts)
   }
 
-  // 嵌套数据对象（table datasets / columns 等） → JSON 形态
-  if (v.type === undefined) {
-    // BuildNode 组件（kind:'component'，来自 resolveIcon 等）→ JSX 元素
-    // 作为 prop value 时需要包 {…}，嵌套在对象/数组内时不包
-    if (v.kind === 'component' && typeof v.tag === 'string' && typeof v.props === 'object') {
-      const expr = emitBuildNodeExpr(v, opts)
-      return isPropValue ? `{${expr}}` : expr
-    }
+  // BuildNode（kind:'component'，来自 resolveIcon 等）→ 裸 JSX 元素
+  // 注意：BuildNode 有 __node brand 但无 PropValue type，须在 !v.__node 之前检查
+  if (v.kind === 'component' && typeof v.tag === 'string' && typeof v.props === 'object') {
+    return emitBuildNodeExpr(v, opts)
+  }
+
+  // 普通对象（无 __node brand）→ 对象字面量
+  if (!v.__node) {
     const entries = Object.entries(value)
       .filter(([k]) => !k.startsWith('__'))
-      .map(([k, vv]) => `${k}: ${emitValue(vv as PropValue, opts, false)}`)
+      .map(([k, vv]) => `${emitKey(k)}: ${emitValue(vv as PropValue, opts)}`)
       .join(', ')
-    const objBody = `{ ${entries} }`
-    return isPropValue ? `{${objBody}}` : objBody
+    return `{ ${entries} }`
   }
 
-  return '{null}'
+  return 'null'
+}
+
+/**
+ * RenderFnValue → 内联渲染函数序列化（emitValue 主树 + serializeForConstValue const 共用）。
+ *
+ * - params → sig；dataSource param → dataAccessor（destructure 源，调用方算好传 bodyOpts.renderFnDataVarName）
+ * - body 内相对绑定裸引用（inRenderFnBody，emitNode/bindingRef 消费），destructure 顶级字段（collectRelativeFields）
+ * - indentBase：缩进基准（emitValue 主树传 0；serializeForConstValue const 传 lvl，随嵌套层级）
+ * - bodyOpts：调用方构造（emitValue 继承主树 opts；const 从 constEmit 取 useCssModules/cssModuleVarName）
+ */
+export function serializeRenderFnBody(v: any, bodyOpts: any, indentBase: number): string {
+  const paramsArr: Array<{ name: string; dataSource?: any; dataField?: string }> = v.params ?? []
+  const sig = paramsArr.map((p: any) => p.name).join(', ')
+  const dataAccessor: string = bodyOpts.renderFnDataVarName ?? ''
+  const bodies = Array.isArray(v.body) ? v.body : [v.body]
+  const bodyPad = ' '.repeat(indentBase + 2)
+  const closePad = ' '.repeat(indentBase)
+  let destructureLine = ''
+  if (dataAccessor) {
+    const fields = new Set<string>()
+    for (const b of bodies) {
+      const f = collectRelativeFields(b as BuildNode)
+      for (const field of f) fields.add(field)
+    }
+    if (fields.size > 0) {
+      destructureLine = `${bodyPad}const { ${[...fields].sort().join(', ')} } = ${dataAccessor};\n`
+    }
+  }
+  const bodyJSX = bodies.map((n: BuildNode) => emitNode(n, bodyOpts)).join('\n')
+  if (destructureLine) {
+    return `(${sig}) => {\n${destructureLine}${bodyPad}return (\n${indent(bodyJSX, indentBase + 4)}\n${bodyPad})\n${closePad}}`
+  }
+  return `(${sig}) => (\n${indent(bodyJSX, indentBase + 2)}\n${closePad})`
 }
 
 // ─── props 序列化 ───
@@ -221,7 +235,7 @@ function emitProps(props: Record<string, PropValue> | undefined, opts: Required<
         continue
       }
     }
-    parts.push(`${key}=${emitValue(value, opts, true)}`)
+    parts.push(`${key}={${emitValue(value, opts)}}`)
   }
   return parts.join(' ')
 }
@@ -240,9 +254,10 @@ function emitProps(props: Record<string, PropValue> | undefined, opts: Required<
  *   - 非字符串（varRef / rawExpr）：交 emitValue 通用规则。
  */
 function emitClassName(value: PropValue, opts: Required<EmitOptions>): string | null {
+  const key = opts.classNameProp
   // 非字符串：交给 emitValue
   if (typeof value !== 'string') {
-    return `className=${emitValue(value, opts, true)}`
+    return `${key}={${emitValue(value, opts)}}`
   }
 
   // 自动基类 = selfId（CSS Modules 时直接做 styles.{id}）
@@ -251,12 +266,12 @@ function emitClassName(value: PropValue, opts: Required<EmitOptions>): string | 
   // CSS Modules 形态：只输出 `styles.${autoBase}`，丢弃 props 里的 Tailwind 类
   // （它们已由 StyleConverter 编入该 selector 的 LESS 规则）
   if (opts.useCssModules && autoBase) {
-    return `className={${opts.cssModuleVarName}.${autoBase}}`
+    return `${key}={${cssModuleRef(opts.cssModuleVarName, autoBase)}}`
   }
 
   // 非 CSS Modules 形态：A2UI className（必要时保留原值）
   const tokens = value.split(/\s+/).filter(Boolean)
-  return `className="${tokens.join(' ')}"`
+  return `${key}="${tokens.join(' ')}"`
 }
 // ─── 节点分发 ───
 
@@ -281,7 +296,7 @@ function emitComponent(node: ComponentNode, opts: Required<EmitOptions>): string
   const idAttr = opts.emitId && node.id ? ` id="${escapeJSX(node.id)}"` : ''
   // className 整体由 emitProps → emitClassName 走（含自动基类合并 + CSS Modules 转换）
 
-  const propsStr = emitProps(node.props, { ...opts, selfId: node.id ?? '' })
+  const propsStr = emitProps(node.props, { ...opts, selfId: node.id ?? '', classNameProp: node.classNameProp ?? 'className' })
   const allAttrs = [idAttr, propsStr].filter(Boolean).join(' ').trim()
 
   // children 形态判定
@@ -321,7 +336,7 @@ function emitHtml(node: HtmlNode, opts: Required<EmitOptions>): string {
   const tag = node.tag
   const idAttr = opts.emitId && node.id ? ` id="${escapeJSX(node.id)}"` : ''
 
-  const propsStr = emitProps(node.props, { ...opts, selfId: node.id ?? '' })
+  const propsStr = emitProps(node.props, { ...opts, selfId: node.id ?? '', classNameProp: 'className' })
   const allAttrs = [idAttr, propsStr].filter(Boolean).join(' ').trim()
 
   const children = node.children
@@ -356,10 +371,10 @@ function emitHtml(node: HtmlNode, opts: Required<EmitOptions>): string {
   return inner
 }
 
-function emitText(node: TextNode, _opts: Required<EmitOptions>): string {
+function emitText(node: TextNode, opts: Required<EmitOptions>): string {
   if (typeof node.value === 'string') return escapeJSX(node.value)
   // value 是 varRef / rawExpr / binding（JSX 文本子节点 = 独立表达式位置，需包 {}）
-  return emitValue(node.value, _opts, true)
+  return `{${emitValue(node.value, opts)}}`
 }
 
 // ─── BuildNode 组件表达式（kind:'component'，在 prop 值中嵌入 JSX 元素） ───
@@ -375,7 +390,7 @@ function emitBuildNodeExpr(v: { tag: string; props: Record<string, any>; selfClo
     // className 走 emitClassName（CSS Modules → styles.{id}，与 StyleConverter 收集的选择器对齐）；
     // 无 id 时回退裸字符串（旧行为）。selfId 取 BuildNode 自身 id（resolveIcon 由调用方传入）。
     if (k === 'className' || k === 'class') {
-      const cn = emitClassName(vv as PropValue, { ...opts, selfId: v.id ?? opts.selfId })
+      const cn = emitClassName(vv as PropValue, { ...opts, selfId: v.id ?? opts.selfId, classNameProp: (v as any).classNameProp ?? 'className' })
       if (cn) propParts.push(cn)
       continue
     }
@@ -384,7 +399,7 @@ function emitBuildNodeExpr(v: { tag: string; props: Record<string, any>; selfClo
     else if (typeof vv === 'string') propParts.push(`${k}=${JSON.stringify(vv)}`)
     else if (typeof vv === 'number') propParts.push(`${k}={${vv}}`)
     else if (typeof vv === 'boolean') propParts.push(`${k}={${String(vv)}}`)
-    else propParts.push(`${k}={${emitValue(vv as PropValue, opts, false)}}`)
+    else propParts.push(`${k}={${emitValue(vv as PropValue, opts)}}`)
   }
   const propsStr = propParts.join(' ')
   const attrs = propsStr ? ' ' + propsStr : ''
@@ -458,6 +473,9 @@ function emitLoop(loop: LoopNode, opts: Required<EmitOptions>): string {
     }
 
     // 第一个 JSX 元素注入 key={idx}（React list key 要求）
+    // ⚠️ 暂只支持单 JSX 元素 body：A2UI 循环模板 body 约定单根（一个组件/元素）。
+    // 正则 ^< 只匹配 bodyJsx 开头的 <Tag：text-leading body（首节点文本）不注入 key；
+    // multi-element body（多元素）只首个注入。这两类场景输入数据不出现，暂不处理。
     const withKey = bodyJsx.replace(/^<([A-Za-z][A-Za-z0-9.]*)/, '<$1 key={idx}')
 
     if (fields.size > 0) {

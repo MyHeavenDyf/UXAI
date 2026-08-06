@@ -17,7 +17,7 @@
  * TransformContext 提供 resolveNode 供 transform 内调用子树展开。
  */
 
-import { Step } from '../core/step'
+import { Step } from '../core/step-base'
 import type { ComponentRegistry } from '../core/component-registry'
 import type {
   TransformContext,
@@ -145,6 +145,7 @@ export class NodeMapper extends Step {
         wrapper: result.wrapper ?? node.wrapper,
         selfClosing: result.selfClosing,
         propRoute: result.propRoute ?? node.propRoute,
+        classNameProp: result.classNameProp ?? node.classNameProp,
       }
     } else {
       merged = { ...node }

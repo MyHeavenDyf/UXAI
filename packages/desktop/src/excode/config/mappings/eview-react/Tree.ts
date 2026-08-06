@@ -27,7 +27,7 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
+import { Value } from '../../../src/core/value-factory'
 
 // ─── 递归选项数据转换 ───
 

@@ -22,8 +22,8 @@ import type {
   TransformContext,
 } from "../../../src/core/component-mapping";
 import type { PropValue } from "../../../src/core/value-types";
-import { Value } from "../../../src/core/value";
-import { Node } from '../../../src/core/node'
+import { Value } from "../../../src/core/value-factory";
+import { Node } from '../../../src/core/node-factory'
 
 /**
  * 解析 icon prop（字面量或 DataBinding）→ prop val
@@ -88,6 +88,12 @@ const SIZE_MAP: Record<string, string> = {
   medium: "normal",
   large: "large",
 };
+// ─── variant → fill 值映射 ───
+const FILL_MAP: Record<string, string> = {
+  solid: "solid",
+  filled: "outline",
+  outlined: "outline",
+};
 
 // ─── Tag 映射定义 ───
 
@@ -148,6 +154,8 @@ export function createTagMapping(pkg: string): MappingDef {
         }
       }
 
+
+
       // ─── size 值映射（medium→normal） ───
       if (props.size && typeof props.size === "string") {
         const mapped = SIZE_MAP[props.size];
@@ -161,12 +169,20 @@ export function createTagMapping(pkg: string): MappingDef {
         outputProps.closable = props.closable;
       }
 
-      // ─── closeIcon 丢弃（eview-react Tag 用默认关闭图标） ───
 
+      // ─── variant → fill ───
+      if (props.variant && typeof props.variant === "string") {
+        const mapped = FILL_MAP[props.variant];
+        if (mapped) {
+          outputProps.fill = mapped;
+        }
+      }
       // ─── className 透传 ───
       if (props.className) {
         outputProps.className = props.className;
       }
+
+      // ─── closeIcon 丢弃（eview-react Tag 用默认关闭图标） ───
 
       // ─── 剩余 prop 透传 ───
       for (const [key, value] of Object.entries(props)) {

@@ -20,9 +20,9 @@ import path from 'path'
 
 import type { BuildNode, ComponentNode, HtmlNode, TextNode, ExtractNode, LoopNode, RegularNode } from '../core/node-types'
 import type { PropValue, VarRefValue } from '../core/value-types'
-import { Value } from '../core/value'
+import { Value } from '../core/value-factory'
 import type { StateBuilderResult } from './state-builder'
-import { stateRef } from '../core/access-path'
+import { stateRef, makeEnrichmentConstName } from '../core/access-path'
 
 // ─── 产出物 ───
 
@@ -88,17 +88,6 @@ function toPageComponentName(pageName: string): string {
     .map(w => w.charAt(0).toUpperCase() + w.slice(1))
     .join('')
   return `${pascal}Page`
-}
-
-/** 从 path 提取顶层 key 名 */
-function pathToTopKey(path: string): string {
-  const seg = path.replace(/^\//, '').split('/').filter(Boolean)[0]
-  return seg || ''
-}
-
-/** 生成 enrichment const 名（与 state-builder 保持一致） */
-function makeEnrichmentConstName(path: string, parentNodeId: string): string {
-  return `${pathToTopKey(path)}_${parentNodeId}Enriched`
 }
 
 /** propRoute / useState lift 后常量名生成（小驼峰） */
@@ -383,6 +372,7 @@ function walkExtract(node: ExtractNode, ctx: TreeCtx): ComponentNode {
   })
 
   const placeholder: any = {
+    __node: true,
     kind: 'component',
     component: node.componentName,
     tag: node.componentName,

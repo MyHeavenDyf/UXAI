@@ -23,9 +23,9 @@ import type { FileDraft, PendingExtractedFile, PendingConstDecl } from './tree-f
 import type { StateBuilderResult, FileUnit } from './state-builder'
 import { fileKeyOf } from '../core/file-keys'
 import { collectImports, renderImportBlock, injectImport, type ImportMap } from './import-collector'
-import { emitNode, indent, bindingRef } from './jsx-emitter'
+import { emitNode, indent, bindingRef, serializeRenderFnBody } from './jsx-emitter'
 import { collectRelativeFields } from '../core/scoped-enrichment'
-import { isFlatAccessPath } from '../core/access-path'
+import { isFlatAccessPath, cssModuleRef } from '../core/access-path'
 import { emitKey, serializePlainJs } from './js-serializer'
 import type { EmitOptions } from './jsx-emitter'
 import type { PropValue } from '../core/value-types'
@@ -63,7 +63,7 @@ export function assembleAllFiles(
 
 /**
  * const 值序列化期间的样式上下文（模块级，同步单线程安全）。
- * serializeBuildNodeComponent / serializeReactElement / renderFn body 的 emitNode
+ * serializeComponentConst / renderFn body 的 emitNode
  * 据此把 className 转为 `styles.${id}`（CSS Modules）。
  */
 interface ConstEmitCtx {
@@ -202,8 +202,10 @@ function assembleMainPage(
   }
 
   // 循环模板组件引用 → 注入 import
+  // 路径：主页面 index.tsx 在 pages/{pageName}/ 根，components/ 同级 → './components/'
+  //（modules/Xxx.tsx 引用才是 '../components/'，见 assembleExtractModule）
   for (const compName of collectLoopTemplateRefs(draft.rootTree)) {
-    injectImport(imports, `../components/${compName}.tsx`, compName, true)
+    injectImport(imports, `./components/${compName}.tsx`, compName, true)
   }
 
   const importBlock = renderImportBlock(imports)
@@ -278,6 +280,9 @@ function assembleModuleFile(
   styleImportMap?: Map<string, string>,
   emitId: boolean = true
 ): GeneratedFile {
+  // ⚠️ 暂不考虑多根 extract：当前 A2UI 输入数据 extract.body 必为单根（length===1），
+  // 故本函数多处只取 body[0]（collectImports / collectLoopTemplateRefs / rootJsx）。
+  // 下面的 emitFragment 多根分支保留但暂不触发；若未来输入出现多根，import/ref 收集也需全量迭代 body。
   const imports = collectImports(ext.body[0]).imports
 
   // .tsx 文件注入 React
@@ -378,6 +383,7 @@ function assembleComponentTemplate(
   styleImportMap?: Map<string, string>,
   emitId: boolean = true
 ): GeneratedFile {
+  // 暂不考虑多根 extract（输入必单根）；只取 body[0]
   const root = ext.body[0]
 
   // 走一遍 body，收集所有相对 binding 的顶级字段（destructure 用）
@@ -548,48 +554,6 @@ function formatConstDecl(decl: { name: string; value: PropValue; isUseState?: bo
   return `const ${decl.name} = ${valueStr};`
 }
 
-function formatConstValue(value: PropValue): string {
-  if (value === null || value === undefined) return 'null'
-  if (typeof value === 'string') return JSON.stringify(value)
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  const v = value as any
-  if (v.type === 'varRef') return v.name
-  if (v.type === 'rawExpr') return v.value
-  // LiteralValue → 取内部 value
-  if (v.type === 'literal') return formatConstValue(v.value)
-  if (Array.isArray(value) || (typeof value === 'object' && v.type === undefined)) {
-    // 检查 circular reference（列定义 render fn body 可能含复杂嵌套）
-    try {
-      return JSON.stringify(value, null, 2)
-    } catch (e: any) {
-      console.warn(`  [debug] formatConstValue circular (${e.message}): ${typeof value}`)
-      // fallback: 尝试找出问题路径
-      const seen = new WeakSet()
-      const findCycle = (obj: any, path: string): string | null => {
-        if (obj && typeof obj === 'object') {
-          if (seen.has(obj)) return path
-          seen.add(obj)
-          for (const [k, v] of Object.entries(obj)) {
-            const res = findCycle(v, `${path}.${k}`)
-            if (res) return res
-          }
-        }
-        if (Array.isArray(obj)) {
-          for (let i = 0; i < obj.length; i++) {
-            const res = findCycle(obj[i], `${path}[${i}]`)
-            if (res) return res
-          }
-        }
-        return null
-      }
-      const cyclePath = findCycle(value, '')
-      console.warn(`  [debug] circular at: ${cyclePath}`)
-      return 'null'
-    }
-  }
-  return JSON.stringify(value)
-}
-
 // ─── JSX-literal 值序列化（含 JSX 时） ───
 
 function serializeJsxValue(value: unknown): string {
@@ -638,52 +602,30 @@ function serializeForConstValue(value: unknown, lvl: number = 0, compact: boolea
       return bindingRef(v)
     }
     if (typeof v.type === 'string' && typeof v.props === 'object' && v.props !== null) {
-      return serializeReactElement(v)
+      return serializeComponentConst(v)
     }
     // RenderFnValue → 内联渲染函数（按当前 lvl 缩进传递）
     if (v.type === 'renderFn') {
       const paramsArr: Array<{ name: string; dataSource?: any; dataField?: string }> = v.params ?? []
-      const sig = paramsArr.map((p: any) => p.name).join(', ')
       const dataSourceParam = paramsArr.find((p: any) => p.dataSource)
       const dataSourceName: string = dataSourceParam?.name ?? ''
       const dataField: string | undefined = dataSourceParam?.dataField
-      // 解构源：dataField 时为 name.dataField（如 row.rawData），否则 name
       const dataAccessor: string = dataField ? `${dataSourceName}.${dataField}` : dataSourceName
-      const bodies = Array.isArray(v.body) ? v.body : [v.body]
       const bodyOpts = {
         inRenderFnBody: !!dataSourceName,
         renderFnDataVarName: dataAccessor,
         useCssModules: constEmit.useCssModules,
         cssModuleVarName: constEmit.cssModuleVarName,
       }
-      // 函数体缩进：比当前 lvl 多 2 空格
-      const bodyPad = ' '.repeat(lvl + 2)
-      const closePad = ' '.repeat(lvl)
-      // destructure（源 = dataAccessor，如 row.rawData）
-      let destructureLine = ''
-      if (dataSourceName) {
-        const fields = new Set<string>()
-        for (const b of bodies) {
-          const f = collectRelativeFields(b as any)
-          for (const field of f) fields.add(field)
-        }
-        if (fields.size > 0) {
-          destructureLine = `${bodyPad}const { ${[...fields].sort().join(', ')} } = ${dataAccessor};\n`
-        }
-      }
-      const bodyJSX = bodies.map((n: any) => emitNode(n, bodyOpts as any)).join('\n')
-      if (destructureLine) {
-        return `(${sig}) => {\n${destructureLine}${bodyPad}return (\n${indent(bodyJSX, lvl + 4)}\n${bodyPad})\n${closePad}}`
-      }
-      return `(${sig}) => (\n${indent(bodyJSX, lvl + 2)}\n${closePad})`
+      return serializeRenderFnBody(v, bodyOpts, lvl)
     }
     // BuildNode（kind: 'component'，来自 resolveIcon 的图标节点等）→ JSX 元素
     if (v.kind === 'component' && typeof v.tag === 'string' && typeof v.props === 'object') {
-      return serializeBuildNodeComponent(v)
+      return serializeComponentConst(v)
     }
     // 纯对象 → 美化多行序列化（智能 key 引号 + 缩进）
     const isPropValueType = ['binding', 'computed', 'literal', 'varRef', 'rawExpr', 'renderFn', 'slotNode'].includes(v.type)
-    if (!isPropValueType && !Array.isArray(value) && typeof value === 'object' && v.kind === undefined) {
+    if (!isPropValueType && !Array.isArray(value) && typeof value === 'object' && !v.__node) {
       const keys = Object.keys(value).filter(k => !k.startsWith('__'))
       if (keys.length === 0) return '{}'
       // compact 模式 → 单行
@@ -706,8 +648,17 @@ function serializeForConstValue(value: unknown, lvl: number = 0, compact: boolea
   return 'null'
 }
 
-function serializeReactElement(v: { type: string; props: any }): string {
-  const tagName = v.type
+/**
+ * 序列化 const 值内的组件 JSX（BuildNode kind:'component' 或 reactElement {type,props}）→ 自闭合/带 children 标签。
+ * 合并自原 serializeBuildNodeComponent（BuildNode）+ serializeReactElement（reactElement）。
+ *
+ * - tagName：v.tag（BuildNode）或 v.type（reactElement）
+ * - children prop → childrenPart（serializeForConstValue）；key 跳过
+ * - className：CSS Modules + v.id + string → styles.{id}（classNameProp 别名，与 jsx-emitter emitClassName 对齐）
+ * - selfClosing：强制自闭合（即使有 children prop）；BuildNode props 一般无 children prop，故原 serializeBuildNodeComponent 行为不变
+ */
+function serializeComponentConst(v: { tag?: string; type?: string; props: Record<string, any>; selfClosing?: boolean; id?: string }): string {
+  const tagName = v.tag ?? v.type ?? ''
   const props = v.props ?? {}
   const propParts: string[] = []
   let childrenPart: string | null = null
@@ -718,9 +669,9 @@ function serializeReactElement(v: { type: string; props: any }): string {
       continue
     }
     if (k === 'key') continue
-    // className：CSS Modules 模式 → styles.${id}（id 由外部节点提供，存于 v.id）
-    if ((k === 'className' || k === 'class') && constEmit.useCssModules && (v as any).id && typeof vv === 'string') {
-      propParts.push(`className={${constEmit.cssModuleVarName}.${(v as any).id}}`)
+    if ((k === 'className' || k === 'class') && constEmit.useCssModules && v.id && typeof vv === 'string') {
+      const cnKey = (v as any).classNameProp ?? 'className'
+      propParts.push(`${cnKey}={${cssModuleRef(constEmit.cssModuleVarName, v.id)}}`)
       continue
     }
     if (vv === true) propParts.push(k)
@@ -731,83 +682,11 @@ function serializeReactElement(v: { type: string; props: any }): string {
   }
 
   const propsStr = propParts.join(' ')
-  if (childrenPart && childrenPart !== 'null') {
-    return `<${tagName}${propsStr ? ' ' + propsStr : ''}>${childrenPart}</${tagName}>`
+  const attrs = propsStr ? ' ' + propsStr : ''
+  if (childrenPart && childrenPart !== 'null' && !v.selfClosing) {
+    return `<${tagName}${attrs}>${childrenPart}</${tagName}>`
   }
-  return `<${tagName}${propsStr ? ' ' + propsStr : ''} />`
-}
-
-/** 检测值中是否嵌套有 BuildNode（kind:'component'） */
-function hasBuildNode(value: any): boolean {
-  if (!value || typeof value !== 'object') return false
-  if (Array.isArray(value)) return value.some(hasBuildNode)
-  const v = value as any
-  if ((v.kind === 'component' || v.kind === 'html') && typeof v.tag === 'string') return true
-  const result = Object.values(value).some((item: any) => hasBuildNode(item))
-  // For data items enriched with icons, this should find the BuildNode
-  return result
-}
-
-/** 序列化一个 BuildNode（kind:'component'）到 JSX 自闭合标签 */
-function serializeBuildNodeComponent(v: { tag: string; props: Record<string, any>; selfClosing?: boolean; id?: string }): string {
-  const tagName = v.tag
-  const props = v.props ?? {}
-  const propParts: string[] = []
-
-  for (const [k, vv] of Object.entries(props)) {
-    // className：CSS Modules 模式 → styles.${id}（id 由 resolveIcon 透传的原始元素 id 提供）
-    if ((k === 'className' || k === 'class') && constEmit.useCssModules && v.id && typeof vv === 'string') {
-      propParts.push(`className={${constEmit.cssModuleVarName}.${v.id}}`)
-      continue
-    }
-    if (vv === true) propParts.push(k)
-    else if (vv === false || vv === null || vv === undefined) continue
-    else if (typeof vv === 'string') propParts.push(`${k}=${JSON.stringify(vv)}`)
-    else if (typeof vv === 'number' || typeof vv === 'boolean') propParts.push(`${k}={${vv}}`)
-    else if (typeof vv === 'object') {
-      // 嵌套对象/数组 → 序列化为表达式
-      if (Array.isArray(vv) || !(vv as any).type) {
-        propParts.push(`${k}={${serializeForConstValue(vv, 0, true)}}`)
-      } else {
-        propParts.push(`${k}={${serializeForConstValue(vv, 0, true)}}`)
-      }
-    }
-  }
-
-  const propsStr = propParts.join(' ')
-  return `<${tagName}${propsStr ? ' ' + propsStr : ''} />`
-}
-
-/**
- * 收集 jsx-literal / enrichment const 值中的组件 import（如 resolveIcon 产生的 BuildNode 图标）
- */
-function collectImportsFromConsts(
-  consts: Array<{ value: PropValue }>,
-  imports: Map<string, any>
-): void {
-  const walk = (v: any) => {
-    if (!v || typeof v !== 'object') return
-    if (Array.isArray(v)) { v.forEach(walk); return }
-    // BuildNode 组件 → 收集 import
-    if (v.kind === 'component' && v.import) {
-      const spec = v.import
-      if (typeof spec === 'string') {
-        injectImport(imports, spec, v.tag ?? '', false)
-      } else if (typeof spec === 'object' && spec.source) {
-        injectImport(imports, spec.source, v.tag ?? '', !!spec.named)
-      }
-    }
-    // 递归 props
-    if (v.props && typeof v.props === 'object') walk(Object.values(v.props))
-    // 递归普通对象键。跳过 loopScope：它是遍历期附加的反向引用字段
-    // （node.loopScope.loopNode 指回父循环，而父循环 template 又含本节点 → 天然环），
-    // 不属于节点的可序列化值结构，走入会爆栈。
-    for (const [k, item] of Object.entries(v)) {
-      if (k === 'loopScope') continue
-      walk(item)
-    }
-  }
-  for (const c of consts) walk(c.value)
+  return `<${tagName}${attrs} />`
 }
 
 /**
@@ -829,7 +708,8 @@ function collectImportsFromConstValues(values: any[], imports: Map<string, any>)
     }
     // 递归 props
     if (v.props && typeof v.props === 'object') walk(Object.values(v.props))
-    // 递归普通对象键。跳过 loopScope（见 collectImportsFromConsts 注释）。
+    // 递归普通对象键。跳过 loopScope：遍历期反向引用字段（node.loopScope.loopNode 指回父循环，
+    // 父 template 又含本节点 → 天然环），不属于可序列化值结构，走入爆栈。
     for (const [k, item] of Object.entries(v)) {
       if (k === 'loopScope') continue
       walk(item)

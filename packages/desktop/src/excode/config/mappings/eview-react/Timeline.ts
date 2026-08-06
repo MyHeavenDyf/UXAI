@@ -35,7 +35,7 @@
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { LoopNode } from '../../../src/core/node-types'
 import type { PropValue, BindingValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
+import { Value } from '../../../src/core/value-factory'
 
 /** 从 TimelineItem 节点 props 中提取字段映射信息 */
 interface ItemFieldMap {

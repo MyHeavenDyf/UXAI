@@ -47,8 +47,8 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
-import { Node } from '../../../src/core/node'
+import { Value } from '../../../src/core/value-factory'
+import { Node } from '../../../src/core/node-factory'
 import type { BuildNode } from '../../../src/core/node-types'
 
 /**
@@ -176,13 +176,12 @@ export function createMenuMapping(pkg: string): MappingDef {
             props: templateProps,
           }) as any
           templateItem._resolved = false
-          const extract = {
-            kind: 'extract' as const,
+          const extract = Node.extract({
             componentName: `${node.id || 'Menu'}TabItemTemplate`,
-            purpose: 'component' as const,
+            purpose: 'component',
             body: [templateItem],
             _resolved: false,
-          }
+          })
           const loopNode = Node.loop({ data: dataBinding as any, template: extract })
           loopNode.inline = true
           tabChildren = loopNode

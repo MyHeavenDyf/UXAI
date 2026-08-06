@@ -198,7 +198,9 @@ function walkValueForImports(
   }
 
   // 递归检查普通对象的每个值（可能嵌套在数据对象中）
-  for (const v of Object.values(value)) {
+  // 跳过 loopScope：反向引用（node.loopScope.loopNode 指回父循环，父 template 又含本节点 → 环），走入爆栈
+  for (const [k, v] of Object.entries(value)) {
+    if (k === 'loopScope') continue
     walkValueForImports(v, imports, warnings)
   }
 }
