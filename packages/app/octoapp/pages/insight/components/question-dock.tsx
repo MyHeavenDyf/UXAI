@@ -390,7 +390,9 @@ export function QuestionDockView(props: {
 
   const focusCustom = (el: HTMLTextAreaElement) => {
     setTimeout(() => {
-      el.focus()
+      // preventScroll:展开自定义输入聚焦 textarea 时,同样不要把外层滚动容器拉到顶
+      // (resizeInput 的祖先遍历止于 document.body,覆盖不到 body/html 级滚动)。
+      el.focus({ preventScroll: true })
       resizeInput(el)
     }, 0)
   }
