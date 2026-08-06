@@ -152,6 +152,9 @@ function setupApp() {
 
   preferAppEnv(app.getPath("userData"))
 
+  // macOS shell 探测可能覆盖 proxy 环境变量,补注一次确保 Node.js HTTP agent 读到代理
+  useEnvProxy()
+
   app.on("second-instance", (_event: Event, argv: string[]) => {
     const urls = argv.filter((arg: string) => arg.startsWith("opencode://"))
     if (urls.length) {
@@ -183,7 +186,7 @@ function setupApp() {
 
   void app.whenReady().then(async () => {
     await session.defaultSession.setProxy({
-      mode: "direct"
+      mode: "system"
     });
     setupDownloadInterceptor()
     if (!TEST_ONBOARDING) {

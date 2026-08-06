@@ -1250,11 +1250,18 @@ return (
                 position: "relative",
               }}
             >
+              {/*
+                Electron 桌面环境使用 allow-same-origin allow-scripts：
+                - allow-same-origin: 保留 local: origin，支持加载外部 CDN 资源（Tailwind、Google Fonts 等）
+                - allow-scripts: 让 iframe 内脚本（含注入的 bridge）能执行
+                - 父窗口 oc://renderer 与 iframe local:// 跨 origin，iframe 无法读父窗口
+                - 参考：design-system-picker.tsx:163
+              */}
               <iframe
                 ref={iframeRef}
                 src={shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined)}
                 {...(!shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
-                sandbox="allow-scripts"
+                sandbox="allow-same-origin allow-scripts"
                 style={{
                   width: `${VIEWPORT_DIMS[props.viewport!].width}px`,
                   height: `${VIEWPORT_DIMS[props.viewport!].height}px`,
@@ -1300,11 +1307,16 @@ return (
             </div>
           ) : (
             <div style={{ height: "100%", overflow: "auto" }}>
+              {/*
+                Electron 桌面环境使用 allow-same-origin allow-scripts：
+                - allow-same-origin: 保留 local: origin，支持加载外部 CDN 资源
+                - allow-scripts: 让 iframe 内脚本（含注入的 bridge）能执行
+              */}
               <iframe
                 ref={iframeRef}
                 src={shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined)}
                 {...(!shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
-                sandbox="allow-scripts"
+                sandbox="allow-same-origin allow-scripts"
                 class="w-full h-full border-0"
                 style={{ "min-height": "200px" }}
                 onLoad={() => {

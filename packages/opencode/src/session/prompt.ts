@@ -1408,6 +1408,21 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         const message = yield* createUserMessage(input)
         yield* sessions.touch(input.sessionID)
 
+        // SPEC-INS-029:前端注入式技能激活的事件上报。insight 的 @技能走 synthetic 注入 SKILL.md
+        // (SPEC-INS-023 §2.2 的 3b),不调 skill 工具也不走 session.command,服务端因此看不到"技能被激活"
+        // —— 两个既有 skill.used 发布点(tool/skill.ts、下方 command 分支)都不触发。故由前端在 extra.skills
+        // 里声明本轮激活了哪些技能,事件仍由服务端在权威侧发出(客户端埋点进不了 SSE 事件流)。
+        // 落在 createUserMessage 之后(消息已落库,监听方可反查)、noReply 提前返回之前(noReply 只是不跑模型,
+        // 技能确实已进上下文)。
+        //
+        // 这段跑在**全模块公共入口**上(chat / make / studio / pattern / insight 的每一次发送都经过),
+        // 故按"旁路观测绝不影响主流程"加双保险:①`readActivatedSkills` 对脏输入静默返回空(见其注释);
+        // ②publish 用 catchDefect 兜底——`GlobalBus.emit` 是同步 EventEmitter,某个 SSE 订阅者抛错会
+        // 顺着栈冒上来变成 defect,不兜就会让一次正常发送失败。上报失败宁可丢事件,不能丢消息。
+        for (const skillName of readActivatedSkills(input.extra)) {
+          yield* bus.publish(SkillUsed, { skillName }).pipe(Effect.catchDefect(() => Effect.void))
+        }
+
         const permissions: Permission.Ruleset = []
         for (const [t, enabled] of Object.entries(input.tools ?? {})) {
           permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
@@ -1934,6 +1949,20 @@ export const CommandInput = Schema.Struct({
   ),
 }).pipe(withStatics((s) => ({ zod: zod(s) })))
 export type CommandInput = Schema.Schema.Type<typeof CommandInput>
+
+/**
+ * SPEC-INS-029:从 `PromptInput.extra` 里读出本轮被前端显式激活的技能名。
+ *
+ * `extra` 是 `Record<string, unknown>`(前端自由透传),故这里必须运行时校验:非数组、元素非字符串、
+ * 空串一律丢弃。**校验失败静默返回空数组、不抛错**——技能事件上报是旁路观测,不该让一次发送失败。
+ *
+ * @internal Exported for testing
+ */
+export function readActivatedSkills(extra: PromptInput["extra"]): string[] {
+  const raw = (extra as Record<string, unknown> | undefined)?.["skills"]
+  if (!Array.isArray(raw)) return []
+  return raw.filter((name): name is string => typeof name === "string" && name.length > 0)
+}
 
 /** @internal Exported for testing */
 export function createStructuredOutputTool(input: {

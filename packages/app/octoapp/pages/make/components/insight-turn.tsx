@@ -510,6 +510,7 @@ export function InsightTurn(props: {
   hasQuestionRequest?: boolean
   onFilesRefresh?: () => void
   skillToolCalls?: ToolCallInfo[]
+  skillConfig?: import("./skill-config-types").SkillConfig
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
@@ -664,6 +665,8 @@ export function InsightTurn(props: {
   // ── NEW: tool calls ──
   const toolCalls = createMemo((): ToolCallInfo[] => {
     const parts = assistantParts()
+    const skillData = props.skillConfig?.skill
+    
     return parts
       .filter((p) => p.type === "tool")
       .map((p) => {
@@ -683,12 +686,28 @@ export function InsightTurn(props: {
         const isErrorFromMetadata = metadata?.exit !== undefined && (metadata.exit as number) !== 0
         const isError = isErrorFromStatus || isErrorFromMetadata
         const isCompleted = stateStatus === "completed"
+        
+        const toolName = (raw.tool as string) ?? (raw.name as string) ?? (state.name as string) ?? "unknown"
+        
+        // 查找 displayName（仅对 skill 工具）
+        let displayName: string | undefined
+        if (toolName === "skill" && input && typeof input.name === "string" && skillData) {
+          // 遍历查找 skillName 匹配的条目
+          for (const [displayNameKey, entry] of Object.entries(skillData)) {
+            if (entry && typeof entry === "object" && entry.skillName === input.name) {
+              displayName = displayNameKey  // key 就是显示名
+              break
+            }
+          }
+        }
+        
         return {
-          name: (raw.tool as string) ?? (raw.name as string) ?? (state.name as string) ?? "unknown",
+          name: toolName,
           status: isCompleted ? ("done" as const) : isCancelled ? ("error" as const) : isError ? ("error" as const) : ("running" as const),
           input: input ?? undefined,
           output: hasOutput ? (state.output as string) : undefined,
           filePath: filePath || undefined,
+          displayName,
         }
       })
   })

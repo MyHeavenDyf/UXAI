@@ -85,6 +85,8 @@ export async function sendQueuedItem(globalSDK: GlobalSDK, sessionID: string, it
   }
 
   // SPEC-INS-023 @技能：自读 SKILL.md 作 synthetic 注入；读不到只 console.warn（后台不弹 toast）
+  // SPEC-INS-029：与 doSendPrompt 同口径——只把**注入成功**的技能名报进 extra.skills，供服务端发 skill.used。
+  const injectedSkills: string[] = []
   if (item.skills?.length) {
     const api = getDesktopApi()
     for (const name of item.skills) {
@@ -92,6 +94,7 @@ export async function sendQueuedItem(globalSDK: GlobalSDK, sessionID: string, it
         const res = await api?.getSkillContent?.(name)
         if (res?.success && res.content) {
           syntheticTexts.push(`<skill_content name="${name}">\n${res.content}\n</skill_content>`)
+          injectedSkills.push(name)
         } else {
           console.warn("[octo:queue] drain skill content missing, skip inject", { name, ok: res?.success })
         }
@@ -140,5 +143,7 @@ export async function sendQueuedItem(globalSDK: GlobalSDK, sessionID: string, it
     parts,
     messageID,
     tools,
+    // SPEC-INS-029：排队 drain 与即时发送同样上报，否则「busy 时发的技能」统计缺一块。
+    ...(injectedSkills.length ? { extra: { skills: injectedSkills } } : {}),
   })
 }

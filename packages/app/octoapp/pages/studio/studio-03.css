@@ -230,13 +230,15 @@
 .studio-result-grid.single-portrait .studio-result-thumb img,
 .studio-result-grid.single-portrait .studio-result-thumb video,
 .studio-result-grid.single-portrait .studio-result-thumb-media {
-  width: 100%;
-  height: auto;
+  max-width: 100%;
   max-height: 210px;
+  width: auto;
+  height: auto;
+  display: block;
   object-fit: contain;
 }
 
-/* ── 单张横构图：固定宽度 96px、高度跟随图片比例 ── */
+/* ── 单张横构图：宽度铺满、高度按比例，上限 180px、居中 ── */
 
 .studio-result-grid.single-landscape {
   align-items: center;
@@ -248,19 +250,25 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
+  min-width: unset;
   height: auto;
+  max-height: 180px;
   box-shadow: none;
 }
 
 .studio-result-grid.single-landscape .studio-result-thumb img,
 .studio-result-grid.single-landscape .studio-result-thumb video,
 .studio-result-grid.single-landscape .studio-result-thumb-media {
-  width: 100%;
+  max-width: 100%;
+  max-height: 180px;
+  width: auto;
   height: auto;
+  display: block;
   object-fit: contain;
 }
 
-/* ── 多张横构图：固定宽度 96px、高度跟随图片比例、间距 4px ── */
+/* ── 多张横构图：等分宽度、高度按比例，上限 180px、间距 4px、居中 ── */
 
 .studio-result-grid.multi-landscape {
   gap: 4px;
@@ -271,15 +279,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: 1;
+  min-width: 0;
+  width: auto;
   height: auto;
+  max-height: 180px;
   box-shadow: none;
 }
 
 .studio-result-grid.multi-landscape .studio-result-thumb img,
 .studio-result-grid.multi-landscape .studio-result-thumb video,
 .studio-result-grid.multi-landscape .studio-result-thumb-media {
-  width: 100%;
+  max-width: 100%;
+  max-height: 180px;
+  width: auto;
   height: auto;
+  display: block;
   object-fit: contain;
 }
 
@@ -349,9 +364,11 @@
 .studio-result-grid.single-1x1 .studio-result-thumb img,
 .studio-result-grid.single-1x1 .studio-result-thumb video,
 .studio-result-grid.single-1x1 .studio-result-thumb-media {
-  width: 100%;
-  height: auto;
+  max-width: 100%;
   max-height: 180px;
+  width: auto;
+  height: auto;
+  display: block;
   object-fit: contain;
 }
 
@@ -368,6 +385,7 @@
   justify-content: center;
   flex: 1;
   min-width: 0;
+  width: auto;
   height: auto;
   max-height: 180px;
   box-shadow: none;
@@ -376,9 +394,11 @@
 .studio-result-grid.multi-1x1 .studio-result-thumb img,
 .studio-result-grid.multi-1x1 .studio-result-thumb video,
 .studio-result-grid.multi-1x1 .studio-result-thumb-media {
-  width: 100%;
-  height: auto;
+  max-width: 100%;
   max-height: 180px;
+  width: auto;
+  height: auto;
+  display: block;
   object-fit: contain;
 }
 
@@ -396,16 +416,21 @@
   justify-content: center;
   flex: 1;
   min-width: 0;
+  width: auto;
   height: auto;
   max-height: 210px;
+  background: #f7f7f7;
+  box-shadow: none;
 }
 
 .studio-result-grid.multi-portrait .studio-result-thumb img,
 .studio-result-grid.multi-portrait .studio-result-thumb video,
 .studio-result-grid.multi-portrait .studio-result-thumb-media {
-  width: 100%;
-  height: auto;
+  max-width: 100%;
   max-height: 210px;
+  width: auto;
+  height: auto;
+  display: block;
   object-fit: contain;
 }
 .studio-generation-skeleton {

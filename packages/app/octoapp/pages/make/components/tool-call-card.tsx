@@ -8,6 +8,7 @@ export type ToolCallInfo = {
   input?: Record<string, unknown>
   output?: string
   filePath?: string
+  displayName?: string
 }
 
 type ToolFamily = "write" | "edit" | "read" | "bash" | "glob" | "grep" | "search" | "task" | "skill" | "other"
@@ -73,7 +74,11 @@ function SingleToolCard(props: { call: ToolCallInfo }): JSX.Element {
     if (typeof input.command === "string") return input.command.length > 60 ? input.command.slice(0, 60) + "…" : input.command
     if (typeof input.pattern === "string") return input.pattern
     if (typeof input.query === "string") return input.query
+    
+    // 技能调用：优先使用 displayName
+    if (props.call.displayName) return props.call.displayName
     if (typeof input.name === "string") return input.name
+    
     return ""
   })
   const tooltipText = createMemo(() => {
