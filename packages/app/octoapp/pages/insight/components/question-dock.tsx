@@ -177,7 +177,9 @@ export function QuestionDockView(props: {
     focusFrame = requestAnimationFrame(() => {
       focusFrame = undefined
       const el = next === options().length ? customRef : optsRef[next]
-      el?.focus()
+      // preventScroll:避免聚焦选项/自定义按钮时把外层可滚动容器(octo-input-docks /
+      // question-options)拉到顶,表现为「输入区弹回顶部」。
+      el?.focus({ preventScroll: true })
     })
   }
 
@@ -369,8 +371,21 @@ export function QuestionDockView(props: {
   }
 
   const resizeInput = (el: HTMLTextAreaElement) => {
+    // 先塌到 0 读 scrollHeight 再还原。0px 塌陷会让外层可滚动容器(octo-input-docks /
+    // question-options 等)瞬间内容变矮、scrollTop 被钳到新上限,表现为「输入区弹回顶部」。
+    // 量之前记下各祖先的 scrollTop,量完还原;非滚动祖先的 scrollTop 恒为 0,写回是空操作。
+    const ancestors: HTMLElement[] = []
+    let node: Element | null = el.parentElement
+    while (node && node !== document.body) {
+      if (node instanceof HTMLElement) ancestors.push(node)
+      node = node.parentElement
+    }
+    const saved = ancestors.map((s) => s.scrollTop)
     el.style.height = "0px"
     el.style.height = `${el.scrollHeight}px`
+    ancestors.forEach((s, i) => {
+      s.scrollTop = saved[i]!
+    })
   }
 
   const focusCustom = (el: HTMLTextAreaElement) => {
@@ -514,10 +529,10 @@ export function QuestionDockView(props: {
                         focus(options().length)
                         return
                       }
+                      // Cmd/Ctrl+Enter 冒泡到 nav 做下一步/提交。
+                      // 普通回车/Shift+回车插入换行(多行输入),不再提交;
+                      // 提交改走底部「提交/下一步」按钮或 Cmd/Ctrl+Enter。
                       if ((e.metaKey || e.ctrlKey) && !e.altKey) return
-                      if (e.key !== "Enter" || e.shiftKey) return
-                      e.preventDefault()
-                      commitCustom()
                     }}
                     onInput={(e) => {
                       customUpdate(e.currentTarget.value)
