@@ -18,6 +18,7 @@ import { SessionSummary } from "./summary"
 import type { Provider } from "@/provider/provider"
 import { Question } from "@/question"
 import { errorMessage } from "@/util/error"
+import { Token } from "@/util/token"
 import * as Log from "@opencode-ai/core/util/log"
 import { isRecord } from "@/util/record"
 import { EventV2 } from "@/v2/event"
@@ -75,6 +76,8 @@ interface ProcessorContext extends Input {
   needsCompaction: boolean
   currentText: MessageV2.TextPart | undefined
   reasoningMap: Record<string, MessageV2.ReasoningPart>
+  estimatedInputTokens: number
+  estimatedOutputChars: number
 }
 
 type StreamEvent = Event
@@ -125,6 +128,8 @@ export const layer: Layer.Layer<
         needsCompaction: false,
         currentText: undefined,
         reasoningMap: {},
+        estimatedInputTokens: 0,
+        estimatedOutputChars: 0,
       }
       let aborted = false
       const slog = log.clone().tag("session.id", input.sessionID).tag("messageID", input.assistantMessage.id)
@@ -246,6 +251,7 @@ export const layer: Layer.Layer<
           case "reasoning-delta":
             if (!(value.id in ctx.reasoningMap)) return
             ctx.reasoningMap[value.id].text += value.text
+            ctx.estimatedOutputChars += value.text.length
             if (value.providerMetadata) ctx.reasoningMap[value.id].metadata = value.providerMetadata
             yield* session.updatePartDelta({
               sessionID: ctx.reasoningMap[value.id].sessionID,
@@ -321,6 +327,7 @@ export const layer: Layer.Layer<
               throw new Error(`Tool call not allowed while generating summary: ${value.toolName}`)
             }
             const toolCall = yield* readToolCall(value.toolCallId)
+            ctx.estimatedOutputChars += value.toolName.length + JSON.stringify(value.input).length
             // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
             EventV2.run(SessionEvent.Tool.Called.Sync, {
               sessionID: ctx.sessionID,
@@ -456,6 +463,10 @@ export const layer: Layer.Layer<
               model: ctx.model,
               usage: value.usage,
               metadata: value.providerMetadata,
+              estimated: {
+                input: ctx.estimatedInputTokens,
+                output: Token.estimateChars(ctx.estimatedOutputChars),
+              },
             })
             if (!ctx.assistantMessage.summary) {
               // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
@@ -534,6 +545,7 @@ export const layer: Layer.Layer<
           case "text-delta":
             if (!ctx.currentText) return
             ctx.currentText.text += value.text
+            ctx.estimatedOutputChars += value.text.length
             if (value.providerMetadata) ctx.currentText.metadata = value.providerMetadata
             yield* session.updatePartDelta({
               sessionID: ctx.currentText.sessionID,
@@ -674,6 +686,8 @@ export const layer: Layer.Layer<
         slog.info("process")
         ctx.needsCompaction = false
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
+        ctx.estimatedInputTokens = Token.estimateValue([streamInput.system, streamInput.messages, streamInput.tools])
+        ctx.estimatedOutputChars = 0
 
         return yield* Effect.gen(function* () {
           yield* Effect.gen(function* () {

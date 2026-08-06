@@ -601,6 +601,50 @@ it.live("session.processor effect tests publish retry status updates", () =>
   ),
 )
 
+it.live("session.processor effect tests estimate context when provider usage is missing", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.text("after", { usage: { input: 0, output: 0 } })
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "compact")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const base = yield* provider.getModel(ref.providerID, ref.modelID)
+        const mdl = { ...base, limit: { context: 20, output: 10 } }
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "x".repeat(80) }],
+          tools: {},
+        })
+
+        expect(value).toBe("compact")
+        expect(handle.message.tokens.input).toBeGreaterThan(0)
+        expect(handle.message.tokens.total).toBeGreaterThanOrEqual(handle.message.tokens.input)
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
 it.live("session.processor effect tests compact on structured context overflow", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>

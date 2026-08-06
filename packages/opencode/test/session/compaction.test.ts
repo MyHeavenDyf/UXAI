@@ -413,6 +413,32 @@ describe("session.compaction.isOverflow", () => {
   )
 
   it.live(
+    "triggers from locally estimated usage when provider usage is missing",
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const compact = yield* SessionCompaction.Service
+        const model = createModel({ context: 100_000, output: 32_000 })
+        const usage = SessionNs.getUsage({
+          model,
+          usage: {
+            inputTokens: undefined,
+            outputTokens: undefined,
+            totalTokens: undefined,
+            inputTokenDetails: {
+              noCacheTokens: undefined,
+              cacheReadTokens: undefined,
+              cacheWriteTokens: undefined,
+            },
+            outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
+          },
+          estimated: { input: 75_000, output: 5_000 },
+        })
+        expect(yield* compact.isOverflow({ tokens: usage.tokens, model })).toBe(true)
+      }),
+    ),
+  )
+
+  it.live(
     "includes cache.read in token count",
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
@@ -1875,9 +1901,87 @@ describe("util.token.estimate", () => {
   test("returns 0 for empty string", () => {
     expect(Token.estimate("")).toBe(0)
   })
+
+  test("estimates structured model messages without counting base64 bytes", () => {
+    const estimated = Token.estimateValue([
+      { role: "system", content: "x".repeat(400) },
+      { role: "user", content: [{ type: "image", data: `data:image/png;base64,${"a".repeat(40_000)}` }] },
+    ])
+    expect(estimated).toBeGreaterThan(1_100)
+    expect(estimated).toBeLessThan(2_000)
+  })
 })
 
 describe("SessionNs.getUsage", () => {
+  test("uses local estimates when provider usage is missing", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const result = SessionNs.getUsage({
+      model,
+      usage: {
+        inputTokens: undefined,
+        outputTokens: undefined,
+        totalTokens: undefined,
+        inputTokenDetails: {
+          noCacheTokens: undefined,
+          cacheReadTokens: undefined,
+          cacheWriteTokens: undefined,
+        },
+        outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
+      },
+      estimated: { input: 75_000, output: 500 },
+    })
+
+    expect(result.tokens.input).toBe(75_000)
+    expect(result.tokens.output).toBe(500)
+    expect(result.tokens.total).toBe(75_500)
+  })
+
+  test("prefers provider usage over local estimates", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const result = SessionNs.getUsage({
+      model,
+      usage: {
+        inputTokens: 1_000,
+        outputTokens: 500,
+        totalTokens: 1_500,
+        inputTokenDetails: {
+          noCacheTokens: undefined,
+          cacheReadTokens: undefined,
+          cacheWriteTokens: undefined,
+        },
+        outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
+      },
+      estimated: { input: 75_000, output: 10_000 },
+    })
+
+    expect(result.tokens.input).toBe(1_000)
+    expect(result.tokens.output).toBe(500)
+    expect(result.tokens.total).toBe(1_500)
+  })
+
+  test("recomputes total when provider returns only partial usage", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const result = SessionNs.getUsage({
+      model,
+      usage: {
+        inputTokens: 0,
+        outputTokens: 500,
+        totalTokens: 500,
+        inputTokenDetails: {
+          noCacheTokens: undefined,
+          cacheReadTokens: undefined,
+          cacheWriteTokens: undefined,
+        },
+        outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
+      },
+      estimated: { input: 75_000, output: 10_000 },
+    })
+
+    expect(result.tokens.input).toBe(75_000)
+    expect(result.tokens.output).toBe(500)
+    expect(result.tokens.total).toBe(75_500)
+  })
+
   test("normalizes standard usage to token format", () => {
     const model = createModel({ context: 100_000, output: 32_000 })
     const result = SessionNs.getUsage({
