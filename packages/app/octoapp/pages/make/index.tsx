@@ -1948,6 +1948,10 @@ const sessionMessagesLoaded = createMemo(() => {
         filename: a.filename,
         url: a.url ?? a.dataUrl!,
       }))
+
+      // 附件已快照到 fileParts/localManifest，立即清空 UI；
+      // 否则要等 await session.prompt 完成才会清空，造成"附件要等模型回复完成才消失"的现象
+      setAttachments([])
       
       // ── Multi-slash-command detection ──
       // Scan all tokens in processedText for /cmd patterns, match against sync.data.command,
