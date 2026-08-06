@@ -29,6 +29,7 @@
     - **description:** 该区域的意图、目的和包含的功能描述.
     - **layout:** 该区域的结构布局描述，包括对外的结构布局策略，和内部的结构布局策略. 禁止出现详细颜色/详细间距数值描述。
     - **elements:** 该区域拥有的子模块描述, 清晰说明采用什么组件.
+    - **openState:** (可选) 若该区域是弹窗或抽屉，则必填该属性，定义其开关的变量名（如 `"isConfirmModalOpen"`）- 详见约束 8。
     - **data:** 该区域的mock JSON数据（如果该区域使用了模块模板则不生成 data）:
      - 提供驱动该区块渲染的 JSON 结构，必须包含丰富的高拟真的 Mock 数据.
      - 提供的 Mock 数据必须具备强烈的业务故事感和数据类型多样性。禁止全篇都是简单的 string/number.
@@ -98,6 +99,40 @@
       "layout": "左侧固定宽度垂直布局",
       "elements": "纵向折叠菜单",
       "patternId": 37830
+    },
+    // 情况三：弹窗/抽屉模块，必为独立section，通过 openState 声明其开关变量名, data 为区域的 mock 数据
+    {
+      "id": "orderDetailModal",
+      "name": "订单详情弹窗",
+      "openState": "isOrderDetailModalOpen",
+      "description": "点击“查看详情”后弹出的订单详情",
+      "layout": "居中模态，正文纵向排列",
+      "elements": "订单基础信息、状态标签、金额、底部确认/取消按钮",
+      "data": {
+        "orderInfo": { "orderId": "SO-20260802-0042", "amount": 452800, "statusText": "已发货" }
+      }
+    },
+    // 情况四：具有控制弹窗能力的 section（触发侧）。在 data 的按钮数据上写 openState，值必须与目标弹窗（情况三）的 openState 完全一致；一个 section 可有多个按钮指向不同弹窗
+    {
+      "id": "orderTable",
+      "name": "订单列表",
+      "description": "订单表格，行内支持查看详情、编辑、删除",
+      "layout": "主体表格，行尾操作列",
+      "elements": "Table，行操作：查看详情 / 编辑 / 删除",
+      "data": {
+        "rows": [
+          {
+            "orderId": "SO-20260802-0042",
+            "amount": 452800,
+            "statusText": "已发货",
+            "rowActions": [
+              { "actionLabel": "查看详情", "openState": "isOrderDetailModalOpen" },
+              { "actionLabel": "编辑",     "openState": "isEditDrawerOpen" },
+              { "actionLabel": "删除" }
+            ]
+          }
+        ]
+      }
     }
   ]
 }
@@ -158,7 +193,15 @@
    - `patternId` 只能取自用户提供的「已有的模块模板」列表，禁止编造列表中不存在的 `patternId`。
    - 对于未使用模块模板的 section（用户新增的功能区域），正常生成完整的 data 字段，不添加 `patternId`。
   
-8. **sections扁平结构约束**：
+8. **弹窗/抽屉约束**：
+   - 弹窗/抽屉必须作为独立 `section` 出现在 `sections` 中，可以使用 `patternId`，不得嵌入其他 `section` 内部。
+   - 弹窗/抽屉必须添加 `section` 级 `openState` 字段，值为控制其开关的变量名（命名形如 `is{业务}Open`，如 `"isOrderDetailModalOpen"`）。
+   - 任何触发侧`section`中会唤起弹窗/抽屉的按钮，必须在所在`section`的`data`中、该按钮数据上写 `openState`，值与目标弹窗/抽屉的 `openState` **完全一致**。
+   - 一个触发侧`section`内可有多个按钮，各自指向不同的弹窗/抽屉（各自写各自的 `openState`）,不唤起弹窗/抽屉的按钮不写该字段。
+   - 每一个弹窗/抽屉的 `openState` 字段是唯一的，不能和其他弹窗/抽屉的`openState`重复。
+   - 弹窗和抽屉`section`仍遵守`data`和`patternId`的通用规则（使用模块模板时不生成 data）。
+ 
+9. **sections扁平结构约束**：
    - `sections` 必须是**一维扁平数组**。禁止任何 section 内部再出现 `sections` 字段。
    - `sections` 的顺序应遵循从上到下、从左到右的视觉阅读顺序（下游布局 Agent 会据此排布槽位）。
    - 禁止生成既没有 `patternId`、又没有 `data`的空壳容器。每个 section 都必须是一个**可独立渲染的叶子模块**

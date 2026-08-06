@@ -111,7 +111,7 @@ export async function create_planner_json(inputCtx: ProtoCreateJsonInput) {
     checkpoint.stage = "intent_create"
     await saveCheckpoint(inputCtx.checkpointDir, sid, checkpoint)
   }
-
+  debugger
   // 步骤 2：planner_create
   let planner: any
   if (checkpoint?.planner) {

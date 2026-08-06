@@ -6,6 +6,7 @@ const schema = {
       type: "array",
       items: { type: "object" },
     },
+    state: { type: "object" },
     slots: {
       type: "array",
       items: {

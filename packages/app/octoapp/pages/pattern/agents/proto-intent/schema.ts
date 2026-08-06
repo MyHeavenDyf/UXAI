@@ -14,6 +14,7 @@ const schema = {
           description: { type: "string" },
           layout: { type: "string" },
           elements: { type: "string" },
+          openState: { type: "string" },
           data: { type: "object" },
           patternId: { type: ["string", "number"] },
         },
