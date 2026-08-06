@@ -7,6 +7,7 @@ import {
   joinPath,
 } from "./references"
 import { observedUrlsToAbsPaths } from "./resource-tracker"
+import { resolveHtmlContent } from "./html-assets-zip"
 
 export function getNextAvailableFileName(baseName: string, existingNames: string[]): string {
   if (!existingNames.includes(baseName)) {
@@ -164,9 +165,14 @@ export async function createArchiveZip(options: CreateArchiveZipOptions): Promis
   const screenshotBytes = await blobToUint8Array(options.screenshotBlob)
   zip.file("data/screenshot.jpg", screenshotBytes)
 
-  zip.file("preview/index.html", options.htmlContent)
-
   const api = getDesktopApi()
+
+  // 本地文件场景 tab.content 可能为空 → 从磁盘读原始 HTML
+  const htmlContent = options.htmlFilePath && api?.readFileBuffer
+    ? await resolveHtmlContent(options.htmlContent, options.htmlFilePath, (p) => api.readFileBuffer!(p))
+    : options.htmlContent
+
+  zip.file("preview/index.html", htmlContent)
 
   // 引用资源：静态解析 ∪ 网络信号
   if (api?.readFileBuffer && options.htmlFilePath) {
@@ -175,7 +181,7 @@ export async function createArchiveZip(options: CreateArchiveZipOptions): Promis
 
     // 静态解析（返回绝对路径集合）
     const staticAbsPaths = await collectReferencedFiles({
-      rootContent: options.htmlContent,
+      rootContent: htmlContent,
       rootType: "html",
       rootAbsPath: options.htmlFilePath,
       readFileBuffer: (p) => api.readFileBuffer!(p),
