@@ -832,8 +832,13 @@ button.delete-dialog-btn-primary {
    别处失焦才恢复。退出预览应即时可见。这里把鼠标点击 focus(:focus 但非 :focus-visible)恢复
    非激活色;键盘 :focus-visible 保留蓝色作无障碍焦点反馈。
    :not(.vditor-menu--current) 排除激活态——否则本规则特异性高于 --current,会把进入预览时
-   按钮的激活蓝色也盖掉,导致"预览模式不变蓝"。 */
-.octo-md-editor-host .vditor-toolbar__item .vditor-tooltipped:focus:not(:focus-visible):not(.vditor-menu--current) {
+   按钮的激活蓝色也盖掉,导致"预览模式不变蓝"。
+   :not(:hover) 让位给 Vditor 的 :hover 蓝色——退出预览后鼠标仍悬停时按钮保持 hover 高亮蓝,
+   鼠标移开后才恢复非激活灰(本规则此时命中)。
+   --toolbar-icon-color 是 Vditor 自有变量,与激活态 --toolbar-icon-hover-color 配对(已在实例
+   DevTools 确认解析为非激活色 #586069)。若未来 Vditor 升级重命名该变量,color 将静默回退到
+   inherit,届时此处需同步更新。 */
+.octo-md-editor-host .vditor-toolbar__item .vditor-tooltipped:focus:not(:focus-visible):not(.vditor-menu--current):not(:hover) {
   color: var(--toolbar-icon-color) !important;
 }
 
