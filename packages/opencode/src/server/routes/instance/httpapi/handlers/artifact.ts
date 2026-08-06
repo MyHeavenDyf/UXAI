@@ -118,7 +118,7 @@ function dedupeZipNames(
   })
 }
 
-function createZipArchive(rawEntries: Array<{ filename: string; content: Uint8Array }>): Uint8Array {
+export function createZipArchive(rawEntries: Array<{ filename: string; content: Uint8Array }>): Uint8Array {
   const entries = dedupeZipNames(rawEntries)
   const localFileHeaders: Array<Uint8Array> = []
   const centralDirectory: Array<Uint8Array> = []
@@ -202,6 +202,67 @@ function createZipArchive(rawEntries: Array<{ filename: string; content: Uint8Ar
   result.set(endRecord, pos)
 
   return result
+}
+
+// 计算一组绝对路径的最长公共父目录。
+// 用于 ZIP 打包时把选中文件按相对路径写入,保留文件夹结构。
+function computeCommonAncestorDir(paths: string[]): string {
+  if (paths.length === 0) return ""
+  if (paths.length === 1) return path.dirname(paths[0])
+  const split = paths.map(p => p.split(path.sep))
+  const first = split[0]
+  let i = 0
+  while (i < first.length) {
+    const seg = first[i]
+    if (!split.every(s => s[i] === seg)) break
+    i++
+  }
+  const result = first.slice(0, i).join(path.sep)
+  return result || path.sep
+}
+
+// 展开选中路径:文件夹递归遍历为文件,读取每个文件内容,并以相对于公共父目录的路径
+// (用正斜杠,符合 ZIP 规范) 作为 ZIP entry 名。这样解压后保留文件夹结构,而非平铺。
+export function expandPathsToZipEntries(files: readonly string[]) {
+  return Effect.gen(function* () {
+    const fs = yield* AppFileSystem.Service
+    const expanded: string[] = []
+    const visited = new Set<string>()
+    const MAX_DEPTH = 20
+
+    const expand = (p: string, depth: number): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        if (depth > MAX_DEPTH) return
+        const real = path.resolve(p)
+        if (visited.has(real)) return
+        visited.add(real)
+        const stat = yield* fs.stat(p).pipe(Effect.catch(() => Effect.succeed(null)))
+        if (!stat) return
+        if (stat.type === "Directory") {
+          const entries = yield* fs.readDirectory(p).pipe(Effect.catch(() => Effect.succeed([])))
+          for (const name of entries) {
+            yield* expand(path.join(p, name), depth + 1)
+          }
+        } else {
+          expanded.push(p)
+        }
+      })
+
+    for (const f of files) {
+      yield* expand(f, 0)
+    }
+
+    const commonDir = computeCommonAncestorDir(expanded)
+    const entries: Array<{ filename: string; content: Uint8Array }> = []
+    for (const absPath of expanded) {
+      const content = yield* fs.readFile(absPath).pipe(
+        Effect.catch(() => Effect.succeed(new Uint8Array())),
+      )
+      const zipName = path.relative(commonDir, absPath).split(path.sep).join("/")
+      entries.push({ filename: zipName, content })
+    }
+    return entries
+  })
 }
 
 export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact", (handlers) =>
@@ -396,14 +457,7 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
         return HttpServerResponse.empty({ status: 200 })
       }
 
-      const fileEntries: Array<{ filename: string; content: Uint8Array }> = []
-      for (const filePath of files) {
-        const content = yield* fs.readFile(filePath).pipe(
-          Effect.catch(() => Effect.succeed(new Uint8Array())),
-        )
-        const filename = path.basename(filePath)
-        fileEntries.push({ filename, content })
-      }
+      const fileEntries = yield* expandPathsToZipEntries(files)
 
       const zipData = createZipArchive(fileEntries)
       const filename = "artifacts-" + new Date().toISOString().slice(0, 10) + ".zip"
