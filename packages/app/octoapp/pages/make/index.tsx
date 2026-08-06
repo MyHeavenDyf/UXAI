@@ -3404,7 +3404,7 @@ if (dsId) {
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
               >
-                <div ref={autoScroll.contentRef} class="py-3 flex flex-col gap-0">
+                <div ref={autoScroll.contentRef} class="py-4 flex flex-col gap-4">
                     {/* 第一条消息 */}
                     <Show when={userMessages().length > 0}>
                       <InsightTurn
@@ -3432,7 +3432,7 @@ if (dsId) {
                     {/* 设计策略模式气泡 */}
                     <Show when={resultViewMode() === "plan" && activePlanSessionId()}>
                       <div
-                        class="flex items-center justify-between mx-3 mb-2"
+                        class="flex items-center justify-between mx-3"
                         style={{
                           height: "48px",
                           padding: "0 16px",
