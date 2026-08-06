@@ -1037,37 +1037,39 @@ const stateStatus = state.status as string | undefined
       <Show when={userText() || userAttachments().length > 0}>
         <div class="flex flex-col items-end gap-4 px-3">
           <Show when={userAttachments().length > 0}>
-            <div class="flex flex-col gap-2">
+            <div class="flex flex-col items-end gap-4">
               <For each={userAttachments()}>
                 {(att) => (
-                  <div
-                    class="break-words flex items-center"
-                    style={{
-                      background: "rgba(0,0,0,0.05)",
-                      padding: "8px 12px",
-                      "border-radius": "8px",
-                      color: "rgba(0,0,0,0.9)",
-                      "font-size": "14px",
-                      "line-height": "22px",
-                      gap: "6px",
-                      display: "inline-flex",
-                      "max-width": "200px",
-                    }}
-                  >
-                    <Show when={att.url && att.mime?.startsWith("image/")}>
-                      <div style={{ width: "80px", height: "80px", "border-radius": "8px", overflow: "hidden", "flex-shrink": "0" }}>
-                        <img
-                          src={att.url}
-                          alt={att.filename}
-                          style={{ width: "100%", height: "100%", "object-fit": "cover" }}
-                        />
+                  <Show
+                    when={att.url && att.mime?.startsWith("image/")}
+                    fallback={
+                      <div
+                        class="break-words flex items-center"
+                        style={{
+                          background: "rgba(0,0,0,0.05)",
+                          padding: "8px 12px",
+                          "border-radius": "8px",
+                          color: "rgba(0,0,0,0.9)",
+                          "font-size": "14px",
+                          "line-height": "22px",
+                          gap: "6px",
+                          display: "inline-flex",
+                          "max-width": "200px",
+                        }}
+                      >
+                        {getFileIcon(kindFromMime(att.mime ?? "application/octet-stream"), att.filename)({ size: 24 })}
+                        <span class="truncate">{att.filename}</span>
                       </div>
-                    </Show>
-                    <Show when={!att.url || !att.mime?.startsWith("image/")}>
-                      {getFileIcon(kindFromMime(att.mime ?? "application/octet-stream"), att.filename)({ size: 24 })}
-                    </Show>
-                    <span class="truncate">{att.filename}</span>
-                  </div>
+                    }
+                  >
+                    <div style={{ width: "80px", height: "80px", "border-radius": "8px", overflow: "hidden", "flex-shrink": "0" }}>
+                      <img
+                        src={att.url}
+                        alt={att.filename}
+                        style={{ width: "100%", height: "100%", "object-fit": "cover" }}
+                      />
+                    </div>
+                  </Show>
                 )}
               </For>
             </div>
