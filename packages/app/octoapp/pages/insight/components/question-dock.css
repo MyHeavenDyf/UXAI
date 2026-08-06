@@ -178,6 +178,10 @@
   width: 100%;
   padding: 0;
   overflow-wrap: anywhere;
+  /* 回车改插入换行后多行输入会触发放高,给 textarea 自身上限避免把选项区撑得过长:
+     超出后 textarea 自身滚动,选项区(question-options 有 max-height + 滚动)不再被顶高。 */
+  max-height: calc(var(--line-height-large, 22px) * 6);
+  overflow-y: auto;
 }
 .octo-question-dock [data-slot="question-custom-input"]::placeholder {
   color: rgba(0, 0, 0, 0.35);
