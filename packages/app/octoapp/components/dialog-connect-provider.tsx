@@ -3,6 +3,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
+import { DialogSettings } from "@/components/dialog-settings"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { List, type ListRef } from "@opencode-ai/ui/list"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
@@ -26,12 +27,6 @@ export function DialogConnectProvider(props: { provider: string }) {
   const language = useLanguage()
   const providers = useProviders()
 
-  const all = () => {
-    void import("./dialog-select-provider").then((x) => {
-      dialog.show(() => <x.DialogSelectProvider />)
-    })
-  }
-
   const alive = { value: true }
   const timer = { current: undefined as ReturnType<typeof setTimeout> | undefined }
 
@@ -47,7 +42,10 @@ export function DialogConnectProvider(props: { provider: string }) {
       providers.all().find((x) => x.id === props.provider) ??
       globalSync.data.provider.all.find((x) => x.id === props.provider),
   )
-  const providerName = createMemo(() => provider()?.name ?? props.provider)
+  const providerName = createMemo(() => {
+    if (props.provider === "opencode") return "Octo AI"
+    return provider()?.name ?? props.provider
+  })
   const fallback = createMemo<ProviderAuthMethod[]>(() => [
     {
       type: "api" as const,
@@ -371,7 +369,7 @@ export function DialogConnectProvider(props: { provider: string }) {
 
   function goBack() {
     if (methods().length === 1) {
-      all()
+      dialog.show(() => <DialogSettings initialTab="providers" />)
       return
     }
     if (store.authorization) {
@@ -382,7 +380,7 @@ export function DialogConnectProvider(props: { provider: string }) {
       dispatch({ type: "method.reset" })
       return
     }
-    all()
+    dialog.show(() => <DialogSettings initialTab="providers" />)
   }
 
   function MethodSelection() {

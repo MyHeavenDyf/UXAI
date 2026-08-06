@@ -1,5 +1,12 @@
 import { getDesktopApi } from "../lib/electron-api"
 import JSZip from "jszip"
+import {
+  collectReferencedFiles,
+  dirname,
+  basename,
+  joinPath,
+} from "./references"
+import { observedUrlsToAbsPaths } from "./resource-tracker"
 
 export function getNextAvailableFileName(baseName: string, existingNames: string[]): string {
   if (!existingNames.includes(baseName)) {
@@ -68,6 +75,8 @@ export interface CreateArchiveZipOptions {
   htmlFilePath: string
   sessionId: string
   projectDir: string
+  /** 来自 resource-tracker 的 local:// URL 列表（实际加载过的资源） */
+  observedUrls?: string[]
 }
 
 export function transformCommentsForArchive(comments: FileComment[]): ArchiveComment[] {
@@ -142,24 +151,6 @@ async function blobToUint8Array(blob: Blob): Promise<Uint8Array> {
   return new Uint8Array(buffer)
 }
 
-function checkHasRelativeRefs(html: string): boolean {
-  const attrRegex = /(?:href|src)=["'](?!https?:|data:|#|[\/\\])[^"']+["']/i
-  const cssRegex = /url\(["']?(?!https?:|data:|#)[^"')]+["']?\)/i
-  return attrRegex.test(html) || cssRegex.test(html)
-}
-
-function dirname(path: string): string {
-  const normalized = path.replace(/\\/g, '/')
-  const idx = normalized.lastIndexOf('/')
-  return idx >= 0 ? normalized.slice(0, idx) : path
-}
-
-function basename(path: string): string {
-  const normalized = path.replace(/\\/g, '/')
-  const idx = normalized.lastIndexOf('/')
-  return idx >= 0 ? normalized.slice(idx + 1) : path
-}
-
 export async function createArchiveZip(options: CreateArchiveZipOptions): Promise<Blob> {
   const zip = new JSZip()
 
@@ -176,33 +167,44 @@ export async function createArchiveZip(options: CreateArchiveZipOptions): Promis
   zip.file("preview/index.html", options.htmlContent)
 
   const api = getDesktopApi()
-  
-  // 检查是否有相对路径引用，如果有则复制同目录下所有文件
-  if (api?.listDirectory && api?.readFileBuffer && options.htmlFilePath) {
-    const hasRelativeRefs = checkHasRelativeRefs(options.htmlContent)
-    
-    if (hasRelativeRefs) {
-      const htmlDir = dirname(options.htmlFilePath)
-      const htmlFileName = basename(options.htmlFilePath)
-      
+
+  // 引用资源：静态解析 ∪ 网络信号
+  if (api?.readFileBuffer && options.htmlFilePath) {
+    const htmlDir = dirname(options.htmlFilePath).replace(/\\/g, "/")
+    const htmlFileName = basename(options.htmlFilePath)
+
+    // 静态解析（返回绝对路径集合）
+    const staticAbsPaths = await collectReferencedFiles({
+      rootContent: options.htmlContent,
+      rootType: "html",
+      rootAbsPath: options.htmlFilePath,
+      readFileBuffer: (p) => api.readFileBuffer!(p),
+    })
+    const observedAbsPaths = observedUrlsToAbsPaths(options.observedUrls || [])
+
+    // 归档视图约定 HTML 在 preview/index.html，所以不支持跨父级引用：
+    // 仅保留 htmlDir 内的引用文件，跨父级的 `..` 引用会被丢弃。
+    const referencedRel = new Set<string>()
+    for (const abs of [...staticAbsPaths, ...observedAbsPaths]) {
+      const norm = abs.replace(/\\/g, "/")
+      const lower = norm.toLowerCase()
+      if (lower === htmlDir.toLowerCase()) continue
+      if (!lower.startsWith(htmlDir.toLowerCase() + "/")) continue
+      const rel = norm.slice(htmlDir.length + 1)
+      if (rel && rel !== htmlFileName && rel !== options.htmlFileName) {
+        referencedRel.add(rel)
+      }
+    }
+
+    for (const relPath of referencedRel) {
       try {
-        const files = await api.listDirectory(htmlDir)
-        
-        for (const file of files) {
-          if (file.type === 'file' && file.path !== htmlFileName) {
-            try {
-              const absolutePath = joinPath(htmlDir, file.path)
-              const buffer = await api.readFileBuffer(absolutePath)
-              if (buffer) {
-                zip.file(`preview/${file.path}`, new Uint8Array(buffer))
-              }
-            } catch (err) {
-              console.warn(`[Archive] Failed to read referenced file:`, file.path, err)
-            }
-          }
+        const absolutePath = joinPath(htmlDir, relPath)
+        const buffer = await api.readFileBuffer(absolutePath)
+        if (buffer) {
+          zip.file(`preview/${relPath}`, new Uint8Array(buffer))
         }
       } catch (err) {
-        console.warn('[Archive] Failed to list directory:', err)
+        console.warn(`[Archive] Failed to read referenced file:`, relPath, err)
       }
     }
   }
@@ -229,20 +231,6 @@ export async function createArchiveZip(options: CreateArchiveZipOptions): Promis
   }
 
   return await zip.generateAsync({ type: "blob" })
-}
-
-function joinPath(base: string, relative: string): string {
-  const normalizedBase = base.replace(/\\/g, "/")
-  const normalizedRelative = relative.replace(/\\/g, "/")
-  
-  if (normalizedRelative.startsWith(normalizedBase)) {
-    return normalizedRelative
-  }
-  
-  if (normalizedBase.endsWith("/")) {
-    return normalizedBase + normalizedRelative
-  }
-  return normalizedBase + "/" + normalizedRelative
 }
 
 export function downloadArchiveZip(zipBlob: Blob, fileName: string): void {

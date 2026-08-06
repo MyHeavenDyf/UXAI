@@ -341,7 +341,7 @@ function MakeSidebarArea(props: ParentProps) {
         <div
           class="make-sidebar h-full shrink-0 flex flex-col overflow-hidden"
           classList={{ "is-collapsed": ml.leftCollapsed() || focusMode() }}
-          style={{ "border-right": "1px solid var(--border-weak-base)", background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)" }}
+          style={{ background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)" }}
         >
           <MakeSidebar />
         </div>

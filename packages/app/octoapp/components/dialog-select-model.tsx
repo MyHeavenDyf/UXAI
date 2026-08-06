@@ -134,7 +134,7 @@ export function ModelSelectorPopover(props: {
       </Kobalte.Trigger>
       <Kobalte.Portal>
         <Kobalte.Content
-          class="min-w-[198px] flex flex-col p-2 rounded-md bg-surface-raised-stronger-non-alpha z-50 outline-none overflow-hidden"
+          class="min-w-[198px] flex flex-col pl-2 pt-2 pb-2 rounded-md bg-surface-raised-stronger-non-alpha z-50 outline-none overflow-hidden"
           style="box-shadow: 0 4px 12px rgba(0,0,0,0.16)"
           onEscapeKeyDown={(event) => {
             close("escape")
@@ -160,7 +160,7 @@ export function ModelSelectorPopover(props: {
             onSelect={() => close("select")}
             search={false}
             groupHeader={() => null}
-            class="p-[0px] [&_[data-slot=list-search-wrapper]]:!hidden [&_[data-slot=list-header]]:!hidden [&_[data-slot=list-scroll]]:gap-0 [&_[data-slot=list-item]]:!h-9 [&_[data-slot=list-item]]:!px-3 [&_[data-slot=list-item]]:!rounded-[6px] [&_[data-slot=list-item]]:!text-[14px] [&_[data-slot=list-item]]:!leading-[22px] [&_[data-slot=list-item]]:!text-[#191919] [&_[data-slot=list-item]>span]:!truncate [&_[data-slot=list-item]]:!mb-1 [&_[data-slot=list-group]:last-child]:!pb-0 [&_[data-slot=list-item-selected-icon]]:!hidden [&_[data-slot=list-item][data-active=true]]:!bg-transparent [&_[data-slot=list-item][data-active=true]:hover]:!bg-[rgba(0,0,0,0.1)] [&_[data-slot=list-item][data-selected=true]]:!bg-[rgba(0,0,0,0.05)] [&_[data-slot=list-item]:active]:!bg-[rgba(0,0,0,0.15)]"
+            class="p-[0px] [&_[data-slot=list-search-wrapper]]:!hidden [&_[data-slot=list-header]]:!hidden [&_[data-slot=list-scroll]]:gap-0 [&_[data-slot=list-scroll]]:max-h-[260px] [&_[data-slot=list-scroll]]:!mask-none [&_[data-slot=list-items]]:!pr-2 [&_[data-slot=list-item]]:!h-9 [&_[data-slot=list-item]]:!px-3 [&_[data-slot=list-item]]:!rounded-[6px] [&_[data-slot=list-item]]:!text-[14px] [&_[data-slot=list-item]]:!leading-[22px] [&_[data-slot=list-item]]:!text-[#191919] [&_[data-slot=list-item]>span]:!truncate [&_[data-slot=list-item]]:!mb-1 [&_[data-slot=list-group]:last-child]:!pb-0 [&_[data-slot=list-item-selected-icon]]:!hidden [&_[data-slot=list-item][data-active=true]]:!bg-transparent [&_[data-slot=list-item][data-active=true]:hover]:!bg-[rgba(0,0,0,0.1)] [&_[data-slot=list-item][data-selected=true]]:!bg-[rgba(0,0,0,0.05)] [&_[data-slot=list-item]:active]:!bg-[rgba(0,0,0,0.15)]"
             action={
               <div class="flex items-center gap-1">
                 <Tooltip placement="top" value={language.t("command.provider.connect")}>

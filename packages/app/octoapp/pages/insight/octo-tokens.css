@@ -285,6 +285,26 @@
   white-space: nowrap;
 }
 
+/* ── 输入区阻塞 Dock 滚动条(6px,与 question 选项区同款) ─────────────────── */
+.octo-input-docks {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+.octo-input-docks::-webkit-scrollbar {
+  display: block;
+  width: 6px;
+}
+.octo-input-docks::-webkit-scrollbar-track {
+  background: transparent;
+}
+.octo-input-docks::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.18);
+  border-radius: 999px;
+}
+.octo-input-docks::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.28);
+}
+
 /* ── 队列提示条(spec §3.3.4) ──────────────────────────────── */
 
 .octo-queue-banner {
@@ -308,6 +328,27 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+/* 队列列表内部单独滚动,滚动条保持原 4px:全局 style/session-queue-banner.css
+   只写了 width:4px 未写 display:block,这里显式补 display:block + 提高特异性
+   (.octo-input-docks .octo-queue-banner-list)确保 4px 在 insight 页可靠生效;
+   透明度统一全仓 0.18(与 .octo-attach-strip 一致)。 */
+.octo-input-docks .octo-queue-banner-list {
+  max-height: calc(12 * (16px + 2px));
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+.octo-input-docks .octo-queue-banner-list::-webkit-scrollbar {
+  display: block;
+  width: 4px;
+}
+.octo-input-docks .octo-queue-banner-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.octo-input-docks .octo-queue-banner-list::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 2px;
 }
 .octo-queue-banner-item {
   display: flex;
@@ -657,16 +698,49 @@
   transform: none;
 }
 
-/* ── Delete Dialog ──────────────────────────
-   左侧栏对话删除确认窗口,与 chat 侧栏(components/sidebar.tsx)完全一致。
-   Dialog 走 Portal 渲染到 document 根,故样式为全局选择器;此处随 insight
-   自带一份,保证不依赖 make/chat 的 octo-tokens.css 已加载(页面自包含)。 */
+/* ── DropdownMenu (标题栏更多操作) ────────── */
 
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-container"] {
+[data-component="dropdown-menu-content"][data-component="dropdown-menu-content"] {
+  background-color: rgba(255, 255, 255, 0.9);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.16);
+  border: none;
+  padding: 8px;
+  min-width: 132px !important;
+  backdrop-filter: blur(16px);
+}
+
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"] {
+  height: 36px;
+  padding: 0 8px 0 12px;
+  font-size: 14px;
+  color: rgba(0,0,0,0.9);
+  line-height: 22px;
+  border-radius: 8px;
+  width: 100%;
+  text-align: left;
+}
+
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"][data-highlighted],
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"]:hover {
+  background: #eee;
+}
+
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-separator"] {
+  height: 1px;
+  margin: 4px -8px 4px;
+  background: rgba(0, 0, 0, 0.1);
+  border: none;
+}
+
+/* ── Delete File Dialog ──────────────────────
+   文件管理器删除确认窗口。Dialog 走 Portal 渲染到 document 根,故样式为全局选择器。 */
+
+[data-component="dialog"]:has(.delete-file-dialog) [data-slot="dialog-container"] {
   width: 436px;
 }
 
-.delete-dialog[data-slot="dialog-content"] {
+.delete-file-dialog[data-slot="dialog-content"] {
   border-radius: 20px;
   box-shadow: 0 16px 48px 0 rgba(0,0,0,0.16);
   padding: 24px 32px;
@@ -674,22 +748,22 @@
   border: none;
 }
 
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-header"] {
+[data-component="dialog"]:has(.delete-file-dialog) [data-slot="dialog-header"] {
   padding: 0;
   margin-bottom: 8px;
 }
 
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-close-button"] {
+[data-component="dialog"]:has(.delete-file-dialog) [data-slot="dialog-close-button"] {
   display: none;
 }
 
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-title"] {
+[data-component="dialog"]:has(.delete-file-dialog) [data-slot="dialog-title"] {
   font-size: 20px;
   line-height: 22px;
   font-weight: 600;
 }
 
-.delete-dialog[data-slot="dialog-content"] [data-slot="dialog-body"] {
+.delete-file-dialog[data-slot="dialog-content"] [data-slot="dialog-body"] {
   padding: 0;
 }
 
@@ -749,6 +823,23 @@ button.delete-dialog-btn-primary {
 .octo-md-editor-host .vditor-toolbar .vditor-tooltipped:active::after,
 .octo-md-editor-host .vditor-toolbar .vditor-tooltipped:active::before {
   display: none !important;
+}
+
+/* Vditor 工具栏按钮 :focus 颜色修正:
+   Vditor 自带 .vditor-toolbar__item .vditor-tooltipped:focus { color: var(--toolbar-icon-hover-color) }
+   与激活态 .vditor-menu--current 同色(#4285f4)。点击「预览」进入预览模式 → 再次点击退出后,
+   Vditor 已移除 --current,但按钮仍处 :focus,颜色维持蓝色 → 视觉上"还是预览模式颜色",需点击
+   别处失焦才恢复。退出预览应即时可见。这里把鼠标点击 focus(:focus 但非 :focus-visible)恢复
+   非激活色;键盘 :focus-visible 保留蓝色作无障碍焦点反馈。
+   :not(.vditor-menu--current) 排除激活态——否则本规则特异性高于 --current,会把进入预览时
+   按钮的激活蓝色也盖掉,导致"预览模式不变蓝"。
+   :not(:hover) 让位给 Vditor 的 :hover 蓝色——退出预览后鼠标仍悬停时按钮保持 hover 高亮蓝,
+   鼠标移开后才恢复非激活灰(本规则此时命中)。
+   --toolbar-icon-color 是 Vditor 自有变量,与激活态 --toolbar-icon-hover-color 配对(已在实例
+   DevTools 确认解析为非激活色 #586069)。若未来 Vditor 升级重命名该变量,color 将静默回退到
+   inherit,届时此处需同步更新。 */
+.octo-md-editor-host .vditor-toolbar__item .vditor-tooltipped:focus:not(:focus-visible):not(.vditor-menu--current):not(:hover) {
+  color: var(--toolbar-icon-color) !important;
 }
 
 /* Vditor 原生「导出」面板:隐藏 PDF 项(其走 window.print() 弹系统打印框,非静默存盘)。

@@ -80,6 +80,7 @@ export function McpChip(props: Props): JSX.Element {
           "octo-mcp-chip--active": !!props.selection,
         }}
         onClick={handleTriggerClick}
+        aria-expanded={open()}
         title={
           props.selection
             ? `解析模式:需要时将调用「${props.selection.preset.label}」,点击取消`
@@ -93,8 +94,8 @@ export function McpChip(props: Props): JSX.Element {
               <span class="truncate">研究工具</span>
               <Icon
                 name="chevron-down"
-                class="size-3.5 shrink-0 opacity-60 transition-transform duration-200"
-                classList={{ "rotate-180": open() }}
+                class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180"
+                style="color: #000"
               />
             </>
           }

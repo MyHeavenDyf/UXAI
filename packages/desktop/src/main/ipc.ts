@@ -40,6 +40,7 @@ import { previewDistDir, getUploadsDir, setUploadsDir } from "./preview-server"
 import { pipelineRequest } from "../network/pipelineRequest"
 import { codeToHtml } from "./page-capture"
 import { landingName } from "./landing-name"
+import { toExactArrayBuffer } from "./buffer-slice"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -649,7 +650,7 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("read-file-buffer", async (_event: IpcMainInvokeEvent, path: string) => {
     try {
       const buf = await readFile(path)
-      return buf.buffer
+      return toExactArrayBuffer(buf)
     } catch {
       return null
     }
@@ -894,6 +895,7 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-5-start
   ipcMain.handle("add-skill", async (_event: IpcMainInvokeEvent, sourcePath: string) => {
     try {
       const octoSkillDir = join(getOctoConfigPath(), "skill")
@@ -920,8 +922,6 @@ export function registerIpcHandlers(deps: Deps) {
       const content = readFileSync(skillMdPath, "utf-8")
       const descMatch = content.match(/^---\s*\n.*?description:\s*(.+?)\s*\n.*?---/s)
       config[skillName] = {
-        // jk-j60099994-replace-with-60062650-main-skills-ipc-5-start
-        // jk-j60099994-replace-with-60062650-main-skills-ipc-5-end
         description: descMatch ? descMatch[1] : "",
         import: true,
         type: "common",
@@ -940,6 +940,7 @@ export function registerIpcHandlers(deps: Deps) {
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-5-end
 
   ipcMain.handle("ensure-skill-config", () => {
     if (!existsSync(skillsConfigPath)) return

@@ -17,6 +17,8 @@ import { ExpandableBubble } from "@/components/expandable-bubble"
 
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
+import { getFileIcon } from "../icons/file-type-icons"
+import { kindFromMime } from "./attachment-bar"
 
 // Render text with @mentions - plain text only, no chip styling
 function renderMentionText(text: string): JSX.Element {
@@ -347,13 +349,13 @@ function WaitingPill(props: {
 
   return (
     <div
-      class="mx-3 mb-2"
-      style={{
-        "border-radius": "var(--octo-radius-md)",
-        background: "var(--octo-brand-a3)",
-        border: "1.5px dashed var(--octo-brand-a25)",
-      }}
-    >
+      class="mx-3"
+        style={{
+          "border-radius": "var(--octo-radius-md)",
+          background: "var(--octo-brand-a3)",
+          border: "1.5px dashed var(--octo-brand-a25)",
+        }}
+      >
       <div class="px-3 py-2 flex items-center gap-2">
         <div
           class="w-1.5 h-1.5 rounded-full animate-pulse"
@@ -388,7 +390,7 @@ function WaitingPill(props: {
 
 function ProducedFilesList(props: { files: Array<{ path: string; name: string }> }): JSX.Element {
   return (
-    <div class="mx-3 mb-2">
+    <div class="mx-3">
       <div
         class="px-2.5 py-1.5 flex flex-col gap-1"
         style={{
@@ -421,7 +423,7 @@ function ProducedFilesList(props: { files: Array<{ path: string; name: string }>
 function ReasoningCollapsed(props: { texts: string[]; duration: string }): JSX.Element {
   const [open, setOpen] = createSignal(false)
   return (
-    <div style={{ width: "100%", "margin-bottom": "8px" }}>
+    <div style={{ width: "100%" }}>
       <button
         type="button"
         onClick={() => setOpen(!open())}
@@ -462,7 +464,7 @@ function ReasoningCollapsed(props: { texts: string[]; duration: string }): JSX.E
       <Show when={open()}>
         <div
           style={{
-            "margin-top": "20px",
+            "margin-top": "16px",
             "padding-left": "12px",
             "border-left": "1px solid rgba(0,0,0,0.08)",
             "font-size": "12px",
@@ -508,6 +510,7 @@ export function InsightTurn(props: {
   hasQuestionRequest?: boolean
   onFilesRefresh?: () => void
   skillToolCalls?: ToolCallInfo[]
+  skillConfig?: import("./skill-config-types").SkillConfig
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
@@ -662,6 +665,8 @@ export function InsightTurn(props: {
   // ── NEW: tool calls ──
   const toolCalls = createMemo((): ToolCallInfo[] => {
     const parts = assistantParts()
+    const skillData = props.skillConfig?.skill
+    
     return parts
       .filter((p) => p.type === "tool")
       .map((p) => {
@@ -681,19 +686,39 @@ export function InsightTurn(props: {
         const isErrorFromMetadata = metadata?.exit !== undefined && (metadata.exit as number) !== 0
         const isError = isErrorFromStatus || isErrorFromMetadata
         const isCompleted = stateStatus === "completed"
+        
+        const toolName = (raw.tool as string) ?? (raw.name as string) ?? (state.name as string) ?? "unknown"
+        
+        // 查找 displayName（仅对 skill 工具）
+        let displayName: string | undefined
+        if (toolName === "skill" && input && typeof input.name === "string" && skillData) {
+          // 遍历查找 skillName 匹配的条目
+          for (const [displayNameKey, entry] of Object.entries(skillData)) {
+            if (entry && typeof entry === "object" && entry.skillName === input.name) {
+              displayName = displayNameKey  // key 就是显示名
+              break
+            }
+          }
+        }
+        
         return {
-          name: (raw.tool as string) ?? (raw.name as string) ?? (state.name as string) ?? "unknown",
+          name: toolName,
           status: isCompleted ? ("done" as const) : isCancelled ? ("error" as const) : isError ? ("error" as const) : ("running" as const),
           input: input ?? undefined,
           output: hasOutput ? (state.output as string) : undefined,
           filePath: filePath || undefined,
+          displayName,
         }
       })
   })
 
   // Non-task tool calls (for ToolCallGroupCard — task calls shown separately as subtask cards)
-  const nonTaskToolCalls = createMemo(() =>
-    toolCalls().filter((c) => !/task/i.test(c.name))
+  const skillToolCalls = createMemo(() =>
+    toolCalls().filter((c) => c.name === "skill")
+  )
+
+  const otherToolCalls = createMemo(() =>
+    toolCalls().filter((c) => c.name !== "skill" && !/task/i.test(c.name))
   )
 
   // ── NEW: subtask sessions (from Task tool calls) ──
@@ -1007,10 +1032,48 @@ const stateStatus = state.status as string | undefined
   })
 
   return (
-    <div class="flex flex-col" style={{ "user-select": "text" }}>
+    <div class="flex flex-col gap-4" style={{ "user-select": "text" }}>
       {/* 用户消息气泡（右侧对齐） */}
       <Show when={userText() || userAttachments().length > 0}>
-        <div class="flex flex-col items-end gap-2 px-3 py-2.5">
+        <div class="flex flex-col items-end gap-4 px-3">
+          <Show when={userAttachments().length > 0}>
+            <div class="flex flex-col items-end gap-4">
+              <For each={userAttachments()}>
+                {(att) => (
+                  <Show
+                    when={att.url && att.mime?.startsWith("image/")}
+                    fallback={
+                      <div
+                        class="break-words flex items-center"
+                        style={{
+                          background: "rgba(0,0,0,0.05)",
+                          padding: "8px 12px",
+                          "border-radius": "8px",
+                          color: "rgba(0,0,0,0.9)",
+                          "font-size": "14px",
+                          "line-height": "22px",
+                          gap: "6px",
+                          display: "inline-flex",
+                          "max-width": "200px",
+                        }}
+                      >
+                        {getFileIcon(kindFromMime(att.mime ?? "application/octet-stream"), att.filename)({ size: 24 })}
+                        <span class="truncate">{att.filename}</span>
+                      </div>
+                    }
+                  >
+                    <div style={{ width: "80px", height: "80px", "border-radius": "8px", overflow: "hidden", "flex-shrink": "0" }}>
+                      <img
+                        src={att.url}
+                        alt={att.filename}
+                        style={{ width: "100%", height: "100%", "object-fit": "cover" }}
+                      />
+                    </div>
+                  </Show>
+                )}
+              </For>
+            </div>
+          </Show>
           <Show when={userText()}>
             <ExpandableBubble
               class="break-words"
@@ -1029,55 +1092,20 @@ const stateStatus = state.status as string | undefined
               {renderMentionText(userText())}
             </ExpandableBubble>
           </Show>
-          <Show when={userAttachments().length > 0}>
-            <div class="flex flex-col gap-2">
-              <For each={userAttachments()}>
-                {(att) => (
-                  <div
-                    class="break-words flex items-center gap-2"
-                    style={{
-                      background: "var(--octo-brand-a8)",
-                      padding: "12px 16px",
-                      "border-radius": "12px",
-                      color: "#191919",
-                      "font-size": "13px",
-                      display: "inline-flex",
-                      "max-width": "200px",
-                    }}
-                  >
-                    <Show when={att.url && att.mime?.startsWith("image/")}>
-                      <img
-                        src={att.url}
-                        alt={att.filename}
-                        style={{ "max-width": "32px", "max-height": "32px", "border-radius": "4px", "object-fit": "cover" }}
-                      />
-                    </Show>
-                    <Show when={!att.url || !att.mime?.startsWith("image/")}>
-                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" style={{ "flex-shrink": "0" }}>
-                        <path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.6L13.4 2z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                        <path d="M13 2v6h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                      </svg>
-                    </Show>
-                    <span class="truncate">{att.filename}</span>
-                  </div>
-                )}
-              </For>
-            </div>
-          </Show>
         </div>
       </Show>
 
       {/* 思考过程 */}
       <Show when={reasoningTexts().length > 0}>
         <Show when={showGenerating()} fallback={
-          <div class="mx-3 mb-1">
+          <div class="mx-3">
             <ReasoningCollapsed
               texts={reasoningTexts()}
               duration={reasoningDuration()}
             />
           </div>
         }>
-          <div class="mx-3 mb-1" style={{ "padding-left": "12px", "border-left": "1px solid rgba(0,0,0,0.08)" }}>
+          <div class="mx-3" style={{ "padding-left": "12px", "border-left": "1px solid rgba(0,0,0,0.08)" }}>
             <div
               class="overflow-auto"
               style={{
@@ -1105,7 +1133,7 @@ const stateStatus = state.status as string | undefined
       {/* AI 文字回复（proseText 已剥离 artifact 内容，使用 segments 渲染） */}
       <Show when={proseSegments().length > 0}>
         <div
-          class="mb-2 px-4 py-3"
+          class="px-4"
           style={{ color: "#191919", "font-size": "14px", "line-height": "22px", "user-select": "text" }}
         >
           <For each={proseSegments()}>
@@ -1135,9 +1163,14 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
-      {/* 工具调用进度（排除 Task 工具，由子任务卡片单独展示） */}
-      <Show when={(props.skillToolCalls?.length ?? 0) > 0 || nonTaskToolCalls().length > 0}>
-        <ToolCallGroupCard calls={[...(props.skillToolCalls ?? []), ...nonTaskToolCalls()]} />
+      {/* 技能调用（单独显示在最前面） */}
+      <Show when={skillToolCalls().length > 0}>
+        <ToolCallGroupCard calls={skillToolCalls()} />
+      </Show>
+
+      {/* 其他工具调用 */}
+      <Show when={otherToolCalls().length > 0}>
+        <ToolCallGroupCard calls={otherToolCalls()} />
       </Show>
 
       {/* 子任务进度（Task tool 调用的子 agent 会话） */}
@@ -1150,7 +1183,7 @@ const stateStatus = state.status as string | undefined
           const expanded = () => subtaskExpandState[task.subSessionID] ?? true
           const hasContent = task.textParts.length > 0 || task.artifactOutputs.length > 0
           return (
-            <div class="mx-3 mb-2" style={{ "border-radius": "8px", border: "1px solid rgba(0,0,0,0.1)", background: "var(--octo-surface-page)" }}>
+            <div class="mx-3" style={{ "border-radius": "8px", border: "1px solid rgba(0,0,0,0.1)", background: "var(--octo-surface-page)" }}>
               {/* Header */}
               <button
                 type="button"
@@ -1252,32 +1285,31 @@ const stateStatus = state.status as string | undefined
       </For>
 
       {/* 文件操作摘要（生成完成后） */}
-      <Show when={!showGenerating() && nonTaskToolCalls().length > 0}>
-        <div class="mb-1">
-          <FileOpsSummary calls={nonTaskToolCalls()} />
+      <Show when={!showGenerating() && otherToolCalls().length > 0}>
+        <div>
+          <FileOpsSummary calls={otherToolCalls()} />
         </div>
       </Show>
 
       {/* 错误提示 */}
       <Show when={assistantError()}>
         <div
-          class="mx-3 mb-2 px-3 py-2 text-xs leading-relaxed"
+          class="mx-3 px-4 py-3 text-xs leading-relaxed"
           style={{
-            "border-radius": "var(--octo-radius-md)",
-            background: "rgba(239,68,68,0.08)",
-            border: "1px solid rgba(239,68,68,0.2)",
-            color: "#ef4444",
+            "border-radius": "8px",
+            background: "rgba(254, 231, 232, 1)",
+            color: "#191919",
           }}
         >
-          <div class="flex items-center gap-1.5 mb-1 font-medium">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.2" />
-              <path d="M7 4v3M7 9v0.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+          <div class="flex items-center gap-2 mb-1 font-size-[14px]">
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 14 14" width="14.000000" height="14.000000" fill="none">
+              <rect id="高危_面性_镂空" width="14.000000" height="14.000000" x="0.000000" y="0.000000"/>
+              <path id="path" d="M0.319885 10.3644L5.32281 1.69897C5.42523 1.52173 5.5484 1.36713 5.69232 1.23517C5.80209 1.13458 5.92392 1.04714 6.0578 0.972961C6.19095 0.899151 6.3288 0.842205 6.47137 0.802124C6.64093 0.754517 6.81708 0.730713 6.99994 0.730713C7.33673 0.730713 7.65082 0.811462 7.9422 0.972961C8.25165 1.14453 8.49664 1.38654 8.67706 1.69897L13.68 10.3644C13.8604 10.6768 13.9474 11.01 13.9413 11.3638C13.9355 11.6969 13.8483 12.0093 13.68 12.3009C13.5117 12.5925 13.2846 12.8242 12.9991 12.9957C12.8679 13.0746 12.7313 13.1364 12.5893 13.1812C12.4031 13.2398 12.2076 13.2692 12.0029 13.2692L1.99701 13.2692C1.79233 13.2692 1.59695 13.2398 1.41083 13.1812C1.26898 13.1365 1.13199 13.0745 1.00079 12.9957C0.715271 12.8242 0.48822 12.5925 0.319885 12.3009C0.15155 12.0093 0.0643921 11.6969 0.0586548 11.3638C0.0524292 11.01 0.139465 10.6768 0.319885 10.3644ZM6.99994 3.80017C7.27997 3.80017 7.49994 4.02014 7.49994 4.30017L7.49994 8.38342C7.49994 8.66342 7.27997 8.88342 6.99994 8.88342C6.71991 8.88342 6.49994 8.66342 6.49994 8.38342L6.49994 4.30017C6.49994 4.02014 6.71991 3.80017 6.99994 3.80017ZM6.41656 10.0461C6.41656 9.72397 6.6778 9.46277 6.99994 9.46277C7.32208 9.46277 7.58331 9.72397 7.58331 10.0461C7.58331 10.3683 7.32208 10.6295 6.99994 10.6295C6.6778 10.6295 6.41656 10.3683 6.41656 10.0461Z" fill="rgb(224,33,40)" fill-rule="evenodd"/>
             </svg>
             {assistantError()!.name === "ProviderAuthError" ? "认证失败" : "生成出错"}
           </div>
           <Show when={assistantError()!.message}>
-            <div style={{ "user-select": "text" }}>{assistantError()!.message}</div>
+            <div style={{ "user-select": "text",  "padding-left": "22px"}}>{assistantError()!.message}</div>
           </Show>
         </div>
       </Show>
@@ -1286,7 +1318,6 @@ const stateStatus = state.status as string | undefined
       <For each={outputCards()}>
         {(capturedCard) => (
           <div
-            class="mb-3"
             style={{
               "border-radius": "12px",
               padding: "16px 20px",
@@ -1347,7 +1378,6 @@ const stateStatus = state.status as string | undefined
           const isPartial = genCard.content.length === 0
           return (
             <div
-              class="mb-3"
               style={{
                 "border-radius": "12px",
                 padding: "16px 20px",
@@ -1382,7 +1412,7 @@ const stateStatus = state.status as string | undefined
 
       {/* 已执行时间 — 仅在最新 turn 有生成中卡片时显示 */}
       <Show when={showGenerating() && stableStreamingCards().length > 0 && props.elapsedText}>
-        <div class="mx-3 mb-3">
+        <div class="mx-3">
           <span class="text-xs tabular-nums" style={{ color: "#6e737a" }}>
             已执行 {props.elapsedText}
           </span>
@@ -1395,7 +1425,7 @@ const stateStatus = state.status as string | undefined
           const bt = props.blockTime!
           const isWarning = bt >= 180
           return (
-            <div class="mx-3 mb-3 p-3 flex items-center justify-between" style={{
+            <div class="mx-3 px-3 flex items-center justify-between" style={{
               "border-radius": "var(--octo-radius-md)",
               border: isWarning ? "1px solid rgba(255, 177, 46, 0.3)" : "1px solid rgba(200, 200, 200, 0.2)",
               background: isWarning ? "rgba(255, 177, 46, 0.08)" : "rgba(200, 200, 200, 0.05)",

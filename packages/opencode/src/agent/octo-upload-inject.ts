@@ -311,7 +311,7 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
     "tool.execute.before": async (input, output) => {
       // 本地文件工具收**本地路径**,绝不能被替换成 S3 url —— 显式跳过。只有 MCP 工具(uxr-tool_*)填的
       // 文件名才需要按需上传换 URL。write/edit/apply_patch 的 filePath 是落盘目标:若被换成 S3 URL,
-      // 后续 octo-outputs-redirect 会把非绝对的 https:// 串 join 进 outputs/,建目录时因路径含 URL 成分
+      // 后续 octo-session-workdir 会把非绝对的 https:// 串 join 进 outputs/,建目录时因路径含 URL 成分
       // 崩溃(内网实测:上传 md → 让其在末尾追加,write 报 makeDirectory .../outputs/https:/.../... 失败)。
       // read/glob/grep 同理(读/搜本地文件)。extract_document 原就是这个道理,一并收进本集合。
       // (input.tool 对 MCP 是带 server 前缀的 uxr-tool_*,对本地工具是裸工具名 / <task>_extract_document。)

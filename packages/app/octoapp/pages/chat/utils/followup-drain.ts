@@ -52,13 +52,6 @@ export async function sendFollowupBackground(
     sessionDirectory: item.sessionDirectory,
   })
 
-  console.log("[octo:chat-queue] drain-send", {
-    sessionID,
-    directory,
-    messageID,
-    model: item.model,
-  })
-
   try {
     await client.session.promptAsync({
       sessionID: item.sessionID,

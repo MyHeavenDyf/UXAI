@@ -54,6 +54,7 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { FileManagerToolbar } from "./toolbar"
 import { Breadcrumb } from "./breadcrumb"
 import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
+import { archiveFileSizeError } from "../../utils/archive-size"
 
 // 把文件管理列表中的非 HTML InsightFile 转成归档 file target(本地读盘 / uri 拉取 → EdmUtil.upload)。
 // HTML 归档只在 result-viewer ActionBar 提供(那里有 live iframe 可截图,且避免对用户上传目录整包打包),故本入口不处理 HTML。
@@ -132,7 +133,6 @@ function FileManagerInner(props: {
   const fileStore = createInsightFileStore()
   const store = () => fileStore.store
   const [isDragOver, setIsDragOver] = createSignal(false)
-  const [emptyUploadOpen, setEmptyUploadOpen] = createSignal(false)
   let fileInputRef!: HTMLInputElement
   let folderInputRef!: HTMLInputElement
 
@@ -184,23 +184,69 @@ function FileManagerInner(props: {
   createEffect(on(() => props.refreshKey, () => { void refresh() }, { defer: true }))
 
   // ── 上传 ────────────────────────────────────────────────────────
+  // 大文件完整性:桌面端走 tryStreamUpload(主进程 fs.copyFile 流式拷贝,与 make design-files-panel 同款),
+  // 不把整文件读成 base64 塞进 JSON body。仅在拿不到真实本地路径(剪贴板内存 blob)/ 非桌面端时,
+  // 才回退到下面的 base64 over HTTP。
+
+  // base64 回退通道的大小上限。这条通道会把整个文件读进 JS 堆——ArrayBuffer + binary 中间串 +
+  // base64 串 + JSON body 串,峰值约为文件大小的 3~4 倍——大文件下渲染进程直接 OOM,白屏且连
+  // toast 都弹不出来,比"落盘 0 字节"更难排查。宁可在入口响亮拒绝,也不让它跑到崩。
+  // 注意本函数同时服务文件夹上传(handleFolderUpload / 拖拽文件夹),那条路径目前只有 base64 一种走法。
+  // 待服务端 upload 支持「按源路径复制」后,回退通道不再承载大文件,此上限可撤除。
+  const BASE64_FALLBACK_MAX = 100 * 1024 * 1024 // 100 MB
+
+  // 产出干净 base64(无 data: 前缀),服务端 Buffer.from(..., "base64") 全量解码。
+  // 分块 String.fromCharCode 是为绕开单次调用的参数个数上限,不是为了省内存——内存仍是全量常驻。
   function readFileAsBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const result = reader.result as string
-        resolve(result.split(",")[1] || result)
+    if (file.size > BASE64_FALLBACK_MAX) {
+      return Promise.reject(
+        new Error(
+          `该文件超过 ${formatFileSize(BASE64_FALLBACK_MAX)},无法通过当前方式上传。请先将文件保存到本地磁盘,再从本地拖入或选择上传。`,
+        ),
+      )
+    }
+    return file.arrayBuffer().then((buf) => {
+      const bytes = new Uint8Array(buf)
+      let binary = ""
+      const CHUNK = 0x8000
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
       }
-      reader.onerror = () => reject(reader.error)
-      reader.readAsDataURL(file)
+      return btoa(binary)
     })
+  }
+
+  // 桌面端流式上传:取真实本地路径 → copyFileToSessionUploads(直接 fs.copyFile 进 uploads/[currentPath])。
+  // 返回 true 表示已落地;false 表示不可走流式(非桌面 / 无本地路径),调用方回退 base64。
+  async function tryStreamUpload(file: File, currentPath: string): Promise<boolean> {
+    const api = getDesktopApi()
+    const baseDir = sdk.directory
+    if (
+      !baseDir ||
+      typeof api?.getPathForFile !== "function" ||
+      typeof api?.copyFileToSessionUploads !== "function"
+    ) {
+      return false
+    }
+    let srcPath = ""
+    try {
+      srcPath = api.getPathForFile(file)
+    } catch {
+      // 取不到真实路径(剪贴板内存 blob,无落盘来源)→ 回退 base64
+    }
+    if (!srcPath) return false
+    await api.copyFileToSessionUploads(srcPath, baseDir, props.sessionId, currentPath, file.name)
+    return true
   }
 
   async function uploadSingleFile(file: File) {
     const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
-    const base64 = await readFileAsBase64(file)
     try {
-      await uploadInsightFile(sdk.url, sdk.directory, props.sessionId, file.name, base64, currentPath)
+      const streamed = await tryStreamUpload(file, currentPath)
+      if (!streamed) {
+        const base64 = await readFileAsBase64(file)
+        await uploadInsightFile(sdk.url, sdk.directory, props.sessionId, file.name, base64, currentPath)
+      }
       showToast({ title: "上传完成", description: file.name, variant: "success", duration: 2000 })
       await refresh()
       props.onFilesRefresh?.()
@@ -225,12 +271,14 @@ function FileManagerInner(props: {
     }
     const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
     const fileEntries: InsightFolderUploadFile[] = []
-    for (const file of Array.from(files)) {
-      const relativePath = file.webkitRelativePath.slice(folderName.length + 1)
-      const base64 = await readFileAsBase64(file)
-      fileEntries.push({ relativePath, content: base64 })
-    }
+    // 读取(readFileAsBase64)必须和上传在同一个 try 内:它会因超出回退通道上限而 reject,
+    // 留在 try 外会变成 unhandled rejection —— 用户点了上传却什么提示都没有。
     try {
+      for (const file of Array.from(files)) {
+        const relativePath = file.webkitRelativePath.slice(folderName.length + 1)
+        const base64 = await readFileAsBase64(file)
+        fileEntries.push({ relativePath, content: base64 })
+      }
       const result = await uploadInsightFolder(sdk.url, sdk.directory, props.sessionId, folderName, fileEntries, currentPath)
       showToast({ title: "上传完成", description: `${folderName} (${result.fileCount} 个文件)`, variant: "success", duration: 2000 })
       await refresh()
@@ -306,9 +354,11 @@ function FileManagerInner(props: {
     }
     const reader = dirEntry.createReader()
     const entries = await readAllDirectoryEntries(reader)
-    for (const entry of entries) await collectFiles(entry)
-    if (fileEntries.length === 0) return
+    // 同 handleFolderUpload:collectFiles 内的 readFileAsBase64 会因超上限 reject,
+    // 且这里外层是 handleDrop 的 void processEntries(...),没有任何 catch —— 必须在此收住。
     try {
+      for (const entry of entries) await collectFiles(entry)
+      if (fileEntries.length === 0) return
       const result = await uploadInsightFolder(sdk.url, sdk.directory, props.sessionId, folderName, fileEntries, currentPath)
       showToast({ title: "上传完成", description: `${folderName} (${result.fileCount} 个文件)`, variant: "success", duration: 2000 })
       await refresh()
@@ -399,7 +449,7 @@ function FileManagerInner(props: {
   // ── 删除 ────────────────────────────────────────────────────────
   function showDeleteDialog(body: JSX.Element, onConfirm: () => void) {
     dialog.show(() => (
-      <Dialog title="删除文件" fit class="delete-dialog">
+      <Dialog title="删除文件" fit class="delete-file-dialog">
         {body}
         <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
           <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>取消</Button>
@@ -485,10 +535,13 @@ function FileManagerInner(props: {
 
   const hasAnyFiles = createMemo(() => store().uploadedFiles.length > 0 || store().generatedFiles.length > 0)
   const showInitialSpinner = createMemo(() => store().loading && !hasAnyFiles() && !store().error)
+  // 头部(工具栏)/ 面包屑的显隐:有文件,或进了子文件夹(即便空)都要显示——
+  // 否则点开空文件夹会把头部和面包屑一并藏掉,用户无法返回上一层(对齐 Design design-files-panel)。
+  const showHeader = createMemo(() => hasAnyFiles() || !fileStore.isTopLevel())
 
   return (
     <div class="flex flex-col h-full overflow-hidden" style={{ background: "var(--octo-surface-page)" }}>
-      <Show when={hasAnyFiles()}>
+      <Show when={showHeader()}>
         <FileManagerToolbar
           fileStore={fileStore}
           onRefresh={refresh}
@@ -549,63 +602,15 @@ function FileManagerInner(props: {
         <Match when={showInitialSpinner()}>
           <div class="flex items-center justify-center flex-1 min-h-0"><Spinner class="size-[20px]" /></div>
         </Match>
-        <Match when={!hasAnyFiles()}>
+        <Match when={!showHeader()}>
           <div class="flex flex-col items-center justify-center flex-1 min-h-0 text-center px-8">
-            <img src={emptyPng} style={{ width: "150px", height: "150px" }} alt="" draggable={false} />
-            <span class="text-[14px] leading-[22px]" style={{ color: "var(--octo-text-secondary)", "margin-bottom": "20px" }}>暂无文件</span>
-            <span class="text-[14px] leading-[22px]" style={{ color: "var(--octo-text-primary)", "margin-bottom": "20px" }}>点击上传或拖入本地文件，统一管理会话文件</span>
-            <Kobalte open={emptyUploadOpen()} onOpenChange={setEmptyUploadOpen} modal={false} placement="bottom" gutter={4}>
-              <Kobalte.Trigger
-                as="button"
-                type="button"
-                class="flex items-center justify-center gap-2 transition-colors"
-                style={{
-                  background: "var(--octo-brand)",
-                  color: "white",
-                  "border-radius": "999px",
-                  height: "32px",
-                  width: "108px",
-                  "font-size": "14px",
-                  "line-height": "22px",
-                  cursor: "pointer",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-hover)") }}
-                onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand)") }}
-                onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-active)") }}
-                onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-hover)") }}
-              >
-                <IconUpload size={16} />
-                <span>上传文件</span>
-              </Kobalte.Trigger>
-              <Kobalte.Portal>
-                <Kobalte.Content
-                  class="z-50 flex flex-col gap-1 rounded-md p-2"
-                  style={{ "box-shadow": "0 4px 12px rgba(0,0,0,0.16)", "min-width": "122px", "background-color": "var(--octo-surface-page)" }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => { folderInputRef?.click(); setEmptyUploadOpen(false) }}
-                    class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[var(--octo-surface-hover)]"
-                    style={{ height: "36px", "border-radius": "var(--octo-radius-md)", "font-size": "14px", "line-height": "22px", color: "var(--octo-text-primary)" }}
-                  >
-                    <IconFolder size={16} />
-                    <span>上传文件夹</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { fileInputRef?.click(); setEmptyUploadOpen(false) }}
-                    class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[var(--octo-surface-hover)]"
-                    style={{ height: "36px", "border-radius": "var(--octo-radius-md)", "font-size": "14px", "line-height": "22px", color: "var(--octo-text-primary)" }}
-                  >
-                    <IconFile size={16} />
-                    <span>上传文件</span>
-                  </button>
-                </Kobalte.Content>
-              </Kobalte.Portal>
-            </Kobalte>
+            <EmptyFilesState
+              onUploadFile={() => fileInputRef?.click()}
+              onUploadFolder={() => folderInputRef?.click()}
+            />
           </div>
         </Match>
-        <Match when={hasAnyFiles()}>
+        <Match when={showHeader()}>
           <div class="flex flex-col flex-1 min-h-0">
             {/* 面包屑固定:不随表格滚动 */}
             <div class="shrink-0" style={{ padding: "24px 24px 0" }}>
@@ -613,20 +618,29 @@ function FileManagerInner(props: {
             </div>
             {/* 只滚动表格内容:表头 sticky 吸顶(吸附到本滚动容器顶部,即面包屑下方) */}
             <div class="flex-1 min-h-0 overflow-auto">
-              <div style={{ padding: "0 24px 24px" }}>
-                <FileTable
-                  fileStore={fileStore}
-                  onHeaderSort={handleHeaderSort}
-                  onSelectAllPage={handleSelectAllPage}
-                  onOpen={handleOpenFile}
-                  onAddToSession={props.onAddToSession ? handleAddToSession : undefined}
-                  onDownload={handleDownload}
-                  onDelete={handleDelete}
-                  onArchive={handleArchiveFile}
-                  onOpenInExplorer={handleOpenInExplorer}
-                  onNavigateFolder={(f) => fileStore.navigateToFolder(f)}
-                />
-              </div>
+              <Show when={hasAnyFiles()} fallback={
+                <div class="flex flex-col items-center justify-center h-full text-center px-8">
+                  <EmptyFilesState
+                    onUploadFile={() => fileInputRef?.click()}
+                    onUploadFolder={() => folderInputRef?.click()}
+                  />
+                </div>
+              }>
+                <div style={{ padding: "0 24px 24px" }}>
+                  <FileTable
+                    fileStore={fileStore}
+                    onHeaderSort={handleHeaderSort}
+                    onSelectAllPage={handleSelectAllPage}
+                    onOpen={handleOpenFile}
+                    onAddToSession={props.onAddToSession ? handleAddToSession : undefined}
+                    onDownload={handleDownload}
+                    onDelete={handleDelete}
+                    onArchive={handleArchiveFile}
+                    onOpenInExplorer={handleOpenInExplorer}
+                    onNavigateFolder={(f) => fileStore.navigateToFolder(f)}
+                  />
+                </div>
+              </Show>
             </div>
           </div>
         </Match>
@@ -791,6 +805,8 @@ function FileRow(props: {
 }): JSX.Element {
   const [menuOpen, setMenuOpen] = createSignal(false)
   const [imageError, setImageError] = createSignal(false)
+  // 归档大小校验每行算一次(createMemo),供 MenuItem 的 disabled / disabledHint 共用,避免各调一次。
+  const archiveSizeErr = createMemo(() => archiveFileSizeError(props.file.size))
 
   // 单击:文件夹 → 进入下一层;文件 → 直接开 tab 并聚焦(SPEC-INS-014 §10.2,回归 §10 原始决定)。
   // 复选框 / 菜单触发器自行 stopPropagation,不会误触发本行 onClick。
@@ -881,7 +897,7 @@ function FileRow(props: {
               <Show when={!props.file.isFolder}>
                 <MenuItem label="下载" onClick={() => { props.onDownload(props.file); setMenuOpen(false) }} />
                 <Show when={props.onArchive && props.file.kind !== "html"}>
-                  <MenuItem label="归档" onClick={() => { props.onArchive!(props.file); setMenuOpen(false) }} />
+                  <MenuItem label="归档" disabled={archiveSizeErr() !== null} disabledHint={archiveSizeErr() ?? undefined} onClick={() => { props.onArchive!(props.file); setMenuOpen(false) }} />
                 </Show>
               </Show>
               <Show when={props.onDelete}>
@@ -924,6 +940,73 @@ function MenuItem(props: { label: string; onClick: () => void; danger?: boolean;
 
 function MenuDivider(): JSX.Element {
   return <div style={{ height: "1px", background: "var(--octo-border-divider)", margin: "4px 0" }} />
+}
+
+// 无文件空状态(顶层空 / 空子文件夹共用):图片 + 标题 + 描述 + 上传按钮 popover。
+// 外层居中容器由调用方提供(顶层用 flex-1 撑满,子文件夹用 h-full 撑满滚动区)。
+// popover 的 open 状态由本组件自管:两个挂载点互斥,各自持有独立 signal,卸载即重置,
+// 避免跨挂载点残留 open 状态导致下一个空状态挂载时 popover 自动弹出。
+function EmptyFilesState(props: {
+  onUploadFile: () => void
+  onUploadFolder: () => void
+}): JSX.Element {
+  const [uploadOpen, setUploadOpen] = createSignal(false)
+  return (
+    <>
+      <img src={emptyPng} style={{ width: "150px", height: "150px" }} alt="" draggable={false} />
+      <span class="text-[14px] leading-[22px]" style={{ color: "var(--octo-text-secondary)", "margin-bottom": "20px" }}>暂无文件</span>
+      <span class="text-[14px] leading-[22px]" style={{ color: "var(--octo-text-primary)", "margin-bottom": "20px" }}>点击上传或拖入本地文件，统一管理会话文件</span>
+      <Kobalte open={uploadOpen()} onOpenChange={setUploadOpen} modal={false} placement="bottom" gutter={4}>
+        <Kobalte.Trigger
+          as="button"
+          type="button"
+          class="flex items-center justify-center gap-2 transition-colors"
+          style={{
+            background: "var(--octo-brand)",
+            color: "white",
+            "border-radius": "999px",
+            height: "32px",
+            width: "108px",
+            "font-size": "14px",
+            "line-height": "22px",
+            cursor: "pointer",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-hover)") }}
+          onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand)") }}
+          onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-active)") }}
+          onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-hover)") }}
+        >
+          <IconUpload size={16} />
+          <span>上传文件</span>
+        </Kobalte.Trigger>
+        <Kobalte.Portal>
+          <Kobalte.Content
+            class="z-50 flex flex-col gap-1 rounded-md p-2"
+            style={{ "box-shadow": "0 4px 12px rgba(0,0,0,0.16)", "min-width": "122px", "background-color": "var(--octo-surface-page)" }}
+          >
+            <button
+              type="button"
+              onClick={() => { props.onUploadFolder(); setUploadOpen(false) }}
+              class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[var(--octo-surface-hover)]"
+              style={{ height: "36px", "border-radius": "var(--octo-radius-md)", "font-size": "14px", "line-height": "22px", color: "var(--octo-text-primary)" }}
+            >
+              <IconFolder size={16} />
+              <span>上传文件夹</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { props.onUploadFile(); setUploadOpen(false) }}
+              class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[var(--octo-surface-hover)]"
+              style={{ height: "36px", "border-radius": "var(--octo-radius-md)", "font-size": "14px", "line-height": "22px", color: "var(--octo-text-primary)" }}
+            >
+              <IconFile size={16} />
+              <span>上传文件</span>
+            </button>
+          </Kobalte.Content>
+        </Kobalte.Portal>
+      </Kobalte>
+    </>
+  )
 }
 
 function NoSessionEmpty(): JSX.Element {

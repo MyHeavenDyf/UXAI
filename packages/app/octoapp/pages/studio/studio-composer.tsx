@@ -8,6 +8,7 @@ import type { StudioAsset, StudioAspectRatio, StudioCapability, StudioGeneration
 import { StudioVideoRiskContent } from "./studio-video-risk-dialog"
 
 const STUDIO_VIDEO_GUIDE_URL = "https://www.volcengine.com/docs/82379/2222480?lang=zh"
+const STUDIO_IMAGE_DRAG_TYPE = "application/x-octo-studio-image"
 
 export function StudioIntro(): JSX.Element {
   return (
@@ -60,6 +61,8 @@ export function StudioComposer(props: {
   onPickFile: () => void
   onPickVideoFrame: (slot: StudioVideoFrameSlot) => void
   onPasteImage: (files: File[]) => void
+  onDropFiles: (files: File[], slot?: StudioVideoFrameSlot) => void
+  onDropImageUrl: (url: string, slot?: StudioVideoFrameSlot) => void
   onRemoveAsset: (id: string) => void
   onRemoveVideoFrame: (slot: StudioVideoFrameSlot) => void
   onSwapVideoFrames: () => void
@@ -69,7 +72,9 @@ export function StudioComposer(props: {
   let inputRef!: HTMLTextAreaElement
   let pointerDownOpenMenu: typeof props.openMenu = null
   let referenceHoverFrame: number | undefined
+  let dragDepth = 0
   const [composing, setComposing] = createSignal(false)
+  const [dragActive, setDragActive] = createSignal(false)
   const [referenceExpanded, setReferenceExpanded] = createSignal(false)
   const [referenceHoverReady, setReferenceHoverReady] = createSignal(false)
   const referenceAssets = createMemo(() => props.assets.slice(0, props.maxReferenceImages))
@@ -453,6 +458,56 @@ export function StudioComposer(props: {
     props.onPasteImage(files)
   }
 
+  const canDropImages = () => !isBusy() && (isImageGeneration() || isVideoGeneration())
+  const isImageUrl = (value: string) => /^data:image\//i.test(value) || /^https?:\/\//i.test(value) || value.startsWith("/")
+  const imageFiles = (dataTransfer: DataTransfer) => Array.from(dataTransfer.files).filter((file) => file.type.startsWith("image/"))
+  const draggedImageUrl = (dataTransfer: DataTransfer) => {
+    const custom = dataTransfer.getData(STUDIO_IMAGE_DRAG_TYPE)
+    if (isImageUrl(custom)) return custom
+    const uri = dataTransfer.getData("text/uri-list").split("\n").map((value) => value.trim()).find((value) => value && !value.startsWith("#"))
+    if (uri && isImageUrl(uri)) return uri
+    const text = dataTransfer.getData("text/plain").trim()
+    if (isImageUrl(text)) return text
+    const image = new DOMParser().parseFromString(dataTransfer.getData("text/html"), "text/html").querySelector("img")?.src
+    if (image && isImageUrl(image)) return image
+  }
+  const acceptsImageDrop = (dataTransfer: DataTransfer) => imageFiles(dataTransfer).length > 0 || dataTransfer.types.includes(STUDIO_IMAGE_DRAG_TYPE) || dataTransfer.types.includes("text/uri-list") || dataTransfer.types.includes("text/html")
+  const resetDragState = () => {
+    dragDepth = 0
+    setDragActive(false)
+  }
+  const handleDragEnter = (event: DragEvent) => {
+    if (!canDropImages() || !acceptsImageDrop(event.dataTransfer!)) return
+    dragDepth += 1
+    setDragActive(true)
+  }
+  const handleDragOver = (event: DragEvent) => {
+    if (!canDropImages() || !acceptsImageDrop(event.dataTransfer!)) return
+    event.preventDefault()
+    event.dataTransfer!.dropEffect = "copy"
+    setDragActive(true)
+  }
+  const handleDragLeave = (event: DragEvent) => {
+    if (!dragActive()) return
+    dragDepth -= 1
+    if (dragDepth > 0 || (event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null)) return
+    resetDragState()
+  }
+  const handleDrop = (event: DragEvent, slot?: StudioVideoFrameSlot) => {
+    const dataTransfer = event.dataTransfer
+    if (!dataTransfer || !canDropImages()) return
+    const files = imageFiles(dataTransfer)
+    const url = files.length ? undefined : draggedImageUrl(dataTransfer)
+    resetDragState()
+    if (!files.length && !url) return
+    event.preventDefault()
+    if (files.length) {
+      props.onDropFiles(files, slot)
+      return
+    }
+    props.onDropImageUrl(url!, slot)
+  }
+
   function referenceAssetRotation(index: number) {
     return [-7.8, 4.1, -3.6][index] ?? 0
   }
@@ -468,7 +523,14 @@ export function StudioComposer(props: {
 
   return (
     <div class="studio-composer-wrap relative shrink-0">
-      <div class="studio-composer" classList={{ video: isVideoGeneration() }}>
+      <div
+        class="studio-composer"
+        classList={{ video: isVideoGeneration(), dragging: dragActive() }}
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         <Show when={isVideoGeneration()}>
           <div class="studio-composer-video-frames">
             <VideoFrameButton
@@ -477,6 +539,7 @@ export function StudioComposer(props: {
               disabled={isBusy()}
               onPick={() => props.onPickVideoFrame("first")}
               onRemove={() => props.onRemoveVideoFrame("first")}
+              onDrop={(event) => handleDrop(event, "first")}
             />
             <button type="button" class="studio-composer-video-swap" onClick={props.onSwapVideoFrames} disabled={isBusy()} aria-label="交换首尾帧" title="交换首尾帧">
               <img src="/studio/ic_public_switchover.svg" class="studio-composer-video-swap-icon" alt="" />
@@ -487,6 +550,7 @@ export function StudioComposer(props: {
               disabled={isBusy()}
               onPick={() => props.onPickVideoFrame("last")}
               onRemove={() => props.onRemoveVideoFrame("last")}
+              onDrop={(event) => handleDrop(event, "last")}
             />
           </div>
         </Show>
@@ -881,7 +945,7 @@ function IconTool(props: { label: string; title?: string; children?: JSX.Element
   )
 }
 
-function VideoFrameButton(props: { label: string; asset?: StudioAsset; disabled?: boolean; onPick: () => void; onRemove: () => void }): JSX.Element {
+function VideoFrameButton(props: { label: string; asset?: StudioAsset; disabled?: boolean; onPick: () => void; onRemove: () => void; onDrop: (event: DragEvent) => void }): JSX.Element {
   return (
     <div class="studio-composer-video-frame-wrap">
       <button
@@ -891,6 +955,10 @@ function VideoFrameButton(props: { label: string; asset?: StudioAsset; disabled?
         class="studio-composer-video-frame"
         classList={{ filled: Boolean(props.asset) }}
         title={props.asset ? `替换${props.label}` : `上传${props.label}`}
+        onDrop={(event) => {
+          event.stopPropagation()
+          props.onDrop(event)
+        }}
       >
         <Show when={props.asset} fallback={
           <>
@@ -913,7 +981,7 @@ function VideoFrameButton(props: { label: string; asset?: StudioAsset; disabled?
           aria-label={`删除${props.label}`}
           title={`删除${props.label}`}
         >
-          ×
+          <img src="/studio/studio-img-delete-icon.svg" class="studio-composer-video-remove-icon" alt="" />
         </button>
       </Show>
     </div>

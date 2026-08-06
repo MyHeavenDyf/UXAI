@@ -67,7 +67,15 @@ export function StudioConversation(props: {
                             onBlur={() => setInputImagePreview(undefined)}
                             onClick={() => props.onUseInputImage(src())}
                           >
-                            <img class="studio-user-input-image" src={src()} alt="" />
+                            <img
+                              class="studio-user-input-image"
+                              src={src()}
+                              alt=""
+                              onDragStart={(event) => {
+                                event.dataTransfer?.setData("application/x-octo-studio-image", src())
+                                if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy"
+                              }}
+                            />
                           </button>
                         )}
                       </Show>
@@ -475,19 +483,19 @@ export function StudioResultCanvas(props: {
                         <DropdownMenu.Portal>
                           <DropdownMenu.Content>
                             <DropdownMenu.Item onSelect={props.onUpscale} disabled={props.actionDisabled}>
-                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-upscale" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
+                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-upscale" />
                               <DropdownMenu.ItemLabel>变清晰</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
                             <DropdownMenu.Item onSelect={props.onCutout} disabled={props.actionDisabled}>
-                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-cutout" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
+                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-cutout" />
                               <DropdownMenu.ItemLabel>抠图</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
                             <DropdownMenu.Item onSelect={props.onInpaint} disabled={props.actionDisabled}>
-                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-inpaint" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
+                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-inpaint" />
                               <DropdownMenu.ItemLabel>智能重绘</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
                             <DropdownMenu.Item onSelect={props.onOutpaint} disabled={props.actionDisabled}>
-                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-outpaint" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
+                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-outpaint" />
                               <DropdownMenu.ItemLabel>扩图</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
                           </DropdownMenu.Content>
