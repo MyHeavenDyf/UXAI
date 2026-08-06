@@ -4,7 +4,7 @@ import { useData, useI18n } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { MessageDivider } from "@opencode-ai/ui/message-part"
 import { Button } from "@opencode-ai/ui/button"
-import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, Show, For, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg, IconCardReact, IconCardDiagram } from "../icons"
 import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../utils/artifact-parser"
@@ -20,6 +20,7 @@ import { FileOpsSummary } from "./file-ops-summary"
 import { getFileIcon } from "../icons/file-type-icons"
 import { extractSubtypeFromTitle } from "../utils/subtype-extractor"
 import { kindFromMime } from "./attachment-bar"
+import { isElectronDesktop, pathToLocalUrl } from "../utils/artifact-file-api"
 
 // Render text with @mentions - plain text only, no chip styling
 function renderMentionText(text: string): JSX.Element {
@@ -96,6 +97,35 @@ function decodeDataUrl(url: string): string {
     return url
   }
 }
+
+// 从文件名扩展名推断 mime,仅用于 local 附件清单渲染(后端 manifest 只存了 filename+path)。
+// 覆盖常见图片/svg/webp/gif,其余按二进制处理,渲染端走文件图标 fallback。
+function mimeFromFilename(filename: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? ""
+  const map: Record<string, string> = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    webp: "image/webp",
+    svg: "image/svg+xml",
+    html: "text/html",
+    htm: "text/html",
+    md: "text/markdown",
+    txt: "text/plain",
+    json: "application/json",
+    js: "application/javascript",
+    ts: "application/typescript",
+    css: "text/css",
+    pdf: "application/pdf",
+    mp4: "video/mp4",
+    webm: "video/webm",
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+  }
+  return map[ext] ?? "application/octet-stream"
+}
+
 
 function getToolEndTime(state: Record<string, unknown> | undefined): number {
   const time = state?.time as Record<string, unknown> | undefined
@@ -562,12 +592,24 @@ export function InsightTurn(props: {
   })
 
   // Merged attachments for display
+  // local 文件清单只存了 {filename, path},没带 mime。从扩展名推断图片类型,
+  // Electron 桌面用 local:// 协议直接显示;浏览器环境无此协议,保持文件图标 fallback。
   const userAttachments = createMemo(() => {
     const files = userFileParts()
     const locals = userInputManifest()
+    const desktop = isElectronDesktop()
     return [
       ...files.map(f => ({ filename: f.filename ?? "file", url: f.url as string | undefined, mime: f.mime, isLocal: false })),
-      ...locals.map(l => ({ filename: l.filename, url: undefined as string | undefined, mime: "application/octet-stream", isLocal: true })),
+      ...locals.map(l => {
+        const mime = mimeFromFilename(l.filename)
+        const isImage = mime.startsWith("image/")
+        return {
+          filename: l.filename,
+          url: (desktop && isImage) ? pathToLocalUrl(l.path) : undefined,
+          mime,
+          isLocal: true,
+        }
+      }),
     ]
   })
 

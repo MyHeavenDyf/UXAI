@@ -560,6 +560,8 @@ createEffect(() => {
       await props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
       if (hasChanges) {
         pushHistory(cleanSource, description)
+        // 文字/链接修改只在 HTML source 层面应用,不像样式那样通过 postMessage 实时预览到 DOM。
+        props.onRefreshNeeded?.()
       }
       return true
     }
