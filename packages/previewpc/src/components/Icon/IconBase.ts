@@ -128,7 +128,7 @@ export function getIconComponentRef(
       if (options?.size) huiRef.props.size = options.size
       return huiRef
     }
-    return null  // 空白，等 SVG 到达后响应式显示
+    return huiRef  // 空白占位，等 SVG 到达后响应式显示
   }
 
   // hui API 不可用 → lucide 回退
