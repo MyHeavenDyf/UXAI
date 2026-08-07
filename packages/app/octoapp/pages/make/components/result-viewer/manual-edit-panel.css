@@ -453,9 +453,16 @@ input[type="number"].cc-value:focus {
 
 .cc-unit {
   font-size: 12px;
+  font-style: normal;
   color: var(--octo-text-secondary, #6b7280);
   min-width: 20px;
   max-width: 20px;
+}
+
+.cc-quad-unit {
+  color: var(--octo-text-secondary, #6b7280);
+  font-style: normal;
+  font-size: 12px;
 }
 
 /* TEXT Section textarea and input */
@@ -686,6 +693,7 @@ input[type="number"].cc-value:focus {
   background: #f9f9f9;
   border-radius: 4px;
   padding: 0 8px;
+  gap: 4px;
   box-sizing: border-box;
 }
 
@@ -710,7 +718,7 @@ input[type="number"].cc-value:focus {
 .cc-size-cell {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 4px;
   flex: 1;
   min-width: 0;
   height: 32px;
@@ -726,6 +734,7 @@ input[type="number"].cc-value:focus {
   line-height: 20px;
   color: #777;
   font-weight: 500;
+  margin-right: 12px;
 }
 
 .cc-size-cell input {
@@ -791,7 +800,7 @@ input[type="number"].cc-value:focus {
   border-radius: 4px;
   padding: 0 8px;
   height: 32px;
-  gap: 16px;
+  gap: 4px;
   box-sizing: border-box;
 }
 
@@ -804,6 +813,7 @@ input[type="number"].cc-value:focus {
   font-style: normal;
   font-size: 12px;
   flex: 0 0 auto;
+  margin-right: 12px;
 }
 
 .cc-quad-cell input {

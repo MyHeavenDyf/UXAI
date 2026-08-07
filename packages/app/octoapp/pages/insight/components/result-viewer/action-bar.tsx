@@ -10,6 +10,7 @@ import { ensureLocalMarkdownFile } from "../../utils/local-resource"
 import { openFileLocally, revealFileInFolder } from "../../utils/local-file-ops"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { TruncatedText } from "./truncated-text"
 import { tracker } from "@/utils/tracker"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useParams } from "@solidjs/router"
@@ -311,7 +312,12 @@ export function ActionBar(props: {
       <Show
         when={showToggle()}
         fallback={
-          <span class="text-xs truncate max-w-[55%]" style={{ color: "var(--octo-text-secondary)" }}>{props.tab.title}</span>
+          <TruncatedText
+            class="max-w-[55%]"
+            textClass="block w-full min-w-0 text-xs truncate"
+            style={{ color: "var(--octo-text-secondary)" }}
+            text={props.tab.title}
+          />
         }
       >
         <ViewModeToggle mode={props.viewMode} onSet={props.onSetViewMode} />

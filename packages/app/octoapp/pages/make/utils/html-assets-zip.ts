@@ -22,6 +22,27 @@ import {
 } from "./references"
 import { observedUrlsToAbsPaths } from "./resource-tracker"
 
+/**
+ * 解析 HTML 内容：优先用传入的 htmlContent（LLM 生成 / 已加载），
+ * 若为空则从磁盘读原始文件（本地文件场景 tab.content 为空）。
+ * 读盘得到的是不含桥脚本的原始 HTML，适合写入 ZIP 与做静态解析。
+ */
+export async function resolveHtmlContent(
+  htmlContent: string,
+  htmlFilePath: string,
+  readFileBuffer: (p: string) => Promise<ArrayBuffer | null>
+): Promise<string> {
+  if (htmlContent && htmlContent.trim()) return htmlContent
+  if (!htmlFilePath) return htmlContent
+  try {
+    const buf = await readFileBuffer(htmlFilePath)
+    if (!buf) return htmlContent
+    return new TextDecoder("utf-8", { fatal: false }).decode(buf)
+  } catch {
+    return htmlContent
+  }
+}
+
 export interface CreateHtmlAssetsZipOptions {
   htmlContent: string
   htmlFilePath: string
@@ -40,9 +61,16 @@ export async function createHtmlAssetsZip(options: CreateHtmlAssetsZipOptions): 
     return await zip.generateAsync({ type: "blob" })
   }
 
+  // 本地文件场景 tab.content 可能为空 → 从磁盘读原始 HTML（不含桥脚本）
+  const htmlContent = await resolveHtmlContent(
+    options.htmlContent,
+    options.htmlFilePath,
+    (p) => api.readFileBuffer!(p)
+  )
+
   // 静态解析：HTML → CSS/JS 递归，返回绝对路径集合
   const staticAbsPaths = await collectReferencedFiles({
-    rootContent: options.htmlContent,
+    rootContent: htmlContent,
     rootType: "html",
     rootAbsPath: options.htmlFilePath,
     readFileBuffer: (p) => api.readFileBuffer!(p),
@@ -53,22 +81,23 @@ export async function createHtmlAssetsZip(options: CreateHtmlAssetsZipOptions): 
 
   // 并集（剔除 HTML 自身）
   const htmlAbsNorm = options.htmlFilePath.replace(/\\/g, "/")
+  const htmlDirAbs = dirname(htmlAbsNorm)
   const allAbs = new Set<string>([...staticAbsPaths, ...observedAbsPaths])
   allAbs.delete(htmlAbsNorm)
 
-  // 计算最近公共祖先（包含 HTML 自身，确保 HTML 总在 ZIP 内）
-  const nca = findCommonAncestor([htmlAbsNorm, ...allAbs])
+  // 计算最近公共祖先：至少包含 htmlDir（HTML 自身目录），确保 NCA 是目录而非文件路径。
+  // 否则当 allAbs 为空时，NCA 会退化成 htmlAbsNorm（文件路径），relativeTo 全部返回空。
+  const nca = findCommonAncestor([htmlDirAbs, ...allAbs])
 
   // HTML 在 ZIP 内的位置：相对 NCA。若 NCA == htmlDir，relativeTo 返回 basename，
   // 此时允许用调用方传入的友好文件名；否则保留原 basename（路径结构需要）。
-  const htmlDirAbs = dirname(htmlAbsNorm)
   let htmlZipPath: string
   if (nca === htmlDirAbs || nca === "") {
     htmlZipPath = options.htmlFileNameInZip
   } else {
     htmlZipPath = relativeTo(nca, htmlAbsNorm) || options.htmlFileNameInZip
   }
-  zip.file(htmlZipPath, options.htmlContent)
+  zip.file(htmlZipPath, htmlContent)
 
   // 引用文件：按相对 NCA 的路径摆放
   for (const abs of allAbs) {

@@ -1,5 +1,6 @@
 import type { OutputCard, OutputCardType } from "../components/insight-turn"
 import { directoryHeader } from "@/utils/headers"
+import { extractSubtypeFromFilename } from "./subtype-extractor"
 
 export type ArtifactFileKind =
   | "folder"
@@ -289,6 +290,7 @@ export function artifactFileToOutputCard(file: ArtifactFile): OutputCard {
     id: file.path,
     title: file.name,
     type,
+    subtype: extractSubtypeFromFilename(file.name),
     content: "",
     filePath: file.path,
     commentFilePath: file.relativePath,

@@ -59,6 +59,7 @@ import { useSettings } from "@/context/settings"
 import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
+import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
 import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, UploadError } from "../insight/lib/upload"
@@ -371,7 +372,10 @@ function MakeContent() {
   function openTitleEditor() {
     const sInfo = sessionInfoMirror()
     setTitleState({ editing: true, draft: sessionTitle(overrideTitle() ?? info()?.title ?? sInfo?.title) ?? "" })
-    requestAnimationFrame(() => titleRef?.focus())
+    requestAnimationFrame(() => {
+      titleRef?.focus()
+      titleRef?.select()
+    })
   }
 
   /** 保存标题编辑 */
@@ -406,7 +410,7 @@ function MakeContent() {
   function handleDeleteSession() {
     const id = params.id
     if (!id) return
-    dialog.show(() => <MakeDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfoMirror()?.title) ?? "Octo Design"} onDelete={deleteSession} />)
+    dialog.show(() => <DialogDeleteSession name={sessionTitle(sessionInfoMirror()?.title) ?? "Octo Design"} onDelete={() => deleteSession(id)} />)
   }
 
 // 监听项目切换，清理不属于新项目的 session
@@ -1003,21 +1007,36 @@ const sessionMessagesLoaded = createMemo(() => {
     setSkillsLoading(true)
 
     try {
-      const platformSkills = await loadSkillsFromPanel("octo_make")
-      const customSkills = await loadSkillsFromPanel("common")
+      const api = (window as unknown as { api?: { getSkillConfig?: () => Promise<import("./components/skill-config-types").SkillConfig> } }).api
+      const fullConfig = await api?.getSkillConfig?.()
       
-      setSkillConfig({
-        panel: {
-          octo_make: platformSkills,
-          common: customSkills
-        }
-      })
+      if (fullConfig) {
+        setSkillConfig(fullConfig)
+      } else {
+        // Fallback: only load panel if full config failed
+        const platformSkills = await loadSkillsFromPanel("octo_make")
+        const customSkills = await loadSkillsFromPanel("common")
+        
+        setSkillConfig({
+          panel: {
+            octo_make: platformSkills,
+            common: customSkills
+          }
+        })
+      }
     } catch (err) {
       console.error("[MakePage] Failed to load skill config:", err)
     } finally {
       setSkillsLoading(false)
     }
   }
+  
+  // 组件挂载时预加载 skill 配置
+  createEffect(() => {
+    if (params.id && !skillConfig().skill) {
+      loadSkillConfig()
+    }
+  })
 
   // ── Slash Command List ──
   interface SlashCommand {
@@ -1246,6 +1265,8 @@ const sessionMessagesLoaded = createMemo(() => {
 
   // 确认后等待主 agent 响应的过渡状态
   const [planConfirmPending, setPlanConfirmPending] = createSignal(false)
+  // confirm-plan 发送时的界面显示文本（仅显示指令，不显示方案内容）
+  let _confirmPlanDisplayText: string | undefined
 
   // Phase 2 异步检测子 session 期间阻止 banner 闪现（跨重启恢复时的过渡状态）
   const [phase2Pending, setPhase2Pending] = createSignal(false)
@@ -1333,8 +1354,16 @@ const sessionMessagesLoaded = createMemo(() => {
     setPlanConfirmPending(true)  // 过渡状态：保持 plan 视图显示"正在生成 HTML..."
     const cmd = identifier ? `[confirm-plan ${identifier}]` : `[confirm-plan]`
 
-    // 只向主 session 发送确认指令，通知主 agent 设计规划已完成，开始生成 HTML
-    sendMessage(mainSid, cmd, modelKey).catch((err) => {
+    // 获取方案内容，让主 agent 能看到方案上下文
+    const plan = planCard()
+    const planContent = plan?.content ?? ""
+    const message = planContent
+      ? `${cmd}\n\n以下是已确认的设计方案，请基于此方案生成 HTML：\n\n${planContent}`
+      : cmd
+
+    // 向主 session 发送确认指令 + 方案内容：界面只显示 [confirm-plan]，方案内容作为隐藏上下文传给模型
+    _confirmPlanDisplayText = cmd
+    sendMessage(mainSid, message, modelKey).catch((err) => {
       console.error("[MakePage] confirm plan to main session failed", err)
     })
 
@@ -1369,7 +1398,6 @@ const sessionMessagesLoaded = createMemo(() => {
       sdk.client.session.abort({ sessionID: currentChildId }).catch(() => {})
       // 注意：不归档子 session，保留其消息数据供后续查看
     }
-    const endedSid = params.id
     setActivePlanSessionId(null)
     setPlanParentSessionId(null)
     setHasChildPlanSession(false)
@@ -1380,12 +1408,7 @@ const sessionMessagesLoaded = createMemo(() => {
     setPlanEnded(true)
     // 注意：不清除 localStorage 缓存和 _planChildSessionCache，
     // 保留子 session 的引用以便跨重启恢复和消息历史查看
-    // 持久化"已退出"标记，防止切换 session / 重启后重新激活
-    if (endedSid) {
-      localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + endedSid, "true")
-    }
-    // 记录当前主 session 的设计规划已被用户结束,防止 banner 再次弹出
-    setPlanEndedForSession(params.id ?? null)
+    // end 不关闭规划通道，后续仍可再次触发设计规划
   }
 
   // ── 设计规划阶段引导(plan entry banner)─────────────────────
@@ -1412,6 +1435,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (hasChildPlanSession()) return false
     // 如果用户已结束该 session 的设计规划,不显示 banner
     if (planEndedForSession() === sid) return false
+    // 如果 skip/confirm 已关闭该 session 的规划通道（localStorage 持久化标记），不显示 banner
+    if (localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid)) return false
     // 如果 localStorage 中有缓存的子 session ID，不显示 banner（跨重启恢复）
     if (localStorage.getItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + sid)) return false
     // 如果 session 切换缓存中有该 session 的规划子 session，不显示 banner
@@ -1499,21 +1524,27 @@ const sessionMessagesLoaded = createMemo(() => {
     }
   }
 
-  /** 用户点 [直接执行] → 发送 [skip-plan],agent 跳过方案直接生成 HTML */
+  /** 用户点 [直接执行] → 发送 [skip-plan],agent 跳过方案直接生成 HTML。跳过将永久关闭该 session 的规划通道 */
   function handleSkipPlan() {
     const sid = params.id
     const modelKey = activeModelKey()
     if (!sid || !modelKey) return
     if (optimisticIntentResolved()) return
     setOptimisticIntentResolved(true)
+    // 持久化"已跳过"标记，后续不再弹出规划 banner
+    if (sid) {
+      localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid, "true")
+    }
+    setPlanEndedForSession(sid)
+    setPlanEnded(true)
     sendMessage(sid, "[skip-plan]", modelKey).catch((err) => {
       console.error("[MakePage] skip plan failed", err)
       setOptimisticIntentResolved(false)
     })
   }
 
-  // 自动滚动：session busy 时保持对话区随新内容跟随到底部
-  const autoScroll = createAutoScroll({ working: isBusy })
+  // 自动滚动：保持对话区随新内容跟随到底部（用户手动上滑则不抢）
+  const autoScroll = createAutoScroll({ working: () => true })
 
   // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs 和关闭 popover
   // 同时尝试恢复当前主 session 的设计规划子 session（包括初次渲染和切换时）
@@ -1694,6 +1725,8 @@ const sessionMessagesLoaded = createMemo(() => {
             }
           }
           checkConfirmed()
+        }).catch(() => {
+          setPhase2Pending(false)
         })
       }
     },
@@ -1933,6 +1966,10 @@ const sessionMessagesLoaded = createMemo(() => {
         filename: a.filename,
         url: a.url ?? a.dataUrl!,
       }))
+
+      // 附件已快照到 fileParts/localManifest，立即清空 UI；
+      // 否则要等 await session.prompt 完成才会清空，造成"附件要等模型回复完成才消失"的现象
+      setAttachments([])
       
       // ── Multi-slash-command detection ──
       // Scan all tokens in processedText for /cmd patterns, match against sync.data.command,
@@ -2013,7 +2050,8 @@ const sessionMessagesLoaded = createMemo(() => {
 
       // Store display text for rendering (user's visible text with @mentions)
       const hasMentions = selections.length > 0
-      const userDisplayText = hasMentions ? displayText : undefined
+      const userDisplayText = _confirmPlanDisplayText ?? (hasMentions ? displayText : undefined)
+      _confirmPlanDisplayText = undefined
 
       let promptText = processedText
 
@@ -2174,6 +2212,7 @@ const sessionMessagesLoaded = createMemo(() => {
         parts,
       })
       setAttachments([])
+      requestAnimationFrame(() => autoScroll.forceScrollToBottom())
     } catch (err) {
       console.error("[MakePage] prompt failed", err)
       setAttachments([])
@@ -2263,6 +2302,7 @@ if (dsId) {
         navigate(`/make/${session.id}`)
         sid = session.id
       }
+      autoScroll.forceScrollToBottom()
       await sendMessage(sid, text, capturedModelKey, mentions)
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
@@ -3121,7 +3161,7 @@ if (dsId) {
                   </Show>
                   <Show when={effectiveBusy()}>
                     <div class="shrink-0 flex items-center gap-1.5">
-                      <Spinner class="size-4" />
+                      <Spinner class="size-4" style={{ color: "#0a59f7" }} />
                     </div>
                   </Show>
                   <Show
@@ -3131,6 +3171,7 @@ if (dsId) {
                         ref={(el) => { titleRef = el }}
                         value={titleState.draft}
                         class="text-14-medium text-text-strong grow-1 min-w-0 rounded-[6px] pl-1 -ml-1"
+                        style={{ "font-weight": "600" }}
                         onInput={(e) => setTitleState("draft", e.currentTarget.value)}
                         onKeyDown={(e) => {
                           e.stopPropagation()
@@ -3399,7 +3440,7 @@ if (dsId) {
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
               >
-                <div ref={autoScroll.contentRef} class="py-3 flex flex-col gap-0">
+                <div ref={autoScroll.contentRef} class="py-4 flex flex-col gap-4">
                     {/* 第一条消息 */}
                     <Show when={userMessages().length > 0}>
                       <InsightTurn
@@ -3422,12 +3463,13 @@ if (dsId) {
                         hasQuestionRequest={!!questionRequest()}
                         onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
                         skillToolCalls={skillToolCalls()}
+                        skillConfig={skillConfig()}
                       />
                     </Show>
                     {/* 设计策略模式气泡 */}
                     <Show when={resultViewMode() === "plan" && activePlanSessionId()}>
                       <div
-                        class="flex items-center justify-between mx-3 mb-2"
+                        class="flex items-center justify-between mx-3"
                         style={{
                           height: "48px",
                           padding: "0 16px",
@@ -3483,6 +3525,7 @@ if (dsId) {
                         hasQuestionRequest={!!questionRequest()}
                         onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
                         skillToolCalls={skillToolCalls()}
+                        skillConfig={skillConfig()}
                       />
                     )}
                   </For>
@@ -3511,7 +3554,7 @@ if (dsId) {
                 {/* Permission dock - 权限授权 UI */}
                 <Show when={permissionRequest()} keyed>
                   {(request) => (
-                    <div class="w-full pb-3">
+                    <div class="w-full max-w-[800px] mx-auto pb-3">
                       <SessionPermissionDock
                         request={request}
                         responding={permissionResponding()}
@@ -3834,33 +3877,3 @@ if (dsId) {
   )
 }
 
-
-function MakeDialogDeleteSession(props: { sessionID: string; name: string; onDelete: (id: string) => Promise<void> }): JSX.Element {
-  const language = useLanguage()
-  const dialog = useDialog()
-  return (
-    <Dialog title={language.t("session.delete.title")} fit class="delete-dialog">
-      <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
-        {language.t("session.delete.confirm", { name: props.name })}
-      </span>
-      <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
-        <Button
-          variant="ghost"
-          size="large"
-          class="delete-dialog-btn"
-          onClick={() => dialog.close()}
-        >
-          {language.t("common.cancel")}
-        </Button>
-        <Button
-          variant="primary"
-          size="large"
-          class="delete-dialog-btn delete-dialog-btn-primary"
-          onClick={() => void props.onDelete(props.sessionID).then(() => dialog.close())}
-        >
-          {language.t("session.delete.button")}
-        </Button>
-      </div>
-    </Dialog>
-  )
-}

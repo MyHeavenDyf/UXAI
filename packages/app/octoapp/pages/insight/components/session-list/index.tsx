@@ -19,6 +19,7 @@ import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
+import { DialogDeleteSession } from "@/components/dialog-delete-session"
 
 /**
  * InsightSessionList —— Insight 会话段(SPEC-INS-010 §11.3 / D11)
@@ -218,19 +219,10 @@ export function InsightSessionList(): JSX.Element {
     const session = sessionList.find((s) => s.id === sessionId)
     closeContextMenu()
     dialog.show(() => (
-      <Dialog title="删除会话" fit class="delete-dialog">
-        <span class="text-[14px] leading-[22px] min-w-0 break-words" style={{ color: "rgba(0,0,0,0.9)" }}>
-          确定删除「{sessionTitle(session?.title) || language.t("command.session.new")}」？
-        </span>
-        <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
-          <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
-            {language.t("common.cancel")}
-          </Button>
-          <Button variant="primary" size="large" class="delete-dialog-btn delete-dialog-btn-primary" onClick={() => { void handleDelete(sessionId).then(() => dialog.close()) }}>
-            {language.t("session.delete.button")}
-          </Button>
-        </div>
-      </Dialog>
+      <DialogDeleteSession
+        name={sessionTitle(session?.title) || language.t("command.session.new")}
+        onDelete={() => handleDelete(sessionId)}
+      />
     ))
   }
 

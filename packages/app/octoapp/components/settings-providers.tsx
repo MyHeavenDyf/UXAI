@@ -4,7 +4,7 @@ import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Tag } from "@opencode-ai/ui/tag"
 import { showToast } from "@opencode-ai/ui/toast"
 import { popularProviders, useProviders } from "@/hooks/use-providers"
-import { createMemo, type Component, For, Show } from "solid-js"
+import { createMemo, type Component, For, Show, type JSX } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
@@ -27,6 +27,37 @@ const PROVIDER_NOTES = [
   { match: (id: string) => id === "openrouter", key: "dialog.provider.openrouter.note" },
   { match: (id: string) => id === "vercel", key: "dialog.provider.vercel.note" },
 ] as const
+
+const whiteBtn: JSX.CSSProperties = {
+  width: "80px",
+  height: "28px",
+  "background-color": "#fff",
+  border: "1px solid #c9c9c9",
+  "border-radius": "8px",
+  "font-size": "12px",
+  "line-height": "20px",
+  color: "rgba(0,0,0,0.9)",
+  cursor: "pointer",
+  display: "flex",
+  "align-items": "center",
+  "justify-content": "center",
+  gap: "4px",
+}
+
+const blueBtn: JSX.CSSProperties = {
+  width: "80px",
+  height: "28px",
+  "background-color": "#0a59f7",
+  border: "none",
+  "border-radius": "8px",
+  "font-size": "12px",
+  "line-height": "20px",
+  color: "#fff",
+  cursor: "pointer",
+  display: "flex",
+  "align-items": "center",
+  "justify-content": "center",
+}
 
 export const SettingsProviders: Component = () => {
   const dialog = useDialog()
@@ -191,34 +222,54 @@ export const SettingsProviders: Component = () => {
                     </div>
                     <Show when={item.id === "opencode"}>
                       <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-                        <Button size="large" variant="secondary" onClick={() => {
-                          dialog.show(() => <DialogConnectProvider provider="opencode" />)
-                        }}>
+                        <button
+                          type="button"
+                          style={whiteBtn}
+                          onClick={() => {
+                            dialog.show(() => <DialogConnectProvider provider="opencode" />)
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
+                          onMouseLeave={(e) => e.currentTarget.style.setProperty("border-color", "#c9c9c9")}
+                          onMouseDown={(e) => e.currentTarget.style.setProperty("border-color", "#0a59f7")}
+                          onMouseUp={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
+                        >
                           {hasApiKey("opencode")
                             ? language.t("common.edit")
                             : language.t("common.connect")}
-                        </Button>
+                        </button>
                         <Show when={hasApiKey("opencode")}>
-                          <Button size="large" variant="ghost" onClick={() => void disconnectOpencode(item.name)}>
+                          <button
+                            type="button"
+                            style={blueBtn}
+                            onClick={() => void disconnectOpencode(item.name)}
+                            onMouseEnter={(e) => e.currentTarget.style.setProperty("background-color", "#0950de")}
+                            onMouseLeave={(e) => e.currentTarget.style.setProperty("background-color", "#0a59f7")}
+                            onMouseDown={(e) => e.currentTarget.style.setProperty("background-color", "#0a55eb")}
+                            onMouseUp={(e) => e.currentTarget.style.setProperty("background-color", "#0950de")}
+                          >
                             {language.t("common.disconnect")}
-                          </Button>
+                          </button>
                         </Show>
                       </div>
                     </Show>
                     <Show when={item.id !== "opencode" && item.id !== "w3"}>
                       <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
                         <Show when={isConfigCustom(item.id)}>
-                          <Button
-                            size="large"
-                            variant="secondary"
+                          <button
+                            type="button"
+                            style={whiteBtn}
                             onClick={() =>
                               dialog.show(() => (
                                 <DialogCustomProvider back="close" providerID={item.id} />
                               ))
                             }
+                            onMouseEnter={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
+                            onMouseLeave={(e) => e.currentTarget.style.setProperty("border-color", "#c9c9c9")}
+                            onMouseDown={(e) => e.currentTarget.style.setProperty("border-color", "#0a59f7")}
+                            onMouseUp={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
                           >
                             {language.t("common.edit")}
-                          </Button>
+                          </button>
                         </Show>
                         <Show
                           when={canDisconnect(item)}
@@ -230,9 +281,17 @@ export const SettingsProviders: Component = () => {
                             </Show>
                           }
                         >
-                          <Button size="large" variant="ghost" onClick={() => void disconnect(item.id, item.name)}>
+                          <button
+                            type="button"
+                            style={blueBtn}
+                            onClick={() => void disconnect(item.id, item.name)}
+                            onMouseEnter={(e) => e.currentTarget.style.setProperty("background-color", "#0950de")}
+                            onMouseLeave={(e) => e.currentTarget.style.setProperty("background-color", "#0a59f7")}
+                            onMouseDown={(e) => e.currentTarget.style.setProperty("background-color", "#0a55eb")}
+                            onMouseUp={(e) => e.currentTarget.style.setProperty("background-color", "#0950de")}
+                          >
                             {language.t("common.disconnect")}
-                          </Button>
+                          </button>
                         </Show>
                       </div>
                     </Show>
@@ -264,16 +323,19 @@ export const SettingsProviders: Component = () => {
                       {(key) => <span style={{ "font-size": "12px", "line-height": "20px", color: "rgba(0, 0, 0, 0.6)", "margin-top": "4px" }}>{language.t(key())}</span>}
                     </Show>
                   </div>
-                  <Button
-                    size="large"
-                    variant="secondary"
-                    icon="plus-small"
+                  <button
+                    type="button"
+                    style={whiteBtn}
                     onClick={() => {
                       dialog.show(() => <DialogConnectProvider provider={item.id} />)
                     }}
+                    onMouseEnter={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
+                    onMouseLeave={(e) => e.currentTarget.style.setProperty("border-color", "#c9c9c9")}
+                    onMouseDown={(e) => e.currentTarget.style.setProperty("border-color", "#0a59f7")}
+                    onMouseUp={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
                   >
                     {language.t("common.connect")}
-                  </Button>
+                  </button>
                 </div>
               )}
             </For>
@@ -292,16 +354,19 @@ export const SettingsProviders: Component = () => {
                   {language.t("settings.providers.custom.description")}
                 </span>
               </div>
-              <Button
-                size="large"
-                variant="secondary"
-                icon="plus-small"
+              <button
+                type="button"
+                style={whiteBtn}
                 onClick={() => {
                   dialog.show(() => <DialogCustomProvider back="close" />)
                 }}
+                onMouseEnter={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
+                onMouseLeave={(e) => e.currentTarget.style.setProperty("border-color", "#c9c9c9")}
+                onMouseDown={(e) => e.currentTarget.style.setProperty("border-color", "#0a59f7")}
+                onMouseUp={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
               >
                 {language.t("common.connect")}
-              </Button>
+              </button>
             </div>
           </SettingsList>
 

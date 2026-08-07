@@ -31,6 +31,7 @@ import { tracker } from "@/utils/tracker"
 import { createC2DZip } from "../../utils/canvas-to-design"
 import { uploadZip } from "@/utils/useZipTransport"
 import { useProjectSelection } from "@/hooks/use-project-selection"
+import { getDesktopApi } from "../../lib/electron-api"
 
 function extractCodeBlock(text: string, lang: string): string {
   const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
@@ -163,6 +164,13 @@ export function ResultViewer(props: {
   const handleViewportChange = (vp: ViewportPreset) => {
     tracker.interaction({ module: "design", name: "change-viewport", extend: JSON.stringify({ viewport: vp }) })
     setViewport(vp)
+    // 视口切换会改变 iframe 尺寸和元素坐标,挂着的交互面板(Inspect/Edit/Draw/Comment/Archive)
+    // 在新视口下 bridge 和元素位置都对不上,统一关闭,让用户重新进入
+    setInspecting(false)
+    setEditing(false)
+    setDrawing(false)
+    setCommenting(false)
+    setArchiving(false)
   }
 
   const handleCanvasToDesign = async () => {
@@ -175,6 +183,61 @@ export function ResultViewer(props: {
       }
 
       const isLoggedIn = !!localStorage.getItem('uiplusToken')
+
+      // shadcn branch: read existing ZIP file instead of generating
+      if (tab.subtype === "shadcn") {
+        const filePath = tab.filePath || tab.absoluteFilePath
+        if (!filePath) {
+          showToast({ title: "无法获取文件路径" })
+          return
+        }
+
+        const dir = filePath.replace(/[/\\][^/\\]+$/, '')
+        let zipName = tab.title
+        if (zipName.toLowerCase().endsWith('.html')) {
+          zipName = zipName.slice(0, -5)
+        }
+        zipName += '.zip'
+        const zipPath = dir + '/' + zipName
+
+        const api = getDesktopApi()
+        if (!api?.readFileBuffer) {
+          showToast({ title: "不支持本地文件读取" })
+          return
+        }
+
+        const buffer = await api.readFileBuffer(zipPath)
+        if (!buffer) {
+          showToast({ title: "ZIP文件不存在", description: zipPath })
+          return
+        }
+
+        const zipBlob = new Blob([buffer], { type: "application/zip" })
+
+        if (!isLoggedIn) {
+          const url = URL.createObjectURL(zipBlob)
+          const a = document.createElement("a")
+          a.href = url
+          a.download = zipName
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          URL.revokeObjectURL(url)
+          showToast({ title: "下载完成" })
+          return
+        }
+
+        const result = await uploadZip(async () => zipBlob, projectSelection())
+        console.log('pixsourl', result?.pixsoUrl)
+
+        if (!result.webview) {
+          showToast({ title: "创建失败" })
+          return
+        }
+
+        console.log('pixso loaded')
+        return
+      }
 
       if (!isLoggedIn) {
         showToast({ title: "生成ZIP文件..." })

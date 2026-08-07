@@ -8,6 +8,7 @@ export type ToolCallInfo = {
   input?: Record<string, unknown>
   output?: string
   filePath?: string
+  displayName?: string
 }
 
 type ToolFamily = "write" | "edit" | "read" | "bash" | "glob" | "grep" | "search" | "task" | "skill" | "other"
@@ -52,8 +53,8 @@ function StatusBadge(props: { status: ToolCallStatus }): JSX.Element {
   })
   return (
     <span
-      class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium"
-      style={{ background: cfg().bg, color: cfg().color }}
+      class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium"
+      style={{ background: cfg().bg, color: cfg().color, "border-radius": "4px" }}
     >
       {cfg().pulse && (
         <span class="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: cfg().color }} />
@@ -73,7 +74,11 @@ function SingleToolCard(props: { call: ToolCallInfo }): JSX.Element {
     if (typeof input.command === "string") return input.command.length > 60 ? input.command.slice(0, 60) + "…" : input.command
     if (typeof input.pattern === "string") return input.pattern
     if (typeof input.query === "string") return input.query
+    
+    // 技能调用：优先使用 displayName
+    if (props.call.displayName) return props.call.displayName
     if (typeof input.name === "string") return input.name
+    
     return ""
   })
   const tooltipText = createMemo(() => {
@@ -84,7 +89,7 @@ function SingleToolCard(props: { call: ToolCallInfo }): JSX.Element {
   })
   return (
     <div
-      class="mx-3 mb-1 px-2.5 py-1.5 flex items-center gap-2 text-xs"
+      class="mx-3 px-4 py-2 flex items-center gap-2 text-xs"
       style={{
         "border-radius": "var(--octo-radius-md)",
         background: "var(--octo-surface-page)",
@@ -141,13 +146,13 @@ function ToolGroupCard(props: { group: GroupedToolCalls }): JSX.Element {
       when={isSingle()}
       fallback={
         <div
-          class="mx-3 mb-1"
+          class="mx-3"
           style={{ "border-radius": "var(--octo-radius-md)" }}
         >
           <button
             type="button"
             onClick={() => setOpen(!open())}
-            class="w-full px-2.5 py-1.5 flex items-center gap-2 text-xs text-left"
+            class="w-full px-4 py-2 flex items-center gap-2 text-xs text-left"
             style={{
               background: "var(--octo-surface-page)",
               border: "1px solid var(--octo-border-default)",
@@ -155,7 +160,7 @@ function ToolGroupCard(props: { group: GroupedToolCalls }): JSX.Element {
             }}
           >
             <span style={{ color: "var(--octo-text-secondary)" }}>{label()}</span>
-            <span style={{ color: "var(--octo-text-secondary)" }}>x{props.group.calls.length}</span>
+            <span style={{ color: "var(--octo-text-primary)" }}>x{props.group.calls.length}</span>
             <span class="flex-1" />
             <StatusBadge status={overallStatus()} />
             <svg
@@ -166,7 +171,7 @@ function ToolGroupCard(props: { group: GroupedToolCalls }): JSX.Element {
             </svg>
           </button>
           <Show when={open()}>
-            <div class="mt-0.5 flex flex-col gap-0.5">
+            <div class="mt-0.5 flex flex-col gap-2">
               <For each={props.group.calls}>
                 {(call) => <SingleToolCard call={call} />}
               </For>
@@ -183,7 +188,7 @@ function ToolGroupCard(props: { group: GroupedToolCalls }): JSX.Element {
 export function ToolCallGroupCard(props: { calls: ToolCallInfo[] }): JSX.Element {
   const groups = createMemo(() => groupByFamily(props.calls))
   return (
-    <div class="flex flex-col gap-0.5 mb-1">
+    <div class="flex flex-col gap-4">
       <For each={groups()}>
         {(group) => <ToolGroupCard group={group} />}
       </For>

@@ -133,7 +133,6 @@ function FileManagerInner(props: {
   const fileStore = createInsightFileStore()
   const store = () => fileStore.store
   const [isDragOver, setIsDragOver] = createSignal(false)
-  const [emptyUploadOpen, setEmptyUploadOpen] = createSignal(false)
   let fileInputRef!: HTMLInputElement
   let folderInputRef!: HTMLInputElement
 
@@ -168,7 +167,7 @@ function FileManagerInner(props: {
         fileStore.setGeneratedFiles(outputs.map(toInsightFile))
         fileStore.setUploadedFiles(uploads.map(toInsightFile))
       } else {
-        const uploads = await fetchInsightFiles(sdk.url, sdk.directory, props.sessionId, "uploads", store().currentPath)
+        const uploads = await fetchInsightFiles(sdk.url, sdk.directory, props.sessionId, "uploads", { subPath: store().currentPath })
         fileStore.setUploadedFiles(uploads.map(toInsightFile))
         fileStore.setGeneratedFiles([])
       }
@@ -450,7 +449,7 @@ function FileManagerInner(props: {
   // ── 删除 ────────────────────────────────────────────────────────
   function showDeleteDialog(body: JSX.Element, onConfirm: () => void) {
     dialog.show(() => (
-      <Dialog title="删除文件" fit class="delete-dialog">
+      <Dialog title="删除文件" fit class="delete-file-dialog">
         {body}
         <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
           <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>取消</Button>
@@ -536,10 +535,13 @@ function FileManagerInner(props: {
 
   const hasAnyFiles = createMemo(() => store().uploadedFiles.length > 0 || store().generatedFiles.length > 0)
   const showInitialSpinner = createMemo(() => store().loading && !hasAnyFiles() && !store().error)
+  // 头部(工具栏)/ 面包屑的显隐:有文件,或进了子文件夹(即便空)都要显示——
+  // 否则点开空文件夹会把头部和面包屑一并藏掉,用户无法返回上一层(对齐 Design design-files-panel)。
+  const showHeader = createMemo(() => hasAnyFiles() || !fileStore.isTopLevel())
 
   return (
     <div class="flex flex-col h-full overflow-hidden" style={{ background: "var(--octo-surface-page)" }}>
-      <Show when={hasAnyFiles()}>
+      <Show when={showHeader()}>
         <FileManagerToolbar
           fileStore={fileStore}
           onRefresh={refresh}
@@ -600,63 +602,15 @@ function FileManagerInner(props: {
         <Match when={showInitialSpinner()}>
           <div class="flex items-center justify-center flex-1 min-h-0"><Spinner class="size-[20px]" /></div>
         </Match>
-        <Match when={!hasAnyFiles()}>
+        <Match when={!showHeader()}>
           <div class="flex flex-col items-center justify-center flex-1 min-h-0 text-center px-8">
-            <img src={emptyPng} style={{ width: "150px", height: "150px" }} alt="" draggable={false} />
-            <span class="text-[14px] leading-[22px]" style={{ color: "var(--octo-text-secondary)", "margin-bottom": "20px" }}>暂无文件</span>
-            <span class="text-[14px] leading-[22px]" style={{ color: "var(--octo-text-primary)", "margin-bottom": "20px" }}>点击上传或拖入本地文件，统一管理会话文件</span>
-            <Kobalte open={emptyUploadOpen()} onOpenChange={setEmptyUploadOpen} modal={false} placement="bottom" gutter={4}>
-              <Kobalte.Trigger
-                as="button"
-                type="button"
-                class="flex items-center justify-center gap-2 transition-colors"
-                style={{
-                  background: "var(--octo-brand)",
-                  color: "white",
-                  "border-radius": "999px",
-                  height: "32px",
-                  width: "108px",
-                  "font-size": "14px",
-                  "line-height": "22px",
-                  cursor: "pointer",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-hover)") }}
-                onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand)") }}
-                onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-active)") }}
-                onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-hover)") }}
-              >
-                <IconUpload size={16} />
-                <span>上传文件</span>
-              </Kobalte.Trigger>
-              <Kobalte.Portal>
-                <Kobalte.Content
-                  class="z-50 flex flex-col gap-1 rounded-md p-2"
-                  style={{ "box-shadow": "0 4px 12px rgba(0,0,0,0.16)", "min-width": "122px", "background-color": "var(--octo-surface-page)" }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => { folderInputRef?.click(); setEmptyUploadOpen(false) }}
-                    class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[var(--octo-surface-hover)]"
-                    style={{ height: "36px", "border-radius": "var(--octo-radius-md)", "font-size": "14px", "line-height": "22px", color: "var(--octo-text-primary)" }}
-                  >
-                    <IconFolder size={16} />
-                    <span>上传文件夹</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { fileInputRef?.click(); setEmptyUploadOpen(false) }}
-                    class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[var(--octo-surface-hover)]"
-                    style={{ height: "36px", "border-radius": "var(--octo-radius-md)", "font-size": "14px", "line-height": "22px", color: "var(--octo-text-primary)" }}
-                  >
-                    <IconFile size={16} />
-                    <span>上传文件</span>
-                  </button>
-                </Kobalte.Content>
-              </Kobalte.Portal>
-            </Kobalte>
+            <EmptyFilesState
+              onUploadFile={() => fileInputRef?.click()}
+              onUploadFolder={() => folderInputRef?.click()}
+            />
           </div>
         </Match>
-        <Match when={hasAnyFiles()}>
+        <Match when={showHeader()}>
           <div class="flex flex-col flex-1 min-h-0">
             {/* 面包屑固定:不随表格滚动 */}
             <div class="shrink-0" style={{ padding: "24px 24px 0" }}>
@@ -664,20 +618,29 @@ function FileManagerInner(props: {
             </div>
             {/* 只滚动表格内容:表头 sticky 吸顶(吸附到本滚动容器顶部,即面包屑下方) */}
             <div class="flex-1 min-h-0 overflow-auto">
-              <div style={{ padding: "0 24px 24px" }}>
-                <FileTable
-                  fileStore={fileStore}
-                  onHeaderSort={handleHeaderSort}
-                  onSelectAllPage={handleSelectAllPage}
-                  onOpen={handleOpenFile}
-                  onAddToSession={props.onAddToSession ? handleAddToSession : undefined}
-                  onDownload={handleDownload}
-                  onDelete={handleDelete}
-                  onArchive={handleArchiveFile}
-                  onOpenInExplorer={handleOpenInExplorer}
-                  onNavigateFolder={(f) => fileStore.navigateToFolder(f)}
-                />
-              </div>
+              <Show when={hasAnyFiles()} fallback={
+                <div class="flex flex-col items-center justify-center h-full text-center px-8">
+                  <EmptyFilesState
+                    onUploadFile={() => fileInputRef?.click()}
+                    onUploadFolder={() => folderInputRef?.click()}
+                  />
+                </div>
+              }>
+                <div style={{ padding: "0 24px 24px" }}>
+                  <FileTable
+                    fileStore={fileStore}
+                    onHeaderSort={handleHeaderSort}
+                    onSelectAllPage={handleSelectAllPage}
+                    onOpen={handleOpenFile}
+                    onAddToSession={props.onAddToSession ? handleAddToSession : undefined}
+                    onDownload={handleDownload}
+                    onDelete={handleDelete}
+                    onArchive={handleArchiveFile}
+                    onOpenInExplorer={handleOpenInExplorer}
+                    onNavigateFolder={(f) => fileStore.navigateToFolder(f)}
+                  />
+                </div>
+              </Show>
             </div>
           </div>
         </Match>
@@ -977,6 +940,73 @@ function MenuItem(props: { label: string; onClick: () => void; danger?: boolean;
 
 function MenuDivider(): JSX.Element {
   return <div style={{ height: "1px", background: "var(--octo-border-divider)", margin: "4px 0" }} />
+}
+
+// 无文件空状态(顶层空 / 空子文件夹共用):图片 + 标题 + 描述 + 上传按钮 popover。
+// 外层居中容器由调用方提供(顶层用 flex-1 撑满,子文件夹用 h-full 撑满滚动区)。
+// popover 的 open 状态由本组件自管:两个挂载点互斥,各自持有独立 signal,卸载即重置,
+// 避免跨挂载点残留 open 状态导致下一个空状态挂载时 popover 自动弹出。
+function EmptyFilesState(props: {
+  onUploadFile: () => void
+  onUploadFolder: () => void
+}): JSX.Element {
+  const [uploadOpen, setUploadOpen] = createSignal(false)
+  return (
+    <>
+      <img src={emptyPng} style={{ width: "150px", height: "150px" }} alt="" draggable={false} />
+      <span class="text-[14px] leading-[22px]" style={{ color: "var(--octo-text-secondary)", "margin-bottom": "20px" }}>暂无文件</span>
+      <span class="text-[14px] leading-[22px]" style={{ color: "var(--octo-text-primary)", "margin-bottom": "20px" }}>点击上传或拖入本地文件，统一管理会话文件</span>
+      <Kobalte open={uploadOpen()} onOpenChange={setUploadOpen} modal={false} placement="bottom" gutter={4}>
+        <Kobalte.Trigger
+          as="button"
+          type="button"
+          class="flex items-center justify-center gap-2 transition-colors"
+          style={{
+            background: "var(--octo-brand)",
+            color: "white",
+            "border-radius": "999px",
+            height: "32px",
+            width: "108px",
+            "font-size": "14px",
+            "line-height": "22px",
+            cursor: "pointer",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-hover)") }}
+          onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand)") }}
+          onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-active)") }}
+          onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand-hover)") }}
+        >
+          <IconUpload size={16} />
+          <span>上传文件</span>
+        </Kobalte.Trigger>
+        <Kobalte.Portal>
+          <Kobalte.Content
+            class="z-50 flex flex-col gap-1 rounded-md p-2"
+            style={{ "box-shadow": "0 4px 12px rgba(0,0,0,0.16)", "min-width": "122px", "background-color": "var(--octo-surface-page)" }}
+          >
+            <button
+              type="button"
+              onClick={() => { props.onUploadFolder(); setUploadOpen(false) }}
+              class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[var(--octo-surface-hover)]"
+              style={{ height: "36px", "border-radius": "var(--octo-radius-md)", "font-size": "14px", "line-height": "22px", color: "var(--octo-text-primary)" }}
+            >
+              <IconFolder size={16} />
+              <span>上传文件夹</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { props.onUploadFile(); setUploadOpen(false) }}
+              class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[var(--octo-surface-hover)]"
+              style={{ height: "36px", "border-radius": "var(--octo-radius-md)", "font-size": "14px", "line-height": "22px", color: "var(--octo-text-primary)" }}
+            >
+              <IconFile size={16} />
+              <span>上传文件</span>
+            </button>
+          </Kobalte.Content>
+        </Kobalte.Portal>
+      </Kobalte>
+    </>
+  )
 }
 
 function NoSessionEmpty(): JSX.Element {
