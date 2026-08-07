@@ -55,6 +55,7 @@ import { FileManagerToolbar } from "./toolbar"
 import { Breadcrumb } from "./breadcrumb"
 import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
 import { archiveFileSizeError } from "../../utils/archive-size"
+import { getLargeArchiveFile } from "../../utils/archive-utils"
 
 // 把文件管理列表中的非 HTML InsightFile 转成归档 file target(本地读盘 / uri 拉取 → EdmUtil.upload)。
 // HTML 归档只在 result-viewer ActionBar 提供(那里有 live iframe 可截图,且避免对用户上传目录整包打包),故本入口不处理 HTML。
@@ -67,20 +68,11 @@ function insightFileToArchiveTarget(file: InsightFile, sdkUrl: string, sdkDirect
     filePath: file.path,
     getFile: async () => {
       const api = getDesktopApi()
-      // 大文件优先走流式:fetch(local://) → Chromium blob 注册表托底的真 Blob(磁盘态),
-      // postMessage 结构化克隆只传引用不丢 size。绕开 readFileBuffer 整份读 + IPC 结构化克隆 ~2GB 上限
-      // (2.5GB zip 在此之前 RangeError 静默成 null)。小文件保 readFileBuffer 原路径(零回归)。
-      if (api?.statFile) {
-        try {
-          const st = await api.statFile(file.path)
-          if (st && st.size > 1.8 * 1024 * 1024 * 1024) {
-            const blob = await fetch(pathToLocalUrl(file.path)).then((r) => r.blob())
-            if (blob.size > 0) return new File([blob], file.name, { type: file.mime || undefined })
-          }
-        } catch (err) {
-          console.warn("[octo:archive] stat-or-fetch-large-failed", { path: file.path, err })
-        }
-      }
+      // 大文件优先走流式 fetch(local://).blob()(Chromium blob 注册表托底,postMessage 只传引用不丢 size)。
+      // ≤1.8GiB 返回 null 继续 readFileBuffer 原路径;>1.8GiB streaming 失败抛错(不回退 readFileBuffer
+      // —— >阈值必 RangeError,会掩盖 streaming 真实错误成原 toast "无法获取文件内容")。
+      const large = await getLargeArchiveFile(file.path, file.name, file.mime)
+      if (large) return large
       if (api?.readFileBuffer) {
         try {
           const buf = await api.readFileBuffer(file.path)

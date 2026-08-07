@@ -386,8 +386,10 @@ export function registerLocalProtocol() {
       }
 
       const upstream = await net.fetch(pathToFileURL(absolutePath).toString())
+      // 不透传 upstream.status:file:// 在某些 opaque 场景返回 status:0,
+      // new Response(body, { status: 0 }) 会抛 TypeError(status 必须 200–599)。
+      // 省略 status(默认 200),与原 readFile 路径行为一致。
       return new Response(upstream.body, {
-        status: upstream.status,
         headers: {
           "Content-Type": mimeType,
           "Access-Control-Allow-Origin": "*",

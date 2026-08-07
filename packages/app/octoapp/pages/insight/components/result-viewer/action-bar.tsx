@@ -16,7 +16,7 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { useParams } from "@solidjs/router"
 import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
 import { archiveFileSizeError } from "../../utils/archive-size"
-import { pathToLocalUrl } from "../../utils/insight-file-api"
+import { getLargeArchiveFile } from "../../utils/archive-utils"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).then(() => {
@@ -65,17 +65,10 @@ function tabArchiveMime(tab: ResultTab): string {
 async function getTabFile(tab: ResultTab): Promise<File | null> {
   const name = tabArchiveName(tab)
   const api = getDesktopApi()
-  // 大文件优先走流式:fetch(local://) → blob 注册表托底的真 Blob(磁盘态),postMessage 只传引用不丢 size。
-  if (tab.filePath && api?.statFile) {
-    try {
-      const st = await api.statFile(tab.filePath)
-      if (st && st.size > 1.8 * 1024 * 1024 * 1024) {
-        const blob = await fetch(pathToLocalUrl(tab.filePath)).then((r) => r.blob())
-        if (blob.size > 0) return new File([blob], name, { type: tab.mimeType || undefined })
-      }
-    } catch (err) {
-      console.warn("[octo:archive] stat-or-fetch-large-failed", { filePath: tab.filePath, err })
-    }
+  // 大文件优先走流式;≤1.8GiB 返回 null 继续 readFileBuffer;>1.8GiB streaming 失败抛错(不回退 readFileBuffer)
+  if (tab.filePath) {
+    const large = await getLargeArchiveFile(tab.filePath, name, tab.mimeType)
+    if (large) return large
   }
   if (tab.filePath && api?.readFileBuffer) {
     try {

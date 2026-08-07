@@ -108,7 +108,6 @@ const api: ElectronAPI = {
   writeFile: (path, content) => ipcRenderer.invoke("write-file", path, content),
   readFileBuffer: (path) => ipcRenderer.invoke("read-file-buffer", path),
   statFile: (path) => ipcRenderer.invoke("stat-file", path),
-  readFileRange: (path, offset, length) => ipcRenderer.invoke("read-file-range", path, offset, length),
   fileExists: (path) => ipcRenderer.invoke("file-exists", path),
   deleteFile: (path) => ipcRenderer.invoke("delete-file", path),
   writeClipboardText: (text) => ipcRenderer.invoke("write-clipboard-text", text),
