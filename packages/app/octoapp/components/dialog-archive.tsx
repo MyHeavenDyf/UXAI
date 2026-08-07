@@ -1441,6 +1441,8 @@ export function ArchiveDialog(props: Props): JSX.Element {
             color: rgba(0, 0, 0, 0.6);
             margin: 0 0 24px;
             text-align: center;
+            word-break: break-all;
+            overflow-wrap: anywhere;
           }
           .archive-dialog-collision-options {
             display: flex;

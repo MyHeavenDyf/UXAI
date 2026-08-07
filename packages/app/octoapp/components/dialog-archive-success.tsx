@@ -78,6 +78,9 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
             border-radius: 12px;
             width: 400px;
             max-width: 90vw;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
             box-shadow: 0 16px 48px 0 rgba(0, 0, 0, 0.16);
             animation: dialog-slide-in 0.2s ease-out;
           }
@@ -126,6 +129,9 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
           }
           .dialog-archive-success-body {
             padding: 16px 24px;
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
           }
           .archive-path-text {
             margin: 0;
@@ -133,6 +139,7 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
             line-height: 22px;
             color: rgba(0, 0, 0, 0.9);
             word-break: break-all;
+            overflow-wrap: anywhere;
           }
           .archive-path-value {
             color: rgba(0, 0, 0, 0.9);
