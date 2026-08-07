@@ -989,6 +989,15 @@
   gap: 32px;
 }
 
+.studio-canvas-stage-notice {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  z-index: 20;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
 .studio-canvas-stage.has-back-bar {
   padding-top: 20px;
   background: #fff;

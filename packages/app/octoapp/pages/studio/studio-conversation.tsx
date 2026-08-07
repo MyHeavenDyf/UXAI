@@ -9,6 +9,7 @@ import { capabilityLabel, STUDIO_STYLE_MODELS } from "./data"
 import { StudioVideoPlayer } from "./studio-video-player"
 import { getArtifactRelativePath, getArtifactServeUrl } from "../make/utils/artifact-file-api"
 import { StudioFileManager } from "./studio-file-manager"
+import { FloatingNotice } from "@/components/floating-notice"
 import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
 
 const INPUT_IMAGE_PREVIEW_SIZE = 125
@@ -197,6 +198,7 @@ export function StudioResultCanvas(props: {
   tabImages?: StudioImage[]
   tabLabels?: Record<string, string>
   onDownload: () => void
+  downloadNotice?: () => string | null
   onSelectImage?: (id: string) => void
   onDeleteImage?: (id: string) => void
   onCloseTab?: (id: string) => void
@@ -431,6 +433,13 @@ export function StudioResultCanvas(props: {
                   </div>
                 </Show>
               <div ref={setCanvasStageRef} class="studio-canvas-stage" classList={{ "has-back-bar": props.showFileManager && props.fileManagerDetailView }}>
+                <Show when={props.downloadNotice?.()} keyed>
+                  {(message) => (
+                    <div class="studio-canvas-stage-notice">
+                      <FloatingNotice type="success" message={message} />
+                    </div>
+                  )}
+                </Show>
                 <div class="studio-canvas-image-wrapper">
                   <Show when={showImage()} fallback={
                     <Show when={props.status === "running" || props.status === "queued" || props.status === "submitting"}>

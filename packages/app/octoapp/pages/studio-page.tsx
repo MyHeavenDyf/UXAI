@@ -464,6 +464,14 @@ export default function StudioPage() {
     ro.observe(el)
     onCleanup(() => ro.disconnect())
   })
+  const [downloadNotice, setDownloadNotice] = createSignal<string | null>(null)
+  let downloadNoticeTimer: number | undefined
+  onCleanup(() => { if (downloadNoticeTimer !== undefined) window.clearTimeout(downloadNoticeTimer) })
+  function showDownloadNotice(message: string) {
+    setDownloadNotice(message)
+    if (downloadNoticeTimer !== undefined) window.clearTimeout(downloadNoticeTimer)
+    downloadNoticeTimer = window.setTimeout(() => setDownloadNotice(null), 3000)
+  }
   let pendingEditorSessionID: string | undefined
   let pendingGenerationSessionID: string | undefined
   // 记录已访问过的 session ID，模块级以在组件卸载/重载之间存活，防止切回时出现空白页
@@ -1557,21 +1565,32 @@ export default function StudioPage() {
   async function downloadCurrentImage() {
     const image = selectedImage()
     if (!image) return
+    const source = image.remoteUrl ?? image.url
+    const label = currentImageLabel()
     tracker.interaction({
       module: "studio",
       name: "download",
-      extend: JSON.stringify({ name: currentImageLabel(), url: image.remoteUrl ?? image.url }),
+      extend: JSON.stringify({ name: label, url: source }),
     })
-    const source = image.remoteUrl ?? image.url
     try {
       const response = await fetch(source)
       if (!response.ok) throw new Error(`Download request failed: ${response.status}`)
-      const objectUrl = URL.createObjectURL(await response.blob())
-      triggerBrowserDownload(objectUrl, currentImageLabel())
+      const blob = await response.blob()
+      if ((window as any).api?.saveFilePicker) {
+        const filePath = await (window as any).api.saveFilePicker({ defaultPath: label })
+        if (!filePath) return
+        await (window as any).api.writeFileBuffer(filePath, await blob.arrayBuffer())
+        showDownloadNotice("下载成功")
+        return
+      }
+      const objectUrl = URL.createObjectURL(blob)
+      triggerBrowserDownload(objectUrl, label)
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+      showDownloadNotice("下载成功")
     } catch (error) {
       console.warn("[studio] image download fallback", error)
-      triggerBrowserDownload(source, currentImageLabel())
+      triggerBrowserDownload(source, label)
+      showDownloadNotice("下载成功")
     }
   }
 
@@ -3956,6 +3975,7 @@ if (!headerTitle.pendingRename) return
               tabImages={canvasTabImages()}
               tabLabels={canvasTabLabels()}
               onDownload={() => void downloadCurrentImage()}
+              downloadNotice={downloadNotice}
               onSelectImage={selectCanvasTab}
               onDeleteImage={(id) => {
                 batch(() => {
