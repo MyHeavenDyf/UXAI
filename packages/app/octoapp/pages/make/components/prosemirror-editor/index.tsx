@@ -394,4 +394,4 @@ export const ProseMirrorEditor = (props: Props) => {
   )
 }
 
-export { getDocTextWithMentions, extractMentionsFromDoc }
+export { getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs }
