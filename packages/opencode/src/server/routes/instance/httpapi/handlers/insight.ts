@@ -18,6 +18,25 @@ export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", 
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
 
+    // 撞名加后缀(name (1).ext),与单文件 upload / 操作系统口径一致,不覆盖已有同名文件。
+    // 大小写不敏感文件系统(macOS APFS 默认)下,Foo.txt 与已存在的 foo.txt 会被 fs.exists 判为
+    // 同名——若直接 writeFile 会静默覆盖致文件丢失(上传"提示成功却文件缺失")。先探测再写,
+    // 撞名则改名保留两份。filePath 可含子目录(nested relativePath),extname/basename/dirname 照常。
+    const collisionFreeFilePath = (filePath: string) =>
+      Effect.gen(function* () {
+        const ext = path.extname(filePath)
+        const baseName = path.basename(filePath, ext)
+        const dir = path.dirname(filePath)
+        let candidate = filePath
+        let counter = 1
+        while (true) {
+          const exists = yield* fs.exists(candidate).pipe(Effect.catch(() => Effect.succeed(false)))
+          if (!exists) return candidate
+          candidate = path.join(dir, `${baseName} (${counter})${ext}`)
+          counter++
+        }
+      })
+
     const listSessions = Effect.fn("InsightHttpApi.listSessions")(function* (ctx: {
       query: typeof InsightSessionListQuery.Type
     }) {
@@ -112,20 +131,8 @@ export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", 
         yield* fs.ensureDir(targetDir).pipe(Effect.orDie)
       }
 
-      let finalFilename = body.filename
-      let counter = 1
-      const ext = path.extname(body.filename)
-      const baseName = path.basename(body.filename, ext)
-      while (true) {
-        const fullPath = path.join(targetDir, finalFilename)
-        const fileExists = yield* fs.exists(fullPath).pipe(Effect.catch(() => Effect.succeed(false)))
-        if (!fileExists) break
-        // 撞名加括号后缀,与操作系统 / 旧主进程上传口径一致(name (1).ext)。
-        finalFilename = `${baseName} (${counter})${ext}`
-        counter++
-      }
-
-      const fullPath = path.join(targetDir, finalFilename)
+      const fullPath = yield* collisionFreeFilePath(path.join(targetDir, body.filename))
+      const finalFilename = path.basename(fullPath)
       const contentBuffer = Buffer.from(body.content, "base64")
       yield* fs.writeFile(fullPath, contentBuffer).pipe(Effect.orDie)
 
@@ -176,12 +183,21 @@ export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", 
       const folderDir = path.join(targetDir, finalFolderName)
       yield* fs.ensureDir(folderDir).pipe(Effect.orDie)
 
+      const folderResolved = path.resolve(folderDir)
       for (const file of body.files) {
-        const filePath = path.join(folderDir, file.relativePath)
-        const parentDir = path.dirname(filePath)
-        yield* fs.ensureDir(parentDir).pipe(Effect.catch(() => Effect.void))
+        const rel = file.relativePath.trim()
+        if (rel === "") yield* Effect.fail(new HttpApiError.BadRequest({}))
+        const filePath = path.join(folderDir, rel)
+        // 路径穿越防护:relativePath 解析后必须仍在 folderDir 之下,拒 .. / 绝对路径越界。
+        if (!path.resolve(filePath).startsWith(folderResolved + path.sep)) {
+          yield* Effect.fail(new HttpApiError.BadRequest({}))
+        }
+        yield* fs.ensureDir(path.dirname(filePath)).pipe(Effect.orDie)
+        // 逐文件撞名改名(不覆盖):macOS 大小写不敏感 FS 下 Foo.txt/foo.txt 会判同名,
+        // 直接 writeFile 会静默覆盖致文件缺失。撞名时改名为 name (1).ext 保留两份。
+        const finalFilePath = yield* collisionFreeFilePath(filePath)
         const contentBuffer = Buffer.from(file.content, "base64")
-        yield* fs.writeFile(filePath, contentBuffer).pipe(Effect.orDie)
+        yield* fs.writeFile(finalFilePath, contentBuffer).pipe(Effect.orDie)
       }
 
       const stat = yield* fs.stat(folderDir).pipe(Effect.catch(() => Effect.succeed(null)))

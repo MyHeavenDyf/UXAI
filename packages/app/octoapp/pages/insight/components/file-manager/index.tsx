@@ -280,7 +280,8 @@ function FileManagerInner(props: {
         fileEntries.push({ relativePath, content: base64 })
       }
       const result = await uploadInsightFolder(sdk.url, sdk.directory, props.sessionId, folderName, fileEntries, currentPath)
-      showToast({ title: "上传完成", description: `${folderName} (${result.fileCount} 个文件)`, variant: "success", duration: 2000 })
+      // 用服务端返回的实际落地名(撞名时会带 (1) 后缀),否则用户按原名找不到 → 误以为没传上。
+      showToast({ title: "上传完成", description: `${result.name} (${result.fileCount} 个文件)`, variant: "success", duration: 2000 })
       await refresh()
       props.onFilesRefresh?.()
     } catch (err) {
@@ -338,6 +339,10 @@ function FileManagerInner(props: {
   }
   async function processDirectoryEntry(dirEntry: FileSystemDirectoryEntry) {
     const folderName = dirEntry.name
+    if (!folderName) {
+      showToast({ title: "上传失败", description: "无法识别文件夹名", variant: "error" })
+      return
+    }
     const fileEntries: InsightFolderUploadFile[] = []
     const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
     async function collectFiles(entry: FileSystemEntry) {
@@ -360,7 +365,8 @@ function FileManagerInner(props: {
       for (const entry of entries) await collectFiles(entry)
       if (fileEntries.length === 0) return
       const result = await uploadInsightFolder(sdk.url, sdk.directory, props.sessionId, folderName, fileEntries, currentPath)
-      showToast({ title: "上传完成", description: `${folderName} (${result.fileCount} 个文件)`, variant: "success", duration: 2000 })
+      // 用服务端返回的实际落地名(撞名时会带 (1) 后缀),否则用户按原名找不到 → 误以为没传上。
+      showToast({ title: "上传完成", description: `${result.name} (${result.fileCount} 个文件)`, variant: "success", duration: 2000 })
       await refresh()
       props.onFilesRefresh?.()
     } catch (err) {
@@ -368,8 +374,14 @@ function FileManagerInner(props: {
     }
   }
   async function processFileEntry(fileEntry: FileSystemFileEntry) {
-    const file = await getFileFromEntry(fileEntry)
-    await uploadSingleFile(file)
+    // getFileFromEntry 现会 reject(读条目失败),须在此兜住,否则 handleDrop 的 void processEntries(...)
+    // 变未捕获 rejection。uploadSingleFile 内部已自带 try/catch + toast,这里只兜取 File 阶段,不重复 toast。
+    try {
+      const file = await getFileFromEntry(fileEntry)
+      await uploadSingleFile(file)
+    } catch (err) {
+      showToast({ title: "上传失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
+    }
   }
   async function readAllDirectoryEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
     const entries: FileSystemEntry[] = []
@@ -381,7 +393,8 @@ function FileManagerInner(props: {
     return entries
   }
   function getFileFromEntry(fileEntry: FileSystemFileEntry): Promise<File> {
-    return new Promise((resolve) => fileEntry.file(resolve))
+    // file() 失败时也要 reject,否则 collectFiles 永久 await 挂起、整批上传卡死且无任何提示。
+    return new Promise((resolve, reject) => fileEntry.file(resolve, reject))
   }
 
   // ── 下载 ────────────────────────────────────────────────────────
