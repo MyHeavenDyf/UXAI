@@ -187,6 +187,7 @@
 }
 
 .studio-result-thumb {
+  position: relative;
   width: 96px;
   height: 144px;
   min-width: 96px;
@@ -205,6 +206,19 @@
   height: 100%;
   display: block;
   object-fit: cover;
+}
+
+.studio-result-thumb-video {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  max-height: 100%;
+  vertical-align: top;
+  line-height: 0;
+}
+
+.studio-result-thumb-video .studio-file-manager-media-video-badge-text {
+  margin-left: 0;
 }
 
 /* ── 单张竖构图：宽度铺满、高度跟随图片比例、垂直居中 ── */
@@ -340,6 +354,11 @@
   width: 100%;
   height: auto;
   object-fit: contain;
+}
+
+.studio-result-grid.multi-landscape-4 .studio-result-thumb-video {
+  display: block;
+  width: 100%;
 }
 
 /* ── 单张 1:1：宽度铺满、高度跟随图片，最大 180px ── */
