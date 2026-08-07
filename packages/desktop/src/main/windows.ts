@@ -12,6 +12,7 @@ import {
   injectPickerBridge,
   injectCommentBridge,
   injectResourceCollectorBridge,
+  decodeHtmlBytes,
 } from "@opencode-ai/core/bridge-scripts"
 import { annotateElementsWithIds } from "./bridge-scripts/annotate-node"
 import type { TitlebarTheme } from "../preload/types"
@@ -358,11 +359,11 @@ export function registerLocalProtocol() {
 
     try {
       const content = await readFile(absolutePath)
-      
+
       // Inject bridge scripts for HTML files
       if (mimeType === "text/html" || mimeType === "text/htm") {
-        let htmlStr = new TextDecoder().decode(content)
-        
+        let htmlStr = decodeHtmlBytes(content)
+
         // Inject bridge scripts in order (same as srcdoc-builder.ts)
         htmlStr = injectSandboxShim(htmlStr)
         htmlStr = annotateElementsWithIds(htmlStr)
@@ -372,10 +373,10 @@ export function registerLocalProtocol() {
         htmlStr = injectPickerBridge(htmlStr)
         htmlStr = injectCommentBridge(htmlStr)
         htmlStr = injectResourceCollectorBridge(htmlStr)
-        
+
         return new Response(new TextEncoder().encode(htmlStr), {
           headers: {
-            "Content-Type": mimeType,
+            "Content-Type": "text/html; charset=utf-8",
             "Access-Control-Allow-Origin": "*",
           },
         })
