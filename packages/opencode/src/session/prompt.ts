@@ -1827,8 +1827,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       })
 
       // 如果该命令是 skill，额外发布 skill.used 事件供前端消费
+      elog.info("skill.used-debug", {
+        command: input.command,
+        source: cmd.source,
+        agent: userAgent,
+        isSubtask,
+      })
       if (cmd.source === "skill") {
         yield* bus.publish(SkillUsed, { skillName: input.command })
+        elog.info("skill.used-debug", { action: "PUBLISHED", command: input.command })
       }
 
       return result

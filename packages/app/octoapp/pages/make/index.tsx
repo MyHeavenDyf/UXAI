@@ -1975,6 +1975,11 @@ const sessionMessagesLoaded = createMemo(() => {
       // Scan all tokens in processedText for /cmd patterns, match against sync.data.command,
       // execute each via session.command(). Each command gets the text between itself
       // and the next /cmd as its arguments. Commands are self-contained (no follow-up prompt).
+      console.log("[MakePage] slash-detect input:", {
+        processedText,
+        cmdCount: sync.data?.command?.length ?? 0,
+        cmdNames: sync.data?.command?.map((c) => `${c.name}(${c.source})`) ?? [],
+      })
       const segments = processedText.split(/(?=\/\S)/)
       const cmdSegments: { cmd: string; args: string }[] = []
       let hasCommand = false
@@ -1984,17 +1989,29 @@ const sessionMessagesLoaded = createMemo(() => {
         const m = trimmed.match(/^\/(\S+)([\s\S]*)$/)
         if (m) {
           const cmdName = m[1]
-          if (cmdName && sync.data.command.find((c) => c.name === cmdName)) {
+          const matched = cmdName ? sync.data.command.find((c) => c.name === cmdName) : undefined
+          if (cmdName && matched) {
+            console.log("[MakePage] slash-detect matched command:", {
+              cmdName,
+              source: matched.source,
+              args: m[2].trim(),
+            })
             cmdSegments.push({ cmd: cmdName, args: m[2].trim() })
             hasCommand = true
             continue
           }
+          // /cmd 存在但不在 sync.data.command 中 → 会落入 prompt 纯文本，不触发 skill.used
+          console.log("[MakePage] slash-detect NOT in sync.data.command:", {
+            cmdName,
+            fallbackToPrompt: !hasCommand,
+          })
         }
         // Non-command segment: only keep if no commands found (for prompt fallback)
         if (!hasCommand) {
           cmdSegments.push({ cmd: "", args: trimmed })
         }
       }
+      console.log("[MakePage] slash-detect result:", { hasCommand, cmdSegments })
 
       if (hasCommand) {
         const modelStr = `${_modelKey.providerID}/${_modelKey.modelID}`
