@@ -438,6 +438,7 @@ export default function StudioPage() {
   let videoFrameInputRef!: HTMLInputElement
   let pendingVideoFrameSlot: StudioVideoFrameSlot = "first"
   let conversationScrollRef!: HTMLDivElement
+  const [conversationContentEl, setConversationContentEl] = createSignal<HTMLElement | null>(null)
   let scrollFrame = 0
   // 用户是否贴近底部：贴近时新内容自动跟随滚动，向上查看历史时不再强制回到底部
   const [stickToBottom, setStickToBottom] = createSignal(true)
@@ -446,6 +447,30 @@ export default function StudioPage() {
     const el = conversationScrollRef
     if (!el) return
     setStickToBottom(el.scrollTop + el.clientHeight >= el.scrollHeight - STUDIO_SCROLL_BOTTOM_THRESHOLD)
+  }
+  // 内容尺寸变化（新消息渲染、输入图解码完成等）时贴近底部则跟随置底。
+  // 弥补单次 rAF 无法覆盖异步内容增高（displayTurnStore 延迟同步、图片布局延迟）的时序缺口。
+  // 用 signal + createEffect 以响应 studio-center 在 hasStudioConversation 切换后才挂载的场景。
+  createEffect(() => {
+    const el = conversationContentEl()
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      if (!conversationScrollRef || !stickToBottom()) return
+      cancelAnimationFrame(scrollFrame)
+      scrollFrame = requestAnimationFrame(() => {
+        conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
+      })
+    })
+    ro.observe(el)
+    onCleanup(() => ro.disconnect())
+  })
+  const [downloadNotice, setDownloadNotice] = createSignal<string | null>(null)
+  let downloadNoticeTimer: number | undefined
+  onCleanup(() => { if (downloadNoticeTimer !== undefined) window.clearTimeout(downloadNoticeTimer) })
+  function showDownloadNotice(message: string) {
+    setDownloadNotice(message)
+    if (downloadNoticeTimer !== undefined) window.clearTimeout(downloadNoticeTimer)
+    downloadNoticeTimer = window.setTimeout(() => setDownloadNotice(null), 3000)
   }
   let pendingEditorSessionID: string | undefined
   let pendingGenerationSessionID: string | undefined
@@ -1540,21 +1565,32 @@ export default function StudioPage() {
   async function downloadCurrentImage() {
     const image = selectedImage()
     if (!image) return
+    const source = image.remoteUrl ?? image.url
+    const label = currentImageLabel()
     tracker.interaction({
       module: "studio",
       name: "download",
-      extend: JSON.stringify({ name: currentImageLabel(), url: image.remoteUrl ?? image.url }),
+      extend: JSON.stringify({ name: label, url: source }),
     })
-    const source = image.remoteUrl ?? image.url
     try {
       const response = await fetch(source)
       if (!response.ok) throw new Error(`Download request failed: ${response.status}`)
-      const objectUrl = URL.createObjectURL(await response.blob())
-      triggerBrowserDownload(objectUrl, currentImageLabel())
+      const blob = await response.blob()
+      if ((window as any).api?.saveFilePicker) {
+        const filePath = await (window as any).api.saveFilePicker({ defaultPath: label })
+        if (!filePath) return
+        await (window as any).api.writeFileBuffer(filePath, await blob.arrayBuffer())
+        showDownloadNotice("下载成功")
+        return
+      }
+      const objectUrl = URL.createObjectURL(blob)
+      triggerBrowserDownload(objectUrl, label)
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+      showDownloadNotice("下载成功")
     } catch (error) {
       console.warn("[studio] image download fallback", error)
-      triggerBrowserDownload(source, currentImageLabel())
+      triggerBrowserDownload(source, label)
+      showDownloadNotice("下载成功")
     }
   }
 
@@ -2940,6 +2976,7 @@ export default function StudioPage() {
         : {}),
     })
     // 发送瞬间强制滚动到底部，展示新发起的消息
+    setStickToBottom(true)
     if (conversationScrollRef) {
       cancelAnimationFrame(scrollFrame)
       scrollFrame = requestAnimationFrame(() => {
@@ -3817,6 +3854,7 @@ if (!headerTitle.pendingRename) return
             onScroll={handleConversationScroll}
             class="studio-center-scroll"
           >
+            <div ref={setConversationContentEl}>
             <Show when={displayTurns().length > 0 || pendingResult() || sending() || isBusy()} fallback={params.id && !sessionDataLoaded() && !visitedSessionIds.has(params.id) ? null : <StudioIntro />}>
               <StudioConversation
                 result={result()}
@@ -3835,6 +3873,7 @@ if (!headerTitle.pendingRename) return
                 onUseInputImage={useConversationInputImage}
               />
             </Show>
+            </div>
           </ScrollView>
 
           <StudioComposer
@@ -3936,6 +3975,7 @@ if (!headerTitle.pendingRename) return
               tabImages={canvasTabImages()}
               tabLabels={canvasTabLabels()}
               onDownload={() => void downloadCurrentImage()}
+              downloadNotice={downloadNotice}
               onSelectImage={selectCanvasTab}
               onDeleteImage={(id) => {
                 batch(() => {
