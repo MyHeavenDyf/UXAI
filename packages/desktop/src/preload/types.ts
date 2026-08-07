@@ -149,6 +149,8 @@ export type ElectronAPI = {
   /** insight markdown 编辑器自动保存:覆盖写本地文本文件(主进程校验路径在 .octo/<sessionId>/{uploads,outputs}、旧 .octo/downloads 或临时目录下) */
   writeFile: (path: string, content: string) => Promise<void>
   readFileBuffer: (path: string) => Promise<ArrayBuffer | null>
+  /** 大文件归档:只 stat 不读盘,返回文件大小;非普通文件返回 null */
+  statFile: (path: string) => Promise<{ size: number } | null>
   /** 轻量存在性预检：只 stat 不读盘，仅当路径是存在的普通文件时返回 true(不存在/目录/无权限均为 false) */
   fileExists: (path: string) => Promise<boolean>
   deleteFile: (path: string) => Promise<void>

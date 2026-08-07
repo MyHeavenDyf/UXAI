@@ -16,6 +16,7 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { useParams } from "@solidjs/router"
 import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
 import { archiveFileSizeError } from "../../utils/archive-size"
+import { getLargeArchiveFile } from "../../utils/archive-utils"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).then(() => {
@@ -64,6 +65,11 @@ function tabArchiveMime(tab: ResultTab): string {
 async function getTabFile(tab: ResultTab): Promise<File | null> {
   const name = tabArchiveName(tab)
   const api = getDesktopApi()
+  // 大文件优先走流式;≤1.8GiB 返回 null 继续 readFileBuffer;>1.8GiB streaming 失败抛错(不回退 readFileBuffer)
+  if (tab.filePath) {
+    const large = await getLargeArchiveFile(tab.filePath, name, tab.mimeType)
+    if (large) return large
+  }
   if (tab.filePath && api?.readFileBuffer) {
     try {
       const buf = await api.readFileBuffer(tab.filePath)

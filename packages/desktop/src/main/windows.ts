@@ -358,10 +358,13 @@ export function registerLocalProtocol() {
     const mimeType = mimeTypes[ext || ""] || "application/octet-stream"
 
     try {
-      const content = await readFile(absolutePath)
-
-      // Inject bridge scripts for HTML files
+      // HTML 需读内容做 bridge 注入;其余文件走 net.fetch 流式(pathToFileURL → ReadableStream body),
+      // 避免 readFile 整份读 2.5GB OOM 主进程。渲染端 fetch('local://...').blob() 拿真字节 Blob,
+      // postMessage 结构化克隆只传 blob 引用不拷字节,iframe 拿到 size=2.5GB 的真 File。
       if (mimeType === "text/html" || mimeType === "text/htm") {
+        const content = await readFile(absolutePath)
+
+        // Inject bridge scripts for HTML files
         let htmlStr = decodeHtmlBytes(content)
 
         // Inject bridge scripts in order (same as srcdoc-builder.ts)
@@ -381,8 +384,12 @@ export function registerLocalProtocol() {
           },
         })
       }
-      
-      return new Response(content, {
+
+      const upstream = await net.fetch(pathToFileURL(absolutePath).toString())
+      // 不透传 upstream.status:file:// 在某些 opaque 场景返回 status:0,
+      // new Response(body, { status: 0 }) 会抛 TypeError(status 必须 200–599)。
+      // 省略 status(默认 200),与原 readFile 路径行为一致。
+      return new Response(upstream.body, {
         headers: {
           "Content-Type": mimeType,
           "Access-Control-Allow-Origin": "*",

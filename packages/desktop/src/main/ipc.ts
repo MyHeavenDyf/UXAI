@@ -656,6 +656,19 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
+  // 大文件归档:只 stat 不读盘,返回文件大小供渲染端判定是否走流式 fetch(local://).blob() 路径
+  // (read-file-buffer 整份读,>1.8GiB 越 V8 ArrayBuffer / IPC 结构化克隆 ~2GB 上限,RangeError 静默成 null)。
+  // 非普通文件(目录 / 不存在)返回 null。
+  ipcMain.handle("stat-file", async (_event: IpcMainInvokeEvent, path: string) => {
+    try {
+      const s = await stat(path)
+      if (!s.isFile()) return null
+      return { size: s.size }
+    } catch {
+      return null
+    }
+  })
+
   ipcMain.handle("list-directory", async (_event: IpcMainInvokeEvent, dirPath: string) => {
     const results: Array<{ path: string; type: 'file' | 'directory'; size?: number }> = []
 
