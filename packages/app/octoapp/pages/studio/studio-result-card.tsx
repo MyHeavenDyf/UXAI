@@ -20,7 +20,7 @@ type StudioResultCardProps = {
   onSelectImage: (input: { resultID: string; imageID: string }) => void
 }
 
-function StudioMediaPreview(props: { image: StudioImage }) {
+function StudioMediaPreview(props: { image: StudioImage; duration?: string }) {
   return (
     <Show when={isVideoMedia(props.image)} fallback={
       <img
@@ -33,13 +33,20 @@ function StudioMediaPreview(props: { image: StudioImage }) {
         }}
       />
     }>
-      <video
-        src={props.image.remoteUrl ?? props.image.url}
-        class="studio-result-thumb-media"
-        muted
-        playsinline
-        preload="metadata"
-      />
+      <span class="studio-result-thumb-video">
+        <video
+          src={props.image.remoteUrl ?? props.image.url}
+          class="studio-result-thumb-media"
+          muted
+          playsinline
+          preload="metadata"
+        />
+        <Show when={props.duration}>
+          <span class="studio-file-manager-media-video-badge">
+            <span class="studio-file-manager-media-video-badge-text">00:{(props.duration ?? "0").padStart(2, "0")}</span>
+          </span>
+        </Show>
+      </span>
     </Show>
   )
 }
@@ -199,7 +206,7 @@ export function StudioResultCard(props: StudioResultCardProps) {
                   onClick={() => props.turn.result && props.onSelectImage({ resultID: props.turn.result.id, imageID: image.id })}
                   class="studio-result-thumb"
                 >
-                  <StudioMediaPreview image={image} />
+                  <StudioMediaPreview image={image} duration={props.turn.result?.duration} />
                 </button>
               )}
             </For>
