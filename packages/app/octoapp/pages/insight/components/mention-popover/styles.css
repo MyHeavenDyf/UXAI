@@ -217,6 +217,27 @@
   text-align: center;
 }
 
+.ins-mention-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px 16px;
+}
+
+.ins-mention-empty-state-text {
+  font-size: 13px;
+  color: var(--octo-text-tertiary, rgba(0, 0, 0, 0.4));
+}
+
+.ins-mention-empty-state img {
+  width: 80px;
+  height: 80px;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
 /* 滚动条 */
 .ins-mention-secondary-content::-webkit-scrollbar {
   width: 4px;
