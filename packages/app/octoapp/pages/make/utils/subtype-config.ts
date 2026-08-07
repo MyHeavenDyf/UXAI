@@ -22,7 +22,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       modeToggle: true,
       viewport: true,
       localEdit: true,
-      drawEdit: false,
+      drawEdit: true,
       canvasEdit: true,
       download: true,
       fullscreen: true,
