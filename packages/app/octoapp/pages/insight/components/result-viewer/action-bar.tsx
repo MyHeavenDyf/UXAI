@@ -16,7 +16,7 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { useParams } from "@solidjs/router"
 import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
 import { archiveFileSizeError } from "../../utils/archive-size"
-import { makeLazyFile, shouldUseLazyFile } from "../../utils/lazy-file"
+import { pathToLocalUrl } from "../../utils/insight-file-api"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).then(() => {
@@ -65,21 +65,16 @@ function tabArchiveMime(tab: ResultTab): string {
 async function getTabFile(tab: ResultTab): Promise<File | null> {
   const name = tabArchiveName(tab)
   const api = getDesktopApi()
-  // 大文件优先走 LazyFile:stat 判 size + 按需 readFileRange,绕开 readFileBuffer 整份读的 ~2GB IPC 上限。
-  if (tab.filePath && api?.statFile && api?.readFileRange) {
+  // 大文件优先走流式:fetch(local://) → blob 注册表托底的真 Blob(磁盘态),postMessage 只传引用不丢 size。
+  if (tab.filePath && api?.statFile) {
     try {
       const st = await api.statFile(tab.filePath)
-      if (st && shouldUseLazyFile(st.size)) {
-        return makeLazyFile({
-          size: st.size,
-          name,
-          mime: tab.mimeType,
-          lastModified: st.mtime,
-          readRange: (s, e) => api.readFileRange!(tab.filePath!, s, e - s),
-        })
+      if (st && st.size > 256 * 1024 * 1024) {
+        const blob = await fetch(pathToLocalUrl(tab.filePath)).then((r) => r.blob())
+        if (blob.size > 0) return new File([blob], name, { type: tab.mimeType || undefined })
       }
     } catch (err) {
-      console.warn("[octo:archive] stat-large-failed", { filePath: tab.filePath, err })
+      console.warn("[octo:archive] stat-or-fetch-large-failed", { filePath: tab.filePath, err })
     }
   }
   if (tab.filePath && api?.readFileBuffer) {

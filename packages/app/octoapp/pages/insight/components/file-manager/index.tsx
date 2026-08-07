@@ -45,7 +45,6 @@ import {
 } from "../../utils/insight-file-store"
 import { revealFileInFolder } from "../../utils/local-file-ops"
 import { getDesktopApi } from "../../lib/electron-api"
-import { makeLazyFile, shouldUseLazyFile } from "../../utils/lazy-file"
 import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
 import emptyFolderPng from "../../icons/empty_folder.png"
@@ -68,22 +67,18 @@ function insightFileToArchiveTarget(file: InsightFile, sdkUrl: string, sdkDirect
     filePath: file.path,
     getFile: async () => {
       const api = getDesktopApi()
-      // 大文件优先走 LazyFile:stat 拿 size + 按需 readFileRange,渲染端不物化整份到 ArrayBuffer,
-      // 绕开 read-file-buffer 整份读 + IPC 结构化克隆的 ~2GB 上限(2.5GB zip 在此之前 RangeError 静默成 null)。
-      if (api?.statFile && api?.readFileRange) {
+      // 大文件优先走流式:fetch(local://) → Chromium blob 注册表托底的真 Blob(磁盘态),
+      // postMessage 结构化克隆只传引用不丢 size。绕开 readFileBuffer 整份读 + IPC 结构化克隆 ~2GB 上限
+      // (2.5GB zip 在此之前 RangeError 静默成 null)。小文件保 readFileBuffer 原路径(零回归)。
+      if (api?.statFile) {
         try {
           const st = await api.statFile(file.path)
-          if (st && shouldUseLazyFile(st.size)) {
-            return makeLazyFile({
-              size: st.size,
-              name: file.name,
-              mime: file.mime,
-              lastModified: st.mtime,
-              readRange: (s, e) => api.readFileRange!(file.path, s, e - s),
-            })
+          if (st && st.size > 256 * 1024 * 1024) {
+            const blob = await fetch(pathToLocalUrl(file.path)).then((r) => r.blob())
+            if (blob.size > 0) return new File([blob], file.name, { type: file.mime || undefined })
           }
         } catch (err) {
-          console.warn("[octo:archive] stat-large-failed", { path: file.path, err })
+          console.warn("[octo:archive] stat-or-fetch-large-failed", { path: file.path, err })
         }
       }
       if (api?.readFileBuffer) {
