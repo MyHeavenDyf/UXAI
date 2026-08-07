@@ -45,6 +45,7 @@ import {
 } from "../../utils/insight-file-store"
 import { revealFileInFolder } from "../../utils/local-file-ops"
 import { getDesktopApi } from "../../lib/electron-api"
+import { makeLazyFile, shouldUseLazyFile } from "../../utils/lazy-file"
 import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
 import emptyFolderPng from "../../icons/empty_folder.png"
@@ -67,6 +68,24 @@ function insightFileToArchiveTarget(file: InsightFile, sdkUrl: string, sdkDirect
     filePath: file.path,
     getFile: async () => {
       const api = getDesktopApi()
+      // 大文件优先走 LazyFile:stat 拿 size + 按需 readFileRange,渲染端不物化整份到 ArrayBuffer,
+      // 绕开 read-file-buffer 整份读 + IPC 结构化克隆的 ~2GB 上限(2.5GB zip 在此之前 RangeError 静默成 null)。
+      if (api?.statFile && api?.readFileRange) {
+        try {
+          const st = await api.statFile(file.path)
+          if (st && shouldUseLazyFile(st.size)) {
+            return makeLazyFile({
+              size: st.size,
+              name: file.name,
+              mime: file.mime,
+              lastModified: st.mtime,
+              readRange: (s, e) => api.readFileRange!(file.path, s, e - s),
+            })
+          }
+        } catch (err) {
+          console.warn("[octo:archive] stat-large-failed", { path: file.path, err })
+        }
+      }
       if (api?.readFileBuffer) {
         try {
           const buf = await api.readFileBuffer(file.path)

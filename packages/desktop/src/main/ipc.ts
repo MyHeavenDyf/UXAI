@@ -3,7 +3,7 @@ import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, globSync, createWriteStream } from "node:fs"
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
-import { mkdir, readFile, writeFile, lstat, stat, unlink, rm, copyFile, rename } from "node:fs/promises"
+import { mkdir, readFile, writeFile, lstat, stat, unlink, rm, copyFile, rename, open } from "node:fs/promises"
 import * as http from "node:http"
 import { dirname, extname, join, basename, resolve as resolvePath, sep } from "node:path"
 import { homedir, tmpdir } from "node:os"
@@ -653,6 +653,37 @@ export function registerIpcHandlers(deps: Deps) {
       return toExactArrayBuffer(buf)
     } catch {
       return null
+    }
+  })
+
+  // 大文件归档流式读盘:stat 拿大小 + 按需读 [offset, offset+length) 区间。
+  // read-file-buffer 整份读,2.5GB 越 V8 ArrayBuffer / IPC 结构化克隆 ~2GB 上限,主进程崩或 null。
+  // 这里每片 ≤16MB,主进程只持小缓冲,IPC 跨进程稳过;配合渲染端 LazyFile,渲染进程不物化整份。
+  ipcMain.handle("stat-file", async (_event: IpcMainInvokeEvent, path: string) => {
+    try {
+      const s = await stat(path)
+      if (!s.isFile()) return null
+      return { size: s.size, mtime: s.mtime.getTime() }
+    } catch {
+      return null
+    }
+  })
+
+  ipcMain.handle("read-file-range", async (_event: IpcMainInvokeEvent, path: string, offset: number, length: number) => {
+    const MAX_CHUNK = 16 * 1024 * 1024
+    const len = Math.max(0, Math.min(length, MAX_CHUNK))
+    if (len === 0) return new ArrayBuffer(0)
+    let handle
+    try {
+      handle = await open(path, "r")
+      const buf = Buffer.allocUnsafe(len)
+      const result = await handle.read(buf, 0, len, offset)
+      return toExactArrayBuffer(buf.subarray(0, result.bytesRead))
+    } catch (err) {
+      log.error("[desktop] read-file-range failed", { path, offset, length, err })
+      throw err
+    } finally {
+      await handle?.close()
     }
   })
 

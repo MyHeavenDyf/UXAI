@@ -6,6 +6,8 @@ type ArchiveDesktopApi = {
   capturePreviewRect?: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
   listDirectory?: (path: string) => Promise<Array<{ path: string; type: "file" | "directory"; size?: number }>>
   readFileBuffer?: (path: string) => Promise<ArrayBuffer | null>
+  statFile?: (path: string) => Promise<{ size: number; mtime: number } | null>
+  readFileRange?: (path: string, offset: number, length: number) => Promise<ArrayBuffer>
 }
 
 function getDesktopApi(): ArchiveDesktopApi | undefined {

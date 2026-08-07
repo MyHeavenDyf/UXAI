@@ -36,6 +36,10 @@ export type DesktopApi = {
   writeFile?: (path: string, content: string) => Promise<void>
   /** 读本地文件为二进制(uri markdown 卡读「本地工作副本」回显改动);文件不存在返回 null */
   readFileBuffer?: (path: string) => Promise<ArrayBuffer | null>
+  /** 大文件归档:只 stat 不读盘,返回 { size, mtime };非普通文件(目录/不存在)返回 null */
+  statFile?: (path: string) => Promise<{ size: number; mtime: number } | null>
+  /** 大文件归档流式读:[offset, offset+length) 区间字节,单次硬上限 16MB;失败抛错(不静默 null) */
+  readFileRange?: (path: string, offset: number, length: number) => Promise<ArrayBuffer>
   /** 轻量存在性预检:只 stat 不读盘,仅当路径是存在的普通文件时返回 true(打开卡片前判断文件是否已被删) */
   fileExists?: (path: string) => Promise<boolean>
   /** 用系统默认浏览器打开外链(shell.openExternal);避免在 Electron webview 内导航后无法返回 */

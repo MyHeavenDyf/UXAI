@@ -16,6 +16,7 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { useParams } from "@solidjs/router"
 import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
 import { archiveFileSizeError } from "../../utils/archive-size"
+import { makeLazyFile, shouldUseLazyFile } from "../../utils/lazy-file"
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).then(() => {
@@ -64,6 +65,23 @@ function tabArchiveMime(tab: ResultTab): string {
 async function getTabFile(tab: ResultTab): Promise<File | null> {
   const name = tabArchiveName(tab)
   const api = getDesktopApi()
+  // 大文件优先走 LazyFile:stat 判 size + 按需 readFileRange,绕开 readFileBuffer 整份读的 ~2GB IPC 上限。
+  if (tab.filePath && api?.statFile && api?.readFileRange) {
+    try {
+      const st = await api.statFile(tab.filePath)
+      if (st && shouldUseLazyFile(st.size)) {
+        return makeLazyFile({
+          size: st.size,
+          name,
+          mime: tab.mimeType,
+          lastModified: st.mtime,
+          readRange: (s, e) => api.readFileRange!(tab.filePath!, s, e - s),
+        })
+      }
+    } catch (err) {
+      console.warn("[octo:archive] stat-large-failed", { filePath: tab.filePath, err })
+    }
+  }
   if (tab.filePath && api?.readFileBuffer) {
     try {
       const buf = await api.readFileBuffer(tab.filePath)
