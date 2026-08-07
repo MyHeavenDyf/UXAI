@@ -51,6 +51,42 @@ export async function revealFileInFolder(filePath: string): Promise<void> {
   }
 }
 
+// 点一下既要打开的场景(如权限浮窗点路径):先尝试用系统默认应用打开文件,失败(无关联应用 /
+// 文件被移走)再退而在文件夹中定位该文件;若文件本身不存在(showItemInFolder 判 not-found),
+// 再退一步打开其父目录(parentDir,external_directory 的 metadata.parentDir 给的是真实目录),
+// 三条路都走不通才报错。不复用 openFileLocally:它在失败时即弹"无法打开文件",而这里期望
+// fallback 成功时不打扰用户。shell.openPath 约定为空串=成功、非空串=错误说明,仅 IPC 层异常才
+// reject,故 reject 也归一为非空串参与 fallback 判定。
+export async function openFileOrReveal(filePath: string, parentDir?: string): Promise<void> {
+  const api = getDesktopApi()
+  if (typeof api?.openPath !== "function") {
+    showToast({ title: "桌面端能力缺失", description: "缺少 window.api.openPath", variant: "error" })
+    return
+  }
+  console.log("[octo:path] open-or-reveal", { filePath, parentDir })
+  const openResult = await api
+    .openPath(filePath)
+    .catch((err: unknown) => (err instanceof Error ? err.message : String(err)))
+  // 空串/非字符串 = 打开成功,直接返回
+  if (typeof openResult !== "string" || openResult.length === 0) return
+  // 打开失败(非空错误串):文件在则定位到文件夹
+  if (typeof api.showItemInFolder === "function") {
+    console.warn("[octo:path] open-failed-fallback-reveal", { filePath, reason: openResult })
+    const reveal = await api.showItemInFolder(filePath).catch(() => undefined)
+    if (reveal?.ok) return
+  }
+  // 文件不在 / 定位失败:打开其父目录(父目录通常仍在,至少让用户看到落点而非死弹窗)
+  if (parentDir) {
+    console.warn("[octo:path] reveal-failed-fallback-dir", { parentDir, reason: openResult })
+    const dirResult = await api
+      .openPath(parentDir)
+      .catch((err: unknown) => (err instanceof Error ? err.message : String(err)))
+    if (typeof dirResult !== "string" || dirResult.length === 0) return
+  }
+  console.error("[octo:path] open-or-reveal-failed", { filePath, reason: openResult })
+  showToast({ title: "无法打开文件", description: OPEN_FAILED_HINT, variant: "error" })
+}
+
 // SPEC-INS-014 §10.1:文件管理面板的"上传"——脱离对话框也能往 .octo/<sessionId>/uploads/ 塞文件。
 // 复用输入框附件那条既有落地链路(不新造上传通道):copyFileToWorktree 拷进预会话区 uploads/ →
 // movePendingUploadToSession rename 进本会话目录。文件管理面板一定处在真实会话里,故拷完直接归属;
