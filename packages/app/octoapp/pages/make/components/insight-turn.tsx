@@ -1107,7 +1107,7 @@ const stateStatus = state.status as string | undefined
                       </div>
                     }
                   >
-                    <div style={{ width: "80px", height: "80px", "border-radius": "8px", overflow: "hidden", "flex-shrink": "0" }}>
+                    <div style={{ width: "80px", height: "80px", "border-radius": "8px", overflow: "hidden", "flex-shrink": "0", "background-color": "rgba(0,0,0,0.05)" }}>
                       <img
                         src={att.url}
                         alt={att.filename}
