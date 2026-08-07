@@ -92,11 +92,13 @@ export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", 
       const entries = yield* fs.readDirectory(targetDir).pipe(Effect.catch(() => Effect.succeed([])))
       const files: Array<{ name: string; path: string; size: number; mtime: number; isFolder: boolean; relativePath: string }> = []
       for (const name of entries) {
-        if (name.startsWith(".")) continue
         const fullPath = path.join(targetDir, name)
         const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
         if (!stat) continue
         const isFolder = stat.type === "Directory"
+        // 只跳过点文件(.DS_Store / .gitkeep 等系统垃圾),保留点开头的文件夹
+        // (用户上传的 .vscode / .github 等需可见,否则"上传成功却看不到文件夹")。
+        if (name.startsWith(".") && !isFolder) continue
         const sizeNum = isFolder ? 0 : (typeof stat.size === "bigint" ? Number(stat.size) : (stat.size ?? 0))
         const mtimeNum = Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
         // relativePath 相对 uploads 根,拼出"上传文件"文件夹导航用的累计路径。
