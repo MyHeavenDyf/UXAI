@@ -246,6 +246,24 @@ export function StudioResultCanvas(props: {
   const [floatingActionsRef, setFloatingActionsRef] = createSignal<HTMLDivElement | null>(null)
   const [compactActions, setCompactActions] = createSignal(false)
   const [editToolsOpen, setEditToolsOpen] = createSignal(false)
+  const [noticePos, setNoticePos] = createSignal<{ top: number; left: number } | null>(null)
+
+  createEffect(() => {
+    const message = props.downloadNotice?.()
+    if (!message) {
+      setNoticePos(null)
+      return
+    }
+    const stage = canvasStageRef()
+    const mountEl = props.videoPlayerMount()
+    if (!stage || !mountEl) return
+    const stageRect = stage.getBoundingClientRect()
+    const mountRect = mountEl.getBoundingClientRect()
+    setNoticePos({
+      top: stageRect.top - mountRect.top + 20,
+      left: stageRect.left - mountRect.left + stageRect.width / 2,
+    })
+  })
 
   createEffect(() => {
     const stage = canvasStageRef()
@@ -433,13 +451,6 @@ export function StudioResultCanvas(props: {
                   </div>
                 </Show>
               <div ref={setCanvasStageRef} class="studio-canvas-stage" classList={{ "has-back-bar": props.showFileManager && props.fileManagerDetailView }}>
-                <Show when={props.downloadNotice?.()} keyed>
-                  {(message) => (
-                    <div class="studio-canvas-stage-notice">
-                      <FloatingNotice type="success" message={message} />
-                    </div>
-                  )}
-                </Show>
                 <div class="studio-canvas-image-wrapper">
                   <Show when={showImage()} fallback={
                     <Show when={props.status === "running" || props.status === "queued" || props.status === "submitting"}>
@@ -566,6 +577,16 @@ export function StudioResultCanvas(props: {
           </div>
         </Portal>
       )}
+      <Show when={props.downloadNotice?.() && noticePos()}>
+        <Portal mount={props.videoPlayerMount()}>
+          <div
+            class="studio-canvas-stage-notice"
+            style={{ top: `${noticePos()!.top}px`, left: `${noticePos()!.left}px` }}
+          >
+            <FloatingNotice type="success" message={props.downloadNotice?.()!} />
+          </div>
+        </Portal>
+      </Show>
     </>
   )
 }
