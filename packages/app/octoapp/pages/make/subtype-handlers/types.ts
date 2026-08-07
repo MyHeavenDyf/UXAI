@@ -6,7 +6,7 @@ export interface SubtypeHandlerContext {
   tab: ResultTab
   showToast: (msg: { title: string; description?: string; variant?: "default" | "error" }) => void
   tracker: typeof import("@/utils/tracker").tracker
-  getDesktopApi: typeof import("../../lib/electron-api").getDesktopApi
+  getDesktopApi: typeof import("../lib/electron-api").getDesktopApi
   extractCodeBlock: (text: string, lang: string) => string
   observedUrlsGetter?: () => string[]
 }
