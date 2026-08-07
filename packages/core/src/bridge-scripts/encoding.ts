@@ -1,7 +1,7 @@
 function hasUtf16Bom(bytes: Uint8Array): boolean {
   return (
-    (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) ||
-    (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff)
+    bytes.length >= 2 &&
+    ((bytes[0] === 0xff && bytes[1] === 0xfe) || (bytes[0] === 0xfe && bytes[1] === 0xff))
   )
 }
 
@@ -33,9 +33,9 @@ function normalizeEncoding(label: string): string | null {
 
 function detectMetaCharset(bytes: Uint8Array): string | null {
   const head = latinHead(bytes)
-  const m = /<meta\b[^>]*?\bcharset\s*=\s*("[^"]*"|'[^']*'|[^\s"'<>]+)/i.exec(head)
+  const m = /<meta\b[^>]*?(?:^|[\s;"'])(charset\s*=\s*)("[^"]*"|'[^']*'|[^\s"'<>]+)/i.exec(head)
   if (!m) return null
-  return m[1].replace(/^["']|["']$/g, "")
+  return m[2].replace(/^["']|["']$/g, "")
 }
 
 export function detectHtmlEncoding(bytes: Uint8Array): string {
@@ -65,6 +65,11 @@ function normalizeMetaCharsetToUtf8(html: string): string {
 
 export function decodeHtmlBytes(bytes: Uint8Array): string {
   const encoding = detectHtmlEncoding(bytes)
-  const decoded = new TextDecoder(encoding).decode(bytes)
+  let decoded: string
+  try {
+    decoded = new TextDecoder(encoding).decode(bytes)
+  } catch {
+    decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes)
+  }
   return normalizeMetaCharsetToUtf8(decoded)
 }
