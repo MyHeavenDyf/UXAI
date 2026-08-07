@@ -280,6 +280,11 @@ export function SessionTurn(
     emptyAssistant,
     { equals: same },
   )
+  const visibleAssistantMessages = createMemo(
+    () => assistantMessages().filter((item) => !item.summary || !!item.error),
+    emptyAssistant,
+    { equals: same },
+  )
 
   const interrupted = createMemo(() => assistantMessages().some((m) => m.error?.name === "MessageAbortedError"))
   const compacted = createMemo(
@@ -401,10 +406,10 @@ export function SessionTurn(
                   <MessageDivider label={divider()} />
                 </div>
               </Show>
-              <Show when={assistantMessages().length > 0}>
+              <Show when={visibleAssistantMessages().length > 0}>
                 <div data-slot="session-turn-assistant-content" aria-hidden={working()}>
                   <AssistantParts
-                    messages={assistantMessages()}
+                    messages={visibleAssistantMessages()}
                     showAssistantCopyPartID={assistantCopyPartID()}
                     turnDurationMs={turnDurationMs()}
                     working={working()}
