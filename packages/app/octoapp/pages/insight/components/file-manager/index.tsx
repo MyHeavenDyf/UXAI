@@ -73,7 +73,7 @@ function insightFileToArchiveTarget(file: InsightFile, sdkUrl: string, sdkDirect
       if (api?.statFile) {
         try {
           const st = await api.statFile(file.path)
-          if (st && st.size > 256 * 1024 * 1024) {
+          if (st && st.size > 1.8 * 1024 * 1024 * 1024) {
             const blob = await fetch(pathToLocalUrl(file.path)).then((r) => r.blob())
             if (blob.size > 0) return new File([blob], file.name, { type: file.mime || undefined })
           }

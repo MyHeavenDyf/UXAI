@@ -69,7 +69,7 @@ async function getTabFile(tab: ResultTab): Promise<File | null> {
   if (tab.filePath && api?.statFile) {
     try {
       const st = await api.statFile(tab.filePath)
-      if (st && st.size > 256 * 1024 * 1024) {
+      if (st && st.size > 1.8 * 1024 * 1024 * 1024) {
         const blob = await fetch(pathToLocalUrl(tab.filePath)).then((r) => r.blob())
         if (blob.size > 0) return new File([blob], name, { type: tab.mimeType || undefined })
       }
