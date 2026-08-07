@@ -98,6 +98,12 @@ import { createSessionThumbnailStore, type ThumbnailMap } from "./studio/session
 import { getArtifactRelativePath, getArtifactServeUrl } from "./make/utils/artifact-file-api"
 
 type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
+type PendingScrollRequest = {
+  id: number
+  generationToken: number
+  sessionID?: string
+}
+
 const STUDIO_REGENERATE_DISPLAY_PROMPT = "再次生成"
 const STUDIO_REGENERATE_ASSISTANT_TEXT = "好的，我会按当前结果的配置重新生成。"
 
@@ -438,6 +444,9 @@ export default function StudioPage() {
   let pendingVideoFrameSlot: StudioVideoFrameSlot = "first"
   let conversationScrollRef!: HTMLDivElement
   let scrollFrame = 0
+  let nextPendingScrollRequest = 0
+  const [pendingScrollRequest, setPendingScrollRequest] = createSignal<PendingScrollRequest>()
+  const [conversationViewportVersion, setConversationViewportVersion] = createSignal(0)
   // 用户是否贴近底部：贴近时新内容自动跟随滚动，向上查看历史时不再强制回到底部
   const [stickToBottom, setStickToBottom] = createSignal(true)
   const STUDIO_SCROLL_BOTTOM_THRESHOLD = 200
@@ -899,6 +908,8 @@ export default function StudioPage() {
   }
   function matchesPendingTurn(turn: StudioTurnData | undefined, pending: StudioPendingResult) {
     if (isSamePendingTurn(turn, pending)) return true
+    // 服务端 turn 尚未带回本次 generation ID 时才按内容兜底；历史中相同 prompt 的任务不能被误认作当前任务。
+    if (!turn || turn.createdAt < pending.createdAt) return false
     if (!pending.displayPrompt) return turn?.result?.prompt === pending.prompt
     if (pending.displayPrompt !== STUDIO_REGENERATE_DISPLAY_PROMPT) return false
     return Boolean(
@@ -908,6 +919,23 @@ export default function StudioPage() {
         turn.result.capability === pending.capability,
     )
   }
+  createEffect(() => {
+    const request = pendingScrollRequest()
+    const pending = pendingResult()
+    conversationViewportVersion()
+
+    if (!request || !pending || !conversationScrollRef) return
+    if (request.sessionID && request.sessionID !== params.id) return
+    if (!stableDisplayTurns().some((turn) => isSamePendingTurn(turn, pending))) return
+
+    const frame = requestAnimationFrame(() => {
+      if (pendingScrollRequest()?.id !== request.id) return
+      conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
+      setStickToBottom(true)
+      setPendingScrollRequest(undefined)
+    })
+    onCleanup(() => cancelAnimationFrame(frame))
+  })
   const selectedResult = createMemo(() => {
     const id = selectedResultId()
     if (!id) return
@@ -1225,8 +1253,12 @@ export default function StudioPage() {
       (id) => {
         const preserveEditorEntry = Boolean(id && id === pendingEditorSessionID)
         const preserveGenerationCapability = Boolean(id && id === pendingGenerationSessionID)
+        const scrollRequest = pendingScrollRequest()
         if (preserveEditorEntry) pendingEditorSessionID = undefined
         if (preserveGenerationCapability) pendingGenerationSessionID = undefined
+        if (!preserveGenerationCapability && scrollRequest?.sessionID && scrollRequest.sessionID !== id) {
+          setPendingScrollRequest(undefined)
+        }
         if (preserveGenerationCapability && draftVideoRiskConfirmed()) {
           setVideoRiskConfirmedSessionID(id)
           setDraftVideoRiskConfirmed(false)
@@ -2137,6 +2169,7 @@ export default function StudioPage() {
     pendingEditorSessionID = undefined
     pendingGenerationSessionID = undefined
     generationToken++
+    setPendingScrollRequest(undefined)
     setVideoRiskDialogOpen(false)
     setVideoRiskConfirmedSessionID(undefined)
     setDraftVideoRiskConfirmed(false)
@@ -2844,6 +2877,7 @@ export default function StudioPage() {
     const detailPrompt = overrides?.detailPrompt ?? (actualUserPrompt || (nextCapability === "video.generate" ? text : undefined))
     const detailTitle = overrides?.detailTitle ?? buildStudioDisplayPrompt(detailPrompt ?? text)
     const currentToken = ++generationToken
+    const existingSession = isValidStudioSession(params.id)
     const previousPrompt = prompt()
     const previousAssets = assets()
     const previousVideoFrames = { first: videoFrames.first, last: videoFrames.last }
@@ -2933,24 +2967,24 @@ export default function StudioPage() {
           }
         : {}),
     })
-    // 发送瞬间强制滚动到底部，展示新发起的消息
-    if (conversationScrollRef) {
-      cancelAnimationFrame(scrollFrame)
-      scrollFrame = requestAnimationFrame(() => {
-        conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
-      })
-    }
+    setPendingScrollRequest({
+      id: ++nextPendingScrollRequest,
+      generationToken: currentToken,
+      sessionID: existingSession ? params.id : undefined,
+    })
     if (!overrides?.useRestoredInputs) {
       setPrompt("")
       setAssets([])
     }
     try {
-      const existingSession = isValidStudioSession(params.id)
       const sessionID = existingSession ? params.id! : await createStudioSession(text)
       if (!sessionID) throw new Error("Unable to create Studio session.")
       if (currentToken !== generationToken) return
       // Always attach sessionID to pendingResult so it can be scoped to the correct session.
       setPendingResult((item) => item ? { ...item, sessionID } : item)
+      setPendingScrollRequest((request) =>
+        request?.generationToken === currentToken ? { ...request, sessionID } : request,
+      )
       if (!existingSession) {
         pendingGenerationSessionID = sessionID
         navigate(`/${routeSlug()}/studio/${sessionID}`)
@@ -3804,6 +3838,7 @@ if (!headerTitle.pendingRename) return
           <ScrollView
             viewportRef={(el) => {
               conversationScrollRef = el
+              setConversationViewportVersion((value) => value + 1)
               requestAnimationFrame(() => {
                 el.scrollTo({ top: el.scrollHeight })
               })
