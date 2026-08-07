@@ -99,6 +99,7 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
             justify-content: space-between;
             align-items: center;
             padding: 20px 24px 0;
+            flex-shrink: 0;
           }
           .dialog-archive-success-title {
             display: flex;
@@ -138,7 +139,6 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
             font-size: 14px;
             line-height: 22px;
             color: rgba(0, 0, 0, 0.9);
-            word-break: break-all;
             overflow-wrap: anywhere;
           }
           .archive-path-value {
@@ -152,6 +152,7 @@ export function DialogArchiveSuccess(props: Props): JSX.Element {
             justify-content: flex-end;
             gap: 8px;
             padding: 8px 24px 24px;
+            flex-shrink: 0;
           }
           .dialog-btn-primary {
             height: 32px;
