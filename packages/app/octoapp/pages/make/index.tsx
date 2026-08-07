@@ -149,6 +149,9 @@ function MakeContent() {
   // Register Make slash commands
   useMakeCommands()
 
+  // 消息时间追踪：sessionId → { startTime, inputText, firstTokenTime }
+  const messageTimingMap = new Map<string, { startTime: number; inputText: string; firstTokenTime?: number }>()
+
   // 切换项目目录只触发 keyed 重挂，不会自动改路由——url 仍停在旧目录的
   // /make:oldId。这里用模块级变量检测"重挂 + 目录确实变了"，不依赖 store 水合时序。
   const prevMakeDir = lastMakeDir
@@ -607,6 +610,14 @@ const sessionMessagesLoaded = createMemo(() => {
       if (e.type === "message.part.delta") {
         setLastDeltaTime(Date.now())
         setBlockTime(0)
+        
+        // 记录首次回复时间（只记录第一次）
+        const targetSessionID = eventSessionID ?? sid
+        const timing = messageTimingMap.get(targetSessionID)
+        if (timing && !timing.firstTokenTime) {
+          timing.firstTokenTime = Date.now()
+        }
+        
         setDeltaLog(prev => [
           ...prev.slice(-19),
           {
@@ -891,6 +902,36 @@ const sessionMessagesLoaded = createMemo(() => {
     }
     onCleanup(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
   })
+
+  // ── 消息完整耗时追踪（从发送到对话框恢复可发送）────────────
+  let lastBusyState = false
+  createEffect(on(effectiveBusy, (busy) => {
+    const id = params.id
+    
+    // 检测从 busy → idle 的转换
+    if (lastBusyState && !busy && id) {
+      const timing = messageTimingMap.get(id)
+      if (timing) {
+        const elapsed = Date.now() - timing.startTime
+        const date = new Date()
+        const timeStr = date.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '')
+        const elapsedStr = `${(elapsed / 1000).toFixed(1)}s`
+        
+        // 使用记录的首次回复时间
+        if (timing.firstTokenTime) {
+          const ttft = (timing.firstTokenTime - timing.startTime) / 1000
+          const ttftStr = `${ttft.toFixed(1)}s`
+          console.log(`[${timeStr}] ${timing.inputText}, 总耗时 ${elapsedStr}, 首次回复 ${ttftStr}`)
+        } else {
+          console.log(`[${timeStr}] ${timing.inputText}, 总耗时 ${elapsedStr}`)
+        }
+        
+        messageTimingMap.delete(id)
+      }
+    }
+    
+    lastBusyState = busy
+  }, { defer: true }))
 
   // ── 阻塞检测计时器 ────────────────────────────────────────────
   const [lastDeltaTime, setLastDeltaTime] = createSignal(Date.now())
@@ -2204,6 +2245,12 @@ const sessionMessagesLoaded = createMemo(() => {
       const parts: Array<TextPartInput | FilePartInput> = [textPart]
       if (manifestPart) parts.push(manifestPart)
       parts.push(...fileParts)
+      
+      // 记录发送开始时间
+      messageTimingMap.set(sessionId, {
+        startTime: Date.now(),
+        inputText: text.slice(0, 30)
+      })
       
       await sdk.client.session.prompt({
         sessionID: sessionId,
