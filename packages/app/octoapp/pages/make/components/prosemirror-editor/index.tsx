@@ -17,7 +17,7 @@ import "./styles.css"
 
 interface EditorRef {
   getText: () => string
-  getMentions: () => Array<{ name: string; type: string; label: string; path?: string }>
+  getMentions: () => MentionAttrs[]
   focus: () => void
   clear: () => void
   insertText: (text: string) => void

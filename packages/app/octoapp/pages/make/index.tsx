@@ -1,7 +1,7 @@
 import "./octo-tokens.css"
 import "./components/slash-popover.css"
 import { type MentionSelection } from "./components/mention-popover"
-import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc } from "./components/prosemirror-editor"
+import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs } from "./components/prosemirror-editor"
 import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
@@ -930,8 +930,8 @@ const sessionMessagesLoaded = createMemo(() => {
   const [slashState, setSlashState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [slashIndex, setSlashIndex] = createSignal(0)
   let textareaRef!: HTMLTextAreaElement
-  let proseMirrorRef1: { getText: () => string; getMentions: () => Array<{ name: string; type: string; label: string; path?: string }>; clear: () => void; insertText: (text: string) => void } | undefined
-  let proseMirrorRef2: { getText: () => string; getMentions: () => Array<{ name: string; type: string; label: string; path?: string }>; clear: () => void; insertText: (text: string) => void } | undefined
+  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void } | undefined
+  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void } | undefined
 
   // ── Mention (@) Popover State ──
   const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
@@ -1926,7 +1926,7 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
-  async function sendMessage(sessionId: string, text: string, _modelKey: { providerID: string; modelID: string }, mentions?: Array<{ name: string; type: string; label: string; path?: string }>) {
+  async function sendMessage(sessionId: string, text: string, _modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
     try {
       // Process mention selections: replace chip text with model format
       let processedText = text
@@ -2223,7 +2223,7 @@ const sessionMessagesLoaded = createMemo(() => {
   async function handleSubmit() {
     // 基于 hasContent() 选择正确的编辑器
     let text: string
-    let mentions: MentionSelection[]
+    let mentions: MentionAttrs[]
     
     if (hasContent()) {
       text = proseMirrorRef2?.getText?.() || ""
@@ -2238,7 +2238,7 @@ const sessionMessagesLoaded = createMemo(() => {
     const specDisplay = selectedSpecDisplay()
     if (specName && specDisplay) {
       text = `@${specName} ` + text
-      mentions = [{ type: 'skill', name: specName, label: specDisplay }, ...mentions]
+      mentions = [{ type: 'skill', name: specName, label: specDisplay, id: specName, path: "" }, ...mentions]
     }
     
     if (effectiveBusy() || !activeModelKey()) return
