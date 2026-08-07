@@ -112,7 +112,7 @@ export function SidebarShell(props: SidebarShellProps) {
         width: "var(--sidebar-width, 296px)",
         "padding-top": "12px",
         background: props.background ?? "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)",
-        "border-right": "1px solid var(--border-weak-base)",
+        "border-right": "1px solid rgba(0, 0, 0, 0.1)",
         "z-index": 11,
       }}
     >
