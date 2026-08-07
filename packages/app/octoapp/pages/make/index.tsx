@@ -2221,8 +2221,17 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 提交 prompt：自动创建 session → 发送消息 */
   async function handleSubmit() {
-    let text = proseMirrorRef1?.getText?.() || proseMirrorRef2?.getText?.() || prompt().trim()
-    let mentions = proseMirrorRef1?.getMentions?.() || proseMirrorRef2?.getMentions?.() || []
+    // 基于 hasContent() 选择正确的编辑器
+    let text: string
+    let mentions: MentionSelection[]
+    
+    if (hasContent()) {
+      text = proseMirrorRef2?.getText?.() || ""
+      mentions = proseMirrorRef2?.getMentions?.() || []
+    } else {
+      text = proseMirrorRef1?.getText?.() || ""
+      mentions = proseMirrorRef1?.getMentions?.() || []
+    }
     
     // 注入 specSelector 的 skill
     const specName = selectedSpecName()
