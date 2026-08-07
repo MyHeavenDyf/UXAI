@@ -9,7 +9,7 @@ import { Snapshot } from "@/snapshot"
 import * as Session from "./session"
 import { LLM } from "./llm"
 import { MessageV2 } from "./message-v2"
-import { isOverflow } from "./overflow"
+import { isOverflow, preflight, usable } from "./overflow"
 import { PartID } from "./schema"
 import type { SessionID } from "./schema"
 import { SessionRetry } from "./retry"
@@ -688,9 +688,45 @@ export const layer: Layer.Layer<
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
         ctx.estimatedInputTokens = Token.estimateValue([streamInput.system, streamInput.messages, streamInput.tools])
         ctx.estimatedOutputChars = 0
+        const cfg = yield* config.get()
+        const available = usable({ cfg, model: ctx.model })
+        const current = streamInput.messages.findLast((message) => message.role === "user")
+        const unavoidableInputTokens = Token.estimateValue([streamInput.system, current, streamInput.tools])
+        const preflightResult = ctx.assistantMessage.summary
+          ? "send"
+          : preflight({
+              cfg,
+              model: ctx.model,
+              estimatedInput: ctx.estimatedInputTokens,
+              unavoidableInput: unavoidableInputTokens,
+            })
 
         return yield* Effect.gen(function* () {
           yield* Effect.gen(function* () {
+            if (preflightResult !== "send") {
+              slog.warn("preflight context overflow", {
+                estimated_input: ctx.estimatedInputTokens,
+                unavoidable_input: unavoidableInputTokens,
+                usable: available,
+                modelID: ctx.model.id,
+                providerID: ctx.model.providerID,
+              })
+              if (preflightResult === "reject") {
+                ctx.assistantMessage.error = new MessageV2.ContextOverflowError({
+                  message: `The current request is too large to fit this model even after compacting conversation history. Estimated ${unavoidableInputTokens} input tokens with ${available} usable tokens. Reduce or split the attached files and try again.`,
+                }).toObject()
+                ctx.assistantMessage.finish = "error"
+                yield* session.updateMessage(ctx.assistantMessage)
+                yield* bus.publish(Session.Event.Error, {
+                  sessionID: ctx.sessionID,
+                  error: ctx.assistantMessage.error,
+                })
+                yield* status.set(ctx.sessionID, { type: "idle" })
+                return
+              }
+              ctx.needsCompaction = true
+              return
+            }
             ctx.currentText = undefined
             ctx.reasoningMap = {}
             const stream = llm.stream(streamInput)

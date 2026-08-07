@@ -8,6 +8,7 @@ import { Config } from "@/config/config"
 import { Agent } from "../../src/agent/agent"
 import { LLM } from "../../src/session/llm"
 import { SessionCompaction } from "../../src/session/compaction"
+import { preflight } from "../../src/session/overflow"
 import { Token } from "@/util/token"
 import { Instance } from "../../src/project/instance"
 import { WithInstance } from "../../src/project/with-instance"
@@ -301,10 +302,37 @@ function reply(
 ): (input: LLM.StreamInput) => Stream.Stream<LLM.Event, unknown> {
   return (input) => {
     capture?.(input)
+    const summary = `## Goal
+- ${text}
+
+## Constraints & Preferences
+- (none)
+
+## Progress
+### Done
+- ${text}
+
+### In Progress
+- (none)
+
+### Blocked
+- (none)
+
+## Key Decisions
+- (none)
+
+## Next Steps
+- (none)
+
+## Critical Context
+- (none)
+
+## Relevant Files
+- (none)`
     return Stream.make(
       { type: "start" } satisfies LLM.Event,
       { type: "text-start", id: "txt-0" } satisfies LLM.Event,
-      { type: "text-delta", id: "txt-0", delta: text, text } as LLM.Event,
+      { type: "text-delta", id: "txt-0", delta: summary, text: summary } as LLM.Event,
       { type: "text-end", id: "txt-0" } satisfies LLM.Event,
       {
         type: "finish-step",
@@ -595,6 +623,23 @@ describe("session.compaction.isOverflow", () => {
       },
     ),
   )
+})
+
+describe("session.overflow.preflight", () => {
+  const config = Config.Info.zod.parse({})
+  const model = createModel({ context: 100, output: 20 })
+
+  test("sends requests that fit the context budget", () => {
+    expect(preflight({ cfg: config, model, estimatedInput: 70, unavoidableInput: 20 })).toBe("send")
+  })
+
+  test("compacts when removable history causes overflow", () => {
+    expect(preflight({ cfg: config, model, estimatedInput: 90, unavoidableInput: 20 })).toBe("compact")
+  })
+
+  test("rejects requests whose unavoidable input is too large", () => {
+    expect(preflight({ cfg: config, model, estimatedInput: 90, unavoidableInput: 80 })).toBe("reject")
+  })
 })
 
 describe("session.compaction.create", () => {
@@ -943,6 +988,31 @@ describe("session.compaction.process", () => {
         }
       },
     })
+  })
+
+  for (const item of [
+    { name: "empty", text: undefined },
+    { name: "incomplete", text: "short summary" },
+  ]) {
+    test(`rejects ${item.name} compaction summaries`, () => {
+      expect(SessionCompaction.validateSummary(item.text).valid).toBe(false)
+    })
+  }
+
+  test("accepts compaction summaries with every required section", () => {
+    expect(
+      SessionCompaction.validateSummary(
+        [
+          "## Goal",
+          "## Constraints & Preferences",
+          "## Progress",
+          "## Key Decisions",
+          "## Next Steps",
+          "## Critical Context",
+          "## Relevant Files",
+        ].join("\n"),
+      ).valid,
+    ).toBe(true)
   })
 
   test("adds synthetic continue prompt when auto is enabled", async () => {
@@ -1337,8 +1407,15 @@ describe("session.compaction.process", () => {
           expect(last?.info.role).toBe("user")
           expect(last?.parts.some((part) => part.type === "file")).toBe(false)
           expect(
-            last?.parts.some((part) => part.type === "text" && part.text.includes("Attached image/png: cat.png")),
+            last?.parts.some(
+              (part) =>
+                part.type === "text" &&
+                part.synthetic &&
+                part.metadata?.compaction_replay === true &&
+                part.text.includes("Attached image/png: cat.png"),
+            ),
           ).toBe(true)
+          expect(last?.parts.filter((part) => part.type === "text").every((part) => part.synthetic)).toBe(true)
         } finally {
           await rt.dispose()
         }
@@ -1900,6 +1977,10 @@ describe("util.token.estimate", () => {
 
   test("returns 0 for empty string", () => {
     expect(Token.estimate("")).toBe(0)
+  })
+
+  test("does not underestimate CJK text as four characters per token", () => {
+    expect(Token.estimate("这是一个中文上下文压缩测试")).toBe(13)
   })
 
   test("estimates structured model messages without counting base64 bytes", () => {

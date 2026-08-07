@@ -2,7 +2,9 @@ const CHARS_PER_TOKEN = 4
 const MEDIA_TOKEN_ESTIMATE = 1_024
 
 export function estimate(input: string) {
-  return estimateChars((input || "").length)
+  const value = input || ""
+  const cjk = value.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu)?.length ?? 0
+  return Math.max(0, Math.round(cjk + (value.length - cjk) / CHARS_PER_TOKEN))
 }
 
 export function estimateChars(length: number) {
