@@ -11,6 +11,9 @@ import { getDesktopApi } from "../lib/electron-api"
 export const OPEN_FAILED_HINT = "文件可能已被移动或删除,也可能是系统未关联可打开该类型的应用"
 export const NO_APP_HINT = "系统未关联可打开该类型的应用,请安装对应应用或设置默认打开方式"
 export const REVEAL_NOT_FOUND_HINT = "文件可能已被移动、重命名或删除,请刷新后重试"
+// openFileOrReveal 三步全败(开文件 / 定位 / 开父目录)时用:此时多半是路径本身就错(文件与父目录都不在),
+// 与 OPEN_FAILED_HINT 的「无关联应用」语义无关,单列更准。
+export const OPEN_OR_REVEAL_FAILED_HINT = "文件及其所在目录均无法打开,请确认路径是否正确"
 
 export async function openFileLocally(filePath: string): Promise<void> {
   const api = getDesktopApi()
@@ -49,6 +52,46 @@ export async function revealFileInFolder(filePath: string): Promise<void> {
     console.error("[octo:path] reveal-failed", { filePath, err })
     showToast({ title: "无法定位文件", description: err instanceof Error ? err.message : String(err), variant: "error" })
   }
+}
+
+// 点一下既要打开的场景(如权限浮窗点路径):先尝试用系统默认应用打开文件,失败(无关联应用 /
+// 文件被移走)再退而在文件夹中定位该文件;若文件本身不存在(showItemInFolder 判 not-found),
+// 再退一步打开其父目录(优先 external_directory 的 metadata.parentDir,缺省时从文件路径推),
+// 三条路都走不通才报错。不复用 openFileLocally:它在失败时即弹"无法打开文件",而这里期望
+// fallback 成功时不打扰用户。shell.openPath 约定为空串=成功、非空串=错误说明,仅 IPC 层异常才
+// reject,故 reject 也归一为非空串参与 fallback 判定。
+export async function openFileOrReveal(filePath: string, parentDir?: string): Promise<void> {
+  const api = getDesktopApi()
+  if (typeof api?.openPath !== "function") {
+    showToast({ title: "桌面端能力缺失", description: "缺少 window.api.openPath", variant: "error" })
+    return
+  }
+  // parentDir 缺省时从目标路径推一个(external_directory 传权威值;read 权限 metadata 空时兜底),
+  // 让"开父目录"这步在所有权限类型下都可用,而非只在传了 parentDir 时才兜得住。
+  const sep = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"))
+  const dir = parentDir ?? (sep > 0 ? filePath.slice(0, sep) : undefined)
+  console.log("[octo:path] open-or-reveal", { filePath, dir })
+  const openResult = await api
+    .openPath(filePath)
+    .catch((err: unknown) => (err instanceof Error ? err.message : String(err)))
+  // 空串/非字符串 = 打开成功,直接返回
+  if (typeof openResult !== "string" || openResult.length === 0) return
+  // 打开失败(非空错误串):文件在则定位到文件夹
+  if (typeof api.showItemInFolder === "function") {
+    console.warn("[octo:path] open-failed-fallback-reveal", { filePath, reason: openResult })
+    const reveal = await api.showItemInFolder(filePath).catch(() => undefined)
+    if (reveal?.ok) return
+  }
+  // 文件不在 / 定位失败:打开其父目录(父目录通常仍在,至少让用户看到落点而非死弹窗)
+  if (dir) {
+    console.warn("[octo:path] reveal-failed-fallback-dir", { dir, reason: openResult })
+    const dirResult = await api
+      .openPath(dir)
+      .catch((err: unknown) => (err instanceof Error ? err.message : String(err)))
+    if (typeof dirResult !== "string" || dirResult.length === 0) return
+  }
+  console.error("[octo:path] open-or-reveal-failed", { filePath, reason: openResult })
+  showToast({ title: "无法打开文件", description: OPEN_OR_REVEAL_FAILED_HINT, variant: "error" })
 }
 
 // SPEC-INS-014 §10.1:文件管理面板的"上传"——脱离对话框也能往 .octo/<sessionId>/uploads/ 塞文件。

@@ -40,6 +40,7 @@ import { previewDistDir, getUploadsDir, setUploadsDir } from "./preview-server"
 import { pipelineRequest } from "../network/pipelineRequest"
 import { codeToHtml } from "./page-capture"
 import { landingName } from "./landing-name"
+import { toExactArrayBuffer } from "./buffer-slice"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -649,7 +650,20 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("read-file-buffer", async (_event: IpcMainInvokeEvent, path: string) => {
     try {
       const buf = await readFile(path)
-      return buf.buffer
+      return toExactArrayBuffer(buf)
+    } catch {
+      return null
+    }
+  })
+
+  // 大文件归档:只 stat 不读盘,返回文件大小供渲染端判定是否走流式 fetch(local://).blob() 路径
+  // (read-file-buffer 整份读,>1.8GiB 越 V8 ArrayBuffer / IPC 结构化克隆 ~2GB 上限,RangeError 静默成 null)。
+  // 非普通文件(目录 / 不存在)返回 null。
+  ipcMain.handle("stat-file", async (_event: IpcMainInvokeEvent, path: string) => {
+    try {
+      const s = await stat(path)
+      if (!s.isFile()) return null
+      return { size: s.size }
     } catch {
       return null
     }
@@ -894,6 +908,7 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-5-start
   ipcMain.handle("add-skill", async (_event: IpcMainInvokeEvent, sourcePath: string) => {
     try {
       const octoSkillDir = join(getOctoConfigPath(), "skill")
@@ -920,8 +935,6 @@ export function registerIpcHandlers(deps: Deps) {
       const content = readFileSync(skillMdPath, "utf-8")
       const descMatch = content.match(/^---\s*\n.*?description:\s*(.+?)\s*\n.*?---/s)
       config[skillName] = {
-        // jk-j60099994-replace-with-60062650-main-skills-ipc-5-start
-        // jk-j60099994-replace-with-60062650-main-skills-ipc-5-end
         description: descMatch ? descMatch[1] : "",
         import: true,
         type: "common",
@@ -940,6 +953,7 @@ export function registerIpcHandlers(deps: Deps) {
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-5-end
 
   ipcMain.handle("ensure-skill-config", () => {
     if (!existsSync(skillsConfigPath)) return

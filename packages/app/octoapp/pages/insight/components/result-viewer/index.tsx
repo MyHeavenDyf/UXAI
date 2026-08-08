@@ -15,6 +15,7 @@ import { fetchResourceText } from "../../utils/resource-link"
 import { defaultFilename as defaultLocalFilename, saveDialogName } from "../../utils/local-file"
 import { describeResourceError } from "../../utils/local-resource"
 import { openFileLocally, revealFileInFolder, NO_APP_HINT } from "../../utils/local-file-ops"
+import { decodeHtmlBytes } from "@opencode-ai/core/bridge-scripts"
 import { MarkdownEditor } from "../markdown-editor"
 import { MarkdownPreview } from "../markdown-editor/markdown-preview"
 import { langFromPath, canOpenLocally } from "../../utils/write-output"
@@ -227,7 +228,7 @@ function LocalFileTabBody(props: {
       console.log("[octo:local] read start", { path: src.path })
       const buf = await api.readFileBuffer(src.path)
       // 读原字节自己解码,不经服务端 —— 尾部换行等空白逐字保留
-      const text = buf ? new TextDecoder("utf-8").decode(new Uint8Array(buf)) : ""
+      const text = buf ? decodeHtmlBytes(new Uint8Array(buf)) : ""
       console.log("[octo:local] read ok", { path: src.path, bytes: text.length })
       // 回写 cache 供 ActionBar 复制/下载;显示仍渲染 resource() 以保证是刚读到的那份
       props.onCacheContent?.(props.tab.id, text)

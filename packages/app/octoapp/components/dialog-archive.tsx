@@ -276,17 +276,41 @@ const findFolderById = (nodes: NestedTreeNode[], id: number): NestedTreeNode | n
 }
 
 const filterPersonalFolderList = (nodes: NestedTreeNode[]): NestedTreeNode[] => {
-  return nodes
-    .filter(node => node.permissionFlag === true)
-    .map(node => ({
-      ...node,
-      children: node.children ? filterPersonalFolderList(node.children) : []
-    }))
+  const processNodes = (items: NestedTreeNode[]): (NestedTreeNode | null)[] => {
+    return items.map(node => {
+      const children = node.children ? processNodes(node.children).filter((c): c is NestedTreeNode => c !== null) : []
+      
+      // 检查是否有任何后代节点有权限
+      const hasPermissionDescendant = children.some(child => 
+        child.permissionFlag === true || child._hasPermissionDescendant === true
+      )
+      
+      // 节点应该显示，如果自身有权限或有有权限的后代
+      const shouldShow = node.permissionFlag === true || hasPermissionDescendant
+      
+      if (!shouldShow) {
+        return null
+      }
+      
+      return {
+        ...node,
+        children,
+        disabled: node.permissionFlag !== true,
+        _hasPermissionDescendant: hasPermissionDescendant
+      }
+    })
+  }
+  
+  return processNodes(nodes).filter((n): n is NestedTreeNode => n !== null)
 }
 
 const findFirstSelectablePersonal = (nodes: NestedTreeNode[]): NestedTreeNode | null => {
   for (const node of nodes) {
-    return node
+    if (!node.disabled) return node
+    if (node.children?.length) {
+      const found = findFirstSelectablePersonal(node.children)
+      if (found) return found
+    }
   }
   return null
 }
@@ -1417,6 +1441,9 @@ export function ArchiveDialog(props: Props): JSX.Element {
             color: rgba(0, 0, 0, 0.6);
             margin: 0 0 24px;
             text-align: center;
+            overflow-wrap: anywhere;
+            max-height: 30vh;
+            overflow-y: auto;
           }
           .archive-dialog-collision-options {
             display: flex;

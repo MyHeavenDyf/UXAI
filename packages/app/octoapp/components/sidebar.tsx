@@ -2,8 +2,7 @@ import { Show, createResource, createEffect, For, on, onCleanup, createSignal, c
 import { createStore, produce, reconcile } from "solid-js/store"
 import { Portal } from "solid-js/web"
 import { Icon } from "@opencode-ai/ui/icon"
-import { Button } from "@opencode-ai/ui/button"
-import { Dialog } from "@opencode-ai/ui/dialog"
+import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { showToast } from "@opencode-ai/ui/toast"
 import { A, useParams, useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/core/util/encode"
@@ -167,19 +166,10 @@ const params = useParams()
     if (!session) return
     closeContextMenu()
     dialog.show(() => (
-      <Dialog title="删除会话" fit class="delete-dialog">
-        <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
-          确定删除"{sessionTitle(session.title) || language.t("command.session.new")}"？
-        </span>
-        <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
-          <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
-            {language.t("common.cancel")}
-          </Button>
-          <Button variant="primary" size="large" class="delete-dialog-btn delete-dialog-btn-primary" onClick={() => { void deleteSession(session.id, session.directory).then(() => dialog.close()) }}>
-            {language.t("session.delete.button")}
-          </Button>
-        </div>
-      </Dialog>
+      <DialogDeleteSession
+        name={sessionTitle(session.title) || language.t("command.session.new")}
+        onDelete={() => deleteSession(session.id, session.directory)}
+      />
     ))
   }
 

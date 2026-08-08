@@ -368,13 +368,21 @@ export default function StudioPage() {
   let generationToken = 0
   let createGenerationController: AbortController | undefined
   const terminatedGenerationIDs = new Set<string>()
-  const [studioLeftCollapsed, setStudioLeftCollapsed] = createSignal(false)
+  const [studioLeftCollapsedStore, setStudioLeftCollapsedStore] = persisted(
+    Persist.global("studio.left.collapsed"),
+    createStore({ collapsed: false }),
+  )
+  const [studioLeftCollapsed, setStudioLeftCollapsed] = createSignal(studioLeftCollapsedStore.collapsed)
   const [studioLeftStore, setStudioLeftStore] = persisted(
     Persist.global("studio.left.width"),
     createStore({ width: 296 }),
   )
   const [studioLeftWidth, setStudioLeftWidth] = createSignal(studioLeftStore.width)
-  const toggleStudioLeft = () => setStudioLeftCollapsed((v) => !v)
+  const toggleStudioLeft = () => {
+    const next = !studioLeftCollapsed()
+    setStudioLeftCollapsed(next)
+    setStudioLeftCollapsedStore("collapsed", next)
+  }
   const [studioCenterStore, setStudioCenterStore] = persisted(
     Persist.global("studio.center.width"),
     createStore({ width: 468 }),
@@ -430,6 +438,7 @@ export default function StudioPage() {
   let videoFrameInputRef!: HTMLInputElement
   let pendingVideoFrameSlot: StudioVideoFrameSlot = "first"
   let conversationScrollRef!: HTMLDivElement
+  const [conversationContentEl, setConversationContentEl] = createSignal<HTMLElement | null>(null)
   let scrollFrame = 0
   // 用户是否贴近底部：贴近时新内容自动跟随滚动，向上查看历史时不再强制回到底部
   const [stickToBottom, setStickToBottom] = createSignal(true)
@@ -438,6 +447,30 @@ export default function StudioPage() {
     const el = conversationScrollRef
     if (!el) return
     setStickToBottom(el.scrollTop + el.clientHeight >= el.scrollHeight - STUDIO_SCROLL_BOTTOM_THRESHOLD)
+  }
+  // 内容尺寸变化（新消息渲染、输入图解码完成等）时贴近底部则跟随置底。
+  // 弥补单次 rAF 无法覆盖异步内容增高（displayTurnStore 延迟同步、图片布局延迟）的时序缺口。
+  // 用 signal + createEffect 以响应 studio-center 在 hasStudioConversation 切换后才挂载的场景。
+  createEffect(() => {
+    const el = conversationContentEl()
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      if (!conversationScrollRef || !stickToBottom()) return
+      cancelAnimationFrame(scrollFrame)
+      scrollFrame = requestAnimationFrame(() => {
+        conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
+      })
+    })
+    ro.observe(el)
+    onCleanup(() => ro.disconnect())
+  })
+  const [downloadNotice, setDownloadNotice] = createSignal<string | null>(null)
+  let downloadNoticeTimer: number | undefined
+  onCleanup(() => { if (downloadNoticeTimer !== undefined) window.clearTimeout(downloadNoticeTimer) })
+  function showDownloadNotice(message: string) {
+    setDownloadNotice(message)
+    if (downloadNoticeTimer !== undefined) window.clearTimeout(downloadNoticeTimer)
+    downloadNoticeTimer = window.setTimeout(() => setDownloadNotice(null), 3000)
   }
   let pendingEditorSessionID: string | undefined
   let pendingGenerationSessionID: string | undefined
@@ -562,6 +595,14 @@ export default function StudioPage() {
   const [resizingCenter, setResizingCenter] = createSignal(false)
   const [resizeState, setResizeState] = createStore({ startX: 0, startWidth: 0 })
 
+  // 持久化宽度异步水合后回填到 live signal(桌面端 store 水合晚于 createSignal 初始化)
+  createEffect(on(() => studioLeftStore.width, (width) => {
+    if (!resizingLeft()) setStudioLeftWidth(width)
+  }))
+  createEffect(on(() => studioCenterStore.width, (width) => {
+    if (!resizingCenter()) setStudioCenterWidth(width)
+  }))
+
   function onPagePointerMove(e: PointerEvent) {
     if (resizingLeft()) {
       const delta = e.clientX - resizeState.startX
@@ -665,17 +706,16 @@ export default function StudioPage() {
     onCleanup(() => mql.removeEventListener("change", update))
   })
 
-  // 窗口 <1456px 时左侧栏默认收缩
+  // 窗口 <1456px 时左侧栏强制收缩；≥1456px 时跟随用户持久化的折叠偏好(响应式,支持异步水合)
   createEffect(() => {
     const mql = window.matchMedia("(max-width: 1455px)")
-    const update = () => setStudioLeftCollapsed(mql.matches)
+    const update = () => {
+      if (mql.matches) setStudioLeftCollapsed(true)
+      else setStudioLeftCollapsed(studioLeftCollapsedStore.collapsed)
+    }
     update()
     mql.addEventListener("change", update)
-    window.addEventListener("resize", update)
-    onCleanup(() => {
-      mql.removeEventListener("change", update)
-      window.removeEventListener("resize", update)
-    })
+    onCleanup(() => mql.removeEventListener("change", update))
   })
 
   // 自适应布局：
@@ -706,7 +746,8 @@ export default function StudioPage() {
       calcCenterWidth()
     }
 
-    onMediaChange()
+    setShowToggleDrawer(mqlMedium.matches)
+    setWindowWidth(window.innerWidth)
     mqlWide.addEventListener("change", onMediaChange)
     mqlMedium.addEventListener("change", onMediaChange)
     mqlCenter31.addEventListener("change", onMediaChange)
@@ -843,6 +884,23 @@ export default function StudioPage() {
         } satisfies StudioTurnData,
       ])
     })(),
+  )
+  const [displayTurnStore, setDisplayTurnStore] = createStore<Record<string, StudioTurnData>>({})
+  createEffect(on(displayTurns, (next) => {
+    const ids = new Set(next.map((turn) => turn.id))
+    batch(() => {
+      next.forEach((turn) => setDisplayTurnStore(turn.id, reconcile(turn)))
+      setDisplayTurnStore(produce((turns) => {
+        Object.keys(turns)
+          .filter((id) => !ids.has(id))
+          .forEach((id) => delete turns[id])
+      }))
+    })
+  }))
+  const stableDisplayTurns = createMemo(() =>
+    displayTurns()
+      .map((turn) => displayTurnStore[turn.id])
+      .filter((turn): turn is StudioTurnData => Boolean(turn)),
   )
   createEffect(() => {
     const persisted = new Set(turns().map((turn) => turn.editorEntryID).filter((id): id is string => Boolean(id)))
@@ -1507,21 +1565,32 @@ export default function StudioPage() {
   async function downloadCurrentImage() {
     const image = selectedImage()
     if (!image) return
+    const source = image.remoteUrl ?? image.url
+    const label = currentImageLabel()
     tracker.interaction({
       module: "studio",
       name: "download",
-      extend: JSON.stringify({ name: currentImageLabel(), url: image.remoteUrl ?? image.url }),
+      extend: JSON.stringify({ name: label, url: source }),
     })
-    const source = image.remoteUrl ?? image.url
     try {
       const response = await fetch(source)
       if (!response.ok) throw new Error(`Download request failed: ${response.status}`)
-      const objectUrl = URL.createObjectURL(await response.blob())
-      triggerBrowserDownload(objectUrl, currentImageLabel())
+      const blob = await response.blob()
+      if ((window as any).api?.saveFilePicker) {
+        const filePath = await (window as any).api.saveFilePicker({ defaultPath: label })
+        if (!filePath) return
+        await (window as any).api.writeFileBuffer(filePath, await blob.arrayBuffer())
+        showDownloadNotice("下载成功")
+        return
+      }
+      const objectUrl = URL.createObjectURL(blob)
+      triggerBrowserDownload(objectUrl, label)
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+      showDownloadNotice("下载成功")
     } catch (error) {
       console.warn("[studio] image download fallback", error)
-      triggerBrowserDownload(source, currentImageLabel())
+      triggerBrowserDownload(source, label)
+      showDownloadNotice("下载成功")
     }
   }
 
@@ -1732,25 +1801,25 @@ export default function StudioPage() {
   async function addReferenceAsset(asset: StudioAsset) {
     const limit = maxReferenceImages()
     if (limit !== 1 && assets().length >= limit) {
-      showFloatingNotice("error", `上传失败：最多上传 ${limit} 张参考图。`)
+      showFloatingNotice("info", `上传失败：最多上传 ${limit} 张参考图。`)
       return
     }
     const isJimeng = imageTool() === "jimeng"
     const allowedExts = isJimeng ? ["png", "jpg", "jpeg"] : (ALLOWED_IMAGE_EXTENSIONS as readonly string[])
     const ext = studioImageExtension(asset.mime)
     if (!allowedExts.includes(ext)) {
-      showFloatingNotice("error", `上传失败：${isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。"}`)
+      showFloatingNotice("info", `上传失败：${isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。"}`)
       return
     }
     const maxSize = isJimeng ? 15 * 1024 * 1024 : 8 * 1024 * 1024
     const maxSizeLabel = isJimeng ? "15MB" : "8MB"
     if (dataUrlByteSize(asset.dataUrl) > maxSize) {
-      showFloatingNotice("error", `上传失败：图片文件大小不能超过 ${maxSizeLabel}。`)
+      showFloatingNotice("info", `上传失败：图片文件大小不能超过 ${maxSizeLabel}。`)
       return
     }
     const dimensions = await readStudioAssetDimensions(asset)
     if (dimensions.width > 7500 || dimensions.height > 7500) {
-      showFloatingNotice("error", "上传失败：图片最大尺寸不能超过 7500px。")
+      showFloatingNotice("info", "上传失败：图片最大尺寸不能超过 7500px。")
       return
     }
     tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: 1 }) })
@@ -1763,9 +1832,9 @@ export default function StudioPage() {
     return "last"
   }
 
-  async function addVideoFrameAsset(asset: StudioAsset) {
+  async function addVideoFrameAsset(asset: StudioAsset, slot: StudioVideoFrameSlot = nextVideoFrameSlot()) {
     await validateVideoFrameAsset(asset)
-    setVideoFrames(nextVideoFrameSlot(), asset)
+    setVideoFrames(slot, asset)
   }
 
   function useConversationInputImage(url: string) {
@@ -1783,27 +1852,27 @@ export default function StudioPage() {
     const limit = maxReferenceImages()
     const selectedFiles = limit === 1 ? imageFiles.slice(0, 1) : imageFiles.slice(0, Math.max(limit - assets().length, 0))
     if (!selectedFiles.length) {
-      showFloatingNotice("error", `上传失败：最多上传 ${limit} 张参考图。`)
+      showFloatingNotice("info", `上传失败：最多上传 ${limit} 张参考图。`)
       return
     }
     const isJimeng = imageTool() === "jimeng"
     const allowedExts = isJimeng ? ["png", "jpg", "jpeg"] : (ALLOWED_IMAGE_EXTENSIONS as readonly string[])
     const invalidExtFile = selectedFiles.find((file) => !allowedExts.includes(file.name.split(".").pop()?.toLowerCase() ?? ""))
     if (invalidExtFile) {
-      showFloatingNotice("error", `上传失败：${isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。"}`)
+      showFloatingNotice("info", `上传失败：${isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。"}`)
       return
     }
     const maxSize = isJimeng ? 15 * 1024 * 1024 : 8 * 1024 * 1024
     const maxSizeLabel = isJimeng ? "15MB" : "8MB"
     if (selectedFiles.some((file) => file.size > maxSize)) {
-      showFloatingNotice("error", `上传失败：图片文件大小不能超过 ${maxSizeLabel}。`)
+      showFloatingNotice("info", `上传失败：图片文件大小不能超过 ${maxSizeLabel}。`)
       return
     }
     tracker.interaction({ module: "studio", name: "add-attachment", extend: JSON.stringify({ count: selectedFiles.length }) })
     Promise.all(selectedFiles.map((file) => readStudioAsset(file).then((asset) => readStudioAssetDimensions(asset).then((dimensions) => ({ asset, dimensions })))))
       .then((items) => {
         if (items.some((item) => item.dimensions.width > 7500 || item.dimensions.height > 7500)) {
-          showFloatingNotice("error", "上传失败：图片最大尺寸不能超过 7500px。")
+          showFloatingNotice("info", "上传失败：图片最大尺寸不能超过 7500px。")
           return
         }
         setAssets((current) => limit === 1 ? [items[0].asset] : [...current, ...items.map((item) => item.asset)].slice(0, limit))
@@ -1843,6 +1912,23 @@ export default function StudioPage() {
     addAssets(files.filter((file) => file.type.startsWith("image/")))
   }
 
+  function handleDropFiles(files: File[], slot?: StudioVideoFrameSlot) {
+    if (capability() === "video.generate") {
+      addVideoFrame(slot ?? nextVideoFrameSlot(), files)
+      return
+    }
+    addAssets(files)
+  }
+
+  function handleDropImageUrl(url: string, slot?: StudioVideoFrameSlot) {
+    if (capability() !== "image.generate" && capability() !== "video.generate") return
+    inputImageAssetFromUrl(url)
+      .then((asset) => capability() === "video.generate" ? addVideoFrameAsset(asset, slot) : addReferenceAsset(asset))
+      .catch((error) => {
+        showFloatingNotice("error", `上传失败：${error instanceof Error ? error.message : String(error)}`)
+      })
+  }
+
   function uploadWorkspaceImage(files: File[]) {
     const file = files.find((item) => item.type.startsWith("image/"))
     if (!file) return
@@ -1851,7 +1937,7 @@ export default function StudioPage() {
     const allowedExts = isJimeng ? ["png", "jpg", "jpeg"] : (ALLOWED_IMAGE_EXTENSIONS as readonly string[])
     const ext = file.name.split(".").pop()?.toLowerCase()
     if (!ext || !allowedExts.includes(ext)) {
-      showFloatingNotice("error", `上传失败：${isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。"}`)
+      showFloatingNotice("info", `上传失败：${isJimeng ? "仅支持 .png、.jpg、.jpeg 格式文件。" : "仅支持 .png、.jpg、.jpeg、.webp 格式文件。"}`)
       return
     }
     const isStrictEdit = capability() === "image.outpaint" || capability() === "image.inpaint" || capability() === "image.cutout"
@@ -1868,19 +1954,19 @@ export default function StudioPage() {
       maxSizeLabel = "20MB"
     }
     if (file.size > maxSize) {
-      showFloatingNotice("error", `上传失败：图片文件大小不能超过 ${maxSizeLabel}。`)
+      showFloatingNotice("info", `上传失败：图片文件大小不能超过 ${maxSizeLabel}。`)
       return
     }
     readWorkspaceImage(file)
       .then((image) => {
         if (image.width != null && image.height != null) {
           if (image.width > 7500 || image.height > 7500) {
-            showFloatingNotice("error", "上传失败：图片最大尺寸不能超过 7500px。")
+            showFloatingNotice("info", "上传失败：图片最大尺寸不能超过 7500px。")
             return
           }
           const minSide = capability() === "image.cutout" ? 50 : isStrictEdit ? 300 : 0
           if (minSide > 0 && Math.min(image.width, image.height) < minSide) {
-            showFloatingNotice("error", `上传失败：图片最小边不能小于 ${minSide}px。`)
+            showFloatingNotice("info", `上传失败：图片最小边不能小于 ${minSide}px。`)
             return
           }
         }
@@ -2283,7 +2369,7 @@ export default function StudioPage() {
 
   function canEditGenerationDraft(draft: ReturnType<typeof restoreGenerationEditDraft>) {
     if (draft.capability === "video.generate" && !canGenerateVideo()) {
-      showFloatingNotice("warning", "暂无视频生成权限：当前账号无法重新编辑该视频生成任务。")
+      showFloatingNotice("info", "暂无视频生成权限：当前账号无法重新编辑该视频生成任务。")
       return false
     }
     if (
@@ -2292,7 +2378,7 @@ export default function StudioPage() {
       styleModelRequiresSeedreamPermission(draft.styleModel) &&
       !canUseSeedream()
     ) {
-      showFloatingNotice("warning", "暂无模型使用权限：当前账号无法重新编辑该图片生成任务。")
+      showFloatingNotice("info", "暂无模型使用权限：当前账号无法重新编辑该图片生成任务。")
       return false
     }
     return true
@@ -2496,7 +2582,7 @@ export default function StudioPage() {
   async function handleReversePrompt() {
     const asset = assets()[0]
     if (!asset) {
-      showFloatingNotice("warning", "请先上传参考图")
+      showFloatingNotice("info", "请先上传参考图")
       return
     }
     if (reversePromptRunning) return
@@ -2890,6 +2976,7 @@ export default function StudioPage() {
         : {}),
     })
     // 发送瞬间强制滚动到底部，展示新发起的消息
+    setStickToBottom(true)
     if (conversationScrollRef) {
       cancelAnimationFrame(scrollFrame)
       scrollFrame = requestAnimationFrame(() => {
@@ -3630,6 +3717,8 @@ export default function StudioPage() {
                     videoFrameInputRef.click()
                   }}
                   onPasteImage={handlePasteReferenceImage}
+                  onDropFiles={handleDropFiles}
+                  onDropImageUrl={handleDropImageUrl}
                   onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
                   onRemoveVideoFrame={(slot) => setVideoFrames(slot, undefined)}
                   onSwapVideoFrames={() => replaceVideoFrames({ first: videoFrames.last, last: videoFrames.first })}
@@ -3765,10 +3854,11 @@ if (!headerTitle.pendingRename) return
             onScroll={handleConversationScroll}
             class="studio-center-scroll"
           >
+            <div ref={setConversationContentEl}>
             <Show when={displayTurns().length > 0 || pendingResult() || sending() || isBusy()} fallback={params.id && !sessionDataLoaded() && !visitedSessionIds.has(params.id) ? null : <StudioIntro />}>
               <StudioConversation
                 result={result()}
-                turns={displayTurns()}
+                turns={stableDisplayTurns()}
                 sdkUrl={globalSDK.url}
                 directory={projectDir()}
                 busy={effectiveStatus() === "queued" || effectiveStatus() === "running" || effectiveStatus() === "submitting"}
@@ -3783,6 +3873,7 @@ if (!headerTitle.pendingRename) return
                 onUseInputImage={useConversationInputImage}
               />
             </Show>
+            </div>
           </ScrollView>
 
           <StudioComposer
@@ -3826,6 +3917,8 @@ if (!headerTitle.pendingRename) return
               videoFrameInputRef.click()
             }}
             onPasteImage={handlePasteReferenceImage}
+            onDropFiles={handleDropFiles}
+            onDropImageUrl={handleDropImageUrl}
             onRemoveAsset={(id) => setAssets((items) => items.filter((item) => item.id !== id))}
             onRemoveVideoFrame={(slot) => setVideoFrames(slot, undefined)}
             onSwapVideoFrames={() => replaceVideoFrames({ first: videoFrames.last, last: videoFrames.first })}
@@ -3882,6 +3975,7 @@ if (!headerTitle.pendingRename) return
               tabImages={canvasTabImages()}
               tabLabels={canvasTabLabels()}
               onDownload={() => void downloadCurrentImage()}
+              downloadNotice={downloadNotice}
               onSelectImage={selectCanvasTab}
               onDeleteImage={(id) => {
                 batch(() => {

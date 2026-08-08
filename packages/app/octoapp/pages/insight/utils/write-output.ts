@@ -86,7 +86,7 @@ function readMetadataFilepath(metadata: unknown): string | undefined {
  * 解析产物卡应使用的本地路径。**优先 state.metadata.filepath**(服务端 write/edit 实际写盘的绝对路径,
  * 权威且恒等于真实落点),兜底 state.input.filePath。
  *
- * 为什么不能只信 state.input:insight 会话的 write 相对落点由服务端插件(octo-outputs-redirect)重定向到
+ * 为什么不能只信 state.input:insight 会话的 write 相对落点由服务端插件(octo-session-workdir)重定向到
  * 会话 outputs/,但 state.input 记录的是模型产出的原始裸文件名(如 `报告.md`),与真实落点脱钩——客户端拿裸名
  * 走 file.read / openPath 会相对项目根解析而定位失败。metadata.filepath 才是写盘用的那个路径,不受重定向 / 相对
  * join 影响。见 output-renderers.md §2.6.3。

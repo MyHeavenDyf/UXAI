@@ -1,7 +1,9 @@
 import { Effect, Schema } from "effect"
-import { basename, extname } from "node:path"
-import { access, readFile } from "node:fs/promises"
+import { basename, extname, join } from "node:path"
+import { access, mkdir, open, readFile, writeFile } from "node:fs/promises"
 import * as Tool from "./tool"
+import * as Truncate from "./truncate"
+import { InstanceState } from "@/effect/instance-state"
 
 // extract_document —— 把本地文档(docx/xlsx/pdf/pptx/txt/md)抽取成文本,供 insight 本地模型直接读。
 // SPEC-INS-015 文件传参路由 ②(office → 模型读)+ SPEC-INS-021 §3(txt/md 直读,解析源统一入口):
@@ -11,8 +13,13 @@ import * as Tool from "./tool"
 // 并让测量头(字数/token 估算)对所有解析源一致生效。
 // 抽取实现属 SPEC-INS-016(本地解析能力线 Spec B):docx=mammoth / pdf=unpdf / xlsx=exceljs /
 // pptx=jszip+slide XML 直抽 / txt·md=readFile 直读;lazy 解析(调用时才读盘解析,不缓存);
-// 输出首行带字数/token 估算(E 护栏的测量机制),超长正文由 Tool.define 自带的 Truncate 兜底
-// (截断 + 全文落盘 + 引导 Read/Grep)。
+// 输出首行带字数/token 估算(E 护栏的测量机制)。
+//
+// SPEC-INS-016 v2「全量落盘」——工具的职责是把全文完整交付出来,「上下文塞不塞得下」是上层的事,
+// 工具无权代为丢弃。v1 靠 Tool.define 自带的 Truncate 兜底(50KB **字节** ≈ 1.7 万汉字)盲切正文,
+// 三四万字的 docx 直接腰斩。v2 改为:正文一律落盘到 .octo/<sessionID>/extracted/,再按体积分流
+// (小文件额外内联全文;大文件只回元信息 + 路径 + 预览,由模型 grep/read 取用),工具自己保证
+// **永远不触发那层通用兜底**。
 // ⚠️ 桌面端 sidecar 是 Node 子进程(非 Bun):文件 IO 用 node:fs,不要用 Bun.*。
 
 const DESCRIPTION =
@@ -36,10 +43,25 @@ type ExtractMetadata = {
   errorMessage?: string
   chars?: number
   tokenEstimate?: number
+  /** 落盘的解析件绝对路径;落盘失败时缺省(已降级为整篇返回)。 */
+  savedPath?: string
+  /** 本次是否把全文一并内联进了 output。 */
+  inlined?: boolean
   pages?: number
   sheets?: number
   slides?: number
 }
+
+/** 解析件目录名(SPEC-INS-014 布局下 uploads/ outputs/ 的兄弟;不进文件管理)。 */
+const EXTRACTED_DIR = "extracted"
+/** 内联阈值 = 通用 Truncate 限额的这个比例,留出的余量给首部元信息/指引行。 */
+const INLINE_RATIO = 0.8
+/** 仅落盘分支回灌的开头预览长度(字符)。给弱模型一个内容锚点,只给路径它容易直接编。 */
+const PREVIEW_CHARS = 2000
+/** 落盘正文的最大行长(字符)。见 wrapLongLines 的两条理由。 */
+const WRAP_WIDTH = 500
+/** 折行时优先在此位置之后找句末标点,避免把行切得过碎。 */
+const WRAP_MIN = 300
 
 // 非空白字符数;token 估算用业界粗算:CJK 每字 ≈1 token,其余字符 ≈4 字符/token。
 // 只求量级正确(给 E 护栏做超阈值判断),不追求逐 tokenizer 精确。
@@ -49,6 +71,79 @@ function measure(text: string) {
   const chars = nonWs.length
   const tokenEstimate = cjk + Math.ceil((chars - cjk) / 4)
   return { chars, tokenEstimate }
+}
+
+// 软折行(SPEC-INS-016 §4.3)——把落盘正文的每一行折到 WRAP_WIDTH 字符以内。
+// 理由一(硬性):read 的 MAX_LINE_LENGTH=2000 会砍掉超长行的尾巴、且**没有任何续读手段**,那部分
+//   内容永久丢失;而 mammoth.extractRawText 的输出正是「一段一行」,访谈稿一段几千字很常见——
+//   不折行的话落盘等于白落。
+// 理由二:grep 命中时返回整行,行太长会把大段无关内容灌进上下文,grep 的定位价值就废了。
+// 纯机械处理:不识别 heading、不重排段落,只在句末标点(找不到就硬切)处断开。
+const SENTENCE_END = /[。！？；.!?;]/
+function wrapLongLines(text: string) {
+  const out: string[] = []
+  for (const line of text.split("\n")) {
+    let rest = line
+    while (rest.length > WRAP_WIDTH) {
+      let cut = -1
+      // 在 [WRAP_MIN, WRAP_WIDTH] 里找最后一个句末标点,切在它**之后**。
+      for (let i = WRAP_WIDTH - 1; i >= WRAP_MIN; i--) {
+        if (SENTENCE_END.test(rest[i])) {
+          cut = i + 1
+          break
+        }
+      }
+      if (cut === -1) cut = WRAP_WIDTH
+      out.push(rest.slice(0, cut))
+      rest = rest.slice(cut)
+    }
+    out.push(rest)
+  }
+  return out.join("\n")
+}
+
+/** 解析件首行标记:记录来源,供撞名判定(见 persist)。md 注释不参与渲染。 */
+function sourceMarker(source: string, chars: number) {
+  return `<!-- source: ${source} | chars: ${chars} | extracted: ${new Date().toISOString()} -->`
+}
+
+/**
+ * 探查落点:文件在不在、若在则首行标记指向哪个源。
+ * 「不存在」与「存在但没有我们的标记」必须分开 —— 后者是别人的文件(用户手放的同名 md),
+ * 不能当成空位覆盖掉。
+ */
+async function probe(file: string): Promise<{ exists: boolean; source?: string }> {
+  const fh = await open(file, "r").catch(() => undefined)
+  if (!fh) return { exists: false }
+  try {
+    const buf = Buffer.alloc(1024)
+    const { bytesRead } = await fh.read(buf, 0, 1024, 0)
+    const head = buf.subarray(0, bytesRead).toString("utf8").split("\n")[0]
+    return { exists: true, source: head.match(/^<!-- source: (.*?) \| chars:/)?.[1] }
+  } catch {
+    return { exists: true }
+  } finally {
+    await fh.close().catch(() => {})
+  }
+}
+
+// 落盘(SPEC-INS-016 §4.2)。撞名时退到 `<主名>-2.md`——`/a/报告.docx` 与 `/b/报告.docx` 抽成同一个
+// `报告.md` 会**静默串数据**(模型拿前者路径 read 到后者内容),这在一份「不丢数据」的实现里不可接受。
+// 同源重复抽取则覆盖同一份(v1 起就不缓存,重复调用重复解析)。
+async function persist(dir: string, source: string, text: string, chars: number) {
+  await mkdir(dir, { recursive: true })
+  const stem = basename(source).replace(/\.[^.]+$/, "")
+  const body = `${sourceMarker(source, chars)}\n\n${text}\n`
+  for (let n = 1; n <= 50; n++) {
+    const file = join(dir, n === 1 ? `${stem}.md` : `${stem}-${n}.md`)
+    const found = await probe(file)
+    // 空位,或这份解析件本就是同一个源产出的(重复抽取覆盖自己) → 写。
+    if (!found.exists || found.source === source) {
+      await writeFile(file, body, "utf8")
+      return file
+    }
+  }
+  throw new Error(`解析件命名冲突未能解决:${stem}`)
 }
 
 async function extractDocx(buf: Buffer) {
@@ -149,10 +244,13 @@ const EXTRACTORS: Record<Supported, (buf: Buffer) => Promise<{ text: string; det
 export const ExtractDocumentTool = Tool.define(
   "extract_document",
   Effect.gen(function* () {
+    // 内联阈值取运行时限额(config `tool_output` 可覆盖),不硬编码——目标是「永远不撞那层兜底」,
+    // 用户把限额调大调小都得跟着走。
+    const truncate = yield* Truncate.Service
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, _ctx: Tool.Context) =>
+      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const path = params.path
           const name = basename(path)
@@ -206,11 +304,13 @@ export const ExtractDocumentTool = Tool.define(
           }
 
           const result = parsed
-          const { chars, tokenEstimate } = measure(result.text)
-          const ms = Date.now() - started
-          console.log("[octo:extract] ok", { path, format, chars, tokenEstimate, ms, ...result.detail })
+          // 折行先于测量与分流:落盘的和内联的必须是同一份文本,否则「模型读到的」和「盘上的」
+          // 会分叉——那是比截断更难查的 bug。(折行只插换行,不影响非空白字符数。)
+          const text = wrapLongLines(result.text)
+          const { chars, tokenEstimate } = measure(text)
 
           if (chars === 0) {
+            console.log("[octo:extract] ok", { path, format, chars, tokenEstimate, ms: Date.now() - started })
             return {
               title,
               output:
@@ -220,12 +320,72 @@ export const ExtractDocumentTool = Tool.define(
             }
           }
 
-          // 首行放测量结果:Truncate 兜底是 head 方向截断,保证字数/token 估算永远可见。
-          const header = `《${name}》抽取完成:共 ${chars.toLocaleString("en-US")} 字(非空白字符),估算约 ${tokenEstimate.toLocaleString("en-US")} tokens。`
+          // 全量落盘(SPEC-INS-016 §4.2)。失败降级为整篇返回:写盘是交付通道的优化、不是解析能力
+          // 本身,盘写不了就退回 v1 那条路(内联 + 通用兜底),别把小故障放大成功能不可用。
+          const instance = yield* InstanceState.context
+          const dir = join(instance.directory, ".octo", ctx.sessionID, EXTRACTED_DIR)
+          const savedPath = yield* Effect.tryPromise({
+            try: () => persist(dir, path, text, chars),
+            // 保留解析器/文件系统的原始错误(ENOTDIR / EACCES / EDQUOT…),否则日志只剩 UnknownError,排障没用。
+            catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+          }).pipe(
+            Effect.catch((err) =>
+              Effect.sync(() => {
+                console.log("[octo:extract] persist-failed", { path, dir, err: err.message })
+                return undefined
+              }),
+            ),
+          )
+
+          const limits = yield* truncate.limits()
+          const fits =
+            text.split("\n").length <= limits.maxLines * INLINE_RATIO &&
+            Buffer.byteLength(text, "utf-8") <= limits.maxBytes * INLINE_RATIO
+          // 落盘失败时无论多大都只能内联(退回 v1 行为,交给通用 Truncate 兜底)。
+          const inlined = savedPath === undefined || fits
+
+          const ms = Date.now() - started
+          console.log("[octo:extract] ok", {
+            path,
+            format,
+            chars,
+            tokenEstimate,
+            ms,
+            saved: savedPath ?? "",
+            inlined,
+            ...result.detail,
+          })
+
+          // 首行永远是测量结果:即便将来又撞上什么 head 方向的截断,字数/token 估算也还看得见。
+          const measured = `《${name}》抽取完成:共 ${chars.toLocaleString("en-US")} 字(非空白字符),估算约 ${tokenEstimate.toLocaleString("en-US")} tokens。`
+          const metadata = {
+            path,
+            format,
+            chars,
+            tokenEstimate,
+            ...(savedPath ? { savedPath } : {}),
+            inlined,
+            ...result.detail,
+          } as ExtractMetadata
+
+          if (inlined) {
+            const saved = savedPath
+              ? `全文已保存到:${savedPath}`
+              : `注意:全文未能保存到本地,本次仅返回以下正文。`
+            return { title, output: `${measured}${saved}\n---\n${text}`, metadata }
+          }
+
           return {
             title,
-            output: `${header}\n---\n${result.text}`,
-            metadata: { path, format, chars, tokenEstimate, ...result.detail } as ExtractMetadata,
+            output: [
+              measured,
+              `正文过长,未直接返回;全文已保存到:${savedPath}`,
+              `需要定位具体内容,用 grep 搜关键词;需要通读,用 read 按 offset/limit 分段读(单次上限 2000 行 / 50KB)。`,
+              `以下为开头预览:`,
+              `---`,
+              text.slice(0, PREVIEW_CHARS),
+            ].join("\n"),
+            metadata,
           }
         }).pipe(Effect.orDie),
     }

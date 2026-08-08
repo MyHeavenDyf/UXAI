@@ -105,7 +105,7 @@ const SCENARIOS: { title: string; desc: string; questions: QuestionItem[] }[] = 
   },
   {
     title: "选项多 · 选项区滚动",
-    desc: "超过 --question-prompt-max-height 时选项区自身滚动(无滚动条),整体框不被撑高",
+    desc: "超过 --question-prompt-max-height 时选项区自身滚动(细滚动条),整体框不被撑高",
     questions: [
       {
         question: "选择要纳入本次分析的访谈对象",

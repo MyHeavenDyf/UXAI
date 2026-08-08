@@ -83,6 +83,22 @@ const playDemoSound = (id: string | undefined) => {
   }, 100)
 }
 
+const whiteBtn: JSX.CSSProperties = {
+  height: "28px",
+  padding: "0 12px",
+  "background-color": "#fff",
+  border: "1px solid #c9c9c9",
+  "border-radius": "8px",
+  "font-size": "12px",
+  "line-height": "20px",
+  color: "rgba(0,0,0,0.9)",
+  cursor: "pointer",
+  display: "flex",
+  "align-items": "center",
+  "justify-content": "center",
+  gap: "4px",
+}
+
 export const SettingsGeneral: Component = () => {
   const theme = useTheme()
   const language = useLanguage()
@@ -353,9 +369,17 @@ export const SettingsGeneral: Component = () => {
               <span class="text-13-regular text-text-weak truncate max-w-[200px]" title={currentProjectDir()}>
                 {currentProjectDir() || language.t("settings.general.projectDir.notSet")}
               </span>
-              <Button size="small" variant="secondary" onClick={handlechangeProjectDir}>
+              <button
+                type="button"
+                style={whiteBtn}
+                onClick={handlechangeProjectDir}
+                onMouseEnter={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
+                onMouseLeave={(e) => e.currentTarget.style.setProperty("border-color", "#c9c9c9")}
+                onMouseDown={(e) => e.currentTarget.style.setProperty("border-color", "#0a59f7")}
+                onMouseUp={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
+              >
                 {language.t("settings.general.projectDir.change")}
-              </Button>
+              </button>
             </div>
           </SettingsRow>
 

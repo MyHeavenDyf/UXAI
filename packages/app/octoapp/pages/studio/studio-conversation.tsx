@@ -9,6 +9,7 @@ import { capabilityLabel, STUDIO_STYLE_MODELS } from "./data"
 import { StudioVideoPlayer } from "./studio-video-player"
 import { getArtifactRelativePath, getArtifactServeUrl } from "../make/utils/artifact-file-api"
 import { StudioFileManager } from "./studio-file-manager"
+import { FloatingNotice } from "@/components/floating-notice"
 import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
 
 const INPUT_IMAGE_PREVIEW_SIZE = 125
@@ -67,7 +68,15 @@ export function StudioConversation(props: {
                             onBlur={() => setInputImagePreview(undefined)}
                             onClick={() => props.onUseInputImage(src())}
                           >
-                            <img class="studio-user-input-image" src={src()} alt="" />
+                            <img
+                              class="studio-user-input-image"
+                              src={src()}
+                              alt=""
+                              onDragStart={(event) => {
+                                event.dataTransfer?.setData("application/x-octo-studio-image", src())
+                                if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy"
+                              }}
+                            />
                           </button>
                         )}
                       </Show>
@@ -189,6 +198,7 @@ export function StudioResultCanvas(props: {
   tabImages?: StudioImage[]
   tabLabels?: Record<string, string>
   onDownload: () => void
+  downloadNotice?: () => string | null
   onSelectImage?: (id: string) => void
   onDeleteImage?: (id: string) => void
   onCloseTab?: (id: string) => void
@@ -236,6 +246,24 @@ export function StudioResultCanvas(props: {
   const [floatingActionsRef, setFloatingActionsRef] = createSignal<HTMLDivElement | null>(null)
   const [compactActions, setCompactActions] = createSignal(false)
   const [editToolsOpen, setEditToolsOpen] = createSignal(false)
+  const [noticePos, setNoticePos] = createSignal<{ top: number; left: number } | null>(null)
+
+  createEffect(() => {
+    const message = props.downloadNotice?.()
+    if (!message) {
+      setNoticePos(null)
+      return
+    }
+    const stage = canvasStageRef()
+    const mountEl = props.videoPlayerMount()
+    if (!stage || !mountEl) return
+    const stageRect = stage.getBoundingClientRect()
+    const mountRect = mountEl.getBoundingClientRect()
+    setNoticePos({
+      top: stageRect.top - mountRect.top + 20,
+      left: stageRect.left - mountRect.left + stageRect.width / 2,
+    })
+  })
 
   createEffect(() => {
     const stage = canvasStageRef()
@@ -475,19 +503,19 @@ export function StudioResultCanvas(props: {
                         <DropdownMenu.Portal>
                           <DropdownMenu.Content>
                             <DropdownMenu.Item onSelect={props.onUpscale} disabled={props.actionDisabled}>
-                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-upscale" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
+                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-upscale" />
                               <DropdownMenu.ItemLabel>变清晰</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
                             <DropdownMenu.Item onSelect={props.onCutout} disabled={props.actionDisabled}>
-                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-cutout" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
+                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-cutout" />
                               <DropdownMenu.ItemLabel>抠图</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
                             <DropdownMenu.Item onSelect={props.onInpaint} disabled={props.actionDisabled}>
-                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-inpaint" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
+                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-inpaint" />
                               <DropdownMenu.ItemLabel>智能重绘</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
                             <DropdownMenu.Item onSelect={props.onOutpaint} disabled={props.actionDisabled}>
-                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-outpaint" style={{ width: "16px", height: "16px", "margin-right": "1px" }} />
+                              <span class="studio-canvas-icon-action-icon studio-canvas-icon-outpaint" />
                               <DropdownMenu.ItemLabel>扩图</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>
                           </DropdownMenu.Content>
@@ -549,6 +577,16 @@ export function StudioResultCanvas(props: {
           </div>
         </Portal>
       )}
+      <Show when={props.downloadNotice?.() && noticePos()}>
+        <Portal mount={props.videoPlayerMount()}>
+          <div
+            class="studio-canvas-stage-notice"
+            style={{ top: `${noticePos()!.top}px`, left: `${noticePos()!.left}px` }}
+          >
+            <FloatingNotice type="success" message={props.downloadNotice?.()!} />
+          </div>
+        </Portal>
+      </Show>
     </>
   )
 }

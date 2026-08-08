@@ -14,6 +14,39 @@ function sanitizePath(rawPath: string): string {
   return normalized
 }
 
+type InsightFileItem = { name: string; path: string; size: number; mtime: number; isFolder: boolean; relativePath: string }
+
+// 递归遍历目录,平铺返回所有文件(isFolder=false)。
+// 注意:recursive 模式下 relativePath 是相对于 category 根目录的路径,与非递归 uploads 模式下
+// relativePath 相对 uploads 根(含 subPath 前缀)的语义不同。当前 @引用面板只用 name/path,不受影响。
+const collectFilesRecursive = (fs: AppFileSystem.Interface, dir: string, baseRelativePath: string, files: InsightFileItem[], depth: number): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    if (depth > 10) {
+      console.warn("[insight:collectFilesRecursive] max depth exceeded, skipping", { dir, depth })
+      return
+    }
+    const entries = yield* fs.readDirectory(dir).pipe(Effect.catch(() => Effect.succeed([])))
+    for (const name of entries) {
+      if (name.startsWith(".")) continue
+      const fullPath = path.join(dir, name)
+      const relativePath = baseRelativePath ? `${baseRelativePath}/${name}` : name
+      const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
+      if (!stat) continue
+      if (stat.type === "Directory") {
+        yield* collectFilesRecursive(fs, fullPath, relativePath, files, depth + 1)
+      } else {
+        files.push({
+          name,
+          path: fullPath,
+          size: typeof stat.size === "bigint" ? Number(stat.size) : (stat.size ?? 0),
+          mtime: Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now(),
+          isFolder: false,
+          relativePath,
+        })
+      }
+    }
+  })
+
 export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", (handlers) =>
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
@@ -33,19 +66,28 @@ export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", 
     // SPEC-INS-014 §10:列 <projectDir>/.octo/<sessionId>/<category>/[/path]。
     // uploads 段支持子文件夹导航(path 非空 → 列 uploads/<path>/,含文件夹条目);
     // outputs 段扁平(生成产物,无子目录)。返回 isFolder + relativePath 供前端面包屑/导航。
+    // recursive=true 时递归遍历子文件夹,平铺返回所有文件(isFolder=false)。
     const listFiles = Effect.fn("InsightHttpApi.listFiles")(function* (ctx: {
       query: typeof InsightFileListQuery.Type
     }) {
       const instance = yield* InstanceState.context
       const category = ctx.query.category
       const subPath = ctx.query.path ?? ""
+      const recursive = ctx.query.recursive ?? false
 
       if (category === "outputs") {
         const dir = path.join(instance.directory, ".octo", ctx.query.sessionId, "outputs")
         const exists = yield* fs.exists(dir).pipe(Effect.catch(() => Effect.succeed(false)))
         if (!exists) return { files: [] }
+
+        if (recursive) {
+          const files: InsightFileItem[] = []
+          yield* collectFilesRecursive(fs, dir, "", files, 0)
+          return { files }
+        }
+
         const entries = yield* fs.readDirectory(dir).pipe(Effect.catch(() => Effect.succeed([])))
-        const files: Array<{ name: string; path: string; size: number; mtime: number; isFolder: boolean; relativePath: string }> = []
+        const files: InsightFileItem[] = []
         for (const name of entries) {
           if (name.startsWith(".")) continue
           const fullPath = path.join(dir, name)
@@ -70,8 +112,14 @@ export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", 
       const exists = yield* fs.exists(targetDir).pipe(Effect.catch(() => Effect.succeed(false)))
       if (!exists) return { files: [] }
 
+      if (recursive) {
+        const files: InsightFileItem[] = []
+        yield* collectFilesRecursive(fs, targetDir, "", files, 0)
+        return { files }
+      }
+
       const entries = yield* fs.readDirectory(targetDir).pipe(Effect.catch(() => Effect.succeed([])))
-      const files: Array<{ name: string; path: string; size: number; mtime: number; isFolder: boolean; relativePath: string }> = []
+      const files: InsightFileItem[] = []
       for (const name of entries) {
         if (name.startsWith(".")) continue
         const fullPath = path.join(targetDir, name)

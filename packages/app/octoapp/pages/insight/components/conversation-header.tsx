@@ -6,8 +6,6 @@ import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
-import { Dialog } from "@opencode-ai/ui/dialog"
-import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useSync } from "@/context/sync"
@@ -15,7 +13,7 @@ import { useSDK } from "@/context/sdk"
 import { sessionTitle } from "@/utils/session-title"
 import { tracker } from "@/utils/tracker"
 import { useLayout } from "@/context/layout"
-import { useLanguage } from "@/context/language"
+import { DialogDeleteSession } from "@/components/dialog-delete-session"
 
 /**
  * ConversationHeader —— Insight 对话面板顶部的会话标题栏
@@ -44,7 +42,6 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
   const sdk = useSDK()
   const dialog = useDialog()
   const layout = useLayout()
-  const language = useLanguage()
 
   const sessionID = () => params.id
   const info = createMemo(() => {
@@ -128,29 +125,6 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
     }
   }
 
-  function DialogDeleteSession(props: { sessionID: string }) {
-    const name = createMemo(() => sessionTitle(sync.session.get(props.sessionID)?.title) || language.t("command.session.new"))
-    const handleDelete = async () => {
-      await deleteSession(props.sessionID)
-      dialog.close()
-    }
-    return (
-      <Dialog title="删除会话" fit class="delete-dialog">
-        <span class="text-[14px] leading-[22px] min-w-0 break-words" style={{ color: "rgba(0,0,0,0.9)" }}>
-          确定删除「{name()}」？
-        </span>
-        <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
-          <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
-            {language.t("common.cancel")}
-          </Button>
-          <Button variant="primary" size="large" class="delete-dialog-btn delete-dialog-btn-primary" onClick={handleDelete}>
-            {language.t("session.delete.button")}
-          </Button>
-        </div>
-      </Dialog>
-    )
-  }
-
   return (
     <Show when={sessionID()}>
       {(id) => (
@@ -167,7 +141,7 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
               when={title.editing}
               fallback={
                 <h1
-                  class="text-[14px] font-medium truncate min-w-0 cursor-default"
+                  class="text-[14px] font-bold truncate min-w-0 cursor-default"
                   style={{ color: "var(--octo-text-primary, #191919)" }}
                   title={displayTitle()}
                   onDblClick={openTitleEditor}
@@ -183,7 +157,7 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
                 value={title.draft}
                 maxlength={1000}
                 disabled={pending()}
-                class="text-[14px] font-medium grow min-w-0 rounded-[6px] pl-1 -ml-1"
+                class="text-[14px] font-bold grow min-w-0 rounded-[6px] pl-1 -ml-1"
                 onInput={(event) => setTitle("draft", event.currentTarget.value)}
                 onKeyDown={(event) => {
                   event.stopPropagation()
@@ -231,7 +205,7 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
                   <DropdownMenu.ItemLabel>重命名</DropdownMenu.ItemLabel>
                 </DropdownMenu.Item>
                 <DropdownMenu.Separator />
-                <DropdownMenu.Item onSelect={() => dialog.show(() => <DialogDeleteSession sessionID={id()} />)}>
+                <DropdownMenu.Item onSelect={() => dialog.show(() => <DialogDeleteSession name={displayTitle()} onDelete={() => deleteSession(id())} />)}>
                   <DropdownMenu.ItemLabel>删除</DropdownMenu.ItemLabel>
                 </DropdownMenu.Item>
               </DropdownMenu.Content>

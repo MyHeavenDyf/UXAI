@@ -2,9 +2,11 @@ import { createMemo, createSignal, createEffect, on, onMount, onCleanup, Show } 
 import type { JSX } from "solid-js"
 import { buildSrcdoc, annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { cleanBridgeContent } from "../../utils/bridge-cleaner"
+import { createResourceTracker, type ResourceTracker } from "../../utils/resource-tracker"
 import { getArtifactServeUrl, getArtifactRelativePath, pathToLocalUrl, isElectronDesktop, extractCommentFilePath } from "../../utils/artifact-file-api"
 import { directoryHeader } from "@/utils/headers"
 import { getDesktopApi } from "../../lib/electron-api"
+import { decodeHtmlBytes } from "@opencode-ai/core/bridge-scripts"
 import { PreviewOverlay } from "../preview-overlay"
 import { InspectPanel } from "./inspect-panel"
 import { ManualEditPanel, emptyManualEditDraft, type ManualEditDraft } from "./manual-edit-panel"
@@ -145,8 +147,11 @@ export function HtmlRenderer(props: {
   onSaveFile?: (content: string) => Promise<void>
   onRefreshNeeded?: () => void
   tabTitle?: string
+  /** 注册一个获取当前 iframe 已加载资源 URL 的 getter */
+  observedUrlsGetter?: (getter: () => string[]) => void
 }): JSX.Element {
   let iframeRef: HTMLIFrameElement | undefined
+  const resourceTracker: ResourceTracker = createResourceTracker()
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
   const [hoveringInspectPanel, setHoveringInspectPanel] = createSignal(false)
   const [savedOverrides, setSavedOverrides] = createSignal<Array<{ elementId: string; prop: string; value: string }>>([])
@@ -331,8 +336,7 @@ export function HtmlRenderer(props: {
       if (api?.readFileBuffer && props.filePath) {
         const buffer = await api.readFileBuffer(props.filePath)
         if (buffer) {
-          const decoder = new TextDecoder('utf-8')
-          htmlContent = decoder.decode(buffer)
+          htmlContent = decodeHtmlBytes(new Uint8Array(buffer))
         } else {
           htmlContent = props.content
         }
@@ -349,7 +353,8 @@ export function HtmlRenderer(props: {
         htmlFileName: getArtifactFilename(props.filePath),
         htmlFilePath: props.filePath || "",
         sessionId: props.sessionId || "",
-        projectDir: props.sdkDirectory || ""
+        projectDir: props.sdkDirectory || "",
+        observedUrls: iframeRef ? resourceTracker.getPaths(iframeRef) : []
       })
       
       if (isLoggedIn) {
@@ -555,6 +560,8 @@ createEffect(() => {
       await props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
       if (hasChanges) {
         pushHistory(cleanSource, description)
+        // 文字/链接修改只在 HTML source 层面应用,不像样式那样通过 postMessage 实时预览到 DOM。
+        props.onRefreshNeeded?.()
       }
       return true
     }
@@ -698,6 +705,16 @@ createEffect(() => {
   // Initialize history on mount (before any keyboard events)
   onMount(() => {
     initHistory(extractHtmlContent(props.content))
+    props.observedUrlsGetter?.(() => iframeRef ? resourceTracker.getPaths(iframeRef) : [])
+  })
+
+  // refreshKey 变化时清空资源 URL 集合（旧数据来自上一次加载）
+  createEffect(on(() => props.refreshKey, () => {
+    if (iframeRef) resourceTracker.reset(iframeRef)
+  }))
+
+  onCleanup(() => {
+    resourceTracker.disposeAll()
   })
 
   const srcdoc = createMemo(() => {
@@ -712,6 +729,7 @@ createEffect(() => {
       editBridge: true,
       snapshotBridge: true,
       commentBridge: true,
+      resourceCollectorBridge: true,
       annotateElements: true,
     }) + (key > 0 ? `<script data-refresh-key="${key}"></script>` : "")
   })
@@ -1234,11 +1252,18 @@ return (
                 position: "relative",
               }}
             >
+              {/*
+                Electron 桌面环境使用 allow-same-origin allow-scripts：
+                - allow-same-origin: 保留 local: origin，支持加载外部 CDN 资源（Tailwind、Google Fonts 等）
+                - allow-scripts: 让 iframe 内脚本（含注入的 bridge）能执行
+                - 父窗口 oc://renderer 与 iframe local:// 跨 origin，iframe 无法读父窗口
+                - 参考：design-system-picker.tsx:163
+              */}
               <iframe
                 ref={iframeRef}
                 src={shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined)}
                 {...(!shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
-                sandbox="allow-scripts"
+                sandbox="allow-same-origin allow-scripts"
                 style={{
                   width: `${VIEWPORT_DIMS[props.viewport!].width}px`,
                   height: `${VIEWPORT_DIMS[props.viewport!].height}px`,
@@ -1249,6 +1274,7 @@ return (
                     console.log('[HtmlRenderer] iframeRef is null')
                     return
                   }
+                  resourceTracker.observe(iframeRef)
                   if (props.editing) {
                     console.log('[HtmlRenderer] sending od:edit-mode')
                     iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
@@ -1283,11 +1309,16 @@ return (
             </div>
           ) : (
             <div style={{ height: "100%", overflow: "auto" }}>
+              {/*
+                Electron 桌面环境使用 allow-same-origin allow-scripts：
+                - allow-same-origin: 保留 local: origin，支持加载外部 CDN 资源
+                - allow-scripts: 让 iframe 内脚本（含注入的 bridge）能执行
+              */}
               <iframe
                 ref={iframeRef}
                 src={shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined)}
                 {...(!shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
-                sandbox="allow-scripts"
+                sandbox="allow-same-origin allow-scripts"
                 class="w-full h-full border-0"
                 style={{ "min-height": "200px" }}
                 onLoad={() => {
@@ -1295,6 +1326,7 @@ return (
                     console.log('[HtmlRenderer] iframeRef is null')
                     return
                   }
+                  resourceTracker.observe(iframeRef)
                   if (props.editing) {
                     console.log('[HtmlRenderer] sending od:edit-mode')
                     iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")

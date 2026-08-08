@@ -1,7 +1,7 @@
 import "./octo-tokens.css"
 import "./components/slash-popover.css"
 import { type MentionSelection } from "./components/mention-popover"
-import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc } from "./components/prosemirror-editor"
+import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs } from "./components/prosemirror-editor"
 import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
@@ -59,6 +59,7 @@ import { useSettings } from "@/context/settings"
 import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
+import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
 import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, UploadError } from "../insight/lib/upload"
@@ -147,6 +148,9 @@ function MakeContent() {
 
   // Register Make slash commands
   useMakeCommands()
+
+  // 消息时间追踪：sessionId → { startTime, inputText, firstTokenTime }
+  const messageTimingMap = new Map<string, { startTime: number; inputText: string; firstTokenTime?: number }>()
 
   // 切换项目目录只触发 keyed 重挂，不会自动改路由——url 仍停在旧目录的
   // /make:oldId。这里用模块级变量检测"重挂 + 目录确实变了"，不依赖 store 水合时序。
@@ -371,7 +375,10 @@ function MakeContent() {
   function openTitleEditor() {
     const sInfo = sessionInfoMirror()
     setTitleState({ editing: true, draft: sessionTitle(overrideTitle() ?? info()?.title ?? sInfo?.title) ?? "" })
-    requestAnimationFrame(() => titleRef?.focus())
+    requestAnimationFrame(() => {
+      titleRef?.focus()
+      titleRef?.select()
+    })
   }
 
   /** 保存标题编辑 */
@@ -406,7 +413,7 @@ function MakeContent() {
   function handleDeleteSession() {
     const id = params.id
     if (!id) return
-    dialog.show(() => <MakeDialogDeleteSession sessionID={id} name={sessionTitle(sessionInfoMirror()?.title) ?? "Octo Design"} onDelete={deleteSession} />)
+    dialog.show(() => <DialogDeleteSession name={sessionTitle(sessionInfoMirror()?.title) ?? "Octo Design"} onDelete={() => deleteSession(id)} />)
   }
 
 // 监听项目切换，清理不属于新项目的 session
@@ -603,6 +610,14 @@ const sessionMessagesLoaded = createMemo(() => {
       if (e.type === "message.part.delta") {
         setLastDeltaTime(Date.now())
         setBlockTime(0)
+        
+        // 记录首次回复时间（只记录第一次）
+        const targetSessionID = eventSessionID ?? sid
+        const timing = messageTimingMap.get(targetSessionID)
+        if (timing && !timing.firstTokenTime) {
+          timing.firstTokenTime = Date.now()
+        }
+        
         setDeltaLog(prev => [
           ...prev.slice(-19),
           {
@@ -683,6 +698,8 @@ const sessionMessagesLoaded = createMemo(() => {
             toolCallMap.delete(callID)
           }
         }
+      } else if (e.type === "session.next.step.ended") {
+        setFilesRefreshKey(k => k + 1)
       } else {
         const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
         console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 
@@ -886,6 +903,36 @@ const sessionMessagesLoaded = createMemo(() => {
     onCleanup(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
   })
 
+  // ── 消息完整耗时追踪（从发送到对话框恢复可发送）────────────
+  let lastBusyState = false
+  createEffect(on(effectiveBusy, (busy) => {
+    const id = params.id
+    
+    // 检测从 busy → idle 的转换
+    if (lastBusyState && !busy && id) {
+      const timing = messageTimingMap.get(id)
+      if (timing) {
+        const elapsed = Date.now() - timing.startTime
+        const date = new Date()
+        const timeStr = date.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '')
+        const elapsedStr = `${(elapsed / 1000).toFixed(1)}s`
+        
+        // 使用记录的首次回复时间
+        if (timing.firstTokenTime) {
+          const ttft = (timing.firstTokenTime - timing.startTime) / 1000
+          const ttftStr = `${ttft.toFixed(1)}s`
+          console.log(`[${timeStr}] ${timing.inputText}, 总耗时 ${elapsedStr}, 首次回复 ${ttftStr}`)
+        } else {
+          console.log(`[${timeStr}] ${timing.inputText}, 总耗时 ${elapsedStr}`)
+        }
+        
+        messageTimingMap.delete(id)
+      }
+    }
+    
+    lastBusyState = busy
+  }, { defer: true }))
+
   // ── 阻塞检测计时器 ────────────────────────────────────────────
   const [lastDeltaTime, setLastDeltaTime] = createSignal(Date.now())
   const [blockTime, setBlockTime] = createSignal(0)
@@ -924,8 +971,8 @@ const sessionMessagesLoaded = createMemo(() => {
   const [slashState, setSlashState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [slashIndex, setSlashIndex] = createSignal(0)
   let textareaRef!: HTMLTextAreaElement
-  let proseMirrorRef1: { getText: () => string; getMentions: () => Array<{ name: string; type: string; label: string; path?: string }>; clear: () => void; insertText: (text: string) => void } | undefined
-  let proseMirrorRef2: { getText: () => string; getMentions: () => Array<{ name: string; type: string; label: string; path?: string }>; clear: () => void; insertText: (text: string) => void } | undefined
+  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void } | undefined
+  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void } | undefined
 
   // ── Mention (@) Popover State ──
   const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
@@ -1001,21 +1048,36 @@ const sessionMessagesLoaded = createMemo(() => {
     setSkillsLoading(true)
 
     try {
-      const platformSkills = await loadSkillsFromPanel("octo_make")
-      const customSkills = await loadSkillsFromPanel("common")
+      const api = (window as unknown as { api?: { getSkillConfig?: () => Promise<import("./components/skill-config-types").SkillConfig> } }).api
+      const fullConfig = await api?.getSkillConfig?.()
       
-      setSkillConfig({
-        panel: {
-          octo_make: platformSkills,
-          common: customSkills
-        }
-      })
+      if (fullConfig) {
+        setSkillConfig(fullConfig)
+      } else {
+        // Fallback: only load panel if full config failed
+        const platformSkills = await loadSkillsFromPanel("octo_make")
+        const customSkills = await loadSkillsFromPanel("common")
+        
+        setSkillConfig({
+          panel: {
+            octo_make: platformSkills,
+            common: customSkills
+          }
+        })
+      }
     } catch (err) {
       console.error("[MakePage] Failed to load skill config:", err)
     } finally {
       setSkillsLoading(false)
     }
   }
+  
+  // 组件挂载时预加载 skill 配置
+  createEffect(() => {
+    if (params.id && !skillConfig().skill) {
+      loadSkillConfig()
+    }
+  })
 
   // ── Slash Command List ──
   interface SlashCommand {
@@ -1522,8 +1584,8 @@ const sessionMessagesLoaded = createMemo(() => {
     })
   }
 
-  // 自动滚动：session busy 时保持对话区随新内容跟随到底部
-  const autoScroll = createAutoScroll({ working: isBusy })
+  // 自动滚动：保持对话区随新内容跟随到底部（用户手动上滑则不抢）
+  const autoScroll = createAutoScroll({ working: () => true })
 
   // Bug 修复 B：切换 session 时重置 ResultViewer 的 Tabs 和关闭 popover
   // 同时尝试恢复当前主 session 的设计规划子 session（包括初次渲染和切换时）
@@ -1905,7 +1967,7 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
-  async function sendMessage(sessionId: string, text: string, _modelKey: { providerID: string; modelID: string }, mentions?: Array<{ name: string; type: string; label: string; path?: string }>) {
+  async function sendMessage(sessionId: string, text: string, _modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
     try {
       // Process mention selections: replace chip text with model format
       let processedText = text
@@ -1945,6 +2007,10 @@ const sessionMessagesLoaded = createMemo(() => {
         filename: a.filename,
         url: a.url ?? a.dataUrl!,
       }))
+
+      // 附件已快照到 fileParts/localManifest，立即清空 UI；
+      // 否则要等 await session.prompt 完成才会清空，造成"附件要等模型回复完成才消失"的现象
+      setAttachments([])
       
       // ── Multi-slash-command detection ──
       // Scan all tokens in processedText for /cmd patterns, match against sync.data.command,
@@ -2197,6 +2263,12 @@ const sessionMessagesLoaded = createMemo(() => {
       if (manifestPart) parts.push(manifestPart)
       parts.push(...fileParts)
       
+      // 记录发送开始时间
+      messageTimingMap.set(sessionId, {
+        startTime: Date.now(),
+        inputText: text.slice(0, 30)
+      })
+      
       await sdk.client.session.prompt({
         sessionID: sessionId,
         agent: sessionId === activePlanSessionId() ? "octo_make_plan" : "octo_make",
@@ -2204,6 +2276,7 @@ const sessionMessagesLoaded = createMemo(() => {
         parts,
       })
       setAttachments([])
+      requestAnimationFrame(() => autoScroll.forceScrollToBottom())
     } catch (err) {
       console.error("[MakePage] prompt failed", err)
       setAttachments([])
@@ -2212,15 +2285,24 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 提交 prompt：自动创建 session → 发送消息 */
   async function handleSubmit() {
-    let text = proseMirrorRef1?.getText?.() || proseMirrorRef2?.getText?.() || prompt().trim()
-    let mentions = proseMirrorRef1?.getMentions?.() || proseMirrorRef2?.getMentions?.() || []
+    // 基于 hasContent() 选择正确的编辑器
+    let text: string
+    let mentions: MentionAttrs[]
+    
+    if (hasContent()) {
+      text = proseMirrorRef2?.getText?.() || ""
+      mentions = proseMirrorRef2?.getMentions?.() || []
+    } else {
+      text = proseMirrorRef1?.getText?.() || ""
+      mentions = proseMirrorRef1?.getMentions?.() || []
+    }
     
     // 注入 specSelector 的 skill
     const specName = selectedSpecName()
     const specDisplay = selectedSpecDisplay()
     if (specName && specDisplay) {
       text = `@${specName} ` + text
-      mentions = [{ type: 'skill', name: specName, label: specDisplay }, ...mentions]
+      mentions = [{ type: 'skill', name: specName, label: specDisplay, id: specName, path: "" }, ...mentions]
     }
     
     if (effectiveBusy() || !activeModelKey()) return
@@ -2293,6 +2375,7 @@ if (dsId) {
         navigate(`/make/${session.id}`)
         sid = session.id
       }
+      autoScroll.forceScrollToBottom()
       await sendMessage(sid, text, capturedModelKey, mentions)
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
@@ -3151,7 +3234,7 @@ if (dsId) {
                   </Show>
                   <Show when={effectiveBusy()}>
                     <div class="shrink-0 flex items-center gap-1.5">
-                      <Spinner class="size-4" />
+                      <Spinner class="size-4" style={{ color: "#0a59f7" }} />
                     </div>
                   </Show>
                   <Show
@@ -3161,6 +3244,7 @@ if (dsId) {
                         ref={(el) => { titleRef = el }}
                         value={titleState.draft}
                         class="text-14-medium text-text-strong grow-1 min-w-0 rounded-[6px] pl-1 -ml-1"
+                        style={{ "font-weight": "600" }}
                         onInput={(e) => setTitleState("draft", e.currentTarget.value)}
                         onKeyDown={(e) => {
                           e.stopPropagation()
@@ -3429,7 +3513,7 @@ if (dsId) {
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
               >
-                <div ref={autoScroll.contentRef} class="py-3 flex flex-col gap-0">
+                <div ref={autoScroll.contentRef} class="py-4 flex flex-col gap-4">
                     {/* 第一条消息 */}
                     <Show when={userMessages().length > 0}>
                       <InsightTurn
@@ -3452,12 +3536,13 @@ if (dsId) {
                         hasQuestionRequest={!!questionRequest()}
                         onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
                         skillToolCalls={skillToolCalls()}
+                        skillConfig={skillConfig()}
                       />
                     </Show>
                     {/* 设计策略模式气泡 */}
                     <Show when={resultViewMode() === "plan" && activePlanSessionId()}>
                       <div
-                        class="flex items-center justify-between mx-3 mb-2"
+                        class="flex items-center justify-between mx-3"
                         style={{
                           height: "48px",
                           padding: "0 16px",
@@ -3513,6 +3598,7 @@ if (dsId) {
                         hasQuestionRequest={!!questionRequest()}
                         onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
                         skillToolCalls={skillToolCalls()}
+                        skillConfig={skillConfig()}
                       />
                     )}
                   </For>
@@ -3541,7 +3627,7 @@ if (dsId) {
                 {/* Permission dock - 权限授权 UI */}
                 <Show when={permissionRequest()} keyed>
                   {(request) => (
-                    <div class="w-full pb-3">
+                    <div class="w-full max-w-[800px] mx-auto pb-3">
                       <SessionPermissionDock
                         request={request}
                         responding={permissionResponding()}
@@ -3864,33 +3950,3 @@ if (dsId) {
   )
 }
 
-
-function MakeDialogDeleteSession(props: { sessionID: string; name: string; onDelete: (id: string) => Promise<void> }): JSX.Element {
-  const language = useLanguage()
-  const dialog = useDialog()
-  return (
-    <Dialog title={language.t("session.delete.title")} fit class="delete-dialog">
-      <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
-        {language.t("session.delete.confirm", { name: props.name })}
-      </span>
-      <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
-        <Button
-          variant="ghost"
-          size="large"
-          class="delete-dialog-btn"
-          onClick={() => dialog.close()}
-        >
-          {language.t("common.cancel")}
-        </Button>
-        <Button
-          variant="primary"
-          size="large"
-          class="delete-dialog-btn delete-dialog-btn-primary"
-          onClick={() => void props.onDelete(props.sessionID).then(() => dialog.close())}
-        >
-          {language.t("session.delete.button")}
-        </Button>
-      </div>
-    </Dialog>
-  )
-}

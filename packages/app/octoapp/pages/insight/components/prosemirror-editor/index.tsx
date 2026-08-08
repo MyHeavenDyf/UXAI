@@ -264,7 +264,8 @@ export function ProseMirrorEditor(props: Props) {
       return
     }
     const tr = v.state.tr.replaceWith(trigger.from, trigger.to, node)
-    tr.setSelection(TextSelection.create(tr.doc, trigger.from + node.nodeSize))
+    tr.insert(trigger.from + node.nodeSize, editorSchema.text(" "))
+    tr.setSelection(TextSelection.create(tr.doc, trigger.from + node.nodeSize + 1))
     v.dispatch(tr)
     setTriggerState(null)
     v.focus()

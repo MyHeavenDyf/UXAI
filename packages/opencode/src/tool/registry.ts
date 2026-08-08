@@ -322,7 +322,7 @@ export const layer: Layer.Layer<
         }
 
         // insight 只摘除 apply_patch(2026-07-30:edit 放开——供编辑 md 交付物,outputs 重定向插件
-        // 已同步覆盖 edit 的 filePath,见 agent/octo-outputs-redirect.ts)。编辑类工具的裁剪一律在此、
+        // 已同步覆盖 edit 的 filePath,见 agent/octo-session-workdir.ts)。编辑类工具的裁剪一律在此、
         // 不走 agent 权限层:Permission.disabled 把 edit/write/apply_patch 都映射到 "edit" 权限键
         // (EDIT_TOOLS),在权限层动 edit 会连带隐藏要保留的 write。
         // apply_patch 仍摘:它是 gpt 系的 edit 变体(下方 usePatch),参数是整段 patchText、无单一
