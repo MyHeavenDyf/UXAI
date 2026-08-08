@@ -2980,10 +2980,65 @@ if (dsId) {
   async function handleOpenResult(card: OutputCard) {
     setResultViewMode("tabs")
     ml.showRight()
-    
+
+    // link 类型:content 是 URL 或磁盘路径,不保存,直接打开
+    // URL:        创建 html tab,filePath=URL(复用 preview URL 工作流,ActionBar 行为一致)
+    // 磁盘路径:   转绝对路径,按扩展名推断 type(复用本地文件渲染逻辑)
+    if (card.type === "link") {
+      const linkContent = (card.content ?? "").trim()
+      if (!linkContent) return
+
+      if (/^https?:\/\//i.test(linkContent)) {
+        const tabId = `link-url-${linkContent.replace(/[/\\:?#&=]/g, "-")}`
+        tabStore.openTab({
+          id: tabId,
+          title: card.title,
+          type: "html",
+          content: "",
+          filePath: linkContent,
+          artifactIdentifier: card.artifactIdentifier,
+          createdAt: card.createdAt,
+        })
+        tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "url" }) })
+        return
+      }
+
+      // 磁盘路径:转绝对路径
+      const normalizedPath = linkContent.replace(/\\/g, "/")
+      const isAbsolute = /^([A-Za-z]:[/\\]|\/)/.test(linkContent)
+      let absolutePath: string
+      if (isAbsolute) {
+        absolutePath = normalizedPath
+      } else {
+        const dir = projectDir()
+        if (!dir) return
+        const normalizedDir = dir.replace(/\\/g, "/")
+        absolutePath = normalizedDir
+        if (!absolutePath.endsWith("/") && !normalizedPath.startsWith("/")) {
+          absolutePath += "/"
+        }
+        absolutePath += normalizedPath
+      }
+      absolutePath = absolutePath.replace(/\/+/g, "/")
+
+      const tabId = `link-file-${absolutePath.replace(/[/\\:]/g, "-")}`
+      const inferredType = inferOutputType(absolutePath)
+      tabStore.openTab({
+        id: tabId,
+        title: card.title,
+        type: inferredType,
+        content: "",
+        filePath: absolutePath,
+        artifactIdentifier: card.artifactIdentifier,
+        createdAt: card.createdAt,
+      })
+      tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "local", ext: absolutePath.split(".").pop() }) })
+      return
+    }
+
     // URL 类型：跳过文件推断和加载
     const isUrl = card.filePath?.match(/^https?:\/\//i)
-    
+
     // 标记：内容是否从文件加载（用于跳过不必要的持久化）
     let contentLoadedFromFile = false
     
