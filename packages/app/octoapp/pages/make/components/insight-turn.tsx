@@ -226,10 +226,13 @@ function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "creat
         const explicitExports = startEvent.exports
           ? startEvent.exports.split(",").map((s) => s.trim() as ArtifactExportKind)
           : undefined
-        // link 类型:内容是 URL 或磁盘路径,若无显式 title,从中提取标题
+        // link 类型:始终从 content(URL 或磁盘路径)派生标题,忽略 artifact 标签的 title 属性
+        // 原因:content 是路径,标题应为文件名(磁盘路径去格式后缀保留 subtype,URL 取文件名含扩展名)
+        // 模型声明的 title 可能带后缀或含异常字符,不可靠
         let resolvedTitle = startEvent.title
-        if (!resolvedTitle && mappedType === "link") {
-          resolvedTitle = extractLinkTitle(fullContent)
+        if (mappedType === "link") {
+          const fromContent = extractLinkTitle(fullContent)
+          if (fromContent) resolvedTitle = fromContent
         }
         results.push({
           title: resolvedTitle || mappedType,
