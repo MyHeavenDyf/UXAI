@@ -237,7 +237,7 @@ function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "creat
         results.push({
           title: resolvedTitle || mappedType,
           type: mappedType,
-          subtype: extractSubtypeFromTitle(startEvent.title),
+          subtype: extractSubtypeFromTitle(resolvedTitle),
           content: fullContent,
           artifactKind: startEvent.artifactType,
           artifactIdentifier: startEvent.identifier || undefined,
