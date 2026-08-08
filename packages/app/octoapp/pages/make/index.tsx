@@ -86,6 +86,7 @@ import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
+import { SEND_TEXT_EVENT, type SendTextEventDetail } from "./utils/agent-events"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
@@ -596,6 +597,45 @@ const sessionMessagesLoaded = createMemo(() => {
     
     window.addEventListener(ANNOTATION_EVENT, handleAnnotation)
     onCleanup(() => window.removeEventListener(ANNOTATION_EVENT, handleAnnotation))
+  })
+
+  // ── Send-text event listener (direct text → agent) ────────────────────────────
+  createEffect(() => {
+    const handleSendText = async (e: Event) => {
+      const detail = (e as CustomEvent<SendTextEventDetail>).detail
+
+      if (sending()) {
+        detail.ack?.({ ok: false, message: '正在发送中' })
+        return
+      }
+
+      const sessionId = params.id
+      const modelKey = activeModelKey()
+      if (!sessionId || !modelKey) {
+        detail.ack?.({ ok: false, message: '会话未就绪' })
+        return
+      }
+
+      try {
+        await sendMessage(sessionId, detail.text, modelKey)
+        tracker.interaction({
+          module: 'design',
+          name: 'send-text-event',
+          extend: JSON.stringify({
+            textLength: detail.text.length,
+            source: detail.source ?? 'unknown',
+          }),
+        })
+        detail.ack?.({ ok: true })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        showToast({ title: '发送失败', description: message, variant: 'error' })
+        detail.ack?.({ ok: false, message })
+      }
+    }
+
+    window.addEventListener(SEND_TEXT_EVENT, handleSendText)
+    onCleanup(() => window.removeEventListener(SEND_TEXT_EVENT, handleSendText))
   })
 
   // 调试日志：打印当前 session 相关的 SSE 事件
