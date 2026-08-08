@@ -46,6 +46,7 @@ export type OutputCardType =
   | "react-component" | "diagram"
   | "image" | "video" | "audio" | "pdf" | "text"
   | "design-plan"
+  | "link"
 
 export type ArtifactExportKind = "html" | "pdf" | "zip" | "pptx" | "svg" | "md" | "txt" | "json" | "csv"
 
@@ -78,6 +79,39 @@ const ARTIFACT_TYPE_MAP: Record<string, OutputCardType> = {
   "react-component": "react-component",
   diagram: "diagram",
   "text/design-plan": "design-plan",
+  "text/link": "link",
+}
+
+// 从 link artifact 的 content(URL 或磁盘路径)提取卡片标题
+// URL:        提取最后的文件名(含扩展名),无路径时回退到 host
+//             "https://a.com/path/file.html" → "file.html"
+//             "https://a.com/"               → "a.com"
+// 磁盘路径:   取最后一段并去掉格式后缀,保留 subtype
+//             "D:\\dir\\a.shadcn.html" → "a.shadcn"
+//             "D:\\dir\\report.pdf"    → "report"
+function extractLinkTitle(content: string): string {
+  const trimmed = (content ?? "").trim()
+  if (!trimmed) return ""
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const u = new URL(trimmed)
+      const segments = u.pathname.split("/").filter(Boolean)
+      if (segments.length > 0) {
+        const last = segments[segments.length - 1]
+        try { return decodeURIComponent(last) } catch { return last }
+      }
+      return u.host
+    } catch {
+      // fall through to path handling
+    }
+  }
+
+  const parts = trimmed.split(/[/\\]/).filter(Boolean)
+  const filename = parts.length > 0 ? parts[parts.length - 1] : trimmed
+  const lastDot = filename.lastIndexOf(".")
+  if (lastDot > 0) return filename.slice(0, lastDot)
+  return filename
 }
 
 function isMarkdownTable(text: string): boolean {
@@ -192,10 +226,18 @@ function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "creat
         const explicitExports = startEvent.exports
           ? startEvent.exports.split(",").map((s) => s.trim() as ArtifactExportKind)
           : undefined
+        // link 类型:始终从 content(URL 或磁盘路径)派生标题,忽略 artifact 标签的 title 属性
+        // 原因:content 是路径,标题应为文件名(磁盘路径去格式后缀保留 subtype,URL 取文件名含扩展名)
+        // 模型声明的 title 可能带后缀或含异常字符,不可靠
+        let resolvedTitle = startEvent.title
+        if (mappedType === "link") {
+          const fromContent = extractLinkTitle(fullContent)
+          if (fromContent) resolvedTitle = fromContent
+        }
         results.push({
-          title: startEvent.title || mappedType,
+          title: resolvedTitle || mappedType,
           type: mappedType,
-          subtype: extractSubtypeFromTitle(startEvent.title),
+          subtype: extractSubtypeFromTitle(resolvedTitle),
           content: fullContent,
           artifactKind: startEvent.artifactType,
           artifactIdentifier: startEvent.identifier || undefined,
@@ -1363,6 +1405,7 @@ const stateStatus = state.status as string | undefined
       <For each={outputCards()}>
         {(capturedCard) => (
           <div
+            title={capturedCard.type === "link" ? capturedCard.content : undefined}
             style={{
               "border-radius": "12px",
               padding: "16px 20px",
@@ -1423,6 +1466,7 @@ const stateStatus = state.status as string | undefined
           const isPartial = genCard.content.length === 0
           return (
             <div
+              title={genCard.type === "link" ? genCard.content : undefined}
               style={{
                 "border-radius": "12px",
                 padding: "16px 20px",
