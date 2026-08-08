@@ -94,6 +94,7 @@ import { scanStrategyFields, EMPTY_STRATEGY_FORM, type StrategyFormData } from "
 import { useMakeCommands } from "./use-make-commands"
 import { useDialogIframe } from '@/context/dialog-iframe'
 import { getDesktopApi, type AssetsConfig } from "./lib/electron-api"
+import { extractSubtypeFromFilename } from "./utils/subtype-extractor"
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
@@ -2994,6 +2995,7 @@ if (dsId) {
           id: tabId,
           title: card.title,
           type: "html",
+          subtype: card.subtype,
           content: "",
           filePath: linkContent,
           artifactIdentifier: card.artifactIdentifier,
@@ -3027,6 +3029,7 @@ if (dsId) {
         id: tabId,
         title: card.title,
         type: inferredType,
+        subtype: card.subtype,
         content: "",
         filePath: absolutePath,
         artifactIdentifier: card.artifactIdentifier,
@@ -3151,6 +3154,7 @@ if (dsId) {
         id: tabId,
         title,
         type: 'html',
+        subtype: extractSubtypeFromFilename(title),
         content: '',
         filePath,
         createdAt: new Date(),
@@ -3179,11 +3183,13 @@ if (dsId) {
 
     const tabId = `local-file-${absolutePath.replace(/[/\\:]/g, '-')}`
     const type = inferOutputType(filePath)
-
+    const title = filePath.split(/[/\\]/).pop() ?? filePath
+    
     handleOpenResult({
       id: tabId,
-      title: filePath.split(/[/\\]/).pop() ?? filePath,
+      title,
       type,
+      subtype: extractSubtypeFromFilename(title),
       content: '',
       filePath: absolutePath,
       createdAt: new Date(),
