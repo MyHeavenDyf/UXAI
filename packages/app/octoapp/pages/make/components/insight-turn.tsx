@@ -195,7 +195,7 @@ function cardTypeIconSrc(_type: OutputCardType): string {
 }
 
 function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "createdAt">[] {
-  if (!text.includes("<artifact")) return []
+  if (!/<artifact/i.test(text)) return []
   const results: Omit<OutputCard, "id" | "createdAt">[] = []
   try {
     const parser = createArtifactParser()
@@ -257,9 +257,9 @@ function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "creat
 
 /** Quick regex scan for all artifact open tags (completed + in-progress) for streaming placeholders */
 function scanArtifactHeaders(text: string): Array<{ identifier: string; title: string; type: OutputCardType }> {
-  if (!text.includes("<artifact")) return []
+  if (!/<artifact/i.test(text)) return []
   const results: Array<{ identifier: string; title: string; type: OutputCardType }> = []
-  const re = /<artifact\s+([^>]*)>/g
+  const re = /<artifact\s+([^>]*)>/gi
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) !== null) {
     const attrs = m[1]
@@ -368,7 +368,7 @@ function WaitingPill(props: {
       .filter(entry => entry.sessionID !== props.sessionID && entry.field === "text")
       .slice(-50)
     for (const entry of childTextDeltas) {
-      if (entry.delta.includes("<artifact")) {
+      if (/<artifact/i.test(entry.delta)) {
         const childParser = createArtifactParser()
         for (const ev of childParser.feed(entry.delta)) {
           if (ev.type === "artifact:chunk") artifactContent += ev.delta
@@ -870,7 +870,7 @@ const stateStatus = state.status as string | undefined
         if (artifactOutputs.length === 0 && /<(?:div|section|style|nav|header|footer|main|article|form|table)\b/i.test(resultContent)) {
           artifactOutputs.push({ identifier: "raw-fragment", title: "HTML 片段", content: resultContent })
         }
-        const proseOnly = resultContent.replace(/<artifact[\s\S]*?<\/artifact>/g, "").trim()
+        const proseOnly = resultContent.replace(/<artifact[\s\S]*?<\/artifact>/gi, "").trim()
         if (proseOnly.length > 0) textParts.push(proseOnly.length > 500 ? proseOnly.slice(0, 500) + "…" : proseOnly)
       }
 

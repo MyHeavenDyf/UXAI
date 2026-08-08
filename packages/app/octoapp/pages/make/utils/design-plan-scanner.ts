@@ -44,7 +44,7 @@ export function scanDesignPlanFromMessages(
     const text = concatMessageText(partStore?.[msg.id])
     // 容错:agent 可能输出 `<XXXartifact` (中间插入了非字母字符如全角符号),
     // 所以不用精确的 "<artifact" 判断,改用更宽松的 "artifact" + "design-plan" 组合判断。
-    if (!text || !text.includes("artifact") || !text.includes("type=")) continue
+    if (!text || !/artifact/i.test(text) || !/type=/i.test(text)) continue
 
     // 修复 < 和 artifact 之间的乱码字符:将 < 之后非字母字符到 artifact 的序列标准化
     const normalized = text.replace(/<[^a-zA-Z]*?(artifact)/g, "<$1")
@@ -140,7 +140,7 @@ export function isPlanConfirmed(
   return false
 }
 
-const HTML_ARTIFACT_RE = /<artifact\b[^>]*\btype\s*=\s*["']text\/html["']/
+const HTML_ARTIFACT_RE = /<artifact\b[^>]*\btype\s*=\s*["']text\/html["']/i
 
 /**
  * Sentinel + response markers for the two-phase design-plan entry flow.
@@ -181,7 +181,7 @@ export function isPlanIntentResolved(
     const text = concatMessageText(partStore?.[msg.id])
     if (!text) continue
     if (msg.role === "user" && PLAN_RESPONSE_RE.test(text)) return true
-    if (msg.role === "assistant" && text.includes("<artifact")) return true
+    if (msg.role === "assistant" && /<artifact/i.test(text)) return true
   }
   return false
 }
