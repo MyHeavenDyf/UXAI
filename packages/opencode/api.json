@@ -30,7 +30,7 @@
         "temperature": true,
         "tool_call": true,
         "limit": {
-          "context": 128000,
+          "context": 64000,
           "output": 128000
         },
         "modalities": {
@@ -89,7 +89,7 @@
         "temperature": true,
         "tool_call": true,
         "limit": {
-          "context": 128000,
+          "context": 64000,
           "output": 128000
         },
         "modalities": {
@@ -111,7 +111,7 @@
         "temperature": true,
         "tool_call": true,
         "limit": {
-          "context": 128000,
+          "context": 64000,
           "output": 128000
         },
         "modalities": {
@@ -170,7 +170,7 @@
         "temperature": true,
         "tool_call": true,
         "limit": {
-          "context": 128000,
+          "context": 64000,
           "output": 128000
         },
         "modalities": {
