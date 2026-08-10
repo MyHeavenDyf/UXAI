@@ -11,6 +11,7 @@ import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../u
 import { splitOnQuestionForms, type FormSegment, type QuestionForm } from "../utils/question-form"
 import { QuickBriefFormView } from "./quick-brief-form"
 import './quick-brief-form.css'
+import './insight-turn-meta.css'
 import { autoSaveArtifact } from "../utils/artifact-auto-save"
 import { parseUploadedFiles } from "../../insight/lib/upload"
 import { ExpandableBubble } from "@/components/expandable-bubble"
@@ -749,6 +750,35 @@ export function InsightTurn(props: {
     return s > 0 ? `${m}m ${s}s` : `${m}m`
   })
 
+  const turnMeta = createMemo(() => {
+    const msgs = assistantMsgs()
+    if (msgs.length === 0) return ""
+    if (showGenerating()) return ""
+    const firstMsg = msgs[0] as AssistantMessage
+    const lastMsg = msgs[msgs.length - 1] as AssistantMessage
+    const start = firstMsg.time?.created
+    const completed = lastMsg.time?.completed
+    if (typeof start !== "number" || typeof completed !== "number") return ""
+    if (completed < start) return ""
+    const secs = Math.round((completed - start) / 1000)
+    if (secs < 0) return ""
+    const duration = secs < 60
+      ? `${secs} 秒`
+      : `${Math.floor(secs / 60)} 分 ${secs % 60} 秒`
+
+    let agent = lastMsg.agent
+    if (agent === 'octo_ai') agent = 'Octo_Agent'
+    const agentLabel = agent ? agent[0]?.toUpperCase() + agent.slice(1) : ""
+    const modelLabel = (() => {
+      const match = data.store.provider?.all?.find((p) => p.id === lastMsg.providerID)
+      return match?.models?.[lastMsg.modelID]?.name ?? lastMsg.modelID ?? ""
+    })()
+    const interruptedLabel = isAborted() ? i18n.t("ui.message.interrupted") : ""
+    return [agentLabel, modelLabel, duration, interruptedLabel]
+      .filter(Boolean)
+      .join(" · ")
+  })
+
   // ── NEW: tool calls ──
   const toolCalls = createMemo((): ToolCallInfo[] => {
     const parts = assistantParts()
@@ -1119,7 +1149,7 @@ const stateStatus = state.status as string | undefined
   })
 
   return (
-    <div class="flex flex-col gap-4" style={{ "user-select": "text" }}>
+    <div class="octo-make-turn flex flex-col gap-4" style={{ "user-select": "text" }}>
       {/* 用户消息气泡（右侧对齐） */}
       <Show when={userText() || userAttachments().length > 0}>
         <div class="flex flex-col items-end gap-4 px-3">
@@ -1444,6 +1474,13 @@ const stateStatus = state.status as string | undefined
       <Show when={isAborted()}>
         <div data-slot="session-turn-compaction">
           <MessageDivider label={i18n.t("ui.message.interrupted")} />
+        </div>
+      </Show>
+
+      {/* hover 显示的 turn 元信息（agent · model · 耗时 · 中断）— 仿 Insight 页 */}
+      <Show when={turnMeta()}>
+        <div class="octo-make-turn-meta-wrapper">
+          <span class="octo-make-turn-meta">{turnMeta()}</span>
         </div>
       </Show>
 
