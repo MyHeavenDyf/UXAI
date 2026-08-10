@@ -102,6 +102,7 @@ export function StudioConversation(props: {
                   <button
                     type="button"
                     class="studio-assistant-editor-link"
+                    disabled={props.busy}
                     onClick={() => props.onOpenEditor(editCapability())}
                   >
                     点击前往编辑区
