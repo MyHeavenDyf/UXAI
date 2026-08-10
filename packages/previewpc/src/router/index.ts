@@ -24,6 +24,11 @@ const router = createRouter({
       name: "Charts",
       component: () => import("../views/CustomPage.vue"),
     },
+    {
+      path: "/storage",
+      name: "Storage",
+      component: () => import("../views/StoragePage.vue"),
+    },
   ],
 });
 
