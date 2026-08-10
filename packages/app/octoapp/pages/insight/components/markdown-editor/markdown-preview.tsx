@@ -8,6 +8,11 @@ import { interceptExternalLink } from "../../utils/external-link"
 // Vditor 资源本地化路径(与编辑器同源,见 index.tsx / spec §6.2)
 const VDITOR_LOCAL_CDN = "/vendor/vditor"
 
+// 超过此字符数的大 markdown 不再全量喂给 Vditor(Lute 解析 + innerHTML 写节点随内容线性膨胀,
+// 5MB 量级会长时间阻塞主线程、页面卡死)。预览渲染(MarkdownRenderer)与编辑器(MarkdownEditor
+// 的 sv 分屏右侧也跑 Lute)共用此阈值:预览超限只渲染开头一段 + 提示走下载;编辑超限置灰编辑按钮。
+export const MARKDOWN_LARGE_THRESHOLD = 512 * 1024
+
 // markdown 卡的预览渲染:用 Vditor 自带渲染引擎(Lute),与全屏编辑器**同一套渲染**,
 // 避免「卡片预览(上游 <Markdown>)」与「编辑器预览(Vditor)」效果不一致(加粗/表格/代码等)。
 // 见 docs/specs/ui/insight-markdown-editor.md §6.3 + output-renderers.md §1。

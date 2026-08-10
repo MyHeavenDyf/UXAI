@@ -11,6 +11,7 @@ import { openFileLocally, revealFileInFolder } from "../../utils/local-file-ops"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { TruncatedText } from "./truncated-text"
+import { MARKDOWN_LARGE_THRESHOLD } from "../markdown-editor/markdown-preview"
 import { tracker } from "@/utils/tracker"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { useParams } from "@solidjs/router"
@@ -265,6 +266,9 @@ export function ActionBar(props: {
   // inline 无本地文件不给编辑。见 docs/specs/ui/insight-markdown-editor.md §2.1。
   const canEdit = () =>
     !!props.onEdit && props.tab.type === "markdown" && (props.tab.source === "uri" || props.tab.source === "path") && ready()
+  // 大文件编辑拦截:Vditor sv 分屏会把全文喂给 Lute(同预览根因),超阈值置灰编辑按钮,
+  // 提示下载后用本地编辑器修改。阈值与预览截断共用 MARKDOWN_LARGE_THRESHOLD,避免漂移。
+  const editBlocked = () => canEdit() && (props.tab.content?.length ?? 0) > MARKDOWN_LARGE_THRESHOLD
 
   // ── 归档(所有文件类型,头部最右侧按钮;逻辑抽到 ../archive-flow)──────────────────────
   const [archiveTarget, setArchiveTarget] = createSignal<ArchiveTarget | null>(null)
@@ -337,14 +341,28 @@ export function ActionBar(props: {
             <ActionBtn icon={<IconActionFolder size={14} />} label="文件夹" onClick={() => void revealFileInFolder(props.tab.filePath!)} />
           </Show>
           <Show when={canEdit()}>
-            <ActionBtn
-              icon={<IconEditPencil size={14} />}
-              label="编辑"
-              onClick={() => {
-                tracker.interaction({ module: "insight", name: "md-edit-open", extend: JSON.stringify({ source: props.tab.source }) })
-                props.onEdit!()
-              }}
-            />
+            {/* 超阈值置灰(同预览截断根因:Vditor sv 分屏把全文喂给 Lute,大文件卡死编辑器)。
+                disabled 按钮原生 title 不显示(浏览器抑制禁用元素鼠标事件),故用 Tooltip(div trigger)包裹,禁用态也能悬浮出原因。 */}
+            <Tooltip
+              placement="top"
+              value="文件过大，暂不支持在线编辑，请下载后用本地编辑器修改"
+              inactive={!editBlocked()}
+              contentStyle={{ "white-space": "nowrap", "max-width": "none", "z-index": "60" }}
+              class="shrink-0"
+            >
+              <button
+                type="button"
+                disabled={editBlocked()}
+                onClick={() => {
+                  tracker.interaction({ module: "insight", name: "md-edit-open", extend: JSON.stringify({ source: props.tab.source }) })
+                  props.onEdit!()
+                }}
+                class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors octo-btn-action disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <IconEditPencil size={14} />
+                <span>编辑</span>
+              </button>
+            </Tooltip>
           </Show>
           {/* uri md 卡「文件夹」定位——落点在可见的 .octo/<sessionId>/outputs;path 源已在上方 path 块提供。 */}
           <Show when={canRevealUri()}>

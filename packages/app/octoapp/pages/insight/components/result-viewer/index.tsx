@@ -17,7 +17,7 @@ import { describeResourceError } from "../../utils/local-resource"
 import { openFileLocally, revealFileInFolder, NO_APP_HINT } from "../../utils/local-file-ops"
 import { decodeHtmlBytes } from "@opencode-ai/core/bridge-scripts"
 import { MarkdownEditor } from "../markdown-editor"
-import { MarkdownPreview } from "../markdown-editor/markdown-preview"
+import { MarkdownPreview, MARKDOWN_LARGE_THRESHOLD } from "../markdown-editor/markdown-preview"
 import { langFromPath, canOpenLocally } from "../../utils/write-output"
 import { getDesktopApi } from "../../lib/electron-api"
 import { tracker } from "@/utils/tracker"
@@ -31,8 +31,32 @@ import type { InsightFile, InsightFileEntry } from "../../utils/insight-file-api
 // 用 Vditor 的渲染引擎(MarkdownPreview),与全屏编辑器**同一套渲染**,保证卡片预览与编辑预览
 // 效果一致(加粗/表格/代码块等);取代旧的上游 <Markdown>(渲染效果与编辑器有出入)。
 // 见 spec insight-markdown-editor.md §6.3。
+// 大 markdown 截断预览:超阈值只渲染开头一段,完整内容走 ActionBar 的「复制 / 下载」
+// (downloadBlob 只构造 Blob,不进渲染管线,不会卡)。阈值与编辑入口共用 MARKDOWN_LARGE_THRESHOLD
+// (见 markdown-preview.tsx),避免两处漂移。截到上一个换行,避免从一行 / 一段语法中间切断。
 function MarkdownRenderer(props: { content: string }): JSX.Element {
-  return <MarkdownPreview content={props.content} />
+  const head = createMemo(() => {
+    const raw = props.content ?? ""
+    if (raw.length <= MARKDOWN_LARGE_THRESHOLD) return { text: raw, cut: false }
+    const slice = raw.slice(0, MARKDOWN_LARGE_THRESHOLD)
+    const nl = slice.lastIndexOf("\n")
+    return { text: nl > 0 ? slice.slice(0, nl) : slice, cut: true }
+  })
+  return (
+    <div class="h-full flex flex-col">
+      <Show when={head().cut}>
+        <div
+          class="shrink-0 px-4 py-2 text-xs"
+          style={{ color: "var(--octo-text-secondary)", background: "var(--octo-surface-hover)", "border-bottom": "1px solid var(--octo-border-divider)" }}
+        >
+          文件较大，仅预览部分内容。完整内容请使用上方「复制 / 下载」。
+        </div>
+      </Show>
+      <div class="flex-1 min-h-0">
+        <MarkdownPreview content={head().text} />
+      </div>
+    </div>
+  )
 }
 
 // ── 主容器 ────────────────────────────────────────────────────
