@@ -310,17 +310,22 @@ export function HtmlRenderer(props: {
         showToast({ title: "归档失败", description: "无法获取页面内容" })
         return
       }
-      
+      if (shouldUseExternalUrl()) {
+        TaskStore.error([{ key: taskId, status: "error" }])
+        showToast({ title: "归档失败", description: "外部 URL 不支持归档" })
+        return
+      }
+
       if (overlay) {
         overlay.style.display = 'none'
       }
       if (collisionOverlay) {
         collisionOverlay.style.display = 'none'
       }
-      
+
       await new Promise(resolve => requestAnimationFrame(resolve))
       await new Promise(resolve => requestAnimationFrame(resolve))
-      
+
       const screenshotBlob = await capturePageScreenshot(iframeRef)
       
       if (overlay) {
@@ -468,6 +473,7 @@ createEffect(() => {
 // Load comments when file path or session ID changes
 createEffect(() => {
   if (!props.filePath || !props.sessionId) return
+  if (shouldUseExternalUrl()) return
   
   const loadComments = async () => {
     if (!props.sdkUrl || !props.sdkDirectory || !props.sessionId) return
@@ -630,11 +636,19 @@ createEffect(() => {
     if (pendingText) {
       const html = extractHtmlContent(props.content)
       const fields = readManualEditFields(html, target.id)
+      const originalText = fields.text ?? target.fields.text ?? target.text ?? ''
       setEditDraft(prev => ({
         ...prev,
-        text: fields.text ?? target.fields.text ?? target.text ?? '',
+        text: originalText,
         href: fields.href ?? target.fields.href ?? '',
       }))
+      // Revert live text preview in iframe
+      if (target.kind === 'text' || target.kind === 'mixed') {
+        iframeRef?.contentWindow?.postMessage(
+          { type: "od:edit-text", elementId: target.id, value: originalText },
+          "*"
+        )
+      }
     }
   }
   
@@ -705,12 +719,14 @@ createEffect(() => {
   // Initialize history on mount (before any keyboard events)
   onMount(() => {
     initHistory(extractHtmlContent(props.content))
-    props.observedUrlsGetter?.(() => iframeRef ? resourceTracker.getPaths(iframeRef) : [])
+    if (!shouldUseExternalUrl()) {
+      props.observedUrlsGetter?.(() => iframeRef ? resourceTracker.getPaths(iframeRef) : [])
+    }
   })
 
   // refreshKey 变化时清空资源 URL 集合（旧数据来自上一次加载）
   createEffect(on(() => props.refreshKey, () => {
-    if (iframeRef) resourceTracker.reset(iframeRef)
+    if (iframeRef && !shouldUseExternalUrl()) resourceTracker.reset(iframeRef)
   }))
 
   onCleanup(() => {
@@ -734,8 +750,25 @@ createEffect(() => {
     }) + (key > 0 ? `<script data-refresh-key="${key}"></script>` : "")
   })
 
+  const shouldUseExternalUrl = createMemo(() => {
+    return /^https?:\/\//i.test(props.filePath || "")
+  })
+
+  const externalUrl = createMemo(() => {
+    if (!shouldUseExternalUrl()) return undefined
+    const key = props.refreshKey ?? 0
+    if (key === 0) return props.filePath
+    try {
+      const u = new URL(props.filePath!)
+      u.searchParams.set("_octo_v", String(key))
+      return u.toString()
+    } catch {
+      return props.filePath
+    }
+  })
+
   const shouldUseLocalUrl = createMemo(() => {
-    return isElectronDesktop() && props.filePath
+    return isElectronDesktop() && !!props.filePath && !shouldUseExternalUrl()
   })
 
   const localUrl = createMemo(() => {
@@ -1261,9 +1294,9 @@ return (
               */}
               <iframe
                 ref={iframeRef}
-                src={shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined)}
-                {...(!shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
-                sandbox="allow-same-origin allow-scripts"
+                src={shouldUseExternalUrl() ? externalUrl() : (shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined))}
+                {...(!shouldUseExternalUrl() && !shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
+                sandbox={shouldUseExternalUrl() ? "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" : "allow-same-origin allow-scripts"}
                 style={{
                   width: `${VIEWPORT_DIMS[props.viewport!].width}px`,
                   height: `${VIEWPORT_DIMS[props.viewport!].height}px`,
@@ -1274,7 +1307,7 @@ return (
                     console.log('[HtmlRenderer] iframeRef is null')
                     return
                   }
-                  resourceTracker.observe(iframeRef)
+                  if (!shouldUseExternalUrl()) resourceTracker.observe(iframeRef)
                   if (props.editing) {
                     console.log('[HtmlRenderer] sending od:edit-mode')
                     iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
@@ -1316,9 +1349,9 @@ return (
               */}
               <iframe
                 ref={iframeRef}
-                src={shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined)}
-                {...(!shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
-                sandbox="allow-same-origin allow-scripts"
+                src={shouldUseExternalUrl() ? externalUrl() : (shouldUseLocalUrl() ? localUrl() : (shouldUseServeUrl() ? serveUrl() : undefined))}
+                {...(!shouldUseExternalUrl() && !shouldUseLocalUrl() && !shouldUseServeUrl() ? { srcdoc: srcdoc() } : {})}
+                sandbox={shouldUseExternalUrl() ? "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" : "allow-same-origin allow-scripts"}
                 class="w-full h-full border-0"
                 style={{ "min-height": "200px" }}
                 onLoad={() => {
@@ -1326,7 +1359,7 @@ return (
                     console.log('[HtmlRenderer] iframeRef is null')
                     return
                   }
-                  resourceTracker.observe(iframeRef)
+                  if (!shouldUseExternalUrl()) resourceTracker.observe(iframeRef)
                   if (props.editing) {
                     console.log('[HtmlRenderer] sending od:edit-mode')
                     iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
@@ -1453,12 +1486,18 @@ return (
                   const baseStyles = manualEditPendingStyle?.styles ?? editDraft().styles
                   const mergedStyles = { ...baseStyles, ...styles }
                   manualEditPendingStyle = { id, styles: mergedStyles, label }
-                  
+
                   // Send preview to iframe
                   const version = editStyleVersion() + 1
                   setEditStyleVersion(version)
                   iframeRef?.contentWindow?.postMessage(
                     { type: "od:edit-preview-style", id, styles, version },
+                    "*"
+                  )
+                }}
+                onTextPreview={(id, text) => {
+                  iframeRef?.contentWindow?.postMessage(
+                    { type: "od:edit-text", elementId: id, value: text },
                     "*"
                   )
                 }}
@@ -1518,23 +1557,12 @@ onSaveDraft={async () => {
                   manualEditPendingText = null
                   setEditDraft(emptyManualEditDraft(props.content))
                 }}
-onExit={async () => {
-  if (saving()) return
-  setSaving(true)
-  try {
-    const ok = await flushManualEditStyleSave()
-    if (!ok) {
-      showToast({ 
-        title: "样式未保存", 
-        description: "目标元素在HTML中不存在，修改已丢失" 
-      })
-    }
-    setEditTarget(null)
-    manualEditPendingStyle = null
-    manualEditPendingText = null
-  } finally {
-    setSaving(false)
-  }
+onExit={() => {
+  cancelManualEditStyleDraft()
+  setEditTarget(null)
+  manualEditPendingStyle = null
+  manualEditPendingText = null
+  setEditDraft(emptyManualEditDraft(props.content))
 }}
 onFloatingPositionChange={setEditPanelPosition}
                />
