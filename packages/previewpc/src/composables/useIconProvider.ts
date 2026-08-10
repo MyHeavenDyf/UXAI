@@ -2,6 +2,7 @@ import { ref, provide, inject, type Ref } from 'vue'
 import { resolveAllIcons, selectBestIcon } from '../utils/resolveIcons'
 import { fetchIconConfig, svgCache, svgCacheVersion, resolveSvgCacheKey } from '../utils/fetchSvg'
 import { IconRequestQueue } from '../utils/iconRequestQueue'
+import { getBusinessDataParam } from '../utils/businessData'
 import type { IconInfoEntry } from '../utils/resolveIcons'
 export { type IconInfoEntry } from '../utils/resolveIcons'
 export { svgCache, svgCacheVersion, resolveSvgCacheKey, resolveApiShape } from '../utils/fetchSvg'
@@ -80,7 +81,7 @@ export function requestIconInfo(name: string): void {
   triedIconInfoNames.add(name)
 
   const keyword = encodeURIComponent(name)
-  const apiUrl = `${ICON_API_URL}?keyword=${keyword}&topK=2&source_id=6`
+  const apiUrl = `${ICON_API_URL}?keyword=${keyword}&topK=2&source_id=6${getBusinessDataParam()}`
 
   fetch(apiUrl)
     .then(resp => {
