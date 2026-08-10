@@ -2,7 +2,9 @@
   "opencode": {
     "id": "opencode",
     "name": "Octo AI",
-    "env": ["OPENCODE_API_KEY"],
+    "env": [
+      "OPENCODE_API_KEY"
+    ],
     "npm": "@ai-sdk/openai-compatible",
     "api": "http://octoai-llm.ucd.huawei.com/v1",
     "models": {
@@ -19,9 +21,9 @@
           "output": 16000
         }
       },
-      "Qwen3.5-27B-Claude-4.6": {
-        "id": "Qwen3.5-27B-Claude-4.6",
-        "name": "Qwen3.5 27B Claude 4.6",
+      "Qwen-V3_6-27B-VL": {
+        "id": "Qwen-V3_6-27B-VL",
+        "name": "Qwen V3.6 27B VL",
         "release_date": "2025-01-01",
         "attachment": true,
         "reasoning": false,
@@ -29,11 +31,16 @@
         "tool_call": true,
         "limit": {
           "context": 128000,
-          "output": 16000
+          "output": 128000
         },
         "modalities": {
-          "input": ["text", "image"],
-          "output": ["text"]
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "text"
+          ]
         }
       }
     }
@@ -41,7 +48,9 @@
   "bpit": {
     "id": "bpit",
     "name": "BPIT",
-    "env": ["BPIT_API_KEY"],
+    "env": [
+      "BPIT_API_KEY"
+    ],
     "npm": "@ai-sdk/openai-compatible",
     "api": "http://aigateway.huawei.com/v1",
     "models": {
@@ -84,8 +93,13 @@
           "output": 128000
         },
         "modalities": {
-          "input": ["text", "image"],
-          "output": ["text"]
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "text"
+          ]
         }
       },
       "Qwen-V3_6-27B-VL": {
@@ -101,24 +115,13 @@
           "output": 128000
         },
         "modalities": {
-          "input": ["text", "image"],
-          "output": ["text"]
-        }
-      },
-      "Qwen3.5-27B-Claude-4.6": {
-        "id": "Qwen3.5-27B-Claude-4.6",
-        "name": "Qwen3.5-27B-Claude-4.6",
-        "attachment": true,
-        "reasoning": false,
-        "temperature": true,
-        "tool_call": true,
-        "limit": {
-          "context": 128000,
-          "output": 128000
-        },
-        "modalities": {
-          "input": ["text", "image"],
-          "output": ["text"]
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "text"
+          ]
         }
       }
     }
@@ -126,7 +129,9 @@
   "w3": {
     "id": "w3",
     "name": "Octo",
-    "env": ["W3_KEY"],
+    "env": [
+      "W3_KEY"
+    ],
     "npm": "@ai-sdk/openai-compatible",
     "api": "https://provide.hdesign.huawei.com/octo-llm-beta/v1/",
     "models": {
@@ -141,23 +146,6 @@
         "limit": {
           "context": 128000,
           "output": 16000
-        }
-      },
-      "Qwen3.5-27B-Claude-4.6": {
-        "id": "Qwen3.5-27B-Claude-4.6",
-        "name": "Qwen3.5 27B Claude 4.6",
-        "release_date": "2025-01-01",
-        "attachment": true,
-        "reasoning": false,
-        "temperature": true,
-        "tool_call": true,
-        "limit": {
-          "context": 128000,
-          "output": 16000
-        },
-        "modalities": {
-          "input": ["text", "image"],
-          "output": ["text"]
         }
       },
       "GLM-V5": {
@@ -186,8 +174,13 @@
           "output": 128000
         },
         "modalities": {
-          "input": ["text", "image"],
-          "output": ["text"]
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "text"
+          ]
         }
       }
     }

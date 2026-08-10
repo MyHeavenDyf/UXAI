@@ -466,9 +466,7 @@ export const layer = Layer.effect(
             name: "proto_planner_create",
             description: "Proto planner create agent.",
             prompt: PROMPT_PROTO_PLANNER_CREATE,
-            permission: Permission.fromConfig({
-              "*": "deny",
-            }),
+            permission: Permission.fromConfig({ "*": "deny", load_components_docs: "allow" }),
             options: {},
             mode: "primary",
             native: false,

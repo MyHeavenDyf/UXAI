@@ -3,6 +3,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  on,
   onCleanup,
   onMount,
   useContext,
@@ -16,6 +17,7 @@ export const MAKE_LEFT_DEFAULT = 296
 export const MAKE_CENTER_MIN = 360
 export const MAKE_RIGHT_MIN = 500
 export const MAKE_CRATIO_DEFAULT = 0.5
+export const MAKE_LEFT_COLLAPSE_BP = 656
 
 const LEFT_KEY = "octo:make:left-width"
 const RATIO_KEY = "octo:make:split-ratio"
@@ -33,6 +35,8 @@ function loadNum(key: string, fallback: number, min: number, max: number): numbe
 export type MakeLayoutValue = {
   leftW: Accessor<number>
   setLeftW: (w: number) => void
+  /** 实际渲染宽度:抽屉态固定为默认宽度,宽屏态为可拖拽的 leftW */
+  displayLeftW: Accessor<number>
   cRatio: Accessor<number>
   setCRatio: (r: number) => void
   windowW: Accessor<number>
@@ -46,6 +50,7 @@ export type MakeLayoutValue = {
   toggleRightDrawer: () => void
   rightManuallyHidden: Accessor<boolean>
   toggleRight: () => void
+  showRight: () => void
 }
 
 const MakeLayoutContext = createContext<MakeLayoutValue>()
@@ -86,8 +91,13 @@ export function MakeLayoutProvider(props: ParentProps) {
     })
   })
 
-  const leftCollapsed = createMemo(() => windowW() <= leftW() + MAKE_CENTER_MIN)
+  const leftCollapsed = createMemo(
+    () => windowW() <= MAKE_LEFT_COLLAPSE_BP || windowW() <= leftW() + MAKE_CENTER_MIN,
+  )
   const rightCollapsed = createMemo(() => windowW() <= leftW() + MAKE_CENTER_MIN + MAKE_RIGHT_MIN)
+
+  // 抽屉态固定宽度(参考 chat:抽屉展开时显示 296,宽屏恢复可拖拽宽度)
+  const displayLeftW = createMemo(() => (leftCollapsed() ? MAKE_LEFT_DEFAULT : leftW()))
 
   const centerW = createMemo(() => {
     const W = windowW()
@@ -140,6 +150,12 @@ export function MakeLayoutProvider(props: ParentProps) {
   createEffect(() => {
     document.body.classList.toggle("make-right-drawer-open", rightDrawerOpen())
   })
+  // 窗口跨越抽屉阈值时收起左侧抽屉:收窄避免遮挡,放宽避免残留遮罩
+  createEffect(
+    on(leftCollapsed, () => {
+      setLeftDrawerOpen(false)
+    }),
+  )
   onCleanup(() => {
     document.body.classList.remove("make-left-drawer-open")
     document.body.classList.remove("make-right-drawer-open")
@@ -150,9 +166,19 @@ export function MakeLayoutProvider(props: ParentProps) {
     else setRightManuallyHidden((v) => !v)
   }
 
+  // 聊天区点击需要在右侧展示内容时:若右侧处于抽屉收起或手动隐藏状态,展开显示
+  const showRight = () => {
+    if (rightCollapsed()) {
+      setRightDrawerOpen(true)
+      return
+    }
+    if (rightManuallyHidden()) setRightManuallyHidden(false)
+  }
+
   const value: MakeLayoutValue = {
     leftW,
     setLeftW,
+    displayLeftW,
     cRatio,
     setCRatio,
     windowW,
@@ -166,6 +192,7 @@ export function MakeLayoutProvider(props: ParentProps) {
     toggleRightDrawer: () => setRightDrawerOpen((v) => !v),
     rightManuallyHidden,
     toggleRight,
+    showRight,
   }
 
   return <MakeLayoutContext.Provider value={value}>{props.children}</MakeLayoutContext.Provider>

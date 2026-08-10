@@ -22,7 +22,19 @@ const id = computed(() => node.id)
 const className = computed(() => properties.className || "")
 const name = computed(() => (resolveValue(properties.name) as string) || "")
 const shape = computed(() => (resolveValue(properties.shape) as string | undefined) || "outline")
-const color = computed(() => (resolveValue(properties.color) as string | undefined) || "default")
+const color = computed(() => {
+  let res = resolveValue(properties.color) as string | undefined
+  if (!res) {
+    if(shape.value === "two-tone") {
+      res = isDark.value ? "#DFDFDF,#AEAEAE" : "#191919,#AEAEAE"
+    } else if (shape.value === "circle" || shape.value === "square") {
+      res = isDark.value ? "#2A2A2A,#939393,#AEAEAE" : "#191919,#AEAEAE,#FFFFFF"
+    } else {
+      res = isDark.value ? "#DFDFDF" : "#191919"
+    }
+  }
+  return res
+})
 
 // watchEffect 主动驱动 requestSvg：即使模板 v-if 短路求值导致 resolved computed 未被访问，
 // 也能确保 SVG 请求被触发并写入 svgCache
@@ -71,8 +83,6 @@ const lucideBgShape = computed(() => {
   return bgShape.value
 })
 
-const hasApiBackground = computed(() => isHuiIcon.value && (bgShape.value === "circle" || bgShape.value === "square"))
-
 const iconSizeStyle = computed(() => {
   switch (lucideBgShape.value) {
     case "circle":
@@ -111,7 +121,7 @@ const borderRadius = computed(() => {
 const mixPercentage = Math.round(BACKGROUND_OPACITY * 100)
 
 const wrapperStyle = computed(() => {
-  if (hasApiBackground.value) {
+  if (isHuiIcon.value) {
     return {
       display: "inline-flex",
       alignItems: "center",
@@ -137,13 +147,13 @@ const wrapperStyle = computed(() => {
 
 <template>
   <component
-    v-if="isHuiIcon && resolved"
+    v-if="isHuiIcon"
     :id="id" 
     :style="wrapperStyle" 
     class="icon-base" 
     :class="className"
-    :is="resolved.component"
-    v-bind="resolved.props"
+    :is="resolved?.component"
+    v-bind="resolved?.props"
     :type="huiIconType"
     :iconColor="huiIconColor"
   />

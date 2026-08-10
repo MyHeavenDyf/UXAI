@@ -25,7 +25,7 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue, BindingValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
+import { Value } from '../../../src/core/value-factory'
 
 // ─── placement 映射表 ───
 const PLACEMENT_MAP: Record<string, { position: string; popupDirection: string }> = {

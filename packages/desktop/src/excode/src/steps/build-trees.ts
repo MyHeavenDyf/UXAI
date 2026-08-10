@@ -16,9 +16,9 @@
  * 不做：transform 调用（NodeMapper 阶段处理）。
  */
 
-import { Step } from '../core/step'
-import { Value } from '../core/value'
-import { Node } from '../core/node'
+import { Step } from '../core/step-base'
+import { Value } from '../core/value-factory'
+import { Node } from '../core/node-factory'
 import { IconCollector } from '../core/icon-collection'
 import {
   HTML_TEXT_ELEMENTS,
@@ -27,6 +27,8 @@ import {
   ICON_PROPS_NESTED_IN_ARRAYS,
 } from '../core/icon-props'
 import { rewriteResourcePath } from '../core/resource-path'
+import { pathToJsAccess } from '../core/access-path'
+import { pathToSegments, resolveBySegments } from '../core/state-path'
 import type {
   BuildNode,
   ComponentNode,
@@ -47,22 +49,6 @@ import type { BuiltPage } from '../pipeline/pipeline-context'
 // buildTrees 建树时检查 template body 的 component 名，命中则 LoopNode.inline=true。
 const INLINE_LOOP_COMPONENTS = new Set(['TabItem'])
 
-// ─── state path 工具（inline；后续可与 icon-collection.ts#resolvePath 合并到 core/state-path.ts） ───
-
-/** 把 "/a/b/0/c" 或 "a/b/0/c" 归一为 segments */
-function pathToSegments(path: string): string[] {
-  return path.replace(/^\//, '').split('/').filter(Boolean)
-}
-
-/** 按 segments 逐级取值；找不到 → undefined */
-function resolveBySegments(root: any, segments: string[]): any {
-  let cur: any = root
-  for (const seg of segments) {
-    if (cur == null) return undefined
-    cur = cur[seg]
-  }
-  return cur
-}
 
 /**
  * 原生 H5 inline style 字符串 → React style 对象。
@@ -101,7 +87,7 @@ function buildLoopScope(stack: Array<{ loopNode: LoopNode }>): LoopScope | undef
   if (stack.length === 0) return undefined
   let scope: LoopScope | undefined
   for (let i = 0; i < stack.length; i++) {
-    scope = { loopNode: stack[i].loopNode, parent: scope }
+    scope = { scopeType: 'loopScope', loopNode: stack[i].loopNode, parent: scope }
   }
   // scope 指向最内层循环，parent 链指向外层
   return scope
@@ -229,6 +215,7 @@ export class BuildTrees extends Step {
 
     if (isComponent) {
       const node: ComponentNode = {
+        __node: true,
         kind: 'component',
         id: el.id,
         component: el.component,
@@ -247,6 +234,7 @@ export class BuildTrees extends Step {
         ctx.loopStack
       )
       const node: HtmlNode = {
+        __node: true,
         kind: 'html',
         id: el.id,
         tag: el.component,
@@ -290,6 +278,7 @@ export class BuildTrees extends Step {
 
     // TextNode：value 可以是字符串、BindingValue 或其他值
     const textNode: TextNode = {
+      __node: true,
       kind: 'text',
       value: value as any,
       _resolved: false,
@@ -330,6 +319,7 @@ export class BuildTrees extends Step {
 
     const innerNode: RegularNode = isComponent
       ? {
+          __node: true,
           kind: 'component',
           id: el.id,
           component: el.component,
@@ -339,6 +329,7 @@ export class BuildTrees extends Step {
           loopScope,
         }
       : {
+          __node: true,
           kind: 'html',
           id: el.id,
           tag: el.component,
@@ -349,6 +340,7 @@ export class BuildTrees extends Step {
         }
 
     const extract: ExtractNode = {
+      __node: true,
       kind: 'extract',
       componentName,
       purpose: 'module',
@@ -420,29 +412,31 @@ export class BuildTrees extends Step {
     // {path} → BindingValue
     if (value && typeof value === 'object' && 'path' in (value as any)) {
       const path = (value as any).path as string
-      // 路径分类 + 兜底：
-      //   - `/` 前缀 → absolute（真绝对路径，保持原语义）
-      //   - 无 `/` 且在循环内 → relative（沿 loopStack 找 absolute 数据源解析）
-      //   - 无 `/` 且不在循环内 → 兜底：相对路径无 loop 可解析，本应是顶层 state 字段。
-      //     按 absolute 从 state 取值；取到数据 → 当 absolute；取不到 → 丢弃（返回 null），
-      //     避免 emit 成游离裸标识符（useState 初始值 / 引用名不在作用域内，产物不可用）。
+      // 路径分类：
+      //   - `/` 前缀 → absolute（真绝对路径）
+      //   - 无 `/` → relative（默认相对路径语义）
+      // 兜底防御（无 `/` 且无循环时按 absolute 从 state 取值、取不到丢弃）已注释——
+      // 实际 A2UI 数据中无 `/` 的路径就是相对路径，不应兜底当 absolute。
+      // 如需重新启用，取消下方注释。
       const hasLeadingSlash = path.startsWith('/')
-      const inLoop = ctx.loopStack.length > 0
       let pathType: 'absolute' | 'relative'
       if (hasLeadingSlash) {
         pathType = 'absolute'
-      } else if (inLoop) {
-        pathType = 'relative'
       } else {
-        const resolved = resolveBySegments(ctx.state, pathToSegments(path))
-        if (resolved === undefined) return null // 兜底无数据 → 丢弃
-        pathType = 'absolute'
+        pathType = 'relative'
       }
+      // 兜底防御（已注释）：
+      // const inLoop = ctx.loopStack.length > 0
+      // if (!hasLeadingSlash && !inLoop) {
+      //   const resolved = resolveBySegments(ctx.state, pathToSegments(path))
+      //   if (resolved === undefined) return null // 兜底无数据 → 丢弃
+      //   pathType = 'absolute'
+      // }
 
       const binding = Value.binding({
         path,
         pathType,
-        accessPath: this.#computeAccessPath(path),
+        accessPath: pathToJsAccess(path),
         nodeId,
         componentName: component,
         propKey,
@@ -529,7 +523,7 @@ export class BuildTrees extends Step {
     const dataBinding = Value.binding({
       path: loopInfo.path,
       pathType: loopInfo.path.startsWith('/') ? 'absolute' : 'relative',
-      accessPath: this.#computeAccessPath(loopInfo.path),
+      accessPath: pathToJsAccess(loopInfo.path),
     })
 
     const rootId = loopInfo.componentId
@@ -537,6 +531,7 @@ export class BuildTrees extends Step {
 
     // ① 预创建壳节点，body 后续再填
     const extract: ExtractNode = {
+      __node: true,
       kind: 'extract',
       componentName,
       purpose: 'component',
@@ -649,26 +644,14 @@ export class BuildTrees extends Step {
 
   // ── 辅助 ──
 
-  #buildTextNode(value: string, loopStack: Array<{ loopNode: LoopNode }>) {
+  #buildTextNode(value: string, loopStack: Array<{ loopNode: LoopNode }>): TextNode {
     return {
+      __node: true,
       kind: 'text' as const,
       value,
       _resolved: false,
       loopScope: buildLoopScope(loopStack),
     }
-  }
-
-  #computeAccessPath(path: string): string {
-    if (!path.startsWith('/')) return path
-    const segments = path.slice(1).split('/').filter(Boolean)
-    if (segments.length === 0) return ''
-
-    let accessPath = segments[0]
-    for (let i = 1; i < segments.length; i++) {
-      const seg = segments[i]
-      accessPath += /^\d+$/.test(seg) ? `[${seg}]` : `.${seg}`
-    }
-    return accessPath
   }
 
   #toPascalCase(str: string): string {

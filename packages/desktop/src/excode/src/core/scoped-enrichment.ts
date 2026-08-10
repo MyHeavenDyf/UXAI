@@ -22,12 +22,13 @@ import type {
   RenderFnValue,
   RenderFnParam,
 } from './value-types'
-import { Value } from './value'
+import { Value } from './value-factory'
 import type {
   BuildNode,
   RegularNode,
 } from './node-types'
 import { pathToJsAccess } from './access-path'
+import { pathToSegments, resolveBySegments, setNested } from './state-path'
 
 // ─── collectRelativeCVs ───
 
@@ -67,6 +68,12 @@ export function collectRelativeCVs(body: RegularNode[]): ComputedValue[] {
 
 // ─── collectRelativeFields ───
 
+/** 取 accessPath / varRef name 的顶级字段（JS 访问首段，按 `.` `[` `]` 分隔）。
+ *  accessPath 是 JS 形式（无 `/`，pathToJsAccess 产），故 split 不含 `/`。 */
+function topField(p?: string): string {
+  return p ? (p.split(/[\.\[\]]/)[0] ?? '') : ''
+}
+
 /**
  * 从节点树收集所有相对 binding 的顶级字段名（destructure 用）。
  * 例：body 内有 `{ path: 'user.email' }` 和 `{ path: 'name' }` → Set('user', 'name')
@@ -85,10 +92,10 @@ export function collectRelativeFields(root: BuildNode): Set<string> {
         // absolute（顶层 state/const，如嵌套循环的绝对路径数据源）跳过——
         // 否则外层会错误地 `const { stlTabsItemTabs } = item` 解构顶层字段。
         if (d.type === 'varRef' && typeof d.name === 'string' && !d.name.startsWith('initialState.') && d.pathType !== 'absolute') {
-          const seg = d.name.split(/[./]/)[0]
+          const seg = topField(d.name)
           if (seg) fields.add(seg)
         } else if ((d.type === 'binding' || d.type === 'computed') && d.pathType === 'relative') {
-          const seg = (d.accessPath ?? d.path).split(/[./]/)[0]
+          const seg = topField(d.accessPath ?? d.path)
           if (seg) fields.add(seg)
         }
       }
@@ -96,8 +103,8 @@ export function collectRelativeFields(root: BuildNode): Set<string> {
     }
     for (const v of Object.values((n as any).props ?? {})) {
       if (v && typeof v === 'object' && ((v as any).type === 'binding' || (v as any).type === 'computed') && (v as any).pathType === 'relative') {
-        // 同时按 `.` 和 `/` 分割取顶级字段（A2UI 路径用 `/`，旧 binding 可能用 `.`）
-        const seg = ((v as any).accessPath ?? (v as any).path).split(/[./]/)[0]
+        // 按 JS accessor 全分隔符（. [ ] /）取顶级字段
+        const seg = topField((v as any).accessPath ?? (v as any).path)
         if (seg) fields.add(seg)
       }
     }
@@ -105,7 +112,7 @@ export function collectRelativeFields(root: BuildNode): Set<string> {
     if ((n as any).kind === 'text') {
       const tv = (n as any).value
       if (tv && typeof tv === 'object' && ((tv as any).type === 'binding' || (tv as any).type === 'computed') && (tv as any).pathType === 'relative') {
-        const seg = ((tv as any).accessPath ?? (tv as any).path).split(/[./]/)[0]
+        const seg = topField((tv as any).accessPath ?? (tv as any).path)
         if (seg) fields.add(seg)
       }
     }
@@ -125,7 +132,7 @@ export function collectRelativeFields(root: BuildNode): Set<string> {
 
 // ─── collectRelativeCVsDeep（enrichScopedData 专用） ───
 
-interface ScopedCV {
+export interface ScopedCV {
   cv: ComputedValue
   /**
    * 外层循环 data 路径链（accessPath），从外到内。
@@ -159,14 +166,19 @@ export function collectRelativeCVsDeep(body: RegularNode[]): ScopedCV[] {
         out.push({ cv: v as ComputedValue, loopChain: chain })
       }
     }
-    // children：loop → 深入 template body（链加上 loop data 路径）；数组 → 递归
+    // children：loop → 只深入 relative 循环（数据是外层 item 的子字段）；
+    // absolute 循环数据是顶层 state，不属于外层 item，不深入（由内层自己的 processLoop 处理）。
+    // 数组 → 递归
     if (n.kind === 'component' || n.kind === 'html') {
       const ch = n.children
       if (ch && ch.kind === 'loop') {
         const d = ch.data
-        const loopPath = d && typeof d === 'object' ? (d.accessPath ?? d.path) : null
-        const newChain = loopPath ? [...chain, loopPath] : chain
-        for (const c of ch.template?.body ?? []) walk(c, newChain)
+        if (d && typeof d === 'object' && d.pathType === 'relative') {
+          const loopPath = d.accessPath ?? d.path
+          const newChain = loopPath ? [...chain, loopPath] : chain
+          for (const c of ch.template?.body ?? []) walk(c, newChain)
+        }
+        // absolute → 不深入
       } else if (Array.isArray(ch)) {
         for (const c of ch) walk(c, chain)
       }
@@ -178,52 +190,6 @@ export function collectRelativeCVsDeep(body: RegularNode[]): ScopedCV[] {
 
 // ─── 嵌套 enrichment 辅助（内联；core 层不反向依赖 codegen/stateBuilder） ───
 
-function pathToSegments(path: string): string[] {
-  return path.replace(/^\//, '').split('/').filter(Boolean)
-}
-
-function resolveBySegments(root: any, segments: string[]): any {
-  let cur: any = root
-  for (const seg of segments) {
-    if (cur == null) return undefined
-    cur = cur[seg]
-  }
-  return cur
-}
-
-function parseAccessors(key: string): Array<{ kind: 'field'; field: string } | { kind: 'index'; index: number }> {
-  const out: Array<{ kind: 'field'; field: string } | { kind: 'index'; index: number }> = []
-  for (const part of key.split('.')) {
-    const m = part.match(/^([^\[]*)((?:\[\d+\])*)$/)
-    if (!m) continue
-    const field = m[1]
-    const indices = (m[2].match(/\[(\d+)\]/g) || []).map(s => parseInt(s.slice(1, -1), 10))
-    if (field) out.push({ kind: 'field', field })
-    for (const idx of indices) out.push({ kind: 'index', index: idx })
-  }
-  return out
-}
-
-function setNested(obj: Record<string, any>, key: string, value: any): void {
-  const accessors = parseAccessors(key)
-  let cur: any = obj
-  for (let i = 0; i < accessors.length; i++) {
-    const a = accessors[i]
-    const isLast = i === accessors.length - 1
-    if (a.kind === 'field') {
-      if (isLast) { cur[a.field] = value; return }
-      const wantArray = accessors[i + 1]?.kind === 'index'
-      if (cur[a.field] == null || typeof cur[a.field] !== 'object') cur[a.field] = wantArray ? [] : {}
-      cur = cur[a.field]
-    } else {
-      if (!Array.isArray(cur)) cur = []
-      if (isLast) { cur[a.index] = value; return }
-      const wantArray = accessors[i + 1]?.kind === 'index'
-      if (cur[a.index] == null || typeof cur[a.index] !== 'object') cur[a.index] = wantArray ? [] : {}
-      cur = cur[a.index]
-    }
-  }
-}
 
 /**
  * 沿 loopChain 逐层 map 进嵌套循环数据数组，最里层应用 cv：
@@ -231,8 +197,10 @@ function setNested(obj: Record<string, any>, key: string, value: any): void {
  *   loopChain=['actions', ...] → 对 obj.actions 每项递归（剥一层）
  *   （如 row.actions[i].icon = resolveIcon(row.actions[i].icon)）
  */
-function applyScopedCV(obj: any, loopChain: string[], cv: ComputedValue, cvCtx?: any): void {
+export function applyScopedCV(obj: any, loopChain: string[], cv: ComputedValue, cvCtx?: any): void {
   if (obj == null || typeof obj !== 'object') return
+  // 更新 currentItem 为当前 obj（transform 内 resolveValueFromPath(relative) 从此项解析）
+  if (cvCtx) cvCtx.currentItem = obj
   if (loopChain.length === 0) {
     try {
       const rawValue = resolveBySegments(obj, pathToSegments(cv.path))
@@ -306,6 +274,7 @@ export function buildRenderFn(
   params: RenderFnParam[],
 ): RenderFnValue {
   return {
+    __node: true,
     type: 'renderFn',
     params,
     body,

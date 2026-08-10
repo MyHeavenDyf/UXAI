@@ -94,7 +94,7 @@ export function resolveColorHex(color: string | undefined, resolvedShape: string
 
   // 根据 resolved shape 选择颜色条目
   let colorValue: string
-  if (resolvedShape === 'filled-twotone') {
+  if (resolvedShape === 'filled-twotone' || resolvedShape === 'lined-twotone') {
     colorValue = entry.twoColor || entry.color
   } else if (resolvedShape === 'circle' || resolvedShape === 'square') {
     colorValue = entry.threeColor || entry.color

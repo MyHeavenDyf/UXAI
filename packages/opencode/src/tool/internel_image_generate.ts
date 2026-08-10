@@ -709,7 +709,6 @@ function isSuccessResponse(response: QueryTaskResponse): boolean {
 
 function isFailureResponse(response: QueryTaskResponse): boolean {
   const status = Number(getTaskStatus(response))
-  if (response.resp_code !== undefined && response.resp_code !== 200) return true
   return ![0, 1, 2, 6].includes(status)
 }
 
@@ -1719,6 +1718,16 @@ export async function createInternalGeneration(input: ImageGenerateInput): Promi
 
 export async function queryInternalGeneration(task: ImageGenerationTask): Promise<ImageGenerationQuery> {
   const queryJson = await queryTask(env("IMAGE_QUERY_TASK_BASE_URL") ?? DEFAULT_QUERY_TASK_BASE_URL, task.taskId)
+  if (queryJson.resp_code !== undefined && queryJson.resp_code !== 200 && !isFailureResponse(queryJson)) {
+    throw new Error(
+      [
+        "query_task returned retryable response.",
+        `taskId=${task.taskId}`,
+        `resp_code=${queryJson.resp_code}`,
+        `resp_msg=${queryJson.resp_msg ?? ""}`,
+      ].join("\n"),
+    )
+  }
   const status = normalizeTaskStatus(queryJson)
   const videos = status === "succeeded" && task.capability === "video.generate" ? extractInternalVideos(queryJson) : []
   const images = status === "succeeded"

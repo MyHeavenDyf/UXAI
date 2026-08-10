@@ -13,6 +13,8 @@ const API_BASE = import.meta.env.VITE_ICON_API_BASE || ''
 const ICON_API_URL = `${API_BASE}/assetRepository/iconPlus/getIconInfo`
 const MAX_STATE_DEPTH = 20
 
+import { getBusinessDataParam } from './businessData'
+
 // ========== 类型 ==========
 
 /** iconInfoMap 中的条目：name → url 映射 */
@@ -159,7 +161,7 @@ async function fillIconInfoFromApi(
 
   for (const batch of batches) {
     const keyword = encodeURIComponent(batch.join(','))
-    const apiUrl = `${ICON_API_URL}?keyword=${keyword}&topK=2&source_id=6`
+    const apiUrl = `${ICON_API_URL}?keyword=${keyword}&topK=2&source_id=6${getBusinessDataParam()}`
 
     try {
       const resp = await fetch(apiUrl)

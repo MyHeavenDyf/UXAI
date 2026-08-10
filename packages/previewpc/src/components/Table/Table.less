@@ -5,14 +5,17 @@
   --el-table-header-bg-color: #f3f3f3;
   --table-expand-row-container-bg: rgb(from var(--gray-05) r g b / 0.5);
   --el-table-height: 31px;
+  --el-table-tr-height: 40px;
 }
 
 .el-table.el-table--small {
   --el-table-height: 27px;
+  --el-table-tr-height: 27px;
 }
 
 .el-table.el-table--large {
   --el-table-height: 39px;
+  --el-table-tr-height: 39px;
 }
 
 /* 修改排序图标  */
@@ -126,6 +129,9 @@
   .el-table__body tr, thead .el-table__cell {
     height: var(--el-table-height);
     padding: 0 ;
+  }
+  .el-table__body .el-table__row{
+    height: var(--el-table-tr-height);
   }
 }
 

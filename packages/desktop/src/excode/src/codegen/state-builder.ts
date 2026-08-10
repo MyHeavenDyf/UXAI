@@ -26,12 +26,13 @@
  */
 
 import type { MappedPage } from '../pipeline/pipeline-context'
-import type { BuildNode, LoopNode, ExtractNode, RegularNode, LoopScope, RenderFnScope, Scope } from '../core/node-types'
+import type { BuildNode, LoopNode, ExtractNode, RegularNode, RenderFnScope, Scope } from '../core/node-types'
 import type { BindingValue, ComputedValue, ComputedTransformCtx, PropValue } from '../core/value-types'
 import { resolveIcon } from '../core/icon-collection'
-import { collectRelativeCVs } from '../core/scoped-enrichment'
+import { collectRelativeCVsDeep, applyScopedCV } from '../core/scoped-enrichment'
 import { rewriteResourcePathsInValue } from '../core/resource-path'
-import { jsxConstName, pathToJsAccess } from '../core/access-path'
+import { jsxConstName, makeEnrichmentConstName } from '../core/access-path'
+import { setNested, pathToSegments, resolveBySegments } from '../core/state-path'
 import { serializePlainJs } from './js-serializer'
 
 // ─── 文件单元 ───
@@ -117,67 +118,7 @@ function getValueFromState(state: Record<string, any>, path: string): any {
   return current
 }
 
-/** 按 accessPath 设嵌套值，支持数组下标：`a.b[0].c` → obj.a.b[0].c，保持原始结构。
- *  accessPath 来自 #computeAccessPath：字段用 `.` 分隔，数字段用 `[n]` 紧跟字段后。 */
-function setNested(obj: Record<string, any>, key: string, value: any): void {
-  const accessors = parseAccessors(key)
-  let cur: any = obj
-  for (let i = 0; i < accessors.length; i++) {
-    const a = accessors[i]
-    const isLast = i === accessors.length - 1
-    if (a.kind === 'field') {
-      if (isLast) { cur[a.field] = value; return }
-      const wantArray = accessors[i + 1]?.kind === 'index'
-      if (cur[a.field] == null || typeof cur[a.field] !== 'object') cur[a.field] = wantArray ? [] : {}
-      cur = cur[a.field]
-    } else {
-      // index：cur 必为数组
-      if (!Array.isArray(cur)) cur = []  // 防御
-      if (isLast) { cur[a.index] = value; return }
-      const wantArray = accessors[i + 1]?.kind === 'index'
-      if (cur[a.index] == null || typeof cur[a.index] !== 'object') cur[a.index] = wantArray ? [] : {}
-      cur = cur[a.index]
-    }
-  }
-}
 
-/** 拆 accessPath 为访问器序列：`a.b[0][1].c` → [field a, field b, index 0, index 1, field c] */
-function parseAccessors(key: string): Array<{ kind: 'field'; field: string } | { kind: 'index'; index: number }> {
-  const out: Array<{ kind: 'field'; field: string } | { kind: 'index'; index: number }> = []
-  for (const part of key.split('.')) {
-    const m = part.match(/^([^\[]*)((?:\[\d+\])*)$/)
-    if (!m) continue
-    const field = m[1]
-    const indices = (m[2].match(/\[(\d+)\]/g) || []).map(s => parseInt(s.slice(1, -1), 10))
-    if (field) out.push({ kind: 'field', field })
-    for (const idx of indices) out.push({ kind: 'index', index: idx })
-  }
-  return out
-}
-
-function pathToSegments(path: string): string[] {
-  return path.replace(/^\//, '').split('/').filter(Boolean)
-}
-
-function resolveBySegments(root: any, segments: string[]): any {
-  let cur: any = root
-  for (const seg of segments) {
-    if (cur == null) return undefined
-    cur = cur[seg]
-  }
-  return cur
-}
-
-/** 从 path 提取顶层 key 名 */
-function pathToTopKey(path: string): string {
-  const seg = path.replace(/^\//, '').split('/').filter(Boolean)[0]
-  return seg || ''
-}
-
-/** 生成循环 enrichment const 名 */
-function makeEnrichmentConstName(path: string, parentNodeId: string): string {
-  return `${pathToTopKey(path)}_${parentNodeId}Enriched`
-}
 
 function getOrCreateUnit(ctx: StateBuilderContext, fileKey: string): FileUnit {
   let unit = ctx.fileUnits.get(fileKey)
@@ -195,87 +136,40 @@ function withUnit(ctx: StateBuilderContext, unit: FileUnit, fn: () => void): voi
   ctx.currentUnit = prev
 }
 
-/** 从循环的 LoopScope 链解析数据源 */
+/** 取 absolute 循环数据源（state 数组）。
+ *  relative 嵌套循环在 processLoop isRelativeNested 跳过（由 applyScopedCV loopChain 处理）；
+ *  顶层 relative 无 loopScope 为异常，返回 [] 触发 warn。 */
 function resolveLoopData(loop: LoopNode, ctx: StateBuilderContext): any[] {
   const data = loop.data as BindingValue  // state-builder 阶段 LoopNode.data 还是 BindingValue
-  if (data.pathType === 'absolute') {
-    const val = getValueFromState(ctx.rawState, data.path)
-    return Array.isArray(val) ? val : (val != null ? [val] : [])
-  }
-
-  // relative：沿 Scope 链向上找到首个 absolute dataBinding（只认 LoopScope）
-  let scope = loop.loopScope
-  while (scope) {
-    if ('loopNode' in scope) {
-      const loopScope = scope as LoopScope
-      const scopeData = loopScope.loopNode.data as BindingValue
-      if (scopeData.pathType === 'absolute') {
-        const arr = getValueFromState(ctx.rawState, scopeData.path)
-        if (!Array.isArray(arr) || arr.length === 0) return []
-        const firstItem = arr[0]
-        const segments = pathToSegments(data.path)
-        const val = resolveBySegments(firstItem, segments)
-        return Array.isArray(val) ? val : (val != null ? [val] : [])
-      }
-    }
-    scope = scope.parent
-  }
-  return []
-}
-
-/**
- * 通用相对路径解析：沿 Scope 链向上找到首个 absolute dataBinding，
- * 取其 [0] 作为根对象，按段解析目标路径。
- * RenderFnScope 跳过（其 paramBindings 不参与 scope 链的 loop 语义），继续沿 parent 向上。
- */
-function resolveRelativeByScope(
-  relPath: string,
-  scope: Scope | undefined,
-  rawState: Record<string, any>
-): any {
-  if (!scope) return undefined
-  const segments = pathToSegments(relPath)
-  // 沿 scope 链向上找首个 absolute dataBinding
-  let curScope: Scope | undefined = scope
-  while (curScope) {
-    if ('loopNode' in curScope) {
-      const loopScope = curScope as LoopScope
-      const sd = loopScope.loopNode.data as BindingValue
-      if (sd.pathType === 'absolute') {
-        const arr = getValueFromState(rawState, sd.path)
-        if (!Array.isArray(arr) || arr.length === 0) return undefined
-        return resolveBySegments(arr[0], segments)
-      }
-    }
-    curScope = curScope.parent
-  }
-  return undefined
+  // 只处理 absolute（顶层 state 数据源数组）；relative 嵌套循环在 processLoop isRelativeNested 跳过
+  // （由 applyScopedCV loopChain 处理），顶层 relative 无 loopScope 为异常（返回 [] 触发 warn）
+  if (data.pathType !== 'absolute') return []
+  const val = getValueFromState(ctx.rawState, data.path)
+  return Array.isArray(val) ? val : (val != null ? [val] : [])
 }
 
 /**
  * 构建 ComputedTransformCtx——供 ComputedValue.transform 在求值阶段使用。
- * @param scope 循环 scope（处理循环内的相对 computed 时传入；绝对 computed 时传 undefined）
+ * currentItem 由 enrichment（applyScopedCV）递归内更新为当前项；absolute computed 不设（transform 内 path 都 absolute）。
  */
 function buildTransformCtx(
   rawState: Record<string, any>,
-  iconNameMap: Record<string, string>,
-  scope?: Scope
+  iconNameMap: Record<string, string>
 ): ComputedTransformCtx {
-  return {
+  const ctx: ComputedTransformCtx = {
     rawState,
+    currentItem: undefined,
     resolveIcon: (name, props?) => resolveIcon(name, iconNameMap, props) as any,
     resolveValueFromPath: (path: string) => {
       if (!path) return undefined
       if (path.startsWith('/')) return getValueFromState(rawState, path)
-      return resolveRelativeByScope(path, scope, rawState)
+      // relative：从 currentItem（当前项）按段解析
+      return ctx.currentItem != null ? resolveBySegments(ctx.currentItem, pathToSegments(path)) : undefined
     },
   }
+  return ctx
 }
 
-/** 从 body 中收集所有 relative ComputedValue（跳过嵌套 LoopNode） */
-function collectRelativeComputeds(body: RegularNode[]): ComputedValue[] {
-  return collectRelativeCVs(body)
-}
 
 // ─── state.js 生成 ───
 
@@ -440,6 +334,7 @@ function consumeValue(v: any, ctx: StateBuilderContext): void {
       if (Object.keys(dataSources).length > 0) {
         // 建立 RenderFnScope
         const newScope: RenderFnScope = {
+          scopeType: 'renderFnScope',
           paramBindings: dataSources,
           parent: ctx.currentScope as any,
         }
@@ -467,7 +362,7 @@ function consumeValue(v: any, ctx: StateBuilderContext): void {
   }
 
   // ── 纯对象（无 type 字段）→ 递归属性，查找内嵌的 binding/computed/slotNode/renderFn ──
-  if (v.type === undefined && typeof v === 'object') {
+  if (!v.__node && typeof v === 'object') {
     for (const item of Object.values(v)) consumeValue(item, ctx)
   }
 }
@@ -479,22 +374,19 @@ function processLoop(loop: LoopNode, ctx: StateBuilderContext, parentNodeId: str
   // 且 emit 时强制 inline（jsxEmitter forceInline）→ 不产生单独模板文件。
   // 这里只把 template body 走进当前单元（收集 absolute binding 等），不建孤儿模板单元、不做 enrichment。
   // 检测：ctx.currentScope 为 RenderFnScope（仅 render fn body walk 时设，processLoop 不改它）。
-  if (ctx.currentScope && 'paramBindings' in (ctx.currentScope as any)) {
+  if (ctx.currentScope && ctx.currentScope.scopeType === 'renderFnScope') {
     withUnit(ctx, ctx.currentUnit, () => {
       for (const child of loop.template.body) walk(child, ctx)
     })
     return
   }
 
-  // inline loop（如 TabItem）：模板 body 走当前文件单元，不产生单独 components/ 文件
-  const isInline = !!loop.inline
-  // 1. 解析原始数据源
-  const rawData = resolveLoopData(loop, ctx)
-  if (rawData.length === 0) {
-    console.warn(
-      `  [warn] state-builder: 循环 "${loop.template.componentName}" 数据为空（path: ${(loop.data as BindingValue).path}），跳过 enrichment`
-    )
-    // 空数据 → 不产生 enrichment，走 body 即可
+  // relative 嵌套循环：数据是外层 item 的子字段，外层深 enrichment 已处理（applyScopedCV 沿 loopChain）。
+  // 跳过独立 enrichment，只 walk template body（收 state 引用 + imports）。
+  const loopData = loop.data as BindingValue  // state-builder 阶段还是 BindingValue
+  const isRelativeNested = loopData.pathType === 'relative' && loop.loopScope
+  if (isRelativeNested) {
+    const isInline = !!loop.inline
     const templateUnit = isInline ? ctx.currentUnit : getOrCreateUnit(ctx, `components/${loop.template.componentName}`)
     withUnit(ctx, templateUnit, () => {
       for (const child of loop.template.body) walk(child, ctx)
@@ -502,33 +394,45 @@ function processLoop(loop: LoopNode, ctx: StateBuilderContext, parentNodeId: str
     return
   }
 
-  // 2. 收集 template.body 内 relative ComputedValue
-  const relativeCVs = collectRelativeComputeds(loop.template.body)
-  const containsJSX = relativeCVs.some(cv => cv.containsJSX)
+  // 以下：absolute 循环 或 顶层 relative 循环（无 loopScope）→ 做 enrichment
+  const isInline = !!loop.inline
+  // 1. 解析原始数据源
+  const rawData = resolveLoopData(loop, ctx)
+  if (rawData.length === 0) {
+    console.warn(
+      `  [warn] state-builder: 循环 "${loop.template.componentName}" 数据为空（path: ${loopData.path}），跳过 enrichment`
+    )
+    const templateUnit = isInline ? ctx.currentUnit : getOrCreateUnit(ctx, `components/${loop.template.componentName}`)
+    withUnit(ctx, templateUnit, () => {
+      for (const child of loop.template.body) walk(child, ctx)
+    })
+    return
+  }
 
-  const loopData = loop.data as BindingValue  // state-builder 阶段还是 BindingValue
+  // 2. 深度收集 template.body 内 relative ComputedValue（含嵌套 relative 循环，带 loopChain）
+  const scopedCVs = collectRelativeCVsDeep(loop.template.body)
+  const containsJSX = scopedCVs.some(({ cv }) => cv.containsJSX)
+
   const constName = makeEnrichmentConstName(loopData.path, parentNodeId)
-
-  // 数据源路径类型：absolute 走 state.js / enrichment，relative 由外层模板 data prop 解构
   const isAbsolute = loopData.pathType === 'absolute'
 
   // 3. 无 enrichment（无 relative computed）
-  if (relativeCVs.length === 0) {
+  if (scopedCVs.length === 0) {
     if (isAbsolute) {
       setNested(ctx.stateEntries, loopData.accessPath, rawData)
       ctx.currentUnit.bindingRefs.push(loopData)
     }
-    // relative → 不进 state.js，由外层模板从 data 解构
   } else {
-    // 4. 做整体 enrichment
+    // 4. 做整体 enrichment（深收集 + applyScopedCV 沿 loopChain 逐层 map 进嵌套数组）
+
     // 4a. 去重：同一相对 path 可能绑定到模板内多个节点（如 Icon.name 与 Button.icon 都绑
     //     favoriteIcon），各自产出 path 相同的 ComputedValue。若都写 out[cv.path] 会撞键——
-    //     后一个 CV 拿到前一个 CV 已写入的 JSX 产物（非原始字符串），transform 返回 null。
+    //     后一个 CV 从 out（已被前一个 CV 改写）读到 BuildNode 而非原始 string → transform 返回 null。
     //     处理：第一个 CV 保留原 key；后续撞键的 CV 生成新 key 并改写其 accessPath
-    //     （jsx-emitter inTemplate 按 accessPath 序列化、collectRelativeFields 按 accessPath
-    //     收集 destructure 字段），cv.path 保留原值用于读原始 item 数据。
+    //     （applyScopedCV 按 accessPath 写、collectRelativeFields 按 accessPath 收 destructure 字段），
+    //     cv.path 保留原值用于读原始 item 数据。
     const usedKeys = new Set<string>()
-    for (const cv of relativeCVs) {
+    for (const { cv } of scopedCVs) {
       let key = (cv as any).accessPath ?? cv.path
       if (usedKeys.has(key)) {
         let i = 1
@@ -543,20 +447,11 @@ function processLoop(loop: LoopNode, ctx: StateBuilderContext, parentNodeId: str
       if (item === null || typeof item !== 'object') return item
       // deep clone：setNested 写嵌套路径会改 sub-object，shallow copy 会污染 rawState
       const out = structuredClone(item)
-      for (const cv of relativeCVs) {
-        try {
-          // 循环内 relative computed → ctx 带 loopScope 以便 resolveValueFromPath 沿链解析
-          const ctxForCv = buildTransformCtx(ctx.rawState, ctx.iconNameMap, loop.loopScope)
-          // 读原始值：cv.path 可能是嵌套相对路径（user/avatar），按 segments 解析；平面等价直接取。
-          // 用原始 item 读（不被前一个 CV 产物污染）。
-          const rawValue = resolveBySegments(item, pathToSegments(cv.path))
-          // 写到 out：accessPath 去重后可能是嵌套（如 user.avatar_1），setNested 写嵌套位置。
-          // 转 JS 属性访问（数字段用 [n]），与 emit relPath 对齐。
-          const writeKey = pathToJsAccess((cv as any).accessPath ?? cv.path)
-          setNested(out, writeKey, cv.transform(rawValue, ctxForCv))
-        } catch (err: any) {
-          console.warn(`  [warn] state-builder: loop enrichment 失败 (path: ${cv.path}): ${err.message}`)
-        }
+      // 循环内 relative computed → cvCtx.currentItem 由 applyScopedCV 递归内更新为当前项，
+      // transform 内 resolveValueFromPath(relative) 从 currentItem 解析
+      const ctxForCv = buildTransformCtx(ctx.rawState, ctx.iconNameMap)
+      for (const { cv, loopChain } of scopedCVs) {
+        applyScopedCV(out, loopChain, cv, ctxForCv)
       }
       return out
     })
@@ -569,16 +464,15 @@ function processLoop(loop: LoopNode, ctx: StateBuilderContext, parentNodeId: str
         containsJSX: true,
       })
     } else if (isAbsolute) {
-      // 不含 JSX 且绝对路径 → 进 state.js，当前文件单元 destructure
       setNested(ctx.stateEntries, constName, enrichedData)
       ctx.currentUnit.bindingRefs.push({
+        __node: true,
         type: 'binding',
         path: loopData.path,
         pathType: 'absolute' as const,
         accessPath: constName,
       })
     }
-    // relative 且不含 JSX → enrichment 数据不进 state.js（由外层模板 data prop 携带）
 
     // 记录 enrichment 映射（仅 absolute，relative 的 const 名在模板内用 accessPath）
     if (isAbsolute) {

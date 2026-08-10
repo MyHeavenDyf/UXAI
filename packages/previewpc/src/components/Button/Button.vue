@@ -129,13 +129,16 @@ const iconColor = computed(() => {
   } else if (onlyIcon.value){
     if(disabled.value) {
       color = isDark.value ? '#939393' : '#c9c9c9'
+    } else {
+      color = isDark.value ? '#FFFFFF' : '#191919'
     }
   } else {
     const isWhiteText = ["primary", "danger", "success", "warning"].some(i => i === type.value)
     if(disabled.value) {
       color = isDark.value ? '#939393' : (isWhiteText ? '#FFFFFF' : '#c9c9c9')
+    } else {
+      color = (isWhiteText || isDark.value) ? '#FFFFFF' : '#191919'
     }
-    color = (isWhiteText || isDark.value) ? '#FFFFFF' : '#191919'
   }
   return color
 })

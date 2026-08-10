@@ -27,8 +27,8 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
-import { Node } from '../../../src/core/node'
+import { Value } from '../../../src/core/value-factory'
+import { Node } from '../../../src/core/node-factory'
 
 export function createTabItemMapping(pkg: string): MappingDef {
   return {

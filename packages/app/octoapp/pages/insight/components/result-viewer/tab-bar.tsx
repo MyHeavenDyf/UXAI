@@ -1,6 +1,6 @@
 import { For, Show } from "solid-js"
 import type { JSX } from "solid-js"
-import { Icon } from "@opencode-ai/ui/icon"
+import { IconNotepad } from "@/pages/_shell/icons"
 import type { ResultTab } from "./tab-store"
 import { IconTabClose } from "../../icons"
 import { IconFolder } from "../../icons/design-files-icons"
@@ -88,10 +88,10 @@ export function TabBar(props: {
           onClick={() => props.onCollapse?.()}
           title="收起面板"
           aria-label="收起面板"
-          class="shrink-0 w-[28px] h-[28px] flex items-center justify-center rounded-full transition-colors hover:bg-black/5 active:bg-black/10 outline-none"
+          class="shrink-0 w-[28px] h-[28px] flex items-center justify-center rounded-full cursor-pointer transition-colors hover:bg-black/5 active:bg-black/10 outline-none"
           style={{ color: "var(--octo-text-secondary)" }}
         >
-          <Icon name="chevron-right" class="size-4" />
+          <IconNotepad size={16} />
         </button>
       </Show>
     </div>

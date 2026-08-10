@@ -67,7 +67,9 @@ const placementEnum: Record<string, string> = {
   top: "ttb",
   bottom: "btt",
 }
-const placement = computed(() => placementEnum[properties.placement || "right"] || "rtl")
+const placement = computed<"ltr" | "rtl" | "ttb" | "btt">(() => {
+  return (placementEnum[properties.placement || "right"] || "rtl") as "ltr" | "rtl" | "ttb" | "btt"
+})
 const mask = computed(() => properties.mask !== false)
 const footer = computed(() => properties.footer)
 const children = computed(() => properties.children)

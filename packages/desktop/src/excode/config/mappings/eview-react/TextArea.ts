@@ -13,7 +13,7 @@
  * | maxLength | maxLength | 透传 |
  * | autoSize | sizeAuto | 改名透传 |
  * | size | — | 丢弃 |
- * | className | className | 透传 |
+ * | className | className + inputStyle | 宽度类(w-*)→inputStyle(内联样式)，其余→className |
  * | — | onChange | 由 useState.event 自动生成 |
  *
  * ## 特殊逻辑
@@ -26,7 +26,8 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
+import { Value } from '../../../src/core/value-factory'
+import { splitWidthToStyle } from '../../../src/codegen/split-width-style'
 
 export function createTextAreaMapping(pkg: string): MappingDef {
   return {
@@ -73,8 +74,14 @@ export function createTextAreaMapping(pkg: string): MappingDef {
       // ─── autoSize → sizeAuto ───
       if (props.autoSize !== undefined) outputProps.sizeAuto = props.autoSize
 
-      // ─── className ───
-      if (props.className) outputProps.className = props.className as PropValue
+      // ─── className: 拆分宽度类 → inputStyle（内联样式），其余 → className ───
+      const { className: remainCn, widthStyle } = splitWidthToStyle(props.className)
+      if (remainCn) {
+        outputProps.className = remainCn
+      }
+      if (widthStyle) {
+        outputProps.inputStyle = widthStyle as any
+      }
 
       // 透传剩余
       for (const [key, value] of Object.entries(props)) {

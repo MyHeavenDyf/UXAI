@@ -16,7 +16,7 @@
  * | range（DataBinding） | — | 丢弃（无法静态决定模式） |
  * | size | — | 丢弃（eview 无对应 prop） |
  * | format（moment 风格） | format（Java 风格） | 格式转换 YYYY→yyyy, DD→dd |
- * | className | className | 同名透传 |
+ * | className | className + selectStyle | 宽度类(w-*)→selectStyle(内联样式)，其余→className |
  *
  * ## 注意事项
  *
@@ -30,7 +30,8 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
+import { Value } from '../../../src/core/value-factory'
+import { splitWidthToStyle } from '../../../src/codegen/split-width-style'
 
 // ─── 格式转换：moment 风格 → Java 风格 ───
 
@@ -138,9 +139,13 @@ export function createDatePickerMapping(pkg: string): MappingDef {
         outputProps.format = convertFormat(props.format)
       }
 
-      // ─── className 透传 ───
-      if (props.className) {
-        outputProps.className = props.className
+      // ─── className: 拆分宽度类 → selectStyle（内联样式），其余 → className ───
+      const { className: remainCn, widthStyle } = splitWidthToStyle(props.className)
+      if (remainCn) {
+        outputProps.className = remainCn
+      }
+      if (widthStyle) {
+        outputProps.selectStyle = widthStyle as any
       }
 
       // ─── 剩余 prop 透传 ───

@@ -93,6 +93,29 @@
   background-color: var(--octo-q-blue);
 }
 
+/* 选项区滚动条:上游 message-part.css 把滚动条整个藏掉(scrollbar-width: none
+ * + ::-webkit-scrollbar { display: none }),选项多时能滚但看不出下方还有内容、易漏选。
+ * 这里给 insight 弹窗补一条细滚动条,钉死浅色,与整体白框一致。本文件不入 @layer,
+ * 无层样式胜过上游 layer(components),故能压过 message-part.css 的隐藏规则。 */
+.octo-question-dock [data-slot="question-options"] {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+.octo-question-dock [data-slot="question-options"]::-webkit-scrollbar {
+  display: block;
+  width: 6px;
+}
+.octo-question-dock [data-slot="question-options"]::-webkit-scrollbar-track {
+  background: transparent;
+}
+.octo-question-dock [data-slot="question-options"]::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 999px;
+}
+.octo-question-dock [data-slot="question-options"]::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.35);
+}
+
 /* 选项行:钉死浅色底/描边(上游 --surface-raised-stronger-non-alpha 暗色下会变 #1c1c1c) */
 .octo-question-dock [data-slot="question-option"] {
   background-color: #ffffff;

@@ -12,7 +12,7 @@
  * ctx.outputFiles 的最终组装由 Step 7 WriteOutput 接管。
  */
 
-import { Step } from '../core/step'
+import { Step } from '../core/step-base'
 import type { PipelineContext } from '../pipeline/pipeline-context'
 import type { MappedPage } from '../pipeline/pipeline-context'
 import { buildState, type StateBuilderResult } from '../codegen/state-builder'
@@ -25,9 +25,9 @@ import {
   collectRulesFromValue,
   appendConstRules,
   toPascalCase,
-  type LessRule,
   type StyleResult,
 } from '../codegen/style-converter'
+import type { LessRule } from '../codegen/tailwind-converter'
 
 export class FileGenerator extends Step {
   async execute(ctx: PipelineContext): Promise<void> {

@@ -63,7 +63,7 @@ import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
 import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, UploadError } from "../insight/lib/upload"
 import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
-import { type ToolCallInfo } from "./components/tool-call-card"
+import { type ToolCallInfo, toolFamily } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
 import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2"
@@ -92,7 +92,7 @@ import { scanDesignPlanFromMessages, isPlanConfirmed, isPlanIntentResolved } fro
 import { scanStrategyFields, EMPTY_STRATEGY_FORM, type StrategyFormData } from "./utils/strategy-form-scanner"
 import { useMakeCommands } from "./use-make-commands"
 import { useDialogIframe } from '@/context/dialog-iframe'
-import { getDesktopApi } from "./lib/electron-api"
+import { getDesktopApi, type AssetsConfig } from "./lib/electron-api"
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
@@ -197,7 +197,70 @@ function MakeContent() {
   }
 
   const dialogPop = useDialogIframe()
-  const [selectedSpec, setSelectedSpec] = createSignal<string | null>(null)
+  const [selectedSpecDisplay, setSelectedSpecDisplay] = createSignal<string | null>(null)
+  const [selectedSpecName, setSelectedSpecName] = createSignal<string | null>(null)
+
+  let configFetched = false
+
+  // 获取存量配置并设置状态
+  function fetchAndSetConfig() {
+    const api = getDesktopApi()
+    if (!api?.getAssetsConfig) return
+    api.getAssetsConfig()
+      .then((data) => {
+        const config = data as AssetsConfig
+        if (config?.user) {
+          const designSpec = config.user.designSpec
+          const placeholder = config.user.placeholder
+          if (designSpec && typeof designSpec === 'string') {
+            setSelectedSpecName(designSpec)
+          }
+          if (placeholder && typeof placeholder === 'string') {
+            setSelectedSpecDisplay(placeholder)
+          }
+          // 写入临时文件
+          const projectDirValue = projectDir()
+          if (projectDirValue && api?.writeFileBuffer) {
+            const sep = projectDirValue.includes("\\") ? "\\" : "/"
+            const configPath = [projectDirValue, ".octo", "tmps", "make", "resource", "assets_config.json"].join(sep)
+            const encoder = new TextEncoder()
+            const str = JSON.stringify(data)
+            const buffer = encoder.encode(str).buffer as ArrayBuffer
+            api.writeFileBuffer(configPath, buffer).catch(err => {
+              console.error("[MakePage] Failed to save assets_config.json:", err)
+            })
+          }
+        }
+      })
+      .catch((err) => {
+        console.error("[MakePage] Failed to get assets config:", err)
+      })
+  }
+
+  // 1. 挂载时获取（只在空态且未获取过时）
+  onMount(() => {
+    if (!params.id && !configFetched) {
+      configFetched = true
+      fetchAndSetConfig()
+    }
+  })
+
+  // 2. 参数变化时获取（变为空态且未获取过时）
+  createEffect(on(
+    () => params.id,
+    (id) => {
+      // 离开空态时重置标志
+      if (id) {
+        configFetched = false
+        return
+      }
+      // 变为空态时，如果未获取过，则获取
+      if (!id && !configFetched) {
+        configFetched = true
+        fetchAndSetConfig()
+      }
+    }
+  ))
 
   createEffect(
     on(
@@ -245,9 +308,10 @@ function MakeContent() {
     on(
       () => params.id,
       (id, prevId) => {
-        // 切换 session 时重置 specSelector 状态
-        if (id !== prevId) {
-          setSelectedSpec(null)
+        // 只在真正切换 session 时重置（两个都不为 null）
+        if (id !== prevId && prevId !== null) {
+          setSelectedSpecDisplay(null)
+          setSelectedSpecName(null)
         }
         
         // 回填模型选择
@@ -601,6 +665,26 @@ const sessionMessagesLoaded = createMemo(() => {
             }
           ])
         }
+      } else if (e.type === "session.next.tool.called") {
+        const callID = props?.callID as string | undefined
+        const toolName = props?.tool as string | undefined
+        if (callID && toolName) {
+          toolCallMap.set(callID, toolName)
+        }
+      } else if (e.type === "session.next.tool.success") {
+        const callID = props?.callID as string | undefined
+        if (callID) {
+          const toolName = toolCallMap.get(callID)
+          if (toolName) {
+            const family = toolFamily(toolName)
+            if (family === "write" || family === "edit") {
+              setFilesRefreshKey(k => k + 1)
+            }
+            toolCallMap.delete(callID)
+          }
+        }
+      } else if (e.type === "session.next.step.ended") {
+        setFilesRefreshKey(k => k + 1)
       } else {
         const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
         console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 
@@ -612,6 +696,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const [childSessionIDs, setChildSessionIDs] = createSignal<Set<string>>(new Set())
   const [deltaLog, setDeltaLog] = createSignal<DeltaLogEntry[]>([])
   const loadedChildSessions = new Set<string>()
+  const toolCallMap = new Map<string, string>()
 
   const PLAN_CHILD_LOCALSTORAGE_PREFIX = "octo_make_plan_child:"
   const PLAN_ENDED_LOCALSTORAGE_PREFIX = "octo_make_plan_ended:"
@@ -625,7 +710,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 设计规划是否已结束（退出或确认），用于控制 plan 视图只读模式 */
   // 从 localStorage 同步初始化，确保页面刷新/路由切换后立即生效
-  const [planEnded, setPlanEnded] = createSignal(!!(params.id && localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + params.id)))
+  const [planEnded, setPlanEnded] = createSignal(false)
 
   /** 两步走工作流：当前阶段 */
   const [planPhase, setPlanPhase] = createSignal<"strategy" | "generate">("strategy")
@@ -757,10 +842,12 @@ const sessionMessagesLoaded = createMemo(() => {
     return status?.type === "busy"
   })
 
+  const effectiveBusy = createMemo(() => isBusy() || childBusy())
+
   // ── 会话进度条动画状态 ────────────────────────────────────
   const [timeoutDone, setTimeoutDone] = createSignal(true)
   const workingStatus = createMemo<"hidden" | "showing" | "hiding">((prev) => {
-    if (isBusy()) return "showing"
+    if (effectiveBusy()) return "showing"
     if (prev === "showing" || !timeoutDone()) return "hiding"
     return "hidden"
   })
@@ -777,7 +864,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const [elapsedText, setElapsedText] = createSignal("")
   let elapsedTimer: ReturnType<typeof setInterval> | undefined
   createEffect(() => {
-    if (isBusy()) {
+    if (effectiveBusy()) {
       const id = params.id
       if (id) {
         const messages = (sync.data.message?.[id] ?? []) as Message[]
@@ -807,7 +894,7 @@ const sessionMessagesLoaded = createMemo(() => {
   let blockTimer: ReturnType<typeof setInterval> | undefined
   createEffect(() => {
     const hasQuestion = sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
-    if (isBusy() && !hasQuestion) {
+    if (effectiveBusy() && !hasQuestion) {
       setLastDeltaTime(Date.now())
       blockTimer = setInterval(() => {
         const blockedMs = Date.now() - lastDeltaTime()
@@ -1176,9 +1263,8 @@ const sessionMessagesLoaded = createMemo(() => {
     if (id) setIsGenerating(false)  // plan 出现时复位 isGenerating
   }, { defer: true }))
 
-  // 当模型输出 text/design-plan artifact 或用户发送 [strategy-complete] 时，自动切换到 generate 阶段
-  // - 用户消息中的 [strategy-complete]：用户主动触发生成
-  // - 助手消息中的 text/design-plan：模型已输出设计规划文档
+  // 当模型输出 text/design-plan artifact 时，自动切换到 generate 阶段
+  // 注意：不检测 [strategy-complete]（handleGenerateStrategy 已同步设置 phase，不需要自动检测）
   createEffect(on(
     () => {
       const planSid = activePlanSessionId()
@@ -1190,13 +1276,11 @@ const sessionMessagesLoaded = createMemo(() => {
       if (currentPhase === "generate") return null
       const msgs = sync.data.message?.[planSid]
       if (!msgs) return null
-      // 检测两种条件：用户发送 strategy-complete 或助手输出 design-plan
+      // 只检测助手消息中的 text/design-plan artifact
       for (const m of msgs) {
+        if (m.role !== "assistant") continue
         const text = (sync.data.part?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
-        if (m.role === "user" && text?.includes("[strategy-complete]")) {
-          return "generate"
-        }
-        if (m.role === "assistant" && text?.includes('type="text/design-plan"')) {
+        if (text?.includes('type="text/design-plan"')) {
           return "generate"
         }
       }
@@ -1225,10 +1309,17 @@ const sessionMessagesLoaded = createMemo(() => {
     setPlanPhase("generate")
   }
 
-  /** 用户点击 [上一步] → 返回策略准备阶段 */
+  /** 用户点击 [上一步] / [返回策略准备] → 返回策略准备阶段 */
   function handleBackToStrategy() {
+    const planSid = activePlanSessionId()
+    const key = activeModelKey()
     setUserChangedPhase(true)  // 标记用户手动切换
     setPlanPhase("strategy")
+    setIsGenerating(false)  // 复位生成状态，让按钮可点击、表单可填写
+    // 通知子 agent 回到策略准备阶段，让后续对话上下文正确
+    if (planSid && key) {
+      sendMessage(planSid, "[back-to-strategy]\n\n我们已回到策略准备阶段，之前的策略生成已取消，请忽略之前生成的设计规划文档，继续帮助用户填写策略表单字段。", key).catch(() => {})
+    }
   }
 
   /** 用户点击 [确认开始生成] → 向主 session 发送确认指令，通知主 agent 设计规划已完成，开始生成 HTML */
@@ -1442,9 +1533,12 @@ const sessionMessagesLoaded = createMemo(() => {
         }
         return
       }
-      tabStore.reset()
+      // 把当前 session 的 design-plan 编辑持久化到 snapshotStore（由 updateTabContent 覆盖），
+      // 这样 tabStore.reset() 后，切回时 plan tab 能恢复用户上次的编辑，而不是被 agent 重新输出覆盖。
+      persistActivePlanDraft()
       // 仅在 session 实际切换时清理规划状态,避免 handleEnterPlan 等操作
       // 触发 sync.data.session 更新后重新进入此 effect 时错误地清除状态。
+      tabStore.reset()
       if (newSid !== prevSid) {
         // 缓存前一个 session 的规划子 session，切回时立即恢复
         if (prevSid && activePlanSessionId()) {
@@ -1461,6 +1555,7 @@ const sessionMessagesLoaded = createMemo(() => {
         setUserChangedPhase(false)  // 重置手动切换标记
         setManualStrategyFormData({})
         setPhase2Pending(false)
+        setPlanEnded(false)  // 复位结束状态，新 session 的恢复逻辑会重新设置
       }
       // 尝试恢复当前主 session 的设计规划子 session
       let restoredPlanSid: string | null = null
@@ -1513,11 +1608,11 @@ const sessionMessagesLoaded = createMemo(() => {
         // 使用 isPlanConfirmed 检测确认状态（包括 [confirm-plan] 和 text/html artifact）
         const isConfirmed = planIdent ? isPlanConfirmed(childMessages, childParts, planIdent) : false
 
-        // 检测子 session 消息流中是否已有 design-plan artifact 或 strategy-complete 标记
+        // 检测子 session 消息流中是否已有 design-plan artifact
         const hasDesignPlan = childMessages?.some((m: any) => {
           if (m.role !== "assistant") return false
           const text = (childParts?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
-          return text?.includes('type="text/design-plan"') || text?.includes("[strategy-complete]")
+          return text?.includes('type="text/design-plan"')
         })
 
         if (isConfirmed) {
@@ -1554,6 +1649,12 @@ const sessionMessagesLoaded = createMemo(() => {
           if (localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + capturedSid)) {
             setPlanEndedForSession(capturedSid)
             setPlanEnded(true)
+            // 已结束的子 session 仍需加入 childSessionIDs 并同步消息，
+            // 让 planCard 能扫描到 design-plan artifact，保持 [方案已确认] 按钮可见
+            loadedChildSessions.add(childId)
+            setChildSessionIDs((prev) => { const next = new Set(prev); next.add(childId); return next })
+            sync.session.sync(childId).catch(() => {})
+            setPlanPhase("generate")
             return
           }
           loadedChildSessions.add(childId)
@@ -1671,17 +1772,68 @@ const sessionMessagesLoaded = createMemo(() => {
     { defer: true }
   ))
 
-    // 设计方案(design-plan)显示策略:plan 不再自动占用右侧 ResultViewer。
+    // 监控子 session 状态：子 agent 空闲但无有效 plan 时复位 isGenerating（弱模型格式异常兜底）
+  createEffect(on(
+    () => {
+      const planSid = activePlanSessionId()
+      return planSid ? sync.data.session_status[planSid]?.type : null
+    },
+    (statusType) => {
+      if (statusType === "idle" && isGenerating()) {
+        // 子 agent 空闲了但 isGenerating 仍为 true，说明模型未输出有效 design-plan
+        // 检查是否确实没有 planCard
+        const planSid = activePlanSessionId()
+        if (!planSid) return
+        const card = scanDesignPlanFromMessages(sync.data.message?.[planSid], sync.data.part, planSid)
+        if (!card) {
+          // 无有效 plan，安全复位
+          setIsGenerating(false)
+          setPlanPhase("strategy")
+          setUserChangedPhase(true)
+        }
+      }
+    },
+    { defer: true }
+  ))
+
+  // 设计方案(design-plan)显示策略:plan 不再自动占用右侧 ResultViewer。
   // 而是显示为输入框上方的横条(banner),用户主动点击后才把 plan 放进 ResultViewer。
   // 用户一旦查看过(plan tab 已存在),后续 plan 内容更新会通过 openTab 的 existing 分支自动刷新。
 
+  /** 持久化当前 session 中 design-plan tab 的编辑内容到 snapshotStore，
+   *  确保切换 session 再切回后用户编辑不被 agent 重新输出覆盖。 */
+  function persistActivePlanDraft() {
+    const planSid = activePlanSessionId()
+    if (!planSid) return
+    const planTabPrefix = `plan:${planSid}:`
+    for (const tab of tabStore.tabs()) {
+      if (tab.type === "design-plan" && tab.id.startsWith(planTabPrefix)) {
+        snapshotStore.save(tab)
+        refreshSnapshots()
+        return
+      }
+    }
+  }
   /** 用户点击 plan 横条/TabBar 按钮 → 切换到 plan 模式,直接在 ResultViewer 渲染设计规划内容 */
   function handleViewPlan() {
+    const plan = planCard()
+    if (plan?.id) {
+      // 确保 plan tab 存在于 tabStore,以便编辑内容能被持久化
+      tabStore.addTabSilently(plan)
+    }
     setResultViewMode("plan")
   }
 
   /** 处理 ResultViewer 内容编辑保存 */
   async function handleContentChange(tabId: string, content: string) {
+    // design-plan 在 plan 模式下渲染时,tab 可能未通过 openTab 注册到 tabStore,
+    // 导致 updateTabContent 是空操作。首次编辑时先注册。
+    if (!tabStore.tabs().find((t) => t.id === tabId)) {
+      const plan = planCard()
+      if (plan?.id === tabId) {
+        tabStore.addTabSilently(plan)
+      }
+    }
     // 先更新 tabStore
     tabStore.updateTabContent(tabId, content)
     const tab = tabStore.tabs().find((t) => t.id === tabId)
@@ -1696,20 +1848,10 @@ const sessionMessagesLoaded = createMemo(() => {
         refreshSnapshots: refreshSnapshots,
       })
     }
-
-    // 如果是 design-plan 类型，还需要发送消息给子 agent 更新内容
-    if (tab?.type === "design-plan" && tab.artifactIdentifier) {
-      const planSid = activePlanSessionId()
-      if (planSid) {
-        const key = activeModelKey()
-        if (!key) return
-        // 发送更新指令让子 agent 重新输出更新后的 plan
-        const updatePrompt = `[update-plan ${tab.artifactIdentifier}]\n\n${content}`
-        sendMessage(planSid, updatePrompt, key).catch((err) => {
-          console.error("[MakePage] update plan failed", err)
-        })
-      }
-    }
+    // 注：design-plan tab 的编辑不走 persistTabChanges(finalContent 是 draft,
+    // 且 agent 端没有对应的 [update-plan] 指令).编辑内容已存在 tabStore +
+    // snapshotStore(见 persistActivePlanDraft),切回时从 snapshot 恢复即可,
+    // 不需要发消息回灌给 agent,避免 agent 重写 artifact 覆盖用户编辑。
   }
 
   /** 关闭 tab：关闭最后一个时切换到 files 视图 */
@@ -1990,19 +2132,8 @@ const sessionMessagesLoaded = createMemo(() => {
         promptText = folderPrefix + "\n" + promptText
       }
 
-      // resourceLibrary skill injection: 告诉 agent resourceLibrary skill 的使用方式。
-      // 每轮注入,确保 agent 始终知道如何获取视觉资源。
-      const resourceLibraryPrefix = [
-        `[Resource Library]`,
-        `当需要图标、插画、图片等视觉资源时，如果用户未指定来源，且如果存在resourceLibrary这个skill，必须使用 resourceLibrary skill 来获取这些资源。`,
-        `resourceLibrary 不在 available_skills 列表中，是一个独立路径的 skill，不能通过 skill 工具调用。`,
-        `使用方式：`,
-        `1. 用 glob 工具查找 SKILL.md：glob path="~/.config/octo" pattern="**/resourceLibraryScript/resourceLibrary/SKILL.md"`,
-        `   （~ 表示用户主目录，Windows 上通常是 C:\\Users\\{用户名}）`,
-        `2. 用 read 工具读取找到的 SKILL.md 文件，严格按照文件中的说明执行获取资源流程。`,
-        `---`,
-      ].join("\n")
-      promptText = resourceLibraryPrefix + "\n" + promptText
+      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-start
+      // jk-j60099994-replace-with-60062650-octoapp-make-index-1-end
 
       const textPart: TextPartInput = { 
         type: "text", 
@@ -2055,13 +2186,14 @@ const sessionMessagesLoaded = createMemo(() => {
     let mentions = proseMirrorRef1?.getMentions?.() || proseMirrorRef2?.getMentions?.() || []
     
     // 注入 specSelector 的 skill
-    const spec = selectedSpec()
-    if (spec) {
-      text = `@${spec} ` + text
-      mentions = [{ type: 'skill', name: spec, label: spec }, ...mentions]
+    const specName = selectedSpecName()
+    const specDisplay = selectedSpecDisplay()
+    if (specName && specDisplay) {
+      text = `@${specName} ` + text
+      mentions = [{ type: 'skill', name: specName, label: specDisplay }, ...mentions]
     }
     
-    if (sending() || !activeModelKey()) return
+    if (effectiveBusy() || !activeModelKey()) return
 
     if (hasImageAttachments() && !ensureMultimodalModel()) {
       showToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型", variant: "error" })
@@ -2072,22 +2204,13 @@ const sessionMessagesLoaded = createMemo(() => {
     const capturedModelKey = activeModelKey()
     if (!capturedModelKey) return
 
-    // 捕获待发送技能
-    const skill = pendingSkill()
-    setPendingSkill(null)
-
-    // 构建消息：技能内容 + 用户文本
-    const messageText = skill
-      ? `<skill_content name="${skill.name}">\n${skill.content}\n</skill_content>\n\n${text}`
-      : text
-
-    if (!messageText.trim()) return
+    if (!text.trim()) return
 
     setSending(true)
     setPrompt("")
     proseMirrorRef1?.clear()
     proseMirrorRef2?.clear()
-    const planSid = resultViewMode() === "plan" && planParentSessionId() === params.id ? activePlanSessionId() : null
+    const planSid = activePlanSessionId() && planParentSessionId() === params.id ? activePlanSessionId() : null
     const submitSessionId = planSid || params.id
     try {
       let sid = submitSessionId
@@ -2099,6 +2222,36 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
       if (!session) return
       
       await movePendingUploadsToSession(session.id)
+      
+      // 如果用户没有手动选择 spec，检查是否有存量配置
+      if (!selectedSpecDisplay()) {
+        const api = getDesktopApi()
+        if (api?.getAssetsConfig) {
+          try {
+            const info = await api.getAssetsConfig() as AssetsConfig
+            
+            // 设置显示值和技能名称
+            const designSpec = info?.user?.designSpec
+            const placeholder = info?.user?.placeholder
+            if (designSpec) setSelectedSpecName(designSpec)
+            if (placeholder) setSelectedSpecDisplay(placeholder)
+            
+            // 保存 sessionJson 到临时文件
+            const sessionJson = info?.user?.sessionJson
+            const projectDirValue = projectDir()
+            if (sessionJson && projectDirValue && api?.writeFileBuffer) {
+              const sep = projectDirValue.includes("\\") ? "\\" : "/"
+              const configPath = [projectDirValue, ".octo", "tmps", "make", "resource", "assets_config.json"].join(sep)
+              const encoder = new TextEncoder()
+              const buffer = encoder.encode(sessionJson).buffer as ArrayBuffer
+              await api.writeFileBuffer(configPath, buffer)
+            }
+          } catch (err) {
+            console.error("[handleSubmit] Failed to get assets config:", err)
+          }
+        }
+      }
+      
       await moveAssetsConfigToSession(session.id)
       
       local.session.promote(sdk.directory, session.id)
@@ -2110,16 +2263,7 @@ if (dsId) {
         navigate(`/make/${session.id}`)
         sid = session.id
       }
-      await sendMessage(sid, messageText, capturedModelKey, mentions)
-      
-      // 发送成功后追踪技能使用
-      if (skill) {
-        tracker.interaction({ 
-          module: "design", 
-          name: "skill-used", 
-          extend: JSON.stringify({ skillName: skill.name }) 
-        })
-      }
+      await sendMessage(sid, text, capturedModelKey, mentions)
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
     } finally {
@@ -2132,6 +2276,12 @@ if (dsId) {
 
   /** 终止当前生成 */
   async function halt() {
+    const childId = activePlanSessionId()
+    if (childId && childBusy()) {
+      tracker.interaction({ module: "design", name: "stop-generation" })
+      await sdk.client.session.abort({ sessionID: childId }).catch(() => {})
+      return
+    }
     const sid = params.id
     if (!sid) return
     tracker.interaction({ module: "design", name: "stop-generation" })
@@ -2609,28 +2759,31 @@ if (dsId) {
   }
 
   function handleSpecSelect() {
-    dialogPop.show((str) => {
+    dialogPop.show(async () => {
+      const api = getDesktopApi()
+      if (!api?.getAssetsConfig) return
+      
       try {
-        const data = JSON.parse(str)
-        const value = data.user.designSpec
+        const info = await api.getAssetsConfig() as AssetsConfig
         
-        setSelectedSpec(value)
+        // 设置显示值和技能名称
+        const designSpec = info?.user?.designSpec
+        const placeholder = info?.user?.placeholder
+        if (designSpec) setSelectedSpecName(designSpec)
+        if (placeholder) setSelectedSpecDisplay(placeholder)
         
+        // 保存 sessionJson 到临时文件
+        const sessionJson = info?.user?.sessionJson
         const projectDirValue = projectDir()
-        if (projectDirValue) {
-          const api = getDesktopApi()
-          if (api?.writeFileBuffer) {
-            const sep = projectDirValue.includes("\\") ? "\\" : "/"
-            const configPath = [projectDirValue, ".octo", "tmps", "make", "resource", "assets_config.json"].join(sep)
-            const encoder = new TextEncoder()
-            const buffer = encoder.encode(str).buffer as ArrayBuffer
-            api.writeFileBuffer(configPath, buffer).catch(err => {
-              console.error("[handleSpecSelect] Failed to save assets_config.json:", err)
-            })
-          }
+        if (sessionJson && projectDirValue && api?.writeFileBuffer) {
+          const sep = projectDirValue.includes("\\") ? "\\" : "/"
+          const configPath = [projectDirValue, ".octo", "tmps", "make", "resource", "assets_config.json"].join(sep)
+          const encoder = new TextEncoder()
+          const buffer = encoder.encode(sessionJson).buffer as ArrayBuffer
+          await api.writeFileBuffer(configPath, buffer)
         }
       } catch (err) {
-        console.error("[handleSpecSelect] Failed to parse dialog response:", err)
+        console.error("[handleSpecSelect] Failed:", err)
       }
     })
   }
@@ -2713,6 +2866,7 @@ if (dsId) {
   /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
   async function handleOpenResult(card: OutputCard) {
     setResultViewMode("tabs")
+    ml.showRight()
     
     // URL 类型：跳过文件推断和加载
     const isUrl = card.filePath?.match(/^https?:\/\//i)
@@ -2907,7 +3061,7 @@ if (dsId) {
       })
   }
 
-  const inputDisabled = () => sending() || isBusy() || childBusy() || !activeModelKey() || !!questionRequest() || !!permissionRequest()
+  const inputDisabled = () => !activeModelKey() || !!questionRequest() || !!permissionRequest()
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
@@ -2965,7 +3119,7 @@ if (dsId) {
                       <IconNotepad size={16} />
                     </button>
                   </Show>
-                  <Show when={isBusy()}>
+                  <Show when={effectiveBusy()}>
                     <div class="shrink-0 flex items-center gap-1.5">
                       <Spinner class="size-4" />
                     </div>
@@ -3131,22 +3285,24 @@ if (dsId) {
                     />
 
                     <div class="flex-1 min-h-0 overflow-hidden rounded-[inherit]">
-                    <ProseMirrorEditor
-                       sessionId={params.id!}
-                       skillConfig={skillConfig() ?? {}}
-                       artifactFiles={artifactFilesMirror()}
-                       mentionSelections={mentionSelections()}
-                       setMentionSelections={setMentionSelections}
-                       disabled={inputDisabled()}
-                       onTriggerMention={loadSkillConfig}
-                       onContentChange={setPrompt}
-                       onSubmit={() => void handleSubmit()}
-                       onPaste={handlePaste}
-                       onSlashTrigger={(query) => {
-                         setSlashState({ query, cursor: 0 })
-                         setSlashIndex(0)
-                       }}
-                       onSlashClose={() => setSlashState(null)}
+<ProseMirrorEditor
+                        sessionId={params.id!}
+                        skillConfig={skillConfig() ?? {}}
+                        artifactFiles={artifactFilesMirror()}
+                        mentionSelections={mentionSelections()}
+                        setMentionSelections={setMentionSelections}
+                        disabled={inputDisabled()}
+                        busy={effectiveBusy()}
+                        autofocus
+                        onTriggerMention={loadSkillConfig}
+                        onContentChange={setPrompt}
+                        onSubmit={() => void handleSubmit()}
+                        onPaste={handlePaste}
+                        onSlashTrigger={(query) => {
+                          setSlashState({ query, cursor: 0 })
+                          setSlashIndex(0)
+                        }}
+                        onSlashClose={() => setSlashState(null)}
                        onPreview={(url) => {
                          handleOpenLocalFile(url)
                          proseMirrorRef1?.clear()
@@ -3214,19 +3370,19 @@ if (dsId) {
                           onClick={handleSpecSelect}
                         >
                           <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
-                            {selectedSpec() ?? "请选择设计规范"}
+                            {selectedSpecDisplay() || "请选择设计规范"}
                           </span>
                           <Icon name="chevron-down" class="size-3.5 shrink-0" style="color: #000" />
                         </button>
                       </div>
-                      <IconButton
-                        data-action="prompt-submit"
-                        type="submit"
-                        icon={isBusy() ? "stop" : "arrow-up"}
-                        class="size-8 flex-shrink-0"
-                        onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
-                        disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
-                        aria-label={isBusy() ? "停止生成" : undefined}
+<IconButton
+                         data-action="prompt-submit"
+                         type="submit"
+                         icon={effectiveBusy() ? "stop" : "arrow-up"}
+                         class="size-8 flex-shrink-0"
+                         onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
+                         disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
+                         aria-label={effectiveBusy() ? "停止生成" : undefined}
 />
                     </div>
                    </div>
@@ -3448,21 +3604,23 @@ if (dsId) {
                   />
 
 <ProseMirrorEditor
-                     sessionId={params.id!}
-                     skillConfig={skillConfig() ?? {}}
-                     artifactFiles={artifactFilesMirror()}
-                     mentionSelections={mentionSelections()}
-                     setMentionSelections={setMentionSelections}
-                     disabled={inputDisabled()}
-                     onTriggerMention={loadSkillConfig}
-                     onContentChange={setPrompt}
-                     onSubmit={() => void handleSubmit()}
-                     onPaste={handlePaste}
-onSlashTrigger={(query) => {
-                        setSlashState({ query, cursor: 0 })
-                        setSlashIndex(0)
-                      }}
-                      onSlashClose={() => setSlashState(null)}
+                       sessionId={params.id!}
+                       skillConfig={skillConfig() ?? {}}
+                       artifactFiles={artifactFilesMirror()}
+                       mentionSelections={mentionSelections()}
+                       setMentionSelections={setMentionSelections}
+                       disabled={inputDisabled()}
+                       busy={effectiveBusy()}
+                       autofocus
+                       onTriggerMention={loadSkillConfig}
+                      onContentChange={setPrompt}
+                      onSubmit={() => void handleSubmit()}
+                      onPaste={handlePaste}
+ onSlashTrigger={(query) => {
+                         setSlashState({ query, cursor: 0 })
+                         setSlashIndex(0)
+                       }}
+                       onSlashClose={() => setSlashState(null)}
                       onPreview={(url) => {
                         handleOpenLocalFile(url)
                         proseMirrorRef1?.clear()
@@ -3524,16 +3682,16 @@ onSlashTrigger={(query) => {
                         <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
                       </ModelSelectorPopover>
                     </div>
-                    <IconButton
-                      data-action="prompt-submit"
-                      type="submit"
-                      icon={isBusy() ? "stop" : "arrow-up"}
-                      variant="primary"
-                      class="size-8 flex-shrink-0"
-                      onClick={isBusy() ? () => void halt() : () => void handleSubmit()}
-                      disabled={!isBusy() && (!prompt().trim() || inputDisabled())}
-                      aria-label={isBusy() ? "停止生成" : undefined}
-                    />
+<IconButton
+                       data-action="prompt-submit"
+                       type="submit"
+                       icon={effectiveBusy() ? "stop" : "arrow-up"}
+                       variant="primary"
+                       class="size-8 flex-shrink-0"
+                       onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
+                       disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
+                       aria-label={effectiveBusy() ? "停止生成" : undefined}
+                     />
                   </div>
                 </div>
               </div>
@@ -3549,7 +3707,9 @@ onSlashTrigger={(query) => {
 
         {/* ── 右栏：ResultViewer + Version Panel ──── */}
         <Show when={gridHasContent()}>
-        <div class="make-right-overlay" onClick={() => ml.toggleRightDrawer()} />
+        <Show when={!focusMode()}>
+          <div class="make-right-overlay" onClick={() => ml.toggleRightDrawer()} />
+        </Show>
         <div
           class="flex flex-col overflow-hidden"
           classList={{ "make-right-panel": true, "is-collapsed": !hideChat() && (ml.rightCollapsed() || ml.rightManuallyHidden()) }}
@@ -3615,6 +3775,11 @@ onSlashTrigger={(query) => {
                 sdkDirectory={sdk.directory || ""}
                 focusMode={focusMode()}
                 onFocusModeToggle={() => layout.focusMode.toggle()}
+                onCollapseDrawer={
+                  !focusMode() && ml.rightCollapsed() && ml.rightDrawerOpen()
+                    ? ml.toggleRightDrawer
+                    : undefined
+                }
                 onConfirmPlan={handleConfirmPlan}
                 onAdjustPlan={handleAdjustPlan}
                 isPlanConfirmed={planButtonDisabled}
@@ -3634,6 +3799,7 @@ onSlashTrigger={(query) => {
                 childSessionStatus={sync.data.session_status[activePlanSessionId() ?? ""]}
                 childBusy={childBusy()}
                 planEnded={planEnded()}
+                planActive={activePlanSessionId() !== null}
               />
             </div>
             <Show when={showVersionPanel()}>

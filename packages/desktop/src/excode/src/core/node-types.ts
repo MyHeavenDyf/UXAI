@@ -22,6 +22,7 @@ export type BuildNode = RegularNode | LoopNode
 // ─── ComponentNode ───
 
 export interface ComponentNode {
+  __node: true,
   kind: 'component'
 
   /** A2UI element id（用于 BindingValue.nodeId、生成 className 等） */
@@ -56,6 +57,9 @@ export interface ComponentNode {
    */
   propRoute?: Record<string, ExtractRoute>
 
+  /** className 在产物 JSX 上的输出 key 别名（默认 'className'）；由 MappingDef.classNameProp 透传，jsx-emitter/file-assembler emit 时读，style-converter 不读 */
+  classNameProp?: string
+
   /** 是否已经过 transform（防二次） */
   _resolved?: boolean
 
@@ -66,6 +70,7 @@ export interface ComponentNode {
 // ─── HtmlNode ───
 
 export interface HtmlNode {
+  __node: true,
   kind: 'html'
   id?: string
   tag: string
@@ -84,6 +89,7 @@ export interface HtmlNode {
 // ─── TextNode ───
 
 export interface TextNode {
+  __node: true,
   kind: 'text'
   value: string | BindingValue | ComputedValue
   _resolved?: boolean
@@ -94,6 +100,7 @@ export interface TextNode {
 // ─── ExtractNode（跨文件抽取引用） ───
 
 export interface ExtractNode {
+  __node: true,
   kind: 'extract'
 
   /** 抽取组件名 — 决定文件名、tag、import 路径 */
@@ -137,6 +144,8 @@ export interface ExtractNode {
 export type Scope = LoopScope | RenderFnScope
 
 export interface LoopScope {
+  /** 作用域类型标记（显式区分，避免靠字段有无 `in` 判断） */
+  scopeType: 'loopScope'
   /** 节点直接所属的 LoopNode */
   loopNode: LoopNode
 
@@ -145,6 +154,8 @@ export interface LoopScope {
 }
 
 export interface RenderFnScope {
+  /** 作用域类型标记（显式区分，避免靠字段有无 `in` 判断） */
+  scopeType: 'renderFnScope'
   /** 参数名 → 数据源 binding（来自 params[].dataSource） */
   paramBindings: Record<string, BindingValue>
 
@@ -155,6 +166,7 @@ export interface RenderFnScope {
 // ─── LoopNode（循环节点） ───
 
 export interface LoopNode {
+  __node: true,
   kind: 'loop'
 
   /** 循环数据源（BuildTrees 阶段是 BindingValue；tree-finalizer 阶段可被替换为 VarRefValue 指向 enrichment const） */

@@ -10,36 +10,38 @@
 .el-time-panel__content:before {
   content: none;
 }
-.el-input__wrapper {
-  &.is-focus {
-    .el-input__prefix {
-      .el-input__prefix-inner {
-        .el-input__icon {
-          svg {
-            color: var(--color-icon-primary);
+.el-date-editor {
+  .el-input__wrapper {
+    &.is-focus {
+      .el-input__prefix {
+        .el-input__prefix-inner {
+          .el-input__icon {
+            svg {
+              color: var(--color-icon-primary);
+            }
           }
         }
       }
     }
-  }
-  .el-input__prefix {
-    position: absolute;
-    right: 12px;
-    .el-input__prefix-inner {
-      &>:last-child {
-        margin-right: 0;
-      }
-      .el-input__icon {
-        svg {
-          width: 14px;
-          height: 14px;
-          color: var(--color-icon-secondary);
+    .el-input__prefix {
+      position: absolute;
+      right: 12px;
+      .el-input__prefix-inner {
+        &>:last-child {
+          margin-right: 0;
+        }
+        .el-input__icon {
+          svg {
+            width: 14px;
+            height: 14px;
+            color: var(--color-icon-secondary);
+          }
         }
       }
     }
-  }
-  .el-input__inner {
-    color: var(--color-text-primary);
+    .el-input__inner {
+      color: var(--color-text-primary);
+    }
   }
 }
 

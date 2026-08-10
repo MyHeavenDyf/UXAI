@@ -10,6 +10,7 @@ import { IconRefresh as IconFileRefresh } from "../../icons/design-files-icons"
 import { showToast } from "@opencode-ai/ui/toast"
 import { getDesktopApi } from "../../lib/electron-api"
 import { tracker } from "@/utils/tracker"
+import { createHtmlAssetsZip } from "../../utils/html-assets-zip"
 
 // Responsive breakpoints for action bar
 const ACTION_BAR_COLLAPSE_WIDTH = 600
@@ -341,13 +342,53 @@ export function ActionBar(props: {
     onArchiveToggle?: () => void
     onFocusModeToggle?: () => void
     onCanvasToDesign?: () => void
+    observedResourceUrls?: () => string[]
   }): JSX.Element {
   async function handleDownload() {
     tracker.interaction({ module: "design", name: "download-file", extend: JSON.stringify({ type: props.tab.type }) })
+
+    if (props.tab.type === "html") {
+      const htmlContent = extractDownloadContent(props.tab)
+      const htmlFileNameInZip = `${stripExtension(props.tab.title, "html")}.html`
+      showToast({ title: "生成ZIP..." })
+      try {
+        const observedUrls = props.observedResourceUrls?.() || []
+        const zipBlob = await createHtmlAssetsZip({
+          htmlContent,
+          htmlFilePath: props.tab.filePath || "",
+          htmlFileNameInZip,
+          observedUrls,
+        })
+        const zipName = `${stripExtension(props.tab.title, "zip")}.zip`
+        const zipBytes = new Uint8Array(await zipBlob.arrayBuffer())
+        await downloadBlob(zipBytes, zipName, "application/zip")
+      } catch (err) {
+        showToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
+      }
+      return
+    }
+
     if (props.tab.type === "deck") {
       exportDeckAsPDF(props.tab.content, props.tab.title)
       return
     }
+    
+    const api = getDesktopApi()
+    const supportedTypes = ["html", "svg", "image", "video", "audio", "pdf", "text"]
+    
+    if (props.tab.filePath && supportedTypes.includes(props.tab.type) && api?.saveFilePicker && api?.readFileBuffer && api?.writeFileBuffer) {
+      const chosen = await api.saveFilePicker({ defaultPath: props.tab.title })
+      if (!chosen) return
+      const buffer = await api.readFileBuffer(props.tab.filePath)
+      if (!buffer) {
+        showToast({ title: "读取文件失败", variant: "error" })
+        return
+      }
+      await api.writeFileBuffer(chosen, buffer)
+      showToast({ title: "已保存" })
+      return
+    }
+    
     const info = getDownloadInfo(props.tab)
     const content = extractDownloadContent(props.tab)
     await downloadBlob(content, info.filename, info.mime)

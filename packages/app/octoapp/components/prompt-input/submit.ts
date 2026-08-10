@@ -4,6 +4,7 @@ import { base64Encode } from "@opencode-ai/core/util/encode"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { useNavigate, useParams } from "@solidjs/router"
 import { batch, type Accessor } from "solid-js"
+import { produce } from "solid-js/store"
 import type { FileSelection } from "@/context/file"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -236,18 +237,37 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
     input.onAbort?.()
 
+    const incompleteAssistant = (sync.data.message[sessionID] ?? [])
+      .filter((m) => m.role === "assistant" && typeof m.time.completed !== "number")
+
+    const optimisticIdle = () =>
+      batch(() => {
+        setStore("session_status", sessionID, { type: "idle" })
+        const now = Date.now()
+        for (const msg of incompleteAssistant) {
+          setStore("message", sessionID, produce((messages: Message[]) => {
+            const result = Binary.search(messages, msg.id, (m: Message) => m.id)
+            if (!result.found) return
+            const m = messages[result.index]
+            m.time = { ...m.time, completed: now }
+            if (m.role === "assistant") {
+              m.error = { name: "MessageAbortedError" as const, data: { message: "aborted by user" } }
+            }
+          }))
+        }
+      })
+
     const queued = pending.get(sessionID)
     if (queued) {
       queued.abort.abort()
       queued.cleanup()
       pending.delete(sessionID)
+      optimisticIdle()
       return Promise.resolve()
     }
     return sdk.client.session
-      .abort({
-        sessionID,
-      })
-      .catch(() => {})
+      .abort({ sessionID })
+      .then(optimisticIdle, optimisticIdle)
   }
 
   const restoreCommentItems = (items: CommentItem[]) => {

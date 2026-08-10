@@ -26,7 +26,7 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue } from '../../../src/core/value-types'
-import { Node } from '../../../src/core/node'
+import { Node } from '../../../src/core/node-factory'
 
 export function createCollapseItemMapping(pkg: string): MappingDef {
   return {
