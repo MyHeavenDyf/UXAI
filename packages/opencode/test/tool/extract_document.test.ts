@@ -185,6 +185,36 @@ describe("extract_document", () => {
     }),
   )
 
+  it.live("阈值边界: 45KB 正文仍内联(限额 50KB − 1KB 首部预算,不是旧的 ×0.8)", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      // 15,000 汉字 ≈ 45KB:落在旧阈值(40KB)与新阈值(49KB)之间——旧实现会把它推去落盘分支。
+      const body = "用户反馈搜索入口太深。".repeat(1364)
+      const src = yield* Effect.promise(() => seed(dir, "中等访谈.txt", body))
+      const result = yield* runIn(dir, src)
+
+      expect(result.metadata.inlined).toBe(true)
+      expect(result.output).toContain(body.slice(-200))
+      // 内联后总输出仍须低于通用兜底(50KB / 2000 行),否则等于又被盲切一刀
+      expect(Buffer.byteLength(result.output, "utf-8")).toBeLessThanOrEqual(50 * 1024)
+      expect(result.output.split("\n").length).toBeLessThanOrEqual(2000)
+    }),
+  )
+
+  it.live("行数维度: 短行多的表格(xlsx 式 TSV)按行数走落盘,不看字节", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      // 2500 行短记录 ≈ 30KB:字节远没超 50KB,行数已经越过 2000 − 8
+      const body = Array.from({ length: 2500 }, (_, i) => `行${i}\t${i}`).join("\n")
+      expect(Buffer.byteLength(body, "utf-8")).toBeLessThan(50 * 1024)
+      const src = yield* Effect.promise(() => seed(dir, "表格.txt", body))
+      const result = yield* runIn(dir, src)
+
+      expect(result.metadata.inlined).toBe(false)
+      expect(result.metadata.savedPath).toBeDefined()
+    }),
+  )
+
   it.live("落盘正文每行 ≤500 字符,优先切在句末标点后(read 的 2000 字符行截断会永久丢内容)", () =>
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped()
