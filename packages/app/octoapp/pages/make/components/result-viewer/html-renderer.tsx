@@ -6,6 +6,7 @@ import { createResourceTracker, type ResourceTracker } from "../../utils/resourc
 import { getArtifactServeUrl, getArtifactRelativePath, pathToLocalUrl, isElectronDesktop, extractCommentFilePath } from "../../utils/artifact-file-api"
 import { directoryHeader } from "@/utils/headers"
 import { getDesktopApi } from "../../lib/electron-api"
+import { decodeHtmlBytes } from "@opencode-ai/core/bridge-scripts"
 import { PreviewOverlay } from "../preview-overlay"
 import { InspectPanel } from "./inspect-panel"
 import { ManualEditPanel, emptyManualEditDraft, type ManualEditDraft } from "./manual-edit-panel"
@@ -335,8 +336,7 @@ export function HtmlRenderer(props: {
       if (api?.readFileBuffer && props.filePath) {
         const buffer = await api.readFileBuffer(props.filePath)
         if (buffer) {
-          const decoder = new TextDecoder('utf-8')
-          htmlContent = decoder.decode(buffer)
+          htmlContent = decodeHtmlBytes(new Uint8Array(buffer))
         } else {
           htmlContent = props.content
         }

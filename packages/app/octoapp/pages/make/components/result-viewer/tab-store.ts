@@ -5,7 +5,7 @@ import { extractSubtypeFromFilename } from "../../utils/subtype-extractor"
 export type ResultTab = {
   id: string
   title: string
-  type: "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "deck" | "svg" | "markdown-document" | "code-snippet" | "react-component" | "diagram" | "local-file" | "image" | "video" | "audio" | "pdf" | "text" | "design-plan" 
+  type: "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "deck" | "svg" | "markdown-document" | "code-snippet" | "react-component" | "diagram" | "local-file" | "image" | "video" | "audio" | "pdf" | "text" | "design-plan" | "link"
   subtype?: string
   content: string
   filePath?: string

@@ -46,6 +46,7 @@ export type OutputCardType =
   | "react-component" | "diagram"
   | "image" | "video" | "audio" | "pdf" | "text"
   | "design-plan"
+  | "link"
 
 export type ArtifactExportKind = "html" | "pdf" | "zip" | "pptx" | "svg" | "md" | "txt" | "json" | "csv"
 
@@ -78,6 +79,39 @@ const ARTIFACT_TYPE_MAP: Record<string, OutputCardType> = {
   "react-component": "react-component",
   diagram: "diagram",
   "text/design-plan": "design-plan",
+  "text/link": "link",
+}
+
+// 从 link artifact 的 content(URL 或磁盘路径)提取卡片标题
+// URL:        提取最后的文件名(含扩展名),无路径时回退到 host
+//             "https://a.com/path/file.html" → "file.html"
+//             "https://a.com/"               → "a.com"
+// 磁盘路径:   取最后一段并去掉格式后缀,保留 subtype
+//             "D:\\dir\\a.shadcn.html" → "a.shadcn"
+//             "D:\\dir\\report.pdf"    → "report"
+function extractLinkTitle(content: string): string {
+  const trimmed = (content ?? "").trim()
+  if (!trimmed) return ""
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const u = new URL(trimmed)
+      const segments = u.pathname.split("/").filter(Boolean)
+      if (segments.length > 0) {
+        const last = segments[segments.length - 1]
+        try { return decodeURIComponent(last) } catch { return last }
+      }
+      return u.host
+    } catch {
+      // fall through to path handling
+    }
+  }
+
+  const parts = trimmed.split(/[/\\]/).filter(Boolean)
+  const filename = parts.length > 0 ? parts[parts.length - 1] : trimmed
+  const lastDot = filename.lastIndexOf(".")
+  if (lastDot > 0) return filename.slice(0, lastDot)
+  return filename
 }
 
 function isMarkdownTable(text: string): boolean {
@@ -161,7 +195,7 @@ function cardTypeIconSrc(_type: OutputCardType): string {
 }
 
 function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "createdAt">[] {
-  if (!text.includes("<artifact")) return []
+  if (!/<artifact/i.test(text)) return []
   const results: Omit<OutputCard, "id" | "createdAt">[] = []
   try {
     const parser = createArtifactParser()
@@ -192,10 +226,18 @@ function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "creat
         const explicitExports = startEvent.exports
           ? startEvent.exports.split(",").map((s) => s.trim() as ArtifactExportKind)
           : undefined
+        // link 类型:始终从 content(URL 或磁盘路径)派生标题,忽略 artifact 标签的 title 属性
+        // 原因:content 是路径,标题应为文件名(磁盘路径去格式后缀保留 subtype,URL 取文件名含扩展名)
+        // 模型声明的 title 可能带后缀或含异常字符,不可靠
+        let resolvedTitle = startEvent.title
+        if (mappedType === "link") {
+          const fromContent = extractLinkTitle(fullContent)
+          if (fromContent) resolvedTitle = fromContent
+        }
         results.push({
-          title: startEvent.title || mappedType,
+          title: resolvedTitle || mappedType,
           type: mappedType,
-          subtype: extractSubtypeFromTitle(startEvent.title),
+          subtype: extractSubtypeFromTitle(resolvedTitle),
           content: fullContent,
           artifactKind: startEvent.artifactType,
           artifactIdentifier: startEvent.identifier || undefined,
@@ -215,9 +257,9 @@ function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "creat
 
 /** Quick regex scan for all artifact open tags (completed + in-progress) for streaming placeholders */
 function scanArtifactHeaders(text: string): Array<{ identifier: string; title: string; type: OutputCardType }> {
-  if (!text.includes("<artifact")) return []
+  if (!/<artifact/i.test(text)) return []
   const results: Array<{ identifier: string; title: string; type: OutputCardType }> = []
-  const re = /<artifact\s+([^>]*)>/g
+  const re = /<artifact\s+([^>]*)>/gi
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) !== null) {
     const attrs = m[1]
@@ -326,7 +368,7 @@ function WaitingPill(props: {
       .filter(entry => entry.sessionID !== props.sessionID && entry.field === "text")
       .slice(-50)
     for (const entry of childTextDeltas) {
-      if (entry.delta.includes("<artifact")) {
+      if (/<artifact/i.test(entry.delta)) {
         const childParser = createArtifactParser()
         for (const ev of childParser.feed(entry.delta)) {
           if (ev.type === "artifact:chunk") artifactContent += ev.delta
@@ -828,7 +870,7 @@ const stateStatus = state.status as string | undefined
         if (artifactOutputs.length === 0 && /<(?:div|section|style|nav|header|footer|main|article|form|table)\b/i.test(resultContent)) {
           artifactOutputs.push({ identifier: "raw-fragment", title: "HTML 片段", content: resultContent })
         }
-        const proseOnly = resultContent.replace(/<artifact[\s\S]*?<\/artifact>/g, "").trim()
+        const proseOnly = resultContent.replace(/<artifact[\s\S]*?<\/artifact>/gi, "").trim()
         if (proseOnly.length > 0) textParts.push(proseOnly.length > 500 ? proseOnly.slice(0, 500) + "…" : proseOnly)
       }
 
@@ -1107,7 +1149,7 @@ const stateStatus = state.status as string | undefined
                       </div>
                     }
                   >
-                    <div style={{ width: "80px", height: "80px", "border-radius": "8px", overflow: "hidden", "flex-shrink": "0" }}>
+                    <div style={{ width: "80px", height: "80px", "border-radius": "8px", overflow: "hidden", "flex-shrink": "0", "background-color": "rgba(0,0,0,0.05)" }}>
                       <img
                         src={att.url}
                         alt={att.filename}
@@ -1363,6 +1405,7 @@ const stateStatus = state.status as string | undefined
       <For each={outputCards()}>
         {(capturedCard) => (
           <div
+            title={capturedCard.type === "link" ? capturedCard.content : undefined}
             style={{
               "border-radius": "12px",
               padding: "16px 20px",
@@ -1423,6 +1466,7 @@ const stateStatus = state.status as string | undefined
           const isPartial = genCard.content.length === 0
           return (
             <div
+              title={genCard.type === "link" ? genCard.content : undefined}
               style={{
                 "border-radius": "12px",
                 padding: "16px 20px",

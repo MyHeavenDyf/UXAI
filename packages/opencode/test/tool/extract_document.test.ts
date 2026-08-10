@@ -1,5 +1,6 @@
 import { afterEach, describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
+import fs from "node:fs/promises"
 import path from "path"
 import { Agent } from "../../src/agent/agent"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
@@ -39,12 +40,27 @@ const it = testEffect(
   ),
 )
 
-const run = Effect.fn("ExtractDocumentTest.run")(function* (file: string) {
-  const dir = yield* tmpdirScoped()
+const runIn = Effect.fn("ExtractDocumentTest.runIn")(function* (dir: string, file: string) {
   const info = yield* ExtractDocumentTool
   const tool = yield* info.init()
   return yield* provideInstance(dir)(tool.execute({ path: file }, ctx))
 })
+
+const run = Effect.fn("ExtractDocumentTest.run")(function* (file: string) {
+  const dir = yield* tmpdirScoped()
+  return yield* runIn(dir, file)
+})
+
+/** 解析件落点(SPEC-INS-016 §4.2):<projectDir>/.octo/<sessionID>/extracted/ */
+const extractedDir = (dir: string) => path.join(dir, ".octo", "ses_test", "extracted")
+
+/** 在 dir 下写一个源文件,返回绝对路径。 */
+async function seed(dir: string, name: string, content: string) {
+  const file = path.join(dir, name)
+  await fs.mkdir(path.dirname(file), { recursive: true })
+  await fs.writeFile(file, content, "utf8")
+  return file
+}
 
 describe("extract_document", () => {
   it.live("docx: 抽出正文并带字数/token 首行", () =>
@@ -128,6 +144,98 @@ describe("extract_document", () => {
       const result = yield* run(path.join(FIXTURES, "broken.docx"))
       expect(result.output).toContain("解析「broken.docx」失败")
       expect(result.metadata.error).toBe("parse-error")
+    }),
+  )
+
+  // ——— SPEC-INS-016 v2:全量落盘 ———
+
+  it.live("小文件: 内联全文**且**落盘(一式两份,不是二选一)", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const result = yield* runIn(dir, path.join(FIXTURES, "sample.docx"))
+
+      expect(result.output).toContain("访谈纪要:用户反馈搜索入口太深。")
+      expect(result.metadata.inlined).toBe(true)
+
+      const saved = result.metadata.savedPath as string
+      expect(saved).toBe(path.join(extractedDir(dir), "sample.md"))
+      const onDisk = yield* Effect.promise(() => fs.readFile(saved, "utf8"))
+      expect(onDisk).toContain("访谈纪要:用户反馈搜索入口太深。")
+      expect(onDisk.split("\n")[0]).toMatch(/^<!-- source: .+sample\.docx \| chars: \d+ \| extracted: .+ -->$/)
+    }),
+  )
+
+  it.live("大文件: 不回灌全文,只给路径 + 预览;落盘的是完整正文", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      // 22,000 汉字 ≈ 66KB > 内联阈值(50KB * 0.8)
+      const body = "用户反馈搜索入口太深。".repeat(2000)
+      const src = yield* Effect.promise(() => seed(dir, "src/长访谈.txt", body))
+      const result = yield* runIn(dir, src)
+
+      expect(result.metadata.inlined).toBe(false)
+      expect(result.output).toContain("正文过长,未直接返回")
+      expect(result.output).toContain("用 grep 搜关键词")
+      // 回灌里只有预览,不是全文
+      expect(result.output.length).toBeLessThan(body.length / 2)
+
+      const onDisk = yield* Effect.promise(() => fs.readFile(result.metadata.savedPath as string, "utf8"))
+      // 落盘的是完整正文(折行只插换行,去掉后应与原文逐字相同)
+      expect(onDisk.split("\n").slice(2).join("").trim()).toBe(body)
+    }),
+  )
+
+  it.live("落盘正文每行 ≤500 字符,优先切在句末标点后(read 的 2000 字符行截断会永久丢内容)", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const withPunct = "用户反馈搜索入口太深。".repeat(2000)
+      const noPunct = "甲".repeat(5000)
+      const src = yield* Effect.promise(() => seed(dir, "wrap.txt", `${withPunct}\n${noPunct}`))
+      const result = yield* runIn(dir, src)
+
+      const onDisk = yield* Effect.promise(() => fs.readFile(result.metadata.savedPath as string, "utf8"))
+      const lines = onDisk.split("\n").slice(2).filter(Boolean)
+      for (const line of lines) expect(line.length).toBeLessThanOrEqual(500)
+      // 有标点的那半:切点落在句号之后
+      expect(lines[0].endsWith("。")).toBe(true)
+      // 无标点的那半:退化为硬切,正好 500
+      expect(lines.some((l) => l.length === 500 && !l.includes("。"))).toBe(true)
+    }),
+  )
+
+  it.live("同名不同源: 各留一份,不互相覆盖(否则模型会静默读到别的文件)", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const a = yield* Effect.promise(() => seed(dir, "a/报告.txt", "甲方的访谈内容"))
+      const b = yield* Effect.promise(() => seed(dir, "b/报告.txt", "乙方的访谈内容"))
+
+      const first = yield* runIn(dir, a)
+      const second = yield* runIn(dir, b)
+
+      expect(first.metadata.savedPath).toBe(path.join(extractedDir(dir), "报告.md"))
+      expect(second.metadata.savedPath).toBe(path.join(extractedDir(dir), "报告-2.md"))
+      const kept = yield* Effect.promise(() => fs.readFile(first.metadata.savedPath as string, "utf8"))
+      expect(kept).toContain("甲方的访谈内容")
+
+      // 同源重复抽取则覆盖自己,不再堆新文件
+      const again = yield* runIn(dir, a)
+      expect(again.metadata.savedPath).toBe(first.metadata.savedPath)
+    }),
+  )
+
+  it.live("落盘失败: 降级为整篇返回,不抛错、不丢功能", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      // 把 extracted 落点占成**文件**,mkdir 必然失败
+      const blocked = extractedDir(dir)
+      yield* Effect.promise(() => fs.mkdir(path.dirname(blocked), { recursive: true }))
+      yield* Effect.promise(() => fs.writeFile(blocked, "occupied", "utf8"))
+
+      const result = yield* runIn(dir, path.join(FIXTURES, "sample.docx"))
+      expect(result.metadata.savedPath).toBeUndefined()
+      expect(result.metadata.inlined).toBe(true)
+      expect(result.output).toContain("全文未能保存到本地")
+      expect(result.output).toContain("访谈纪要:用户反馈搜索入口太深。")
     }),
   )
 })

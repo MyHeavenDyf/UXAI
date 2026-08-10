@@ -7,6 +7,7 @@ import { File } from "@/file"
 import * as InstanceState from "@/effect/instance-state"
 import path from "path"
 import { injectArtifactBridges } from "./artifact-bridge"
+import { decodeHtmlBytes } from "@opencode-ai/core/bridge-scripts"
 
 const SESSION_BASE_DIR = ".octo"
 const OUTPUTS_DIR = "outputs"
@@ -611,11 +612,11 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       const mimeType = getMime(relativePath)
 
       if (mimeType === "text/html") {
-        const htmlStr = new TextDecoder().decode(content)
+        const htmlStr = decodeHtmlBytes(content)
         const htmlWithBridge = injectArtifactBridges(htmlStr)
         return HttpServerResponse.raw(new TextEncoder().encode(htmlWithBridge), {
           status: 200,
-          contentType: mimeType,
+          contentType: "text/html; charset=utf-8",
         })
       }
 

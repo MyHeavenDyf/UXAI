@@ -62,6 +62,7 @@
    toDOM 仍输出 ins-pm-mention--skill / --file 类名,将来要区分两者直接加规则即可。 */
 .ins-pm-mention {
   display: inline;
+  white-space: nowrap;
   padding: 3px 0;
   font-size: 12px;
   border-radius: 999px;
