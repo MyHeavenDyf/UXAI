@@ -54,8 +54,14 @@ type ExtractMetadata = {
 
 /** 解析件目录名(SPEC-INS-014 布局下 uploads/ outputs/ 的兄弟;不进文件管理)。 */
 const EXTRACTED_DIR = "extracted"
-/** 内联阈值 = 通用 Truncate 限额的这个比例,留出的余量给首部元信息/指引行。 */
-const INLINE_RATIO = 0.8
+// 内联阈值 = 通用 Truncate 限额 − 首部预算。目标只有一个:**加上我们自己拼的首部之后,总输出
+// 仍不触发那层兜底**——所以扣的应该是首部的实际大小,不是一个拍出来的百分比。
+// 首部是我们自己生成的、长度可控:元信息一行(文件名 + 字数 + token + 落盘路径,最坏几百字节)
+// + 分隔线,仅落盘分支再多两行指引。1KB / 8 行绰绰有余。
+// (旧实现是限额 × 0.8,在默认 50KB 下白留 10KB 余量,把 1.3–1.6 万字的文档——正好是一份普通
+// 访谈稿——推去了落盘分支,平白多一次 read 往返。)
+const HEADER_BUDGET_BYTES = 1024
+const HEADER_BUDGET_LINES = 8
 /** 仅落盘分支回灌的开头预览长度(字符)。给弱模型一个内容锚点,只给路径它容易直接编。 */
 const PREVIEW_CHARS = 2000
 /** 落盘正文的最大行长(字符)。见 wrapLongLines 的两条理由。 */
@@ -337,10 +343,13 @@ export const ExtractDocumentTool = Tool.define(
             ),
           )
 
+          // 两个维度都要判:中文正文折行后行数很少(50KB ≈ 34 行),字节先到;但 xlsx 的 TSV 是
+          // 一行一记录,几千行的表格可能字节还没超、行数已经爆了。Math.max 兜住用户把 config
+          // 里的 tool_output 设得比首部预算还小的情况(算出负阈值会让一切都走落盘)。
           const limits = yield* truncate.limits()
           const fits =
-            text.split("\n").length <= limits.maxLines * INLINE_RATIO &&
-            Buffer.byteLength(text, "utf-8") <= limits.maxBytes * INLINE_RATIO
+            text.split("\n").length <= Math.max(1, limits.maxLines - HEADER_BUDGET_LINES) &&
+            Buffer.byteLength(text, "utf-8") <= Math.max(1, limits.maxBytes - HEADER_BUDGET_BYTES)
           // 落盘失败时无论多大都只能内联(退回 v1 行为,交给通用 Truncate 兜底)。
           const inlined = savedPath === undefined || fits
 
