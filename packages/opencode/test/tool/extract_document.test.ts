@@ -139,6 +139,30 @@ describe("extract_document", () => {
     }),
   )
 
+  // ——— SPEC-INS-016 v2.2:docx 两级抽取 ———
+
+  it.live("结构不规范的 docx(<w:t> 套 <w:r>): 降级抽出正文,不再整份失败", () =>
+    Effect.gen(function* () {
+      const result = yield* run(path.join(FIXTURES, "nested-wt.docx"))
+
+      expect(result.metadata.error).toBeUndefined()
+      expect(result.metadata.fallback).toBe(true)
+      // 正常段落与**畸形段落**都要抽到,实体也要解码
+      expect(result.output).toContain("访谈纪要:用户反馈搜索入口太深。")
+      expect(result.output).toContain("嵌套段落:这段被 w:r 包住了 & 实体也要解码。")
+      expect(result.output).toContain("Second paragraph in English.")
+      expect(result.output).toContain("该文档结构不规范,已用兼容方式提取正文")
+    }),
+  )
+
+  it.live("规范 docx: 不置 fallback(证明主路径 mammoth 没被兜底顶替)", () =>
+    Effect.gen(function* () {
+      const result = yield* run(path.join(FIXTURES, "sample.docx"))
+      expect(result.metadata.fallback).toBeUndefined()
+      expect(result.output).not.toContain("已用兼容方式提取")
+    }),
+  )
+
   it.live("损坏文件: 解析失败回灌错误信息", () =>
     Effect.gen(function* () {
       const result = yield* run(path.join(FIXTURES, "broken.docx"))
