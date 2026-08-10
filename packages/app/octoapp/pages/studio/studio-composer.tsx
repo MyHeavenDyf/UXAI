@@ -40,6 +40,7 @@ export function StudioComposer(props: {
   videoQualityMode: StudioVideoQualityMode
   videoQualityLocked: boolean
   status: StudioGenerationStatus
+  busy: boolean
   openMenu: "capability" | "style" | "settings" | "material" | null
   canSubmit: boolean
   wordBook?: Resource<MaterialWordBook[]>
@@ -84,7 +85,7 @@ export function StudioComposer(props: {
   const isVideoGeneration = createMemo(() => props.capability === "video.generate")
   const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
   const isImeComposing = (event: KeyboardEvent) => event.isComposing || composing() || event.keyCode === 229
-  const isBusy = createMemo(() => props.status === "queued" || props.status === "running" || props.status === "submitting")
+  const isBusy = createMemo(() => props.busy || props.status === "queued" || props.status === "running" || props.status === "submitting")
   onCleanup(() => {
     if (referenceHoverFrame !== undefined) cancelAnimationFrame(referenceHoverFrame)
   })

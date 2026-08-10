@@ -1122,6 +1122,12 @@
   transform: translateY(0);
 }
 
+.studio-assistant-editor-link:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .studio-result-card {
   margin-top: 20px;
   min-height: 258px;

@@ -3740,6 +3740,7 @@ export default function StudioPage() {
                   videoQualityMode={videoQualityMode()}
                   videoQualityLocked={videoQualityLocked()}
                   status={effectiveStatus()}
+                  busy={isBusy()}
                   openMenu={openMenu()}
                   canSubmit={canSubmit()}
                   wordBook={wordBook}
@@ -3941,6 +3942,7 @@ if (!headerTitle.pendingRename) return
             videoQualityMode={videoQualityMode()}
             videoQualityLocked={videoQualityLocked()}
             status={effectiveStatus()}
+            busy={isBusy()}
             openMenu={openMenu()}
             canSubmit={canSubmit()}
             wordBook={wordBook}
@@ -4203,7 +4205,7 @@ if (!headerTitle.pendingRename) return
             </Show>
           </Show>
           </Show>
-          <Show when={isBusy() && !showStudioCanvas() && canvasTabImages().length === 0}>
+          <Show when={isBusy() && !isEditingWorkspaceMode() && !showStudioCanvas() && canvasTabImages().length === 0}>
             <div class="flex-1 flex flex-col items-center justify-center text-center">
               <StudioEmptyState />
             </div>
