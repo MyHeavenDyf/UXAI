@@ -2932,7 +2932,10 @@ export default function StudioPage() {
     const existingSession = isValidStudioSession(params.id)
     const previousPrompt = prompt()
     const previousAssets = assets()
-    const previousVideoFrames = { first: videoFrames.first, last: videoFrames.last }
+    const submittedVideoFrames = { first: videoFrames.first, last: videoFrames.last }
+    const videoFramesStillMatchSubmission = () =>
+      videoFrames.first?.id === submittedVideoFrames.first?.id &&
+      videoFrames.last?.id === submittedVideoFrames.last?.id
     const videoReferenceImages = [
       nextVideoFrames.first,
       nextVideoFrames.first ? nextVideoFrames.last : undefined,
@@ -3085,8 +3088,8 @@ export default function StudioPage() {
           ...(nextIsCustom ? { width: nextWidth, height: nextHeight } : {}),
         },
       }, controller.signal)
-      if (!overrides?.useRestoredInputs && nextCapability === "video.generate") clearVideoFrames()
       if (currentToken !== generationToken) return
+      if (!overrides?.useRestoredInputs && nextCapability === "video.generate" && videoFramesStillMatchSubmission()) clearVideoFrames()
       setPendingResult((current) => ({
         ...generation,
         // Preserve sessionID from current — generation response may not include it
@@ -3122,7 +3125,6 @@ export default function StudioPage() {
         setPrompt(previousPrompt)
         setAssets(previousAssets)
       }
-      if (!overrides?.useRestoredInputs && nextCapability === "video.generate") replaceVideoFrames(previousVideoFrames)
       setStatus("create_failed")
       setPendingResult((item) => item ? {
         ...item,
