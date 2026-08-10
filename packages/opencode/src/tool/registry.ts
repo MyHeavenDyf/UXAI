@@ -17,6 +17,7 @@ import { InternelImageGenerateTool } from "./internel_image_generate"
 import { KnowledgeSearchTool } from "./knowledge_search"
 import { ExtractDocumentTool } from "./extract_document"
 import { LoadComponentsDocsTool } from "./proto_tool/load_components_docs"
+import { RequestPatternTool } from "./proto_tool/request_pattern"
 import * as Tool from "./tool"
 import { Config } from "@/config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
@@ -53,7 +54,7 @@ import { Skill } from "../skill"
 import { Permission } from "@/permission"
 
 const log = Log.create({ service: "tool.registry" })
-const builtinToolNamespaces = new Set(["jimeng_image_generate", "internel_image_generate", "load_components_docs"])
+const builtinToolNamespaces = new Set(["jimeng_image_generate", "internel_image_generate", "load_components_docs", "request_pattern"])
 
 type TaskDef = Tool.InferDef<typeof TaskTool>
 type ReadDef = Tool.InferDef<typeof ReadTool>
@@ -124,6 +125,7 @@ export const layer: Layer.Layer<
     const knowledgesearch = yield* KnowledgeSearchTool
     const extractdocument = yield* ExtractDocumentTool
     const loadComponentsDocs = yield* LoadComponentsDocsTool
+    const requestPattern = yield* RequestPatternTool
     const agent = yield* Agent.Service
 
     const state = yield* InstanceState.make<State>(
@@ -225,6 +227,7 @@ export const layer: Layer.Layer<
           knowledge: Tool.init(knowledgesearch),
           extract_document: Tool.init(extractdocument),
           components_docs: Tool.init(loadComponentsDocs),
+          request_pattern: Tool.init(requestPattern),
           patch: Tool.init(patchtool),
           question: Tool.init(question),
           lsp: Tool.init(lsptool),
@@ -252,6 +255,7 @@ export const layer: Layer.Layer<
             tool.knowledge,
             tool.extract_document,
             tool.components_docs,
+            tool.request_pattern,
             tool.patch,
             ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [tool.lsp] : []),
             ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [tool.plan] : []),

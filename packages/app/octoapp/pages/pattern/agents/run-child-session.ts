@@ -128,7 +128,6 @@ async function processAgentResult(params: {
     const sessionId = isRoot ? parentSessionID : childSessionID
     // 必须先查 assistant 消息上的 .error：欠费/鉴权/超长等不可重试错误会让模型不返回文本，
     // getResultFromMessages 此时会 resolve 空字符串，若先走 "未返回有效内容" 检查，真实错误类型会被掩盖
-    debugger
     const messageError = extractMessageError(sync, childSessionID, knownIds)
     if (messageError) {
       console.error(`[runChildSession] ${agent} 模型返回了错误:`, messageError)

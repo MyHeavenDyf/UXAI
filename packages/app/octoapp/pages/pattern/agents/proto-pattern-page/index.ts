@@ -1,13 +1,13 @@
 import { extractJson } from '../../utils/json-parser'
 import { runChildSession } from '../run-child-session'
 import { logAgentParsed } from '../../utils/debug-log'
-import { INTENT_CONFIRM_FORMAT } from './schema'
+import { PATTERN_PAGE_FORMAT } from './schema'
 import { agentThrow } from '../../utils/error-msg'
 import { getPagePatternResource } from '../../utils/pattern-resource'
 
-const AGENT_NAME = "proto_intent_confirm"
+const AGENT_NAME = "proto_pattern_page"
 
-export type IntentConfirmDimension = {
+export type IntentPageDimension = {
   id: string
   name: string
   score: number
@@ -16,12 +16,12 @@ export type IntentConfirmDimension = {
   content?: string
 }
 
-export type IntentConfirmResult = {
-  results: IntentConfirmDimension[]
+export type IntentPageResult = {
+  results: IntentPageDimension[]
   current_step: string
 }
 
-type ProtoIntentConfirmInput = {
+type ProtoPatternPageInput = {
   sdk: any
   sync: any
   modelKey: any
@@ -30,7 +30,7 @@ type ProtoIntentConfirmInput = {
   onSessionCreated?: (childSessionID: string) => void
 }
 
-export default async function proto_intent_confirm(input: ProtoIntentConfirmInput): Promise<IntentConfirmResult> {
+export default async function proto_pattern_page(input: ProtoPatternPageInput): Promise<IntentPageResult> {
   const { sdk, sync, modelKey, rootSession, userInput, onSessionCreated } = input
 
   const humanMessage = buildHumanMessage(userInput)
@@ -44,7 +44,7 @@ export default async function proto_intent_confirm(input: ProtoIntentConfirmInpu
     prompt: humanMessage,
     directory: sdk.directory,
     parentSessionID: rootSession,
-    schema: INTENT_CONFIRM_FORMAT.schema,
+    schema: PATTERN_PAGE_FORMAT.schema,
   })
   var json = extractJson(result.text)
 
@@ -54,9 +54,9 @@ export default async function proto_intent_confirm(input: ProtoIntentConfirmInpu
   }
   // 访问云端向量数据库，补充文档和预览图资源 ----- 此处后续要做一个功能：判断是否在内外网
   const enriched = await getPagePatternResource(json)
-  const returnValue: IntentConfirmResult = {
-    results: (enriched.results ?? []) as IntentConfirmDimension[],
-    current_step: "intent_confirm",
+  const returnValue: IntentPageResult = {
+    results: (enriched.results ?? []) as IntentPageDimension[],
+    current_step: "page_matching",
   }
   logAgentParsed(result.childSessionId, returnValue)
   return returnValue

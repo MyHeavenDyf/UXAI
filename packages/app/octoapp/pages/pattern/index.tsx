@@ -22,9 +22,10 @@ import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { useLayout } from "@/context/layout"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { type Attachment } from "./modules/chat/attachment-bar"
-import { create_intent_confirm, create_block_match, create_planner_json, create_modules_json, type ProtoCreateJsonInput } from './workflow/create-json'
-import modify_json_ai from './workflow/modify-json-ai'
-import { appendPatternVersion, updatePatternVersion, listPatternVersions, type VersionEntry } from "./utils/version-history"
+import { create_pattern_page, create_block_match, create_page_json, type ProtoCreateJsonInput } from './workflow/create-json'
+import { watchRequestPattern, watchGenerationComplete } from './workflow/page-watcher'
+// modify_json_ai 已删除：修改流程由主 agent 处理
+import { appendPatternVersion, listPatternVersions, type VersionEntry } from "./utils/version-history"
 import { saveCheckpoint, loadCheckpoint, clearCheckpoint } from "./checkpoint/checkpoint"
 import { restoreSession } from "./checkpoint/session-restore"
 import { logStartSession, clearDebugLog, saveDebugSnapshot } from "./utils/debug-log"
@@ -36,12 +37,11 @@ import { exportZip } from "./utils/preview-handler/zip"
 import { handleModifyElement as runQuickModify, type QuickModifyContext, type ModifyElementData } from './workflow/modify-json-quick'
 import { handleLivePreview as livePreview, handlePixsoPreview as pixsoPreview, handleCodeToHtml as codeToHtmlHandler, handleDownload as download, handleSelectVersion as selectVersion } from "./utils/preview-handler"
 import { PreviewPage, type PreviewPageAPI } from "./modules/preview/index"
-import proto_triage from "./agents/proto-triage"
 import proto_replanner from "./agents/proto-replanner"
 import { PatternGenerating }  from "./modules/preview/pattern-generating"
 import type { BlockModuleItem } from "./utils/pattern-resource"
 import { type IntentConfirmAnswers } from "./modules/chat/intent-confirm-card"
-import type { IntentConfirmDimension, IntentConfirmResult } from "./agents/proto-intent-confirm"
+import type { IntentPageDimension, IntentPageResult } from "./agents/proto-pattern-page"
 import { ChatPanel } from "./modules/chat/index"
 import resultEmptySvg from "./assets/images/IllustrationResultEmpty.svg?url"
 import { PatternPreviewEmpty } from "./modules/preview/pattern-preview-empty"
@@ -58,7 +58,7 @@ import * as sessionMap from "./utils/session-map"
 // jk-j60099994-replace-with-wx372822-pattern-topixso-1-start
 // jk-j60099994-replace-with-wx372822-pattern-topixso-1-end
 
-const AGENT_NAME = "proto_triage"
+const AGENT_NAME = "proto_page_create"
 
 export default function PatternPage() {
   const dir = useProjectDir()
@@ -199,12 +199,12 @@ function PatternContent() {
                   setSessionErrors(prev => ({ ...prev, [id]: { title: "生成异常，请重试" } }))
                   return
                 }
-                case "intent_confirm": {
+                case "page_matching": {
                   const ckpt = result.checkpoint
                   sessionMap.set(setUserInput, id, ckpt.userInput)
                   sessionMap.set(setIntentConfirm, id, {
-                    results: (ckpt.options as { results?: IntentConfirmResult["results"] })?.results ?? [],
-                    current_step: "intent_confirm",
+                    results: (ckpt.options as { results?: IntentPageResult["results"] })?.results ?? [],
+                    current_step: "page_matching",
                   })
                   return
                 }
@@ -212,8 +212,8 @@ function PatternContent() {
                   const ckpt = result.checkpoint
                   sessionMap.set(setUserInput, id, ckpt.userInput)
                   sessionMap.set(setIntentConfirm, id, {
-                    results: (ckpt.options as { results?: IntentConfirmResult["results"] })?.results ?? [],
-                    current_step: "intent_confirm",
+                    results: (ckpt.options as { results?: IntentPageResult["results"] })?.results ?? [],
+                    current_step: "page_matching",
                   })
                   sessionMap.set(setBlockMatches, id, ckpt.blockMatches ?? [])
                   sessionMap.set(setCachedPagePattern, id, ckpt.pagePattern ?? "")
@@ -377,7 +377,7 @@ function PatternContent() {
   // 是否正在生成模块（线框审查确认后 → 预览之间）
   const [isGeneratingReview, setIsGeneratingReview] = sessionMap.createSessionMap<boolean>()
   // 意图确认阶段：null = 未激活，非 null = 带选项结果
-  const [intentConfirm, setIntentConfirm] = sessionMap.createSessionMap<IntentConfirmResult | null>()
+  const [intentConfirm, setIntentConfirm] = sessionMap.createSessionMap<IntentPageResult | null>()
   // block 匹配到的模板列表
   const [blockMatches, setBlockMatches] = sessionMap.createSessionMap<BlockModuleItem[]>()
   // 是否正在匹配 block 模板
@@ -602,77 +602,23 @@ function PatternContent() {
     }
 
     try {
-      if (ckpt.stage === "modules_create" && ckpt.planner) {
-        // Stage 2 失败，从模块生成重试
-        sessionMap.set(setIsGeneratingReview, sid, true)
-        const planner = ckpt.planner
-        const intent = ckpt.intentResult?.intent_description ?? {}
-        const onFinshed = async ({ pageIntent, layoutPlanner, modulesJson, pageJson }: any) => {
-          if (dir) {
-            await updatePatternVersion(dir, sid, { lastModules: modulesJson, mergedA2UI: pageJson })
-            void saveDebugSnapshot(dir, sid, "modules", { lastIntent: pageIntent, lastPlanner: layoutPlanner, lastModules: modulesJson, mergedA2UI: pageJson, summary: text.slice(0, 80) })
-            clearDebugLog()
-          }
-          sessionMap.set(setLastIntent, sid, pageIntent)
-          sessionMap.set(setLastPlanner, sid, layoutPlanner)
-          sessionMap.set(setLastModules, sid, modulesJson)
-          sessionMap.set(setIsGeneratingReview, sid, false)
-          if (params.id === sid && pageJson) sendToPreview(pageJson)
-        }
-        await create_modules_json(intentCtx, planner, intent, onFinshed)
-      } else {
-        if (ckpt.stage === "intent_confirm") {
-          // intent_confirm 报错，先重跑意图确认
-          const confirmResult = await create_intent_confirm(intentCtx)
-          setCardInitialStep(undefined)
-          // 无论是否匹配到 Pattern，都弹卡片暂停；空结果时卡片显示「未匹配到」+ 跳过
-          sessionMap.set(setUserInput, sid, text)
-          sessionMap.set(setIntentConfirm, sid, confirmResult)
-          startPause(sid)
-          return
-        }
-
-        // Stage 1 失败，从 planner 生成重试
-        sessionMap.set(setIsGenerating, sid, true)
-        const new_planner = await create_planner_json(intentCtx)
-        void saveDebugSnapshot(dir, sid, "planner")
-        const partialDir = patternHistoryDir()
-        if (partialDir) {
-          const vid = await appendPatternVersion(partialDir, sid, {
-            lastIntent: new_planner.intent.intent_description,
-            lastPlanner: new_planner.planner.layout_planner,
-            lastModules: [],
-          }, text.slice(0, 80))
-          sessionMap.update(setVersions, sid, prev => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }], [])
-          sessionMap.set(setCurrentVersionId, sid, vid)
-        }
-        if (params.id !== sid) return
-        sessionMap.set(setLastPlanner, sid, new_planner.planner.layout_planner)
-        sessionMap.set(setLastIntent, sid, new_planner.intent.intent_description)
+      if (ckpt.stage === "page_matching") {
+        // page_matching 报错，重跑 pattern 匹配
+        const confirmResult = await create_pattern_page(intentCtx)
+        setCardInitialStep(undefined)
         sessionMap.set(setUserInput, sid, text)
-
-        // 直接进入 modules_create
-        sessionMap.set(setIsGeneratingReview, sid, true)
-        const retryOnFinished = async ({ pageIntent, layoutPlanner, modulesJson, pageJson }: any) => {
-          if (dir) {
-            await updatePatternVersion(dir, sid, { lastModules: modulesJson, mergedA2UI: pageJson })
-            clearDebugLog()
-          }
-          sessionMap.set(setLastIntent, sid, pageIntent)
-          sessionMap.set(setLastPlanner, sid, layoutPlanner)
-          sessionMap.set(setLastModules, sid, modulesJson)
-          sessionMap.set(setIsGeneratingReview, sid, false)
-          if (params.id === sid && pageJson) sendToPreview(pageJson)
-        }
-        await create_modules_json(intentCtx, new_planner.planner.layout_planner, new_planner.intent.intent_description, retryOnFinished)
+        sessionMap.set(setIntentConfirm, sid, confirmResult)
+        startPause(sid)
+        return
       }
+
+      // 其他阶段（生成/修改）：主 agent 是持久会话，用户重新发消息即可重试
+      showToast({ title: "请重新发送消息", description: "主 agent 会话已保留，重新发送即可继续" })
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       await handleWorkflowError(err, sid, "handleRetry")
     } finally {
       setSendingSids(prev => { const n = new Set(prev); n.delete(sid); return n })
-      sessionMap.set(setIsGenerating, sid, false)
-      sessionMap.set(setIsGeneratingReview, sid, false)
     }
   }
 
@@ -694,12 +640,21 @@ function PatternContent() {
     sessionMap.set(setHasPreviewContent, sid, true)
   }
 
+  // 反应式监听主 agent 的 request_pattern tool call（per-session，切 session 时自动重建）
+  let disposePatternWatcher: (() => void) | undefined
+  createEffect(() => {
+    const sid = params.id
+    if (!sid) return
+    disposePatternWatcher?.()
+    disposePatternWatcher = watchRequestPattern(sync, sid, (req) => {
+      void triggerPatternSelection(sid, req)
+    })
+  })
+
   // 用户提交输入
   async function handleSubmit() {
     const text = prompt().trim()
     if (!text || sending() || !activeModelKey()) return
-    const genStartTime = performance.now()
-    console.log("[Pattern] 开始生成页面:", text)
     const submitSessionId = params.id
     setPrompt("")
     const mk = activeModelKey()!
@@ -755,74 +710,9 @@ function PatternContent() {
       // 开启本次调试日志
       logStartSession(sid, text)
       // 流程执行完毕后的回调
-      let onFinshed = async ({ pageIntent, layoutPlanner, modulesJson, pageJson }: any) => {
-          // 历史保存始终执行（与当前查看的 session 无关）
-          const dir = patternHistoryDir()
-          if (dir) {
-            const vid = await appendPatternVersion(dir, sid!, {
-                lastIntent: pageIntent,
-                lastPlanner: layoutPlanner,
-                lastModules: modulesJson,
-                mergedA2UI: pageJson as unknown as Record<string, unknown>,
-            }, text.slice(0, 80))
-            if (params.id === sid) {
-              sessionMap.update(setVersions, sid!, prev => [...prev, { id: vid, createdAt: Date.now(), summary: text.slice(0, 80) }], [])
-              sessionMap.set(setCurrentVersionId, sid!, vid)
-              clearDebugLog()
-            }
-            void saveDebugSnapshot(dir, sid!, "modules", {
-              lastIntent: pageIntent,
-              lastPlanner: layoutPlanner,
-              lastModules: modulesJson,
-              mergedA2UI: pageJson as unknown as Record<string, unknown>,
-              summary: text.slice(0, 80),
-            })
-          }
-          // 内存数据更新（始终写入该 session 的 slot，与当前视图 session 无关）
-          sessionMap.set(setLastIntent, sid!, pageIntent)
-          sessionMap.set(setLastPlanner, sid!, layoutPlanner)
-          sessionMap.set(setLastModules, sid!, modulesJson)
-          // 仅当前仍在该 session 时才推送到 iframe
-          if (params.id === sid && pageJson) sendToPreview(pageJson)
-      }
-
-      if((sid ? lastModules()[sid] ?? [] : []).length > 0){
+        // 新会话：发给主 agent（root session），agent 自主决定 chat/generate/modify
         if (!sendingSids().has(sid!)) return
-        let lastData = {
-          lastIntent: sid ? lastIntent()[sid] ?? null : null,
-          lastPlanner: sid ? lastPlanner()[sid] ?? null : null,
-          lastModules: sid ? lastModules()[sid] ?? [] : [],
-        }
-        // AI 修改页面 — 先切到加载态
-        if (sid) sessionMap.set(setIsModifying, sid!, true)
-        tracker.interaction({ module: "prototype", name: "modify-page" })
-        const modifyResult = await modify_json_ai(intentCtx, lastData, onFinshed);
-        if (params.id !== sid) return
-        if (sid) sessionMap.set(setIsModifying, sid!, false)
-      }else{
-        // 新会话先做分诊，判断是否为闲聊
-        if (!sendingSids().has(sid!)) return
-        const triageCtx = {
-          sdk: intentCtx.sdk,
-          sync: intentCtx.sync,
-          modelKey: intentCtx.modelKey,
-          rootSession: intentCtx.rootSession,
-          userInput: intentCtx.userInput,
-          lastIntent: null,
-          lastPlanner: null,
-          lastModules: [],
-          fileParts: intentCtx.fileParts,
-          onSessionCreated: intentCtx.onSessionCreated,
-        }
-        const triage = await proto_triage(triageCtx as any)
-        if (triage.routing === "chat") {
-          return
-        }
-        if (triage.attachment_description) {
-          intentCtx.userInput = `[参考内容]: ${triage.attachment_description}\n[用户需求]: ${text}`
-        }
-
-        // 首次创建页面：异步获取标题（不阻塞 pipeline）
+        // 异步获取标题（不阻塞）
         void autoRenameSession({
           sync: sync,
           client: sdk.client,
@@ -833,20 +723,19 @@ function PatternContent() {
         }).then((title) => {
           if (title) mutateSession(prev => prev ? { ...prev, title } : prev)
         }).catch(() => {})
-
-        // 无需确认，直接进入阶段 1：意图扩展 + 布局规划
         tracker.interaction({ module: "prototype", name: "create-page" })
-        // 首次创建页面 — 阶段 0：意图确认（暂停等用户选择）
-        if (!sendingSids().has(sid!)) return
-        const confirmResult = await create_intent_confirm(intentCtx)
-        void saveDebugSnapshot(patternHistoryDir(), sid!, "intent_confirm")
-        setCardInitialStep(undefined)
-        // 无论是否匹配到 Pattern，都弹卡片暂停；空结果时卡片显示「未匹配到」+ 跳过
-        if (sid) sessionMap.set(setUserInput, sid!, intentCtx.userInput)
-        if (sid) sessionMap.set(setIntentConfirm, sid!, confirmResult)
-        startPause(sid!)
+        // 记录用户输入
+        sessionMap.set(setUserInput, sid!, text)
+        // 发给主 agent：proto_page_create 在 root session 上自主决策
+        await sdk.client.session.promptAsync({
+          sessionID: sid,
+          agent: "proto_page_create",
+          parts: [{ type: "text", text: intentCtx.userInput }, ...(intentCtx.fileParts ?? [])],
+          model: mk,
+          extra: { designSystem: ds },
+        })
+        // agent 响应通过 sync 流式回来。watchRequestPattern 反应式监听 tool call。
         return
-      }
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       await handleWorkflowError(err, sid!, "handleSubmit")
@@ -861,8 +750,38 @@ function PatternContent() {
     }
   }
 
+  // === 主 agent 自主编排：监控 request_pattern + pattern 子流程 + 文件读取 ===
+
+  // 触发 pattern 子流程（沿用现有 create_pattern_page → 卡片 → block_match）
+  async function triggerPatternSelection(sid: string, userRequirement: string) {
+    const mk = activeModelKey()
+    if (!mk) return
+    const ds = selectedDesignSystem()
+    const intentCtx: ProtoCreateJsonInput = {
+      sdk, sync, modelKey: mk, rootSession: sid,
+      userInput: userRequirement,
+      extra: { designSystem: ds },
+      checkpointDir: patternHistoryDir() ?? undefined,
+      onSessionCreated: (childID: string) => setChildSessionIDs(prev => [...prev, childID]),
+    }
+    setSendingSids(prev => new Set(prev).add(sid))
+    try {
+      const confirmResult = await create_pattern_page(intentCtx)
+      void saveDebugSnapshot(patternHistoryDir(), sid, "page_matching")
+      setCardInitialStep(undefined)
+      sessionMap.set(setUserInput, sid, userRequirement)
+      sessionMap.set(setIntentConfirm, sid, confirmResult)
+      startPause(sid)
+    } catch (err) {
+      console.error("[triggerPatternSelection] error:", err)
+    } finally {
+      setSendingSids(prev => { const n = new Set(prev); n.delete(sid); return n })
+    }
+  }
+
+
   // 卡片第一步：page pattern 选定后触发 block 匹配（selectedItem 后续用于精准匹配）
-  async function handleMatchPatternInCard(selectedItem: IntentConfirmDimension | null) {
+  async function handleMatchPatternInCard(selectedItem: IntentPageDimension | null) {
     const sid = params.id
     if (!sid) return
     const mk = activeModelKey()
@@ -902,9 +821,8 @@ function PatternContent() {
     }
   }
 
-  // 卡片第二步：点「确认并继续生成」→ proto_intent → planner_create → modules_create
+  // 卡片第二步：点「确认并继续生成」→ 单次整页生成（proto_page_create）
   async function handleConfirmIntent(_answers: IntentConfirmAnswers, enrichedInput: string, selectedBlocks: BlockModuleItem[]) {
-    debugger
     const sid = params.id
     if (!sid) return
     const mk = activeModelKey()
@@ -962,40 +880,52 @@ function PatternContent() {
       }
       if (!sendingSids().has(sid)) return
 
-      // proto_intent → planner_create（去掉 pattern_page 和线框审查）
-      const new_planner = await create_planner_json(intentCtx)
-      void saveDebugSnapshot(patternHistoryDir(), sid!, "planner")
-      const partialDir = patternHistoryDir()
-      if (partialDir) {
-        const vid = await appendPatternVersion(partialDir, sid!, {
-          lastIntent: new_planner.intent.intent_description,
-          lastPlanner: new_planner.planner.layout_planner,
-          lastModules: [],
-        }, enrichedText.slice(0, 80))
-        sessionMap.update(setVersions, sid!, prev => [...prev, { id: vid, createdAt: Date.now(), summary: enrichedText.slice(0, 80) }], [])
-        sessionMap.set(setCurrentVersionId, sid!, vid)
-      }
-
-      sessionMap.set(setLastPlanner, sid!, new_planner.planner.layout_planner)
-      sessionMap.set(setLastIntent, sid!, new_planner.intent.intent_description)
-      sessionMap.set(setUserInput, sid!, enrichedText)
-
-      // 直接进入 modules_create，不暂停审查
+      // 回传主 agent 生成：把选中的 pattern 数据 + 文件路径发给主 agent
+      void saveDebugSnapshot(patternHistoryDir(), sid!, "page")
       sessionMap.set(setIsGeneratingReview, sid, true)
-      const onFinshed = async ({ pageIntent, layoutPlanner, modulesJson, pageJson }: any) => {
-        const dir = patternHistoryDir()
-        if (dir) {
-          await updatePatternVersion(dir, sid, { lastModules: modulesJson, mergedA2UI: pageJson })
-          void saveDebugSnapshot(dir, sid, "modules", { lastIntent: pageIntent, lastPlanner: layoutPlanner, lastModules: modulesJson, mergedA2UI: pageJson, summary: enrichedText.slice(0, 80) })
-          clearDebugLog()
+      const pageJsonPath = `${patternHistoryDir()}/${sid}/page.json`
+      const patternData = patterns.length > 0
+        ? patterns.map(p => ({ name: p.name, patternId: p.patternId, description: p.description, content: p.content }))
+        : []
+      sessionMap.set(setUserInput, sid, enrichedText)
+      await sdk.client.session.promptAsync({
+        sessionID: sid,
+        agent: "proto_page_create",
+        parts: [{ type: "text", text:
+          (patternData.length > 0
+            ? `已选定模板：\n${JSON.stringify(patternData)}\n`
+            : `用户跳过了模板选择。\n`) +
+          `用户原始需求：${text}\n` +
+          `请生成完整页面 JSON，并使用 write 工具写入文件：${pageJsonPath}`
+        }],
+        model: mk,
+        extra: { designSystem: ds },
+      })
+      // 反应式监听主 agent 生成完成 → 提取 JSON → 推 preview
+      const knownMsgIds = new Set(
+        ((sync?.data?.message?.[sid] ?? []) as any[])
+          .filter((m: any) => m.role === "assistant")
+          .map((m: any) => m.id)
+      )
+      watchGenerationComplete(sync, sid, knownMsgIds, pageJsonPath, (pageJson) => {
+        if (pageJson) {
+          sessionMap.set(setLastModules, sid, [pageJson])
+          if (params.id === sid) sendToPreview(pageJson)
+          const dir = patternHistoryDir()
+          if (dir) {
+            appendPatternVersion(dir, sid, {
+              lastIntent: null, lastPlanner: null, lastModules: [pageJson], mergedA2UI: pageJson,
+            }, enrichedText.slice(0, 80)).then(vid => {
+              if (vid) {
+                sessionMap.update(setVersions, sid, prev => [...prev, { id: vid, createdAt: Date.now(), summary: enrichedText.slice(0, 80) }], [])
+                sessionMap.set(setCurrentVersionId, sid, vid)
+              }
+            })
+          }
         }
-        sessionMap.set(setLastIntent, sid, pageIntent)
-        sessionMap.set(setLastPlanner, sid, layoutPlanner)
-        sessionMap.set(setLastModules, sid, modulesJson)
         sessionMap.set(setIsGeneratingReview, sid, false)
-        if (params.id === sid && pageJson) sendToPreview(pageJson)
-      }
-      await create_modules_json(intentCtx, new_planner.planner.layout_planner, new_planner.intent.intent_description, onFinshed)
+        sessionMap.set(setIsGenerating, sid, false)
+      })
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
       await handleWorkflowError(err, sid!, "handleConfirmIntent")

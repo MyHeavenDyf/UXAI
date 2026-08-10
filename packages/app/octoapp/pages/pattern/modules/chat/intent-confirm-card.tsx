@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, Show, type JSX } from "solid-js"
 import { showToast } from "@opencode-ai/ui/toast"
-import type { IntentConfirmDimension, IntentConfirmResult } from "../../agents/proto-intent-confirm"
+import type { IntentPageDimension, IntentPageResult } from "../../agents/proto-pattern-page"
 import { readPagePatternMd } from "../../utils/pattern-resource"
 import { type BlockModuleItem, getBlockContent } from "../../utils/pattern-resource"
 import "../../assets/style/chat/intent-confirm-card.css"
@@ -9,12 +9,12 @@ export type IntentConfirmAnswers = Record<string, { selections: string[]; supple
 
 export function IntentConfirmCard(props: {
   sessionId: string
-  result: IntentConfirmResult
+  result: IntentPageResult
   blockMatches: BlockModuleItem[]
   blockMatching: boolean
   blockMatchError?: boolean
   initialStep?: "patterns" | "blocks"
-  onMatchPattern: (selectedItem: IntentConfirmDimension | null) => void
+  onMatchPattern: (selectedItem: IntentPageDimension | null) => void
   onConfirm: (answers: IntentConfirmAnswers, enrichedInput: string, selectedBlocks: BlockModuleItem[]) => void
 }): JSX.Element {
   // 匹配到的 page pattern 列表

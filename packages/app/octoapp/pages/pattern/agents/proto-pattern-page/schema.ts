@@ -1,20 +1,21 @@
 const schema = {
   type: "object",
   properties: {
-    matches: {
+    results: {
       type: "array",
       items: {
         type: "object",
         properties: {
+          id: { type: "string" },
           name: { type: "string" },
           score: { type: "number" },
         },
-        required: ["name", "score"],
+        required: ["id", "name", "score"],
         additionalProperties: false,
       },
     },
   },
-  required: ["matches"],
+  required: ["results"],
   additionalProperties: false,
 }
 

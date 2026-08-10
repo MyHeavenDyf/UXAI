@@ -11,7 +11,7 @@ const schema = {
   required: ["state", "rootId", "elements"],
 }
 
-export const MODULE_CREATE_FORMAT = {
+export const PAGE_CREATE_FORMAT = {
   type: "json_schema" as const,
   schema,
 }

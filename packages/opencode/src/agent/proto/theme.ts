@@ -43,7 +43,7 @@
 
 import { Effect } from "effect"
 import * as Log from "@opencode-ai/core/util/log"
-import { formatPrompt, RAW_TEMPLATES, staticData, PROMPT_PROTO_INTENT, PROMPT_PROTO_INTENT_AUDIT, PROMPT_PROTO_MODULE_CREATE, PROMPT_PROTO_MODULE_MODIFY, PROMPT_PROTO_PLANNER_CREATE, PROMPT_PROTO_PLANNER_MODIFY, PROMPT_PROTO_TRIAGE, PROMPT_PROTO_PATTERN_PAGE, PROMPT_PROTO_PATTERN_BLOCK, PROMPT_PROTO_INTENT_CONFIRM, PROMPT_PROTO_WFRAMES, PROMPT_PROTO_MODIFY, PROMPT_PROTO_REPLANNER } from "./index"
+import { formatPrompt, RAW_TEMPLATES, staticData, PROMPT_PROTO_PAGE_CREATE, PROMPT_PROTO_MODULE_MODIFY, PROMPT_PROTO_PATTERN_BLOCK, PROMPT_PROTO_PATTERN_PAGE, PROMPT_PROTO_MODIFY, PROMPT_PROTO_REPLANNER } from "./index"
 import { InstanceState } from "@/effect/instance-state"
 import { Database, eq } from "@/storage/db"
 import { SessionTable } from "@/session/session.sql"
@@ -56,17 +56,10 @@ const log = Log.create({ service: "proto.theme" })
 /** 静态替换后的默认 prompt，作为无 theme 时的 fallback。
  *  导出供 proto-theme 插件做反查（system[0] 是否是某 proto agent 的静态 prompt）。 */
 export const STATIC_PROMPTS: Record<string, string> = {
-  proto_intent: PROMPT_PROTO_INTENT,
-  proto_intent_audit: PROMPT_PROTO_INTENT_AUDIT,
-  proto_module_create: PROMPT_PROTO_MODULE_CREATE,
+  proto_page_create: PROMPT_PROTO_PAGE_CREATE,
   proto_module_modify: PROMPT_PROTO_MODULE_MODIFY,
-  proto_planner_create: PROMPT_PROTO_PLANNER_CREATE,
-  proto_planner_modify: PROMPT_PROTO_PLANNER_MODIFY,
-  proto_triage: PROMPT_PROTO_TRIAGE,
-  proto_pattern_page: PROMPT_PROTO_PATTERN_PAGE,
   proto_pattern_block: PROMPT_PROTO_PATTERN_BLOCK,
-  proto_intent_confirm: PROMPT_PROTO_INTENT_CONFIRM,
-  proto_wireframes: PROMPT_PROTO_WFRAMES,
+  proto_pattern_page: PROMPT_PROTO_PATTERN_PAGE,
   proto_modify: PROMPT_PROTO_MODIFY,
   proto_replanner: PROMPT_PROTO_REPLANNER,
 }

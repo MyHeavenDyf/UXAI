@@ -13,17 +13,10 @@ import responsive_adaptive from "./prompt/stastics/responsive_adaptive.md"
 import design_system from "./prompt/stastics/design_system.md"
 import role from "./prompt/stastics/role.md"
 
-import _RAW_INTENT from "./prompt/proto_intent.txt"
-import _RAW_INTENT_AUDIT from "./prompt/proto_intent_audit.txt"
-import _RAW_MODULE_CREATE from "./prompt/proto_module_create.txt"
+import _RAW_PAGE_CREATE from "./prompt/proto_page_create.txt"
 import _RAW_MODULE_MODIFY from "./prompt/proto_module_modify.txt"
-import _RAW_PLANNER_CREATE from "./prompt/proto_planner_create.txt"
-import _RAW_PLANNER_MODIFY from "./prompt/proto_planner_modify.txt"
-import _RAW_TRIAGE from "./prompt/proto_triage.txt"
-import _RAW_PATTERN_PAGE from "./prompt/proto_pattern_page.txt"
 import _RAW_PATTERN_BLOCK from "./prompt/proto_pattern_block.txt"
-import _RAW_INTENT_CONFIRM from "./prompt/proto_intent_confirm.txt"
-import _RAW_WFRAMES from "./prompt/proto_wireframes.txt"
+import _RAW_PATTERN_PAGE from "./prompt/proto_pattern_page.txt"
 import _RAW_MODIFY from "./prompt/proto_modify.txt"
 import _RAW_REPLANNER from "./prompt/proto_replanner.txt"
 
@@ -52,32 +45,18 @@ export function formatPrompt(template: string, overrides?: Record<string, string
 
 _staticData.a2ui_json_protocol = formatPrompt(a2ui_json_protocol_raw)
 
-export const PROMPT_PROTO_INTENT = formatPrompt(_RAW_INTENT)
-export const PROMPT_PROTO_INTENT_AUDIT = formatPrompt(_RAW_INTENT_AUDIT)
-export const PROMPT_PROTO_MODULE_CREATE = formatPrompt(_RAW_MODULE_CREATE)
+export const PROMPT_PROTO_PAGE_CREATE = formatPrompt(_RAW_PAGE_CREATE)
 export const PROMPT_PROTO_MODULE_MODIFY = formatPrompt(_RAW_MODULE_MODIFY)
-export const PROMPT_PROTO_PLANNER_CREATE = formatPrompt(_RAW_PLANNER_CREATE)
-export const PROMPT_PROTO_PLANNER_MODIFY = formatPrompt(_RAW_PLANNER_MODIFY)
-export const PROMPT_PROTO_TRIAGE = formatPrompt(_RAW_TRIAGE)
-export const PROMPT_PROTO_PATTERN_PAGE = formatPrompt(_RAW_PATTERN_PAGE)
 export const PROMPT_PROTO_PATTERN_BLOCK = formatPrompt(_RAW_PATTERN_BLOCK)
-export const PROMPT_PROTO_INTENT_CONFIRM = formatPrompt(_RAW_INTENT_CONFIRM)
-export const PROMPT_PROTO_WFRAMES = formatPrompt(_RAW_WFRAMES)
+export const PROMPT_PROTO_PATTERN_PAGE = formatPrompt(_RAW_PATTERN_PAGE)
 export const PROMPT_PROTO_MODIFY = formatPrompt(_RAW_MODIFY)
 export const PROMPT_PROTO_REPLANNER = formatPrompt(_RAW_REPLANNER)
 
 export const RAW_TEMPLATES: Record<string, string> = {
-  proto_intent: _RAW_INTENT,
-  proto_intent_audit: _RAW_INTENT_AUDIT,
-  proto_module_create: _RAW_MODULE_CREATE,
+  proto_page_create: _RAW_PAGE_CREATE,
   proto_module_modify: _RAW_MODULE_MODIFY,
-  proto_planner_create: _RAW_PLANNER_CREATE,
-  proto_planner_modify: _RAW_PLANNER_MODIFY,
-  proto_triage: _RAW_TRIAGE,
-  proto_pattern_page: _RAW_PATTERN_PAGE,
   proto_pattern_block: _RAW_PATTERN_BLOCK,
-  proto_intent_confirm: _RAW_INTENT_CONFIRM,
-  proto_wireframes: _RAW_WFRAMES,
+  proto_pattern_page: _RAW_PATTERN_PAGE,
   proto_modify: _RAW_MODIFY,
   proto_replanner: _RAW_REPLANNER,
 }

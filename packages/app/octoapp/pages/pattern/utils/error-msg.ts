@@ -2,17 +2,10 @@ import { getDesktopApi } from "./desktop-api"
 
 // agent 名称 → 中文标签映射，用于错误展示时标识出错的 agent 步骤
 export const AGENT_LABELS: Record<string, string> = {
-  proto_intent_confirm: "意图确认",
-  proto_pattern_page: "Pattern 匹配",
-  proto_intent: "意图扩展",
-  proto_planner_create: "布局规划",
-  proto_module_create: "模块生成",
-  proto_triage: "需求分析",
-  proto_wireframes: "分诊",
+  proto_pattern_page: "意图确认",
+  proto_page_create: "页面生成",
   proto_modify: "页面修改",
-  proto_planner_modify: "布局修改",
   proto_module_modify: "模块修改",
-  proto_intent_audit: "意图审核",
   proto_pattern_block: "模块匹配",
 }
 
@@ -26,7 +19,7 @@ export type ProtoError = { title: string; agentLabel?: string; agentCallId?: str
 
 /**
  * 带 agent 标识的错误类型，在标准 Error 上扩展三个字段：
- * - agentName:    agent 原始名称（如 "proto_module_create"）
+ * - agentName:    agent 原始名称（如 "proto_page_create"）
  * - agentCallId:  报错 agent 的 childSessionId，唯一标识一次调用
  * - agentContext: 补充上下文（如并行的 sectionId），拼入 agentLabel 展示
  */

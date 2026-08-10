@@ -8,7 +8,7 @@ import { loadCheckpoint, type Checkpoint } from "./checkpoint"
 import { loadCurrentPatternState, type PatternSessionState } from "../utils/version-history"
 
 export type RestoreResult =
-  | { type: "intent_confirm"; checkpoint: Checkpoint }
+  | { type: "page_matching"; checkpoint: Checkpoint }
   | { type: "block_matching"; checkpoint: Checkpoint }
   | { type: "planner_create"; checkpoint: Checkpoint }
   | { type: "pipeline_error"; checkpoint: Checkpoint }
@@ -22,11 +22,11 @@ export async function restoreSession(
   const ckpt = await loadCheckpoint(dir, sessionId)
   if (ckpt) {
     switch (ckpt.stage) {
-      case "intent_confirm":
+      case "page_matching":
         // options 存在（含空数组）→ agent 跑完了，恢复卡片（空结果显示「未匹配到」）
         // options 缺失 → agent 报错或没跑完，归为 pipeline_error
         if (ckpt.options) {
-          return { type: "intent_confirm", checkpoint: ckpt }
+          return { type: "page_matching", checkpoint: ckpt }
         }
         return { type: "pipeline_error", checkpoint: ckpt }
       case "block_matching":

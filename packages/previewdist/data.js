@@ -1,1546 +1,512 @@
 window.__A2UI_DATA__ = {
-    "state": {
-        "ghPlatformName": "iMaster NCE-FabricInsight",
-        "ghLeftNav": [
-            {
-                "label": "健康看板",
-                "icon": "activity",
-                "link": "/health"
-            },
-            {
-                "label": "大屏",
-                "icon": "monitor",
-                "link": "/dashboard"
-            }
-        ],
-        "ghRightNav": [
-            {
-                "label": "策略中心",
-                "icon": "shield-check",
-                "link": "/policy"
-            }
-        ],
-        "ghSystemActions": [
-            {
-                "icon": "search",
-                "tooltip": "搜索"
-            },
-            {
-                "icon": "bell",
-                "tooltip": "通知"
-            },
-            {
-                "icon": "settings",
-                "tooltip": "设置"
-            },
-            {
-                "icon": "help-circle",
-                "tooltip": "帮助"
-            }
-        ],
-        "ghUserInfo": {
-            "userName": "Admin",
-            "avatarImage": "https://randomuser.me/api/portraits/men/32.jpg"
-        },
-        "lrlCardTitle": "链路结果",
-        "lrlSearchCategory": "请选择",
-        "lrlSearchValue": "",
-        "lrlSelectedRowKeys": [
-            1
-        ],
-        "lrlTableData": [
-            {
-                "id": 1,
-                "peerCrc": "未检测",
-                "localAlarm": "光模块IIC故障",
-                "peerAlarm": "无",
-                "temp": "41.40°C",
-                "voltage": "3.35V",
-                "txPowerLocal": "Lane1:-1dBm...",
-                "rxPowerLocal": "Lane0:2.43dBm...",
-                "currentLocal": "Lane0:87.23mA...",
-                "snrLocal": "Lane0:1dB...",
-                "berLocal": "NA",
-                "txPowerPeer": "Lane0:-0.95dBm..."
-            },
-            {
-                "id": 2,
-                "peerCrc": "0",
-                "localAlarm": "无",
-                "peerAlarm": "无",
-                "temp": "38.50°C",
-                "voltage": "3.32V",
-                "txPowerLocal": "Lane1:-1.2dBm",
-                "rxPowerLocal": "Lane0:2.10dBm",
-                "currentLocal": "Lane0:82.15mA",
-                "snrLocal": "Lane0:2dB",
-                "berLocal": "1e-12",
-                "txPowerPeer": "Lane0:-1.05dBm"
-            },
-            {
-                "id": 3,
-                "peerCrc": "12",
-                "localAlarm": "接收功率低",
-                "peerAlarm": "无",
-                "temp": "45.10°C",
-                "voltage": "3.30V",
-                "txPowerLocal": "Lane1:-0.8dBm",
-                "rxPowerLocal": "Lane0:-5.43dBm",
-                "currentLocal": "Lane0:90.12mA",
-                "snrLocal": "Lane0:0.5dB",
-                "berLocal": "1e-5",
-                "txPowerPeer": "Lane0:-0.85dBm"
-            },
-            {
-                "id": 4,
-                "peerCrc": "0",
-                "localAlarm": "无",
-                "peerAlarm": "无",
-                "temp": "40.20°C",
-                "voltage": "3.34V",
-                "txPowerLocal": "Lane1:-1.1dBm",
-                "rxPowerLocal": "Lane0:2.30dBm",
-                "currentLocal": "Lane0:85.40mA",
-                "snrLocal": "Lane0:1.5dB",
-                "berLocal": "NA",
-                "txPowerPeer": "Lane0:-0.90dBm"
-            },
-            {
-                "id": 5,
-                "peerCrc": "0",
-                "localAlarm": "无",
-                "peerAlarm": "无",
-                "temp": "39.80°C",
-                "voltage": "3.33V",
-                "txPowerLocal": "Lane1:-1.0dBm",
-                "rxPowerLocal": "Lane0:2.25dBm",
-                "currentLocal": "Lane0:84.20mA",
-                "snrLocal": "Lane0:1.2dB",
-                "berLocal": "NA",
-                "txPowerPeer": "Lane0:-0.98dBm"
-            },
-            {
-                "id": 6,
-                "peerCrc": "5",
-                "localAlarm": "无",
-                "peerAlarm": "发送功率高",
-                "temp": "42.60°C",
-                "voltage": "3.36V",
-                "txPowerLocal": "Lane1:1.5dBm",
-                "rxPowerLocal": "Lane0:2.50dBm",
-                "currentLocal": "Lane0:88.10mA",
-                "snrLocal": "Lane0:1.1dB",
-                "berLocal": "NA",
-                "txPowerPeer": "Lane0:2.10dBm"
-            },
-            {
-                "id": 7,
-                "peerCrc": "0",
-                "localAlarm": "无",
-                "peerAlarm": "无",
-                "temp": "41.00°C",
-                "voltage": "3.35V",
-                "txPowerLocal": "Lane1:-1.0dBm",
-                "rxPowerLocal": "Lane0:2.40dBm",
-                "currentLocal": "Lane0:86.50mA",
-                "snrLocal": "Lane0:1.0dB",
-                "berLocal": "NA",
-                "txPowerPeer": "Lane0:-0.92dBm"
-            },
-            {
-                "id": 8,
-                "peerCrc": "0",
-                "localAlarm": "无",
-                "peerAlarm": "无",
-                "temp": "37.90°C",
-                "voltage": "3.31V",
-                "txPowerLocal": "Lane1:-1.3dBm",
-                "rxPowerLocal": "Lane0:2.05dBm",
-                "currentLocal": "Lane1:81.40mA",
-                "snrLocal": "Lane0:2.1dB",
-                "berLocal": "1e-13",
-                "txPowerPeer": "Lane0:-1.10dBm"
-            },
-            {
-                "id": 9,
-                "peerCrc": "0",
-                "localAlarm": "无",
-                "peerAlarm": "无",
-                "temp": "40.50°C",
-                "voltage": "3.34V",
-                "txPowerLocal": "Lane1:-1.1dBm",
-                "rxPowerLocal": "Lane0:2.35dBm",
-                "currentLocal": "Lane0:85.90mA",
-                "snrLocal": "Lane0:1.4dB",
-                "berLocal": "NA",
-                "txPowerPeer": "Lane0:-0.94dBm"
-            },
-            {
-                "id": 10,
-                "peerCrc": "0",
-                "localAlarm": "无",
-                "peerAlarm": "无",
-                "temp": "39.20°C",
-                "voltage": "3.33V",
-                "txPowerLocal": "Lane1:-1.2dBm",
-                "rxPowerLocal": "Lane0:2.15dBm",
-                "currentLocal": "Lane0:83.10mA",
-                "snrLocal": "Lane0:1.8dB",
-                "berLocal": "NA",
-                "txPowerPeer": "Lane0:-1.02dBm"
-            },
-            {
-                "id": 11,
-                "peerCrc": "2",
-                "localAlarm": "无",
-                "peerAlarm": "无",
-                "temp": "43.00°C",
-                "voltage": "3.37V",
-                "txPowerLocal": "Lane1:-0.9dBm",
-                "rxPowerLocal": "Lane0:2.60dBm",
-                "currentLocal": "Lane0:89.50mA",
-                "snrLocal": "Lane0:0.9dB",
-                "berLocal": "NA",
-                "txPowerPeer": "Lane0:-0.80dBm"
-            },
-            {
-                "id": 12,
-                "peerCrc": "0",
-                "localAlarm": "无",
-                "peerAlarm": "无",
-                "temp": "41.20°C",
-                "voltage": "3.35V",
-                "txPowerLocal": "Lane1:-1.0dBm",
-                "rxPowerLocal": "Lane0:2.42dBm",
-                "currentLocal": "Lane0:87.00mA",
-                "snrLocal": "Lane0:1.1dB",
-                "berLocal": "NA",
-                "txPowerPeer": "Lane0:-0.93dBm"
-            }
-        ],
-        "mddDrawerTitle": "指标详情",
-        "mddTimeRange": "2025/05/15 00:54:12 - 2025/05/15 14:54:12",
-        "mddActiveTab": "local",
-        "mddTabs": [
-            {
-                "key": "local",
-                "label": "本端"
-            },
-            {
-                "key": "peer",
-                "label": "对端"
-            }
-        ],
-        "mddBaseInfo": {
-            "deviceName": "POD7-spine1",
-            "devicePort": "25GE1/0/4",
-            "aggregationMethod": "平均值"
-        },
-        "mddAggregationOptions": [
-            {
-                "label": "平均值",
-                "value": "平均值"
-            },
-            {
-                "label": "最大值",
-                "value": "最大值"
-            },
-            {
-                "label": "最小值",
-                "value": "最小值"
-            }
-        ],
-        "mddMetrics": [
-            {
-                "chartTitle": "接收功率",
-                "unit": "dBm",
-                "kpis": [
-                    {
-                        "label": "最大值",
-                        "value": "-1.74 dBm"
-                    },
-                    {
-                        "label": "最小值",
-                        "value": "-1.74 dBm"
-                    },
-                    {
-                        "label": "平均值",
-                        "value": "-1.74 dBm"
-                    }
-                ],
-                "chartData": [
-                    {
-                        "timestamp": "00:54",
-                        "lane0": 87.23,
-                        "lane1": 85.1,
-                        "lane2": 86.4,
-                        "lane3": 84.9
-                    },
-                    {
-                        "timestamp": "01:49",
-                        "lane0": 86.9,
-                        "lane1": 84.8,
-                        "lane2": 86.1,
-                        "lane3": 84.6
-                    },
-                    {
-                        "timestamp": "02:43",
-                        "lane0": 87.1,
-                        "lane1": 85.0,
-                        "lane2": 86.3,
-                        "lane3": 84.8
-                    },
-                    {
-                        "timestamp": "03:38",
-                        "lane0": 86.7,
-                        "lane1": 84.6,
-                        "lane2": 85.9,
-                        "lane3": 84.4
-                    },
-                    {
-                        "timestamp": "04:32",
-                        "lane0": 87.23,
-                        "lane1": 85.1,
-                        "lane2": 86.4,
-                        "lane3": 84.9
-                    },
-                    {
-                        "timestamp": "05:27",
-                        "lane0": 87.5,
-                        "lane1": 85.4,
-                        "lane2": 86.7,
-                        "lane3": 85.2
-                    },
-                    {
-                        "timestamp": "06:22",
-                        "lane0": 86.8,
-                        "lane1": 84.7,
-                        "lane2": 86.0,
-                        "lane3": 84.5
-                    },
-                    {
-                        "timestamp": "07:17",
-                        "lane0": 87.0,
-                        "lane1": 84.9,
-                        "lane2": 86.2,
-                        "lane3": 84.7
-                    },
-                    {
-                        "timestamp": "08:12",
-                        "lane0": 86.6,
-                        "lane1": 84.5,
-                        "lane2": 85.8,
-                        "lane3": 84.3
-                    },
-                    {
-                        "timestamp": "09:07",
-                        "lane0": 87.23,
-                        "lane1": 85.1,
-                        "lane2": 86.4,
-                        "lane3": 84.9
-                    }
-                ]
-            },
-            {
-                "chartTitle": "发送功率",
-                "unit": "dBm",
-                "kpis": [
-                    {
-                        "label": "最大值",
-                        "value": "2.43 dBm"
-                    },
-                    {
-                        "label": "最小值",
-                        "value": "2.40 dBm"
-                    },
-                    {
-                        "label": "平均值",
-                        "value": "2.42 dBm"
-                    }
-                ],
-                "chartData": [
-                    {
-                        "timestamp": "00:54",
-                        "lane0": 87.23,
-                        "lane1": 85.1,
-                        "lane2": 86.4,
-                        "lane3": 84.9
-                    },
-                    {
-                        "timestamp": "01:49",
-                        "lane0": 86.9,
-                        "lane1": 84.8,
-                        "lane2": 86.1,
-                        "lane3": 84.6
-                    },
-                    {
-                        "timestamp": "02:43",
-                        "lane0": 87.1,
-                        "lane1": 85.0,
-                        "lane2": 86.3,
-                        "lane3": 84.8
-                    },
-                    {
-                        "timestamp": "03:38",
-                        "lane0": 86.7,
-                        "lane1": 84.6,
-                        "lane2": 85.9,
-                        "lane3": 84.4
-                    },
-                    {
-                        "timestamp": "04:32",
-                        "lane0": 87.23,
-                        "lane1": 85.1,
-                        "lane2": 86.4,
-                        "lane3": 84.9
-                    },
-                    {
-                        "timestamp": "05:27",
-                        "lane0": 87.5,
-                        "lane1": 85.4,
-                        "lane2": 86.7,
-                        "lane3": 85.2
-                    },
-                    {
-                        "timestamp": "06:22",
-                        "lane0": 86.8,
-                        "lane1": 84.7,
-                        "lane2": 86.0,
-                        "lane3": 84.5
-                    },
-                    {
-                        "timestamp": "07:17",
-                        "lane0": 87.0,
-                        "lane1": 84.9,
-                        "lane2": 86.2,
-                        "lane3": 84.7
-                    },
-                    {
-                        "timestamp": "08:12",
-                        "lane0": 86.6,
-                        "lane1": 84.5,
-                        "lane2": 85.8,
-                        "lane3": 84.3
-                    },
-                    {
-                        "timestamp": "09:07",
-                        "lane0": 87.23,
-                        "lane1": 85.1,
-                        "lane2": 86.4,
-                        "lane3": 84.9
-                    }
-                ]
-            },
-            {
-                "chartTitle": "电流",
-                "unit": "mA",
-                "kpis": [
-                    {
-                        "label": "最大值",
-                        "value": "87.23 mA"
-                    },
-                    {
-                        "label": "最小值",
-                        "value": "86.50 mA"
-                    },
-                    {
-                        "label": "平均值",
-                        "value": "86.85 mA"
-                    }
-                ],
-                "chartData": [
-                    {
-                        "timestamp": "00:54",
-                        "lane0": 87.23,
-                        "lane1": 85.1,
-                        "lane2": 86.4,
-                        "lane3": 84.9
-                    },
-                    {
-                        "timestamp": "01:49",
-                        "lane0": 86.9,
-                        "lane1": 84.8,
-                        "lane2": 86.1,
-                        "lane3": 84.6
-                    },
-                    {
-                        "timestamp": "02:43",
-                        "lane0": 87.1,
-                        "lane1": 85.0,
-                        "lane2": 86.3,
-                        "lane3": 84.8
-                    },
-                    {
-                        "timestamp": "03:38",
-                        "lane0": 86.7,
-                        "lane1": 84.6,
-                        "lane2": 85.9,
-                        "lane3": 84.4
-                    },
-                    {
-                        "timestamp": "04:32",
-                        "lane0": 87.23,
-                        "lane1": 85.1,
-                        "lane2": 86.4,
-                        "lane3": 84.9
-                    },
-                    {
-                        "timestamp": "05:27",
-                        "lane0": 87.5,
-                        "lane1": 85.4,
-                        "lane2": 86.7,
-                        "lane3": 85.2
-                    },
-                    {
-                        "timestamp": "06:22",
-                        "lane0": 86.8,
-                        "lane1": 84.7,
-                        "lane2": 86.0,
-                        "lane3": 84.5
-                    },
-                    {
-                        "timestamp": "07:17",
-                        "lane0": 87.0,
-                        "lane1": 84.9,
-                        "lane2": 86.2,
-                        "lane3": 84.7
-                    },
-                    {
-                        "timestamp": "08:12",
-                        "lane0": 86.6,
-                        "lane1": 84.5,
-                        "lane2": 85.8,
-                        "lane3": 84.3
-                    },
-                    {
-                        "timestamp": "09:07",
-                        "lane0": 87.23,
-                        "lane1": 85.1,
-                        "lane2": 86.4,
-                        "lane3": 84.9
-                    }
-                ]
-            }
+  "state": {
+    "brandName": "UXAI 管理平台",
+    "userName": "管理员",
+    "userAvatarUrl": "https://randomuser.me/api/portraits/men/67.jpg",
+    "collapsed": false,
+    "selectedKeys": ["single-sys"],
+    "openKeys": ["system"],
+    "searchValue": "",
+    "menuItems": [
+      { "title": "工作台", "key": "dashboard", "icon": "layout-dashboard" },
+      {
+        "title": "系统管理",
+        "key": "system",
+        "icon": "server",
+        "children": [
+          { "title": "单系统管理", "key": "single-sys" },
+          { "title": "集群管理", "key": "cluster" }
         ]
+      },
+      { "title": "网络管理", "key": "network", "icon": "network" },
+      { "title": "存储管理", "key": "storage", "icon": "database" },
+      { "title": "安全管理", "key": "security", "icon": "shield" },
+      { "title": "监控告警", "key": "monitor", "icon": "activity" }
+    ],
+    "breadcrumb": [
+      { "title": "系统" },
+      { "title": "单系统管理" },
+      { "title": "内部规格管理" }
+    ],
+    "pageTitle": "内部规格管理",
+    "pageDesc": "维护各子系统的配置项及其运行值与默认值",
+    "filter": {
+      "subsystem": "all",
+      "configItem": ""
     },
-    "rootId": "rootContainer",
-    "elements": [
-        {
-            "id": "rootContainer",
-            "component": "div",
-            "props": {
-                "className": "flex flex-col h-screen w-full bg-surface-container-lowest overflow-hidden"
-            },
-            "children": [
-                "shellHeader",
-                "shellMain"
-            ]
-        },
-        {
-            "id": "shellHeader",
-            "component": "header",
-            "props": {
-                "className": "h-12 w-full bg-surface-container-highest shadow-sm z-20 flex items-center justify-between px-gutter"
-            },
-            "children": [
-                "ghLeftSection",
-                "ghRightSection"
-            ]
-        },
-        {
-            "id": "shellMain",
-            "component": "main",
-            "props": {
-                "className": "flex flex-1 relative overflow-hidden"
-            },
-            "children": [
-                "shellContentScroll",
-                "shellDrawerOverlay"
-            ]
-        },
-        {
-            "id": "shellContentScroll",
-            "component": "section",
-            "props": {
-                "className": "flex-1 overflow-auto p-page bg-surface-container-lowest"
-            },
-            "children": [
-                "lrlMainContainer"
-            ]
-        },
-        {
-            "id": "shellDrawerOverlay",
-            "component": "aside",
-            "props": {
-                "className": "absolute right-0 top-0 h-full w-[480px] bg-surface-container-highest shadow-lg z-10 border-l border-divider flex flex-col"
-            },
-            "children": [
-                "mddHeader",
-                "mddTabsContainer",
-                "mddScrollContent"
-            ]
-        },
-        {
-            "id": "ghLeftSection",
-            "component": "div",
-            "props": {
-                "className": "flex items-center gap-4 h-full"
-            },
-            "children": [
-                "ghCollapseBtn",
-                "ghBrandContainer",
-                "ghLeftNavLinks"
-            ]
-        },
-        {
-            "id": "ghCollapseBtn",
-            "component": "Button",
-            "props": {
-                "icon": "menu",
-                "types": "link",
-                "className": "text-on-surface"
-            }
-        },
-        {
-            "id": "ghBrandContainer",
-            "component": "div",
-            "props": {
-                "className": "flex items-center mr-4"
-            },
-            "children": [
-                "ghPlatformTitle"
-            ]
-        },
-        {
-            "id": "ghPlatformTitle",
-            "component": "span",
-            "props": {
-                "value": {
-                    "path": "/ghPlatformName"
-                },
-                "className": "text-lg font-bold text-primary"
-            }
-        },
-        {
-            "id": "ghLeftNavLinks",
-            "component": "div",
-            "props": {
-                "className": "flex items-center gap-2"
-            },
-            "children": {
-                "path": "/ghLeftNav",
-                "componentId": "ghLeftNavItem"
-            }
-        },
-        {
-            "id": "ghLeftNavItem",
-            "component": "Button",
-            "props": {
-                "value": {
-                    "path": "label"
-                },
-                "icon": {
-                    "path": "icon"
-                },
-                "types": "link",
-                "className": "text-on-surface-variant hover:text-primary"
-            }
-        },
-        {
-            "id": "ghRightSection",
-            "component": "div",
-            "props": {
-                "className": "flex items-center gap-4 h-full"
-            },
-            "children": [
-                "ghRightNavLinks",
-                "ghActionIcons",
-                "ghUserContainer"
-            ]
-        },
-        {
-            "id": "ghRightNavLinks",
-            "component": "div",
-            "props": {
-                "className": "flex items-center border-r border-divider pr-4"
-            },
-            "children": {
-                "path": "/ghRightNav",
-                "componentId": "ghRightNavItem"
-            }
-        },
-        {
-            "id": "ghRightNavItem",
-            "component": "Button",
-            "props": {
-                "value": {
-                    "path": "label"
-                },
-                "icon": {
-                    "path": "icon"
-                },
-                "types": "link",
-                "className": "text-on-surface-variant hover:text-primary"
-            }
-        },
-        {
-            "id": "ghActionIcons",
-            "component": "div",
-            "props": {
-                "className": "flex items-center gap-1"
-            },
-            "children": {
-                "path": "/ghSystemActions",
-                "componentId": "ghActionIconBtn"
-            }
-        },
-        {
-            "id": "ghActionIconBtn",
-            "component": "Button",
-            "props": {
-                "icon": {
-                    "path": "icon"
-                },
-                "types": "link",
-                "className": "text-on-surface-variant hover:bg-surface-variant rounded-full"
-            }
-        },
-        {
-            "id": "ghUserContainer",
-            "component": "div",
-            "props": {
-                "className": "flex items-center gap-2 pl-2 cursor-pointer"
-            },
-            "children": [
-                "ghUserAvatar",
-                "ghUserName"
-            ]
-        },
-        {
-            "id": "ghUserAvatar",
-            "component": "img",
-            "props": {
-                "src": {
-                    "path": "/ghUserInfo/avatarImage"
-                },
-                "className": "w-8 h-8 rounded-full border border-divider"
-            }
-        },
-        {
-            "id": "ghUserName",
-            "component": "span",
-            "props": {
-                "value": {
-                    "path": "/ghUserInfo/userName"
-                },
-                "className": "text-md font-medium text-on-surface"
-            }
-        },
-        {
-            "id": "lrlMainContainer",
-            "component": "div",
-            "props": {
-                "className": "flex flex-col gap-section bg-surface-container-highest rounded-container shadow-card p-inset"
-            },
-            "children": [
-                "lrlHeaderArea",
-                "lrlSearchArea",
-                "lrlTableArea"
-            ]
-        },
-        {
-            "id": "lrlHeaderArea",
-            "component": "div",
-            "props": {
-                "className": "flex items-center justify-between"
-            },
-            "children": [
-                "lrlTitle"
-            ]
-        },
-        {
-            "id": "lrlTitle",
-            "component": "span",
-            "props": {
-                "value": {
-                    "path": "/lrlCardTitle"
-                },
-                "className": "text-lg font-bold text-on-surface"
-            }
-        },
-        {
-            "id": "lrlSearchArea",
-            "component": "div",
-            "props": {
-                "className": "flex items-center gap-inline"
-            },
-            "children": [
-                "lrlSearchSelect",
-                "lrlSearchInput"
-            ]
-        },
-        {
-            "id": "lrlSearchSelect",
-            "component": "Select",
-            "props": {
-                "value": {
-                    "path": "/lrlSearchCategory"
-                },
-                "placeholder": "请选择",
-                "options": [
-                    {
-                        "label": "全部",
-                        "value": "all"
-                    },
-                    {
-                        "label": "本端告警",
-                        "value": "local"
-                    },
-                    {
-                        "label": "对端告警",
-                        "value": "peer"
-                    }
-                ],
-                "className": "w-40"
-            }
-        },
-        {
-            "id": "lrlSearchInput",
-            "component": "Input",
-            "props": {
-                "value": {
-                    "path": "/lrlSearchValue"
-                },
-                "placeholder": "请输入搜索内容",
-                "prefix": "search",
-                "className": "w-64"
-            }
-        },
-        {
-            "id": "lrlTableArea",
-            "component": "Table",
-            "props": {
-                "rowKey": "id",
-                "dataSource": {
-                    "path": "/lrlTableData"
-                },
-                "rowSelection": {
-                    "type": "checkbox",
-                    "selectedRowKeys": {
-                        "path": "/lrlSelectedRowKeys"
-                    }
-                },
-                "columns": [
-                    {
-                        "title": "对端端口crc(近一天)",
-                        "dataIndex": "peerCrc"
-                    },
-                    {
-                        "title": "本端光模块告警(近一天)",
-                        "dataIndex": "localAlarm",
-                        "minWidth": 160
-                    },
-                    {
-                        "title": "对端告警(近一天)",
-                        "dataIndex": "peerAlarm",
-                        "minWidth": 140
-                    },
-                    {
-                        "title": "温度",
-                        "dataIndex": "temp"
-                    },
-                    {
-                        "title": "电压",
-                        "dataIndex": "voltage"
-                    },
-                    {
-                        "title": "发送功率(本端)",
-                        "dataIndex": "txPowerLocal",
-                        "minWidth": 140
-                    },
-                    {
-                        "title": "接收功率(本端)",
-                        "dataIndex": "rxPowerLocal",
-                        "minWidth": 140
-                    },
-                    {
-                        "title": "电流(本端)",
-                        "dataIndex": "currentLocal",
-                        "minWidth": 140
-                    },
-                    {
-                        "title": "信噪比(本端)",
-                        "dataIndex": "snrLocal"
-                    },
-                    {
-                        "title": "误码率(本端)",
-                        "dataIndex": "berLocal"
-                    },
-                    {
-                        "title": "发送功率(对端)",
-                        "dataIndex": "txPowerPeer",
-                        "minWidth": 140
-                    },
-                    {
-                        "title": "操作",
-                        "dataIndex": "actions",
-                        "fixed": "end",
-                        "width": 100
-                    }
-                ],
-                "className": "mb-stack"
-            },
-            "children": {
-                "path": "/lrlTableData",
-                "componentId": "lrlTableRow"
-            }
-        },
-        {
-            "id": "lrlTableRow",
-            "component": "TableRow",
-            "children": [
-                "lrlCellPeerCrc",
-                "lrlCellLocalAlarm",
-                "lrlCellPeerAlarm",
-                "lrlCellTemp",
-                "lrlCellVoltage",
-                "lrlCellTxLocal",
-                "lrlCellRxLocal",
-                "lrlCellCurrentLocal",
-                "lrlCellSnrLocal",
-                "lrlCellBerLocal",
-                "lrlCellTxPeer",
-                "lrlCellActions"
-            ]
-        },
-        {
-            "id": "lrlCellPeerCrc",
-            "component": "span",
-            "props": {
-                "value": {
-                    "path": "peerCrc"
-                },
-                "className": "text-md text-on-surface"
-            }
-        },
-        {
-            "id": "lrlCellLocalAlarm",
-            "component": "Tag",
-            "props": {
-                "value": {
-                    "path": "localAlarm"
-                },
-                "color": "error",
-                "variant": "outlined"
-            }
-        },
-        {
-            "id": "lrlCellPeerAlarm",
-            "component": "span",
-            "props": {
-                "value": {
-                    "path": "peerAlarm"
-                },
-                "className": "text-md text-on-surface"
-            }
-        },
-        {
-            "id": "lrlCellTemp",
-            "component": "span",
-            "props": {
-                "value": {
-                    "path": "temp"
-                },
-                "className": "text-md text-on-surface"
-            }
-        },
-        {
-            "id": "lrlCellVoltage",
-            "component": "span",
-            "props": {
-                "value": {
-                    "path": "voltage"
-                },
-                "className": "text-md text-on-surface"
-            }
-        },
-        {
-            "id": "lrlCellTxLocal",
-            "component": "span",
-            "props": {
-                "value": {
-                    "path": "txPowerLocal"
-                },
-                "className": "text-md text-on-surface"
-            }
-        },
-        {
-            "id": "lrlCellRxLocal",
-            "component": "span",
-            "props": {
-                "value": {
-                    "path": "rxPowerLocal"
-                },
-                "className": "text-md text-on-surface"
-            }
-        },
-        {
-            "id": "lrlCellCurrentLocal",
-            "component": "span",
-            "props": {
-                "value": {
-                    "path": "currentLocal"
-                },
-                "className": "text-md text-on-surface"
-            }
-        },
-        {
-            "id": "lrlCellSnrLocal",
-            "component": "span",
-            "props": {
-                "value": {
-                    "path": "snrLocal"
-                },
-                "className": "text-md text-on-surface"
-            }
-        },
-        {
-            "id": "lrlCellBerLocal",
-            "component": "span",
-            "props": {
-                "value": {
-                    "path": "berLocal"
-                },
-                "className": "text-md text-on-surface"
-            }
-        },
-        {
-            "id": "lrlCellTxPeer",
-            "component": "span",
-            "props": {
-                "value": {
-                    "path": "txPowerPeer"
-                },
-                "className": "text-md text-on-surface"
-            }
-        },
-        {
-            "id": "lrlCellActions",
-            "component": "div",
-            "props": {
-                "className": "flex items-center gap-inline"
-            },
-            "children": [
-                "lrlActionChart",
-                "lrlActionSettings"
-            ]
-        },
-        {
-            "id": "lrlActionChart",
-            "component": "Button",
-            "props": {
-                "icon": "line-chart",
-                "types": "link",
-                "size": "small"
-            }
-        },
-        {
-            "id": "lrlActionSettings",
-            "component": "Button",
-            "props": {
-                "icon": "settings",
-                "types": "link",
-                "size": "small"
-            }
-        },
-        {
-            "id": "mddHeader",
-            "component": "div",
-            "props": {
-                "className": "flex items-center justify-between p-inset border-b border-divider"
-            },
-            "children": [
-                "mddHeaderTitle",
-                "mddHeaderRight"
-            ]
-        },
-        {
-            "id": "mddHeaderTitle",
-            "component": "span",
-            "props": {
-                "className": "text-lg font-bold text-on-surface",
-                "value": {
-                    "path": "/mddDrawerTitle"
-                }
-            }
-        },
-        {
-            "id": "mddHeaderRight",
-            "component": "div",
-            "props": {
-                "className": "flex items-center gap-inline"
-            },
-            "children": [
-                "mddTimeRangeText",
-                "mddCloseBtn"
-            ]
-        },
-        {
-            "id": "mddTimeRangeText",
-            "component": "span",
-            "props": {
-                "className": "text-sm text-on-surface-variant",
-                "value": {
-                    "path": "/mddTimeRange"
-                }
-            }
-        },
-        {
-            "id": "mddCloseBtn",
-            "component": "Icon",
-            "props": {
-                "name": "x",
-                "className": "w-5 h-5 cursor-pointer text-on-surface-variant hover:text-on-surface"
-            }
-        },
-        {
-            "id": "mddTabsContainer",
-            "component": "div",
-            "props": {
-                "className": "px-inset pt-stack"
-            },
-            "children": [
-                "mddTabs"
-            ]
-        },
-        {
-            "id": "mddTabs",
-            "component": "Tabs",
-            "props": {
-                "activeKey": {
-                    "path": "/mddActiveTab"
-                },
-                "className": "w-full"
-            },
-            "children": {
-                "path": "/mddTabs",
-                "componentId": "mddTabItem"
-            }
-        },
-        {
-            "id": "mddTabItem",
-            "component": "TabItem",
-            "props": {
-                "key": {
-                    "path": "key"
-                },
-                "label": {
-                    "path": "label"
-                }
-            }
-        },
-        {
-            "id": "mddScrollContent",
-            "component": "div",
-            "props": {
-                "className": "flex-1 overflow-y-auto p-inset flex flex-col gap-section"
-            },
-            "children": [
-                "mddBaseInfoCard",
-                "mddTimeAxisPlaceholder",
-                "mddChartsLoop"
-            ]
-        },
-        {
-            "id": "mddBaseInfoCard",
-            "component": "div",
-            "props": {
-                "className": "bg-surface-variant p-gutter rounded-container flex flex-col gap-stack"
-            },
-            "children": [
-                "mddBaseInfoRow1",
-                "mddBaseInfoRow2"
-            ]
-        },
-        {
-            "id": "mddBaseInfoRow1",
-            "component": "div",
-            "props": {
-                "className": "flex justify-between"
-            },
-            "children": [
-                "mddDeviceNameGroup",
-                "mddDevicePortGroup"
-            ]
-        },
-        {
-            "id": "mddDeviceNameGroup",
-            "component": "div",
-            "props": {
-                "className": "flex flex-col"
-            },
-            "children": [
-                "mddDeviceNameLabel",
-                "mddDeviceNameValue"
-            ]
-        },
-        {
-            "id": "mddDeviceNameLabel",
-            "component": "span",
-            "props": {
-                "className": "text-sm text-on-surface-variant",
-                "value": "设备名称"
-            }
-        },
-        {
-            "id": "mddDeviceNameValue",
-            "component": "span",
-            "props": {
-                "className": "text-md font-medium text-on-surface",
-                "value": {
-                    "path": "/mddBaseInfo/deviceName"
-                }
-            }
-        },
-        {
-            "id": "mddDevicePortGroup",
-            "component": "div",
-            "props": {
-                "className": "flex flex-col items-end"
-            },
-            "children": [
-                "mddDevicePortLabel",
-                "mddDevicePortValue"
-            ]
-        },
-        {
-            "id": "mddDevicePortLabel",
-            "component": "span",
-            "props": {
-                "className": "text-sm text-on-surface-variant",
-                "value": "设备端口"
-            }
-        },
-        {
-            "id": "mddDevicePortValue",
-            "component": "span",
-            "props": {
-                "className": "text-md font-medium text-on-surface",
-                "value": {
-                    "path": "/mddBaseInfo/devicePort"
-                }
-            }
-        },
-        {
-            "id": "mddBaseInfoRow2",
-            "component": "div",
-            "props": {
-                "className": "flex items-center gap-inline"
-            },
-            "children": [
-                "mddAggregationLabel",
-                "mddAggregationSelect"
-            ]
-        },
-        {
-            "id": "mddAggregationLabel",
-            "component": "span",
-            "props": {
-                "className": "text-sm text-on-surface-variant",
-                "value": "聚合方式"
-            }
-        },
-        {
-            "id": "mddAggregationSelect",
-            "component": "Select",
-            "props": {
-                "value": {
-                    "path": "/mddBaseInfo/aggregationMethod"
-                },
-                "options": {
-                    "path": "/mddAggregationOptions"
-                },
-                "size": "small",
-                "className": "w-32"
-            }
-        },
-        {
-            "id": "mddTimeAxisPlaceholder",
-            "component": "div",
-            "props": {
-                "className": "h-10 flex items-center justify-between px-inline border-t border-b border-divider relative"
-            },
-            "children": [
-                "mddTimeTick0",
-                "mddTimeTick1",
-                "mddTimeTick2",
-                "mddTimeTick3",
-                "mddTimeTick4"
-            ]
-        },
-        {
-            "id": "mddTimeTick0",
-            "component": "div",
-            "props": {
-                "className": "flex flex-col items-center relative"
-            },
-            "children": [
-                "mddTickLineTop0",
-                "mddTime0",
-                "mddTickLineBottom0"
-            ]
-        },
-        {
-            "id": "mddTickLineTop0",
-            "component": "div",
-            "props": {
-                "className": "absolute -top-1 w-px h-1 bg-base"
-            }
-        },
-        {
-            "id": "mddTime0",
-            "component": "span",
-            "props": {
-                "className": "text-sm text-on-surface-variant",
-                "value": "00:54"
-            }
-        },
-        {
-            "id": "mddTickLineBottom0",
-            "component": "div",
-            "props": {
-                "className": "absolute -bottom-1 w-px h-1 bg-base"
-            }
-        },
-        {
-            "id": "mddTimeTick1",
-            "component": "div",
-            "props": {
-                "className": "flex flex-col items-center relative"
-            },
-            "children": [
-                "mddTickLineTop1",
-                "mddTime1",
-                "mddTickLineBottom1"
-            ]
-        },
-        {
-            "id": "mddTickLineTop1",
-            "component": "div",
-            "props": {
-                "className": "absolute -top-1 w-px h-1 bg-base"
-            }
-        },
-        {
-            "id": "mddTime1",
-            "component": "span",
-            "props": {
-                "className": "text-sm text-on-surface-variant",
-                "value": "01:49"
-            }
-        },
-        {
-            "id": "mddTickLineBottom1",
-            "component": "div",
-            "props": {
-                "className": "absolute -bottom-1 w-px h-1 bg-base"
-            }
-        },
-        {
-            "id": "mddTimeTick2",
-            "component": "div",
-            "props": {
-                "className": "flex flex-col items-center relative"
-            },
-            "children": [
-                "mddTickLineTop2",
-                "mddTime2",
-                "mddTickLineBottom2"
-            ]
-        },
-        {
-            "id": "mddTickLineTop2",
-            "component": "div",
-            "props": {
-                "className": "absolute -top-1 w-px h-1 bg-base"
-            }
-        },
-        {
-            "id": "mddTime2",
-            "component": "span",
-            "props": {
-                "className": "text-sm text-on-surface-variant",
-                "value": "02:43"
-            }
-        },
-        {
-            "id": "mddTickLineBottom2",
-            "component": "div",
-            "props": {
-                "className": "absolute -bottom-1 w-px h-1 bg-base"
-            }
-        },
-        {
-            "id": "mddTimeTick3",
-            "component": "div",
-            "props": {
-                "className": "flex flex-col items-center relative"
-            },
-            "children": [
-                "mddTickLineTop3",
-                "mddTime3",
-                "mddTickLineBottom3"
-            ]
-        },
-        {
-            "id": "mddTickLineTop3",
-            "component": "div",
-            "props": {
-                "className": "absolute -top-1 w-px h-1 bg-base"
-            }
-        },
-        {
-            "id": "mddTime3",
-            "component": "span",
-            "props": {
-                "className": "text-sm text-on-surface-variant",
-                "value": "03:38"
-            }
-        },
-        {
-            "id": "mddTickLineBottom3",
-            "component": "div",
-            "props": {
-                "className": "absolute -bottom-1 w-px h-1 bg-base"
-            }
-        },
-        {
-            "id": "mddTimeTick4",
-            "component": "div",
-            "props": {
-                "className": "flex flex-col items-center relative"
-            },
-            "children": [
-                "mddTickLineTop4",
-                "mddTime4",
-                "mddTickLineBottom4"
-            ]
-        },
-        {
-            "id": "mddTickLineTop4",
-            "component": "div",
-            "props": {
-                "className": "absolute -top-1 w-px h-1 bg-base"
-            }
-        },
-        {
-            "id": "mddTime4",
-            "component": "span",
-            "props": {
-                "className": "text-sm text-on-surface-variant",
-                "value": "04:32"
-            }
-        },
-        {
-            "id": "mddTickLineBottom4",
-            "component": "div",
-            "props": {
-                "className": "absolute -bottom-1 w-px h-1 bg-base"
-            }
-        },
-        {
-            "id": "mddChartsLoop",
-            "component": "div",
-            "props": {
-                "className": "flex flex-col gap-section"
-            },
-            "children": {
-                "path": "/mddMetrics",
-                "componentId": "mddChartModule"
-            }
-        },
-        {
-            "id": "mddChartModule",
-            "component": "div",
-            "props": {
-                "className": "flex flex-col gap-stack"
-            },
-            "children": [
-                "mddChartTitle",
-                "mddKpiRow",
-                "mddLineChart"
-            ]
-        },
-        {
-            "id": "mddChartTitle",
-            "component": "span",
-            "props": {
-                "className": "text-md font-bold text-on-surface",
-                "value": {
-                    "path": "chartTitle"
-                }
-            }
-        },
-        {
-            "id": "mddKpiRow",
-            "component": "div",
-            "props": {
-                "className": "flex gap-gutter"
-            },
-            "children": {
-                "path": "kpis",
-                "componentId": "mddKpiItem"
-            }
-        },
-        {
-            "id": "mddKpiItem",
-            "component": "div",
-            "props": {
-                "className": "flex flex-col"
-            },
-            "children": [
-                "mddKpiLabel",
-                "mddKpiValue"
-            ]
-        },
-        {
-            "id": "mddKpiLabel",
-            "component": "span",
-            "props": {
-                "className": "text-sm text-on-surface-variant",
-                "value": {
-                    "path": "label"
-                }
-            }
-        },
-        {
-            "id": "mddKpiValue",
-            "component": "span",
-            "props": {
-                "className": "text-md font-semibold text-primary",
-                "value": {
-                    "path": "value"
-                }
-            }
-        },
-        {
-            "id": "mddLineChart",
-            "component": "LineChart",
-            "props": {
-                "option": {
-                    "data": {
-                        "path": "chartData"
-                    },
-                    "xAxis": {
-                        "data": "timestamp"
-                    },
-                    "yAxisTitle": {
-                        "path": "unit"
-                    },
-                    "smooth": true
-                },
-                "className": "h-48 w-full"
-            }
-        }
+    "subsystemOptions": [
+      { "label": "全部子系统", "value": "all" },
+      { "label": "通用配置", "value": "通用配置" },
+      { "label": "网络管理", "value": "网络管理" },
+      { "label": "存储管理", "value": "存储管理" },
+      { "label": "安全管理", "value": "安全管理" },
+      { "label": "性能监控", "value": "性能监控" }
+    ],
+    "modalOpen": false,
+    "editForm": {
+      "subsystem": "通用配置",
+      "configItem": "会话超时(分钟)",
+      "configValue": "30",
+      "defaultValue": "30",
+      "description": "用户登录会话超时时长"
+    },
+    "tableSelected": [],
+    "tableData": [
+      { "id": 1, "subsystem": "通用配置", "configItem": "系统名称", "configValue": "UXAI 管理平台", "defaultValue": "UXAI 管理平台", "description": "系统对外展示名称", "restart": { "text": "否", "color": "default" } },
+      { "id": 2, "subsystem": "通用配置", "configItem": "默认语言", "configValue": "zh-CN", "defaultValue": "en", "description": "系统默认界面语言", "restart": { "text": "否", "color": "default" } },
+      { "id": 3, "subsystem": "通用配置", "configItem": "会话超时(分钟)", "configValue": "30", "defaultValue": "30", "description": "用户登录会话超时时长", "restart": { "text": "是", "color": "success" } },
+      { "id": 4, "subsystem": "网络管理", "configItem": "最大连接数", "configValue": "2000", "defaultValue": "1000", "description": "单节点最大并发连接数", "restart": { "text": "是", "color": "success" } },
+      { "id": 5, "subsystem": "网络管理", "configItem": "心跳间隔(秒)", "configValue": "15", "defaultValue": "10", "description": "节点间心跳检测间隔", "restart": { "text": "否", "color": "default" } },
+      { "id": 6, "subsystem": "网络管理", "configItem": "服务端口号", "configValue": "8080", "defaultValue": "8080", "description": "服务监听端口", "restart": { "text": "是", "color": "success" } },
+      { "id": 7, "subsystem": "存储管理", "configItem": "存储引擎", "configValue": "rocksdb", "defaultValue": "rocksdb", "description": "底层存储引擎类型", "restart": { "text": "是", "color": "success" } },
+      { "id": 8, "subsystem": "存储管理", "configItem": "数据目录", "configValue": "/data/uxai", "defaultValue": "/data/uxai", "description": "数据文件存储路径", "restart": { "text": "否", "color": "default" } },
+      { "id": 9, "subsystem": "存储管理", "configItem": "压缩算法", "configValue": "snappy", "defaultValue": "none", "description": "数据压缩算法", "restart": { "text": "是", "color": "success" } },
+      { "id": 10, "subsystem": "安全管理", "configItem": "密码最小长度", "configValue": "8", "defaultValue": "6", "description": "用户密码最小字符数", "restart": { "text": "否", "color": "default" } },
+      { "id": 11, "subsystem": "安全管理", "configItem": "登录失败锁定", "configValue": "5", "defaultValue": "3", "description": "连续登录失败次数上限", "restart": { "text": "否", "color": "default" } },
+      { "id": 12, "subsystem": "安全管理", "configItem": "TLS 加密", "configValue": "启用", "defaultValue": "禁用", "description": "是否启用传输层加密", "restart": { "text": "是", "color": "success" } },
+      { "id": 13, "subsystem": "性能监控", "configItem": "采集间隔(秒)", "configValue": "60", "defaultValue": "30", "description": "指标数据采集周期", "restart": { "text": "否", "color": "default" } },
+      { "id": 14, "subsystem": "性能监控", "configItem": "历史保留(天)", "configValue": "90", "defaultValue": "30", "description": "监控数据保留天数", "restart": { "text": "否", "color": "default" } }
     ]
-};
+  },
+  "rootId": "appShell",
+  "elements": [
+    {
+      "id": "appShell",
+      "component": "div",
+      "props": { "className": "flex h-screen w-full bg-surface-container-lowest overflow-hidden" },
+      "children": ["sidebar", "mainArea"]
+    },
+    {
+      "id": "sidebar",
+      "component": "aside",
+      "props": { "className": "w-60 shrink-0 bg-surface-container-highest shadow-sm flex flex-col" },
+      "children": ["sidebarHeader", "sideMenu"]
+    },
+    {
+      "id": "sidebarHeader",
+      "component": "div",
+      "props": { "className": "h-14 flex items-center gap-inline px-gutter border-b border-divider shrink-0" },
+      "children": ["sidebarLogo", "sidebarBrand"]
+    },
+    {
+      "id": "sidebarLogo",
+      "component": "Icon",
+      "props": { "name": "server", "color": "primary", "shape": "square", "className": "w-7 h-7" }
+    },
+    {
+      "id": "sidebarBrand",
+      "component": "span",
+      "props": { "value": { "path": "/brandName" }, "className": "text-lg font-bold text-on-surface" }
+    },
+    {
+      "id": "sideMenu",
+      "component": "Menu",
+      "props": {
+        "mode": "vertical",
+        "inlineCollapsed": { "path": "/collapsed" },
+        "selectedKeys": { "path": "/selectedKeys" },
+        "openKeys": { "path": "/openKeys" },
+        "items": { "path": "/menuItems" },
+        "className": "flex-1 overflow-y-auto border-none"
+      }
+    },
+    {
+      "id": "mainArea",
+      "component": "div",
+      "props": { "className": "flex-1 flex flex-col min-w-0" },
+      "children": ["topHeader", "content"]
+    },
+    {
+      "id": "topHeader",
+      "component": "header",
+      "props": { "className": "h-14 shrink-0 bg-surface-container-highest shadow-sm flex items-center justify-between px-page z-20" },
+      "children": ["topLeft", "topRight"]
+    },
+    {
+      "id": "topLeft",
+      "component": "div",
+      "props": { "className": "flex items-center gap-gutter h-full" },
+      "children": ["topCrumb"]
+    },
+    {
+      "id": "topCrumb",
+      "component": "Breadcrumb",
+      "props": { "items": { "path": "/breadcrumb" } }
+    },
+    {
+      "id": "topRight",
+      "component": "div",
+      "props": { "className": "flex items-center gap-inline h-full" },
+      "children": ["topSearch", "topDivider", "topBell", "topUser"]
+    },
+    {
+      "id": "topSearch",
+      "component": "Input",
+      "props": { "value": { "path": "/searchValue" }, "placeholder": "搜索...", "prefix": "search", "className": "w-56" }
+    },
+    {
+      "id": "topDivider",
+      "component": "div",
+      "props": { "className": "w-px h-5 bg-divider" }
+    },
+    {
+      "id": "topBell",
+      "component": "Icon",
+      "props": { "name": "bell", "shape": "outline", "className": "w-5 h-5 text-on-surface-variant cursor-pointer" }
+    },
+    {
+      "id": "topUser",
+      "component": "div",
+      "props": { "className": "flex items-center gap-inline" },
+      "children": ["topAvatar", "topUserName"]
+    },
+    {
+      "id": "topAvatar",
+      "component": "img",
+      "props": { "src": { "path": "/userAvatarUrl" }, "alt": "avatar", "className": "w-8 h-8 rounded-full object-cover" }
+    },
+    {
+      "id": "topUserName",
+      "component": "span",
+      "props": { "value": { "path": "/userName" }, "className": "text-sm font-medium text-on-surface" }
+    },
+    {
+      "id": "content",
+      "component": "section",
+      "props": { "className": "flex-1 overflow-auto p-page flex flex-col gap-section" },
+      "children": ["pageHeader", "tableCard", "editModal"]
+    },
+    {
+      "id": "pageHeader",
+      "component": "div",
+      "props": { "className": "flex items-start justify-between shrink-0" },
+      "children": ["pageTitleArea", "pageActions"]
+    },
+    {
+      "id": "pageTitleArea",
+      "component": "div",
+      "props": { "className": "flex flex-col gap-2" },
+      "children": ["pageTitle", "pageDesc"]
+    },
+    {
+      "id": "pageTitle",
+      "component": "h1",
+      "props": { "value": { "path": "/pageTitle" }, "className": "text-xl font-bold text-on-surface" }
+    },
+    {
+      "id": "pageDesc",
+      "component": "span",
+      "props": { "value": { "path": "/pageDesc" }, "className": "text-sm text-on-surface-variant" }
+    },
+    {
+      "id": "pageActions",
+      "component": "div",
+      "props": { "className": "flex items-center gap-inline" },
+      "children": ["exportBtn", "newBtn"]
+    },
+    {
+      "id": "exportBtn",
+      "component": "Button",
+      "props": { "value": "导出", "icon": "download", "iconPlacement": "start", "color": "default" }
+    },
+    {
+      "id": "newBtn",
+      "component": "Button",
+      "props": { "value": "新建规格", "icon": "plus", "iconPlacement": "start", "color": "primary" }
+    },
+    {
+      "id": "tableCard",
+      "component": "div",
+      "props": { "className": "bg-surface-container-highest rounded-container shadow-card p-inset flex flex-col gap-stack" },
+      "children": ["cardHead", "filterBar", "specTable"]
+    },
+    {
+      "id": "cardHead",
+      "component": "div",
+      "props": { "className": "flex items-center justify-between" },
+      "children": ["cardTitleArea", "cardToolbar"]
+    },
+    {
+      "id": "cardTitleArea",
+      "component": "div",
+      "props": { "className": "flex items-center gap-inline" },
+      "children": ["cardTitle", "cardCount"]
+    },
+    {
+      "id": "cardTitle",
+      "component": "span",
+      "props": { "value": "规格列表", "className": "text-base font-semibold text-on-surface" }
+    },
+    {
+      "id": "cardCount",
+      "component": "span",
+      "props": { "value": "共 14 条", "className": "text-xs text-on-surface-variant bg-surface-container-lowest px-2 py-1 rounded" }
+    },
+    {
+      "id": "cardToolbar",
+      "component": "div",
+      "props": { "className": "flex items-center gap-inline" },
+      "children": ["refreshBtn"]
+    },
+    {
+      "id": "refreshBtn",
+      "component": "Button",
+      "props": { "icon": "refresh-cw", "shape": "circle", "color": "default" }
+    },
+    {
+      "id": "filterBar",
+      "component": "div",
+      "props": { "className": "flex items-center gap-gutter flex-wrap p-inset bg-surface-container-lowest rounded-container" },
+      "children": ["filterSubsystemField", "filterConfigItemField", "filterActions"]
+    },
+    {
+      "id": "filterSubsystemField",
+      "component": "div",
+      "props": { "className": "flex items-center gap-2" },
+      "children": ["filterSubsystemLabel", "filterSubsystem"]
+    },
+    {
+      "id": "filterSubsystemLabel",
+      "component": "span",
+      "props": { "value": "子系统", "className": "text-sm text-on-surface-variant whitespace-nowrap" }
+    },
+    {
+      "id": "filterSubsystem",
+      "component": "Select",
+      "props": { "value": { "path": "/filter/subsystem" }, "options": { "path": "/subsystemOptions" }, "className": "w-44" }
+    },
+    {
+      "id": "filterConfigItemField",
+      "component": "div",
+      "props": { "className": "flex items-center gap-2" },
+      "children": ["filterConfigItemLabel", "filterConfigItem"]
+    },
+    {
+      "id": "filterConfigItemLabel",
+      "component": "span",
+      "props": { "value": "配置项", "className": "text-sm text-on-surface-variant whitespace-nowrap" }
+    },
+    {
+      "id": "filterConfigItem",
+      "component": "Input",
+      "props": { "value": { "path": "/filter/configItem" }, "placeholder": "请输入配置项名称", "prefix": "search", "className": "w-60" }
+    },
+    {
+      "id": "filterActions",
+      "component": "div",
+      "props": { "className": "flex items-center gap-inline" },
+      "children": ["filterBtn", "resetFilterBtn"]
+    },
+    {
+      "id": "filterBtn",
+      "component": "Button",
+      "props": { "value": "查询", "icon": "search", "iconPlacement": "start", "color": "primary" }
+    },
+    {
+      "id": "resetFilterBtn",
+      "component": "Button",
+      "props": { "value": "重置", "icon": "rotate-ccw", "iconPlacement": "start", "color": "default" }
+    },
+    {
+      "id": "specTable",
+      "component": "Table",
+      "props": {
+        "rowKey": "id",
+        "dataSource": { "path": "/tableData" },
+        "rowSelection": { "type": "checkbox", "selectedRowKeys": { "path": "/tableSelected" } },
+        "pagination": true,
+        "columns": [
+          { "title": "子系统", "dataIndex": "subsystem", "minWidth": 120 },
+          { "title": "配置项", "dataIndex": "configItem", "minWidth": 160 },
+          { "title": "配置项值", "dataIndex": "configValue", "minWidth": 160 },
+          { "title": "默认值", "dataIndex": "defaultValue", "minWidth": 120 },
+          { "title": "描述", "dataIndex": "description", "minWidth": 240 },
+          { "title": "重启微服务", "dataIndex": "restart" },
+          { "title": "操作", "dataIndex": "actions" }
+        ]
+      },
+      "children": { "path": "/tableData", "componentId": "specRow" }
+    },
+    {
+      "id": "specRow",
+      "component": "TableRow",
+      "children": ["cSubsystem", "cConfigItem", "cConfigValue", "cDefaultValue", "cDescription", "cRestart", "cAction"]
+    },
+    {
+      "id": "cSubsystem",
+      "component": "span",
+      "props": { "value": { "path": "subsystem" }, "className": "text-md text-on-surface" }
+    },
+    {
+      "id": "cConfigItem",
+      "component": "span",
+      "props": { "value": { "path": "configItem" }, "className": "text-md text-on-surface font-medium" }
+    },
+    {
+      "id": "cConfigValue",
+      "component": "span",
+      "props": { "value": { "path": "configValue" }, "className": "text-md text-primary font-semibold" }
+    },
+    {
+      "id": "cDefaultValue",
+      "component": "span",
+      "props": { "value": { "path": "defaultValue" }, "className": "text-md text-on-surface-variant" }
+    },
+    {
+      "id": "cDescription",
+      "component": "span",
+      "props": { "value": { "path": "description" }, "className": "text-md text-on-surface-variant" }
+    },
+    {
+      "id": "cRestart",
+      "component": "Tag",
+      "props": { "value": { "path": "restart/text" }, "color": { "path": "restart/color" }, "variant": "filled" }
+    },
+    {
+      "id": "cAction",
+      "component": "div",
+      "props": { "className": "flex items-center gap-inline" },
+      "children": ["editBtn", "resetRowBtn"]
+    },
+    {
+      "id": "editBtn",
+      "component": "Button",
+      "props": {
+        "value": "修改",
+        "types": "link",
+        "size": "small",
+        "color": "primary",
+        "icon": "pencil",
+        "onClick": { "action": "setState", "args": { "path": "/modalOpen", "value": true } }
+      }
+    },
+    {
+      "id": "resetRowBtn",
+      "component": "Button",
+      "props": { "value": "重置", "types": "link", "size": "small", "color": "default" }
+    },
+    {
+      "id": "editModal",
+      "component": "Modal",
+      "props": {
+        "open": { "path": "/modalOpen" },
+        "onClose": { "action": "setState", "args": { "path": "/modalOpen", "value": false } },
+        "title": "修改配置项",
+        "footer": { "componentId": "modalFooter" }
+      },
+      "children": ["modalBody"]
+    },
+    {
+      "id": "modalBody",
+      "component": "div",
+      "props": { "className": "flex flex-col gap-stack py-2" },
+      "children": ["mSubRow", "mItemRow", "mValueRow", "mDefaultRow", "mDescRow"]
+    },
+    {
+      "id": "mSubRow",
+      "component": "div",
+      "props": { "className": "flex flex-col gap-2" },
+      "children": ["mSubLabel", "mSubValue"]
+    },
+    {
+      "id": "mSubLabel",
+      "component": "span",
+      "props": { "value": "子系统", "className": "text-sm text-on-surface-variant" }
+    },
+    {
+      "id": "mSubValue",
+      "component": "Input",
+      "props": { "value": { "path": "/editForm/subsystem" }, "disabled": true, "className": "w-full" }
+    },
+    {
+      "id": "mItemRow",
+      "component": "div",
+      "props": { "className": "flex flex-col gap-2" },
+      "children": ["mItemLabel", "mItemValue"]
+    },
+    {
+      "id": "mItemLabel",
+      "component": "span",
+      "props": { "value": "配置项", "className": "text-sm text-on-surface-variant" }
+    },
+    {
+      "id": "mItemValue",
+      "component": "Input",
+      "props": { "value": { "path": "/editForm/configItem" }, "disabled": true, "className": "w-full" }
+    },
+    {
+      "id": "mValueRow",
+      "component": "div",
+      "props": { "className": "flex flex-col gap-2" },
+      "children": ["mValueLabel", "mValueInput"]
+    },
+    {
+      "id": "mValueLabel",
+      "component": "span",
+      "props": { "value": "配置项值 *", "className": "text-sm text-primary font-medium" }
+    },
+    {
+      "id": "mValueInput",
+      "component": "Input",
+      "props": { "value": { "path": "/editForm/configValue" }, "placeholder": "请输入配置项值", "className": "w-full" }
+    },
+    {
+      "id": "mDefaultRow",
+      "component": "div",
+      "props": { "className": "flex flex-col gap-2" },
+      "children": ["mDefaultLabel", "mDefaultValue"]
+    },
+    {
+      "id": "mDefaultLabel",
+      "component": "span",
+      "props": { "value": "默认值", "className": "text-sm text-on-surface-variant" }
+    },
+    {
+      "id": "mDefaultValue",
+      "component": "Input",
+      "props": { "value": { "path": "/editForm/defaultValue" }, "disabled": true, "className": "w-full" }
+    },
+    {
+      "id": "mDescRow",
+      "component": "div",
+      "props": { "className": "flex flex-col gap-2" },
+      "children": ["mDescLabel", "mDescValue"]
+    },
+    {
+      "id": "mDescLabel",
+      "component": "span",
+      "props": { "value": "描述", "className": "text-sm text-on-surface-variant" }
+    },
+    {
+      "id": "mDescValue",
+      "component": "TextArea",
+      "props": { "value": { "path": "/editForm/description" }, "disabled": true, "autoSize": true, "className": "w-full" }
+    },
+    {
+      "id": "modalFooter",
+      "component": "div",
+      "props": { "className": "flex items-center justify-end gap-inline w-full" },
+      "children": ["modalCancelBtn", "modalSaveBtn"]
+    },
+    {
+      "id": "modalCancelBtn",
+      "component": "Button",
+      "props": {
+        "value": "取消",
+        "color": "default",
+        "onClick": { "action": "setState", "args": { "path": "/modalOpen", "value": false } }
+      }
+    },
+    {
+      "id": "modalSaveBtn",
+      "component": "Button",
+      "props": {
+        "value": "保存",
+        "icon": "check",
+        "iconPlacement": "start",
+        "color": "primary",
+        "onClick": { "action": "setState", "args": { "path": "/modalOpen", "value": false } }
+      }
+    }
+  ]
+}

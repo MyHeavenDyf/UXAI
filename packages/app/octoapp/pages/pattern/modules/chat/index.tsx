@@ -19,7 +19,7 @@ import { AttachmentBar, type Attachment } from "./attachment-bar"
 import { InsightTurn } from "./insight-turn"
 import { GenerationCard } from "./generation-card"
 import { IntentConfirmCard, type IntentConfirmAnswers } from "./intent-confirm-card"
-import type { IntentConfirmDimension, IntentConfirmResult } from "../../agents/proto-intent-confirm"
+import type { IntentPageDimension, IntentPageResult } from "../../agents/proto-pattern-page"
 import type { BlockModuleItem } from "../../utils/pattern-resource"
 import { TurnDuration } from "./turn-duration"
 import { ProtoIntroduction } from "./proto-introduction"
@@ -115,7 +115,7 @@ export function ChatPanel(props: {
   /** 重试失败的 pipeline */
   onRetry?: () => void
   /** page pattern 匹配结果（Pattern 匹配阶段返回的候选页面布局） */
-  pageMatches?: IntentConfirmResult | null
+  pageMatches?: IntentPageResult | null
   /** block 模板匹配结果列表（用户选完 Pattern 后匹配出来的候选模板） */
   blockMatches?: BlockModuleItem[]
   /** 是否正在匹配 block 模板（loading 状态） */
@@ -125,7 +125,7 @@ export function ChatPanel(props: {
   /** 卡片初始步骤（恢复断点时直接跳到 blocks） */
   initialStep?: "patterns" | "blocks"
   /** page pattern 选定后点「下一步」/「跳过」时触发，传入选中的 item（跳过时为 null） */
-  onMatchPattern?: (selectedItem: IntentConfirmDimension | null) => void
+  onMatchPattern?: (selectedItem: IntentPageDimension | null) => void
   /** 用户点「下一步」确认时触发，传入维度答案 + enrichedInput + 选中的 block 列表 */
   onConfirmIntent?: (answers: IntentConfirmAnswers, enrichedInput: string, selectedBlocks: BlockModuleItem[]) => void
 }) {

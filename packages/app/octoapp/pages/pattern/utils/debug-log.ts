@@ -64,7 +64,7 @@ export function clearDebugLog() {
 
 import { getDesktopApi } from "./desktop-api"
 
-export type DebugPhase = "intent_confirm" | "planner" | "modules" | "modify" | "modify_triage" | "modify_planner" | "create" | "template" | "error"
+export type DebugPhase = "page_matching" | "planner" | "modules" | "modify" | "modify_triage" | "modify_planner" | "create" | "template" | "error" | "page"
 
 const DEBUG_LOG_PREFIX = "octo:pattern:debug-log"
 

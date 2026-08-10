@@ -44,7 +44,7 @@ export async function clearCheckpoint(dir: string, sessionId: string): Promise<v
 
 // ─── 统一 Checkpoint 类型 ───
 
-export type CheckpointStage = "intent_confirm" | "block_matching" | "pattern_page" | "intent_create" | "planner_create" | "modules_create"
+export type CheckpointStage = "page_matching" | "block_matching" | "pattern_page" | "intent_create" | "planner_create" | "modules_create" | "page_create"
 
 export type ModuleCheckpoint = {
   sectionId: string
