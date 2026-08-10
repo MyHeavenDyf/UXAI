@@ -6,6 +6,7 @@ import router from './routes';
 import '@cloudsop/eview-ui/styles/aui3.1.less';
 import './styles/global.less';
 import './styles/base.css';
+import './styles/tailwind-base.css';
 import './styles/hui-base.css';
 import './styles/hui-base-dark.css';
 

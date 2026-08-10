@@ -18,6 +18,7 @@ import path from 'path'
 
 import { Step } from '../core/step-base'
 import type { PipelineContext } from '../pipeline/pipeline-context'
+import { generateTailwindBaseCss } from '../../../main/tailwind-base-css'
 
 export class WriteOutput extends Step {
   async execute(ctx: PipelineContext): Promise<void> {
@@ -48,6 +49,16 @@ export class WriteOutput extends Step {
         for (const lf of ps.lessFiles) ctx.outputFiles.push(lf)
       }
     }
+
+    // 5. 共享 tailwind-base.css（@layer 顺序 + theme + preflight + @property + @layer properties）
+    //    聚合全导出用到的候选类，产出 base CSS；入口 main.tsx 引一次，使 .module.less 里
+    //    的 var(--color-primary)/var(--spacing)/var(--tw-shadow) 等可解析、preflight 生效。
+    const allCandidates = new Set<string>()
+    if (ctx.styleResults) for (const ps of ctx.styleResults) for (const c of ps.allCandidates) allCandidates.add(c)
+    ctx.outputFiles.push({
+      path: 'src/styles/tailwind-base.css',
+      content: generateTailwindBaseCss([...allCandidates]),
+    })
 
     console.log(`  ℹ  WriteOutput: 共 ${ctx.outputFiles.length} 个产出文件`)
   }

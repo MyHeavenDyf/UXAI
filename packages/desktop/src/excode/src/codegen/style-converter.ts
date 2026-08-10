@@ -42,6 +42,8 @@ export interface StyleResult {
   lessFiles: LessFile[]
   pageRules: LessRule[]
   moduleRules: Record<string, LessRule[]>
+  /** 本页用到的全部 Tailwind 候选类（去重），供 WriteOutput 生成共享 tailwind-base.css */
+  allCandidates: Set<string>
   styleStats: {
     totalClasses: number
     recognizedCount: number
@@ -63,6 +65,7 @@ export class StyleConverter {
   #unrecognized = new Set<string>()
   #classFreq = new Map<string, number>()
   #checked = new Set<string>()
+  #candidates = new Set<string>()
 
   convertPage(
     pageName: string,
@@ -117,6 +120,7 @@ export class StyleConverter {
       lessFiles,
       pageRules,
       moduleRules,
+      allCandidates: this.#candidates,
       styleStats: {
         totalClasses: this.#totalClasses,
         recognizedCount: this.#totalClasses - this.#unrecognizedOccurrences,
@@ -135,6 +139,7 @@ export class StyleConverter {
     this.#unrecognized.clear()
     this.#classFreq.clear()
     this.#checked.clear()
+    this.#candidates.clear()
   }
 
   /**
@@ -148,7 +153,7 @@ export class StyleConverter {
    * 不再需要独立的 #collectRules + #recurChildren。
    */
   #collectRules(node: BuildNode, out: LessRule[]): void {
-    collectRulesFromNode(node, out)
+    collectRulesFromNode(node, out, this.#candidates)
   }
 }
 
@@ -170,7 +175,8 @@ function readPropClassName(props: Record<string, PropValue> | undefined): string
 // useVar=true：输出 var(--xxx) 形式，保留运行时主题可覆盖（与原 safeConvert 行为一致）。
 // importantSizing=true：给 width/height 加 !important（仅 chart 用，由调用方按库判断后传入）。
 // 失败时返回 null 不抛出，保证代码生成不因单个 className 中断。
-function toRule(cn: string, selector: string, importantSizing: boolean): LessRule | null {
+function toRule(cn: string, selector: string, importantSizing: boolean, candidates?: Set<string>): LessRule | null {
+  if (candidates) for (const c of cn.split(/\s+/)) if (c) candidates.add(c)
   try {
     return convertTailwindToLessRule(rewriteCssUrlPaths(cn), selector, { useVar: true, importantSizing })
   } catch {
@@ -251,7 +257,7 @@ export function buildStyleImportMap(
 // 与 #collectRules 一致：仅对有 id + 字符串 className 的 component/html 节点生成规则。
 
 /** 从单个 BuildNode 收集规则（节点自身 + 子树），逻辑与 StyleConverter.#collectRules 对齐。 */
-function collectRulesFromNode(node: any, out: LessRule[]): void {
+function collectRulesFromNode(node: any, out: LessRule[], candidates?: Set<string>): void {
   if (!node) return
   if (node.kind === 'component' || node.kind === 'html') {
     const id = node.id
@@ -261,22 +267,22 @@ function collectRulesFromNode(node: any, out: LessRule[]): void {
     const importSource = typeof node.import === 'string' ? node.import : node.import?.source
     const isChart = node.tag === 'Chart' && typeof importSource === 'string' && importSource.includes('eview-react')
     if (id && cn) {
-      const rule = toRule(cn, `.${id}`, isChart)
+      const rule = toRule(cn, `.${id}`, isChart, candidates)
       if (rule) out.push(rule)
     }
     // walk props（收嵌入 BuildNode 的 className，如 icon in iconName prop）——与 #collectRules 对齐
     if (node.props) {
-      for (const v of Object.values(node.props)) collectRulesFromValue(v as PropValue, out)
+      for (const v of Object.values(node.props)) collectRulesFromValue(v as PropValue, out, candidates)
     }
     // 递归 children
     const ch = node.children
     if (ch && ch.kind === 'loop') {
-      for (const c of ch.template?.body ?? []) collectRulesFromNode(c, out)
+      for (const c of ch.template?.body ?? []) collectRulesFromNode(c, out, candidates)
     } else if (Array.isArray(ch)) {
-      for (const c of ch) collectRulesFromNode(c, out)
+      for (const c of ch) collectRulesFromNode(c, out, candidates)
     }
   } else if (node.kind === 'extract') {
-    for (const c of node.body ?? []) collectRulesFromNode(c, out)
+    for (const c of node.body ?? []) collectRulesFromNode(c, out, candidates)
   }
 }
 
@@ -284,38 +290,38 @@ function collectRulesFromNode(node: any, out: LessRule[]): void {
  * 从任意 const 值（数组 / 纯对象 / RenderFnValue / SlotNodeValue / BuildNode）递归收集样式规则。
  * 跳过 type-tagged 值类（binding/computed/varRef/rawExpr/literal）—— 它们不携带 className。
  */
-export function collectRulesFromValue(value: any, out: LessRule[]): void {
+export function collectRulesFromValue(value: any, out: LessRule[], candidates?: Set<string>): void {
   if (!value || typeof value !== 'object') return
 
   if (Array.isArray(value)) {
-    for (const v of value) collectRulesFromValue(v, out)
+    for (const v of value) collectRulesFromValue(v, out, candidates)
     return
   }
 
   // BuildNode（component / html）
   if ((value.kind === 'component' || value.kind === 'html') && typeof value.tag === 'string') {
-    collectRulesFromNode(value, out)
+    collectRulesFromNode(value, out, candidates)
     // props 中可能内嵌 renderFn / slotNode / BuildNode（如表头 render fn）
-    if (value.props) collectRulesFromValue(Object.values(value.props), out)
+    if (value.props) collectRulesFromValue(Object.values(value.props), out, candidates)
     return
   }
 
   // RenderFnValue → 进入 body
   if (value.type === 'renderFn') {
     const bodies = Array.isArray(value.body) ? value.body : [value.body]
-    for (const b of bodies) collectRulesFromValue(b, out)
+    for (const b of bodies) collectRulesFromValue(b, out, candidates)
     return
   }
 
   // SlotNodeValue → 进入 node
   if (value.type === 'slotNode') {
-    collectRulesFromValue(value.node, out)
+    collectRulesFromValue(value.node, out, candidates)
     return
   }
 
   // 其余 type-tagged 值类（binding/computed/varRef/rawExpr/literal）无样式，跳过。
   // 纯对象（无 kind/type）→ 递归其值（如 tableColumns 的列对象、enrichment 数据项）
-  collectRulesFromValue(Object.values(value), out)
+  collectRulesFromValue(Object.values(value), out, candidates)
 }
 
 /**

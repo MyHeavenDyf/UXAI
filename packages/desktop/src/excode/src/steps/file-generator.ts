@@ -99,11 +99,11 @@ export class FileGenerator extends Step {
       const rules: LessRule[] = []
       const mainUnit = stateResult.fileUnits.get(fileKeyOf.main())
       if (mainUnit) {
-        for (const jlc of mainUnit.jsxLiteralConsts) collectRulesFromValue(jlc.value, rules)
-        for (const ec of mainUnit.enrichmentConsts) collectRulesFromValue(ec.value, rules)
+        for (const jlc of mainUnit.jsxLiteralConsts) collectRulesFromValue(jlc.value, rules, styleResult.allCandidates)
+        for (const ec of mainUnit.enrichmentConsts) collectRulesFromValue(ec.value, rules, styleResult.allCandidates)
       }
       for (const decl of finalResult.mainFile.moduleTopConsts) {
-        collectRulesFromValue(decl.value, rules)
+        collectRulesFromValue(decl.value, rules, styleResult.allCandidates)
       }
       appendConstRules(styleResult, toPascalCase(pageName), rules)
     }
@@ -116,11 +116,11 @@ export class FileGenerator extends Step {
       const unit = stateResult.fileUnits.get(fk)
       const rules: LessRule[] = []
       if (unit) {
-        for (const jlc of unit.jsxLiteralConsts) collectRulesFromValue(jlc.value, rules)
-        for (const ec of unit.enrichmentConsts) collectRulesFromValue(ec.value, rules)
+        for (const jlc of unit.jsxLiteralConsts) collectRulesFromValue(jlc.value, rules, styleResult.allCandidates)
+        for (const ec of unit.enrichmentConsts) collectRulesFromValue(ec.value, rules, styleResult.allCandidates)
       }
       for (const decl of (ext.moduleTopConsts ?? [])) {
-        collectRulesFromValue(decl.value, rules)
+        collectRulesFromValue(decl.value, rules, styleResult.allCandidates)
       }
       appendConstRules(styleResult, ext.componentName, rules)
     }

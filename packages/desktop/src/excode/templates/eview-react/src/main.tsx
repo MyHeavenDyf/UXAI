@@ -7,6 +7,7 @@ import router from './routes';
 import '@nce/eview-react/styles/aui3_1.css';
 import './styles/global.less';
 import './styles/base.css';
+import './styles/tailwind-base.css';
 import './styles/hui-base.css';
 import './styles/hui-base-dark.css';
 
