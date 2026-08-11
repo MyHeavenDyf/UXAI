@@ -53,6 +53,7 @@ import { ALLOWED_EXT, getExt } from "../../lib/upload"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { FileManagerToolbar } from "./toolbar"
 import { Breadcrumb } from "./breadcrumb"
+import { folderRelativeDir, resolveFolderName } from "./folder-upload-utils"
 import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
 import { archiveFileSizeError } from "../../utils/archive-size"
 import { getLargeArchiveFile } from "../../utils/archive-utils"
@@ -100,16 +101,19 @@ function insightFileToArchiveTarget(file: InsightFile, sdkUrl: string, sdkDirect
 }
 
 // 文件夹上传结果汇总 toast:流式分支(逐文件可能部分成功)与 base64 分支(单请求原子)共用。
+// 多个错误时 toast 只放首条 + 计数,完整列表 console.warn 便于排查。
 function showFolderUploadResult(folderName: string, okCount: number, total: number, errors: string[]) {
   if (errors.length === 0) {
     showToast({ title: "上传完成", description: `${folderName} (${okCount} 个文件)`, variant: "success", duration: 2000 })
     return
   }
+  if (errors.length > 1) console.warn("[octo:files] folder-upload partial failures", { folderName, okCount, total, errors })
+  const summary = errors.length > 1 ? `${errors[0]} 等 ${errors.length} 个错误` : errors[0]
   if (okCount > 0) {
-    showToast({ title: "部分上传失败", description: `${okCount}/${total} 成功;${errors[0]}`, variant: "error" })
+    showToast({ title: "部分上传失败", description: `${okCount}/${total} 成功;${summary}`, variant: "error" })
     return
   }
-  showToast({ title: "上传失败", description: errors[0], variant: "error" })
+  showToast({ title: "上传失败", description: summary, variant: "error" })
 }
 
 export function InsightFileManager(props: {
@@ -262,15 +266,17 @@ function FileManagerInner(props: {
   // 字符串上限 + 渲染进程 OOM 双重风险)。IPC subPath 已支持嵌套 + 递归建目录(ipc.ts
   // sanitizeUploadsSubPath 允许 / + ensureWorktreeDir 走 mkdir recursive),故 subPath 拼成
   // currentPath/folderName/dirname(relativePath) 即可保留目录结构。
-  // 与 uploadFolder handler 的「整文件夹撞名 → folderName (1)」语义对齐:进循环前先 list
-  // 目标目录判撞名(IPC 只做单文件级 collisionFreePath,不做文件夹级)。
-  // 任一文件拿不到真实本地路径(剪贴板 blob / 部分 webkitGetAsEntry File)→ 返回 null,
-  // 调用方回退 base64 + uploadInsightFolder 单请求(保留原子语义)。
+  // 撞名 / 路径解析见 resolveFolderName / folderRelativeDir;任一文件拿不到真实本地路径
+  // (剪贴板 blob / 部分 webkitGetAsEntry File)→ 返回 null,调用方回退 base64 +
+  // uploadInsightFolder 单请求(保留原子语义)。空文件夹也返回 null:让回退路径的
+  // uploadInsightFolder 走服务端 ensureDir 建空目录,与 base64 行为对称(流式逐文件触发,
+  // 0 文件时不会建目录)。
   async function tryStreamFolderUpload(
     files: { file: File; relativePath: string }[],
     folderName: string,
     currentPath: string,
   ): Promise<{ finalFolderName: string; okCount: number; errors: string[] } | null> {
+    if (files.length === 0) return null
     const api = getDesktopApi()
     const baseDir = sdk.directory
     if (
@@ -290,18 +296,10 @@ function FileManagerInner(props: {
         srcPath = ""
       }
       if (!srcPath) return null
-      const dirPart = e.relativePath.includes("/") ? e.relativePath.slice(0, e.relativePath.lastIndexOf("/")) : ""
-      resolved.push({ srcPath, name: e.file.name, dirPart })
+      resolved.push({ srcPath, name: e.file.name, dirPart: folderRelativeDir(e.relativePath) })
     }
-    // 文件夹撞名探测:与 handlers/insight.ts uploadFolder 的 finalFolderName 循环同口径。
     const targetList = await fetchInsightFiles(sdk.url, baseDir, props.sessionId, "uploads", { subPath: currentPath }).catch(() => [])
-    const occupied = new Set(targetList.map((e) => e.name))
-    let finalFolderName = folderName
-    let folderCounter = 1
-    while (occupied.has(finalFolderName)) {
-      finalFolderName = `${folderName} (${folderCounter})`
-      folderCounter++
-    }
+    const finalFolderName = resolveFolderName(folderName, new Set(targetList.map((e) => e.name)))
     let okCount = 0
     const errors: string[] = []
     for (const r of resolved) {
@@ -369,7 +367,8 @@ function FileManagerInner(props: {
         fileEntries.push({ relativePath: e.relativePath, content: base64 })
       }
       const result = await uploadInsightFolder(sdk.url, sdk.directory, props.sessionId, folderName, fileEntries, currentPath)
-      showFolderUploadResult(folderName, result.fileCount, entries.length, [])
+      // result.name 是服务端撞名解析后的最终文件夹名(如 "myFolder (1)"),与流式分支的 streamed.finalFolderName 对称。
+      showFolderUploadResult(result.name, result.fileCount, entries.length, [])
       await refresh()
       props.onFilesRefresh?.()
     } catch (err) {
@@ -465,7 +464,7 @@ function FileManagerInner(props: {
         fileEntries.push({ relativePath: e.relativePath, content: base64 })
       }
       const result = await uploadInsightFolder(sdk.url, sdk.directory, props.sessionId, folderName, fileEntries, currentPath)
-      showFolderUploadResult(folderName, result.fileCount, entries.length, [])
+      showFolderUploadResult(result.name, result.fileCount, entries.length, [])
       await refresh()
       props.onFilesRefresh?.()
     } catch (err) {
