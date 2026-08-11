@@ -1,6 +1,6 @@
-# Icon
+# Icon 示例
 
-### Example: Icon basic
+## Example: Icon basic
 
 ```json
 {
@@ -15,7 +15,7 @@
 }
 ```
 
-### Example: Icon name path
+## Example: Icon name path
 
 ```json
 {

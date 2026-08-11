@@ -1,6 +1,6 @@
-# Modal
+# Modal 示例
 
-### Example: A detail modal triggered by a button. `open` / `onClose` bind to the same shared boolean state, the body is a single wrapper node passed to `children`, and the footer is rendered via a SlotNode.
+## Example: A detail modal triggered by a button. `open` / `onClose` bind to the same shared boolean state, the body is a single wrapper node passed to `children`, and the footer is rendered via a SlotNode.
 
 ```json
 {
@@ -91,7 +91,7 @@
 }
 ```
 
-### Example: Modal element only, no footer (`footer` omitted). Body content is still a single wrapper node.
+## Example: Modal element only, no footer (`footer` omitted). Body content is still a single wrapper node.
 
 ```json
 {

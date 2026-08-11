@@ -1,6 +1,6 @@
-# Checkbox | 多选框
+# Checkbox | 多选框 示例
 
-### Example: Checkbox basic
+## Example: Checkbox basic
 
 ```json
 {
@@ -25,7 +25,7 @@
 	]
 }
 ```
-### Example: Checkbox children
+## Example: Checkbox children
 
 ```json
 {

@@ -1,6 +1,6 @@
-# Drawer
+# Drawer 示例
 
-### Example: A detail drawer triggered by a button, sliding in from the right. `open` / `onClose` bind to the same shared boolean state, the body is a single wrapper node passed to `children`, and the footer is rendered via a SlotNode.
+## Example: A detail drawer triggered by a button, sliding in from the right. `open` / `onClose` bind to the same shared boolean state, the body is a single wrapper node passed to `children`, and the footer is rendered via a SlotNode.
 
 ```json
 {
@@ -92,7 +92,7 @@
 }
 ```
 
-### Example: Drawer element only, no footer (`footer` omitted). Body content is still a single wrapper node.
+## Example: Drawer element only, no footer (`footer` omitted). Body content is still a single wrapper node.
 
 ```json
 {
