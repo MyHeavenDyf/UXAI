@@ -231,6 +231,10 @@ function exportDeckAsPDF(content: string, title: string) {
 
 const VIEWPORT_OPTIONS: { value: ViewportPreset; label: string; icon: JSX.Element }[] = [
   { value: "desktop", label: "桌面", icon: <IconViewportDesktop size={13} /> },
+  { value: "desktop-1920", label: "桌面(1920*1080)", icon: <IconViewportDesktop size={13} /> },
+  { value: "desktop-1680", label: "桌面(1680*1050)", icon: <IconViewportDesktop size={13} /> },
+  { value: "desktop-1440", label: "桌面(1440*1080)", icon: <IconViewportDesktop size={13} /> },
+  { value: "desktop-1366", label: "桌面(1366*768)", icon: <IconViewportDesktop size={13} /> },
   { value: "tablet", label: "平板", icon: <IconViewportTablet size={13} /> },
   { value: "mobile", label: "手机", icon: <IconViewportMobile size={13} /> },
 ]
