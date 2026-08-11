@@ -9,7 +9,6 @@ import { persisted, Persist } from "@/utils/persist"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Button } from "@opencode-ai/ui/button"
-import { Dialog } from "@opencode-ai/ui/dialog"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -22,6 +21,7 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { decode64 } from "@/utils/base64"
 import { DialogSettings } from "@/components/dialog-settings"
+import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { showFloatingNotice } from "@/components/floating-notice"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
@@ -1558,33 +1558,6 @@ export default function StudioPage() {
     return true
   }
 
-  function DialogDeleteHeaderSession(props: { session: Session }) {
-    const name = createMemo(() => sessionTitle(props.session.title) ?? language.t("command.session.new"))
-    const handleDelete = async () => {
-      await deleteHeaderSession(props.session)
-      dialog.close()
-    }
-
-    return (
-      <Dialog title={language.t("session.delete.title")} fit class="delete-dialog">
-        <div class="flex flex-col gap-4">
-          <div class="flex flex-col gap-1">
-            <span class="text-14-regular text-text-strong">
-              {language.t("session.delete.confirm", { name: name() })}
-            </span>
-          </div>
-          <div class="flex justify-end gap-2">
-            <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
-              {language.t("common.cancel")}
-            </Button>
-            <Button variant="primary" size="large" class="delete-dialog-btn delete-dialog-btn-primary" onClick={handleDelete}>
-              {language.t("session.delete.button")}
-            </Button>
-          </div>
-        </div>
-      </Dialog>
-    )
-  }
   const currentImageLabel = createMemo(() => {
     const image = selectedImage()
     if (!image) return "studio-image.png"
@@ -3865,7 +3838,7 @@ if (!headerTitle.pendingRename) return
                       <DropdownMenu.Item
                         onSelect={() => {
                           const session = activeStudioSession() ?? { id: params.id!, title: currentTitle(), agent: "octo_studio" } as Session
-                          dialog.show(() => <DialogDeleteHeaderSession session={session} />)
+                          dialog.show(() => <DialogDeleteSession name={sessionTitle(session.title) ?? language.t("command.session.new")} onDelete={() => deleteHeaderSession(session)} />)
                         }}
                       >
                         <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
