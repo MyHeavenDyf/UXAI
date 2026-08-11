@@ -18,7 +18,6 @@ interface ResolvedCheckboxGroup {
     value: string;
   }[] | DataBinding;
   disabled?: DynamicBoolean;
-  indeterminate?: DynamicBoolean;
   className?: string;
 }
 interface CheckboxGroupNode extends AnyComponentNode<ResolvedCheckboxGroup> {

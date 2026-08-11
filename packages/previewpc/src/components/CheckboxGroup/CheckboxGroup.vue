@@ -32,7 +32,6 @@ const id = computed(() => node.id)
 const className = computed(() => node.properties.className)
 
 const disabled = computed(() => (resolveValue(node.properties.disabled) as boolean) || false)
-const indeterminate = computed(() => (resolveValue(node.properties.indeterminate) as boolean) || false)
 
 const data = computed(() => {
   const opts = node.properties.options
@@ -75,7 +74,6 @@ function handleChange(value: any[]) {
       v-for="item in data"
       :key="item.value"
       :value="item.value"
-      :label="item.label"
-      :indeterminate="indeterminate" />
+      :label="item.label" />
   </ElCheckboxGroup>
 </template>
