@@ -101,13 +101,9 @@ function insightFileToArchiveTarget(file: InsightFile, sdkUrl: string, sdkDirect
 }
 
 // 文件夹上传结果汇总 toast:流式分支(逐文件可能部分成功)与 base64 分支(单请求原子)共用。
-// 空文件夹(total===0)走服务端 ensureDir 建空目录,toast 与普通完成一致(上传完成 / N 个文件)。
+// 空文件夹(total===0 → okCount=0、errors=[])走 errors.length===0 分支,产出「上传完成 / folderName (0 个文件)」。
 // 多个错误时 toast 只放首条 + 计数,完整列表 console.warn 便于排查。
 function showFolderUploadResult(folderName: string, okCount: number, total: number, errors: string[]) {
-  if (total === 0) {
-    showToast({ title: "上传完成", description: `${folderName} (0 个文件)`, variant: "success", duration: 2000 })
-    return
-  }
   if (errors.length === 0) {
     showToast({ title: "上传完成", description: `${folderName} (${okCount} 个文件)`, variant: "success", duration: 2000 })
     return
