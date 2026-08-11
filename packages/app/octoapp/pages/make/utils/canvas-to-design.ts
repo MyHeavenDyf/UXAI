@@ -7,7 +7,7 @@ import {
   joinPath,
 } from "./references"
 import { observedUrlsToAbsPaths } from "./resource-tracker"
-import { resolveHtmlContent } from "./html-assets-zip"
+import { readHtmlFromDisk } from "./html-assets-zip"
 
 export interface CreateC2DZipOptions {
   htmlContent: string
@@ -22,9 +22,9 @@ export async function createC2DZip(options: CreateC2DZipOptions): Promise<Blob> 
 
   const api = getDesktopApi()
 
-  // 本地文件场景 tab.content 可能为空 → 从磁盘读原始 HTML
+  // 始终从磁盘读原始 HTML，保证 ZIP 内 HTML 与磁盘一致
   const htmlContent = options.htmlFilePath && api?.readFileBuffer
-    ? await resolveHtmlContent(options.htmlContent, options.htmlFilePath, (p) => api.readFileBuffer!(p))
+    ? await readHtmlFromDisk(options.htmlFilePath, options.htmlContent, (p) => api.readFileBuffer!(p))
     : options.htmlContent
 
   const htmlZip = new JSZip()

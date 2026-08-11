@@ -1,12 +1,11 @@
 import type { SubtypeHandler } from './types'
 import { uploadZip } from '@/utils/useZipTransport'
-import { useProjectSelection } from '@/hooks/use-project-selection'
 
 export default {
   name: 'shadcn',
   
   async handleCanvasEdit(ctx) {
-    const { tab, showToast, getDesktopApi } = ctx
+    const { tab, showToast, getDesktopApi, projectSelection } = ctx
     const filePath = tab.filePath || tab.absoluteFilePath
     
     if (!filePath) {
@@ -50,7 +49,7 @@ export default {
       return true
     }
 
-    const result = await uploadZip(async () => zipBlob, useProjectSelection())
+    const result = await uploadZip(async () => zipBlob, projectSelection())
     console.log('pixsourl', result?.pixsoUrl)
 
     if (!result.webview) {

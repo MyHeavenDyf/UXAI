@@ -23,9 +23,29 @@ import {
 import { observedUrlsToAbsPaths } from "./resource-tracker"
 
 /**
- * 解析 HTML 内容：优先用传入的 htmlContent（LLM 生成 / 已加载），
- * 若为空则从磁盘读原始文件（本地文件场景 tab.content 为空）。
- * 读盘得到的是不含桥脚本的原始 HTML，适合写入 ZIP 与做静态解析。
+ * 从磁盘读原始 HTML 文件内容（不含桥脚本注入）。
+ * 失败时回退到调用方提供的 htmlContent。
+ */
+export async function readHtmlFromDisk(
+  htmlFilePath: string,
+  fallback: string,
+  readFileBuffer: (p: string) => Promise<ArrayBuffer | null>
+): Promise<string> {
+  if (!htmlFilePath) return fallback
+  try {
+    const buf = await readFileBuffer(htmlFilePath)
+    if (!buf) return fallback
+    return new TextDecoder("utf-8", { fatal: false }).decode(buf)
+  } catch {
+    return fallback
+  }
+}
+
+/**
+ * @deprecated 使用 readHtmlFromDisk。
+ * 旧的"tab.content 非空则用 tab.content"逻辑会让 ZIP 内 HTML 与磁盘文件不一致
+ * （tab.content 可能是 LLM 生成版本、extractDownloadContent 剥围栏后的版本，
+ * 或用户在 iframe 内编辑过但未保存的版本）。新代码应直接读盘。
  */
 export async function resolveHtmlContent(
   htmlContent: string,
@@ -33,14 +53,7 @@ export async function resolveHtmlContent(
   readFileBuffer: (p: string) => Promise<ArrayBuffer | null>
 ): Promise<string> {
   if (htmlContent && htmlContent.trim()) return htmlContent
-  if (!htmlFilePath) return htmlContent
-  try {
-    const buf = await readFileBuffer(htmlFilePath)
-    if (!buf) return htmlContent
-    return new TextDecoder("utf-8", { fatal: false }).decode(buf)
-  } catch {
-    return htmlContent
-  }
+  return readHtmlFromDisk(htmlFilePath, htmlContent, readFileBuffer)
 }
 
 export interface CreateHtmlAssetsZipOptions {
@@ -61,10 +74,12 @@ export async function createHtmlAssetsZip(options: CreateHtmlAssetsZipOptions): 
     return await zip.generateAsync({ type: "blob" })
   }
 
-  // 本地文件场景 tab.content 可能为空 → 从磁盘读原始 HTML（不含桥脚本）
-  const htmlContent = await resolveHtmlContent(
-    options.htmlContent,
+  // 始终从磁盘读原始 HTML：保证 ZIP 内 HTML 与磁盘文件字节级一致，
+  // 不受 tab.content / extractDownloadContent / 未保存编辑影响。
+  // 静态解析也用同一份磁盘内容，确保引用识别与实际打包一致。
+  const htmlContent = await readHtmlFromDisk(
     options.htmlFilePath,
+    options.htmlContent,
     (p) => api.readFileBuffer!(p)
   )
 

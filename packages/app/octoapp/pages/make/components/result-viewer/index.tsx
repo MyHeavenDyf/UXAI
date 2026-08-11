@@ -182,6 +182,7 @@ export function ResultViewer(props: {
         getDesktopApi,
         extractCodeBlock,
         observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
+        projectSelection,
       }
 
       if (handler?.handleCanvasEdit) {
@@ -355,17 +356,22 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           onCollapseDrawer={props.onCollapseDrawer}
         />
 
-        <Show when={props.viewMode === "files" && props.sessionId}>
+        <Show when={props.sessionId}>
           {(sid) => (
-            <DesignFilesPanel
-              sessionId={sid()}
-              refreshKey={props.filesRefreshKey ?? 0}
-              onOpenFile={handleOpenArtifactFile}
-              onAddToSession={props.onAddArtifactToSession}
-              onCloseTabsByPath={handleCloseTabsByPath}
-              onRemoveAttachmentsByPath={props.onRemoveAttachmentsByPath}
-              onFilesRefresh={props.onFilesRefresh}
-            />
+            <div
+              class="flex flex-col flex-1 min-h-0"
+              style={{ display: props.viewMode === "files" ? "flex" : "none" }}
+            >
+              <DesignFilesPanel
+                sessionId={sid()}
+                refreshKey={props.filesRefreshKey ?? 0}
+                onOpenFile={handleOpenArtifactFile}
+                onAddToSession={props.onAddArtifactToSession}
+                onCloseTabsByPath={handleCloseTabsByPath}
+                onRemoveAttachmentsByPath={props.onRemoveAttachmentsByPath}
+                onFilesRefresh={props.onFilesRefresh}
+              />
+            </div>
           )}
         </Show>
 
