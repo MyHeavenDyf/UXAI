@@ -8,9 +8,7 @@
   - 用户对生成方式有特殊要求时 → 以用户要求为准
   - 以上均无特殊约束 → 默认使用 `<artifact>` 标签生成
 - HTML 必须用 artifact 包裹，禁止用 markdown 代码块或裸输出
-- 每次最多 1 个 artifact，禁止子 agent / Task 拆分
 - 产物交付时，在 artifact 之前用 2-4 句话说明创建了什么和关键设计决策
-- 复杂页面先在思考阶段规划区块结构，再一次性输出完整 HTML
 - 接近输出上限时，优先输出简洁完整的页面，而非截断的复杂页面
 - write：仅当用户或 skill 明确要求写文件时使用；若用户/skill 未指定路径，只能写入 `.octo/<sessionId>/outputs/`；文件名使用描述性 kebab-case 名称（`.html` / `.svg` / `.md`）
 - edit：仅限同会话中用户引用之前产物、或 skill 要求修改时使用；路径必须从前端注入的 `[Existing artifacts in this session]` 列表中获取，禁止自行编造；edit 会触发权限弹窗，等待用户授权；成功后用文字简述改动，不要重新输出 artifact
