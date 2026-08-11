@@ -99,6 +99,19 @@ function insightFileToArchiveTarget(file: InsightFile, sdkUrl: string, sdkDirect
   }
 }
 
+// 文件夹上传结果汇总 toast:流式分支(逐文件可能部分成功)与 base64 分支(单请求原子)共用。
+function showFolderUploadResult(folderName: string, okCount: number, total: number, errors: string[]) {
+  if (errors.length === 0) {
+    showToast({ title: "上传完成", description: `${folderName} (${okCount} 个文件)`, variant: "success", duration: 2000 })
+    return
+  }
+  if (okCount > 0) {
+    showToast({ title: "部分上传失败", description: `${okCount}/${total} 成功;${errors[0]}`, variant: "error" })
+    return
+  }
+  showToast({ title: "上传失败", description: errors[0], variant: "error" })
+}
+
 export function InsightFileManager(props: {
   refreshKey?: number
   onOpenFile: (file: InsightFileEntry) => void
@@ -197,8 +210,8 @@ function FileManagerInner(props: {
   // base64 回退通道的大小上限。这条通道会把整个文件读进 JS 堆——ArrayBuffer + binary 中间串 +
   // base64 串 + JSON body 串,峰值约为文件大小的 3~4 倍——大文件下渲染进程直接 OOM,白屏且连
   // toast 都弹不出来,比"落盘 0 字节"更难排查。宁可在入口响亮拒绝,也不让它跑到崩。
-  // 注意本函数同时服务文件夹上传(handleFolderUpload / 拖拽文件夹),那条路径目前只有 base64 一种走法。
-  // 待服务端 upload 支持「按源路径复制」后,回退通道不再承载大文件,此上限可撤除。
+  // 注意本函数同时服务文件夹上传(handleFolderUpload / 拖拽文件夹)的 base64 回退分支:
+  // 桌面端 + 真实本地路径优先走流式(tryStreamFolderUpload),仅在非桌面 / 剪贴板 blob 时回退到这里。
   const BASE64_FALLBACK_MAX = 100 * 1024 * 1024 // 100 MB
 
   // 产出干净 base64(无 data: 前缀),服务端 Buffer.from(..., "base64") 全量解码。
@@ -245,6 +258,64 @@ function FileManagerInner(props: {
     return true
   }
 
+  // 桌面端文件夹流式上传:逐文件 copyFileToSessionUploads,绕开 base64/JSON 通道(V8 ~256MB
+  // 字符串上限 + 渲染进程 OOM 双重风险)。IPC subPath 已支持嵌套 + 递归建目录(ipc.ts
+  // sanitizeUploadsSubPath 允许 / + ensureWorktreeDir 走 mkdir recursive),故 subPath 拼成
+  // currentPath/folderName/dirname(relativePath) 即可保留目录结构。
+  // 与 uploadFolder handler 的「整文件夹撞名 → folderName (1)」语义对齐:进循环前先 list
+  // 目标目录判撞名(IPC 只做单文件级 collisionFreePath,不做文件夹级)。
+  // 任一文件拿不到真实本地路径(剪贴板 blob / 部分 webkitGetAsEntry File)→ 返回 null,
+  // 调用方回退 base64 + uploadInsightFolder 单请求(保留原子语义)。
+  async function tryStreamFolderUpload(
+    files: { file: File; relativePath: string }[],
+    folderName: string,
+    currentPath: string,
+  ): Promise<{ finalFolderName: string; okCount: number; errors: string[] } | null> {
+    const api = getDesktopApi()
+    const baseDir = sdk.directory
+    if (
+      !baseDir ||
+      typeof api?.getPathForFile !== "function" ||
+      typeof api?.copyFileToSessionUploads !== "function"
+    ) {
+      return null
+    }
+    // 先确认所有文件都能拿到真实本地路径;有任一拿不到 → 整文件夹回退 base64(保持原 uploadFolder 单请求语义)。
+    const resolved: { srcPath: string; name: string; dirPart: string }[] = []
+    for (const e of files) {
+      let srcPath = ""
+      try {
+        srcPath = api.getPathForFile(e.file)
+      } catch {
+        srcPath = ""
+      }
+      if (!srcPath) return null
+      const dirPart = e.relativePath.includes("/") ? e.relativePath.slice(0, e.relativePath.lastIndexOf("/")) : ""
+      resolved.push({ srcPath, name: e.file.name, dirPart })
+    }
+    // 文件夹撞名探测:与 handlers/insight.ts uploadFolder 的 finalFolderName 循环同口径。
+    const targetList = await fetchInsightFiles(sdk.url, baseDir, props.sessionId, "uploads", { subPath: currentPath }).catch(() => [])
+    const occupied = new Set(targetList.map((e) => e.name))
+    let finalFolderName = folderName
+    let folderCounter = 1
+    while (occupied.has(finalFolderName)) {
+      finalFolderName = `${folderName} (${folderCounter})`
+      folderCounter++
+    }
+    let okCount = 0
+    const errors: string[] = []
+    for (const r of resolved) {
+      const subPath = [currentPath, finalFolderName, r.dirPart].filter(Boolean).join("/")
+      try {
+        await api.copyFileToSessionUploads(r.srcPath, baseDir, props.sessionId, subPath, r.name)
+        okCount++
+      } catch (err) {
+        errors.push(`${r.name}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+    return { finalFolderName, okCount, errors }
+  }
+
   async function uploadSingleFile(file: File) {
     const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
     try {
@@ -276,17 +347,29 @@ function FileManagerInner(props: {
       return
     }
     const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
-    const fileEntries: InsightFolderUploadFile[] = []
+    const entries = Array.from(files).map((file) => ({
+      file,
+      relativePath: file.webkitRelativePath.slice(folderName.length + 1),
+    }))
     // 读取(readFileAsBase64)必须和上传在同一个 try 内:它会因超出回退通道上限而 reject,
     // 留在 try 外会变成 unhandled rejection —— 用户点了上传却什么提示都没有。
     try {
-      for (const file of Array.from(files)) {
-        const relativePath = file.webkitRelativePath.slice(folderName.length + 1)
-        const base64 = await readFileAsBase64(file)
-        fileEntries.push({ relativePath, content: base64 })
+      // 优先流式(桌面端 + 真实本地路径):绕开 base64/JSON,无 V8 字符串上限 / OOM 风险。
+      const streamed = await tryStreamFolderUpload(entries, folderName, currentPath)
+      if (streamed) {
+        showFolderUploadResult(streamed.finalFolderName, streamed.okCount, entries.length, streamed.errors)
+        await refresh()
+        props.onFilesRefresh?.()
+        return
+      }
+      // 回退 base64 + uploadInsightFolder 单请求(非桌面 / 剪贴板 blob)。
+      const fileEntries: InsightFolderUploadFile[] = []
+      for (const e of entries) {
+        const base64 = await readFileAsBase64(e.file)
+        fileEntries.push({ relativePath: e.relativePath, content: base64 })
       }
       const result = await uploadInsightFolder(sdk.url, sdk.directory, props.sessionId, folderName, fileEntries, currentPath)
-      showToast({ title: "上传完成", description: `${folderName} (${result.fileCount} 个文件)`, variant: "success", duration: 2000 })
+      showFolderUploadResult(folderName, result.fileCount, entries.length, [])
       await refresh()
       props.onFilesRefresh?.()
     } catch (err) {
@@ -344,14 +427,16 @@ function FileManagerInner(props: {
   }
   async function processDirectoryEntry(dirEntry: FileSystemDirectoryEntry) {
     const folderName = dirEntry.name
-    const fileEntries: InsightFolderUploadFile[] = []
+    const entries: { file: File; relativePath: string }[] = []
     const currentPath = fileStore.isTopLevel() ? "" : store().currentPath
     async function collectFiles(entry: FileSystemEntry) {
       if (entry.isFile) {
         const file = await getFileFromEntry(entry as FileSystemFileEntry)
-        const relativePath = entry.fullPath.slice(1 + folderName.length)
-        const base64 = await readFileAsBase64(file)
-        fileEntries.push({ relativePath, content: base64 })
+        // entry.fullPath 形如 "/<folderName>/sub/file.txt",slice(1+folderName.length) 产出
+        // "/sub/file.txt"(带前导斜杠);去掉它,与 handleFolderUpload 的 webkitRelativePath 口径一致,
+        // 避免流式 subPath 拼出 "folderName//sub" 双斜杠(虽 path.join 能兜底归一化,但脆弱)。
+        const relativePath = entry.fullPath.slice(1 + folderName.length).replace(/^\/+/, "")
+        entries.push({ file, relativePath })
       } else if (entry.isDirectory) {
         const reader = (entry as FileSystemDirectoryEntry).createReader()
         const childEntries = await readAllDirectoryEntries(reader)
@@ -359,14 +444,28 @@ function FileManagerInner(props: {
       }
     }
     const reader = dirEntry.createReader()
-    const entries = await readAllDirectoryEntries(reader)
-    // 同 handleFolderUpload:collectFiles 内的 readFileAsBase64 会因超上限 reject,
-    // 且这里外层是 handleDrop 的 void processEntries(...),没有任何 catch —— 必须在此收住。
+    const dirEntries = await readAllDirectoryEntries(reader)
+    // collectFiles 不再读 base64,无超上限 reject;但外层是 handleDrop 的 void processEntries(...),
+    // 没有 catch —— 仍需在此收住 getFileFromEntry 的潜在失败 + 回退分支的 readFileAsBase64 reject。
     try {
-      for (const entry of entries) await collectFiles(entry)
-      if (fileEntries.length === 0) return
+      for (const entry of dirEntries) await collectFiles(entry)
+      if (entries.length === 0) return
+      // 优先流式(桌面端 + 真实本地路径):绕开 base64/JSON,无 V8 字符串上限 / OOM 风险。
+      const streamed = await tryStreamFolderUpload(entries, folderName, currentPath)
+      if (streamed) {
+        showFolderUploadResult(streamed.finalFolderName, streamed.okCount, entries.length, streamed.errors)
+        await refresh()
+        props.onFilesRefresh?.()
+        return
+      }
+      // 回退 base64 + uploadInsightFolder 单请求(非桌面 / 剪贴板 blob)。
+      const fileEntries: InsightFolderUploadFile[] = []
+      for (const e of entries) {
+        const base64 = await readFileAsBase64(e.file)
+        fileEntries.push({ relativePath: e.relativePath, content: base64 })
+      }
       const result = await uploadInsightFolder(sdk.url, sdk.directory, props.sessionId, folderName, fileEntries, currentPath)
-      showToast({ title: "上传完成", description: `${folderName} (${result.fileCount} 个文件)`, variant: "success", duration: 2000 })
+      showFolderUploadResult(folderName, result.fileCount, entries.length, [])
       await refresh()
       props.onFilesRefresh?.()
     } catch (err) {
