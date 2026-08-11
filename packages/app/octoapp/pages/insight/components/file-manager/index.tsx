@@ -53,7 +53,7 @@ import { ALLOWED_EXT, getExt } from "../../lib/upload"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { FileManagerToolbar } from "./toolbar"
 import { Breadcrumb } from "./breadcrumb"
-import { folderRelativeDir, resolveFolderName } from "./folder-upload-utils"
+import { folderRelativeDir, joinSubPath, resolveFolderName } from "./folder-upload-utils"
 import { ArchiveDialogs, type ArchiveTarget } from "../archive-flow"
 import { archiveFileSizeError } from "../../utils/archive-size"
 import { getLargeArchiveFile } from "../../utils/archive-utils"
@@ -303,7 +303,7 @@ function FileManagerInner(props: {
     let okCount = 0
     const errors: string[] = []
     for (const r of resolved) {
-      const subPath = [currentPath, finalFolderName, r.dirPart].filter(Boolean).join("/")
+      const subPath = joinSubPath([currentPath, finalFolderName, r.dirPart])
       try {
         await api.copyFileToSessionUploads(r.srcPath, baseDir, props.sessionId, subPath, r.name)
         okCount++

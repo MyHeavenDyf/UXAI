@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { folderRelativeDir, resolveFolderName } from "./folder-upload-utils"
+import { folderRelativeDir, joinSubPath, resolveFolderName } from "./folder-upload-utils"
 
 // 文件夹流式上传纯逻辑的回归防线。抽到 folder-upload-utils.ts 便于直接单测,
 // 避免 mock index.tsx 的 sdk / getDesktopApi / fetchInsightFiles 闭包依赖。
 // 结构性不变量(streaming-first + base64 回退、前导斜杠去除、result.name 透传)
 // 用源码扫描式,与同目录 empty-folder-header.test.ts / open-in-tab.test.ts 同款。
+// 结构测试只锁结构性不变量,不锁文案(避免措辞微调配改挂测试)。
 const SRC = readFileSync(join(import.meta.dir, "index.tsx"), "utf8")
 
 describe("folderRelativeDir", () => {
@@ -19,16 +20,33 @@ describe("folderRelativeDir", () => {
   test("深路径 → 取最后 / 之前(保留中间 /)", () => {
     expect(folderRelativeDir("a/b/c/file.txt")).toBe("a/b/c")
   })
-  test("前导斜杠已由调用方去除,但即便残留也只切到最后 / 之前", () => {
-    // processDirectoryEntry 已对 relativePath 做 .replace(/^\/+/, ""),这里验证
-    // 即便防御性地传入残留前导斜杠,dirPart 也不会越界(切片基于 lastIndexOf)。
-    expect(folderRelativeDir("/sub/file.txt")).toBe("/sub")
+  test("残留前导斜杠自保去除(即便上游漏去,也不让 subPath 拼出双斜杠)", () => {
+    expect(folderRelativeDir("/sub/file.txt")).toBe("sub")
+    expect(folderRelativeDir("///sub/deep/file.txt")).toBe("sub/deep")
   })
   test("空串 → 空串", () => {
     expect(folderRelativeDir("")).toBe("")
   })
   test("纯目录名(以 / 结尾)→ 去掉尾部斜杠的部分", () => {
     expect(folderRelativeDir("sub/")).toBe("sub")
+  })
+})
+
+describe("joinSubPath", () => {
+  test("顶层 + 有子目录 → folderName/sub(无前导斜杠)", () => {
+    expect(joinSubPath(["", "myFolder", "sub"])).toBe("myFolder/sub")
+  })
+  test("非顶层 + 有子目录 → parent/folder/sub", () => {
+    expect(joinSubPath(["parent", "myFolder", "sub"])).toBe("parent/myFolder/sub")
+  })
+  test("顶层 + 无子目录(dirPart 空)→ 仅 folderName", () => {
+    expect(joinSubPath(["", "myFolder", ""])).toBe("myFolder")
+  })
+  test("全空段 → 空串(不应产出前导斜杠)", () => {
+    expect(joinSubPath(["", "", ""])).toBe("")
+  })
+  test("深子目录 dirPart 含中间 / → 原样保留", () => {
+    expect(joinSubPath(["", "myFolder", "a/b/c"])).toBe("myFolder/a/b/c")
   })
 })
 
@@ -79,8 +97,16 @@ describe("index.tsx 结构不变量(源码扫描)", () => {
     expect(SRC).toMatch(/if \(files\.length === 0\) return null/)
   })
 
-  test("部分失败 toast 展示错误计数 + console.warn 完整列表", () => {
-    expect(SRC).toMatch(/errors\.length > 1 \? `\$\{errors\[0\]\} 等 \$\{errors\.length\} 个错误` : errors\[0\]/)
-    expect(SRC).toMatch(/console\.warn\("\[octo:files\] folder-upload partial failures"/)
+  test("subPath 拼接走 joinSubPath 纯函数(不再内联 filter(Boolean).join)", () => {
+    expect(SRC).toContain("joinSubPath([currentPath, finalFolderName, r.dirPart])")
+    // 不应残留内联拼接的旧写法
+    expect(SRC).not.toMatch(/\[currentPath, finalFolderName, r\.dirPart\]\.filter\(Boolean\)\.join\("\/"\)/)
+  })
+
+  test("部分失败 toast 有 errors.length > 1 三元分支 + console.warn 完整列表", () => {
+    // 只锁结构(三元条件 + console.warn 存在),不锁文案,避免措辞微调配改挂测试。
+    expect(SRC).toContain("errors.length > 1 ?")
+    expect(SRC).toContain(': errors[0]')
+    expect(SRC).toContain('console.warn("[octo:files] folder-upload partial failures"')
   })
 })
