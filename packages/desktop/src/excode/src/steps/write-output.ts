@@ -44,20 +44,29 @@ export class WriteOutput extends Step {
     }
 
     // 4. 样式产物（*.module.less / *.less）
-    if (ctx.styleResults && ctx.styleResults.length > 0) {
+    //    CSS Modules 模式（css:true，默认）下，每个元素的 Tailwind 类名被
+    //    convertTailwindToLessRule 转为真实 CSS 属性（flex→display:flex），
+    //    写入 .<id> 选择器的 .module.less 文件，JSX 引 styles.<id>。
+    //    导出产物中不出现任何 Tailwind 缩写类名。
+    //    css:false 模式则跳过 .less 落盘（工具类由 tailwind-base.css 直接提供）。
+    const cssModules = ctx.config?.css !== false
+    if (cssModules && ctx.styleResults && ctx.styleResults.length > 0) {
       for (const ps of ctx.styleResults) {
         for (const lf of ps.lessFiles) ctx.outputFiles.push(lf)
       }
     }
 
-    // 5. 共享 tailwind-base.css（@layer 顺序 + theme + preflight + @property + @layer properties）
-    //    聚合全导出用到的候选类，产出 base CSS；入口 main.tsx 引一次，使 .module.less 里
-    //    的 var(--color-primary)/var(--spacing)/var(--tw-shadow) 等可解析、preflight 生效。
+    // 5. 共享 tailwind-base.css —— 用 Tailwind compile().build() 一次性烤出
+    //    preflight + theme + @property + layer 顺序的完整 CSS。
+    //    CSS Modules 模式下，utilities 层的规则（.flex{display:flex}）匹配不到
+    //    哈希后的 JSX class，是死代码；但 @property 注册块（--tw-shadow 等）
+    //    被 per-element .less 的 var() 引用依赖，必须保留。故仍传全量候选类。
+    //    入口 main.tsx 引一次即可。
     const allCandidates = new Set<string>()
     if (ctx.styleResults) for (const ps of ctx.styleResults) for (const c of ps.allCandidates) allCandidates.add(c)
     ctx.outputFiles.push({
       path: 'src/styles/tailwind-base.css',
-      content: generateTailwindBaseCss([...allCandidates]),
+      content: await generateTailwindBaseCss([...allCandidates]),
     })
 
     console.log(`  ℹ  WriteOutput: 共 ${ctx.outputFiles.length} 个产出文件`)

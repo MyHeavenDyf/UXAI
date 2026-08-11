@@ -1,95 +1,54 @@
 /**
- * tailwind-base-css — 拼装 Tailwind v4 base CSS（theme + preflight + @property + @layer properties）
+ * tailwind-base-css — 用 Tailwind v4 真正的 compile() API 一次性烤出完整 CSS
  *
- * 目的：导出的目标项目不依赖 Tailwind，但 utility 规则（.module.less）通过 var() 引用
- * Tailwind 主题变量（--color-primary、--spacing、--text-sm…）与 --tw-* 注册属性。
- * 这里产出一份共享 base CSS，由入口 main.tsx 引入一次，使 var() 引用可解析、
- * 浏览器重置（preflight）生效、--tw-* 注册属性语义（inherits:false）正确。
+ * 目的：导出的目标项目不依赖 Tailwind 运行时，但样式与 previewpc 完全一致。
+ * 在导出时刻调用 Tailwind 的 compile() API（与 previewpc 的 @tailwindcss/browser
+ * 同源），输入相同的 `@import "tailwindcss"` + hui-theme.css，输出含
+ * preflight + theme + utilities + @property + layer 顺序的完整 CSS。
  *
- * 复用 tailwind-to-css 已加载的 designSystem.candidatesToCss 取候选 utility CSS，
- * theme/preflight 取自 tailwindcss 包内 ?raw 打包的静态文件——运行期不读盘，可打包进 bundle。
+ * main/hui-theme.css 与 previewpc/src/assets/style/hui-theme.css 同源（MD5 一致），
+ * 因此导出产物的样式与 previewpc 等价。
+ *
+ * 产物落到 src/styles/tailwind-base.css，由模板 main.tsx 一次性 import。
+ * JSX 写原始 className（如 `className="flex p-4"`），CSS 选择器 `.flex { ... }`
+ * 直接命中——不再需要 CSS Modules 做 per-element .less 转换。
  */
 
-import _themeCss from "tailwindcss/theme.css?raw"
-import _preflightCss from "tailwindcss/preflight.css?raw"
-import { designSystem, buildThemeCss } from "./tailwind-to-css"
+import { compile } from 'tailwindcss'
+import _tailwindIndexCss from 'tailwindcss/index.css?raw'
+import _huiThemeCss from './hui-theme.css?raw'
 
-const PROPERTY_BLOCK = /@property\s+(--[\w-]+)\s*\{([^}]*)\}/g
-const INITIAL_VALUE = /initial-value:\s*([^;}]+)/
-
-function extractThemeVars(src: string): string {
-  const m = src.match(/@theme[^\n{]*\{([\s\S]*)\}/)
-  return m ? m[1].trim() : ""
+// 模块加载时一次性建好 compiler；build() 是同步的，后续每次导出直接调用。
+let buildFn: ((candidates: string[]) => string) | null = null
+try {
+  const inputCss = `@import "tailwindcss";\n${_huiThemeCss}`
+  const result = await compile(inputCss, {
+    base: '',
+    loadStylesheet: async (id: string) => {
+      if (id === 'tailwindcss') return { path: id, base: '', content: _tailwindIndexCss }
+      throw new Error(`cannot resolve stylesheet ${id}`)
+    },
+  })
+  buildFn = result.build
+} catch (e) {
+  console.error('[tailwind-base-css] compile init failed:', e)
 }
 
-function buildThemeLayer(): string {
-  const defaults = extractThemeVars(_themeCss)
-  const overrides = extractThemeVars(buildThemeCss())
-  const body = [defaults, overrides].filter(Boolean).join("\n")
-  return `@layer theme {\n  :root, :host {\n${body}\n  }\n}`
-}
-
-function buildBaseLayer(): string {
-  return `@layer base {\n${_preflightCss}\n}`
-}
-
-function buildUtilitiesAndProperties(candidates: string[]): {
-  utilities: string
-  properties: string
-  propertiesLayer: string
-} {
-  if (!designSystem) return { utilities: "@layer utilities {}", properties: "", propertiesLayer: "" }
-
-  const tokens = new Set<string>()
-  for (const cn of candidates) for (const t of cn.split(/\s+/)) if (t) tokens.add(t)
-
-  const utilityRules: string[] = []
-  const propMap = new Map<string, string>()
-  for (const css of designSystem.candidatesToCss([...tokens])) {
-    if (!css) continue
-    for (const m of css.matchAll(PROPERTY_BLOCK)) {
-      if (!propMap.has(m[1])) propMap.set(m[1], m[0])
-    }
-    const rule = css.replace(/@property[^{]*\{[^}]*\}/g, "").trim()
-    if (rule) utilityRules.push(rule)
+/**
+ * 生成导出项目共享的 tailwind-base.css。
+ *
+ * 内部调用 Tailwind compile().build(candidates)：
+ *   - preflight（浏览器重置）
+ *   - @theme 变量（含 HUI 主题覆盖）
+ *   - utilities（按候选类生成，含 variant: hover/md:/[&:…] 等）
+ *   - @property 注册 + 兼容回退层
+ *   - 正确的 @layer 顺序
+ *
+ * 与 previewpc 运行时输出等价，因为共用同一份 compile + 同一份 hui-theme.css。
+ */
+export async function generateTailwindBaseCss(candidates: string[]): Promise<string> {
+  if (!buildFn) {
+    return '/* tailwind-base-css: compiler not initialized */\n'
   }
-
-  const properties = [...propMap.values()].join("\n")
-  const fallbackDecls: string[] = []
-  for (const [name, block] of propMap) {
-    const iv = block.match(INITIAL_VALUE)
-    fallbackDecls.push(`      ${name}: ${iv ? iv[1].trim() : "initial"};`)
-  }
-  const propertiesLayer =
-    fallbackDecls.length === 0
-      ? ""
-      : [
-          "@layer properties {",
-          "  @supports ((-webkit-hyphens: none) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color:rgb(from red r g b)))) {",
-          "    *, ::before, ::after, ::backdrop {",
-          ...fallbackDecls,
-          "    }",
-          "  }",
-          "}",
-        ].join("\n")
-
-  const utilities = `@layer utilities {\n${utilityRules.join("\n\n")}\n}`
-  return { utilities, properties, propertiesLayer }
-}
-
-export function generateTailwindBaseCss(candidates: string[]): string {
-  const { utilities, properties, propertiesLayer } = buildUtilitiesAndProperties(candidates)
-  return (
-    [
-      "/*! tailwindcss v4 base (assembled by a2ui-transformer) */",
-      "@layer theme, base, components, utilities;",
-      buildThemeLayer(),
-      buildBaseLayer(),
-      utilities,
-      properties,
-      propertiesLayer,
-    ]
-      .filter(Boolean)
-      .join("\n\n") + "\n"
-  )
+  return buildFn(candidates)
 }

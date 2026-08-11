@@ -63,7 +63,8 @@ const config: {
   templateDir: string
   /** 目标组件库 */
   targetLib: string
-  /** CSS 模块化策略：true=每文件 *.module.less；false=全局 *.less */
+  /** CSS 模式：true=CSS Modules(*.module.less)，className 走 styles.<id>，Tailwind 类名转为真实 CSS 属性；
+   *            false=全局工具类，JSX 写原始 className，由 tailwind-base.css 提供匹配 */
   css: boolean
   /** 是否在产物 JSX 标签上输出 id 属性 */
   id: boolean

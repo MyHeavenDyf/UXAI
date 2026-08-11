@@ -1,5 +1,6 @@
 import { __unstable__loadDesignSystem } from "tailwindcss"
 import _tailwindIndexCss from "tailwindcss/index.css?raw"
+import _huiThemeCss from "./hui-theme.css?raw"
 
 export const tailwindConfig: any = {
   theme: {
@@ -420,33 +421,13 @@ export const tailwindConfig: any = {
 }
 
 export function buildThemeCss(): string {
-  const ext = (tailwindConfig as { theme: { extend: Record<string, any> } }).theme.extend
-  const lines: string[] = []
-  for (const [name, hex] of Object.entries(ext.colors as Record<string, string>)) {
-    lines.push(`  --color-${name}: ${hex};`)
-  }
-  for (const [name, val] of Object.entries(ext.borderColor as Record<string, string>)) {
-    lines.push(`  --color-${name}: ${val};`)
-  }
-  for (const [name, [size, opts]] of Object.entries(ext.fontSize as Record<string, [string, { lineHeight?: string }]>)) {
-    lines.push(`  --text-${name}: ${size};`)
-    if (opts?.lineHeight) lines.push(`  --text-${name}--line-height: ${opts.lineHeight};`)
-  }
-  for (const [name, val] of Object.entries(ext.borderRadius as Record<string, string>)) {
-    lines.push(`  --radius-${name}: ${val};`)
-  }
-  for (const [name, val] of Object.entries(ext.boxShadow as Record<string, string>)) {
-    lines.push(`  --shadow-${name}: ${val};`)
-  }
-  for (const [name, val] of Object.entries(ext.spacing as Record<string, string>)) {
-    lines.push(`  --spacing-${name}: ${val};`)
-  }
-  return `@import "tailwindcss";\n@theme {\n${lines.join("\n")}\n}`
+  // 兼容外部可能的旧引用；实际 designSystem 已改用 _huiThemeCss（与 tailwind-base-css.ts 同源）
+  return `@import "tailwindcss";\n${_huiThemeCss}`
 }
 
 export let designSystem: Awaited<ReturnType<typeof __unstable__loadDesignSystem>> | null = null
 try {
-  designSystem = await __unstable__loadDesignSystem(buildThemeCss(), {
+  designSystem = await __unstable__loadDesignSystem(`@import "tailwindcss";\n${_huiThemeCss}`, {
     loadStylesheet: async (id: string, base: string) => {
       if (id === "tailwindcss") return { path: id, base, content: _tailwindIndexCss }
       throw new Error(`cannot resolve stylesheet ${id}`)
