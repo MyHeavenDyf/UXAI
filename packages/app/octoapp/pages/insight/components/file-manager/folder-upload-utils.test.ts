@@ -103,9 +103,9 @@ describe("index.tsx 结构不变量(源码扫描)", () => {
     expect(SRC).not.toMatch(/if \(entries\.length === 0\) return/)
   })
 
-  test("showFolderUploadResult 对空文件夹(total===0)单独提示「已创建空文件夹」", () => {
+  test("showFolderUploadResult 对空文件夹(total===0)走「上传完成」与普通完成一致", () => {
     expect(SRC).toContain("if (total === 0)")
-    expect(SRC).toContain('"已创建空文件夹"')
+    expect(SRC).toContain('`${folderName} (0 个文件)`')
   })
 
   test("handleFolderUpload 从 input.value 取空文件夹名(带 fakepath 守卫)", () => {
