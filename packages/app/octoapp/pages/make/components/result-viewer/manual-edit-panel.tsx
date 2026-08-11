@@ -52,6 +52,7 @@ export function ManualEditPanel(props: {
   floatingStyle?: { left: number; top: number }
   onDraftChange: (draft: ManualEditDraft) => void
   onStyleChange?: (id: string, styles: Partial<ManualEditStyles>, label: string) => void
+  onTextPreview?: (id: string, text: string) => void
   onApplyPatch: (patch: ManualEditPatch, label: string) => void
   onPickImage?: (file: File) => Promise<string | null>
   onError: (message: string) => void
@@ -262,6 +263,10 @@ export function ManualEditPanel(props: {
                   class="cc-textarea"
                   value={props.draft.text}
                   onInput={(e) => props.onDraftChange({ ...props.draft, text: e.currentTarget.value })}
+                  onBlur={() => {
+                    const target = props.selectedTarget
+                    if (target) props.onTextPreview?.(target.id, props.draft.text)
+                  }}
                   placeholder="Enter text content (mixed elements only)..."
                   rows={3}
                 />
