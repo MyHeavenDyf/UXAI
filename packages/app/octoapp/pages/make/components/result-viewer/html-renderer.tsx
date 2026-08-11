@@ -74,7 +74,14 @@ export type InspectTarget = {
 
 export type PaletteId = "coral" | "electric" | "acid-forest" | "risograph" | "mono-noir"
 
-export type ViewportPreset = "desktop" | "tablet" | "mobile"
+export type ViewportPreset =
+  | "desktop"
+  | "desktop-1920"
+  | "desktop-1680"
+  | "desktop-1440"
+  | "desktop-1366"
+  | "tablet"
+  | "mobile"
 
 export const PALETTE_PRESETS: { id: PaletteId; label: string; colors: string[] }[] = [
   { id: "coral", label: "Coral", colors: ["#ff5a3c", "#ff7a5c", "#fde2d6"] },
@@ -86,6 +93,10 @@ export const PALETTE_PRESETS: { id: PaletteId; label: string; colors: string[] }
 
 const VIEWPORT_DIMS: Record<ViewportPreset, { width: number | null; height: number | null }> = {
   desktop: { width: null, height: null },
+  "desktop-1920": { width: 1920, height: 1080 },
+  "desktop-1680": { width: 1680, height: 1050 },
+  "desktop-1440": { width: 1440, height: 1080 },
+  "desktop-1366": { width: 1366, height: 768 },
   tablet: { width: 820, height: 1180 },
   mobile: { width: 390, height: 844 },
 }
