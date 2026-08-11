@@ -97,6 +97,25 @@ describe("index.tsx 结构不变量(源码扫描)", () => {
     expect(SRC).toMatch(/if \(files\.length === 0\) return null/)
   })
 
+  test("processDirectoryEntry 不再对空 entries 提前 return(让空文件夹流到回退建空目录)", () => {
+    // 旧写法 if (entries.length === 0) return 已删,空文件夹走 tryStreamFolderUpload → null →
+    // uploadInsightFolder(folderName, [], ...) → 服务端 ensureDir 建空目录。
+    expect(SRC).not.toMatch(/if \(entries\.length === 0\) return/)
+  })
+
+  test("showFolderUploadResult 对空文件夹(total===0)单独提示「已创建空文件夹」", () => {
+    expect(SRC).toContain("if (total === 0)")
+    expect(SRC).toContain('"已创建空文件夹"')
+  })
+
+  test("handleFolderUpload 从 input.value 取空文件夹名(带 fakepath 守卫)", () => {
+    // 空文件夹 FileList 为空,从 input.value(Electron/Chrome "C:\fakepath\FolderName")取末段
+    expect(SRC).toContain("handleFolderUpload(files: FileList, inputValue?: string)")
+    expect(SRC).toContain('!== "fakepath"')
+    // onChange 传 input.value
+    expect(SRC).toContain("handleFolderUpload(input.files, input.value)")
+  })
+
   test("subPath 拼接走 joinSubPath 纯函数(不再内联 filter(Boolean).join)", () => {
     expect(SRC).toContain("joinSubPath([currentPath, finalFolderName, r.dirPart])")
     // 不应残留内联拼接的旧写法

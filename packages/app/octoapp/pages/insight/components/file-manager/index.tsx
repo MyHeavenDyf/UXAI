@@ -101,8 +101,13 @@ function insightFileToArchiveTarget(file: InsightFile, sdkUrl: string, sdkDirect
 }
 
 // 文件夹上传结果汇总 toast:流式分支(逐文件可能部分成功)与 base64 分支(单请求原子)共用。
+// 空文件夹(total===0)单独提示:走的是服务端 ensureDir 建空目录,非文件拷贝。
 // 多个错误时 toast 只放首条 + 计数,完整列表 console.warn 便于排查。
 function showFolderUploadResult(folderName: string, okCount: number, total: number, errors: string[]) {
+  if (total === 0) {
+    showToast({ title: "已创建空文件夹", description: folderName, variant: "success", duration: 2000 })
+    return
+  }
   if (errors.length === 0) {
     showToast({ title: "上传完成", description: `${folderName} (${okCount} 个文件)`, variant: "success", duration: 2000 })
     return
@@ -336,10 +341,17 @@ function FileManagerInner(props: {
     }
   }
 
-  async function handleFolderUpload(files: FileList) {
-    if (!files || files.length === 0) return
-    const firstFile = files[0]
-    const folderName = firstFile.webkitRelativePath?.split("/")[0]
+  async function handleFolderUpload(files: FileList, inputValue?: string) {
+    if (!files) return
+    let folderName: string | undefined = files[0]?.webkitRelativePath?.split("/")[0]
+    if (!folderName && files.length === 0) {
+      // <input webkitdirectory> 选空文件夹时 FileList 为空,拿不到 webkitRelativePath;
+      // 从 input.value(Electron/Chrome 形如 "C:\fakepath\FolderName")取末段作为 folder name。
+      // fakepath 是 Chrome 的安全伪路径前缀,过滤掉避免拿它当文件夹名。
+      const segs = (inputValue ?? "").split(/[\\\/]/).filter(Boolean)
+      const last = segs[segs.length - 1]
+      if (last && last !== "fakepath") folderName = last
+    }
     if (!folderName) {
       showToast({ title: "上传失败", description: "无法识别文件夹名", variant: "error" })
       return
@@ -448,8 +460,8 @@ function FileManagerInner(props: {
     // 没有 catch —— 仍需在此收住 getFileFromEntry 的潜在失败 + 回退分支的 readFileAsBase64 reject。
     try {
       for (const entry of dirEntries) await collectFiles(entry)
-      if (entries.length === 0) return
-      // 优先流式(桌面端 + 真实本地路径):绕开 base64/JSON,无 V8 字符串上限 / OOM 风险。
+      // 空文件夹不再提前 return:entries=[] → tryStreamFolderUpload 返回 null → 回退
+      // uploadInsightFolder(folderName, [], ...) → 服务端 ensureDir 建空目录(与 base64 对称)。
       const streamed = await tryStreamFolderUpload(entries, folderName, currentPath)
       if (streamed) {
         showFolderUploadResult(streamed.finalFolderName, streamed.okCount, entries.length, streamed.errors)
@@ -676,7 +688,7 @@ function FileManagerInner(props: {
           // @ts-ignore - webkitdirectory 非标准但广泛支持
           webkitdirectory=""
           class="hidden"
-          onChange={(e) => { if (e.currentTarget.files) { void handleFolderUpload(e.currentTarget.files); e.currentTarget.value = "" } }}
+          onChange={(e) => { const input = e.currentTarget; if (input.files) { void handleFolderUpload(input.files, input.value); input.value = "" } }}
         />
 
         <Show when={isDragOver()}>
