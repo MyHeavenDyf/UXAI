@@ -259,16 +259,15 @@ export function ActionBar(props: {
   // 切换可见性:静态 toggle 类型(html/markdown)恒显;json 卡按内容判定——
   // 内容是思维导图 shape(顶层带 children 的树)时才出「预览(markmap)/代码(json)」切换,
   // 普通配置 JSON 无切换单显源。内容随 path/uri 读取后回填,本函数响应式重算。见 output-renderers.md §1。
+  // 大 markdown 例外:已路由到 VirtualizedText 纯文本(预览/代码两态都已是纯文本),切换无意义,隐藏。
   const showToggle = () =>
-    isToggleType(props.tab.type) ||
+    (isToggleType(props.tab.type) && !(props.tab.type === "markdown" && (props.tab.content?.length ?? 0) > MARKDOWN_LARGE_THRESHOLD)) ||
     (props.tab.type === "json" && isMindmapJSON(props.tab.content ?? ""))
   // 编辑按钮:仅 markdown 卡,且内容来自本地可写文件(uri 落 .octo/<sessionId>/outputs / path write 产物);
   // inline 无本地文件不给编辑。见 docs/specs/ui/insight-markdown-editor.md §2.1。
+  // 大文件不再拦截:超阈值会路由到 CM6 按行虚拟化编辑器(result-viewer editingTab 分流),5MB 可编。
   const canEdit = () =>
     !!props.onEdit && props.tab.type === "markdown" && (props.tab.source === "uri" || props.tab.source === "path") && ready()
-  // 大文件编辑拦截:Vditor sv 分屏会把全文喂给 Lute(同预览根因),超阈值置灰编辑按钮,
-  // 提示下载后用本地编辑器修改。阈值与预览截断共用 MARKDOWN_LARGE_THRESHOLD,避免漂移。
-  const editBlocked = () => canEdit() && (props.tab.content?.length ?? 0) > MARKDOWN_LARGE_THRESHOLD
 
   // ── 归档(所有文件类型,头部最右侧按钮;逻辑抽到 ../archive-flow)──────────────────────
   const [archiveTarget, setArchiveTarget] = createSignal<ArchiveTarget | null>(null)
@@ -341,28 +340,14 @@ export function ActionBar(props: {
             <ActionBtn icon={<IconActionFolder size={14} />} label="文件夹" onClick={() => void revealFileInFolder(props.tab.filePath!)} />
           </Show>
           <Show when={canEdit()}>
-            {/* 超阈值置灰(同预览截断根因:Vditor sv 分屏把全文喂给 Lute,大文件卡死编辑器)。
-                disabled 按钮原生 title 不显示(浏览器抑制禁用元素鼠标事件),故用 Tooltip(div trigger)包裹,禁用态也能悬浮出原因。 */}
-            <Tooltip
-              placement="top"
-              value="文件过大，暂不支持在线编辑，请下载后用本地编辑器修改"
-              inactive={!editBlocked()}
-              contentStyle={{ "white-space": "nowrap", "max-width": "none", "z-index": "60" }}
-              class="shrink-0"
-            >
-              <button
-                type="button"
-                disabled={editBlocked()}
-                onClick={() => {
-                  tracker.interaction({ module: "insight", name: "md-edit-open", extend: JSON.stringify({ source: props.tab.source }) })
-                  props.onEdit!()
-                }}
-                class="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors octo-btn-action disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <IconEditPencil size={14} />
-                <span>编辑</span>
-              </button>
-            </Tooltip>
+            <ActionBtn
+              icon={<IconEditPencil size={14} />}
+              label="编辑"
+              onClick={() => {
+                tracker.interaction({ module: "insight", name: "md-edit-open", extend: JSON.stringify({ source: props.tab.source }) })
+                props.onEdit!()
+              }}
+            />
           </Show>
           {/* uri md 卡「文件夹」定位——落点在可见的 .octo/<sessionId>/outputs;path 源已在上方 path 块提供。 */}
           <Show when={canRevealUri()}>

@@ -47,6 +47,13 @@ export function detectHtmlEncoding(bytes: Uint8Array): string {
     new TextDecoder("utf-8", { fatal: true }).decode(bytes)
     return "utf-8"
   } catch {
+    // fatal 严格到任一字节非法即抛 —— 末尾截断的多字节序列(文件按大小截断 / 写入未完成)会让整篇
+    // 合法 UTF-8 误判成非 UTF-8,错走 gb18030 把全文解成乱码。非 fatal 解码后看替换符位置:
+    // 仅末尾有替换符(截断特征)→ 仍按 UTF-8;替换符散落在前面 → 真 GBK,走 gb18030。
+    // 对 GBK 检测零回归:GBK 解成 UTF-8 会产生大量前置替换符,firstBad 远离末尾。
+    const lenient = new TextDecoder("utf-8", { fatal: false }).decode(bytes)
+    const firstBad = lenient.indexOf("\uFFFD")
+    if (firstBad === -1 || firstBad >= lenient.length - 4) return "utf-8"
     return metaEnc ?? "gb18030"
   }
 }

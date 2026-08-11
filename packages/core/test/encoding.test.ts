@@ -36,6 +36,13 @@ describe("detectHtmlEncoding", () => {
     expect(detectHtmlEncoding(gbkDoc("<html><body>"))).toBe("gb18030")
   })
 
+  test("truncated trailing UTF-8 multibyte → utf-8 (not gb18030 garble)", () => {
+    // "测试" 的 UTF-8 = e6 b5 8b e8 af 95;截掉末字节 → 第 2 字的 3 字节序列截断,fatal 抛错,但仍是 UTF-8。
+    // 修复前:fatal 抛 → 回退 gb18030 → 全文乱码。修复后:末尾截断仍判 utf-8。
+    const bytes = Buffer.from("测试", "utf-8").subarray(0, 5)
+    expect(detectHtmlEncoding(Uint8Array.from(bytes))).toBe("utf-8")
+  })
+
   test("UTF-8 no meta → utf-8 (fatal sniff succeeds)", () => {
     expect(detectHtmlEncoding(Buffer.from("<html><body>你好世界</body></html>", "utf-8"))).toBe("utf-8")
   })
@@ -88,6 +95,14 @@ describe("decodeHtmlBytes", () => {
 
   test("GBK no meta → decodes 你好 via gb18030 fallback", () => {
     expect(decodeHtmlBytes(gbkDoc("<html><body>"))).toContain("你好")
+  })
+
+  test("truncated UTF-8 → decodes valid prefix, no gb18030 garble", () => {
+    // 末尾是 3 字节序列 测(e6 b5 8b),丢掉末字节 → 截断;合法前缀应按 UTF-8 正确解出,不乱码。
+    const bytes = Buffer.from("测试Markdown测", "utf-8").subarray(0, Buffer.from("测试Markdown测", "utf-8").length - 1)
+    const out = decodeHtmlBytes(Uint8Array.from(bytes))
+    expect(out).toContain("测试Markdown")
+    expect(out).not.toContain("鏂囦欢")
   })
 
   test("meta charset with spaces around = → normalized", () => {

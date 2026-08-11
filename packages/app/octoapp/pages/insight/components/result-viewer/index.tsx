@@ -17,7 +17,9 @@ import { describeResourceError } from "../../utils/local-resource"
 import { openFileLocally, revealFileInFolder, NO_APP_HINT } from "../../utils/local-file-ops"
 import { decodeHtmlBytes } from "@opencode-ai/core/bridge-scripts"
 import { MarkdownEditor } from "../markdown-editor"
+import { MarkdownEditorLarge } from "../markdown-editor/large-editor"
 import { MarkdownPreview, MARKDOWN_LARGE_THRESHOLD } from "../markdown-editor/markdown-preview"
+import { VirtualizedText } from "./virtualized-text"
 import { langFromPath, canOpenLocally } from "../../utils/write-output"
 import { getDesktopApi } from "../../lib/electron-api"
 import { tracker } from "@/utils/tracker"
@@ -31,32 +33,10 @@ import type { InsightFile, InsightFileEntry } from "../../utils/insight-file-api
 // 用 Vditor 的渲染引擎(MarkdownPreview),与全屏编辑器**同一套渲染**,保证卡片预览与编辑预览
 // 效果一致(加粗/表格/代码块等);取代旧的上游 <Markdown>(渲染效果与编辑器有出入)。
 // 见 spec insight-markdown-editor.md §6.3。
-// 大 markdown 截断预览:超阈值只渲染开头一段,完整内容走 ActionBar 的「复制 / 下载」
-// (downloadBlob 只构造 Blob,不进渲染管线,不会卡)。阈值与编辑入口共用 MARKDOWN_LARGE_THRESHOLD
-// (见 markdown-preview.tsx),避免两处漂移。截到上一个换行,避免从一行 / 一段语法中间切断。
+// 仅承接小文件(≤ MARKDOWN_LARGE_THRESHOLD):大文件会卡死 Lute + DOM 爆炸,由 TabContent
+// 路由分流到 VirtualizedText(按行虚拟化纯文本查看)。阈值见 markdown-preview.tsx,与编辑拦截共用。
 function MarkdownRenderer(props: { content: string }): JSX.Element {
-  const head = createMemo(() => {
-    const raw = props.content ?? ""
-    if (raw.length <= MARKDOWN_LARGE_THRESHOLD) return { text: raw, cut: false }
-    const slice = raw.slice(0, MARKDOWN_LARGE_THRESHOLD)
-    const nl = slice.lastIndexOf("\n")
-    return { text: nl > 0 ? slice.slice(0, nl) : slice, cut: true }
-  })
-  return (
-    <div class="h-full flex flex-col">
-      <Show when={head().cut}>
-        <div
-          class="shrink-0 px-4 py-2 text-xs"
-          style={{ color: "var(--octo-text-secondary)", background: "var(--octo-surface-hover)", "border-bottom": "1px solid var(--octo-border-divider)" }}
-        >
-          文件较大，仅预览部分内容。完整内容请使用上方「复制 / 下载」。
-        </div>
-      </Show>
-      <div class="flex-1 min-h-0">
-        <MarkdownPreview content={head().text} />
-      </div>
-    </div>
-  )
+  return <MarkdownPreview content={props.content} />
 }
 
 // ── 主容器 ────────────────────────────────────────────────────
@@ -154,21 +134,30 @@ export function ResultViewer(props: {
 
       {/* 全屏 markdown 编辑器:Portal 到 body,盖住整个 insight 三栏布局。
           关闭后回写 tab.content(供 ActionBar 复制/下载)并 bump diskVersion —— 编辑器写的是磁盘,
-          预览重新读一次磁盘,而不是显示内存里的回写值(§5 磁盘是真相源)。见 §2.2 / §2.3。 */}
+          预览重新读一次磁盘,而不是显示内存里的回写值(§5 磁盘是真相源)。见 §2.2 / §2.3。
+          按阈值分流:小文件 Vditor(sv 富预览),大文件 CM6(按行虚拟化源码编辑,5MB 不卡)。 */}
       <Show when={editingTab()}>
-        {(tab) => (
-          <Portal>
-            <MarkdownEditor
-              tab={tab()}
-              projectDir={projectDir() || ""}
-              onClose={(latest) => {
-                props.onCacheContent?.(tab().id, latest)
-                setDiskVersion((v) => v + 1)
-                setEditingId(null)
-              }}
-            />
-          </Portal>
-        )}
+        {(tab) => {
+          const editorProps = {
+            tab: tab(),
+            projectDir: projectDir() || "",
+            onClose: (latest: string) => {
+              props.onCacheContent?.(tab().id, latest)
+              setDiskVersion((v) => v + 1)
+              setEditingId(null)
+            },
+          }
+          return (
+            <Portal>
+              <Show
+                when={(tab().content?.length ?? 0) > MARKDOWN_LARGE_THRESHOLD}
+                fallback={<MarkdownEditor {...editorProps} />}
+              >
+                <MarkdownEditorLarge {...editorProps} />
+              </Show>
+            </Portal>
+          )
+        }}
       </Show>
     </div>
   )
@@ -340,8 +329,16 @@ function TabContent(props: { tab: ResultTab }): JSX.Element {
       }
     >
       <Match when={props.tab.type === "markdown"}>
-        <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="markdown" />}>
-          <MarkdownRenderer content={content()} />
+        {/* 大 markdown:Vditor 富渲染(预览)/ shiki(代码视图)都会卡死 Lute/高亮,改走
+            VirtualizedText 按行虚拟化纯文本查看,5MB 毫秒级开、可滚可复制。预览/代码切换对大文件
+            无意义(两态都已是纯文本),ActionBar 的 showToggle 已对大文件隐藏。 */}
+        <Show
+          when={content().length <= MARKDOWN_LARGE_THRESHOLD}
+          fallback={<VirtualizedText content={content()} />}
+        >
+          <Show when={!isSource()} fallback={<SourceCodeView content={content()} lang="markdown" />}>
+            <MarkdownRenderer content={content()} />
+          </Show>
         </Show>
       </Match>
       <Match when={props.tab.type === "json"}>
