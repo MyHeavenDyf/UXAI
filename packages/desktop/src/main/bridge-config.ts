@@ -1,4 +1,4 @@
-export type SubtypeCapabilities = {
+type SubtypeCapabilities = {
   features: {
     refresh: boolean
     modeToggle: boolean
@@ -18,7 +18,7 @@ export type SubtypeCapabilities = {
   }
 }
 
-export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
+const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
   shadcn: {
     features: {
       refresh: true,
@@ -54,19 +54,6 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
     }
   },
 
-  prototype: {
-    features: {
-      refresh: true,
-      modeToggle: true,
-      viewport: true,
-      localEdit: true,
-      drawEdit: true,
-      canvasEdit: true,
-      download: true,
-      fullscreen: true,
-    },
-  },
-
   _default: {
     features: {
       refresh: true,
@@ -83,7 +70,43 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
   }
 }
 
-export function getSubtypeConfig(subtype?: string): SubtypeCapabilities {
+function getSubtypeConfig(subtype?: string): SubtypeCapabilities {
   if (!subtype) return SUBTYPE_CONFIG._default
   return SUBTYPE_CONFIG[subtype] ?? SUBTYPE_CONFIG._default
+}
+
+export type BridgeInjectConfig = {
+  injectSandbox: boolean
+  injectAnnotate: boolean
+  injectEdit: boolean
+  injectEditStyle: boolean
+  injectInspect: boolean
+  injectPicker: boolean
+  injectComment: boolean
+  injectSnapshot: boolean
+  injectResourceCollector: boolean
+  customBridges: string[]
+}
+
+export function getBridgeConfigForSubtype(subtype?: string): BridgeInjectConfig {
+  const config = getSubtypeConfig(subtype)
+  const { features } = config
+  
+  const editEnabled = features.localEdit || features.drawEdit || features.canvasEdit
+  
+  return {
+    injectSandbox: true,
+    injectAnnotate: true,
+    injectPicker: true,
+    injectInspect: true,
+    
+    injectEdit: editEnabled,
+    injectEditStyle: editEnabled,
+    
+    injectComment: features.comment,
+    injectSnapshot: features.drawEdit || features.archive,
+    injectResourceCollector: features.canvasEdit,
+    
+    customBridges: config.rendering?.customBridges || []
+  }
 }

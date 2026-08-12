@@ -12,9 +12,14 @@ import {
   injectPickerBridge,
   injectCommentBridge,
   injectResourceCollectorBridge,
+  injectSnapshotBridge,
+  injectCustomBridge,
   decodeHtmlBytes,
 } from "@opencode-ai/core/bridge-scripts"
 import { annotateElementsWithIds } from "./bridge-scripts/annotate-node"
+import { extractSubtypeFromFilename } from "@opencode-ai/core/subtype-extractor"
+import { getBridgeConfigForSubtype } from "./bridge-config"
+import { getCustomBridge } from "./custom-bridge-registry"
 import type { TitlebarTheme } from "../preload/types"
 import { isApiPath, mockEnabled, handleMockApi } from "./mock"
 import { insightDebugLog } from "./logging"
@@ -363,19 +368,56 @@ export function registerLocalProtocol() {
       // postMessage 结构化克隆只传 blob 引用不拷字节,iframe 拿到 size=2.5GB 的真 File。
       if (mimeType === "text/html" || mimeType === "text/htm") {
         const content = await readFile(absolutePath)
-
-        // Inject bridge scripts for HTML files
         let htmlStr = decodeHtmlBytes(content)
 
-        // Inject bridge scripts in order (same as srcdoc-builder.ts)
-        htmlStr = injectSandboxShim(htmlStr)
-        htmlStr = annotateElementsWithIds(htmlStr)
-        htmlStr = injectEditBridgeStyle(htmlStr)
-        htmlStr = injectEditBridge(htmlStr)
-        htmlStr = injectInspectStyleBridge(htmlStr)
-        htmlStr = injectPickerBridge(htmlStr)
-        htmlStr = injectCommentBridge(htmlStr)
-        htmlStr = injectResourceCollectorBridge(htmlStr)
+        const filename = absolutePath.split(/[/\\]/).pop() || ''
+        const subtype = extractSubtypeFromFilename(filename)
+        const bridgeConfig = getBridgeConfigForSubtype(subtype)
+
+        if (bridgeConfig.injectSandbox) {
+          htmlStr = injectSandboxShim(htmlStr)
+        }
+        
+        if (bridgeConfig.injectAnnotate) {
+          htmlStr = annotateElementsWithIds(htmlStr)
+        }
+
+        if (bridgeConfig.injectPicker) {
+          htmlStr = injectPickerBridge(htmlStr)
+        }
+
+        if (bridgeConfig.injectInspect) {
+          htmlStr = injectInspectStyleBridge(htmlStr)
+        }
+
+        if (bridgeConfig.injectEdit) {
+          htmlStr = injectEditBridgeStyle(htmlStr)
+          htmlStr = injectEditBridge(htmlStr)
+        }
+
+        if (bridgeConfig.injectComment) {
+          htmlStr = injectCommentBridge(htmlStr)
+        }
+
+        if (bridgeConfig.injectSnapshot) {
+          htmlStr = injectSnapshotBridge(htmlStr)
+        }
+
+        if (bridgeConfig.injectResourceCollector) {
+          htmlStr = injectResourceCollectorBridge(htmlStr)
+        }
+
+        for (const bridgeId of bridgeConfig.customBridges) {
+          const customBridge = getCustomBridge(bridgeId)
+          if (customBridge) {
+            htmlStr = injectCustomBridge(htmlStr, customBridge.script, {
+              style: customBridge.style,
+              position: customBridge.position
+            })
+          } else {
+            console.warn(`[LocalProtocol] Custom bridge "${bridgeId}" not found`)
+          }
+        }
 
         return new Response(new TextEncoder().encode(htmlStr), {
           headers: {

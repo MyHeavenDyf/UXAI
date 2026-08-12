@@ -407,6 +407,8 @@ export function ActionBar(props: {
   const showLocalEdit = () => config().features.localEdit && showViewport()
   const showDrawEdit = () => config().features.drawEdit && showViewport()
   const showCanvasEdit = () => config().features.canvasEdit && showViewport()
+  const showComment = () => config().features.comment && showViewport()
+  const showArchive = () => config().features.archive && showViewport()
   const showDownload = () => config().features.download
   const showFullscreen = () => config().features.fullscreen
   const shouldShowCopy = () =>
@@ -544,7 +546,7 @@ export function ActionBar(props: {
               </For>
             </div>
           )}
-          {showViewport() && props.onCommentToggle && (
+          {showComment() && props.onCommentToggle && (
             <button
               type="button"
               class="octo-action-btn"
@@ -558,7 +560,7 @@ export function ActionBar(props: {
               <span>标注</span>
             </button>
           )}
-          {showViewport() && props.onArchiveToggle && (
+          {showArchive() && props.onArchiveToggle && (
             <button
               type="button"
               class="octo-action-btn octo-action-btn-archive"
