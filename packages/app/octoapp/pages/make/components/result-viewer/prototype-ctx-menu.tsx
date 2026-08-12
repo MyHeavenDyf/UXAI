@@ -28,7 +28,7 @@ export function PrototypeCtxMenu(): JSX.Element {
   onCleanup(unsubClose)
 
   const handleSelectParent = () => {
-    sendToPrototypeIframe({ type: "DOM_PICKER_SELECT_PARENT" })
+    sendToPrototypeIframe({ type: "od:dom-picker-select-parent" })
     close()
   }
 

@@ -181,15 +181,7 @@ export function ResultViewer(props: {
       }
 
       const handler = getSubtypeHandler(tab.subtype)
-      const ctx = {
-        tab,
-        showToast,
-        tracker,
-        getDesktopApi,
-        extractCodeBlock,
-        observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
-        projectSelection,
-      }
+      const ctx = buildSubtypeCtx()!
 
       if (handler?.handleCanvasEdit) {
         const handled = await handler.handleCanvasEdit(ctx)
@@ -271,19 +263,6 @@ export function ResultViewer(props: {
     const nextEditing = !featureMutex.state.editing
     featureMutex.toggleFeature('editing')
     tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
-  }
-
-  const handleDrawEditToggle = async () => {
-    const ctx = buildSubtypeCtx()
-    if (!ctx) return
-    const handler = getSubtypeHandler(ctx.tab.subtype)
-    if (handler?.handleDrawEdit) {
-      const handled = await handler.handleDrawEdit(ctx)
-      if (handled === true) return
-    }
-    const nextDrawing = !featureMutex.state.drawing
-    featureMutex.toggleFeature('drawing')
-    tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
   }
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
@@ -603,7 +582,11 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                     editing={featureMutex.state.editing}
                     onEditToggle={htmlMode() === "edit" ? undefined : handleLocalEditToggle}
                     drawing={featureMutex.state.drawing}
-                    onDrawToggle={htmlMode() === "edit" ? undefined : handleDrawEditToggle}
+                    onDrawToggle={htmlMode() === "edit" ? undefined : () => {
+                      const nextDrawing = !featureMutex.state.drawing
+                      featureMutex.toggleFeature('drawing')
+                      tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
+                    }}
                     commenting={featureMutex.state.commenting}
                     onCommentToggle={htmlMode() === "edit" ? undefined : () => {
                       const nextCommenting = !featureMutex.state.commenting

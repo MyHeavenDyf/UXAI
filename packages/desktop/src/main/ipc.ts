@@ -715,6 +715,13 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
+  // 原子重命名：同文件系统内 fs.rename 是原子的，供"写临时文件 → rename 到目标"模式使用，
+  // 避免大文件/JSON 落盘过程中崩溃导致目标文件被截断（如 prototype data.js 本地编辑回写）。
+  // 跨文件系统会失败，调用方应保证 src/dest 同目录。
+  ipcMain.handle("rename-file", async (_event: IpcMainInvokeEvent, srcPath: string, destPath: string) => {
+    await rename(srcPath, destPath)
+  })
+
   ipcMain.handle("read-clipboard-image", () => {
     const image = clipboard.readImage()
     if (image.isEmpty()) return null

@@ -18,6 +18,8 @@ export type DesktopApi = {
   downloadResourceToTemp?: (url: string, namespace: string, filename: string) => Promise<string>
   writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>
   readFileBuffer?: (path: string) => Promise<ArrayBuffer | null>
+  /** 原子重命名（同文件系统内）。用于"写临时文件 → rename 到目标"原子落盘。 */
+  renameFile?: (srcPath: string, destPath: string) => Promise<void>
   statFile?: (path: string) => Promise<{ size: number } | null>
   listDirectory?: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>
   capturePreviewRect?: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
