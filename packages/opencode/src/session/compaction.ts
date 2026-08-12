@@ -21,6 +21,7 @@ import { makeRuntime } from "@/effect/run-service"
 import { fn } from "@/util/fn"
 import { EventV2 } from "@/v2/event"
 import { SessionEvent } from "@/v2/session-event"
+import { CompactionSummary } from "./compaction-summary"
 
 const log = Log.create({ service: "session.compaction" })
 
@@ -40,15 +41,6 @@ const PRUNE_PROTECTED_TOOLS = ["skill"]
 const DEFAULT_TAIL_TURNS = 2
 const MIN_PRESERVE_RECENT_TOKENS = 2_000
 const MAX_PRESERVE_RECENT_TOKENS = 8_000
-const REQUIRED_SUMMARY_HEADINGS = [
-  "## Goal",
-  "## Constraints & Preferences",
-  "## Progress",
-  "## Key Decisions",
-  "## Next Steps",
-  "## Critical Context",
-  "## Relevant Files",
-]
 const SUMMARY_TEMPLATE = `Output exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.
 <template>
 ## Goal
@@ -113,8 +105,7 @@ function summaryText(message: MessageV2.WithParts) {
 }
 
 export function validateSummary(summary: string | undefined) {
-  const missing = REQUIRED_SUMMARY_HEADINGS.filter((heading) => !summary?.includes(heading))
-  return { valid: !!summary && missing.length === 0, missing }
+  return CompactionSummary.validate(summary)
 }
 
 function completedCompactions(messages: MessageV2.WithParts[]) {
@@ -425,53 +416,91 @@ export const layer: Layer.Layer<
         toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
       })
       const ctx = yield* InstanceState.context
-      const msg: MessageV2.Assistant = {
-        id: MessageID.ascending(),
-        role: "assistant",
-        parentID: input.parentID,
-        sessionID: input.sessionID,
-        mode: "compaction",
-        agent: "compaction",
-        variant: userMessage.model.variant,
-        summary: true,
-        path: {
-          cwd: ctx.directory,
-          root: ctx.worktree,
-        },
-        cost: 0,
-        tokens: {
-          output: 0,
-          input: 0,
-          reasoning: 0,
-          cache: { read: 0, write: 0 },
-        },
-        modelID: model.id,
-        providerID: model.providerID,
-        time: {
-          created: Date.now(),
-        },
-      }
-      yield* session.updateMessage(msg)
-      const processor = yield* processors.create({
-        assistantMessage: msg,
-        sessionID: input.sessionID,
-        model,
-      })
-      const result = yield* processor.process({
-        user: userMessage,
-        agent,
-        sessionID: input.sessionID,
-        tools: {},
-        system: [],
-        messages: [
-          ...modelMessages,
-          {
-            role: "user",
-            content: [{ type: "text", text: nextPrompt }],
+      const summarize = Effect.fnUntraced(function* (prompt: string) {
+        const msg: MessageV2.Assistant = {
+          id: MessageID.ascending(),
+          role: "assistant",
+          parentID: input.parentID,
+          sessionID: input.sessionID,
+          mode: "compaction",
+          agent: "compaction",
+          variant: userMessage.model.variant,
+          summary: true,
+          path: {
+            cwd: ctx.directory,
+            root: ctx.worktree,
           },
-        ],
-        model,
+          cost: 0,
+          tokens: {
+            output: 0,
+            input: 0,
+            reasoning: 0,
+            cache: { read: 0, write: 0 },
+          },
+          modelID: model.id,
+          providerID: model.providerID,
+          time: {
+            created: Date.now(),
+          },
+        }
+        yield* session.updateMessage(msg)
+        const processor = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: input.sessionID,
+          model,
+        })
+        const result = yield* processor.process({
+          user: userMessage,
+          agent,
+          sessionID: input.sessionID,
+          tools: {},
+          system: [],
+          messages: [
+            ...modelMessages,
+            {
+              role: "user",
+              content: [{ type: "text", text: prompt }],
+            },
+          ],
+          model,
+        })
+        const stored = (yield* session.messages({ sessionID: input.sessionID })).find((item) => item.info.id === msg.id)
+        return { msg, processor, result, stored, summary: stored ? summaryText(stored) : undefined }
       })
+
+      const first = yield* summarize(nextPrompt)
+      const firstValidation = CompactionSummary.validate(first.summary)
+      const retry =
+        first.result === "continue" &&
+        !first.processor.message.error &&
+        first.processor.message.finish &&
+        !!first.summary &&
+        firstValidation.missingCore.length > 0
+      const attempt = retry
+        ? yield* Effect.gen(function* () {
+            yield* session.removeMessage({ sessionID: input.sessionID, messageID: first.msg.id })
+            log.warn("compaction summary retry", {
+              sessionID: input.sessionID,
+              modelID: model.id,
+              missing: firstValidation.missing,
+              summary: first.summary,
+            })
+            return yield* summarize(
+              [
+                "Your previous summary was missing required sections.",
+                `Missing sections: ${firstValidation.missing.join(", ")}`,
+                "Return a corrected complete summary with every required heading, using (none) for empty sections.",
+                "<invalid-summary>",
+                first.summary,
+                "</invalid-summary>",
+                SUMMARY_TEMPLATE,
+              ].join("\n\n"),
+            )
+          })
+        : first
+      const msg = attempt.msg
+      const processor = attempt.processor
+      const result = attempt.result
 
       if (result === "compact") {
         processor.message.error = new MessageV2.ContextOverflowError({
@@ -486,13 +515,28 @@ export const layer: Layer.Layer<
 
       if (processor.message.error || result === "stop") return "stop"
 
-      const summary = summaryText(
-        (yield* session.messages({ sessionID: input.sessionID })).find((item) => item.info.id === msg.id) ?? {
-          info: msg,
-          parts: [],
-        },
-      )
-      const validation = validateSummary(summary)
+      const repaired = CompactionSummary.repair(attempt.summary)
+      if (repaired.repaired.length && repaired.summary && attempt.stored) {
+        const parts = attempt.stored.parts.filter((part): part is MessageV2.TextPart => part.type === "text")
+        const firstPart = parts[0]
+        if (firstPart) {
+          yield* session.updatePart({ ...firstPart, text: repaired.summary })
+          yield* Effect.forEach(
+            parts.slice(1),
+            (part) => session.removePart({ sessionID: input.sessionID, messageID: msg.id, partID: part.id }),
+            { discard: true },
+          )
+        }
+        log.warn("compaction summary repaired", {
+          sessionID: input.sessionID,
+          modelID: model.id,
+          repaired: repaired.repaired,
+          raw_summary: attempt.summary,
+          final_summary: repaired.summary,
+        })
+      }
+      const summary = repaired.summary
+      const validation = CompactionSummary.validate(summary)
       if (processor.message.finish && !validation.valid) {
         processor.message.error = new MessageV2.APIError({
           message: summary
