@@ -46,6 +46,19 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
     }
   },
 
+  prototype: {
+    features: {
+      refresh: true,
+      modeToggle: true,
+      viewport: true,
+      localEdit: true,
+      drawEdit: true,
+      canvasEdit: true,
+      download: true,
+      fullscreen: true,
+    },
+  },
+
   _default: {
     features: {
       refresh: true,
