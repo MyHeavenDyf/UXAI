@@ -780,6 +780,52 @@ export function registerIpcHandlers(deps: Deps) {
   const skillsConfigPath = join(getOctoConfigPath(), "skills.json")
   const skillConfigPath = join(getOctoConfigPath(), "skill_config.json")
   const assetsConfigPath = join(getOctoConfigPath(), "assets_config.json")
+  const octoSkillDir = join(getOctoConfigPath(), "skill")
+
+  /** 从 ~/.config/octo/skill 目录扫描，重新生成 skill_config.json（panel + agent 结构） */
+  function regenerateSkillConfig() {
+    try {
+      if (!existsSync(octoSkillDir)) return false
+
+      const skillNames = readdirSync(octoSkillDir, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name)
+        .filter((name) => existsSync(join(octoSkillDir, name, "SKILL.md")))
+        .sort()
+
+      const panelSkills = skillNames.map((name, index) => ({
+        label: name,
+        description: name,
+        path: `./skill/${name}/SKILL.md`,
+        id: index + 1,
+        enable: true,
+      }))
+
+      const skillMap: Record<string, { description: string; import: boolean; type: string }> = {}
+      for (const name of skillNames) {
+        skillMap[name] = { description: name, import: true, type: "octo_make" }
+      }
+
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(
+        skillConfigPath,
+        JSON.stringify(
+          {
+            skill: skillMap,
+            panel: { octo_make: panelSkills },
+            agent: { octo_make: skillNames },
+          },
+          null,
+          2,
+        ),
+        "utf-8",
+      )
+      return true
+    } catch (err) {
+      console.error("regenerateSkillConfig failed", err)
+      return false
+    }
+  }
 
   /** 从 skills.json 同步生成 skill_config.json */
   function syncSkillConfig() {
@@ -824,12 +870,12 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("set-skills-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
     try {
-      mkdirSync(dirname(skillsConfigPath), { recursive: true })
-      writeFileSync(skillsConfigPath, JSON.stringify(config, null, 2), "utf-8")
-      syncSkillConfig()
+      // 写入 skill_config.json（新格式）
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
     } catch (err) {
       console.error("set-skills-config failed", err)
-      throw new Error(`Failed to save skills config: ${err instanceof Error ? err.message : String(err)}`)
+      throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
 
@@ -923,29 +969,8 @@ export function registerIpcHandlers(deps: Deps) {
 
       cpSync(sourcePath, destDir, { recursive: true })
 
-      // Update skills.json with type: "common"
-      const skillMdPath = join(destDir, "SKILL.md")
-      if (!existsSync(skillMdPath)) {
-        return { success: false, error: "所选文件夹中未找到 SKILL.md" }
-      }
-      
-      const config = existsSync(skillConfigPath)
-        ? JSON.parse(readFileSync(skillConfigPath, "utf-8"))?.skill
-        : {}
-      const content = readFileSync(skillMdPath, "utf-8")
-      const descMatch = content.match(/^---\s*\n.*?description:\s*(.+?)\s*\n.*?---/s)
-      config[skillName] = {
-        description: descMatch ? descMatch[1] : "",
-        import: true,
-        type: "common",
-      }
-      const configJson = existsSync(skillConfigPath)
-        ? JSON.parse(readFileSync(skillConfigPath, "utf-8"))
-        : {}
-      configJson['skill'] = config
-      mkdirSync(dirname(skillConfigPath), { recursive: true })
-      writeFileSync(skillConfigPath, JSON.stringify(configJson, null, 2), "utf-8")
-      // syncSkillConfig()
+      // 重新生成 skill_config.json（从 ~/.config/octo/skill 目录扫描）
+      regenerateSkillConfig()
 
       return { success: true, skillName }
     } catch (err) {
@@ -956,10 +981,11 @@ export function registerIpcHandlers(deps: Deps) {
   // jk-j60099994-replace-with-60062650-main-skills-ipc-5-end
 
   ipcMain.handle("ensure-skill-config", () => {
-    if (!existsSync(skillsConfigPath)) return
-    if (existsSync(skillConfigPath)) return
-    // 根据 skills.json 构建 skill_config.json
-    syncSkillConfig()
+    // 仅确保目录存在，不重新生成。如果文件不存在则创建空
+    if (!existsSync(skillConfigPath)) {
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, "{}", "utf-8")
+    }
   })
 
   ipcMain.handle("open-skill-folder", async () => {
