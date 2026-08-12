@@ -298,10 +298,16 @@ function MakeSidebarArea(props: ParentProps) {
     const startW = ml.leftW()
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
+    // 拖拽期间禁用 iframe 的指针事件(如 /assets 项目资产页的 iframe),
+    // 否则松开鼠标时 mouseup 会被 iframe 吞掉,onUp 不触发,拖拽状态卡死。
+    const frames = document.querySelectorAll("iframe")
+    frames.forEach((f) => (f.style.pointerEvents = "none"))
     const onMove = (ev: MouseEvent) => ml.setLeftW(startW + ev.clientX - startX)
     const onUp = () => {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
+      // 还原 iframe 指针事件
+      frames.forEach((f) => (f.style.pointerEvents = ""))
       document.removeEventListener("mousemove", onMove)
       document.removeEventListener("mouseup", onUp)
     }
