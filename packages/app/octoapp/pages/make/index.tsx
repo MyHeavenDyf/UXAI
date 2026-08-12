@@ -1215,6 +1215,21 @@ const sessionMessagesLoaded = createMemo(() => {
     setSelectedDesignSystem(saved ?? null)
   }))
 
+  createEffect(on(() => params.id, (id) => {
+    if (!id) return
+    const dir = projectDir()
+    const api = getDesktopApi()
+    if (!dir || !api?.writeFileBuffer) return
+    const sep = dir.includes("\\") ? "\\" : "/"
+    const sessionInitPath = [dir, ".octo", id, ".gitkeep"].join(sep)
+    const outputsInitPath = [dir, ".octo", id, "outputs", ".gitkeep"].join(sep)
+    const buffer = new TextEncoder().encode("").buffer as ArrayBuffer
+    api.writeFileBuffer(sessionInitPath, buffer)
+      .catch((err) => console.warn("[MakePage] failed to ensure session dir", err))
+    api.writeFileBuffer(outputsInitPath, buffer)
+      .catch((err) => console.warn("[MakePage] failed to ensure outputs dir", err))
+  }))
+
   // 保存 prompt 到 localStorage
   function savePromptToStorage(sessionId: string | undefined, text: string) {
     if (!sessionId) return
@@ -2122,7 +2137,7 @@ const sessionMessagesLoaded = createMemo(() => {
           if (isSkillMention) {
             cmdParts.push({
               type: "text",
-              text: "",  // Empty text - only metadata for display, no content sent to model
+              text: seg.args || " ",
               metadata: { displayText: isFirstSkillCommand ? fullDisplayText : "" }
             })
             isFirstSkillCommand = false
@@ -3035,7 +3050,7 @@ if (dsId) {
           id: tabId,
           title: card.title,
           type: "html",
-          subtype: card.subtype,
+          subtype: "url",
           content: "",
           filePath: linkContent,
           artifactIdentifier: card.artifactIdentifier,
@@ -3194,7 +3209,7 @@ if (dsId) {
         id: tabId,
         title,
         type: 'html',
-        subtype: extractSubtypeFromFilename(title),
+        subtype: 'url',
         content: '',
         filePath,
         createdAt: new Date(),

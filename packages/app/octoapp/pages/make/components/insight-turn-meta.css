@@ -1,0 +1,25 @@
+.octo-make-turn-meta-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  will-change: opacity;
+}
+
+.octo-make-turn-meta {
+  user-select: none;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--octo-text-weak, rgba(0, 0, 0, 0.5));
+  cursor: default;
+}
+
+/* hover 整个 turn 时显示 meta */
+.octo-make-turn:hover .octo-make-turn-meta-wrapper,
+.octo-make-turn:focus-within .octo-make-turn-meta-wrapper {
+  opacity: 1;
+  pointer-events: auto;
+}

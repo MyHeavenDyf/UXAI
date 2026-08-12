@@ -179,6 +179,11 @@ export interface FolderUploadResponse {
   mtime: number
 }
 
+// V8 字符串上限约 512MB,HTTP body 通常也有大小限制。
+// 单批 base64 累加超过上限会抛 RangeError: Invalid string length,故按字节分批。
+// 后端 upload-folder 是幂等的(ensureDir 后逐文件追加写),多次调用同名 folderName+path 安全。
+const MAX_FOLDER_BATCH_BYTES = 30 * 1024 * 1024
+
 export async function uploadArtifactFolder(
   sdkUrl: string,
   sdkDirectory: string,
@@ -187,15 +192,46 @@ export async function uploadArtifactFolder(
   files: FolderUploadFile[],
   currentPath?: string,
 ): Promise<FolderUploadResponse> {
-  const response = await fetch(`${sdkUrl}/artifact/upload-folder`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...directoryHeader(sdkDirectory) },
-    body: JSON.stringify({ sessionId, folderName, files, path: currentPath }),
-  })
-  if (!response.ok) {
-    throw new Error(`Failed to upload folder: ${response.statusText}`)
+  if (files.length === 0) {
+    throw new Error("Cannot upload empty folder")
   }
-  return response.json()
+
+  const responses: FolderUploadResponse[] = []
+  let batch: FolderUploadFile[] = []
+  let batchBytes = 0
+
+  const flush = async () => {
+    if (batch.length === 0) return
+    const response = await fetch(`${sdkUrl}/artifact/upload-folder`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...directoryHeader(sdkDirectory) },
+      body: JSON.stringify({ sessionId, folderName, files: batch, path: currentPath }),
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to upload folder: ${response.statusText}`)
+    }
+    responses.push((await response.json()) as FolderUploadResponse)
+    batch = []
+    batchBytes = 0
+  }
+
+  for (const file of files) {
+    const size = file.content.length
+    if (batch.length > 0 && batchBytes + size > MAX_FOLDER_BATCH_BYTES) {
+      await flush()
+    }
+    batch.push(file)
+    batchBytes += size
+  }
+  await flush()
+
+  const last = responses.at(-1)
+  if (!last) {
+    throw new Error("Failed to upload folder: no response")
+  }
+  // 分批时最后一批的 fileCount 只是当批数量,改写为总文件数以反映真实上传量
+  last.fileCount = files.length
+  return last
 }
 
 export function kindLabel(kind: ArtifactFileKind): string {

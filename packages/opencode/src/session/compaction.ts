@@ -40,6 +40,15 @@ const PRUNE_PROTECTED_TOOLS = ["skill"]
 const DEFAULT_TAIL_TURNS = 2
 const MIN_PRESERVE_RECENT_TOKENS = 2_000
 const MAX_PRESERVE_RECENT_TOKENS = 8_000
+const REQUIRED_SUMMARY_HEADINGS = [
+  "## Goal",
+  "## Constraints & Preferences",
+  "## Progress",
+  "## Key Decisions",
+  "## Next Steps",
+  "## Critical Context",
+  "## Relevant Files",
+]
 const SUMMARY_TEMPLATE = `Output exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.
 <template>
 ## Goal
@@ -101,6 +110,11 @@ function summaryText(message: MessageV2.WithParts) {
     .join("\n\n")
     .trim()
   return text || undefined
+}
+
+export function validateSummary(summary: string | undefined) {
+  const missing = REQUIRED_SUMMARY_HEADINGS.filter((heading) => !summary?.includes(heading))
+  return { valid: !!summary && missing.length === 0, missing }
 }
 
 function completedCompactions(messages: MessageV2.WithParts[]) {
@@ -350,6 +364,7 @@ export const layer: Layer.Layer<
       auto: boolean
       overflow?: boolean
     }) {
+      const startedAt = Date.now()
       const parent = input.messages.findLast((m) => m.info.id === input.parentID)
       if (!parent || parent.info.role !== "user") {
         throw new Error(`Compaction parent must be a user message: ${input.parentID}`)
@@ -469,6 +484,34 @@ export const layer: Layer.Layer<
         return "stop"
       }
 
+      if (processor.message.error || result === "stop") return "stop"
+
+      const summary = summaryText(
+        (yield* session.messages({ sessionID: input.sessionID })).find((item) => item.info.id === msg.id) ?? {
+          info: msg,
+          parts: [],
+        },
+      )
+      const validation = validateSummary(summary)
+      if (processor.message.finish && !validation.valid) {
+        processor.message.error = new MessageV2.APIError({
+          message: summary
+            ? `Context compaction returned an invalid summary. Missing sections: ${validation.missing.join(", ")}`
+            : "Context compaction returned an empty summary.",
+          isRetryable: false,
+        }).toObject()
+        processor.message.finish = "error"
+        yield* session.updateMessage(processor.message)
+        log.error("compaction summary invalid", {
+          sessionID: input.sessionID,
+          modelID: model.id,
+          missing: validation.missing,
+          duration_ms: Date.now() - startedAt,
+          summary: summary ?? "",
+        })
+        return "stop"
+      }
+
       if (compactionPart && selected.tail_start_id && compactionPart.tail_start_id !== selected.tail_start_id) {
         yield* session.updatePart({
           ...compactionPart,
@@ -494,8 +537,19 @@ export const layer: Layer.Layer<
             if (part.type === "compaction") continue
             const replayPart =
               part.type === "file" && MessageV2.isMedia(part.mime)
-                ? { type: "text" as const, text: `[Attached ${part.mime}: ${part.filename ?? "file"}]` }
-                : part
+                ? {
+                    type: "text" as const,
+                    text: `[Attached ${part.mime}: ${part.filename ?? "file"}]`,
+                    synthetic: true,
+                    metadata: { compaction_replay: true },
+                  }
+                : part.type === "text"
+                  ? {
+                      ...part,
+                      synthetic: true,
+                      metadata: { ...part.metadata, compaction_replay: true },
+                    }
+                  : part
             yield* session.updatePart({
               ...replayPart,
               id: PartID.ascending(),
@@ -558,14 +612,17 @@ export const layer: Layer.Layer<
         }
       }
 
-      if (processor.message.error) return "stop"
       if (result === "continue") {
-        const summary = summaryText(
-          (yield* session.messages({ sessionID: input.sessionID })).find((item) => item.info.id === msg.id) ?? {
-            info: msg,
-            parts: [],
-          },
-        )
+        log.info("compaction completed", {
+          sessionID: input.sessionID,
+          modelID: model.id,
+          providerID: model.providerID,
+          input_tokens: processor.message.tokens.input,
+          output_tokens: processor.message.tokens.output,
+          duration_ms: Date.now() - startedAt,
+          tail_start_id: selected.tail_start_id,
+          summary,
+        })
         EventV2.run(SessionEvent.Compaction.Ended.Sync, {
           sessionID: input.sessionID,
           timestamp: DateTime.makeUnsafe(Date.now()),

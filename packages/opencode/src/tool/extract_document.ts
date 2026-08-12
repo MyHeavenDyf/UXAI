@@ -34,7 +34,7 @@ export const Parameters = Schema.Struct({
 const SUPPORTED = ["docx", "xlsx", "pdf", "pptx", "txt", "md"] as const
 type Supported = (typeof SUPPORTED)[number]
 
-type ExtractDetail = { pages?: number; sheets?: number; slides?: number }
+type ExtractDetail = { pages?: number; sheets?: number; slides?: number; fallback?: boolean }
 
 type ExtractMetadata = {
   path: string
@@ -47,6 +47,8 @@ type ExtractMetadata = {
   savedPath?: string
   /** 本次是否把全文一并内联进了 output。 */
   inlined?: boolean
+  /** docx 走了二级抽取(结构不规范,mammoth 读不了)——正文质量降级,表格摊平、版式丢失。 */
+  fallback?: boolean
   pages?: number
   sheets?: number
   slides?: number
@@ -54,8 +56,14 @@ type ExtractMetadata = {
 
 /** 解析件目录名(SPEC-INS-014 布局下 uploads/ outputs/ 的兄弟;不进文件管理)。 */
 const EXTRACTED_DIR = "extracted"
-/** 内联阈值 = 通用 Truncate 限额的这个比例,留出的余量给首部元信息/指引行。 */
-const INLINE_RATIO = 0.8
+// 内联阈值 = 通用 Truncate 限额 − 首部预算。目标只有一个:**加上我们自己拼的首部之后,总输出
+// 仍不触发那层兜底**——所以扣的应该是首部的实际大小,不是一个拍出来的百分比。
+// 首部是我们自己生成的、长度可控:元信息一行(文件名 + 字数 + token + 落盘路径,最坏几百字节)
+// + 分隔线,仅落盘分支再多两行指引。1KB / 8 行绰绰有余。
+// (旧实现是限额 × 0.8,在默认 50KB 下白留 10KB 余量,把 1.3–1.6 万字的文档——正好是一份普通
+// 访谈稿——推去了落盘分支,平白多一次 read 往返。)
+const HEADER_BUDGET_BYTES = 1024
+const HEADER_BUDGET_LINES = 8
 /** 仅落盘分支回灌的开头预览长度(字符)。给弱模型一个内容锚点,只给路径它容易直接编。 */
 const PREVIEW_CHARS = 2000
 /** 落盘正文的最大行长(字符)。见 wrapLongLines 的两条理由。 */
@@ -146,11 +154,45 @@ async function persist(dir: string, source: string, text: string, chars: number)
   throw new Error(`解析件命名冲突未能解决:${stem}`)
 }
 
-async function extractDocx(buf: Buffer) {
+// docx 二级抽取(SPEC-INS-016 §3.4 v2.2):mammoth 严格按 OOXML 规范解析,遇到结构不规范的 docx
+// 会**整份**失败。内网实例:某文档生成工具写出的 docx 里 <w:t> 套了 <w:r> 又套 <w:t>(规范里 w:t
+// 是叶子节点、只能装纯文本),mammoth 的 Element.text() 直接 throw "Not implemented"。
+//
+// 这里先取 <w:t> 区间的内容、**再无差别剥掉里面可能嵌着的任何标签** —— 不依赖任何结构假设,
+// 因此对畸形嵌套天然免疫。质量比 mammoth 差(表格摊平、版式全丢),所以只作兜底、由调用方标注。
+function extractDocxFromXml(xml: string) {
+  const paras: string[] = []
+  for (const p of xml.match(/<w:p[ >][\s\S]*?<\/w:p>/g) ?? []) {
+    const text = [...p.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g)]
+      .map((m) => decodeXmlEntities(m[1].replace(/<[^>]*>/g, "")))
+      .join("")
+      .trim()
+    if (text) paras.push(text)
+  }
+  return paras.join("\n")
+}
+
+async function extractDocx(buf: Buffer, path: string) {
   const mammoth = await import("mammoth")
-  // extractRawText 只取正文文字:表格降为按单元格分段、样式/图片丢弃,v1 够用(SPEC-INS-016 §4)。
-  const result = await mammoth.extractRawText({ buffer: buf })
-  return { text: result.value, detail: {} as ExtractDetail }
+  try {
+    // 一级(主):extractRawText 只取正文文字,表格降为按单元格分段、样式/图片丢弃(§4.5)。
+    const result = await mammoth.extractRawText({ buffer: buf })
+    return { text: result.value, detail: {} as ExtractDetail }
+  } catch (err) {
+    // 二级(兜底):任何 mammoth 失败都值得试一次直抽——文件真的不是 zip 时它同样会抛,
+    // 那就落回 parse-error,语义不变。
+    const { default: JSZip } = await import("jszip")
+    const zip = await JSZip.loadAsync(buf)
+    const xml = await zip.file("word/document.xml")?.async("string")
+    if (!xml) throw err
+    const text = extractDocxFromXml(xml)
+    if (!text) throw err
+    console.log("[octo:extract] docx-fallback", {
+      path,
+      err: err instanceof Error ? err.message : String(err),
+    })
+    return { text, detail: { fallback: true } as ExtractDetail }
+  }
 }
 
 async function extractPdf(buf: Buffer) {
@@ -232,7 +274,11 @@ async function extractPlainText(buf: Buffer) {
   return { text: buf.toString("utf8"), detail: {} as ExtractDetail }
 }
 
-const EXTRACTORS: Record<Supported, (buf: Buffer) => Promise<{ text: string; detail: ExtractDetail }>> = {
+// 第二参 path 只有 docx 用得上(二级抽取的日志要带它);其余 extractor 声明时忽略即可。
+const EXTRACTORS: Record<
+  Supported,
+  (buf: Buffer, path: string) => Promise<{ text: string; detail: ExtractDetail }>
+> = {
   docx: extractDocx,
   pdf: extractPdf,
   xlsx: extractXlsx,
@@ -287,7 +333,7 @@ export const ExtractDocumentTool = Tool.define(
           const parsed = yield* Effect.tryPromise({
             try: async () => {
               const buf = await readFile(path)
-              return EXTRACTORS[format as Supported](buf)
+              return EXTRACTORS[format as Supported](buf, path)
             },
             catch: (err) => (err instanceof Error ? err : new Error(String(err))),
           }).pipe(Effect.catch((err) => Effect.succeed({ failed: err.message || String(err) })))
@@ -337,10 +383,13 @@ export const ExtractDocumentTool = Tool.define(
             ),
           )
 
+          // 两个维度都要判:中文正文折行后行数很少(50KB ≈ 34 行),字节先到;但 xlsx 的 TSV 是
+          // 一行一记录,几千行的表格可能字节还没超、行数已经爆了。Math.max 兜住用户把 config
+          // 里的 tool_output 设得比首部预算还小的情况(算出负阈值会让一切都走落盘)。
           const limits = yield* truncate.limits()
           const fits =
-            text.split("\n").length <= limits.maxLines * INLINE_RATIO &&
-            Buffer.byteLength(text, "utf-8") <= limits.maxBytes * INLINE_RATIO
+            text.split("\n").length <= Math.max(1, limits.maxLines - HEADER_BUDGET_LINES) &&
+            Buffer.byteLength(text, "utf-8") <= Math.max(1, limits.maxBytes - HEADER_BUDGET_BYTES)
           // 落盘失败时无论多大都只能内联(退回 v1 行为,交给通用 Truncate 兜底)。
           const inlined = savedPath === undefined || fits
 
@@ -368,17 +417,23 @@ export const ExtractDocumentTool = Tool.define(
             ...result.detail,
           } as ExtractMetadata
 
+          // 降级抽取要如实告知(SPEC-INS-016 §3.4):表格摊平、版式丢失是真实的质量损失,
+          // 不标注的话模型会把兼容提取的结果当作完整版式来用。
+          const degraded = result.detail.fallback
+            ? `\n该文档结构不规范,已用兼容方式提取正文;表格等结构可能丢失,如需完整版式请让用户另存为规范 docx 或转 PDF 后重传。`
+            : ""
+
           if (inlined) {
             const saved = savedPath
               ? `全文已保存到:${savedPath}`
               : `注意:全文未能保存到本地,本次仅返回以下正文。`
-            return { title, output: `${measured}${saved}\n---\n${text}`, metadata }
+            return { title, output: `${measured}${saved}${degraded}\n---\n${text}`, metadata }
           }
 
           return {
             title,
             output: [
-              measured,
+              measured + degraded,
               `正文过长,未直接返回;全文已保存到:${savedPath}`,
               `需要定位具体内容,用 grep 搜关键词;需要通读,用 read 按 offset/limit 分段读(单次上限 2000 行 / 50KB)。`,
               `以下为开头预览:`,

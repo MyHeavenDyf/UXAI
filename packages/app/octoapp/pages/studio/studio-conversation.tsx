@@ -65,8 +65,14 @@ export function StudioConversation(props: {
                               src: src(),
                               ...inputImagePreviewPosition(event.currentTarget.getBoundingClientRect()),
                             })}
-                            onBlur={() => setInputImagePreview(undefined)}
-                            onClick={() => props.onUseInputImage(src())}
+                            onBlur={(event) => {
+                              if (event.currentTarget.matches(":hover")) return
+                              setInputImagePreview(undefined)
+                            }}
+                            onClick={(event) => {
+                              props.onUseInputImage(src())
+                              event.currentTarget.blur()
+                            }}
                           >
                             <img
                               class="studio-user-input-image"
@@ -96,6 +102,7 @@ export function StudioConversation(props: {
                   <button
                     type="button"
                     class="studio-assistant-editor-link"
+                    disabled={props.busy}
                     onClick={() => props.onOpenEditor(editCapability())}
                   >
                     点击前往编辑区

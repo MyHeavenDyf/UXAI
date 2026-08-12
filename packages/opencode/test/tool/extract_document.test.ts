@@ -139,6 +139,30 @@ describe("extract_document", () => {
     }),
   )
 
+  // ——— SPEC-INS-016 v2.2:docx 两级抽取 ———
+
+  it.live("结构不规范的 docx(<w:t> 套 <w:r>): 降级抽出正文,不再整份失败", () =>
+    Effect.gen(function* () {
+      const result = yield* run(path.join(FIXTURES, "nested-wt.docx"))
+
+      expect(result.metadata.error).toBeUndefined()
+      expect(result.metadata.fallback).toBe(true)
+      // 正常段落与**畸形段落**都要抽到,实体也要解码
+      expect(result.output).toContain("访谈纪要:用户反馈搜索入口太深。")
+      expect(result.output).toContain("嵌套段落:这段被 w:r 包住了 & 实体也要解码。")
+      expect(result.output).toContain("Second paragraph in English.")
+      expect(result.output).toContain("该文档结构不规范,已用兼容方式提取正文")
+    }),
+  )
+
+  it.live("规范 docx: 不置 fallback(证明主路径 mammoth 没被兜底顶替)", () =>
+    Effect.gen(function* () {
+      const result = yield* run(path.join(FIXTURES, "sample.docx"))
+      expect(result.metadata.fallback).toBeUndefined()
+      expect(result.output).not.toContain("已用兼容方式提取")
+    }),
+  )
+
   it.live("损坏文件: 解析失败回灌错误信息", () =>
     Effect.gen(function* () {
       const result = yield* run(path.join(FIXTURES, "broken.docx"))
@@ -182,6 +206,36 @@ describe("extract_document", () => {
       const onDisk = yield* Effect.promise(() => fs.readFile(result.metadata.savedPath as string, "utf8"))
       // 落盘的是完整正文(折行只插换行,去掉后应与原文逐字相同)
       expect(onDisk.split("\n").slice(2).join("").trim()).toBe(body)
+    }),
+  )
+
+  it.live("阈值边界: 45KB 正文仍内联(限额 50KB − 1KB 首部预算,不是旧的 ×0.8)", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      // 15,000 汉字 ≈ 45KB:落在旧阈值(40KB)与新阈值(49KB)之间——旧实现会把它推去落盘分支。
+      const body = "用户反馈搜索入口太深。".repeat(1364)
+      const src = yield* Effect.promise(() => seed(dir, "中等访谈.txt", body))
+      const result = yield* runIn(dir, src)
+
+      expect(result.metadata.inlined).toBe(true)
+      expect(result.output).toContain(body.slice(-200))
+      // 内联后总输出仍须低于通用兜底(50KB / 2000 行),否则等于又被盲切一刀
+      expect(Buffer.byteLength(result.output, "utf-8")).toBeLessThanOrEqual(50 * 1024)
+      expect(result.output.split("\n").length).toBeLessThanOrEqual(2000)
+    }),
+  )
+
+  it.live("行数维度: 短行多的表格(xlsx 式 TSV)按行数走落盘,不看字节", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      // 2500 行短记录 ≈ 30KB:字节远没超 50KB,行数已经越过 2000 − 8
+      const body = Array.from({ length: 2500 }, (_, i) => `行${i}\t${i}`).join("\n")
+      expect(Buffer.byteLength(body, "utf-8")).toBeLessThan(50 * 1024)
+      const src = yield* Effect.promise(() => seed(dir, "表格.txt", body))
+      const result = yield* runIn(dir, src)
+
+      expect(result.metadata.inlined).toBe(false)
+      expect(result.metadata.savedPath).toBeDefined()
     }),
   )
 

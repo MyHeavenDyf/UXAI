@@ -9,6 +9,7 @@ export interface SubtypeHandlerContext {
   getDesktopApi: typeof import("../lib/electron-api").getDesktopApi
   extractCodeBlock: (text: string, lang: string) => string
   observedUrlsGetter?: () => string[]
+  projectSelection: () => unknown
 }
 
 export interface SubtypeHandler {

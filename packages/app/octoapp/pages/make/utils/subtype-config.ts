@@ -32,7 +32,20 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       injectStyles: true,
     }
   },
-  
+
+  url: {
+    features: {
+      refresh: true,
+      modeToggle: false,
+      viewport: false,
+      localEdit: false,
+      drawEdit: false,
+      canvasEdit: false,
+      download: false,
+      fullscreen: true,
+    }
+  },
+
   _default: {
     features: {
       refresh: true,
