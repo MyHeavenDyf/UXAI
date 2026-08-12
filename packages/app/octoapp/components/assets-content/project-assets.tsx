@@ -1,18 +1,19 @@
 import { useProjectSelection } from "@/hooks/use-project-selection"
-import { createSignal, onCleanup, onMount, Show, type JSX } from "solid-js"
+import { createSignal, onCleanup, onMount, Show, For, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
 
 export function ProjectAssets(): JSX.Element {
   const selection = useProjectSelection()
   const embedUrl = () => `${import.meta.env.VITE_OCTO_BASE_URL}/agentPage/asset-repository/${selection()?.product?.id ?? ""}`
 
-  const [modalOpen, setModalOpen] = createSignal(false)
+  const [modalNum, setModalNum] = createSignal(0)
   let iframeRef: HTMLIFrameElement | undefined
 
   onMount(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.source !== iframeRef?.contentWindow) return
-      if (event.data?.type === "modalStateChange") setModalOpen(!!event.data.isOpen)
+      // modalNum 为当前打开的弹窗个数;可能同时存在多个弹窗
+      if (event.data?.type === "modalStateChange") setModalNum(event.data.modalNum ?? 0)
     }
     window.addEventListener("message", onMessage)
     onCleanup(() => window.removeEventListener("message", onMessage))
@@ -29,12 +30,15 @@ export function ProjectAssets(): JSX.Element {
           "min-height": "400px",
           background: "#fff",
           position: "relative",
-          "z-index": modalOpen() ? 51 : "auto",
+          "z-index": modalNum() > 0 ? 51 : "auto",
         }}
       />
-      <Show when={modalOpen()}>
+      <Show when={modalNum() > 0}>
         <Portal mount={document.body}>
-          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", "z-index": 50 }} />
+          {/* 弹窗个数与蒙层个数一一对应 */}
+          <For each={Array.from({ length: modalNum() }, (_, i) => i)}>
+            {() => <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", "z-index": 50 }} />}
+          </For>
         </Portal>
       </Show>
     </Show>
