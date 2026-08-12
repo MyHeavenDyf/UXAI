@@ -19,6 +19,8 @@ import { PdfRenderer } from "./pdf-renderer"
 import { TextRenderer } from "./text-renderer"
 import { DesignPlanRenderer } from "./design-plan-renderer"
 import { StrategyFormRenderer } from "./strategy-form-renderer"
+import { PrototypeCtxMenu } from "./prototype-ctx-menu"
+import { PrototypePropertyEditor } from "./prototype-property-editor"
 import type { StrategyFormData } from "../../utils/strategy-form-scanner"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
 import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
@@ -157,6 +159,10 @@ export function ResultViewer(props: {
   const [refreshKey, setRefreshKey] = createSignal(0)
   // 当前 HTML tab 已加载的资源 URL getter（由 HtmlRenderer 注册）
   let observedUrlsGetter: (() => string[]) | null = null
+  // 向当前 HTML tab 的 iframe contentWindow 发送 postMessage 的函数（由 HtmlRenderer 注册）
+  let iframePostMessage: ((data: unknown) => void) | null = null
+  // 当前 HTML tab 的 iframe 元素 getter（由 HtmlRenderer 注册，用于坐标换算/source 匹配）
+  let iframeElementGetter: (() => HTMLIFrameElement | undefined) | null = null
   const combinedRefreshKey = createMemo(() => refreshKey() + (props.filesRefreshKey ?? 0))
 
   const handleViewportChange = (vp: ViewportPreset) => {
@@ -236,6 +242,48 @@ export function ResultViewer(props: {
       console.error("[handleCanvasToDesign] Error:", error)
       showToast({ title: "操作失败", description: String(error) })
     }
+  }
+
+  const buildSubtypeCtx = () => {
+    const tab = activeTab()
+    if (!tab) return null
+    return {
+      tab,
+      showToast,
+      tracker,
+      getDesktopApi,
+      extractCodeBlock,
+      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
+      projectSelection,
+      postMessageToIframe: iframePostMessage ? (data: unknown) => iframePostMessage!(data) : undefined,
+      iframeElementGetter: iframeElementGetter ? () => iframeElementGetter!() : undefined,
+    }
+  }
+
+  const handleLocalEditToggle = async () => {
+    const ctx = buildSubtypeCtx()
+    if (!ctx) return
+    const handler = getSubtypeHandler(ctx.tab.subtype)
+    if (handler?.handleLocalEdit) {
+      const handled = await handler.handleLocalEdit(ctx)
+      if (handled === true) return
+    }
+    const nextEditing = !featureMutex.state.editing
+    featureMutex.toggleFeature('editing')
+    tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
+  }
+
+  const handleDrawEditToggle = async () => {
+    const ctx = buildSubtypeCtx()
+    if (!ctx) return
+    const handler = getSubtypeHandler(ctx.tab.subtype)
+    if (handler?.handleDrawEdit) {
+      const handled = await handler.handleDrawEdit(ctx)
+      if (handled === true) return
+    }
+    const nextDrawing = !featureMutex.state.drawing
+    featureMutex.toggleFeature('drawing')
+    tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
   }
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
@@ -553,17 +601,9 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                     palette={palette()}
                     onPaletteChange={setPalette}
                     editing={featureMutex.state.editing}
-                    onEditToggle={htmlMode() === "edit" ? undefined : () => {
-                      const nextEditing = !featureMutex.state.editing
-                      featureMutex.toggleFeature('editing')
-                      tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
-                    }}
-drawing={featureMutex.state.drawing}
-                     onDrawToggle={htmlMode() === "edit" ? undefined : () => {
-                       const nextDrawing = !featureMutex.state.drawing
-                       featureMutex.toggleFeature('drawing')
-                       tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
-                     }}
+                    onEditToggle={htmlMode() === "edit" ? undefined : handleLocalEditToggle}
+                    drawing={featureMutex.state.drawing}
+                    onDrawToggle={htmlMode() === "edit" ? undefined : handleDrawEditToggle}
                     commenting={featureMutex.state.commenting}
                     onCommentToggle={htmlMode() === "edit" ? undefined : () => {
                       const nextCommenting = !featureMutex.state.commenting
@@ -633,8 +673,10 @@ drawing={featureMutex.state.drawing}
                            }}
                            onRefreshNeeded={handleRefresh}
                            tabTitle={tab.title}
-                           observedUrlsGetter={(g) => { observedUrlsGetter = g }}
-                         />
+                            observedUrlsGetter={(g) => { observedUrlsGetter = g }}
+                            registerIframePostMessage={(fn) => { iframePostMessage = fn }}
+                            iframeElementGetter={(g) => { iframeElementGetter = g }}
+                          />
                     </Match>
                     <Match when={tabType === "deck"}>
                       <DeckRenderer content={tab.content} />
@@ -697,6 +739,8 @@ drawing={featureMutex.state.drawing}
         </Show>
       </Show>
     </Show>
+    <PrototypeCtxMenu />
+    <PrototypePropertyEditor />
   </div>
 )
 }

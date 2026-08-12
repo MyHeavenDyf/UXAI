@@ -10,6 +10,8 @@ export interface SubtypeHandlerContext {
   extractCodeBlock: (text: string, lang: string) => string
   observedUrlsGetter?: () => string[]
   projectSelection: () => unknown
+  postMessageToIframe?: (data: unknown) => void
+  iframeElementGetter?: () => HTMLIFrameElement | undefined
 }
 
 export interface SubtypeHandler {

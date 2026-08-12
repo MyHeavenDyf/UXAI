@@ -160,6 +160,10 @@ export function HtmlRenderer(props: {
   tabTitle?: string
   /** 注册一个获取当前 iframe 已加载资源 URL 的 getter */
   observedUrlsGetter?: (getter: () => string[]) => void
+  /** 注册一个向当前 iframe contentWindow 发送 postMessage 的函数 */
+  registerIframePostMessage?: (fn: (data: unknown) => void) => void
+  /** 注册一个获取当前 iframe 元素的 getter（用于坐标换算 / source 匹配） */
+  iframeElementGetter?: (getter: () => HTMLIFrameElement | undefined) => void
 }): JSX.Element {
   let iframeRef: HTMLIFrameElement | undefined
   const resourceTracker: ResourceTracker = createResourceTracker()
@@ -733,6 +737,8 @@ createEffect(() => {
     if (!shouldUseExternalUrl()) {
       props.observedUrlsGetter?.(() => iframeRef ? resourceTracker.getPaths(iframeRef) : [])
     }
+    props.registerIframePostMessage?.((data) => iframeRef?.contentWindow?.postMessage(data, "*"))
+    props.iframeElementGetter?.(() => iframeRef)
   })
 
   // refreshKey 变化时清空资源 URL 集合（旧数据来自上一次加载）
