@@ -38,6 +38,40 @@ Bridge Scripts 是注入到 HTML iframe 中的 JavaScript 代码片段，用于�
 - **脚本**：注入到 `</body>` 前
 - **样式**：注入到 `</head>` 前
 
+### 条件注入机制
+
+自定义 bridge 可以通过特定命名完全替代标准 bridge 功能：
+
+| customBridges 值 | 禁用的标准 bridge | 说明 |
+|-----------------|-------------------|------|
+| `'custom-comment'` | commentBridge | 自定义标注功能 |
+| `'custom-snapshot'` | snapshotBridge | 自定义归档/快照功能 |
+
+当配置了这些特定名称时，`getBridgeConfigForSubtype` 会自动禁用对应的标准 bridge，并通过 `SubtypeHandler` 的 `handleComment` 或 `handleArchive` 方法处理相应操作。
+
+**配置示例**：
+
+```typescript
+// packages/app/octoapp/pages/make/utils/subtype-config.ts
+export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
+  mytype: {
+    features: { comment: true },
+    rendering: {
+      customBridges: ['custom-comment']  // ← 使用自定义标注
+    }
+  }
+}
+
+// packages/app/octoapp/pages/make/subtype-handlers/mytype.ts
+const mytypeHandler: SubtypeHandler = {
+  name: 'mytype',
+  handleComment: async (ctx) => {
+    // 自定义标注逻辑
+    return true  // 已处理
+  }
+}
+```
+
 ### 消息协议
 
 #### 命名规范
