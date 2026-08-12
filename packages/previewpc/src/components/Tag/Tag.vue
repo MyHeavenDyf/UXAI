@@ -88,8 +88,8 @@ const styles = ref<Record<string, string>>({})
 watch(
   [() => properties?.color,()=>isDark.value],
   ([curColor]) => {
-    if (!curColor) return false
-    const newColor = resolveValue(curColor) as string
+    const newColor = (resolveValue(curColor) as string) ?? 'default'
+    type.value = newColor
     const currentTagColors = isDark.value ? tagDarkColors : tagColors
     const typeColors = currentTagColors[variant.value as keyof typeof currentTagColors] || {}
     const colorObj = typeColors[newColor as keyof typeof typeColors]
