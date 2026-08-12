@@ -1,4 +1,4 @@
-import type { JSX } from "solid-js"
+import { createSignal, onMount, type JSX } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useLanguage } from "@/context/language"
@@ -33,6 +33,39 @@ export function DialogDeleteSession(props: { name: string; onDelete: () => Promi
     border: "none",
   }
 
+  const BODY_PREFIX = `确定删除"`
+  const BODY_SUFFIX = `"?`
+  const [bodyText, setBodyText] = createSignal(BODY_PREFIX + props.name + BODY_SUFFIX)
+  let bodyRef: HTMLDivElement | undefined
+
+  onMount(() => {
+    requestAnimationFrame(() => {
+      if (!bodyRef) return
+      const maxHeight = 44
+      const name = props.name
+      const tryFit = (text: string) => {
+        bodyRef!.textContent = text
+        return bodyRef!.scrollHeight <= maxHeight
+      }
+      const fullText = BODY_PREFIX + name + BODY_SUFFIX
+      if (tryFit(fullText)) {
+        setBodyText(fullText)
+        return
+      }
+      let lo = 0, hi = name.length, answer = 0
+      while (lo <= hi) {
+        const mid = Math.floor((lo + hi) / 2)
+        if (tryFit(BODY_PREFIX + name.slice(0, mid) + "..." + BODY_SUFFIX)) {
+          answer = mid
+          lo = mid + 1
+        } else {
+          hi = mid - 1
+        }
+      }
+      setBodyText(BODY_PREFIX + name.slice(0, answer) + "..." + BODY_SUFFIX)
+    })
+  })
+
   return (
     <Dialog
       fit
@@ -42,13 +75,26 @@ export function DialogDeleteSession(props: { name: string; onDelete: () => Promi
         "backdrop-filter": "blur(16px)",
       }}
     >
-      <div class="flex items-center gap-2" style={{ "margin-bottom": "16px" }}>
-        <Icon name="info-circle" style={{ width: "20px", height: "20px" }} />
-        <span
-          style={{ "font-size": "20px", "line-height": "22px", color: "rgba(0,0,0,0.9)" }}
-        >
-          确定要删除该对话吗？
-        </span>
+      <div style={{ display: "flex", gap: "8px", "align-items": "flex-start", "margin-bottom": "16px" }}>
+        <Icon name="info-circle" style={{ width: "20px", height: "20px", "flex-shrink": "0", "margin-top": "2px" }} />
+        <div style={{ display: "flex", "flex-direction": "column", gap: "8px", "min-width": "0", flex: "1" }}>
+          <span style={{ "font-size": "16px", "line-height": "24px", color: "rgba(0,0,0,0.9)" }}>
+            确定要删除该对话吗？
+          </span>
+          <div
+            ref={(el) => (bodyRef = el)}
+            style={{
+              "font-size": "14px",
+              "line-height": "22px",
+              color: "rgba(0,0,0,0.9)",
+              "word-break": "break-all",
+              "max-height": "44px",
+              overflow: "hidden",
+            }}
+          >
+            {bodyText()}
+          </div>
+        </div>
       </div>
       <div class="flex justify-end gap-2 pt-2">
         <button

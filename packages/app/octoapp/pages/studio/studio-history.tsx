@@ -4,7 +4,6 @@ import { createEffect, createMemo, createResource, createSignal, For, on, onClea
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
 import { Button } from "@opencode-ai/ui/button"
-import { Dialog } from "@opencode-ai/ui/dialog"
 import { Portal } from "solid-js/web"
 import { Icon } from "@opencode-ai/ui/icon"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
@@ -15,6 +14,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { DialogSettings } from "@/components/dialog-settings"
+import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { IconSettings } from "@/pages/_shell/icons"
 import { sessionTitle } from "@/utils/session-title"
 import { decode64 } from "@/utils/base64"
@@ -212,33 +212,6 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
     return true
   }
 
-  function DialogDeleteSession(props: { session: Session }) {
-    const name = createMemo(() => sessionTitle(props.session.title) ?? language.t("command.session.new"))
-    const handleDelete = async () => {
-      await deleteSession(props.session)
-      dialog.close()
-    }
-
-    return (
-      <Dialog title={language.t("session.delete.title")} fit class="delete-dialog">
-        <div class="flex flex-col gap-4">
-          <div class="flex flex-col gap-1">
-            <span class="text-14-regular text-text-strong">
-              {language.t("session.delete.confirm", { name: name() })}
-            </span>
-          </div>
-          <div class="flex justify-end gap-2">
-            <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
-              {language.t("common.cancel")}
-            </Button>
-            <Button variant="primary" size="large" class="delete-dialog-btn delete-dialog-btn-primary" onClick={handleDelete}>
-              {language.t("session.delete.button")}
-            </Button>
-          </div>
-        </div>
-      </Dialog>
-    )
-  }
 
   return (
     <div
@@ -551,7 +524,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                                     data-slot="dropdown-menu-item"
                                     onClick={() => {
                                       closeContextMenu()
-                                      dialog.show(() => <DialogDeleteSession session={session} />)
+                                      dialog.show(() => <DialogDeleteSession name={sessionTitle(session.title) ?? language.t("command.session.new")} onDelete={() => deleteSession(session)} />)
                                     }}
                                   >
                                     <span data-slot="dropdown-menu-item-label">删除</span>
