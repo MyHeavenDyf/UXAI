@@ -31,8 +31,6 @@ import {
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import { CommandProvider } from "@/context/command"
-import { CommentsProvider } from "@/context/comments"
-import { FileProvider } from "@/context/file"
 import { GlobalSDKProvider } from "@/context/global-sdk"
 import { GlobalSyncProvider } from "@/context/global-sync"
 import { HighlightsProvider } from "@/context/highlights"
@@ -42,10 +40,8 @@ import { LayoutProvider, useLayout } from "@/context/layout"
 import { ModelsProvider } from "@/context/models"
 import { NotificationProvider } from "@/context/notification"
 import { PermissionProvider } from "@/context/permission"
-import { PromptProvider } from "@/context/prompt"
 import { ServerConnection, ServerProvider, serverName, useServer } from "@/context/server"
 import { SettingsProvider } from "@/context/settings"
-import { TerminalProvider } from "@/context/terminal"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layoutnet"
 import { ErrorPage } from "./pages/error"
@@ -60,7 +56,6 @@ import { MakeSidebar } from "@/pages/make/sidebar"
 import { PatternSidebar } from "@/pages/pattern/modules/sidebar/sidebar"
 import { InsightSidebar } from "@/pages/insight/sidebar"
 import { InsightQueueRunner } from "@/pages/insight/queue-runner"
-import { ChatFollowupQueueRunner } from "@/pages/chat/followup-runner"
 import { ProjectInfo } from "@/components/project-info"
 import { SidebarFooter } from "@/pages/insight/components/sidebar-footer"
 import { MakeLayoutProvider, useMakeLayout } from "@/context/make-layout"
@@ -74,14 +69,11 @@ import { persisted, Persist } from "@/utils/persist"
 // jk-j60099994-replace-with-60062650-octo-1-start
 // jk-j60099994-replace-with-60062650-octo-1-end
 
-const ChatPage = lazy(() => import("@/pages/chat"))
 const InsightPage = lazy(() => import("@/pages/insight"))
 const MakePage = lazy(() => import("@/pages/make"))
 const PatternPage = lazy(() => import("@/pages/pattern"))
 const SkillsPage = lazy(() => import("@/pages/skills"))
 const StudioPage = lazy(() => import("@/pages/studio/index"))
-const loadSession = () => import("@/pages/session")
-const Session = lazy(loadSession)
 const Loading = () => <div class="size-full" />
 
 // ⚠️ DEV-ONLY 守卫必须写在 JSX 之外,不要改回 `{import.meta.env.DEV && insightDevRoutes()}`。
@@ -93,20 +85,19 @@ const Loading = () => <div class="size-full" />
 // 详见 docs/learning/solid-jsx-blocks-import-meta-env-treeshaking.md。
 const insightDevRoutesOrNone = import.meta.env.DEV ? insightDevRoutes : () => null
 
-if (typeof location === "object" && /\/session(?:\/|$)/.test(location.pathname)) {
-  void loadSession()
+// SPEC-INS-030:chat 模块下线(唯一独有能力 knowledge_search 已并入 insight)。
+// 三条旧入口一律改导向 insight,而不是直接删路由 —— 站内还散着不少 `/:dir/chat/:id` 的跳转
+// (通知深链、fork 会话、文件搜索跳转、prompt-input 新建会话…),留重定向让它们优雅落到 insight,
+// 而不是撞 404。会话 id 在 insight 路由下直接可开:chat 历史(agent=octo_ai)已由 SPEC-INS-030 §6
+// 路径 B 纳入 insight 列表与渲染。
+const ChatRedirectRoute = () => {
+  const params = useParams<{ id?: string }>()
+  return <Navigate href={params.id ? `/insight/${params.id}` : "/insight"} />
 }
-
-const SessionRoute = () => (
-  <SessionProviders>
-    <Session />
-  </SessionProviders>
-)
-
-const ChatIndexRoute = () => <Navigate href="chat" />
+const DirectoryIndexRoute = () => <Navigate href="/insight" />
 const SessionRedirectRoute = () => {
   const params = useParams<{ id?: string }>()
-  return <Navigate href={`../chat/${params.id ?? ""}`} />
+  return <Navigate href={params.id ? `/insight/${params.id}` : "/insight"} />
 }
 const CoworkRedirectRoute = () => {
   return <Navigate href="/insight" />
@@ -397,18 +388,6 @@ function AppShellProviders(props: ParentProps) {
         </LayoutProvider>
       </PermissionProvider>
     </SettingsProvider>
-  )
-}
-
-function SessionProviders(props: ParentProps) {
-  return (
-    <TerminalProvider>
-      <FileProvider>
-        <PromptProvider>
-          <CommentsProvider>{props.children}</CommentsProvider>
-        </PromptProvider>
-      </FileProvider>
-    </TerminalProvider>
   )
 }
 
@@ -734,9 +713,6 @@ export function AppInterface(props: {
                 {/* SPEC-INS-027:insight 排队 drain 运行器。挂在 Router 之外,跨 tab/路由常驻,
                     使会话后台跑完时排队仍能继续 flush(不随 insight 页面卸载而死)。headless。 */}
                 <InsightQueueRunner />
-                {/* chat followup 排队 drain 运行器。通过 localStorage 桥接 session.tsx 的
-                    persisted followup store,在 chat 页面卸载后继续 drain 排队消息。headless。 */}
-                <ChatFollowupQueueRunner />
                 <Dynamic
                   component={props.router ?? Router}
                   root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
@@ -750,8 +726,8 @@ export function AppInterface(props: {
                   <Route path="/pattern/:id?" component={PatternPage} />
                   <Route path="/skills" component={SkillsPage} />
                   <Route path="/:dir" component={DirectoryLayout}>
-                    <Route path="/" component={ChatIndexRoute} />
-                    <Route path="/chat/:id?" component={ChatPage} />
+                    <Route path="/" component={DirectoryIndexRoute} />
+                    <Route path="/chat/:id?" component={ChatRedirectRoute} />
                     <Route path="/cowork/:id?" component={CoworkRedirectRoute} />
                     <Route path="/studio/:id?" component={StudioPage} />
                     <Route path="/session/:id?" component={SessionRedirectRoute} />
