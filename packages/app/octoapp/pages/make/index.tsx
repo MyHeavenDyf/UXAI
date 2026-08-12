@@ -2137,7 +2137,7 @@ const sessionMessagesLoaded = createMemo(() => {
           if (isSkillMention) {
             cmdParts.push({
               type: "text",
-              text: "",  // Empty text - only metadata for display, no content sent to model
+              text: seg.args || " ",
               metadata: { displayText: isFirstSkillCommand ? fullDisplayText : "" }
             })
             isFirstSkillCommand = false
