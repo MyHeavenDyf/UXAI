@@ -1,10 +1,12 @@
 import { createSignal } from "solid-js"
 import type { OutputCard, ArtifactExportKind } from "../insight-turn"
+import { extractSubtypeFromFilename } from "../../utils/subtype-extractor"
 
 export type ResultTab = {
   id: string
   title: string
-  type: "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "deck" | "svg" | "markdown-document" | "code-snippet" | "react-component" | "diagram" | "local-file" | "image" | "video" | "audio" | "pdf" | "text" | "design-plan" 
+  type: "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "deck" | "svg" | "markdown-document" | "code-snippet" | "react-component" | "diagram" | "local-file" | "image" | "video" | "audio" | "pdf" | "text" | "design-plan" | "link"
+  subtype?: string
   content: string
   filePath?: string
   commentFilePath?: string
@@ -38,6 +40,7 @@ export function createTabStore() {
       id: card.id,
       title: card.title,
       type: card.type,
+      subtype: card.subtype,
       content: card.content,
       filePath: card.filePath,
       commentFilePath: card.commentFilePath,
@@ -65,6 +68,7 @@ export function createTabStore() {
       id: params.id,
       title: params.title,
       type: "local-file",
+      subtype: extractSubtypeFromFilename(params.title),
       content: "",
       absoluteFilePath: params.absoluteFilePath,
       createdAt: params.createdAt,

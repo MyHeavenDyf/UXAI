@@ -74,7 +74,10 @@ export function createResourceTracker(): ResourceTracker {
 }
 
 /**
- * 把 local:///C:/foo/bar.png?v=2 这种 URL 转回绝对文件路径。
+ * 把 local:// URL 转回绝对文件路径。支持两种形式：
+ *  - local:///C:/foo/bar.png?v=2  （pathToLocalUrl 产生，3 斜杠 + 盘符）
+ *  - local://d/code/foo/bar.png   （浏览器规范化后，2 斜杠 + 单字符 host = 盘符）
+ *
  * 反向操作为 pathToLocalUrl（artifact-file-api.ts）。
  */
 export function localUrlToPath(url: string): string {
@@ -87,19 +90,29 @@ export function localUrlToPath(url: string): string {
   const hIdx = s.indexOf("#")
   if (hIdx >= 0) s = s.slice(0, hIdx)
 
-  // 剥 local:/// 前缀（必须先于 local:// 判断，因为 'local:///'.startsWith('local://') 也成立）
+  // 解析 URL 区分 host / pathname
+  let rest: string
   if (s.startsWith("local:///")) {
-    s = s.slice("local:///".length)
+    // local:///C:/foo → 剥前缀后是 C:/foo
+    rest = s.slice("local:///".length)
   } else if (s.startsWith("local://")) {
-    s = s.slice("local://".length)
+    // local://d/code/foo → 剥 'local://' 后是 'd/code/foo'，首段 d 是盘符 host
+    rest = s.slice("local://".length)
+    // 把单字符 host 转成 'D:' 形式
+    const m = rest.match(/^([A-Za-z])\/(.*)$/)
+    if (m) {
+      rest = `${m[1].toUpperCase()}:/${m[2]}`
+    }
   } else {
     return ""
   }
 
   // 解码
   try {
-    s = decodeURIComponent(s)
-  } catch {}
+    s = decodeURIComponent(rest)
+  } catch {
+    s = rest
+  }
 
   // Windows 盘符：去掉残留的多余前导斜杠（如 '/D:/foo' → 'D:/foo'）
   if (/^\/[A-Za-z]:[\/\\]/.test(s)) {

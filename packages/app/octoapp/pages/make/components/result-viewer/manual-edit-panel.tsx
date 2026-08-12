@@ -52,6 +52,7 @@ export function ManualEditPanel(props: {
   floatingStyle?: { left: number; top: number }
   onDraftChange: (draft: ManualEditDraft) => void
   onStyleChange?: (id: string, styles: Partial<ManualEditStyles>, label: string) => void
+  onTextPreview?: (id: string, text: string) => void
   onApplyPatch: (patch: ManualEditPatch, label: string) => void
   onPickImage?: (file: File) => Promise<string | null>
   onError: (message: string) => void
@@ -262,6 +263,10 @@ export function ManualEditPanel(props: {
                   class="cc-textarea"
                   value={props.draft.text}
                   onInput={(e) => props.onDraftChange({ ...props.draft, text: e.currentTarget.value })}
+                  onBlur={() => {
+                    const target = props.selectedTarget
+                    if (target) props.onTextPreview?.(target.id, props.draft.text)
+                  }}
                   placeholder="Enter text content (mixed elements only)..."
                   rows={3}
                 />
@@ -392,7 +397,7 @@ function StyleInspector(props: {
           <DropdownRow label="Weight" value={props.styles.fontWeight} onChange={(v) => u('fontWeight', v)} options={WEIGHT_OPTS} />
           <ColorRow label="Color" value={props.styles.color} onChange={(v) => u('color', v)} />
           <DropdownRow label="Align" value={props.styles.textAlign} onChange={(v) => u('textAlign', v)} options={ALIGN_OPTS} />
-          <UnitRow label="Line" value={props.styles.lineHeight} onChange={(v) => u('lineHeight', v)} unit="" />
+          <UnitRow label="Line" value={props.styles.lineHeight} onChange={(v) => u('lineHeight', v)} unit="px" autoUnit />
           <UnitRow label="Tracking" value={props.styles.letterSpacing} onChange={(v) => u('letterSpacing', v)} unit="px" autoUnit />
         </Section>
       </Show>
@@ -479,19 +484,21 @@ function SizePairRow(props: {
         <span class="cc-size-label">W</span>
         <input
           value={display(props.width)}
-          onInput={(e) => props.onWidthChange(e.currentTarget.value)}
+          onInput={(e) => props.onWidthChange(autoUnit(e.currentTarget.value))}
           onBlur={(e) => props.onWidthChange(autoUnit(e.currentTarget.value))}
           placeholder="0"
         />
+        <Show when={!isKeyword(display(props.width))}><em class="cc-unit">px</em></Show>
       </span>
       <span class="cc-size-cell">
         <span class="cc-size-label">H</span>
         <input
           value={display(props.height)}
-          onInput={(e) => props.onHeightChange(e.currentTarget.value)}
+          onInput={(e) => props.onHeightChange(autoUnit(e.currentTarget.value))}
           onBlur={(e) => props.onHeightChange(autoUnit(e.currentTarget.value))}
           placeholder="0"
         />
+        <Show when={!isKeyword(display(props.height))}><em class="cc-unit">px</em></Show>
       </span>
     </div>
   )
@@ -519,13 +526,14 @@ function UnitRow(props: {
       <span class="cc-input-cell">
         <input
           value={display()}
-          onInput={(e) => props.onChange(e.currentTarget.value)}
+          onInput={(e) => props.onChange(valueFromDisplay(e.currentTarget.value))}
           onBlur={(e) => {
             const next = valueFromDisplay(e.currentTarget.value)
             if (next !== props.value) props.onChange(next)
           }}
           placeholder="0"
         />
+        <Show when={props.unit && !isKeyword(display())}><em class="cc-unit">{props.unit}</em></Show>
       </span>
     </div>
   )
@@ -979,6 +987,7 @@ function QuadCell(props: { axis: string; value: string; onChange: (v: string) =>
     <span class="cc-quad-cell">
       <em class="cc-quad-axis">{props.axis}</em>
       <input value={display()} placeholder="0" onChange={handleChange} onBlur={handleBlur} />
+      <Show when={!isKeyword(display())}><em class="cc-quad-unit">px</em></Show>
     </span>
   )
 }
@@ -990,6 +999,10 @@ function stripPxUnit(value: string): string {
 
 function isNumericInput(value: string): boolean {
   return /^-?\d+(\.\d+)?$/.test(value.trim())
+}
+
+function isKeyword(value: string): boolean {
+  return /^(normal|auto|inherit|initial|unset|none)$/i.test(value.trim())
 }
 
 function sideToProp(base: 'padding' | 'margin', side: 't' | 'r' | 'b' | 'l'): keyof ManualEditStyles {

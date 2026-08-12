@@ -31,6 +31,9 @@ import { tracker } from "@/utils/tracker"
 import { createC2DZip } from "../../utils/canvas-to-design"
 import { uploadZip } from "@/utils/useZipTransport"
 import { useProjectSelection } from "@/hooks/use-project-selection"
+import { getDesktopApi } from "../../lib/electron-api"
+import { useFeatureMutex } from "../../utils/use-feature-mutex"
+import { getSubtypeHandler } from "../../utils/subtype-registry"
 
 function extractCodeBlock(text: string, lang: string): string {
   const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
@@ -149,12 +152,8 @@ export function ResultViewer(props: {
   const [htmlModes, setHtmlModes] = createSignal<Record<string, "preview" | "edit">>({})
   const [viewport, setViewport] = createSignal<ViewportPreset>("desktop")
   const [palette, setPalette] = createSignal<PaletteId | null>(null)
-  const [inspecting, setInspecting] = createSignal(false)
+  const featureMutex = useFeatureMutex()
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
-  const [editing, setEditing] = createSignal(false)
-  const [drawing, setDrawing] = createSignal(false)
-  const [commenting, setCommenting] = createSignal(false)
-  const [archiving, setArchiving] = createSignal(false)
   const [refreshKey, setRefreshKey] = createSignal(0)
   // 当前 HTML tab 已加载的资源 URL getter（由 HtmlRenderer 注册）
   let observedUrlsGetter: (() => string[]) | null = null
@@ -163,6 +162,7 @@ export function ResultViewer(props: {
   const handleViewportChange = (vp: ViewportPreset) => {
     tracker.interaction({ module: "design", name: "change-viewport", extend: JSON.stringify({ viewport: vp }) })
     setViewport(vp)
+    featureMutex.disableAll()
   }
 
   const handleCanvasToDesign = async () => {
@@ -172,6 +172,22 @@ export function ResultViewer(props: {
       if (!tab || tab.type !== "html") {
         showToast({ title: "请先打开HTML文件" })
         return
+      }
+
+      const handler = getSubtypeHandler(tab.subtype)
+      const ctx = {
+        tab,
+        showToast,
+        tracker,
+        getDesktopApi,
+        extractCodeBlock,
+        observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
+        projectSelection,
+      }
+
+      if (handler?.handleCanvasEdit) {
+        const handled = await handler.handleCanvasEdit(ctx)
+        if (handled === true) return
       }
 
       const isLoggedIn = !!localStorage.getItem('uiplusToken')
@@ -230,11 +246,7 @@ export function ResultViewer(props: {
     tracker.interaction({ module: "design", name: "toggle-preview-source", extend: JSON.stringify({ mode: nextMode }) })
     setHtmlModes((prev) => ({ ...prev, [id]: nextMode }))
     if (nextMode === "edit") {
-      setInspecting(false)
-      setEditing(false)
-      setDrawing(false)
-      setCommenting(false)
-      setArchiving(false)
+      featureMutex.disableAll()
     }
   }
 
@@ -344,17 +356,22 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
           onCollapseDrawer={props.onCollapseDrawer}
         />
 
-        <Show when={props.viewMode === "files" && props.sessionId}>
+        <Show when={props.sessionId}>
           {(sid) => (
-            <DesignFilesPanel
-              sessionId={sid()}
-              refreshKey={props.filesRefreshKey ?? 0}
-              onOpenFile={handleOpenArtifactFile}
-              onAddToSession={props.onAddArtifactToSession}
-              onCloseTabsByPath={handleCloseTabsByPath}
-              onRemoveAttachmentsByPath={props.onRemoveAttachmentsByPath}
-              onFilesRefresh={props.onFilesRefresh}
-            />
+            <div
+              class="flex flex-col flex-1 min-h-0"
+              style={{ display: props.viewMode === "files" ? "flex" : "none" }}
+            >
+              <DesignFilesPanel
+                sessionId={sid()}
+                refreshKey={props.filesRefreshKey ?? 0}
+                onOpenFile={handleOpenArtifactFile}
+                onAddToSession={props.onAddArtifactToSession}
+                onCloseTabsByPath={handleCloseTabsByPath}
+                onRemoveAttachmentsByPath={props.onRemoveAttachmentsByPath}
+                onFilesRefresh={props.onFilesRefresh}
+              />
+            </div>
           )}
         </Show>
 
@@ -528,55 +545,43 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
               <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
                 <Show when={tabType !== "design-plan"}>
 <ActionBar
-                   tab={tab}
-                   mode={canToggle ? htmlMode() : undefined}
-                   onModeChange={canToggle ? () => toggleHtmlMode(tabId) : undefined}
-                   viewport={viewport()}
-                   onViewportChange={handleViewportChange}
-                   palette={palette()}
-                   onPaletteChange={setPalette}
-                   editing={editing()}
-                   onEditToggle={htmlMode() === "edit" ? undefined : () => {
-                     const nextEditing = !editing()
-                     setEditing(nextEditing)
-                     tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
-                     if (nextEditing && drawing()) setDrawing(false)
-                     if (nextEditing && commenting()) setCommenting(false)
-                     if (nextEditing && archiving()) setArchiving(false)
-                   }}
-drawing={drawing()}
-                    onDrawToggle={htmlMode() === "edit" ? undefined : () => {
-                      const nextDrawing = !drawing()
-                      setDrawing(nextDrawing)
-                      tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
-                      if (nextDrawing && editing()) setEditing(false)
-                      if (nextDrawing && commenting()) setCommenting(false)
-                      if (nextDrawing && archiving()) setArchiving(false)
+                    tab={tab}
+                    mode={canToggle ? htmlMode() : undefined}
+                    onModeChange={canToggle ? () => toggleHtmlMode(tabId) : undefined}
+                    viewport={viewport()}
+                    onViewportChange={handleViewportChange}
+                    palette={palette()}
+                    onPaletteChange={setPalette}
+                    editing={featureMutex.state.editing}
+                    onEditToggle={htmlMode() === "edit" ? undefined : () => {
+                      const nextEditing = !featureMutex.state.editing
+                      featureMutex.toggleFeature('editing')
+                      tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
                     }}
-                   commenting={commenting()}
-                   onCommentToggle={htmlMode() === "edit" ? undefined : () => {
-                     const nextCommenting = !commenting()
-                     setCommenting(nextCommenting)
-                     tracker.interaction({ module: "design", name: "toggle-comment-mode", extend: JSON.stringify({ action: nextCommenting ? "open" : "close" }) })
-                     if (nextCommenting && editing()) setEditing(false)
-                     if (nextCommenting && drawing()) setDrawing(false)
-                     if (nextCommenting && archiving()) setArchiving(false)
-                   }}
-                   archiving={archiving()}
-                   onArchiveToggle={htmlMode() === "edit" ? undefined : () => {
-                     const nextArchiving = !archiving()
-                     setArchiving(nextArchiving)
-                     tracker.interaction({ module: "design", name: "toggle-archive-mode", extend: JSON.stringify({ action: nextArchiving ? "open" : "close" }) })
-                     if (nextArchiving && editing()) setEditing(false)
-                     if (nextArchiving && drawing()) setDrawing(false)
-                     if (nextArchiving && commenting()) setCommenting(false)
+drawing={featureMutex.state.drawing}
+                     onDrawToggle={htmlMode() === "edit" ? undefined : () => {
+                       const nextDrawing = !featureMutex.state.drawing
+                       featureMutex.toggleFeature('drawing')
+                       tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
+                     }}
+                    commenting={featureMutex.state.commenting}
+                    onCommentToggle={htmlMode() === "edit" ? undefined : () => {
+                      const nextCommenting = !featureMutex.state.commenting
+                      featureMutex.toggleFeature('commenting')
+                      tracker.interaction({ module: "design", name: "toggle-comment-mode", extend: JSON.stringify({ action: nextCommenting ? "open" : "close" }) })
+                    }}
+                    archiving={featureMutex.state.archiving}
+                    onArchiveToggle={htmlMode() === "edit" ? undefined : () => {
+                      const nextArchiving = !featureMutex.state.archiving
+                      featureMutex.toggleFeature('archiving')
+                      tracker.interaction({ module: "design", name: "toggle-archive-mode", extend: JSON.stringify({ action: nextArchiving ? "open" : "close" }) })
 }}
-                    onCanvasToDesign={handleCanvasToDesign}
-                    onRefresh={handleRefresh}
-                   observedResourceUrls={() => observedUrlsGetter?.() || []}
-                   focusMode={props.focusMode}
-                   onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
-                 />
+                     onCanvasToDesign={handleCanvasToDesign}
+                     onRefresh={handleRefresh}
+                    observedResourceUrls={() => observedUrlsGetter?.() || []}
+                    focusMode={props.focusMode}
+                    onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
+                  />
                 </Show>
                 <div class="flex-1 min-h-0 min-w-0 overflow-hidden">
                   <Switch
@@ -598,38 +603,38 @@ drawing={drawing()}
                     <Match when={tabType === "json"}>
                       <JsonRenderer content={tab.content} />
                     </Match>
-                    <Match when={tabType === "html"}>
+<Match when={tabType === "html"}>
 <HtmlRenderer
-                          content={tab.content}
-                          mode={htmlMode()}
-                          viewport={viewport()}
-                          palette={palette()}
-                          inspecting={inspecting()}
-                          editing={editing()}
-                          drawing={drawing()}
-                          commenting={commenting()}
-                          archiving={archiving()}
-                          onDrawActiveChange={setDrawing}
-                          onResetArchiving={() => setArchiving(false)}
-                          inspectPanel={true}
-                          onInspectTarget={setInspectTarget}
-                          onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
-                          onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
-                          refreshKey={combinedRefreshKey()}
-                          filePath={tab.filePath}
-                          commentFilePath={tab.commentFilePath}
-                          sessionId={tab.sessionId ?? props.sessionId}
-                          sdkUrl={globalSDK.url}
-                          sdkDirectory={props.sdkDirectory}
-                          onSaveFile={async (content) => {
-                            if (!tab.filePath) return
-                            const html = extractCodeBlock(content, "html")
-                            await saveArtifactContent(tab.filePath, html)
-                          }}
-                          onRefreshNeeded={handleRefresh}
-                          tabTitle={tab.title}
-                          observedUrlsGetter={(g) => { observedUrlsGetter = g }}
-                        />
+                           content={tab.content}
+                           mode={htmlMode()}
+                           viewport={viewport()}
+                           palette={palette()}
+                           inspecting={featureMutex.state.inspecting}
+                           editing={featureMutex.state.editing}
+                           drawing={featureMutex.state.drawing}
+                           commenting={featureMutex.state.commenting}
+                           archiving={featureMutex.state.archiving}
+                           onDrawActiveChange={(active) => active ? featureMutex.enableFeature('drawing') : featureMutex.toggleFeature('drawing')}
+                           onResetArchiving={() => featureMutex.toggleFeature('archiving')}
+                           inspectPanel={true}
+                           onInspectTarget={setInspectTarget}
+                           onSaveOverrides={(overrides) => applyInspectOverrides(tabId, overrides)}
+                           onContentChange={async (content) => { await props.onContentChange?.(tabId, content) }}
+                           refreshKey={combinedRefreshKey()}
+                           filePath={tab.filePath}
+                           commentFilePath={tab.commentFilePath}
+                           sessionId={tab.sessionId ?? props.sessionId}
+                           sdkUrl={globalSDK.url}
+                           sdkDirectory={props.sdkDirectory}
+                           onSaveFile={async (content) => {
+                             if (!tab.filePath) return
+                             const html = extractCodeBlock(content, "html")
+                             await saveArtifactContent(tab.filePath, html)
+                           }}
+                           onRefreshNeeded={handleRefresh}
+                           tabTitle={tab.title}
+                           observedUrlsGetter={(g) => { observedUrlsGetter = g }}
+                         />
                     </Match>
                     <Match when={tabType === "deck"}>
                       <DeckRenderer content={tab.content} />

@@ -40,6 +40,7 @@ export function StudioComposer(props: {
   videoQualityMode: StudioVideoQualityMode
   videoQualityLocked: boolean
   status: StudioGenerationStatus
+  busy: boolean
   openMenu: "capability" | "style" | "settings" | "material" | null
   canSubmit: boolean
   wordBook?: Resource<MaterialWordBook[]>
@@ -84,7 +85,7 @@ export function StudioComposer(props: {
   const isVideoGeneration = createMemo(() => props.capability === "video.generate")
   const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
   const isImeComposing = (event: KeyboardEvent) => event.isComposing || composing() || event.keyCode === 229
-  const isBusy = createMemo(() => props.status === "queued" || props.status === "running" || props.status === "submitting")
+  const isBusy = createMemo(() => props.busy || props.status === "queued" || props.status === "running" || props.status === "submitting")
   onCleanup(() => {
     if (referenceHoverFrame !== undefined) cancelAnimationFrame(referenceHoverFrame)
   })
@@ -448,7 +449,7 @@ export function StudioComposer(props: {
   })
 
   function handlePaste(event: ClipboardEvent) {
-    if (isBusy() || !isImageGeneration() && !isVideoGeneration()) return
+    if (!isImageGeneration() && !isVideoGeneration()) return
     const files = Array.from(event.clipboardData?.items ?? [])
       .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
       .map((item) => item.getAsFile())
@@ -458,7 +459,7 @@ export function StudioComposer(props: {
     props.onPasteImage(files)
   }
 
-  const canDropImages = () => !isBusy() && (isImageGeneration() || isVideoGeneration())
+  const canDropImages = () => isImageGeneration() || isVideoGeneration()
   const isImageUrl = (value: string) => /^data:image\//i.test(value) || /^https?:\/\//i.test(value) || value.startsWith("/")
   const imageFiles = (dataTransfer: DataTransfer) => Array.from(dataTransfer.files).filter((file) => file.type.startsWith("image/"))
   const draggedImageUrl = (dataTransfer: DataTransfer) => {
@@ -536,18 +537,16 @@ export function StudioComposer(props: {
             <VideoFrameButton
               label="首帧"
               asset={props.videoFrames.first}
-              disabled={isBusy()}
               onPick={() => props.onPickVideoFrame("first")}
               onRemove={() => props.onRemoveVideoFrame("first")}
               onDrop={(event) => handleDrop(event, "first")}
             />
-            <button type="button" class="studio-composer-video-swap" onClick={props.onSwapVideoFrames} disabled={isBusy()} aria-label="交换首尾帧" title="交换首尾帧">
+            <button type="button" class="studio-composer-video-swap" onClick={props.onSwapVideoFrames} aria-label="交换首尾帧" title="交换首尾帧">
               <img src="/studio/ic_public_switchover.svg" class="studio-composer-video-swap-icon" alt="" />
             </button>
             <VideoFrameButton
               label="尾帧"
               asset={props.videoFrames.last}
-              disabled={isBusy()}
               onPick={() => props.onPickVideoFrame("last")}
               onRemove={() => props.onRemoveVideoFrame("last")}
               onDrop={(event) => handleDrop(event, "last")}
@@ -563,7 +562,6 @@ export function StudioComposer(props: {
                   <button
                     type="button"
                     onClick={props.onPickFile}
-                    disabled={isBusy()}
                     class="studio-composer-ref-btn"
                     title="上传参考图"
                   />
@@ -596,7 +594,6 @@ export function StudioComposer(props: {
                             event.stopPropagation()
                             props.onRemoveAsset(asset.id)
                           }}
-                          disabled={isBusy()}
                           class="studio-composer-ref-remove"
                           aria-label="删除参考图"
                           title="删除参考图"
@@ -610,7 +607,6 @@ export function StudioComposer(props: {
                     <button
                       type="button"
                       onClick={props.onPickFile}
-                      disabled={isBusy()}
                       class="studio-composer-ref-btn studio-composer-ref-add"
                       title="继续上传参考图"
                     />
@@ -623,7 +619,6 @@ export function StudioComposer(props: {
                       event.stopPropagation()
                       props.onPickFile()
                     }}
-                    disabled={isBusy()}
                     class="studio-composer-ref-upload-float"
                     aria-label="继续上传参考图"
                     title="继续上传参考图"

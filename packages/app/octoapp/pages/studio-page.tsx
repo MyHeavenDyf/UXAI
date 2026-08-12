@@ -9,7 +9,6 @@ import { persisted, Persist } from "@/utils/persist"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Button } from "@opencode-ai/ui/button"
-import { Dialog } from "@opencode-ai/ui/dialog"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -22,6 +21,7 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { decode64 } from "@/utils/base64"
 import { DialogSettings } from "@/components/dialog-settings"
+import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { showFloatingNotice } from "@/components/floating-notice"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
@@ -46,6 +46,7 @@ import type {
   StudioGenerationStatus,
   StudioImage,
   StudioImageTool,
+  StudioInputImage,
   StudioMode,
 } from "./studio/types"
 import {
@@ -97,8 +98,20 @@ import { createSessionThumbnailStore, type ThumbnailMap } from "./studio/session
 import { getArtifactRelativePath, getArtifactServeUrl } from "./make/utils/artifact-file-api"
 
 type StudioEditorCapability = "image.upscale" | "image.cutout" | "image.inpaint" | "image.outpaint"
+type PendingScrollRequest = {
+  id: number
+  generationToken: number
+  sessionID?: string
+}
+
 const STUDIO_REGENERATE_DISPLAY_PROMPT = "再次生成"
 const STUDIO_REGENERATE_ASSISTANT_TEXT = "好的，我会按当前结果的配置重新生成。"
+
+function sameStudioInputImages(left?: StudioInputImage[], right?: StudioInputImage[]) {
+  if (left === right) return true
+  if ((left?.length ?? 0) !== (right?.length ?? 0)) return false
+  return left?.every((image, index) => image.id === right?.[index]?.id && image.url === right[index]?.url) ?? true
+}
 
 // 探测图片真实宽高，映射到最接近的 Studio 比例；用于编辑类结果保留源图比例
 async function probeImageAspectRatio(url: string): Promise<StudioAspectRatio | undefined> {
@@ -438,7 +451,11 @@ export default function StudioPage() {
   let videoFrameInputRef!: HTMLInputElement
   let pendingVideoFrameSlot: StudioVideoFrameSlot = "first"
   let conversationScrollRef!: HTMLDivElement
+  const [conversationContentEl, setConversationContentEl] = createSignal<HTMLElement | null>(null)
   let scrollFrame = 0
+  let nextPendingScrollRequest = 0
+  const [pendingScrollRequest, setPendingScrollRequest] = createSignal<PendingScrollRequest>()
+  const [conversationViewportVersion, setConversationViewportVersion] = createSignal(0)
   // 用户是否贴近底部：贴近时新内容自动跟随滚动，向上查看历史时不再强制回到底部
   const [stickToBottom, setStickToBottom] = createSignal(true)
   const STUDIO_SCROLL_BOTTOM_THRESHOLD = 200
@@ -446,6 +463,30 @@ export default function StudioPage() {
     const el = conversationScrollRef
     if (!el) return
     setStickToBottom(el.scrollTop + el.clientHeight >= el.scrollHeight - STUDIO_SCROLL_BOTTOM_THRESHOLD)
+  }
+  // 内容尺寸变化（新消息渲染、输入图解码完成等）时贴近底部则跟随置底。
+  // 弥补单次 rAF 无法覆盖异步内容增高（displayTurnStore 延迟同步、图片布局延迟）的时序缺口。
+  // 用 signal + createEffect 以响应 studio-center 在 hasStudioConversation 切换后才挂载的场景。
+  createEffect(() => {
+    const el = conversationContentEl()
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      if (!conversationScrollRef || !stickToBottom()) return
+      cancelAnimationFrame(scrollFrame)
+      scrollFrame = requestAnimationFrame(() => {
+        conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
+      })
+    })
+    ro.observe(el)
+    onCleanup(() => ro.disconnect())
+  })
+  const [downloadNotice, setDownloadNotice] = createSignal<string | null>(null)
+  let downloadNoticeTimer: number | undefined
+  onCleanup(() => { if (downloadNoticeTimer !== undefined) window.clearTimeout(downloadNoticeTimer) })
+  function showDownloadNotice(message: string) {
+    setDownloadNotice(message)
+    if (downloadNoticeTimer !== undefined) window.clearTimeout(downloadNoticeTimer)
+    downloadNoticeTimer = window.setTimeout(() => setDownloadNotice(null), 3000)
   }
   let pendingEditorSessionID: string | undefined
   let pendingGenerationSessionID: string | undefined
@@ -864,7 +905,10 @@ export default function StudioPage() {
   createEffect(on(displayTurns, (next) => {
     const ids = new Set(next.map((turn) => turn.id))
     batch(() => {
-      next.forEach((turn) => setDisplayTurnStore(turn.id, reconcile(turn)))
+      next.forEach((turn) => {
+        const previous = displayTurnStore[turn.id]
+        setDisplayTurnStore(turn.id, reconcile(previous && sameStudioInputImages(previous.inputImages, turn.inputImages) ? { ...turn, inputImages: previous.inputImages } : turn))
+      })
       setDisplayTurnStore(produce((turns) => {
         Object.keys(turns)
           .filter((id) => !ids.has(id))
@@ -905,6 +949,8 @@ export default function StudioPage() {
   }
   function matchesPendingTurn(turn: StudioTurnData | undefined, pending: StudioPendingResult) {
     if (isSamePendingTurn(turn, pending)) return true
+    // 服务端 turn 尚未带回本次 generation ID 时才按内容兜底；历史中相同 prompt 的任务不能被误认作当前任务。
+    if (!turn || turn.createdAt < pending.createdAt) return false
     if (!pending.displayPrompt) return turn?.result?.prompt === pending.prompt
     if (pending.displayPrompt !== STUDIO_REGENERATE_DISPLAY_PROMPT) return false
     return Boolean(
@@ -914,6 +960,23 @@ export default function StudioPage() {
         turn.result.capability === pending.capability,
     )
   }
+  createEffect(() => {
+    const request = pendingScrollRequest()
+    const pending = pendingResult()
+    conversationViewportVersion()
+
+    if (!request || !pending || !conversationScrollRef) return
+    if (request.sessionID && request.sessionID !== params.id) return
+    if (!stableDisplayTurns().some((turn) => isSamePendingTurn(turn, pending))) return
+
+    const frame = requestAnimationFrame(() => {
+      if (pendingScrollRequest()?.id !== request.id) return
+      conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
+      setStickToBottom(true)
+      setPendingScrollRequest(undefined)
+    })
+    onCleanup(() => cancelAnimationFrame(frame))
+  })
   const selectedResult = createMemo(() => {
     const id = selectedResultId()
     if (!id) return
@@ -1231,8 +1294,12 @@ export default function StudioPage() {
       (id) => {
         const preserveEditorEntry = Boolean(id && id === pendingEditorSessionID)
         const preserveGenerationCapability = Boolean(id && id === pendingGenerationSessionID)
+        const scrollRequest = pendingScrollRequest()
         if (preserveEditorEntry) pendingEditorSessionID = undefined
         if (preserveGenerationCapability) pendingGenerationSessionID = undefined
+        if (!preserveGenerationCapability && scrollRequest?.sessionID && scrollRequest.sessionID !== id) {
+          setPendingScrollRequest(undefined)
+        }
         if (preserveGenerationCapability && draftVideoRiskConfirmed()) {
           setVideoRiskConfirmedSessionID(id)
           setDraftVideoRiskConfirmed(false)
@@ -1491,33 +1558,6 @@ export default function StudioPage() {
     return true
   }
 
-  function DialogDeleteHeaderSession(props: { session: Session }) {
-    const name = createMemo(() => sessionTitle(props.session.title) ?? language.t("command.session.new"))
-    const handleDelete = async () => {
-      await deleteHeaderSession(props.session)
-      dialog.close()
-    }
-
-    return (
-      <Dialog title={language.t("session.delete.title")} fit class="delete-dialog">
-        <div class="flex flex-col gap-4">
-          <div class="flex flex-col gap-1">
-            <span class="text-14-regular text-text-strong">
-              {language.t("session.delete.confirm", { name: name() })}
-            </span>
-          </div>
-          <div class="flex justify-end gap-2">
-            <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
-              {language.t("common.cancel")}
-            </Button>
-            <Button variant="primary" size="large" class="delete-dialog-btn delete-dialog-btn-primary" onClick={handleDelete}>
-              {language.t("session.delete.button")}
-            </Button>
-          </div>
-        </div>
-      </Dialog>
-    )
-  }
   const currentImageLabel = createMemo(() => {
     const image = selectedImage()
     if (!image) return "studio-image.png"
@@ -1540,21 +1580,32 @@ export default function StudioPage() {
   async function downloadCurrentImage() {
     const image = selectedImage()
     if (!image) return
+    const source = image.remoteUrl ?? image.url
+    const label = currentImageLabel()
     tracker.interaction({
       module: "studio",
       name: "download",
-      extend: JSON.stringify({ name: currentImageLabel(), url: image.remoteUrl ?? image.url }),
+      extend: JSON.stringify({ name: label, url: source }),
     })
-    const source = image.remoteUrl ?? image.url
     try {
       const response = await fetch(source)
       if (!response.ok) throw new Error(`Download request failed: ${response.status}`)
-      const objectUrl = URL.createObjectURL(await response.blob())
-      triggerBrowserDownload(objectUrl, currentImageLabel())
+      const blob = await response.blob()
+      if ((window as any).api?.saveFilePicker) {
+        const filePath = await (window as any).api.saveFilePicker({ defaultPath: label })
+        if (!filePath) return
+        await (window as any).api.writeFileBuffer(filePath, await blob.arrayBuffer())
+        showDownloadNotice("下载成功")
+        return
+      }
+      const objectUrl = URL.createObjectURL(blob)
+      triggerBrowserDownload(objectUrl, label)
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+      showDownloadNotice("下载成功")
     } catch (error) {
       console.warn("[studio] image download fallback", error)
-      triggerBrowserDownload(source, currentImageLabel())
+      triggerBrowserDownload(source, label)
+      showDownloadNotice("下载成功")
     }
   }
 
@@ -2143,6 +2194,7 @@ export default function StudioPage() {
     pendingEditorSessionID = undefined
     pendingGenerationSessionID = undefined
     generationToken++
+    setPendingScrollRequest(undefined)
     setVideoRiskDialogOpen(false)
     setVideoRiskConfirmedSessionID(undefined)
     setDraftVideoRiskConfirmed(false)
@@ -2850,9 +2902,13 @@ export default function StudioPage() {
     const detailPrompt = overrides?.detailPrompt ?? (actualUserPrompt || (nextCapability === "video.generate" ? text : undefined))
     const detailTitle = overrides?.detailTitle ?? buildStudioDisplayPrompt(detailPrompt ?? text)
     const currentToken = ++generationToken
+    const existingSession = isValidStudioSession(params.id)
     const previousPrompt = prompt()
     const previousAssets = assets()
-    const previousVideoFrames = { first: videoFrames.first, last: videoFrames.last }
+    const submittedVideoFrames = { first: videoFrames.first, last: videoFrames.last }
+    const videoFramesStillMatchSubmission = () =>
+      videoFrames.first?.id === submittedVideoFrames.first?.id &&
+      videoFrames.last?.id === submittedVideoFrames.last?.id
     const videoReferenceImages = [
       nextVideoFrames.first,
       nextVideoFrames.first ? nextVideoFrames.last : undefined,
@@ -2939,24 +2995,25 @@ export default function StudioPage() {
           }
         : {}),
     })
-    // 发送瞬间强制滚动到底部，展示新发起的消息
-    if (conversationScrollRef) {
-      cancelAnimationFrame(scrollFrame)
-      scrollFrame = requestAnimationFrame(() => {
-        conversationScrollRef.scrollTo({ top: conversationScrollRef.scrollHeight })
-      })
-    }
+    setPendingScrollRequest({
+      id: ++nextPendingScrollRequest,
+      generationToken: currentToken,
+      sessionID: existingSession ? params.id : undefined,
+    })
+    setStickToBottom(true)
     if (!overrides?.useRestoredInputs) {
       setPrompt("")
       setAssets([])
     }
     try {
-      const existingSession = isValidStudioSession(params.id)
       const sessionID = existingSession ? params.id! : await createStudioSession(text)
       if (!sessionID) throw new Error("Unable to create Studio session.")
       if (currentToken !== generationToken) return
       // Always attach sessionID to pendingResult so it can be scoped to the correct session.
       setPendingResult((item) => item ? { ...item, sessionID } : item)
+      setPendingScrollRequest((request) =>
+        request?.generationToken === currentToken ? { ...request, sessionID } : request,
+      )
       if (!existingSession) {
         pendingGenerationSessionID = sessionID
         navigate(`/${routeSlug()}/studio/${sessionID}`)
@@ -3004,8 +3061,8 @@ export default function StudioPage() {
           ...(nextIsCustom ? { width: nextWidth, height: nextHeight } : {}),
         },
       }, controller.signal)
-      if (!overrides?.useRestoredInputs && nextCapability === "video.generate") clearVideoFrames()
       if (currentToken !== generationToken) return
+      if (!overrides?.useRestoredInputs && nextCapability === "video.generate" && videoFramesStillMatchSubmission()) clearVideoFrames()
       setPendingResult((current) => ({
         ...generation,
         // Preserve sessionID from current — generation response may not include it
@@ -3041,7 +3098,6 @@ export default function StudioPage() {
         setPrompt(previousPrompt)
         setAssets(previousAssets)
       }
-      if (!overrides?.useRestoredInputs && nextCapability === "video.generate") replaceVideoFrames(previousVideoFrames)
       setStatus("create_failed")
       setPendingResult((item) => item ? {
         ...item,
@@ -3657,6 +3713,7 @@ export default function StudioPage() {
                   videoQualityMode={videoQualityMode()}
                   videoQualityLocked={videoQualityLocked()}
                   status={effectiveStatus()}
+                  busy={isBusy()}
                   openMenu={openMenu()}
                   canSubmit={canSubmit()}
                   wordBook={wordBook}
@@ -3782,7 +3839,7 @@ if (!headerTitle.pendingRename) return
                       <DropdownMenu.Item
                         onSelect={() => {
                           const session = activeStudioSession() ?? { id: params.id!, title: currentTitle(), agent: "octo_studio" } as Session
-                          dialog.show(() => <DialogDeleteHeaderSession session={session} />)
+                          dialog.show(() => <DialogDeleteSession name={sessionTitle(session.title) ?? language.t("command.session.new")} onDelete={() => deleteHeaderSession(session)} />)
                         }}
                       >
                         <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
@@ -3810,6 +3867,7 @@ if (!headerTitle.pendingRename) return
           <ScrollView
             viewportRef={(el) => {
               conversationScrollRef = el
+              setConversationViewportVersion((value) => value + 1)
               requestAnimationFrame(() => {
                 el.scrollTo({ top: el.scrollHeight })
               })
@@ -3817,6 +3875,7 @@ if (!headerTitle.pendingRename) return
             onScroll={handleConversationScroll}
             class="studio-center-scroll"
           >
+            <div ref={setConversationContentEl}>
             <Show when={displayTurns().length > 0 || pendingResult() || sending() || isBusy()} fallback={params.id && !sessionDataLoaded() && !visitedSessionIds.has(params.id) ? null : <StudioIntro />}>
               <StudioConversation
                 result={result()}
@@ -3835,6 +3894,7 @@ if (!headerTitle.pendingRename) return
                 onUseInputImage={useConversationInputImage}
               />
             </Show>
+            </div>
           </ScrollView>
 
           <StudioComposer
@@ -3855,6 +3915,7 @@ if (!headerTitle.pendingRename) return
             videoQualityMode={videoQualityMode()}
             videoQualityLocked={videoQualityLocked()}
             status={effectiveStatus()}
+            busy={isBusy()}
             openMenu={openMenu()}
             canSubmit={canSubmit()}
             wordBook={wordBook}
@@ -3936,6 +3997,7 @@ if (!headerTitle.pendingRename) return
               tabImages={canvasTabImages()}
               tabLabels={canvasTabLabels()}
               onDownload={() => void downloadCurrentImage()}
+              downloadNotice={downloadNotice}
               onSelectImage={selectCanvasTab}
               onDeleteImage={(id) => {
                 batch(() => {
@@ -4116,7 +4178,7 @@ if (!headerTitle.pendingRename) return
             </Show>
           </Show>
           </Show>
-          <Show when={isBusy() && !showStudioCanvas() && canvasTabImages().length === 0}>
+          <Show when={isBusy() && !isEditingWorkspaceMode() && !showStudioCanvas() && canvasTabImages().length === 0}>
             <div class="flex-1 flex flex-col items-center justify-center text-center">
               <StudioEmptyState />
             </div>

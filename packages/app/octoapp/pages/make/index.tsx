@@ -1,7 +1,7 @@
 import "./octo-tokens.css"
 import "./components/slash-popover.css"
 import { type MentionSelection } from "./components/mention-popover"
-import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc } from "./components/prosemirror-editor"
+import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs } from "./components/prosemirror-editor"
 import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
@@ -86,6 +86,7 @@ import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
+import { SEND_TEXT_EVENT, type SendTextEventDetail } from "./utils/agent-events"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
@@ -94,6 +95,7 @@ import { scanStrategyFields, EMPTY_STRATEGY_FORM, type StrategyFormData } from "
 import { useMakeCommands } from "./use-make-commands"
 import { useDialogIframe } from '@/context/dialog-iframe'
 import { getDesktopApi, type AssetsConfig } from "./lib/electron-api"
+import { extractSubtypeFromFilename } from "./utils/subtype-extractor"
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
@@ -148,6 +150,9 @@ function MakeContent() {
 
   // Register Make slash commands
   useMakeCommands()
+
+  // 消息时间追踪：sessionId → { startTime, inputText, firstTokenTime }
+  const messageTimingMap = new Map<string, { startTime: number; inputText: string; firstTokenTime?: number }>()
 
   // 切换项目目录只触发 keyed 重挂，不会自动改路由——url 仍停在旧目录的
   // /make:oldId。这里用模块级变量检测"重挂 + 目录确实变了"，不依赖 store 水合时序。
@@ -594,6 +599,45 @@ const sessionMessagesLoaded = createMemo(() => {
     onCleanup(() => window.removeEventListener(ANNOTATION_EVENT, handleAnnotation))
   })
 
+  // ── Send-text event listener (direct text → agent) ────────────────────────────
+  createEffect(() => {
+    const handleSendText = async (e: Event) => {
+      const detail = (e as CustomEvent<SendTextEventDetail>).detail
+
+      if (sending()) {
+        detail.ack?.({ ok: false, message: '正在发送中' })
+        return
+      }
+
+      const sessionId = params.id
+      const modelKey = activeModelKey()
+      if (!sessionId || !modelKey) {
+        detail.ack?.({ ok: false, message: '会话未就绪' })
+        return
+      }
+
+      try {
+        await sendMessage(sessionId, detail.text, modelKey)
+        tracker.interaction({
+          module: 'design',
+          name: 'send-text-event',
+          extend: JSON.stringify({
+            textLength: detail.text.length,
+            source: detail.source ?? 'unknown',
+          }),
+        })
+        detail.ack?.({ ok: true })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        showToast({ title: '发送失败', description: message, variant: 'error' })
+        detail.ack?.({ ok: false, message })
+      }
+    }
+
+    window.addEventListener(SEND_TEXT_EVENT, handleSendText)
+    onCleanup(() => window.removeEventListener(SEND_TEXT_EVENT, handleSendText))
+  })
+
   // 调试日志：打印当前 session 相关的 SSE 事件
   createEffect(() => {
     const sid = params.id
@@ -607,6 +651,14 @@ const sessionMessagesLoaded = createMemo(() => {
       if (e.type === "message.part.delta") {
         setLastDeltaTime(Date.now())
         setBlockTime(0)
+        
+        // 记录首次回复时间（只记录第一次）
+        const targetSessionID = eventSessionID ?? sid
+        const timing = messageTimingMap.get(targetSessionID)
+        if (timing && !timing.firstTokenTime) {
+          timing.firstTokenTime = Date.now()
+        }
+        
         setDeltaLog(prev => [
           ...prev.slice(-19),
           {
@@ -892,6 +944,36 @@ const sessionMessagesLoaded = createMemo(() => {
     onCleanup(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
   })
 
+  // ── 消息完整耗时追踪（从发送到对话框恢复可发送）────────────
+  let lastBusyState = false
+  createEffect(on(effectiveBusy, (busy) => {
+    const id = params.id
+    
+    // 检测从 busy → idle 的转换
+    if (lastBusyState && !busy && id) {
+      const timing = messageTimingMap.get(id)
+      if (timing) {
+        const elapsed = Date.now() - timing.startTime
+        const date = new Date()
+        const timeStr = date.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '')
+        const elapsedStr = `${(elapsed / 1000).toFixed(1)}s`
+        
+        // 使用记录的首次回复时间
+        if (timing.firstTokenTime) {
+          const ttft = (timing.firstTokenTime - timing.startTime) / 1000
+          const ttftStr = `${ttft.toFixed(1)}s`
+          console.log(`[${timeStr}] ${timing.inputText}, 总耗时 ${elapsedStr}, 首次回复 ${ttftStr}`)
+        } else {
+          console.log(`[${timeStr}] ${timing.inputText}, 总耗时 ${elapsedStr}`)
+        }
+        
+        messageTimingMap.delete(id)
+      }
+    }
+    
+    lastBusyState = busy
+  }, { defer: true }))
+
   // ── 阻塞检测计时器 ────────────────────────────────────────────
   const [lastDeltaTime, setLastDeltaTime] = createSignal(Date.now())
   const [blockTime, setBlockTime] = createSignal(0)
@@ -930,8 +1012,8 @@ const sessionMessagesLoaded = createMemo(() => {
   const [slashState, setSlashState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [slashIndex, setSlashIndex] = createSignal(0)
   let textareaRef!: HTMLTextAreaElement
-  let proseMirrorRef1: { getText: () => string; getMentions: () => Array<{ name: string; type: string; label: string; path?: string }>; clear: () => void; insertText: (text: string) => void } | undefined
-  let proseMirrorRef2: { getText: () => string; getMentions: () => Array<{ name: string; type: string; label: string; path?: string }>; clear: () => void; insertText: (text: string) => void } | undefined
+  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void } | undefined
+  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void } | undefined
 
   // ── Mention (@) Popover State ──
   const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
@@ -1131,6 +1213,21 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!id) return
     const saved = localStorage.getItem(DS_KEY_PREFIX + id)
     setSelectedDesignSystem(saved ?? null)
+  }))
+
+  createEffect(on(() => params.id, (id) => {
+    if (!id) return
+    const dir = projectDir()
+    const api = getDesktopApi()
+    if (!dir || !api?.writeFileBuffer) return
+    const sep = dir.includes("\\") ? "\\" : "/"
+    const sessionInitPath = [dir, ".octo", id, ".gitkeep"].join(sep)
+    const outputsInitPath = [dir, ".octo", id, "outputs", ".gitkeep"].join(sep)
+    const buffer = new TextEncoder().encode("").buffer as ArrayBuffer
+    api.writeFileBuffer(sessionInitPath, buffer)
+      .catch((err) => console.warn("[MakePage] failed to ensure session dir", err))
+    api.writeFileBuffer(outputsInitPath, buffer)
+      .catch((err) => console.warn("[MakePage] failed to ensure outputs dir", err))
   }))
 
   // 保存 prompt 到 localStorage
@@ -1926,7 +2023,7 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
-  async function sendMessage(sessionId: string, text: string, _modelKey: { providerID: string; modelID: string }, mentions?: Array<{ name: string; type: string; label: string; path?: string }>) {
+  async function sendMessage(sessionId: string, text: string, _modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
     try {
       // Process mention selections: replace chip text with model format
       let processedText = text
@@ -1975,6 +2072,11 @@ const sessionMessagesLoaded = createMemo(() => {
       // Scan all tokens in processedText for /cmd patterns, match against sync.data.command,
       // execute each via session.command(). Each command gets the text between itself
       // and the next /cmd as its arguments. Commands are self-contained (no follow-up prompt).
+      console.log("[MakePage] slash-detect input:", {
+        processedText,
+        cmdCount: sync.data?.command?.length ?? 0,
+        cmdNames: sync.data?.command?.map((c) => `${c.name}(${c.source})`) ?? [],
+      })
       const segments = processedText.split(/(?=\/\S)/)
       const cmdSegments: { cmd: string; args: string }[] = []
       let hasCommand = false
@@ -1984,17 +2086,29 @@ const sessionMessagesLoaded = createMemo(() => {
         const m = trimmed.match(/^\/(\S+)([\s\S]*)$/)
         if (m) {
           const cmdName = m[1]
-          if (cmdName && sync.data.command.find((c) => c.name === cmdName)) {
+          const matched = cmdName ? sync.data.command.find((c) => c.name === cmdName) : undefined
+          if (cmdName && matched) {
+            console.log("[MakePage] slash-detect matched command:", {
+              cmdName,
+              source: matched.source,
+              args: m[2].trim(),
+            })
             cmdSegments.push({ cmd: cmdName, args: m[2].trim() })
             hasCommand = true
             continue
           }
+          // /cmd 存在但不在 sync.data.command 中 → 会落入 prompt 纯文本，不触发 skill.used
+          console.log("[MakePage] slash-detect NOT in sync.data.command:", {
+            cmdName,
+            fallbackToPrompt: !hasCommand,
+          })
         }
         // Non-command segment: only keep if no commands found (for prompt fallback)
         if (!hasCommand) {
           cmdSegments.push({ cmd: "", args: trimmed })
         }
       }
+      console.log("[MakePage] slash-detect result:", { hasCommand, cmdSegments })
 
       if (hasCommand) {
         const modelStr = `${_modelKey.providerID}/${_modelKey.modelID}`
@@ -2023,7 +2137,7 @@ const sessionMessagesLoaded = createMemo(() => {
           if (isSkillMention) {
             cmdParts.push({
               type: "text",
-              text: "",  // Empty text - only metadata for display, no content sent to model
+              text: seg.args || " ",
               metadata: { displayText: isFirstSkillCommand ? fullDisplayText : "" }
             })
             isFirstSkillCommand = false
@@ -2205,6 +2319,12 @@ const sessionMessagesLoaded = createMemo(() => {
       if (manifestPart) parts.push(manifestPart)
       parts.push(...fileParts)
       
+      // 记录发送开始时间
+      messageTimingMap.set(sessionId, {
+        startTime: Date.now(),
+        inputText: text.slice(0, 30)
+      })
+      
       await sdk.client.session.prompt({
         sessionID: sessionId,
         agent: sessionId === activePlanSessionId() ? "octo_make_plan" : "octo_make",
@@ -2221,15 +2341,24 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 提交 prompt：自动创建 session → 发送消息 */
   async function handleSubmit() {
-    let text = proseMirrorRef1?.getText?.() || proseMirrorRef2?.getText?.() || prompt().trim()
-    let mentions = proseMirrorRef1?.getMentions?.() || proseMirrorRef2?.getMentions?.() || []
+    // 基于 hasContent() 选择正确的编辑器
+    let text: string
+    let mentions: MentionAttrs[]
+    
+    if (hasContent()) {
+      text = proseMirrorRef2?.getText?.() || ""
+      mentions = proseMirrorRef2?.getMentions?.() || []
+    } else {
+      text = proseMirrorRef1?.getText?.() || ""
+      mentions = proseMirrorRef1?.getMentions?.() || []
+    }
     
     // 注入 specSelector 的 skill
     const specName = selectedSpecName()
     const specDisplay = selectedSpecDisplay()
     if (specName && specDisplay) {
       text = `@${specName} ` + text
-      mentions = [{ type: 'skill', name: specName, label: specDisplay }, ...mentions]
+      mentions = [{ type: 'skill', name: specName, label: specDisplay, id: specName, path: "" }, ...mentions]
     }
     
     if (effectiveBusy() || !activeModelKey()) return
@@ -2907,10 +3036,67 @@ if (dsId) {
   async function handleOpenResult(card: OutputCard) {
     setResultViewMode("tabs")
     ml.showRight()
-    
+
+    // link 类型:content 是 URL 或磁盘路径,不保存,直接打开
+    // URL:        创建 html tab,filePath=URL(复用 preview URL 工作流,ActionBar 行为一致)
+    // 磁盘路径:   转绝对路径,按扩展名推断 type(复用本地文件渲染逻辑)
+    if (card.type === "link") {
+      const linkContent = (card.content ?? "").trim()
+      if (!linkContent) return
+
+      if (/^https?:\/\//i.test(linkContent)) {
+        const tabId = `link-url-${linkContent.replace(/[/\\:?#&=]/g, "-")}`
+        tabStore.openTab({
+          id: tabId,
+          title: card.title,
+          type: "html",
+          subtype: "url",
+          content: "",
+          filePath: linkContent,
+          artifactIdentifier: card.artifactIdentifier,
+          createdAt: card.createdAt,
+        })
+        tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "url" }) })
+        return
+      }
+
+      // 磁盘路径:转绝对路径
+      const normalizedPath = linkContent.replace(/\\/g, "/")
+      const isAbsolute = /^([A-Za-z]:[/\\]|\/)/.test(linkContent)
+      let absolutePath: string
+      if (isAbsolute) {
+        absolutePath = normalizedPath
+      } else {
+        const dir = projectDir()
+        if (!dir) return
+        const normalizedDir = dir.replace(/\\/g, "/")
+        absolutePath = normalizedDir
+        if (!absolutePath.endsWith("/") && !normalizedPath.startsWith("/")) {
+          absolutePath += "/"
+        }
+        absolutePath += normalizedPath
+      }
+      absolutePath = absolutePath.replace(/\/+/g, "/")
+
+      const tabId = `link-file-${absolutePath.replace(/[/\\:]/g, "-")}`
+      const inferredType = inferOutputType(absolutePath)
+      tabStore.openTab({
+        id: tabId,
+        title: card.title,
+        type: inferredType,
+        subtype: card.subtype,
+        content: "",
+        filePath: absolutePath,
+        artifactIdentifier: card.artifactIdentifier,
+        createdAt: card.createdAt,
+      })
+      tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "local", ext: absolutePath.split(".").pop() }) })
+      return
+    }
+
     // URL 类型：跳过文件推断和加载
     const isUrl = card.filePath?.match(/^https?:\/\//i)
-    
+
     // 标记：内容是否从文件加载（用于跳过不必要的持久化）
     let contentLoadedFromFile = false
     
@@ -3023,6 +3209,7 @@ if (dsId) {
         id: tabId,
         title,
         type: 'html',
+        subtype: 'url',
         content: '',
         filePath,
         createdAt: new Date(),
@@ -3051,11 +3238,13 @@ if (dsId) {
 
     const tabId = `local-file-${absolutePath.replace(/[/\\:]/g, '-')}`
     const type = inferOutputType(filePath)
-
+    const title = filePath.split(/[/\\]/).pop() ?? filePath
+    
     handleOpenResult({
       id: tabId,
-      title: filePath.split(/[/\\]/).pop() ?? filePath,
+      title,
       type,
+      subtype: extractSubtypeFromFilename(title),
       content: '',
       filePath: absolutePath,
       createdAt: new Date(),

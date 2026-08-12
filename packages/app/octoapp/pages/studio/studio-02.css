@@ -1062,6 +1062,7 @@
 .studio-user-bubble {
   width: fit-content;
   max-width: 374px;
+  min-width: 0;
   min-height: 46px;
   display: flex;
   align-items: center;
@@ -1073,6 +1074,8 @@
   font-size: 14px;
   line-height: 22px;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .studio-assistant-copy {
@@ -1117,6 +1120,12 @@
 
 .studio-assistant-editor-link:active {
   transform: translateY(0);
+}
+
+.studio-assistant-editor-link:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .studio-result-card {

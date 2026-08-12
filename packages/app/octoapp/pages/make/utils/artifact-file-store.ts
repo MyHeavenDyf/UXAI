@@ -223,19 +223,24 @@ export function createArtifactFileStore(sessionId: string) {
     },
   ))
 
-  const allPageSelected = createMemo(() => {
-    const files = isTopLevel()
-      ? [...generatedComputed.sortedFiles(), ...uploadedComputed.sortedFiles()]
+  // 当前页面可见的文件列表:顶层合并 generated+uploaded;子文件夹按 currentCategory 选择
+  // 之前非顶层硬编码用 uploaded,导致切到 generated 子文件夹时全选/半选/选中逻辑全部失效
+  const pageFiles = createMemo(() => {
+    if (isTopLevel()) {
+      return [...generatedComputed.sortedFiles(), ...uploadedComputed.sortedFiles()]
+    }
+    return store.currentCategory === "generated"
+      ? generatedComputed.sortedFiles()
       : uploadedComputed.sortedFiles()
+  })
+
+  const allPageSelected = createMemo(() => {
+    const files = pageFiles()
     return files.length > 0 && files.every((f) => store.selected.has(f.path))
   })
 
   const somePageSelected = createMemo(() =>
-    !allPageSelected() && (
-      isTopLevel()
-        ? [...generatedComputed.sortedFiles(), ...uploadedComputed.sortedFiles()].some((f) => store.selected.has(f.path))
-        : uploadedComputed.sortedFiles().some((f) => store.selected.has(f.path))
-    ),
+    !allPageSelected() && pageFiles().some((f) => store.selected.has(f.path)),
   )
 
   const selectedUploadedFiles = createMemo(() =>
@@ -319,9 +324,7 @@ export function createArtifactFileStore(sessionId: string) {
 
     selectAllPage() {
       const next = new Set(store.selected)
-      const files = isTopLevel()
-        ? [...generatedComputed.sortedFiles(), ...uploadedComputed.sortedFiles()]
-        : uploadedComputed.sortedFiles()
+      const files = pageFiles()
       for (const file of files) next.add(file.path)
       setStore("selected", next)
     },

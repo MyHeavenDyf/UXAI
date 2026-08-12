@@ -4,13 +4,14 @@ import { useData, useI18n } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { MessageDivider } from "@opencode-ai/ui/message-part"
 import { Button } from "@opencode-ai/ui/button"
-import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, Show, For, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg, IconCardReact, IconCardDiagram } from "../icons"
 import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../utils/artifact-parser"
 import { splitOnQuestionForms, type FormSegment, type QuestionForm } from "../utils/question-form"
 import { QuickBriefFormView } from "./quick-brief-form"
 import './quick-brief-form.css'
+import './insight-turn-meta.css'
 import { autoSaveArtifact } from "../utils/artifact-auto-save"
 import { parseUploadedFiles } from "../../insight/lib/upload"
 import { ExpandableBubble } from "@/components/expandable-bubble"
@@ -18,7 +19,9 @@ import { ExpandableBubble } from "@/components/expandable-bubble"
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
 import { getFileIcon } from "../icons/file-type-icons"
+import { extractSubtypeFromTitle } from "../utils/subtype-extractor"
 import { kindFromMime } from "./attachment-bar"
+import { isElectronDesktop, pathToLocalUrl } from "../utils/artifact-file-api"
 
 // Render text with @mentions - plain text only, no chip styling
 function renderMentionText(text: string): JSX.Element {
@@ -44,6 +47,7 @@ export type OutputCardType =
   | "react-component" | "diagram"
   | "image" | "video" | "audio" | "pdf" | "text"
   | "design-plan"
+  | "link"
 
 export type ArtifactExportKind = "html" | "pdf" | "zip" | "pptx" | "svg" | "md" | "txt" | "json" | "csv"
 
@@ -51,6 +55,7 @@ export type OutputCard = {
   id: string
   title: string
   type: OutputCardType
+  subtype?: string
   content: string
   filePath?: string
   commentFilePath?: string
@@ -75,6 +80,39 @@ const ARTIFACT_TYPE_MAP: Record<string, OutputCardType> = {
   "react-component": "react-component",
   diagram: "diagram",
   "text/design-plan": "design-plan",
+  "text/link": "link",
+}
+
+// 从 link artifact 的 content(URL 或磁盘路径)提取卡片标题
+// URL:        提取最后的文件名(含扩展名),无路径时回退到 host
+//             "https://a.com/path/file.html" → "file.html"
+//             "https://a.com/"               → "a.com"
+// 磁盘路径:   取最后一段并去掉格式后缀,保留 subtype
+//             "D:\\dir\\a.shadcn.html" → "a.shadcn"
+//             "D:\\dir\\report.pdf"    → "report"
+function extractLinkTitle(content: string): string {
+  const trimmed = (content ?? "").trim()
+  if (!trimmed) return ""
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const u = new URL(trimmed)
+      const segments = u.pathname.split("/").filter(Boolean)
+      if (segments.length > 0) {
+        const last = segments[segments.length - 1]
+        try { return decodeURIComponent(last) } catch { return last }
+      }
+      return u.host
+    } catch {
+      // fall through to path handling
+    }
+  }
+
+  const parts = trimmed.split(/[/\\]/).filter(Boolean)
+  const filename = parts.length > 0 ? parts[parts.length - 1] : trimmed
+  const lastDot = filename.lastIndexOf(".")
+  if (lastDot > 0) return filename.slice(0, lastDot)
+  return filename
 }
 
 function isMarkdownTable(text: string): boolean {
@@ -94,6 +132,35 @@ function decodeDataUrl(url: string): string {
     return url
   }
 }
+
+// 从文件名扩展名推断 mime,仅用于 local 附件清单渲染(后端 manifest 只存了 filename+path)。
+// 覆盖常见图片/svg/webp/gif,其余按二进制处理,渲染端走文件图标 fallback。
+function mimeFromFilename(filename: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? ""
+  const map: Record<string, string> = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    webp: "image/webp",
+    svg: "image/svg+xml",
+    html: "text/html",
+    htm: "text/html",
+    md: "text/markdown",
+    txt: "text/plain",
+    json: "application/json",
+    js: "application/javascript",
+    ts: "application/typescript",
+    css: "text/css",
+    pdf: "application/pdf",
+    mp4: "video/mp4",
+    webm: "video/webm",
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+  }
+  return map[ext] ?? "application/octet-stream"
+}
+
 
 function getToolEndTime(state: Record<string, unknown> | undefined): number {
   const time = state?.time as Record<string, unknown> | undefined
@@ -129,7 +196,7 @@ function cardTypeIconSrc(_type: OutputCardType): string {
 }
 
 function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "createdAt">[] {
-  if (!text.includes("<artifact")) return []
+  if (!/<artifact/i.test(text)) return []
   const results: Omit<OutputCard, "id" | "createdAt">[] = []
   try {
     const parser = createArtifactParser()
@@ -160,9 +227,18 @@ function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "creat
         const explicitExports = startEvent.exports
           ? startEvent.exports.split(",").map((s) => s.trim() as ArtifactExportKind)
           : undefined
+        // link 类型:始终从 content(URL 或磁盘路径)派生标题,忽略 artifact 标签的 title 属性
+        // 原因:content 是路径,标题应为文件名(磁盘路径去格式后缀保留 subtype,URL 取文件名含扩展名)
+        // 模型声明的 title 可能带后缀或含异常字符,不可靠
+        let resolvedTitle = startEvent.title
+        if (mappedType === "link") {
+          const fromContent = extractLinkTitle(fullContent)
+          if (fromContent) resolvedTitle = fromContent
+        }
         results.push({
-          title: startEvent.title || mappedType,
+          title: resolvedTitle || mappedType,
           type: mappedType,
+          subtype: extractSubtypeFromTitle(resolvedTitle),
           content: fullContent,
           artifactKind: startEvent.artifactType,
           artifactIdentifier: startEvent.identifier || undefined,
@@ -182,9 +258,9 @@ function parseAllArtifactsFromText(text: string): Omit<OutputCard, "id" | "creat
 
 /** Quick regex scan for all artifact open tags (completed + in-progress) for streaming placeholders */
 function scanArtifactHeaders(text: string): Array<{ identifier: string; title: string; type: OutputCardType }> {
-  if (!text.includes("<artifact")) return []
+  if (!/<artifact/i.test(text)) return []
   const results: Array<{ identifier: string; title: string; type: OutputCardType }> = []
-  const re = /<artifact\s+([^>]*)>/g
+  const re = /<artifact\s+([^>]*)>/gi
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) !== null) {
     const attrs = m[1]
@@ -293,7 +369,7 @@ function WaitingPill(props: {
       .filter(entry => entry.sessionID !== props.sessionID && entry.field === "text")
       .slice(-50)
     for (const entry of childTextDeltas) {
-      if (entry.delta.includes("<artifact")) {
+      if (/<artifact/i.test(entry.delta)) {
         const childParser = createArtifactParser()
         for (const ev of childParser.feed(entry.delta)) {
           if (ev.type === "artifact:chunk") artifactContent += ev.delta
@@ -559,12 +635,24 @@ export function InsightTurn(props: {
   })
 
   // Merged attachments for display
+  // local 文件清单只存了 {filename, path},没带 mime。从扩展名推断图片类型,
+  // Electron 桌面用 local:// 协议直接显示;浏览器环境无此协议,保持文件图标 fallback。
   const userAttachments = createMemo(() => {
     const files = userFileParts()
     const locals = userInputManifest()
+    const desktop = isElectronDesktop()
     return [
       ...files.map(f => ({ filename: f.filename ?? "file", url: f.url as string | undefined, mime: f.mime, isLocal: false })),
-      ...locals.map(l => ({ filename: l.filename, url: undefined as string | undefined, mime: "application/octet-stream", isLocal: true })),
+      ...locals.map(l => {
+        const mime = mimeFromFilename(l.filename)
+        const isImage = mime.startsWith("image/")
+        return {
+          filename: l.filename,
+          url: (desktop && isImage) ? pathToLocalUrl(l.path) : undefined,
+          mime,
+          isLocal: true,
+        }
+      }),
     ]
   })
 
@@ -660,6 +748,35 @@ export function InsightTurn(props: {
     const m = Math.floor(secs / 60)
     const s = secs % 60
     return s > 0 ? `${m}m ${s}s` : `${m}m`
+  })
+
+  const turnMeta = createMemo(() => {
+    const msgs = assistantMsgs()
+    if (msgs.length === 0) return ""
+    if (showGenerating()) return ""
+    const firstMsg = msgs[0] as AssistantMessage
+    const lastMsg = msgs[msgs.length - 1] as AssistantMessage
+    const start = firstMsg.time?.created
+    const completed = lastMsg.time?.completed
+    if (typeof start !== "number" || typeof completed !== "number") return ""
+    if (completed < start) return ""
+    const secs = Math.round((completed - start) / 1000)
+    if (secs < 0) return ""
+    const duration = secs < 60
+      ? `${secs} 秒`
+      : `${Math.floor(secs / 60)} 分 ${secs % 60} 秒`
+
+    let agent = lastMsg.agent
+    if (agent === 'octo_ai') agent = 'Octo_Agent'
+    const agentLabel = agent ? agent[0]?.toUpperCase() + agent.slice(1) : ""
+    const modelLabel = (() => {
+      const match = data.store.provider?.all?.find((p) => p.id === lastMsg.providerID)
+      return match?.models?.[lastMsg.modelID]?.name ?? lastMsg.modelID ?? ""
+    })()
+    const interruptedLabel = isAborted() ? i18n.t("ui.message.interrupted") : ""
+    return [agentLabel, modelLabel, duration, interruptedLabel]
+      .filter(Boolean)
+      .join(" · ")
   })
 
   // ── NEW: tool calls ──
@@ -783,7 +900,7 @@ const stateStatus = state.status as string | undefined
         if (artifactOutputs.length === 0 && /<(?:div|section|style|nav|header|footer|main|article|form|table)\b/i.test(resultContent)) {
           artifactOutputs.push({ identifier: "raw-fragment", title: "HTML 片段", content: resultContent })
         }
-        const proseOnly = resultContent.replace(/<artifact[\s\S]*?<\/artifact>/g, "").trim()
+        const proseOnly = resultContent.replace(/<artifact[\s\S]*?<\/artifact>/gi, "").trim()
         if (proseOnly.length > 0) textParts.push(proseOnly.length > 500 ? proseOnly.slice(0, 500) + "…" : proseOnly)
       }
 
@@ -1032,7 +1149,7 @@ const stateStatus = state.status as string | undefined
   })
 
   return (
-    <div class="flex flex-col gap-4" style={{ "user-select": "text" }}>
+    <div class="octo-make-turn flex flex-col gap-4" style={{ "user-select": "text" }}>
       {/* 用户消息气泡（右侧对齐） */}
       <Show when={userText() || userAttachments().length > 0}>
         <div class="flex flex-col items-end gap-4 px-3">
@@ -1062,7 +1179,7 @@ const stateStatus = state.status as string | undefined
                       </div>
                     }
                   >
-                    <div style={{ width: "80px", height: "80px", "border-radius": "8px", overflow: "hidden", "flex-shrink": "0" }}>
+                    <div style={{ width: "80px", height: "80px", "border-radius": "8px", overflow: "hidden", "flex-shrink": "0", "background-color": "rgba(0,0,0,0.05)" }}>
                       <img
                         src={att.url}
                         alt={att.filename}
@@ -1318,6 +1435,7 @@ const stateStatus = state.status as string | undefined
       <For each={outputCards()}>
         {(capturedCard) => (
           <div
+            title={capturedCard.type === "link" ? capturedCard.content : undefined}
             style={{
               "border-radius": "12px",
               padding: "16px 20px",
@@ -1359,6 +1477,13 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
+      {/* hover 显示的 turn 元信息（agent · model · 耗时 · 中断）— 仿 Insight 页 */}
+      <Show when={turnMeta()}>
+        <div class="octo-make-turn-meta-wrapper">
+          <span class="octo-make-turn-meta">{turnMeta()}</span>
+        </div>
+      </Show>
+
       {/* 生成中状态指示 */}
       <Show when={showGenerating()}>
         <WaitingPill
@@ -1378,6 +1503,7 @@ const stateStatus = state.status as string | undefined
           const isPartial = genCard.content.length === 0
           return (
             <div
+              title={genCard.type === "link" ? genCard.content : undefined}
               style={{
                 "border-radius": "12px",
                 padding: "16px 20px",

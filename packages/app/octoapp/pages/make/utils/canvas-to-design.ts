@@ -7,6 +7,7 @@ import {
   joinPath,
 } from "./references"
 import { observedUrlsToAbsPaths } from "./resource-tracker"
+import { readHtmlFromDisk } from "./html-assets-zip"
 
 export interface CreateC2DZipOptions {
   htmlContent: string
@@ -19,17 +20,23 @@ export interface CreateC2DZipOptions {
 export async function createC2DZip(options: CreateC2DZipOptions): Promise<Blob> {
   const outerZip = new JSZip()
 
-  const htmlZip = new JSZip()
-  htmlZip.file("index.html", options.htmlContent)
-
   const api = getDesktopApi()
+
+  // 始终从磁盘读原始 HTML，保证 ZIP 内 HTML 与磁盘一致
+  const htmlContent = options.htmlFilePath && api?.readFileBuffer
+    ? await readHtmlFromDisk(options.htmlFilePath, options.htmlContent, (p) => api.readFileBuffer!(p))
+    : options.htmlContent
+
+  const htmlZip = new JSZip()
+  htmlZip.file("index.html", htmlContent)
+
   if (options.htmlFilePath && api?.readFileBuffer) {
     const htmlDir = dirname(options.htmlFilePath).replace(/\\/g, "/")
     const htmlBase = basename(options.htmlFilePath)
 
     // 静态解析（返回绝对路径集合）
     const staticAbsPaths = await collectReferencedFiles({
-      rootContent: options.htmlContent,
+      rootContent: htmlContent,
       rootType: "html",
       rootAbsPath: options.htmlFilePath,
       readFileBuffer: (p) => api.readFileBuffer!(p),

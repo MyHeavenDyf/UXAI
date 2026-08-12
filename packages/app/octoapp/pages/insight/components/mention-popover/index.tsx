@@ -3,6 +3,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { fileKind, type InsightFileEntry } from "../../utils/insight-file-api"
 import { PlatformSkillIcon, CustomSkillIcon, ResearchAssetIcon } from "./icons"
 import { getFileIcon } from "../../icons/file-type-icons"
+import emptyPng from "../../icons/empty.png"
 import "./styles.css"
 
 // insight 自包含：面板技能只用到 label/description，本地定义一个最小结构，
@@ -40,6 +41,13 @@ interface MentionPopoverProps {
  * 只做两件事：技能库（平台 octo_insight + 自定义 common）、文件管理（会话文件）。
  * 与 make 版差异：技能面板 key = octo_insight；文件数据源 = insight 会话文件；文案「会话文件」。
  */
+const EmptyState = () => (
+  <div class="ins-mention-empty-state">
+    <img src={emptyPng} alt="" draggable={false} />
+    <span class="ins-mention-empty-state-text">暂无内容</span>
+  </div>
+)
+
 export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const [activeTab, setActiveTab] = createSignal<MentionTab>("skills")
   const [category, setCategory] = createSignal<"platform" | "custom" | "session">("platform")
@@ -139,11 +147,11 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           setActiveIndex((i) => (i - 1 + list.length) % list.length)
           return
         case "Enter": {
-          const row = list[activeIndex()]
-          if (!row) return // 列表为空时不拦 Enter,交回编辑器(否则面板一开就没法发消息)
+          // 始终拦截：空列表时吞掉 Enter 防止误发
           e.preventDefault()
           e.stopPropagation()
-          activate(row)
+          const row = list[activeIndex()]
+          if (row) activate(row)
           return
         }
         case "Escape":
@@ -224,7 +232,11 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         <div class="ins-mention-secondary" style={{ bottom: "52px" }}>
           <Show
             when={filteredPlatform().length > 0}
-            fallback={<div class="ins-mention-empty">{props.skillsLoading ? "正在加载技能…" : "暂无平台技能"}</div>}
+            fallback={
+              props.skillsLoading
+                ? <div class="ins-mention-empty">正在加载技能…</div>
+                : <EmptyState />
+            }
           >
             <div class="ins-mention-secondary-content" ref={listRef}>
               <For each={filteredPlatform()}>
@@ -257,7 +269,11 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         <div class="ins-mention-secondary" style={{ bottom: "8px" }}>
           <Show
             when={filteredCustom().length > 0}
-            fallback={<div class="ins-mention-empty">{props.skillsLoading ? "正在加载技能…" : "暂无自定义技能"}</div>}
+            fallback={
+              props.skillsLoading
+                ? <div class="ins-mention-empty">正在加载技能…</div>
+                : <EmptyState />
+            }
           >
             <div class="ins-mention-secondary-content" ref={listRef}>
               <For each={filteredCustom()}>
@@ -291,7 +307,11 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           <div class="ins-mention-files-header">当前会话</div>
           <Show
             when={filteredFiles() && (filteredFiles()!.generated.length > 0 || filteredFiles()!.uploaded.length > 0)}
-            fallback={<div class="ins-mention-empty">{props.filesLoading ? "正在加载用研资产…" : "暂无用研资产"}</div>}
+            fallback={
+              props.filesLoading
+                ? <div class="ins-mention-empty">正在加载用研资产…</div>
+                : <EmptyState />
+            }
           >
             <div class="ins-mention-secondary-content ins-mention-secondary-content--files" ref={listRef}>
               <Show when={filteredFiles()!.generated.length > 0}>

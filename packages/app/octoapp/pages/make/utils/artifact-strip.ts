@@ -30,15 +30,36 @@ function inSkipRange(ranges: Array<[number, number]>, idx: number): boolean {
   return false
 }
 
+/**
+ * Strip <artifact> tags from text, preserving code blocks.
+ * Ported from open-design/apps/web/src/artifacts/strip.ts
+ * 大小写不敏感:<Artifact>, </ARTIFACT> 等都能识别并剥离
+ */
+
+const STRIP_OPEN_RE = /<artifact/gi
+const STRIP_CLOSE_RE = /<\/artifact>/gi
+
+function indexOfArtifact(result: string, from: number): number {
+  STRIP_OPEN_RE.lastIndex = from
+  const m = STRIP_OPEN_RE.exec(result)
+  return m ? m.index : -1
+}
+
+function indexOfCloseArtifact(result: string, from: number): number {
+  STRIP_CLOSE_RE.lastIndex = from
+  const m = STRIP_CLOSE_RE.exec(result)
+  return m ? m.index : -1
+}
+
 export function stripArtifact(text: string): string {
-  if (!text.includes("<artifact")) return text
+  if (!/<artifact/i.test(text)) return text
   const ranges = computeSkipRanges(text)
 
   // Find and remove the first real <artifact ...>...</artifact> block
   let result = text
   let searchFrom = 0
   while (searchFrom < result.length) {
-    const openIdx = result.indexOf("<artifact", searchFrom)
+    const openIdx = indexOfArtifact(result, searchFrom)
     if (openIdx === -1) break
     if (inSkipRange(ranges, openIdx)) {
       searchFrom = openIdx + 9
@@ -51,8 +72,8 @@ export function stripArtifact(text: string): string {
       continue
     }
 
-    // Find closing </artifact>
-    const closeIdx = result.indexOf("</artifact>", openIdx)
+    // Find closing </artifact> (case-insensitive)
+    const closeIdx = indexOfCloseArtifact(result, openIdx)
     if (closeIdx === -1) {
       // Unclosed tag at end — remove from openIdx to end
       result = result.slice(0, openIdx)

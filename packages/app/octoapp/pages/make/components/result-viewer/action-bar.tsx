@@ -1,5 +1,5 @@
 import type { JSX } from "solid-js"
-import { Show, For, createSignal, createEffect, onCleanup } from "solid-js"
+import { Show, For, createSignal, createEffect, onCleanup, createMemo } from "solid-js"
 import { Portal } from "solid-js/web"
 import type { ResultTab } from "./tab-store"
 import type { ViewportPreset, PaletteId } from "./html-renderer"
@@ -11,6 +11,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { getDesktopApi } from "../../lib/electron-api"
 import { tracker } from "@/utils/tracker"
 import { createHtmlAssetsZip } from "../../utils/html-assets-zip"
+import { getSubtypeConfig } from "../../utils/subtype-config"
 
 // Responsive breakpoints for action bar
 const ACTION_BAR_COLLAPSE_WIDTH = 600
@@ -230,6 +231,10 @@ function exportDeckAsPDF(content: string, title: string) {
 
 const VIEWPORT_OPTIONS: { value: ViewportPreset; label: string; icon: JSX.Element }[] = [
   { value: "desktop", label: "桌面", icon: <IconViewportDesktop size={13} /> },
+  { value: "desktop-1920", label: "桌面(1920*1080)", icon: <IconViewportDesktop size={13} /> },
+  { value: "desktop-1680", label: "桌面(1680*1050)", icon: <IconViewportDesktop size={13} /> },
+  { value: "desktop-1440", label: "桌面(1440*1080)", icon: <IconViewportDesktop size={13} /> },
+  { value: "desktop-1366", label: "桌面(1366*768)", icon: <IconViewportDesktop size={13} /> },
   { value: "tablet", label: "平板", icon: <IconViewportTablet size={13} /> },
   { value: "mobile", label: "手机", icon: <IconViewportMobile size={13} /> },
 ]
@@ -394,9 +399,16 @@ export function ActionBar(props: {
     await downloadBlob(content, info.filename, info.mime)
   }
 
-  const canToggleMode = () => props.tab.type === "html"
-  const showViewport = () => props.tab.type === "html" && currentMode() === "preview"
-  const showRefreshButton = () => true
+  const config = createMemo(() => getSubtypeConfig(props.tab.subtype))
+
+  const canToggleMode = () => config().features.modeToggle && props.tab.type === "html"
+  const showViewport = () => config().features.viewport && props.tab.type === "html" && currentMode() === "preview"
+  const showRefreshButton = () => config().features.refresh
+  const showLocalEdit = () => config().features.localEdit && showViewport()
+  const showDrawEdit = () => config().features.drawEdit && showViewport()
+  const showCanvasEdit = () => config().features.canvasEdit && showViewport()
+  const showDownload = () => config().features.download
+  const showFullscreen = () => config().features.fullscreen
   const shouldShowCopy = () =>
     props.tab.type === "table" ||
     props.tab.type === "markdown" ||
@@ -411,7 +423,7 @@ export function ActionBar(props: {
   return (
     <div class="octo-action-bar">
       <div class="octo-action-bar-left">
-        {props.onRefresh && (
+        {showRefreshButton() && props.onRefresh && (
           <button
             type="button"
             class="octo-action-btn octo-action-btn-refresh"
@@ -445,7 +457,7 @@ export function ActionBar(props: {
       <div class="octo-action-bar-right">
         {/* Collapsible buttons - can become icons */}
         <div class="octo-action-bar-collapsible">
-          {showViewport() && props.onEditToggle && (
+          {showLocalEdit() && props.onEditToggle && (
             <button
               type="button"
               class="octo-action-btn"
@@ -457,7 +469,7 @@ export function ActionBar(props: {
               <span>局部修改</span>
             </button>
           )}
-          {showViewport() && props.onDrawToggle && (
+          {showDrawEdit() && props.onDrawToggle && (
             <button
               type="button"
               class="octo-action-btn"
@@ -469,7 +481,7 @@ export function ActionBar(props: {
               <span>框选编辑</span>
             </button>
           )}
-          {showViewport() && props.onCanvasToDesign && (
+          {showCanvasEdit() && props.onCanvasToDesign && (
             <button
               type="button"
               class="octo-action-btn"
@@ -489,10 +501,10 @@ export function ActionBar(props: {
               <span>复制</span>
             </button>
           </Show>
-          <Show when={props.tab.type !== "local-file" && props.tab.type !== "html"}>
+          <Show when={showDownload() && props.tab.type !== "local-file" && props.tab.type !== "html"}>
             <ExportButton tab={props.tab} onPrimaryDownload={handleDownload} />
           </Show>
-          <Show when={props.tab.type === "html"}>
+          <Show when={showDownload() && props.tab.type === "html"}>
             <button type="button" class="octo-action-btn octo-action-btn-download" onClick={handleDownload} title="下载">
               <IconDownloadNew size={16} />
               <span>下载</span>
@@ -557,7 +569,7 @@ export function ActionBar(props: {
               <span>归档</span>
             </button>
           )}
-          <Show when={props.tab.type !== "design-plan" && props.onFocusModeToggle}>
+          <Show when={showFullscreen() && props.tab.type !== "design-plan" && props.onFocusModeToggle}>
             <button
               type="button"
               class="octo-action-btn"

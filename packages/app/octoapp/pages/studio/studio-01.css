@@ -111,9 +111,12 @@
 .studio-center-scroll {
   flex: 1;
   min-height: 0;
-  padding: 36px 28px 22px;
   background: #fff;
   isolation: isolate;
+}
+
+.studio-center-scroll .scroll-view__viewport {
+  padding: 36px 28px 22px;
 }
 
 .studio-workspace {
@@ -657,10 +660,6 @@
   .studio-center-action {
     width: 20px;
     height: 20px;
-  }
-
-  .studio-center-scroll {
-    padding: 0;
   }
 
   .studio-center-scroll .scroll-view__viewport {
