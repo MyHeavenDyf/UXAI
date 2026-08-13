@@ -899,7 +899,14 @@ export const SettingsGeneral: Component = () => {
         showToast({ title: "没有需要迁移的 Chat 历史会话" })
       } else {
         const folder = dir.split(/[/\\]/).filter(Boolean).pop() ?? dir
-        showToast({ variant: "success", title: `已迁移 ${migrated} 条 Chat 历史会话到 ${folder}` })
+        // 备份是整库副本、体积等同当前数据库,且不会自动清理 —— 告诉用户它在哪,才谈得上
+        // 「用完自行删除」。放 description 不放 title:路径很长,标题要保持可读。
+        const backupPath = typeof result.data.backupPath === "string" ? result.data.backupPath : ""
+        showToast({
+          variant: "success",
+          title: `已迁移 ${migrated} 条 Chat 历史会话到 ${folder}`,
+          description: backupPath ? `迁移前的数据已备份到 ${backupPath}，确认无误后可自行删除` : undefined,
+        })
       }
       await loadMigrateCounts()
     } catch (err) {
