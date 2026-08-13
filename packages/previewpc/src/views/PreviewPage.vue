@@ -22,7 +22,7 @@ function applyA2UIJson(data: any) {
 }
 
 function handleMessage(event: MessageEvent) {
-  if (event.data?.type === "A2UI_UPDATE") {
+  if (event.data?.type === "od:a2ui-update") {
     loading.value = false
     if (event.data.payload === null) {
       currentContent.value = null
@@ -36,23 +36,23 @@ onMounted(async () => {
   window.addEventListener("message", handleMessage)
 
   if (window.self !== window.top) {
-    window.parent.postMessage({ type: "A2UI_READY" }, "*")
-  } else {
-    try {
-      const params = new URLSearchParams(location.search)
-      const fetchFile = params.get("fetch")
-      if (fetchFile) {
-        const res = await fetch("./" + fetchFile, { cache: "no-store" })
-        applyA2UIJson(await res.json())
-      } else {
-        const external = (window as any).__A2UI_DATA__
-        if (external) applyA2UIJson(JSON.parse(JSON.stringify(external)))
-      }
-    } catch (err) {
-      console.warn("[PreviewPage] 加载默认数据失败:", err);
-    } finally {
-      loading.value = false;
+    window.parent.postMessage({ type: "od:a2ui-ready" }, "*")
+  }
+
+  try {
+    const params = new URLSearchParams(location.search)
+    const fetchFile = params.get("fetch")
+    if (fetchFile) {
+      const res = await fetch("./" + fetchFile, { cache: "no-store" })
+      applyA2UIJson(await res.json())
+    } else {
+      const external = (window as any).__A2UI_DATA__
+      if (external) applyA2UIJson(JSON.parse(JSON.stringify(external)))
     }
+  } catch (err) {
+    console.warn("[PreviewPage] 加载默认数据失败:", err);
+  } finally {
+    loading.value = false;
   }
 });
 

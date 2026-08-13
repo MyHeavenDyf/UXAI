@@ -17,7 +17,7 @@ initTheme()
 if (window && window.self !== window.top) {
   installVueDomPicker()
   window.addEventListener('click', () => {
-    window.parent.postMessage({ type: 'DOM_PICKER_CLOSE_PANELS' }, '*')
+    window.parent.postMessage({ type: 'od:dom-picker-close-panels' }, '*')
   })
 }
 

@@ -2,12 +2,12 @@
  * Drag-to-reorder bridge injected into the preview iframe.
  *
  * Behavior when drag mode is enabled:
- *   Short click  → property editor opens (via DOM_PICKER_QUICK_FIX from runtime.js)
- *   Long press + drag  → reorder (via DRAG_REORDER)
+ *   Short click  → property editor opens (via od:dom-picker-quick-fix from runtime.js)
+ *   Long press + drag  → reorder (via od:drag-reorder)
  *
  * Messages:
- *   parent -> iframe:  { type: "DRAG_MODE", enabled: true|false, siblingMap?: Record<string,string[]> }
- *   iframe -> parent:  { type: "DRAG_REORDER", elementId, targetSiblingId, position: "before"|"after" }
+ *   parent -> iframe:  { type: "od:drag-mode", enabled: true|false, siblingMap?: Record<string,string[]> }
+ *   iframe -> parent:  { type: "od:drag-reorder", elementId, targetSiblingId, position: "before"|"after" }
  *
  * Uses the A2UI renderer's `id` attribute (= A2UI element id)
  * which is always present on every rendered element.
@@ -313,7 +313,7 @@
         var tid = idOf(t.el)
         if (tid && tid !== dragId) {
           window.parent.postMessage({
-            type: "DRAG_REORDER",
+            type: "od:drag-reorder",
             elementId: dragId,
             targetSiblingId: tid,
             position: t.before ? "before" : "after",
@@ -398,11 +398,11 @@
   window.addEventListener("message", function (ev) {
     var d = ev && ev.data
     if (!d) return
-    if (d.type === "DRAG_CANCEL") {
+    if (d.type === "od:drag-cancel") {
       cancelDrag()
       return
     }
-    if (d.type !== "DRAG_MODE") return
+    if (d.type !== "od:drag-mode") return
     siblingMap = d.siblingMap && typeof d.siblingMap === "object" ? d.siblingMap : {}
     if (d.enabled) enable()
     else disable()

@@ -172,7 +172,7 @@ export function installDomPicker(options = {}) {
       const r = activeElement.getBoundingClientRect()
       window.parent.postMessage(
         {
-          type: 'DOM_PICKER_RECT_UPDATE',
+          type: 'od:dom-picker-rect-update',
           id: activeLocation,
           rect: { top: r.top, left: r.left, width: r.width, height: r.height },
         },
@@ -251,7 +251,7 @@ export function installDomPicker(options = {}) {
   const handleClick = async (event) => {
     if (disabled) return
     if (frozen) {
-      window.parent.postMessage({ type: 'DOM_PICKER_CLOSE_PANELS' }, '*')
+      window.parent.postMessage({ type: 'od:dom-picker-close-panels' }, '*')
       event.preventDefault()
       event.stopPropagation()
       return
@@ -276,7 +276,7 @@ export function installDomPicker(options = {}) {
     const rect = element.getBoundingClientRect()
     window.parent.postMessage(
       {
-        type: 'DOM_PICKER_QUICK_FIX',
+        type: 'od:dom-picker-quick-fix',
         id: location,
         domPickerComponent: element.getAttribute(PICKER_COMPONENT_ATTR) || '',
         domPickerClass: element.getAttribute('class') || '',
@@ -316,7 +316,7 @@ export function installDomPicker(options = {}) {
     const rect = resolvedTarget.element.getBoundingClientRect()
     window.parent.postMessage(
       {
-        type: 'DOM_PICKER_CONTEXT_MENU',
+        type: 'od:dom-picker-context-menu',
         id: resolvedTarget.location,
         domPickerComponent: resolvedTarget.element.getAttribute(PICKER_COMPONENT_ATTR) || '',
         domPickerClass: resolvedTarget.element.getAttribute('class') || '',
@@ -359,7 +359,7 @@ export function installDomPicker(options = {}) {
     const rect = resolved.element.getBoundingClientRect()
     window.parent.postMessage(
       {
-        type: 'DOM_PICKER_QUICK_FIX',
+        type: 'od:dom-picker-quick-fix',
         id: resolved.location,
         domPickerComponent: resolved.element.getAttribute(PICKER_COMPONENT_ATTR) || '',
         domPickerClass: resolved.element.getAttribute('class') || '',
@@ -373,7 +373,7 @@ export function installDomPicker(options = {}) {
   }
 
   window.addEventListener('message', (event) => {
-    if (event.data.type === 'DOM_PICKER_UNFREEZE') {
+    if (event.data.type === 'od:dom-picker-unfreeze') {
       frozen = false
       activeElement = null
       activeLocation = ''
@@ -381,15 +381,15 @@ export function installDomPicker(options = {}) {
       updateOverlay(overlay, null)
       if (resizeObserver) resizeObserver.disconnect()
     }
-    if (event.data.type === 'DOM_PICKER_TOGGLE') {
-      disabled = !event.data.active
+    if (event.data.type === 'od:dom-picker-mode') {
+      disabled = !event.data.enabled
       if (disabled) {
         overlay.style.display = 'none'
       } else {
         overlay.style.display = ''
       }
     }
-    if (event.data.type === 'DOM_PICKER_SELECT_PARENT') {
+    if (event.data.type === 'od:dom-picker-select-parent') {
       selectParent()
     }
   })
