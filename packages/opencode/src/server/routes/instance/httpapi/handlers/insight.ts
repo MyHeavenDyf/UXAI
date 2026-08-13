@@ -1,11 +1,22 @@
+import { Bus } from "@/bus"
 import * as InstanceState from "@/effect/instance-state"
+import { Project } from "@/project/project"
+import { Session } from "@/session/session"
+import {
+  ChatMigrationError,
+  logChatMigrationFailure,
+  previewChatMigration,
+  readMigratedSessions,
+  runChatMigration,
+  type MigrationStage,
+} from "@/session/session-chat-migration"
 import { listInsightSessions } from "@/session/session-insight-query"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Effect, Option } from "effect"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import path from "path"
 import { InstanceHttpApi } from "../api"
-import { InsightSessionListQuery, InsightFileListQuery } from "../groups/insight"
+import { InsightChatMigrationError, InsightChatMigrationPayload, InsightSessionListQuery, InsightFileListQuery } from "../groups/insight"
 
 // 子路径清洗:拒 .. / ~ / 空串,防止越出 uploads 根(与 artifact handler 同口径)。
 function sanitizePath(rawPath: string): string {
@@ -47,9 +58,16 @@ const collectFilesRecursive = (fs: AppFileSystem.Interface, dir: string, baseRel
     }
   })
 
+function migrationFailure(stage: MigrationStage, message: string) {
+  logChatMigrationFailure(stage, message)
+  return new InsightChatMigrationError({ name: "ChatMigrationError", data: { stage, message } })
+}
+
 export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", (handlers) =>
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
+    const projectSvc = yield* Project.Service
+    const bus = yield* Bus.Service
 
     const listSessions = Effect.fn("InsightHttpApi.listSessions")(function* (ctx: {
       query: typeof InsightSessionListQuery.Type
@@ -243,10 +261,79 @@ export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", 
       }
     })
 
+    // ── SPEC-INS-031 chat 历史会话迁移(临时功能)──────────────────────────────
+    // 目标目录必须真实存在且是目录:传个不存在 / 打错的路径就中止,不能把一批会话迁到
+    // 一个空气目录里(它们会从任何列表里消失,虽然数据还在)。
+    const assertDirectory = Effect.fn("InsightHttpApi.chatMigration.assertDirectory")(function* (directory: string) {
+      if (!directory || !path.isAbsolute(directory)) {
+        yield* Effect.fail(migrationFailure("resolve-project", "请选择一个目标文件夹"))
+      }
+      const stat = yield* fs.stat(directory).pipe(Effect.catch(() => Effect.succeed(null)))
+      if (!stat) yield* Effect.fail(migrationFailure("resolve-project", `目标文件夹不存在：${directory}`))
+      else if (stat.type !== "Directory")
+        yield* Effect.fail(migrationFailure("resolve-project", `目标路径不是文件夹：${directory}`))
+    })
+
+    const chatMigrationPreview = Effect.fn("InsightHttpApi.chatMigrationPreview")(function* (ctx: {
+      payload: typeof InsightChatMigrationPayload.Type
+    }) {
+      return yield* Effect.try({
+        try: () => previewChatMigration({ directory: ctx.payload.directory }),
+        catch: (err) => migrationFailure("resolve-project", String(err instanceof Error ? err.message : err)),
+      })
+    })
+
+    const chatMigrationRun = Effect.fn("InsightHttpApi.chatMigrationRun")(function* (ctx: {
+      payload: typeof InsightChatMigrationPayload.Type
+    }) {
+      const directory = ctx.payload.directory
+      yield* assertDirectory(directory)
+
+      // ① 解析目标 project(§3.1):project 与目录是**多对一**(非 git 目录共用 global,
+      // 同一仓库的多个子目录/worktree 共用一个 id),所以必须走服务端解析,不能沿用原值、
+      // 更不能让客户端猜。fromDirectory 顺带 upsert project 行——session.project_id 有外键。
+      const resolved = yield* projectSvc.fromDirectory(directory).pipe(
+        Effect.catchCause((cause) =>
+          Effect.fail(migrationFailure("resolve-project", `无法识别目标文件夹：${String(cause)}`)),
+        ),
+      )
+
+      // ② 备份 + 校验 → ③ 事务 UPDATE。顺序不能变(VACUUM INTO 不能在事务内执行),
+      // 前两步任一失败都还没动过数据,第三步失败整体回滚。
+      const result = yield* Effect.try({
+        try: () => runChatMigration({ directory, projectID: resolved.project.id }),
+        catch: (err) => {
+          const stage: MigrationStage = err instanceof ChatMigrationError ? err.stage : "update"
+          return migrationFailure(stage, String(err instanceof Error ? err.message : err))
+        },
+      })
+
+      // 迁移走直接 UPDATE、不经 session 服务,不会自动发事件;由权威侧补一次 session.updated,
+      // 让 insight 列表按现有机制自刷新(§4.2)。发事件失败绝不能反过来让已成功的迁移报错。
+      if (result.migrated > 0) {
+        const infos = readMigratedSessions(result.migratedIDs)
+        yield* Effect.forEach(infos, (info) => bus.publish(Session.Event.Updated, { sessionID: info.id, info }), {
+          discard: true,
+        }).pipe(
+          Effect.catchCause((cause) =>
+            Effect.sync(() =>
+              // 事件没发出去只影响「列表要不要手动刷一下」,迁移本身已经成功提交,不能反过来报错。
+              console.error(`[octo:chat-migrate] publish-failed`, JSON.stringify({ error: String(cause) })),
+            ),
+          ),
+        )
+        console.log(`[octo:chat-migrate] published`, JSON.stringify({ events: infos.length }))
+      }
+
+      return { migrated: result.migrated, backupPath: result.backupPath }
+    })
+
     return handlers
       .handle("listSessions", listSessions)
       .handle("listFiles", listFiles)
       .handle("upload", upload)
       .handle("uploadFolder", uploadFolder)
+      .handle("chatMigrationPreview", chatMigrationPreview)
+      .handle("chatMigrationRun", chatMigrationRun)
   }),
 )

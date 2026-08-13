@@ -1787,6 +1787,14 @@ export type StudioGenerationError = {
   }
 }
 
+export type ChatMigrationError = {
+  name: "ChatMigrationError"
+  data: {
+    stage: string
+    message: string
+  }
+}
+
 export type SyncEventMessageUpdated = {
   type: "sync"
   name: "message.updated.1"
@@ -3907,6 +3915,8 @@ export type CommentLoadResponses = {
       filePath: string
       elementId: string
       selector: string
+      contentSignature?: string
+      nativeId?: string
       label: string
       text: string
       position: {
@@ -3945,6 +3955,8 @@ export type CommentSaveData = {
       filePath: string
       elementId: string
       selector: string
+      contentSignature?: string
+      nativeId?: string
       label: string
       text: string
       position: {
@@ -7947,6 +7959,7 @@ export type InsightFilesListData = {
     sessionId: string
     category: "uploads" | "outputs"
     path?: string
+    recursive?: "true" | "false"
   }
   url: "/insight/files"
 }
@@ -8059,6 +8072,74 @@ export type InsightFilesUploadFolderResponses = {
 
 export type InsightFilesUploadFolderResponse =
   InsightFilesUploadFolderResponses[keyof InsightFilesUploadFolderResponses]
+
+export type InsightChatMigrationPreviewData = {
+  body?: {
+    directory: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/insight/chat-migration/preview"
+}
+
+export type InsightChatMigrationPreviewErrors = {
+  /**
+   * ChatMigrationError
+   */
+  400: ChatMigrationError
+}
+
+export type InsightChatMigrationPreviewError =
+  InsightChatMigrationPreviewErrors[keyof InsightChatMigrationPreviewErrors]
+
+export type InsightChatMigrationPreviewResponses = {
+  /**
+   * Chat history migration preview
+   */
+  200: {
+    pending: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    migratable: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type InsightChatMigrationPreviewResponse =
+  InsightChatMigrationPreviewResponses[keyof InsightChatMigrationPreviewResponses]
+
+export type InsightChatMigrationRunData = {
+  body?: {
+    directory: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/insight/chat-migration/run"
+}
+
+export type InsightChatMigrationRunErrors = {
+  /**
+   * ChatMigrationError
+   */
+  400: ChatMigrationError
+}
+
+export type InsightChatMigrationRunError = InsightChatMigrationRunErrors[keyof InsightChatMigrationRunErrors]
+
+export type InsightChatMigrationRunResponses = {
+  /**
+   * Chat history migration result
+   */
+  200: {
+    migrated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    backupPath?: string
+  }
+}
+
+export type InsightChatMigrationRunResponse = InsightChatMigrationRunResponses[keyof InsightChatMigrationRunResponses]
 
 export type PtyConnectData = {
   body?: never
