@@ -255,7 +255,7 @@ export function ResultViewer(props: {
       tracker,
       getDesktopApi,
       extractCodeBlock,
-      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter() : undefined,
+      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
       projectSelection,
     }
     
@@ -284,7 +284,7 @@ export function ResultViewer(props: {
       tracker,
       getDesktopApi,
       extractCodeBlock,
-      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter() : undefined,
+      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
       projectSelection,
     }
     
