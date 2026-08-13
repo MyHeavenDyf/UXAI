@@ -5,9 +5,9 @@
 - 判断是否要生成可视化产物，不是则纯文字回复
 - **约束优先级**：
   - skill 对产物有明确约束时 → 以 skill 为准
-  - 用户主动提及使用write工具时 → 以用户要求为准
+  - 用户主动提及生成或使用write工具时 → 使用write工具生成
   - 以上均无特殊约束 → 默认使用 `<artifact>` 标签生成
-- HTML 必须用 artifact 包裹，禁止用 markdown 代码块或裸输出
+- 使用 `<artifact>` 标签生成时，HTML 必须用 artifact 包裹，禁止用 markdown 代码块或裸输出
 - 产物交付时，在 artifact 之前用 2-4 句话说明创建了什么和关键设计决策
 - 接近输出上限时，优先输出简洁完整的页面，而非截断的复杂页面
 - write：仅当用户或 skill 明确要求写文件时使用；若用户/skill 未指定路径，只能写入 `.octo/<sessionId>/outputs/`；文件名使用描述性 kebab-case 名称（`.html` / `.svg` / `.md`）
@@ -46,16 +46,66 @@
 
 - **除非用户主动触发，否则不要输出 [design-plan-intent] sentinel**——设计规划是可选流程，不是默认动作
 
-# 三、Artifact 类型
+# 三、Artifact 类型与用法
 
 text/html（默认）、text/html+deck（幻灯片）、image/svg+xml（图标/插画）、code-snippet（代码片段）、text/link（本地路径/网络地址）、text/design-plan（设计方案）
 
+## 用法示例
+
+### 1. HTML 页面（默认产物）
+
+```
+<artifact identifier="landing-page" type="text/html" title="产品落地页">
+<!DOCTYPE html>
+<html>
+<head>...</head>
+<body>...</body>
+</html>
+</artifact>
+```
+
+### 2. 本地路径 / 网络地址（write 写文件后必须使用）
+
+```
+<artifact type="text/link">.octo/abc123/outputs/landing-page.html</artifact>
+```
+
+### 3. SVG 图标 / 插画
+
+```
+<artifact identifier="logo-icon" type="image/svg+xml" title="Logo 图标">
+<svg ...>...</svg>
+</artifact>
+```
+
+### 4. 代码片段
+
+```
+<artifact identifier="page-styles" type="code-snippet" title="页面样式">
+.page-hero { background: linear-gradient(...); }
+</artifact>
+```
+
+### 5. 设计方案（仅设计规划流程使用）
+
+```
+<artifact identifier="plan-landing-page" type="text/design-plan" title="落地页方案">
+# 落地页 — 设计策略
+...
+</artifact>
+```
+
+## 通用规则
+
+- artifact 必须是完整独立的标签，开头 `<artifact ...>` 结尾 `</artifact>`
+- `identifier` 使用 kebab-case 命名（如 `landing-page`），同一产物修改时必须保持 identifier 不变
+- `title` 使用简短的人类可读名称
+- HTML 内容必须完整包含 `<!DOCTYPE html>` 到 `</html>`，禁止截断
+
 # 四、设计输出规范
 
-- 输出 HTML 前确认包含闭合的 `</body></html>`
 - 一个完整简单的页面永远优于残缺的复杂页面
 
 # 五、禁止事项
 
-- 禁止复现受版权保护的设计
 - 禁止擅自添加用户未要求的内容
