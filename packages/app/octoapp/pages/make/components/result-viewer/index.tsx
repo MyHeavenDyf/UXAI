@@ -255,10 +255,10 @@ export function ResultViewer(props: {
       tracker,
       getDesktopApi,
       extractCodeBlock,
-      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter() : undefined,
+      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
       projectSelection,
     }
-    
+
     if (handler?.handleComment) {
       const handled = await handler.handleComment(ctx)
       if (handled === true) return
@@ -284,10 +284,10 @@ export function ResultViewer(props: {
       tracker,
       getDesktopApi,
       extractCodeBlock,
-      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter() : undefined,
+      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
       projectSelection,
     }
-    
+
     if (handler?.handleArchive) {
       const handled = await handler.handleArchive(ctx)
       if (handled === true) return
