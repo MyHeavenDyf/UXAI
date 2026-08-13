@@ -2,7 +2,7 @@ import { createSignal, onCleanup, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { Portal } from "solid-js/web"
 import { showToast } from "@opencode-ai/ui/toast"
-import { onPrototypeCtxMenu, onPrototypeClosePanels, sendToPrototypeIframe, type PrototypeCtxMenuData } from "../../subtype-handlers/prototype"
+import { onPrototypeCtxMenu, onPrototypeClosePanels, sendToPrototypeIframe, type PrototypeCtxMenuData } from "../../utils/prototype-utils"
 
 const MENU_WIDTH = 160
 const MENU_HEIGHT = 72

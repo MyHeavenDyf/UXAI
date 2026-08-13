@@ -9,7 +9,7 @@ import {
   closePrototypePanels,
   applyPrototypeModify,
   type PrototypeQuickFixData,
-} from "../../subtype-handlers/prototype"
+} from "../../utils/prototype-utils"
 
 export function PrototypePropertyEditor(): JSX.Element {
   const [data, setData] = createSignal<PrototypeQuickFixData | null>(null)
