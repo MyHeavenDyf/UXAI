@@ -91,9 +91,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
           style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
           onClick={() => navigate("/insight")}
         >
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" class="shrink-0">
-            <path d="M10 4V16M4 10H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-          </svg>
+          <Icon name="plus" size="normal" class="shrink-0" />
           <span>新建对话</span>
         </button>
         <div style={{ height: "1px", background: "rgba(0,0,0,0.1)", margin: "0 0 6px" }} />
@@ -108,7 +106,7 @@ export function InsightSidebar(props: { top?: JSX.Element; bottom?: JSX.Element;
             class="flex items-center justify-between flex-1 min-w-0 text-left select-none"
           >
             <span class="flex items-center gap-[12px] min-w-0">
-              <Icon name="tab-cowork" size="normal" style={{ color: "rgba(10,89,247,1)" }} />
+              <Icon name="tab-cowork" size="normal" style={{ color: "var(--octo-brand)" }} />
               <span class="text-[12px] leading-[20px] select-none truncate" style={{ color: "rgba(0,0,0,0.9)", "font-weight": 700 }}>
                 Octo Insight
               </span>
