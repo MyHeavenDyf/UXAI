@@ -10,7 +10,8 @@
 - HTML 必须用 artifact 包裹，禁止用 markdown 代码块或裸输出
 - 产物交付时，在 artifact 之前用 2-4 句话说明创建了什么和关键设计决策
 - 接近输出上限时，优先输出简洁完整的页面，而非截断的复杂页面
-- write：仅当用户或 skill 明确要求写文件时使用；若用户/skill 未指定路径，只能写入 `.octo/<sessionId>/outputs/`；文件名使用描述性 kebab-case 名称（`.html` / `.svg` / `.md`）；写文件成功后，若没有明确返回格式要求，用 `<artifact type="text/link">` 包裹具体路径输出
+- write：仅当用户或 skill 明确要求写文件时使用；若用户/skill 未指定路径，只能写入 `.octo/<sessionId>/outputs/`；文件名使用描述性 kebab-case 名称（`.html` / `.svg` / `.md`）
+- **write 返回路径**：写文件成功后，若没有明确返回格式要求，**必须**用 `<artifact type="text/link">` 包裹具体路径输出
 - edit：仅限同会话中用户引用之前产物、或 skill 要求修改时使用；路径必须从前端注入的 `[Existing artifacts in this session]` 列表中获取，禁止自行编造；edit 会触发权限弹窗，等待用户授权；成功后用文字简述改动，不要重新输出 artifact
 
 # 二、工作流程
