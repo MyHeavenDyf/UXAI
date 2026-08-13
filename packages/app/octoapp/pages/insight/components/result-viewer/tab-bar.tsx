@@ -31,17 +31,30 @@ export function TabBar(props: {
       <Show when={props.onViewModeChange}>
         <button
           type="button"
-          class="flex items-center gap-[4px] shrink-0 transition-colors px-[12px] py-[6px] cursor-pointer"
-          style={{
-            "border-radius": "16px",
-            background: props.viewMode === "files" ? "var(--octo-surface-selected)" : "transparent",
-            color: props.viewMode === "files" ? "var(--octo-brand)" : "var(--octo-text-secondary)",
-          }}
           onClick={() => props.onViewModeChange?.("files")}
+          class="flex items-center justify-center transition-colors font-medium shrink-0"
+          style={{
+            padding: "0px 16px",
+            "border-radius": "999px",
+            "font-size": "14px",
+            "line-height": "22px",
+            gap: "4px",
+            height: "32px",
+            "min-width": "108px",
+            "box-sizing": "border-box",
+            color: props.viewMode === "files" ? "var(--octo-brand)" : "#666",
+            background: props.viewMode === "files" ? "rgba(10, 89, 247, 0.08)" : "rgba(0, 0, 0, 0.05)",
+          }}
         >
-          <IconFolder size={16} />
-          <span class="text-[13px]" style={{ "font-weight": props.viewMode === "files" ? "500" : "400" }}>文件管理</span>
+          <IconFolder
+            size={16}
+            style={{ color: props.viewMode === "files" ? "var(--octo-brand)" : "#666" }}
+          />
+          <span>文件管理</span>
         </button>
+        <Show when={props.tabs.length > 0}>
+          <div class="w-px h-4 shrink-0" style={{ background: "var(--octo-border-divider)", "border-radius": "999px" }} />
+        </Show>
       </Show>
       <For each={props.tabs}>
         {(tab) => {
@@ -52,7 +65,7 @@ export function TabBar(props: {
               style={{
                 "max-width": "240px",
                 "border-radius": "16px",
-                background: isActive() ? "var(--octo-surface-selected)" : "transparent",
+                background: isActive() ? "var(--octo-surface-selected)" : "rgba(0, 0, 0, 0.05)",
                 color: isActive() ? "var(--octo-brand)" : "var(--octo-text-secondary)",
               }}
               onClick={() => {
