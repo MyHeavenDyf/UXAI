@@ -9,14 +9,8 @@ type FeatureCard = {
   previewImage: string
 }
 
+// SPEC-INS-030:Chat 模块已下线(能力并入 Insight),对应的介绍卡一并移除,避免首屏还在宣传一个进不去的入口。
 const features: FeatureCard[] = [
-  {
-    title: "Chat",
-    titleColor: "#6135C5",
-    description: "处理日常通用任务，快问快答\n灵感对话，skill生成",
-    tags: ["灵感对话", "表格分析", "skill生成"],
-    previewImage: "/welcomepage/chat.png",
-  },
   {
     title: "Insight",
     titleColor: "#1856CC",
@@ -28,7 +22,7 @@ const features: FeatureCard[] = [
     title: "Design",
     titleColor: "#8A4305",
     description: "AI辅助UX设计原型生成助手，\n基于规范&内部资产生成原型",
-    tags: ["原型生成", "开发传递", "开发传递"],
+    tags: ["原型生成", "标注归档", "开发传递"],
     previewImage: "/welcomepage/design.png",
   },
     {

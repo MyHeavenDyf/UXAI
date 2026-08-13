@@ -15,9 +15,10 @@ export type BridgeInjectConfig = {
 
 export function getBridgeConfigForSubtype(subtype?: string): BridgeInjectConfig {
   const config = getSubtypeConfig(subtype)
-  const { features } = config
+  const { features, rendering } = config
   
   const editEnabled = features.localEdit || features.drawEdit || features.canvasEdit
+  const customBridges = rendering?.customBridges || []
   
   return {
     injectSandbox: true,
@@ -28,10 +29,10 @@ export function getBridgeConfigForSubtype(subtype?: string): BridgeInjectConfig 
     injectEdit: editEnabled,
     injectEditStyle: editEnabled,
     
-    injectComment: features.comment,
-    injectSnapshot: features.drawEdit || features.archive,
+    injectComment: features.comment && !customBridges.includes('custom-comment'),
+    injectSnapshot: (features.drawEdit || features.archive) && !customBridges.includes('custom-snapshot'),
     injectResourceCollector: features.canvasEdit,
     
-    customBridges: config.rendering?.customBridges || []
+    customBridges
   }
 }

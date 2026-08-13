@@ -6,6 +6,7 @@ import { getDesktopApi } from "../lib/electron-api"
 import { formatUploadsForPrompt, isImageFile } from "../lib/upload"
 import { isPendingUploadPath } from "./worktree-layout"
 import { assembleInsightParts } from "./build-prompt-parts"
+import { currentAccount } from "./account"
 import type { Attachment } from "../components/attachment-bar"
 import type { QueuedSend } from "./send-queue"
 
@@ -135,6 +136,12 @@ export async function sendQueuedItem(globalSDK: GlobalSDK, sessionID: string, it
     chip: item.chip?.selection.preset.id,
   })
 
+  const account = currentAccount()
+  const promptExtra =
+    injectedSkills.length || account
+      ? { ...(injectedSkills.length ? { skills: injectedSkills } : {}), ...(account ? { account } : {}) }
+      : undefined
+
   const client = globalSDK.createClient({ directory, throwOnError: true })
   await client.session.promptAsync({
     sessionID,
@@ -143,7 +150,9 @@ export async function sendQueuedItem(globalSDK: GlobalSDK, sessionID: string, it
     parts,
     messageID,
     tools,
-    // SPEC-INS-029：排队 drain 与即时发送同样上报，否则「busy 时发的技能」统计缺一块。
-    ...(injectedSkills.length ? { extra: { skills: injectedSkills } } : {}),
+    // extra 与即时发送(index.tsx doSendPrompt)保持同构，否则「busy 时排队发出的那条」会缺字段：
+    //   - skills(SPEC-INS-029)：不带则技能用量统计缺一块。
+    //   - account(SPEC-INS-030 §5)：不带则该轮 knowledge_search 拿不到工号、直接拒答。
+    ...(promptExtra ? { extra: promptExtra } : {}),
   })
 }

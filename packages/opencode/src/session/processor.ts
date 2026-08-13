@@ -9,7 +9,7 @@ import { Snapshot } from "@/snapshot"
 import * as Session from "./session"
 import { LLM } from "./llm"
 import { MessageV2 } from "./message-v2"
-import { isOverflow } from "./overflow"
+import { isOverflow, preflight, usable } from "./overflow"
 import { PartID } from "./schema"
 import type { SessionID } from "./schema"
 import { SessionRetry } from "./retry"
@@ -18,6 +18,7 @@ import { SessionSummary } from "./summary"
 import type { Provider } from "@/provider/provider"
 import { Question } from "@/question"
 import { errorMessage } from "@/util/error"
+import { Token } from "@/util/token"
 import * as Log from "@opencode-ai/core/util/log"
 import { isRecord } from "@/util/record"
 import { EventV2 } from "@/v2/event"
@@ -75,6 +76,8 @@ interface ProcessorContext extends Input {
   needsCompaction: boolean
   currentText: MessageV2.TextPart | undefined
   reasoningMap: Record<string, MessageV2.ReasoningPart>
+  estimatedInputTokens: number
+  estimatedOutputChars: number
 }
 
 type StreamEvent = Event
@@ -125,6 +128,8 @@ export const layer: Layer.Layer<
         needsCompaction: false,
         currentText: undefined,
         reasoningMap: {},
+        estimatedInputTokens: 0,
+        estimatedOutputChars: 0,
       }
       let aborted = false
       const slog = log.clone().tag("session.id", input.sessionID).tag("messageID", input.assistantMessage.id)
@@ -246,6 +251,7 @@ export const layer: Layer.Layer<
           case "reasoning-delta":
             if (!(value.id in ctx.reasoningMap)) return
             ctx.reasoningMap[value.id].text += value.text
+            ctx.estimatedOutputChars += value.text.length
             if (value.providerMetadata) ctx.reasoningMap[value.id].metadata = value.providerMetadata
             yield* session.updatePartDelta({
               sessionID: ctx.reasoningMap[value.id].sessionID,
@@ -321,6 +327,7 @@ export const layer: Layer.Layer<
               throw new Error(`Tool call not allowed while generating summary: ${value.toolName}`)
             }
             const toolCall = yield* readToolCall(value.toolCallId)
+            ctx.estimatedOutputChars += value.toolName.length + JSON.stringify(value.input).length
             // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
             EventV2.run(SessionEvent.Tool.Called.Sync, {
               sessionID: ctx.sessionID,
@@ -456,6 +463,10 @@ export const layer: Layer.Layer<
               model: ctx.model,
               usage: value.usage,
               metadata: value.providerMetadata,
+              estimated: {
+                input: ctx.estimatedInputTokens,
+                output: Token.estimateChars(ctx.estimatedOutputChars),
+              },
             })
             if (!ctx.assistantMessage.summary) {
               // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
@@ -534,6 +545,7 @@ export const layer: Layer.Layer<
           case "text-delta":
             if (!ctx.currentText) return
             ctx.currentText.text += value.text
+            ctx.estimatedOutputChars += value.text.length
             if (value.providerMetadata) ctx.currentText.metadata = value.providerMetadata
             yield* session.updatePartDelta({
               sessionID: ctx.currentText.sessionID,
@@ -674,9 +686,47 @@ export const layer: Layer.Layer<
         slog.info("process")
         ctx.needsCompaction = false
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
+        ctx.estimatedInputTokens = Token.estimateValue([streamInput.system, streamInput.messages, streamInput.tools])
+        ctx.estimatedOutputChars = 0
+        const cfg = yield* config.get()
+        const available = usable({ cfg, model: ctx.model })
+        const current = streamInput.messages.findLast((message) => message.role === "user")
+        const unavoidableInputTokens = Token.estimateValue([streamInput.system, current, streamInput.tools])
+        const preflightResult = ctx.assistantMessage.summary
+          ? "send"
+          : preflight({
+              cfg,
+              model: ctx.model,
+              estimatedInput: ctx.estimatedInputTokens,
+              unavoidableInput: unavoidableInputTokens,
+            })
 
         return yield* Effect.gen(function* () {
           yield* Effect.gen(function* () {
+            if (preflightResult !== "send") {
+              slog.warn("preflight context overflow", {
+                estimated_input: ctx.estimatedInputTokens,
+                unavoidable_input: unavoidableInputTokens,
+                usable: available,
+                modelID: ctx.model.id,
+                providerID: ctx.model.providerID,
+              })
+              if (preflightResult === "reject") {
+                ctx.assistantMessage.error = new MessageV2.ContextOverflowError({
+                  message: `The current request is too large to fit this model even after compacting conversation history. Estimated ${unavoidableInputTokens} input tokens with ${available} usable tokens. Reduce or split the attached files and try again.`,
+                }).toObject()
+                ctx.assistantMessage.finish = "error"
+                yield* session.updateMessage(ctx.assistantMessage)
+                yield* bus.publish(Session.Event.Error, {
+                  sessionID: ctx.sessionID,
+                  error: ctx.assistantMessage.error,
+                })
+                yield* status.set(ctx.sessionID, { type: "idle" })
+                return
+              }
+              ctx.needsCompaction = true
+              return
+            }
             ctx.currentText = undefined
             ctx.reasoningMap = {}
             const stream = llm.stream(streamInput)
