@@ -12,10 +12,17 @@ import { getDesktopApi } from "../../lib/electron-api"
 import { tracker } from "@/utils/tracker"
 import { createHtmlAssetsZip } from "../../utils/html-assets-zip"
 import { getSubtypeConfig } from "../../utils/subtype-config"
+import { getSubtypeHandler } from "../../utils/subtype-registry"
 
 // Responsive breakpoints for action bar
 const ACTION_BAR_COLLAPSE_WIDTH = 600
 const ACTION_BAR_WRAP_WIDTH = 480
+
+function extractCodeBlock(text: string, lang: string): string {
+  const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
+  const m = text.match(re)
+  return m ? m[1].trim() : text.trim()
+}
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text)
@@ -351,6 +358,31 @@ export function ActionBar(props: {
   }): JSX.Element {
   async function handleDownload() {
     tracker.interaction({ module: "design", name: "download-file", extend: JSON.stringify({ type: props.tab.type }) })
+    
+    const handler = getSubtypeHandler(props.tab.subtype)
+    if (handler?.handleDownload) {
+      const ctx = {
+        tab: props.tab,
+        showToast,
+        tracker,
+        getDesktopApi,
+        extractCodeBlock,
+        observedUrlsGetter: props.observedResourceUrls,
+        projectSelection: () => undefined,
+      }
+      
+      try {
+        const handled = await handler.handleDownload(ctx)
+        if (handled === true) return
+      } catch (error) {
+        showToast({ 
+          title: "下载失败", 
+          description: error instanceof Error ? error.message : String(error),
+          variant: "error"
+        })
+        return
+      }
+    }
 
     if (props.tab.type === "html") {
       const htmlContent = extractDownloadContent(props.tab)
@@ -407,6 +439,8 @@ export function ActionBar(props: {
   const showLocalEdit = () => config().features.localEdit && showViewport()
   const showDrawEdit = () => config().features.drawEdit && showViewport()
   const showCanvasEdit = () => config().features.canvasEdit && showViewport()
+  const showComment = () => config().features.comment && showViewport()
+  const showArchive = () => config().features.archive && showViewport()
   const showDownload = () => config().features.download
   const showFullscreen = () => config().features.fullscreen
   const shouldShowCopy = () =>
@@ -544,7 +578,7 @@ export function ActionBar(props: {
               </For>
             </div>
           )}
-          {showViewport() && props.onCommentToggle && (
+          {showComment() && props.onCommentToggle && (
             <button
               type="button"
               class="octo-action-btn"
@@ -558,7 +592,7 @@ export function ActionBar(props: {
               <span>标注</span>
             </button>
           )}
-          {showViewport() && props.onArchiveToggle && (
+          {showArchive() && props.onArchiveToggle && (
             <button
               type="button"
               class="octo-action-btn octo-action-btn-archive"

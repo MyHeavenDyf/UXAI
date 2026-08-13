@@ -1,6 +1,6 @@
 import type { ResultTab } from "../components/result-viewer/tab-store"
 
-export type FeatureType = 'localEdit' | 'drawEdit' | 'canvasEdit'
+export type FeatureType = 'localEdit' | 'drawEdit' | 'canvasEdit' | 'comment' | 'archive'
 
 export interface SubtypeHandlerContext {
   tab: ResultTab
@@ -20,6 +20,16 @@ export interface SubtypeHandler {
   handleLocalEdit?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
   
   handleDrawEdit?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
+  
+  handleComment?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
+  
+  handleArchive?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
+  
+  /**
+   * 处理下载
+   * @returns true 表示已处理（不执行默认下载），false 或 void 表示执行默认下载
+   */
+  handleDownload?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
   
   beforeFeatureEnable?: (feature: FeatureType, ctx: SubtypeHandlerContext) => Promise<boolean>
 }
