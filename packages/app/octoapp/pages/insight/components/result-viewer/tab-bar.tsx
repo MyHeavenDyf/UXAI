@@ -32,7 +32,7 @@ export function TabBar(props: {
         <button
           type="button"
           onClick={() => props.onViewModeChange?.("files")}
-          class="flex items-center justify-center transition-colors font-medium shrink-0"
+          class="flex items-center justify-center transition-colors font-medium shrink-0 cursor-pointer"
           style={{
             padding: "0px 16px",
             "border-radius": "999px",
