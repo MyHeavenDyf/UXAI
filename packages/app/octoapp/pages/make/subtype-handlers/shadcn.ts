@@ -65,8 +65,9 @@ export default {
     const { tab, edit, showToast } = ctx
     const target = edit.target
 
+    const filePath = tab.filePath || tab.absoluteFilePath
     const lines: string[] = []
-    lines.push(`请修改 shadcn React 组件文件「${tab.title}」${tab.filePath ? `（${tab.filePath}）` : ''}。`)
+    lines.push(`请修改 shadcn React 组件文件「${tab.title}」${filePath ? `（${filePath}）` : ''}。`)
     lines.push('该文件内嵌 React 代码、由运行时动态渲染 DOM，无法直接修改 HTML 源码，请直接修改 React 源码。')
     lines.push('')
     lines.push('用户通过「局部修改」选中的元素上下文信息：')

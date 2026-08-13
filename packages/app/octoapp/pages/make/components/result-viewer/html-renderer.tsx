@@ -1589,6 +1589,9 @@ onApplyPatch={async (patch: ManualEditPatch, label: string) => {
                   const handled = await props.onSaveLocalEdit({ target, changes: [change] })
                   if (handled && patch.kind === 'remove-element') {
                     setEditTarget(null)
+                    manualEditPendingStyle = null
+                    manualEditPendingText = null
+                    setEditDraft(emptyManualEditDraft(props.content))
                   }
                 }
                 return
@@ -1634,6 +1637,8 @@ onSaveDraft={async () => {
                           setEditTarget(null)
                           manualEditPendingStyle = null
                           manualEditPendingText = null
+                          manualEditInitialStyles = null
+                          setEditDraft(emptyManualEditDraft(props.content))
                           return
                         }
                         const handled = await props.onSaveLocalEdit(payload)
@@ -1642,6 +1647,8 @@ onSaveDraft={async () => {
                           setEditTarget(null)
                           manualEditPendingStyle = null
                           manualEditPendingText = null
+                          manualEditInitialStyles = null
+                          setEditDraft(emptyManualEditDraft(props.content))
                         }
                         return
                       }
