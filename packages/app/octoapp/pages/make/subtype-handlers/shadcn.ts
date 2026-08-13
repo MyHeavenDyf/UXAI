@@ -67,10 +67,10 @@ export default {
 
     const filePath = tab.filePath || tab.absoluteFilePath
     const lines: string[] = []
-    lines.push(`请修改 shadcn React 组件文件「${tab.title}」${filePath ? `（${filePath}）` : ''}。`)
-    lines.push('该文件内嵌 React 代码、由运行时动态渲染 DOM，无法直接修改 HTML 源码，请直接修改 React 源码。')
+    lines.push(`请修改文件「${tab.title}」${filePath ? `（${filePath}）` : ''}。`)
+    lines.push('需要修改的是 `<script type="text/plain" id="page-tsx">` 内的代码。')
     lines.push('')
-    lines.push('用户通过「局部修改」选中的元素上下文信息：')
+    lines.push('页面中渲染出的目标元素 DOM 信息：')
     lines.push(`- 选择器：${target.selector || '(未知)'}`)
     lines.push(`- 标签：<${target.tagName}>`)
     if (target.className) {
@@ -93,7 +93,7 @@ export default {
       lines.push(formatChange(change))
     }
     lines.push('')
-    lines.push('要求：只修改源码中与该元素对应的部分，保持组件结构、交互与整体样式不变；完成后输出完整文件内容。')
+    lines.push('请编辑现有文件，修改与上述目标元素对应的代码。')
 
     const result = await sendTextToAgent(lines.join('\n'), { source: 'local-edit' })
     if (result.ok) {
