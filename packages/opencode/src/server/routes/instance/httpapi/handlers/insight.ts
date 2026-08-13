@@ -265,9 +265,6 @@ export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", 
     // 目标目录必须真实存在且是目录:传个不存在 / 打错的路径就中止,不能把一批会话迁到
     // 一个空气目录里(它们会从任何列表里消失,虽然数据还在)。
     const assertDirectory = Effect.fn("InsightHttpApi.chatMigration.assertDirectory")(function* (directory: string) {
-      if (!path.isAbsolute(directory)) {
-        yield* Effect.fail(migrationFailure("resolve-project", "请选择一个目标文件夹"))
-      }
       const stat = yield* fs.stat(directory).pipe(Effect.catch(() => Effect.succeed(null)))
       if (!stat) yield* Effect.fail(migrationFailure("resolve-project", `目标文件夹不存在：${directory}`))
       else if (stat.type !== "Directory")
@@ -286,10 +283,12 @@ export const insightHandlers = HttpApiBuilder.group(InstanceHttpApi, "insight", 
     const chatMigrationRun = Effect.fn("InsightHttpApi.chatMigrationRun")(function* (ctx: {
       payload: typeof InsightChatMigrationPayload.Type
     }) {
-      // 空串要在 resolve 之前挡掉:path.resolve("") 会返回进程 cwd,那就成了"没选目录却迁到
-      // server 的工作目录"。
+      // 空串**和相对路径**都要在 resolve 之前挡掉:path.resolve 对两者都会兜底到进程 cwd
+      // ("" → cwd,"docs" → <cwd>/docs),那就成了"没选对目录却迁进 server 的工作目录"。
+      // 放到 resolve 之后校验是没用的 —— path.resolve 的返回值永远是绝对路径。
       const raw = ctx.payload.directory?.trim() ?? ""
-      if (raw === "") yield* Effect.fail(migrationFailure("resolve-project", "请选择一个目标文件夹"))
+      if (raw === "" || !path.isAbsolute(raw))
+        yield* Effect.fail(migrationFailure("resolve-project", "请选择一个目标文件夹"))
 
       // 规范化:去尾斜杠、折掉 . / ..、统一分隔符。列表查询是 `eq(directory)` **精确匹配**,
       // 一个尾斜杠就足以让「提示迁移成功 N 条,列表里一条没有」重演(与 project_id 漏写同款症状)。
