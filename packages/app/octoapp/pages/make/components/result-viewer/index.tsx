@@ -34,6 +34,7 @@ import { useProjectSelection } from "@/hooks/use-project-selection"
 import { getDesktopApi } from "../../lib/electron-api"
 import { useFeatureMutex } from "../../utils/use-feature-mutex"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
+import type { LocalEditSavePayload } from "../../subtype-handlers/types"
 
 function extractCodeBlock(text: string, lang: string): string {
   const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
@@ -255,7 +256,7 @@ export function ResultViewer(props: {
       tracker,
       getDesktopApi,
       extractCodeBlock,
-      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter() : undefined,
+      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
       projectSelection,
     }
     
@@ -284,7 +285,7 @@ export function ResultViewer(props: {
       tracker,
       getDesktopApi,
       extractCodeBlock,
-      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter() : undefined,
+      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
       projectSelection,
     }
     
@@ -294,6 +295,31 @@ export function ResultViewer(props: {
     }
     
     featureMutex.toggleFeature('archiving')
+  }
+
+  const handleLocalEditSave = async (payload: LocalEditSavePayload): Promise<boolean> => {
+    const tab = activeTab()
+    if (!tab) {
+      return false
+    }
+
+    const handler = getSubtypeHandler(tab.subtype)
+    if (!handler?.handleLocalEditSave) {
+      return false
+    }
+
+    const ctx = {
+      tab,
+      showToast,
+      tracker,
+      getDesktopApi,
+      extractCodeBlock,
+      projectSelection,
+      edit: payload,
+    }
+
+    const handled = await handler.handleLocalEditSave(ctx)
+    return handled === true
   }
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
@@ -683,6 +709,7 @@ commenting={featureMutex.state.commenting}
                            }}
                            onRefreshNeeded={handleRefresh}
                            tabTitle={tab.title}
+                           onSaveLocalEdit={getSubtypeHandler(tab.subtype)?.handleLocalEditSave ? handleLocalEditSave : undefined}
                            observedUrlsGetter={(g) => { observedUrlsGetter = g }}
                          />
                     </Match>

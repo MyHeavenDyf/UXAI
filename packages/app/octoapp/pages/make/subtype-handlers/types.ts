@@ -1,4 +1,5 @@
 import type { ResultTab } from "../components/result-viewer/tab-store"
+import type { ManualEditTarget } from "../edit-mode/source-patches"
 
 export type FeatureType = 'localEdit' | 'drawEdit' | 'canvasEdit' | 'comment' | 'archive'
 
@@ -12,12 +13,26 @@ export interface SubtypeHandlerContext {
   projectSelection: () => unknown
 }
 
+export type LocalEditChange =
+  | { kind: 'text'; before: string; after: string }
+  | { kind: 'href'; before: string; after: string }
+  | { kind: 'styles'; changes: Array<{ prop: string; before: string; after: string }> }
+  | { kind: 'remove-element' }
+  | { kind: 'image'; src: string; alt: string }
+
+export interface LocalEditSavePayload {
+  target: ManualEditTarget
+  changes: LocalEditChange[]
+}
+
 export interface SubtypeHandler {
   name: string
   
   handleCanvasEdit?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
   
   handleLocalEdit?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
+  
+  handleLocalEditSave?: (ctx: SubtypeHandlerContext & { edit: LocalEditSavePayload }) => Promise<boolean | void>
   
   handleDrawEdit?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
   

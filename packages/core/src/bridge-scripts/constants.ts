@@ -580,7 +580,7 @@ function makeEditable(el,ev){
     el.removeEventListener('keydown',onKey);
     var v=(el.textContent||'').trim();
     if(commit&&v!==orig.trim()){
-      window.parent.postMessage({type:'od-edit-text-commit',id:el.getAttribute('data-od-id'),value:v},'*');
+      window.parent.postMessage({type:'od-edit-text-commit',id:el.getAttribute('data-od-id'),value:v,before:orig.trim(),target:getManualEditTarget(el)},'*');
     }else if(!commit)el.textContent=orig;
   }
   function onBlur(){
@@ -593,6 +593,22 @@ function makeEditable(el,ev){
   }
   el.addEventListener('blur',onBlur);
   el.addEventListener('keydown',onKey);
+}
+
+function tagLabel(el) {
+  var t = el.tagName ? el.tagName.toLowerCase() : '';
+  var c = el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\\s+/).join('.') : '';
+  return t + c;
+}
+
+function buildSelector(el) {
+  var parts = [];
+  var cur = el;
+  for (var i = 0; i < 5 && cur && cur !== document.body && cur !== document.documentElement; i++) {
+    parts.unshift(tagLabel(cur));
+    cur = cur.parentElement;
+  }
+  return parts.join(' > ');
 }
 
 function getManualEditTarget(el) {
@@ -664,6 +680,8 @@ function getManualEditTarget(el) {
     fields: fields,
     attributes: attributes,
     styles: styles,
+    selector: buildSelector(el),
+    htmlHint: el.outerHTML.slice(0, Math.min(200, el.outerHTML.indexOf('>') + 1)),
     isLayoutContainer: el.children.length > 0,
     outerHtml: el.outerHTML.slice(0, 500)
   };

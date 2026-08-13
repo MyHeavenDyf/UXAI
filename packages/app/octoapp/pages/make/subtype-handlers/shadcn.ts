@@ -1,6 +1,7 @@
-import type { SubtypeHandler } from './types'
+import type { SubtypeHandler, LocalEditChange } from './types'
 import { uploadZip } from '@/utils/useZipTransport'
 import { registerCustomBridge } from '../utils/custom-bridge-registry'
+import { sendTextToAgent } from '../utils/agent-events'
 
 registerCustomBridge('shadcn-component-editor', {
   script: `
@@ -36,9 +37,72 @@ registerCustomBridge('shadcn-component-editor', {
   position: 'body'
 })
 
+function formatChange(change: LocalEditChange): string {
+  switch (change.kind) {
+    case 'text':
+      return `修改文本：${quote(change.before)} → ${quote(change.after)}`
+    case 'href':
+      return `修改链接地址：${change.before || '(空)'} → ${change.after || '(空)'}`
+    case 'styles':
+      return change.changes
+        .map((s) => `修改样式 ${s.prop}：${s.before || '(未设置)'} → ${s.after || '(清除)'}`)
+        .join('\n')
+    case 'remove-element':
+      return '删除该元素'
+    case 'image':
+      return `修改图片：src → ${change.src}${change.alt ? `，alt → ${change.alt}` : ''}`
+  }
+}
+
+function quote(value: string): string {
+  return value ? `"${value}"` : '(空)'
+}
+
 export default {
   name: 'shadcn',
   
+  async handleLocalEditSave(ctx) {
+    const { tab, edit, showToast } = ctx
+    const target = edit.target
+
+    const lines: string[] = []
+    lines.push(`请修改 shadcn React 组件文件「${tab.title}」${tab.filePath ? `（${tab.filePath}）` : ''}。`)
+    lines.push('该文件内嵌 React 代码、由运行时动态渲染 DOM，无法直接修改 HTML 源码，请直接修改 React 源码。')
+    lines.push('')
+    lines.push('用户通过「局部修改」选中的元素上下文信息：')
+    lines.push(`- 选择器：${target.selector || '(未知)'}`)
+    lines.push(`- 标签：<${target.tagName}>`)
+    if (target.className) {
+      lines.push(`- 类名：${target.className}`)
+    }
+    if (target.text) {
+      lines.push(`- 当前文本：${target.text}`)
+    }
+    lines.push(`- 位置与尺寸（bounding box）：x=${target.rect.x} y=${target.rect.y} w=${target.rect.width} h=${target.rect.height}`)
+    if (target.htmlHint) {
+      lines.push(`- 元素片段：${target.htmlHint}`)
+    }
+    const attrKeys = Object.keys(target.attributes || {})
+    if (attrKeys.length > 0) {
+      lines.push(`- 属性：${attrKeys.map((k) => `${k}="${target.attributes[k]}"`).join(' ')}`)
+    }
+    lines.push('')
+    lines.push('需要做的变更：')
+    for (const change of edit.changes) {
+      lines.push(formatChange(change))
+    }
+    lines.push('')
+    lines.push('要求：只修改源码中与该元素对应的部分，保持组件结构、交互与整体样式不变；完成后输出完整文件内容。')
+
+    const result = await sendTextToAgent(lines.join('\n'), { source: 'local-edit' })
+    if (result.ok) {
+      showToast({ title: '已提交修改请求' })
+    } else {
+      showToast({ title: '提交失败', description: result.message ?? '请重试' })
+    }
+    return result.ok
+  },
+
   async handleCanvasEdit(ctx) {
     const { tab, showToast, getDesktopApi, projectSelection } = ctx
     const filePath = tab.filePath || tab.absoluteFilePath
