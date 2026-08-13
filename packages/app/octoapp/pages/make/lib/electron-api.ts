@@ -34,6 +34,12 @@ export type DesktopApi = {
     state: "completed" | "cancelled" | "interrupted"
   }) => void) => () => void
   getAssetsConfig?: () => Promise<Record<string, unknown>>
+  /** 导出 HUI 代码（经 IPC 调主进程 downloadHuiCode） */
+  downloadHuiCode?: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[], options?: { targetLib?: string }) => Promise<{ files: { path: string; content: string }[] }>
+  /** 导出 ZIP 压缩包 */
+  exportZip?: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; destFolder?: string; comment?: string }) => Promise<string | null>
+  /** 获取上传资源根目录 */
+  getUploadsDir?: () => Promise<string | null>
 }
 
 export function getDesktopApi(): DesktopApi | undefined {
