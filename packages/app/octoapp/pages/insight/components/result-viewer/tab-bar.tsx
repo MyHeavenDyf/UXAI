@@ -61,13 +61,8 @@ export function TabBar(props: {
           const isActive = () => tab.id === props.activeId && props.viewMode !== "files"
           return (
             <div
-              class="flex items-center gap-[4px] shrink-0 transition-colors px-[12px] py-[6px] cursor-pointer"
-              style={{
-                "max-width": "240px",
-                "border-radius": "16px",
-                background: isActive() ? "var(--octo-surface-selected)" : "rgba(0, 0, 0, 0.05)",
-                color: isActive() ? "var(--octo-brand)" : "var(--octo-text-secondary)",
-              }}
+              class="octo-tab"
+              data-active={isActive() ? "true" : undefined}
               onClick={() => {
                 props.onActivate(tab.id)
                 props.onViewModeChange?.("tabs")
@@ -75,19 +70,18 @@ export function TabBar(props: {
             >
               <TruncatedText
                 class="flex-1 min-w-0"
-                textClass="block w-full min-w-0 text-[13px] text-left truncate"
-                style={{ "font-weight": isActive() ? "500" : "400" }}
+                textClass="block w-full min-w-0 text-left truncate outline-none"
                 text={tab.title}
               />
               <button
                 type="button"
+                class="octo-tab-close"
                 onClick={(e) => {
                   e.stopPropagation()
                   props.onClose(tab.id)
                 }}
-                class="w-[16px] h-[16px] flex items-center justify-center rounded-full flex-shrink-0 transition-colors hover:bg-black/5 outline-none"
               >
-                <IconTabClose size={10} />
+                <IconTabClose size={16} />
               </button>
             </div>
           )
