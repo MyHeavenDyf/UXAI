@@ -169,7 +169,7 @@
 }
 .octo-tab[data-active="true"] {
   background: rgba(10,89,247,0.08);
-  color: #0a58f7;
+  color: var(--octo-brand);
 }
 .octo-tab-close {
   display: inline-flex;
