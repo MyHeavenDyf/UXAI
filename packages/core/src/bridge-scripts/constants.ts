@@ -611,9 +611,47 @@ function buildSelector(el) {
   return parts.join(' > ');
 }
 
-function getManualEditTarget(el) {
+var annotateNextId = -1;
+// Assign a runtime data-od-id to elements rendered after the static annotation
+// (e.g. React content in .shadcn.html), continuing the el-* counter.
+function ensureAnnotatedId(el) {
   if (!el || !el.getAttribute) return null;
   var id = el.getAttribute('data-od-id');
+  if (id) return id;
+  var tag = el.tagName ? el.tagName.toUpperCase() : '';
+  if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'HEAD') return null;
+  if (annotateNextId < 0) {
+    var els = document.querySelectorAll('[data-od-id]');
+    for (var i = 0; i < els.length; i++) {
+      var attr = els[i].getAttribute('data-od-id');
+      if (attr && attr.indexOf('el-') === 0) {
+        var n = parseInt(attr.substring(3), 10);
+        if (!isNaN(n) && n > annotateNextId) annotateNextId = n;
+      }
+    }
+  }
+  annotateNextId++;
+  id = 'el-' + annotateNextId;
+  el.setAttribute('data-od-id', id);
+  return id;
+}
+
+// Annotate the whole rendered DOM once edit mode is enabled so dynamic elements
+// are selectable and get hover outlines.
+function annotateRendered() {
+  function walk(el) {
+    if (el.nodeType !== 1) return;
+    var tag = el.tagName ? el.tagName.toUpperCase() : '';
+    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'HEAD') return;
+    ensureAnnotatedId(el);
+    for (var i = 0; i < el.children.length; i++) walk(el.children[i]);
+  }
+  walk(document.body);
+}
+
+function getManualEditTarget(el) {
+  if (!el || !el.getAttribute) return null;
+  var id = ensureAnnotatedId(el);
   if (!id) return null;
   
   var tag = el.tagName.toLowerCase();
@@ -709,6 +747,7 @@ window.addEventListener('message',function(ev){
     editEnabled = d.enabled;
     document.documentElement.toggleAttribute('data-od-edit-mode', editEnabled);
     if(editEnabled){
+      annotateRendered();
       document.body.addEventListener('click',handleEditSingleClick,true);
       document.body.addEventListener('dblclick',handleEditDoubleClick,true);
     } else {
