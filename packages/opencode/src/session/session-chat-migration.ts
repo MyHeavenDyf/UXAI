@@ -64,9 +64,13 @@ function pendingIDs(): SessionID[] {
   ).map((r) => r.id)
 }
 
-/** 已有备份文件(有则复用,§5.2.2「只在首次迁移时备份」)。找不到返回 undefined。 */
-function findBackup(): string | undefined {
-  const dbPath = Database.Path
+/**
+ * 已有备份文件(有则复用,§5.2.2「只在首次迁移时备份」)。找不到返回 undefined。
+ *
+ * `dbPath` 只用来决定「备份文件放哪 / 去哪找已有备份」,默认就是当前库;做成入参是为了让
+ * 备份这条路径能被测试跑到(测试库跑在 `:memory:`,而 VACUUM INTO 能把内存库导出成真实文件)。
+ */
+export function findBackup(dbPath: string = Database.Path): string | undefined {
   if (dbPath === ":memory:") return undefined
   const dir = path.dirname(dbPath)
   const prefix = path.basename(dbPath) + BACKUP_MARKER
@@ -76,6 +80,9 @@ function findBackup(): string | undefined {
   } catch {
     return undefined
   }
+  // 名字里是毫秒时间戳,字典序即时间序 —— 取 [0] 是**最旧**那份,也就是「迁移前那份快照」,
+  // 它是唯一的原始数据源(§5.2.2)。别顺手改成取最新的:那会把重迁的 id 集合换成一份
+  // 已经迁过的中间态。
   const found = entries.filter((name) => name.startsWith(prefix)).sort()
   return found[0] ? path.join(dir, found[0]) : undefined
 }
@@ -127,9 +134,12 @@ function existingIDs(ids: SessionID[]): SessionID[] {
  * - pending:当前库里还没迁的 chat 历史条数(与 directory 无关)
  * - migratable:备份里可重迁的条数(备份 id ∩ 当前库仍存在的行)
  */
-export function previewChatMigration(input: { directory: string }): { pending: number; migratable: number } {
+export function previewChatMigration(input: { directory: string; dbPath?: string }): {
+  pending: number
+  migratable: number
+} {
   const pending = pendingIDs().length
-  const backup = findBackup()
+  const backup = findBackup(input.dbPath)
   const migratable = backup ? existingIDs(backupLegacyIDs(backup)).length : 0
   log("preview", { pending, migratable, directory: input.directory })
   return { pending, migratable }
@@ -141,13 +151,12 @@ export function previewChatMigration(input: { directory: string }): { pending: n
  *
  * 已有备份则跳过(永不覆盖):那份是「迁移前那份快照」,是唯一的原始数据源。
  */
-function backupAndVerify(expected: number | undefined): { path: string; skipped: boolean } {
-  const dbPath = Database.Path
+function backupAndVerify(expected: number | undefined, dbPath: string): { path: string; skipped: boolean } {
   if (dbPath === ":memory:") {
     throw new ChatMigrationError("backup", "当前数据库在内存中运行，无法创建备份")
   }
 
-  const existing = findBackup()
+  const existing = findBackup(dbPath)
   if (existing) {
     // 已有备份:不再新建、不覆盖。此时不比对条数(备份是**上次**迁移前的快照,与本次 pending
     // 天然不等),只校验它可打开且确实含有那批要保护的数据。
@@ -292,18 +301,20 @@ export function applyChatMigration(input: { targets: SessionID[]; directory: str
 export function runChatMigration(input: {
   directory: string
   projectID: ProjectID
+  dbPath?: string
 }): { migrated: number; migratedIDs: SessionID[]; backupPath?: string } {
+  const dbPath = input.dbPath ?? Database.Path
   const pending = pendingIDs()
 
   let targets: SessionID[]
   let backupPath: string | undefined
 
   if (pending.length > 0) {
-    const backup = backupAndVerify(pending.length)
+    const backup = backupAndVerify(pending.length, dbPath)
     backupPath = backup.path
     targets = pending
   } else {
-    const backup = findBackup()
+    const backup = findBackup(dbPath)
     if (!backup) {
       // 库里没有待迁的 chat 历史,也没有迁移过的记录 —— 没什么可做的。
       log("run", { directory: input.directory, projectID: input.projectID, matched: 0, migrated: 0 })
@@ -311,7 +322,7 @@ export function runChatMigration(input: {
     }
     // 重迁前也过一遍备份校验:它是 id 集合的唯一来源,读不动就该中止;同时保证
     // `backup-verified` 与 `run` 始终成对出现(§4.3 的排查口诀靠这个判断校验有没有被漏掉)。
-    backupPath = backupAndVerify(undefined).path
+    backupPath = backupAndVerify(undefined, dbPath).path
     targets = existingIDs(backupLegacyIDs(backup))
     if (targets.length === 0) {
       log("run", { directory: input.directory, projectID: input.projectID, matched: 0, migrated: 0 })
