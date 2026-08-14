@@ -212,16 +212,17 @@ export class BuildTrees extends Step {
       const props = el?.props
       if (!props || typeof props !== 'object') continue
       for (const v of Object.values(props)) {
+        if (!v || typeof v !== 'object' || Array.isArray(v)) continue
+        const action = v as Record<string, any>
+        const args = action.args
         if (
-          v &&
-          typeof v === 'object' &&
-          !Array.isArray(v) &&
-          'action' in v &&
-          'args' in v &&
-          v.args &&
-          typeof v.args.path === 'string'
+          'action' in action &&
+          args &&
+          typeof args === 'object' &&
+          'path' in args &&
+          typeof args.path === 'string'
         ) {
-          paths.add(v.args.path)
+          paths.add(args.path)
         }
       }
     }
