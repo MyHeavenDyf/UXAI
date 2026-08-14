@@ -13,6 +13,8 @@ import { tracker } from "@/utils/tracker"
 import { createHtmlAssetsZip } from "../../utils/html-assets-zip"
 import { getSubtypeConfig } from "../../utils/subtype-config"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
+import { subtypeUIRegistry } from "../../utils/subtype-ui-registry"
+import type { ActionBarButton, SubtypeHandlerContext, ButtonPosition } from "../../subtype-handlers/types"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { useLocal } from "@/context/local"
@@ -327,7 +329,7 @@ function Dropdown(props: {
                     </button>
                   )}
                 </For>
-              </div>
+</div>
             )
           })()}
         </Portal>
@@ -398,52 +400,18 @@ export function ActionBar(props: {
         return
       }
     }
-
-    if (props.tab.type === "html") {
-      const htmlContent = extractDownloadContent(props.tab)
-      const htmlFileNameInZip = `${stripExtension(props.tab.title, "html")}.html`
-      showToast({ title: "生成ZIP..." })
-      try {
-        const observedUrls = props.observedResourceUrls?.() || []
-        const zipBlob = await createHtmlAssetsZip({
-          htmlContent,
-          htmlFilePath: props.tab.filePath || "",
-          htmlFileNameInZip,
-          observedUrls,
-        })
-        const zipName = `${stripExtension(props.tab.title, "zip")}.zip`
-        const zipBytes = new Uint8Array(await zipBlob.arrayBuffer())
-        await downloadBlob(zipBytes, zipName, "application/zip")
-      } catch (err) {
-        showToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
-      }
-      return
-    }
-
-    if (props.tab.type === "deck") {
-      exportDeckAsPDF(props.tab.content, props.tab.title)
-      return
-    }
     
-    const api = getDesktopApi()
-    const supportedTypes = ["html", "svg", "image", "video", "audio", "pdf", "text"]
-    
-    if (props.tab.filePath && supportedTypes.includes(props.tab.type) && api?.saveFilePicker && api?.readFileBuffer && api?.writeFileBuffer) {
-      const chosen = await api.saveFilePicker({ defaultPath: props.tab.title })
-      if (!chosen) return
-      const buffer = await api.readFileBuffer(props.tab.filePath)
-      if (!buffer) {
-        showToast({ title: "读取文件失败", variant: "error" })
-        return
-      }
-      await api.writeFileBuffer(chosen, buffer)
-      showToast({ title: "已保存" })
-      return
-    }
-    
-    const info = getDownloadInfo(props.tab)
-    const content = extractDownloadContent(props.tab)
-    await downloadBlob(content, info.filename, info.mime)
+    // 如果 handler 未定义或返回 false，使用 default handler
+    const defaultHandler = getSubtypeHandler('_default')
+    await defaultHandler?.handleDownload?.({
+      tab: props.tab,
+      showToast,
+      tracker,
+      getDesktopApi,
+      extractCodeBlock,
+      observedUrlsGetter: props.observedResourceUrls,
+      projectSelection: () => undefined,
+    })
   }
 
   const config = createMemo(() => getSubtypeConfig(props.tab.subtype))
@@ -468,10 +436,102 @@ export function ActionBar(props: {
 
   const currentMode = () => props.mode ?? "preview"
   const currentViewport = () => props.viewport ?? "desktop"
+  
+  // 获取自定义按钮配置
+  const handler = getSubtypeHandler(props.tab.subtype)
+  const uiConfig = createMemo(() => handler?.components?.actionBar)
+  
+  const shouldReplaceDefaultButtons = () => uiConfig()?.replaceDefaultButtons ?? false
+  
+  const customButtons = createMemo(() => {
+    const config = uiConfig()
+    if (!config) return []
+    
+    if (config.replaceDefaultButtons && config.customButtons) {
+      return config.customButtons
+    }
+    
+    return config.extraButtons ?? []
+  })
+  
+  // 按位置分组按钮
+  const buttonsByPosition = createMemo(() => {
+    const buttons = customButtons()
+    const positions: ButtonPosition[] = [
+      'start', 'after-refresh', 'after-mode-toggle', 'after-viewport',
+      'after-edit', 'after-download', 'after-archive', 'before-fullscreen', 'end'
+    ]
+    
+    const groups: Record<string, ActionBarButton[]> = {}
+    positions.forEach(pos => groups[pos] = [])
+    
+    buttons.forEach(button => {
+      const pos = button.position ?? 'end'
+      if (!groups[pos]) groups[pos] = []
+      groups[pos].push(button)
+    })
+    
+    // 对每个位置的按钮按 order 排序
+    Object.keys(groups).forEach(pos => {
+      groups[pos].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    })
+    
+    return groups
+  })
+  
+  // 渲染指定位置的按钮
+  const renderButtonsAtPosition = (position: ButtonPosition): JSX.Element[] => {
+    const buttons = buttonsByPosition()[position] || []
+    return buttons.map(button => renderCustomButton(button)).filter(Boolean) as JSX.Element[]
+  }
+  
+  // 渲染自定义按钮
+  const renderCustomButton = (button: ActionBarButton): JSX.Element | null => {
+    const ctx: SubtypeHandlerContext = {
+      tab: props.tab,
+      showToast,
+      tracker,
+      getDesktopApi,
+      extractCodeBlock,
+      observedUrlsGetter: props.observedResourceUrls,
+      projectSelection: () => undefined,
+    }
+    
+    const isVisible = typeof button.visible === 'function' 
+      ? button.visible(ctx) 
+      : (button.visible ?? true)
+    
+    if (!isVisible) return null
+    
+    const isDisabled = typeof button.disabled === 'function'
+      ? button.disabled(ctx)
+      : (button.disabled ?? false)
+    
+    const isActive = typeof button.active === 'function'
+      ? button.active(ctx)
+      : (button.active ?? false)
+    
+    return (
+      <button
+        type="button"
+        class={`octo-action-btn ${button.variant === 'primary' ? 'octo-action-btn-primary' : ''} ${button.variant === 'danger' ? 'octo-action-btn-danger' : ''}`}
+        classList={{ "octo-viewport-btn-active": isActive }}
+        onClick={() => button.onClick?.(ctx)}
+        disabled={isDisabled}
+        title={button.tooltip ?? button.label}
+      >
+        {typeof button.icon === 'string' ? (
+          <span>{button.icon}</span>
+        ) : button.icon}
+        <span>{button.label}</span>
+      </button>
+    )
+  }
 
   return (
     <div class="octo-action-bar">
       <div class="octo-action-bar-left">
+        {renderButtonsAtPosition('start')}
         {showRefreshButton() && props.onRefresh && (
           <button
             type="button"
@@ -559,11 +619,13 @@ export function ActionBar(props: {
               <span>下载</span>
             </button>
           </Show>
+          {renderButtonsAtPosition('after-download')}
         </div>
 
         {/* Fixed buttons - always stay as text */}
         <div class="octo-action-bar-fixed">
-          {showViewport() && props.onPaletteChange && (
+          <Show when={!shouldReplaceDefaultButtons()}>
+            {showViewport() && props.onPaletteChange && (
             <div class="flex items-center gap-[2px] mr-1 hidden">
               <button
                 type="button"
@@ -618,6 +680,8 @@ export function ActionBar(props: {
               <span>归档</span>
             </button>
           )}
+          {renderButtonsAtPosition('after-archive')}
+          {renderButtonsAtPosition('before-fullscreen')}
           <Show when={showFullscreen() && props.tab.type !== "design-plan" && props.onFocusModeToggle}>
             <button
               type="button"
@@ -643,6 +707,8 @@ export function ActionBar(props: {
               </svg>
             </button>
           </Show>
+          </Show>
+          {renderButtonsAtPosition('end')}
         </div>
       </div>
     </div>
