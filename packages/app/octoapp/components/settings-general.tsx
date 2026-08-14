@@ -1,4 +1,4 @@
-import { Component, Show, createMemo, createResource, createSignal, onMount, type JSX } from "solid-js"
+import { Component, Show, createEffect, createMemo, createResource, createSignal, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -16,6 +16,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useServer } from "@/context/server"
 import { useLayout } from "@/context/layout"
+import { useProjectDir } from "@/hooks/use-project-dir"
 import {
   monoDefault,
   monoFontFamily,
@@ -836,6 +837,146 @@ export const SettingsGeneral: Component = () => {
     </div>
   )
 
+  // ── SPEC-INS-031 Chat 历史会话迁移(临时功能:chat → insight 的一次性搬家)──────────
+  // 迁移只改会话归属(agent / directory / project_id 三列),对话内容一字不动;服务端在迁移
+  // 前会先备份整库并校验,任一步不确定都中止并明确报错。退场时整节连同两个接口一起删。
+  const projectDir = useProjectDir()
+  const [migrateDir, setMigrateDir] = createSignal("")
+  const [migrating, setMigrating] = createSignal(false)
+  // pending = 还没迁的 chat 历史;migratable = 备份里可重迁的(> 0 时按钮变「重新迁移」)。
+  const [migrateCounts, setMigrateCounts] = createSignal({ pending: 0, migratable: 0 })
+
+  // 默认填当前全局选中目录,用户可二次修改(改过之后不被 projectDir 变化覆盖)。
+  createEffect(() => {
+    const dir = projectDir()
+    if (dir && !migrateDir()) setMigrateDir(dir)
+  })
+
+  const loadMigrateCounts = async () => {
+    const dir = migrateDir() || projectDir()
+    if (!dir) return
+    try {
+      const api = globalSdk.client.insight?.chatMigration
+      if (!api) return
+      const result = await api.preview({ body_directory: dir, query_directory: dir })
+      const data = result.data
+      if (!data) return
+      setMigrateCounts({ pending: Number(data.pending) || 0, migratable: Number(data.migratable) || 0 })
+    } catch (err) {
+      // 预览失败只是拿不到条数,不该让设置页报错:按钮仍可点,真正的结论以迁移结果为准。
+      console.warn("[settings:chat-migrate] preview failed", err)
+    }
+  }
+  onMount(() => void loadMigrateCounts())
+
+  const pickMigrateDir = async () => {
+    if (!platform.openDirectoryPickerDialog) return
+    const result = await platform.openDirectoryPickerDialog()
+    if (result && typeof result === "string") setMigrateDir(result)
+  }
+
+  const runChatMigration = async () => {
+    const dir = migrateDir()
+    if (!dir) {
+      showToast({ variant: "error", title: "请先选择目标文件夹" })
+      return
+    }
+    setMigrating(true)
+    try {
+      const api = globalSdk.client.insight?.chatMigration
+      if (!api) {
+        showToast({ variant: "error", title: "当前版本不支持该功能，请更新后重试" })
+        return
+      }
+      const result = await api.run({ body_directory: dir, query_directory: dir })
+      if (!result.data) {
+        const reason = (result.error as { data?: { message?: string } } | undefined)?.data?.message
+        showToast({ variant: "error", title: `迁移失败：${reason ?? "请稍后重试"}` })
+        return
+      }
+      const migrated = Number(result.data.migrated) || 0
+      if (migrated === 0) {
+        showToast({ title: "没有需要迁移的 Chat 历史会话" })
+      } else {
+        const folder = dir.split(/[/\\]/).filter(Boolean).pop() ?? dir
+        // 备份是整库副本、体积等同当前数据库,且不会自动清理 —— 告诉用户它在哪,才谈得上
+        // 「用完自行删除」。放 description 不放 title:路径很长,标题要保持可读。
+        const backupPath = typeof result.data.backupPath === "string" ? result.data.backupPath : ""
+        showToast({
+          variant: "success",
+          title: `已迁移 ${migrated} 条 Chat 历史会话到 ${folder}`,
+          description: backupPath ? `迁移前的数据已备份到 ${backupPath}，确认无误后可自行删除` : undefined,
+        })
+      }
+      await loadMigrateCounts()
+    } catch (err) {
+      showToast({ variant: "error", title: `迁移失败：${err instanceof Error ? err.message : String(err)}` })
+    } finally {
+      setMigrating(false)
+    }
+  }
+
+  const migrateButtonLabel = () => {
+    if (migrating()) return "迁移中..."
+    return migrateCounts().pending === 0 && migrateCounts().migratable > 0 ? "重新迁移" : "开始迁移"
+  }
+
+  const ChatMigrationSection = () => (
+    <div class="flex flex-col gap-1">
+      <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>Chat 历史会话迁移</div>
+      <div style={{ display: "flex", "flex-direction": "column", gap: "12px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px" }}>
+        <span style={{ "font-size": "12px", "line-height": "20px", color: "rgba(0,0,0,0.6)" }}>
+          把 Chat 的历史会话移入所选文件夹，移入后可在Insight会话列表中打开查看。对话内容不会改变。
+        </span>
+        <div class="flex items-center gap-2">
+          <input
+            type="text"
+            value={migrateDir()}
+            readOnly
+            title={migrateDir()}
+            placeholder="请选择目标文件夹"
+            spellcheck={false}
+            style={{
+              "height": "28px",
+              "border": "1px solid rgba(201,201,201,1)",
+              "border-radius": "4px",
+              "padding": "4px 12px",
+              "flex": "1",
+              "min-width": "0",
+              "outline": "none",
+              "font-size": "12px",
+              "line-height": "20px",
+              "text-overflow": "ellipsis",
+            }}
+          />
+          <Button
+            size="small"
+            variant="secondary"
+            disabled={migrating() || !platform.openDirectoryPickerDialog}
+            onClick={pickMigrateDir}
+            style={{ "border": "1px solid rgba(201,201,201,1)", "font-size": "12px", "line-height": "20px" }}
+          >
+            选择…
+          </Button>
+        </div>
+        <Show when={migrateCounts().pending > 0}>
+          <span style={{ "font-size": "12px", "line-height": "20px", color: "rgba(0,0,0,0.6)" }}>
+            待迁移 {migrateCounts().pending} 条
+          </span>
+        </Show>
+        <Button
+          size="small"
+          variant="secondary"
+          disabled={migrating() || !migrateDir()}
+          onClick={runChatMigration}
+          style={{ width: "88px", "border": "1px solid rgba(201,201,201,1)", "font-size": "12px", "line-height": "20px" }}
+        >
+          {migrateButtonLabel()}
+        </Button>
+      </div>
+    </div>
+  )
+
   return (
     <div class="flex flex-col h-full overflow-y-auto no-scrollbar pb-10 sm:pb-10">
       <div class="sticky top-0 z-10" style="background: linear-gradient(to bottom, #fff calc(100% - 12px), transparent);">
@@ -886,6 +1027,8 @@ export const SettingsGeneral: Component = () => {
         </Show>
 
         <ProxySection />
+
+        <ChatMigrationSection />
       </div>
     </div>
 )

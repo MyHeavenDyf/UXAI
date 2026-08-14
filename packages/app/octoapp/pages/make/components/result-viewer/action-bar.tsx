@@ -17,6 +17,10 @@ import { subtypeUIRegistry } from "../../utils/subtype-ui-registry"
 import type { ActionBarButton, SubtypeHandlerContext, ButtonPosition } from "../../subtype-handlers/types"
 import type { VersionEntry } from "../../utils/history-store"
 import { HistoryPanel } from "./history-panel"
+import { useSDK } from "@/context/sdk"
+import { useSync } from "@/context/sync"
+import { useLocal } from "@/context/local"
+import { useParams } from "@solidjs/router"
 
 // Responsive breakpoints for action bar
 const ACTION_BAR_COLLAPSE_WIDTH = 600
@@ -365,11 +369,18 @@ export function ActionBar(props: {
     currentVersionId?: string | null
     onHistorySwitch?: (entry: VersionEntry) => void
   }): JSX.Element {
+  const sdk = useSDK()
+  const sync = useSync()
+  const local = useLocal()
+  const params = useParams<{ id?: string }>()
+
   async function handleDownload() {
     tracker.interaction({ module: "design", name: "download-file", extend: JSON.stringify({ type: props.tab.type }) })
     
     const handler = getSubtypeHandler(props.tab.subtype)
     if (handler?.handleDownload) {
+      const m = local.model.current()
+      const modelKey = m ? { providerID: m.provider.id, modelID: m.id } : undefined
       const ctx = {
         tab: props.tab,
         showToast,
@@ -378,6 +389,10 @@ export function ActionBar(props: {
         extractCodeBlock,
         observedUrlsGetter: props.observedResourceUrls,
         projectSelection: () => undefined,
+        sdk,
+        modelKey,
+        sync,
+        sessionId: params.id,
       }
       
       try {

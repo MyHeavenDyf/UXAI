@@ -184,8 +184,12 @@ export function PropertyEditorPopup(props: {
     return COMPONENT_ENUMS[`${props.componentType}.${key}`] || []
   }
 
+  function isStateBoundValue(v: unknown): v is { path: string } {
+    return v !== null && typeof v === "object" && !Array.isArray(v) && typeof (v as { path?: unknown }).path === "string"
+  }
+
   function isBinding(key: string) {
-    return `__bind_${key}` in rawProps
+    return `__bind_${key}` in rawProps || isStateBoundValue((rawProps as Record<string, unknown>)[key])
   }
 
   function splitCssList(value: string): string[] {
@@ -667,7 +671,7 @@ export function PropertyEditorPopup(props: {
       setEffects([...effects, { id: ++effectIdCounter, ...e }])
     }
 
-    setEditText((parsed.value ?? '').toString())
+    setEditText(isStateBoundValue(parsed.value) ? '' : (parsed.value ?? '').toString())
     const bgUrl = v.backgroundImage ? '' : (parsed.backgroundImage || '').toString()
     if (bgUrl) {
       setEditBgUrl(bgUrl === 'none' ? '' : bgUrl)
@@ -698,7 +702,7 @@ export function PropertyEditorPopup(props: {
   function applyParseClassFallback(rawCls: string, parsed: Record<string, unknown>) {
     const clsInfo = doParseClass(rawCls)
 
-    setEditText((parsed.value ?? '').toString())
+    setEditText(isStateBoundValue(parsed.value) ? '' : (parsed.value ?? '').toString())
     setEditFontSize(clsInfo.fontSize); setFoundFontSize(clsInfo.foundFontSize)
     setEditFontWeight(clsInfo.fontWeight); setFoundFontWeight(clsInfo.foundFontWeight)
     setEditAlign(clsInfo.textAlign)
@@ -794,7 +798,8 @@ export function PropertyEditorPopup(props: {
     const allKeys = [...new Set([...defKeys, ...Object.keys(parsed)])].filter(k => !k.startsWith('__bind_') && k !== 'inlineCollapsed' && k !== 'preview' && k !== 'url')
     setPropKeys(allKeys)
     for (const k of allKeys) {
-      const raw = (parsed[k] ?? '').toString()
+      const parsedVal = parsed[k]
+      const raw = isStateBoundValue(parsedVal) ? '' : (parsedVal ?? '').toString()
       const opts = getEnumOptions(k)
       let def = ENUM_DEFAULTS[`${props.componentType}.${k}`]
       if (!def && opts.some(o => o.value === 'default')) def = 'default'
@@ -849,7 +854,8 @@ export function PropertyEditorPopup(props: {
     }
     let parsed: Record<string, unknown> = {}
     try { parsed = JSON.parse(props.elementProps || '{}') } catch { /* ignore */ }
-    const rawCls = (parsed.className as string) || props.currentClass || ''
+    const parsedClassName = isStateBoundValue(parsed.className) ? '' : (parsed.className as string) || ''
+    const rawCls = parsedClassName || props.currentClass || ''
     parsedClasses = rawCls.split(/\s+/).filter(c => Boolean(c) && !c.startsWith('el-') && !c.startsWith('!el-')).map(c => c.startsWith('!') ? c.slice(1) : c)
     importantSet = new Set(
       rawCls.split(/\s+/)
@@ -1308,6 +1314,7 @@ export function PropertyEditorPopup(props: {
     if (!isTextElement()) {
       for (const key of propKeys()) {
         if (key === 'className') continue
+        if (isBinding(key)) continue
         const val = (editProps as Record<string, string>)[key]
         const isEnum = getEnumOptions(key).length > 0
         const hasRaw = (rawProps as Record<string, string>)[key] !== undefined

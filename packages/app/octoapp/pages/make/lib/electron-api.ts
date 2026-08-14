@@ -18,6 +18,8 @@ export type DesktopApi = {
   downloadResourceToTemp?: (url: string, namespace: string, filename: string) => Promise<string>
   writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>
   readFileBuffer?: (path: string) => Promise<ArrayBuffer | null>
+  /** 原子重命名（同文件系统内）。用于"写临时文件 → rename 到目标"原子落盘。 */
+  renameFile?: (srcPath: string, destPath: string) => Promise<void>
   statFile?: (path: string) => Promise<{ size: number } | null>
   listDirectory?: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>
   copyFileTo?: (srcPath: string, destPath: string) => Promise<void>
@@ -35,6 +37,12 @@ export type DesktopApi = {
     state: "completed" | "cancelled" | "interrupted"
   }) => void) => () => void
   getAssetsConfig?: () => Promise<Record<string, unknown>>
+  /** 导出 HUI 代码（经 IPC 调主进程 downloadHuiCode） */
+  downloadHuiCode?: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[], options?: { targetLib?: string }) => Promise<{ files: { path: string; content: string }[] }>
+  /** 导出 ZIP 压缩包 */
+  exportZip?: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; destFolder?: string; comment?: string }) => Promise<string | null>
+  /** 获取上传资源根目录 */
+  getUploadsDir?: () => Promise<string | null>
 }
 
 export function getDesktopApi(): DesktopApi | undefined {
