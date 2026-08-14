@@ -7,12 +7,6 @@ import {
   createPrototypeMessageHandler,
   buildSiblingMap,
   loadA2uiData,
-  resetPrototypeEditing,
-  closePrototypePanels,
-  isPrototypeAnnotating,
-  startAnnotation,
-  stopAnnotation,
-  resetPrototypeAnnotation,
 } from "../utils/prototype-utils"
 import { showPromiseToast } from "@opencode-ai/ui/toast"
 import proto_replanner from "../../pattern/agents/proto-replanner"
@@ -169,19 +163,12 @@ export default {
   },
 
   async handleComment(ctx) {
-    const next = !isPrototypeAnnotating()
+    ctx.showToast({ title: "该功能暂未上线" })
+    return true
+  },
 
-    if (!next) {
-      stopAnnotation(ctx)
-      resetPrototypeAnnotation()
-      return true
-    }
-
-    // 先清理 edit 模式(互斥):关闭编辑浮层 + 移除 edit message handler
-    resetPrototypeEditing()
-    closePrototypePanels()
-
-    startAnnotation(ctx)
+  async handleArchive(ctx) {
+    ctx.showToast({ title: "该功能暂未上线" })
     return true
   },
 
