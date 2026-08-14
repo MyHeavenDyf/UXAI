@@ -70,6 +70,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       canvasEdit: true,
       comment: true,
       archive: true,
+      history: false,
       download: true,
       fullscreen: true,
     },
