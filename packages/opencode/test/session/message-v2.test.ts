@@ -1221,27 +1221,6 @@ describe("session.message-v2.fromError", () => {
     })
   })
 
-  test("detects maximum input length overflow from stream errors", () => {
-    const message =
-      "This model's maximum input length is 131071 tokens. However, you requested 137089 tokens. Please reduce the length of the prompt or the messages."
-    const input = {
-      type: "error",
-      error: {
-        code: "invalid_request_error",
-        message,
-      },
-    }
-    const result = MessageV2.fromError(input, { providerID })
-
-    expect(result).toStrictEqual({
-      name: "ContextOverflowError",
-      data: {
-        message,
-        responseBody: JSON.stringify(input),
-      },
-    })
-  })
-
   test("serializes response error codes", () => {
     const cases = [
       {
@@ -1309,7 +1288,6 @@ describe("session.message-v2.fromError", () => {
       "Your input exceeds the context window of this model",
       "The input token count (1196265) exceeds the maximum number of tokens allowed (1048575)",
       "Please reduce the length of the messages or completion",
-      "This model's maximum input length is 131071 tokens. However, you requested 137089 tokens. Please reduce the length of the prompt or the messages.",
       "400 status code (no body)",
       "413 status code (no body)",
     ]

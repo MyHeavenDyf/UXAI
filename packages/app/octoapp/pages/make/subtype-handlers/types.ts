@@ -1,7 +1,7 @@
 import type { ResultTab } from "../components/result-viewer/tab-store"
 import type { JSX } from "solid-js"
 
-export type FeatureType = 'localEdit' | 'drawEdit' | 'canvasEdit' | 'comment' | 'archive'
+export type FeatureType = 'localEdit' | 'drawEdit' | 'canvasEdit'
 
 export interface SubtypeHandlerContext {
   tab: ResultTab

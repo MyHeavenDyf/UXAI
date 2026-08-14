@@ -638,11 +638,19 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                       featureMutex.toggleFeature('drawing')
                       tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
                     }}
-commenting={featureMutex.state.commenting}
-                     onCommentToggle={htmlMode() === "edit" ? undefined : handleCommentToggle}
-                     archiving={featureMutex.state.archiving}
-                     onArchiveToggle={htmlMode() === "edit" ? undefined : handleArchiveToggle}
-                      onCanvasToDesign={handleCanvasToDesign}
+                    commenting={featureMutex.state.commenting}
+                    onCommentToggle={htmlMode() === "edit" ? undefined : () => {
+                      const nextCommenting = !featureMutex.state.commenting
+                      featureMutex.toggleFeature('commenting')
+                      tracker.interaction({ module: "design", name: "toggle-comment-mode", extend: JSON.stringify({ action: nextCommenting ? "open" : "close" }) })
+                    }}
+                    archiving={featureMutex.state.archiving}
+                    onArchiveToggle={htmlMode() === "edit" ? undefined : () => {
+                      const nextArchiving = !featureMutex.state.archiving
+                      featureMutex.toggleFeature('archiving')
+                      tracker.interaction({ module: "design", name: "toggle-archive-mode", extend: JSON.stringify({ action: nextArchiving ? "open" : "close" }) })
+}}
+                     onCanvasToDesign={handleCanvasToDesign}
                      onRefresh={handleRefresh}
                     observedResourceUrls={() => observedUrlsGetter?.() || []}
                     focusMode={props.focusMode}

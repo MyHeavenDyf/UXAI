@@ -355,7 +355,6 @@ export const layer: Layer.Layer<
       auto: boolean
       overflow?: boolean
     }) {
-      const startedAt = Date.now()
       const parent = input.messages.findLast((m) => m.info.id === input.parentID)
       if (!parent || parent.info.role !== "user") {
         throw new Error(`Compaction parent must be a user message: ${input.parentID}`)
@@ -513,49 +512,6 @@ export const layer: Layer.Layer<
         return "stop"
       }
 
-      if (processor.message.error || result === "stop") return "stop"
-
-      const repaired = CompactionSummary.repair(attempt.summary)
-      if (repaired.repaired.length && repaired.summary && attempt.stored) {
-        const parts = attempt.stored.parts.filter((part): part is MessageV2.TextPart => part.type === "text")
-        const firstPart = parts[0]
-        if (firstPart) {
-          yield* session.updatePart({ ...firstPart, text: repaired.summary })
-          yield* Effect.forEach(
-            parts.slice(1),
-            (part) => session.removePart({ sessionID: input.sessionID, messageID: msg.id, partID: part.id }),
-            { discard: true },
-          )
-        }
-        log.warn("compaction summary repaired", {
-          sessionID: input.sessionID,
-          modelID: model.id,
-          repaired: repaired.repaired,
-          raw_summary: attempt.summary,
-          final_summary: repaired.summary,
-        })
-      }
-      const summary = repaired.summary
-      const validation = CompactionSummary.validate(summary)
-      if (processor.message.finish && !validation.valid) {
-        processor.message.error = new MessageV2.APIError({
-          message: summary
-            ? `Context compaction returned an invalid summary. Missing sections: ${validation.missing.join(", ")}`
-            : "Context compaction returned an empty summary.",
-          isRetryable: false,
-        }).toObject()
-        processor.message.finish = "error"
-        yield* session.updateMessage(processor.message)
-        log.error("compaction summary invalid", {
-          sessionID: input.sessionID,
-          modelID: model.id,
-          missing: validation.missing,
-          duration_ms: Date.now() - startedAt,
-          summary: summary ?? "",
-        })
-        return "stop"
-      }
-
       if (compactionPart && selected.tail_start_id && compactionPart.tail_start_id !== selected.tail_start_id) {
         yield* session.updatePart({
           ...compactionPart,
@@ -581,19 +537,8 @@ export const layer: Layer.Layer<
             if (part.type === "compaction") continue
             const replayPart =
               part.type === "file" && MessageV2.isMedia(part.mime)
-                ? {
-                    type: "text" as const,
-                    text: `[Attached ${part.mime}: ${part.filename ?? "file"}]`,
-                    synthetic: true,
-                    metadata: { compaction_replay: true },
-                  }
-                : part.type === "text"
-                  ? {
-                      ...part,
-                      synthetic: true,
-                      metadata: { ...part.metadata, compaction_replay: true },
-                    }
-                  : part
+                ? { type: "text" as const, text: `[Attached ${part.mime}: ${part.filename ?? "file"}]` }
+                : part
             yield* session.updatePart({
               ...replayPart,
               id: PartID.ascending(),
@@ -656,17 +601,14 @@ export const layer: Layer.Layer<
         }
       }
 
+      if (processor.message.error) return "stop"
       if (result === "continue") {
-        log.info("compaction completed", {
-          sessionID: input.sessionID,
-          modelID: model.id,
-          providerID: model.providerID,
-          input_tokens: processor.message.tokens.input,
-          output_tokens: processor.message.tokens.output,
-          duration_ms: Date.now() - startedAt,
-          tail_start_id: selected.tail_start_id,
-          summary,
-        })
+        const summary = summaryText(
+          (yield* session.messages({ sessionID: input.sessionID })).find((item) => item.info.id === msg.id) ?? {
+            info: msg,
+            parts: [],
+          },
+        )
         EventV2.run(SessionEvent.Compaction.Ended.Sync, {
           sessionID: input.sessionID,
           timestamp: DateTime.makeUnsafe(Date.now()),

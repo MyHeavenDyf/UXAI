@@ -70,7 +70,6 @@ import { linkToOutputType } from "./utils/resource-link"
 import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
 import { assembleInsightParts } from "./utils/build-prompt-parts"
-import { currentAccount } from "./utils/account"
 import { snapshotAttachmentsForQueue } from "./utils/queue-drain"
 import { splitMentions, queuedMentions } from "./utils/mention"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -1356,14 +1355,6 @@ function InsightContent() {
       endpoint: `${sdk.url}/session/${sessionId}/prompt_async`,
     } satisfies SendRecord)
 
-    // SPEC-INS-030 §5:工号只在 renderer 拿得到(sidecar 无 localStorage),随请求 extra 递进去。
-    // 缺失不阻断发送——只是本轮 knowledge_search 会明确拒答;其余能力(读材料/MCP/技能)与工号无关。
-    const account = currentAccount()
-    const promptExtra =
-      injectedSkills.length || account
-        ? { ...(injectedSkills.length ? { skills: injectedSkills } : {}), ...(account ? { account } : {}) }
-        : undefined
-
     sync.session.optimistic.add({
       sessionID: sessionId,
       message: optimisticMessage,
@@ -1385,12 +1376,9 @@ function InsightContent() {
         parts,
         messageID,
         tools: toolGate,
-        // extra 是共享自由字段(服务端按 sessionID 存进 sessionExtras,再原样铺进工具的 ctx.extra):
-        //   - skills(SPEC-INS-029):本轮激活的技能,服务端据此 publish skill.used。
-        //   - account(SPEC-INS-030 §5):当前登录工号,供 knowledge_search 按真实用户调内网知识库(该接口按
-        //     account 限流)。拿不到工号就不传,由工具侧显式告知,不塞兜底值。
-        // 两者都没有时整个 extra 不传,保持 payload 干净(studio 也在用这个字段,别塞空对象进去)。
-        ...(promptExtra ? { extra: promptExtra } : {}),
+        // SPEC-INS-029:声明本轮激活的技能,服务端 prompt() 据此 publish skill.used。无技能时不传,
+        // 保持 payload 干净(extra 是共享自由字段,studio 也在用,别塞空对象进去)。
+        ...(injectedSkills.length ? { extra: { skills: injectedSkills } } : {}),
       })
       // chip turn 结果对账登记(spec §5:chip turn 工具调用结果):busy→idle 时消费
       if (opts.chip) {
