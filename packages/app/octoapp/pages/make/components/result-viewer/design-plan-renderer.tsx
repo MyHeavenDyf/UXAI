@@ -130,7 +130,6 @@ export function DesignPlanRenderer(props: {
         "code-theme",
         "content-theme",
         "outline",
-        "preview",
         "export",
       ],
       toolbarConfig: { pin: true },

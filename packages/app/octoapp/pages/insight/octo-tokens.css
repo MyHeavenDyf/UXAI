@@ -631,6 +631,43 @@
   background: transparent;
 }
 
+.octo-tab {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(44,46,52,0.05);
+  color: rgba(0,0,0,0.6);
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+  transition: background var(--octo-dur-fast) var(--octo-ease),
+              color var(--octo-dur-fast) var(--octo-ease);
+  max-width: 180px;
+  flex: 0 0 auto;
+}
+.octo-tab:hover {
+  background: rgba(44,46,52,0.08);
+}
+.octo-tab[data-active="true"] {
+  background: rgba(10,89,247,0.08);
+  color: var(--octo-brand);
+}
+.octo-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  color: inherit;
+  flex-shrink: 0;
+}
+
 /* ── 用户气泡上方的输入文件卡片(替代暴露 S3 URL,见 file-upload spec)──
    右对齐贴合用户气泡;卡片显示文件名 + 扩展名徽标。 */
 .octo-input-attachments {
