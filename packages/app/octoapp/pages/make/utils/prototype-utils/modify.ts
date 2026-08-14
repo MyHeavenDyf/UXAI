@@ -12,6 +12,11 @@ function coercePropValue(prev: unknown, val: string | boolean): string | boolean
   return val
 }
 
+/** 识别 prototype a2ui 的 state 绑定形状 { path: "/a/b" } */
+function isStateBound(v: unknown): v is { path: string } {
+  return v !== null && typeof v === "object" && !Array.isArray(v) && typeof (v as { path?: unknown }).path === "string"
+}
+
 /** 沿 path（如 /a/b/c）遍历 doc.state，把 value 写到目标叶子（按原值类型转换）；路径不存在则放弃 */
 function writeStateBinding(state: Record<string, unknown> | undefined, path: string, value: string | boolean) {
   if (!state || typeof state !== "object") return
@@ -33,8 +38,89 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
+/** 解析循环实例 elementId（如 comp:0 或 comp:0:1 嵌套）到 state 中各级循环的数组路径与索引。
+ *  沿父链上溯，对每个循环祖先（children={path,componentId}）记录 arrayPath + 对应 index。
+ *  返回从外到内的层级列表；无法解析返回 null。 */
+function resolveLoopPath(
+  baseId: string,
+  elements: Array<{ id: string; children?: unknown }>,
+  indices: number[],
+): Array<{ arrayPath: string[]; index: number }> | null {
+  const parentMap = new Map<string, string>()
+  for (const el of elements) {
+    if (Array.isArray(el.children)) {
+      for (const childId of el.children) parentMap.set(childId, el.id)
+    } else if (el.children && typeof el.children === "object" && !Array.isArray(el.children)) {
+      const cid = (el.children as Record<string, unknown>).componentId
+      if (typeof cid === "string") parentMap.set(cid, el.id)
+    }
+  }
+  let current = baseId
+  let idx = 0
+  const levels: Array<{ arrayPath: string[]; index: number }> = []
+  while (true) {
+    const parentId = parentMap.get(current)
+    if (!parentId) break
+    const parent = elements.find((e) => e.id === parentId)
+    if (!parent) break
+    if (parent.children && typeof parent.children === "object" && !Array.isArray(parent.children)) {
+      const p = (parent.children as Record<string, unknown>).path
+      if (typeof p === "string") {
+        const arrayPath = p.replace(/^\//, "").split("/").filter(Boolean)
+        const ii = indices.length - 1 - idx
+        if (ii >= 0) levels.unshift({ arrayPath, index: indices[ii] })
+        idx++
+      }
+    }
+    current = parentId
+  }
+  return levels.length === 0 ? null : levels
+}
+
+/** 沿 pathParts 逐段取值；遇到非对象/数组则返回 undefined。 */
+function navigatePath(target: unknown, pathParts: string[]): unknown {
+  let cur: unknown = target
+  for (const p of pathParts) {
+    if (!cur || typeof cur !== "object" || Array.isArray(cur)) return undefined
+    cur = (cur as Record<string, unknown>)[p]
+  }
+  return cur
+}
+
+/** 把绑定值写入循环实例在 state 中的对应数组项。levels 为 resolveLoopPath 的返回值（外→内）。 */
+function writeLoopBindings(
+  state: Record<string, unknown> | undefined,
+  levels: Array<{ arrayPath: string[]; index: number }>,
+  bindings: { path: string; value: string | boolean }[],
+) {
+  if (!state || typeof state !== "object" || levels.length === 0) return
+  let target: unknown = state
+  for (let l = 0; l < levels.length - 1; l++) {
+    const arr = navigatePath(target, levels[l].arrayPath)
+    if (!Array.isArray(arr) || levels[l].index >= arr.length) return
+    target = arr[levels[l].index]
+  }
+  const last = levels[levels.length - 1]
+  const arr = navigatePath(target, last.arrayPath)
+  if (!Array.isArray(arr) || last.index >= arr.length) return
+  const item = { ...((arr[last.index] as Record<string, unknown>) ?? {}) }
+  for (const b of bindings) {
+    const pathParts = b.path.replace(/^\//, "").split("/").filter(Boolean)
+    let t: Record<string, unknown> = item
+    for (let j = 0; j < pathParts.length - 1; j++) {
+      const k = pathParts[j]
+      if (!t[k] || typeof t[k] !== "object" || Array.isArray(t[k])) t[k] = {}
+      t = t[k] as Record<string, unknown>
+    }
+    const lastKey = pathParts[pathParts.length - 1]
+    if (lastKey) t[lastKey] = coercePropValue(t[lastKey], b.value)
+  }
+  ;(arr as unknown[])[last.index] = item
+}
+
 /** 应用一次属性编辑到当前 prototype 的 A2UI JSON 并 od:a2ui-update 回推重渲染。
- *  state 绑定字段（{ path }）保留绑定，把新值写入 doc.state 对应路径；普通属性直接改 props，按原值类型转换。 */
+ *  循环实例（elementId 含 :N 后缀）：绑定字段写入 state 中对应数组项；普通字段改模板 props。
+ *  非循环：绑定字段按 path 直写 state；普通字段改元素 props。 */
 export function applyPrototypeModify(data: PrototypeModifyData) {
   const session = getSession()
   if (!session) return
@@ -45,30 +131,43 @@ export function applyPrototypeModify(data: PrototypeModifyData) {
   if (!current || typeof current !== "object") return
   const doc = JSON.parse(JSON.stringify(current)) as {
     state?: Record<string, unknown>
-    elements?: Array<{ id: string; props?: Record<string, unknown> }>
+    elements?: Array<{ id: string; props?: Record<string, unknown>; children?: unknown }>
   }
   const elements = doc.elements
   if (!Array.isArray(elements)) return
-  const baseId = data.elementId.replace(/(:\d+)+$/, "")
+  const instanceMatch = data.elementId.match(/^(.+?)((:\d+)+)$/)
+  const baseId = instanceMatch ? instanceMatch[1] : data.elementId
   const el = elements.find((e) => e.id === baseId)
   if (!el) return
   el.props = el.props || {}
-  if (data.className) el.props.className = data.className
-  if (data.textContent) el.props.value = data.textContent
+
+  const bindings: { path: string; value: string | boolean }[] = []
+  const applyProp = (key: string, prev: unknown, value: string | boolean) => {
+    if (isStateBound(prev)) {
+      if (value !== "[object Object]") bindings.push({ path: prev.path, value })
+      return
+    }
+    el.props![key] = coercePropValue(prev, value)
+  }
+
+  if (data.className) applyProp("className", el.props.className, data.className)
+  if (data.textContent) applyProp("value", el.props.value, data.textContent)
   if (data.componentProps) {
     for (const key of Object.keys(data.componentProps)) {
-      const prev = el.props[key]
-      const val = data.componentProps[key]
-      if (prev && typeof prev === "object" && !Array.isArray(prev)) {
-        const path = (prev as Record<string, unknown>).path
-        if (typeof path === "string") {
-          writeStateBinding(doc.state, path, val)
-          continue
-        }
-      }
-      el.props[key] = coercePropValue(prev, val)
+      applyProp(key, el.props[key], data.componentProps[key])
     }
   }
+
+  if (bindings.length > 0) {
+    if (instanceMatch) {
+      const indices = instanceMatch[2].split(":").filter(Boolean).map(Number)
+      const levels = resolveLoopPath(baseId, elements, indices)
+      if (levels) writeLoopBindings(doc.state, levels, bindings)
+    } else {
+      for (const b of bindings) writeStateBinding(doc.state, b.path, b.value)
+    }
+  }
+
   commitA2ui(session, filePath, doc)
 }
 

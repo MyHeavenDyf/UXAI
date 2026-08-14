@@ -21,6 +21,7 @@ import { DesignPlanRenderer } from "./design-plan-renderer"
 import { StrategyFormRenderer } from "./strategy-form-renderer"
 import { PrototypeCtxMenu } from "./prototype-ctx-menu"
 import { PrototypePropertyEditor } from "./prototype-property-editor"
+import { disposePrototypeSession } from "../../utils/prototype-utils"
 import type { StrategyFormData } from "../../utils/strategy-form-scanner"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
 import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
@@ -164,6 +165,14 @@ export function ResultViewer(props: {
   // 当前 HTML tab 的 iframe 元素 getter（由 HtmlRenderer 注册，用于坐标换算/source 匹配）
   let iframeElementGetter: (() => HTMLIFrameElement | undefined) | null = null
   const combinedRefreshKey = createMemo(() => refreshKey() + (props.filesRefreshKey ?? 0))
+
+  // 标签页被关闭时释放其 prototype 编辑 session + message listener，避免泄漏/串扰
+  let prevTabIds: string[] = props.tabs.map((t) => t.id)
+  createEffect(() => {
+    const ids = props.tabs.map((t) => t.id)
+    for (const id of prevTabIds) if (!ids.includes(id)) disposePrototypeSession(id)
+    prevTabIds = ids
+  })
 
   const handleViewportChange = (vp: ViewportPreset) => {
     tracker.interaction({ module: "design", name: "change-viewport", extend: JSON.stringify({ viewport: vp }) })
