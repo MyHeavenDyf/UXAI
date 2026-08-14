@@ -57,7 +57,7 @@ export function PreviewPage(props: {
   const [targetHeight, setTargetHeight] = createSignal(1080)
 
   function unfreezeDomPicker() {
-    previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_UNFREEZE" }, "*")
+    previewIframeRef?.contentWindow?.postMessage({ type: "od:dom-picker-unfreeze" }, "*")
   }
 
   const anno = useAnnotations({
@@ -135,7 +135,7 @@ export function PreviewPage(props: {
       console.log("[preview] sendToPreview skipped: no iframe")
       return
     }
-    previewIframeRef.contentWindow.postMessage({ type: "A2UI_UPDATE", payload: data }, "*")
+    previewIframeRef.contentWindow.postMessage({ type: "od:a2ui-update", payload: data }, "*")
     if (editing()) sendDragMode(true, data)
   }
 
@@ -156,7 +156,7 @@ export function PreviewPage(props: {
 
   function sendDragMode(enabled: boolean, data: unknown = props.pendingData) {
     previewIframeRef?.contentWindow?.postMessage(
-      { type: "DRAG_MODE", enabled, siblingMap: enabled ? buildSiblingMap(data) : undefined },
+      { type: "od:drag-mode", enabled, siblingMap: enabled ? buildSiblingMap(data) : undefined },
       "*",
     )
   }
@@ -170,7 +170,7 @@ export function PreviewPage(props: {
     props.api.refresh = triggerRefresh
     props.api.setEditingOff = () => {
       setEditing(false)
-      previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: false }, "*")
+      previewIframeRef?.contentWindow?.postMessage({ type: "od:dom-picker-mode", enabled: false }, "*")
       setPropertyEditor('show', false)
       setPickerVisible(false)
       setCtxMenu('show', false)
@@ -321,7 +321,7 @@ export function PreviewPage(props: {
   }
 
   function handleSelectParent() {
-    previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_SELECT_PARENT" }, "*")
+    previewIframeRef?.contentWindow?.postMessage({ type: "od:dom-picker-select-parent" }, "*")
   }
 
   function openBothPanels(data: {
@@ -426,14 +426,14 @@ export function PreviewPage(props: {
   }
 
   const handlePickerMessage = (e: MessageEvent) => {
-    if (e.data?.type === "DOM_PICKER_RECT_UPDATE") {
+    if (e.data?.type === "od:dom-picker-rect-update") {
       // iframe 内选中元素尺寸变化后回传的新 rect：重算遮罩锚点，使黑色遮罩/蓝框跟随。
       // 仅当有面板打开且当前启用锚点定位时才更新，COPY 无 rect 路径(hasRect=false)忽略。
       if (!(propertyEditor.show || pickerVisible()) || !pickerAnchor.hasRect) return
       setPickerAnchor({ hasRect: true, ...computeElementRect(e.data.rect) })
       return
     }
-    if (e.data?.type === "DOM_PICKER_CLOSE_PANELS") {
+    if (e.data?.type === "od:dom-picker-close-panels") {
       if (anno.annotationPopup.show) {
         anno.handleAnnotationClose()
         if (!editing()) return
@@ -464,7 +464,7 @@ export function PreviewPage(props: {
       return
     }
 
-    if (e.data?.type === "DOM_PICKER_QUICK_FIX") {
+    if (e.data?.type === "od:dom-picker-quick-fix") {
       const { id, domPickerComponent, domPickerClass, elementProps, tagName, rect } = e.data
       if (anno.annotationPopup.show && !annotating()) {
         anno.handleAnnotationClose()
@@ -489,11 +489,11 @@ export function PreviewPage(props: {
       return
     }
 
-    if (e.data?.type !== "DOM_PICKER_CONTEXT_MENU") return
+    if (e.data?.type !== "od:dom-picker-context-menu") return
     if (annotating()) return
     if (ctxMenu.show) { closeCtxMenu(); return }
     const { id, domPickerComponent, domPickerClass, elementProps, tagName, rect, clickX, clickY } = e.data
-    console.log("[preview] DOM_PICKER_CONTEXT_MENU:", { id, domPickerComponent, domPickerClass, elementProps, tagName })
+    console.log("[preview] od:dom-picker-context-menu:", { id, domPickerComponent, domPickerClass, elementProps, tagName })
     const pos = iframeToPage(clickX, clickY)
     setCtxMenu({
       show: true,
@@ -507,17 +507,17 @@ export function PreviewPage(props: {
 
   const handleIframeMessage = (e: MessageEvent) => {
     handlePickerMessage(e)
-    if (e.data?.type === "A2UI_READY") {
+    if (e.data?.type === "od:a2ui-ready") {
       anno.setIframeReady(true)
       if (props.pendingData) {
         sendToPreview(props.pendingData)
       }
       if (editing()) {
-        previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: true }, "*")
+        previewIframeRef?.contentWindow?.postMessage({ type: "od:dom-picker-mode", enabled: true }, "*")
         sendDragMode(true, props.pendingData)
       }
     }
-    if (e.data?.type === "DRAG_REORDER" && props.onReorder) {
+    if (e.data?.type === "od:drag-reorder" && props.onReorder) {
       props.onReorder(e.data.elementId, e.data.targetSiblingId, e.data.position)
     }
     if (e.data?.type === "A2UI_STATE_CHANGE" && props.onIframeStateChange) {
@@ -550,7 +550,7 @@ export function PreviewPage(props: {
 
   function onParentPointerUp(e: PointerEvent) {
     if (!editing() || e.target === previewIframeRef) return
-    previewIframeRef?.contentWindow?.postMessage({ type: "DRAG_CANCEL" }, "*")
+    previewIframeRef?.contentWindow?.postMessage({ type: "od:drag-cancel" }, "*")
   }
 
   window.addEventListener("message", handleIframeMessage)
@@ -575,7 +575,7 @@ export function PreviewPage(props: {
             setEditing(false)
             setAnnotating(false)
             sendDragMode(false)
-            previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: false }, "*")
+            previewIframeRef?.contentWindow?.postMessage({ type: "od:dom-picker-mode", enabled: false }, "*")
             unfreezeDomPicker()
           }
         }}
@@ -593,7 +593,7 @@ export function PreviewPage(props: {
         onToggleEditing={() => {
           const next = !editing()
           setEditing(next)
-          previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: next }, "*")
+          previewIframeRef?.contentWindow?.postMessage({ type: "od:dom-picker-mode", enabled: next }, "*")
           if (next) {
             setAnnotating(false)
             anno.closeAnnotationPopup()
@@ -618,10 +618,10 @@ export function PreviewPage(props: {
             setPropertyEditor('show', false)
             setPickerVisible(false)
             setCtxMenu('show', false)
-            previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: true }, "*")
+            previewIframeRef?.contentWindow?.postMessage({ type: "od:dom-picker-mode", enabled: true }, "*")
             unfreezeDomPicker()
           } else {
-            previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: false }, "*")
+            previewIframeRef?.contentWindow?.postMessage({ type: "od:dom-picker-mode", enabled: false }, "*")
             unfreezeDomPicker()
             anno.closeAnnotationPopup()
           }
