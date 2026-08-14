@@ -3,7 +3,7 @@ import { createEffect, createMemo, createResource, createSignal, For, Match, on,
 import type { JSX } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { useLocation, useNavigate } from "@solidjs/router"
-import { INSIGHT_LISTED_AGENTS } from "@/constants/agent"
+import { INSIGHT_AGENT } from "@/constants/agent"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useProjectDir } from "@/hooks/use-project-dir"
@@ -108,7 +108,7 @@ export function InsightSessionList(): JSX.Element {
         const legacy = await globalSDK.client.session.list({ directory: dir, limit: lim })
         const filtered = ((legacy.data ?? []) as Array<Session & { agent?: string }>)
           .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
-          .filter((s) => INSIGHT_LISTED_AGENTS.includes(s.agent ?? ""))
+          .filter((s) => s.agent === INSIGHT_AGENT)
         return { items: filtered, total: filtered.length }
       } catch (err) {
         // 列表失败绝不能把整页顶进 ErrorBoundary。降级为"保持上次内容、不刷新",用户仍可新建/继续对话。

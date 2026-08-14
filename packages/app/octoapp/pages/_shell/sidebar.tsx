@@ -2,7 +2,7 @@ import type { Session } from "@opencode-ai/sdk/v2/client"
 import { createEffect, createMemo, createResource, createSignal, on, onCleanup } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { useLocation, useNavigate } from "@solidjs/router"
-import { INSIGHT_AGENT, INSIGHT_LISTED_AGENTS } from "@/constants/agent"
+import { INSIGHT_AGENT } from "@/constants/agent"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useProjectDir } from "@/hooks/use-project-dir"
@@ -85,7 +85,7 @@ export function OctoSidebar() {
         const legacy = await client.session.list()
         const filtered = ((legacy.data ?? []) as Array<Session & { agent?: string }>)
           .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
-          .filter(s => INSIGHT_LISTED_AGENTS.includes(s.agent ?? ""))
+          .filter(s => s.agent === INSIGHT_AGENT)
         setInsightFetchedDir(dir)
         return { items: filtered, total: filtered.length }
       } catch (err) {
