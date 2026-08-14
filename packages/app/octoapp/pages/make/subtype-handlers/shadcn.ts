@@ -1,4 +1,5 @@
-import type { SubtypeHandler, LocalEditChange } from './types'
+import type { SubtypeHandler, LocalEditChange, LocalEditSavePayload } from './types'
+import type { ManualEditTarget, ManualEditStyles } from '../edit-mode/source-patches'
 import { uploadZip } from '@/utils/useZipTransport'
 import { registerCustomBridge } from '../utils/custom-bridge-registry'
 import { sendTextToAgent } from '../utils/agent-events'
@@ -56,6 +57,50 @@ function formatChange(change: LocalEditChange): string {
 
 function quote(value: string): string {
   return value ? `"${value}"` : '(空)'
+}
+
+/**
+ * Build the local-edit save payload from the pending edit session state.
+ * Consumed by handleLocalEditSave to turn the user's changes into a prompt.
+ */
+export function buildLocalEditPayload(
+  target: ManualEditTarget,
+  pendingStyle: { id: string; styles: ManualEditStyles; label: string } | null,
+  pendingText: { id: string; text: string; href: string } | null,
+  initialStyles: ManualEditStyles | null,
+): LocalEditSavePayload {
+  const changes: LocalEditChange[] = []
+
+  if (pendingStyle?.styles) {
+    const styleChanges: Array<{ prop: string; before: string; after: string }> = []
+    for (const [prop, value] of Object.entries(pendingStyle.styles)) {
+      const before = initialStyles?.[prop as keyof ManualEditStyles] ?? ''
+      if (before !== value) {
+        styleChanges.push({ prop, before, after: value })
+      }
+    }
+    if (styleChanges.length > 0) changes.push({ kind: 'styles', changes: styleChanges })
+  }
+
+  if (pendingText && pendingText.id === target.id) {
+    if (target.kind === 'link') {
+      const beforeHref = target.fields.href ?? ''
+      if (pendingText.href !== beforeHref) {
+        changes.push({ kind: 'href', before: beforeHref, after: pendingText.href })
+      }
+      const beforeText = target.fields.text ?? target.text ?? ''
+      if (pendingText.text !== beforeText) {
+        changes.push({ kind: 'text', before: beforeText, after: pendingText.text })
+      }
+    } else if (target.kind === 'text' || target.kind === 'mixed') {
+      const beforeText = target.fields.text ?? target.text ?? ''
+      if (pendingText.text !== beforeText) {
+        changes.push({ kind: 'text', before: beforeText, after: pendingText.text })
+      }
+    }
+  }
+
+  return { target, changes }
 }
 
 export default {

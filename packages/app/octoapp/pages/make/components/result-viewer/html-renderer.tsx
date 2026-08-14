@@ -19,6 +19,7 @@ import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, b
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
 import type { LocalEditSavePayload, LocalEditChange } from "../../subtype-handlers/types"
+import { buildLocalEditPayload } from "../../subtype-handlers/shadcn"
 import { showToast } from "@opencode-ai/ui/toast"
 import { tracker } from "@/utils/tracker"
 import { TaskStore } from "@/context/task"
@@ -527,45 +528,6 @@ createEffect(() => {
   loadComments()
 })
   
-  // Build prompt payload from pending local-edit changes (for subtypes that delegate saving to the agent)
-  function buildLocalEditPayload(): LocalEditSavePayload {
-    const target = editTarget()!
-    const changes: LocalEditChange[] = []
-
-    const pendingStyle = manualEditPendingStyle
-    if (pendingStyle?.styles) {
-      const styleChanges: Array<{ prop: string; before: string; after: string }> = []
-      for (const [prop, value] of Object.entries(pendingStyle.styles)) {
-        const before = manualEditInitialStyles?.[prop as keyof ManualEditStyles] ?? ''
-        if (before !== value) {
-          styleChanges.push({ prop, before, after: value })
-        }
-      }
-      if (styleChanges.length > 0) changes.push({ kind: 'styles', changes: styleChanges })
-    }
-
-    const pendingText = manualEditPendingText
-    if (pendingText && pendingText.id === target.id) {
-      if (target.kind === 'link') {
-        const beforeHref = target.fields.href ?? ''
-        if (pendingText.href !== beforeHref) {
-          changes.push({ kind: 'href', before: beforeHref, after: pendingText.href })
-        }
-        const beforeText = target.fields.text ?? target.text ?? ''
-        if (pendingText.text !== beforeText) {
-          changes.push({ kind: 'text', before: beforeText, after: pendingText.text })
-        }
-      } else if (target.kind === 'text' || target.kind === 'mixed') {
-        const beforeText = target.fields.text ?? target.text ?? ''
-        if (pendingText.text !== beforeText) {
-          changes.push({ kind: 'text', before: beforeText, after: pendingText.text })
-        }
-      }
-    }
-
-    return { target, changes }
-  }
-
   // Flush pending styles to HTML (Save button) - uses iframe snapshot for ID match
   async function flushManualEditStyleSave(): Promise<boolean> {
     const pending = manualEditPendingStyle
@@ -1638,7 +1600,7 @@ onSaveDraft={async () => {
                     setSaving(true)
                     try {
                       if (props.onSaveLocalEdit) {
-                        const payload = buildLocalEditPayload()
+                        const payload = buildLocalEditPayload(editTarget()!, manualEditPendingStyle, manualEditPendingText, manualEditInitialStyles)
                         if (payload.changes.length === 0) {
                           setEditTarget(null)
                           manualEditPendingStyle = null
