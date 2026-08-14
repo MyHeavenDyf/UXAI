@@ -49,7 +49,7 @@ const pickerFilters = (ext?: string[]) => {
 
 const topixsoDir = app.isPackaged
   ? join(process.resourcesPath, "topixso")
-  : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "app", "octoapp", "pages", "pattern", "topixso")
+  : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "app", "octoapp", "pages", "make", "utils", "prototype-utils", "topixso")
 
 // 判断图片类型
 function detectImageExt(buf: Buffer): string {
