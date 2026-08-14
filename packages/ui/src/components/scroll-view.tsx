@@ -1,4 +1,4 @@
-import { onMount, splitProps, type ComponentProps, Show, mergeProps, batch } from "solid-js"
+import { onMount, splitProps, type ComponentProps, Show, mergeProps } from "solid-js"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { createStore } from "solid-js/store"
 import { useI18n } from "../context/i18n"
@@ -67,52 +67,55 @@ export function ScrollView(props: ScrollViewProps) {
     showHThumb: false,
   })
 
+  let rafId: number | undefined
+
   const updateThumb = () => {
     if (!viewportRef) return
+    if (rafId) return
 
-    if (showV()) {
-      const { scrollTop, scrollHeight, clientHeight } = viewportRef
-      if (scrollHeight <= clientHeight || scrollHeight === 0) {
-        setState("showVThumb", false)
-      } else {
-        const trackPadding = 8
-        const trackHeight = clientHeight - trackPadding * 2
-        const minThumb = 32
-        let height = (clientHeight / scrollHeight) * trackHeight
-        height = Math.max(height, minThumb)
-        const maxScrollTop = scrollHeight - clientHeight
-        const maxThumbTop = trackHeight - height
-        const top = maxScrollTop > 0 ? (scrollTop / maxScrollTop) * maxThumbTop : 0
-        const boundedTop = trackPadding + Math.max(0, Math.min(top, maxThumbTop))
-        batch(() => {
-          setState("showVThumb", true)
-          setState("vThumbHeight", height)
-          setState("vThumbTop", boundedTop)
-        })
-      }
-    }
+    rafId = requestAnimationFrame(() => {
+      rafId = undefined
 
-    if (showH()) {
-      const { scrollLeft, scrollWidth, clientWidth } = viewportRef
-      if (scrollWidth <= clientWidth || scrollWidth === 0) {
-        setState("showHThumb", false)
-      } else {
-        const trackPadding = 8
-        const trackWidth = clientWidth - trackPadding * 2
-        const minThumb = 32
-        let width = (clientWidth / scrollWidth) * trackWidth
-        width = Math.max(width, minThumb)
-        const maxScrollLeft = scrollWidth - clientWidth
-        const maxThumbLeft = trackWidth - width
-        const left = maxScrollLeft > 0 ? (scrollLeft / maxScrollLeft) * maxThumbLeft : 0
-        const boundedLeft = trackPadding + Math.max(0, Math.min(left, maxThumbLeft))
-        batch(() => {
-          setState("showHThumb", true)
-          setState("hThumbWidth", width)
-          setState("hThumbLeft", boundedLeft)
-        })
+      if (showV()) {
+        const { scrollTop, scrollHeight, clientHeight } = viewportRef
+        if (scrollHeight <= clientHeight || scrollHeight === 0) {
+          if (state.showVThumb) setState("showVThumb", false)
+        } else {
+          const trackPadding = 8
+          const trackHeight = clientHeight - trackPadding * 2
+          const minThumb = 32
+          const height = Math.max((clientHeight / scrollHeight) * trackHeight, minThumb)
+          const maxScrollTop = scrollHeight - clientHeight
+          const maxThumbTop = trackHeight - height
+          const top = maxScrollTop > 0 ? (scrollTop / maxScrollTop) * maxThumbTop : 0
+          const boundedTop = trackPadding + Math.max(0, Math.min(top, maxThumbTop))
+
+          if (!state.showVThumb) setState("showVThumb", true)
+          if (state.vThumbHeight !== height) setState("vThumbHeight", height)
+          if (state.vThumbTop !== boundedTop) setState("vThumbTop", boundedTop)
+        }
       }
-    }
+
+      if (showH()) {
+        const { scrollLeft, scrollWidth, clientWidth } = viewportRef
+        if (scrollWidth <= clientWidth || scrollWidth === 0) {
+          if (state.showHThumb) setState("showHThumb", false)
+        } else {
+          const trackPadding = 8
+          const trackWidth = clientWidth - trackPadding * 2
+          const minThumb = 32
+          const width = Math.max((clientWidth / scrollWidth) * trackWidth, minThumb)
+          const maxScrollLeft = scrollWidth - clientWidth
+          const maxThumbLeft = trackWidth - width
+          const left = maxScrollLeft > 0 ? (scrollLeft / maxScrollLeft) * maxThumbLeft : 0
+          const boundedLeft = trackPadding + Math.max(0, Math.min(left, maxThumbLeft))
+
+          if (!state.showHThumb) setState("showHThumb", true)
+          if (state.hThumbWidth !== width) setState("hThumbWidth", width)
+          if (state.hThumbLeft !== boundedLeft) setState("hThumbLeft", boundedLeft)
+        }
+      }
+    })
   }
 
   onMount(() => {
