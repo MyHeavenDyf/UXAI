@@ -136,8 +136,7 @@
     background: #f9f9fb;
     border-radius: 16px;
     overflow: hidden;
-    margin-top: 12px;
-    margin-bottom: 32px;
+    margin: 16px 0;
   }
 
   [data-slot="markdown-code-header"] {
