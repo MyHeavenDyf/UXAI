@@ -6,7 +6,6 @@ import { useI18n } from "../context/i18n"
 export interface ScrollViewProps extends ComponentProps<"div"> {
   viewportRef?: (el: HTMLDivElement) => void
   orientation?: "vertical" | "horizontal" | "both"
-  maxThumbSize?: number
 }
 
 export const scrollKey = (event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey">) => {
@@ -30,10 +29,10 @@ export const scrollKey = (event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey
 
 export function ScrollView(props: ScrollViewProps) {
   const i18n = useI18n()
-  const merged = mergeProps({ orientation: "vertical", maxThumbSize: 64 }, props)
+  const merged = mergeProps({ orientation: "vertical" }, props)
   const [local, events, rest] = splitProps(
     merged,
-    ["class", "children", "viewportRef", "orientation", "style", "maxThumbSize"],
+    ["class", "children", "viewportRef", "orientation", "style"],
     [
       "onScroll",
       "onWheel",
@@ -81,7 +80,6 @@ export function ScrollView(props: ScrollViewProps) {
         const minThumb = 32
         let height = (clientHeight / scrollHeight) * trackHeight
         height = Math.max(height, minThumb)
-        height = Math.min(height, local.maxThumbSize)
         const maxScrollTop = scrollHeight - clientHeight
         const maxThumbTop = trackHeight - height
         const top = maxScrollTop > 0 ? (scrollTop / maxScrollTop) * maxThumbTop : 0
@@ -104,7 +102,6 @@ export function ScrollView(props: ScrollViewProps) {
         const minThumb = 32
         let width = (clientWidth / scrollWidth) * trackWidth
         width = Math.max(width, minThumb)
-        width = Math.min(width, local.maxThumbSize)
         const maxScrollLeft = scrollWidth - clientWidth
         const maxThumbLeft = trackWidth - width
         const left = maxScrollLeft > 0 ? (scrollLeft / maxScrollLeft) * maxThumbLeft : 0
