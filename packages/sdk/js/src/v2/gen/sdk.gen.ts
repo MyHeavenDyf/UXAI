@@ -83,6 +83,10 @@ import type {
   GlobalHealthResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
+  InsightChatMigrationPreviewErrors,
+  InsightChatMigrationPreviewResponses,
+  InsightChatMigrationRunErrors,
+  InsightChatMigrationRunResponses,
   InsightFilesListErrors,
   InsightFilesListResponses,
   InsightFilesUploadErrors,
@@ -697,7 +701,7 @@ export class Artifact extends HeyApiClient {
   /**
    * List artifacts
    *
-   * List artifact files and folders. 'category=generated' returns root files (excluding upload-files); 'category=uploaded' returns files in upload-files directory. Use 'path' to navigate subfolders within the category root.
+   * List artifact files and folders. 'category=generated' returns files in outputs directory; 'category=uploaded' returns files in uploads directory. Use 'path' to navigate subfolders within the category root.
    */
   public list<ThrowOnError extends boolean = false>(
     parameters: {
@@ -1124,6 +1128,8 @@ export class Comment extends HeyApiClient {
         filePath: string
         elementId: string
         selector: string
+        contentSignature?: string
+        nativeId?: string
         label: string
         text: string
         position: {
@@ -5962,7 +5968,7 @@ export class Files extends HeyApiClient {
   /**
    * List insight session files
    *
-   * List files under <projectDir>/insight/<sessionId>/<category>/ (category: uploads|outputs). SPEC-INS-014 §10.
+   * List files under <projectDir>/insight/<sessionId>/<category>/ (category: uploads|outputs). SPEC-INS-014 §10. Support optional recursive listing via ?recursive=true.
    */
   public list<ThrowOnError extends boolean = false>(
     parameters: {
@@ -5971,6 +5977,7 @@ export class Files extends HeyApiClient {
       sessionId: string
       category: "uploads" | "outputs"
       path?: string
+      recursive?: "true" | "false"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -5984,6 +5991,7 @@ export class Files extends HeyApiClient {
             { in: "query", key: "sessionId" },
             { in: "query", key: "category" },
             { in: "query", key: "path" },
+            { in: "query", key: "recursive" },
           ],
         },
       ],
@@ -6089,6 +6097,106 @@ export class Files extends HeyApiClient {
   }
 }
 
+export class ChatMigration extends HeyApiClient {
+  /**
+   * Preview chat history migration
+   *
+   * Count legacy chat sessions (agent=octo_ai) still pending migration, plus how many can be re-migrated from the backup. SPEC-INS-031. Read-only.
+   */
+  public preview<ThrowOnError extends boolean = false>(
+    parameters?: {
+      query_directory?: string
+      workspace?: string
+      body_directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "query", key: "workspace" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InsightChatMigrationPreviewResponses,
+      InsightChatMigrationPreviewErrors,
+      ThrowOnError
+    >({
+      url: "/insight/chat-migration/preview",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Run chat history migration
+   *
+   * Back up the database (VACUUM INTO), verify it, then move legacy chat sessions into the given directory by updating agent/directory/project_id in one transaction. SPEC-INS-031.
+   */
+  public run<ThrowOnError extends boolean = false>(
+    parameters?: {
+      query_directory?: string
+      workspace?: string
+      body_directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "query", key: "workspace" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InsightChatMigrationRunResponses,
+      InsightChatMigrationRunErrors,
+      ThrowOnError
+    >({
+      url: "/insight/chat-migration/run",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Insight extends HeyApiClient {
   private _sessions?: Sessions
   get sessions(): Sessions {
@@ -6098,6 +6206,11 @@ export class Insight extends HeyApiClient {
   private _files?: Files
   get files(): Files {
     return (this._files ??= new Files({ client: this.client }))
+  }
+
+  private _chatMigration?: ChatMigration
+  get chatMigration(): ChatMigration {
+    return (this._chatMigration ??= new ChatMigration({ client: this.client }))
   }
 }
 

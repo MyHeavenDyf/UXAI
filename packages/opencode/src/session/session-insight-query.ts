@@ -1,5 +1,5 @@
 import { Database } from "@/storage/db"
-import { and, desc, eq, inArray, sql } from "drizzle-orm"
+import { and, desc, eq, sql } from "drizzle-orm"
 import * as Log from "@opencode-ai/core/util/log"
 import { SessionTable } from "./session.sql"
 import { fromRow, type Info } from "./session"
@@ -13,11 +13,13 @@ const log = Log.create({ service: "session-insight-query" })
 // 不暴露入参,不碰 session 组。作用域 = project_id(instance) + directory(query),
 // 不加 roots 过滤(保留 task 子会话可见,见 session-agent-attribution §B-1)。
 //
-// SPEC-INS-030 §6 路径 B(读时合并):chat 下线后,其历史会话(agent=octo_ai)也从 insight 侧列出。
-// 选 B 不选「回填 agent 字段」是因为 B 不写数据、随时可回退 —— 把这行改回单值即恢复原状。
-// 渲染兼容是降级的:insight-turn 对 chat 那些 bash/edit part 走 GenericTool 兜底("调用了 xxx"),
-// 底线是不报错 + 不丢原对话内容(不为外来会话加特殊闸)。
-const LISTED_AGENTS = ["octo_insight", "octo_ai"]
+// SPEC-INS-030 §6:这里**只列 octo_insight**,chat 历史(agent=octo_ai)不做「读时合并」。
+// 曾试过把过滤放宽成 agent IN (octo_insight, octo_ai),但那只解了 agent 一半:chat 列表当年是
+// `scope=project`(服务端丢掉 directory 条件、跨目录全展示),而本查询按 directory 严格过滤 ——
+// 放宽 agent 之后,chat 历史仍只在「当初创建它的那个目录」被选中时才可见,是个半可见的别扭状态。
+// 改为由用户显式触发的一次性迁移(SPEC-INS-031:回填 agent + directory + project_id),迁完即为
+// 正常的 insight 会话,本查询无需为它开口子。
+const INSIGHT_AGENT = "octo_insight"
 
 export function listInsightSessions(input: {
   projectID: ProjectID
@@ -28,7 +30,7 @@ export function listInsightSessions(input: {
   const conditions = [
     eq(SessionTable.project_id, input.projectID),
     eq(SessionTable.directory, input.directory),
-    inArray(SessionTable.agent, LISTED_AGENTS),
+    eq(SessionTable.agent, INSIGHT_AGENT),
   ]
 
   return Database.use((db) => {

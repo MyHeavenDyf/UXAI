@@ -14,6 +14,8 @@ export const InsightPaths = {
   files: `${root}/files`,
   upload: `${root}/upload`,
   uploadFolder: `${root}/upload-folder`,
+  chatMigrationPreview: `${root}/chat-migration/preview`,
+  chatMigrationRun: `${root}/chat-migration/run`,
 } as const
 
 export const InsightSessionListQuery = Schema.Struct({
@@ -79,6 +81,37 @@ const InsightUploadFolderResult = Schema.Struct({
   mtime: Schema.Number,
 })
 
+// SPEC-INS-031 chat 历史会话迁移(临时功能,退场时整节 UI + 这两个接口一起删)。
+// directory = 用户在设置里选的目标目录;project_id 由服务端从该目录解析,不由客户端传。
+export const InsightChatMigrationPayload = Schema.Struct({
+  directory: Schema.String,
+})
+
+// 迁移失败要把**原因**带回前端(toast 文案「迁移失败：<原因>」),故不用无 body 的
+// HttpApiError.BadRequest。stage 对应 [octo:chat-migrate] failed 日志的同名字段。
+export class InsightChatMigrationError extends Schema.ErrorClass<InsightChatMigrationError>("ChatMigrationError")(
+  {
+    name: Schema.Literal("ChatMigrationError"),
+    data: Schema.Struct({
+      stage: Schema.String,
+      message: Schema.String,
+    }),
+  },
+  { httpApiStatus: 400 },
+) {}
+
+export const InsightChatMigrationPreviewResult = Schema.Struct({
+  // 当前库里还没迁的 chat 历史条数(与 directory 无关——chat 本来就跨目录)
+  pending: Schema.Number,
+  // 备份里可重迁的条数(> 0 时按钮文案变「重新迁移」)
+  migratable: Schema.Number,
+})
+
+export const InsightChatMigrationRunResult = Schema.Struct({
+  migrated: Schema.Number,
+  backupPath: Schema.optional(Schema.String),
+})
+
 export const InsightApi = HttpApi.make("insight")
   .add(
     HttpApiGroup.make("insight")
@@ -133,6 +166,34 @@ export const InsightApi = HttpApi.make("insight")
             identifier: "insight.files.uploadFolder",
             summary: "Upload insight folder",
             description: "Upload a folder (preserving structure) to <projectDir>/insight/<sessionId>/uploads/[path]/.",
+          }),
+        ),
+      )
+      .add(
+        HttpApiEndpoint.post("chatMigrationPreview", InsightPaths.chatMigrationPreview, {
+          payload: InsightChatMigrationPayload,
+          success: described(InsightChatMigrationPreviewResult, "Chat history migration preview"),
+          error: InsightChatMigrationError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "insight.chatMigration.preview",
+            summary: "Preview chat history migration",
+            description:
+              "Count legacy chat sessions (agent=octo_ai) still pending migration, plus how many can be re-migrated from the backup. SPEC-INS-031. Read-only.",
+          }),
+        ),
+      )
+      .add(
+        HttpApiEndpoint.post("chatMigrationRun", InsightPaths.chatMigrationRun, {
+          payload: InsightChatMigrationPayload,
+          success: described(InsightChatMigrationRunResult, "Chat history migration result"),
+          error: InsightChatMigrationError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "insight.chatMigration.run",
+            summary: "Run chat history migration",
+            description:
+              "Back up the database (VACUUM INTO), verify it, then move legacy chat sessions into the given directory by updating agent/directory/project_id in one transaction. SPEC-INS-031.",
           }),
         ),
       )
