@@ -8,8 +8,12 @@ export type SubtypeCapabilities = {
     canvasEdit: boolean
     comment: boolean
     archive: boolean
+    history: boolean
     download: boolean
     fullscreen: boolean
+  }
+  history?: {
+    files: string[]
   }
   rendering?: {
     designSystem?: string
@@ -29,6 +33,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       canvasEdit: true,
       comment: true,
       archive: true,
+      history: false,
       download: true,
       fullscreen: true,
     },
@@ -49,6 +54,7 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       canvasEdit: false,
       comment: false,
       archive: false,
+      history: false,
       download: false,
       fullscreen: true,
     }
@@ -64,9 +70,13 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       canvasEdit: true,
       comment: true,
       archive: true,
+      history: true,
       download: true,
       fullscreen: true,
-    }
+    },
+    history: {
+      files: ['.'],
+    },
   }
 }
 

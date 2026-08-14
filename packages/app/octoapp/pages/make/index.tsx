@@ -96,6 +96,8 @@ import { useMakeCommands } from "./use-make-commands"
 import { useDialogIframe } from '@/context/dialog-iframe'
 import { getDesktopApi, type AssetsConfig } from "./lib/electron-api"
 import { extractSubtypeFromFilename } from "./utils/subtype-extractor"
+import { type VersionEntry } from "./utils/history-store"
+import { createHistoryController } from "./subtype-handlers/history-controller"
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
@@ -1283,13 +1285,37 @@ const sessionMessagesLoaded = createMemo(() => {
   const [showVersionPanel, setShowVersionPanel] = createSignal(false)
   const [snapshotList, setSnapshotList] = createSignal<import("./utils/snapshot-store").ArtifactSnapshot[]>([])
   const [snapshotVersion, setSnapshotVersion] = createSignal(0)
+  const [showHistoryPanel, setShowHistoryPanel] = createSignal(false)
+  const [versionList, setVersionList] = createSignal<VersionEntry[]>([])
+  const [currentVersionId, setCurrentVersionId] = createSignal<string | null>(null)
   const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files" | "plan">("files")
+
+  const historyController = createHistoryController({
+    setVersionList: (updater) => setVersionList(updater),
+    setCurrentVersionId: (updater) => setCurrentVersionId(updater),
+    updateTabContent: (id, content) => tabStore.updateTabContent(id, content),
+    setFilesRefreshKey: (updater) => setFilesRefreshKey(updater),
+  })
 
   /** 刷新版本快照列表 */
   function refreshSnapshots() {
     setSnapshotList(snapshotStore.snapshots())
     setSnapshotVersion((v) => v + 1)
   }
+
+  // Tab 激活时加载版本列表（仅在 activeId 变化时触发，不追踪 tabs 内容变化）
+  createEffect(on(tabStore.activeId, async (id) => {
+    if (!id) return
+    const tab = tabStore.tabs().find((t) => t.id === id)
+    if (tab) await historyController.loadVersions(tab)
+  }))
+
+  // Agent 路径 B：直接调 write/edit 工具改文件时记录版本
+  createEffect(async () => {
+    const key = filesRefreshKey()
+    if (key === 0) return
+    await historyController.onFileRefresh(tabStore.tabs())
+  })
 
   // ── 设计方案(design-plan)扫描 ─────────────────────────────
   // 方案 artifact 从子 session 的消息流中提取（如果存在子 session），
@@ -1969,6 +1995,7 @@ const sessionMessagesLoaded = createMemo(() => {
     const tab = tabStore.tabs().find((t) => t.id === tabId)
 
     if (tab) {
+      const isDesignPlan = tab.type === "design-plan"
       await persistTabChanges(tab, {
         sessionId: params.id!,
         projectDir: projectDir(),
@@ -1976,12 +2003,23 @@ const sessionMessagesLoaded = createMemo(() => {
         sdkDirectory: sdk.directory || "",
         snapshotStore: snapshotStore,
         refreshSnapshots: refreshSnapshots,
+        skipSnapshot: !isDesignPlan,
       })
+      if (!isDesignPlan) {
+        await historyController.onUserEdit(tab)
+      }
     }
     // 注：design-plan tab 的编辑不走 persistTabChanges(finalContent 是 draft,
     // 且 agent 端没有对应的 [update-plan] 指令).编辑内容已存在 tabStore +
     // snapshotStore(见 persistActivePlanDraft),切回时从 snapshot 恢复即可,
     // 不需要发消息回灌给 agent,避免 agent 重写 artifact 覆盖用户编辑。
+  }
+
+  /** 切换历史版本：交由 controller 处理 */
+  async function handleHistorySwitch(entry: VersionEntry) {
+    const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
+    if (!tab) return
+    await historyController.switchVersion(entry, tab)
   }
 
   /** 关闭 tab：关闭最后一个时切换到 files 视图 */
@@ -3151,13 +3189,15 @@ if (dsId) {
       }
     }
     
+    const existingBefore = tabStore.tabs().find((t) => t.id === card.id)
     tabStore.openTab(card)
     if (card.artifactIdentifier?.endsWith("-composed")) {
       tabStore.activate(card.id)
     }
     const tab = tabStore.tabs().find((t) => t.id === card.id)
-    
+
     if (tab) {
+      const isDesignPlan = tab.type === "design-plan"
       const shouldPersist = !["image", "video", "audio", "pdf", "text"].includes(tab.type)
       // 跳过从文件加载的内容（已存在于文件中，无需重复持久化）
       if (shouldPersist && !isUrl && tab.content && !contentLoadedFromFile) {
@@ -3168,7 +3208,11 @@ if (dsId) {
           sdkDirectory: sdk.directory || "",
           snapshotStore: snapshotStore,
           refreshSnapshots: refreshSnapshots,
+          skipSnapshot: !isDesignPlan,
         })
+      }
+      if (!isDesignPlan) {
+        await historyController.onTabOpen(tab, existingBefore)
       }
     }
   }
@@ -4004,6 +4048,17 @@ if (dsId) {
                 sdkDirectory={sdk.directory || ""}
                 focusMode={focusMode()}
                 onFocusModeToggle={() => layout.focusMode.toggle()}
+                historyActive={showHistoryPanel()}
+                historyEntries={versionList()}
+                currentVersionId={currentVersionId()}
+                onHistorySwitch={handleHistorySwitch}
+                onHistoryToggle={async () => {
+                  if (!showHistoryPanel()) {
+                    const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
+                    if (tab) await historyController.refreshVersions(tab)
+                  }
+                  setShowHistoryPanel(!showHistoryPanel())
+                }}
                 onCollapseDrawer={
                   !focusMode() && ml.rightCollapsed() && ml.rightDrawerOpen()
                     ? ml.toggleRightDrawer
