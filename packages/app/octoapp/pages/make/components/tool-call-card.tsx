@@ -171,7 +171,7 @@ function ToolGroupCard(props: { group: GroupedToolCalls }): JSX.Element {
             </svg>
           </button>
           <Show when={open()}>
-            <div class="mt-0.5 flex flex-col gap-2">
+            <div class="mt-2 flex flex-col gap-2">
               <For each={props.group.calls}>
                 {(call) => <SingleToolCard call={call} />}
               </For>
