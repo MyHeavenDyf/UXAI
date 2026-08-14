@@ -17,7 +17,7 @@
  * TransformContext 提供 resolveNode 供 transform 内调用子树展开。
  */
 
-import { Step } from '../core/step'
+import { Step } from '../core/step-base'
 import type { ComponentRegistry } from '../core/component-registry'
 import type {
   TransformContext,
@@ -59,7 +59,19 @@ export class NodeMapper extends Step {
 
   async execute(ctx: PipelineContext): Promise<void> {
     this.#registry = ctx.registry
-    ctx.mappedPages = ctx.builtPages.map(bp => this.#mapPage(bp))
+    ctx.mappedPages = []
+    for (const bp of ctx.builtPages) {
+      ctx.currentPage = bp.pageName   // 诊断：出错时 pipeline-engine 能定位到页
+      try {
+        const mapped = this.#mapPage(bp)
+        ctx.mappedPages.push(mapped)
+      } catch (err: any) {
+        // 单页隔离：一页失败不影响其他页，错误汇总到 ctx.errors 由 GenerateReport 输出
+        const msg = err?.message ?? String(err)
+        ctx.errors.push({ step: 'NodeMapper', page: bp.pageName, message: msg, stack: err?.stack })
+        console.warn(`  [warn] NodeMapper: 页 "${bp.pageName}" 处理失败，跳过: ${msg}`)
+      }
+    }
   }
 
   #mapPage(bp: any): MappedPage {
@@ -77,6 +89,7 @@ export class NodeMapper extends Step {
       rootTree,
       extracts,
       iconNameMap: bp.iconNameMap,
+      eventMutatedPaths: bp.eventMutatedPaths ?? new Set(),
     }
   }
 
@@ -127,11 +140,24 @@ export class NodeMapper extends Step {
     node: ComponentNode,
     ctx: TransformContext,
   ): ComponentNode {
+    // ── 未注册组件（大写 = A2UI 组件）→ 注释占位 ──
+    // 小写开头走 registry 的 HTML 标签兜底（原生 DOM，非“组件”），不占位。
+    if (!this.#registry.has(node.component) && /^[A-Z]/.test(node.component)) {
+      const text = `未映射组件: ${node.component}${node.id ? ` (id=${node.id})` : ''}`
+      console.warn(`  [warn] NodeMapper: ${text}`)
+      return this.#commentPlaceholder(node, text)
+    }
+
     // transform 直接用 ctx（resolveAbsoluteStateValue 仅绝对路径，无节点级覆盖）
     let result: TransformResult | null = null
     try {
       result = this.#registry.transform(node.component, node, ctx)
-    } catch { /* noop */ }
+    } catch (err: any) {
+      // transform 抛错（映射文件 bug）→ 注释占位 + warn，不再静默吞
+      const text = `组件 transform 失败: ${node.component}${node.id ? ` (id=${node.id})` : ''}: ${err?.message ?? err}`
+      console.warn(`  [warn] NodeMapper: ${text}`)
+      return this.#commentPlaceholder(node, text)
+    }
 
     let merged: ComponentNode
     if (result) {
@@ -145,6 +171,7 @@ export class NodeMapper extends Step {
         wrapper: result.wrapper ?? node.wrapper,
         selfClosing: result.selfClosing,
         propRoute: result.propRoute ?? node.propRoute,
+        classNameProp: result.classNameProp ?? node.classNameProp,
       }
     } else {
       merged = { ...node }
@@ -156,6 +183,27 @@ export class NodeMapper extends Step {
       merged.children = this.#resolveChildren(merged.children, ctx)
     }
     return merged
+  }
+
+  /** 构造注释占位节点：标签输出为 JSX 注释，import 由 import-collector 注释化 */
+  #commentPlaceholder(node: ComponentNode, text: string): ComponentNode {
+    return {
+      __node: true,
+      kind: 'component',
+      component: node.component,
+      tag: node.component,
+      id: node.id,
+      import: `@/components/${node.component}`,
+      props: {},
+      children: null,
+      selfClosing: true,
+      commentPlaceholder: this.#sanitizeCommentText(text),
+    }
+  }
+
+  /** 注释文本安全化：防止 JSX 注释结束符被提前闭合、换行破坏单行注释 */
+  #sanitizeCommentText(text: string): string {
+    return String(text ?? '').replace(/\*\//g, '* /').replace(/[\r\n]/g, ' ').slice(0, 160)
   }
 
   #resolveHtml(

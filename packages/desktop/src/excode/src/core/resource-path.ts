@@ -48,6 +48,12 @@ export function rewriteResourcePath(s: string): string {
  * 只对 string 叶子应用 `rewriteResourcePath`；非命中 pattern 的字符串（标签名、import 路径、
  * className、state 指针等）原样返回，故递归进 BuildNode / 值类对象也安全（无副作用）。
  * 返回新值，不修改入参。
+ *
+ * ⚠️ 必须跳过 `loopScope` 键：enrichment const 值里可能嵌着带 loopScope 的 BuildNode
+ * （循环内收集的 CV 结果），而 `node.loopScope.loopNode` 指回父循环、父循环 `template.body`
+ * 又含该节点 → 天然环。递归 Object.entries 会顺着环无限深入 → RangeError: Maximum call
+ * stack size exceeded。loopScope 是结构性反向引用（非 state 数据），改写它无意义，故跳过。
+ * 与 fileAssembler.collectImportsFromConstValues / import-collector.walkValueForImports 同模式。
  */
 export function rewriteResourcePathsInValue(v: any): any {
   if (v == null) return v
@@ -55,7 +61,11 @@ export function rewriteResourcePathsInValue(v: any): any {
   if (Array.isArray(v)) return v.map(rewriteResourcePathsInValue)
   if (typeof v === 'object') {
     const out: Record<string, any> = {}
-    for (const [k, val] of Object.entries(v)) out[k] = rewriteResourcePathsInValue(val)
+    for (const [k, val] of Object.entries(v)) {
+      // 跳过 loopScope 反向引用字段，避免结构性循环爆栈（见上文注释）
+      if (k === 'loopScope') continue
+      out[k] = rewriteResourcePathsInValue(val)
+    }
     return out
   }
   return v

@@ -25,7 +25,7 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue, BindingValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
+import { Value } from '../../../src/core/value-factory'
 
 // ─── placement 映射表 ───
 const PLACEMENT_MAP: Record<string, { position: string; popupDirection: string }> = {
@@ -64,7 +64,9 @@ export function createDropdownMapping(pkg: string): MappingDef {
     transform(node: any, ctx: TransformContext) {
       const props = node.props || {}
       const outputProps: Record<string, PropValue> = {}
-      const SKIP_KEYS = new Set(['menu', 'placement', 'trigger'])
+
+      // 显性处理每个 A2UI prop：A2UI Dropdown 的 props 是封闭集合
+      // (placement/trigger/menu/className)，不做兜底透传。
 
       // ─── menu → data ───
       if (props.menu) {
@@ -105,10 +107,7 @@ export function createDropdownMapping(pkg: string): MappingDef {
       // ─── className ───
       if (props.className) outputProps.className = props.className as PropValue
 
-      // 透传剩余
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) outputProps[key] = value as PropValue
-      }
+      // 不做剩余兜底透传：A2UI Dropdown 的 props 已逐项显性处理。
 
       return {
         props: outputProps,
