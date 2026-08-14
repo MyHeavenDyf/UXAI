@@ -19,6 +19,9 @@ import { PdfRenderer } from "./pdf-renderer"
 import { TextRenderer } from "./text-renderer"
 import { DesignPlanRenderer } from "./design-plan-renderer"
 import { StrategyFormRenderer } from "./strategy-form-renderer"
+import { PrototypeCtxMenu } from "./prototype-ctx-menu"
+import { PrototypePropertyEditor } from "./prototype-property-editor"
+import { disposePrototypeSession } from "../../utils/prototype-utils"
 import type { StrategyFormData } from "../../utils/strategy-form-scanner"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
 import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
@@ -158,7 +161,19 @@ export function ResultViewer(props: {
   const [refreshKey, setRefreshKey] = createSignal(0)
   // 当前 HTML tab 已加载的资源 URL getter（由 HtmlRenderer 注册）
   let observedUrlsGetter: (() => string[]) | null = null
+  // 向当前 HTML tab 的 iframe contentWindow 发送 postMessage 的函数（由 HtmlRenderer 注册）
+  let iframePostMessage: ((data: unknown) => void) | null = null
+  // 当前 HTML tab 的 iframe 元素 getter（由 HtmlRenderer 注册，用于坐标换算/source 匹配）
+  let iframeElementGetter: (() => HTMLIFrameElement | undefined) | null = null
   const combinedRefreshKey = createMemo(() => refreshKey() + (props.filesRefreshKey ?? 0))
+
+  // 标签页被关闭时释放其 prototype 编辑 session + message listener，避免泄漏/串扰
+  let prevTabIds: string[] = props.tabs.map((t) => t.id)
+  createEffect(() => {
+    const ids = props.tabs.map((t) => t.id)
+    for (const id of prevTabIds) if (!ids.includes(id)) disposePrototypeSession(id)
+    prevTabIds = ids
+  })
 
   const handleViewportChange = (vp: ViewportPreset) => {
     tracker.interaction({ module: "design", name: "change-viewport", extend: JSON.stringify({ viewport: vp }) })
@@ -176,15 +191,7 @@ export function ResultViewer(props: {
       }
 
       const handler = getSubtypeHandler(tab.subtype)
-      const ctx = {
-        tab,
-        showToast,
-        tracker,
-        getDesktopApi,
-        extractCodeBlock,
-        observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
-        projectSelection,
-      }
+      const ctx = buildSubtypeCtx()!
 
       if (handler?.handleCanvasEdit) {
         const handled = await handler.handleCanvasEdit(ctx)
@@ -239,6 +246,35 @@ export function ResultViewer(props: {
     }
   }
 
+  const buildSubtypeCtx = () => {
+    const tab = activeTab()
+    if (!tab) return null
+    return {
+      tab,
+      showToast,
+      tracker,
+      getDesktopApi,
+      extractCodeBlock,
+      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
+      projectSelection,
+      postMessageToIframe: iframePostMessage ? (data: unknown) => iframePostMessage!(data) : undefined,
+      iframeElementGetter: iframeElementGetter ? () => iframeElementGetter!() : undefined,
+    }
+  }
+
+  const handleLocalEditToggle = async () => {
+    const ctx = buildSubtypeCtx()
+    if (!ctx) return
+    const handler = getSubtypeHandler(ctx.tab.subtype)
+    if (handler?.handleLocalEdit) {
+      const handled = await handler.handleLocalEdit(ctx)
+      if (handled === true) return
+    }
+    const nextEditing = !featureMutex.state.editing
+    featureMutex.toggleFeature('editing')
+    tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
+  }
+
   const handleCommentToggle = async () => {
     tracker.interaction({ module: "design", name: "toggle-comment-mode" })
     
@@ -259,7 +295,7 @@ export function ResultViewer(props: {
       observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
       projectSelection,
     }
-    
+
     if (handler?.handleComment) {
       const handled = await handler.handleComment(ctx)
       if (handled === true) return
@@ -288,7 +324,7 @@ export function ResultViewer(props: {
       observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
       projectSelection,
     }
-    
+
     if (handler?.handleArchive) {
       const handled = await handler.handleArchive(ctx)
       if (handled === true) return
@@ -637,17 +673,13 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                     palette={palette()}
                     onPaletteChange={setPalette}
                     editing={featureMutex.state.editing}
-                    onEditToggle={htmlMode() === "edit" ? undefined : () => {
-                      const nextEditing = !featureMutex.state.editing
-                      featureMutex.toggleFeature('editing')
-                      tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
+                    onEditToggle={htmlMode() === "edit" ? undefined : handleLocalEditToggle}
+                    drawing={featureMutex.state.drawing}
+                    onDrawToggle={htmlMode() === "edit" ? undefined : () => {
+                      const nextDrawing = !featureMutex.state.drawing
+                      featureMutex.toggleFeature('drawing')
+                      tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
                     }}
-drawing={featureMutex.state.drawing}
-                     onDrawToggle={htmlMode() === "edit" ? undefined : () => {
-                       const nextDrawing = !featureMutex.state.drawing
-                       featureMutex.toggleFeature('drawing')
-                       tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
-                     }}
 commenting={featureMutex.state.commenting}
                      onCommentToggle={htmlMode() === "edit" ? undefined : handleCommentToggle}
                      archiving={featureMutex.state.archiving}
@@ -709,9 +741,11 @@ commenting={featureMutex.state.commenting}
                            }}
                            onRefreshNeeded={handleRefresh}
                            tabTitle={tab.title}
-                           onSaveLocalEdit={getSubtypeHandler(tab.subtype)?.handleLocalEditSave ? handleLocalEditSave : undefined}
-                           observedUrlsGetter={(g) => { observedUrlsGetter = g }}
-                         />
+                            onSaveLocalEdit={getSubtypeHandler(tab.subtype)?.handleLocalEditSave ? handleLocalEditSave : undefined}
+                            observedUrlsGetter={(g) => { observedUrlsGetter = g }}
+                            registerIframePostMessage={(fn) => { iframePostMessage = fn }}
+                            iframeElementGetter={(g) => { iframeElementGetter = g }}
+                          />
                     </Match>
                     <Match when={tabType === "deck"}>
                       <DeckRenderer content={tab.content} />
@@ -774,6 +808,8 @@ commenting={featureMutex.state.commenting}
         </Show>
       </Show>
     </Show>
+    <PrototypeCtxMenu />
+    <PrototypePropertyEditor />
   </div>
 )
 }

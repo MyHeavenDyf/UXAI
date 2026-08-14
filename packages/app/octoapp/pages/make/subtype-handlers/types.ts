@@ -12,6 +12,16 @@ export interface SubtypeHandlerContext {
   extractCodeBlock: (text: string, lang: string) => string
   observedUrlsGetter?: () => string[]
   projectSelection: () => unknown
+  postMessageToIframe?: (data: unknown) => void
+  iframeElementGetter?: () => HTMLIFrameElement | undefined
+  /** SDK 客户端实例（供 proto_replanner 使用） */
+  sdk?: { client: any; directory: string; url: string }
+  /** 当前模型 key（供 proto_replanner 使用） */
+  modelKey?: { providerID: string; modelID: string }
+  /** 同步对象（供 proto_replanner 的 runChildSession 使用） */
+  sync?: any
+  /** 当前会话 ID（用于定位 uploads 目录） */
+  sessionId?: string
 }
 
 export type LocalEditChange =

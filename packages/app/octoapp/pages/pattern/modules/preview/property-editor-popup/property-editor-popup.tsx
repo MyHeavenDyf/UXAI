@@ -28,6 +28,8 @@ export function PropertyEditorPopup(props: {
   currentClass?: string
   elementProps?: string
   sessionId?: string
+  /** make 侧传入 prototype.html 绝对路径：上传图片写到同级 assets/，返回相对 URL */
+  htmlFilePath?: string
   elementRect: ElementRect
   clickPoint?: { x: number; y: number }
   containerSize: ContainerSize
@@ -184,8 +186,12 @@ export function PropertyEditorPopup(props: {
     return COMPONENT_ENUMS[`${props.componentType}.${key}`] || []
   }
 
+  function isStateBoundValue(v: unknown): v is { path: string } {
+    return v !== null && typeof v === "object" && !Array.isArray(v) && typeof (v as { path?: unknown }).path === "string"
+  }
+
   function isBinding(key: string) {
-    return `__bind_${key}` in rawProps
+    return `__bind_${key}` in rawProps || isStateBoundValue((rawProps as Record<string, unknown>)[key])
   }
 
   function splitCssList(value: string): string[] {
@@ -667,7 +673,7 @@ export function PropertyEditorPopup(props: {
       setEffects([...effects, { id: ++effectIdCounter, ...e }])
     }
 
-    setEditText((parsed.value ?? '').toString())
+    setEditText(isStateBoundValue(parsed.value) ? '' : (parsed.value ?? '').toString())
     const bgUrl = v.backgroundImage ? '' : (parsed.backgroundImage || '').toString()
     if (bgUrl) {
       setEditBgUrl(bgUrl === 'none' ? '' : bgUrl)
@@ -698,7 +704,7 @@ export function PropertyEditorPopup(props: {
   function applyParseClassFallback(rawCls: string, parsed: Record<string, unknown>) {
     const clsInfo = doParseClass(rawCls)
 
-    setEditText((parsed.value ?? '').toString())
+    setEditText(isStateBoundValue(parsed.value) ? '' : (parsed.value ?? '').toString())
     setEditFontSize(clsInfo.fontSize); setFoundFontSize(clsInfo.foundFontSize)
     setEditFontWeight(clsInfo.fontWeight); setFoundFontWeight(clsInfo.foundFontWeight)
     setEditAlign(clsInfo.textAlign)
@@ -794,7 +800,8 @@ export function PropertyEditorPopup(props: {
     const allKeys = [...new Set([...defKeys, ...Object.keys(parsed)])].filter(k => !k.startsWith('__bind_') && k !== 'inlineCollapsed' && k !== 'preview' && k !== 'url')
     setPropKeys(allKeys)
     for (const k of allKeys) {
-      const raw = (parsed[k] ?? '').toString()
+      const parsedVal = parsed[k]
+      const raw = isStateBoundValue(parsedVal) ? '' : (parsedVal ?? '').toString()
       const opts = getEnumOptions(k)
       let def = ENUM_DEFAULTS[`${props.componentType}.${k}`]
       if (!def && opts.some(o => o.value === 'default')) def = 'default'
@@ -849,7 +856,8 @@ export function PropertyEditorPopup(props: {
     }
     let parsed: Record<string, unknown> = {}
     try { parsed = JSON.parse(props.elementProps || '{}') } catch { /* ignore */ }
-    const rawCls = (parsed.className as string) || props.currentClass || ''
+    const parsedClassName = isStateBoundValue(parsed.className) ? '' : (parsed.className as string) || ''
+    const rawCls = parsedClassName || props.currentClass || ''
     parsedClasses = rawCls.split(/\s+/).filter(c => Boolean(c) && !c.startsWith('el-') && !c.startsWith('!el-')).map(c => c.startsWith('!') ? c.slice(1) : c)
     importantSet = new Set(
       rawCls.split(/\s+/)
@@ -1042,16 +1050,30 @@ export function PropertyEditorPopup(props: {
     inp.addEventListener('change', async () => {
       const f = inp.files?.[0]
       if (!f) return
-      const desktopApi = (window as unknown as { api?: { saveUploadImage?: (buf: ArrayBuffer, sessionId: string) => Promise<string> } }).api
+      const buf = await f.arrayBuffer()
+      const desktopApi = (window as unknown as {
+        api?: {
+          saveUploadImage?: (buf: ArrayBuffer, sessionId: string) => Promise<string>
+          savePrototypeImage?: (buf: ArrayBuffer, dir: string) => Promise<string>
+        }
+      }).api
+      // make 侧：写到 prototype.html 同级 assets 目录，返回相对 URL（iframe 经 local:// 解析）
+      if (props.htmlFilePath && desktopApi?.savePrototypeImage) {
+        const dir = props.htmlFilePath.replace(/[\\/][^\\/]+$/, '') + '/assets'
+        const url = await desktopApi.savePrototypeImage(buf, dir)
+        onUrl(url)
+        return
+      }
+      // pattern 侧：写到 uploads 目录，返回 /history/... URL
       if (desktopApi?.saveUploadImage && props.sessionId) {
-        const buf = await f.arrayBuffer()
         const url = await desktopApi.saveUploadImage(buf, props.sessionId)
         onUrl(url)
-      } else {
-        const reader = new FileReader()
-        reader.onload = () => onUrl(reader.result as string)
-        reader.readAsDataURL(f)
+        return
       }
+      // web 回退：base64 data URL
+      const reader = new FileReader()
+      reader.onload = () => onUrl(reader.result as string)
+      reader.readAsDataURL(f)
     })
     document.body.appendChild(inp)
     inp.click()
@@ -1308,6 +1330,7 @@ export function PropertyEditorPopup(props: {
     if (!isTextElement()) {
       for (const key of propKeys()) {
         if (key === 'className') continue
+        if (isBinding(key)) continue
         const val = (editProps as Record<string, string>)[key]
         const isEnum = getEnumOptions(key).length > 0
         const hasRaw = (rawProps as Record<string, string>)[key] !== undefined
