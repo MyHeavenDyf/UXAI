@@ -21,7 +21,7 @@ import { DesignPlanRenderer } from "./design-plan-renderer"
 import { StrategyFormRenderer } from "./strategy-form-renderer"
 import { PrototypeCtxMenu } from "./prototype-ctx-menu"
 import { PrototypePropertyEditor } from "./prototype-property-editor"
-import { disposePrototypeSession } from "../../utils/prototype-utils"
+import { PrototypeAnnotationLayer } from "./prototype-annotation-layer"
 import type { StrategyFormData } from "../../utils/strategy-form-scanner"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
 import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
@@ -166,14 +166,6 @@ export function ResultViewer(props: {
   let iframeElementGetter: (() => HTMLIFrameElement | undefined) | null = null
   const combinedRefreshKey = createMemo(() => refreshKey() + (props.filesRefreshKey ?? 0))
 
-  // 标签页被关闭时释放其 prototype 编辑 session + message listener，避免泄漏/串扰
-  let prevTabIds: string[] = props.tabs.map((t) => t.id)
-  createEffect(() => {
-    const ids = props.tabs.map((t) => t.id)
-    for (const id of prevTabIds) if (!ids.includes(id)) disposePrototypeSession(id)
-    prevTabIds = ids
-  })
-
   const handleViewportChange = (vp: ViewportPreset) => {
     tracker.interaction({ module: "design", name: "change-viewport", extend: JSON.stringify({ viewport: vp }) })
     setViewport(vp)
@@ -250,6 +242,7 @@ export function ResultViewer(props: {
     if (!tab) return null
     return {
       tab,
+      sessionId: tab.sessionId ?? props.sessionId,
       showToast,
       tracker,
       getDesktopApi,
@@ -258,6 +251,7 @@ export function ResultViewer(props: {
       projectSelection,
       postMessageToIframe: iframePostMessage ? (data: unknown) => iframePostMessage!(data) : undefined,
       iframeElementGetter: iframeElementGetter ? () => iframeElementGetter!() : undefined,
+      sdkDirectory: props.sdkDirectory,
     }
   }
 
@@ -277,23 +271,13 @@ export function ResultViewer(props: {
   const handleCommentToggle = async () => {
     tracker.interaction({ module: "design", name: "toggle-comment-mode" })
     
-    const tab = activeTab()
-    if (!tab) {
+    const ctx = buildSubtypeCtx()
+    if (!ctx) {
       featureMutex.toggleFeature('commenting')
       return
     }
     
-    const handler = getSubtypeHandler(tab.subtype)
-    
-    const ctx = {
-      tab,
-      showToast,
-      tracker,
-      getDesktopApi,
-      extractCodeBlock,
-      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
-      projectSelection,
-    }
+    const handler = getSubtypeHandler(ctx.tab.subtype)
 
     if (handler?.handleComment) {
       const handled = await handler.handleComment(ctx)
@@ -783,6 +767,7 @@ commenting={featureMutex.state.commenting}
     </Show>
     <PrototypeCtxMenu />
     <PrototypePropertyEditor />
+    <PrototypeAnnotationLayer />
   </div>
 )
 }

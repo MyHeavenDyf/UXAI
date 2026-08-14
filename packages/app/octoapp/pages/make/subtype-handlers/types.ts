@@ -21,6 +21,7 @@ export interface SubtypeHandlerContext {
   sync?: any
   /** 当前会话 ID（用于定位 uploads 目录） */
   sessionId?: string
+  sdkDirectory?: string
 }
 
 export interface SubtypeHandler {

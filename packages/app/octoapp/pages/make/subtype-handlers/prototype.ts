@@ -7,6 +7,12 @@ import {
   createPrototypeMessageHandler,
   buildSiblingMap,
   loadA2uiData,
+  resetPrototypeEditing,
+  closePrototypePanels,
+  isPrototypeAnnotating,
+  startAnnotation,
+  stopAnnotation,
+  resetPrototypeAnnotation,
 } from "../utils/prototype-utils"
 import { showPromiseToast } from "@opencode-ai/ui/toast"
 import proto_replanner from "../../pattern/agents/proto-replanner"
@@ -161,4 +167,22 @@ export default {
       downloading = false
     }
   },
+
+  async handleComment(ctx) {
+    const next = !isPrototypeAnnotating()
+
+    if (!next) {
+      stopAnnotation(ctx)
+      resetPrototypeAnnotation()
+      return true
+    }
+
+    // 先清理 edit 模式(互斥):关闭编辑浮层 + 移除 edit message handler
+    resetPrototypeEditing()
+    closePrototypePanels()
+
+    startAnnotation(ctx)
+    return true
+  },
+
 } satisfies SubtypeHandler
