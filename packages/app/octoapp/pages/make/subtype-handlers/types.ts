@@ -1,7 +1,14 @@
 import type { ResultTab } from "../components/result-viewer/tab-store"
+import type { VersionFile } from "../utils/history-store"
 import type { JSX } from "solid-js"
 
 export type FeatureType = 'localEdit' | 'drawEdit' | 'canvasEdit'
+
+export type HistoryTriggerEvent =
+  | { type: 'open'; isNew: boolean }
+  | { type: 'edit' }
+  | { type: 'agent-update' }
+  | { type: 'agent-file-edit' }
 
 export interface SubtypeHandlerContext {
   tab: ResultTab
@@ -11,6 +18,7 @@ export interface SubtypeHandlerContext {
   extractCodeBlock: (text: string, lang: string) => string
   observedUrlsGetter?: () => string[]
   projectSelection: () => unknown
+  updateTabContent?: (id: string, content: string) => void
   postMessageToIframe?: (data: unknown) => void
   iframeElementGetter?: () => HTMLIFrameElement | undefined
   /** SDK 客户端实例（供 proto_replanner 使用） */
@@ -26,30 +34,44 @@ export interface SubtypeHandlerContext {
 
 export interface SubtypeHandler {
   name: string
-  
+
   handleCanvasEdit?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
-  
+
   handleLocalEdit?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
-  
+
   handleDrawEdit?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
-  
+
   handleComment?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
-  
+
   handleArchive?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
-  
+
   /**
    * 处理下载
    * @returns true 表示已处理（不执行默认下载），false 或 void 表示执行默认下载
    */
   handleDownload?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
-  
+
   beforeFeatureEnable?: (feature: FeatureType, ctx: SubtypeHandlerContext) => Promise<boolean>
-  
+
+  /**
+   * 历史记录触发点
+   * 在 open/edit/agent-update/agent-file-edit 事件发生时调用
+   * 返回要记录的文件相对路径数组，或 null 表示本次不记录
+   * actor（init/user/agent）由调用方根据事件类型决定
+   */
+  onHistoryTrigger?: (event: HistoryTriggerEvent, ctx: SubtypeHandlerContext) => string[] | null
+
+  /**
+   * 历史恢复
+   * 接收版本的文件列表，由 handler 决定如何应用（如复制回原始路径、更新 tab 等）
+   */
+  applyVersionFiles?: (ctx: SubtypeHandlerContext, files: VersionFile[]) => Promise<void>
+
   /**
    * UI 配置（配置方式）
    */
   components?: UIComponentsConfig
-  
+
   /**
    * 完全自定义渲染（JSX方式）
    */

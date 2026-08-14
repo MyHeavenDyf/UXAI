@@ -162,11 +162,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
 
   const handleFileClick = (file: { name: string; path: string }) => {
     const selection: MentionSelection = { type: 'file', filename: file.name, path: file.path }
-    if (isSelected(selection)) {
-      props.onDeselect(selection)
-    } else {
-      props.onSelect(selection)
-    }
+    props.onSelect(selection)
     props.onClose()
   }
 

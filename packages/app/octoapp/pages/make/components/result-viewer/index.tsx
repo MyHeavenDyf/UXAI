@@ -4,6 +4,7 @@ import { Markdown } from "@opencode-ai/ui/markdown"
 import { showToast } from "@opencode-ai/ui/toast"
 import type { ResultTab } from "./tab-store"
 import type { ViewportPreset, PaletteId, InspectTarget } from "./html-renderer"
+import type { VersionEntry } from "../../utils/history-store"
 import { TabBar } from "./tab-bar"
 import { ActionBar } from "./action-bar"
 import { TableRenderer } from "./table-renderer"
@@ -90,6 +91,11 @@ export function ResultViewer(props: {
   sdkDirectory?: string
   focusMode?: boolean
   onFocusModeToggle?: () => void
+  onHistoryToggle?: () => void
+  historyActive?: boolean
+  historyEntries?: VersionEntry[]
+  currentVersionId?: string | null
+  onHistorySwitch?: (entry: VersionEntry) => void
   onConfirmPlan?: (identifier?: string) => void
   onAdjustPlan?: () => void
   isPlanConfirmed?: () => boolean
@@ -655,6 +661,11 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                     observedResourceUrls={() => observedUrlsGetter?.() || []}
                     focusMode={props.focusMode}
                     onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
+                    historyActive={props.historyActive}
+                    historyEntries={props.historyEntries}
+                    currentVersionId={props.currentVersionId}
+                    onHistorySwitch={props.onHistorySwitch}
+                    onHistoryToggle={props.onHistoryToggle}
                   />
                 </Show>
                 <div class="flex-1 min-h-0 min-w-0 overflow-hidden">

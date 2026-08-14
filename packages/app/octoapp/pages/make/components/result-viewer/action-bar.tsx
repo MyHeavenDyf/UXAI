@@ -15,6 +15,8 @@ import { getSubtypeConfig } from "../../utils/subtype-config"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
 import { subtypeUIRegistry } from "../../utils/subtype-ui-registry"
 import type { ActionBarButton, SubtypeHandlerContext, ButtonPosition } from "../../subtype-handlers/types"
+import type { VersionEntry } from "../../utils/history-store"
+import { HistoryPanel } from "./history-panel"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { useLocal } from "@/context/local"
@@ -361,6 +363,11 @@ export function ActionBar(props: {
     onFocusModeToggle?: () => void
     onCanvasToDesign?: () => void
     observedResourceUrls?: () => string[]
+    onHistoryToggle?: () => void
+    historyActive?: boolean
+    historyEntries?: VersionEntry[]
+    currentVersionId?: string | null
+    onHistorySwitch?: (entry: VersionEntry) => void
   }): JSX.Element {
   const sdk = useSDK()
   const sync = useSync()
@@ -416,6 +423,8 @@ export function ActionBar(props: {
 
   const config = createMemo(() => getSubtypeConfig(props.tab.subtype))
 
+  let historyBtnRef: HTMLButtonElement | undefined
+
   const canToggleMode = () => config().features.modeToggle && props.tab.type === "html"
   const showViewport = () => config().features.viewport && props.tab.type === "html" && currentMode() === "preview"
   const showRefreshButton = () => config().features.refresh
@@ -426,6 +435,7 @@ export function ActionBar(props: {
   const showArchive = () => config().features.archive && showViewport()
   const showDownload = () => config().features.download
   const showFullscreen = () => config().features.fullscreen
+  const showHistory = () => config().features.history && !!props.tab.filePath
   const shouldShowCopy = () =>
     props.tab.type === "table" ||
     props.tab.type === "markdown" ||
@@ -529,6 +539,7 @@ export function ActionBar(props: {
   }
 
   return (
+    <>
     <div class="octo-action-bar">
       <div class="octo-action-bar-left">
         {renderButtonsAtPosition('start')}
@@ -680,6 +691,22 @@ export function ActionBar(props: {
               <span>归档</span>
             </button>
           )}
+          {showHistory() && props.onHistoryToggle && (
+            <button
+              ref={historyBtnRef}
+              type="button"
+              class="octo-action-btn"
+              classList={{ "octo-viewport-btn-active": !!props.historyActive }}
+              onClick={props.onHistoryToggle}
+              title="历史版本"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="8" cy="8" r="6" />
+                <path d="M8 5v3l2 2" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <span>历史</span>
+            </button>
+          )}
           {renderButtonsAtPosition('after-archive')}
           {renderButtonsAtPosition('before-fullscreen')}
           <Show when={showFullscreen() && props.tab.type !== "design-plan" && props.onFocusModeToggle}>
@@ -712,6 +739,20 @@ export function ActionBar(props: {
         </div>
       </div>
     </div>
+    <Show when={props.historyActive && historyBtnRef}>
+      <HistoryPanel
+        anchorRect={(() => {
+          const r = historyBtnRef!.getBoundingClientRect()
+          return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }
+        })()}
+        entries={props.historyEntries ?? []}
+        currentId={props.currentVersionId ?? null}
+        onSwitch={props.onHistorySwitch!}
+        onClose={() => props.onHistoryToggle?.()}
+        ignoreRef={() => historyBtnRef}
+      />
+    </Show>
+    </>
   )
 }
 
