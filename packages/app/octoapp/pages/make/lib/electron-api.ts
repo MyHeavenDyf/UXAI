@@ -40,6 +40,8 @@ export type DesktopApi = {
   exportZip?: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; destFolder?: string; comment?: string }) => Promise<string | null>
   /** 获取上传资源根目录 */
   getUploadsDir?: () => Promise<string | null>
+  /** 把图片写到 prototype.html 同级 assets 目录，返回相对 URL（assets/<hash>.<ext>，iframe 经 local:// 解析） */
+  savePrototypeImage?: (buffer: ArrayBuffer, dir: string) => Promise<string>
 }
 
 export function getDesktopApi(): DesktopApi | undefined {

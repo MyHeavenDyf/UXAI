@@ -103,6 +103,7 @@ const api: ElectronAPI = {
   htmlToPdf: (html) => ipcRenderer.invoke("html-to-pdf", html),
   writeFileBuffer: (path, buffer) => ipcRenderer.invoke("write-file-buffer", path, buffer),
   saveUploadImage: (buffer, sessionId) => ipcRenderer.invoke("save-upload-image", buffer, sessionId),
+  savePrototypeImage: (buffer, dir) => ipcRenderer.invoke("save-prototype-image", buffer, dir),
   getUploadsDir: () => ipcRenderer.invoke("get-uploads-dir"),
   setUploadsDir: (dir) => ipcRenderer.invoke("set-uploads-dir", dir),
   writeFile: (path, content) => ipcRenderer.invoke("write-file", path, content),

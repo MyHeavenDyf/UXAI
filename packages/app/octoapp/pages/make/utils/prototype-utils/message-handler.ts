@@ -61,6 +61,7 @@ export function createPrototypeMessageHandler(session: PrototypeSession): (e: Me
         componentType: String(d.domPickerComponent || d.tagName || ""),
         currentClass: String(d.domPickerClass ?? ""),
         elementProps: String(d.elementProps ?? ""),
+        filePath: session.ctx?.tab.filePath || session.ctx?.tab.absoluteFilePath || "",
         elementRect: er ? {
           top: rect.top + (er?.top ?? 0) * scale,
           left: rect.left + (er?.left ?? 0) * scale,

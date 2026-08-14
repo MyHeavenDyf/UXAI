@@ -33,6 +33,8 @@ export type PrototypeQuickFixData = {
   currentClass: string
   elementProps: string
   elementRect: { top: number; left: number; width: number; height: number }
+  /** prototype.html 绝对路径，供属性编辑器把上传图片写到同级 assets/ */
+  filePath?: string
 }
 
 export type PrototypeModifyData = {

@@ -144,6 +144,8 @@ export type ElectronAPI = {
   writeFileBuffer: (path: string, buffer: ArrayBuffer) => Promise<void>
   /** save image to uploads dir, returns URL path like /history/sessionId/uploads/hash.ext */
   saveUploadImage: (buffer: ArrayBuffer, sessionId: string) => Promise<string>
+  /** save image to <prototypeDir>/assets, returns relative URL like assets/hash.ext (iframe via local:// resolves it) */
+  savePrototypeImage: (buffer: ArrayBuffer, dir: string) => Promise<string>
   getUploadsDir: () => Promise<string | null>
   setUploadsDir: (dir: string) => Promise<void>
   /** insight markdown 编辑器自动保存:覆盖写本地文本文件(主进程校验路径在 .octo/<sessionId>/{uploads,outputs}、旧 .octo/downloads 或临时目录下) */

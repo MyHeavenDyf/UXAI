@@ -35,6 +35,7 @@ export function PrototypePropertyEditor(): JSX.Element {
           componentType={d().componentType}
           currentClass={d().currentClass}
           elementProps={d().elementProps}
+          htmlFilePath={d().filePath}
           elementRect={d().elementRect}
           containerSize={{ width: window.innerWidth, height: window.innerHeight }}
           onConfirm={(mod: ModifyElementData) => {

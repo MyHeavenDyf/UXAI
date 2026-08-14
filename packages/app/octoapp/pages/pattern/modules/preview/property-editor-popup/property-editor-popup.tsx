@@ -28,6 +28,8 @@ export function PropertyEditorPopup(props: {
   currentClass?: string
   elementProps?: string
   sessionId?: string
+  /** make 侧传入 prototype.html 绝对路径：上传图片写到同级 assets/，返回相对 URL */
+  htmlFilePath?: string
   elementRect: ElementRect
   clickPoint?: { x: number; y: number }
   containerSize: ContainerSize
@@ -1048,16 +1050,30 @@ export function PropertyEditorPopup(props: {
     inp.addEventListener('change', async () => {
       const f = inp.files?.[0]
       if (!f) return
-      const desktopApi = (window as unknown as { api?: { saveUploadImage?: (buf: ArrayBuffer, sessionId: string) => Promise<string> } }).api
+      const buf = await f.arrayBuffer()
+      const desktopApi = (window as unknown as {
+        api?: {
+          saveUploadImage?: (buf: ArrayBuffer, sessionId: string) => Promise<string>
+          savePrototypeImage?: (buf: ArrayBuffer, dir: string) => Promise<string>
+        }
+      }).api
+      // make 侧：写到 prototype.html 同级 assets 目录，返回相对 URL（iframe 经 local:// 解析）
+      if (props.htmlFilePath && desktopApi?.savePrototypeImage) {
+        const dir = props.htmlFilePath.replace(/[\\/][^\\/]+$/, '') + '/assets'
+        const url = await desktopApi.savePrototypeImage(buf, dir)
+        onUrl(url)
+        return
+      }
+      // pattern 侧：写到 uploads 目录，返回 /history/... URL
       if (desktopApi?.saveUploadImage && props.sessionId) {
-        const buf = await f.arrayBuffer()
         const url = await desktopApi.saveUploadImage(buf, props.sessionId)
         onUrl(url)
-      } else {
-        const reader = new FileReader()
-        reader.onload = () => onUrl(reader.result as string)
-        reader.readAsDataURL(f)
+        return
       }
+      // web 回退：base64 data URL
+      const reader = new FileReader()
+      reader.onload = () => onUrl(reader.result as string)
+      reader.readAsDataURL(f)
     })
     document.body.appendChild(inp)
     inp.click()
