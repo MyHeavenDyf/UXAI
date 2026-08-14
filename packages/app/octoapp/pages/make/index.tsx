@@ -3628,7 +3628,7 @@ if (dsId) {
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
               >
-                <div ref={autoScroll.contentRef} class="pt-4 flex flex-col gap-4">
+                <div ref={autoScroll.contentRef} class="make-chat-content pt-4 flex flex-col gap-4">
                     {/* 第一条消息 */}
                     <Show when={userMessages().length > 0}>
                       <InsightTurn

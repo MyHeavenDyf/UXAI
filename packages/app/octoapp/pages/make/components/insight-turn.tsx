@@ -1556,7 +1556,7 @@ const stateStatus = state.status as string | undefined
           const bt = props.blockTime!
           const isWarning = bt >= 180
           return (
-            <div class="mx-3 px-3 flex items-center justify-between" style={{
+            <div class="mx-3 px-4 py-2 flex items-center justify-between" style={{
               "border-radius": "var(--octo-radius-md)",
               border: isWarning ? "1px solid rgba(255, 177, 46, 0.3)" : "1px solid rgba(200, 200, 200, 0.2)",
               background: isWarning ? "rgba(255, 177, 46, 0.08)" : "rgba(200, 200, 200, 0.05)",
