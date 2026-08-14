@@ -1410,12 +1410,12 @@ const stateStatus = state.status as string | undefined
           <FileOpsSummary calls={otherToolCalls()} />
         </div>
       </Show>
-        </div>
-      </Show>
 
       {/* 产出文件列表 */}
       <Show when={!showGenerating() && producedFiles().length > 0}>
         <ProducedFilesList files={producedFiles()} />
+      </Show>
+        </div>
       </Show>
 
       {/* 错误提示 */}
