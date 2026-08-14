@@ -171,6 +171,8 @@ function setupApp() {
   })
 
   app.on("before-quit", () => {
+  // jk-j60099994-replace-with-index-3-start
+  // jk-j60099994-replace-with-index-3-end
     void killSidecar()
   })
 
@@ -366,8 +368,7 @@ async function initialize() {
 
   mainWindow = createMainWindow()
   wireMenu()
-  // jk-j60099994-replace-with-index-3-start
-  // jk-j60099994-replace-with-index-3-end
+
 
   overlay?.close()
 }
