@@ -3623,12 +3623,12 @@ if (dsId) {
               <div class="relative flex-1 min-h-0">
               <ScrollView
                 class="h-full"
-                style={{ background: "#fff", padding: "0 12px", }}
+                style={{ background: "#fff", padding: "0 12px 16px 12px", }}
                 viewportRef={autoScroll.scrollRef}
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
               >
-                <div ref={autoScroll.contentRef} class="py-4 flex flex-col gap-4">
+                <div ref={autoScroll.contentRef} class="pt-4 flex flex-col gap-4">
                     {/* 第一条消息 */}
                     <Show when={userMessages().length > 0}>
                       <InsightTurn

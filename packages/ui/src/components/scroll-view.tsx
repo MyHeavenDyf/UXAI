@@ -1,4 +1,4 @@
-import { onMount, splitProps, type ComponentProps, Show, mergeProps } from "solid-js"
+import { onMount, splitProps, type ComponentProps, Show, mergeProps, batch } from "solid-js"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { createStore } from "solid-js/store"
 import { useI18n } from "../context/i18n"
@@ -76,7 +76,6 @@ export function ScrollView(props: ScrollViewProps) {
       if (scrollHeight <= clientHeight || scrollHeight === 0) {
         setState("showVThumb", false)
       } else {
-        setState("showVThumb", true)
         const trackPadding = 8
         const trackHeight = clientHeight - trackPadding * 2
         const minThumb = 32
@@ -87,8 +86,11 @@ export function ScrollView(props: ScrollViewProps) {
         const maxThumbTop = trackHeight - height
         const top = maxScrollTop > 0 ? (scrollTop / maxScrollTop) * maxThumbTop : 0
         const boundedTop = trackPadding + Math.max(0, Math.min(top, maxThumbTop))
-        setState("vThumbHeight", height)
-        setState("vThumbTop", boundedTop)
+        batch(() => {
+          setState("showVThumb", true)
+          setState("vThumbHeight", height)
+          setState("vThumbTop", boundedTop)
+        })
       }
     }
 
@@ -97,7 +99,6 @@ export function ScrollView(props: ScrollViewProps) {
       if (scrollWidth <= clientWidth || scrollWidth === 0) {
         setState("showHThumb", false)
       } else {
-        setState("showHThumb", true)
         const trackPadding = 8
         const trackWidth = clientWidth - trackPadding * 2
         const minThumb = 32
@@ -108,8 +109,11 @@ export function ScrollView(props: ScrollViewProps) {
         const maxThumbLeft = trackWidth - width
         const left = maxScrollLeft > 0 ? (scrollLeft / maxScrollLeft) * maxThumbLeft : 0
         const boundedLeft = trackPadding + Math.max(0, Math.min(left, maxThumbLeft))
-        setState("hThumbWidth", width)
-        setState("hThumbLeft", boundedLeft)
+        batch(() => {
+          setState("showHThumb", true)
+          setState("hThumbWidth", width)
+          setState("hThumbLeft", boundedLeft)
+        })
       }
     }
   }
