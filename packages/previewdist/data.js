@@ -40,7 +40,7 @@ window.__A2UI_DATA__ = {
         ],
         "ghUserInfo": {
             "userName": "Admin",
-            "avatarImage": "https://randomuser.me/api/portraits/men/32.jpg"
+            "avatarImage": "./uploads/image.jpg"
         },
         "lrlCardTitle": "链路结果",
         "lrlSearchCategory": "请选择",
