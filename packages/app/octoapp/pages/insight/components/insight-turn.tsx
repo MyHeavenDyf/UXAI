@@ -186,9 +186,21 @@ export function InsightTurn(props: {
   })
 
   // 本轮是否是最新的（最后一条）用户消息 —— 仅对最新轮次显示生成中占位
+  // 用 time.created 数值比较找最新 user,不依赖 msgStore 数组顺序:
+  // event-reducer 的 Binary.search 按 string ID 插入,历史 session 旧 ID 格式与当前
+  // Identifier.ascending() 不兼容,新消息可能插到数组前面而非末尾,reverse().find() 会误命中旧 user。
   const isLatestTurn = createMemo(() => {
     const messages = ((data.store.message as Record<string, Message[]>)?.[props.sessionID] ?? [])
-    const lastUser = [...messages].reverse().find((m) => m.role === "user")
+    let lastUser: Message | undefined
+    let lastUserTime = -1
+    for (const m of messages) {
+      if (m.role !== "user") continue
+      const t = (m as { time?: { created?: number } }).time?.created ?? 0
+      if (t >= lastUserTime) {
+        lastUserTime = t
+        lastUser = m
+      }
+    }
     return lastUser?.id === props.messageID
   })
 

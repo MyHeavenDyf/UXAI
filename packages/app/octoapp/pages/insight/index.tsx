@@ -331,6 +331,8 @@ function InsightContent() {
 
   // equals: same — 生成回复时 sync.data.message[id] 每个 token 都会变,若不做浅比较,
   // 这个 memo 每帧都吐新数组,下游 <Show>/<For>/各 memo 全部空转重算 → 闪烁。
+  // 按 time.created 排序:event-reducer 的 Binary.search 按 string ID 插入,历史 session
+  // 旧 ID 格式与当前 Identifier.ascending() 不兼容,新消息可能插到数组前面而非末尾。
   const userMessages = createMemo(
     (): Message[] => {
       const id = params.id
@@ -386,9 +388,8 @@ function InsightContent() {
       () => params.id,
       (id) => {
         if (!id) return
-        // Check if messages are already loaded for this session.
-        const messages = (sync.data.message[id] ?? []) as Message[]
-        const lastUser = [...messages].reverse().find((m) => m.role === "user")
+        // userMessages 已按 time.created 排序,at(-1) 即最新 user
+        const lastUser = userMessages().at(-1) as UserMessage | undefined
         if (!lastUser?.model) return
         local.session.restore({
           sessionID: id,
@@ -431,10 +432,18 @@ function InsightContent() {
 
   // ── 长任务卡片聚合(spec: docs/specs/ui/task-card.md §3.3)──
   // 扫所有 assistant message 的 part,按 task_id 分组取最新状态;锚点 = 最早 part 所在 user message
+  // 按 time.created 排序后遍历配对 user→assistant,否则历史 session 旧 ID 格式导致
+  // Binary.search 插入顺序错乱,assistant 的 anchor userMsgID 会指向错误的 user。
   const taskCards = createMemo((): Map<string, TaskCardEntry> => {
     const id = params.id
     if (!id) return new Map()
-    const messages = (sync.data.message[id] ?? []) as Message[]
+    const raw = (sync.data.message[id] ?? []) as Message[]
+    const messages = [...raw].sort((a, b) => {
+      const at = (a as { time?: { created?: number } }).time?.created ?? 0
+      const bt = (b as { time?: { created?: number } }).time?.created ?? 0
+      if (at !== bt) return at - bt
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+    })
     const items: Parameters<typeof aggregateTaskCards>[0] = []
     let lastUserMsgID = ""
     for (const msg of messages) {
@@ -507,7 +516,16 @@ function InsightContent() {
     const sid = params.id
     if (!sid) return
     const messages = (sync.data.message[sid] ?? []) as Message[]
-    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant")
+    let lastAssistant: Message | undefined
+    let lastAssistantTime = -1
+    for (const m of messages) {
+      if (m.role !== "assistant") continue
+      const t = (m as { time?: { created?: number } }).time?.created ?? 0
+      if (t >= lastAssistantTime) {
+        lastAssistantTime = t
+        lastAssistant = m
+      }
+    }
     if (!lastAssistant) return
     const parts = (sync.data.part[lastAssistant.id] ?? []) as Part[]
 
