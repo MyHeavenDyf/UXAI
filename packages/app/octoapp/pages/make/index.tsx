@@ -2061,6 +2061,7 @@ const sessionMessagesLoaded = createMemo(() => {
       tracker.interaction({ module: "design", name: "close-tab", extend: JSON.stringify({ type: tab.type }) })
     }
     tabStore.closeTab(id)
+    setShowHistoryPanel(false)
     if (tabStore.tabs().length === 0) {
       layout.focusMode.set(false)
       setResultViewMode("files")
@@ -3194,7 +3195,7 @@ if (dsId) {
       }
     }
     
-    // ★ Step 0: 如果已有匹配的 tab，直接激活
+    // ★ Step 0: 如果已有匹配的 tab，直接激活（但先检查文件内容是否变化，变化则记录 agent 版本）
     if (card.filePath) {
       const existingTab = tabStore.tabs().find(t => {
         if (t.type === "html" && isUrl) return t.filePath === card.filePath
@@ -3203,6 +3204,17 @@ if (dsId) {
         return false
       })
       if (existingTab) {
+        if (!isUrl && existingTab.type !== "design-plan") {
+          const api = getDesktopApi()
+          const buf = await api?.readFileBuffer?.(existingTab.filePath!)
+          if (buf) {
+            const fileContent = new TextDecoder().decode(buf)
+            if (fileContent && fileContent !== existingTab.content) {
+              tabStore.updateTabContent(existingTab.id, fileContent)
+              await historyController.onTabOpen({ ...existingTab, content: fileContent }, existingTab)
+            }
+          }
+        }
         tabStore.activate(existingTab.id)
         return
       }
