@@ -4,7 +4,7 @@ import { useData, useI18n } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { MessageDivider } from "@opencode-ai/ui/message-part"
 import { Button } from "@opencode-ai/ui/button"
-import { createEffect, createMemo, createResource, createSignal, Show, For, type JSX } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, on, Show, For, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg, IconCardReact, IconCardDiagram } from "../icons"
 import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../utils/artifact-parser"
@@ -1078,6 +1078,14 @@ const stateStatus = state.status as string | undefined
   // Stable flag: once artifact detected during generation, don't flicker back
   const [hasSeenCount, setHasSeenCount] = createSignal(0)
   const [lastSeenCards, setLastSeenCards] = createSignal<OutputCard[]>([])
+
+  // 切换 session/message 时清空 local state。
+  // <Show> 包裹的 InsightTurn 在 userMessages().length > 0 保持 truthy 时会被复用,
+  // 不重置 local state 会导致 B session 的 streaming cards 泄漏到 A session 的视图。
+  createEffect(on(() => [props.sessionID, props.messageID] as const, () => {
+    setHasSeenCount(0)
+    setLastSeenCards([])
+  }, { defer: true }))
 
   // Track whether we've seen artifacts during streaming (effect, not memo)
   createEffect(() => {

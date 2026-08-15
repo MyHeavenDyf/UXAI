@@ -59,7 +59,11 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
 
     const entry = await historyStore.recordVersion(tab, actor, files)
     if (entry) {
-      callbacks.setVersionList((prev) => [entry, ...prev])
+      console.log('[history] trigger updating signals', { tabId: tab.id, event: event.type, actor, entryId: entry.id })
+      callbacks.setVersionList((prev) => {
+        console.log('[history] setVersionList', { prevLen: prev.length, newEntryId: entry.id, alreadyExists: prev.some(e => e.id === entry.id) })
+        return [entry, ...prev]
+      })
       callbacks.setCurrentVersionId(() => entry.id)
     }
   }
@@ -115,6 +119,11 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     } else if (contentChanged) {
       await trigger(tab, { type: "agent-update" }, "agent")
     }
+    const api = getDesktopApi()
+    const stat = await api?.statFile?.(tab.filePath!)
+    if (stat) {
+      lastFileSize.set(tab.filePath!, stat.size)
+    }
   }
 
   async function onFileRefresh(tabs: ResultTab[]): Promise<void> {
@@ -128,6 +137,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       if (!stat) continue
       const prevSize = lastFileSize.get(tab.filePath!)
       lastFileSize.set(tab.filePath!, stat.size)
+      if (prevSize === undefined) continue
       if (prevSize === stat.size) continue
       const buf = await api?.readFileBuffer?.(tab.filePath!)
       if (!buf) continue

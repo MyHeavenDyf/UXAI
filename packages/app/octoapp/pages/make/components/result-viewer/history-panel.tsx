@@ -3,7 +3,7 @@ import { Portal } from "solid-js/web"
 import type { JSX } from "solid-js"
 import type { VersionEntry } from "../../utils/history-store"
 
-const POPOVER_WIDTH = 170
+const POPOVER_WIDTH = 180
 const POPOVER_MAX_HEIGHT = 320
 const GAP = 20
 const VIEWPORT_PADDING = 8
@@ -129,6 +129,7 @@ export function HistoryPanel(props: {
                   {formatTime(entry.timestamp)}
                 </span>
                 <span
+                  title={`${formatTime(entry.timestamp)} ${label()}`}
                   style={{
                     "font-size": "12px",
                     color: "#111827",

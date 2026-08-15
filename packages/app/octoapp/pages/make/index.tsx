@@ -4068,6 +4068,9 @@ if (dsId) {
                 historyEntries={versionList()}
                 currentVersionId={currentVersionId()}
                 onHistorySwitch={handleHistorySwitch}
+                onModeChange={(mode) => {
+                  if (mode === "edit") setShowHistoryPanel(false)
+                }}
                 onHistoryToggle={async () => {
                   if (!showHistoryPanel()) {
                     const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())

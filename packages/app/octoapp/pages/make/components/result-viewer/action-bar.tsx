@@ -11,7 +11,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { getDesktopApi } from "../../lib/electron-api"
 import { tracker } from "@/utils/tracker"
 import { createHtmlAssetsZip } from "../../utils/html-assets-zip"
-import { getSubtypeConfig } from "../../utils/subtype-config"
+import { getSubtypeConfig, isFeatureEnabled, isFeatureEditOnly, type FeatureFlag } from "../../utils/subtype-config"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
 import { subtypeUIRegistry } from "../../utils/subtype-ui-registry"
 import type { ActionBarButton, SubtypeHandlerContext, ButtonPosition } from "../../subtype-handlers/types"
@@ -425,17 +425,24 @@ export function ActionBar(props: {
 
   let historyBtnRef: HTMLButtonElement | undefined
 
-  const canToggleMode = () => config().features.modeToggle && props.tab.type === "html"
-  const showViewport = () => config().features.viewport && props.tab.type === "html" && currentMode() === "preview"
-  const showRefreshButton = () => config().features.refresh
-  const showLocalEdit = () => config().features.localEdit && showViewport()
-  const showDrawEdit = () => config().features.drawEdit && showViewport()
-  const showCanvasEdit = () => config().features.canvasEdit && showViewport()
-  const showComment = () => config().features.comment && showViewport()
-  const showArchive = () => config().features.archive && showViewport()
-  const showDownload = () => config().features.download
-  const showFullscreen = () => config().features.fullscreen
-  const showHistory = () => config().features.history && !!props.tab.filePath
+  /** 统一判断：feature 是否在当前模式下可见（editOnly 的 feature 只在预览模式显示） */
+  const featureVisible = (flag: FeatureFlag): boolean => {
+    if (!isFeatureEnabled(flag)) return false
+    if (isFeatureEditOnly(flag) && currentMode() !== "preview") return false
+    return true
+  }
+
+  const canToggleMode = () => featureVisible(config().features.modeToggle) && props.tab.type === "html"
+  const showViewport = () => featureVisible(config().features.viewport) && props.tab.type === "html" && currentMode() === "preview"
+  const showRefreshButton = () => featureVisible(config().features.refresh)
+  const showLocalEdit = () => featureVisible(config().features.localEdit) && showViewport()
+  const showDrawEdit = () => featureVisible(config().features.drawEdit) && showViewport()
+  const showCanvasEdit = () => featureVisible(config().features.canvasEdit) && showViewport()
+  const showComment = () => featureVisible(config().features.comment) && showViewport()
+  const showArchive = () => featureVisible(config().features.archive) && showViewport()
+  const showDownload = () => featureVisible(config().features.download)
+  const showFullscreen = () => featureVisible(config().features.fullscreen)
+  const showHistory = () => featureVisible(config().features.history) && !!props.tab.filePath
   const shouldShowCopy = () =>
     props.tab.type === "table" ||
     props.tab.type === "markdown" ||
@@ -739,7 +746,7 @@ export function ActionBar(props: {
         </div>
       </div>
     </div>
-    <Show when={props.historyActive && historyBtnRef}>
+    <Show when={props.historyActive && historyBtnRef && showHistory()}>
       <HistoryPanel
         anchorRect={(() => {
           const r = historyBtnRef!.getBoundingClientRect()

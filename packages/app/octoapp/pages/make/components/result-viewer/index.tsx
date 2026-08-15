@@ -95,6 +95,7 @@ export function ResultViewer(props: {
   historyActive?: boolean
   historyEntries?: VersionEntry[]
   currentVersionId?: string | null
+  onModeChange?: (mode: "preview" | "edit") => void
   onHistorySwitch?: (entry: VersionEntry) => void
   onConfirmPlan?: (identifier?: string) => void
   onAdjustPlan?: () => void
@@ -332,6 +333,7 @@ export function ResultViewer(props: {
     if (nextMode === "edit") {
       featureMutex.disableAll()
     }
+    props.onModeChange?.(nextMode)
   }
 
   const canToggleMode = (tab: ResultTab) => tab.type === "html"
