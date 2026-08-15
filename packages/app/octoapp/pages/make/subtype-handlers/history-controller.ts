@@ -8,6 +8,17 @@ import { tracker } from "@/utils/tracker"
 
 const HISTORY_SKIP_TYPES = ["image", "video", "audio", "pdf", "svg", "text", "local-file"]
 
+/** FNV-1a hash：同步、纯 JS，对短文本足够精确 */
+function fnv1aHash(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let h = 0x811c9dc5
+  for (let i = 0; i < bytes.length; i++) {
+    h ^= bytes[i]
+    h = (h * 0x01000193) >>> 0
+  }
+  return h.toString(16)
+}
+
 export interface HistoryControllerCallbacks {
   setVersionList: (updater: (prev: VersionEntry[]) => VersionEntry[]) => void
   setCurrentVersionId: (updater: (prev: string | null) => string | null) => void
@@ -18,7 +29,15 @@ export interface HistoryControllerCallbacks {
 export function createHistoryController(callbacks: HistoryControllerCallbacks) {
   const historyStore = createHistoryStore()
   const writingTabs = new Set<string>()
-  const lastFileSize = new Map<string, number>()
+  const lastFileHash = new Map<string, string>()
+
+  /** 读文件并算 hash */
+  async function getFileHash(filePath: string): Promise<string | null> {
+    const api = getDesktopApi()
+    const buf = await api?.readFileBuffer?.(filePath)
+    if (!buf) return null
+    return fnv1aHash(buf)
+  }
 
   function buildCtx(tab: ResultTab): SubtypeHandlerContext {
     return {
@@ -77,10 +96,9 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       }
       callbacks.setCurrentVersionId(() => entry.id)
       callbacks.setFilesRefreshKey((k) => k + 1)
-      const api = getDesktopApi()
-      const stat = await api?.statFile?.(tab.filePath!)
-      if (stat) {
-        lastFileSize.set(tab.filePath!, stat.size)
+      const hash = await getFileHash(tab.filePath!)
+      if (hash) {
+        lastFileHash.set(tab.filePath!, hash)
       }
     } finally {
       writingTabs.delete(tab.id)
@@ -90,10 +108,9 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
   async function onUserEdit(tab: ResultTab): Promise<void> {
     if (!isEligible(tab)) return
     await trigger(tab, { type: "edit" }, "user")
-    const api = getDesktopApi()
-    const stat = await api?.statFile?.(tab.filePath!)
-    if (stat) {
-      lastFileSize.set(tab.filePath!, stat.size)
+    const hash = await getFileHash(tab.filePath!)
+    if (hash) {
+      lastFileHash.set(tab.filePath!, hash)
     }
   }
 
@@ -115,28 +132,35 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     } else if (contentChanged) {
       await trigger(tab, { type: "agent-update" }, "agent")
     }
-    const api = getDesktopApi()
-    const stat = await api?.statFile?.(tab.filePath!)
-    if (stat) {
-      lastFileSize.set(tab.filePath!, stat.size)
+    const hash = await getFileHash(tab.filePath!)
+    if (hash) {
+      lastFileHash.set(tab.filePath!, hash)
     }
   }
 
   async function onFileRefresh(tabs: ResultTab[]): Promise<void> {
-    const api = getDesktopApi()
     for (const tab of tabs) {
       if (!isEligible(tab)) continue
-      if (writingTabs.has(tab.id)) continue
-      const stat = await api?.statFile?.(tab.filePath!)
-      if (!stat) continue
-      const prevSize = lastFileSize.get(tab.filePath!)
-      lastFileSize.set(tab.filePath!, stat.size)
-      if (prevSize === undefined) continue
-      if (prevSize === stat.size) continue
+      if (writingTabs.has(tab.id)) {
+        console.log('[history] onFileRefresh skip (writing)', { tabId: tab.id })
+        continue
+      }
+      const hash = await getFileHash(tab.filePath!)
+      if (!hash) {
+        console.log('[history] onFileRefresh skip (no hash)', { tabId: tab.id })
+        continue
+      }
+      const prevHash = lastFileHash.get(tab.filePath!)
+      lastFileHash.set(tab.filePath!, hash)
+      console.log('[history] onFileRefresh', { tabId: tab.id, prevHash, curHash: hash })
+      if (prevHash === undefined) continue
+      if (prevHash === hash) continue
+      const api = getDesktopApi()
       const buf = await api?.readFileBuffer?.(tab.filePath!)
       if (!buf) continue
       const fileContent = new TextDecoder().decode(buf)
       if (!fileContent) continue
+      console.log('[history] onFileRefresh record agent', { tabId: tab.id })
       callbacks.updateTabContent(tab.id, fileContent)
       await trigger(tab, { type: "agent-file-edit" }, "agent")
     }
@@ -146,7 +170,28 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     if (!isEligible(tab)) return
     const list = await historyStore.listVersions(tab)
     callbacks.setVersionList(() => list)
-    callbacks.setCurrentVersionId(() => list[0]?.id ?? null)
+    const currentHash = await getFileHash(tab.filePath!)
+    let currentId = list[0]?.id ?? null
+    if (currentHash && list.length > 0) {
+      const matched = await findVersionByHash(tab, list, currentHash)
+      if (matched) currentId = matched.id
+    }
+    callbacks.setCurrentVersionId(() => currentId)
+    if (currentHash) {
+      lastFileHash.set(tab.filePath!, currentHash)
+    }
+  }
+
+  /** 对比文件 hash 和各版本 self 文件 hash，找匹配的版本 */
+  async function findVersionByHash(tab: ResultTab, list: VersionEntry[], targetHash: string): Promise<VersionEntry | null> {
+    for (const entry of list) {
+      const files = await historyStore.getVersionFiles(entry.id, tab, ["."])
+      const selfFile = files.find(f => f.fileName.startsWith("self."))
+      if (!selfFile) continue
+      const hash = await getFileHash(selfFile.filePath)
+      if (hash === targetHash) return entry
+    }
+    return null
   }
 
   async function refreshVersions(tab: ResultTab): Promise<void> {
