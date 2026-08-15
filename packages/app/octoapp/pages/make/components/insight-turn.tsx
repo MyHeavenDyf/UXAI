@@ -22,6 +22,7 @@ import { getFileIcon } from "../icons/file-type-icons"
 import { extractSubtypeFromTitle } from "../utils/subtype-extractor"
 import { kindFromMime } from "./attachment-bar"
 import { isElectronDesktop, pathToLocalUrl } from "../utils/artifact-file-api"
+import { lookupDisplayName } from "./skill-config-types"
 
 // Render text with @mentions - plain text only, no chip styling
 function renderMentionText(text: string): JSX.Element {
@@ -808,14 +809,8 @@ export function InsightTurn(props: {
         
         // 查找 displayName（仅对 skill 工具）
         let displayName: string | undefined
-        if (toolName === "skill" && input && typeof input.name === "string" && skillData) {
-          // 遍历查找 skillName 匹配的条目
-          for (const [displayNameKey, entry] of Object.entries(skillData)) {
-            if (entry && typeof entry === "object" && entry.skillName === input.name) {
-              displayName = displayNameKey  // key 就是显示名
-              break
-            }
-          }
+        if (toolName === "skill" && input && typeof input.name === "string") {
+          displayName = lookupDisplayName(skillData, input.name as string)
         }
         
         return {
@@ -830,9 +825,36 @@ export function InsightTurn(props: {
   })
 
   // Non-task tool calls (for ToolCallGroupCard — task calls shown separately as subtask cards)
-  const skillToolCalls = createMemo(() =>
-    toolCalls().filter((c) => c.name === "skill")
-  )
+
+  // 用户通过 @ / / 激活的技能:后端在 createUserMessage 时为 user message 注入
+  // type="tool" tool="skill" 的 part(source: "user")。assistantParts 不包含 user parts,
+  // 需单独从 partStore[messageID] 取,合并到 skillToolCalls 前面展示。
+  const userSkillToolCalls = createMemo((): ToolCallInfo[] => {
+    const parts = (partStore?.[props.messageID] ?? []) as Array<Record<string, unknown>>
+    const skillData = props.skillConfig?.skill
+    return parts
+      .filter((p) => p.type === "tool" && (p.tool as string | undefined) === "skill")
+      .map((p) => {
+        const state = (p.state as Record<string, unknown> | undefined) ?? {}
+        const input = state.input as { name?: string } | undefined
+        const displayName = input?.name
+          ? lookupDisplayName(skillData, input.name)
+          : undefined
+        return {
+          name: "skill",
+          status: "done" as const,
+          input: input ?? undefined,
+          output: undefined,
+          filePath: undefined,
+          displayName,
+        }
+      })
+  })
+
+  const skillToolCalls = createMemo(() => [
+    ...userSkillToolCalls(),
+    ...toolCalls().filter((c) => c.name === "skill"),
+  ])
 
   const otherToolCalls = createMemo(() =>
     toolCalls().filter((c) => c.name !== "skill" && !/task/i.test(c.name))
