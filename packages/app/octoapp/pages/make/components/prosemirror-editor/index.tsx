@@ -26,7 +26,10 @@ interface EditorRef {
 
 interface Props {
   sessionId: string
-  skillConfig: { panel?: { common?: PanelSkill[]; octo_make?: PanelSkill[] } }
+  skillConfig: {
+    skill?: Record<string, import("../skill-config-types").SkillConfigEntry>
+    panel?: { common?: PanelSkill[]; octo_make?: PanelSkill[] }
+  }
   artifactFiles: { generated: ArtifactFile[]; uploaded: ArtifactFile[] } | null | undefined
   mentionSelections: MentionSelection[]
   setMentionSelections: (selections: MentionSelection[]) => void

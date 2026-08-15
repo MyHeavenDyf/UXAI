@@ -18,6 +18,7 @@ export interface HistoryControllerCallbacks {
 export function createHistoryController(callbacks: HistoryControllerCallbacks) {
   const historyStore = createHistoryStore()
   const writingTabs = new Set<string>()
+  const lastFileSize = new Map<string, number>()
 
   function buildCtx(tab: ResultTab): SubtypeHandlerContext {
     return {
@@ -76,6 +77,11 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       }
       callbacks.setCurrentVersionId(() => entry.id)
       callbacks.setFilesRefreshKey((k) => k + 1)
+      const api = getDesktopApi()
+      const stat = await api?.statFile?.(tab.filePath!)
+      if (stat) {
+        lastFileSize.set(tab.filePath!, stat.size)
+      }
     } finally {
       writingTabs.delete(tab.id)
     }
@@ -83,12 +89,22 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
 
   async function onUserEdit(tab: ResultTab): Promise<void> {
     if (!isEligible(tab)) return
-    writingTabs.add(tab.id)
-    try {
-      await trigger(tab, { type: "edit" }, "user")
-    } finally {
-      writingTabs.delete(tab.id)
+    await trigger(tab, { type: "edit" }, "user")
+    const api = getDesktopApi()
+    const stat = await api?.statFile?.(tab.filePath!)
+    if (stat) {
+      lastFileSize.set(tab.filePath!, stat.size)
     }
+  }
+
+  /** 标记 tab 开始写文件（避免 agent 路径 B 误判） */
+  function beginWrite(tabId: string): void {
+    writingTabs.add(tabId)
+  }
+
+  /** 标记 tab 写文件结束 */
+  function endWrite(tabId: string): void {
+    writingTabs.delete(tabId)
   }
 
   async function onTabOpen(tab: ResultTab, existingBefore: ResultTab | undefined): Promise<void> {
@@ -105,11 +121,18 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     const api = getDesktopApi()
     for (const tab of tabs) {
       if (!isEligible(tab)) continue
-      if (writingTabs.has(tab.id)) continue
+      if (writingTabs.has(tab.id)) {
+        continue
+      }
+      const stat = await api?.statFile?.(tab.filePath!)
+      if (!stat) continue
+      const prevSize = lastFileSize.get(tab.filePath!)
+      lastFileSize.set(tab.filePath!, stat.size)
+      if (prevSize === stat.size) continue
       const buf = await api?.readFileBuffer?.(tab.filePath!)
       if (!buf) continue
       const fileContent = new TextDecoder().decode(buf)
-      if (!fileContent || fileContent === tab.content) continue
+      if (!fileContent) continue
       callbacks.updateTabContent(tab.id, fileContent)
       await trigger(tab, { type: "agent-file-edit" }, "agent")
     }
@@ -137,5 +160,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     loadVersions,
     refreshVersions,
     listVersions: historyStore.listVersions,
+    beginWrite,
+    endWrite,
   }
 }
