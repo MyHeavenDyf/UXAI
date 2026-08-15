@@ -464,7 +464,18 @@ export default function Page() {
     return sync.session.history.loading(id)
   })
   const userMessages = createMemo(
-    () => messages().filter((m) => m.role === "user") as UserMessage[],
+    () => {
+      const msgs = messages().filter((m) => m.role === "user") as UserMessage[]
+      // 按 time.created 排序（以 id 作 tiebreaker），避免依赖 sync.data.message 底层数组顺序。
+      // Binary.search 用字符串 ID 比较插入位置，旧 session 的 48-bit ID 溢出后 hex 前缀顺序
+      // 错乱（'0' < 'f'），新消息被插入到数组开头，导致 lastUserMessage 取错。
+      return msgs.sort((a, b) => {
+        const aTime = (a as any).time?.created ?? 0
+        const bTime = (b as any).time?.created ?? 0
+        if (aTime !== bTime) return aTime - bTime
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+      })
+    },
     emptyUserMessages,
     { equals: same },
   )
