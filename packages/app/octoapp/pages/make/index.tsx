@@ -855,13 +855,19 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!sid) return []
     const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter((m) => m.role === "user")
     const childIds = childSessionIDs()
-    if (childIds.size === 0) return mainMsgs
     const allMsgs: Message[] = [...mainMsgs]
     for (const childId of childIds) {
       const childMsgs = ((sync.data.message?.[childId] ?? []) as Message[]).filter((m) => m.role === "user")
       allMsgs.push(...childMsgs)
     }
-    return allMsgs.sort((a, b) => (a as any).time?.created - (b as any).time?.created)
+    // 始终按 time.created 排序(以 id 作 tiebreaker),避免依赖 sync.data.message 底层数组顺序。
+    // 否则在框选编辑等异步发送路径下,新消息可能因 Binary.search 插入位置异常而停留在顶部。
+    return allMsgs.sort((a, b) => {
+      const aTime = (a as any).time?.created ?? 0
+      const bTime = (b as any).time?.created ?? 0
+      if (aTime !== bTime) return aTime - bTime
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+    })
   })
 
   const lastUserMessage = createMemo(() => userMessages().at(-1))
