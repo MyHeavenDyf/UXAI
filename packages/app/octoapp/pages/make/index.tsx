@@ -734,11 +734,8 @@ const sessionMessagesLoaded = createMemo(() => {
         if (callID) {
           const toolName = toolCallMap.get(callID)
           if (toolName) {
-            const family = toolFamily(toolName)
-            if (family === "write" || family === "edit") {
-              setFilesRefreshKey(k => k + 1)
-              void historyController.onFileRefresh(tabStore.tabs())
-            }
+            setFilesRefreshKey(k => k + 1)
+            void historyController.onFileRefresh(tabStore.tabs())
             toolCallMap.delete(callID)
           }
         }
