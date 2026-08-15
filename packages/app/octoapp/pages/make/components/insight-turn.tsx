@@ -730,7 +730,16 @@ export function InsightTurn(props: {
 
   const isLatestTurn = createMemo(() => {
     const messages = msgStore?.[props.sessionID] ?? []
-    const lastUser = [...messages].reverse().find((m) => m.role === "user")
+    let lastUser: Message | undefined
+    let lastUserTime = -1
+    for (const m of messages) {
+      if (m.role !== "user") continue
+      const t = (m as { time?: { created?: number } }).time?.created ?? 0
+      if (t >= lastUserTime) {
+        lastUserTime = t
+        lastUser = m
+      }
+    }
     return lastUser?.id === props.messageID
   })
 
