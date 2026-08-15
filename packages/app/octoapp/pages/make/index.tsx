@@ -42,6 +42,7 @@ import {
   type JSX,
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
+import { onPrototypePickerSubmit, onPrototypePickerAppend } from "./utils/prototype-utils"
 import { createStore, produce } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
@@ -999,6 +1000,24 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const [prompt, setPrompt] = createSignal("")
+  const unsubPickerSubmit = onPrototypePickerSubmit(({ text, id }) => {
+    const line = text ? `[选中元素: ${id}] ${text};` : ""
+    const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
+    const prev = ref?.getText?.() ?? ""
+    if (text) {
+      ref?.clear?.()
+      ref?.insertText?.(prev ? `${prev}\n${line}` : line)
+    }
+    void handleSubmit()
+  })
+  const unsubPickerAppend = onPrototypePickerAppend(({ text, id }) => {
+    const line = `[选中元素: ${id}] ${text};`
+    const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
+    const prev = ref?.getText?.() ?? ""
+    ref?.clear?.()
+    ref?.insertText?.(prev ? `${prev}\n${line}` : line)
+  })
+  onCleanup(() => { unsubPickerSubmit(); unsubPickerAppend() })
   const [composing, setComposing] = createSignal(false)
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)
