@@ -2015,17 +2015,22 @@ const sessionMessagesLoaded = createMemo(() => {
 
     if (tab) {
       const isDesignPlan = tab.type === "design-plan"
-      await persistTabChanges(tab, {
-        sessionId: params.id!,
-        projectDir: projectDir(),
-        sdkUrl: sdk.url,
-        sdkDirectory: sdk.directory || "",
-        snapshotStore: snapshotStore,
-        refreshSnapshots: refreshSnapshots,
-        skipSnapshot: !isDesignPlan,
-      })
-      if (!isDesignPlan) {
-        await historyController.onUserEdit(tab)
+      historyController.beginWrite(tab.id)
+      try {
+        await persistTabChanges(tab, {
+          sessionId: params.id!,
+          projectDir: projectDir(),
+          sdkUrl: sdk.url,
+          sdkDirectory: sdk.directory || "",
+          snapshotStore: snapshotStore,
+          refreshSnapshots: refreshSnapshots,
+          skipSnapshot: !isDesignPlan,
+        })
+        if (!isDesignPlan) {
+          await historyController.onUserEdit(tab)
+        }
+      } finally {
+        historyController.endWrite(tab.id)
       }
     }
     // 注：design-plan tab 的编辑不走 persistTabChanges(finalContent 是 draft,
@@ -2089,10 +2094,15 @@ const sessionMessagesLoaded = createMemo(() => {
       
       console.log("[sendMessage] mentions:", mentions)
       console.log("[sendMessage] skillToolCalls:", skillToolCalls())
-      
+
       for (const sel of selections) {
         if (sel.type === 'skill') {
           processedText = processedText.replace(`@${sel.name}`, ` /${sel.name} `)
+          // chip 在输入框里渲染成 displayName,但 getText 返回的是 @skillName(getDocTextWithMentions 用 attrs.name)。
+          // 这里把 displayText 里的 @skillName 同步替换成 @displayName,聊天记录里显示的就跟输入框一致。
+          if (sel.label && sel.label !== sel.name) {
+            displayText = displayText.replace(`@${sel.name}`, () => `@${sel.label}`)
+          }
         } else {
           processedText = processedText.replace(`@${sel.name}`, ` 读取${sel.path} 这个文件 `)
         }

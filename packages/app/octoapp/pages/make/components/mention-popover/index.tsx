@@ -1,6 +1,7 @@
 import { createSignal, createMemo, createEffect, For, Show, onCleanup, onMount, type JSX } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
-import type { PanelSkill } from "../skill-config-types"
+import type { PanelSkill, SkillConfigEntry } from "../skill-config-types"
+import { lookupDisplayName } from "../skill-config-types"
 import type { ArtifactFile } from "../../utils/artifact-file-api"
 import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "./icons"
 import { getFileIcon } from "../../icons/file-type-icons"
@@ -8,7 +9,7 @@ import emptyPng from "../../icons/empty.png"
 import "./styles.css"
 
 export type MentionTab = 'skills' | 'files'
-export type MentionSelection = 
+export type MentionSelection =
   | { type: 'skill'; name: string; label: string }
   | { type: 'file'; filename: string; path: string }
 
@@ -20,6 +21,7 @@ interface MentionPopoverProps {
   onDeselect: (selection: MentionSelection) => void
   selections: MentionSelection[]
   skillConfig: {
+    skill?: Record<string, SkillConfigEntry>
     panel?: {
       common?: PanelSkill[]
       octo_make?: PanelSkill[]
@@ -80,13 +82,19 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const filteredPlatformSkills = createMemo(() => {
     const q = props.query.toLowerCase()
     if (!q) return platformSkills()
-    return platformSkills().filter(s => s.label.toLowerCase().includes(q))
+    return platformSkills().filter(s => {
+      const display = lookupDisplayName(props.skillConfig.skill, s.label) ?? s.label
+      return s.label.toLowerCase().includes(q) || display.toLowerCase().includes(q)
+    })
   })
 
   const filteredCustomSkills = createMemo(() => {
     const q = props.query.toLowerCase()
     if (!q) return customSkills()
-    return customSkills().filter(s => s.label.toLowerCase().includes(q))
+    return customSkills().filter(s => {
+      const display = lookupDisplayName(props.skillConfig.skill, s.label) ?? s.label
+      return s.label.toLowerCase().includes(q) || display.toLowerCase().includes(q)
+    })
   })
 
   const filteredFiles = createMemo(() => {
@@ -151,7 +159,8 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   }
 
   const handleSkillClick = (skill: PanelSkill) => {
-    const selection: MentionSelection = { type: 'skill', name: skill.label, label: skill.label }
+    const displayName = lookupDisplayName(props.skillConfig.skill, skill.label) ?? skill.label
+    const selection: MentionSelection = { type: 'skill', name: skill.label, label: displayName }
     if (isSelected(selection)) {
       props.onDeselect(selection)
     } else {
@@ -246,7 +255,8 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
             </Show>
             <For each={filteredPlatformSkills()}>
               {(skill, i) => {
-                const sel: MentionSelection = { type: 'skill', name: skill.label, label: skill.label }
+                const displayName = lookupDisplayName(props.skillConfig.skill, skill.label) ?? skill.label
+                const sel: MentionSelection = { type: 'skill', name: skill.label, label: displayName }
                 return (
                   <button
                     type="button"
@@ -256,7 +266,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                     <Show when={isSelected(sel)}>
                       <Icon name="check" size="small" style="color: #0A59F7" />
                     </Show>
-                    <span class="mention-secondary-item-text">{skill.label}</span>
+                    <span class="mention-secondary-item-text">{displayName}</span>
                   </button>
                 )
               }}
@@ -276,7 +286,8 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
             </Show>
             <For each={filteredCustomSkills()}>
               {(skill, i) => {
-                const sel: MentionSelection = { type: 'skill', name: skill.label, label: skill.label }
+                const displayName = lookupDisplayName(props.skillConfig.skill, skill.label) ?? skill.label
+                const sel: MentionSelection = { type: 'skill', name: skill.label, label: displayName }
                 return (
                   <button
                     type="button"
@@ -286,7 +297,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                     <Show when={isSelected(sel)}>
                       <Icon name="check" size="small" style="color: #0A59F7" />
                     </Show>
-                    <span class="mention-secondary-item-text">{skill.label}</span>
+                    <span class="mention-secondary-item-text">{displayName}</span>
                   </button>
                 )
               }}
