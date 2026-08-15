@@ -3721,7 +3721,10 @@ if (dsId) {
                           setPrompt(text)
                         }}
                         hasQuestionRequest={!!questionRequest()}
-                        onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
+                        onFilesRefresh={() => {
+                          setFilesRefreshKey(k => k + 1)
+                          void historyController.onFileRefresh(tabStore.tabs())
+                        }}
                         skillToolCalls={skillToolCalls()}
                         skillConfig={skillConfig()}
                       />
@@ -3783,7 +3786,10 @@ if (dsId) {
                           setPrompt(text)
                         }}
                         hasQuestionRequest={!!questionRequest()}
-                        onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
+                        onFilesRefresh={() => {
+                          setFilesRefreshKey(k => k + 1)
+                          void historyController.onFileRefresh(tabStore.tabs())
+                        }}
                         skillToolCalls={skillToolCalls()}
                         skillConfig={skillConfig()}
                       />
@@ -4101,7 +4107,10 @@ if (dsId) {
                 onAdjustPlan={handleAdjustPlan}
                 isPlanConfirmed={planButtonDisabled}
                 filesRefreshKey={filesRefreshKey()}
-                onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
+                onFilesRefresh={() => {
+                  setFilesRefreshKey(k => k + 1)
+                  void historyController.onFileRefresh(tabStore.tabs())
+                }}
                 planCard={planCard()}
                 planPhase={planPhase()}
                 strategyFormData={strategyFormData()}
