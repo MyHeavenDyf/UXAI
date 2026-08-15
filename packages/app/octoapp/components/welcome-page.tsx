@@ -28,15 +28,8 @@ const features: FeatureCard[] = [
     title: "Design",
     titleColor: "#8A4305",
     description: "AI辅助UX设计原型生成助手，\n基于规范&内部资产生成原型",
-    tags: ["原型生成", "开发传递", "开发传递"],
+    tags: ["原型生成", "标注归档", "开发传递"],
     previewImage: "/welcomepage/design.png",
-  },
-    {
-    title: "Prototype",
-    titleColor: "#CB2578",
-    description: "引用开发组件拼搭页面，可开\n发交付（当前仅支持ICT领域）",
-    tags: ["代码原型生成"],
-    previewImage: "/welcomepage/prototype.png",
   },
   {
     title: "Studio",
