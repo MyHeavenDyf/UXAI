@@ -337,14 +337,16 @@ function InsightContent() {
     (): Message[] => {
       const id = params.id
       if (!id) return EMPTY_MESSAGES
-      return ((sync.data.message[id] ?? []) as Message[])
-        .filter((m) => m.role === "user")
-        .sort((a, b) => {
-          const at = (a as { time?: { created?: number } }).time?.created ?? 0
-          const bt = (b as { time?: { created?: number } }).time?.created ?? 0
-          if (at !== bt) return at - bt
-          return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
-        })
+      const msgs = ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
+      // 按 time.created 排序（以 id 作 tiebreaker），避免依赖 sync.data.message 底层数组顺序。
+      // Binary.search 用字符串 ID 比较插入位置，旧 session 的 48-bit ID 溢出后 hex 前缀顺序
+      // 错乱（'0' < 'f'），新消息被插入到数组开头，导致 lastUserMessage 取错、消息显示在顶部。
+      return msgs.sort((a, b) => {
+        const aTime = (a as any).time?.created ?? 0
+        const bTime = (b as any).time?.created ?? 0
+        if (aTime !== bTime) return aTime - bTime
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+      })
     },
     EMPTY_MESSAGES,
     { equals: same },
