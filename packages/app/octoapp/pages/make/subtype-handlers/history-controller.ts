@@ -139,6 +139,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
   }
 
   async function onFileRefresh(tabs: ResultTab[]): Promise<void> {
+    let anyChanged = false
     for (const tab of tabs) {
       if (!isEligible(tab)) continue
       if (writingTabs.has(tab.id)) continue
@@ -155,6 +156,10 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       if (!fileContent) continue
       callbacks.updateTabContent(tab.id, fileContent)
       await trigger(tab, { type: "agent-file-edit" }, "agent")
+      anyChanged = true
+    }
+    if (anyChanged) {
+      callbacks.setFilesRefreshKey((k) => k + 1)
     }
   }
 
