@@ -737,12 +737,14 @@ const sessionMessagesLoaded = createMemo(() => {
             const family = toolFamily(toolName)
             if (family === "write" || family === "edit") {
               setFilesRefreshKey(k => k + 1)
+              void historyController.onFileRefresh(tabStore.tabs())
             }
             toolCallMap.delete(callID)
           }
         }
       } else if (e.type === "session.next.step.ended") {
         setFilesRefreshKey(k => k + 1)
+        void historyController.onFileRefresh(tabStore.tabs())
       } else {
         const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
         console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 

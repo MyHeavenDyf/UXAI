@@ -59,11 +59,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
 
     const entry = await historyStore.recordVersion(tab, actor, files)
     if (entry) {
-      console.log('[history] trigger updating signals', { tabId: tab.id, event: event.type, actor, entryId: entry.id })
-      callbacks.setVersionList((prev) => {
-        console.log('[history] setVersionList', { prevLen: prev.length, newEntryId: entry.id, alreadyExists: prev.some(e => e.id === entry.id) })
-        return [entry, ...prev]
-      })
+      callbacks.setVersionList((prev) => [entry, ...prev])
       callbacks.setCurrentVersionId(() => entry.id)
     }
   }
@@ -130,9 +126,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     const api = getDesktopApi()
     for (const tab of tabs) {
       if (!isEligible(tab)) continue
-      if (writingTabs.has(tab.id)) {
-        continue
-      }
+      if (writingTabs.has(tab.id)) continue
       const stat = await api?.statFile?.(tab.filePath!)
       if (!stat) continue
       const prevSize = lastFileSize.get(tab.filePath!)
