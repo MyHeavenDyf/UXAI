@@ -2105,7 +2105,41 @@ const sessionMessagesLoaded = createMemo(() => {
       // 附件已快照到 fileParts/localManifest，立即清空 UI；
       // 否则要等 await session.prompt 完成才会清空，造成"附件要等模型回复完成才消失"的现象
       setAttachments([])
-      
+
+      // ── Artifact folder context（无论命令还是 prompt 路径，都在最开头注入） ──
+      // 告诉 agent 用 write 工具时的目标目录绝对路径，以及当前会话已有的产物文件列表（供 edit 工具使用）。
+      // 文件列表每轮 sendMessage 都重新扫盘，保证新鲜。
+      let artifactFolderPrefix = ""
+      const folderProjDir = projectDir()
+      if (folderProjDir && sessionId) {
+        const sep = folderProjDir.includes("\\") ? "\\" : "/"
+        const artifactFolder = [folderProjDir, ".octo", sessionId, "outputs"].join(sep)
+        let existingList = ""
+        try {
+          const relPath = `.octo/${sessionId}/outputs`
+          const result = await sdk.client.file.list({ path: relPath })
+          const files = (result.data ?? []).filter((n) => n.type === "file")
+          if (files.length > 0) {
+            const lines = files.map((n) => `- ${n.absolute}`)
+            existingList = [
+              ``,
+              `[Existing artifacts in this session]`,
+              ...lines,
+              `When the user references a previously-generated artifact in this session for modification, use the edit tool on the matching file path above. If the file is not listed, re-output a full <artifact> instead; do not edit files outside this list.`,
+            ].join("\n")
+          }
+        } catch {
+          // 目录可能还没创建(还没生成过产物),忽略
+        }
+        artifactFolderPrefix = [
+          `[Artifact Folder]: ${artifactFolder}`,
+          `Prefer the <artifact> tag for output; do NOT use the write tool by default. Only if the user EXPLICITLY asks to use the write tool, you MUST write files inside this folder and nowhere else.`,
+          existingList,
+          `---`,
+          ``,
+        ].filter(Boolean).join("\n")
+      }
+
       // ── Multi-slash-command detection ──
       // Scan all tokens in processedText for /cmd patterns, match against sync.data.command,
       // execute each via session.command(). Each command gets the text between itself
@@ -2157,6 +2191,7 @@ const sessionMessagesLoaded = createMemo(() => {
         // Save full display text (contains all text and @mentions)
         const fullDisplayText = displayText
         let isFirstSkillCommand = true
+        let artifactFolderInjected = false
         
         // 添加本地文件清单
         const manifestPart = localManifest.length > 0 
@@ -2165,10 +2200,16 @@ const sessionMessagesLoaded = createMemo(() => {
         
         for (const seg of cmdSegments) {
           if (!seg.cmd) continue
-          
+
           // Build parts: file parts + local manifest + optional text part with metadata for skill chips
           const cmdParts: Array<FilePartInput | TextPartInput> = [...fileParts]
           if (manifestPart) cmdParts.push(manifestPart)
+
+          // 注入 artifact folder context（仅注入一次）
+          if (artifactFolderPrefix && !artifactFolderInjected) {
+            cmdParts.unshift({ type: "text", text: artifactFolderPrefix, synthetic: true })
+            artifactFolderInjected = true
+          }
           
           // If this command is a skill from @mention, add metadata for chip display
           const isSkillMention = skillMentions.some(s => s.name === seg.cmd)
@@ -2280,46 +2321,9 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       }
 
-      // Artifact folder injection: 告诉 agent 用 write 工具时的目标目录绝对路径,
-      // 以及当前会话已存在的产物文件列表(供 edit 工具使用)。
-      // 必须放在 DesignSystem 注入之后,避免被 dsPrefix 重置覆盖。
-      // 文件列表每轮 sendMessage 都重新扫盘,保证新鲜。
-      const folderProjDir = projectDir()
-      if (folderProjDir && sessionId) {
-        const sep = folderProjDir.includes("\\") ? "\\" : "/"
-        const artifactFolder = [
-          folderProjDir,
-          ".octo",
-          sessionId,
-          "outputs",
-        ].join(sep)
-
-        let existingList = ""
-        try {
-          const relPath = `.octo/${sessionId}/outputs`
-          const result = await sdk.client.file.list({ path: relPath })
-          const files = (result.data ?? []).filter((n) => n.type === "file")
-          if (files.length > 0) {
-            const lines = files.map((n) => `- ${n.absolute}`)
-            existingList = [
-              ``,
-              `[Existing artifacts in this session]`,
-              ...lines,
-              `When the user references a previously-generated artifact in this session for modification, use the edit tool on the matching file path above. If the file is not listed, re-output a full <artifact> instead; do not edit files outside this list.`,
-            ].join("\n")
-          }
-        } catch {
-          // 目录可能还没创建(还没生成过产物),忽略
-        }
-
-        const folderPrefix = [
-          `[Artifact Folder]: ${artifactFolder}`,
-          `Prefer the <artifact> tag for output; do NOT use the write tool by default. Only if the user EXPLICITLY asks to use the write tool, you MUST write files inside this folder and nowhere else.`,
-          existingList,
-          `---`,
-          ``,
-        ].filter(Boolean).join("\n")
-        promptText = folderPrefix + "\n" + promptText
+      // Artifact folder injection（使用前面已构建的 artifactFolderPrefix）
+      if (artifactFolderPrefix) {
+        promptText = artifactFolderPrefix + "\n" + promptText
       }
 
       // jk-j60099994-replace-with-60062650-octoapp-make-index-1-start
