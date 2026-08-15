@@ -962,6 +962,8 @@ const sessionMessagesLoaded = createMemo(() => {
     
     // 检测从 busy → idle 的转换
     if (lastBusyState && !busy && id) {
+      // agent 一轮结束：刷新文件视图，让 iframe 重载拿到最新磁盘内容（no-store 保证 data.js 不命中缓存）
+      setFilesRefreshKey(k => k + 1)
       const timing = messageTimingMap.get(id)
       if (timing) {
         const elapsed = Date.now() - timing.startTime
