@@ -735,15 +735,15 @@ const sessionMessagesLoaded = createMemo(() => {
         if (callID) {
           const toolName = toolCallMap.get(callID)
           if (toolName) {
-            const family = toolFamily(toolName)
-            if (family === "write" || family === "edit") {
-              setFilesRefreshKey(k => k + 1)
-              void historyController.onFileRefresh(tabStore.tabs())
-            }
+            setFilesRefreshKey(k => k + 1)
+            void historyController.onFileRefresh(tabStore.tabs())
             toolCallMap.delete(callID)
           }
         }
       } else if (e.type === "session.next.step.ended") {
+        setFilesRefreshKey(k => k + 1)
+        void historyController.onFileRefresh(tabStore.tabs())
+      } else if (e.type === "file.edited" || e.type === "file.watcher.updated") {
         setFilesRefreshKey(k => k + 1)
         void historyController.onFileRefresh(tabStore.tabs())
       } else {

@@ -155,6 +155,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       if (!fileContent) continue
       callbacks.updateTabContent(tab.id, fileContent)
       await trigger(tab, { type: "agent-file-edit" }, "agent")
+      callbacks.setFilesRefreshKey((k) => k + 1)
     }
   }
 
