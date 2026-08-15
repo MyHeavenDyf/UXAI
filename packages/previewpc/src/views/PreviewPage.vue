@@ -46,8 +46,16 @@ onMounted(async () => {
       const res = await fetch("./" + fetchFile, { cache: "no-store" })
       applyA2UIJson(await res.json())
     } else {
-      const external = (window as any).__A2UI_DATA__
-      if (external) applyA2UIJson(JSON.parse(JSON.stringify(external)))
+      const data = (window as any).__A2UI_DATA__
+      if (data) applyA2UIJson(data)
+      else {
+        const res = await fetch("./data.js", { cache: "no-store" })
+        const text = await res.text()
+        const noBom = text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text
+        const eq = noBom.indexOf("=")
+        const jsonStr = (eq >= 0 ? noBom.slice(eq + 1) : noBom).trim().replace(/;$/, "")
+        applyA2UIJson(JSON.parse(jsonStr))
+      }
     }
   } catch (err) {
     console.warn("[PreviewPage] 加载默认数据失败:", err);
