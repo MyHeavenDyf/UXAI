@@ -7,12 +7,6 @@ import {
   createPrototypeMessageHandler,
   buildSiblingMap,
   loadA2uiData,
-  resetPrototypeEditing,
-  closePrototypePanels,
-  isPrototypeAnnotating,
-  startAnnotation,
-  stopAnnotation,
-  resetPrototypeAnnotation,
 } from "../utils/prototype-utils"
 import { showPromiseToast } from "@opencode-ai/ui/toast"
 import proto_replanner from "../../pattern/agents/proto-replanner"
@@ -34,7 +28,7 @@ export default {
     if (!next) {
       ctx.postMessageToIframe?.({ type: "od:drag-mode", enabled: false })
       disposeSession(tabId)
-      return true
+      return false
     }
     if (!session) session = createSession(tabId, ctx)
     session.editing = true
@@ -45,6 +39,11 @@ export default {
     }
     const siblingMap = buildSiblingMap(await loadA2uiData(session, ctx))
     ctx.postMessageToIframe?.({ type: "od:drag-mode", enabled: true, siblingMap })
+    return false
+  },
+
+  async handleDrawEdit(ctx) {
+    ctx.showToast({ title: "该功能未上线" })
     return true
   },
 
@@ -169,19 +168,12 @@ export default {
   },
 
   async handleComment(ctx) {
-    const next = !isPrototypeAnnotating()
+    ctx.showToast({ title: "该功能未上线" })
+    return true
+  },
 
-    if (!next) {
-      stopAnnotation(ctx)
-      resetPrototypeAnnotation()
-      return true
-    }
-
-    // 先清理 edit 模式(互斥):关闭编辑浮层 + 移除 edit message handler
-    resetPrototypeEditing()
-    closePrototypePanels()
-
-    startAnnotation(ctx)
+  async handleArchive(ctx) {
+    ctx.showToast({ title: "该功能未上线" })
     return true
   },
 

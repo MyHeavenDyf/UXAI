@@ -1,4 +1,4 @@
-import { createMemo, createSignal, createEffect, Show, Switch, Match, For } from "solid-js"
+import { createMemo, createSignal, createEffect, on, Show, Switch, Match, For } from "solid-js"
 import type { JSX } from "solid-js"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -38,6 +38,7 @@ import { useProjectSelection } from "@/hooks/use-project-selection"
 import { getDesktopApi } from "../../lib/electron-api"
 import { useFeatureMutex } from "../../utils/use-feature-mutex"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
+import { disposeAllPrototypeSessions } from "../../utils/prototype-utils"
 
 function extractCodeBlock(text: string, lang: string): string {
   const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
@@ -162,6 +163,10 @@ export function ResultViewer(props: {
   const [viewport, setViewport] = createSignal<ViewportPreset>("desktop")
   const [palette, setPalette] = createSignal<PaletteId | null>(null)
   const featureMutex = useFeatureMutex()
+  createEffect(on(() => props.activeId, () => {
+    disposeAllPrototypeSessions()
+    featureMutex.disableAll()
+  }, { defer: true }))
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
   const [refreshKey, setRefreshKey] = createSignal(0)
   // 当前 HTML tab 已加载的资源 URL getter（由 HtmlRenderer 注册）
@@ -274,52 +279,43 @@ export function ResultViewer(props: {
     tracker.interaction({ module: "design", name: "toggle-edit-mode", extend: JSON.stringify({ action: nextEditing ? "open" : "close" }) })
   }
 
-  const handleCommentToggle = async () => {
-    tracker.interaction({ module: "design", name: "toggle-comment-mode" })
-    
+  const handleDrawToggle = async () => {
     const ctx = buildSubtypeCtx()
-    if (!ctx) {
-      featureMutex.toggleFeature('commenting')
-      return
-    }
-    
+    if (!ctx) return
     const handler = getSubtypeHandler(ctx.tab.subtype)
+    if (handler?.handleDrawEdit) {
+      const handled = await handler.handleDrawEdit(ctx)
+      if (handled === true) return
+    }
+    const nextDrawing = !featureMutex.state.drawing
+    featureMutex.toggleFeature('drawing')
+    tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
+  }
 
+  const handleCommentToggle = async () => {
+    const ctx = buildSubtypeCtx()
+    if (!ctx) return
+    const handler = getSubtypeHandler(ctx.tab.subtype)
     if (handler?.handleComment) {
       const handled = await handler.handleComment(ctx)
       if (handled === true) return
     }
-    
+    const nextCommenting = !featureMutex.state.commenting
     featureMutex.toggleFeature('commenting')
+    tracker.interaction({ module: "design", name: "toggle-comment-mode", extend: JSON.stringify({ action: nextCommenting ? "open" : "close" }) })
   }
 
   const handleArchiveToggle = async () => {
-    tracker.interaction({ module: "design", name: "toggle-archive-mode" })
-    
-    const tab = activeTab()
-    if (!tab) {
-      featureMutex.toggleFeature('archiving')
-      return
-    }
-    
-    const handler = getSubtypeHandler(tab.subtype)
-    
-    const ctx = {
-      tab,
-      showToast,
-      tracker,
-      getDesktopApi,
-      extractCodeBlock,
-      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
-      projectSelection,
-    }
-
+    const ctx = buildSubtypeCtx()
+    if (!ctx) return
+    const handler = getSubtypeHandler(ctx.tab.subtype)
     if (handler?.handleArchive) {
       const handled = await handler.handleArchive(ctx)
       if (handled === true) return
     }
-    
+    const nextArchiving = !featureMutex.state.archiving
     featureMutex.toggleFeature('archiving')
+    tracker.interaction({ module: "design", name: "toggle-archive-mode", extend: JSON.stringify({ action: nextArchiving ? "open" : "close" }) })
   }
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
@@ -639,23 +635,11 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                     editing={featureMutex.state.editing}
                     onEditToggle={htmlMode() === "edit" ? undefined : handleLocalEditToggle}
                     drawing={featureMutex.state.drawing}
-                    onDrawToggle={htmlMode() === "edit" ? undefined : () => {
-                      const nextDrawing = !featureMutex.state.drawing
-                      featureMutex.toggleFeature('drawing')
-                      tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
-                    }}
+                    onDrawToggle={htmlMode() === "edit" ? undefined : handleDrawToggle}
                     commenting={featureMutex.state.commenting}
-                    onCommentToggle={htmlMode() === "edit" ? undefined : () => {
-                      const nextCommenting = !featureMutex.state.commenting
-                      featureMutex.toggleFeature('commenting')
-                      tracker.interaction({ module: "design", name: "toggle-comment-mode", extend: JSON.stringify({ action: nextCommenting ? "open" : "close" }) })
-                    }}
+                    onCommentToggle={htmlMode() === "edit" ? undefined : handleCommentToggle}
                     archiving={featureMutex.state.archiving}
-                    onArchiveToggle={htmlMode() === "edit" ? undefined : () => {
-                      const nextArchiving = !featureMutex.state.archiving
-                      featureMutex.toggleFeature('archiving')
-                      tracker.interaction({ module: "design", name: "toggle-archive-mode", extend: JSON.stringify({ action: nextArchiving ? "open" : "close" }) })
-}}
+                    onArchiveToggle={htmlMode() === "edit" ? undefined : handleArchiveToggle}
                      onCanvasToDesign={handleCanvasToDesign}
                      onRefresh={handleRefresh}
                     observedResourceUrls={() => observedUrlsGetter?.() || []}
@@ -695,7 +679,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                            viewport={viewport()}
                            palette={palette()}
                            inspecting={featureMutex.state.inspecting}
-                           editing={featureMutex.state.editing}
+                           editing={featureMutex.state.editing && !getSubtypeHandler(tab.subtype)?.handleLocalEdit}
                            drawing={featureMutex.state.drawing}
                            commenting={featureMutex.state.commenting}
                            archiving={featureMutex.state.archiving}

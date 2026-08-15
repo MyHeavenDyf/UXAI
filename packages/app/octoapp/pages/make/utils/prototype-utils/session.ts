@@ -64,6 +64,10 @@ export function disposePrototypeSession(tabId: string) {
   disposeSession(tabId)
 }
 
+export function disposeAllPrototypeSessions() {
+  for (const tabId of Array.from(sessions.keys())) disposeSession(tabId)
+}
+
 export function invalidatePrototypeCache(tabId: string) {
   const session = sessions.get(tabId)
   if (session) session.a2ui = null
