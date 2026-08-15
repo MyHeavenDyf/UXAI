@@ -3,7 +3,7 @@ import { Portal } from "solid-js/web"
 import type { JSX } from "solid-js"
 import type { VersionEntry } from "../../utils/history-store"
 
-const POPOVER_WIDTH = 260
+const POPOVER_WIDTH = 170
 const POPOVER_MAX_HEIGHT = 320
 const GAP = 20
 const VIEWPORT_PADDING = 8
