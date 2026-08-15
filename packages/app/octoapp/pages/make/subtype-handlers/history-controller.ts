@@ -141,18 +141,11 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
   async function onFileRefresh(tabs: ResultTab[]): Promise<void> {
     for (const tab of tabs) {
       if (!isEligible(tab)) continue
-      if (writingTabs.has(tab.id)) {
-        console.log('[history] onFileRefresh skip (writing)', { tabId: tab.id })
-        continue
-      }
+      if (writingTabs.has(tab.id)) continue
       const hash = await getFileHash(tab.filePath!)
-      if (!hash) {
-        console.log('[history] onFileRefresh skip (no hash)', { tabId: tab.id })
-        continue
-      }
+      if (!hash) continue
       const prevHash = lastFileHash.get(tab.filePath!)
       lastFileHash.set(tab.filePath!, hash)
-      console.log('[history] onFileRefresh', { tabId: tab.id, prevHash, curHash: hash })
       if (prevHash === undefined) continue
       if (prevHash === hash) continue
       const api = getDesktopApi()
@@ -160,7 +153,6 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       if (!buf) continue
       const fileContent = new TextDecoder().decode(buf)
       if (!fileContent) continue
-      console.log('[history] onFileRefresh record agent', { tabId: tab.id })
       callbacks.updateTabContent(tab.id, fileContent)
       await trigger(tab, { type: "agent-file-edit" }, "agent")
     }
