@@ -115,19 +115,23 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     } else if (contentChanged) {
       await trigger(tab, { type: "agent-update" }, "agent")
     }
+    const api = getDesktopApi()
+    const stat = await api?.statFile?.(tab.filePath!)
+    if (stat) {
+      lastFileSize.set(tab.filePath!, stat.size)
+    }
   }
 
   async function onFileRefresh(tabs: ResultTab[]): Promise<void> {
     const api = getDesktopApi()
     for (const tab of tabs) {
       if (!isEligible(tab)) continue
-      if (writingTabs.has(tab.id)) {
-        continue
-      }
+      if (writingTabs.has(tab.id)) continue
       const stat = await api?.statFile?.(tab.filePath!)
       if (!stat) continue
       const prevSize = lastFileSize.get(tab.filePath!)
       lastFileSize.set(tab.filePath!, stat.size)
+      if (prevSize === undefined) continue
       if (prevSize === stat.size) continue
       const buf = await api?.readFileBuffer?.(tab.filePath!)
       if (!buf) continue
