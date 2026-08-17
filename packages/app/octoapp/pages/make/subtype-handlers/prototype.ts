@@ -42,6 +42,14 @@ export default {
     return false
   },
 
+  async handleLocalEditDisable(ctx) {
+    const tabId = ctx.tab.id
+    setActiveSessionId(tabId)
+    ctx.postMessageToIframe?.({ type: "od:dom-picker-mode", enabled: false })
+    ctx.postMessageToIframe?.({ type: "od:drag-mode", enabled: false })
+    disposeSession(tabId)
+  },
+
   async handleDrawEdit(ctx) {
     ctx.showToast({ title: "该功能未上线" })
     return true

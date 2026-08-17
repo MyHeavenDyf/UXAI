@@ -39,6 +39,8 @@ export interface SubtypeHandler {
 
   handleLocalEdit?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
 
+  handleLocalEditDisable?: (ctx: SubtypeHandlerContext) => Promise<void>
+
   handleDrawEdit?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
 
   handleComment?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>

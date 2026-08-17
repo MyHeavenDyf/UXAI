@@ -266,6 +266,14 @@ export function ResultViewer(props: {
     }
   }
 
+  createEffect(on(() => featureMutex.state.editing, (editing, prev) => {
+    if (prev && !editing) {
+      const ctx = buildSubtypeCtx()
+      const handler = ctx && getSubtypeHandler(ctx.tab.subtype)
+      if (handler?.handleLocalEditDisable) void handler.handleLocalEditDisable(ctx!)
+    }
+  }))
+
   const handleLocalEditToggle = async () => {
     const ctx = buildSubtypeCtx()
     if (!ctx) return
