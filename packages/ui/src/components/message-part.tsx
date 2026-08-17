@@ -1127,10 +1127,6 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
   const copied = () => state.copied
   const busy = () => state.busy
 
-  const replay = createMemo(() =>
-    props.parts?.some((part) => part.type === "text" && (part as TextPart).metadata?.compaction_replay === true),
-  )
-
   const textPart = createMemo(
     () => props.parts?.find((p) => p.type === "text" && !(p as TextPart).synthetic) as TextPart | undefined,
   )
@@ -1198,7 +1194,7 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
   }
 
   return (
-    <div data-component="user-message" style={{ display: replay() ? "none" : undefined }}>
+    <div data-component="user-message">
       <Show when={attachments().length > 0}>
         <div data-slot="user-message-attachments">
           <For each={attachments()}>

@@ -15,17 +15,21 @@ import { createBreadcrumbMapping } from '../eview-react/Breadcrumb'
 import Button from './Button'
 import { createCarouselMapping } from '../eview-react/Carousel'
 import { createChartMapping } from '../eview-react/Chart'
+import { ALL_CHART_NAMES } from '../../chartDefaults'
 import { createCheckboxMapping } from '../eview-react/Checkbox'
 import { createCheckboxGroupMapping } from '../eview-react/CheckboxGroup'
 import { createCollapseMapping } from '../eview-react/Collapse'
 import { createCollapseItemMapping } from '../eview-react/CollapseItem'
 import { createDividerMapping } from '../eview-react/Divider'
+import { createDrawerMapping } from '../eview-react/Drawer'
 import DatePicker from './DatePicker'
 import Dropdown from './Dropdown'
 import { createIconMapping } from '../eview-react/Icon'
 import { createInputMapping } from '../eview-react/Input'
 import { createInputNumberMapping } from '../eview-react/InputNumber'
 import { createMenuMapping } from '../eview-react/Menu'
+import { createModalMapping } from '../eview-react/Modal'
+import { createPaginationMapping } from '../eview-react/Pagination'
 import Progress from './Progress'
 import { createRadioGroupMapping } from '../eview-react/RadioGroup'
 import Rate from './Rate'
@@ -46,24 +50,10 @@ import { createTreeMapping } from '../eview-react/Tree'
 const pkg = '@cloudsop/eview-ui'
 const sharedPkg = '@/shared'
 
+// 图表组件统一映射（ALL_CHART_NAMES 全集指向 Chart 工厂；无默认的图表不 merge 默认，见 chartDefaults）
 function chartMappings(p: string): Record<string, ReturnType<typeof createChartMapping>> {
   const chart = createChartMapping(p)
-  return {
-    BarChart: chart,
-    LineChart: chart,
-    PieChart: chart,
-    RadarChart: chart,
-    ScatterChart: chart,
-    BubbleChart: chart,
-    AssembleBubbleChart: chart,
-    BulletChart: chart,
-    FunnelChart: chart,
-    GaugeChart: chart,
-    HillChart: chart,
-    JadeJueChart: chart,
-    ProcessChart: chart,
-    CircleProcessChart: chart,
-  }
+  return Object.fromEntries(ALL_CHART_NAMES.map((name) => [name, chart]))
 }
 
 /** eview-ui 配套图标库包名（供 registerComponents 注入 iconCollection） */
@@ -81,11 +71,14 @@ export default {
   CollapseItem: createCollapseItemMapping(pkg),
   DatePicker,
   Divider: createDividerMapping(sharedPkg),
+  Drawer: createDrawerMapping(pkg),
   Dropdown,
   Icon: createIconMapping(pkg),
   Input: createInputMapping(pkg),
   InputNumber: createInputNumberMapping(pkg),
   Menu: createMenuMapping(pkg),
+  Modal: createModalMapping(pkg),
+  Pagination: createPaginationMapping(pkg),
   Progress,
   RadioGroup: createRadioGroupMapping(pkg),
   Rate,

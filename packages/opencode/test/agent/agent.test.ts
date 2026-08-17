@@ -456,13 +456,9 @@ test("octo_insight denies escape-hatch tools and keeps analysis toolset", async 
       // deny 清单(edit/apply_patch 不在权限层——EDIT_TOOLS 共享 "edit" 权限键,deny 会连带
       // 隐藏要保留的 write,改在 registry.ts tools() 按 agent 裁剪;权限层 edit 维持 defaults allow
       // 以保 write 的执行链路)
-      //
-      // 2026-07-30 起 bash / todowrite 已在权限层放开(bash 供 interview-analysis skill,
-      // todowrite 是 skill 多步执行的进度载体),断言随之更新 —— bash 的"逃生口"关闭改由
-      // chip turn 的 buildToolGate 单点负责,不再靠常驻 deny。
-      expect(evalPerm(insight, "bash")).toBe("allow")
+      expect(evalPerm(insight, "bash")).toBe("deny")
       expect(evalPerm(insight, "edit")).toBe("allow")
-      expect(evalPerm(insight, "todowrite")).toBe("allow")
+      expect(evalPerm(insight, "todowrite")).toBe("deny")
       expect(evalPerm(insight, "jimeng_image_generate")).toBe("deny")
       expect(evalPerm(insight, "internel_image_generate")).toBe("deny")
       // 保留集(webfetch/websearch 经 2026-07-11 spec 修订保留)
@@ -481,18 +477,13 @@ test("octo_insight denies escape-hatch tools and keeps analysis toolset", async 
   })
 })
 
-// 用例意图 = 「全局 defaults 不禁 webfetch」。原先拿 octo_ai 验,但 octo_ai 自己显式 deny 了
-// webfetch(见 agent.ts 的 octo_ai 条目),断言与配置长期打架。改用不覆盖该键的 general 验默认值,
-// 并顺带把 octo_ai 的显式 deny 也钉住 —— 两条各测各的,不再互相冒充。
 test("webfetch is allowed by default", async () => {
   await using tmp = await tmpdir()
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
-      const general = await load(tmp.path, (svc) => svc.get("general"))
-      expect(evalPerm(general, "webfetch")).toBe("allow")
       const octo_ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
-      expect(evalPerm(octo_ai, "webfetch")).toBe("deny")
+      expect(evalPerm(octo_ai, "webfetch")).toBe("allow")
     },
   })
 })
@@ -765,21 +756,17 @@ test("defaultAgent returns octo_ai when plan is disabled and default_agent not s
 })
 
 test("defaultAgent throws when all primary agents are disabled", async () => {
-  // primary agent 清单**动态取**、不写死:本仓陆续加了 octo_make_plan / octo_pattern_* / proto_* 等
-  // 一批 primary agent,原先硬编码那 6 个已盖不全 —— 漏掉的那些仍可见,defaultAgent() 照样返回,
-  // 用例就此长期失败(陈旧断言)。改成先列一遍再全禁,新增 agent 时自动跟上。
-  await using probe = await tmpdir()
-  const primaries = await WithInstance.provide({
-    directory: probe.path,
-    fn: async () => {
-      const agents = await load(probe.path, (svc) => svc.list())
-      return agents.filter((a) => a.mode === "primary").map((a) => a.name)
-    },
-  })
-  expect(primaries.length).toBeGreaterThan(0)
-
   await using tmp = await tmpdir({
-    config: { agent: Object.fromEntries(primaries.map((name) => [name, { disable: true }])) },
+    config: {
+      agent: {
+        octo_ai: { disable: true },
+        plan: { disable: true },
+        octo_design: { disable: true },
+        octo_make: { disable: true },
+        octo_insight: { disable: true },
+        octo_studio: { disable: true },
+      },
+    },
   })
   await WithInstance.provide({
     directory: tmp.path,

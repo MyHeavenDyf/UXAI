@@ -70,7 +70,6 @@ import { linkToOutputType } from "./utils/resource-link"
 import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
 import { assembleInsightParts } from "./utils/build-prompt-parts"
-import { currentAccount } from "./utils/account"
 import { snapshotAttachmentsForQueue } from "./utils/queue-drain"
 import { splitMentions, queuedMentions } from "./utils/mention"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -332,11 +331,22 @@ function InsightContent() {
 
   // equals: same — 生成回复时 sync.data.message[id] 每个 token 都会变,若不做浅比较,
   // 这个 memo 每帧都吐新数组,下游 <Show>/<For>/各 memo 全部空转重算 → 闪烁。
+  // 按 time.created 排序:event-reducer 的 Binary.search 按 string ID 插入,历史 session
+  // 旧 ID 格式与当前 Identifier.ascending() 不兼容,新消息可能插到数组前面而非末尾。
   const userMessages = createMemo(
     (): Message[] => {
       const id = params.id
       if (!id) return EMPTY_MESSAGES
-      return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
+      const msgs = ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
+      // 按 time.created 排序（以 id 作 tiebreaker），避免依赖 sync.data.message 底层数组顺序。
+      // Binary.search 用字符串 ID 比较插入位置，旧 session 的 48-bit ID 溢出后 hex 前缀顺序
+      // 错乱（'0' < 'f'），新消息被插入到数组开头，导致 lastUserMessage 取错、消息显示在顶部。
+      return msgs.sort((a, b) => {
+        const aTime = (a as any).time?.created ?? 0
+        const bTime = (b as any).time?.created ?? 0
+        if (aTime !== bTime) return aTime - bTime
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+      })
     },
     EMPTY_MESSAGES,
     { equals: same },
@@ -378,9 +388,8 @@ function InsightContent() {
       () => params.id,
       (id) => {
         if (!id) return
-        // Check if messages are already loaded for this session.
-        const messages = (sync.data.message[id] ?? []) as Message[]
-        const lastUser = [...messages].reverse().find((m) => m.role === "user")
+        // userMessages 已按 time.created 排序,at(-1) 即最新 user
+        const lastUser = userMessages().at(-1) as UserMessage | undefined
         if (!lastUser?.model) return
         local.session.restore({
           sessionID: id,
@@ -423,10 +432,18 @@ function InsightContent() {
 
   // ── 长任务卡片聚合(spec: docs/specs/ui/task-card.md §3.3)──
   // 扫所有 assistant message 的 part,按 task_id 分组取最新状态;锚点 = 最早 part 所在 user message
+  // 按 time.created 排序后遍历配对 user→assistant,否则历史 session 旧 ID 格式导致
+  // Binary.search 插入顺序错乱,assistant 的 anchor userMsgID 会指向错误的 user。
   const taskCards = createMemo((): Map<string, TaskCardEntry> => {
     const id = params.id
     if (!id) return new Map()
-    const messages = (sync.data.message[id] ?? []) as Message[]
+    const raw = (sync.data.message[id] ?? []) as Message[]
+    const messages = [...raw].sort((a, b) => {
+      const at = (a as { time?: { created?: number } }).time?.created ?? 0
+      const bt = (b as { time?: { created?: number } }).time?.created ?? 0
+      if (at !== bt) return at - bt
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+    })
     const items: Parameters<typeof aggregateTaskCards>[0] = []
     let lastUserMsgID = ""
     for (const msg of messages) {
@@ -499,7 +516,16 @@ function InsightContent() {
     const sid = params.id
     if (!sid) return
     const messages = (sync.data.message[sid] ?? []) as Message[]
-    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant")
+    let lastAssistant: Message | undefined
+    let lastAssistantTime = -1
+    for (const m of messages) {
+      if (m.role !== "assistant") continue
+      const t = (m as { time?: { created?: number } }).time?.created ?? 0
+      if (t >= lastAssistantTime) {
+        lastAssistantTime = t
+        lastAssistant = m
+      }
+    }
     if (!lastAssistant) return
     const parts = (sync.data.part[lastAssistant.id] ?? []) as Part[]
 
@@ -1356,14 +1382,6 @@ function InsightContent() {
       endpoint: `${sdk.url}/session/${sessionId}/prompt_async`,
     } satisfies SendRecord)
 
-    // SPEC-INS-030 §5:工号只在 renderer 拿得到(sidecar 无 localStorage),随请求 extra 递进去。
-    // 缺失不阻断发送——只是本轮 knowledge_search 会明确拒答;其余能力(读材料/MCP/技能)与工号无关。
-    const account = currentAccount()
-    const promptExtra =
-      injectedSkills.length || account
-        ? { ...(injectedSkills.length ? { skills: injectedSkills } : {}), ...(account ? { account } : {}) }
-        : undefined
-
     sync.session.optimistic.add({
       sessionID: sessionId,
       message: optimisticMessage,
@@ -1385,12 +1403,9 @@ function InsightContent() {
         parts,
         messageID,
         tools: toolGate,
-        // extra 是共享自由字段(服务端按 sessionID 存进 sessionExtras,再原样铺进工具的 ctx.extra):
-        //   - skills(SPEC-INS-029):本轮激活的技能,服务端据此 publish skill.used。
-        //   - account(SPEC-INS-030 §5):当前登录工号,供 knowledge_search 按真实用户调内网知识库(该接口按
-        //     account 限流)。拿不到工号就不传,由工具侧显式告知,不塞兜底值。
-        // 两者都没有时整个 extra 不传,保持 payload 干净(studio 也在用这个字段,别塞空对象进去)。
-        ...(promptExtra ? { extra: promptExtra } : {}),
+        // SPEC-INS-029:声明本轮激活的技能,服务端 prompt() 据此 publish skill.used。无技能时不传,
+        // 保持 payload 干净(extra 是共享自由字段,studio 也在用,别塞空对象进去)。
+        ...(injectedSkills.length ? { extra: { skills: injectedSkills } } : {}),
       })
       // chip turn 结果对账登记(spec §5:chip turn 工具调用结果):busy→idle 时消费
       if (opts.chip) {

@@ -28,7 +28,7 @@ export default {
     if (!next) {
       ctx.postMessageToIframe?.({ type: "od:drag-mode", enabled: false })
       disposeSession(tabId)
-      return true
+      return false
     }
     if (!session) session = createSession(tabId, ctx)
     session.editing = true
@@ -39,6 +39,11 @@ export default {
     }
     const siblingMap = buildSiblingMap(await loadA2uiData(session, ctx))
     ctx.postMessageToIframe?.({ type: "od:drag-mode", enabled: true, siblingMap })
+    return false
+  },
+
+  async handleDrawEdit(ctx) {
+    ctx.showToast({ title: "该功能未上线" })
     return true
   },
 

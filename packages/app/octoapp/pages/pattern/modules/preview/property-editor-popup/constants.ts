@@ -26,8 +26,8 @@ type EnumOption = { label: string; value: string }
 export const COMPONENT_ENUMS: Record<string, EnumOption[]> = {
   'Button.color': [
     { label: '默认', value: 'default' },
-    { label: '成功', value: 'success' },
-    { label: '警告', value: 'danger' },
+    { label: '重要', value: 'primary' },
+    { label: '告警', value: 'danger' },
   ],
   'Button.types': [
     { label: '默认', value: 'default' },
@@ -48,10 +48,10 @@ export const COMPONENT_ENUMS: Record<string, EnumOption[]> = {
     { label: '圆角', value: 'round' },
   ],
   'Icon.shape': [
-    { label: '线框', value: 'outline' },
-    { label: '填充', value: 'fill' },
-    { label: '方形', value: 'square' },
-    { label: '圆形', value: 'circle' },
+    { label: '线性', value: 'outline' },
+    { label: '线性双色', value: 'two-tone' },
+    { label: '方拖底', value: 'square' },
+    { label: '圆拖底', value: 'circle' },
   ],
   'Icon.color': [
     { label: '默认', value: 'default' },

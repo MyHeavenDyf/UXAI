@@ -423,6 +423,7 @@ export function registerLocalProtocol() {
           headers: {
             "Content-Type": "text/html; charset=utf-8",
             "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "no-store",
           },
         })
       }
@@ -435,6 +436,7 @@ export function registerLocalProtocol() {
         headers: {
           "Content-Type": mimeType,
           "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "no-store",
         },
       })
     } catch (err) {

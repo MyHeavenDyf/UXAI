@@ -2,11 +2,15 @@ import type { PrototypeSession } from "./types"
 import { setActiveSessionId, closePrototypePanels } from "./session"
 import { dispatchPrototypeCtxMenu, dispatchPrototypeQuickFix } from "./events"
 import { applyPrototypeReorder } from "./modify"
+import { loadA2uiData, buildSiblingMap } from "./a2ui"
 
 /** 构造 prototype iframe 的 message 路由器：把 od:dom-picker-* / od:drag-reorder 等消息
  *  派发给对应 UI 事件 / 改写函数。在派发用户可见事件前置 activeSessionId，保证全局单例面板命中本 session。 */
 export function createPrototypeMessageHandler(session: PrototypeSession): (e: MessageEvent) => void {
   return (e: MessageEvent) => {
+    // 只处理本 session iframe 发来的消息，避免多个 prototype 标签页 / 孤儿 listener 串扰
+    const iframe = session.ctx?.iframeElementGetter?.()
+    if (!iframe || e.source !== iframe.contentWindow) return
     const d = e.data
     if (!d || typeof d !== "object") return
     const t = d.type
@@ -15,6 +19,19 @@ export function createPrototypeMessageHandler(session: PrototypeSession): (e: Me
     if (t === "od:dom-picker-rect-update") {
       // TODO: 把新 rect 回推到 PrototypePropertyEditor 让弹层跟随元素 resize，
       // 当前先静默忽略以去除 console 噪声。
+      return
+    }
+    if (t === "od:a2ui-ready") {
+      // iframe（重新）加载完成、A2UI 运行时就绪。本 session 处于编辑态时，
+      // 重新激活 dom-picker + drag-mode（刷新后 iframe 内运行时已重置），
+      // 并清缓存重读 data.js 重建 siblingMap（顺带修刷新后父侧缓存陈旧）。
+      if (!session.editing) return
+      setActiveSessionId(session.tabId)
+      session.ctx?.postMessageToIframe?.({ type: "od:dom-picker-mode", enabled: true })
+      session.a2ui = null
+      void loadA2uiData(session, session.ctx).then((doc) => {
+        session.ctx?.postMessageToIframe?.({ type: "od:drag-mode", enabled: true, siblingMap: buildSiblingMap(doc) })
+      })
       return
     }
     if (t === "od:dom-picker-context-menu") {
@@ -44,6 +61,7 @@ export function createPrototypeMessageHandler(session: PrototypeSession): (e: Me
         componentType: String(d.domPickerComponent || d.tagName || ""),
         currentClass: String(d.domPickerClass ?? ""),
         elementProps: String(d.elementProps ?? ""),
+        filePath: session.ctx?.tab.filePath || session.ctx?.tab.absoluteFilePath || "",
         elementRect: er ? {
           top: rect.top + (er?.top ?? 0) * scale,
           left: rect.left + (er?.left ?? 0) * scale,

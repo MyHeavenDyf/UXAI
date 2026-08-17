@@ -20,9 +20,9 @@ import path from 'path'
 
 import type { BuildNode, ComponentNode, HtmlNode, TextNode, ExtractNode, LoopNode, RegularNode } from '../core/node-types'
 import type { PropValue, VarRefValue } from '../core/value-types'
-import { Value } from '../core/value'
+import { Value } from '../core/value-factory'
 import type { StateBuilderResult } from './state-builder'
-import { stateRef } from '../core/access-path'
+import { stateRef, makeEnrichmentConstName } from '../core/access-path'
 
 // ─── 产出物 ───
 
@@ -30,6 +30,12 @@ export interface PendingConstDecl {
   name: string
   value: PropValue
   isUseState?: boolean
+  /** 共享标记：该 const 来自 eventMutatedPaths 命中的 binding/computed → emit useSharedState 而非 useState/initialState */
+  shared?: boolean
+  /** 共享 store 的顶层 key（v.accessPath，如 'isDetailOpen'）；shared=true 时必填 */
+  sharedKey?: string
+  /** 共享只读（无 useState 的 shared binding）→ emit `const name = useSharedState(key)`（单常量，无 setter） */
+  sharedRead?: boolean
 }
 
 export interface PendingExtractedFile extends Pick<ExtractNode, 'purpose' | 'fileName'> {
@@ -90,17 +96,6 @@ function toPageComponentName(pageName: string): string {
   return `${pascal}Page`
 }
 
-/** 从 path 提取顶层 key 名 */
-function pathToTopKey(path: string): string {
-  const seg = path.replace(/^\//, '').split('/').filter(Boolean)[0]
-  return seg || ''
-}
-
-/** 生成 enrichment const 名（与 state-builder 保持一致） */
-function makeEnrichmentConstName(path: string, parentNodeId: string): string {
-  return `${pathToTopKey(path)}_${parentNodeId}Enriched`
-}
-
 /** propRoute / useState lift 后常量名生成（小驼峰） */
 function makePropRouteName(nodeId: string | undefined, componentName: string, propKey: string): string {
   // 格式：${lowerCamel(componentName)}${Capitalize(propKey)}${nodeId}
@@ -158,6 +153,8 @@ function applyPropRoute(node: ComponentNode, ctx: TreeCtx): ComponentNode {
           name,
           value: Value.varRef({ name: useStateRefName(vObj) }),
           isUseState: true,
+          // 共享：path 命中 eventMutatedPaths（state-builder 打标）→ emit useSharedState
+          ...(vObj.shared ? { shared: true, sharedKey: vObj.accessPath } : {}),
         })
       } else if (isLiteralWithUseState) {
         // LiteralValue.useState：值直接作为初始值
@@ -221,6 +218,8 @@ function liftLiteralTwoWayBindings<T extends { props: Record<string, PropValue> 
         name,
         value: Value.varRef({ name: useStateRefName(v) }),
         isUseState: true,
+        // 共享：path 命中 eventMutatedPaths（state-builder 打标）→ emit useSharedState
+        ...(v.shared ? { shared: true, sharedKey: v.accessPath } : {}),
       })
     } else {
       // LiteralValue.useState：值直接作为初始值
@@ -242,6 +241,44 @@ function liftLiteralTwoWayBindings<T extends { props: Record<string, PropValue> 
   return touched ? { ...node, props: newProps } as T : node
 }
 
+// ─── B1b: 共享只读 binding lift（无 useState 的 shared absolute binding/computed） ───
+//
+// 被事件 Action 改写的 path（eventMutatedPaths）若被某组件只读绑定（非 useState 双绑），
+// 必须提升为组件顶部 `const x = useSharedState('key')`（订阅 store 切片）——
+// useSharedState 是 hook，不能 inline 在 JSX prop 里（rules-of-hooks）。
+// 非共享只读 binding 仍 inline initialState.xxx（快照只读，无运行时写入）。
+
+function liftSharedReadBindings<T extends { props: Record<string, PropValue> }>(node: T, ctx: TreeCtx): T {
+  const newProps: Record<string, PropValue> = {}
+  let touched = false
+  for (const [key, value] of Object.entries(node.props)) {
+    const v = value as any
+    if (
+      v && typeof v === 'object' &&
+      v.__node &&
+      (v.type === 'binding' || v.type === 'computed') &&
+      v.shared === true &&
+      v.pathType === 'absolute' &&
+      !v.useState
+    ) {
+      const name = makePropRouteName((node as any).id, (node as any).component ?? 'node', key)
+      ctx.currentDraft.componentInternalConsts.push({
+        name,
+        value: Value.rawExpr({ value: 'null' }),  // 占位：formatConstDecl sharedRead 不读 value
+        isUseState: false,
+        shared: true,
+        sharedKey: v.accessPath,
+        sharedRead: true,
+      })
+      newProps[key] = Value.varRef({ name })
+      touched = true
+    } else {
+      newProps[key] = value
+    }
+  }
+  return touched ? ({ ...node, props: newProps } as T) : node
+}
+
 // ─── B2: LoopNode 数据源引用处理 ───
 //
 // 关键：loop template 也是一个 ExtractNode（purpose: 'component'），其 body 应该
@@ -255,6 +292,9 @@ function routeLoopNode(loop: LoopNode, parentNodeId: string, ctx: TreeCtx): Loop
   const enrich = ctx.loopEnrichmentMap.get(loopId)
   const dataBinding = loop.data as any
   let dataRefName: string
+  // pathType 标记 loop.data 来源：absolute（顶层 state/const，嵌套时外层不该 destructure）
+  // vs relative（外层 item 字段，外层需 destructure）。供 collectRelativeFields 区分。
+  let dataPathType: 'absolute' | 'relative' = 'absolute'
   if (enrich) {
     // 富集：const 名（如 images_galImageGridEnriched），由文件顶部声明，裸引用即可
     dataRefName = enrich.constName
@@ -264,6 +304,7 @@ function routeLoopNode(loop: LoopNode, parentNodeId: string, ctx: TreeCtx): Loop
   } else {
     // 相对路径（模板内从 data 解构）→ 裸引用
     dataRefName = dataBinding.accessPath ?? dataBinding.path ?? 'data'
+    dataPathType = 'relative'
   }
 
   // inline loop（如 TabItem）：模板不抽离，body 走当前 draft，不注册 extractedFiles
@@ -271,7 +312,7 @@ function routeLoopNode(loop: LoopNode, parentNodeId: string, ctx: TreeCtx): Loop
     const newBody = loop.template.body.map(c => walkNode(c, ctx))
     return {
       ...loop,
-      data: Value.varRef({ name: dataRefName }),
+      data: Value.varRef({ name: dataRefName, pathType: dataPathType }),
       template: {
         ...loop.template,
         body: newBody as RegularNode[],
@@ -308,7 +349,7 @@ function routeLoopNode(loop: LoopNode, parentNodeId: string, ctx: TreeCtx): Loop
 
   return {
     ...loop,
-    data: Value.varRef({ name: dataRefName }),
+    data: Value.varRef({ name: dataRefName, pathType: dataPathType }),
     template: {
       ...loop.template,
       body: newBody as RegularNode[],
@@ -338,14 +379,16 @@ function walkNode(node: BuildNode, ctx: TreeCtx): BuildNode {
 function walkComponent(node: ComponentNode, ctx: TreeCtx): ComponentNode {
   const routed = applyPropRoute(node, ctx)
   const lifted = liftLiteralTwoWayBindings(routed, ctx)
-  const newChildren = walkChildren(lifted.children, ctx, lifted.id ?? '')
-  return { ...lifted, children: newChildren as any }
+  const shared = liftSharedReadBindings(lifted, ctx)
+  const newChildren = walkChildren(shared.children, ctx, shared.id ?? '')
+  return { ...shared, children: newChildren as any }
 }
 
 function walkHtml(node: HtmlNode, ctx: TreeCtx): HtmlNode {
   const lifted = liftLiteralTwoWayBindings(node, ctx)
-  const newChildren = walkChildren(lifted.children, ctx, node.id ?? '')
-  return { ...lifted, children: newChildren as any }
+  const shared = liftSharedReadBindings(lifted, ctx)
+  const newChildren = walkChildren(shared.children, ctx, node.id ?? '')
+  return { ...shared, children: newChildren as any }
 }
 
 function walkExtract(node: ExtractNode, ctx: TreeCtx): ComponentNode {
@@ -379,6 +422,7 @@ function walkExtract(node: ExtractNode, ctx: TreeCtx): ComponentNode {
   })
 
   const placeholder: any = {
+    __node: true,
     kind: 'component',
     component: node.componentName,
     tag: node.componentName,
