@@ -238,6 +238,64 @@ export function ResultViewer(props: {
     }
   }
 
+  const handleCommentToggle = async () => {
+    tracker.interaction({ module: "design", name: "toggle-comment-mode" })
+    
+    const tab = activeTab()
+    if (!tab) {
+      featureMutex.toggleFeature('commenting')
+      return
+    }
+    
+    const handler = getSubtypeHandler(tab.subtype)
+    
+    const ctx = {
+      tab,
+      showToast,
+      tracker,
+      getDesktopApi,
+      extractCodeBlock,
+      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
+      projectSelection,
+    }
+    
+    if (handler?.handleComment) {
+      const handled = await handler.handleComment(ctx)
+      if (handled === true) return
+    }
+    
+    featureMutex.toggleFeature('commenting')
+  }
+
+  const handleArchiveToggle = async () => {
+    tracker.interaction({ module: "design", name: "toggle-archive-mode" })
+    
+    const tab = activeTab()
+    if (!tab) {
+      featureMutex.toggleFeature('archiving')
+      return
+    }
+    
+    const handler = getSubtypeHandler(tab.subtype)
+    
+    const ctx = {
+      tab,
+      showToast,
+      tracker,
+      getDesktopApi,
+      extractCodeBlock,
+      observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
+      projectSelection,
+    }
+    
+    if (handler?.handleArchive) {
+      const handled = await handler.handleArchive(ctx)
+      if (handled === true) return
+    }
+    
+    featureMutex.toggleFeature('archiving')
+  }
+
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
 
   const toggleHtmlMode = (id: string) => {
@@ -564,19 +622,11 @@ drawing={featureMutex.state.drawing}
                        featureMutex.toggleFeature('drawing')
                        tracker.interaction({ module: "design", name: "toggle-draw-mode", extend: JSON.stringify({ action: nextDrawing ? "open" : "close" }) })
                      }}
-                    commenting={featureMutex.state.commenting}
-                    onCommentToggle={htmlMode() === "edit" ? undefined : () => {
-                      const nextCommenting = !featureMutex.state.commenting
-                      featureMutex.toggleFeature('commenting')
-                      tracker.interaction({ module: "design", name: "toggle-comment-mode", extend: JSON.stringify({ action: nextCommenting ? "open" : "close" }) })
-                    }}
-                    archiving={featureMutex.state.archiving}
-                    onArchiveToggle={htmlMode() === "edit" ? undefined : () => {
-                      const nextArchiving = !featureMutex.state.archiving
-                      featureMutex.toggleFeature('archiving')
-                      tracker.interaction({ module: "design", name: "toggle-archive-mode", extend: JSON.stringify({ action: nextArchiving ? "open" : "close" }) })
-}}
-                     onCanvasToDesign={handleCanvasToDesign}
+commenting={featureMutex.state.commenting}
+                     onCommentToggle={htmlMode() === "edit" ? undefined : handleCommentToggle}
+                     archiving={featureMutex.state.archiving}
+                     onArchiveToggle={htmlMode() === "edit" ? undefined : handleArchiveToggle}
+                      onCanvasToDesign={handleCanvasToDesign}
                      onRefresh={handleRefresh}
                     observedResourceUrls={() => observedUrlsGetter?.() || []}
                     focusMode={props.focusMode}

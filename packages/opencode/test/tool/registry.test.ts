@@ -189,9 +189,11 @@ describe("tool.registry", () => {
     { timeout: 30_000 },
   )
 
-  // SPEC-INS-021 §1:insight 的编辑类工具在 registry 层按 agent 裁剪(edit/apply_patch 摘除、
-  // write 保留)——不能走权限层 deny,EDIT_TOOLS 共享 "edit" 权限键会连带隐藏 write。
-  it.instance("octo_insight excludes edit/apply_patch but keeps write (SPEC-INS-021 §1)", () =>
+  // SPEC-INS-021 §1:insight 的编辑类工具在 registry 层按 agent 裁剪——不能走权限层 deny,
+  // EDIT_TOOLS 共享 "edit" 权限键会连带隐藏 write。
+  // 2026-07-30 起 edit 已放开(供编辑 md 交付物,outputs 重定向插件同步覆盖了 edit 的 filePath),
+  // 只剩 apply_patch 仍摘(整段 patchText、无单一 filePath,插件无法重定向)——本用例的断言随之更新。
+  it.instance("octo_insight excludes apply_patch but keeps write/edit (SPEC-INS-021 §1)", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service
       const insight = yield* Agent.Service.use((svc) => svc.get("octo_insight"))
@@ -202,10 +204,33 @@ describe("tool.registry", () => {
         agent: insight!,
       })
       const ids = tools.map((t) => t.id)
-      expect(ids).not.toContain("edit")
       expect(ids).not.toContain("apply_patch")
       expect(ids).toContain("write")
+      expect(ids).toContain("edit")
       expect(ids).toContain("extract_document")
+    }),
+    { timeout: 30_000 },
+  )
+
+  // SPEC-INS-030:knowledge_search 从 chat 的 octo_ai 迁到 insight 的 octo_insight。
+  // 网关是硬隔离(registry.tools() 过滤),这里正反两面各钉一次:insight 拿得到、make 拿不到。
+  it.instance("knowledge_search is gated to octo_insight only (SPEC-INS-030 §2)", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const idsFor = (agent: Agent.Info) =>
+        registry
+          .tools({
+            providerID: "anthropic" as Parameters<typeof registry.tools>[0]["providerID"],
+            modelID: "claude-sonnet" as Parameters<typeof registry.tools>[0]["modelID"],
+            agent,
+          })
+          .pipe(Effect.map((tools) => tools.map((t) => t.id)))
+
+      const insight = yield* Agent.Service.use((svc) => svc.get("octo_insight"))
+      expect(yield* idsFor(insight)).toContain("knowledge_search")
+
+      const make = yield* Agent.Service.use((svc) => svc.get("octo_make"))
+      expect(yield* idsFor(make)).not.toContain("knowledge_search")
     }),
     { timeout: 30_000 },
   )

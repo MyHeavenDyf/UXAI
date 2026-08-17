@@ -1012,8 +1012,8 @@ const sessionMessagesLoaded = createMemo(() => {
   const [slashState, setSlashState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [slashIndex, setSlashIndex] = createSignal(0)
   let textareaRef!: HTMLTextAreaElement
-  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void } | undefined
-  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void } | undefined
+  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void } | undefined
+  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void } | undefined
 
   // ── Mention (@) Popover State ──
   const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
@@ -2023,7 +2023,7 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
-  async function sendMessage(sessionId: string, text: string, _modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
+  async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
     try {
       // Process mention selections: replace chip text with model format
       let processedText = text
@@ -2111,7 +2111,7 @@ const sessionMessagesLoaded = createMemo(() => {
       console.log("[MakePage] slash-detect result:", { hasCommand, cmdSegments })
 
       if (hasCommand) {
-        const modelStr = `${_modelKey.providerID}/${_modelKey.modelID}`
+        const modelStr = `${modelKey.providerID}/${modelKey.modelID}`
         
         // Find skill mentions to preserve display text for chips
         const skillMentions = selections.filter(s => s.type === 'skill')
@@ -2301,7 +2301,6 @@ const sessionMessagesLoaded = createMemo(() => {
         ? { type: "text" as const, text: formatUploadsForPrompt(localManifest), synthetic: true as const }
         : null
       
-      const modelKey = activeModelKey()
       if (!modelKey) {
         setAttachments([])
         return
@@ -2597,10 +2596,8 @@ if (dsId) {
     if (!slashState()) return
 
     const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
-    ref?.clear()
-    ref?.insertText?.("/preview")
-    ref?.insertText?.(" ")
-    
+    ref?.replaceSlashCommand?.(`/${cmd.trigger} `)
+
     setSlashState(null)
   }
 

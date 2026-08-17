@@ -77,6 +77,9 @@ export function buildToolGate(selectedTool?: string): Record<string, boolean> {
     // (不再是从前那道"已常驻 deny、再关无害"的冗余)——删它会让研究工具那轮重新暴露 shell 逃生口。
     gate["bash"] = false // shell 工具注册键(tool/shell/id.ts ToolID),显示名 Shell,含 pwsh/cmd 变体
     gate["webfetch"] = false
+    // knowledge_search 同理(SPEC-INS-030 迁入 insight 后新增):内网知识库检索与「这一轮直调所选 MCP 工具」
+    // 无关,却是弱模型在 MCP 工具缺失时的又一个模拟通道(拿知识库片段编一份"解析结果")。
+    gate["knowledge_search"] = false
   }
   return gate
 }
