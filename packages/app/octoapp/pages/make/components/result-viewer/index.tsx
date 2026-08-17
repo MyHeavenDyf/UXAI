@@ -397,7 +397,11 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
   const handleOpenArtifactFile = (file: ArtifactFile) => {
     const card = artifactFileToOutputCard(file)
     props.onOpenArtifact?.(card)
-    props.onViewModeChange("tabs")
+    // file 类型不支持预览,handleOpenResult 会弹窗提示,不打开 tab。
+    // 这里不能切到 tabs 模式,否则右侧会显示空 ResultViewer("对话产出将在这里展示")。
+    if (card.type !== "file") {
+      props.onViewModeChange("tabs")
+    }
   }
 
   const handleCloseTabsByPath = (paths: string[]) => {

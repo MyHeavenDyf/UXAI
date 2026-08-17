@@ -61,6 +61,7 @@ import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
+import { DialogPreviewUnavailable } from "./components/dialog-preview-unavailable"
 import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
 import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, UploadError } from "../insight/lib/upload"
@@ -471,10 +472,14 @@ const sessionMessagesLoaded = createMemo(() => {
   createEffect(
     on(
       () => [params.id, sync.data.message?.[params.id ?? ""] === undefined] as const,
-      ([id, missing], prev) => {
+      ([id, missing]) => {
         if (id) {
           layout.lastSessionPerTab.setMake(sdk.directory, id)
-          if (missing && id !== prev?.[0]) void sync.session.sync(id).catch(() => {})
+          // 之前用 `id !== prev?.[0]` 限制只在 session 切换时 sync,但 app 长时间放置后
+          // 重新激活时,store 可能被 evict 导致 sync.data.message[id] 变 undefined,
+          // 此时 session ID 没变但 missing=true,旧条件不会重新 sync → 永远卡在 spinner。
+          // sync.session.sync 内部已有 cached 去重 + loading 防并发,重复调用安全。
+          if (missing) void sync.session.sync(id).catch(() => {})
         }
 
         setSending(false)
@@ -491,6 +496,32 @@ const sessionMessagesLoaded = createMemo(() => {
       },
     ),
   )
+
+  // app 长时间放置后重新激活时,SSE 可能已断开 + 鉴权过期 + DNS 不可达(ERR_NAME_NOT_RESOLVED),
+  // 此时 sync.session.sync 的请求可能失败被 .catch 吞掉,sync.data.message[id] 仍是 undefined,
+  // 但 missing 状态没变化(从 true 到 true),上面的 createEffect 不会重新触发 → 卡在 spinner。
+  // 监听 visibilitychange(切回前台)+ online(网络恢复):任一事件触发时,
+  // 如果当前 session 仍 missing,主动重试 sync。
+  // sync.session.sync 内部有 cached 去重 + loading 防并发,网络未恢复时请求会失败但不影响后续重试。
+  onMount(() => {
+    const retrySyncIfMissing = () => {
+      const id = params.id
+      if (!id) return
+      if (sync.data.message?.[id] === undefined) {
+        void sync.session.sync(id).catch(() => {})
+      }
+    }
+    const handleVisibility = () => {
+      if (document.visibilityState !== "visible") return
+      retrySyncIfMissing()
+    }
+    document.addEventListener("visibilitychange", handleVisibility)
+    window.addEventListener("online", retrySyncIfMissing)
+    onCleanup(() => {
+      document.removeEventListener("visibilitychange", handleVisibility)
+      window.removeEventListener("online", retrySyncIfMissing)
+    })
+  })
 
   // ── Annotation event listener (from DrawOverlay) ────────────────────────────────
   createEffect(() => {
@@ -3113,6 +3144,22 @@ if (dsId) {
 
   /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
   async function handleOpenResult(card: OutputCard) {
+    // 不支持预览的 file 类型:弹窗提示 + 提供下载入口,不打开 result-viewer tab。
+    // 必须在 setResultViewMode/ml.showRight 之前拦截,否则会切到 tabs 模式显示空 ResultViewer。
+    // link 类型的磁盘路径会经 inferOutputType 推断,只有真正无法预览的扩展名才会落到 'file'。
+    if (card.type === "file") {
+      dialog.show(() => (
+        <DialogPreviewUnavailable
+          filename={card.title}
+          filePath={card.filePath}
+          sdkUrl={sdk.url}
+          sdkDirectory={sdk.directory || ""}
+        />
+      ))
+      tracker.interaction({ module: "design", name: "preview-unavailable", extend: JSON.stringify({ title: card.title }) })
+      return
+    }
+
     setResultViewMode("tabs")
     ml.showRight()
 
