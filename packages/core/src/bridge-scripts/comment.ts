@@ -30,6 +30,34 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
   let savedPins = []
   let lastUpdateTime = 0
   let animationFrameId = null
+  let annotationCounter = 0
+  var SKIP_ANNOTATE_TAGS = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEMPLATE: 1, LINK: 1, META: 1, TITLE: 1 }
+
+  // Annotate live DOM with data-od-id="el-<n>" (continuing from existing max).
+  // Needed for SPA shells (e.g. prototype) whose real content is rendered at runtime,
+  // after the static-string annotateElementsWithIds pass has already run on the empty shell.
+  function annotateLiveDom() {
+    var maxId = -1
+    var existing = document.querySelectorAll('[data-od-id]')
+    for (var i = 0; i < existing.length; i++) {
+      var attr = existing[i].getAttribute('data-od-id')
+      if (attr && attr.indexOf('el-') === 0) {
+        var n = parseInt(attr.substring(3), 10)
+        if (!isNaN(n) && n > maxId) maxId = n
+      }
+    }
+    annotationCounter = maxId + 1
+    function walk(el) {
+      var tag = el.tagName
+      if (SKIP_ANNOTATE_TAGS[tag]) return
+      if (!el.hasAttribute('data-od-id')) {
+        el.setAttribute('data-od-id', 'el-' + (annotationCounter++))
+      }
+      var children = el.children
+      for (var j = 0; j < children.length; j++) walk(children[j])
+    }
+    if (document.body) walk(document.body)
+  }
 
   window.addEventListener('message', function(ev) {
     var data = ev && ev.data
@@ -40,6 +68,7 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
       document.documentElement.toggleAttribute('data-od-comment-mode', commentEnabled)
       if (commentEnabled) {
         document.body.style.cursor = 'pointer'
+        annotateLiveDom()
         window.parent.postMessage({ type: 'od:comment-request-pins' }, '*')
         updatePinPositionsLoop()
         document.addEventListener('mousedown', blockEvent, true)
@@ -69,6 +98,7 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
 
     if (data.type === 'od:comment-saved-pins') {
       savedPins = data.comments || []
+      annotateLiveDom()
       renderSavedPins(savedPins)
       return
     }
@@ -225,6 +255,10 @@ export const COMMENT_BRIDGE_SCRIPT = `<script data-od-comment-bridge>(function()
   }, true)
 
   function findCommentTarget(el) {
+    if (el && el !== document.documentElement && el.getAttribute && !el.getAttribute('data-od-id') && !SKIP_ANNOTATE_TAGS[el.tagName]) {
+      el.setAttribute('data-od-id', 'el-' + (annotationCounter++))
+      return { target: el }
+    }
     while (el && el !== document.documentElement) {
       if (el.getAttribute && el.getAttribute('data-od-id')) {
         return { target: el }

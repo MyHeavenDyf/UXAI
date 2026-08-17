@@ -22,7 +22,6 @@ import { DesignPlanRenderer } from "./design-plan-renderer"
 import { StrategyFormRenderer } from "./strategy-form-renderer"
 import { PrototypeCtxMenu } from "./prototype-ctx-menu"
 import { PrototypePropertyEditor } from "./prototype-property-editor"
-import { PrototypeAnnotationLayer } from "./prototype-annotation-layer"
 import type { StrategyFormData } from "../../utils/strategy-form-scanner"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
 import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
@@ -772,7 +771,6 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
     </Show>
     <PrototypeCtxMenu />
     <PrototypePropertyEditor />
-    <PrototypeAnnotationLayer />
   </div>
 )
 }

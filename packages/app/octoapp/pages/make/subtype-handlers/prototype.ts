@@ -167,14 +167,4 @@ export default {
     }
   },
 
-  async handleComment(ctx) {
-    ctx.showToast({ title: "该功能未上线" })
-    return true
-  },
-
-  async handleArchive(ctx) {
-    ctx.showToast({ title: "该功能未上线" })
-    return true
-  },
-
 } satisfies SubtypeHandler
