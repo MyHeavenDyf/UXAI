@@ -12,6 +12,13 @@ const log = Log.create({ service: "session-insight-query" })
 // 根因是共享 session.list「先 limit 100 再前端筛 agent」的顺序错。硬编码 agent,
 // 不暴露入参,不碰 session 组。作用域 = project_id(instance) + directory(query),
 // 不加 roots 过滤(保留 task 子会话可见,见 session-agent-attribution §B-1)。
+//
+// SPEC-INS-030 §6:这里**只列 octo_insight**,chat 历史(agent=octo_ai)不做「读时合并」。
+// 曾试过把过滤放宽成 agent IN (octo_insight, octo_ai),但那只解了 agent 一半:chat 列表当年是
+// `scope=project`(服务端丢掉 directory 条件、跨目录全展示),而本查询按 directory 严格过滤 ——
+// 放宽 agent 之后,chat 历史仍只在「当初创建它的那个目录」被选中时才可见,是个半可见的别扭状态。
+// 改为由用户显式触发的一次性迁移(SPEC-INS-031:回填 agent + directory + project_id),迁完即为
+// 正常的 insight 会话,本查询无需为它开口子。
 const INSIGHT_AGENT = "octo_insight"
 
 export function listInsightSessions(input: {
