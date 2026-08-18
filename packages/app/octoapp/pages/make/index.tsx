@@ -1377,6 +1377,26 @@ const sessionMessagesLoaded = createMemo(() => {
     await historyController.onFileRefresh(tabStore.tabs())
   })
 
+  // Prototype 用户编辑路径：applyPrototypeModify → 防抖 persistA2uiData 写 data.js 后
+  // 派发 prototype:a2ui-persisted。这里监听并按 tab.filePath 定位对应 prototype tab，
+  // 用 beginWrite/endWrite 包住 onUserEdit，防止 SSE file.edited 把这次写入误记为 agent 编辑。
+  createEffect(() => {
+    const handler = async (e: Event) => {
+      const detail = (e as CustomEvent<{ filePath: string }>).detail
+      if (!detail?.filePath) return
+      const target = tabStore.tabs().find((t) => t.filePath === detail.filePath)
+      if (!target || target.subtype !== "prototype") return
+      historyController.beginWrite(target.id)
+      try {
+        await historyController.onUserEdit(target)
+      } finally {
+        historyController.endWrite(target.id)
+      }
+    }
+    window.addEventListener("prototype:a2ui-persisted", handler)
+    onCleanup(() => window.removeEventListener("prototype:a2ui-persisted", handler))
+  })
+
   // ── 设计方案(design-plan)扫描 ─────────────────────────────
   // 方案 artifact 从子 session 的消息流中提取（如果存在子 session），
   // 否则回退到主 session（兼容旧流程）。
@@ -3767,12 +3787,12 @@ if (dsId) {
               <div class="relative flex-1 min-h-0">
               <ScrollView
                 class="h-full"
-                style={{ background: "#fff", padding: "0 12px", }}
+                style={{ background: "#fff", padding: "0 12px 16px 12px", }}
                 viewportRef={autoScroll.scrollRef}
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
               >
-                <div ref={autoScroll.contentRef} class="py-4 flex flex-col gap-4">
+                <div ref={autoScroll.contentRef} class="make-chat-content pt-4 flex flex-col gap-4">
                     {/* 第一条消息 */}
                     <Show when={userMessages().length > 0}>
                       <InsightTurn

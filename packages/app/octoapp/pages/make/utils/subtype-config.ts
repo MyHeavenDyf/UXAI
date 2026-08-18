@@ -68,13 +68,16 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       modeToggle: true,
       viewport: true,
       localEdit: { enabled: true, editOnly: true },
-      drawEdit: { enabled: true, editOnly: true },
+      drawEdit: false,
       canvasEdit: { enabled: true, editOnly: true },
       comment: { enabled: true, editOnly: true },
       archive: { enabled: true, editOnly: true },
-      history: false,
+      history: { enabled: true, editOnly: true },
       download: true,
       fullscreen: true,
+    },
+    history: {
+      files: ['./data.js'],
     },
   },
 

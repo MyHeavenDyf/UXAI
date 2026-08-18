@@ -777,7 +777,7 @@ export function InsightTurn(props: {
       : `${Math.floor(secs / 60)} 分 ${secs % 60} 秒`
 
     let agent = lastMsg.agent
-    if (agent === 'octo_ai') agent = 'Octo_Agent'
+    if (agent === 'octo_ai' || agent === 'octo_make' || agent === 'octo_make_plan') agent = 'Octo_Design'
     const agentLabel = agent ? agent[0]?.toUpperCase() + agent.slice(1) : ""
     const modelLabel = (() => {
       const match = data.store.provider?.all?.find((p) => p.id === lastMsg.providerID)
@@ -1319,19 +1319,22 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
-      {/* 技能调用（单独显示在最前面） */}
-      <Show when={skillToolCalls().length > 0}>
-        <ToolCallGroupCard calls={skillToolCalls()} />
-      </Show>
+      {/* 工具调用区域 */}
+      <Show when={skillToolCalls().length > 0 || otherToolCalls().length > 0 || subtasks().length > 0}>
+        <div style={{ display: "flex", "flex-direction": "column", gap: "8px" }}>
+        {/* 技能调用（单独显示在最前面） */}
+        <Show when={skillToolCalls().length > 0}>
+          <ToolCallGroupCard calls={skillToolCalls()} />
+        </Show>
 
-      {/* 其他工具调用 */}
-      <Show when={otherToolCalls().length > 0}>
-        <ToolCallGroupCard calls={otherToolCalls()} />
-      </Show>
+        {/* 其他工具调用 */}
+        <Show when={otherToolCalls().length > 0}>
+          <ToolCallGroupCard calls={otherToolCalls()} />
+        </Show>
 
-      {/* 子任务进度（Task tool 调用的子 agent 会话） */}
-      <For each={subtasks()}>
-        {(task) => {
+        {/* 子任务进度（Task tool 调用的子 agent 会话） */}
+        <For each={subtasks()}>
+          {(task) => {
           // Initialize expand state if not exists (defaults to true = expanded)
           if (subtaskExpandState[task.subSessionID] === undefined) {
             setSubtaskExpandState(task.subSessionID, true)
@@ -1447,6 +1450,13 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
+      {/* 产出文件列表 */}
+      <Show when={!showGenerating() && producedFiles().length > 0}>
+        <ProducedFilesList files={producedFiles()} />
+      </Show>
+        </div>
+      </Show>
+
       {/* 错误提示 */}
       <Show when={assistantError()}>
         <div
@@ -1503,11 +1513,6 @@ const stateStatus = state.status as string | undefined
           </div>
         )}
       </For>
-
-      {/* 产出文件列表 */}
-      <Show when={!showGenerating() && producedFiles().length > 0}>
-        <ProducedFilesList files={producedFiles()} />
-      </Show>
 
       {/* 中断提示 — 始终在最底部 */}
       <Show when={isAborted()}>
@@ -1590,7 +1595,7 @@ const stateStatus = state.status as string | undefined
           const bt = props.blockTime!
           const isWarning = bt >= 180
           return (
-            <div class="mx-3 px-3 flex items-center justify-between" style={{
+            <div class="mx-3 px-4 py-2 flex items-center justify-between" style={{
               "border-radius": "var(--octo-radius-md)",
               border: isWarning ? "1px solid rgba(255, 177, 46, 0.3)" : "1px solid rgba(200, 200, 200, 0.2)",
               background: isWarning ? "rgba(255, 177, 46, 0.08)" : "rgba(200, 200, 200, 0.05)",
