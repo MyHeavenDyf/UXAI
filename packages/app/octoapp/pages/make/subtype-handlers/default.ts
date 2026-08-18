@@ -2,6 +2,7 @@ import type { SubtypeHandler, SubtypeHandlerContext } from './types'
 import type { ResultTab } from '../components/result-viewer/tab-store'
 import { showToast } from '@opencode-ai/ui/toast'
 import { getDesktopApi } from '../lib/electron-api'
+import { relativePathToId, resolveRelativePath, getExt } from '../utils/history-store'
 
 /**
  * 默认 SubtypeHandler 实现
@@ -171,6 +172,8 @@ function exportDeckAsPDF(content: string, title: string) {
 }
 
 // ============ Handler 实现 ============
+
+const DEFAULT_HISTORY_FILES = ['.']
 
 const defaultHandler: SubtypeHandler = {
   name: '_default',
@@ -386,7 +389,34 @@ const defaultHandler: SubtypeHandler = {
     actionBar: {
       extraButtons: []
     }
-  }
+  },
+
+  onHistoryTrigger(_event, _ctx) {
+    return DEFAULT_HISTORY_FILES
+  },
+
+  async applyVersionFiles(ctx, files) {
+    const { tab, getDesktopApi, updateTabContent } = ctx
+    const api = getDesktopApi()
+    if (!api?.copyFileTo || !api?.readFileBuffer || !tab.filePath) return
+
+    for (const rel of DEFAULT_HISTORY_FILES) {
+      const id = relativePathToId(rel)
+      const ext = getExt(resolveRelativePath(rel, tab.filePath))
+      const versionFileName = id + ext
+      const versionFile = files.find((f) => f.fileName === versionFileName)
+      if (!versionFile) continue
+      const originalPath = resolveRelativePath(rel, tab.filePath)
+      try {
+        await api.copyFileTo(versionFile.filePath, originalPath)
+      } catch {}
+    }
+
+    const buf = await api.readFileBuffer(tab.filePath)
+    if (buf && updateTabContent) {
+      updateTabContent(tab.id, new TextDecoder().decode(buf))
+    }
+  },
 }
 
 export default defaultHandler satisfies SubtypeHandler

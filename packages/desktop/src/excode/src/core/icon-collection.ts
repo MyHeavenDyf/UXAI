@@ -15,6 +15,7 @@ import {
 } from './icon-props'
 import type { BuildNode } from './node-types'
 import type { PropValue } from './value-types'
+import { pathToSegments, resolveBySegments } from './state-path'
 
 const PLACEHOLDER_ICON = 'IconPlusIcPublicTransverseRectangleTemplate'
 
@@ -33,7 +34,7 @@ export interface IconCollectionResult {
  */
 function toIconComponentName(raw: string): string {
   const segments = raw.trim().split('_').filter(Boolean)
-  const pascal = segments.map(seg => seg.charAt(0).toUpperCase() + seg.slice(1)).join('')
+  const pascal = segments.map(seg => seg.charAt(0).toUpperCase() + seg.slice(1)).join('').replace(/\./g, '')
   return `IconPlus${pascal}`
 }
 
@@ -43,13 +44,7 @@ function toIconComponentName(raw: string): string {
  */
 function resolvePath(state: Record<string, any>, path: string): any {
   if (!path) return undefined
-  const segments = path.split('/').filter(Boolean)
-  let current: any = state
-  for (const seg of segments) {
-    if (current == null) return undefined
-    current = current[seg]
-  }
-  return current
+  return resolveBySegments(state, pathToSegments(path))
 }
 
 export class IconCollector {
@@ -280,6 +275,49 @@ export function getIconPackage(): string {
   return iconPkg
 }
 
+// ─── Icon color 枚举 → 真实 hex 颜色值映射 ───
+//
+// Icon 组件的 color prop 是枚举值（default/info/error/...），需要映射为真实 hex 颜色。
+// 映射关系参考 UXAI-dev_pattern 的 iconColors + themeColors：
+//   iconColors[colorEnum].color/twoColor/threeColor → CSS 变量 → themeColors 中对应的真实值
+//
+// @nce/icon-plus 的 iconColor 是 string[] 类型，不同 shape 需要不同数量的颜色：
+//   outline/fill（单色）→ color（1 个颜色）
+//   two-tone（双色）→ twoColor（2 个颜色，逗号分隔）
+//   square/circle（三色，带背景）→ threeColor（3 个颜色，逗号分隔）
+// 仅使用浅色主题（light theme）下的值。
+const ICON_COLOR_MAP: Record<string, { color: string; twoColor: string; threeColor: string }> = {
+  default:  { color: '#191919', twoColor: '#191919,#AEAEAE', threeColor: '#191919,#AEAEAE,#FFFFFF' },
+  info:     { color: '#2070F3', twoColor: '#2070F3,#8CA3FA', threeColor: '#2070F3,#8CA3FA,#EEF3FE' },
+  error:    { color: '#E02128', twoColor: '#E02128,#EE696F', threeColor: '#E02128,#EE696F,#FEE7E8' },
+  alert:    { color: '#F4840C', twoColor: '#F4840C,#F9B766', threeColor: '#F4840C,#F9B766,#FEF5E8' },
+  warning:  { color: '#FCC800', twoColor: '#FCC800,#FDE55C', threeColor: '#FCC800,#FDE55C,#FEFCE0' },
+  success:  { color: '#09AA71', twoColor: '#09AA71,#63D5A8', threeColor: '#09AA71,#63D5A8,#E7FBF2' },
+  disabled: { color: '#AEAEAE', twoColor: '#AEAEAE,#777777', threeColor: '#AEAEAE,#777777,#FFFFFF' },
+  brand:    { color: '#0067D1', twoColor: '#0067D1,#5CA2E9', threeColor: '#0067D1,#5CA2E9,#E6F2FD' },
+  rose:     { color: '#E61866', twoColor: '#E61866,#F470AB', threeColor: '#E61866,#F470AB,#FEE5F2' },
+  pink:     { color: '#D41DBC', twoColor: '#D41DBC,#EB74DF', threeColor: '#D41DBC,#EB74DF,#FDE6FC' },
+  purple:   { color: '#B62BF7', twoColor: '#B62BF7,#CB8EFB', threeColor: '#B62BF7,#CB8EFB,#F7EDFE' },
+  indigo:   { color: '#715AFB', twoColor: '#715AFB,#A89FF9', threeColor: '#715AFB,#A89FF9,#EEEEFE' },
+  cyan:     { color: '#2CB8C9', twoColor: '#2CB8C9,#7DDFE7', threeColor: '#2CB8C9,#7DDFE7,#E8FCFD' },
+  green:    { color: '#62B42E', twoColor: '#62B42E,#A8DB81', threeColor: '#62B42E,#A8DB81,#F2FBE9' },
+  primary:  { color: '#0067D1', twoColor: '#0067D1,#5CA2E9', threeColor: '#0067D1,#5CA2E9,#E6F2FD' },
+}
+
+/**
+ * 将 Icon color 枚举值 + shape 解析为 iconColor 数组（string[]）。
+ * shape 决定颜色数量：outline/fill→1色, two-tone→2色, square/circle→3色。
+ * 若枚举值不在映射表中，回退为单色（原值）。
+ */
+function resolveIconColor(color: string, shape?: string): string[] {
+  const entry = ICON_COLOR_MAP[color]
+  if (!entry) return [color]  // 非标准色值原样保留为单色
+  const s = shape || 'outline'
+  if (s === 'two-tone') return entry.twoColor.split(',')
+  if (s === 'square' || s === 'circle') return entry.threeColor.split(',')
+  return [entry.color]  // outline / fill / 未指定
+}
+
 export function resolveIcon(
   iconName: string,
   iconNameMap: Record<string, string>,
@@ -289,27 +327,36 @@ export function resolveIcon(
 
   const props: Record<string, any> = {}
   if (iconProps) {
-    // @nce/icon-plus 的 iconColor prop 接受数组：["primary"]
-    // （单个颜色以数组形式传入，支持后续扩展多色）
-    if (iconProps.color) props.iconColor = [iconProps.color]
+    // @nce/icon-plus 的 iconColor prop 接受数组：["#191919"]
+    // color 枚举值（default/info/error/...）→ 真实 hex 颜色值（参考 iconColors + themeColors）
+    // ⚠️ color 来源不限于 A2UI Icon 组件 schema 定义的枚举
+    // （default/info/error/alert/warning/success/disabled/brand/rose/...）——
+    // 其他组件（如 Button）调 resolveIcon 时也会把自己的 color 透传过来，
+    // 故值范围以调用方传入为准，不在映射表中的值原样保留。
+    if (iconProps.color) props.iconColor = resolveIconColor(iconProps.color, iconProps.shape)
     if (iconProps.className) props.className = iconProps.className
+    // iconSize：图标像素尺寸（数字，由调用方如 Button.size 转换传入）
+    if (iconProps.iconSize !== undefined) props.iconSize = iconProps.iconSize
     if (iconProps.shape) {
       const shapeMap: Record<string, string> = {
         outline: 'lined',
         fill: 'filled',
+        'two-tone': 'lined-twotone',
         square: 'square-bg',
         circle: 'round-bg',
       }
       if (shapeMap[iconProps.shape]) props.type = shapeMap[iconProps.shape]
     }
     for (const [k, v] of Object.entries(iconProps)) {
-      if (!['name', 'shape', 'color', 'className'].includes(k) && !k.startsWith('__')) {
+      if (!['name', 'shape', 'color', 'className', 'iconSize', 'id'].includes(k) && !k.startsWith('__')) {
         props[k] = v
       }
     }
   }
 
-  return {
+  // id：由调用方（如 IconButton 传 node.id）提供，用于 CSS Modules 选择器键 + emit className → styles.{id}
+  const node: any = {
+    __node: true,
     kind: 'component',
     component: 'Icon',
     tag: targetIconName,
@@ -317,4 +364,6 @@ export function resolveIcon(
     props,
     selfClosing: true,
   }
+  if (iconProps?.id) node.id = iconProps.id
+  return node
 }

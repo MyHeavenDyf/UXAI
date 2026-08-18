@@ -42,6 +42,7 @@ import {
   type JSX,
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
+import { onPrototypePickerSubmit, onPrototypePickerAppend } from "./utils/prototype-utils"
 import { createStore, produce } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
@@ -60,6 +61,7 @@ import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
+import { DialogPreviewUnavailable } from "./components/dialog-preview-unavailable"
 import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
 import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, UploadError } from "../insight/lib/upload"
@@ -96,6 +98,8 @@ import { useMakeCommands } from "./use-make-commands"
 import { useDialogIframe } from '@/context/dialog-iframe'
 import { getDesktopApi, type AssetsConfig } from "./lib/electron-api"
 import { extractSubtypeFromFilename } from "./utils/subtype-extractor"
+import { type VersionEntry } from "./utils/history-store"
+import { createHistoryController } from "./subtype-handlers/history-controller"
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
@@ -468,10 +472,14 @@ const sessionMessagesLoaded = createMemo(() => {
   createEffect(
     on(
       () => [params.id, sync.data.message?.[params.id ?? ""] === undefined] as const,
-      ([id, missing], prev) => {
+      ([id, missing]) => {
         if (id) {
           layout.lastSessionPerTab.setMake(sdk.directory, id)
-          if (missing && id !== prev?.[0]) void sync.session.sync(id).catch(() => {})
+          // 之前用 `id !== prev?.[0]` 限制只在 session 切换时 sync,但 app 长时间放置后
+          // 重新激活时,store 可能被 evict 导致 sync.data.message[id] 变 undefined,
+          // 此时 session ID 没变但 missing=true,旧条件不会重新 sync → 永远卡在 spinner。
+          // sync.session.sync 内部已有 cached 去重 + loading 防并发,重复调用安全。
+          if (missing) void sync.session.sync(id).catch(() => {})
         }
 
         setSending(false)
@@ -488,6 +496,32 @@ const sessionMessagesLoaded = createMemo(() => {
       },
     ),
   )
+
+  // app 长时间放置后重新激活时,SSE 可能已断开 + 鉴权过期 + DNS 不可达(ERR_NAME_NOT_RESOLVED),
+  // 此时 sync.session.sync 的请求可能失败被 .catch 吞掉,sync.data.message[id] 仍是 undefined,
+  // 但 missing 状态没变化(从 true 到 true),上面的 createEffect 不会重新触发 → 卡在 spinner。
+  // 监听 visibilitychange(切回前台)+ online(网络恢复):任一事件触发时,
+  // 如果当前 session 仍 missing,主动重试 sync。
+  // sync.session.sync 内部有 cached 去重 + loading 防并发,网络未恢复时请求会失败但不影响后续重试。
+  onMount(() => {
+    const retrySyncIfMissing = () => {
+      const id = params.id
+      if (!id) return
+      if (sync.data.message?.[id] === undefined) {
+        void sync.session.sync(id).catch(() => {})
+      }
+    }
+    const handleVisibility = () => {
+      if (document.visibilityState !== "visible") return
+      retrySyncIfMissing()
+    }
+    document.addEventListener("visibilitychange", handleVisibility)
+    window.addEventListener("online", retrySyncIfMissing)
+    onCleanup(() => {
+      document.removeEventListener("visibilitychange", handleVisibility)
+      window.removeEventListener("online", retrySyncIfMissing)
+    })
+  })
 
   // ── Annotation event listener (from DrawOverlay) ────────────────────────────────
   createEffect(() => {
@@ -732,15 +766,17 @@ const sessionMessagesLoaded = createMemo(() => {
         if (callID) {
           const toolName = toolCallMap.get(callID)
           if (toolName) {
-            const family = toolFamily(toolName)
-            if (family === "write" || family === "edit") {
-              setFilesRefreshKey(k => k + 1)
-            }
+            setFilesRefreshKey(k => k + 1)
+            void historyController.onFileRefresh(tabStore.tabs())
             toolCallMap.delete(callID)
           }
         }
       } else if (e.type === "session.next.step.ended") {
         setFilesRefreshKey(k => k + 1)
+        void historyController.onFileRefresh(tabStore.tabs())
+      } else if (e.type === "file.edited" || e.type === "file.watcher.updated") {
+        setFilesRefreshKey(k => k + 1)
+        void historyController.onFileRefresh(tabStore.tabs())
       } else {
         const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
         console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 
@@ -853,13 +889,19 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!sid) return []
     const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter((m) => m.role === "user")
     const childIds = childSessionIDs()
-    if (childIds.size === 0) return mainMsgs
     const allMsgs: Message[] = [...mainMsgs]
     for (const childId of childIds) {
       const childMsgs = ((sync.data.message?.[childId] ?? []) as Message[]).filter((m) => m.role === "user")
       allMsgs.push(...childMsgs)
     }
-    return allMsgs.sort((a, b) => (a as any).time?.created - (b as any).time?.created)
+    // 始终按 time.created 排序(以 id 作 tiebreaker),避免依赖 sync.data.message 底层数组顺序。
+    // 否则在框选编辑等异步发送路径下,新消息可能因 Binary.search 插入位置异常而停留在顶部。
+    return allMsgs.sort((a, b) => {
+      const aTime = (a as any).time?.created ?? 0
+      const bTime = (b as any).time?.created ?? 0
+      if (aTime !== bTime) return aTime - bTime
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+    })
   })
 
   const lastUserMessage = createMemo(() => userMessages().at(-1))
@@ -951,6 +993,8 @@ const sessionMessagesLoaded = createMemo(() => {
     
     // 检测从 busy → idle 的转换
     if (lastBusyState && !busy && id) {
+      // agent 一轮结束：刷新文件视图，让 iframe 重载拿到最新磁盘内容（no-store 保证 data.js 不命中缓存）
+      setFilesRefreshKey(k => k + 1)
       const timing = messageTimingMap.get(id)
       if (timing) {
         const elapsed = Date.now() - timing.startTime
@@ -997,6 +1041,24 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const [prompt, setPrompt] = createSignal("")
+  const unsubPickerSubmit = onPrototypePickerSubmit(({ text, id }) => {
+    const line = text ? `[选中元素: ${id}] ${text};` : ""
+    const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
+    const prev = ref?.getText?.() ?? ""
+    if (text) {
+      ref?.clear?.()
+      ref?.insertText?.(prev ? `${prev}\n${line}` : line)
+    }
+    void handleSubmit()
+  })
+  const unsubPickerAppend = onPrototypePickerAppend(({ text, id }) => {
+    const line = `[选中元素: ${id}] ${text};`
+    const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
+    const prev = ref?.getText?.() ?? ""
+    ref?.clear?.()
+    ref?.insertText?.(prev ? `${prev}\n${line}` : line)
+  })
+  onCleanup(() => { unsubPickerSubmit(); unsubPickerAppend() })
   const [composing, setComposing] = createSignal(false)
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)
@@ -1283,13 +1345,57 @@ const sessionMessagesLoaded = createMemo(() => {
   const [showVersionPanel, setShowVersionPanel] = createSignal(false)
   const [snapshotList, setSnapshotList] = createSignal<import("./utils/snapshot-store").ArtifactSnapshot[]>([])
   const [snapshotVersion, setSnapshotVersion] = createSignal(0)
+  const [showHistoryPanel, setShowHistoryPanel] = createSignal(false)
+  const [versionList, setVersionList] = createSignal<VersionEntry[]>([])
+  const [currentVersionId, setCurrentVersionId] = createSignal<string | null>(null)
   const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files" | "plan">("files")
+
+  const historyController = createHistoryController({
+    setVersionList: (updater) => setVersionList(updater),
+    setCurrentVersionId: (updater) => setCurrentVersionId(updater),
+    updateTabContent: (id, content) => tabStore.updateTabContent(id, content),
+    setFilesRefreshKey: (updater) => setFilesRefreshKey(updater),
+  })
 
   /** 刷新版本快照列表 */
   function refreshSnapshots() {
     setSnapshotList(snapshotStore.snapshots())
     setSnapshotVersion((v) => v + 1)
   }
+
+  // Tab 激活时加载版本列表（仅在 activeId 变化时触发，不追踪 tabs 内容变化）
+  createEffect(on(tabStore.activeId, async (id) => {
+    if (!id) return
+    const tab = tabStore.tabs().find((t) => t.id === id)
+    if (tab) await historyController.loadVersions(tab)
+  }))
+
+  // Agent 路径 B：直接调 write/edit 工具改文件时记录版本
+  createEffect(async () => {
+    const key = filesRefreshKey()
+    if (key === 0) return
+    await historyController.onFileRefresh(tabStore.tabs())
+  })
+
+  // Prototype 用户编辑路径：applyPrototypeModify → 防抖 persistA2uiData 写 data.js 后
+  // 派发 prototype:a2ui-persisted。这里监听并按 tab.filePath 定位对应 prototype tab，
+  // 用 beginWrite/endWrite 包住 onUserEdit，防止 SSE file.edited 把这次写入误记为 agent 编辑。
+  createEffect(() => {
+    const handler = async (e: Event) => {
+      const detail = (e as CustomEvent<{ filePath: string }>).detail
+      if (!detail?.filePath) return
+      const target = tabStore.tabs().find((t) => t.filePath === detail.filePath)
+      if (!target || target.subtype !== "prototype") return
+      historyController.beginWrite(target.id)
+      try {
+        await historyController.onUserEdit(target)
+      } finally {
+        historyController.endWrite(target.id)
+      }
+    }
+    window.addEventListener("prototype:a2ui-persisted", handler)
+    onCleanup(() => window.removeEventListener("prototype:a2ui-persisted", handler))
+  })
 
   // ── 设计方案(design-plan)扫描 ─────────────────────────────
   // 方案 artifact 从子 session 的消息流中提取（如果存在子 session），
@@ -1969,19 +2075,36 @@ const sessionMessagesLoaded = createMemo(() => {
     const tab = tabStore.tabs().find((t) => t.id === tabId)
 
     if (tab) {
-      await persistTabChanges(tab, {
-        sessionId: params.id!,
-        projectDir: projectDir(),
-        sdkUrl: sdk.url,
-        sdkDirectory: sdk.directory || "",
-        snapshotStore: snapshotStore,
-        refreshSnapshots: refreshSnapshots,
-      })
+      const isDesignPlan = tab.type === "design-plan"
+      historyController.beginWrite(tab.id)
+      try {
+        await persistTabChanges(tab, {
+          sessionId: params.id!,
+          projectDir: projectDir(),
+          sdkUrl: sdk.url,
+          sdkDirectory: sdk.directory || "",
+          snapshotStore: snapshotStore,
+          refreshSnapshots: refreshSnapshots,
+          skipSnapshot: !isDesignPlan,
+        })
+        if (!isDesignPlan) {
+          await historyController.onUserEdit(tab)
+        }
+      } finally {
+        historyController.endWrite(tab.id)
+      }
     }
     // 注：design-plan tab 的编辑不走 persistTabChanges(finalContent 是 draft,
     // 且 agent 端没有对应的 [update-plan] 指令).编辑内容已存在 tabStore +
     // snapshotStore(见 persistActivePlanDraft),切回时从 snapshot 恢复即可,
     // 不需要发消息回灌给 agent,避免 agent 重写 artifact 覆盖用户编辑。
+  }
+
+  /** 切换历史版本：交由 controller 处理 */
+  async function handleHistorySwitch(entry: VersionEntry) {
+    const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
+    if (!tab) return
+    await historyController.switchVersion(entry, tab)
   }
 
   /** 关闭 tab：关闭最后一个时切换到 files 视图 */
@@ -1991,6 +2114,7 @@ const sessionMessagesLoaded = createMemo(() => {
       tracker.interaction({ module: "design", name: "close-tab", extend: JSON.stringify({ type: tab.type }) })
     }
     tabStore.closeTab(id)
+    setShowHistoryPanel(false)
     if (tabStore.tabs().length === 0) {
       layout.focusMode.set(false)
       setResultViewMode("files")
@@ -2032,10 +2156,15 @@ const sessionMessagesLoaded = createMemo(() => {
       
       console.log("[sendMessage] mentions:", mentions)
       console.log("[sendMessage] skillToolCalls:", skillToolCalls())
-      
+
       for (const sel of selections) {
         if (sel.type === 'skill') {
           processedText = processedText.replace(`@${sel.name}`, ` /${sel.name} `)
+          // chip 在输入框里渲染成 displayName,但 getText 返回的是 @skillName(getDocTextWithMentions 用 attrs.name)。
+          // 这里把 displayText 里的 @skillName 同步替换成 @displayName,聊天记录里显示的就跟输入框一致。
+          if (sel.label && sel.label !== sel.name) {
+            displayText = displayText.replace(`@${sel.name}`, () => `@${sel.label}`)
+          }
         } else {
           processedText = processedText.replace(`@${sel.name}`, ` 读取${sel.path} 这个文件 `)
         }
@@ -2067,7 +2196,41 @@ const sessionMessagesLoaded = createMemo(() => {
       // 附件已快照到 fileParts/localManifest，立即清空 UI；
       // 否则要等 await session.prompt 完成才会清空，造成"附件要等模型回复完成才消失"的现象
       setAttachments([])
-      
+
+      // ── Artifact folder context（无论命令还是 prompt 路径，都在最开头注入） ──
+      // 告诉 agent 用 write 工具时的目标目录绝对路径，以及当前会话已有的产物文件列表（供 edit 工具使用）。
+      // 文件列表每轮 sendMessage 都重新扫盘，保证新鲜。
+      let artifactFolderPrefix = ""
+      const folderProjDir = projectDir()
+      if (folderProjDir && sessionId) {
+        const sep = folderProjDir.includes("\\") ? "\\" : "/"
+        const artifactFolder = [folderProjDir, ".octo", sessionId, "outputs"].join(sep)
+        let existingList = ""
+        try {
+          const relPath = `.octo/${sessionId}/outputs`
+          const result = await sdk.client.file.list({ path: relPath })
+          const files = (result.data ?? []).filter((n) => n.type === "file")
+          if (files.length > 0) {
+            const lines = files.map((n) => `- ${n.absolute}`)
+            existingList = [
+              ``,
+              `[Existing artifacts in this session]`,
+              ...lines,
+              `When the user references a previously-generated artifact in this session for modification, use the edit tool on the matching file path above. If the file is not listed, re-output a full <artifact> instead; do not edit files outside this list.`,
+            ].join("\n")
+          }
+        } catch {
+          // 目录可能还没创建(还没生成过产物),忽略
+        }
+        artifactFolderPrefix = [
+          `[Artifact Folder]: ${artifactFolder}`,
+          `Prefer the <artifact> tag for output; do NOT use the write tool by default. Only if the user EXPLICITLY asks to use the write tool, you MUST write files inside this folder and nowhere else.`,
+          existingList,
+          `---`,
+          ``,
+        ].filter(Boolean).join("\n")
+      }
+
       // ── Multi-slash-command detection ──
       // Scan all tokens in processedText for /cmd patterns, match against sync.data.command,
       // execute each via session.command(). Each command gets the text between itself
@@ -2119,6 +2282,7 @@ const sessionMessagesLoaded = createMemo(() => {
         // Save full display text (contains all text and @mentions)
         const fullDisplayText = displayText
         let isFirstSkillCommand = true
+        let artifactFolderInjected = false
         
         // 添加本地文件清单
         const manifestPart = localManifest.length > 0 
@@ -2127,10 +2291,16 @@ const sessionMessagesLoaded = createMemo(() => {
         
         for (const seg of cmdSegments) {
           if (!seg.cmd) continue
-          
+
           // Build parts: file parts + local manifest + optional text part with metadata for skill chips
           const cmdParts: Array<FilePartInput | TextPartInput> = [...fileParts]
           if (manifestPart) cmdParts.push(manifestPart)
+
+          // 注入 artifact folder context（仅注入一次）
+          if (artifactFolderPrefix && !artifactFolderInjected) {
+            cmdParts.unshift({ type: "text", text: artifactFolderPrefix, synthetic: true })
+            artifactFolderInjected = true
+          }
           
           // If this command is a skill from @mention, add metadata for chip display
           const isSkillMention = skillMentions.some(s => s.name === seg.cmd)
@@ -2242,46 +2412,9 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       }
 
-      // Artifact folder injection: 告诉 agent 用 write 工具时的目标目录绝对路径,
-      // 以及当前会话已存在的产物文件列表(供 edit 工具使用)。
-      // 必须放在 DesignSystem 注入之后,避免被 dsPrefix 重置覆盖。
-      // 文件列表每轮 sendMessage 都重新扫盘,保证新鲜。
-      const folderProjDir = projectDir()
-      if (folderProjDir && sessionId) {
-        const sep = folderProjDir.includes("\\") ? "\\" : "/"
-        const artifactFolder = [
-          folderProjDir,
-          ".octo",
-          sessionId,
-          "outputs",
-        ].join(sep)
-
-        let existingList = ""
-        try {
-          const relPath = `.octo/${sessionId}/outputs`
-          const result = await sdk.client.file.list({ path: relPath })
-          const files = (result.data ?? []).filter((n) => n.type === "file")
-          if (files.length > 0) {
-            const lines = files.map((n) => `- ${n.absolute}`)
-            existingList = [
-              ``,
-              `[Existing artifacts in this session]`,
-              ...lines,
-              `When the user references a previously-generated artifact in this session for modification, use the edit tool on the matching file path above. If the file is not listed, re-output a full <artifact> instead; do not edit files outside this list.`,
-            ].join("\n")
-          }
-        } catch {
-          // 目录可能还没创建(还没生成过产物),忽略
-        }
-
-        const folderPrefix = [
-          `[Artifact Folder]: ${artifactFolder}`,
-          `Prefer the <artifact> tag for output; do NOT use the write tool by default. Only if the user EXPLICITLY asks to use the write tool, you MUST write files inside this folder and nowhere else.`,
-          existingList,
-          `---`,
-          ``,
-        ].filter(Boolean).join("\n")
-        promptText = folderPrefix + "\n" + promptText
+      // Artifact folder injection（使用前面已构建的 artifactFolderPrefix）
+      if (artifactFolderPrefix) {
+        promptText = artifactFolderPrefix + "\n" + promptText
       }
 
       // jk-j60099994-replace-with-60062650-octoapp-make-index-1-start
@@ -3031,6 +3164,22 @@ if (dsId) {
 
   /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
   async function handleOpenResult(card: OutputCard) {
+    // 不支持预览的 file 类型:弹窗提示 + 提供下载入口,不打开 result-viewer tab。
+    // 必须在 setResultViewMode/ml.showRight 之前拦截,否则会切到 tabs 模式显示空 ResultViewer。
+    // link 类型的磁盘路径会经 inferOutputType 推断,只有真正无法预览的扩展名才会落到 'file'。
+    if (card.type === "file") {
+      dialog.show(() => (
+        <DialogPreviewUnavailable
+          filename={card.title}
+          filePath={card.filePath}
+          sdkUrl={sdk.url}
+          sdkDirectory={sdk.directory || ""}
+        />
+      ))
+      tracker.interaction({ module: "design", name: "preview-unavailable", extend: JSON.stringify({ title: card.title }) })
+      return
+    }
+
     setResultViewMode("tabs")
     ml.showRight()
 
@@ -3115,7 +3264,7 @@ if (dsId) {
       }
     }
     
-    // ★ Step 0: 如果已有匹配的 tab，直接激活
+    // ★ Step 0: 如果已有匹配的 tab，直接激活（但先检查文件内容是否变化，变化则记录 agent 版本）
     if (card.filePath) {
       const existingTab = tabStore.tabs().find(t => {
         if (t.type === "html" && isUrl) return t.filePath === card.filePath
@@ -3124,6 +3273,17 @@ if (dsId) {
         return false
       })
       if (existingTab) {
+        if (!isUrl && existingTab.type !== "design-plan") {
+          const api = getDesktopApi()
+          const buf = await api?.readFileBuffer?.(existingTab.filePath!)
+          if (buf) {
+            const fileContent = new TextDecoder().decode(buf)
+            if (fileContent && fileContent !== existingTab.content) {
+              tabStore.updateTabContent(existingTab.id, fileContent)
+              await historyController.onTabOpen({ ...existingTab, content: fileContent }, existingTab)
+            }
+          }
+        }
         tabStore.activate(existingTab.id)
         return
       }
@@ -3151,13 +3311,15 @@ if (dsId) {
       }
     }
     
+    const existingBefore = tabStore.tabs().find((t) => t.id === card.id)
     tabStore.openTab(card)
     if (card.artifactIdentifier?.endsWith("-composed")) {
       tabStore.activate(card.id)
     }
     const tab = tabStore.tabs().find((t) => t.id === card.id)
-    
+
     if (tab) {
+      const isDesignPlan = tab.type === "design-plan"
       const shouldPersist = !["image", "video", "audio", "pdf", "text"].includes(tab.type)
       // 跳过从文件加载的内容（已存在于文件中，无需重复持久化）
       if (shouldPersist && !isUrl && tab.content && !contentLoadedFromFile) {
@@ -3168,7 +3330,11 @@ if (dsId) {
           sdkDirectory: sdk.directory || "",
           snapshotStore: snapshotStore,
           refreshSnapshots: refreshSnapshots,
+          skipSnapshot: !isDesignPlan,
         })
+      }
+      if (!isDesignPlan) {
+        await historyController.onTabOpen(tab, existingBefore)
       }
     }
   }
@@ -3647,7 +3813,10 @@ if (dsId) {
                           setPrompt(text)
                         }}
                         hasQuestionRequest={!!questionRequest()}
-                        onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
+                        onFilesRefresh={() => {
+                          setFilesRefreshKey(k => k + 1)
+                          void historyController.onFileRefresh(tabStore.tabs())
+                        }}
                         skillToolCalls={skillToolCalls()}
                         skillConfig={skillConfig()}
                       />
@@ -3709,7 +3878,10 @@ if (dsId) {
                           setPrompt(text)
                         }}
                         hasQuestionRequest={!!questionRequest()}
-                        onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
+                        onFilesRefresh={() => {
+                          setFilesRefreshKey(k => k + 1)
+                          void historyController.onFileRefresh(tabStore.tabs())
+                        }}
                         skillToolCalls={skillToolCalls()}
                         skillConfig={skillConfig()}
                       />
@@ -4004,6 +4176,20 @@ if (dsId) {
                 sdkDirectory={sdk.directory || ""}
                 focusMode={focusMode()}
                 onFocusModeToggle={() => layout.focusMode.toggle()}
+                historyActive={showHistoryPanel()}
+                historyEntries={versionList()}
+                currentVersionId={currentVersionId()}
+                onHistorySwitch={handleHistorySwitch}
+                onModeChange={(mode) => {
+                  if (mode === "edit") setShowHistoryPanel(false)
+                }}
+                onHistoryToggle={async () => {
+                  if (!showHistoryPanel()) {
+                    const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
+                    if (tab) await historyController.refreshVersions(tab)
+                  }
+                  setShowHistoryPanel(!showHistoryPanel())
+                }}
                 onCollapseDrawer={
                   !focusMode() && ml.rightCollapsed() && ml.rightDrawerOpen()
                     ? ml.toggleRightDrawer
@@ -4013,7 +4199,10 @@ if (dsId) {
                 onAdjustPlan={handleAdjustPlan}
                 isPlanConfirmed={planButtonDisabled}
                 filesRefreshKey={filesRefreshKey()}
-                onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
+                onFilesRefresh={() => {
+                  setFilesRefreshKey(k => k + 1)
+                  void historyController.onFileRefresh(tabStore.tabs())
+                }}
                 planCard={planCard()}
                 planPhase={planPhase()}
                 strategyFormData={strategyFormData()}

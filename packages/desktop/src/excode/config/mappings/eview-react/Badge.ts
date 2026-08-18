@@ -51,10 +51,9 @@ export function createBadgeMapping(pkg: string): MappingDef {
     transform(node: any, ctx: TransformContext) {
       const props = node.props || {}
       const outputProps: Record<string, PropValue> = {}
-      const SKIP_KEYS = new Set([
-        'count', 'overflowCount', 'status', 'color', 'dot', 'offset',
-        'showZero', 'className',
-      ])
+
+      // 显性处理每个 A2UI prop：A2UI Badge 的 props 是封闭集合
+      // (color/count/dot/offset/overflowCount/showZero/status/className)，不做兜底透传。
 
       // ─── count → content（双形态） ───
       if ('count' in props) {
@@ -91,12 +90,7 @@ export function createBadgeMapping(pkg: string): MappingDef {
       // ─── className 透传 ───
       if (props.className) outputProps.className = props.className
 
-      // ─── 透传剩余 prop ───
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) {
-          outputProps[key] = value as PropValue
-        }
-      }
+      // 不做剩余兜底透传：A2UI Badge 的 props 已逐项显性处理。
 
       return {
         props: outputProps,

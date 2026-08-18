@@ -11,10 +11,16 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { getDesktopApi } from "../../lib/electron-api"
 import { tracker } from "@/utils/tracker"
 import { createHtmlAssetsZip } from "../../utils/html-assets-zip"
-import { getSubtypeConfig } from "../../utils/subtype-config"
+import { getSubtypeConfig, isFeatureEnabled, isFeatureEditOnly, type FeatureFlag } from "../../utils/subtype-config"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
 import { subtypeUIRegistry } from "../../utils/subtype-ui-registry"
 import type { ActionBarButton, SubtypeHandlerContext, ButtonPosition } from "../../subtype-handlers/types"
+import type { VersionEntry } from "../../utils/history-store"
+import { HistoryPanel } from "./history-panel"
+import { useSDK } from "@/context/sdk"
+import { useSync } from "@/context/sync"
+import { useLocal } from "@/context/local"
+import { useParams } from "@solidjs/router"
 
 // Responsive breakpoints for action bar
 const ACTION_BAR_COLLAPSE_WIDTH = 600
@@ -357,12 +363,24 @@ export function ActionBar(props: {
     onFocusModeToggle?: () => void
     onCanvasToDesign?: () => void
     observedResourceUrls?: () => string[]
+    onHistoryToggle?: () => void
+    historyActive?: boolean
+    historyEntries?: VersionEntry[]
+    currentVersionId?: string | null
+    onHistorySwitch?: (entry: VersionEntry) => void
   }): JSX.Element {
+  const sdk = useSDK()
+  const sync = useSync()
+  const local = useLocal()
+  const params = useParams<{ id?: string }>()
+
   async function handleDownload() {
     tracker.interaction({ module: "design", name: "download-file", extend: JSON.stringify({ type: props.tab.type }) })
     
     const handler = getSubtypeHandler(props.tab.subtype)
     if (handler?.handleDownload) {
+      const m = local.model.current()
+      const modelKey = m ? { providerID: m.provider.id, modelID: m.id } : undefined
       const ctx = {
         tab: props.tab,
         showToast,
@@ -371,6 +389,10 @@ export function ActionBar(props: {
         extractCodeBlock,
         observedUrlsGetter: props.observedResourceUrls,
         projectSelection: () => undefined,
+        sdk,
+        modelKey,
+        sync,
+        sessionId: params.id,
       }
       
       try {
@@ -401,16 +423,26 @@ export function ActionBar(props: {
 
   const config = createMemo(() => getSubtypeConfig(props.tab.subtype))
 
-  const canToggleMode = () => config().features.modeToggle && props.tab.type === "html"
-  const showViewport = () => config().features.viewport && props.tab.type === "html" && currentMode() === "preview"
-  const showRefreshButton = () => config().features.refresh
-  const showLocalEdit = () => config().features.localEdit && showViewport()
-  const showDrawEdit = () => config().features.drawEdit && showViewport()
-  const showCanvasEdit = () => config().features.canvasEdit && showViewport()
-  const showComment = () => config().features.comment && showViewport()
-  const showArchive = () => config().features.archive && showViewport()
-  const showDownload = () => config().features.download
-  const showFullscreen = () => config().features.fullscreen
+  let historyBtnRef: HTMLButtonElement | undefined
+
+  /** 统一判断：feature 是否在当前模式下可见（editOnly 的 feature 只在预览模式显示） */
+  const featureVisible = (flag: FeatureFlag): boolean => {
+    if (!isFeatureEnabled(flag)) return false
+    if (isFeatureEditOnly(flag) && currentMode() !== "preview") return false
+    return true
+  }
+
+  const canToggleMode = () => featureVisible(config().features.modeToggle) && props.tab.type === "html"
+  const showViewport = () => featureVisible(config().features.viewport) && props.tab.type === "html" && currentMode() === "preview"
+  const showRefreshButton = () => featureVisible(config().features.refresh)
+  const showLocalEdit = () => featureVisible(config().features.localEdit) && showViewport()
+  const showDrawEdit = () => featureVisible(config().features.drawEdit) && showViewport()
+  const showCanvasEdit = () => featureVisible(config().features.canvasEdit) && showViewport()
+  const showComment = () => featureVisible(config().features.comment) && showViewport()
+  const showArchive = () => featureVisible(config().features.archive) && showViewport()
+  const showDownload = () => featureVisible(config().features.download)
+  const showFullscreen = () => featureVisible(config().features.fullscreen)
+  const showHistory = () => featureVisible(config().features.history) && !!props.tab.filePath
   const shouldShowCopy = () =>
     props.tab.type === "table" ||
     props.tab.type === "markdown" ||
@@ -514,6 +546,7 @@ export function ActionBar(props: {
   }
 
   return (
+    <>
     <div class="octo-action-bar">
       <div class="octo-action-bar-left">
         {renderButtonsAtPosition('start')}
@@ -665,6 +698,22 @@ export function ActionBar(props: {
               <span>归档</span>
             </button>
           )}
+          {showHistory() && props.onHistoryToggle && (
+            <button
+              ref={historyBtnRef}
+              type="button"
+              class="octo-action-btn"
+              classList={{ "octo-viewport-btn-active": !!props.historyActive }}
+              onClick={props.onHistoryToggle}
+              title="历史版本"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="8" cy="8" r="6" />
+                <path d="M8 5v3l2 2" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <span>历史</span>
+            </button>
+          )}
           {renderButtonsAtPosition('after-archive')}
           {renderButtonsAtPosition('before-fullscreen')}
           <Show when={showFullscreen() && props.tab.type !== "design-plan" && props.onFocusModeToggle}>
@@ -697,6 +746,20 @@ export function ActionBar(props: {
         </div>
       </div>
     </div>
+    <Show when={props.historyActive && historyBtnRef && showHistory()}>
+      <HistoryPanel
+        anchorRect={(() => {
+          const r = historyBtnRef!.getBoundingClientRect()
+          return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }
+        })()}
+        entries={props.historyEntries ?? []}
+        currentId={props.currentVersionId ?? null}
+        onSwitch={props.onHistorySwitch!}
+        onClose={() => props.onHistoryToggle?.()}
+        ignoreRef={() => historyBtnRef}
+      />
+    </Show>
+    </>
   )
 }
 

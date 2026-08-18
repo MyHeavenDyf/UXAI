@@ -26,7 +26,7 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
+import { Value } from '../../../src/core/value-factory'
 
 // ─── 工具（与 eview-react Button 一致） ───
 
@@ -45,7 +45,7 @@ function resolveColor(color: string): { status?: string; style?: Record<string, 
   ])
 
   if (color === 'primary') return { status: 'primary' }
-  if (color === 'danger') return { status: 'risk' }
+  if (color === 'danger' || color === 'error') return { status: 'risk' }
   if (color === 'default') return { status: 'default' }
   if (PALETTE.has(color)) return { style: { backgroundColor: color } }
   if (/^#[0-9a-f]{3,6}$/i.test(color)) return { style: { backgroundColor: color } }
@@ -126,9 +126,8 @@ const ButtonMapping: MappingDef = {
     const hasIcon = 'icon' in props
     const hasValue = 'value' in props
     const outputProps: Record<string, PropValue> = {}
-    const SKIP_KEYS = new Set([
-      'value', 'icon', 'iconPlacement', 'color', 'size', 'types', 'shape',
-    ])
+
+    // 显性处理每个 A2UI prop（Button: value/color/types/size/icon/iconPlacement/shape/className），不做兜底透传。
 
     // 1. icon → leftIcon / rightIcon
     if (hasIcon) {
@@ -185,12 +184,7 @@ const ButtonMapping: MappingDef = {
     // 7. onClick 占位
     outputProps.onClick = Value.rawExpr({ value: '(e) => {}' })
 
-    // 8. 透传剩余 prop（disabled 等）
-    for (const [key, value] of Object.entries(props)) {
-      if (!SKIP_KEYS.has(key)) {
-        outputProps[key] = value as PropValue
-      }
-    }
+    // 不做剩余兜底透传：A2UI Button 的 props 已逐项显性处理。
 
     return {
       props: outputProps,

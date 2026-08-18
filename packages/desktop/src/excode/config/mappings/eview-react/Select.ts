@@ -15,7 +15,7 @@
  * | placeholder | defaultLabel | 改名透传 |
  * | size | — | 丢弃 |
  * | showSearch | — | 丢弃（Select 无搜索 prop） |
- * | className | className | 同名透传 |
+ * | className | className + selectStyle | 宽度类(w-*)→selectStyle(内联样式)，其余→className |
  *
  * ## MultipleSelect（多选）Props 对照
  *
@@ -28,7 +28,7 @@
  * | placeholder | placeholder | 同名透传 |
  * | showSearch | searchable | 改名透传 |
  * | size | — | 丢弃 |
- * | className | className | 同名透传 |
+ * | className | className + inputStyle | 宽度类(w-*)→inputStyle(内联样式)，其余→className |
  *
  * ## 注意事项
  *
@@ -42,7 +42,8 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
+import { Value } from '../../../src/core/value-factory'
+import { splitWidthToStyle } from '../../../src/codegen/split-width-style'
 
 // ─── 选项数据转换（label→text + 简单值展开） ───
 
@@ -71,15 +72,9 @@ export function createSelectMapping(pkg: string): MappingDef {
     transform(node: any, _ctx: TransformContext) {
       const props = node.props || {}
       const outputProps: Record<string, PropValue> = {}
-      const SKIP_KEYS = new Set([
-        'value',
-        'options',
-        'placeholder',
-        'size',
-        'showSearch',
-        'mode',
-        'className',
-      ])
+
+      // 显性处理每个 A2UI prop：A2UI Select 的 props 是封闭集合
+      // (value/options/size/placeholder/showSearch/mode/className)，不做兜底透传。
 
       // ─── mode 判定 ───
       // mode="multiple" → 路由到 MultipleSelect，否则 Select
@@ -165,17 +160,18 @@ export function createSelectMapping(pkg: string): MappingDef {
 
       // ─── size — 丢弃（eview 无对应 prop） ───
 
-      // ─── className 透传 ───
-      if (props.className) {
-        outputProps.className = props.className
+      // ─── className: 拆分宽度类 → style prop（内联样式），其余 → className ───
+      // Select 的宽度类 → selectStyle；MultipleSelect 的宽度类 → inputStyle
+      const { className: remainCn, widthStyle } = splitWidthToStyle(props.className)
+      if (remainCn) {
+        outputProps.className = remainCn
+      }
+      if (widthStyle) {
+        const styleKey = isMultiple ? 'inputStyle' : 'selectStyle'
+        outputProps[styleKey] = widthStyle as any
       }
 
-      // ─── 剩余 prop 透传 ───
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) {
-          outputProps[key] = value as PropValue
-        }
-      }
+      // 不做剩余兜底透传：A2UI Select 的 props 已逐项显性处理。
 
       return {
         tag: overrideTag,

@@ -10,7 +10,8 @@
  * | activeKey（字面量/DataBinding） | selectedIndex | 编译期 key→index 匹配 → **LiteralValue.useState**，event: 'onClick' 自动注入 |
  * | types: line | type: main | 值映射 |
  * | types: card | type: sub | 值映射 |
- * | types: editable-card | type: sub + 各 TabItem closable=true | 值映射 + 子节点标记 |
+ * | types: separator | type: main | 值映射（eview-react 暂不支持 separator 形态，先映射为 main） |
+ * | maxVisible | — | 丢弃（eview-react Tab 不支持 maxVisible） |
  * | tabPlacement: top/end/bottom/start | position: top/right/bottom/left | 值映射 |
  * | size | — | 丢弃（eview-react Tab 不支持 size） |
  * | className | className | 透传 |
@@ -24,14 +25,15 @@
  *   - 循环 children → 从 LoopNode.data 取数据数组，遍历 item.key
  * - activeKey 可以为字面量或 DataBinding，均需匹配后产生 useState
  * - 无 activeKey 时，不输出 selectedIndex（走组件默认值 0）
- * - types: editable-card → type:sub 且遍历 children 给每个 TabItem 加 closable=true（静态/循环两种形态）
+ * - types: separator → eview-react 暂不支持，先映射为 type:main
+ * - TabItem 的 closable / disabled 由 TabItem 映射自行处理；Tabs 不改写 children
  *
  * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
  */
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue, BindingValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
+import { Value } from '../../../src/core/value-factory'
 import type { LoopNode } from '../../../src/core/node-types'
 
 // ─── 工具 ───
@@ -94,9 +96,9 @@ export function createTabsMapping(pkg: string): MappingDef {
     transform(node: any, ctx: TransformContext) {
       const props = node.props || {}
       const outputProps: Record<string, PropValue> = {}
-      const SKIP_KEYS = new Set([
-        'activeKey', 'types', 'tabPlacement', 'size', 'className',
-      ])
+
+      // 显性处理每个 A2UI prop：A2UI Tabs 的 props 是封闭集合
+      // (activeKey/types/maxVisible/tabPlacement/className/size)，不做兜底透传。
 
       // ─── 判定 children 形态 ───
       const children = node.children
@@ -157,9 +159,10 @@ export function createTabsMapping(pkg: string): MappingDef {
       }
 
       // ─── types → type：值映射 ───
-      if (props.types === 'line') {
+      // separator：eview-react 暂不支持，先映射为 main
+      if (props.types === 'line' || props.types === 'separator') {
         outputProps.type = 'main'
-      } else if (props.types === 'card' || props.types === 'editable-card') {
+      } else if (props.types === 'card') {
         outputProps.type = 'sub'
       }
 
@@ -174,6 +177,8 @@ export function createTabsMapping(pkg: string): MappingDef {
         outputProps.position = 'left'
       }
 
+      // ─── maxVisible — 丢弃（eview-react Tab 不支持 maxVisible） ───
+
       // ─── size — 丢弃（eview-react Tab 不支持 size） ───
 
       // ─── className 透传 ───
@@ -183,42 +188,14 @@ export function createTabsMapping(pkg: string): MappingDef {
 
       // ─── onClick 由 selectedIndex 的 useState.event 自动注入，不手动占位 ───
 
-      // ─── 透传剩余 prop ───
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) {
-          outputProps[key] = value as PropValue
-        }
-      }
+      // 不做剩余兜底透传：A2UI Tabs 的 props 已逐项显性处理。
 
-      // ─── types:editable-card → 给每个 TabItem 加 closable=true ───
-      // type:sub 已在上方设置；这里遍历 children（静态数组 / 循环模板 body）给每个 TabItem 加 closable。
-      // TabItem transform 的 SKIP_KEYS 不含 closable，会被透传到最终 TabItem props。
-      let closableChildren: any = undefined
-      if (props.types === 'editable-card') {
-        const children = node.children
-        if (Array.isArray(children)) {
-          closableChildren = children.map((c: any) => ({
-            ...c,
-            props: { ...(c.props || {}), closable: true },
-          }))
-        } else if (children && typeof children === 'object' && children.kind === 'loop') {
-          closableChildren = {
-            ...children,
-            template: {
-              ...children.template,
-              body: children.template.body.map((c: any) => ({
-                ...c,
-                props: { ...(c.props || {}), closable: true },
-              })),
-            },
-          }
-        }
-      }
+      // TabItem 的 closable / disabled 由 TabItem 映射自行处理；Tabs 不改写 children。
+      // 原始 children（静态数组 / 循环模板）透传给 NodeMapper 递归映射（transform 返回
+      // children: undefined → 管线保留 node.children，见 node-mapper.ts#resolveComponent）。
 
       return {
         props: outputProps,
-        // 透传 children（editable-card 时为加了 closable=true 的 TabItem；否则 undefined 透传原 children）
-        children: closableChildren,
       }
     },
   }
