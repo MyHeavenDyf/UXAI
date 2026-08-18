@@ -121,6 +121,17 @@
   margin-right: 8px !important;
 }
 
+/* 用户消息里的图片附件由 insight-turn 自己那层统一渲染(48×48 缩略图 + 点击放大),
+   这里压掉上游 Message 的同名渲染,否则同一张图会画两遍。
+   上游只渲染 `attached()` 的 part —— 判据是 url 以 `data:` 开头(ui/components/message-file.ts),
+   insight 自己发的图走 S3(https)命不中,所以这条规则实际只对 **chat 时代内联 base64 的历史图**
+   起作用;两层同时命中正是「迁移过来的对话图片重复显示」的成因。
+   只压 image 这一支:`data-type="file"` 的非图片附件仍由上游渲染 —— chat 数据里没有 insight 的
+   `[附件]` synthetic 清单,压过头会让那些文档附件彻底消失。 */
+[data-component="session-turn"] [data-slot="user-message-attachment"][data-type="image"] {
+  display: none !important;
+}
+
 [data-component="session-turn"] [data-slot="user-message-attachment-file"] {
   background: transparent !important;
   border: none !important;
