@@ -88,6 +88,27 @@ function contains(dir: string, resolved: string) {
   return resolved.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep)
 }
 
+/**
+ * 旧布局绝对路径迁移。insight 会话早期用 `<projectDir>/insight/<sid>/{outputs,uploads}/` 作产物/上传
+ * 目录(SPEC-INS-028 之后才改到 `.octo/<sid>/`)。老会话的对话历史里残留这些旧布局绝对路径,模型
+ * 「照着上一轮的路径再写一遍」时会复用它们 —— 执行层原样尊重绝对路径,文件落进旧目录,文件管理
+ * (只读 .octo/)看不到,「同一会话重新生成还是不对」即此。这里把命中的旧布局绝对路径静默改写到新
+ * 布局:只换前缀(insight/<sid> → .octo/<sid>),不动文件名/子路径;项目外的真外部路径(用户显式
+ * 指定,如 /Users/.../测试文件/x.txt)不在此范围,仍由调用方原样尊重。
+ *
+ * 返回 null 表示未命中旧布局,调用方按原策略处理。
+ */
+function migrateOldLayout(absPath: string, projectDir: string, sessionID: string): string | null {
+  const withSep = (p: string) => (p.endsWith(path.sep) ? p : p + path.sep)
+  const newSession = path.join(projectDir, ".octo", sessionID)
+  // v2 sid-scoped:<projectDir>/insight/<sid>/{outputs,uploads,sources}/... → .octo/<sid>/...
+  const oldV2Sid = path.join(projectDir, "insight", sessionID)
+  if (absPath === oldV2Sid) return newSession
+  const oldV2SidPrefix = withSep(oldV2Sid)
+  if (absPath.startsWith(oldV2SidPrefix)) return path.join(newSession, absPath.slice(oldV2SidPrefix.length))
+  return null
+}
+
 export const OctoSessionWorkdirPlugin: Plugin = async ({ client }) => {
   const metaOf = async (sessionID: string): Promise<SessionMeta | undefined> => {
     const cached = cache.get(sessionID)
@@ -157,9 +178,22 @@ export const OctoSessionWorkdirPlugin: Plugin = async ({ client }) => {
       const isPathArg = isWrite || isRead
 
       if (isPathArg) {
-        // filePath 必填;缺失或绝对路径(显式指定的位置)不碰。
+        // filePath 必填;缺失不碰。
         if (typeof raw !== "string" || raw.length === 0) return
-        if (path.isAbsolute(raw)) return
+        if (path.isAbsolute(raw)) {
+          // 绝对路径:可能是用户显式指定的项目外位置(原样尊重),也可能是模型从老会话历史复制的
+          // 旧布局路径(insight/<sid>/... → 需改写到 .octo/<sid>/...)。先确认 insight 会话(metaOf
+          // 带缓存,后续相对路径分支会复用同一缓存项),再判迁移;命中才改写,不命中即真外部路径,原样尊重。
+          const m = await metaOf(input.sessionID)
+          if (m?.isInsight && m.directory) {
+            const migrated = migrateOldLayout(raw, m.directory, input.sessionID)
+            if (migrated) {
+              args[key] = migrated
+              console.log(`${LOG} 旧布局迁移`, { tool, sessionID: input.sessionID, before: raw, after: migrated })
+            }
+          }
+          return
+        }
       } else {
         // workdir / path 可选:已显式给出就尊重(含绝对路径);只在缺省时补默认值。
         if (raw !== undefined && raw !== null && raw !== "") return

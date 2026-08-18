@@ -167,6 +167,67 @@ describe("执行层:读取工具(read)", () => {
   })
 })
 
+describe("执行层:旧布局绝对路径迁移", () => {
+  // 修一个真实 bug:老会话(.octo 布局迁移 SPEC-INS-028 之前)的对话历史里残留 insight/<sid>/outputs/
+  // 绝对路径,模型「照上一轮写」复用它们,执行层原样尊重绝对路径 → 文件落进旧目录,文件管理(只读
+  // .octo/)看不到。重开老会话重新生成,模型仍复用历史旧路径 → 「同一会话重新生成还是不对」。
+  // 命中旧布局即改写到新 .octo/,项目外真外部路径仍原样尊重。
+
+  test("write 命中旧布局 insight/<sid>/outputs/...:改写到 .octo/<sid>/outputs/...", async () => {
+    const s = sid("octo_insight")
+    const { before } = await hooks(s)
+    const oldPath = path.join(DIR, "insight", s.id, "outputs", "对话记录.md")
+    const args = { filePath: oldPath }
+    await before({ tool: "write", sessionID: s.id, callID: "c1" }, { args })
+    expect(args.filePath).toBe(path.join(DIR, ".octo", s.id, "outputs", "对话记录.md"))
+  })
+
+  test("read 命中旧布局 insight/<sid>/uploads/...:改写到 .octo/<sid>/uploads/...", async () => {
+    const s = sid("octo_insight")
+    const { before } = await hooks(s)
+    const oldPath = path.join(DIR, "insight", s.id, "uploads", "访谈稿.docx")
+    const args = { filePath: oldPath }
+    await before({ tool: "read", sessionID: s.id, callID: "c1" }, { args })
+    expect(args.filePath).toBe(path.join(DIR, ".octo", s.id, "uploads", "访谈稿.docx"))
+  })
+
+  test("命中旧布局会话根(insight/<sid> 本身):改写到 .octo/<sid>", async () => {
+    const s = sid("octo_insight")
+    const { before } = await hooks(s)
+    const oldRoot = path.join(DIR, "insight", s.id)
+    const args = { filePath: oldRoot }
+    await before({ tool: "read", sessionID: s.id, callID: "c1" }, { args })
+    expect(args.filePath).toBe(path.join(DIR, ".octo", s.id))
+  })
+
+  test("绝对路径已是新布局 .octo/<sid>/...:不重复改写", async () => {
+    const s = sid("octo_insight")
+    const { before } = await hooks(s)
+    const already = path.join(DIR, ".octo", s.id, "outputs", "a.md")
+    const args = { filePath: already }
+    await before({ tool: "write", sessionID: s.id, callID: "c1" }, { args })
+    expect(args.filePath).toBe(already)
+  })
+
+  test("绝对路径指向项目外(用户显式指定):原样尊重,不迁", async () => {
+    const s = sid("octo_insight")
+    const { before } = await hooks(s)
+    const external = "/tmp/insight-external.txt"
+    const args = { filePath: external }
+    await before({ tool: "write", sessionID: s.id, callID: "c1" }, { args })
+    expect(args.filePath).toBe(external)
+  })
+
+  test("非 insight 会话命中旧布局:不迁(隔离,不波及其它模块)", async () => {
+    const s = sid("octo_make")
+    const { before } = await hooks(s)
+    const oldPath = path.join(DIR, "insight", s.id, "outputs", "x.md")
+    const args = { filePath: oldPath }
+    await before({ tool: "write", sessionID: s.id, callID: "c1" }, { args })
+    expect(args.filePath).toBe(oldPath)
+  })
+})
+
 describe("执行层:shell 与搜索工具的默认目录", () => {
   test("bash 未给 workdir:补成会话产物目录(skill 脚本落盘的主力通道)", async () => {
     const s = sid("octo_insight")
