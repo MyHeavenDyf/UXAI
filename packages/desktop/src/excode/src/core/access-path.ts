@@ -13,6 +13,7 @@
  */
 
 import type { ComputedValue } from './value-types'
+import { parseAccessors } from './state-path'
 
 /**
  * 将 JSON Pointer 路径转为 JS 属性访问表达式。
@@ -35,38 +36,91 @@ export function pathToJsAccess(path: string): string {
   return r
 }
 
-/** accessPath 是否平面（无 `.` `[` `]`）→ 进文件顶部 destructure 为本地变量 */
+// ─── 合法标识符判定（state key 可含 `-` 等特殊字符，emit 时需 bracket 访问）───
+
+const IDENT_RE = /^[A-Za-z_$][\w$]*$/
+
+/** 是否合法 JS 标识符（可作本地变量名 / `.seg` 访问段）。 */
+export function isValidIdentifier(s: string): boolean {
+  return IDENT_RE.test(s)
+}
+
+/**
+ * 把 stored accessPath（`a.b[0].c` 格式，段名可含 `-` 等非标识符字符）转为合法 JS 成员访问表达式。
+ *
+ * - base 给定 → `base.field["b-c"][0].d`
+ * - base 省略 → 首段裸（仅当首段是合法标识符，即已被 destructure 为本地变量；调用方契约）
+ *
+ * 合法标识符段用 `.seg`，非标识符段用 `["seg"]`（JSON-quote），数字段用 `[n]`。
+ * 复用 state-path 的 parseAccessors（access-path → state-path 单向依赖，无环）。
+ *
+ * 用途：stateRef（绝对引用，base='initialState'）、bindingRef relative（base=loopVar / 'data' / renderFnDataVarName）。
+ * accessPath 存储格式（pathToJsAccess 产）不变，本函数只在 emit 期转译。
+ */
+export function accessPathToJsExpr(accessPath: string, base?: string): string {
+  const accessors = parseAccessors(accessPath)
+  if (accessors.length === 0) return base ?? ''
+  let r = base ?? ''
+  let first = base === undefined
+  for (const a of accessors) {
+    if (a.kind === 'index') {
+      r += `[${a.index}]`
+      first = false
+    } else {
+      if (first) {
+        // 无 base：首段裸（调用方保证首段是已 destructure 的合法标识符本地变量）
+        r += a.field
+        first = false
+      } else {
+        r += isValidIdentifier(a.field) ? `.${a.field}` : `[${JSON.stringify(a.field)}]`
+      }
+    }
+  }
+  return r
+}
+
+/**
+ * accessPath 是否平面 → 进文件顶部 destructure 为本地变量。
+ *
+ * 平面（无 `.` `[` `]`）且单段是合法 JS 标识符 → true。
+ * 含特殊字符的平面路径（如 `a-b`）返回 false：不能作本地变量名 / `.seg` 访问，
+ * 改由 stateRef 用 bracket `initialState["a-b"]` 引用，不进 destructure。
+ */
 export function isFlatAccessPath(ap: string | undefined | null): boolean {
   if (!ap) return false
-  return !ap.includes('.') && !ap.includes('[') && !ap.includes(']')
+  if (ap.includes('.') || ap.includes('[') || ap.includes(']')) return false
+  return isValidIdentifier(ap)
 }
 
 /**
  * 绝对路径在 state.js 的引用形式（binding + 非 JSX computed 用，值在 state.js）。
  *
- * - 平面 → 裸 `ap`（文件顶部已 destructure 为本地变量，buildFileTopConsts 收 flat 路径）
- * - 嵌套 → `initialState.ap`（不 destructure，直接属性链访问 state.js 嵌套结构，setNested 保证结构）
+ * - 平面且合法标识符 → 裸 `ap`（文件顶部已 destructure 为本地变量，buildFileTopConsts 收 flat 路径）
+ * - 嵌套 / 含非标识符段 → `accessPathToJsExpr(ap, 'initialState')`
+ *   （`a-b`→`initialState["a-b"]`；`a.b-c`→`initialState.a["b-c"]`；`a.b`→`initialState.a.b`）
  *
  * 之前 jsxEmitter / useStateRefName / routeLoopNode 各自 `ap.includes('.') → initialState.ap`，
  * 现统一调本函数。
  */
 export function stateRef(ap: string): string {
-  return isFlatAccessPath(ap) ? ap : `initialState.${ap}`
+  if (isFlatAccessPath(ap)) return ap
+  return accessPathToJsExpr(ap, 'initialState')
 }
 
 /**
  * containsJSX:true 绝对 computed 的文件顶部 const 名（合法 JS 标识符，小驼峰）。
  *
- * - 平面 accessPath 原样（如 `backIcon`）
- * - 嵌套 / 数组下标按 `.` `[` `]` 切段后小驼峰拼接：
- *   `brandInfo.logoIcon` → `brandInfoLogoIcon`；`a[0].b` → `a0B`
+ * - 平面合法标识符 accessPath 原样（如 `backIcon`）
+ * - 含非标识符字符（`.` `[` `]` `-` 等）按非标识符字符切段后小驼峰拼接：
+ *   `brandInfo.logoIcon` → `brandInfoLogoIcon`；`a[0].b` → `a0B`；`a-b` → `aB`；`a.b-c` → `aBC`
  *
  * stateBuilder（jsxLiteralConst 名）与 jsxEmitter（引用）共用，保证 const 名与引用一致。
  */
 export function jsxConstName(accessPath: string | undefined | null): string {
   const name = accessPath ?? ''
-  if (/^[A-Za-z_$][\w$]*$/.test(name)) return name
-  const segs = name.split(/[\.\[\]]+/).filter(Boolean)
+  if (isValidIdentifier(name)) return name
+  // 按任意非标识符字符（. [ ] - 等）切段，小驼峰拼接；纯数字段保留
+  const segs = name.split(/[^A-Za-z0-9_$]+/).filter(Boolean)
   if (segs.length === 0) return 'jsxConst'
   const lowerFirst = (s: string) => s ? s.charAt(0).toLowerCase() + s.slice(1) : s
   const cap = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s

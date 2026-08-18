@@ -8,10 +8,11 @@
  * | A2UI prop | eview-react prop | 处理方式 |
  * |-----------|-----------------|---------|
  * | dataSource（DataBinding） | dataset | **enrichScopedData** → ComputedValue（含 cells 内 relative CV 的编译期 enrichment） |
- * | columns（字面量数组） | columns | 每列从 cells 生成 `render` fn，title/width/align 从 A2UI 列定义透传 |
- * | columns（DataBinding） | columns | 透传 BindingValue（仅改名，不改值） |
+ * | columns（字面量数组） | columns | 每列从 cells 生成 `render` fn + A2UI 列定义（title/width/align/sort...）→ 字面量数组，propRoute module-top |
+ * | columns（DataBinding） | columns | **ComputedValue**（containsJSX:true）逐项 zip：state 列元数据 + 编译期 render fn，产物形态同字面量 |
+ * | colDef.sort | col.allowSort | sort===true→true；否则显性 false（避免 eview-react 默认开排序） |
  * | rowKey | rowKey | 透传 |
- * | pagination: true/false | enablePagination | false→false，其他（含缺省）→true |
+ * | pagination: true/false | enablePagination + recordCount | false→enablePagination:false；其他（含缺省）→true + recordCount=dataset.length |
  * | rowSelection.type: checkbox | checkType: multi + enableCheckBox: true | 值映射 |
  * | rowSelection.type: radio | checkType: single + enableCheckBox: true | 值映射 |
  * | rowSelection.selectedRowKeys（字面量数组） | checkedRows | **LiteralValue.useState** + onRowCheck |
@@ -21,13 +22,15 @@
 | TableRow.expandedRowRender（slot） | onRowExpend | buildRenderFn（与 column render 同构，row.rawData 上下文），propRoute 提升 module-top |
  * | className | className | 透传 |
  * | rowClassName | — | eview-react 无直接对应，暂不处理 |
+ * | size | — | eview-react Table 不支持 size 属性，丢弃（schema 已新增，但不透传） |
  *
  * ## 特殊逻辑
  *
  * - Table.children 总是 TemplateChildren（LoopNode），不存在静态 children
  * - LoopNode.data → enrichScopedData（收集 cells 中的 relative ComputedValue，对数据源整体 enrichment）
  * - cells resolve 后清除 loopScope（断循环引用，render fn body emit 不再需要 scope 链）
- * - columns 由字面量构造 → propRoute 提升到 module-top
+ * - columns 双形态：字面量→字面量数组（propRoute module-top）；DataBinding→ComputedValue 逐项 zip render fn（inline，不走 propRoute）
+ * - enablePagination=true 时传 recordCount（dataset 长度，运行时表达式，引用名按 dataset 是否 containsJSX 选 computedJsxConstName / stateRef）
  * - selectedRowKeys 双形态分叉：字面量 → Value.literal.useState，DataBinding → Value.computed.useState
  *
  * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
@@ -38,6 +41,7 @@ import type { LoopNode, RegularNode } from '../../../src/core/node-types'
 import type { PropValue, BindingValue } from '../../../src/core/value-types'
 import { Value } from '../../../src/core/value-factory'
 import { enrichScopedData, buildRenderFn } from '../../../src/core/scoped-enrichment'
+import { stateRef, computedJsxConstName } from '../../../src/core/access-path'
 
 /** A2UI 列定义（字面量形态） */
 interface A2UIColDef {
@@ -120,43 +124,66 @@ export function createTableMapping(pkg: string): MappingDef {
       const dataset = enrichScopedData(dsBinding, resolvedCells as any)
 
       // ─── columns ───
-      // 字面量分支：从 resolved cells + A2UI 列定义构造
-      const columns: any[] = []
-      for (let i = 0; i < resolvedCells.length; i++) {
+      // render fn 从 cells 编译期构造（字面量 / binding 共用），每列一个，按位置对应 cell
+      const renderFns = resolvedCells.map((cell) =>
+        buildRenderFn(cell as any, [
+          { name: 'cellValue' },
+          { name: 'rowData' },
+          { name: 'options' },
+          { name: 'row', dataSource: dataBinding, dataField: 'rawData' },
+        ]),
+      )
+
+      // 单列构造：A2UI 列定义 + 对应 cell 的 render fn → eview-react ColumnProps
+      const buildCol = (colDef: any, i: number): Record<string, any> => {
+        const cd = colDef || {}
         const cell = resolvedCells[i] as any
-        const colDef: A2UIColDef = a2uiCols[i] || {}
-
         const col: Record<string, any> = {
-          key: colDef.dataIndex ?? cell.id ?? `col_${i}`,
-          title: typeof colDef.title === 'string' ? colDef.title : (cell.id ?? `col_${i}`),
-          // eview-react Table render 签名：(cellValue, rowData, options, row)
-          // 当前行数据在 row.rawData，故 row 持 dataSource + dataField='rawData'，
-          // emitter 解构源为 row.rawData（const { f1, f2 } = row.rawData），body 内相对绑定裸引用
-          render: buildRenderFn(cell, [
-            { name: 'cellValue' },
-            { name: 'rowData' },
-            { name: 'options' },
-            { name: 'row', dataSource: dataBinding, dataField: 'rawData' },
-          ]),
+          key: cd.dataIndex ?? cell?.id ?? `col_${i}`,
+          title: typeof cd.title === 'string' ? cd.title : (cell?.id ?? `col_${i}`),
+          render: renderFns[i],
+          // allowSort：cd.sort===true 才允许排序，其余一律显性 false（避免 eview-react 默认开启排序）
+          allowSort: cd.sort === true,
         }
-
-        // 列属性映射（A2UI → eview-react）
-        if (colDef.align) col.align = colDef.align
-        if (colDef.width !== undefined) col.width = colDef.width
-        if (colDef.minWidth !== undefined) col.width = colDef.minWidth
-        if (colDef.sort === true) col.allowSort = true
-        if (colDef.className) col.className = colDef.className
-        if (colDef.fixed === 'start') col.freezeCol = true
+        if (cd.align) col.align = cd.align
+        if (cd.width !== undefined) col.width = cd.width
+        if (cd.minWidth !== undefined) col.width = cd.minWidth
+        if (cd.className) col.className = cd.className
+        if (cd.fixed === 'start') col.freezeCol = true
         // filters 透传（A2UI 与 eview-react 结构一致：[{ text, value }]）
-        if (colDef.filters) col.filters = colDef.filters
+        if (cd.filters) col.filters = cd.filters
+        return col
+      }
 
-        columns.push(col)
+      // columns 双形态：字面量数组 / DataBinding（ComputedValue 逐项 zip render fn）
+      //   - 字面量：a2uiCols + cells 构造 → 字面量数组（propRoute module-top 提升）
+      //   - DataBinding：ComputedValue（containsJSX:true，render fn 含 BuildNode），transform 读
+      //     state 的列元数据数组，逐项与编译期 render fn 拼成 ColumnProps。产物形态与字面量一致。
+      const columnsProp = node.props.columns
+      let columnsValue: PropValue
+      let columnsIsLiteral: boolean
+      if (columnsProp && typeof columnsProp === 'object' && (columnsProp as any).type === 'binding') {
+        const cb = columnsProp as BindingValue
+        columnsValue = Value.computed({
+          path: cb.path,
+          pathType: cb.pathType ?? 'absolute',
+          accessPath: cb.accessPath ?? 'columns',
+          containsJSX: true,
+          transform: (rawCols: any) => {
+            const cols = Array.isArray(rawCols) ? rawCols : []
+            return cols.map((cd: any, i: number) => buildCol(cd, i))
+          },
+        })
+        columnsIsLiteral = false
+      } else {
+        columnsValue = a2uiCols.map((cd, i) => buildCol(cd, i)) as any
+        columnsIsLiteral = true
       }
 
       // ─── 构造输出 props ───
       const outputProps: Record<string, PropValue> = {
         dataset,
-        columns,
+        columns: columnsValue,
       }
 
       // rowKey：字面量，透传
@@ -164,6 +191,15 @@ export function createTableMapping(pkg: string): MappingDef {
 
       // pagination → enablePagination（字面量 boolean，值映射）
       outputProps.enablePagination = node.props.pagination !== false
+      // enablePagination=true → 传 recordCount（dataSource/dataset 数组长度，运行时表达式）
+      //   引用名按 dataset 形态：containsJSX→jsxLiteralConst 名（computedJsxConstName）；
+      //   否则→state.js 引用（stateRef，平面已 destructure / 嵌套 initialState.xxx）
+      if (outputProps.enablePagination) {
+        const datasetRef = (dataset as any).containsJSX
+          ? computedJsxConstName(dataset as any)
+          : stateRef((dsBinding as BindingValue).accessPath)
+        outputProps.recordCount = Value.rawExpr({ value: `${datasetRef}.length` })
+      }
 
       // rowSelection → checkType + enableCheckBox + checkedRows（受控组件）
       if (node.props.rowSelection) {
@@ -249,23 +285,17 @@ export function createTableMapping(pkg: string): MappingDef {
       // className（字面量 string，透传）
       if (node.props.className) outputProps.className = node.props.className
 
-      // 透传剩余（排除已处理的 A2UI 字段）
-      const SKIP = new Set([
-        'dataSource', 'columns', 'rowKey', 'pagination',
-        'rowSelection', 'expandable', 'rowClassName', 'className', 'id',
-      ])
-      for (const [key, val] of Object.entries(node.props)) {
-        if (!SKIP.has(key)) outputProps[key] = val as PropValue
-      }
+      // 不做剩余兜底透传：A2UI Table 的 props
+      // (rowKey/columns/dataSource/pagination/rowSelection/expandable/rowClassName/className)
+      // 已逐项显性处理（id 由管线别处处理，不进 outputProps）。
 
       // ─── propRoute ───
-      // columns：字面量数组 → module-top 提升
+      // columns：字面量数组 → module-top 提升；DataBinding → ComputedValue（inline stateRef，不走 propRoute）
       // checkedRows：受控 useState → component-internal
       const propRoute: Record<string, any> = {}
-      // columns：字面量数组（从 cells 构造）→ module-top 提升
+      if (columnsIsLiteral) propRoute.columns = 'module-top'
       // dataset：ComputedValue（enrichScopedData，path 绑定）→ 不走 propRoute（inline stateRef）
       // onRowExpend：RenderFnValue（含子表 BuildNode，非 path 绑定）→ module-top 提升（仅有 expandedRowRender 时）
-      if (Array.isArray(columns)) propRoute.columns = 'module-top'
       if (expandedContent) propRoute.onRowExpend = 'module-top'
       if (node.props.rowSelection?.selectedRowKeys !== undefined) {
         propRoute.checkedRows = 'component-internal'

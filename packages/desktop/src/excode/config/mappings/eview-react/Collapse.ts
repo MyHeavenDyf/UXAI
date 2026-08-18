@@ -63,9 +63,10 @@ export function createCollapseMapping(pkg: string): MappingDef {
     transform(node: any, ctx: TransformContext) {
       const props = node.props || {}
       const outputProps: Record<string, PropValue> = {}
-      const SKIP_KEYS = new Set([
-        'activeKey', 'accordion', 'size', 'expandIcon', 'expandIconPlacement', 'className',
-      ])
+
+      // 显性处理每个 A2UI prop：A2UI Collapse 的 props 是封闭集合
+      // (activeKey/accordion/size/expandIcon/expandIconPlacement/className)，不做兜底透传。
+      //   size / expandIcon / expandIconPlacement — 丢弃（Panel 无对应概念，见 JSDoc）
 
       // ─── 判定 children 形态 ───
       const children = node.children
@@ -132,12 +133,7 @@ export function createCollapseMapping(pkg: string): MappingDef {
       // ─── className 透传 ───
       if (props.className) outputProps.className = props.className
 
-      // ─── 透传剩余 prop ───
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) {
-          outputProps[key] = value as PropValue
-        }
-      }
+      // 不做剩余兜底透传：A2UI Collapse 的 props 已逐项显性处理。
 
       return {
         props: outputProps,

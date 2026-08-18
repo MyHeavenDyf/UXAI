@@ -29,6 +29,7 @@ export type PropValue =
   | RawExprValue
   | RenderFnValue
   | SlotNodeValue
+  | ActionValue
   | string
   | number
   | boolean
@@ -100,6 +101,13 @@ export interface BindingValue {
   route?: ExtractRoute
   /** 可选：触发 useState 包裹（path 双绑场景） */
   useState?: UseStateMarker
+  /**
+   * 共享响应式标记（state-builder 打标）：
+   * true = 该 path 被事件 Action 改写（在 eventMutatedPaths 集合中），
+   * 需走页级共享 store（useSharedState）而非 initialState 快照/局部 useState。
+   * 共享 path 按协议只在 state 顶层。
+   */
+  shared?: boolean
 }
 
 // ─── ComputedValue（BindingValue 超集 + 数据转换） ───
@@ -212,4 +220,31 @@ export interface SlotNodeValue {
   type: 'slotNode'
   node: BuildNode
   route?: ExtractRoute
+}
+
+// ─── ActionValue（事件动作：setState 写共享 state） ───
+
+/**
+ * 事件 Action（Button.onClick / Drawer.onClose / Modal.onClose 等）。
+ *
+ * A2UI schema：`{ action: "setState", args: { path, value } }`
+ * → 事件触发时把 value 写入 state 的 path（共享 store，因 path 被多处读+写）。
+ *
+ * 由 build-trees #processValue 识别 `{action,args}` 形状产出（event = prop key）；
+ * mapping/transform 透传到 outputProps；
+ * jsx-emitter 按 type:'action' 分发为 `() => setSharedState(key, value)`。
+ *
+ * value 暂只字面量（true/false/字符串/数字）；toggle/表达式/DataBinding 后续扩展。
+ */
+export interface ActionValue {
+  __node: true,
+  type: 'action'
+  /** 事件名（prop key，如 'onClick' / 'onClose'） */
+  event: string
+  /** 动作类型（目前仅 'setState'，留扩展位） */
+  action: 'setState'
+  /** 写入的 state path（JSON pointer，如 '/isDetailOpen'；按协议顶层） */
+  path: string
+  /** 写入值（字面量） */
+  value: any
 }

@@ -26,12 +26,16 @@ export class Pipeline {
     for (const StepClass of this.#steps) {
       const step = this.#instantiate(StepClass)
       const start = Date.now()
+      // 清空当前页标记，避免上一 step 残留误导诊断（per-page step 在循环里设置）
+      ctx.currentPage = undefined
       try {
         await step.execute(ctx)
         const elapsed = Date.now() - start
         console.log(`  ✔ ${step.name} (${elapsed}ms)`)
       } catch (err: any) {
-        console.error(`  ✘ ${step.name} 失败:`, err.message)
+        // 带页面上下文：per-page step 抛错时 currentPage 已设为出错页名
+        const pageHint = ctx.currentPage ? ` (page: ${ctx.currentPage})` : ''
+        console.error(`  ✘ ${step.name}${pageHint} 失败:`, err.message)
         throw err
       }
     }

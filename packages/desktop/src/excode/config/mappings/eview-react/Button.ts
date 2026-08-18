@@ -9,9 +9,7 @@
  * |-----------|-----------------|---------|
  * | value（字面量） | text | 改名透传 |
  * | value（DataBinding） | text | 保持 BindingValue 原样 |
- * | color: primary/danger/default | status: primary/risk/default | 值映射 |
- * | color: 色板值（blue/purple/...） | style.backgroundColor | 色板分流 |
- * | color: #HEX | style.backgroundColor | HEX 分流 |
+ * | color: default/primary/danger（枚举） | status: default/primary/risk | 值映射（schema 已收敛为枚举，无色板/HEX） |
  * | size: medium | size: normal | 值映射 |
  * | size: large/small | 透传 | 不变 |
  * | shape: circle | style.borderRadius: '50%' | transform 转换 |
@@ -20,16 +18,17 @@
  * | iconPlacement: end | → rightIcon | 位置分流 |
  * | iconPlacement: start/缺省 | → leftIcon | 位置分流 |
  * | types: link | status: text | 值映射（link 按钮→文本样式，覆盖 color 的 status） |
+ * | disabled（boolean） | disabled | 同名透传（schema 为字面量 boolean，无 DataBinding） |
  * | className | className | 透传 |
- * | — | onClick | 注入占位 (e) => {} |
+ * | onClick（Action） | onClick | 透传 ActionValue → emitValue 产 setSharedState(key,value)；无 Action 则占位 (e) => {} |
  *
  * ## 特殊逻辑
  *
  * - 纯图标按钮：有 icon 无 value → 切换为 IconButton
- * - 普通 Button（icon + value）的 icon color 特化（传给 resolveIcon）：
- *   - link 按钮（types=link）→ icon color=brand
- *   - primary/danger/error 按钮（实色背景）→ icon color=#fff（白图标）
- * - onClick 注入占位 (e) => {} 确保事件不会 undefined
+ * - icon color 特化（传给 resolveIcon，普通 Button 与 IconButton 分支一致）：
+ *   - link 按钮（types=link）→ icon color=brand（含纯图标 link → IconButton 分支）
+ *   - primary/danger 按钮（实色背景，仅普通 Button）→ icon color=#fff（白图标）
+ * - onClick：有 Action（build-trees 已转 ActionValue）透传 → setSharedState(key,value)；无则占位 (e) => {} 确保事件不 undefined
  *
  * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径（含 IconButton 分支），便于多库复用。
  */
@@ -43,26 +42,15 @@ import { Value } from '../../../src/core/value-factory'
 /**
  * 解析 A2UI Button 的 color prop
  *
- * - primary / danger / default → status（值映射）
- * - 色板名（blue/purple/cyan...）→ style.backgroundColor
- * - #HEX → style.backgroundColor
- * - 其他 → 原样作为 status 透传
+ * schema 已收敛为枚举 default/primary/danger（无 DataBinding、无色板/HEX）：
+ * - default → status: default
+ * - primary → status: primary
+ * - danger → status: risk
  */
-function resolveColor(color: string): { status?: string; style?: Record<string, string> } {
-  const PALETTE = new Set([
-    'blue', 'purple', 'cyan', 'green', 'magenta',
-    'pink', 'red', 'orange', 'yellow', 'volcano',
-    'geekblue', 'lime', 'gold',
-  ])
-
+function resolveColor(color: string): { status: string } {
   if (color === 'primary') return { status: 'primary' }
-  if (color === 'danger' || color === 'error') return { status: 'risk' }
-  if (color === 'default') return { status: 'default' }
-  if (PALETTE.has(color)) return { style: { backgroundColor: color } }
-  if (/^#[0-9a-f]{3,6}$/i.test(color)) return { style: { backgroundColor: color } }
-
-  // 其他字面量值透传为 status
-  return { status: color }
+  if (color === 'danger') return { status: 'risk' }
+  return { status: 'default' }
 }
 
 /**
@@ -130,7 +118,13 @@ export function createButtonMapping(pkg: string): MappingDef {
         // ⚠️ Button.shape（default/circle/round，按钮圆角）≠ Icon.shape（outline/fill/square/circle），
         //    不能传给 resolveIcon——Button.shape 走下面的 style.borderRadius。
         const iconProps: Record<string, any> = {}
-        if ('color' in props && typeof props.color === 'string') iconProps.color = props.color
+        // link 按钮（types=link）→ icon 用品牌色 brand（与普通 Button 分支一致：
+        //   link 是文本样式，icon 应品牌色，覆盖 props.color）。非 link 时用 props.color。
+        if (props.types === 'link') {
+          iconProps.color = 'brand'
+        } else if ('color' in props && typeof props.color === 'string') {
+          iconProps.color = props.color
+        }
         if (props.className) iconProps.className = props.className
         const iconSize = typeof props.size === 'string' ? sizeToIconSize(props.size) : undefined
         if (iconSize !== undefined) iconProps.iconSize = iconSize
@@ -141,15 +135,19 @@ export function createButtonMapping(pkg: string): MappingDef {
         const iconProp = buildIconProp(props.icon, ctx, iconProps)
         const iconOutput: Record<string, PropValue> = {
           iconName: iconProp ?? (ctx.resolveIcon('', iconProps) as any),
-          onClick: Value.rawExpr({ value: '(e) => {}' }),
+          // onClick：有 Action（build-trees 已转 ActionValue）则透传 → emitValue 产 setSharedState；
+          //           无则占位 (e) => {} 确保事件不 undefined
+          onClick: ('onClick' in props ? props.onClick : null) ?? Value.rawExpr({ value: '(e) => {}' }),
+        }
+        // disabled 透传（schema 为 boolean 字面量；IconButton 亦是 Button 变体，disabled 透传）
+        if (props.disabled !== undefined) {
+          iconOutput.disabled = props.disabled
         }
 
-        // 透传剩余（disabled 等）—— color/className/size/icon 已进 iconProps；
-        // shape（Button 自身圆角，与 Icon.shape 不同）抛弃，IconButton 自行处理
-        const ICON_SKIP = new Set(['icon', 'value', 'color', 'shape', 'className', 'iconPlacement', 'size', 'types'])
-        for (const [key, value] of Object.entries(props)) {
-          if (!ICON_SKIP.has(key)) iconOutput[key] = value as PropValue
-        }
+        // A2UI Button 的 props 是封闭集合 (value/color/types/size/icon/iconPlacement/shape/disabled/className)，
+        // IconButton 分支下：color/className/size/icon/id 进 iconProps；disabled 透传为 IconButton prop；
+        // 其余在此分支不适用（value/iconPlacement/types/shape：shape 是 Button 圆角 ≠ Icon.shape，IconButton 自管；其余见 JSDoc）。
+        // 不做剩余兜底透传。
 
         return {
           tag: 'IconButton',
@@ -162,20 +160,20 @@ export function createButtonMapping(pkg: string): MappingDef {
 
       // ─── 普通 Button ───
       const outputProps: Record<string, PropValue> = {}
-      const SKIP_KEYS = new Set([
-        'value', 'icon', 'iconPlacement', 'color', 'size', 'types', 'shape',
-      ])
+
+      // 显性处理每个 A2UI prop：A2UI Button 的 props 是封闭集合
+      // (value/color/types/size/icon/iconPlacement/shape/disabled/className)，不做兜底透传。
 
       // 1. icon → leftIcon / rightIcon
       //    字面量 → BuildNode 直出；DataBinding → ComputedValue + containsJSX
       //    icon color 特化（普通 Button，icon+value 同时存在）：
       //      link 按钮（types=link）→ icon color=brand
-      //      primary/danger/error 按钮（实色背景）→ icon color=#fff（白图标）
+      //      primary/danger 按钮（实色背景）→ icon color=#fff（白图标）
       if (hasIcon) {
         const iconProps: Record<string, any> = {}
         if (props.types === 'link') {
           iconProps.color = 'brand'
-        } else if (props.color === 'primary' || props.color === 'danger' || props.color === 'error') {
+        } else if (props.color === 'primary' || props.color === 'danger') {
           iconProps.color = '#fff'
         }
         const iconProp = buildIconProp(props.icon, ctx, iconProps)
@@ -200,17 +198,9 @@ export function createButtonMapping(pkg: string): MappingDef {
         }
       }
 
-      // 3. color → status / style.backgroundColor
+      // 3. color → status（schema 枚举 default/primary/danger，无色板/HEX 分流）
       if ('color' in props && typeof props.color === 'string') {
-        const resolved = resolveColor(props.color)
-        if (resolved.status) {
-          outputProps.status = resolved.status
-        }
-        if (resolved.style) {
-          // 如果已有 style（如 shape:circle 设的 borderRadius），合并
-          const existingStyle = outputProps.style ? { ...(outputProps.style as any) } : {}
-          outputProps.style = { ...existingStyle, ...resolved.style } as any
-        }
+        outputProps.status = resolveColor(props.color).status
       }
 
       // 3.5 types: link → status: text（link 按钮是文本样式，覆盖 color 的 status）
@@ -231,20 +221,21 @@ export function createButtonMapping(pkg: string): MappingDef {
         outputProps.style = { ...existingStyle, borderRadius: '50%' } as any
       }
 
-      // 6. className 透传
+      // 6. disabled 透传（schema 为 boolean 字面量，无 DataBinding）
+      if (props.disabled !== undefined) {
+        outputProps.disabled = props.disabled
+      }
+
+      // 7. className 透传
       if (props.className) {
         outputProps.className = props.className
       }
 
-      // 7. onClick 占位
-      outputProps.onClick = Value.rawExpr({ value: '(e) => {}' })
+      // 8. onClick：有 Action（build-trees 已转 ActionValue）则透传 → emitValue 产 setSharedState(key,value)；
+      //    无则占位 (e) => {} 确保事件不 undefined
+      outputProps.onClick = ('onClick' in props ? props.onClick : null) ?? Value.rawExpr({ value: '(e) => {}' })
 
-      // 8. 透传剩余 prop（disabled 等管线自行处理的字段）
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) {
-          outputProps[key] = value as PropValue
-        }
-      }
+      // 不做剩余兜底透传：A2UI Button 的 props 已逐项显性处理。
 
       return {
         props: outputProps,

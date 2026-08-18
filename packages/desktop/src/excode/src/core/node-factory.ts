@@ -8,8 +8,13 @@
  *
  *   import { Node } from '../../../src/core/node-factory'
  *   Node.component({ tag: 'span', props: { className: 'text-sm' } })
- *   Node.text({ value: 'hello' })
  *   Node.html({ tag: 'div', props: { className: 'flex' } })
+ *   Node.text({ value: 'hello' })
+ *   Node.loop({ data, template: extract })            // 循环节点，template 必须是 ExtractNode
+ *   Node.extract({ componentName, purpose, body })    // 抽取节点（跨文件抽取/循环模板）
+ *
+ * 所有节点经工厂获得 `__node: true` brand；映射文件禁止手搓 `{ kind: '...' }` 对象
+ * （缺 brand 会被 emitValue/stateBuilder 误判为普通对象，且 tsc 报 __node 缺失）。
  */
 
 import type {

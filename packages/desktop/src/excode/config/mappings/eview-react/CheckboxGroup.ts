@@ -7,6 +7,7 @@
  * | value（字面量数组） | value | LiteralValue.useState（受控） |
  * | options（DataBinding） | data | ComputedValue + 字段重命名 label→text |
  * | options（字面量） | data | 字段重命名 label→text，简单值展开 |
+ * | disabled（boolean/DataBinding） | disabled | 同名透传（只改名不改值，BindingValue 直接赋值） |
  * | className | className | 同名透传 |
  *
  * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
@@ -39,7 +40,9 @@ export function createCheckboxGroupMapping(pkg: string): MappingDef {
     transform(node: any, _ctx: TransformContext) {
       const props = node.props || {}
       const outputProps: Record<string, PropValue> = {}
-      const SKIP_KEYS = new Set(['value', 'options', 'className'])
+
+      // 显性处理每个 A2UI prop：A2UI CheckboxGroup 的 props 是封闭集合
+      // (value/options/disabled/className)，不做兜底透传。
 
       // ─── value → value（useState 受控） ───
       if ('value' in props) {
@@ -88,17 +91,17 @@ export function createCheckboxGroupMapping(pkg: string): MappingDef {
         }
       }
 
+      // ─── disabled 透传（schema 为 boolean / DataBinding；只改名，字面量与 BindingValue 均直接赋值） ───
+      if (props.disabled !== undefined) {
+        outputProps.disabled = props.disabled
+      }
+
       // ─── className 透传 ───
       if (props.className) {
         outputProps.className = props.className
       }
 
-      // ─── 剩余 prop 透传 ───
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) {
-          outputProps[key] = value as PropValue
-        }
-      }
+      // 不做剩余兜底透传：A2UI CheckboxGroup 的 props 已逐项显性处理。
 
       return {
         props: outputProps,

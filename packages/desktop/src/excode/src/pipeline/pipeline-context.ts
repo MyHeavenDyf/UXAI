@@ -30,6 +30,8 @@ export interface BuiltPage {
   extracts: ExtractNode[]   // ExtractNode 索引视图
   iconNameSet: string[]
   iconNameMap: Record<string, string>  // A2UI name → @nce/icon-plus 组件名
+  /** 事件 Action 改写的 state path 集合（带前导 `/`，与 binding.path 对齐）；state-builder 据此打 shared 标记 */
+  eventMutatedPaths: Set<string>
 }
 
 export interface MappedPage {
@@ -38,11 +40,25 @@ export interface MappedPage {
   rootTree: BuildNode
   extracts: ExtractNode[]     // NodeMapper 已 walkTree body 子节点
   iconNameMap: Record<string, string>
+  /** 事件 Action 改写的 state path 集合（来自 BuiltPage，state-builder 据此打 shared 标记） */
+  eventMutatedPaths: Set<string>
 }
 
 export interface GeneratedFile {
   path: string
   content: string
+}
+
+/** 管线执行期错误（单页隔离收集，由 GenerateReport 汇总输出） */
+export interface PipelineError {
+  /** 出错步骤名（BuildTrees / NodeMapper / FileGenerator） */
+  step: string
+  /** 出错页名 */
+  page: string
+  /** 错误信息 */
+  message: string
+  /** 可选堆栈 */
+  stack?: string
 }
 
 export class PipelineContext {
@@ -76,6 +92,12 @@ export class PipelineContext {
   // ── Step 8: GenerateReport ──
   generationReport?: string
 
+  // ── 执行期诊断（非数据流）──
+  /** 当前正处理的页名；per-page step 在循环里设置，pipeline-engine catch 时读取以定位失败页面 */
+  currentPage?: string
+  /** 单页隔离收集的错误清单；per-page step 的 try/catch push，GenerateReport 汇总输出 */
+  errors: PipelineError[]
+
   constructor(config: Record<string, any>, registry: ComponentRegistry) {
     this.config = config
     this.registry = registry
@@ -89,5 +111,6 @@ export class PipelineContext {
     this.styleResults = []
     this.routeResult = null
     this.outputFiles = []
+    this.errors = []
   }
 }

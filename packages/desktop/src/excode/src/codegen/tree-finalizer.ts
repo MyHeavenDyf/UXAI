@@ -30,6 +30,12 @@ export interface PendingConstDecl {
   name: string
   value: PropValue
   isUseState?: boolean
+  /** 共享标记：该 const 来自 eventMutatedPaths 命中的 binding/computed → emit useSharedState 而非 useState/initialState */
+  shared?: boolean
+  /** 共享 store 的顶层 key（v.accessPath，如 'isDetailOpen'）；shared=true 时必填 */
+  sharedKey?: string
+  /** 共享只读（无 useState 的 shared binding）→ emit `const name = useSharedState(key)`（单常量，无 setter） */
+  sharedRead?: boolean
 }
 
 export interface PendingExtractedFile extends Pick<ExtractNode, 'purpose' | 'fileName'> {
@@ -147,6 +153,8 @@ function applyPropRoute(node: ComponentNode, ctx: TreeCtx): ComponentNode {
           name,
           value: Value.varRef({ name: useStateRefName(vObj) }),
           isUseState: true,
+          // 共享：path 命中 eventMutatedPaths（state-builder 打标）→ emit useSharedState
+          ...(vObj.shared ? { shared: true, sharedKey: vObj.accessPath } : {}),
         })
       } else if (isLiteralWithUseState) {
         // LiteralValue.useState：值直接作为初始值
@@ -210,6 +218,8 @@ function liftLiteralTwoWayBindings<T extends { props: Record<string, PropValue> 
         name,
         value: Value.varRef({ name: useStateRefName(v) }),
         isUseState: true,
+        // 共享：path 命中 eventMutatedPaths（state-builder 打标）→ emit useSharedState
+        ...(v.shared ? { shared: true, sharedKey: v.accessPath } : {}),
       })
     } else {
       // LiteralValue.useState：值直接作为初始值
@@ -229,6 +239,44 @@ function liftLiteralTwoWayBindings<T extends { props: Record<string, PropValue> 
     touched = true
   }
   return touched ? { ...node, props: newProps } as T : node
+}
+
+// ─── B1b: 共享只读 binding lift（无 useState 的 shared absolute binding/computed） ───
+//
+// 被事件 Action 改写的 path（eventMutatedPaths）若被某组件只读绑定（非 useState 双绑），
+// 必须提升为组件顶部 `const x = useSharedState('key')`（订阅 store 切片）——
+// useSharedState 是 hook，不能 inline 在 JSX prop 里（rules-of-hooks）。
+// 非共享只读 binding 仍 inline initialState.xxx（快照只读，无运行时写入）。
+
+function liftSharedReadBindings<T extends { props: Record<string, PropValue> }>(node: T, ctx: TreeCtx): T {
+  const newProps: Record<string, PropValue> = {}
+  let touched = false
+  for (const [key, value] of Object.entries(node.props)) {
+    const v = value as any
+    if (
+      v && typeof v === 'object' &&
+      v.__node &&
+      (v.type === 'binding' || v.type === 'computed') &&
+      v.shared === true &&
+      v.pathType === 'absolute' &&
+      !v.useState
+    ) {
+      const name = makePropRouteName((node as any).id, (node as any).component ?? 'node', key)
+      ctx.currentDraft.componentInternalConsts.push({
+        name,
+        value: Value.rawExpr({ value: 'null' }),  // 占位：formatConstDecl sharedRead 不读 value
+        isUseState: false,
+        shared: true,
+        sharedKey: v.accessPath,
+        sharedRead: true,
+      })
+      newProps[key] = Value.varRef({ name })
+      touched = true
+    } else {
+      newProps[key] = value
+    }
+  }
+  return touched ? ({ ...node, props: newProps } as T) : node
 }
 
 // ─── B2: LoopNode 数据源引用处理 ───
@@ -331,14 +379,16 @@ function walkNode(node: BuildNode, ctx: TreeCtx): BuildNode {
 function walkComponent(node: ComponentNode, ctx: TreeCtx): ComponentNode {
   const routed = applyPropRoute(node, ctx)
   const lifted = liftLiteralTwoWayBindings(routed, ctx)
-  const newChildren = walkChildren(lifted.children, ctx, lifted.id ?? '')
-  return { ...lifted, children: newChildren as any }
+  const shared = liftSharedReadBindings(lifted, ctx)
+  const newChildren = walkChildren(shared.children, ctx, shared.id ?? '')
+  return { ...shared, children: newChildren as any }
 }
 
 function walkHtml(node: HtmlNode, ctx: TreeCtx): HtmlNode {
   const lifted = liftLiteralTwoWayBindings(node, ctx)
-  const newChildren = walkChildren(lifted.children, ctx, node.id ?? '')
-  return { ...lifted, children: newChildren as any }
+  const shared = liftSharedReadBindings(lifted, ctx)
+  const newChildren = walkChildren(shared.children, ctx, node.id ?? '')
+  return { ...shared, children: newChildren as any }
 }
 
 function walkExtract(node: ExtractNode, ctx: TreeCtx): ComponentNode {

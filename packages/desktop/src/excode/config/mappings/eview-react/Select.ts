@@ -72,15 +72,9 @@ export function createSelectMapping(pkg: string): MappingDef {
     transform(node: any, _ctx: TransformContext) {
       const props = node.props || {}
       const outputProps: Record<string, PropValue> = {}
-      const SKIP_KEYS = new Set([
-        'value',
-        'options',
-        'placeholder',
-        'size',
-        'showSearch',
-        'mode',
-        'className',
-      ])
+
+      // 显性处理每个 A2UI prop：A2UI Select 的 props 是封闭集合
+      // (value/options/size/placeholder/showSearch/mode/className)，不做兜底透传。
 
       // ─── mode 判定 ───
       // mode="multiple" → 路由到 MultipleSelect，否则 Select
@@ -177,12 +171,7 @@ export function createSelectMapping(pkg: string): MappingDef {
         outputProps[styleKey] = widthStyle as any
       }
 
-      // ─── 剩余 prop 透传 ───
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) {
-          outputProps[key] = value as PropValue
-        }
-      }
+      // 不做剩余兜底透传：A2UI Select 的 props 已逐项显性处理。
 
       return {
         tag: overrideTag,

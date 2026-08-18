@@ -11,16 +11,16 @@
  * | defaultSelectedKeys（DataBinding） | selectedKeys | BindingValue 原样透传（只改名） |
  * | defaultSelectedKeys（字面量数组） | selectedKeys | 改名透传 |
  * | options（DataBinding） | data | ComputedValue + containsJSX:true（icon 解析） |
- * | options（字面量） | data | 递归转换 title→text, key→id, icon resolve |
+ * | options（字面量） | data | 递归转换 title→text, key→id, icon→treeNodePrefix resolve |
  * | className | className | 同名透传 |
  *
  * ## options 节点数据结构转换
  *
  * ```
- * A2UI { title, key, icon, children }  →  eview { text, id, icon, children }
+ * A2UI { title, key, icon, children }  →  eview { text, id, treeNodePrefix, children }
  * ```
  * - children 递归应用相同转换规则
- * - icon（Lucide string）→ resolveIcon 转为 BuildNode（不包 slotNode）
+ * - icon（Lucide string）→ treeNodePrefix（resolveIcon 转 BuildNode；eview-react Tree 用 treeNodePrefix 作节点左侧前缀，不包 slotNode）
  *
  * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
  */
@@ -53,9 +53,12 @@ function normalizeTreeNode(
     delete result.key
   }
 
-  // icon（Lucide string → resolveIcon 转为 BuildNode，与 Menu 一致）
+  // icon → treeNodePrefix（Lucide string → resolveIcon 转 BuildNode）
+  // eview-react Tree 用 treeNodePrefix（ReactElement）作节点左侧前缀，可在 data 中单独配置；
+  // 原 A2UI icon 是 Lucide kebab-case 名，eview-react 无法直接解析，故删除原字段、只保留转换后的 BuildNode。
   if (item.icon && typeof item.icon === 'string') {
-    result.icon = resolveIcon(item.icon)
+    result.treeNodePrefix = resolveIcon(item.icon)
+    delete result.icon
   }
 
   // children 递归
@@ -78,13 +81,9 @@ export function createTreeMapping(pkg: string): MappingDef {
     transform(node: any, ctx: TransformContext) {
       const props = node.props || {}
       const outputProps: Record<string, PropValue> = {}
-      const SKIP_KEYS = new Set([
-        'checkable',
-        'defaultExpandedKeys',
-        'defaultSelectedKeys',
-        'options',
-        'className',
-      ])
+
+      // 显性处理每个 A2UI prop：A2UI Tree 的 props 是封闭集合
+      // (checkable/defaultExpandedKeys/defaultSelectedKeys/options/className)，不做兜底透传。
 
       // ─── checkable → enableCheckbox ───
       if (props.checkable !== undefined) {
@@ -130,12 +129,7 @@ export function createTreeMapping(pkg: string): MappingDef {
         outputProps.className = props.className
       }
 
-      // ─── 剩余 prop 透传 ───
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) {
-          outputProps[key] = value as PropValue
-        }
-      }
+      // 不做剩余兜底透传：A2UI Tree 的 props 已逐项显性处理。
 
       return {
         props: outputProps,

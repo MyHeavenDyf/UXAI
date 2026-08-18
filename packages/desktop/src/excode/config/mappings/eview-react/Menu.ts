@@ -296,13 +296,8 @@ export function createMenuMapping(pkg: string): MappingDef {
       if (props.className) {
         outputProps.className = props.className
       }
-      // 透传剩余 prop（skip 掉已处理 / 无对应概念的字段）
-      const SKIP_KEYS = new Set(['items', 'selectedKeys', 'openKeys', 'inlineCollapsed', 'mode', 'className', 'id'])
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) {
-          outputProps[key] = value as PropValue
-        }
-      }
+      // 不做剩余兜底透传：A2UI Menu 的 props (items/selectedKeys/openKeys/inlineCollapsed/mode/className)
+      // 已逐项显性处理（id 由管线别处处理，不进 outputProps）。
 
       return {
         props: outputProps,

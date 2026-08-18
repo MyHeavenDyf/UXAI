@@ -25,7 +25,7 @@ import { fileKeyOf } from '../core/file-keys'
 import { collectImports, renderImportBlock, injectImport, type ImportMap } from './import-collector'
 import { emitNode, indent, bindingRef, serializeRenderFnBody } from './jsx-emitter'
 import { collectRelativeFields } from '../core/scoped-enrichment'
-import { isFlatAccessPath, cssModuleRef } from '../core/access-path'
+import { isFlatAccessPath, isValidIdentifier, cssModuleRef } from '../core/access-path'
 import { emitKey, serializePlainJs } from './js-serializer'
 import type { EmitOptions } from './jsx-emitter'
 import type { PropValue } from '../core/value-types'
@@ -47,6 +47,14 @@ export function assembleAllFiles(
     path: `src/pages/${pageName}/state.ts`,
     content: stateResult.stateContent,
   })
+
+  // shared-state.ts（仅当存在共享 key：事件 Action 改写的 path）
+  if (stateResult.sharedStateContent) {
+    files.push({
+      path: `src/pages/${pageName}/shared-state.ts`,
+      content: stateResult.sharedStateContent,
+    })
+  }
 
   // 主页面 index.jsx
   files.push(assembleMainPage(pageName, finalResult.mainFile, stateResult, styleImportMap, emitId))
@@ -162,7 +170,9 @@ function assembleMainPage(
   styleImportMap?: Map<string, string>,
   emitId: boolean = true
 ): GeneratedFile {
-  const imports = collectImports(draft.rootTree).imports
+  const collected = collectImports(draft.rootTree)
+  const imports = collected.imports
+  const hasAction = collected.hasAction
 
   // .tsx 文件注入 React
   injectImport(imports, 'react', 'React', false)
@@ -176,8 +186,16 @@ function assembleMainPage(
   }
 
   // 字面量双绑 lift 后会需要 useState
-  if (draft.componentInternalConsts.some(c => c.isUseState)) {
+  if (draft.componentInternalConsts.some(c => c.isUseState && !c.shared)) {
     injectImport(imports, 'react', 'useState', true)
+  }
+
+  // 共享响应式 state：该文件含 shared const（读 useSharedState）或 ActionValue（写 setSharedState）
+  if (draft.componentInternalConsts.some(c => c.shared)) {
+    injectImport(imports, `./shared-state`, 'useSharedState', true)
+  }
+  if (hasAction) {
+    injectImport(imports, `./shared-state`, 'setSharedState', true)
   }
 
   // CSS Modules
@@ -283,7 +301,9 @@ function assembleModuleFile(
   // ⚠️ 暂不考虑多根 extract：当前 A2UI 输入数据 extract.body 必为单根（length===1），
   // 故本函数多处只取 body[0]（collectImports / collectLoopTemplateRefs / rootJsx）。
   // 下面的 emitFragment 多根分支保留但暂不触发；若未来输入出现多根，import/ref 收集也需全量迭代 body。
-  const imports = collectImports(ext.body[0]).imports
+  const collectedModule = collectImports(ext.body[0])
+  const imports = collectedModule.imports
+  const hasAction = collectedModule.hasAction
 
   // .tsx 文件注入 React
   injectImport(imports, 'react', 'React', false)
@@ -294,8 +314,16 @@ function assembleModuleFile(
     injectImport(imports, cssImportRel, 'styles', false)
   }
 
-  if ((ext.componentInternalConsts ?? []).some(c => c.isUseState)) {
+  if ((ext.componentInternalConsts ?? []).some(c => c.isUseState && !c.shared)) {
     injectImport(imports, 'react', 'useState', true)
+  }
+
+  // 共享响应式 state（模块路径相对 '../shared-state'，与 '../state' 同级）
+  if ((ext.componentInternalConsts ?? []).some(c => c.shared)) {
+    injectImport(imports, `../shared-state`, 'useSharedState', true)
+  }
+  if (hasAction) {
+    injectImport(imports, `../shared-state`, 'setSharedState', true)
   }
 
   // 从 fileUnit 的 jsx-literal / enrichment const 中收集组件 import
@@ -408,8 +436,11 @@ function assembleComponentTemplate(
     for (const jlc of fileUnitForExcl.jsxLiteralConsts) fields.delete(jlc.name)
   }
   for (const dc of (ext.moduleTopConsts ?? [])) fields.delete(dc.name)
-  const destructureLine = fields.size > 0
-    ? `  const { ${[...fields].sort().join(', ')} } = data;`
+  // 仅 destructure 合法标识符 top 字段；非标识符字段（如 a-b）不进 destructure，
+  // 由 jsx-emitter bindingRef 用 base 访问（data["a-b"]）
+  const destructureFields = [...fields].filter(isValidIdentifier).sort()
+  const destructureLine = destructureFields.length > 0
+    ? `  const { ${destructureFields.join(', ')} } = data;`
     : ''
 
   const cssImportRel = styleImportMap?.get(ext.path)
@@ -419,7 +450,9 @@ function assembleComponentTemplate(
     ? emitNode(root, { inTemplate: true, useCssModules, emitId })
     : 'null'
 
-  const imports = root ? collectImports(root).imports : new Map<string, any>()
+  const collectedTpl = root ? collectImports(root) : null
+  const imports = collectedTpl ? collectedTpl.imports : new Map<string, any>()
+  const hasAction = collectedTpl?.hasAction ?? false
 
   // .tsx 文件注入 React
   injectImport(imports, 'react', 'React', false)
@@ -446,6 +479,14 @@ function assembleComponentTemplate(
     injectImport(imports, `../../state`, 'initialState', false)
   }
 
+  // 共享响应式 state（模板路径相对 '../../shared-state'，与 '../../state' 同级）
+  if ((ext.componentInternalConsts ?? []).some(c => c.shared)) {
+    injectImport(imports, `../../shared-state`, 'useSharedState', true)
+  }
+  if (hasAction) {
+    injectImport(imports, `../../shared-state`, 'setSharedState', true)
+  }
+
   // 嵌套循环：内层循环模板（兄弟 components/ 文件）由本模板文件渲染 → 注入其 import
   // （路径：模板在 components/，兄弟模板用 './'；主页面/模块用 '../components/' 由各自 assemble 处理）
   if (root) {
@@ -461,7 +502,7 @@ function assembleComponentTemplate(
   )
 
   // 如果模板文件有 useState 声明，注入 import { useState } from 'react'
-  if ((ext.componentInternalConsts ?? []).some(c => c.isUseState)) {
+  if ((ext.componentInternalConsts ?? []).some(c => c.isUseState && !c.shared)) {
     injectImport(imports, 'react', 'useState', true)
   }
 
@@ -545,7 +586,17 @@ function emitFragment(body: BuildNode[], opts?: EmitOptions): string {
 
 // ─── const 声明序列化 ───
 
-function formatConstDecl(decl: { name: string; value: PropValue; isUseState?: boolean }): string {
+function formatConstDecl(decl: { name: string; value: PropValue; isUseState?: boolean; shared?: boolean; sharedKey?: string; sharedRead?: boolean }): string {
+  // 共享只读 binding（无 useState 的 shared）→ 订阅切片取值（解构丢弃 setter，
+  // 因 useSharedState 返回 [value, setter] 元组对齐 useState）
+  if (decl.sharedRead && decl.sharedKey) {
+    return `const [${decl.name}] = useSharedState('${decl.sharedKey}');`
+  }
+  // 共享 useState（path 命中 eventMutatedPaths）→ useSharedState（订阅 store + setter 写 store）
+  if (decl.isUseState && decl.shared && decl.sharedKey) {
+    const setter = 'set' + decl.name.charAt(0).toUpperCase() + decl.name.slice(1)
+    return `const [${decl.name}, ${setter}] = useSharedState('${decl.sharedKey}');`
+  }
   const valueStr = serializeForConstValue(decl.value)
   if (decl.isUseState) {
     const setter = 'set' + decl.name.charAt(0).toUpperCase() + decl.name.slice(1)

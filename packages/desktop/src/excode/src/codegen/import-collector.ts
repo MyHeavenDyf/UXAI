@@ -18,6 +18,8 @@ import { getIconPackage } from '../core/icon-collection'
 interface ImportEntry {
   default: string | null
   named: Set<string>
+  /** 注释占位标记：renderImportBlock 输出时前缀 `// `（未注册/transform 抛错节点的 import） */
+  commented?: boolean
 }
 
 export type ImportMap = Map<string, ImportEntry>
@@ -25,17 +27,23 @@ export type ImportMap = Map<string, ImportEntry>
 export interface CollectedImports {
   imports: ImportMap
   warnings: string[]
+  /** 树中是否含 ActionValue（事件 setState）→ 该文件需 import setSharedState */
+  hasAction: boolean
 }
+
+// 模块级瞬态：walkValueForImports 遇 ActionValue 时置 true（单线程顺序调用，安全）
+let hasActionFlag = false
 
 export function collectImports(
   root: BuildNode | null | undefined
 ): CollectedImports {
   const imports: ImportMap = new Map()
   const warnings: string[] = []
+  hasActionFlag = false
 
   walkForImports(root, imports, warnings)
 
-  return { imports, warnings }
+  return { imports, warnings, hasAction: hasActionFlag }
 }
 
 // ─── 内部辅助 ───
@@ -96,12 +104,23 @@ function collectNodeImport(
   if (!node.import) return
 
   const spec: ImportSpec = node.import
+  let source: string | null = null
   if (typeof spec === 'string') {
+    source = spec
     addImport(imports, spec, false, tag)
   } else if (spec && typeof spec === 'object' && typeof spec.source === 'string') {
+    source = spec.source
     addImport(imports, spec.source, !!spec.named, tag)
   } else {
     warnings.push(`unknown import spec: ${JSON.stringify(spec)} for tag "${tag}"`)
+    return
+  }
+
+  // 注释占位节点：标记 import 行注释化（与 jsx-emitter 的 {/* ... */} 占位配套，
+  // 产物中标签与引用均为注释，无需手动注释即可编译）。
+  if (node.commentPlaceholder && source) {
+    const entry = imports.get(source)
+    if (entry) entry.commented = true
   }
 }
 
@@ -153,6 +172,12 @@ function walkValueForImports(
   warnings: string[]
 ): void {
   if (!value || typeof value !== 'object') return
+
+  // ActionValue（事件 setState）：无 import，但标记该文件需 import setSharedState
+  if (value.type === 'action') {
+    hasActionFlag = true
+    return
+  }
 
   if (Array.isArray(value)) {
     for (const item of value) {
@@ -213,17 +238,18 @@ export function renderImportBlock(imports: ImportMap): string {
 
   for (const source of sources) {
     const entry = imports.get(source)!
+    const prefix = entry.commented ? '// ' : ''
     const defaultPart = entry.default ?? ''
     const named = entry.named && entry.named.size > 0
       ? `{ ${[...entry.named].sort().join(', ')} }`
       : ''
 
     if (defaultPart && named) {
-      lines.push(`import ${defaultPart}, ${named} from '${source}';`)
+      lines.push(`${prefix}import ${defaultPart}, ${named} from '${source}';`)
     } else if (named) {
-      lines.push(`import ${named} from '${source}';`)
+      lines.push(`${prefix}import ${named} from '${source}';`)
     } else if (defaultPart) {
-      lines.push(`import ${defaultPart} from '${source}';`)
+      lines.push(`${prefix}import ${defaultPart} from '${source}';`)
     }
   }
 

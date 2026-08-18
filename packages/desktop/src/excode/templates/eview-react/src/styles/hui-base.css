@@ -213,12 +213,17 @@
 /* ==========================================================================
   eview react 样式覆盖
   ========================================================================== */
+.ev_tag.default {
+  color: var(--gray-70) !important;
+  background: rgb(from var(--gray-90) r g b / 0.05) !important;
+  border-color: transparent !important;
+}
   /* tag solid */
 .ev_tag.info,
 .aui3_1 .ev_tag.info {
-  color: var(--gray-0);
-  background: var(--blue-50);
-  border-color: transparent;
+  color: var(--gray-0) !important;
+  background: var(--blue-50) !important;
+  border-color: transparent !important;
 }
 .ev_tag.error,
 .aui3_1 .ev_tag.error {
@@ -252,86 +257,70 @@
 }
 
 /* fill */
-.ev_tag.green,
-.aui3_1 .ev_tag.green { 
-  color: var(--mint-70);
-  background: var(--green-10);
-  border-color: transparent;
+.ev_tag.info.ev_tag_fill {
+  color: var(--brand-60) !important;
+  background: var(--brand-05) !important;
+  border-color: transparent !important;
 }
-.ev_tag.rose,
-.aui3_1 .ev_tag.rose {
-  color: var(--rose-60);
-  background: var(--rose-05);
-  border-color: transparent;
+.ev_tag.error.ev_tag_fill {
+  color: var(--red-60) !important;
+  background: var(--red-05) !important;
+  border-color: transparent !important;
 }
-
-.ev_tag.pink,
-.aui3_1 .ev_tag.pink {
-  color: var(--pink-60);
-  background: var(--pink-05);
-  border-color: transparent;
+.ev_tag.alert.ev_tag_fill {
+  color: var(--orange-70) !important;
+  background: var(--orange-10) !important;
+  border-color: transparent !important;
 }
-
-.ev_tag.purple,
-.aui3_1 .ev_tag.purple {
-  color: var(--purple-60);
-  background: rgb(from var(--purple-10) r g b / 0.6);
-  border-color: transparent;
+.ev_tag.warning.ev_tag_fill {
+  color: var(--yellow-80) !important;
+  background: rgb(from var(--yellow-30) r g b / 0.6) !important;
+  border-color: transparent !important;
 }
-
-.ev_tag.indigo,
-.aui3_1 .ev_tag.indigo {
-  color: var(--indigo-80);
-  background: rgb(from var(--indigo-10) r g b / 0.6);
-  border-color: transparent;
+.ev_tag.success.ev_tag_fill {
+  color: var(--mint-70) !important;
+  background: rgb(from var(--mint-10) r g b / 0.6) !important;
+  border-color: transparent !important;
+}
+.ev_tag.disabled.ev_tag_fill {
+  color: var(--gray-70) !important;
+  background: rgb(from var(--gray-90) r g b / 0.05) !important;
+  border-color: transparent !important;
 }
 
-.ev_tag.cyan,
-.aui3_1 .ev_tag.cyan {
-  color: var(--cyan-80);
-  background: rgb(from var(--cyan-60) r g b / 0.15);
-  border-color: transparent;
+.ev_tag.green { 
+  color: var(--mint-70) !important;
+  background: var(--green-10) !important;
+  border-color: transparent !important;
+}
+.ev_tag.rose {
+  color: var(--rose-60) !important;
+  background: var(--rose-05) !important;
+  border-color: transparent !important;;
 }
 
-.ev_tag.default.ev_tag_fill,
-.aui3_1 .ev_tag.default.ev_tag_fill {
-  color: var(--gray-70);
-  background: rgb(from var(--gray-90) r g b / 0.05);
-  border-color: transparent;
+.ev_tag.pink {
+  color: var(--pink-60) !important;
+  background: var(--pink-05) !important;
+  border-color: transparent !important;
 }
-.ev_tag.info.ev_tag_fill,
-.aui3_1 .ev_tag.info.ev_tag_fill {
-  color: var(--brand-60);
-  background: var(--brand-05);
-  border-color: transparent;
+
+.ev_tag.purple {
+  color: var(--purple-60) !important;
+  background: rgb(from var(--purple-10) r g b / 0.6) !important;
+  border-color: transparent !important;
 }
-.ev_tag.error.ev_tag_fill,
-.aui3_1 .ev_tag.error.ev_tag_fill {
-  color: var(--red-60);
-  background: var(--red-05);
-  border-color: transparent;
+
+.ev_tag.indigo {
+  color: var(--indigo-80) !important;
+  background: rgb(from var(--indigo-10) r g b / 0.6) !important;
+  border-color: transparent !important;
 }
-.ev_tag.alert.ev_tag_fill,
-.aui3_1 .ev_tag.alert.ev_tag_fill {
-  color: var(--orange-70);
-  background: var(--orange-10);
-  border-color: transparent;
+
+.ev_tag.cyan {
+  color: var(--cyan-80) !important;
+  background: rgb(from var(--cyan-60) r g b / 0.15) !important;
+  border-color: transparent !important;
 }
-.ev_tag.warning.ev_tag_fill,
-.aui3_1 .ev_tag.warning.ev_tag_fill {
-  color: var(--yellow-80);
-  background: rgb(from var(--yellow-30) r g b / 0.6);
-  border-color: transparent;
-}
-.ev_tag.success.ev_tag_fill,
-.aui3_1 .ev_tag.success.ev_tag_fill {
-  color: var(--mint-70);
-  background: rgb(from var(--mint-10) r g b / 0.6);
-  border-color: transparent;
-}
-.ev_tag.disabled.ev_tag_fill,
-.aui3_1 .ev_tag.disabled.ev_tag_fill {
-  color: var(--gray-70);
-  background: rgb(from var(--gray-90) r g b / 0.05);
-  border-color: transparent;
-}
+
+

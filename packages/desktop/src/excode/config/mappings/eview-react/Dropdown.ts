@@ -64,7 +64,9 @@ export function createDropdownMapping(pkg: string): MappingDef {
     transform(node: any, ctx: TransformContext) {
       const props = node.props || {}
       const outputProps: Record<string, PropValue> = {}
-      const SKIP_KEYS = new Set(['menu', 'placement', 'trigger'])
+
+      // 显性处理每个 A2UI prop：A2UI Dropdown 的 props 是封闭集合
+      // (placement/trigger/menu/className)，不做兜底透传。
 
       // ─── menu → data ───
       if (props.menu) {
@@ -105,10 +107,7 @@ export function createDropdownMapping(pkg: string): MappingDef {
       // ─── className ───
       if (props.className) outputProps.className = props.className as PropValue
 
-      // 透传剩余
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) outputProps[key] = value as PropValue
-      }
+      // 不做剩余兜底透传：A2UI Dropdown 的 props 已逐项显性处理。
 
       return {
         props: outputProps,

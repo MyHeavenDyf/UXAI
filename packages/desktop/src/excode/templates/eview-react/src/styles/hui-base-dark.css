@@ -213,125 +213,112 @@
 .theme-dark {
   color: var(--color-text-primary);
 }
+.ev_tag.default {
+  color: var(--gray-30) !important;
+  background: rgb(from var(--gray-30) r g b / 0.15) !important;
+  border-color: transparent !important;
+}
 /* tag solid */
 .ev_tag.info,
-.aui3_1_dark.ev_tag.info {
-  color: var(--gray-0);
-  background: var(--blue-50);
+.aui3_1_dark .ev_tag.info {
+  color: var(--gray-0) !important;
+  background: var(--blue-50) !important;
   border-color: transparent;
 }
 .ev_tag.error,
-.aui3_1_dark.ev_tag.error {
+.aui3_1_dark .ev_tag.error {
   color: var(--gray-0);
   background: var(--red-50);
   border-color: transparent;
 }
 .ev_tag.alert,
-.aui3_1_dark.ev_tag.alert {
+.aui3_1_dark .ev_tag.alert {
   color: var(--gray-0);
   background: var(--orange-50);
   border-color: transparent;
 }
 .ev_tag.warning,
-.aui3_1_dark.ev_tag.warning {
+.aui3_1_dark .ev_tag.warning {
   color: var(--gray-0);
   background: var(--yellow-50);
   border-color: transparent;
 }
 .ev_tag.success,
-.aui3_1_dark.ev_tag.success {
+.aui3_1_dark .ev_tag.success {
   color: var(--gray-0);
   background: var(--mint-50);
   border-color: transparent;
 }
 .ev_tag.disabled,
-.aui3_1_dark.ev_tag.disabled {
+.aui3_1_dark .ev_tag.disabled {
   color: var(--gray-0);
   background: var(--gray-30);
   border-color: transparent;
 }
 
 /* fill */
-.ev_tag.green,
-.aui3_1_dark .ev_tag.green{ 
-  color: var(--mint-40);
-  background: rgb(from var(--green-40) r g b / 0.15);
-  border-color: transparent;
+.ev_tag.info.ev_tag_fill {
+  color: var(--brand-30) !important;
+  background: rgb(from var(--brand-30) r g b / 0.15) !important;
+  border-color: transparent !important;
 }
-.ev_tag.rose,
-.aui3_1_dark .ev_tag.rose {
-  color: var(--rose-30);
-  background: rgb(from var(--rose-30) r g b / 0.15);
-  border-color: transparent;
+.ev_tag.error.ev_tag_fill {
+  color: var(--red-40) !important;
+  background: rgb(from var(--red-30) r g b / 0.15) !important;
+  border-color: transparent !important;
 }
-
-.ev_tag.pink,
-.aui3_1_dark .ev_tag.pink {
-  color: var(--pink-30);
-  background: rgb(from var(--pink-30) r g b / 0.15);
-  border-color: transparent;
+.ev_tag.alert.ev_tag_fill {
+  color: var(--orange-40) !important;
+  background: rgb(from var(--orange-50) r g b / 0.15) !important;
+  border-color: transparent !important;
 }
-
-.ev_tag.purple,
-.aui3_1_dark .ev_tag.purple {
-  color: var(--purple-30);
-  background: rgb(from var(--purple-30) r g b / 0.15);
-  border-color: transparent;
+.ev_tag.warning.ev_tag_fill {
+  color: var(--yellow-50) !important;
+  background: rgb(from var(--yellow-30) r g b / 0.15) !important;
+  border-color: transparent !important;
 }
-
-.ev_tag.indigo,
-.aui3_1_dark .ev_tag.indigo {
-  color: var(--indigo-30);
-  background: rgb(from var(--indigo-30) r g b / 0.15);
-  border-color: transparent;
+.ev_tag.success.ev_tag_fill {
+  color: var(--mint-40) !important;
+  background: rgb(from var(--mint-50) r g b / 0.15) !important;
+  border-color: transparent !important;
+}
+.ev_tag.disabled.ev_tag_fill {
+  color: var(--gray-30) !important;
+  background: rgb(from var(--gray-30) r g b / 0.15) !important;
+  border-color: transparent !important;
 }
 
-.ev_tag.cyan,
-.aui3_1_dark .ev_tag.cyan {
-  color: var(--cyan-40);
-  background: rgb(from var(--cyan-50) r g b / 0.15);
-  border-color: transparent;
+.ev_tag.green { 
+  color: var(--mint-40) !important;
+  background: rgb(from var(--green-40) r g b / 0.15) !important;
+  border-color: transparent !important;
 }
-.ev_tag.default.ev_tag_fill,
-.aui3_1_dark .ev_tag.default.ev_tag_fill {
-  color: var(--gray-30);
-  background: rgb(from var(--gray-30) r g b / 0.15);
-  border-color: transparent;
-}
-.ev_tag.info.ev_tag_fill,
-.aui3_1_dark .ev_tag.info.ev_tag_fill {
-  color: var(--brand-30);
-  background: rgb(from var(--brand-30) r g b / 0.15);
-  border-color: transparent;
-}
-.ev_tag.error.ev_tag_fill,
-.aui3_1_dark .ev_tag.error.ev_tag_fill {
-  color: var(--red-40);
-  background: rgb(from var(--red-30) r g b / 0.15);
-  border-color: transparent;
-}
-.ev_tag.alert.ev_tag_fill,
-.aui3_1_dark .ev_tag.alert.ev_tag_fill {
-  color: var(--orange-40);
-  background: rgb(from var(--orange-50) r g b / 0.15);
-  border-color: transparent;
-}
-.ev_tag.warning.ev_tag_fill,
-.aui3_1_dark .ev_tag.warning.ev_tag_fill {
-  color: var(--yellow-50);
-  background: rgb(from var(--yellow-30) r g b / 0.15);
-  border-color: transparent;
-}
-.ev_tag.success.ev_tag_fill,
-.aui3_1_dark .ev_tag.success.ev_tag_fill {
-  color: var(--mint-40);
-  background: rgb(from var(--mint-50) r g b / 0.15);
-  border-color: transparent;
-}
-.ev_tag.disabled.ev_tag_fill,
-.aui3_1_dark .ev_tag.disabled.ev_tag_fill {
-  color: var(--gray-30);
-  background: rgb(from var(--gray-30) r g b / 0.15);
-  border-color: transparent;
+.ev_tag.rose {
+  color: var(--rose-30) !important;
+  background: rgb(from var(--rose-30) r g b / 0.15) !important;
+  border-color: transparent !important;
 }
 
+.ev_tag.pink {
+  color: var(--pink-30) !important;
+  background: rgb(from var(--pink-30) r g b / 0.15) !important;
+  border-color: transparent !important;
+}
+
+.ev_tag.purple {
+  color: var(--purple-30) !important;
+  background: rgb(from var(--purple-30) r g b / 0.15) !important;
+  border-color: transparent !important;
+}
+
+.ev_tag.indigo {
+  color: var(--indigo-30) !important;
+  background: rgb(from var(--indigo-30) r g b / 0.15) !important;
+  border-color: transparent !important;
+}
+
+.ev_tag.cyan {
+  color: var(--cyan-40) !important;
+  background: rgb(from var(--cyan-50) r g b / 0.15) !important;
+  border-color: transparent !important;
+}

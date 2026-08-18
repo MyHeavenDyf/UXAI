@@ -40,40 +40,48 @@ export class FileGenerator extends Step {
     const generatedFiles: Array<{ path: string; content: string }> = []
 
     for (const mappedPage of ctx.mappedPages) {
-      const stateResult = buildState(mappedPage as MappedPage)
-      stateResults.set(mappedPage.pageName, stateResult)
+      ctx.currentPage = mappedPage.pageName   // 诊断：出错时 pipeline-engine 能定位到页
+      try {
+        const stateResult = buildState(mappedPage as MappedPage)
+        stateResults.set(mappedPage.pageName, stateResult)
 
-      const finalResult = finalizeTree(mappedPage as any, stateResult)
-      finalResults.set(mappedPage.pageName, finalResult)
+        const finalResult = finalizeTree(mappedPage as any, stateResult)
+        finalResults.set(mappedPage.pageName, finalResult)
 
-      // 样式提取：在 tree-finalizer 之后用 final extractedFiles（已过滤掉被 mapping
-      // 消化 / force-inline 的循环模板），避免生成有 .less 无 .tsx 的孤儿文件。
-      // （原先在 GenerateStyles 步骤用 mp.extracts，那时 treeFinalizer 还没过滤。）
-      const sc = new StyleConverter()
-      const styleResult = sc.convertPage(
-        mappedPage.pageName,
-        finalResult.mainFile.rootTree,
-        finalResult.extractedFiles,
-        { cssModules },
-      )
-      styleResults.push(styleResult)
-      // 增量构建 styleImportMap（assembleAllFiles 按本页 jsx 路径查相对 .less 路径）
-      for (const [k, v] of buildStyleImportMap([styleResult], cssModules)) {
-        styleImportMap.set(k, v)
+        // 样式提取：在 tree-finalizer 之后用 final extractedFiles（已过滤掉被 mapping
+        // 消化 / force-inline 的循环模板），避免生成有 .less 无 .tsx 的孤儿文件。
+        // （原先在 GenerateStyles 步骤用 mp.extracts，那时 treeFinalizer 还没过滤。）
+        const sc = new StyleConverter()
+        const styleResult = sc.convertPage(
+          mappedPage.pageName,
+          finalResult.mainFile.rootTree,
+          finalResult.extractedFiles,
+          { cssModules },
+        )
+        styleResults.push(styleResult)
+        // 增量构建 styleImportMap（assembleAllFiles 按本页 jsx 路径查相对 .less 路径）
+        for (const [k, v] of buildStyleImportMap([styleResult], cssModules)) {
+          styleImportMap.set(k, v)
+        }
+
+        const files = assembleAllFiles(
+          mappedPage.pageName,
+          stateResult,
+          finalResult,
+          { styleImportMap, emitId }
+        )
+        generatedFiles.push(...files)
+
+        // 被提升为文件顶部 const 的值（jsxLiteralConsts / enrichmentConsts /
+        // moduleTopConsts）已脱离主树，#collectRules 走主树时拿不到它们的 className。
+        // state-builder / tree-finalizer 产物就绪后，在此补全对应 lessFile 的规则。
+        this.#augmentStyleFromConsts(mappedPage.pageName, stateResult, finalResult, styleResult)
+      } catch (err: any) {
+        // 单页隔离：一页失败不影响其他页，错误汇总到 ctx.errors 由 GenerateReport 输出
+        const msg = err?.message ?? String(err)
+        ctx.errors.push({ step: 'FileGenerator', page: mappedPage.pageName, message: msg, stack: err?.stack })
+        console.warn(`  [warn] FileGenerator: 页 "${mappedPage.pageName}" 处理失败，跳过: ${msg}`)
       }
-
-      const files = assembleAllFiles(
-        mappedPage.pageName,
-        stateResult,
-        finalResult,
-        { styleImportMap, emitId }
-      )
-      generatedFiles.push(...files)
-
-      // 被提升为文件顶部 const 的值（jsxLiteralConsts / enrichmentConsts /
-      // moduleTopConsts）已脱离主树，#collectRules 走主树时拿不到它们的 className。
-      // state-builder / tree-finalizer 产物就绪后，在此补全对应 lessFile 的规则。
-      this.#augmentStyleFromConsts(mappedPage.pageName, stateResult, finalResult, styleResult)
     }
 
     ;(ctx as any).stateResults = stateResults

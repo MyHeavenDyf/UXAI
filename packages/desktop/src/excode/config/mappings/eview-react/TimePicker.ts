@@ -10,6 +10,7 @@
  * | value（字面量 string） | time | **LiteralValue.useState** + 字符串→[时,分,秒] 转换 |
  * | value（DataBinding） | time | **ComputedValue.useState** + 编译期转换 |
  * | format（antd 规范） | format | antd HH→eview-react hh 转换 |
+ * | disabled（boolean/DataBinding） | disabled | 同名透传（只改名不改值，字面量与 BindingValue 均直接赋值） |
  * | className | className + timeStyle | 宽度类(w-*)→timeStyle(内联样式)，其余→className |
  * | — | onChange | 由 useState.event 自动生成 |
  *
@@ -57,9 +58,10 @@ export function createTimePickerMapping(pkg: string): MappingDef {
     transform(node: any, ctx: TransformContext) {
       const props = node.props || {}
       const outputProps: Record<string, PropValue> = {}
-      const SKIP_KEYS = new Set([
-        'value', 'placeholder', 'secondStep', 'minuteStep', 'hourStep', 'range', 'size',
-      ])
+
+      // 显性处理每个 A2UI prop：A2UI TimePicker 的 props 是封闭集合
+      // (value/placeholder/secondStep/minuteStep/hourStep/range/size/disabled/format/className)，
+      // 不做兜底透传，避免原始 format/className 覆盖下面的转换与拆分结果。
 
       // ─── value → time（useState 受控，双形态） ───
       if ('value' in props) {
@@ -101,6 +103,11 @@ export function createTimePickerMapping(pkg: string): MappingDef {
         outputProps.format = convertFormat(props.format) as PropValue
       }
 
+      // ─── disabled 透传（schema 为 boolean/DataBinding；只改名，字面量与 BindingValue 均直接赋值） ───
+      if (props.disabled !== undefined) {
+        outputProps.disabled = props.disabled
+      }
+
       // ─── className: 拆分宽度类 → timeStyle（内联样式），其余 → className ───
       const { className: remainCn, widthStyle } = splitWidthToStyle(props.className)
       if (remainCn) {
@@ -110,10 +117,11 @@ export function createTimePickerMapping(pkg: string): MappingDef {
         outputProps.timeStyle = widthStyle as any
       }
 
-      // 透传剩余
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) outputProps[key] = value as PropValue
-      }
+      // ─── placeholder/secondStep/minuteStep/hourStep/range/size 丢弃（eview-react TimePicker 无对应概念） ───
+
+      // 不做剩余兜底透传：A2UI TimePicker 的 props 已逐项显性处理。
+      // （原先兜底循环会用原始 props.format 覆盖 convertFormat 结果、用原始
+      //   props.className 覆盖 splitWidthToStyle 拆分，已移除。）
 
       return {
         props: outputProps,

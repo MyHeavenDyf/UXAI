@@ -51,6 +51,24 @@ const defaultFnMap: Record<string, ChartDefaultFn | undefined> = {
   CircleProcessChart: circleProcessChart,
 }
 
+// ─── 无默认 option 的图表 ───
+// 这些图表在 chartDefaults 下没有默认文件，代表不需要 merge 默认属性：
+// buildChartOption 对 defaultFnMap 中不存在的 chartName 用空对象兜底（不 merge），
+// 仅统一注入 a2ui/theme/data 兜底。
+const NO_DEFAULT_CHARTS = [
+  'BarLineChart',
+  'HeatMapChart',
+  'SankeyChart',
+  'TreeMapChart',
+] as const
+
+// ─── 所有图表组件名（有默认 + 无默认），统一路由到 Chart 映射 ───
+// 单一来源：mappings/{lib}/index.ts 的 chartMappings 消费此数组，避免多处硬编码列表不同步漏注。
+export const ALL_CHART_NAMES: readonly string[] = [
+  ...Object.keys(defaultFnMap),
+  ...NO_DEFAULT_CHARTS,
+]
+
 // ─── 统一入口 ───
 
 /**
@@ -71,6 +89,8 @@ export function buildChartOption(
   userOption: Record<string, any>,
 ): Record<string, any> {
   // 1. 获取默认 option
+  //    chartName 不在 defaultFnMap（即 NO_DEFAULT_CHARTS，如 BarLineChart/HeatMapChart/SankeyChart/TreeMapChart）
+  //    → fn=undefined → defaultOpt={}，下方 deepMerge 退化为仅用户 option（不 merge 默认）。
   const fn = defaultFnMap[chartName]
   const defaultOpt: Record<string, any> = fn ? fn(userOption) : {}
 

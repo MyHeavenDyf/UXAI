@@ -112,6 +112,11 @@ interface BuildContext {
     /** 对应的 LoopNode 引用（预创建，构建完 body 后 template.body 再填充） */
     loopNode: LoopNode
   }>
+  /**
+   * 事件改写的 state path 集合（#buildPage 预扫产出，带前导 `/`，与 binding.path 对齐）。
+   * state-builder 据此给 binding/computed 打 shared 标记 → 走共享 store。
+   */
+  eventMutatedPaths: Set<string>
 }
 
 export class BuildTrees extends Step {
@@ -120,8 +125,16 @@ export class BuildTrees extends Step {
 
     const pagesData: PageData[] = (ctx as any).pagesData || []
     for (const pageData of pagesData) {
-      const built = await this.#buildPage(pageData)
-      ctx.builtPages.push(built)
+      ctx.currentPage = pageData.pageName   // 诊断：出错时 pipeline-engine 能定位到页
+      try {
+        const built = await this.#buildPage(pageData)
+        ctx.builtPages.push(built)
+      } catch (err: any) {
+        // 单页隔离：一页失败不影响其他页，错误汇总到 ctx.errors 由 GenerateReport 输出
+        const msg = err?.message ?? String(err)
+        ctx.errors.push({ step: 'BuildTrees', page: pageData.pageName, message: msg, stack: err?.stack })
+        console.warn(`  [warn] BuildTrees: 页 "${pageData.pageName}" 处理失败，跳过: ${msg}`)
+      }
     }
 
     const totalIcons = ctx.builtPages.reduce(
@@ -150,6 +163,11 @@ export class BuildTrees extends Step {
     const iconCollector = new IconCollector()
     iconCollector.setState(state || {})
 
+    // 事件 Action 预扫：收集所有 onClick/onClose 等 Action 的 args.path（带前导 `/`），
+    // 供 state-builder 给命中此 path 的 binding/computed 打 shared 标记走共享 store。
+    // 必须在建树遍历前完成——#processValue 解析 binding 时即可查此集合。
+    const eventMutatedPaths = this.#collectEventMutatedPaths(elements)
+
     const ctx: BuildContext = {
       elements,
       state: state || {},
@@ -157,6 +175,7 @@ export class BuildTrees extends Step {
       extracts: [],
       iconCollector,
       loopStack: [],
+      eventMutatedPaths,
     }
 
     const rootTree = this.#buildTree(rootId, ctx, 0)
@@ -178,7 +197,36 @@ export class BuildTrees extends Step {
       extracts: ctx.extracts,
       iconNameSet,
       iconNameMap,
+      eventMutatedPaths,
     } as BuiltPage
+  }
+
+  /**
+   * 预扫所有 elements 的 props，收集事件 Action 的 args.path（带前导 `/`）。
+   * Action 形状：`{ action: "setState", args: { path, value } }`（schema 的 $defs/Action）。
+   * 事件 prop 是组件顶层 prop（onClick/onClose/...），故只扫顶层 props。
+   */
+  #collectEventMutatedPaths(elements: any[]): Set<string> {
+    const paths = new Set<string>()
+    for (const el of elements || []) {
+      const props = el?.props
+      if (!props || typeof props !== 'object') continue
+      for (const v of Object.values(props)) {
+        if (!v || typeof v !== 'object' || Array.isArray(v)) continue
+        const action = v as Record<string, any>
+        const args = action.args
+        if (
+          'action' in action &&
+          args &&
+          typeof args === 'object' &&
+          'path' in args &&
+          typeof args.path === 'string'
+        ) {
+          paths.add(args.path)
+        }
+      }
+    }
+    return paths
   }
 
   #buildTree(elementId: string, ctx: BuildContext, depth: number): RegularNode | null {
@@ -396,6 +444,27 @@ export class BuildTrees extends Step {
     // 早期归一：两条 emit 路径（emitProps / serializeForConstValue）都能统一序列化 plain object。
     if (propKey === 'style' && typeof value === 'string') {
       return parseInlineStyle(value)
+    }
+
+    // {action, args:{path,value}} → ActionValue（事件 Action：Button.onClick / Drawer.onClose 等）
+    // 必须在 {path}→BindingValue 与嵌套递归之前拦截——否则 Action 的 args.path 会被
+    // 误解析成读 BindingValue（实际是写目标）。event = prop key（事件名）。
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      'action' in (value as any) &&
+      'args' in (value as any)
+    ) {
+      const a = value as any
+      if (typeof a.action === 'string' && a.args && typeof a.args.path === 'string') {
+        return Value.action({
+          event: key,
+          action: 'setState',
+          path: a.args.path,
+          value: a.args.value,
+        })
+      }
     }
 
     // {componentId} → SlotNodeValue

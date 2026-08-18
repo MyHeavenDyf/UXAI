@@ -6,10 +6,11 @@
  * | A2UI prop | eview-react prop | 处理 |
  * |-----------|-----------------|------|
  * | value（string/DataBinding） | children | value→children 下沉（TextNode） |
- * | color（string） | color / style | 语义色 default/info/error/alert/warning/success/disabled → eview-react color 值映射；自定义色 green/rose/pink/purple/indigo/cyan → 移除 color，改用 style 的 color/background/borderColor；#HEX 透传 |
- * | color（DataBinding） | color / style | **ComputedValue** 编译期映射：语义色→color；自定义色→style（color/background/borderColor）；#HEX 透传 |
+ * | color（string） | color | 枚举值直接透传（default/info/error/alert/warning/success/disabled/green/rose/pink/purple/indigo/cyan/#HEX） |
+ * | color（DataBinding） | color | 枚举值直接透传，ComputedValue 无 transform |
  * | icon（string/DataBinding） | iconName + hasIcon | resolveIcon → BuildNode / ComputedValue；hasIcon:true |
  * | size（large/medium/small） | size（large/normal/small） | medium→normal 值映射 |
+ * | variant（solid/filled/outlined） | fill（solid/outline） | 值映射（filled/outlined→outline；缺省→outline；eview-react Tag 用 fill，无 variant） |
  * | closable | closable | 同名透传 |
  * | closeIcon | — | 丢弃（eview-react Tag 用默认关闭图标） |
  * | className | className | 同名透传 |
@@ -56,31 +57,12 @@ function resolveIconProp(
   return null;
 }
 
-// ─── color 值映射：A2UI enum → eview-react enum ───
-// A2UI: default / info / error / alert / warning / success / disabled / green / rose / pink / purple / indigo / cyan / #HEX
-// eview-react: default / primary / success / warning / danger / caution / 自定义颜色
-const COLOR_MAP: Record<string, string> = {
-  default: "default",
-  info: "primary",
-  error: "danger",
-  alert: "caution",
-  warning: "warning",
-  success: "success",
-  disabled: "default",
-  green: "green",
-  rose: "rose",
-  pink: "pink",
-  purple: "purple",
-  indigo: "indigo",
-  cyan: "cyan",
-};
-
-
-/** 把 A2UI color 值映射为 eview-react color 值（仅语义色；自定义色不在表内） */
-function mapColor(raw: any): string {
-  if (typeof raw !== "string") return raw;
-  return COLOR_MAP[raw] ?? raw; // default/info/error/alert/warning/success/disabled 命中映射；#HEX / 其他原样透传
-}
+// ─── color：枚举值直接透传，无效值回退 default ───
+// A2UI color 枚举值直接作为 eview-react color 传入，不做值映射
+const COLOR_ENUM = new Set([
+  "default", "info", "error", "alert", "warning", "success", "disabled",
+  "green", "rose", "pink", "purple", "indigo", "cyan",
+]);
 
 // ─── size 值映射 ───
 const SIZE_MAP: Record<string, string> = {
@@ -89,6 +71,7 @@ const SIZE_MAP: Record<string, string> = {
   large: "large",
 };
 // ─── variant → fill 值映射 ───
+// A2UI variant: solid/filled/outlined → eview-react fill: solid/outline/outline
 const FILL_MAP: Record<string, string> = {
   solid: "solid",
   filled: "outline",
@@ -106,15 +89,10 @@ export function createTagMapping(pkg: string): MappingDef {
       const props = node.props || {};
       const outputProps: Record<string, PropValue> = {};
       let childrenVal: any = null;
-      const SKIP_KEYS = new Set([
-        "value",
-        "color",
-        "icon",
-        "size",
-        "closable",
-        "closeIcon",
-        "className",
-      ]);
+
+      // 显性处理每个 A2UI prop：A2UI Tag 的 props 是封闭集合
+      // (value/color/icon/size/variant/closable/closeIcon/className)，不做兜底透传，
+      // 避免 variant 等目标库不支持的 prop 漏传给 eview-react Tag。
 
       // ─── value → children（双形态） ───
       if ("value" in props) {
@@ -127,22 +105,24 @@ export function createTagMapping(pkg: string): MappingDef {
         }
       }
 
-      // ─── color（语义色→color 值映射 / 自定义色→style CSS 变量 / #HEX 透传） ───
+      // ─── color（枚举值直接透传，非枚举值回退 default） ───
       if (props.color) {
         const c = props.color;
         if (typeof c === "string") {
-          outputProps.color = mapColor(c);
+          outputProps.color = COLOR_ENUM.has(c) ? c : "default";
         } else if (c && typeof c === "object" && c.type === "binding") {
           outputProps.color = Value.computed({
             path: c.path,
             pathType: c.pathType ?? "absolute",
             accessPath: c.accessPath ?? "tagColor",
             containsJSX: false,
-            transform: (raw) => {
-              return mapColor(raw);
-            },
+            transform: (raw) => (typeof raw === "string" && COLOR_ENUM.has(raw)) ? raw : "default",
           });
+        } else {
+          outputProps.color = "default";
         }
+      } else {
+        outputProps.color = "default";
       }
 
       // ─── icon → iconName + hasIcon（双形态） ───
@@ -173,9 +153,9 @@ export function createTagMapping(pkg: string): MappingDef {
       // ─── variant → fill ───
       if (props.variant && typeof props.variant === "string") {
         const mapped = FILL_MAP[props.variant];
-        if (mapped) {
-          outputProps.fill = mapped;
-        }
+        outputProps.fill = mapped ?? "outline";
+      } else {
+        outputProps.fill = "outline";
       }
       // ─── className 透传 ───
       if (props.className) {
@@ -184,12 +164,9 @@ export function createTagMapping(pkg: string): MappingDef {
 
       // ─── closeIcon 丢弃（eview-react Tag 用默认关闭图标） ───
 
-      // ─── 剩余 prop 透传 ───
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) {
-          outputProps[key] = value as PropValue;
-        }
-      }
+      // 不做剩余兜底透传：A2UI Tag 的 props 已逐项显性处理。
+      // （原先兜底循环会把 variant 原样漏传给 eview-react Tag——该组件用 fill 而非
+      //   variant，已移除循环，variant 只经上方 FILL_MAP 转 fill 后丢弃。）
 
       return {
         props: outputProps,

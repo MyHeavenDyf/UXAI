@@ -19,6 +19,7 @@ import type {
   RawExprValue,
   RenderFnValue,
   SlotNodeValue,
+  ActionValue,
   ExtractRoute,
   UseStateMarker,
 } from './value-types'
@@ -118,6 +119,20 @@ export const Value = {
     return {
       __node: true,
       type: 'slotNode',
+      ...opts,
+    }
+  },
+
+  /** 事件动作（setState 写共享 state）：Button.onClick / Drawer.onClose 等 */
+  action(opts: {
+    event: string
+    action: 'setState'
+    path: string
+    value: any
+  }): ActionValue {
+    return {
+      __node: true,
+      type: 'action',
       ...opts,
     }
   },

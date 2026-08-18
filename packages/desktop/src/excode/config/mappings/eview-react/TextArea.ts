@@ -37,7 +37,10 @@ export function createTextAreaMapping(pkg: string): MappingDef {
     transform(node: any, ctx: TransformContext) {
       const props = node.props || {}
       const outputProps: Record<string, PropValue> = {}
-      const SKIP_KEYS = new Set(['value', 'placeholder', 'maxLength', 'autoSize', 'size'])
+
+      // 显性处理每个 A2UI prop：A2UI TextArea 的 props 是封闭集合
+      // (value/placeholder/size/maxLength/autoSize/className)，不做兜底透传，
+      // 避免 width 拆分类被原始 className 覆盖回外层。
 
       // ─── value（useState 受控，双形态） ───
       if ('value' in props) {
@@ -74,6 +77,8 @@ export function createTextAreaMapping(pkg: string): MappingDef {
       // ─── autoSize → sizeAuto ───
       if (props.autoSize !== undefined) outputProps.sizeAuto = props.autoSize
 
+      // ─── size 丢弃（eview-react TextArea 无 size 概念） ───
+
       // ─── className: 拆分宽度类 → inputStyle（内联样式），其余 → className ───
       const { className: remainCn, widthStyle } = splitWidthToStyle(props.className)
       if (remainCn) {
@@ -83,10 +88,9 @@ export function createTextAreaMapping(pkg: string): MappingDef {
         outputProps.inputStyle = widthStyle as any
       }
 
-      // 透传剩余
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) outputProps[key] = value as PropValue
-      }
+      // 不做剩余兜底透传：A2UI TextArea 的 props 已逐项显性处理。
+      // （原先兜底循环会用原始 props.className 覆盖上面 splitWidthToStyle 的拆分结果，
+      //   导致宽度类被回写进外层 className，已移除。）
 
       return {
         props: outputProps,

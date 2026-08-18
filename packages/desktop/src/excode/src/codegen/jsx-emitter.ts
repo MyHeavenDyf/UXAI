@@ -18,7 +18,7 @@ const EMIT_ID_DEFAULT = true
 import type { BuildNode, ComponentNode, HtmlNode, TextNode, LoopNode, RegularNode } from '../core/node-types'
 import type { PropValue } from '../core/value-types'
 import { collectRelativeFields } from '../core/scoped-enrichment'
-import { stateRef, computedJsxConstName, pathToJsAccess, cssModuleRef } from '../core/access-path'
+import { stateRef, computedJsxConstName, accessPathToJsExpr, isValidIdentifier, cssModuleRef } from '../core/access-path'
 import { emitKey } from './js-serializer'
 
 // ─── 选项 ───
@@ -100,19 +100,37 @@ export function indent(code: string, spaces: number): string {
  */
 export function bindingRef(v: any, opts?: Required<EmitOptions>): string {
   if (v.type === 'computed' && v.containsJSX) return computedJsxConstName(v)
-  const relPath = pathToJsAccess(v.accessPath ?? v.path)
+  const ap = v.accessPath ?? v.path
   if (v.pathType === 'relative') {
     if (!opts) {
       // const 场景（模块顶部不在循环/render fn 作用域）不该出现 relative binding；
       // 若误入，裸 accessPath 运行时 undefined，加 warn 提示而非静默
-      console.warn(`  [warn] bindingRef: relative binding "${relPath}" in const 场景（模块顶部不在作用域，可能产错代码）`)
-      return relPath
+      console.warn(`  [warn] bindingRef: relative binding "${ap}" in const 场景（模块顶部不在作用域，可能产错代码）`)
+      return accessPathToJsExpr(ap)
     }
-    if (opts.inTemplate) return relPath
-    if (opts.inRenderFnBody) return relPath
-    return `${opts.loopVar}.${relPath}`
+    if (opts.inTemplate) return relativeRef(ap, 'data')
+    if (opts.inRenderFnBody) return relativeRef(ap, opts.renderFnDataVarName)
+    // 主树循环：始终 base=loopVar（item.a / item["a-b"] / item.a["b-c"]）
+    return accessPathToJsExpr(ap, opts.loopVar)
   }
   return stateRef(v.accessPath ?? v.path)
+}
+
+/**
+ * 模板 / render fn body 内相对 binding 的 emit（首段是否合法标识符决定形态）。
+ *
+ * - 首段合法标识符 → 已被模板/render fn 顶部 destructure 为本地变量，裸首段 + 嵌套 bracket
+ *   （`a`→`a`；`a.b-c`→`a["b-c"]`）
+ * - 首段非标识符（如 `a-b`）→ 不进 destructure，用 base 访问
+ *   （`data["a-b"]` / `row.rawData["a-b"]`）
+ *
+ * destructure 生成处（file-assembler 模板 / jsx-emitter render fn）已过滤掉非标识符 top 字段，
+ * 故非标识符首段不会出现在 `const { ... } = data` 里，与此处 base 访问一致。
+ */
+function relativeRef(ap: string, base: string): string {
+  const topField = ap.split(/[.\[]/)[0]
+  if (isValidIdentifier(topField)) return accessPathToJsExpr(ap)   // 裸首段（已 destructure）
+  return accessPathToJsExpr(ap, base)
 }
 
 /**
@@ -143,6 +161,14 @@ function emitValue(value: PropValue, opts: Required<EmitOptions>): string {
 
   // RawExprValue：原始 JS 表达式 → 裸 value
   if (v.type === 'rawExpr') return v.value
+
+  // ActionValue：事件 setState → () => setSharedState(key, value)
+  // 调用方（emitProps）包 {} → onClick={() => setSharedState('isDetailOpen', true)}
+  // key = path 剥前导 `/` 取顶层段（协议：共享 path 只在顶层）；value 暂只字面量。
+  if (v.type === 'action') {
+    const key = String(v.path || '').replace(/^\//, '').split('/')[0]
+    return `() => setSharedState('${key}', ${JSON.stringify(v.value)})`
+  }
 
   // RenderFnValue：内联渲染函数（结构化 params + destructure 模式）
   if (v.type === 'renderFn') {
@@ -206,7 +232,12 @@ export function serializeRenderFnBody(v: any, bodyOpts: any, indentBase: number)
       for (const field of f) fields.add(field)
     }
     if (fields.size > 0) {
-      destructureLine = `${bodyPad}const { ${[...fields].sort().join(', ')} } = ${dataAccessor};\n`
+      // 仅 destructure 合法标识符 top 字段；非标识符字段（如 a-b）不进 destructure，
+      // 由 bindingRef 用 base 访问（row.rawData["a-b"]）
+      const validFields = [...fields].filter(isValidIdentifier).sort()
+      if (validFields.length > 0) {
+        destructureLine = `${bodyPad}const { ${validFields.join(', ')} } = ${dataAccessor};\n`
+      }
     }
   }
   const bodyJSX = bodies.map((n: BuildNode) => emitNode(n, bodyOpts)).join('\n')
@@ -292,6 +323,11 @@ export function emitNode(node: BuildNode | null | undefined, opts?: EmitOptions)
 }
 
 function emitComponent(node: ComponentNode, opts: Required<EmitOptions>): string {
+  // 注释占位：未注册组件 / transform 抛错时由 NodeMapper 标记，
+  // 输出为 JSX 注释，子节点与 props 丢弃（节点已退化，无可用渲染形态）。
+  if (node.commentPlaceholder) {
+    return `{/* ${node.commentPlaceholder} */}`
+  }
   const tag = node.tag ?? node.component
   const idAttr = opts.emitId && node.id ? ` id="${escapeJSX(node.id)}"` : ''
   // className 整体由 emitProps → emitClassName 走（含自动基类合并 + CSS Modules 转换）

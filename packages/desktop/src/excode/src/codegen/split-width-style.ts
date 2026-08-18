@@ -15,8 +15,10 @@
 
 import { convertTailwindToCSS } from './tailwind-converter'
 
-// ─── 宽度类正则：匹配 w-xxx, w-[xxx], !w-xxx, !w-[xxx] ───
-const WIDTH_CLASS_RE = /^!?w-/
+// ─── 宽度类正则：只匹配具体像素/绝对值宽度，不匹配命名/百分比/相对宽度 ───
+// 匹配：w-47, w-80, w-[226px], !w-47, !w-[226px]（w- 后跟数字或 [）
+// 不匹配：w-full, w-auto, w-screen, w-fit, w-min, w-max, w-1/2 等命名宽度
+const WIDTH_CLASS_RE = /^!?w-(\d|\[)/
 
 // ─── 公共接口 ───
 

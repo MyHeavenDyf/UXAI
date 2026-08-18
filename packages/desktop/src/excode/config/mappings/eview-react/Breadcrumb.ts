@@ -60,7 +60,9 @@ export function createBreadcrumbMapping(pkg: string): MappingDef {
     transform(node: any, _ctx: TransformContext) {
       const props = node.props || {}
       const outputProps: Record<string, PropValue> = {}
-      const SKIP_KEYS = new Set(['items', 'separator', 'className'])
+
+      // 显性处理每个 A2UI prop：A2UI Breadcrumb 的 props 是封闭集合
+      // (items/separator/className)，不做兜底透传。
 
       // ─── items → data（过滤 + 归一化） ───
       if ('items' in props) {
@@ -101,12 +103,7 @@ export function createBreadcrumbMapping(pkg: string): MappingDef {
         outputProps.className = props.className
       }
 
-      // ─── 剩余 prop 透传 ───
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) {
-          outputProps[key] = value as PropValue
-        }
-      }
+      // 不做剩余兜底透传：A2UI Breadcrumb 的 props 已逐项显性处理。
 
       return {
         props: outputProps,

@@ -61,8 +61,11 @@ export interface EnrichmentConst {
 }
 
 // ─── 上下文 ───
+// 注：StateBuilderContext 及下方 getValueFromState / sharedKeyOfPath / consumeValue /
+// processLoop 导出供 test/unit/state-builder.test.ts 单测；这些是 test-exported internals，
+// 运行期仍只被本模块内部调用，导出仅用于隔离单测，不改任何运行行为。
 
-interface StateBuilderContext {
+export interface StateBuilderContext {
   rawState: Record<string, any>
 
   /** 所有文件单元（main / modules/* / components/*） */
@@ -85,6 +88,14 @@ interface StateBuilderContext {
    * value = enrichment 后的 constName
    */
   loopEnrichmentMap: Map<string, { constName: string }>
+
+  /**
+   * 事件 Action 改写的 state path 集合（来自 BuiltPage/MappedPage，带前导 `/`）。
+   * consumeValue 遍历时据此给命中 path 的 binding/computed 打 shared 标记。
+   */
+  eventMutatedPaths: Set<string>
+  /** 共享顶层 key 集合（consumeValue 收集，供 shared-state.ts store 初始化） */
+  sharedKeys: Set<string>
 }
 
 // ─── StateBuilderResult ───
@@ -103,11 +114,15 @@ export interface StateBuilderResult {
    * 没有 enrichment 的循环不在 map 中（routeLoopNode 回退到 loop.data.accessPath）
    */
   loopEnrichmentMap: Map<string, { constName: string }>
+  /** 共享顶层 key 集合（来自 consumeValue，供 shared-state.ts store 初始化） */
+  sharedKeys: Set<string>
+  /** shared-state.ts 完整内容（仅当 sharedKeys 非空时生成；否则 undefined） */
+  sharedStateContent?: string
 }
 
 // ─── 工具 ───
 
-function getValueFromState(state: Record<string, any>, path: string): any {
+export function getValueFromState(state: Record<string, any>, path: string): any {
   if (!path || !state) return undefined
   const segments = path.replace(/^\//, '').split('/').filter(Boolean)
   let current: any = state
@@ -116,6 +131,63 @@ function getValueFromState(state: Record<string, any>, path: string): any {
     current = current[seg]
   }
   return current
+}
+
+/**
+ * 共享 state path → 顶层 key（剥前导 `/`，取首段）。
+ * 按协议共享 path 只在 state 顶层，故首段即完整 key。
+ */
+export function sharedKeyOfPath(path: string): string {
+  return path.replace(/^\//, '').split('/')[0]
+}
+
+/**
+ * 生成 shared-state.ts 内容（仅当存在共享 key）。
+ * store 从 initialState 取共享 key 的初值；useSharedState 订阅切片，setSharedState 写入。
+ *
+ * useSharedState 返回 [value, setter] 元组（对齐 useState 用法）：
+ *   - 读写双绑（tree-finalizer liftLiteralTwoWayBindings）→ `const [v, setV] = useSharedState(key)`
+ *     setV(value) 内部调 sharedStore.set(key, value)。
+ *   - 只读（liftSharedReadBindings）→ `const [v] = useSharedState(key)`（解构取值，丢弃 setter）。
+ * setSharedState 仍保留导出：模块级 render 函数（如 tableColumns）等组件作用域之外的
+ * ActionValue 事件绑定拿不到组件内 lift 出来的 setter，必须走全局 setSharedState。
+ */
+function generateSharedStateFileContent(sharedKeys: Set<string>): string {
+  const keys = [...sharedKeys].sort()
+  const initLines = keys.map(k => `  ${k}: initialState.${k},`).join('\n')
+  return `import { useSyncExternalStore } from 'react'
+import { initialState } from './state'
+
+function createSharedStore(init: Record<string, any>) {
+  let state = init
+  const listeners = new Set<() => void>()
+  return {
+    subscribe: (l: () => void) => {
+      listeners.add(l)
+      return () => { listeners.delete(l) }
+    },
+    get: () => state,
+    set: (key: string, value: any) => {
+      state = { ...state, [key]: value }
+      listeners.forEach((l) => l())
+    },
+  }
+}
+
+const sharedStore = createSharedStore({
+${initLines}
+})
+
+export function useSharedState(key: string): [any, (value: any) => void] {
+  const value = useSyncExternalStore(sharedStore.subscribe, () => sharedStore.get()[key])
+  const setter = (value: any) => sharedStore.set(key, value)
+  return [value, setter]
+}
+
+export function setSharedState(key: string, value: any) {
+  sharedStore.set(key, value)
+}
+`
 }
 
 
@@ -262,7 +334,7 @@ function consumeTextValue(value: string | BindingValue | ComputedValue | undefin
  *
  * 字面量（string/number/boolean/null）、varRef、rawExpr、LiteralValue → 跳过
  */
-function consumeValue(v: any, ctx: StateBuilderContext): void {
+export function consumeValue(v: any, ctx: StateBuilderContext): void {
   if (v === null || v === undefined) return
   if (typeof v !== 'object') return
 
@@ -276,7 +348,16 @@ function consumeValue(v: any, ctx: StateBuilderContext): void {
     // ── absolute path binding → 收集引用 ──
     case 'binding':
       if (v.pathType === 'absolute') {
-        ctx.currentUnit.bindingRefs.push(v)
+        // 共享打标：path 命中 eventMutatedPaths → 走共享 store（useSharedState）
+        if (ctx.eventMutatedPaths.has(v.path)) {
+          v.shared = true
+          ctx.sharedKeys.add(sharedKeyOfPath(v.path))
+        }
+        // 共享 binding 走 useSharedState（tree-finalizer lift），不进 bindingRefs
+        // ——避免产物里出现未被引用的死 destructure（initialState.xxx）
+        if (!v.shared) {
+          ctx.currentUnit.bindingRefs.push(v)
+        }
         // 同时写入全局 stateEntries（binding 值裸取 rawState），保持嵌套结构
         if (v.accessPath) {
           const raw = getValueFromState(ctx.rawState, v.path)
@@ -288,6 +369,11 @@ function consumeValue(v: any, ctx: StateBuilderContext): void {
     // ── absolute path computed → 求值并分流 ──
     case 'computed':
       if (v.pathType === 'absolute') {
+        // 共享打标（computed 同 binding，命中 eventMutatedPaths 即 shared）
+        if (ctx.eventMutatedPaths.has(v.path)) {
+          v.shared = true
+          ctx.sharedKeys.add(sharedKeyOfPath(v.path))
+        }
         if (v.containsJSX) {
           // containsJSX:true → 算值后走文件单元 jsxLiteralConsts
           const raw = getValueFromState(ctx.rawState, v.path)
@@ -301,7 +387,11 @@ function consumeValue(v: any, ctx: StateBuilderContext): void {
           }
         } else {
           // containsJSX:false → 求值后进 stateEntries + 收集引用
-          ctx.currentUnit.computedRefs.push(v)
+          // 共享 computed 走 useSharedState（tree-finalizer lift），不进 computedRefs
+          // ——避免产物里出现未被引用的死 const（initialState.xxx）
+          if (!v.shared) {
+            ctx.currentUnit.computedRefs.push(v)
+          }
           if (v.accessPath) {
             const raw = getValueFromState(ctx.rawState, v.path)
             try {
@@ -314,6 +404,19 @@ function consumeValue(v: any, ctx: StateBuilderContext): void {
         }
       }
       return
+
+    // ── action（事件 setState）→ 无读消费，但确保 shared store 含该 key 初值 ──
+    case 'action': {
+      const key = sharedKeyOfPath(v.path)
+      ctx.sharedKeys.add(key)
+      // 即使无 reader 也要让 state.js（initialState）含该 key 初值，
+      // shared-state.ts 的 store 从 initialState.key 初始化。
+      if (!(key in ctx.stateEntries)) {
+        const raw = getValueFromState(ctx.rawState, v.path)
+        if (raw !== undefined) ctx.stateEntries[key] = raw
+      }
+      return
+    }
 
     // ── slotNode → walk 进入子树 ──
     case 'slotNode':
@@ -369,7 +472,7 @@ function consumeValue(v: any, ctx: StateBuilderContext): void {
 
 // ─── processLoop ───
 
-function processLoop(loop: LoopNode, ctx: StateBuilderContext, parentNodeId: string): void {
+export function processLoop(loop: LoopNode, ctx: StateBuilderContext, parentNodeId: string): void {
   // render fn body 内的循环：enrichment 已由 dataset（enrichScopedData）接管，
   // 且 emit 时强制 inline（jsxEmitter forceInline）→ 不产生单独模板文件。
   // 这里只把 template body 走进当前单元（收集 absolute binding 等），不建孤儿模板单元、不做 enrichment。
@@ -497,6 +600,8 @@ export function buildState(mappedPage: MappedPage): StateBuilderResult {
     currentUnit: null as any,
     stateEntries: {},
     loopEnrichmentMap: new Map(),
+    eventMutatedPaths: (mappedPage as any).eventMutatedPaths ?? new Set(),
+    sharedKeys: new Set(),
   }
 
   // 创建主文件单元
@@ -518,10 +623,17 @@ export function buildState(mappedPage: MappedPage): StateBuilderResult {
   // 生成 state.js
   const stateContent = generateStateFileContent(ctx.stateEntries)
 
+  // 生成 shared-state.ts（仅当存在共享 key）
+  const sharedStateContent = ctx.sharedKeys.size > 0
+    ? generateSharedStateFileContent(ctx.sharedKeys)
+    : undefined
+
   return {
     stateContent,
     newState: ctx.stateEntries,
     fileUnits: ctx.fileUnits,
     loopEnrichmentMap: ctx.loopEnrichmentMap,
+    sharedKeys: ctx.sharedKeys,
+    sharedStateContent,
   }
 }

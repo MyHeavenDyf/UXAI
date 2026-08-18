@@ -8,6 +8,7 @@
  * | checked（boolean/DataBinding） | checked | 同名透传 + useState（受控组件） |
  * | label（string/DataBinding） | label | 同名透传 |
  * | disabled | disabled | 同名透传 |
+ * | indeterminate | halfChecked | 同名语义，字段名 indeterminate→halfChecked（schema 为 boolean/DataBinding，只改名直接赋值） |
  * | className | className | 同名透传 |
  *
  * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
@@ -27,7 +28,9 @@ export function createCheckboxMapping(pkg: string): MappingDef {
     transform(node: any, ctx: TransformContext) {
       const props = node.props || {}
       const outputProps: Record<string, PropValue> = {}
-      const SKIP_KEYS = new Set(['checked', 'label', 'disabled', 'className'])
+
+      // 显性处理每个 A2UI prop：A2UI Checkbox 的 props 是封闭集合
+      // (checked/label/disabled/indeterminate/className)，不做兜底透传。
 
       // ─── checked → checked（双形态 + useState） ───
       if ('checked' in props) {
@@ -68,17 +71,17 @@ export function createCheckboxMapping(pkg: string): MappingDef {
         outputProps.disabled = props.disabled
       }
 
+      // ─── indeterminate → halfChecked（eview-react Checkbox 字段名不同；只改名，字面量与 BindingValue 均直接赋值） ───
+      if (props.indeterminate !== undefined) {
+        outputProps.halfChecked = props.indeterminate
+      }
+
       // ─── className 透传 ───
       if (props.className) {
         outputProps.className = props.className
       }
 
-      // ─── 剩余 prop 透传 ───
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) {
-          outputProps[key] = value as PropValue
-        }
-      }
+      // 不做剩余兜底透传：A2UI Checkbox 的 props 已逐项显性处理。
 
       return {
         props: outputProps,

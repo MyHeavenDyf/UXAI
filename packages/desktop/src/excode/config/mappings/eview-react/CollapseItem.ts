@@ -37,7 +37,9 @@ export function createCollapseItemMapping(pkg: string): MappingDef {
       const props = node.props || {}
       const outputProps: Record<string, PropValue> = {}
       let children: any[] | null = null
-      const SKIP_KEYS = new Set(['key', 'label', 'content', 'extra', 'className'])
+
+      // 显性处理每个 A2UI prop：A2UI CollapseItem 的 props 是封闭集合
+      // (key/label/extra/content)，不做兜底透传。
 
       // ─── key → 丢弃 ───
 
@@ -68,12 +70,7 @@ export function createCollapseItemMapping(pkg: string): MappingDef {
       // ─── className 透传 ───
       if (props.className) outputProps.className = props.className
 
-      // ─── 透传剩余 prop ───
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) {
-          outputProps[key] = value as PropValue
-        }
-      }
+      // 不做剩余兜底透传：A2UI CollapseItem 的 props 已逐项显性处理。
 
       return {
         props: outputProps,

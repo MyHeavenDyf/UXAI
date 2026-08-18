@@ -60,6 +60,15 @@ export interface ComponentNode {
   /** className 在产物 JSX 上的输出 key 别名（默认 'className'）；由 MappingDef.classNameProp 透传，jsx-emitter/file-assembler emit 时读，style-converter 不读 */
   classNameProp?: string
 
+  /**
+   * 注释占位标记（NodeMapper 设置）。
+   * 存在时：jsx-emitter 把该节点输出为 JSX 注释形态（花括号包裹的注释文本），
+   * import-collector 把对应 import 行注释化（行首加 //）。
+   * 触发场景：未注册组件 / transform 抛错 —— 节点退化为可见注释占位，
+   * 产物中该组件及其引用均被注释，无需手动注释即可编译。
+   */
+  commentPlaceholder?: string
+
   /** 是否已经过 transform（防二次） */
   _resolved?: boolean
 
