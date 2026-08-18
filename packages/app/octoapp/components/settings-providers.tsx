@@ -4,7 +4,8 @@ import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Tag } from "@opencode-ai/ui/tag"
 import { showToast } from "@opencode-ai/ui/toast"
 import { popularProviders, useProviders } from "@/hooks/use-providers"
-import { createMemo, type Component, For, Show, type JSX } from "solid-js"
+import { createMemo, createSignal, type Component, For, Show, type JSX } from "solid-js"
+import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client"
 import { useLanguage } from "@/context/language"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
@@ -66,6 +67,7 @@ export const SettingsProviders: Component = () => {
   const globalSync = useGlobalSync()
   const queryClient = useQueryClient()
   const providers = useProviders()
+  const [disconnecting, setDisconnecting] = createSignal<Set<string>>(new Set())
 
   const connected = createMemo(() => {
     const disabled = new Set(globalSync.data.config.disabled_providers ?? [])
@@ -124,26 +126,6 @@ export const SettingsProviders: Component = () => {
     return true
   }
 
-  const disableProvider = async (providerID: string, name: string) => {
-    const before = globalSync.data.config.disabled_providers ?? []
-    const next = before.includes(providerID) ? before : [...before, providerID]
-
-    await globalSync
-      .updateConfig({ disabled_providers: next })
-      .then(() => {
-        showToast({
-          variant: "success",
-          icon: "circle-check",
-          title: language.t("provider.disconnect.toast.disconnected.title", { provider: name }),
-          description: language.t("provider.disconnect.toast.disconnected.description", { provider: name }),
-        })
-      })
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err)
-        showToast({ title: language.t("common.requestFailed"), description: message })
-      })
-  }
-
   const hasApiKey = (providerID: string) => {
     return Boolean(globalSync.data.config.provider?.[providerID]?.options?.apiKey)
   }
@@ -153,22 +135,12 @@ export const SettingsProviders: Component = () => {
     queryClient.invalidateQueries({ predicate: (query) => query.queryKey[1] === "providers" })
   }
 
-  const disconnectOpencode = async (name: string) => {
-    await globalSDK.client.auth.remove({ providerID: "opencode" }).catch(() => undefined)
-    const provider = globalSync.data.config.provider ?? {}
-    const next = { ...provider }
-    if (next.opencode?.options) {
-      const { apiKey: _, ...rest } = next.opencode.options
-      next.opencode = { ...next.opencode, options: Object.keys(rest).length > 0 ? rest : undefined }
-    }
-    await globalSync.updateConfig({ provider: next })
-    await globalSDK.client.global.dispose()
-    await disableProvider("opencode", name)
-    invalidateAllProviders()
-  }
-
   const disconnect = async (providerID: string, name: string) => {
-    await globalSDK.client.auth.remove({ providerID }).catch(() => undefined)
+    setDisconnecting((prev) => new Set([...prev, providerID]))
+
+    queryClient.setQueryData<ProviderListResponse>([null, "providers"], (old) =>
+      old ? { ...old, connected: old.connected.filter((id) => id !== providerID) } : old,
+    )
 
     const provider = globalSync.data.config.provider ?? {}
     const next = { ...provider }
@@ -180,16 +152,29 @@ export const SettingsProviders: Component = () => {
     const before = globalSync.data.config.disabled_providers ?? []
     const nextDisabled = before.includes(providerID) ? before : [...before, providerID]
 
-    await globalSDK.client.global.config.update({ config: { provider: next, disabled_providers: nextDisabled } })
-    await globalSDK.client.global.dispose()
-    invalidateAllProviders()
-
-    showToast({
-      variant: "success",
-      icon: "circle-check",
-      title: language.t("provider.disconnect.toast.disconnected.title", { provider: name }),
-      description: language.t("provider.disconnect.toast.disconnected.description", { provider: name }),
-    })
+    await Promise.all([
+      globalSDK.client.auth.remove({ providerID }).catch(() => undefined),
+      globalSDK.client.global.config.update({ config: { provider: next, disabled_providers: nextDisabled } }),
+    ])
+      .then(() => {
+        invalidateAllProviders()
+        showToast({
+          variant: "success",
+          icon: "circle-check",
+          title: language.t("provider.disconnect.toast.disconnected.title", { provider: name }),
+          description: language.t("provider.disconnect.toast.disconnected.description", { provider: name }),
+        })
+      })
+      .catch((err: unknown) => {
+        queryClient.setQueryData<ProviderListResponse>([null, "providers"], (old) =>
+          old ? { ...old, connected: [...old.connected, providerID] } : old,
+        )
+        const message = err instanceof Error ? err.message : String(err)
+        showToast({ title: language.t("common.requestFailed"), description: message })
+      })
+      .finally(() => {
+        setDisconnecting((prev) => new Set([...prev].filter((id) => id !== providerID)))
+      })
   }
 
   return (
@@ -241,7 +226,8 @@ export const SettingsProviders: Component = () => {
                           <button
                             type="button"
                             style={blueBtn}
-                            onClick={() => void disconnectOpencode(item.name)}
+                            disabled={disconnecting().has(item.id)}
+                            onClick={() => void disconnect(item.id, item.name)}
                             onMouseEnter={(e) => e.currentTarget.style.setProperty("background-color", "#0950de")}
                             onMouseLeave={(e) => e.currentTarget.style.setProperty("background-color", "#0a59f7")}
                             onMouseDown={(e) => e.currentTarget.style.setProperty("background-color", "#0a55eb")}
@@ -284,6 +270,7 @@ export const SettingsProviders: Component = () => {
                           <button
                             type="button"
                             style={blueBtn}
+                            disabled={disconnecting().has(item.id)}
                             onClick={() => void disconnect(item.id, item.name)}
                             onMouseEnter={(e) => e.currentTarget.style.setProperty("background-color", "#0950de")}
                             onMouseLeave={(e) => e.currentTarget.style.setProperty("background-color", "#0a59f7")}
