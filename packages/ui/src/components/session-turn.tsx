@@ -280,18 +280,10 @@ export function SessionTurn(
     emptyAssistant,
     { equals: same },
   )
-  const visibleAssistantMessages = createMemo(
-    () => assistantMessages().filter((item) => !item.summary || !!item.error),
-    emptyAssistant,
-    { equals: same },
-  )
 
   const interrupted = createMemo(() => assistantMessages().some((m) => m.error?.name === "MessageAbortedError"))
-  const compacted = createMemo(
-    () => !!compaction() && assistantMessages().some((item) => item.summary && item.finish && !item.error),
-  )
   const divider = createMemo(() => {
-    if (compacted()) return i18n.t("ui.messagePart.compaction")
+    if (compaction()) return i18n.t("ui.messagePart.compaction")
     if (interrupted()) return i18n.t("ui.message.interrupted")
     return ""
   })
@@ -406,10 +398,10 @@ export function SessionTurn(
                   <MessageDivider label={divider()} />
                 </div>
               </Show>
-              <Show when={visibleAssistantMessages().length > 0}>
+              <Show when={assistantMessages().length > 0}>
                 <div data-slot="session-turn-assistant-content" aria-hidden={working()}>
                   <AssistantParts
-                    messages={visibleAssistantMessages()}
+                    messages={assistantMessages()}
                     showAssistantCopyPartID={assistantCopyPartID()}
                     turnDurationMs={turnDurationMs()}
                     working={working()}

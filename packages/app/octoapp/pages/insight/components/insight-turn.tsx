@@ -14,7 +14,6 @@ import { findResourceLinks, linkToOutputType, type ResourceLink } from "../utils
 import { findWriteCards, basename } from "../utils/write-output"
 import { readTaskInfo, businessToolBareName, type TaskCardEntry, type TaskInfo } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
-import { KnowledgeReferences, readKnowledgeSources } from "./knowledge-references"
 import { parseUploadedFiles } from "../lib/upload"
 import { fileTypeIconUrl } from "../icons/illustrations"
 import { tracker } from "@/utils/tracker"
@@ -186,15 +185,22 @@ export function InsightTurn(props: {
     return out
   })
 
-  // 内网知识库引用(SPEC-INS-030 §2):sources 挂在 knowledge_search 的 tool part 的 state.metadata 上。
-  // 复用 turnAssistantParts 而非只看第一条 assistant 消息 —— 思维链模型会把 reasoning+tool 与最终正文
-  // 拆成多条 assistant 消息,工具 part 常落在靠前那条(chat 侧 message-timeline 当年也是为此往后扫)。
-  const kbSources = createMemo(() => readKnowledgeSources(turnAssistantParts() as Array<Record<string, unknown>>))
-
   // 本轮是否是最新的（最后一条）用户消息 —— 仅对最新轮次显示生成中占位
+  // 用 time.created 数值比较找最新 user,不依赖 msgStore 数组顺序:
+  // event-reducer 的 Binary.search 按 string ID 插入,历史 session 旧 ID 格式与当前
+  // Identifier.ascending() 不兼容,新消息可能插到数组前面而非末尾,reverse().find() 会误命中旧 user。
   const isLatestTurn = createMemo(() => {
     const messages = ((data.store.message as Record<string, Message[]>)?.[props.sessionID] ?? [])
-    const lastUser = [...messages].reverse().find((m) => m.role === "user")
+    let lastUser: Message | undefined
+    let lastUserTime = -1
+    for (const m of messages) {
+      if (m.role !== "user") continue
+      const t = (m as { time?: { created?: number } }).time?.created ?? 0
+      if (t >= lastUserTime) {
+        lastUserTime = t
+        lastUser = m
+      }
+    }
     return lastUser?.id === props.messageID
   })
 
@@ -547,11 +553,6 @@ export function InsightTurn(props: {
         >
           <span class="text-sm" style={{ color: "var(--octo-text-secondary)" }}>⏳ 正在生成…</span>
         </div>
-      </Show>
-
-      {/* 内网知识库引用列表(SPEC-INS-030):行内 [[n]](url) 由上游 Markdown 渲染,这里补底部来源清单 */}
-      <Show when={kbSources().length > 0}>
-        <KnowledgeReferences sources={kbSources()} />
       </Show>
 
       {/* 紧凑预览入口卡(spec: output-renderers.md §6.B)

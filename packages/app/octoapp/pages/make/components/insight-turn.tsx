@@ -4,7 +4,7 @@ import { useData, useI18n } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { MessageDivider } from "@opencode-ai/ui/message-part"
 import { Button } from "@opencode-ai/ui/button"
-import { createEffect, createMemo, createResource, createSignal, Show, For, type JSX } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, on, Show, For, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg, IconCardReact, IconCardDiagram } from "../icons"
 import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../utils/artifact-parser"
@@ -22,6 +22,7 @@ import { getFileIcon } from "../icons/file-type-icons"
 import { extractSubtypeFromTitle } from "../utils/subtype-extractor"
 import { kindFromMime } from "./attachment-bar"
 import { isElectronDesktop, pathToLocalUrl } from "../utils/artifact-file-api"
+import { lookupDisplayName } from "./skill-config-types"
 
 // Render text with @mentions - plain text only, no chip styling
 function renderMentionText(text: string): JSX.Element {
@@ -729,7 +730,16 @@ export function InsightTurn(props: {
 
   const isLatestTurn = createMemo(() => {
     const messages = msgStore?.[props.sessionID] ?? []
-    const lastUser = [...messages].reverse().find((m) => m.role === "user")
+    let lastUser: Message | undefined
+    let lastUserTime = -1
+    for (const m of messages) {
+      if (m.role !== "user") continue
+      const t = (m as { time?: { created?: number } }).time?.created ?? 0
+      if (t >= lastUserTime) {
+        lastUserTime = t
+        lastUser = m
+      }
+    }
     return lastUser?.id === props.messageID
   })
 
@@ -808,14 +818,8 @@ export function InsightTurn(props: {
         
         // 查找 displayName（仅对 skill 工具）
         let displayName: string | undefined
-        if (toolName === "skill" && input && typeof input.name === "string" && skillData) {
-          // 遍历查找 skillName 匹配的条目
-          for (const [displayNameKey, entry] of Object.entries(skillData)) {
-            if (entry && typeof entry === "object" && entry.skillName === input.name) {
-              displayName = displayNameKey  // key 就是显示名
-              break
-            }
-          }
+        if (toolName === "skill" && input && typeof input.name === "string") {
+          displayName = lookupDisplayName(skillData, input.name as string)
         }
         
         return {
@@ -830,9 +834,36 @@ export function InsightTurn(props: {
   })
 
   // Non-task tool calls (for ToolCallGroupCard — task calls shown separately as subtask cards)
-  const skillToolCalls = createMemo(() =>
-    toolCalls().filter((c) => c.name === "skill")
-  )
+
+  // 用户通过 @ / / 激活的技能:后端在 createUserMessage 时为 user message 注入
+  // type="tool" tool="skill" 的 part(source: "user")。assistantParts 不包含 user parts,
+  // 需单独从 partStore[messageID] 取,合并到 skillToolCalls 前面展示。
+  const userSkillToolCalls = createMemo((): ToolCallInfo[] => {
+    const parts = (partStore?.[props.messageID] ?? []) as Array<Record<string, unknown>>
+    const skillData = props.skillConfig?.skill
+    return parts
+      .filter((p) => p.type === "tool" && (p.tool as string | undefined) === "skill")
+      .map((p) => {
+        const state = (p.state as Record<string, unknown> | undefined) ?? {}
+        const input = state.input as { name?: string } | undefined
+        const displayName = input?.name
+          ? lookupDisplayName(skillData, input.name)
+          : undefined
+        return {
+          name: "skill",
+          status: "done" as const,
+          input: input ?? undefined,
+          output: undefined,
+          filePath: undefined,
+          displayName,
+        }
+      })
+  })
+
+  const skillToolCalls = createMemo(() => [
+    ...userSkillToolCalls(),
+    ...toolCalls().filter((c) => c.name === "skill"),
+  ])
 
   const otherToolCalls = createMemo(() =>
     toolCalls().filter((c) => c.name !== "skill" && !/task/i.test(c.name))
@@ -1056,6 +1087,14 @@ const stateStatus = state.status as string | undefined
   // Stable flag: once artifact detected during generation, don't flicker back
   const [hasSeenCount, setHasSeenCount] = createSignal(0)
   const [lastSeenCards, setLastSeenCards] = createSignal<OutputCard[]>([])
+
+  // 切换 session/message 时清空 local state。
+  // <Show> 包裹的 InsightTurn 在 userMessages().length > 0 保持 truthy 时会被复用,
+  // 不重置 local state 会导致 B session 的 streaming cards 泄漏到 A session 的视图。
+  createEffect(on(() => [props.sessionID, props.messageID] as const, () => {
+    setHasSeenCount(0)
+    setLastSeenCards([])
+  }, { defer: true }))
 
   // Track whether we've seen artifacts during streaming (effect, not memo)
   createEffect(() => {

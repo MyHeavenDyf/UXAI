@@ -21,11 +21,15 @@ interface EditorRef {
   focus: () => void
   clear: () => void
   insertText: (text: string) => void
+  replaceSlashCommand: (text: string) => void
 }
 
 interface Props {
   sessionId: string
-  skillConfig: { panel?: { common?: PanelSkill[]; octo_make?: PanelSkill[] } }
+  skillConfig: {
+    skill?: Record<string, import("../skill-config-types").SkillConfigEntry>
+    panel?: { common?: PanelSkill[]; octo_make?: PanelSkill[] }
+  }
   artifactFiles: { generated: ArtifactFile[]; uploaded: ArtifactFile[] } | null | undefined
   mentionSelections: MentionSelection[]
   setMentionSelections: (selections: MentionSelection[]) => void
@@ -193,6 +197,21 @@ export const ProseMirrorEditor = (props: Props) => {
           if (!v) return
           const tr = v.state.tr.insertText(text)
           v.dispatch(tr)
+        },
+        replaceSlashCommand: (text: string) => {
+          const v = view()
+          if (!v) return
+          const trigger = slashTriggerState()
+          if (!trigger?.active) {
+            const tr = v.state.tr.insertText(text)
+            v.dispatch(tr)
+            return
+          }
+          // trigger.from points to the position AFTER the slash (start of query).
+          // Include the slash itself in the replacement range so it doesn't double up.
+          const tr = v.state.tr.insertText(text, trigger.from - 1, trigger.to)
+          v.dispatch(tr)
+          setSlashTriggerState(null)
         },
       })
     }

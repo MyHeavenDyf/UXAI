@@ -33,14 +33,7 @@ export const oaCompatHelper: ProviderHelper = ({ adjustCacheUsage }) => ({
   modifyBody: (body: Record<string, any>, _workspaceID?: string) => {
     return {
       ...body,
-      ...(body.stream
-        ? {
-            stream_options: {
-              ...(typeof body.stream_options === "object" && body.stream_options ? body.stream_options : {}),
-              include_usage: true,
-            },
-          }
-        : {}),
+      ...(body.stream ? { stream_options: { include_usage: true } } : {}),
     }
   },
   createBinaryStreamDecoder: () => undefined,
@@ -50,11 +43,11 @@ export const oaCompatHelper: ProviderHelper = ({ adjustCacheUsage }) => ({
 
     return {
       parse: (chunk: string) => {
-        if (!chunk.startsWith("data:")) return
+        if (!chunk.startsWith("data: ")) return
 
         let json
         try {
-          json = JSON.parse(chunk.replace(/^data:\s*/, "")) as { usage?: Usage }
+          json = JSON.parse(chunk.slice(6)) as { usage?: Usage }
         } catch {
           return
         }

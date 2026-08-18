@@ -399,14 +399,18 @@
 } */
 
 /* ================= Dropdown ================= */
+.el-dropdown .el-tooltip__trigger:focus-visible {
+  outline: none;
+}
 .el-dropdown__popper.el-popper {
   --el-dropdown-menu-box-shadow: var(--el-box-shadow);
-  --el-dropdown-menuItem-hover-fill: var(--el-fill-color-light);
+  --el-dropdown-menuItem-hover-fill: rgb(from var(--gray-05) r g b / 0.2);
   --el-dropdown-menuItem-hover-color: var(--brand-30);
   border-radius: var(--radius-base);
   padding: 4px;
     .el-dropdown-menu {
     padding: 0px;
+    background-color: transparent;
   }
   .el-dropdown-menu__item {
     padding:5px 4px 5px 8px;
@@ -424,6 +428,28 @@
   --el-select-input-font-size: var(--el-font-size-base);
   --el-select-multiple-input-color: var(--gray-0);
   --el-text-color-placeholder: var(--gray-0);
+  .el-select__selected-item{
+    .el-tag__close{
+      .el-icon{
+        font-size: var(--font-size-sm);
+      }
+    }
+    &:hover{
+      .el-tag__close{
+        color: var(--brand-50);
+      }
+    }
+  }
+  &.el-select--large{
+    .el-select__wrapper{
+      padding: 8px 12px;
+    }
+  }
+  &.el-select--small{
+    .el-select__wrapper{
+      padding: 2px 12px;
+    }
+  }
 }
 
 .el-select__wrapper {
@@ -441,6 +467,28 @@
 .el-select__popper {
   .el-select-dropdown + .el-popper__arrow {
     display: none;
+  }
+  .el-select-dropdown {
+    .el-select-dropdown__item {
+      display: flex;
+      align-items: center;
+      color: var(--gray-0);
+      &.is-hovering {
+        background-color: rgb(from var(--gray-05) r g b / 0.2);
+      }
+      &.is-selected {
+        background-color: rgb(from var(--brand-50) r g b / 0.4);
+      } 
+      
+    }
+    &.is-multiple{
+      .el-select-dropdown__item.is-selected {
+        background-color: unset;
+        &.is-hovering {
+          background-color: rgb(from var(--gray-05) r g b / 0.2);
+        }
+      }
+    }
   }
 }
 
@@ -487,18 +535,41 @@
   --el-checkbox-checked-text-color: var(--el-text-color-primary);
   --el-checkbox-checked-bg-color: var(--el-color-primary);
   --el-checkbox-checked-input-border-color: var(--brand-50);
+  margin-right: 16px;
+  height: auto;
+  white-space: normal;
+  word-wrap: break-word;
+  align-items: flex-start;
 }
-.el-checkbox__inner {
-  &:hover {
-    --el-checkbox-checked-bg-color: var(--brand-40);
-    --el-checkbox-checked-input-border-color: var(--brand-40);
-  }
-  &::after {
-    width: 3px;
-    height: 7px;
-  }
+.el-checkbox__label {
+  padding-right: 8px;
+  line-height: 1.25;
 }
-
+.el-checkbox__inner:hover {
+  --el-checkbox-checked-bg-color: var(--brand-40);
+  --el-checkbox-checked-input-border-color: var(--brand-40);
+}
+.el-checkbox__inner:after {
+  width: 4px;
+  height: 8px;
+  border-width:2px;
+}
+.el-checkbox__input.is-indeterminate .el-checkbox__inner:before { 
+  top: 6px;
+  left: 2px;
+  transform: none;
+  width: 10px;
+  border-radius: 2px;
+}
+.el-checkbox__input.is-checked .el-checkbox__inner:after { 
+  transform: translate(-45%, -65%) rotate(45deg) scaleY(1);
+}
+.el-checkbox-group{
+  display: inline-flex;
+  flex-wrap: wrap;
+  column-gap: 8px;
+  row-gap: 8px;
+}
 .hui-svg-icon svg {
   width: 100%;
   height: 100%;
