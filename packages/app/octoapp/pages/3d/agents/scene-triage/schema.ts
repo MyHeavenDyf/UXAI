@@ -1,46 +1,21 @@
 const schema = {
   type: "object",
   properties: {
-    routing: { type: "string", enum: ["regenerate", "modify", "chat"] },
-    delete: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          element_id: { type: "string" },
-          action: { type: "string" },
-        },
-        required: ["element_id", "action"],
-        additionalProperties: false,
+    routing: { type: "string", enum: ["create", "modify", "chat"] },
+    types: {
+      type: "object",
+      properties: {
+        create: { type: "array", items: { type: "string" } },
+        modify: { type: "array", items: { type: "string" } },
       },
+      required: ["create", "modify"],
+      additionalProperties: false,
     },
-    add: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: { action: { type: "string" } },
-        required: ["action"],
-        additionalProperties: false,
-      },
-    },
-    modify: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          section_id: { type: "string" },
-          element_id: { type: "string" },
-          action: { type: "string" },
-        },
-        required: ["section_id", "element_id", "action"],
-        additionalProperties: false,
-      },
-    },
-    reply: { type: ["string", "null"] },
+    reply: { type: "string" },
     reason: { type: "string" },
     attachment_description: { type: ["string", "null"] },
   },
-  required: ["routing", "delete", "add", "modify", "reply", "reason", "attachment_description"],
+  required: ["routing", "types", "reply", "reason", "attachment_description"],
   additionalProperties: false,
 }
 

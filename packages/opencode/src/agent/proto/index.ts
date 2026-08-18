@@ -29,6 +29,10 @@ import _RAW_REPLANNER from "./prompt/proto_replanner.txt"
 // 3D 场景 stastics（替代 load_components_docs 工具，agent 直接读静态目录生成 mesh/group）
 import SCENE_CONFIG_SCHEMA from "./prompt/stastics/SCENE_CONFIG_SCHEMA.txt"
 import MESH_GEOMETRY_CATALOG from "./prompt/stastics/MESH_GEOMETRY_CATALOG.txt"
+// 3D codegen 静态契约片段（handler 契约 / 分组场景格式 / 注册模板，注入 scene_3d_codegen prompt）
+import HANDLER_CONTRACT from "./prompt/stastics/HANDLER_CONTRACT.txt"
+import TREE_SCENE_FORMAT from "./prompt/stastics/TREE_SCENE_FORMAT.txt"
+import REGISTRATION_PATTERN from "./prompt/stastics/REGISTRATION_PATTERN.txt"
 
 // 3D 场景 agent prompts
 import _RAW_SCENE_3D_INTENT from "./prompt/scene_3d/scene_3d_intent.txt"
@@ -39,6 +43,8 @@ import _RAW_SCENE_3D_PLANNER_MODIFY from "./prompt/scene_3d/scene_3d_planner_mod
 import _RAW_SCENE_3D_MODULE_CREATE from "./prompt/scene_3d/scene_3d_module_create.txt"
 import _RAW_SCENE_3D_MODULE_MODIFY from "./prompt/scene_3d/scene_3d_module_modify.txt"
 import _RAW_SCENE_3D_TRIAGE from "./prompt/scene_3d/scene_3d_triage.txt"
+import _RAW_SCENE_3D_PLAN from "./prompt/scene_3d/scene_3d_plan.txt"
+import _RAW_SCENE_3D_CODEGEN from "./prompt/scene_3d/scene_3d_codegen.txt"
 
 const _staticData: Record<string, string> = {
   component_usage,
@@ -55,6 +61,9 @@ const _staticData: Record<string, string> = {
   design_system,
   SCENE_CONFIG_SCHEMA,
   MESH_GEOMETRY_CATALOG,
+  HANDLER_CONTRACT,
+  TREE_SCENE_FORMAT,
+  REGISTRATION_PATTERN,
 }
 
 export const staticData = _staticData
@@ -89,6 +98,9 @@ export const PROMPT_SCENE_3D_PLANNER_MODIFY = formatPrompt(_RAW_SCENE_3D_PLANNER
 export const PROMPT_SCENE_3D_MODULE_CREATE = formatPrompt(_RAW_SCENE_3D_MODULE_CREATE)
 export const PROMPT_SCENE_3D_MODULE_MODIFY = formatPrompt(_RAW_SCENE_3D_MODULE_MODIFY)
 export const PROMPT_SCENE_3D_TRIAGE = formatPrompt(_RAW_SCENE_3D_TRIAGE)
+// 3D codegen agent prompts（formatPrompt 插值 {HANDLER_CONTRACT} / {TREE_SCENE_FORMAT} / {REGISTRATION_PATTERN}）
+export const PROMPT_SCENE_3D_PLAN = formatPrompt(_RAW_SCENE_3D_PLAN)
+export const PROMPT_SCENE_3D_CODEGEN = formatPrompt(_RAW_SCENE_3D_CODEGEN)
 
 export const RAW_TEMPLATES: Record<string, string> = {
   proto_intent: _RAW_INTENT,
@@ -112,9 +124,11 @@ export const RAW_TEMPLATES: Record<string, string> = {
   scene_3d_module_create: _RAW_SCENE_3D_MODULE_CREATE,
   scene_3d_module_modify: _RAW_SCENE_3D_MODULE_MODIFY,
   scene_3d_triage: _RAW_SCENE_3D_TRIAGE,
+  scene_3d_plan: _RAW_SCENE_3D_PLAN,
+  scene_3d_codegen: _RAW_SCENE_3D_CODEGEN,
 }
 
 export const DEFAULT_DESIGN_SYSTEM = design_system
 export const DEFAULT_COMPONENT_USAGE = component_usage
-  
+
 export * as Proto from "."

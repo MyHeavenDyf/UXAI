@@ -121,6 +121,15 @@ const api: ElectronAPI = {
   importZip: () => ipcRenderer.invoke("import-zip"),
   codeToHtml: (opts) => ipcRenderer.invoke("capture-page", opts),
   listDirectory: (path) => ipcRenderer.invoke("list-directory", path),
+  // 3D workspace（Step 6）：模板副本物化 + dev server 生命周期 + 版本 codeDir 增量铺/删
+  materializeWorkspace: (templateDir, workspaceDir, componentsSrcDir) =>
+    ipcRenderer.invoke("materialize-workspace", { templateDir, workspaceDir, componentsSrcDir }),
+  overlayWorkspaceFiles: (workspaceDir, files) =>
+    ipcRenderer.invoke("overlay-workspace-files", { workspaceDir, files }),
+  startWorkspaceDev: (workspaceDir, port) =>
+    ipcRenderer.invoke("start-workspace-dev", { workspaceDir, port }),
+  stopWorkspaceDev: () => ipcRenderer.invoke("stop-workspace-dev"),
+  deletePathRecursive: (path) => ipcRenderer.invoke("delete-path-recursive", { path }),
   // Pipeline API IPC bridge — renderer 内网调用时通过此通道请求主进程 net.fetch(绕 CORS)
   pipelineRequest: (url, method, uiplusToken, body, headers) => ipcRenderer.invoke("pipeline-request", url, method, uiplusToken, body, headers),
   // jk-j60099994-replace-with-index-1-start

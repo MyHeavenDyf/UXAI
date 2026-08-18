@@ -29,7 +29,7 @@ export type VersionEntry = {
 }
 
 /** 版本历史中的完整条目（含文件名，不含 state） */
-type HistoryEntry = VersionEntry & { filename: string }
+type HistoryEntry = VersionEntry & { filename: string; codeDir?: string }
 
 /** 索引文件结构 */
 type VersionIndex = {
@@ -46,6 +46,11 @@ function indexFilePath(dir: string, sessionId: string) {
 
 function versionFilePath(dir: string, sessionId: string, filename: string) {
   return `${dir}/${sessionId}/${filename}`
+}
+
+/** 版本代码归档目录：{historyDir}/{sessionId}/{versionId}/code（codeDir 维度，Step 6） */
+export function codeDirPath(dir: string, sessionId: string, versionId: string) {
+  return `${dir}/${sessionId}/${versionId}/code`
 }
 
 function sanitizeFilename(summary: string): string {
@@ -136,6 +141,7 @@ export async function appendSceneVersion(
   sessionId: string,
   state: SceneSessionState,
   summary: string,
+  codeFiles?: { path: string; content: string }[],
 ): Promise<string> {
   const index = await readIndex(dir, sessionId)
   const now = Date.now()
@@ -147,6 +153,19 @@ export async function appendSceneVersion(
     filename,
   }
   await writeVersionFile(dir, sessionId, filename, state)
+  // 代码维度（Step 6）：把本轮 code delta 归档到 history/<sessionId>/<versionId>/code/，
+  // 记录 codeDir 供切版本/会话恢复时铺回 workspace。writeFileBuffer 递归建目录。
+  if (codeFiles && codeFiles.length > 0) {
+    const codeDir = codeDirPath(dir, sessionId, entry.id)
+    const api = getDesktopApi()
+    if (api?.writeFileBuffer) {
+      const encoder = new TextEncoder()
+      for (const f of codeFiles) {
+        await api.writeFileBuffer(`${codeDir}/${f.path}`, encoder.encode(f.content).buffer)
+      }
+    }
+    entry.codeDir = codeDir
+  }
   index.versions.push(entry)
   index.current = entry.id
   await writeIndex(dir, sessionId, index)
@@ -186,12 +205,14 @@ export async function updateSceneVersion(
 export async function loadCurrentSceneState(
   dir: string,
   sessionId: string,
-): Promise<SceneSessionState | null> {
+): Promise<(SceneSessionState & { codeDir?: string }) | null> {
   const index = await readIndex(dir, sessionId)
   if (!index.current) return null
   const entry = index.versions.find((v) => v.id === index.current)
   if (!entry) return null
-  return readVersionFile(dir, sessionId, entry.filename)
+  const state = await readVersionFile(dir, sessionId, entry.filename)
+  if (!state) return null
+  return { ...state, codeDir: entry.codeDir }
 }
 
 /**
@@ -241,13 +262,15 @@ export async function switchToVersion(
   dir: string,
   sessionId: string,
   versionId: string,
-): Promise<SceneSessionState | null> {
+): Promise<(SceneSessionState & { codeDir?: string }) | null> {
   const index = await readIndex(dir, sessionId)
   const entry = index.versions.find((v) => v.id === versionId)
   if (!entry) return null
   index.current = versionId
   await writeIndex(dir, sessionId, index)
-  return readVersionFile(dir, sessionId, entry.filename)
+  const state = await readVersionFile(dir, sessionId, entry.filename)
+  if (!state) return null
+  return { ...state, codeDir: entry.codeDir }
 }
 
 /**
@@ -261,6 +284,7 @@ export async function deleteSceneVersion(
   const index = await readIndex(dir, sessionId)
   const idx = index.versions.findIndex((v) => v.id === versionId)
   if (idx === -1) return
+  const removed = index.versions[idx]
   index.versions.splice(idx, 1)
   if (index.current === versionId) {
     index.current = index.versions.length > 0
@@ -268,6 +292,17 @@ export async function deleteSceneVersion(
       : null
   }
   await writeIndex(dir, sessionId, index)
+  // 清理代码维度（Step 6）：删该版本的 codeDir。best-effort，失败不阻塞删版本。
+  if (removed.codeDir) {
+    const api = getDesktopApi()
+    if (api?.deletePathRecursive) {
+      try {
+        await api.deletePathRecursive(removed.codeDir)
+      } catch {
+        // best-effort：codeDir 清理失败不阻塞版本删除
+      }
+    }
+  }
 }
 
 /**
@@ -283,7 +318,7 @@ export async function rollbackToVersion(
   sessionId: string,
   versionId: string,
   onPreview: (data: unknown) => void,
-) {
+): Promise<(SceneSessionState & { codeDir?: string }) | null> {
   const state = await switchToVersion(dir, sessionId, versionId)
   if (!state) return null
 

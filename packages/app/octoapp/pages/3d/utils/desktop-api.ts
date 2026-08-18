@@ -16,6 +16,7 @@ export type DesktopApi = {
   getPreviewDistDir?: () => Promise<string>
   writeFileBuffer?: (path: string, buffer: ArrayBuffer) => Promise<void>
   readFileBuffer?: (path: string) => Promise<ArrayBuffer | null>
+  listDirectory?: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>
   deleteFile?: (path: string) => Promise<void>
   runPixsoBuild?: (input: string) => Promise<string>
   writeClipboardText?: (text: string) => Promise<void>
@@ -27,6 +28,12 @@ export type DesktopApi = {
   getDesignSystems?: () => Promise<string[]>
   downloadHuiCode?: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[]) => Promise<{ files: { path: string; content: string }[] }>
   tailwindToCss?: (className: string) => Promise<Record<string, string>>
+  // 3D workspace（Step 6）— 仅 Electron 暴露，非 Electron 环境为 undefined
+  materializeWorkspace?: (templateDir: string, workspaceDir: string, componentsSrcDir: string) => Promise<{ ok: true }>
+  overlayWorkspaceFiles?: (workspaceDir: string, files: { path: string; content: string }[]) => Promise<{ ok: true }>
+  startWorkspaceDev?: (workspaceDir: string, port: number) => Promise<{ ok: true; url: string } | { ok: false; error: string }>
+  stopWorkspaceDev?: () => Promise<{ ok: true }>
+  deletePathRecursive?: (path: string) => Promise<{ ok: true }>
 }
 
 export function getDesktopApi(): DesktopApi | undefined {

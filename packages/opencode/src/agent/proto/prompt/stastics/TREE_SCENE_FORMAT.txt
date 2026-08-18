@@ -1,0 +1,43 @@
+# 分组扁平场景格式（TreeScene / live-data.json）
+
+## 顶层结构
+```ts
+interface TreeScene {
+  version?: string
+  scene?: { background?: string; environment?: { preset: string; intensity: number }; fog?: { type: string; color: string; near: number; far: number } }
+  camera?: { type?: 'perspective' | 'orthographic'; position?: number[]; lookAt?: number[]; perspective?: { fov: number; near: number; far: number } }
+  lights?: Array<{ type: 'ambient' | 'hemisphere' | 'directional'; intensity: number; position?: number[]; castShadow?: boolean; color?: string }>
+  remove?: string[]                    // 按 id 删除（update 时先于分组处理）
+  [type: string]: unknown              // 其余每个 key 是一个 type 分组（TreeNode[]）
+}
+```
+- **保留 key**：version / scene / camera / lights / remove。其余每个 key = 一个 type 分组。
+- **type 分组**：`{ "<type>": TreeNode[] }`，key 是 type 名，value 是该 type 的节点数组。**单个实例也包一层数组**。
+- **节点无 type 字段**：type = 分组 key（buildNodeIndex 展开 raw JSON 时附上）。
+- **节点无 children 字段**：父子靠 parentId。
+
+## TreeNode（raw JSON 形态）
+```json
+{ "id": "hm-1", "parentId": null, "params": { "position": [0, 0, 0] } }
+```
+- `id`：节点 id（CRUD 幂等键，写入 userData.__id）。
+- `parentId`：父节点 id；**根节点 parentId=null**。子节点 parentId 指向父（可跨分组）。
+- `params`：业务字段 + 可选 position/rotation/scale/castShadow/receiveShadow（position/rotation/scale 为 `[x,y,z]` 数组）。
+
+## 完整示例
+```json
+{
+  "version": "1.0",
+  "scene": { "background": "#1a1a2e", "environment": { "preset": "studio", "intensity": 0.8 } },
+  "camera": { "type": "perspective", "position": [8, 7, 10], "lookAt": [0, 1, 0], "perspective": { "fov": 50, "near": 0.1, "far": 1000 } },
+  "lights": [
+    { "type": "ambient", "intensity": 0.5 },
+    { "type": "directional", "intensity": 1.2, "position": [8, 12, 6], "castShadow": true }
+  ],
+  "heatmap": [
+    { "id": "hm-1", "parentId": null, "params": { "position": [0, 0, 0] } }
+  ]
+}
+```
+- 每轮 live-data.json 须**全量自包含**：含本轮所有 type 分组 + camera/lights/scene。不依赖上轮残留（host overlay 整文件覆盖）。
+- modify 时：未受影响的 type 分组原样保留，只重写/新增 plan 指定的 type 分组。

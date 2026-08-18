@@ -43,6 +43,8 @@ import {
   PROMPT_SCENE_3D_MODULE_CREATE,
   PROMPT_SCENE_3D_MODULE_MODIFY,
   PROMPT_SCENE_3D_TRIAGE,
+  PROMPT_SCENE_3D_PLAN,
+  PROMPT_SCENE_3D_CODEGEN,
 } from "./proto"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
@@ -100,7 +102,7 @@ export interface Interface {
 
 type State = Omit<Interface, "generate">
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/Agent") { }
+export class Service extends Context.Service<Service, Interface>()("@opencode/Agent") {}
 
 export const layer = Layer.effect(
   Service,
@@ -311,7 +313,8 @@ export const layer = Layer.effect(
           },
           octo_make_plan: {
             name: "octo_make_plan",
-            description: "设计规划专家。根据用户需求产出一份结构化设计策略文档，包含设计需求、洞察研究、设计资产等模块。",
+            description:
+              "设计规划专家。根据用户需求产出一份结构化设计策略文档，包含设计需求、洞察研究、设计资产等模块。",
             prompt: PROMPT_OCTO_MAKE_PLAN,
             permission: Permission.merge(
               defaults,
@@ -497,7 +500,7 @@ export const layer = Layer.effect(
             name: "proto_pattern_page",
             description: "Proto page pattern agent.",
             prompt: PROMPT_PROTO_PATTERN_PAGE,
-            permission: Permission.fromConfig({ "*": "deny"}),
+            permission: Permission.fromConfig({ "*": "deny" }),
             options: {},
             mode: "primary",
             native: false,
@@ -507,7 +510,7 @@ export const layer = Layer.effect(
             name: "proto_pattern_block",
             description: "Proto block pattern agent.",
             prompt: PROMPT_PROTO_PATTERN_BLOCK,
-            permission: Permission.fromConfig({ "*": "deny"}),
+            permission: Permission.fromConfig({ "*": "deny" }),
             options: {},
             mode: "primary",
             native: false,
@@ -517,7 +520,7 @@ export const layer = Layer.effect(
             name: "proto_intent_confirm",
             description: "Proto intent confirm agent.",
             prompt: PROMPT_PROTO_INTENT_CONFIRM,
-            permission: Permission.fromConfig({ "*": "deny", skill: "allow"}),
+            permission: Permission.fromConfig({ "*": "deny", skill: "allow" }),
             options: {},
             mode: "primary",
             native: false,
@@ -527,7 +530,7 @@ export const layer = Layer.effect(
             name: "proto_wireframes",
             description: "Proto wireframes agent.",
             prompt: PROMPT_PROTO_WFRAMES,
-            permission: Permission.fromConfig({ "*": "deny"}),
+            permission: Permission.fromConfig({ "*": "deny" }),
             options: {},
             mode: "primary",
             native: false,
@@ -613,6 +616,36 @@ export const layer = Layer.effect(
             mode: "primary",
             native: false,
             temperature: 0.1,
+          },
+          // ── 3D codegen 3-agent（Step 7）：plan 选型 + codegen 写 handler 代码 ──
+          scene_3d_plan: {
+            name: "scene_3d_plan",
+            description:
+              "3D scene plan agent — picks type / component / resource via list_3d_components + get_3d_component_doc.",
+            prompt: PROMPT_SCENE_3D_PLAN,
+            permission: Permission.fromConfig({
+              "*": "deny",
+              list_3d_components: "allow",
+              get_3d_component_doc: "allow",
+              read: "allow",
+            }),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.0,
+          },
+          scene_3d_codegen: {
+            name: "scene_3d_codegen",
+            description: "3D scene codegen agent — writes ComponentHandler .ts + full index.ts + live-data.json.",
+            prompt: PROMPT_SCENE_3D_CODEGEN,
+            // codegen 只输出代码 text（## file: 代码块），不调任何工具——
+            // plan 已选型，组件按 createComponentObject('名') 黑盒创建，无需查文档。
+            // 允许工具会让 LLM 陷工具调用回路（assistant#1 只有 tool_use 无 text）→ getResultFromMessages 取到空 → "模型未返回有效内容"。
+            permission: Permission.fromConfig({ "*": "deny" }),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.0,
           },
           proto_modify: {
             name: "proto_modify",
@@ -771,11 +804,11 @@ export const layer = Layer.effect(
             ...(isOpenaiOauth
               ? []
               : system.map(
-                (item): ModelMessage => ({
-                  role: "system",
-                  content: item,
-                }),
-              )),
+                  (item): ModelMessage => ({
+                    role: "system",
+                    content: item,
+                  }),
+                )),
             {
               role: "user",
               content: `Create an agent configuration based on this request: "${input.description}".\n\nIMPORTANT: The following identifiers already exist and must NOT be used: ${existing.map((i) => i.name).join(", ")}\n  Return ONLY the JSON object, no other text, do not wrap in backticks`,
@@ -797,7 +830,7 @@ export const layer = Layer.effect(
                 instructions: system.join("\n"),
                 store: false,
               }),
-              onError: () => { },
+              onError: () => {},
             })
             for await (const part of result.fullStream) {
               if (part.type === "error") throw part.error

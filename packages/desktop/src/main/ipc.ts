@@ -1,9 +1,9 @@
-import { execFile } from "node:child_process"
+import { execFile, spawn, type ChildProcess } from "node:child_process"
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, globSync, createWriteStream } from "node:fs"
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
-import { mkdir, readFile, writeFile, lstat, stat, unlink, rm, copyFile, rename } from "node:fs/promises"
+import { mkdir, readFile, writeFile, lstat, stat, unlink, rm, copyFile, rename, symlink } from "node:fs/promises"
 import { dirname, extname, join, basename, resolve as resolvePath, sep } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
@@ -108,6 +108,63 @@ function isInsightSessionWorktreePath(resolved: string): boolean {
   return i !== -1 && i + 2 < segs.length && (segs[i + 2] === "uploads" || segs[i + 2] === "outputs")
 }
 
+// 3D workspace 路径校验：判断路径是否落在 .octo/design-3d[/sub] 下。
+// workspace 物化/overlay 用无 sub；delete-path-recursive 用 sub="history"。
+function isDesign3dPath(resolved: string, sub?: "history"): boolean {
+  const segs = resolved.split(sep)
+  const i = segs.lastIndexOf(".octo")
+  return i !== -1 && segs[i + 1] === "design-3d" && (sub === undefined || segs[i + 2] === sub)
+}
+
+// 3D workspace dev server 子进程句柄（全局唯一一个 workspace = 一个 dev server）。
+let workspaceDev: ChildProcess | null = null
+
+// 停掉 workspace dev server 并等其真正退出。Windows 上 child.kill 杀不掉 vite 的 esbuild/rollup
+// 子进程，用 taskkill /T /F 连子进程一起杀；且必须等进程退出 + 句柄释放后再 resolve，否则后续
+// rm(workspaceDir) 撞 EBUSY（taskkill 异步、句柄释放有滞后）。不 removeAllListeners('exit')：
+// 让 start 的 exit 监听自然收尾。
+async function killWorkspaceDev(): Promise<void> {
+  const child = workspaceDev
+  workspaceDev = null
+  if (!child) return
+  if (child.exitCode !== null || child.signalCode !== null) return // 已退出
+  const pid = child.pid
+  const exited = new Promise<void>((resolve) => {
+    child.once("exit", () => resolve())
+    setTimeout(resolve, 3000) // 兜底：3s 后无论如何放行，防 hang
+  })
+  try {
+    child.kill()
+  } catch {
+    // 已退出则忽略
+  }
+  if (pid != null && process.platform === "win32") {
+    await new Promise<void>((resolve) => {
+      execFile("taskkill", ["/pid", String(pid), "/T", "/F"], () => resolve())
+    })
+  }
+  await exited
+  // Windows 句柄释放有滞后，再等一拍避免后续 rm EBUSY
+  await new Promise((r) => setTimeout(r, 150))
+}
+
+// 解析 dev server 运行时（bun）的绝对路径。
+// Windows 上 spawn("bun") 无 PATHEXT 解析会 ENOENT；npm 全局装的 bun 是 .cmd shim（又需 shell）。
+// 直接定位 bun.exe spawn 最稳。可用 OCTO_3D_DEV_RUNTIME env 显式覆盖（绝对路径）。
+function resolveDevRuntime(): string | null {
+  const override = process.env.OCTO_3D_DEV_RUNTIME
+  if (override) return override
+  const candidates = [
+    process.env.APPDATA ? join(process.env.APPDATA, "npm", "node_modules", "bun", "bin", "bun.exe") : null,
+    process.env.USERPROFILE ? join(process.env.USERPROFILE, ".bun", "bin", "bun.exe") : null,
+    process.env.HOME ? join(process.env.HOME, ".bun", "bin", "bun") : null,
+  ].filter((p): p is string => p !== null)
+  for (const c of candidates) {
+    if (existsSync(c)) return c
+  }
+  return null
+}
+
 // 网络错误可读化:fetch 把真实原因(DNS / TLS / 代理 / 连接被拒)藏在 error.cause 链里,
 // IPC 序列化只保留顶层 message("fetch failed")——展开整条 cause 链拼进 message,
 // 让渲染端错误提示与 main.log 都能看到可定位的原因,而不是四个字母查到死。
@@ -176,6 +233,191 @@ function readZipComment(zipPath: string): string {
 }
 
 export function registerIpcHandlers(deps: Deps) {
+  app.on("before-quit", () => { void killWorkspaceDev() })
+
+  // ===== 3D workspace：模板副本物化 + dev server 生命周期（Step 6）=====
+
+  // materialize-workspace：拷模板母版 → workspace（排除 node_modules/dist/.git/.husky），
+  // node_modules 用 Windows junction 软链（免管理员），重写 vite.config.ts 别名到 3d-components 源码绝对路径
+  // （拷后 __dirname 变了，原 resolve(__dirname,'../3d-components/src') 别名会失效致 vite 挂）。
+  ipcMain.handle(
+    "materialize-workspace",
+    async (
+      _event: IpcMainInvokeEvent,
+      args: { templateDir: string; workspaceDir: string; componentsSrcDir: string },
+    ) => {
+      const workspaceDir = resolvePath(args.workspaceDir)
+      if (!isDesign3dPath(workspaceDir))
+        throw new Error(`workspace 路径不在 .octo/design-3d 下: ${args.workspaceDir}`)
+      const tpl = resolvePath(args.templateDir)
+      if (!existsSync(tpl)) throw new Error(`模板母版不存在: ${args.templateDir}`)
+      // 清旧 workspace（含旧 node_modules junction）。Windows 上句柄释放有滞后（dev server 刚停 /
+      // IDE 打开文件 / AV 扫描），rm 可能撞 EBUSY —— 重试几次。
+      if (existsSync(workspaceDir)) {
+        let lastErr: unknown
+        for (let i = 0; i < 5; i++) {
+          try {
+            await rm(workspaceDir, { recursive: true, force: true })
+            lastErr = null
+            break
+          } catch (e) {
+            lastErr = e
+            await new Promise((r) => setTimeout(r, 250))
+          }
+        }
+        if (lastErr) throw lastErr
+      }
+      await mkdir(workspaceDir, { recursive: true })
+      cpSync(tpl, workspaceDir, {
+        recursive: true,
+        filter: (src: string) => {
+          if (src === tpl) return true
+          const rel = src.slice(tpl.length).replace(/^[\/\\]/, "")
+          const top = rel.split(/[\/\\]/)[0]
+          return top !== "node_modules" && top !== "dist" && top !== ".git" && top !== ".husky"
+        },
+      })
+      // node_modules → 母版 node_modules 的 Windows junction（不需管理员/dev-mode）
+      const nmLink = join(workspaceDir, "node_modules")
+      if (existsSync(nmLink)) await rm(nmLink, { recursive: true, force: true })
+      await symlink(join(tpl, "node_modules"), nmLink, "junction")
+      // 重写 vite.config.ts：6 条 ../3d-components/src 别名 → componentsSrcDir 绝对路径
+      // （@→src 那条不含该子串，不动）。用 split/join 免正则转义与 ES 版本顾虑。
+      const viteConfigPath = join(workspaceDir, "vite.config.ts")
+      if (existsSync(viteConfigPath)) {
+        const orig = await readFile(viteConfigPath, "utf-8")
+        // 注意：split 串结尾停在 'src'（不含其后的 '/' 与闭引号 '），故 join 串也以 'src' 结尾、
+        // 不带闭引号 —— 原始闭引号在剩余片段 '/<suffix>')' 里保留并提供闭合；
+        // 若 join 串多带一个 ' → src' 提前闭合 → rolldown 解析报错。
+        const rewritten = orig
+          .split("resolve(__dirname, '../3d-components/src")
+          .join(`resolve('${args.componentsSrcDir}`)
+        await writeFile(viteConfigPath, rewritten, "utf-8")
+      }
+      return { ok: true as const }
+    },
+  )
+
+  // overlay-workspace-files：把版本代码增量文件写入 workspace（建嵌套目录）。materialize 后铺当前版本 code delta。
+  ipcMain.handle(
+    "overlay-workspace-files",
+    async (
+      _event: IpcMainInvokeEvent,
+      args: { workspaceDir: string; files: { path: string; content: string }[] },
+    ) => {
+      const wsRoot = resolvePath(args.workspaceDir)
+      if (!isDesign3dPath(wsRoot))
+        throw new Error(`workspace 路径不在 .octo/design-3d 下: ${args.workspaceDir}`)
+      for (const f of args.files) {
+        if (f.path.includes("..")) throw new Error(`非法路径(含 ..): ${f.path}`)
+        const dest = resolvePath(join(wsRoot, f.path))
+        if (!dest.startsWith(wsRoot + sep) && dest !== wsRoot)
+          throw new Error(`路径逃逸 workspace: ${f.path}`)
+        await mkdir(dirname(dest), { recursive: true })
+        await writeFile(dest, f.content, "utf-8")
+      }
+      return { ok: true as const }
+    },
+  )
+
+  // start-workspace-dev：spawn vite dev server（默认 bun 跑 vite/bin/vite.js，可由 OCTO_3D_DEV_RUNTIME 改 node；
+  // 不用 process.execPath——那是 electron.exe 不是 node），解析 stdout 的 http://127.0.0.1:<port> 拿 ready 信号，30s 超时。
+  ipcMain.handle(
+    "start-workspace-dev",
+    async (_event: IpcMainInvokeEvent, args: { workspaceDir: string; port: number }) => {
+      const workspaceDir = resolvePath(args.workspaceDir)
+      const viteJs = join(workspaceDir, "node_modules/vite/bin/vite.js")
+      if (!existsSync(viteJs)) return { ok: false as const, error: `vite 未找到: ${viteJs}` }
+      await killWorkspaceDev()
+      const runtimePath = resolveDevRuntime()
+      if (!runtimePath) {
+        return {
+          ok: false as const,
+          error:
+            "找不到 bun 运行时（未在 npm 全局 / ~/.bun 找到 bun.exe；可设 OCTO_3D_DEV_RUNTIME 指向 bun.exe 绝对路径）",
+        }
+      }
+      const child = spawn(
+        runtimePath,
+        [viteJs, "--port", String(args.port), "--host", "127.0.0.1", "--strictPort"],
+        {
+          cwd: workspaceDir,
+          windowsHide: true,
+          stdio: ["ignore", "pipe", "pipe"],
+          // NO_COLOR 标准禁色（vite 的 isColorSupported 把 FORCE_COLOR="0" 当真值反而启颜色，故不用 FORCE_COLOR）
+          env: { ...process.env, NO_COLOR: "1" },
+        },
+      )
+      workspaceDev = child
+      let buf = ""
+      const readyRe = /http:\/\/127\.0\.0\.1:(\d+)/
+      return await new Promise<{ ok: true; url: string } | { ok: false; error: string }>(
+        (resolve, reject) => {
+          let settled = false
+          let timer: ReturnType<typeof setTimeout>
+          const onOut = (chunk: Buffer) => {
+            const s = chunk.toString()
+            buf = (buf + s).slice(-2048)
+            // NO_COLOR 已禁色，仍 strip ANSI 兜底（vite logo 个别硬编码色码可能不受 NO_COLOR 控制）
+            const clean = buf.replace(/\x1b\[[0-9;]*m/g, "")
+            const m = clean.match(readyRe)
+            // 双重保险：url 正则命中用其端口；否则命中 "ready in Nms" 也算 ready，端口用已知 args.port。
+            if (!settled && (m || /ready in \d+\s*ms/i.test(clean))) {
+              settled = true
+              clearTimeout(timer)
+              child.stdout?.removeListener("data", onOut)
+              child.stderr?.removeListener("data", onOut)
+              const port = m ? m[1] : String(args.port)
+              resolve({ ok: true as const, url: `http://127.0.0.1:${port}/embed` })
+            }
+          }
+          child.stdout?.on("data", onOut)
+          child.stderr?.on("data", onOut)
+          child.on("exit", (code) => {
+            if (!settled) {
+              settled = true
+              clearTimeout(timer)
+              reject(new Error(`vite 退出(code ${code}) ${buf}`))
+            } else if (workspaceDev === child) {
+              workspaceDev = null
+            }
+          })
+          child.on("error", (e) => {
+            if (!settled) {
+              settled = true
+              clearTimeout(timer)
+              reject(new Error(`vite 启动失败(${runtimePath}): ${e.message}`))
+            }
+          })
+          timer = setTimeout(() => {
+            if (!settled) {
+              settled = true
+              void killWorkspaceDev()
+              reject(new Error(`vite 启动超时(120s) ${buf}`))
+            }
+          }, 120000)
+        },
+      )
+    },
+  )
+
+  ipcMain.handle("stop-workspace-dev", async () => {
+    await killWorkspaceDev()
+    return { ok: true as const }
+  })
+
+  // delete-path-recursive：删版本 codeDir（仅限 .octo/design-3d/history 下，供 deleteSceneVersion 清理 code 维度）。
+  ipcMain.handle(
+    "delete-path-recursive",
+    async (_event: IpcMainInvokeEvent, args: { path: string }) => {
+      const resolved = resolvePath(args.path)
+      if (!isDesign3dPath(resolved, "history"))
+        throw new Error(`路径不在 .octo/design-3d/history 下: ${args.path}`)
+      await rm(resolved, { recursive: true, force: true })
+      return { ok: true as const }
+    },
+  )
+
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
   ipcMain.handle("await-initialization", (event: IpcMainInvokeEvent) => {
     const send = (step: InitStep) => event.sender.send("init-step", step)

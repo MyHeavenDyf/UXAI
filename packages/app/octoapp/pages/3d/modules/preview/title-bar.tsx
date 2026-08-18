@@ -17,6 +17,7 @@ import {
   IconSun,
   IconMoon,
   IconActionPreview,
+  IconCardJson,
 } from "../icons"
 import type { VersionEntry } from "../../utils/version-history"
 import "../../assets/style/preview/titleBar.css"
@@ -28,6 +29,7 @@ interface TitleBar3DProps {
   onToggleEditing: () => void
   onShare?: () => void
   onDownload?: () => void
+  onWorkspaceDev?: () => void
   versions?: VersionEntry[]
   currentVersionId?: string | null
   onSelectVersion?: (versionId: string) => void
@@ -140,6 +142,14 @@ export function TitleBar3D(props: TitleBar3DProps) {
               </div>
             </Show>
           </div>
+
+          {/* 工作空间（Step 6 验证，仅 dev） */}
+          <Show when={import.meta.env.DEV}>
+            <button class="pattern-action-btn" title="工作空间（验证）" onClick={() => props.onWorkspaceDev?.()}>
+              <IconCardJson size={16} />
+              <span>工作空间</span>
+            </button>
+          </Show>
 
           {/* 主题切换 */}
           <button

@@ -1,0 +1,47 @@
+# handlers/index.ts 注册模板（全量自包含，每轮 overlay 整文件替换）
+
+## 必须产出的全量 handlers/index.ts
+```ts
+import { componentManager, type ComponentHandler } from '../ComponentManager';
+import { sharedState } from './base/shared';
+import { registerAllComponents } from '../../../components';
+import { buildingsHandler } from './buildings/buildings';
+import { roadsHandler } from './roads/roads';
+import { waterHandler } from './water/water';
+import { exampleHandler } from './exampleField/example';
+import { modelHandler } from './model/model';
+// 本轮新增 handler 的 import（按 type 名，每 type 一行）：
+// import { heatmapHandler } from './heatmap/heatmap';
+// import { fountainHandler } from './fountain/fountain';
+
+export { sharedState, ComponentSharedState } from './base/shared';
+
+const typeHandlers: Array<{ type: string; handler: ComponentHandler }> = [
+  { type: 'buildings', handler: buildingsHandler },
+  { type: 'roads', handler: roadsHandler },
+  { type: 'water', handler: waterHandler },
+  { type: 'example', handler: exampleHandler },
+  { type: 'model', handler: modelHandler },
+  // 本轮新增 type 的注册行（每 type 一行）：
+  // { type: 'heatmap', handler: heatmapHandler },
+  // { type: 'fountain', handler: fountainHandler },
+];
+
+export const registerComponentHandlers = (): void => {
+  registerAllComponents();
+  componentManager.registerHandlers(typeHandlers);
+};
+
+export const disposeComponentHandlers = (): void => {
+  sharedState.dispose();
+};
+```
+
+## 自包含约束（极易出错）
+1. **必须保留模板 5 项**：buildings / roads / water / example / model 的 import + typeHandlers 注册行**原样保留**，不得删改。这 5 个 handler 已存在于母版（handlers/buildings/buildings.ts 等），overlay 不删它们，但 index.ts 整文件替换时漏写即该 type 未注册 → 渲染空白。
+2. **追加新增**：本轮每个新 type 在 import 区加一行 `import { <type>Handler } from './<type>/<type>'`，在 typeHandlers 数组末尾加一行 `{ type: '<type>', handler: <type>Handler }`。
+3. **modify 重写时**：被重写的 type 的 import 行指向同路径（内容已覆盖），typeHandlers 注册行不变；新增 type 追加；**未受影响的 type 原样保留**（其 handler 文件未改，import 行不变）。
+4. **handler 命名**：导出名 = `<type>Handler`（camelCase，如 heatmap → heatmapHandler、fountain → fountainHandler）。
+5. **文件路径**：handler 文件 = `handlers/<type>/<type>.ts`，导出名 `<type>Handler`，index.ts import 路径 `./<type>/<type>`。
+6. **registerAllComponents() / disposeComponentHandlers() 原样保留**：前者注册 3d-components 底层组件表，后者释放共享状态。
+7. **禁止 Node 专属 API / CJS shim**：代码跑在浏览器 vite，严禁 `import ... from 'node:module'`、`createRequire`、`require()`、`import.meta.filename`、`import.meta.dirname`、`__dirname`、`__filename`、`process.*`。只允许 ESM `import`。index.ts 必须是上面模板的**精确副本**——只加 import 行 + 注册行，不得加任何其他代码（无 CJS shim、无变量声明、无 helper）。

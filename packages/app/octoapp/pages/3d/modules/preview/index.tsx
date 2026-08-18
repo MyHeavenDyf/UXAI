@@ -44,6 +44,7 @@ export function PreviewPage3D(props: {
   onPreview?: () => void
   onShare?: () => void
   onDownload?: () => void
+  onWorkspaceDev?: () => void
 }) {
   let iframeRef: HTMLIFrameElement | undefined
 
@@ -204,6 +205,7 @@ export function PreviewPage3D(props: {
         onThemeChange={(mode) => sendTheme(mode)}
         onShare={() => props.onShare?.()}
         onDownload={() => props.onDownload?.()}
+        onWorkspaceDev={() => props.onWorkspaceDev?.()}
         editing={editMode()}
       />
 

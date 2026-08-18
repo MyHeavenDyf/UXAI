@@ -164,6 +164,12 @@ export type ElectronAPI = {
   importZip: () => Promise<{ name: string; content: string }[] | null>
   codeToHtml: (opts: { url: string; theme?: "light" | "dark"; waitForMs?: number }) => Promise<{ html: string; resourceCount: number }>
   listDirectory: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>
+  // 3D workspace（Step 6）：物化模板副本→workspace、铺版本 code delta、启停 vite dev server、删版本 codeDir
+  materializeWorkspace: (templateDir: string, workspaceDir: string, componentsSrcDir: string) => Promise<{ ok: true }>
+  overlayWorkspaceFiles: (workspaceDir: string, files: { path: string; content: string }[]) => Promise<{ ok: true }>
+  startWorkspaceDev: (workspaceDir: string, port: number) => Promise<{ ok: true; url: string } | { ok: false; error: string }>
+  stopWorkspaceDev: () => Promise<{ ok: true }>
+  deletePathRecursive: (path: string) => Promise<{ ok: true }>
   // Pipeline API IPC bridge 类型定义
   pipelineRequest: (url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) => Promise<any>
 }

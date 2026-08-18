@@ -1,0 +1,68 @@
+# Handler 契约（ComponentHandler / ComponentContext / TreeNode）
+
+引擎链路：data → manager → handlers → components。
+- manager 按 type 在「type→handler 注册表」找 handler，**只对根节点（parentId=null）分发**，调 handler.create；
+- handler 是厚代码（LLM 写），拥有整棵子树：create 内部通过 ctx.getChildren 查 children 递归建；
+- create 成功后 manager 统一盖 userData.__id / __componentType / __logicalRoot（根=整体）。
+
+## TreeNode（树节点）
+```ts
+interface TreeNode {
+  type: string          // = 所在分组 key（buildNodeIndex 展开 raw JSON 时附上；raw JSON 节点无 type 字段）
+  id: string            // CRUD 幂等键，写入 userData.__id
+  params: Record<string, unknown>  // 业务字段 + 可选 position/rotation/scale/castShadow/receiveShadow
+  parentId: string | null  // 父节点 id；根节点为 null
+}
+```
+- raw JSON 节点只有 `{ id, params, parentId }`（无 type、无 children）；type = 分组 key；父子靠 parentId。
+
+## ComponentHandler（单个 type 的生命周期处理器）
+```ts
+interface ComponentHandler {
+  create?: (node: TreeNode, ctx: ComponentContext) => THREE.Object3D | null
+  update?: (obj: THREE.Object3D, node: TreeNode, ctx: ComponentContext) => boolean
+  delete?: (obj: THREE.Object3D, ctx: ComponentContext) => boolean
+  dataSchema?: object
+}
+```
+- **create**：node 是根节点（parentId=null）。返回 Object3D（null=未处理）。handler 自建子对象并盖 `userData.__id` + `__componentType`。
+- **update**：全量数据推过来，不 diff。把 obj 调整到新 node 状态（重建子树或就地改）。返回 true 已处理，false 回落 defaultFn（就地改 transform）。
+- **delete**：清理资源（取消订阅/卡片）。返回 true 跳过默认 dispose（保护共享资源），false 回落 defaultFn（disposeObject 清子孙几何/材质）。
+
+## ComponentContext（handler 执行上下文）
+```ts
+interface ComponentContext {
+  scene: THREE.Scene
+  index: Map<string, THREE.Object3D>           // id → Object3D 索引
+  shared: ComponentSharedState                  // 跨 handler 共享（resources/interactiveManager/cameraRig/cardManager/source）
+  loadModel: (src: string, opts?: CloneModelOpts) => Promise<THREE.Object3D>  // 等价 ctx.shared.resources.cloneModel
+  getChildren(parentId: string): TreeNode[]     // 查子节点（按 parentId 在当前 nodeMap 查，带 type）
+  getNode(id: string): TreeNode | undefined
+}
+```
+
+## toOptions（handler 层通用翻译）
+```ts
+import { toOptions } from '../base/options'
+// toOptions(node) → { id, params, position, rotation, scale, castShadow, receiveShadow }
+// position/rotation/scale 从 node.params 取，归一为数组 [x,y,z]（兼容 { x, y, z } 与 [x,y,z]），缺失为 undefined
+```
+
+## 树原生规则（极易出错，务必遵守）
+1. **manager 只对根节点（parentId=null）按 type 分发**；子节点由父 handler 通过 `ctx.getChildren(rootId)` 递归建。
+2. **根节点盖戳**：manager 在 create 成功后自动盖 `userData.__id`（node.id）/ `__componentType`（type）/ `__logicalRoot=true`（根=用户视角的「一个整体」，whole 粒度选中）。handler 无需手动盖根的这三个戳。
+3. **子对象盖戳**：handler 自建的子 mesh/group 须手动盖 `userData.__id`（子节点 id）+ `__componentType`（type），**不盖 `__logicalRoot`**（子=part，非整体）。仅当子对象需要被选中/编辑时才盖；纯装饰子对象可不盖（仍能渲染）。
+4. **update 全量不 diff**：整棵子树的新 node 全量推给 handler.update，handler 重建子树或就地改；引擎契约支持整体重建。
+5. **delete 资源语义**：handler 自建的非共享几何/材质 → delete 返回 false（走默认 disposeObject 清理）；共享资源（MaterialManager 材质 / AssetCache 克隆模型 / 卡片订阅 / 交互订阅）→ delete 返回 true（跳过默认 dispose，手动取消订阅）。
+
+## import 路径（从 `handlers/<type>/<type>.ts` 出发）
+```ts
+import * as THREE from 'three'
+import type { ComponentHandler, ComponentContext } from '../../ComponentManager'
+import type { TreeNode } from '../../../../scene/loader'
+import { toOptions } from '../base/options'
+// 按需（用资源 / 组件时）：
+import { getResourceManager } from '../../../../resources'
+import { createComponentObject } from '../../../../components'  // npm 组件按名创建（'Grid'/'Wall' 等），返回 Object3D | null；null 回落原生 THREE。严禁 import { XxxComponent } from xxxField——母版无 xxxField 文件
+```
+路径层数错 → vite 运行时报错。`../../ComponentManager` = handlers/<type> → managers/component/ComponentManager；`../../../../scene/loader` = → 3d/scene/loader；`../base/options` = → handlers/base/options。

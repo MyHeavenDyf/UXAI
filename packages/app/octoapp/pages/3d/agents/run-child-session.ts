@@ -1,7 +1,7 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { createRoot, createEffect } from "solid-js"
 import { showToast } from "@opencode-ai/ui/toast"
-import { getResultFromMessages, extractJson } from '../utils/json-parser'
+import { getResultFromMessages, extractJson } from "../utils/json-parser"
 import { logAgentCall } from "../utils/debug-log"
 import { validateSchema } from "../utils/schema-validator"
 import { type AgentError } from "../utils/error-msg"
@@ -22,7 +22,9 @@ export type RunChildSessionInput = {
   fileParts?: { type: "file"; mime: string; filename: string; url: string }[]
 }
 
-export async function runChildSession(input: RunChildSessionInput): Promise<{ text: string; childSessionId: string; error?: string }> {
+export async function runChildSession(
+  input: RunChildSessionInput,
+): Promise<{ text: string; childSessionId: string; error?: string }> {
   const {
     sync, // 前后端同步功能
     agent, // 当前正在执行的Agent名称
@@ -103,12 +105,26 @@ async function processAgentResult(params: {
   schema?: Record<string, unknown>
   tagError: (err: unknown, sessionId: string) => void
 }): Promise<{ text: string; childSessionId: string; error?: string }> {
-  const { sync, client, agent, isRoot, extra, modelKey, fileParts, onSessionCreated, promptText, childSessionID, parentSessionID, schema, tagError } = params
+  const {
+    sync,
+    client,
+    agent,
+    isRoot,
+    extra,
+    modelKey,
+    fileParts,
+    onSessionCreated,
+    promptText,
+    childSessionID,
+    parentSessionID,
+    schema,
+    tagError,
+  } = params
 
   if (sync?.session?.sync) await sync.session.sync(childSessionID)
   if (onSessionCreated && !isRoot) onSessionCreated(childSessionID)
 
-  const existingMessages = ((sync?.data?.message?.[childSessionID] ?? []) as Array<Record<string, unknown>>)
+  const existingMessages = (sync?.data?.message?.[childSessionID] ?? []) as Array<Record<string, unknown>>
   const knownIds = new Set(existingMessages.map((m) => m.id as string))
 
   await client.session.promptAsync({
@@ -120,19 +136,24 @@ async function processAgentResult(params: {
   })
 
   const stopWatch = watchRetryStatus(sync, childSessionID)
+  const stopProgress = watchProgress(sync, childSessionID, agent, knownIds)
   try {
     const result = await getResultFromMessages(sync, childSessionID, knownIds)
-    if (!result) throw new Error(`[${agent}] 模型未返回有效内容`)
     const sessionId = isRoot ? parentSessionID : childSessionID
-    const cleaned = extractJson(result)
-    if (schema && cleaned) validateSchema(cleaned, schema, agent)
-    logAgentCall(agent, sessionId, promptText, cleaned ? JSON.stringify(cleaned, null, 2) : result)
-
+    // 先透传 LLM 返回的错误（API 失败/限流/超上下文），避免被「模型未返回有效内容」掩盖真实原因
     const messageError = extractMessageError(sync, childSessionID, knownIds)
     if (messageError) {
       console.error(`[runChildSession] ${agent} 模型返回了错误:`, messageError)
       return { text: result, childSessionId: sessionId, error: messageError }
     }
+    if (!result) {
+      throw new Error(
+        `[${agent}] 模型未返回有效内容（LLM 已完成但无文本 part——可能只调工具/只产 reasoning，未输出最终代码块）`,
+      )
+    }
+    const cleaned = extractJson(result)
+    if (schema && cleaned) validateSchema(cleaned, schema, agent)
+    logAgentCall(agent, sessionId, promptText, cleaned ? JSON.stringify(cleaned, null, 2) : result)
 
     return { text: result, childSessionId: sessionId }
   } catch (err) {
@@ -140,14 +161,11 @@ async function processAgentResult(params: {
     throw err
   } finally {
     stopWatch()
+    stopProgress()
   }
 }
 
-function extractMessageError(
-  sync: any,
-  sessionId: string,
-  knownIds: Set<string>,
-): string | undefined {
+function extractMessageError(sync: any, sessionId: string, knownIds: Set<string>): string | undefined {
   const messages = (sync?.data?.message?.[sessionId] ?? []) as Array<Record<string, unknown>>
   let target: Record<string, unknown> | undefined
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -183,6 +201,41 @@ function watchRetryStatus(sync: any, sessionID: string): () => void {
         title: `模型调用出错（第 ${status.attempt} 次重试中）`,
         description: status.message,
       })
+    })
+    return dispose
+  })
+}
+
+/**
+ * 实时监听子 session 的新 part（text/reasoning/tool），console.log 打印思考过程。
+ * 让用户在 devtools console 看到 LLM 正在干嘛（调工具/思考/输出代码），缓解空等焦虑。
+ * 跳过 knownIds 之前的旧消息（只打印本次 promptAsync 之后的）。dedup by messageId:partIndex。
+ */
+function watchProgress(sync: any, sessionID: string, agent: string, knownIds: Set<string>): () => void {
+  return createRoot((dispose) => {
+    const printed = new Set<string>()
+    createEffect(() => {
+      const msgs = (sync?.data?.message?.[sessionID] ?? []) as Array<Record<string, unknown>>
+      for (const m of msgs) {
+        const mid = m.id as string
+        if (!mid || knownIds.has(mid)) continue
+        // 读 part（响应式——part 异步到达时 effect 重跑，对新 part 打印）
+        const parts = (sync?.data?.part?.[mid] ?? []) as Array<Record<string, unknown>>
+        for (let i = 0; i < parts.length; i++) {
+          const key = `${mid}:${i}`
+          if (printed.has(key)) continue
+          printed.add(key)
+          const p = parts[i]
+          const t = p.type as string
+          if (t === "text") {
+            console.log(`[${agent}] 📝`, (p.text as string)?.slice(0, 240))
+          } else if (t === "reasoning") {
+            console.log(`[${agent}] 💭`, (p.text as string)?.slice(0, 240))
+          } else {
+            console.log(`[${agent}] ${t ?? "part"}:`, JSON.stringify(p).slice(0, 180))
+          }
+        }
+      }
     })
     return dispose
   })
