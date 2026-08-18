@@ -107,6 +107,61 @@ describe("声明层:Working directory 改写", () => {
   })
 })
 
+describe("声明层:声明即兑现(预建产物目录)", () => {
+  // 修一个真实 bug:outputs 是惰性创建的(只有上传/文件管理列表/write 的 writeWithDirs
+  // 会建),模型在第一次 write 之前若用 bash/read/glob 探测系统提示里那行 Working directory,
+  // 扑空后会逃向 /tmp 绝对临时路径 —— 绝对路径绕过执行层重定向,产物落盘到 outputs 之外,
+  // 文件管理面板看不到。声明层在改写声明的同一刻建出 outputs,探测不再扑空。
+  test("insight 会话:改写声明的同时建出 outputs,模型探测不扑空", async () => {
+    const s = sid("octo_insight")
+    const { system } = await hooks(s)
+    // 前置:整个 .octo/<sid>/ 都不存在(用户没上传过文件、也没开过文件管理)
+    expect(fs.existsSync(path.join(DIR, ".octo", s.id))).toBe(false)
+
+    const out = { system: [envPrompt()] }
+    await system({ sessionID: s.id, model: {} }, out)
+
+    expect(out.system[0]).toContain(`  Working directory: ${outputsOf(s.id)}`)
+    // 产物目录已存在 —— 模型若用 bash / read / glob 探测这行声明,不再扑空
+    expect(fs.existsSync(outputsOf(s.id))).toBe(true)
+  })
+
+  test("非 insight 会话:不建目录(隔离,不波及其它模块)", async () => {
+    const s = sid("octo_design")
+    const { system } = await hooks(s)
+    const out = { system: [envPrompt()] }
+    await system({ sessionID: s.id, model: {} }, out)
+    expect(out.system[0]).toBe(envPrompt())
+    expect(fs.existsSync(path.join(DIR, ".octo", s.id, "outputs"))).toBe(false)
+  })
+
+  test("锚点未命中:不建目录(无声明则不兑现)", async () => {
+    const s = sid("octo_insight")
+    const { system } = await hooks(s)
+    const broken = "你是专业的用户研究分析师。\n<env>\n  Cwd: /w/测试 insight\n</env>"
+    const out = { system: [broken] }
+    await system({ sessionID: s.id, model: {} }, out)
+    expect(out.system[0]).toBe(broken)
+    expect(fs.existsSync(outputsOf(s.id))).toBe(false)
+  })
+
+  test("目录建不出来:仍照常改写声明(不退回项目根,write 的 writeWithDirs 会兜底)", async () => {
+    const s = sid("octo_insight")
+    // 用一个必然创建失败的父路径(把普通文件当目录用)
+    const blocker = path.join(DIR, "not-a-dir-sys")
+    fs.writeFileSync(blocker, "x")
+    const { system } = await hooks(s, blocker)
+    // envPrompt 显式用 blocker 当 directory,锚点才命中
+    const out = { system: [envPrompt(blocker)] }
+    await system({ sessionID: s.id, model: {} }, out)
+    // 声明照常改写到 blocker 下的 outputs —— 不退回项目根。
+    // 退回项目根会让相对路径散落到项目根,正是本 PR 要修的散落 bug;真建不出来时
+    // write 的 writeWithDirs 会兜底报真实错误,比静默散落更明确。
+    const expected = path.join(blocker, ".octo", s.id, "outputs")
+    expect(out.system[0]).toContain(`  Working directory: ${expected}`)
+  })
+})
+
 describe("执行层:落盘工具(write/edit)", () => {
   test("相对文件名 → 会话产物目录", async () => {
     const s = sid("octo_insight")

@@ -129,6 +129,14 @@ export const OctoSessionWorkdirPlugin: Plugin = async ({ client }) => {
       }
 
       const outputs = outputsDir(meta.directory, sessionID)
+      // 声明即兑现:在把 outputs 写进系统提示的同一刻把它建出来。否则模型拿到这行声明后,
+      // 会先用 bash / read / glob 去探测「工作目录是否存在」—— 而执行层对**显式 workdir** 和
+      // **绝对 filePath** 都早返回、不走 ensureDir(见下方执行层 isPathArg 与 else 分支),
+      // 探测扑空:bash spawn ENOENT、read 抛 File not found、glob 返回空。模型据此判定目录不可访问,
+      // 转而把产物写到 /tmp 这类绝对临时路径 —— 绝对路径再次早返回,文件落盘到 outputs 之外,
+      // 文件管理面板(只读 outputs/)看不到。在声明层一次性根治:目录先存在,探测就不扑空。
+      // mkdir -p 幂等,每轮声明触发开销可忽略;建失败仍照常改写(write 的 writeWithDirs 会兜底)。
+      await ensureDir(outputs, { tool: "system", sessionID })
       // 只改 Working directory 这一行。
       // `Workspace root folder` 在非 git 目录下被上游置为 "/"(project/project.ts),模型会看到
       // 「工作区根 = 整个磁盘根」这种噪音 —— 但那是**全局**问题(所有 agent 都受影响),留给独立 PR
