@@ -114,6 +114,8 @@ export type ButtonPosition =
   | 'after-edit'         // 编辑按钮（局部修改、框选、画布）之后
   | 'after-download'     // 下载按钮之后
   | 'after-archive'      // 归档按钮之后
+  | 'before-comment'     // 标注按钮之前
+  | 'before-history'     // 历史按钮之前
   | 'before-fullscreen'  // 全屏按钮之前
   | 'end'                // 最后面（默认）
 
@@ -122,8 +124,8 @@ export type ButtonPosition =
  */
 export interface ActionBarButton {
   id: string
-  label: string
-  icon?: JSX.Element | string
+  label: string | ((ctx: SubtypeHandlerContext) => string)
+  icon?: JSX.Element | string | ((ctx: SubtypeHandlerContext) => JSX.Element | string)
   
   /** 按钮位置（默认 'end'） */
   position?: ButtonPosition
@@ -135,7 +137,7 @@ export interface ActionBarButton {
   disabled?: boolean | ((ctx: SubtypeHandlerContext) => boolean)
   visible?: boolean | ((ctx: SubtypeHandlerContext) => boolean)
   active?: boolean | ((ctx: SubtypeHandlerContext) => boolean)
-  tooltip?: string
+  tooltip?: string | ((ctx: SubtypeHandlerContext) => string)
   variant?: 'default' | 'primary' | 'danger'
 }
 

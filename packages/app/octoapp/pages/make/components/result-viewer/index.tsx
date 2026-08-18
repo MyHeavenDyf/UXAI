@@ -661,9 +661,10 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                     historyActive={props.historyActive}
                     historyEntries={props.historyEntries}
                     currentVersionId={props.currentVersionId}
-                    onHistorySwitch={props.onHistorySwitch}
-                    onHistoryToggle={props.onHistoryToggle}
-                  />
+                     onHistorySwitch={props.onHistorySwitch}
+                     onHistoryToggle={props.onHistoryToggle}
+                     postMessageToIframe={(data: unknown) => iframePostMessage?.(data)}
+                    />
                 </Show>
                 <div class="flex-1 min-h-0 min-w-0 overflow-hidden">
                   <Switch

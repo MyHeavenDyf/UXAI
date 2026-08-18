@@ -368,6 +368,7 @@ export function ActionBar(props: {
     historyEntries?: VersionEntry[]
     currentVersionId?: string | null
     onHistorySwitch?: (entry: VersionEntry) => void
+    postMessageToIframe?: (data: unknown) => void
   }): JSX.Element {
   const sdk = useSDK()
   const sync = useSync()
@@ -476,7 +477,7 @@ export function ActionBar(props: {
     const buttons = customButtons()
     const positions: ButtonPosition[] = [
       'start', 'after-refresh', 'after-mode-toggle', 'after-viewport',
-      'after-edit', 'after-download', 'after-archive', 'before-fullscreen', 'end'
+      'after-edit', 'after-download', 'after-archive', 'before-comment', 'before-history', 'before-fullscreen', 'end'
     ]
     
     const groups: Record<string, ActionBarButton[]> = {}
@@ -512,6 +513,7 @@ export function ActionBar(props: {
       extractCodeBlock,
       observedUrlsGetter: props.observedResourceUrls,
       projectSelection: () => undefined,
+      postMessageToIframe: (data: unknown) => props.postMessageToIframe?.(data),
     }
     
     const isVisible = typeof button.visible === 'function' 
@@ -524,23 +526,40 @@ export function ActionBar(props: {
       ? button.disabled(ctx)
       : (button.disabled ?? false)
     
-    const isActive = typeof button.active === 'function'
-      ? button.active(ctx)
-      : (button.active ?? false)
+    const isActive = () => typeof button.active === 'function'
+      ? !!(button.active as (ctx: SubtypeHandlerContext) => boolean)(ctx)
+      : !!(button.active ?? false)
+
+    const resolveIcon = () => {
+      const raw = typeof button.icon === 'function'
+        ? (button.icon as (ctx: SubtypeHandlerContext) => JSX.Element | string)(ctx)
+        : button.icon
+      return typeof raw === 'string' ? <span>{raw}</span> : raw
+    }
+
+    const resolveLabel = () =>
+      typeof button.label === 'function'
+        ? (button.label as (ctx: SubtypeHandlerContext) => string)(ctx)
+        : button.label
+
+    const resolveTitle = () => {
+      const tip = typeof button.tooltip === 'function'
+        ? (button.tooltip as (ctx: SubtypeHandlerContext) => string)(ctx)
+        : button.tooltip
+      return tip ?? resolveLabel()
+    }
     
     return (
       <button
         type="button"
         class={`octo-action-btn ${button.variant === 'primary' ? 'octo-action-btn-primary' : ''} ${button.variant === 'danger' ? 'octo-action-btn-danger' : ''}`}
-        classList={{ "octo-viewport-btn-active": isActive }}
+        classList={{ "octo-viewport-btn-active": isActive() }}
         onClick={() => button.onClick?.(ctx)}
         disabled={isDisabled}
-        title={button.tooltip ?? button.label}
+        title={resolveTitle()}
       >
-        {typeof button.icon === 'string' ? (
-          <span>{button.icon}</span>
-        ) : button.icon}
-        <span>{button.label}</span>
+        {resolveIcon()}
+        <span>{resolveLabel()}</span>
       </button>
     )
   }
@@ -673,6 +692,7 @@ export function ActionBar(props: {
               </For>
             </div>
           )}
+          {renderButtonsAtPosition('before-comment')}
           {showComment() && props.onCommentToggle && (
             <button
               type="button"
@@ -698,6 +718,7 @@ export function ActionBar(props: {
               <span>归档</span>
             </button>
           )}
+          {renderButtonsAtPosition('before-history')}
           {showHistory() && props.onHistoryToggle && (
             <button
               ref={historyBtnRef}

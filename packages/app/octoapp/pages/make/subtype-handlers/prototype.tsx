@@ -1,4 +1,6 @@
 import type { SubtypeHandler } from './types'
+import type { JSX } from 'solid-js'
+import { createSignal } from 'solid-js'
 import {
   setActiveSessionId,
   getSessionById,
@@ -14,6 +16,47 @@ import proto_replanner from "../../pattern/agents/proto-replanner"
 import { relativePathToId, resolveRelativePath, getExt } from "../utils/history-store"
 
 let downloading = false
+
+const [isDarkTheme, setDarkTheme] = createSignal(false)
+
+// iframe 每次加载/重载时会发 od:a2ui-ready，此时 iframe 内 isDark 已重置为 false。
+// 同步重置本地 signal，避免 parent 与 iframe 状态不同步导致 toggle 方向反转。
+window.addEventListener('message', (e) => {
+  if ((e as MessageEvent).data?.type === 'od:a2ui-ready') setDarkTheme(false)
+})
+
+function mk(viewBox: string, inner: string, defaultSize: number) {
+  return function Icon(props: { size?: number; class?: string }): JSX.Element {
+    return (
+      <svg
+        viewBox={viewBox}
+        width={props.size ?? defaultSize}
+        height={props.size ?? defaultSize}
+        fill="none"
+        aria-hidden="true"
+        class={props.class}
+        style={{ "flex-shrink": "0", display: "inline-block" }}
+        innerHTML={inner}
+      />
+    )
+  }
+}
+
+const IconSun = mk("0 0 24 24", `
+  <circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  <line x1="12" y1="1" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+  <line x1="12" y1="21" x2="12" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+  <line x1="1" y1="12" x2="3" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+  <line x1="21" y1="12" x2="23" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+`, 16)
+
+const IconMoon = mk("0 0 24 24", `
+  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+`, 16)
 
 // jk-j60099994-replace-with-wx372822-pattern-topixso-1-start
 // jk-j60099994-replace-with-wx372822-pattern-topixso-1-end
@@ -204,6 +247,26 @@ export default {
 
     // 失效内存中的 a2ui 缓存，下一次 loadA2uiData 会重读磁盘
     invalidatePrototypeCache(tab.id)
+  },
+
+  components: {
+    actionBar: {
+      extraButtons: [
+        {
+          id: 'theme-toggle',
+          label: () => isDarkTheme() ? '浅色' : '深色',
+          icon: () => (isDarkTheme() ? IconSun : IconMoon)({ size: 16 }),
+          position: 'before-comment',
+          tooltip: () => isDarkTheme() ? '切换为浅色模式' : '切换为深色模式',
+          active: false,
+          onClick: (ctx) => {
+            const next = !isDarkTheme()
+            setDarkTheme(next)
+            ctx.postMessageToIframe?.({ type: 'TOGGLE_THEME' })
+          },
+        },
+      ],
+    },
   },
 
 } satisfies SubtypeHandler
