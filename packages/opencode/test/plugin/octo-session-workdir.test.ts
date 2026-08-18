@@ -182,22 +182,32 @@ describe("执行层:旧布局绝对路径迁移", () => {
     expect(args.filePath).toBe(path.join(DIR, ".octo", s.id, "outputs", "对话记录.md"))
   })
 
-  test("read 命中旧布局 insight/<sid>/uploads/...:改写到 .octo/<sid>/uploads/...", async () => {
+  test("write 命中项目根散落 <projectDir>/<file>:归到 .octo/<sid>/outputs/<file>", async () => {
     const s = sid("octo_insight")
     const { before } = await hooks(s)
-    const oldPath = path.join(DIR, "insight", s.id, "uploads", "访谈稿.docx")
-    const args = { filePath: oldPath }
-    await before({ tool: "read", sessionID: s.id, callID: "c1" }, { args })
-    expect(args.filePath).toBe(path.join(DIR, ".octo", s.id, "uploads", "访谈稿.docx"))
+    // 模型从老历史复制了项目根绝对路径(对话记录.md 曾散落到项目根)
+    const scattered = path.join(DIR, "对话记录.md")
+    const args = { filePath: scattered }
+    await before({ tool: "write", sessionID: s.id, callID: "c1" }, { args })
+    expect(args.filePath).toBe(path.join(DIR, ".octo", s.id, "outputs", "对话记录.md"))
   })
 
-  test("命中旧布局会话根(insight/<sid> 本身):改写到 .octo/<sid>", async () => {
+  test("write 命中旧布局会话根(insight/<sid> 本身):改写到 .octo/<sid>", async () => {
     const s = sid("octo_insight")
     const { before } = await hooks(s)
     const oldRoot = path.join(DIR, "insight", s.id)
     const args = { filePath: oldRoot }
-    await before({ tool: "read", sessionID: s.id, callID: "c1" }, { args })
+    await before({ tool: "write", sessionID: s.id, callID: "c1" }, { args })
     expect(args.filePath).toBe(path.join(DIR, ".octo", s.id))
+  })
+
+  test("read 命中旧布局:不迁(老文件可能还停在旧布局,读就读它实际所在位置)", async () => {
+    const s = sid("octo_insight")
+    const { before } = await hooks(s)
+    const oldPath = path.join(DIR, "insight", s.id, "outputs", "对话记录.md")
+    const args = { filePath: oldPath }
+    await before({ tool: "read", sessionID: s.id, callID: "c1" }, { args })
+    expect(args.filePath).toBe(oldPath)
   })
 
   test("绝对路径已是新布局 .octo/<sid>/...:不重复改写", async () => {
@@ -207,6 +217,15 @@ describe("执行层:旧布局绝对路径迁移", () => {
     const args = { filePath: already }
     await before({ tool: "write", sessionID: s.id, callID: "c1" }, { args })
     expect(args.filePath).toBe(already)
+  })
+
+  test("项目内子目录绝对路径不拦(避免误伤合法的子目录产物,只归拢项目根散落)", async () => {
+    const s = sid("octo_insight")
+    const { before } = await hooks(s)
+    const sub = path.join(DIR, "subdir", "file.md")
+    const args = { filePath: sub }
+    await before({ tool: "write", sessionID: s.id, callID: "c1" }, { args })
+    expect(args.filePath).toBe(sub)
   })
 
   test("绝对路径指向项目外(用户显式指定):原样尊重,不迁", async () => {

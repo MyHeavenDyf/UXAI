@@ -89,23 +89,34 @@ function contains(dir: string, resolved: string) {
 }
 
 /**
- * 旧布局绝对路径迁移。insight 会话早期用 `<projectDir>/insight/<sid>/{outputs,uploads}/` 作产物/上传
- * 目录(SPEC-INS-028 之后才改到 `.octo/<sid>/`)。老会话的对话历史里残留这些旧布局绝对路径,模型
- * 「照着上一轮的路径再写一遍」时会复用它们 —— 执行层原样尊重绝对路径,文件落进旧目录,文件管理
- * (只读 .octo/)看不到,「同一会话重新生成还是不对」即此。这里把命中的旧布局绝对路径静默改写到新
- * 布局:只换前缀(insight/<sid> → .octo/<sid>),不动文件名/子路径;项目外的真外部路径(用户显式
- * 指定,如 /Users/.../测试文件/x.txt)不在此范围,仍由调用方原样尊重。
+ * 把 insight 会话里 write/edit 的绝对路径产物归拢到 .octo/<sid>/。只对落盘工具用,read 不走这里
+ * (老文件可能还停在旧布局,读就读它实际所在位置,不迁)。
  *
- * 返回 null 表示未命中旧布局,调用方按原策略处理。
+ * 模型有时从老会话历史里复制绝对路径再写一遍,执行层原样尊重绝对路径 → 文件落进旧布局或项目根,
+ * 文件管理(只读 .octo/<sid>/outputs/)看不到,「同一会话重新生成还是不对」即此。命中的项目内绝对
+ * 路径改写到新布局:
+ *   · 旧布局 insight/<sid>/... → .octo/<sid>/...(只换前缀,保留 outputs/uploads 子结构)
+ *   · 项目根散落 <projectDir>/<file>(dirname === projectDir)→ .octo/<sid>/outputs/<file>
+ *     (只拦项目根直接子文件,不拦项目内子目录写入,避免误伤合法的子目录产物)
+ * 已在 .octo/<sid>/ 会话树内的路径(含 outputs/uploads)原样返回 null,尊重;项目外的真外部路径
+ * (用户显式指定,如 /Users/.../测试文件/x.txt)也返回 null,由调用方尊重。
  */
-function migrateOldLayout(absPath: string, projectDir: string, sessionID: string): string | null {
+function redirectWritePath(absPath: string, projectDir: string, sessionID: string): string | null {
   const withSep = (p: string) => (p.endsWith(path.sep) ? p : p + path.sep)
   const newSession = path.join(projectDir, ".octo", sessionID)
-  // v2 sid-scoped:<projectDir>/insight/<sid>/{outputs,uploads,sources}/... → .octo/<sid>/...
+
+  // 已在当前会话树 .octo/<sid>/ 内(含 outputs/uploads 等):不拦,尊重。
+  if (absPath === newSession || absPath.startsWith(withSep(newSession))) return null
+
+  // 旧布局 insight/<sid>/... → .octo/<sid>/...
   const oldV2Sid = path.join(projectDir, "insight", sessionID)
   if (absPath === oldV2Sid) return newSession
   const oldV2SidPrefix = withSep(oldV2Sid)
   if (absPath.startsWith(oldV2SidPrefix)) return path.join(newSession, absPath.slice(oldV2SidPrefix.length))
+
+  // 项目根散落 <projectDir>/<file>(dirname === projectDir)→ outputs/<file>
+  if (path.dirname(absPath) === projectDir) return path.join(newSession, "outputs", path.basename(absPath))
+
   return null
 }
 
@@ -182,14 +193,15 @@ export const OctoSessionWorkdirPlugin: Plugin = async ({ client }) => {
         if (typeof raw !== "string" || raw.length === 0) return
         if (path.isAbsolute(raw)) {
           // 绝对路径:可能是用户显式指定的项目外位置(原样尊重),也可能是模型从老会话历史复制的
-          // 旧布局路径(insight/<sid>/... → 需改写到 .octo/<sid>/...)。先确认 insight 会话(metaOf
-          // 带缓存,后续相对路径分支会复用同一缓存项),再判迁移;命中才改写,不命中即真外部路径,原样尊重。
+          // 旧布局路径或项目根散落路径(write/edit 才归拢)。先确认 insight 会话(metaOf 带缓存,
+          // 后续相对路径分支会复用同一缓存项),仅对落盘工具 redirectWritePath 改写;read 不迁
+          // (老文件可能还停在旧布局,读就读它实际所在位置)。
           const m = await metaOf(input.sessionID)
-          if (m?.isInsight && m.directory) {
-            const migrated = migrateOldLayout(raw, m.directory, input.sessionID)
-            if (migrated) {
-              args[key] = migrated
-              console.log(`${LOG} 旧布局迁移`, { tool, sessionID: input.sessionID, before: raw, after: migrated })
+          if (m?.isInsight && m.directory && isWrite) {
+            const redirected = redirectWritePath(raw, m.directory, input.sessionID)
+            if (redirected) {
+              args[key] = redirected
+              console.log(`${LOG} 旧布局迁移`, { tool, sessionID: input.sessionID, before: raw, after: redirected })
             }
           }
           return
