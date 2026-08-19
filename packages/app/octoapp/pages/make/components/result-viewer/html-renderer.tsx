@@ -6,6 +6,7 @@ import { createResourceTracker, type ResourceTracker } from "../../utils/resourc
 import { getArtifactServeUrl, getArtifactRelativePath, pathToLocalUrl, isElectronDesktop, extractCommentFilePath } from "../../utils/artifact-file-api"
 import { directoryHeader } from "@/utils/headers"
 import { getDesktopApi } from "../../lib/electron-api"
+import { usePixsoTransport } from "@/utils/useZipTransport"
 import { decodeHtmlBytes } from "@opencode-ai/core/bridge-scripts"
 import { PreviewOverlay } from "../preview-overlay"
 import { InspectPanel } from "./inspect-panel"
@@ -410,7 +411,7 @@ export function HtmlRenderer(props: {
           getDesktopApi,
           extractCodeBlock,
           observedUrlsGetter: () => iframeRef ? resourceTracker.getPaths(iframeRef) : [],
-          projectSelection: () => undefined,
+          usePixsoTransport,
           sdk,
           sync,
           modelKey,
