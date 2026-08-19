@@ -49,9 +49,16 @@ export interface SubtypeHandler {
 
   /**
    * 处理下载
+   * @param option 选中项的 value（来自 downloadOptions）；未声明 downloadOptions 时为 undefined
    * @returns true 表示已处理（不执行默认下载），false 或 void 表示执行默认下载
    */
-  handleDownload?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
+  handleDownload?: (ctx: SubtypeHandlerContext, option?: string) => Promise<boolean | void>
+
+  /**
+   * 下载下拉选项
+   * 声明且长度 > 1 时，action bar 渲染"下载"下拉按钮；每项 value 会作为 option 传给 handleDownload
+   */
+  downloadOptions?: { value: string; label: string }[]
 
   beforeFeatureEnable?: (feature: FeatureType, ctx: SubtypeHandlerContext) => Promise<boolean>
 

@@ -64,6 +64,11 @@ const IconMoon = mk("0 0 24 24", `
 export default {
   name: 'prototype',
 
+  downloadOptions: [
+    { value: 'eview-react', label: 'eview-react' },
+    { value: 'eview-ui', label: 'eview-ui' },
+  ],
+
   async handleLocalEdit(ctx) {
     const tabId = ctx.tab.id
     setActiveSessionId(tabId)
@@ -126,9 +131,17 @@ export default {
     return true
   },
   
-  async handleDownload(ctx) {
+  async handleDownload(ctx, option) {
     if (downloading) return true
     downloading = true
+
+    const targetLib = option ?? 'eview-react'
+
+    if (targetLib === 'eview-ui') {
+      ctx.showToast({ title: 'eview-ui 暂未上线' })
+      downloading = false
+      return true
+    }
 
     try {
       // 1. 读取 A2UI 数据（复用已有 session 或临时创建）
@@ -179,7 +192,7 @@ export default {
 
         // 5. 调用 downloadHuiCode 生成代码文件
         const jsonInput = [{ planner: planner!, mergedA2UI }]
-        const result = await desktopApi.downloadHuiCode!(jsonInput, { targetLib: 'eview-react' })
+        const result = await desktopApi.downloadHuiCode!(jsonInput, { targetLib })
         const files = result?.files
         if (!files || files.length === 0) {
           throw new Error("暂无可导出的代码")

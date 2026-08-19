@@ -375,8 +375,8 @@ export function ActionBar(props: {
   const local = useLocal()
   const params = useParams<{ id?: string }>()
 
-  async function handleDownload() {
-    tracker.interaction({ module: "design", name: "download-file", extend: JSON.stringify({ type: props.tab.type }) })
+  async function handleDownload(option?: string) {
+    tracker.interaction({ module: "design", name: "download-file", extend: JSON.stringify({ type: props.tab.type, option: option ?? null }) })
     
     const handler = getSubtypeHandler(props.tab.subtype)
     if (handler?.handleDownload) {
@@ -397,7 +397,7 @@ export function ActionBar(props: {
       }
       
       try {
-        const handled = await handler.handleDownload(ctx)
+        const handled = await handler.handleDownload(ctx, option)
         if (handled === true) return
       } catch (error) {
         showToast({ 
@@ -458,6 +458,8 @@ export function ActionBar(props: {
   // 获取自定义按钮配置
   const handler = getSubtypeHandler(props.tab.subtype)
   const uiConfig = createMemo(() => handler?.components?.actionBar)
+  
+  const downloadOptions = createMemo(() => handler?.downloadOptions ?? [])
   
   const shouldReplaceDefaultButtons = () => uiConfig()?.replaceDefaultButtons ?? false
   
@@ -651,10 +653,10 @@ export function ActionBar(props: {
             <ExportButton tab={props.tab} onPrimaryDownload={handleDownload} />
           </Show>
           <Show when={showDownload() && props.tab.type === "html"}>
-            <button type="button" class="octo-action-btn octo-action-btn-download" onClick={handleDownload} title="下载">
-              <IconDownloadNew size={16} />
-              <span>下载</span>
-            </button>
+            <DownloadButton
+              options={downloadOptions()}
+              onDownload={(option?: string) => handleDownload(option)}
+            />
           </Show>
           {renderButtonsAtPosition('after-download')}
         </div>
@@ -854,6 +856,81 @@ function ExportButton(props: {
                         onClick={() => handleExport(kind)}
                       >
                         {EXPORT_LABELS[kind]}
+                      </button>
+                    )}
+                  </For>
+                </div>
+              )
+            })()}
+          </Portal>
+        </Show>
+      </div>
+    </Show>
+  )
+}
+
+function DownloadButton(props: {
+  options: { value: string; label: string }[]
+  onDownload: (option?: string) => Promise<void>
+}): JSX.Element {
+  const [open, setOpen] = createSignal(false)
+  let btnRef: HTMLButtonElement | undefined
+
+  const hasMultiple = () => props.options.length > 1
+
+  const handlePick = async (value?: string) => {
+    setOpen(false)
+    await props.onDownload(value)
+  }
+
+  return (
+    <Show
+      when={hasMultiple()}
+      fallback={
+        <button type="button" class="octo-action-btn octo-action-btn-download" onClick={() => handlePick()} title="下载">
+          <IconDownloadNew size={16} />
+          <span>下载</span>
+        </button>
+      }
+    >
+      <div class="octo-dropdown">
+        <button
+          ref={btnRef}
+          type="button"
+          class="octo-dropdown-trigger"
+          classList={{ "octo-dropdown-open": open() }}
+          style={{ width: "auto" }}
+          onClick={() => setOpen(!open())}
+          title="下载"
+        >
+          <IconDownloadNew size={16} />
+          <span>下载</span>
+          <IconDropdownChevron size={16} style={{ transform: open() ? "rotate(-180deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }} />
+        </button>
+        <Show when={open()}>
+          <Portal mount={document.body}>
+            {(() => {
+              const rect = btnRef?.getBoundingClientRect()
+              return (
+                <div
+                  class="octo-dropdown-menu"
+                  style={{
+                    top: `${(rect?.bottom ?? 0) + 4}px`,
+                    left: `${rect?.left ?? 0}px`,
+                  }}
+                  onClick={(e) => {
+                    const target = e.target as HTMLElement
+                    if (!target.closest("button")) setOpen(false)
+                  }}
+                >
+                  <For each={props.options}>
+                    {(opt) => (
+                      <button
+                        type="button"
+                        class="octo-dropdown-item"
+                        onClick={() => handlePick(opt.value)}
+                      >
+                        <span>{opt.label}</span>
                       </button>
                     )}
                   </For>
