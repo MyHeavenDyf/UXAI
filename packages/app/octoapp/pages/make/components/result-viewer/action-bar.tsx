@@ -15,6 +15,8 @@ import { getSubtypeConfig, isFeatureEnabled, isFeatureEditOnly, type FeatureFlag
 import { getSubtypeHandler } from "../../utils/subtype-registry"
 import { subtypeUIRegistry } from "../../utils/subtype-ui-registry"
 import type { ActionBarButton, SubtypeHandlerContext, ButtonPosition } from "../../subtype-handlers/types"
+import { usePixsoTransport, type UploadZipOptions, type PixsoAction } from "@/utils/useZipTransport"
+import { createC2DZip } from "../../utils/canvas-to-design"
 import type { VersionEntry } from "../../utils/history-store"
 import { HistoryPanel } from "./history-panel"
 import { useSDK } from "@/context/sdk"
@@ -259,6 +261,164 @@ const MODE_OPTIONS: { value: "preview" | "edit"; label: string; icon: JSX.Elemen
   { value: "edit", label: "源码", icon: <IconActionEdit size={13} /> },
 ]
 
+function CanvasEditDropdown(props: {
+  tab: ResultTab
+  sessionId?: string
+  sdkDirectory?: string
+  observedUrlsGetter?: () => string[]
+}): JSX.Element {
+  const [open, setOpen] = createSignal(false)
+  const [loading, setLoading] = createSignal(false)
+  const [actions, setActions] = createSignal<PixsoAction[]>([])
+  const [currentOptions, setCurrentOptions] = createSignal<UploadZipOptions | null>(null)
+  let btnRef: HTMLButtonElement | undefined
+  let menuRef: HTMLDivElement | undefined
+
+  createEffect(() => {
+    if (!open()) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (menuRef?.contains(target) || btnRef?.contains(target)) return
+      setOpen(false)
+    }
+    const onBlur = () => setOpen(false)
+    document.addEventListener("click", handler)
+    window.addEventListener("blur", onBlur)
+    onCleanup(() => {
+      document.removeEventListener("click", handler)
+      window.removeEventListener("blur", onBlur)
+    })
+  })
+
+  const handleClick = async () => {
+    if (loading()) return
+    
+    const isLoggedIn = !!localStorage.getItem('uiplusToken')
+    if (!isLoggedIn) {
+      showToast({ title: "请先登录" })
+      return
+    }
+
+    setLoading(true)
+    try {
+      const htmlContent = extractCodeBlock(props.tab.content, "html")
+      const options: UploadZipOptions = {
+        getZip: async () => {
+          showToast({ title: "生成ZIP文件..." })
+          return await createC2DZip({
+            htmlContent,
+            htmlFilePath: props.tab.filePath || "",
+            tabTitle: props.tab.title,
+            observedUrls: props.observedUrlsGetter?.() || [],
+          })
+        },
+        downloadHtml: async (data) => {
+          const api = getDesktopApi()
+          const baseDir = props.sdkDirectory
+          const sessionId = props.sessionId
+          
+          if (!baseDir || !sessionId || !api?.writeFileBuffer) {
+            showToast({ title: "无法保存文件", variant: "error" })
+            return
+          }
+          
+          const uploadsDir = `${baseDir}/.octo/${sessionId}/uploads`
+          let finalFilename = data.filename
+          
+          if (api.fileExists) {
+            let counter = 0
+            const baseName = data.filename.replace(/\.html$/i, '')
+            while (await api.fileExists(`${uploadsDir}/${finalFilename}`)) {
+              counter++
+              finalFilename = `${baseName}(${counter}).html`
+            }
+          }
+          
+          const buffer = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
+          await api.writeFileBuffer(`${uploadsDir}/${finalFilename}`, buffer.buffer)
+          showToast({ title: "已保存", description: finalFilename })
+        },
+        config: {
+          designName: props.tab.title,
+          sessionId: props.sessionId || "",
+        },
+      }
+      
+      const result = await usePixsoTransport(options)
+      setCurrentOptions(() => options)
+      setActions(() => result.actions)
+      setOpen(true)
+    } catch (error) {
+      console.error("[CanvasEditDropdown] Error:", error)
+      showToast({ title: "操作失败", description: String(error) })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleAction = async (action: PixsoAction) => {
+    const opts = currentOptions()
+    if (!opts) return
+    setOpen(false)
+    try {
+      await action.fn(opts)
+    } catch (error) {
+      console.error("[CanvasEditDropdown] Action error:", error)
+      showToast({ title: "操作失败", description: String(error) })
+    }
+  }
+
+  return (
+    <div class="octo-dropdown">
+      <button
+        ref={btnRef}
+        type="button"
+        class="octo-action-btn"
+        classList={{ "octo-dropdown-disabled": loading(), "octo-dropdown-open": open() }}
+        onClick={handleClick}
+        disabled={loading()}
+        title="画布编辑"
+      >
+        <IconCanvasEdit size={16} />
+        <span>{loading() ? "加载中..." : "画布编辑"}</span>
+      </button>
+      <Show when={open() && actions().length > 0}>
+        <Portal mount={document.body}>
+          {(() => {
+            const rect = btnRef?.getBoundingClientRect()
+            return (
+              <div
+                ref={menuRef}
+                class="octo-dropdown-menu"
+                style={{
+                  top: `${(rect?.bottom ?? 0) + 4}px`,
+                  left: `${rect?.left ?? 0}px`,
+                }}
+                onClick={(e) => {
+                  const target = e.target as HTMLElement
+                  if (!target.closest("button")) setOpen(false)
+                }}
+              >
+                <For each={actions()}>
+                  {(action) => (
+                    <button
+                      type="button"
+                      class="octo-dropdown-item"
+                      onClick={() => handleAction(action)}
+                    >
+                      <span>{action.label}</span>
+                    </button>
+                  )}
+                </For>
+              </div>
+            )
+          })()}
+        </Portal>
+      </Show>
+    </div>
+  )
+}
+
 function Dropdown(props: {
   options: { value: string; label: string; icon: JSX.Element }[]
   value: string
@@ -368,6 +528,8 @@ export function ActionBar(props: {
     historyEntries?: VersionEntry[]
     currentVersionId?: string | null
     onHistorySwitch?: (entry: VersionEntry) => void
+    sessionId?: string
+    sdkDirectory?: string
   }): JSX.Element {
   const sdk = useSDK()
   const sync = useSync()
@@ -388,7 +550,7 @@ export function ActionBar(props: {
         getDesktopApi,
         extractCodeBlock,
         observedUrlsGetter: props.observedResourceUrls,
-        projectSelection: () => undefined,
+        usePixsoTransport,
         sdk,
         modelKey,
         sync,
@@ -417,7 +579,7 @@ export function ActionBar(props: {
       getDesktopApi,
       extractCodeBlock,
       observedUrlsGetter: props.observedResourceUrls,
-      projectSelection: () => undefined,
+      usePixsoTransport,
     })
   }
 
@@ -511,7 +673,7 @@ export function ActionBar(props: {
       getDesktopApi,
       extractCodeBlock,
       observedUrlsGetter: props.observedResourceUrls,
-      projectSelection: () => undefined,
+      usePixsoTransport,
     }
     
     const isVisible = typeof button.visible === 'function' 
@@ -608,16 +770,13 @@ export function ActionBar(props: {
               <span>框选编辑</span>
             </button>
           )}
-          {showCanvasEdit() && props.onCanvasToDesign && (
-            <button
-              type="button"
-              class="octo-action-btn"
-              onClick={props.onCanvasToDesign}
-              title="画布编辑"
-            >
-              <IconCanvasEdit size={16} />
-              <span>画布编辑</span>
-            </button>
+          {showCanvasEdit() && (
+            <CanvasEditDropdown
+              tab={props.tab}
+              sessionId={props.sessionId}
+              sdkDirectory={props.sdkDirectory}
+              observedUrlsGetter={props.observedResourceUrls}
+            />
           )}
           <Show when={shouldShowCopy()}>
             <button type="button" class="octo-action-btn" onClick={() => {

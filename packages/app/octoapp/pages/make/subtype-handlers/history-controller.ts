@@ -50,7 +50,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
         const m = text.match(re)
         return m ? m[1].trim() : text.trim()
       },
-      projectSelection: () => undefined,
+      usePixsoTransport: async () => ({ uploadResult: { webview: null }, actions: [] }),
       updateTabContent: callbacks.updateTabContent,
     }
   }
