@@ -1,4 +1,4 @@
-import { onCleanup, onMount } from "solid-js"
+import { getOwner, onCleanup, onMount, runWithOwner } from "solid-js"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
@@ -29,6 +29,10 @@ import type { FollowupItem } from "./utils/followup-queue"
 export function ChatFollowupQueueRunner() {
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
+  // 稳定的组件 owner：用于 pin 有排队的目录 child store，防止切走后 TTL 驱逐 →
+  // SSE 事件被 global-sync 跳过（`if (!existing) return`）→ session_status 不更新 → drain 卡死。
+  // pinForOwner 幂等（同 owner+dir 只 pin 一次），在 effect 里反复调用无 pin 抖动。
+  const owner = getOwner()
 
   // 记录本 runner 为各 session 发出的最后一条消息 id,用于判定「该 turn 是否已出回复」。
   // 不能用 store.message 的最后一条(user 消息)做锚点:其 message.updated 可能延迟到达,
@@ -79,7 +83,13 @@ export function ChatFollowupQueueRunner() {
     const dir = bucket.directory
     if (!dir) return true
 
-    // peek 内部由 ensureChild 管理生命周期（含 eviction + LRU），只读不 pin
+    // 保活：在稳定的组件 owner 下 pin 该目录，使其 child store 不被 TTL 驱逐、
+    // session_status 持续经 SSE 更新。runWithOwner 只用于把 pin 挂到组件 owner，
+    // 其内部的响应式读取不参与本 effect 追踪——故状态的响应式读取放到下面 peek
+    // （在 effect 追踪作用域内）完成。对齐 insight queue-runner。
+    runWithOwner(owner, () => globalSync.child(dir, { bootstrap: true }))
+    // peek 不再 pin，返回同一个 child store；在此（drain effect 的追踪作用域内）读
+    // session_status → status 变化时 effect 会重跑（level-triggered 的关键）。
     const [store] = globalSync.peek(dir, { bootstrap: true })
 
     const statusType = store.session_status[sid]?.type ?? "idle"
