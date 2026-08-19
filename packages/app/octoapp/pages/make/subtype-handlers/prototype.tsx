@@ -1,6 +1,7 @@
-import type { SubtypeHandler } from './types'
+import type { SubtypeHandler, SubtypeHandlerContext } from './types'
 import type { JSX } from 'solid-js'
 import { createSignal } from 'solid-js'
+import JSZip from "jszip"
 import {
   setActiveSessionId,
   getSessionById,
@@ -14,8 +15,102 @@ import {
 import { showPromiseToast } from "@opencode-ai/ui/toast"
 import proto_replanner from "../../pattern/agents/proto-replanner"
 import { relativePathToId, resolveRelativePath, getExt } from "../utils/history-store"
+import type { DesktopApi } from "../lib/electron-api"
 
 let downloading = false
+
+/**
+ * 生成 prototype 代码包的文件列表 + uploads 目录信息。
+ * 复用于 handleDownload（磁盘导出）和 buildArchiveSrc（内存 zip 塞进归档 src/）。
+ *
+ * 返回 null 表示软失败（无内容 / 环境不支持 / 缺参数），调用方应静默跳过。
+ * 抛错表示生成过程中出错，调用方应捕获并提示。
+ */
+async function buildPrototypeCodeFiles(
+  ctx: SubtypeHandlerContext,
+  targetLib = 'eview-react',
+  opts: { silent?: boolean } = {},
+): Promise<{
+  files: { path: string; content: string }[]
+  uploadsDir?: string | null
+} | null> {
+  const toast = (msg: { title: string; description?: string }) => { if (!opts.silent) ctx.showToast(msg) }
+
+  // 1. 读取 A2UI 数据（复用已有 session 或临时创建）
+  const tabId = ctx.tab.id
+  let session = getSessionById(tabId)
+  if (!session) session = createSession(tabId, ctx)
+  session.ctx = ctx
+
+  const a2uiData = await loadA2uiData(session, ctx)
+  if (!a2uiData) {
+    toast({ title: "暂无可下载的内容" })
+    return null
+  }
+
+  // 2. 检查 desktop API 可用性
+  const desktopApi = ctx.getDesktopApi()
+  if (!desktopApi?.downloadHuiCode) {
+    toast({ title: "当前环境不支持代码导出" })
+    return null
+  }
+
+  // 3. 检查 replanner 必需参数
+  if (!ctx.sdk || !ctx.modelKey || !ctx.sessionId) {
+    toast({ title: "缺少必要参数，无法生成代码" })
+    return null
+  }
+
+  // 4. 调用 proto_replanner 重新生成 planner
+  let planner: Record<string, unknown> | null = null
+  let replannerSessionId: string | undefined
+  try {
+    const result = await proto_replanner({
+      sdk: ctx.sdk!,
+      sync: ctx.sync,
+      modelKey: ctx.modelKey!,
+      rootSession: ctx.sessionId!,
+      finalA2UIJson: a2uiData as Record<string, unknown>,
+      onSessionCreated: (childID: string) => { replannerSessionId = childID },
+    })
+    planner = result as unknown as Record<string, unknown>
+  } finally {
+    if (replannerSessionId) await ctx.sdk!.client.session.delete({ sessionID: replannerSessionId }).catch(() => {})
+  }
+
+  // 5. 调用 downloadHuiCode 生成代码文件
+  const jsonInput = [{ planner: planner!, mergedA2UI: a2uiData as Record<string, unknown> }]
+  const result = await desktopApi.downloadHuiCode!(jsonInput, { targetLib })
+  const files = result?.files
+  if (!files || files.length === 0) {
+    toast({ title: "暂无可导出的代码" })
+    return null
+  }
+
+  // 6. 获取 uploads 目录，供调用方决定是否打包资源
+  const uploadsDir = await desktopApi.getUploadsDir?.()
+
+  return { files, uploadsDir }
+}
+
+/** 递归列出目录下所有文件（绝对路径） */
+async function listAllFiles(
+  api: DesktopApi,
+  dir: string,
+): Promise<string[]> {
+  if (!api.listDirectory) return []
+  const entries = await api.listDirectory(dir)
+  const out: string[] = []
+  for (const e of entries) {
+    if (e.type === 'file') {
+      out.push(e.path)
+    } else if (e.type === 'directory') {
+      const nested = await listAllFiles(api, e.path)
+      out.push(...nested)
+    }
+  }
+  return out
+}
 
 const [isDarkTheme, setDarkTheme] = createSignal(false)
 
@@ -143,63 +238,20 @@ export default {
       return true
     }
 
+    // 磁盘导出还需要 exportZip 才能落盘
+    const desktopApi = ctx.getDesktopApi()
+    if (!desktopApi?.exportZip) {
+      ctx.showToast({ title: "当前环境不支持代码导出" })
+      downloading = false
+      return true
+    }
+
     try {
-      // 1. 读取 A2UI 数据（复用已有 session 或临时创建）
-      const tabId = ctx.tab.id
-      let session = getSessionById(tabId)
-      if (!session) session = createSession(tabId, ctx)
-      session.ctx = ctx
-
-      const a2uiData = await loadA2uiData(session, ctx)
-      if (!a2uiData) {
-        ctx.showToast({ title: "暂无可下载的内容" })
-        return true
-      }
-
-      // 2. 检查 desktop API 可用性
-      const desktopApi = ctx.getDesktopApi()
-      if (!desktopApi?.downloadHuiCode || !desktopApi?.exportZip) {
-        ctx.showToast({ title: "当前环境不支持代码导出" })
-        return true
-      }
-
-      // 3. 检查 replanner 必需参数
-      if (!ctx.sdk || !ctx.modelKey || !ctx.sessionId) {
-        ctx.showToast({ title: "缺少必要参数，无法生成代码" })
-        return true
-      }
-
-      // 4-6. 用 showPromiseToast 持续显示进度，直到成功或失败
-      const mergedA2UI = a2uiData as Record<string, unknown>
-
       const downloadPromise = (async () => {
-        // 4. 调用 proto_replanner 重新生成 planner
-        let planner: Record<string, unknown> | null = null
-        let replannerSessionId: string | undefined
-        try {
-          const result = await proto_replanner({
-            sdk: ctx.sdk!,
-            sync: ctx.sync,
-            modelKey: ctx.modelKey!,
-            rootSession: ctx.sessionId!,
-            finalA2UIJson: mergedA2UI,
-            onSessionCreated: (childID: string) => { replannerSessionId = childID },
-          })
-          planner = result as unknown as Record<string, unknown>
-        } finally {
-          if (replannerSessionId) await ctx.sdk!.client.session.delete({ sessionID: replannerSessionId }).catch(() => {})
-        }
+        const result = await buildPrototypeCodeFiles(ctx, targetLib)
+        if (!result) return null // 软失败已提示
 
-        // 5. 调用 downloadHuiCode 生成代码文件
-        const jsonInput = [{ planner: planner!, mergedA2UI }]
-        const result = await desktopApi.downloadHuiCode!(jsonInput, { targetLib })
-        const files = result?.files
-        if (!files || files.length === 0) {
-          throw new Error("暂无可导出的代码")
-        }
-
-        // 6. 获取 uploads 目录，打包资源
-        const uploadsDir = await desktopApi.getUploadsDir?.()
+        const { files, uploadsDir } = result
         const fullUploadsPath = uploadsDir && ctx.sessionId
           ? `${uploadsDir}/${ctx.sessionId}/uploads`
           : null
@@ -230,6 +282,50 @@ export default {
       return true
     } finally {
       downloading = false
+    }
+  },
+
+  /**
+   * 归档钩子：构建等价于"下载"按钮产物的代码包 zip，塞进归档 zip 的 src/。
+   * 用 JSZip 在内存构建，避免 exportZip 弹保存对话框打断归档流程。
+   * 失败时返回 null，归档主流程会 toast "代码包生成失败，已跳过 src/"。
+   */
+  async buildArchiveSrc(ctx) {
+    try {
+      // silent: 归档路径自己处理 toast，不重复提示
+      const result = await buildPrototypeCodeFiles(ctx, 'eview-react', { silent: true })
+      if (!result) return null
+
+      const desktopApi = ctx.getDesktopApi()
+      const { files, uploadsDir } = result
+
+      const zip = new JSZip()
+      for (const f of files) {
+        zip.file(f.path, f.content)
+      }
+
+      // 打包 uploads 资源到 public/assets，与 exportZip 的 sourceDir 行为对齐
+      const fullUploadsPath = uploadsDir && ctx.sessionId
+        ? `${uploadsDir}/${ctx.sessionId}/uploads`
+        : null
+      if (desktopApi && fullUploadsPath && desktopApi.listDirectory && desktopApi.readFileBuffer) {
+        try {
+          const allFiles = await listAllFiles(desktopApi, fullUploadsPath)
+          for (const absPath of allFiles) {
+            const rel = absPath.slice(fullUploadsPath.length).replace(/^[\\/]+/, '')
+            const buffer = await desktopApi.readFileBuffer(absPath)
+            if (buffer) zip.file(`public/assets/${rel}`, new Uint8Array(buffer))
+          }
+        } catch (err) {
+          console.warn('[Archive] Failed to bundle uploads:', err)
+        }
+      }
+
+      const blob = await zip.generateAsync({ type: "blob" })
+      return { blob, fileName: 'code-export.zip' }
+    } catch (err) {
+      console.warn('[Archive] buildArchiveSrc failed:', err)
+      return null
     }
   },
 

@@ -55,6 +55,13 @@ export interface SubtypeHandler {
   handleDownload?: (ctx: SubtypeHandlerContext, option?: string) => Promise<boolean | void>
 
   /**
+   * 构建归档时要塞进 src/ 的代码包
+   * 返回 { blob, fileName } 表示要写入 src/<fileName>；
+   * 返回 null 表示该 subtype 不提供 src 内容（默认行为，src/ 留空）
+   */
+  buildArchiveSrc?: (ctx: SubtypeHandlerContext) => Promise<{ blob: Blob; fileName: string } | null>
+
+  /**
    * 下载下拉选项
    * 声明且长度 > 1 时，action bar 渲染"下载"下拉按钮；每项 value 会作为 option 传给 handleDownload
    */

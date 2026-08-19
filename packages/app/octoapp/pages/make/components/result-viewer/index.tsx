@@ -715,11 +715,13 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                              await saveArtifactContent(tab.filePath, html)
                            }}
                            onRefreshNeeded={handleRefresh}
-                           tabTitle={tab.title}
-                            observedUrlsGetter={(g) => { observedUrlsGetter = g }}
-                            registerIframePostMessage={(fn) => { iframePostMessage = fn }}
-                            iframeElementGetter={(g) => { iframeElementGetter = g }}
-                          />
+                            tabTitle={tab.title}
+                             observedUrlsGetter={(g) => { observedUrlsGetter = g }}
+                             registerIframePostMessage={(fn) => { iframePostMessage = fn }}
+                             iframeElementGetter={(g) => { iframeElementGetter = g }}
+                             subtype={tab.subtype}
+                             tabId={tab.id}
+                           />
                     </Match>
                     <Match when={tabType === "deck"}>
                       <DeckRenderer content={tab.content} />
