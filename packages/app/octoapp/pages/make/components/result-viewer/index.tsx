@@ -368,7 +368,7 @@ export function ResultViewer(props: {
       tracker,
       getDesktopApi,
       extractCodeBlock,
-      projectSelection,
+      usePixsoTransport,
       edit: payload,
     }
 
