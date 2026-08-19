@@ -60,6 +60,8 @@ import { useSettings } from "@/context/settings"
 import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
+import { pickNextSession, sortedActiveSessions } from "@/utils/session-delete"
+import { useSessionDelete } from "@/hooks/use-session-delete"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { DialogPreviewUnavailable } from "./components/dialog-preview-unavailable"
 import { directoryHeader } from "@/utils/headers"
@@ -151,6 +153,7 @@ function MakeContent() {
   const sdk = useSDK()
   const providers = useProviders()
   const permission = usePermission()
+  const removeSession = useSessionDelete()
 
   // Register Make slash commands
   useMakeCommands()
@@ -406,20 +409,28 @@ function MakeContent() {
   // 删除对话
   /** 删除会话 */
   async function deleteSession(sessionID: string) {
-    try {
-      await sdk.client.session.delete({ sessionID })
-      tracker.interaction({ module: "design", name: "delete-session" })
-      navigate("/make")
-    } catch (err) {
-      showToast({ title: "删除失败", description: err instanceof Error ? err.message : String(err) })
-    }
+    const listResult = await sdk.client.session.list({ directory: sdk.directory })
+    const nextSession = pickNextSession(sortedActiveSessions((listResult.data ?? []) as Session[], "octo_make"), sessionID)
+
+    const ok = await removeSession(sdk.client, sessionID)
+    if (!ok) return
+
+    tracker.interaction({ module: "design", name: "delete-session" })
+    sync.set(
+      produce((draft) => {
+        const i = draft.session.findIndex((s) => s.id === sessionID)
+        if (i !== -1) draft.session.splice(i, 1)
+      }),
+    )
+    if (layout.lastSessionPerTab.make(sdk.directory) === sessionID) layout.lastSessionPerTab.setMake(sdk.directory, "")
+    navigate(nextSession ? `/make/${nextSession.id}` : "/make")
   }
 
   /** 弹出删除确认弹框 */
   function handleDeleteSession() {
     const id = params.id
     if (!id) return
-    dialog.show(() => <DialogDeleteSession name={sessionTitle(sessionInfoMirror()?.title) ?? "Octo Design"} onDelete={() => deleteSession(id)} />)
+    dialog.show(() => <DialogDeleteSession name={sessionTitle(sessionInfoMirror()?.title) ?? language.t("command.session.new")} onDelete={() => deleteSession(id)} />)
   }
 
 // 监听项目切换，清理不属于新项目的 session
