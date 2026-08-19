@@ -3,7 +3,7 @@ import { app, BrowserWindow, net, nativeImage, nativeTheme, protocol, shell } fr
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { readFile } from "node:fs/promises"
-import { existsSync } from "node:fs"
+import { createReadStream, existsSync, statSync } from "node:fs"
 import {
   injectSandboxShim,
   injectEditBridgeStyle,
@@ -304,6 +304,35 @@ export function registerRendererProtocol() {
   })
 }
 
+// 解析 HTTP Range 请求头:支持 "bytes=0-1023"、"bytes=0-"、"bytes=-1023"(后缀)。
+// 返回 null 表示不是合法 Range 请求,调用方按普通 200 处理。
+// 参考 RFC 7233 §2.1。
+function parseRangeHeader(range: string | null, totalSize: number): { start: number; end: number } | null {
+  if (!range || !range.startsWith("bytes=")) return null
+  const spec = range.slice(6).trim()
+  if (!spec) return null
+  const dashIdx = spec.indexOf("-")
+  if (dashIdx === -1) return null
+  const startStr = spec.slice(0, dashIdx)
+  const endStr = spec.slice(dashIdx + 1)
+
+  let start: number
+  let end: number
+  if (startStr === "") {
+    // 后缀范围 "bytes=-N":取最后 N 字节
+    const suffixLen = parseInt(endStr, 10)
+    if (Number.isNaN(suffixLen) || suffixLen <= 0) return null
+    start = Math.max(0, totalSize - suffixLen)
+    end = totalSize - 1
+  } else {
+    start = parseInt(startStr, 10)
+    end = endStr === "" ? totalSize - 1 : parseInt(endStr, 10)
+    if (Number.isNaN(start) || Number.isNaN(end)) return null
+    if (start < 0 || end < 0 || start > end || end >= totalSize) return null
+  }
+  return { start, end }
+}
+
 export function registerLocalProtocol() {
   if (protocol.isProtocolHandled("local")) return
 
@@ -423,6 +452,29 @@ export function registerLocalProtocol() {
           headers: {
             "Content-Type": "text/html; charset=utf-8",
             "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "no-store",
+          },
+        })
+      }
+
+      // 媒体(<video>/<audio>)播放需要 Range 支持:Chromium 媒体管道会发
+      // Range: bytes=start-end,服务器必须返回 206 + Content-Range/Content-Length/Accept-Ranges。
+      // file:// 经 net.fetch 透传不带这些头,mp4/webm/mp3 无法播放(也无法 seek)。
+      // 这里手动解析 Range + createReadStream 读字节范围,大文件不爆内存。
+      const stat = statSync(absolutePath)
+      const range = parseRangeHeader(request.headers.get("Range"), stat.size)
+
+      if (range) {
+        const stream = createReadStream(absolutePath, { start: range.start, end: range.end })
+        return new Response(stream as unknown as BodyInit, {
+          status: 206,
+          headers: {
+            "Content-Type": mimeType,
+            "Content-Length": String(range.end - range.start + 1),
+            "Content-Range": `bytes ${range.start}-${range.end}/${stat.size}`,
+            "Accept-Ranges": "bytes",
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "no-store",
           },
         })
       }
@@ -431,10 +483,14 @@ export function registerLocalProtocol() {
       // 不透传 upstream.status:file:// 在某些 opaque 场景返回 status:0,
       // new Response(body, { status: 0 }) 会抛 TypeError(status 必须 200–599)。
       // 省略 status(默认 200),与原 readFile 路径行为一致。
+      // 加 Content-Length/Accept-Ranges 让客户端知道可以发 Range 请求(媒体 / 大文件流式)。
       return new Response(upstream.body, {
         headers: {
           "Content-Type": mimeType,
+          "Content-Length": String(stat.size),
+          "Accept-Ranges": "bytes",
           "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "no-store",
         },
       })
     } catch (err) {

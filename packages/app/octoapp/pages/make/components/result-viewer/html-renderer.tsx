@@ -533,7 +533,7 @@ createEffect(() => {
     const pending = manualEditPendingStyle
     const target = editTarget()
     const draft = editDraft()
-    
+
     if (!target) return true
 
     // Subtypes that delegate saving to the agent must not write the file directly.
@@ -545,12 +545,12 @@ createEffect(() => {
     
     // ★ Get HTML snapshot from iframe (guaranteed ID match)
     const html = await getIframeSnapshot()
-    
+
     // Apply all patches (styles + text/href if changed)
     let result: { ok: boolean; source: string; error?: string } = { ok: true, source: html }
     let hasChanges = false
     let description = "Edit styles"
-    
+
     // Apply styles if pending
     if (pending && pending.styles) {
       result = applyManualEditPatch(result.source, {
@@ -591,7 +591,8 @@ createEffect(() => {
     
     if (result.ok) {
       const cleanSource = cleanBridgeContent(result.source)
-      await props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
+      const wrapped = wrapHtmlContent(cleanSource, props.content)
+      await props.onContentChange?.(wrapped)
       if (hasChanges) {
         pushHistory(cleanSource, description)
         // 文字/链接修改只在 HTML source 层面应用,不像样式那样通过 postMessage 实时预览到 DOM。
@@ -612,7 +613,7 @@ createEffect(() => {
         resolve("")
         return
       }
-      
+
       const handleSnapshot = (e: MessageEvent) => {
         if (e.source !== iframe.contentWindow) return
         const d = e.data
@@ -621,10 +622,10 @@ createEffect(() => {
           resolve(d.html)
         }
       }
-      
+
       window.addEventListener("message", handleSnapshot)
       iframe.contentWindow.postMessage({ type: "od:get-html-snapshot" }, "*")
-      
+
       // Timeout fallback
       setTimeout(() => {
         window.removeEventListener("message", handleSnapshot)
@@ -706,27 +707,17 @@ createEffect(() => {
       // Ctrl+Z: Undo (global - always available when history exists)
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault()
-        const ok = undo()
-        if (ok) {
-          console.log('[Edit] Undo successful - history index:', historyIndex)
-        } else {
-          console.log('[Edit] Undo failed - no history available')
-        }
+        undo()
         return
       }
-      
+
       // Ctrl+Y or Ctrl+Shift+Z: Redo (global - always available when future history exists)
       if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
         e.preventDefault()
-        const ok = redo()
-        if (ok) {
-          console.log('[Edit] Redo successful - history index:', historyIndex)
-        } else {
-          console.log('[Edit] Redo failed - no future history available')
-        }
+        redo()
         return
       }
-      
+
       // Escape: Exit edit mode (only when editing AND editTarget is set)
       if (props.editing && editTarget() && e.key === 'Escape') {
         e.preventDefault()
@@ -929,7 +920,6 @@ createEffect(() => {
           const cleanSource = cleanBridgeContent(result.source)
           props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
           pushHistory(cleanSource, `Edit text in-place`)
-          console.log("[Edit] In-place text edit saved:", id, value.slice(0, 50))
         } else {
           console.error("[Edit] In-place text edit failed:", result.error)
         }
@@ -942,7 +932,6 @@ createEffect(() => {
       // Move focus to outer document (enable HTML undo/redo)
       iframeRef?.blur()
       window.focus()
-      console.log('[Edit] Focus transferred to parent window')
       return
     }
 
@@ -964,7 +953,7 @@ createEffect(() => {
       setEditTarget(target)
       manualEditPendingStyle = null
       manualEditPendingText = null
-      
+
       // Initialize draft from target + source
       const html = extractHtmlContent(props.content)
       const fields = readManualEditFields(html, target.id)
@@ -1055,18 +1044,12 @@ createEffect(() => {
     }
 
     if (d.type === "od:comment-pin-click") {
-      console.log('[DEBUG] pin-click received:', d)
-      console.log('[DEBUG] pinPosition:', d.pinPosition)
       const commentId = d.commentId
       const comment = savedComments().find(c => c.id === commentId)
       if (comment) {
         setEditingComment(comment)
         setCommentReadOnly(true)
         const pinPos = d.pinPosition
-        console.log('[DEBUG] calculated hoverPoint:', pinPos ? {
-          x: pinPos.left + pinPos.width + 8,
-          y: pinPos.top
-        } : undefined)
         setCommentTarget({
           elementId: comment.elementId,
           tag: comment.elementId.split('-')[0] || 'div',
@@ -1347,32 +1330,25 @@ return (
                 }}
                 onLoad={() => {
                   if (!iframeRef) {
-                    console.log('[HtmlRenderer] iframeRef is null')
                     return
                   }
                   if (!shouldUseExternalUrl()) resourceTracker.observe(iframeRef)
                   if (props.editing) {
-                    console.log('[HtmlRenderer] sending od:edit-mode')
                     iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
                   }
                   if (props.inspecting) {
-                    console.log('[HtmlRenderer] sending od:inspect-mode')
                     iframeRef.contentWindow?.postMessage({ type: "od:inspect-mode", enabled: true }, "*")
                   }
                   if (props.commenting) {
-                    console.log('[HtmlRenderer] sending od:comment-mode')
                     iframeRef.contentWindow?.postMessage({ type: "od:comment-mode", enabled: true }, "*")
                     const comments = savedComments()
-                    console.log('[HtmlRenderer] sending od:comment-saved-pins, count:', comments.length)
                     iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
                   }
                   if (props.palette) {
-                    console.log('[HtmlRenderer] sending od:palette')
                     iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
                   }
                   const overrides = savedOverrides()
                   if (overrides.length > 0) {
-                    console.log('[HtmlRenderer] sending overrides, count:', overrides.length)
                     overrides.forEach((override) => {
                       iframeRef.contentWindow?.postMessage(
                         { type: "od:inspect-set", elementId: override.elementId, prop: override.prop, value: override.value },
@@ -1399,32 +1375,25 @@ return (
                 style={{ "min-height": "200px" }}
                 onLoad={() => {
                   if (!iframeRef) {
-                    console.log('[HtmlRenderer] iframeRef is null')
                     return
                   }
                   if (!shouldUseExternalUrl()) resourceTracker.observe(iframeRef)
                   if (props.editing) {
-                    console.log('[HtmlRenderer] sending od:edit-mode')
                     iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
                   }
                   if (props.inspecting) {
-                    console.log('[HtmlRenderer] sending od:inspect-mode')
                     iframeRef.contentWindow?.postMessage({ type: "od:inspect-mode", enabled: true }, "*")
                   }
                   if (props.commenting) {
-                    console.log('[HtmlRenderer] sending od:comment-mode')
                     iframeRef.contentWindow?.postMessage({ type: "od:comment-mode", enabled: true }, "*")
                     const comments = savedComments()
-                    console.log('[HtmlRenderer] sending od:comment-saved-pins, count:', comments.length)
                     iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
                   }
                   if (props.palette) {
-                    console.log('[HtmlRenderer] sending od:palette')
                     iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
                   }
                   const overrides = savedOverrides()
                   if (overrides.length > 0) {
-                    console.log('[HtmlRenderer] sending overrides, count:', overrides.length)
                     overrides.forEach((override) => {
                       iframeRef.contentWindow?.postMessage(
                         { type: "od:inspect-set", elementId: override.elementId, prop: override.prop, value: override.value },
@@ -1796,7 +1765,6 @@ body: JSON.stringify({
                           })
                       })
                      .then(res => {
-                       console.log('[Comment] First save response status:', res.status)
                       if (!res.ok) throw new Error(`Save comment failed: ${res.status}`)
                       return res.json()
                     })
@@ -1839,13 +1807,9 @@ body: JSON.stringify({
                             })
                             
                             const uploadedAttachments = await Promise.all(uploadPromises)
-                            
-                            console.log('[Comment] Uploaded attachments:', uploadedAttachments)
-                            
+
                             // Update comment with all attachments
                             const allAttachments = [...(comment.attachments || []), ...uploadedAttachments]
-                            
-                            console.log('[Comment] All attachments for second save:', allAttachments)
                             
 await fetch(`${props.sdkUrl}/comment/file`, {
                                method: 'POST',
@@ -1865,12 +1829,10 @@ body: JSON.stringify({
                                })
                              })
                             .then(res => {
-                              console.log('[Comment] Second save response status:', res.status)
                               if (!res.ok) throw new Error(`Second save failed: ${res.status}`)
                               return res.json()
                             })
                             .then(data => {
-                              console.log('[Comment] Second save response data:', data)
                               if (!data.ok) throw new Error('Second save failed')
                             })
                             
@@ -2049,31 +2011,21 @@ const updatedComment = {
                    }}
 onDeleteAttachment={(attachmentId) => {
                      const existingComment = editingComment()
-                     
-console.log('[Comment] Delete attachment request:', {
-                        attachmentId,
-                        sessionId: props.sessionId,
-                        filePath: getArtifactFilename(props.filePath),
-                        commentId: existingComment?.id,
-                        existingComment: existingComment,
-                      })
-                      
+
                       if (!existingComment) {
                         showToast({ title: "删除失败", description: "评论不存在" })
                         return
-}
-                      
+                      }
+
                        fetch(`${props.sdkUrl}/comment/file/attachment/${attachmentId}?sessionId=${props.sessionId}&commentFilePath=${encodeURIComponent(extractCommentFilePath(props.filePath || '', props.sessionId || ''))}&commentId=${existingComment.id}`, {
                         method: 'DELETE',
                         headers: { ...directoryHeader(props.sdkDirectory!) }
                       })
                      .then(res => {
-                       console.log('[Comment] Delete response status:', res.status)
                        if (!res.ok) throw new Error(`Delete failed: ${res.status}`)
                        return res.json()
                      })
 .then(data => {
-                        console.log('[Comment] Delete response data:', data)
                         if (!data.ok) throw new Error('Delete failed')
                         
                         // Update editingComment's attachments
@@ -2110,8 +2062,7 @@ console.log('[Comment] Delete attachment request:', {
                         })
 .then(saveData => {
                            if (!saveData.ok) throw new Error('Auto-save failed')
-                           console.log('[Comment] Auto-save after delete success')
-                           
+
 fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath=${encodeURIComponent(props.commentFilePath || extractCommentFilePath(updatedComment.filePath, props.sessionId || ''))}`, {
                               headers: { ...directoryHeader(props.sdkDirectory!) }
                             })

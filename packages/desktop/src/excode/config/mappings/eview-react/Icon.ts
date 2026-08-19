@@ -12,7 +12,7 @@
  * | color（字面量） | 传给 resolveIcon（→ iconColor） |
  * | color（DataBinding，绝对/相对） | ComputedValue 内 cvCtx.resolveValueFromPath 解析（per-item 正确） |
  * | shape（字面量） | 传给 resolveIcon（→ type） |
- * | className | 传给 resolveIcon |
+ * | className | 传给 resolveIcon；w-xx → 额外提取 iconSize 像素数字 |
  *
  * ## 特殊逻辑
  *
@@ -29,9 +29,17 @@
  */
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
-import { Value } from '../../../src/core/value'
-import { Node } from '../../../src/core/node'
+import { Value } from '../../../src/core/value-factory'
+import { Node } from '../../../src/core/node-factory'
+import { extractIconSizeFromClassName } from '../../../src/codegen/split-width-style'
 
+const typeObj = {
+  'outline': 'lined',
+  'filled': 'filled',
+  'two-tone': 'lined-twotone',
+  'square': 'square-bg',
+  'circle': 'round-bg',
+}
 /**
  * 从 A2UI props 中抽出 resolveIcon 接受的字面量 prop
  *
@@ -42,8 +50,15 @@ function extractLiteralIconProps(props: Record<string, any>): Record<string, any
   const { name, color, shape, className, ...rest } = props
   const iconProps: Record<string, any> = { ...rest }
   if (typeof color === 'string') iconProps.color = color
-  if (typeof shape === 'string') iconProps.shape = shape
-  if (typeof className === 'string') iconProps.className = className
+  if (typeof shape === 'string') {
+    iconProps.type = shape in typeObj ? typeObj[shape as keyof typeof typeObj] : 'lined'
+  }
+  if (typeof className === 'string') {
+    iconProps.className = className
+    // 从 w-xx 类提取 iconSize 像素数字（@nce/icon-plus 的 iconSize prop）
+    const { iconSize } = extractIconSizeFromClassName(className)
+    if (iconSize !== null) iconProps.iconSize = iconSize
+  }
   return iconProps
 }
 

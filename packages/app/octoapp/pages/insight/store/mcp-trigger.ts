@@ -77,9 +77,14 @@ export function buildToolGate(selectedTool?: string): Record<string, boolean> {
     // (不再是从前那道"已常驻 deny、再关无害"的冗余)——删它会让研究工具那轮重新暴露 shell 逃生口。
     gate["bash"] = false // shell 工具注册键(tool/shell/id.ts ToolID),显示名 Shell,含 pwsh/cmd 变体
     gate["webfetch"] = false
-    // knowledge_search 同理(SPEC-INS-030 迁入 insight 后新增):内网知识库检索与「这一轮直调所选 MCP 工具」
-    // 无关,却是弱模型在 MCP 工具缺失时的又一个模拟通道(拿知识库片段编一份"解析结果")。
-    gate["knowledge_search"] = false
+    // extract_document 也关(2026-08-19 追加):MCP 业务工具只收**文件名**,octo-upload-inject 在
+    // tool.execute.before 换成 S3 URL,正文由内网服务端自己解析——本地抽出来的正文对这次调用**零贡献**,
+    // 纯粹是上下文负担,且随会话历史累积。实测 chip turn 模型会先抽文档再调 MCP(常驻提示词
+    // "解析材料统一入口 = extract_document" 的引导),一叠逐字稿即撞窗口(SPEC-INS-016 §4.1:
+    // 内联分支 ≤~49KB 是全文回灌,10 份 ≈17 万 token 超 128K)。
+    // 只关 chip turn:MCP 是异步长任务,提交完即结束本轮;后续轮次用户问"稿子里 XX 怎么说的"、
+    // 或走本地线分析时,extract_document 仍是 office 文件的唯一入口,不能全局摘。
+    gate["extract_document"] = false
   }
   return gate
 }
@@ -143,6 +148,7 @@ export function buildChipTemplate(sel: McpSelection, typedText: string): string 
     ``,
     `调用纪律(2026-07-07 起,违反即事故):`,
     `- 必须由你**直接**调用该工具。严禁通过 task 子代理、shell/命令行、HTTP 请求等任何其他方式模拟或代替调用(这些途径本轮已被禁用)。`,
+    `- **不要先去读文件正文**。该工具只需要文件名,材料由内网服务端自行解析,你读了正文对这次调用没有任何帮助,只会挤占上下文(\`extract_document\` 本轮已禁用)。需要按文件名分桶时,按文件名判断或问用户,不要靠读内容来判断。`,
     `- 若该工具不在你的可用工具列表里,或调用返回「工具不可用」类错误:如实告知用户「内网 MCP 连接暂不可用,请稍后重试或联系管理员」。用户已经在输入框完成了选择,**不要再让用户去点击任何按钮**,也不要尝试任何替代方案。`,
     `- task_id 只能来自工具的真实返回,**绝不允许编造**;没有成功的工具返回,就没有 task_id、没有"任务已提交"。`,
     `- 消息里的 [MCP声明] 段落是给系统读取的机器内容,不要向用户提及或复述它。`,

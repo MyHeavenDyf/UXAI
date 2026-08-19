@@ -278,25 +278,19 @@ export function MessageTimeline(props: {
   })
 
   const activeMessageID = createMemo(() => {
-    const selectable = (message: UserMessage) => {
-      const parts = sync.data.part[message.id]
-      if (!parts?.length) return false
-      return !parts.some((part) => part.type === "compaction")
-    }
     const parentID = pending()?.parentID
     if (parentID) {
       const messages = sessionMessages()
       const result = Binary.search(messages, parentID, (message) => message.id)
       const message = result.found ? messages[result.index] : messages.find((item) => item.id === parentID)
-      if (message && message.role === "user" && selectable(message)) return message.id
+      if (message && message.role === "user") return message.id
     }
 
     const status = sessionStatus()
     if (status.type !== "idle") {
       const messages = sessionMessages()
       for (let i = messages.length - 1; i >= 0; i--) {
-        const message = messages[i]
-        if (message.role === "user" && selectable(message)) return message.id
+        if (messages[i].role === "user") return messages[i].id
       }
     }
 

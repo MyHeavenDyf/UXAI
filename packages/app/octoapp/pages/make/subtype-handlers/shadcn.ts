@@ -150,7 +150,7 @@ export default {
   },
 
   async handleCanvasEdit(ctx) {
-    const { tab, showToast, getDesktopApi, projectSelection } = ctx
+    const { tab, showToast, getDesktopApi, usePixsoTransport, sessionId, sdkDirectory } = ctx
     const filePath = tab.filePath || tab.absoluteFilePath
     
     if (!filePath) {
@@ -194,15 +194,40 @@ export default {
       return true
     }
 
-    const result = await uploadZip(async () => zipBlob, projectSelection())
-    console.log('pixsourl', result?.pixsoUrl)
+    const result = usePixsoTransport({
+      getZip: async () => zipBlob,
+      downloadHtml: async (data) => {
+        const baseDir = sdkDirectory
+        const sid = sessionId
+        
+        if (!baseDir || !sid || !api?.writeFileBuffer) {
+          showToast({ title: "无法保存文件", variant: "error" })
+          return
+        }
+        
+        const uploadsDir = `${baseDir}/.octo/${sid}/uploads`
+        let finalFilename = data.filename
+        
+        if (api.fileExists) {
+          let counter = 0
+          const baseName = data.filename.replace(/\.html$/i, '')
+          while (await api.fileExists(`${uploadsDir}/${finalFilename}`)) {
+            counter++
+            finalFilename = `${baseName}(${counter}).html`
+          }
+        }
+        
+        const buf = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
+        await api.writeFileBuffer(`${uploadsDir}/${finalFilename}`, buf.buffer)
+        showToast({ title: "已保存", description: finalFilename })
+      },
+      config: {
+        designName: tab.title,
+        sessionId: sessionId || "",
+      },
+    })
 
-    if (!result.webview) {
-      showToast({ title: "创建失败" })
-      return true
-    }
-
-    console.log('pixso loaded')
+    console.log('pixso result', result)
     return true
   },
 } satisfies SubtypeHandler

@@ -40,11 +40,12 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
         ref={(el) => {
           if (props.popover === "slash") props.setSlashPopoverRef(el)
         }}
-        class="absolute inset-x-0 -top-2 -translate-y-full origin-bottom-left max-h-80 min-h-10
-                 overflow-auto no-scrollbar flex flex-col p-2 rounded-[12px]
+        class="absolute inset-x-0 -top-2 -translate-y-full origin-bottom-left
+                 max-h-[290px] min-h-10 overflow-hidden rounded-[12px] p-2 pr-1 flex flex-col
                  bg-surface-raised-stronger-non-alpha shadow-[var(--shadow-lg-border-base)]"
         onMouseDown={(e) => e.preventDefault()}
       >
+        <div class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden thin-scrollbar pr-1">
         <Switch>
           <Match when={props.popover === "at"}>
             <Show
@@ -135,6 +136,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
             </Show>
           </Match>
         </Switch>
+        </div>
       </div>
     </Show>
   )

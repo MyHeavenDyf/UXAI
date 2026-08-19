@@ -24,9 +24,9 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue, BindingValue } from '../../../src/core/value-types'
-import type { ComponentNode, LoopNode, ExtractNode } from '../../../src/core/node-types'
-import { Value } from '../../../src/core/value'
-import { Node } from '../../../src/core/node'
+import type { ComponentNode, LoopNode } from '../../../src/core/node-types'
+import { Value } from '../../../src/core/value-factory'
+import { Node } from '../../../src/core/node-factory'
 
 // ─── placement 映射表（与 eview-react Dropdown 一致） ───
 const PLACEMENT_MAP: Record<string, { position: string; popupDirection: string }> = {
@@ -152,23 +152,21 @@ function buildMenuOverlayFromBinding(
   ctx: TransformContext,
 ): ComponentNode {
   // 复用 menu binding 的 path/pathType/accessPath 作循环数据源
-  const dataBinding: BindingValue = {
-    type: 'binding',
+  const dataBinding = Value.binding({
     path: menuBinding.path,
     pathType: menuBinding.pathType ?? 'absolute',
     accessPath: menuBinding.accessPath ?? 'dropdownMenu',
-  }
+  })
 
   const componentName = `${nodeId || 'Dropdown'}OverlayTemplate`
   const templateItem = buildMenuItemTemplate(ctx)
 
-  const extract: ExtractNode = {
-    kind: 'extract',
+  const extract = Node.extract({
     componentName,
     purpose: 'component',
     body: [templateItem],
     _resolved: false,
-  }
+  })
 
   const loopNode: LoopNode = Node.loop({ data: dataBinding, template: extract })
   // 注：不手动挂 loopScope —— 会形成 loopNode↔template.body↔loopScope 循环引用，
@@ -195,7 +193,8 @@ const DropdownMapping: MappingDef = {
   transform(node: any, ctx: TransformContext) {
     const props = node.props || {}
     const outputProps: Record<string, PropValue> = {}
-    const SKIP_KEYS = new Set(['menu', 'placement', 'trigger'])
+
+    // 显性处理每个 A2UI prop（Dropdown: placement/trigger/menu/className），不做兜底透传。
 
     // ─── menu → overlay（Menu 组件节点，直接作 prop 值） ───
     // overlay 是 prop 值里的 BuildNode 子树。jsxEmitter.emitValue 对 prop 值 BuildNode 走
@@ -229,10 +228,7 @@ const DropdownMapping: MappingDef = {
     // ─── className ───
     if (props.className) outputProps.className = props.className as PropValue
 
-    // 透传剩余
-    for (const [key, value] of Object.entries(props)) {
-      if (!SKIP_KEYS.has(key)) outputProps[key] = value as PropValue
-    }
+    // 不做剩余兜底透传：A2UI Dropdown 的 props 已逐项显性处理。
 
     return {
       props: outputProps,

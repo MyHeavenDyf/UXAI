@@ -23,7 +23,7 @@ import type {
   TransformContext,
 } from "../../../src/core/component-mapping";
 import type { PropValue } from "../../../src/core/value-types";
-import { Value } from "../../../src/core/value";
+import { Value } from "../../../src/core/value-factory";
 
 // ─── size 值映射 ───
 const SIZE_MAP: Record<string, number> = {
@@ -41,7 +41,8 @@ const RateMapping: MappingDef = {
   transform(node: any, _ctx: TransformContext) {
     const props = node.props || {};
     const outputProps: Record<string, PropValue> = {};
-    const SKIP_KEYS = new Set(["value", "count", "size", "allowClear", "disabled", "className"]);
+
+    // 显性处理每个 A2UI prop（Rate: count/value/allowClear/disabled/size/className），不做兜底透传。
 
     // ─── value → value（useState 受控） ───
     if ("value" in props) {
@@ -106,12 +107,7 @@ const RateMapping: MappingDef = {
       outputProps.className = props.className;
     }
 
-    // ─── 剩余 prop 透传 ───
-    for (const [key, value] of Object.entries(props)) {
-      if (!SKIP_KEYS.has(key)) {
-        outputProps[key] = value as PropValue;
-      }
-    }
+    // 不做剩余兜底透传：A2UI Rate 的 props 已逐项显性处理。
 
     return {
       props: outputProps,

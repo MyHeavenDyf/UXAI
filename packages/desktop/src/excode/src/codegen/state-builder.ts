@@ -26,12 +26,13 @@
  */
 
 import type { MappedPage } from '../pipeline/pipeline-context'
-import type { BuildNode, LoopNode, ExtractNode, RegularNode, LoopScope, RenderFnScope, Scope } from '../core/node-types'
+import type { BuildNode, LoopNode, ExtractNode, RegularNode, RenderFnScope, Scope } from '../core/node-types'
 import type { BindingValue, ComputedValue, ComputedTransformCtx, PropValue } from '../core/value-types'
 import { resolveIcon } from '../core/icon-collection'
-import { collectRelativeCVs } from '../core/scoped-enrichment'
+import { collectRelativeCVsDeep, applyScopedCV } from '../core/scoped-enrichment'
 import { rewriteResourcePathsInValue } from '../core/resource-path'
-import { jsxConstName, pathToJsAccess } from '../core/access-path'
+import { jsxConstName, makeEnrichmentConstName } from '../core/access-path'
+import { setNested, pathToSegments, resolveBySegments } from '../core/state-path'
 import { serializePlainJs } from './js-serializer'
 
 // ─── 文件单元 ───
@@ -60,8 +61,11 @@ export interface EnrichmentConst {
 }
 
 // ─── 上下文 ───
+// 注：StateBuilderContext 及下方 getValueFromState / sharedKeyOfPath / consumeValue /
+// processLoop 导出供 test/unit/state-builder.test.ts 单测；这些是 test-exported internals，
+// 运行期仍只被本模块内部调用，导出仅用于隔离单测，不改任何运行行为。
 
-interface StateBuilderContext {
+export interface StateBuilderContext {
   rawState: Record<string, any>
 
   /** 所有文件单元（main / modules/* / components/*） */
@@ -84,6 +88,14 @@ interface StateBuilderContext {
    * value = enrichment 后的 constName
    */
   loopEnrichmentMap: Map<string, { constName: string }>
+
+  /**
+   * 事件 Action 改写的 state path 集合（来自 BuiltPage/MappedPage，带前导 `/`）。
+   * consumeValue 遍历时据此给命中 path 的 binding/computed 打 shared 标记。
+   */
+  eventMutatedPaths: Set<string>
+  /** 共享顶层 key 集合（consumeValue 收集，供 shared-state.ts store 初始化） */
+  sharedKeys: Set<string>
 }
 
 // ─── StateBuilderResult ───
@@ -102,11 +114,15 @@ export interface StateBuilderResult {
    * 没有 enrichment 的循环不在 map 中（routeLoopNode 回退到 loop.data.accessPath）
    */
   loopEnrichmentMap: Map<string, { constName: string }>
+  /** 共享顶层 key 集合（来自 consumeValue，供 shared-state.ts store 初始化） */
+  sharedKeys: Set<string>
+  /** shared-state.ts 完整内容（仅当 sharedKeys 非空时生成；否则 undefined） */
+  sharedStateContent?: string
 }
 
 // ─── 工具 ───
 
-function getValueFromState(state: Record<string, any>, path: string): any {
+export function getValueFromState(state: Record<string, any>, path: string): any {
   if (!path || !state) return undefined
   const segments = path.replace(/^\//, '').split('/').filter(Boolean)
   let current: any = state
@@ -117,67 +133,64 @@ function getValueFromState(state: Record<string, any>, path: string): any {
   return current
 }
 
-/** 按 accessPath 设嵌套值，支持数组下标：`a.b[0].c` → obj.a.b[0].c，保持原始结构。
- *  accessPath 来自 #computeAccessPath：字段用 `.` 分隔，数字段用 `[n]` 紧跟字段后。 */
-function setNested(obj: Record<string, any>, key: string, value: any): void {
-  const accessors = parseAccessors(key)
-  let cur: any = obj
-  for (let i = 0; i < accessors.length; i++) {
-    const a = accessors[i]
-    const isLast = i === accessors.length - 1
-    if (a.kind === 'field') {
-      if (isLast) { cur[a.field] = value; return }
-      const wantArray = accessors[i + 1]?.kind === 'index'
-      if (cur[a.field] == null || typeof cur[a.field] !== 'object') cur[a.field] = wantArray ? [] : {}
-      cur = cur[a.field]
-    } else {
-      // index：cur 必为数组
-      if (!Array.isArray(cur)) cur = []  // 防御
-      if (isLast) { cur[a.index] = value; return }
-      const wantArray = accessors[i + 1]?.kind === 'index'
-      if (cur[a.index] == null || typeof cur[a.index] !== 'object') cur[a.index] = wantArray ? [] : {}
-      cur = cur[a.index]
-    }
+/**
+ * 共享 state path → 顶层 key（剥前导 `/`，取首段）。
+ * 按协议共享 path 只在 state 顶层，故首段即完整 key。
+ */
+export function sharedKeyOfPath(path: string): string {
+  return path.replace(/^\//, '').split('/')[0]
+}
+
+/**
+ * 生成 shared-state.ts 内容（仅当存在共享 key）。
+ * store 从 initialState 取共享 key 的初值；useSharedState 订阅切片，setSharedState 写入。
+ *
+ * useSharedState 返回 [value, setter] 元组（对齐 useState 用法）：
+ *   - 读写双绑（tree-finalizer liftLiteralTwoWayBindings）→ `const [v, setV] = useSharedState(key)`
+ *     setV(value) 内部调 sharedStore.set(key, value)。
+ *   - 只读（liftSharedReadBindings）→ `const [v] = useSharedState(key)`（解构取值，丢弃 setter）。
+ * setSharedState 仍保留导出：模块级 render 函数（如 tableColumns）等组件作用域之外的
+ * ActionValue 事件绑定拿不到组件内 lift 出来的 setter，必须走全局 setSharedState。
+ */
+function generateSharedStateFileContent(sharedKeys: Set<string>): string {
+  const keys = [...sharedKeys].sort()
+  const initLines = keys.map(k => `  ${k}: initialState.${k},`).join('\n')
+  return `import { useSyncExternalStore } from 'react'
+import { initialState } from './state'
+
+function createSharedStore(init: Record<string, any>) {
+  let state = init
+  const listeners = new Set<() => void>()
+  return {
+    subscribe: (l: () => void) => {
+      listeners.add(l)
+      return () => { listeners.delete(l) }
+    },
+    get: () => state,
+    set: (key: string, value: any) => {
+      state = { ...state, [key]: value }
+      listeners.forEach((l) => l())
+    },
   }
 }
 
-/** 拆 accessPath 为访问器序列：`a.b[0][1].c` → [field a, field b, index 0, index 1, field c] */
-function parseAccessors(key: string): Array<{ kind: 'field'; field: string } | { kind: 'index'; index: number }> {
-  const out: Array<{ kind: 'field'; field: string } | { kind: 'index'; index: number }> = []
-  for (const part of key.split('.')) {
-    const m = part.match(/^([^\[]*)((?:\[\d+\])*)$/)
-    if (!m) continue
-    const field = m[1]
-    const indices = (m[2].match(/\[(\d+)\]/g) || []).map(s => parseInt(s.slice(1, -1), 10))
-    if (field) out.push({ kind: 'field', field })
-    for (const idx of indices) out.push({ kind: 'index', index: idx })
-  }
-  return out
+const sharedStore = createSharedStore({
+${initLines}
+})
+
+export function useSharedState(key: string): [any, (value: any) => void] {
+  const value = useSyncExternalStore(sharedStore.subscribe, () => sharedStore.get()[key])
+  const setter = (value: any) => sharedStore.set(key, value)
+  return [value, setter]
 }
 
-function pathToSegments(path: string): string[] {
-  return path.replace(/^\//, '').split('/').filter(Boolean)
+export function setSharedState(key: string, value: any) {
+  sharedStore.set(key, value)
+}
+`
 }
 
-function resolveBySegments(root: any, segments: string[]): any {
-  let cur: any = root
-  for (const seg of segments) {
-    if (cur == null) return undefined
-    cur = cur[seg]
-  }
-  return cur
-}
 
-/** 从 path 提取顶层 key 名 */
-function pathToTopKey(path: string): string {
-  const seg = path.replace(/^\//, '').split('/').filter(Boolean)[0]
-  return seg || ''
-}
-
-/** 生成循环 enrichment const 名 */
-function makeEnrichmentConstName(path: string, parentNodeId: string): string {
-  return `${pathToTopKey(path)}_${parentNodeId}Enriched`
-}
 
 function getOrCreateUnit(ctx: StateBuilderContext, fileKey: string): FileUnit {
   let unit = ctx.fileUnits.get(fileKey)
@@ -195,87 +208,40 @@ function withUnit(ctx: StateBuilderContext, unit: FileUnit, fn: () => void): voi
   ctx.currentUnit = prev
 }
 
-/** 从循环的 LoopScope 链解析数据源 */
+/** 取 absolute 循环数据源（state 数组）。
+ *  relative 嵌套循环在 processLoop isRelativeNested 跳过（由 applyScopedCV loopChain 处理）；
+ *  顶层 relative 无 loopScope 为异常，返回 [] 触发 warn。 */
 function resolveLoopData(loop: LoopNode, ctx: StateBuilderContext): any[] {
   const data = loop.data as BindingValue  // state-builder 阶段 LoopNode.data 还是 BindingValue
-  if (data.pathType === 'absolute') {
-    const val = getValueFromState(ctx.rawState, data.path)
-    return Array.isArray(val) ? val : (val != null ? [val] : [])
-  }
-
-  // relative：沿 Scope 链向上找到首个 absolute dataBinding（只认 LoopScope）
-  let scope = loop.loopScope
-  while (scope) {
-    if ('loopNode' in scope) {
-      const loopScope = scope as LoopScope
-      const scopeData = loopScope.loopNode.data as BindingValue
-      if (scopeData.pathType === 'absolute') {
-        const arr = getValueFromState(ctx.rawState, scopeData.path)
-        if (!Array.isArray(arr) || arr.length === 0) return []
-        const firstItem = arr[0]
-        const segments = pathToSegments(data.path)
-        const val = resolveBySegments(firstItem, segments)
-        return Array.isArray(val) ? val : (val != null ? [val] : [])
-      }
-    }
-    scope = scope.parent
-  }
-  return []
-}
-
-/**
- * 通用相对路径解析：沿 Scope 链向上找到首个 absolute dataBinding，
- * 取其 [0] 作为根对象，按段解析目标路径。
- * RenderFnScope 跳过（其 paramBindings 不参与 scope 链的 loop 语义），继续沿 parent 向上。
- */
-function resolveRelativeByScope(
-  relPath: string,
-  scope: Scope | undefined,
-  rawState: Record<string, any>
-): any {
-  if (!scope) return undefined
-  const segments = pathToSegments(relPath)
-  // 沿 scope 链向上找首个 absolute dataBinding
-  let curScope: Scope | undefined = scope
-  while (curScope) {
-    if ('loopNode' in curScope) {
-      const loopScope = curScope as LoopScope
-      const sd = loopScope.loopNode.data as BindingValue
-      if (sd.pathType === 'absolute') {
-        const arr = getValueFromState(rawState, sd.path)
-        if (!Array.isArray(arr) || arr.length === 0) return undefined
-        return resolveBySegments(arr[0], segments)
-      }
-    }
-    curScope = curScope.parent
-  }
-  return undefined
+  // 只处理 absolute（顶层 state 数据源数组）；relative 嵌套循环在 processLoop isRelativeNested 跳过
+  // （由 applyScopedCV loopChain 处理），顶层 relative 无 loopScope 为异常（返回 [] 触发 warn）
+  if (data.pathType !== 'absolute') return []
+  const val = getValueFromState(ctx.rawState, data.path)
+  return Array.isArray(val) ? val : (val != null ? [val] : [])
 }
 
 /**
  * 构建 ComputedTransformCtx——供 ComputedValue.transform 在求值阶段使用。
- * @param scope 循环 scope（处理循环内的相对 computed 时传入；绝对 computed 时传 undefined）
+ * currentItem 由 enrichment（applyScopedCV）递归内更新为当前项；absolute computed 不设（transform 内 path 都 absolute）。
  */
 function buildTransformCtx(
   rawState: Record<string, any>,
-  iconNameMap: Record<string, string>,
-  scope?: Scope
+  iconNameMap: Record<string, string>
 ): ComputedTransformCtx {
-  return {
+  const ctx: ComputedTransformCtx = {
     rawState,
+    currentItem: undefined,
     resolveIcon: (name, props?) => resolveIcon(name, iconNameMap, props) as any,
     resolveValueFromPath: (path: string) => {
       if (!path) return undefined
       if (path.startsWith('/')) return getValueFromState(rawState, path)
-      return resolveRelativeByScope(path, scope, rawState)
+      // relative：从 currentItem（当前项）按段解析
+      return ctx.currentItem != null ? resolveBySegments(ctx.currentItem, pathToSegments(path)) : undefined
     },
   }
+  return ctx
 }
 
-/** 从 body 中收集所有 relative ComputedValue（跳过嵌套 LoopNode） */
-function collectRelativeComputeds(body: RegularNode[]): ComputedValue[] {
-  return collectRelativeCVs(body)
-}
 
 // ─── state.js 生成 ───
 
@@ -368,7 +334,7 @@ function consumeTextValue(value: string | BindingValue | ComputedValue | undefin
  *
  * 字面量（string/number/boolean/null）、varRef、rawExpr、LiteralValue → 跳过
  */
-function consumeValue(v: any, ctx: StateBuilderContext): void {
+export function consumeValue(v: any, ctx: StateBuilderContext): void {
   if (v === null || v === undefined) return
   if (typeof v !== 'object') return
 
@@ -382,7 +348,16 @@ function consumeValue(v: any, ctx: StateBuilderContext): void {
     // ── absolute path binding → 收集引用 ──
     case 'binding':
       if (v.pathType === 'absolute') {
-        ctx.currentUnit.bindingRefs.push(v)
+        // 共享打标：path 命中 eventMutatedPaths → 走共享 store（useSharedState）
+        if (ctx.eventMutatedPaths.has(v.path)) {
+          v.shared = true
+          ctx.sharedKeys.add(sharedKeyOfPath(v.path))
+        }
+        // 共享 binding 走 useSharedState（tree-finalizer lift），不进 bindingRefs
+        // ——避免产物里出现未被引用的死 destructure（initialState.xxx）
+        if (!v.shared) {
+          ctx.currentUnit.bindingRefs.push(v)
+        }
         // 同时写入全局 stateEntries（binding 值裸取 rawState），保持嵌套结构
         if (v.accessPath) {
           const raw = getValueFromState(ctx.rawState, v.path)
@@ -394,6 +369,11 @@ function consumeValue(v: any, ctx: StateBuilderContext): void {
     // ── absolute path computed → 求值并分流 ──
     case 'computed':
       if (v.pathType === 'absolute') {
+        // 共享打标（computed 同 binding，命中 eventMutatedPaths 即 shared）
+        if (ctx.eventMutatedPaths.has(v.path)) {
+          v.shared = true
+          ctx.sharedKeys.add(sharedKeyOfPath(v.path))
+        }
         if (v.containsJSX) {
           // containsJSX:true → 算值后走文件单元 jsxLiteralConsts
           const raw = getValueFromState(ctx.rawState, v.path)
@@ -407,7 +387,11 @@ function consumeValue(v: any, ctx: StateBuilderContext): void {
           }
         } else {
           // containsJSX:false → 求值后进 stateEntries + 收集引用
-          ctx.currentUnit.computedRefs.push(v)
+          // 共享 computed 走 useSharedState（tree-finalizer lift），不进 computedRefs
+          // ——避免产物里出现未被引用的死 const（initialState.xxx）
+          if (!v.shared) {
+            ctx.currentUnit.computedRefs.push(v)
+          }
           if (v.accessPath) {
             const raw = getValueFromState(ctx.rawState, v.path)
             try {
@@ -420,6 +404,19 @@ function consumeValue(v: any, ctx: StateBuilderContext): void {
         }
       }
       return
+
+    // ── action（事件 setState）→ 无读消费，但确保 shared store 含该 key 初值 ──
+    case 'action': {
+      const key = sharedKeyOfPath(v.path)
+      ctx.sharedKeys.add(key)
+      // 即使无 reader 也要让 state.js（initialState）含该 key 初值，
+      // shared-state.ts 的 store 从 initialState.key 初始化。
+      if (!(key in ctx.stateEntries)) {
+        const raw = getValueFromState(ctx.rawState, v.path)
+        if (raw !== undefined) ctx.stateEntries[key] = raw
+      }
+      return
+    }
 
     // ── slotNode → walk 进入子树 ──
     case 'slotNode':
@@ -440,6 +437,7 @@ function consumeValue(v: any, ctx: StateBuilderContext): void {
       if (Object.keys(dataSources).length > 0) {
         // 建立 RenderFnScope
         const newScope: RenderFnScope = {
+          scopeType: 'renderFnScope',
           paramBindings: dataSources,
           parent: ctx.currentScope as any,
         }
@@ -467,34 +465,31 @@ function consumeValue(v: any, ctx: StateBuilderContext): void {
   }
 
   // ── 纯对象（无 type 字段）→ 递归属性，查找内嵌的 binding/computed/slotNode/renderFn ──
-  if (v.type === undefined && typeof v === 'object') {
+  if (!v.__node && typeof v === 'object') {
     for (const item of Object.values(v)) consumeValue(item, ctx)
   }
 }
 
 // ─── processLoop ───
 
-function processLoop(loop: LoopNode, ctx: StateBuilderContext, parentNodeId: string): void {
+export function processLoop(loop: LoopNode, ctx: StateBuilderContext, parentNodeId: string): void {
   // render fn body 内的循环：enrichment 已由 dataset（enrichScopedData）接管，
   // 且 emit 时强制 inline（jsxEmitter forceInline）→ 不产生单独模板文件。
   // 这里只把 template body 走进当前单元（收集 absolute binding 等），不建孤儿模板单元、不做 enrichment。
   // 检测：ctx.currentScope 为 RenderFnScope（仅 render fn body walk 时设，processLoop 不改它）。
-  if (ctx.currentScope && 'paramBindings' in (ctx.currentScope as any)) {
+  if (ctx.currentScope && ctx.currentScope.scopeType === 'renderFnScope') {
     withUnit(ctx, ctx.currentUnit, () => {
       for (const child of loop.template.body) walk(child, ctx)
     })
     return
   }
 
-  // inline loop（如 TabItem）：模板 body 走当前文件单元，不产生单独 components/ 文件
-  const isInline = !!loop.inline
-  // 1. 解析原始数据源
-  const rawData = resolveLoopData(loop, ctx)
-  if (rawData.length === 0) {
-    console.warn(
-      `  [warn] state-builder: 循环 "${loop.template.componentName}" 数据为空（path: ${(loop.data as BindingValue).path}），跳过 enrichment`
-    )
-    // 空数据 → 不产生 enrichment，走 body 即可
+  // relative 嵌套循环：数据是外层 item 的子字段，外层深 enrichment 已处理（applyScopedCV 沿 loopChain）。
+  // 跳过独立 enrichment，只 walk template body（收 state 引用 + imports）。
+  const loopData = loop.data as BindingValue  // state-builder 阶段还是 BindingValue
+  const isRelativeNested = loopData.pathType === 'relative' && loop.loopScope
+  if (isRelativeNested) {
+    const isInline = !!loop.inline
     const templateUnit = isInline ? ctx.currentUnit : getOrCreateUnit(ctx, `components/${loop.template.componentName}`)
     withUnit(ctx, templateUnit, () => {
       for (const child of loop.template.body) walk(child, ctx)
@@ -502,33 +497,45 @@ function processLoop(loop: LoopNode, ctx: StateBuilderContext, parentNodeId: str
     return
   }
 
-  // 2. 收集 template.body 内 relative ComputedValue
-  const relativeCVs = collectRelativeComputeds(loop.template.body)
-  const containsJSX = relativeCVs.some(cv => cv.containsJSX)
+  // 以下：absolute 循环 或 顶层 relative 循环（无 loopScope）→ 做 enrichment
+  const isInline = !!loop.inline
+  // 1. 解析原始数据源
+  const rawData = resolveLoopData(loop, ctx)
+  if (rawData.length === 0) {
+    console.warn(
+      `  [warn] state-builder: 循环 "${loop.template.componentName}" 数据为空（path: ${loopData.path}），跳过 enrichment`
+    )
+    const templateUnit = isInline ? ctx.currentUnit : getOrCreateUnit(ctx, `components/${loop.template.componentName}`)
+    withUnit(ctx, templateUnit, () => {
+      for (const child of loop.template.body) walk(child, ctx)
+    })
+    return
+  }
 
-  const loopData = loop.data as BindingValue  // state-builder 阶段还是 BindingValue
+  // 2. 深度收集 template.body 内 relative ComputedValue（含嵌套 relative 循环，带 loopChain）
+  const scopedCVs = collectRelativeCVsDeep(loop.template.body)
+  const containsJSX = scopedCVs.some(({ cv }) => cv.containsJSX)
+
   const constName = makeEnrichmentConstName(loopData.path, parentNodeId)
-
-  // 数据源路径类型：absolute 走 state.js / enrichment，relative 由外层模板 data prop 解构
   const isAbsolute = loopData.pathType === 'absolute'
 
   // 3. 无 enrichment（无 relative computed）
-  if (relativeCVs.length === 0) {
+  if (scopedCVs.length === 0) {
     if (isAbsolute) {
       setNested(ctx.stateEntries, loopData.accessPath, rawData)
       ctx.currentUnit.bindingRefs.push(loopData)
     }
-    // relative → 不进 state.js，由外层模板从 data 解构
   } else {
-    // 4. 做整体 enrichment
+    // 4. 做整体 enrichment（深收集 + applyScopedCV 沿 loopChain 逐层 map 进嵌套数组）
+
     // 4a. 去重：同一相对 path 可能绑定到模板内多个节点（如 Icon.name 与 Button.icon 都绑
     //     favoriteIcon），各自产出 path 相同的 ComputedValue。若都写 out[cv.path] 会撞键——
-    //     后一个 CV 拿到前一个 CV 已写入的 JSX 产物（非原始字符串），transform 返回 null。
+    //     后一个 CV 从 out（已被前一个 CV 改写）读到 BuildNode 而非原始 string → transform 返回 null。
     //     处理：第一个 CV 保留原 key；后续撞键的 CV 生成新 key 并改写其 accessPath
-    //     （jsx-emitter inTemplate 按 accessPath 序列化、collectRelativeFields 按 accessPath
-    //     收集 destructure 字段），cv.path 保留原值用于读原始 item 数据。
+    //     （applyScopedCV 按 accessPath 写、collectRelativeFields 按 accessPath 收 destructure 字段），
+    //     cv.path 保留原值用于读原始 item 数据。
     const usedKeys = new Set<string>()
-    for (const cv of relativeCVs) {
+    for (const { cv } of scopedCVs) {
       let key = (cv as any).accessPath ?? cv.path
       if (usedKeys.has(key)) {
         let i = 1
@@ -543,20 +550,11 @@ function processLoop(loop: LoopNode, ctx: StateBuilderContext, parentNodeId: str
       if (item === null || typeof item !== 'object') return item
       // deep clone：setNested 写嵌套路径会改 sub-object，shallow copy 会污染 rawState
       const out = structuredClone(item)
-      for (const cv of relativeCVs) {
-        try {
-          // 循环内 relative computed → ctx 带 loopScope 以便 resolveValueFromPath 沿链解析
-          const ctxForCv = buildTransformCtx(ctx.rawState, ctx.iconNameMap, loop.loopScope)
-          // 读原始值：cv.path 可能是嵌套相对路径（user/avatar），按 segments 解析；平面等价直接取。
-          // 用原始 item 读（不被前一个 CV 产物污染）。
-          const rawValue = resolveBySegments(item, pathToSegments(cv.path))
-          // 写到 out：accessPath 去重后可能是嵌套（如 user.avatar_1），setNested 写嵌套位置。
-          // 转 JS 属性访问（数字段用 [n]），与 emit relPath 对齐。
-          const writeKey = pathToJsAccess((cv as any).accessPath ?? cv.path)
-          setNested(out, writeKey, cv.transform(rawValue, ctxForCv))
-        } catch (err: any) {
-          console.warn(`  [warn] state-builder: loop enrichment 失败 (path: ${cv.path}): ${err.message}`)
-        }
+      // 循环内 relative computed → cvCtx.currentItem 由 applyScopedCV 递归内更新为当前项，
+      // transform 内 resolveValueFromPath(relative) 从 currentItem 解析
+      const ctxForCv = buildTransformCtx(ctx.rawState, ctx.iconNameMap)
+      for (const { cv, loopChain } of scopedCVs) {
+        applyScopedCV(out, loopChain, cv, ctxForCv)
       }
       return out
     })
@@ -569,16 +567,15 @@ function processLoop(loop: LoopNode, ctx: StateBuilderContext, parentNodeId: str
         containsJSX: true,
       })
     } else if (isAbsolute) {
-      // 不含 JSX 且绝对路径 → 进 state.js，当前文件单元 destructure
       setNested(ctx.stateEntries, constName, enrichedData)
       ctx.currentUnit.bindingRefs.push({
+        __node: true,
         type: 'binding',
         path: loopData.path,
         pathType: 'absolute' as const,
         accessPath: constName,
       })
     }
-    // relative 且不含 JSX → enrichment 数据不进 state.js（由外层模板 data prop 携带）
 
     // 记录 enrichment 映射（仅 absolute，relative 的 const 名在模板内用 accessPath）
     if (isAbsolute) {
@@ -603,6 +600,8 @@ export function buildState(mappedPage: MappedPage): StateBuilderResult {
     currentUnit: null as any,
     stateEntries: {},
     loopEnrichmentMap: new Map(),
+    eventMutatedPaths: (mappedPage as any).eventMutatedPaths ?? new Set(),
+    sharedKeys: new Set(),
   }
 
   // 创建主文件单元
@@ -624,10 +623,17 @@ export function buildState(mappedPage: MappedPage): StateBuilderResult {
   // 生成 state.js
   const stateContent = generateStateFileContent(ctx.stateEntries)
 
+  // 生成 shared-state.ts（仅当存在共享 key）
+  const sharedStateContent = ctx.sharedKeys.size > 0
+    ? generateSharedStateFileContent(ctx.sharedKeys)
+    : undefined
+
   return {
     stateContent,
     newState: ctx.stateEntries,
     fileUnits: ctx.fileUnits,
     loopEnrichmentMap: ctx.loopEnrichmentMap,
+    sharedKeys: ctx.sharedKeys,
+    sharedStateContent,
   }
 }

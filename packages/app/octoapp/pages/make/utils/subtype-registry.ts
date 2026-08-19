@@ -10,8 +10,8 @@ export function registerSubtypeHandler(handler: SubtypeHandler) {
 }
 
 export function getSubtypeHandler(subtype?: string): SubtypeHandler | undefined {
-  if (!subtype) return undefined
-  return handlers.get(subtype)
+  if (!subtype) return handlers.get('_default')
+  return handlers.get(subtype) ?? handlers.get('_default')
 }
 
 // 手动注册处理器

@@ -230,6 +230,12 @@ export function PropertyEditorPopup(props: {
     return { right: 5, top: 50 }
   }
 
+  function computeMaxPopupH() {
+    const host = popupRef?.offsetParent as HTMLElement | null
+    const base = host?.clientHeight ?? props.containerSize.height ?? window.innerHeight
+    return Math.max(200, base - initialPos.top - 20)
+  }
+
   function doParseClass(rawCls: string): ParsedClassInfo {
     const result = parseClass(rawCls)
     parsedClasses = result.classes
@@ -924,14 +930,14 @@ export function PropertyEditorPopup(props: {
       requestAnimationFrame(() => {
         updateDims()
         setInitialPos(calcInitPos())
-        setMaxPopupH(Math.max(200, props.containerSize.height - initialPos.top - 20))
+        setMaxPopupH(computeMaxPopupH())
       })
     }
   })
 
   createEffect(() => {
     if (!props.show) return
-    const recalc = () => setMaxPopupH(Math.max(200, window.innerHeight - initialPos.top - 20))
+    const recalc = () => setMaxPopupH(computeMaxPopupH())
     recalc()
     window.addEventListener('resize', recalc)
     onCleanup(() => window.removeEventListener('resize', recalc))

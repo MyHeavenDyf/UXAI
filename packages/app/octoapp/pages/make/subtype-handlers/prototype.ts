@@ -7,9 +7,11 @@ import {
   createPrototypeMessageHandler,
   buildSiblingMap,
   loadA2uiData,
+  invalidatePrototypeCache,
 } from "../utils/prototype-utils"
 import { showPromiseToast } from "@opencode-ai/ui/toast"
 import proto_replanner from "../../pattern/agents/proto-replanner"
+import { relativePathToId, resolveRelativePath, getExt } from "../utils/history-store"
 
 let downloading = false
 
@@ -28,7 +30,7 @@ export default {
     if (!next) {
       ctx.postMessageToIframe?.({ type: "od:drag-mode", enabled: false })
       disposeSession(tabId)
-      return true
+      return false
     }
     if (!session) session = createSession(tabId, ctx)
     session.editing = true
@@ -39,6 +41,19 @@ export default {
     }
     const siblingMap = buildSiblingMap(await loadA2uiData(session, ctx))
     ctx.postMessageToIframe?.({ type: "od:drag-mode", enabled: true, siblingMap })
+    return false
+  },
+
+  async handleLocalEditDisable(ctx) {
+    const tabId = ctx.tab.id
+    setActiveSessionId(tabId)
+    ctx.postMessageToIframe?.({ type: "od:dom-picker-mode", enabled: false })
+    ctx.postMessageToIframe?.({ type: "od:drag-mode", enabled: false })
+    disposeSession(tabId)
+  },
+
+  async handleDrawEdit(ctx) {
+    ctx.showToast({ title: "该功能未上线" })
     return true
   },
 
@@ -161,4 +176,34 @@ export default {
       downloading = false
     }
   },
+
+  /** 历史记录触发点：只记录 data.js（HTML 几乎不变，A2UI 数据承载全部用户编辑状态）。 */
+  onHistoryTrigger(_event, _ctx) {
+    return ['./data.js']
+  },
+
+  /** 历史版本恢复：把版本里的 data.js 拷回原路径，并丢弃 a2ui 内存缓存，让 iframe 重载时重读。 */
+  async applyVersionFiles(ctx, files) {
+    const { tab, getDesktopApi } = ctx
+    const api = getDesktopApi()
+    if (!api?.copyFileTo || !tab.filePath) return
+
+    const rel = './data.js'
+    const id = relativePathToId(rel)
+    const originalPath = resolveRelativePath(rel, tab.filePath)
+    const ext = getExt(originalPath)
+    const versionFileName = id + ext
+    const versionFile = files.find((f) => f.fileName === versionFileName)
+    if (versionFile) {
+      try {
+        await api.copyFileTo(versionFile.filePath, originalPath)
+      } catch {
+        // 版本里缺 data.js 时静默跳过
+      }
+    }
+
+    // 失效内存中的 a2ui 缓存，下一次 loadA2uiData 会重读磁盘
+    invalidatePrototypeCache(tab.id)
+  },
+
 } satisfies SubtypeHandler

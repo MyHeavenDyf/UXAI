@@ -8,7 +8,7 @@ import { loadA2uiData, buildSiblingMap } from "./a2ui"
  *  派发给对应 UI 事件 / 改写函数。在派发用户可见事件前置 activeSessionId，保证全局单例面板命中本 session。 */
 export function createPrototypeMessageHandler(session: PrototypeSession): (e: MessageEvent) => void {
   return (e: MessageEvent) => {
-    // 只处理本 session iframe 发来的消息，避免多 prototype 标签页 / 孤儿 listener 串扰
+    // 只处理本 session iframe 发来的消息，避免多个 prototype 标签页 / 孤儿 listener 串扰
     const iframe = session.ctx?.iframeElementGetter?.()
     if (!iframe || e.source !== iframe.contentWindow) return
     const d = e.data

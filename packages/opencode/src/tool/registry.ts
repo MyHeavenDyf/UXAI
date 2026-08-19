@@ -311,10 +311,9 @@ export const layer: Layer.Layer<
           return input.providerID === ProviderID.opencode || Flag.OPENCODE_ENABLE_EXA
         }
 
-        // 内网知识库工具只给 insight 的 octo_insight(SPEC-INS-030:chat 下线,该能力迁入 insight),
-        // 避免泄漏到 make / studio / pattern。
+        // 内网知识库工具只给 chat 的 octo_ai,避免泄漏到其他 agent。
         if (tool.id === KnowledgeSearchTool.id) {
-          return input.agent.name === "octo_insight"
+          return input.agent.name === "octo_ai"
         }
 
         // office 文本抽取只给 insight 的 octo_insight(SPEC-INS-015 ②),不泄漏到 make/chat。

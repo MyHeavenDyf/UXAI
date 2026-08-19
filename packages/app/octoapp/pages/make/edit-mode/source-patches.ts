@@ -185,13 +185,31 @@ export function readManualEditFields(source: string, id: string): ManualEditFiel
   return { text: el.textContent?.trim() ?? '' }
 }
 
+// 面板里当单值用的简写 key:inline 只设 top longhand(如 `border-top: 11px solid ...`)时,
+// `style['borderStyle']` / `style['borderColor']` 简写访问器返回空,fallback 到 top longhand。
+const SHORTHAND_LONGHAND_FALLBACK: Partial<Record<keyof ManualEditStyles, string>> = {
+  borderStyle: 'border-top-style',
+  borderColor: 'border-top-color',
+}
+
 export function readManualEditStyles(source: string, id: string): ManualEditStyles {
   const doc = parseSource(source)
   const el = doc ? findEditableElement(doc, id) : null
   if (!el) return emptyManualEditStyles()
   const style = (el as HTMLElement).style
+  // 用 getPropertyValue 作为 camelCase 访问器的 fallback:
+  // Chrome 序列化 cssText 时会把 longhand 合并成简写(如 `border-top: 11px solid ...`),
+  // 此时 `style['borderTopWidth']` 返回空,但 `getPropertyValue('border-top-width')`
+  // 能从简写解析出 longhand 值。borderStyle/borderColor 是简写 key,
+  // inline 只设 border-top 时简写访问器也返回空,fallback 到 top longhand。
   return MANUAL_EDIT_STYLE_PROPS.reduce<ManualEditStyles>((acc, key) => {
-    acc[key] = (style[key as unknown as keyof CSSStyleDeclaration] as string | undefined) ?? ''
+    const direct = style[key as unknown as keyof CSSStyleDeclaration] as string | undefined
+    const kebab = camelToKebab(key)
+    const fallback = SHORTHAND_LONGHAND_FALLBACK[key]
+    acc[key] = direct
+      || style.getPropertyValue(kebab)
+      || (fallback ? style.getPropertyValue(fallback) : '')
+      || ''
     return acc
   }, {} as ManualEditStyles)
 }
@@ -218,25 +236,55 @@ export function inspectorManualEditStyles(target: ManualEditTarget, baseSource: 
   return mergeManualEditInspectorStyles(inlineStyles, target.styles)
 }
 
+// border-width longhand 会被浏览器 snap 到设备像素后再换算回 CSS px
+// (如 DPR=1.25 时 10px → round(12.5)=12 → 12/1.25=9.6px)。
+// 这几个 key 用 computed(iframe 报的 target.styles)回填时,round 到整数消除 snap 漂移。
+const BORDER_WIDTH_LONGHAND_KEYS = new Set<keyof ManualEditStyles>([
+  'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+])
+
 function mergeManualEditInspectorStyles(
   sourceStyles: ManualEditStyles,
   previewStyles: ManualEditStyles,
 ): ManualEditStyles {
+  // border-style=none 时 computed 的 border-width 强制为 0,但实际 inline width 还在。
+  // 这种情况不用 computed 的 0,留空让用户切回 solid 时从源/pending 重读。
+  const borderStyleNone = /^(none)$/i.test(previewStyles.borderStyle?.trim() || '')
   return MANUAL_EDIT_STYLE_PROPS.reduce<ManualEditStyles>((acc, key) => {
     const sourceValue = sourceStyles[key]?.trim()
-    const previewValue = previewStyles[key]?.trim()
+    const isBorderWidthLonghand = BORDER_WIDTH_LONGHAND_KEYS.has(key)
+    // border-style=none 时,border-width longhand 不用 computed(会是 0)
+    const previewValue = (borderStyleNone && isBorderWidthLonghand)
+      ? ''
+      : (previewStyles[key]?.trim() || '')
     const value = sourceValue || previewValue || ''
-    acc[key] = manualEditInspectorStyleValue(key, value)
+    acc[key] = manualEditInspectorStyleValue(key, value, !sourceValue)
     return acc
   }, {} as ManualEditStyles)
 }
 
-function manualEditInspectorStyleValue(key: keyof ManualEditStyles, value: string): string {
+function manualEditInspectorStyleValue(
+  key: keyof ManualEditStyles,
+  value: string,
+  fromComputed: boolean,
+): string {
   if (!value) return ''
   if (key === 'color' || key === 'backgroundColor' || key === 'borderColor') {
     return normalizeManualEditInspectorColor(value)
   }
+  // border-width longhand 来自 computed 时,round 到整数消除设备像素 snap 漂移。
+  // 源里有 inline 的不 round(用户输入的值原样保留)。
+  if (fromComputed && BORDER_WIDTH_LONGHAND_KEYS.has(key)) {
+    return roundBorderWidthValue(value)
+  }
   return value
+}
+
+function roundBorderWidthValue(value: string): string {
+  const match = value.match(/^(-?\d+(?:\.\d+)?)px$/i)
+  if (!match) return value
+  const rounded = Math.round(parseFloat(match[1]))
+  return `${rounded}px`
 }
 
 function normalizeManualEditInspectorColor(value: string): string {
@@ -357,8 +405,14 @@ function setMixedContainerText(el: Element, newText: string): boolean {
   return true
 }
 
+const INLINE_STYLE_SHORTHAND_KEYS = new Set<keyof ManualEditStyles>(['border', 'padding', 'margin'])
+
 function setInlineStyles(el: HTMLElement, styles: Partial<ManualEditStyles>): void {
   for (const [key, value] of Object.entries(styles)) {
+    // 跳过简写 key:只写 longhand(border-top-width / padding-top 等)。
+    // 写简写后 el.style.borderTopWidth 在不同浏览器里返回行为不一致,
+    // 会导致 readManualEditStyles 读不到 longhand,fallback 到 computed。
+    if (INLINE_STYLE_SHORTHAND_KEYS.has(key as keyof ManualEditStyles)) continue
     if (value === '' || value === undefined || value === null) {
       el.style.removeProperty(camelToKebab(key))
     } else {
