@@ -3757,16 +3757,6 @@ if (dsId) {
                           </span>
                           <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
                         </ModelSelectorPopover>
-                        <button
-                          type="button"
-                          class="flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none"
-                          onClick={handleSpecSelect}
-                        >
-                          <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
-                            {selectedSpecDisplay() || "请选择设计规范"}
-                          </span>
-                          <Icon name="chevron-down" class="size-3.5 shrink-0" style="color: #000" />
-                        </button>
                       </div>
 <IconButton
                          data-action="prompt-submit"
@@ -3787,12 +3777,12 @@ if (dsId) {
               <div class="relative flex-1 min-h-0">
               <ScrollView
                 class="h-full"
-                style={{ background: "#fff", padding: "0 12px", }}
+                style={{ background: "#fff", padding: "0 12px 16px 12px", }}
                 viewportRef={autoScroll.scrollRef}
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
               >
-                <div ref={autoScroll.contentRef} class="py-4 flex flex-col gap-4">
+                <div ref={autoScroll.contentRef} class="make-chat-content pt-4 flex flex-col gap-4">
                     {/* 第一条消息 */}
                     <Show when={userMessages().length > 0}>
                       <InsightTurn

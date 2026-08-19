@@ -746,7 +746,7 @@ export const dict = {
   "settings.general.section.appearance": "Appearance",
   "settings.general.section.advanced": "Advanced",
   "settings.general.projectDir": "Project Directory",
-  "settings.general.projectDir.description": "The directory used by all pages (Chat, Insight, Studio) for creating sessions.",
+  "settings.general.projectDir.description": "The directory used by all pages (Insight, Design) for creating sessions.",
   "settings.general.projectDir.change": "Change",
   "settings.general.projectDir.notSet": "Not set",
   "settings.general.projectDir.changed": "Project directory updated",

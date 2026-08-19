@@ -40,13 +40,13 @@ const FAMILY_LABEL: Record<ToolFamily, string> = {
   other: "工具调用",
 }
 
-function StatusBadge(props: { status: ToolCallStatus }): JSX.Element {
+function StatusBadge(props: { status: ToolCallStatus; extraStyle?: JSX.CSSProperties }): JSX.Element {
   const cfg = createMemo(() => {
     switch (props.status) {
       case "running":
-        return { bg: "rgba(59,130,246,0.1)", color: "#3b82f6", label: "运行中", pulse: true }
+        return { bg: "rgba(10, 89, 247, 0.08)", color: "#0a59f7", label: "运行中", pulse: true }
       case "done":
-        return { bg: "rgba(34,197,94,0.1)", color: "#22c55e", label: "完成", pulse: false }
+        return { bg: "rgba(227, 249, 238, 1)", color: "rgba(0, 205, 94, 1)", label: "完成", pulse: false }
       case "error":
         return { bg: "rgba(0,0,0,0.05)", color: "rgba(0,0,0,0.6)", label: "错误", pulse: false }
     }
@@ -54,7 +54,7 @@ function StatusBadge(props: { status: ToolCallStatus }): JSX.Element {
   return (
     <span
       class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium"
-      style={{ background: cfg().bg, color: cfg().color, "border-radius": "4px" }}
+      style={{ background: cfg().bg, color: cfg().color, "border-radius": "4px", ...props.extraStyle }}
     >
       {cfg().pulse && (
         <span class="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: cfg().color }} />
@@ -103,7 +103,7 @@ function SingleToolCard(props: { call: ToolCallInfo }): JSX.Element {
           {summary()}
         </span>
       </Show>
-      <StatusBadge status={props.call.status} />
+      <StatusBadge status={props.call.status} extraStyle={{ "margin-left": "auto" }} />
     </div>
   )
 }
@@ -171,7 +171,7 @@ function ToolGroupCard(props: { group: GroupedToolCalls }): JSX.Element {
             </svg>
           </button>
           <Show when={open()}>
-            <div class="mt-0.5 flex flex-col gap-2">
+            <div class="mt-2 flex flex-col gap-2">
               <For each={props.group.calls}>
                 {(call) => <SingleToolCard call={call} />}
               </For>
@@ -188,7 +188,7 @@ function ToolGroupCard(props: { group: GroupedToolCalls }): JSX.Element {
 export function ToolCallGroupCard(props: { calls: ToolCallInfo[] }): JSX.Element {
   const groups = createMemo(() => groupByFamily(props.calls))
   return (
-    <div class="flex flex-col gap-4">
+    <div class="flex flex-col" style={{ gap: "8px" }}>
       <For each={groups()}>
         {(group) => <ToolGroupCard group={group} />}
       </For>

@@ -1,6 +1,7 @@
 import type { ResultTab } from "../components/result-viewer/tab-store"
 import type { VersionFile } from "../utils/history-store"
 import type { JSX } from "solid-js"
+import type { UploadZipOptions, UsePixsoTransportResult } from "@/utils/useZipTransport"
 
 export type FeatureType = 'localEdit' | 'drawEdit' | 'canvasEdit'
 
@@ -17,7 +18,7 @@ export interface SubtypeHandlerContext {
   getDesktopApi: typeof import("../lib/electron-api").getDesktopApi
   extractCodeBlock: (text: string, lang: string) => string
   observedUrlsGetter?: () => string[]
-  projectSelection: () => unknown
+  usePixsoTransport: (options: UploadZipOptions) => Promise<UsePixsoTransportResult>
   updateTabContent?: (id: string, content: string) => void
   postMessageToIframe?: (data: unknown) => void
   iframeElementGetter?: () => HTMLIFrameElement | undefined
