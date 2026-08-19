@@ -3757,16 +3757,6 @@ if (dsId) {
                           </span>
                           <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
                         </ModelSelectorPopover>
-                        <button
-                          type="button"
-                          class="flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none"
-                          onClick={handleSpecSelect}
-                        >
-                          <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
-                            {selectedSpecDisplay() || "请选择设计规范"}
-                          </span>
-                          <Icon name="chevron-down" class="size-3.5 shrink-0" style="color: #000" />
-                        </button>
                       </div>
 <IconButton
                          data-action="prompt-submit"

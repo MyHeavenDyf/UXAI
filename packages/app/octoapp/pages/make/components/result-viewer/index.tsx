@@ -32,8 +32,7 @@ import { saveArtifactContent } from "../../utils/artifact-auto-save"
 import type { OutputCard } from "../insight-turn"
 import { tracker } from "@/utils/tracker"
 import { createC2DZip } from "../../utils/canvas-to-design"
-import { uploadZip } from "@/utils/useZipTransport"
-import { useProjectSelection } from "@/hooks/use-project-selection"
+import { usePixsoTransport } from "@/utils/useZipTransport"
 import { getDesktopApi } from "../../lib/electron-api"
 import { useFeatureMutex } from "../../utils/use-feature-mutex"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
@@ -132,7 +131,6 @@ export function ResultViewer(props: {
   planActive?: boolean
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
-  const projectSelection = useProjectSelection()
   const activeTab = createMemo(() =>
     props.tabs.find((t) => t.id === props.activeId) ?? null
   )
@@ -224,24 +222,50 @@ export function ResultViewer(props: {
         return
       }
 
-      const result = await uploadZip(async () => {
-        const htmlContent = extractCodeBlock(tab.content, "html")
-        return await createC2DZip({
-          htmlContent,
-          htmlFilePath: tab.filePath || "",
-          tabTitle: tab.title,
-          observedUrls: observedUrlsGetter?.() || [],
-        })
-      }, projectSelection())
+      const result = usePixsoTransport({
+        getZip: async () => {
+          showToast({ title: "生成ZIP文件..." })
+          const htmlContent = extractCodeBlock(tab.content, "html")
+          return await createC2DZip({
+            htmlContent,
+            htmlFilePath: tab.filePath || "",
+            tabTitle: tab.title,
+            observedUrls: observedUrlsGetter?.() || [],
+          })
+        },
+        downloadHtml: async (data) => {
+          const api = getDesktopApi()
+          const baseDir = props.sdkDirectory
+          const sessionId = tab.sessionId || props.sessionId
+          
+          if (!baseDir || !sessionId || !api?.writeFileBuffer) {
+            showToast({ title: "无法保存文件", variant: "error" })
+            return
+          }
+          
+          const uploadsDir = `${baseDir}/.octo/${sessionId}/uploads`
+          let finalFilename = data.filename
+          
+          if (api.fileExists) {
+            let counter = 0
+            const baseName = data.filename.replace(/\.html$/i, '')
+            while (await api.fileExists(`${uploadsDir}/${finalFilename}`)) {
+              counter++
+              finalFilename = `${baseName}(${counter}).html`
+            }
+          }
+          
+          const buffer = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
+          await api.writeFileBuffer(`${uploadsDir}/${finalFilename}`, buffer.buffer)
+          showToast({ title: "已保存", description: finalFilename })
+        },
+        config: {
+          designName: tab.title,
+          sessionId: tab.sessionId || props.sessionId || "",
+        },
+      })
 
-      console.log('pixsourl', result?.pixsoUrl)
-
-      if (!result.webview) {
-        showToast({ title: "创建失败" })
-        return
-      }
-
-      console.log('pixso loaded')
+      console.log('pixso result', result)
     } catch (error) {
       console.error("[handleCanvasToDesign] Error:", error)
       showToast({ title: "操作失败", description: String(error) })
@@ -259,7 +283,7 @@ export function ResultViewer(props: {
       getDesktopApi,
       extractCodeBlock,
       observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
-      projectSelection,
+      usePixsoTransport,
       postMessageToIframe: iframePostMessage ? (data: unknown) => iframePostMessage!(data) : undefined,
       iframeElementGetter: iframeElementGetter ? () => iframeElementGetter!() : undefined,
       sdkDirectory: props.sdkDirectory,
