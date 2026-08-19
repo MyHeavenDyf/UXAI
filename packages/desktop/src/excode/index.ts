@@ -5,12 +5,22 @@
  * 调用方式与原有 api/index.ts 一致。
  */
 
+import { createRequire } from "node:module"
+
+// ESM 环境中 require 不是全局变量。
+// annotate-node.ts 使用 require("jsdom") 加载 CJS 模块，
+// dev 模式下 esbuild 可能不会自动生成 require polyfill。
+// 在此主动安装，确保 require 全局可用。
+if (typeof globalThis.require === 'undefined') {
+  globalThis.require = createRequire(import.meta.url)
+}
+
 import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
 
 import { ComponentRegistry } from './src/core/component-registry'
-import { Pipeline } from './src/pipeline/pipeline'
+import { Pipeline } from './src/pipeline/pipeline-engine'
 import { PipelineContext } from './src/pipeline/pipeline-context'
 
 // 步骤

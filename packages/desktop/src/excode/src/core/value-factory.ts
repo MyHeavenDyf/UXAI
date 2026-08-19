@@ -4,7 +4,7 @@
  * 统一通过 Value.* 工厂构造所有值类实例。
  * 映射文件中直接 import 使用：
  *
- *   import { Value } from '../../../api/src/core/value'
+ *   import { Value } from '../../../api/src/core/value-factory'
  *   Value.binding({ path: '/xxx', pathType: 'absolute', ... })
  */
 
@@ -19,6 +19,7 @@ import type {
   RawExprValue,
   RenderFnValue,
   SlotNodeValue,
+  ActionValue,
   ExtractRoute,
   UseStateMarker,
 } from './value-types'
@@ -37,7 +38,11 @@ export const Value = {
     /** 可选 useState 包裹标记 */
     useState?: UseStateMarker
   }): BindingValue {
-    return { type: 'binding', ...opts }
+    return {
+      __node: true,
+      type: 'binding',
+      ...opts,
+    }
   },
 
   /** 数据转换（BindingValue 超集，由 transform 构造） */
@@ -56,7 +61,11 @@ export const Value = {
     containsJSX: boolean
     identResolver?: (ctx: any) => string
   }): ComputedValue {
-    return { type: 'computed', ...opts }
+    return {
+      __node: true,
+      type: 'computed',
+      ...opts,
+    }
   },
 
   /** 字面量值（不参与 state.js，配合 useState 标记触发 useState 包裹） */
@@ -64,17 +73,29 @@ export const Value = {
     value: any
     useState?: UseStateMarker
   }): LiteralValue {
-    return { type: 'literal', ...opts }
+    return {
+      __node: true,
+      type: 'literal',
+      ...opts,
+    }
   },
 
   /** 编译期常量引用 */
-  varRef(opts: { name: string }): VarRefValue {
-    return { type: 'varRef', ...opts }
+  varRef(opts: { name: string; pathType?: 'absolute' | 'relative' }): VarRefValue {
+    return {
+      __node: true,
+      type: 'varRef',
+      ...opts,
+    }
   },
 
   /** 原始 JS 表达式逃生舱 */
   rawExpr(opts: { value: string }): RawExprValue {
-    return { type: 'rawExpr', ...opts }
+    return {
+      __node: true,
+      type: 'rawExpr',
+      ...opts,
+    }
   },
 
   /** 渲染函数（结构化 params） */
@@ -83,7 +104,11 @@ export const Value = {
     body: BuildNode | BuildNode[]
     route?: ExtractRoute
   }): RenderFnValue {
-    return { type: 'renderFn', ...opts }
+    return {
+      __node: true,
+      type: 'renderFn',
+      ...opts,
+    }
   },
 
   /** Slot 子树 */
@@ -91,6 +116,24 @@ export const Value = {
     node: BuildNode
     route?: ExtractRoute
   }): SlotNodeValue {
-    return { type: 'slotNode', ...opts }
+    return {
+      __node: true,
+      type: 'slotNode',
+      ...opts,
+    }
+  },
+
+  /** 事件动作（setState 写共享 state）：Button.onClick / Drawer.onClose 等 */
+  action(opts: {
+    event: string
+    action: 'setState'
+    path: string
+    value: any
+  }): ActionValue {
+    return {
+      __node: true,
+      type: 'action',
+      ...opts,
+    }
   },
 }

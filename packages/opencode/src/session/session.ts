@@ -353,33 +353,13 @@ export function plan(input: { slug: string; time: { created: number } }, instanc
   return path.join(base, [input.time.created, input.slug].join("-") + ".md")
 }
 
-export const getUsage = (input: {
-  model: Provider.Model
-  usage: LanguageModelUsage
-  metadata?: ProviderMetadata
-  estimated?: { input: number; output: number }
-}) => {
+export const getUsage = (input: { model: Provider.Model; usage: LanguageModelUsage; metadata?: ProviderMetadata }) => {
   const safe = (value: number) => {
     if (!Number.isFinite(value)) return 0
     return value
   }
-  const reportedInputTokens = safe(input.usage.inputTokens ?? 0)
-  const reportedOutputTokens = safe(input.usage.outputTokens ?? 0)
-  const estimatedInputTokens = safe(input.estimated?.input ?? 0)
-  const estimatedOutputTokens = safe(input.estimated?.output ?? 0)
-  const usedEstimate =
-    (reportedInputTokens === 0 && estimatedInputTokens > 0) ||
-    (reportedOutputTokens === 0 && estimatedOutputTokens > 0)
-  const inputTokens = reportedInputTokens || estimatedInputTokens
-  const outputTokens = reportedOutputTokens || estimatedOutputTokens
-  if (input.estimated && usedEstimate) {
-    log.warn("provider usage missing; using local token estimate", {
-      providerID: input.model.providerID,
-      modelID: input.model.id,
-      input: input.estimated.input,
-      output: input.estimated.output,
-    })
-  }
+  const inputTokens = safe(input.usage.inputTokens ?? 0)
+  const outputTokens = safe(input.usage.outputTokens ?? 0)
   const reasoningTokens = safe(input.usage.outputTokenDetails?.reasoningTokens ?? input.usage.reasoningTokens ?? 0)
 
   const cacheReadInputTokens = safe(
@@ -405,8 +385,10 @@ export const getUsage = (input: {
   // tokens to get the non-cached input count for separate cost calculation.
   const adjustedInputTokens = safe(inputTokens - cacheReadInputTokens - cacheWriteInputTokens)
 
+  const total = input.usage.totalTokens
+
   const tokens = {
-    total: 0,
+    total,
     input: adjustedInputTokens,
     output: safe(outputTokens - reasoningTokens),
     reasoning: reasoningTokens,
@@ -415,9 +397,6 @@ export const getUsage = (input: {
       read: cacheReadInputTokens,
     },
   }
-  tokens.total =
-    (!usedEstimate && safe(input.usage.totalTokens ?? 0)) ||
-    tokens.input + tokens.output + tokens.reasoning + tokens.cache.read + tokens.cache.write
 
   const costInfo =
     input.model.cost?.experimentalOver200K && tokens.input + tokens.cache.read > 200_000

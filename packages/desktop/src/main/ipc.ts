@@ -49,7 +49,7 @@ const pickerFilters = (ext?: string[]) => {
 
 const topixsoDir = app.isPackaged
   ? join(process.resourcesPath, "topixso")
-  : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "app", "octoapp", "pages", "pattern", "topixso")
+  : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "app", "octoapp", "pages", "make", "utils", "prototype-utils", "topixso")
 
 // 判断图片类型
 function detectImageExt(buf: Buffer): string {
@@ -617,6 +617,20 @@ export function registerIpcHandlers(deps: Deps) {
     if (!existsSync(filePath)) await writeFile(filePath, buf)
     return `/history/${sessionId}/uploads/${filename}`
   })
+
+  // 把图片写到 prototype.html 同级 assets 目录，返回相对 URL（assets/<hash>.<ext>）。
+  // iframe 经 local:// 加载 prototype.html，相对路径自然解析到同目录 assets/，由 local:// handler 直接读盘服务。
+  ipcMain.handle("save-prototype-image", async (_event: IpcMainInvokeEvent, buffer: ArrayBuffer, dir: string) => {
+    if (!dir) throw new Error("assets dir not set")
+    await mkdir(dir, { recursive: true })
+    const buf = Buffer.from(buffer)
+    const hash = createHash("sha256").update(buf).digest("hex").slice(0, 16)
+    const ext = detectImageExt(buf)
+    const filename = `${hash}.${ext}`
+    const filePath = join(dir, filename)
+    if (!existsSync(filePath)) await writeFile(filePath, buf)
+    return `assets/${filename}`
+  })
   
 // insight markdown 编辑器自动保存:把编辑后的文本覆盖写回本地产物文件。
   // 渲染进程不是安全边界 —— 主进程独立校验路径,避免被构造路径越权写系统文件。见 §5 / §7。
@@ -713,6 +727,13 @@ export function registerIpcHandlers(deps: Deps) {
     } catch {
       // 文件不存在时忽略，不执行任何代码
     }
+  })
+
+  // 原子重命名：同文件系统内 fs.rename 是原子的，供"写临时文件 → rename 到目标"模式使用，
+  // 避免大文件/JSON 落盘过程中崩溃导致目标文件被截断（如 prototype data.js 本地编辑回写）。
+  // 跨文件系统会失败，调用方应保证 src/dest 同目录。
+  ipcMain.handle("rename-file", async (_event: IpcMainInvokeEvent, srcPath: string, destPath: string) => {
+    await rename(srcPath, destPath)
   })
 
   ipcMain.handle("read-clipboard-image", () => {

@@ -18,6 +18,7 @@ import PROMPT_OCTO_DESIGN from "./prompt/octo_design.txt"
 import PROMPT_OCTO_STUDIO from "./prompt/octo_studio.txt"
 import PROMPT_OCTO_PATTERN_INTENT from "./prompt/octo_pattern_intent.txt"
 import PROMPT_OCTO_PATTERN_MODULE from "./prompt/octo_pattern_module.txt"
+import PROMPT_OCTO_AI from "./prompt/octo_ai.txt"
 import PROMPT_MAKE_COMPONENT from "./prompt/make_component.txt"
 import PROMPT_OCTO_MAKE_PLAN from "./prompt/octo_make_plan.txt"
 import {
@@ -110,6 +111,8 @@ export const layer = Layer.effect(
           Truncate.GLOB,
           path.join(Global.Path.tmp, "*"),
           ...skillDirs.map((dir) => path.join(dir, "*")),
+          // 全局 skill 根目录（外部目录白名单仅取一层，这里补全递归路径）
+          path.join(Global.Path.octoConfig, "skill", "**"),
         ]
 
         const defaults = Permission.fromConfig({
@@ -135,12 +138,9 @@ export const layer = Layer.effect(
         const user = Permission.fromConfig(cfg.permission ?? {})
 
         const agents: Record<string, Info> = {
-          // SPEC-INS-030:chat 下线后 octo_ai 只剩「build 的向后兼容目标 + TUI 默认 agent」两个身份,
-          // 原 octo_ai.txt 是套用的编码 agent 模板(且带内网知识库段,该能力已迁 octo_insight),故整份丢弃。
-          // 不给 prompt 字段 → session/llm.ts 回落 SystemPrompt.provider(按模型选 anthropic/gpt/… 默认),
-          // 正是上游 build agent 的原始行为。agent 本体保留:删它会波及 build 映射 / plan.ts / TUI / 上游 ui。
           octo_ai: {
             name: "octo_ai",
+            prompt: PROMPT_OCTO_AI,
             description: "The default agent. Executes tools based on configured permissions.",
             options: {},
             permission: Permission.merge(
@@ -296,8 +296,10 @@ export const layer = Layer.effect(
               defaults,
               Permission.fromConfig({
                 write: "allow",
-                edit: "ask",
-                apply_patch: "deny",
+                edit: {
+                  "*": "ask",
+                  "**/.config/octo/skill/**": "allow",
+                },
                 todowrite: "deny",
                 websearch: "deny",
                 jimeng_image_generate: "deny",
