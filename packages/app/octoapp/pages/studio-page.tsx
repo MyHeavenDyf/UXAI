@@ -2370,7 +2370,9 @@ export default function StudioPage() {
     const nextCount = countValue(recordValue(input, "count")) ?? (result.images.length >= 1 && result.images.length <= 4 ? result.images.length as 1 | 2 | 3 | 4 : undefined)
     return {
       capability: result.capability,
-      prompt: stringValue(input, "prompt") ?? result.displayPrompt ?? result.prompt,
+      prompt: result.detailPrompt !== undefined
+        ? result.detailPrompt
+        : stringValue(input, "prompt") ?? result.displayPrompt ?? result.prompt,
       styleModel: styleModelId(stringValue(input, "styleModel") ?? result.styleModel ?? result.model),
       aspectRatio: nextAspectRatio,
       count: nextCount,
@@ -2899,8 +2901,12 @@ export default function StudioPage() {
             : ""
     )
     if (!text || isActionBusy() || nextHasInvalidVideoFrames) return
-    const detailPrompt = overrides?.detailPrompt ?? (actualUserPrompt || (nextCapability === "video.generate" ? text : undefined))
-    const detailTitle = overrides?.detailTitle ?? buildStudioDisplayPrompt(detailPrompt ?? text)
+    const detailPrompt = overrides?.detailPrompt ?? (
+      nextCapability === "image.generate" || nextCapability === "video.generate"
+        ? actualUserPrompt
+        : undefined
+    )
+    const detailTitle = overrides?.detailTitle ?? buildStudioDisplayPrompt(detailPrompt || text)
     const currentToken = ++generationToken
     const existingSession = isValidStudioSession(params.id)
     const previousPrompt = prompt()
