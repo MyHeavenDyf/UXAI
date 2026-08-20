@@ -160,8 +160,8 @@ export default {
   name: 'prototype',
 
   downloadOptions: [
-    { value: 'eview-react', label: 'eview-react' },
-    { value: 'eview-ui', label: 'eview-ui' },
+    { value: 'eview-react', label: 'Eview-React' },
+    { value: 'eview-ui', label: 'Eview UI' },
   ],
 
   async handleLocalEdit(ctx) {
@@ -231,13 +231,6 @@ export default {
     downloading = true
 
     const targetLib = option ?? 'eview-react'
-
-    if (targetLib === 'eview-ui') {
-      ctx.showToast({ title: 'eview-ui 暂未上线' })
-      downloading = false
-      return true
-    }
-
     // 磁盘导出还需要 exportZip 才能落盘
     const desktopApi = ctx.getDesktopApi()
     if (!desktopApi?.exportZip) {
