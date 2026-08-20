@@ -71,7 +71,7 @@ function startDrag(e: PointerEvent) {
   const [tx, ty] = readTranslate(container)
   drag = { startX: e.clientX, startY: e.clientY, baseX: tx, baseY: ty, container, rect }
   container.style.transition = "none"
-  document.body.style.cursor = "grabbing"
+  document.body.style.cursor = "default"
   document.body.style.userSelect = "none"
   window.addEventListener("pointermove", onDragMove)
   window.addEventListener("pointerup", endDrag)
@@ -209,7 +209,7 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
             "align-items": "center",
             "justify-content": "space-between",
             padding: "0 8px 0 16px",
-            cursor: "grab",
+            cursor: "default",
             "user-select": "none",
             "touch-action": "none",
             "border-bottom": "1px solid rgba(0, 0, 0, 0.06)",

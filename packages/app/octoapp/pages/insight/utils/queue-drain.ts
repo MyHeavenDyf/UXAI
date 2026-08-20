@@ -3,9 +3,10 @@ import { Identifier } from "@/utils/id"
 import type { useGlobalSDK } from "@/context/global-sdk"
 import { buildChipDeclaration, buildChipTemplate, buildToolGate } from "../store/mcp-trigger"
 import { getDesktopApi } from "../lib/electron-api"
-import { formatUploadsForPrompt, isImageFile } from "../lib/upload"
+import { formatUploadsForPrompt, formatMentionedFilesForPrompt, isImageFile } from "../lib/upload"
 import { isPendingUploadPath } from "./worktree-layout"
 import { assembleInsightParts } from "./build-prompt-parts"
+import { currentAccount } from "./account"
 import type { Attachment } from "../components/attachment-bar"
 import type { QueuedSend } from "./send-queue"
 
@@ -104,20 +105,17 @@ export async function sendQueuedItem(globalSDK: GlobalSDK, sessionID: string, it
     }
   }
 
-  // SPEC-INS-023 @文件：引用清单 synthetic（与 doSendPrompt 同款文案）
+  // SPEC-INS-023 @文件：引用清单 synthetic（与 doSendPrompt 共用 formatMentionedFilesForPrompt，防两套文案漂移）
   if (item.files?.length) {
-    syntheticTexts.push(
-      [
-        "[引用文件] 用户本轮引用了以下已存在的会话文件,需要时用 extract_document 按路径读取:",
-        ...item.files.map((f) => `- ${f.filename}: ${f.path}`),
-      ].join("\n"),
-    )
+    syntheticTexts.push(formatMentionedFilesForPrompt(item.files))
   }
 
   const { parts } = assembleInsightParts({
     text: item.text,
     syntheticTexts,
-    textInlineFiles: item.uploads ?? [],
+    // `@` 引用的文件与附件走同一条内联路径（与 doSendPrompt 一致，SPEC-INS-023 §7.2 2026-08-20 修订）；
+    // 非文本类与重复 path 由 assembleInsightParts 内部处理。
+    textInlineFiles: [...(item.uploads ?? []), ...(item.files ?? [])],
     imageFiles: item.images ?? [],
   })
 
@@ -135,6 +133,12 @@ export async function sendQueuedItem(globalSDK: GlobalSDK, sessionID: string, it
     chip: item.chip?.selection.preset.id,
   })
 
+  const account = currentAccount()
+  const promptExtra =
+    injectedSkills.length || account
+      ? { ...(injectedSkills.length ? { skills: injectedSkills } : {}), ...(account ? { account } : {}) }
+      : undefined
+
   const client = globalSDK.createClient({ directory, throwOnError: true })
   await client.session.promptAsync({
     sessionID,
@@ -143,7 +147,9 @@ export async function sendQueuedItem(globalSDK: GlobalSDK, sessionID: string, it
     parts,
     messageID,
     tools,
-    // SPEC-INS-029：排队 drain 与即时发送同样上报，否则「busy 时发的技能」统计缺一块。
-    ...(injectedSkills.length ? { extra: { skills: injectedSkills } } : {}),
+    // extra 与即时发送(index.tsx doSendPrompt)保持同构，否则「busy 时排队发出的那条」会缺字段：
+    //   - skills(SPEC-INS-029)：不带则技能用量统计缺一块。
+    //   - account(SPEC-INS-030 §5)：不带则该轮 knowledge_search 拿不到工号、直接拒答。
+    ...(promptExtra ? { extra: promptExtra } : {}),
   })
 }
