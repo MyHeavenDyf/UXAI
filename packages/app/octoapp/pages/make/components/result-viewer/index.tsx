@@ -31,7 +31,6 @@ import { artifactFileToOutputCard, type ArtifactFile, getArtifactRelativePath } 
 import { saveArtifactContent } from "../../utils/artifact-auto-save"
 import type { OutputCard } from "../insight-turn"
 import { tracker } from "@/utils/tracker"
-import { createC2DZip } from "../../utils/canvas-to-design"
 import { usePixsoTransport } from "@/utils/useZipTransport"
 import { getDesktopApi } from "../../lib/electron-api"
 import { useFeatureMutex } from "../../utils/use-feature-mutex"
@@ -180,97 +179,6 @@ export function ResultViewer(props: {
     tracker.interaction({ module: "design", name: "change-viewport", extend: JSON.stringify({ viewport: vp }) })
     setViewport(vp)
     featureMutex.disableAll()
-  }
-
-  const handleCanvasToDesign = async () => {
-    tracker.interaction({ module: "design", name: "canvas-to-design" })
-    try {
-      const tab = activeTab()
-      if (!tab || tab.type !== "html") {
-        showToast({ title: "请先打开HTML文件" })
-        return
-      }
-
-      const handler = getSubtypeHandler(tab.subtype)
-      const ctx = buildSubtypeCtx()!
-
-      if (handler?.handleCanvasEdit) {
-        const handled = await handler.handleCanvasEdit(ctx)
-        if (handled === true) return
-      }
-
-      const isLoggedIn = !!localStorage.getItem('uiplusToken')
-
-      if (!isLoggedIn) {
-        showToast({ title: "生成ZIP文件..." })
-        const htmlContent = extractCodeBlock(tab.content, "html")
-        const zipBlob = await createC2DZip({
-          htmlContent,
-          htmlFilePath: tab.filePath || "",
-          tabTitle: tab.title,
-          observedUrls: observedUrlsGetter?.() || [],
-        })
-        const fileName = `${tab.title}-c2d.zip`
-        const url = URL.createObjectURL(zipBlob)
-        const a = document.createElement("a")
-        a.href = url
-        a.download = fileName
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-        showToast({ title: "生成完成", description: "ZIP文件已下载" })
-        return
-      }
-
-      const result = usePixsoTransport({
-        getZip: async () => {
-          showToast({ title: "生成ZIP文件..." })
-          const htmlContent = extractCodeBlock(tab.content, "html")
-          return await createC2DZip({
-            htmlContent,
-            htmlFilePath: tab.filePath || "",
-            tabTitle: tab.title,
-            observedUrls: observedUrlsGetter?.() || [],
-          })
-        },
-        downloadHtml: async (data) => {
-          const api = getDesktopApi()
-          const baseDir = props.sdkDirectory
-          const sessionId = tab.sessionId || props.sessionId
-          
-          if (!baseDir || !sessionId || !api?.writeFileBuffer) {
-            showToast({ title: "无法保存文件", variant: "error" })
-            return
-          }
-          
-          const uploadsDir = `${baseDir}/.octo/${sessionId}/uploads`
-          let finalFilename = data.filename
-          
-          if (api.fileExists) {
-            let counter = 0
-            const baseName = data.filename.replace(/\.html$/i, '')
-            while (await api.fileExists(`${uploadsDir}/${finalFilename}`)) {
-              counter++
-              finalFilename = `${baseName}(${counter}).html`
-            }
-          }
-          
-          const buffer = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
-          await api.writeFileBuffer(`${uploadsDir}/${finalFilename}`, buffer.buffer)
-          showToast({ title: "已保存", description: finalFilename })
-        },
-        config: {
-          designName: tab.title,
-          sessionId: tab.sessionId || props.sessionId || "",
-        },
-      })
-
-      console.log('pixso result', result)
-    } catch (error) {
-      console.error("[handleCanvasToDesign] Error:", error)
-      showToast({ title: "操作失败", description: String(error) })
-    }
   }
 
   const buildSubtypeCtx = () => {
@@ -701,20 +609,29 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                     onDrawToggle={htmlMode() === "edit" ? undefined : handleDrawToggle}
                     commenting={featureMutex.state.commenting}
                     onCommentToggle={htmlMode() === "edit" ? undefined : handleCommentToggle}
-                    archiving={featureMutex.state.archiving}
-                    onArchiveToggle={htmlMode() === "edit" ? undefined : handleArchiveToggle}
-                     onCanvasToDesign={handleCanvasToDesign}
-                     onRefresh={handleRefresh}
-                    observedResourceUrls={() => observedUrlsGetter?.() || []}
-                    focusMode={props.focusMode}
-                    onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
-                    historyActive={props.historyActive}
-                    historyEntries={props.historyEntries}
-                    currentVersionId={props.currentVersionId}
+
+archiving={featureMutex.state.archiving}
+                     onArchiveToggle={htmlMode() === "edit" ? undefined : handleArchiveToggle}
+                      onRefresh={handleRefresh}
+                     observedResourceUrls={() => observedUrlsGetter?.() || []}
+                     focusMode={props.focusMode}
+                     onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
+                     historyActive={props.historyActive}
+                     historyEntries={props.historyEntries}
+                     currentVersionId={props.currentVersionId}
                      onHistorySwitch={props.onHistorySwitch}
                      onHistoryToggle={props.onHistoryToggle}
+                     sessionId={props.sessionId}
+                     sdkDirectory={props.sdkDirectory}
+                      onCanvasToDesign={handleCanvasToDesign}
                      postMessageToIframe={(data: unknown) => iframePostMessage?.(data)}
-                    />
+                   />
+
+                    
+                  
+                     
+             
+
                 </Show>
                 <div class="flex-1 min-h-0 min-w-0 overflow-hidden">
                   <Switch
