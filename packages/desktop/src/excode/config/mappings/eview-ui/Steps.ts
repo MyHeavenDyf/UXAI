@@ -21,7 +21,7 @@
  * - children 有静态数组和 LoopNode 两种形态
  * - 每个 StepItem 的 props → WizardData 映射：
  *   title → text, content → description, icon → iconUrl, status → status
- * - icon 字面量用 resolveIcon，DataBinding 用 ComputedValue
+ * - icon 一律用统一占位 URL（写死），不调 resolveIcon——eview-ui 的 icon 相关属性只接 URL
  *
  * 这是 eview-ui 专属 bespoke 映射（非工厂、非复用 eview-react）。import 硬编码 @cloudsop/eview-ui。
  */
@@ -29,7 +29,8 @@
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { LoopNode } from '../../../src/core/node-types'
 import type { PropValue, BindingValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
+import { Value } from '../../../src/core/value-factory'
+import { PLACEHOLDER_ICON_URL } from './icon-placeholder'
 
 /** 从 StepItem 节点 props 中提取字段映射信息 */
 interface StepFieldMap {
@@ -64,8 +65,9 @@ function extractFieldMap(stepItem: any): StepFieldMap {
     else if (typeof p.status === 'string') m.statusValue = p.status
   }
   if (p.icon) {
-    if (p.icon.type === 'binding') { m.iconField = p.icon.path; m.hasJSX = true }
-    else if (typeof p.icon === 'string') { m.iconValue = p.icon; m.hasJSX = true }
+    if (p.icon.type === 'binding') { m.iconField = p.icon.path }
+    else if (typeof p.icon === 'string') { m.iconValue = p.icon }
+    // hasJSX 不再置 true（icon 占位字符串，无 JSX → data containsJSX:false）
   }
 
   return m
@@ -75,7 +77,6 @@ function buildDataItem(
   item: any,
   idx: number,
   f: StepFieldMap,
-  rIcon: (name: string, props?: any) => any,
 ): Record<string, any> {
   const dataItem: Record<string, any> = {
     text: f.titleField ? (item[f.titleField] ?? '') : (f.titleValue ?? ''),
@@ -84,13 +85,8 @@ function buildDataItem(
   // description
   if (f.descField) dataItem.description = item[f.descField] ?? ''
   else if (f.descValue !== null) dataItem.description = f.descValue
-  // icon
-  if (f.iconField) {
-    const name = item[f.iconField]
-    if (typeof name === 'string') { const n = rIcon(name); if (n) dataItem.iconUrl = n }
-  } else if (f.iconValue) {
-    const n = rIcon(f.iconValue); if (n) dataItem.iconUrl = n
-  }
+  // icon → 占位 URL（写死，不管字面量还是 DataBinding）
+  if (f.iconField || f.iconValue) dataItem.iconUrl = PLACEHOLDER_ICON_URL
   // status
   if (f.statusField) dataItem.status = item[f.statusField]
   else if (f.statusValue !== null) dataItem.status = f.statusValue
@@ -142,21 +138,9 @@ const StepsMapping: MappingDef = {
           item.description = child.props.content
         }
 
-        if (f.iconValue) {
-          const n = ctx.resolveIcon(f.iconValue)
-          if (n) item.iconUrl = n
-        } else if (f.iconField) {
-          // DataBinding icon → ComputedValue
-          item.iconUrl = Value.computed({
-            path: child.props.icon.path,
-            pathType: child.props.icon.pathType ?? 'absolute',
-            accessPath: child.props.icon.accessPath ?? 'stepIcon',
-            containsJSX: true,
-            transform: (raw: any, cvCtx?: any) => {
-              const rIcon = cvCtx?.resolveIcon ?? ctx.resolveIcon
-              return typeof raw === 'string' ? rIcon(raw) : null
-            },
-          })
+        if (f.iconValue || f.iconField) {
+          // icon → 占位 URL（写死，eview-ui icon 只接 URL）
+          item.iconUrl = PLACEHOLDER_ICON_URL
         }
 
         if (f.statusValue) item.status = f.statusValue
@@ -185,22 +169,21 @@ const StepsMapping: MappingDef = {
         path: dataBinding.path,
         pathType: dataBinding.pathType ?? 'absolute',
         accessPath: dataBinding.accessPath ?? 'stepsData',
-        containsJSX: f.hasJSX,
+        containsJSX: false, // eview-ui icon 占位字符串后 data 无 JSX → 走 state.js 纯 JSON
         transform: (rawData: any, cvCtx?: any) => {
           if (!Array.isArray(rawData)) return []
-          const rIcon = cvCtx?.resolveIcon ?? ctx.resolveIcon
 
           // 如果预展开了 SlotNode → 直接用它
           if (resolvedSlot) {
             return rawData.map((item: any, idx: number) => {
-              const d = buildDataItem(item, idx, f, rIcon)
+              const d = buildDataItem(item, idx, f)
               d.description = resolvedSlot
               return d
             })
           }
 
           return rawData.map((item: any, idx: number) =>
-            buildDataItem(item, idx, f, rIcon),
+            buildDataItem(item, idx, f),
           )
         },
       })

@@ -58,7 +58,7 @@ import {
 } from "./store/mcp-trigger"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
 import { NewSessionView } from "@/components/session"
-import { uploadFile, validateFile, formatUploadsForPrompt, parseUploadedFiles, isImageFile, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
+import { uploadFile, validateFile, formatUploadsForPrompt, formatMentionedFilesForPrompt, parseUploadedFiles, isImageFile, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE, MENTION_BLOCK_HEADER } from "./lib/upload"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { getDesktopApi } from "./lib/electron-api"
 import { copyLastError, recordError, setBeaconContext } from "./lib/error-beacon"
@@ -332,11 +332,22 @@ function InsightContent() {
 
   // equals: same — 生成回复时 sync.data.message[id] 每个 token 都会变,若不做浅比较,
   // 这个 memo 每帧都吐新数组,下游 <Show>/<For>/各 memo 全部空转重算 → 闪烁。
+  // 按 time.created 排序:event-reducer 的 Binary.search 按 string ID 插入,历史 session
+  // 旧 ID 格式与当前 Identifier.ascending() 不兼容,新消息可能插到数组前面而非末尾。
   const userMessages = createMemo(
     (): Message[] => {
       const id = params.id
       if (!id) return EMPTY_MESSAGES
-      return ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
+      const msgs = ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
+      // 按 time.created 排序（以 id 作 tiebreaker），避免依赖 sync.data.message 底层数组顺序。
+      // Binary.search 用字符串 ID 比较插入位置，旧 session 的 48-bit ID 溢出后 hex 前缀顺序
+      // 错乱（'0' < 'f'），新消息被插入到数组开头，导致 lastUserMessage 取错、消息显示在顶部。
+      return msgs.sort((a, b) => {
+        const aTime = (a as any).time?.created ?? 0
+        const bTime = (b as any).time?.created ?? 0
+        if (aTime !== bTime) return aTime - bTime
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+      })
     },
     EMPTY_MESSAGES,
     { equals: same },
@@ -378,9 +389,8 @@ function InsightContent() {
       () => params.id,
       (id) => {
         if (!id) return
-        // Check if messages are already loaded for this session.
-        const messages = (sync.data.message[id] ?? []) as Message[]
-        const lastUser = [...messages].reverse().find((m) => m.role === "user")
+        // userMessages 已按 time.created 排序,at(-1) 即最新 user
+        const lastUser = userMessages().at(-1) as UserMessage | undefined
         if (!lastUser?.model) return
         local.session.restore({
           sessionID: id,
@@ -423,10 +433,18 @@ function InsightContent() {
 
   // ── 长任务卡片聚合(spec: docs/specs/ui/task-card.md §3.3)──
   // 扫所有 assistant message 的 part,按 task_id 分组取最新状态;锚点 = 最早 part 所在 user message
+  // 按 time.created 排序后遍历配对 user→assistant,否则历史 session 旧 ID 格式导致
+  // Binary.search 插入顺序错乱,assistant 的 anchor userMsgID 会指向错误的 user。
   const taskCards = createMemo((): Map<string, TaskCardEntry> => {
     const id = params.id
     if (!id) return new Map()
-    const messages = (sync.data.message[id] ?? []) as Message[]
+    const raw = (sync.data.message[id] ?? []) as Message[]
+    const messages = [...raw].sort((a, b) => {
+      const at = (a as { time?: { created?: number } }).time?.created ?? 0
+      const bt = (b as { time?: { created?: number } }).time?.created ?? 0
+      if (at !== bt) return at - bt
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+    })
     const items: Parameters<typeof aggregateTaskCards>[0] = []
     let lastUserMsgID = ""
     for (const msg of messages) {
@@ -499,7 +517,16 @@ function InsightContent() {
     const sid = params.id
     if (!sid) return
     const messages = (sync.data.message[sid] ?? []) as Message[]
-    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant")
+    let lastAssistant: Message | undefined
+    let lastAssistantTime = -1
+    for (const m of messages) {
+      if (m.role !== "assistant") continue
+      const t = (m as { time?: { created?: number } }).time?.created ?? 0
+      if (t >= lastAssistantTime) {
+        lastAssistantTime = t
+        lastAssistant = m
+      }
+    }
     if (!lastAssistant) return
     const parts = (sync.data.part[lastAssistant.id] ?? []) as Part[]
 
@@ -1219,23 +1246,29 @@ function InsightContent() {
       })
     }
     if (opts.mentions?.files.length) {
-      mentionBlocks.push(
-        [
-          "[引用文件] 用户本轮引用了以下已存在的会话文件,需要时用 extract_document 按路径读取:",
-          ...opts.mentions.files.map((f) => `- ${f.filename}: ${f.path}`),
-        ].join("\n"),
-      )
+      mentionBlocks.push(formatMentionedFilesForPrompt(opts.mentions.files))
     }
     // SPEC-INS-027:组 parts 走公共骨架 assembleInsightParts(与排队 drain sendQueuedItem 共用,防两套漂移)。
     // uploadBlock / chipTemplate / chipDeclaration / mentionBlocks 仍在上方各自算好(optimistic 镜像与日志继续引用),
-    // 此处只按既定顺序组装 + 映射 txt/md·图片 FilePart。顺序:cleanText → [附件] → chip → @技能/@文件 → txt/md → 图片。
+    // 此处只按既定顺序组装 + 映射可内联文件·图片 FilePart。顺序:cleanText → [附件] → chip → @技能/@文件 → 内联文件 → 图片。
     const syntheticTexts = [uploadBlock, chipTemplate, chipDeclaration, ...mentionBlocks].filter(
       (t): t is string => !!t,
     )
+    // 2026-08-20:`@` 引用的文件与附件走**同一条**内联路径(SPEC-INS-023 §7.2 修订)——用户 `@` 一个
+    // 文件就是明确要它进上下文,不该让模型再多跑一轮 extract_document(上游 opencode 的 @ 引用同样
+    // 是发送即内联)。非文本类由 assembleInsightParts 内的 isTextInlineFile 反向排除掉。
+    // chip turn **不特殊处理**:内联只涉及文本类且有 50KB 截断,2026-08-19 那次的上下文炸弹源头是
+    // extract_document 对 office 全文回灌(已单独关掉),与本路径无关;chip 是纯常驻的,关掉内联会让
+    // 用户在选中研究工具期间对文件内容彻底失明。
+    // (同一文件既在本轮附件里、又被 `@` 引用时,由 assembleInsightParts 按 path 去重,只内联一次)
+    const inlineFiles = [
+      ...localFiles.map((a) => ({ filename: a.filename, path: resolvedPath(a) })),
+      ...(opts.mentions?.files ?? []),
+    ]
     const { parts, imageParts } = assembleInsightParts({
       text,
       syntheticTexts,
-      textInlineFiles: localFiles.map((a) => ({ filename: a.filename, path: resolvedPath(a) })),
+      textInlineFiles: inlineFiles,
       imageFiles: imageFiles.map((a) => ({ filename: a.filename, mime: a.mime, url: a.url! })),
     })
     const messageID = Identifier.ascending("message")
@@ -1433,8 +1466,9 @@ function InsightContent() {
   }
 
   // ── MCP chip(SPEC-INS-017)─────────────────────────────────
-  // 可引用文件 = 会话历史所有 [附件] 清单聚合 + 本次待发送的非图片附件(按文件名去重)。
-  // 名集与 server 端 octo-upload-inject 的引用键表同源(清单文件名),声明只写这些名 → 插件必精确命中。
+  // 可引用文件 = 会话历史所有文件清单聚合(`[附件]` + `@` 的 `[引用文件]`)+ 本次待发送的非图片附件
+  // (按文件名去重)。名集与 server 端 octo-upload-inject 的引用键表同源(两个头都收,见 lib/upload.ts
+  // MENTION_BLOCK_HEADER),声明只写这些名 → 插件必精确命中。
   const mcpCandidateFiles = createMemo((): string[] => {
     const seen = new Set<string>()
     const names: string[] = []
@@ -1447,7 +1481,8 @@ function InsightContent() {
     for (const m of userMessages()) {
       const parts = (sync.data.part[m.id] ?? []) as Array<{ type?: string; synthetic?: boolean; text?: string }>
       for (const p of parts) {
-        if (p.type !== "text" || !p.synthetic || typeof p.text !== "string" || !p.text.startsWith("[附件]")) continue
+        if (p.type !== "text" || !p.synthetic || typeof p.text !== "string") continue
+        if (!p.text.startsWith("[附件]") && !p.text.startsWith(MENTION_BLOCK_HEADER)) continue
         for (const f of parseUploadedFiles(p.text)) add(f.filename)
       }
     }

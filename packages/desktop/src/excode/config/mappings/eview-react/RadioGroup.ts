@@ -8,7 +8,6 @@
  * | options（DataBinding） | data | ComputedValue + 字段重命名 label→text |
  * | options（字面量） | data | 字段重命名 label→text，简单值展开 |
  * | orientation | type | 同名透传（horizontal/vertical） |
- * | optionType | — | 丢弃 |
  * | size | — | 丢弃 |
  * | — | isControlled | defaults: true（需受控模式） |
  * | className | className | 同名透传 |
@@ -18,7 +17,7 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
+import { Value } from '../../../src/core/value-factory'
 
 // ─── 选项数据转换（label→text + 简单值展开） ───
 function normalizeOptions(items: any[]): any[] {
@@ -46,7 +45,9 @@ export function createRadioGroupMapping(pkg: string): MappingDef {
     transform(node: any, _ctx: TransformContext) {
       const props = node.props || {}
       const outputProps: Record<string, PropValue> = {}
-      const SKIP_KEYS = new Set(['value', 'options', 'orientation', 'optionType', 'size', 'className'])
+
+      // 显性处理每个 A2UI prop：A2UI RadioGroup 的 props 是封闭集合
+      // (value/options/orientation/size/className)，不做兜底透传。
 
       // ─── value → value（useState 受控） ───
       if ('value' in props) {
@@ -100,19 +101,14 @@ export function createRadioGroupMapping(pkg: string): MappingDef {
         outputProps.type = props.orientation
       }
 
-      // ─── optionType / size 丢弃 ───
+      // ─── size 丢弃 ───
 
       // ─── className 透传 ───
       if (props.className) {
         outputProps.className = props.className
       }
 
-      // ─── 剩余 prop 透传 ───
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) {
-          outputProps[key] = value as PropValue
-        }
-      }
+      // 不做剩余兜底透传：A2UI RadioGroup 的 props 已逐项显性处理。
 
       return {
         props: outputProps,

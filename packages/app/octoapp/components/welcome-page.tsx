@@ -25,13 +25,6 @@ const features: FeatureCard[] = [
     tags: ["原型生成", "标注归档", "开发传递"],
     previewImage: "/welcomepage/design.png",
   },
-    {
-    title: "Prototype",
-    titleColor: "#CB2578",
-    description: "引用开发组件拼搭页面，可开\n发交付（当前仅支持ICT领域）",
-    tags: ["代码原型生成"],
-    previewImage: "/welcomepage/prototype.png",
-  },
   {
     title: "Studio",
     titleColor: "#05743C",
@@ -83,7 +76,7 @@ export function WelcomePage(props: { onComplete: () => void }) {
         class="flex flex-col items-center"
         style={{
           width: "1128px",
-          height: "555px",
+          height: "640px",
           background: "white url('/welcomepage/background.png') center/cover no-repeat",
           "border-radius": "12px",
           "box-shadow": "0 4px 24px rgba(0, 0, 0, 0.15)",

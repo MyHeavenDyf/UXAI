@@ -29,6 +29,7 @@ export type PropValue =
   | RawExprValue
   | RenderFnValue
   | SlotNodeValue
+  | ActionValue
   | string
   | number
   | boolean
@@ -67,6 +68,7 @@ export interface UseStateMarker {
  * - useState 标记存在时，组件函数体内生成 useState 包裹
  */
 export interface LiteralValue {
+  __node: true,
   type: 'literal'
 
   /** 字面量值 */
@@ -79,6 +81,7 @@ export interface LiteralValue {
 // ─── BindingValue（路径绑定） ───
 
 export interface BindingValue {
+  __node: true,
   type: 'binding'
   /** A2UI 原始路径：'/aaa'（绝对）或 'name'（相对） */
   path: string
@@ -98,6 +101,13 @@ export interface BindingValue {
   route?: ExtractRoute
   /** 可选：触发 useState 包裹（path 双绑场景） */
   useState?: UseStateMarker
+  /**
+   * 共享响应式标记（state-builder 打标）：
+   * true = 该 path 被事件 Action 改写（在 eventMutatedPaths 集合中），
+   * 需走页级共享 store（useSharedState）而非 initialState 快照/局部 useState。
+   * 共享 path 按协议只在 state 顶层。
+   */
+  shared?: boolean
 }
 
 // ─── ComputedValue（BindingValue 超集 + 数据转换） ───
@@ -106,9 +116,14 @@ export interface ComputedTransformCtx {
   /** 原始 state（绝对路径直接用） */
   rawState: Record<string, any>
   /**
+   * 当前项（循环中的 item）：relative path 从此项按段解析。
+   * enrichment（applyScopedCV）递归内更新为当前 obj；absolute computed 不设（transform 内 path 都 absolute）。
+   */
+  currentItem?: any
+  /**
    * 通用路径解析：调用者不关心 path 是绝对还是相对。
    *   绝对路径 /xxx → rawState 直取
-   *   相对路径 xxx  → 沿当前节点 LoopScope 链向上找首个 absolute dataBinding 作根 → 按段解析
+   *   相对路径 xxx  → 从 currentItem（当前项）按段解析
    */
   resolveValueFromPath: (path: string) => any
   /** 图标名称 → BuildNode（用于 containsJSX 的 transform 中 resolve 图标） */
@@ -116,6 +131,7 @@ export interface ComputedTransformCtx {
 }
 
 export interface ComputedValue extends Omit<BindingValue, 'type'> {
+  __node: true,
   type: 'computed'
   /** 数据转换函数（编译期执行，不产运行时代码） */
   transform: (rawValue: any, ctx?: ComputedTransformCtx) => any
@@ -136,14 +152,22 @@ export interface IdentContext {
 // ─── VarRefValue（编译期常量引用） ───
 
 export interface VarRefValue {
+  __node: true,
   type: 'varRef'
   /** 变量名，序列化为 {name} */
   name: string
+  /**
+   * 仅 loop.data 的 varRef 设置（routeLoopNode）：标识数据源是 absolute（顶层 state/const，
+   * 嵌套循环时外层不该 destructure）还是 relative（外层 item 字段，外层需 destructure）。
+   * 供 collectRelativeFields 区分；其它 varRef（useState 等）不设。
+   */
+  pathType?: 'absolute' | 'relative'
 }
 
 // ─── RawExprValue（逃生舱） ───
 
 export interface RawExprValue {
+  __node: true,
   type: 'rawExpr'
   /** 原始 JS 表达式 */
   value: string
@@ -177,6 +201,7 @@ export interface RenderFnParam {
 // ─── RenderFnValue（渲染函数） ───
 
 export interface RenderFnValue {
+  __node: true,
   type: 'renderFn'
 
   /** 形参声明（结构化，保留顺序） */
@@ -191,7 +216,35 @@ export interface RenderFnValue {
 // ─── SlotNodeValue（Slot 子树） ───
 
 export interface SlotNodeValue {
+  __node: true,
   type: 'slotNode'
   node: BuildNode
   route?: ExtractRoute
+}
+
+// ─── ActionValue（事件动作：setState 写共享 state） ───
+
+/**
+ * 事件 Action（Button.onClick / Drawer.onClose / Modal.onClose 等）。
+ *
+ * A2UI schema：`{ action: "setState", args: { path, value } }`
+ * → 事件触发时把 value 写入 state 的 path（共享 store，因 path 被多处读+写）。
+ *
+ * 由 build-trees #processValue 识别 `{action,args}` 形状产出（event = prop key）；
+ * mapping/transform 透传到 outputProps；
+ * jsx-emitter 按 type:'action' 分发为 `() => setSharedState(key, value)`。
+ *
+ * value 暂只字面量（true/false/字符串/数字）；toggle/表达式/DataBinding 后续扩展。
+ */
+export interface ActionValue {
+  __node: true,
+  type: 'action'
+  /** 事件名（prop key，如 'onClick' / 'onClose'） */
+  event: string
+  /** 动作类型（目前仅 'setState'，留扩展位） */
+  action: 'setState'
+  /** 写入的 state path（JSON pointer，如 '/isDetailOpen'；按协议顶层） */
+  path: string
+  /** 写入值（字面量） */
+  value: any
 }

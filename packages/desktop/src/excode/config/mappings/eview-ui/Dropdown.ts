@@ -6,9 +6,12 @@
  * 是一个**组件节点**——eview-ui 的 `Menu` 组件，用法 `<Menu><Menu.Item>label</Menu.Item>...</Menu>`，
  * Menu.Item 支持 `icon`（resolved BuildNode）+ `key`，label 作 children。
  *
- * - 字面量 menu → 静态构造 Menu + N 个 Menu.Item（label TextNode、icon resolveIcon、key 透传）
+ * - 字面量 menu → 静态构造 Menu + N 个 Menu.Item（label TextNode、icon 占位 URL、key 透传）
  * - DataBinding menu → overlay 的 Menu children 用 LoopNode（数据源 = menu binding），
- *   template body 为一个 Menu.Item（label/key/icon 走相对绑定；icon 用 ComputedValue+containsJSX）
+ *   template body 为一个 Menu.Item（label/key 走相对绑定；icon 写死占位 URL）
+ *
+ * ⚠️ icon 差异：eview-ui 的 icon 相关属性只接 URL、不接 React DOM，故 Menu.Item 的 icon
+ * 一律用统一占位 URL（写死），不调 resolveIcon。字面量与 LoopNode 模板两分支皆是。
  *
  * overlay 构造成 Menu 节点后包成 SlotNode（Value.slotNode({node})）放入 prop：SlotNode 是 pipeline
  * 既定的"子树作 prop 值"机制，emitValue 对 slotNode 走 emitNode（完整 emit 含 children），
@@ -24,9 +27,10 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue, BindingValue } from '../../../src/core/value-types'
-import type { ComponentNode, LoopNode, ExtractNode } from '../../../src/core/node-types'
-import { Value } from '../../../src/core/value'
-import { Node } from '../../../src/core/node'
+import type { ComponentNode, LoopNode } from '../../../src/core/node-types'
+import { Value } from '../../../src/core/value-factory'
+import { Node } from '../../../src/core/node-factory'
+import { PLACEHOLDER_ICON_URL } from './icon-placeholder'
 
 // ─── placement 映射表（与 eview-react Dropdown 一致） ───
 const PLACEMENT_MAP: Record<string, { position: string; popupDirection: string }> = {
@@ -44,30 +48,17 @@ const MENU_IMPORT = '@cloudsop/eview-ui/Menu'   // default import，Menu 与 Men
 
 /**
  * 字面量 menu item → Menu.Item 节点（_resolved:true 保留 import）。
- * label→children(TextNode)，icon→resolveIcon(BuildNode)，key→prop。
+ * label→children(TextNode)，icon→占位 URL（写死），key→prop。
  */
-function buildMenuItem(item: any, ctx: TransformContext): ComponentNode {
+function buildMenuItem(item: any): ComponentNode {
   const props: Record<string, PropValue> = {}
 
   // key 透传（字面量 / binding）
   if (item.key !== undefined) props.key = item.key as PropValue
 
-  // icon：字面量 string → resolveIcon；DataBinding → ComputedValue+containsJSX（absolute）
+  // icon：占位 URL（写死，不管字面量还是 DataBinding——eview-ui icon 只接 URL）
   if (item.icon !== undefined) {
-    if (typeof item.icon === 'string') {
-      props.icon = ctx.resolveIcon(item.icon) as any
-    } else if (item.icon && typeof item.icon === 'object' && item.icon.type === 'binding') {
-      props.icon = Value.computed({
-        path: item.icon.path,
-        pathType: item.icon.pathType ?? 'absolute',
-        accessPath: item.icon.accessPath,
-        containsJSX: true,
-        transform: (raw: any, cvCtx?: any) => {
-          const rIcon = cvCtx?.resolveIcon ?? ctx.resolveIcon
-          return typeof raw === 'string' ? rIcon(raw) : null
-        },
-      })
-    }
+    props.icon = PLACEHOLDER_ICON_URL
   }
 
   // label → children（TextNode，string / binding）
@@ -90,24 +81,15 @@ function buildMenuItem(item: any, ctx: TransformContext): ComponentNode {
 }
 
 /**
- * Menu.Item 模板（DataBinding 分支，相对绑定）：label/key/icon 走相对路径。
- * icon 用 ComputedValue+containsJSX（循环内 per-item resolveIcon）。
+ * Menu.Item 模板（DataBinding 分支，相对绑定）：label/key 走相对路径。
+ * icon 写死占位 URL（eview-ui icon 只接 URL，不随 per-item 数据变化）。
  */
-function buildMenuItemTemplate(ctx: TransformContext): ComponentNode {
+function buildMenuItemTemplate(): ComponentNode {
   const props: Record<string, PropValue> = {
     // key：相对绑定 'key'
     key: Value.binding({ path: 'key', pathType: 'relative', accessPath: 'key' }),
-    // icon：相对绑定 'icon' + containsJSX
-    icon: Value.computed({
-      path: 'icon',
-      pathType: 'relative',
-      accessPath: 'icon',
-      containsJSX: true,
-      transform: (raw: any, cvCtx?: any) => {
-        const rIcon = cvCtx?.resolveIcon ?? ctx.resolveIcon
-        return typeof raw === 'string' ? rIcon(raw) : null
-      },
-    }),
+    // icon：占位 URL（写死）
+    icon: PLACEHOLDER_ICON_URL,
   }
 
   // label → TextNode（相对绑定 'label'）
@@ -129,8 +111,8 @@ function buildMenuItemTemplate(ctx: TransformContext): ComponentNode {
 /**
  * 字面量 menu 数组 → Menu overlay 节点（_resolved:true）。
  */
-function buildMenuOverlayFromLiteral(items: any[], ctx: TransformContext): ComponentNode {
-  const children = items.map((it: any) => buildMenuItem(it, ctx))
+function buildMenuOverlayFromLiteral(items: any[]): ComponentNode {
+  const children = items.map((it: any) => buildMenuItem(it))
   return {
     kind: 'component',
     component: 'Menu',
@@ -149,26 +131,23 @@ function buildMenuOverlayFromLiteral(items: any[], ctx: TransformContext): Compo
 function buildMenuOverlayFromBinding(
   menuBinding: BindingValue,
   nodeId: string | undefined,
-  ctx: TransformContext,
 ): ComponentNode {
   // 复用 menu binding 的 path/pathType/accessPath 作循环数据源
-  const dataBinding: BindingValue = {
-    type: 'binding',
+  const dataBinding = Value.binding({
     path: menuBinding.path,
     pathType: menuBinding.pathType ?? 'absolute',
     accessPath: menuBinding.accessPath ?? 'dropdownMenu',
-  }
+  })
 
   const componentName = `${nodeId || 'Dropdown'}OverlayTemplate`
-  const templateItem = buildMenuItemTemplate(ctx)
+  const templateItem = buildMenuItemTemplate()
 
-  const extract: ExtractNode = {
-    kind: 'extract',
+  const extract = Node.extract({
     componentName,
     purpose: 'component',
     body: [templateItem],
     _resolved: false,
-  }
+  })
 
   const loopNode: LoopNode = Node.loop({ data: dataBinding, template: extract })
   // 注：不手动挂 loopScope —— 会形成 loopNode↔template.body↔loopScope 循环引用，
@@ -195,7 +174,8 @@ const DropdownMapping: MappingDef = {
   transform(node: any, ctx: TransformContext) {
     const props = node.props || {}
     const outputProps: Record<string, PropValue> = {}
-    const SKIP_KEYS = new Set(['menu', 'placement', 'trigger'])
+
+    // 显性处理每个 A2UI prop（Dropdown: placement/trigger/menu/className），不做兜底透传。
 
     // ─── menu → overlay（Menu 组件节点，直接作 prop 值） ───
     // overlay 是 prop 值里的 BuildNode 子树。jsxEmitter.emitValue 对 prop 值 BuildNode 走
@@ -205,10 +185,10 @@ const DropdownMapping: MappingDef = {
       const menu = props.menu
       if (menu && typeof menu === 'object' && menu.type === 'binding') {
         // DataBinding → LoopNode 套 Menu.Item（⚠️ LoopNode 在 prop 值内仍待验证）
-        outputProps.overlay = buildMenuOverlayFromBinding(menu as BindingValue, node.id, ctx) as any
+        outputProps.overlay = buildMenuOverlayFromBinding(menu as BindingValue, node.id) as any
       } else if (Array.isArray(menu)) {
         // 字面量 → 静态 Menu + Menu.Item
-        outputProps.overlay = buildMenuOverlayFromLiteral(menu, ctx) as any
+        outputProps.overlay = buildMenuOverlayFromLiteral(menu) as any
       }
     }
 
@@ -229,10 +209,7 @@ const DropdownMapping: MappingDef = {
     // ─── className ───
     if (props.className) outputProps.className = props.className as PropValue
 
-    // 透传剩余
-    for (const [key, value] of Object.entries(props)) {
-      if (!SKIP_KEYS.has(key)) outputProps[key] = value as PropValue
-    }
+    // 不做剩余兜底透传：A2UI Dropdown 的 props 已逐项显性处理。
 
     return {
       props: outputProps,

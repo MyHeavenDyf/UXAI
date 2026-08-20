@@ -1333,6 +1333,28 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
       yield* sessions.updateMessage(info)
       for (const part of parts) yield* sessions.updatePart(part)
+
+      // 持久化记录用户通过 @ 或 / 激活的技能（前端注入式）。
+      // 模型主动调用 skill 工具时由 processor.ts 创建 ToolPart，此处不重复处理。
+      for (const skillName of readActivatedSkills(input.extra)) {
+        yield* sessions.updatePart({
+          id: PartID.ascending(),
+          messageID: info.id,
+          sessionID: input.sessionID,
+          type: "tool",
+          tool: "skill",
+          callID: PartID.ascending().toString(),
+          state: {
+            status: "completed",
+            input: { name: skillName },
+            output: "",
+            title: `Loaded skill: ${skillName}`,
+            metadata: { name: skillName, source: "user" },
+            time: { start: Date.now(), end: Date.now() },
+          },
+        } satisfies MessageV2.ToolPart)
+      }
+
       const nextPrompt = parts.reduce(
         (result, part) => {
           if (part.type === "text") {
@@ -1489,7 +1511,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             lastAssistant?.finish &&
             !["tool-calls"].includes(lastAssistant.finish) &&
             !hasToolCalls &&
-            lastUser.id < lastAssistant.id
+            lastUser.time.created <= lastAssistant.time.created
           ) {
             yield* slog.info("exiting loop")
             break
@@ -1618,7 +1640,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
             if (step > 1 && lastFinished) {
               for (const m of msgs) {
-                if (m.info.role !== "user" || m.info.id <= lastFinished.id) continue
+                if (m.info.role !== "user" || m.info.time.created <= lastFinished.time.created) continue
                 for (const p of m.parts) {
                   if (p.type !== "text" || p.ignored || p.synthetic) continue
                   if (!p.text.trim()) continue
@@ -1818,6 +1840,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         agent: userAgent,
         parts,
         variant: input.variant,
+        extra: cmd.source === "skill" ? { skills: [input.command] } : undefined,
       })
       yield* bus.publish(Command.Event.Executed, {
         name: input.command,

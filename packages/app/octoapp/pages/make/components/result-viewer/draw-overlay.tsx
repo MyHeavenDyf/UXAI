@@ -48,6 +48,7 @@ export function DrawOverlay(props: Props): JSX.Element {
   const [isBoxActive, setIsBoxActive] = createSignal(false)
   const [showEditPopup, setShowEditPopup] = createSignal(false)
   const [editBoxPos, setEditBoxPos] = createSignal<{ left: number; top: number } | null>(null)
+  const [capturing, setCapturing] = createSignal(false)
   
   let strokesRef: Stroke[] = []
   let undoneStrokesRef: Stroke[] = []
@@ -566,9 +567,16 @@ export function DrawOverlay(props: Props): JSX.Element {
       if (shouldCapture) {
         console.log('[Draw] Attempting screenshot...')
         let blob: Blob | null = null
-        const snap = await requestSnapshot()
-        console.log('[Draw] Snapshot result:', snap ? { w: snap.w, h: snap.h } : null)
-        if (snap) blob = await compositeWithBackground(snap)
+        setCapturing(true)
+        try {
+          // 等 Solid 移除 popup DOM,避免 native capture (webContents.capturePage) 把"修改选中区域"对话框截进图里
+          await new Promise<void>((r) => requestAnimationFrame(() => r()))
+          const snap = await requestSnapshot()
+          console.log('[Draw] Snapshot result:', snap ? { w: snap.w, h: snap.h } : null)
+          if (snap) blob = await compositeWithBackground(snap)
+        } finally {
+          setCapturing(false)
+        }
         if (!blob) {
           console.error('[Draw] Screenshot failed')
           setCaptureWarning({
@@ -657,7 +665,7 @@ export function DrawOverlay(props: Props): JSX.Element {
           }}
         />
       </Show>
-      <Show when={props.active}>
+      <Show when={props.active && !capturing()}>
         <Show when={captureWarning()}>
           {(warning) => (
             <div

@@ -1,10 +1,83 @@
 import { Component } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Root as TabsRoot, List as TabsList, Trigger as TabsTrigger, Content as TabsContent } from "@kobalte/core/tabs"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 import { SettingsGeneral } from "./settings-general"
 import { SettingsProviders } from "./settings-providers"
 import { SettingsModels } from "./settings-models"
+
+// ── Dialog drag-to-move support ──
+// The settings dialog is a centered modal portaled to document.body. There is no
+// built-in move logic, so we translate the [data-slot="dialog-container"] box by
+// dragging a dedicated title bar. Each open creates a fresh DOM node, so the
+// position naturally resets between opens.
+const DRAG_MARGIN = 8
+
+interface DragState {
+  startX: number
+  startY: number
+  baseX: number
+  baseY: number
+  container: HTMLElement
+  rect: DOMRect
+}
+
+let drag: DragState | null = null
+
+function readTranslate(el: HTMLElement): [number, number] {
+  const m = el.style.transform.match(/translate\(\s*(-?[\d.]+)px\s*,\s*(-?[\d.]+)px\s*\)/)
+  return m ? [parseFloat(m[1]), parseFloat(m[2])] : [0, 0]
+}
+
+function clamp(v: number, min: number, max: number) {
+  if (min > max) return v
+  return Math.min(Math.max(v, min), max)
+}
+
+function onDragMove(e: PointerEvent) {
+  if (!drag) return
+  const dx = e.clientX - drag.startX
+  const dy = e.clientY - drag.startY
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  const maxLeft = vw - drag.rect.width - DRAG_MARGIN
+  const maxTop = vh - drag.rect.height - DRAG_MARGIN
+  const cx = maxLeft > DRAG_MARGIN ? clamp(dx, DRAG_MARGIN - drag.rect.left, maxLeft - drag.rect.left) : dx
+  const cy = maxTop > DRAG_MARGIN ? clamp(dy, DRAG_MARGIN - drag.rect.top, maxTop - drag.rect.top) : dy
+  drag.container.style.transform = `translate(${drag.baseX + cx}px, ${drag.baseY + cy}px)`
+}
+
+function endDrag() {
+  if (!drag) return
+  drag.container.style.transition = ""
+  document.body.style.cursor = ""
+  document.body.style.userSelect = ""
+  drag = null
+  window.removeEventListener("pointermove", onDragMove)
+  window.removeEventListener("pointerup", endDrag)
+  window.removeEventListener("pointercancel", endDrag)
+}
+
+function startDrag(e: PointerEvent) {
+  if (e.button !== 0) return
+  const target = e.target as HTMLElement | null
+  // Don't start a drag when pressing on an interactive element (close button, etc.)
+  if (target?.closest("button, a, input, textarea, select, [role='button']")) return
+  const handle = e.currentTarget as HTMLElement
+  const container = handle.closest<HTMLElement>("[data-slot='dialog-container']")
+  if (!container) return
+  const rect = container.getBoundingClientRect()
+  const [tx, ty] = readTranslate(container)
+  drag = { startX: e.clientX, startY: e.clientY, baseX: tx, baseY: ty, container, rect }
+  container.style.transition = "none"
+  document.body.style.cursor = "default"
+  document.body.style.userSelect = "none"
+  window.addEventListener("pointermove", onDragMove)
+  window.addEventListener("pointerup", endDrag)
+  window.addEventListener("pointercancel", endDrag)
+  e.preventDefault()
+}
 // jk-j60099994-replace-with-dialog-settings-1-start
 // jk-j60099994-replace-with-dialog-settings-1-end
 
@@ -50,16 +123,23 @@ const iconBase: Record<string, string> = {
 
 export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
   const language = useLanguage()
+  const dialog = useDialog()
 
   return (
     <Dialog size="x-large" transition class="settings-dialog">
-      <div data-settings-dialog style={{ display: "contents" }}>
+      <div
+        data-settings-dialog
+        style={{ display: "flex", "flex-direction": "column", flex: "0 1 auto", "min-height": "0" }}
+      >
         <style>{`
           
           .settings-dialog {
             border-radius: 20px !important;
             box-shadow: 0 16px 48px 0 rgba(0, 0, 0, 0.16) !important;
             background: #fff !important;
+          }
+          [data-slot="dialog-container"]:has(.settings-dialog) {
+            height: min(calc(100vh - 32px), 644px) !important;
           }
           [data-settings-dialog] button[aria-selected="true"] {
             background-color: rgba(10, 89, 247, 0.08) !important;
@@ -114,7 +194,55 @@ export const DialogSettings: Component<{ initialTab?: string }> = (props) => {
             border-radius: 999px;
           }
         `}</style>
-        <TabsRoot orientation="vertical" defaultValue={props.initialTab ?? "general"} class="h-full" style={{ display: "flex" }}>
+        {/* Draggable title bar — press and drag to move the dialog */}
+        <div
+          class="settings-drag-handle"
+          onPointerDown={startDrag}
+          onDblClick={() => {
+            const el = document.querySelector<HTMLElement>("[data-slot='dialog-container']")
+            if (el) el.style.transform = ""
+          }}
+          style={{
+            "flex-shrink": "0",
+            height: "44px",
+            display: "flex",
+            "align-items": "center",
+            "justify-content": "space-between",
+            padding: "0 8px 0 16px",
+            cursor: "default",
+            "user-select": "none",
+            "touch-action": "none",
+            "border-bottom": "1px solid rgba(0, 0, 0, 0.06)",
+          }}
+        >
+          <span style={{ "font-size": "14px", "line-height": "22px", "font-weight": 600, color: "rgba(0, 0, 0, 0.9)" }}>
+            {language.t("sidebar.settings")}
+          </span>
+          <button
+            type="button"
+            aria-label="关闭"
+            onClick={() => dialog.close()}
+            style={{
+              display: "flex",
+              "align-items": "center",
+              "justify-content": "center",
+              width: "28px",
+              height: "28px",
+              border: "none",
+              background: "transparent",
+              "border-radius": "6px",
+              cursor: "pointer",
+              color: "rgba(0, 0, 0, 0.6)",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.06)" }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+            </svg>
+          </button>
+        </div>
+        <TabsRoot orientation="vertical" defaultValue={props.initialTab ?? "general"} style={{ display: "flex", flex: "0 1 auto", "min-height": "0" }}>
           <TabsList
             style={{
               width: "240px",

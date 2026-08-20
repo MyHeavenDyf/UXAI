@@ -326,7 +326,7 @@ function MakeSidebarArea(props: ParentProps) {
         .make-icon-btn:hover [data-component="icon"] { color: #0a59f7; }
         .make-icon-btn[data-expanded], .make-icon-btn[data-state="open"] { color: #0a59f7; }
         .make-icon-btn[data-expanded] [data-component="icon"], .make-icon-btn[data-state="open"] [data-component="icon"] { color: #0a59f7; }
-        .make-chat-folded .scroll-view__viewport { max-width: 824px; margin-left: auto; margin-right: auto; }
+        .make-chat-folded .make-chat-content { max-width: 824px; margin-left: auto; margin-right: auto; }
         .make-chat-folded .make-composer { max-width: 800px; margin-left: auto; margin-right: auto; }
       `}</style>
       <div

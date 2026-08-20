@@ -1,7 +1,8 @@
-import type { SubtypeHandler, SubtypeHandlerContext } from './types'
+import type { SubtypeHandler, SubtypeHandlerContext, CanvasEditResult } from './types'
 import type { ResultTab } from '../components/result-viewer/tab-store'
 import { showToast } from '@opencode-ai/ui/toast'
 import { getDesktopApi } from '../lib/electron-api'
+import { relativePathToId, resolveRelativePath, getExt } from '../utils/history-store'
 
 /**
  * 默认 SubtypeHandler 实现
@@ -172,6 +173,8 @@ function exportDeckAsPDF(content: string, title: string) {
 
 // ============ Handler 实现 ============
 
+const DEFAULT_HISTORY_FILES = ['.']
+
 const defaultHandler: SubtypeHandler = {
   name: '_default',
   
@@ -252,6 +255,64 @@ const defaultHandler: SubtypeHandler = {
     const content = extractDownloadContent(tab)
     await downloadBlob(content, info.filename, info.mime)
     return true
+  },
+  
+  async handleCanvasEdit(ctx): Promise<CanvasEditResult> {
+    const { tab, showToast, getDesktopApi, sessionId, sdkDirectory, observedUrlsGetter } = ctx
+    
+    const isLoggedIn = !!localStorage.getItem('uiplusToken')
+    if (!isLoggedIn) {
+      showToast({ title: "请先登录" })
+      return { handled: true }
+    }
+
+    const htmlContent = ctx.extractCodeBlock(tab.content, "html")
+    const { createC2DZip } = await import('../utils/canvas-to-design')
+    
+    return {
+      handled: true,
+      options: {
+        getZip: async () => {
+          showToast({ title: "生成ZIP文件..." })
+          return await createC2DZip({
+            htmlContent,
+            htmlFilePath: tab.filePath || "",
+            tabTitle: tab.title,
+            observedUrls: observedUrlsGetter?.() || [],
+          })
+        },
+        downloadHtml: async (data) => {
+          const api = getDesktopApi()
+          const baseDir = sdkDirectory
+          const sid = sessionId
+          
+          if (!baseDir || !sid || !api?.writeFileBuffer) {
+            showToast({ title: "无法保存文件", variant: "error" })
+            return
+          }
+          
+          const uploadsDir = `${baseDir}/.octo/${sid}/uploads`
+          let finalFilename = data.filename
+          
+          if (api.fileExists) {
+            let counter = 0
+            const baseName = data.filename.replace(/\.html$/i, '')
+            while (await api.fileExists(`${uploadsDir}/${finalFilename}`)) {
+              counter++
+              finalFilename = `${baseName}(${counter}).html`
+            }
+          }
+          
+          const buffer = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
+          await api.writeFileBuffer(`${uploadsDir}/${finalFilename}`, buffer.buffer)
+          showToast({ title: "已保存", description: finalFilename })
+        },
+        config: {
+          designName: tab.title,
+          sessionId: sessionId || "",
+        },
+      },
+    }
   },
   
   /**
@@ -386,7 +447,34 @@ const defaultHandler: SubtypeHandler = {
     actionBar: {
       extraButtons: []
     }
-  }
+  },
+
+  onHistoryTrigger(_event, _ctx) {
+    return DEFAULT_HISTORY_FILES
+  },
+
+  async applyVersionFiles(ctx, files) {
+    const { tab, getDesktopApi, updateTabContent } = ctx
+    const api = getDesktopApi()
+    if (!api?.copyFileTo || !api?.readFileBuffer || !tab.filePath) return
+
+    for (const rel of DEFAULT_HISTORY_FILES) {
+      const id = relativePathToId(rel)
+      const ext = getExt(resolveRelativePath(rel, tab.filePath))
+      const versionFileName = id + ext
+      const versionFile = files.find((f) => f.fileName === versionFileName)
+      if (!versionFile) continue
+      const originalPath = resolveRelativePath(rel, tab.filePath)
+      try {
+        await api.copyFileTo(versionFile.filePath, originalPath)
+      } catch {}
+    }
+
+    const buf = await api.readFileBuffer(tab.filePath)
+    if (buf && updateTabContent) {
+      updateTabContent(tab.id, new TextDecoder().decode(buf))
+    }
+  },
 }
 
 export default defaultHandler satisfies SubtypeHandler

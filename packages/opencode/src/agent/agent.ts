@@ -110,6 +110,8 @@ export const layer = Layer.effect(
           Truncate.GLOB,
           path.join(Global.Path.tmp, "*"),
           ...skillDirs.map((dir) => path.join(dir, "*")),
+          // 全局 skill 根目录（外部目录白名单仅取一层，这里补全递归路径）
+          path.join(Global.Path.octoConfig, "skill", "**"),
         ]
 
         const defaults = Permission.fromConfig({
@@ -296,8 +298,10 @@ export const layer = Layer.effect(
               defaults,
               Permission.fromConfig({
                 write: "allow",
-                edit: "ask",
-                apply_patch: "deny",
+                edit: {
+                  "*": "ask",
+                  "**/.config/octo/skill/**": "allow",
+                },
                 todowrite: "deny",
                 websearch: "deny",
                 jimeng_image_generate: "deny",

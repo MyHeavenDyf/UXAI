@@ -11,6 +11,7 @@
  * | size | type | small→'small'，medium/large→'default' |
  * | orientation | — | 丢弃（SelectCard 仅 horizontal） |
  * | block | — | 丢弃 |
+ * | disabled | disable | 同名语义，字段名 disabled→disable（schema 为 boolean 字面量，无 path 绑定） |
  * | className | className | 同名透传 |
  *
  * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
@@ -18,7 +19,7 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue } from '../../../src/core/value-types'
-import { Value } from '../../../src/core/value'
+import { Value } from '../../../src/core/value-factory'
 
 // ─── 选项数据转换（label→text + 简单值展开） ───
 
@@ -57,7 +58,9 @@ export function createSegmentedMapping(pkg: string): MappingDef {
     transform(node: any, ctx: TransformContext) {
       const props = node.props || {}
       const outputProps: Record<string, PropValue> = {}
-      const SKIP_KEYS = new Set(['value', 'options', 'orientation', 'block', 'size', 'className'])
+
+      // 显性处理每个 A2UI prop：A2UI Segmented 的 props 是封闭集合
+      // (value/options/block/orientation/size/className)，不做兜底透传。
 
       // ─── value → value（useState 受控） ───
       if ('value' in props) {
@@ -124,17 +127,17 @@ export function createSegmentedMapping(pkg: string): MappingDef {
         outputProps.type = SIZE_TO_TYPE[props.size] ?? 'default'
       }
 
+      // ─── disabled → disable（SelectCard 字段名不同；schema 为 boolean 字面量，无 path 绑定） ───
+      if (props.disabled !== undefined) {
+        outputProps.disable = props.disabled
+      }
+
       // ─── className 透传 ───
       if (props.className) {
         outputProps.className = props.className
       }
 
-      // ─── 剩余 prop 透传 ───
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) {
-          outputProps[key] = value as PropValue
-        }
-      }
+      // 不做剩余兜底透传：A2UI Segmented 的 props 已逐项显性处理。
 
       return {
         props: outputProps,
