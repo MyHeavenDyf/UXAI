@@ -22,7 +22,6 @@ import { DesignPlanRenderer } from "./design-plan-renderer"
 import { StrategyFormRenderer } from "./strategy-form-renderer"
 import { PrototypeCtxMenu } from "./prototype-ctx-menu"
 import { PrototypePropertyEditor } from "./prototype-property-editor"
-import { PrototypeAnnotationLayer } from "./prototype-annotation-layer"
 import type { StrategyFormData } from "../../utils/strategy-form-scanner"
 import { IllustrationResultEmpty } from "../../icons/illustrations"
 import { annotateElementsWithIds } from "../../utils/srcdoc-builder"
@@ -36,6 +35,7 @@ import { usePixsoTransport } from "@/utils/useZipTransport"
 import { getDesktopApi } from "../../lib/electron-api"
 import { useFeatureMutex } from "../../utils/use-feature-mutex"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
+import type { LocalEditSavePayload } from "../../subtype-handlers/types"
 import { disposeAllPrototypeSessions } from "../../utils/prototype-utils"
 
 function extractCodeBlock(text: string, lang: string): string {
@@ -199,6 +199,14 @@ export function ResultViewer(props: {
     }
   }
 
+  createEffect(on(() => featureMutex.state.editing, (editing, prev) => {
+    if (prev && !editing) {
+      const ctx = buildSubtypeCtx()
+      const handler = ctx && getSubtypeHandler(ctx.tab.subtype)
+      if (handler?.handleLocalEditDisable) void handler.handleLocalEditDisable(ctx!)
+    }
+  }))
+
   const handleLocalEditToggle = async () => {
     const ctx = buildSubtypeCtx()
     if (!ctx) return
@@ -249,6 +257,31 @@ export function ResultViewer(props: {
     const nextArchiving = !featureMutex.state.archiving
     featureMutex.toggleFeature('archiving')
     tracker.interaction({ module: "design", name: "toggle-archive-mode", extend: JSON.stringify({ action: nextArchiving ? "open" : "close" }) })
+  }
+
+  const handleLocalEditSave = async (payload: LocalEditSavePayload): Promise<boolean> => {
+    const tab = activeTab()
+    if (!tab) {
+      return false
+    }
+
+    const handler = getSubtypeHandler(tab.subtype)
+    if (!handler?.handleLocalEditSave) {
+      return false
+    }
+
+    const ctx = {
+      tab,
+      showToast,
+      tracker,
+      getDesktopApi,
+      extractCodeBlock,
+      usePixsoTransport,
+      edit: payload,
+    }
+
+    const handled = await handler.handleLocalEditSave(ctx)
+    return handled === true
   }
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
@@ -576,6 +609,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                     onDrawToggle={htmlMode() === "edit" ? undefined : handleDrawToggle}
                     commenting={featureMutex.state.commenting}
                     onCommentToggle={htmlMode() === "edit" ? undefined : handleCommentToggle}
+
 archiving={featureMutex.state.archiving}
                      onArchiveToggle={htmlMode() === "edit" ? undefined : handleArchiveToggle}
                       onRefresh={handleRefresh}
@@ -589,7 +623,15 @@ archiving={featureMutex.state.archiving}
                      onHistoryToggle={props.onHistoryToggle}
                      sessionId={props.sessionId}
                      sdkDirectory={props.sdkDirectory}
+                      onCanvasToDesign={handleCanvasToDesign}
+                     postMessageToIframe={(data: unknown) => iframePostMessage?.(data)}
                    />
+
+                    
+                  
+                     
+             
+
                 </Show>
                 <div class="flex-1 min-h-0 min-w-0 overflow-hidden">
                   <Switch
@@ -640,11 +682,14 @@ archiving={featureMutex.state.archiving}
                              await saveArtifactContent(tab.filePath, html)
                            }}
                            onRefreshNeeded={handleRefresh}
-                           tabTitle={tab.title}
-                            observedUrlsGetter={(g) => { observedUrlsGetter = g }}
-                            registerIframePostMessage={(fn) => { iframePostMessage = fn }}
-                            iframeElementGetter={(g) => { iframeElementGetter = g }}
-                          />
+                            tabTitle={tab.title}
+                            onSaveLocalEdit={getSubtypeHandler(tab.subtype)?.handleLocalEditSave ? handleLocalEditSave : undefined}
+                             observedUrlsGetter={(g) => { observedUrlsGetter = g }}
+                             registerIframePostMessage={(fn) => { iframePostMessage = fn }}
+                             iframeElementGetter={(g) => { iframeElementGetter = g }}
+                             subtype={tab.subtype}
+                             tabId={tab.id}
+                           />
                     </Match>
                     <Match when={tabType === "deck"}>
                       <DeckRenderer content={tab.content} />
@@ -709,7 +754,6 @@ archiving={featureMutex.state.archiving}
     </Show>
     <PrototypeCtxMenu />
     <PrototypePropertyEditor />
-    <PrototypeAnnotationLayer />
   </div>
 )
 }
