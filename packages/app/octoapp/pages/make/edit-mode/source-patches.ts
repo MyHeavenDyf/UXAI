@@ -62,6 +62,8 @@ export interface ManualEditTarget {
   fields: ManualEditFields
   attributes: Record<string, string>
   styles: ManualEditStyles
+  selector: string
+  htmlHint: string
   isLayoutContainer: boolean
   outerHtml: string
 }

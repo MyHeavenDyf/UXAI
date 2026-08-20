@@ -1,11 +1,12 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 
-// knowledge_search —— chat 内网知识库检索工具(RAG 的「检索」段)。
-// 设计/契约见 octo-agent docs/specs/agents/chat-knowledge-search.md,心智模型见 docs/learning/rag-mental-model.md。
+// knowledge_search —— 内网知识库检索工具(RAG 的「检索」段)。
+// 合并/归属/新接口见 octo-agent docs/specs/agents/insight-knowledge-search.md(SPEC-INS-030),
+// 旧接口与整形细节见 chat-knowledge-search.md,心智模型见 docs/learning/rag-mental-model.md。
 //
 // 形态:原生 in-process 工具(仿 internel_image_generate),直连内网 getKnowledgeVector,
-//       只网关给 chat 的 octo_ai(网关在 registry.ts 的 tools() 过滤里)。
+//       只网关给 insight 的 octo_insight(网关在 registry.ts 的 tools() 过滤里)。
 // 职责:只做检索 + 整形,返回 top-k 片段文本;答案由 LLM 基于片段合成(接口 answer 字段为空)。
 
 export const Parameters = Schema.Struct({
@@ -19,8 +20,6 @@ const KB_PATH = "/main/rest.root/ucdAgent/ucdAgent/getKnowledgeVector"
 const DEFAULT_MOCK_BASE = "http://localhost:8787"
 // 以下是与环境无关的固定参数(不放 env):
 const TOP_K = 6
-// account 非必传(仅记录/限流):默认空串。如需按账号记账,在此填工号,或改走 session 注入(见 spec §6)。
-const ACCOUNT = ""
 const MAX_CHUNK_CHARS = 800
 const DEFAULT_TIMEOUT_MS = 30_000
 
@@ -49,6 +48,18 @@ type KbSource = {
 
 function str(v: unknown): string | undefined {
   return typeof v === "string" && v.length > 0 ? v : undefined
+}
+
+// 调用者工号(SPEC-INS-030 §5)。内网接口**按 account 限流**,不传会让后端兜底成单一开发者工号 ——
+// 全体用户挤同一个限流桶,一个人用满全员被限。故工号是必需项:
+//   来源 renderer 的 `localStorage.userInfo.account`(纯工号,不拼姓名),经 promptAsync 的 `extra` 透传,
+//   服务端 session/prompt.ts 按 sessionID 存进 sessionExtras、再原样铺进本工具的 `ctx.extra`。
+// 拿不到就**显式拒答**(见 execute),不发空 account 让后端静默兜底。
+function readAccount(ctx: Tool.Context): string | undefined {
+  const raw = ctx.extra?.["account"]
+  if (typeof raw !== "string") return undefined
+  const trimmed = raw.trim()
+  return trimmed.length > 0 ? trimmed : undefined
 }
 
 // 从正文里抽第一个 markdown 标题做兜底标题(projectModuleName 缺失时)。
@@ -112,12 +123,23 @@ export const KnowledgeSearchTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, _ctx: Tool.Context) =>
+      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const base = env("OCTO_KB_BASE_URL") || DEFAULT_MOCK_BASE
           const topK = TOP_K
-          const account = ACCOUNT
+          const account = readAccount(ctx)
           const url = `${base.replace(/\/$/, "")}${KB_PATH}`
+
+          // 无工号 → 不打接口、直接如实回复(§5:要么显式失败要么明确降级,不靠后端静默兜底)。
+          if (!account) {
+            console.error("[octo:kb] account missing", { sessionID: ctx.sessionID, query: params.query })
+            return {
+              title: `知识库检索: ${params.query}`,
+              output:
+                "未能获取当前登录账号,本次内网知识库检索已取消。请如实告知用户:需要重新登录后再试,不要编造检索结果。",
+              metadata: { sources: [] as KbSource[] },
+            }
+          }
           // 诊断:打印 base / 完整 URL(排查内网 host / env 问题)。
           console.log("[octo:kb] config", {
             envBaseUrl: env("OCTO_KB_BASE_URL"),

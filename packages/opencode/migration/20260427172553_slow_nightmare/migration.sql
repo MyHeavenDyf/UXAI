@@ -1,4 +1,4 @@
-CREATE TABLE `session_message` (
+CREATE TABLE IF NOT EXISTS `session_message` (
 	`id` text PRIMARY KEY,
 	`session_id` text NOT NULL,
 	`type` text NOT NULL,
@@ -11,7 +11,7 @@ CREATE TABLE `session_message` (
 DROP INDEX IF EXISTS `session_entry_session_idx`;--> statement-breakpoint
 DROP INDEX IF EXISTS `session_entry_session_type_idx`;--> statement-breakpoint
 DROP INDEX IF EXISTS `session_entry_time_created_idx`;--> statement-breakpoint
-CREATE INDEX `session_message_session_idx` ON `session_message` (`session_id`);--> statement-breakpoint
-CREATE INDEX `session_message_session_type_idx` ON `session_message` (`session_id`,`type`);--> statement-breakpoint
-CREATE INDEX `session_message_time_created_idx` ON `session_message` (`time_created`);--> statement-breakpoint
-DROP TABLE `session_entry`;
+CREATE INDEX IF NOT EXISTS `session_message_session_idx` ON `session_message` (`session_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `session_message_session_type_idx` ON `session_message` (`session_id`,`type`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `session_message_time_created_idx` ON `session_message` (`time_created`);--> statement-breakpoint
+DROP TABLE IF EXISTS `session_entry`;

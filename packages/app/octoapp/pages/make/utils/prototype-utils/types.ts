@@ -1,5 +1,4 @@
 import type { SubtypeHandlerContext } from "../../subtype-handlers/types"
-import type { AnnotationRecord } from "../../../pattern/utils/annotation-persist"
 
 export type PrototypeSession = {
   tabId: string
@@ -46,18 +45,4 @@ export type PrototypeModifyData = {
   tag?: string
   keepOpen?: boolean
   saveToHistory?: boolean
-}
-
-// ── Annotation (标注) ──
-
-export type RawRect = { top: number; left: number; width: number; height: number }
-
-export type PrototypeAnnotationPopupTarget = {
-  elementId: string
-  rawRect: RawRect
-}
-
-export type PrototypeAnnotationState = {
-  records: AnnotationRecord[]
-  popupTarget: PrototypeAnnotationPopupTarget | null
 }

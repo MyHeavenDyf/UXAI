@@ -24,3 +24,24 @@ export function isOverflow(input: { cfg: Config.Info; tokens: MessageV2.Assistan
     input.tokens.total || input.tokens.input + input.tokens.output + input.tokens.cache.read + input.tokens.cache.write
   return count >= usable(input)
 }
+
+export function preflight(input: {
+  cfg: Config.Info
+  model: Provider.Model
+  estimatedInput: number
+  unavoidableInput: number
+}) {
+  const full = isOverflow({
+    cfg: input.cfg,
+    model: input.model,
+    tokens: {
+      input: input.estimatedInput,
+      output: 0,
+      reasoning: 0,
+      cache: { read: 0, write: 0 },
+    },
+  })
+  if (!full) return "send" as const
+  if (input.unavoidableInput >= usable(input)) return "reject" as const
+  return "compact" as const
+}

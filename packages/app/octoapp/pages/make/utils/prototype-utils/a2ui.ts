@@ -48,7 +48,8 @@ export async function loadA2uiData(session: PrototypeSession, ctx: SubtypeHandle
 /** 把缓存的 A2UI JSON 序列化回 data.js（window.__A2UI_DATA__ = ...）写盘，iframe 重载即生效。
  *  原子写：先写同目录临时文件再 rename 到目标，避免写到一半崩溃截断 data.js。
  *  无 renameFile API（旧桌面端）时回退到直接覆盖写。
- *  写盘前重 stat：若 size 与加载时不一致（外部改过），中止写盘并 toast，避免覆盖外部改动。 */
+ *  写盘前重 stat：若 size 与加载时不一致（外部改过），中止写盘并 toast，避免覆盖外部改动。
+ *  写盘成功后派发 prototype:a2ui-persisted 事件，让页面层 historyController 记录用户编辑版本。 */
 export async function persistA2uiData(session: PrototypeSession, filePath: string) {
   const data = session.a2ui?.doc
   if (!data || typeof data !== "object") return
@@ -68,10 +69,18 @@ export async function persistA2uiData(session: PrototypeSession, filePath: strin
     await api.writeFileBuffer?.(tmp, buffer)
     await api.renameFile(tmp, dataJsPath)
     session.a2ui = { doc: data, loadSize: buffer.byteLength }
+    dispatchA2uiPersisted(filePath)
     return
   }
   await api?.writeFileBuffer?.(dataJsPath, buffer)
   session.a2ui = { doc: data, loadSize: buffer.byteLength }
+  dispatchA2uiPersisted(filePath)
+}
+
+/** 写盘成功后派发事件，让 index.tsx 的 historyController 记录用户编辑版本。
+ *  filePath 是 prototype.html 的绝对路径（tab.filePath），index.tsx 据此定位对应 tab。 */
+function dispatchA2uiPersisted(filePath: string) {
+  window.dispatchEvent(new CustomEvent("prototype:a2ui-persisted", { detail: { filePath } }))
 }
 
 /** 防抖排程写盘（合并连续拖滑块等快速编辑），按 session 独立计时 */

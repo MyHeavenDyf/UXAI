@@ -2,6 +2,8 @@ import type { AssistantMessage, Message } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { useData, useI18n, I18nProvider, type UiI18n } from "@opencode-ai/ui/context"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { createEffect, createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { useProjectDir } from "@/hooks/use-project-dir"
@@ -14,6 +16,7 @@ import { findResourceLinks, linkToOutputType, type ResourceLink } from "../utils
 import { findWriteCards, basename } from "../utils/write-output"
 import { readTaskInfo, businessToolBareName, type TaskCardEntry, type TaskInfo } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
+import { KnowledgeReferences, readKnowledgeSources } from "./knowledge-references"
 import { parseUploadedFiles } from "../lib/upload"
 import { fileTypeIconUrl } from "../icons/illustrations"
 import { tracker } from "@/utils/tracker"
@@ -118,6 +121,7 @@ export function InsightTurn(props: {
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
+  const dialog = useDialog()
 
   // 取该用户消息之后的第一条 assistant 消息
   const assistantMsg = createMemo((): AssistantMessage | undefined => {
@@ -173,6 +177,13 @@ export function InsightTurn(props: {
   // 按 url 去重:同一张图的 optimistic FilePart(本地 part id)与 server 回传 FilePart(server part id)
   // 因 id 不同无法在 sync 层互相替换,会并存于同一 messageID 的 part 数组;两者 url 相同(同一 S3 对象),
   // 按 url 去重即只显示一张(用户真的粘两张不同图时 url 不同,不会被误合并)。
+  //
+  // ⚠️ 本层是 insight 侧图片的**唯一**渲染方 —— 上游 Message 也会渲染 user 的图片 FilePart,
+  // 但它的判据是 `attached()`(即 `url.startsWith("data:")`,见 ui/components/message-file.ts)。
+  // insight 自己发的图走 S3(https URL)命不中那条,所以两层长期相安无事;而 chat 时代的图是
+  // **内联 base64**(data: URL),迁进来后两层同时命中 → 同一张图画两遍。修法是在 octo-tokens.css
+  // 里压掉上游那一支(`[data-slot="user-message-attachment"][data-type="image"]`),由本层统一接管,
+  // 因此这里**不能**按 url 形态挑挑拣拣,两种都要画。
   const inputImages = createMemo((): Array<{ filename: string; url: string }> => {
     const seen = new Set<string>()
     const out: Array<{ filename: string; url: string }> = []
@@ -184,6 +195,11 @@ export function InsightTurn(props: {
     }
     return out
   })
+
+  // 内网知识库引用(SPEC-INS-030 §2):sources 挂在 knowledge_search 的 tool part 的 state.metadata 上。
+  // 复用 turnAssistantParts 而非只看第一条 assistant 消息 —— 思维链模型会把 reasoning+tool 与最终正文
+  // 拆成多条 assistant 消息,工具 part 常落在靠前那条(chat 侧 message-timeline 当年也是为此往后扫)。
+  const kbSources = createMemo(() => readKnowledgeSources(turnAssistantParts() as Array<Record<string, unknown>>))
 
   // 本轮是否是最新的（最后一条）用户消息 —— 仅对最新轮次显示生成中占位
   // 用 time.created 数值比较找最新 user,不依赖 msgStore 数组顺序:
@@ -524,7 +540,10 @@ export function InsightTurn(props: {
                 src={img.url}
                 title={img.filename}
                 alt={img.filename}
-                style={{ width: "48px", height: "48px", "object-fit": "cover", "border-radius": "8px", "flex-shrink": "0" }}
+                // 点击放大:复用上游 Message 用的同一个 ImagePreview 弹窗,这样"接管"之后
+                // 交互与上游那层等价,不是只把图挪个位置。
+                onClick={() => dialog.show(() => <ImagePreview src={img.url} alt={img.filename} />)}
+                style={{ width: "48px", height: "48px", "object-fit": "cover", "border-radius": "8px", "flex-shrink": "0", cursor: "pointer" }}
               />
             )}
           </For>
@@ -553,6 +572,11 @@ export function InsightTurn(props: {
         >
           <span class="text-sm" style={{ color: "var(--octo-text-secondary)" }}>⏳ 正在生成…</span>
         </div>
+      </Show>
+
+      {/* 内网知识库引用列表(SPEC-INS-030):行内 [[n]](url) 由上游 Markdown 渲染,这里补底部来源清单 */}
+      <Show when={kbSources().length > 0}>
+        <KnowledgeReferences sources={kbSources()} />
       </Show>
 
       {/* 紧凑预览入口卡(spec: output-renderers.md §6.B)

@@ -501,14 +501,15 @@ export function ActionBar(props: {
     onHistorySwitch?: (entry: VersionEntry) => void
     sessionId?: string
     sdkDirectory?: string
+    postMessageToIframe?: (data: unknown) => void
   }): JSX.Element {
   const sdk = useSDK()
   const sync = useSync()
   const local = useLocal()
   const params = useParams<{ id?: string }>()
 
-  async function handleDownload() {
-    tracker.interaction({ module: "design", name: "download-file", extend: JSON.stringify({ type: props.tab.type }) })
+  async function handleDownload(option?: string) {
+    tracker.interaction({ module: "design", name: "download-file", extend: JSON.stringify({ type: props.tab.type, option: option ?? null }) })
     
     const handler = getSubtypeHandler(props.tab.subtype)
     if (handler?.handleDownload) {
@@ -529,7 +530,7 @@ export function ActionBar(props: {
       }
       
       try {
-        const handled = await handler.handleDownload(ctx)
+        const handled = await handler.handleDownload(ctx, option)
         if (handled === true) return
       } catch (error) {
         showToast({ 
@@ -591,6 +592,8 @@ export function ActionBar(props: {
   const handler = getSubtypeHandler(props.tab.subtype)
   const uiConfig = createMemo(() => handler?.components?.actionBar)
   
+  const downloadOptions = createMemo(() => handler?.downloadOptions ?? [])
+  
   const shouldReplaceDefaultButtons = () => uiConfig()?.replaceDefaultButtons ?? false
   
   const customButtons = createMemo(() => {
@@ -609,7 +612,7 @@ export function ActionBar(props: {
     const buttons = customButtons()
     const positions: ButtonPosition[] = [
       'start', 'after-refresh', 'after-mode-toggle', 'after-viewport',
-      'after-edit', 'after-download', 'after-archive', 'before-fullscreen', 'end'
+      'after-edit', 'after-download', 'after-archive', 'before-comment', 'before-history', 'before-fullscreen', 'end'
     ]
     
     const groups: Record<string, ActionBarButton[]> = {}
@@ -645,6 +648,7 @@ export function ActionBar(props: {
       extractCodeBlock,
       observedUrlsGetter: props.observedResourceUrls,
       usePixsoTransport,
+      postMessageToIframe: (data: unknown) => props.postMessageToIframe?.(data),
     }
     
     const isVisible = typeof button.visible === 'function' 
@@ -657,23 +661,40 @@ export function ActionBar(props: {
       ? button.disabled(ctx)
       : (button.disabled ?? false)
     
-    const isActive = typeof button.active === 'function'
-      ? button.active(ctx)
-      : (button.active ?? false)
+    const isActive = () => typeof button.active === 'function'
+      ? !!(button.active as (ctx: SubtypeHandlerContext) => boolean)(ctx)
+      : !!(button.active ?? false)
+
+    const resolveIcon = () => {
+      const raw = typeof button.icon === 'function'
+        ? (button.icon as (ctx: SubtypeHandlerContext) => JSX.Element | string)(ctx)
+        : button.icon
+      return typeof raw === 'string' ? <span>{raw}</span> : raw
+    }
+
+    const resolveLabel = () =>
+      typeof button.label === 'function'
+        ? (button.label as (ctx: SubtypeHandlerContext) => string)(ctx)
+        : button.label
+
+    const resolveTitle = () => {
+      const tip = typeof button.tooltip === 'function'
+        ? (button.tooltip as (ctx: SubtypeHandlerContext) => string)(ctx)
+        : button.tooltip
+      return tip ?? resolveLabel()
+    }
     
     return (
       <button
         type="button"
         class={`octo-action-btn ${button.variant === 'primary' ? 'octo-action-btn-primary' : ''} ${button.variant === 'danger' ? 'octo-action-btn-danger' : ''}`}
-        classList={{ "octo-viewport-btn-active": isActive }}
+        classList={{ "octo-viewport-btn-active": isActive() }}
         onClick={() => button.onClick?.(ctx)}
         disabled={isDisabled}
-        title={button.tooltip ?? button.label}
+        title={resolveTitle()}
       >
-        {typeof button.icon === 'string' ? (
-          <span>{button.icon}</span>
-        ) : button.icon}
-        <span>{button.label}</span>
+        {resolveIcon()}
+        <span>{resolveLabel()}</span>
       </button>
     )
   }
@@ -762,10 +783,10 @@ export function ActionBar(props: {
             <ExportButton tab={props.tab} onPrimaryDownload={handleDownload} />
           </Show>
           <Show when={showDownload() && props.tab.type === "html"}>
-            <button type="button" class="octo-action-btn octo-action-btn-download" onClick={handleDownload} title="下载">
-              <IconDownloadNew size={16} />
-              <span>下载</span>
-            </button>
+            <DownloadButton
+              options={downloadOptions()}
+              onDownload={(option?: string) => handleDownload(option)}
+            />
           </Show>
           {renderButtonsAtPosition('after-download')}
         </div>
@@ -803,6 +824,7 @@ export function ActionBar(props: {
               </For>
             </div>
           )}
+          {renderButtonsAtPosition('before-comment')}
           {showComment() && props.onCommentToggle && (
             <button
               type="button"
@@ -828,6 +850,7 @@ export function ActionBar(props: {
               <span>归档</span>
             </button>
           )}
+          {renderButtonsAtPosition('before-history')}
           {showHistory() && props.onHistoryToggle && (
             <button
               ref={historyBtnRef}
@@ -963,6 +986,81 @@ function ExportButton(props: {
                         onClick={() => handleExport(kind)}
                       >
                         {EXPORT_LABELS[kind]}
+                      </button>
+                    )}
+                  </For>
+                </div>
+              )
+            })()}
+          </Portal>
+        </Show>
+      </div>
+    </Show>
+  )
+}
+
+function DownloadButton(props: {
+  options: { value: string; label: string }[]
+  onDownload: (option?: string) => Promise<void>
+}): JSX.Element {
+  const [open, setOpen] = createSignal(false)
+  let btnRef: HTMLButtonElement | undefined
+
+  const hasMultiple = () => props.options.length > 1
+
+  const handlePick = async (value?: string) => {
+    setOpen(false)
+    await props.onDownload(value)
+  }
+
+  return (
+    <Show
+      when={hasMultiple()}
+      fallback={
+        <button type="button" class="octo-action-btn octo-action-btn-download" onClick={() => handlePick()} title="下载">
+          <IconDownloadNew size={16} />
+          <span>下载</span>
+        </button>
+      }
+    >
+      <div class="octo-dropdown">
+        <button
+          ref={btnRef}
+          type="button"
+          class="octo-dropdown-trigger"
+          classList={{ "octo-dropdown-open": open() }}
+          style={{ width: "auto" }}
+          onClick={() => setOpen(!open())}
+          title="下载"
+        >
+          <IconDownloadNew size={16} />
+          <span>下载</span>
+          <IconDropdownChevron size={16} style={{ transform: open() ? "rotate(-180deg)" : "rotate(0deg)", transition: "transform 0.15s ease" }} />
+        </button>
+        <Show when={open()}>
+          <Portal mount={document.body}>
+            {(() => {
+              const rect = btnRef?.getBoundingClientRect()
+              return (
+                <div
+                  class="octo-dropdown-menu"
+                  style={{
+                    top: `${(rect?.bottom ?? 0) + 4}px`,
+                    left: `${rect?.left ?? 0}px`,
+                  }}
+                  onClick={(e) => {
+                    const target = e.target as HTMLElement
+                    if (!target.closest("button")) setOpen(false)
+                  }}
+                >
+                  <For each={props.options}>
+                    {(opt) => (
+                      <button
+                        type="button"
+                        class="octo-dropdown-item"
+                        onClick={() => handlePick(opt.value)}
+                      >
+                        <span>{opt.label}</span>
                       </button>
                     )}
                   </For>

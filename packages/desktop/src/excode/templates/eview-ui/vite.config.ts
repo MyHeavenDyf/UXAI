@@ -1,17 +1,28 @@
-import { defineConfig } from 'vite';
+import { defineConfig, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+function tildeImportPlugin(): Plugin {
+  return {
+    name: 'tilde-import',
+    resolveId(source) {
+      if (source.startsWith('~')) {
+        return source.slice(1);
+      }
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tildeImportPlugin()],
   resolve: {
     alias: [
       {
-        find: '/^~(.*)$/',
-        replacement: path.resolve(__dirname, 'node_modules') + '/$1',
+        find: /^~(.+)/,
+        replacement: '$1',
       },
       {
         find: '@',
@@ -23,6 +34,7 @@ export default defineConfig({
     preprocessorOptions: {
       less: {
         javascriptEnabled: true,
+        paths: [path.resolve(__dirname, 'node_modules')],
       },
     },
   },

@@ -587,9 +587,10 @@ function emitFragment(body: BuildNode[], opts?: EmitOptions): string {
 // ─── const 声明序列化 ───
 
 function formatConstDecl(decl: { name: string; value: PropValue; isUseState?: boolean; shared?: boolean; sharedKey?: string; sharedRead?: boolean }): string {
-  // 共享只读 binding（无 useState 的 shared）→ 单常量订阅（无 setter）
+  // 共享只读 binding（无 useState 的 shared）→ 订阅切片取值（解构丢弃 setter，
+  // 因 useSharedState 返回 [value, setter] 元组对齐 useState）
   if (decl.sharedRead && decl.sharedKey) {
-    return `const ${decl.name} = useSharedState('${decl.sharedKey}');`
+    return `const [${decl.name}] = useSharedState('${decl.sharedKey}');`
   }
   // 共享 useState（path 命中 eventMutatedPaths）→ useSharedState（订阅 store + setter 写 store）
   if (decl.isUseState && decl.shared && decl.sharedKey) {

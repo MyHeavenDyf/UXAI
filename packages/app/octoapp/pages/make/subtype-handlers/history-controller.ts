@@ -1,4 +1,4 @@
-import { createHistoryStore, type VersionEntry, type HistoryActor } from "../utils/history-store"
+import { createHistoryStore, type VersionEntry, type HistoryActor, resolveRelativePath } from "../utils/history-store"
 import { getSubtypeHandler } from "../utils/subtype-registry"
 import type { HistoryTriggerEvent, SubtypeHandlerContext } from "./types"
 import type { ResultTab } from "../components/result-viewer/tab-store"
@@ -37,6 +37,30 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     const buf = await api?.readFileBuffer?.(filePath)
     if (!buf) return null
     return fnv1aHash(buf)
+  }
+
+  /** 取 tab 关联的全部文件相对路径（由 subtype handler 决定）。
+   *  default 只关心 HTML 自身（"."），prototype 只关心 data.js。
+   *  这样 onFileRefresh 能检测到 agent 对 data.js 的修改（HTML 不变时也能触发）。 */
+  function getTabFiles(tab: ResultTab): string[] {
+    const handler = getSubtypeHandler(tab.subtype)
+    const ctx = buildCtx(tab)
+    return handler?.onHistoryTrigger?.({ type: "agent-file-edit" }, ctx) ?? ["."]
+  }
+
+  /** 计算 tab 关联的所有文件的合并 hash。
+   *  把每个文件的 hash 用 "|" 拼接，任一文件变化都会改变合并 hash。 */
+  async function getTabFileSetHash(tab: ResultTab): Promise<string | null> {
+    if (!tab.filePath) return null
+    const files = getTabFiles(tab)
+    if (!files || files.length === 0) return null
+    const hashes: string[] = []
+    for (const rel of files) {
+      const filePath = resolveRelativePath(rel, tab.filePath)
+      const h = await getFileHash(filePath)
+      if (h) hashes.push(h)
+    }
+    return hashes.length > 0 ? hashes.join("|") : null
   }
 
   function buildCtx(tab: ResultTab): SubtypeHandlerContext {
@@ -96,7 +120,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       }
       callbacks.setCurrentVersionId(() => entry.id)
       callbacks.setFilesRefreshKey((k) => k + 1)
-      const hash = await getFileHash(tab.filePath!)
+      const hash = await getTabFileSetHash(tab)
       if (hash) {
         lastFileHash.set(tab.filePath!, hash)
       }
@@ -108,7 +132,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
   async function onUserEdit(tab: ResultTab): Promise<void> {
     if (!isEligible(tab)) return
     await trigger(tab, { type: "edit" }, "user")
-    const hash = await getFileHash(tab.filePath!)
+    const hash = await getTabFileSetHash(tab)
     if (hash) {
       lastFileHash.set(tab.filePath!, hash)
     }
@@ -132,7 +156,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     } else if (contentChanged) {
       await trigger(tab, { type: "agent-update" }, "agent")
     }
-    const hash = await getFileHash(tab.filePath!)
+    const hash = await getTabFileSetHash(tab)
     if (hash) {
       lastFileHash.set(tab.filePath!, hash)
     }
@@ -142,7 +166,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     for (const tab of tabs) {
       if (!isEligible(tab)) continue
       if (writingTabs.has(tab.id)) continue
-      const hash = await getFileHash(tab.filePath!)
+      const hash = await getTabFileSetHash(tab)
       if (!hash) continue
       const prevHash = lastFileHash.get(tab.filePath!)
       lastFileHash.set(tab.filePath!, hash)
@@ -153,7 +177,9 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
       if (!buf) continue
       const fileContent = new TextDecoder().decode(buf)
       if (!fileContent) continue
-      callbacks.updateTabContent(tab.id, fileContent)
+      if (fileContent !== tab.content) {
+        callbacks.updateTabContent(tab.id, fileContent)
+      }
       await trigger(tab, { type: "agent-file-edit" }, "agent")
       callbacks.setFilesRefreshKey((k) => k + 1)
     }
@@ -163,7 +189,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     if (!isEligible(tab)) return
     const list = await historyStore.listVersions(tab)
     callbacks.setVersionList(() => list)
-    const currentHash = await getFileHash(tab.filePath!)
+    const currentHash = await getTabFileSetHash(tab)
     let currentId = list[0]?.id ?? null
     if (currentHash && list.length > 0) {
       const matched = await findVersionByHash(tab, list, currentHash)
@@ -175,14 +201,18 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
     }
   }
 
-  /** 对比文件 hash 和各版本 self 文件 hash，找匹配的版本 */
+  /** 对比 tab 当前合并 hash 和各版本同文件集的合并 hash，找匹配的版本 */
   async function findVersionByHash(tab: ResultTab, list: VersionEntry[], targetHash: string): Promise<VersionEntry | null> {
+    const files = getTabFiles(tab)
     for (const entry of list) {
-      const files = await historyStore.getVersionFiles(entry.id, tab, ["."])
-      const selfFile = files.find(f => f.fileName.startsWith("self."))
-      if (!selfFile) continue
-      const hash = await getFileHash(selfFile.filePath)
-      if (hash === targetHash) return entry
+      const versionFiles = await historyStore.getVersionFiles(entry.id, tab, files)
+      const hashes: string[] = []
+      for (const vf of versionFiles) {
+        const h = await getFileHash(vf.filePath)
+        if (h) hashes.push(h)
+      }
+      const combinedHash = hashes.join("|")
+      if (combinedHash === targetHash) return entry
     }
     return null
   }

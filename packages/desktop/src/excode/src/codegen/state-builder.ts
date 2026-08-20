@@ -144,6 +144,13 @@ export function sharedKeyOfPath(path: string): string {
 /**
  * 生成 shared-state.ts 内容（仅当存在共享 key）。
  * store 从 initialState 取共享 key 的初值；useSharedState 订阅切片，setSharedState 写入。
+ *
+ * useSharedState 返回 [value, setter] 元组（对齐 useState 用法）：
+ *   - 读写双绑（tree-finalizer liftLiteralTwoWayBindings）→ `const [v, setV] = useSharedState(key)`
+ *     setV(value) 内部调 sharedStore.set(key, value)。
+ *   - 只读（liftSharedReadBindings）→ `const [v] = useSharedState(key)`（解构取值，丢弃 setter）。
+ * setSharedState 仍保留导出：模块级 render 函数（如 tableColumns）等组件作用域之外的
+ * ActionValue 事件绑定拿不到组件内 lift 出来的 setter，必须走全局 setSharedState。
  */
 function generateSharedStateFileContent(sharedKeys: Set<string>): string {
   const keys = [...sharedKeys].sort()
@@ -171,8 +178,10 @@ const sharedStore = createSharedStore({
 ${initLines}
 })
 
-export function useSharedState(key: string) {
-  return useSyncExternalStore(sharedStore.subscribe, () => sharedStore.get()[key])
+export function useSharedState(key: string): [any, (value: any) => void] {
+  const value = useSyncExternalStore(sharedStore.subscribe, () => sharedStore.get()[key])
+  const setter = (value: any) => sharedStore.set(key, value)
+  return [value, setter]
 }
 
 export function setSharedState(key: string, value: any) {
