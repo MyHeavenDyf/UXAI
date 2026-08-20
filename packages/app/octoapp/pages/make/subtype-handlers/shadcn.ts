@@ -1,4 +1,4 @@
-import type { SubtypeHandler } from './types'
+import type { SubtypeHandler, CanvasEditResult } from './types'
 import { registerCustomBridge } from '../utils/custom-bridge-registry'
 
 registerCustomBridge('shadcn-component-editor', {
@@ -38,13 +38,13 @@ registerCustomBridge('shadcn-component-editor', {
 export default {
   name: 'shadcn',
   
-  async handleCanvasEdit(ctx) {
-    const { tab, showToast, getDesktopApi, usePixsoTransport, sessionId, sdkDirectory } = ctx
+  async handleCanvasEdit(ctx): Promise<CanvasEditResult> {
+    const { tab, showToast, getDesktopApi, sessionId, sdkDirectory } = ctx
     const filePath = tab.filePath || tab.absoluteFilePath
     
     if (!filePath) {
       showToast({ title: "无法获取文件路径" })
-      return true
+      return { handled: true }
     }
 
     const dir = filePath.replace(/[/\\][^/\\]+$/, '')
@@ -58,13 +58,13 @@ export default {
     const api = getDesktopApi()
     if (!api?.readFileBuffer) {
       showToast({ title: "不支持本地文件读取" })
-      return true
+      return { handled: true }
     }
 
     const buffer = await api.readFileBuffer(zipPath)
     if (!buffer) {
       showToast({ title: "ZIP文件不存在", description: zipPath })
-      return true
+      return { handled: true }
     }
 
     const isLoggedIn = !!localStorage.getItem('uiplusToken')
@@ -80,43 +80,43 @@ export default {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
       showToast({ title: "下载完成" })
-      return true
+      return { handled: true }
     }
 
-    const result = usePixsoTransport({
-      getZip: async () => zipBlob,
-      downloadHtml: async (data) => {
-        const baseDir = sdkDirectory
-        const sid = sessionId
-        
-        if (!baseDir || !sid || !api?.writeFileBuffer) {
-          showToast({ title: "无法保存文件", variant: "error" })
-          return
-        }
-        
-        const uploadsDir = `${baseDir}/.octo/${sid}/uploads`
-        let finalFilename = data.filename
-        
-        if (api.fileExists) {
-          let counter = 0
-          const baseName = data.filename.replace(/\.html$/i, '')
-          while (await api.fileExists(`${uploadsDir}/${finalFilename}`)) {
-            counter++
-            finalFilename = `${baseName}(${counter}).html`
+    return {
+      handled: true,
+      options: {
+        getZip: async () => zipBlob,
+        downloadHtml: async (data) => {
+          const baseDir = sdkDirectory
+          const sid = sessionId
+          
+          if (!baseDir || !sid || !api?.writeFileBuffer) {
+            showToast({ title: "无法保存文件", variant: "error" })
+            return
           }
-        }
-        
-        const buf = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
-        await api.writeFileBuffer(`${uploadsDir}/${finalFilename}`, buf.buffer)
-        showToast({ title: "已保存", description: finalFilename })
+          
+          const uploadsDir = `${baseDir}/.octo/${sid}/uploads`
+          let finalFilename = data.filename
+          
+          if (api.fileExists) {
+            let counter = 0
+            const baseName = data.filename.replace(/\.html$/i, '')
+            while (await api.fileExists(`${uploadsDir}/${finalFilename}`)) {
+              counter++
+              finalFilename = `${baseName}(${counter}).html`
+            }
+          }
+          
+          const buf = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
+          await api.writeFileBuffer(`${uploadsDir}/${finalFilename}`, buf.buffer)
+          showToast({ title: "已保存", description: finalFilename })
+        },
+        config: {
+          designName: tab.title,
+          sessionId: sessionId || "",
+        },
       },
-      config: {
-        designName: tab.title,
-        sessionId: sessionId || "",
-      },
-    })
-
-    console.log('pixso result', result)
-    return true
+    }
   },
 } satisfies SubtypeHandler

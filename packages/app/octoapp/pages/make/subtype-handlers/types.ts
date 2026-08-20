@@ -11,6 +11,11 @@ export type HistoryTriggerEvent =
   | { type: 'agent-update' }
   | { type: 'agent-file-edit' }
 
+export interface CanvasEditResult {
+  handled: boolean
+  options?: UploadZipOptions
+}
+
 export interface SubtypeHandlerContext {
   tab: ResultTab
   showToast: (msg: { title: string; description?: string; variant?: "default" | "error" }) => void
@@ -36,7 +41,7 @@ export interface SubtypeHandlerContext {
 export interface SubtypeHandler {
   name: string
 
-  handleCanvasEdit?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
+  handleCanvasEdit?: (ctx: SubtypeHandlerContext) => Promise<CanvasEditResult | boolean | void>
 
   handleLocalEdit?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
 
