@@ -36,6 +36,7 @@ import { usePixsoTransport } from "@/utils/useZipTransport"
 import { getDesktopApi } from "../../lib/electron-api"
 import { useFeatureMutex } from "../../utils/use-feature-mutex"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
+import type { LocalEditSavePayload } from "../../subtype-handlers/types"
 import { disposeAllPrototypeSessions } from "../../utils/prototype-utils"
 
 function extractCodeBlock(text: string, lang: string): string {
@@ -348,6 +349,31 @@ export function ResultViewer(props: {
     const nextArchiving = !featureMutex.state.archiving
     featureMutex.toggleFeature('archiving')
     tracker.interaction({ module: "design", name: "toggle-archive-mode", extend: JSON.stringify({ action: nextArchiving ? "open" : "close" }) })
+  }
+
+  const handleLocalEditSave = async (payload: LocalEditSavePayload): Promise<boolean> => {
+    const tab = activeTab()
+    if (!tab) {
+      return false
+    }
+
+    const handler = getSubtypeHandler(tab.subtype)
+    if (!handler?.handleLocalEditSave) {
+      return false
+    }
+
+    const ctx = {
+      tab,
+      showToast,
+      tracker,
+      getDesktopApi,
+      extractCodeBlock,
+      usePixsoTransport,
+      edit: payload,
+    }
+
+    const handled = await handler.handleLocalEditSave(ctx)
+    return handled === true
   }
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
@@ -740,6 +766,7 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                            }}
                            onRefreshNeeded={handleRefresh}
                             tabTitle={tab.title}
+                            onSaveLocalEdit={getSubtypeHandler(tab.subtype)?.handleLocalEditSave ? handleLocalEditSave : undefined}
                              observedUrlsGetter={(g) => { observedUrlsGetter = g }}
                              registerIframePostMessage={(fn) => { iframePostMessage = fn }}
                              iframeElementGetter={(g) => { iframeElementGetter = g }}

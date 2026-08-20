@@ -3,7 +3,6 @@ import type { ThumbnailMap } from "./session-thumbnail"
 import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
-import { Button } from "@opencode-ai/ui/button"
 import { Portal } from "solid-js/web"
 import { Icon } from "@opencode-ai/ui/icon"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
@@ -17,6 +16,8 @@ import { DialogSettings } from "@/components/dialog-settings"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { IconSettings } from "@/pages/_shell/icons"
 import { sessionTitle } from "@/utils/session-title"
+import { pickNextSession, sessionErrorMessage } from "@/utils/session-delete"
+import { useSessionDelete } from "@/hooks/use-session-delete"
 import { decode64 } from "@/utils/base64"
 
 function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
@@ -44,6 +45,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
   const dialog = useDialog()
   const navigate = useNavigate()
   const layout = useLayout()
+  const removeSession = useSessionDelete()
 
   const [sessions, { refetch }] = createResource(
     () => props.directory ?? "",
@@ -113,15 +115,6 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
   let listScrollRef: HTMLDivElement | undefined
   let pendingScrollRestore = 0
 
-  const errorMessage = (err: unknown) => {
-    if (err && typeof err === "object" && "data" in err) {
-      const data = (err as { data?: { message?: string } }).data
-      if (data?.message) return data.message
-    }
-    if (err instanceof Error) return err.message
-    return language.t("common.requestFailed")
-  }
-
   const openTitleEditor = (session: Session) => {
     setTitle({
       draft: sessionTitle(session.title) ?? "",
@@ -162,7 +155,7 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
       .catch((err) => {
         showToast({
           title: language.t("common.requestFailed"),
-          description: errorMessage(err),
+          description: sessionErrorMessage(err, language.t("common.requestFailed")),
         })
       })
       .finally(() => setTitle("savingID", ""))
@@ -180,22 +173,10 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
   }
 
   const deleteSession = async (session: Session) => {
-    const sessions = sessionList.filter((item) => !item.time?.archived)
-    const index = sessions.findIndex((item) => item.id === session.id)
-    const nextSession = index === -1 ? undefined : (sessions[index + 1] ?? sessions[index - 1])
+    const nextSession = pickNextSession(sessionList.filter((item) => !item.time?.archived), session.id)
 
-    const result = await globalSDK.createClient({ directory: props.directory }).session
-      .delete({ sessionID: session.id })
-      .then((x) => x.data)
-      .catch((err) => {
-        showToast({
-          title: language.t("session.delete.failed.title"),
-          description: errorMessage(err),
-        })
-        return false
-      })
-
-    if (!result) return false
+    const ok = await removeSession(globalSDK.createClient({ directory: props.directory }), session.id)
+    if (!ok) return false
 
     pendingScrollRestore = listScrollRef?.scrollTop ?? 0
     setSessionList(
@@ -211,7 +192,6 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
     navigateAfterSessionRemoval(session.id, nextSession?.id)
     return true
   }
-
 
   return (
     <div
@@ -524,7 +504,12 @@ export function StudioHistory(props: { directory: string; routeSlug: string; act
                                     data-slot="dropdown-menu-item"
                                     onClick={() => {
                                       closeContextMenu()
-                                      dialog.show(() => <DialogDeleteSession name={sessionTitle(session.title) ?? language.t("command.session.new")} onDelete={() => deleteSession(session)} />)
+                                      dialog.show(() => (
+                                        <DialogDeleteSession
+                                          name={sessionTitle(session.title) ?? language.t("command.session.new")}
+                                          onDelete={() => deleteSession(session)}
+                                        />
+                                      ))
                                     }}
                                   >
                                     <span data-slot="dropdown-menu-item-label">删除</span>

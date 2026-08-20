@@ -1,4 +1,5 @@
 import type { ResultTab } from "../components/result-viewer/tab-store"
+import type { ManualEditTarget } from "../edit-mode/source-patches"
 import type { VersionFile } from "../utils/history-store"
 import type { JSX } from "solid-js"
 import type { UploadZipOptions, UsePixsoTransportResult } from "@/utils/useZipTransport"
@@ -33,12 +34,27 @@ export interface SubtypeHandlerContext {
   sdkDirectory?: string
 }
 
+export type LocalEditChange =
+  | { kind: 'text'; before: string; after: string }
+  | { kind: 'href'; before: string; after: string }
+  | { kind: 'styles'; changes: Array<{ prop: string; before: string; after: string }> }
+  | { kind: 'remove-element' }
+  | { kind: 'image'; src: string; alt: string }
+
+export interface LocalEditSavePayload {
+  target: ManualEditTarget
+  changes: LocalEditChange[]
+}
+
 export interface SubtypeHandler {
   name: string
 
   handleCanvasEdit?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
 
   handleLocalEdit?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
+  
+  handleLocalEditSave?: (ctx: SubtypeHandlerContext & { edit: LocalEditSavePayload }) => Promise<boolean | void>
+  
 
   handleLocalEditDisable?: (ctx: SubtypeHandlerContext) => Promise<void>
 
