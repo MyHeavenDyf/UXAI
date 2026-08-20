@@ -34,7 +34,19 @@ import { readFile } from "node:fs/promises"
  * 约束:必须「就地改写」output.args(prompt.ts 的 execute 用的是同一对象引用),不能整体重新赋值。
  */
 
-const UPLOAD_BLOCK_HEADER = "[附件]"
+// 本会话「可喂 MCP 的文件白名单」清单头。两个头**行格式完全一致**(`- <文件名>: <本地绝对路径>`),
+// 对本插件语义**完全等价** —— 都是用户点名过、允许被上传给 MCP 的文件:
+//   [附件]     附件栏上传的文件(SPEC-INS-015 §2,客户端 formatUploadsForPrompt)
+//   [引用文件] `@` 引用的已存在会话文件:outputs 产物 + uploads(SPEC-INS-023 §7.2,
+//              客户端 formatMentionedFilesForPrompt)
+// 两者在**客户端**有差别(前者渲染文件卡片且 txt/md 正文已内联,后者没有),但那与本插件无关。
+//
+// 2026-08-20 内网修复:此前只认 `[附件]`,于是「先对话生成一个 md → `@` 它 → 选研究工具触发 MCP」
+// 必死 —— 模型看提示词的铁律发现该文件不在 `[附件]` 里而自我阻断(内网实测),就算硬填,
+// enforceChipDeclaration 的 resolvePath 也会 miss 抛错。白名单语义不变(仍只认清单内、仍精确匹配),
+// 修的是「`@` 这条入口从来没被登记进白名单」这个契约漏配。
+// 头列表与客户端 lib/upload.ts 两处独立实现,增删头需同步。
+const MANIFEST_HEADERS = ["[附件]", "[引用文件]"] as const
 const LOG = "[octo:inject]"
 
 // ── SPEC-INS-017 §2.1:chip 声明校验与注入(2026-07-06 修订) ────────
@@ -91,7 +103,7 @@ type ManifestFile = { filename: string; path: string }
 // 同一文件多轮多次调用 MCP 只上传一次(SPEC-INS-015 §3 幂等)。
 const uploadCache = new Map<string, string>()
 
-// 解析一段 `[附件]` 区块 → [{filename, path}]。
+// 解析一段文件清单区块(`[附件]` / `[引用文件]`,行格式相同)→ [{filename, path}]。
 // 与 insight upload.ts 的 parseUploadedFiles 同一格式契约(两处独立实现,改格式需同步)。
 function parseManifest(text: string): ManifestFile[] {
   const out: ManifestFile[] = []
@@ -244,7 +256,8 @@ async function enforceChipDeclaration(
   refToPath: Map<string, string>,
   manifestNames: string[],
 ): Promise<void> {
-  const available = manifestNames.length > 0 ? `当前可用文件:${manifestNames.join("、")}` : "当前会话没有任何可用附件"
+  const available =
+    manifestNames.length > 0 ? `当前可用文件:${manifestNames.join("、")}` : "当前会话没有任何可用文件"
   // 必须「就地改写」:prompt.ts 的 execute 持有的是同一 args 对象引用,整体重赋值不生效
   if (!output.args || typeof output.args !== "object" || Array.isArray(output.args)) {
     throw new Error(`工具参数不是有效对象,请按参数说明重新调用(args=${JSON.stringify(output.args)})`)
@@ -254,7 +267,7 @@ async function enforceChipDeclaration(
   const dl = args["download_links"]
   if (!Array.isArray(dl) || dl.length === 0 || dl.some((v) => typeof v !== "string")) {
     throw new Error(
-      `download_links 必须是非空的文件名字符串数组。${available}。没有可用附件时不要调用本工具,请先让用户上传材料。`,
+      `download_links 必须是非空的文件名字符串数组。${available}。没有可用文件时不要调用本工具,请先让用户上传材料。`,
     )
   }
   const outline = args["outline_file_path"]
@@ -266,7 +279,7 @@ async function enforceChipDeclaration(
   const resolvePath = (ref: string): string => {
     const p = refToPath.get(ref)
     if (!p) {
-      throw new Error(`文件引用「${ref}」不在 [附件] 清单中(需一字不差照抄清单里的文件名)。${available}`)
+      throw new Error(`文件引用「${ref}」不在本会话的文件清单中(需一字不差照抄清单里的文件名)。${available}`)
     }
     return p
   }
@@ -344,8 +357,11 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
             // 必须按「头在第 0 位」锚定,不能用 includes:chip 模板正文里会**提及** [附件] / [MCP声明]
             // 字面量(如调用纪律"[MCP声明] 段落是给系统读取的…"),includes 会把模板误当区块解析
             // ——2026-07-08 内网事故:声明定位命中模板,JSON.parse 到中文句子,所有 chip 调用响亮失败。
-            // 清单/声明 part 由客户端构造,头恒在开头(formatUploadsForPrompt / buildChipDeclaration)。
-            if (p.type !== "text" || typeof p.text !== "string" || !p.text.startsWith(UPLOAD_BLOCK_HEADER)) continue
+            // 清单/声明 part 由客户端构造,头恒在开头(formatUploadsForPrompt /
+            // formatMentionedFilesForPrompt / buildChipDeclaration)。
+            // parseManifest 只吃 "- " 开头的行,`[引用文件]` 头行尾部的中文说明会被自然跳过。
+            if (p.type !== "text" || typeof p.text !== "string") continue
+            if (!MANIFEST_HEADERS.some((h) => p.text!.startsWith(h))) continue
             for (const f of parseManifest(p.text)) {
               if (!refToPath.has(f.filename)) manifestNames.push(f.filename)
               refToPath.set(f.filename, f.path)
@@ -389,7 +405,7 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
       if (!hasFileRef(output.args)) return
 
       if (refToPath.size === 0) {
-        console.warn(`${LOG} args 含文件名形态串但 session 无 [附件] 区块,保持原值`, {
+        console.warn(`${LOG} args 含文件名形态串但 session 无文件清单区块([附件]/[引用文件]),保持原值`, {
           tool: input.tool,
           sessionID: input.sessionID,
         })
