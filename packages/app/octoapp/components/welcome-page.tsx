@@ -76,7 +76,7 @@ export function WelcomePage(props: { onComplete: () => void }) {
         class="flex flex-col items-center"
         style={{
           width: "1128px",
-          height: "555px",
+          height: "640px",
           background: "white url('/welcomepage/background.png') center/cover no-repeat",
           "border-radius": "12px",
           "box-shadow": "0 4px 24px rgba(0, 0, 0, 0.15)",
