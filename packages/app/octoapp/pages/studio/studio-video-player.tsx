@@ -2,6 +2,7 @@ import { createEffect, createSignal, on, onCleanup, onMount, Show, type JSX } fr
 import { Portal } from "solid-js/web"
 
 const CONTROL_HIDE_DELAY_MS = 2500
+const PLAYBACK_CLICK_DELAY_MS = 220
 
 export function formatStudioMediaTime(value: number) {
   if (!Number.isFinite(value)) return "00:00"
@@ -14,11 +15,12 @@ export function StudioVideoPlayer(props: {
   class?: string
   mount: () => HTMLElement
 }): JSX.Element {
-  const [playing, setPlaying] = createSignal(false)
+  const [playbackState, setPlaybackState] = createSignal<"idle" | "playing" | "paused" | "ended">("idle")
   const [currentTime, setCurrentTime] = createSignal(0)
   const [duration, setDuration] = createSignal(0)
   const [volume, setVolume] = createSignal(1)
   const [muted, setMuted] = createSignal(false)
+  const [audioPreferenceTouched, setAudioPreferenceTouched] = createSignal(false)
   const [fullscreen, setFullscreen] = createSignal(false)
   const [controlsVisible, setControlsVisible] = createSignal(true)
   const [focused, setFocused] = createSignal(false)
@@ -29,6 +31,8 @@ export function StudioVideoPlayer(props: {
   let videoRef!: HTMLVideoElement
   let positionFrame = 0
   let controlsTimer: ReturnType<typeof setTimeout> | undefined
+  let playbackClickTimer: ReturnType<typeof setTimeout> | undefined
+  const playing = () => playbackState() === "playing"
 
   function updatePosition() {
     cancelAnimationFrame(positionFrame)
@@ -68,6 +72,12 @@ export function StudioVideoPlayer(props: {
     controlsTimer = undefined
   }
 
+  function clearPlaybackClickTimer() {
+    if (!playbackClickTimer) return
+    clearTimeout(playbackClickTimer)
+    playbackClickTimer = undefined
+  }
+
   function scheduleControlsHide() {
     clearControlsTimer()
     setControlsVisible(true)
@@ -75,16 +85,41 @@ export function StudioVideoPlayer(props: {
     controlsTimer = setTimeout(() => setControlsVisible(false), CONTROL_HIDE_DELAY_MS)
   }
 
+  function startPlayback(reportError: boolean) {
+    if (videoRef.ended) {
+      videoRef.currentTime = 0
+      setCurrentTime(0)
+    }
+    setError("")
+    void videoRef.play().catch(() => {
+      if (reportError) setError("视频播放失败，请重试")
+    })
+  }
+
   function togglePlayback() {
     if (!videoRef.paused) {
       videoRef.pause()
       return
     }
-    setError("")
-    void videoRef.play().catch(() => setError("视频播放失败，请重试"))
+    startPlayback(true)
+  }
+
+  function schedulePlaybackToggle() {
+    clearPlaybackClickTimer()
+    playbackClickTimer = setTimeout(() => {
+      playbackClickTimer = undefined
+      togglePlayback()
+    }, PLAYBACK_CLICK_DELAY_MS)
+  }
+
+  function playOnHover() {
+    if (!videoRef.paused || error()) return
+    if (!audioPreferenceTouched()) videoRef.muted = true
+    startPlayback(false)
   }
 
   function toggleMuted() {
+    setAudioPreferenceTouched(true)
     if (videoRef.muted || videoRef.volume === 0) {
       videoRef.muted = false
       videoRef.volume = volume() > 0 ? volume() : 1
@@ -136,6 +171,7 @@ export function StudioVideoPlayer(props: {
       document.removeEventListener("scroll", updatePosition, true)
       cancelAnimationFrame(positionFrame)
       clearControlsTimer()
+      clearPlaybackClickTimer()
     })
   })
 
@@ -145,8 +181,9 @@ export function StudioVideoPlayer(props: {
     on(
       () => props.src,
       () => {
+        clearPlaybackClickTimer()
         exitFullscreen()
-        setPlaying(false)
+        setPlaybackState("idle")
         setCurrentTime(0)
         setDuration(0)
         setError("")
@@ -193,6 +230,7 @@ export function StudioVideoPlayer(props: {
             visibility: position().visible ? "visible" : "hidden",
           }}
           onMouseMove={scheduleControlsHide}
+          onMouseEnter={playOnHover}
           onMouseLeave={() => {
             if (fullscreen() && playing() && !focused()) setControlsVisible(false)
           }}
@@ -212,13 +250,17 @@ export function StudioVideoPlayer(props: {
             class={`studio-video-player-media ${props.class ?? ""}`}
             playsinline
             preload="auto"
-            onDblClick={toggleFullscreen}
+            onClick={schedulePlaybackToggle}
+            onDblClick={() => {
+              clearPlaybackClickTimer()
+              toggleFullscreen()
+            }}
             onPlay={() => {
-              setPlaying(true)
+              setPlaybackState("playing")
               scheduleControlsHide()
             }}
             onPause={() => {
-              setPlaying(false)
+              setPlaybackState((state) => state === "idle" || state === "ended" ? state : "paused")
               setControlsVisible(true)
               clearControlsTimer()
             }}
@@ -234,13 +276,13 @@ export function StudioVideoPlayer(props: {
               setMuted(event.currentTarget.muted || event.currentTarget.volume === 0)
             }}
             onEnded={() => {
-              setPlaying(false)
+              setPlaybackState("ended")
               setControlsVisible(true)
             }}
             onError={(event) => setError(event.currentTarget.error ? "视频加载失败，请重试或下载后查看" : "视频加载失败")}
           />
 
-          <Show when={!playing() && !error()}>
+          <Show when={playbackState() !== "playing" && !error()}>
             <button type="button" class="studio-video-player-center-play" aria-label="播放" onClick={togglePlayback}>
               <PlayIcon />
             </button>
@@ -308,6 +350,7 @@ export function StudioVideoPlayer(props: {
                 aria-label="音量"
                 style={{ "--studio-video-volume": `${(muted() ? 0 : volume()) * 100}%` }}
                 onInput={(event) => {
+                  setAudioPreferenceTouched(true)
                   videoRef.volume = Number(event.currentTarget.value)
                   videoRef.muted = videoRef.volume === 0
                 }}
