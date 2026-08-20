@@ -85,6 +85,9 @@ export function buildToolGate(selectedTool?: string): Record<string, boolean> {
     // 只关 chip turn:MCP 是异步长任务,提交完即结束本轮;后续轮次用户问"稿子里 XX 怎么说的"、
     // 或走本地线分析时,extract_document 仍是 office 文件的唯一入口,不能全局摘。
     gate["extract_document"] = false
+    // knowledge_search 同理(SPEC-INS-030 迁入 insight 后新增):内网知识库检索与「这一轮直调所选 MCP 工具」
+    // 无关,却是弱模型在 MCP 工具缺失时的又一个模拟通道(拿知识库片段编一份"解析结果")。
+    gate["knowledge_search"] = false
   }
   return gate
 }
