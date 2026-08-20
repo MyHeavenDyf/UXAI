@@ -685,9 +685,10 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                     historyActive={props.historyActive}
                     historyEntries={props.historyEntries}
                     currentVersionId={props.currentVersionId}
-                    onHistorySwitch={props.onHistorySwitch}
-                    onHistoryToggle={props.onHistoryToggle}
-                  />
+                     onHistorySwitch={props.onHistorySwitch}
+                     onHistoryToggle={props.onHistoryToggle}
+                     postMessageToIframe={(data: unknown) => iframePostMessage?.(data)}
+                    />
                 </Show>
                 <div class="flex-1 min-h-0 min-w-0 overflow-hidden">
                   <Switch
@@ -738,11 +739,13 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                              await saveArtifactContent(tab.filePath, html)
                            }}
                            onRefreshNeeded={handleRefresh}
-                           tabTitle={tab.title}
-                            observedUrlsGetter={(g) => { observedUrlsGetter = g }}
-                            registerIframePostMessage={(fn) => { iframePostMessage = fn }}
-                            iframeElementGetter={(g) => { iframeElementGetter = g }}
-                          />
+                            tabTitle={tab.title}
+                             observedUrlsGetter={(g) => { observedUrlsGetter = g }}
+                             registerIframePostMessage={(fn) => { iframePostMessage = fn }}
+                             iframeElementGetter={(g) => { iframeElementGetter = g }}
+                             subtype={tab.subtype}
+                             tabId={tab.id}
+                           />
                     </Match>
                     <Match when={tabType === "deck"}>
                       <DeckRenderer content={tab.content} />
