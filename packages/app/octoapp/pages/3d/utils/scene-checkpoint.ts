@@ -59,6 +59,7 @@ export type SceneCheckpointStage =
   | "planner_create"    // 场景规划审查暂停点
   | "intent_create"     // 意图扩展生成中（非暂停点，用于断点续传）
   | "modules_create"    // 模块生成中（非暂停点，用于断点续传）
+  | "codegen"           // 9a：codegen 进行中（非暂停点，供门控失败后重试喂回 priorGateFindings）
 
 export type ModuleCheckpoint = {
   sectionId: string

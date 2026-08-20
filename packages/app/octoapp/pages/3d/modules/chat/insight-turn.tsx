@@ -3,7 +3,16 @@ import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { useData } from "@opencode-ai/ui/context"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { createEffect, createMemo, createSignal, Show, For, type JSX } from "solid-js"
-import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg } from "../icons"
+import {
+  IconCardTable,
+  IconCardMindmap,
+  IconCardJson,
+  IconCardFile,
+  IconCardMarkdown,
+  IconCardHtml,
+  IconCardDeck,
+  IconCardSvg,
+} from "../icons"
 import { createArtifactParser } from "../../utils/artifact-parser"
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary, deriveFileOps } from "./file-ops-summary"
@@ -11,8 +20,16 @@ import { UserInputCard } from "./user-input-card"
 import "../../assets/style/chat/insight-turn.css"
 
 export type OutputCardType =
-  | "table" | "mindmap" | "markdown" | "file" | "json" | "html"
-  | "deck" | "svg" | "markdown-document" | "code-snippet"
+  | "table"
+  | "mindmap"
+  | "markdown"
+  | "file"
+  | "json"
+  | "html"
+  | "deck"
+  | "svg"
+  | "markdown-document"
+  | "code-snippet"
 
 export type OutputCard = {
   id: string
@@ -37,9 +54,7 @@ const ARTIFACT_TYPE_MAP: Record<string, OutputCardType> = {
 
 function isMarkdownTable(text: string): boolean {
   if (/\|[\s]*[-:]+[-:\s|]*\|/.test(text)) return true
-  const tableLines = text
-    .split("\n")
-    .filter((l) => l.trim().startsWith("|") && (l.match(/\|/g) ?? []).length >= 3)
+  const tableLines = text.split("\n").filter((l) => l.trim().startsWith("|") && (l.match(/\|/g) ?? []).length >= 3)
   return tableLines.length >= 2
 }
 
@@ -54,21 +69,31 @@ function decodeDataUrl(url: string): string {
 }
 
 function detectCard(): { type: OutputCardType; title: string } {
-  return { type: "json", title: '当前阶段已完成' }
+  return { type: "json", title: "当前阶段已完成" }
 }
 
 function CardTypeIcon(props: { type: OutputCardType }): JSX.Element {
   switch (props.type) {
-    case "table": return <IconCardTable size={16} />
-    case "mindmap": return <IconCardMindmap size={16} />
-    case "json": return <IconCardJson size={16} />
-    case "file": return <IconCardFile size={16} />
-    case "markdown": return <IconCardMarkdown size={16} />
-    case "html": return <IconCardHtml size={16} />
-    case "deck": return <IconCardDeck size={16} />
-    case "svg": return <IconCardSvg size={16} />
-    case "markdown-document": return <IconCardMarkdown size={16} />
-    case "code-snippet": return <IconCardFile size={16} />
+    case "table":
+      return <IconCardTable size={16} />
+    case "mindmap":
+      return <IconCardMindmap size={16} />
+    case "json":
+      return <IconCardJson size={16} />
+    case "file":
+      return <IconCardFile size={16} />
+    case "markdown":
+      return <IconCardMarkdown size={16} />
+    case "html":
+      return <IconCardHtml size={16} />
+    case "deck":
+      return <IconCardDeck size={16} />
+    case "svg":
+      return <IconCardSvg size={16} />
+    case "markdown-document":
+      return <IconCardMarkdown size={16} />
+    case "code-snippet":
+      return <IconCardFile size={16} />
   }
 }
 
@@ -105,12 +130,8 @@ function parseArtifactFromText(text: string): Omit<OutputCard, "id" | "createdAt
 function ProducedFilesList(props: { files: Array<{ path: string; name: string }> }): JSX.Element {
   return (
     <div class="mx-3 mb-2">
-      <div
-        class="px-2.5 py-1.5 flex flex-col gap-1 produced-files-list"
-      >
-        <div class="text-[11px] produce-text">
-          涉及文件
-        </div>
+      <div class="px-2.5 py-1.5 flex flex-col gap-1 produced-files-list">
+        <div class="text-[11px] produce-text">涉及文件</div>
         <For each={props.files}>
           {(file) => (
             <div class="flex items-center gap-1.5 text-xs">
@@ -181,6 +202,19 @@ export function InsightTurn(props: {
     return msgs.some((m) => typeof m.time.completed !== "number")
   })
 
+  // 对齐 make：生成中自动展开思考链、完成自动折叠（用户可手动再展开）。
+  // hasGenerated 防止组件初始化时（未经历生成）误折叠。
+  const [hasGenerated, setHasGenerated] = createSignal(false)
+  createEffect(() => {
+    const generating = assistantGenerating()
+    if (generating) {
+      setContentCollapsed(false)
+      setHasGenerated(true)
+    } else if (hasGenerated()) {
+      setContentCollapsed(true)
+    }
+  })
+
   const customCardLabel = createMemo(() => {
     const text = userText()
     if (text.endsWith("请分析用户需求中尚未明确的维度，输出缺失维度的选项清单。")) return "需求确认"
@@ -191,12 +225,15 @@ export function InsightTurn(props: {
     if (text.startsWith("[顶层布局和Slots]:")) return "更新页面"
     if (text.startsWith("[用户修改请求]: ")) return "思考分析"
     if (text.includes("[分诊操作列表]:")) return "修改"
+    // 3D 分步流（分诊→规划→生成代码）兜底
+    if (text.includes("[PLAN_JSON]")) return "3D 代码生成"
+    if (text.includes("[分诊 type 清单]")) return "3D 规划"
+    if (text.startsWith("[用户请求]")) return "3D 分诊"
     return null
   })
 
-  const showUserInput = createMemo(() =>
-    userText().startsWith("[用户修改请求]:")
-  )
+  // 兜底：3D 分步用户消息（分诊/规划/生成）也显示，配合 ExpandableBubble 收起展开
+  const showUserInput = createMemo(() => userText().length > 0)
 
   // 用户输入卡片展示的精简文本：从完整 prompt 中提取用户实际输入部分
   const userInputDisplay = createMemo(() => {
@@ -241,21 +278,26 @@ export function InsightTurn(props: {
         const state = raw.state as Record<string, unknown> | undefined
         if (!state) return { name: "unknown", status: "running" as const }
         const input = state.input as Record<string, unknown> | undefined
-        const filePath = input
-          ? ((input.path ?? input.filepath ?? input.filePath ?? "") as string)
-          : ""
+        const filePath = input ? ((input.path ?? input.filepath ?? input.filePath ?? "") as string) : ""
         const stateStatus = state.status as string | undefined
         const stateError = state.error as string | undefined
         const hasOutput = typeof state.output === "string" && (state.output as string).length > 0
         const metadata = state.metadata as Record<string, unknown> | undefined
-        const isCancelled = stateStatus === "error" && (stateError === "Cancelled" || stateError === "Tool execution aborted")
+        const isCancelled =
+          stateStatus === "error" && (stateError === "Cancelled" || stateError === "Tool execution aborted")
         const isErrorFromStatus = stateStatus === "error" && !isCancelled
         const isErrorFromMetadata = metadata?.exit !== undefined && (metadata.exit as number) !== 0
         const isError = isErrorFromStatus || isErrorFromMetadata
         const isCompleted = stateStatus === "completed"
         return {
           name: (raw.tool as string) ?? (raw.name as string) ?? (state.name as string) ?? "unknown",
-          status: isCompleted ? ("done" as const) : isCancelled ? ("error" as const) : isError ? ("error" as const) : ("running" as const),
+          status: isCompleted
+            ? ("done" as const)
+            : isCancelled
+              ? ("error" as const)
+              : isError
+                ? ("error" as const)
+                : ("running" as const),
           input: input ?? undefined,
           output: hasOutput ? (state.output as string) : undefined,
           filePath: filePath || undefined,
@@ -264,18 +306,16 @@ export function InsightTurn(props: {
       })
   })
 
-  const hasError = createMemo(() =>
-    toolCalls().some((c) => c.status === "error") ||
-    (!!props.errorCallId && props.errorCallId === props.sessionID),
+  const hasError = createMemo(
+    () =>
+      toolCalls().some((c) => c.status === "error") || (!!props.errorCallId && props.errorCallId === props.sessionID),
   )
   const fileOpsEntries = createMemo(() => deriveFileOps(toolCalls()))
 
   // ── NEW: prose text (stripped of artifacts and <think> tags) ──
   const proseText = createMemo(() => {
     const parts = assistantParts()
-    const textPart = [...parts]
-      .reverse()
-      .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
+    const textPart = [...parts].reverse().find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
     if (!textPart?.text) return ""
     // 去除 DeepSeek 等模型的 <think> 标签内容
     const cleanText = textPart.text.replace(/<think>[\s\S]*?(<\/think>|$)/g, "")
@@ -289,16 +329,16 @@ export function InsightTurn(props: {
       try {
         const parsed = JSON.parse(trimmed)
         return JSON.stringify(parsed, null, 2)
-      } catch { /* incomplete JSON, fall through */ }
+      } catch {
+        /* incomplete JSON, fall through */
+      }
     }
     return trimmed
   })
 
   const proseIsJson = createMemo(() => {
     const parts = assistantParts()
-    const textPart = [...parts]
-      .reverse()
-      .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
+    const textPart = [...parts].reverse().find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
     if (!textPart?.text) return false
     const cleanText = textPart.text.replace(/<think>[\s\S]*?(<\/think>|$)/g, "")
     const parser = createArtifactParser()
@@ -312,9 +352,7 @@ export function InsightTurn(props: {
   const streamingArtifact = createMemo((): OutputCard | null => {
     if (!assistantGenerating()) return null
     const parts = assistantParts()
-    const textPart = [...parts]
-      .reverse()
-      .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
+    const textPart = [...parts].reverse().find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
     if (!textPart?.text) return null
 
     const parser = createArtifactParser()
@@ -369,9 +407,11 @@ export function InsightTurn(props: {
   const producedFiles = createMemo(() => {
     const calls = toolCalls()
     return calls
-      .filter((c) =>
-        (c.name.toLowerCase().includes("write") || c.name.toLowerCase().includes("edit"))
-        && c.filePath && c.status === "done"
+      .filter(
+        (c) =>
+          (c.name.toLowerCase().includes("write") || c.name.toLowerCase().includes("edit")) &&
+          c.filePath &&
+          c.status === "done",
       )
       .map((c) => ({ path: c.filePath!, name: c.filePath!.split("/").pop()! }))
       .filter((f, i, arr) => arr.findIndex((x) => x.path === f.path) === i)
@@ -415,12 +455,29 @@ export function InsightTurn(props: {
         const filePath = (input.path ?? input.filepath ?? input.filePath ?? "") as string
         if (content && content.length > 10) {
           const artifact = parseArtifactFromText(content)
-          if (artifact) return { ...artifact, id: `card-${props.messageID}-artifact`, filePath: filePath || undefined, createdAt: new Date() }
+          if (artifact)
+            return {
+              ...artifact,
+              id: `card-${props.messageID}-artifact`,
+              filePath: filePath || undefined,
+              createdAt: new Date(),
+            }
 
-          if (/```html/i.test(content) || /<!DOCTYPE\s+html/i.test(content) || /<html[\s>]/i.test(content) || /\.html?$/i.test(filePath)) {
+          if (
+            /```html/i.test(content) ||
+            /<!DOCTYPE\s+html/i.test(content) ||
+            /<html[\s>]/i.test(content) ||
+            /\.html?$/i.test(filePath)
+          ) {
             return {
               id: `card-${props.messageID}-html`,
-              title: content.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ?? filePath.split("/").pop()?.replace(/\.html?$/i, "") ?? "HTML 原型",
+              title:
+                content.match(/^#{1,3}\s+(.+)/m)?.[1]?.trim() ??
+                filePath
+                  .split("/")
+                  .pop()
+                  ?.replace(/\.html?$/i, "") ??
+                "HTML 原型",
               type: "html",
               content,
               filePath: filePath || undefined,
@@ -432,9 +489,7 @@ export function InsightTurn(props: {
     }
 
     // ── 优先级 2：text parts（含 artifact 标签） ──
-    const textPart = [...parts]
-      .reverse()
-      .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
+    const textPart = [...parts].reverse().find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
     if (textPart && typeof textPart.text === "string") {
       const text = textPart.text.trim()
       if (text.length > 0) {
@@ -503,7 +558,12 @@ export function InsightTurn(props: {
               role="button"
               tabIndex={0}
               onClick={() => setContentCollapsed((p) => !p)}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setContentCollapsed((p) => !p) } }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  setContentCollapsed((p) => !p)
+                }
+              }}
               class="flex items-center gap-3 cursor-pointer select-none justify-between"
             >
               <div class="flex items-center gap-1 min-w-0">
@@ -519,20 +579,27 @@ export function InsightTurn(props: {
                     class="transition-transform"
                     style={{ transform: contentCollapsed() ? "rotate(-90deg)" : "rotate(90deg)" }}
                   >
-                    <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                    <path
+                      d="M6 4L10 8L6 12"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
                   </svg>
                 </span>
               </div>
-              <Show when={hasError()} fallback={
-                <Show when={assistantGenerating()} fallback={
-                  <span class="gc-done-badge">完成</span>
-                }>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="insight-spinner">
-                    <circle cx="12" cy="12" r="10" stroke="#2563EB" stroke-width="3" opacity="0.15" />
-                    <path d="M12 2a10 10 0 0 1 10 10" stroke="#2563EB" stroke-width="3" stroke-linecap="round" />
-                  </svg>
-                </Show>
-              }>
+              <Show
+                when={hasError()}
+                fallback={
+                  <Show when={assistantGenerating()} fallback={<span class="gc-done-badge">完成</span>}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="insight-spinner">
+                      <circle cx="12" cy="12" r="10" stroke="#2563EB" stroke-width="3" opacity="0.15" />
+                      <path d="M12 2a10 10 0 0 1 10 10" stroke="#2563EB" stroke-width="3" stroke-linecap="round" />
+                    </svg>
+                  </Show>
+                }
+              >
                 <span class="gc-error-badge">错误</span>
               </Show>
             </div>
@@ -540,8 +607,8 @@ export function InsightTurn(props: {
         )}
       </Show>
 
-      {/* 卡片下方内容（收起时隐藏） */}
-      <Show when={!contentCollapsed()}>
+      {/* 卡片下方内容（收起时隐藏；生成中强制展开，对齐 make 思考链实时可见） */}
+      <Show when={!contentCollapsed() || assistantGenerating()}>
         {/* 思考过程 */}
         <Show when={reasoningTexts().length > 0}>
           <div
@@ -571,22 +638,25 @@ export function InsightTurn(props: {
 
         {/* AI 文字回复 */}
         <Show when={proseText().length > 0}>
-          <Show when={proseIsJson()} fallback={
-            <div
-              ref={(el) => {
-                createEffect(() => {
-                  proseText()
-                  el.scrollTop = el.scrollHeight
-                })
-              }}
-              class="mx-3 mb-2 px-3 py-2 rounded-md text-xs leading-relaxed overflow-auto prose-text"
-            >
-              <Show when={assistantGenerating() && !hasError()}>
-                <div class="text-[12px] text-[#999] reasoning-text-tip">思考中...</div>
-              </Show>
-              <Markdown text={proseText()} streaming={assistantGenerating() && !hasError()} />
-            </div>
-          }>
+          <Show
+            when={proseIsJson()}
+            fallback={
+              <div
+                ref={(el) => {
+                  createEffect(() => {
+                    proseText()
+                    el.scrollTop = el.scrollHeight
+                  })
+                }}
+                class="mx-3 mb-2 px-3 py-2 rounded-md text-xs leading-relaxed overflow-auto prose-text"
+              >
+                <Show when={assistantGenerating() && !hasError()}>
+                  <div class="text-[12px] text-[#999] reasoning-text-tip">思考中...</div>
+                </Show>
+                <Markdown text={proseText()} streaming={assistantGenerating() && !hasError()} />
+              </div>
+            }
+          >
             <pre
               ref={(el) => {
                 createEffect(() => {

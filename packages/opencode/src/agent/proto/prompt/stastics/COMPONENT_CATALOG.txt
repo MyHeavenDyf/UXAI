@@ -1,0 +1,252 @@
+### BitmapText
+> SDF 位图文字组件
+- 构造: `new BitmapText(options?: BitmapTextOptions)`
+
+Options:
+- `text` (string) 默认 `''` — 要渲染的文字字符串
+- `fontSize` (number) 默认 `72` — 字体大小（像素），决定 SDF 精度
+- `fontFamily` (string) 默认 `'sans-serif'` — CSS font-family
+- `fontWeight` (string) 默认 `'normal'` — CSS font-weight
+- `fontStyle` (string) 默认 `'normal'` — CSS font-style
+- `atlasWidth` (number) 默认 `2048` — SDF 图集宽度
+- `atlasHeight` (number) 默认 `2048` — SDF 图集高度
+- `width` (number) 默认 `1000` — 最大行宽（字体单位），超出自动换行
+- `mode` ('nowrap' | 'pre' | 'word-wrapper') 默认 `'word-wrapper'` — 换行模式：'nowrap' 不换行，'pre' 保留空白与换行，'word-wrapper' 英文按词换行 / CJK 逐字换行
+- `align` ('left' | 'center' | 'right') 默认 `'left'` — 文本对齐
+- `letterSpacing` (number) 默认 `0` — 字符间距（字体单位）
+- `lineHeight` (number) 默认 `fontSize` — 行高（字体单位）
+- `baseline` (number) 默认 `fontSize × 0.8` — 基线偏移（字体单位）
+- `halo` (number) 默认 `0.75` — SDF 阈值，控制笔画粗细
+- `gamma` (number) 默认 `1` — SDF 平滑度，越大越模糊
+- `color` (ColorRepresentation) 默认 `0xffffff` — 文字颜色
+- `opacity` (number) 默认 `1` — 不透明度（0–1）
+- `shadow` (boolean) 默认 `false` — 是否启用投影
+- `shadowColor` (ColorRepresentation) 默认 `0x4d4d4d` — 投影颜色
+- `shadowOffset` ([number, number]) 默认 `[0.001, -0.001]` — 投影 UV 偏移 [x, y]
+- `shadowGamma` (number) 默认 `1` — 投影平滑度
+- `outline` (boolean) 默认 `false` — 是否启用描边
+- `outlineColor` (ColorRepresentation) 默认 `0xff0000` — 描边颜色
+- `outlineWidth` (number) 默认 `0.05` — 描边宽度（SDF 单位）
+- `outlineGamma` (number) 默认 `1` — 描边平滑度
+- `billboard` (boolean) 默认 `false` — 文字始终朝向相机
+- `scale` (number) 默认 `0.01` — 世界空间缩放系数
+- `centerX` (number) 默认 `0.5` — 水平居中偏移（0–1），0.5 = 居中
+- `centerY` (number) 默认 `0.5` — 垂直居中偏移（0–1），0.5 = 居中
+- `name` (string) 默认 `—` — Object3D.name
+- `visible` (boolean) 默认 `true` — 是否可见
+- `userData` (object) 默认 `—` — 自定义数据
+
+### Grid
+> 无限网格
+- 构造: `new Grid(options?: GridOptions)`
+
+Options:
+- `primaryScale` (number) 默认 `5` — 主网格（粗线）间距缩放，每隔该距离一条粗线
+- `secondaryScale` (number) 默认 `1` — 次级网格（细线）间距缩放，叠加在主网格上形成细分
+- `showAxis` (boolean) 默认 `true` — 是否显示坐标轴高亮（X 轴 + Z/Y 轴）。关闭后仅显示普通网格
+- `primaryFade` (number) 默认 `0.7` — 主网格淡出系数，乘到主网格线条 alpha 上
+- `secondaryFade` (number) 默认 `0.4` — 次级网格淡出系数，乘到次级网格线条 alpha 上
+- `linearFade` (boolean) 默认 `true` — 是否启用基于相机距离的线性淡出（远处网格逐渐消失）
+- `fadeStart` (number) 默认 `30` — 线性淡出起始距离（世界单位），小于该距离不淡出
+- `fadeEnd` (number) 默认 `100` — 线性淡出结束距离（世界单位），大于该距离完全透明
+- `plane` ('xz' | 'xy') 默认 `'xz'` — 网格平面：'xz' 水平地面（Y=0），'xy' 面向 +Z 的立面（Z=0）
+- `color` (ColorRepresentation) 默认 `0x333333` — 网格线颜色（直接决定最终线色，颜色越深线越暗）
+- `xAxisColor` (ColorRepresentation) 默认 `0xff0000` — X 轴高亮颜色
+- `zAxisColor` (ColorRepresentation) 默认 `0x0000ff` — Z 轴（地面模式）/ Y 轴（立面模式）高亮颜色
+- `name` (string) 默认 `—` — Object3D.name
+- `visible` (boolean) 默认 `true` — 是否可见
+- `userData` (object) 默认 `—` — 自定义数据
+
+### Html
+> 3D 空间中的 HTML 覆盖层组件
+- 构造: `new Html(options?: HtmlOptions)`
+
+Options:
+- `el` (HTMLElement) 默认 `—` — 要定位的 DOM 元素。若未提供则自动创建 <div>
+- `as` (string) 默认 `'div'` — 自动创建元素的标签名（el 已提供时忽略）
+- `portal` (HTMLElement) 默认 `—` — 挂载目标父元素，默认为 canvas 父节点
+- `prepend` (boolean) 默认 `false` — 是否插入到 portal 首位而非末尾
+- `center` (boolean) 默认 `false` — 居中元素 translate3d(-50%,-50%,0)
+- `fullscreen` (boolean) 默认 `false` — 将元素撑满整个视口
+- `eps` (number) 默认 `0.001` — 位置/缩放变化阈值，低于此值跳过 DOM 更新以提升性能
+- `distanceFactor` (number) 默认 `—` — 距离缩放因子。设置后 HTML 元素随距相机的远近自动缩放，典型值 5–20
+- `sprite` (boolean) 默认 `false` — 始终面向相机（仅 transform 模式）
+- `transform` (boolean) 默认 `false` — CSS3D 变换模式。从 Three.js 矩阵构建完整 matrix3d CSS 变换，实现真正 3D 透视
+- `zIndexRange` ([number, number]) 默认 `[16777271, 0]` — Z-index 映射范围 [max, min]，近处对象获得更高 z-index
+- `calculatePosition` ((object, camera, w, h) => [x, y]) 默认 `—` — 自定义位置计算函数
+- `wrapperClass` (string) 默认 `—` — 包裹元素的 CSS 类名
+- `pointerEvents` (PointerEventsValue) 默认 `'auto'` — CSS pointer-events 值
+- `style` (Partial<CSSStyleDeclaration> | string) 默认 `—` — 内容元素的行内样式
+- `className` (string) 默认 `—` — 内容元素的 CSS 类名
+- `occlude` (boolean | 'raycast' | 'blending' | Object3D[]) 默认 `false` — 遮挡模式：true 渲染不可见深度写入网格；'raycast' 射线检测遮挡后隐藏 HTML；'blending' z-index 混合合成；Object3D[] 对指定对象做射线遮挡
+- `onOcclude` ((hidden: boolean) => void) 默认 `—` — 遮挡状态变化时的回调
+- `occludeGeometry` (BufferGeometry) 默认 `PlaneGeometry` — 遮挡网格的自定义几何体
+- `occludeMaterial` (Material) 默认 `ShaderMaterial` — 遮挡网格的自定义材质
+- `castShadow` (boolean) 默认 `false` — 遮挡网格是否投射阴影
+- `receiveShadow` (boolean) 默认 `false` — 遮挡网格是否接收阴影
+- `name` (string) 默认 `—` — Object3D.name
+- `visible` (boolean) 默认 `true` — 是否可见
+- `userData` (object) 默认 `—` — 自定义数据
+
+### InstancedMesh2
+> 高性能实例化渲染器
+- 构造: `new InstancedMesh2<TData, TGeometry, TMaterial>(geometry, material, params?, LOD?)`
+
+Options:
+- `capacity` (number) 默认 `1000` — 缓冲区最大容量（实例数），超出时自动扩容
+- `createEntities` (boolean) 默认 `false` — 是否创建 instances 实体数组，开启后可通过 InstancedEntity 逐实例操作 position / rotation / scale
+- `allowsEuler` (boolean) 默认 `false` — 允许 InstancedEntity.rotation（Euler），与 quaternion 双向同步
+- `renderer` (WebGLRenderer) 默认 `—` — 若提供则立即初始化缓冲区；否则延迟到首次渲染
+
+### Outlines
+> 描边（轮廓）组件
+- 构造: `new Outlines(options: OutlinesOptions)`
+
+Options:
+- `mesh` (Mesh | SkinnedMesh | InstancedMesh) 默认 `—` — 必填。要描边的父级网格
+- `color` (ColorRepresentation) 默认 `'black'` — 描边颜色
+- `opacity` (number) 默认 `1` — 描边不透明度
+- `transparent` (boolean) 默认 `false` — 描边是否透明
+- `screenspace` (boolean) 默认 `false` — 线宽是否与缩放无关（屏幕空间恒定）。true = 沿世界法线偏移，与摄像机距离无关；false = 在裁剪空间沿投影法线偏移，近处粗、远处细（体积感更自然）
+- `thickness` (number) 默认 `0.05` — 描边线宽
+- `angle` (number) 默认 `Math.PI` — 几何折痕角度（弧度）。0 = 不分裂、直接复用父级法线；Math.PI = 在每个硬边处分裂法线，使描边沿轮廓外扩、平面区域不被描边
+- `renderOrder` (number) 默认 `0` — 渲染顺序
+- `polygonOffset` (boolean) 默认 `false` — 是否启用多边形偏移（避免与父级表面 Z-fighting）
+- `polygonOffsetFactor` (number) 默认 `0` — 多边形偏移因子
+- `toneMapped` (boolean) 默认 `true` — 是否参与色调映射
+- `clippingPlanes` (THREE.Plane[]) 默认 `—` — 裁剪平面列表
+- `name` (string) 默认 `—` — Object3D.name
+- `visible` (boolean) 默认 `true` — 是否可见
+- `userData` (object) 默认 `—` — 自定义数据
+- `children` (Object3D[]) 默认 `—` — 额外子节点，自动 add()
+
+### Path
+> 路径绘制组件
+- 构造: `new Path(options: PathOptions)`
+
+Options:
+- `paths` (PathData[]) 默认 `—` — 必填。一组路径数据，每个元素生成一条管道或扁平带
+- `material` (THREE.Material) 默认 `—` — 共享材质（所有路径复用）。不传则使用默认 MeshStandardMaterial（dispose() 时一并释放）
+- `name` (string) 默认 `—` — Object3D.name
+- `visible` (boolean) 默认 `true` — 是否可见
+- `userData` (object) 默认 `—` — 自定义数据
+- `children` (Object3D[]) 默认 `—` — 额外子节点，自动 add()
+- `flow` (FlowOptions) 默认 `—` — 流光效果配置。开启后一条带拖尾的高亮光带贯穿整组 paths（从第一条流向最后一条）。流光材质由组件 clone 生成并独立释放
+
+DataTypes:
+- **FlowOptions**:
+  - `enabled` (boolean) 默认 `false` — 是否开启流光
+  - `color` (ColorRepresentation) 默认 `0xffffff` — 流光颜色
+  - `speed` (number) 默认 `1` — 流动速度（全局圈/秒）
+  - `direction` (1 | -1) 默认 `1` — 流动方向：1 = 第一条 → 最后一条，-1 = 反向
+  - `width` (number) 默认 `0.25` — 光头亮带占流光总长度的比例（0-1，越大光头越宽、拖尾越短）
+  - `tailLength` (number) 默认 `0.4` — 流光总长度（归一化到全局 [0,1]）；光头与拖尾按 width 比例分配，长度变化时拖尾始终可见
+  - `intensity` (number) 默认 `2` — 流光强度（emissive 叠加倍率，可 >1 求 HDR 发光）
+  - `repeat` (number) 默认 `1` — 全局流光个数（沿整组 paths 等间距分布）
+- **PathData**:
+  - `path` ([number, number, number][]) 默认 `—` — 必填。路径顶点（3D）。相邻重复点自动去重；少于 2 个有效点时该条跳过
+  - `mode` ('tube' | 'plane') 默认 `'tube'` — 生成模式：'tube' = 圆管扫掠；'plane' = 扁平带状面
+  - `bevelRadius` (number) 默认 `0` — 拐角圆角半径。> 0 时拐角用二次贝塞尔曲线倒圆角；0 时为纯折线（直角拐角）
+  - `close` (boolean) 默认 `false` — 路径是否自动闭合（首尾相连成环，需 ≥ 3 个顶点）
+  - `up` ([number, number, number]) 默认 `—` — up 向量，决定标架法向（进而决定平面带朝向与管道截面起始朝向）。不传则用 Frenet 自动选取（与 three.js TubeGeometry 一致）
+  - `divisions` (number) 默认 `12` — 非直线段（贝塞尔曲线）的采样分段数
+  - `uvMode` ('repeat' | 'stretch') 默认 `'repeat'` — 贴图沿路径方向的映射：'repeat' = 按物理长度平铺（u = 弧长 / 截面周长或带宽，配合 RepeatWrapping 可重复贴图）；'stretch' = 一张贴图从头铺到尾（u 归一化到 [0,1]）
+  - `radius` (number) 默认 `0.1` — 管道半径（≤ 0 时该条跳过）
+  - `radialSegments` (number) 默认 `8` — 圆周分段数（越大越圆滑，最小 2）
+  - `startRad` (number) 默认 `0` — 截面起始角偏移（弧度）
+  - `generateStartCap` (boolean) 默认 `false` — 是否生成起点封盖（需 radialSegments ≥ 3）
+  - `generateEndCap` (boolean) 默认 `false` — 是否生成终点封盖（需 radialSegments ≥ 3）
+  - `width` (number) 默认 `0.1` — 带宽（≤ 0 时该条跳过）
+  - `side` ('both' | 'left' | 'right') 默认 `'both'` — 带相对中心线的偏侧：'both' 居中、'left' / 'right' 仅一侧
+  - `sharp` (boolean) 默认 `false` — 是否在锐角拐角做几何修补（避免带面撕裂）
+  - `arrow` (boolean) 默认 `false` — 末端是否生成箭头
+
+### Shape
+> 异形面绘制组件
+- 构造: `new Shape(options: ShapeOptions)`
+
+Options:
+- `shapes` (ShapeData[]) 默认 `—` — 必填。一组异形面数据，每个元素生成一个挤出几何体
+- `material` (THREE.Material) 默认 `—` — 共享材质（所有异形面复用）。不传则使用默认 MeshStandardMaterial
+- `name` (string) 默认 `—` — Object3D.name
+- `visible` (boolean) 默认 `true` — 是否可见
+- `userData` (object) 默认 `—` — 自定义数据
+- `children` (Object3D[]) 默认 `—` — 额外子节点，自动 add()
+
+DataTypes:
+- **ShapeData**:
+  - `path` ([number, number, number][]) 默认 `—` — XZ 平面轮廓点 [x, y, z]（y 被忽略），首尾自动闭合。至少 3 个点
+  - `height` (number) 默认 `—` — 挤出高度（沿 Y 轴）
+  - `radius` (number | (number | undefined)[]) 默认 `0` — 拐角圆角半径。数值 ⇒ 所有拐角统一；数组 ⇒ 按 path 顶点索引逐拐角指定，undefined 回退到全局值
+  - `radiusSegments` (number) 默认 `8` — 圆角分段数（越大越圆滑）
+  - `uvMode` ('repeat' | 'stretch') 默认 `'repeat'` — UV 映射方式：'repeat' = 按米平铺，'stretch' = 一张贴图铺满
+
+### Sky
+> 天空穹顶
+- 构造: `new Sky(options?: SkyOptions)`
+
+Options:
+- `size` (number) 默认 `1000` — 天空球半径（世界单位），应足够大以包围场景但不超过相机远裁剪面
+- `topColor` (ColorRepresentation) 默认 `0x109df4` — 天顶颜色（球体最高处的颜色），天蓝
+- `bottomColor` (ColorRepresentation) 默认 `0xf5f5f5` — 地平线 / 底部颜色，浅灰白
+- `offset` (number) 默认 `0` — 世界坐标偏移量，增大使渐变整体上移，地平线附近更偏 bottomColor
+- `exponent` (number) 默认 `0.6` — 渐变指数，值越大过渡越陡峭（天顶色区域更集中），值越小过渡越平缓
+- `name` (string) 默认 `—` — Object3D.name
+- `visible` (boolean) 默认 `true` — 是否可见
+- `userData` (object) 默认 `—` — 自定义数据
+
+### Wall
+> 墙体绘制组件
+- 构造: `new Wall(options: WallOptions)`
+
+Options:
+- `walls` (WallData[]) 默认 `—` — 必填。一组墙体数据，每个元素绘制一面墙
+- `material` (THREE.Material) 默认 `—` — 共享材质（所有墙体复用）。不传则使用默认 MeshStandardMaterial
+- `name` (string) 默认 `—` — Object3D.name
+- `visible` (boolean) 默认 `true` — 是否可见
+- `userData` (object) 默认 `—` — 自定义数据
+- `children` (Object3D[]) 默认 `—` — 额外子节点，自动 add()
+
+DataTypes:
+- **WallData**:
+  - `path` ([number, number, number][]) 默认 `—` — 墙体中心线路径，XZ 平面坐标 [x, y, z]（y 被忽略）。路径定义走向，墙体按 width 向两侧加厚
+  - `width` (number) 默认 `—` — 墙体厚度（向路径两侧各加厚 width / 2）
+  - `height` (number) 默认 `—` — 墙体高度（沿 Y 轴挤出）
+  - `radius` (number | (number | undefined)[]) 默认 `0` — 拐角圆角半径。数值 ⇒ 所有拐角统一（全局值）；数组 ⇒ 按 path 顶点索引逐拐角指定，undefined 回退到全局值。小于 width/2 的半径自动按直角处理
+  - `radiusSegments` (number) 默认 `8` — 圆角分段数（越大越圆滑）
+  - `close` (boolean) 默认 `false` — 首尾是否闭合（闭合时形成环形墙体）
+  - `hole` (WallHole[]) 默认 `—` — 墙洞（窗 / 门）列表，画在墙的立面上，按 segment 归属到对应墙段并贯通墙体厚度
+- **WallHole**:
+  - `segment` (number) 默认 `—` — 所属墙段索引（段 i = path[i] → path[i+1]）
+  - `path` ([number, number][]) 默认 `—` — 轮廓，该段局部坐标 [x, y]：x = 沿直墙段距离（从段起点计），y = 高度（0 为墙底）。首尾自动闭合
+  - `radius` (number) 默认 `0` — 拐角圆角半径
+  - `radiusSegments` (number) 默认 `8` — 圆角分段数
+
+### Wireframe
+> 线框化组件
+- 构造: `new Wireframe(options: WireframeOptions)`
+
+Options:
+- `mesh` (THREE.Mesh) 默认 `—` — 必填。要线框化的父级网格
+- `stroke` (ColorRepresentation) 默认 `'#ff0000'` — 线条（描边）颜色
+- `backfaceStroke` (ColorRepresentation) 默认 `'#0000ff'` — 背面线条颜色（仅在 colorBackfaces 为真时用于背面）
+- `fill` (ColorRepresentation) 默认 `'#00ff00'` — 填充颜色（三角形内部）
+- `strokeOpacity` (number) 默认 `1` — 线条不透明度
+- `fillOpacity` (number) 默认 `0.25` — 填充不透明度
+- `fillMix` (number) 默认 `0` — 填充色与原材质 diffuse 的混合比例（仅 overrideMaterial 模式有效）。0 = 完全用 fill；1 = 完全用原材质漫反射色
+- `thickness` (number) 默认 `0.05` — 线条粗细（0–1，经 map(0,1,0,0.34) 映射为实际像素厚度）
+- `colorBackfaces` (boolean) 默认 `false` — 是否给背面单独着色（用 backfaceStroke）
+- `dash` (boolean) 默认 `false` — 是否启用虚线
+- `dashInvert` (boolean) 默认 `true` — 虚线是否反转（亮 / 暗段互换）
+- `dashRepeats` (number) 默认 `4` — 虚线重复次数（每条边重复几段）
+- `dashLength` (number) 默认 `0.5` — 虚线一段中「亮」的占比（0–1）
+- `squeeze` (boolean) 默认 `false` — 是否启用中间收窄（线条向段中心变细）
+- `squeezeMin` (number) 默认 `0.2` — 收窄最小值
+- `squeezeMax` (number) 默认 `1` — 收窄最大值
+- `renderOrder` (number) 默认 `0` — 渲染顺序
+- `toneMapped` (boolean) 默认 `false` — 是否参与色调映射
+- `overrideMaterial` (boolean) 默认 `false` — 是否覆盖父级材质（onBeforeCompile 注入），而非生成独立线框网格。true = 把线框融入原 PBR 渲染，适合「带光照的线框化模型」，此模式下 fillMix 生效
+- `name` (string) 默认 `—` — Object3D.name
+- `visible` (boolean) 默认 `true` — 是否可见
+- `userData` (object) 默认 `—` — 自定义数据
+- `children` (Object3D[]) 默认 `—` — 额外子节点，自动 add()

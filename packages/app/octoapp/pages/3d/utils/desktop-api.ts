@@ -10,6 +10,7 @@ export type DesktopApi = {
     defaultName: string
     ignore?: string[]
     injectFiles?: { path: string; content: string }[]
+    copyDirs?: { from: string; to: string }[]
     comment?: string
   }) => Promise<string | null>
   importZip?: () => Promise<{ name: string; content: string }[] | null>

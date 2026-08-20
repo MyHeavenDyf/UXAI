@@ -33,6 +33,9 @@ import MESH_GEOMETRY_CATALOG from "./prompt/stastics/MESH_GEOMETRY_CATALOG.txt"
 import HANDLER_CONTRACT from "./prompt/stastics/HANDLER_CONTRACT.txt"
 import TREE_SCENE_FORMAT from "./prompt/stastics/TREE_SCENE_FORMAT.txt"
 import REGISTRATION_PATTERN from "./prompt/stastics/REGISTRATION_PATTERN.txt"
+// 3D 组件精简目录（预烘 .txt，npm run gen:component-catalog 从 @a3d/a3d-components/docs 生成；
+// 预烘而非运行时烘：避免 proto/index.ts → 3d_components_docs 的循环依赖 TDZ）
+import COMPONENT_CATALOG from "./prompt/stastics/COMPONENT_CATALOG.txt"
 
 // 3D 场景 agent prompts
 import _RAW_SCENE_3D_INTENT from "./prompt/scene_3d/scene_3d_intent.txt"
@@ -64,6 +67,7 @@ const _staticData: Record<string, string> = {
   HANDLER_CONTRACT,
   TREE_SCENE_FORMAT,
   REGISTRATION_PATTERN,
+  COMPONENT_CATALOG,
 }
 
 export const staticData = _staticData

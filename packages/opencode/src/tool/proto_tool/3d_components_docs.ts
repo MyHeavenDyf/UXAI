@@ -157,6 +157,40 @@ export function formatDoc(doc: ComponentDoc): string {
   return lines.join("\n")
 }
 
+// ── plan agent 静态注入用：精简目录 ──
+// 只保留 name + summary + 构造 + Options + DataTypes（methods/properties/examples/notes 跳过）。
+// plan 选型 + 写 build_detail 只需 options 字段与嵌套数据结构；
+// methods/examples/properties 对选型无用且体积大，跳过省 token。
+// 替代 plan 运行时调 list_3d_components + N×get_3d_component_doc（省 3-7 轮 LLM 往返）。
+export function formatCatalog(): string {
+  const docs = loadDocs()
+  const lines: string[] = []
+  for (const doc of docs) {
+    lines.push(`### ${doc.name}`)
+    lines.push(`> ${shortSummary(doc.summary)}`)
+    lines.push(`- 构造: \`${doc.constructor}\``)
+    if (doc.options.length > 0) {
+      lines.push("")
+      lines.push("Options:")
+      for (const o of doc.options) {
+        lines.push(`- \`${o.name}\` (${o.type}) 默认 \`${o.default}\` — ${o.description}`)
+      }
+    }
+    if (doc.dataTypes.length > 0) {
+      lines.push("")
+      lines.push("DataTypes:")
+      for (const dt of doc.dataTypes) {
+        lines.push(`- **${dt.name}**:`)
+        for (const f of dt.fields) {
+          lines.push(`  - \`${f.name}\` (${f.type}) 默认 \`${f.default}\` — ${f.description}`)
+        }
+      }
+    }
+    lines.push("")
+  }
+  return lines.join("\n")
+}
+
 // ── Schema 参数 ──
 
 export const List3dComponentsParameters = Schema.Struct({

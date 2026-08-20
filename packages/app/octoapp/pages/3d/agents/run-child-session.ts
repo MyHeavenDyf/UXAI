@@ -1,7 +1,7 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { createRoot, createEffect } from "solid-js"
 import { showToast } from "@opencode-ai/ui/toast"
-import { getResultFromMessages, extractJson } from "../utils/json-parser"
+import { getResultFromMessagesLoose, extractJson } from "../utils/json-parser"
 import { logAgentCall } from "../utils/debug-log"
 import { validateSchema } from "../utils/schema-validator"
 import { type AgentError } from "../utils/error-msg"
@@ -138,7 +138,11 @@ async function processAgentResult(params: {
   const stopWatch = watchRetryStatus(sync, childSessionID)
   const stopProgress = watchProgress(sync, childSessionID, agent, knownIds)
   try {
-    const result = await getResultFromMessages(sync, childSessionID, knownIds)
+    // 统一用宽松提取：收集所有新 assistant 消息的 text + reasoning part。
+    // reasoning 模型（GLM/DeepSeek）常把 JSON / 代码块落在 reasoning part，
+    // 严格版（只取最新一条 text part）会取空 → "模型未返回有效内容"。
+    // extractJson（plan/triage JSON）/ parseCodeFiles（codegen 代码块）从拼接文本提取。
+    const result = await getResultFromMessagesLoose(sync, childSessionID, knownIds)
     const sessionId = isRoot ? parentSessionID : childSessionID
     // 先透传 LLM 返回的错误（API 失败/限流/超上下文），避免被「模型未返回有效内容」掩盖真实原因
     const messageError = extractMessageError(sync, childSessionID, knownIds)

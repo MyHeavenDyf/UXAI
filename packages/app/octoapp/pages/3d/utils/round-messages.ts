@@ -18,6 +18,7 @@ export interface Round {
   error?: string
   errorAgent?: string
   errorCallId?: string
+  errorDescription?: string
 }
 
 /**

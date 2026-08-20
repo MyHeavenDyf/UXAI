@@ -393,9 +393,9 @@ export function registerIpcHandlers(deps: Deps) {
             if (!settled) {
               settled = true
               void killWorkspaceDev()
-              reject(new Error(`vite 启动超时(120s) ${buf}`))
+              reject(new Error(`vite 启动超时(240s) ${buf}`))
             }
-          }, 120000)
+          }, 240000)
         },
       )
     },
@@ -1350,6 +1350,7 @@ export function registerIpcHandlers(deps: Deps) {
         defaultName: string
         ignore?: string[]          // glob 排除模式（如 ["node_modules","dist",".git"]）
         injectFiles?: { path: string; content: string }[]  // 注入文件（相对路径，UTF-8 文本）
+        copyDirs?: { from: string; to: string }[]  // 额外目录复制（to 相对 workDir，如 3d-components/dist → vendor/3d-components/dist）
         comment?: string
       },
     ) => {
@@ -1399,6 +1400,21 @@ export function registerIpcHandlers(deps: Deps) {
             )
           }
         })
+      }
+
+      // 复制额外目录到 workDir（Step 10：vendor 化 3d-components/dist → vendor/3d-components/dist）
+      if (opts.copyDirs) {
+        for (const dir of opts.copyDirs) {
+          if (!existsSync(dir.from)) continue // 源不存在则跳过（best-effort）
+          const dest = join(workDir, dir.to)
+          await mkdir(dest, { recursive: true })
+          try {
+            const { cp } = await import("fs/promises")
+            await cp(dir.from, dest, { recursive: true })
+          } catch {
+            // 单条 copyDirs 失败不阻塞导出（best-effort）
+          }
+        }
       }
 
       // 注入文件（覆盖或新增）

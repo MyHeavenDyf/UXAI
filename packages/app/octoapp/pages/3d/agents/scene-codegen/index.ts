@@ -11,6 +11,7 @@ import { runChildSession } from "../run-child-session"
 import { logAgentParsed } from "../../utils/debug-log"
 import type { SceneCreateInput } from "../../workflow/create-scene"
 import type { PlanResult } from "../scene-plan"
+import { formatGateFindingsForCodegen, type GateFinding } from "../../utils/scene-gate"
 
 const AGENT_NAME = "scene_3d_codegen"
 
@@ -23,6 +24,8 @@ export type SceneCodegenInput = SceneCreateInput & {
   currentHandlers?: string
   /** modify 时当前 live-data.json 内容，create 时空字符串 */
   currentLiveData?: string
+  /** 上一轮 9a 门控失败清单（host 喂回），buildHumanMessage 拼 `## 上一轮门控失败清单` 段 */
+  priorGateFindings?: GateFinding[]
 }
 
 export interface SceneCodegenResult {
@@ -44,8 +47,16 @@ export default async function scene_3d_codegen(input: SceneCodegenInput): Promis
     isModify,
     currentHandlers,
     currentLiveData,
+    priorGateFindings,
   } = input
-  const humanMessage = buildHumanMessage(userInput, plan, isModify, currentHandlers, currentLiveData)
+  const humanMessage = buildHumanMessage(
+    userInput,
+    plan,
+    isModify,
+    currentHandlers,
+    currentLiveData,
+    priorGateFindings,
+  )
   console.log("----- 3D 代码生成Agent开始执行 ----- ")
   const startTime = Date.now()
   const codegenRes = await runChildSession({
@@ -73,11 +84,15 @@ function buildHumanMessage(
   isModify: boolean,
   currentHandlers?: string,
   currentLiveData?: string,
+  priorGateFindings?: GateFinding[],
 ): string {
   const lines = [`[PLAN_JSON]:`, JSON.stringify(plan, null, 2), ``, `[USER_REQUEST]: ${userInput}`, ``]
   if (isModify) {
     lines.push(`[CURRENT_HANDLERS]:`, currentHandlers?.trim() || `（无）`, ``)
     lines.push(`[CURRENT_LIVE_DATA]:`, currentLiveData?.trim() || `（无）`, ``)
   }
+  // 9a 门控失败清单喂回（仅重试时非空）：让 codegen 照着修 vue-tsc 错 / 完整性缺 type / 运行时错
+  const gateSection = formatGateFindingsForCodegen(priorGateFindings ?? [])
+  if (gateSection) lines.push(gateSection, ``)
   return lines.join("\n")
 }

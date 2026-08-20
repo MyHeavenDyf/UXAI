@@ -5,28 +5,28 @@ export function extractJson(text: string) {
   // ==========================================
   // 1. 边界防守与初步清洗
   // ==========================================
-  if (!text || typeof text !== 'string' || !text.trim()) return null;
+  if (!text || typeof text !== "string" || !text.trim()) return null
 
-  let cleanText = text;
+  let cleanText = text
 
   // 如果字符串两头带着外层包裹的双引号（常见于从某些 API 直接读取的 Raw 字符串），先剥离
   if (cleanText.startsWith('"') && cleanText.endsWith('"')) {
-    cleanText = cleanText.slice(1, -1);
+    cleanText = cleanText.slice(1, -1)
   }
 
   // 清洗不可见字符
-  cleanText = cleanText.replace(/[\u00a0\u1680\u180e\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/g, " ");
+  cleanText = cleanText.replace(/[\u00a0\u1680\u180e\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/g, " ")
 
   // ==========================================
   // 2. 移除大模型的思维链
   // ==========================================
-  if (cleanText.includes('</think>')) {
-    const thinkEndIndex = cleanText.indexOf('</think>') + '</think>'.length;
-    const realJsonStart = cleanText.search(/[\{\[]/);
+  if (cleanText.includes("</think>")) {
+    const thinkEndIndex = cleanText.indexOf("</think>") + "</think>".length
+    const realJsonStart = cleanText.search(/[\{\[]/)
     if (realJsonStart !== -1 && realJsonStart > thinkEndIndex) {
-      cleanText = cleanText.slice(realJsonStart);
+      cleanText = cleanText.slice(realJsonStart)
     } else {
-      cleanText = cleanText.slice(thinkEndIndex);
+      cleanText = cleanText.slice(thinkEndIndex)
     }
   }
 
@@ -38,67 +38,68 @@ export function extractJson(text: string) {
   const repairInvalidQuotes = (jsonStr: string) => {
     return jsonStr.replace(/(:\s*")([\s\S]*?)("\s*[,}])/g, (match, p1, p2, p3) => {
       // 将值内部那些由于大模型粗心导致的裸双引号，替换为中文双引号
-      const repairedP2 = p2.replace(/"/g, '“'); 
-      return p1 + repairedP2 + p3;
-    });
-  };
+      const repairedP2 = p2.replace(/"/g, "“")
+      return p1 + repairedP2 + p3
+    })
+  }
 
   // ==========================================
   // 3. 优先匹配 Markdown 代码块
   // ==========================================
   try {
-    const match = cleanText.match(/```(?:json)?\s*([\s\S]*?)\n?```/);
-    let raw = match ? match[1] : cleanText;
-    raw = raw.trim();
+    // 取最后一个 ```json 代码块（final JSON 通常在最后；reasoning 草稿里的 ```json 在前会被跳过）
+    const matches = [...cleanText.matchAll(/```(?:json)?\s*([\s\S]*?)\n?```/g)]
+    let raw = matches.length > 0 ? matches[matches.length - 1][1] : cleanText
+    raw = raw.trim()
 
     try {
       // 尝试直接正常解析
-      return JSON.parse(raw);
+      return JSON.parse(raw)
     } catch (primaryErr) {
       // 💥 第一次抢救：如果是常规匹配成功但解析报错，极大概率是内部双引号冲突，尝试修复它
-      const repairedRaw = repairInvalidQuotes(raw);
-      return JSON.parse(repairedRaw);
+      const repairedRaw = repairInvalidQuotes(raw)
+      return JSON.parse(repairedRaw)
     }
   } catch (err) {
     // ==========================================
     // 4. 绝地求生（无需次数限制的无损全拉满版）
     // ==========================================
-    const lastIdxOfBrace = cleanText.lastIndexOf("}");
-    const lastIdxOfBracket = cleanText.lastIndexOf("]");
-    
-    const endChar = lastIdxOfBracket > lastIdxOfBrace ? "]" : "}";
-    const startChar = endChar === "]" ? "[" : "{";
+    const lastIdxOfBrace = cleanText.lastIndexOf("}")
+    const lastIdxOfBracket = cleanText.lastIndexOf("]")
 
-    let end = cleanText.lastIndexOf(endChar);
-    if (end === -1) return null;
+    const endChar = lastIdxOfBracket > lastIdxOfBrace ? "]" : "}"
+    const startChar = endChar === "]" ? "[" : "{"
 
-    let start = cleanText.lastIndexOf(startChar, end);
-    let lastStart = -1; // 用来记录上一次的指针，防止死循环
+    let end = cleanText.lastIndexOf(endChar)
+    if (end === -1) return null
+
+    let start = cleanText.lastIndexOf(startChar, end)
+    let lastStart = -1 // 用来记录上一次的指针，防止死循环
 
     while (start !== -1 && start !== lastStart) {
-      lastStart = start;
+      lastStart = start
       try {
-        let rawjson = cleanText.substring(start, end + 1).trim();
-        
+        let rawjson = cleanText.substring(start, end + 1).trim()
+
         try {
           // 盲猜解析
-          const parsed = JSON.parse(rawjson);
-          if (parsed && typeof parsed === "object") return parsed;
+          const parsed = JSON.parse(rawjson)
+          if (parsed && typeof parsed === "object") return parsed
         } catch {
           // 💥 第二次抢救：如果截取片段无法解析，强行洗一遍内部的恶性双引号再试
-          const repairedRawJson = repairInvalidQuotes(rawjson);
-          const parsed = JSON.parse(repairedRawJson);
+          const repairedRawJson = repairInvalidQuotes(rawjson)
+          const parsed = JSON.parse(repairedRawJson)
           if (parsed && typeof parsed === "object") {
-            return parsed; // 🎉 成功强行抢救！
+            return parsed // 🎉 成功强行抢救！
           }
         }
       } catch {
         // 核心优化：直接找上一个起始符，只要指针在往前走，就允许它一直找，直到文本开头
-        start = cleanText.lastIndexOf(startChar, start - 1);
+        start = cleanText.lastIndexOf(startChar, start - 1)
       }
     }
 
-    return null;
+    return null
   }
 }
 
@@ -111,7 +112,12 @@ export function extractJson(text: string) {
  * @param knownIds   调用 promptAsync 之前已存在的消息 ID 集合，用于区分新消息
  */
 export function getResultFromMessages(
-  sync: { data: { message: Record<string, Array<Record<string, unknown>>>; part: Record<string, Array<Record<string, unknown>>> } },
+  sync: {
+    data: {
+      message: Record<string, Array<Record<string, unknown>>>
+      part: Record<string, Array<Record<string, unknown>>>
+    }
+  },
   sessionId: string,
   knownIds: Set<string>,
 ): Promise<string> {
@@ -119,7 +125,10 @@ export function getResultFromMessages(
     let disposed = false
     createRoot((dispose) => {
       createEffect(() => {
-        if (disposed) { dispose(); return }
+        if (disposed) {
+          dispose()
+          return
+        }
         const messages = (sync.data.message[sessionId] ?? []) as Array<Record<string, unknown>>
         // 从末尾找最新的、不在 knownIds 中的 assistant 消息
         let target: Record<string, unknown> | undefined
@@ -148,6 +157,68 @@ export function getResultFromMessages(
         const texts: string[] = []
         for (const p of parts) {
           if (p.type === "text" && p.text) texts.push(p.text as string)
+        }
+        dispose()
+        resolve(texts.join("\n"))
+      })
+    })
+  })
+}
+
+/**
+ * codegen 代码生成专用宽松提取：扫描所有新 assistant 消息（不只最新一条）的所有 part
+ * （text + reasoning），拼接返回。3D codegen 输出 `## file:` Markdown 代码块（非 JSON），
+ * 代码可能落在 text 或 reasoning part——这里全收集，交 parseCodeFiles 用正则提取。
+ * 与 getResultFromMessages（为 JSON 设计：取最新一条 assistant 的 text）的区别：
+ * ① 遍历所有新 assistant 消息；② 收集 reasoning part；③ 等所有新消息完成。
+ */
+export function getResultFromMessagesLoose(
+  sync: {
+    data: {
+      message: Record<string, Array<Record<string, unknown>>>
+      part: Record<string, Array<Record<string, unknown>>>
+    }
+  },
+  sessionId: string,
+  knownIds: Set<string>,
+): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    let disposed = false
+    createRoot((dispose) => {
+      createEffect(() => {
+        if (disposed) {
+          dispose()
+          return
+        }
+        const messages = (sync.data.message[sessionId] ?? []) as Array<Record<string, unknown>>
+        const newMsgs = messages.filter((m) => m.role === "assistant" && !knownIds.has(m.id as string))
+        if (newMsgs.length === 0) return
+        // 等所有新 assistant 消息完成（未完成=还在生成，继续等）
+        if (
+          !newMsgs.every((m) => {
+            const t = m.time as { completed?: number } | undefined
+            return typeof t?.completed === "number"
+          })
+        )
+          return
+        // 中止检测
+        for (const m of newMsgs) {
+          const msgError = m.error as { name?: string } | undefined
+          if (msgError?.name === "MessageAbortedError") {
+            disposed = true
+            dispose()
+            reject(new Error("aborted"))
+            return
+          }
+        }
+        // 收集所有新 assistant 消息的 text + reasoning part（codegen 代码块可能在任一）
+        const texts: string[] = []
+        for (const m of newMsgs) {
+          const parts = (sync.data.part[m.id as string] ?? []) as Array<Record<string, unknown>>
+          for (const p of parts) {
+            if (p.type === "text" && p.text) texts.push(p.text as string)
+            if (p.type === "reasoning" && p.text) texts.push(p.text as string)
+          }
         }
         dispose()
         resolve(texts.join("\n"))

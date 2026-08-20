@@ -1,14 +1,16 @@
 /**
- * 导出 3d-templete 工程为开发者可独立运行的 zip。
+ * 导出 3d-templete 工程为开发者可独立运行的 zip（Step 10）。
  *
- * 流程（file: 协议内嵌 3d-components，绕过 npm 发布）：
- * 1. 复制 3d-templete/ → 临时目录（排除 node_modules/dist/.git）
- * 2. 复制 3d-components/dist/ → 临时目录/vendor/3d-components/（预 build 产物）
- * 3. 改副本 package.json：加 `"@cyc/3d-components": "file:./vendor/3d-components"`
- * 4. 删副本 vite.config.ts 的 @cyc/3d-components alias（即 package.json:20 注释里既定的"生产形态切换"）
- * 5. 注入：当前场景 JSON 覆盖 public/live-data.json
- * 6. 替换 README.md 为开发者说明
- * 7. exportProjectZip IPC 打包，comment "scene-3d"
+ * 产物 = 母版 3d-templete 副本 + 注入：
+ *   1. 当前版本生成的 handler 代码（codeDir → src/3d/managers/component/handlers/... + index.ts，覆盖母版基础 handler）
+ *   2. 场景数据 public/live-data.json（sceneConfig，in-memory 当前 merged 为权威）
+ *   3. 开发者 README.md
+ *   4. 改 package.json：加 `@a3d/a3d-components: file:./vendor/3d-components`（libraryBridge 用此名 import）
+ *   5. 删副本 vite.config.ts 的 @a3d/a3d-components alias（让其走 node_modules → vendor）
+ *   6. vendor 3d-components/dist → vendor/3d-components/dist + 精简 vendor package.json（name @a3d/a3d-components）
+ *
+ * 导出后 `npm install && npm run dev` → 开 / 路由 → Scene3D 调 loadLiveDataConfig() 自加载 live-data.json
+ * 渲染生成场景，无需 host（3d-templete 独立加载已具备，见 Embed.vue/Scene3D.vue）。
  */
 import { showToast } from "@opencode-ai/ui/toast"
 import { getDesktopApi } from "../desktop-api"
@@ -17,7 +19,7 @@ import type { SceneConfig } from "../scene-config"
 /** 开发者 README 内容 */
 const DEV_README = `# 3D Scene Project
 
-This project was exported from the 3D scene editor.
+This project was exported from the 3D scene editor — it contains the generated scene (handlers + live-data), vendored 3d-components, and runs standalone (no host needed).
 
 ## Quick Start
 
@@ -26,25 +28,33 @@ npm install
 npm run dev
 \`\`\`
 
-Open http://127.0.0.1:5173 in your browser to view the scene.
+Open http://127.0.0.1:5173/ in your browser — the \`/\` route loads \`public/live-data.json\` and renders the scene.
 
 ## Project Structure
 
-- Scene data: \`public/live-data.json\`
-- Engine: 3d-templete (Vue 3 + Vite + Three.js)
-- Components: @cyc/3d-components (bundled as file: dependency)
+- Scene data: \`public/live-data.json\` (TreeScene: grouped flat \`{ [type]: [{ id, params, parentId }] }\` + camera/lights)
+- Generated handlers: \`src/3d/managers/component/handlers/<type>/<type>.ts\` (LLM-written, registered in \`handlers/index.ts\`)
+- 3D engine: 3d-templete (Vue 3 + Vite + Three.js)
+- Components: \`vendor/3d-components/\` (vendored as \`file:\` dependency, installs offline)
 
 ## Customization
 
-Edit \`public/live-data.json\` to change the scene configuration.
-See the LiveDataConfig schema for available options.
+- Edit \`public/live-data.json\` to change scene data (add/remove objects per type, or top-level \`remove: [ids]\`).
+- Edit handlers under \`src/3d/managers/component/handlers/\` to change how a type is built/animated.
+- Scene data contract: each handler exposes \`dataSchema\` (props contract for its type).
+
+## Real-time Updates (optional)
+
+Poll your own API and call \`window.scene3d.update(patch)\` where \`patch\` is a TreeScene
+(add/change objects per type, or \`{ remove: [ids] }\`). See \`?update=...\` in \`src/views/Scene3D.vue\` for the demo poller.
 `
 
 export async function exportProject(opts: {
-  templateSrc: string          // 3d-templete 源码绝对路径
-  componentsSrc: string        // 3d-components 源码绝对路径
-  sceneConfig: SceneConfig     // 当前场景数据（注入为 live-data.json）
+  templateSrc: string          // 3d-templete 源码绝对路径（母版）
+  componentsSrc: string        // 3d-components 源码绝对路径（取 dist + package.json）
+  sceneConfig: SceneConfig     // 当前场景数据（注入为 public/live-data.json）
   defaultName: string          // zip 默认文件名
+  codeDir?: string             // 当前版本生成代码归档目录（version-history，无则仅导母版+live-data）
 }): Promise<void> {
   const desktopApi = getDesktopApi()
 
@@ -53,30 +63,46 @@ export async function exportProject(opts: {
     return
   }
 
-  // injectFiles: 需要注入/覆盖的文件
+  // injectFiles: codeDir 生成代码先入、sceneConfig live-data 后入为权威
   const injectFiles: { path: string; content: string }[] = []
 
-  // 1. 注入场景 JSON → public/live-data.json
+  // 1. 注入当前版本生成的 handler 代码（codeDir → workspace 相对路径）
+  //    读法复用 workspace.ts overlayVersionCode：listDirectory + readFileBuffer + TextDecoder。
+  //    过滤 live-data.json：以第 2 步 sceneConfig 注入为权威，避免双注歧义。
+  if (opts.codeDir && desktopApi.listDirectory) {
+    try {
+      const entries = await desktopApi.listDirectory(opts.codeDir)
+      for (const e of entries) {
+        if (e.type !== "file") continue
+        if (e.path === "public/live-data.json" || e.path.endsWith("/live-data.json")) continue
+        const buf = await desktopApi.readFileBuffer(`${opts.codeDir}/${e.path}`)
+        if (!buf) continue
+        injectFiles.push({ path: e.path, content: new TextDecoder().decode(buf) })
+      }
+    } catch {
+      // codeDir 读失败：best-effort 跳过，仍导母版+live-data
+    }
+  }
+
+  // 2. 注入场景 JSON → public/live-data.json（in-memory 当前 merged scene 为权威）
   injectFiles.push({
     path: "public/live-data.json",
     content: JSON.stringify(opts.sceneConfig, null, 2),
   })
 
-  // 2. 注入开发者 README
+  // 3. 注入开发者 README
   injectFiles.push({
     path: "README.md",
     content: DEV_README,
   })
 
-  // 3. 改 package.json：加 @cyc/3d-components file: 依赖
-  //    读取原始 package.json，解析后改写，再加回 injectFiles
+  // 4. 改 package.json：加 @a3d/a3d-components file: 依赖（libraryBridge 用此名 import）
   try {
     const pkgJsonBuf = await desktopApi.readFileBuffer(`${opts.templateSrc}/package.json`)
     if (pkgJsonBuf) {
       const pkgJson = JSON.parse(new TextDecoder().decode(pkgJsonBuf))
-      // 加 file: 依赖（指向 vendor 目录，3d-components dist 会被手动复制进去）
       if (!pkgJson.dependencies) pkgJson.dependencies = {}
-      pkgJson.dependencies["@cyc/3d-components"] = "file:./vendor/3d-components"
+      pkgJson.dependencies["@a3d/a3d-components"] = "file:./vendor/3d-components"
       injectFiles.push({
         path: "package.json",
         content: JSON.stringify(pkgJson, null, 2),
@@ -86,16 +112,15 @@ export async function exportProject(opts: {
     console.warn("[export-project] 读取 package.json 失败，跳过改写")
   }
 
-  // 4. 改 vite.config.ts：删除 @cyc/3d-components alias 行
-  //    读原文件，删除含 '@cyc/3d-components' 的 alias 行，注入修改版
+  // 5. 改 vite.config.ts：删除 @a3d/a3d-components alias 行（让其走 node_modules → vendor）
   try {
     const viteConfigBuf = await desktopApi.readFileBuffer(`${opts.templateSrc}/vite.config.ts`)
     if (viteConfigBuf) {
       const original = new TextDecoder().decode(viteConfigBuf)
-      // 删除含 @cyc/3d-components 的 resolve.alias 条目行
       const lines = original.split("\n")
+      // 删除含 @a3d/a3d-components 的 alias 条目行；注释行（含 //）保留
       const filtered = lines.filter(
-        (line) => !line.includes("@cyc/3d-components") || line.includes("//"),
+        (line) => !line.includes("@a3d/a3d-components") || line.includes("//"),
       )
       injectFiles.push({
         path: "vite.config.ts",
@@ -106,12 +131,38 @@ export async function exportProject(opts: {
     console.warn("[export-project] 读取 vite.config.ts 失败，跳过改写")
   }
 
-  // 5. 调用 exportProjectZip IPC
+  // 6. 注入 vendor package.json（精简：仅 runtime 字段，剥 prepare/husky/scripts 避免 npm install 跑它）
+  try {
+    const libPkgBuf = await desktopApi.readFileBuffer(`${opts.componentsSrc}/package.json`)
+    if (libPkgBuf) {
+      const lib = JSON.parse(new TextDecoder().decode(libPkgBuf))
+      const vendorPkg = {
+        name: lib.name, // @a3d/a3d-components（与 project package.json file: 依赖名一致）
+        version: lib.version,
+        type: lib.type,
+        main: lib.main,
+        module: lib.module,
+        types: lib.types,
+        exports: lib.exports,
+        sideEffects: lib.sideEffects,
+        peerDependencies: lib.peerDependencies,
+      }
+      injectFiles.push({
+        path: "vendor/3d-components/package.json",
+        content: JSON.stringify(vendorPkg, null, 2),
+      })
+    }
+  } catch {
+    console.warn("[export-project] 读取 3d-components package.json 失败，vendor 依赖可能不完整")
+  }
+
+  // 7. exportProjectZip：copyDirs 把 3d-components/dist 复制到 vendor/3d-components/dist
   const result = await desktopApi.exportProjectZip({
     sourceDir: opts.templateSrc,
     defaultName: opts.defaultName,
     ignore: ["node_modules", "dist", ".git", ".claude", ".octo"],
     injectFiles,
+    copyDirs: [{ from: `${opts.componentsSrc}/dist`, to: "vendor/3d-components/dist" }],
     comment: "scene-3d",
   })
 

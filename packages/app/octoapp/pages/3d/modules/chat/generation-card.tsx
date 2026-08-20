@@ -8,13 +8,14 @@ export function GenerationCard(props: {
   error?: string
   errorAgent?: string
   errorCallId?: string
+  errorDescription?: string
   needsConfirm: boolean
   confirmText?: { title: string; subtitle: string } | null
   onRetry?: () => void
 }): JSX.Element {
   const cardState = () => {
     if (props.error) {
-      const parts = [props.errorAgent, "生成异常，请重试"].filter(Boolean)
+      const parts = [props.errorAgent].filter(Boolean)
       return { title: props.error, subtitle: parts.join(" · "), badge: "gc-error-badge", badgeText: "失败" } as const
     }
     if (props.needsConfirm && props.confirmText) return { title: props.confirmText.title, subtitle: props.confirmText.subtitle, badge: "gc-confirm-badge", badgeText: "待确认" } as const
@@ -35,6 +36,9 @@ export function GenerationCard(props: {
           </span>
           <div class="flex flex-col min-w-0 flex-1">
             <span class="gc-title truncate">{cardState().title}</span>
+            <Show when={props.errorDescription}>
+              <span class="gc-error-desc">{props.errorDescription}</span>
+            </Show>
             <Show when={cardState().subtitle}>
               <span class="gc-subtitle">{cardState().subtitle}</span>
             </Show>

@@ -1980,7 +1980,13 @@ const layer: Layer.Layer<
         if (existing) return existing
 
         const customFetch = options["fetch"]
-        const chunkTimeout = options["chunkTimeout"]
+        // 默认 90s 无新 chunk 即 abort：远程 provider（GLM/DeepSeek）不走 bypass 兜底，
+        // 而调用方从没传 chunkTimeout → wrapSSE 的间隔超时是死代码 → SSE 静默断时无限假死。
+        // 注入默认值让其生效；正常长生成持续来 token 会 reset timer，不会误杀。
+        const chunkTimeout =
+          typeof options["chunkTimeout"] === "number" && options["chunkTimeout"] > 0
+            ? options["chunkTimeout"]
+            : 90_000
         delete options["chunkTimeout"]
 
         options["fetch"] = async (input: any, init?: BunFetchRequestInit) => {

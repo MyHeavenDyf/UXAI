@@ -10,7 +10,7 @@
  */
 import { createEffect, createSignal, on, onCleanup, Show } from "solid-js"
 import type { SceneConfig, SceneConfigObject3D, ScenePatch } from "../../utils/scene-config"
-import { showToast } from "@opencode-ai/ui/toast"
+import type { ConsoleEntry } from "../../utils/scene-gate"
 import { PropertyEditor3DPopup } from "./property-editor-popup"
 import { TitleBar3D } from "./title-bar"
 import type { VersionEntry } from "../../utils/version-history"
@@ -35,6 +35,8 @@ export function PreviewPage3D(props: {
   previewSrc: string
   sessionId?: string
   onReady?: () => void
+  /** iframe 运行时错误（SCENE_CONSOLE_ERROR / SCENE_ERROR）回调父组件，供 9a 门控 buffer 收集 + 持久化（不走消失 toast） */
+  onConsoleError?: (entry: ConsoleEntry) => void
   /** 编辑器产生增量补丁时回调父组件（用于回写 authoritative state + 持久化，避免编辑丢失） */
   onPatch?: (patch: ScenePatch) => void
   /** 以下 TitleBar 回调由 pages/3d/index.tsx 传入 */
@@ -173,9 +175,19 @@ export function PreviewPage3D(props: {
     } else if (type === "SCENE_PICK") {
       console.log("[3d] SCENE_PICK:", e.data?.id)
       handlePick({ id: e.data?.id })
+    } else if (type === "SCENE_CONSOLE_ERROR") {
+      // 9a 门控：iframe 转发的运行时 console.error / window error / unhandledrejection
+      const entry: ConsoleEntry = {
+        level: e.data?.level === "warn" ? "warn" : "error",
+        message: e.data?.message ?? "未知运行时错误",
+        stack: e.data?.stack,
+      }
+      console.error("[3d] SCENE_CONSOLE_ERROR:", entry.level, entry.message)
+      props.onConsoleError?.(entry)
     } else if (type === "SCENE_ERROR") {
+      // 场景构建 fatal（createScene3D 抛错）：不再走消失 toast，改路由到 9a 持久化通道
       console.error("[3d] SCENE_ERROR:", e.data?.message)
-      showToast({ title: "场景渲染失败", description: e.data?.message ?? "未知错误" })
+      props.onConsoleError?.({ level: "error", message: e.data?.message ?? "未知错误", fatal: true })
     }
   }
 

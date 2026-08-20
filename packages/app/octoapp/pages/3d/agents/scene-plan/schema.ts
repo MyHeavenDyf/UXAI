@@ -10,10 +10,15 @@ const schema = {
           type: { type: "string" },
           purpose: { type: "string" },
           implementation: { type: "string", enum: ["native", "component", "model"] },
+          build_detail: {
+            type: "string",
+            description:
+              "具体建法：关键几何+尺寸+材质(hex+roughness/metalness)+结构(网格/间距/位置)+组件 options 关键字段+loadModel src+delete 返回值。供 codegen 照抄，避免 codegen 在 reasoning 里重新设计",
+          },
           components: { type: "array", items: { type: "string" } },
           resources: { type: "array", items: { type: "string" } },
         },
-        required: ["type", "purpose", "implementation", "components", "resources"],
+        required: ["type", "purpose", "implementation", "build_detail", "components", "resources"],
         additionalProperties: false,
       },
     },

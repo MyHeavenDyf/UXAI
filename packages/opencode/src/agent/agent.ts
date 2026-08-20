@@ -621,14 +621,11 @@ export const layer = Layer.effect(
           scene_3d_plan: {
             name: "scene_3d_plan",
             description:
-              "3D scene plan agent — picks type / component / resource via list_3d_components + get_3d_component_doc.",
+              "3D scene plan agent — picks type / component / resource（组件目录已静态注入 prompt，不调工具）.",
             prompt: PROMPT_SCENE_3D_PLAN,
-            permission: Permission.fromConfig({
-              "*": "deny",
-              list_3d_components: "allow",
-              get_3d_component_doc: "allow",
-              read: "allow",
-            }),
+            // 组件目录（name + 构造 + Options + DataTypes）已静态注入 prompt（{COMPONENT_CATALOG}），无需运行时工具。
+            // 删 list_3d_components / get_3d_component_doc / read 权限省 3-7 轮 LLM 往返（Step 8 加速①）。
+            permission: Permission.fromConfig({ "*": "deny" }),
             options: {},
             mode: "primary",
             native: false,

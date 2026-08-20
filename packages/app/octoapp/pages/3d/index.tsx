@@ -54,6 +54,7 @@ import {
 import * as workspace from "./utils/workspace"
 import { getMockCodegen } from "./utils/mock-codegen"
 import {
+  saveCheckpoint,
   saveSceneReviewCheckpoint,
   loadSceneReviewCheckpoint,
   clearSceneReviewCheckpoint,
@@ -66,6 +67,8 @@ import {
 } from "./utils/scene-checkpoint"
 import { logStartSession, clearDebugLog, saveDebugSnapshot } from "./utils/debug-log"
 import { classifyAIError, saveProtoError, loadProtoError, clearProtoError, type ProtoError } from "./utils/error-msg"
+import { runSceneGate, type GateFinding, type ConsoleEntry } from "./utils/scene-gate"
+import type { PlanResult } from "./agents/scene-plan"
 import { autoRenameSession } from "./utils/rename"
 import { groupRounds } from "./utils/round-messages"
 import type { SceneConfig, SceneConfigObject3D, ScenePatch } from "./utils/scene-config"
@@ -182,6 +185,11 @@ function Scene3DContent() {
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [isDragOver, setIsDragOver] = createSignal(false)
   const [sessionErrors, setSessionErrors] = createSignal<Record<string, ProtoError>>({})
+  // 9a 门控：iframe 运行时错误 buffer（gate 期间收集，供 runSceneGate 读）+ 上轮 findings（喂回重试）
+  const [consoleBuffer, setConsoleBuffer] = createSignal<ConsoleEntry[]>([])
+  const [lastGateFindings, setLastGateFindings] = createSignal<Record<string, GateFinding[]>>({})
+  /** SCENE_READY resolver：gate 的 awaitSceneSettled 安装、onReady 触发 resolve（非 gate 期为 null） */
+  let sceneReadyResolver: (() => void) | null = null
   const [pauseMs, setPauseMs] = createSignal<Record<string, number>>({})
   const [pauseStart, setPauseStart] = createSignal<Record<string, number | undefined>>({})
 
@@ -484,6 +492,7 @@ function Scene3DContent() {
       rounds[rounds.length - 1] = {
         ...rounds[rounds.length - 1],
         error: protoErr.title,
+        errorDescription: protoErr.description,
         errorAgent: protoErr.agentLabel,
         errorCallId: protoErr.agentCallId,
       }
@@ -531,13 +540,14 @@ function Scene3DContent() {
     if (error.title) {
       setSessionErrors((prev) => ({
         ...prev,
-        [sessionId]: { title: error.title, agentLabel: error.agentLabel, agentCallId: error.agentCallId },
+        [sessionId]: { title: error.title, description: error.description, agentLabel: error.agentLabel, agentCallId: error.agentCallId },
       }))
       showToast({ title: error.title, description: error.description })
       const errDir = sceneHistoryDir()
       if (errDir)
         void saveProtoError(errDir, sessionId, {
           title: error.title,
+          description: error.description,
           agentLabel: error.agentLabel,
           agentCallId: error.agentCallId,
         })
@@ -563,6 +573,12 @@ function Scene3DContent() {
         showToast({ title: "无断点记录", description: "未找到可恢复的进度，请重新生成" })
         return
       }
+    }
+
+    // 9a codegen 重试分支：stage==="codegen" → 用原 userInput + lastGateFindings 喂回 codegen_scene
+    if (ckpt?.stage === "codegen") {
+      await retryCodegen(sid, ckpt.userInput)
+      return
     }
 
     // 兼容：从统一检查点提取旧格式数据
@@ -785,6 +801,124 @@ function Scene3DContent() {
     }
   }
 
+  // ── 9a 门控：确定性结构健全性检查的 host 编排 ──
+  /** 等 iframe SCENE_READY + 1s settle（捕获异步模型加载错），15s 超时 → scene-not-ready */
+  function awaitSceneSettled(): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        sceneReadyResolver = null
+        reject(new Error("场景就绪超时（15s 未收到 SCENE_READY）"))
+      }, 15000)
+      sceneReadyResolver = () => {
+        clearTimeout(timer)
+        // settle 1s 再放行，捕获异步模型加载 console 错
+        setTimeout(() => {
+          sceneReadyResolver = null
+          resolve()
+        }, 1000)
+      }
+    })
+  }
+
+  /** codegen 成功物化预览后跑 9a 门控：失败写 sessionErrors+saveProtoError+stash findings；全过清 */
+  async function runGateAndPersist(
+    sid: string,
+    plan: PlanResult,
+    sceneData: Record<string, unknown> | null,
+  ): Promise<void> {
+    const dir = sceneHistoryDir()
+    const sdkDir = sdk.directory
+    if (!dir || !sdkDir) return
+    setConsoleBuffer([])
+    const gate = await runSceneGate({
+      plan,
+      sceneData,
+      awaitSceneSettled,
+      readConsoleBuffer: () => consoleBuffer(),
+    })
+    console.log("[3d] 9a 门控结果:", gate.passed ? "PASS" : "FAIL", gate.findings)
+    if (gate.passed) {
+      setLastGateFindings((prev) => {
+        const n = { ...prev }
+        delete n[sid]
+        return n
+      })
+      await clearProtoError(dir, sid)
+      await clearSceneCheckpoint(dir, sid)
+    } else {
+      const errs = gate.findings.filter((f) => f.level === "error")
+      // title 直接用根因 message（去「9a 门控」内部代号 + code 代号，让用户看懂「为什么渲染不出来」）
+      const title = errs.length > 0 ? errs.map((f) => f.message).join("；") : "场景渲染未通过"
+      setSessionErrors((prev) => ({ ...prev, [sid]: { title, agentLabel: "场景渲染失败" } }))
+      setLastGateFindings((prev) => ({ ...prev, [sid]: gate.findings }))
+      await saveProtoError(dir, sid, { title, agentLabel: "场景渲染失败" })
+    }
+  }
+
+  /** 9a 门控失败重试：从 codegen 检查点恢复原 userInput + 喂回 lastGateFindings 重跑 codegen_scene */
+  async function retryCodegen(sid: string, userInput: string): Promise<void> {
+    const mk = activeModelKey()
+    if (!mk) return
+    const priorGateFindings = lastGateFindings()[sid] ?? []
+    setSessionErrors((prev) => {
+      const n = { ...prev }
+      delete n[sid]
+      return n
+    })
+    const clearDir = sceneHistoryDir()
+    if (clearDir) await clearProtoError(clearDir, sid)
+    setSendingSids((prev) => new Set(prev).add(sid))
+
+    const hasScene = (lastSceneObjects()[sid] ?? []).length > 0
+    if (hasScene) sessionMap.set(setIsModifying, sid, true)
+    const intentCtx: SceneCreateInput = {
+      sdk,
+      sync,
+      modelKey: mk,
+      rootSession: sid,
+      userInput,
+      onSessionCreated: (childID: string) => {
+        if (params.id !== sid) return
+        setChildSessionIDs((prev) => [...prev, childID])
+      },
+    }
+    try {
+      const codegenResult = await codegen_scene({
+        ...intentCtx,
+        hasScene,
+        sceneDir: sceneHistoryDir(),
+        priorGateFindings,
+        onCodeReady: async (files, sceneData, summary) => {
+          await onCodeVersionReady(files, summary, sceneData)
+        },
+      })
+      if (params.id !== sid) return
+      if (sid) sessionMap.set(setIsModifying, sid, false)
+      if (codegenResult.error) {
+        setSessionErrors((prev) => ({
+          ...prev,
+          [sid]: { title: codegenResult.error!, agentLabel: "3D 代码生成" },
+        }))
+        const errDir = sceneHistoryDir()
+        if (errDir) void saveProtoError(errDir, sid, { title: codegenResult.error!, agentLabel: "3D 代码生成" })
+      } else if (codegenResult.routing === "chat" && codegenResult.reply) {
+        showToast({ title: codegenResult.reply })
+      } else if (codegenResult.plan) {
+        await runGateAndPersist(sid, codegenResult.plan, codegenResult.sceneData ?? null)
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message === "aborted") return
+      await handleWorkflowError(err, sid, "retryCodegen")
+    } finally {
+      setSendingSids((prev) => {
+        const n = new Set(prev)
+        n.delete(sid)
+        return n
+      })
+      if (sid) sessionMap.set(setIsModifying, sid, false)
+    }
+  }
+
   // ── 核心提交链 ──
   async function handleSubmit() {
     const text = prompt().trim()
@@ -865,6 +999,16 @@ function Scene3DContent() {
           .catch(() => {})
       }
 
+      // 9a：保存 codegen 检查点（供门控失败后重试喂回 priorGateFindings）
+      const ckptDir = sceneHistoryDir()
+      if (ckptDir) {
+        void saveCheckpoint(ckptDir, sid!, {
+          stage: "codegen",
+          userInput: text,
+          rootSessionId: sid!,
+          createdAt: Date.now(),
+        })
+      }
       const codegenResult = await codegen_scene({
         ...intentCtx,
         hasScene,
@@ -875,8 +1019,20 @@ function Scene3DContent() {
       })
       if (params.id !== sid) return
       if (sid) sessionMap.set(setIsModifying, sid, false)
-      if (codegenResult.routing === "chat" && codegenResult.reply) {
+      // codegen 失败（API 错误 / 限流 / 解析空 / LLM 未产代码块）→ 写进 sessionErrors + saveProtoError，
+      // 由 roundMessages → GenerationCard 持久显示失败卡片（带重试），扛 reload，不靠会消失的 toast。
+      if (codegenResult.error) {
+        setSessionErrors((prev) => ({
+          ...prev,
+          [sid!]: { title: codegenResult.error!, agentLabel: "3D 代码生成" },
+        }))
+        const errDir = sceneHistoryDir()
+        if (errDir) void saveProtoError(errDir, sid!, { title: codegenResult.error!, agentLabel: "3D 代码生成" })
+      } else if (codegenResult.routing === "chat" && codegenResult.reply) {
         showToast({ title: codegenResult.reply })
+      } else if (codegenResult.plan) {
+        // 9a 门控：codegen 成功物化预览后跑确定性门控（完整性 + vue-tsc + 运行时 console）
+        await runGateAndPersist(sid!, codegenResult.plan, codegenResult.sceneData ?? null)
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.message === "aborted") return
@@ -1248,6 +1404,9 @@ function Scene3DContent() {
       sessionMap.set(setHasPreviewContent, sid, true)
     }
     const vid = await appendSceneVersion(dir, sid, state, summary, codeFiles)
+    console.log(
+      `[onCodeVersionReady] appendSceneVersion vid=${vid} codeFiles=${codeFiles?.length ?? 0}个 codeDir=${codeDirPath(dir, sid, vid)}`,
+    )
     // 刷新版本菜单
     const { versions: versionEntries, current } = await listSceneVersions(dir, sid)
     if (params.id === sid) {
@@ -1255,7 +1414,10 @@ function Scene3DContent() {
       sessionMap.set(setCurrentVersionId, sid, current)
     }
     // workspace re-materialize + 铺该版本 code delta + 启 dev（await ready 后再 bump nonce，否则 iframe 加载死链）
-    await workspace.switchVersion(sdk.directory, codeDirPath(dir, sid, vid))
+    const devUrl = await workspace.switchVersion(sdk.directory, codeDirPath(dir, sid, vid))
+    console.log(
+      `[onCodeVersionReady] switchVersion ok devUrl=${devUrl} pendingData keys=${sceneData ? Object.keys(sceneData).join(",") : "无"} → 即将 workspaceActive+wsNonce++ 触发 iframe 重载`,
+    )
     if (params.id !== sid) return
     setWorkspaceActive(true)
     setWsNonce((n) => n + 1)
@@ -1332,11 +1494,13 @@ function Scene3DContent() {
       showToast({ title: "未配置工程源码路径（VITE_3D_TEMPLATE_SRC / VITE_3D_COMPONENTS_SRC）" })
       return
     }
+    const sceneState = await loadCurrentSceneState(sceneHistoryDir(), sid)
     const title = sessionInfo()?.title ?? `3d-scene-${sid}`
     await exportProject({
       templateSrc,
       componentsSrc,
       sceneConfig: data,
+      codeDir: sceneState?.codeDir,
       defaultName: title,
     })
   }
@@ -1404,7 +1568,11 @@ function Scene3DContent() {
                         api={previewApi}
                         pendingData={pendingPreviewData()[params.id!] ?? null}
                         previewSrc={previewSrc()}
-                        onReady={() => setEmbedReady(true)}
+                        onReady={() => {
+                          setEmbedReady(true)
+                          sceneReadyResolver?.()
+                        }}
+                        onConsoleError={(entry) => setConsoleBuffer((prev) => [...prev, entry])}
                         onPatch={handleScenePatch}
                         versions={versions()[params.id!] ?? []}
                         currentVersionId={currentVersionId()[params.id!] ?? null}

@@ -18,8 +18,8 @@ import scene_3d_codegen from "../agents/scene-codegen"
 import { parseCodeFiles, extractSceneData, type CodeFile } from "../utils/parse-code-files"
 import { loadCurrentSceneState } from "../utils/version-history"
 import { getDesktopApi } from "../utils/desktop-api"
-import { showToast } from "@opencode-ai/ui/toast"
 import type { SceneCreateInput } from "./create-scene"
+import type { GateFinding } from "../utils/scene-gate"
 
 const RESERVED_TYPES = new Set(["version", "scene", "camera", "lights", "remove"])
 
@@ -30,6 +30,8 @@ export type CodegenSceneInput = SceneCreateInput & {
   sceneDir: string
   /** codegen 产物回调 → onCodeVersionReady（物化 + 预览） */
   onCodeReady: (files: CodeFile[], sceneData: Record<string, unknown> | null, summary: string) => Promise<void>
+  /** 上一轮 9a 门控失败清单（来自 handleRetry 喂回），注入 codegen 让其照着修 */
+  priorGateFindings?: GateFinding[]
 }
 
 export interface CodegenSceneResult {
@@ -37,11 +39,13 @@ export interface CodegenSceneResult {
   reply?: string
   summary?: string
   plan?: PlanResult
+  /** codegen 产出的分组 sceneData（供 host 跑 9a 完整性门控） */
+  sceneData?: Record<string, unknown> | null
   error?: string
 }
 
 export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSceneResult> {
-  const { sdk, sync, modelKey, rootSession, userInput, onSessionCreated, fileParts, hasScene, sceneDir, onCodeReady } =
+  const { sdk, sync, modelKey, rootSession, userInput, onSessionCreated, fileParts, hasScene, sceneDir, onCodeReady, priorGateFindings } =
     input
 
   // 1. 取当前场景 type 清单（modify 时供 triage 判哪些 type 可改 / 继承）
@@ -49,7 +53,6 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
 
   // 2. triage：判 routing + types
   console.log("[codegen_scene] ① triage 分诊中…")
-  showToast({ title: "3D 生成", description: "① 分诊中（判断 create/modify/chat + type 清单）…" })
   const triage = await scene_3d_triage({
     sdk,
     sync,
@@ -76,7 +79,6 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
 
   // 3. plan：选型 + 选资源 + camera/lights/scene
   console.log("[codegen_scene] ② plan 选型中…")
-  showToast({ title: "3D 生成", description: "② 选型中（浏览组件库 + 选实现路线 + camera/lights）…" })
   const plan = await scene_3d_plan({
     sdk,
     sync,
@@ -97,7 +99,6 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
     : { currentHandlers: "", currentLiveData: "" }
 
   console.log("[codegen_scene] ③ codegen 生成代码中…")
-  showToast({ title: "3D 生成", description: "③ 生成 handler 代码中（写 .ts + 全量 index + live-data）…" })
   const codegenRes = await scene_3d_codegen({
     sdk,
     sync,
@@ -110,25 +111,43 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
     isModify,
     currentHandlers,
     currentLiveData,
+    priorGateFindings,
   })
 
-  // 5. codegen 失败（API 错误 / 限流 / 超上下文 / LLM 未产文本）→ 直接报错，不进 parseCodeFiles（避免「代码解析失败」误导真实原因）
+  // 5. codegen 失败（API 错误 / 限流 / 超上下文 / LLM 未产文本）→ 透传 error 给 host，
+  //    由 handleSubmit 写进 sessionErrors → GenerationCard 持久显示失败卡片（不靠会消失的 toast）。
   if (codegenRes.error) {
-    showToast({ title: "3D 代码生成失败", description: codegenRes.error })
+    console.error("[codegen_scene] ③ codegen 失败:", codegenRes.error)
     return { routing: triage.routing, error: codegenRes.error }
   }
   // 6. 解析 Markdown → files + sceneData
   const files = parseCodeFiles(codegenRes.text)
   const sceneData = extractSceneData(files)
+  console.log(
+    `[codegen_scene] parseCodeFiles 解析到 ${files.length} 个文件:`,
+    files.map((f) => f.path),
+  )
+  console.log(`[codegen_scene] extractSceneData:`, sceneData ? `非空 (keys=${Object.keys(sceneData).join(",")})` : "空")
   if (files.length === 0) {
-    showToast({ title: "代码解析失败", description: "LLM 未输出有效的 ## file: 代码块，请重试" })
-    return { routing: triage.routing, error: "parse-empty" }
+    // 打印原始输出便于诊断（LLM 是否产了代码块 / 是否落在 reasoning / 是否只产自然语言 / 是否 token 截断）
+    console.error(
+      `[codegen_scene] parseCodeFiles 返回 0 个文件。text.length=${codegenRes.text.length}（若很大且无 ## file: → 疑似 LLM reasoning 占满 output token，代码块未产出）`,
+    )
+    console.error(`[codegen_scene] 输出前 2000 字符:\n`, codegenRes.text.slice(0, 2000))
+    console.error(`[codegen_scene] 输出后 2000 字符（看有无 ## file: 或截断断点）:\n`, codegenRes.text.slice(-2000))
+    return { routing: triage.routing, error: "LLM 未输出有效的 ## file: 代码块" }
+  }
+
+  // 6b. 灾难性短路：LLM 产了代码块但无 live-data.json（或不可解析）→ 不物化预览，直接报错
+  if (!sceneData) {
+    console.error("[codegen_scene] extractSceneData 返回 null：LLM 未产 live-data.json 或不可解析")
+    return { routing: triage.routing, error: "LLM 未输出 live-data.json 或不可解析" }
   }
 
   // 7. 物化 + 预览（onCodeVersionReady：workspace.switchVersion + wsNonce++ + 回填 pendingPreviewData）
   const summary = plan.scene_description?.slice(0, 80) || userInput.slice(0, 80)
   await onCodeReady(files, sceneData, summary)
-  return { routing: triage.routing, summary, plan }
+  return { routing: triage.routing, summary, plan, sceneData }
 }
 
 /** 从当前 SceneSessionState.mergedSceneConfig 取 type 清单（剔除保留 key） */

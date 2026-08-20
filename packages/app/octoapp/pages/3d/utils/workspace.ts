@@ -95,3 +95,4 @@ export async function switchVersion(sdkDir: string, codeDir: string | null): Pro
   switchChain = run.catch(() => {})
   return run
 }
+

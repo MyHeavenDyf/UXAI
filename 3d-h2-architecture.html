@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Agent 功能 · 工作规划</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#f5f6f8;color:#1f2329;
+    font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1000px;margin:0 auto;padding:40px 24px 56px}
+  h1{font-size:26px;margin:0 0 6px}
+  .goal{font-size:15px;color:#374151;margin-bottom:8px}
+  .target{display:inline-block;background:#0e9f6e;color:#fff;font-weight:600;
+    border-radius:8px;padding:6px 14px;font-size:14px;margin-bottom:32px}
+  /* flow */
+  .flow{display:flex;flex-direction:column;align-items:center;gap:14px;margin-bottom:40px}
+  .row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:center}
+  .box{background:#fff;border:2px solid #d0d7de;border-radius:12px;padding:16px 22px;
+    font-weight:600;font-size:15px;text-align:center;min-width:120px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+  .box.start{background:#3b6ed8;color:#fff;border-color:#3b6ed8}
+  .box.gen{background:#0e9f6e;color:#fff;border-color:#0e9f6e;min-width:220px}
+  .box.out{background:#fff;color:#1f2329;min-width:240px}
+  .arrow{color:#9ca3af;font-size:22px;font-weight:700}
+  .sup{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-top:4px}
+  .sup .box{background:#fff;border:2px dashed #d97706;color:#d97706;min-width:110px;font-size:13px;padding:10px 14px}
+  .sup .lbl{display:flex;align-items:center;color:#6b7280;font-size:13px;margin-right:4px}
+  /* capability cards */
+  .cards{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:36px}
+  @media(max-width:760px){.cards{grid-template-columns:repeat(2,1fr)}}
+  .card{background:#fff;border:1px solid #d0d7de;border-radius:12px;padding:16px 14px;border-top:4px solid var(--c)}
+  .card .n{display:inline-flex;width:24px;height:24px;border-radius:50%;background:var(--c);color:#fff;
+    font-weight:700;font-size:13px;align-items:center;justify-content:center;margin-bottom:8px}
+  .card h3{margin:0 0 6px;font-size:15px}
+  .card p{margin:0 0 10px;font-size:12px;color:#6b7280;min-height:48px}
+  .card .done{font-size:12px;color:#374151;border-top:1px solid #f0f0f0;padding-top:8px}
+  .card .done b{color:var(--c)}
+  .c1{--c:#d97706}.c2{--c:#c026d3}.c3{--c:#7c3aed}.c4{--c:#0e9f6e}.c5{--c:#3b6ed8}
+  /* timeline */
+  .tl{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .tl .seg{background:#fff;border:1px solid #d0d7de;border-radius:12px;padding:14px 16px}
+  .tl .seg h4{margin:0 0 6px;font-size:14px}
+  .tl .seg p{margin:0;font-size:13px;color:#6b7280}
+  .tl .seg.fin{background:#0e9f6e;color:#fff;border-color:#0e9f6e;text-align:center}
+  .tl .seg.fin h4,.tl .seg.fin p{color:#fff}
+  .foot{margin-top:36px;font-size:12px;color:#9ca3af;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>3D Agent 功能 · 工作规划</h1>
+  <div class="goal">用户用自然语言生成 3D 场景，生成后可预览、编辑、调参、导出工程。</div>
+  <div class="target">整体完成：11 月 30 日</div>
+
+  <!-- 架构图 -->
+  <div class="flow">
+    <div class="row">
+      <div class="box start">自然语言需求</div>
+      <span class="arrow">→</span>
+      <div class="box gen">3D 场景生成引擎（AI Agent）</div>
+      <span class="arrow">→</span>
+      <div class="box out">3D 场景</div>
+      <span class="arrow">→</span>
+      <div class="box out">预览 / 编辑 / 调参 / 导出</div>
+    </div>
+    <div class="sup">
+      <span class="lbl">生成时调用 ▲</span>
+      <div class="box">3D 设计规范</div>
+      <div class="box">3D 组件库</div>
+      <div class="box">3D 资源库</div>
+    </div>
+  </div>
+
+  <!-- 五大能力块 -->
+  <div class="cards">
+    <div class="card c1"><span class="n">1</span><h3>构建 3D 组件库</h3>
+      <p>沉淀可复用 3D 组件，配套文档供 AI 调用</p>
+      <div class="done">完成：<b>组件齐全 + 文档可被 AI 检索调用</b><br>9 月底</div></div>
+    <div class="card c2"><span class="n">2</span><h3>构建 3D 资源库</h3>
+      <p>模型/贴图资产库 + AI 按需生成 + 兜底</p>
+      <div class="done">完成：<b>可检索 + AI 按需生成 + 失败兜底</b><br>9 月底</div></div>
+    <div class="card c3"><span class="n">3</span><h3>接入 3D 设计规范</h3>
+      <p>规范文档喂给 AI，指导生成符合规范</p>
+      <div class="done">完成：<b>规范接入 AI，生成符合规范</b><br>10 月中</div></div>
+    <div class="card c4"><span class="n">4</span><h3>构建场景生成能力</h3>
+      <p>自然语言生成场景 + 生成-评审-精修闭环</p>
+      <div class="done">完成：<b>一句话生成 + 自动精修出图</b><br>10 月底</div></div>
+    <div class="card c5"><span class="n">5</span><h3>构建编辑调参能力</h3>
+      <p>生成后预览/编辑/调参/导出工程</p>
+      <div class="done">完成：<b>可编辑/调参/导出二次开发</b><br>11 月底</div></div>
+  </div>
+
+  <!-- 时间线 -->
+  <div class="tl">
+    <div class="seg"><h4>9 月 · 底座</h4><p>组件库 + 资源库</p></div>
+    <div class="seg"><h4>10 月 · 生成闭环</h4><p>设计规范 + 场景生成能力</p></div>
+    <div class="seg fin"><h4>11 月 · 交付</h4><p>编辑调参 + 导出 → 11/30 整体完成</p></div>
+  </div>
+
+  <div class="foot">当前：五大能力底座代码已基本就绪，进入联调与真实 AI 接入阶段。</div>
+</div>
+</body>
+</html>

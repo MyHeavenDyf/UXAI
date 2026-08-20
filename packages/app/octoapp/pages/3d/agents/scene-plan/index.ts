@@ -18,6 +18,8 @@ export interface PlanType {
   type: string
   purpose: string
   implementation: "native" | "component" | "model"
+  /** 具体建法（尺寸/材质/结构/组件 options），供 codegen 照抄，避免 codegen 在 reasoning 里重新设计 */
+  build_detail: string
   components: string[]
   resources: string[]
 }
@@ -69,6 +71,7 @@ export default async function scene_3d_plan(input: ScenePlanInput): Promise<Plan
       type: t.type ?? "",
       purpose: t.purpose ?? "",
       implementation: (t.implementation as PlanType["implementation"]) ?? "native",
+      build_detail: (t.build_detail as string) ?? "",
       components: Array.isArray(t.components) ? t.components.filter((c): c is string => typeof c === "string") : [],
       resources: Array.isArray(t.resources) ? t.resources.filter((r): r is string => typeof r === "string") : [],
     })),

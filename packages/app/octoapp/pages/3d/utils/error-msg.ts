@@ -15,11 +15,12 @@ export const AGENT_LABELS: Record<string, string> = {
 
 /**
  * 持久化的错误对象，存入 proto_error.json。
- * - title:      错误标题（如"认证失败"），由 classifyAIError 生成
- * - agentLabel: agent 中文标签（如"物体生成 · Hero"），用于 UI 展示
- * - agentCallId: 报错 agent 的 childSessionId，用于匹配 InsightTurn 步骤卡片
+ * - title:       错误标题（如"认证失败"），由 classifyAIError 生成
+ * - description: 错误原因（如 vite 超时原文），由 classifyAIError 生成；GenerationCard 渲染为可见原因行
+ * - agentLabel:  agent 中文标签（如"物体生成 · Hero"），用于 UI 展示
+ * - agentCallId:  报错 agent 的 childSessionId，用于匹配 InsightTurn 步骤卡片
  */
-export type ProtoError = { title: string; agentLabel?: string; agentCallId?: string }
+export type ProtoError = { title: string; description?: string; agentLabel?: string; agentCallId?: string }
 
 /**
  * 带 agent 标识的错误类型，在标准 Error 上扩展三个字段：
@@ -104,7 +105,7 @@ export function classifyAIError(err: unknown): { title: string; description: str
 
 // ── 持久化：proto_error.json 读写 ──────────────────────────
 // 存储路径: {项目目录}/.octo/design/history/{rootSessionId}/proto_error.json
-// 文件格式: { error: string, agent: string, callId: string, createdAt: number }
+// 文件格式: { error: string, description: string, agent: string, callId: string, createdAt: number }
 
 function errorFilePath(dir: string, sessionId: string) {
   return `${dir}/${sessionId}/proto_error.json`
@@ -117,7 +118,7 @@ function errorFilePath(dir: string, sessionId: string) {
 export async function saveProtoError(dir: string, sessionId: string, error: ProtoError): Promise<void> {
   const api = getDesktopApi()
   const path = errorFilePath(dir, sessionId)
-  const payload = JSON.stringify({ error: error.title, agent: error.agentLabel, callId: error.agentCallId, createdAt: Date.now() })
+  const payload = JSON.stringify({ error: error.title, description: error.description, agent: error.agentLabel, callId: error.agentCallId, createdAt: Date.now() })
   if (api?.writeFileBuffer) {
     const encoder = new TextEncoder()
     await api.writeFileBuffer(path, encoder.encode(payload).buffer)
@@ -138,7 +139,7 @@ export async function loadProtoError(dir: string, sessionId: string): Promise<Pr
       if (!buf) return null
       const data = JSON.parse(new TextDecoder().decode(buf))
       if (typeof data === "string") return { title: data }
-      return { title: data.error ?? "", agentLabel: data.agent, agentCallId: data.callId }
+      return { title: data.error ?? "", description: data.description, agentLabel: data.agent, agentCallId: data.callId }
     } catch {
       return null
     }

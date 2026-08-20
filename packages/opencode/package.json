@@ -11,6 +11,7 @@
     "test:ci": "mkdir -p .artifacts/unit && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit.xml",
     "build": "bun run script/build.ts",
     "fix-node-pty": "bun run script/fix-node-pty.ts",
+    "gen:component-catalog": "bun run script/gen-component-catalog.ts",
     "dev": "bun run --conditions=browser ./src/index.ts",
     "dev:temporary": "bun run --conditions=browser ./src/temporary.ts",
     "db": "bun drizzle-kit"

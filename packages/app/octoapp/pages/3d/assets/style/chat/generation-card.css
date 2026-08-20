@@ -44,6 +44,16 @@
   line-height: 22px;
 }
 
+/* 错误原因行：不 truncate，换行展示完整原因（如 vite 超时原文 / JSON 解析失败） */
+.gc-error-desc {
+  color: #b91c1c;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: 2px;
+}
+
 .gc-gen-badge {
   display: inline-flex;
   align-items: center;
