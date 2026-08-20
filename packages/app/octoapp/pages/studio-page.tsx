@@ -8,7 +8,6 @@ import { createStore, produce, reconcile } from "solid-js/store"
 import { persisted, Persist } from "@/utils/persist"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -25,6 +24,9 @@ import { DialogSettings } from "@/components/dialog-settings"
 import { showFloatingNotice } from "@/components/floating-notice"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { sessionTitle } from "@/utils/session-title"
+import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
+import { useSessionDelete } from "@/hooks/use-session-delete"
+import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { authTokenFromCredentials } from "@/utils/server"
 import { directoryHeader } from "@/utils/headers"
 import { modelsApiHeaders } from "@/network/models-api"
@@ -171,6 +173,7 @@ export default function StudioPage() {
   const server = useServer()
   const models = useModels()
   const dialog = useDialog()
+  const removeSession = useSessionDelete()
   let studioPermissionChecked = false
   let studioPageRef!: HTMLDivElement
 
@@ -1456,15 +1459,6 @@ export default function StudioPage() {
     }
   })
 
-  const errorMessage = (err: unknown) => {
-    if (err && typeof err === "object" && "data" in err) {
-      const data = (err as { data?: { message?: string } }).data
-      if (data?.message) return data.message
-    }
-    if (err instanceof Error) return err.message
-    return language.t("common.requestFailed")
-  }
-
   const openHeaderTitleEditor = () => {
     const session = activeStudioSession()
     // session 可能不在 syncStore 中，用 currentTitle() 兜底
@@ -1513,7 +1507,7 @@ export default function StudioPage() {
       .catch((err) => {
         showToast({
           title: language.t("common.requestFailed"),
-          description: errorMessage(err),
+          description: sessionErrorMessage(err, language.t("common.requestFailed")),
         })
       })
       .finally(() => setHeaderTitle("saving", false))
@@ -1521,24 +1515,12 @@ export default function StudioPage() {
 
   const deleteHeaderSession = async (session: Session) => {
     tracker.interaction({ module: "studio", name: "delete-session" })
-    const listResult = await globalSDK.createClient({ directory: projectDir() }).session.list()
-    const sessions = ((listResult.data ?? []) as Session[])
-      .filter((item) => item.agent === "octo_studio" && !item.time?.archived)
-      .sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
-    const index = sessions.findIndex((item) => item.id === session.id)
-    const nextSession = index === -1 ? undefined : (sessions[index + 1] ?? sessions[index - 1])
-    const result = await globalSDK.createClient({ directory: projectDir() }).session
-      .delete({ sessionID: session.id })
-      .then((x) => x.data)
-      .catch((err) => {
-        showToast({
-          title: language.t("session.delete.failed.title"),
-          description: errorMessage(err),
-        })
-        return false
-      })
+    const client = globalSDK.createClient({ directory: projectDir() })
+    const listResult = await client.session.list()
+    const nextSession = pickNextSession(sortedActiveSessions((listResult.data ?? []) as Session[], "octo_studio"), session.id)
 
-    if (!result) return false
+    const ok = await removeSession(client, session.id)
+    if (!ok) return false
 
     studioThumbnails.removeThumbnail(session.id)
 
@@ -1558,33 +1540,6 @@ export default function StudioPage() {
     return true
   }
 
-  function DialogDeleteHeaderSession(props: { session: Session }) {
-    const name = createMemo(() => sessionTitle(props.session.title) ?? language.t("command.session.new"))
-    const handleDelete = async () => {
-      await deleteHeaderSession(props.session)
-      dialog.close()
-    }
-
-    return (
-      <Dialog title={language.t("session.delete.title")} fit class="delete-dialog">
-        <div class="flex flex-col gap-4">
-          <div class="flex flex-col gap-1">
-            <span class="text-14-regular text-text-strong">
-              {language.t("session.delete.confirm", { name: name() })}
-            </span>
-          </div>
-          <div class="flex justify-end gap-2">
-            <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
-              {language.t("common.cancel")}
-            </Button>
-            <Button variant="primary" size="large" class="delete-dialog-btn delete-dialog-btn-primary" onClick={handleDelete}>
-              {language.t("session.delete.button")}
-            </Button>
-          </div>
-        </div>
-      </Dialog>
-    )
-  }
   const currentImageLabel = createMemo(() => {
     const image = selectedImage()
     if (!image) return "studio-image.png"
@@ -3872,7 +3827,12 @@ if (!headerTitle.pendingRename) return
                       <DropdownMenu.Item
                         onSelect={() => {
                           const session = activeStudioSession() ?? { id: params.id!, title: currentTitle(), agent: "octo_studio" } as Session
-                          dialog.show(() => <DialogDeleteHeaderSession session={session} />)
+                          dialog.show(() => (
+                            <DialogDeleteSession
+                              name={sessionTitle(session.title) ?? language.t("command.session.new")}
+                              onDelete={() => deleteHeaderSession(session)}
+                            />
+                          ))
                         }}
                       >
                         <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>

@@ -815,28 +815,6 @@
   padding: 0;
 }
 
-.delete-dialog-btn {
-  width: 88px !important;
-  height: 32px !important;
-  border-radius: 4px !important;
-  font-size: 14px !important;
-  line-height: 22px !important;
-  padding: 0 !important;
-}
-
-button.delete-dialog-btn {
-  border: 1px solid rgba(201, 201, 201, 1);
-  background: #fff;
-  color: rgb(25, 25, 25);
-  cursor: pointer;
-}
-
-button.delete-dialog-btn-primary {
-  background: var(--octo-brand);
-  border-color: var(--octo-brand);
-  color: #fff;
-}
-
 /* ── Markdown 全屏编辑器(Vditor)─────────────────────────────────
    宿主容器撑满父级,让 Vditor 实例填满 overlay 主体(顶栏之外的区域)。
    见 docs/specs/ui/insight-markdown-editor.md §2.2。 */
