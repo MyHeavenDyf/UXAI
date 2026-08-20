@@ -19,6 +19,8 @@ import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl, getNextAvailableFileName } from "../../utils/archive-utils"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
+import type { LocalEditSavePayload, LocalEditChange } from "../../subtype-handlers/types"
+import { buildLocalEditPayload } from "../../subtype-handlers/shadcn"
 import { showToast } from "@opencode-ai/ui/toast"
 import { tracker } from "@/utils/tracker"
 import { TaskStore } from "@/context/task"
@@ -172,6 +174,7 @@ export function HtmlRenderer(props: {
   onSaveFile?: (content: string) => Promise<void>
   onRefreshNeeded?: () => void
   tabTitle?: string
+  onSaveLocalEdit?: (payload: LocalEditSavePayload) => Promise<boolean>
   /** 注册一个获取当前 iframe 已加载资源 URL 的 getter */
   observedUrlsGetter?: (getter: () => string[]) => void
   /** 注册一个向当前 iframe contentWindow 发送 postMessage 的函数 */
@@ -250,6 +253,9 @@ export function HtmlRenderer(props: {
   
   // Pending text storage for Cancel/Save logic (tracks text/href changes)
   let manualEditPendingText: { id: string; text: string; href: string } | null = null
+  
+  // Snapshot of normalized styles captured at selection time (used as "before" in local-edit payload)
+  let manualEditInitialStyles: ManualEditStyles | null = null
   
   // History management for Undo/Redo
   let historyStack: HistoryState[] = []
@@ -598,6 +604,13 @@ createEffect(() => {
 
     if (!target) return true
 
+    // Subtypes that delegate saving to the agent must not write the file directly.
+    // Esc / element-switch revert the pending preview instead of saving.
+    if (props.onSaveLocalEdit) {
+      cancelManualEditStyleDraft()
+      return true
+    }
+    
     // ★ Get HTML snapshot from iframe (guaranteed ID match)
     const html = await getIframeSnapshot()
 
@@ -950,6 +963,18 @@ createEffect(() => {
       
       // ★ Use iframe snapshot for ID match
       void (async () => {
+        if (props.onSaveLocalEdit) {
+          const target = d.target as ManualEditTarget | undefined
+          if (target) {
+            const before = typeof d.before === 'string' ? d.before : (target.fields.text ?? target.text ?? '')
+            await props.onSaveLocalEdit({
+              target,
+              changes: [{ kind: 'text', before, after: value }],
+            })
+          }
+          return
+        }
+
         const html = await getIframeSnapshot()
         
         // Apply text patch
@@ -1000,12 +1025,13 @@ createEffect(() => {
       // Initialize draft from target + source
       const html = extractHtmlContent(props.content)
       const fields = readManualEditFields(html, target.id)
+      manualEditInitialStyles = inspectorManualEditStyles(target, html)
       setEditDraft({
         text: fields.text ?? target.fields.text ?? target.text,
         href: fields.href ?? target.fields.href ?? '',
         src: fields.src ?? target.fields.src ?? '',
         alt: fields.alt ?? target.fields.alt ?? '',
-        styles: inspectorManualEditStyles(target, html),
+        styles: manualEditInitialStyles,
         attributesText: JSON.stringify(readManualEditAttributes(html, target.id), null, 2),
         outerHtml: readManualEditOuterHtml(html, target.id) || target.outerHtml,
         fullSource: html,
@@ -1556,6 +1582,25 @@ return (
                   )
                 }}
 onApplyPatch={async (patch: ManualEditPatch, label: string) => {
+              if (props.onSaveLocalEdit) {
+                const target = editTarget()
+                let change: LocalEditChange | null = null
+                if (patch.kind === 'remove-element') {
+                  change = { kind: 'remove-element' }
+                } else if (patch.kind === 'set-image') {
+                  change = { kind: 'image', src: patch.src, alt: patch.alt }
+                }
+                if (target && change) {
+                  const handled = await props.onSaveLocalEdit({ target, changes: [change] })
+                  if (handled && patch.kind === 'remove-element') {
+                    setEditTarget(null)
+                    manualEditPendingStyle = null
+                    manualEditPendingText = null
+                    setEditDraft(emptyManualEditDraft(props.content))
+                  }
+                }
+                return
+              }
               const html = await getIframeSnapshot()
               const result = applyManualEditPatch(html, patch)
               if (result.ok) {
@@ -1591,6 +1636,27 @@ onSaveDraft={async () => {
                     if (saving()) return
                     setSaving(true)
                     try {
+                      if (props.onSaveLocalEdit) {
+                        const payload = buildLocalEditPayload(editTarget()!, manualEditPendingStyle, manualEditPendingText, manualEditInitialStyles)
+                        if (payload.changes.length === 0) {
+                          setEditTarget(null)
+                          manualEditPendingStyle = null
+                          manualEditPendingText = null
+                          manualEditInitialStyles = null
+                          setEditDraft(emptyManualEditDraft(props.content))
+                          return
+                        }
+                        const handled = await props.onSaveLocalEdit(payload)
+                        if (handled) {
+                          tracker.interaction({ module: "design", name: "save-edit-changes" })
+                          setEditTarget(null)
+                          manualEditPendingStyle = null
+                          manualEditPendingText = null
+                          manualEditInitialStyles = null
+                          setEditDraft(emptyManualEditDraft(props.content))
+                        }
+                        return
+                      }
                       const ok = await flushManualEditStyleSave()
                       if (ok) {
                         tracker.interaction({ module: "design", name: "save-edit-changes" })
