@@ -212,6 +212,24 @@ describe("tool.registry", () => {
     { timeout: 30_000 },
   )
 
+  // SPEC-INS-032 §3:extract_document 的裁剪**已搬离 registry** —— 这一层对所有 agent 一视同仁,
+  // 由 agent 权限层声明(defaults deny + 需要者显式 allow,断言见 test/agent/agent.test.ts)。
+  // 本用例钉的是"registry 不再按 agent 名裁它":若有人把那条 gate 加回来,这里会红。
+  it.instance("registry no longer gates extract_document by agent name (SPEC-INS-032 §3)", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const make = yield* Agent.Service.use((svc) => svc.get("octo_make"))
+      expect(make).toBeDefined()
+      const tools = yield* registry.tools({
+        providerID: "anthropic" as Parameters<typeof registry.tools>[0]["providerID"],
+        modelID: "claude-sonnet" as Parameters<typeof registry.tools>[0]["modelID"],
+        agent: make!,
+      })
+      expect(tools.map((t) => t.id)).toContain("extract_document")
+    }),
+    { timeout: 30_000 },
+  )
+
   // SPEC-INS-030:knowledge_search 从 chat 的 octo_ai 迁到 insight 的 octo_insight。
   // 网关是硬隔离(registry.tools() 过滤),这里正反两面各钉一次:insight 拿得到、make 拿不到。
   it.instance("knowledge_search is gated to octo_insight only (SPEC-INS-030 §2)", () =>
