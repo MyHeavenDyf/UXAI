@@ -251,8 +251,33 @@ export function formatUploadsForPrompt(files: Array<{ filename: string; path: st
   return `[附件]\n${lines.join("\n")}`
 }
 
+// SPEC-INS-023 @ 引用清单(`@文件` 引用已存在的会话文件:outputs 产物 + uploads 上传)。
+//
+// 与 `[附件]` **行格式完全一致**(`- <文件名>: <本地绝对路径>`)、同为 synthetic,两点区别:
+//   ① InsightTurn 不按本头渲染文件卡片(气泡里已有 @ 胶囊,再渲染卡片是重复) —— 这也是当初
+//      另起一个头而非复用 `[附件]` 的**唯一**理由(spec §7.2);
+//   ② 正文**未随消息内联**(`[附件]` 的 txt/md 走 FilePart(file://) 由 server 端 read 进上下文,
+//      本清单不走) —— 故本清单里的 txt/md 要读正文仍需 extract_document,与 `[附件]` 的硬规则相反。
+//
+// 但对 server 端 octo-upload-inject 而言两者**完全等价**:都是「本会话可喂 MCP 的文件白名单」。
+// 插件的 MANIFEST_HEADERS 必须同时认这两个头(2026-08-20 内网修复:此前只认 `[附件]`,`@` 来的
+// 产物文件在研究工具轮被判「不在清单」→ 模型自我阻断 / 插件 resolvePath 抛错,两条路都死)。
+// 改格式或增删头需与插件两处同步。
+//
+// 文案只陈述**事实**、不含工具指令:chip turn 会禁用 extract_document(mcp-trigger buildToolGate),
+// 清单里若写死「用 extract_document 读取」会与 chip 模板的「本轮不要读正文」直接冲突。
+// 怎么读由常驻提示词按场景区分(octo_insight.md「怎么读文件」)。
+export const MENTION_BLOCK_HEADER = "[引用文件]"
+
+export function formatMentionedFilesForPrompt(files: Array<{ filename: string; path: string }>): string {
+  if (files.length === 0) return ""
+  const lines = files.map((f) => `- ${f.filename}: ${f.path}`)
+  return `${MENTION_BLOCK_HEADER} 用户本轮 @ 引用了以下已存在的会话文件(与 [附件] 同属本会话可用文件;区别:正文未随消息内联):\n${lines.join("\n")}`
+}
+
 // formatUploadsForPrompt 的逆操作:从 synthetic text part 解析出 { filename, path } 列表,
 // 供 InsightTurn 渲染输入文件卡片。两者共用同一格式,是单一事实源。
+// (`[引用文件]` 块行格式相同,故本函数同样可解析它 —— 首行说明不以 "- " 开头,自然跳过。)
 export function parseUploadedFiles(block: string): Array<{ filename: string; path: string }> {
   const out: Array<{ filename: string; path: string }> = []
   for (const line of block.split("\n")) {
