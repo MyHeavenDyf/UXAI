@@ -6,6 +6,7 @@ import { createResourceTracker, type ResourceTracker } from "../../utils/resourc
 import { getArtifactServeUrl, getArtifactRelativePath, pathToLocalUrl, isElectronDesktop, extractCommentFilePath } from "../../utils/artifact-file-api"
 import { directoryHeader } from "@/utils/headers"
 import { getDesktopApi } from "../../lib/electron-api"
+import { usePixsoTransport } from "@/utils/useZipTransport"
 import { decodeHtmlBytes } from "@opencode-ai/core/bridge-scripts"
 import { PreviewOverlay } from "../preview-overlay"
 import { InspectPanel } from "./inspect-panel"
@@ -23,6 +24,12 @@ import { buildLocalEditPayload } from "../../subtype-handlers/shadcn"
 import { showToast } from "@opencode-ai/ui/toast"
 import { tracker } from "@/utils/tracker"
 import { TaskStore } from "@/context/task"
+import { useSDK } from "@/context/sdk"
+import { useSync } from "@/context/sync"
+import { useLocal } from "@/context/local"
+import { getSubtypeHandler } from "../../utils/subtype-registry"
+import type { SubtypeHandlerContext } from "../../subtype-handlers/types"
+import type { ResultTab } from "./tab-store"
 import "./inspect-panel.css"
 import "./manual-edit-panel.css"
 
@@ -32,6 +39,13 @@ function getArtifactFilename(filePath: string | undefined): string {
   // Handle both Windows (D:\path\file.html) and Unix (/path/file.html) paths
   const parts = filePath.split(/[/\\]/)
   return parts[parts.length - 1] || ''
+}
+
+// Helper: Extract a fenced code block of given lang from text (matches impl in index.tsx / action-bar.tsx)
+function extractCodeBlock(text: string, lang: string): string {
+  const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
+  const m = text.match(re)
+  return m ? m[1].trim() : text.trim()
 }
 
 // Helper: Get commenter info from localStorage.userInfo
@@ -167,7 +181,14 @@ export function HtmlRenderer(props: {
   registerIframePostMessage?: (fn: (data: unknown) => void) => void
   /** 注册一个获取当前 iframe 元素的 getter（用于坐标换算 / source 匹配） */
   iframeElementGetter?: (getter: () => HTMLIFrameElement | undefined) => void
+  /** 当前 tab 的 subtype（用于调用 subtype handler 的归档钩子） */
+  subtype?: string
+  /** 当前 tab 的 id（用于构造 SubtypeHandlerContext） */
+  tabId?: string
 }): JSX.Element {
+  const sdk = useSDK()
+  const sync = useSync()
+  const local = useLocal()
   let iframeRef: HTMLIFrameElement | undefined
   const resourceTracker: ResourceTracker = createResourceTracker()
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
@@ -372,6 +393,51 @@ export function HtmlRenderer(props: {
       
       htmlContent = extractHtmlContent(htmlContent)
       
+      // 归档钩子：subtype 可提供要塞进 src/ 的代码包（如 prototype 的 eview-react 产物）
+      let srcZipBlob: Blob | null = null
+      let srcFileName: string | undefined
+      const handler = getSubtypeHandler(props.subtype)
+      if (handler?.buildArchiveSrc && props.tabId) {
+        const m = local.model.current()
+        const modelKey = m ? { providerID: m.provider.id, modelID: m.id } : undefined
+        const ctx: SubtypeHandlerContext = {
+          tab: {
+            id: props.tabId,
+            title: props.tabTitle ?? "",
+            type: "html",
+            subtype: props.subtype,
+            content: props.content,
+            filePath: props.filePath,
+            commentFilePath: props.commentFilePath,
+            sessionId: props.sessionId,
+            createdAt: new Date(),
+          } as ResultTab,
+          showToast,
+          tracker,
+          getDesktopApi,
+          extractCodeBlock,
+          observedUrlsGetter: () => iframeRef ? resourceTracker.getPaths(iframeRef) : [],
+          usePixsoTransport,
+          sdk,
+          sync,
+          modelKey,
+          sessionId: props.sessionId,
+          sdkDirectory: props.sdkDirectory,
+        }
+        try {
+          const r = await handler.buildArchiveSrc(ctx)
+          if (r) {
+            srcZipBlob = r.blob
+            srcFileName = r.fileName
+          } else if (props.subtype === "prototype") {
+            showToast({ title: "代码包生成失败，已跳过 src/" })
+          }
+        } catch (err) {
+          console.warn("[Archive] buildArchiveSrc failed:", err)
+          if (props.subtype === "prototype") showToast({ title: "代码包生成失败，已跳过 src/" })
+        }
+      }
+      
       const zipBlob = await createArchiveZip({
         comments,
         screenshotBlob,
@@ -380,7 +446,9 @@ export function HtmlRenderer(props: {
         htmlFilePath: props.filePath || "",
         sessionId: props.sessionId || "",
         projectDir: props.sdkDirectory || "",
-        observedUrls: iframeRef ? resourceTracker.getPaths(iframeRef) : []
+        observedUrls: iframeRef ? resourceTracker.getPaths(iframeRef) : [],
+        srcZipBlob,
+        srcFileName,
       })
       
       if (isLoggedIn) {

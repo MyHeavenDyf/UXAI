@@ -66,9 +66,23 @@ export interface SubtypeHandler {
 
   /**
    * 处理下载
+   * @param option 选中项的 value（来自 downloadOptions）；未声明 downloadOptions 时为 undefined
    * @returns true 表示已处理（不执行默认下载），false 或 void 表示执行默认下载
    */
-  handleDownload?: (ctx: SubtypeHandlerContext) => Promise<boolean | void>
+  handleDownload?: (ctx: SubtypeHandlerContext, option?: string) => Promise<boolean | void>
+
+  /**
+   * 构建归档时要塞进 src/ 的代码包
+   * 返回 { blob, fileName } 表示要写入 src/<fileName>；
+   * 返回 null 表示该 subtype 不提供 src 内容（默认行为，src/ 留空）
+   */
+  buildArchiveSrc?: (ctx: SubtypeHandlerContext) => Promise<{ blob: Blob; fileName: string } | null>
+
+  /**
+   * 下载下拉选项
+   * 声明且长度 > 1 时，action bar 渲染"下载"下拉按钮；每项 value 会作为 option 传给 handleDownload
+   */
+  downloadOptions?: { value: string; label: string }[]
 
   beforeFeatureEnable?: (feature: FeatureType, ctx: SubtypeHandlerContext) => Promise<boolean>
 
@@ -131,6 +145,8 @@ export type ButtonPosition =
   | 'after-edit'         // 编辑按钮（局部修改、框选、画布）之后
   | 'after-download'     // 下载按钮之后
   | 'after-archive'      // 归档按钮之后
+  | 'before-comment'     // 标注按钮之前
+  | 'before-history'     // 历史按钮之前
   | 'before-fullscreen'  // 全屏按钮之前
   | 'end'                // 最后面（默认）
 
@@ -139,8 +155,8 @@ export type ButtonPosition =
  */
 export interface ActionBarButton {
   id: string
-  label: string
-  icon?: JSX.Element | string
+  label: string | ((ctx: SubtypeHandlerContext) => string)
+  icon?: JSX.Element | string | ((ctx: SubtypeHandlerContext) => JSX.Element | string)
   
   /** 按钮位置（默认 'end'） */
   position?: ButtonPosition
@@ -152,7 +168,7 @@ export interface ActionBarButton {
   disabled?: boolean | ((ctx: SubtypeHandlerContext) => boolean)
   visible?: boolean | ((ctx: SubtypeHandlerContext) => boolean)
   active?: boolean | ((ctx: SubtypeHandlerContext) => boolean)
-  tooltip?: string
+  tooltip?: string | ((ctx: SubtypeHandlerContext) => string)
   variant?: 'default' | 'primary' | 'danger'
 }
 
