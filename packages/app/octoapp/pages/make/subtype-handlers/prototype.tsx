@@ -204,6 +204,8 @@ export default {
     // 画布编辑：取当前 prototype 的 A2UI 数据（loadA2uiData 命中缓存时含未落盘的编辑，
     // 等价于 pattern 页的 pendingPreviewData()[sid]），连同 sessionId / title / projectSelection
     // 交给 transformerPipeline 做 A2UI → 设计稿转换。
+      debugger
+
     const tabId = ctx.tab.id
     setActiveSessionId(tabId)
     const session = getSessionById(tabId) ?? createSession(tabId, ctx)

@@ -267,6 +267,9 @@ function CanvasEditDropdown(props: {
   sdkDirectory?: string
   observedUrlsGetter?: () => string[]
 }): JSX.Element {
+  const sdk = useSDK()
+  const sync = useSync()
+  const local = useLocal()
   const [open, setOpen] = createSignal(false)
   const [loading, setLoading] = createSignal(false)
   const [actions, setActions] = createSignal<PixsoAction[]>([])
@@ -292,7 +295,28 @@ function CanvasEditDropdown(props: {
 
   const handleClick = async () => {
     if (loading()) return
-    
+
+    const handler = getSubtypeHandler(props.tab.subtype)
+    if (handler?.handleCanvasEdit) {
+      const m = local.model.current()
+      const ctx = {
+        tab: props.tab,
+        showToast,
+        tracker,
+        getDesktopApi,
+        extractCodeBlock,
+        observedUrlsGetter: props.observedUrlsGetter,
+        usePixsoTransport,
+        sdk,
+        modelKey: m ? { providerID: m.provider.id, modelID: m.id } : undefined,
+        sync,
+        sessionId: props.sessionId,
+        sdkDirectory: props.sdkDirectory,
+      }
+      const handled = await handler.handleCanvasEdit(ctx)
+      if (handled === true) return
+    }
+
     const isLoggedIn = !!localStorage.getItem('uiplusToken')
     if (!isLoggedIn) {
       showToast({ title: "请先登录" })
@@ -521,7 +545,6 @@ export function ActionBar(props: {
     onCommentToggle?: () => void
     onArchiveToggle?: () => void
     onFocusModeToggle?: () => void
-    onCanvasToDesign?: () => void
     observedResourceUrls?: () => string[]
     onHistoryToggle?: () => void
     historyActive?: boolean
