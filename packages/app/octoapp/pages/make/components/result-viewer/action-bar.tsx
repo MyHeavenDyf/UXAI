@@ -293,6 +293,38 @@ function CanvasEditDropdown(props: {
   const handleClick = async () => {
     if (loading()) return
     
+    /**
+     * 重要：SubtypeHandler 优先调用
+     * 
+     * 在执行默认的画布编辑逻辑之前，先检查是否有自定义的 handler。
+     * 如果 handler.handleCanvasEdit 返回 true，则不再执行后续的默认逻辑。
+     * 
+     * 请勿修改此逻辑，这是 subtype 自定义行为的核心入口。
+     * 所有 subtype 的画布编辑行为都应该通过 SubtypeHandler.handleCanvasEdit 来自定义。
+     */
+    const handler = getSubtypeHandler(props.tab.subtype)
+    if (handler?.handleCanvasEdit) {
+      const ctx: SubtypeHandlerContext = {
+        tab: props.tab,
+        sessionId: props.sessionId,
+        showToast,
+        tracker,
+        getDesktopApi,
+        extractCodeBlock,
+        observedUrlsGetter: props.observedUrlsGetter,
+        usePixsoTransport,
+        sdkDirectory: props.sdkDirectory,
+      }
+      
+      const handled = await handler.handleCanvasEdit(ctx)
+      if (handled === true) return  // handler 已处理，不继续执行默认逻辑
+    }
+    
+    /**
+     * 默认画布编辑逻辑
+     * 
+     * 只有在没有 handler 或 handler 返回 false 时才会执行到这里。
+     */
     const isLoggedIn = !!localStorage.getItem('uiplusToken')
     if (!isLoggedIn) {
       showToast({ title: "请先登录" })
