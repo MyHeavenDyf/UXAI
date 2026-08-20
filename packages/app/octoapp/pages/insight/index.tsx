@@ -1250,14 +1250,25 @@ function InsightContent() {
     }
     // SPEC-INS-027:组 parts 走公共骨架 assembleInsightParts(与排队 drain sendQueuedItem 共用,防两套漂移)。
     // uploadBlock / chipTemplate / chipDeclaration / mentionBlocks 仍在上方各自算好(optimistic 镜像与日志继续引用),
-    // 此处只按既定顺序组装 + 映射 txt/md·图片 FilePart。顺序:cleanText → [附件] → chip → @技能/@文件 → txt/md → 图片。
+    // 此处只按既定顺序组装 + 映射可内联文件·图片 FilePart。顺序:cleanText → [附件] → chip → @技能/@文件 → 内联文件 → 图片。
     const syntheticTexts = [uploadBlock, chipTemplate, chipDeclaration, ...mentionBlocks].filter(
       (t): t is string => !!t,
     )
+    // 2026-08-20:`@` 引用的文件与附件走**同一条**内联路径(SPEC-INS-023 §7.2 修订)——用户 `@` 一个
+    // 文件就是明确要它进上下文,不该让模型再多跑一轮 extract_document(上游 opencode 的 @ 引用同样
+    // 是发送即内联)。非文本类由 assembleInsightParts 内的 isTextInlineFile 反向排除掉。
+    // chip turn **不特殊处理**:内联只涉及文本类且有 50KB 截断,2026-08-19 那次的上下文炸弹源头是
+    // extract_document 对 office 全文回灌(已单独关掉),与本路径无关;chip 是纯常驻的,关掉内联会让
+    // 用户在选中研究工具期间对文件内容彻底失明。
+    // (同一文件既在本轮附件里、又被 `@` 引用时,由 assembleInsightParts 按 path 去重,只内联一次)
+    const inlineFiles = [
+      ...localFiles.map((a) => ({ filename: a.filename, path: resolvedPath(a) })),
+      ...(opts.mentions?.files ?? []),
+    ]
     const { parts, imageParts } = assembleInsightParts({
       text,
       syntheticTexts,
-      textInlineFiles: localFiles.map((a) => ({ filename: a.filename, path: resolvedPath(a) })),
+      textInlineFiles: inlineFiles,
       imageFiles: imageFiles.map((a) => ({ filename: a.filename, mime: a.mime, url: a.url! })),
     })
     const messageID = Identifier.ascending("message")
