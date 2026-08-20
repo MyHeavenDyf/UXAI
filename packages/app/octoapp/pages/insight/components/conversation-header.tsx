@@ -2,6 +2,7 @@ import { createMemo, createSignal, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
+import type { Session } from "@opencode-ai/sdk/v2/client"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Spinner } from "@opencode-ai/ui/spinner"
@@ -10,8 +11,12 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useSync } from "@/context/sync"
 import { useSDK } from "@/context/sdk"
+import { INSIGHT_AGENT } from "@/constants/agent"
 import { sessionTitle } from "@/utils/session-title"
 import { tracker } from "@/utils/tracker"
+import { pickNextSession, sessionErrorMessage, sortedActiveSessions } from "@/utils/session-delete"
+import { useSessionDelete } from "@/hooks/use-session-delete"
+import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 
@@ -26,14 +31,6 @@ import { DialogDeleteSession } from "@/components/dialog-delete-session"
  * 数据层复用 sync（sync.session.get / sync.set）+ useSDK（带 directory 的 sdk.client）。
  * 视觉走 insight 的 --octo token，保持页面自包含。
  */
-function errorDescription(err: unknown): string {
-  if (err && typeof err === "object" && "data" in err) {
-    const data = (err as { data?: { message?: string } }).data
-    if (data?.message) return data.message
-  }
-  if (err instanceof Error) return err.message
-  return "请稍后重试"
-}
 
 export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelToggle?: JSX.Element } = {}) {
   const params = useParams<{ id?: string }>()
@@ -42,6 +39,8 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
   const sdk = useSDK()
   const dialog = useDialog()
   const layout = useLayout()
+  const language = useLanguage()
+  const removeSession = useSessionDelete()
 
   const sessionID = () => params.id
   const info = createMemo(() => {
@@ -103,26 +102,29 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
       )
       setTitle("editing", false)
     } catch (err) {
-      showToast({ title: "重命名失败", description: errorDescription(err) })
+      showToast({ title: "重命名失败", description: sessionErrorMessage(err, language.t("common.requestFailed")) })
     } finally {
       setPending(false)
     }
   }
 
   const deleteSession = async (id: string) => {
-    try {
-      await sdk.client.session.delete({ sessionID: id })
-      tracker.interaction({ module: "insight", name: "session-delete", extend: JSON.stringify({ entry: "header" }) })
-      sync.set(
-        produce((draft) => {
-          draft.session = draft.session.filter((s) => s.id !== id)
-        }),
-      )
-      if (layout.lastSessionPerTab.cowork()?.id === id) layout.lastSessionPerTab.clearCowork()
-      if (params.id === id) navigate("/insight")
-    } catch (err) {
-      showToast({ title: "删除失败", description: errorDescription(err) })
-    }
+    const listResult = await sdk.client.session.list({ directory: sdk.directory })
+    const sessions = sortedActiveSessions((listResult.data ?? []) as Session[], INSIGHT_AGENT)
+    const nextSession = pickNextSession(sessions, id)
+
+    const ok = await removeSession(sdk.client, id)
+    if (!ok) return
+
+    tracker.interaction({ module: "insight", name: "session-delete", extend: JSON.stringify({ entry: "header" }) })
+    sync.set(
+      produce((draft) => {
+        const i = draft.session.findIndex((s) => s.id === id)
+        if (i !== -1) draft.session.splice(i, 1)
+      }),
+    )
+    if (layout.lastSessionPerTab.cowork()?.id === id) layout.lastSessionPerTab.clearCowork()
+    if (params.id === id) navigate(nextSession ? `/insight/${nextSession.id}` : "/insight")
   }
 
   return (
@@ -205,7 +207,7 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
                   <DropdownMenu.ItemLabel>重命名</DropdownMenu.ItemLabel>
                 </DropdownMenu.Item>
                 <DropdownMenu.Separator />
-                <DropdownMenu.Item onSelect={() => dialog.show(() => <DialogDeleteSession name={displayTitle()} onDelete={() => deleteSession(id())} />)}>
+                <DropdownMenu.Item onSelect={() => dialog.show(() => <DialogDeleteSession name={sessionTitle(info()?.title) ?? language.t("command.session.new")} onDelete={() => deleteSession(id())} />)}>
                   <DropdownMenu.ItemLabel>删除</DropdownMenu.ItemLabel>
                 </DropdownMenu.Item>
               </DropdownMenu.Content>

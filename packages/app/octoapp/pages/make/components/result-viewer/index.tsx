@@ -31,12 +31,11 @@ import { artifactFileToOutputCard, type ArtifactFile, getArtifactRelativePath } 
 import { saveArtifactContent } from "../../utils/artifact-auto-save"
 import type { OutputCard } from "../insight-turn"
 import { tracker } from "@/utils/tracker"
-import { createC2DZip } from "../../utils/canvas-to-design"
-import { uploadZip } from "@/utils/useZipTransport"
-import { useProjectSelection } from "@/hooks/use-project-selection"
+import { usePixsoTransport } from "@/utils/useZipTransport"
 import { getDesktopApi } from "../../lib/electron-api"
 import { useFeatureMutex } from "../../utils/use-feature-mutex"
 import { getSubtypeHandler } from "../../utils/subtype-registry"
+import type { LocalEditSavePayload } from "../../subtype-handlers/types"
 import { disposeAllPrototypeSessions } from "../../utils/prototype-utils"
 
 function extractCodeBlock(text: string, lang: string): string {
@@ -132,7 +131,6 @@ export function ResultViewer(props: {
   planActive?: boolean
 }): JSX.Element {
   const globalSDK = useGlobalSDK()
-  const projectSelection = useProjectSelection()
   const activeTab = createMemo(() =>
     props.tabs.find((t) => t.id === props.activeId) ?? null
   )
@@ -183,71 +181,6 @@ export function ResultViewer(props: {
     featureMutex.disableAll()
   }
 
-  const handleCanvasToDesign = async () => {
-    tracker.interaction({ module: "design", name: "canvas-to-design" })
-    try {
-      const tab = activeTab()
-      if (!tab || tab.type !== "html") {
-        showToast({ title: "请先打开HTML文件" })
-        return
-      }
-
-      const handler = getSubtypeHandler(tab.subtype)
-      const ctx = buildSubtypeCtx()!
-
-      if (handler?.handleCanvasEdit) {
-        const handled = await handler.handleCanvasEdit(ctx)
-        if (handled === true) return
-      }
-
-      const isLoggedIn = !!localStorage.getItem('uiplusToken')
-
-      if (!isLoggedIn) {
-        showToast({ title: "生成ZIP文件..." })
-        const htmlContent = extractCodeBlock(tab.content, "html")
-        const zipBlob = await createC2DZip({
-          htmlContent,
-          htmlFilePath: tab.filePath || "",
-          tabTitle: tab.title,
-          observedUrls: observedUrlsGetter?.() || [],
-        })
-        const fileName = `${tab.title}-c2d.zip`
-        const url = URL.createObjectURL(zipBlob)
-        const a = document.createElement("a")
-        a.href = url
-        a.download = fileName
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-        showToast({ title: "生成完成", description: "ZIP文件已下载" })
-        return
-      }
-
-      const result = await uploadZip(async () => {
-        const htmlContent = extractCodeBlock(tab.content, "html")
-        return await createC2DZip({
-          htmlContent,
-          htmlFilePath: tab.filePath || "",
-          tabTitle: tab.title,
-          observedUrls: observedUrlsGetter?.() || [],
-        })
-      }, projectSelection())
-
-      console.log('pixsourl', result?.pixsoUrl)
-
-      if (!result.webview) {
-        showToast({ title: "创建失败" })
-        return
-      }
-
-      console.log('pixso loaded')
-    } catch (error) {
-      console.error("[handleCanvasToDesign] Error:", error)
-      showToast({ title: "操作失败", description: String(error) })
-    }
-  }
-
   const buildSubtypeCtx = () => {
     const tab = activeTab()
     if (!tab) return null
@@ -259,7 +192,7 @@ export function ResultViewer(props: {
       getDesktopApi,
       extractCodeBlock,
       observedUrlsGetter: observedUrlsGetter ? () => observedUrlsGetter!() : undefined,
-      projectSelection,
+      usePixsoTransport,
       postMessageToIframe: iframePostMessage ? (data: unknown) => iframePostMessage!(data) : undefined,
       iframeElementGetter: iframeElementGetter ? () => iframeElementGetter!() : undefined,
       sdkDirectory: props.sdkDirectory,
@@ -324,6 +257,31 @@ export function ResultViewer(props: {
     const nextArchiving = !featureMutex.state.archiving
     featureMutex.toggleFeature('archiving')
     tracker.interaction({ module: "design", name: "toggle-archive-mode", extend: JSON.stringify({ action: nextArchiving ? "open" : "close" }) })
+  }
+
+  const handleLocalEditSave = async (payload: LocalEditSavePayload): Promise<boolean> => {
+    const tab = activeTab()
+    if (!tab) {
+      return false
+    }
+
+    const handler = getSubtypeHandler(tab.subtype)
+    if (!handler?.handleLocalEditSave) {
+      return false
+    }
+
+    const ctx = {
+      tab,
+      showToast,
+      tracker,
+      getDesktopApi,
+      extractCodeBlock,
+      usePixsoTransport,
+      edit: payload,
+    }
+
+    const handled = await handler.handleLocalEditSave(ctx)
+    return handled === true
   }
 
   const getHtmlMode = (id: string) => htmlModes()[id] ?? "preview"
@@ -651,19 +609,28 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                     onDrawToggle={htmlMode() === "edit" ? undefined : handleDrawToggle}
                     commenting={featureMutex.state.commenting}
                     onCommentToggle={htmlMode() === "edit" ? undefined : handleCommentToggle}
-                    archiving={featureMutex.state.archiving}
-                    onArchiveToggle={htmlMode() === "edit" ? undefined : handleArchiveToggle}
-                     onCanvasToDesign={handleCanvasToDesign}
-                     onRefresh={handleRefresh}
-                    observedResourceUrls={() => observedUrlsGetter?.() || []}
-                    focusMode={props.focusMode}
-                    onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
-                    historyActive={props.historyActive}
-                    historyEntries={props.historyEntries}
-                    currentVersionId={props.currentVersionId}
-                    onHistorySwitch={props.onHistorySwitch}
-                    onHistoryToggle={props.onHistoryToggle}
-                  />
+
+archiving={featureMutex.state.archiving}
+                     onArchiveToggle={htmlMode() === "edit" ? undefined : handleArchiveToggle}
+                      onRefresh={handleRefresh}
+                     observedResourceUrls={() => observedUrlsGetter?.() || []}
+                     focusMode={props.focusMode}
+                     onFocusModeToggle={tabType !== "design-plan" ? handleFocusModeToggle : undefined}
+                     historyActive={props.historyActive}
+                     historyEntries={props.historyEntries}
+                     currentVersionId={props.currentVersionId}
+                     onHistorySwitch={props.onHistorySwitch}
+                     onHistoryToggle={props.onHistoryToggle}
+                     sessionId={props.sessionId}
+                     sdkDirectory={props.sdkDirectory}
+                     postMessageToIframe={(data: unknown) => iframePostMessage?.(data)}
+                   />
+
+                    
+                  
+                     
+             
+
                 </Show>
                 <div class="flex-1 min-h-0 min-w-0 overflow-hidden">
                   <Switch
@@ -714,11 +681,14 @@ const applyInspectOverrides = async (tabId: string, overrides: Array<{ elementId
                              await saveArtifactContent(tab.filePath, html)
                            }}
                            onRefreshNeeded={handleRefresh}
-                           tabTitle={tab.title}
-                            observedUrlsGetter={(g) => { observedUrlsGetter = g }}
-                            registerIframePostMessage={(fn) => { iframePostMessage = fn }}
-                            iframeElementGetter={(g) => { iframeElementGetter = g }}
-                          />
+                            tabTitle={tab.title}
+                            onSaveLocalEdit={getSubtypeHandler(tab.subtype)?.handleLocalEditSave ? handleLocalEditSave : undefined}
+                             observedUrlsGetter={(g) => { observedUrlsGetter = g }}
+                             registerIframePostMessage={(fn) => { iframePostMessage = fn }}
+                             iframeElementGetter={(g) => { iframeElementGetter = g }}
+                             subtype={tab.subtype}
+                             tabId={tab.id}
+                           />
                     </Match>
                     <Match when={tabType === "deck"}>
                       <DeckRenderer content={tab.content} />

@@ -14,7 +14,7 @@
  * | types: link | → TextButton | 切换组件：TextButton（@cloudsop/eview-ui/TextButton） |
  * | value（types=link） | text | 改名透传（TextButton） |
  * | value（普通） | text | 改名透传（Button） |
- * | icon | leftIcon / rightIcon | resolveIcon / ComputedValue（普通 Button；无 IconButton 分支） |
+ * | icon | leftIcon / rightIcon | 占位 URL（写死，见 [icon-placeholder](./icon-placeholder)）；无 IconButton 分支 |
  * | color | status / style.backgroundColor | 值映射（普通 Button） |
  * | size: medium | size: normal | 值映射（普通 Button） |
  * | shape: circle | style.borderRadius: '50%' | 转换（普通 Button） |
@@ -22,11 +22,16 @@
  * | — | onClick | 注入占位 (e) => {} |
  *
  * 这是 eview-ui 专属 bespoke 映射（非工厂、非复用 eview-react）。import 硬编码 @cloudsop/eview-ui。
+ *
+ * ⚠️ icon 差异：eview-ui 的 icon 相关属性只接 URL、不接 React DOM，故 leftIcon/rightIcon
+ * 一律用统一占位 URL（写死），不调 resolveIcon。其余（types:link→TextButton、color/size/shape
+ * 映射、onClick 占位）与 eview-react 一致。
  */
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue } from '../../../src/core/value-types'
 import { Value } from '../../../src/core/value-factory'
+import { PLACEHOLDER_ICON_URL } from './icon-placeholder'
 
 // ─── 工具（与 eview-react Button 一致） ───
 
@@ -55,33 +60,12 @@ function resolveColor(color: string): { status?: string; style?: Record<string, 
 
 /**
  * 构造 icon prop 值
- * - 字面量 icon → ctx.resolveIcon() 出 BuildNode
- * - DataBinding icon → ComputedValue + containsJSX:true
+ * eview-ui：icon 一律用统一占位 URL（写死），不管字面量还是 DataBinding，
+ * 不调 resolveIcon、不产 React DOM——eview-ui 的 icon 相关属性只接 URL。
  */
-function buildIconProp(
-  iconProp: any,
-  ctx: TransformContext,
-): PropValue | null {
+function buildIconProp(iconProp: any): PropValue | null {
   if (!iconProp) return null
-
-  if (typeof iconProp === 'object' && iconProp.type === 'binding') {
-    return Value.computed({
-      path: iconProp.path,
-      pathType: iconProp.pathType ?? 'absolute',
-      accessPath: iconProp.accessPath,
-      containsJSX: true,
-      transform: (rawValue, cvCtx) => {
-        const rIcon = cvCtx?.resolveIcon ?? ctx.resolveIcon
-        return typeof rawValue === 'string' ? rIcon(rawValue) : null
-      },
-    })
-  }
-
-  if (typeof iconProp === 'string') {
-    return ctx.resolveIcon(iconProp) as any
-  }
-
-  return null
+  return PLACEHOLDER_ICON_URL
 }
 
 // ─── eview-ui Button 映射定义 ───
@@ -131,7 +115,7 @@ const ButtonMapping: MappingDef = {
 
     // 1. icon → leftIcon / rightIcon
     if (hasIcon) {
-      const iconProp = buildIconProp(props.icon, ctx)
+      const iconProp = buildIconProp(props.icon)
       if (iconProp) {
         if (props.iconPlacement === 'end') {
           outputProps.rightIcon = iconProp

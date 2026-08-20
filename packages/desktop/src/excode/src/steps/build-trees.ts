@@ -22,7 +22,6 @@ import { Node } from '../core/node-factory'
 import { IconCollector } from '../core/icon-collection'
 import {
   HTML_TEXT_ELEMENTS,
-  HTML_VALUE_ATTRIBUTE_ELEMENTS,
   ICON_PROPS_BY_COMPONENT,
   ICON_PROPS_NESTED_IN_ARRAYS,
 } from '../core/icon-props'
@@ -44,10 +43,11 @@ import type { PipelineContext } from '../pipeline/pipeline-context'
 import type { BuiltPage } from '../pipeline/pipeline-context'
 
 // ─── 循环模板不抽离的白名单 ───────────────────────────────────────
-// 这些组件是父组件的直接子组件（如 TabItem 之于 Tab），循环 children 不应
-// 抽成单独的 components/{Name}Template.tsx，而是 inline 在 map 回调里渲染。
-// buildTrees 建树时检查 template body 的 component 名，命中则 LoopNode.inline=true。
-const INLINE_LOOP_COMPONENTS = new Set(['TabItem'])
+// 这些组件是父组件的直接子组件（如 TabItem 之于 Tab、CollapseItem 之于 Collapse），
+// 循环 children 不应抽成单独的 components/{Name}Template.tsx，而是 inline 在 map
+// 回调里渲染，直接参与组件映射。buildTrees 建树时检查 template body 的 component 名，
+// 命中则 LoopNode.inline=true。
+const INLINE_LOOP_COMPONENTS = new Set(['TabItem', 'CollapseItem'])
 
 
 /**
@@ -311,10 +311,6 @@ export class BuildTrees extends Step {
     loopStack: Array<{ loopNode: LoopNode }>
   ): { finalProps: Record<string, PropValue>; finalChildren: RegularNode[] | LoopNode | null } {
     if (!HTML_TEXT_ELEMENTS.has(tag)) {
-      return { finalProps: props, finalChildren: children }
-    }
-    // 有原生 value 属性的元素不参与下沉
-    if (HTML_VALUE_ATTRIBUTE_ELEMENTS.has(tag)) {
       return { finalProps: props, finalChildren: children }
     }
     if (!('value' in props)) {
