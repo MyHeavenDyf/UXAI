@@ -22,6 +22,9 @@ interface EditorRef {
   clear: () => void
   insertText: (text: string) => void
   replaceSlashCommand: (text: string) => void
+  insertMention: (selection: MentionSelection) => void
+  removeMention: (selection: MentionSelection) => void
+  isAlive: () => boolean
 }
 
 interface Props {
@@ -213,6 +216,38 @@ export const ProseMirrorEditor = (props: Props) => {
           v.dispatch(tr)
           setSlashTriggerState(null)
         },
+        insertMention: (selection: MentionSelection) => {
+          const v = view()
+          if (!v || !v.dom?.isConnected) return
+          const attrs = selection.type === "skill"
+            ? { id: selection.name, name: selection.name, type: "skill" as const, label: selection.label, path: "" }
+            : { id: selection.filename, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
+          const node = editorSchema.nodes.mention.create(attrs)
+          const { from, to } = v.state.selection
+          const tr = v.state.tr.replaceWith(from, to, node)
+          const newPos = from + node.nodeSize
+          tr.setSelection(TextSelection.create(tr.doc, newPos))
+          v.dispatch(tr)
+          v.focus()
+        },
+        removeMention: (selection: MentionSelection) => {
+          const v = view()
+          if (!v || !v.dom?.isConnected) return
+          const name = selection.type === "skill" ? selection.name : selection.filename
+          const tr = v.state.tr
+          v.state.doc.descendants((node, pos) => {
+            if (node.type.name === "mention" && node.attrs.name === name) {
+              tr.delete(pos, pos + node.nodeSize)
+            }
+          })
+          if (tr.docChanged) {
+            v.dispatch(tr)
+          }
+        },
+        isAlive: () => {
+          const v = view()
+          return !!v && !!v.dom?.isConnected
+        },
       })
     }
 
@@ -225,7 +260,10 @@ export const ProseMirrorEditor = (props: Props) => {
       })
     }
 
-    onCleanup(() => editorView.destroy())
+    onCleanup(() => {
+      editorView.destroy()
+      setView(undefined)
+    })
   })
 
   createEffect(() => {
