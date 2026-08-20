@@ -200,6 +200,11 @@ function stringField(record: Record<string, unknown> | undefined, key: string) {
   return typeof value === "string" && value.length > 0 ? value : undefined
 }
 
+function optionalStringField(record: Record<string, unknown> | undefined, key: string) {
+  const value = record?.[key]
+  return typeof value === "string" ? value : undefined
+}
+
 function numberField(record: Record<string, unknown> | undefined, key: string) {
   const value = record?.[key]
   return typeof value === "number" && Number.isFinite(value) ? value : undefined
@@ -459,7 +464,12 @@ function buildResult(input: {
     stringField(inputRecord, "prompt") ??
     extractUserDemand(input.userText)
   const displayPrompt = stringField(inputRecord, "displayPrompt")
-  const detailPrompt = stringField(inputRecord, "detailPrompt") ?? (displayPrompt ? undefined : extractUserDemand(input.userText))
+  const persistedDetailPrompt = optionalStringField(inputRecord, "detailPrompt")
+  const detailPrompt = persistedDetailPrompt !== undefined
+    ? persistedDetailPrompt
+    : displayPrompt
+      ? undefined
+      : extractUserDemand(input.userText)
   const detailTitle = stringField(inputRecord, "detailTitle")
   const progress = studioProgress(running)
   const failure = studioProgress(errored)
