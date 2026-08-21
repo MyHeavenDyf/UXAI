@@ -715,6 +715,19 @@ function InsightContent() {
   // 驱动 ResultViewer → InsightFileManager 的 refreshKey effect 重拉文件列表(对齐 make 模块的 filesRefreshKey)。
   const [filesRefreshKey, setFilesRefreshKey] = createSignal(0)
 
+  // working → idle(agent 一轮真正结束,含 retry 重试):刷新文件视图。对齐 make 模块
+  // index.tsx turn-end 的 filesRefreshKey bump —— make 用 effectiveBusy(type !== "idle")的落沿,
+  // 此处 isWorking(busy || retry)与「非 idle」等价(SessionStatus 只有 idle/busy/retry 三态)。
+  // 模型常直接用 bash 在 outputs/ 里产文件(如 `python -c "open('a.txt','w')..."`),这条通道不经过
+  // 任务 OutputCard 的 materializeUriCardToOutputs 兑现(那只在 card.source === "uri" 时 bump refreshKey,
+  // 见下方 effect),所以面板不会自动重拉、看不到刚落的文件。在回合结束统一刷一次,覆盖所有产文件的
+  // 工具(bash / write / edit),不漏不重(幂等 fetch,无文件即空列)。用 isWorking 而非 isBusy:
+  // busy → retry 是同一轮内的重试,不是一轮结束;用 isBusy 会在 retry 中途多刷一次。
+  createEffect(on(isWorking, (working, prev) => {
+    if (working || !prev) return
+    setFilesRefreshKey((k) => k + 1)
+  }))
+
   // ── @ 引用面板(SPEC-INS-023,方案 B:ProseMirror 行内胶囊)────────────────
   // 已选引用(技能 / 文件):由编辑器 syncPlugin 从 doc 中的 mention 节点派生,发送时拆桶注入;发送后随清空。
   const [mentionSelections, setMentionSelections] = createSignal<MentionSelection[]>([])
