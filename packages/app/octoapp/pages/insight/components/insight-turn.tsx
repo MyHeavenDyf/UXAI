@@ -456,48 +456,49 @@ export function InsightTurn(props: {
     }
 
     // 统计产物打点:write(新建文件) - 只计 write 工具,不计 edit
-    const newWrites = collectArtifactFiles(findWriteOnlyCards(parts), "write")
+    const newWrites: Array<{ fileType: string }> = []
+    for (const w of findWriteOnlyCards(parts)) {
+      const key = `write:${props.messageID}:${w.filePath}`
+      if (trackedArtifactKeys.has(key)) continue
+      trackedArtifactKeys.add(key)
+      newWrites.push({ fileType: w.type })
+    }
     if (newWrites.length > 0) {
+      const fileCountMap: Record<string, number> = {}
+      for (const w of newWrites) {
+        fileCountMap[w.fileType] = (fileCountMap[w.fileType] ?? 0) + 1
+      }
+      const files = Object.entries(fileCountMap).map(([type, count]) => ({ type, count }))
       tracker.interaction({
         module: "insight",
         name: "artifact-file-write",
-        extend: JSON.stringify({ files: aggregateByType(newWrites) }),
+        extend: JSON.stringify({ files }),
       })
     }
 
     // 统计产物打点:edit(修改文件) - 单独统计 edit 操作
-    const newEdits = collectArtifactFiles(findEditCards(parts), "edit")
+    const newEdits: Array<{ fileType: string }> = []
+    for (const w of findEditCards(parts)) {
+      const key = `edit:${props.messageID}:${w.filePath}`
+      if (trackedArtifactKeys.has(key)) continue
+      trackedArtifactKeys.add(key)
+      newEdits.push({ fileType: w.type })
+    }
     if (newEdits.length > 0) {
+      const fileCountMap: Record<string, number> = {}
+    for (const w of newEdits) {
+      fileCountMap[w.fileType] = (fileCountMap[w.fileType] ?? 0) + 1
+    }
+    const files = Object.entries(fileCountMap).map(([type, count]) => ({ type, count }))
       tracker.interaction({
         module: "insight",
         name: "artifact-file-edit",
-        extend: JSON.stringify({ files: aggregateByType(newEdits) }),
+        extend: JSON.stringify({ files }),
       })
     }
 
     if (fresh) props.onFilesRefresh?.()
   })
-
-  /** 收集新增的产物文件(去重)。 */
-  function collectArtifactFiles(cards: WriteCard[], prefix: string): Array<{ fileType: string }> {
-    const result: Array<{ fileType: string }> = []
-    for (const card of cards) {
-      const key = `${prefix}:${props.messageID}:${card.filePath}`
-      if (trackedArtifactKeys.has(key)) continue
-      trackedArtifactKeys.add(key)
-      result.push({ fileType: card.type })
-    }
-    return result
-  }
-
-  /** 按文件类型聚合计数。 */
-  function aggregateByType(files: Array<{ fileType: string }>): Array<{ type: string; count: number }> {
-    const map: Record<string, number> = {}
-    for (const f of files) {
-      map[f.fileType] = (map[f.fileType] ?? 0) + 1
-    }
-    return Object.entries(map).map(([type, count]) => ({ type, count }))
-  }
 
   // 统计产物打点(artifact-mcp-return):检测 MCP resource_link 类型的产物文件并上报。
   // 触发时机:本轮 assistant parts 中出现新的 resource_link(MCP 工具返回文件)。
