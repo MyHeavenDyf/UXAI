@@ -1,0 +1,353 @@
+/* Addon Menu Styles - rendered via Portal (outside .octo-make scope),
+   so re-declare the tokens it needs locally, matching .octo-dropdown-menu. */
+.addon-menu-container {
+  --octo-surface-page: #FFFFFF;
+  --octo-border-default: #E5E7EB;
+  position: fixed;
+  width: 200px;
+  height: 248px;
+  background: var(--octo-surface-page);
+  border: 1px solid var(--octo-border-default);
+  border-radius: 12px;
+  box-shadow: 0px 4px 12px 0px rgba(0, 0, 0, 0.16);
+  padding: 8px;
+  box-sizing: border-box;
+  z-index: 1000;
+  font-size: 14px;
+  line-height: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.addon-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 40px;
+  padding: 9px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  text-align: left;
+  box-sizing: border-box;
+  transition: background-color 150ms ease;
+  color: rgba(0, 0, 0, 0.9);
+  font-size: 14px;
+  line-height: 22px;
+  flex-shrink: 0;
+}
+
+.addon-menu-item:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.addon-menu-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.addon-menu-item:disabled:hover {
+  background-color: transparent;
+}
+
+.addon-menu-item--active {
+  background-color: rgba(10, 89, 247, 0.1);
+  color: #0a59f7;
+}
+
+.addon-menu-item--active .addon-menu-item-arrow {
+  color: #0a59f7;
+}
+
+.addon-menu-item-icon {
+  flex-shrink: 0;
+  color: rgba(0, 0, 0, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.addon-menu-item--active .addon-menu-item-icon {
+  color: #0a59f7;
+}
+
+.addon-menu-item-text {
+  flex: 1;
+  font-size: 14px;
+  line-height: 22px;
+  color: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.addon-menu-item-arrow {
+  flex-shrink: 0;
+  color: rgba(0, 0, 0, 0.4);
+}
+
+/* Secondary panel (categories for skills, or files list for design files) */
+.addon-menu-secondary {
+  position: absolute;
+  background: var(--octo-surface-page);
+  border: 1px solid var(--octo-border-default);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.16);
+  z-index: 1001;
+  padding: 8px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Tertiary panel (skills list, shown when a category is selected) */
+.addon-menu-tertiary {
+  position: absolute;
+  left: 100%;
+  margin-left: 4px;
+  background: var(--octo-surface-page);
+  border: 1px solid var(--octo-border-default);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.16);
+  z-index: 1002;
+  padding: 12px 8px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.addon-menu-tertiary-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 232px;
+  overflow-y: auto;
+}
+
+.addon-menu-tertiary-content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.addon-menu-tertiary-content::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 2px;
+}
+
+.addon-menu-tertiary-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.addon-menu-tertiary-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 40px;
+  min-height: 40px;
+  padding: 0 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  text-align: left;
+  transition: background-color 150ms ease;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.addon-menu-tertiary-item:not(.addon-menu-tertiary-item--selected):hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.addon-menu-tertiary-item--selected {
+  background-color: rgba(10, 89, 247, 0.08);
+}
+
+.addon-menu-tertiary-item-text {
+  font-size: 14px;
+  line-height: 20px;
+  color: #191919;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.addon-menu-files-header {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+  color: #777;
+  padding: 4px 0;
+}
+
+.addon-menu-section-title {
+  font-size: 14px;
+  line-height: 22px;
+  color: rgba(0, 0, 0, 0.6);
+  padding: 8px 0 4px;
+}
+
+.addon-menu-item-path {
+  font-size: 12px;
+  line-height: 20px;
+  color: #777777;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
+  margin-left: auto;
+  padding-left: 12px;
+}
+
+.addon-menu-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 0;
+}
+
+.addon-menu-empty-state-text {
+  margin-top: 18px;
+  font-size: 14px;
+  color: #777777;
+}
+
+/* URL Dialog */
+.addon-menu-url-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.addon-menu-url-dialog {
+  background: #ffffff;
+  border-radius: 12px;
+  width: 468px;
+  height: 176px;
+  max-width: 90vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 48px 0 rgba(0, 0, 0, 0.16);
+  padding: 20px 24px 24px;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.addon-menu-url-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.addon-menu-url-title {
+  margin: 0;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: bold;
+  color: #191919;
+  font-family: "HarmonyOS Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.addon-menu-url-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: rgba(0, 0, 0, 0.6);
+  padding: 0;
+  border-radius: 4px;
+}
+
+.addon-menu-url-close:hover {
+  color: #0a59f7;
+}
+
+.addon-menu-url-input {
+  width: 420px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #c9c9c9;
+  line-height: 24px;
+  padding: 4px 11px;
+  color: rgba(0, 0, 0, 0.9);
+  font-size: 14px;
+  box-sizing: border-box;
+  margin-top: 20px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  outline: none;
+  font-family: inherit;
+}
+
+.addon-menu-url-input:focus {
+  border-color: #0a59f7;
+}
+
+.addon-menu-url-footer {
+  padding: 0;
+  margin-top: auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.addon-menu-url-cancel {
+  width: 88px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+  background: rgba(25, 25, 25, 0.05);
+  color: rgb(25, 25, 25);
+  font-weight: 500;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.addon-menu-url-cancel:hover {
+  background: rgba(25, 25, 25, 0.08);
+}
+
+.addon-menu-url-confirm {
+  width: 88px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+  background: #0a59f7;
+  color: #ffffff;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.addon-menu-url-confirm:hover {
+  background: #0950de;
+}
+
+.addon-menu-url-confirm:active {
+  background: #0a55eb;
+}
