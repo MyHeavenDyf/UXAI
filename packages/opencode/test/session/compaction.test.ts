@@ -8,6 +8,7 @@ import { Config } from "@/config/config"
 import { Agent } from "../../src/agent/agent"
 import { LLM } from "../../src/session/llm"
 import { SessionCompaction } from "../../src/session/compaction"
+import { preflight } from "../../src/session/overflow"
 import { Token } from "@/util/token"
 import { Instance } from "../../src/project/instance"
 import { WithInstance } from "../../src/project/with-instance"
@@ -301,10 +302,37 @@ function reply(
 ): (input: LLM.StreamInput) => Stream.Stream<LLM.Event, unknown> {
   return (input) => {
     capture?.(input)
+    const summary = `## Goal
+- ${text}
+
+## Constraints & Preferences
+- (none)
+
+## Progress
+### Done
+- ${text}
+
+### In Progress
+- (none)
+
+### Blocked
+- (none)
+
+## Key Decisions
+- (none)
+
+## Next Steps
+- (none)
+
+## Critical Context
+- (none)
+
+## Relevant Files
+- (none)`
     return Stream.make(
       { type: "start" } satisfies LLM.Event,
       { type: "text-start", id: "txt-0" } satisfies LLM.Event,
-      { type: "text-delta", id: "txt-0", delta: text, text } as LLM.Event,
+      { type: "text-delta", id: "txt-0", delta: summary, text: summary } as LLM.Event,
       { type: "text-end", id: "txt-0" } satisfies LLM.Event,
       {
         type: "finish-step",
@@ -408,6 +436,32 @@ describe("session.compaction.isOverflow", () => {
         const model = createModel({ context: 200_000, output: 32_000 })
         const tokens = { input: 100_000, output: 10_000, reasoning: 0, cache: { read: 0, write: 0 } }
         expect(yield* compact.isOverflow({ tokens, model })).toBe(false)
+      }),
+    ),
+  )
+
+  it.live(
+    "triggers from locally estimated usage when provider usage is missing",
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const compact = yield* SessionCompaction.Service
+        const model = createModel({ context: 100_000, output: 32_000 })
+        const usage = SessionNs.getUsage({
+          model,
+          usage: {
+            inputTokens: undefined,
+            outputTokens: undefined,
+            totalTokens: undefined,
+            inputTokenDetails: {
+              noCacheTokens: undefined,
+              cacheReadTokens: undefined,
+              cacheWriteTokens: undefined,
+            },
+            outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
+          },
+          estimated: { input: 75_000, output: 5_000 },
+        })
+        expect(yield* compact.isOverflow({ tokens: usage.tokens, model })).toBe(true)
       }),
     ),
   )
@@ -569,6 +623,23 @@ describe("session.compaction.isOverflow", () => {
       },
     ),
   )
+})
+
+describe("session.overflow.preflight", () => {
+  const config = Config.Info.zod.parse({})
+  const model = createModel({ context: 100, output: 20 })
+
+  test("sends requests that fit the context budget", () => {
+    expect(preflight({ cfg: config, model, estimatedInput: 70, unavoidableInput: 20 })).toBe("send")
+  })
+
+  test("compacts when removable history causes overflow", () => {
+    expect(preflight({ cfg: config, model, estimatedInput: 90, unavoidableInput: 20 })).toBe("compact")
+  })
+
+  test("rejects requests whose unavoidable input is too large", () => {
+    expect(preflight({ cfg: config, model, estimatedInput: 90, unavoidableInput: 80 })).toBe("reject")
+  })
 })
 
 describe("session.compaction.create", () => {
@@ -917,6 +988,31 @@ describe("session.compaction.process", () => {
         }
       },
     })
+  })
+
+  for (const item of [
+    { name: "empty", text: undefined },
+    { name: "incomplete", text: "short summary" },
+  ]) {
+    test(`rejects ${item.name} compaction summaries`, () => {
+      expect(SessionCompaction.validateSummary(item.text).valid).toBe(false)
+    })
+  }
+
+  test("accepts compaction summaries with every required section", () => {
+    expect(
+      SessionCompaction.validateSummary(
+        [
+          "## Goal",
+          "## Constraints & Preferences",
+          "## Progress",
+          "## Key Decisions",
+          "## Next Steps",
+          "## Critical Context",
+          "## Relevant Files",
+        ].join("\n"),
+      ).valid,
+    ).toBe(true)
   })
 
   test("adds synthetic continue prompt when auto is enabled", async () => {
@@ -1311,8 +1407,15 @@ describe("session.compaction.process", () => {
           expect(last?.info.role).toBe("user")
           expect(last?.parts.some((part) => part.type === "file")).toBe(false)
           expect(
-            last?.parts.some((part) => part.type === "text" && part.text.includes("Attached image/png: cat.png")),
+            last?.parts.some(
+              (part) =>
+                part.type === "text" &&
+                part.synthetic &&
+                part.metadata?.compaction_replay === true &&
+                part.text.includes("Attached image/png: cat.png"),
+            ),
           ).toBe(true)
+          expect(last?.parts.filter((part) => part.type === "text").every((part) => part.synthetic)).toBe(true)
         } finally {
           await rt.dispose()
         }
@@ -1705,7 +1808,11 @@ describe("session.compaction.process", () => {
 
           expect(captured).toContain("<previous-summary>")
           expect(captured).toContain("summary one")
-          expect(captured.match(/summary one/g)?.length).toBe(1)
+          // reply(text) puts `${text}` under both `## Goal` and `## Progress → Done`,
+          // so the previous-summary anchor contains it twice. hidden filters the old
+          // compaction message out of history; if that filter breaks, the count jumps
+          // to 4 (2 here + 2 from the leaked old summary message).
+          expect(captured.match(/summary one/g)?.length).toBe(2)
           expect(captured).toContain("## Constraints & Preferences")
           expect(captured).toContain("## Progress")
         } finally {
@@ -1875,9 +1982,91 @@ describe("util.token.estimate", () => {
   test("returns 0 for empty string", () => {
     expect(Token.estimate("")).toBe(0)
   })
+
+  test("does not underestimate CJK text as four characters per token", () => {
+    expect(Token.estimate("这是一个中文上下文压缩测试")).toBe(13)
+  })
+
+  test("estimates structured model messages without counting base64 bytes", () => {
+    const estimated = Token.estimateValue([
+      { role: "system", content: "x".repeat(400) },
+      { role: "user", content: [{ type: "image", data: `data:image/png;base64,${"a".repeat(40_000)}` }] },
+    ])
+    expect(estimated).toBeGreaterThan(1_100)
+    expect(estimated).toBeLessThan(2_000)
+  })
 })
 
 describe("SessionNs.getUsage", () => {
+  test("uses local estimates when provider usage is missing", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const result = SessionNs.getUsage({
+      model,
+      usage: {
+        inputTokens: undefined,
+        outputTokens: undefined,
+        totalTokens: undefined,
+        inputTokenDetails: {
+          noCacheTokens: undefined,
+          cacheReadTokens: undefined,
+          cacheWriteTokens: undefined,
+        },
+        outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
+      },
+      estimated: { input: 75_000, output: 500 },
+    })
+
+    expect(result.tokens.input).toBe(75_000)
+    expect(result.tokens.output).toBe(500)
+    expect(result.tokens.total).toBe(75_500)
+  })
+
+  test("prefers provider usage over local estimates", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const result = SessionNs.getUsage({
+      model,
+      usage: {
+        inputTokens: 1_000,
+        outputTokens: 500,
+        totalTokens: 1_500,
+        inputTokenDetails: {
+          noCacheTokens: undefined,
+          cacheReadTokens: undefined,
+          cacheWriteTokens: undefined,
+        },
+        outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
+      },
+      estimated: { input: 75_000, output: 10_000 },
+    })
+
+    expect(result.tokens.input).toBe(1_000)
+    expect(result.tokens.output).toBe(500)
+    expect(result.tokens.total).toBe(1_500)
+  })
+
+  test("recomputes total when provider returns only partial usage", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const result = SessionNs.getUsage({
+      model,
+      usage: {
+        inputTokens: 0,
+        outputTokens: 500,
+        totalTokens: 500,
+        inputTokenDetails: {
+          noCacheTokens: undefined,
+          cacheReadTokens: undefined,
+          cacheWriteTokens: undefined,
+        },
+        outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
+      },
+      estimated: { input: 75_000, output: 10_000 },
+    })
+
+    expect(result.tokens.input).toBe(75_000)
+    expect(result.tokens.output).toBe(500)
+    expect(result.tokens.total).toBe(75_500)
+  })
+
   test("normalizes standard usage to token format", () => {
     const model = createModel({ context: 100_000, output: 32_000 })
     const result = SessionNs.getUsage({

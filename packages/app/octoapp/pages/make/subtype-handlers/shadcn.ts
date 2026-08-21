@@ -1,4 +1,4 @@
-import type { SubtypeHandler, LocalEditChange, LocalEditSavePayload， CanvasEditResult } from './types'
+import type { SubtypeHandler, LocalEditChange, LocalEditSavePayload, CanvasEditResult } from './types'
 import type { ManualEditTarget, ManualEditStyles } from '../edit-mode/source-patches'
 import { registerCustomBridge } from '../utils/custom-bridge-registry'
 import { sendTextToAgent } from '../utils/agent-events'

@@ -1,4 +1,4 @@
-import { Show, For, type ParentProps, type JSX, type ComponentProps } from "solid-js"
+import { Show, For, createSignal, type ParentProps, type JSX, type ComponentProps } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ProjectInfo } from "@/components/project-info"
@@ -103,6 +103,7 @@ export function SidebarShell(props: SidebarShellProps) {
 
   const collapsed = () => props.collapsed
   const navItems = () => props.navItems ?? DEFAULT_NAV_ITEMS as unknown as SidebarShellProps["navItems"]
+  const [settingsActive, setSettingsActive] = createSignal(false)
 
   return (
     <div
@@ -177,7 +178,7 @@ export function SidebarShell(props: SidebarShellProps) {
       <div class="shrink-0 flex flex-col gap-[2px] px-[12px] pt-[12px]">
         <For each={navItems()}>
           {(item) => {
-            const isActive = () => props.activeNav === item.key
+            const isActive = () => props.activeNav === item.key && !settingsActive()
             return (
               <Show when={!item.hidden}>
                 <button
@@ -189,8 +190,8 @@ export function SidebarShell(props: SidebarShellProps) {
                   }}
                   style={{
                     height: "36px",
-                    background: isActive() ? "var(--surface-base-interactive-active)" : "transparent",
-                    color: "rgba(0,0,0,0.9)",
+                    background: isActive() ? "rgba(10, 89, 247, 0.08)" : "transparent",
+                    color: isActive() ? "#0A59F7" : "rgba(0,0,0,0.9)",
                     "font-weight": isActive() ? "500" : "400",
                   }}
                   onMouseEnter={(e) => { if (!isActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
@@ -226,14 +227,41 @@ export function SidebarShell(props: SidebarShellProps) {
         <button
           type="button"
           title="设置"
-          class="w-full flex items-center gap-[12px] px-[12px] rounded-[4px] transition-colors"
-          style={{ height: "36px", color: "rgba(0,0,0,0.9)" }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-base-hover)" }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
-          onClick={() => props.onSettingsClick?.() ?? dialog.show(() => <DialogSettings />)}
+          class="w-full relative flex items-center gap-[12px] px-[12px] rounded-[4px] transition-colors text-[12px] leading-[20px]"
+          style={{
+            height: "36px",
+            background: settingsActive() ? "rgba(10, 89, 247, 0.08)" : "transparent",
+            color: settingsActive() ? "#0A59F7" : "rgba(0,0,0,0.9)",
+            "font-weight": settingsActive() ? "500" : "400",
+          }}
+          onMouseEnter={(e) => { if (!settingsActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
+          onMouseLeave={(e) => { if (!settingsActive()) e.currentTarget.style.background = "transparent" }}
+          onClick={() => {
+            if (props.onSettingsClick) {
+              props.onSettingsClick()
+            } else {
+              setSettingsActive(true)
+              dialog.show(() => <DialogSettings />, () => setSettingsActive(false))
+            }
+          }}
         >
-          <IconSettings size={20} />
-          <span class="text-[12px] leading-[20px]">设置</span>
+          <span class="flex items-center justify-center shrink-0">
+            <Show when={settingsActive()} fallback={<IconSettings size={20} />}>
+              <IconSettings1 size={20} />
+            </Show>
+          </span>
+          <span class="truncate">设置</span>
+          <Show when={settingsActive()}>
+            <span
+              class="absolute right-0 top-1/2 rounded-l-[3px]"
+              style={{
+                height: "20px",
+                width: "3px",
+                background: "var(--text-interactive-base)",
+                transform: "translateY(-50%)",
+              }}
+            />
+          </Show>
         </button>
       </div>
     </div>

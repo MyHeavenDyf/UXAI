@@ -623,7 +623,6 @@ archiving={featureMutex.state.archiving}
                      onHistoryToggle={props.onHistoryToggle}
                      sessionId={props.sessionId}
                      sdkDirectory={props.sdkDirectory}
-                      onCanvasToDesign={handleCanvasToDesign}
                      postMessageToIframe={(data: unknown) => iframePostMessage?.(data)}
                    />
 
