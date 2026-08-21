@@ -201,9 +201,6 @@ export default {
   },
 
   async handleCanvasEdit(ctx) {
-    // 画布编辑：取当前 prototype 的 A2UI 数据（loadA2uiData 命中缓存时含未落盘的编辑，
-    // 等价于 pattern 页的 pendingPreviewData()[sid]），连同 sessionId / title / projectSelection
-    // 交给 transformerPipeline 做 A2UI → 设计稿转换。
     const tabId = ctx.tab.id
     setActiveSessionId(tabId)
     const session = getSessionById(tabId) ?? createSession(tabId, ctx)
@@ -214,12 +211,6 @@ export default {
     }
 
     const sessionId = ctx.tab.sessionId ?? ""
-    // await transformerPipeline?.({
-    //   previewData,
-    //   sessionId,
-    //   title: ctx.tab.title || sessionId || "export",
-    //   projectSelection: ctx.projectSelection(),
-    // })
 
     // jk-j60099994-replace-with-wx372822-pattern-topixso-2-start
     // jk-j60099994-replace-with-wx372822-pattern-topixso-2-end
