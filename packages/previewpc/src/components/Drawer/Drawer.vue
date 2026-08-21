@@ -71,6 +71,7 @@ const placement = computed<"ltr" | "rtl" | "ttb" | "btt">(() => {
   return (placementEnum[properties.placement || "right"] || "rtl") as "ltr" | "rtl" | "ttb" | "btt"
 })
 const mask = computed(() => properties.mask !== false)
+const width = computed(() => properties.width ?? 300)
 const footer = computed(() => properties.footer)
 const children = computed(() => properties.children)
 
@@ -92,6 +93,7 @@ function handleClose() {
     :class="className"
     :model-value="localOpen"
     :title="title"
+    :size="width"
     :direction="placement"
     :show-close="true"
     :close-on-click-modal="mask"

@@ -85,6 +85,14 @@
           "enum": ["right", "left", "top", "bottom"],
           "default": "right"
         },
+        "width": {
+          "oneOf": [
+            { "type": "number" },
+            { "type": "string" }
+          ],
+          "default": 300,
+          "description": "Drawer width. Number is px, string is CSS size. Only for left/right placement."
+        },
         "mask": {
           "type": "boolean",
           "default": true

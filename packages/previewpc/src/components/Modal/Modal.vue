@@ -65,6 +65,7 @@ const id = computed(() => node.id)
 const className = computed(() => properties.className)
 const title = computed(() => resolveValue(properties.title) as string || "")
 const mask = computed(() => properties.mask !== false)
+const width = computed(() => properties.width ?? 520)
 const footer = computed(() => properties.footer)
 const children = computed(() => properties.children)
 
@@ -86,6 +87,7 @@ function handleClose() {
     :class="className"
     :model-value="localOpen"
     :title="title"
+    :width="width"
     :show-close="true"
     :close-on-click-modal="mask"
     :close-on-press-escape="true"

@@ -35,6 +35,7 @@
         "placement": "right",
         "title": "订单详情",
         "mask": true,
+        "width": 560,
         "footer": { "componentId": "drawerFooter" },
         "onClose": {
           "action": "setState",
@@ -103,6 +104,7 @@
     "placement": "left",
     "title": "筛选条件",
     "mask": true,
+    "width": 400,
     "onClose": {
       "action": "setState",
       "args": { "path": "/isFilterDrawerOpen", "value": false }

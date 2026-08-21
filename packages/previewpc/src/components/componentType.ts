@@ -513,6 +513,7 @@ interface ResolvedModal {
   open: boolean | DataBinding;
   title: DynamicString;
   mask?: boolean;
+  width?: number | string;
   footer?: AnyComponentNode;
   onClose?: {
     action: string;
@@ -533,6 +534,7 @@ interface ResolvedDrawer {
   title: DynamicString;
   placement?: "right" | "left" | "top" | "bottom";
   mask?: boolean;
+  width?: number | string;
   footer?: AnyComponentNode;
   onClose?: {
     action: string;
