@@ -13,7 +13,7 @@ import { OutputEntryCard } from "./output-entry-card"
 import { scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
 import { isMindmapJSON } from "../utils/mindmap-adapter"
 import { findResourceLinks, linkToOutputType, type ResourceLink } from "../utils/resource-link"
-import { findWriteCards, basename } from "../utils/write-output"
+import { findWriteCards, findWriteOnlyCards, findEditCards, basename } from "../utils/write-output"
 import { readTaskInfo, businessToolBareName, type TaskCardEntry, type TaskInfo } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
 import { KnowledgeReferences, readKnowledgeSources } from "./knowledge-references"
@@ -54,6 +54,12 @@ const refreshedWritePaths = new Set<string>()
 // 注意:这只解决「同一 usage 不重复报」;「页面刷新后不把历史 usage 当新事件重报」由 InsightTurn
 // 内的 baseline 快照(首次观测即视为历史,不报)负责——两层配合才不会在每次加载会话时虚增计数。
 const trackedServerUsageKeys = new Set<string>()
+
+// 「统计产物」打点去重(artifact-file-write / artifact-mcp-return):记已上报过的产物 key,
+// 避免同一文件/链接在 memo 重算 / turn 重挂时重复上报。key 格式:
+//   - write:<messageID>:<filePath>
+//   - mcp:<messageID>:<uri>
+const trackedArtifactKeys = new Set<string>()
 
 /** 识别 skill 工具调用 part。skill 是内置工具(无 MCP 前缀),完成后 state.metadata.name = 解析出的技能名。 */
 function readSkillUsage(part: unknown): { partId: string; skill: string } | undefined {
@@ -428,20 +434,124 @@ export function InsightTurn(props: {
     })
   }
 
-  // 文件管理刷新覆盖**全部** write 产物(不止出卡的 md/html):任何 write 都落 outputs,写完要通知文件
+  // 文件管理刷新覆盖**全部** write/edit 产物(不止出卡的 md/html):任何 write/edit 都落 outputs,写完要通知文件
   // 管理刷新,否则新文件要用户手点刷新才出现。故此处仍扫全量 findWriteCards(不按白名单过滤),与出卡的
   // 白名单是两条正交的线。按 messageID:filePath 去重只发一次;生成中不扫,turn 落定后再刷。
+  //
+  // 统计产物打点(拆分 write/edit):
+  //   - artifact-file-write:仅统计 AI 新建的文件(write 工具),按文件类型聚合上报
+  //   - artifact-file-edit:单独统计 AI 的文件修改操作(edit 工具),按文件类型聚合上报
+  // 与文件管理刷新共用同一套检测逻辑,避免重复扫 parts。
   createEffect(() => {
     const parts = turnAssistantParts()
     if (showGenerating()) return
     let fresh = false
+
+    // 文件管理刷新:仍用全量 findWriteCards(包含 write + edit)
     for (const w of findWriteCards(parts)) {
       const key = `${props.messageID}:${w.filePath}`
       if (refreshedWritePaths.has(key)) continue
       refreshedWritePaths.add(key)
       fresh = true
     }
+
+    // 统计产物打点:write(新建文件) - 只计 write 工具,不计 edit
+    const newWrites = collectArtifactFiles(findWriteOnlyCards(parts), "write")
+    if (newWrites.length > 0) {
+      tracker.interaction({
+        module: "insight",
+        name: "artifact-file-write",
+        extend: JSON.stringify({ files: aggregateByType(newWrites) }),
+      })
+    }
+
+    // 统计产物打点:edit(修改文件) - 单独统计 edit 操作
+    const newEdits = collectArtifactFiles(findEditCards(parts), "edit")
+    if (newEdits.length > 0) {
+      tracker.interaction({
+        module: "insight",
+        name: "artifact-file-edit",
+        extend: JSON.stringify({ files: aggregateByType(newEdits) }),
+      })
+    }
+
     if (fresh) props.onFilesRefresh?.()
+  })
+
+  /** 收集新增的产物文件(去重)。 */
+  function collectArtifactFiles(cards: WriteCard[], prefix: string): Array<{ fileType: string }> {
+    const result: Array<{ fileType: string }> = []
+    for (const card of cards) {
+      const key = `${prefix}:${props.messageID}:${card.filePath}`
+      if (trackedArtifactKeys.has(key)) continue
+      trackedArtifactKeys.add(key)
+      result.push({ fileType: card.type })
+    }
+    return result
+  }
+
+  /** 按文件类型聚合计数。 */
+  function aggregateByType(files: Array<{ fileType: string }>): Array<{ type: string; count: number }> {
+    const map: Record<string, number> = {}
+    for (const f of files) {
+      map[f.fileType] = (map[f.fileType] ?? 0) + 1
+    }
+    return Object.entries(map).map(([type, count]) => ({ type, count }))
+  }
+
+  // 统计产物打点(artifact-mcp-return):检测 MCP resource_link 类型的产物文件并上报。
+  // 触发时机:本轮 assistant parts 中出现新的 resource_link(MCP 工具返回文件)。
+  // 上报方式:按文件类型聚合(与 artifact-file-write 对称),每次 effect 触发时把本轮新增的
+  // resource_link 按 type 分组计数后一次上报,包含产生该文件的 MCP 工具名(便于分析哪些工具产出率最高)。
+  //
+  // baseline 快照(artifactMcpBaselineTaken):首次观测本 turn 实例时,把当前已存在的 links 全部记为「历史」
+  // 不上报——避免刷新/切回会话重挂 turn 时把历史 MCP 返回文件当成新事件重报。之后新到达的 link 才上报。
+  let artifactMcpBaselineTaken = false
+  createEffect(() => {
+    const parts = turnAssistantParts()
+    const links = findResourceLinks(parts)
+
+    if (!artifactMcpBaselineTaken) {
+      artifactMcpBaselineTaken = true
+      for (const link of links) {
+        trackedArtifactKeys.add(`mcp:${props.messageID}:${link.uri}`)
+      }
+      return
+    }
+
+    const newLinks: Array<{ fileType: string; fileName: string; tool: string }> = []
+    for (const link of links) {
+      const key = `mcp:${props.messageID}:${link.uri}`
+      if (trackedArtifactKeys.has(key)) continue
+      trackedArtifactKeys.add(key)
+      newLinks.push({
+        fileType: linkToOutputType(link),
+        fileName: link.name || "unknown",
+        tool: link.business_type || "unknown",
+      })
+    }
+
+    if (newLinks.length > 0) {
+      const fileCountMap: Record<string, { count: number; tool: string }> = {}
+      for (const l of newLinks) {
+        const existing = fileCountMap[l.fileType]
+        if (existing) {
+          existing.count += 1
+        } else {
+          fileCountMap[l.fileType] = { count: 1, tool: l.tool }
+        }
+      }
+      const files = Object.entries(fileCountMap).map(([type, info]) => ({
+        type,
+        count: info.count,
+        tool: info.tool,
+      }))
+      tracker.interaction({
+        module: "insight",
+        name: "artifact-mcp-return",
+        extend: JSON.stringify({ files }),
+      })
+    }
   })
 
   // 「服务端真实使用」打点(与常规用户操作打点区分,统一 server- 前缀,清单见 docs/tracking.md):

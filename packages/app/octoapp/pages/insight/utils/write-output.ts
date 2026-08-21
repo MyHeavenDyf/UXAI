@@ -67,6 +67,20 @@ function isFileWriteTool(tool: unknown): boolean {
   return bare === "write" || bare === "edit" || bare.endsWith("_write") || bare.endsWith("_edit")
 }
 
+/** 是否仅「新建文件」的 write 工具(排除 edit,统计产物打点用:artifact-file-write 只计新建不计修改)。 */
+function isWriteOnlyTool(tool: unknown): boolean {
+  if (typeof tool !== "string") return false
+  const bare = tool.includes(":") ? tool.split(":").pop()! : tool
+  return bare === "write" || bare.endsWith("_write")
+}
+
+/** 是否仅「修改文件」的 edit 工具(统计产物打点用:artifact-file-edit 单独计修改操作)。 */
+function isEditOnlyTool(tool: unknown): boolean {
+  if (typeof tool !== "string") return false
+  const bare = tool.includes(":") ? tool.split(":").pop()! : tool
+  return bare === "edit" || bare.endsWith("_edit")
+}
+
 /** 防御性读 write 工具的目标路径(opencode write 参数名 filePath;兜底 path / file_path)。 */
 function readFilePath(input: unknown): string | undefined {
   if (!input || typeof input !== "object") return undefined
@@ -172,4 +186,47 @@ export function findWriteCards(parts: unknown[]): WriteCard[] {
     })
   }
   return out
+}
+
+/**
+ * 在一组 part 中找所有「新建文件」的 write 工具产物(排除 edit)。
+ * 用于统计产物打点(artifact-file-write):只计 AI 新建的文件,不计修改。
+ * 复用 findWriteCards 的逻辑,但过滤条件改为 isWriteOnlyTool。
+ */
+export function findWriteOnlyCards(parts: unknown[]): WriteCard[] {
+  return findWriteCardsByFilter(parts, isWriteOnlyTool)
+}
+
+/**
+ * 在一组 part 中找所有「修改文件」的 edit 工具产物。
+ * 用于统计产物打点(artifact-file-edit):单独计 AI 的文件修改操作。
+ * 复用 findWriteCards 的逻辑,但过滤条件改为 isEditOnlyTool。
+ */
+export function findEditCards(parts: unknown[]): WriteCard[] {
+  return findWriteCardsByFilter(parts, isEditOnlyTool)
+}
+
+/**
+ * 通用的写文件工具检测函数(按自定义过滤器)。
+ * 内部逻辑与 findWriteCards 完全一致,仅工具判定可注入。
+ */
+function findWriteCardsByFilter(parts: unknown[], toolFilter: (tool: unknown) => boolean): WriteCard[] {
+  const byPath = new Map<string, WriteCard>()
+
+  for (const part of parts) {
+    if (!part || typeof part !== "object") continue
+    const p = part as Record<string, unknown>
+    if (p.type !== "tool") continue
+
+    const state = p.state as Record<string, unknown> | undefined
+    if (!toolFilter(p.tool)) continue
+    if (!state || state.status !== "completed") continue
+    const resolved = resolveCardPath(state)
+    if (!resolved) continue
+    const filePath = resolved.filePath
+    byPath.delete(filePath)
+    byPath.set(filePath, { filePath, type: resolveOutputType(filePath) })
+  }
+
+  return [...byPath.values()]
 }
