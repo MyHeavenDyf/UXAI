@@ -113,7 +113,9 @@ export async function sendQueuedItem(globalSDK: GlobalSDK, sessionID: string, it
   const { parts } = assembleInsightParts({
     text: item.text,
     syntheticTexts,
-    textInlineFiles: item.uploads ?? [],
+    // `@` 引用的文件与附件走同一条内联路径（与 doSendPrompt 一致，SPEC-INS-023 §7.2 2026-08-20 修订）；
+    // 非文本类与重复 path 由 assembleInsightParts 内部处理。
+    textInlineFiles: [...(item.uploads ?? []), ...(item.files ?? [])],
     imageFiles: item.images ?? [],
   })
 

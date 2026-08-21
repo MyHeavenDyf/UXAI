@@ -223,13 +223,26 @@ export function isImageFile(filename: string): boolean {
   return IMAGE_EXT.has(getExt(filename))
 }
 
-// 可被 opencode 直接内联正文的纯文本类(SPEC-INS-015 路由 ①)。这类走 FilePart(file://, text/plain),
-// 组 prompt 时 opencode 自动 Read 内联;office(docx/xlsx)是二进制,走 FilePart 会被 base64,不在此列
-// (② 由模型调 extract_document 读)。
-const TEXT_INLINE_EXT = new Set(["txt", "md"])
+// 可被 opencode 直接内联正文的文件(SPEC-INS-015 路由 ①)。这类走 FilePart(file://, text/plain),
+// 组 prompt 时服务端调 `read` 把正文读进上下文(2000 行 / 50KB 上限,超出附 offset 续读提示)。
+//
+// **判定是反向排除,不是正向白名单**(2026-08-20 修订):上游 read 支持的是「任何非二进制文本」
+// (tool/read.ts isBinaryFile = 二进制扩展名黑名单 + 内容嗅探),不是一份固定清单。此处只排掉
+// **我们有专门通道的**格式,其余一律交给 read 自己判定 —— 这样上传格式放开(如 json / csv)时
+// 无需再同步一次内联清单,判定口径也与 opencode 原生一致。
+//   - office / pdf → `extract_document`(read 对 office 显式拒绝、对 pdf 内容嗅探判二进制)
+//   - 图片        → vision FilePart{url:S3}(路由 ③)
+// 排除集之外的文件若真是二进制(如 `@` 一个 .zip 产物),read 会返回 "Cannot read binary file"
+// 进上下文 —— 响亮失败,模型看得懂,不做客户端预判(嗅探要读文件字节,是服务端的活)。
+const NON_INLINE_EXT = new Set([
+  // extract_document 负责的文档类(SPEC-INS-015 路由 ②)
+  "docx", "xlsx", "pptx", "doc", "xls", "ppt", "pdf",
+  // 图片走 vision(路由 ③)
+  ...IMAGE_EXT,
+])
 
 export function isTextInlineFile(filename: string): boolean {
-  return TEXT_INLINE_EXT.has(getExt(filename))
+  return !NON_INLINE_EXT.has(getExt(filename))
 }
 
 // 按 SPEC-INS-015 §2 拼「附件清单」段落:每行 `- <文件名>: <本地绝对路径>`。
@@ -272,7 +285,9 @@ export const MENTION_BLOCK_HEADER = "[引用文件]"
 export function formatMentionedFilesForPrompt(files: Array<{ filename: string; path: string }>): string {
   if (files.length === 0) return ""
   const lines = files.map((f) => `- ${f.filename}: ${f.path}`)
-  return `${MENTION_BLOCK_HEADER} 用户本轮 @ 引用了以下已存在的会话文件(与 [附件] 同属本会话可用文件;区别:正文未随消息内联):\n${lines.join("\n")}`
+  // 2026-08-20:`@` 的文件与附件走同一条内联路径(isTextInlineFile 判定),故两个清单对模型而言
+  // 行为已经一致 —— 文案不再区分"正文有没有内联"。
+  return `${MENTION_BLOCK_HEADER} 用户本轮 @ 引用了以下已存在的会话文件(与 [附件] 同属本会话可用文件):\n${lines.join("\n")}`
 }
 
 // formatUploadsForPrompt 的逆操作:从 synthetic text part 解析出 { filename, path } 列表,

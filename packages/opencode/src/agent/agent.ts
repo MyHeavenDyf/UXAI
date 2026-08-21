@@ -13,6 +13,7 @@ import PROMPT_EXPLORE from "./prompt/explore.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
 import PROMPT_OCTO_INSIGHT from "./prompt/octo_insight.txt"
+import PROMPT_INSIGHT_READER from "./prompt/insight_reader.txt"
 import PROMPT_OCTO_MAKE from "./prompt/octo_make.txt"
 import PROMPT_OCTO_DESIGN from "./prompt/octo_design.txt"
 import PROMPT_OCTO_STUDIO from "./prompt/octo_studio.txt"
@@ -118,6 +119,18 @@ export const layer = Layer.effect(
           "*": "allow",
           doom_loop: "ask",
           load_components_docs: "deny",
+          // SPEC-INS-032 §3:文档抽取默认不给任何 agent,需要的 agent(octo_insight / insight_reader,
+          // 以及第三方 skill 自带的 agent md)在自己的配置里显式 allow。
+          // 这取代了原先 registry.ts 里 `agent.name === "octo_insight"` 那条硬编码 gate ——
+          // 声明式(agent 声明自己要什么工具)是上游既定机制,`permission` 就是它;
+          // 上游 config 的 `tools: { x: true }` 亦会被 normalize 翻译成本形态(config/agent.ts)。
+          // 语义:Permission.disabled 对 pattern "*" 的 deny **既隐藏工具也阻断执行**。
+          extract_document: "deny",
+          // SPEC-INS-032 §5.2:insight_reader 是 insight 专用子代理,不该出现在其他 agent 的
+          // task 候选清单里(registry.describeTask 按 evaluate("task", <agent 名>) 过滤)。
+          // 注意这里**必须**用 pattern 形态而不是整体 deny —— Permission.disabled 只在
+          // 「最后匹配规则 pattern === "*" 且 deny」时隐藏工具,故本条不会关掉其他 agent 的 task 本身。
+          task: { insight_reader: "deny" },
           external_directory: {
             "*": "ask",
             ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
@@ -280,6 +293,11 @@ export const layer = Layer.effect(
                 // insight 需要它向用户提问(如知识库问答让用户选库),故显式放开;
                 // 答题 UI 见 pages/insight/components/question-dock.tsx。
                 question: "allow",
+                // SPEC-INS-032 §3.3:文档抽取在 defaults 里默认 deny,这里显式放开。
+                extract_document: "allow",
+                // SPEC-INS-032 §5:多文档通读的分治入口 —— defaults 对所有 agent deny 了
+                // insight_reader 这个候选,只有 insight 这条线放开(pattern 形态,不影响 task 工具本身)。
+                task: { insight_reader: "allow" },
               }),
               user,
             ),
@@ -288,6 +306,40 @@ export const layer = Layer.effect(
             native: false,
             skills: ["interview-analysis"],
             mcp: ["uxr-tool"],
+          },
+          // SPEC-INS-032:多文档通读的分治子代理 —— 一份材料一个子会话,读完只回传结论。
+          // 价值是**上下文隔离**不是并发(串行同样能把父上下文从十几万 token 压到几千)。
+          // 工具面刻意只留「读」:不给 write/edit/bash(产物一律由父代理落盘,避免并发写同名文件
+          // 互相覆盖)、不给 task(它是最末一层,防套娃)、不绑 mcp。
+          // 名字用「归属_角色」而非 *_subagent:mode 字段与会话 category 已表达「是子代理」,
+          // 而这个名字既是模型选 subagent_type 的依据、也直接显示在 UI 的 task 卡片上。
+          insight_reader: {
+            name: "insight_reader",
+            description:
+              "读一份用研材料(docx / pdf / xlsx / pptx / txt / md)并回传结论。用于多份文档的通读类任务:一份文档派一个,读完只回结论、不写文件。需要在任务里给出文件的本地绝对路径和要提炼什么。",
+            prompt: PROMPT_INSIGHT_READER,
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                extract_document: "allow",
+                // 用 edit 键一把关掉 edit/write/apply_patch:上游 Permission.disabled 把这三个工具
+                // 都映射到 "edit" 权限键(EDIT_TOOLS),写 `write: "deny"` 是不生效的。
+                // 021 §1 把这个映射当坑记(它想留 write),这里正好相反 —— 子代理本就一个都不该有。
+                edit: "deny",
+                bash: "deny",
+                task: "deny",
+                todowrite: "deny",
+                webfetch: "deny",
+                websearch: "deny",
+                skill: "deny",
+                jimeng_image_generate: "deny",
+                internel_image_generate: "deny",
+              }),
+              user,
+            ),
+            options: {},
+            mode: "subagent",
+            native: false,
           },
           octo_make: {
             name: "octo_make",
