@@ -5,7 +5,7 @@
  *   - mode=horizontal → eview-react **Tab** 组件，items → TabItem children（inline LoopNode / 静态节点）
  *   - 其他（vertical/缺省） → eview-react **Accordion** 组件，items → data prop
  *
- * 无静态 defaults——两分支各自在 transform 内加（Accordion: hideTitleBar/enableMultiOpen/enableExpand(=false)/hideIcons；Tab: lazyLoad）。
+ * 无静态 defaults——两分支各自在 transform 内加（Accordion: hideTitleBar/enableMultiOpen/enableExpand(=false)；Tab: lazyLoad）。
  *
  * ## Props 对照（Accordion 分支）
  *
@@ -20,7 +20,7 @@
  * | inlineCollapsed | expanded | 1:1 透传 |
  * | mode: vertical | — | 走 Accordion 分支 |
  * | className | className | 透传 |
- * | — | hideTitleBar/enableMultiOpen(=true)/enableExpand(=false)/hideIcons | transform 内加 |
+ * | — | hideTitleBar/enableMultiOpen(=true)/enableExpand(=false) | transform 内加（hideIcons 不加：eview-ui Accordion 不支持） |
  *
  * ## Props 对照（Tab 分支，mode=horizontal）
  *
@@ -105,7 +105,7 @@ export function createMenuMapping(pkg: string): MappingDef {
     tag: 'Accordion',
     import: `${pkg}/Accordion`,
 
-    // 无静态 defaults——两分支各自在 transform 内加（Accordion: hideTitleBar/enableMultiOpen/enableExpand(=false)/hideIcons；Tab: lazyLoad）
+    // 无静态 defaults——两分支各自在 transform 内加（Accordion: hideTitleBar/enableMultiOpen/enableExpand(=false)；Tab: lazyLoad）
 
     transform(node: any, ctx: TransformContext) {
       const props = node.props || {}
@@ -260,7 +260,7 @@ export function createMenuMapping(pkg: string): MappingDef {
       if (!('hideTitleBar' in outputProps)) outputProps.hideTitleBar = true
       if (!('enableMultiOpen' in outputProps)) outputProps.enableMultiOpen = true
       if (!('enableExpand' in outputProps)) outputProps.enableExpand = false
-      if (!('hideIcons' in outputProps)) outputProps.hideIcons = true
+      // hideIcons 不加：eview-ui 的 Accordion 不支持该属性
 
       // items → data：字面量直接转换，path 绑定走 ComputedValue
       const itemsIsBinding = props.items && typeof props.items === 'object' && props.items.type === 'binding'

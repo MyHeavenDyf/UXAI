@@ -1,16 +1,22 @@
 /**
- * Table → Table 映射（新架构）
+ * Table → Table 映射（eview-ui 本地工厂副本）
  *
- * A2UI Table → eview-react Table 组件。
+ * eview-ui 的 Table 与 eview-react 的 Table API 存在差异：render / onRowExpend 函数的
+ * 行数据形参上，当前行原始数据字段名不同——eview-ui 为 `row._org`（eview-react 为
+ * `row.rawData`）。仅此一点导致不能复用 eview-react 工厂，故本文件为其本地副本。
+ *
+ * 其余映射逻辑与 eview-react/Table.ts 一致（详见下方 Props 对照）。本副本仅就
+ * buildRenderFn 末参 `dataField` 由 `'rawData'` 改为 `'_org'`，使解构源为 `row._org`
+ * （`const { f1, f2 } = row._org`），body 内相对 binding 仍裸 `{f1}`。
  *
  * ## Props 对照
  *
- * | A2UI prop | eview-react prop | 处理方式 |
- * |-----------|-----------------|---------|
+ * | A2UI prop | eview-ui prop | 处理方式 |
+ * |-----------|---------------|---------|
  * | dataSource（DataBinding） | dataset | **enrichScopedData** → ComputedValue（含 cells 内 relative CV 的编译期 enrichment） |
  * | columns（字面量数组） | columns | 每列从 cells 生成 `render` fn + A2UI 列定义（title/width/align/sort...）→ 字面量数组，propRoute module-top |
  * | columns（DataBinding） | columns | **ComputedValue**（containsJSX:true）逐项 zip：state 列元数据 + 编译期 render fn，产物形态同字面量 |
- * | colDef.sort | col.allowSort | sort===true→true；否则显性 false（避免 eview-react 默认开排序） |
+ * | colDef.sort | col.allowSort | sort===true→true；否则显性 false（避免默认开排序） |
  * | rowKey | rowKey | 透传 |
  * | pagination: true/false | enablePagination + recordCount | false→enablePagination:false；其他（含缺省）→true + recordCount=dataset.length |
  * | rowSelection.type: checkbox | checkType: multi + enableCheckBox: true | 值映射 |
@@ -19,10 +25,10 @@
  * | rowSelection.selectedRowKeys（DataBinding） | checkedRows | **ComputedValue.useState** + onRowCheck（值进 state.js，useState 引用 initialState） |
  * | expandable.expandedRowKeys | expandedRowKeys | 双形态 useState（同 selectedRowKeys → checkedRows 结构）；onRowExpendClick 签名 (row) 无新值，extractor 占位 (row) => {} 暂不调 setter |
 | expandable（存在） | enableRowExpand: true + enableMulitiExpand: true | 存在即启用行展开 + 多行展开 |
-| TableRow.expandedRowRender（slot） | onRowExpend | buildRenderFn（与 column render 同构，row.rawData 上下文），propRoute 提升 module-top |
+| TableRow.expandedRowRender（slot） | onRowExpend | buildRenderFn（与 column render 同构，row._org 上下文），propRoute 提升 module-top |
  * | className | className | 透传 |
- * | rowClassName | — | eview-react 无直接对应，暂不处理 |
- * | size | — | eview-react Table 不支持 size 属性，丢弃（schema 已新增，但不透传） |
+ * | rowClassName | — | 无直接对应，暂不处理 |
+ * | size | — | Table 不支持 size 属性，丢弃（schema 已新增，但不透传） |
  *
  * ## 特殊逻辑
  *
@@ -32,6 +38,8 @@
  * - columns 双形态：字面量→字面量数组（propRoute module-top）；DataBinding→ComputedValue 逐项 zip render fn（inline，不走 propRoute）
  * - enablePagination=true 时传 recordCount（dataset 长度，运行时表达式，引用名按 dataset 是否 containsJSX 选 computedJsxConstName / stateRef）
  * - selectedRowKeys 双形态分叉：字面量 → Value.literal.useState，DataBinding → Value.computed.useState
+ * - **行数据字段名 `_org`**：render / onRowExpend 的 buildRenderFn 末参 `dataField='_org'`，
+ *   解构源 `row._org`（eview-react 副本为 `row.rawData`），此为本副本与 eview-react 的唯一差异
  *
  * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
  */
@@ -100,8 +108,8 @@ export function createTableMapping(pkg: string): MappingDef {
       // ─── 行展开：TableRow.expandedRowRender (slot) → onRowExpend render fn ───
       // A2UI TableRow.props.expandedRowRender = { componentId } → SlotNodeValue({ node })
       // build-trees 已把 { componentId } 转成 SlotNodeValue，node 即展开内容子树（如嵌套子表）
-      // eview-react onRowExpend: (row) => ReactNode（展开内容渲染函数，非事件回调）
-      // 与 column render 同构：row.rawData = 当前 item，子表 dataSource（相对路径如 subList）在 row.rawData 上下文解析
+      // eview-ui onRowExpend: (row) => ReactNode（展开内容渲染函数，非事件回调）
+      // 与 column render 同构：row._org = 当前 item，子表 dataSource（相对路径如 subList）在 row._org 上下文解析
       const expandedRowRender = (tableRow as any).props?.expandedRowRender
       let expandedContent: RegularNode | null = null
       if (expandedRowRender && typeof expandedRowRender === 'object' && expandedRowRender.type === 'slotNode') {
@@ -126,16 +134,18 @@ export function createTableMapping(pkg: string): MappingDef {
 
       // ─── columns ───
       // render fn 从 cells 编译期构造（字面量 / binding 共用），每列一个，按位置对应 cell
+      // ⚠️ eview-ui 行数据字段名为 `_org`：末参 dataField='_org'，解构源 row._org
+      //   （eview-react 副本为 dataField='rawData'，row.rawData）
       const renderFns = resolvedCells.map((cell) =>
         buildRenderFn(cell as any, [
           { name: 'cellValue' },
           { name: 'rowData' },
           { name: 'options' },
-          { name: 'row', dataSource: dataBinding, dataField: 'rawData' },
+          { name: 'row', dataSource: dataBinding, dataField: '_org' },
         ]),
       )
 
-      // 单列构造：A2UI 列定义 + 对应 cell 的 render fn → eview-react ColumnProps
+      // 单列构造：A2UI 列定义 + 对应 cell 的 render fn → ColumnProps
       const buildCol = (colDef: any, i: number): Record<string, any> => {
         const cd = colDef || {}
         const cell = resolvedCells[i] as any
@@ -143,7 +153,7 @@ export function createTableMapping(pkg: string): MappingDef {
           key: cd.dataIndex ?? cell?.id ?? `col_${i}`,
           title: typeof cd.title === 'string' ? cd.title : (cell?.id ?? `col_${i}`),
           render: renderFns[i],
-          // allowSort：cd.sort===true 才允许排序，其余一律显性 false（避免 eview-react 默认开启排序）
+          // allowSort：cd.sort===true 才允许排序，其余一律显性 false（避免默认开启排序）
           allowSort: cd.sort === true,
         }
         if (cd.align) col.align = cd.align
@@ -259,7 +269,7 @@ export function createTableMapping(pkg: string): MappingDef {
         // expandedRowKeys → expandedRowKeys（双形态：字面量 / DataBinding，均触发 useState）
         // 逻辑同 selectedRowKeys → checkedRows（双形态 useState 结构）
         // 但 onRowExpendClick 签名 (row) 只一参、无新值可取，extractor 暂占位 (row) => {}（不调 setter）
-        // eview-react expandedRowKeys 接受行索引数组
+        // expandedRowKeys 接受行索引数组
         const ek = (node.props.expandable as any).expandedRowKeys
         if (ek !== undefined) {
           if (ek && typeof ek === 'object' && (ek as any).type === 'binding') {
@@ -288,9 +298,10 @@ export function createTableMapping(pkg: string): MappingDef {
         }
       }
       // onRowExpend：由 TableRow.expandedRowRender（slot 子表）构造 render fn（与 column render 同构）
+      // ⚠️ 末参 dataField='_org'，解构源 row._org（eview-react 副本为 row.rawData）
       if (expandedContent) {
         outputProps.onRowExpend = buildRenderFn(expandedContent, [
-          { name: 'row', dataSource: dataBinding, dataField: 'rawData' },
+          { name: 'row', dataSource: dataBinding, dataField: '_org' },
         ])
       }
 

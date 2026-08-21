@@ -6,10 +6,16 @@
  *   1. 工厂复用 pkg=@cloudsop/eview-ui（eview-ui 包自带、且**不涉及 icon 属性**的组件）
  *   2. 工厂复用 sharedPkg=@/shared（eview-ui 无、且不涉及 icon：Badge/Tag/Divider/Chart）
  *   3. bespoke（eview-ui 与 eview-react 的 API 差异，独立 default-export MappingDef：DatePicker/Rate/Switch→Toggle/TextArea/Button/Steps/Progress/Dropdown）
- *   4. 本地工厂副本（**涉及 icon 属性**的组件：Input/Menu/TabItem/Timeline/Tree）——
- *      eview-ui 的 icon 相关属性只接 URL、不接 React DOM，与 eview-react 差异显著，故不再复用
- *      eview-react 工厂。当前文件**原样复制**自 eview-react 工厂（行为暂与 eview-react 一致），
- *      待按 icon-URL 差异就地改造。改造前为纯副本，行为零变化。
+ *   4. 本地工厂副本（与 eview-react 有 API 差异、不再复用 eview-react 工厂）：
+ *      a. **涉及 icon 属性**的组件（Input/Menu/TabItem/Timeline/Tree）——
+ *         eview-ui 的 icon 相关属性只接 URL、不接 React DOM，与 eview-react 差异显著。
+ *         当前文件原样复制自 eview-react 工厂，待按 icon-URL 差异就地改造。
+ *         改造前为纯副本，行为零变化。
+ *      b. **Table**——render / onRowExpend 行数据字段名不同：eview-ui 为 `row._org`
+ *         （eview-react 为 `row.rawData`）。副本已就地把 buildRenderFn 末参 `dataField`
+ *         由 `'rawData'` 改为 `'_org'`，此为其与 eview-react 的唯一差异。
+ *      c. **Drawer**——eview-ui 默认要加尺寸值（right/left/缺省 时加 `width='auto'`/
+ *         `height='100%'`，top/bottom 不加），eview-react 不加。副本带上该条件默认逻辑。
  *
  * ⚠️ 此复用模式是 eview-ui 特例。未来别的组件库不复用 eview-react，各自独立。
  */
@@ -25,7 +31,7 @@ import { createCheckboxGroupMapping } from '../eview-react/CheckboxGroup'
 import { createCollapseMapping } from '../eview-react/Collapse'
 import { createCollapseItemMapping } from '../eview-react/CollapseItem'
 import { createDividerMapping } from '../eview-react/Divider'
-import { createDrawerMapping } from '../eview-react/Drawer'
+import { createDrawerMapping } from './Drawer'
 import DatePicker from './DatePicker'
 import Dropdown from './Dropdown'
 import { createIconMapping } from '../eview-react/Icon'
@@ -43,7 +49,7 @@ import { createSliderMapping } from '../eview-react/Slider'
 import Steps from './Steps'
 import Switch from './Switch'
 import { createTabItemMapping } from './TabItem'
-import { createTableMapping } from '../eview-react/Table'
+import { createTableMapping } from './Table'
 import { createTabsMapping } from '../eview-react/Tabs'
 import { createTagMapping } from '../eview-react/Tag'
 import TextArea from './TextArea'

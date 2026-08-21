@@ -159,6 +159,7 @@ function generateSharedStateFileContent(sharedKeys: Set<string>): string {
   importStr += "import { initialState } from './state'"
   return `
 ${importStr}
+
 function createSharedStore(init: Record<string, any>) {
   let state = init
   const listeners = new Set<() => void>()
