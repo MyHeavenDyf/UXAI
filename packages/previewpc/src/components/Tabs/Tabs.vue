@@ -222,7 +222,7 @@ watch(
         const isActive = activeKey.value === item.name
         let color = isDark.value ? '#AEAEAE' : '#777777'
         if(isActive) {
-          color = isDark.value ? '#AEAEAE' : '#000000'
+          color = isDark.value ? '#AEAEAE' : '#0067D1'
         } else if (item.disabled) {
           color = isDark.value ? '#939393' : '#C9C9C9'
         }
