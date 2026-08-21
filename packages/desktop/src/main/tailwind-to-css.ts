@@ -671,8 +671,10 @@ function parseCssToChunks(css: string, useVar: boolean = false, escapedClass?: s
       if (idx > 0) {
         const prop = decl.slice(0, idx).trim()
         const val = decl.slice(idx + 1).trim()
-        // 局部 --var 定义：注入当前帧的 localVars 供同块后续声明解析，不作为输出
-        if (prop.startsWith("--")) localVars().set(prop, val)
+        // 局部 --var 定义：注入当前帧的 localVars 供后续 var() 解析；!important 是声明级标志，
+        // var() 替换不携带被引自定义属性的 !important（规范行为），剥离以免外层声明再带 !important
+        // 时拼成 "!important !important"（如 !shadow-sm 的 --tw-shadow: … !important）
+        if (prop.startsWith("--")) localVars().set(prop, val.replace(/\s*!\s*important\s*$/i, ""))
         else pushDecl(prop, val)
       }
     }
