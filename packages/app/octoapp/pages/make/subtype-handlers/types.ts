@@ -4,7 +4,7 @@ import type { VersionFile } from "../utils/history-store"
 import type { JSX } from "solid-js"
 import type { UploadZipOptions, UsePixsoTransportResult } from "@/utils/useZipTransport"
 
-export type FeatureType = 'localEdit' | 'drawEdit' | 'canvasEdit'
+export type FeatureType = 'localEdit' | 'drawEdit' | 'canvasEdit' | 'comment' | 'archive'
 
 export type HistoryTriggerEvent =
   | { type: 'open'; isNew: boolean }

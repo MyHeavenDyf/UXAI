@@ -14,6 +14,16 @@ function evalPerm(agent: Agent.Info | undefined, permission: string): Permission
   return Permission.evaluate(permission, "*", agent.permission).action
 }
 
+// 带 pattern 的求值(SPEC-INS-032 §5.2:task 的候选白/黑名单是 pattern 级的)
+function evalPermPattern(
+  agent: Agent.Info | undefined,
+  permission: string,
+  pattern: string,
+): Permission.Action | undefined {
+  if (!agent) return undefined
+  return Permission.evaluate(permission, pattern, agent.permission).action
+}
+
 function load<A>(dir: string, fn: (svc: Agent.Interface) => Effect.Effect<A>) {
   return Effect.runPromise(provideInstance(dir)(Agent.Service.use(fn)).pipe(Effect.provide(Agent.defaultLayer)))
 }
@@ -456,9 +466,13 @@ test("octo_insight denies escape-hatch tools and keeps analysis toolset", async 
       // deny 清单(edit/apply_patch 不在权限层——EDIT_TOOLS 共享 "edit" 权限键,deny 会连带
       // 隐藏要保留的 write,改在 registry.ts tools() 按 agent 裁剪;权限层 edit 维持 defaults allow
       // 以保 write 的执行链路)
-      expect(evalPerm(insight, "bash")).toBe("deny")
+      //
+      // 2026-07-30 起 bash / todowrite 已在权限层放开(bash 供 interview-analysis skill,
+      // todowrite 是 skill 多步执行的进度载体),断言随之更新 —— bash 的"逃生口"关闭改由
+      // chip turn 的 buildToolGate 单点负责,不再靠常驻 deny。
+      expect(evalPerm(insight, "bash")).toBe("allow")
       expect(evalPerm(insight, "edit")).toBe("allow")
-      expect(evalPerm(insight, "todowrite")).toBe("deny")
+      expect(evalPerm(insight, "todowrite")).toBe("allow")
       expect(evalPerm(insight, "jimeng_image_generate")).toBe("deny")
       expect(evalPerm(insight, "internel_image_generate")).toBe("deny")
       // 保留集(webfetch/websearch 经 2026-07-11 spec 修订保留)
@@ -477,13 +491,18 @@ test("octo_insight denies escape-hatch tools and keeps analysis toolset", async 
   })
 })
 
+// 用例意图 = 「全局 defaults 不禁 webfetch」。原先拿 octo_ai 验,但 octo_ai 自己显式 deny 了
+// webfetch(见 agent.ts 的 octo_ai 条目),断言与配置长期打架。改用不覆盖该键的 general 验默认值,
+// 并顺带把 octo_ai 的显式 deny 也钉住 —— 两条各测各的,不再互相冒充。
 test("webfetch is allowed by default", async () => {
   await using tmp = await tmpdir()
   await WithInstance.provide({
     directory: tmp.path,
     fn: async () => {
+      const general = await load(tmp.path, (svc) => svc.get("general"))
+      expect(evalPerm(general, "webfetch")).toBe("allow")
       const octo_ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
-      expect(evalPerm(octo_ai, "webfetch")).toBe("allow")
+      expect(evalPerm(octo_ai, "webfetch")).toBe("deny")
     },
   })
 })
@@ -756,17 +775,21 @@ test("defaultAgent returns octo_ai when plan is disabled and default_agent not s
 })
 
 test("defaultAgent throws when all primary agents are disabled", async () => {
-  await using tmp = await tmpdir({
-    config: {
-      agent: {
-        octo_ai: { disable: true },
-        plan: { disable: true },
-        octo_design: { disable: true },
-        octo_make: { disable: true },
-        octo_insight: { disable: true },
-        octo_studio: { disable: true },
-      },
+  // primary agent 清单**动态取**、不写死:本仓陆续加了 octo_make_plan / octo_pattern_* / proto_* 等
+  // 一批 primary agent,原先硬编码那 6 个已盖不全 —— 漏掉的那些仍可见,defaultAgent() 照样返回,
+  // 用例就此长期失败(陈旧断言)。改成先列一遍再全禁,新增 agent 时自动跟上。
+  await using probe = await tmpdir()
+  const primaries = await WithInstance.provide({
+    directory: probe.path,
+    fn: async () => {
+      const agents = await load(probe.path, (svc) => svc.list())
+      return agents.filter((a) => a.mode === "primary").map((a) => a.name)
     },
+  })
+  expect(primaries.length).toBeGreaterThan(0)
+
+  await using tmp = await tmpdir({
+    config: { agent: Object.fromEntries(primaries.map((name) => [name, { disable: true }])) },
   })
   await WithInstance.provide({
     directory: tmp.path,
@@ -804,6 +827,85 @@ test("backward compat: get('build') returns octo_ai agent", async () => {
       const agent = await load(tmp.path, (svc) => svc.get("build"))
       expect(agent).toBeDefined()
       expect(agent?.name).toBe("octo_ai")
+    },
+  })
+})
+
+// ── SPEC-INS-032:子代理分治 ────────────────────────────────────────────────
+
+// §3.3:extract_document 的可见性从 registry 的 agent 名硬编码搬到权限层声明。
+// defaults 默认 deny,需要的 agent 显式 allow —— 这条用例就是那个 gate 的新家。
+test("SPEC-INS-032: extract_document is opt-in via permission, not registry agent name", async () => {
+  await using tmp = await tmpdir()
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const insight = await load(tmp.path, (svc) => svc.get("octo_insight"))
+      const reader = await load(tmp.path, (svc) => svc.get("insight_reader"))
+      const general = await load(tmp.path, (svc) => svc.get("general"))
+      const make = await load(tmp.path, (svc) => svc.get("octo_make"))
+      expect(evalPerm(insight, "extract_document")).toBe("allow")
+      expect(evalPerm(reader, "extract_document")).toBe("allow")
+      // 默认不给:pattern "*" 的 deny → Permission.disabled 既隐藏也阻断
+      expect(evalPerm(general, "extract_document")).toBe("deny")
+      expect(evalPerm(make, "extract_document")).toBe("deny")
+      expect(Permission.disabled(["extract_document"], general!.permission).has("extract_document")).toBe(true)
+      expect(Permission.disabled(["extract_document"], insight!.permission).has("extract_document")).toBe(false)
+    },
+  })
+})
+
+// §4.1:子代理只读 —— 不给 write/edit(EDIT_TOOLS 共键,用 edit 一把关)、bash、task(防套娃)、skill。
+test("SPEC-INS-032: insight_reader is a read-only subagent", async () => {
+  await using tmp = await tmpdir()
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const reader = await load(tmp.path, (svc) => svc.get("insight_reader"))
+      expect(reader).toBeDefined()
+      expect(reader?.mode).toBe("subagent")
+      expect(reader?.description).toBeTruthy()
+      expect(evalPerm(reader, "read")).toBe("allow")
+      expect(evalPerm(reader, "grep")).toBe("allow")
+      expect(evalPerm(reader, "glob")).toBe("allow")
+      expect(evalPerm(reader, "edit")).toBe("deny")
+      expect(evalPerm(reader, "bash")).toBe("deny")
+      expect(evalPerm(reader, "task")).toBe("deny")
+      expect(evalPerm(reader, "skill")).toBe("deny")
+      // 写盘三件套共用 "edit" 权限键,一条 deny 应当把它们全部隐藏
+      const off = Permission.disabled(["write", "edit", "apply_patch", "task"], reader!.permission)
+      expect(off.has("write")).toBe(true)
+      expect(off.has("edit")).toBe(true)
+      expect(off.has("apply_patch")).toBe(true)
+      expect(off.has("task")).toBe(true)
+      // 子代理不绑 MCP(prompt.ts 只给显式声明 mcp 的 agent 发内置 MCP 工具)
+      expect(reader?.mcp).toBeUndefined()
+    },
+  })
+})
+
+// §5.2:insight_reader 只出现在 insight 的 task 候选里(describeTask 按 evaluate("task", <名>) 过滤),
+// 且这条 pattern 级 deny **不得**把其他 agent 的 task 工具本身关掉 —— 两个函数语义不同,一起钉住。
+test("SPEC-INS-032: insight_reader is only a task candidate for octo_insight", async () => {
+  await using tmp = await tmpdir()
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const insight = await load(tmp.path, (svc) => svc.get("octo_insight"))
+      const make = await load(tmp.path, (svc) => svc.get("octo_make"))
+      const ai = await load(tmp.path, (svc) => svc.get("octo_ai"))
+
+      expect(evalPermPattern(insight, "task", "insight_reader")).toBe("allow")
+      expect(evalPermPattern(make, "task", "insight_reader")).toBe("deny")
+      // 别的 subagent 候选不受影响
+      expect(evalPermPattern(make, "task", "general")).toBe("allow")
+      expect(evalPermPattern(insight, "task", "general")).toBe("allow")
+
+      // 关键回归:pattern 级 deny 不等于关掉 task 工具(Permission.disabled 只认 pattern "*" 的 deny)
+      expect(Permission.disabled(["task"], make!.permission).has("task")).toBe(false)
+      expect(Permission.disabled(["task"], insight!.permission).has("task")).toBe(false)
+      // octo_ai 自己整体 deny 了 task,仍应被隐藏(不受本次改动影响)
+      expect(Permission.disabled(["task"], ai!.permission).has("task")).toBe(true)
     },
   })
 })

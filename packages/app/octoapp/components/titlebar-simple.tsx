@@ -16,10 +16,12 @@ import { TaskList } from "@/components/task-list"
 // jk-j60099994-replace-with-titlebar-simple-1-end
 
 
+// SPEC-INS-030:Chat tab 已下线(能力并入 Insight),故不在 TAB_ITEMS 里;但 "chat" 仍留在
+// TabType 里 —— 旧 URL /:dir/chat/:id 会被路由重定向到 /insight/:id,重定向落地前 activeTab()
+// 仍可能算出 "chat",此时按"无高亮 tab"处理即可,不该让类型层先崩。
 type TabType = "chat" | "make" | "cowork" | "studio" | "pattern"
 
 const TAB_ITEMS: { key: TabType; label: string }[] = [
-  { key: "chat", label: "Chat" },
   { key: "cowork", label: "Insight" },
   { key: "make", label: "Design" },
   { key: "pattern", label: "Prototype" },
@@ -153,11 +155,6 @@ export function TitlebarSimple() {
         navigate("/pattern")
         return
       }
-      if (tab === "chat") {
-        const dirSlug = getConfigDirSlug()
-        if (dirSlug) navigate(`/${dirSlug}/chat`)
-        return
-      }
       if (tab === "studio") {
         const dirSlug = getConfigDirSlug()
         if (dirSlug) navigate(`/${dirSlug}/studio`)
@@ -206,23 +203,6 @@ export function TitlebarSimple() {
     const decodedDir = decode64(dirSlug)
     if (!decodedDir) {
       navigate(`/${dirSlug}/${tab}`)
-      return
-    }
-
-    if (tab === "chat") {
-      const lastDir = layout.lastSessionPerTab.lastChatDir() || server.projects.last()
-      if (lastDir) {
-        const sessionId = layout.lastSessionPerTab.chat(lastDir)
-        const slug = base64Encode(lastDir)
-        if (sessionId) {
-          navigate(`/${slug}/chat/${sessionId}`)
-        } else {
-          navigate(`/${slug}/chat`)
-        }
-      } else {
-        const fallbackSlug = getConfigDirSlug()
-        if (fallbackSlug) navigate(`/${fallbackSlug}/chat`)
-      }
       return
     }
 

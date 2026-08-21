@@ -58,7 +58,7 @@ import {
 } from "./store/mcp-trigger"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
 import { NewSessionView } from "@/components/session"
-import { uploadFile, validateFile, formatUploadsForPrompt, parseUploadedFiles, isImageFile, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE } from "./lib/upload"
+import { uploadFile, validateFile, formatUploadsForPrompt, formatMentionedFilesForPrompt, parseUploadedFiles, isImageFile, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE, MENTION_BLOCK_HEADER } from "./lib/upload"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { getDesktopApi } from "./lib/electron-api"
 import { copyLastError, recordError, setBeaconContext } from "./lib/error-beacon"
@@ -70,6 +70,7 @@ import { linkToOutputType } from "./utils/resource-link"
 import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
 import { assembleInsightParts } from "./utils/build-prompt-parts"
+import { currentAccount } from "./utils/account"
 import { snapshotAttachmentsForQueue } from "./utils/queue-drain"
 import { splitMentions, queuedMentions } from "./utils/mention"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -1245,23 +1246,29 @@ function InsightContent() {
       })
     }
     if (opts.mentions?.files.length) {
-      mentionBlocks.push(
-        [
-          "[引用文件] 用户本轮引用了以下已存在的会话文件,需要时用 extract_document 按路径读取:",
-          ...opts.mentions.files.map((f) => `- ${f.filename}: ${f.path}`),
-        ].join("\n"),
-      )
+      mentionBlocks.push(formatMentionedFilesForPrompt(opts.mentions.files))
     }
     // SPEC-INS-027:组 parts 走公共骨架 assembleInsightParts(与排队 drain sendQueuedItem 共用,防两套漂移)。
     // uploadBlock / chipTemplate / chipDeclaration / mentionBlocks 仍在上方各自算好(optimistic 镜像与日志继续引用),
-    // 此处只按既定顺序组装 + 映射 txt/md·图片 FilePart。顺序:cleanText → [附件] → chip → @技能/@文件 → txt/md → 图片。
+    // 此处只按既定顺序组装 + 映射可内联文件·图片 FilePart。顺序:cleanText → [附件] → chip → @技能/@文件 → 内联文件 → 图片。
     const syntheticTexts = [uploadBlock, chipTemplate, chipDeclaration, ...mentionBlocks].filter(
       (t): t is string => !!t,
     )
+    // 2026-08-20:`@` 引用的文件与附件走**同一条**内联路径(SPEC-INS-023 §7.2 修订)——用户 `@` 一个
+    // 文件就是明确要它进上下文,不该让模型再多跑一轮 extract_document(上游 opencode 的 @ 引用同样
+    // 是发送即内联)。非文本类由 assembleInsightParts 内的 isTextInlineFile 反向排除掉。
+    // chip turn **不特殊处理**:内联只涉及文本类且有 50KB 截断,2026-08-19 那次的上下文炸弹源头是
+    // extract_document 对 office 全文回灌(已单独关掉),与本路径无关;chip 是纯常驻的,关掉内联会让
+    // 用户在选中研究工具期间对文件内容彻底失明。
+    // (同一文件既在本轮附件里、又被 `@` 引用时,由 assembleInsightParts 按 path 去重,只内联一次)
+    const inlineFiles = [
+      ...localFiles.map((a) => ({ filename: a.filename, path: resolvedPath(a) })),
+      ...(opts.mentions?.files ?? []),
+    ]
     const { parts, imageParts } = assembleInsightParts({
       text,
       syntheticTexts,
-      textInlineFiles: localFiles.map((a) => ({ filename: a.filename, path: resolvedPath(a) })),
+      textInlineFiles: inlineFiles,
       imageFiles: imageFiles.map((a) => ({ filename: a.filename, mime: a.mime, url: a.url! })),
     })
     const messageID = Identifier.ascending("message")
@@ -1382,6 +1389,14 @@ function InsightContent() {
       endpoint: `${sdk.url}/session/${sessionId}/prompt_async`,
     } satisfies SendRecord)
 
+    // SPEC-INS-030 §5:工号只在 renderer 拿得到(sidecar 无 localStorage),随请求 extra 递进去。
+    // 缺失不阻断发送——只是本轮 knowledge_search 会明确拒答;其余能力(读材料/MCP/技能)与工号无关。
+    const account = currentAccount()
+    const promptExtra =
+      injectedSkills.length || account
+        ? { ...(injectedSkills.length ? { skills: injectedSkills } : {}), ...(account ? { account } : {}) }
+        : undefined
+
     sync.session.optimistic.add({
       sessionID: sessionId,
       message: optimisticMessage,
@@ -1403,9 +1418,12 @@ function InsightContent() {
         parts,
         messageID,
         tools: toolGate,
-        // SPEC-INS-029:声明本轮激活的技能,服务端 prompt() 据此 publish skill.used。无技能时不传,
-        // 保持 payload 干净(extra 是共享自由字段,studio 也在用,别塞空对象进去)。
-        ...(injectedSkills.length ? { extra: { skills: injectedSkills } } : {}),
+        // extra 是共享自由字段(服务端按 sessionID 存进 sessionExtras,再原样铺进工具的 ctx.extra):
+        //   - skills(SPEC-INS-029):本轮激活的技能,服务端据此 publish skill.used。
+        //   - account(SPEC-INS-030 §5):当前登录工号,供 knowledge_search 按真实用户调内网知识库(该接口按
+        //     account 限流)。拿不到工号就不传,由工具侧显式告知,不塞兜底值。
+        // 两者都没有时整个 extra 不传,保持 payload 干净(studio 也在用这个字段,别塞空对象进去)。
+        ...(promptExtra ? { extra: promptExtra } : {}),
       })
       // chip turn 结果对账登记(spec §5:chip turn 工具调用结果):busy→idle 时消费
       if (opts.chip) {
@@ -1448,8 +1466,9 @@ function InsightContent() {
   }
 
   // ── MCP chip(SPEC-INS-017)─────────────────────────────────
-  // 可引用文件 = 会话历史所有 [附件] 清单聚合 + 本次待发送的非图片附件(按文件名去重)。
-  // 名集与 server 端 octo-upload-inject 的引用键表同源(清单文件名),声明只写这些名 → 插件必精确命中。
+  // 可引用文件 = 会话历史所有文件清单聚合(`[附件]` + `@` 的 `[引用文件]`)+ 本次待发送的非图片附件
+  // (按文件名去重)。名集与 server 端 octo-upload-inject 的引用键表同源(两个头都收,见 lib/upload.ts
+  // MENTION_BLOCK_HEADER),声明只写这些名 → 插件必精确命中。
   const mcpCandidateFiles = createMemo((): string[] => {
     const seen = new Set<string>()
     const names: string[] = []
@@ -1462,7 +1481,8 @@ function InsightContent() {
     for (const m of userMessages()) {
       const parts = (sync.data.part[m.id] ?? []) as Array<{ type?: string; synthetic?: boolean; text?: string }>
       for (const p of parts) {
-        if (p.type !== "text" || !p.synthetic || typeof p.text !== "string" || !p.text.startsWith("[附件]")) continue
+        if (p.type !== "text" || !p.synthetic || typeof p.text !== "string") continue
+        if (!p.text.startsWith("[附件]") && !p.text.startsWith(MENTION_BLOCK_HEADER)) continue
         for (const f of parseUploadedFiles(p.text)) add(f.filename)
       }
     }
