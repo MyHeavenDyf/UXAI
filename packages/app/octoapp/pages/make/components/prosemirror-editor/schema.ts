@@ -101,7 +101,7 @@ export function extractMentionsFromDoc(doc: PMNode): MentionAttrs[] {
 export function getDocTextWithMentions(doc: PMNode): string {
   return doc.textBetween(0, doc.content.size, "\n", (node) => {
     if (node.type.name === "mention") {
-      return `@${node.attrs.name}`
+      return ` @${node.attrs.name} `
     }
     return ""
   })
