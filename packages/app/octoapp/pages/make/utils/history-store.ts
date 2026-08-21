@@ -56,7 +56,12 @@ export function relativePathToId(rel: string): string {
     return "self"
   }
   const cleaned = rel.replace(/^\.\//, "").replace(/^\.$/, "self")
-  const id = cleaned.replace(/[/\\]/g, "_")
+  // 去掉末尾扩展名，避免与下游 getExt 拼接时出现 data.js.js 这种重复扩展名。
+  // 只去掉路径最后一段的扩展名（路径分隔符之后的部分），保留目录段中的点。
+  const lastSlash = Math.max(cleaned.lastIndexOf("/"), cleaned.lastIndexOf("\\"))
+  const lastDot = cleaned.lastIndexOf(".")
+  const stem = lastDot > lastSlash ? cleaned.slice(0, lastDot) : cleaned
+  const id = stem.replace(/[/\\]/g, "_")
   return id || "self"
 }
 

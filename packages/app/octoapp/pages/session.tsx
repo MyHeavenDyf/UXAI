@@ -41,7 +41,7 @@ import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
-import { setActiveChatSession, setFollowupRemover } from "@/pages/chat/utils/followup-queue"
+import { discoverAndSync, setActiveChatSession, setFollowupRemover } from "@/pages/chat/utils/followup-queue"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
 import {
   createOpenReviewFile,
@@ -1615,6 +1615,10 @@ export default function Page() {
     ])
     setFollowup("failed", draft.sessionID, undefined)
     setFollowup("paused", draft.sessionID, undefined)
+    // makePersisted 同步写 localStorage 后立即同步 runner 的 queues signal，
+    // 否则 runner 要等下一次轮询（最长 15s）才知道有新队列 → 切走再切回时
+    // 排队消息卡到页面 flushQueueHead 才发，而非后台 idle 后自动 drain。
+    discoverAndSync()
   }
 
   const followupDock = createMemo(() => queuedFollowups().map((item) => ({ id: item.id, text: followupText(item) })))
