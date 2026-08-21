@@ -21,8 +21,16 @@ import path from "node:path"
 // 尤其注意 bash:skill 脚本根本不读系统提示词,`--base-dir "."` 里的 `.` 是进程 cwd。
 // 对这条通道声明改写零作用,只能靠 workdir 默认值。它恰恰是产物散落的主力通道。
 //
-// 隔离(不影响其他模块):两道确定性闸门 —— 工具集/hook 判据 × session.agent === "octo_insight"。
-// Chat/Design/Studio 走原生行为。绝对路径原样尊重(用户显式指定的位置不改)。
+// 隔离(不影响其他模块):两道确定性闸门 —— 工具集/hook 判据 × **会话树根会话**的
+// agent === "octo_insight"。Chat/Design/Studio 走原生行为。绝对路径原样尊重(用户显式指定的位置不改)。
+//
+// 为什么判「根会话」而不是「本会话」(SPEC-INS-032 §6):task 子代理跑在 parentID 指向父会话的
+// **子 session** 里。按本会话判的话,子代理换个 agent 名(insight_reader)插件整个不生效、产物落裸路径;
+// 就算沿用 octo_insight 也会锚到子会话 ID,指向空的 .octo/<childID>/(那里没有 uploads/)。
+// **一个会话树 = 一个工作区**,根会话 ID 就是工作区标识 —— 业界共识是子代理隔离的是上下文、
+// 不是文件系统(Claude Code 的 subagent 就是「独立上下文窗口 + 同一个工作目录」)。
+// 好处是判据不再认 agent 名:任何子代理(我们的 insight_reader / general / 第三方 skill 自带的)
+// 落在 insight 会话树下都自动归到同一个工作区,不需要为它们逐个列白名单。
 
 const LOG = "[octo:session-workdir]"
 const INSIGHT_AGENT = "octo_insight"
@@ -42,10 +50,15 @@ const SEARCH_PATH_TOOLS = new Set(["glob", "grep"])
 // shell:未显式给 workdir 时补成会话产物目录。
 const SHELL_TOOL = "bash"
 
-type SessionMeta = { isInsight: boolean; directory?: string }
+// rootSessionID = 会话树根会话的 id(自己就是根时即自身);isInsight / directory 均取自**根会话**。
+type SessionMeta = { isInsight: boolean; directory?: string; rootSessionID: string }
 
-// agent/directory 对一个会话不变 —— 按 sessionID 缓存,避免每次调用都拉 session.get。
+// agent/directory/父子关系对一个会话不变 —— 按 sessionID 缓存,避免每次调用都拉 session.get。
 const cache = new Map<string, SessionMeta>()
+
+// 上溯深度上限:正常只有 1 层(父 → 子),留足余量。超过即认定数据异常(成环/脏数据),
+// 响亮失败而不是无限爬。
+const MAX_PARENT_DEPTH = 8
 
 /** 本会话的工作区根(= 对模型声明的 Workspace root folder;含 uploads/ outputs/ tmp/)。 */
 function sessionDir(directory: string, sessionID: string) {
@@ -89,13 +102,50 @@ function contains(dir: string, resolved: string) {
 }
 
 export const OctoSessionWorkdirPlugin: Plugin = async ({ client }) => {
+  const getSession = async (sessionID: string) => {
+    const res = await client.session.get({ path: { id: sessionID } })
+    return (res as { data?: { agent?: string; directory?: string; parentID?: string } }).data
+  }
+
+  /**
+   * 解析某个会话所属**工作区**:沿 parentID 上溯到会话树根,isInsight / directory 均取根会话的。
+   * task 子会话由此与父会话共用一个工作区(SPEC-INS-032 §6)。
+   *
+   * 失败(session.get 挂了 / 超深 / 成环)时**响亮失败 + 退化为「把当前会话当根」**——
+   * 那正是 032 之前的行为,不会比现状更差;静默换成别的目录才是最难查的那种 bug。
+   */
   const metaOf = async (sessionID: string): Promise<SessionMeta | undefined> => {
     const cached = cache.get(sessionID)
     if (cached) return cached
     try {
-      const res = await client.session.get({ path: { id: sessionID } })
-      const info = (res as { data?: { agent?: string; directory?: string } }).data
-      const meta: SessionMeta = { isInsight: info?.agent === INSIGHT_AGENT, directory: info?.directory }
+      const info = await getSession(sessionID)
+      let root = info
+      let rootID = sessionID
+      let depth = 0
+      const seen = new Set<string>([sessionID])
+      while (root?.parentID) {
+        const parentID = root.parentID
+        if (seen.has(parentID) || depth >= MAX_PARENT_DEPTH) {
+          console.error(`${LOG} 根会话解析失败,退化为按当前会话取工作区`, {
+            sessionID,
+            depth,
+            err: seen.has(parentID) ? "parent cycle" : "max depth exceeded",
+          })
+          root = info
+          rootID = sessionID
+          break
+        }
+        seen.add(parentID)
+        depth += 1
+        root = await getSession(parentID)
+        rootID = parentID
+      }
+      const meta: SessionMeta = {
+        isInsight: root?.agent === INSIGHT_AGENT,
+        directory: root?.directory,
+        rootSessionID: rootID,
+      }
+      if (rootID !== sessionID) console.log(`${LOG} 根会话解析`, { sessionID, rootSessionID: rootID, depth })
       cache.set(sessionID, meta)
       return meta
     } catch (err) {
@@ -128,7 +178,7 @@ export const OctoSessionWorkdirPlugin: Plugin = async ({ client }) => {
         return
       }
 
-      const outputs = outputsDir(meta.directory, sessionID)
+      const outputs = outputsDir(meta.directory, meta.rootSessionID)
       // 声明即兑现:在把 outputs 写进系统提示的同一刻把它建出来。否则模型拿到这行声明后,
       // 会先用 bash / read / glob 去探测「工作目录是否存在」—— 而执行层对**显式 workdir** 和
       // **绝对 filePath** 都早返回、不走 ensureDir(见下方执行层 isPathArg 与 else 分支),
@@ -177,12 +227,12 @@ export const OctoSessionWorkdirPlugin: Plugin = async ({ client }) => {
       const meta = await metaOf(input.sessionID)
       if (!meta?.isInsight || !meta.directory) return
 
-      const outputs = outputsDir(meta.directory, input.sessionID)
+      const outputs = outputsDir(meta.directory, meta.rootSessionID)
 
       if (!isPathArg) {
         // bash 的 cwd = 产物目录(脚本产出即产物);glob/grep 的默认搜索范围 = 会话根
         // (材料在 uploads/,收到 outputs 会让「在材料里找 X」搜不到)。
-        const value = isShell ? outputs : sessionDir(meta.directory, input.sessionID)
+        const value = isShell ? outputs : sessionDir(meta.directory, meta.rootSessionID)
         // 交出去之前先保证存在 —— 这三个通道都不像 write 那样会自动建目录,见 ensureDir 注释。
         if (!(await ensureDir(value, { tool, sessionID: input.sessionID }))) return
         args[key] = value
