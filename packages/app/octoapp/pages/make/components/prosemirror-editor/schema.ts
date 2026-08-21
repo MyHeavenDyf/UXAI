@@ -28,6 +28,7 @@ export const mentionNodeSpec = {
       {
         class: `pm-mention ${typeClass}`,
         contenteditable: "false",
+        "data-mention": "true",
         "data-id": attrs.id || "",
         "data-name": attrs.name,
         "data-type": attrs.type,

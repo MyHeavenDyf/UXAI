@@ -1,10 +1,12 @@
 import { createSignal, onMount, onCleanup, Show, createEffect } from "solid-js"
 import { Portal } from "solid-js/web"
-import { EditorState, Transaction, TextSelection } from "prosemirror-state"
+import { EditorState, Transaction, TextSelection, Plugin } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
 import { history, undo, redo } from "prosemirror-history"
 import { keymap } from "prosemirror-keymap"
 import { baseKeymap } from "prosemirror-commands"
+import { Fragment, Slice } from "prosemirror-model"
+import type { Node as PMNode } from "prosemirror-model"
 import { editorSchema, getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs } from "./schema"
 import { createMentionTriggerPlugin, mentionTriggerKey, closeMentionTrigger, type MentionTriggerState } from "./plugins/mention-trigger"
 import { createSyncPlugin } from "./plugins/sync"
@@ -91,6 +93,59 @@ export const ProseMirrorEditor = (props: Props) => {
 
   const connected = (v: EditorView | undefined): v is EditorView => !!v && !!v.dom?.isConnected
 
+  function filterMentionDuplicates(fragment: Fragment, seen: Set<string>): Fragment {
+    const nodes: PMNode[] = []
+    fragment.forEach((node) => {
+      if (node.type.name === "mention") {
+        // 只有技能才去重，文件不去重
+        if (node.attrs.type === "skill") {
+          const key = node.attrs.name
+          if (!seen.has(key)) {
+            seen.add(key)
+            nodes.push(node)
+          }
+        } else {
+          nodes.push(node)
+        }
+      } else if (node.content && node.content.size > 0) {
+        const filtered = filterMentionDuplicates(node.content, seen)
+        nodes.push(node.copy(filtered))
+      } else {
+        nodes.push(node)
+      }
+    })
+    return Fragment.from(nodes)
+  }
+
+  const pasteDedupPlugin = new Plugin({
+    props: {
+      handlePaste(view, event, slice) {
+        const { from, to } = view.state.selection
+        
+        // 收集未被框选的技能
+        const existingSkills = new Set<string>()
+        view.state.doc.descendants((node, pos) => {
+          if (node.type.name === "mention" && node.attrs.type === "skill") {
+            // 检查节点是否在框选范围外
+            if (pos < from || pos >= to) {
+              existingSkills.add(node.attrs.name)
+            }
+          }
+        })
+        
+        // 过滤粘贴内容
+        const filtered = filterMentionDuplicates(slice.content, existingSkills)
+        const newSlice = new Slice(filtered, slice.openStart, slice.openEnd)
+        
+        // 应用粘贴
+        const tr = view.state.tr.replaceSelection(newSlice)
+        view.dispatch(tr)
+        
+        return true
+      }
+    }
+  })
+
   onMount(() => {
     if (!containerRef) return
 
@@ -158,6 +213,7 @@ export const ProseMirrorEditor = (props: Props) => {
         mentionTriggerPlugin,
         slashTriggerPlugin,
         syncPlugin,
+        pasteDedupPlugin,
       ],
     })
 
