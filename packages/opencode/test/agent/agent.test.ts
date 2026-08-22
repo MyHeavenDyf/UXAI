@@ -481,7 +481,14 @@ test("octo_insight denies escape-hatch tools and keeps analysis toolset", async 
       expect(evalPerm(insight, "grep")).toBe("allow")
       expect(evalPerm(insight, "glob")).toBe("allow")
       expect(evalPerm(insight, "write")).toBe("allow")
-      expect(evalPerm(insight, "task")).toBe("allow")
+      // task:通配 pattern 求值是 deny(SPEC-INS-032 v2 起 insight 的候选收敛到 insight_reader
+      // 一个,`"*": deny` 挡掉 general / explore),但**工具本身仍可见可用** —— 那由
+      // Permission.disabled 判定(见下面 "only a task candidate" 用例)。两者语义不同,别混。
+      // 副作用只有一处且是往对的方向:truncate.ts 的 hasTaskTool 现在对 insight 返回 false,
+      // 截断提示从「派 explore agent 处理」换成「用 Grep / Read offset」—— explore 已经不在
+      // insight 的候选里了,原提示会让模型去派一个它根本没有的 subagent。
+      expect(evalPerm(insight, "task")).toBe("deny")
+      expect(Permission.disabled(["task"], insight!.permission).has("task")).toBe(false)
       expect(evalPerm(insight, "skill")).toBe("allow")
       expect(evalPerm(insight, "webfetch")).toBe("allow")
       expect(evalPerm(insight, "websearch")).toBe("allow")
@@ -897,11 +904,18 @@ test("SPEC-INS-032: insight_reader is only a task candidate for octo_insight", a
 
       expect(evalPermPattern(insight, "task", "insight_reader")).toBe("allow")
       expect(evalPermPattern(make, "task", "insight_reader")).toBe("deny")
-      // 别的 subagent 候选不受影响
+      // 别的 agent 的 subagent 候选不受影响
       expect(evalPermPattern(make, "task", "general")).toBe("allow")
-      expect(evalPermPattern(insight, "task", "general")).toBe("allow")
 
-      // 关键回归:pattern 级 deny 不等于关掉 task 工具(Permission.disabled 只认 pattern "*" 的 deny)
+      // v2(2026-08-21 评审补):insight 的候选**真收敛** —— describeTask 列的是「所有未被 deny 的
+      // subagent」,此前 insight 只 allow 了 insight_reader、没有 deny 其余,于是 general(bash /
+      // write / webfetch 全开)和 explore 照样在候选里。这两条断言就是那次回归的锁。
+      expect(evalPermPattern(insight, "task", "general")).toBe("deny")
+      expect(evalPermPattern(insight, "task", "explore")).toBe("deny")
+
+      // 关键回归:pattern 级 deny 不等于关掉 task 工具(Permission.disabled 只认**最后一条**匹配
+      // 规则的 pattern === "*" 且 deny)。insight 现在同时有 `"*": deny` 和 `insight_reader: allow`,
+      // 顺序保证最后一条是 insight_reader → task 工具仍可用。写反了这条会红。
       expect(Permission.disabled(["task"], make!.permission).has("task")).toBe(false)
       expect(Permission.disabled(["task"], insight!.permission).has("task")).toBe(false)
       // octo_ai 自己整体 deny 了 task,仍应被隐藏(不受本次改动影响)
