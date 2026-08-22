@@ -58,7 +58,7 @@ import {
 } from "./store/mcp-trigger"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
 import { NewSessionView } from "@/components/session"
-import { uploadFile, validateFile, formatUploadsForPrompt, formatMentionedFilesForPrompt, parseUploadedFiles, isImageFile, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE, MENTION_BLOCK_HEADER } from "./lib/upload"
+import { uploadFile, validateFile, formatUploadsForPrompt, formatMentionedFilesForPrompt, formatDispatchNote, parseUploadedFiles, isImageFile, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE, MENTION_BLOCK_HEADER } from "./lib/upload"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { getDesktopApi } from "./lib/electron-api"
 import { copyLastError, recordError, setBeaconContext } from "./lib/error-beacon"
@@ -69,7 +69,7 @@ import { tracker } from "@/utils/tracker"
 import { linkToOutputType } from "./utils/resource-link"
 import { markRefreshed, isInCooldown } from "./utils/task-refresh"
 import { sessionQueue, updateSessionQueue, clearSessionQueue } from "./utils/send-queue"
-import { assembleInsightParts } from "./utils/build-prompt-parts"
+import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_LIMIT } from "./utils/build-prompt-parts"
 import { currentAccount } from "./utils/account"
 import { snapshotAttachmentsForQueue } from "./utils/queue-drain"
 import { splitMentions, queuedMentions } from "./utils/mention"
@@ -1214,6 +1214,64 @@ function InsightContent() {
     const uploadBlock = formatUploadsForPrompt(
       localFiles.map((a) => ({ filename: a.filename, path: resolvedPath(a) })),
     )
+
+    // SPEC-INS-032 §2.3:内联分层判定 —— 本轮可内联文本材料的**总字节**超预算就整批不内联,
+    // 改由父代理逐份派 insight_reader 子代理通读。判定在**发送前确定性完成**,不交给模型判断。
+    // 字节数:附件直接用 Attachment.size;`@` 引用的会话文件没有 size 字段,用 readFileBuffer 补
+    // (读失败按未知计 → 计 0 字节,该文件本就内联不进上下文,不该因此把整批拖进分治)。
+    const mentionFiles = opts.mentions?.files ?? []
+    const mentionBytes = new Map<string, number>()
+    if (mentionFiles.length > 0) {
+      const api = getDesktopApi()
+      await Promise.all(
+        mentionFiles.map(async (f) => {
+          try {
+            const buf = await api?.readFileBuffer?.(f.path)
+            if (buf) mentionBytes.set(f.path, buf.byteLength)
+          } catch (err) {
+            console.warn("[octo:attach] mention file size unavailable", { path: f.path, err })
+          }
+        }),
+      )
+    }
+    const inlineFiles = [
+      ...localFiles.map((a) => ({ filename: a.filename, path: resolvedPath(a), bytes: a.size })),
+      ...mentionFiles.map((f) => ({ ...f, bytes: mentionBytes.get(f.path) })),
+    ]
+    const inlineDecision = decideInlineStrategy(inlineFiles)
+    if (inlineDecision.mode === "dispatch") {
+      console.log("[octo:attach] 内联预算超限,转子代理分治", {
+        count: inlineDecision.files.length,
+        totalBytes: inlineDecision.totalBytes,
+        budget: INLINE_BUDGET,
+        oversized: inlineDecision.oversized.map((f) => f.filename),
+        unknownCount: inlineDecision.unknownCount,
+      })
+    }
+    if (inlineDecision.oversized.length > 0) {
+      // §2.4:分治不扩容 —— 子代理与父代理同模型同窗口,单份超上界派子代理也读不完。
+      // 响亮失败:告诉用户 + 给可执行动作(拆分),同时 formatDispatchNote 会让模型别为它派活。
+      console.warn("[octo:attach] 单份超出通读容量,已拦下", {
+        files: inlineDecision.oversized.map((f) => ({ filename: f.filename, bytes: f.bytes })),
+        limit: SINGLE_DOC_LIMIT,
+      })
+      showToast({
+        title: "材料超出单次通读容量",
+        description:
+          `${inlineDecision.oversized.map((f) => `「${f.filename}」`).join("")}单份超过 ` +
+          `${Math.round(SINGLE_DOC_LIMIT / 1024)} KB,无法在一轮内完整通读,建议拆分后重新上传`,
+        variant: "error",
+        duration: 6000,
+      })
+    }
+    const dispatchNote =
+      inlineDecision.mode === "dispatch"
+        ? formatDispatchNote({
+            count: inlineDecision.files.length,
+            totalBytes: inlineDecision.totalBytes,
+            oversized: inlineDecision.oversized,
+          })
+        : ""
     // 落点重定向:write 产物进 .octo/<sessionId>/outputs/ 由服务端插件 octo-session-workdir 确定性完成
     // (相对路径 → 会话 outputs/,只对 octo_insight 会话生效)。此前这里每轮注入 `[输出目录] 绝对路径`
     // synthetic 指令纠偏,弱模型会把它当当前任务复述(空问候"你好"也触发、把路径暴露给用户),故删除。
@@ -1264,24 +1322,25 @@ function InsightContent() {
     // SPEC-INS-027:组 parts 走公共骨架 assembleInsightParts(与排队 drain sendQueuedItem 共用,防两套漂移)。
     // uploadBlock / chipTemplate / chipDeclaration / mentionBlocks 仍在上方各自算好(optimistic 镜像与日志继续引用),
     // 此处只按既定顺序组装 + 映射可内联文件·图片 FilePart。顺序:cleanText → [附件] → chip → @技能/@文件 → 内联文件 → 图片。
-    const syntheticTexts = [uploadBlock, chipTemplate, chipDeclaration, ...mentionBlocks].filter(
+    // dispatchNote(SPEC-INS-032)排在**末尾**:它说的是「本轮共 N 份材料(含 [附件] 与 [引用文件])」,
+    // 两个清单都出现过之后再给这段总述才对得上;drain 路径同样放末尾(那边是 push 式构建),防两套漂移。
+    const syntheticTexts = [uploadBlock, chipTemplate, chipDeclaration, ...mentionBlocks, dispatchNote].filter(
       (t): t is string => !!t,
     )
     // 2026-08-20:`@` 引用的文件与附件走**同一条**内联路径(SPEC-INS-023 §7.2 修订)——用户 `@` 一个
     // 文件就是明确要它进上下文,不该让模型再多跑一轮 extract_document(上游 opencode 的 @ 引用同样
-    // 是发送即内联)。非文本类由 assembleInsightParts 内的 isTextInlineFile 反向排除掉。
+    // 是发送即内联)。非文本类由 decideInlineStrategy 内的 isTextInlineFile 反向排除掉。
     // chip turn **不特殊处理**:内联只涉及文本类且有 50KB 截断,2026-08-19 那次的上下文炸弹源头是
     // extract_document 对 office 全文回灌(已单独关掉),与本路径无关;chip 是纯常驻的,关掉内联会让
     // 用户在选中研究工具期间对文件内容彻底失明。
-    // (同一文件既在本轮附件里、又被 `@` 引用时,由 assembleInsightParts 按 path 去重,只内联一次)
-    const inlineFiles = [
-      ...localFiles.map((a) => ({ filename: a.filename, path: resolvedPath(a) })),
-      ...(opts.mentions?.files ?? []),
-    ]
+    // (同一文件既在本轮附件里、又被 `@` 引用时,由 decideInlineStrategy 按 path 去重,只内联一次)
+    // SPEC-INS-032:inlineDecision 在上方算好(uploadBlock 之后需要它组 dispatchNote),此处传入
+    // 复用同一份判定,避免「说明说没内联、实际却内联了」这种两套判定漂移。
     const { parts, imageParts } = assembleInsightParts({
       text,
       syntheticTexts,
       textInlineFiles: inlineFiles,
+      inlineDecision,
       imageFiles: imageFiles.map((a) => ({ filename: a.filename, mime: a.mime, url: a.url! })),
     })
     const messageID = Identifier.ascending("message")
@@ -1660,7 +1719,10 @@ function InsightContent() {
           id: crypto.randomUUID(),
           filename: u.filename,
           mime: "",
-          size: 0,
+          // SPEC-INS-032:还原入队时快照的字节数,**不能退化成 0** —— size 是内联分层判定
+          // (decideInlineStrategy)的输入,归零会让「排队 10 份大文档 → 取消 → 重发」这条路径
+          // 算出 totalBytes=0、误判成可内联,把本该分治的材料全塞进上下文,而且是静默的。
+          size: u.bytes ?? 0,
           status: "done" as const,
           path: u.path,
         })),
