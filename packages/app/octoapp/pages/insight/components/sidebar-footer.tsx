@@ -39,9 +39,9 @@ export function SidebarFooter(): JSX.Element {
         <For each={NAV_ITEMS}>
           {(item) => {
             const isActive = () =>
-              item.key === "skill_market"
+              (item.key === "skill_market"
                 ? location.pathname === "/skills"
-                : location.pathname === "/assets"
+                : location.pathname === "/assets") && !settingsActive()
             return (
               <button
                 type="button"

@@ -63,6 +63,7 @@ import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
 import { WelcomePage } from "@/components/welcome-page"
 import { useCheckServerHealth } from "./utils/server-health"
 import { persisted, Persist } from "@/utils/persist"
+import { disableIframesDuringDrag } from "@/utils/iframe-drag"
 // jk-j60099994-replace-with-octo-1-start
 // jk-j60099994-replace-with-octo-1-end
 
@@ -291,14 +292,12 @@ function MakeSidebarArea(props: ParentProps) {
     document.body.style.userSelect = "none"
     // 拖拽期间禁用 iframe 的指针事件(如 /assets 项目资产页的 iframe),
     // 否则松开鼠标时 mouseup 会被 iframe 吞掉,onUp 不触发,拖拽状态卡死。
-    const frames = document.querySelectorAll("iframe")
-    frames.forEach((f) => (f.style.pointerEvents = "none"))
+    const restoreIframes = disableIframesDuringDrag()
     const onMove = (ev: MouseEvent) => ml.setLeftW(startW + ev.clientX - startX)
     const onUp = () => {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
-      // 还原 iframe 指针事件
-      frames.forEach((f) => (f.style.pointerEvents = ""))
+      restoreIframes()
       document.removeEventListener("mousemove", onMove)
       document.removeEventListener("mouseup", onUp)
     }
@@ -368,7 +367,9 @@ function InsightSidebarLayout(props: ParentProps) {
   )
 }
 
-function SkillsSidebarLayout(props: ParentProps) {
+// /skills 与 /assets 共用的侧栏分发壳:根据 sidebarSource 选择 make/pattern/insight 侧栏。
+// 两者页面结构一致,仅内容不同,故复用同一布局;命名体现其分发职责而非绑定 skills。
+function SidebarDispatchLayout(props: ParentProps) {
   const layout = useLayout()
   const source = layout.sidebarSource.get()
   return source === "make"
@@ -524,9 +525,9 @@ function RouterInner(props: ParentProps<{ appChildren?: JSX.Element }>) {
                     <SkillsPage />
                   </InsightSidebarLayout>
                 </Show>
-                {/* Assets (knowledge base): SkillsSidebarLayout 根据 sidebarSource 选择 make/pattern/insight 侧栏 */}
+                {/* Assets (knowledge base): SidebarDispatchLayout 根据 sidebarSource 选择 make/pattern/insight 侧栏 */}
                 <Show when={isAssetsPage()}>
-                  <SkillsSidebarLayout>{props.children}</SkillsSidebarLayout>
+                  <SidebarDispatchLayout>{props.children}</SidebarDispatchLayout>
                 </Show>
                 <Show when={!isInsightPage() && !isMakePage() && !isPatternPage() && !isSkillsPage() && !isAssetsPage()}>
                   {props.appChildren}

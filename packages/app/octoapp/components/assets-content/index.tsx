@@ -14,25 +14,26 @@ export function AssetsContent(): JSX.Element {
   const [scope, setScope] = createSignal<Scope>("platform")
 
   return (
-    <div class="h-full" style={{ background: "#fff" }}>
+    <div class="h-full" style={{ background: "var(--octo-surface-page)" }}>
       <div
         class="flex items-center justify-between bg-white border-b"
-        style={{ "border-color": "#e1e1e1", padding: "24px 24px 16px" }}
+        style={{ "border-color": "var(--octo-border-default)", padding: "24px 24px 16px" }}
       >
-        <div class="flex items-center text-sm" style={{ color: "#333" }}>
+        <div class="flex items-center text-sm" style={{ color: "var(--octo-text-primary)" }}>
           <For each={SCOPES}>
             {(s) => {
               const isActive = () => scope() === s.key
               return (
                 <button
                   type="button"
+                  aria-pressed={isActive()}
                   onClick={() => setScope(s.key)}
                   classList={{
                     "rounded-full": isActive()
                   }}
                   style={{
-                    background: isActive() ? "#e6f0fa" : "transparent",
-                    color: isActive() ? "#007bff" : "#333",
+                    background: isActive() ? "var(--octo-brand-subtle)" : "transparent",
+                    color: isActive() ? "var(--octo-brand)" : "var(--octo-text-primary)",
                     padding: "4px 12px",
                     height: "32px",
                     "margin-right": "16px",
