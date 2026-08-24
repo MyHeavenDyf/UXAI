@@ -205,7 +205,6 @@ const defaultHandler: SubtypeHandler = {
     if (tab.type === "html") {
       const htmlContent = extractDownloadContent(tab)
       const htmlFileNameInZip = `${stripExtension(tab.title, "html")}.html`
-      showToast({ title: "生成ZIP..." })
       
       try {
         const observedUrls = observedUrlsGetter?.() || []
@@ -292,14 +291,17 @@ const defaultHandler: SubtypeHandler = {
           }
           
           const uploadsDir = `${baseDir}/.octo/${sid}/uploads`
+          const lastDotIndex = data.filename.lastIndexOf('.')
+          const baseName = lastDotIndex > 0 ? data.filename.slice(0, lastDotIndex) : data.filename
+          const ext = lastDotIndex >= 0 ? data.filename.slice(lastDotIndex) : ''
+          
           let finalFilename = data.filename
           
           if (api.fileExists) {
             let counter = 0
-            const baseName = data.filename.replace(/\.html$/i, '')
             while (await api.fileExists(`${uploadsDir}/${finalFilename}`)) {
               counter++
-              finalFilename = `${baseName}(${counter}).html`
+              finalFilename = `${baseName} (${counter})${ext}`
             }
           }
           

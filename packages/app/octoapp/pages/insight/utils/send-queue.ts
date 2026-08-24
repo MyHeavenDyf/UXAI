@@ -37,7 +37,8 @@ export interface QueuedSend {
    * 附件属于「排队的这条消息」,drain 时据此重建 [附件] 清单 synthetic + txt/md FilePart。
    * (旧版把附件留在共享附件栏、靠 flush 时 consumeAttachments 顺手抓 → 多条排队会绑错/丢，见 spec §3.7。)
    */
-  uploads?: Array<{ filename: string; path: string }>
+  // SPEC-INS-032:bytes 一并快照(入队时手上有 Attachment.size,drain 时只剩 path,再取要多读一次盘)
+  uploads?: Array<{ filename: string; path: string; bytes?: number }>
   /** SPEC-INS-027:入队时**上传的**图片附件快照(已 done 的 S3 url + mime);drain 时重建 vision FilePart */
   images?: Array<{ filename: string; url: string; mime?: string }>
 }

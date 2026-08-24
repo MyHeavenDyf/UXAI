@@ -297,7 +297,19 @@ export const layer = Layer.effect(
                 extract_document: "allow",
                 // SPEC-INS-032 §5:多文档通读的分治入口 —— defaults 对所有 agent deny 了
                 // insight_reader 这个候选,只有 insight 这条线放开(pattern 形态,不影响 task 工具本身)。
-                task: { insight_reader: "allow" },
+                //
+                // v2(2026-08-21 评审补):**候选必须真收敛到 insight_reader**。此前只写了
+                // `{ insight_reader: "allow" }`,而 describeTask 列的是「所有未被 deny 的 subagent」,
+                // 于是 `general`(bash / write / webfetch 全开、prompt 是通用助理导向)和 `explore`
+                // 仍在 insight 的候选里 —— 弱模型完全可能派 general 去读用研材料。spec §5.1 那句
+                // 「候选只有一个只读的文档子代理,派错了也干不了坏事」在补这条之前并不成立。
+                //
+                // 顺序有意义,别调换:fromConfig 按 Object.entries 顺序生成规则,而
+                // Permission.disabled 用 findLast 取**最后一条**匹配 `task` 的规则、仅当它
+                // `pattern === "*" && deny` 时才隐藏工具。`insight_reader: "allow"` 排在
+                // `"*": "deny"` 之后 → 最后一条 pattern 是 insight_reader → task 工具照常可用。
+                // 反过来写就会把 insight 的 task 整个关掉。单测锁住(agent.test.ts)。
+                task: { "*": "deny", insight_reader: "allow" },
               }),
               user,
             ),
