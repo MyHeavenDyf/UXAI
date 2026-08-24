@@ -24,7 +24,7 @@ type TabType = "chat" | "make" | "cowork" | "studio" | "pattern"
 const TAB_ITEMS: { key: TabType; label: string }[] = [
   { key: "cowork", label: "Insight" },
   { key: "make", label: "Design" },
-  { key: "pattern", label: "Prototype" },
+  // { key: "pattern", label: "Prototype" },
   { key: "studio", label: "Studio" },
 ]
 
