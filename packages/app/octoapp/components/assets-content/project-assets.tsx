@@ -27,7 +27,7 @@ export function ProjectAssets(): JSX.Element {
   })
 
   return (
-    <Show when={selection()?.product} fallback={<div style={{ padding: "24px", "text-align": "center", color: "var(--octo-text-secondary)" }}>请先选择产品</div>}>
+    <Show when={selection()?.product && embedUrl()} fallback={<div style={{ padding: "24px", "text-align": "center", color: "var(--octo-text-secondary)" }}>请先选择产品</div>}>
       <iframe
         ref={(el) => (iframeRef = el)}
         src={embedUrl()}

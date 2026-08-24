@@ -14,9 +14,9 @@ export function AssetsContent(): JSX.Element {
   const [scope, setScope] = createSignal<Scope>("platform")
 
   return (
-    <div class="h-full" style={{ background: "var(--octo-surface-page)" }}>
+    <div class="h-full flex flex-col" style={{ background: "var(--octo-surface-page)" }}>
       <div
-        class="flex items-center justify-between bg-white border-b"
+        class="flex items-center justify-between border-b shrink-0"
         style={{ "border-color": "var(--octo-border-default)", padding: "24px 24px 16px" }}
       >
         <div class="flex items-center text-sm" style={{ color: "var(--octo-text-primary)" }}>
@@ -50,7 +50,7 @@ export function AssetsContent(): JSX.Element {
           </For>
         </div>
       </div>
-      <div style={{height: "calc(100% - 73px)"}}>
+      <div class="flex-1 min-h-0">
         <Show when={scope() === "platform"}>
           <PlatformAssets />
         </Show>
