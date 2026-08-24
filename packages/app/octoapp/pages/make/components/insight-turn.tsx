@@ -24,9 +24,23 @@ import { kindFromMime } from "./attachment-bar"
 import { isElectronDesktop, pathToLocalUrl } from "../utils/artifact-file-api"
 import { lookupDisplayName } from "./skill-config-types"
 
-// Render text with @mentions - plain text only, no chip styling
 function renderMentionText(text: string): JSX.Element {
-  return text
+  const parts = text.split(/(@[^\s@]+)/g)
+  
+  return (
+    <>
+      {parts.map((part) => {
+        if (part.startsWith("@") && part.length > 1) {
+          return (
+            <span style={{ "margin-left": "8px", "margin-right": "8px" }}>
+              {part}
+            </span>
+          )
+        }
+        return part
+      })}
+    </>
+  )
 }
 
 // 跟踪已 autoSave 的 artifact（避免重复调用）

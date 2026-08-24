@@ -1338,7 +1338,7 @@ createEffect(() => {
       "--octo-vp-height": `${dims.height}px`,
       "--octo-vp-scale": scale,
       "--octo-vp-offset-x": `${pad + Math.max(0, (w - pad * 2 - dims.width! * scale) / 2)}px`,
-      "--octo-vp-offset-y": `${pad}px`,
+      "--octo-vp-offset-y": `${pad + Math.max(0, (h - pad * 2 - dims.height! * scale) / 2)}px`,
     } as JSX.CSSProperties
   })
 
@@ -1351,6 +1351,9 @@ createEffect(() => {
       height: `${dims.height}px`,
       transform: `scale(var(--octo-vp-scale, 1))`,
       "transform-origin": "0 0",
+      position: "absolute",
+      left: "var(--octo-vp-offset-x, 0)",
+      top: "var(--octo-vp-offset-y, 0)",
     } as JSX.CSSProperties
   })
 
