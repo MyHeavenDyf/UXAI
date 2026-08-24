@@ -213,10 +213,10 @@ export const SettingsProviders: Component = () => {
                           onClick={() => {
                             dialog.show(() => <DialogConnectProvider provider="opencode" />)
                           }}
-                          onMouseEnter={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
-                          onMouseLeave={(e) => e.currentTarget.style.setProperty("border-color", "#c9c9c9")}
-                          onMouseDown={(e) => e.currentTarget.style.setProperty("border-color", "#0a59f7")}
-                          onMouseUp={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
+                          onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
+                          onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "#fff"); e.currentTarget.style.setProperty("border-color", "#c9c9c9") }}
+                          onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.1)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
+                          onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
                         >
                           {hasApiKey("opencode")
                             ? language.t("common.edit")
@@ -249,10 +249,10 @@ export const SettingsProviders: Component = () => {
                                 <DialogCustomProvider back="close" providerID={item.id} />
                               ))
                             }
-                            onMouseEnter={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
-                            onMouseLeave={(e) => e.currentTarget.style.setProperty("border-color", "#c9c9c9")}
-                            onMouseDown={(e) => e.currentTarget.style.setProperty("border-color", "#0a59f7")}
-                            onMouseUp={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
+                            onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
+                            onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "#fff"); e.currentTarget.style.setProperty("border-color", "#c9c9c9") }}
+                            onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.1)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
+                            onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
                           >
                             {language.t("common.edit")}
                           </button>
@@ -316,10 +316,10 @@ export const SettingsProviders: Component = () => {
                     onClick={() => {
                       dialog.show(() => <DialogConnectProvider provider={item.id} />)
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
-                    onMouseLeave={(e) => e.currentTarget.style.setProperty("border-color", "#c9c9c9")}
-                    onMouseDown={(e) => e.currentTarget.style.setProperty("border-color", "#0a59f7")}
-                    onMouseUp={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
+                    onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
+                    onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "#fff"); e.currentTarget.style.setProperty("border-color", "#c9c9c9") }}
+                    onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.1)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
+                    onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
                   >
                     {language.t("common.connect")}
                   </button>
@@ -347,10 +347,10 @@ export const SettingsProviders: Component = () => {
                 onClick={() => {
                   dialog.show(() => <DialogCustomProvider back="close" />)
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
-                onMouseLeave={(e) => e.currentTarget.style.setProperty("border-color", "#c9c9c9")}
-                onMouseDown={(e) => e.currentTarget.style.setProperty("border-color", "#0a59f7")}
-                onMouseUp={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
+                onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
+                onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "#fff"); e.currentTarget.style.setProperty("border-color", "#c9c9c9") }}
+                onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.1)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
+                onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "rgba(0,0,0,0.03)"); e.currentTarget.style.setProperty("border-color", "transparent") }}
               >
                 {language.t("common.connect")}
               </button>
