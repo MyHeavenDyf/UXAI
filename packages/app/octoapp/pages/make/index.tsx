@@ -2,6 +2,7 @@ import "./octo-tokens.css"
 import "./components/slash-popover.css"
 import { type MentionSelection } from "./components/mention-popover"
 import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs } from "./components/prosemirror-editor"
+import { AddonMenu } from "./components/addon-menu"
 import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
@@ -22,8 +23,6 @@ import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Dialog } from "@opencode-ai/ui/dialog"
-import { Button } from "@opencode-ai/ui/button"
-import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -1085,8 +1084,8 @@ const sessionMessagesLoaded = createMemo(() => {
   const [slashState, setSlashState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [slashIndex, setSlashIndex] = createSignal(0)
   let textareaRef!: HTMLTextAreaElement
-  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void } | undefined
-  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void } | undefined
+  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; isAlive: () => boolean } | undefined
+  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; isAlive: () => boolean } | undefined
 
   // ── Mention (@) Popover State ──
   const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
@@ -1326,7 +1325,14 @@ const sessionMessagesLoaded = createMemo(() => {
   createEffect(on(() => params.id, (newId) => {
     currentSessionIdForPrompt = newId
     setPrompt(loadPromptFromStorage(newId))
-  }))
+    setMentionSelections([])
+    requestAnimationFrame(() => {
+      const ref = proseMirrorRef1 ?? proseMirrorRef2
+      if (ref?.isAlive()) {
+        ref.clear()
+      }
+    })
+  }, { defer: true }))
   const focusMode = layout.focusMode.get
   const hideChat = () => focusMode()
 
@@ -2750,51 +2756,19 @@ if (dsId) {
     setPendingSkill(null)
   }
 
-  /** Handle mention selection (skill or file) */
-  function handleMentionSelect(selection: MentionSelection) {
-    const state = mentionState()
-    if (!state) return
-
-    const ta = textareaRef
-    const value = prompt()
-
-    // Remove @query text from prompt
-    const before = value.slice(0, state.cursor - state.query.length - 1)
-    const after = value.slice(ta.selectionStart)
-    
-    // Add visible chip format: @技能名 or @文件名
-    const chipText = selection.type === 'skill' 
-      ? `@${selection.name}` 
-      : `@${selection.filename}`
-    
-    const next = before + chipText + ' ' + after
-    setPrompt(next)
-    setMentionSelections(prev => [...prev, selection])
-
-    requestAnimationFrame(() => {
-      ta.focus()
-      const newPos = before.length + chipText.length + 1
-      ta.setSelectionRange(newPos, newPos)
-    })
+  /** Handle addon menu selection (skill or file) — inserts a chip via ProseMirrorEditor ref */
+  function getAliveEditor() {
+    if (proseMirrorRef1?.isAlive()) return proseMirrorRef1
+    if (proseMirrorRef2?.isAlive()) return proseMirrorRef2
+    return undefined
   }
 
-  function handleMentionDeselect(selection: MentionSelection) {
-    setMentionSelections(prev => prev.filter(s => 
-      s.type !== selection.type || 
-      (s.type === 'skill' ? s.name !== (selection as any).name : s.path !== (selection as any).path)
-    ))
-
-    // Remove chip from prompt
-    const chipText = selection.type === 'skill' 
-      ? `@${selection.name}` 
-      : `@${selection.filename}`
-    setPrompt(prev => prev.replace(chipText, '').replace(/  +/g, ' ').trim())
+  function handleAddonSelect(selection: MentionSelection) {
+    getAliveEditor()?.insertMention(selection)
   }
 
-  function handleMentionNavigate(direction: "up" | "down") {
-    // This will be handled in ProseMirrorEditor via mentionIndex
-    // For now, we need to calculate the max index based on filtered items
-    // The actual selection change will be reflected in MentionPopover
+  function handleAddonDeselect(selection: MentionSelection) {
+    getAliveEditor()?.removeMention(selection)
   }
 
   /** Pick a Design Files file and add as attachment */
@@ -3736,17 +3710,16 @@ if (dsId) {
                           accept="*/*"
                           onChange={handleFileInputChange}
                         />
-                        <Tooltip placement="top" value="添加附件">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            class="size-8 p-0"
-                            disabled={maxAttachments()}
-                            onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                          >
-                            <Icon name="plus" class="size-5" />
-                          </Button>
-                        </Tooltip>
+                        <AddonMenu
+                          skillConfig={skillConfig() ?? {}}
+                          artifactFiles={artifactFilesMirror()}
+                          selections={mentionSelections()}
+                          onSelect={handleAddonSelect}
+                          onDeselect={handleAddonDeselect}
+                          onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
+                          onOpen={loadSkillConfig}
+                          disabled={maxAttachments()}
+                        />
 <ModelSelectorPopover
                            model={local.model}
                            triggerAs="button"
@@ -4051,17 +4024,16 @@ if (dsId) {
                         accept="*/*"
                         onChange={handleFileInputChange}
                       />
-                      <Tooltip placement="top" value="添加附件">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          class="size-8 p-0"
-                          disabled={maxAttachments()}
-                          onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                        >
-                          <Icon name="plus" class="size-5" />
-                        </Button>
-                      </Tooltip>
+                      <AddonMenu
+                        skillConfig={skillConfig() ?? {}}
+                        artifactFiles={artifactFilesMirror()}
+                        selections={mentionSelections()}
+                        onSelect={handleAddonSelect}
+                        onDeselect={handleAddonDeselect}
+                        onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
+                        onOpen={loadSkillConfig}
+                        disabled={maxAttachments()}
+                      />
 <ModelSelectorPopover
                          model={local.model}
                          triggerAs="button"

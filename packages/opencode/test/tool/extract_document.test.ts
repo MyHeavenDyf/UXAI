@@ -6,6 +6,7 @@ import { Agent } from "../../src/agent/agent"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Instruction } from "../../src/session/instruction"
+import { Session } from "../../src/session/session"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { ExtractDocumentTool } from "../../src/tool/extract_document"
 import { Truncate } from "@/tool/truncate"
@@ -37,6 +38,9 @@ const it = testEffect(
     CrossSpawnSpawner.defaultLayer,
     Instruction.defaultLayer,
     Truncate.defaultLayer,
+    // SPEC-INS-032 §6:落盘目录要沿 parentID 上溯到会话树根,故工具依赖 Session 服务。
+    // 本测试里 ses_test 并不存在于库中 —— 读不到即退化为按当前会话落盘,正好覆盖降级路径。
+    Session.defaultLayer,
   ),
 )
 
@@ -63,6 +67,31 @@ async function seed(dir: string, name: string, content: string) {
 }
 
 describe("extract_document", () => {
+  // SPEC-INS-032 §6:一个会话树 = 一个工作区。task 子代理跑在子 session 里,解析件必须落到
+  // **根会话**的 extracted/,否则 N 份材料的解析件会散在 N 个子会话目录,父代理事后无从 grep。
+  it.live("子会话:解析件落到会话树根会话的 extracted/", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const file = yield* Effect.promise(() => seed(dir, "子代理素材.txt", "访谈纪要:用户希望导出更快。"))
+      const out = yield* provideInstance(dir)(
+        Effect.gen(function* () {
+          const sessions = yield* Session.Service
+          const parent = yield* sessions.create({ agent: "octo_insight" })
+          const child = yield* sessions.create({ parentID: parent.id, agent: "insight_reader" })
+          const info = yield* ExtractDocumentTool
+          const tool = yield* info.init()
+          const result = yield* tool.execute({ path: file }, { ...ctx, sessionID: child.id } as Tool.Context)
+          return { result, parentID: parent.id, childID: child.id }
+        }),
+      )
+      const saved = out.result.metadata.savedPath as string
+      expect(saved).toBe(path.join(dir, ".octo", out.parentID, "extracted", "子代理素材.md"))
+      expect(saved).not.toContain(out.childID)
+      const persisted = yield* Effect.promise(() => fs.readFile(saved, "utf8"))
+      expect(persisted).toContain("用户希望导出更快")
+    }),
+  )
+
   it.live("docx: 抽出正文并带字数/token 首行", () =>
     Effect.gen(function* () {
       const result = yield* run(path.join(FIXTURES, "sample.docx"))

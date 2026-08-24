@@ -15,8 +15,9 @@
 //                         非 chip turn:5 个业务工具全 false;chip turn:只放行选中那一个。
 //                         task 一律 false(SPEC-INS-021 §1:内部编排原语,不经用户提示词触发)。
 //   2. buildChipTemplate  chip 注入模板(spec §4):解析模式指令 + 迁入的 MCP 仪式段落(长任务规则 /
-//                         get_task_result 仪式 / 结果回复格式 / 文件引用铁律)。文件以会话 [附件]
-//                         区块为准(不在模板里复述清单,避免两处漂移)。
+//                         get_task_result 仪式 / 结果回复格式 / 文件引用铁律)。文件以会话文件清单
+//                         (`[附件]` + `@` 引用的 `[引用文件]`,两者同等可用)为准
+//                         (不在模板里复述清单,避免两处漂移)。
 //                         作为 synthetic text part 注入(用户不可见、模型可见,与 [附件] 清单同机制)。
 //   3. buildChipDeclaration 机器可读声明段(spec §2.1):独立 synthetic text part,声明目标工具 +
 //                         是否需要大纲字段 + 用户原文;octo-upload-inject 据此对 chip turn 的调用做
@@ -63,12 +64,20 @@ export type McpSelection = {
 export function buildToolGate(selectedTool?: string): Record<string, boolean> {
   const gate: Record<string, boolean> = {}
   for (const tool of MCP_BUSINESS_TOOLS) gate[mcpToolKey(tool)] = tool === selectedTool
-  // task 恒关、不分 chip 与否(SPEC-INS-021 §1 追加):task 是内部编排原语,不是用户能力入口——
-  // 用户 turn 里模型自发起子代理对用研场景零收益(token/时延/弱模型跑偏),子会话还会被点成
-  // "侧栏没有记录的对话"。agent 权限层保持 allow(白名单管常驻底线,turn 级由此 gate 管);
-  // 018 多文档分治那类**我们编排的 turn** 由构造方显式放行(届时给本函数加参数下发 task=true)。
-  gate["task"] = false
+  // task **不再关闭**(SPEC-INS-032 §5 撤销 SPEC-INS-021 §1 的「turn 级默认关」)。
+  // 021 当初关它的两条理由各自已有解:
+  //   · 「弱模型自发起子代理跑偏」→ 候选收敛:agent.ts defaults 里 `task: { insight_reader: "deny" }`
+  //     + octo_insight 显式 allow,模型的 task 描述里只剩 insight_reader 这一个只读文档子代理;
+  //   · 「子会话被点成侧栏没有记录的对话」→ 子代理用独立 agent 名,而侧栏列表按 agent=octo_insight
+  //     过滤(server 的 /insight/sessions),子会话天然不出现;021 的导航拦截仍保留作双保险。
+  // 之所以不做成「只在某些轮次放行」:一次发送 = 一个 turn,模型可以在同一轮里连发 N 次 task,
+  // 但只要它把动作拖到下一轮(先回一句"要我分治吗"),下一轮就会中途失去工具。
+  // (chip turn 仍关,见下。)
   if (selectedTool) {
+    // chip turn 继续关 task:2026-07-07 内网事故里被观测到的逃生口**就包括"委托 task 子代理"**
+    // (见下方 bash 那条注释)。该轮的职责是一次直接的 MCP 工具调用,分治在这里没有任何用途;
+    // 而多文档分治发生在普通轮次,两者不冲突。SPEC-INS-032 §5 放开的是**普通轮次**的 task。
+    gate["task"] = false
     // chip turn 顺手关掉即兴逃生口(2026-07-07 内网验证教训):该 turn 的职责是一次**直接**工具
     // 调用,shell / webfetch 在本 turn 没有正当用途,却是弱模型在 MCP 工具缺失(如内网连接故障)
     // 时的模拟通道——实测出现过委托 task 子代理、用 shell 裸调 MCP HTTP、进而编造 task_id。
@@ -121,7 +130,7 @@ export function buildChipTemplate(sel: McpSelection, typedText: string): string 
   const outlineRole = sel.preset.outlineRole
 
   const paramLines = [
-    `- download_links(数组):填入所有访谈逐字稿的**文件名**——照抄 [附件] 区块里冒号前那串,一字不差(系统会在执行前把文件名精确替换成真实地址,写错即失败并要求重填)。`,
+    `- download_links(数组):填入所有访谈逐字稿的**文件名**——照抄会话文件清单(\`[附件]\` 与 \`[引用文件]\` 区块)里冒号前那串,一字不差(系统会在执行前把文件名精确替换成真实地址,写错即失败并要求重填)。`,
   ]
   if (outlineRole) {
     paramLines.push(
@@ -142,9 +151,9 @@ export function buildChipTemplate(sel: McpSelection, typedText: string): string 
     `1. 用户选中该工具通常就意味着希望发起解析:材料齐备、且用户本轮没有表达其他明确意图时,**直接调用,不要犹豫、不要反复向用户确认是否解析**。`,
     `2. 用户本轮明显在做别的事(询问概念、闲聊、查询已提交任务的进度/结果等):正常回应即可,**不要调用解析工具**;查询进度走下方查询仪式(get_task_result)。`,
     `3. 已经提交过解析任务后,**不要因为该模式仍在而重复提交**——除非用户明确要求重新解析/再跑一次。`,
-    `4. 当前**没有任何可用附件**(或缺少${outlineRole ? `${outlineRole}/逐字稿` : "逐字稿"}):不要调用工具,直接回复请用户上传所需材料并说明需要什么;材料补齐后再按第 1 条调用。`,
+    `4. 当前**没有任何可用文件**(或缺少${outlineRole ? `${outlineRole}/逐字稿` : "逐字稿"}):不要调用工具,直接回复请用户上传所需材料并说明需要什么;材料补齐后再按第 1 条调用。`,
     ``,
-    `材料 = 会话中**所有** [附件] 区块列出的文件(多轮添加的合起来才是全部可用文件)。`,
+    `材料 = 会话中**所有** \`[附件]\` 与 \`[引用文件]\` 区块列出的文件(前者是用户上传的附件,后者是用户 \`@\` 引用的会话文件——含之前生成的产物;两者对本工具**同等可用**,多轮添加的合起来才是全部可用文件)。`,
     ``,
     `参数填写:`,
     ...paramLines,
@@ -156,7 +165,7 @@ export function buildChipTemplate(sel: McpSelection, typedText: string): string 
     `- task_id 只能来自工具的真实返回,**绝不允许编造**;没有成功的工具返回,就没有 task_id、没有"任务已提交"。`,
     `- 消息里的 [MCP声明] 段落是给系统读取的机器内容,不要向用户提及或复述它。`,
     ``,
-    `文件引用铁律:文件参数只能填 [附件] 区块里的文件名,绝不要填写、复述或改写任何 URL/网址/S3 地址;也不要把清单里的本地路径填进去。`,
+    `文件引用铁律:文件参数只能填会话文件清单(\`[附件]\` / \`[引用文件]\`)里的文件名,绝不要填写、复述或改写任何 URL/网址/S3 地址;也不要把清单里的本地路径填进去。`,
     ``,
     `长任务规则:该工具是长任务,调用会在几秒内返回 task_id。拿到 task_id 后立即结束本轮:向用户原样转述工具返回的友好文案,不要再调用任何其他工具——尤其不要紧接着调 get_task_result(刚提交的任务立刻查询只会得到排队状态,浪费 token 且误导用户)。`,
     ``,

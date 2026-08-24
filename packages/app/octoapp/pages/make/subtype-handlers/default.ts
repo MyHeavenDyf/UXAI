@@ -1,4 +1,4 @@
-import type { SubtypeHandler, SubtypeHandlerContext } from './types'
+import type { SubtypeHandler, SubtypeHandlerContext, CanvasEditResult } from './types'
 import type { ResultTab } from '../components/result-viewer/tab-store'
 import { showToast } from '@opencode-ai/ui/toast'
 import { getDesktopApi } from '../lib/electron-api'
@@ -205,7 +205,6 @@ const defaultHandler: SubtypeHandler = {
     if (tab.type === "html") {
       const htmlContent = extractDownloadContent(tab)
       const htmlFileNameInZip = `${stripExtension(tab.title, "html")}.html`
-      showToast({ title: "生成ZIP..." })
       
       try {
         const observedUrls = observedUrlsGetter?.() || []
@@ -255,6 +254,67 @@ const defaultHandler: SubtypeHandler = {
     const content = extractDownloadContent(tab)
     await downloadBlob(content, info.filename, info.mime)
     return true
+  },
+  
+  async handleCanvasEdit(ctx): Promise<CanvasEditResult> {
+    const { tab, showToast, getDesktopApi, sessionId, sdkDirectory, observedUrlsGetter } = ctx
+    
+    const isLoggedIn = !!localStorage.getItem('uiplusToken')
+    if (!isLoggedIn) {
+      showToast({ title: "请先登录" })
+      return { handled: true }
+    }
+
+    const htmlContent = ctx.extractCodeBlock(tab.content, "html")
+    const { createC2DZip } = await import('../utils/canvas-to-design')
+    
+    return {
+      handled: true,
+      options: {
+        getZip: async () => {
+          showToast({ title: "生成ZIP文件..." })
+          return await createC2DZip({
+            htmlContent,
+            htmlFilePath: tab.filePath || "",
+            tabTitle: tab.title,
+            observedUrls: observedUrlsGetter?.() || [],
+          })
+        },
+        downloadHtml: async (data) => {
+          const api = getDesktopApi()
+          const baseDir = sdkDirectory
+          const sid = sessionId
+          
+          if (!baseDir || !sid || !api?.writeFileBuffer) {
+            showToast({ title: "无法保存文件", variant: "error" })
+            return
+          }
+          
+          const uploadsDir = `${baseDir}/.octo/${sid}/uploads`
+          const lastDotIndex = data.filename.lastIndexOf('.')
+          const baseName = lastDotIndex > 0 ? data.filename.slice(0, lastDotIndex) : data.filename
+          const ext = lastDotIndex >= 0 ? data.filename.slice(lastDotIndex) : ''
+          
+          let finalFilename = data.filename
+          
+          if (api.fileExists) {
+            let counter = 0
+            while (await api.fileExists(`${uploadsDir}/${finalFilename}`)) {
+              counter++
+              finalFilename = `${baseName} (${counter})${ext}`
+            }
+          }
+          
+          const buffer = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
+          await api.writeFileBuffer(`${uploadsDir}/${finalFilename}`, buffer.buffer)
+          showToast({ title: "已保存", description: finalFilename })
+        },
+        config: {
+          designName: tab.title,
+          sessionId: sessionId || "",
+        },
+      },
+    }
   },
   
   /**

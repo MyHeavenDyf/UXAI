@@ -16,7 +16,6 @@ import { getSubtypeHandler } from "../../utils/subtype-registry"
 import { subtypeUIRegistry } from "../../utils/subtype-ui-registry"
 import type { ActionBarButton, SubtypeHandlerContext, ButtonPosition } from "../../subtype-handlers/types"
 import { usePixsoTransport, type UploadZipOptions, type PixsoAction } from "@/utils/useZipTransport"
-import { createC2DZip } from "../../utils/canvas-to-design"
 import type { VersionEntry } from "../../utils/history-store"
 import { HistoryPanel } from "./history-panel"
 import { useSDK } from "@/context/sdk"
@@ -293,17 +292,14 @@ function CanvasEditDropdown(props: {
   const handleClick = async () => {
     if (loading()) return
     
-    /**
-     * 重要：SubtypeHandler 优先调用
-     * 
-     * 在执行默认的画布编辑逻辑之前，先检查是否有自定义的 handler。
-     * 如果 handler.handleCanvasEdit 返回 true，则不再执行后续的默认逻辑。
-     * 
-     * 请勿修改此逻辑，这是 subtype 自定义行为的核心入口。
-     * 所有 subtype 的画布编辑行为都应该通过 SubtypeHandler.handleCanvasEdit 来自定义。
-     */
     const handler = getSubtypeHandler(props.tab.subtype)
-    if (handler?.handleCanvasEdit) {
+    if (!handler?.handleCanvasEdit) {
+      showToast({ title: "不支持的操作" })
+      return
+    }
+
+    setLoading(true)
+    try {
       const ctx: SubtypeHandlerContext = {
         tab: props.tab,
         sessionId: props.sessionId,
@@ -316,70 +312,14 @@ function CanvasEditDropdown(props: {
         sdkDirectory: props.sdkDirectory,
       }
       
-      const handled = await handler.handleCanvasEdit(ctx)
-      if (handled === true) return  // handler 已处理，不继续执行默认逻辑
-    }
-    
-    /**
-     * 默认画布编辑逻辑
-     * 
-     * 只有在没有 handler 或 handler 返回 false 时才会执行到这里。
-     */
-    const isLoggedIn = !!localStorage.getItem('uiplusToken')
-    if (!isLoggedIn) {
-      showToast({ title: "请先登录" })
-      return
-    }
-
-    setLoading(true)
-    try {
-      const htmlContent = extractCodeBlock(props.tab.content, "html")
-      const options: UploadZipOptions = {
-        getZip: async () => {
-          showToast({ title: "生成ZIP文件..." })
-          return await createC2DZip({
-            htmlContent,
-            htmlFilePath: props.tab.filePath || "",
-            tabTitle: props.tab.title,
-            observedUrls: props.observedUrlsGetter?.() || [],
-          })
-        },
-        downloadHtml: async (data) => {
-          const api = getDesktopApi()
-          const baseDir = props.sdkDirectory
-          const sessionId = props.sessionId
-          
-          if (!baseDir || !sessionId || !api?.writeFileBuffer) {
-            showToast({ title: "无法保存文件", variant: "error" })
-            return
-          }
-          
-          const uploadsDir = `${baseDir}/.octo/${sessionId}/uploads`
-          let finalFilename = data.filename
-          
-          if (api.fileExists) {
-            let counter = 0
-            const baseName = data.filename.replace(/\.html$/i, '')
-            while (await api.fileExists(`${uploadsDir}/${finalFilename}`)) {
-              counter++
-              finalFilename = `${baseName}(${counter}).html`
-            }
-          }
-          
-          const buffer = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
-          await api.writeFileBuffer(`${uploadsDir}/${finalFilename}`, buffer.buffer)
-          showToast({ title: "已保存", description: finalFilename })
-        },
-        config: {
-          designName: props.tab.title,
-          sessionId: props.sessionId || "",
-        },
-      }
+      const result = await handler.handleCanvasEdit(ctx)
       
-      const result = await usePixsoTransport(options)
-      setCurrentOptions(() => options)
-      setActions(() => result.actions)
-      setOpen(true)
+      if (result && typeof result === 'object' && 'options' in result && result.options) {
+        const pixsoResult = await usePixsoTransport(result.options)
+        setCurrentOptions(() => result.options!)
+        setActions(() => pixsoResult.actions)
+        setOpen(true)
+      }
     } catch (error) {
       console.error("[CanvasEditDropdown] Error:", error)
       showToast({ title: "操作失败", description: String(error) })
@@ -553,7 +493,6 @@ export function ActionBar(props: {
     onCommentToggle?: () => void
     onArchiveToggle?: () => void
     onFocusModeToggle?: () => void
-    onCanvasToDesign?: () => void
     observedResourceUrls?: () => string[]
     onHistoryToggle?: () => void
     historyActive?: boolean
