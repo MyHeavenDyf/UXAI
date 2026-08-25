@@ -104,3 +104,51 @@ describe("本地文件工具排除(write/edit/read 等不被换成 S3 URL)", () 
     },
   )
 })
+
+// `@` 引用的会话文件(SPEC-INS-023 `[引用文件]` 区块)与 `[附件]` 同属「可喂 MCP 的文件白名单」。
+// 2026-08-20 内网回归:此前插件只认 `[附件]`,「先对话生成 md → `@` 它 → 选研究工具」必死。
+// 判据用「抛的是哪个错」区分两种失败:
+//   - "不在本会话的文件清单中" = 白名单没收录(本次要修的 bug)
+//   - "上传服务未配置"        = 已收录、走到了上传步骤(测试环境没配 endpoint,属预期)
+describe("[引用文件] 清单(@ 引用的会话文件)同样是 MCP 白名单", () => {
+  // `@` 清单头行尾带中文说明(formatMentionedFilesForPrompt),parseManifest 只吃 "- " 开头的行 → 应被跳过
+  const MENTION_MANIFEST =
+    "[引用文件] 用户本轮 @ 引用了以下已存在的会话文件(与 [附件] 同属本会话可用文件;区别:正文未随内联):\n" +
+    "- 用户问题需求记录.md: /tmp/ses_x/outputs/用户问题需求记录.md"
+  const DECLARATION = '[MCP声明]\n{"tool":"uxr-tool_key_findings","outline_required":false,"user_prompt":"生成观点解析"}'
+
+  test("通用路径:MCP 工具引用 @ 来的产物文件,已被收录(走到上传步骤而非判「不在清单」)", async () => {
+    const hook = await beforeHook([userMessage([MENTION_MANIFEST])])
+    const args = { download_links: ["用户问题需求记录.md"] }
+    await expect(hook({ ...input, tool: "uxr-tool_key_findings" }, { args })).rejects.toThrow("上传服务未配置")
+  })
+
+  test("chip 声明路径:download_links 填 @ 来的产物文件名,resolvePath 命中", async () => {
+    const hook = await beforeHook([userMessage([MENTION_MANIFEST, DECLARATION])])
+    const args = { download_links: ["用户问题需求记录.md"] }
+    await expect(hook({ ...input, tool: "uxr-tool_key_findings" }, { args })).rejects.toThrow("上传服务未配置")
+  })
+
+  test("chip 声明路径:清单外的文件名仍响亮失败(白名单语义不变)", async () => {
+    const hook = await beforeHook([userMessage([MENTION_MANIFEST, DECLARATION])])
+    const args = { download_links: ["不存在的文件.md"] }
+    await expect(hook({ ...input, tool: "uxr-tool_key_findings" }, { args })).rejects.toThrow(
+      "不在本会话的文件清单中",
+    )
+  })
+
+  test("[附件] 与 [引用文件] 混用:两个区块的文件都进同一张白名单", async () => {
+    const hook = await beforeHook([userMessage([MANIFEST]), userMessage([MENTION_MANIFEST, DECLARATION])])
+    const args = { download_links: ["访谈稿.docx", "用户问题需求记录.md"] }
+    await expect(hook({ ...input, tool: "uxr-tool_key_findings" }, { args })).rejects.toThrow("上传服务未配置")
+  })
+
+  test("清单头行尾的中文说明不被误解析成文件", async () => {
+    const hook = await beforeHook([userMessage([MENTION_MANIFEST, DECLARATION])])
+    // 说明行里含 "[附件]" 等字样,若被当成条目会污染白名单 → 用一个明显来自说明文案的串验证仍 miss
+    const args = { download_links: ["正文未随内联"] }
+    await expect(hook({ ...input, tool: "uxr-tool_key_findings" }, { args })).rejects.toThrow(
+      "不在本会话的文件清单中",
+    )
+  })
+})

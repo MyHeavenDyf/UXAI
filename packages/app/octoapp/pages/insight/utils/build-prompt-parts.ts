@@ -20,7 +20,8 @@ export interface AssembleInsightPartsInput {
   text: string
   /** 有序 synthetic 文本块（[附件]清单 / chipTemplate / chipDeclaration / <skill_content> / [引用文件]…），均已算好 */
   syntheticTexts?: string[]
-  /** txt/md 文件（本地 path）→ FilePart(file://, text/plain)，opencode 组 prompt 时自动 Read 内联正文 */
+  /** 可内联文件（本地 path；附件栏文件 + `@` 引用的会话文件合并后传入）→ FilePart(file://, text/plain)，
+   *  opencode 组 prompt 时自动 Read 内联正文。非文本类由 isTextInlineFile 反向排除，重复 path 只取一次 */
   textInlineFiles?: Array<{ filename: string; path: string }>
   /** 图片（S3 url）→ vision FilePart{url}，交多模态模型看 */
   imageFiles?: Array<{ filename: string; mime?: string; url: string }>
@@ -40,9 +41,15 @@ export function assembleInsightParts(input: AssembleInsightPartsInput): Assemble
     if (t) parts.push({ type: "text", text: t, synthetic: true })
   }
 
-  // ① txt/md → FilePart(file://, text/plain)。office 不走此路（二进制会被 base64，由模型调 extract_document 读）。
+  // ① 可内联文件 → FilePart(file://, text/plain)，服务端组 prompt 时调 `read` 把正文读进上下文。
+  // office / pdf / 图片由 isTextInlineFile 反向排除（各自走 extract_document / vision）。
+  // 来源含**附件栏文件 + `@` 引用的会话文件**（SPEC-INS-023 §7.2，2026-08-20 起两者一致），
+  // 故此处按 path 去重：同一文件既是本轮附件、又被 `@` 引用时只内联一次。
+  const seenPaths = new Set<string>()
   for (const f of input.textInlineFiles ?? []) {
     if (!isTextInlineFile(f.filename)) continue
+    if (seenPaths.has(f.path)) continue
+    seenPaths.add(f.path)
     parts.push({ type: "file", mime: "text/plain", url: `file://${encodeFilePath(f.path)}`, filename: f.filename })
   }
 

@@ -3,7 +3,7 @@ import { Identifier } from "@/utils/id"
 import type { useGlobalSDK } from "@/context/global-sdk"
 import { buildChipDeclaration, buildChipTemplate, buildToolGate } from "../store/mcp-trigger"
 import { getDesktopApi } from "../lib/electron-api"
-import { formatUploadsForPrompt, isImageFile } from "../lib/upload"
+import { formatUploadsForPrompt, formatMentionedFilesForPrompt, isImageFile } from "../lib/upload"
 import { isPendingUploadPath } from "./worktree-layout"
 import { assembleInsightParts } from "./build-prompt-parts"
 import { currentAccount } from "./account"
@@ -105,20 +105,17 @@ export async function sendQueuedItem(globalSDK: GlobalSDK, sessionID: string, it
     }
   }
 
-  // SPEC-INS-023 @文件：引用清单 synthetic（与 doSendPrompt 同款文案）
+  // SPEC-INS-023 @文件：引用清单 synthetic（与 doSendPrompt 共用 formatMentionedFilesForPrompt，防两套文案漂移）
   if (item.files?.length) {
-    syntheticTexts.push(
-      [
-        "[引用文件] 用户本轮引用了以下已存在的会话文件,需要时用 extract_document 按路径读取:",
-        ...item.files.map((f) => `- ${f.filename}: ${f.path}`),
-      ].join("\n"),
-    )
+    syntheticTexts.push(formatMentionedFilesForPrompt(item.files))
   }
 
   const { parts } = assembleInsightParts({
     text: item.text,
     syntheticTexts,
-    textInlineFiles: item.uploads ?? [],
+    // `@` 引用的文件与附件走同一条内联路径（与 doSendPrompt 一致，SPEC-INS-023 §7.2 2026-08-20 修订）；
+    // 非文本类与重复 path 由 assembleInsightParts 内部处理。
+    textInlineFiles: [...(item.uploads ?? []), ...(item.files ?? [])],
     imageFiles: item.images ?? [],
   })
 

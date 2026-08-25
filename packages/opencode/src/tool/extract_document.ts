@@ -4,6 +4,7 @@ import { access, mkdir, open, readFile, writeFile } from "node:fs/promises"
 import * as Tool from "./tool"
 import * as Truncate from "./truncate"
 import { InstanceState } from "@/effect/instance-state"
+import { Session } from "@/session/session"
 
 // extract_document —— 把本地文档(docx/xlsx/pdf/pptx/txt/md)抽取成文本,供 insight 本地模型直接读。
 // SPEC-INS-015 文件传参路由 ②(office → 模型读)+ SPEC-INS-021 §3(txt/md 直读,解析源统一入口):
@@ -56,6 +57,10 @@ type ExtractMetadata = {
 
 /** 解析件目录名(SPEC-INS-014 布局下 uploads/ outputs/ 的兄弟;不进文件管理)。 */
 const EXTRACTED_DIR = "extracted"
+
+// 上溯到会话树根的深度上限(SPEC-INS-032 §6)。正常只有 1 层(父 → task 子会话),留足余量;
+// 超过即认定数据异常(成环 / 脏数据),退化为按当前会话落盘而不是无限爬。
+const MAX_PARENT_DEPTH = 8
 // 内联阈值 = 通用 Truncate 限额 − 首部预算。目标只有一个:**加上我们自己拼的首部之后,总输出
 // 仍不触发那层兜底**——所以扣的应该是首部的实际大小,不是一个拍出来的百分比。
 // 首部是我们自己生成的、长度可控:元信息一行(文件名 + 字数 + token + 落盘路径,最坏几百字节)
@@ -293,6 +298,7 @@ export const ExtractDocumentTool = Tool.define(
     // 内联阈值取运行时限额(config `tool_output` 可覆盖),不硬编码——目标是「永远不撞那层兜底」,
     // 用户把限额调大调小都得跟着走。
     const truncate = yield* Truncate.Service
+    const sessions = yield* Session.Service
     return {
       description: DESCRIPTION,
       parameters: Parameters,
@@ -369,7 +375,25 @@ export const ExtractDocumentTool = Tool.define(
           // 全量落盘(SPEC-INS-016 §4.2)。失败降级为整篇返回:写盘是交付通道的优化、不是解析能力
           // 本身,盘写不了就退回 v1 那条路(内联 + 通用兜底),别把小故障放大成功能不可用。
           const instance = yield* InstanceState.context
-          const dir = join(instance.directory, ".octo", ctx.sessionID, EXTRACTED_DIR)
+          // 落盘目录归**会话树根会话**(SPEC-INS-032 §6):task 子代理跑在 parentID 指向父会话的
+          // 子 session 里,按 ctx.sessionID 落会让 N 份解析件散在 N 个子会话目录 —— 父代理事后
+          // 想跨文档 grep 原话就找不着。失败(session 读不到 / 超深 / 成环)退化为按当前会话落盘
+          // (= 032 之前的行为),不阻断抽取。
+          const rootSessionID = yield* Effect.gen(function* () {
+            let currentID = ctx.sessionID
+            const seen = new Set<string>([currentID])
+            for (let depth = 0; depth < MAX_PARENT_DEPTH; depth++) {
+              const info = yield* sessions.get(currentID)
+              const parentID = info.parentID
+              if (!parentID) return currentID
+              if (seen.has(parentID)) break
+              seen.add(parentID)
+              currentID = parentID
+            }
+            console.log("[octo:extract] root-session-unresolved", { sessionID: ctx.sessionID })
+            return ctx.sessionID
+          }).pipe(Effect.catchCause(() => Effect.succeed(ctx.sessionID)))
+          const dir = join(instance.directory, ".octo", rootSessionID, EXTRACTED_DIR)
           const savedPath = yield* Effect.tryPromise({
             try: () => persist(dir, path, text, chars),
             // 保留解析器/文件系统的原始错误(ENOTDIR / EACCES / EDQUOT…),否则日志只剩 UnknownError,排障没用。

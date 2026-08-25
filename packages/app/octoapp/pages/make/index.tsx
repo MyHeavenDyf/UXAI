@@ -2986,6 +2986,71 @@ if (dsId) {
     }
   }
 
+  /**
+   * Download a URL and save it into the current session's uploads directory,
+   * then add it as an attachment. Reports progress via onProgress (0-100).
+   * Filename is taken from the URL's hash fragment if present, else from pathname.
+   */
+  async function downloadUrlToSession(
+    url: string,
+    onProgress: (pct: number) => void,
+  ): Promise<void> {
+    const sid = params.id
+    if (!sid) throw new Error("No active session")
+
+    const projectDirValue = projectDir()
+    if (!projectDirValue) throw new Error("未选择项目目录")
+
+    const api = getDesktopApi()
+    if (!api?.writeFileBuffer) throw new Error("不支持文件操作")
+
+    onProgress(0)
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`下载失败: ${response.status}`)
+    const blob = await response.blob()
+    const buffer = await blob.arrayBuffer()
+
+    // Filename: prefer URL hash fragment, else pathname basename, else fallback
+    const parsed = new URL(url)
+    let filename: string
+    if (parsed.hash && parsed.hash.length > 1) {
+      filename = decodeURIComponent(parsed.hash.slice(1))
+    } else {
+      const basename = parsed.pathname.split("/").filter(Boolean).pop() || ""
+      filename = basename || `download-${crypto.randomUUID().slice(0, 8)}`
+    }
+    // Strip any path separators in filename to prevent traversal
+    filename = filename.split(/[\\/]/).pop() || filename
+
+    const sep = projectDirValue.includes("\\") ? "\\" : "/"
+    const destPath = [projectDirValue, ".octo", sid, "uploads", filename].join(sep)
+
+    await api.writeFileBuffer(destPath, buffer)
+
+    onProgress(60)
+
+    if (maxAttachments()) {
+      showToast({ title: "附件数量已达上限", description: "最多添加 5 个附件" })
+      return
+    }
+
+    setAttachments(prev => [...prev, {
+      id: crypto.randomUUID(),
+      filename,
+      mime: blob.type || 'application/octet-stream',
+      size: blob.size,
+      status: 'done',
+      source: 'local',
+      path: destPath,
+    }])
+
+    // Refresh file management panel so the new file appears in the uploaded list
+    setFilesRefreshKey(k => k + 1)
+
+    onProgress(100)
+    showToast({ title: "已添加附件", description: filename })
+  }
+
   function handlePaste(e: ClipboardEvent) {
     const files = Array.from(e.clipboardData?.items ?? [])
       .filter(item => item.kind === "file")
@@ -3717,6 +3782,7 @@ if (dsId) {
                           onSelect={handleAddonSelect}
                           onDeselect={handleAddonDeselect}
                           onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
+                          onAddAttachmentFromUrl={downloadUrlToSession}
                           onOpen={loadSkillConfig}
                           disabled={maxAttachments()}
                         />
@@ -4031,6 +4097,7 @@ if (dsId) {
                         onSelect={handleAddonSelect}
                         onDeselect={handleAddonDeselect}
                         onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
+                        onAddAttachmentFromUrl={downloadUrlToSession}
                         onOpen={loadSkillConfig}
                         disabled={maxAttachments()}
                       />

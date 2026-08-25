@@ -17,7 +17,7 @@ import { sessionTitle } from "@/utils/session-title"
 import { useNotification } from "@/context/notification"
 import { useLayout } from "@/context/layout"
 import { Icon } from "@opencode-ai/ui/icon"
-import { IconSettings, IconSkill } from "@/pages/_shell/icons"
+import { IconSettings, IconSettings1, IconSkill } from "@/pages/_shell/icons"
 import { ProjectInfo } from "@/components/project-info"
 import { importPatternZip } from "../../utils/preview-handler/zip"
 import { getDesktopApi } from "../../utils/desktop-api"
@@ -42,7 +42,7 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
   const globalSync = useGlobalSync()
   const navigate = useNavigate()
   const location = useLocation()
-  const isSkillsPath = () => location.pathname === "/skills"
+  const isSkillsPath = () => location.pathname === "/skills" && !settingsActive()
   const layout = useLayout()
   const dialog = useDialog()
   const notification = useNotification()
@@ -51,6 +51,7 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
 
   const [resolvedDir, setResolvedDir] = createSignal<string>()
   const [patternFetchedDir, setPatternFetchedDir] = createSignal<string>()
+  const [settingsActive, setSettingsActive] = createSignal(false)
 
   const isOnboarding = createMemo(() => !resolvedDir())
 
@@ -442,8 +443,8 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
           class="w-full relative flex items-center gap-[12px] px-[12px] rounded-[4px] transition-colors text-[12px] leading-[20px]"
           style={{
             height: "36px",
-            background: isSkillsPath() ? "var(--surface-base-interactive-active)" : "transparent",
-            color: "rgba(0,0,0,0.9)",
+            background: isSkillsPath() ? "rgba(10, 89, 247, 0.08)" : "transparent",
+            color: isSkillsPath() ? "#0A59F7" : "rgba(0,0,0,0.9)",
             "font-weight": isSkillsPath() ? "500" : "400",
           }}
           onClick={() => { layout.sidebarSource.set("pattern"); navigate("/skills") }}
@@ -461,14 +462,26 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
         <button
           type="button"
           title="设置"
-          class="w-full flex items-center gap-[12px] px-[12px] rounded-[4px] transition-colors"
-          style={{ height: "36px", color: "rgba(0,0,0,0.9)" }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-base-hover)" }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
-          onClick={() => dialog.show(() => <DialogSettings />)}
+          class="w-full relative flex items-center gap-[12px] px-[12px] rounded-[4px] transition-colors text-[12px] leading-[20px]"
+          style={{
+            height: "36px",
+            background: settingsActive() ? "rgba(10, 89, 247, 0.08)" : "transparent",
+            color: settingsActive() ? "#0A59F7" : "rgba(0,0,0,0.9)",
+            "font-weight": settingsActive() ? "500" : "400",
+          }}
+          onMouseEnter={(e) => { if (!settingsActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
+          onMouseLeave={(e) => { if (!settingsActive()) e.currentTarget.style.background = "transparent" }}
+          onClick={() => {
+            setSettingsActive(true)
+            dialog.show(() => <DialogSettings />, () => setSettingsActive(false))
+          }}
         >
-          <IconSettings size={20} />
-          <span class="text-[12px] leading-[20px]">设置</span>
+          <span class="flex items-center justify-center shrink-0">
+            <Show when={settingsActive()} fallback={<IconSettings size={20} />}>
+              <IconSettings1 size={20} />
+            </Show>
+          </span>
+          <span class="truncate">设置</span>
         </button>
       </div>
       <Show when={contextMenu.show && contextMenu.session}>
