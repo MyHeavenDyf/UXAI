@@ -14,12 +14,12 @@ export function AssetsContent(): JSX.Element {
   const [scope, setScope] = createSignal<Scope>("platform")
 
   return (
-    <div class="h-full flex flex-col" style={{ background: "var(--octo-surface-page)" }}>
+    <div class="h-full flex flex-col" style={{ background: "var(--octo-surface-page, #ffffff)" }}>
       <div
         class="flex items-center justify-between border-b shrink-0"
-        style={{ "border-color": "var(--octo-border-default)", padding: "24px 24px 16px" }}
+        style={{ "border-color": "var(--octo-border-default, #E5E7EB)", padding: "24px 24px 16px" }}
       >
-        <div class="flex items-center text-sm" style={{ color: "var(--octo-text-primary)" }}>
+        <div class="flex items-center text-sm" style={{ color: "var(--octo-text-primary, #191919)" }}>
           <For each={SCOPES}>
             {(s) => {
               const isActive = () => scope() === s.key
@@ -32,8 +32,8 @@ export function AssetsContent(): JSX.Element {
                     "rounded-full": isActive()
                   }}
                   style={{
-                    background: isActive() ? "var(--octo-brand-subtle)" : "transparent",
-                    color: isActive() ? "var(--octo-brand)" : "var(--octo-text-primary)",
+                    background: isActive() ? "var(--octo-brand-subtle, #EFF6FF)" : "transparent",
+                    color: isActive() ? "var(--octo-brand, #0a59f7)" : "var(--octo-text-primary, #191919)",
                     padding: "4px 12px",
                     height: "32px",
                     "margin-right": "16px",
