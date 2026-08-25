@@ -67,14 +67,14 @@ function isFileWriteTool(tool: unknown): boolean {
   return bare === "write" || bare === "edit" || bare.endsWith("_write") || bare.endsWith("_edit")
 }
 
-/** 是否仅「新建文件」的 write 工具(排除 edit,统计产物打点用:artifact-file-write 只计新建不计修改)。 */
+/** 是否仅「write 工具」(排除 edit,统计产物打点用:artifact-file-write 只计 write 不计 edit)。 */
 function isWriteOnlyTool(tool: unknown): boolean {
   if (typeof tool !== "string") return false
   const bare = tool.includes(":") ? tool.split(":").pop()! : tool
   return bare === "write" || bare.endsWith("_write")
 }
 
-/** 是否仅「修改文件」的 edit 工具(统计产物打点用:artifact-file-edit 单独计修改操作)。 */
+/** 是否仅「edit 工具」(统计产物打点用:artifact-file-edit 单独计 edit 操作)。 */
 function isEditOnlyTool(tool: unknown): boolean {
   if (typeof tool !== "string") return false
   const bare = tool.includes(":") ? tool.split(":").pop()! : tool
@@ -128,10 +128,35 @@ export type WriteCard = {
  * 同一 filePath 多次写(覆盖)→ 去重保留最后一次(内容点开时读盘总取最新,只需避免重复卡)。
  */
 export function findWriteCards(parts: unknown[]): WriteCard[] {
-  // 用 Map 按 filePath 去重并保留最后出现的顺序
+  return findWriteCardsByFilter(parts, isFileWriteTool, true)
+}
+
+/**
+ * 在一组 part 中找所有 write 工具产物(排除 edit)。
+ * 用于统计产物打点(artifact-file-write):只计 write 工具调用产生的文件(含覆盖写),不计 edit。
+ * 复用 findWriteCards 的逻辑,但过滤条件改为 isWriteOnlyTool。
+ */
+export function findWriteOnlyCards(parts: unknown[]): WriteCard[] {
+  return findWriteCardsByFilter(parts, isWriteOnlyTool, false)
+}
+
+/**
+ * 在一组 part 中找所有 edit 工具产物。
+ * 用于统计产物打点(artifact-file-edit):单独计 edit 工具调用产生的文件。
+ * 复用 findWriteCards 的逻辑,但过滤条件改为 isEditOnlyTool。
+ */
+export function findEditCards(parts: unknown[]): WriteCard[] {
+  return findWriteCardsByFilter(parts, isEditOnlyTool, false)
+}
+
+/**
+ * 通用的写文件工具检测函数(按自定义过滤器)。
+ * 内部逻辑与原 findWriteCards 完全一致,仅工具判定可注入;可选诊断日志(供 findWriteCards 定位"写了文件却不出卡")。
+ */
+function findWriteCardsByFilter(parts: unknown[], toolFilter: (tool: unknown) => boolean, logDiagnostic: boolean): WriteCard[] {
   const byPath = new Map<string, WriteCard>()
-  // 诊断:把扫到的每个工具 part 的判定过程记下来,便于"写了文件却不出卡"时定位是哪一环断的
-  const seen: Array<{ tool: unknown; status: unknown; isWrite: boolean; filePath?: string; pathSource?: string; type?: string; skip?: string }> = []
+  type DiagRec = { tool: unknown; status: unknown; isMatch: boolean; filePath?: string; pathSource?: string; type?: string; skip?: string }
+  const seen: DiagRec[] | undefined = logDiagnostic ? [] : undefined
 
   for (const part of parts) {
     if (!part || typeof part !== "object") continue
@@ -139,46 +164,51 @@ export function findWriteCards(parts: unknown[]): WriteCard[] {
     if (p.type !== "tool") continue
 
     const state = p.state as Record<string, unknown> | undefined
-    const isWrite = isFileWriteTool(p.tool)
-    const rec: { tool: unknown; status: unknown; isWrite: boolean; filePath?: string; pathSource?: string; type?: string; skip?: string } = {
-      tool: p.tool,
-      status: state?.status,
-      isWrite,
+    const isMatch = toolFilter(p.tool)
+
+    if (logDiagnostic) {
+      const rec: { tool: unknown; status: unknown; isMatch: boolean; filePath?: string; pathSource?: string; type?: string; skip?: string } = {
+        tool: p.tool,
+        status: state?.status,
+        isMatch,
+      }
+      if (!isMatch) {
+        rec.skip = "not-match-tool"
+        seen!.push(rec)
+        continue
+      }
+      if (!state || state.status !== "completed") {
+        rec.skip = `status:${String(state?.status)}`
+        seen!.push(rec)
+        continue
+      }
+      const resolved = resolveCardPath(state)
+      if (!resolved) {
+        rec.skip = "no-filePath"
+        rec.type = `metaKeys:${state.metadata && typeof state.metadata === "object" ? Object.keys(state.metadata as object).join(",") : typeof state.metadata}` +
+          `|inputKeys:${state.input && typeof state.input === "object" ? Object.keys(state.input as object).join(",") : typeof state.input}`
+        seen!.push(rec)
+        continue
+      }
+      const filePath = resolved.filePath
+      rec.filePath = filePath
+      rec.pathSource = resolved.source
+      rec.type = resolveOutputType(filePath)
+      seen!.push(rec)
+    } else {
+      if (!isMatch) continue
+      if (!state || state.status !== "completed") continue
+      const resolved = resolveCardPath(state)
+      if (!resolved) continue
     }
 
-    if (!isWrite) {
-      rec.skip = "not-write-tool"
-      seen.push(rec)
-      continue
-    }
-    if (!state || state.status !== "completed") {
-      rec.skip = `status:${String(state?.status)}`
-      seen.push(rec)
-      continue
-    }
-    const resolved = resolveCardPath(state)
-    if (!resolved) {
-      rec.skip = "no-filePath"
-      // 把 metadata / input 的 key 也带上,便于发现服务端用了别的字段名
-      rec.type = `metaKeys:${state.metadata && typeof state.metadata === "object" ? Object.keys(state.metadata as object).join(",") : typeof state.metadata}` +
-        `|inputKeys:${state.input && typeof state.input === "object" ? Object.keys(state.input as object).join(",") : typeof state.input}`
-      seen.push(rec)
-      continue
-    }
-    const filePath = resolved.filePath
-    rec.filePath = filePath
-    rec.pathSource = resolved.source
-    rec.type = resolveOutputType(filePath)
-    seen.push(rec)
-    // 重新插入以更新顺序到最后(覆盖语义)
+    const filePath = resolveCardPath(state!)!.filePath
     byPath.delete(filePath)
     byPath.set(filePath, { filePath, type: resolveOutputType(filePath) })
   }
 
   const out = [...byPath.values()]
-  // 出卡 或 扫到 write/edit 工具(无论是否产出卡)时打印——"写了文件却不出卡"的定位抓手;
-  // 纯 read 轮次(无写文件工具)不打,避免刷屏。
-  if (out.length > 0 || seen.some((s) => s.isWrite)) {
+  if (logDiagnostic && seen && (out.length > 0 || seen.some((s) => s.isMatch))) {
     console.log("[octo:write-card] scan", {
       cardCount: out.length,
       cards: out.map((c) => ({ filePath: c.filePath, type: c.type })),
@@ -186,47 +216,4 @@ export function findWriteCards(parts: unknown[]): WriteCard[] {
     })
   }
   return out
-}
-
-/**
- * 在一组 part 中找所有「新建文件」的 write 工具产物(排除 edit)。
- * 用于统计产物打点(artifact-file-write):只计 AI 新建的文件,不计修改。
- * 复用 findWriteCards 的逻辑,但过滤条件改为 isWriteOnlyTool。
- */
-export function findWriteOnlyCards(parts: unknown[]): WriteCard[] {
-  return findWriteCardsByFilter(parts, isWriteOnlyTool)
-}
-
-/**
- * 在一组 part 中找所有「修改文件」的 edit 工具产物。
- * 用于统计产物打点(artifact-file-edit):单独计 AI 的文件修改操作。
- * 复用 findWriteCards 的逻辑,但过滤条件改为 isEditOnlyTool。
- */
-export function findEditCards(parts: unknown[]): WriteCard[] {
-  return findWriteCardsByFilter(parts, isEditOnlyTool)
-}
-
-/**
- * 通用的写文件工具检测函数(按自定义过滤器)。
- * 内部逻辑与 findWriteCards 完全一致,仅工具判定可注入。
- */
-function findWriteCardsByFilter(parts: unknown[], toolFilter: (tool: unknown) => boolean): WriteCard[] {
-  const byPath = new Map<string, WriteCard>()
-
-  for (const part of parts) {
-    if (!part || typeof part !== "object") continue
-    const p = part as Record<string, unknown>
-    if (p.type !== "tool") continue
-
-    const state = p.state as Record<string, unknown> | undefined
-    if (!toolFilter(p.tool)) continue
-    if (!state || state.status !== "completed") continue
-    const resolved = resolveCardPath(state)
-    if (!resolved) continue
-    const filePath = resolved.filePath
-    byPath.delete(filePath)
-    byPath.set(filePath, { filePath, type: resolveOutputType(filePath) })
-  }
-
-  return [...byPath.values()]
 }
