@@ -59,7 +59,7 @@ export async function persistA2uiData(session: PrototypeSession, filePath: strin
   const currentSize = (await api?.statFile?.(dataJsPath))?.size ?? null
   if (currentSize !== null && session.a2ui?.loadSize !== null && session.a2ui?.loadSize !== currentSize) {
     session.a2ui = null
-    session.ctx.showToast({ title: "文件已被外部修改，已取消写入", variant: "error" })
+    session.ctx.showOctoToast({ title: "文件已被外部修改，已取消写入", variant: "error" })
     return
   }
   const content = `window.__A2UI_DATA__ = ${JSON.stringify(data)};\n`

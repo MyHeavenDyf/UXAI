@@ -1,0 +1,132 @@
+.octo-toast-container {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1000;
+  width: 500px;
+  max-height: 353px;
+  padding: 16px;
+  border-radius: 12px;
+  box-shadow: 0px 16px 48px 0px rgba(0, 0, 0, 0.16);
+  color: rgba(0, 0, 0, 0.9);
+  font-size: 14px;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.octo-toast-header {
+  display: flex;
+  align-items: center;
+  line-height: 22px;
+  flex-shrink: 0;
+}
+
+.octo-toast-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #595959;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0;
+  transition: color 100ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.octo-toast-toggle:hover {
+  color: #191919;
+}
+.octo-toast-toggle > svg {
+  flex-shrink: 0;
+}
+
+.octo-toast-counts {
+  margin-left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.octo-toast-count-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.octo-toast-close-all {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  color: #595959;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0;
+  transition: color 100ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.octo-toast-close-all:hover {
+  color: #191919;
+}
+.octo-toast-close-all > svg {
+  flex-shrink: 0;
+}
+
+.octo-toast-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.octo-toast-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 468px;
+  line-height: 22px;
+  padding: 9px 16px;
+  margin-top: 16px;
+  border-radius: 8px;
+}
+.octo-toast-item[data-variant="default"] {
+  background: #EEF3FE;
+}
+.octo-toast-item[data-variant="error"] {
+  background: #FEE7E8;
+}
+.octo-toast-item[data-variant="warn"] {
+  background: #FEFCE0;
+}
+
+.octo-toast-item > svg {
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.octo-toast-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.octo-toast-close {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+.octo-toast-close > svg {
+  flex-shrink: 0;
+}

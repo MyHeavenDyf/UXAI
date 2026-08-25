@@ -106,7 +106,7 @@ export default {
   name: 'shadcn',
   
   async handleLocalEditSave(ctx) {
-    const { tab, edit, showToast } = ctx
+    const { tab, edit, showOctoToast } = ctx
     const target = edit.target
 
     const filePath = tab.filePath || tab.absoluteFilePath
@@ -141,19 +141,19 @@ export default {
 
     const result = await sendTextToAgent(lines.join('\n'), { source: 'local-edit' })
     if (result.ok) {
-      showToast({ title: '已提交修改请求' })
+      showOctoToast({ title: '已提交修改请求' })
     } else {
-      showToast({ title: '提交失败', description: result.message ?? '请重试' })
+      showOctoToast({ title: '提交失败', description: result.message ?? '请重试' })
     }
     return result.ok
   },
 
   async handleCanvasEdit(ctx) {
-    const { tab, showToast, getDesktopApi, sessionId, sdkDirectory } = ctx
+    const { tab, showOctoToast, getDesktopApi, sessionId, sdkDirectory } = ctx
     const filePath = tab.filePath || tab.absoluteFilePath
     
     if (!filePath) {
-      showToast({ title: "无法获取文件路径" })
+      showOctoToast({ title: "无法获取文件路径" })
       return { handled: true }
     }
 
@@ -167,13 +167,13 @@ export default {
 
     const api = getDesktopApi()
     if (!api?.readFileBuffer) {
-      showToast({ title: "不支持本地文件读取" })
+      showOctoToast({ title: "不支持本地文件读取" })
       return { handled: true }
     }
 
     const buffer = await api.readFileBuffer(zipPath)
     if (!buffer) {
-      showToast({ title: "ZIP文件不存在", description: zipPath })
+      showOctoToast({ title: "ZIP文件不存在", description: zipPath })
       return { handled: true }
     }
 
@@ -189,7 +189,7 @@ export default {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-      showToast({ title: "下载完成" })
+      showOctoToast({ title: "下载完成" })
       return { handled: true }
     }
 
@@ -202,7 +202,7 @@ export default {
           const sid = sessionId
           
           if (!baseDir || !sid || !api?.writeFileBuffer) {
-            showToast({ title: "无法保存文件", variant: "error" })
+            showOctoToast({ title: "无法保存文件", variant: "error" })
             return
           }
           
@@ -223,7 +223,7 @@ export default {
           
           const buf = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
           await api.writeFileBuffer(`${uploadsDir}/${finalFilename}`, buf.buffer)
-          showToast({ title: "已保存", description: finalFilename })
+          showOctoToast({ title: "已保存", description: finalFilename })
         },
         config: {
           designName: tab.title,

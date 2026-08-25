@@ -3,6 +3,7 @@ import "./components/slash-popover.css"
 import { type MentionSelection } from "./components/mention-popover"
 import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
+import { OctoToast, showOctoToast } from "./components/octo-toast"
 import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
@@ -24,7 +25,6 @@ import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
-import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useCommand } from "@/context/command"
 import {
@@ -400,7 +400,7 @@ function MakeContent() {
       tracker.interaction({ module: "design", name: "rename-session" })
       void refetchSession()
     } catch (err) {
-      showToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
     }
     setTitleState("editing", false)
   }
@@ -550,7 +550,7 @@ const sessionMessagesLoaded = createMemo(() => {
       
       if (detail.action === 'send' && !sending()) {
         if (!ensureMultimodalModel()) {
-          showToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型", variant: "error" })
+          showOctoToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型", variant: "error" })
           return
         }
 
@@ -673,7 +673,7 @@ const sessionMessagesLoaded = createMemo(() => {
         detail.ack?.({ ok: true })
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        showToast({ title: '发送失败', description: message, variant: 'error' })
+        showOctoToast({ title: '发送失败', description: message, variant: 'error' })
         detail.ack?.({ ok: false, message })
       }
     }
@@ -2476,7 +2476,7 @@ const sessionMessagesLoaded = createMemo(() => {
     if (effectiveBusy() || !activeModelKey()) return
 
     if (hasImageAttachments() && !ensureMultimodalModel()) {
-      showToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型", variant: "error" })
+      showOctoToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型", variant: "error" })
       return
     }
 
@@ -2760,12 +2760,12 @@ if (dsId) {
   /** Add artifact file to session attachments (仅记录路径，不发内容) */
   function addArtifactToSession(file: ArtifactFile) {
     if (attachments().some(a => a.path === file.path)) {
-      showToast({ title: "已添加", description: file.name })
+      showOctoToast({ title: "已添加", description: file.name })
       return
     }
 
     if (maxAttachments()) {
-      showToast({ title: "附件数量已达上限", description: "最多添加 5 个附件" })
+      showOctoToast({ title: "附件数量已达上限", description: "最多添加 5 个附件" })
       return
     }
 
@@ -2779,7 +2779,7 @@ if (dsId) {
       path: file.path,
       kind: file.kind,
     }])
-    showToast({ title: "已添加附件", description: file.name })
+    showOctoToast({ title: "已添加附件", description: file.name })
   }
 
   function getMimeForKind(kind: ArtifactFileKind): string {
@@ -2807,7 +2807,7 @@ if (dsId) {
   function handleAddFiles(files: File[], method: "picker" | "drop" | "paste") {
     const slots = 5 - attachments().length
     if (files.length > slots) {
-      showToast({ title: "最多添加5个附件" })
+      showOctoToast({ title: "最多添加5个附件" })
     }
     const toAdd = files.slice(0, slots)
     for (const file of toAdd) {
@@ -2870,13 +2870,13 @@ if (dsId) {
       try {
         const projectDirValue = projectDir()
         if (!projectDirValue) {
-          showToast({ title: "无法添加附件", description: "未选择项目目录", variant: "error" })
+          showOctoToast({ title: "无法添加附件", description: "未选择项目目录", variant: "error" })
           return
         }
         
         const api = getDesktopApi()
         if (!api?.writeFileBuffer) {
-          showToast({ title: "无法添加附件", description: "不支持文件操作", variant: "error" })
+          showOctoToast({ title: "无法添加附件", description: "不支持文件操作", variant: "error" })
           return
         }
         
@@ -2895,7 +2895,7 @@ if (dsId) {
           } : a
         ))
         
-        showToast({ title: "已添加附件", description: file.name })
+        showOctoToast({ title: "已添加附件", description: file.name })
       } catch (err) {
         const message = err instanceof Error ? err.message : '保存失败'
         setAttachments(prev => prev.map(a =>
@@ -2997,7 +2997,7 @@ if (dsId) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
     if (maxAttachments()) {
-      showToast({ title: "附件数量已达上限", description: "最多添加 5 个附件" })
+      showOctoToast({ title: "附件数量已达上限", description: "最多添加 5 个附件" })
       return
     }
 
@@ -3015,7 +3015,7 @@ if (dsId) {
     setFilesRefreshKey(k => k + 1)
 
     onProgress(100)
-    showToast({ title: "已添加附件", description: filename })
+    showOctoToast({ title: "已添加附件", description: filename })
   }
 
   function handlePaste(e: ClipboardEvent) {
@@ -4259,6 +4259,7 @@ if (dsId) {
         </div>
         </Show>
       </div>
+      <OctoToast />
     </DataProvider>
   )
 }
