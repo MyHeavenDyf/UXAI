@@ -245,6 +245,10 @@
   position: relative;
 }
 
+.addon-menu-url-dialog--b {
+  height: auto;
+}
+
 .addon-menu-url-header {
   display: flex;
   justify-content: space-between;
@@ -379,33 +383,35 @@
   left: 50%;
   width: 6px;
   height: 6px;
-  margin: -3px 0 0 -3px;
   border-radius: 50%;
   background: #d8d8d8;
+  /* Center the dot on spinner center, then rotate+translate to place on 24px-radius orbit.
+     transform-origin must be the dot's own center (6x6 center) so rotation pivots correctly. */
   transform-origin: center;
 }
 
-.addon-menu-spinner-dot:nth-child(1) { transform: rotate(0deg)   translateY(-24px); }
-.addon-menu-spinner-dot:nth-child(2) { transform: rotate(45deg)  translateY(-24px); }
-.addon-menu-spinner-dot:nth-child(3) { transform: rotate(90deg)  translateY(-24px); }
-.addon-menu-spinner-dot:nth-child(4) { transform: rotate(135deg) translateY(-24px); }
-.addon-menu-spinner-dot:nth-child(5) { transform: rotate(180deg) translateY(-24px); }
-.addon-menu-spinner-dot:nth-child(6) { transform: rotate(225deg) translateY(-24px); }
-.addon-menu-spinner-dot:nth-child(7) { transform: rotate(270deg) translateY(-24px); }
-.addon-menu-spinner-dot:nth-child(8) { transform: rotate(315deg) translateY(-24px); }
+.addon-menu-spinner-dot:nth-child(1) { transform: translate(-50%, -50%) rotate(0deg)   translateY(-24px); }
+.addon-menu-spinner-dot:nth-child(2) { transform: translate(-50%, -50%) rotate(45deg)  translateY(-24px); }
+.addon-menu-spinner-dot:nth-child(3) { transform: translate(-50%, -50%) rotate(90deg)  translateY(-24px); }
+.addon-menu-spinner-dot:nth-child(4) { transform: translate(-50%, -50%) rotate(135deg) translateY(-24px); }
+.addon-menu-spinner-dot:nth-child(5) { transform: translate(-50%, -50%) rotate(180deg) translateY(-24px); }
+.addon-menu-spinner-dot:nth-child(6) { transform: translate(-50%, -50%) rotate(225deg) translateY(-24px); }
+.addon-menu-spinner-dot:nth-child(7) { transform: translate(-50%, -50%) rotate(270deg) translateY(-24px); }
+.addon-menu-spinner-dot:nth-child(8) { transform: translate(-50%, -50%) rotate(315deg) translateY(-24px); }
 
 .addon-menu-spinner-arc {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 24px;
-  height: 24px;
-  margin: -12px 0 0 -12px;
+  width: 54px;
+  height: 54px;
   border-radius: 50%;
-  background: conic-gradient(from 0deg, #0a59f7 0deg 15deg, transparent 15deg 360deg);
-  -webkit-mask: radial-gradient(circle, transparent 9px, #000 9px);
-  mask: radial-gradient(circle, transparent 9px, #000 9px);
-  transform: translate(-50%, -50%);
+  /* 45° blue arc (1/8 of circle) starting at 12 o'clock */
+  background: conic-gradient(from 0deg, #0a59f7 0deg 45deg, transparent 45deg 360deg);
+  /* Keep only a 6px-wide ring on the 24px-radius orbit (inner 21px, outer 27px) */
+  -webkit-mask: radial-gradient(circle, transparent 21px, #000 21px, #000 27px, transparent 27px);
+  mask: radial-gradient(circle, transparent 21px, #000 21px, #000 27px, transparent 27px);
+  transform-origin: center;
   animation: addon-menu-spinner-rotate 1s linear infinite;
 }
 

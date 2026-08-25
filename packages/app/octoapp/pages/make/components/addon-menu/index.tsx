@@ -26,7 +26,7 @@ interface AddonMenuProps {
   onSelect: (selection: MentionSelection) => void
   onDeselect: (selection: MentionSelection) => void
   onAddAttachment: () => void
-  onAddAttachmentFromUrl?: (url: string, onProgress: (pct: number) => void) => Promise<void>
+  onAddAttachmentFromUrl?: (url: string, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<void>
   onEnterDesignStrategy?: () => void
   planActive?: boolean
   onOpen?: () => void
@@ -43,6 +43,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   const [urlProgress, setUrlProgress] = createSignal(0)
   const [urlStepText, setUrlStepText] = createSignal("Step 1 - 接收数据")
   const [urlError, setUrlError] = createSignal<string | null>(null)
+  const [urlCancelled, setUrlCancelled] = createSignal(false)
   const [menuPosition, setMenuPosition] = createSignal<{ left: number; bottom: number } | null>(null)
   const [localFileSelections, setLocalFileSelections] = createSignal<MentionSelection[]>([])
 
@@ -212,6 +213,8 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     }
   }
 
+  let urlAbortController: AbortController | undefined
+
   const handleUrlConfirm = async () => {
     const value = urlValue().trim()
     if (!isValidHref(value)) {
@@ -223,26 +226,40 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     setUrlValue("")
     setUrlProgress(0)
     setUrlStepText("Step 1 - 接收数据")
+    setUrlCancelled(false)
+    urlAbortController = new AbortController()
     setUrlDialogBOpen(true)
 
     try {
       await props.onAddAttachmentFromUrl?.(value, (pct) => {
+        if (urlCancelled()) throw new DOMException("Aborted", "AbortError")
         setUrlProgress(pct)
         if (pct >= 60) {
           setUrlStepText("Step 3 - 文件置入到对话框内")
         }
-      })
-      setUrlDialogBOpen(false)
+      }, urlAbortController.signal)
+      if (!urlCancelled()) {
+        setUrlDialogBOpen(false)
+      }
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        // User cancelled — just close dialog B, no error display
+        setUrlDialogBOpen(false)
+        return
+      }
       setUrlError(err instanceof Error ? err.message : "下载失败")
       setUrlDialogBOpen(false)
       // Reopen dialog A so the user can see the error and retry
       setUrlDialogOpen(true)
       setUrlValue(value)
+    } finally {
+      urlAbortController = undefined
     }
   }
 
   const closeUrlDialogB = () => {
+    setUrlCancelled(true)
+    urlAbortController?.abort()
     setUrlDialogBOpen(false)
   }
 
@@ -544,20 +561,20 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
       <Show when={urlDialogBOpen()}>
         <Portal>
           <div class="addon-menu-url-overlay">
-            <div class="addon-menu-url-dialog" onClick={(e) => e.stopPropagation()}>
+            <div class="addon-menu-url-dialog addon-menu-url-dialog--b" onClick={(e) => e.stopPropagation()}>
               <div class="addon-menu-url-header">
                 <h3 class="addon-menu-url-title">接收设计资产链接URL</h3>
+                <button type="button" class="addon-menu-url-close" onClick={closeUrlDialogB} aria-label="关闭">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M12 4L4 12M4 4L12 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </button>
               </div>
               <div class="addon-menu-url-loading">
                 <div class="addon-menu-spinner">
                   <For each={Array.from({ length: 8 }, (_, i) => i)}>
-                    {(i) => (
-                      <span
-                        class="addon-menu-spinner-dot"
-                        style={{
-                          transform: `rotate(${i * 45}deg)`,
-                        }}
-                      />
+                    {() => (
+                      <span class="addon-menu-spinner-dot" />
                     )}
                   </For>
                   <span class="addon-menu-spinner-arc" />

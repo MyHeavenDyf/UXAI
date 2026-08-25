@@ -2957,6 +2957,7 @@ if (dsId) {
   async function downloadUrlToSession(
     url: string,
     onProgress: (pct: number) => void,
+    signal?: AbortSignal,
   ): Promise<void> {
     const sid = params.id
     if (!sid) throw new Error("No active session")
@@ -2968,9 +2969,10 @@ if (dsId) {
     if (!api?.writeFileBuffer) throw new Error("不支持文件操作")
 
     onProgress(0)
-    const response = await fetch(url)
+    const response = await fetch(url, { signal })
     if (!response.ok) throw new Error(`下载失败: ${response.status}`)
     const blob = await response.blob()
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
     const buffer = await blob.arrayBuffer()
 
     // Filename: prefer URL hash fragment, else pathname basename, else fallback
@@ -2989,8 +2991,10 @@ if (dsId) {
     const destPath = [projectDirValue, ".octo", sid, "uploads", filename].join(sep)
 
     await api.writeFileBuffer(destPath, buffer)
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
     onProgress(60)
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
     if (maxAttachments()) {
       showToast({ title: "附件数量已达上限", description: "最多添加 5 个附件" })
