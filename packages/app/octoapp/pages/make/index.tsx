@@ -74,7 +74,6 @@ import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2"
 import { usePermission } from "@/context/permission"
 import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
 import { ResultViewer } from "./components/result-viewer/index"
-import { PlanEntryBanner } from "./components/result-viewer/plan-entry-banner"
 import { PlanBanner } from "./components/result-viewer/plan-banner"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
@@ -93,7 +92,7 @@ import { SEND_TEXT_EVENT, type SendTextEventDetail } from "./utils/agent-events"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
-import { scanDesignPlanFromMessages, isPlanConfirmed, isPlanIntentResolved } from "./utils/design-plan-scanner"
+import { scanDesignPlanFromMessages, isPlanConfirmed } from "./utils/design-plan-scanner"
 import { scanStrategyFields, EMPTY_STRATEGY_FORM, type StrategyFormData } from "./utils/strategy-form-scanner"
 import { useMakeCommands } from "./use-make-commands"
 import { useDialogIframe } from '@/context/dialog-iframe'
@@ -1631,44 +1630,99 @@ const sessionMessagesLoaded = createMemo(() => {
     // end 不关闭规划通道，后续仍可再次触发设计规划
   }
 
-  // ── 设计规划阶段引导(plan entry banner)─────────────────────
-  // agent 输出 [design-plan-intent] sentinel 但用户尚未响应时,
-  // 显示 PlanEntryBanner 让用户决定是否进入规划阶段。
+  // ── 设计规划阶段引导 ─────────────────────────────
+  // 进入设计规划：用户点击 AddonMenu「进入设计规划」→ 弹出确认弹窗 → 确认后创建子 session
+  //（已移除 agent sentinel → PlanEntryBanner 引导流程）
 
-  // 乐观锁:用户点 [进入]/[直接执行] 后立即隐藏 banner,等消息流回灌确认。
+  // 乐观锁:进入规划后立即置位,防止重复创建子 session。
   // 避免 sendMessage 飞行期间用户连点重复发送。
   const [optimisticIntentResolved, setOptimisticIntentResolved] = createSignal(false)
-  // 记录用户已点击"结束"的 session,防止 banner 再次出现
+  // 记录用户已结束该 session 的规划状态,防止下次 AddonMenu 重新进入
   const [planEndedForSession, setPlanEndedForSession] = createSignal<string | null>(null)
+  // 控制确认弹窗是否显示（内联渲染在输入框上方）
+  const [showPlanConfirm, setShowPlanConfirm] = createSignal(false)
   createEffect(on(() => params.id, () => {
     setOptimisticIntentResolved(false)
   }, { defer: true }))
 
-  const planIntentPending = createMemo(() => {
-    const sid = params.id
-    if (!sid) return false
-    // Phase 2 异步检测子 session 期间阻止 banner 闪现
-    if (phase2Pending()) return false
-    // 如果已存在活跃的规划子 session（切回时恢复的），不显示 banner
-    if (activePlanSessionId()) return false
-    // 如果已存在 octo_make_plan 子 session（跨重启恢复），不显示 banner
-    if (hasChildPlanSession()) return false
-    // 如果用户已结束该 session 的设计规划,不显示 banner
-    if (planEndedForSession() === sid) return false
-    // 如果 skip/confirm 已关闭该 session 的规划通道（localStorage 持久化标记），不显示 banner
-    if (localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid)) return false
-    // 如果 localStorage 中有缓存的子 session ID，不显示 banner（跨重启恢复）
-    if (localStorage.getItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + sid)) return false
-    // 如果 session 切换缓存中有该 session 的规划子 session，不显示 banner
-    if (_planChildSessionCache[sid]) return false
-    return !isPlanIntentResolved(sync.data.message?.[sid], sync.data.part)
-  })
+  /** AddonMenu「进入设计规划」→ 弹出确认弹窗，用户确认后才真正进入 */
+  function handleOpenPlanConfirm() {
+    if (activePlanSessionId()) return  // 已在规划中，按钮已禁用，双保险
+    setShowPlanConfirm(true)
+  }
 
-  // 当消息流中出现新的 sentinel 时自动复位乐观锁,允许用户再次选择。
-  // 否则同一个 session 内第二次生成的时乐观锁仍是 true,banner 不会显示。
-  createEffect(on(() => planIntentPending(), (pending) => {
-    if (pending) setOptimisticIntentResolved(false)
-  }, { defer: true }))
+  /** 内联确认弹窗组件 */
+  function PlanConfirmBanner() {
+    return (
+      <div
+        class="w-full rounded-[12px] flex flex-col mb-2 transition-all duration-150"
+        style={{
+          background: "linear-gradient(180deg, rgba(234,241,255,1), rgba(242,245,255,1) 100%)",
+          border: "none",
+          padding: "0",
+        }}
+      >
+        <div class="flex items-center gap-[6px] py-[16px] px-[20px] pb-[12px]">
+          <svg width="20" height="20" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3.66642 1.23337C3.63087 1.1667 3.59531 1.12892 3.55976 1.12003C3.5242 1.11114 3.48865 1.12003 3.45309 1.1467C3.42198 1.17337 3.40198 1.20225 3.39309 1.23337C3.27309 1.85114 2.9842 2.3867 2.52642 2.84003C2.06865 3.29337 1.5242 3.58892 0.89309 3.7267C0.85309 3.74003 0.824201 3.7667 0.806423 3.8067C0.79309 3.85114 0.795312 3.89114 0.81309 3.9267C0.835312 3.9667 0.861979 3.9867 0.89309 3.9867C1.5242 4.11114 2.06865 4.40448 2.52642 4.8667C2.9842 5.32448 3.27309 5.86226 3.39309 6.48003C3.41531 6.53337 3.44642 6.56892 3.48642 6.5867C3.53087 6.60003 3.56865 6.59559 3.59976 6.57337C3.63087 6.55559 3.65309 6.52448 3.66642 6.48003C3.8042 5.84892 4.09753 5.3067 4.54642 4.85337C4.99087 4.40003 5.52865 4.11114 6.15976 3.9867C6.2042 3.97337 6.23531 3.94892 6.25309 3.91337C6.27531 3.87337 6.27531 3.83559 6.25309 3.80003C6.23531 3.76448 6.2042 3.74003 6.15976 3.7267C5.54198 3.58892 5.00642 3.29337 4.55309 2.84003C4.09976 2.3867 3.8042 1.85114 3.66642 1.23337Z" fill="rgb(10,89,247)" fill-rule="nonzero" />
+            <path d="M12.4934 2.44669C12.1956 2.14003 11.8334 1.98669 11.4067 1.98669C10.9801 1.98669 10.6134 2.14003 10.3067 2.44669L2.92673 9.84003C2.82007 9.92447 2.72896 10.0578 2.6534 10.24L1.76007 12.48C1.63118 12.8 1.6334 13.1111 1.76673 13.4134C1.90007 13.72 2.11562 13.94 2.4134 14.0734C2.71562 14.2067 3.02673 14.2089 3.34673 14.08L5.58673 13.1667C5.75562 13.0911 5.8934 13.0067 6.00007 12.9134L13.3734 5.52003C13.5778 5.31558 13.7156 5.08003 13.7867 4.81336C13.8534 4.54669 13.8534 4.28447 13.7867 4.02669C13.7156 3.76447 13.5778 3.53114 13.3734 3.32669L12.4934 2.44669Z" fill="rgb(10,89,247)" fill-rule="nonzero" />
+          </svg>
+          <span class="text-[14px] font-bold" style={{ "line-height": "22px", color: "rgba(0,0,0,0.9)" }}>
+            进入设计策略规划阶段
+          </span>
+        </div>
+        <div class="mx-[12px] mb-[12px] flex flex-col gap-[16px]" style={{ padding: "12px", background: "rgba(255,255,255,0.9)", "border-radius": "8px" }}>
+          <div class="text-[14px]" style={{ "line-height": "22px", color: "rgba(0,0,0,0.9)" }}>
+            原型生成需要明确核心功能与交互场景，先规划再实现能避免返工。
+          </div>
+          <div class="flex items-center justify-center gap-[8px]">
+            <button
+              type="button"
+              class="text-[14px] rounded-[999px] transition-colors hover:bg-[#dfdfdf] active:bg-[#dfdfdf]"
+              style={{
+                width: "88px", height: "32px", "line-height": "22px",
+                background: "rgba(0,0,0,0.05)", color: "rgba(0,0,0,0.9)",
+                border: "none", cursor: "pointer",
+              }}
+              onClick={() => { setShowPlanConfirm(false); handleSkipPlan() }}
+            >
+              直接执行
+            </button>
+            <button
+              type="button"
+              class="text-[14px] font-medium rounded-[999px] text-white transition-colors hover:opacity-90"
+              style={{
+                width: "88px", height: "32px", "line-height": "22px",
+                background: "#0a59f7", color: "white",
+                border: "none", cursor: "pointer",
+              }}
+              onClick={() => { setShowPlanConfirm(false); handleEnterPlan() }}
+            >
+              进入
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  /** 用户点 [直接执行] → 发送 [skip-plan],agent 跳过方案直接生成 HTML */
+  function handleSkipPlan() {
+    const sid = params.id
+    const modelKey = activeModelKey()
+    if (!sid || !modelKey) return
+    if (optimisticIntentResolved()) return
+    setOptimisticIntentResolved(true)
+    if (sid) {
+      localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid, "true")
+    }
+    setPlanEndedForSession(sid)
+    setPlanEnded(true)
+    sendMessage(sid, "[skip-plan]", modelKey).catch((err) => {
+      console.error("[MakePage] skip plan failed", err)
+      setOptimisticIntentResolved(false)
+    })
+  }
 
   /** 用户点 [进入] → 创建子 session (octo_make_plan),启动设计规划流程 */
   async function handleEnterPlan() {
@@ -1742,25 +1796,6 @@ const sessionMessagesLoaded = createMemo(() => {
       console.error("[MakePage] enter plan failed", err)
       setOptimisticIntentResolved(false)
     }
-  }
-
-  /** 用户点 [直接执行] → 发送 [skip-plan],agent 跳过方案直接生成 HTML。跳过将永久关闭该 session 的规划通道 */
-  function handleSkipPlan() {
-    const sid = params.id
-    const modelKey = activeModelKey()
-    if (!sid || !modelKey) return
-    if (optimisticIntentResolved()) return
-    setOptimisticIntentResolved(true)
-    // 持久化"已跳过"标记，后续不再弹出规划 banner
-    if (sid) {
-      localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid, "true")
-    }
-    setPlanEndedForSession(sid)
-    setPlanEnded(true)
-    sendMessage(sid, "[skip-plan]", modelKey).catch((err) => {
-      console.error("[MakePage] skip plan failed", err)
-      setOptimisticIntentResolved(false)
-    })
   }
 
   // 自动滚动：保持对话区随新内容跟随到底部（用户手动上滑则不抢）
@@ -3717,6 +3752,8 @@ if (dsId) {
                           onSelect={handleAddonSelect}
                           onDeselect={handleAddonDeselect}
                           onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
+                          onEnterDesignStrategy={handleOpenPlanConfirm}
+                          planActive={activePlanSessionId() !== null}
                           onOpen={loadSkillConfig}
                           disabled={maxAttachments()}
                         />
@@ -3757,7 +3794,7 @@ if (dsId) {
                </div>
              </Show>
            }>
-              {/* 消息列表 */}
+              {/* 消息列表 —— 已移除 PlanEntryBanner（进入设计策略模式仅保留 AddonMenu 入口） */}
               <div class="relative flex-1 min-h-0">
               <ScrollView
                 class="h-full"
@@ -3875,12 +3912,9 @@ if (dsId) {
               {/* 输入区 */}
               <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
 
-                {/* Plan entry banner - sentinel 阶段:让用户选择是否进入设计规划 */}
-                <Show when={planIntentPending() && !optimisticIntentResolved()}>
-                  <PlanEntryBanner
-                    onEnter={handleEnterPlan}
-                    onSkip={handleSkipPlan}
-                  />
+                {/* Plan entry banner - AddonMenu 进入设计策略模式时的确认弹窗 */}
+                <Show when={showPlanConfirm() && !optimisticIntentResolved()}>
+                  <PlanConfirmBanner />
                 </Show>
 
                 {/* Permission dock - 权限授权 UI */}
@@ -4031,6 +4065,8 @@ if (dsId) {
                         onSelect={handleAddonSelect}
                         onDeselect={handleAddonDeselect}
                         onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
+                        onEnterDesignStrategy={handleOpenPlanConfirm}
+                        planActive={activePlanSessionId() !== null}
                         onOpen={loadSkillConfig}
                         disabled={maxAttachments()}
                       />
