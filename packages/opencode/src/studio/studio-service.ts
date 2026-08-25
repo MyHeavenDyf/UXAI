@@ -127,7 +127,7 @@ export type StudioGenerationResult = {
   model: string
   aspectRatio: string
   videoMode?: "text" | "first_last_frame"
-  duration?: "5" | "10"
+  duration?: string
   videoQualityMode?: "std" | "pro"
   images: { id: string; kind?: "image" | "video"; url: string; thumbnailUrl?: string; remoteUrl?: string; width?: number; height?: number; duration?: number }[]
   request?: unknown
@@ -188,7 +188,9 @@ function videoMode(input: StudioGenerationRequest) {
 
 function videoDuration(input: StudioGenerationRequest) {
   const value = input.extra?.duration
-  return value === "10" ? "10" : "5"
+  if (typeof value !== "string") return "5"
+  const n = Number(value)
+  return Number.isInteger(n) && n >= 4 && n <= 15 ? value : "5"
 }
 
 function videoQualityMode(input: StudioGenerationRequest) {
