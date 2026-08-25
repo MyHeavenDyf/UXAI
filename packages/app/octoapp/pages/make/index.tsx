@@ -3681,7 +3681,7 @@ if (dsId) {
                           onDeselect={handleAddonDeselect}
                           onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
                           onEnterDesignStrategy={handleOpenPlanConfirm}
-                          planActive={activePlanSessionId() !== null}
+                          planActive={activePlanSessionId() !== null || !params.id}
                           onOpen={loadSkillConfig}
                           disabled={maxAttachments()}
                         />
@@ -3997,7 +3997,7 @@ if (dsId) {
                         onDeselect={handleAddonDeselect}
                         onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
                         onEnterDesignStrategy={handleOpenPlanConfirm}
-                        planActive={activePlanSessionId() !== null}
+                        planActive={activePlanSessionId() !== null || !params.id}
                         onOpen={loadSkillConfig}
                         disabled={maxAttachments()}
                       />
