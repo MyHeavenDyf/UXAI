@@ -74,8 +74,8 @@ import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2"
 import { usePermission } from "@/context/permission"
 import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
 import { ResultViewer } from "./components/result-viewer/index"
-import { PlanEntryBanner } from "./components/result-viewer/plan-entry-banner"
 import { PlanBanner } from "./components/result-viewer/plan-banner"
+import { PlanEntryBanner } from "./components/result-viewer/plan-entry-banner"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
@@ -93,7 +93,7 @@ import { SEND_TEXT_EVENT, type SendTextEventDetail } from "./utils/agent-events"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
-import { scanDesignPlanFromMessages, isPlanConfirmed, isPlanIntentResolved } from "./utils/design-plan-scanner"
+import { scanDesignPlanFromMessages, isPlanConfirmed } from "./utils/design-plan-scanner"
 import { scanStrategyFields, EMPTY_STRATEGY_FORM, type StrategyFormData } from "./utils/strategy-form-scanner"
 import { useMakeCommands } from "./use-make-commands"
 import { useDialogIframe } from '@/context/dialog-iframe'
@@ -1631,44 +1631,26 @@ const sessionMessagesLoaded = createMemo(() => {
     // end 不关闭规划通道，后续仍可再次触发设计规划
   }
 
-  // ── 设计规划阶段引导(plan entry banner)─────────────────────
-  // agent 输出 [design-plan-intent] sentinel 但用户尚未响应时,
-  // 显示 PlanEntryBanner 让用户决定是否进入规划阶段。
+  // ── 设计规划阶段引导 ─────────────────────────────
+  // 进入设计规划：用户点击 AddonMenu「进入设计规划」→ 弹出确认弹窗 → 确认后创建子 session
+  //（已移除 agent sentinel → PlanEntryBanner 引导流程）
 
-  // 乐观锁:用户点 [进入]/[直接执行] 后立即隐藏 banner,等消息流回灌确认。
+  // 乐观锁:进入规划后立即置位,防止重复创建子 session。
   // 避免 sendMessage 飞行期间用户连点重复发送。
   const [optimisticIntentResolved, setOptimisticIntentResolved] = createSignal(false)
-  // 记录用户已点击"结束"的 session,防止 banner 再次出现
+  // 记录用户已结束该 session 的规划状态,防止下次 AddonMenu 重新进入
   const [planEndedForSession, setPlanEndedForSession] = createSignal<string | null>(null)
+  // 控制确认弹窗是否显示（内联渲染在输入框上方）
+  const [showPlanConfirm, setShowPlanConfirm] = createSignal(false)
   createEffect(on(() => params.id, () => {
     setOptimisticIntentResolved(false)
   }, { defer: true }))
 
-  const planIntentPending = createMemo(() => {
-    const sid = params.id
-    if (!sid) return false
-    // Phase 2 异步检测子 session 期间阻止 banner 闪现
-    if (phase2Pending()) return false
-    // 如果已存在活跃的规划子 session（切回时恢复的），不显示 banner
-    if (activePlanSessionId()) return false
-    // 如果已存在 octo_make_plan 子 session（跨重启恢复），不显示 banner
-    if (hasChildPlanSession()) return false
-    // 如果用户已结束该 session 的设计规划,不显示 banner
-    if (planEndedForSession() === sid) return false
-    // 如果 skip/confirm 已关闭该 session 的规划通道（localStorage 持久化标记），不显示 banner
-    if (localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid)) return false
-    // 如果 localStorage 中有缓存的子 session ID，不显示 banner（跨重启恢复）
-    if (localStorage.getItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + sid)) return false
-    // 如果 session 切换缓存中有该 session 的规划子 session，不显示 banner
-    if (_planChildSessionCache[sid]) return false
-    return !isPlanIntentResolved(sync.data.message?.[sid], sync.data.part)
-  })
-
-  // 当消息流中出现新的 sentinel 时自动复位乐观锁,允许用户再次选择。
-  // 否则同一个 session 内第二次生成的时乐观锁仍是 true,banner 不会显示。
-  createEffect(on(() => planIntentPending(), (pending) => {
-    if (pending) setOptimisticIntentResolved(false)
-  }, { defer: true }))
+  /** AddonMenu「进入设计规划」→ 弹出确认弹窗，用户确认后才真正进入 */
+  function handleOpenPlanConfirm() {
+    if (activePlanSessionId()) return  // 已在规划中，按钮已禁用，双保险
+    setShowPlanConfirm(true)
+  }
 
   /** 用户点 [进入] → 创建子 session (octo_make_plan),启动设计规划流程 */
   async function handleEnterPlan() {
@@ -1742,25 +1724,6 @@ const sessionMessagesLoaded = createMemo(() => {
       console.error("[MakePage] enter plan failed", err)
       setOptimisticIntentResolved(false)
     }
-  }
-
-  /** 用户点 [直接执行] → 发送 [skip-plan],agent 跳过方案直接生成 HTML。跳过将永久关闭该 session 的规划通道 */
-  function handleSkipPlan() {
-    const sid = params.id
-    const modelKey = activeModelKey()
-    if (!sid || !modelKey) return
-    if (optimisticIntentResolved()) return
-    setOptimisticIntentResolved(true)
-    // 持久化"已跳过"标记，后续不再弹出规划 banner
-    if (sid) {
-      localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid, "true")
-    }
-    setPlanEndedForSession(sid)
-    setPlanEnded(true)
-    sendMessage(sid, "[skip-plan]", modelKey).catch((err) => {
-      console.error("[MakePage] skip plan failed", err)
-      setOptimisticIntentResolved(false)
-    })
   }
 
   // 自动滚动：保持对话区随新内容跟随到底部（用户手动上滑则不抢）
@@ -3717,6 +3680,8 @@ if (dsId) {
                           onSelect={handleAddonSelect}
                           onDeselect={handleAddonDeselect}
                           onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
+                          onEnterDesignStrategy={handleOpenPlanConfirm}
+                          planActive={activePlanSessionId() !== null}
                           onOpen={loadSkillConfig}
                           disabled={maxAttachments()}
                         />
@@ -3757,7 +3722,7 @@ if (dsId) {
                </div>
              </Show>
            }>
-              {/* 消息列表 */}
+              {/* 消息列表 —— 已移除 PlanEntryBanner（进入设计策略模式仅保留 AddonMenu 入口） */}
               <div class="relative flex-1 min-h-0">
               <ScrollView
                 class="h-full"
@@ -3875,11 +3840,11 @@ if (dsId) {
               {/* 输入区 */}
               <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
 
-                {/* Plan entry banner - sentinel 阶段:让用户选择是否进入设计规划 */}
-                <Show when={planIntentPending() && !optimisticIntentResolved()}>
+                {/* Plan entry banner - AddonMenu 进入设计策略模式时的确认弹窗 */}
+                <Show when={showPlanConfirm() && !optimisticIntentResolved()}>
                   <PlanEntryBanner
-                    onEnter={handleEnterPlan}
-                    onSkip={handleSkipPlan}
+                    onEnter={() => { setShowPlanConfirm(false); handleEnterPlan() }}
+                    onSkip={() => setShowPlanConfirm(false)}
                   />
                 </Show>
 
@@ -4031,6 +3996,8 @@ if (dsId) {
                         onSelect={handleAddonSelect}
                         onDeselect={handleAddonDeselect}
                         onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
+                        onEnterDesignStrategy={handleOpenPlanConfirm}
+                        planActive={activePlanSessionId() !== null}
                         onOpen={loadSkillConfig}
                         disabled={maxAttachments()}
                       />
