@@ -290,15 +290,16 @@ export const ProseMirrorEditor = (props: Props) => {
           const v = view()
           if (!v || !v.dom?.isConnected) return
           const name = selection.type === "skill" ? selection.name : selection.filename
-          const tr = v.state.tr
+          let lastPos = -1
           v.state.doc.descendants((node, pos) => {
             if (node.type.name === "mention" && node.attrs.name === name) {
-              tr.delete(pos, pos + node.nodeSize)
+              lastPos = pos
             }
           })
-          if (tr.docChanged) {
-            v.dispatch(tr)
-          }
+          if (lastPos === -1) return
+          const size = v.state.doc.nodeAt(lastPos)!.nodeSize
+          const tr = v.state.tr.delete(lastPos, lastPos + size)
+          v.dispatch(tr)
         },
         isAlive: () => {
           const v = view()
@@ -342,6 +343,13 @@ export const ProseMirrorEditor = (props: Props) => {
       if (!target.closest(".mention-popover-container")) {
         console.log("[click-outside] closing popover")
         const v = view()
+        const trigger = triggerState()
+        
+        if (v && trigger) {
+          // Delete @abc search text
+          const tr = v.state.tr.delete(trigger.from, trigger.to)
+          v.dispatch(tr)
+        }
         
         if (v) {
           const tr = v.state.tr.setMeta(mentionTriggerKey, null)
@@ -394,14 +402,21 @@ export const ProseMirrorEditor = (props: Props) => {
       : { id: selection.filename, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
 
     const node = editorSchema.nodes.mention.create(attrs)
-    const pos = trigger.from
-    const tr = v.state.tr.replaceWith(trigger.from, trigger.to, node)
     
-    const newPos = pos + node.nodeSize
-    tr.setSelection(TextSelection.create(tr.doc, newPos))
+    if (selection.type === "file") {
+      // 文件：在 @ 后面插入 chip，光标移到 @ 后面
+      const tr = v.state.tr.insert(trigger.to, node)
+      tr.setSelection(TextSelection.create(tr.doc, trigger.from + 1))
+      v.dispatch(tr)
+    } else {
+      // 技能：替换 @abc 为 chip，关闭面板
+      const tr = v.state.tr.replaceWith(trigger.from, trigger.to, node)
+      const newPos = trigger.from + node.nodeSize
+      tr.setSelection(TextSelection.create(tr.doc, newPos))
+      v.dispatch(tr)
+      setTriggerState(null)
+    }
     
-    v.dispatch(tr)
-    setTriggerState(null)
     v.focus()
   }
 
@@ -411,31 +426,22 @@ export const ProseMirrorEditor = (props: Props) => {
 
     const name = selection.type === "skill" ? selection.name : selection.filename
     
-    // First, delete existing MentionNode
-    const tr1 = v.state.tr
+    // Delete the last matching MentionNode
+    let lastPos = -1
+    let lastSize = 0
     v.state.doc.descendants((node, pos) => {
       if (node.type.name === "mention" && node.attrs.name === name) {
-        tr1.delete(pos, pos + node.nodeSize)
+        lastPos = pos
+        lastSize = node.nodeSize
       }
     })
     
-    if (tr1.docChanged) {
-      v.dispatch(tr1)
+    if (lastPos >= 0) {
+      const tr = v.state.tr.delete(lastPos, lastPos + lastSize)
+      v.dispatch(tr)
     }
     
-    // Then, delete @ text at current cursor position (after MentionNode is removed)
-    const state2 = v.state
-    const { from } = state2.selection
-    const textBefore = state2.doc.textBetween(Math.max(0, from - 50), from)
-    const match = textBefore.match(/@([^\s@]*)$/)
-    
-    if (match) {
-      const start = from - match[0].length
-      const tr2 = state2.tr.delete(start, from)
-      v.dispatch(tr2)
-    }
-    
-    setTriggerState(null)
+    // Don't close panel for file deselect
   }
 
   const getText = () => {
@@ -493,7 +499,15 @@ export const ProseMirrorEditor = (props: Props) => {
             <MentionPopover
               query={triggerState()!.query}
               sessionId={props.sessionId}
-              onClose={() => setTriggerState(null)}
+              onClose={() => {
+                const v = view()
+                const trigger = triggerState()
+                if (v && trigger) {
+                  const tr = v.state.tr.delete(trigger.from, trigger.to)
+                  v.dispatch(tr)
+                }
+                setTriggerState(null)
+              }}
               onSelect={handleMentionSelect}
               onDeselect={handleMentionDeselect}
               selections={props.mentionSelections}

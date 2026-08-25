@@ -26,6 +26,7 @@ interface AddonMenuProps {
   onSelect: (selection: MentionSelection) => void
   onDeselect: (selection: MentionSelection) => void
   onAddAttachment: () => void
+  onAddAttachmentFromUrl?: (url: string, onProgress: (pct: number) => void) => Promise<void>
   onOpen?: () => void
   disabled: boolean
 }
@@ -36,6 +37,10 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   const [skillsCategory, setSkillsCategory] = createSignal<'platform' | 'custom'>('platform')
   const [urlDialogOpen, setUrlDialogOpen] = createSignal(false)
   const [urlValue, setUrlValue] = createSignal("")
+  const [urlDialogBOpen, setUrlDialogBOpen] = createSignal(false)
+  const [urlProgress, setUrlProgress] = createSignal(0)
+  const [urlStepText, setUrlStepText] = createSignal("Step 1 - 接收数据")
+  const [urlError, setUrlError] = createSignal<string | null>(null)
   const [menuPosition, setMenuPosition] = createSignal<{ left: number; bottom: number } | null>(null)
   const [localFileSelections, setLocalFileSelections] = createSignal<MentionSelection[]>([])
 
@@ -194,6 +199,49 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   const closeUrlDialog = () => {
     setUrlDialogOpen(false)
     setUrlValue("")
+  }
+
+  const isValidHref = (value: string): boolean => {
+    try {
+      const u = new URL(value)
+      return u.protocol === "http:" || u.protocol === "https:"
+    } catch {
+      return false
+    }
+  }
+
+  const handleUrlConfirm = async () => {
+    const value = urlValue().trim()
+    if (!isValidHref(value)) {
+      setUrlError("请输入有效的 URL")
+      return
+    }
+    setUrlError(null)
+    setUrlDialogOpen(false)
+    setUrlValue("")
+    setUrlProgress(0)
+    setUrlStepText("Step 1 - 接收数据")
+    setUrlDialogBOpen(true)
+
+    try {
+      await props.onAddAttachmentFromUrl?.(value, (pct) => {
+        setUrlProgress(pct)
+        if (pct >= 60) {
+          setUrlStepText("Step 3 - 文件置入到对话框内")
+        }
+      })
+      setUrlDialogBOpen(false)
+    } catch (err) {
+      setUrlError(err instanceof Error ? err.message : "下载失败")
+      setUrlDialogBOpen(false)
+      // Reopen dialog A so the user can see the error and retry
+      setUrlDialogOpen(true)
+      setUrlValue(value)
+    }
+  }
+
+  const closeUrlDialogB = () => {
+    setUrlDialogBOpen(false)
   }
 
   return (
@@ -471,11 +519,47 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                 onInput={(e) => setUrlValue(e.currentTarget.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Escape") closeUrlDialog()
+                  if (e.key === "Enter") void handleUrlConfirm()
                 }}
               />
+              <Show when={urlError()}>
+                <div class="addon-menu-url-error">{urlError()}</div>
+              </Show>
               <div class="addon-menu-url-footer">
                 <button type="button" class="addon-menu-url-cancel" onClick={closeUrlDialog}>取消</button>
-                <button type="button" class="addon-menu-url-confirm" onClick={closeUrlDialog}>确认</button>
+                <button type="button" class="addon-menu-url-confirm" onClick={() => void handleUrlConfirm()}>确认</button>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      </Show>
+
+      {/* URL Dialog B — loading + progress + step text */}
+      <Show when={urlDialogBOpen()}>
+        <Portal>
+          <div class="addon-menu-url-overlay">
+            <div class="addon-menu-url-dialog" onClick={(e) => e.stopPropagation()}>
+              <div class="addon-menu-url-header">
+                <h3 class="addon-menu-url-title">接收设计资产链接URL</h3>
+              </div>
+              <div class="addon-menu-url-loading">
+                <div class="addon-menu-spinner">
+                  <For each={Array.from({ length: 8 }, (_, i) => i)}>
+                    {(i) => (
+                      <span
+                        class="addon-menu-spinner-dot"
+                        style={{
+                          transform: `rotate(${i * 45}deg)`,
+                        }}
+                      />
+                    )}
+                  </For>
+                  <span class="addon-menu-spinner-arc" />
+                </div>
+                <div class="addon-menu-progress-bar">
+                  <div class="addon-menu-progress-fill" style={{ width: `${urlProgress()}%` }} />
+                </div>
+                <div class="addon-menu-step-text">{urlStepText()}</div>
               </div>
             </div>
           </div>
