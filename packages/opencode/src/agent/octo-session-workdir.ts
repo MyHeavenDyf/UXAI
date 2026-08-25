@@ -56,6 +56,12 @@ type SessionMeta = { isInsight: boolean; directory?: string; rootSessionID: stri
 // agent/directory/父子关系对一个会话不变 —— 按 sessionID 缓存,避免每次调用都拉 session.get。
 const cache = new Map<string, SessionMeta>()
 
+// 声明层预建产物目录的去重记忆:system.transform 每次 LLM 请求都触发(session/llm.ts:117
+// 在请求路径上),一个 N 步工具循环 = N 次 mkdir。按 outputs 路径去重,每会话只建一次。
+// 失败也进 Set:多为 ENOTDIR 这类硬错,重试无意义,write 的 writeWithDirs 会兜底报真实错误。
+// 权衡:目录被中途手工删掉时记忆化不重建 —— 但执行层每次工具调用仍会 ensureDir(见 :243),兜底没丢。
+const ensuredOutputs = new Set<string>()
+
 // 上溯深度上限:正常只有 1 层(父 → 子),留足余量。超过即认定数据异常(成环/脏数据),
 // 响亮失败而不是无限爬。
 const MAX_PARENT_DEPTH = 8
@@ -179,6 +185,19 @@ export const OctoSessionWorkdirPlugin: Plugin = async ({ client }) => {
       }
 
       const outputs = outputsDir(meta.directory, meta.rootSessionID)
+      // 声明即兑现:在把 outputs 写进系统提示的同一刻把它建出来。否则模型拿到这行声明后,
+      // 会先用 bash / read / glob 探测「工作目录是否存在」—— 而执行层对**显式 workdir** 和
+      // **绝对 filePath** 都早返回、不走 ensureDir(见下方执行层 isPathArg 与 else 分支,:226/:229),
+      // 探测扑空:bash spawn ENOENT、read 抛 File not found、glob 返回空。模型据此判定目录不可访问,
+      // 转而把产物写到 /tmp 这类绝对临时路径 —— 绝对路径再次早返回,文件落盘到 outputs 之外,
+      // 文件管理面板(只读 outputs/)看不到。预建消除这条「探测扑空」的确定性成因;模型出于别的
+      // 原因(skill 脚本硬编码 /tmp、显式给绝对路径)仍会散落 —— 那是执行层对绝对路径刻意早返回
+      // (:226),不在本 PR 范围。mkdir -p 幂等 + 记忆化(每会话只建一次,见 ensuredOutputs);
+      // 建失败仍照常改写(write 的 writeWithDirs 会兜底)。
+      if (!ensuredOutputs.has(outputs)) {
+        await ensureDir(outputs, { tool: "system.transform", sessionID })
+        ensuredOutputs.add(outputs)
+      }
       // 只改 Working directory 这一行。
       // `Workspace root folder` 在非 git 目录下被上游置为 "/"(project/project.ts),模型会看到
       // 「工作区根 = 整个磁盘根」这种噪音 —— 但那是**全局**问题(所有 agent 都受影响),留给独立 PR

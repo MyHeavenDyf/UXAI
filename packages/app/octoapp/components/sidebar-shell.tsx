@@ -29,7 +29,7 @@ function ChevronRightIcon(props: { collapsed: boolean }): JSX.Element {
 // ── NAV_ITEMS config ──
 const DEFAULT_NAV_ITEMS = [
   { key: "skill_market", label: "技能库", Icon: IconSkill, IconActive: IconSkill1 },
-  { key: "knowledge_base", label: "资产库", Icon: IconAsset, IconActive: IconAsset1, hidden: true },
+  { key: "knowledge_base", label: "资产库", Icon: IconAsset, IconActive: IconAsset1 },
 ] as const
 
 export type SidebarShellProps = ParentProps & {

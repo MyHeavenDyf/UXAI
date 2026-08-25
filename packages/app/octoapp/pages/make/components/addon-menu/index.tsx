@@ -27,6 +27,8 @@ interface AddonMenuProps {
   onDeselect: (selection: MentionSelection) => void
   onAddAttachment: () => void
   onAddAttachmentFromUrl?: (url: string, onProgress: (pct: number) => void) => Promise<void>
+  onEnterDesignStrategy?: () => void
+  planActive?: boolean
   onOpen?: () => void
   disabled: boolean
 }
@@ -300,7 +302,11 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
             <button
               type="button"
               class="addon-menu-item"
-              onClick={closeMenu}
+              disabled={props.planActive}
+              onClick={() => {
+                closeMenu()
+                props.onEnterDesignStrategy?.()
+              }}
             >
               <span class="addon-menu-item-icon"><DesignStrategyIcon /></span>
               <span class="addon-menu-item-text">进入设计策略模式</span>

@@ -264,6 +264,38 @@ export function formatUploadsForPrompt(files: Array<{ filename: string; path: st
   return `[附件]\n${lines.join("\n")}`
 }
 
+// SPEC-INS-032 §2.3.2 / §2.4:超内联预算时的体量说明,作为**独立 synthetic 块**发送。
+//
+// 为什么不附在 `[附件]` 块尾:内联判定覆盖 `[附件]` 与 `[引用文件]` **两条**来源(SPEC-INS-023 §7.2
+// 起两者一致),而 formatUploadsForPrompt 在无附件时返回空串——只 `@` 引用大文件的那轮说明就丢了。
+// 独立块两条来源都覆盖,也不必动 `[附件]` 的行格式契约(它有三个消费方)。
+//
+// 文案面向**模型**,只陈述事实 + 给出该做什么,不写 UI 概念;两句话都必须在,缺一句弱模型就会走偏:
+// 少了「正文未进上下文」它会直接凭文件名编;少了「逐份派」它会试图一次读完。
+export const DISPATCH_NOTE_HEADER = "[材料体量]"
+
+export function formatDispatchNote(input: {
+  count: number
+  totalBytes: number
+  oversized: Array<{ filename: string; bytes: number }>
+}): string {
+  const kb = (b: number) => `${Math.round(b / 1024)} KB`
+  const paragraphs = [
+    `${DISPATCH_NOTE_HEADER} 本轮共 ${input.count} 份文本材料(含 [附件] 与 [引用文件]),合计约 ${kb(input.totalBytes)},` +
+      `超出单轮内联上限,正文**未**随本条消息进入你的上下文——你现在只有文件名和路径,材料内容一个字都没有。`,
+    `请**逐份**派 insight_reader 子代理通读:每份材料单独发一个 task,把该文件的绝对路径和这次要提炼什么写进去,` +
+      `收齐所有结论后再写报告。不要试图自己一次性读完这些材料——那正是会撞上下文上限的做法。`,
+  ]
+  if (input.oversized.length > 0) {
+    const names = input.oversized.map((f) => `「${f.filename}」(${kb(f.bytes)})`).join("、")
+    paragraphs.push(
+      `例外:${names} 单份就超出了子代理的通读容量,派子代理也读不完。` +
+        `**不要为它派通读任务**,请在回复里告诉用户这份材料需要拆分后重新上传。`,
+    )
+  }
+  return paragraphs.join("\n")
+}
+
 // SPEC-INS-023 @ 引用清单(`@文件` 引用已存在的会话文件:outputs 产物 + uploads 上传)。
 //
 // 与 `[附件]` **行格式完全一致**(`- <文件名>: <本地绝对路径>`)、同为 synthetic,两点区别:
