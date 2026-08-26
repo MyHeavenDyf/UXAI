@@ -58,6 +58,7 @@ import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
+import { useProjectSelection } from "@/hooks/use-project-selection"
 import { sessionTitle } from "@/utils/session-title"
 import { pickNextSession, sortedActiveSessions } from "@/utils/session-delete"
 import { useSessionDelete } from "@/hooks/use-session-delete"
@@ -172,6 +173,7 @@ function MakeContent() {
   onMount(() => { tracker.page({ module: "design", name: "design-page" }) })
 
   const projectDir = useProjectDir()
+  const projectSelection = useProjectSelection()
 
   const local = useLocal()
   useTabModel("make")
@@ -1084,8 +1086,8 @@ const sessionMessagesLoaded = createMemo(() => {
   const [slashState, setSlashState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [slashIndex, setSlashIndex] = createSignal(0)
   let textareaRef!: HTMLTextAreaElement
-  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; isAlive: () => boolean } | undefined
-  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; isAlive: () => boolean } | undefined
+  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (filename: string, path: string) => void; isAlive: () => boolean } | undefined
+  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (filename: string, path: string) => void; isAlive: () => boolean } | undefined
 
   // ── Mention (@) Popover State ──
   const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
@@ -2734,6 +2736,10 @@ if (dsId) {
     getAliveEditor()?.removeMention(selection)
   }
 
+  function handleAddonUpdateMentionPath(filename: string, path: string) {
+    getAliveEditor()?.updateMentionPath(filename, path)
+  }
+
   /** Pick a Design Files file and add as attachment */
   async function pickMention(file: ArtifactFile) {
     const state = mentionState()
@@ -3020,6 +3026,78 @@ if (dsId) {
 
     onProgress(100)
     showOctoToast({ title: "已添加附件", description: filename })
+  }
+
+  /**
+   * Download a product-asset-library file (s3BaseUrl + convertHtmlUrl) into the
+   * current session's uploads directory (or tmps if no session yet), with simple
+   * numeric suffix for rename collisions. Returns the local destination path.
+   * Does NOT add as attachment — only downloads. The chip insertion is handled
+   * separately by AddonMenu via insertMention.
+   */
+  async function downloadProductAsset(
+    file: { fileName: string; snapshot: string; s3BaseUrl: string; convertHtmlUrl: string },
+    onProgress: (pct: number) => void,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    const sid = params.id
+    const projectDirValue = projectDir()
+    if (!projectDirValue) throw new Error("未选择项目目录")
+    const api = getDesktopApi()
+    if (!api?.writeFileBuffer) throw new Error("不支持文件操作")
+
+    // Build full URL + local filename
+    const fileUrl = file.s3BaseUrl + file.convertHtmlUrl
+    const ext = extractExtension(file.convertHtmlUrl)
+    const baseName = file.fileName
+    const filename = ext ? `${baseName}.${ext}` : baseName
+
+    onProgress(0)
+    const response = await fetch(fileUrl, { signal })
+    if (!response.ok) throw new Error(`下载失败: ${response.status}`)
+    const blob = await response.blob()
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+    const buffer = await blob.arrayBuffer()
+
+    // Resolve unique path (simple suffix on collision)
+    const sep = projectDirValue.includes("\\") ? "\\" : "/"
+    const dir = sid
+      ? [projectDirValue, ".octo", sid, "uploads"].join(sep)
+      : [projectDirValue, ".octo", "tmps", "make", "uploads"].join(sep)
+    const finalName = await resolveUniqueFilename(dir, filename)
+    const destPath = [dir, finalName].join(sep)
+
+    await api.writeFileBuffer(destPath, buffer)
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+    onProgress(100)
+    // Refresh file management panel so the downloaded file appears in the uploaded list
+    setFilesRefreshKey(k => k + 1)
+    return destPath
+  }
+
+  function extractExtension(urlPath: string): string {
+    const clean = urlPath.split("?")[0].split("#")[0]
+    const basename = clean.split("/").pop() || ""
+    const dot = basename.lastIndexOf(".")
+    if (dot <= 0 || dot === basename.length - 1) return ""
+    return basename.slice(dot + 1)
+  }
+
+  async function resolveUniqueFilename(dir: string, filename: string): Promise<string> {
+    const api = getDesktopApi()
+    if (!api?.fileExists) return filename
+    const dot = filename.lastIndexOf(".")
+    const base = dot > 0 ? filename.slice(0, dot) : filename
+    const ext = dot > 0 ? filename.slice(dot) : ""
+    const sep = dir.includes("\\") ? "\\" : "/"
+    let candidate = filename
+    let i = 1
+    while (await api.fileExists([dir, candidate].join(sep))) {
+      candidate = `${base} (${i})${ext}`
+      i++
+    }
+    return candidate
   }
 
   function handlePaste(e: ClipboardEvent) {
@@ -3754,6 +3832,9 @@ if (dsId) {
                           onDeselect={handleAddonDeselect}
                           onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
                           onAddAttachmentFromUrl={downloadUrlToSession}
+                          onDownloadProductAsset={downloadProductAsset}
+                          onUpdateMentionPath={handleAddonUpdateMentionPath}
+                          productId={projectSelection()?.product?.id}
                           onEnterDesignStrategy={handleOpenPlanConfirm}
                           planActive={activePlanSessionId() !== null}
                           onOpen={loadSkillConfig}
@@ -4071,6 +4152,9 @@ if (dsId) {
                         onDeselect={handleAddonDeselect}
                         onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
                         onAddAttachmentFromUrl={downloadUrlToSession}
+                        onDownloadProductAsset={downloadProductAsset}
+                        onUpdateMentionPath={handleAddonUpdateMentionPath}
+                        productId={projectSelection()?.product?.id}
                         onEnterDesignStrategy={handleOpenPlanConfirm}
                         planActive={activePlanSessionId() !== null}
                         onOpen={loadSkillConfig}
