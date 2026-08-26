@@ -81,6 +81,22 @@ export function encodeAssetUrl(url: string): string {
   }
 }
 
+/**
+ * Join a base URL and a path segment, ensuring exactly one "/" between them.
+ * Handles cases where base has trailing "/" or path has leading "/".
+ */
+export function joinUrl(base: string, path: string): string {
+  if (!base) return path
+  if (!path) return base
+  if (base.endsWith("/")) {
+    return base + path.replace(/^\/+/, "")
+  }
+  if (path.startsWith("/")) {
+    return base + path
+  }
+  return base + "/" + path
+}
+
 async function getJson(url: string): Promise<any> {
   const resp = await fetch(url)
   if (!resp.ok) throw new Error(`请求失败: ${resp.status}`)
@@ -100,7 +116,7 @@ export async function fetchTeamTree(productId?: number): Promise<AssetFolder[]> 
     `${base}/pipeline/rest.root/assetManagement/assetTeam/getBaseTeam?productId=${productId ?? ""}`,
   )
   const rootTeamId = teamResp?.content
-  if (!rootTeamId) throw new Error("获取根 team 失败")
+  if (!rootTeamId) throw new Error("无产品权限")
   const listResp = await getJson(
     `${base}/pipeline/rest.root/assetManagement/assetTeam/getList?teamId=${rootTeamId}`,
   )

@@ -3,7 +3,7 @@ import "./components/slash-popover.css"
 import { type MentionSelection } from "./components/mention-popover"
 import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
-import { encodeAssetUrl } from "./components/addon-menu/asset-library"
+import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
 import { OctoToast, showOctoToast } from "./components/octo-toast"
 import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
@@ -3064,7 +3064,7 @@ if (dsId) {
     if (!api?.writeFileBuffer) throw new Error("不支持文件操作")
 
     // Build full URL + local filename (encode non-ASCII path segments for fetch)
-    const fileUrl = encodeAssetUrl(file.s3BaseUrl + file.convertHtmlUrl)
+    const fileUrl = encodeAssetUrl(joinUrl(file.s3BaseUrl, file.convertHtmlUrl))
     const ext = extractExtension(file.convertHtmlUrl)
     const baseName = file.fileName
     const filename = ext ? `${baseName}.${ext}` : baseName

@@ -10,7 +10,7 @@ import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "../mention-
 import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
 import { DesignStrategyIcon, LinkUrlIcon, AttachmentIcon, ProductAssetIcon } from "./icons"
-import { fetchTeamTree, fetchAssetFiles, encodeAssetUrl, type AssetFolder, type AssetFile, type AssetNode } from "./asset-library"
+import { fetchTeamTree, fetchAssetFiles, encodeAssetUrl, joinUrl, type AssetFolder, type AssetFile, type AssetNode } from "./asset-library"
 import type { MentionSelection } from "../mention-popover"
 import "./styles.css"
 
@@ -631,7 +631,9 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                       style={{
                         width: index() === 0 ? '100%' : '200px',
                         'max-width': '200px',
-                        overflow: 'hidden',
+                        'max-height': '420px',
+                        'overflow-x': 'hidden',
+                        'overflow-y': 'auto',
                         position: index() === 0 ? 'static' : 'absolute',
                         // top/bottom set by positioning effect (bottom-aligned to selected folder item in prev level)
                         left: index() === 0 ? undefined : `${index() * 204}px`,
@@ -751,7 +753,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                         fallback={<span class="addon-menu-empty-state-text">无预览</span>}
                       >
                         <img
-                          src={encodeAssetUrl(assetPreview()!.s3BaseUrl + assetPreview()!.snapshot)}
+                          src={encodeAssetUrl(joinUrl(assetPreview()!.s3BaseUrl, assetPreview()!.snapshot))}
                           alt=""
                           class="addon-menu-asset-preview-img"
                           draggable={false}
