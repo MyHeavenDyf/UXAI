@@ -2,7 +2,7 @@ import { createSignal, createEffect, Show, onMount, onCleanup, type JSX } from "
 import { getDesktopApi } from "../../lib/electron-api"
 import { tracker } from "@/utils/tracker"
 import { useLocal } from "@/context/local"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showOctoToast } from "../octo-toast"
 
 interface Point { x: number; y: number }
 interface Stroke { points: Point[] }
@@ -555,7 +555,7 @@ export function DrawOverlay(props: Props): JSX.Element {
     if (action === 'send' && props.sendDisabled) return
 
     if (shouldCapture && !currentModel()?.capabilities?.input?.image) {
-      showToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型", variant: "error" })
+      showOctoToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型", variant: "error" })
       return
     }
 
