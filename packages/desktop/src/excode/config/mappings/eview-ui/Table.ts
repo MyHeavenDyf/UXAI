@@ -17,13 +17,14 @@
  * | columns（字面量数组） | columns | 每列从 cells 生成 `render` fn + A2UI 列定义（title/width/align/sort...）→ 字面量数组，propRoute module-top |
  * | columns（DataBinding） | columns | **ComputedValue**（containsJSX:true）逐项 zip：state 列元数据 + 编译期 render fn，产物形态同字面量 |
  * | colDef.sort | col.allowSort | sort===true→true；否则显性 false（避免默认开排序） |
+ * | colDef.filters | col.filter.component | `filter:{ component: <TableFilter data={filters} onFilter={(value)=>{}}/> }`（`@/shared` 共享组件，data 透传、onFilter 占位空函数，见 AGENTS §6.11） |
  * | rowKey | rowKey | 透传 |
  * | pagination: true/false | enablePagination + recordCount | false→enablePagination:false；其他（含缺省）→true + recordCount=dataset.length |
  * | rowSelection.type: checkbox | checkType: multi + enableCheckBox: true | 值映射 |
  * | rowSelection.type: radio | checkType: single + enableCheckBox: true | 值映射 |
  * | rowSelection.selectedRowKeys（字面量数组） | checkedRows | **LiteralValue.useState** + onRowCheck |
  * | rowSelection.selectedRowKeys（DataBinding） | checkedRows | **ComputedValue.useState** + onRowCheck（值进 state.js，useState 引用 initialState） |
- * | expandable.expandedRowKeys | expandedRowKeys | 双形态 useState（同 selectedRowKeys → checkedRows 结构）；onRowExpendClick 签名 (row) 无新值，extractor 占位 (row) => {} 暂不调 setter |
+ * | expandable.expandedRowKeys | expandedRow | 双形态 useState（同 selectedRowKeys → checkedRows 结构）；onRowExpendClick 签名 (row) 无新值，extractor 占位 (row) => {} 暂不调 setter |
 | expandable（存在） | enableRowExpand: true + enableMulitiExpand: true | 存在即启用行展开 + 多行展开 |
 | TableRow.expandedRowRender（slot） | onRowExpend | buildRenderFn（与 column render 同构，row._org 上下文），propRoute 提升 module-top |
  * | className | className | 透传 |
@@ -261,20 +262,22 @@ export function createTableMapping(pkg: string): MappingDef {
         }
       }
 
-      // expandable → 行展开（enableRowExpand + enableMulitiExpand + expandedRowKeys useState）
+      // expandable → 行展开（enableRowExpand + enableMulitiExpand + expandedRow useState）
       if (node.props.expandable) {
         // 启用行展开 + 允许多行展开
         outputProps.enableRowExpand = true
         outputProps.enableMulitiExpand = true
-        // expandedRowKeys → expandedRowKeys（双形态：字面量 / DataBinding，均触发 useState）
-        // 逻辑同 selectedRowKeys → checkedRows（双形态 useState 结构）
+        // expandedRowKeys → expandedRow（双形态：字面量 / DataBinding，均触发 useState）
+        // 逻辑同 selectedRowKeys → checkedRows（双形态 useState 结构）。
+        // ⚠️ eview-ui 的展开行 keys prop 名为 `expandedRow`（eview-react 为 `expandedRowKeys`），
+        //   此为本副本与 eview-react 的又一差异（除 row._org 行数据字段名外）。
         // 但 onRowExpendClick 签名 (row) 只一参、无新值可取，extractor 暂占位 (row) => {}（不调 setter）
         // expandedRowKeys 接受行索引数组
         const ek = (node.props.expandable as any).expandedRowKeys
         if (ek !== undefined) {
           if (ek && typeof ek === 'object' && (ek as any).type === 'binding') {
             // DataBinding → ComputedValue + useState（值进 state.js）
-            outputProps.expandedRowKeys = Value.computed({
+            outputProps.expandedRow = Value.computed({
               path: (ek as any).path,
               pathType: (ek as any).pathType ?? 'absolute',
               accessPath: (ek as any).accessPath ?? 'expandedRowKeys',
@@ -287,7 +290,7 @@ export function createTableMapping(pkg: string): MappingDef {
             })
           } else if (Array.isArray(ek)) {
             // 字面量 → LiteralValue + useState（初始值硬编码）
-            outputProps.expandedRowKeys = Value.literal({
+            outputProps.expandedRow = Value.literal({
               value: ek,
               useState: {
                 event: 'onRowExpendClick',
@@ -315,6 +318,7 @@ export function createTableMapping(pkg: string): MappingDef {
       // ─── propRoute ───
       // columns：字面量数组 → module-top 提升；DataBinding → ComputedValue（inline stateRef，不走 propRoute）
       // checkedRows：受控 useState → component-internal
+      // expandedRow：受控 useState → component-internal（eview-ui prop 名，对应 A2UI expandedRowKeys）
       const propRoute: Record<string, any> = {}
       if (columnsIsLiteral) propRoute.columns = 'module-top'
       // dataset：ComputedValue（enrichScopedData，path 绑定）→ 不走 propRoute（inline stateRef）
@@ -324,7 +328,7 @@ export function createTableMapping(pkg: string): MappingDef {
         propRoute.checkedRows = 'component-internal'
       }
       if ((node.props.expandable as any)?.expandedRowKeys !== undefined) {
-        propRoute.expandedRowKeys = 'component-internal'
+        propRoute.expandedRow = 'component-internal'
       }
 
       return {

@@ -5,7 +5,6 @@
  * 调用方式与原有 api/index.ts 一致。
  */
 
-
 import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
@@ -22,6 +21,7 @@ import { FileGenerator } from './src/steps/file-generator'
 import { GenerateRoutes } from './src/steps/generate-routes'
 import { WriteOutput } from './src/steps/write-output'
 import { GenerateReport } from './src/steps/generate-report'
+import { GenerateThemeConfig } from './src/steps/generate-theme-config'
 
 const __excodeDir = path.dirname(fileURLToPath(import.meta.url))
 
@@ -46,6 +46,8 @@ export interface HuiCodeOptions {
   /** 模板目录（绝对路径直接用，相对路径相对 api/ 解析）；默认 ./templates。
    *  Electron 打包时传 process.resourcesPath/hui-templates（绝对）。 */
   templateDir?: string
+  /** 主题，取值 'light' | 'dark'，默认 'light'；写入生成的 src/theme/config.ts */
+  theme?: 'light' | 'dark'
 }
 
 export interface OutputFile {
@@ -68,11 +70,14 @@ const config: {
   css: boolean
   /** 是否在产物 JSX 标签上输出 id 属性 */
   id: boolean
+  /** 主题（light/dark），默认 light；来自 options.theme，写入生成的 src/theme/config.ts */
+  theme: string
 } = {
   templateDir: './templates',
   targetLib: 'eview-react',
   css: true,
   id: false,
+  theme: 'light',
 }
 
 /**
@@ -109,6 +114,7 @@ const DEFAULT_STEPS = [
   'FileGenerator',
   'GenerateRoutes',
   'GenerateReport',
+  'GenerateThemeConfig',
   'WriteOutput',
 ]
 
@@ -119,6 +125,7 @@ const STEP_MAP: Record<string, any> = {
   FileGenerator,
   GenerateRoutes,
   GenerateReport,
+  GenerateThemeConfig,
   WriteOutput,
 }
 

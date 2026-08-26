@@ -7,8 +7,11 @@
  * Menu.Item 支持 `icon`（resolved BuildNode）+ `key`，label 作 children。
  *
  * - 字面量 menu → 静态构造 Menu + N 个 Menu.Item（label TextNode、icon 占位 URL、key 透传）
- * - DataBinding menu → overlay 的 Menu children 用 LoopNode（数据源 = menu binding），
- *   template body 为一个 Menu.Item（label/key 走相对绑定；icon 写死占位 URL）
+ * - DataBinding menu → overlay 的 Menu children 用 inline LoopNode（数据源 = menu binding），
+ *   template body 为一个 Menu.Item（label/key 走相对绑定；icon 写死占位 URL）。inline 而非
+ *   抽离模板：Menu.Item 是 Menu 的子组件（dotted access），必须留在父 Menu 作用域内复用
+ *   其 default import，抽离成独立文件会脱离作用域。template 的 Menu.Item 自带 key={key}
+ *   （相对绑定），emitLoop 检测到首元素已有 key prop 时跳过 key={idx} 注入避免冲突。
  *
  * ⚠️ icon 差异：eview-ui 的 icon 相关属性只接 URL、不接 React DOM，故 Menu.Item 的 icon
  * 一律用统一占位 URL（写死），不调 resolveIcon。字面量与 LoopNode 模板两分支皆是。
@@ -16,13 +19,13 @@
  * overlay 构造成 Menu 节点后包成 SlotNode（Value.slotNode({node})）放入 prop：SlotNode 是 pipeline
  * 既定的"子树作 prop 值"机制，emitValue 对 slotNode 走 emitNode（完整 emit 含 children），
  * stateBuilder 的 consumeValue 也 walk(slotNode.node) 收集子树 binding/icon。
- * placement→position+popupDirection、trigger→trigger(首项)、children 透传、className 透传同 eview-react。
+ * placement 直接透传、trigger→trigger(首项)、children 透传、className 透传同 eview-react。
  *
  * Menu / Menu.Item 均 default import 自 @cloudsop/eview-ui/Menu，emit `<Menu>` / `<Menu.Item>`（dotted）。
  * 节点 _resolved:true 保留此处设定的 import（否则 registry 兜底会覆盖成 @/components/...）。
  *
- * ⚠️ DataBinding（LoopNode）分支机制较重（ExtractNode 抽取 + 相对绑定 + 循环内 icon），暂无 Dropdown
- * 测试页，需后续用测试页验证。字面量分支已确定。
+ * ⚠️ DataBinding（inline LoopNode）分支：相对绑定 key/label + 循环内 icon 占位 URL，由
+ * dropdownTest 测试页（bindingDropdown）覆盖。字面量分支由同页 literalDropdown 覆盖。
  */
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
@@ -31,16 +34,6 @@ import type { ComponentNode, LoopNode } from '../../../src/core/node-types'
 import { Value } from '../../../src/core/value-factory'
 import { Node } from '../../../src/core/node-factory'
 import { PLACEHOLDER_ICON_URL } from './icon-placeholder'
-
-// ─── placement 映射表（与 eview-react Dropdown 一致） ───
-const PLACEMENT_MAP: Record<string, { position: string; popupDirection: string }> = {
-  bottom:      { position: 'auto', popupDirection: 'bottom' },
-  bottomLeft:  { position: 'left', popupDirection: 'bottom' },
-  bottomRight: { position: 'right', popupDirection: 'bottom' },
-  top:         { position: 'auto', popupDirection: 'top' },
-  topLeft:     { position: 'left', popupDirection: 'top' },
-  topRight:    { position: 'right', popupDirection: 'top' },
-}
 
 const MENU_IMPORT = '@cloudsop/eview-ui/Menu'   // default import，Menu 与 Menu.Item 共用
 
@@ -71,8 +64,9 @@ function buildMenuItem(item: any): ComponentNode {
     kind: 'component',
     component: 'Menu.Item',
     tag: 'Menu.Item',
-    // 不声明 import：Menu.Item 通过 dotted access 复用父 Menu 的 default import
-    // （import Menu from @cloudsop/eview-ui/Menu），避免重复 default 与遍历顺序依赖
+    // 不声明 import：Menu.Item 内联在父 Menu 内（overlay=<Menu>...</Menu>），通过 dotted access
+    // 复用父 Menu 的 default import（import Menu from @cloudsop/eview-ui/Menu）。inline 循环不抽离
+    // 模板文件，Menu.Item 始终在 Menu 作用域内，无需自身 import。
     props,
     children,
     selfClosing: !children,
@@ -101,7 +95,9 @@ function buildMenuItemTemplate(): ComponentNode {
     kind: 'component',
     component: 'Menu.Item',
     tag: 'Menu.Item',
-    // 不声明 import：复用父 Menu 的 default import（dotted access Menu.Item）
+    // 不声明 import：template 内联在父 Menu 循环内（inline:true LoopNode），Menu.Item 始终在
+    // 父 Menu 作用域内，通过 dotted access 复用父 Menu 的 default import。inline 不抽离模板
+    // 文件，无需自身 import。
     props,
     children,
     _resolved: true,
@@ -125,8 +121,15 @@ function buildMenuOverlayFromLiteral(items: any[]): ComponentNode {
 }
 
 /**
- * DataBinding menu → Menu overlay 节点，children 为 LoopNode（template = Menu.Item 模板）。
- * 镜像 buildTrees #buildLoopTemplate 的结构。
+ * DataBinding menu → Menu overlay 节点，children 为 inline LoopNode（template = Menu.Item 模板）。
+ *
+ * 用 inline 循环而非抽离模板：Menu.Item 是 Menu 的子组件（dotted access `<Menu.Item>`），
+ * 依赖父 Menu 的 default import 在同一文件作用域内。抽离成独立模板文件会脱离父 Menu 作用域，
+ * Menu.Item 无法解析。inline 模式下 Menu.Item 始终内联在 overlay=<Menu>...</Menu> 内，
+ * 复用父 Menu 的 import。template body 的 Menu.Item 自身不声明 import（见 buildMenuItemTemplate）。
+ *
+ * template body 的 Menu.Item 自带 key={key}（相对绑定），emitLoop 检测到首元素已有 key prop
+ * 时跳过 key={idx} 注入、map 回调用 (item) 签名（无 idx），避免 key 冲突。
  */
 function buildMenuOverlayFromBinding(
   menuBinding: BindingValue,
@@ -149,10 +152,11 @@ function buildMenuOverlayFromBinding(
     _resolved: false,
   })
 
-  const loopNode: LoopNode = Node.loop({ data: dataBinding, template: extract })
+  // inline:true → 模板不抽离，body 内联在 overlay 的 <Menu>...</Menu> 内渲染
+  const loopNode: LoopNode = Node.loop({ data: dataBinding, template: extract, inline: true })
   // 注：不手动挂 loopScope —— 会形成 loopNode↔template.body↔loopScope 循环引用，
   // stateBuilder consumeValue 遍历 Object.values 时爆栈。相对绑定的作用域由 stateBuilder
-  // 走到 LoopNode 时自行建立（⚠️ LoopNode 在 prop 值内的整体处理仍待测试页验证）。
+  // 走到 LoopNode 时自行建立。
 
   return {
     kind: 'component',
@@ -168,8 +172,8 @@ function buildMenuOverlayFromBinding(
 // ─── eview-ui Dropdown 映射定义 ───
 
 const DropdownMapping: MappingDef = {
-  tag: 'DropDown',
-  import: '@cloudsop/eview-ui/DropDown',
+  tag: 'Dropdown',
+  import: '@cloudsop/eview-ui/Dropdown',
 
   transform(node: any, ctx: TransformContext) {
     const props = node.props || {}
@@ -177,28 +181,24 @@ const DropdownMapping: MappingDef = {
 
     // 显性处理每个 A2UI prop（Dropdown: placement/trigger/menu/className），不做兜底透传。
 
-    // ─── menu → overlay（Menu 组件节点，直接作 prop 值） ───
-    // overlay 是 prop 值里的 BuildNode 子树。jsxEmitter.emitValue 对 prop 值 BuildNode 走
-    // emitBuildNodeExpr——该函数原仅处理图标节点（自闭合、不 emit children），已扩展支持 children
-    // （见 jsx-emitter.ts emitBuildNodeExpr），故 <Menu><Menu.Item/>...</Menu> 能正确 emit。
+    // ─── menu → overlay（Menu 组件节点，包成 SlotNode 作 prop 值） ───
+    // ⚠️ 必须包 SlotNode：consumeValue 对 slotNode 走 walk→walkChildren→processLoop（loop-aware），
+    //    emitValue 对 slotNode 走 emitNode（完整 emit 含 LoopNode children）。裸 ComponentNode 在 prop 值
+    //    会走「纯对象 Object.entries 递归」+ emitBuildNodeExpr（只认数组 children），LoopNode 两端都崩。
     if (props.menu) {
       const menu = props.menu
       if (menu && typeof menu === 'object' && menu.type === 'binding') {
-        // DataBinding → LoopNode 套 Menu.Item（⚠️ LoopNode 在 prop 值内仍待验证）
-        outputProps.overlay = buildMenuOverlayFromBinding(menu as BindingValue, node.id) as any
+        // DataBinding → LoopNode 套 Menu.Item
+        outputProps.overlay = Value.slotNode({ node: buildMenuOverlayFromBinding(menu as BindingValue, node.id) as any })
       } else if (Array.isArray(menu)) {
         // 字面量 → 静态 Menu + Menu.Item
-        outputProps.overlay = buildMenuOverlayFromLiteral(menu) as any
+        outputProps.overlay = Value.slotNode({ node: buildMenuOverlayFromLiteral(menu) as any })
       }
     }
 
-    // ─── placement → position + popupDirection ───
-    if (props.placement) {
-      const mapped = PLACEMENT_MAP[props.placement]
-      if (mapped) {
-        outputProps.position = mapped.position as PropValue
-        outputProps.popupDirection = mapped.popupDirection as PropValue
-      }
+    // ─── placement 直接透传 ───
+    if (props.placement !== undefined) {
+      outputProps.placement = props.placement as PropValue
     }
 
     // ─── trigger（数组）→ trigger（单值） ───

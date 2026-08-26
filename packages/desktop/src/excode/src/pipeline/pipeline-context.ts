@@ -9,6 +9,7 @@
  * registry           Step 0: 创建时注入
  * config             配置对象
  * targetLib          目标组件库名
+ * theme              主题（light/dark），默认 light；来自 options.theme
  *
  * pagesData           Step 1: 读 A2UI 数据
  * builtPages          Step 2: BuildTrees 产出
@@ -66,6 +67,8 @@ export class PipelineContext {
   config: Record<string, any>
   registry: ComponentRegistry
   targetLib: string
+  /** 主题（'light' | 'dark'），默认 'light'；来自 options.theme，当前仅供 GenerateThemeConfig 生成 config.ts 使用 */
+  theme: string
 
   // ── Step 2: ReadPages ──
   pagesData: any[]
@@ -102,6 +105,7 @@ export class PipelineContext {
     this.config = config
     this.registry = registry
     this.targetLib = config.targetLib || 'eview-react'
+    this.theme = config.theme || 'light'
 
     this.pagesData = []
     this.builtPages = []

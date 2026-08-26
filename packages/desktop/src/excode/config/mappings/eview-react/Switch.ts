@@ -81,7 +81,9 @@ export function createSwitchMapping(pkg: string): MappingDef {
       // 不做兜底透传。
 
       // ─── value → toggled（双形态 + useState） ───
-      // Switch 是受控组件，必须产生 useState
+      // Switch 是受控组件，必须产生 useState。
+      // ⚠️ onToggle(value: string) 回传的是 data 的 value 值（字符串）而非 boolean，
+      //    故 extractor 不调用 setter（no-op handler），避免把字符串写进布尔 state。
       //   字面量 → Value.literal（初始值为 hardcode）
       //   DataBinding → Value.computed + useState（初始值从 state.js 取值）
       if ('value' in props) {
@@ -97,7 +99,7 @@ export function createSwitchMapping(pkg: string): MappingDef {
             containsJSX: false,
             useState: {
               event: 'onToggle',
-              extractor: (setter) => `(checked) => ${setter}(checked)`,
+              extractor: () => '() => {}',
             },
             transform: (rawValue) => !!rawValue,
           })
@@ -107,7 +109,7 @@ export function createSwitchMapping(pkg: string): MappingDef {
             value: val ?? false,
             useState: {
               event: 'onToggle',
-              extractor: (setter) => `(checked) => ${setter}(checked)`,
+              extractor: () => '() => {}',
             },
           })
         }

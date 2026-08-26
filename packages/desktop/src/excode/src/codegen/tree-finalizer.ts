@@ -357,6 +357,35 @@ function routeLoopNode(loop: LoopNode, parentNodeId: string, ctx: TreeCtx): Loop
   }
 }
 
+// ─── B5: slotNode prop 子树处理 ───
+//
+// slotNode 作 prop 值（如 eview-ui Dropdown overlay={<Menu>...</Menu>}）时，其 node 子树内可能
+// 含 LoopNode / ExtractNode。tree-finalizer 的 DFS 默认只走 children，prop 值里的子树不会被
+// routeLoopNode 处理 → loop.data 不被替换为 varRef、模板不抽离注册 → emit 时 loop 兜底成 'data'
+// 且引用未生成的模板组件。
+// 故 walkComponent/walkHtml 在处理完 children 后，对每个 slotNode prop 的 node 再走一次 walkNode，
+// 让其内的 LoopNode 经 walkChildren→routeLoopNode 正常路由（data→varRef、模板注册到 extractedFiles）。
+//
+// 对既有映射无副作用：没有任何既有映射把 slotNode 留进 outputProps（均在 transform 里
+// ctx.resolveNode 消费进 children），故此处对既有 e2e 是死代码触发。
+
+function walkSlotNodeProps(
+  props: Record<string, PropValue>,
+  ctx: TreeCtx,
+): Record<string, PropValue> {
+  let touched = false
+  const newProps: Record<string, PropValue> = {}
+  for (const [k, v] of Object.entries(props)) {
+    if (v && typeof v === 'object' && !Array.isArray(v) && (v as any).type === 'slotNode' && (v as any).node) {
+      newProps[k] = { ...(v as any), node: walkNode((v as any).node, ctx) } as PropValue
+      touched = true
+    } else {
+      newProps[k] = v
+    }
+  }
+  return touched ? newProps : props
+}
+
 // ─── DFS 主循环 ───
 
 function walkNode(node: BuildNode, ctx: TreeCtx): BuildNode {
@@ -381,14 +410,17 @@ function walkComponent(node: ComponentNode, ctx: TreeCtx): ComponentNode {
   const lifted = liftLiteralTwoWayBindings(routed, ctx)
   const shared = liftSharedReadBindings(lifted, ctx)
   const newChildren = walkChildren(shared.children, ctx, shared.id ?? '')
-  return { ...shared, children: newChildren as any }
+  // slotNode prop 子树内的 LoopNode/ExtractNode 也需经 routeLoopNode/walkExtract 路由
+  const newProps = walkSlotNodeProps(shared.props, ctx)
+  return { ...shared, props: newProps, children: newChildren as any }
 }
 
 function walkHtml(node: HtmlNode, ctx: TreeCtx): HtmlNode {
   const lifted = liftLiteralTwoWayBindings(node, ctx)
   const shared = liftSharedReadBindings(lifted, ctx)
   const newChildren = walkChildren(shared.children, ctx, node.id ?? '')
-  return { ...shared, children: newChildren as any }
+  const newProps = walkSlotNodeProps(shared.props, ctx)
+  return { ...shared, props: newProps, children: newChildren as any }
 }
 
 function walkExtract(node: ExtractNode, ctx: TreeCtx): ComponentNode {
