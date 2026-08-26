@@ -81,6 +81,8 @@ import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
 import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
+import { ProgressCircle } from "@opencode-ai/ui/progress-circle"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
 import { loadDesignSystem } from "./utils/design-system-loader"
@@ -101,6 +103,7 @@ import { getDesktopApi, type AssetsConfig } from "./lib/electron-api"
 import { extractSubtypeFromFilename } from "./utils/subtype-extractor"
 import { type VersionEntry } from "./utils/history-store"
 import { createHistoryController } from "./subtype-handlers/history-controller"
+import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
@@ -135,6 +138,7 @@ export default function MakePage() {
 }
 
 let lastMakeDir: string | undefined
+const DEFAULT_CUSTOM_CONTEXT_LIMIT = 128_000
 
 function MakeContent() {
   const params = useParams<{ id?: string }>()
@@ -932,6 +936,18 @@ const sessionMessagesLoaded = createMemo(() => {
   )
 
   const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
+  const contextMetrics = createMemo(
+    () => getSessionContextMetrics(params.id ? (sync.data.message[params.id] ?? []) : [], providers.all()).context,
+  )
+  const contextLimit = createMemo(() => {
+    if (contextMetrics()?.limit) return contextMetrics()!.limit!
+    if (currentModel()?.limit.context) return currentModel()!.limit.context
+    return DEFAULT_CUSTOM_CONTEXT_LIMIT
+  })
+  const contextUsage = createMemo(() => {
+    if (contextMetrics()?.usage !== null && contextMetrics()?.usage !== undefined) return contextMetrics()!.usage!
+    return contextLimit() ? Math.round(((contextMetrics()?.total ?? 0) / contextLimit()) * 100) : 0
+  })
 
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
@@ -3563,6 +3579,30 @@ if (dsId) {
                       {sessionTitle(overrideTitle() ?? info()?.title ?? sessionInfoMirror()?.title) ?? "Octo Design"}
                     </h1>
                   </Show>
+                  <Show when={!titleState.editing && params.id}>
+                    <Tooltip
+                      placement="top"
+                      gutter={8}
+                      contentClass="make-token-tooltip"
+                      value={
+                        <span>
+                          当前session已使用： {(contextMetrics()?.total ?? 0).toLocaleString(language.intl())} /{" "}
+                          {contextLimit() ? contextLimit().toLocaleString(language.intl()) : "--"} 个token
+                        </span>
+                      }
+                    >
+                      <div
+                        class="shrink-0 flex items-center justify-center"
+                        style={{
+                          "--border-active": "var(--octo-brand)",
+                          "--border-weak-base": "rgba(0,0,0,0.1)",
+                        }}
+                        aria-label={`Token ${contextUsage()}%`}
+                      >
+                        <ProgressCircle size={16} strokeWidth={2} percentage={contextUsage()} />
+                      </div>
+                    </Tooltip>
+                  </Show>
                 </div>
                 <DropdownMenu
                   gutter={4}
@@ -4267,4 +4307,3 @@ if (dsId) {
     </DataProvider>
   )
 }
-
