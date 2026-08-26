@@ -68,6 +68,19 @@ function getBaseUrl(): string {
   return import.meta.env.VITE_OCTO_BASE_URL || ""
 }
 
+/**
+ * Encode a URL that may contain non-ASCII characters (e.g. Chinese filenames in path).
+ * encodeURI preserves reserved characters (: / ? # [ ] @ ! $ & ' ( ) * + , ; =)
+ * so the base URL stays intact, only non-ASCII path segments get percent-encoded.
+ */
+export function encodeAssetUrl(url: string): string {
+  try {
+    return encodeURI(url)
+  } catch {
+    return url
+  }
+}
+
 async function getJson(url: string): Promise<any> {
   const resp = await fetch(url)
   if (!resp.ok) throw new Error(`请求失败: ${resp.status}`)
