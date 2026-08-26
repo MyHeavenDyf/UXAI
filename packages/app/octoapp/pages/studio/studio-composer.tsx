@@ -2,7 +2,7 @@ import { batch, createEffect, createMemo, createSignal, For, onCleanup, onMount,
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
 import { usePlatform } from "@/context/platform"
 import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, styleModelLabel } from "./data"
-import { getDefaultDimensions, getModelResolutionKey, STUDIO_VIDEO_ASPECT_RATIOS, SUPPORTED_STUDIO_CAPABILITIES, workspaceModeForCapability, type StudioVideoDuration, type StudioVideoFrameSlot, type StudioVideoQualityMode } from "./studio-shared"
+import { getDefaultDimensions, getModelResolutionKey, STUDIO_VIDEO_ASPECT_RATIOS, STUDIO_VIDEO_MODES, SUPPORTED_STUDIO_CAPABILITIES, workspaceModeForCapability, type StudioVideoDuration, type StudioVideoFrameSlot, type StudioVideoMode, type StudioVideoQualityMode } from "./studio-shared"
 import { MaterialMenu, type MaterialWordBook } from "./MaterialMenu"
 import type { StudioAsset, StudioAspectRatio, StudioCapability, StudioGenerationStatus } from "./types"
 import { StudioVideoRiskContent } from "./studio-video-risk-dialog"
@@ -39,6 +39,7 @@ export function StudioComposer(props: {
   videoDuration: StudioVideoDuration
   videoQualityMode: StudioVideoQualityMode
   videoQualityLocked: boolean
+  videoMode: StudioVideoMode
   status: StudioGenerationStatus
   busy: boolean
   openMenu: "capability" | "style" | "settings" | "material" | null
@@ -54,6 +55,7 @@ export function StudioComposer(props: {
   onIsCustom: (value: boolean) => void
   onVideoDuration: (value: StudioVideoDuration) => void
   onVideoQualityMode: (value: StudioVideoQualityMode) => void
+  onVideoMode: (value: StudioVideoMode) => void
   onOpenMenu: (value: "capability" | "style" | "settings" | "material" | null) => void
   onReversePrompt?: () => void
   onCancel?: () => void
@@ -195,6 +197,10 @@ export function StudioComposer(props: {
   const [styleExpanded, setStyleExpanded] = createSignal(false)
   const [moreMenuOpen, setMoreMenuOpen] = createSignal(false)
   const [moreMenuTick, setMoreMenuTick] = createSignal(0)
+  const [videoModeOpen, setVideoModeOpen] = createSignal(false)
+  let videoModeBtnRef!: HTMLDivElement
+  let videoModeAnchorRef!: HTMLDivElement
+  const videoModeLabel = createMemo(() => STUDIO_VIDEO_MODES.find((item) => item.value === props.videoMode)?.label ?? "全能参考")
   const moreMenuStyle = (): JSX.CSSProperties => {
     // 窗口尺寸变化时重新计算位置，使菜单跟随更多按钮
     moreMenuTick()
@@ -210,7 +216,7 @@ export function StudioComposer(props: {
 
   const toolbarItemKeys = createMemo(() => {
     if (isImageGeneration()) return ["capability", "style", "settings", "reverse", "material"]
-    if (isVideoGeneration()) return ["capability", "settings"]
+    if (isVideoGeneration()) return ["capability", "videoMode", "settings"]
     return ["capability"]
   })
 
@@ -278,7 +284,7 @@ export function StudioComposer(props: {
       overflow.push(key)
       if (visibleWidth + moreBtnWidth <= containerWidth) break
     }
-    if (overflow.filter(k => (itemWidthCache.get(k) ?? 0) > 0).length <= 1) {
+    if (overflow.filter(k => (itemWidthCache.get(k) ?? 0) > 0).length < 1) {
       if (toolbarOverflow().length > 0) setToolbarOverflow([])
       return
     }
@@ -430,6 +436,23 @@ export function StudioComposer(props: {
     queueMicrotask(() => positionDropdown(menu))
   })
 
+  // 视频模式弹框：打开时关闭其它弹框，并左对齐定位到按钮
+  createEffect(() => {
+    if (props.openMenu) setVideoModeOpen(false)
+  })
+
+  createEffect(() => {
+    if (!videoModeOpen()) return
+    queueMicrotask(() => {
+      if (!videoModeBtnRef || !videoModeAnchorRef || !toolbarRef) return
+      const btnRect = videoModeBtnRef.getBoundingClientRect()
+      const toolbarRect = toolbarRef.getBoundingClientRect()
+      videoModeAnchorRef.style.left = `${btnRect.left - toolbarRect.left}px`
+      videoModeAnchorRef.style.top = ""
+      videoModeAnchorRef.style.bottom = ""
+    })
+  })
+
   onMount(() => {
     // Re-measure on resize in case button widths change
     const observer = new ResizeObserver(() => {
@@ -514,9 +537,9 @@ export function StudioComposer(props: {
   }
 
   const handleDocumentPointerDown = (event: PointerEvent) => {
-    if (!props.openMenu) return
     if (event.target instanceof Element && event.target.closest(".studio-menu")) return
-    props.onOpenMenu(null)
+    if (props.openMenu) props.onOpenMenu(null)
+    if (videoModeOpen()) setVideoModeOpen(false)
   }
 
   document.addEventListener("pointerdown", handleDocumentPointerDown)
@@ -735,26 +758,28 @@ export function StudioComposer(props: {
               </Show>
             </Show>
             <Show when={isVideoGeneration()}>
-              <Show when={!toolbarOverflow().includes("settings")}>
-                <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--settings" ref={(el) => buttonRefs.set("video-settings", el)} data-toolbar-item="settings">
-                  <IconTool
-                    label="参数"
-                    children={imageSettingsLabel()}
-                    disabled={isBusy()}
-                    onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                    onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
-                  />
-                </div>
-              </Show>
-              <Show when={toolbarOverflow().length > 0}>
-                <button
-                  type="button"
-                  ref={moreButtonRef!}
-                  class="studio-composer-toolbar-more"
-                  onClick={() => setMoreMenuOpen((v) => !v)}
-                  title="更多"
+              <div class="relative studio-composer-toolbar-item" ref={videoModeBtnRef!} data-toolbar-item="videoMode">
+                <ToolButton
+                  label={videoModeLabel()}
+                  active={videoModeOpen()}
+                  disabled={isBusy()}
+                  onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                  onClick={() => {
+                    if (videoModeOpen()) { setVideoModeOpen(false); return }
+                    props.onOpenMenu(null)
+                    setVideoModeOpen(true)
+                  }}
                 />
-              </Show>
+              </div>
+              <div class="relative studio-composer-toolbar-item studio-composer-toolbar-item--settings" ref={(el) => buttonRefs.set("video-settings", el)} data-toolbar-item="settings">
+                <IconTool
+                  label="参数"
+                  children={imageSettingsLabel()}
+                  disabled={isBusy()}
+                  onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                  onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
+                />
+              </div>
             </Show>
           </div>
           <Show when={moreMenuOpen()}>
@@ -796,19 +821,6 @@ export function StudioComposer(props: {
                       <img src="/studio/IconMaterial.svg" alt="" class="studio-composer-toolbar-more-item-icon" />
                       <span>词书</span>
                       <svg class="studio-composer-toolbar-more-item-arrow" viewBox="0 0 6 11" width="5.74" height="10.6"><path d="M0.5 0.5l5 5-5 5" fill="none" stroke="rgba(0,0,0,0.9)" stroke-width="1"/></svg>
-                    </button>
-                  </Show>
-                </Show>
-                <Show when={isVideoGeneration()}>
-                  <Show when={toolbarOverflow().includes("settings")}>
-                    <button
-                      type="button"
-                      class="studio-composer-toolbar-more-item"
-                      classList={{ active: props.openMenu === "settings" }}
-                      onClick={() => props.onOpenMenu("settings")}
-                    >
-                      <img src="/studio/IconParameter.svg" alt="" class="studio-composer-toolbar-more-item-icon" />
-                      <span>图片设置</span>
                     </button>
                   </Show>
                 </Show>
@@ -866,6 +878,14 @@ export function StudioComposer(props: {
                 onCount={props.onCount}
                 onDuration={props.onVideoDuration}
                 onQualityMode={props.onVideoQualityMode}
+              />
+            </div>
+          </Show>
+          <Show when={isVideoGeneration() && videoModeOpen()}>
+            <div class="studio-composer-dropdown-anchor" ref={videoModeAnchorRef!}>
+              <VideoModeMenu
+                value={props.videoMode}
+                onSelect={(value) => { props.onVideoMode(value); setVideoModeOpen(false) }}
               />
             </div>
           </Show>
@@ -979,6 +999,44 @@ function VideoFrameButton(props: { label: string; asset?: StudioAsset; disabled?
           <img src="/studio/studio-img-delete-icon.svg" class="studio-composer-video-remove-icon" alt="" />
         </button>
       </Show>
+    </div>
+  )
+}
+
+function VideoModeMenu(props: { value: StudioVideoMode; onSelect: (value: StudioVideoMode) => void }): JSX.Element {
+  return (
+    <div class="studio-menu" style={{ width: "140px", padding: "4px" }}>
+      <For each={STUDIO_VIDEO_MODES}>
+        {(item) => {
+          const active = () => item.value === props.value
+          return (
+            <button
+              type="button"
+              onClick={() => props.onSelect(item.value)}
+              style={{
+                width: "100%",
+                height: "36px",
+                display: "flex",
+                "align-items": "center",
+                padding: "0 12px",
+                border: "0",
+                "border-radius": "8px",
+                background: active() ? "#f3f3f3" : "transparent",
+                color: "#191919",
+                "font-size": "14px",
+                "line-height": "20px",
+                "text-align": "left",
+                cursor: "pointer",
+                "white-space": "nowrap",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "#f3f3f3" }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = active() ? "#f3f3f3" : "transparent" }}
+            >
+              {item.label}
+            </button>
+          )
+        }}
+      </For>
     </div>
   )
 }
@@ -1467,20 +1525,66 @@ function VideoSettings(props: {
         </For>
       </div>
       <div class="studio-image-settings-label">视频时长</div>
-      <div class="studio-image-settings-counts studio-video-settings-duration">
-        <For each={["5", "10"] as const}>
-          {(item) => (
-            <button
-              type="button"
-              onClick={() => props.onDuration(item)}
-              class="studio-image-settings-count"
-              classList={{ active: item === props.duration }}
-              aria-pressed={item === props.duration}
-            >
-              {item}秒
-            </button>
-          )}
-        </For>
+      <div class="studio-video-duration-slider">
+        <div class="studio-video-duration-track" style={{ "--value-frac": String(Math.max(0, Math.min(1, Number(props.duration) / 15))) } as JSX.CSSProperties}>
+          <div class="studio-video-duration-rail" />
+          <div class="studio-video-duration-fill" />
+          <input
+            type="range"
+            min={0}
+            max={15}
+            step={1}
+            value={Number(props.duration)}
+            class="studio-video-duration-range"
+            onInput={(e) => {
+              const v = Number(e.currentTarget.value)
+              const clamped = v < 4 ? 4 : v
+              if (clamped !== v) e.currentTarget.value = String(clamped)
+              props.onDuration(String(clamped) as StudioVideoDuration)
+            }}
+          />
+          <div class="studio-video-duration-ticks">
+            <For each={["0", "5", "10", "15"]}>
+              {(tick) => {
+                const pos = (Number(tick) / 15) * 100
+                return (
+                  <button
+                    type="button"
+                    class="studio-video-duration-tick"
+                    classList={{ active: tick === props.duration }}
+                    style={{ left: `${pos}%` }}
+                    onClick={() => props.onDuration(tick as StudioVideoDuration)}
+                  >
+                    {tick}
+                  </button>
+                )
+              }}
+            </For>
+          </div>
+        </div>
+        <div class="studio-video-duration-input-wrap">
+          <input
+            type="number"
+            min={4}
+            max={15}
+            step={1}
+            value={Number(props.duration)}
+            class="studio-video-duration-input"
+            onInput={(e) => {
+              const n = Number(e.currentTarget.value)
+              if (Number.isInteger(n) && n >= 4 && n <= 15) {
+                props.onDuration(String(n) as StudioVideoDuration)
+              }
+            }}
+            onChange={(e) => {
+              const n = Number(e.currentTarget.value)
+              const clamped = Number.isInteger(n) ? Math.max(4, Math.min(15, n)) : 4
+              e.currentTarget.value = String(clamped)
+              props.onDuration(String(clamped) as StudioVideoDuration)
+            }}
+          />
+          <span class="studio-video-duration-input-suffix">S</span>
+        </div>
       </div>
       <div class="studio-image-settings-label">视频数量</div>
       <div class="studio-image-settings-counts studio-video-settings-count">
