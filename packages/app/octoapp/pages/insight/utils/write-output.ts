@@ -165,44 +165,31 @@ function findWriteCardsByFilter(parts: unknown[], toolFilter: (tool: unknown) =>
 
     const state = p.state as Record<string, unknown> | undefined
     const isMatch = toolFilter(p.tool)
+    const rec: DiagRec = { tool: p.tool, status: state?.status, isMatch }
 
-    if (logDiagnostic) {
-      const rec: { tool: unknown; status: unknown; isMatch: boolean; filePath?: string; pathSource?: string; type?: string; skip?: string } = {
-        tool: p.tool,
-        status: state?.status,
-        isMatch,
-      }
-      if (!isMatch) {
-        rec.skip = "not-match-tool"
-        seen!.push(rec)
-        continue
-      }
-      if (!state || state.status !== "completed") {
-        rec.skip = `status:${String(state?.status)}`
-        seen!.push(rec)
-        continue
-      }
-      const resolved = resolveCardPath(state)
-      if (!resolved) {
-        rec.skip = "no-filePath"
-        rec.type = `metaKeys:${state.metadata && typeof state.metadata === "object" ? Object.keys(state.metadata as object).join(",") : typeof state.metadata}` +
-          `|inputKeys:${state.input && typeof state.input === "object" ? Object.keys(state.input as object).join(",") : typeof state.input}`
-        seen!.push(rec)
-        continue
-      }
-      const filePath = resolved.filePath
-      rec.filePath = filePath
-      rec.pathSource = resolved.source
-      rec.type = resolveOutputType(filePath)
-      seen!.push(rec)
-    } else {
-      if (!isMatch) continue
-      if (!state || state.status !== "completed") continue
-      const resolved = resolveCardPath(state)
-      if (!resolved) continue
+    if (!isMatch) {
+      rec.skip = "not-match-tool"
+      if (logDiagnostic) seen!.push(rec)
+      continue
     }
-
-    const filePath = resolveCardPath(state!)!.filePath
+    if (!state || state.status !== "completed") {
+      rec.skip = `status:${String(state?.status)}`
+      if (logDiagnostic) seen!.push(rec)
+      continue
+    }
+    const resolved = resolveCardPath(state)
+    if (!resolved) {
+      rec.skip = "no-filePath"
+      rec.type = `metaKeys:${state.metadata && typeof state.metadata === "object" ? Object.keys(state.metadata as object).join(",") : typeof state.metadata}` +
+        `|inputKeys:${state.input && typeof state.input === "object" ? Object.keys(state.input as object).join(",") : typeof state.input}`
+      if (logDiagnostic) seen!.push(rec)
+      continue
+    }
+    const filePath = resolved.filePath
+    rec.filePath = filePath
+    rec.pathSource = resolved.source
+    rec.type = resolveOutputType(filePath)
+    if (logDiagnostic) seen!.push(rec)
     byPath.delete(filePath)
     byPath.set(filePath, { filePath, type: resolveOutputType(filePath) })
   }

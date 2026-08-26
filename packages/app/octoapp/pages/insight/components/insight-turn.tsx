@@ -84,17 +84,14 @@ function aggregateByFileType(items: Array<{ fileType: string }>): Array<{ type: 
 
 /** 按文件类型+工具名聚合计数,用于 artifact-mcp-return 上报(保留每个 type+tool 组合的 tool 字段)。 */
 function aggregateByFileTypeWithTool(items: Array<{ fileType: string; tool: string }>): Array<{ type: string; count: number; tool: string }> {
-  const map: Record<string, { count: number; tool: string }> = {}
+  const map: Record<string, { type: string; count: number; tool: string }> = {}
   for (const item of items) {
     const key = `${item.fileType}::${item.tool}`
     const existing = map[key]
     if (existing) existing.count += 1
-    else map[key] = { count: 1, tool: item.tool }
+    else map[key] = { type: item.fileType, count: 1, tool: item.tool }
   }
-  return Object.entries(map).map(([composite, info]) => {
-    const type = composite.split("::")[0]
-    return { type, count: info.count, tool: info.tool }
-  })
+  return Object.values(map)
 }
 
 // 路径 B 嗅探规则:html fence 与 mindmap shape JSON 互相独立,允许同时命中。
@@ -484,6 +481,7 @@ export function InsightTurn(props: {
   let artifactFileBaselineTaken = false
   createEffect(() => {
     const parts = turnAssistantParts()
+    const generating = showGenerating()
     const writes = findWriteOnlyCards(parts)
     const edits = findEditCards(parts)
 
@@ -493,6 +491,7 @@ export function InsightTurn(props: {
       for (const e of edits) trackedArtifactKeys.add(`edit:${props.messageID}:${e.filePath}`)
       return
     }
+    if (generating) return
 
     const newWrites: Array<{ fileType: string }> = []
     for (const w of writes) {
@@ -535,6 +534,7 @@ export function InsightTurn(props: {
   let artifactMcpBaselineTaken = false
   createEffect(() => {
     const parts = turnAssistantParts()
+    const generating = showGenerating()
     const links = findResourceLinks(parts)
 
     if (!artifactMcpBaselineTaken) {
@@ -544,6 +544,7 @@ export function InsightTurn(props: {
       }
       return
     }
+    if (generating) return
 
     const newLinks: Array<{ fileType: string; tool: string }> = []
     for (const link of links) {
