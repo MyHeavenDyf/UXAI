@@ -21,7 +21,7 @@ import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
 import type { LocalEditSavePayload, LocalEditChange } from "../../subtype-handlers/types"
 import { buildLocalEditPayload } from "../../subtype-handlers/shadcn"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showOctoToast } from "../octo-toast"
 import { tracker } from "@/utils/tracker"
 import { TaskStore } from "@/context/task"
 import { useSDK } from "@/context/sdk"
@@ -349,12 +349,12 @@ export function HtmlRenderer(props: {
     try {
       if (!iframeRef) {
         TaskStore.error([{ key: taskId, status: "error" }])
-        showToast({ title: "归档失败", description: "无法获取页面内容" })
+        showOctoToast({ title: "归档失败", description: "无法获取页面内容" })
         return
       }
       if (shouldUseExternalUrl()) {
         TaskStore.error([{ key: taskId, status: "error" }])
-        showToast({ title: "归档失败", description: "外部 URL 不支持归档" })
+        showOctoToast({ title: "归档失败", description: "外部 URL 不支持归档" })
         return
       }
 
@@ -412,7 +412,7 @@ export function HtmlRenderer(props: {
             sessionId: props.sessionId,
             createdAt: new Date(),
           } as ResultTab,
-          showToast,
+          showOctoToast,
           tracker,
           getDesktopApi,
           extractCodeBlock,
@@ -430,11 +430,11 @@ export function HtmlRenderer(props: {
             srcZipBlob = r.blob
             srcFileName = r.fileName
           } else if (props.subtype === "prototype") {
-            showToast({ title: "代码包生成失败，已跳过 src/" })
+            showOctoToast({ title: "代码包生成失败，已跳过 src/" })
           }
         } catch (err) {
           console.warn("[Archive] buildArchiveSrc failed:", err)
-          if (props.subtype === "prototype") showToast({ title: "代码包生成失败，已跳过 src/" })
+          if (props.subtype === "prototype") showOctoToast({ title: "代码包生成失败，已跳过 src/" })
         }
       }
       
@@ -483,7 +483,7 @@ export function HtmlRenderer(props: {
         setArchiveSuccessPath(pathStr)
         setArchiveSuccessUniqueId(uniqueId)
         setArchiveSuccessOpen(true)
-        showToast({ title: "归档成功" })
+        showOctoToast({ title: "归档成功" })
       } else {
         const zipFileName = `${fileName}-archive.zip`
         const url = URL.createObjectURL(zipBlob)
@@ -496,7 +496,7 @@ export function HtmlRenderer(props: {
         URL.revokeObjectURL(url)
         
         TaskStore.finish([{ key: taskId, status: "completed" }])
-        showToast({ title: "归档完成", description: "ZIP文件已下载" })
+        showOctoToast({ title: "归档完成", description: "ZIP文件已下载" })
       }
     } catch (err) {
       if (overlay) {
@@ -507,7 +507,7 @@ export function HtmlRenderer(props: {
       }
       console.error("[Archive] Failed:", err)
       TaskStore.error([{ key: taskId, status: "error" }])
-      showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
       throw err
     }
   }
@@ -894,7 +894,7 @@ createEffect(() => {
         setServeKey(k => k + 1)
       } catch (err) {
         console.error("[HtmlRenderer] Failed to save file before preview:", err)
-        showToast({ title: "保存失败", description: "无法保存文件到磁盘" })
+        showOctoToast({ title: "保存失败", description: "无法保存文件到磁盘" })
       }
     }
   }))
@@ -1667,7 +1667,7 @@ onSaveDraft={async () => {
                         manualEditPendingStyle = null
                         manualEditPendingText = null
                       } else {
-                        showToast({ title: "保存失败", description: "无法保存样式修改，请重试" })
+                        showOctoToast({ title: "保存失败", description: "无法保存样式修改，请重试" })
                       }
                     } finally {
                       setSaving(false)
@@ -1801,7 +1801,7 @@ const comment: FileComment = {
                     
                     // Save to backend API
                     if (!props.sdkUrl || !props.sdkDirectory) {
-                      showToast({ title: "保存失败", description: "缺少 SDK 配置" })
+                      showOctoToast({ title: "保存失败", description: "缺少 SDK 配置" })
                       return
                     }
                     
@@ -1846,7 +1846,7 @@ body: JSON.stringify({
                       if (pendingFiles && pendingFiles.length > 0) {
                         const api = getDesktopApi()
                         if (!api?.getPathForFile) {
-                          showToast({ title: "附件添加失败", description: "需要在 Electron 环境中运行" })
+                          showOctoToast({ title: "附件添加失败", description: "需要在 Electron 环境中运行" })
                         } else {
                           try {
                             const uploadPromises = pendingFiles.map(async file => {
@@ -1907,14 +1907,14 @@ body: JSON.stringify({
                               if (!data.ok) throw new Error('Second save failed')
                             })
                             
-                            showToast({ title: "评论已保存", description: `添加了 ${uploadedAttachments.length} 个附件` })
+                            showOctoToast({ title: "评论已保存", description: `添加了 ${uploadedAttachments.length} 个附件` })
                           } catch (uploadErr) {
                             console.error('[Comment] Upload attachments error:', uploadErr)
-                            showToast({ title: "附件添加失败", description: "评论已保存，但部分附件添加失败" })
+                            showOctoToast({ title: "附件添加失败", description: "评论已保存，但部分附件添加失败" })
                           }
                         }
                       } else {
-                        showToast({ title: "评论已保存" })
+                        showOctoToast({ title: "评论已保存" })
                       }
                       
 // Reload comments to get server-generated ID
@@ -1940,7 +1940,7 @@ body: JSON.stringify({
                    })
                    .catch(err => {
                      console.error('[Comment] Save failed:', err)
-                     showToast({ title: "保存失败", description: "无法保存评论到后端" })
+                     showOctoToast({ title: "保存失败", description: "无法保存评论到后端" })
                    })
                  }}
                  onDelete={() => {
@@ -1948,7 +1948,7 @@ body: JSON.stringify({
                    if (!commentId) return
                    
                    if (!props.sdkUrl || !props.sdkDirectory) {
-                     showToast({ title: "删除失败", description: "缺少 SDK 配置" })
+                     showOctoToast({ title: "删除失败", description: "缺少 SDK 配置" })
                      return
                    }
                    
@@ -1972,12 +1972,12 @@ body: JSON.stringify({
 setCommentTarget(null)
                       setEditingComment(null)
                       iframeRef?.contentWindow?.postMessage({ type: 'od:comment-clear' }, '*')
-                      showToast({ title: "标注已删除" })
+                      showOctoToast({ title: "标注已删除" })
                      tracker.interaction({ module: "design", name: "delete-comment" })
                    })
                    .catch(err => {
                      console.error('[Comment] Delete failed:', err)
-                     showToast({ title: "删除失败", description: "无法删除评论" })
+                     showOctoToast({ title: "删除失败", description: "无法删除评论" })
                    })
                  }}
 onClose={() => {
@@ -1991,13 +1991,13 @@ onUploadAttachment={(file) => {
                      const existingComment = editingComment()
                      
                      if (!existingComment) {
-                       showToast({ title: "请先保存评论", description: "新评论需要先保存才能添加附件" })
+                       showOctoToast({ title: "请先保存评论", description: "新评论需要先保存才能添加附件" })
                        return
                      }
                      
                      const api = getDesktopApi()
                      if (!api?.getPathForFile) {
-                       showToast({ title: "不支持", description: "需要在 Electron 环境中运行" })
+                       showOctoToast({ title: "不支持", description: "需要在 Electron 环境中运行" })
                        return
                      }
                      
@@ -2063,28 +2063,28 @@ const updatedComment = {
                               "*"
                             )
                             
-                            showToast({ title: "附件添加成功", description: file.name })
+                            showOctoToast({ title: "附件添加成功", description: file.name })
                           })
                           .catch(reloadErr => {
                             console.error('[Comment] Reload error:', reloadErr)
-                            showToast({ title: "附件添加成功（数据同步失败）", description: reloadErr.message })
+                            showOctoToast({ title: "附件添加成功（数据同步失败）", description: reloadErr.message })
                           })
                         })
                         .catch(saveErr => {
                           console.error('[Comment] Auto-save error:', saveErr)
-                          showToast({ title: "附件添加成功（评论同步失败）", description: saveErr.message })
+                          showOctoToast({ title: "附件添加成功（评论同步失败）", description: saveErr.message })
                         })
                       })
                      .catch(err => {
                        console.error('[Comment] Upload error:', err)
-                       showToast({ title: "附件添加失败", description: err.message })
+                       showOctoToast({ title: "附件添加失败", description: err.message })
                      })
                    }}
 onDeleteAttachment={(attachmentId) => {
                      const existingComment = editingComment()
 
                       if (!existingComment) {
-                        showToast({ title: "删除失败", description: "评论不存在" })
+                        showOctoToast({ title: "删除失败", description: "评论不存在" })
                         return
                       }
 
@@ -2147,21 +2147,21 @@ fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath
                                "*"
                              )
                              
-                             showToast({ title: "附件删除成功" })
+                             showOctoToast({ title: "附件删除成功" })
                            })
                            .catch(reloadErr => {
                              console.error('[Comment] Reload error:', reloadErr)
-                             showToast({ title: "附件删除成功（数据同步失败）", description: reloadErr.message })
+                             showOctoToast({ title: "附件删除成功（数据同步失败）", description: reloadErr.message })
                            })
                          })
                         .catch(saveErr => {
                           console.error('[Comment] Auto-save error:', saveErr)
-                          showToast({ title: "附件删除成功（评论同步失败）", description: saveErr.message })
+                          showOctoToast({ title: "附件删除成功（评论同步失败）", description: saveErr.message })
                         })
                       })
                      .catch(err => {
                        console.error('[Comment] Delete error:', err)
-                       showToast({ title: "附件删除失败", description: err.message })
+                       showOctoToast({ title: "附件删除失败", description: err.message })
                      })
 }}
                 />

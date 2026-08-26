@@ -1,7 +1,7 @@
 import { createMemo, createSignal, createEffect, on, Show, Switch, Match, For } from "solid-js"
 import type { JSX } from "solid-js"
 import { Markdown } from "@opencode-ai/ui/markdown"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showOctoToast } from "../octo-toast"
 import type { ResultTab } from "./tab-store"
 import type { ViewportPreset, PaletteId, InspectTarget } from "./html-renderer"
 import type { VersionEntry } from "../../utils/history-store"
@@ -187,7 +187,7 @@ export function ResultViewer(props: {
     return {
       tab,
       sessionId: tab.sessionId ?? props.sessionId,
-      showToast,
+      showOctoToast,
       tracker,
       getDesktopApi,
       extractCodeBlock,
@@ -272,7 +272,7 @@ export function ResultViewer(props: {
 
     const ctx = {
       tab,
-      showToast,
+      showOctoToast,
       tracker,
       getDesktopApi,
       extractCodeBlock,

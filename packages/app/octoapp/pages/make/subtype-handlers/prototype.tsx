@@ -12,7 +12,7 @@ import {
   loadA2uiData,
   invalidatePrototypeCache,
 } from "../utils/prototype-utils"
-import { showPromiseToast } from "@opencode-ai/ui/toast"
+import { showPromiseToast } from "../components/octo-toast"
 import proto_replanner from "../../pattern/agents/proto-replanner"
 import { relativePathToId, resolveRelativePath, getExt } from "../utils/history-store"
 import type { DesktopApi } from "../lib/electron-api"
@@ -36,7 +36,7 @@ async function buildPrototypeCodeFiles(
   /** prototype.html 同级 uploads 目录（make 侧属性编辑器上传的图片落点） */
   makeUploadsDir?: string | null
 } | null> {
-  const toast = (msg: { title: string; description?: string }) => { if (!opts.silent) ctx.showToast(msg) }
+  const toast = (msg: { title: string; description?: string }) => { if (!opts.silent) ctx.showOctoToast(msg) }
 
   // 1. 读取 A2UI 数据（复用已有 session 或临时创建）
   const tabId = ctx.tab.id
@@ -202,7 +202,7 @@ export default {
   },
 
   async handleDrawEdit(ctx) {
-    ctx.showToast({ title: "该功能未上线" })
+    ctx.showOctoToast({ title: "该功能未上线" })
     return true
   },
 
@@ -212,7 +212,7 @@ export default {
     const session = getSessionById(tabId) ?? createSession(tabId, ctx)
     const previewData = await loadA2uiData(session, ctx)
     if (!previewData) {
-      ctx.showToast({ title: "无法读取画布数据" })
+      ctx.showOctoToast({ title: "无法读取画布数据" })
       return true
     }
 
@@ -231,7 +231,7 @@ export default {
     // 磁盘导出还需要 exportZip 才能落盘
     const desktopApi = ctx.getDesktopApi()
     if (!desktopApi?.exportZip) {
-      ctx.showToast({ title: "当前环境不支持代码导出" })
+      ctx.showOctoToast({ title: "当前环境不支持代码导出" })
       downloading = false
       return true
     }

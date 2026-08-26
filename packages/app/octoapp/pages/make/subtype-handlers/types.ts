@@ -19,7 +19,7 @@ export interface CanvasEditResult {
 
 export interface SubtypeHandlerContext {
   tab: ResultTab
-  showToast: (msg: { title: string; description?: string; variant?: "default" | "error" }) => void
+  showOctoToast: (msg: { title: string; description?: string; variant?: "default" | "error" | "warn" }) => void
   tracker: typeof import("@/utils/tracker").tracker
   getDesktopApi: typeof import("../lib/electron-api").getDesktopApi
   extractCodeBlock: (text: string, lang: string) => string

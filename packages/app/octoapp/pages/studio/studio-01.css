@@ -651,6 +651,10 @@
   transform: rotate(-180deg);
 }
 
+.studio-composer-toolbar-item[data-toolbar-item="videoMode"] {
+  display: none;
+}
+
 @media (max-width: 1227px) {
   .studio-center {
     height: 100%;
