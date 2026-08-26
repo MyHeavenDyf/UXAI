@@ -26,6 +26,7 @@ interface EditorRef {
   replaceSlashCommand: (text: string) => void
   insertMention: (selection: MentionSelection) => void
   removeMention: (selection: MentionSelection) => void
+  updateMentionPath: (filename: string, path: string) => void
   isAlive: () => boolean
 }
 
@@ -300,6 +301,17 @@ export const ProseMirrorEditor = (props: Props) => {
           const size = v.state.doc.nodeAt(lastPos)!.nodeSize
           const tr = v.state.tr.delete(lastPos, lastPos + size)
           v.dispatch(tr)
+        },
+        updateMentionPath: (filename: string, path: string) => {
+          const v = view()
+          if (!v || !v.dom?.isConnected) return
+          const tr = v.state.tr
+          v.state.doc.descendants((node, pos) => {
+            if (node.type.name === "mention" && node.attrs.name === filename && node.attrs.path !== path) {
+              tr.setNodeMarkup(pos, undefined, { ...node.attrs, path })
+            }
+          })
+          if (tr.docChanged) v.dispatch(tr)
         },
         isAlive: () => {
           const v = view()
