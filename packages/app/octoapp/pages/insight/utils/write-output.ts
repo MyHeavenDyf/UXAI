@@ -186,12 +186,13 @@ function findWriteCardsByFilter(parts: unknown[], toolFilter: (tool: unknown) =>
       continue
     }
     const filePath = resolved.filePath
+    const cardType = resolveOutputType(filePath)
     rec.filePath = filePath
     rec.pathSource = resolved.source
-    rec.type = resolveOutputType(filePath)
+    rec.type = cardType
     if (logDiagnostic) seen!.push(rec)
     byPath.delete(filePath)
-    byPath.set(filePath, { filePath, type: resolveOutputType(filePath) })
+    byPath.set(filePath, { filePath, type: cardType })
   }
 
   const out = [...byPath.values()]
