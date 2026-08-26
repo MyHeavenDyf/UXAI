@@ -620,10 +620,10 @@ export function registerIpcHandlers(deps: Deps) {
     return `/history/${sessionId}/uploads/${filename}`
   })
 
-  // 把图片写到 prototype.html 同级 assets 目录，返回相对 URL（assets/<hash>.<ext>）。
-  // iframe 经 local:// 加载 prototype.html，相对路径自然解析到同目录 assets/，由 local:// handler 直接读盘服务。
+  // 把图片写到 prototype.html 同级 uploads 目录，返回相对 URL（uploads/<hash>.<ext>）。
+  // iframe 经 local:// 加载 prototype.html，相对路径自然解析到同目录 uploads/，由 local:// handler 直接读盘服务。
   ipcMain.handle("save-prototype-image", async (_event: IpcMainInvokeEvent, buffer: ArrayBuffer, dir: string) => {
-    if (!dir) throw new Error("assets dir not set")
+    if (!dir) throw new Error("uploads dir not set")
     await mkdir(dir, { recursive: true })
     const buf = Buffer.from(buffer)
     const hash = createHash("sha256").update(buf).digest("hex").slice(0, 16)
@@ -631,7 +631,7 @@ export function registerIpcHandlers(deps: Deps) {
     const filename = `${hash}.${ext}`
     const filePath = join(dir, filename)
     if (!existsSync(filePath)) await writeFile(filePath, buf)
-    return `assets/${filename}`
+    return `uploads/${filename}`
   })
   
 // insight markdown 编辑器自动保存:把编辑后的文本覆盖写回本地产物文件。
@@ -1230,13 +1230,16 @@ export function registerIpcHandlers(deps: Deps) {
         sourceDir?: string
         /** sourceDir 内容在 zip 内的落点（相对路径，默认 ""＝根，如 "assets"） */
         destFolder?: string
+        /** 多个源目录各自落到指定 destFolder（sourceDir 的批量版，供多 uploads 目录合并打包） */
+        sourceDirs?: { dir: string; destFolder: string }[]
         comment?: string
       },
     ) => {
       // sourceDir 不存在时：有 files 就跳过 sourceDir 继续打代码；
-      // 既无 files 又无可用 sourceDir → 无内容，取消。
+      // 既无 files 又无可用 sourceDir/sourceDirs → 无内容，取消。
       const sourceDirExists = opts.sourceDir ? existsSync(opts.sourceDir) : false
-      if (!opts.files?.length && !sourceDirExists) return null
+      const validSourceDirs = (opts.sourceDirs ?? []).filter((s) => existsSync(s.dir))
+      if (!opts.files?.length && !sourceDirExists && validSourceDirs.length === 0) return null
 
       const win = BrowserWindow.fromWebContents(event.sender)
       const dialogOpts = {
@@ -1274,6 +1277,12 @@ export function registerIpcHandlers(deps: Deps) {
         //    archive.directory(src, false) → 内容打到根；传字符串 → 打到该子目录
         if (opts.sourceDir && sourceDirExists) {
           archive.directory(opts.sourceDir, destFolder || false)
+        }
+
+        // ②b sourceDirs：多个源目录各自落到指定 destFolder（供 pattern 侧 + make 侧 uploads 合并打包）
+        for (const s of validSourceDirs) {
+          const df = (s.destFolder ?? "").replace(/^\/+/, "").replace(/\/+$/, "")
+          archive.directory(s.dir, df || false)
         }
 
         void archive.finalize()

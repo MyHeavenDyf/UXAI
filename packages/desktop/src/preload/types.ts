@@ -144,7 +144,7 @@ export type ElectronAPI = {
   writeFileBuffer: (path: string, buffer: ArrayBuffer) => Promise<void>
   /** save image to uploads dir, returns URL path like /history/sessionId/uploads/hash.ext */
   saveUploadImage: (buffer: ArrayBuffer, sessionId: string) => Promise<string>
-  /** save image to <prototypeDir>/assets, returns relative URL like assets/hash.ext (iframe via local:// resolves it) */
+  /** save image to <prototypeDir>/uploads, returns relative URL like uploads/hash.ext (iframe via local:// resolves it) */
   savePrototypeImage: (buffer: ArrayBuffer, dir: string) => Promise<string>
   getUploadsDir: () => Promise<string | null>
   setUploadsDir: (dir: string) => Promise<void>
@@ -172,7 +172,7 @@ export type ElectronAPI = {
   downloadHuiCode: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[], options?: { targetLib?: string }) => Promise<{ files: { path: string; content: string }[] }>
   runPixsoBuild: (input: string) => Promise<string>
   getTopixsoDir: () => Promise<string>
-  exportZip: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; destFolder?: string; comment?: string }) => Promise<string | null>
+  exportZip: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; destFolder?: string; sourceDirs?: { dir: string; destFolder: string }[]; comment?: string }) => Promise<string | null>
   importZip: () => Promise<{ name: string; content: string }[] | null>
   codeToHtml: (opts: { url: string; theme?: "light" | "dark"; waitForMs?: number }) => Promise<{ html: string; resourceCount: number }>
   listDirectory: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>

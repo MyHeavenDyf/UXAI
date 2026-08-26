@@ -9,7 +9,7 @@ import './styles/base.css';
 import './styles/hui-base.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-    <ConfigProvider locale="zh">
+    <ConfigProvider locale="zh" version="aui3-1">
       <RouterProvider router={router} />
     </ConfigProvider>
 );

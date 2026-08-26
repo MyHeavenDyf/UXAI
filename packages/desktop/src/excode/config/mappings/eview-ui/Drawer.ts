@@ -1,22 +1,30 @@
 /**
- * Drawer → Drawer 映射
+ * Drawer → Drawer 映射（eview-ui 本地工厂副本）
  *
- * A2UI Drawer → eview-react Drawer 组件。
+ * eview-ui 的 Drawer 与 eview-react 的 Drawer 存在差异：eview-ui 默认要加 `height='100%'`
+ * （仅 right/left/缺省 时加，top/bottom 不加），eview-react 不加。width 两边一致——
+ * 都是 A2UI `width`(number) 同名透传、无默认。故不再复用 eview-react 工厂，本文件为其本地副本。
+ *
+ * ## 尺寸（本副本与 eview-react 的差异）
+ *
+ * - width：A2UI `width`(number) 同名透传，无默认（与 eview-react 一致）。
+ * - height：默认 `'100%'`，仅 placement 为 right/left/缺省 时加（top/bottom 不加）。
  *
  * ## Props 对照
  *
- * | A2UI prop | eview-react prop | 处理方式 |
- * |-----------|-----------------|---------|
+ * | A2UI prop | eview-ui prop | 处理方式 |
+ * |-----------|---------------|---------|
  * | open（DataBinding） | visible | **ComputedValue.useState**（event:onClose）；shared→useSharedState，非共享→局部 useState |
  * | onClose（Action） | — | 丢弃（onClose 回调由 open 的 useState extractor 生成，closeVal 取自 Action.value，数据驱动） |
  * | placement（right/left/top/bottom） | placement | 同名透传 |
- * | width（number） | width | 同名透传（number 值原样） |
- * | mask（boolean，默认 true） | showMask | 改名（A2UI mask → eview-react showMask，语义一致） |
+ * | width（number） | width | 同名透传（number 值原样，无默认；与 eview-react 一致） |
+ * | mask（boolean，默认 true） | showMask | 改名（A2UI mask → showMask，语义一致） |
  * | title（字面量 string） | title | 同名透传 |
  * | title（DataBinding） | title | BindingValue 同名透传 |
  * | footer（SlotNode） | — | resolve 后追加到 children（Drawer 无独立 footer slot，内容合并到 body） |
  * | className | className | 透传 |
  * | children（StaticChildren） | children | 透传（body content），如有 footer SlotNode 则追加到 children 数组 |
+ * | — | height | 默认 '100%'（仅 right/left/缺省 时加，top/bottom 不加） |
  * | — | showClose | 默认 true（Drawer 默认），不显式设置 |
  * | — | destroyOnClose | 默认 false（Drawer 默认），不显式设置 |
  *
@@ -27,10 +35,13 @@
  *   两种场景皆由 extractor `()=>setter(closeVal)` 关闭：setter 自适应（useSharedState setter / 局部 setter）。
  * - onClose Action 丢弃：onClose 回调由 open 的 useState extractor 自动生成；closeVal 取自 Action.value（数据驱动）。
  *   open.path 与 onClose.path 按协议一致（"typically same path"），extractor 走 open 的 setter 即写正确路径。
- * - footer SlotNode 追加到 children：eview-react Drawer 没有独立 footer slot，
+ * - footer SlotNode 追加到 children：eview-ui Drawer 没有独立 footer slot，
  *   SlotNode 内含任意 React 内容（如 div 包裹按钮），无法转为结构化 footer，因此追加到 children
- * - mask → showMask 改名：A2UI mask=true（显示遮罩）= eview-react showMask=true（显示遮罩）
- * - placement 同名透传：A2UI 与 eview-react 的枚举值一致（right/left/top/bottom）
+ * - mask → showMask 改名：A2UI mask=true（显示遮罩）= showMask=true（显示遮罩）
+ * - placement 同名透传：A2UI 与 eview-ui 的枚举值一致（right/left/top/bottom）
+ * - **width 纯透传无默认**：A2UI `width`(number) 同名透传（与 eview-react 一致），不产 'auto' 默认。
+ * - **height 条件默认**：right/left/缺省 时加 `height='100%'`，top/bottom 不加
+ *   （此为本副本与 eview-react 的唯一差异——eview-react 不加任何 height）
  *
  * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
  */
@@ -88,14 +99,21 @@ export function createDrawerMapping(pkg: string): MappingDef {
       }
 
       // ─── placement（同名透传） ───
-      // A2UI 与 eview-react 的枚举值一致：right/left/top/bottom
+      // A2UI 与 eview-ui 的枚举值一致：right/left/top/bottom
       if ('placement' in props) {
         outputProps.placement = props.placement
       }
 
-      // ─── width（number 同名透传，无默认） ───
+      // ─── width（number 同名透传，无默认；与 eview-react 一致） ───
       if ('width' in props) {
         outputProps.width = props.width
+      }
+
+      // ─── height 默认（条件式，本副本与 eview-react 的唯一差异） ───
+      // 仅 right/left/缺省 时加（垂直方向抽屉，高度占满）；top/bottom 不加。
+      // eview-react 不加任何 height。width 无默认（纯 A2UI 透传）。
+      if (!('placement' in props) || props.placement === 'right' || props.placement === 'left') {
+        outputProps.height = '100%'
       }
 
       // ─── mask → showMask（改名，语义一致） ───
@@ -109,7 +127,7 @@ export function createDrawerMapping(pkg: string): MappingDef {
       }
 
       // ─── footer（SlotNode → 追加到 children） ───
-      // eview-react Drawer 没有独立 footer slot，
+      // eview-ui Drawer 没有独立 footer slot，
       // SlotNode 内含任意 React 内容（如 div 包裹按钮），无法转为结构化 footer，
       // 因此 resolve 后追加到 children 数组。
       let footerNode: any = null

@@ -1058,6 +1058,7 @@ function DownloadButton(props: {
                       <button
                         type="button"
                         class="octo-dropdown-item"
+                        style={{ "justify-content": "flex-start", "text-align": "left" }}
                         onClick={() => handlePick(opt.value)}
                       >
                         <span>{opt.label}</span>

@@ -33,6 +33,8 @@ async function buildPrototypeCodeFiles(
 ): Promise<{
   files: { path: string; content: string }[]
   uploadsDir?: string | null
+  /** prototype.html 同级 uploads 目录（make 侧属性编辑器上传的图片落点） */
+  makeUploadsDir?: string | null
 } | null> {
   const toast = (msg: { title: string; description?: string }) => { if (!opts.silent) ctx.showOctoToast(msg) }
 
@@ -90,7 +92,11 @@ async function buildPrototypeCodeFiles(
   // 6. 获取 uploads 目录，供调用方决定是否打包资源
   const uploadsDir = await desktopApi.getUploadsDir?.()
 
-  return { files, uploadsDir }
+  // make 侧：prototype.html 同级 uploads 目录（属性编辑器上传图片落点，由 save-prototype-image IPC 写入）
+  const htmlPath = ctx.tab.filePath || ctx.tab.absoluteFilePath
+  const makeUploadsDir = htmlPath ? htmlPath.replace(/[\\/][^\\/]+$/, '') + '/uploads' : null
+
+  return { files, uploadsDir, makeUploadsDir }
 }
 
 /** 递归列出目录下所有文件（绝对路径） */
@@ -160,8 +166,8 @@ export default {
   name: 'prototype',
 
   downloadOptions: [
-    { value: 'eview-react', label: 'eview-react' },
-    { value: 'eview-ui', label: 'eview-ui' },
+    { value: 'eview-react', label: 'Eview-React' },
+    { value: 'eview-ui', label: 'Eview UI' },
   ],
 
   async handleLocalEdit(ctx) {
@@ -201,9 +207,6 @@ export default {
   },
 
   async handleCanvasEdit(ctx) {
-    // 画布编辑：取当前 prototype 的 A2UI 数据（loadA2uiData 命中缓存时含未落盘的编辑，
-    // 等价于 pattern 页的 pendingPreviewData()[sid]），连同 sessionId / title / projectSelection
-    // 交给 transformerPipeline 做 A2UI → 设计稿转换。
     const tabId = ctx.tab.id
     setActiveSessionId(tabId)
     const session = getSessionById(tabId) ?? createSession(tabId, ctx)
@@ -214,12 +217,6 @@ export default {
     }
 
     const sessionId = ctx.tab.sessionId ?? ""
-    // await transformerPipeline?.({
-    //   previewData,
-    //   sessionId,
-    //   title: ctx.tab.title || sessionId || "export",
-    //   projectSelection: ctx.projectSelection(),
-    // })
 
     // jk-j60099994-replace-with-wx372822-pattern-topixso-2-start
     // jk-j60099994-replace-with-wx372822-pattern-topixso-2-end
@@ -231,13 +228,6 @@ export default {
     downloading = true
 
     const targetLib = option ?? 'eview-react'
-
-    if (targetLib === 'eview-ui') {
-      ctx.showOctoToast({ title: 'eview-ui 暂未上线' })
-      downloading = false
-      return true
-    }
-
     // 磁盘导出还需要 exportZip 才能落盘
     const desktopApi = ctx.getDesktopApi()
     if (!desktopApi?.exportZip) {
@@ -251,17 +241,21 @@ export default {
         const result = await buildPrototypeCodeFiles(ctx, targetLib)
         if (!result) return null // 软失败已提示
 
-        const { files, uploadsDir } = result
+        const { files, uploadsDir, makeUploadsDir } = result
         const fullUploadsPath = uploadsDir && ctx.sessionId
           ? `${uploadsDir}/${ctx.sessionId}/uploads`
           : null
 
+        // pattern 侧 + make 侧 uploads 都打到 public/assets（codegen 已把 uploads/... 改写为 /assets/...）
+        const sourceDirs = [
+          ...(fullUploadsPath ? [{ dir: fullUploadsPath, destFolder: "public/assets" }] : []),
+          ...(makeUploadsDir ? [{ dir: makeUploadsDir, destFolder: "public/assets" }] : []),
+        ]
+
         const zipPath = await desktopApi.exportZip!({
           defaultName: `code-export-${Date.now()}`,
           files,
-          ...(fullUploadsPath
-            ? { sourceDir: fullUploadsPath, destFolder: "public/assets" }
-            : {}),
+          ...(sourceDirs.length ? { sourceDirs } : {}),
           comment: "a2ui-code",
         })
 
@@ -297,27 +291,34 @@ export default {
       if (!result) return null
 
       const desktopApi = ctx.getDesktopApi()
-      const { files, uploadsDir } = result
+      const { files, uploadsDir, makeUploadsDir } = result
 
       const zip = new JSZip()
       for (const f of files) {
         zip.file(f.path, f.content)
       }
 
-      // 打包 uploads 资源到 public/assets，与 exportZip 的 sourceDir 行为对齐
+      // 打包 pattern 侧 + make 侧 uploads 资源到 public/assets
+      // codegen 已把 /uploads/... 和 uploads/... 改写为 /assets/...，故都落到 public/assets/
       const fullUploadsPath = uploadsDir && ctx.sessionId
         ? `${uploadsDir}/${ctx.sessionId}/uploads`
         : null
-      if (desktopApi && fullUploadsPath && desktopApi.listDirectory && desktopApi.readFileBuffer) {
-        try {
-          const allFiles = await listAllFiles(desktopApi, fullUploadsPath)
-          for (const absPath of allFiles) {
-            const rel = absPath.slice(fullUploadsPath.length).replace(/^[\\/]+/, '')
-            const buffer = await desktopApi.readFileBuffer(absPath)
-            if (buffer) zip.file(`public/assets/${rel}`, new Uint8Array(buffer))
+      const uploadDirs = [
+        ...(fullUploadsPath ? [fullUploadsPath] : []),
+        ...(makeUploadsDir ? [makeUploadsDir] : []),
+      ]
+      if (desktopApi && desktopApi.listDirectory && desktopApi.readFileBuffer) {
+        for (const dir of uploadDirs) {
+          try {
+            const allFiles = await listAllFiles(desktopApi, dir)
+            for (const absPath of allFiles) {
+              const rel = absPath.slice(dir.length).replace(/^[\\/]+/, '')
+              const buffer = await desktopApi.readFileBuffer(absPath)
+              if (buffer) zip.file(`public/assets/${rel}`, new Uint8Array(buffer))
+            }
+          } catch (err) {
+            console.warn('[Archive] Failed to bundle uploads:', err)
           }
-        } catch (err) {
-          console.warn('[Archive] Failed to bundle uploads:', err)
         }
       }
 
