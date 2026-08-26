@@ -10,7 +10,7 @@ import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "../mention-
 import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
 import { DesignStrategyIcon, LinkUrlIcon, AttachmentIcon, ProductAssetIcon } from "./icons"
-import { fetchTeamTree, fetchAssetFiles, type AssetFolder, type AssetFile, type AssetNode } from "./asset-library"
+import { fetchTeamTree, fetchAssetFiles, encodeAssetUrl, type AssetFolder, type AssetFile, type AssetNode } from "./asset-library"
 import type { MentionSelection } from "../mention-popover"
 import "./styles.css"
 
@@ -751,7 +751,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                         fallback={<span class="addon-menu-empty-state-text">无预览</span>}
                       >
                         <img
-                          src={assetPreview()!.s3BaseUrl + assetPreview()!.snapshot}
+                          src={encodeAssetUrl(assetPreview()!.s3BaseUrl + assetPreview()!.snapshot)}
                           alt=""
                           class="addon-menu-asset-preview-img"
                           draggable={false}
