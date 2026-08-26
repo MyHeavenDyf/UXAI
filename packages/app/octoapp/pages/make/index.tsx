@@ -2960,7 +2960,6 @@ if (dsId) {
     signal?: AbortSignal,
   ): Promise<void> {
     const sid = params.id
-    if (!sid) throw new Error("No active session")
 
     const projectDirValue = projectDir()
     if (!projectDirValue) throw new Error("未选择项目目录")
@@ -2988,7 +2987,10 @@ if (dsId) {
     filename = filename.split(/[\\/]/).pop() || filename
 
     const sep = projectDirValue.includes("\\") ? "\\" : "/"
-    const destPath = [projectDirValue, ".octo", sid, "uploads", filename].join(sep)
+    // No session yet → stage in tmps (same as addLocalFileAttachment); session ready → land in uploads/
+    const destPath = sid
+      ? [projectDirValue, ".octo", sid, "uploads", filename].join(sep)
+      : [projectDirValue, ".octo", "tmps", "make", "uploads", filename].join(sep)
 
     await api.writeFileBuffer(destPath, buffer)
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
@@ -3007,7 +3009,9 @@ if (dsId) {
       mime: blob.type || 'application/octet-stream',
       size: blob.size,
       status: 'done',
-      source: 'local',
+      // pending = staged in tmps, moved into session uploads when session is created;
+      // local = already in the session uploads directory
+      source: sid ? 'local' : 'pending',
       path: destPath,
     }])
 
