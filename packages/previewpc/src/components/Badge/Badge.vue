@@ -28,17 +28,17 @@ const elBadgeRef = ref<InstanceType<typeof ElBadge>>()
 
 onMounted(() => {
   const wrapper = (elBadgeRef.value as any)?.$el
-  if (wrapper instanceof HTMLElement) {
-    if (attrs['id'] != null)
-      wrapper.setAttribute('id', String(attrs['id']))
-    if (attrs['dom-picker-component'] != null)
-      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
-    if (attrs['data-element-props'] != null)
-      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
-  }
+  if (!(wrapper instanceof HTMLElement)) return
+  // 蓝框绑定到角标内容元素（<sup class="el-badge__content">），而非外层 .el-badge 容器
+  const target = wrapper.querySelector<HTMLElement>('.el-badge__content') ?? wrapper
+  if (attrs['id'] != null)
+    target.setAttribute('id', String(attrs['id']))
+  if (attrs['dom-picker-component'] != null)
+    target.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
+  if (attrs['data-element-props'] != null)
+    target.setAttribute('data-element-props', String(attrs['data-element-props']))
 })
 
-const id = computed(() => node.id)
 const className = computed(() => node.properties.className)
 
 const color = computed(() => resolveValue(properties?.color) as string || "")
@@ -58,7 +58,6 @@ const children = computed(() => properties.children ?? [])
 <template>
   <ElBadge
     ref="elBadgeRef"
-    :id="id"
     :class="className"
     :type="status"
     :color="color"
