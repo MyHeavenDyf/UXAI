@@ -53,6 +53,8 @@ import { checkAppExists, resolveAppPath, wslPath } from "./apps"
 import { CHANNEL, UPDATER_ENABLED } from "./constants"
 // jk-j60099994-replace-with-index-1-start
 // jk-j60099994-replace-with-index-1-end
+// jk-j60099994-replace-with-60062650-desktop-main-index-3-start
+// jk-j60099994-replace-with-60062650-desktop-main-index-3-end
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
@@ -352,6 +354,10 @@ async function initialize() {
     app.exit(1)
     return
   }
+
+  // jk-j60099994-replace-with-60062650-desktop-main-index-2-start
+  // jk-j60099994-replace-with-60062650-desktop-main-index-2-end
+  
   setInitStep({ phase: "done" })
 
   if (overlay) {
