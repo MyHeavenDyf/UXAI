@@ -82,6 +82,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   scrollbar-width: thin;
 }
 
@@ -89,7 +90,8 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  width: 468px;
+  width: 100%;
+  box-sizing: border-box;
   line-height: 22px;
   padding: 9px 16px;
   margin-top: 16px;
