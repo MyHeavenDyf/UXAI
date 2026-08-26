@@ -223,6 +223,7 @@ const tableData = computed(() => {
         :filters="col.filters as any"
         :fixed="col.fixed"
         :sortable="col.sortable"
+        :resizable="false"
       >
         <template #default="{ row }">
           <ComponentNode

@@ -85,6 +85,11 @@ export default defineConfig(({ mode }) => {
       emptyOutDir: true,
       chunkSizeWarningLimit: 5000,
       rollupOptions: {
+        output: {
+          entryFileNames: 'assets/[name].js',
+          chunkFileNames: 'assets/[name].js',
+          assetFileNames: 'assets/[name][extname]',
+        },
         onLog(level, log, handler) {
           if (log.code === 'INVALID_ANNOTATION') return
           handler(level, log)

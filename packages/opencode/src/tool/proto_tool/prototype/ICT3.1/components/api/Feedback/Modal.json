@@ -84,6 +84,14 @@
           "type": "boolean",
           "default": true
         },
+        "width": {
+          "oneOf": [
+            { "type": "number" },
+            { "type": "string" }
+          ],
+          "default": 520,
+          "description": "Modal width. Number is px, string is CSS size."
+        },
         "title": {
           "oneOf": [
             { "type": "string" },

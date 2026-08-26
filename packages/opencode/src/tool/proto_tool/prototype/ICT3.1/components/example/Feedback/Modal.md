@@ -34,6 +34,7 @@
         "open": { "path": "/isDetailModalOpen" },
         "title": "订单详情",
         "mask": true,
+        "width": 640,
         "footer": { "componentId": "modalFooter" },
         "onClose": {
           "action": "setState",
@@ -101,6 +102,7 @@
     "open": { "path": "/isDeleteModalOpen" },
     "title": "确认删除",
     "mask": true,
+    "width": 480,
     "onClose": {
       "action": "setState",
       "args": { "path": "/isDeleteModalOpen", "value": false }

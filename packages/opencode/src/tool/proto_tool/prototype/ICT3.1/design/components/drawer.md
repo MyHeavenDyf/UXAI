@@ -11,6 +11,7 @@
 - 底部操作区使用 `footer` 命名插槽，传入一个 `componentId`（通常是一个按钮组）；不需要底部时省略 `footer`，不要把操作按钮塞进 `children`。
 - 默认 `mask: true`；仅在需要同时操作抽屉与底层页面时才设 `mask: false`。
 - 标题使用 `title`；标题与触发该抽屉的动作保持同一语境。
+- 使用 `width` 指定抽屉宽度，默认 `300`。
 
 ## 布局
 
@@ -23,4 +24,4 @@
 - 不要用 Drawer 承载强打断型的关键确认；强打断场景用 Modal。
 - 不要同时打开多个 Drawer 形成级联；需要分步时在同一抽屉内切换内容。
 - 不要在 `children` 和 `footer` 中放重复的操作入口；操作按钮统一放 `footer`。
-- 不要臆造 API 未定义的属性（如 width、height、closable 等），需要时再补充。
+- 不要臆造 API 未定义的属性（如 height、closable 等），需要时再补充。
