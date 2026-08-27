@@ -1,4 +1,4 @@
-import { createMemo, createSignal, createEffect, on, onMount, onCleanup, Show } from "solid-js"
+import { createMemo, createSignal, createResource, createEffect, on, onMount, onCleanup, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { buildSrcdoc, annotateElementsWithIds } from "../../utils/srcdoc-builder"
 import { cleanBridgeContent } from "../../utils/bridge-cleaner"
@@ -196,6 +196,17 @@ export function HtmlRenderer(props: {
   const [savedOverrides, setSavedOverrides] = createSignal<Array<{ elementId: string; prop: string; value: string }>>([])
   const [editTarget, setEditTarget] = createSignal<ManualEditTarget | null>(null)
   const [editDraft, setEditDraft] = createSignal<ManualEditDraft>(emptyManualEditDraft(props.content))
+  const [diskContent] = createResource(
+    () => ({ path: props.filePath, key: props.refreshKey ?? 0 }),
+    async (src) => {
+      if (!src.path) return ""
+      const api = getDesktopApi()
+      if (typeof api?.readFileBuffer !== "function") return ""
+      const buf = await api.readFileBuffer(src.path)
+      if (!buf) return ""
+      return decodeHtmlBytes(new Uint8Array(buf))
+    },
+  )
   const [editStyleVersion, setEditStyleVersion] = createSignal(0)
   const [editPanelPosition, setEditPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
   const [inspectPanelPosition, setInspectPanelPosition] = createSignal<{ left: number; top: number } | null>(null)
@@ -2193,7 +2204,7 @@ fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath
        ) : (
         <textarea
           readonly={true}
-          value={extractHtmlContent(props.content)}
+          value={diskContent() ?? extractHtmlContent(props.content)}
           class="w-full h-full resize-none p-4 text-sm font-mono outline-none"
           style={{
             background: "rgba(243,244,246,1)",
