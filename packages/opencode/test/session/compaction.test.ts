@@ -1808,7 +1808,11 @@ describe("session.compaction.process", () => {
 
           expect(captured).toContain("<previous-summary>")
           expect(captured).toContain("summary one")
-          expect(captured.match(/summary one/g)?.length).toBe(1)
+          // reply(text) puts `${text}` under both `## Goal` and `## Progress → Done`,
+          // so the previous-summary anchor contains it twice. hidden filters the old
+          // compaction message out of history; if that filter breaks, the count jumps
+          // to 4 (2 here + 2 from the leaked old summary message).
+          expect(captured.match(/summary one/g)?.length).toBe(2)
           expect(captured).toContain("## Constraints & Preferences")
           expect(captured).toContain("## Progress")
         } finally {

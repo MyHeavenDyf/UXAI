@@ -2,6 +2,8 @@ import type { AssistantMessage, Message } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { useData, useI18n, I18nProvider, type UiI18n } from "@opencode-ai/ui/context"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { createEffect, createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { useProjectDir } from "@/hooks/use-project-dir"
@@ -11,7 +13,7 @@ import { OutputEntryCard } from "./output-entry-card"
 import { scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
 import { isMindmapJSON } from "../utils/mindmap-adapter"
 import { findResourceLinks, linkToOutputType, type ResourceLink } from "../utils/resource-link"
-import { findWriteCards, basename } from "../utils/write-output"
+import { findWriteCards, findWriteOnlyCards, findEditCards, basename } from "../utils/write-output"
 import { readTaskInfo, businessToolBareName, type TaskCardEntry, type TaskInfo } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
 import { KnowledgeReferences, readKnowledgeSources } from "./knowledge-references"
@@ -53,6 +55,13 @@ const refreshedWritePaths = new Set<string>()
 // 内的 baseline 快照(首次观测即视为历史,不报)负责——两层配合才不会在每次加载会话时虚增计数。
 const trackedServerUsageKeys = new Set<string>()
 
+// 「统计产物」打点去重(artifact-file-write / artifact-file-edit / artifact-mcp-return):记已上报过的产物 key,
+// 避免同一文件/链接在 memo 重算 / turn 重挂时重复上报。key 格式:
+//   - write:<messageID>:<filePath>
+//   - edit:<messageID>:<filePath>
+//   - mcp:<messageID>:<uri>
+const trackedArtifactKeys = new Set<string>()
+
 /** 识别 skill 工具调用 part。skill 是内置工具(无 MCP 前缀),完成后 state.metadata.name = 解析出的技能名。 */
 function readSkillUsage(part: unknown): { partId: string; skill: string } | undefined {
   if (!part || typeof part !== "object") return undefined
@@ -64,6 +73,25 @@ function readSkillUsage(part: unknown): { partId: string; skill: string } | unde
   const meta = state.metadata as Record<string, unknown> | undefined
   const name = meta?.name
   return typeof name === "string" && name.length > 0 ? { partId: id, skill: name } : undefined
+}
+
+/** 按文件类型聚合计数,用于 artifact-file-write / artifact-file-edit 上报。 */
+function aggregateByFileType(items: Array<{ fileType: string }>): Array<{ type: string; count: number }> {
+  const map: Record<string, number> = {}
+  for (const item of items) map[item.fileType] = (map[item.fileType] ?? 0) + 1
+  return Object.entries(map).map(([type, count]) => ({ type, count }))
+}
+
+/** 按文件类型+工具名聚合计数,用于 artifact-mcp-return 上报(保留每个 type+tool 组合的 tool 字段)。 */
+function aggregateByFileTypeWithTool(items: Array<{ fileType: string; tool: string }>): Array<{ type: string; count: number; tool: string }> {
+  const map: Record<string, { type: string; count: number; tool: string }> = {}
+  for (const item of items) {
+    const key = `${item.fileType}::${item.tool}`
+    const existing = map[key]
+    if (existing) existing.count += 1
+    else map[key] = { type: item.fileType, count: 1, tool: item.tool }
+  }
+  return Object.values(map)
 }
 
 // 路径 B 嗅探规则:html fence 与 mindmap shape JSON 互相独立,允许同时命中。
@@ -119,6 +147,7 @@ export function InsightTurn(props: {
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
+  const dialog = useDialog()
 
   // 取该用户消息之后的第一条 assistant 消息
   const assistantMsg = createMemo((): AssistantMessage | undefined => {
@@ -174,6 +203,13 @@ export function InsightTurn(props: {
   // 按 url 去重:同一张图的 optimistic FilePart(本地 part id)与 server 回传 FilePart(server part id)
   // 因 id 不同无法在 sync 层互相替换,会并存于同一 messageID 的 part 数组;两者 url 相同(同一 S3 对象),
   // 按 url 去重即只显示一张(用户真的粘两张不同图时 url 不同,不会被误合并)。
+  //
+  // ⚠️ 本层是 insight 侧图片的**唯一**渲染方 —— 上游 Message 也会渲染 user 的图片 FilePart,
+  // 但它的判据是 `attached()`(即 `url.startsWith("data:")`,见 ui/components/message-file.ts)。
+  // insight 自己发的图走 S3(https URL)命不中那条,所以两层长期相安无事;而 chat 时代的图是
+  // **内联 base64**(data: URL),迁进来后两层同时命中 → 同一张图画两遍。修法是在 octo-tokens.css
+  // 里压掉上游那一支(`[data-slot="user-message-attachment"][data-type="image"]`),由本层统一接管,
+  // 因此这里**不能**按 url 形态挑挑拣拣,两种都要画。
   const inputImages = createMemo((): Array<{ filename: string; url: string }> => {
     const seen = new Set<string>()
     const out: Array<{ filename: string; url: string }> = []
@@ -192,9 +228,21 @@ export function InsightTurn(props: {
   const kbSources = createMemo(() => readKnowledgeSources(turnAssistantParts() as Array<Record<string, unknown>>))
 
   // 本轮是否是最新的（最后一条）用户消息 —— 仅对最新轮次显示生成中占位
+  // 用 time.created 数值比较找最新 user,不依赖 msgStore 数组顺序:
+  // event-reducer 的 Binary.search 按 string ID 插入,历史 session 旧 ID 格式与当前
+  // Identifier.ascending() 不兼容,新消息可能插到数组前面而非末尾,reverse().find() 会误命中旧 user。
   const isLatestTurn = createMemo(() => {
     const messages = ((data.store.message as Record<string, Message[]>)?.[props.sessionID] ?? [])
-    const lastUser = [...messages].reverse().find((m) => m.role === "user")
+    let lastUser: Message | undefined
+    let lastUserTime = -1
+    for (const m of messages) {
+      if (m.role !== "user") continue
+      const t = (m as { time?: { created?: number } }).time?.created ?? 0
+      if (t >= lastUserTime) {
+        lastUserTime = t
+        lastUser = m
+      }
+    }
     return lastUser?.id === props.messageID
   })
 
@@ -406,20 +454,116 @@ export function InsightTurn(props: {
     })
   }
 
-  // 文件管理刷新覆盖**全部** write 产物(不止出卡的 md/html):任何 write 都落 outputs,写完要通知文件
+  // 文件管理刷新覆盖**全部** write/edit 产物(不止出卡的 md/html):任何 write/edit 都落 outputs,写完要通知文件
   // 管理刷新,否则新文件要用户手点刷新才出现。故此处仍扫全量 findWriteCards(不按白名单过滤),与出卡的
   // 白名单是两条正交的线。按 messageID:filePath 去重只发一次;生成中不扫,turn 落定后再刷。
   createEffect(() => {
     const parts = turnAssistantParts()
     if (showGenerating()) return
     let fresh = false
+
     for (const w of findWriteCards(parts)) {
       const key = `${props.messageID}:${w.filePath}`
       if (refreshedWritePaths.has(key)) continue
       refreshedWritePaths.add(key)
       fresh = true
     }
+
     if (fresh) props.onFilesRefresh?.()
+  })
+
+  // 统计产物打点(artifact-file-write / artifact-file-edit):
+  //   - artifact-file-write:write 工具调用产生的文件(含覆盖写),按文件类型聚合上报
+  //   - artifact-file-edit:edit 工具调用产生的文件,按文件类型聚合上报
+  //
+  // baseline 快照(artifactFileBaselineTaken):首次观测本 turn 实例时,把当前已存在的 write/edit 产物全部记为「历史」
+  // 不上报——避免刷新/切回会话重挂 turn 时把历史产物当成新事件重报。之后新到达的产物才上报。
+  let artifactFileBaselineTaken = false
+  createEffect(() => {
+    const parts = turnAssistantParts()
+    const generating = showGenerating()
+    const writes = findWriteOnlyCards(parts)
+    const edits = findEditCards(parts)
+
+    if (!artifactFileBaselineTaken) {
+      artifactFileBaselineTaken = true
+      for (const w of writes) trackedArtifactKeys.add(`write:${props.messageID}:${w.filePath}`)
+      for (const e of edits) trackedArtifactKeys.add(`edit:${props.messageID}:${e.filePath}`)
+      return
+    }
+    if (generating) return
+
+    const newWrites: Array<{ fileType: string }> = []
+    for (const w of writes) {
+      const key = `write:${props.messageID}:${w.filePath}`
+      if (trackedArtifactKeys.has(key)) continue
+      trackedArtifactKeys.add(key)
+      newWrites.push({ fileType: w.type })
+    }
+    if (newWrites.length > 0) {
+      tracker.interaction({
+        module: "insight",
+        name: "artifact-file-write",
+        extend: JSON.stringify({ files: aggregateByFileType(newWrites) }),
+      })
+    }
+
+    const newEdits: Array<{ fileType: string }> = []
+    for (const e of edits) {
+      const key = `edit:${props.messageID}:${e.filePath}`
+      if (trackedArtifactKeys.has(key)) continue
+      trackedArtifactKeys.add(key)
+      newEdits.push({ fileType: e.type })
+    }
+    if (newEdits.length > 0) {
+      tracker.interaction({
+        module: "insight",
+        name: "artifact-file-edit",
+        extend: JSON.stringify({ files: aggregateByFileType(newEdits) }),
+      })
+    }
+  })
+
+  // 统计产物打点(artifact-mcp-return):检测 MCP resource_link 类型的产物文件并上报。
+  // 触发时机:本轮 assistant parts 中出现新的 resource_link(MCP 工具返回文件)。
+  // 上报方式:按文件类型聚合(与 artifact-file-write 对称),每次 effect 触发时把本轮新增的
+  // resource_link 按 type 分组计数后一次上报,包含产生该文件的 MCP 工具名(便于分析哪些工具产出率最高)。
+  //
+  // baseline 快照(artifactMcpBaselineTaken):首次观测本 turn 实例时,把当前已存在的 links 全部记为「历史」
+  // 不上报——避免刷新/切回会话重挂 turn 时把历史 MCP 返回文件当成新事件重报。之后新到达的 link 才上报。
+  let artifactMcpBaselineTaken = false
+  createEffect(() => {
+    const parts = turnAssistantParts()
+    const generating = showGenerating()
+    const links = findResourceLinks(parts)
+
+    if (!artifactMcpBaselineTaken) {
+      artifactMcpBaselineTaken = true
+      for (const link of links) {
+        trackedArtifactKeys.add(`mcp:${props.messageID}:${link.uri}`)
+      }
+      return
+    }
+    if (generating) return
+
+    const newLinks: Array<{ fileType: string; tool: string }> = []
+    for (const link of links) {
+      const key = `mcp:${props.messageID}:${link.uri}`
+      if (trackedArtifactKeys.has(key)) continue
+      trackedArtifactKeys.add(key)
+      newLinks.push({
+        fileType: linkToOutputType(link),
+        tool: link.business_type || "unknown",
+      })
+    }
+
+    if (newLinks.length > 0) {
+      tracker.interaction({
+        module: "insight",
+        name: "artifact-mcp-return",
+        extend: JSON.stringify({ files: aggregateByFileTypeWithTool(newLinks) }),
+      })
+    }
   })
 
   // 「服务端真实使用」打点(与常规用户操作打点区分,统一 server- 前缀,清单见 docs/tracking.md):
@@ -518,7 +662,10 @@ export function InsightTurn(props: {
                 src={img.url}
                 title={img.filename}
                 alt={img.filename}
-                style={{ width: "48px", height: "48px", "object-fit": "cover", "border-radius": "8px", "flex-shrink": "0" }}
+                // 点击放大:复用上游 Message 用的同一个 ImagePreview 弹窗,这样"接管"之后
+                // 交互与上游那层等价,不是只把图挪个位置。
+                onClick={() => dialog.show(() => <ImagePreview src={img.url} alt={img.filename} />)}
+                style={{ width: "48px", height: "48px", "object-fit": "cover", "border-radius": "8px", "flex-shrink": "0", cursor: "pointer" }}
               />
             )}
           </For>

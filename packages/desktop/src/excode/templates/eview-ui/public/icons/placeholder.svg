@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="40" height="40" viewBox="0 0 48 48" fill="none" pluginData="%7B%22pluginID%22%3A%22mLPblskg8N2dCg5ADiieuw%22%2C%22key%22%3A%22__hiconInfo__%22%2C%22value%22%3A%22%7B%5C%22iconSize%5C%22%3A40%2C%5C%22defaultIconSize%5C%22%3A40%2C%5C%22storkeWidth%5C%22%3A2.4%2C%5C%22iconState%5C%22%3A%5C%22border%5C%22%2C%5C%22color1%5C%22%3A%5C%22%23191919%5C%22%2C%5C%22color2%5C%22%3A%5C%22%5C%22%2C%5C%22color3%5C%22%3A%5C%22%5C%22%2C%5C%22strokeWidth%5C%22%3A2.4%2C%5C%22model%5C%22%3A%5C%22border%5C%22%2C%5C%22type%5C%22%3A%5C%22iconPlus%5C%22%2C%5C%22version%5C%22%3A%5C%221.0.1%5C%22%2C%5C%22typeValue%5C%22%3A%5C%22universal%5C%22%2C%5C%22background%5C%22%3A%5C%22%5C%22%7D%22%7D">
+	<desc>
+			Created with Pixso.
+	</desc>
+	<defs>
+		<clipPath id="clip553_3175">
+			<rect width="48.000000" height="48.000000" fill="white" fill-opacity="0"/>
+		</clipPath>
+		<clipPath id="clip553_3174">
+			<rect width="48.000000" height="48.000000" fill="white" fill-opacity="0"/>
+		</clipPath>
+	</defs>
+	<rect width="48.000000" height="48.000000" fill="#FFFFFF" fill-opacity="0"/>
+	<g clip-path="url(#clip553_3174)">
+		<g clip-path="url(#clip553_3175)">
+			<path d="M0 23.98C0 20.23 -0.01 16.48 0 12.73C-0.01 10.91 0.22 9.1 0.66 7.35C1.64 3.63 4.06 1.41 7.79 0.56C9.64 0.16 11.56 -0.03 13.46 0C20.64 0 27.83 0 35.04 0C36.85 -0.01 38.66 0.18 40.43 0.62C44.26 1.55 46.56 3.97 47.43 7.8C47.83 9.6 48.01 11.43 47.99 13.29C47.99 20.56 47.99 27.83 47.99 35.09C48 36.89 47.8 38.68 47.37 40.43C46.43 44.27 44 46.55 40.18 47.43C38.31 47.83 36.41 48.02 34.51 47.99C27.35 47.99 20.18 47.99 13.03 47.99C11.2 48.01 9.37 47.8 7.6 47.38C3.75 46.45 1.43 44.01 0.56 40.16C0.12 38.22 0 36.27 0 34.3C0 30.86 0 27.41 0 23.98Z" fill="#FFFFFF" fill-opacity="0" fill-rule="evenodd"/>
+			<circle cx="24.000000" cy="24.000000" r="24.000000" fill="#FFFFFF" fill-opacity="0"/>
+		</g>
+		<path d="M21 21L12.25 21C7.41 21 3.5 17.08 3.5 12.25C3.5 7.41 7.41 3.5 12.25 3.5C17.08 3.5 21 7.41 21 12.25L21 21Z" stroke="#191919" stroke-opacity="1.000000" stroke-width="2.4" stroke-linejoin="round"/>
+		<path d="M21 27L21 35.75C21 40.58 17.08 44.5 12.25 44.5C7.41 44.5 3.5 40.58 3.5 35.75C3.5 30.91 7.41 27 12.25 27L21 27Z" stroke="#191919" stroke-opacity="1.000000" stroke-width="2.4" stroke-linejoin="round"/>
+		<path d="M35.75 27C40.58 27 44.5 30.91 44.5 35.75C44.5 40.58 40.58 44.5 35.75 44.5C30.91 44.5 27 40.58 27 35.75L27 27L35.75 27Z" stroke="#191919" stroke-opacity="1.000000" stroke-width="2.4" stroke-linejoin="round"/>
+		<path d="M27 21L27 12.25C27 7.41 30.91 3.5 35.75 3.5C40.58 3.5 44.5 7.41 44.5 12.25C44.5 17.08 40.58 21 35.75 21L27 21Z" stroke="#191919" stroke-opacity="1.000000" stroke-width="2.4" stroke-linejoin="round"/>
+		<path d="M22.5 21L22.5 12.25C22.5 6.58 17.91 2 12.25 2C6.58 2 2 6.58 2 12.25C2 17.91 6.58 22.5 12.25 22.5L21 22.5C21.82 22.5 22.5 21.82 22.5 21Z" fill="#FFFFFF" fill-opacity="0" fill-rule="evenodd"/>
+		<path d="M22.5 35.75L22.5 27C22.5 26.17 21.82 25.5 21 25.5L12.25 25.5C6.58 25.5 2 30.08 2 35.75C2 41.41 6.58 46 12.25 46C17.91 46 22.5 41.41 22.5 35.75Z" fill="#FFFFFF" fill-opacity="0" fill-rule="evenodd"/>
+		<path d="M46 35.75C46 30.08 41.41 25.5 35.75 25.5L27 25.5C26.17 25.5 25.5 26.17 25.5 27L25.5 35.75C25.5 41.41 30.08 46 35.75 46C41.41 46 46 41.41 46 35.75Z" fill="#FFFFFF" fill-opacity="0" fill-rule="evenodd"/>
+		<path d="M35.75 22.5C41.41 22.5 46 17.91 46 12.25C46 6.58 41.41 2 35.75 2C30.08 2 25.5 6.58 25.5 12.25L25.5 21C25.5 21.82 26.17 22.5 27 22.5L35.75 22.5Z" fill="#FFFFFF" fill-opacity="0" fill-rule="evenodd"/>
+		<path d="M35.75 22.5C41.41 22.5 46 17.91 46 12.25C46 6.58 41.41 2 35.75 2C30.08 2 25.5 6.58 25.5 12.25L25.5 21C25.5 21.82 26.17 22.5 27 22.5L35.75 22.5Z" fill="#FFFFFF" fill-opacity="0" fill-rule="evenodd"/>
+	</g>
+</svg>

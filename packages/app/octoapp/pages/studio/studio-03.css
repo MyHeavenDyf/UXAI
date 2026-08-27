@@ -1091,6 +1091,10 @@
   box-shadow: none;
 }
 
+.studio-video-player:not(.controls-hidden) .studio-video-player-media {
+  cursor: pointer;
+}
+
 .studio-video-player-center-play {
   position: absolute;
   left: 50%;

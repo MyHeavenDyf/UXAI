@@ -31,7 +31,7 @@
 
 import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
 import type { PropValue } from '../../../src/core/value-types'
-import { Node } from '../../../src/core/node'
+import { Node } from '../../../src/core/node-factory'
 
 // ─── 常量 ───
 
@@ -41,11 +41,6 @@ const TITLE_PLACEMENT_MAP: Record<string, string> = {
   end: 'right',
   center: 'center',
 }
-
-/** 透传时跳过的 A2UI prop key */
-const SKIP_KEYS = new Set([
-  'value', 'orientation', 'titlePlacement', 'variant', 'size', 'className',
-])
 
 // ─── Divider 映射定义 ───
 
@@ -58,6 +53,9 @@ export function createDividerMapping(pkg: string): MappingDef {
       const props = node.props || {}
       const outputProps: Record<string, PropValue> = {}
       let children: any[] | null = null
+
+      // 显性处理每个 A2UI prop：A2UI Divider 的 props 是封闭集合
+      // (value/orientation/size/titlePlacement/variant/className)，不做兜底透传。
 
       // ─── value → children（三分支） ───
       if ('value' in props) {
@@ -102,12 +100,7 @@ export function createDividerMapping(pkg: string): MappingDef {
         outputProps.className = props.className
       }
 
-      // ─── 透传剩余未处理 prop ───
-      for (const [key, value] of Object.entries(props)) {
-        if (!SKIP_KEYS.has(key)) {
-          outputProps[key] = value as PropValue
-        }
-      }
+      // 不做剩余兜底透传：A2UI Divider 的 props 已逐项显性处理。
 
       return {
         props: outputProps,

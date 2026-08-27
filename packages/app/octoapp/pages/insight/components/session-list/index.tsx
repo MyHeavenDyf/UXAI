@@ -1,7 +1,7 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { createEffect, createMemo, createResource, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js"
 import type { JSX } from "solid-js"
-import { createStore, reconcile } from "solid-js/store"
+import { createStore, produce, reconcile } from "solid-js/store"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { INSIGHT_AGENT } from "@/constants/agent"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -12,6 +12,8 @@ import { usePermission } from "@/context/permission"
 import { sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
 import { sessionTitle } from "@/utils/session-title"
 import { tracker } from "@/utils/tracker"
+import { pickNextSession } from "@/utils/session-delete"
+import { useSessionDelete } from "@/hooks/use-session-delete"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
@@ -51,6 +53,7 @@ export function InsightSessionList(): JSX.Element {
   const dialog = useDialog()
   const language = useLanguage()
   const layout = useLayout()
+  const removeSession = useSessionDelete()
 
   // 走全栈统一 useProjectDir():路由 :dir → server.projects.last() → globalSync.data.path.home 兜底,
   // 与 _shell/sidebar.tsx / make / studio 完全一致;避免"insight 自读 home 而其他模块走 selection"造成
@@ -203,13 +206,22 @@ export function InsightSessionList(): JSX.Element {
   }
 
   async function handleDelete(sessionId: string) {
-    try {
-      await clientFor(sessionId).session.delete({ sessionID: sessionId })
-      tracker.interaction({ module: "insight", name: "session-delete", extend: JSON.stringify({ entry: "menu" }) })
-      if (layout.lastSessionPerTab.cowork()?.id === sessionId) layout.lastSessionPerTab.clearCowork()
-      if (activeSessionId() === sessionId) navigate("/insight")
-    } catch (err) {
-      console.error("[insight:session-list] delete failed", err)
+    const nextSession = pickNextSession(sessionList.filter((s) => !s.time?.archived), sessionId)
+
+    const ok = await removeSession(clientFor(sessionId), sessionId)
+    if (!ok) return
+
+    tracker.interaction({ module: "insight", name: "session-delete", extend: JSON.stringify({ entry: "menu" }) })
+    setSessionList(
+      produce((draft) => {
+        const i = draft.findIndex((s) => s.id === sessionId)
+        if (i !== -1) draft.splice(i, 1)
+      }),
+    )
+    if (layout.lastSessionPerTab.cowork()?.id === sessionId) layout.lastSessionPerTab.clearCowork()
+    if (activeSessionId() === sessionId) {
+      navigate(nextSession ? `/insight/${nextSession.id}` : "/insight")
+      void refetch()
     }
   }
 
@@ -220,7 +232,7 @@ export function InsightSessionList(): JSX.Element {
     closeContextMenu()
     dialog.show(() => (
       <DialogDeleteSession
-        name={sessionTitle(session?.title) || language.t("command.session.new")}
+        name={sessionTitle(session?.title) ?? language.t("command.session.new")}
         onDelete={() => handleDelete(sessionId)}
       />
     ))

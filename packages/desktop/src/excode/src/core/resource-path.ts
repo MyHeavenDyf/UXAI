@@ -1,7 +1,8 @@
 /**
  * resource-path — 本地资源路径泛路改写
  *
- * A2UI JSON 中本地上传资源以 `/uploads/{file}`（可选 `/history/ses_{session}` 前缀）形式引用。
+ * A2UI JSON 中本地上传资源以 `/uploads/{file}`（可选 `/history/ses_{session}` 前缀）形式引用；
+ * make 侧 prototype.html 属性编辑器上传的图片以相对 `uploads/{file}`（无前导斜杠）形式引用。
  * 管线产出 React 项目时统一改写为 `/assets/{file}`——zip 打包时资源文件落到 `assets/` 目录
  * （资源文件本身由 Electron 打包处理，管线只改引用路径，不回传资源清单）。
  *
@@ -16,8 +17,8 @@
 /** 改写后的资源基础路径（zip 中静态文件夹名）。改这里即改全局约定，不抽成 config 字段。 */
 const ASSET_BASE_PATH = '/assets/'
 
-/** 本地资源路径匹配：可选 /history/{session} 前缀 + /uploads/{file} */
-const RESOURCE_RE = /^(?:\/history\/[^/]+)?\/uploads\/(.+)$/
+/** 本地资源路径匹配：可选 /history/{session} 前缀 + 可选前导 / + uploads/{file}（兼容 make 侧相对引用） */
+const RESOURCE_RE = /^(?:\/history\/[^/]+)?\/?uploads\/(.+)$/
 
 /** 网络 URL（http/https 或协议相对 //）不改写 */
 function isHttpUrl(s: string): boolean {
@@ -28,7 +29,7 @@ function isHttpUrl(s: string): boolean {
  * 改写单个资源路径字符串。
  *
  * - 网络 URL → 原样
- * - 命中 `/uploads/{file}`（含可选 `/history/ses_xxx` 前缀）→ `/assets/{file}`
+ * - 命中 `/uploads/{file}`（含可选 `/history/ses_xxx` 前缀）或相对 `uploads/{file}`（make 侧）→ `/assets/{file}`
  * - 其他（普通文本/标签名/state 指针等）→ 原样
  *
  * 注意：A2UI DataBinding 的 `path` 字段（如 `/brandInfo/backgroundImages/0`）是 state 指针，
@@ -48,6 +49,12 @@ export function rewriteResourcePath(s: string): string {
  * 只对 string 叶子应用 `rewriteResourcePath`；非命中 pattern 的字符串（标签名、import 路径、
  * className、state 指针等）原样返回，故递归进 BuildNode / 值类对象也安全（无副作用）。
  * 返回新值，不修改入参。
+ *
+ * ⚠️ 必须跳过 `loopScope` 键：enrichment const 值里可能嵌着带 loopScope 的 BuildNode
+ * （循环内收集的 CV 结果），而 `node.loopScope.loopNode` 指回父循环、父循环 `template.body`
+ * 又含该节点 → 天然环。递归 Object.entries 会顺着环无限深入 → RangeError: Maximum call
+ * stack size exceeded。loopScope 是结构性反向引用（非 state 数据），改写它无意义，故跳过。
+ * 与 fileAssembler.collectImportsFromConstValues / import-collector.walkValueForImports 同模式。
  */
 export function rewriteResourcePathsInValue(v: any): any {
   if (v == null) return v
@@ -55,7 +62,11 @@ export function rewriteResourcePathsInValue(v: any): any {
   if (Array.isArray(v)) return v.map(rewriteResourcePathsInValue)
   if (typeof v === 'object') {
     const out: Record<string, any> = {}
-    for (const [k, val] of Object.entries(v)) out[k] = rewriteResourcePathsInValue(val)
+    for (const [k, val] of Object.entries(v)) {
+      // 跳过 loopScope 反向引用字段，避免结构性循环爆栈（见上文注释）
+      if (k === 'loopScope') continue
+      out[k] = rewriteResourcePathsInValue(val)
+    }
     return out
   }
   return v

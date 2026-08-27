@@ -1,10 +1,12 @@
 import { createSignal, onMount, onCleanup, Show, createEffect } from "solid-js"
 import { Portal } from "solid-js/web"
-import { EditorState, Transaction, TextSelection } from "prosemirror-state"
+import { EditorState, Transaction, TextSelection, Plugin } from "prosemirror-state"
 import { EditorView } from "prosemirror-view"
 import { history, undo, redo } from "prosemirror-history"
 import { keymap } from "prosemirror-keymap"
 import { baseKeymap } from "prosemirror-commands"
+import { Fragment, Slice } from "prosemirror-model"
+import type { Node as PMNode } from "prosemirror-model"
 import { editorSchema, getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs } from "./schema"
 import { createMentionTriggerPlugin, mentionTriggerKey, closeMentionTrigger, type MentionTriggerState } from "./plugins/mention-trigger"
 import { createSyncPlugin } from "./plugins/sync"
@@ -22,11 +24,18 @@ interface EditorRef {
   clear: () => void
   insertText: (text: string) => void
   replaceSlashCommand: (text: string) => void
+  insertMention: (selection: MentionSelection) => void
+  removeMention: (selection: MentionSelection) => void
+  updateMentionPath: (filename: string, path: string) => void
+  isAlive: () => boolean
 }
 
 interface Props {
   sessionId: string
-  skillConfig: { panel?: { common?: PanelSkill[]; octo_make?: PanelSkill[] } }
+  skillConfig: {
+    skill?: Record<string, import("../skill-config-types").SkillConfigEntry>
+    panel?: { common?: PanelSkill[]; octo_make?: PanelSkill[] }
+  }
   artifactFiles: { generated: ArtifactFile[]; uploaded: ArtifactFile[] } | null | undefined
   mentionSelections: MentionSelection[]
   setMentionSelections: (selections: MentionSelection[]) => void
@@ -84,6 +93,59 @@ export const ProseMirrorEditor = (props: Props) => {
   }, props.onContentChange)
 
   const connected = (v: EditorView | undefined): v is EditorView => !!v && !!v.dom?.isConnected
+
+  function filterMentionDuplicates(fragment: Fragment, seen: Set<string>): Fragment {
+    const nodes: PMNode[] = []
+    fragment.forEach((node) => {
+      if (node.type.name === "mention") {
+        // 只有技能才去重，文件不去重
+        if (node.attrs.type === "skill") {
+          const key = node.attrs.name
+          if (!seen.has(key)) {
+            seen.add(key)
+            nodes.push(node)
+          }
+        } else {
+          nodes.push(node)
+        }
+      } else if (node.content && node.content.size > 0) {
+        const filtered = filterMentionDuplicates(node.content, seen)
+        nodes.push(node.copy(filtered))
+      } else {
+        nodes.push(node)
+      }
+    })
+    return Fragment.from(nodes)
+  }
+
+  const pasteDedupPlugin = new Plugin({
+    props: {
+      handlePaste(view, event, slice) {
+        const { from, to } = view.state.selection
+        
+        // 收集未被框选的技能
+        const existingSkills = new Set<string>()
+        view.state.doc.descendants((node, pos) => {
+          if (node.type.name === "mention" && node.attrs.type === "skill") {
+            // 检查节点是否在框选范围外
+            if (pos < from || pos >= to) {
+              existingSkills.add(node.attrs.name)
+            }
+          }
+        })
+        
+        // 过滤粘贴内容
+        const filtered = filterMentionDuplicates(slice.content, existingSkills)
+        const newSlice = new Slice(filtered, slice.openStart, slice.openEnd)
+        
+        // 应用粘贴
+        const tr = view.state.tr.replaceSelection(newSlice)
+        view.dispatch(tr)
+        
+        return true
+      }
+    }
+  })
 
   onMount(() => {
     if (!containerRef) return
@@ -152,6 +214,7 @@ export const ProseMirrorEditor = (props: Props) => {
         mentionTriggerPlugin,
         slashTriggerPlugin,
         syncPlugin,
+        pasteDedupPlugin,
       ],
     })
 
@@ -210,6 +273,50 @@ export const ProseMirrorEditor = (props: Props) => {
           v.dispatch(tr)
           setSlashTriggerState(null)
         },
+        insertMention: (selection: MentionSelection) => {
+          const v = view()
+          if (!v || !v.dom?.isConnected) return
+          const attrs = selection.type === "skill"
+            ? { id: selection.name, name: selection.name, type: "skill" as const, label: selection.label, path: "" }
+            : { id: selection.filename, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
+          const node = editorSchema.nodes.mention.create(attrs)
+          const { from, to } = v.state.selection
+          const tr = v.state.tr.replaceWith(from, to, node)
+          const newPos = from + node.nodeSize
+          tr.setSelection(TextSelection.create(tr.doc, newPos))
+          v.dispatch(tr)
+          v.focus()
+        },
+        removeMention: (selection: MentionSelection) => {
+          const v = view()
+          if (!v || !v.dom?.isConnected) return
+          const name = selection.type === "skill" ? selection.name : selection.filename
+          let lastPos = -1
+          v.state.doc.descendants((node, pos) => {
+            if (node.type.name === "mention" && node.attrs.name === name) {
+              lastPos = pos
+            }
+          })
+          if (lastPos === -1) return
+          const size = v.state.doc.nodeAt(lastPos)!.nodeSize
+          const tr = v.state.tr.delete(lastPos, lastPos + size)
+          v.dispatch(tr)
+        },
+        updateMentionPath: (filename: string, path: string) => {
+          const v = view()
+          if (!v || !v.dom?.isConnected) return
+          const tr = v.state.tr
+          v.state.doc.descendants((node, pos) => {
+            if (node.type.name === "mention" && node.attrs.name === filename && node.attrs.path !== path) {
+              tr.setNodeMarkup(pos, undefined, { ...node.attrs, path })
+            }
+          })
+          if (tr.docChanged) v.dispatch(tr)
+        },
+        isAlive: () => {
+          const v = view()
+          return !!v && !!v.dom?.isConnected
+        },
       })
     }
 
@@ -222,7 +329,10 @@ export const ProseMirrorEditor = (props: Props) => {
       })
     }
 
-    onCleanup(() => editorView.destroy())
+    onCleanup(() => {
+      editorView.destroy()
+      setView(undefined)
+    })
   })
 
   createEffect(() => {
@@ -245,6 +355,13 @@ export const ProseMirrorEditor = (props: Props) => {
       if (!target.closest(".mention-popover-container")) {
         console.log("[click-outside] closing popover")
         const v = view()
+        const trigger = triggerState()
+        
+        if (v && trigger) {
+          // Delete @abc search text
+          const tr = v.state.tr.delete(trigger.from, trigger.to)
+          v.dispatch(tr)
+        }
         
         if (v) {
           const tr = v.state.tr.setMeta(mentionTriggerKey, null)
@@ -297,14 +414,21 @@ export const ProseMirrorEditor = (props: Props) => {
       : { id: selection.filename, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
 
     const node = editorSchema.nodes.mention.create(attrs)
-    const pos = trigger.from
-    const tr = v.state.tr.replaceWith(trigger.from, trigger.to, node)
     
-    const newPos = pos + node.nodeSize
-    tr.setSelection(TextSelection.create(tr.doc, newPos))
+    if (selection.type === "file") {
+      // 文件：在 @ 后面插入 chip，光标移到 @ 后面
+      const tr = v.state.tr.insert(trigger.to, node)
+      tr.setSelection(TextSelection.create(tr.doc, trigger.from + 1))
+      v.dispatch(tr)
+    } else {
+      // 技能：替换 @abc 为 chip，关闭面板
+      const tr = v.state.tr.replaceWith(trigger.from, trigger.to, node)
+      const newPos = trigger.from + node.nodeSize
+      tr.setSelection(TextSelection.create(tr.doc, newPos))
+      v.dispatch(tr)
+      setTriggerState(null)
+    }
     
-    v.dispatch(tr)
-    setTriggerState(null)
     v.focus()
   }
 
@@ -314,31 +438,22 @@ export const ProseMirrorEditor = (props: Props) => {
 
     const name = selection.type === "skill" ? selection.name : selection.filename
     
-    // First, delete existing MentionNode
-    const tr1 = v.state.tr
+    // Delete the last matching MentionNode
+    let lastPos = -1
+    let lastSize = 0
     v.state.doc.descendants((node, pos) => {
       if (node.type.name === "mention" && node.attrs.name === name) {
-        tr1.delete(pos, pos + node.nodeSize)
+        lastPos = pos
+        lastSize = node.nodeSize
       }
     })
     
-    if (tr1.docChanged) {
-      v.dispatch(tr1)
+    if (lastPos >= 0) {
+      const tr = v.state.tr.delete(lastPos, lastPos + lastSize)
+      v.dispatch(tr)
     }
     
-    // Then, delete @ text at current cursor position (after MentionNode is removed)
-    const state2 = v.state
-    const { from } = state2.selection
-    const textBefore = state2.doc.textBetween(Math.max(0, from - 50), from)
-    const match = textBefore.match(/@([^\s@]*)$/)
-    
-    if (match) {
-      const start = from - match[0].length
-      const tr2 = state2.tr.delete(start, from)
-      v.dispatch(tr2)
-    }
-    
-    setTriggerState(null)
+    // Don't close panel for file deselect
   }
 
   const getText = () => {
@@ -396,7 +511,15 @@ export const ProseMirrorEditor = (props: Props) => {
             <MentionPopover
               query={triggerState()!.query}
               sessionId={props.sessionId}
-              onClose={() => setTriggerState(null)}
+              onClose={() => {
+                const v = view()
+                const trigger = triggerState()
+                if (v && trigger) {
+                  const tr = v.state.tr.delete(trigger.from, trigger.to)
+                  v.dispatch(tr)
+                }
+                setTriggerState(null)
+              }}
               onSelect={handleMentionSelect}
               onDeselect={handleMentionDeselect}
               selections={props.mentionSelections}

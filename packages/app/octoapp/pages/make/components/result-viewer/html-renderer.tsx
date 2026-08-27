@@ -6,6 +6,7 @@ import { createResourceTracker, type ResourceTracker } from "../../utils/resourc
 import { getArtifactServeUrl, getArtifactRelativePath, pathToLocalUrl, isElectronDesktop, extractCommentFilePath } from "../../utils/artifact-file-api"
 import { directoryHeader } from "@/utils/headers"
 import { getDesktopApi } from "../../lib/electron-api"
+import { usePixsoTransport } from "@/utils/useZipTransport"
 import { decodeHtmlBytes } from "@opencode-ai/core/bridge-scripts"
 import { PreviewOverlay } from "../preview-overlay"
 import { InspectPanel } from "./inspect-panel"
@@ -18,9 +19,17 @@ import { DialogArchiveSuccess } from "@/components/dialog-archive-success"
 import { createArchiveZip, capturePageScreenshot, transformCommentsForArchive, buildArchivePath, createDeliverable, uploadCover, uploadVersion, getArchiveBaseUrl, getNextAvailableFileName } from "../../utils/archive-utils"
 import type { ManualEditTarget, ManualEditPatch, ManualEditStyles } from "../../edit-mode/source-patches"
 import { readManualEditFields, readManualEditAttributes, readManualEditOuterHtml, inspectorManualEditStyles, applyManualEditPatch, emptyManualEditStyles, MANUAL_EDIT_STYLE_PROPS } from "../../edit-mode/source-patches"
-import { showToast } from "@opencode-ai/ui/toast"
+import type { LocalEditSavePayload, LocalEditChange } from "../../subtype-handlers/types"
+import { buildLocalEditPayload } from "../../subtype-handlers/shadcn"
+import { showOctoToast } from "../octo-toast"
 import { tracker } from "@/utils/tracker"
 import { TaskStore } from "@/context/task"
+import { useSDK } from "@/context/sdk"
+import { useSync } from "@/context/sync"
+import { useLocal } from "@/context/local"
+import { getSubtypeHandler } from "../../utils/subtype-registry"
+import type { SubtypeHandlerContext } from "../../subtype-handlers/types"
+import type { ResultTab } from "./tab-store"
 import "./inspect-panel.css"
 import "./manual-edit-panel.css"
 
@@ -30,6 +39,13 @@ function getArtifactFilename(filePath: string | undefined): string {
   // Handle both Windows (D:\path\file.html) and Unix (/path/file.html) paths
   const parts = filePath.split(/[/\\]/)
   return parts[parts.length - 1] || ''
+}
+
+// Helper: Extract a fenced code block of given lang from text (matches impl in index.tsx / action-bar.tsx)
+function extractCodeBlock(text: string, lang: string): string {
+  const re = new RegExp("```" + lang + "\\s*\\n([\\s\\S]*?)\\n?```", "i")
+  const m = text.match(re)
+  return m ? m[1].trim() : text.trim()
 }
 
 // Helper: Get commenter info from localStorage.userInfo
@@ -158,9 +174,21 @@ export function HtmlRenderer(props: {
   onSaveFile?: (content: string) => Promise<void>
   onRefreshNeeded?: () => void
   tabTitle?: string
+  onSaveLocalEdit?: (payload: LocalEditSavePayload) => Promise<boolean>
   /** 注册一个获取当前 iframe 已加载资源 URL 的 getter */
   observedUrlsGetter?: (getter: () => string[]) => void
+  /** 注册一个向当前 iframe contentWindow 发送 postMessage 的函数 */
+  registerIframePostMessage?: (fn: (data: unknown) => void) => void
+  /** 注册一个获取当前 iframe 元素的 getter（用于坐标换算 / source 匹配） */
+  iframeElementGetter?: (getter: () => HTMLIFrameElement | undefined) => void
+  /** 当前 tab 的 subtype（用于调用 subtype handler 的归档钩子） */
+  subtype?: string
+  /** 当前 tab 的 id（用于构造 SubtypeHandlerContext） */
+  tabId?: string
 }): JSX.Element {
+  const sdk = useSDK()
+  const sync = useSync()
+  const local = useLocal()
   let iframeRef: HTMLIFrameElement | undefined
   const resourceTracker: ResourceTracker = createResourceTracker()
   const [inspectTarget, setInspectTarget] = createSignal<InspectTarget | null>(null)
@@ -225,6 +253,9 @@ export function HtmlRenderer(props: {
   
   // Pending text storage for Cancel/Save logic (tracks text/href changes)
   let manualEditPendingText: { id: string; text: string; href: string } | null = null
+  
+  // Snapshot of normalized styles captured at selection time (used as "before" in local-edit payload)
+  let manualEditInitialStyles: ManualEditStyles | null = null
   
   // History management for Undo/Redo
   let historyStack: HistoryState[] = []
@@ -318,12 +349,12 @@ export function HtmlRenderer(props: {
     try {
       if (!iframeRef) {
         TaskStore.error([{ key: taskId, status: "error" }])
-        showToast({ title: "归档失败", description: "无法获取页面内容" })
+        showOctoToast({ title: "归档失败", description: "无法获取页面内容" })
         return
       }
       if (shouldUseExternalUrl()) {
         TaskStore.error([{ key: taskId, status: "error" }])
-        showToast({ title: "归档失败", description: "外部 URL 不支持归档" })
+        showOctoToast({ title: "归档失败", description: "外部 URL 不支持归档" })
         return
       }
 
@@ -362,6 +393,51 @@ export function HtmlRenderer(props: {
       
       htmlContent = extractHtmlContent(htmlContent)
       
+      // 归档钩子：subtype 可提供要塞进 src/ 的代码包（如 prototype 的 eview-react 产物）
+      let srcZipBlob: Blob | null = null
+      let srcFileName: string | undefined
+      const handler = getSubtypeHandler(props.subtype)
+      if (handler?.buildArchiveSrc && props.tabId) {
+        const m = local.model.current()
+        const modelKey = m ? { providerID: m.provider.id, modelID: m.id } : undefined
+        const ctx: SubtypeHandlerContext = {
+          tab: {
+            id: props.tabId,
+            title: props.tabTitle ?? "",
+            type: "html",
+            subtype: props.subtype,
+            content: props.content,
+            filePath: props.filePath,
+            commentFilePath: props.commentFilePath,
+            sessionId: props.sessionId,
+            createdAt: new Date(),
+          } as ResultTab,
+          showOctoToast,
+          tracker,
+          getDesktopApi,
+          extractCodeBlock,
+          observedUrlsGetter: () => iframeRef ? resourceTracker.getPaths(iframeRef) : [],
+          usePixsoTransport,
+          sdk,
+          sync,
+          modelKey,
+          sessionId: props.sessionId,
+          sdkDirectory: props.sdkDirectory,
+        }
+        try {
+          const r = await handler.buildArchiveSrc(ctx)
+          if (r) {
+            srcZipBlob = r.blob
+            srcFileName = r.fileName
+          } else if (props.subtype === "prototype") {
+            showOctoToast({ title: "代码包生成失败，已跳过 src/" })
+          }
+        } catch (err) {
+          console.warn("[Archive] buildArchiveSrc failed:", err)
+          if (props.subtype === "prototype") showOctoToast({ title: "代码包生成失败，已跳过 src/" })
+        }
+      }
+      
       const zipBlob = await createArchiveZip({
         comments,
         screenshotBlob,
@@ -370,7 +446,9 @@ export function HtmlRenderer(props: {
         htmlFilePath: props.filePath || "",
         sessionId: props.sessionId || "",
         projectDir: props.sdkDirectory || "",
-        observedUrls: iframeRef ? resourceTracker.getPaths(iframeRef) : []
+        observedUrls: iframeRef ? resourceTracker.getPaths(iframeRef) : [],
+        srcZipBlob,
+        srcFileName,
       })
       
       if (isLoggedIn) {
@@ -405,7 +483,7 @@ export function HtmlRenderer(props: {
         setArchiveSuccessPath(pathStr)
         setArchiveSuccessUniqueId(uniqueId)
         setArchiveSuccessOpen(true)
-        showToast({ title: "归档成功" })
+        showOctoToast({ title: "归档成功" })
       } else {
         const zipFileName = `${fileName}-archive.zip`
         const url = URL.createObjectURL(zipBlob)
@@ -418,7 +496,7 @@ export function HtmlRenderer(props: {
         URL.revokeObjectURL(url)
         
         TaskStore.finish([{ key: taskId, status: "completed" }])
-        showToast({ title: "归档完成", description: "ZIP文件已下载" })
+        showOctoToast({ title: "归档完成", description: "ZIP文件已下载" })
       }
     } catch (err) {
       if (overlay) {
@@ -429,7 +507,7 @@ export function HtmlRenderer(props: {
       }
       console.error("[Archive] Failed:", err)
       TaskStore.error([{ key: taskId, status: "error" }])
-      showToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "归档失败", description: err instanceof Error ? err.message : String(err) })
       throw err
     }
   }
@@ -523,17 +601,24 @@ createEffect(() => {
     const pending = manualEditPendingStyle
     const target = editTarget()
     const draft = editDraft()
-    
+
     if (!target) return true
+
+    // Subtypes that delegate saving to the agent must not write the file directly.
+    // Esc / element-switch revert the pending preview instead of saving.
+    if (props.onSaveLocalEdit) {
+      cancelManualEditStyleDraft()
+      return true
+    }
     
     // ★ Get HTML snapshot from iframe (guaranteed ID match)
     const html = await getIframeSnapshot()
-    
+
     // Apply all patches (styles + text/href if changed)
     let result: { ok: boolean; source: string; error?: string } = { ok: true, source: html }
     let hasChanges = false
     let description = "Edit styles"
-    
+
     // Apply styles if pending
     if (pending && pending.styles) {
       result = applyManualEditPatch(result.source, {
@@ -574,7 +659,8 @@ createEffect(() => {
     
     if (result.ok) {
       const cleanSource = cleanBridgeContent(result.source)
-      await props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
+      const wrapped = wrapHtmlContent(cleanSource, props.content)
+      await props.onContentChange?.(wrapped)
       if (hasChanges) {
         pushHistory(cleanSource, description)
         // 文字/链接修改只在 HTML source 层面应用,不像样式那样通过 postMessage 实时预览到 DOM。
@@ -595,7 +681,7 @@ createEffect(() => {
         resolve("")
         return
       }
-      
+
       const handleSnapshot = (e: MessageEvent) => {
         if (e.source !== iframe.contentWindow) return
         const d = e.data
@@ -604,10 +690,10 @@ createEffect(() => {
           resolve(d.html)
         }
       }
-      
+
       window.addEventListener("message", handleSnapshot)
       iframe.contentWindow.postMessage({ type: "od:get-html-snapshot" }, "*")
-      
+
       // Timeout fallback
       setTimeout(() => {
         window.removeEventListener("message", handleSnapshot)
@@ -689,27 +775,17 @@ createEffect(() => {
       // Ctrl+Z: Undo (global - always available when history exists)
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault()
-        const ok = undo()
-        if (ok) {
-          console.log('[Edit] Undo successful - history index:', historyIndex)
-        } else {
-          console.log('[Edit] Undo failed - no history available')
-        }
+        undo()
         return
       }
-      
+
       // Ctrl+Y or Ctrl+Shift+Z: Redo (global - always available when future history exists)
       if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
         e.preventDefault()
-        const ok = redo()
-        if (ok) {
-          console.log('[Edit] Redo successful - history index:', historyIndex)
-        } else {
-          console.log('[Edit] Redo failed - no future history available')
-        }
+        redo()
         return
       }
-      
+
       // Escape: Exit edit mode (only when editing AND editTarget is set)
       if (props.editing && editTarget() && e.key === 'Escape') {
         e.preventDefault()
@@ -733,6 +809,8 @@ createEffect(() => {
     if (!shouldUseExternalUrl()) {
       props.observedUrlsGetter?.(() => iframeRef ? resourceTracker.getPaths(iframeRef) : [])
     }
+    props.registerIframePostMessage?.((data) => iframeRef?.contentWindow?.postMessage(data, "*"))
+    props.iframeElementGetter?.(() => iframeRef)
   })
 
   // refreshKey 变化时清空资源 URL 集合（旧数据来自上一次加载）
@@ -816,7 +894,7 @@ createEffect(() => {
         setServeKey(k => k + 1)
       } catch (err) {
         console.error("[HtmlRenderer] Failed to save file before preview:", err)
-        showToast({ title: "保存失败", description: "无法保存文件到磁盘" })
+        showOctoToast({ title: "保存失败", description: "无法保存文件到磁盘" })
       }
     }
   }))
@@ -885,6 +963,18 @@ createEffect(() => {
       
       // ★ Use iframe snapshot for ID match
       void (async () => {
+        if (props.onSaveLocalEdit) {
+          const target = d.target as ManualEditTarget | undefined
+          if (target) {
+            const before = typeof d.before === 'string' ? d.before : (target.fields.text ?? target.text ?? '')
+            await props.onSaveLocalEdit({
+              target,
+              changes: [{ kind: 'text', before, after: value }],
+            })
+          }
+          return
+        }
+
         const html = await getIframeSnapshot()
         
         // Apply text patch
@@ -898,7 +988,6 @@ createEffect(() => {
           const cleanSource = cleanBridgeContent(result.source)
           props.onContentChange?.(wrapHtmlContent(cleanSource, props.content))
           pushHistory(cleanSource, `Edit text in-place`)
-          console.log("[Edit] In-place text edit saved:", id, value.slice(0, 50))
         } else {
           console.error("[Edit] In-place text edit failed:", result.error)
         }
@@ -911,7 +1000,6 @@ createEffect(() => {
       // Move focus to outer document (enable HTML undo/redo)
       iframeRef?.blur()
       window.focus()
-      console.log('[Edit] Focus transferred to parent window')
       return
     }
 
@@ -933,16 +1021,17 @@ createEffect(() => {
       setEditTarget(target)
       manualEditPendingStyle = null
       manualEditPendingText = null
-      
+
       // Initialize draft from target + source
       const html = extractHtmlContent(props.content)
       const fields = readManualEditFields(html, target.id)
+      manualEditInitialStyles = inspectorManualEditStyles(target, html)
       setEditDraft({
         text: fields.text ?? target.fields.text ?? target.text,
         href: fields.href ?? target.fields.href ?? '',
         src: fields.src ?? target.fields.src ?? '',
         alt: fields.alt ?? target.fields.alt ?? '',
-        styles: inspectorManualEditStyles(target, html),
+        styles: manualEditInitialStyles,
         attributesText: JSON.stringify(readManualEditAttributes(html, target.id), null, 2),
         outerHtml: readManualEditOuterHtml(html, target.id) || target.outerHtml,
         fullSource: html,
@@ -1023,18 +1112,12 @@ createEffect(() => {
     }
 
     if (d.type === "od:comment-pin-click") {
-      console.log('[DEBUG] pin-click received:', d)
-      console.log('[DEBUG] pinPosition:', d.pinPosition)
       const commentId = d.commentId
       const comment = savedComments().find(c => c.id === commentId)
       if (comment) {
         setEditingComment(comment)
         setCommentReadOnly(true)
         const pinPos = d.pinPosition
-        console.log('[DEBUG] calculated hoverPoint:', pinPos ? {
-          x: pinPos.left + pinPos.width + 8,
-          y: pinPos.top
-        } : undefined)
         setCommentTarget({
           elementId: comment.elementId,
           tag: comment.elementId.split('-')[0] || 'div',
@@ -1255,7 +1338,7 @@ createEffect(() => {
       "--octo-vp-height": `${dims.height}px`,
       "--octo-vp-scale": scale,
       "--octo-vp-offset-x": `${pad + Math.max(0, (w - pad * 2 - dims.width! * scale) / 2)}px`,
-      "--octo-vp-offset-y": `${pad}px`,
+      "--octo-vp-offset-y": `${pad + Math.max(0, (h - pad * 2 - dims.height! * scale) / 2)}px`,
     } as JSX.CSSProperties
   })
 
@@ -1268,6 +1351,9 @@ createEffect(() => {
       height: `${dims.height}px`,
       transform: `scale(var(--octo-vp-scale, 1))`,
       "transform-origin": "0 0",
+      position: "absolute",
+      left: "var(--octo-vp-offset-x, 0)",
+      top: "var(--octo-vp-offset-y, 0)",
     } as JSX.CSSProperties
   })
 
@@ -1315,32 +1401,25 @@ return (
                 }}
                 onLoad={() => {
                   if (!iframeRef) {
-                    console.log('[HtmlRenderer] iframeRef is null')
                     return
                   }
                   if (!shouldUseExternalUrl()) resourceTracker.observe(iframeRef)
                   if (props.editing) {
-                    console.log('[HtmlRenderer] sending od:edit-mode')
                     iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
                   }
                   if (props.inspecting) {
-                    console.log('[HtmlRenderer] sending od:inspect-mode')
                     iframeRef.contentWindow?.postMessage({ type: "od:inspect-mode", enabled: true }, "*")
                   }
                   if (props.commenting) {
-                    console.log('[HtmlRenderer] sending od:comment-mode')
                     iframeRef.contentWindow?.postMessage({ type: "od:comment-mode", enabled: true }, "*")
                     const comments = savedComments()
-                    console.log('[HtmlRenderer] sending od:comment-saved-pins, count:', comments.length)
                     iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
                   }
                   if (props.palette) {
-                    console.log('[HtmlRenderer] sending od:palette')
                     iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
                   }
                   const overrides = savedOverrides()
                   if (overrides.length > 0) {
-                    console.log('[HtmlRenderer] sending overrides, count:', overrides.length)
                     overrides.forEach((override) => {
                       iframeRef.contentWindow?.postMessage(
                         { type: "od:inspect-set", elementId: override.elementId, prop: override.prop, value: override.value },
@@ -1367,32 +1446,25 @@ return (
                 style={{ "min-height": "200px" }}
                 onLoad={() => {
                   if (!iframeRef) {
-                    console.log('[HtmlRenderer] iframeRef is null')
                     return
                   }
                   if (!shouldUseExternalUrl()) resourceTracker.observe(iframeRef)
                   if (props.editing) {
-                    console.log('[HtmlRenderer] sending od:edit-mode')
                     iframeRef.contentWindow?.postMessage({ type: "od:edit-mode", enabled: true }, "*")
                   }
                   if (props.inspecting) {
-                    console.log('[HtmlRenderer] sending od:inspect-mode')
                     iframeRef.contentWindow?.postMessage({ type: "od:inspect-mode", enabled: true }, "*")
                   }
                   if (props.commenting) {
-                    console.log('[HtmlRenderer] sending od:comment-mode')
                     iframeRef.contentWindow?.postMessage({ type: "od:comment-mode", enabled: true }, "*")
                     const comments = savedComments()
-                    console.log('[HtmlRenderer] sending od:comment-saved-pins, count:', comments.length)
                     iframeRef.contentWindow?.postMessage({ type: "od:comment-saved-pins", comments }, "*")
                   }
                   if (props.palette) {
-                    console.log('[HtmlRenderer] sending od:palette')
                     iframeRef.contentWindow?.postMessage({ type: "od:palette", palette: props.palette }, "*")
                   }
                   const overrides = savedOverrides()
                   if (overrides.length > 0) {
-                    console.log('[HtmlRenderer] sending overrides, count:', overrides.length)
                     overrides.forEach((override) => {
                       iframeRef.contentWindow?.postMessage(
                         { type: "od:inspect-set", elementId: override.elementId, prop: override.prop, value: override.value },
@@ -1513,6 +1585,25 @@ return (
                   )
                 }}
 onApplyPatch={async (patch: ManualEditPatch, label: string) => {
+              if (props.onSaveLocalEdit) {
+                const target = editTarget()
+                let change: LocalEditChange | null = null
+                if (patch.kind === 'remove-element') {
+                  change = { kind: 'remove-element' }
+                } else if (patch.kind === 'set-image') {
+                  change = { kind: 'image', src: patch.src, alt: patch.alt }
+                }
+                if (target && change) {
+                  const handled = await props.onSaveLocalEdit({ target, changes: [change] })
+                  if (handled && patch.kind === 'remove-element') {
+                    setEditTarget(null)
+                    manualEditPendingStyle = null
+                    manualEditPendingText = null
+                    setEditDraft(emptyManualEditDraft(props.content))
+                  }
+                }
+                return
+              }
               const html = await getIframeSnapshot()
               const result = applyManualEditPatch(html, patch)
               if (result.ok) {
@@ -1548,6 +1639,27 @@ onSaveDraft={async () => {
                     if (saving()) return
                     setSaving(true)
                     try {
+                      if (props.onSaveLocalEdit) {
+                        const payload = buildLocalEditPayload(editTarget()!, manualEditPendingStyle, manualEditPendingText, manualEditInitialStyles)
+                        if (payload.changes.length === 0) {
+                          setEditTarget(null)
+                          manualEditPendingStyle = null
+                          manualEditPendingText = null
+                          manualEditInitialStyles = null
+                          setEditDraft(emptyManualEditDraft(props.content))
+                          return
+                        }
+                        const handled = await props.onSaveLocalEdit(payload)
+                        if (handled) {
+                          tracker.interaction({ module: "design", name: "save-edit-changes" })
+                          setEditTarget(null)
+                          manualEditPendingStyle = null
+                          manualEditPendingText = null
+                          manualEditInitialStyles = null
+                          setEditDraft(emptyManualEditDraft(props.content))
+                        }
+                        return
+                      }
                       const ok = await flushManualEditStyleSave()
                       if (ok) {
                         tracker.interaction({ module: "design", name: "save-edit-changes" })
@@ -1555,7 +1667,7 @@ onSaveDraft={async () => {
                         manualEditPendingStyle = null
                         manualEditPendingText = null
                       } else {
-                        showToast({ title: "保存失败", description: "无法保存样式修改，请重试" })
+                        showOctoToast({ title: "保存失败", description: "无法保存样式修改，请重试" })
                       }
                     } finally {
                       setSaving(false)
@@ -1689,7 +1801,7 @@ const comment: FileComment = {
                     
                     // Save to backend API
                     if (!props.sdkUrl || !props.sdkDirectory) {
-                      showToast({ title: "保存失败", description: "缺少 SDK 配置" })
+                      showOctoToast({ title: "保存失败", description: "缺少 SDK 配置" })
                       return
                     }
                     
@@ -1724,7 +1836,6 @@ body: JSON.stringify({
                           })
                       })
                      .then(res => {
-                       console.log('[Comment] First save response status:', res.status)
                       if (!res.ok) throw new Error(`Save comment failed: ${res.status}`)
                       return res.json()
                     })
@@ -1735,7 +1846,7 @@ body: JSON.stringify({
                       if (pendingFiles && pendingFiles.length > 0) {
                         const api = getDesktopApi()
                         if (!api?.getPathForFile) {
-                          showToast({ title: "附件添加失败", description: "需要在 Electron 环境中运行" })
+                          showOctoToast({ title: "附件添加失败", description: "需要在 Electron 环境中运行" })
                         } else {
                           try {
                             const uploadPromises = pendingFiles.map(async file => {
@@ -1767,13 +1878,9 @@ body: JSON.stringify({
                             })
                             
                             const uploadedAttachments = await Promise.all(uploadPromises)
-                            
-                            console.log('[Comment] Uploaded attachments:', uploadedAttachments)
-                            
+
                             // Update comment with all attachments
                             const allAttachments = [...(comment.attachments || []), ...uploadedAttachments]
-                            
-                            console.log('[Comment] All attachments for second save:', allAttachments)
                             
 await fetch(`${props.sdkUrl}/comment/file`, {
                                method: 'POST',
@@ -1793,23 +1900,21 @@ body: JSON.stringify({
                                })
                              })
                             .then(res => {
-                              console.log('[Comment] Second save response status:', res.status)
                               if (!res.ok) throw new Error(`Second save failed: ${res.status}`)
                               return res.json()
                             })
                             .then(data => {
-                              console.log('[Comment] Second save response data:', data)
                               if (!data.ok) throw new Error('Second save failed')
                             })
                             
-                            showToast({ title: "评论已保存", description: `添加了 ${uploadedAttachments.length} 个附件` })
+                            showOctoToast({ title: "评论已保存", description: `添加了 ${uploadedAttachments.length} 个附件` })
                           } catch (uploadErr) {
                             console.error('[Comment] Upload attachments error:', uploadErr)
-                            showToast({ title: "附件添加失败", description: "评论已保存，但部分附件添加失败" })
+                            showOctoToast({ title: "附件添加失败", description: "评论已保存，但部分附件添加失败" })
                           }
                         }
                       } else {
-                        showToast({ title: "评论已保存" })
+                        showOctoToast({ title: "评论已保存" })
                       }
                       
 // Reload comments to get server-generated ID
@@ -1835,7 +1940,7 @@ body: JSON.stringify({
                    })
                    .catch(err => {
                      console.error('[Comment] Save failed:', err)
-                     showToast({ title: "保存失败", description: "无法保存评论到后端" })
+                     showOctoToast({ title: "保存失败", description: "无法保存评论到后端" })
                    })
                  }}
                  onDelete={() => {
@@ -1843,7 +1948,7 @@ body: JSON.stringify({
                    if (!commentId) return
                    
                    if (!props.sdkUrl || !props.sdkDirectory) {
-                     showToast({ title: "删除失败", description: "缺少 SDK 配置" })
+                     showOctoToast({ title: "删除失败", description: "缺少 SDK 配置" })
                      return
                    }
                    
@@ -1867,12 +1972,12 @@ body: JSON.stringify({
 setCommentTarget(null)
                       setEditingComment(null)
                       iframeRef?.contentWindow?.postMessage({ type: 'od:comment-clear' }, '*')
-                      showToast({ title: "标注已删除" })
+                      showOctoToast({ title: "标注已删除" })
                      tracker.interaction({ module: "design", name: "delete-comment" })
                    })
                    .catch(err => {
                      console.error('[Comment] Delete failed:', err)
-                     showToast({ title: "删除失败", description: "无法删除评论" })
+                     showOctoToast({ title: "删除失败", description: "无法删除评论" })
                    })
                  }}
 onClose={() => {
@@ -1886,13 +1991,13 @@ onUploadAttachment={(file) => {
                      const existingComment = editingComment()
                      
                      if (!existingComment) {
-                       showToast({ title: "请先保存评论", description: "新评论需要先保存才能添加附件" })
+                       showOctoToast({ title: "请先保存评论", description: "新评论需要先保存才能添加附件" })
                        return
                      }
                      
                      const api = getDesktopApi()
                      if (!api?.getPathForFile) {
-                       showToast({ title: "不支持", description: "需要在 Electron 环境中运行" })
+                       showOctoToast({ title: "不支持", description: "需要在 Electron 环境中运行" })
                        return
                      }
                      
@@ -1958,50 +2063,40 @@ const updatedComment = {
                               "*"
                             )
                             
-                            showToast({ title: "附件添加成功", description: file.name })
+                            showOctoToast({ title: "附件添加成功", description: file.name })
                           })
                           .catch(reloadErr => {
                             console.error('[Comment] Reload error:', reloadErr)
-                            showToast({ title: "附件添加成功（数据同步失败）", description: reloadErr.message })
+                            showOctoToast({ title: "附件添加成功（数据同步失败）", description: reloadErr.message })
                           })
                         })
                         .catch(saveErr => {
                           console.error('[Comment] Auto-save error:', saveErr)
-                          showToast({ title: "附件添加成功（评论同步失败）", description: saveErr.message })
+                          showOctoToast({ title: "附件添加成功（评论同步失败）", description: saveErr.message })
                         })
                       })
                      .catch(err => {
                        console.error('[Comment] Upload error:', err)
-                       showToast({ title: "附件添加失败", description: err.message })
+                       showOctoToast({ title: "附件添加失败", description: err.message })
                      })
                    }}
 onDeleteAttachment={(attachmentId) => {
                      const existingComment = editingComment()
-                     
-console.log('[Comment] Delete attachment request:', {
-                        attachmentId,
-                        sessionId: props.sessionId,
-                        filePath: getArtifactFilename(props.filePath),
-                        commentId: existingComment?.id,
-                        existingComment: existingComment,
-                      })
-                      
+
                       if (!existingComment) {
-                        showToast({ title: "删除失败", description: "评论不存在" })
+                        showOctoToast({ title: "删除失败", description: "评论不存在" })
                         return
-}
-                      
+                      }
+
                        fetch(`${props.sdkUrl}/comment/file/attachment/${attachmentId}?sessionId=${props.sessionId}&commentFilePath=${encodeURIComponent(extractCommentFilePath(props.filePath || '', props.sessionId || ''))}&commentId=${existingComment.id}`, {
                         method: 'DELETE',
                         headers: { ...directoryHeader(props.sdkDirectory!) }
                       })
                      .then(res => {
-                       console.log('[Comment] Delete response status:', res.status)
                        if (!res.ok) throw new Error(`Delete failed: ${res.status}`)
                        return res.json()
                      })
 .then(data => {
-                        console.log('[Comment] Delete response data:', data)
                         if (!data.ok) throw new Error('Delete failed')
                         
                         // Update editingComment's attachments
@@ -2038,8 +2133,7 @@ console.log('[Comment] Delete attachment request:', {
                         })
 .then(saveData => {
                            if (!saveData.ok) throw new Error('Auto-save failed')
-                           console.log('[Comment] Auto-save after delete success')
-                           
+
 fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath=${encodeURIComponent(props.commentFilePath || extractCommentFilePath(updatedComment.filePath, props.sessionId || ''))}`, {
                               headers: { ...directoryHeader(props.sdkDirectory!) }
                             })
@@ -2053,21 +2147,21 @@ fetch(`${props.sdkUrl}/comment/file?sessionId=${props.sessionId}&commentFilePath
                                "*"
                              )
                              
-                             showToast({ title: "附件删除成功" })
+                             showOctoToast({ title: "附件删除成功" })
                            })
                            .catch(reloadErr => {
                              console.error('[Comment] Reload error:', reloadErr)
-                             showToast({ title: "附件删除成功（数据同步失败）", description: reloadErr.message })
+                             showOctoToast({ title: "附件删除成功（数据同步失败）", description: reloadErr.message })
                            })
                          })
                         .catch(saveErr => {
                           console.error('[Comment] Auto-save error:', saveErr)
-                          showToast({ title: "附件删除成功（评论同步失败）", description: saveErr.message })
+                          showOctoToast({ title: "附件删除成功（评论同步失败）", description: saveErr.message })
                         })
                       })
                      .catch(err => {
                        console.error('[Comment] Delete error:', err)
-                       showToast({ title: "附件删除失败", description: err.message })
+                       showOctoToast({ title: "附件删除失败", description: err.message })
                      })
 }}
                 />

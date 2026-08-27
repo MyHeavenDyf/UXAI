@@ -1,5 +1,6 @@
 const PROVIDER_ID = /^[a-z0-9][a-z0-9-_]*$/
 const OPENAI_COMPATIBLE = "@ai-sdk/openai-compatible"
+const CUSTOM_PROVIDER_MARKER = "__octo_custom_provider"
 const MODALITY_KEYS = new Set(["input", "output"])
 const MODALITY_VALUES = new Set(["text", "audio", "image", "video", "pdf"])
 type ModalityValue = "text" | "audio" | "image" | "video" | "pdf"
@@ -216,6 +217,7 @@ export function validateCustomProvider(input: ValidateArgs) {
         ...(env ? { env: [env] } : {}),
         options: {
           baseURL,
+          [CUSTOM_PROVIDER_MARKER]: true,
           ...(Object.keys(headerConfig).length ? { headers: headerConfig } : {}),
         },
         models: modelConfig,

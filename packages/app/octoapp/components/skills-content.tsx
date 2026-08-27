@@ -3,11 +3,12 @@ import type { JSX } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { showToast } from "@opencode-ai/ui/toast"
 // jk-j60099994-replace-with-60062650-components-skills-content-1-start
-type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
 // jk-j60099994-replace-with-60062650-components-skills-content-1-end
 type SkillsConfig = {
-  meta?: Record<string, unknown>
-  skill?: Record<string, SkillConfigEntry>
+  skill?: Record<string, { description?: string; import?: boolean; type?: string }>
+  panel?: {
+    octo_make?: Array<{ label: string; description?: string; path?: string; id?: number; enable?: boolean }>
+  }
   agent?: Record<string, string[]>
 }
 
@@ -88,7 +89,7 @@ export function SkillsContent(): JSX.Element {
 
   const groupedSkills = createMemo(() => {
     const cfg = config().skill ?? {}
-    const groups: Record<string, { skills: string[]; label: string; subtitle: string }> = {}
+    const groups: Record<string, { skills: { name: string; description?: string; enabled: boolean }[]; label: string; subtitle: string }> = {}
 
     for (const [name, entry] of Object.entries(cfg)) {
       const type = entry.type || "common"
@@ -99,7 +100,7 @@ export function SkillsContent(): JSX.Element {
           subtitle: AGENT_INFO[type]?.subtitle || "",
         }
       }
-      groups[type].skills.push(name)
+      groups[type].skills.push({ name, description: entry.description, enabled: entry.import !== false })
     }
 
     return groups
@@ -146,11 +147,16 @@ export function SkillsContent(): JSX.Element {
   // jk-j60099994-replace-with-60062650-components-skills-content-6-end
 
   function toggleSkill(skillName: string, value: boolean) {
+    const panelSkills = config().panel?.octo_make ?? []
     const updated = {
       ...config(),
       skill: {
         ...config().skill,
         [skillName]: { ...config().skill?.[skillName], import: value },
+      },
+      panel: {
+        ...config().panel,
+        octo_make: panelSkills.map((s) => (s.label === skillName ? { ...s, enable: value } : s)),
       },
     }
     setConfig(updated)
@@ -177,6 +183,7 @@ export function SkillsContent(): JSX.Element {
   // jk-j60099994-replace-with-60062650-components-skills-content-7-end
 
   async function handleAddSkill() {
+    // jk-j60099994-replace-with-60062650-components-skills-content-8-start
     const api = (window as unknown as {
       api?: {
         openDirectoryPicker?: (opts?: { title?: string }) => Promise<string | null>
@@ -188,11 +195,10 @@ export function SkillsContent(): JSX.Element {
     const result = await api?.addSkill?.(selected)
     if (result?.success) {
       showToast({ variant: "success", icon: "circle-check", title: "添加成功", description: `已添加技能：${result.skillName ?? ""}` })
-      // jk-j60099994-replace-with-60062650-components-skills-content-8-start
-      // jk-j60099994-replace-with-60062650-components-skills-content-8-end
     } else if (result?.error) {
       showToast({ variant: "error", icon: "circle-x", title: "添加失败", description: result.error })
     }
+    // jk-j60099994-replace-with-60062650-components-skills-content-8-end
     // jk-j60099994-replace-with-60062650-components-skills-content-9-start
     await loadConfig()
     const url = globalSDK.url
@@ -265,12 +271,12 @@ export function SkillsContent(): JSX.Element {
                   <Show when={!isCollapsed()}>
                     <div class="flex flex-col gap-1.5 pl-5">
                       <For each={group.skills}>
-                        {(skillName) => (
+                        {(skill) => (
                           <SkillRow
-                            name={skillName}
-                            description={config().skill?.[skillName]?.description ?? ""}
-                            enabled={config().skill?.[skillName]?.import !== false}
-                            onToggle={(v) => toggleSkill(skillName, v)}
+                            name={skill.name}
+                            description={skill.description ?? ""}
+                            enabled={skill.enabled}
+                            onToggle={(v) => toggleSkill(skill.name, v)}
                           />
                         )}
                       </For>

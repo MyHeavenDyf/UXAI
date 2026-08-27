@@ -3,14 +3,17 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { showToast } from "@opencode-ai/ui/toast"
 import { createEffect, createMemo, createResource, createSignal, on, onCleanup, Show, type JSX } from "solid-js"
-import { createStore, reconcile } from "solid-js/store"
+import { createStore, produce, reconcile } from "solid-js/store"
 import { Portal } from "solid-js/web"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { sessionTitle } from "@/utils/session-title"
+import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { tracker } from "@/utils/tracker"
+import { pickNextSession } from "@/utils/session-delete"
+import { useSessionDelete } from "@/hooks/use-session-delete"
 import { SidebarShell } from "@/components/sidebar-shell"
 import { SessionList } from "@/components/session-list"
 
@@ -62,6 +65,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
   const location = useLocation()
   const dialog = useDialog()
   const layout = useLayout()
+  const language = useLanguage()
+  const removeSession = useSessionDelete()
 
   const resolvedDir = () => props.directory ?? undefined
   const [fetchedDir, setFetchedDir] = createSignal<string>()
@@ -263,22 +268,22 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
   // ── Delete ──
   async function deleteSession(session: Session) {
-    const mod = props.trackerModule ?? "session"
-    tracker.interaction({ module: mod, name: "delete-session" })
-    const idx = sessionList.findIndex((s) => s.id === session.id)
-    try {
-      const client = globalSDK.createClient({ directory: session.directory })
-      await client.session.delete({ sessionID: session.id })
-      closeContextMenu()
-      if (idx >= 0) {
-        setSessionList(sessionList.filter((s) => s.id !== session.id))
-      }
-      if (props.activeSessionId() === session.id) {
-        navigate(props.buildDeleteFallback(session))
-        void refetch()
-      }
-    } catch (err) {
-      showToast({ title: "删除失败", description: err instanceof Error ? err.message : String(err) })
+    tracker.interaction({ module: props.trackerModule ?? "session", name: "delete-session" })
+    const nextSession = pickNextSession(sessionList.filter((s) => !s.time?.archived), session.id)
+
+    const ok = await removeSession(globalSDK.createClient({ directory: session.directory }), session.id)
+    if (!ok) return
+
+    closeContextMenu()
+    setSessionList(
+      produce((draft) => {
+        const i = draft.findIndex((s) => s.id === session.id)
+        if (i !== -1) draft.splice(i, 1)
+      }),
+    )
+    if (props.activeSessionId() === session.id) {
+      navigate(nextSession ? props.buildSessionRoute(nextSession) : props.buildDeleteFallback(session))
+      void refetch()
     }
   }
 
@@ -288,7 +293,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
     closeContextMenu()
     dialog.show(() => (
       <DialogDeleteSession
-        name={sessionTitle(session.title) || "无标题"}
+        name={sessionTitle(session.title) ?? language.t("command.session.new")}
         onDelete={() => deleteSession(session)}
       />
     ))
@@ -315,18 +320,18 @@ export function AgentSidebar(props: AgentSidebarProps) {
       sectionIcon={props.sectionIcon}
       collapsed={collapsed()}
       onToggleCollapse={() => setCollapsed(v => !v)}
-      activeNav={props.skillsActive || location.pathname === "/skills" ? "skill_market" : activeNav()}
+      activeNav={props.skillsActive || location.pathname === "/skills" ? "skill_market" : location.pathname === "/assets" ? "knowledge_base" : activeNav()}
       onNavClick={(key) => {
-        if (key === "skill_market") {
-          if (props.onSkillClick) {
+        if (key === "skill_market" || key === "knowledge_base") {
+          if (key === "skill_market" && props.onSkillClick) {
             props.onSkillClick()
           } else {
             if (props.sidebarSourceKey) layout.sidebarSource.set(props.sidebarSourceKey)
-            navigate("/skills")
+            navigate(key === "skill_market" ? "/skills" : "/assets")
           }
-        } else {
-          setActiveNav(v => v === key ? null : v)
+          return
         }
+        setActiveNav(v => v === key ? null : v)
       }}
       onSettingsClick={props.showSettings ? props.onSettingsClick : undefined}
     >

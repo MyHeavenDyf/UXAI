@@ -82,19 +82,19 @@
   padding: 3px 8px;
   font-size: 12px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.05);
-  color: rgba(0, 0, 0, 0.6);
+  background: rgba(10, 89, 247, 0.08);
+  color: #0A59F7;
   cursor: pointer;
 }
 
 .pm-mention.pm-mention--skill {
-  background: rgba(0, 0, 0, 0.05);
-  color: rgba(0, 0, 0, 0.6);
+  background: rgba(10, 89, 247, 0.08);
+  color: #0A59F7;
 }
 
 .pm-mention.pm-mention--file {
-  background: rgba(0, 0, 0, 0.05);
-  color: rgba(0, 0, 0, 0.6);
+  background: rgba(10, 89, 247, 0.08);
+  color: #0A59F7;
 }
 
 .pm-mention.ProseMirror-selectednode {

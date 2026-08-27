@@ -71,7 +71,7 @@ export type StudioGenerationResult = {
   height?: number
   isCustom?: boolean
   videoMode?: "text" | "first_last_frame"
-  duration?: "5" | "10"
+  duration?: string
   videoQualityMode?: "std" | "pro"
   images: StudioImage[]
   progress?: number

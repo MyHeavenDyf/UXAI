@@ -49,7 +49,7 @@ const pickerFilters = (ext?: string[]) => {
 
 const topixsoDir = app.isPackaged
   ? join(process.resourcesPath, "topixso")
-  : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "app", "octoapp", "pages", "pattern", "topixso")
+  : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "app", "octoapp", "pages", "make", "utils", "prototype-utils", "topixso")
 
 // 判断图片类型
 function detectImageExt(buf: Buffer): string {
@@ -273,6 +273,9 @@ export function registerIpcHandlers(deps: Deps) {
     return Object.keys(store.store).length
   })
 
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-7-start
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-7-end
+  
   ipcMain.handle(
     "open-directory-picker",
     async (_event: IpcMainInvokeEvent, opts?: { multiple?: boolean; title?: string; defaultPath?: string }) => {
@@ -617,6 +620,20 @@ export function registerIpcHandlers(deps: Deps) {
     if (!existsSync(filePath)) await writeFile(filePath, buf)
     return `/history/${sessionId}/uploads/${filename}`
   })
+
+  // 把图片写到 prototype.html 同级 uploads 目录，返回相对 URL（uploads/<hash>.<ext>）。
+  // iframe 经 local:// 加载 prototype.html，相对路径自然解析到同目录 uploads/，由 local:// handler 直接读盘服务。
+  ipcMain.handle("save-prototype-image", async (_event: IpcMainInvokeEvent, buffer: ArrayBuffer, dir: string) => {
+    if (!dir) throw new Error("uploads dir not set")
+    await mkdir(dir, { recursive: true })
+    const buf = Buffer.from(buffer)
+    const hash = createHash("sha256").update(buf).digest("hex").slice(0, 16)
+    const ext = detectImageExt(buf)
+    const filename = `${hash}.${ext}`
+    const filePath = join(dir, filename)
+    if (!existsSync(filePath)) await writeFile(filePath, buf)
+    return `uploads/${filename}`
+  })
   
 // insight markdown 编辑器自动保存:把编辑后的文本覆盖写回本地产物文件。
   // 渲染进程不是安全边界 —— 主进程独立校验路径,避免被构造路径越权写系统文件。见 §5 / §7。
@@ -715,6 +732,13 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
+  // 原子重命名：同文件系统内 fs.rename 是原子的，供"写临时文件 → rename 到目标"模式使用，
+  // 避免大文件/JSON 落盘过程中崩溃导致目标文件被截断（如 prototype data.js 本地编辑回写）。
+  // 跨文件系统会失败，调用方应保证 src/dest 同目录。
+  ipcMain.handle("rename-file", async (_event: IpcMainInvokeEvent, srcPath: string, destPath: string) => {
+    await rename(srcPath, destPath)
+  })
+
   ipcMain.handle("read-clipboard-image", () => {
     const image = clipboard.readImage()
     if (image.isEmpty()) return null
@@ -780,6 +804,52 @@ export function registerIpcHandlers(deps: Deps) {
   const skillsConfigPath = join(getOctoConfigPath(), "skills.json")
   const skillConfigPath = join(getOctoConfigPath(), "skill_config.json")
   const assetsConfigPath = join(getOctoConfigPath(), "assets_config.json")
+  const octoSkillDir = join(getOctoConfigPath(), "skill")
+
+  /** 从 ~/.config/octo/skill 目录扫描，重新生成 skill_config.json（panel + agent 结构） */
+  function regenerateSkillConfig() {
+    try {
+      if (!existsSync(octoSkillDir)) return false
+
+      const skillNames = readdirSync(octoSkillDir, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name)
+        .filter((name) => existsSync(join(octoSkillDir, name, "SKILL.md")))
+        .sort()
+
+      const panelSkills = skillNames.map((name, index) => ({
+        label: name,
+        description: name,
+        path: `./skill/${name}/SKILL.md`,
+        id: index + 1,
+        enable: true,
+      }))
+
+      const skillMap: Record<string, { description: string; import: boolean; type: string }> = {}
+      for (const name of skillNames) {
+        skillMap[name] = { description: name, import: true, type: "octo_make" }
+      }
+
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(
+        skillConfigPath,
+        JSON.stringify(
+          {
+            skill: skillMap,
+            panel: { octo_make: panelSkills },
+            agent: { octo_make: skillNames },
+          },
+          null,
+          2,
+        ),
+        "utf-8",
+      )
+      return true
+    } catch (err) {
+      console.error("regenerateSkillConfig failed", err)
+      return false
+    }
+  }
 
   /** 从 skills.json 同步生成 skill_config.json */
   function syncSkillConfig() {
@@ -824,12 +894,12 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("set-skills-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
     try {
-      mkdirSync(dirname(skillsConfigPath), { recursive: true })
-      writeFileSync(skillsConfigPath, JSON.stringify(config, null, 2), "utf-8")
-      syncSkillConfig()
+      // 写入 skill_config.json（新格式）
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
     } catch (err) {
       console.error("set-skills-config failed", err)
-      throw new Error(`Failed to save skills config: ${err instanceof Error ? err.message : String(err)}`)
+      throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
 
@@ -923,29 +993,8 @@ export function registerIpcHandlers(deps: Deps) {
 
       cpSync(sourcePath, destDir, { recursive: true })
 
-      // Update skills.json with type: "common"
-      const skillMdPath = join(destDir, "SKILL.md")
-      if (!existsSync(skillMdPath)) {
-        return { success: false, error: "所选文件夹中未找到 SKILL.md" }
-      }
-      
-      const config = existsSync(skillConfigPath)
-        ? JSON.parse(readFileSync(skillConfigPath, "utf-8"))?.skill
-        : {}
-      const content = readFileSync(skillMdPath, "utf-8")
-      const descMatch = content.match(/^---\s*\n.*?description:\s*(.+?)\s*\n.*?---/s)
-      config[skillName] = {
-        description: descMatch ? descMatch[1] : "",
-        import: true,
-        type: "common",
-      }
-      const configJson = existsSync(skillConfigPath)
-        ? JSON.parse(readFileSync(skillConfigPath, "utf-8"))
-        : {}
-      configJson['skill'] = config
-      mkdirSync(dirname(skillConfigPath), { recursive: true })
-      writeFileSync(skillConfigPath, JSON.stringify(configJson, null, 2), "utf-8")
-      // syncSkillConfig()
+      // 重新生成 skill_config.json（从 ~/.config/octo/skill 目录扫描）
+      regenerateSkillConfig()
 
       return { success: true, skillName }
     } catch (err) {
@@ -956,10 +1005,11 @@ export function registerIpcHandlers(deps: Deps) {
   // jk-j60099994-replace-with-60062650-main-skills-ipc-5-end
 
   ipcMain.handle("ensure-skill-config", () => {
-    if (!existsSync(skillsConfigPath)) return
-    if (existsSync(skillConfigPath)) return
-    // 根据 skills.json 构建 skill_config.json
-    syncSkillConfig()
+    // 仅确保目录存在，不重新生成。如果文件不存在则创建空
+    if (!existsSync(skillConfigPath)) {
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, "{}", "utf-8")
+    }
   })
 
   ipcMain.handle("open-skill-folder", async () => {
@@ -1181,13 +1231,16 @@ export function registerIpcHandlers(deps: Deps) {
         sourceDir?: string
         /** sourceDir 内容在 zip 内的落点（相对路径，默认 ""＝根，如 "assets"） */
         destFolder?: string
+        /** 多个源目录各自落到指定 destFolder（sourceDir 的批量版，供多 uploads 目录合并打包） */
+        sourceDirs?: { dir: string; destFolder: string }[]
         comment?: string
       },
     ) => {
       // sourceDir 不存在时：有 files 就跳过 sourceDir 继续打代码；
-      // 既无 files 又无可用 sourceDir → 无内容，取消。
+      // 既无 files 又无可用 sourceDir/sourceDirs → 无内容，取消。
       const sourceDirExists = opts.sourceDir ? existsSync(opts.sourceDir) : false
-      if (!opts.files?.length && !sourceDirExists) return null
+      const validSourceDirs = (opts.sourceDirs ?? []).filter((s) => existsSync(s.dir))
+      if (!opts.files?.length && !sourceDirExists && validSourceDirs.length === 0) return null
 
       const win = BrowserWindow.fromWebContents(event.sender)
       const dialogOpts = {
@@ -1225,6 +1278,12 @@ export function registerIpcHandlers(deps: Deps) {
         //    archive.directory(src, false) → 内容打到根；传字符串 → 打到该子目录
         if (opts.sourceDir && sourceDirExists) {
           archive.directory(opts.sourceDir, destFolder || false)
+        }
+
+        // ②b sourceDirs：多个源目录各自落到指定 destFolder（供 pattern 侧 + make 侧 uploads 合并打包）
+        for (const s of validSourceDirs) {
+          const df = (s.destFolder ?? "").replace(/^\/+/, "").replace(/\/+$/, "")
+          archive.directory(s.dir, df || false)
         }
 
         void archive.finalize()

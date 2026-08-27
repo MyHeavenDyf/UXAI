@@ -16,17 +16,18 @@
  * 不做：transform 调用（NodeMapper 阶段处理）。
  */
 
-import { Step } from '../core/step'
-import { Value } from '../core/value'
-import { Node } from '../core/node'
+import { Step } from '../core/step-base'
+import { Value } from '../core/value-factory'
+import { Node } from '../core/node-factory'
 import { IconCollector } from '../core/icon-collection'
 import {
   HTML_TEXT_ELEMENTS,
-  HTML_VALUE_ATTRIBUTE_ELEMENTS,
   ICON_PROPS_BY_COMPONENT,
   ICON_PROPS_NESTED_IN_ARRAYS,
 } from '../core/icon-props'
 import { rewriteResourcePath } from '../core/resource-path'
+import { pathToJsAccess } from '../core/access-path'
+import { pathToSegments, resolveBySegments } from '../core/state-path'
 import type {
   BuildNode,
   ComponentNode,
@@ -42,26 +43,43 @@ import type { PipelineContext } from '../pipeline/pipeline-context'
 import type { BuiltPage } from '../pipeline/pipeline-context'
 
 // ─── 循环模板不抽离的白名单 ───────────────────────────────────────
-// 这些组件是父组件的直接子组件（如 TabItem 之于 Tab），循环 children 不应
-// 抽成单独的 components/{Name}Template.tsx，而是 inline 在 map 回调里渲染。
-// buildTrees 建树时检查 template body 的 component 名，命中则 LoopNode.inline=true。
-const INLINE_LOOP_COMPONENTS = new Set(['TabItem'])
+// 这些组件是父组件的直接子组件（如 TabItem 之于 Tab、CollapseItem 之于 Collapse），
+// 循环 children 不应抽成单独的 components/{Name}Template.tsx，而是 inline 在 map
+// 回调里渲染，直接参与组件映射。buildTrees 建树时检查 template body 的 component 名，
+// 命中则 LoopNode.inline=true。
+const INLINE_LOOP_COMPONENTS = new Set(['TabItem', 'CollapseItem'])
 
-// ─── state path 工具（inline；后续可与 icon-collection.ts#resolvePath 合并到 core/state-path.ts） ───
 
-/** 把 "/a/b/0/c" 或 "a/b/0/c" 归一为 segments */
-function pathToSegments(path: string): string[] {
-  return path.replace(/^\//, '').split('/').filter(Boolean)
+/**
+ * 原生 H5 inline style 字符串 → React style 对象。
+ *   "background-color: rgba(239,68,68,0.12); color: red;" → { backgroundColor: 'rgba(239,68,68,0.12)', color: 'red' }
+ * CSS 属性名 kebab → camelCase（含 vendor 前缀 -webkit-/-moz-/-ms-/-o- → 首字母大写）；
+ * 值原样保留为字符串。
+ */
+function parseInlineStyle(css: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const decl of css.split(';')) {
+    const idx = decl.indexOf(':')
+    if (idx < 0) continue
+    const prop = decl.slice(0, idx).trim()
+    const val = decl.slice(idx + 1).trim()
+    if (!prop || !val) continue
+    out[cssPropToCamel(prop)] = val
+  }
+  return out
 }
 
-/** 按 segments 逐级取值；找不到 → undefined */
-function resolveBySegments(root: any, segments: string[]): any {
-  let cur: any = root
-  for (const seg of segments) {
-    if (cur == null) return undefined
-    cur = cur[seg]
-  }
-  return cur
+const CSS_VENDOR_PREFIXES = new Set(['webkit', 'moz', 'ms', 'o'])
+function cssPropToCamel(prop: string): string {
+  const parts = prop.split('-').filter(Boolean)
+  return parts
+    .map((w, i) => {
+      const lower = w.toLowerCase()
+      if (i === 0 && CSS_VENDOR_PREFIXES.has(lower)) return w.charAt(0).toUpperCase() + lower.slice(1)
+      if (i === 0) return lower
+      return w.charAt(0).toUpperCase() + lower.slice(1)
+    })
+    .join('')
 }
 
 /** 从当前的 loopStack 构建 LoopScope 链（从外到内） */
@@ -69,7 +87,7 @@ function buildLoopScope(stack: Array<{ loopNode: LoopNode }>): LoopScope | undef
   if (stack.length === 0) return undefined
   let scope: LoopScope | undefined
   for (let i = 0; i < stack.length; i++) {
-    scope = { loopNode: stack[i].loopNode, parent: scope }
+    scope = { scopeType: 'loopScope', loopNode: stack[i].loopNode, parent: scope }
   }
   // scope 指向最内层循环，parent 链指向外层
   return scope
@@ -94,6 +112,11 @@ interface BuildContext {
     /** 对应的 LoopNode 引用（预创建，构建完 body 后 template.body 再填充） */
     loopNode: LoopNode
   }>
+  /**
+   * 事件改写的 state path 集合（#buildPage 预扫产出，带前导 `/`，与 binding.path 对齐）。
+   * state-builder 据此给 binding/computed 打 shared 标记 → 走共享 store。
+   */
+  eventMutatedPaths: Set<string>
 }
 
 export class BuildTrees extends Step {
@@ -102,8 +125,16 @@ export class BuildTrees extends Step {
 
     const pagesData: PageData[] = (ctx as any).pagesData || []
     for (const pageData of pagesData) {
-      const built = await this.#buildPage(pageData)
-      ctx.builtPages.push(built)
+      ctx.currentPage = pageData.pageName   // 诊断：出错时 pipeline-engine 能定位到页
+      try {
+        const built = await this.#buildPage(pageData)
+        ctx.builtPages.push(built)
+      } catch (err: any) {
+        // 单页隔离：一页失败不影响其他页，错误汇总到 ctx.errors 由 GenerateReport 输出
+        const msg = err?.message ?? String(err)
+        ctx.errors.push({ step: 'BuildTrees', page: pageData.pageName, message: msg, stack: err?.stack })
+        console.warn(`  [warn] BuildTrees: 页 "${pageData.pageName}" 处理失败，跳过: ${msg}`)
+      }
     }
 
     const totalIcons = ctx.builtPages.reduce(
@@ -132,6 +163,11 @@ export class BuildTrees extends Step {
     const iconCollector = new IconCollector()
     iconCollector.setState(state || {})
 
+    // 事件 Action 预扫：收集所有 onClick/onClose 等 Action 的 args.path（带前导 `/`），
+    // 供 state-builder 给命中此 path 的 binding/computed 打 shared 标记走共享 store。
+    // 必须在建树遍历前完成——#processValue 解析 binding 时即可查此集合。
+    const eventMutatedPaths = this.#collectEventMutatedPaths(elements)
+
     const ctx: BuildContext = {
       elements,
       state: state || {},
@@ -139,6 +175,7 @@ export class BuildTrees extends Step {
       extracts: [],
       iconCollector,
       loopStack: [],
+      eventMutatedPaths,
     }
 
     const rootTree = this.#buildTree(rootId, ctx, 0)
@@ -160,7 +197,36 @@ export class BuildTrees extends Step {
       extracts: ctx.extracts,
       iconNameSet,
       iconNameMap,
+      eventMutatedPaths,
     } as BuiltPage
+  }
+
+  /**
+   * 预扫所有 elements 的 props，收集事件 Action 的 args.path（带前导 `/`）。
+   * Action 形状：`{ action: "setState", args: { path, value } }`（schema 的 $defs/Action）。
+   * 事件 prop 是组件顶层 prop（onClick/onClose/...），故只扫顶层 props。
+   */
+  #collectEventMutatedPaths(elements: any[]): Set<string> {
+    const paths = new Set<string>()
+    for (const el of elements || []) {
+      const props = el?.props
+      if (!props || typeof props !== 'object') continue
+      for (const v of Object.values(props)) {
+        if (!v || typeof v !== 'object' || Array.isArray(v)) continue
+        const action = v as Record<string, any>
+        const args = action.args
+        if (
+          'action' in action &&
+          args &&
+          typeof args === 'object' &&
+          'path' in args &&
+          typeof args.path === 'string'
+        ) {
+          paths.add(args.path)
+        }
+      }
+    }
+    return paths
   }
 
   #buildTree(elementId: string, ctx: BuildContext, depth: number): RegularNode | null {
@@ -197,6 +263,7 @@ export class BuildTrees extends Step {
 
     if (isComponent) {
       const node: ComponentNode = {
+        __node: true,
         kind: 'component',
         id: el.id,
         component: el.component,
@@ -215,6 +282,7 @@ export class BuildTrees extends Step {
         ctx.loopStack
       )
       const node: HtmlNode = {
+        __node: true,
         kind: 'html',
         id: el.id,
         tag: el.component,
@@ -245,10 +313,6 @@ export class BuildTrees extends Step {
     if (!HTML_TEXT_ELEMENTS.has(tag)) {
       return { finalProps: props, finalChildren: children }
     }
-    // 有原生 value 属性的元素不参与下沉
-    if (HTML_VALUE_ATTRIBUTE_ELEMENTS.has(tag)) {
-      return { finalProps: props, finalChildren: children }
-    }
     if (!('value' in props)) {
       return { finalProps: props, finalChildren: children }
     }
@@ -258,6 +322,7 @@ export class BuildTrees extends Step {
 
     // TextNode：value 可以是字符串、BindingValue 或其他值
     const textNode: TextNode = {
+      __node: true,
       kind: 'text',
       value: value as any,
       _resolved: false,
@@ -298,6 +363,7 @@ export class BuildTrees extends Step {
 
     const innerNode: RegularNode = isComponent
       ? {
+          __node: true,
           kind: 'component',
           id: el.id,
           component: el.component,
@@ -307,6 +373,7 @@ export class BuildTrees extends Step {
           loopScope,
         }
       : {
+          __node: true,
           kind: 'html',
           id: el.id,
           tag: el.component,
@@ -317,6 +384,7 @@ export class BuildTrees extends Step {
         }
 
     const extract: ExtractNode = {
+      __node: true,
       kind: 'extract',
       componentName,
       purpose: 'module',
@@ -367,6 +435,34 @@ export class BuildTrees extends Step {
   ): PropValue {
     if (value === null || value === undefined) return null
 
+    // 原生 H5 inline style 字符串 → React style 对象（camelCase 键）。
+    // A2UI HTML 节点 style 是 CSS 字符串（"background-color: rgba(...);"），React JSX 需对象。
+    // 早期归一：两条 emit 路径（emitProps / serializeForConstValue）都能统一序列化 plain object。
+    if (propKey === 'style' && typeof value === 'string') {
+      return parseInlineStyle(value)
+    }
+
+    // {action, args:{path,value}} → ActionValue（事件 Action：Button.onClick / Drawer.onClose 等）
+    // 必须在 {path}→BindingValue 与嵌套递归之前拦截——否则 Action 的 args.path 会被
+    // 误解析成读 BindingValue（实际是写目标）。event = prop key（事件名）。
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      'action' in (value as any) &&
+      'args' in (value as any)
+    ) {
+      const a = value as any
+      if (typeof a.action === 'string' && a.args && typeof a.args.path === 'string') {
+        return Value.action({
+          event: key,
+          action: 'setState',
+          path: a.args.path,
+          value: a.args.value,
+        })
+      }
+    }
+
     // {componentId} → SlotNodeValue
     if (
       value &&
@@ -381,29 +477,31 @@ export class BuildTrees extends Step {
     // {path} → BindingValue
     if (value && typeof value === 'object' && 'path' in (value as any)) {
       const path = (value as any).path as string
-      // 路径分类 + 兜底：
-      //   - `/` 前缀 → absolute（真绝对路径，保持原语义）
-      //   - 无 `/` 且在循环内 → relative（沿 loopStack 找 absolute 数据源解析）
-      //   - 无 `/` 且不在循环内 → 兜底：相对路径无 loop 可解析，本应是顶层 state 字段。
-      //     按 absolute 从 state 取值；取到数据 → 当 absolute；取不到 → 丢弃（返回 null），
-      //     避免 emit 成游离裸标识符（useState 初始值 / 引用名不在作用域内，产物不可用）。
+      // 路径分类：
+      //   - `/` 前缀 → absolute（真绝对路径）
+      //   - 无 `/` → relative（默认相对路径语义）
+      // 兜底防御（无 `/` 且无循环时按 absolute 从 state 取值、取不到丢弃）已注释——
+      // 实际 A2UI 数据中无 `/` 的路径就是相对路径，不应兜底当 absolute。
+      // 如需重新启用，取消下方注释。
       const hasLeadingSlash = path.startsWith('/')
-      const inLoop = ctx.loopStack.length > 0
       let pathType: 'absolute' | 'relative'
       if (hasLeadingSlash) {
         pathType = 'absolute'
-      } else if (inLoop) {
-        pathType = 'relative'
       } else {
-        const resolved = resolveBySegments(ctx.state, pathToSegments(path))
-        if (resolved === undefined) return null // 兜底无数据 → 丢弃
-        pathType = 'absolute'
+        pathType = 'relative'
       }
+      // 兜底防御（已注释）：
+      // const inLoop = ctx.loopStack.length > 0
+      // if (!hasLeadingSlash && !inLoop) {
+      //   const resolved = resolveBySegments(ctx.state, pathToSegments(path))
+      //   if (resolved === undefined) return null // 兜底无数据 → 丢弃
+      //   pathType = 'absolute'
+      // }
 
       const binding = Value.binding({
         path,
         pathType,
-        accessPath: this.#computeAccessPath(path),
+        accessPath: pathToJsAccess(path),
         nodeId,
         componentName: component,
         propKey,
@@ -490,7 +588,7 @@ export class BuildTrees extends Step {
     const dataBinding = Value.binding({
       path: loopInfo.path,
       pathType: loopInfo.path.startsWith('/') ? 'absolute' : 'relative',
-      accessPath: this.#computeAccessPath(loopInfo.path),
+      accessPath: pathToJsAccess(loopInfo.path),
     })
 
     const rootId = loopInfo.componentId
@@ -498,6 +596,7 @@ export class BuildTrees extends Step {
 
     // ① 预创建壳节点，body 后续再填
     const extract: ExtractNode = {
+      __node: true,
       kind: 'extract',
       componentName,
       purpose: 'component',
@@ -610,26 +709,14 @@ export class BuildTrees extends Step {
 
   // ── 辅助 ──
 
-  #buildTextNode(value: string, loopStack: Array<{ loopNode: LoopNode }>) {
+  #buildTextNode(value: string, loopStack: Array<{ loopNode: LoopNode }>): TextNode {
     return {
+      __node: true,
       kind: 'text' as const,
       value,
       _resolved: false,
       loopScope: buildLoopScope(loopStack),
     }
-  }
-
-  #computeAccessPath(path: string): string {
-    if (!path.startsWith('/')) return path
-    const segments = path.slice(1).split('/').filter(Boolean)
-    if (segments.length === 0) return ''
-
-    let accessPath = segments[0]
-    for (let i = 1; i < segments.length; i++) {
-      const seg = segments[i]
-      accessPath += /^\d+$/.test(seg) ? `[${seg}]` : `.${seg}`
-    }
-    return accessPath
   }
 
   #toPascalCase(str: string): string {

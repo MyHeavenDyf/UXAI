@@ -2,6 +2,9 @@ import "./octo-tokens.css"
 import "./components/slash-popover.css"
 import { type MentionSelection } from "./components/mention-popover"
 import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs } from "./components/prosemirror-editor"
+import { AddonMenu } from "./components/addon-menu"
+import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
+import { OctoToast, showOctoToast } from "./components/octo-toast"
 import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
@@ -22,10 +25,7 @@ import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Dialog } from "@opencode-ai/ui/dialog"
-import { Button } from "@opencode-ai/ui/button"
-import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
-import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useCommand } from "@/context/command"
 import {
@@ -42,6 +42,7 @@ import {
   type JSX,
 } from "solid-js"
 import { tracker } from "@/utils/tracker"
+import { onPrototypePickerSubmit, onPrototypePickerAppend } from "./utils/prototype-utils"
 import { createStore, produce } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useGlobalSync } from "@/context/global-sync"
@@ -58,8 +59,12 @@ import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
 import { useProviders } from "@/hooks/use-providers"
 import { useProjectDir } from "@/hooks/use-project-dir"
+import { useProjectSelection } from "@/hooks/use-project-selection"
 import { sessionTitle } from "@/utils/session-title"
+import { pickNextSession, sortedActiveSessions } from "@/utils/session-delete"
+import { useSessionDelete } from "@/hooks/use-session-delete"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
+import { DialogPreviewUnavailable } from "./components/dialog-preview-unavailable"
 import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
 import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, UploadError } from "../insight/lib/upload"
@@ -71,13 +76,15 @@ import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2"
 import { usePermission } from "@/context/permission"
 import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
 import { ResultViewer } from "./components/result-viewer/index"
-import { PlanEntryBanner } from "./components/result-viewer/plan-entry-banner"
 import { PlanBanner } from "./components/result-viewer/plan-banner"
+import { PlanEntryBanner } from "./components/result-viewer/plan-entry-banner"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
 import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
+import { ProgressCircle } from "@opencode-ai/ui/progress-circle"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
 import { loadDesignSystem } from "./utils/design-system-loader"
@@ -90,12 +97,15 @@ import { SEND_TEXT_EVENT, type SendTextEventDetail } from "./utils/agent-events"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
-import { scanDesignPlanFromMessages, isPlanConfirmed, isPlanIntentResolved } from "./utils/design-plan-scanner"
+import { scanDesignPlanFromMessages, isPlanConfirmed } from "./utils/design-plan-scanner"
 import { scanStrategyFields, EMPTY_STRATEGY_FORM, type StrategyFormData } from "./utils/strategy-form-scanner"
 import { useMakeCommands } from "./use-make-commands"
 import { useDialogIframe } from '@/context/dialog-iframe'
 import { getDesktopApi, type AssetsConfig } from "./lib/electron-api"
 import { extractSubtypeFromFilename } from "./utils/subtype-extractor"
+import { type VersionEntry } from "./utils/history-store"
+import { createHistoryController } from "./subtype-handlers/history-controller"
+import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
@@ -130,6 +140,7 @@ export default function MakePage() {
 }
 
 let lastMakeDir: string | undefined
+const DEFAULT_CUSTOM_CONTEXT_LIMIT = 128_000
 
 function MakeContent() {
   const params = useParams<{ id?: string }>()
@@ -147,6 +158,7 @@ function MakeContent() {
   const sdk = useSDK()
   const providers = useProviders()
   const permission = usePermission()
+  const removeSession = useSessionDelete()
 
   // Register Make slash commands
   useMakeCommands()
@@ -166,6 +178,7 @@ function MakeContent() {
   onMount(() => { tracker.page({ module: "design", name: "design-page" }) })
 
   const projectDir = useProjectDir()
+  const projectSelection = useProjectSelection()
 
   const local = useLocal()
   useTabModel("make")
@@ -394,7 +407,7 @@ function MakeContent() {
       tracker.interaction({ module: "design", name: "rename-session" })
       void refetchSession()
     } catch (err) {
-      showToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "重命名失败", description: err instanceof Error ? err.message : String(err) })
     }
     setTitleState("editing", false)
   }
@@ -402,20 +415,28 @@ function MakeContent() {
   // 删除对话
   /** 删除会话 */
   async function deleteSession(sessionID: string) {
-    try {
-      await sdk.client.session.delete({ sessionID })
-      tracker.interaction({ module: "design", name: "delete-session" })
-      navigate("/make")
-    } catch (err) {
-      showToast({ title: "删除失败", description: err instanceof Error ? err.message : String(err) })
-    }
+    const listResult = await sdk.client.session.list({ directory: sdk.directory })
+    const nextSession = pickNextSession(sortedActiveSessions((listResult.data ?? []) as Session[], "octo_make"), sessionID)
+
+    const ok = await removeSession(sdk.client, sessionID)
+    if (!ok) return
+
+    tracker.interaction({ module: "design", name: "delete-session" })
+    sync.set(
+      produce((draft) => {
+        const i = draft.session.findIndex((s) => s.id === sessionID)
+        if (i !== -1) draft.session.splice(i, 1)
+      }),
+    )
+    if (layout.lastSessionPerTab.make(sdk.directory) === sessionID) layout.lastSessionPerTab.setMake(sdk.directory, "")
+    navigate(nextSession ? `/make/${nextSession.id}` : "/make")
   }
 
   /** 弹出删除确认弹框 */
   function handleDeleteSession() {
     const id = params.id
     if (!id) return
-    dialog.show(() => <DialogDeleteSession name={sessionTitle(sessionInfoMirror()?.title) ?? "Octo Design"} onDelete={() => deleteSession(id)} />)
+    dialog.show(() => <DialogDeleteSession name={sessionTitle(sessionInfoMirror()?.title) ?? language.t("command.session.new")} onDelete={() => deleteSession(id)} />)
   }
 
 // 监听项目切换，清理不属于新项目的 session
@@ -468,10 +489,14 @@ const sessionMessagesLoaded = createMemo(() => {
   createEffect(
     on(
       () => [params.id, sync.data.message?.[params.id ?? ""] === undefined] as const,
-      ([id, missing], prev) => {
+      ([id, missing]) => {
         if (id) {
           layout.lastSessionPerTab.setMake(sdk.directory, id)
-          if (missing && id !== prev?.[0]) void sync.session.sync(id).catch(() => {})
+          // 之前用 `id !== prev?.[0]` 限制只在 session 切换时 sync,但 app 长时间放置后
+          // 重新激活时,store 可能被 evict 导致 sync.data.message[id] 变 undefined,
+          // 此时 session ID 没变但 missing=true,旧条件不会重新 sync → 永远卡在 spinner。
+          // sync.session.sync 内部已有 cached 去重 + loading 防并发,重复调用安全。
+          if (missing) void sync.session.sync(id).catch(() => {})
         }
 
         setSending(false)
@@ -488,6 +513,32 @@ const sessionMessagesLoaded = createMemo(() => {
       },
     ),
   )
+
+  // app 长时间放置后重新激活时,SSE 可能已断开 + 鉴权过期 + DNS 不可达(ERR_NAME_NOT_RESOLVED),
+  // 此时 sync.session.sync 的请求可能失败被 .catch 吞掉,sync.data.message[id] 仍是 undefined,
+  // 但 missing 状态没变化(从 true 到 true),上面的 createEffect 不会重新触发 → 卡在 spinner。
+  // 监听 visibilitychange(切回前台)+ online(网络恢复):任一事件触发时,
+  // 如果当前 session 仍 missing,主动重试 sync。
+  // sync.session.sync 内部有 cached 去重 + loading 防并发,网络未恢复时请求会失败但不影响后续重试。
+  onMount(() => {
+    const retrySyncIfMissing = () => {
+      const id = params.id
+      if (!id) return
+      if (sync.data.message?.[id] === undefined) {
+        void sync.session.sync(id).catch(() => {})
+      }
+    }
+    const handleVisibility = () => {
+      if (document.visibilityState !== "visible") return
+      retrySyncIfMissing()
+    }
+    document.addEventListener("visibilitychange", handleVisibility)
+    window.addEventListener("online", retrySyncIfMissing)
+    onCleanup(() => {
+      document.removeEventListener("visibilitychange", handleVisibility)
+      window.removeEventListener("online", retrySyncIfMissing)
+    })
+  })
 
   // ── Annotation event listener (from DrawOverlay) ────────────────────────────────
   createEffect(() => {
@@ -506,7 +557,7 @@ const sessionMessagesLoaded = createMemo(() => {
       
       if (detail.action === 'send' && !sending()) {
         if (!ensureMultimodalModel()) {
-          showToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型", variant: "error" })
+          showOctoToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型", variant: "error" })
           return
         }
 
@@ -629,7 +680,7 @@ const sessionMessagesLoaded = createMemo(() => {
         detail.ack?.({ ok: true })
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        showToast({ title: '发送失败', description: message, variant: 'error' })
+        showOctoToast({ title: '发送失败', description: message, variant: 'error' })
         detail.ack?.({ ok: false, message })
       }
     }
@@ -732,15 +783,17 @@ const sessionMessagesLoaded = createMemo(() => {
         if (callID) {
           const toolName = toolCallMap.get(callID)
           if (toolName) {
-            const family = toolFamily(toolName)
-            if (family === "write" || family === "edit") {
-              setFilesRefreshKey(k => k + 1)
-            }
+            setFilesRefreshKey(k => k + 1)
+            void historyController.onFileRefresh(tabStore.tabs())
             toolCallMap.delete(callID)
           }
         }
       } else if (e.type === "session.next.step.ended") {
         setFilesRefreshKey(k => k + 1)
+        void historyController.onFileRefresh(tabStore.tabs())
+      } else if (e.type === "file.edited" || e.type === "file.watcher.updated") {
+        setFilesRefreshKey(k => k + 1)
+        void historyController.onFileRefresh(tabStore.tabs())
       } else {
         const partType = props?.part ? (props.part as Record<string, unknown>)?.type : undefined
         console.log(`[make:event] ${e.type || partType}`, props) // eslint-disable-line 
@@ -853,13 +906,19 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!sid) return []
     const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter((m) => m.role === "user")
     const childIds = childSessionIDs()
-    if (childIds.size === 0) return mainMsgs
     const allMsgs: Message[] = [...mainMsgs]
     for (const childId of childIds) {
       const childMsgs = ((sync.data.message?.[childId] ?? []) as Message[]).filter((m) => m.role === "user")
       allMsgs.push(...childMsgs)
     }
-    return allMsgs.sort((a, b) => (a as any).time?.created - (b as any).time?.created)
+    // 始终按 time.created 排序(以 id 作 tiebreaker),避免依赖 sync.data.message 底层数组顺序。
+    // 否则在框选编辑等异步发送路径下,新消息可能因 Binary.search 插入位置异常而停留在顶部。
+    return allMsgs.sort((a, b) => {
+      const aTime = (a as any).time?.created ?? 0
+      const bTime = (b as any).time?.created ?? 0
+      if (aTime !== bTime) return aTime - bTime
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+    })
   })
 
   const lastUserMessage = createMemo(() => userMessages().at(-1))
@@ -880,6 +939,18 @@ const sessionMessagesLoaded = createMemo(() => {
   )
 
   const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
+  const contextMetrics = createMemo(
+    () => getSessionContextMetrics(params.id ? (sync.data.message[params.id] ?? []) : [], providers.all()).context,
+  )
+  const contextLimit = createMemo(() => {
+    if (contextMetrics()?.limit) return contextMetrics()!.limit!
+    if (currentModel()?.limit.context) return currentModel()!.limit.context
+    return DEFAULT_CUSTOM_CONTEXT_LIMIT
+  })
+  const contextUsage = createMemo(() => {
+    if (contextMetrics()?.usage !== null && contextMetrics()?.usage !== undefined) return contextMetrics()!.usage!
+    return contextLimit() ? Math.round(((contextMetrics()?.total ?? 0) / contextLimit()) * 100) : 0
+  })
 
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
@@ -951,6 +1022,8 @@ const sessionMessagesLoaded = createMemo(() => {
     
     // 检测从 busy → idle 的转换
     if (lastBusyState && !busy && id) {
+      // agent 一轮结束：刷新文件视图，让 iframe 重载拿到最新磁盘内容（no-store 保证 data.js 不命中缓存）
+      setFilesRefreshKey(k => k + 1)
       const timing = messageTimingMap.get(id)
       if (timing) {
         const elapsed = Date.now() - timing.startTime
@@ -997,6 +1070,24 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const [prompt, setPrompt] = createSignal("")
+  const unsubPickerSubmit = onPrototypePickerSubmit(({ text, id }) => {
+    const line = text ? `[选中元素: ${id}] ${text};` : ""
+    const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
+    const prev = ref?.getText?.() ?? ""
+    if (text) {
+      ref?.clear?.()
+      ref?.insertText?.(prev ? `${prev}\n${line}` : line)
+    }
+    void handleSubmit()
+  })
+  const unsubPickerAppend = onPrototypePickerAppend(({ text, id }) => {
+    const line = `[选中元素: ${id}] ${text};`
+    const ref = hasContent() ? proseMirrorRef2 : proseMirrorRef1
+    const prev = ref?.getText?.() ?? ""
+    ref?.clear?.()
+    ref?.insertText?.(prev ? `${prev}\n${line}` : line)
+  })
+  onCleanup(() => { unsubPickerSubmit(); unsubPickerAppend() })
   const [composing, setComposing] = createSignal(false)
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)
@@ -1012,8 +1103,8 @@ const sessionMessagesLoaded = createMemo(() => {
   const [slashState, setSlashState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [slashIndex, setSlashIndex] = createSignal(0)
   let textareaRef!: HTMLTextAreaElement
-  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void } | undefined
-  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void } | undefined
+  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (filename: string, path: string) => void; isAlive: () => boolean } | undefined
+  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (filename: string, path: string) => void; isAlive: () => boolean } | undefined
 
   // ── Mention (@) Popover State ──
   const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
@@ -1253,7 +1344,14 @@ const sessionMessagesLoaded = createMemo(() => {
   createEffect(on(() => params.id, (newId) => {
     currentSessionIdForPrompt = newId
     setPrompt(loadPromptFromStorage(newId))
-  }))
+    setMentionSelections([])
+    requestAnimationFrame(() => {
+      const ref = proseMirrorRef1 ?? proseMirrorRef2
+      if (ref?.isAlive()) {
+        ref.clear()
+      }
+    })
+  }, { defer: true }))
   const focusMode = layout.focusMode.get
   const hideChat = () => focusMode()
 
@@ -1283,13 +1381,57 @@ const sessionMessagesLoaded = createMemo(() => {
   const [showVersionPanel, setShowVersionPanel] = createSignal(false)
   const [snapshotList, setSnapshotList] = createSignal<import("./utils/snapshot-store").ArtifactSnapshot[]>([])
   const [snapshotVersion, setSnapshotVersion] = createSignal(0)
+  const [showHistoryPanel, setShowHistoryPanel] = createSignal(false)
+  const [versionList, setVersionList] = createSignal<VersionEntry[]>([])
+  const [currentVersionId, setCurrentVersionId] = createSignal<string | null>(null)
   const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files" | "plan">("files")
+
+  const historyController = createHistoryController({
+    setVersionList: (updater) => setVersionList(updater),
+    setCurrentVersionId: (updater) => setCurrentVersionId(updater),
+    updateTabContent: (id, content) => tabStore.updateTabContent(id, content),
+    setFilesRefreshKey: (updater) => setFilesRefreshKey(updater),
+  })
 
   /** 刷新版本快照列表 */
   function refreshSnapshots() {
     setSnapshotList(snapshotStore.snapshots())
     setSnapshotVersion((v) => v + 1)
   }
+
+  // Tab 激活时加载版本列表（仅在 activeId 变化时触发，不追踪 tabs 内容变化）
+  createEffect(on(tabStore.activeId, async (id) => {
+    if (!id) return
+    const tab = tabStore.tabs().find((t) => t.id === id)
+    if (tab) await historyController.loadVersions(tab)
+  }))
+
+  // Agent 路径 B：直接调 write/edit 工具改文件时记录版本
+  createEffect(async () => {
+    const key = filesRefreshKey()
+    if (key === 0) return
+    await historyController.onFileRefresh(tabStore.tabs())
+  })
+
+  // Prototype 用户编辑路径：applyPrototypeModify → 防抖 persistA2uiData 写 data.js 后
+  // 派发 prototype:a2ui-persisted。这里监听并按 tab.filePath 定位对应 prototype tab，
+  // 用 beginWrite/endWrite 包住 onUserEdit，防止 SSE file.edited 把这次写入误记为 agent 编辑。
+  createEffect(() => {
+    const handler = async (e: Event) => {
+      const detail = (e as CustomEvent<{ filePath: string }>).detail
+      if (!detail?.filePath) return
+      const target = tabStore.tabs().find((t) => t.filePath === detail.filePath)
+      if (!target || target.subtype !== "prototype") return
+      historyController.beginWrite(target.id)
+      try {
+        await historyController.onUserEdit(target)
+      } finally {
+        historyController.endWrite(target.id)
+      }
+    }
+    window.addEventListener("prototype:a2ui-persisted", handler)
+    onCleanup(() => window.removeEventListener("prototype:a2ui-persisted", handler))
+  })
 
   // ── 设计方案(design-plan)扫描 ─────────────────────────────
   // 方案 artifact 从子 session 的消息流中提取（如果存在子 session），
@@ -1508,44 +1650,26 @@ const sessionMessagesLoaded = createMemo(() => {
     // end 不关闭规划通道，后续仍可再次触发设计规划
   }
 
-  // ── 设计规划阶段引导(plan entry banner)─────────────────────
-  // agent 输出 [design-plan-intent] sentinel 但用户尚未响应时,
-  // 显示 PlanEntryBanner 让用户决定是否进入规划阶段。
+  // ── 设计规划阶段引导 ─────────────────────────────
+  // 进入设计规划：用户点击 AddonMenu「进入设计规划」→ 弹出确认弹窗 → 确认后创建子 session
+  //（已移除 agent sentinel → PlanEntryBanner 引导流程）
 
-  // 乐观锁:用户点 [进入]/[直接执行] 后立即隐藏 banner,等消息流回灌确认。
+  // 乐观锁:进入规划后立即置位,防止重复创建子 session。
   // 避免 sendMessage 飞行期间用户连点重复发送。
   const [optimisticIntentResolved, setOptimisticIntentResolved] = createSignal(false)
-  // 记录用户已点击"结束"的 session,防止 banner 再次出现
+  // 记录用户已结束该 session 的规划状态,防止下次 AddonMenu 重新进入
   const [planEndedForSession, setPlanEndedForSession] = createSignal<string | null>(null)
+  // 控制确认弹窗是否显示（内联渲染在输入框上方）
+  const [showPlanConfirm, setShowPlanConfirm] = createSignal(false)
   createEffect(on(() => params.id, () => {
     setOptimisticIntentResolved(false)
   }, { defer: true }))
 
-  const planIntentPending = createMemo(() => {
-    const sid = params.id
-    if (!sid) return false
-    // Phase 2 异步检测子 session 期间阻止 banner 闪现
-    if (phase2Pending()) return false
-    // 如果已存在活跃的规划子 session（切回时恢复的），不显示 banner
-    if (activePlanSessionId()) return false
-    // 如果已存在 octo_make_plan 子 session（跨重启恢复），不显示 banner
-    if (hasChildPlanSession()) return false
-    // 如果用户已结束该 session 的设计规划,不显示 banner
-    if (planEndedForSession() === sid) return false
-    // 如果 skip/confirm 已关闭该 session 的规划通道（localStorage 持久化标记），不显示 banner
-    if (localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid)) return false
-    // 如果 localStorage 中有缓存的子 session ID，不显示 banner（跨重启恢复）
-    if (localStorage.getItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + sid)) return false
-    // 如果 session 切换缓存中有该 session 的规划子 session，不显示 banner
-    if (_planChildSessionCache[sid]) return false
-    return !isPlanIntentResolved(sync.data.message?.[sid], sync.data.part)
-  })
-
-  // 当消息流中出现新的 sentinel 时自动复位乐观锁,允许用户再次选择。
-  // 否则同一个 session 内第二次生成的时乐观锁仍是 true,banner 不会显示。
-  createEffect(on(() => planIntentPending(), (pending) => {
-    if (pending) setOptimisticIntentResolved(false)
-  }, { defer: true }))
+  /** AddonMenu「进入设计规划」→ 弹出确认弹窗，用户确认后才真正进入 */
+  function handleOpenPlanConfirm() {
+    if (activePlanSessionId()) return  // 已在规划中，按钮已禁用，双保险
+    setShowPlanConfirm(true)
+  }
 
   /** 用户点 [进入] → 创建子 session (octo_make_plan),启动设计规划流程 */
   async function handleEnterPlan() {
@@ -1619,25 +1743,6 @@ const sessionMessagesLoaded = createMemo(() => {
       console.error("[MakePage] enter plan failed", err)
       setOptimisticIntentResolved(false)
     }
-  }
-
-  /** 用户点 [直接执行] → 发送 [skip-plan],agent 跳过方案直接生成 HTML。跳过将永久关闭该 session 的规划通道 */
-  function handleSkipPlan() {
-    const sid = params.id
-    const modelKey = activeModelKey()
-    if (!sid || !modelKey) return
-    if (optimisticIntentResolved()) return
-    setOptimisticIntentResolved(true)
-    // 持久化"已跳过"标记，后续不再弹出规划 banner
-    if (sid) {
-      localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid, "true")
-    }
-    setPlanEndedForSession(sid)
-    setPlanEnded(true)
-    sendMessage(sid, "[skip-plan]", modelKey).catch((err) => {
-      console.error("[MakePage] skip plan failed", err)
-      setOptimisticIntentResolved(false)
-    })
   }
 
   // 自动滚动：保持对话区随新内容跟随到底部（用户手动上滑则不抢）
@@ -1969,19 +2074,36 @@ const sessionMessagesLoaded = createMemo(() => {
     const tab = tabStore.tabs().find((t) => t.id === tabId)
 
     if (tab) {
-      await persistTabChanges(tab, {
-        sessionId: params.id!,
-        projectDir: projectDir(),
-        sdkUrl: sdk.url,
-        sdkDirectory: sdk.directory || "",
-        snapshotStore: snapshotStore,
-        refreshSnapshots: refreshSnapshots,
-      })
+      const isDesignPlan = tab.type === "design-plan"
+      historyController.beginWrite(tab.id)
+      try {
+        await persistTabChanges(tab, {
+          sessionId: params.id!,
+          projectDir: projectDir(),
+          sdkUrl: sdk.url,
+          sdkDirectory: sdk.directory || "",
+          snapshotStore: snapshotStore,
+          refreshSnapshots: refreshSnapshots,
+          skipSnapshot: !isDesignPlan,
+        })
+        if (!isDesignPlan) {
+          await historyController.onUserEdit(tab)
+        }
+      } finally {
+        historyController.endWrite(tab.id)
+      }
     }
     // 注：design-plan tab 的编辑不走 persistTabChanges(finalContent 是 draft,
     // 且 agent 端没有对应的 [update-plan] 指令).编辑内容已存在 tabStore +
     // snapshotStore(见 persistActivePlanDraft),切回时从 snapshot 恢复即可,
     // 不需要发消息回灌给 agent,避免 agent 重写 artifact 覆盖用户编辑。
+  }
+
+  /** 切换历史版本：交由 controller 处理 */
+  async function handleHistorySwitch(entry: VersionEntry) {
+    const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
+    if (!tab) return
+    await historyController.switchVersion(entry, tab)
   }
 
   /** 关闭 tab：关闭最后一个时切换到 files 视图 */
@@ -1991,6 +2113,7 @@ const sessionMessagesLoaded = createMemo(() => {
       tracker.interaction({ module: "design", name: "close-tab", extend: JSON.stringify({ type: tab.type }) })
     }
     tabStore.closeTab(id)
+    setShowHistoryPanel(false)
     if (tabStore.tabs().length === 0) {
       layout.focusMode.set(false)
       setResultViewMode("files")
@@ -2032,10 +2155,15 @@ const sessionMessagesLoaded = createMemo(() => {
       
       console.log("[sendMessage] mentions:", mentions)
       console.log("[sendMessage] skillToolCalls:", skillToolCalls())
-      
+
       for (const sel of selections) {
         if (sel.type === 'skill') {
           processedText = processedText.replace(`@${sel.name}`, ` /${sel.name} `)
+          // chip 在输入框里渲染成 displayName,但 getText 返回的是 @skillName(getDocTextWithMentions 用 attrs.name)。
+          // 这里把 displayText 里的 @skillName 同步替换成 @displayName,聊天记录里显示的就跟输入框一致。
+          if (sel.label && sel.label !== sel.name) {
+            displayText = displayText.replace(`@${sel.name}`, () => `@${sel.label}`)
+          }
         } else {
           processedText = processedText.replace(`@${sel.name}`, ` 读取${sel.path} 这个文件 `)
         }
@@ -2067,7 +2195,41 @@ const sessionMessagesLoaded = createMemo(() => {
       // 附件已快照到 fileParts/localManifest，立即清空 UI；
       // 否则要等 await session.prompt 完成才会清空，造成"附件要等模型回复完成才消失"的现象
       setAttachments([])
-      
+
+      // ── Artifact folder context（无论命令还是 prompt 路径，都在最开头注入） ──
+      // 告诉 agent 用 write 工具时的目标目录绝对路径，以及当前会话已有的产物文件列表（供 edit 工具使用）。
+      // 文件列表每轮 sendMessage 都重新扫盘，保证新鲜。
+      let artifactFolderPrefix = ""
+      const folderProjDir = projectDir()
+      if (folderProjDir && sessionId) {
+        const sep = folderProjDir.includes("\\") ? "\\" : "/"
+        const artifactFolder = [folderProjDir, ".octo", sessionId, "outputs"].join(sep)
+        let existingList = ""
+        try {
+          const relPath = `.octo/${sessionId}/outputs`
+          const result = await sdk.client.file.list({ path: relPath })
+          const files = (result.data ?? []).filter((n) => n.type === "file")
+          if (files.length > 0) {
+            const lines = files.map((n) => `- ${n.absolute}`)
+            existingList = [
+              ``,
+              `[Existing artifacts in this session]`,
+              ...lines,
+              `When the user references a previously-generated artifact in this session for modification, use the edit tool on the matching file path above. If the file is not listed, re-output a full <artifact> instead; do not edit files outside this list.`,
+            ].join("\n")
+          }
+        } catch {
+          // 目录可能还没创建(还没生成过产物),忽略
+        }
+        artifactFolderPrefix = [
+          `[Artifact Folder]: ${artifactFolder}`,
+          `Prefer the <artifact> tag for output; do NOT use the write tool by default. Only if the user EXPLICITLY asks to use the write tool, you MUST write files inside this folder and nowhere else.`,
+          existingList,
+          `---`,
+          ``,
+        ].filter(Boolean).join("\n")
+      }
+
       // ── Multi-slash-command detection ──
       // Scan all tokens in processedText for /cmd patterns, match against sync.data.command,
       // execute each via session.command(). Each command gets the text between itself
@@ -2119,6 +2281,7 @@ const sessionMessagesLoaded = createMemo(() => {
         // Save full display text (contains all text and @mentions)
         const fullDisplayText = displayText
         let isFirstSkillCommand = true
+        let artifactFolderInjected = false
         
         // 添加本地文件清单
         const manifestPart = localManifest.length > 0 
@@ -2127,10 +2290,16 @@ const sessionMessagesLoaded = createMemo(() => {
         
         for (const seg of cmdSegments) {
           if (!seg.cmd) continue
-          
+
           // Build parts: file parts + local manifest + optional text part with metadata for skill chips
           const cmdParts: Array<FilePartInput | TextPartInput> = [...fileParts]
           if (manifestPart) cmdParts.push(manifestPart)
+
+          // 注入 artifact folder context（仅注入一次）
+          if (artifactFolderPrefix && !artifactFolderInjected) {
+            cmdParts.unshift({ type: "text", text: artifactFolderPrefix, synthetic: true })
+            artifactFolderInjected = true
+          }
           
           // If this command is a skill from @mention, add metadata for chip display
           const isSkillMention = skillMentions.some(s => s.name === seg.cmd)
@@ -2242,46 +2411,9 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       }
 
-      // Artifact folder injection: 告诉 agent 用 write 工具时的目标目录绝对路径,
-      // 以及当前会话已存在的产物文件列表(供 edit 工具使用)。
-      // 必须放在 DesignSystem 注入之后,避免被 dsPrefix 重置覆盖。
-      // 文件列表每轮 sendMessage 都重新扫盘,保证新鲜。
-      const folderProjDir = projectDir()
-      if (folderProjDir && sessionId) {
-        const sep = folderProjDir.includes("\\") ? "\\" : "/"
-        const artifactFolder = [
-          folderProjDir,
-          ".octo",
-          sessionId,
-          "outputs",
-        ].join(sep)
-
-        let existingList = ""
-        try {
-          const relPath = `.octo/${sessionId}/outputs`
-          const result = await sdk.client.file.list({ path: relPath })
-          const files = (result.data ?? []).filter((n) => n.type === "file")
-          if (files.length > 0) {
-            const lines = files.map((n) => `- ${n.absolute}`)
-            existingList = [
-              ``,
-              `[Existing artifacts in this session]`,
-              ...lines,
-              `When the user references a previously-generated artifact in this session for modification, use the edit tool on the matching file path above. If the file is not listed, re-output a full <artifact> instead; do not edit files outside this list.`,
-            ].join("\n")
-          }
-        } catch {
-          // 目录可能还没创建(还没生成过产物),忽略
-        }
-
-        const folderPrefix = [
-          `[Artifact Folder]: ${artifactFolder}`,
-          `Prefer the <artifact> tag for output; do NOT use the write tool by default. Only if the user EXPLICITLY asks to use the write tool, you MUST write files inside this folder and nowhere else.`,
-          existingList,
-          `---`,
-          ``,
-        ].filter(Boolean).join("\n")
-        promptText = folderPrefix + "\n" + promptText
+      // Artifact folder injection（使用前面已构建的 artifactFolderPrefix）
+      if (artifactFolderPrefix) {
+        promptText = artifactFolderPrefix + "\n" + promptText
       }
 
       // jk-j60099994-replace-with-60062650-octoapp-make-index-1-start
@@ -2363,7 +2495,7 @@ const sessionMessagesLoaded = createMemo(() => {
     if (effectiveBusy() || !activeModelKey()) return
 
     if (hasImageAttachments() && !ensureMultimodalModel()) {
-      showToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型", variant: "error" })
+      showOctoToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型", variant: "error" })
       return
     }
 
@@ -2606,51 +2738,23 @@ if (dsId) {
     setPendingSkill(null)
   }
 
-  /** Handle mention selection (skill or file) */
-  function handleMentionSelect(selection: MentionSelection) {
-    const state = mentionState()
-    if (!state) return
-
-    const ta = textareaRef
-    const value = prompt()
-
-    // Remove @query text from prompt
-    const before = value.slice(0, state.cursor - state.query.length - 1)
-    const after = value.slice(ta.selectionStart)
-    
-    // Add visible chip format: @技能名 or @文件名
-    const chipText = selection.type === 'skill' 
-      ? `@${selection.name}` 
-      : `@${selection.filename}`
-    
-    const next = before + chipText + ' ' + after
-    setPrompt(next)
-    setMentionSelections(prev => [...prev, selection])
-
-    requestAnimationFrame(() => {
-      ta.focus()
-      const newPos = before.length + chipText.length + 1
-      ta.setSelectionRange(newPos, newPos)
-    })
+  /** Handle addon menu selection (skill or file) — inserts a chip via ProseMirrorEditor ref */
+  function getAliveEditor() {
+    if (proseMirrorRef1?.isAlive()) return proseMirrorRef1
+    if (proseMirrorRef2?.isAlive()) return proseMirrorRef2
+    return undefined
   }
 
-  function handleMentionDeselect(selection: MentionSelection) {
-    setMentionSelections(prev => prev.filter(s => 
-      s.type !== selection.type || 
-      (s.type === 'skill' ? s.name !== (selection as any).name : s.path !== (selection as any).path)
-    ))
-
-    // Remove chip from prompt
-    const chipText = selection.type === 'skill' 
-      ? `@${selection.name}` 
-      : `@${selection.filename}`
-    setPrompt(prev => prev.replace(chipText, '').replace(/  +/g, ' ').trim())
+  function handleAddonSelect(selection: MentionSelection) {
+    getAliveEditor()?.insertMention(selection)
   }
 
-  function handleMentionNavigate(direction: "up" | "down") {
-    // This will be handled in ProseMirrorEditor via mentionIndex
-    // For now, we need to calculate the max index based on filtered items
-    // The actual selection change will be reflected in MentionPopover
+  function handleAddonDeselect(selection: MentionSelection) {
+    getAliveEditor()?.removeMention(selection)
+  }
+
+  function handleAddonUpdateMentionPath(filename: string, path: string) {
+    getAliveEditor()?.updateMentionPath(filename, path)
   }
 
   /** Pick a Design Files file and add as attachment */
@@ -2679,12 +2783,12 @@ if (dsId) {
   /** Add artifact file to session attachments (仅记录路径，不发内容) */
   function addArtifactToSession(file: ArtifactFile) {
     if (attachments().some(a => a.path === file.path)) {
-      showToast({ title: "已添加", description: file.name })
+      showOctoToast({ title: "已添加", description: file.name })
       return
     }
 
     if (maxAttachments()) {
-      showToast({ title: "附件数量已达上限", description: "最多添加 5 个附件" })
+      showOctoToast({ title: "附件数量已达上限", description: "最多添加 5 个附件" })
       return
     }
 
@@ -2698,7 +2802,7 @@ if (dsId) {
       path: file.path,
       kind: file.kind,
     }])
-    showToast({ title: "已添加附件", description: file.name })
+    showOctoToast({ title: "已添加附件", description: file.name })
   }
 
   function getMimeForKind(kind: ArtifactFileKind): string {
@@ -2726,7 +2830,7 @@ if (dsId) {
   function handleAddFiles(files: File[], method: "picker" | "drop" | "paste") {
     const slots = 5 - attachments().length
     if (files.length > slots) {
-      showToast({ title: "最多添加5个附件" })
+      showOctoToast({ title: "最多添加5个附件" })
     }
     const toAdd = files.slice(0, slots)
     for (const file of toAdd) {
@@ -2789,13 +2893,13 @@ if (dsId) {
       try {
         const projectDirValue = projectDir()
         if (!projectDirValue) {
-          showToast({ title: "无法添加附件", description: "未选择项目目录", variant: "error" })
+          showOctoToast({ title: "无法添加附件", description: "未选择项目目录", variant: "error" })
           return
         }
         
         const api = getDesktopApi()
         if (!api?.writeFileBuffer) {
-          showToast({ title: "无法添加附件", description: "不支持文件操作", variant: "error" })
+          showOctoToast({ title: "无法添加附件", description: "不支持文件操作", variant: "error" })
           return
         }
         
@@ -2814,7 +2918,7 @@ if (dsId) {
           } : a
         ))
         
-        showToast({ title: "已添加附件", description: file.name })
+        showOctoToast({ title: "已添加附件", description: file.name })
       } catch (err) {
         const message = err instanceof Error ? err.message : '保存失败'
         setAttachments(prev => prev.map(a =>
@@ -2866,6 +2970,151 @@ if (dsId) {
         a.id === id ? { ...a, status: 'error' as const, error: message } : a
       ))
     }
+  }
+
+  /**
+   * Download a URL and save it into the current session's uploads directory,
+   * then add it as an attachment. Reports progress via onProgress (0-100).
+   * Filename is taken from the URL's hash fragment if present, else from pathname.
+   */
+  async function downloadUrlToSession(
+    url: string,
+    onProgress: (pct: number) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const sid = params.id
+
+    const projectDirValue = projectDir()
+    if (!projectDirValue) throw new Error("未选择项目目录")
+
+    const api = getDesktopApi()
+    if (!api?.writeFileBuffer) throw new Error("不支持文件操作")
+
+    onProgress(0)
+    const response = await fetch(url, { signal })
+    if (!response.ok) throw new Error(`下载失败: ${response.status}`)
+    const blob = await response.blob()
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+    const buffer = await blob.arrayBuffer()
+
+    // Filename: prefer URL hash fragment, else pathname basename, else fallback
+    const parsed = new URL(url)
+    let filename: string
+    if (parsed.hash && parsed.hash.length > 1) {
+      filename = decodeURIComponent(parsed.hash.slice(1))
+    } else {
+      const basename = parsed.pathname.split("/").filter(Boolean).pop() || ""
+      filename = basename || `download-${crypto.randomUUID().slice(0, 8)}`
+    }
+    // Strip any path separators in filename to prevent traversal
+    filename = filename.split(/[\\/]/).pop() || filename
+
+    const sep = projectDirValue.includes("\\") ? "\\" : "/"
+    // No session yet → stage in tmps (same as addLocalFileAttachment); session ready → land in uploads/
+    const destPath = sid
+      ? [projectDirValue, ".octo", sid, "uploads", filename].join(sep)
+      : [projectDirValue, ".octo", "tmps", "make", "uploads", filename].join(sep)
+
+    await api.writeFileBuffer(destPath, buffer)
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+    onProgress(60)
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+    if (maxAttachments()) {
+      showOctoToast({ title: "附件数量已达上限", description: "最多添加 5 个附件" })
+      return
+    }
+
+    setAttachments(prev => [...prev, {
+      id: crypto.randomUUID(),
+      filename,
+      mime: blob.type || 'application/octet-stream',
+      size: blob.size,
+      status: 'done',
+      // pending = staged in tmps, moved into session uploads when session is created;
+      // local = already in the session uploads directory
+      source: sid ? 'local' : 'pending',
+      path: destPath,
+    }])
+
+    // Refresh file management panel so the new file appears in the uploaded list
+    setFilesRefreshKey(k => k + 1)
+
+    onProgress(100)
+    showOctoToast({ title: "已添加附件", description: filename })
+  }
+
+  /**
+   * Download a product-asset-library file (s3BaseUrl + convertHtmlUrl) into the
+   * current session's uploads directory (or tmps if no session yet), with simple
+   * numeric suffix for rename collisions. Returns the local destination path.
+   * Does NOT add as attachment — only downloads. The chip insertion is handled
+   * separately by AddonMenu via insertMention.
+   */
+  async function downloadProductAsset(
+    file: { fileName: string; snapshot: string; s3BaseUrl: string; convertHtmlUrl: string },
+    onProgress: (pct: number) => void,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    const sid = params.id
+    const projectDirValue = projectDir()
+    if (!projectDirValue) throw new Error("未选择项目目录")
+    const api = getDesktopApi()
+    if (!api?.writeFileBuffer) throw new Error("不支持文件操作")
+
+    // Build full URL + local filename (encode non-ASCII path segments for fetch)
+    const fileUrl = encodeAssetUrl(joinUrl(file.s3BaseUrl, file.convertHtmlUrl))
+    const ext = extractExtension(file.convertHtmlUrl)
+    const baseName = file.fileName
+    const filename = ext ? `${baseName}.${ext}` : baseName
+
+    onProgress(0)
+    const response = await fetch(fileUrl, { signal })
+    if (!response.ok) throw new Error(`下载失败: ${response.status}`)
+    const blob = await response.blob()
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+    const buffer = await blob.arrayBuffer()
+
+    // Resolve unique path (simple suffix on collision)
+    const sep = projectDirValue.includes("\\") ? "\\" : "/"
+    const dir = sid
+      ? [projectDirValue, ".octo", sid, "uploads"].join(sep)
+      : [projectDirValue, ".octo", "tmps", "make", "uploads"].join(sep)
+    const finalName = await resolveUniqueFilename(dir, filename)
+    const destPath = [dir, finalName].join(sep)
+
+    await api.writeFileBuffer(destPath, buffer)
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+    onProgress(100)
+    // Refresh file management panel so the downloaded file appears in the uploaded list
+    setFilesRefreshKey(k => k + 1)
+    return destPath
+  }
+
+  function extractExtension(urlPath: string): string {
+    const clean = urlPath.split("?")[0].split("#")[0]
+    const basename = clean.split("/").pop() || ""
+    const dot = basename.lastIndexOf(".")
+    if (dot <= 0 || dot === basename.length - 1) return ""
+    return basename.slice(dot + 1)
+  }
+
+  async function resolveUniqueFilename(dir: string, filename: string): Promise<string> {
+    const api = getDesktopApi()
+    if (!api?.fileExists) return filename
+    const dot = filename.lastIndexOf(".")
+    const base = dot > 0 ? filename.slice(0, dot) : filename
+    const ext = dot > 0 ? filename.slice(dot) : ""
+    const sep = dir.includes("\\") ? "\\" : "/"
+    let candidate = filename
+    let i = 1
+    while (await api.fileExists([dir, candidate].join(sep))) {
+      candidate = `${base} (${i})${ext}`
+      i++
+    }
+    return candidate
   }
 
   function handlePaste(e: ClipboardEvent) {
@@ -3031,6 +3280,22 @@ if (dsId) {
 
   /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
   async function handleOpenResult(card: OutputCard) {
+    // 不支持预览的 file 类型:弹窗提示 + 提供下载入口,不打开 result-viewer tab。
+    // 必须在 setResultViewMode/ml.showRight 之前拦截,否则会切到 tabs 模式显示空 ResultViewer。
+    // link 类型的磁盘路径会经 inferOutputType 推断,只有真正无法预览的扩展名才会落到 'file'。
+    if (card.type === "file") {
+      dialog.show(() => (
+        <DialogPreviewUnavailable
+          filename={card.title}
+          filePath={card.filePath}
+          sdkUrl={sdk.url}
+          sdkDirectory={sdk.directory || ""}
+        />
+      ))
+      tracker.interaction({ module: "design", name: "preview-unavailable", extend: JSON.stringify({ title: card.title }) })
+      return
+    }
+
     setResultViewMode("tabs")
     ml.showRight()
 
@@ -3115,7 +3380,7 @@ if (dsId) {
       }
     }
     
-    // ★ Step 0: 如果已有匹配的 tab，直接激活
+    // ★ Step 0: 如果已有匹配的 tab，直接激活（但先检查文件内容是否变化，变化则记录 agent 版本）
     if (card.filePath) {
       const existingTab = tabStore.tabs().find(t => {
         if (t.type === "html" && isUrl) return t.filePath === card.filePath
@@ -3124,6 +3389,17 @@ if (dsId) {
         return false
       })
       if (existingTab) {
+        if (!isUrl && existingTab.type !== "design-plan") {
+          const api = getDesktopApi()
+          const buf = await api?.readFileBuffer?.(existingTab.filePath!)
+          if (buf) {
+            const fileContent = new TextDecoder().decode(buf)
+            if (fileContent && fileContent !== existingTab.content) {
+              tabStore.updateTabContent(existingTab.id, fileContent)
+              await historyController.onTabOpen({ ...existingTab, content: fileContent }, existingTab)
+            }
+          }
+        }
         tabStore.activate(existingTab.id)
         return
       }
@@ -3151,13 +3427,15 @@ if (dsId) {
       }
     }
     
+    const existingBefore = tabStore.tabs().find((t) => t.id === card.id)
     tabStore.openTab(card)
     if (card.artifactIdentifier?.endsWith("-composed")) {
       tabStore.activate(card.id)
     }
     const tab = tabStore.tabs().find((t) => t.id === card.id)
-    
+
     if (tab) {
+      const isDesignPlan = tab.type === "design-plan"
       const shouldPersist = !["image", "video", "audio", "pdf", "text"].includes(tab.type)
       // 跳过从文件加载的内容（已存在于文件中，无需重复持久化）
       if (shouldPersist && !isUrl && tab.content && !contentLoadedFromFile) {
@@ -3168,7 +3446,11 @@ if (dsId) {
           sdkDirectory: sdk.directory || "",
           snapshotStore: snapshotStore,
           refreshSnapshots: refreshSnapshots,
+          skipSnapshot: !isDesignPlan,
         })
+      }
+      if (!isDesignPlan) {
+        await historyController.onTabOpen(tab, existingBefore)
       }
     }
   }
@@ -3376,6 +3658,30 @@ if (dsId) {
                       {sessionTitle(overrideTitle() ?? info()?.title ?? sessionInfoMirror()?.title) ?? "Octo Design"}
                     </h1>
                   </Show>
+                  <Show when={!titleState.editing && params.id}>
+                    <Tooltip
+                      placement="top"
+                      gutter={8}
+                      contentClass="make-token-tooltip"
+                      value={
+                        <span>
+                          当前session已使用： {(contextMetrics()?.total ?? 0).toLocaleString(language.intl())} /{" "}
+                          {contextLimit() ? contextLimit().toLocaleString(language.intl()) : "--"} 个token
+                        </span>
+                      }
+                    >
+                      <div
+                        class="shrink-0 flex items-center justify-center"
+                        style={{
+                          "--border-active": "var(--octo-brand)",
+                          "--border-weak-base": "rgba(0,0,0,0.1)",
+                        }}
+                        aria-label={`Token ${contextUsage()}%`}
+                      >
+                        <ProgressCircle size={16} strokeWidth={2} percentage={contextUsage()} />
+                      </div>
+                    </Tooltip>
+                  </Show>
                 </div>
                 <DropdownMenu
                   gutter={4}
@@ -3559,17 +3865,22 @@ if (dsId) {
                           accept="*/*"
                           onChange={handleFileInputChange}
                         />
-                        <Tooltip placement="top" value="添加附件">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            class="size-8 p-0"
-                            disabled={maxAttachments()}
-                            onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                          >
-                            <Icon name="plus" class="size-5" />
-                          </Button>
-                        </Tooltip>
+                        <AddonMenu
+                          skillConfig={skillConfig() ?? {}}
+                          artifactFiles={artifactFilesMirror()}
+                          selections={mentionSelections()}
+                          onSelect={handleAddonSelect}
+                          onDeselect={handleAddonDeselect}
+                          onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
+                          onAddAttachmentFromUrl={downloadUrlToSession}
+                          onDownloadProductAsset={downloadProductAsset}
+                          onUpdateMentionPath={handleAddonUpdateMentionPath}
+                          productId={projectSelection()?.product?.id}
+                          onEnterDesignStrategy={handleOpenPlanConfirm}
+                          planActive={activePlanSessionId() !== null || !params.id}
+                          onOpen={loadSkillConfig}
+                          disabled={maxAttachments()}
+                        />
 <ModelSelectorPopover
                            model={local.model}
                            triggerAs="button"
@@ -3591,16 +3902,6 @@ if (dsId) {
                           </span>
                           <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
                         </ModelSelectorPopover>
-                        <button
-                          type="button"
-                          class="flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none"
-                          onClick={handleSpecSelect}
-                        >
-                          <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
-                            {selectedSpecDisplay() || "请选择设计规范"}
-                          </span>
-                          <Icon name="chevron-down" class="size-3.5 shrink-0" style="color: #000" />
-                        </button>
                       </div>
 <IconButton
                          data-action="prompt-submit"
@@ -3617,16 +3918,16 @@ if (dsId) {
                </div>
              </Show>
            }>
-              {/* 消息列表 */}
+              {/* 消息列表 —— 已移除 PlanEntryBanner（进入设计策略模式仅保留 AddonMenu 入口） */}
               <div class="relative flex-1 min-h-0">
               <ScrollView
                 class="h-full"
-                style={{ background: "#fff", padding: "0 12px", }}
+                style={{ background: "#fff", padding: "0 12px 16px 12px", }}
                 viewportRef={autoScroll.scrollRef}
                 onScroll={autoScroll.handleScroll}
                 onMouseUp={autoScroll.handleInteraction}
               >
-                <div ref={autoScroll.contentRef} class="py-4 flex flex-col gap-4">
+                <div ref={autoScroll.contentRef} class="make-chat-content pt-4 flex flex-col gap-4">
                     {/* 第一条消息 */}
                     <Show when={userMessages().length > 0}>
                       <InsightTurn
@@ -3647,7 +3948,10 @@ if (dsId) {
                           setPrompt(text)
                         }}
                         hasQuestionRequest={!!questionRequest()}
-                        onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
+                        onFilesRefresh={() => {
+                          setFilesRefreshKey(k => k + 1)
+                          void historyController.onFileRefresh(tabStore.tabs())
+                        }}
                         skillToolCalls={skillToolCalls()}
                         skillConfig={skillConfig()}
                       />
@@ -3709,7 +4013,10 @@ if (dsId) {
                           setPrompt(text)
                         }}
                         hasQuestionRequest={!!questionRequest()}
-                        onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
+                        onFilesRefresh={() => {
+                          setFilesRefreshKey(k => k + 1)
+                          void historyController.onFileRefresh(tabStore.tabs())
+                        }}
                         skillToolCalls={skillToolCalls()}
                         skillConfig={skillConfig()}
                       />
@@ -3729,11 +4036,11 @@ if (dsId) {
               {/* 输入区 */}
               <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
 
-                {/* Plan entry banner - sentinel 阶段:让用户选择是否进入设计规划 */}
-                <Show when={planIntentPending() && !optimisticIntentResolved()}>
+                {/* Plan entry banner - AddonMenu 进入设计策略模式时的确认弹窗 */}
+                <Show when={showPlanConfirm() && !optimisticIntentResolved()}>
                   <PlanEntryBanner
-                    onEnter={handleEnterPlan}
-                    onSkip={handleSkipPlan}
+                    onEnter={() => { setShowPlanConfirm(false); handleEnterPlan() }}
+                    onSkip={() => setShowPlanConfirm(false)}
                   />
                 </Show>
 
@@ -3878,17 +4185,22 @@ if (dsId) {
                         accept="*/*"
                         onChange={handleFileInputChange}
                       />
-                      <Tooltip placement="top" value="添加附件">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          class="size-8 p-0"
-                          disabled={maxAttachments()}
-                          onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
-                        >
-                          <Icon name="plus" class="size-5" />
-                        </Button>
-                      </Tooltip>
+                      <AddonMenu
+                        skillConfig={skillConfig() ?? {}}
+                        artifactFiles={artifactFilesMirror()}
+                        selections={mentionSelections()}
+                        onSelect={handleAddonSelect}
+                        onDeselect={handleAddonDeselect}
+                        onAddAttachment={() => { if (!maxAttachments()) fileInputRef.click() }}
+                        onAddAttachmentFromUrl={downloadUrlToSession}
+                        onDownloadProductAsset={downloadProductAsset}
+                        onUpdateMentionPath={handleAddonUpdateMentionPath}
+                        productId={projectSelection()?.product?.id}
+                        onEnterDesignStrategy={handleOpenPlanConfirm}
+                        planActive={activePlanSessionId() !== null || !params.id}
+                        onOpen={loadSkillConfig}
+                        disabled={maxAttachments()}
+                      />
 <ModelSelectorPopover
                          model={local.model}
                          triggerAs="button"
@@ -4004,6 +4316,20 @@ if (dsId) {
                 sdkDirectory={sdk.directory || ""}
                 focusMode={focusMode()}
                 onFocusModeToggle={() => layout.focusMode.toggle()}
+                historyActive={showHistoryPanel()}
+                historyEntries={versionList()}
+                currentVersionId={currentVersionId()}
+                onHistorySwitch={handleHistorySwitch}
+                onModeChange={(mode) => {
+                  if (mode === "edit") setShowHistoryPanel(false)
+                }}
+                onHistoryToggle={async () => {
+                  if (!showHistoryPanel()) {
+                    const tab = tabStore.tabs().find((t) => t.id === tabStore.activeId())
+                    if (tab) await historyController.refreshVersions(tab)
+                  }
+                  setShowHistoryPanel(!showHistoryPanel())
+                }}
                 onCollapseDrawer={
                   !focusMode() && ml.rightCollapsed() && ml.rightDrawerOpen()
                     ? ml.toggleRightDrawer
@@ -4013,7 +4339,10 @@ if (dsId) {
                 onAdjustPlan={handleAdjustPlan}
                 isPlanConfirmed={planButtonDisabled}
                 filesRefreshKey={filesRefreshKey()}
-                onFilesRefresh={() => setFilesRefreshKey(k => k + 1)}
+                onFilesRefresh={() => {
+                  setFilesRefreshKey(k => k + 1)
+                  void historyController.onFileRefresh(tabStore.tabs())
+                }}
                 planCard={planCard()}
                 planPhase={planPhase()}
                 strategyFormData={strategyFormData()}
@@ -4059,7 +4388,7 @@ if (dsId) {
         </div>
         </Show>
       </div>
+      <OctoToast />
     </DataProvider>
   )
 }
-

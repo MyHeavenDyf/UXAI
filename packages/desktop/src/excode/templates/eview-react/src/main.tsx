@@ -8,7 +8,7 @@ import '@nce/eview-react/styles/aui3_1.css';
 import './styles/global.less';
 import './styles/base.css';
 import './styles/hui-base.css';
-import './styles/hui-base-dark.css';
+// import './styles/hui-base-dark.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <IntlProvider locale="zh" messages={componentsLocales.zh}>

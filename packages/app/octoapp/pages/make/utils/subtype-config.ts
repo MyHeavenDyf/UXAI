@@ -1,15 +1,21 @@
+export type FeatureFlag = boolean | { enabled: boolean; editOnly?: boolean }
+
 export type SubtypeCapabilities = {
   features: {
-    refresh: boolean
-    modeToggle: boolean
-    viewport: boolean
-    localEdit: boolean
-    drawEdit: boolean
-    canvasEdit: boolean
-    comment: boolean
-    archive: boolean
-    download: boolean
-    fullscreen: boolean
+    refresh: FeatureFlag
+    modeToggle: FeatureFlag
+    viewport: FeatureFlag
+    localEdit: FeatureFlag
+    drawEdit: FeatureFlag
+    canvasEdit: FeatureFlag
+    comment: FeatureFlag
+    archive: FeatureFlag
+    history: FeatureFlag
+    download: FeatureFlag
+    fullscreen: FeatureFlag
+  }
+  history?: {
+    files: string[]
   }
   rendering?: {
     designSystem?: string
@@ -24,11 +30,12 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       refresh: true,
       modeToggle: true,
       viewport: true,
-      localEdit: false,
-      drawEdit: true,
-      canvasEdit: true,
-      comment: true,
-      archive: true,
+      localEdit: true,
+      drawEdit: { enabled: true, editOnly: true },
+      canvasEdit: { enabled: true, editOnly: true },
+      comment: { enabled: true, editOnly: true },
+      archive: { enabled: true, editOnly: true },
+      history: false,
       download: true,
       fullscreen: true,
     },
@@ -49,9 +56,29 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       canvasEdit: false,
       comment: false,
       archive: false,
+      history: false,
       download: false,
       fullscreen: true,
     }
+  },
+
+  prototype: {
+    features: {
+      refresh: true,
+      modeToggle: true,
+      viewport: true,
+      localEdit: { enabled: true, editOnly: true },
+      drawEdit: false,
+      canvasEdit: { enabled: true, editOnly: true },
+      comment: { enabled: true, editOnly: true },
+      archive: { enabled: true, editOnly: true },
+      history: { enabled: true, editOnly: true },
+      download: true,
+      fullscreen: true,
+    },
+    history: {
+      files: ['./data.js'],
+    },
   },
 
   _default: {
@@ -59,15 +86,29 @@ export const SUBTYPE_CONFIG: Record<string, SubtypeCapabilities> = {
       refresh: true,
       modeToggle: true,
       viewport: true,
-      localEdit: true,
-      drawEdit: true,
-      canvasEdit: true,
-      comment: true,
-      archive: true,
+      localEdit: { enabled: true, editOnly: true },
+      drawEdit: { enabled: true, editOnly: true },
+      canvasEdit: { enabled: true, editOnly: true },
+      comment: { enabled: true, editOnly: true },
+      archive: { enabled: true, editOnly: true },
+      history: { enabled: true, editOnly: true },
       download: true,
       fullscreen: true,
-    }
+    },
+    history: {
+      files: ['.'],
+    },
   }
+}
+
+/** 解析 FeatureFlag：返回是否启用 */
+export function isFeatureEnabled(flag: FeatureFlag): boolean {
+  return typeof flag === "boolean" ? flag : flag.enabled
+}
+
+/** 解析 FeatureFlag：返回是否只在预览模式 */
+export function isFeatureEditOnly(flag: FeatureFlag): boolean {
+  return typeof flag === "boolean" ? false : !!flag.editOnly
 }
 
 export function getSubtypeConfig(subtype?: string): SubtypeCapabilities {

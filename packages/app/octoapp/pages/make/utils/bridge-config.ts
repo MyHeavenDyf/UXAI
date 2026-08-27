@@ -1,4 +1,4 @@
-import { getSubtypeConfig } from './subtype-config'
+import { getSubtypeConfig, isFeatureEnabled } from './subtype-config'
 
 export type BridgeInjectConfig = {
   injectSandbox: boolean
@@ -15,24 +15,27 @@ export type BridgeInjectConfig = {
 
 export function getBridgeConfigForSubtype(subtype?: string): BridgeInjectConfig {
   const config = getSubtypeConfig(subtype)
-  const { features, rendering } = config
-  
-  const editEnabled = features.localEdit || features.drawEdit || features.canvasEdit
-  const customBridges = rendering?.customBridges || []
-  
+  const { features } = config
+
+  const localEdit = isFeatureEnabled(features.localEdit)
+  const drawEdit = isFeatureEnabled(features.drawEdit)
+  const canvasEdit = isFeatureEnabled(features.canvasEdit)
+  const editEnabled = localEdit || drawEdit || canvasEdit
+  const customBridges = config.rendering?.customBridges || []
+
   return {
     injectSandbox: true,
     injectAnnotate: true,
     injectPicker: true,
     injectInspect: true,
-    
+
     injectEdit: editEnabled,
     injectEditStyle: editEnabled,
-    
-    injectComment: features.comment && !customBridges.includes('custom-comment'),
-    injectSnapshot: (features.drawEdit || features.archive) && !customBridges.includes('custom-snapshot'),
-    injectResourceCollector: features.canvasEdit,
-    
+
+    injectComment: isFeatureEnabled(features.comment) && !customBridges.includes('custom-comment'),
+    injectSnapshot: (drawEdit || isFeatureEnabled(features.archive)) && !customBridges.includes('custom-snapshot'),
+    injectResourceCollector: canvasEdit,
+
     customBridges
   }
 }
