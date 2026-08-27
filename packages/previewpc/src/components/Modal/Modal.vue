@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, useAttrs } from "vue"
+import { computed, onMounted, onUnmounted, ref } from "vue"
 import { ElDialog } from "element-plus"
 import type { ModalNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
@@ -12,11 +12,6 @@ const { node, surfaceId } = props
 const properties = node.properties
 const { resolveValue, setState, getValue } = useA2UIComponent(node, surfaceId)
 const { store } = useA2UI()
-
-defineOptions({ inheritAttrs: false })
-
-const attrs = useAttrs()
-const elDialogRef = ref<InstanceType<typeof ElDialog>>()
 
 // 从 onClose 取绑定路径（open 与 onClose 指向同一个 state key）
 const bindingPath = computed(() => {
@@ -33,16 +28,6 @@ const localOpen = ref(false)
 let unsubscribe: (() => void) | null = null
 
 onMounted(() => {
-  const wrapper = (elDialogRef.value as any)?.$el
-  if (wrapper instanceof HTMLElement) {
-    if (attrs['id'] != null)
-      wrapper.setAttribute('id', String(attrs['id']))
-    if (attrs['dom-picker-component'] != null)
-      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
-    if (attrs['data-element-props'] != null)
-      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
-  }
-
   // 初始状态
   if (bindingPath.value) {
     localOpen.value = !!getValue(bindingPath.value)
@@ -82,7 +67,6 @@ function handleClose() {
 
 <template>
   <ElDialog
-    ref="elDialogRef"
     :id="id"
     :class="className"
     :model-value="localOpen"

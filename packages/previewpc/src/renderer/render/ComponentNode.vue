@@ -27,12 +27,14 @@ const elementPropsJson = computed(() => {
   const raw = props.node.properties || {}
   const simple: Record<string, any> = {}
   for (const [k, v] of Object.entries(raw)) {
-    if (k === 'children') continue
+    if (k === 'children' || k === 'style') continue
     if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
       simple[k] = v
     } else if (typeof v === 'object' && (v as any)?.path) {
       simple[k] = resolveValue(v as any)
       simple[`__bind_${k}`] = (v as any).path
+    } else if (v != null) {
+      simple[k] = v
     }
   }
   const styleObj = raw.style

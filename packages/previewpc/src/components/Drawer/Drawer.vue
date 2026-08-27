@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, useAttrs } from "vue"
+import { computed, onMounted, onUnmounted, ref } from "vue"
 import { ElDrawer } from "element-plus"
 import type { DrawerNode } from "../types"
 import type { A2UIComponentProps } from "../../renderer"
@@ -12,11 +12,6 @@ const { node, surfaceId } = props
 const properties = node.properties
 const { resolveValue, setState, getValue } = useA2UIComponent(node, surfaceId)
 const { store } = useA2UI()
-
-defineOptions({ inheritAttrs: false })
-
-const attrs = useAttrs()
-const elDrawerRef = ref<InstanceType<typeof ElDrawer>>()
 
 // 从 onClose 取绑定路径（open 与 onClose 指向同一个 state key）
 const bindingPath = computed(() => {
@@ -32,16 +27,6 @@ const localOpen = ref(false)
 let unsubscribe: (() => void) | null = null
 
 onMounted(() => {
-  const wrapper = (elDrawerRef.value as any)?.$el
-  if (wrapper instanceof HTMLElement) {
-    if (attrs['id'] != null)
-      wrapper.setAttribute('id', String(attrs['id']))
-    if (attrs['dom-picker-component'] != null)
-      wrapper.setAttribute('dom-picker-component', String(attrs['dom-picker-component']))
-    if (attrs['data-element-props'] != null)
-      wrapper.setAttribute('data-element-props', String(attrs['data-element-props']))
-  }
-
   if (bindingPath.value) {
     localOpen.value = !!getValue(bindingPath.value)
   }
@@ -88,7 +73,6 @@ function handleClose() {
 
 <template>
   <ElDrawer
-    ref="elDrawerRef"
     :id="id"
     :class="className"
     :model-value="localOpen"
