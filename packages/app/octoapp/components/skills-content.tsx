@@ -183,6 +183,7 @@ export function SkillsContent(): JSX.Element {
   // jk-j60099994-replace-with-60062650-components-skills-content-7-end
 
   async function handleAddSkill() {
+    // jk-j60099994-replace-with-60062650-components-skills-content-8-start
     const api = (window as unknown as {
       api?: {
         openDirectoryPicker?: (opts?: { title?: string }) => Promise<string | null>
@@ -194,11 +195,10 @@ export function SkillsContent(): JSX.Element {
     const result = await api?.addSkill?.(selected)
     if (result?.success) {
       showToast({ variant: "success", icon: "circle-check", title: "添加成功", description: `已添加技能：${result.skillName ?? ""}` })
-      // jk-j60099994-replace-with-60062650-components-skills-content-8-start
-      // jk-j60099994-replace-with-60062650-components-skills-content-8-end
     } else if (result?.error) {
       showToast({ variant: "error", icon: "circle-x", title: "添加失败", description: result.error })
     }
+    // jk-j60099994-replace-with-60062650-components-skills-content-8-end
     // jk-j60099994-replace-with-60062650-components-skills-content-9-start
     await loadConfig()
     const url = globalSDK.url

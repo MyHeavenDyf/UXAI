@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_LIMIT } from "./build-prompt-parts"
+import {
+  assembleInsightParts,
+  decideInlineStrategy,
+  DOC_COUNT_THRESHOLD,
+  DOC_SINGLE_BYTES,
+  INLINE_BUDGET,
+  SINGLE_DOC_LIMIT,
+} from "./build-prompt-parts"
 
 /**
  * SPEC-INS-027：正常发送与排队 drain 共用的 parts 组装骨架单测。
@@ -128,6 +135,63 @@ describe("assembleInsightParts", () => {
  */
 describe("decideInlineStrategy", () => {
   const f = (filename: string, bytes: number, path = `/p/${filename}`) => ({ filename, path, bytes })
+  const doc = (filename: string, bytes = 1024, path = `/p/${filename}`) => ({ filename, path, bytes })
+
+  // ── SPEC-INS-032 §2.6：office / pdf 的份数口径 ────────────────────────────
+  // 这类文件发送前只有二进制大小、拿不到正文体量，故不并入字节预算，按份数判。
+  // 用例写成相对 DOC_COUNT_THRESHOLD / DOC_SINGLE_BYTES，调阈值不用改用例。
+
+  test("office 少于阈值份数且不大 → inline（父代理自己读更快）", () => {
+    const files = Array.from({ length: DOC_COUNT_THRESHOLD - 1 }, (_, i) => doc(`访谈${i}.docx`))
+    const d = decideInlineStrategy(files)
+    expect(d.mode).toBe("inline")
+    expect(d.docs).toHaveLength(DOC_COUNT_THRESHOLD - 1)
+    expect(d.reasons).toEqual([])
+  })
+
+  test("office 达到阈值份数 → dispatch（doc-count）", () => {
+    const files = Array.from({ length: DOC_COUNT_THRESHOLD }, (_, i) => doc(`访谈${i}.docx`))
+    const d = decideInlineStrategy(files)
+    expect(d.mode).toBe("dispatch")
+    expect(d.reasons).toContain("doc-count")
+  })
+
+  test("单份 office 超二进制兜底 → dispatch（doc-size），哪怕只有一份", () => {
+    const d = decideInlineStrategy([doc("超大.docx", DOC_SINGLE_BYTES + 1)])
+    expect(d.mode).toBe("dispatch")
+    expect(d.reasons).toEqual(["doc-size"])
+    expect(d.largeDocs.map((x) => x.filename)).toEqual(["超大.docx"])
+  })
+
+  test("office 的字节**不**计入文本预算（两套口径互不污染）", () => {
+    // 一份巨大的 docx + 一个很小的 md：文本预算只看那个 md
+    const d = decideInlineStrategy([doc("大.docx", DOC_SINGLE_BYTES + 1), f("小.md", 100)])
+    expect(d.totalBytes).toBe(100)
+    expect(d.files.map((x) => x.filename)).toEqual(["小.md"])
+    expect(d.reasons).toEqual(["doc-size"])
+  })
+
+  test("混合命中两条判据 → reasons 都记上，仍是整批 dispatch", () => {
+    const files = [
+      f("长文.md", INLINE_BUDGET + 1),
+      ...Array.from({ length: DOC_COUNT_THRESHOLD }, (_, i) => doc(`访谈${i}.docx`)),
+    ]
+    const d = decideInlineStrategy(files)
+    expect(d.mode).toBe("dispatch")
+    expect(d.reasons).toContain("text-budget")
+    expect(d.reasons).toContain("doc-count")
+  })
+
+  test("图片两个口径都不参与", () => {
+    const d = decideInlineStrategy([
+      { filename: "截图.png", path: "/p/截图.png", bytes: DOC_SINGLE_BYTES + 1 },
+      f("小.md", 100),
+    ])
+    expect(d.mode).toBe("inline")
+    expect(d.docs).toEqual([])
+    expect(d.files.map((x) => x.filename)).toEqual(["小.md"])
+  })
+
 
   test("总字节在预算内 → inline，行为与 v2 之前一致", () => {
     const d = decideInlineStrategy([f("a.md", 1000), f("b.txt", 2000)])

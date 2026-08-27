@@ -33,6 +33,7 @@ describe("validateCustomProvider", () => {
         env: ["CUSTOM_PROVIDER_KEY"],
         options: {
           baseURL: "https://api.example.com",
+          __octo_custom_provider: true,
           headers: {
             "X-Test": "enabled",
           },

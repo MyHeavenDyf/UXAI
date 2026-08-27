@@ -137,7 +137,10 @@ export async function sendQueuedItem(globalSDK: GlobalSDK, sessionID: string, it
       count: inlineDecision.files.length,
       totalBytes: inlineDecision.totalBytes,
       budget: INLINE_BUDGET,
+      docCount: inlineDecision.docs.length,
+      reasons: inlineDecision.reasons,
       oversized: inlineDecision.oversized.map((f) => f.filename),
+      largeDocs: inlineDecision.largeDocs.map((f) => f.filename),
       unknownCount: inlineDecision.unknownCount,
     })
     // 说明块排末尾，与 doSendPrompt 的 syntheticTexts 顺序一致
@@ -145,14 +148,15 @@ export async function sendQueuedItem(globalSDK: GlobalSDK, sessionID: string, it
       formatDispatchNote({
         count: inlineDecision.files.length,
         totalBytes: inlineDecision.totalBytes,
+        docCount: inlineDecision.docs.length,
         oversized: inlineDecision.oversized,
       }),
     )
   }
   if (inlineDecision.oversized.length > 0) {
-    // drain 跑在页面可能已卸载的全局 runner 里，没有 toast 通道 —— 只打日志，
-    // 用户侧的告知由 formatDispatchNote 让模型在回复里说明（§2.4）。
-    console.warn("[octo:attach] 单份超出通读容量,已拦下", {
+    // SPEC-INS-032 §2.4 v3：单份超上界**不再拦截**，改由 extract_document 返回切段清单、
+    // 子代理按段读（本地兜住，不让用户去拆文件）。这里只留观测。
+    console.log("[octo:attach] 单份超出单次通读量,将走切段", {
       files: inlineDecision.oversized.map((f) => ({ filename: f.filename, bytes: f.bytes })),
       limit: SINGLE_DOC_LIMIT,
     })

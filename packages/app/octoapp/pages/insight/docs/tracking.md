@@ -106,7 +106,23 @@
 | server-mcp-result | 某业务 MCP 任务跑出终态（**完成侧**，`completed`→success / `failed`→failure，每 `task_id` 一次；`stopped` 及未出结果态不打）。与 `server-mcp-used` 靠 `taskId` 成对，可算成功率 / 时延 | `tool`、`taskId`、`status`("success"/"failure") | `insight-turn.tsx` server-usage effect |
 | server-skill-used | 某 skill 真实被模型调用（每个 skill 工具 part 一次；从 assistant parts 中 `tool==="skill"` 且 completed 的条目识别，取 `metadata.name`） | `skill`(解析出的技能名，如 interview-analysis) | `insight-turn.tsx` server-usage effect |
 
-## 十、@ 引用面板（SPEC-INS-023）
+## 十、统计产物（`artifact-` 前缀）
+
+> 统计 insight 会话中**生成的产物文件**（非用户操作、非服务端工具调用，而是**实际产出的文件**）。
+> 与 §九（`server-` 前缀）的区别：§九统计「模型调起了什么能力」（行为侧），本节统计「能力生成了什么文件」（产物侧）。
+> 两者独立互补：一个 MCP 工具可能被调用但未产出文件（server-mcp-used 有但 artifact-mcp-return 无），
+> 也可能一次调用产出多个文件（server-mcp-used 1 次 but artifact-mcp-return 多个 type）。
+>
+> **write 与 edit 拆分**：`artifact-file-write` 统计 write 工具调用产生的文件（含覆盖写），`artifact-file-edit` 单独统计 edit 工具调用。
+> 两者独立计数，按工具调用类型区分。bash 脚本副作用产生的文件不在此列（无法可靠识别，见方案 A）。
+
+| name | 触发时机 | extend 字段 | 代码位置 |
+|------|----------|------------|----------|
+| artifact-file-write | **write** 工具完成（**含覆盖写**，排除 edit；按文件类型聚合上报） | `files`: `Array<{type: OutputCardType, count: number}>`（例：`[{type:"markdown",count:2}, {type:"html",count:1}]`） | `insight-turn.tsx` 统计产物 effect（artifact-file baseline, findWriteOnlyCards） |
+| artifact-file-edit | **edit** 工具完成（与 write 拆分；按文件类型聚合上报） | `files`: `Array<{type: OutputCardType, count: number}>`（例：`[{type:"markdown",count:1}]`） | `insight-turn.tsx` 统计产物 effect（artifact-file baseline, findEditCards） |
+| artifact-mcp-return | MCP 工具返回 resource_link 类型文件（**产物侧**，按文件类型聚合；每次检测到新增 resource_link 时上报，包含产生该文件的 MCP 工具名） | `files`: `Array<{type: OutputCardType, count: number, tool: string}>`（例：`[{type:"csv",count:1,tool:"key_findings"}, {type:"md",count:1,tool:"mindmap"}]`） | `insight-turn.tsx` 统计产物 effect（artifact-mcp baseline） |
+
+## 十一、@ 引用面板（SPEC-INS-023）
 
 > 输入框 `@` 唤起、引用**技能 / 会话文件**的用户操作层。技能落地走 synthetic 注入（3b，不调 skill 工具），故 §九 的 `server-skill-used` **不会**为 @技能覆盖——`mention-select` 是这条路径的唯一用户侧口径。纯 tab 切换 / hover / 取消勾选不打点。
 
@@ -127,5 +143,8 @@
 - 删除打点 → 从所在分组移除，重要变更移到「已废弃」小节加删除线保留记录
 - 修改 `name` / `module` → 同步更新表格，并通知后端确认字段变更
 - 来源 / 方式维度并入 `extend`（不要用 `from`，interaction 不支持）
-- **区分「用户操作」与「服务端真实使用」**：前者是用户点击 / 发送（常规 name，归入 §一–§八 对应模块）；后者是模型真的调起 MCP / skill（`server-` 前缀，归入 §九）。新增服务端使用类打点一律沿用 `server-` 前缀，落点放在渲染派生的 effect 里时，必须配 baseline 快照 + 去重 set，避免刷新历史会话虚增计数。
+- **区分「用户操作」与「服务端真实使用」与「统计产物」**：
+  - 用户操作：用户点击 / 发送（常规 name，归入 §一–§八 对应模块）
+  - 服务端真实使用：模型真的调起 MCP / skill（`server-` 前缀，归入 §九）。新增时必须配 baseline 快照 + 去重 set
+  - 统计产物：实际生成的文件（`artifact-` 前缀，归入 §十）。新增时必须配 baseline 快照 + 去重 set，按文件类型聚合上报
 - 已确认不打（低价值 / 纯视觉）：侧栏 / 结果面板折叠、壳层导航 / 设置、任务详情展开、结果视图模式切换、复制 uri、文件管理器删除等。

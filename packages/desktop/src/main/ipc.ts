@@ -273,6 +273,9 @@ export function registerIpcHandlers(deps: Deps) {
     return Object.keys(store.store).length
   })
 
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-7-start
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-7-end
+  
   ipcMain.handle(
     "open-directory-picker",
     async (_event: IpcMainInvokeEvent, opts?: { multiple?: boolean; title?: string; defaultPath?: string }) => {
@@ -286,7 +289,6 @@ export function registerIpcHandlers(deps: Deps) {
     },
   )
 
-  // jk-j60099994-replace-with-60062650-main-skills-ipc-7-start
   ipcMain.handle(
     "open-file-picker",
     async (
@@ -303,7 +305,6 @@ export function registerIpcHandlers(deps: Deps) {
       return opts?.multiple ? result.filePaths : result.filePaths[0]
     },
   )
-  // jk-j60099994-replace-with-60062650-main-skills-ipc-7-end
 
   ipcMain.handle(
     "save-file-picker",
