@@ -67,6 +67,55 @@ async function seed(dir: string, name: string, content: string) {
 }
 
 describe("extract_document", () => {
+  // SPEC-INS-032 §2.4 v3：单份超出一次通读的量时，工具给出**确定性的切段清单**（段落边界是算术，
+  // 交给模型估必然出错），而不是拒绝、也不是让用户去拆文件。
+  it.live("超长正文：返回切段清单，offset/limit 连续覆盖全文且不重叠", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      // 造一份 ~300KB 的中文正文（远超单次通读量），每行短、行数多
+      const line = "受访者说：我们希望导出更快一些，现在等待时间太长了。"
+      const bytesPerLine = Buffer.byteLength(line + "\n", "utf-8")
+      const lineCount = Math.ceil((300 * 1024) / bytesPerLine)
+      const file = yield* Effect.promise(() => seed(dir, "超长访谈.txt", Array(lineCount).fill(line).join("\n")))
+      const result = yield* runIn(dir, file)
+
+      expect(result.output).toContain("已按行切成")
+      expect(result.metadata.segments as number).toBeGreaterThan(1)
+      // 不许出现「让用户拆分」这条死路（v2 曾经是这么做的，回归锁）
+      expect(result.output).not.toContain("拆分")
+
+      // 解析清单里的 read 参数，断言它们连续、无缝、覆盖到最后一行
+      const rows = [...result.output.matchAll(/read offset=(\d+) limit=(\d+)/g)].map((m) => ({
+        offset: Number(m[1]),
+        limit: Number(m[2]),
+      }))
+      expect(rows.length).toBe(result.metadata.segments as number)
+      // 第一段从正文第一行开始 —— 不是文件第 1 行:落盘件前两行是 source 注释与空行
+      expect(rows[0].offset).toBe(3)
+      for (let i = 1; i < rows.length; i++) {
+        expect(rows[i].offset).toBe(rows[i - 1].offset + rows[i - 1].limit)
+      }
+      const saved = result.metadata.savedPath as string
+      const persisted = yield* Effect.promise(() => fs.readFile(saved, "utf8"))
+      // 落盘文件 = source 注释行 + 空行 + 正文 + 末尾换行,故 split 后最后一个元素是空串,
+      // 最后一段应当正好收在**最后一行正文**上(-1 就是刨掉那个空串)
+      const last = rows[rows.length - 1]
+      expect(last.offset + last.limit - 1).toBe(persisted.split("\n").length - 1)
+    }),
+  )
+
+  it.live("正文没超上界：不给切段清单（普通大文件只回预览 + 路径）", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const line = "一段普通的访谈内容。"
+      const lineCount = Math.ceil((80 * 1024) / Buffer.byteLength(line + "\n", "utf-8"))
+      const file = yield* Effect.promise(() => seed(dir, "普通访谈.txt", Array(lineCount).fill(line).join("\n")))
+      const result = yield* runIn(dir, file)
+      expect(result.output).not.toContain("已按行切成")
+      expect(result.metadata.segments).toBeUndefined()
+    }),
+  )
+
   // SPEC-INS-032 §6:一个会话树 = 一个工作区。task 子代理跑在子 session 里,解析件必须落到
   // **根会话**的 extracted/,否则 N 份材料的解析件会散在 N 个子会话目录,父代理事后无从 grep。
   it.live("子会话:解析件落到会话树根会话的 extracted/", () =>

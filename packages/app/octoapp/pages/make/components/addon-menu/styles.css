@@ -5,7 +5,6 @@
   --octo-border-default: #E5E7EB;
   position: fixed;
   width: 200px;
-  height: 248px;
   background: var(--octo-surface-page);
   border: 1px solid var(--octo-border-default);
   border-radius: 12px;
@@ -75,7 +74,8 @@
 }
 
 .addon-menu-item-text {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   font-size: 14px;
   line-height: 22px;
   color: inherit;
@@ -158,6 +158,7 @@
   transition: background-color 150ms ease;
   flex-shrink: 0;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 .addon-menu-tertiary-item:not(.addon-menu-tertiary-item--selected):hover {
@@ -175,7 +176,8 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 200px;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .addon-menu-files-header {
@@ -217,6 +219,79 @@
   margin-top: 18px;
   font-size: 14px;
   color: #777777;
+}
+
+/* 产品资源库:多级文件夹层叠面板 */
+.addon-menu-secondary--assets {
+  /* Container is .addon-menu-secondary (position: absolute; left: 100%).
+     Subsequent levels inside use absolute positioning relative to this container. */
+}
+
+.addon-menu-asset-root {
+  /* Root level: plain flex column inside the secondary panel, no border/shadow/padding.
+     The outer .addon-menu-secondary--assets provides the panel chrome. */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 产品资源库文件 hover 预览弹窗 */
+.addon-menu-asset-preview {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 256px;
+  height: 330px;
+  padding: 8px;
+  box-sizing: border-box;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0px 16px 48px 0px rgba(0, 0, 0, 0.16);
+  z-index: 1010;
+  display: flex;
+  flex-direction: column;
+}
+
+.addon-menu-asset-preview-name {
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  text-align: left;
+  color: rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.addon-menu-asset-preview-stage {
+  margin-top: 8px;
+  width: 100%;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.addon-menu-asset-preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: scale-down;
+}
+
+.octo-spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid rgba(0, 0, 0, 0.1);
+  border-top-color: #0a59f7;
+  border-radius: 50%;
+  animation: octo-spinner-rotate 0.8s linear infinite;
+}
+
+@keyframes octo-spinner-rotate {
+  to { transform: rotate(360deg); }
 }
 
 /* URL Dialog */

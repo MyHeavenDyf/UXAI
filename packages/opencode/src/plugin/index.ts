@@ -28,6 +28,7 @@ import { OctoUploadInjectPlugin } from "../agent/octo-upload-inject"
 // (write/edit/read 相对基准、bash workdir、glob/grep 默认目录)统一到会话 outputs/。
 // 见 ../agent/octo-session-workdir.ts、SPEC-INS-028。
 import { OctoSessionWorkdirPlugin } from "../agent/octo-session-workdir"
+import { OctoTaskSerializePlugin } from "../agent/octo-task-serialize"
 import { Effect, Layer, Context, Stream } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
@@ -77,6 +78,7 @@ const INTERNAL_PLUGINS: PluginInstance[] = [
   ProtoThemePlugin,
   OctoUploadInjectPlugin,
   OctoSessionWorkdirPlugin,
+  OctoTaskSerializePlugin,
 ]
 
 function isServerPlugin(value: unknown): value is PluginInstance {

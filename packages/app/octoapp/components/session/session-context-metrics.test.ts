@@ -79,6 +79,25 @@ describe("getSessionContextMetrics", () => {
     expect(metrics.context?.usage).toBeNull()
   })
 
+  test("uses the model context limit instead of the output limit", () => {
+    const messages = [assistant("a1", { input: 28_000, output: 4_000, reasoning: 0, read: 0, write: 0 }, 0.1)]
+    const providers = [
+      {
+        id: "openai",
+        models: {
+          "gpt-4.1": {
+            limit: { context: 64_000, output: 128_000 },
+          },
+        },
+      },
+    ]
+
+    const metrics = getSessionContextMetrics(messages, providers)
+
+    expect(metrics.context?.limit).toBe(64_000)
+    expect(metrics.context?.usage).toBe(50)
+  })
+
   test("recomputes when message array is mutated in place", () => {
     const messages = [assistant("a1", { input: 10, output: 10, reasoning: 10, read: 10, write: 10 }, 0.25)]
     const providers = [{ id: "openai", models: {} }]

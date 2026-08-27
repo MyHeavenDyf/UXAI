@@ -50,6 +50,8 @@ type ExtractMetadata = {
   inlined?: boolean
   /** docx 走了二级抽取(结构不规范,mammoth 读不了)——正文质量降级,表格摊平、版式丢失。 */
   fallback?: boolean
+  /** 超出单次通读量时切成了几段(SPEC-INS-032 §2.4 v3);未切段时缺省。 */
+  segments?: number
   pages?: number
   sheets?: number
   slides?: number
@@ -61,6 +63,42 @@ const EXTRACTED_DIR = "extracted"
 // 上溯到会话树根的深度上限(SPEC-INS-032 §6)。正常只有 1 层(父 → task 子会话),留足余量;
 // 超过即认定数据异常(成环 / 脏数据),退化为按当前会话落盘而不是无限爬。
 const MAX_PARENT_DEPTH = 8
+
+// ── 单份超量时的确定性切段(SPEC-INS-032 §2.4 v3)────────────────────────────
+//
+// 一份材料的正文超过子代理一次能通读的量时,**不拒绝、不让用户拆文件**——本工具精确知道字数、
+// 落盘正文又是折行的(≤500 字符/行),按行切段是纯算术。工具只负责算出段落边界并如实列出,
+// 派活仍归父代理、读仍归子代理,不新增任何机制。
+//
+// ⚠️ 两处常量同源不同仓:前端 `build-prompt-parts.ts` 的 SINGLE_DOC_LIMIT 是同一个数
+// (它在发送前按源文件字节预判、决定文案怎么写),这里按**抽取后的真实字节**判。改一处要同步另一处。
+const SINGLE_READTHROUGH_BYTES = 150 * 1024
+// 每段目标体量。取 100KB 而不是贴着上界:子代理读完还要产出结论,留出余量;
+// 且 read 单次上限 50KB,一段 = 2 次 read,段数不会被切得太碎(段越多,父代理二次汇总的损失越大)。
+const SEGMENT_BYTES = 100 * 1024
+
+// 落盘正文前面有几行不是正文:persist() 写的是 `<!-- source… -->` + 空行 + 正文。
+// 段落 offset 必须把它算进去 —— 模型 read 的是**落盘文件**,不是内存里的 text。
+// 差这 2 行的后果是每段都往前偏、最后一段读不到结尾(静默丢尾巴,正是本 spec 要消灭的那类 bug)。
+const PERSIST_HEADER_LINES = 2
+
+/** 按行把正文切成 ≤SEGMENT_BYTES 的段,返回每段的 read 参数(offset 为 1 基,与 read.ts 一致)。 */
+function planSegments(text: string): Array<{ offset: number; limit: number; bytes: number }> {
+  const lines = text.split("\n")
+  const segments: Array<{ offset: number; limit: number; bytes: number }> = []
+  let startLine = 0
+  let bytes = 0
+  for (let i = 0; i < lines.length; i++) {
+    bytes += Buffer.byteLength(lines[i], "utf-8") + 1
+    // 满一段就切;最后一行无论如何都要收口
+    if (bytes >= SEGMENT_BYTES || i === lines.length - 1) {
+      segments.push({ offset: PERSIST_HEADER_LINES + startLine + 1, limit: i - startLine + 1, bytes })
+      startLine = i + 1
+      bytes = 0
+    }
+  }
+  return segments
+}
 // 内联阈值 = 通用 Truncate 限额 − 首部预算。目标只有一个:**加上我们自己拼的首部之后,总输出
 // 仍不触发那层兜底**——所以扣的应该是首部的实际大小,不是一个拍出来的百分比。
 // 首部是我们自己生成的、长度可控:元信息一行(文件名 + 字数 + token + 落盘路径,最坏几百字节)
@@ -454,17 +492,38 @@ export const ExtractDocumentTool = Tool.define(
             return { title, output: `${measured}${saved}${degraded}\n---\n${text}`, metadata }
           }
 
+          // 超出单次通读量时给出**确定性的切段清单**(SPEC-INS-032 §2.4 v3)。
+          // 这是本工具唯一"越过读取、指导编排"的输出,理由:段落边界是算术,交给模型估必然出错;
+          // 而不给清单的话,它要么半读硬答(静默丢数据),要么把问题甩回给用户(让人去拆文件)。
+          const textBytes = Buffer.byteLength(text, "utf-8")
+          const segments = savedPath && textBytes > SINGLE_READTHROUGH_BYTES ? planSegments(text) : []
+          const segmentNote =
+            segments.length > 1
+              ? [
+                  ``,
+                  `本文超出一次通读的量,已按行切成 ${segments.length} 段(每段约 ${Math.round(SEGMENT_BYTES / 1024)} KB):`,
+                  ...segments.map(
+                    (seg, i) => `- 第 ${i + 1}/${segments.length} 段:read offset=${seg.offset} limit=${seg.limit}`,
+                  ),
+                  `若你被指派了某一段,只读该段并只就该段作结论;若没被指派,把这份切段清单原样回传给发起方,由它按段派活。`,
+                  `按段读完即可 —— 每一段都会读到,不会漏。`,
+                ].join("\n")
+              : ""
+
           return {
             title,
             output: [
               measured + degraded,
               `正文过长,未直接返回;全文已保存到:${savedPath}`,
               `需要定位具体内容,用 grep 搜关键词;需要通读,用 read 按 offset/limit 分段读(单次上限 2000 行 / 50KB)。`,
+              segmentNote,
               `以下为开头预览:`,
               `---`,
               text.slice(0, PREVIEW_CHARS),
-            ].join("\n"),
-            metadata,
+            ]
+              .filter((line) => line !== "")
+              .join("\n"),
+            metadata: segments.length > 1 ? { ...metadata, segments: segments.length } : metadata,
           }
         }).pipe(Effect.orDie),
     }

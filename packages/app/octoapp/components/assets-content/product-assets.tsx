@@ -1,14 +1,15 @@
 import { useProjectSelection } from "@/hooks/use-project-selection"
-import { createSignal, onCleanup, onMount, Show, For, type JSX } from "solid-js"
+import { createMemo, createSignal, onCleanup, onMount, Show, For, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
 
-export function ProjectAssets(): JSX.Element {
+export function ProductAssets(): JSX.Element {
   const selection = useProjectSelection()
-  const embedUrl = () => {
+  const embedUrl = createMemo(() => {
     const base = import.meta.env.VITE_OCTO_BASE_URL
     if (!base) return ""
-    return `${base}/agentPage/asset-repository/${selection()?.product?.id ?? ""}`
-  }
+    const time = new Date().getTime()
+    return `${base}/agentPage/asset-repository/${selection()?.product?.id ?? ""}?ts=${time}`
+  })
 
   const [modalNum, setModalNum] = createSignal(0)
   let iframeRef: HTMLIFrameElement | undefined
