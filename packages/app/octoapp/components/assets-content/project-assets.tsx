@@ -7,7 +7,8 @@ export function ProjectAssets(): JSX.Element {
   const embedUrl = () => {
     const base = import.meta.env.VITE_OCTO_BASE_URL
     if (!base) return ""
-    return `${base}/agentPage/asset-repository/${selection()?.product?.id ?? ""}`
+    const time = new Date().getTime();
+    return `${base}/agentPage/asset-repository/${selection()?.product?.id ?? ""}?ts=${time}`
   }
 
   const [modalNum, setModalNum] = createSignal(0)
