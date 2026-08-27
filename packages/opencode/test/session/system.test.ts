@@ -45,6 +45,7 @@ const it = testEffect(
           getMany: (names) =>
             Effect.succeed(names.map((n) => skills.find((s) => s.name === n)).filter((s): s is (typeof skills)[number] => s !== undefined)),
           all: () => Effect.succeed(skills),
+          files: () => Effect.succeed([]),
           dirs: () => Effect.succeed([]),
           available: () => Effect.succeed(skills),
           refresh: () => Effect.void,
