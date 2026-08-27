@@ -183,5 +183,7 @@ export async function fetchAssetFiles(teamId: number): Promise<AssetFile[]> {
   const resp = await getJson(
     `${base}/pipeline/rest.root/assetManagement/assetFile/getList?teamId=${teamId}`,
   )
-  return (resp?.content as AssetFile[]) ?? []
+  const files = (resp?.content as AssetFile[]) ?? []
+  // Filter out entries without convertHtmlUrl (spec line 60)
+  return files.filter((f) => f.convertHtmlUrl && f.convertHtmlUrl.trim() !== "")
 }

@@ -366,24 +366,30 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     }
   })
 
-  // 产品资产文件搜索（递归搜索所有层级）
-  const filteredProductAssets = createMemo(() => {
+  // 产品资产库: 顶级文件夹筛选 — 仅在未打开任何文件夹时(一级菜单本身是最深层)才筛选
+  // 一旦展开了文件夹,一级菜单变为父级导航,不再筛选,保证用户随时能切换到其他顶级文件夹
+  const filteredAssetTopFolders = createMemo(() => {
+    if (selectedTopFolderId()) return assetTopFolders()
     const q = props.query.toLowerCase()
-    if (!q) return null
-    
-    const results: Array<{ file: AssetFile; levelIndex: number }> = []
-    
-    const stack = assetSubStack()
-    stack.forEach((level, levelIndex) => {
-      level.files.forEach((file) => {
-        if (file.fileName.toLowerCase().includes(q)) {
-          results.push({ file, levelIndex })
-        }
-      })
-    })
-    
-    return results.length > 0 ? results : null
+    if (!q) return assetTopFolders()
+    return assetTopFolders().filter(f => f.name.toLowerCase().includes(q))
   })
+
+  // 产品资产库: 仅筛选"当前打开的最深层"的辅助函数
+  // isDeepest = 当前 level 是 assetSubStack 的最后一项 (用户打开的最深层)
+  // 父级层级不筛选,保留完整的导航上下文
+  const filterAssetFolders = (folders: AssetFolder[], isDeepest: boolean) => {
+    if (!isDeepest) return folders
+    const q = props.query.toLowerCase()
+    if (!q) return folders
+    return folders.filter(c => c.name.toLowerCase().includes(q))
+  }
+  const filterAssetFiles = (files: AssetFile[], isDeepest: boolean) => {
+    if (!isDeepest) return files
+    const q = props.query.toLowerCase()
+    if (!q) return files
+    return files.filter(f => f.fileName.toLowerCase().includes(q))
+  }
 
   // 取消下载
   const cancelAssetDownload = () => {
@@ -545,7 +551,13 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
             </div>
           </Show>
           <Show when={!assetLoading() && !assetError()}>
-            <For each={assetTopFolders()}>
+            <Show when={filteredAssetTopFolders().length === 0}>
+              <div class="mention-empty-state">
+                <img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
+                <span class="mention-empty-state-text">暂无内容</span>
+              </div>
+            </Show>
+            <For each={filteredAssetTopFolders()}>
               {(folder) => (
                 <button
                   type="button"
@@ -553,7 +565,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                   onClick={() => handleTopFolderClick(folder)}
                 >
                   <Icon name="folder" size="small" />
-                  <span class="mention-primary-item-text">{folder.name}</span>
+                  <span class="mention-primary-item-text" title={folder.name}>{folder.name}</span>
                   <Icon name="chevron-right" size="small" class="mention-primary-item-arrow" />
                 </button>
               )}
@@ -696,118 +708,123 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
       <Show when={activeTab() === 'product-assets' && selectedTopFolderId()}>
         <div class="mention-secondary-panel" ref={assetSecondaryRef} style={{ ...secondaryPanelStyle(), overflow: 'visible' }}>
           <For each={assetSubStack()}>
-            {(level, levelIndex) => (
-              <div 
-                class={levelIndex() === 0 ? 'mention-asset-root' : 'mention-asset-level'}
-                style={{
-                  position: levelIndex() === 0 ? 'static' : 'absolute',
-                  left: levelIndex() === 0 ? undefined : `${levelIndex() * 252}px`,
-                  top: levelIndex() === 0 ? undefined : 0,
-                  width: levelIndex() === 0 ? undefined : '248px',
-                  'max-height': levelIndex() === 0 ? undefined : '420px',
-                  'overflow-y': levelIndex() === 0 ? undefined : 'auto',
-                  'overflow-x': levelIndex() === 0 ? undefined : 'hidden',
-                }}
-              >
-                {/* 子文件夹列表 */}
-                <For each={level.children}>
-                  {(folder) => (
-                    <button
-                      type="button"
-                      class={`mention-asset-folder ${level.selectedFolderId === folder.id.toString() ? 'mention-asset-folder--selected' : ''}`}
-                      onClick={() => handleSubFolderClick(levelIndex(), folder)}
-                    >
-                      <Icon name="folder" size="small" />
-                      <span class="mention-asset-folder-name">{folder.name}</span>
-                      <Icon name="chevron-right" size="small" />
-                    </button>
-                  )}
-                </For>
-                
-                {/* 文件列表 */}
-                <Show when={level.files.length > 0}>
-                  <For each={level.files}>
-                    {(file) => {
-                      const sel: MentionSelection = {
-                        type: 'file',
-                        filename: file.fileName,
-                        path: '',
-                      }
-                      const FileIcon = getFileIcon(inferKindFromUrl(file.convertHtmlUrl), file.fileName)
-                      return (
-                        <button
-                          type="button"
-                          class={`mention-secondary-item mention-secondary-item--asset ${isSelected(sel) ? 'mention-secondary-item--selected' : ''}`}
-                          onClick={() => handleProductAssetClick(file)}
-                          onMouseEnter={(e) => {
-                            const itemRect = e.currentTarget.getBoundingClientRect()
-                            
-                            setAssetPreview(file)
-                            setAssetPreviewLevel(levelIndex())
-                            
-                            // hover 弹窗使用 Portal，使用视口坐标
-                            const previewWidth = 256
-                            const previewHeight = 330
-                            
-                            // 默认：文件项右侧
-                            const defaultLeft = itemRect.right + 12
-                            const rightEdge = defaultLeft + previewWidth
-                            let left: number
-                            
-                            if (rightEdge > window.innerWidth - 16) {
-                              // 溢出右侧 → 定位在文件项左侧
-                              left = itemRect.left - previewWidth - 12
-                              if (left < 16) {
-                                left = 16
-                              }
-                            } else {
-                              left = defaultLeft
-                            }
-                            
-                            // 垂直定位：下边对齐
-                            const bottom = window.innerHeight - itemRect.bottom
-                            const popupTopInViewport = itemRect.bottom - previewHeight
-                            
-                            let top: number | null = null
-                            
-                            if (popupTopInViewport < 16) {
-                              top = itemRect.top
-                            }
-                            
-                            setAssetPreviewLeft(Math.max(16, left))
-                            setAssetPreviewBottom(top ? null : bottom)
-                            setAssetPreviewTop(top)
-                          }}
-                          onMouseLeave={() => setAssetPreview(null)}
-                        >
-                          <div class={`mention-checkbox ${isSelected(sel) ? 'mention-checkbox--checked' : ''}`}>
-                            <Show when={isSelected(sel)}>
-                              <Icon name="check" size="small" style="color: white" />
-                            </Show>
-                          </div>
-                          <FileIcon size={20} />
-                          <span class="mention-secondary-item-text" title={file.fileName}>{file.fileName}</span>
-                        </button>
-                      )
-                    }}
+            {(level, levelIndex) => {
+              const isDeepest = () => levelIndex() === assetSubStack().length - 1
+              const visibleChildren = () => filterAssetFolders(level.children, isDeepest())
+              const visibleFiles = () => filterAssetFiles(level.files, isDeepest())
+              return (
+                <div
+                  class={levelIndex() === 0 ? 'mention-asset-root' : 'mention-asset-level'}
+                  style={{
+                    position: levelIndex() === 0 ? 'static' : 'absolute',
+                    left: levelIndex() === 0 ? undefined : `${levelIndex() * 252}px`,
+                    top: levelIndex() === 0 ? undefined : 0,
+                    width: levelIndex() === 0 ? undefined : '248px',
+                    'max-height': levelIndex() === 0 ? undefined : '420px',
+                    'overflow-y': levelIndex() === 0 ? undefined : 'auto',
+                    'overflow-x': levelIndex() === 0 ? undefined : 'hidden',
+                  }}
+                >
+                  {/* 子文件夹列表 */}
+                  <For each={visibleChildren()}>
+                    {(folder) => (
+                      <button
+                        type="button"
+                        class={`mention-asset-folder ${level.selectedFolderId === folder.id.toString() ? 'mention-asset-folder--selected' : ''}`}
+                        onClick={() => handleSubFolderClick(levelIndex(), folder)}
+                      >
+                        <Icon name="folder" size="small" />
+                        <span class="mention-asset-folder-name" title={folder.name}>{folder.name}</span>
+                        <Icon name="chevron-right" size="small" />
+                      </button>
+                    )}
                   </For>
-                </Show>
-                
-                {/* 加载中 */}
-                <Show when={level.loadingFiles}>
-                  <div class="mention-loading-state">
-                    加载中...
-                  </div>
-                </Show>
-                
-                {/* 空状态 */}
-                <Show when={level.children.length === 0 && level.files.length === 0 && !level.loadingFiles}>
-                  <div class="mention-loading-state">
-                    暂无内容
-                  </div>
-                </Show>
-              </div>
-            )}
+
+                  {/* 文件列表 */}
+                  <Show when={visibleFiles().length > 0}>
+                    <For each={visibleFiles()}>
+                      {(file) => {
+                        const sel: MentionSelection = {
+                          type: 'file',
+                          filename: file.fileName,
+                          path: '',
+                        }
+                        const FileIcon = getFileIcon(inferKindFromUrl(file.convertHtmlUrl), file.fileName)
+                        return (
+                          <button
+                            type="button"
+                            class={`mention-secondary-item mention-secondary-item--asset ${isSelected(sel) ? 'mention-secondary-item--selected' : ''}`}
+                            onClick={() => handleProductAssetClick(file)}
+                            onMouseEnter={(e) => {
+                              const itemRect = e.currentTarget.getBoundingClientRect()
+
+                              setAssetPreview(file)
+                              setAssetPreviewLevel(levelIndex())
+
+                              // hover 弹窗使用 Portal，使用视口坐标
+                              const previewWidth = 256
+                              const previewHeight = 330
+
+                              // 默认：文件项右侧
+                              const defaultLeft = itemRect.right + 12
+                              const rightEdge = defaultLeft + previewWidth
+                              let left: number
+
+                              if (rightEdge > window.innerWidth - 16) {
+                                // 溢出右侧 → 定位在文件项左侧
+                                left = itemRect.left - previewWidth - 12
+                                if (left < 16) {
+                                  left = 16
+                                }
+                              } else {
+                                left = defaultLeft
+                              }
+
+                              // 垂直定位：下边对齐
+                              const bottom = window.innerHeight - itemRect.bottom
+                              const popupTopInViewport = itemRect.bottom - previewHeight
+
+                              let top: number | null = null
+
+                              if (popupTopInViewport < 16) {
+                                top = itemRect.top
+                              }
+
+                              setAssetPreviewLeft(Math.max(16, left))
+                              setAssetPreviewBottom(top ? null : bottom)
+                              setAssetPreviewTop(top)
+                            }}
+                            onMouseLeave={() => setAssetPreview(null)}
+                          >
+                            <div class={`mention-checkbox ${isSelected(sel) ? 'mention-checkbox--checked' : ''}`}>
+                              <Show when={isSelected(sel)}>
+                                <Icon name="check" size="small" style="color: white" />
+                              </Show>
+                            </div>
+                            <FileIcon size={20} />
+                            <span class="mention-secondary-item-text" title={file.fileName}>{file.fileName}</span>
+                          </button>
+                        )
+                      }}
+                    </For>
+                  </Show>
+
+                  {/* 加载中 */}
+                  <Show when={level.loadingFiles}>
+                    <div class="mention-loading-state">
+                      加载中...
+                    </div>
+                  </Show>
+
+                  {/* 空状态 */}
+                  <Show when={visibleChildren().length === 0 && visibleFiles().length === 0 && !level.loadingFiles}>
+                    <div class="mention-loading-state">
+                      暂无内容
+                    </div>
+                  </Show>
+                </div>
+              )
+            }}
           </For>
         </div>
       </Show>

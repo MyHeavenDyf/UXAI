@@ -303,6 +303,7 @@
   color: rgba(0, 0, 0, 0.9);
   cursor: pointer;
   gap: 8px;
+  text-align: left;
 }
 
 .mention-asset-folder:hover {

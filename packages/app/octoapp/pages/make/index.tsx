@@ -2266,13 +2266,45 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
   async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
     try {
+      // For file chips whose path is in tmps (new-conversation pending downloads), rename the
+      // local file into the session's uploads directory and update the chip path before processing.
+      const selections = mentions ?? []
+      const baseDir = projectDir()
+      const api = getDesktopApi()
+      if (baseDir && api?.renameFile && api?.fileExists && sessionId) {
+        const sep = baseDir.includes("\\") ? "\\" : "/"
+        const tmpsMarker = [".octo", "tmps", "make", "uploads"].join(sep)
+        const uploadsDir = [baseDir, ".octo", sessionId, "uploads"].join(sep)
+        for (const sel of selections) {
+          if (sel.type !== "file") continue
+          const p = sel.path
+          if (!p || !p.includes(tmpsMarker)) continue
+          try {
+            // Resolve unique filename in session uploads dir (handle collisions)
+            const filename = p.split(sep).pop() || sel.name
+            let candidate = filename
+            let i = 1
+            const dot = filename.lastIndexOf(".")
+            const base = dot > 0 ? filename.slice(0, dot) : filename
+            const ext = dot > 0 ? filename.slice(dot) : ""
+            while (await api.fileExists!([uploadsDir, candidate].join(sep))) {
+              candidate = `${base} (${i})${ext}`
+              i++
+            }
+            const newPath = [uploadsDir, candidate].join(sep)
+            await api.renameFile!(p, newPath)
+            const ref = proseMirrorRef1 ?? proseMirrorRef2
+            ref?.updateMentionPath?.(sel.name, newPath)
+            sel.path = newPath
+          } catch (err) {
+            console.warn("[octo:make] upload-move failed, keep tmps path", { name: sel.name, path: p, err })
+          }
+        }
+      }
+
       // Process mention selections: replace chip text with model format
       let processedText = text
       let displayText = text
-      const selections = mentions ?? []
-      
-      console.log("[sendMessage] mentions:", mentions)
-      console.log("[sendMessage] skillToolCalls:", skillToolCalls())
 
       for (const sel of selections) {
         if (sel.type === 'skill') {
@@ -3486,6 +3518,13 @@ if (dsId) {
       if (!linkContent) return
 
       if (/^https?:\/\//i.test(linkContent)) {
+        // 去重:如果 ResultViewer 已有同 URL 的 html tab(可能由文件管理入口打开),直接激活
+        const existingUrl = tabStore.tabs().find(t => t.type === "html" && t.filePath === linkContent)
+        if (existingUrl) {
+          tabStore.activate(existingUrl.id)
+          tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "url", reused: true }) })
+          return
+        }
         const tabId = `link-url-${linkContent.replace(/[/\\:?#&=]/g, "-")}`
         tabStore.openTab({
           id: tabId,
@@ -3518,6 +3557,29 @@ if (dsId) {
         absolutePath += normalizedPath
       }
       absolutePath = absolutePath.replace(/\/+/g, "/")
+
+      // 去重:如果 ResultViewer 已有同 filePath 的 tab(可能由文件管理入口打开),
+      // 直接激活,并刷新内容(镜像 non-link 分支 3368-3389 的逻辑)
+      // 注意:已有 tab 的 filePath 可能保留 Windows 反斜杠(来自 artifactFileToOutputCard
+      // 的 file.path),而 absolutePath 已归一化为正斜杠,需两侧统一再比较
+      const existingLocal = tabStore.tabs().find(t => {
+        if (!t.filePath || t.type === "design-plan") return false
+        return t.filePath.replace(/\\/g, "/") === absolutePath
+      })
+      if (existingLocal) {
+        const api = getDesktopApi()
+        const buf = await api?.readFileBuffer?.(existingLocal.filePath!)
+        if (buf) {
+          const fileContent = new TextDecoder().decode(buf)
+          if (fileContent && fileContent !== existingLocal.content) {
+            tabStore.updateTabContent(existingLocal.id, fileContent)
+            await historyController.onTabOpen({ ...existingLocal, content: fileContent }, existingLocal)
+          }
+        }
+        tabStore.activate(existingLocal.id)
+        tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "local", reused: true }) })
+        return
+      }
 
       const tabId = `link-file-${absolutePath.replace(/[/\\:]/g, "-")}`
       const inferredType = inferOutputType(absolutePath)
@@ -3561,10 +3623,16 @@ if (dsId) {
     
     // ★ Step 0: 如果已有匹配的 tab，直接激活（但先检查文件内容是否变化，变化则记录 agent 版本）
     if (card.filePath) {
+      // 归一化:已有 tab 的 filePath 可能保留 Windows 反斜杠(来自 artifactFileToOutputCard
+      // 的 file.path),card.filePath 也可能来自不同入口(handleOpenLocalFile 已归一化为正斜杠,
+      // Design Files 保留原始反斜杠),两侧统一后再比较
+      const normalizedCardPath = card.filePath.replace(/\\/g, "/")
       const existingTab = tabStore.tabs().find(t => {
-        if (t.type === "html" && isUrl) return t.filePath === card.filePath
-        if (t.type === "html" || t.type === "svg") return t.filePath === card.filePath
-        if (["image", "video", "audio", "pdf", "text"].includes(t.type)) return t.filePath === card.filePath
+        if (!t.filePath) return false
+        const normalizedTPath = t.filePath.replace(/\\/g, "/")
+        if (t.type === "html" && isUrl) return normalizedTPath === normalizedCardPath
+        if (t.type === "html" || t.type === "svg") return normalizedTPath === normalizedCardPath
+        if (["image", "video", "audio", "pdf", "text"].includes(t.type)) return normalizedTPath === normalizedCardPath
         return false
       })
       if (existingTab) {
