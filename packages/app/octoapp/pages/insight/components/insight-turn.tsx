@@ -476,12 +476,23 @@ export function InsightTurn(props: {
   //   - artifact-file-write:write 工具调用产生的文件(含覆盖写),按文件类型聚合上报
   //   - artifact-file-edit:edit 工具调用产生的文件,按文件类型聚合上报
   //
+  // ⚠️ 设计决策：故意不检查 showGenerating()（与上方文件管理刷新 effect 不同）
+  //
+  // 原因：
+  //   1. write/edit 工具 status=completed 就是已完成，无需等待整个生成结束
+  //   2. 用户可能在生成中途切换会话，延迟打点会导致漏报（见 issue 分析）
+  //   3. trackedArtifactKeys 去重 Set 保证即使 effect 多次执行也不重复上报
+  //   4. 与文件管理刷新不同：UI 刷新可以延迟（性能优化），数据采集应该及时（准确性优先）
+  //
+  // 对比：文件管理刷新 effect（上方 Line 460-473）保留 showGenerating() 守卫，
+  //       因为它的目的是避免生成过程中频繁刷新 UI 导致列表闪烁（体验优化）。
+  //       而统计打点的核心目标是"不漏报"，时效性更重要。
+  //
   // baseline 快照(artifactFileBaselineTaken):首次观测本 turn 实例时,把当前已存在的 write/edit 产物全部记为「历史」
   // 不上报——避免刷新/切回会话重挂 turn 时把历史产物当成新事件重报。之后新到达的产物才上报。
   let artifactFileBaselineTaken = false
   createEffect(() => {
     const parts = turnAssistantParts()
-    const generating = showGenerating()
     const writes = findWriteOnlyCards(parts)
     const edits = findEditCards(parts)
 
@@ -491,7 +502,6 @@ export function InsightTurn(props: {
       for (const e of edits) trackedArtifactKeys.add(`edit:${props.messageID}:${e.filePath}`)
       return
     }
-    if (generating) return
 
     const newWrites: Array<{ fileType: string }> = []
     for (const w of writes) {
@@ -529,12 +539,19 @@ export function InsightTurn(props: {
   // 上报方式:按文件类型聚合(与 artifact-file-write 对称),每次 effect 触发时把本轮新增的
   // resource_link 按 type 分组计数后一次上报,包含产生该文件的 MCP 工具名(便于分析哪些工具产出率最高)。
   //
+  // ⚠️ 设计决策：故意不检查 showGenerating()（与 artifact-file-write/edit 相同）
+  //
+  // 原因：
+  //   1. MCP 工具返回 resource_link 时即代表任务完成，无需等待整个生成结束
+  //   2. 用户可能在 MCP 任务完成后立即切换会话，延迟打点会导致漏报
+  //   3. trackedArtifactKeys 去重 Set 保证不重复上报
+  //   4. 与上方 artifact-file-write/edit 保持一致的设计理念
+  //
   // baseline 快照(artifactMcpBaselineTaken):首次观测本 turn 实例时,把当前已存在的 links 全部记为「历史」
   // 不上报——避免刷新/切回会话重挂 turn 时把历史 MCP 返回文件当成新事件重报。之后新到达的 link 才上报。
   let artifactMcpBaselineTaken = false
   createEffect(() => {
     const parts = turnAssistantParts()
-    const generating = showGenerating()
     const links = findResourceLinks(parts)
 
     if (!artifactMcpBaselineTaken) {
@@ -544,7 +561,6 @@ export function InsightTurn(props: {
       }
       return
     }
-    if (generating) return
 
     const newLinks: Array<{ fileType: string; tool: string }> = []
     for (const link of links) {
