@@ -3291,6 +3291,13 @@ if (dsId) {
       if (!linkContent) return
 
       if (/^https?:\/\//i.test(linkContent)) {
+        // 去重:如果 ResultViewer 已有同 URL 的 html tab(可能由文件管理入口打开),直接激活
+        const existingUrl = tabStore.tabs().find(t => t.type === "html" && t.filePath === linkContent)
+        if (existingUrl) {
+          tabStore.activate(existingUrl.id)
+          tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "url", reused: true }) })
+          return
+        }
         const tabId = `link-url-${linkContent.replace(/[/\\:?#&=]/g, "-")}`
         tabStore.openTab({
           id: tabId,
@@ -3323,6 +3330,26 @@ if (dsId) {
         absolutePath += normalizedPath
       }
       absolutePath = absolutePath.replace(/\/+/g, "/")
+
+      // 去重:如果 ResultViewer 已有同 filePath 的 tab(可能由文件管理入口打开),
+      // 直接激活,并刷新内容(镜像 non-link 分支 3368-3389 的逻辑)
+      const existingLocal = tabStore.tabs().find(t =>
+        t.filePath === absolutePath && t.type !== "design-plan"
+      )
+      if (existingLocal) {
+        const api = getDesktopApi()
+        const buf = await api?.readFileBuffer?.(existingLocal.filePath!)
+        if (buf) {
+          const fileContent = new TextDecoder().decode(buf)
+          if (fileContent && fileContent !== existingLocal.content) {
+            tabStore.updateTabContent(existingLocal.id, fileContent)
+            await historyController.onTabOpen({ ...existingLocal, content: fileContent }, existingLocal)
+          }
+        }
+        tabStore.activate(existingLocal.id)
+        tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "local", reused: true }) })
+        return
+      }
 
       const tabId = `link-file-${absolutePath.replace(/[/\\:]/g, "-")}`
       const inferredType = inferOutputType(absolutePath)
