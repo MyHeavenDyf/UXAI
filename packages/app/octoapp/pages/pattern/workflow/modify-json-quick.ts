@@ -17,7 +17,7 @@ export type ModifyElementData = {
   /** 文本内容（如为文本元素） */
   textContent: string
   /** 组件属性键值对 */
-  componentProps: Record<string, string | boolean>
+  componentProps: Record<string, string | boolean | object>
   /** 操作标签，用于版本记录摘要 */
   tag?: string
   /** 是否保存到版本历史 */
@@ -237,7 +237,7 @@ export async function handleModifyElement(
   }
 
 
-  function mergePropsSafe(target: Record<string, unknown>, source: Record<string, string | boolean>, before: Record<string, unknown>, skipBindings: boolean) {
+  function mergePropsSafe(target: Record<string, unknown>, source: Record<string, string | boolean | object>, before: Record<string, unknown>, skipBindings: boolean) {
     for (const key of Object.keys(source)) {
       const prev = before[key]
       const val = source[key]
@@ -253,7 +253,7 @@ export async function handleModifyElement(
     }
   }
 
-  function applyStateBindings(beforeProps: Record<string, unknown>, componentProps: Record<string, string | boolean>) {
+  function applyStateBindings(beforeProps: Record<string, unknown>, componentProps: Record<string, string | boolean | object>) {
     const state = (doc as any).state
     if (!state || typeof state !== "object") return
     for (const key of Object.keys(componentProps)) {
