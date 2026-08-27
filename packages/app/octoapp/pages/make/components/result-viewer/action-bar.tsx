@@ -21,6 +21,7 @@ import { HistoryPanel } from "./history-panel"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { useLocal } from "@/context/local"
+import { TaskStore } from "@/context/task"
 import { useParams } from "@solidjs/router"
 
 // Responsive breakpoints for action bar
@@ -510,12 +511,49 @@ export function ActionBar(props: {
 
   async function handleDownload(option?: string) {
     tracker.interaction({ module: "design", name: "download-file", extend: JSON.stringify({ type: props.tab.type, option: option ?? null }) })
-    
-    const handler = getSubtypeHandler(props.tab.subtype)
-    if (handler?.handleDownload) {
-      const m = local.model.current()
-      const modelKey = m ? { providerID: m.provider.id, modelID: m.id } : undefined
-      const ctx = {
+
+    const taskId = `download-${Date.now()}`
+    TaskStore.add([{
+      key: taskId,
+      taskId,
+      type: "download",
+      serviceType: "octo_download",
+      name: props.tab.title,
+      size: 0,
+      status: "in_progress",
+      hasProgress: false,
+      canCancel: false,
+      createdAt: Date.now(),
+    }])
+
+    try {
+      const handler = getSubtypeHandler(props.tab.subtype)
+      if (handler?.handleDownload) {
+        const m = local.model.current()
+        const modelKey = m ? { providerID: m.provider.id, modelID: m.id } : undefined
+        const ctx = {
+          tab: props.tab,
+          showOctoToast,
+          tracker,
+          getDesktopApi,
+          extractCodeBlock,
+          observedUrlsGetter: props.observedResourceUrls,
+          usePixsoTransport,
+          sdk,
+          modelKey,
+          sync,
+          sessionId: params.id,
+        }
+
+        const handled = await handler.handleDownload(ctx, option)
+        if (handled === true) {
+          TaskStore.finish([{ key: taskId, status: "completed" }])
+          return
+        }
+      }
+
+      const defaultHandler = getSubtypeHandler('_default')
+      await defaultHandler?.handleDownload?.({
         tab: props.tab,
         showOctoToast,
         tracker,
@@ -523,36 +561,16 @@ export function ActionBar(props: {
         extractCodeBlock,
         observedUrlsGetter: props.observedResourceUrls,
         usePixsoTransport,
-        sdk,
-        modelKey,
-        sync,
-        sessionId: params.id,
-      }
-      
-      try {
-        const handled = await handler.handleDownload(ctx, option)
-        if (handled === true) return
-      } catch (error) {
-        showOctoToast({ 
-          title: "下载失败", 
-          description: error instanceof Error ? error.message : String(error),
-          variant: "error"
-        })
-        return
-      }
+      })
+      TaskStore.finish([{ key: taskId, status: "completed" }])
+    } catch (error) {
+      TaskStore.error([{ key: taskId, status: "error" }])
+      showOctoToast({
+        title: "下载失败",
+        description: error instanceof Error ? error.message : String(error),
+        variant: "error"
+      })
     }
-    
-    // 如果 handler 未定义或返回 false，使用 default handler
-    const defaultHandler = getSubtypeHandler('_default')
-    await defaultHandler?.handleDownload?.({
-      tab: props.tab,
-      showOctoToast,
-      tracker,
-      getDesktopApi,
-      extractCodeBlock,
-      observedUrlsGetter: props.observedResourceUrls,
-      usePixsoTransport,
-    })
   }
 
   const config = createMemo(() => getSubtypeConfig(props.tab.subtype))

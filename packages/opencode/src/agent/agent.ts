@@ -19,6 +19,7 @@ import PROMPT_OCTO_DESIGN from "./prompt/octo_design.txt"
 import PROMPT_OCTO_STUDIO from "./prompt/octo_studio.txt"
 import PROMPT_OCTO_PATTERN_INTENT from "./prompt/octo_pattern_intent.txt"
 import PROMPT_OCTO_PATTERN_MODULE from "./prompt/octo_pattern_module.txt"
+import PROMPT_ICT_PATTERN from "./prompt/ict_pattern.txt"
 import PROMPT_MAKE_COMPONENT from "./prompt/make_component.txt"
 import PROMPT_OCTO_MAKE_PLAN from "./prompt/octo_make_plan.txt"
 import {
@@ -441,6 +442,17 @@ export const layer = Layer.effect(
             mode: "primary",
             native: false,
             hidden: true,
+          },
+          ict_pattern: {
+            name: "ict_pattern",
+            description:
+              "ICT Pattern specialist. Single agent, two stages routed by an input marker: plain page description input runs stage 1 (match Pattern layouts, output results); input starting with the [模块匹配] marker (assembled by the caller after the user picks a pattern in the UI) runs stage 2 (generate module description list, output modules).",
+            prompt: PROMPT_ICT_PATTERN,
+            permission: Permission.fromConfig({ "*": "deny" }),
+            options: {},
+            mode: "primary",
+            native: false,
+            temperature: 0.1,
           },
           compaction: {
             name: "compaction",

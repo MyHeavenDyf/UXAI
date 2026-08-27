@@ -17,7 +17,7 @@
  * | icon | leftIcon / rightIcon | 占位 URL（写死，见 [icon-placeholder](./icon-placeholder)）；无 IconButton 分支 |
  * | color | status / style.backgroundColor | 值映射（普通 Button） |
  * | size: medium | size: normal | 值映射（普通 Button） |
- * | shape: circle | style.borderRadius: '50%' | 转换（普通 Button） |
+ * | shape: circle | — | 丢弃不处理 |
  * | className | className | 透传 |
  * | — | onClick | 注入占位 (e) => {} |
  *
@@ -154,11 +154,7 @@ const ButtonMapping: MappingDef = {
       outputProps.size = props.size // large / small 透传
     }
 
-    // 5. shape: circle → style.borderRadius: '50%'
-    if (props.shape === 'circle') {
-      const existingStyle = outputProps.style ? { ...(outputProps.style as any) } : {}
-      outputProps.style = { ...existingStyle, borderRadius: '50%' } as any
-    }
+    // 5. shape: circle —— 丢弃不处理（不再转 style.borderRadius）
 
     // 6. className 透传
     if (props.className) {

@@ -14,7 +14,7 @@ export interface ModifyElementData {
   elementId: string
   className: string
   textContent: string
-  componentProps: Record<string, string | boolean>
+  componentProps: Record<string, string | boolean | object>
   tag?: string
   keepOpen?: boolean
   saveToHistory?: boolean
