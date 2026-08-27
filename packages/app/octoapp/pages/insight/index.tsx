@@ -1063,16 +1063,6 @@ function InsightContent() {
 
   // ── session 操作 ──────────────────────────────────────────
 
-  // task 子会话不是用户级对话(SPEC-INS-021 §1 追加):它不在侧栏列表里,跳进去就是
-  // "没有记录的对话"。所有会话导航入口(task 卡片点击 / href / 刷新恢复)都经此判定拦截,
-  // 过程仍由 turn 内联的 task 卡片透明展示(§4),只是不 fork 出第二个对话入口。
-  function isChildSession(sessionID: string): boolean {
-    const sessions = sync.data.session as Session[]
-    const match = Binary.search(sessions, sessionID, (s) => s.id)
-    const target = match.found ? sessions[match.index] : undefined
-    return !!target?.parentID
-  }
-
   async function createAndNavigate(): Promise<string | undefined> {
     const dir = projectDir()
     if (!dir) return
@@ -2260,22 +2250,16 @@ function InsightContent() {
     />
   )
 
+  // DataProvider 不传 onNavigateToSession / onSessionHref(SPEC-INS-021 §1 追加):这两个回调在上游
+  // 只被 message-part 的 task 卡片消费,而 insight 里 task 的目标必然是子会话 —— 它不是用户级对话,
+  // 不在侧栏列表里(会话列表按类型过滤掉了子代理会话),跳进去就是"没有记录的对话"。两个 prop 都缺席时
+  // 上游 clickable() 恒 false → 卡片不渲染 ↗、不生成 <a>,点击与 cmd/中键两条腿一起断在渲染层;
+  // 过程仍由 turn 内联的 task 卡片透明展示(§4)。侧栏导航走 session-list 自己的 useNavigate,不经这里。
+  // ⚠️ 早先这里传的是"查 sync.data.session 的 parentID 再决定拦不拦"的版本,会漏:会话列表只拉 root
+  // (session-load.ts `roots: true`),子会话仅当轮 SSE session.created 才进 store —— 刷新或重开后回看
+  // 历史 turn,子会话查不到 → 判定返回 false → 当成根会话放行。别改回那种依赖 store 的写法。
   return (
-    <DataProvider
-      data={sync.data}
-      directory={projectDir() || ""}
-      onNavigateToSession={(sessionID: string) => {
-        // 子会话导航拦截(SPEC-INS-021 §1 追加,isChildSession 注释详述)
-        if (isChildSession(sessionID)) {
-          console.log("[octo:task] child-session navigation blocked", { sessionID })
-          return
-        }
-        navigate(`/insight/${sessionID}`)
-      }}
-      // 子会话给空串:上游 sessionLink 对 falsy 走路径兜底(/insight 无 /session 段 → 无 href),
-      // 与点击拦截配套,堵住 cmd/中键经 <a href> 绕行的口
-      onSessionHref={(sessionID: string) => (isChildSession(sessionID) ? "" : `/insight/${sessionID}`)}
-    >
+    <DataProvider data={sync.data} directory={projectDir() || ""}>
       <div class="size-full flex overflow-hidden relative">
         {/* 左侧会话栏(SPEC-INS-010 §11:侧栏归 insight,单独第一列,不混入对话↔面板的 flex) */}
         {/* top 槽注入 UXAI 自家的项目/产品切换器(走 ProjectInfo → DialogProjectOnboarding,
