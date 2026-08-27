@@ -3333,9 +3333,12 @@ if (dsId) {
 
       // 去重:如果 ResultViewer 已有同 filePath 的 tab(可能由文件管理入口打开),
       // 直接激活,并刷新内容(镜像 non-link 分支 3368-3389 的逻辑)
-      const existingLocal = tabStore.tabs().find(t =>
-        t.filePath === absolutePath && t.type !== "design-plan"
-      )
+      // 注意:已有 tab 的 filePath 可能保留 Windows 反斜杠(来自 artifactFileToOutputCard
+      // 的 file.path),而 absolutePath 已归一化为正斜杠,需两侧统一再比较
+      const existingLocal = tabStore.tabs().find(t => {
+        if (!t.filePath || t.type === "design-plan") return false
+        return t.filePath.replace(/\\/g, "/") === absolutePath
+      })
       if (existingLocal) {
         const api = getDesktopApi()
         const buf = await api?.readFileBuffer?.(existingLocal.filePath!)
@@ -3393,10 +3396,16 @@ if (dsId) {
     
     // ★ Step 0: 如果已有匹配的 tab，直接激活（但先检查文件内容是否变化，变化则记录 agent 版本）
     if (card.filePath) {
+      // 归一化:已有 tab 的 filePath 可能保留 Windows 反斜杠(来自 artifactFileToOutputCard
+      // 的 file.path),card.filePath 也可能来自不同入口(handleOpenLocalFile 已归一化为正斜杠,
+      // Design Files 保留原始反斜杠),两侧统一后再比较
+      const normalizedCardPath = card.filePath.replace(/\\/g, "/")
       const existingTab = tabStore.tabs().find(t => {
-        if (t.type === "html" && isUrl) return t.filePath === card.filePath
-        if (t.type === "html" || t.type === "svg") return t.filePath === card.filePath
-        if (["image", "video", "audio", "pdf", "text"].includes(t.type)) return t.filePath === card.filePath
+        if (!t.filePath) return false
+        const normalizedTPath = t.filePath.replace(/\\/g, "/")
+        if (t.type === "html" && isUrl) return normalizedTPath === normalizedCardPath
+        if (t.type === "html" || t.type === "svg") return normalizedTPath === normalizedCardPath
+        if (["image", "video", "audio", "pdf", "text"].includes(t.type)) return normalizedTPath === normalizedCardPath
         return false
       })
       if (existingTab) {
