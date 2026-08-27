@@ -61,6 +61,9 @@ const LOG = "[octo:inject]"
 // 用户覆盖配置沿用同键),工具注册键 = `uxr-tool_<tool>`。仅对该前缀的调用做声明查找,
 // 非 MCP 工具保持 hasFileRef 零开销早退。
 const MCP_TOOL_PREFIX = "uxr-tool_"
+
+// opencode 会话 id 前缀(id/id.ts 的 `session: "ses"`)。用于识别「子代理会话 id 被当成 MCP 任务号」。
+const SESSION_ID_PREFIX = "ses_"
 const MCP_DECLARATION_HEADER = "[MCP声明]"
 
 // 吃**本地路径**的内置工具:它们的 path/filePath 参数是本地磁盘目标,永远不该被换成 S3 URL
@@ -334,6 +337,30 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
       // 例外:MCP 工具(uxr-tool_*)不能靠 args 早退——chip 声明路径(SPEC-INS-017 §2.1)要接管的
       // 正是"模型漏填/写坏文件参数"的情况,此时 args 里可能根本没有文件名形态串。
       const isMcpTool = input.tool.startsWith(MCP_TOOL_PREFIX)
+
+      // ── 守卫:别把子代理会话 id 当成 MCP 任务号(SPEC-INS-032 §5.3)────────────────
+      // 两套「异步结果」共用了 `task_id` 这个参数名,弱模型必然会混:
+      //   · 原生 task 工具派子代理后,返回文本里字面写着 `task_id: ses_xxx`(tool/task.ts),
+      //     但它是**同步**的——结论已经在 <task_result> 里回来了,压根没有"查询"这一步;
+      //   · MCP get_task_result 查的是业务长任务(run_usability_analysis 等)返回的哈希任务号。
+      // 内网实测(2026-08-27):3 个子代理被限流打断后,父代理拿着 3 个 ses_ id 去 get_task_result,
+      // 得到 not_found,于是判定"子代理任务失败"、退回自己逐份读 —— 分治整个白做。
+      // 判据是 session id 的固定前缀(id/id.ts session: "ses"),精确前缀匹配、非模糊判断。
+      // 失败文案要**指回正确的路**:接着跑用 task(task_id=…) 续同一个子会话,那是上游原生能力。
+      if (isMcpTool && (input.tool.endsWith("_get_task_result") || input.tool.endsWith("_stop_task"))) {
+        const args = output.args as Record<string, unknown>
+        const taskID = typeof args?.task_id === "string" ? args.task_id : ""
+        if (taskID.startsWith(SESSION_ID_PREFIX)) {
+          console.log(`${LOG} 拦下子代理会话 id 被当作 MCP 任务号`, { tool: input.tool, taskID })
+          throw new Error(
+            `${taskID} 是子代理的会话 id,不是内网任务编号,${input.tool.replace(MCP_TOOL_PREFIX, "")} 查不到它。` +
+              `子代理是同步的:它的结论在 task 工具返回的 <task_result> 里已经给过你了,不需要查询。` +
+              `若那次子任务被中断、你要接着跑,请调 task 工具并把 task_id 设为这个 ses_ 开头的 id(它会续用同一个子会话);` +
+              `若要重做,直接重新派一个 task。get_task_result 只用于内网长任务返回的任务编号。`,
+          )
+        }
+      }
+
       if (!isMcpTool && !hasFileRef(output.args)) return
 
       // 聚合**整个 session** 所有 user 消息里的 [附件] 区块,建「引用 → 本地路径」总表。
