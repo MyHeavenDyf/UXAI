@@ -7,7 +7,7 @@ type Scope = "platform" | "project"
 
 const SCOPES: { key: Scope; label: string }[] = [
   { key: "platform", label: "平台资产" },
-  { key: "project", label: "项目资产" },
+  { key: "project", label: "产品资产" },
 ]
 
 export function AssetsContent(): JSX.Element {
@@ -34,6 +34,7 @@ export function AssetsContent(): JSX.Element {
                   style={{
                     background: isActive() ? "var(--octo-brand-subtle, #EFF6FF)" : "transparent",
                     color: isActive() ? "var(--octo-brand, #0a59f7)" : "var(--octo-text-primary, #191919)",
+                    "font-weight": isActive() ? "600" : "400",
                     padding: "4px 12px",
                     height: "32px",
                     "margin-right": "16px",
