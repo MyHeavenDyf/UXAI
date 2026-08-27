@@ -1,6 +1,6 @@
 import type { TextPartInput, FilePartInput } from "@opencode-ai/sdk/v2/client"
 import { encodeFilePath } from "../../../context/file/path"
-import { isTextInlineFile } from "../lib/upload"
+import { isExtractableDocFile, isTextInlineFile } from "../lib/upload"
 
 /**
  * insight prompt parts 组装骨架（SPEC-INS-027 / SPEC-INS-032 v2）
@@ -60,6 +60,33 @@ export const SINGLE_DOC_LIMIT = 150 * 1024
 /** 上游 read 工具的单次上限（read.ts DEFAULT_READ_LIMIT / MAX_BYTES），仅供文案换算，**不由本仓设定** */
 export const UPSTREAM_READ_CAP_BYTES = 50 * 1024
 
+/**
+ * **份数口径**(SPEC-INS-032 §2.6):office / pdf 达到这个份数就整批转分治。
+ *
+ * 为什么这类不用字节预算:发送前只有二进制大小,拿不到正文体量 —— docx 是压缩容器,
+ * 压缩比不定(还可能整份都是嵌图),按它反推文本量是引入一个不准的估算。
+ *
+ * 为什么份数是**同一种判断**而不是降级代理:INLINE_BUDGET 的立论本来就不是「父代理还能塞多少」,
+ * 而是**用途**(见其注释:超过 1 万汉字的东西已经是研究材料,本来就该走通读流程)。同理,
+ * 用户一次给 ≥3 份文档,他嘴里说的就是「这批材料」,语义上已经是通读流程。
+ *
+ * 取 3:1 份 = 单篇分析,2 份 = 两篇对比,父代理自己读都在能力内且更快;3 份起才值得付子代理的往返成本。
+ */
+export const DOC_COUNT_THRESHOLD = 3
+
+/**
+ * **单份兜底**:任一 office / pdf 的二进制大小超过它也整批转分治。
+ *
+ * 单向门槛 —— 大 ⇒ 一定分治;小 ⇏ 不用分治(份数那条仍可能命中)。所以它不需要准,
+ * 只需要「过了这个线就不可能是随手贴的小材料」。2MB 的 docx 若是纯文本,解压后是数百万字;
+ * 若整份是嵌图,则正文可能很少 —— 后者会被误判成要分治,**代价只是多跑一轮子代理,结果照样对**。
+ *
+ * 两类误判的代价不对称,这是取值偏保守的依据:
+ *   · 该内联的判成要分治 → 慢一点、多花点 token
+ *   · 该分治的判成不用分治 → 父上下文爆 → 静默丢材料 → 报告基于半份材料且不报错
+ */
+export const DOC_SINGLE_BYTES = 2 * 1024 * 1024
+
 export type InlineFileInput = {
   filename: string
   path: string
@@ -76,8 +103,15 @@ export interface InlineDecision {
   files: Array<{ filename: string; path: string; bytes: number }>
   /** files 的字节总和 */
   totalBytes: number
-  /** 单份超 SINGLE_DOC_LIMIT：既不内联，也**不该**派子代理通读（派了也读不完） */
+  /** 单份超 SINGLE_DOC_LIMIT：**仍然派子代理**，只是子代理会拿到 extract_document 的切段清单
+   *  按段读（SPEC-INS-032 §2.4 v3：它是**切段阈值**，不再是拒绝阈值） */
   oversized: Array<{ filename: string; path: string; bytes: number }>
+  /** 走 extract_document 的文档类（office / pdf）。按**份数**而非字节参与判定，见 DOC_COUNT_THRESHOLD */
+  docs: Array<{ filename: string; path: string; bytes: number }>
+  /** 单份二进制超 DOC_SINGLE_BYTES 的文档类（单向兜底，仅供文案与日志） */
+  largeDocs: Array<{ filename: string; path: string; bytes: number }>
+  /** 命中了哪几条判据（供日志排查「为什么这轮分治了 / 没分治」） */
+  reasons: Array<"text-budget" | "doc-count" | "doc-size">
   /** 拿不到字节数的份数（降级路径，按 0 计入，仅供日志） */
   unknownCount: number
 }
@@ -91,28 +125,48 @@ export interface InlineDecision {
 export function decideInlineStrategy(input?: InlineFileInput[]): InlineDecision {
   const seenPaths = new Set<string>()
   const files: InlineDecision["files"] = []
+  const docs: InlineDecision["docs"] = []
   let unknownCount = 0
 
   for (const f of input ?? []) {
-    // office / pdf / 图片各走 extract_document / vision，不占内联预算
-    if (!isTextInlineFile(f.filename)) continue
     // 同一文件既是本轮附件、又被 `@` 引用时只算一次（与下方组装的去重口径一致）
     if (seenPaths.has(f.path)) continue
+
+    // 文档类（office / pdf）走**份数**口径：发送前只有二进制大小、拿不到正文体量，不并入字节预算。
+    if (isExtractableDocFile(f.filename)) {
+      seenPaths.add(f.path)
+      docs.push({ filename: f.filename, path: f.path, bytes: f.bytes ?? 0 })
+      continue
+    }
+    // 图片走 vision，两个口径都不参与
+    if (!isTextInlineFile(f.filename)) continue
+
     seenPaths.add(f.path)
     if (f.bytes == null) unknownCount++
     files.push({ filename: f.filename, path: f.path, bytes: f.bytes ?? 0 })
   }
 
   const oversized = files.filter((f) => f.bytes > SINGLE_DOC_LIMIT)
+  const largeDocs = docs.filter((f) => f.bytes > DOC_SINGLE_BYTES)
   const totalBytes = files.reduce((sum, f) => sum + f.bytes, 0)
 
+  // 三条判据**取或**，命中任一条就整批 dispatch（文本 + 文档一起交给子代理）。「整批」与 §2.3.2
+  // 已定的口径一致：不做「大的分治 + 小的仍内联」，否则父代理要记「哪几份我看过、哪几份还要派活」，
+  // 弱模型容易漏派或重复派。
+  // 注意：oversized 的字节同样计入 totalBytes——有超大件时必然 > INLINE_BUDGET 而落到 dispatch。
+  const reasons: InlineDecision["reasons"] = []
+  if (totalBytes > INLINE_BUDGET) reasons.push("text-budget")
+  if (docs.length >= DOC_COUNT_THRESHOLD) reasons.push("doc-count")
+  if (largeDocs.length > 0) reasons.push("doc-size")
+
   return {
-    // 注意：oversized 的字节同样计入 totalBytes——有超大件时必然 > INLINE_BUDGET 而落到
-    // dispatch，正是我们要的（它不内联、也不派通读，只在清单里被点名让用户拆分）。
-    mode: totalBytes > INLINE_BUDGET ? "dispatch" : "inline",
+    mode: reasons.length > 0 ? "dispatch" : "inline",
     files,
     totalBytes,
     oversized,
+    docs,
+    largeDocs,
+    reasons,
     unknownCount,
   }
 }
