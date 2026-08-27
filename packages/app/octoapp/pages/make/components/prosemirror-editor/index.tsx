@@ -50,6 +50,9 @@ interface Props {
   onPreview?: (url: string) => void
   onPaste?: (e: ClipboardEvent) => void
   ref?: (el: EditorRef) => void
+  productId?: number
+  onDownloadProductAsset?: (file: import("../addon-menu/asset-library").AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
+  onUpdateMentionPath?: (filename: string, path: string) => void
 }
 
 export const ProseMirrorEditor = (props: Props) => {
@@ -359,8 +362,13 @@ export const ProseMirrorEditor = (props: Props) => {
         
         if (v && trigger) {
           // Delete @abc search text
-          const tr = v.state.tr.delete(trigger.from, trigger.to)
-          v.dispatch(tr)
+          // 确保 position 在文档范围内
+          const from = Math.min(trigger.from, v.state.doc.content.size)
+          const to = Math.min(trigger.to, v.state.doc.content.size)
+          if (from < to) {
+            const tr = v.state.tr.delete(from, to)
+            v.dispatch(tr)
+          }
         }
         
         if (v) {
@@ -409,25 +417,21 @@ export const ProseMirrorEditor = (props: Props) => {
     const trigger = triggerState()
     if (!v || !trigger) return
 
-    const attrs = selection.type === "skill"
-      ? { id: selection.name, name: selection.name, type: "skill" as const, label: selection.label, path: "" }
-      : { id: selection.filename, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
+    let attrs: any
+    if (selection.type === "skill") {
+      attrs = { id: selection.name, name: selection.name, type: "skill" as const, label: selection.label, path: "" }
+    } else {
+      attrs = { id: selection.filename, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
+    }
 
     const node = editorSchema.nodes.mention.create(attrs)
     
-    if (selection.type === "file") {
-      // 文件：在 @ 后面插入 chip，光标移到 @ 后面
-      const tr = v.state.tr.insert(trigger.to, node)
-      tr.setSelection(TextSelection.create(tr.doc, trigger.from + 1))
-      v.dispatch(tr)
-    } else {
-      // 技能：替换 @abc 为 chip，关闭面板
-      const tr = v.state.tr.replaceWith(trigger.from, trigger.to, node)
-      const newPos = trigger.from + node.nodeSize
-      tr.setSelection(TextSelection.create(tr.doc, newPos))
-      v.dispatch(tr)
-      setTriggerState(null)
-    }
+    // 确保 position 在文档范围内
+    const insertPos = Math.min(trigger.to, v.state.doc.content.size)
+    
+    const tr = v.state.tr.insert(insertPos, node)
+    tr.setSelection(TextSelection.create(tr.doc, trigger.from + 1))
+    v.dispatch(tr)
     
     v.focus()
   }
@@ -448,12 +452,10 @@ export const ProseMirrorEditor = (props: Props) => {
       }
     })
     
-    if (lastPos >= 0) {
+    if (lastPos >= 0 && lastPos + lastSize <= v.state.doc.content.size) {
       const tr = v.state.tr.delete(lastPos, lastPos + lastSize)
       v.dispatch(tr)
     }
-    
-    // Don't close panel for file deselect
   }
 
   const getText = () => {
@@ -525,6 +527,9 @@ export const ProseMirrorEditor = (props: Props) => {
               selections={props.mentionSelections}
               skillConfig={props.skillConfig}
               artifactFiles={props.artifactFiles}
+              productId={props.productId}
+              onDownloadProductAsset={props.onDownloadProductAsset}
+              onUpdateMentionPath={props.onUpdateMentionPath}
             />
           </div>
         </Portal>
