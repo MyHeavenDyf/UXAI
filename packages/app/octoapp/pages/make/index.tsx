@@ -1952,6 +1952,9 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       }
       if (restoredPlanSid) {
+        // 规划子 session 已被当前恢复流程识别，先恢复为进行中状态；只有明确的结束标记才进入只读状态。
+        setPlanEndedForSession(null)
+        setPlanEnded(false)
         // 检查是否已被用户退出（持久化标记）
         const isEnded = !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid)
         if (isEnded) {
@@ -2669,6 +2672,10 @@ const sessionMessagesLoaded = createMemo(() => {
           })
           setActivePlanSessionId(childSession.id)
           setPlanParentSessionId(session.id)
+          setPlanEndedForSession(null)
+          setPlanEnded(false)
+          localStorage.removeItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + session.id)
+          setPlanChildSessionIDs((prev) => { const next = new Set(prev); next.add(childSession.id); return next })
           localStorage.setItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + session.id, childSession.id)
           _planChildSessionCache[session.id] = childSession.id
           savePlanSkillHandoff(session.id, childSession.id, skills)
