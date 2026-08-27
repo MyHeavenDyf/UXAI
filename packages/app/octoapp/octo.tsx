@@ -63,6 +63,7 @@ import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
 import { WelcomePage } from "@/components/welcome-page"
 import { useCheckServerHealth } from "./utils/server-health"
 import { persisted, Persist } from "@/utils/persist"
+import { disableIframesDuringDrag } from "@/utils/iframe-drag"
 // jk-j60099994-replace-with-octo-1-start
 // jk-j60099994-replace-with-octo-1-end
 
@@ -73,6 +74,7 @@ const InsightPage = lazy(() => import("@/pages/insight"))
 const MakePage = lazy(() => import("@/pages/make"))
 const PatternPage = lazy(() => import("@/pages/pattern"))
 const SkillsPage = lazy(() => import("@/pages/skills"))
+const AssetsPage = lazy(() => import("@/pages/assets"))
 const StudioPage = lazy(() => import("@/pages/studio/index"))
 const Loading = () => <div class="size-full" />
 
@@ -288,10 +290,14 @@ function MakeSidebarArea(props: ParentProps) {
     const startW = ml.leftW()
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
+    // 拖拽期间禁用 iframe 的指针事件(如 /assets 项目资产页的 iframe),
+    // 否则松开鼠标时 mouseup 会被 iframe 吞掉,onUp 不触发,拖拽状态卡死。
+    const restoreIframes = disableIframesDuringDrag()
     const onMove = (ev: MouseEvent) => ml.setLeftW(startW + ev.clientX - startX)
     const onUp = () => {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
+      restoreIframes()
       document.removeEventListener("mousemove", onMove)
       document.removeEventListener("mouseup", onUp)
     }
@@ -361,7 +367,9 @@ function InsightSidebarLayout(props: ParentProps) {
   )
 }
 
-function SkillsSidebarLayout(props: ParentProps) {
+// /skills 与 /assets 共用的侧栏分发壳:根据 sidebarSource 选择 make/pattern/insight 侧栏。
+// 两者页面结构一致,仅内容不同,故复用同一布局;命名体现其分发职责而非绑定 skills。
+function SidebarDispatchLayout(props: ParentProps) {
   const layout = useLayout()
   const source = layout.sidebarSource.get()
   return source === "make"
@@ -474,6 +482,10 @@ function RouterInner(props: ParentProps<{ appChildren?: JSX.Element }>) {
     return location.pathname === "/skills"
   }
 
+  const isAssetsPage = () => {
+    return location.pathname === "/assets"
+  }
+
   // Whether skills is opened from make/pattern context (vs insight/cowork)
   const skillsFromMake = () => isSkillsPage() && sidebarSource() === "make"
   const skillsFromPattern = () => isSkillsPage() && sidebarSource() === "pattern"
@@ -513,7 +525,11 @@ function RouterInner(props: ParentProps<{ appChildren?: JSX.Element }>) {
                     <SkillsPage />
                   </InsightSidebarLayout>
                 </Show>
-                <Show when={!isInsightPage() && !isMakePage() && !isPatternPage() && !isSkillsPage()}>
+                {/* Assets (knowledge base): SidebarDispatchLayout 根据 sidebarSource 选择 make/pattern/insight 侧栏 */}
+                <Show when={isAssetsPage()}>
+                  <SidebarDispatchLayout>{props.children}</SidebarDispatchLayout>
+                </Show>
+                <Show when={!isInsightPage() && !isMakePage() && !isPatternPage() && !isSkillsPage() && !isAssetsPage()}>
                   {props.appChildren}
                   {props.children}
                 </Show>
@@ -725,6 +741,7 @@ export function AppInterface(props: {
                   <Route path="/make/:id?" component={MakePage} />
                   <Route path="/pattern/:id?" component={PatternPage} />
                   <Route path="/skills" component={SkillsPage} />
+                  <Route path="/assets" component={AssetsPage} />
                   <Route path="/:dir" component={DirectoryLayout}>
                     <Route path="/" component={DirectoryIndexRoute} />
                     <Route path="/chat/:id?" component={ChatRedirectRoute} />

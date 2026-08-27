@@ -320,18 +320,18 @@ export function AgentSidebar(props: AgentSidebarProps) {
       sectionIcon={props.sectionIcon}
       collapsed={collapsed()}
       onToggleCollapse={() => setCollapsed(v => !v)}
-      activeNav={props.skillsActive || location.pathname === "/skills" ? "skill_market" : activeNav()}
+      activeNav={props.skillsActive || location.pathname === "/skills" ? "skill_market" : location.pathname === "/assets" ? "knowledge_base" : activeNav()}
       onNavClick={(key) => {
-        if (key === "skill_market") {
-          if (props.onSkillClick) {
+        if (key === "skill_market" || key === "knowledge_base") {
+          if (key === "skill_market" && props.onSkillClick) {
             props.onSkillClick()
           } else {
             if (props.sidebarSourceKey) layout.sidebarSource.set(props.sidebarSourceKey)
-            navigate("/skills")
+            navigate(key === "skill_market" ? "/skills" : "/assets")
           }
-        } else {
-          setActiveNav(v => v === key ? null : v)
+          return
         }
+        setActiveNav(v => v === key ? null : v)
       }}
       onSettingsClick={props.showSettings ? props.onSettingsClick : undefined}
     >

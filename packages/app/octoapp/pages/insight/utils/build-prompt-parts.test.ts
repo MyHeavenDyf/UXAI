@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { assembleInsightParts } from "./build-prompt-parts"
+import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_LIMIT } from "./build-prompt-parts"
 
 /**
  * SPEC-INS-027：正常发送与排队 drain 共用的 parts 组装骨架单测。
@@ -117,5 +117,108 @@ describe("assembleInsightParts", () => {
       "file:a.md",
       "file:c.png",
     ])
+  })
+})
+
+/**
+ * SPEC-INS-032 §2.3 / §2.4：内联分层判定。
+ *
+ * 用例断言的是**相对预算**的行为（用 INLINE_BUDGET / SINGLE_DOC_LIMIT 算出入参），不写死字节数——
+ * 换模型刷新阈值（spec §2.5.4）时这些用例不需要跟着改。
+ */
+describe("decideInlineStrategy", () => {
+  const f = (filename: string, bytes: number, path = `/p/${filename}`) => ({ filename, path, bytes })
+
+  test("总字节在预算内 → inline，行为与 v2 之前一致", () => {
+    const d = decideInlineStrategy([f("a.md", 1000), f("b.txt", 2000)])
+    expect(d.mode).toBe("inline")
+    expect(d.totalBytes).toBe(3000)
+    expect(d.oversized).toEqual([])
+  })
+
+  test("恰好等于预算 → 仍走 inline（边界取闭区间）", () => {
+    const d = decideInlineStrategy([f("a.md", INLINE_BUDGET)])
+    expect(d.mode).toBe("inline")
+  })
+
+  test("超预算 1 字节 → dispatch", () => {
+    const d = decideInlineStrategy([f("a.md", INLINE_BUDGET + 1)])
+    expect(d.mode).toBe("dispatch")
+  })
+
+  test("多份累加超预算 → dispatch（单份都不超也一样）", () => {
+    const each = Math.ceil(INLINE_BUDGET / 4)
+    const d = decideInlineStrategy([f("a.md", each), f("b.md", each), f("c.md", each), f("d.md", each), f("e.md", each)])
+    expect(d.mode).toBe("dispatch")
+    expect(d.files).toHaveLength(5)
+    expect(d.oversized).toEqual([])
+  })
+
+  test("office / 图片不占内联预算", () => {
+    const d = decideInlineStrategy([f("big.docx", INLINE_BUDGET * 10), f("a.md", 100)])
+    expect(d.mode).toBe("inline")
+    expect(d.totalBytes).toBe(100)
+    expect(d.files.map((x) => x.filename)).toEqual(["a.md"])
+  })
+
+  test("同一 path 既是附件又被 @ 引用 → 只算一次", () => {
+    const d = decideInlineStrategy([f("a.md", 1000), f("a.md", 1000)])
+    expect(d.files).toHaveLength(1)
+    expect(d.totalBytes).toBe(1000)
+  })
+
+  test("单份超 SINGLE_DOC_LIMIT → 进 oversized，且整批必然 dispatch", () => {
+    const d = decideInlineStrategy([f("huge.md", SINGLE_DOC_LIMIT + 1), f("a.md", 10)])
+    expect(d.mode).toBe("dispatch")
+    expect(d.oversized.map((x) => x.filename)).toEqual(["huge.md"])
+  })
+
+  test("bytes 缺失 → 按 0 计入并记 unknownCount（不因取不到大小把整批拖进分治）", () => {
+    const d = decideInlineStrategy([{ filename: "a.md", path: "/p/a.md" }, f("b.md", 100)])
+    expect(d.mode).toBe("inline")
+    expect(d.totalBytes).toBe(100)
+    expect(d.unknownCount).toBe(1)
+  })
+})
+
+describe("assembleInsightParts × 内联分层（SPEC-INS-032）", () => {
+  const big = (filename: string) => ({ filename, path: `/p/${filename}`, bytes: INLINE_BUDGET })
+
+  test("dispatch 时一个 text/plain FilePart 都不产（只剩 text/synthetic）", () => {
+    const { parts } = assembleInsightParts({
+      text: "汇总一下",
+      syntheticTexts: ["[附件]\n- a.md: /p/a.md", "[材料体量] …"],
+      textInlineFiles: [big("a.md"), big("b.md")],
+    })
+    expect(parts.filter((p) => p.type === "file")).toEqual([])
+    expect(parts).toHaveLength(3)
+  })
+
+  test("dispatch 不影响图片：vision FilePart 照常产出", () => {
+    const { parts, imageParts } = assembleInsightParts({
+      text: "hi",
+      textInlineFiles: [big("a.md"), big("b.md")],
+      imageFiles: [{ filename: "s.png", url: "https://s3/s.png" }],
+    })
+    expect(imageParts).toHaveLength(1)
+    expect(parts.filter((p) => p.type === "file")).toHaveLength(1)
+  })
+
+  test("inline 时仍产出 text/plain FilePart（回归锁）", () => {
+    const { parts, inlineDecision } = assembleInsightParts({
+      text: "hi",
+      textInlineFiles: [{ filename: "a.md", path: "/p/a.md", bytes: 10 }],
+    })
+    expect(inlineDecision.mode).toBe("inline")
+    expect(parts.filter((p) => p.type === "file")).toHaveLength(1)
+  })
+
+  test("传入的 inlineDecision 优先于内部现算（防说明与实际产出漂移）", () => {
+    const { parts } = assembleInsightParts({
+      text: "hi",
+      textInlineFiles: [{ filename: "a.md", path: "/p/a.md", bytes: 10 }],
+      inlineDecision: decideInlineStrategy([big("a.md"), big("b.md")]),
+    })
+    expect(parts.filter((p) => p.type === "file")).toEqual([])
   })
 })

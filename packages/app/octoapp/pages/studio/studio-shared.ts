@@ -53,9 +53,10 @@ export type StudioPendingResult = StudioGenerationResult & {
 
 export type StudioHDMode = "restoration_8k" | "restoration" | "super_resolution"
 export type StudioInpaintMode = "qwen_image_edit" | "erase"
-export type StudioVideoDuration = "5" | "10"
+export type StudioVideoDuration = string
 export type StudioVideoQualityMode = "std" | "pro"
 export type StudioVideoFrameSlot = "first" | "last"
+export type StudioVideoMode = "all-reference" | "first-last-frame" | "ultra-long"
 
 export const STUDIO_HD_MODES = [
   { label: "8k超清", value: "restoration_8k" },
@@ -64,6 +65,12 @@ export const STUDIO_HD_MODES = [
 ] satisfies { label: string; value: StudioHDMode }[]
 
 export const STUDIO_VIDEO_ASPECT_RATIOS = ["1:1", "9:16", "16:9"] as const
+
+export const STUDIO_VIDEO_MODES = [
+  { label: "全能参考", value: "all-reference" },
+  { label: "首尾帧", value: "first-last-frame" },
+  { label: "超长视频", value: "ultra-long" },
+] satisfies { label: string; value: StudioVideoMode }[]
 
 export function workspaceModeForCapability(capability: StudioCapability): Exclude<StudioMode, "preview"> | undefined {
   if (capability === "image.upscale") return "hd"

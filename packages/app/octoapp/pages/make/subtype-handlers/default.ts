@@ -1,6 +1,6 @@
 import type { SubtypeHandler, SubtypeHandlerContext, CanvasEditResult } from './types'
 import type { ResultTab } from '../components/result-viewer/tab-store'
-import { showToast } from '@opencode-ai/ui/toast'
+import { showOctoToast } from '../components/octo-toast'
 import { getDesktopApi } from '../lib/electron-api'
 import { relativePathToId, resolveRelativePath, getExt } from '../utils/history-store'
 
@@ -41,7 +41,7 @@ async function downloadBlob(content: string | Uint8Array, filename: string, mime
     if (!chosen) return
     const buffer = await blob.arrayBuffer()
     await api.writeFileBuffer(chosen, buffer)
-    showToast({ title: "已下载" })
+    showOctoToast({ title: "已下载" })
     return
   }
 
@@ -53,7 +53,7 @@ async function downloadBlob(content: string | Uint8Array, filename: string, mime
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
-  showToast({ title: "已下载" })
+  showOctoToast({ title: "已下载" })
 }
 
 function markdownTableToCSV(md: string): string {
@@ -189,14 +189,14 @@ const defaultHandler: SubtypeHandler = {
    * @example
    * // 自定义下载：导出到 Figma
    * async handleDownload(ctx) {
-   *   const { tab, showToast } = ctx
-   *   showToast({ title: "正在导出到 Figma..." })
+   *   const { tab, showOctoToast } = ctx
+   *   showOctoToast({ title: "正在导出到 Figma..." })
    *   await exportToFigma(tab)
    *   return true  // 阻止默认下载
    * }
    */
   async handleDownload(ctx) {
-    const { tab, showToast, extractCodeBlock, getDesktopApi, observedUrlsGetter } = ctx
+    const { tab, showOctoToast, extractCodeBlock, getDesktopApi, observedUrlsGetter } = ctx
     
     // 导入依赖（在函数内部导入，避免循环依赖）
     const { createHtmlAssetsZip } = await import('../utils/html-assets-zip')
@@ -205,7 +205,6 @@ const defaultHandler: SubtypeHandler = {
     if (tab.type === "html") {
       const htmlContent = extractDownloadContent(tab)
       const htmlFileNameInZip = `${stripExtension(tab.title, "html")}.html`
-      showToast({ title: "生成ZIP..." })
       
       try {
         const observedUrls = observedUrlsGetter?.() || []
@@ -220,7 +219,7 @@ const defaultHandler: SubtypeHandler = {
         const zipBytes = new Uint8Array(await zipBlob.arrayBuffer())
         await downloadBlob(zipBytes, zipName, "application/zip")
       } catch (err) {
-        showToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
+        showOctoToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
       }
       return true
     }
@@ -241,12 +240,12 @@ const defaultHandler: SubtypeHandler = {
       
       const buffer = await api.readFileBuffer(tab.filePath)
       if (!buffer) {
-        showToast({ title: "读取文件失败", variant: "error" })
+        showOctoToast({ title: "读取文件失败", variant: "error" })
         return true
       }
       
       await api.writeFileBuffer(chosen, buffer)
-      showToast({ title: "已保存" })
+      showOctoToast({ title: "已保存" })
       return true
     }
     
@@ -258,11 +257,11 @@ const defaultHandler: SubtypeHandler = {
   },
   
   async handleCanvasEdit(ctx): Promise<CanvasEditResult> {
-    const { tab, showToast, getDesktopApi, sessionId, sdkDirectory, observedUrlsGetter } = ctx
+    const { tab, showOctoToast, getDesktopApi, sessionId, sdkDirectory, observedUrlsGetter } = ctx
     
     const isLoggedIn = !!localStorage.getItem('uiplusToken')
     if (!isLoggedIn) {
-      showToast({ title: "请先登录" })
+      showOctoToast({ title: "请先登录" })
       return { handled: true }
     }
 
@@ -273,7 +272,7 @@ const defaultHandler: SubtypeHandler = {
       handled: true,
       options: {
         getZip: async () => {
-          showToast({ title: "生成ZIP文件..." })
+          showOctoToast({ title: "生成ZIP文件..." })
           return await createC2DZip({
             htmlContent,
             htmlFilePath: tab.filePath || "",
@@ -287,25 +286,28 @@ const defaultHandler: SubtypeHandler = {
           const sid = sessionId
           
           if (!baseDir || !sid || !api?.writeFileBuffer) {
-            showToast({ title: "无法保存文件", variant: "error" })
+            showOctoToast({ title: "无法保存文件", variant: "error" })
             return
           }
           
           const uploadsDir = `${baseDir}/.octo/${sid}/uploads`
+          const lastDotIndex = data.filename.lastIndexOf('.')
+          const baseName = lastDotIndex > 0 ? data.filename.slice(0, lastDotIndex) : data.filename
+          const ext = lastDotIndex >= 0 ? data.filename.slice(lastDotIndex) : ''
+          
           let finalFilename = data.filename
           
           if (api.fileExists) {
             let counter = 0
-            const baseName = data.filename.replace(/\.html$/i, '')
             while (await api.fileExists(`${uploadsDir}/${finalFilename}`)) {
               counter++
-              finalFilename = `${baseName}(${counter}).html`
+              finalFilename = `${baseName} (${counter})${ext}`
             }
           }
           
           const buffer = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
           await api.writeFileBuffer(`${uploadsDir}/${finalFilename}`, buffer.buffer)
-          showToast({ title: "已保存", description: finalFilename })
+          showOctoToast({ title: "已保存", description: finalFilename })
         },
         config: {
           designName: tab.title,
@@ -324,7 +326,7 @@ const defaultHandler: SubtypeHandler = {
    * @example
    * // 自定义标注：使用自定义标注面板
    * async handleComment(ctx) {
-   *   const { tab, showToast } = ctx
+   *   const { tab, showOctoToast } = ctx
    *   // 打开自定义标注面板
    *   await openCustomCommentPanel(tab)
    *   return true  // 阻止默认标注 UI
@@ -344,9 +346,9 @@ const defaultHandler: SubtypeHandler = {
    * @example
    * // 自定义归档：上传到云存储
    * async handleArchive(ctx) {
-   *   const { tab, showToast } = ctx
+   *   const { tab, showOctoToast } = ctx
    *   await uploadToCloud(tab)
-   *   showToast({ title: "已归档到云端" })
+   *   showOctoToast({ title: "已归档到云端" })
    *   return true
    * }
    */
@@ -367,7 +369,7 @@ const defaultHandler: SubtypeHandler = {
    *   if (feature === 'archive') {
    *     const isLoggedIn = checkLogin()
    *     if (!isLoggedIn) {
-   *       ctx.showToast({ title: "请先登录" })
+   *       ctx.showOctoToast({ title: "请先登录" })
    *       return false
    *     }
    *   }

@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js"
+import { createSignal, For, Show } from "solid-js"
 import { STUDIO_CAPABILITIES, capabilityLabel } from "./data"
 import { isVideoMedia, studioResultCardStatus } from "./studio-shared"
 import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
@@ -21,6 +21,12 @@ type StudioResultCardProps = {
 }
 
 function StudioMediaPreview(props: { image: StudioImage; duration?: string }) {
+  const [actualDuration, setActualDuration] = createSignal<number | undefined>(undefined)
+  const badgeDuration = () => {
+    const actual = actualDuration()
+    if (actual !== undefined && Number.isFinite(actual) && actual > 0) return String(Math.floor(actual))
+    return props.duration
+  }
   return (
     <Show when={isVideoMedia(props.image)} fallback={
       <img
@@ -40,10 +46,14 @@ function StudioMediaPreview(props: { image: StudioImage; duration?: string }) {
           muted
           playsinline
           preload="metadata"
+          onLoadedMetadata={(e) => {
+            const d = e.currentTarget.duration
+            setActualDuration(Number.isFinite(d) && d > 0 ? d : undefined)
+          }}
         />
-        <Show when={props.duration}>
+        <Show when={badgeDuration()}>
           <span class="studio-file-manager-media-video-badge">
-            <span class="studio-file-manager-media-video-badge-text">00:{(props.duration ?? "0").padStart(2, "0")}</span>
+            <span class="studio-file-manager-media-video-badge-text">00:{(badgeDuration() ?? "0").padStart(2, "0")}</span>
           </span>
         </Show>
       </span>

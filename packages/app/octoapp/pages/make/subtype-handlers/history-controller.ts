@@ -3,7 +3,7 @@ import { getSubtypeHandler } from "../utils/subtype-registry"
 import type { HistoryTriggerEvent, SubtypeHandlerContext } from "./types"
 import type { ResultTab } from "../components/result-viewer/tab-store"
 import { getDesktopApi } from "../lib/electron-api"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showOctoToast } from "../components/octo-toast"
 import { tracker } from "@/utils/tracker"
 
 const HISTORY_SKIP_TYPES = ["image", "video", "audio", "pdf", "svg", "text", "local-file"]
@@ -66,7 +66,7 @@ export function createHistoryController(callbacks: HistoryControllerCallbacks) {
   function buildCtx(tab: ResultTab): SubtypeHandlerContext {
     return {
       tab,
-      showToast,
+      showOctoToast,
       tracker,
       getDesktopApi,
       extractCodeBlock: (text: string, lang: string) => {

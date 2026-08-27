@@ -34,7 +34,7 @@ import {
   pathToLocalUrl,
   type FolderUploadFile,
 } from "../../utils/artifact-file-api"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showOctoToast } from "../../components/octo-toast"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
@@ -195,11 +195,11 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       props.onCloseTabsByPath?.([file.path])
       props.onRemoveAttachmentsByPath?.([file.path])
 
-      showToast({ title: "Deleted", description: file.name })
+      showOctoToast({ title: "Deleted", description: file.name })
       tracker.interaction({ module: "design", name: "files-delete-file" })
       props.onFilesRefresh?.()
     } catch (err) {
-      showToast({ title: "Delete failed", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "Delete failed", description: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -248,11 +248,11 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       props.onCloseTabsByPath?.(paths)
       props.onRemoveAttachmentsByPath?.(paths)
 
-      showToast({ title: "Deleted", description: `${result.deleted} files deleted` })
+      showOctoToast({ title: "Deleted", description: `${result.deleted} files deleted` })
       tracker.interaction({ module: "design", name: "files-batch-delete", extend: JSON.stringify({ count: result.deleted }) })
       props.onFilesRefresh?.()
     } catch (err) {
-      showToast({ title: "Delete failed", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "Delete failed", description: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -270,7 +270,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       URL.revokeObjectURL(url)
       tracker.interaction({ module: "design", name: "files-batch-download", extend: JSON.stringify({ count: files.length }) })
     } catch (err) {
-      showToast({ title: "Download failed", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "Download failed", description: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -287,7 +287,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         })
         if (!filePath) return
         await (window as any).api.writeFileBuffer(filePath, await blob.arrayBuffer())
-        showToast({ title: "下载完成", description: file.name })
+        showOctoToast({ title: "下载完成", description: file.name })
         tracker.interaction({ module: "design", name: "files-download-file" })
         return
       }
@@ -298,10 +298,10 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       a.download = file.name
       a.click()
       URL.revokeObjectURL(url)
-      showToast({ title: "下载完成", description: file.name })
+      showOctoToast({ title: "下载完成", description: file.name })
       tracker.interaction({ module: "design", name: "files-download-file" })
     } catch (err) {
-      showToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -319,7 +319,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const handleOpenInExplorer = (file: ArtifactFile) => {
     const api = (window as any).api
     if (typeof api?.showItemInFolder !== "function") {
-      showToast({ title: "打开失败", description: "当前环境不支持此操作", variant: "error" })
+      showOctoToast({ title: "打开失败", description: "当前环境不支持此操作", variant: "error" })
       return
     }
     api.showItemInFolder(file.path)
@@ -346,7 +346,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         }
         if (!srcPath) {
           failedCount++
-          showToast({ title: "Upload failed", description: `无法获取文件路径:${file.name}` })
+          showOctoToast({ title: "Upload failed", description: `无法获取文件路径:${file.name}` })
           continue
         }
         try {
@@ -355,11 +355,11 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           tracker.interaction({ module: "design", name: "files-upload-file", extend: JSON.stringify({ count: 1 }) })
         } catch (err) {
           failedCount++
-          showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
+          showOctoToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
         }
       }
       if (okCount > 0) {
-        showToast({ title: "Uploaded", description: `${okCount} 个文件` })
+        showOctoToast({ title: "Uploaded", description: `${okCount} 个文件` })
       }
       if (okCount > 0) {
         await refresh()
@@ -382,12 +382,12 @@ export function DesignFilesPanel(props: Props): JSX.Element {
             content,
             currentPath,
           )
-          showToast({ title: "Uploaded", description: result.name })
+          showOctoToast({ title: "Uploaded", description: result.name })
           tracker.interaction({ module: "design", name: "files-upload-file", extend: JSON.stringify({ count: 1 }) })
           await refresh()
           props.onFilesRefresh?.()
         } catch (err) {
-          showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
+          showOctoToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
         }
       }
       reader.readAsDataURL(file)
@@ -478,12 +478,12 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         fileEntries,
         currentPath,
       )
-      showToast({ title: "Uploaded folder", description: `${folderName} (${result.fileCount} files)` })
+      showOctoToast({ title: "Uploaded folder", description: `${folderName} (${result.fileCount} files)` })
       tracker.interaction({ module: "design", name: "files-upload-folder", extend: JSON.stringify({ fileCount: result.fileCount }) })
       await refresh()
       props.onFilesRefresh?.()
     } catch (err) {
-      showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -510,13 +510,13 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       if (srcPath) {
         try {
           await desktopApi.copyFileToSessionUploads(srcPath, baseDir, props.sessionId, currentPath, file.name)
-          showToast({ title: "Uploaded", description: file.name })
+          showOctoToast({ title: "Uploaded", description: file.name })
           tracker.interaction({ module: "design", name: "files-upload-file", extend: JSON.stringify({ count: 1 }) })
           await refresh()
           props.onFilesRefresh?.()
           return
         } catch (err) {
-          showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
+          showOctoToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
           return
         }
       }
@@ -532,11 +532,11 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         base64,
         currentPath,
       )
-      showToast({ title: "Uploaded", description: result.name })
+      showOctoToast({ title: "Uploaded", description: result.name })
       await refresh()
       props.onFilesRefresh?.()
     } catch (err) {
-      showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -574,7 +574,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     const firstFile = files[0]
     const folderName = firstFile.webkitRelativePath?.split("/")[0]
     if (!folderName) {
-      showToast({ title: "Upload failed", description: "Could not determine folder name" })
+      showOctoToast({ title: "Upload failed", description: "Could not determine folder name" })
       return
     }
 
@@ -603,12 +603,12 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         fileEntries,
         currentPath,
       )
-      showToast({ title: "Uploaded folder", description: `${folderName} (${result.fileCount} files)` })
+      showOctoToast({ title: "Uploaded folder", description: `${folderName} (${result.fileCount} files)` })
       tracker.interaction({ module: "design", name: "files-upload-folder", extend: JSON.stringify({ fileCount: result.fileCount }) })
       await refresh()
       props.onFilesRefresh?.()
     } catch (err) {
-      showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
     }
   }
 

@@ -40,6 +40,7 @@ import type { MappingDef, TransformContext } from '../../../src/core/component-m
 import type { LoopNode, RegularNode } from '../../../src/core/node-types'
 import type { PropValue, BindingValue } from '../../../src/core/value-types'
 import { Value } from '../../../src/core/value-factory'
+import { Node } from '../../../src/core/node-factory'
 import { enrichScopedData, buildRenderFn } from '../../../src/core/scoped-enrichment'
 import { stateRef, computedJsxConstName } from '../../../src/core/access-path'
 
@@ -150,8 +151,19 @@ export function createTableMapping(pkg: string): MappingDef {
         if (cd.minWidth !== undefined) col.width = cd.minWidth
         if (cd.className) col.className = cd.className
         if (cd.fixed === 'start') col.freezeCol = true
-        // filters 透传（A2UI 与 eview-react 结构一致：[{ text, value }]）
-        if (cd.filters) col.filters = cd.filters
+        // filters → 自定义筛选组件（@/shared/TableFilter）：data 透传、onFilter 占位空函数
+        if (cd.filters) {
+          col.filter = {
+            component: Node.component({
+              tag: 'TableFilter',
+              import: '@/shared/TableFilter',
+              props: {
+                data: cd.filters,
+                onFilter: Value.rawExpr({ value: '(value) => {}' }),
+              },
+            }),
+          }
+        }
         return col
       }
 

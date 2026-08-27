@@ -2,7 +2,7 @@ import type { JSX } from "solid-js"
 import { Show, createSignal } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showOctoToast } from "./octo-toast"
 import { tracker } from "@/utils/tracker"
 import { fetchArtifactContent } from "../utils/artifact-file-api"
 import { directoryHeader } from "@/utils/headers"
@@ -21,7 +21,7 @@ export function DialogPreviewUnavailable(props: Props): JSX.Element {
   async function handleDownload() {
     if (downloading()) return
     if (!props.filePath) {
-      showToast({ title: "下载失败", description: "文件路径缺失" })
+      showOctoToast({ title: "下载失败", description: "文件路径缺失" })
       return
     }
     setDownloading(true)
@@ -36,7 +36,7 @@ export function DialogPreviewUnavailable(props: Props): JSX.Element {
         const chosen = await api.saveFilePicker({ defaultPath: props.filename })
         if (!chosen) return
         await api.writeFileBuffer(chosen, await blob.arrayBuffer())
-        showToast({ title: "下载完成", description: props.filename })
+        showOctoToast({ title: "下载完成", description: props.filename })
         tracker.interaction({ module: "design", name: "files-download-file" })
         return
       }
@@ -47,10 +47,10 @@ export function DialogPreviewUnavailable(props: Props): JSX.Element {
       a.download = props.filename
       a.click()
       URL.revokeObjectURL(url)
-      showToast({ title: "下载完成", description: props.filename })
+      showOctoToast({ title: "下载完成", description: props.filename })
       tracker.interaction({ module: "design", name: "files-download-file" })
     } catch (err) {
-      showToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
     } finally {
       setDownloading(false)
     }

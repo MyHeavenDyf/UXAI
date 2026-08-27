@@ -10,6 +10,7 @@
  * | open（DataBinding） | visible | **ComputedValue.useState**（event:onClose）；shared→useSharedState，非共享→局部 useState |
  * | onClose（Action） | — | 丢弃（onClose 回调由 open 的 useState extractor 生成，closeVal 取自 Action.value，数据驱动） |
  * | placement（right/left/top/bottom） | placement | 同名透传 |
+ * | width（number） | width | 同名透传（number 值原样） |
  * | mask（boolean，默认 true） | showMask | 改名（A2UI mask → eview-react showMask，语义一致） |
  * | title（字面量 string） | title | 同名透传 |
  * | title（DataBinding） | title | BindingValue 同名透传 |
@@ -48,7 +49,7 @@ export function createDrawerMapping(pkg: string): MappingDef {
       const outputProps: Record<string, PropValue> = {}
 
       // 显性处理每个 A2UI prop：A2UI Drawer 的 props 是封闭集合
-      // (open/onClose/placement/mask/title/footer/className)，不做兜底透传。
+      // (open/onClose/placement/width/mask/title/footer/className)，不做兜底透传。
 
       // ─── open → visible（DataBinding + useState 受控，共享/非共享由 shared 标记自适应） ───
       // open 是 DataBinding（schema 无字面量形态），Drawer 是受控组件，产生 useState：
@@ -90,6 +91,11 @@ export function createDrawerMapping(pkg: string): MappingDef {
       // A2UI 与 eview-react 的枚举值一致：right/left/top/bottom
       if ('placement' in props) {
         outputProps.placement = props.placement
+      }
+
+      // ─── width（number 同名透传，无默认） ───
+      if ('width' in props) {
+        outputProps.width = props.width
       }
 
       // ─── mask → showMask（改名，语义一致） ───

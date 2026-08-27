@@ -7,7 +7,7 @@ import type { ArtifactExportKind } from "../insight-turn"
 import { PALETTE_PRESETS } from "./html-renderer"
 import { IconActionCopy, IconActionEdit, IconActionPreview, IconViewportDesktop, IconViewportTablet, IconViewportMobile, IconCanvasEdit, IconBoxSelectEdit, IconLocalModify, IconDownloadNew, IconDropdownChevron } from "../../icons"
 import { IconRefresh as IconFileRefresh } from "../../icons/design-files-icons"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showOctoToast } from "../octo-toast"
 import { getDesktopApi } from "../../lib/electron-api"
 import { tracker } from "@/utils/tracker"
 import { createHtmlAssetsZip } from "../../utils/html-assets-zip"
@@ -35,7 +35,7 @@ function extractCodeBlock(text: string, lang: string): string {
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text)
-    .then(() => showToast({ title: "已复制" }))
+    .then(() => showOctoToast({ title: "已复制" }))
     .catch(console.error)
 }
 
@@ -61,7 +61,7 @@ async function downloadBlob(content: string | Uint8Array, filename: string, mime
     if (!chosen) return
     const buffer = await blob.arrayBuffer()
     await api.writeFileBuffer(chosen, buffer)
-    showToast({ title: "已下载" })
+    showOctoToast({ title: "已下载" })
     return
   }
 
@@ -73,7 +73,7 @@ async function downloadBlob(content: string | Uint8Array, filename: string, mime
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
-  showToast({ title: "已下载" })
+  showOctoToast({ title: "已下载" })
 }
 
 function markdownTableToCSV(md: string): string {
@@ -294,7 +294,7 @@ function CanvasEditDropdown(props: {
     
     const handler = getSubtypeHandler(props.tab.subtype)
     if (!handler?.handleCanvasEdit) {
-      showToast({ title: "不支持的操作" })
+      showOctoToast({ title: "不支持的操作" })
       return
     }
 
@@ -303,7 +303,7 @@ function CanvasEditDropdown(props: {
       const ctx: SubtypeHandlerContext = {
         tab: props.tab,
         sessionId: props.sessionId,
-        showToast,
+        showOctoToast,
         tracker,
         getDesktopApi,
         extractCodeBlock,
@@ -322,7 +322,7 @@ function CanvasEditDropdown(props: {
       }
     } catch (error) {
       console.error("[CanvasEditDropdown] Error:", error)
-      showToast({ title: "操作失败", description: String(error) })
+      showOctoToast({ title: "操作失败", description: String(error) })
     } finally {
       setLoading(false)
     }
@@ -336,7 +336,7 @@ function CanvasEditDropdown(props: {
       await action.fn(opts)
     } catch (error) {
       console.error("[CanvasEditDropdown] Action error:", error)
-      showToast({ title: "操作失败", description: String(error) })
+      showOctoToast({ title: "操作失败", description: String(error) })
     }
   }
 
@@ -517,7 +517,7 @@ export function ActionBar(props: {
       const modelKey = m ? { providerID: m.provider.id, modelID: m.id } : undefined
       const ctx = {
         tab: props.tab,
-        showToast,
+        showOctoToast,
         tracker,
         getDesktopApi,
         extractCodeBlock,
@@ -533,7 +533,7 @@ export function ActionBar(props: {
         const handled = await handler.handleDownload(ctx, option)
         if (handled === true) return
       } catch (error) {
-        showToast({ 
+        showOctoToast({ 
           title: "下载失败", 
           description: error instanceof Error ? error.message : String(error),
           variant: "error"
@@ -546,7 +546,7 @@ export function ActionBar(props: {
     const defaultHandler = getSubtypeHandler('_default')
     await defaultHandler?.handleDownload?.({
       tab: props.tab,
-      showToast,
+      showOctoToast,
       tracker,
       getDesktopApi,
       extractCodeBlock,
@@ -642,7 +642,7 @@ export function ActionBar(props: {
   const renderCustomButton = (button: ActionBarButton): JSX.Element | null => {
     const ctx: SubtypeHandlerContext = {
       tab: props.tab,
-      showToast,
+      showOctoToast,
       tracker,
       getDesktopApi,
       extractCodeBlock,
@@ -1058,6 +1058,7 @@ function DownloadButton(props: {
                       <button
                         type="button"
                         class="octo-dropdown-item"
+                        style={{ "justify-content": "flex-start", "text-align": "left" }}
                         onClick={() => handlePick(opt.value)}
                       >
                         <span>{opt.label}</span>

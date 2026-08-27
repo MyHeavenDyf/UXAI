@@ -108,34 +108,30 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     return { generated, uploaded }
   })
 
-  // Calculate current items list based on active tab and category
   onMount(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         e.preventDefault()
         e.stopPropagation()
-        const currentTab = activeTab()
-        if (currentTab === 'skills') {
-          setActiveTab('files')
-          setSelectedCategory('design')
-        } else {
-          setActiveTab('skills')
-          setSelectedCategory('platform')
+        if (activeTab() === 'skills') {
+          if (selectedCategory() === 'platform') {
+            setSelectedCategory('custom')
+          } else if (selectedCategory() === 'custom') {
+            setSelectedCategory('platform')
+          }
         }
       }
       if (e.key === "Enter") {
         e.preventDefault()
         e.stopPropagation()
         if (activeTab() === 'skills') {
-          const skills = selectedCategory() === 'platform' 
-            ? filteredPlatformSkills() 
-            : filteredCustomSkills()
+          const skills = selectedCategory() === 'platform' ? filteredPlatformSkills() : filteredCustomSkills()
           if (skills.length > 0) {
             handleSkillClick(skills[0])
           }
         } else if (activeTab() === 'files') {
           const files = filteredFiles()
-          if (files && (files.generated.length > 0 || files.uploaded.length > 0)) {
+          if (files.generated.length > 0 || files.uploaded.length > 0) {
             const firstFile = files.generated[0] || files.uploaded[0]
             handleFileClick({ name: firstFile.name, path: firstFile.path })
           }
@@ -171,8 +167,11 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
 
   const handleFileClick = (file: { name: string; path: string }) => {
     const selection: MentionSelection = { type: 'file', filename: file.name, path: file.path }
-    props.onSelect(selection)
-    props.onClose()
+    if (isSelected(selection)) {
+      props.onDeselect(selection)
+    } else {
+      props.onSelect(selection)
+    }
   }
 
   const secondaryPanelStyle = () => {
