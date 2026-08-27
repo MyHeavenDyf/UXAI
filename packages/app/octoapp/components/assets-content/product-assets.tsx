@@ -2,7 +2,7 @@ import { useProjectSelection } from "@/hooks/use-project-selection"
 import { createSignal, onCleanup, onMount, Show, For, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
 
-export function ProjectAssets(): JSX.Element {
+export function ProductAssets(): JSX.Element {
   const selection = useProjectSelection()
   const embedUrl = () => {
     const base = import.meta.env.VITE_OCTO_BASE_URL
