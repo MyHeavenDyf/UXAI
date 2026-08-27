@@ -3920,15 +3920,6 @@ if (dsId) {
                     <NewSessionView worktree="" title="Octo Design" subtitle="描述需求，开始生成原型" />
                   </div>
                 <div class="w-full max-w-[800px]">
-                  <Show when={planComposerActive()}>
-                    <div class="make-plan-capsule-row">
-                      <button type="button" class="make-plan-capsule" onClick={handleCancelPlanComposer}>
-                        <span class="make-plan-capsule-icon">✦</span>
-                        <span>设计策略模式</span>
-                        <span class="make-plan-capsule-close">×</span>
-                      </button>
-                    </div>
-                  </Show>
                   {/* Pending skill tag */}
                     <Show when={pendingSkill()}>
                       {(skill) => (
@@ -3965,6 +3956,15 @@ if (dsId) {
                       "min-height": "150px",
                     }}
                   >
+                    <Show when={planComposerActive()}>
+                      <div class="make-plan-capsule-row">
+                        <button type="button" class="make-plan-capsule" onClick={handleCancelPlanComposer}>
+                          <span class="make-plan-capsule-icon">✦</span>
+                          <span>设计策略模式</span>
+                          <span class="make-plan-capsule-close">×</span>
+                        </button>
+                      </div>
+                    </Show>
                     {/* Slash Command Popover（新建对话） */}
                     <Show when={slashState() && filteredSlash().length > 0}>
                       <div class="slash-popover">

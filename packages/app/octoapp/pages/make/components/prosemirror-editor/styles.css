@@ -10,13 +10,14 @@
   align-items: center;
   gap: 6px;
   white-space: nowrap;
-  padding: 4px 8px;
+  padding: 3px 8px;
   border: 0;
   border-radius: 999px;
   background: rgba(10, 89, 247, 0.08);
   color: #0A59F7;
   font: inherit;
   font-size: 12px;
+  line-height: 1.5;
   cursor: pointer;
 }
 
