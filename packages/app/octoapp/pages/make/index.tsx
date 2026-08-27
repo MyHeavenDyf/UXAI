@@ -696,7 +696,9 @@ const sessionMessagesLoaded = createMemo(() => {
       const e = evt.details
       const props = e.properties as Record<string, unknown> | undefined
       const eventSessionID = props?.sessionID as string | undefined
-      if (eventSessionID && eventSessionID !== sid && !childSessionIDs().has(eventSessionID)) return
+      const activePlanID = activePlanSessionId()
+      const isCurrentPlanChild = !!activePlanID && planParentSessionId() === sid && eventSessionID === activePlanID
+      if (eventSessionID && eventSessionID !== sid && !isCurrentPlanChild) return
       
       if (e.type === "message.part.delta") {
         setLastDeltaTime(Date.now())
@@ -876,9 +878,14 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 策略表单数据（从子 agent artifact 中扫描 + 用户手动编辑） */
   const [manualStrategyFormData, setManualStrategyFormData] = createSignal<Partial<StrategyFormData>>({})
 
+  const activePlanForCurrentSession = createMemo(() => {
+    const planSid = activePlanSessionId()
+    return params.id && planParentSessionId() === params.id ? planSid : null
+  })
+
   const strategyFormData = createMemo(() => {
     // 优先从活跃的子 session 获取
-    const activePlanSid = activePlanSessionId()
+    const activePlanSid = activePlanForCurrentSession()
     if (activePlanSid) {
       const messages = sync.data.message?.[activePlanSid]
       const parts = sync.data.part
@@ -911,15 +918,18 @@ const sessionMessagesLoaded = createMemo(() => {
    */
   const [hasChildPlanSession, setHasChildPlanSession] = createSignal(false)
   async function detectChildPlanSession(sid: string): Promise<string | null> {
-    if (!sdk.directory) return null
+    if (!sdk.directory || params.id !== sid) return null
     try {
       const res = await sdk.client.session.list({ directory: sdk.directory })
+      if (params.id !== sid) return null
       const sessions = (res.data ?? []).filter((s: any) => !!s?.id)
       const children = sessions.filter((s: any) => s.parentID === sid && !s.time?.archived)
       const planChild = children.find((s: any) => s.agent === "octo_make_plan")
 
       for (const child of children) {
+        if (params.id !== sid) return null
         await sync.session.sync(child.id)
+        if (params.id !== sid) return null
         loadedChildSessions.add(child.id)
         setChildSessionIDs((prev) => {
           const next = new Set(prev)
@@ -935,6 +945,7 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       }
 
+      if (params.id !== sid) return null
       if (planChild) {
         setHasChildPlanSession(true)
         return planChild.id
@@ -947,11 +958,16 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 加载子会话数据 */
   async function ensureChildSession(subSessionID: string) {
-    if (!subSessionID || loadedChildSessions.has(subSessionID)) return
+    const ownerSessionID = params.id
+    if (!subSessionID || !ownerSessionID || loadedChildSessions.has(subSessionID)) return
 
     loadedChildSessions.add(subSessionID)
     try {
       await sync.session.sync(subSessionID)
+      if (params.id !== ownerSessionID) {
+        loadedChildSessions.delete(subSessionID)
+        return
+      }
       setChildSessionIDs((prev) => {
         const next = new Set(prev)
         next.add(subSessionID)
@@ -963,20 +979,25 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   const discoverChildSessions = async (sid: string) => {
-    if (!sdk.directory) return
+    if (!sdk.directory || params.id !== sid) return
     try {
       const res = await sdk.client.session.list({ directory: sdk.directory })
+      if (params.id !== sid) return
       const children = (res.data ?? []).filter((s: any) => s.parentID === sid && !s.time?.archived)
       const discovered = new Set<string>()
       const discoveredPlans = new Set<string>()
       for (const child of children) {
+        if (params.id !== sid) return
         await sync.session.sync(child.id)
         if (params.id !== sid) return
         discovered.add(child.id)
         if (child.agent === "octo_make_plan") discoveredPlans.add(child.id)
       }
-      setChildSessionIDs(discovered)
-      setPlanChildSessionIDs(discoveredPlans)
+      if (params.id !== sid) return
+      if (discovered.size > 0) {
+        setChildSessionIDs((prev) => new Set([...prev, ...discovered]))
+        setPlanChildSessionIDs((prev) => new Set([...prev, ...discoveredPlans]))
+      }
     } catch {
       // 静默失败
     }
@@ -1038,29 +1059,11 @@ const sessionMessagesLoaded = createMemo(() => {
     return sync.data.session_status[id] ?? { type: "idle" }
   })
 
-  const isBusy = createMemo(() => {
-    if (sessionStatus().type !== "idle") return true
-    const id = params.id
-    if (!id) return false
-
-    const rootMessages = (sync.data.message?.[id] ?? []) as Message[]
-    const lastRootAssistant = rootMessages.findLast((message) => message.role === "assistant")
-    if (lastRootAssistant && typeof lastRootAssistant.time.completed !== "number") return true
-
-    for (const childID of childSessionIDs()) {
-      const childMessages = (sync.data.message?.[childID] ?? []) as Message[]
-      const lastChildAssistant = childMessages.findLast((message) => message.role === "assistant")
-      if (lastChildAssistant && typeof lastChildAssistant.time.completed !== "number") return true
-      if (childMessages.some((message) => message.role === "user") && !lastChildAssistant) return true
-    }
-    return false
-  })
+  const isBusy = createMemo(() => sessionStatus().type !== "idle")
 
   const childBusy = createMemo(() => {
-    for (const childID of childSessionIDs()) {
-      if (sync.data.session_status[childID]?.type === "busy") return true
-    }
-    return false
+    const planSid = activePlanForCurrentSession()
+    return !!planSid && sync.data.session_status[planSid]?.type === "busy"
   })
 
   const effectiveBusy = createMemo(() => isBusy() || childBusy())
@@ -1535,8 +1538,7 @@ const sessionMessagesLoaded = createMemo(() => {
   // 只在活跃的 plan 模式下回退到主 session 扫描，
   // 避免主 session 中 agent 输出的 design-plan artifact 被重复捕获。
   const planCard = createMemo(() => {
-    // 优先从活跃的子 session 扫描
-    const activePlanSid = activePlanSessionId()
+    const activePlanSid = activePlanForCurrentSession()
     if (activePlanSid) {
       const card = scanDesignPlanFromMessages(sync.data.message?.[activePlanSid], sync.data.part, activePlanSid)
       if (card) return card
@@ -1560,7 +1562,7 @@ const sessionMessagesLoaded = createMemo(() => {
     const ident = planCard()?.artifactIdentifier
     if (!ident) return false
     // 从 planCard 对应的 session 检测确认状态
-    const planSid = planCard()?.id?.split(":")[1] || activePlanSessionId() || params.id
+    const planSid = planCard()?.id?.split(":")[1] || activePlanForCurrentSession() || params.id
     if (!planSid) return false
     return isPlanConfirmed(sync.data.message?.[planSid], sync.data.part, ident)
   })
@@ -1622,7 +1624,7 @@ const sessionMessagesLoaded = createMemo(() => {
   // 注意：不检测 [strategy-complete]（handleGenerateStrategy 已同步设置 phase，不需要自动检测）
   createEffect(on(
     () => {
-      const planSid = activePlanSessionId()
+      const planSid = activePlanForCurrentSession()
       if (!planSid) return null
       // 如果用户手动切换了 phase，不自动切换
       if (userChangedPhase()) return null
@@ -1649,7 +1651,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 用户点击 [策略生成] → 把表单数据发给子 agent，切换到第二阶段 */
   function handleGenerateStrategy() {
-    const planSid = activePlanSessionId()
+    const planSid = activePlanForCurrentSession()
     const key = activeModelKey()
     if (!planSid || !key) return
     setIsGenerating(true)  // 立即禁用按钮
@@ -1666,7 +1668,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 用户点击 [上一步] / [返回策略准备] → 返回策略准备阶段 */
   function handleBackToStrategy() {
-    const planSid = activePlanSessionId()
+    const planSid = activePlanForCurrentSession()
     const key = activeModelKey()
     setUserChangedPhase(true)  // 标记用户手动切换
     setPlanPhase("strategy")
@@ -1679,7 +1681,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 用户点击 [确认开始生成] → 向主 session 发送确认指令，通知主 agent 设计规划已完成，开始生成 HTML */
   async function handleConfirmPlan(identifier?: string) {
-    const planSid = activePlanSessionId()
+    const planSid = activePlanForCurrentSession()
     const modelKey = activeModelKey()
     const mainSid = params.id
     if (!planSid || !modelKey || !mainSid) return
@@ -1754,7 +1756,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 用户点击 [结束子agent] → 中止子 agent 运行 + 退出 plan 模式，保留子 session 的对话数据 */
   function handleEndPlan() {
-    const currentChildId = activePlanSessionId()
+    const currentChildId = activePlanForCurrentSession()
     if (currentChildId) {
       // 中止子 session 正在运行的 agent
       sdk.client.session.abort({ sessionID: currentChildId }).catch(() => {})
@@ -2126,14 +2128,14 @@ const sessionMessagesLoaded = createMemo(() => {
     // 监控子 session 状态：子 agent 空闲但无有效 plan 时复位 isGenerating（弱模型格式异常兜底）
   createEffect(on(
     () => {
-      const planSid = activePlanSessionId()
+      const planSid = activePlanForCurrentSession()
       return planSid ? sync.data.session_status[planSid]?.type : null
     },
     (statusType) => {
       if (statusType === "idle" && isGenerating()) {
         // 子 agent 空闲了但 isGenerating 仍为 true，说明模型未输出有效 design-plan
         // 检查是否确实没有 planCard
-        const planSid = activePlanSessionId()
+        const planSid = activePlanForCurrentSession()
         if (!planSid) return
         const card = scanDesignPlanFromMessages(sync.data.message?.[planSid], sync.data.part, planSid)
         if (!card) {
@@ -2753,7 +2755,7 @@ if (dsId) {
 
   /** 终止当前生成 */
   async function halt() {
-    const childId = activePlanSessionId()
+    const childId = activePlanForCurrentSession()
     if (childId && childBusy()) {
       tracker.interaction({ module: "design", name: "stop-generation" })
       await sdk.client.session.abort({ sessionID: childId }).catch(() => {})
@@ -3746,7 +3748,7 @@ if (dsId) {
       })
   }
 
-  const inputDisabled = () => !activeModelKey() || !!questionRequest() || !!permissionRequest()
+  const inputDisabled = () => sending() || effectiveBusy() || !activeModelKey() || !!questionRequest() || !!permissionRequest()
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
@@ -4066,7 +4068,7 @@ onPreview={(url) => {
                           onUpdateMentionPath={handleAddonUpdateMentionPath}
                           productId={projectSelection()?.product?.id}
                           onEnterDesignStrategy={handleOpenPlanConfirm}
-                          planActive={params.id ? activePlanSessionId() !== null : planComposerActive()}
+                          planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
                           onOpen={loadSkillConfig}
                           disabled={maxAttachments()}
                         />
@@ -4376,7 +4378,7 @@ onPreview={(url) => {
                         onUpdateMentionPath={handleAddonUpdateMentionPath}
                         productId={projectSelection()?.product?.id}
                         onEnterDesignStrategy={handleOpenPlanConfirm}
-                        planActive={params.id ? activePlanSessionId() !== null : planComposerActive()}
+                        planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
                         onOpen={loadSkillConfig}
                         disabled={maxAttachments()}
                       />
@@ -4533,10 +4535,10 @@ onPreview={(url) => {
                 isGenerating={isGenerating()}
                 planConfirmPending={planConfirmPending()}
                 childPlanConfirmed={childPlanConfirmed()}
-                childSessionStatus={sync.data.session_status[activePlanSessionId() ?? ""]}
+                childSessionStatus={sync.data.session_status[activePlanForCurrentSession() ?? ""]}
                 childBusy={childBusy()}
                 planEnded={planEnded()}
-                planActive={params.id ? activePlanSessionId() !== null : planComposerActive()}
+                planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
               />
             </div>
             <Show when={showVersionPanel()}>
