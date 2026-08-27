@@ -4,7 +4,8 @@ import { Icon } from "@opencode-ai/ui/icon"
 import type { PanelSkill, SkillConfigEntry } from "../skill-config-types"
 import { lookupDisplayName } from "../skill-config-types"
 import type { ArtifactFile } from "../../utils/artifact-file-api"
-import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon, ProductAssetIcon } from "./icons"
+import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "./icons"
+import { ProductAssetIcon } from "../addon-menu/icons"
 import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
 import {
@@ -703,9 +704,9 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                   left: levelIndex() === 0 ? undefined : `${levelIndex() * 252}px`,
                   top: levelIndex() === 0 ? undefined : 0,
                   width: levelIndex() === 0 ? undefined : '248px',
-                  maxHeight: levelIndex() === 0 ? undefined : '420px',
-                  overflowY: levelIndex() === 0 ? undefined : 'auto',
-                  overflowX: levelIndex() === 0 ? undefined : 'hidden',
+                  'max-height': levelIndex() === 0 ? undefined : '420px',
+                  'overflow-y': levelIndex() === 0 ? undefined : 'auto',
+                  'overflow-x': levelIndex() === 0 ? undefined : 'hidden',
                 }}
               >
                 {/* 子文件夹列表 */}
@@ -854,7 +855,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
             <div class="mention-download-header">
               <span class="mention-download-title">从产品资产库接收</span>
               <button type="button" class="mention-download-close" onClick={cancelAssetDownload}>
-                <Icon name="x" size="small" />
+                <Icon name="close" size="small" />
               </button>
             </div>
             <div class="mention-download-body">
