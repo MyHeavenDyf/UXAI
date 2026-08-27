@@ -1,6 +1,6 @@
-# StackedBar | 状态分布堆叠条形图
+# StackedBar | 状态分布堆叠条形图 示例
 
-### Example: Basic Stacked Bar
+## Example: Basic Stacked Bar
 - 四个状态数值，自动计算比例渲染
 
 ```json
@@ -16,7 +16,7 @@
 }
 ```
 
-### Example: With DataBinding
+## Example: With DataBinding
 - 绑定 state 中的动态数据
 
 ```json

@@ -1,6 +1,6 @@
-# Popover | 气泡卡片
+# Popover | 气泡卡片 示例
 
-### Example: Popover basic
+## Example: Popover basic
 
 ```json
 {
@@ -24,7 +24,7 @@
 }
 ```
 
-### Example: Popover with trigger and placement
+## Example: Popover with trigger and placement
 
 ```json
 {

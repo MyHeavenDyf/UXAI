@@ -3,7 +3,7 @@
   - **Navigation:** `Tabs`(页签), `TabItem`(页签项), `Steps`(步骤条), `StepItem`(步骤项), `Breadcrumb`(面包屑), `Dropdown`(下拉菜单), `Popover`(气泡卡片), `Menu`(菜单), `Pagination`(分页器)
   - **DataEntry:** `Checkbox`(复选框), `CheckboxGroup`(复选框组), `RadioGroup`(单选框组), `Select`(选择器), `Slider`(滑动条), `Switch`(开关), `Input`(输入框), `InputNumber`(计数器), `TextArea`(文本域), `TimePicker`(时间选择器), `DatePicker`(日期选择器), `Rate`(评分)
   - **DataDisplay:** `Tag`(标签), `Table`(表格), `TableRow`(表格行), `Collapse`(折叠面板), `CollapseItem`(折叠面板项), `Timeline`(时间轴), `TimelineItem`(时间轴项), `Divider`(分割线), `Badge`(徽标), `Carousel`(走马灯), `Segmented`(分段器), `Tree`(结构树)
-  - **Response:** `Progress`(进度条)
+  - **Feedback:** `Progress`(进度条), `Modal`(模态弹窗), `Drawer`(抽屉)
   - **Chart:**
     `LineChart`(折线图：Show trends over time),
     `BarChart`(条形图：Compare discrete categories),

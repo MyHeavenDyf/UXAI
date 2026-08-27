@@ -1,8 +1,8 @@
-# HillChart | 山峰图
+# HillChart | 山峰图 示例
 
 The chart already includes a legend and does not require an additional one.
 
-### Example: Basic Hill Chart
+## Example: Basic Hill Chart
 - Data is an array of objects representing hill/area distribution
 
 ```json
@@ -22,5 +22,5 @@ The chart already includes a legend and does not require an additional one.
 }
 ```
 
-### Optional Props (add to `option`)
+## Optional Props (add to `option`)
 - `"color": ["#2070F3", "#63b430", "#715afb"]` — custom hill colors

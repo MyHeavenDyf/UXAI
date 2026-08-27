@@ -1,6 +1,6 @@
-# Table
+# Table 示例
 
-### Table Example: Multi-Column Rendering
+## Table Example: Multi-Column Rendering
 
 ```json
 {
@@ -75,7 +75,7 @@
 }
 ```
 
-### Table Example: Selection with Multi-Column
+## Table Example: Selection with Multi-Column
 
 ```json
 {
@@ -145,7 +145,7 @@
 }
 ```
 
-### Table Example: Expandable Row with Sub-Table
+## Table Example: Expandable Row with Sub-Table
 
 ```json
 {

@@ -1,6 +1,6 @@
-# GaugeChart | 仪表盘
+# GaugeChart | 仪表盘 示例
 
-### Example: Basic Gauge Chart
+## Example: Basic Gauge Chart
 - Use `data` prop with `value` and `name` fields
 
 ```json
@@ -16,7 +16,7 @@
 }
 ```
 
-### Optional Props (add to `option`)
+## Optional Props (add to `option`)
 - `"color": ["#2070F3"]` — custom gauge color
 - `"pointer": true` — show gauge pointer needle
 - `"min": 0, "max": 100, "splitNumber": 4` — custom range and divisions

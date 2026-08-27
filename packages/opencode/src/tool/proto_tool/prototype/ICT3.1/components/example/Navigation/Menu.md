@@ -1,6 +1,6 @@
-# Menu
+# Menu 示例
 
-### Example: Menu with data binding items
+## Example: Menu with data binding items
 
 ```json
 {
@@ -56,7 +56,7 @@
 ```
 
 
-### Example: Menu horizontal static
+## Example: Menu horizontal static
 
 ```json
 {

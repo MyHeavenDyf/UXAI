@@ -1,5 +1,5 @@
 {
-	"name": "RadioGroup",
+	"name": "Progress",
 	"type": "object",
 	"$defs": {
 		"DataBinding":{
@@ -22,45 +22,41 @@
 		},
 		"component": {
 			"type": "string",
-			"const": "RadioGroup"
+			"const": "Progress"
 		},
 		"props": {
 			"type": "object",
 			"properties": {
-				"value": {
+				"percent": {
 					"oneOf": [{
-							"type": "string"
+							"type": "number"
 						},
 						{
 							"$ref": "#/$defs/DataBinding"
 						}
 					],
-					"description": "Used to set the selected value."
+					"description": "percentage"
 				},
-				"options": {
-					"oneOf": [{
-							"type": "array"
-						},
-						{
-							"$ref": "#/$defs/DataBinding"
-						}
-					],
-					"description": "Semantic radio options."
+				"showInfo": {
+					"type": "boolean"
 				},
-				"orientation": {
+				"status": {
 					"type": "string",
-					"enum": ["horizontal", "vertical"]
+					"enum": ["success", "exception", "normal", "active"]
+				},
+				"strokeColor": {
+					"type": "string"
+				},
+				"size": {
+					"type": "string",
+					"enum": ["medium", "small"]
 				},
 				"className": {
 					"type": "string",
 					"description": "Tailwind CSS classes for the component."
-				},
-				"size": {
-					"type": "string",
-					"enum": ["large", "medium", "small"]
 				}
 			},
-			"required": ["value", "options"]
+			"required": ["percent"]
 		}
 	},
 	"required": ["id", "component", "props"]
