@@ -3796,13 +3796,16 @@ if (dsId) {
                           setSlashIndex(0)
                         }}
                         onSlashClose={() => setSlashState(null)}
-                       onPreview={(url) => {
-                         handleOpenLocalFile(url)
-                         proseMirrorRef1?.clear()
-                         proseMirrorRef2?.clear()
-                       }}
-                       ref={(el) => { proseMirrorRef1 = el }}
-                     />
+onPreview={(url) => {
+                          handleOpenLocalFile(url)
+                          proseMirrorRef1?.clear()
+                          proseMirrorRef2?.clear()
+                        }}
+                        ref={(el) => { proseMirrorRef1 = el }}
+                        productId={projectSelection()?.product?.id}
+                        onDownloadProductAsset={downloadProductAsset}
+                        onUpdateMentionPath={handleAddonUpdateMentionPath}
+                      />
                     </div>
                     <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
@@ -4117,13 +4120,16 @@ if (dsId) {
                          setSlashIndex(0)
                        }}
                        onSlashClose={() => setSlashState(null)}
-                      onPreview={(url) => {
-                        handleOpenLocalFile(url)
-                        proseMirrorRef1?.clear()
-                        proseMirrorRef2?.clear()
-                      }}
-                      ref={(el) => { proseMirrorRef2 = el }}
-                   />
+onPreview={(url) => {
+                         handleOpenLocalFile(url)
+                         proseMirrorRef1?.clear()
+                         proseMirrorRef2?.clear()
+                       }}
+                       ref={(el) => { proseMirrorRef2 = el }}
+                       productId={projectSelection()?.product?.id}
+                       onDownloadProductAsset={downloadProductAsset}
+                       onUpdateMentionPath={handleAddonUpdateMentionPath}
+                    />
                   <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
                          <span class="hidden">
