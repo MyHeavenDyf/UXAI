@@ -239,6 +239,7 @@
 .addon-menu-asset-preview {
   position: absolute;
   left: 0;
+  bottom: 0;
   width: 256px;
   height: 330px;
   padding: 8px;
