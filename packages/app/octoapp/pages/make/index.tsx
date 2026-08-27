@@ -2132,13 +2132,45 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
   async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
     try {
+      // For file chips whose path is in tmps (new-conversation pending downloads), rename the
+      // local file into the session's uploads directory and update the chip path before processing.
+      const selections = mentions ?? []
+      const baseDir = projectDir()
+      const api = getDesktopApi()
+      if (baseDir && api?.renameFile && api?.fileExists && sessionId) {
+        const sep = baseDir.includes("\\") ? "\\" : "/"
+        const tmpsMarker = [".octo", "tmps", "make", "uploads"].join(sep)
+        const uploadsDir = [baseDir, ".octo", sessionId, "uploads"].join(sep)
+        for (const sel of selections) {
+          if (sel.type !== "file") continue
+          const p = sel.path
+          if (!p || !p.includes(tmpsMarker)) continue
+          try {
+            // Resolve unique filename in session uploads dir (handle collisions)
+            const filename = p.split(sep).pop() || sel.name
+            let candidate = filename
+            let i = 1
+            const dot = filename.lastIndexOf(".")
+            const base = dot > 0 ? filename.slice(0, dot) : filename
+            const ext = dot > 0 ? filename.slice(dot) : ""
+            while (await api.fileExists!([uploadsDir, candidate].join(sep))) {
+              candidate = `${base} (${i})${ext}`
+              i++
+            }
+            const newPath = [uploadsDir, candidate].join(sep)
+            await api.renameFile!(p, newPath)
+            const ref = proseMirrorRef1 ?? proseMirrorRef2
+            ref?.updateMentionPath?.(sel.name, newPath)
+            sel.path = newPath
+          } catch (err) {
+            console.warn("[octo:make] upload-move failed, keep tmps path", { name: sel.name, path: p, err })
+          }
+        }
+      }
+
       // Process mention selections: replace chip text with model format
       let processedText = text
       let displayText = text
-      const selections = mentions ?? []
-      
-      console.log("[sendMessage] mentions:", mentions)
-      console.log("[sendMessage] skillToolCalls:", skillToolCalls())
 
       for (const sel of selections) {
         if (sel.type === 'skill') {
