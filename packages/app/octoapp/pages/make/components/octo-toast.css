@@ -13,6 +13,7 @@
   background: #ffffff;
   display: flex;
   flex-direction: column;
+  gap: 16px;
   overflow: hidden;
   pointer-events: auto;
 }
@@ -97,6 +98,10 @@
   margin-top: 16px;
   border-radius: 8px;
 }
+.octo-toast-item:first-child {
+  margin-top: 0;
+}
+
 .octo-toast-item[data-variant="default"] {
   background: #EEF3FE;
 }
@@ -105,6 +110,17 @@
 }
 .octo-toast-item[data-variant="warn"] {
   background: #FEFCE0;
+}
+
+.octo-toast-item.octo-toast-solo {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1000;
+  width: 468px;
+  margin-top: 0;
+  background: #ffffff;
+  box-shadow: 0px 16px 48px 0px rgba(0, 0, 0, 0.16);
 }
 
 .octo-toast-item > svg {

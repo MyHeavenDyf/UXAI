@@ -9,8 +9,8 @@ import type { ArtifactFile } from "../../utils/artifact-file-api"
 import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "../mention-popover/icons"
 import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
-import { DesignStrategyIcon, LinkUrlIcon, AttachmentIcon, ProductAssetIcon } from "./icons"
-import { fetchTeamTree, fetchAssetFiles, encodeAssetUrl, joinUrl, type AssetFolder, type AssetFile, type AssetNode } from "./asset-library"
+import { DesignStrategyIcon, LinkUrlIcon, AttachmentIcon, ProductAssetIcon, FolderIcon, SkillsIcon, AssetsIcon, DesignFilesIcon } from "./icons"
+import { fetchTeamTree, fetchAssetFiles, encodeAssetUrl, joinUrl, inferKindFromUrl, type AssetFolder, type AssetFile, type AssetNode } from "./asset-library"
 import type { MentionSelection } from "../mention-popover"
 import "./styles.css"
 
@@ -53,9 +53,10 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   let assetDownloadAbortController: AbortController | undefined
   const [assetPreview, setAssetPreview] = createSignal<AssetFile | null>(null)
   const [assetPreviewLevel, setAssetPreviewLevel] = createSignal<number | null>(null)
-  // Bottom offset (px) of the hovered item relative to the secondary panel's bottom edge.
-  // Preview popup's bottom aligns to this.
+  // Position of the preview popup relative to secondary panel; computed on hover with viewport collision.
+  const [assetPreviewLeft, setAssetPreviewLeft] = createSignal<number>(0)
   const [assetPreviewBottom, setAssetPreviewBottom] = createSignal<number | null>(null)
+  const [assetPreviewTop, setAssetPreviewTop] = createSignal<number | null>(null)
   let assetPreviewEl: HTMLDivElement | undefined
   let assetPreviewTimer: ReturnType<typeof setTimeout> | undefined
   const [menuPosition, setMenuPosition] = createSignal<{ left: number; bottom: number } | null>(null)
@@ -283,24 +284,51 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     tertiaryEl.style.bottom = `${containerRect.bottom - itemRect.bottom}px`
   })
 
-  // 产品资源库:每个后续 level(index>0)的 bottom 对齐到上一 level 中选中文件夹项的底边
+  // 产品资源库:每个后续 level(index>0)定位
+  // 逐级判断:level N 默认在前一级 N-1 右侧;若右边缘溢出视口,该 level 翻到前一级左侧。
+  // 每个 level 独立判断,不强制全局方向一致。
   createEffect(() => {
     if (!open() || activeSecondary() !== 'assets' || !assetSecondaryRef) return
     const stack = assetStack()
     if (stack.length <= 1) return
     const containerRect = assetSecondaryRef.getBoundingClientRect()
-    // Each level is a direct child div of assetSecondaryRef (root is .addon-menu-asset-root, others .addon-menu-secondary)
     const levelEls = assetSecondaryRef.querySelectorAll(':scope > div')
+    let prevRightEdge = containerRect.right // x-coordinate of previous level's right edge
+    let prevLeftEdge = containerRect.left // x-coordinate of previous level's left edge (for flip reference)
     for (let i = 1; i < stack.length; i++) {
       const prevLevelEl = levelEls[i - 1] as HTMLElement | null
       const curLevelEl = levelEls[i] as HTMLElement | null
       if (!prevLevelEl || !curLevelEl) continue
-      // Find the active folder item in the previous level
       const activeItem = prevLevelEl.querySelector('.addon-menu-item--active') as HTMLElement | null
       if (!activeItem) continue
       const itemRect = activeItem.getBoundingClientRect()
       const bottomOffset = containerRect.bottom - itemRect.bottom
-      curLevelEl.style.bottom = `${bottomOffset}px`
+      // Vertical: default bottom-align (panel bottom = item bottom).
+      // Panel top y in viewport = itemRect.bottom - 420. If that overflows top (< 8), use top-align instead.
+      const panelMaxHeight = 420
+      const panelTopIfBottom = itemRect.bottom - panelMaxHeight
+      if (panelTopIfBottom < 8) {
+        // Overflow top → align panel top to item top
+        curLevelEl.style.top = `${itemRect.top - containerRect.top}px`
+        curLevelEl.style.bottom = 'auto'
+      } else {
+        curLevelEl.style.bottom = `${bottomOffset}px`
+        curLevelEl.style.top = 'auto'
+      }
+      // Horizontal: prefer right of prev level; if overflows viewport, flip to left
+      const rightPos = prevRightEdge + 4 // left edge of current if placed to the right
+      const rightEdgeIfRight = rightPos + 200
+      if (rightEdgeIfRight > window.innerWidth - 16) {
+        // Flip to left of prev level
+        const leftPos = prevLeftEdge - 4 - 200 // right edge = prevLeftEdge - 4
+        curLevelEl.style.left = `${leftPos - containerRect.left}px`
+        prevLeftEdge = leftPos // next level's left reference
+        prevRightEdge = leftPos + 200 // next level's right reference
+      } else {
+        curLevelEl.style.left = `${rightPos - containerRect.left}px`
+        prevLeftEdge = rightPos
+        prevRightEdge = rightPos + 200
+      }
     }
   })
 
@@ -431,7 +459,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                 }
               }}
             >
-              <span class="addon-menu-item-icon"><PlatformSkillIcon /></span>
+              <span class="addon-menu-item-icon"><SkillsIcon /></span>
               <span class="addon-menu-item-text">技能库</span>
               <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
             </button>
@@ -459,8 +487,8 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                 }
               }}
             >
-              <span class="addon-menu-item-icon"><ProductAssetIcon /></span>
-              <span class="addon-menu-item-text">产品资源库</span>
+              <span class="addon-menu-item-icon"><AssetsIcon /></span>
+              <span class="addon-menu-item-text">产品资产库</span>
               <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
             </button>
 
@@ -476,7 +504,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                 }
               }}
             >
-              <span class="addon-menu-item-icon"><DesignAssetIcon /></span>
+              <span class="addon-menu-item-icon"><DesignFilesIcon /></span>
               <span class="addon-menu-item-text">设计文件</span>
               <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
             </button>
@@ -495,8 +523,8 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               <span class="addon-menu-item-text">进入设计策略模式</span>
             </button>
 
-            {/* 接收设计资产链接URL */}
-            <button
+            {/* 接收设计资产链接URL — 暂时隐藏 */}
+            {/* <button
               type="button"
               class="addon-menu-item"
               onClick={() => {
@@ -506,7 +534,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
             >
               <span class="addon-menu-item-icon"><LinkUrlIcon /></span>
               <span class="addon-menu-item-text">接收设计资产链接URL</span>
-            </button>
+            </button> */}
 
             {/* 添加附件 */}
             <button
@@ -683,7 +711,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                               }
                             }}
                           >
-                            <span class="addon-menu-item-icon"><ProductAssetIcon /></span>
+                            <span class="addon-menu-item-icon"><FolderIcon /></span>
                             <span class="addon-menu-item-text">{folder.name}</span>
                             <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
                           </button>
@@ -704,7 +732,36 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                                 const containerRect = assetSecondaryRef!.getBoundingClientRect()
                                 setAssetPreview(file)
                                 setAssetPreviewLevel(index())
-                                setAssetPreviewBottom(containerRect.bottom - itemRect.bottom)
+                                const previewWidth = 256
+                                // Preview goes to the right of the hovered item's level panel.
+                                // itemRect.right is inside the level (level has 8px padding), so add padding + gap.
+                                const defaultLeft = itemRect.right - containerRect.left + 12
+                                const rightEdge = containerRect.left + defaultLeft + previewWidth
+                                let left: number
+                                if (rightEdge > window.innerWidth - 16) {
+                                  // Overflow right → place to the left of the item's level panel
+                                  left = itemRect.left - containerRect.left - previewWidth - 12
+                                  if (containerRect.left + left < 16) {
+                                    left = 16 - containerRect.left
+                                  }
+                                } else {
+                                  left = defaultLeft
+                                }
+                                setAssetPreviewLeft(left)
+                                // Vertical: default bottom-align (popup bottom = item bottom)
+                                const previewHeight = 330
+                                const bottomOffset = containerRect.bottom - itemRect.bottom
+                                // Popup top edge in viewport coords = containerRect.top + (itemTop - containerTop) - ... actually:
+                                // With bottom: X, popup top = containerRect.bottom - X - previewHeight
+                                const popupTopInViewport = containerRect.bottom - bottomOffset - previewHeight
+                                if (popupTopInViewport < 16) {
+                                  // Overflow top → use top alignment (popup top = item top)
+                                  setAssetPreviewTop(itemRect.top - containerRect.top)
+                                  setAssetPreviewBottom(null)
+                                } else {
+                                  setAssetPreviewBottom(bottomOffset)
+                                  setAssetPreviewTop(null)
+                                }
                               }}
                               onMouseLeave={() => {
                                 // Delay close so the pointer can cross the 4px gap to the preview popup
@@ -720,6 +777,10 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                                   <Icon name="check" size="small" style="color: white" />
                                 </Show>
                               </div>
+                              {(() => {
+                                const FileIcon = getFileIcon(inferKindFromUrl(file.convertHtmlUrl), file.fileName)
+                                return <FileIcon size={20} />
+                              })()}
                               <span class="addon-menu-tertiary-item-text" title={file.fileName}>{file.fileName}</span>
                             </button>
                           )
@@ -734,8 +795,9 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                     ref={assetPreviewEl}
                     class="addon-menu-asset-preview"
                     style={{
-                      left: `${(assetPreviewLevel()! + 1) * 204}px`,
-                      bottom: assetPreviewBottom() !== null ? `${assetPreviewBottom()}px` : '0px',
+                      left: `${assetPreviewLeft()}px`,
+                      bottom: assetPreviewBottom() !== null ? `${assetPreviewBottom()}px` : undefined,
+                      top: assetPreviewTop() !== null ? `${assetPreviewTop()}px` : undefined,
                     }}
                     onMouseEnter={() => {
                       if (assetPreviewTimer) { clearTimeout(assetPreviewTimer); assetPreviewTimer = undefined }
@@ -913,7 +975,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
         </Portal>
       </Show>
 
-      {/* 产品资源库下载弹窗 — 标题"从产品资产库接收", 无进度条, 说明"资源下载中" */}
+      {/* 产品资源库下载弹窗 — 标题"从产品资源库接收", 无进度条, 说明"资源下载中" */}
       <Show when={assetDownloadOpen()}>
         <Portal>
           <div class="addon-menu-url-overlay">

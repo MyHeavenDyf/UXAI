@@ -18,12 +18,12 @@
  * | onClose（Action） | — | 丢弃（onClose 回调由 open 的 useState extractor 生成，closeVal 取自 Action.value，数据驱动） |
  * | placement（right/left/top/bottom） | placement | 同名透传 |
  * | width（number） | width | 同名透传（number 值原样，无默认；与 eview-react 一致） |
- * | mask（boolean，默认 true） | showMask | 改名（A2UI mask → showMask，语义一致） |
+ * | mask（boolean，默认 true） | maskSetting.show | 嵌套对象（`maskSetting: { show?: boolean }`，eview-ui Drawer 专属形态） |
  * | title（字面量 string） | title | 同名透传 |
  * | title（DataBinding） | title | BindingValue 同名透传 |
- * | footer（SlotNode） | — | resolve 后追加到 children（Drawer 无独立 footer slot，内容合并到 body） |
+ * | footer（SlotNode） | footer | resolve 后包 SlotNode 直接赋 prop（eview-ui Drawer 有 `footer: ReactNode | false` prop，不像 eview-react 无独立 footer slot） |
  * | className | className | 透传 |
- * | children（StaticChildren） | children | 透传（body content），如有 footer SlotNode 则追加到 children 数组 |
+ * | children（StaticChildren） | children | 透传（body content）；footer 不再并入 children（直接走 footer prop） |
  * | — | height | 默认 '100%'（仅 right/left/缺省 时加，top/bottom 不加） |
  * | — | showClose | 默认 true（Drawer 默认），不显式设置 |
  * | — | destroyOnClose | 默认 false（Drawer 默认），不显式设置 |
@@ -35,9 +35,12 @@
  *   两种场景皆由 extractor `()=>setter(closeVal)` 关闭：setter 自适应（useSharedState setter / 局部 setter）。
  * - onClose Action 丢弃：onClose 回调由 open 的 useState extractor 自动生成；closeVal 取自 Action.value（数据驱动）。
  *   open.path 与 onClose.path 按协议一致（"typically same path"），extractor 走 open 的 setter 即写正确路径。
- * - footer SlotNode 追加到 children：eview-ui Drawer 没有独立 footer slot，
- *   SlotNode 内含任意 React 内容（如 div 包裹按钮），无法转为结构化 footer，因此追加到 children
- * - mask → showMask 改名：A2UI mask=true（显示遮罩）= showMask=true（显示遮罩）
+ * - footer SlotNode 直接赋 footer prop：eview-ui Drawer 有独立 `footer: ReactNode | false` prop
+ *   （与 eview-react 不同——eview-react 无独立 footer slot，故其副本把 footer 追加到 children）。
+ *   resolve 后包 SlotNode 作 prop 值：emitValue 对 slotNode 走 emitNode、tree-finalizer
+ *   walkSlotNodeProps 路由子树内 LoopNode/binding（见 AGENTS §6.12）。
+ * - mask → maskSetting.show：eview-ui Drawer 的遮罩走嵌套对象 `maskSetting: { show?: boolean }`
+ *   （eview-react 为扁平 `showMask`）。A2UI mask=true（显示遮罩）= maskSetting.show=true。
  * - placement 同名透传：A2UI 与 eview-ui 的枚举值一致（right/left/top/bottom）
  * - **width 纯透传无默认**：A2UI `width`(number) 同名透传（与 eview-react 一致），不产 'auto' 默认。
  * - **height 条件默认**：right/left/缺省 时加 `height='100%'`，top/bottom 不加
@@ -116,9 +119,11 @@ export function createDrawerMapping(pkg: string): MappingDef {
         outputProps.height = '100%'
       }
 
-      // ─── mask → showMask（改名，语义一致） ───
+      // ─── mask → maskSetting.show（嵌套对象，eview-ui Drawer 专属形态） ───
+      // eview-ui Drawer 的遮罩走 `maskSetting: { show?: boolean }`（eview-react 为扁平 showMask）。
+      // A2UI mask=true（显示遮罩）= maskSetting.show=true。
       if ('mask' in props) {
-        outputProps.showMask = props.mask
+        outputProps.maskSetting = { show: props.mask }
       }
 
       // ─── title（同名透传，支持字面量 / DataBinding） ───
@@ -126,13 +131,16 @@ export function createDrawerMapping(pkg: string): MappingDef {
         outputProps.title = props.title
       }
 
-      // ─── footer（SlotNode → 追加到 children） ───
-      // eview-ui Drawer 没有独立 footer slot，
-      // SlotNode 内含任意 React 内容（如 div 包裹按钮），无法转为结构化 footer，
-      // 因此 resolve 后追加到 children 数组。
-      let footerNode: any = null
+      // ─── footer（SlotNode → 直接赋 footer prop） ───
+      // eview-ui Drawer 有独立 `footer: ReactNode | false` prop（与 eview-react 不同——
+      // eview-react 无独立 footer slot、其副本把 footer 追加到 children）。resolve 后包 SlotNode
+      // 作 prop 值：emitValue 对 slotNode 走 emitNode、tree-finalizer walkSlotNodeProps 路由子树
+      // 内 LoopNode/binding（见 AGENTS §6.12）。
       if (props.footer && typeof props.footer === 'object' && props.footer.type === 'slotNode') {
-        footerNode = ctx.resolveNode(props.footer.node)
+        const footerNode = ctx.resolveNode(props.footer.node)
+        if (footerNode) {
+          outputProps.footer = Value.slotNode({ node: footerNode as any })
+        }
       }
 
       // ─── className 透传 ───
@@ -142,21 +150,13 @@ export function createDrawerMapping(pkg: string): MappingDef {
 
       // 不做剩余兜底透传：A2UI Drawer 的 props 已逐项显性处理。
 
-      // ─── children：body + footer 合并 ───
-      // 如果有 footer SlotNode，追加到原始 children 后面
-      const result: any = {
+      // ─── children：纯 body content ───
+      // footer 不再并入 children（直接走 footer prop，eview-ui Drawer 有独立 footer slot）。
+      // 无 footer → 不返回 children，管线使用原始 children（body content）。
+      return {
         props: outputProps,
         propRoute: { visible: 'component-internal' },
       }
-
-      if (footerNode) {
-        // 有 footer → 合并 body children + footer
-        const bodyChildren = node.children || []
-        result.children = [...bodyChildren, footerNode]
-      }
-      // 无 footer → 不返回 children，管线使用原始 children（body content）
-
-      return result
     },
   }
 }

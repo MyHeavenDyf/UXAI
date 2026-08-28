@@ -1346,6 +1346,31 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("pipeline-request", (_event: IpcMainInvokeEvent, url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) =>
     pipelineRequest(url, method, uiplusToken, body, headers))
 
+  ipcMain.handle("get-proxy-config", () => {
+    const configFile = join(getOctoConfigPath(), "proxy_config.json")
+    if (!existsSync(configFile)) return null
+
+    try {
+      const config: unknown = JSON.parse(readFileSync(configFile, "utf-8"))
+      if (!config || typeof config !== "object" || !("http_proxy" in config)) return null
+      if (typeof config.http_proxy !== "string") return null
+
+      const proxyUrl = new URL(config.http_proxy)
+      if (!proxyUrl.username || !proxyUrl.password) return null
+
+      return {
+        account: decodeURIComponent(proxyUrl.username),
+        password: decodeURIComponent(proxyUrl.password),
+      }
+    } catch (error) {
+      log.warn("[get-proxy-config] 读取代理配置失败", {
+        configFile,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return null
+    }
+  })
+
   // Proxy 配置: curl 测试代理连通性, 成功后写入 ~/.config/octo/proxy_config.json 并注入环境变量即时生效
   ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string) => {
     const encodedPwd = encodeURIComponent(password)

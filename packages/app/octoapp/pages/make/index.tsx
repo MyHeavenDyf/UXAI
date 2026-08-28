@@ -4,7 +4,7 @@ import { type MentionSelection } from "./components/mention-popover"
 import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
 import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
-import { OctoToast, showOctoToast } from "./components/octo-toast"
+import { showOctoToast } from "./components/octo-toast"
 import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
@@ -77,7 +77,6 @@ import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2"
 import { usePermission } from "@/context/permission"
 import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
 import { ResultViewer } from "./components/result-viewer/index"
-import { PlanBanner } from "./components/result-viewer/plan-banner"
 import { PlanEntryBanner } from "./components/result-viewer/plan-entry-banner"
 import { createTabStore } from "./components/result-viewer/tab-store"
 import { DesignSystemPicker } from "./components/design-system-picker"
@@ -697,7 +696,9 @@ const sessionMessagesLoaded = createMemo(() => {
       const e = evt.details
       const props = e.properties as Record<string, unknown> | undefined
       const eventSessionID = props?.sessionID as string | undefined
-      if (eventSessionID && eventSessionID !== sid && !childSessionIDs().has(eventSessionID)) return
+      const activePlanID = activePlanSessionId()
+      const isCurrentPlanChild = !!activePlanID && planParentSessionId() === sid && eventSessionID === activePlanID
+      if (eventSessionID && eventSessionID !== sid && !isCurrentPlanChild) return
       
       if (e.type === "message.part.delta") {
         setLastDeltaTime(Date.now())
@@ -803,12 +804,59 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const [childSessionIDs, setChildSessionIDs] = createSignal<Set<string>>(new Set())
+  const [planChildSessionIDs, setPlanChildSessionIDs] = createSignal<Set<string>>(new Set())
   const [deltaLog, setDeltaLog] = createSignal<DeltaLogEntry[]>([])
   const loadedChildSessions = new Set<string>()
   const toolCallMap = new Map<string, string>()
 
   const PLAN_CHILD_LOCALSTORAGE_PREFIX = "octo_make_plan_child:"
   const PLAN_ENDED_LOCALSTORAGE_PREFIX = "octo_make_plan_ended:"
+  const PLAN_SKILL_HANDOFF_LOCALSTORAGE_PREFIX = "octo_make_plan_skill_handoff:"
+
+  type PlanSkillHandoff = {
+    childSessionId: string
+    skills: Array<{ name: string; label: string }>
+  }
+
+  function readPlanSkillHandoff(sessionId: string): PlanSkillHandoff | null {
+    const value = localStorage.getItem(PLAN_SKILL_HANDOFF_LOCALSTORAGE_PREFIX + sessionId)
+    if (!value) return null
+    try {
+      const parsed = JSON.parse(value) as PlanSkillHandoff
+      if (!parsed.childSessionId || !Array.isArray(parsed.skills)) return null
+      return parsed
+    } catch {
+      return null
+    }
+  }
+
+  function savePlanSkillHandoff(sessionId: string, childSessionId: string, skills: Array<{ name: string; label: string }>) {
+    if (skills.length === 0) {
+      clearPlanSkillHandoff(sessionId)
+      return
+    }
+    localStorage.setItem(
+      PLAN_SKILL_HANDOFF_LOCALSTORAGE_PREFIX + sessionId,
+      JSON.stringify({ childSessionId, skills } satisfies PlanSkillHandoff),
+    )
+  }
+
+  function clearPlanSkillHandoff(sessionId: string) {
+    localStorage.removeItem(PLAN_SKILL_HANDOFF_LOCALSTORAGE_PREFIX + sessionId)
+  }
+
+  /** 当前输入框中的设计规划胶囊状态，仅用于初始页待提交意图 */
+  const [planComposerCapsule, setPlanComposerCapsule] = createSignal(false)
+  const planComposerActive = () => !params.id && planComposerCapsule()
+
+  function clearPlanComposerCapsule() {
+    setPlanComposerCapsule(false)
+  }
+
+  function handleCancelPlanComposer() {
+    clearPlanComposerCapsule()
+    setOptimisticIntentResolved(false)
+  }
 
   /** 当前活跃的设计规划子 session ID（存在时表示正在规划阶段） */
   const [activePlanSessionId, setActivePlanSessionId] = createSignal<string | null>(null)
@@ -830,9 +878,14 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 策略表单数据（从子 agent artifact 中扫描 + 用户手动编辑） */
   const [manualStrategyFormData, setManualStrategyFormData] = createSignal<Partial<StrategyFormData>>({})
 
+  const activePlanForCurrentSession = createMemo(() => {
+    const planSid = activePlanSessionId()
+    return params.id && planParentSessionId() === params.id ? planSid : null
+  })
+
   const strategyFormData = createMemo(() => {
     // 优先从活跃的子 session 获取
-    const activePlanSid = activePlanSessionId()
+    const activePlanSid = activePlanForCurrentSession()
     if (activePlanSid) {
       const messages = sync.data.message?.[activePlanSid]
       const parts = sync.data.part
@@ -865,14 +918,37 @@ const sessionMessagesLoaded = createMemo(() => {
    */
   const [hasChildPlanSession, setHasChildPlanSession] = createSignal(false)
   async function detectChildPlanSession(sid: string): Promise<string | null> {
-    if (!sdk.directory) return null
+    if (!sdk.directory || params.id !== sid) return null
     try {
       const res = await sdk.client.session.list({ directory: sdk.directory })
+      if (params.id !== sid) return null
       const sessions = (res.data ?? []).filter((s: any) => !!s?.id)
-      const child = sessions.find((s: any) => s.parentID === sid && s.agent === "octo_make_plan" && !s.time?.archived)
-      if (child) {
+      const children = sessions.filter((s: any) => s.parentID === sid && !s.time?.archived)
+      const planChild = children.find((s: any) => s.agent === "octo_make_plan")
+
+      for (const child of children) {
+        if (params.id !== sid) return null
+        await sync.session.sync(child.id)
+        if (params.id !== sid) return null
+        loadedChildSessions.add(child.id)
+        setChildSessionIDs((prev) => {
+          const next = new Set(prev)
+          next.add(child.id)
+          return next
+        })
+        if (child.agent === "octo_make_plan") {
+          setPlanChildSessionIDs((prev) => {
+            const next = new Set(prev)
+            next.add(child.id)
+            return next
+          })
+        }
+      }
+
+      if (params.id !== sid) return null
+      if (planChild) {
         setHasChildPlanSession(true)
-        return child.id
+        return planChild.id
       }
     } catch {
       // 静默失败
@@ -882,24 +958,57 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 加载子会话数据 */
   async function ensureChildSession(subSessionID: string) {
-    if (!subSessionID || loadedChildSessions.has(subSessionID)) return
-    
-    // 防护：检查主 session 是否仍然有效（属于当前 sync.data）
-    const mainSessionId = params.id
-    if (!mainSessionId) return
-    const hasMainSession = Binary.search(sync.data.session, mainSessionId, (s) => s.id).found
-    if (!hasMainSession) return
-    
+    const ownerSessionID = params.id
+    if (!subSessionID || !ownerSessionID || loadedChildSessions.has(subSessionID)) return
+
     loadedChildSessions.add(subSessionID)
-    setChildSessionIDs((prev) => { const next = new Set(prev); next.add(subSessionID); return next })
-    
-    // 子 session 可能属于不同项目，sync 失败时静默忽略
     try {
       await sync.session.sync(subSessionID)
+      if (params.id !== ownerSessionID) {
+        loadedChildSessions.delete(subSessionID)
+        return
+      }
+      setChildSessionIDs((prev) => {
+        const next = new Set(prev)
+        next.add(subSessionID)
+        return next
+      })
     } catch {
-      // 忽略跨项目 session sync 错误
+      loadedChildSessions.delete(subSessionID)
     }
   }
+
+  const discoverChildSessions = async (sid: string) => {
+    if (!sdk.directory || params.id !== sid) return
+    try {
+      const res = await sdk.client.session.list({ directory: sdk.directory })
+      if (params.id !== sid) return
+      const children = (res.data ?? []).filter((s: any) => s.parentID === sid && !s.time?.archived)
+      const discovered = new Set<string>()
+      const discoveredPlans = new Set<string>()
+      for (const child of children) {
+        if (params.id !== sid) return
+        await sync.session.sync(child.id)
+        if (params.id !== sid) return
+        discovered.add(child.id)
+        if (child.agent === "octo_make_plan") discoveredPlans.add(child.id)
+      }
+      if (params.id !== sid) return
+      if (discovered.size > 0) {
+        setChildSessionIDs((prev) => new Set([...prev, ...discovered]))
+        setPlanChildSessionIDs((prev) => new Set([...prev, ...discoveredPlans]))
+      }
+    } catch {
+      // 静默失败
+    }
+  }
+
+  const sortMessages = (messages: Message[]) => messages.sort((a, b) => {
+    const aTime = (a as any).time?.created ?? 0
+    const bTime = (b as any).time?.created ?? 0
+    if (aTime !== bTime) return aTime - bTime
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+  })
 
   const userMessages = createMemo((): Message[] => {
     const sid = params.id
@@ -909,20 +1018,12 @@ const sessionMessagesLoaded = createMemo(() => {
       return message.role === "user" && parts.length > 0 && !parts.some((part) => part.type === "compaction")
     }
     const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter(visible)
-    const childIds = childSessionIDs()
     const allMsgs: Message[] = [...mainMsgs]
-    for (const childId of childIds) {
+    for (const childId of childSessionIDs()) {
       const childMsgs = ((sync.data.message?.[childId] ?? []) as Message[]).filter(visible)
       allMsgs.push(...childMsgs)
     }
-    // 始终按 time.created 排序(以 id 作 tiebreaker),避免依赖 sync.data.message 底层数组顺序。
-    // 否则在框选编辑等异步发送路径下,新消息可能因 Binary.search 插入位置异常而停留在顶部。
-    return allMsgs.sort((a, b) => {
-      const aTime = (a as any).time?.created ?? 0
-      const bTime = (b as any).time?.created ?? 0
-      if (aTime !== bTime) return aTime - bTime
-      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
-    })
+    return sortMessages(allMsgs)
   })
 
   const lastUserMessage = createMemo(() => userMessages().at(-1))
@@ -970,13 +1071,9 @@ const sessionMessagesLoaded = createMemo(() => {
 
   const isBusy = createMemo(() => sessionStatus().type !== "idle")
 
-  // 子 session 的 busy 状态检测：子 session 生成中时锁定输入框
-  // 同时检测主 session 和子 session 的 busy 状态
   const childBusy = createMemo(() => {
-    const childId = activePlanSessionId()
-    if (!childId) return false
-    const status = sync.data.session_status[childId]
-    return status?.type === "busy"
+    const planSid = activePlanForCurrentSession()
+    return !!planSid && sync.data.session_status[planSid]?.type === "busy"
   })
 
   const effectiveBusy = createMemo(() => isBusy() || childBusy())
@@ -1160,8 +1257,9 @@ const sessionMessagesLoaded = createMemo(() => {
   const [composing, setComposing] = createSignal(false)
   const [sending, setSending] = createSignal(false)
   const hasContent = () => !!(params.id && userMessages().length > 0)
+  const hasSessionView = () => !!params.id
   // During session transition, keep split layout to avoid flash (messages not yet loaded)
-  const gridHasContent = () => hasContent() || !!(params.id && !sessionMessagesLoaded())
+  const gridHasContent = () => hasSessionView() || !!(params.id && !sessionMessagesLoaded())
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const filesById = new Map<string, File>()
   const maxAttachments = () => attachments().length >= 5
@@ -1509,8 +1607,7 @@ const sessionMessagesLoaded = createMemo(() => {
   // 只在活跃的 plan 模式下回退到主 session 扫描，
   // 避免主 session 中 agent 输出的 design-plan artifact 被重复捕获。
   const planCard = createMemo(() => {
-    // 优先从活跃的子 session 扫描
-    const activePlanSid = activePlanSessionId()
+    const activePlanSid = activePlanForCurrentSession()
     if (activePlanSid) {
       const card = scanDesignPlanFromMessages(sync.data.message?.[activePlanSid], sync.data.part, activePlanSid)
       if (card) return card
@@ -1534,7 +1631,7 @@ const sessionMessagesLoaded = createMemo(() => {
     const ident = planCard()?.artifactIdentifier
     if (!ident) return false
     // 从 planCard 对应的 session 检测确认状态
-    const planSid = planCard()?.id?.split(":")[1] || activePlanSessionId() || params.id
+    const planSid = planCard()?.id?.split(":")[1] || activePlanForCurrentSession() || params.id
     if (!planSid) return false
     return isPlanConfirmed(sync.data.message?.[planSid], sync.data.part, ident)
   })
@@ -1596,7 +1693,7 @@ const sessionMessagesLoaded = createMemo(() => {
   // 注意：不检测 [strategy-complete]（handleGenerateStrategy 已同步设置 phase，不需要自动检测）
   createEffect(on(
     () => {
-      const planSid = activePlanSessionId()
+      const planSid = activePlanForCurrentSession()
       if (!planSid) return null
       // 如果用户手动切换了 phase，不自动切换
       if (userChangedPhase()) return null
@@ -1623,7 +1720,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 用户点击 [策略生成] → 把表单数据发给子 agent，切换到第二阶段 */
   function handleGenerateStrategy() {
-    const planSid = activePlanSessionId()
+    const planSid = activePlanForCurrentSession()
     const key = activeModelKey()
     if (!planSid || !key) return
     setIsGenerating(true)  // 立即禁用按钮
@@ -1640,7 +1737,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 用户点击 [上一步] / [返回策略准备] → 返回策略准备阶段 */
   function handleBackToStrategy() {
-    const planSid = activePlanSessionId()
+    const planSid = activePlanForCurrentSession()
     const key = activeModelKey()
     setUserChangedPhase(true)  // 标记用户手动切换
     setPlanPhase("strategy")
@@ -1652,8 +1749,8 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 用户点击 [确认开始生成] → 向主 session 发送确认指令，通知主 agent 设计规划已完成，开始生成 HTML */
-  function handleConfirmPlan(identifier?: string) {
-    const planSid = activePlanSessionId()
+  async function handleConfirmPlan(identifier?: string) {
+    const planSid = activePlanForCurrentSession()
     const modelKey = activeModelKey()
     const mainSid = params.id
     if (!planSid || !modelKey || !mainSid) return
@@ -1668,12 +1765,40 @@ const sessionMessagesLoaded = createMemo(() => {
     const message = planContent
       ? `${cmd}\n\n以下是已确认的设计方案，请基于此方案生成 HTML：\n\n${planContent}`
       : cmd
+    const handoff = readPlanSkillHandoff(mainSid)
 
-    // 向主 session 发送确认指令 + 方案内容：界面只显示 [confirm-plan]，方案内容作为隐藏上下文传给模型
-    _confirmPlanDisplayText = cmd
-    sendMessage(mainSid, message, modelKey).catch((err) => {
+    try {
+      if (handoff && handoff.childSessionId === planSid && handoff.skills.length > 0) {
+        const model = `${modelKey.providerID}/${modelKey.modelID}`
+        const skillPrompt = `${message}\n\n用户选择的 Skill：\n${handoff.skills.map((skill) => `/${skill.name}`).join("\n")}\n\n请执行并应用上述 Skill，同时严格遵循已确认的设计方案。`
+        for (const skill of handoff.skills) {
+          await sdk.client.session.command({
+            sessionID: mainSid,
+            command: skill.name,
+            arguments: skillPrompt,
+            agent: "octo_make",
+            model,
+          })
+        }
+      } else {
+        // 无 Skill 时走普通 prompt；避免确认消息被 command 分支误拆。
+        _confirmPlanDisplayText = cmd
+        await sdk.client.session.prompt({
+          sessionID: mainSid,
+          agent: "octo_make",
+          model: modelKey,
+          parts: [{ type: "text", text: message, metadata: { displayText: cmd } }],
+        })
+      }
+    } catch (err) {
       console.error("[MakePage] confirm plan to main session failed", err)
-    })
+      setOptimisticConfirmed(false)
+      setPlanConfirmPending(false)
+      return
+    }
+
+    clearPlanSkillHandoff(mainSid)
+    clearPlanComposerCapsule()
 
     // 清理子 session 状态，保留子 session 的记录（不清理 childSessionIDs）
     localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + mainSid)
@@ -1700,7 +1825,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 用户点击 [结束子agent] → 中止子 agent 运行 + 退出 plan 模式，保留子 session 的对话数据 */
   function handleEndPlan() {
-    const currentChildId = activePlanSessionId()
+    const currentChildId = activePlanForCurrentSession()
     if (currentChildId) {
       // 中止子 session 正在运行的 agent
       sdk.client.session.abort({ sessionID: currentChildId }).catch(() => {})
@@ -1713,7 +1838,14 @@ const sessionMessagesLoaded = createMemo(() => {
     setResultViewMode("files")
     setPlanPhase("strategy")
     setSending(false)
+    // 提前退出规划时保留 Skill 暂存，只有确认成功后才清理。
+    // 这样重新进入规划时可继续将当前方案与原 Skill 一起交接。
     setPlanEnded(true)
+    const mainSid = params.id
+    if (mainSid) {
+      localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + mainSid, "true")
+    }
+    clearPlanComposerCapsule()
     // 注意：不清除 localStorage 缓存和 _planChildSessionCache，
     // 保留子 session 的引用以便跨重启恢复和消息历史查看
     // end 不关闭规划通道，后续仍可再次触发设计规划
@@ -1721,96 +1853,101 @@ const sessionMessagesLoaded = createMemo(() => {
 
   // ── 设计规划阶段引导 ─────────────────────────────
   // 进入设计规划：用户点击 AddonMenu「进入设计规划」→ 弹出确认弹窗 → 确认后创建子 session
-  //（已移除 agent sentinel → PlanEntryBanner 引导流程）
 
-  // 乐观锁:进入规划后立即置位,防止重复创建子 session。
-  // 避免 sendMessage 飞行期间用户连点重复发送。
+  // 进入规划后立即置位，防止 API 请求期间重复创建子 session。
   const [optimisticIntentResolved, setOptimisticIntentResolved] = createSignal(false)
   // 记录用户已结束该 session 的规划状态,防止下次 AddonMenu 重新进入
   const [planEndedForSession, setPlanEndedForSession] = createSignal<string | null>(null)
-  // 控制确认弹窗是否显示（内联渲染在输入框上方）
+  // 控制已有 session 的确认弹窗是否显示
   const [showPlanConfirm, setShowPlanConfirm] = createSignal(false)
   createEffect(on(() => params.id, () => {
     setOptimisticIntentResolved(false)
+    if (params.id) clearPlanComposerCapsule()
   }, { defer: true }))
 
-  /** AddonMenu「进入设计规划」→ 弹出确认弹窗，用户确认后才真正进入 */
+  /** AddonMenu「进入设计规划」→ 初始页显示胶囊，已有 session 显示确认弹窗 */
   function handleOpenPlanConfirm() {
-    if (activePlanSessionId()) return  // 已在规划中，按钮已禁用，双保险
+    if (!activeModelKey()) return
+    if (!params.id) {
+      if (planComposerActive()) return
+      setPlanComposerCapsule(true)
+      return
+    }
+    if (activePlanSessionId() || optimisticIntentResolved()) return
     setShowPlanConfirm(true)
   }
 
-  /** 用户点 [进入] → 创建子 session (octo_make_plan),启动设计规划流程 */
+  /** 用户确认进入规划 → 创建已有主 session 的规划子 session */
   async function handleEnterPlan() {
     const sid = params.id
     const modelKey = activeModelKey()
     if (!sid || !modelKey) return
     if (optimisticIntentResolved()) return
+
+    const editor = proseMirrorRef1?.isAlive() ? proseMirrorRef1 : proseMirrorRef2?.isAlive() ? proseMirrorRef2 : undefined
+    const skills = editor?.getMentions?.().filter((mention) => mention.type === "skill") ?? []
+    const composerText = editor?.getText?.() ?? ""
+
     setOptimisticIntentResolved(true)
     setPlanEnded(false)
-    if (sid) localStorage.removeItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid)
+    localStorage.removeItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid)
 
     try {
       const dir = sdk.directory
       if (!dir) throw new Error("No directory")
 
-      // 1. 获取用户最近的输入作为初始 prompt
       const userMsgs = userMessages()
       const lastUserMsg = userMsgs[userMsgs.length - 1]
       const rawText = lastUserMsg
-        ? (sync.data.part[lastUserMsg.id] ?? [])
-            .filter((p: any) => p.type === "text")
-            .map((p: any) => p.text)
-            .join("\n")
-        : ""
-      // 去掉[Artifact Folder]等系统注入前缀:取最后一个"---\n"之后的内容
+        ? (sync.data.part[lastUserMsg.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
+        : composerText
       const userInput = rawText.replace(/^[\s\S]*?---\n/, "").trim()
       const initialPrompt = userInput
         ? `请分析以下用户需求，提取有用信息填写到策略表单字段中：\n\n${userInput}`
         : "请分析当前会话上下文，提取有用信息填写到策略表单字段中。"
 
-      // 2. 创建子 session
-      const result = await sdk.client.session.create({
-        directory: dir,
-        parentID: sid,
-        agent: "octo_make_plan",
-      })
+      const result = await sdk.client.session.create({ directory: dir, parentID: sid, agent: "octo_make_plan" })
       const childSession = result.data as Session | undefined
       if (!childSession) throw new Error("Failed to create plan session")
 
-      // 3. 注册子 session
-      loadedChildSessions.add(childSession.id)
-      setChildSessionIDs((prev) => { const next = new Set(prev); next.add(childSession.id); return next })
+      await sync.session.sync(childSession.id)
+      setChildSessionIDs((prev) => {
+        const next = new Set(prev)
+        next.add(childSession.id)
+        return next
+      })
+      setPlanChildSessionIDs((prev) => {
+        const next = new Set(prev)
+        next.add(childSession.id)
+        return next
+      })
       setActivePlanSessionId(childSession.id)
       localStorage.setItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + sid, childSession.id)
       _planChildSessionCache[sid] = childSession.id
       setPlanParentSessionId(sid)
+      savePlanSkillHandoff(sid, childSession.id, skills.map((skill) => ({ name: skill.name, label: skill.label })))
 
-      // 4. 切换到 plan 模式
       setResultViewMode("plan")
       setPlanPhase("strategy")
       setUserChangedPhase(false)
       setManualStrategyFormData({})
-
-      // 5. 同步子 session 数据并发送 prompt
-      sync.session.sync(childSession.id).catch((err: any) => {
-        console.warn("[MakePage] sync child session failed", err)
+      sync.session.sync(childSession.id).catch((err: any) => console.warn("[MakePage] sync child session failed", err))
+      sdk.client.session.prompt({
+        sessionID: childSession.id,
+        agent: "octo_make_plan",
+        model: modelKey,
+        parts: [{ type: "text", text: initialPrompt }],
+      }).catch((err: any) => {
+        console.error("[MakePage] prompt child agent failed", err)
+        setOptimisticIntentResolved(false)
       })
-
-      if (modelKey) {
-        sdk.client.session.prompt({
-          sessionID: childSession.id,
-          agent: "octo_make_plan",
-          model: modelKey,
-          parts: [{ type: "text", text: initialPrompt }],
-        }).catch((err: any) => {
-          console.error("[MakePage] prompt child agent failed", err)
-          setOptimisticIntentResolved(false)
-        })
-      }
     } catch (err) {
       console.error("[MakePage] enter plan failed", err)
       setOptimisticIntentResolved(false)
+      setActivePlanSessionId(null)
+      setPlanParentSessionId(null)
+      setPlanChildSessionIDs(new Set<string>())
+      setHasChildPlanSession(false)
     }
   }
 
@@ -1823,11 +1960,15 @@ const sessionMessagesLoaded = createMemo(() => {
     () => [params.id, sync.data.session] as const,
     ([newSid, allSessions], prev) => {
       const prevSid = prev?.[0] ?? null
+      const preservingPlanNavigation = sendingNavigation && !!newSid
       // 导航到 /make（无 session）时清除规划状态,防止泄漏到新会话
       if (!newSid) {
         if (prevSid) {
           setActivePlanSessionId(null)
-          setHasChildPlanSession(false)
+          setPlanParentSessionId(null)
+          clearPlanComposerCapsule()
+          setPlanChildSessionIDs(new Set<string>())
+        setHasChildPlanSession(false)
           setResultViewMode("files")
           setPlanPhase("strategy")
           setManualStrategyFormData({})
@@ -1841,7 +1982,7 @@ const sessionMessagesLoaded = createMemo(() => {
       // 仅在 session 实际切换时清理规划状态,避免 handleEnterPlan 等操作
       // 触发 sync.data.session 更新后重新进入此 effect 时错误地清除状态。
       tabStore.reset()
-      if (newSid !== prevSid) {
+      if (newSid !== prevSid && !preservingPlanNavigation) {
         // 缓存前一个 session 的规划子 session，切回时立即恢复
         if (prevSid && activePlanSessionId()) {
           _planChildSessionCache[prevSid] = activePlanSessionId()!
@@ -1851,6 +1992,9 @@ const sessionMessagesLoaded = createMemo(() => {
         setChildSessionIDs(new Set<string>())
         loadedChildSessions.clear()
         setActivePlanSessionId(null)
+        setPlanParentSessionId(null)
+        clearPlanComposerCapsule()
+        setPlanChildSessionIDs(new Set<string>())
         setHasChildPlanSession(false)
         setResultViewMode("files")
         setPlanPhase("strategy")
@@ -1879,6 +2023,9 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       }
       if (restoredPlanSid) {
+        // 规划子 session 已被当前恢复流程识别，先恢复为进行中状态；只有明确的结束标记才进入只读状态。
+        setPlanEndedForSession(null)
+        setPlanEnded(false)
         // 检查是否已被用户退出（持久化标记）
         const isEnded = !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid)
         if (isEnded) {
@@ -1919,7 +2066,8 @@ const sessionMessagesLoaded = createMemo(() => {
 
         if (isConfirmed) {
           // 已确认：只保留历史记录，不设为活跃
-          setHasChildPlanSession(false)
+          setPlanChildSessionIDs(new Set<string>())
+        setHasChildPlanSession(false)
           setPlanEndedForSession(newSid)
           setPlanEnded(true)
           localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid, "true")
@@ -1931,6 +2079,7 @@ const sessionMessagesLoaded = createMemo(() => {
         } else {
           // 未确认：恢复为活跃状态
           setActivePlanSessionId(restoredPlanSid)
+          setPlanParentSessionId(newSid)
           setHasChildPlanSession(true)
           setResultViewMode("plan")
           setPlanPhase(hasDesignPlan ? "generate" : "strategy")
@@ -1939,67 +2088,33 @@ const sessionMessagesLoaded = createMemo(() => {
       setMentionState(null)
       setSlashState(null)
 
-      // 第二阶段：同步扫描未找到时,异步从 API 全量拉取检测子 session（跨重启恢复）
-      if (!restoredPlanSid) {
-        setPhase2Pending(true)  // 阻止 async 间隙中 banner 闪现
-        const capturedSid = newSid
-        detectChildPlanSession(newSid).then((childId) => {
-          setPhase2Pending(false)
-          // 防护: childId 为空 / 已被其他路径设置 / params.id 已切换(竞态) 时跳过
-          if (!childId || activePlanSessionId() || params.id !== capturedSid) return
-          // 检查是否已被用户退出（持久化标记）
-          if (localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + capturedSid)) {
-            setPlanEndedForSession(capturedSid)
-            setPlanEnded(true)
-            // 已结束的子 session 仍需加入 childSessionIDs 并同步消息，
-            // 让 planCard 能扫描到 design-plan artifact，保持 [方案已确认] 按钮可见
-            loadedChildSessions.add(childId)
-            setChildSessionIDs((prev) => { const next = new Set(prev); next.add(childId); return next })
-            sync.session.sync(childId).catch(() => {})
-            setPlanPhase("generate")
-            return
-          }
-          loadedChildSessions.add(childId)
-          setChildSessionIDs((prev) => { const next = new Set(prev); next.add(childId); return next })
-          sync.session.sync(childId).catch(() => {})
-          // sync 完成后在子 session 消息流中检测确认状态
-          // 先同步消息，再检测
-          const checkConfirmed = () => {
-            const msgs = sync.data.message?.[childId]
-            if (!msgs) {
-              // 消息还没同步完，等下一个 tick
-              requestAnimationFrame(checkConfirmed)
-              return
-            }
-            const planArtifact = scanDesignPlanFromMessages(msgs, sync.data.part, childId)
-            const planIdent = planArtifact?.artifactIdentifier
-            const isConfirmed = planIdent ? isPlanConfirmed(msgs, sync.data.part, planIdent) : false
-            const hasDesignPlan = msgs.some((m: any) => {
-              if (m.role !== "assistant") return false
-              const text = (sync.data.part?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
-              return text?.includes('type="text/design-plan"')
-            })
+      // 第一阶段：主 session 数据同步完成后，通过 API 发现并同步全部子 session。
+      // sync.data.session 只包含根 session，不能用它发现子 session。
+      const capturedSid = newSid
+      setPhase2Pending(true)
+      void discoverChildSessions(capturedSid).then(() => {
+        if (params.id !== capturedSid) return
+        setPhase2Pending(false)
+      }).catch(() => {
+        if (params.id === capturedSid) setPhase2Pending(false)
+      })
 
-            if (isConfirmed) {
-              // 已确认：不设为活跃，只保留历史记录
-              setHasChildPlanSession(false)
-              setPlanEndedForSession(capturedSid)
-              setPlanEnded(true)
-              localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + capturedSid, "true")
-              setPlanPhase(hasDesignPlan ? "generate" : "strategy")
-            } else {
-              // 未确认：恢复为活跃状态
-              setHasChildPlanSession(true)
-              setActivePlanSessionId(childId)
-              setResultViewMode("plan")
-              setPlanPhase(hasDesignPlan ? "generate" : "strategy")
-            }
-          }
-          checkConfirmed()
-        }).catch(() => {
-          setPhase2Pending(false)
+      // 根据已缓存的规划 session 立即恢复视图；子 session 数据由 discovery 负责同步。
+      if (!restoredPlanSid) {
+        setPhase2Pending(true)
+        detectChildPlanSession(newSid).then((childId) => {
+          if (params.id !== newSid || !childId) return
+          setActivePlanSessionId(childId)
+          setPlanParentSessionId(newSid)
+          setHasChildPlanSession(true)
+          setResultViewMode("plan")
+          setPlanPhase("strategy")
+        }).finally(() => {
+          if (params.id === newSid) setPhase2Pending(false)
         })
       }
+      return
+
     },
   ))
 
@@ -2039,8 +2154,10 @@ const sessionMessagesLoaded = createMemo(() => {
             localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + mainSid)
             delete _planChildSessionCache[mainSid]
           }
-          setHasChildPlanSession(false)
+          setPlanChildSessionIDs(new Set<string>())
+        setHasChildPlanSession(false)
           setPlanEndedForSession(mainSid)
+          clearPlanComposerCapsule()
           if (activePlanSessionId() === childId) {
             setPlanEnded(true)
             setActivePlanSessionId(null)
@@ -2068,6 +2185,7 @@ const sessionMessagesLoaded = createMemo(() => {
         setPlanEnded(true)
         setActivePlanSessionId(null)
         setPlanParentSessionId(null)
+        setPlanChildSessionIDs(new Set<string>())
         setHasChildPlanSession(false)
         setManualStrategyFormData({})
         setResultViewMode("files")
@@ -2079,14 +2197,14 @@ const sessionMessagesLoaded = createMemo(() => {
     // 监控子 session 状态：子 agent 空闲但无有效 plan 时复位 isGenerating（弱模型格式异常兜底）
   createEffect(on(
     () => {
-      const planSid = activePlanSessionId()
+      const planSid = activePlanForCurrentSession()
       return planSid ? sync.data.session_status[planSid]?.type : null
     },
     (statusType) => {
       if (statusType === "idle" && isGenerating()) {
         // 子 agent 空闲了但 isGenerating 仍为 true，说明模型未输出有效 design-plan
         // 检查是否确实没有 planCard
-        const planSid = activePlanSessionId()
+        const planSid = activePlanForCurrentSession()
         if (!planSid) return
         const card = scanDesignPlanFromMessages(sync.data.message?.[planSid], sync.data.part, planSid)
         if (!card) {
@@ -2217,13 +2335,45 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
   async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
     try {
+      // For file chips whose path is in tmps (new-conversation pending downloads), rename the
+      // local file into the session's uploads directory and update the chip path before processing.
+      const selections = mentions ?? []
+      const baseDir = projectDir()
+      const api = getDesktopApi()
+      if (baseDir && api?.renameFile && api?.fileExists && sessionId) {
+        const sep = baseDir.includes("\\") ? "\\" : "/"
+        const tmpsMarker = [".octo", "tmps", "make", "uploads"].join(sep)
+        const uploadsDir = [baseDir, ".octo", sessionId, "uploads"].join(sep)
+        for (const sel of selections) {
+          if (sel.type !== "file") continue
+          const p = sel.path
+          if (!p || !p.includes(tmpsMarker)) continue
+          try {
+            // Resolve unique filename in session uploads dir (handle collisions)
+            const filename = p.split(sep).pop() || sel.name
+            let candidate = filename
+            let i = 1
+            const dot = filename.lastIndexOf(".")
+            const base = dot > 0 ? filename.slice(0, dot) : filename
+            const ext = dot > 0 ? filename.slice(dot) : ""
+            while (await api.fileExists!([uploadsDir, candidate].join(sep))) {
+              candidate = `${base} (${i})${ext}`
+              i++
+            }
+            const newPath = [uploadsDir, candidate].join(sep)
+            await api.renameFile!(p, newPath)
+            const ref = proseMirrorRef1 ?? proseMirrorRef2
+            ref?.updateMentionPath?.(sel.name, newPath)
+            sel.path = newPath
+          } catch (err) {
+            console.warn("[octo:make] upload-move failed, keep tmps path", { name: sel.name, path: p, err })
+          }
+        }
+      }
+
       // Process mention selections: replace chip text with model format
       let processedText = text
       let displayText = text
-      const selections = mentions ?? []
-      
-      console.log("[sendMessage] mentions:", mentions)
-      console.log("[sendMessage] skillToolCalls:", skillToolCalls())
 
       for (const sel of selections) {
         if (sel.type === 'skill') {
@@ -2237,8 +2387,9 @@ const sessionMessagesLoaded = createMemo(() => {
           processedText = processedText.replace(`@${sel.name}`, ` 读取${sel.path} 这个文件 `)
         }
       }
-      // Clean up extra spaces
-      processedText = processedText.replace(/  +/g, ' ').trim()
+      // Clean up extra spaces and strip zero-width space (​) used as chip boundary marker
+      // (see getDocTextWithMentions in schema.ts — chip 前后插入 ​ 作为边界,送给模型前要剥离)
+      processedText = processedText.replace(/​/g, '').replace(/  +/g, ' ').trim()
       
       console.log("[sendMessage] displayText:", displayText)
       console.log("[sendMessage] processedText:", processedText)
@@ -2311,29 +2462,50 @@ const sessionMessagesLoaded = createMemo(() => {
       const segments = processedText.split(/(?=\/\S)/)
       const cmdSegments: { cmd: string; args: string }[] = []
       let hasCommand = false
+      // 命令名可能含空格 (chip 名带空格时,如 skillName="my skill"),
+      // 不能用 \S+ 切边界 (会在第一个空格处停)。
+      // 按名字长度降序排,优先匹配最长命令,避免 "foo" 抢前缀于 "foo bar"。
+      const sortedCommands = [...sync.data.command].sort((a, b) => b.name.length - a.name.length)
       for (const seg of segments) {
         const trimmed = seg.trim()
         if (!trimmed) continue
-        const m = trimmed.match(/^\/(\S+)([\s\S]*)$/)
-        if (m) {
-          const cmdName = m[1]
-          const matched = cmdName ? sync.data.command.find((c) => c.name === cmdName) : undefined
-          if (cmdName && matched) {
-            console.log("[MakePage] slash-detect matched command:", {
-              cmdName,
-              source: matched.source,
-              args: m[2].trim(),
-            })
-            cmdSegments.push({ cmd: cmdName, args: m[2].trim() })
-            hasCommand = true
-            continue
+        if (!trimmed.startsWith('/')) {
+          // Non-command segment: only keep if no commands found (for prompt fallback)
+          if (!hasCommand) {
+            cmdSegments.push({ cmd: "", args: trimmed })
           }
-          // /cmd 存在但不在 sync.data.command 中 → 会落入 prompt 纯文本，不触发 skill.used
-          console.log("[MakePage] slash-detect NOT in sync.data.command:", {
-            cmdName,
-            fallbackToPrompt: !hasCommand,
-          })
+          continue
         }
+        // 尝试匹配 sync.data.command 里的命令名 (支持含空格的命令名)
+        let matched: typeof sortedCommands[number] | undefined
+        let args = ''
+        for (const c of sortedCommands) {
+          const fullCmd = `/${c.name}`
+          if (trimmed.startsWith(fullCmd)) {
+            // 边界检查:命令名后必须是空白或字符串结束,避免 "foo" 错配到 "foobar"
+            const nextChar = trimmed[fullCmd.length]
+            if (nextChar === undefined || /\s/.test(nextChar)) {
+              matched = c
+              args = trimmed.slice(fullCmd.length).trim()
+              break
+            }
+          }
+        }
+        if (matched) {
+          console.log("[MakePage] slash-detect matched command:", {
+            cmdName: matched.name,
+            source: matched.source,
+            args,
+          })
+          cmdSegments.push({ cmd: matched.name, args })
+          hasCommand = true
+          continue
+        }
+        // /cmd 存在但不在 sync.data.command 中 → 会落入 prompt 纯文本，不触发 skill.used
+        console.log("[MakePage] slash-detect NOT in sync.data.command:", {
+          trimmed,
+          fallbackToPrompt: !hasCommand,
+        })
         // Non-command segment: only keep if no commands found (for prompt fallback)
         if (!hasCommand) {
           cmdSegments.push({ cmd: "", args: trimmed })
@@ -2574,8 +2746,10 @@ const sessionMessagesLoaded = createMemo(() => {
 
     if (!text.trim()) return
 
+    const shouldStartInitialPlan = !params.id && planComposerActive()
     setSending(true)
     setPrompt("")
+    if (shouldStartInitialPlan) clearPlanComposerCapsule()
     proseMirrorRef1?.clear()
     proseMirrorRef2?.clear()
     const planSid = activePlanSessionId() && planParentSessionId() === params.id ? activePlanSessionId() : null
@@ -2585,12 +2759,71 @@ const sessionMessagesLoaded = createMemo(() => {
       if (!sid) {
         const dir = sdk.directory
         if (!dir) return
-const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
-      const session = result.data as Session | undefined
-      if (!session) return
-      
-      await movePendingUploadsToSession(session.id)
-      
+        const result = await sdk.client.session.create({ directory: dir, agent: "octo_make" })
+        const session = result.data as Session | undefined
+        if (!session) return
+
+        if (shouldStartInitialPlan) {
+          const dir = sdk.directory
+          const skills = mentions
+            .filter((mention) => mention.type === "skill")
+            .map((skill) => ({ name: skill.name, label: skill.label }))
+          const userInput = text.replace(/^[\\s\\S]*?---\\n/, "").trim()
+          const initialPrompt = userInput
+            ? `请分析以下用户需求，提取有用信息填写到策略表单字段中：\\n\\n${userInput}`
+            : "请分析当前会话上下文，提取有用信息填写到策略表单字段中。"
+
+          await movePendingUploadsToSession(session.id)
+          await moveAssetsConfigToSession(session.id)
+
+          const planResult = await sdk.client.session.create({
+            directory: dir,
+            parentID: session.id,
+            agent: "octo_make_plan",
+          })
+          const childSession = planResult.data as Session | undefined
+          if (!childSession) throw new Error("Failed to create plan session")
+
+          loadedChildSessions.add(childSession.id)
+          setChildSessionIDs((prev) => {
+            const next = new Set(prev)
+            next.add(childSession.id)
+            return next
+          })
+          setPlanChildSessionIDs((prev) => {
+            const next = new Set(prev)
+            next.add(childSession.id)
+            return next
+          })
+          setActivePlanSessionId(childSession.id)
+          setPlanParentSessionId(session.id)
+          setPlanEndedForSession(null)
+          setPlanEnded(false)
+          localStorage.removeItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + session.id)
+          setPlanChildSessionIDs((prev) => { const next = new Set(prev); next.add(childSession.id); return next })
+          localStorage.setItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + session.id, childSession.id)
+          _planChildSessionCache[session.id] = childSession.id
+          savePlanSkillHandoff(session.id, childSession.id, skills)
+          setResultViewMode("plan")
+          setPlanPhase("strategy")
+          setUserChangedPhase(false)
+          setManualStrategyFormData({})
+
+          local.session.promote(sdk.directory, session.id)
+          await sync.session.sync(childSession.id)
+          sendingNavigation = true
+          navigate(`/make/${session.id}`)
+          await sdk.client.session.prompt({
+            sessionID: childSession.id,
+            agent: "octo_make_plan",
+            model: capturedModelKey,
+            parts: [{ type: "text", text: initialPrompt }],
+          })
+          return
+        }
+
+        await movePendingUploadsToSession(session.id)
+
       // 如果用户没有手动选择 spec，检查是否有存量配置
       if (!selectedSpecDisplay()) {
         const api = getDesktopApi()
@@ -2621,7 +2854,7 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
       }
       
       await moveAssetsConfigToSession(session.id)
-      
+
       local.session.promote(sdk.directory, session.id)
       const dsId = selectedDesignSystem()
 if (dsId) {
@@ -2645,7 +2878,7 @@ if (dsId) {
 
   /** 终止当前生成 */
   async function halt() {
-    const childId = activePlanSessionId()
+    const childId = activePlanForCurrentSession()
     if (childId && childBusy()) {
       tracker.interaction({ module: "design", name: "stop-generation" })
       await sdk.client.session.abort({ sessionID: childId }).catch(() => {})
@@ -3376,6 +3609,13 @@ if (dsId) {
       if (!linkContent) return
 
       if (/^https?:\/\//i.test(linkContent)) {
+        // 去重:如果 ResultViewer 已有同 URL 的 html tab(可能由文件管理入口打开),直接激活
+        const existingUrl = tabStore.tabs().find(t => t.type === "html" && t.filePath === linkContent)
+        if (existingUrl) {
+          tabStore.activate(existingUrl.id)
+          tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "url", reused: true }) })
+          return
+        }
         const tabId = `link-url-${linkContent.replace(/[/\\:?#&=]/g, "-")}`
         tabStore.openTab({
           id: tabId,
@@ -3408,6 +3648,29 @@ if (dsId) {
         absolutePath += normalizedPath
       }
       absolutePath = absolutePath.replace(/\/+/g, "/")
+
+      // 去重:如果 ResultViewer 已有同 filePath 的 tab(可能由文件管理入口打开),
+      // 直接激活,并刷新内容(镜像 non-link 分支 3368-3389 的逻辑)
+      // 注意:已有 tab 的 filePath 可能保留 Windows 反斜杠(来自 artifactFileToOutputCard
+      // 的 file.path),而 absolutePath 已归一化为正斜杠,需两侧统一再比较
+      const existingLocal = tabStore.tabs().find(t => {
+        if (!t.filePath || t.type === "design-plan") return false
+        return t.filePath.replace(/\\/g, "/") === absolutePath
+      })
+      if (existingLocal) {
+        const api = getDesktopApi()
+        const buf = await api?.readFileBuffer?.(existingLocal.filePath!)
+        if (buf) {
+          const fileContent = new TextDecoder().decode(buf)
+          if (fileContent && fileContent !== existingLocal.content) {
+            tabStore.updateTabContent(existingLocal.id, fileContent)
+            await historyController.onTabOpen({ ...existingLocal, content: fileContent }, existingLocal)
+          }
+        }
+        tabStore.activate(existingLocal.id)
+        tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "local", reused: true }) })
+        return
+      }
 
       const tabId = `link-file-${absolutePath.replace(/[/\\:]/g, "-")}`
       const inferredType = inferOutputType(absolutePath)
@@ -3451,10 +3714,16 @@ if (dsId) {
     
     // ★ Step 0: 如果已有匹配的 tab，直接激活（但先检查文件内容是否变化，变化则记录 agent 版本）
     if (card.filePath) {
+      // 归一化:已有 tab 的 filePath 可能保留 Windows 反斜杠(来自 artifactFileToOutputCard
+      // 的 file.path),card.filePath 也可能来自不同入口(handleOpenLocalFile 已归一化为正斜杠,
+      // Design Files 保留原始反斜杠),两侧统一后再比较
+      const normalizedCardPath = card.filePath.replace(/\\/g, "/")
       const existingTab = tabStore.tabs().find(t => {
-        if (t.type === "html" && isUrl) return t.filePath === card.filePath
-        if (t.type === "html" || t.type === "svg") return t.filePath === card.filePath
-        if (["image", "video", "audio", "pdf", "text"].includes(t.type)) return t.filePath === card.filePath
+        if (!t.filePath) return false
+        const normalizedTPath = t.filePath.replace(/\\/g, "/")
+        if (t.type === "html" && isUrl) return normalizedTPath === normalizedCardPath
+        if (t.type === "html" || t.type === "svg") return normalizedTPath === normalizedCardPath
+        if (["image", "video", "audio", "pdf", "text"].includes(t.type)) return normalizedTPath === normalizedCardPath
         return false
       })
       if (existingTab) {
@@ -3638,7 +3907,7 @@ if (dsId) {
       })
   }
 
-  const inputDisabled = () => !activeModelKey() || !!questionRequest() || !!permissionRequest()
+  const inputDisabled = () => sending() || effectiveBusy() || !activeModelKey() || !!questionRequest() || !!permissionRequest()
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
@@ -3664,7 +3933,7 @@ if (dsId) {
             onDrop={handleDrop}
           >
             {/* 标题栏 */}
-            <Show when={hasContent()}>
+            <Show when={hasSessionView()}>
               <div style={{ position: "relative" }}>
                 <Show when={workingStatus() !== "hidden" && settings.general.showSessionProgressBar()}>
                   <div
@@ -3820,8 +4089,8 @@ if (dsId) {
               </div>
               </div>
             </Show>
-            <Show when={hasContent()} fallback={
-              <Show when={sessionMessagesLoaded()} fallback={
+              <Show when={hasSessionView()} fallback={
+                <Show when={sessionMessagesLoaded()} fallback={
                 <div class="size-full flex items-center justify-center">
                   <div class="octo-spinner" />
                 </div>
@@ -3867,6 +4136,15 @@ if (dsId) {
                       "min-height": "150px",
                     }}
                   >
+                    <Show when={planComposerActive()}>
+                      <div class="make-plan-capsule-row">
+                        <button type="button" class="make-plan-capsule" onClick={handleCancelPlanComposer}>
+                          <span class="make-plan-capsule-icon">✦</span>
+                          <span>设计策略模式</span>
+                          <span class="make-plan-capsule-close">×</span>
+                        </button>
+                      </div>
+                    </Show>
                     {/* Slash Command Popover（新建对话） */}
                     <Show when={slashState() && filteredSlash().length > 0}>
                       <div class="slash-popover">
@@ -3907,7 +4185,7 @@ if (dsId) {
 
                     <div class="flex-1 min-h-0 overflow-hidden rounded-[inherit]">
 <ProseMirrorEditor
-                        sessionId={params.id!}
+                        sessionId={params.id ?? ""}
                         skillConfig={skillConfig() ?? {}}
                         artifactFiles={artifactFilesMirror()}
                         mentionSelections={mentionSelections()}
@@ -3924,13 +4202,16 @@ if (dsId) {
                           setSlashIndex(0)
                         }}
                         onSlashClose={() => setSlashState(null)}
-                       onPreview={(url) => {
-                         handleOpenLocalFile(url)
-                         proseMirrorRef1?.clear()
-                         proseMirrorRef2?.clear()
-                       }}
-                       ref={(el) => { proseMirrorRef1 = el }}
-                     />
+onPreview={(url) => {
+                          handleOpenLocalFile(url)
+                          proseMirrorRef1?.clear()
+                          proseMirrorRef2?.clear()
+                        }}
+                        ref={(el) => { proseMirrorRef1 = el }}
+                        productId={projectSelection()?.product?.id}
+                        onDownloadProductAsset={downloadProductAsset}
+                        onUpdateMentionPath={handleAddonUpdateMentionPath}
+                      />
                     </div>
                     <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
@@ -3965,7 +4246,7 @@ if (dsId) {
                           onUpdateMentionPath={handleAddonUpdateMentionPath}
                           productId={projectSelection()?.product?.id}
                           onEnterDesignStrategy={handleOpenPlanConfirm}
-                          planActive={activePlanSessionId() !== null || !params.id}
+                          planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
                           onOpen={loadSkillConfig}
                           disabled={maxAttachments()}
                         />
@@ -4006,7 +4287,7 @@ if (dsId) {
                </div>
              </Show>
            }>
-              {/* 消息列表 —— 已移除 PlanEntryBanner（进入设计策略模式仅保留 AddonMenu 入口） */}
+              {/* 消息列表：消息按主 session 与所有子 session 的创建时间统一排序 */}
               <div class="relative flex-1 min-h-0">
               <ScrollView
                 class="h-full"
@@ -4016,7 +4297,33 @@ if (dsId) {
                 onMouseUp={autoScroll.handleInteraction}
               >
                 <div ref={autoScroll.contentRef} class="make-chat-content pt-4 flex flex-col gap-4">
-                    {/* 第一条消息 */}
+                    <Show when={resultViewMode() === "plan" && activePlanSessionId()}>
+                      <div
+                        class="flex items-center justify-between mx-3"
+                        style={{
+                          height: "48px",
+                          padding: "0 16px",
+                          "border-radius": "12px",
+                          border: "1px solid rgba(0,0,0,0.1)",
+                          "border-style": "solid",
+                          "border-color": "rgba(0,0,0,0.1)",
+                          background: "linear-gradient(90deg, rgb(245, 248, 255), rgb(255, 255, 255) 50%)",
+                        }}
+                      >
+                        <div class="flex items-center gap-[8px]">
+                          <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="shrink-0">
+                            <path d="M3.66642 1.23337C3.63087 1.1667 3.59531 1.12892 3.55976 1.12003C3.5242 1.11114 3.48865 1.12003 3.45309 1.1467C3.42198 1.17337 3.40198 1.20225 3.39309 1.23337C3.27309 1.85114 2.9842 2.3867 2.52642 2.84003C2.06865 3.29337 1.5242 3.58892 0.89309 3.7267C0.85309 3.74003 0.824201 3.7667 0.806423 3.8067C0.79309 3.85114 0.795312 3.89114 0.81309 3.9267C0.835312 3.9667 0.861979 3.9867 0.89309 3.9867C1.5242 4.11114 2.06865 4.40448 2.52642 4.8667C2.9842 5.32448 3.27309 5.86226 3.39309 6.48003C3.41531 6.53337 3.44642 6.56892 3.48642 6.5867C3.53087 6.60003 3.56865 6.59559 3.59976 6.57337C3.63087 6.55559 3.65309 6.52448 3.66642 6.48003C3.8042 5.84892 4.09753 5.3067 4.54642 4.85337C4.99087 4.40003 5.52865 4.11114 6.15976 3.9867C6.2042 3.97337 6.23531 3.94892 6.25309 3.91337C6.27531 3.87337 6.27531 3.83559 6.25309 3.80003C6.23531 3.76448 6.2042 3.74003 6.15976 3.7267C5.54198 3.58892 5.00642 3.29337 4.55309 2.84003C4.09976 2.3867 3.8042 1.85114 3.66642 1.23337Z" fill="rgb(10,89,247)" />
+                            <path d="M13.6664 9.55337C13.6531 9.50892 13.6353 9.48448 13.6131 9.48003C13.5953 9.47559 13.5775 9.48003 13.5598 9.49337C13.542 9.51114 13.5286 9.53114 13.5198 9.55337C13.4442 9.91337 13.2753 10.2245 13.0131 10.4867C12.7553 10.7489 12.4398 10.9223 12.0664 11.0067C12.0309 11.02 12.0109 11.0356 12.0064 11.0534C12.002 11.0756 12.0042 11.0978 12.0131 11.12C12.0264 11.1423 12.0442 11.1534 12.0664 11.1534C12.4264 11.2378 12.7398 11.4111 13.0064 11.6734C13.2731 11.9356 13.4442 12.2423 13.5198 12.5934C13.5286 12.6245 13.5442 12.6445 13.5664 12.6534C13.5886 12.6667 13.6109 12.6667 13.6331 12.6534C13.6553 12.6445 13.6664 12.6245 13.6664 12.5934C13.7509 12.2289 13.9242 11.9156 14.1864 11.6534C14.4442 11.3956 14.7553 11.2289 15.1198 11.1534C15.1509 11.1534 15.1731 11.14 15.1864 11.1134C15.1953 11.0867 15.1953 11.0623 15.1864 11.04C15.1731 11.0178 15.1509 11.0067 15.1198 11.0067C14.7553 10.9311 14.4442 10.76 14.1864 10.4934C13.9242 10.2267 13.7509 9.91337 13.6664 9.55337Z" fill="rgb(10,89,247)" />
+                            <path d="M10.3864 12.5734C10.3731 12.5334 10.3531 12.5156 10.3264 12.52C10.2998 12.5245 10.282 12.5423 10.2731 12.5734C10.2286 12.8311 10.1131 13.0534 9.92642 13.24C9.73976 13.4267 9.51309 13.5467 9.24642 13.6C9.21531 13.6089 9.20198 13.6267 9.20642 13.6534C9.21087 13.68 9.2242 13.6934 9.24642 13.6934C9.5042 13.7467 9.72864 13.8711 9.91976 14.0667C10.1109 14.2578 10.2286 14.4756 10.2731 14.72C10.282 14.7645 10.2998 14.7823 10.3264 14.7734C10.3531 14.7689 10.3731 14.7511 10.3864 14.72C10.4398 14.4623 10.5598 14.24 10.7464 14.0534C10.9331 13.8667 11.1531 13.7467 11.4064 13.6934C11.4375 13.6934 11.4531 13.68 11.4531 13.6534C11.4531 13.6267 11.4375 13.6089 11.4064 13.6C11.1531 13.5467 10.9331 13.4267 10.7464 13.24C10.5598 13.0534 10.4398 12.8311 10.3864 12.5734Z" fill="rgb(10,89,247)" />
+                            <path d="M12.4934 2.44669C12.1956 2.14003 11.8334 1.98669 11.4067 1.98669C10.9801 1.98669 10.6134 2.14003 10.3067 2.44669L2.92673 9.84003C2.82007 9.92447 2.72896 10.0578 2.6534 10.24L1.76007 12.48C1.63118 12.8 1.6334 13.1111 1.76673 13.4134C1.90007 13.72 2.11562 13.94 2.4134 14.0734C2.71562 14.2067 3.02673 14.2089 3.34673 14.08L5.58673 13.1667C5.75562 13.0911 5.8934 13.0067 6.00007 12.9134L13.3734 5.52003C13.5778 5.31558 13.7156 5.08003 13.7867 4.81336C13.8531 4.54669 13.8531 4.28447 13.7867 4.02669C13.7156 3.76447 13.5778 3.53114 13.3734 3.32669L12.4934 2.44669ZM11.0401 3.18669C11.1467 3.08003 11.269 3.02669 11.4067 3.02669C11.5445 3.02669 11.6623 3.08003 11.7601 3.18669L12.6401 4.06669C12.7467 4.16003 12.8001 4.28003 12.8001 4.42669C12.8001 4.56892 12.7467 4.68892 12.6401 4.78669L11.4534 5.92003L9.88673 4.33336L11.0401 3.18669Z" fill="rgb(10,89,247)" />
+                          </svg>
+                          <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0,0,0,0.9)" }}>进入设计策略模式</span>
+                        </div>
+                        <button type="button" onClick={handleEndPlan} class="shrink-0 transition-colors cursor-pointer" style={{ "font-size": "14px", "line-height": "22px", color: "#0a59f7", background: "transparent", border: "none" }}>
+                          退出
+                        </button>
+                      </div>
+                    </Show>
                     <Show when={userMessages().length > 0}>
                       <InsightTurn
                         sessionID={userMessages()[0].sessionID || params.id!}
@@ -4032,9 +4339,7 @@ if (dsId) {
                         onContinue={handleContinue}
                         onChildSession={ensureChildSession}
                         deltaLog={deltaLog()}
-                        onFormSubmit={(text) => {
-                          setPrompt(text)
-                        }}
+                        onFormSubmit={(text) => setPrompt(text)}
                         hasQuestionRequest={!!questionRequest()}
                         onFilesRefresh={() => {
                           setFilesRefreshKey(k => k + 1)
@@ -4044,72 +4349,36 @@ if (dsId) {
                         skillConfig={skillConfig()}
                       />
                     </Show>
-                    {/* 设计策略模式气泡 */}
-                    <Show when={resultViewMode() === "plan" && activePlanSessionId()}>
-                      <div
-                        class="flex items-center justify-between mx-3"
-                        style={{
-                          height: "48px",
-                          padding: "0 16px",
-                          "border-radius": "12px",
-                          border: "1px solid rgba(0,0,0,0.1)",
-                          background: "linear-gradient(90deg, rgb(245, 248, 255), rgb(255, 255, 255) 50%)",
-                        }}
-                      >
-                        <div class="flex items-center gap-[8px]">
-                          <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="shrink-0">
-                            <path d="M3.66642 1.23337C3.63087 1.1667 3.59531 1.12892 3.55976 1.12003C3.5242 1.11114 3.48865 1.12003 3.45309 1.1467C3.42198 1.17337 3.40198 1.20225 3.39309 1.23337C3.27309 1.85114 2.9842 2.3867 2.52642 2.84003C2.06865 3.29337 1.5242 3.58892 0.89309 3.7267C0.85309 3.74003 0.824201 3.7667 0.806423 3.8067C0.79309 3.85114 0.795312 3.89114 0.81309 3.9267C0.835312 3.9667 0.861979 3.9867 0.89309 3.9867C1.5242 4.11114 2.06865 4.40448 2.52642 4.8667C2.9842 5.32448 3.27309 5.86226 3.39309 6.48003C3.41531 6.53337 3.44642 6.56892 3.48642 6.5867C3.53087 6.60003 3.56865 6.59559 3.59976 6.57337C3.63087 6.55559 3.65309 6.52448 3.66642 6.48003C3.8042 5.84892 4.09753 5.3067 4.54642 4.85337C4.99087 4.40003 5.52865 4.11114 6.15976 3.9867C6.2042 3.97337 6.23531 3.94892 6.25309 3.91337C6.27531 3.87337 6.27531 3.83559 6.25309 3.80003C6.23531 3.76448 6.2042 3.74003 6.15976 3.7267C5.54198 3.58892 5.00642 3.29337 4.55309 2.84003C4.09976 2.3867 3.8042 1.85114 3.66642 1.23337ZM13.6664 9.55337C13.6531 9.50892 13.6353 9.48448 13.6131 9.48003C13.5953 9.47559 13.5775 9.48003 13.5598 9.49337C13.542 9.51114 13.5286 9.53114 13.5198 9.55337C13.4442 9.91337 13.2753 10.2245 13.0131 10.4867C12.7553 10.7489 12.4398 10.9223 12.0664 11.0067C12.0309 11.02 12.0109 11.0356 12.0064 11.0534C12.002 11.0756 12.0042 11.0978 12.0131 11.12C12.0264 11.1423 12.0442 11.1534 12.0664 11.1534C12.4264 11.2378 12.7398 11.4111 13.0064 11.6734C13.2731 11.9356 13.4442 12.2423 13.5198 12.5934C13.5286 12.6245 13.5442 12.6445 13.5664 12.6534C13.5886 12.6667 13.6109 12.6667 13.6331 12.6534C13.6553 12.6445 13.6664 12.6245 13.6664 12.5934C13.7509 12.2289 13.9242 11.9156 14.1864 11.6534C14.4442 11.3956 14.7553 11.2289 15.1198 11.1534C15.1509 11.1534 15.1731 11.14 15.1864 11.1134C15.1953 11.0867 15.1953 11.0623 15.1864 11.04C15.1731 11.0178 15.1509 11.0067 15.1198 11.0067C14.7553 10.9311 14.4442 10.76 14.1864 10.4934C13.9242 10.2267 13.7509 9.91337 13.6664 9.55337ZM10.3864 12.5734C10.3731 12.5334 10.3531 12.5156 10.3264 12.52C10.2998 12.5245 10.282 12.5423 10.2731 12.5734C10.2286 12.8311 10.1131 13.0534 9.92642 13.24C9.73976 13.4267 9.51309 13.5467 9.24642 13.6C9.21531 13.6089 9.20198 13.6267 9.20642 13.6534C9.21087 13.68 9.2242 13.6934 9.24642 13.6934C9.5042 13.7467 9.72864 13.8711 9.91976 14.0667C10.1109 14.2578 10.2286 14.4756 10.2731 14.72C10.282 14.7645 10.2998 14.7823 10.3264 14.7734C10.3531 14.7689 10.3731 14.7511 10.3864 14.72C10.4398 14.4623 10.5598 14.24 10.7464 14.0534C10.9331 13.8667 11.1531 13.7467 11.4064 13.6934C11.4375 13.6934 11.4531 13.68 11.4531 13.6534C11.4531 13.6267 11.4375 13.6089 11.4064 13.6C11.1531 13.5467 10.9331 13.4267 10.7464 13.24C10.5598 13.0534 10.4398 12.8311 10.3864 12.5734Z" fill="rgb(10,89,247)" fill-rule="nonzero" />
-                            <path d="M12.4934 2.44669C12.1956 2.14003 11.8334 1.98669 11.4067 1.98669C10.9801 1.98669 10.6134 2.14003 10.3067 2.44669L2.92673 9.84003C2.82007 9.92447 2.72896 10.0578 2.6534 10.24L1.76007 12.48C1.63118 12.8 1.6334 13.1111 1.76673 13.4134C1.90007 13.72 2.11562 13.94 2.4134 14.0734C2.71562 14.2067 3.02673 14.2089 3.34673 14.08L5.58673 13.1667C5.75562 13.0911 5.8934 13.0067 6.00007 12.9134L13.3734 5.52003C13.5778 5.31558 13.7156 5.08003 13.7867 4.81336C13.8534 4.54669 13.8534 4.28447 13.7867 4.02669C13.7156 3.76447 13.5778 3.53114 13.3734 3.32669L12.4934 2.44669ZM10.7667 6.67336L5.20007 12.2067L2.96007 13.12C2.90673 13.1289 2.85785 13.1267 2.8134 13.1134C2.7734 13.0956 2.74229 13.0623 2.72007 13.0134C2.69785 12.9689 2.69785 12.9245 2.72007 12.88L3.64673 10.56L9.1534 5.07336L10.7667 6.67336ZM11.0401 3.18669C11.1467 3.08003 11.269 3.02669 11.4067 3.02669C11.5445 3.02669 11.6623 3.08003 11.7601 3.18669L12.6401 4.06669C12.7467 4.16003 12.8001 4.28003 12.8001 4.42669C12.8001 4.56892 12.7467 4.68892 12.6401 4.78669L11.4534 5.92003L9.88673 4.33336L11.0401 3.18669Z" fill="rgb(10,89,247)" fill-rule="nonzero" />
-                          </svg>
-                          <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0,0,0,0.9)" }}>
-                            进入设计策略模式
-                          </span>
-                        </div>
-                        <button
-                          onClick={handleEndPlan}
-                          class="shrink-0 transition-colors cursor-pointer"
-                          style={{
-                            "font-size": "14px",
-                            "line-height": "22px",
-                            color: "#0a59f7",
-                            background: "transparent",
-                            border: "none",
-                          }}
-                        >
-                          退出
-                        </button>
-                      </div>
-                    </Show>
-                    {/* 剩余消息 */}
                     <For each={userMessages().slice(1)}>
-                    {(msg) => (
-                      <InsightTurn
-                        sessionID={msg.sessionID || params.id!}
-                        messageID={msg.id}
-                        status={sync.data.session_status[msg.sessionID] ?? sessionStatus()}
-                        active={sync.data.session_status[msg.sessionID ?? params.id!]?.type === "busy"}
-                        elapsedText={elapsedText()}
-                        blockTime={blockTime()}
-                        onAbort={halt}
-                        onOpenResult={handleOpenResult}
-                        onOpenLocalFile={handleOpenLocalFile}
-                        projectDir={projectDir()}
-                        onContinue={handleContinue}
-                        onChildSession={ensureChildSession}
-                        deltaLog={deltaLog()}
-                        onFormSubmit={(text) => {
-                          setPrompt(text)
-                        }}
-                        hasQuestionRequest={!!questionRequest()}
-                        onFilesRefresh={() => {
-                          setFilesRefreshKey(k => k + 1)
-                          void historyController.onFileRefresh(tabStore.tabs())
-                        }}
-                        skillToolCalls={skillToolCalls()}
-                        skillConfig={skillConfig()}
-                      />
-                    )}
-                  </For>
+                      {(msg) => {
+                        const messageSessionID = msg.sessionID || params.id!
+                        return (
+                          <InsightTurn
+                            sessionID={messageSessionID}
+                            messageID={msg.id}
+                            status={sync.data.session_status[messageSessionID] ?? sessionStatus()}
+                            active={sync.data.session_status[messageSessionID]?.type === "busy"}
+                            elapsedText={elapsedText()}
+                            blockTime={blockTime()}
+                            onAbort={halt}
+                            onOpenResult={handleOpenResult}
+                            onOpenLocalFile={handleOpenLocalFile}
+                            projectDir={projectDir()}
+                            onContinue={handleContinue}
+                            onChildSession={ensureChildSession}
+                            deltaLog={deltaLog()}
+                            onFormSubmit={(text) => setPrompt(text)}
+                            hasQuestionRequest={!!questionRequest()}
+                            onFilesRefresh={() => {
+                              setFilesRefreshKey(k => k + 1)
+                              void historyController.onFileRefresh(tabStore.tabs())
+                            }}
+                            skillToolCalls={skillToolCalls()}
+                            skillConfig={skillConfig()}
+                          />
+                        )
+                      }}
+                    </For>
                 </div>
               </ScrollView>
               <div
@@ -4124,17 +4393,16 @@ if (dsId) {
               {/* 输入区 */}
               <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
 
-                {/* Plan entry banner - AddonMenu 进入设计策略模式时的确认弹窗 */}
-                <Show when={showPlanConfirm() && !optimisticIntentResolved()}>
-                  <PlanEntryBanner
-                    onEnter={() => { setShowPlanConfirm(false); handleEnterPlan() }}
-                    onSkip={() => setShowPlanConfirm(false)}
-                  />
-                </Show>
-
-                {/* Permission dock - 权限授权 UI */}
-                <Show when={permissionRequest()} keyed>
-                  {(request) => (
+                  {/* Plan entry banner - AddonMenu 进入设计策略模式时的确认弹窗 */}
+                  <Show when={showPlanConfirm() && !optimisticIntentResolved()}>
+                    <PlanEntryBanner
+                      onEnter={() => { setShowPlanConfirm(false); void handleEnterPlan() }}
+                      onSkip={() => setShowPlanConfirm(false)}
+                    />
+                  </Show>
+                  {/* Permission dock - 权限授权 UI */}
+                  <Show when={permissionRequest()} keyed>
+                    {(request) => (
                     <div class="w-full max-w-[800px] mx-auto pb-3">
                       <SessionPermissionDock
                         request={request}
@@ -4228,7 +4496,7 @@ if (dsId) {
                   />
 
 <ProseMirrorEditor
-                       sessionId={params.id!}
+                       sessionId={params.id ?? ""}
                        skillConfig={skillConfig() ?? {}}
                        artifactFiles={artifactFilesMirror()}
                        mentionSelections={mentionSelections()}
@@ -4245,13 +4513,16 @@ if (dsId) {
                          setSlashIndex(0)
                        }}
                        onSlashClose={() => setSlashState(null)}
-                      onPreview={(url) => {
-                        handleOpenLocalFile(url)
-                        proseMirrorRef1?.clear()
-                        proseMirrorRef2?.clear()
-                      }}
-                      ref={(el) => { proseMirrorRef2 = el }}
-                   />
+onPreview={(url) => {
+                         handleOpenLocalFile(url)
+                         proseMirrorRef1?.clear()
+                         proseMirrorRef2?.clear()
+                       }}
+                       ref={(el) => { proseMirrorRef2 = el }}
+                       productId={projectSelection()?.product?.id}
+                       onDownloadProductAsset={downloadProductAsset}
+                       onUpdateMentionPath={handleAddonUpdateMentionPath}
+                    />
                   <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
                          <span class="hidden">
@@ -4285,7 +4556,7 @@ if (dsId) {
                         onUpdateMentionPath={handleAddonUpdateMentionPath}
                         productId={projectSelection()?.product?.id}
                         onEnterDesignStrategy={handleOpenPlanConfirm}
-                        planActive={activePlanSessionId() !== null || !params.id}
+                        planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
                         onOpen={loadSkillConfig}
                         disabled={maxAttachments()}
                       />
@@ -4442,10 +4713,10 @@ if (dsId) {
                 isGenerating={isGenerating()}
                 planConfirmPending={planConfirmPending()}
                 childPlanConfirmed={childPlanConfirmed()}
-                childSessionStatus={sync.data.session_status[activePlanSessionId() ?? ""]}
+                childSessionStatus={sync.data.session_status[activePlanForCurrentSession() ?? ""]}
                 childBusy={childBusy()}
                 planEnded={planEnded()}
-                planActive={activePlanSessionId() !== null}
+                planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
               />
             </div>
             <Show when={showVersionPanel()}>
@@ -4476,7 +4747,6 @@ if (dsId) {
         </div>
         </Show>
       </div>
-      <OctoToast />
     </DataProvider>
   )
 }

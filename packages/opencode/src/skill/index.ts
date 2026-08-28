@@ -13,9 +13,11 @@ import { Global } from "@opencode-ai/core/global"
 import { Permission } from "@/permission"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Config } from "@/config/config"
+import { Ripgrep } from "@/file/ripgrep"
 import { ConfigMarkdown } from "@/config/markdown"
 import { Glob } from "@opencode-ai/core/util/glob"
 import * as Log from "@opencode-ai/core/util/log"
+import * as Stream from "effect/Stream"
 import { Discovery } from "./discovery"
 
 const log = Log.create({ service: "skill" })
@@ -80,6 +82,7 @@ export interface Interface {
   readonly get: (name: string) => Effect.Effect<Info | undefined>
   readonly getMany: (names: string[]) => Effect.Effect<Info[]>
   readonly all: () => Effect.Effect<Info[]>
+  readonly files: (info: Info, options?: { signal?: AbortSignal }) => Effect.Effect<string[]>
   readonly dirs: () => Effect.Effect<string[]>
   readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
   readonly refresh: () => Effect.Effect<void>
@@ -315,6 +318,7 @@ export const layer = Layer.effect(
     const bus = yield* Bus.Service
     const fsys = yield* AppFileSystem.Service
     const global = yield* Global.Service
+    const rg = yield* Ripgrep.Service
     const discovered = yield* InstanceState.make(
       Effect.fn("Skill.discovery")(function* (ctx) {
         return yield* discoverSkills(config, discovery, fsys, global, ctx.directory, ctx.worktree)
@@ -341,6 +345,17 @@ export const layer = Layer.effect(
     const all = Effect.fn("Skill.all")(function* () {
       const s = yield* InstanceState.get(state)
       return Object.values(s.skills)
+    })
+
+    const files = Effect.fn("Skill.files")(function* (info: Info, options?: { signal?: AbortSignal }) {
+      const dir = path.dirname(info.location)
+      const result = yield* rg.files({ cwd: dir, follow: false, hidden: true, signal: options?.signal }).pipe(
+        Stream.filter((file: string) => path.basename(file) !== "SKILL.md"),
+        Stream.map((file: string) => path.resolve(dir, file)),
+        Stream.runCollect,
+        Effect.orDie,
+      )
+      return [...result].toSorted()
     })
 
     const dirs = Effect.fn("Skill.dirs")(function* () {
@@ -384,7 +399,7 @@ export const layer = Layer.effect(
       yield* InstanceState.invalidateAll(state)
     })
 
-    return Service.of({ get, getMany, all, dirs, available, refresh })
+    return Service.of({ get, getMany, all, files, dirs, available, refresh })
   }),
 )
 
@@ -394,7 +409,25 @@ export const defaultLayer = layer.pipe(
   Layer.provide(Bus.layer),
   Layer.provide(AppFileSystem.defaultLayer),
   Layer.provide(Global.layer),
+  Layer.provide(Ripgrep.defaultLayer),
 )
+
+export function formatLoaded(info: Info, files: string[]) {
+  const dir = path.dirname(info.location)
+  return [
+    `# Skill: ${info.name}`,
+    "",
+    info.content.trim(),
+    "",
+    `Skill directory (absolute path): ${dir}`,
+    "All listed paths are native absolute filesystem paths. Use them directly as read tool filePath values.",
+    "Do not use relative paths or file:// URLs as read tool filePath values.",
+    "",
+    "<skill_files>",
+    ...files.map((file) => `<file>${file}</file>`),
+    "</skill_files>",
+  ].join("\n")
+}
 
 export function fmt(list: Info[], opts: { verbose: boolean }) {
   if (list.length === 0) return "No skills are currently available."

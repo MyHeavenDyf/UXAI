@@ -1,3 +1,5 @@
+import type { ArtifactFileKind } from "../../utils/artifact-file-api"
+
 /**
  * 产品资源库数据获取层
  *
@@ -28,6 +30,51 @@ export interface AssetFile {
 export interface AssetNode {
   folders: AssetFolder[]
   files: AssetFile[]
+}
+
+/**
+ * Infer an ArtifactFileKind from the convertHtmlUrl extension so product-asset
+ * files can reuse getFileIcon (which needs a kind).
+ */
+export function inferKindFromUrl(url: string): ArtifactFileKind {
+  const clean = url.split("?")[0].split("#")[0]
+  const ext = clean.slice(clean.lastIndexOf(".") + 1).toLowerCase()
+  switch (ext) {
+    case "html":
+    case "htm":
+      return "html"
+    case "svg":
+      return "svg"
+    case "png":
+    case "jpg":
+    case "jpeg":
+    case "gif":
+    case "webp":
+    case "bmp":
+      return "image"
+    case "mp4":
+    case "webm":
+    case "mov":
+      return "video"
+    case "mp3":
+    case "wav":
+    case "ogg":
+      return "audio"
+    case "md":
+      return "markdown"
+    case "pdf":
+      return "pdf"
+    case "txt":
+      return "text"
+    case "js":
+    case "ts":
+    case "json":
+    case "css":
+    case "xml":
+      return "code"
+    default:
+      return "binary"
+  }
 }
 
 const MOCK_TEAM_TREE: AssetFolder[] = [
@@ -136,5 +183,7 @@ export async function fetchAssetFiles(teamId: number): Promise<AssetFile[]> {
   const resp = await getJson(
     `${base}/pipeline/rest.root/assetManagement/assetFile/getList?teamId=${teamId}`,
   )
-  return (resp?.content as AssetFile[]) ?? []
+  const files = (resp?.content as AssetFile[]) ?? []
+  // Filter out entries without convertHtmlUrl (spec line 60)
+  return files.filter((f) => f.convertHtmlUrl && f.convertHtmlUrl.trim() !== "")
 }

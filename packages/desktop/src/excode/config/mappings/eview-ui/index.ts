@@ -4,18 +4,23 @@
  * eview-ui 与 eview-react 基本同一套组件库（tag 名一致），仅包名 + 图标库包名不同。
  * **特例复用** eview-react 工厂（换 pkg/iconPkg），分四类：
  *   1. 工厂复用 pkg=@cloudsop/eview-ui（eview-ui 包自带、且**不涉及 icon 属性**的组件）
- *   2. 工厂复用 sharedPkg=@/shared（eview-ui 无、且不涉及 icon：Badge/Tag/Divider/Chart）
- *   3. bespoke（eview-ui 与 eview-react 的 API 差异，独立 default-export MappingDef：DatePicker/Rate/Switch→Toggle/TextArea/Button/Steps/Progress/Dropdown）
+ *   2. 工厂复用 sharedPkg=@/shared（eview-ui 无、且不涉及 icon：Badge/Divider/Chart）
+ *   3. bespoke（eview-ui 与 eview-react 的 API 差异，独立 default-export MappingDef：DatePicker/Rate/Switch→Toggle/TextArea/Button/Steps/Progress/Dropdown/Tag/TimePicker）
  *   4. 本地工厂副本（与 eview-react 有 API 差异、不再复用 eview-react 工厂）：
  *      a. **涉及 icon 属性**的组件（Input/Menu/TabItem/Timeline/Tree）——
  *         eview-ui 的 icon 相关属性只接 URL、不接 React DOM，与 eview-react 差异显著。
- *         当前文件原样复制自 eview-react 工厂，待按 icon-URL 差异就地改造。
- *         改造前为纯副本，行为零变化。
- *      b. **Table**——render / onRowExpend 行数据字段名不同：eview-ui 为 `row._org`
- *         （eview-react 为 `row.rawData`）。副本已就地把 buildRenderFn 末参 `dataField`
- *         由 `'rawData'` 改为 `'_org'`，此为其与 eview-react 的唯一差异。
- *      c. **Drawer**——eview-ui 默认要加尺寸值（right/left/缺省 时加 `width='auto'`/
- *         `height='100%'`，top/bottom 不加），eview-react 不加。副本带上该条件默认逻辑。
+ *         当前文件原样复制自 eview-react 工厂，已按 icon-URL 差异就地改造。
+ *      d. **Tabs**——onClick extractor 差异（eview-ui onClick(index: string) 需 Number 转换）+
+ *         types/tabPlacement DataBinding 双形态支持（eview-react 工厂静默丢弃 DataBinding）。
+ *      b. **Table**——与 eview-react 的两处 API 差异：① render / onRowExpend 行数据
+ *         字段名不同：eview-ui 为 `row._org`（eview-react 为 `row.rawData`），副本已把
+ *         buildRenderFn 末参 `dataField` 由 `'rawData'` 改为 `'_org'`；② `expandable.expandedRowKeys`
+ *         对应 eview-ui 的 `expandedRow` prop（eview-react 同名为 `expandedRowKeys`）。
+ *      c. **Drawer**——与 eview-react 的三处 API 差异：① 默认 `height='100%'`（仅 right/left/
+ *         缺省 时加，top/bottom 不加；eview-react 不加任何 height；width 两边一致——
+ *         A2UI width(number) 同名透传、无默认）；② `mask`→`maskSetting.show` 嵌套对象
+ *         （eview-react 为扁平 `showMask`）；③ `footer` 直接赋 `footer` prop（eview-ui Drawer
+ *         有 `footer: ReactNode|false`；eview-react 无独立 footer slot、其副本把 footer 并入 children）。
  *
  * ⚠️ 此复用模式是 eview-ui 特例。未来别的组件库不复用 eview-react，各自独立。
  */
@@ -50,10 +55,10 @@ import Steps from './Steps'
 import Switch from './Switch'
 import { createTabItemMapping } from './TabItem'
 import { createTableMapping } from './Table'
-import { createTabsMapping } from '../eview-react/Tabs'
-import { createTagMapping } from '../eview-react/Tag'
+import { createTabsMapping } from './Tabs'
+import Tag from './Tag'
 import TextArea from './TextArea'
-import { createTimePickerMapping } from '../eview-react/TimePicker'
+import TimePicker from './TimePicker'
 import { createTimelineMapping } from './Timeline'
 import { createTreeMapping } from './Tree'
 
@@ -100,9 +105,9 @@ export default {
   TabItem: createTabItemMapping(pkg),
   Table: createTableMapping(pkg),
   Tabs: createTabsMapping(pkg),
-  Tag: createTagMapping(sharedPkg),
+  Tag,
   TextArea,
-  TimePicker: createTimePickerMapping(pkg),
+  TimePicker,
   Timeline: createTimelineMapping(pkg),
   Tree: createTreeMapping(pkg),
   ...chartMappings(sharedPkg),

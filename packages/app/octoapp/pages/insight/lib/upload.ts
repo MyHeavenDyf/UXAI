@@ -234,15 +234,27 @@ export function isImageFile(filename: string): boolean {
 //   - 图片        → vision FilePart{url:S3}(路由 ③)
 // 排除集之外的文件若真是二进制(如 `@` 一个 .zip 产物),read 会返回 "Cannot read binary file"
 // 进上下文 —— 响亮失败,模型看得懂,不做客户端预判(嗅探要读文件字节,是服务端的活)。
+/** extract_document 负责的文档类(SPEC-INS-015 路由 ②)。二进制容器,发送前拿不到正文体量。 */
+const EXTRACT_DOC_EXT = new Set(["docx", "xlsx", "pptx", "doc", "xls", "ppt", "pdf"])
+
 const NON_INLINE_EXT = new Set([
-  // extract_document 负责的文档类(SPEC-INS-015 路由 ②)
-  "docx", "xlsx", "pptx", "doc", "xls", "ppt", "pdf",
+  ...EXTRACT_DOC_EXT,
   // 图片走 vision(路由 ③)
   ...IMAGE_EXT,
 ])
 
 export function isTextInlineFile(filename: string): boolean {
   return !NON_INLINE_EXT.has(getExt(filename))
+}
+
+/**
+ * 是否走 `extract_document` 的文档类。与 isTextInlineFile 不是简单互补 —— 图片两边都不算
+ * (它走 vision,既不占内联预算,也不进分治判定的份数)。
+ * 用途:SPEC-INS-032 §2.6 的**份数口径**——这类文件发送前只有二进制大小、拿不到正文字节,
+ * 无法并入 INLINE_BUDGET 的字节预算,故按份数判分治。
+ */
+export function isExtractableDocFile(filename: string): boolean {
+  return EXTRACT_DOC_EXT.has(getExt(filename))
 }
 
 // 按 SPEC-INS-015 §2 拼「附件清单」段落:每行 `- <文件名>: <本地绝对路径>`。
@@ -277,20 +289,29 @@ export const DISPATCH_NOTE_HEADER = "[材料体量]"
 export function formatDispatchNote(input: {
   count: number
   totalBytes: number
+  docCount: number
   oversized: Array<{ filename: string; bytes: number }>
 }): string {
   const kb = (b: number) => `${Math.round(b / 1024)} KB`
+  // 两类材料的说法要分开：文本类给得出确切体量（字节就是进上下文的量），
+  // 文档类只给份数（发送前拿不到正文体量，见 SPEC-INS-032 §2.6）。说不知道的数会把模型带偏。
+  const parts: string[] = []
+  if (input.count > 0) parts.push(`${input.count} 份文本材料（合计约 ${kb(input.totalBytes)}）`)
+  if (input.docCount > 0) parts.push(`${input.docCount} 份文档（docx / pdf / xlsx / pptx）`)
+
   const paragraphs = [
-    `${DISPATCH_NOTE_HEADER} 本轮共 ${input.count} 份文本材料(含 [附件] 与 [引用文件]),合计约 ${kb(input.totalBytes)},` +
-      `超出单轮内联上限,正文**未**随本条消息进入你的上下文——你现在只有文件名和路径,材料内容一个字都没有。`,
-    `请**逐份**派 insight_reader 子代理通读:每份材料单独发一个 task,把该文件的绝对路径和这次要提炼什么写进去,` +
-      `收齐所有结论后再写报告。不要试图自己一次性读完这些材料——那正是会撞上下文上限的做法。`,
+    `${DISPATCH_NOTE_HEADER} 本轮共有 ${parts.join("、")}（含 [附件] 与 [引用文件]）。` +
+      `这批材料的正文**未**随本条消息进入你的上下文——你现在只有文件名和路径，材料内容一个字都没有。`,
+    `请**逐份**派 insight_reader 子代理通读：每份材料单独发一个 task，把该文件的绝对路径和这次要提炼什么写进去，` +
+      `**一份回来了再派下一份**，收齐所有结论后再写报告。不要试图自己一次性读完这些材料——那正是会撞上下文上限的做法。`,
   ]
   if (input.oversized.length > 0) {
     const names = input.oversized.map((f) => `「${f.filename}」(${kb(f.bytes)})`).join("、")
     paragraphs.push(
-      `例外:${names} 单份就超出了子代理的通读容量,派子代理也读不完。` +
-        `**不要为它派通读任务**,请在回复里告诉用户这份材料需要拆分后重新上传。`,
+      // 只给正面指令：这轮的说明就贴在材料旁边，写「不要让用户拆分文件」反而是把那个词递到它眼前。
+      // 明确的禁止留在常驻提示词里（那是针对已发生过的错误行为的长期约束）。
+      `其中 ${names} 单份就超出了子代理一次能通读的量。**照样派子代理**——` +
+        `子代理调 extract_document 时会拿到一份切段清单，按段分几次派完即可，每段一个 task。`,
     )
   }
   return paragraphs.join("\n")
