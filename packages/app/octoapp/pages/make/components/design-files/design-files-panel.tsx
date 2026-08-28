@@ -93,6 +93,50 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   let fileInputRef!: HTMLInputElement
   let folderInputRef!: HTMLInputElement
 
+  const PREVIEW_MIN = 150
+  const LIST_MIN = 390
+  const [previewWidth, setPreviewWidth] = createSignal(360)
+  let rowRef: HTMLDivElement | undefined
+
+  createEffect(() => {
+    if (!rowRef) return
+    const el = rowRef
+    const clamp = () => {
+      const maxW = el.getBoundingClientRect().width - LIST_MIN
+      if (maxW < PREVIEW_MIN) {
+        setPreviewWidth(PREVIEW_MIN)
+      } else {
+        setPreviewWidth((w) => Math.max(PREVIEW_MIN, Math.min(maxW, w)))
+      }
+    }
+    clamp()
+    const ro = new ResizeObserver(clamp)
+    ro.observe(el)
+    onCleanup(() => ro.disconnect())
+  })
+
+  function handlePreviewDividerMouseDown(e: MouseEvent) {
+    e.preventDefault()
+    if (!rowRef) return
+    const rect = rowRef.getBoundingClientRect()
+    const maxW = rect.width - LIST_MIN
+    if (maxW < PREVIEW_MIN) return
+    const overlay = document.createElement("div")
+    overlay.style.cssText = "position:fixed;inset:0;z-index:9999;cursor:col-resize;background:transparent;"
+    document.body.appendChild(overlay)
+    const onMove = (ev: MouseEvent) => {
+      const w = rect.right - ev.clientX
+      setPreviewWidth(Math.max(PREVIEW_MIN, Math.min(maxW, w)))
+    }
+    const onUp = () => {
+      overlay.remove()
+      overlay.removeEventListener("mousemove", onMove)
+      overlay.removeEventListener("mouseup", onUp)
+    }
+    overlay.addEventListener("mousemove", onMove)
+    overlay.addEventListener("mouseup", onUp)
+  }
+
   createEffect(on(
     [() => props.sessionId, () => fileStore.store.currentPath, () => fileStore.store.currentCategory],
     ([sessionId], prev) => {
@@ -638,7 +682,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         />
       </Show>
 
-      <div class="flex flex-1 min-h-0 overflow-hidden">
+      <div ref={rowRef} class="flex flex-1 min-h-0 overflow-hidden">
         <div
           class="flex flex-col flex-1 min-w-0 overflow-hidden relative"
           onDragOver={handleDragOver}
@@ -1021,14 +1065,22 @@ onDelete={handleDelete}
 
         <Show when={fileStore.previewFile()}>
           {(file) => (
-            <PreviewPane
-              file={file()}
-              sdkUrl={globalSDK.url}
-              sdkDirectory={sdk.directory || ""}
-              onClose={() => fileStore.setPreviewFile(null)}
-              onOpen={() => handleOpenFile(file())}
-              onDownload={() => handleDownload(file())}
-            />
+            <>
+              <div
+                class="octo-split-handle shrink-0"
+                style={{ width: "8px" }}
+                onMouseDown={handlePreviewDividerMouseDown}
+              />
+              <PreviewPane
+                file={file()}
+                width={previewWidth()}
+                sdkUrl={globalSDK.url}
+                sdkDirectory={sdk.directory || ""}
+                onClose={() => fileStore.setPreviewFile(null)}
+                onOpen={() => handleOpenFile(file())}
+                onDownload={() => handleDownload(file())}
+              />
+            </>
           )}
         </Show>
       </div>
