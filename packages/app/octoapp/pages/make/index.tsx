@@ -948,9 +948,15 @@ const sessionMessagesLoaded = createMemo(() => {
     if (currentModel()?.limit.context) return currentModel()!.limit.context
     if (contextMetrics()?.limit) return contextMetrics()!.limit!
   })
+  const contextTokens = createMemo(() => {
+    const context = contextMetrics()
+    if (!context) return 0
+    if (context.message.summary) return context.output
+    return context.total
+  })
   const contextUsage = createMemo(() => {
     const limit = contextLimit()
-    return limit ? Math.round(((contextMetrics()?.total ?? 0) / limit) * 100) : 0
+    return limit ? Math.round((contextTokens() / limit) * 100) : 0
   })
 
   const sessionStatus = createMemo((): SessionStatus => {
@@ -987,6 +993,10 @@ const sessionMessagesLoaded = createMemo(() => {
         modelID: model.id,
       })
       if (result.error) throw result.error
+      await sync.session.sync(sessionID, { force: true }).catch((error) => {
+        console.warn("[MakePage] failed to refresh compacted session", error)
+      })
+      sync.set("session_status", sessionID, { type: "idle" })
       showOctoToast({ title: "上下文压缩完成" })
     } catch (error) {
       console.error("[MakePage] context compaction failed", error)
@@ -3695,7 +3705,7 @@ if (dsId) {
                       value={
                         <div class="flex flex-col">
                           <span>
-                            当前session已使用： {(contextMetrics()?.total ?? 0).toLocaleString(language.intl())} /{" "}
+                            当前session已使用： {contextTokens().toLocaleString(language.intl())} /{" "}
                             {contextLimit()?.toLocaleString(language.intl()) ?? "--"} 个token
                           </span>
                           <span>
