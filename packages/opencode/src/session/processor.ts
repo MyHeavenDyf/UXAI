@@ -9,7 +9,13 @@ import { Snapshot } from "@/snapshot"
 import * as Session from "./session"
 import { LLM } from "./llm"
 import { MessageV2 } from "./message-v2"
-import { isOverflow, preflight, usable } from "./overflow"
+import {
+  AUTOMATIC_COMPACTION_ENABLED,
+  CONTEXT_OVERFLOW_MESSAGE,
+  isOverflow,
+  preflight,
+  usable,
+} from "./overflow"
 import { PartID } from "./schema"
 import type { SessionID } from "./schema"
 import { SessionRetry } from "./retry"
@@ -525,6 +531,7 @@ export const layer: Layer.Layer<
               })
               .pipe(Effect.ignore, Effect.forkIn(scope))
             if (
+              AUTOMATIC_COMPACTION_ENABLED &&
               !ctx.assistantMessage.summary &&
               isOverflow({ cfg: yield* config.get(), tokens: usage.tokens, model: ctx.model })
             ) {
@@ -670,8 +677,20 @@ export const layer: Layer.Layer<
         slog.error("process", { error: errorMessage(e), stack: e instanceof Error ? e.stack : undefined })
         const error = parse(e)
         if (MessageV2.ContextOverflowError.isInstance(error)) {
-          ctx.needsCompaction = true
-          yield* bus.publish(Session.Event.Error, { sessionID: ctx.sessionID, error })
+          if (AUTOMATIC_COMPACTION_ENABLED) {
+            ctx.needsCompaction = true
+            yield* bus.publish(Session.Event.Error, { sessionID: ctx.sessionID, error })
+            return
+          }
+          ctx.assistantMessage.error = new MessageV2.ContextOverflowError({
+            message: CONTEXT_OVERFLOW_MESSAGE,
+          }).toObject()
+          ctx.assistantMessage.finish = "error"
+          yield* bus.publish(Session.Event.Error, {
+            sessionID: ctx.sessionID,
+            error: ctx.assistantMessage.error,
+          })
+          yield* status.set(ctx.sessionID, { type: "idle" })
           return
         }
         if (!ctx.assistantMessage.summary) {
@@ -703,7 +722,7 @@ export const layer: Layer.Layer<
         const available = usable({ cfg, model: ctx.model })
         const current = streamInput.messages.findLast((message) => message.role === "user")
         const unavoidableInputTokens = Token.estimateValue([streamInput.system, current, streamInput.tools])
-        const preflightResult = ctx.assistantMessage.summary
+        const preflightResult = ctx.assistantMessage.summary || !AUTOMATIC_COMPACTION_ENABLED
           ? "send"
           : preflight({
               cfg,

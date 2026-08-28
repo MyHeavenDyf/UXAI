@@ -4,6 +4,10 @@ import type { MessageV2 } from "./message-v2"
 
 const COMPACTION_THRESHOLD = 0.85
 
+// Keep automatic compaction available for a future rollout, but leave it disabled for now.
+export const AUTOMATIC_COMPACTION_ENABLED = false
+export const CONTEXT_OVERFLOW_MESSAGE = "系统的单次处理能力已满。请点击“新建对话”重置上下文。"
+
 export function usable(input: { cfg: Config.Info; model: Provider.Model }) {
   const context = input.model.limit.context
   if (context === 0) return 0

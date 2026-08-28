@@ -1718,7 +1718,14 @@ const layer: Layer.Layer<
                 context:
                   model.limit?.context ??
                   existingModel?.limit?.context ??
-                  (provider.options?.["__octo_custom_provider"] === true ? 128_000 : 0),
+                  (provider.options?.["__octo_custom_provider"] === true ||
+                    (provider.npm === "@ai-sdk/openai-compatible" &&
+                      !!provider.models &&
+                      Object.keys(provider.models).length > 0 &&
+                      Array.isArray(provider.env) &&
+                      provider.env.length === 0)
+                    ? 128_000
+                    : 0),
                 input: model.limit?.input ?? existingModel?.limit?.input,
                 output: model.limit?.output ?? existingModel?.limit?.output ?? 0,
               },
