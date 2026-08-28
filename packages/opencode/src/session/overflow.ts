@@ -18,8 +18,7 @@ export function isOverflow(input: { cfg: Config.Info; tokens: MessageV2.Assistan
   if (input.cfg.compaction?.auto === false) return false
   if (input.model.limit.context === 0) return false
 
-  const count =
-    input.tokens.total || input.tokens.input + input.tokens.output + input.tokens.cache.read + input.tokens.cache.write
+  const count = input.tokens.input + input.tokens.cache.read + input.tokens.cache.write
   return count >= usable(input)
 }
 
@@ -28,6 +27,7 @@ export function preflight(input: {
   model: Provider.Model
   estimatedInput: number
   unavoidableInput: number
+  compactionAttempted?: boolean
 }) {
   const full = isOverflow({
     cfg: input.cfg,
@@ -40,6 +40,6 @@ export function preflight(input: {
     },
   })
   if (!full) return "send" as const
-  if (input.unavoidableInput >= usable(input)) return "reject" as const
+  if (input.compactionAttempted || input.unavoidableInput >= usable(input)) return "reject" as const
   return "compact" as const
 }

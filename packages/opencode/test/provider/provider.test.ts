@@ -1752,6 +1752,39 @@ test("model limit defaults to zero when not specified", async () => {
   })
 })
 
+test("custom provider model context defaults to 128k when not specified", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            custom: {
+              name: "Custom Provider",
+              npm: "@ai-sdk/openai-compatible",
+              env: [],
+              models: {
+                model: {
+                  name: "Model",
+                },
+              },
+              options: { apiKey: "test", __octo_custom_provider: true },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const providers = await list()
+      expect(providers[ProviderID.make("custom")].models["model"].limit.context).toBe(128_000)
+    },
+  })
+})
+
 test("provider options are deeply merged", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {

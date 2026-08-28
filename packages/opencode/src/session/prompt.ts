@@ -1565,6 +1565,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           if (
             lastFinished &&
             lastFinished.summary !== true &&
+            lastFinished.providerID === model.providerID &&
+            lastFinished.modelID === model.id &&
             (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
           ) {
             yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
@@ -1678,6 +1680,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               tools: activeTools,
               model,
               toolChoice: format.type === "json_schema" || studioImageGeneration ? "required" : undefined,
+              compactionAttempted:
+                lastUserMsg?.parts.some(
+                  (part) =>
+                    "metadata" in part &&
+                    (part.metadata?.["compaction_continue"] === true || part.metadata?.["compaction_replay"] === true),
+                ) ?? false,
             })
 
             if (structured !== undefined) {

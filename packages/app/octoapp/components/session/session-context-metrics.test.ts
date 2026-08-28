@@ -38,7 +38,7 @@ const user = (id: string) => {
 }
 
 describe("getSessionContextMetrics", () => {
-  test("computes totals and usage from latest assistant with tokens", () => {
+  test("computes context usage from input and cache tokens", () => {
     const messages = [
       user("u1"),
       assistant("a1", { input: 0, output: 0, reasoning: 0, read: 0, write: 0 }, 0.5),
@@ -61,8 +61,8 @@ describe("getSessionContextMetrics", () => {
 
     expect(metrics.totalCost).toBe(1.75)
     expect(metrics.context?.message.id).toBe("a2")
-    expect(metrics.context?.total).toBe(500)
-    expect(metrics.context?.usage).toBe(50)
+    expect(metrics.context?.total).toBe(350)
+    expect(metrics.context?.usage).toBe(35)
     expect(metrics.context?.providerLabel).toBe("OpenAI")
     expect(metrics.context?.modelLabel).toBe("GPT-4.1")
   })
@@ -95,7 +95,26 @@ describe("getSessionContextMetrics", () => {
     const metrics = getSessionContextMetrics(messages, providers)
 
     expect(metrics.context?.limit).toBe(64_000)
-    expect(metrics.context?.usage).toBe(50)
+    expect(metrics.context?.usage).toBe(44)
+  })
+
+  test("uses the model input limit when it is smaller than the context limit", () => {
+    const messages = [assistant("a1", { input: 54_400, output: 20_000, reasoning: 0, read: 0, write: 0 }, 0.1)]
+    const providers = [
+      {
+        id: "openai",
+        models: {
+          "gpt-4.1": {
+            limit: { context: 128_000, input: 64_000 },
+          },
+        },
+      },
+    ]
+
+    const metrics = getSessionContextMetrics(messages, providers)
+
+    expect(metrics.context?.limit).toBe(64_000)
+    expect(metrics.context?.usage).toBe(85)
   })
 
   test("recomputes when message array is mutated in place", () => {

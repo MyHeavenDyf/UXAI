@@ -417,13 +417,25 @@ function autocontinue(enabled: boolean) {
 
 describe("session.compaction.isOverflow", () => {
   it.live(
-    "returns true when token count reaches 85% of context",
+    "returns true when input context reaches 85% of context",
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
         const model = createModel({ context: 100_000, output: 32_000 })
-        const tokens = { input: 80_000, output: 5_000, reasoning: 0, cache: { read: 0, write: 0 } }
+        const tokens = { input: 85_000, output: 5_000, reasoning: 0, cache: { read: 0, write: 0 } }
         expect(yield* compact.isOverflow({ tokens, model })).toBe(true)
+      }),
+    ),
+  )
+
+  it.live(
+    "ignores completion tokens when input context is below 85%",
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const compact = yield* SessionCompaction.Service
+        const model = createModel({ context: 100_000, output: 32_000 })
+        const tokens = { input: 80_000, output: 20_000, reasoning: 5_000, cache: { read: 0, write: 0 } }
+        expect(yield* compact.isOverflow({ tokens, model })).toBe(false)
       }),
     ),
   )
@@ -459,7 +471,7 @@ describe("session.compaction.isOverflow", () => {
             },
             outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
           },
-          estimated: { input: 80_000, output: 5_000 },
+          estimated: { input: 85_000, output: 5_000 },
         })
         expect(yield* compact.isOverflow({ tokens: usage.tokens, model })).toBe(true)
       }),
@@ -472,7 +484,7 @@ describe("session.compaction.isOverflow", () => {
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
         const model = createModel({ context: 100_000, output: 32_000 })
-        const tokens = { input: 65_000, output: 10_000, reasoning: 0, cache: { read: 10_000, write: 0 } }
+        const tokens = { input: 75_000, output: 10_000, reasoning: 0, cache: { read: 10_000, write: 0 } }
         expect(yield* compact.isOverflow({ tokens, model })).toBe(true)
       }),
     ),
@@ -520,7 +532,7 @@ describe("session.compaction.isOverflow", () => {
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
         const model = createModel({ context: 200_000, input: 200_000, output: 32_000 })
-        const tokens = { input: 160_000, output: 10_000, reasoning: 0, cache: { read: 0, write: 0 } }
+        const tokens = { input: 170_000, output: 10_000, reasoning: 0, cache: { read: 0, write: 0 } }
         expect(yield* compact.isOverflow({ tokens, model })).toBe(true)
       }),
     ),
@@ -532,7 +544,7 @@ describe("session.compaction.isOverflow", () => {
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
         const model = createModel({ context: 200_000, output: 32_000 })
-        const tokens = { input: 160_000, output: 10_000, reasoning: 0, cache: { read: 0, write: 0 } }
+        const tokens = { input: 170_000, output: 10_000, reasoning: 0, cache: { read: 0, write: 0 } }
         expect(yield* compact.isOverflow({ tokens, model })).toBe(true)
       }),
     ),
@@ -545,7 +557,7 @@ describe("session.compaction.isOverflow", () => {
         const compact = yield* SessionCompaction.Service
         const withInputLimit = createModel({ context: 400_000, input: 200_000, output: 32_000 })
         const withoutInputLimit = createModel({ context: 400_000, output: 32_000 })
-        const tokens = { input: 160_000, output: 10_000, reasoning: 0, cache: { read: 0, write: 0 } }
+        const tokens = { input: 170_000, output: 10_000, reasoning: 0, cache: { read: 0, write: 0 } }
 
         const withLimit = yield* compact.isOverflow({ tokens, model: withInputLimit })
         const withoutLimit = yield* compact.isOverflow({ tokens, model: withoutInputLimit })
@@ -600,7 +612,13 @@ describe("session.overflow.preflight", () => {
   })
 
   test("rejects requests whose unavoidable input is too large", () => {
-    expect(preflight({ cfg: config, model, estimatedInput: 90, unavoidableInput: 80 })).toBe("reject")
+    expect(preflight({ cfg: config, model, estimatedInput: 90, unavoidableInput: 85 })).toBe("reject")
+  })
+
+  test("rejects instead of compacting repeatedly after one compaction attempt", () => {
+    expect(
+      preflight({ cfg: config, model, estimatedInput: 90, unavoidableInput: 20, compactionAttempted: true }),
+    ).toBe("reject")
   })
 })
 

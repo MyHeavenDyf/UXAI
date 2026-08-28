@@ -468,6 +468,17 @@ export const layer: Layer.Layer<
                 output: Token.estimateChars(ctx.estimatedOutputChars),
               },
             })
+            const contextTokens = usage.tokens.input + usage.tokens.cache.read + usage.tokens.cache.write
+            const contextLimit = ctx.model.limit.input ?? ctx.model.limit.context
+            slog.info("context usage", {
+              providerID: ctx.model.providerID,
+              modelID: ctx.model.id,
+              input: contextTokens,
+              output: usage.tokens.output + usage.tokens.reasoning,
+              total: usage.tokens.total,
+              limit: contextLimit,
+              percent: contextLimit ? Math.round((contextTokens / contextLimit) * 10_000) / 100 : null,
+            })
             if (!ctx.assistantMessage.summary) {
               // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
               EventV2.run(SessionEvent.Step.Ended.Sync, {
@@ -699,6 +710,7 @@ export const layer: Layer.Layer<
               model: ctx.model,
               estimatedInput: ctx.estimatedInputTokens,
               unavoidableInput: unavoidableInputTokens,
+              compactionAttempted: streamInput.compactionAttempted,
             })
 
         return yield* Effect.gen(function* () {
@@ -713,7 +725,9 @@ export const layer: Layer.Layer<
               })
               if (preflightResult === "reject") {
                 ctx.assistantMessage.error = new MessageV2.ContextOverflowError({
-                  message: `The current request is too large to fit this model even after compacting conversation history. Estimated ${unavoidableInputTokens} input tokens with ${available} usable tokens. Reduce or split the attached files and try again.`,
+                  message: streamInput.compactionAttempted
+                    ? `The conversation is still too large for this model after one compaction attempt. Estimated ${ctx.estimatedInputTokens} input tokens with ${available} usable tokens. Start a new session or reduce the attached content and try again.`
+                    : `The current request is too large to fit this model even after compacting conversation history. Estimated ${unavoidableInputTokens} input tokens with ${available} usable tokens. Reduce or split the attached files and try again.`,
                 }).toObject()
                 ctx.assistantMessage.finish = "error"
                 yield* session.updateMessage(ctx.assistantMessage)

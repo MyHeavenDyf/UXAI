@@ -943,12 +943,12 @@ const sessionMessagesLoaded = createMemo(() => {
     () => getSessionContextMetrics(params.id ? (sync.data.message[params.id] ?? []) : [], providers.all()).context,
   )
   const contextLimit = createMemo(() => {
-    if (contextMetrics()?.limit) return contextMetrics()!.limit!
+    if (currentModel()?.limit.input) return currentModel()!.limit.input!
     if (currentModel()?.limit.context) return currentModel()!.limit.context
+    if (contextMetrics()?.limit) return contextMetrics()!.limit!
     return DEFAULT_CUSTOM_CONTEXT_LIMIT
   })
   const contextUsage = createMemo(() => {
-    if (contextMetrics()?.usage !== null && contextMetrics()?.usage !== undefined) return contextMetrics()!.usage!
     return contextLimit() ? Math.round(((contextMetrics()?.total ?? 0) / contextLimit()) * 100) : 0
   })
 
