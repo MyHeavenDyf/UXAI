@@ -180,11 +180,11 @@ export type ElectronAPI = {
   pipelineRequest: (url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) => Promise<any>
   getAssetsConfig: () => Promise<Record<string, unknown>>
 
-  /** 读取已保存的 W3 代理账号和密码 */
-  getProxyConfig: () => Promise<{ account: string; password: string } | null>
+  /** 读取已保存的 W3 代理账号、密码和代理节点 */
+  getProxyConfig: () => Promise<{ account: string; password: string; proxyHost?: string; proxyOptionId?: string; noProxy?: string } | null>
 
   /** 配置 W3 代理: 测试连通性后写入 ~/.config/octo/proxy_config.json */
-  configureProxy: (account: string, password: string) => Promise<{
+  configureProxy: (account: string, password: string, noProxy?: string, proxyHost?: string, proxyOptionId?: string) => Promise<{
     success: boolean
     curlUrl: string
     error?: string
