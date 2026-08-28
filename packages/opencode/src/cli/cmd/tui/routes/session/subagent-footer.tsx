@@ -36,12 +36,12 @@ export function SubagentFooter() {
     const last = msg.findLast((item): item is AssistantMessage => item.role === "assistant" && item.tokens.output > 0)
     if (!last) return
 
-    const tokens = last.tokens.input + last.tokens.cache.read + last.tokens.cache.write
+    const tokens =
+      last.tokens.input + last.tokens.output + last.tokens.reasoning + last.tokens.cache.read + last.tokens.cache.write
     if (tokens <= 0) return
 
     const model = sync.data.provider.find((item) => item.id === last.providerID)?.models[last.modelID]
-    const limit = model?.limit.input ?? model?.limit.context
-    const pct = limit ? `${Math.round((tokens / limit) * 100)}%` : undefined
+    const pct = model?.limit.context ? `${Math.round((tokens / model.limit.context) * 100)}%` : undefined
     const cost = msg.reduce((sum, item) => sum + (item.role === "assistant" ? item.cost : 0), 0)
 
     const money = new Intl.NumberFormat("en-US", {
