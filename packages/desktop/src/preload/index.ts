@@ -135,6 +135,7 @@ const api: ElectronAPI = {
   getAssetsConfig: () => ipcRenderer.invoke("get-assets-config"),
   // jk-j60099994-replace-with-index-1-start
   // jk-j60099994-replace-with-index-1-end
+  getProxyConfig: () => ipcRenderer.invoke("get-proxy-config"),
   configureProxy: (account, password) => ipcRenderer.invoke("configure-proxy", account, password),
 }
 

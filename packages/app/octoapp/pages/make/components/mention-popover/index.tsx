@@ -1,17 +1,29 @@
-import { createSignal, createMemo, createEffect, For, Show, onCleanup, onMount, type JSX } from "solid-js"
+import { createSignal, createMemo, createEffect, createRenderEffect, For, Show, onCleanup, onMount, type JSX } from "solid-js"
+import { Portal } from "solid-js/web"
 import { Icon } from "@opencode-ai/ui/icon"
 import type { PanelSkill, SkillConfigEntry } from "../skill-config-types"
 import { lookupDisplayName } from "../skill-config-types"
 import type { ArtifactFile } from "../../utils/artifact-file-api"
 import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "./icons"
+import { ProductAssetIcon } from "../addon-menu/icons"
 import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
+import {
+  fetchTeamTree,
+  fetchAssetFiles,
+  joinUrl,
+  inferKindFromUrl,
+  type AssetFolder,
+  type AssetFile,
+} from "../addon-menu/asset-library"
 import "./styles.css"
 
-export type MentionTab = 'skills' | 'files'
+export type MentionTab = 'skills' | 'product-assets' | 'files'
+
 export type MentionSelection =
   | { type: 'skill'; name: string; label: string }
   | { type: 'file'; filename: string; path: string }
+  | { type: 'product-asset'; filename: string; path: string; s3BaseUrl: string; convertHtmlUrl: string; snapshot: string }
 
 interface MentionPopoverProps {
   query: string
@@ -28,13 +40,40 @@ interface MentionPopoverProps {
     }
   }
   artifactFiles: { generated: ArtifactFile[]; uploaded: ArtifactFile[] } | null | undefined
+  productId?: number
+  onDownloadProductAsset?: (file: AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
+  onUpdateMentionPath?: (filename: string, path: string) => void
 }
 
 export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const [activeTab, setActiveTab] = createSignal<MentionTab>('skills')
   const [selectedCategory, setSelectedCategory] = createSignal<'platform' | 'custom' | 'design'>('platform')
   const [positionLeft, setPositionLeft] = createSignal(false)
+  
+  // 产品资产库状态
+  const [assetTopFolders, setAssetTopFolders] = createSignal<AssetFolder[]>([])
+  const [selectedTopFolderId, setSelectedTopFolderId] = createSignal<string | null>(null)
+  const [assetSubStack, setAssetSubStack] = createSignal<Array<{
+    folder: AssetFolder
+    children: AssetFolder[]
+    files: AssetFile[]
+    loadingFiles: boolean
+    selectedFolderId: string | null
+  }>>([])
+  const [selectedAssetFiles, setSelectedAssetFiles] = createSignal<AssetFile[]>([])
+  const [assetLoading, setAssetLoading] = createSignal(false)
+  const [assetError, setAssetError] = createSignal<string | null>(null)
+  const [assetPreview, setAssetPreview] = createSignal<AssetFile | null>(null)
+  const [assetPreviewLevel, setAssetPreviewLevel] = createSignal<number | null>(null)
+  const [assetPreviewLeft, setAssetPreviewLeft] = createSignal<number>(0)
+  const [assetPreviewBottom, setAssetPreviewBottom] = createSignal<number | null>(null)
+  const [assetPreviewTop, setAssetPreviewTop] = createSignal<number | null>(null)
+  const [assetDownloadOpen, setAssetDownloadOpen] = createSignal(false)
+  const [assetDownloadCancelled, setAssetDownloadCancelled] = createSignal(false)
+  const [assetDownloadCurrent, setAssetDownloadCurrent] = createSignal<string>("")
+  
   let containerRef: HTMLDivElement | undefined
+  let assetSecondaryRef: HTMLDivElement | undefined
 
   const updateSecondaryPosition = () => {
     if (!containerRef) return
@@ -56,7 +95,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     if (!containerRef) return
     const rect = containerRef.getBoundingClientRect()
     const spaceRight = window.innerWidth - rect.right
-    const panelWidth = activeTab() === 'skills' ? 257 : 400
+    const panelWidth = activeTab() === 'skills' ? 257 : activeTab() === 'product-assets' ? 248 : 400
     setPositionLeft(spaceRight < panelWidth + 16)
   }
 
@@ -108,6 +147,255 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     return { generated, uploaded }
   })
 
+  // 产品资产库数据加载
+  createEffect(() => {
+    if (activeTab() !== 'product-assets') return
+    if (assetTopFolders().length > 0) return // 已加载
+    
+    setAssetLoading(true)
+    setAssetError(null)
+    
+    fetchTeamTree(props.productId)
+      .then((folders) => {
+        setAssetTopFolders(folders)
+      })
+      .catch((err) => {
+        setAssetError(err instanceof Error ? err.message : String(err))
+      })
+      .finally(() => {
+        setAssetLoading(false)
+      })
+  })
+
+  // 产品资源库: 子菜单定位和翻转逻辑
+  createRenderEffect(() => {
+    const stack = assetSubStack()
+    if (stack.length <= 1) return
+    if (!assetSecondaryRef) return
+    const containerRect = assetSecondaryRef.getBoundingClientRect()
+    const levelEls = assetSecondaryRef.querySelectorAll(':scope > div')
+    
+    let prevRightEdge = containerRect.right
+    let prevLeftEdge = containerRect.left
+    
+    for (let i = 1; i < stack.length; i++) {
+      const prevLevelEl = levelEls[i - 1] as HTMLElement | null
+      const curLevelEl = levelEls[i] as HTMLElement | null
+      if (!prevLevelEl || !curLevelEl) continue
+      
+      const activeItem = prevLevelEl.querySelector('.mention-asset-folder--selected') as HTMLElement | null
+      if (!activeItem) continue
+      
+      // 垂直定位
+      const itemRect = activeItem.getBoundingClientRect()
+      const bottomOffset = containerRect.bottom - itemRect.bottom
+      const panelMaxHeight = 420
+      const panelTopIfBottom = itemRect.bottom - panelMaxHeight
+      if (panelTopIfBottom < 8) {
+        curLevelEl.style.top = `${itemRect.top - containerRect.top}px`
+        curLevelEl.style.bottom = 'auto'
+      } else {
+        curLevelEl.style.bottom = `${bottomOffset}px`
+        curLevelEl.style.top = 'auto'
+      }
+      
+      // 水平定位
+      const rightPos = prevRightEdge + 4
+      const rightEdgeIfRight = rightPos + 248
+      if (rightEdgeIfRight > window.innerWidth - 16) {
+        // 翻转到左侧
+        const leftPos = prevLeftEdge - 4 - 248
+        curLevelEl.style.left = `${leftPos - containerRect.left}px`
+        prevLeftEdge = leftPos
+        prevRightEdge = leftPos + 248
+      } else {
+        curLevelEl.style.left = `${rightPos - containerRect.left}px`
+        prevLeftEdge = rightPos
+        prevRightEdge = rightPos + 248
+      }
+    }
+  })
+
+  // 点击顶级文件夹（一级菜单项）
+  const handleTopFolderClick = async (folder: AssetFolder) => {
+    if (selectedTopFolderId() === folder.id.toString()) {
+      // 已选中，无操作
+      return
+    }
+    
+    setSelectedTopFolderId(folder.id.toString())
+    setAssetSubStack([])
+    
+    // 加载子文件夹和文件
+    try {
+      const files = await fetchAssetFiles(folder.id)
+      setAssetSubStack([{
+        folder,
+        children: folder.children ?? [],
+        files,
+        loadingFiles: false,
+        selectedFolderId: null,
+      }])
+    } catch (err) {
+      setAssetError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  // 点击子文件夹（二级及以下面板）
+  const handleSubFolderClick = async (levelIndex: number, folder: AssetFolder) => {
+    const stack = assetSubStack()
+    if (levelIndex >= stack.length) return
+    
+    const level = stack[levelIndex]
+    if (level.selectedFolderId === folder.id.toString()) {
+      return
+    }
+    
+    // 截断更深层级，并更新当前层的选中状态
+    setAssetSubStack(prev => {
+      if (levelIndex >= prev.length) return prev
+      const next = prev.slice(0, levelIndex + 1)
+      next[levelIndex] = { ...next[levelIndex], selectedFolderId: folder.id.toString() }
+      return next
+    })
+    
+    // 添加新层（先显示 loading）
+    setAssetSubStack(prev => [...prev, {
+      folder,
+      children: folder.children ?? [],
+      files: [],
+      loadingFiles: true,
+      selectedFolderId: null,
+    }])
+    
+    // 加载文件
+    try {
+      const files = await fetchAssetFiles(folder.id)
+      setAssetSubStack(prev => {
+        const next = [...prev]
+        if (next.length > 0) {
+          next[next.length - 1] = { ...next[next.length - 1], files, loadingFiles: false }
+        }
+        return next
+      })
+    } catch (err) {
+      setAssetError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  // 产品资产文件点击
+  const handleProductAssetClick = (file: AssetFile) => {
+    const selection: MentionSelection = {
+      type: 'file',
+      filename: file.fileName,
+      path: '',
+    }
+    if (isSelected(selection)) {
+      props.onDeselect(selection)
+      setSelectedAssetFiles(prev => prev.filter(f => f.fileName !== file.fileName))
+    } else {
+      props.onSelect(selection)
+      setSelectedAssetFiles(prev => [...prev, file])
+    }
+  }
+
+  // 收集选中的产品资产库文件（从 selectedAssetFiles 中获取）
+  const collectSelectedAssetFiles = (): AssetFile[] => {
+    return selectedAssetFiles().filter(file => 
+      props.selections.some(s => s.type === 'file' && !s.path && s.filename === file.fileName)
+    )
+  }
+
+  // 批量下载选中的产品资产库文件
+  let assetDownloadAbortController: AbortController | undefined
+  const downloadSelectedAssetFiles = async (selected: AssetFile[]) => {
+    if (selected.length === 0) return
+    setAssetDownloadCancelled(false)
+    assetDownloadAbortController = new AbortController()
+    setAssetDownloadOpen(true)
+    try {
+      for (const file of selected) {
+        if (assetDownloadCancelled()) break
+        setAssetDownloadCurrent(file.fileName)
+        const localPath = await props.onDownloadProductAsset?.(file, () => {}, assetDownloadAbortController.signal)
+        if (assetDownloadCancelled()) break
+        if (localPath) {
+          props.onUpdateMentionPath?.(file.fileName, localPath)
+        }
+      }
+      setAssetDownloadOpen(false)
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setAssetDownloadOpen(false)
+        return
+      }
+      setAssetError(err instanceof Error ? err.message : String(err))
+      setAssetDownloadOpen(false)
+    } finally {
+      assetDownloadAbortController = undefined
+    }
+  }
+
+  // 关闭下载弹窗
+  const closeAssetDownload = () => {
+    setAssetDownloadCancelled(true)
+    assetDownloadAbortController?.abort()
+    setAssetDownloadOpen(false)
+    // 移除 path 为空的 chip
+    for (const sel of props.selections) {
+      if (sel.type === 'file' && !sel.path) {
+        props.onDeselect(sel)
+      }
+    }
+  }
+
+  // 关闭面板（先触发下载，再关闭）
+  const closePopover = () => {
+    const selectedFiles = collectSelectedAssetFiles()
+    if (selectedFiles.length > 0) {
+      void downloadSelectedAssetFiles(selectedFiles)
+    }
+    props.onClose()
+  }
+
+  // 组件卸载时触发下载
+  onCleanup(() => {
+    const selectedFiles = collectSelectedAssetFiles()
+    if (selectedFiles.length > 0) {
+      void downloadSelectedAssetFiles(selectedFiles)
+    }
+  })
+
+  // 产品资产库: 顶级文件夹筛选 — 仅在未打开任何文件夹时(一级菜单本身是最深层)才筛选
+  // 一旦展开了文件夹,一级菜单变为父级导航,不再筛选,保证用户随时能切换到其他顶级文件夹
+  const filteredAssetTopFolders = createMemo(() => {
+    if (selectedTopFolderId()) return assetTopFolders()
+    const q = props.query.toLowerCase()
+    if (!q) return assetTopFolders()
+    return assetTopFolders().filter(f => f.name.toLowerCase().includes(q))
+  })
+
+  // 产品资产库: 仅筛选"当前打开的最深层"的辅助函数
+  // isDeepest = 当前 level 是 assetSubStack 的最后一项 (用户打开的最深层)
+  // 父级层级不筛选,保留完整的导航上下文
+  const filterAssetFolders = (folders: AssetFolder[], isDeepest: boolean) => {
+    if (!isDeepest) return folders
+    const q = props.query.toLowerCase()
+    if (!q) return folders
+    return folders.filter(c => c.name.toLowerCase().includes(q))
+  }
+  const filterAssetFiles = (files: AssetFile[], isDeepest: boolean) => {
+    if (!isDeepest) return files
+    const q = props.query.toLowerCase()
+    if (!q) return files
+    return files.filter(f => f.fileName.toLowerCase().includes(q))
+  }
+
+  // 取消下载
+  const cancelAssetDownload = () => {
+    setAssetDownloadCancelled(true)
+  }
+
   onMount(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "ArrowUp" || e.key === "ArrowDown") {
@@ -140,7 +428,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
       if (e.key === "Escape") {
         e.preventDefault()
         e.stopPropagation()
-        props.onClose()
+        closePopover()
       }
     }
     document.addEventListener("keydown", handler, true)
@@ -150,7 +438,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const isSelected = (selection: MentionSelection) => {
     return props.selections.some(s => 
       s.type === selection.type && 
-      (s.type === 'skill' ? s.name === (selection as any).name : s.path === (selection as any).path)
+      (s.type === 'skill' ? s.name === (selection as any).name : s.filename === (selection as any).filename)
     )
   }
 
@@ -162,7 +450,6 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     } else {
       props.onSelect(selection)
     }
-    props.onClose()
   }
 
   const handleFileClick = (file: { name: string; path: string }) => {
@@ -183,10 +470,14 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     if (activeTab() === 'skills') {
       return { width: '257px', bottom, ...sideStyle }
     }
+    if (activeTab() === 'product-assets') {
+      return { width: '248px', bottom, ...sideStyle }
+    }
     return { width: '400px', bottom, ...sideStyle }
   }
 
   return (
+    <>
     <div class="mention-popover-container" ref={containerRef}>
       {/* Tab Switch */}
       <div class="mention-tab-container">
@@ -196,6 +487,13 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           onClick={() => { setActiveTab('skills'); setSelectedCategory('platform') }}
         >
           技能库
+        </button>
+        <button
+          type="button"
+          class={`mention-tab-btn ${activeTab() === 'product-assets' ? 'mention-tab-btn--active' : ''}`}
+          onClick={() => { setActiveTab('product-assets') }}
+        >
+          产品资产库
         </button>
         <button
           type="button"
@@ -239,6 +537,40 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
             <span class="mention-primary-item-text">设计资产</span>
             <Icon name="chevron-right" size="small" class="mention-primary-item-arrow" />
           </button>
+        </Show>
+
+        <Show when={activeTab() === 'product-assets'}>
+          <Show when={assetLoading()}>
+            <div class="mention-loading-state" style={{ padding: '16px' }}>
+              加载中...
+            </div>
+          </Show>
+          <Show when={assetError()}>
+            <div class="mention-error-state" style={{ padding: '16px' }}>
+              {assetError()}
+            </div>
+          </Show>
+          <Show when={!assetLoading() && !assetError()}>
+            <Show when={filteredAssetTopFolders().length === 0}>
+              <div class="mention-empty-state">
+                <img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
+                <span class="mention-empty-state-text">暂无内容</span>
+              </div>
+            </Show>
+            <For each={filteredAssetTopFolders()}>
+              {(folder) => (
+                <button
+                  type="button"
+                  class={`mention-primary-item ${selectedTopFolderId() === folder.id.toString() ? 'mention-primary-item--selected' : ''}`}
+                  onClick={() => handleTopFolderClick(folder)}
+                >
+                  <Icon name="folder" size="small" />
+                  <span class="mention-primary-item-text" title={folder.name}>{folder.name}</span>
+                  <Icon name="chevron-right" size="small" class="mention-primary-item-arrow" />
+                </button>
+              )}
+            </For>
+          </Show>
         </Show>
       </div>
 
@@ -371,6 +703,188 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
           </div>
         )}
       </Show>
+
+      {/* Product Assets Secondary Panel */}
+      <Show when={activeTab() === 'product-assets' && selectedTopFolderId()}>
+        <div class="mention-secondary-panel" ref={assetSecondaryRef} style={{ ...secondaryPanelStyle(), overflow: 'visible' }}>
+          <For each={assetSubStack()}>
+            {(level, levelIndex) => {
+              const isDeepest = () => levelIndex() === assetSubStack().length - 1
+              const visibleChildren = () => filterAssetFolders(level.children, isDeepest())
+              const visibleFiles = () => filterAssetFiles(level.files, isDeepest())
+              return (
+                <div
+                  class={levelIndex() === 0 ? 'mention-asset-root' : 'mention-asset-level'}
+                  style={{
+                    position: levelIndex() === 0 ? 'static' : 'absolute',
+                    left: levelIndex() === 0 ? undefined : `${levelIndex() * 252}px`,
+                    top: levelIndex() === 0 ? undefined : 0,
+                    width: levelIndex() === 0 ? undefined : '248px',
+                    'max-height': levelIndex() === 0 ? undefined : '420px',
+                    'overflow-y': levelIndex() === 0 ? undefined : 'auto',
+                    'overflow-x': levelIndex() === 0 ? undefined : 'hidden',
+                  }}
+                >
+                  {/* 子文件夹列表 */}
+                  <For each={visibleChildren()}>
+                    {(folder) => (
+                      <button
+                        type="button"
+                        class={`mention-asset-folder ${level.selectedFolderId === folder.id.toString() ? 'mention-asset-folder--selected' : ''}`}
+                        onClick={() => handleSubFolderClick(levelIndex(), folder)}
+                      >
+                        <Icon name="folder" size="small" />
+                        <span class="mention-asset-folder-name" title={folder.name}>{folder.name}</span>
+                        <Icon name="chevron-right" size="small" />
+                      </button>
+                    )}
+                  </For>
+
+                  {/* 文件列表 */}
+                  <Show when={visibleFiles().length > 0}>
+                    <For each={visibleFiles()}>
+                      {(file) => {
+                        const sel: MentionSelection = {
+                          type: 'file',
+                          filename: file.fileName,
+                          path: '',
+                        }
+                        const FileIcon = getFileIcon(inferKindFromUrl(file.convertHtmlUrl), file.fileName)
+                        return (
+                          <button
+                            type="button"
+                            class={`mention-secondary-item mention-secondary-item--asset ${isSelected(sel) ? 'mention-secondary-item--selected' : ''}`}
+                            onClick={() => handleProductAssetClick(file)}
+                            onMouseEnter={(e) => {
+                              const itemRect = e.currentTarget.getBoundingClientRect()
+
+                              setAssetPreview(file)
+                              setAssetPreviewLevel(levelIndex())
+
+                              // hover 弹窗使用 Portal，使用视口坐标
+                              const previewWidth = 256
+                              const previewHeight = 330
+
+                              // 默认：文件项右侧
+                              const defaultLeft = itemRect.right + 12
+                              const rightEdge = defaultLeft + previewWidth
+                              let left: number
+
+                              if (rightEdge > window.innerWidth - 16) {
+                                // 溢出右侧 → 定位在文件项左侧
+                                left = itemRect.left - previewWidth - 12
+                                if (left < 16) {
+                                  left = 16
+                                }
+                              } else {
+                                left = defaultLeft
+                              }
+
+                              // 垂直定位：下边对齐
+                              const bottom = window.innerHeight - itemRect.bottom
+                              const popupTopInViewport = itemRect.bottom - previewHeight
+
+                              let top: number | null = null
+
+                              if (popupTopInViewport < 16) {
+                                top = itemRect.top
+                              }
+
+                              setAssetPreviewLeft(Math.max(16, left))
+                              setAssetPreviewBottom(top ? null : bottom)
+                              setAssetPreviewTop(top)
+                            }}
+                            onMouseLeave={() => setAssetPreview(null)}
+                          >
+                            <div class={`mention-checkbox ${isSelected(sel) ? 'mention-checkbox--checked' : ''}`}>
+                              <Show when={isSelected(sel)}>
+                                <Icon name="check" size="small" style="color: white" />
+                              </Show>
+                            </div>
+                            <FileIcon size={20} />
+                            <span class="mention-secondary-item-text" title={file.fileName}>{file.fileName}</span>
+                          </button>
+                        )
+                      }}
+                    </For>
+                  </Show>
+
+                  {/* 加载中 */}
+                  <Show when={level.loadingFiles}>
+                    <div class="mention-loading-state">
+                      加载中...
+                    </div>
+                  </Show>
+
+                  {/* 空状态 */}
+                  <Show when={visibleChildren().length === 0 && visibleFiles().length === 0 && !level.loadingFiles}>
+                    <div class="mention-loading-state">
+                      暂无内容
+                    </div>
+                  </Show>
+                </div>
+              )
+            }}
+          </For>
+        </div>
+      </Show>
     </div>
+    
+    {/* hover 预览弹窗 */}
+    <Portal>
+      <Show when={assetPreview()}>
+        <div 
+          class="mention-asset-preview"
+          style={{
+            position: 'fixed',
+            left: `${assetPreviewLeft()}px`,
+            bottom: assetPreviewBottom() !== null ? `${assetPreviewBottom()}px` : undefined,
+            top: assetPreviewTop() !== null ? `${assetPreviewTop()}px` : undefined,
+          }}
+          onMouseEnter={() => {
+            // 可以添加逻辑让用户可以移动到弹窗上
+          }}
+          onMouseLeave={() => {
+            setAssetPreview(null)
+            setAssetPreviewLevel(null)
+            setAssetPreviewBottom(null)
+          }}
+        >
+          <div class="mention-asset-preview-header">{assetPreview()!.fileName}</div>
+          <div class="mention-asset-preview-image">
+            <img 
+              src={joinUrl(assetPreview()!.s3BaseUrl, assetPreview()!.snapshot)} 
+              alt={assetPreview()!.fileName}
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = 'none'
+              }}
+            />
+          </div>
+        </div>
+      </Show>
+    </Portal>
+    
+    {/* 下载弹窗 */}
+    <Portal>
+      <Show when={assetDownloadOpen()}>
+        <div class="mention-download-overlay" onClick={cancelAssetDownload}>
+          <div class="mention-download-dialog" onClick={(e) => e.stopPropagation()}>
+            <div class="mention-download-header">
+              <span class="mention-download-title">从产品资产库接收</span>
+              <button type="button" class="mention-download-close" onClick={cancelAssetDownload}>
+                <Icon name="close" size="small" />
+              </button>
+            </div>
+            <div class="mention-download-body">
+              <div class="mention-download-text">资源下载中</div>
+              <Show when={assetDownloadCurrent()}>
+                <div class="mention-download-current">{assetDownloadCurrent()}</div>
+              </Show>
+            </div>
+          </div>
+        </div>
+      </Show>
+    </Portal>
+  </>
   )
 }

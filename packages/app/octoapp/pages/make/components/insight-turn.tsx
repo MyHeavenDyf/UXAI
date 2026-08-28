@@ -25,8 +25,10 @@ import { isElectronDesktop, pathToLocalUrl } from "../utils/artifact-file-api"
 import { lookupDisplayName } from "./skill-config-types"
 
 function renderMentionText(text: string): JSX.Element {
-  const parts = text.split(/(@[^\s@]+)/g)
-  
+  // 正则终止符用零宽空格 ​(不是普通 \s),这样 chip 名内的普通空格不会被截断。
+  // getDocTextWithMentions 在 chip 前后各插入一个 ​ 作为边界标记。
+  const parts = text.split(/(@[^​@]+)/g)
+
   return (
     <>
       {parts.map((part) => {

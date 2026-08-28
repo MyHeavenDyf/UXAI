@@ -490,7 +490,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               }}
             >
               <span class="addon-menu-item-icon"><AssetsIcon /></span>
-              <span class="addon-menu-item-text">产品资源库</span>
+              <span class="addon-menu-item-text">产品资产库</span>
               <Icon name="chevron-right" size="small" class="addon-menu-item-arrow" />
             </button>
 
@@ -525,7 +525,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               <span class="addon-menu-item-text">进入设计策略模式</span>
             </button>
 
-            {/* 进入patternPage模式 */}
+             {/* 进入patternPage模式 */}
             <button
               type="button"
               class="addon-menu-item"
@@ -539,8 +539,8 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               <span class="addon-menu-item-text">进入patternPage模式</span>
             </button>
 
-            {/* 接收设计资产链接URL */}
-            <button
+            {/* 接收设计资产链接URL — 暂时隐藏 */}
+            {/* <button
               type="button"
               class="addon-menu-item"
               onClick={() => {
@@ -550,7 +550,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
             >
               <span class="addon-menu-item-icon"><LinkUrlIcon /></span>
               <span class="addon-menu-item-text">接收设计资产链接URL</span>
-            </button>
+            </button> */}
 
             {/* 添加附件 */}
             <button
@@ -991,7 +991,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
         </Portal>
       </Show>
 
-      {/* 产品资源库下载弹窗 — 标题"从产品资产库接收", 无进度条, 说明"资源下载中" */}
+      {/* 产品资源库下载弹窗 — 标题"从产品资源库接收", 无进度条, 说明"资源下载中" */}
       <Show when={assetDownloadOpen()}>
         <Portal>
           <div class="addon-menu-url-overlay">

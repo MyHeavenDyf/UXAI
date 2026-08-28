@@ -5,7 +5,7 @@ import { type MentionSelection } from "./components/mention-popover"
 import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
 import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
-import { OctoToast, showOctoToast } from "./components/octo-toast"
+import { showOctoToast } from "./components/octo-toast"
 import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
@@ -701,7 +701,9 @@ const sessionMessagesLoaded = createMemo(() => {
       const e = evt.details
       const props = e.properties as Record<string, unknown> | undefined
       const eventSessionID = props?.sessionID as string | undefined
-      if (eventSessionID && eventSessionID !== sid && !childSessionIDs().has(eventSessionID)) return
+      const activePlanID = activePlanSessionId()
+      const isCurrentPlanChild = !!activePlanID && planParentSessionId() === sid && eventSessionID === activePlanID
+      if (eventSessionID && eventSessionID !== sid && !isCurrentPlanChild) return
       
       if (e.type === "message.part.delta") {
         setLastDeltaTime(Date.now())
@@ -901,9 +903,14 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 策略表单数据（从子 agent artifact 中扫描 + 用户手动编辑） */
   const [manualStrategyFormData, setManualStrategyFormData] = createSignal<Partial<StrategyFormData>>({})
 
+  const activePlanForCurrentSession = createMemo(() => {
+    const planSid = activePlanSessionId()
+    return params.id && planParentSessionId() === params.id ? planSid : null
+  })
+
   const strategyFormData = createMemo(() => {
     // 优先从活跃的子 session 获取
-    const activePlanSid = activePlanSessionId()
+    const activePlanSid = activePlanForCurrentSession()
     if (activePlanSid) {
       const messages = sync.data.message?.[activePlanSid]
       const parts = sync.data.part
@@ -936,15 +943,18 @@ const sessionMessagesLoaded = createMemo(() => {
    */
   const [hasChildPlanSession, setHasChildPlanSession] = createSignal(false)
   async function detectChildPlanSession(sid: string): Promise<string | null> {
-    if (!sdk.directory) return null
+    if (!sdk.directory || params.id !== sid) return null
     try {
       const res = await sdk.client.session.list({ directory: sdk.directory })
+      if (params.id !== sid) return null
       const sessions = (res.data ?? []).filter((s: any) => !!s?.id)
       const children = sessions.filter((s: any) => s.parentID === sid && !s.time?.archived)
       const planChild = children.find((s: any) => s.agent === "octo_make_plan")
 
       for (const child of children) {
+        if (params.id !== sid) return null
         await sync.session.sync(child.id)
+        if (params.id !== sid) return null
         loadedChildSessions.add(child.id)
         setChildSessionIDs((prev) => {
           const next = new Set(prev)
@@ -960,6 +970,7 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       }
 
+      if (params.id !== sid) return null
       if (planChild) {
         setHasChildPlanSession(true)
         return planChild.id
@@ -988,11 +999,16 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 加载子会话数据 */
   async function ensureChildSession(subSessionID: string) {
-    if (!subSessionID || loadedChildSessions.has(subSessionID)) return
+    const ownerSessionID = params.id
+    if (!subSessionID || !ownerSessionID || loadedChildSessions.has(subSessionID)) return
 
     loadedChildSessions.add(subSessionID)
     try {
       await sync.session.sync(subSessionID)
+      if (params.id !== ownerSessionID) {
+        loadedChildSessions.delete(subSessionID)
+        return
+      }
       setChildSessionIDs((prev) => {
         const next = new Set(prev)
         next.add(subSessionID)
@@ -1004,20 +1020,25 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   const discoverChildSessions = async (sid: string) => {
-    if (!sdk.directory) return
+    if (!sdk.directory || params.id !== sid) return
     try {
       const res = await sdk.client.session.list({ directory: sdk.directory })
+      if (params.id !== sid) return
       const children = (res.data ?? []).filter((s: any) => s.parentID === sid && !s.time?.archived)
       const discovered = new Set<string>()
       const discoveredPlans = new Set<string>()
       for (const child of children) {
+        if (params.id !== sid) return
         await sync.session.sync(child.id)
         if (params.id !== sid) return
         discovered.add(child.id)
         if (child.agent === "octo_make_plan") discoveredPlans.add(child.id)
       }
-      setChildSessionIDs(discovered)
-      setPlanChildSessionIDs(discoveredPlans)
+      if (params.id !== sid) return
+      if (discovered.size > 0) {
+        setChildSessionIDs((prev) => new Set([...prev, ...discovered]))
+        setPlanChildSessionIDs((prev) => new Set([...prev, ...discoveredPlans]))
+      }
     } catch {
       // 静默失败
     }
@@ -1079,29 +1100,11 @@ const sessionMessagesLoaded = createMemo(() => {
     return sync.data.session_status[id] ?? { type: "idle" }
   })
 
-  const isBusy = createMemo(() => {
-    if (sessionStatus().type !== "idle") return true
-    const id = params.id
-    if (!id) return false
-
-    const rootMessages = (sync.data.message?.[id] ?? []) as Message[]
-    const lastRootAssistant = rootMessages.findLast((message) => message.role === "assistant")
-    if (lastRootAssistant && typeof lastRootAssistant.time.completed !== "number") return true
-
-    for (const childID of childSessionIDs()) {
-      const childMessages = (sync.data.message?.[childID] ?? []) as Message[]
-      const lastChildAssistant = childMessages.findLast((message) => message.role === "assistant")
-      if (lastChildAssistant && typeof lastChildAssistant.time.completed !== "number") return true
-      if (childMessages.some((message) => message.role === "user") && !lastChildAssistant) return true
-    }
-    return false
-  })
+  const isBusy = createMemo(() => sessionStatus().type !== "idle")
 
   const childBusy = createMemo(() => {
-    for (const childID of childSessionIDs()) {
-      if (sync.data.session_status[childID]?.type === "busy") return true
-    }
-    return false
+    const planSid = activePlanForCurrentSession()
+    return !!planSid && sync.data.session_status[planSid]?.type === "busy"
   })
 
   const effectiveBusy = createMemo(() => isBusy() || childBusy() || patternBlockMatching())
@@ -1576,8 +1579,7 @@ const sessionMessagesLoaded = createMemo(() => {
   // 只在活跃的 plan 模式下回退到主 session 扫描，
   // 避免主 session 中 agent 输出的 design-plan artifact 被重复捕获。
   const planCard = createMemo(() => {
-    // 优先从活跃的子 session 扫描
-    const activePlanSid = activePlanSessionId()
+    const activePlanSid = activePlanForCurrentSession()
     if (activePlanSid) {
       const card = scanDesignPlanFromMessages(sync.data.message?.[activePlanSid], sync.data.part, activePlanSid)
       if (card) return card
@@ -1601,7 +1603,7 @@ const sessionMessagesLoaded = createMemo(() => {
     const ident = planCard()?.artifactIdentifier
     if (!ident) return false
     // 从 planCard 对应的 session 检测确认状态
-    const planSid = planCard()?.id?.split(":")[1] || activePlanSessionId() || params.id
+    const planSid = planCard()?.id?.split(":")[1] || activePlanForCurrentSession() || params.id
     if (!planSid) return false
     return isPlanConfirmed(sync.data.message?.[planSid], sync.data.part, ident)
   })
@@ -1663,7 +1665,7 @@ const sessionMessagesLoaded = createMemo(() => {
   // 注意：不检测 [strategy-complete]（handleGenerateStrategy 已同步设置 phase，不需要自动检测）
   createEffect(on(
     () => {
-      const planSid = activePlanSessionId()
+      const planSid = activePlanForCurrentSession()
       if (!planSid) return null
       // 如果用户手动切换了 phase，不自动切换
       if (userChangedPhase()) return null
@@ -1728,7 +1730,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 用户点击 [策略生成] → 把表单数据发给子 agent，切换到第二阶段 */
   function handleGenerateStrategy() {
-    const planSid = activePlanSessionId()
+    const planSid = activePlanForCurrentSession()
     const key = activeModelKey()
     if (!planSid || !key) return
     setIsGenerating(true)  // 立即禁用按钮
@@ -1745,7 +1747,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 用户点击 [上一步] / [返回策略准备] → 返回策略准备阶段 */
   function handleBackToStrategy() {
-    const planSid = activePlanSessionId()
+    const planSid = activePlanForCurrentSession()
     const key = activeModelKey()
     setUserChangedPhase(true)  // 标记用户手动切换
     setPlanPhase("strategy")
@@ -1758,7 +1760,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 用户点击 [确认开始生成] → 向主 session 发送确认指令，通知主 agent 设计规划已完成，开始生成 HTML */
   async function handleConfirmPlan(identifier?: string) {
-    const planSid = activePlanSessionId()
+    const planSid = activePlanForCurrentSession()
     const modelKey = activeModelKey()
     const mainSid = params.id
     if (!planSid || !modelKey || !mainSid) return
@@ -1833,7 +1835,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 用户点击 [结束子agent] → 中止子 agent 运行 + 退出 plan 模式，保留子 session 的对话数据 */
   function handleEndPlan() {
-    const currentChildId = activePlanSessionId()
+    const currentChildId = activePlanForCurrentSession()
     if (currentChildId) {
       // 中止子 session 正在运行的 agent
       sdk.client.session.abort({ sessionID: currentChildId }).catch(() => {})
@@ -2444,14 +2446,14 @@ const sessionMessagesLoaded = createMemo(() => {
     // 监控子 session 状态：子 agent 空闲但无有效 plan 时复位 isGenerating（弱模型格式异常兜底）
   createEffect(on(
     () => {
-      const planSid = activePlanSessionId()
+      const planSid = activePlanForCurrentSession()
       return planSid ? sync.data.session_status[planSid]?.type : null
     },
     (statusType) => {
       if (statusType === "idle" && isGenerating()) {
         // 子 agent 空闲了但 isGenerating 仍为 true，说明模型未输出有效 design-plan
         // 检查是否确实没有 planCard
-        const planSid = activePlanSessionId()
+        const planSid = activePlanForCurrentSession()
         if (!planSid) return
         const card = scanDesignPlanFromMessages(sync.data.message?.[planSid], sync.data.part, planSid)
         if (!card) {
@@ -2582,13 +2584,45 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 发送消息：组装 DesignSystem + Craft 上下文，调用 session.prompt */
   async function sendMessage(sessionId: string, text: string, modelKey: { providerID: string; modelID: string }, mentions?: MentionAttrs[]) {
     try {
+      // For file chips whose path is in tmps (new-conversation pending downloads), rename the
+      // local file into the session's uploads directory and update the chip path before processing.
+      const selections = mentions ?? []
+      const baseDir = projectDir()
+      const api = getDesktopApi()
+      if (baseDir && api?.renameFile && api?.fileExists && sessionId) {
+        const sep = baseDir.includes("\\") ? "\\" : "/"
+        const tmpsMarker = [".octo", "tmps", "make", "uploads"].join(sep)
+        const uploadsDir = [baseDir, ".octo", sessionId, "uploads"].join(sep)
+        for (const sel of selections) {
+          if (sel.type !== "file") continue
+          const p = sel.path
+          if (!p || !p.includes(tmpsMarker)) continue
+          try {
+            // Resolve unique filename in session uploads dir (handle collisions)
+            const filename = p.split(sep).pop() || sel.name
+            let candidate = filename
+            let i = 1
+            const dot = filename.lastIndexOf(".")
+            const base = dot > 0 ? filename.slice(0, dot) : filename
+            const ext = dot > 0 ? filename.slice(dot) : ""
+            while (await api.fileExists!([uploadsDir, candidate].join(sep))) {
+              candidate = `${base} (${i})${ext}`
+              i++
+            }
+            const newPath = [uploadsDir, candidate].join(sep)
+            await api.renameFile!(p, newPath)
+            const ref = proseMirrorRef1 ?? proseMirrorRef2
+            ref?.updateMentionPath?.(sel.name, newPath)
+            sel.path = newPath
+          } catch (err) {
+            console.warn("[octo:make] upload-move failed, keep tmps path", { name: sel.name, path: p, err })
+          }
+        }
+      }
+
       // Process mention selections: replace chip text with model format
       let processedText = text
       let displayText = text
-      const selections = mentions ?? []
-      
-      console.log("[sendMessage] mentions:", mentions)
-      console.log("[sendMessage] skillToolCalls:", skillToolCalls())
 
       for (const sel of selections) {
         if (sel.type === 'skill') {
@@ -2602,8 +2636,9 @@ const sessionMessagesLoaded = createMemo(() => {
           processedText = processedText.replace(`@${sel.name}`, ` 读取${sel.path} 这个文件 `)
         }
       }
-      // Clean up extra spaces
-      processedText = processedText.replace(/  +/g, ' ').trim()
+      // Clean up extra spaces and strip zero-width space (​) used as chip boundary marker
+      // (see getDocTextWithMentions in schema.ts — chip 前后插入 ​ 作为边界,送给模型前要剥离)
+      processedText = processedText.replace(/​/g, '').replace(/  +/g, ' ').trim()
       
       console.log("[sendMessage] displayText:", displayText)
       console.log("[sendMessage] processedText:", processedText)
@@ -2676,29 +2711,50 @@ const sessionMessagesLoaded = createMemo(() => {
       const segments = processedText.split(/(?=\/\S)/)
       const cmdSegments: { cmd: string; args: string }[] = []
       let hasCommand = false
+      // 命令名可能含空格 (chip 名带空格时,如 skillName="my skill"),
+      // 不能用 \S+ 切边界 (会在第一个空格处停)。
+      // 按名字长度降序排,优先匹配最长命令,避免 "foo" 抢前缀于 "foo bar"。
+      const sortedCommands = [...sync.data.command].sort((a, b) => b.name.length - a.name.length)
       for (const seg of segments) {
         const trimmed = seg.trim()
         if (!trimmed) continue
-        const m = trimmed.match(/^\/(\S+)([\s\S]*)$/)
-        if (m) {
-          const cmdName = m[1]
-          const matched = cmdName ? sync.data.command.find((c) => c.name === cmdName) : undefined
-          if (cmdName && matched) {
-            console.log("[MakePage] slash-detect matched command:", {
-              cmdName,
-              source: matched.source,
-              args: m[2].trim(),
-            })
-            cmdSegments.push({ cmd: cmdName, args: m[2].trim() })
-            hasCommand = true
-            continue
+        if (!trimmed.startsWith('/')) {
+          // Non-command segment: only keep if no commands found (for prompt fallback)
+          if (!hasCommand) {
+            cmdSegments.push({ cmd: "", args: trimmed })
           }
-          // /cmd 存在但不在 sync.data.command 中 → 会落入 prompt 纯文本，不触发 skill.used
-          console.log("[MakePage] slash-detect NOT in sync.data.command:", {
-            cmdName,
-            fallbackToPrompt: !hasCommand,
-          })
+          continue
         }
+        // 尝试匹配 sync.data.command 里的命令名 (支持含空格的命令名)
+        let matched: typeof sortedCommands[number] | undefined
+        let args = ''
+        for (const c of sortedCommands) {
+          const fullCmd = `/${c.name}`
+          if (trimmed.startsWith(fullCmd)) {
+            // 边界检查:命令名后必须是空白或字符串结束,避免 "foo" 错配到 "foobar"
+            const nextChar = trimmed[fullCmd.length]
+            if (nextChar === undefined || /\s/.test(nextChar)) {
+              matched = c
+              args = trimmed.slice(fullCmd.length).trim()
+              break
+            }
+          }
+        }
+        if (matched) {
+          console.log("[MakePage] slash-detect matched command:", {
+            cmdName: matched.name,
+            source: matched.source,
+            args,
+          })
+          cmdSegments.push({ cmd: matched.name, args })
+          hasCommand = true
+          continue
+        }
+        // /cmd 存在但不在 sync.data.command 中 → 会落入 prompt 纯文本，不触发 skill.used
+        console.log("[MakePage] slash-detect NOT in sync.data.command:", {
+          trimmed,
+          fallbackToPrompt: !hasCommand,
+        })
         // Non-command segment: only keep if no commands found (for prompt fallback)
         if (!hasCommand) {
           cmdSegments.push({ cmd: "", args: trimmed })
@@ -3127,7 +3183,7 @@ if (dsId) {
 
   /** 终止当前生成 */
   async function halt() {
-    const childId = activePlanSessionId() ?? activePatternSessionId()
+    const childId = activePlanForCurrentSession()
     if (childId && childBusy()) {
       tracker.interaction({ module: "design", name: "stop-generation" })
       await sdk.client.session.abort({ sessionID: childId }).catch(() => {})
@@ -3858,6 +3914,13 @@ if (dsId) {
       if (!linkContent) return
 
       if (/^https?:\/\//i.test(linkContent)) {
+        // 去重:如果 ResultViewer 已有同 URL 的 html tab(可能由文件管理入口打开),直接激活
+        const existingUrl = tabStore.tabs().find(t => t.type === "html" && t.filePath === linkContent)
+        if (existingUrl) {
+          tabStore.activate(existingUrl.id)
+          tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "url", reused: true }) })
+          return
+        }
         const tabId = `link-url-${linkContent.replace(/[/\\:?#&=]/g, "-")}`
         tabStore.openTab({
           id: tabId,
@@ -3890,6 +3953,29 @@ if (dsId) {
         absolutePath += normalizedPath
       }
       absolutePath = absolutePath.replace(/\/+/g, "/")
+
+      // 去重:如果 ResultViewer 已有同 filePath 的 tab(可能由文件管理入口打开),
+      // 直接激活,并刷新内容(镜像 non-link 分支 3368-3389 的逻辑)
+      // 注意:已有 tab 的 filePath 可能保留 Windows 反斜杠(来自 artifactFileToOutputCard
+      // 的 file.path),而 absolutePath 已归一化为正斜杠,需两侧统一再比较
+      const existingLocal = tabStore.tabs().find(t => {
+        if (!t.filePath || t.type === "design-plan") return false
+        return t.filePath.replace(/\\/g, "/") === absolutePath
+      })
+      if (existingLocal) {
+        const api = getDesktopApi()
+        const buf = await api?.readFileBuffer?.(existingLocal.filePath!)
+        if (buf) {
+          const fileContent = new TextDecoder().decode(buf)
+          if (fileContent && fileContent !== existingLocal.content) {
+            tabStore.updateTabContent(existingLocal.id, fileContent)
+            await historyController.onTabOpen({ ...existingLocal, content: fileContent }, existingLocal)
+          }
+        }
+        tabStore.activate(existingLocal.id)
+        tracker.interaction({ module: "design", name: "preview-link", extend: JSON.stringify({ type: "local", reused: true }) })
+        return
+      }
 
       const tabId = `link-file-${absolutePath.replace(/[/\\:]/g, "-")}`
       const inferredType = inferOutputType(absolutePath)
@@ -3933,10 +4019,16 @@ if (dsId) {
     
     // ★ Step 0: 如果已有匹配的 tab，直接激活（但先检查文件内容是否变化，变化则记录 agent 版本）
     if (card.filePath) {
+      // 归一化:已有 tab 的 filePath 可能保留 Windows 反斜杠(来自 artifactFileToOutputCard
+      // 的 file.path),card.filePath 也可能来自不同入口(handleOpenLocalFile 已归一化为正斜杠,
+      // Design Files 保留原始反斜杠),两侧统一后再比较
+      const normalizedCardPath = card.filePath.replace(/\\/g, "/")
       const existingTab = tabStore.tabs().find(t => {
-        if (t.type === "html" && isUrl) return t.filePath === card.filePath
-        if (t.type === "html" || t.type === "svg") return t.filePath === card.filePath
-        if (["image", "video", "audio", "pdf", "text"].includes(t.type)) return t.filePath === card.filePath
+        if (!t.filePath) return false
+        const normalizedTPath = t.filePath.replace(/\\/g, "/")
+        if (t.type === "html" && isUrl) return normalizedTPath === normalizedCardPath
+        if (t.type === "html" || t.type === "svg") return normalizedTPath === normalizedCardPath
+        if (["image", "video", "audio", "pdf", "text"].includes(t.type)) return normalizedTPath === normalizedCardPath
         return false
       })
       if (existingTab) {
@@ -4120,7 +4212,7 @@ if (dsId) {
       })
   }
 
-  const inputDisabled = () => !activeModelKey() || !!questionRequest() || !!permissionRequest()
+  const inputDisabled = () => sending() || effectiveBusy() || !activeModelKey() || !!questionRequest() || !!permissionRequest()
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
@@ -4434,13 +4526,16 @@ if (dsId) {
                           setSlashIndex(0)
                         }}
                         onSlashClose={() => setSlashState(null)}
-                       onPreview={(url) => {
-                         handleOpenLocalFile(url)
-                         proseMirrorRef1?.clear()
-                         proseMirrorRef2?.clear()
-                       }}
-                       ref={(el) => { proseMirrorRef1 = el }}
-                     />
+onPreview={(url) => {
+                          handleOpenLocalFile(url)
+                          proseMirrorRef1?.clear()
+                          proseMirrorRef2?.clear()
+                        }}
+                        ref={(el) => { proseMirrorRef1 = el }}
+                        productId={projectSelection()?.product?.id}
+                        onDownloadProductAsset={downloadProductAsset}
+                        onUpdateMentionPath={handleAddonUpdateMentionPath}
+                      />
                     </div>
                     <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
@@ -4475,9 +4570,7 @@ if (dsId) {
                           onUpdateMentionPath={handleAddonUpdateMentionPath}
                           productId={projectSelection()?.product?.id}
                           onEnterDesignStrategy={handleOpenPlanConfirm}
-                          planActive={params.id ? activePlanSessionId() !== null : planComposerActive()}
-                          onEnterPatternPage={handleOpenPatternPageConfirm}
-                          patternPageActive={activePatternSessionId() !== null || patternBlockMatching()}
+                          planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
                           onOpen={loadSkillConfig}
                           disabled={maxAttachments()}
                         />
@@ -4772,13 +4865,16 @@ if (dsId) {
                          setSlashIndex(0)
                        }}
                        onSlashClose={() => setSlashState(null)}
-                      onPreview={(url) => {
-                        handleOpenLocalFile(url)
-                        proseMirrorRef1?.clear()
-                        proseMirrorRef2?.clear()
-                      }}
-                      ref={(el) => { proseMirrorRef2 = el }}
-                   />
+onPreview={(url) => {
+                         handleOpenLocalFile(url)
+                         proseMirrorRef1?.clear()
+                         proseMirrorRef2?.clear()
+                       }}
+                       ref={(el) => { proseMirrorRef2 = el }}
+                       productId={projectSelection()?.product?.id}
+                       onDownloadProductAsset={downloadProductAsset}
+                       onUpdateMentionPath={handleAddonUpdateMentionPath}
+                    />
                   <div class="flex items-center justify-between px-4 pb-4 relative z-10 overflow-hidden">
                       <div class="flex items-center gap-1 min-w-0">
                          <span class="hidden">
@@ -4812,9 +4908,7 @@ if (dsId) {
                         onUpdateMentionPath={handleAddonUpdateMentionPath}
                         productId={projectSelection()?.product?.id}
                         onEnterDesignStrategy={handleOpenPlanConfirm}
-                        planActive={params.id ? activePlanSessionId() !== null : planComposerActive()}
-                        onEnterPatternPage={handleOpenPatternPageConfirm}
-                        patternPageActive={activePatternSessionId() !== null || patternBlockMatching()}
+                        planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
                         onOpen={loadSkillConfig}
                         disabled={maxAttachments()}
                       />
@@ -4971,10 +5065,10 @@ if (dsId) {
                 isGenerating={isGenerating()}
                 planConfirmPending={planConfirmPending()}
                 childPlanConfirmed={childPlanConfirmed()}
-                childSessionStatus={sync.data.session_status[activePlanSessionId() ?? ""]}
+                childSessionStatus={sync.data.session_status[activePlanForCurrentSession() ?? ""]}
                 childBusy={childBusy()}
                 planEnded={planEnded()}
-                planActive={params.id ? activePlanSessionId() !== null : planComposerActive()}
+                planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
               />
             </div>
             <Show when={showVersionPanel()}>
@@ -5005,7 +5099,6 @@ if (dsId) {
         </div>
         </Show>
       </div>
-      <OctoToast />
     </DataProvider>
   )
 }
