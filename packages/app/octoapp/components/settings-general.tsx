@@ -244,6 +244,18 @@ export const SettingsGeneral: Component = () => {
 
   onMount(() => {
     void theme.loadThemes()
+
+    const api = (window as any).api
+    if (!api?.getProxyConfig) return
+
+    void api
+      .getProxyConfig()
+      .then((config: { account: string; password: string } | null) => {
+        if (!config) return
+        setProxyAccount(config.account)
+        setProxyPassword(config.password)
+      })
+      .catch(() => {})
   })
 
   const autoOption = { id: "auto", value: "", label: language.t("settings.general.row.shell.autoDefault") }
