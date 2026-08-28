@@ -903,8 +903,10 @@ const sessionMessagesLoaded = createMemo(() => {
   const userMessages = createMemo((): Message[] => {
     const sid = params.id
     if (!sid) return []
-    const visible = (message: Message) =>
-      message.role === "user" && !(sync.data.part[message.id] ?? []).some((part) => part.type === "compaction")
+    const visible = (message: Message) => {
+      const parts = sync.data.part[message.id] ?? []
+      return message.role === "user" && parts.length > 0 && !parts.some((part) => part.type === "compaction")
+    }
     const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter(visible)
     const childIds = childSessionIDs()
     const allMsgs: Message[] = [...mainMsgs]
