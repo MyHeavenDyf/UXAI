@@ -57,6 +57,42 @@ type ShellSelectOption = {
   label: string
 }
 
+type ProxyOption = {
+  id: string
+  group: string
+  label: string
+  host: string
+}
+
+const PROXY_OPTIONS: ProxyOption[] = [
+  { id: "normal", group: "普通", label: "普通", host: "proxy" },
+  { id: "non-rd-cn", group: "非研发", label: "中国", host: "proxycn2" },
+  { id: "non-rd-nanjing", group: "非研发", label: "南京", host: "proxyn" },
+  { id: "non-rd-hk", group: "非研发", label: "香港", host: "proxyhk" },
+  { id: "non-rd-uk", group: "非研发", label: "英国", host: "proxvuk" },
+  { id: "non-rd-us", group: "非研发", label: "美国", host: "proxyus" },
+  { id: "non-rd-us-nrd", group: "非研发", label: "美国", host: "proxyus-nrd" },
+  { id: "non-rd-ru", group: "非研发", label: "俄罗斯", host: "proxyru" },
+  { id: "non-rd-br", group: "非研发", label: "巴西", host: "proxybr" },
+  { id: "non-rd-bh", group: "非研发", label: "巴林", host: "proxybh" },
+  { id: "non-rd-blr", group: "非研发", label: "印度", host: "proxyblr" },
+  { id: "non-rd-open", group: "非研发", label: "开放代理", host: "openproxy" },
+  { id: "non-rd-za", group: "非研发", label: "南非", host: "proxyza" },
+  { id: "non-rd-tr", group: "非研发", label: "土耳其", host: "proxytr" },
+  { id: "non-rd-ca", group: "非研发", label: "加拿大", host: "proxyca" },
+  { id: "non-rd-de", group: "非研发", label: "德国", host: "proxyde" },
+  { id: "rd-jp", group: "研发", label: "日本", host: "proxyjp" },
+  { id: "rd-cn", group: "研发", label: "中国", host: "proxycn2" },
+  { id: "rd-se", group: "研发", label: "瑞典", host: "proxvse-rd" },
+  { id: "rd-de", group: "研发", label: "德国", host: "proxyde-rd" },
+  { id: "rd-tr", group: "研发", label: "土耳其", host: "proxytr-rd" },
+  { id: "rd-us", group: "研发", label: "美国", host: "proxvus-rd" },
+  { id: "rd-open", group: "研发", label: "开放代理", host: "openproxy" },
+  { id: "rd-ru", group: "研发", label: "俄罗斯", host: "proxyru-rd" },
+]
+
+const DEFAULT_PROXY_OPTION = PROXY_OPTIONS.find((option) => option.id === "non-rd-hk")!
+
 // To prevent audio from overlapping/playing very quickly when navigating the settings menus,
 // delay the playback by 100ms during quick selection changes and pause existing sounds.
 const stopDemoSound = () => {
@@ -115,6 +151,8 @@ export const SettingsGeneral: Component = () => {
 
   const [proxyAccount, setProxyAccount] = createSignal("")
   const [proxyPassword, setProxyPassword] = createSignal("")
+  const [proxyNoProxy, setProxyNoProxy] = createSignal("")
+  const [proxyOption, setProxyOption] = createSignal(DEFAULT_PROXY_OPTION)
   const [proxyConfiguring, setProxyConfiguring] = createSignal(false)
 
   const configureProxy = async () => {
@@ -125,7 +163,7 @@ export const SettingsGeneral: Component = () => {
     }
     setProxyConfiguring(true)
     try {
-      const result = await api.configureProxy(proxyAccount(), proxyPassword())
+      const result = await api.configureProxy(proxyAccount(), proxyPassword(), proxyNoProxy(), proxyOption().host, proxyOption().id)
       if (result.success) {
         showToast({ variant: "success", title: "已配置成功，如不生效请重启应用" })
       } else {
@@ -250,10 +288,15 @@ export const SettingsGeneral: Component = () => {
 
     void api
       .getProxyConfig()
-      .then((config: { account: string; password: string } | null) => {
+      .then((config: { account: string; password: string; proxyHost?: string; proxyOptionId?: string; noProxy?: string } | null) => {
         if (!config) return
         setProxyAccount(config.account)
         setProxyPassword(config.password)
+        const savedHost = config.proxyHost?.replace(/\.huawei\.com(?::\d+)?$/, "")
+        const savedOption = (config.proxyOptionId ? PROXY_OPTIONS.find((option) => option.id === config.proxyOptionId) : undefined)
+          ?? (savedHost ? PROXY_OPTIONS.find((option) => option.host === savedHost) : undefined)
+        if (savedOption) setProxyOption(savedOption)
+        if (config.noProxy) setProxyNoProxy(config.noProxy)
       })
       .catch(() => {})
   })
@@ -787,6 +830,21 @@ export const SettingsGeneral: Component = () => {
       <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>Proxy</div>
       <div style={{ display: "flex", "flex-direction": "column", gap: "12px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px" }}>
         <div class="flex items-center gap-2">
+          <span style={{ "white-space": "nowrap", color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "20px" }}>代理节点:</span>
+          <Select
+            options={PROXY_OPTIONS}
+            current={proxyOption()}
+            value={(option) => option.id}
+            label={(option) => option.label}
+            groupBy={(option) => option.group}
+            onSelect={(option) => option && setProxyOption(option)}
+            variant="secondary"
+            size="small"
+            triggerVariant="settings"
+            triggerStyle={{ "min-width": "180px" }}
+          />
+        </div>
+        <div class="flex items-center gap-2">
           <span style={{ "white-space": "nowrap", color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "20px" }}>登录:</span>
           <input
             type="text"
@@ -820,6 +878,31 @@ export const SettingsGeneral: Component = () => {
             onFocus={(e) => e.currentTarget.style.borderColor = "#0a59f7"}
             onBlur={(e) => e.currentTarget.style.borderColor = "rgba(201,201,201,1)"}
             placeholder="请输入密码"
+            spellcheck={false}
+            autocorrect="off"
+            autocomplete="off"
+            autocapitalize="off"
+            style={{
+              "height": "28px",
+              "border": "1px solid rgba(201,201,201,1)",
+              "border-radius": "4px",
+              "padding": "4px 12px",
+              "flex": "1",
+              "outline": "none",
+              "font-size": "12px",
+              "line-height": "20px"
+            }}
+          />
+        </div>
+        <div class="flex items-center gap-2">
+          <span style={{ "white-space": "nowrap", color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "20px" }}>跳过代理:</span>
+          <input
+            type="text"
+            value={proxyNoProxy()}
+            onInput={(e) => setProxyNoProxy(e.currentTarget.value)}
+            onFocus={(e) => e.currentTarget.style.borderColor = "#0a59f7"}
+            onBlur={(e) => e.currentTarget.style.borderColor = "rgba(201,201,201,1)"}
+            placeholder="(可选)"
             spellcheck={false}
             autocorrect="off"
             autocomplete="off"

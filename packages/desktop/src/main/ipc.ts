@@ -1361,6 +1361,9 @@ export function registerIpcHandlers(deps: Deps) {
       return {
         account: decodeURIComponent(proxyUrl.username),
         password: decodeURIComponent(proxyUrl.password),
+        proxyHost: proxyUrl.host,
+        proxyOptionId: "proxyOptionId" in config && typeof config.proxyOptionId === "string" ? config.proxyOptionId : undefined,
+        noProxy: "no_proxy" in config && typeof config.no_proxy === "string" ? config.no_proxy : undefined,
       }
     } catch (error) {
       log.warn("[get-proxy-config] 读取代理配置失败", {
@@ -1372,12 +1375,20 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   // Proxy 配置: curl 测试代理连通性, 成功后写入 ~/.config/octo/proxy_config.json 并注入环境变量即时生效
-  ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string) => {
+  const PROXY_HOSTS = new Set([
+    "proxy", "proxycn2", "proxyn", "proxyhk", "proxvuk", "proxyus", "proxyus-nrd", "proxyru", "proxybr", "proxybh", "proxyblr", "openproxy", "proxyza", "proxytr", "proxyca", "proxyde", "proxyjp", "proxvse-rd", "proxyde-rd", "proxytr-rd", "proxvus-rd", "proxyru-rd",
+  ])
+
+  ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string, noProxyInput?: string, proxyHostInput?: string, proxyOptionIdInput?: string) => {
+    const proxyHostName = (proxyHostInput?.trim().replace(/^:/, "") || "proxyhk")
+    const proxyHost = PROXY_HOSTS.has(proxyHostName) ? proxyHostName : "proxyhk"
+    const encodedAccount = encodeURIComponent(account)
     const encodedPwd = encodeURIComponent(password)
       .replace(/['()!*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
-    const proxyUrl = `http://${account}:${encodedPwd}@proxyhk.huawei.com:8080`
+    const proxyUrl = `http://${encodedAccount}:${encodedPwd}@${proxyHost}.huawei.com:8080`
     // http_proxy 和 https_proxy 都用同一个 http:// 代理地址
-    const noProxy = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
+    const defaultNoProxy = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
+    const noProxy = noProxyInput?.trim() || defaultNoProxy
     const curlTarget = "https://ifconfig.me/ip"
 
     log.info("[configure-proxy] 开始配置代理")
@@ -1423,6 +1434,7 @@ export function registerIpcHandlers(deps: Deps) {
         http_proxy: proxyUrl,
         https_proxy: proxyUrl,
         no_proxy: noProxy,
+        proxyOptionId: proxyOptionIdInput?.trim() || undefined,
       }, null, 2), "utf-8")
       log.info("[configure-proxy] 配置写入成功", { configFile })
 
