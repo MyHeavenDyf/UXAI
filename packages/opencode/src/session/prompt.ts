@@ -1545,6 +1545,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               overflow: task.overflow,
             })
             if (result === "stop") break
+            if (!task.auto) break
             continue
           }
 

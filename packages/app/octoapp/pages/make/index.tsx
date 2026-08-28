@@ -903,11 +903,13 @@ const sessionMessagesLoaded = createMemo(() => {
   const userMessages = createMemo((): Message[] => {
     const sid = params.id
     if (!sid) return []
-    const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter((m) => m.role === "user")
+    const visible = (message: Message) =>
+      message.role === "user" && !(sync.data.part[message.id] ?? []).some((part) => part.type === "compaction")
+    const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter(visible)
     const childIds = childSessionIDs()
     const allMsgs: Message[] = [...mainMsgs]
     for (const childId of childIds) {
-      const childMsgs = ((sync.data.message?.[childId] ?? []) as Message[]).filter((m) => m.role === "user")
+      const childMsgs = ((sync.data.message?.[childId] ?? []) as Message[]).filter(visible)
       allMsgs.push(...childMsgs)
     }
     // 始终按 time.created 排序(以 id 作 tiebreaker),避免依赖 sync.data.message 底层数组顺序。
