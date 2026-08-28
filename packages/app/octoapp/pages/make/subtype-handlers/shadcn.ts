@@ -2,6 +2,7 @@ import type { SubtypeHandler, LocalEditChange, LocalEditSavePayload, CanvasEditR
 import type { ManualEditTarget, ManualEditStyles } from '../edit-mode/source-patches'
 import { registerCustomBridge } from '../utils/custom-bridge-registry'
 import { sendTextToAgent } from '../utils/agent-events'
+import JSZip from 'jszip'
 
 registerCustomBridge('shadcn-component-editor', {
   script: `
@@ -211,6 +212,33 @@ export default {
           const baseName = lastDotIndex > 0 ? data.filename.slice(0, lastDotIndex) : data.filename
           const ext = lastDotIndex >= 0 ? data.filename.slice(lastDotIndex) : ''
           
+          // ZIP file: extract to folder
+          if (ext.toLowerCase() === '.zip' && api.listDirectory) {
+            let folderName = baseName
+            let folderPath = `${uploadsDir}/${folderName}`
+            
+            let counter = 0
+            while (await folderExists(folderPath, api)) {
+              counter++
+              folderName = `${baseName} (${counter})`
+              folderPath = `${uploadsDir}/${folderName}`
+            }
+            
+            const buffer = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
+            const zip = await JSZip.loadAsync(buffer)
+            
+            for (const [relativePath, file] of Object.entries(zip.files)) {
+              if (!file.dir) {
+                const content = await file.async('uint8array')
+                await api.writeFileBuffer(`${folderPath}/${relativePath}`, content.buffer as ArrayBuffer)
+              }
+            }
+            
+            showOctoToast({ title: "已解压", description: folderName })
+            return
+          }
+          
+          // Non-ZIP file: save directly
           let finalFilename = data.filename
           
           if (api.fileExists) {
@@ -233,3 +261,11 @@ export default {
     }
   },
 } satisfies SubtypeHandler
+
+async function folderExists(path: string, api: ReturnType<typeof import('../lib/electron-api').getDesktopApi>): Promise<boolean> {
+  if (!api?.listDirectory) return false
+  const parent = path.replace(/[/\\][^/\\]+$/, '')
+  const items = await api.listDirectory(parent)
+  if (!items) return false
+  return items.some(item => item.path === path && item.type === 'directory')
+}
