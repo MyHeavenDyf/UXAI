@@ -8,6 +8,12 @@ const COMPACTION_THRESHOLD = 0.85
 export const AUTOMATIC_COMPACTION_ENABLED = false
 export const CONTEXT_OVERFLOW_MESSAGE = "系统的单次处理能力已满。请点击“新建对话”重置上下文。"
 
+export function exceedsContext(input: { model: Provider.Model; input: number }) {
+  const limit = input.model.limit.input ?? input.model.limit.context
+  if (limit === 0) return false
+  return input.input >= limit
+}
+
 export function usable(input: { cfg: Config.Info; model: Provider.Model }) {
   const context = input.model.limit.context
   if (context === 0) return 0

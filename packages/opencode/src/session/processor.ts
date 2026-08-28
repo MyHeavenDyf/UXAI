@@ -12,6 +12,7 @@ import { MessageV2 } from "./message-v2"
 import {
   AUTOMATIC_COMPACTION_ENABLED,
   CONTEXT_OVERFLOW_MESSAGE,
+  exceedsContext,
   isOverflow,
   preflight,
   usable,
@@ -476,6 +477,10 @@ export const layer: Layer.Layer<
             })
             const contextTokens = usage.tokens.input + usage.tokens.cache.read + usage.tokens.cache.write
             const contextLimit = ctx.model.limit.input ?? ctx.model.limit.context
+            const contextExceeded =
+              !AUTOMATIC_COMPACTION_ENABLED &&
+              !ctx.assistantMessage.summary &&
+              exceedsContext({ model: ctx.model, input: contextTokens })
             slog.info("context usage", {
               providerID: ctx.model.providerID,
               modelID: ctx.model.id,
@@ -496,9 +501,14 @@ export const layer: Layer.Layer<
                 timestamp: DateTime.makeUnsafe(Date.now()),
               })
             }
-            ctx.assistantMessage.finish = value.finishReason
+            ctx.assistantMessage.finish = contextExceeded ? "error" : value.finishReason
             ctx.assistantMessage.cost += usage.cost
             ctx.assistantMessage.tokens = usage.tokens
+            if (contextExceeded) {
+              ctx.assistantMessage.error = new MessageV2.ContextOverflowError({
+                message: CONTEXT_OVERFLOW_MESSAGE,
+              }).toObject()
+            }
             yield* session.updatePart({
               id: PartID.ascending(),
               reason: value.finishReason,
@@ -510,6 +520,12 @@ export const layer: Layer.Layer<
               cost: usage.cost,
             })
             yield* session.updateMessage(ctx.assistantMessage)
+            if (contextExceeded) {
+              yield* bus.publish(Session.Event.Error, {
+                sessionID: ctx.sessionID,
+                error: ctx.assistantMessage.error!,
+              })
+            }
             if (ctx.snapshot) {
               const patch = yield* snapshot.patch(ctx.snapshot)
               if (patch.files.length) {
@@ -722,15 +738,19 @@ export const layer: Layer.Layer<
         const available = usable({ cfg, model: ctx.model })
         const current = streamInput.messages.findLast((message) => message.role === "user")
         const unavoidableInputTokens = Token.estimateValue([streamInput.system, current, streamInput.tools])
-        const preflightResult = ctx.assistantMessage.summary || !AUTOMATIC_COMPACTION_ENABLED
+        const preflightResult = ctx.assistantMessage.summary
           ? "send"
-          : preflight({
-              cfg,
-              model: ctx.model,
-              estimatedInput: ctx.estimatedInputTokens,
-              unavoidableInput: unavoidableInputTokens,
-              compactionAttempted: streamInput.compactionAttempted,
-            })
+          : !AUTOMATIC_COMPACTION_ENABLED
+            ? exceedsContext({ model: ctx.model, input: ctx.estimatedInputTokens })
+              ? "reject"
+              : "send"
+            : preflight({
+                cfg,
+                model: ctx.model,
+                estimatedInput: ctx.estimatedInputTokens,
+                unavoidableInput: unavoidableInputTokens,
+                compactionAttempted: streamInput.compactionAttempted,
+              })
 
         return yield* Effect.gen(function* () {
           yield* Effect.gen(function* () {
@@ -744,9 +764,11 @@ export const layer: Layer.Layer<
               })
               if (preflightResult === "reject") {
                 ctx.assistantMessage.error = new MessageV2.ContextOverflowError({
-                  message: streamInput.compactionAttempted
-                    ? `The conversation is still too large for this model after one compaction attempt. Estimated ${ctx.estimatedInputTokens} input tokens with ${available} usable tokens. Start a new session or reduce the attached content and try again.`
-                    : `The current request is too large to fit this model even after compacting conversation history. Estimated ${unavoidableInputTokens} input tokens with ${available} usable tokens. Reduce or split the attached files and try again.`,
+                  message: !AUTOMATIC_COMPACTION_ENABLED
+                    ? CONTEXT_OVERFLOW_MESSAGE
+                    : streamInput.compactionAttempted
+                      ? `The conversation is still too large for this model after one compaction attempt. Estimated ${ctx.estimatedInputTokens} input tokens with ${available} usable tokens. Start a new session or reduce the attached content and try again.`
+                      : `The current request is too large to fit this model even after compacting conversation history. Estimated ${unavoidableInputTokens} input tokens with ${available} usable tokens. Reduce or split the attached files and try again.`,
                 }).toObject()
                 ctx.assistantMessage.finish = "error"
                 yield* session.updateMessage(ctx.assistantMessage)

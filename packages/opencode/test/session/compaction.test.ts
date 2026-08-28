@@ -8,7 +8,7 @@ import { Config } from "@/config/config"
 import { Agent } from "../../src/agent/agent"
 import { LLM } from "../../src/session/llm"
 import { SessionCompaction } from "../../src/session/compaction"
-import { preflight } from "../../src/session/overflow"
+import { exceedsContext, preflight } from "../../src/session/overflow"
 import { Token } from "@/util/token"
 import { Instance } from "../../src/project/instance"
 import { WithInstance } from "../../src/project/with-instance"
@@ -619,6 +619,21 @@ describe("session.overflow.preflight", () => {
     expect(
       preflight({ cfg: config, model, estimatedInput: 90, unavoidableInput: 20, compactionAttempted: true }),
     ).toBe("reject")
+  })
+})
+
+describe("session.overflow.exceedsContext", () => {
+  test("detects the hard context limit without using the 85% compaction threshold", () => {
+    const model = createModel({ context: 100, output: 20 })
+
+    expect(exceedsContext({ model, input: 99 })).toBe(false)
+    expect(exceedsContext({ model, input: 100 })).toBe(true)
+  })
+
+  test("uses the model input limit when present", () => {
+    const model = createModel({ context: 200, input: 100, output: 20 })
+
+    expect(exceedsContext({ model, input: 100 })).toBe(true)
   })
 })
 
