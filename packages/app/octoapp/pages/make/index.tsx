@@ -4571,6 +4571,8 @@ onPreview={(url) => {
                           productId={projectSelection()?.product?.id}
                           onEnterDesignStrategy={handleOpenPlanConfirm}
                           planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
+                          onEnterPatternPage={handleOpenPatternPageConfirm}
+                          patternPageActive={params.id ? (activePatternSessionId() !== null && !patternEnded()) : patternPageCapsuleActive()}
                           onOpen={loadSkillConfig}
                           disabled={maxAttachments()}
                         />
@@ -4909,6 +4911,8 @@ onPreview={(url) => {
                         productId={projectSelection()?.product?.id}
                         onEnterDesignStrategy={handleOpenPlanConfirm}
                         planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
+                        onEnterPatternPage={handleOpenPatternPageConfirm}
+                        patternPageActive={params.id ? (activePatternSessionId() !== null && !patternEnded()) : patternPageCapsuleActive()}
                         onOpen={loadSkillConfig}
                         disabled={maxAttachments()}
                       />
