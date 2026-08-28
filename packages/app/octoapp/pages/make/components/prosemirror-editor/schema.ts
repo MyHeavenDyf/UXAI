@@ -110,3 +110,23 @@ export function getDocTextWithMentions(doc: PMNode): string {
     return ""
   })
 }
+
+export function docToJSON(doc: PMNode): any {
+  return doc.toJSON()
+}
+
+export function docFromJSON(json: any): PMNode {
+  return editorSchema.nodeFromJSON(json)
+}
+
+// 旧字符串格式 prompt → 纯文本 doc JSON（迁移用）
+// 按 \n 切段，空行产出空段落；chip 信息不可恢复（旧字符串只编码了 @name）
+export function docJSONFromPlainText(text: string): any {
+  const lines = text.split("\n")
+  const paragraphs = lines.map((line) =>
+    line.length === 0
+      ? { type: "paragraph" }
+      : { type: "paragraph", content: [{ type: "text", text: line }] }
+  )
+  return { type: "doc", content: paragraphs }
+}

@@ -7,7 +7,7 @@ import { keymap } from "prosemirror-keymap"
 import { baseKeymap } from "prosemirror-commands"
 import { Fragment, Slice } from "prosemirror-model"
 import type { Node as PMNode } from "prosemirror-model"
-import { editorSchema, getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs } from "./schema"
+import { editorSchema, getDocTextWithMentions, extractMentionsFromDoc, docFromJSON, docJSONFromPlainText, type MentionAttrs } from "./schema"
 import { createMentionTriggerPlugin, mentionTriggerKey, closeMentionTrigger, type MentionTriggerState } from "./plugins/mention-trigger"
 import { createSyncPlugin } from "./plugins/sync"
 import { atomKeymap } from "./plugins/atom-keymap"
@@ -28,6 +28,7 @@ interface EditorRef {
   removeMention: (selection: MentionSelection) => void
   updateMentionPath: (filename: string, path: string) => void
   isAlive: () => boolean
+  replaceDoc: (json: any) => void
 }
 
 interface Props {
@@ -44,7 +45,8 @@ interface Props {
   autofocus?: boolean
   onSubmit?: () => void
   onTriggerMention?: () => void
-  onContentChange?: (text: string) => void
+  onContentChange?: (docJSON: any, text: string) => void
+  initialDocJSON?: any
   onSlashTrigger?: (query: string) => void
   onSlashClose?: () => void
   onPreview?: (url: string) => void
@@ -153,8 +155,13 @@ export const ProseMirrorEditor = (props: Props) => {
   onMount(() => {
     if (!containerRef) return
 
+    const initialDoc = props.initialDocJSON
+      ? docFromJSON(props.initialDocJSON)
+      : editorSchema.nodes.doc.create({ content: [{ type: "paragraph" }] })
+
     const state = EditorState.create({
       schema: editorSchema,
+      doc: initialDoc,
       plugins: [
         history(),
         keymap({
@@ -320,8 +327,27 @@ export const ProseMirrorEditor = (props: Props) => {
           const v = view()
           return !!v && !!v.dom?.isConnected
         },
+        replaceDoc: (json: any) => {
+          const v = view()
+          if (!v || !v.state || !v.dom?.isConnected) return
+          const newDoc = docFromJSON(json)
+          const tr = v.state.tr.replaceWith(0, v.state.doc.content.size, newDoc.content)
+          v.dispatch(tr)
+        },
       })
     }
+
+    // onMount 后立即同步初始 mention selections 与 isEmpty（sync plugin 不会在初始化触发 update）
+    if (props.setMentionSelections) {
+      const initialMentions = extractMentionsFromDoc(initialDoc)
+      props.setMentionSelections(initialMentions.map((m) =>
+        m.type === "skill"
+          ? { type: "skill", name: m.name, label: m.label }
+          : { type: "file", filename: m.name, path: m.path || "" }
+      ))
+    }
+    const initialText = getDocTextWithMentions(initialDoc)
+    setIsEmpty(initialText.trim().length === 0)
 
     // 自动聚焦放到下一帧:此刻 DOM 刚插入,同帧 focus() 会被随后的布局/父级渲染抢掉
     if (props.autofocus && !props.disabled) {
@@ -538,4 +564,4 @@ export const ProseMirrorEditor = (props: Props) => {
   )
 }
 
-export { getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs }
+export { getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, type MentionAttrs }
