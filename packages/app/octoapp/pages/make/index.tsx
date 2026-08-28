@@ -1,7 +1,7 @@
 import "./octo-tokens.css"
 import "./components/slash-popover.css"
 import { type MentionSelection } from "./components/mention-popover"
-import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs } from "./components/prosemirror-editor"
+import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
 import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
 import { showOctoToast } from "./components/octo-toast"
@@ -1087,8 +1087,8 @@ const sessionMessagesLoaded = createMemo(() => {
   const [slashState, setSlashState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [slashIndex, setSlashIndex] = createSignal(0)
   let textareaRef!: HTMLTextAreaElement
-  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (filename: string, path: string) => void; isAlive: () => boolean } | undefined
-  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (filename: string, path: string) => void; isAlive: () => boolean } | undefined
+  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (filename: string, path: string) => void; isAlive: () => boolean; replaceDoc: (json: any) => void } | undefined
+  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (filename: string, path: string) => void; isAlive: () => boolean; replaceDoc: (json: any) => void } | undefined
 
   // ── Mention (@) Popover State ──
   const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
@@ -1305,34 +1305,43 @@ const sessionMessagesLoaded = createMemo(() => {
       .catch((err) => console.warn("[MakePage] failed to ensure outputs dir", err))
   }))
 
-  // 保存 prompt 到 localStorage
-  function savePromptToStorage(sessionId: string | undefined, text: string) {
-    if (!sessionId) return
-    const key = PROMPT_KEY_PREFIX + sessionId
-    if (text.trim()) localStorage.setItem(key, text)
-    else localStorage.removeItem(key)
+  // 保存/加载 prompt 为 ProseMirror doc JSON（含 mention chip 完整 attrs）
+  // 新建对话（无 sid）用固定 __draft__ key 持久化草稿
+  function loadDocJSONFromStorage(sessionId: string | undefined): any {
+    const key = PROMPT_KEY_PREFIX + (sessionId ?? "__draft__")
+    const raw = localStorage.getItem(key)
+    if (!raw) return undefined
+    if (raw.startsWith("{")) {
+      try { return JSON.parse(raw).doc } catch { return undefined }
+    }
+    // 旧字符串格式迁移
+    return docJSONFromPlainText(raw)
   }
-  // 加载 prompt from localStorage
-  function loadPromptFromStorage(sessionId: string | undefined): string {
-    if (!sessionId) return ""
-    return localStorage.getItem(PROMPT_KEY_PREFIX + sessionId) ?? ""
+  function saveDocJSONToStorage(sessionId: string | undefined, docJSON: any) {
+    const key = PROMPT_KEY_PREFIX + (sessionId ?? "__draft__")
+    if (docJSON?.content?.length) {
+      localStorage.setItem(key, JSON.stringify({ v: 2, doc: docJSON }))
+    } else {
+      localStorage.removeItem(key)
+    }
   }
 
-  // 追踪当前 session ID 用于保存 prompt
+  // promptDoc: ProseMirror doc JSON，权威源（持久化用）
+  const [promptDoc, setPromptDoc] = createSignal<any>(loadDocJSONFromStorage(params.id))
   let currentSessionIdForPrompt: string | undefined = params.id
-  // prompt 变化时立即保存到当前 session
-  createEffect(on(prompt, (text) => {
-    savePromptToStorage(currentSessionIdForPrompt, text)
+  // doc 变化时立即保存到当前 session
+  createEffect(on(promptDoc, (json) => {
+    saveDocJSONToStorage(currentSessionIdForPrompt, json)
   }, { defer: true }))
-  // 切换 session 时：更新追踪 ID 并加载新 prompt
+  // 切换 session：加载新 doc + 让 editor 重建
   createEffect(on(() => params.id, (newId) => {
     currentSessionIdForPrompt = newId
-    setPrompt(loadPromptFromStorage(newId))
-    setMentionSelections([])
+    const json = loadDocJSONFromStorage(newId)
+    setPromptDoc(json)
     requestAnimationFrame(() => {
-      const ref = proseMirrorRef1 ?? proseMirrorRef2
-      if (ref?.isAlive()) {
-        ref.clear()
+      const ref = proseMirrorRef1?.isAlive() ? proseMirrorRef1 : (proseMirrorRef2?.isAlive() ? proseMirrorRef2 : undefined)
+      if (ref) {
+        ref.replaceDoc(json ?? { type: "doc", content: [{ type: "paragraph" }] })
       }
     })
   }, { defer: true }))
@@ -3878,7 +3887,8 @@ if (dsId) {
                         busy={effectiveBusy()}
                         autofocus
                         onTriggerMention={loadSkillConfig}
-                        onContentChange={setPrompt}
+                        onContentChange={(json, text) => { setPromptDoc(json); setPrompt(text) }}
+                        initialDocJSON={promptDoc()}
                         onSubmit={() => void handleSubmit()}
                         onPaste={handlePaste}
                         onSlashTrigger={(query) => {
@@ -4202,7 +4212,8 @@ onPreview={(url) => {
                        busy={effectiveBusy()}
                        autofocus
                        onTriggerMention={loadSkillConfig}
-                      onContentChange={setPrompt}
+                      onContentChange={(json, text) => { setPromptDoc(json); setPrompt(text) }}
+                      initialDocJSON={promptDoc()}
                       onSubmit={() => void handleSubmit()}
                       onPaste={handlePaste}
  onSlashTrigger={(query) => {
