@@ -60,23 +60,34 @@ const CAPTURE_SCRIPT = `(async function() {
     } catch(e) {}
   }
 
-  // 2. Download all resources
+  // 2. Download all resources (8s per-fetch timeout; skip oversized binaries that exceed the inline limit anyway)
   var urlMap = {};
   var cssTextMap = {};
   var count = 0;
+  var MAX_INLINE_BYTES = 70000;
   await Promise.all(Array.from(fetchUrls).map(async function(u) {
     try {
-      var res = await fetch(u);
+      var controller = new AbortController();
+      var timer = setTimeout(function() { controller.abort(); }, 8000);
+      var res = await fetch(u, { signal: controller.signal });
+      clearTimeout(timer);
       var contentType = (res.headers.get('content-type') || '').toLowerCase();
+      var isCss = contentType.indexOf('text/css') !== -1 || contentType.indexOf('stylesheet') !== -1;
+      if (!isCss) {
+        var len = parseInt(res.headers.get('content-length') || '0', 10);
+        if (len > MAX_INLINE_BYTES) return;
+      }
       var blob = await res.blob();
 
-      if (contentType.indexOf('text/css') !== -1 || contentType.indexOf('stylesheet') !== -1) {
+      if (isCss) {
         // CSS file: store raw text to inline as <style>
         cssTextMap[u] = await blob.text();
-      } else {
+      } else if (blob.size <= MAX_INLINE_BYTES) {
         // Other resources (images, fonts): store as data URI
         var dataUri = await toDataUri(blob);
         if (dataUri) urlMap[u] = dataUri;
+      } else {
+        return;
       }
       count++;
     } catch(e) {}
@@ -171,7 +182,34 @@ const CAPTURE_SCRIPT = `(async function() {
 
 export async function codeToHtml(opts: CapturePageOptions): Promise<CapturePageResult> {
   const partition = `capture-${randomUUID().slice(0, 8)}`
-  await session.fromPartition(partition).setProxy({ mode: "direct" })
+  const ses = session.fromPartition(partition)
+  await ses.setProxy({ mode: "direct" })
+
+  // Track in-flight requests to detect network idle instead of a fixed sleep
+  let pending = 0
+  let idleResolve: (() => void) | undefined
+  let settleTimer: NodeJS.Timeout | undefined
+  const settle = () => {
+    clearTimeout(settleTimer)
+    settleTimer = setTimeout(() => {
+      if (pending === 0) idleResolve?.()
+    }, 500)
+  }
+  const onRequest = () => {
+    pending++
+    clearTimeout(settleTimer)
+  }
+  const onDone = () => {
+    pending = Math.max(0, pending - 1)
+    if (pending === 0) settle()
+  }
+  ses.webRequest.onBeforeRequest((_details, callback) => {
+    onRequest()
+    callback({})
+  })
+  ses.webRequest.onBeforeRedirect(onDone)
+  ses.webRequest.onCompleted(onDone)
+  ses.webRequest.onErrorOccurred(onDone)
 
   const win = new BrowserWindow({
     width: 1920,
@@ -196,19 +234,24 @@ export async function codeToHtml(opts: CapturePageOptions): Promise<CapturePageR
     })
 
     if (opts.theme) {
-      await new Promise((r) => setTimeout(r, 300))
+      await new Promise((r) => setTimeout(r, 200))
       await win.webContents.executeJavaScript(
         `window.postMessage({ type: "TOGGLE_THEME", theme: ${JSON.stringify(opts.theme)} }, "*")`,
       )
     }
 
-    await new Promise((r) => setTimeout(r, opts.waitForMs ?? 3000))
+    // Wait until no requests for 500ms (capped at 10s), then a small settle for JS rendering
+    await new Promise<void>((resolve) => {
+      idleResolve = resolve
+      if (pending === 0) settle()
+      setTimeout(resolve, 10000)
+    })
+    await new Promise((r) => setTimeout(r, opts.waitForMs ?? 300))
 
     const json = await win.webContents.executeJavaScript(CAPTURE_SCRIPT)
     return JSON.parse(json) as CapturePageResult
-  } catch (err) {
-    throw err
   } finally {
+    clearTimeout(settleTimer)
     if (!win.isDestroyed()) win.destroy()
   }
 }
