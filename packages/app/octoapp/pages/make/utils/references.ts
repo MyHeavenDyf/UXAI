@@ -17,6 +17,9 @@ const SRCSET_REGEX = /srcset\s*=\s*["']([^"']+)["']/gi
 const URL_FUNC_REGEX = /url\(\s*["']?([^"')]+)["']?\s*\)/gi
 const CSS_IMPORT_REGEX = /@import\s+(?:url\(\s*)?["']([^"']+)["']\s*\)?\s*;?/gi
 const JS_IMPORT_REGEX = /import\s*\(\s*["']([^"']+)["']\s*\)/gi
+// Vite/打包器标准模式:new URL("./assets/foo.png", import.meta.url)
+// 第二参数必须是 import.meta.url,否则解析基准不同(浏览器用文档 base),不能按 JS 文件目录解析
+const JS_NEW_URL_REGEX = /new\s+URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)/gi
 const SOURCEMAP_REGEX = /\/\/#\s*sourceMappingURL=(\S+)/gi
 
 function isRelativeRef(ref: string): boolean {
@@ -99,6 +102,7 @@ export function extractReferences(content: string, type: ContentType): string[] 
     collectAllMatches(URL_FUNC_REGEX)
     collectAllMatches(CSS_IMPORT_REGEX)
     collectAllMatches(JS_IMPORT_REGEX)
+    collectAllMatches(JS_NEW_URL_REGEX)
     collectAllMatches(SOURCEMAP_REGEX)
   } else if (type === "css") {
     collectAllMatches(URL_FUNC_REGEX)
@@ -106,6 +110,7 @@ export function extractReferences(content: string, type: ContentType): string[] 
   } else {
     // js
     collectAllMatches(JS_IMPORT_REGEX)
+    collectAllMatches(JS_NEW_URL_REGEX)
     collectAllMatches(URL_FUNC_REGEX)
     collectAllMatches(SOURCEMAP_REGEX)
   }
