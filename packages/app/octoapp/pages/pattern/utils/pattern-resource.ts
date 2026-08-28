@@ -101,6 +101,8 @@ export async function readPagePatternMd(mdUrl: string) {
     return { success: true, content }
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) }
+    // 模拟假数据
+    return { success: true, content: "# DettailsPageDrawer-level_Guide\n\n---\n\n## 1.核心目标\n\n生成**极简、关键信息突出、可高校管理**的网络运维详情页。"}
   }
 }
 
@@ -137,6 +139,25 @@ export type ResourceDetailResult = {
 //   ]
 // }
 
+// 模板默认数据
+// const moduleResourceData = {
+//   "results": [[{
+//     "id": "52669",
+//     "name": "基础配置表单",
+//     "tags":['表单'],
+//     "thumbnail_path":"https://octo-beta.hdesign.huawei.com/lib-resource-service/static/file/image/19866e48-0775-4ca7-9bf8-4240b214daee_thumb.png",
+//   },{
+//     "id": "52639",
+//     "name": "左侧步骤配置表单",
+//     "tags":['表单'],
+//     "thumbnail_path":"https://octo-beta.hdesign.huawei.com/lib-resource-service/static/file/image/19866e48-0775-4ca7-9bf8-4240b214daee_thumb.png",
+//   },{
+//     "id": "52670",
+//     "name": "带页签标题区",
+//     "tags":['表单'],
+//     "thumbnail_path":"https://octo-beta.hdesign.huawei.com/lib-resource-service/static/file/image/19866e48-0775-4ca7-9bf8-4240b214daee_thumb.png",
+//   }]]
+// }
 
 // 获取页面级数据的资源路径
 export async function getPagePatternResource(inputData: { results?: Array<Record<string, any>> }) {
@@ -159,6 +180,9 @@ export async function getPagePatternResource(inputData: { results?: Array<Record
     return { results: enrichedResults }
   } catch {
     return { results: [] }
+
+    // 模拟假数据
+    // return { results: pageResourceData.results }
   }
 }
 
@@ -185,6 +209,9 @@ async function searchResources(
   }
   const data = await response.json()
   return { success: true, data }
+
+  // 模拟数据
+  // return { success: true, data: moduleResourceData}
 }
 
 // 根据 modules[].description 逐个搜索向量库，解析去重后返回真实 block 信息

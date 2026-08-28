@@ -33,6 +33,8 @@ interface AddonMenuProps {
   productId?: number
   onEnterDesignStrategy?: () => void
   planActive?: boolean
+  onEnterPatternPage?: () => void
+  patternPageActive?: boolean
   onOpen?: () => void
   disabled: boolean
 }
@@ -513,7 +515,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
             <button
               type="button"
               class="addon-menu-item"
-              disabled={props.planActive}
+              disabled={props.planActive || props.patternPageActive}
               onClick={() => {
                 closeMenu()
                 props.onEnterDesignStrategy?.()
@@ -521,6 +523,20 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
             >
               <span class="addon-menu-item-icon"><DesignStrategyIcon /></span>
               <span class="addon-menu-item-text">进入设计策略模式</span>
+            </button>
+
+            {/* 进入patternPage模式 */}
+            <button
+              type="button"
+              class="addon-menu-item"
+              disabled={props.planActive || props.patternPageActive}
+              onClick={() => {
+                closeMenu()
+                props.onEnterPatternPage?.()
+              }}
+            >
+              <span class="addon-menu-item-icon"><DesignStrategyIcon /></span>
+              <span class="addon-menu-item-text">进入patternPage模式</span>
             </button>
 
             {/* 接收设计资产链接URL */}
