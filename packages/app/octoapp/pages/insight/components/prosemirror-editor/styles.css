@@ -58,16 +58,16 @@
   margin: 0;
 }
 
-/* 行内灰胶囊。原版为 skill / file 各写了一条与基类完全同值的规则,已合并;
+/* 行内蓝胶囊(与 Design 统一)。原版为 skill / file 各写了一条与基类完全同值的规则,已合并;
    toDOM 仍输出 ins-pm-mention--skill / --file 类名,将来要区分两者直接加规则即可。 */
 .ins-pm-mention {
-  display: inline;
+  display: inline-block;
   white-space: nowrap;
-  padding: 3px 0;
+  padding: 3px 8px;
   font-size: 12px;
   border-radius: 999px;
-  background: var(--octo-surface-hover);
-  color: var(--octo-text-secondary);
+  background: rgba(10, 89, 247, 0.08);
+  color: #0A59F7;
   cursor: pointer;
 }
 
