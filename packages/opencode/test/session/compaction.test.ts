@@ -866,6 +866,32 @@ describe("session.compaction.prune", () => {
   )
 })
 
+describe("session.compaction.isSuccessful", () => {
+  const message = (input: { finish?: MessageV2.Assistant["finish"]; error?: MessageV2.Assistant["error"] }) =>
+    ({
+      info: {
+        role: "assistant",
+        summary: true,
+        finish: input.finish,
+        error: input.error,
+      },
+      parts: [],
+    }) as unknown as MessageV2.WithParts
+
+  test("only accepts a finished compaction summary without an error", () => {
+    expect(SessionCompaction.isSuccessful(message({ finish: "stop" }))).toBe(true)
+    expect(SessionCompaction.isSuccessful(message({}))).toBe(false)
+    expect(
+      SessionCompaction.isSuccessful(
+        message({
+          finish: "error",
+          error: new MessageV2.AbortedError({ message: "aborted" }).toObject(),
+        }),
+      ),
+    ).toBe(false)
+  })
+})
+
 describe("session.compaction.process", () => {
   test("throws when parent is not a user message", async () => {
     await using tmp = await tmpdir()

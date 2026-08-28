@@ -993,10 +993,8 @@ const sessionMessagesLoaded = createMemo(() => {
         modelID: model.id,
       })
       if (result.error) throw result.error
-      await sync.session.sync(sessionID, { force: true }).catch((error) => {
-        console.warn("[MakePage] failed to refresh compacted session", error)
-      })
       sync.set("session_status", sessionID, { type: "idle" })
+      if (result.data !== true) return
       showOctoToast({ title: "上下文压缩完成" })
     } catch (error) {
       console.error("[MakePage] context compaction failed", error)
