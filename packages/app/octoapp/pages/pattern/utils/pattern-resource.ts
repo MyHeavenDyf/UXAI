@@ -188,20 +188,21 @@ export async function getPagePatternResource(inputData: { results?: Array<Record
 
 // 向量库搜索：根据 query 返回匹配的 block 资源
 async function searchResources(
-  queries: string | string[],
+  queries:  Array<{ query: string; type?: string }>,
   topK: number,
   filters: Record<string, number> = { source_id: 10, group_id: 390 },
 ) {
-  const url = `${PAGE_RESOURCE_URL}/api/vector/search`
+  const url = `${PAGE_RESOURCE_URL}/api/vector/search`;
+  const tags = queries.map(q => q.type).filter((t): t is string => Boolean(t) && t !== "all");
   const payload = {
     type: "file",
-    queries: Array.isArray(queries) ? queries : [queries],
+    queries:  queries.map(q => q.query),
     top_k: topK,
-    filters,
+    filters: { ...filters, tags }
   }
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "octo-vs-token": "octo_vs_55a6894bfa8aa976620e3fed6c61ff16" },
     body: JSON.stringify(payload),
   })
   if (!response.ok) {
@@ -215,13 +216,15 @@ async function searchResources(
 }
 
 // 根据 modules[].description 逐个搜索向量库，解析去重后返回真实 block 信息
-export async function getBlockPatternResource(modulesData: { modules?: Array<{ description?: string }> }) {
+export async function getBlockPatternResource(modulesData: { modules?: Array<{ description?: string; type?: string }> }) {
   try {
     const modules = modulesData.modules || []
-    const queries = modules.map(m => m.description).filter(Boolean) as string[]
+    const queries = modules
+      .filter((m): m is { description: string; type?: string } => Boolean(m.description))
+      .map(m => ({ query: m.description, type: m.type }))
     const allResults: any[] = []
     for (const query of queries) {
-      const result = await searchResources(query, 2)
+      const result = await searchResources([query], 2)
       if (result.success && result.data?.results?.[0]) {
         allResults.push(...result.data.results[0])
       }
