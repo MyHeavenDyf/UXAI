@@ -18,14 +18,14 @@ export function buildSiblingMap(data: unknown): Record<string, string[]> | undef
   return Object.keys(map).length > 0 ? map : undefined
 }
 
-// 解析 data.js 的 JSON 文本。先严格解析；失败时把「字符串字面量之外」的非 ASCII 空格类字符
-// （NBSP U+00A0 / 全角空格 U+3000 / 零宽空格 U+200B / BOM U+FEFF / 行/段分隔 U+2028 U+2029 等）
-// 归一成普通空格后重试。AI 生成的 data.js 偶用这些当缩进，但 JSON 合法空白只有 0x20/0x09/0x0A/0x0D，
-// V8 的 JSON.parse 会报 "Expected property name or '}'"。只改结构空白，字符串值内容原样不动。
+// 解析 data.js 的 JSON 文本，三层兜底：严格 JSON → 空格归一后 JSON → new Function 求值。
 function parseA2uiJson(raw: string): { doc: unknown } | { err: string } {
+  // 1) 严格解析：干净文件（含 persist 回写后的）走这层，零开销。
   try {
     return { doc: JSON.parse(raw) }
   } catch {}
+  // 2) 把字符串字面量之外的非 ASCII 空格类字符（NBSP/全角空格/零宽空格/BOM/行段分隔）归一成普通空格后重试：
+  //    AI 偶用它们当缩进，但 JSON 合法空白只有 0x20/0x09/0x0A/0x0D，V8 报 "Expected property name or '}'"。
   const out: string[] = []
   let inStr = false
   let esc = false
@@ -55,6 +55,11 @@ function parseA2uiJson(raw: string): { doc: unknown } | { err: string } {
   }
   try {
     return { doc: JSON.parse(out.join("")) }
+  } catch {}
+  // 3) new Function 求值：AI 偶把 data.js 写成 JS 对象字面量（键名无引号、尾逗号），JSON.parse 吃不下。
+  //    data.js 本就被 iframe 当 <script> 执行（index.html:444），同信任级；仅自家 AI 生成、不导入第三方。
+  try {
+    return { doc: new Function("return (" + raw + ")")() }
   } catch (e) {
     return { err: e instanceof Error ? e.message : String(e) }
   }
