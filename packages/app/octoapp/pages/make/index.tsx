@@ -25,6 +25,7 @@ import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Dialog } from "@opencode-ai/ui/dialog"
+import { Button } from "@opencode-ai/ui/button"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useCommand } from "@/context/command"
@@ -1008,6 +1009,35 @@ const sessionMessagesLoaded = createMemo(() => {
     } finally {
       setContextCompacting(false)
     }
+  }
+
+  function confirmCompactContext() {
+    if (contextCompactionDisabled()) return
+    dialog.show(() => (
+      <Dialog title="压缩上下文" fit class="delete-dialog">
+        <div class="flex flex-col gap-4">
+          <span class="text-14-regular text-text-strong">
+            当前上下文将压缩为摘要，以释放更多上下文空间。是否继续？
+          </span>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              size="large"
+              class="delete-dialog-btn delete-dialog-btn-primary"
+              onClick={() => {
+                dialog.close()
+                void compactContext()
+              }}
+            >
+              确认压缩
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    ))
   }
 
   // ── 会话进度条动画状态 ────────────────────────────────────
@@ -3699,7 +3729,7 @@ if (dsId) {
                   </Show>
                   <Show when={!titleState.editing && params.id}>
                     <Tooltip
-                      placement="top"
+                      placement="bottom"
                       gutter={8}
                       contentClass="make-token-tooltip"
                       value={
@@ -3733,7 +3763,7 @@ if (dsId) {
                           padding: "0",
                         }}
                         disabled={contextCompactionDisabled()}
-                        onClick={() => void compactContext()}
+                        onClick={confirmCompactContext}
                         aria-label={`上下文已使用 ${contextUsage()}%，点击压缩上下文`}
                       >
                         <ProgressCircle size={16} strokeWidth={2} percentage={contextUsage()} />
