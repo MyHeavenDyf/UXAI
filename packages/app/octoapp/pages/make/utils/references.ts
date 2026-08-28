@@ -8,6 +8,8 @@
  * 配合网络信号（resource-tracker.ts）取并集后过滤同目录文件。
  */
 
+import { localUrlToPath } from "./resource-tracker"
+
 export type ContentType = "html" | "css" | "js"
 
 const REF_ATTR_REGEX = /(?:href|src|poster|data|formaction|xlink:href)\s*=\s*["']([^"']+)["']/gi
@@ -22,6 +24,8 @@ function isRelativeRef(ref: string): boolean {
   const trimmed = ref.trim()
   if (!trimmed) return false
 
+  // local:// 是本项目自定义协议,放行后由 normalizeRef 转回绝对路径
+  if (trimmed.startsWith("local://")) return true
   if (trimmed.startsWith("//")) return false        // 协议相对 //cdn.x.com
   if (trimmed.startsWith("#")) return false         // 锚点
   if (trimmed.startsWith("/")) return false         // 绝对路径 /foo
@@ -39,7 +43,15 @@ function isRelativeRef(ref: string): boolean {
 }
 
 function normalizeRef(ref: string): string {
-  let r = ref.trim()
+  const raw = ref.trim()
+  // local:// URL: 转回绝对文件路径(剥 query/hash、URI 解码、Windows 盘符规范化)
+  // 反向操作为 pathToLocalUrl（artifact-file-api.ts）
+  if (raw.startsWith("local://")) {
+    const abs = localUrlToPath(raw)
+    return abs || raw
+  }
+
+  let r = raw
   const qIdx = r.indexOf("?")
   if (qIdx >= 0) r = r.slice(0, qIdx)
   const hIdx = r.indexOf("#")
@@ -98,7 +110,8 @@ export function extractReferences(content: string, type: ContentType): string[] 
     collectAllMatches(SOURCEMAP_REGEX)
   }
 
-  const normalized = refs.map(normalizeRef).filter(isRelativeRef)
+  // 先 filter 后 map：isRelativeRef 需要看到原始 local:// 前缀（normalizeRef 会把它转成 C:/...，转完会被 scheme 正则误判拒绝）
+  const normalized = refs.filter(isRelativeRef).map(normalizeRef)
   return unique(normalized)
 }
 

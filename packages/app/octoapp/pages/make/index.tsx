@@ -4,7 +4,7 @@ import { type MentionSelection } from "./components/mention-popover"
 import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
 import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
-import { OctoToast, showOctoToast } from "./components/octo-toast"
+import { showOctoToast } from "./components/octo-toast"
 import type { PanelSkill, SkillConfig } from "./components/skill-config-types"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
@@ -2184,8 +2184,9 @@ const sessionMessagesLoaded = createMemo(() => {
           processedText = processedText.replace(`@${sel.name}`, ` 读取${sel.path} 这个文件 `)
         }
       }
-      // Clean up extra spaces
-      processedText = processedText.replace(/  +/g, ' ').trim()
+      // Clean up extra spaces and strip zero-width space (​) used as chip boundary marker
+      // (see getDocTextWithMentions in schema.ts — chip 前后插入 ​ 作为边界,送给模型前要剥离)
+      processedText = processedText.replace(/​/g, '').replace(/  +/g, ' ').trim()
       
       console.log("[sendMessage] displayText:", displayText)
       console.log("[sendMessage] processedText:", processedText)
@@ -2258,29 +2259,50 @@ const sessionMessagesLoaded = createMemo(() => {
       const segments = processedText.split(/(?=\/\S)/)
       const cmdSegments: { cmd: string; args: string }[] = []
       let hasCommand = false
+      // 命令名可能含空格 (chip 名带空格时,如 skillName="my skill"),
+      // 不能用 \S+ 切边界 (会在第一个空格处停)。
+      // 按名字长度降序排,优先匹配最长命令,避免 "foo" 抢前缀于 "foo bar"。
+      const sortedCommands = [...sync.data.command].sort((a, b) => b.name.length - a.name.length)
       for (const seg of segments) {
         const trimmed = seg.trim()
         if (!trimmed) continue
-        const m = trimmed.match(/^\/(\S+)([\s\S]*)$/)
-        if (m) {
-          const cmdName = m[1]
-          const matched = cmdName ? sync.data.command.find((c) => c.name === cmdName) : undefined
-          if (cmdName && matched) {
-            console.log("[MakePage] slash-detect matched command:", {
-              cmdName,
-              source: matched.source,
-              args: m[2].trim(),
-            })
-            cmdSegments.push({ cmd: cmdName, args: m[2].trim() })
-            hasCommand = true
-            continue
+        if (!trimmed.startsWith('/')) {
+          // Non-command segment: only keep if no commands found (for prompt fallback)
+          if (!hasCommand) {
+            cmdSegments.push({ cmd: "", args: trimmed })
           }
-          // /cmd 存在但不在 sync.data.command 中 → 会落入 prompt 纯文本，不触发 skill.used
-          console.log("[MakePage] slash-detect NOT in sync.data.command:", {
-            cmdName,
-            fallbackToPrompt: !hasCommand,
-          })
+          continue
         }
+        // 尝试匹配 sync.data.command 里的命令名 (支持含空格的命令名)
+        let matched: typeof sortedCommands[number] | undefined
+        let args = ''
+        for (const c of sortedCommands) {
+          const fullCmd = `/${c.name}`
+          if (trimmed.startsWith(fullCmd)) {
+            // 边界检查:命令名后必须是空白或字符串结束,避免 "foo" 错配到 "foobar"
+            const nextChar = trimmed[fullCmd.length]
+            if (nextChar === undefined || /\s/.test(nextChar)) {
+              matched = c
+              args = trimmed.slice(fullCmd.length).trim()
+              break
+            }
+          }
+        }
+        if (matched) {
+          console.log("[MakePage] slash-detect matched command:", {
+            cmdName: matched.name,
+            source: matched.source,
+            args,
+          })
+          cmdSegments.push({ cmd: matched.name, args })
+          hasCommand = true
+          continue
+        }
+        // /cmd 存在但不在 sync.data.command 中 → 会落入 prompt 纯文本，不触发 skill.used
+        console.log("[MakePage] slash-detect NOT in sync.data.command:", {
+          trimmed,
+          fallbackToPrompt: !hasCommand,
+        })
         // Non-command segment: only keep if no commands found (for prompt fallback)
         if (!hasCommand) {
           cmdSegments.push({ cmd: "", args: trimmed })
@@ -4422,7 +4444,6 @@ onPreview={(url) => {
         </div>
         </Show>
       </div>
-      <OctoToast />
     </DataProvider>
   )
 }
