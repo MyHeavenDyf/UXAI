@@ -2133,6 +2133,13 @@ const sessionMessagesLoaded = createMemo(() => {
         setPhase2Pending(true)
         detectChildPlanSession(newSid).then((childId) => {
           if (params.id !== newSid || !childId) return
+          // 检查是否已被用户确认结束（持久化标记），防止策略执行后切回时内容仍可交互
+          const isEnded = !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid)
+          if (isEnded) {
+            setPlanEndedForSession(newSid)
+            setPlanEnded(true)
+            return
+          }
           setActivePlanSessionId(childId)
           setPlanParentSessionId(newSid)
           setHasChildPlanSession(true)
