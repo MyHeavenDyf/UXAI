@@ -2,7 +2,8 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { createSignal } from "solid-js"
 
-export const MAC_UPDATE_DOWNLOAD_URL = "https://github.com/anomalyco/octo-agent/releases/latest"
+export const MAC_UPDATE_DOWNLOAD_URL =
+  import.meta.env.VITE_OCTO_MAC_DOWNLOAD_URL || "https://github.com/anomalyco/octo-agent/releases/latest"
 
 export function DialogUpdateAvailable(props: {
   os: "windows" | "macos"
