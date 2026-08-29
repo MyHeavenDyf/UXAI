@@ -34,7 +34,6 @@ export function DialogUpdateAvailable(props: {
   const [downloading, setDownloading] = createSignal(false)
   const [progress, setProgress] = createSignal(0)
   const [failed, setFailed] = createSignal(false)
-  const version = () => props.version.replace(/^v/i, "")
   const upgrade = () => {
     if (props.os === "macos") {
       dialog.close()
@@ -64,9 +63,7 @@ export function DialogUpdateAvailable(props: {
 
       <section class="octo-update-dialog-content">
         <h2>检测到更新</h2>
-        <p>
-          V {version()} 版本全新升级！我们大幅提升了 AI 的意图理解力，现在不仅能用提示词秒级生成高保真 UI，还支持圈选局部精准重绘与自动图层分组，让你的设计灵感即刻落地。
-        </p>
+        <div class="octo-update-dialog-description-spacer" aria-hidden="true" />
         {downloading() && (
           <div class="octo-update-dialog-progress">
             <div>
@@ -186,11 +183,8 @@ export function DialogUpdateAvailable(props: {
           line-height: 24px;
           font-weight: 700;
         }
-        .octo-update-dialog-content p {
-          margin: 12px 0 0;
-          font-size: 14px;
-          line-height: 21px;
-          font-weight: 400;
+        .octo-update-dialog-description-spacer {
+          height: 75px;
         }
         .octo-update-dialog-actions {
           display: flex;
