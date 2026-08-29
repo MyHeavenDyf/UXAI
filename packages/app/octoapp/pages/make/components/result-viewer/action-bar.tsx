@@ -1045,7 +1045,7 @@ function DownloadButton(props: {
         <button
           ref={btnRef}
           type="button"
-          class="octo-dropdown-trigger"
+          class="octo-action-btn"
           classList={{ "octo-dropdown-open": open() }}
           style={{ width: "auto" }}
           onClick={() => setOpen(!open())}
