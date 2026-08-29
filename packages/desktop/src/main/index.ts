@@ -503,6 +503,9 @@ function setupAutoUpdater() {
   autoUpdater.allowDowngrade = false
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
+  autoUpdater.on("download-progress", (progress) => {
+    BrowserWindow.getAllWindows().forEach((win) => win.webContents.send("update-download-progress", progress.percent))
+  })
   logger.log("auto updater configured", {
     channel: autoUpdater.channel,
     allowPrerelease: autoUpdater.allowPrerelease,
@@ -511,9 +514,16 @@ function setupAutoUpdater() {
   })
 }
 
+let availableUpdateVersion: string | undefined
 let downloadedUpdateVersion: string | undefined
 
-async function checkUpdate(download = process.platform !== "darwin") {
+async function downloadUpdate(version: string) {
+  await autoUpdater.downloadUpdate()
+  logger.log("update download completed", { version })
+  downloadedUpdateVersion = version
+}
+
+async function checkUpdate(download = false) {
   if (!UPDATER_ENABLED) return { updateAvailable: false }
   if (downloadedUpdateVersion) {
     logger.log("returning cached downloaded update", {
@@ -551,10 +561,9 @@ async function checkUpdate(download = process.platform !== "darwin") {
       return { updateAvailable: false }
     }
     logger.log("update available", { version })
+    availableUpdateVersion = version
     if (download) {
-      await autoUpdater.downloadUpdate()
-      logger.log("update download completed", { version })
-      downloadedUpdateVersion = version
+      await downloadUpdate(version)
     }
     return { updateAvailable: true, version }
   } catch (error) {
@@ -564,6 +573,10 @@ async function checkUpdate(download = process.platform !== "darwin") {
 }
 
 async function installUpdate() {
+  if (!downloadedUpdateVersion && availableUpdateVersion) {
+    logger.log("downloading update before install", { version: availableUpdateVersion })
+    await downloadUpdate(availableUpdateVersion)
+  }
   if (!downloadedUpdateVersion) {
     logger.log("install update skipped", {
       reason: "no downloaded update ready",

@@ -128,6 +128,7 @@ export type ElectronAPI = {
   runUpdater: (alertOnFail: boolean) => Promise<void>
   checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
   installUpdate: () => Promise<void>
+  onUpdateDownloadProgress: (callback: (percent: number) => void) => () => void
   setBackgroundColor: (color: string) => Promise<void>
   // jk-j60099994-replace-with-types-2-start
   // jk-j60099994-replace-with-types-2-end

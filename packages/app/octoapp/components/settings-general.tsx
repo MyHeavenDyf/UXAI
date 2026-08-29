@@ -235,12 +235,12 @@ export const SettingsGeneral: Component = () => {
           <DialogUpdateAvailable
             os={platform.os === "macos" ? "macos" : "windows"}
             version={result.version ?? ""}
-            onUpgrade={() => {
+            onUpgrade={(onProgress) => {
               if (platform.os === "macos") {
                 platform.openLink(MAC_UPDATE_DOWNLOAD_URL)
                 return
               }
-              return platform.updateAndRestart?.()
+              return platform.updateAndRestart?.(onProgress)
             }}
           />
         ))

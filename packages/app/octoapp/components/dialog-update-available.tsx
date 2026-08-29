@@ -1,18 +1,32 @@
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { createSignal } from "solid-js"
 
 export const MAC_UPDATE_DOWNLOAD_URL = "https://github.com/anomalyco/octo-agent/releases/latest"
 
 export function DialogUpdateAvailable(props: {
   os: "windows" | "macos"
   version: string
-  onUpgrade: () => void | Promise<void>
+  onUpgrade: (onProgress: (percent: number) => void) => void | Promise<void>
 }) {
   const dialog = useDialog()
+  const [downloading, setDownloading] = createSignal(false)
+  const [progress, setProgress] = createSignal(0)
+  const [failed, setFailed] = createSignal(false)
   const version = () => props.version.replace(/^v/i, "")
   const upgrade = () => {
-    dialog.close()
-    void props.onUpgrade()
+    if (props.os === "macos") {
+      dialog.close()
+      void props.onUpgrade(setProgress)
+      return
+    }
+    if (downloading()) return
+    setDownloading(true)
+    setFailed(false)
+    void Promise.resolve(props.onUpgrade(setProgress)).catch(() => {
+      setDownloading(false)
+      setFailed(true)
+    })
   }
 
   return (
@@ -32,14 +46,25 @@ export function DialogUpdateAvailable(props: {
         <p>
           V {version()} 版本全新升级！我们大幅提升了 AI 的意图理解力，现在不仅能用提示词秒级生成高保真 UI，还支持圈选局部精准重绘与自动图层分组，让你的设计灵感即刻落地。
         </p>
-        <div class="octo-update-dialog-actions" data-os={props.os}>
+        {downloading() && (
+          <div class="octo-update-dialog-progress">
+            <div>
+              <span>正在下载更新</span>
+              <span>{Math.round(progress())}%</span>
+            </div>
+            <div class="octo-update-dialog-progress-track">
+              <div style={{ width: `${Math.max(0, Math.min(100, progress()))}%` }} />
+            </div>
+          </div>
+        )}
+        <div class="octo-update-dialog-actions" data-os={props.os} data-progress={downloading() ? true : undefined}>
           {props.os === "windows" && (
-            <button type="button" class="octo-update-dialog-later" onClick={() => dialog.close()}>
+            <button type="button" class="octo-update-dialog-later" disabled={downloading()} onClick={() => dialog.close()}>
               以后再说
             </button>
           )}
-          <button type="button" class="octo-update-dialog-upgrade" onClick={upgrade}>
-            立即升级
+          <button type="button" class="octo-update-dialog-upgrade" disabled={downloading()} onClick={upgrade}>
+            {downloading() ? `下载中 ${Math.round(progress())}%` : failed() ? "重试下载" : "立即升级"}
           </button>
         </div>
       </section>
@@ -151,6 +176,32 @@ export function DialogUpdateAvailable(props: {
           gap: 12px;
           margin-top: 40px;
         }
+        .octo-update-dialog-progress {
+          margin-top: 28px;
+        }
+        .octo-update-dialog-progress > div:first-child {
+          display: flex;
+          justify-content: space-between;
+          margin-bottom: 8px;
+          color: rgba(0, 0, 0, 0.65);
+          font-size: 13px;
+          line-height: 20px;
+        }
+        .octo-update-dialog-progress-track {
+          height: 6px;
+          overflow: hidden;
+          border-radius: 999px;
+          background: #e9edf5;
+        }
+        .octo-update-dialog-progress-track > div {
+          height: 100%;
+          border-radius: inherit;
+          background: #0a59f7;
+          transition: width 160ms ease-out;
+        }
+        .octo-update-dialog-actions[data-progress] {
+          margin-top: 24px;
+        }
         .octo-update-dialog-actions[data-os="macos"] {
           justify-content: center;
         }
@@ -161,6 +212,10 @@ export function DialogUpdateAvailable(props: {
           font-size: 16px;
           line-height: 22px;
           cursor: pointer;
+        }
+        .octo-update-dialog-actions button:disabled {
+          cursor: default;
+          opacity: 0.65;
         }
         .octo-update-dialog-later,
         .octo-update-dialog-upgrade {
