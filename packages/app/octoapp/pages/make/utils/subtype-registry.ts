@@ -2,7 +2,6 @@ import type { SubtypeHandler } from "../subtype-handlers/types"
 import defaultHandler from "../subtype-handlers/default"
 import shadcnHandler from "../subtype-handlers/shadcn"
 import prototypeHandler from "../subtype-handlers/prototype"
-import componentsHandler from "../subtype-handlers/components"
 
 const handlers = new Map<string, SubtypeHandler>()
 
@@ -19,4 +18,3 @@ export function getSubtypeHandler(subtype?: string): SubtypeHandler | undefined 
 registerSubtypeHandler(defaultHandler)
 registerSubtypeHandler(shadcnHandler)
 registerSubtypeHandler(prototypeHandler)
-registerSubtypeHandler(componentsHandler)

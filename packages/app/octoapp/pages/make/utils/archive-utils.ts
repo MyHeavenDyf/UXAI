@@ -78,8 +78,10 @@ export interface CreateArchiveZipOptions {
   projectDir: string
   /** 来自 resource-tracker 的 local:// URL 列表（实际加载过的资源） */
   observedUrls?: string[]
-  /** 归档时塞进 src/ 的文件列表；为空则 src/ 留空 */
-  srcFiles?: { path: string; content: string | Uint8Array }[] | null
+  /** 归档时塞进 src/ 的整包 zip；为空则 src/ 留空 */
+  srcZipBlob?: Blob | null
+  /** src/ 内 zip 文件名，默认 'code.zip' */
+  srcFileName?: string
 }
 
 export function transformCommentsForArchive(comments: FileComment[]): ArchiveComment[] {
@@ -161,11 +163,10 @@ export async function createArchiveZip(options: CreateArchiveZipOptions): Promis
   zip.folder("src")
   zip.folder("preview")
 
-  // 塞入 subtype 提供的源码文件（平铺到 src/，不再嵌套 zip）
-  if (options.srcFiles) {
-    for (const f of options.srcFiles) {
-      zip.file(`src/${f.path}`, f.content)
-    }
+  // 塞入 subtype 提供的代码包整包 zip（如 prototype 的 eview-react 产物）
+  if (options.srcZipBlob) {
+    const srcBytes = await blobToUint8Array(options.srcZipBlob)
+    zip.file(`src/${options.srcFileName ?? "code.zip"}`, srcBytes)
   }
 
   const archiveComments = transformCommentsForArchive(options.comments)

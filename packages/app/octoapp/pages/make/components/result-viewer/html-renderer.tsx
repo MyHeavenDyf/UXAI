@@ -405,7 +405,8 @@ export function HtmlRenderer(props: {
       htmlContent = extractHtmlContent(htmlContent)
       
       // 归档钩子：subtype 可提供要塞进 src/ 的代码包（如 prototype 的 eview-react 产物）
-      let srcFiles: { path: string; content: string | Uint8Array }[] | null = null
+      let srcZipBlob: Blob | null = null
+      let srcFileName: string | undefined
       const handler = getSubtypeHandler(props.subtype)
       if (handler?.buildArchiveSrc && props.tabId) {
         const m = local.model.current()
@@ -437,7 +438,8 @@ export function HtmlRenderer(props: {
         try {
           const r = await handler.buildArchiveSrc(ctx)
           if (r) {
-            srcFiles = r.files
+            srcZipBlob = r.blob
+            srcFileName = r.fileName
           } else if (props.subtype === "prototype") {
             showOctoToast({ title: "代码包生成失败，已跳过 src/" })
           }
@@ -456,7 +458,8 @@ export function HtmlRenderer(props: {
         sessionId: props.sessionId || "",
         projectDir: props.sdkDirectory || "",
         observedUrls: iframeRef ? resourceTracker.getPaths(iframeRef) : [],
-        srcFiles,
+        srcZipBlob,
+        srcFileName,
       })
       
       if (isLoggedIn) {
