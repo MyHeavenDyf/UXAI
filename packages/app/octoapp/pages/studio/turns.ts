@@ -295,7 +295,8 @@ function normalizeAspectRatio(value?: string): StudioAspectRatio {
     value === "9:16" ||
     value === "3:2" ||
     value === "4:3" ||
-    value === "16:9"
+    value === "16:9" ||
+    value === "21:9"
   ) return value
   return "3:4"
 }
@@ -305,6 +306,7 @@ const STUDIO_ASPECT_RATIO_CANDIDATES: { key: StudioAspectRatio; value: number }[
   { key: "4:3", value: 4 / 3 },
   { key: "3:2", value: 3 / 2 },
   { key: "16:9", value: 16 / 9 },
+  { key: "21:9", value: 21 / 9 },
   { key: "3:4", value: 3 / 4 },
   { key: "2:3", value: 2 / 3 },
   { key: "9:16", value: 9 / 16 },

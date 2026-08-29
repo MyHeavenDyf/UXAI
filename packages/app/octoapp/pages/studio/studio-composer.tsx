@@ -1,9 +1,11 @@
 import { batch, createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX, type Resource } from "solid-js"
 import IconHost from "@/pages/_shell/icons/IconHost.svg"
+import emptyPng from "../insight/icons/empty.png"
 import { usePlatform } from "@/context/platform"
-import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, styleModelLabel } from "./data"
+import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, styleModelId, styleModelLabel } from "./data"
 import { getDefaultDimensions, getModelResolutionKey, STUDIO_VIDEO_ASPECT_RATIOS, STUDIO_VIDEO_MODES, SUPPORTED_STUDIO_CAPABILITIES, workspaceModeForCapability, type StudioVideoDuration, type StudioVideoFrameSlot, type StudioVideoMode, type StudioVideoQualityMode } from "./studio-shared"
 import { MaterialMenu, type MaterialWordBook } from "./MaterialMenu"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import type { StudioAsset, StudioAspectRatio, StudioCapability, StudioGenerationStatus } from "./types"
 import { StudioVideoRiskContent } from "./studio-video-risk-dialog"
 
@@ -72,19 +74,23 @@ export function StudioComposer(props: {
   onToolClick?: () => void
 }): JSX.Element {
   const platform = usePlatform()
-  let inputRef!: HTMLTextAreaElement
+  let inputRef!: HTMLDivElement
   let pointerDownOpenMenu: typeof props.openMenu = null
   let referenceHoverFrame: number | undefined
   let dragDepth = 0
+  let atTriggeredByTyping = false
+  let pointerDownAtMenuOpen = false
   const [composing, setComposing] = createSignal(false)
   const [dragActive, setDragActive] = createSignal(false)
   const [referenceExpanded, setReferenceExpanded] = createSignal(false)
   const [referenceHoverReady, setReferenceHoverReady] = createSignal(false)
+  const [refPreview, setRefPreview] = createSignal<{ src: string; name: string; left: number; top: number } | null>(null)
   const referenceAssets = createMemo(() => props.assets.slice(0, props.maxReferenceImages))
   const referenceAsset = createMemo(() => referenceAssets()[0])
   const canAddReferenceAsset = createMemo(() => referenceAssets().length < props.maxReferenceImages)
   const isImageGeneration = createMemo(() => props.capability === "image.generate")
   const isVideoGeneration = createMemo(() => props.capability === "video.generate")
+  const isSeedreamModel = createMemo(() => styleModelId(props.styleModel) === "seedream-5-lite")
   const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
   const isImeComposing = (event: KeyboardEvent) => event.isComposing || composing() || event.keyCode === 229
   const isBusy = createMemo(() => props.busy || props.status === "queued" || props.status === "running" || props.status === "submitting")
@@ -111,6 +117,102 @@ export function StudioComposer(props: {
     if (!inputRef) return
     inputRef.style.height = "auto"
     inputRef.style.height = `${Math.min(inputRef.scrollHeight, 180)}px`
+  }
+  const insertMention = (asset: StudioAsset) => {
+    if (!inputRef) return
+    inputRef.focus()
+    const sel = window.getSelection()
+    if (!sel) return
+    let range: Range
+    if (sel.rangeCount && inputRef.contains(sel.anchorNode)) {
+      range = sel.getRangeAt(0)
+      const node = range.startContainer
+      if (node.nodeType === Node.TEXT_NODE && range.startOffset > 0 && (node.textContent ?? "")[range.startOffset - 1] === "@") {
+        const offset = range.startOffset
+        const text = node.textContent ?? ""
+        node.textContent = text.slice(0, offset - 1) + text.slice(offset)
+        range.setStart(node, offset - 1)
+        range.collapse(true)
+      }
+      range.deleteContents()
+    } else {
+      range = document.createRange()
+      range.selectNodeContents(inputRef)
+      range.collapse(false)
+    }
+    const name = asset.name.replace(/\.[^.]+$/, "")
+    const chip = document.createElement("span")
+    chip.className = "studio-composer-at-chip"
+    chip.setAttribute("contenteditable", "false")
+    chip.setAttribute("data-mention", name)
+    const img = document.createElement("img")
+    img.src = asset.dataUrl
+    img.alt = asset.name
+    chip.appendChild(img)
+    const label = document.createElement("span")
+    label.className = "studio-composer-at-chip-name"
+    label.textContent = name
+    chip.appendChild(label)
+    chip.addEventListener("mouseenter", () => {
+      const rect = img.getBoundingClientRect()
+      const size = 140
+      let left = rect.left + rect.width / 2 - size / 2
+      let top = rect.top - size - 8
+      left = Math.max(8, Math.min(left, window.innerWidth - size - 8))
+      if (top < 8) top = 8
+      setRefPreview({ src: asset.dataUrl, name, left, top })
+    })
+    chip.addEventListener("mouseleave", () => setRefPreview(null))
+    range.insertNode(chip)
+    const tail = document.createTextNode("\u200B")
+    chip.after(tail)
+    range.setStart(tail, 1)
+    range.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(range)
+    props.onPrompt(inputRef.innerText.replace(/\u200B/g, ""))
+    resizeInput()
+  }
+  // 按一次退格直接删除光标前的 @ chip，避免先吃掉零宽空格再删 chip 的两次退格
+  const deleteMentionBeforeCaret = () => {
+    if (!inputRef) return false
+    const sel = window.getSelection()
+    if (!sel || !sel.isCollapsed || !sel.rangeCount) return false
+    const range = sel.getRangeAt(0)
+    const node = range.startContainer
+    if (node.nodeType !== Node.TEXT_NODE) return false
+    const offset = range.startOffset
+    const text = node.textContent ?? ""
+    if (text[offset - 1] !== "\u200B") return false
+    const chip = node.previousSibling as HTMLElement | null
+    if (!chip || chip.nodeType !== Node.ELEMENT_NODE || !chip.classList.contains("studio-composer-at-chip")) return false
+    const prevText = chip.previousSibling
+    const nextText = node.nextSibling
+    chip.remove()
+    const before = text.slice(0, offset - 1)
+    const after = text.slice(offset)
+    const merged = before + after
+    const caret = document.createRange()
+    if (merged) {
+      node.textContent = merged
+      caret.setStart(node, before.length)
+      caret.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(caret)
+    } else {
+      node.parentNode?.removeChild(node)
+      sel.removeAllRanges()
+      if (nextText) {
+        caret.setStartBefore(nextText)
+        caret.collapse(true)
+        sel.addRange(caret)
+      } else if (prevText) {
+        caret.setStartAfter(prevText)
+        caret.collapse(true)
+        sel.addRange(caret)
+      }
+    }
+    return true
   }
   const [lastValidCustomLabel, setLastValidCustomLabel] = createSignal("")
   const isJimengModel = () => props.styleModel === "seedream-5-lite" || (getModelResolutionKey(props.styleModel) !== "default" && getModelResolutionKey(props.styleModel) !== "hdesign" && props.styleModel !== "qwen")
@@ -200,6 +302,8 @@ export function StudioComposer(props: {
   const [videoModeOpen, setVideoModeOpen] = createSignal(false)
   let videoModeBtnRef!: HTMLDivElement
   let videoModeAnchorRef!: HTMLDivElement
+  const [atMenuOpen, setAtMenuOpen] = createSignal(false)
+  let atAnchorRef!: HTMLDivElement
   const videoModeLabel = createMemo(() => STUDIO_VIDEO_MODES.find((item) => item.value === props.videoMode)?.label ?? "全能参考")
   const moreMenuStyle = (): JSX.CSSProperties => {
     // 窗口尺寸变化时重新计算位置，使菜单跟随更多按钮
@@ -215,7 +319,7 @@ export function StudioComposer(props: {
   const itemWidthCache = new Map<string, number>()
 
   const toolbarItemKeys = createMemo(() => {
-    if (isImageGeneration()) return ["capability", "style", "settings", "reverse", "material"]
+    if (isImageGeneration()) return isSeedreamModel() ? ["capability", "style", "settings", "at", "reverse", "material"] : ["capability", "style", "settings", "reverse", "material"]
     if (isVideoGeneration()) return ["capability", "videoMode", "settings"]
     return ["capability"]
   })
@@ -300,6 +404,7 @@ export function StudioComposer(props: {
   }
 
   onMount(() => {
+    if (inputRef && props.prompt) inputRef.innerText = props.prompt
     requestAnimationFrame(() => {
       checkToolbarOverflow()
       resizeInput()
@@ -321,6 +426,15 @@ export function StudioComposer(props: {
     props.capability
     toolbarOverflow()
     requestAnimationFrame(() => checkToolbarOverflow())
+  })
+
+  createEffect(() => {
+    const prompt = props.prompt
+    if (!inputRef) return
+    if (prompt !== inputRef.innerText.replace(/\u200B/g, "")) {
+      inputRef.innerText = prompt
+      queueMicrotask(resizeInput)
+    }
   })
 
   // Close more menu on outside click
@@ -439,6 +553,7 @@ export function StudioComposer(props: {
   // 视频模式弹框：打开时关闭其它弹框，并左对齐定位到按钮
   createEffect(() => {
     if (props.openMenu) setVideoModeOpen(false)
+    if (props.openMenu) setAtMenuOpen(false)
   })
 
   createEffect(() => {
@@ -450,6 +565,71 @@ export function StudioComposer(props: {
       videoModeAnchorRef.style.left = `${btnRect.left - toolbarRect.left}px`
       videoModeAnchorRef.style.top = ""
       videoModeAnchorRef.style.bottom = ""
+    })
+  })
+
+  createEffect(() => {
+    if (!atMenuOpen()) return
+    if (!atTriggeredByTyping) {
+      queueMicrotask(() => {
+        if (!atAnchorRef || !toolbarRef) return
+        const toolbarRect = toolbarRef.getBoundingClientRect()
+        if (toolbarOverflow().includes("at") && moreMenuRef) {
+          const menuRect = moreMenuRef.getBoundingClientRect()
+          atAnchorRef.style.position = ""
+          atAnchorRef.style.left = `${menuRect.right - toolbarRect.left + 1}px`
+          atAnchorRef.style.top = "auto"
+          atAnchorRef.style.bottom = `${toolbarRect.bottom - menuRect.bottom - 8}px`
+          atAnchorRef.style.height = ""
+          return
+        }
+        const btn = buttonRefs.get("at")
+        if (!btn) return
+        const btnRect = btn.getBoundingClientRect()
+        atAnchorRef.style.position = ""
+        atAnchorRef.style.left = `${btnRect.left - toolbarRect.left}px`
+        atAnchorRef.style.top = ""
+        atAnchorRef.style.bottom = ""
+        atAnchorRef.style.height = ""
+      })
+      return
+    }
+    // 输入 @ 时，字符要等 keydown 默认动作执行后才插入 DOM，
+    // 故推迟到下一帧布局完成后再测量 @ 的位置，否则拿不到 @ 的 rect 而回退到按钮位置。
+    if (atAnchorRef) atAnchorRef.style.visibility = "hidden"
+    requestAnimationFrame(() => {
+      if (!atAnchorRef) return
+      const positionAtButton = () => {
+        if (!toolbarRef) return
+        const btn = buttonRefs.get("at")
+        if (!btn) return
+        const btnRect = btn.getBoundingClientRect()
+        const toolbarRect = toolbarRef.getBoundingClientRect()
+        atAnchorRef.style.visibility = ""
+        atAnchorRef.style.position = ""
+        atAnchorRef.style.left = `${btnRect.left - toolbarRect.left}px`
+        atAnchorRef.style.top = ""
+        atAnchorRef.style.bottom = ""
+        atAnchorRef.style.height = ""
+      }
+      const sel = window.getSelection()
+      if (!sel || !sel.rangeCount) return positionAtButton()
+      const range = sel.getRangeAt(0)
+      const node = range.startContainer
+      if (node.nodeType !== Node.TEXT_NODE || range.startOffset <= 0 || (node.textContent ?? "")[range.startOffset - 1] !== "@") return positionAtButton()
+      const atRange = document.createRange()
+      atRange.setStart(node, range.startOffset - 1)
+      atRange.setEnd(node, range.startOffset)
+      const atRect = atRange.getBoundingClientRect()
+      const menuWidth = 200
+      let left = atRect.right
+      if (left + menuWidth > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - menuWidth)
+      atAnchorRef.style.visibility = ""
+      atAnchorRef.style.position = "fixed"
+      atAnchorRef.style.left = `${left}px`
+      atAnchorRef.style.bottom = `${window.innerHeight - atRect.top}px`
+      atAnchorRef.style.top = ""
+      atAnchorRef.style.height = "0"
     })
   })
 
@@ -472,14 +652,20 @@ export function StudioComposer(props: {
   })
 
   function handlePaste(event: ClipboardEvent) {
-    if (!isImageGeneration() && !isVideoGeneration()) return
-    const files = Array.from(event.clipboardData?.items ?? [])
-      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
-      .map((item) => item.getAsFile())
-      .filter((file): file is File => Boolean(file))
-    if (!files.length) return
+    if (isImageGeneration() || isVideoGeneration()) {
+      const files = Array.from(event.clipboardData?.items ?? [])
+        .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => Boolean(file))
+      if (files.length) {
+        event.preventDefault()
+        props.onPasteImage(files)
+        return
+      }
+    }
     event.preventDefault()
-    props.onPasteImage(files)
+    const text = event.clipboardData?.getData("text/plain") ?? ""
+    if (text) document.execCommand("insertText", false, text)
   }
 
   const canDropImages = () => isImageGeneration() || isVideoGeneration()
@@ -540,6 +726,7 @@ export function StudioComposer(props: {
     if (event.target instanceof Element && event.target.closest(".studio-menu")) return
     if (props.openMenu) props.onOpenMenu(null)
     if (videoModeOpen()) setVideoModeOpen(false)
+    if (atMenuOpen()) setAtMenuOpen(false)
   }
 
   document.addEventListener("pointerdown", handleDocumentPointerDown)
@@ -547,6 +734,14 @@ export function StudioComposer(props: {
 
   return (
     <div class="studio-composer-wrap relative shrink-0">
+      <Show when={refPreview()}>
+        {(p) => (
+          <div class="studio-composer-ref-preview" style={{ left: `${p().left}px`, top: `${p().top}px` }}>
+            <img src={p().src} alt={p().name} />
+            <span class="studio-composer-ref-preview-name">{p().name}</span>
+          </div>
+        )}
+      </Show>
       <div
         class="studio-composer"
         classList={{ video: isVideoGeneration(), dragging: dragActive() }}
@@ -653,24 +848,42 @@ export function StudioComposer(props: {
             </div>
           </Show>
           <div class="studio-composer-input-wrap">
-            <textarea
+            <div
               ref={inputRef}
-              value={props.prompt}
-              onInput={(event) => {
-                props.onPrompt(event.currentTarget.value)
+              class="studio-composer-input"
+              contenteditable={!isEditingCapability()}
+              data-placeholder={isVideoGeneration() ? undefined : isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : isSeedreamModel() ? "上传参考图、输入文字或@主体，描述你想生成的图片。" : "上传参考图、输入文字，描述你想生成的图片。"}
+              onInput={() => {
+                const text = inputRef.innerText.replace(/\u200B/g, "")
+                if (text.trim() === "") inputRef.innerHTML = ""
+                props.onPrompt(text)
                 resizeInput()
               }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && isImeComposing(event)) return
+                if (event.key === "Backspace" && !isImeComposing(event) && deleteMentionBeforeCaret()) {
+                  event.preventDefault()
+                  const text = inputRef.innerText.replace(/\u200B/g, "")
+                  if (text.trim() === "") inputRef.innerHTML = ""
+                  props.onPrompt(text)
+                  resizeInput()
+                  return
+                }
+                if (event.key === "@" && !isImeComposing(event) && isImageGeneration() && isSeedreamModel()) {
+                  atTriggeredByTyping = true
+                  props.onOpenMenu(null)
+                  setVideoModeOpen(false)
+                  setAtMenuOpen(true)
+                }
                 props.onKeyDown(event)
               }}
               onCompositionStart={() => setComposing(true)}
-              onCompositionEnd={() => setComposing(false)}
+              onCompositionEnd={() => {
+                setComposing(false)
+                props.onPrompt(inputRef.innerText.replace(/\u200B/g, ""))
+              }}
               onBlur={() => setComposing(false)}
               onPaste={handlePaste}
-              placeholder={isVideoGeneration() ? undefined : isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : "上传参考图、输入文字，描述你想生成的图片。"}
-              class="studio-composer-input"
-              disabled={isEditingCapability()}
             />
             <Show when={isVideoGeneration() && !props.prompt}>
               <div class="studio-composer-video-placeholder" onClick={() => inputRef.focus()}>
@@ -724,6 +937,24 @@ export function StudioComposer(props: {
                     disabled={isBusy()}
                     onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
                     onClick={() => props.onOpenMenu(pointerDownOpenMenu === "settings" ? null : "settings")}
+                  />
+                </div>
+              </Show>
+              <Show when={isSeedreamModel() && !toolbarOverflow().includes("at")}>
+                <div class="relative studio-composer-toolbar-item" ref={(el) => buttonRefs.set("at", el)} data-toolbar-item="at">
+                  <IconTool
+                    label="引用参考"
+                    title="引用参考"
+                    class="studio-composer-icon-at"
+                    disabled={isBusy()}
+                    onPointerDown={() => { pointerDownOpenMenu = props.openMenu; pointerDownAtMenuOpen = atMenuOpen() }}
+                    onClick={() => {
+                      if (pointerDownAtMenuOpen) { setAtMenuOpen(false); return }
+                      atTriggeredByTyping = false
+                      props.onOpenMenu(null)
+                      setVideoModeOpen(false)
+                      setAtMenuOpen(true)
+                    }}
                   />
                 </div>
               </Show>
@@ -799,6 +1030,24 @@ export function StudioComposer(props: {
                     >
                       <img src="/studio/IconParameter.svg" alt="" class="studio-composer-toolbar-more-item-icon" />
                       <span>图片设置</span>
+                    </button>
+                  </Show>
+                  <Show when={isSeedreamModel() && toolbarOverflow().includes("at")}>
+                    <button
+                      type="button"
+                      class="studio-composer-toolbar-more-item"
+                      classList={{ active: atMenuOpen() }}
+                      onPointerDown={() => { pointerDownAtMenuOpen = atMenuOpen() }}
+                      onClick={() => {
+                        if (pointerDownAtMenuOpen) { setAtMenuOpen(false); return }
+                        atTriggeredByTyping = false
+                        props.onOpenMenu(null)
+                        setVideoModeOpen(false)
+                        setAtMenuOpen(true)
+                      }}
+                    >
+                      <span class="studio-composer-toolbar-more-item-icon studio-composer-at-glyph">{"@"}</span>
+                      <span>引用参考</span>
                     </button>
                   </Show>
                   <Show when={toolbarOverflow().includes("reverse")}>
@@ -887,6 +1136,37 @@ export function StudioComposer(props: {
                 value={props.videoMode}
                 onSelect={(value) => { props.onVideoMode(value); setVideoModeOpen(false) }}
               />
+            </div>
+          </Show>
+          <Show when={isImageGeneration() && atMenuOpen()}>
+            <div class="studio-composer-dropdown-anchor" ref={atAnchorRef}>
+              <div class="studio-menu studio-at-menu" style={{ width: "200px", height: referenceAssets().length > 0 ? "120px" : "150px" }} onClick={() => setAtMenuOpen(false)}>
+                <div class="studio-material-title">可能@的内容</div>
+                <ScrollView class="studio-at-menu-list">
+                  <Show when={referenceAssets().length > 0} fallback={
+                    <div class="studio-at-menu-empty">
+                      <img class="studio-at-menu-empty-img" src={emptyPng} alt="" />
+                      <span class="studio-at-menu-empty-text">你还没有添加图片</span>
+                    </div>
+                  }>
+                    <For each={referenceAssets()}>
+                      {(asset) => (
+                        <div
+                          class="studio-at-menu-item"
+                          onMouseDown={(event) => {
+                            event.preventDefault()
+                            insertMention(asset)
+                            setAtMenuOpen(false)
+                          }}
+                        >
+                          <img class="studio-at-menu-thumb" src={asset.dataUrl} />
+                          <span class="studio-at-menu-name">{asset.name.replace(/\.[^.]+$/, "")}</span>
+                        </div>
+                      )}
+                    </For>
+                  </Show>
+                </ScrollView>
+              </div>
             </div>
           </Show>
           <Show when={!isBusy()}>
@@ -1498,6 +1778,14 @@ function VideoSettings(props: {
   onDuration: (value: StudioVideoDuration) => void
   onQualityMode: (value: StudioVideoQualityMode) => void
 }): JSX.Element {
+  const ratioIconSize = {
+    "21:9": { w: "20px", h: "8px" },
+    "16:9": { w: "20px", h: "10px" },
+    "4:3": { w: "20px", h: "14px" },
+    "1:1": { w: "20px", h: "20px" },
+    "3:4": { w: "14px", h: "20px" },
+    "9:16": { w: "10px", h: "20px" },
+  } as const
   return (
     <div class="studio-menu studio-image-settings-menu studio-video-settings-menu">
       <div class="studio-image-settings-title">视频设置</div>
@@ -1515,8 +1803,8 @@ function VideoSettings(props: {
               <span
                 class="studio-image-settings-ratio-icon"
                 style={{
-                  "--icon-w": item === "1:1" ? "20px" : item === "9:16" ? "10px" : "20px",
-                  "--icon-h": item === "1:1" ? "20px" : item === "16:9" ? "10px" : "20px",
+                  "--icon-w": ratioIconSize[item].w,
+                  "--icon-h": ratioIconSize[item].h,
                 }}
               />
               <span class="studio-image-settings-ratio-text">{item}</span>
@@ -1528,7 +1816,12 @@ function VideoSettings(props: {
       <div class="studio-video-duration-slider">
         <div class="studio-video-duration-track" style={{ "--value-frac": String(Math.max(0, Math.min(1, Number(props.duration) / 15))) } as JSX.CSSProperties}>
           <div class="studio-video-duration-rail" />
-          <div class="studio-video-duration-fill" />
+          <div class="studio-video-duration-fill" classList={{ "studio-video-duration-fill--muted": Number(props.duration) <= 4 }} />
+          <div class="studio-video-duration-muted-zone">
+            <Show when={Number(props.duration) <= 4}>
+              <span class="studio-video-duration-muted-tip">时长需在4-15秒内</span>
+            </Show>
+          </div>
           <input
             type="range"
             min={0}
@@ -1550,6 +1843,7 @@ function VideoSettings(props: {
                 return (
                   <button
                     type="button"
+                    disabled={tick === "0"}
                     class="studio-video-duration-tick"
                     classList={{ active: tick === props.duration }}
                     style={{ left: `${pos}%` }}
@@ -1602,11 +1896,13 @@ function VideoSettings(props: {
           )}
         </For>
       </div>
-      <div class="studio-image-settings-label">生成模式</div>
+      <div class="studio-image-settings-label">选择分辨率（质量越高等待时间越长）</div>
       <div class="studio-image-settings-counts studio-video-settings-quality">
         <For each={[
-          { label: "标准模式", value: "std" },
-          { label: "高质量模式", value: "pro" },
+          { label: "480P", value: "480" },
+          { label: "720P", value: "720" },
+          { label: "1080P", value: "1080" },
+          { label: "4K", value: "4k" },
         ] as const}>
           {(item) => (
             <button
