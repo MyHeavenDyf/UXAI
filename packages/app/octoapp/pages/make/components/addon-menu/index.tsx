@@ -156,8 +156,13 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   }
 
   // 产品资源库文件选中态:基于 props.selections(doc 里的 chip),按 filename 匹配
-  const isAssetFileSelected = (fileName: string) => {
-    return props.selections.some(s => s.type === 'file' && s.filename === fileName)
+  // 产品资源库文件选中态:基于 props.selections(doc 里的 chip),按 path 匹配
+  // path = joinUrl(s3BaseUrl, convertHtmlUrl)(唯一标识,下载后会被 updateMentionPath 改成本地路径)
+  const isAssetFileSelected = (file: AssetFile) => {
+    const url = joinUrl(file.s3BaseUrl, file.convertHtmlUrl)
+    return props.selections.some(s =>
+      s.type === 'file' && s.path === url
+    )
   }
 
   const handleTriggerClick = (e: MouseEvent) => {
@@ -213,14 +218,16 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     }
   }
 
-  // 产品资源库文件点击:只插入 chip(path 暂空,关闭面板时批量下载补充),不下载
+  // 产品资源库文件点击:只插入 chip(path = joinUrl(s3BaseUrl, convertHtmlUrl) 作唯一标识,
+  // 关闭面板时批量下载,updateMentionPath 把本地路径补到 chip),不立即下载
   const handleAssetFileClick = (file: AssetFile) => {
+    const url = joinUrl(file.s3BaseUrl, file.convertHtmlUrl)
     const selection: MentionSelection = {
       type: 'file',
       filename: file.fileName,
-      path: '',
+      path: url,
     }
-    if (isAssetFileSelected(file.fileName)) {
+    if (isAssetFileSelected(file)) {
       props.onDeselect(selection)
     } else {
       props.onSelect(selection)
@@ -256,24 +263,28 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     }
   }
 
-  // Collect all AssetFile objects currently selected (chip in doc, path still empty = not yet downloaded)
+  // Collect all AssetFile objects currently selected (chip path is the asset URL = not yet downloaded).
+  // After download, updateMentionPath changes path to local path, so those chips are skipped here.
   const collectSelectedAssetFiles = (): AssetFile[] => {
     const result: AssetFile[] = []
     const seen = new Set<string>()
     for (const sel of props.selections) {
       if (sel.type !== 'file') continue
-      const filename = (sel as any).filename as string
-      if (seen.has(filename)) continue
-      seen.add(filename)
-      const found = findAssetFileInStack(filename)
+      const path = (sel as any).path as string
+      if (!path) continue
+      // Only chips whose path is still the asset URL (not yet downloaded → local path)
+      if (!/^https?:\/\//.test(path)) continue
+      if (seen.has(path)) continue
+      seen.add(path)
+      const found = findAssetFileInStackByUrl(path)
       if (found) result.push(found)
     }
     return result
   }
 
-  const findAssetFileInStack = (fileName: string): AssetFile | undefined => {
+  const findAssetFileInStackByUrl = (url: string): AssetFile | undefined => {
     for (const level of assetStack()) {
-      const f = level.files.find(file => file.fileName === fileName)
+      const f = level.files.find(file => joinUrl(file.s3BaseUrl, file.convertHtmlUrl) === url)
       if (f) return f
     }
     return undefined
@@ -283,9 +294,9 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     setAssetDownloadCancelled(true)
     assetDownloadAbortController?.abort()
     setAssetDownloadOpen(false)
-    // Remove chips whose path is still empty (= not yet downloaded this session)
+    // Remove chips whose path is still the asset URL (= not yet downloaded this session)
     for (const sel of props.selections) {
-      if (sel.type === 'file' && !(sel as any).path) {
+      if (sel.type === 'file' && /^https?:\/\//.test((sel as any).path || "")) {
         props.onDeselect(sel)
       }
     }
@@ -779,7 +790,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
                       {/* Files after folders */}
                       <For each={level.files}>
                         {(file) => {
-                          const selected = () => isAssetFileSelected(file.fileName)
+                          const selected = () => isAssetFileSelected(file)
                           return (
                             <button
                               type="button"

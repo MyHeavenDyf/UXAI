@@ -499,16 +499,19 @@ const sessionMessagesLoaded = createMemo(() => {
         setComposing(false)
         setDeltaLog([])
 
-        if (sendingNavigation) {
-          sendingNavigation = false
-        } else {
-          setAttachments([])
-        }
+        // 附件清空不在此处理：此处依赖函数每次求值都返回新数组引用,Sync store 任何
+        // 更新（如模型回复完成追加 message）都会触发本 effect,会误清"回复期间添加的
+        // 附件"。附件清空职责移到下方监听 params.id 切换的独立 effect。
 
         requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
   )
+
+  // session 切换时清空附件（发送消息清空由 sendMessage 自身负责,见 2223 行）
+  createEffect(on(() => params.id, () => {
+    setAttachments([])
+  }, { defer: true }))
 
   // app 长时间放置后重新激活时,SSE 可能已断开 + 鉴权过期 + DNS 不可达(ERR_NAME_NOT_RESOLVED),
   // 此时 sync.session.sync 的请求可能失败被 .catch 吞掉,sync.data.message[id] 仍是 undefined,
@@ -1080,7 +1083,6 @@ const sessionMessagesLoaded = createMemo(() => {
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const filesById = new Map<string, File>()
   const maxAttachments = () => attachments().length >= 5
-  let sendingNavigation = false
   const [isDragOver, setIsDragOver] = createSignal(false)
 
   // ── Slash Command Popover State ──
@@ -2509,11 +2511,12 @@ const sessionMessagesLoaded = createMemo(() => {
         ...(modelKey ? { model: modelKey } : {}),
         parts,
       })
-      setAttachments([])
+      // 不在此清空附件：session.prompt 是 streaming API，await 在 stream 完成才 resolve。
+      // 附件已在 sendMessage 开头（约 2223 行）快照后立即清空，此处再清会误清
+      // "streaming 期间用户添加的新附件"。失败时也保留附件便于用户重试。
       requestAnimationFrame(() => autoScroll.forceScrollToBottom())
     } catch (err) {
       console.error("[MakePage] prompt failed", err)
-      setAttachments([])
     }
   }
 
@@ -2605,7 +2608,6 @@ const result = await sdk.client.session.create({ directory: dir, agent: "octo_ma
 if (dsId) {
           localStorage.setItem(DS_KEY_PREFIX + session.id, dsId)
         }
-        sendingNavigation = true
         navigate(`/make/${session.id}`)
         sid = session.id
       }
