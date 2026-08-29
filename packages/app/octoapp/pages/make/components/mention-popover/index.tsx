@@ -810,9 +810,9 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                     left: levelIndex() === 0 ? undefined : `${levelIndex() * 252}px`,
                     top: levelIndex() === 0 ? undefined : 0,
                     width: levelIndex() === 0 ? undefined : '248px',
-                    'max-height': levelIndex() === 0 ? undefined : '420px',
-                    'overflow-y': levelIndex() === 0 ? undefined : 'auto',
-                    'overflow-x': levelIndex() === 0 ? undefined : 'hidden',
+                    'max-height': '420px',
+                    'overflow-y': 'auto',
+                    'overflow-x': 'hidden',
                   }}
                 >
                   {/* 子文件夹列表 */}
