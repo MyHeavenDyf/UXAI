@@ -19,6 +19,3 @@ describe("isPendingUploadPath", () => {
     expect(isPendingUploadPath("/proj/tmps/访谈稿.docx")).toBe(false)
   })
 })
-
-// isSessionArtifactPath 的 7 条断言已随 artifact-output 事件迁服务端(SPEC-INS-033 D3),
-// 见 packages/opencode/test/tracking/report.test.ts 的镜像用例。

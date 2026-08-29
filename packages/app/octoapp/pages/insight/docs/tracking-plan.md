@@ -34,7 +34,7 @@
 |---|---|---|---|---|
 | `message-send` | 用户向 AI 发送一条消息（含「点胶囊→发送」漏斗：`presetId` 标明文本来自哪个预置） | 输入框「发送」按钮 / 输入框按 Enter → `handleSubmit` 通过校验受理后 | `{trigger, source, attachmentCount, textLength, presetId?, presetEdited?}` | ✅ |
 | `message-send-blocked` | 用户想发送但因未选模型被拦截（弹 toast） | 同发送入口，但走 `handleSubmit` 未选模型分支 | `{reason: "no_model"}` | ✅ |
-| ~~`preset-click`~~ | 用户点预置提示词胶囊，把提示词填进输入框 | 欢迎页 / 对话页的预置提示词胶囊 → `handlePresetClick` | `{presetId, source}` | 已废弃（SPEC-INS-017 常驻工具 chip 改造删除胶囊，改 `mcp-chip-*` 族，见批次 3 ① 与 `tracking.md` 已废弃节） |
+| `preset-click` | 用户点预置提示词胶囊，把提示词填进输入框 | 欢迎页 / 对话页的预置提示词胶囊 → `handlePresetClick` | `{presetId, source}` | ✅ |
 | `message-abort` | AI 生成中用户点击停止 | 输入框「发送 / 停止」按钮的停止态 → `handleAbort` | — | ✅ |
 | `attachment-add` | 用户添加附件（逐个文件计一次） | 附件按钮选文件（file input）/ 拖拽文件进对话区 → `addAttachments` | `{method, fileType, fileSize}` | ✅ |
 | `attachment-upload-result` | 附件上传的成败结果（结果型，非直接点击） | 上传请求 promise 落定 → `doUpload` 的 then / catch | `{success, errorCode?}` | ✅ |
@@ -188,35 +188,6 @@ SPEC-INS-014 文件管理器面板的用户操作。删除（单个 / 批量）�
 - `mention-` 前缀,与 `mcp-chip-` 平级(都是「输入框内的引用 / 挂载」交互族),但 mention 是 @ 唤起的即选即插,无常驻态,故只有 open/select 两态,不设 clear(取消勾选是低频微操,不打)。
 - `mention-open` 一次 `@` 输入过程只打一次,连续输入 `@abc` 的每次 keystroke 不重复打。判据是编辑器内的 `openReported` 标记,**以 `@` 触发文本消失(选中成胶囊 / 删掉 / 敲空格)为重置点**,不是以面板的显示状态为准——点面板外关闭时文本里的 `@query` 还在,若按显示状态重置,继续输入会被判成「重新打开」虚增 open 数。
 - `mention-select` 的 `type` 二分(skill/file)供分析侧切「技能引用 vs 文件引用」占比。**注意**:@技能走 synthetic 注入(3b,不调 skill 工具),故 §九 `server-skill-used` **不覆盖** @技能;`mention-select{type:skill}` 是 @技能 唯一的用户侧口径。
-
-### 批次 6 — 统一产物统计（服务端 git diff 口径，SPEC-INS-033）
-
-> 设计论证（背景 / 三方案对比 / 三层归因 / 已知偏差 / 验证用例）全部在**文档仓 spec**：`octo-agent` 仓
-> `docs/specs/infra/insight-artifact-output-tracking.md`（SPEC-INS-033）。本节只记 name / extend / 落点，
-> **不复制论证**（两仓分工见该 spec §0）。
->
-> **D3+D4+D5（2026-08-29）——迁服务端 + 三层归因、事件名沿用原口径名**：产物是系统事实，在产生它的
-> 进程（opencode `summarize` 落库 `summary.diffs` 之后）直接发送，不受前端组件生命周期影响（切走会话 /
-> 关窗照样上报）。三条事件名**沿用原口径名**（`artifact-file-write` / `artifact-file-edit` /
-> `artifact-mcp-return`，D5 用户拍板「名字别改」），语义延续但实现与覆盖面升级：发送端迁服务端、per-file
-> 粒度、且 git status 兜底归因让 **bash 等脚本通道也归入 write/edit**（旧前端 tool part 口径永远漏报这类）。
-> 三层归因：write/edit 工具 part 精确匹配 > resource_link basename > **git status 兜底**（脚本新建→write、
-> 修改→edit，git 判定权威）。
-
-| name | 功能（统计什么） | 打在哪 | extend |
-|------|-----------------|--------|--------|
-| `artifact-file-write` | 本 turn **新建**的一个产物文件（write 工具含覆盖写，或 bash 等脚本经 git status=added 兜底归因） | **服务端**：`packages/opencode/src/session/summary.ts` summarize 挂钩 → `src/tracking/report.ts`（每 finish-step at-least-once） | `{sessionId, messageId, file, type, status}` |
-| `artifact-file-edit` | 本 turn **修改**的一个产物文件（edit 工具，或 bash 等脚本经 git status=modified 兜底归因） | 同上 | `{sessionId, messageId, file, type, status}` |
-| `artifact-mcp-return` | MCP 工具返回并落盘的**一个**文件（resource_link basename 匹配，best-effort） | 同上 | `{sessionId, messageId, file, type, status, tool}`（tool=业务工具名） |
-| `artifact-output-outside` | 本 turn 观测到的**会话目录外**变更总量（噪声桶：并发会话 / Make 模块 / 用户手改；turn 级一条，仅 outside>0 时报，不计入产物总量） | 同上 | `{sessionId, messageId, outside}` |
-
-映射与实现约定（详见 spec §4）：
-
-- `type` 复用 SPEC-INS-026 §4.2 六值枚举（服务端 `outputTypeOf` 镜像，单测对齐口径）；`.ts` / `.py` 等一律归 `code`
-- `file` 即幂等键组成部分：git diff 路径（相对仓库根），服务端 `isSessionArtifactPath` 做会话目录分桶
-- **下游幂等键 `(name, messageId, file)`**：at-least-once 标准姿势——服务端每 finish-step 发一轮，下游去重取最新 status；account 在真实上报模式取不到时整批跳过（空 account 无法归属用户），mock 模式（外网验证，未配 `OCTO_REPORT_BASE_URL`）占位 `"mock"` 继续发
-- turn 级聚合字段（`total/added/modified`）**不上报**：行数即 total，`status` 字段 group by 即 added/modified
-- 已知偏差（源仓 `.gitignore` 忽略 `.octo/` 时恒 0 / 归因兜底两处低频误标 / 服务端重启后首 turn 拿不到 account）见 spec §5，分析侧必读
 
 ## 五、验证
 

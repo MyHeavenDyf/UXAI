@@ -35,7 +35,6 @@ import { Config } from "@/config/config"
 import * as BuiltinMCP from "@/config/builtin-mcp"
 import { ConfigMarkdown } from "@/config/markdown"
 import { SessionSummary } from "./summary"
-import { SessionExtras } from "./extras"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { SessionProcessor } from "./processor"
 import { Tool } from "@/tool/tool"
@@ -93,9 +92,8 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionPrompt") {}
 
-// 按 sessionID 存储前端透传的 extra 数据，供工具 ctx.extra 读取(本体已下放到 ./extras 叶子模块:
-// 服务端打点 tracking/report.ts 也要读 account,直接 import 本文件会与 summary.ts 成环)。
-const sessionExtras = { get: SessionExtras.getExtra, set: SessionExtras.setExtra }
+// 按 sessionID 存储前端透传的 extra 数据，供工具 ctx.extra 读取
+const sessionExtras = new Map<string, Record<string, unknown>>()
 
 export const layer = Layer.effect(
   Service,

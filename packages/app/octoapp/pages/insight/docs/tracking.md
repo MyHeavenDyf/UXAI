@@ -106,25 +106,21 @@
 | server-mcp-result | 某业务 MCP 任务跑出终态（**完成侧**，`completed`→success / `failed`→failure，每 `task_id` 一次；`stopped` 及未出结果态不打）。与 `server-mcp-used` 靠 `taskId` 成对，可算成功率 / 时延 | `tool`、`taskId`、`status`("success"/"failure") | `insight-turn.tsx` server-usage effect |
 | server-skill-used | 某 skill 真实被模型调用（每个 skill 工具 part 一次；从 assistant parts 中 `tool==="skill"` 且 completed 的条目识别，取 `metadata.name`） | `skill`(解析出的技能名，如 interview-analysis) | `insight-turn.tsx` server-usage effect |
 
-## 十、统计产物（`artifact-` 前缀，服务端事件）
+## 十、统计产物（`artifact-` 前缀）
 
-> 统计 insight 会话中**实际产出的文件**（非用户操作、非服务端工具调用行为，而是产物本身）。
-> 与 §九（`server-` 前缀）的区别：§九统计「模型调起了什么能力」（行为侧），本节统计「产出了什么文件」（产物侧）。
+> 统计 insight 会话中**生成的产物文件**（非用户操作、非服务端工具调用，而是**实际产出的文件**）。
+> 与 §九（`server-` 前缀）的区别：§九统计「模型调起了什么能力」（行为侧），本节统计「能力生成了什么文件」（产物侧）。
+> 两者独立互补：一个 MCP 工具可能被调用但未产出文件（server-mcp-used 有但 artifact-mcp-return 无），
+> 也可能一次调用产出多个文件（server-mcp-used 1 次 but artifact-mcp-return 多个 type）。
 >
-> **D3+D4+D5（2026-08-29，SPEC-INS-033）：迁服务端 + 三层归因，事件名沿用原口径名。**由 opencode
-> `summary.ts` summarize 挂钩 → `tracking/report.ts` 发送（复刻前端 tracker 协议，`browserName:"server"`），
-> 不受前端组件生命周期影响（切走会话照样上报）。三层归因：write/edit 工具 part 精确 > resource_link
-> basename > **git status 兜底**（bash/powershell 脚本新建→write、修改→edit——git 判定权威，覆盖旧
-> tool part 口径的 bash 盲区）。原三条前端 effect 已删，由服务端接管**同名事件**（语义延续，覆盖面升级）。
-> **per-file 粒度**：每文件一条，面板行数=文件数，turn 级视图由 `group by messageId` 还原；
-> 幂等键 `(name, messageId, file)`，每 finish-step at-least-once、下游去重取最新。
+> **write 与 edit 拆分**：`artifact-file-write` 统计 write 工具调用产生的文件（含覆盖写），`artifact-file-edit` 单独统计 edit 工具调用。
+> 两者独立计数，按工具调用类型区分。bash 脚本副作用产生的文件不在此列（无法可靠识别，见方案 A）。
 
 | name | 触发时机 | extend 字段 | 代码位置 |
 |------|----------|------------|----------|
-| artifact-file-write | 本 turn **新建**一个产物文件（write 工具含覆盖写，或 bash 等脚本经 git status=added 兜底归因） | `sessionId`、`messageId`、`file`(git diff 相对仓库根路径)、`type`(六值枚举)、`status`(added/modified) | **服务端**：`packages/opencode/src/session/summary.ts` summarize 挂钩 → `src/tracking/report.ts`（三层归因） |
-| artifact-file-edit | 本 turn **修改**一个产物文件（edit 工具，或 bash 等脚本经 git status=modified 兜底归因） | 同上 | 同上 |
-| artifact-mcp-return | MCP 工具返回并落盘的一个文件（resource_link basename 匹配，best-effort） | `sessionId`、`messageId`、`file`、`type`、`status`、`tool`(业务工具名 business_type) | 同上 |
-| artifact-output-outside | 本 turn 观测到的会话目录外变更总量（噪声桶：并发会话 / Make 模块 / 用户手改；turn 级一条，仅 outside>0 时报，**不计入产物总量**） | `sessionId`、`messageId`、`outside`(数量) | 同上 |
+| artifact-file-write | **write** 工具完成（**含覆盖写**，排除 edit；按文件类型聚合上报） | `files`: `Array<{type: OutputCardType, count: number}>`（例：`[{type:"markdown",count:2}, {type:"html",count:1}]`） | `insight-turn.tsx` 统计产物 effect（artifact-file baseline, findWriteOnlyCards） |
+| artifact-file-edit | **edit** 工具完成（与 write 拆分；按文件类型聚合上报） | `files`: `Array<{type: OutputCardType, count: number}>`（例：`[{type:"markdown",count:1}]`） | `insight-turn.tsx` 统计产物 effect（artifact-file baseline, findEditCards） |
+| artifact-mcp-return | MCP 工具返回 resource_link 类型文件（**产物侧**，按文件类型聚合；每次检测到新增 resource_link 时上报，包含产生该文件的 MCP 工具名） | `files`: `Array<{type: OutputCardType, count: number, tool: string}>`（例：`[{type:"csv",count:1,tool:"key_findings"}, {type:"md",count:1,tool:"mindmap"}]`） | `insight-turn.tsx` 统计产物 effect（artifact-mcp baseline） |
 
 ## 十一、@ 引用面板（SPEC-INS-023）
 
@@ -140,7 +136,6 @@
 | name | 废弃说明 |
 |------|----------|
 | ~~preset-click~~ | SPEC-INS-017 常驻工具 chip 改造移除了预置提示词胶囊，改用 `mcp-chip-*` 族（见 §四）。原 `presetId` / `source` 字段、以及 `message-send` 上的 `presetId` / `presetEdited` 字段一并作废（后者改带 `mcpFunction`）。 |
-| ~~artifact-file-write~~ / ~~artifact-file-edit~~ / ~~artifact-mcp-return~~ | SPEC-INS-033 D3+D4+D5：**前端 effect 版**退役——统计产物打点迁服务端并按三层归因接管**同名事件**（§十）：per-file 粒度、字段更全、bash 等脚本通道有归因（git status 兜底）、且不受前端组件生命周期影响。事件名与语义延续，仅发送端与覆盖面升级（名称未废弃，废弃的是前端实现）。 |
 
 ## 维护说明
 

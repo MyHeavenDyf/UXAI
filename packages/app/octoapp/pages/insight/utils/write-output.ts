@@ -67,6 +67,20 @@ function isFileWriteTool(tool: unknown): boolean {
   return bare === "write" || bare === "edit" || bare.endsWith("_write") || bare.endsWith("_edit")
 }
 
+/** 是否仅「write 工具」(排除 edit,统计产物打点用:artifact-file-write 只计 write 不计 edit)。 */
+function isWriteOnlyTool(tool: unknown): boolean {
+  if (typeof tool !== "string") return false
+  const bare = tool.includes(":") ? tool.split(":").pop()! : tool
+  return bare === "write" || bare.endsWith("_write")
+}
+
+/** 是否仅「edit 工具」(统计产物打点用:artifact-file-edit 单独计 edit 操作)。 */
+function isEditOnlyTool(tool: unknown): boolean {
+  if (typeof tool !== "string") return false
+  const bare = tool.includes(":") ? tool.split(":").pop()! : tool
+  return bare === "edit" || bare.endsWith("_edit")
+}
+
 /** 防御性读 write 工具的目标路径(opencode write 参数名 filePath;兜底 path / file_path)。 */
 function readFilePath(input: unknown): string | undefined {
   if (!input || typeof input !== "object") return undefined
@@ -117,10 +131,23 @@ export function findWriteCards(parts: unknown[]): WriteCard[] {
   return findWriteCardsByFilter(parts, isFileWriteTool, true)
 }
 
-// findWriteOnlyCards / findEditCards(artifact-file-write/edit 打点的 per-file 检测)已随
-// 前端 artifact 打点全迁服务端删除(SPEC-INS-033 D4:opencode tracking/report.ts 三层归因,
-// write/edit 工具匹配 + git status 兜底覆盖 bash 等脚本通道),isWriteOnlyTool / isEditOnlyTool
-// 一并删除。
+/**
+ * 在一组 part 中找所有 write 工具产物(排除 edit)。
+ * 用于统计产物打点(artifact-file-write):只计 write 工具调用产生的文件(含覆盖写),不计 edit。
+ * 复用 findWriteCards 的逻辑,但过滤条件改为 isWriteOnlyTool。
+ */
+export function findWriteOnlyCards(parts: unknown[]): WriteCard[] {
+  return findWriteCardsByFilter(parts, isWriteOnlyTool, false)
+}
+
+/**
+ * 在一组 part 中找所有 edit 工具产物。
+ * 用于统计产物打点(artifact-file-edit):单独计 edit 工具调用产生的文件。
+ * 复用 findWriteCards 的逻辑,但过滤条件改为 isEditOnlyTool。
+ */
+export function findEditCards(parts: unknown[]): WriteCard[] {
+  return findWriteCardsByFilter(parts, isEditOnlyTool, false)
+}
 
 /**
  * 通用的写文件工具检测函数(按自定义过滤器)。

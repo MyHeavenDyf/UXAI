@@ -18,13 +18,9 @@ export const OCTO_ROOT = ".octo"
 export const PENDING_UPLOAD_SEGMENT = "tmps"
 
 /** 附件本地路径是否还在预会话落地区 `<projectDir>/.octo/tmps/`——发送时据此决定要不要 rename 进
- *  `<sessionId>/uploads/`。已归属会话的(路径已是 `.octo/<sessionId>/uploads/`)返回 false,不重复挪。 */
+ *  `.octo/<sessionId>/uploads/`。已归属会话的(路径已是 `.octo/<sessionId>/uploads/`)返回 false,不重复挪。 */
 export function isPendingUploadPath(filePath: string): boolean {
   const segs = filePath.split(/[\\/]/)
   const i = segs.lastIndexOf(OCTO_ROOT)
   return i !== -1 && segs[i + 1] === PENDING_UPLOAD_SEGMENT
 }
-
-// isSessionArtifactPath(diff 路径分桶判据,SPEC-INS-033)已随 artifact-output 事件迁服务端
-// (D3:opencode src/tracking/report.ts 的服务端镜像),前端副本删除——两处判据靠 spec §4.2
-// 单测对齐(服务端 test/tracking/report.test.ts 镜像原前端 7 条断言)。
