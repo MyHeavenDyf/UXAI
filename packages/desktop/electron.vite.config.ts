@@ -102,6 +102,13 @@ export default defineConfig(({ mode, command }) => {
         "import.meta.env.OCTO_UPLOAD_ENDPOINT": JSON.stringify(
           env.OCTO_UPLOAD_ENDPOINT ?? env.VITE_OCTO_UPLOAD_ENDPOINT ?? "",
         ),
+        // 打点/上报接口 base(SPEC-INS-033 D3 服务端产物打点):与前端 VITE_OCTO_REPORT_BASE_URL
+        // 同一地址,经 createSidecarEnv 以 OCTO_REPORT_BASE_URL 注入 sidecar,供 tracking/report.ts
+        // 发送 artifact-output(VITE_* 只有渲染进程读得到,sidecar 读不到 .env)。留空则服务端打点
+        // 走 mock 日志(外网调试形态)。
+        "import.meta.env.OCTO_REPORT_BASE_URL": JSON.stringify(
+          env.OCTO_REPORT_BASE_URL ?? env.VITE_OCTO_REPORT_BASE_URL ?? "",
+        ),
         // jk-j60099994-replace-with-60062650-electron-vite-config-2-start
         // jk-j60099994-replace-with-60062650-electron-vite-config-2-end
       },

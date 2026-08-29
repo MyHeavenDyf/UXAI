@@ -25,13 +25,6 @@ export function isPendingUploadPath(filePath: string): boolean {
   return i !== -1 && segs[i + 1] === PENDING_UPLOAD_SEGMENT
 }
 
-/** diff 路径是否属于本会话的产物区 `.octo/<sessionId>/`(SPEC-INS-014 §2)。
- *  供 artifact-output 打点做路径分桶(SPEC-INS-033 §4.2):diffFull 跑在整个 projectDir 上,隔离的
- *  只是会话子目录,并发会话 / Make 模块 / 用户手改都会进 diff,须把会话目录外的变更分进噪声桶。
- *  git diff 输出的路径相对**仓库根**,projectDir 可能只是仓库子目录,故不能 startsWith(".octo/")——
- *  按「最后一个 .octo 段的下一段是否等于本 sessionId」判(与 isPendingUploadPath 同款分段写法)。 */
-export function isSessionArtifactPath(filePath: string, sessionId: string): boolean {
-  const segs = filePath.split(/[\\/]/)
-  const i = segs.lastIndexOf(OCTO_ROOT)
-  return i !== -1 && segs[i + 1] === sessionId
-}
+// isSessionArtifactPath(diff 路径分桶判据,SPEC-INS-033)已随 artifact-output 事件迁服务端
+// (D3:opencode src/tracking/report.ts 的服务端镜像),前端副本删除——两处判据靠 spec §4.2
+// 单测对齐(服务端 test/tracking/report.test.ts 镜像原前端 7 条断言)。

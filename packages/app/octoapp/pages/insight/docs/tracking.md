@@ -120,14 +120,18 @@
 > **per-file 粒度（SPEC-INS-033 D2，2026-08-29）**：面板按事件行数统计、不解析 extend 里的 count，turn 级聚合会让
 > 「1 turn 产 3 个文件」面板只显示 1——故本节事件**每文件一条**，行数即文件数，turn 级视图由下游
 > `group by messageId` 还原；幂等键 `(name, messageId, file)`。
+>
+> **artifact-output 走服务端（SPEC-INS-033 D3，2026-08-29）**：由 opencode `summary.ts` summarize 挂钩 →
+> `tracking/report.ts` 发送（复刻前端 tracker 协议，`browserName:"server"`），不受前端组件生命周期影响
+> （切走会话照样上报）；前端的 baseline / showGenerating 守卫 / debounce 三层补丁已随迁移删除。
 
 | name | 触发时机 | extend 字段 | 代码位置 |
 |------|----------|------------|----------|
 | artifact-file-write | **write** 工具完成（**含覆盖写**，排除 edit；每文件一条） | `messageId`、`file`(剥 projectDir 前缀的相对路径)、`type`(OutputCardType) | `insight-turn.tsx` 统计产物 effect（artifact-file baseline, findWriteOnlyCards） |
 | artifact-file-edit | **edit** 工具完成（与 write 拆分；每文件一条） | `messageId`、`file`、`type` | `insight-turn.tsx` 统计产物 effect（artifact-file baseline, findEditCards） |
 | artifact-mcp-return | MCP 工具返回 resource_link 类型文件（**产物侧**；每个 link 一条，含产生该文件的 MCP 工具名） | `messageId`、`file`(resource_link 的 uri)、`type`、`tool`(业务工具裸名) | `insight-turn.tsx` 统计产物 effect（artifact-mcp baseline） |
-| artifact-output | 本 turn 产出/修改的**一个文件**（**服务端 git snapshot `UserMessage.summary.diffs` 口径**，覆盖所有文件变更方式含 bash 等脚本产物；只报 `.octo/<sessionId>/` 会话产物区内的文件；SPEC-INS-033，设计论证在文档仓 spec） | `messageId`、`file`(git diff 相对仓库根路径)、`type`、`status`(added/modified) | `insight-turn.tsx` artifact-output effect（baseline + `showGenerating()` 守卫 + 1500ms debounce） |
-| artifact-output-outside | 本 turn 观测到的会话目录外变更总量（噪声桶：并发会话 / Make 模块 / 用户手改；turn 级一条，仅 outside>0 时报，**不计入产物总量**） | `messageId`、`outside`(数量) | `insight-turn.tsx` artifact-output effect（与 artifact-output 同一 debounce 回调） |
+| artifact-output | 本 turn 产出/修改的**一个文件**（**服务端 git snapshot `UserMessage.summary.diffs` 口径**，覆盖所有文件变更方式含 bash 等脚本产物；只报 `.octo/<sessionId>/` 会话产物区内的文件；每 finish-step at-least-once，下游按幂等键去重取最新） | `sessionId`、`messageId`、`file`(git diff 相对仓库根路径)、`type`、`status`(added/modified) | **服务端**：`packages/opencode/src/session/summary.ts` summarize 挂钩 → `src/tracking/report.ts` |
+| artifact-output-outside | 本 turn 观测到的会话目录外变更总量（噪声桶：并发会话 / Make 模块 / 用户手改；turn 级一条，仅 outside>0 时报，**不计入产物总量**） | `sessionId`、`messageId`、`outside`(数量) | 同上（`tracking/report.ts`） |
 
 ## 十一、@ 引用面板（SPEC-INS-023）
 

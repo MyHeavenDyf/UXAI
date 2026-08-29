@@ -1,10 +1,10 @@
-import type { AssistantMessage, Message, UserMessage } from "@opencode-ai/sdk/v2/client"
+import type { AssistantMessage, Message } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { useData, useI18n, I18nProvider, type UiI18n } from "@opencode-ai/ui/context"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
-import { createEffect, createMemo, For, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, For, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { materializeUriCardToOutputs } from "../utils/local-resource"
@@ -14,14 +14,13 @@ import { scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
 import { isMindmapJSON } from "../utils/mindmap-adapter"
 import { findResourceLinks, linkToOutputType, type ResourceLink } from "../utils/resource-link"
 import { findWriteCards, findWriteOnlyCards, findEditCards, basename } from "../utils/write-output"
-import { isSessionArtifactPath } from "../utils/worktree-layout"
 import { readTaskInfo, businessToolBareName, type TaskCardEntry, type TaskInfo } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
 import { KnowledgeReferences, readKnowledgeSources } from "./knowledge-references"
 import { parseUploadedFiles } from "../lib/upload"
 import { fileTypeIconUrl } from "../icons/illustrations"
 import { tracker } from "@/utils/tracker"
-import { resolveOutputType, type OutputCardType } from "../utils/output-type"
+import type { OutputCardType } from "../utils/output-type"
 
 // OutputCardType 的定义已收进 utils/output-type.ts(SPEC-INS-026 §4.2:类型与判定同源)。
 export type { OutputCardType } from "../utils/output-type"
@@ -568,78 +567,10 @@ export function InsightTurn(props: {
     }
   })
 
-  // 统一产物总量打点(artifact-output / artifact-output-outside,per-file 粒度——SPEC-INS-033 §4.1/D2):
-  // 消费服务端 git snapshot 算好的 UserMessage.summary.diffs,覆盖**所有**文件变更方式
-  // (write/edit/MCP/bash/python…),与上面三个 tool part 口径事件互补不替代。设计论证在文档仓 spec(§4),
-  // 此处只记实现要点:
-  //
-  //   - 触发时机:summarize 每个 finish-step 都跑一次并**覆写** diffs(processor.ts),多步 turn 里
-  //     diffs 会从「第一步的部分产物」逐步长到全部;「数据到达即上报」会在第一步报出部分 diff 再被
-  //     messageID 去重永久锁死,后续交付物全丢 → 必须 showGenerating() 守卫(等 turn 不再活跃)
-  //     + 1500ms debounce(末次 summarize 是 forkIn(scope) 异步,可能晚于 active 翻假才落地;
-  //     debounce 期间 diffs 再变则重置定时器,天然取最终值)。
-  //   - baseline 快照:与上方三个 effect 同规则——首次观测本 turn 时若 diffs 已存在(历史 turn)
-  //     逐文件记为「历史」不上报,否则打开/刷新会话会按 turn 数虚增。trackedArtifactKeys(内存 Set,
-  //     刷新即空)只防 memo 重算 / 重挂重复报;「刷新不重报」由 baseline 负责,两层配合。
-  //   - per-file 发射:会话目录内每个文件一条(extend {messageId, file, type, status}),面板按行数
-  //     统计、行数即文件数,turn 级视图由下游 group by messageId 还原;去重键 per-file
-  //     (output:msgid:file),debounce 报完后 summarize 再覆写出新文件可自愈补报。
-  //   - 路径分桶:diffFull 跑在整个 projectDir 上,隔离的只是 .octo/<sessionId>/ 子目录;并发会话 /
-  //     Make 模块 / 用户手改都会进 diff。会话目录外的变更汇总成 turn 级一条
-  //     artifact-output-outside(只计数,不逐条发、不污染行数=文件数的语义)。
-  //   - 幂等键:extend 带 messageId+file,下游按 (name, messageId, file) 去重(at-least-once 标准姿势);
-  //     前端两层去重降级为省流量优化,报重了也不算错。
-  let artifactOutputBaselineTaken = false
-  let outputDebounceTimer: ReturnType<typeof setTimeout> | undefined
-  onCleanup(() => clearTimeout(outputDebounceTimer))
-  const outputKey = (file: string) => `output:${props.messageID}:${file}`
-  createEffect(() => {
-    const messages = (data.store.message as Record<string, Message[]>)?.[props.sessionID] ?? []
-    const userMsg = messages.find((m) => m.id === props.messageID)
-    if (!userMsg || userMsg.role !== "user") return
-    const diffs = (userMsg as UserMessage).summary?.diffs
-
-    if (!artifactOutputBaselineTaken) {
-      artifactOutputBaselineTaken = true
-      for (const d of diffs ?? []) trackedArtifactKeys.add(outputKey(d.file))
-      return
-    }
-    if (!diffs?.length) return
-    if (showGenerating()) return
-    if (!diffs.some((d) => !trackedArtifactKeys.has(outputKey(d.file)))) return
-
-    clearTimeout(outputDebounceTimer)
-    outputDebounceTimer = setTimeout(() => {
-      let outside = 0
-      const newFiles: Array<{ file: string; type: string; status: string }> = []
-      for (const d of diffs) {
-        if (d.status === "deleted") continue
-        if (trackedArtifactKeys.has(outputKey(d.file))) continue
-        trackedArtifactKeys.add(outputKey(d.file))
-        if (!isSessionArtifactPath(d.file, props.sessionID)) {
-          outside++
-          continue
-        }
-        newFiles.push({ file: d.file, type: resolveOutputType(d.file), status: d.status ?? "modified" })
-      }
-      if (newFiles.length === 0 && outside === 0) return
-
-      for (const f of newFiles) {
-        tracker.interaction({
-          module: "insight",
-          name: "artifact-output",
-          extend: JSON.stringify({ messageId: props.messageID, ...f }),
-        })
-      }
-      if (outside > 0) {
-        tracker.interaction({
-          module: "insight",
-          name: "artifact-output-outside",
-          extend: JSON.stringify({ messageId: props.messageID, outside }),
-        })
-      }
-    }, 1500)
-  })
+  // artifact-output / artifact-output-outside 已迁服务端(SPEC-INS-033 D3):由 opencode 侧
+  // tracking/report.ts 在 summarize 落库 summary.diffs 后直接发送——产物是系统事实,在产生它的
+  // 进程上报,不受组件生命周期影响(前端 effect 版切走会话即漏报,且需 baseline/守卫/debounce
+  // 三层补丁,已全部随迁移退役)。write/edit/mcp 三条 tool part 口径事件仍在下方前端 effect。
 
   // 「服务端真实使用」打点(与常规用户操作打点区分,统一 server- 前缀,清单见 docs/tracking.md):
   //   - server-mcp-used:某业务 MCP 工具真实被模型调用并提交长任务(每 task_id 一次),extend {tool,taskId}

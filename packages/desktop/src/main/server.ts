@@ -283,6 +283,12 @@ function createSidecarEnv(): Record<string, string> {
   if (!env.OCTO_UPLOAD_ENDPOINT && import.meta.env.OCTO_UPLOAD_ENDPOINT) {
     env.OCTO_UPLOAD_ENDPOINT = import.meta.env.OCTO_UPLOAD_ENDPOINT
   }
+  // 把打点/上报接口 base 注入 sidecar 供 tracking/report.ts 发服务端产物打点(SPEC-INS-033 D3,
+  // artifact-output)。同上:sidecar 读不到 .env / VITE_,从 main 编译期常量透传;显式设置时不覆盖;
+  // 留空则 sidecar 打点走 mock 日志(外网调试形态)。
+  if (!env.OCTO_REPORT_BASE_URL && import.meta.env.OCTO_REPORT_BASE_URL) {
+    env.OCTO_REPORT_BASE_URL = import.meta.env.OCTO_REPORT_BASE_URL
+  }
   return env
 }
 

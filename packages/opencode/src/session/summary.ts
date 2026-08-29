@@ -1,4 +1,4 @@
-import { Effect, Layer, Context, Schema } from "effect"
+import { Effect, Layer, Context, Schema, Scope } from "effect"
 import { Bus } from "@/bus"
 import { Snapshot } from "@/snapshot"
 import { Storage } from "@/storage/storage"
@@ -7,6 +7,7 @@ import { withStatics } from "@/util/schema"
 import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
 import { SessionID, MessageID } from "./schema"
+import { Tracking } from "@/tracking/report"
 
 function unquoteGitPath(input: string) {
   if (!input.startsWith('"')) return input
@@ -79,6 +80,7 @@ export const layer = Layer.effect(
     const snapshot = yield* Snapshot.Service
     const storage = yield* Storage.Service
     const bus = yield* Bus.Service
+    const scope = yield* Scope.Scope
 
     const computeDiff = Effect.fn("SessionSummary.computeDiff")(function* (input: { messages: MessageV2.WithParts[] }) {
       let from: string | undefined
@@ -133,6 +135,18 @@ export const layer = Layer.effect(
       })
       target.info.summary = { ...target.info.summary, diffs: msgDiffs }
       yield* sessions.updateMessage(target.info)
+
+      // 服务端产物打点(SPEC-INS-033 D3):msgDiffs 落库后 per-file 发送 artifact-output。
+      // 只报 octo_insight(summarize 对所有 agent 都跑,不守卫会把 make / studio 混进 module:insight);
+      // fork 异步、不阻塞 turn;at-least-once(每 finish-step 一轮),下游按 (name,messageId,file)
+      // 幂等去重。account 取不到时 reportDiffs 内部整批跳过(见该文件头)。
+      if (target.info.agent === "octo_insight" && msgDiffs.length > 0) {
+        yield* Tracking.reportDiffs({
+          sessionID: input.sessionID,
+          messageID: input.messageID,
+          diffs: msgDiffs,
+        }).pipe(Effect.forkIn(scope))
+      }
     })
 
     const diff = Effect.fn("SessionSummary.diff")(function* (input: { sessionID: SessionID; messageID?: MessageID }) {
