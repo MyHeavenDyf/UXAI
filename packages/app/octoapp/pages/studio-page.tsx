@@ -62,12 +62,18 @@ import {
   type StudioTurnData,
 } from "./studio/turns"
 import { StudioHistory } from "./studio/studio-history"
-import { StudioComposer, StudioIntro } from "./studio/studio-composer"
+import { StudioComposer, StudioIntro, type StudioComposerMenu } from "./studio/studio-composer"
 import { StudioConversation, StudioDetails, StudioEmptyState, StudioResultCanvas, StudioWorkspaceUpload } from "./studio/studio-conversation"
 import { StudioCutoutEditor, StudioHDEditor } from "./studio/studio-editors-basic"
 import { StudioInpaintEditor } from "./studio/studio-inpaint-editor"
 import { StudioOutpaintEditor } from "./studio/studio-outpaint-editor"
 import { StudioVideoRiskDialog } from "./studio/studio-video-risk-dialog"
+import type {
+  StudioCanvasView,
+  StudioStyleDescriptionGenerateHandlers,
+  StudioStyleDescriptionGenerateInput,
+  StudioStyleDescriptionStreamEvent,
+} from "./studio/studio-template-creator"
 import { STUDIO_FILTER_STATE_KEY_PREFIX } from "./studio/studio-file-manager"
 import type { MaterialWordBook } from "./studio/MaterialMenu"
 import {
@@ -139,6 +145,62 @@ type StudioPromptGenResponse = {
     en?: string
     zh?: string
   }
+}
+
+function studioStyleDescriptionStreamEvent(data: string): StudioStyleDescriptionStreamEvent | undefined {
+  try {
+    const event = JSON.parse(data) as { type?: unknown; content?: unknown }
+    if (typeof event.type !== "string") return undefined
+    return {
+      type: event.type,
+      content: typeof event.content === "string" ? event.content : "",
+    }
+  } catch {
+    return undefined
+  }
+}
+
+function studioSseDataBlocks(buffer: string) {
+  const parts = buffer.replace(/\r\n/g, "\n").split("\n\n")
+  return {
+    blocks: parts.slice(0, -1),
+    rest: parts.at(-1) ?? "",
+  }
+}
+
+function studioSseData(block: string) {
+  const data = block
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trimStart())
+    .join("\n")
+  return data.trim() ? data : undefined
+}
+
+async function readStudioStyleDescriptionStream(body: ReadableStream<Uint8Array>, handlers: StudioStyleDescriptionGenerateHandlers) {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+
+  while (!handlers.signal?.aborted) {
+    const result = await reader.read()
+    if (result.done) break
+    buffer += decoder.decode(result.value, { stream: true })
+    const parsed = studioSseDataBlocks(buffer)
+    buffer = parsed.rest
+    await Promise.all(
+      parsed.blocks
+        .map(studioSseData)
+        .filter((data): data is string => Boolean(data))
+        .map(studioStyleDescriptionStreamEvent)
+        .filter((event): event is StudioStyleDescriptionStreamEvent => Boolean(event))
+        .map((event) => handlers.onEvent(event)),
+    )
+  }
+
+  const rest = studioSseData(buffer + decoder.decode())
+  const event = rest ? studioStyleDescriptionStreamEvent(rest) : undefined
+  if (event && !handlers.signal?.aborted) handlers.onEvent(event)
 }
 
 type StudioGenerationOverrides = {
@@ -292,7 +354,13 @@ export default function StudioPage() {
   )
   const [showStudioCanvas, setShowStudioCanvas] = createSignal(true)
   const [showStudioDetails, setShowStudioDetails] = createSignal(false)
-  const [showFileManager, setShowFileManager] = createSignal(true)
+  const [canvasView, setCanvasView] = createSignal<StudioCanvasView>("file-manager")
+  const [templateCreatorTabOpen, setTemplateCreatorTabOpen] = createSignal(false)
+  const showFileManager = () => canvasView() === "file-manager"
+  function setShowFileManager(value: boolean | ((current: boolean) => boolean)) {
+    const next = typeof value === "function" ? value(showFileManager()) : value
+    setCanvasView(next ? "file-manager" : "canvas")
+  }
   const [fileManagerDetailView, setFileManagerDetailView] = createSignal(false)
   // 记录上一次 session id，切换 session 时重置视图偏好
   let lastStudioSessionId: string | undefined
@@ -305,7 +373,7 @@ export default function StudioPage() {
   const [workspaceImage, setWorkspaceImage] = createSignal<StudioImage>()
   const [workspaceUploadRequested, setWorkspaceUploadRequested] = createSignal(false)
   const [pendingEditorEntries, setPendingEditorEntries] = createSignal<StudioTurnData[]>([])
-  const [openMenu, setOpenMenu] = createSignal<"capability" | "style" | "settings" | "material" | null>(null)
+  const [openMenu, setOpenMenu] = createSignal<StudioComposerMenu>(null)
   const [canGenerateVideo, setCanGenerateVideo] = createSignal(false)
   const [canUseSeedream, setCanUseSeedream] = createSignal(false)
   const [studioPermissionReady, setStudioPermissionReady] = createSignal(false)
@@ -1002,6 +1070,10 @@ export default function StudioPage() {
   // When the current session has no data, hide canvas/file-manager and show StudioIntro.
   // When switching sessions, default to the latest image tab (canvas).
   createEffect(() => {
+    if (templateCreatorTabOpen()) {
+      setShowStudioCanvas(true)
+      return
+    }
     // 生成中时保持不变，避免文件管理覆盖 canvas 的 loading 状态
     if (isBusy()) return
     // 切换 session 时重置为默认显示图片/视频 tab
@@ -1107,6 +1179,40 @@ export default function StudioPage() {
     if (result.toolAction === "cutout") return "抠图"
     return result.detailTitle ?? extractKeywords(result.prompt)
   }
+
+  function openTemplateCreator() {
+    batch(() => {
+      setOpenMenu(null)
+      setTemplateCreatorTabOpen(true)
+      setCanvasView("template-creator")
+      setShowStudioCanvas(true)
+      setMode("preview")
+      if (!showStudioWorkspace()) setStudioWorkspaceOverlayOpen(true)
+    })
+  }
+
+  function closeTemplateCreator() {
+    const active = canvasView() === "template-creator"
+    setTemplateCreatorTabOpen(false)
+    if (!active) return
+    batch(() => {
+      if (canvasTabImages().length > 0) {
+        setCanvasView("canvas")
+        setShowStudioCanvas(true)
+        setStudioViewPref("mode", "canvas")
+        return
+      }
+      if (displayTurns().length > 0 || pendingResult() || sending() || isEditingWorkspaceMode()) {
+        setCanvasView("file-manager")
+        setShowStudioCanvas(true)
+        setStudioViewPref("mode", "file-manager")
+        return
+      }
+      setCanvasView("canvas")
+      setShowStudioCanvas(false)
+    })
+  }
+
   function selectStudioImage(input: { resultID: string; imageID: string }) {
     batch(() => {
       setSelectedResultId(input.resultID)
@@ -1297,6 +1403,8 @@ export default function StudioPage() {
     on(
       () => params.id,
       (id) => {
+        setOpenMenu(null)
+        setTemplateCreatorTabOpen(false)
         const preserveEditorEntry = Boolean(id && id === pendingEditorSessionID)
         const preserveGenerationCapability = Boolean(id && id === pendingGenerationSessionID)
         const scrollRequest = pendingScrollRequest()
@@ -2584,6 +2692,34 @@ export default function StudioPage() {
     return zh
   }
 
+  async function generateStyleDescription(
+    input: StudioStyleDescriptionGenerateInput,
+    handlers: StudioStyleDescriptionGenerateHandlers,
+  ) {
+    const current = server.current
+    if (!current) throw new Error("No active server.")
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      accept: "text/event-stream",
+      ...directoryHeader(projectDir()),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const response = await fetch(new URL("/studio/style-description-gen", current.http.url), {
+      method: "POST",
+      headers,
+      signal: handlers.signal,
+      body: JSON.stringify(input),
+    })
+    if (!response.ok) throw new Error(formatStudioGenerationError(response, await response.text()))
+    if (!response.body) throw new Error("风格描述生成结果为空")
+    await readStudioStyleDescriptionStream(response.body, handlers)
+  }
+
   async function handleReversePrompt() {
     const asset = assets()[0]
     if (!asset) {
@@ -3581,6 +3717,7 @@ export default function StudioPage() {
       pendingEditorEntries().length > 0 ||
       Boolean(pendingResult()) ||
       sending() ||
+      templateCreatorTabOpen() ||
       isEditingWorkspaceMode() ||
       Boolean(workspaceModeForCapability(capability()))
   })
@@ -3723,6 +3860,7 @@ export default function StudioPage() {
                   onVideoQualityMode={setVideoQualityMode}
                   onVideoMode={setVideoMode}
                   onOpenMenu={setOpenMenu}
+                  onCreateTemplate={openTemplateCreator}
                   onCancel={handleCancelGeneration}
                   onSubmit={handleSubmit}
                   onKeyDown={handleKeyDown}
@@ -3932,6 +4070,7 @@ if (!headerTitle.pendingRename) return
             onVideoQualityMode={setVideoQualityMode}
             onVideoMode={setVideoMode}
             onOpenMenu={setOpenMenu}
+            onCreateTemplate={openTemplateCreator}
             onCancel={handleCancelGeneration}
             onSubmit={handleSubmit}
             onKeyDown={handleKeyDown}
@@ -3978,7 +4117,7 @@ if (!headerTitle.pendingRename) return
         class="studio-workspace"
         classList={{ "studio-workspace-overlay": !showStudioWorkspace() && studioWorkspaceOverlayOpen() }}
       >
-        <Show when={isEditingWorkspaceMode() || showStudioCanvas() || isBusy()} fallback={
+        <Show when={isEditingWorkspaceMode() || showStudioCanvas() || isBusy() || templateCreatorTabOpen()} fallback={
           params.id && !sessionDataLoaded() && !visitedSessionIds.has(params.id) ? null : (
             <div class="studio-empty-workspace">
               <StudioIntro />
@@ -3986,7 +4125,7 @@ if (!headerTitle.pendingRename) return
           )
         }>
         <section ref={setStudioCanvasEl} class="studio-canvas">
-          <Show when={isEditingWorkspaceMode() || showStudioCanvas() || canvasTabImages().length > 0}>
+          <Show when={isEditingWorkspaceMode() || showStudioCanvas() || canvasTabImages().length > 0 || templateCreatorTabOpen()}>
           <Show when={isEditingWorkspaceMode()} fallback={
             <StudioResultCanvas
               videoPlayerMount={() => studioPageRef}
@@ -4039,7 +4178,9 @@ if (!headerTitle.pendingRename) return
                     setStudioViewPref("mode", "file-manager")
                   }
                 } else if (canvasTabImages().length === 0) {
-                  // 无图片 tab，保持在文件管理，不切换
+                  // 无图片 tab 时也允许从创建模板等一级视图切回文件管理
+                  setShowFileManager(true)
+                  setStudioViewPref("mode", "file-manager")
                 } else {
                   setShowFileManager((v) => {
                     const next = !v
@@ -4064,8 +4205,13 @@ if (!headerTitle.pendingRename) return
               canGenerateVideo={canGenerateVideo()}
               sessionID={params.id}
               fileManagerGenPending={fileManagerGenPending()}
+              canvasView={canvasView()}
+              templateCreatorTabOpen={templateCreatorTabOpen()}
+              onGenerateStyleDescription={generateStyleDescription}
+              onTemplateCreatorClick={openTemplateCreator}
+              onTemplateCreatorClose={closeTemplateCreator}
             >
-              <Show when={showStudioCanvas() && canvasResult()?.images.length && (canvasWidth() >= 700 || studioCanvasWidth() >= 700)}>
+              <Show when={canvasView() === "canvas" && showStudioCanvas() && canvasResult()?.images.length && (canvasWidth() >= 700 || studioCanvasWidth() >= 700)}>
                 <div class="studio-details-wrapper" classList={{ expanded: showStudioDetails() }}>
                   <button
                     class="studio-details-toggle"

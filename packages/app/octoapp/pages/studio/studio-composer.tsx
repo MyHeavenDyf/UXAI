@@ -4,11 +4,14 @@ import { usePlatform } from "@/context/platform"
 import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, styleModelLabel } from "./data"
 import { getDefaultDimensions, getModelResolutionKey, STUDIO_VIDEO_ASPECT_RATIOS, STUDIO_VIDEO_MODES, SUPPORTED_STUDIO_CAPABILITIES, workspaceModeForCapability, type StudioVideoDuration, type StudioVideoFrameSlot, type StudioVideoMode, type StudioVideoQualityMode } from "./studio-shared"
 import { MaterialMenu, type MaterialWordBook } from "./MaterialMenu"
+import { StudioStyleTemplateMenu } from "./studio-style-template-menu"
 import type { StudioAsset, StudioAspectRatio, StudioCapability, StudioGenerationStatus } from "./types"
 import { StudioVideoRiskContent } from "./studio-video-risk-dialog"
 
 const STUDIO_VIDEO_GUIDE_URL = "https://www.volcengine.com/docs/82379/2222480?lang=zh"
 const STUDIO_IMAGE_DRAG_TYPE = "application/x-octo-studio-image"
+
+export type StudioComposerMenu = "capability" | "style" | "settings" | "material" | "style-template" | null
 
 export function StudioIntro(): JSX.Element {
   return (
@@ -42,7 +45,7 @@ export function StudioComposer(props: {
   videoMode: StudioVideoMode
   status: StudioGenerationStatus
   busy: boolean
-  openMenu: "capability" | "style" | "settings" | "material" | null
+  openMenu: StudioComposerMenu
   canSubmit: boolean
   wordBook?: Resource<MaterialWordBook[]>
   onPrompt: (value: string) => void
@@ -56,7 +59,8 @@ export function StudioComposer(props: {
   onVideoDuration: (value: StudioVideoDuration) => void
   onVideoQualityMode: (value: StudioVideoQualityMode) => void
   onVideoMode: (value: StudioVideoMode) => void
-  onOpenMenu: (value: "capability" | "style" | "settings" | "material" | null) => void
+  onOpenMenu: (value: StudioComposerMenu) => void
+  onCreateTemplate?: () => void
   onReversePrompt?: () => void
   onCancel?: () => void
   onSubmit: () => void
@@ -215,7 +219,7 @@ export function StudioComposer(props: {
   const itemWidthCache = new Map<string, number>()
 
   const toolbarItemKeys = createMemo(() => {
-    if (isImageGeneration()) return ["capability", "style", "settings", "reverse", "material"]
+    if (isImageGeneration()) return ["capability", "style", "settings", "style-template", "reverse", "material"]
     if (isVideoGeneration()) return ["capability", "videoMode", "settings"]
     return ["capability"]
   })
@@ -727,6 +731,17 @@ export function StudioComposer(props: {
                   />
                 </div>
               </Show>
+              <Show when={!toolbarOverflow().includes("style-template")}>
+                <div class="relative studio-composer-toolbar-item" ref={(el) => buttonRefs.set("style-template", el)} data-toolbar-item="style-template">
+                  <ToolButton
+                    label="风格模板"
+                    active={props.openMenu === "style-template"}
+                    disabled={isBusy()}
+                    onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                    onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style-template" ? null : "style-template")}
+                  />
+                </div>
+              </Show>
               <Show when={!toolbarOverflow().includes("reverse")}>
 	                <div class="relative studio-composer-toolbar-item" data-toolbar-item="reverse">
                   <IconTool
@@ -801,6 +816,18 @@ export function StudioComposer(props: {
                       <span>图片设置</span>
                     </button>
                   </Show>
+                  <Show when={toolbarOverflow().includes("style-template")}>
+                    <button
+                      type="button"
+                      class="studio-composer-toolbar-more-item"
+                      classList={{ active: props.openMenu === "style-template" }}
+                      onClick={() => props.onOpenMenu("style-template")}
+                    >
+                      <span class="studio-composer-toolbar-more-item-icon" aria-hidden="true" />
+                      <span>风格模板</span>
+                      <svg class="studio-composer-toolbar-more-item-arrow" viewBox="0 0 6 11" width="5.74" height="10.6"><path d="M0.5 0.5l5 5-5 5" fill="none" stroke="rgba(0,0,0,0.9)" stroke-width="1"/></svg>
+                    </button>
+                  </Show>
                   <Show when={toolbarOverflow().includes("reverse")}>
                     <button
                       type="button"
@@ -858,6 +885,16 @@ export function StudioComposer(props: {
                 onCustomWidth={props.onCustomWidth}
                 onCustomHeight={props.onCustomHeight}
                 onIsCustom={props.onIsCustom}
+              />
+            </div>
+          </Show>
+          <Show when={isImageGeneration() && props.openMenu === "style-template"}>
+            <div class="studio-composer-dropdown-anchor" ref={(el) => anchorRefs.set("style-template", el)}>
+              <StudioStyleTemplateMenu
+                onCreateTemplate={() => {
+                  props.onOpenMenu(null)
+                  props.onCreateTemplate?.()
+                }}
               />
             </div>
           </Show>

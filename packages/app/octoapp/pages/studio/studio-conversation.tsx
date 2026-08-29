@@ -9,6 +9,12 @@ import { capabilityLabel, STUDIO_STYLE_MODELS } from "./data"
 import { StudioVideoPlayer } from "./studio-video-player"
 import { getArtifactRelativePath, getArtifactServeUrl } from "../make/utils/artifact-file-api"
 import { StudioFileManager } from "./studio-file-manager"
+import {
+  StudioTemplateCreator,
+  type StudioCanvasView,
+  type StudioStyleDescriptionGenerateHandlers,
+  type StudioStyleDescriptionGenerateInput,
+} from "./studio-template-creator"
 import { FloatingNotice } from "@/components/floating-notice"
 import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
 
@@ -231,6 +237,14 @@ export function StudioResultCanvas(props: {
   canGenerateVideo?: boolean
   sessionID?: string
   fileManagerGenPending?: boolean
+  canvasView: StudioCanvasView
+  templateCreatorTabOpen: boolean
+  onGenerateStyleDescription?: (
+    input: StudioStyleDescriptionGenerateInput,
+    handlers: StudioStyleDescriptionGenerateHandlers,
+  ) => Promise<void>
+  onTemplateCreatorClick: () => void
+  onTemplateCreatorClose: () => void
   children?: JSX.Element
 }): JSX.Element {
   const [fullscreenImage, setFullscreenImage] = createSignal<StudioImage | null>(null)
@@ -245,9 +259,10 @@ export function StudioResultCanvas(props: {
     return props.image
   })
   const shouldShowCanvas = createMemo(() => {
+    if (props.canvasView === "template-creator") return true
     // 生成中时优先展示 loading fallback（"生成中..."），而非空 canvas 或文件管理
     if (props.status === "running" || props.status === "queued" || props.status === "submitting") return false
-    return !!showImage() || (props.showFileManager === true && !fileManagerLoading())
+    return !!showImage() || (props.showFileManager === true && !fileManagerLoading()) || props.templateCreatorTabOpen
   })
   const [canvasStageRef, setCanvasStageRef] = createSignal<HTMLDivElement | null>(null)
   const [floatingActionsRef, setFloatingActionsRef] = createSignal<HTMLDivElement | null>(null)
@@ -340,7 +355,7 @@ export function StudioResultCanvas(props: {
               <Show when={props.showFileManagerTab}>
                 <span
                   class="studio-canvas-tab studio-canvas-tab-locked"
-                  classList={{ active: props.showFileManager }}
+                  classList={{ active: props.canvasView === "file-manager" }}
                   onClick={() => props.onFileManagerClick?.()}
                 >
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ "margin-right": "4px", "flex-shrink": "0" }} aria-hidden="true">
@@ -348,13 +363,31 @@ export function StudioResultCanvas(props: {
                   </svg>
                   <span class="studio-canvas-label-text">文件管理</span>
                 </span>
-                <Show when={(props.tabImages && props.tabImages.length > 0) || (!props.showFileManager && props.onSelectImage && props.result?.images && props.result.images.length > 0)}>
+                <Show when={props.templateCreatorTabOpen || (props.tabImages && props.tabImages.length > 0) || (props.canvasView === "canvas" && props.onSelectImage && props.result?.images && props.result.images.length > 0)}>
                   <span class="studio-canvas-tab-divider" />
                 </Show>
               </Show>
-              <For each={(props.tabImages && props.tabImages.length > 0) ? props.tabImages : (!props.showFileManager && props.onSelectImage && props.result?.images ? [props.result.images[0]] : [])}>
+              <Show when={props.templateCreatorTabOpen}>
+                <span
+                  class="studio-canvas-tab"
+                  classList={{ active: props.canvasView === "template-creator" }}
+                  onClick={props.onTemplateCreatorClick}
+                >
+                  <span class="studio-canvas-label-text">创建模板</span>
+                  <span
+                    class="studio-canvas-tab-close"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      props.onTemplateCreatorClose()
+                    }}
+                    aria-label="关闭创建模板"
+                    title="关闭创建模板"
+                  />
+                </span>
+              </Show>
+              <For each={(props.tabImages && props.tabImages.length > 0) ? props.tabImages : (props.canvasView === "canvas" && props.onSelectImage && props.result?.images ? [props.result.images[0]] : [])}>
                 {(tabImage, index) => {
-                  const tabSource = (props.tabImages && props.tabImages.length > 0) ? props.tabImages : (!props.showFileManager ? [props.result!.images[0]] : [])
+                  const tabSource = (props.tabImages && props.tabImages.length > 0) ? props.tabImages : (props.canvasView === "canvas" ? [props.result!.images[0]] : [])
                   const [isTabTruncated, setIsTabTruncated] = createSignal(false)
                   let tabLabelRef!: HTMLSpanElement
                   let tabResizeObserver: ResizeObserver | undefined
@@ -396,7 +429,7 @@ export function StudioResultCanvas(props: {
                   return (
                     <span
                       class="studio-canvas-tab"
-                      classList={{ active: !props.showFileManager && ((props.tabImages && props.tabImages.length > 0)
+                      classList={{ active: props.canvasView === "canvas" && ((props.tabImages && props.tabImages.length > 0)
                         ? (props.result?.images.some((img) => img.id === tabImage.id) ?? false)
                         : tabImage.id === (props.selectedImageId ?? tabSource[0]?.id))
                       }}
@@ -430,6 +463,8 @@ export function StudioResultCanvas(props: {
               </For>
             </div>
             <div class="studio-canvas-body">
+              <Show when={props.canvasView === "template-creator"} fallback={
+                <>
               <div style={{ display: props.showFileManager && !props.fileManagerDetailView ? "contents" : "none" }}>
                 <StudioFileManager
                   studioCenterWidth={props.studioCenterWidth}
@@ -566,6 +601,10 @@ export function StudioResultCanvas(props: {
               </div>
               </div>
               {props.children}
+              </Show>
+                </>
+              }>
+                <StudioTemplateCreator onGenerateStyleDescription={props.onGenerateStyleDescription} />
               </Show>
             </div>
           </>

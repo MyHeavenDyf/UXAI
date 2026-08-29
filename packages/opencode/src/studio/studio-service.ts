@@ -8,6 +8,11 @@ import {
   summarizeInternalOutput,
   type PromptGenResponse,
 } from "@/tool/internel_image_generate"
+import {
+  generateStyleDescriptionStream,
+  type StyleDescriptionGenRequest,
+  type StyleDescriptionGenStreamEvent,
+} from "@/tool/internel_style_template"
 import z from "zod"
 import * as Database from "@/storage/db"
 import { and, eq, inArray, lte } from "@/storage/db"
@@ -111,6 +116,9 @@ export type StudioPromptGenRequest = {
   base64img: string
 }
 
+export type StudioStyleDescriptionGenRequest = StyleDescriptionGenRequest
+export type StudioStyleDescriptionGenStreamEvent = StyleDescriptionGenStreamEvent
+
 export type StudioGenerationResult = {
   id: string
   status: StudioGenerationStatus
@@ -151,6 +159,16 @@ export async function createPromptGen(input: StudioPromptGenRequest): Promise<Pr
     throw new Error("提示词生成结果为空")
   }
   return result
+}
+
+export async function createStyleDescriptionGenStream(
+  input: StudioStyleDescriptionGenRequest,
+  handlers: {
+    onEvent: (event: StudioStyleDescriptionGenStreamEvent) => void | Promise<void>
+    signal?: AbortSignal
+  },
+) {
+  await generateStyleDescriptionStream(input, handlers)
 }
 
 export type StudioGenerationAccepted = Pick<

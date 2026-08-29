@@ -1,8 +1,9 @@
 import { Hono } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
+import { streamSSE } from "hono/streaming"
 import z from "zod"
 import { lazy } from "@/util/lazy"
-import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, getGeneration, rebootGeneration } from "@/studio/studio-service"
+import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, createStyleDescriptionGenStream, getGeneration, rebootGeneration } from "@/studio/studio-service"
 import { checkStudioPermission, fetchPromptTags } from "@/tool/internel_image_generate"
 import { errors } from "../../error"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
@@ -13,6 +14,25 @@ const StudioPermissionInput = z.object({
 
 const StudioPromptGenInput = z.object({
   base64img: z.string().min(1),
+})
+
+const StudioStyleDimensionId = z.enum([
+  "tonal",
+  "composition",
+  "volume",
+  "surface",
+  "color",
+  "linework",
+  "shape_structure",
+  "role_design",
+  "lettering",
+  "post_processing",
+])
+
+const StudioStyleDescriptionGenInput = z.object({
+  style_keywords: z.string(),
+  style_images: z.array(z.object({ url: z.string().min(1) })).min(3),
+  style_dimensions: z.array(StudioStyleDimensionId),
 })
 
 const StudioGenerationInput = z.object({
@@ -99,6 +119,52 @@ export const StudioRoutes = lazy(() =>
       }),
       validator("json", StudioPromptGenInput),
       async (c) => c.json(await createPromptGen(c.req.valid("json"))),
+    )
+    .post(
+      "/style-description-gen",
+      describeRoute({
+        summary: "Generate style description",
+        description: "Streams style description fields from the internal Studio style template API.",
+        operationId: "studio.style-description-gen.create",
+        responses: {
+          200: {
+            description: "Style description generation stream",
+            content: {
+              "text/event-stream": {
+                schema: resolver(z.unknown()),
+              },
+            },
+          },
+          ...errors(400, 502),
+        },
+      }),
+      validator("json", StudioStyleDescriptionGenInput),
+      async (c) => {
+        c.header("Cache-Control", "no-cache, no-transform")
+        c.header("X-Accel-Buffering", "no")
+        c.header("X-Content-Type-Options", "nosniff")
+        const input = c.req.valid("json")
+        return streamSSE(c, async (stream) => {
+          const controller = new AbortController()
+          stream.onAbort(() => controller.abort())
+
+          try {
+            await createStyleDescriptionGenStream(input, {
+              signal: controller.signal,
+              onEvent: (event) => stream.writeSSE({ data: JSON.stringify(event) }),
+            })
+          } catch (error) {
+            if (!controller.signal.aborted) {
+              await stream.writeSSE({
+                data: JSON.stringify({
+                  type: "error",
+                  content: error instanceof Error ? error.message : String(error),
+                }),
+              })
+            }
+          }
+        })
+      },
     )
     .post(
       "/permissions/check",
