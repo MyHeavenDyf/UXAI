@@ -1,6 +1,29 @@
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { usePlatform } from "@/context/platform"
 import { createSignal } from "solid-js"
+
+const MAC_DOWNLOAD_PAGE_URL = "https://octo.hdesign.huawei.com/design/agentdesktop/mac-download.html"
+
+export function useUpdateAvailableDialog() {
+  const dialog = useDialog()
+  const platform = usePlatform()
+
+  return (version: string) =>
+    dialog.show(() => (
+      <DialogUpdateAvailable
+        os={platform.os === "macos" ? "macos" : "windows"}
+        version={version}
+        onUpgrade={(onProgress) => {
+          if (platform.os === "macos") {
+            platform.openLink(MAC_DOWNLOAD_PAGE_URL)
+            return
+          }
+          return platform.updateAndRestart?.(onProgress)
+        }}
+      />
+    ))
+}
 
 export function DialogUpdateAvailable(props: {
   os: "windows" | "macos"

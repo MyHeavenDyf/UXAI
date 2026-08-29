@@ -130,7 +130,6 @@ const createPlatform = (): Platform => {
   return {
     platform: "desktop",
     os,
-    arch: window.api.arch,
     version: pkg.version,
 
     async openDirectoryPickerDialog(opts) {
@@ -201,6 +200,8 @@ const createPlatform = (): Platform => {
       const unsubscribe = onProgress ? window.api.onUpdateDownloadProgress(onProgress) : undefined
       await window.api.installUpdate().finally(() => unsubscribe?.())
     },
+
+    onResume: (callback) => window.api.onResume(callback),
 
     restart: async () => {
       await window.api.killSidecar().catch(() => undefined)

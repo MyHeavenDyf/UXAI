@@ -8,7 +8,6 @@ import { TextField } from "@opencode-ai/ui/text-field"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
 import { showToast } from "@opencode-ai/ui/toast"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useParams } from "@solidjs/router"
 import { useLanguage } from "@/context/language"
 import { usePermission } from "@/context/permission"
@@ -35,7 +34,7 @@ import { playSoundById, SOUND_OPTIONS } from "@/utils/sound"
 import { showFloatingNotice } from "./floating-notice"
 import { Link } from "./link"
 import { SettingsList } from "./settings-list"
-import { DialogUpdateAvailable } from "./dialog-update-available"
+import { useUpdateAvailableDialog } from "./dialog-update-available"
 
 let demoSoundState = {
   cleanup: undefined as (() => void) | undefined,
@@ -212,7 +211,7 @@ export const SettingsGeneral: Component = () => {
     permission.disableAutoAccept(params.id, value)
   }
   const desktop = createMemo(() => platform.platform === "desktop")
-  const dialog = useDialog()
+  const showUpdate = useUpdateAvailableDialog()
 
   const check = () => {
     if (!platform.checkUpdate) return
@@ -231,26 +230,7 @@ export const SettingsGeneral: Component = () => {
           return
         }
 
-        dialog.show(() => (
-          <DialogUpdateAvailable
-            os={platform.os === "macos" ? "macos" : "windows"}
-            version={result.version ?? ""}
-            onUpgrade={(onProgress) => {
-              if (platform.os === "macos") {
-                const arch = platform.arch
-                if (arch !== "x64" && arch !== "arm64") {
-                  showToast({ title: "暂不支持当前 Mac 架构", description: arch ?? "未知架构" })
-                  return
-                }
-                platform.openLink(
-                  `https://octo.hdesign.huawei.com/design/agentdesktop/mac-${arch}/prod/octo-desktop-mac-${arch}.dmg`,
-                )
-                return
-              }
-              return platform.updateAndRestart?.(onProgress)
-            }}
-          />
-        ))
+        showUpdate(result.version ?? "")
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err)

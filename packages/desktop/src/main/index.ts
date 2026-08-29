@@ -7,7 +7,7 @@ import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { DownloadItem, Event, WebContents } from "electron"
-import { app, BrowserWindow, dialog, session } from "electron"
+import { app, BrowserWindow, dialog, powerMonitor, session } from "electron"
 import pkg from "electron-updater"
 import semver from "semver"
 import {shellPath} from "shell-path"
@@ -208,6 +208,9 @@ function setupApp() {
     setDockIcon()
     startPreviewServer()
     setupAutoUpdater()
+    powerMonitor.on("resume", () => {
+      BrowserWindow.getAllWindows().forEach((win) => win.webContents.send("power-resume"))
+    })
     await initialize()
   })
 }

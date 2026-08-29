@@ -16,9 +16,6 @@ export type Platform = {
   /** Desktop OS (Tauri only) */
   os?: "macos" | "windows" | "linux"
 
-  /** Desktop CPU architecture */
-  arch?: string
-
   /** App version */
   version?: string
 
@@ -57,6 +54,9 @@ export type Platform = {
 
   /** Install the downloaded update using the platform restart flow */
   updateAndRestart?(onProgress?: (percent: number) => void): Promise<void>
+
+  /** Subscribe to desktop resume events */
+  onResume?(callback: () => void): () => void
 
   /** Fetch override */
   fetch?: typeof fetch

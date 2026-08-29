@@ -42,7 +42,6 @@ export type SkillContentResponse =
   | { success: false; error: string }
 
 export type ElectronAPI = {
-  arch: string
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>
   awaitInitialization: (onStep: (step: InitStep) => void) => Promise<ServerReadyData>
@@ -130,6 +129,7 @@ export type ElectronAPI = {
   checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
   installUpdate: () => Promise<void>
   onUpdateDownloadProgress: (callback: (percent: number) => void) => () => void
+  onResume: (callback: () => void) => () => void
   setBackgroundColor: (color: string) => Promise<void>
   // jk-j60099994-replace-with-types-2-start
   // jk-j60099994-replace-with-types-2-end

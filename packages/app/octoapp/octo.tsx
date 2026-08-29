@@ -60,6 +60,7 @@ import { ProjectInfo } from "@/components/project-info"
 import { SidebarFooter } from "@/pages/insight/components/sidebar-footer"
 import { MakeLayoutProvider, useMakeLayout } from "@/context/make-layout"
 import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
+import { UpdateChecker } from "@/components/update-checker"
 import { WelcomePage } from "@/components/welcome-page"
 import { useCheckServerHealth } from "./utils/server-health"
 import { persisted, Persist } from "@/utils/persist"
@@ -492,6 +493,7 @@ function RouterInner(props: ParentProps<{ appChildren?: JSX.Element }>) {
 
   return (
     <>
+      <UpdateChecker />
       <FocusModeResetHandler />
       <NotificationProvider>
         <ModelsProvider>

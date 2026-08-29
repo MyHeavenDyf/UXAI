@@ -2,7 +2,6 @@ import { contextBridge, ipcRenderer, webUtils } from "electron"
 import type { DownloadSavePathInfo, ElectronAPI, InitStep, SqliteMigrationProgress } from "./types"
 
 const api: ElectronAPI = {
-  arch: process.arch,
   killSidecar: () => ipcRenderer.invoke("kill-sidecar"),
   installCli: () => ipcRenderer.invoke("install-cli"),
   awaitInitialization: (onStep) => {
@@ -95,6 +94,10 @@ const api: ElectronAPI = {
     const handler = (_event: Electron.IpcRendererEvent, percent: number) => callback(percent)
     ipcRenderer.on("update-download-progress", handler)
     return () => ipcRenderer.removeListener("update-download-progress", handler)
+  },
+  onResume: (callback) => {
+    ipcRenderer.on("power-resume", callback)
+    return () => ipcRenderer.removeListener("power-resume", callback)
   },
   setBackgroundColor: (color: string) => ipcRenderer.invoke("set-background-color", color),
   getSkillsConfig: () => ipcRenderer.invoke("get-skills-config"),
