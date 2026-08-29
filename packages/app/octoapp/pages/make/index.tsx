@@ -867,7 +867,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
   /** 设计规划是否已结束（退出或确认），用于控制 plan 视图只读模式 */
   // 从 localStorage 同步初始化，确保页面刷新/路由切换后立即生效
-  const [planEnded, setPlanEnded] = createSignal(false)
+  const [planEnded, setPlanEnded] = createSignal(!!(params.id && localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + params.id)))
 
   /** 两步走工作流：当前阶段 */
   const [planPhase, setPlanPhase] = createSignal<"strategy" | "generate">("strategy")
@@ -1769,6 +1769,7 @@ const sessionMessagesLoaded = createMemo(() => {
     setResultViewMode("files")
     setPlanPhase("strategy")
     setSending(false)
+    _confirmPlanDisplayText = undefined
     // 提前退出规划时保留 Skill 暂存，只有确认成功后才清理。
     // 这样重新进入规划时可继续将当前方案与原 Skill 一起交接。
     setPlanEnded(true)
@@ -1898,6 +1899,8 @@ const sessionMessagesLoaded = createMemo(() => {
           setActivePlanSessionId(null)
           setPlanParentSessionId(null)
           clearPlanComposerCapsule()
+          // 清除残留的 confirm-plan 显示文本，防止泄漏到新会话
+          _confirmPlanDisplayText = undefined
           setPlanChildSessionIDs(new Set<string>())
         setHasChildPlanSession(false)
           setResultViewMode("files")
@@ -1925,6 +1928,8 @@ const sessionMessagesLoaded = createMemo(() => {
         setActivePlanSessionId(null)
         setPlanParentSessionId(null)
         clearPlanComposerCapsule()
+        // 清除残留的 confirm-plan 显示文本，防止泄漏到新会话
+        _confirmPlanDisplayText = undefined
         setPlanChildSessionIDs(new Set<string>())
         setHasChildPlanSession(false)
         setResultViewMode("files")
@@ -1986,7 +1991,11 @@ const sessionMessagesLoaded = createMemo(() => {
         const planIdent = planArtifact?.artifactIdentifier
 
         // 使用 isPlanConfirmed 检测确认状态（包括 [confirm-plan] 和 text/html artifact）
-        const isConfirmed = planIdent ? isPlanConfirmed(childMessages, childParts, planIdent) : false
+        // [confirm-plan] 发送给主 session，需同时检查主 session 消息流
+        let isConfirmed = planIdent ? isPlanConfirmed(childMessages, childParts, planIdent) : false
+        if (!isConfirmed && planIdent && newSid) {
+          isConfirmed = isPlanConfirmed(sync.data.message?.[newSid], sync.data.part, planIdent)
+        }
 
         // 检测子 session 消息流中是否已有 design-plan artifact
         const hasDesignPlan = childMessages?.some((m: any) => {
@@ -2683,6 +2692,11 @@ const sessionMessagesLoaded = createMemo(() => {
     if (shouldStartInitialPlan) clearPlanComposerCapsule()
     proseMirrorRef1?.clear()
     proseMirrorRef2?.clear()
+    // 新建 session 时立即清除规划子 session 状态，防止旧 plan 会话的 SID 泄漏到新会话
+    if (!params.id && activePlanSessionId()) {
+      setActivePlanSessionId(null)
+      setPlanParentSessionId(null)
+    }
     const planSid = activePlanSessionId() && planParentSessionId() === params.id ? activePlanSessionId() : null
     const submitSessionId = planSid || params.id
     try {
