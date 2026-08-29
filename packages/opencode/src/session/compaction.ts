@@ -108,6 +108,15 @@ export function validateSummary(summary: string | undefined) {
   return CompactionSummary.validate(summary)
 }
 
+export function isSuccessful(message: MessageV2.WithParts) {
+  return (
+    message.info.role === "assistant" &&
+    message.info.summary === true &&
+    !!message.info.finish &&
+    !message.info.error
+  )
+}
+
 function completedCompactions(messages: MessageV2.WithParts[]) {
   const users = new Map<MessageID, number>()
   for (let i = 0; i < messages.length; i++) {

@@ -4,6 +4,16 @@ import type { MessageV2 } from "./message-v2"
 
 const COMPACTION_THRESHOLD = 0.85
 
+// Keep automatic compaction available for a future rollout, but leave it disabled for now.
+export const AUTOMATIC_COMPACTION_ENABLED = false
+export const CONTEXT_OVERFLOW_MESSAGE = "系统的单次处理能力已满。请点击“新建对话”重置上下文。"
+
+export function exceedsContext(input: { model: Provider.Model; input: number }) {
+  const limit = input.model.limit.input ?? input.model.limit.context
+  if (limit === 0) return false
+  return input.input >= limit
+}
+
 export function usable(input: { cfg: Config.Info; model: Provider.Model }) {
   const context = input.model.limit.context
   if (context === 0) return 0
@@ -18,8 +28,7 @@ export function isOverflow(input: { cfg: Config.Info; tokens: MessageV2.Assistan
   if (input.cfg.compaction?.auto === false) return false
   if (input.model.limit.context === 0) return false
 
-  const count =
-    input.tokens.total || input.tokens.input + input.tokens.output + input.tokens.cache.read + input.tokens.cache.write
+  const count = input.tokens.input + input.tokens.cache.read + input.tokens.cache.write
   return count >= usable(input)
 }
 
@@ -28,6 +37,7 @@ export function preflight(input: {
   model: Provider.Model
   estimatedInput: number
   unavoidableInput: number
+  compactionAttempted?: boolean
 }) {
   const full = isOverflow({
     cfg: input.cfg,
@@ -40,6 +50,6 @@ export function preflight(input: {
     },
   })
   if (!full) return "send" as const
-  if (input.unavoidableInput >= usable(input)) return "reject" as const
+  if (input.compactionAttempted || input.unavoidableInput >= usable(input)) return "reject" as const
   return "compact" as const
 }

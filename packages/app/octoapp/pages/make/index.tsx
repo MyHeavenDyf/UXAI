@@ -25,6 +25,7 @@ import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Dialog } from "@opencode-ai/ui/dialog"
+import { Button } from "@opencode-ai/ui/button"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useCommand } from "@/context/command"
@@ -139,7 +140,6 @@ export default function MakePage() {
 }
 
 let lastMakeDir: string | undefined
-const DEFAULT_CUSTOM_CONTEXT_LIMIT = 128_000
 
 function MakeContent() {
   const params = useParams<{ id?: string }>()
@@ -1013,10 +1013,14 @@ const sessionMessagesLoaded = createMemo(() => {
   const userMessages = createMemo((): Message[] => {
     const sid = params.id
     if (!sid) return []
-    const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter((m) => m.role === "user")
+    const visible = (message: Message) => {
+      const parts = sync.data.part[message.id] ?? []
+      return message.role === "user" && parts.length > 0 && !parts.some((part) => part.type === "compaction")
+    }
+    const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter(visible)
     const allMsgs: Message[] = [...mainMsgs]
     for (const childId of childSessionIDs()) {
-      const childMsgs = ((sync.data.message?.[childId] ?? []) as Message[]).filter((m) => m.role === "user")
+      const childMsgs = ((sync.data.message?.[childId] ?? []) as Message[]).filter(visible)
       allMsgs.push(...childMsgs)
     }
     return sortMessages(allMsgs)
@@ -1044,13 +1048,19 @@ const sessionMessagesLoaded = createMemo(() => {
     () => getSessionContextMetrics(params.id ? (sync.data.message[params.id] ?? []) : [], providers.all()).context,
   )
   const contextLimit = createMemo(() => {
-    if (contextMetrics()?.limit) return contextMetrics()!.limit!
+    if (currentModel()?.limit.input) return currentModel()!.limit.input!
     if (currentModel()?.limit.context) return currentModel()!.limit.context
-    return DEFAULT_CUSTOM_CONTEXT_LIMIT
+    if (contextMetrics()?.limit) return contextMetrics()!.limit!
+  })
+  const contextTokens = createMemo(() => {
+    const context = contextMetrics()
+    if (!context) return 0
+    if (context.message.summary) return context.output
+    return context.total
   })
   const contextUsage = createMemo(() => {
-    if (contextMetrics()?.usage !== null && contextMetrics()?.usage !== undefined) return contextMetrics()!.usage!
-    return contextLimit() ? Math.round(((contextMetrics()?.total ?? 0) / contextLimit()) * 100) : 0
+    const limit = contextLimit()
+    return limit ? Math.round((contextTokens() / limit) * 100) : 0
   })
 
   const sessionStatus = createMemo((): SessionStatus => {
@@ -1067,6 +1077,65 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const effectiveBusy = createMemo(() => isBusy() || childBusy())
+  const [contextCompacting, setContextCompacting] = createSignal(false)
+  const contextCompactionDisabled = createMemo(() => effectiveBusy() || contextCompacting())
+
+  async function compactContext() {
+    const sessionID = params.id
+    const model = currentModel()
+    if (!sessionID || !model || contextCompactionDisabled()) return
+
+    setContextCompacting(true)
+    try {
+      const result = await sdk.client.session.summarize({
+        sessionID,
+        providerID: model.provider.id,
+        modelID: model.id,
+      })
+      if (result.error) throw result.error
+      sync.set("session_status", sessionID, { type: "idle" })
+      if (result.data !== true) return
+      showOctoToast({ title: "上下文压缩完成" })
+    } catch (error) {
+      console.error("[MakePage] context compaction failed", error)
+      showOctoToast({
+        title: "上下文压缩失败",
+        description: error instanceof Error ? error.message : "请稍后重试",
+        variant: "error",
+      })
+    } finally {
+      setContextCompacting(false)
+    }
+  }
+
+  function confirmCompactContext() {
+    if (contextCompactionDisabled()) return
+    dialog.show(() => (
+      <Dialog title="压缩上下文" fit class="delete-dialog">
+        <div class="flex flex-col gap-4">
+          <span class="text-14-regular text-text-strong">
+            当前上下文将压缩为摘要，以释放更多上下文空间。是否继续？
+          </span>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              size="large"
+              class="delete-dialog-btn delete-dialog-btn-primary"
+              onClick={() => {
+                dialog.close()
+                void compactContext()
+              }}
+            >
+              确认压缩
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    ))
+  }
 
   // ── 会话进度条动画状态 ────────────────────────────────────
   const [timeoutDone, setTimeoutDone] = createSignal(true)
@@ -3938,26 +4007,45 @@ if (dsId) {
                   </Show>
                   <Show when={!titleState.editing && params.id}>
                     <Tooltip
-                      placement="top"
+                      placement="bottom"
                       gutter={8}
                       contentClass="make-token-tooltip"
                       value={
-                        <span>
-                          当前session已使用： {(contextMetrics()?.total ?? 0).toLocaleString(language.intl())} /{" "}
-                          {contextLimit() ? contextLimit().toLocaleString(language.intl()) : "--"} 个token
-                        </span>
+                        <div class="flex flex-col">
+                          <span>
+                            当前session已使用： {contextTokens().toLocaleString(language.intl())} /{" "}
+                            {contextLimit()?.toLocaleString(language.intl()) ?? "--"} 个token
+                          </span>
+                          <span>
+                            {contextCompacting()
+                              ? "正在压缩上下文…"
+                              : effectiveBusy()
+                                ? "对话进行中，暂不可压缩"
+                                : "点击压缩上下文"}
+                          </span>
+                        </div>
                       }
                     >
-                      <div
+                      <button
+                        type="button"
                         class="shrink-0 flex items-center justify-center"
+                        classList={{
+                          "cursor-pointer": !contextCompactionDisabled(),
+                          "cursor-not-allowed": contextCompactionDisabled(),
+                        }}
                         style={{
                           "--border-active": "var(--octo-brand)",
                           "--border-weak-base": "rgba(0,0,0,0.1)",
+                          background: "transparent",
+                          border: "none",
+                          padding: "0",
                         }}
-                        aria-label={`Token ${contextUsage()}%`}
+                        disabled={contextCompactionDisabled()}
+                        onClick={confirmCompactContext}
+                        aria-label={`上下文已使用 ${contextUsage()}%，点击压缩上下文`}
                       >
                         <ProgressCircle size={16} strokeWidth={2} percentage={contextUsage()} />
-                      </div>
+                      </button>
                     </Tooltip>
                   </Show>
                 </div>
