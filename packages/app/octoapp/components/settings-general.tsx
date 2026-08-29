@@ -35,6 +35,7 @@ import { showFloatingNotice } from "./floating-notice"
 import { Link } from "./link"
 import { SettingsList } from "./settings-list"
 import { useUpdateAvailableDialog } from "./dialog-update-available"
+import { cancelStartupUpdateCheck } from "./update-checker"
 
 let demoSoundState = {
   cleanup: undefined as (() => void) | undefined,
@@ -215,6 +216,7 @@ export const SettingsGeneral: Component = () => {
 
   const check = () => {
     if (!platform.checkUpdate) return
+    cancelStartupUpdateCheck()
     setStore("checking", true)
 
     void platform
