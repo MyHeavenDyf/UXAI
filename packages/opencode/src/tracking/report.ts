@@ -3,16 +3,19 @@ import type { Snapshot } from "@/snapshot"
 import type { MessageV2 } from "@/session/message-v2"
 import { SessionExtras } from "@/session/extras"
 
-// 服务端产物打点(SPEC-INS-033 D3/D4)——artifact-output-write / -edit / -mcp / -outside 的
-// 服务端发射器。设计论证在 octo-agent 文档仓 spec §6;此处只记实现要点:
+// 服务端产物打点(SPEC-INS-033 D3/D4/D5)——artifact-file-write / artifact-file-edit /
+// artifact-mcp-return / artifact-output-outside 的服务端发射器。设计论证在 octo-agent 文档仓
+// spec §6;此处只记实现要点:
 //
 //   - 为何在服务端:产物是**系统事实**(谁在哪个 turn 写了哪个文件),业界在产生它的进程上报。
 //     前端 effect 版的三层补丁(baseline / showGenerating 守卫 / debounce)全部源于把触发器挂在
 //     UI 组件生命周期上——切走会话即漏报;服务端在 summarize 之后发,组件在不在都照发。
-//   - 事件族(D4):按归因结果分派到 write/edit/mcp 三个事件名(分析侧按行即得来源,不解析 extend);
-//     事件名只是分派结果,归因本身两层——先 tool part 精确匹配,匹配不上按 git status 兜底
+//   - 事件名(D5):沿用原口径名 artifact-file-write / artifact-file-edit / artifact-mcp-return
+//     (用户拍板「名字别改」),语义延续但实现与覆盖面升级——发送端迁服务端、per-file、
+//     且归因兜底让 bash 等脚本通道也归入 write/edit(旧前端口径永远漏报这类)。
+//     归因本身两层——先 tool part 精确匹配,匹配不上按 git status 兜底
 //     (added→write / modified→edit,覆盖 bash/powershell 等脚本通道:diff 有、tool part 没有)。
-//     原 artifact-file-write/edit/mcp-return 三条前端事件已删,被本族完全替代。
+//     原 artifact-file-write/edit/mcp-return 三条前端 effect 已删,由本模块接管同名事件。
 //   - 协议:复刻前端 tracker(octoapp/utils/tracker.ts)的 /record/logger/interaction 契约,
 //     端点无鉴权(裸 JSON POST),字段同构;browserName 固定 "server" 供分析侧区分来源。
 //   - at-least-once:summarize 每个 finish-step 都跑,同一 turn 会发多轮;下游按
@@ -147,14 +150,21 @@ export function outputTypeOf(filename: string): string {
 
 // ── 归因(D4):tool part 精确 → resource_link basename → git status 兜底 ──────────────────
 //
-// 事件名即归因结果(分析侧按行即得来源):
-//   artifact-output-write:write 工具(含覆盖写,工具优先于 status)或脚本新建(status=added)
-//   artifact-output-edit :edit 工具或脚本修改(status=modified)
-//   artifact-output-mcp  :MCP resource_link 落盘文件(带 tool = business_type 业务工具名)
+// 归因结果分派到事件名(D5:沿用原口径名,分析侧按行即得来源):
+//   artifact-file-write :write 工具(含覆盖写,工具优先于 status)或脚本新建(status=added)
+//   artifact-file-edit  :edit 工具或脚本修改(status=modified)
+//   artifact-mcp-return :MCP resource_link 落盘文件(带 tool = business_type 业务工具名)
 // 兜底归因覆盖 bash/powershell/python 等脚本通道:diff 里有、tool part 里没有的文件,
 // 按 git status 的 added/modified 语义天然分到 write/edit——git 权威判定,不嗅探命令文本。
 
 type Attribution = { event: "write" | "edit" | "mcp"; tool?: string }
+
+/** 归因结果 → 事件名(D5:沿用原 artifact-file-write/edit、artifact-mcp-return 口径名)。 */
+const EVENT_NAMES = {
+  write: "artifact-file-write",
+  edit: "artifact-file-edit",
+  mcp: "artifact-mcp-return",
+} as const
 
 /** 工具 bare 名(write/edit 可能带 MCP 前缀如 `clientName_write`)。 */
 function bareToolName(tool: unknown): string {
@@ -320,7 +330,7 @@ export function reportDiffs(input: {
       status: d.status ?? "modified",
     }
     if (attr.tool) extend.tool = attr.tool
-    effects.push(sendOne({ account: effectiveAccount, name: `artifact-output-${attr.event}`, extend }))
+    effects.push(sendOne({ account: effectiveAccount, name: EVENT_NAMES[attr.event], extend }))
   }
   if (outside > 0) {
     effects.push(

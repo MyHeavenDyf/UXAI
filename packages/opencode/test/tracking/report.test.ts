@@ -162,7 +162,7 @@ describe("buildPayload / synthPath", () => {
   test("payload 与前端 tracker 协议同构(interaction 单条 datas)", () => {
     const payload = buildPayload({
       account: "c60050492",
-      name: "artifact-output-write",
+      name: "artifact-file-write",
       extend: { sessionID: "ses_1", messageId: "msg_1", file: ".octo/ses_1/outputs/a.md", type: "markdown", status: "added" },
     })
     expect(payload.account).toBe("c60050492")
@@ -172,7 +172,7 @@ describe("buildPayload / synthPath", () => {
     const datas = payload.datas as Array<Record<string, unknown>>
     expect(datas.length).toBe(1)
     expect(datas[0]?.type).toBe("interaction")
-    expect(datas[0]?.name).toBe("artifact-output-write")
+    expect(datas[0]?.name).toBe("artifact-file-write")
     expect(datas[0]?.path).toBe("http://localhost/insight/ses_1")
     const extend = JSON.parse(String(datas[0]?.extend)) as Record<string, unknown>
     expect(extend.messageId).toBe("msg_1")
