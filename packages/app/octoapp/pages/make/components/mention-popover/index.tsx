@@ -3,7 +3,7 @@ import { Portal } from "solid-js/web"
 import { Icon } from "@opencode-ai/ui/icon"
 import type { PanelSkill, SkillConfigEntry } from "../skill-config-types"
 import { lookupDisplayName } from "../skill-config-types"
-import type { ArtifactFile } from "../../utils/artifact-file-api"
+import { pathToLocalUrl, formatFileSize, type ArtifactFile } from "../../utils/artifact-file-api"
 import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "./icons"
 import { ProductAssetIcon } from "../addon-menu/icons"
 import { getFileIcon } from "../../icons/file-type-icons"
@@ -71,7 +71,61 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const [assetDownloadOpen, setAssetDownloadOpen] = createSignal(false)
   const [assetDownloadCancelled, setAssetDownloadCancelled] = createSignal(false)
   const [assetDownloadCurrent, setAssetDownloadCurrent] = createSignal<string>("")
-  
+
+  // 设计文件项 hover 预览(图片用 img,html 用 iframe,其它显示"暂不支持预览")
+  // 参照 addon-menu 的 designFilePreview 实现,但用 Portal + position:fixed (与现有 asset preview 一致)
+  const [designFilePreview, setDesignFilePreview] = createSignal<ArtifactFile | null>(null)
+  const [designPreviewLeft, setDesignPreviewLeft] = createSignal<number>(0)
+  const [designPreviewBottom, setDesignPreviewBottom] = createSignal<number | null>(null)
+  const [designPreviewTop, setDesignPreviewTop] = createSignal<number | null>(null)
+  let designPreviewTimer: ReturnType<typeof setTimeout> | undefined
+
+  const designPreviewKind = (file: ArtifactFile): "image" | "html" | "unsupported" => {
+    if (file.kind === "svg" || file.kind === "image") return "image"
+    if (file.kind === "html") return "html"
+    return "unsupported"
+  }
+
+  const handleDesignFileMouseEnter = (e: MouseEvent, file: ArtifactFile) => {
+    if (designPreviewTimer) { clearTimeout(designPreviewTimer); designPreviewTimer = undefined }
+    const target = e.currentTarget as HTMLElement
+    const itemRect = target.getBoundingClientRect()
+    setDesignFilePreview(file)
+
+    const previewWidth = 256
+    const defaultLeft = itemRect.right + 12
+    const rightEdge = defaultLeft + previewWidth
+    let left: number
+    if (rightEdge > window.innerWidth - 16) {
+      left = itemRect.left - previewWidth - 12
+      if (left < 16) {
+        left = 16
+      }
+    } else {
+      left = defaultLeft
+    }
+    setDesignPreviewLeft(left)
+
+    const previewHeight = 330
+    const bottom = window.innerHeight - itemRect.bottom
+    const popupTopInViewport = itemRect.bottom - previewHeight
+    let top: number | null = null
+    if (popupTopInViewport < 16) {
+      top = itemRect.top
+    }
+    setDesignPreviewBottom(top ? null : bottom)
+    setDesignPreviewTop(top)
+  }
+
+  const handleDesignFileMouseLeave = () => {
+    // 延迟 100ms 关闭,让用户能从文件项移动到预览弹窗上 (iframe 内容可交互/滚动)
+    designPreviewTimer = setTimeout(() => {
+      setDesignFilePreview(null)
+      setDesignPreviewBottom(null)
+      setDesignPreviewTop(null)
+    }, 100)
+  }
+
   let containerRef: HTMLDivElement | undefined
   let assetSecondaryRef: HTMLDivElement | undefined
 
@@ -660,6 +714,8 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                         type="button"
                         class={`mention-secondary-item ${isSelected(sel) ? 'mention-secondary-item--selected' : ''}`}
                         onClick={() => handleFileClick(file)}
+                        onMouseEnter={(e) => handleDesignFileMouseEnter(e, file)}
+                        onMouseLeave={handleDesignFileMouseLeave}
                       >
                         <div class={`mention-checkbox ${isSelected(sel) ? 'mention-checkbox--checked' : ''}`}>
                           <Show when={isSelected(sel)}>
@@ -685,6 +741,8 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                         type="button"
                         class={`mention-secondary-item ${isSelected(sel) ? 'mention-secondary-item--selected' : ''}`}
                         onClick={() => handleFileClick(file)}
+                        onMouseEnter={(e) => handleDesignFileMouseEnter(e, file)}
+                        onMouseLeave={handleDesignFileMouseLeave}
                       >
                         <div class={`mention-checkbox ${isSelected(sel) ? 'mention-checkbox--checked' : ''}`}>
                           <Show when={isSelected(sel)}>
@@ -833,7 +891,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     {/* hover 预览弹窗 */}
     <Portal>
       <Show when={assetPreview()}>
-        <div 
+        <div
           class="mention-asset-preview"
           style={{
             position: 'fixed',
@@ -852,13 +910,64 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         >
           <div class="mention-asset-preview-header">{assetPreview()!.fileName}</div>
           <div class="mention-asset-preview-image">
-            <img 
-              src={joinUrl(assetPreview()!.s3BaseUrl, assetPreview()!.snapshot)} 
+            <img
+              src={joinUrl(assetPreview()!.s3BaseUrl, assetPreview()!.snapshot)}
               alt={assetPreview()!.fileName}
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = 'none'
               }}
             />
+          </div>
+        </div>
+      </Show>
+    </Portal>
+
+    {/* 设计文件 hover 预览弹窗 — 图片用 img,html 用 iframe(居中),其它显示"暂不支持预览" */}
+    <Portal>
+      <Show when={designFilePreview()}>
+        <div
+          class="mention-design-preview"
+          style={{
+            position: 'fixed',
+            left: `${designPreviewLeft()}px`,
+            bottom: designPreviewBottom() !== null ? `${designPreviewBottom()}px` : undefined,
+            top: designPreviewTop() !== null ? `${designPreviewTop()}px` : undefined,
+          }}
+          onMouseEnter={() => {
+            // 用户移到弹窗上:取消关闭定时器,让 iframe 内容可交互/滚动
+            if (designPreviewTimer) { clearTimeout(designPreviewTimer); designPreviewTimer = undefined }
+          }}
+          onMouseLeave={() => {
+            setDesignFilePreview(null)
+            setDesignPreviewBottom(null)
+            setDesignPreviewTop(null)
+          }}
+        >
+          <div class="mention-design-preview-name">{designFilePreview()!.name}</div>
+          <div class="mention-design-preview-size">文件大小: {formatFileSize(designFilePreview()!.size)}</div>
+          <div class="mention-design-preview-stage">
+            <Show when={designPreviewKind(designFilePreview()!) === "image"}>
+              <img
+                src={pathToLocalUrl(designFilePreview()!.path)}
+                alt=""
+                class="mention-design-preview-img"
+                draggable={false}
+              />
+            </Show>
+            <Show when={designPreviewKind(designFilePreview()!) === "html"}>
+              <div class="mention-design-preview-html">
+                <iframe
+                  src={pathToLocalUrl(designFilePreview()!.path)}
+                  sandbox="allow-scripts"
+                />
+              </div>
+            </Show>
+            <Show when={designPreviewKind(designFilePreview()!) === "unsupported"}>
+              <div class="mention-design-preview-unsupported">
+                <img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
+                <span class="mention-design-preview-unsupported-text">当前文件格式暂不支持预览</span>
+              </div>
+            </Show>
           </div>
         </div>
       </Show>

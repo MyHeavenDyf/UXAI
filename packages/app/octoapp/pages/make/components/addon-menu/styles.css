@@ -270,6 +270,12 @@
   text-overflow: ellipsis;
 }
 
+.addon-menu-asset-preview-size {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.6);
+  margin: 8px 0;
+}
+
 .addon-menu-asset-preview-stage {
   margin-top: 8px;
   width: 100%;
@@ -286,6 +292,47 @@
   width: 100%;
   height: 100%;
   object-fit: scale-down;
+}
+
+.addon-menu-asset-preview-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+/* HTML preview: iframe 1920x1080 scaled to fit, vertically centered in stage */
+.addon-menu-asset-preview-html {
+  position: relative;
+  width: 240px;
+  height: 135px; /* 240 * 1080/1920 = 135 (scaled iframe height) */
+  flex-shrink: 0;
+}
+
+.addon-menu-asset-preview-html iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1920px;
+  height: 1080px;
+  border: 0;
+  transform: scale(0.125);
+  transform-origin: top left;
+}
+
+.addon-menu-asset-preview-unsupported {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.addon-menu-asset-preview-unsupported-text {
+  font-size: 14px;
+  color: #777777;
+  margin-top: 20px;
 }
 
 .octo-spinner {
