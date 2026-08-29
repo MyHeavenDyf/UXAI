@@ -9,7 +9,14 @@ import { Snapshot } from "@/snapshot"
 import * as Session from "./session"
 import { LLM } from "./llm"
 import { MessageV2 } from "./message-v2"
-import { isOverflow } from "./overflow"
+import {
+  AUTOMATIC_COMPACTION_ENABLED,
+  CONTEXT_OVERFLOW_MESSAGE,
+  exceedsContext,
+  isOverflow,
+  preflight,
+  usable,
+} from "./overflow"
 import { PartID } from "./schema"
 import type { SessionID } from "./schema"
 import { SessionRetry } from "./retry"
@@ -18,6 +25,7 @@ import { SessionSummary } from "./summary"
 import type { Provider } from "@/provider/provider"
 import { Question } from "@/question"
 import { errorMessage } from "@/util/error"
+import { Token } from "@/util/token"
 import * as Log from "@opencode-ai/core/util/log"
 import { isRecord } from "@/util/record"
 import { EventV2 } from "@/v2/event"
@@ -75,6 +83,8 @@ interface ProcessorContext extends Input {
   needsCompaction: boolean
   currentText: MessageV2.TextPart | undefined
   reasoningMap: Record<string, MessageV2.ReasoningPart>
+  estimatedInputTokens: number
+  estimatedOutputChars: number
 }
 
 type StreamEvent = Event
@@ -125,6 +135,8 @@ export const layer: Layer.Layer<
         needsCompaction: false,
         currentText: undefined,
         reasoningMap: {},
+        estimatedInputTokens: 0,
+        estimatedOutputChars: 0,
       }
       let aborted = false
       const slog = log.clone().tag("session.id", input.sessionID).tag("messageID", input.assistantMessage.id)
@@ -246,6 +258,7 @@ export const layer: Layer.Layer<
           case "reasoning-delta":
             if (!(value.id in ctx.reasoningMap)) return
             ctx.reasoningMap[value.id].text += value.text
+            ctx.estimatedOutputChars += value.text.length
             if (value.providerMetadata) ctx.reasoningMap[value.id].metadata = value.providerMetadata
             yield* session.updatePartDelta({
               sessionID: ctx.reasoningMap[value.id].sessionID,
@@ -321,6 +334,7 @@ export const layer: Layer.Layer<
               throw new Error(`Tool call not allowed while generating summary: ${value.toolName}`)
             }
             const toolCall = yield* readToolCall(value.toolCallId)
+            ctx.estimatedOutputChars += value.toolName.length + JSON.stringify(value.input).length
             // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
             EventV2.run(SessionEvent.Tool.Called.Sync, {
               sessionID: ctx.sessionID,
@@ -456,6 +470,25 @@ export const layer: Layer.Layer<
               model: ctx.model,
               usage: value.usage,
               metadata: value.providerMetadata,
+              estimated: {
+                input: ctx.estimatedInputTokens,
+                output: Token.estimateChars(ctx.estimatedOutputChars),
+              },
+            })
+            const contextTokens = usage.tokens.input + usage.tokens.cache.read + usage.tokens.cache.write
+            const contextLimit = ctx.model.limit.input ?? ctx.model.limit.context
+            const contextExceeded =
+              !AUTOMATIC_COMPACTION_ENABLED &&
+              !ctx.assistantMessage.summary &&
+              exceedsContext({ model: ctx.model, input: contextTokens })
+            slog.info("context usage", {
+              providerID: ctx.model.providerID,
+              modelID: ctx.model.id,
+              input: contextTokens,
+              output: usage.tokens.output + usage.tokens.reasoning,
+              total: usage.tokens.total,
+              limit: contextLimit,
+              percent: contextLimit ? Math.round((contextTokens / contextLimit) * 10_000) / 100 : null,
             })
             if (!ctx.assistantMessage.summary) {
               // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
@@ -468,9 +501,14 @@ export const layer: Layer.Layer<
                 timestamp: DateTime.makeUnsafe(Date.now()),
               })
             }
-            ctx.assistantMessage.finish = value.finishReason
+            ctx.assistantMessage.finish = contextExceeded ? "error" : value.finishReason
             ctx.assistantMessage.cost += usage.cost
             ctx.assistantMessage.tokens = usage.tokens
+            if (contextExceeded) {
+              ctx.assistantMessage.error = new MessageV2.ContextOverflowError({
+                message: CONTEXT_OVERFLOW_MESSAGE,
+              }).toObject()
+            }
             yield* session.updatePart({
               id: PartID.ascending(),
               reason: value.finishReason,
@@ -482,6 +520,12 @@ export const layer: Layer.Layer<
               cost: usage.cost,
             })
             yield* session.updateMessage(ctx.assistantMessage)
+            if (contextExceeded) {
+              yield* bus.publish(Session.Event.Error, {
+                sessionID: ctx.sessionID,
+                error: ctx.assistantMessage.error!,
+              })
+            }
             if (ctx.snapshot) {
               const patch = yield* snapshot.patch(ctx.snapshot)
               if (patch.files.length) {
@@ -503,6 +547,7 @@ export const layer: Layer.Layer<
               })
               .pipe(Effect.ignore, Effect.forkIn(scope))
             if (
+              AUTOMATIC_COMPACTION_ENABLED &&
               !ctx.assistantMessage.summary &&
               isOverflow({ cfg: yield* config.get(), tokens: usage.tokens, model: ctx.model })
             ) {
@@ -534,6 +579,7 @@ export const layer: Layer.Layer<
           case "text-delta":
             if (!ctx.currentText) return
             ctx.currentText.text += value.text
+            ctx.estimatedOutputChars += value.text.length
             if (value.providerMetadata) ctx.currentText.metadata = value.providerMetadata
             yield* session.updatePartDelta({
               sessionID: ctx.currentText.sessionID,
@@ -647,8 +693,20 @@ export const layer: Layer.Layer<
         slog.error("process", { error: errorMessage(e), stack: e instanceof Error ? e.stack : undefined })
         const error = parse(e)
         if (MessageV2.ContextOverflowError.isInstance(error)) {
-          ctx.needsCompaction = true
-          yield* bus.publish(Session.Event.Error, { sessionID: ctx.sessionID, error })
+          if (AUTOMATIC_COMPACTION_ENABLED) {
+            ctx.needsCompaction = true
+            yield* bus.publish(Session.Event.Error, { sessionID: ctx.sessionID, error })
+            return
+          }
+          ctx.assistantMessage.error = new MessageV2.ContextOverflowError({
+            message: CONTEXT_OVERFLOW_MESSAGE,
+          }).toObject()
+          ctx.assistantMessage.finish = "error"
+          yield* bus.publish(Session.Event.Error, {
+            sessionID: ctx.sessionID,
+            error: ctx.assistantMessage.error,
+          })
+          yield* status.set(ctx.sessionID, { type: "idle" })
           return
         }
         if (!ctx.assistantMessage.summary) {
@@ -674,9 +732,56 @@ export const layer: Layer.Layer<
         slog.info("process")
         ctx.needsCompaction = false
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
+        ctx.estimatedInputTokens = Token.estimateValue([streamInput.system, streamInput.messages, streamInput.tools])
+        ctx.estimatedOutputChars = 0
+        const cfg = yield* config.get()
+        const available = usable({ cfg, model: ctx.model })
+        const current = streamInput.messages.findLast((message) => message.role === "user")
+        const unavoidableInputTokens = Token.estimateValue([streamInput.system, current, streamInput.tools])
+        const preflightResult = ctx.assistantMessage.summary
+          ? "send"
+          : !AUTOMATIC_COMPACTION_ENABLED
+            ? exceedsContext({ model: ctx.model, input: ctx.estimatedInputTokens })
+              ? "reject"
+              : "send"
+            : preflight({
+                cfg,
+                model: ctx.model,
+                estimatedInput: ctx.estimatedInputTokens,
+                unavoidableInput: unavoidableInputTokens,
+                compactionAttempted: streamInput.compactionAttempted,
+              })
 
         return yield* Effect.gen(function* () {
           yield* Effect.gen(function* () {
+            if (preflightResult !== "send") {
+              slog.warn("preflight context overflow", {
+                estimated_input: ctx.estimatedInputTokens,
+                unavoidable_input: unavoidableInputTokens,
+                usable: available,
+                modelID: ctx.model.id,
+                providerID: ctx.model.providerID,
+              })
+              if (preflightResult === "reject") {
+                ctx.assistantMessage.error = new MessageV2.ContextOverflowError({
+                  message: !AUTOMATIC_COMPACTION_ENABLED
+                    ? CONTEXT_OVERFLOW_MESSAGE
+                    : streamInput.compactionAttempted
+                      ? `The conversation is still too large for this model after one compaction attempt. Estimated ${ctx.estimatedInputTokens} input tokens with ${available} usable tokens. Start a new session or reduce the attached content and try again.`
+                      : `The current request is too large to fit this model even after compacting conversation history. Estimated ${unavoidableInputTokens} input tokens with ${available} usable tokens. Reduce or split the attached files and try again.`,
+                }).toObject()
+                ctx.assistantMessage.finish = "error"
+                yield* session.updateMessage(ctx.assistantMessage)
+                yield* bus.publish(Session.Event.Error, {
+                  sessionID: ctx.sessionID,
+                  error: ctx.assistantMessage.error,
+                })
+                yield* status.set(ctx.sessionID, { type: "idle" })
+                return
+              }
+              ctx.needsCompaction = true
+              return
+            }
             ctx.currentText = undefined
             ctx.reasoningMap = {}
             const stream = llm.stream(streamInput)

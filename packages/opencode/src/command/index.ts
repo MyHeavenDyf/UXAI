@@ -4,6 +4,7 @@ import { EffectBridge } from "@/effect/bridge"
 import type { InstanceContext } from "@/project/instance"
 import { SessionID, MessageID } from "@/session/schema"
 import { Effect, Layer, Context, Schema } from "effect"
+import path from "path"
 import z from "zod"
 import { zod, ZodOverride } from "@/util/effect-zod"
 import { withStatics } from "@/util/schema"
@@ -145,16 +146,27 @@ export const layer = Layer.effect(
         }
       }
 
+      const skillCommand = (name: string, item: Skill.Info): Info => ({
+        name,
+        description: item.description,
+        source: "skill",
+        get template() {
+          return Effect.runPromise(
+            skill.files(item).pipe(Effect.map((files) => Skill.formatLoaded(item, files))),
+          )
+        },
+        hints: [],
+      })
+
       for (const item of yield* skill.all()) {
-        if (commands[item.name]) continue
-        commands[item.name] = {
-          name: item.name,
-          description: item.description,
-          source: "skill",
-          get template() {
-            return item.content
-          },
-          hints: [],
+        if (!commands[item.name]) {
+          commands[item.name] = skillCommand(item.name, item)
+        }
+        // 同时用 skill 目录名(文件夹名)注册别名,使 /文件夹名 也能命中 cmd.source==="skill" 走 session.command,
+        // 进而触发 prompt.ts 的 skill.used 发布。
+        const dirName = path.basename(path.dirname(item.location))
+        if (dirName && dirName !== item.name && !commands[dirName]) {
+          commands[dirName] = skillCommand(dirName, item)
         }
       }
 

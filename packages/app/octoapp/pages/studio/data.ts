@@ -20,9 +20,9 @@ export const STUDIO_STYLE_MODELS = [
   { id: "smart-3d", label: "智慧3D", icon: "/studio/studioModel6.png", color: "linear-gradient(135deg, #a7f3d0, #bfdbfe)" },
   { id: "abstract", label: "抽象几何背景", icon: "/studio/studioModel7.png", color: "linear-gradient(135deg, #60a5fa, #dbeafe)" },
   { id: "yunbao", label: "云宝", icon: "/studio/studioModel8.png", color: "linear-gradient(135deg, #fef3c7, #f0abfc)" },
-  { id: "hdesign", label: "H Design 3D", icon: "/studio/studioModel9.png", color: "linear-gradient(135deg, #bae6fd, #ffffff)" },
+  { id: "hdesign", label: "H Design 3D", icon: "/studio/studioModel13.svg", color: "linear-gradient(135deg, #bae6fd, #ffffff)" },
   { id: "hongmeng", label: "鸿蒙插画", icon: "/studio/studioModel10.png", color: "linear-gradient(135deg, #fed7aa, #fecaca)" },
-  { id: "hdesign-illustration", label: "H Design插画", icon: "/studio/studioModel11.png", color: "linear-gradient(135deg, #93c5fd, #f5f3ff)" },
+  { id: "hdesign-illustration", label: "H Design插画", icon: "/studio/studioModel14.svg", color: "linear-gradient(135deg, #93c5fd, #f5f3ff)" },
   { id: "3d-abstract", label: "3D抽象元素", icon: "/studio/studioModel12.png", color: "linear-gradient(135deg, #cffafe, #ddd6fe)" },
 ]
 
@@ -38,16 +38,22 @@ export function capabilityLabel(id: StudioCapability) {
 }
 
 export function styleModelLabel(id: string) {
-  return STUDIO_STYLE_MODELS.find((item) => item.id === id)?.label ?? "千问"
+  return STUDIO_STYLE_MODELS.find((item) => item.id === styleModelId(id))?.label ?? "千问"
+}
+
+export function styleModelId(value?: string) {
+  return STUDIO_STYLE_MODELS.find((item) => item.id === value || item.label === value)?.id
 }
 
 export function styleModelRequiresSeedreamPermission(id: string) {
-  return STUDIO_STYLE_MODELS.find((item) => item.id === id || item.label === id)?.requiresSeedreamPermission === true
+  return STUDIO_STYLE_MODELS.find((item) => item.id === styleModelId(id))?.requiresSeedreamPermission === true
 }
 
 export function referenceImageLimit(styleModel: string) {
-  const model = STUDIO_STYLE_MODELS.find((item) => item.id === styleModel || item.label === styleModel)
-  return model?.id === "seedream-5-lite" || model?.id === "qwen" ? 3 : 1
+  const model = STUDIO_STYLE_MODELS.find((item) => item.id === styleModelId(styleModel))
+  if (model?.id === "seedream-5-lite") return 4
+  if (model?.id === "qwen") return 3
+  return 1
 }
 
 export function imageToolLabel(id: StudioImageTool) {

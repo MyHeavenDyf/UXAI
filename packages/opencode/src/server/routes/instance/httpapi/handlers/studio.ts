@@ -1,17 +1,20 @@
-import { cancelGeneration, createEditorEntry, createGeneration, getGeneration, rebootGeneration } from "@/studio/studio-service"
+import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, getGeneration, rebootGeneration } from "@/studio/studio-service"
 import * as InstanceState from "@/effect/instance-state"
 import { Instance } from "@/project/instance"
 import { checkStudioPermission, fetchPromptTags } from "@/tool/internel_image_generate"
 import { Effect } from "effect"
+import { HttpServerRequest } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
-import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioPermissionPayload } from "../groups/studio"
+import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioPermissionPayload, StudioPromptGenPayload } from "../groups/studio"
+import { configureModelsApiHeaders } from "@/plugin/model-headers"
 
 export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (handlers) =>
   Effect.gen(function* () {
     const create = Effect.fn("StudioHttpApi.createGeneration")(function* (ctx: {
       payload: typeof StudioGenerationPayload.Type
     }) {
+      configureModelsApiHeaders((yield* HttpServerRequest.HttpServerRequest).headers)
       const instance = yield* InstanceState.context
       console.log("[studio.httpapi] POST /studio/generations", {
         sessionID: ctx.payload.sessionID,
@@ -32,8 +35,13 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
               capability: ctx.payload.capability,
               prompt: ctx.payload.prompt,
               displayPrompt: ctx.payload.displayPrompt,
+              detailPrompt: ctx.payload.detailPrompt,
+              detailTitle: ctx.payload.detailTitle,
+              initialSessionTitle: ctx.payload.initialSessionTitle,
+              shouldSetSessionTitle: ctx.payload.shouldSetSessionTitle,
               refinedPrompt: ctx.payload.refinedPrompt,
               effectivePrompt: ctx.payload.effectivePrompt,
+              promptRefineModels: ctx.payload.promptRefineModels ? [...ctx.payload.promptRefineModels] : undefined,
               styleModel: ctx.payload.styleModel,
               aspectRatio: ctx.payload.aspectRatio,
               count: ctx.payload.count,
@@ -117,9 +125,26 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       })
     })
 
+    const promptGen = Effect.fn("StudioHttpApi.createPromptGen")(function* (ctx: {
+      payload: typeof StudioPromptGenPayload.Type
+    }) {
+      const instance = yield* InstanceState.context
+      return yield* Effect.tryPromise({
+        try: () => Instance.restore(instance, () => createPromptGen(ctx.payload)),
+        catch: (error) =>
+          new ApiStudioGenerationError({
+            name: "StudioGenerationError",
+            data: {
+              message: error instanceof Error ? error.message : String(error),
+            },
+          }),
+      })
+    })
+
     return handlers
       .handle("createGeneration", create)
       .handle("createEditorEntry", createEntry)
+      .handle("createPromptGen", promptGen)
       .handle("getGeneration", get)
       .handle("cancelGeneration", cancel)
       .handle("rebootGeneration", reboot)

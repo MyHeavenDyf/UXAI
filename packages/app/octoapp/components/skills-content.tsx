@@ -3,9 +3,14 @@ import type { JSX } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { showToast } from "@opencode-ai/ui/toast"
 // jk-j60099994-replace-with-60062650-components-skills-content-1-start
-type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
 // jk-j60099994-replace-with-60062650-components-skills-content-1-end
-type SkillsConfig = Record<string, SkillConfigEntry>
+type SkillsConfig = {
+  skill?: Record<string, { description?: string; import?: boolean; type?: string }>
+  panel?: {
+    octo_make?: Array<{ label: string; description?: string; path?: string; id?: number; enable?: boolean }>
+  }
+  agent?: Record<string, string[]>
+}
 
 const AGENT_INFO: Record<string, { label: string; subtitle: string }> = {
   octo_insight: { label: "Octo Insight", subtitle: "用户研究" },
@@ -83,8 +88,8 @@ export function SkillsContent(): JSX.Element {
   // jk-j60099994-replace-with-60062650-components-skills-content-2-end
 
   const groupedSkills = createMemo(() => {
-    const cfg = config()
-    const groups: Record<string, { skills: string[]; label: string; subtitle: string }> = {}
+    const cfg = config().skill ?? {}
+    const groups: Record<string, { skills: { name: string; description?: string; enabled: boolean }[]; label: string; subtitle: string }> = {}
 
     for (const [name, entry] of Object.entries(cfg)) {
       const type = entry.type || "common"
@@ -95,7 +100,7 @@ export function SkillsContent(): JSX.Element {
           subtitle: AGENT_INFO[type]?.subtitle || "",
         }
       }
-      groups[type].skills.push(name)
+      groups[type].skills.push({ name, description: entry.description, enabled: entry.import !== false })
     }
 
     return groups
@@ -104,13 +109,14 @@ export function SkillsContent(): JSX.Element {
   // jk-j60099994-replace-with-60062650-components-skills-content-3-start
   // jk-j60099994-replace-with-60062650-components-skills-content-3-end
 
+  // jk-j60099994-replace-with-60062650-components-skills-content-4-start
   async function loadConfig() {
-    // jk-j60099994-replace-with-60062650-components-skills-content-4-start
-    const api = (window as unknown as { api?: { getSkillsConfig?: () => Promise<SkillsConfig> } }).api
-    // jk-j60099994-replace-with-60062650-components-skills-content-4-end
-    if (api?.getSkillsConfig) {
+    const api = (window as unknown as { api?: { getSkillConfig?: () => Promise<SkillsConfig>; ensureSkillConfig?: () => Promise<void> } }).api
+    if (api?.getSkillConfig) {
       try {
-        const data = await api.getSkillsConfig()
+        // 确保 skill_config.json 存在（不存在时从 skills.json 构建）
+        await api.ensureSkillConfig?.()
+        const data = await api.getSkillConfig()
         setConfig(data)
       } catch (err) {
         console.error("[SkillsContent] getSkillsConfig failed", err)
@@ -118,6 +124,7 @@ export function SkillsContent(): JSX.Element {
     }
     setLoaded(true)
   }
+  // jk-j60099994-replace-with-60062650-components-skills-content-4-end
 
   // jk-j60099994-replace-with-60062650-components-skills-content-5-start
   // jk-j60099994-replace-with-60062650-components-skills-content-5-end
@@ -140,7 +147,18 @@ export function SkillsContent(): JSX.Element {
   // jk-j60099994-replace-with-60062650-components-skills-content-6-end
 
   function toggleSkill(skillName: string, value: boolean) {
-    const updated = { ...config(), [skillName]: { ...config()[skillName], import: value } }
+    const panelSkills = config().panel?.octo_make ?? []
+    const updated = {
+      ...config(),
+      skill: {
+        ...config().skill,
+        [skillName]: { ...config().skill?.[skillName], import: value },
+      },
+      panel: {
+        ...config().panel,
+        octo_make: panelSkills.map((s) => (s.label === skillName ? { ...s, enable: value } : s)),
+      },
+    }
     setConfig(updated)
     const api = (window as unknown as { api?: { setSkillsConfig?: (c: SkillsConfig) => Promise<void> } }).api
     api?.setSkillsConfig?.(updated)?.then?.(() => {
@@ -165,6 +183,7 @@ export function SkillsContent(): JSX.Element {
   // jk-j60099994-replace-with-60062650-components-skills-content-7-end
 
   async function handleAddSkill() {
+    // jk-j60099994-replace-with-60062650-components-skills-content-8-start
     const api = (window as unknown as {
       api?: {
         openDirectoryPicker?: (opts?: { title?: string }) => Promise<string | null>
@@ -176,11 +195,10 @@ export function SkillsContent(): JSX.Element {
     const result = await api?.addSkill?.(selected)
     if (result?.success) {
       showToast({ variant: "success", icon: "circle-check", title: "添加成功", description: `已添加技能：${result.skillName ?? ""}` })
-      // jk-j60099994-replace-with-60062650-components-skills-content-8-start
-      // jk-j60099994-replace-with-60062650-components-skills-content-8-end
     } else if (result?.error) {
       showToast({ variant: "error", icon: "circle-x", title: "添加失败", description: result.error })
     }
+    // jk-j60099994-replace-with-60062650-components-skills-content-8-end
     // jk-j60099994-replace-with-60062650-components-skills-content-9-start
     await loadConfig()
     const url = globalSDK.url
@@ -189,7 +207,7 @@ export function SkillsContent(): JSX.Element {
   }
 
   return (
-    <div class="h-full overflow-y-auto" style={{ background: "var(--octo-shell-bg)" }}>
+    <div class="h-full overflow-y-auto" style={{ background: "#fff" }}>
       {/* jk-j60099994-replace-with-60062650-components-skills-content-10-start */}
       <div class="max-w-[640px] mx-auto px-6 py-6 flex flex-col gap-4">
         <div class="flex items-center justify-between">
@@ -253,12 +271,12 @@ export function SkillsContent(): JSX.Element {
                   <Show when={!isCollapsed()}>
                     <div class="flex flex-col gap-1.5 pl-5">
                       <For each={group.skills}>
-                        {(skillName) => (
+                        {(skill) => (
                           <SkillRow
-                            name={skillName}
-                            description={config()[skillName]?.description ?? ""}
-                            enabled={config()[skillName]?.import !== false}
-                            onToggle={(v) => toggleSkill(skillName, v)}
+                            name={skill.name}
+                            description={skill.description ?? ""}
+                            enabled={skill.enabled}
+                            onToggle={(v) => toggleSkill(skill.name, v)}
                           />
                         )}
                       </For>

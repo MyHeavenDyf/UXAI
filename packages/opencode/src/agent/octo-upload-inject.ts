@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises"
  * 背景 / 决策见 octo-agent 文档仓 SPEC-INS-015(文件传参机制 ④ MCP 按需上传)、ADR-015 / ADR-014。
  *
  * 机制(SPEC-INS-015 路由 ④):
- *   - insight 页选非图片文件时只把源文件拷进 <projectDir>/insight/uploads 或 insight/<sessionId>/uploads
+ *   - insight 页选非图片文件时只把源文件拷进 <projectDir>/.octo/tmps 或 .octo/<sessionId>/uploads
  *     (本地副本,SPEC-INS-014 v2 会话隔离),**不上传 S3**。
  *     发送时以 `[附件]` synthetic text part 注入 session(可用文件清单,模型从不改写):
  *       [附件]
@@ -34,7 +34,19 @@ import { readFile } from "node:fs/promises"
  * 约束:必须「就地改写」output.args(prompt.ts 的 execute 用的是同一对象引用),不能整体重新赋值。
  */
 
-const UPLOAD_BLOCK_HEADER = "[附件]"
+// 本会话「可喂 MCP 的文件白名单」清单头。两个头**行格式完全一致**(`- <文件名>: <本地绝对路径>`),
+// 对本插件语义**完全等价** —— 都是用户点名过、允许被上传给 MCP 的文件:
+//   [附件]     附件栏上传的文件(SPEC-INS-015 §2,客户端 formatUploadsForPrompt)
+//   [引用文件] `@` 引用的已存在会话文件:outputs 产物 + uploads(SPEC-INS-023 §7.2,
+//              客户端 formatMentionedFilesForPrompt)
+// 两者在**客户端**有差别(前者渲染文件卡片且 txt/md 正文已内联,后者没有),但那与本插件无关。
+//
+// 2026-08-20 内网修复:此前只认 `[附件]`,于是「先对话生成一个 md → `@` 它 → 选研究工具触发 MCP」
+// 必死 —— 模型看提示词的铁律发现该文件不在 `[附件]` 里而自我阻断(内网实测),就算硬填,
+// enforceChipDeclaration 的 resolvePath 也会 miss 抛错。白名单语义不变(仍只认清单内、仍精确匹配),
+// 修的是「`@` 这条入口从来没被登记进白名单」这个契约漏配。
+// 头列表与客户端 lib/upload.ts 两处独立实现,增删头需同步。
+const MANIFEST_HEADERS = ["[附件]", "[引用文件]"] as const
 const LOG = "[octo:inject]"
 
 // ── SPEC-INS-017 §2.1:chip 声明校验与注入(2026-07-06 修订) ────────
@@ -49,7 +61,15 @@ const LOG = "[octo:inject]"
 // 用户覆盖配置沿用同键),工具注册键 = `uxr-tool_<tool>`。仅对该前缀的调用做声明查找,
 // 非 MCP 工具保持 hasFileRef 零开销早退。
 const MCP_TOOL_PREFIX = "uxr-tool_"
+
+// opencode 会话 id 前缀(id/id.ts 的 `session: "ses"`)。用于识别「子代理会话 id 被当成 MCP 任务号」。
+const SESSION_ID_PREFIX = "ses_"
 const MCP_DECLARATION_HEADER = "[MCP声明]"
+
+// 吃**本地路径**的内置工具:它们的 path/filePath 参数是本地磁盘目标,永远不该被换成 S3 URL
+// (S3 URL 替换只服务 MCP 工具 uxr-tool_*)。extract_document 之外的项(write/edit/apply_patch/
+// read/glob/grep)此前漏收,导致模型对上传文件做 write 时 filePath 被替换成 S3 URL、落点建目录崩溃。
+const LOCAL_FILE_TOOLS = new Set(["extract_document", "write", "edit", "apply_patch", "read", "glob", "grep"])
 
 type ChipDeclaration = {
   tool: string
@@ -86,7 +106,7 @@ type ManifestFile = { filename: string; path: string }
 // 同一文件多轮多次调用 MCP 只上传一次(SPEC-INS-015 §3 幂等)。
 const uploadCache = new Map<string, string>()
 
-// 解析一段 `[附件]` 区块 → [{filename, path}]。
+// 解析一段文件清单区块(`[附件]` / `[引用文件]`,行格式相同)→ [{filename, path}]。
 // 与 insight upload.ts 的 parseUploadedFiles 同一格式契约(两处独立实现,改格式需同步)。
 function parseManifest(text: string): ManifestFile[] {
   const out: ManifestFile[] = []
@@ -239,7 +259,8 @@ async function enforceChipDeclaration(
   refToPath: Map<string, string>,
   manifestNames: string[],
 ): Promise<void> {
-  const available = manifestNames.length > 0 ? `当前可用文件:${manifestNames.join("、")}` : "当前会话没有任何可用附件"
+  const available =
+    manifestNames.length > 0 ? `当前可用文件:${manifestNames.join("、")}` : "当前会话没有任何可用文件"
   // 必须「就地改写」:prompt.ts 的 execute 持有的是同一 args 对象引用,整体重赋值不生效
   if (!output.args || typeof output.args !== "object" || Array.isArray(output.args)) {
     throw new Error(`工具参数不是有效对象,请按参数说明重新调用(args=${JSON.stringify(output.args)})`)
@@ -249,7 +270,7 @@ async function enforceChipDeclaration(
   const dl = args["download_links"]
   if (!Array.isArray(dl) || dl.length === 0 || dl.some((v) => typeof v !== "string")) {
     throw new Error(
-      `download_links 必须是非空的文件名字符串数组。${available}。没有可用附件时不要调用本工具,请先让用户上传材料。`,
+      `download_links 必须是非空的文件名字符串数组。${available}。没有可用文件时不要调用本工具,请先让用户上传材料。`,
     )
   }
   const outline = args["outline_file_path"]
@@ -261,7 +282,7 @@ async function enforceChipDeclaration(
   const resolvePath = (ref: string): string => {
     const p = refToPath.get(ref)
     if (!p) {
-      throw new Error(`文件引用「${ref}」不在 [附件] 清单中(需一字不差照抄清单里的文件名)。${available}`)
+      throw new Error(`文件引用「${ref}」不在本会话的文件清单中(需一字不差照抄清单里的文件名)。${available}`)
     }
     return p
   }
@@ -304,14 +325,42 @@ async function enforceChipDeclaration(
 export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
   return {
     "tool.execute.before": async (input, output) => {
-      // extract_document 是我们自己的本地工具,收**本地路径**,绝不能被替换成 S3 url —— 显式跳过。
-      // (其它工具走下面按需上传;input.tool 对 MCP 是带 server 前缀的 uxr-tool_*,对本工具是 extract_document。)
-      if (input.tool === "extract_document" || input.tool.endsWith("_extract_document")) return
+      // 本地文件工具收**本地路径**,绝不能被替换成 S3 url —— 显式跳过。只有 MCP 工具(uxr-tool_*)填的
+      // 文件名才需要按需上传换 URL。write/edit/apply_patch 的 filePath 是落盘目标:若被换成 S3 URL,
+      // 后续 octo-session-workdir 会把非绝对的 https:// 串 join 进 outputs/,建目录时因路径含 URL 成分
+      // 崩溃(内网实测:上传 md → 让其在末尾追加,write 报 makeDirectory .../outputs/https:/.../... 失败)。
+      // read/glob/grep 同理(读/搜本地文件)。extract_document 原就是这个道理,一并收进本集合。
+      // (input.tool 对 MCP 是带 server 前缀的 uxr-tool_*,对本地工具是裸工具名 / <task>_extract_document。)
+      if (LOCAL_FILE_TOOLS.has(input.tool) || input.tool.endsWith("_extract_document")) return
 
       // 早退:args 里没有任何"以文档扩展名结尾"的串,就别去拉消息(非文件工具一律零开销放行)。
       // 例外:MCP 工具(uxr-tool_*)不能靠 args 早退——chip 声明路径(SPEC-INS-017 §2.1)要接管的
       // 正是"模型漏填/写坏文件参数"的情况,此时 args 里可能根本没有文件名形态串。
       const isMcpTool = input.tool.startsWith(MCP_TOOL_PREFIX)
+
+      // ── 守卫:别把子代理会话 id 当成 MCP 任务号(SPEC-INS-032 §5.3)────────────────
+      // 两套「异步结果」共用了 `task_id` 这个参数名,弱模型必然会混:
+      //   · 原生 task 工具派子代理后,返回文本里字面写着 `task_id: ses_xxx`(tool/task.ts),
+      //     但它是**同步**的——结论已经在 <task_result> 里回来了,压根没有"查询"这一步;
+      //   · MCP get_task_result 查的是业务长任务(run_usability_analysis 等)返回的哈希任务号。
+      // 内网实测(2026-08-27):3 个子代理被限流打断后,父代理拿着 3 个 ses_ id 去 get_task_result,
+      // 得到 not_found,于是判定"子代理任务失败"、退回自己逐份读 —— 分治整个白做。
+      // 判据是 session id 的固定前缀(id/id.ts session: "ses"),精确前缀匹配、非模糊判断。
+      // 失败文案要**指回正确的路**:接着跑用 task(task_id=…) 续同一个子会话,那是上游原生能力。
+      if (isMcpTool && (input.tool.endsWith("_get_task_result") || input.tool.endsWith("_stop_task"))) {
+        const args = output.args as Record<string, unknown>
+        const taskID = typeof args?.task_id === "string" ? args.task_id : ""
+        if (taskID.startsWith(SESSION_ID_PREFIX)) {
+          console.log(`${LOG} 拦下子代理会话 id 被当作 MCP 任务号`, { tool: input.tool, taskID })
+          throw new Error(
+            `${taskID} 是子代理的会话 id,不是内网任务编号,${input.tool.replace(MCP_TOOL_PREFIX, "")} 查不到它。` +
+              `子代理是同步的:它的结论在 task 工具返回的 <task_result> 里已经给过你了,不需要查询。` +
+              `若那次子任务被中断、你要接着跑,请调 task 工具并把 task_id 设为这个 ses_ 开头的 id(它会续用同一个子会话);` +
+              `若要重做,直接重新派一个 task。get_task_result 只用于内网长任务返回的任务编号。`,
+          )
+        }
+      }
+
       if (!isMcpTool && !hasFileRef(output.args)) return
 
       // 聚合**整个 session** 所有 user 消息里的 [附件] 区块,建「引用 → 本地路径」总表。
@@ -335,8 +384,11 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
             // 必须按「头在第 0 位」锚定,不能用 includes:chip 模板正文里会**提及** [附件] / [MCP声明]
             // 字面量(如调用纪律"[MCP声明] 段落是给系统读取的…"),includes 会把模板误当区块解析
             // ——2026-07-08 内网事故:声明定位命中模板,JSON.parse 到中文句子,所有 chip 调用响亮失败。
-            // 清单/声明 part 由客户端构造,头恒在开头(formatUploadsForPrompt / buildChipDeclaration)。
-            if (p.type !== "text" || typeof p.text !== "string" || !p.text.startsWith(UPLOAD_BLOCK_HEADER)) continue
+            // 清单/声明 part 由客户端构造,头恒在开头(formatUploadsForPrompt /
+            // formatMentionedFilesForPrompt / buildChipDeclaration)。
+            // parseManifest 只吃 "- " 开头的行,`[引用文件]` 头行尾部的中文说明会被自然跳过。
+            if (p.type !== "text" || typeof p.text !== "string") continue
+            if (!MANIFEST_HEADERS.some((h) => p.text!.startsWith(h))) continue
             for (const f of parseManifest(p.text)) {
               if (!refToPath.has(f.filename)) manifestNames.push(f.filename)
               refToPath.set(f.filename, f.path)
@@ -379,15 +431,8 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
       // ── 以下为原按需上传路径(非 chip turn / 声明工具不匹配),机制不变 ──
       if (!hasFileRef(output.args)) return
 
-      const endpoint = process.env.OCTO_UPLOAD_ENDPOINT
-      if (!endpoint) {
-        // 没配端点 → 无法按需上传。抛错让工具失败、错误回灌模型,而非把本地路径喂给 MCP(必 404)。
-        console.error(`${LOG} OCTO_UPLOAD_ENDPOINT 未配置,无法按需上传`, { tool: input.tool })
-        throw new Error("上传服务未配置 (OCTO_UPLOAD_ENDPOINT)，无法处理文件参数")
-      }
-
       if (refToPath.size === 0) {
-        console.warn(`${LOG} args 含文件名形态串但 session 无 [附件] 区块,保持原值`, {
+        console.warn(`${LOG} args 含文件名形态串但 session 无文件清单区块([附件]/[引用文件]),保持原值`, {
           tool: input.tool,
           sessionID: input.sessionID,
         })
@@ -398,6 +443,18 @@ export const OctoUploadInjectPlugin: Plugin = async ({ client }) => {
       const referenced = new Set<string>()
       collectRefs(output.args, new Set(refToPath.keys()), referenced)
       if (referenced.size === 0) return
+
+      // endpoint 检查必须在「确认真有要上传的引用」之后:此前它排在 hasFileRef 预筛之后的最前面,
+      // 外网(未配置 OCTO_UPLOAD_ENDPOINT)任何参数里出现文档扩展名结尾字符串的工具调用——
+      // read/bash 贴 .md 路径、write 落盘 .md 产物——都被误杀在这里,根本走不到下面两个
+      // "无需上传就放行"的早退(2026-07-11 外网复现:贴 .md 路径,read/bash 连环失败「上传服务未配置」,
+      // 也遮蔽了 external_directory 权限询问)。语义不变:真要上传而没配 endpoint,仍响亮失败。
+      const endpoint = process.env.OCTO_UPLOAD_ENDPOINT
+      if (!endpoint) {
+        // 没配端点 → 无法按需上传。抛错让工具失败、错误回灌模型,而非把本地路径喂给 MCP(必 404)。
+        console.error(`${LOG} OCTO_UPLOAD_ENDPOINT 未配置,无法按需上传`, { tool: input.tool })
+        throw new Error("上传服务未配置 (OCTO_UPLOAD_ENDPOINT)，无法处理文件参数")
+      }
 
       // 逐个按需上传(缓存按本地路径命中,文件名/路径指向同一文件只传一次),建「引用 → url」表。
       // 任一失败即上抛 → 工具调用失败、错误回灌模型。

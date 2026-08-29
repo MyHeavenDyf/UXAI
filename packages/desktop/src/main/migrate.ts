@@ -240,6 +240,31 @@ export function deployProtoTools() {
   }
 }
 
+// jk-j60099994-replace-with-60062650-desktop-main-migrate-1-start
+export async function deployResourceLibraryScripts() {
+  const configDir = join(homedir(), ".config", "octo")
+
+  const builtinSource = app.isPackaged
+    ? process.resourcesPath
+    : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "opencode", "dist", "node")
+
+  const srcDir = join(builtinSource, "scripts", "resourceLibraryScript")
+  if (!existsSync(srcDir)) {
+    log.warn("resourceLibraryScripts deployment: source directory not found", srcDir)
+    return
+  }
+
+  const destDir = join(configDir, "resourceLibraryScript")
+
+  try {
+    cpSync(srcDir, destDir, { recursive: true, force: true })
+    log.log("resourceLibraryScripts deployment: copied to", destDir)
+  } catch (err) {
+    log.warn("resourceLibraryScripts deployment: failed", err)
+  }
+}
+// jk-j60099994-replace-with-60062650-desktop-main-migrate-1-end
+
 export function deployRipgrep() {
   const { platform, arch } = process
 

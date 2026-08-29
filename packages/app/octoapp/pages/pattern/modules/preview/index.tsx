@@ -1,13 +1,17 @@
-import { createEffect, createSignal, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import type { VersionEntry } from "../../utils/version-history"
+import { getCommenterInfo, getAvatarUrl } from "../../utils/user-info"
 
 import { TitleBar } from "./title-bar"
 import { CanvasView } from "./canvas-view"
 import { PropertyEditorPopup } from "./property-editor-popup"
+import { AnnotationPopup } from "./annotation-popup"
 import type { ModifyElementData } from "./property-editor-popup"
 import type { A2UIDocument } from "../../utils/a2ui-protocol"
+import { type Annotation } from "./annotation-popup"
+import { useAnnotations, type RawRect } from "./annotation-module"
 import "../../assets/style/preview/index.css"
 
 export type PreviewPageAPI = {
@@ -17,42 +21,62 @@ export type PreviewPageAPI = {
   setEditingOff: () => void
 }
 
-interface RawRect {
-  top: number
-  left: number
-  width: number
-  height: number
-}
+
 
 export function PreviewPage(props: {
   api?: PreviewPageAPI
   pendingData?: unknown
   sessionId?: string
-  onPickerSubmit?: (text: string, domPickerId: string) => void
+  dir?: string
+  onPickerSubmit?: (text: string, id: string) => void
+  onPickerAppend?: (text: string, id: string) => void
   onModifyElement?: (data: ModifyElementData) => void
   onDownload?: () => void
   onShare?: () => void
   onLivePreview?: () => void
   onPixsoPreview?: () => void
+  onCodeToHtml?: () => void
+  onCanvasEditing?: () => void
   versions?: VersionEntry[]
   currentVersionId?: string | null
   onSelectVersion?: (versionId: string) => void
   onReorder?: (elementId: string, targetSiblingId: string, position: "before" | "after") => void
+  archiving?: boolean
+  onArchiveToggle?: () => void
 }) {
   let previewIframeRef: HTMLIFrameElement | undefined
   let previewPageRef: HTMLDivElement | undefined
 
-  let canvasRef: { reset: () => void; setScale: (scale: number) => void } | undefined
+  let canvasRef: { reset: () => void; setScale: (scale: number) => void; viewportElement: () => HTMLDivElement | undefined } | undefined
+
   const [canvasMode, setCanvasMode] = createSignal(true)
   const [editing, setEditing] = createSignal(false)
+  const [annotating, setAnnotating] = createSignal(false)
+  const [targetWidth, setTargetWidth] = createSignal(1920)
+  const [targetHeight, setTargetHeight] = createSignal(1080)
+
+  function unfreezeDomPicker() {
+    previewIframeRef?.contentWindow?.postMessage({ type: "od:dom-picker-unfreeze" }, "*")
+  }
+
+  const anno = useAnnotations({
+    dir: () => props.dir,
+    sessionId: () => props.sessionId,
+    pendingData: () => props.pendingData,
+    editing,
+    annotating,
+    previewIframeRef: () => previewIframeRef,
+    previewPageRef: () => previewPageRef,
+    canvasRef: { viewportElement: () => canvasRef?.viewportElement() },
+    targetWidth,
+    unfreezeDomPicker,
+  })
 
   const DEVICE_DIMENSIONS: Record<string, [number, number]> = {
     desktop: [1920, 1080],
     tablet: [768, 1024],
     mobile: [375, 667],
   }
-  const [targetWidth, setTargetWidth] = createSignal(1920)
-  const [targetHeight, setTargetHeight] = createSignal(1080)
 
   createEffect(() => {
     if (!editing()) {
@@ -63,6 +87,8 @@ export function PreviewPage(props: {
 
   
   function triggerRefresh() {
+    anno.setIframeReady(false)
+    anno.resetAnnotations()
     if (previewIframeRef) previewIframeRef.src = "http://127.0.0.1:51856"
   }
 
@@ -89,6 +115,11 @@ export function PreviewPage(props: {
       return
     }
 
+    if (type === "preview" && value === "capture") {
+      props.onCodeToHtml?.()
+      return
+    }
+
     if (type === "zoom") {
       canvasRef?.setScale(Number(value) / 100)
     }
@@ -103,8 +134,7 @@ export function PreviewPage(props: {
       console.log("[preview] sendToPreview skipped: no iframe")
       return
     }
-    console.log("[preview] sendToPreview posting A2UI_UPDATE")
-    previewIframeRef.contentWindow.postMessage({ type: "A2UI_UPDATE", payload: data }, "*")
+    previewIframeRef.contentWindow.postMessage({ type: "od:a2ui-update", payload: data }, "*")
     if (editing()) sendDragMode(true, data)
   }
 
@@ -125,7 +155,7 @@ export function PreviewPage(props: {
 
   function sendDragMode(enabled: boolean, data: unknown = props.pendingData) {
     previewIframeRef?.contentWindow?.postMessage(
-      { type: "DRAG_MODE", enabled, siblingMap: enabled ? buildSiblingMap(data) : undefined },
+      { type: "od:drag-mode", enabled, siblingMap: enabled ? buildSiblingMap(data) : undefined },
       "*",
     )
   }
@@ -139,7 +169,7 @@ export function PreviewPage(props: {
     props.api.refresh = triggerRefresh
     props.api.setEditingOff = () => {
       setEditing(false)
-      previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: false }, "*")
+      previewIframeRef?.contentWindow?.postMessage({ type: "od:dom-picker-mode", enabled: false }, "*")
       setPropertyEditor('show', false)
       setPickerVisible(false)
       setCtxMenu('show', false)
@@ -150,10 +180,69 @@ export function PreviewPage(props: {
   // ==========================================================================
   // DOM 区域元素选择 — 右键菜单 + 修改弹窗
   // ==========================================================================
-  const [pickerDialog, setPickerDialog] = createStore<{ domPickerId: string; tagName: string }>({ domPickerId: "", tagName: "" })
+  const [pickerDialog, setPickerDialog] = createStore<{ id: string; tagName: string }>({ id: "", tagName: "" })
   const [pickerText, setPickerText] = createSignal("")
   const [pickerVisible, setPickerVisible] = createSignal(false)
   const [pickerDrag, setPickerDrag] = createStore({ x: 0, y: 0 })
+  // 选中元素在 preview 容器内的锚点矩形 + canvas 缩放比，供遮罩挖洞与弹窗定位使用
+  const [pickerAnchor, setPickerAnchor] = createStore({
+    hasRect: false, scale: 1, top: 0, left: 0, width: 0, height: 0,
+  })
+
+  // PropertyEditorPopup 在 preview 容器内的矩形，供 picker-dialog 避让重叠。
+  // popup 无对外 ref，这里用 querySelector 测量；createEffect 在 DOM 更新后用 rAF 取值。
+  const [popupRect, setPopupRect] = createSignal<{ left: number; top: number; right: number; bottom: number } | null>(null)
+
+  // "修改选中区域"弹窗定位：贴在元素正下方居中；越界时翻到上方或贴边；
+  // 无锚点（如 DOM_PICKER_COPY 路径）时回退到 CSS 默认的底部居中。
+  // 始终叠加 pickerDrag 的拖拽偏移，bottom:'auto' 覆盖 CSS 的 bottom:10%。
+  // 若与 PropertyEditorPopup(popupRect) 重叠，优先整体左移到其左侧以避免遮挡。
+  const pickerDialogStyle = createMemo(() => {
+    const transform = `translate(${pickerDrag.x}px, ${pickerDrag.y}px)`
+    if (!pickerAnchor.hasRect) return { transform }
+    const gap = 8
+    const paneW = previewPageRef?.clientWidth ?? 0
+    const paneH = previewPageRef?.clientHeight ?? 0
+    const dialogW = 400
+    const estH = 220
+    // 水平居中于元素下方，左右夹紧在 [8, paneW-8-dialogW]
+    let left = Math.max(
+      8,
+      Math.min(pickerAnchor.left + (pickerAnchor.width - dialogW) / 2, paneW - 8 - dialogW),
+    )
+    // 下方放不下则翻到上方，上方也放不下则贴顶
+    const naturalTop = pickerAnchor.top + pickerAnchor.height + gap
+    const aboveTop = pickerAnchor.top - estH - gap
+    let top = naturalTop + estH > paneH - 8
+      ? (aboveTop > 8 ? aboveTop : 8)
+      : naturalTop
+    // 避让 PropertyEditorPopup：两框在 x、y 方向都重叠时才挪
+    const pr = popupRect()
+    if (pr) {
+      const overlapX = left < pr.right + gap && left + dialogW > pr.left - gap
+      const overlapY = top < pr.bottom + gap && top + estH > pr.top - gap
+      if (overlapX && overlapY) {
+        const shiftLeft = pr.left - gap - dialogW
+        if (shiftLeft >= 8) left = shiftLeft
+        else if (aboveTop > 8) top = aboveTop
+      }
+    }
+    return { transform, top: `${top}px`, left: `${left}px`, bottom: 'auto' }
+  })
+
+  // popup 打开时测其在容器内的矩形；关闭时清空（picker 回退到自然定位）。
+  // 用 rAF 等 popup 自身 finalStyle 与布局落定后再测，保证 getBoundingClientRect 准确。
+  createEffect(() => {
+    if (!propertyEditor.show) { setPopupRect(null); return }
+    const raf = requestAnimationFrame(() => {
+      const el = previewPageRef?.querySelector('.property-editor-popup') as HTMLElement | null
+      if (!el || !previewPageRef) return
+      const r = el.getBoundingClientRect()
+      const c = previewPageRef.getBoundingClientRect()
+      setPopupRect({ left: r.left - c.left, top: r.top - c.top, right: r.right - c.left, bottom: r.bottom - c.top })
+    })
+    onCleanup(() => cancelAnimationFrame(raf))
+  })
 
   function startPickerDrag(e: MouseEvent) {
     e.preventDefault()
@@ -167,7 +256,7 @@ export function PreviewPage(props: {
 
   const [ctxMenu, setCtxMenu] = createStore({
     show: false, x: 0, y: 0,
-    domPickerId: '', tagName: '', domPickerComponent: '', domPickerClass: '', elementProps: '',
+    id: '', tagName: '', domPickerComponent: '', domPickerClass: '', elementProps: '',
     rawRect: null as RawRect | null,
     rawClickX: 0, rawClickY: 0,
   })
@@ -180,12 +269,12 @@ export function PreviewPage(props: {
     return { x: rect.left + iframeX * scale, y: rect.top + iframeY * scale }
   }
 
-  function unfreezeDomPicker() {
-    previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_UNFREEZE" }, "*")
-  }
-
   function maybeUnfreeze() {
-    if (!propertyEditor.show && !pickerVisible() && !ctxMenu.show) unfreezeDomPicker()
+    if (!propertyEditor.show && !pickerVisible() && !ctxMenu.show) {
+      unfreezeDomPicker()
+      // 所有面板都关闭时重置锚点，避免陈旧 hasRect 让遮罩在右键单开 propertyEditor 时误显示
+      setPickerAnchor({ hasRect: false, scale: 1, top: 0, left: 0, width: 0, height: 0 })
+    }
   }
 
   function hideCtxMenu() { setCtxMenu('show', false) }
@@ -203,15 +292,22 @@ export function PreviewPage(props: {
 
   function submitPicker() {
     const text = pickerText().trim()
-    if (!text) return
     setPickerVisible(false)
     setPropertyEditor('show', false)
     maybeUnfreeze()
-    props.onPickerSubmit?.(text, pickerDialog.domPickerId)
+    props.onPickerSubmit?.(text, pickerDialog.id)
+  }
+
+  function appendPickerNext() {
+    const text = pickerText().trim()
+    if (!text) return
+    props.onPickerAppend?.(text, pickerDialog.id)
+    setPickerText("")
+    closeEditPanels()
   }
 
   function handleCopyName() {
-    const text = ctxMenu.domPickerId
+    const text = ctxMenu.id
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(text)
     } else {
@@ -224,11 +320,11 @@ export function PreviewPage(props: {
   }
 
   function handleSelectParent() {
-    previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_SELECT_PARENT" }, "*")
+    previewIframeRef?.contentWindow?.postMessage({ type: "od:dom-picker-select-parent" }, "*")
   }
 
   function openBothPanels(data: {
-    domPickerId: string
+    id: string
     domPickerComponent?: string
     domPickerClass?: string
     elementProps?: string
@@ -236,13 +332,15 @@ export function PreviewPage(props: {
     rawRect?: RawRect | null
   }) {
     openQuickModify(data)
-    setPickerDialog({ domPickerId: data.domPickerId, tagName: data.tagName ?? '' })
+    setPickerDialog({ id: data.id, tagName: data.tagName ?? '' })
     setPickerText('')
     setPickerDrag({ x: 0, y: 0 })
+    // 写入锚点：hasRect 决定是否启用"贴元素定位/遮罩挖洞"，scale 用于遮罩边框补偿
+    setPickerAnchor({ hasRect: !!data.rawRect, ...computeElementRect(data.rawRect) })
     setPickerVisible(true)
     if (ctxMenu.show) {
       setCtxMenu({
-        domPickerId: data.domPickerId,
+        id: data.id,
         tagName: data.tagName ?? '',
         domPickerComponent: data.domPickerComponent ?? '',
         domPickerClass: data.domPickerClass ?? '',
@@ -252,39 +350,45 @@ export function PreviewPage(props: {
     }
   }
 
+  // 把 iframe 内的元素矩形（rawRect，iframe 视口坐标）换算成 preview 容器内坐标，
+  // 同时返回 canvas 缩放比 scale，供遮罩边框粗细补偿使用。
+  function computeElementRect(rawRect: RawRect | null | undefined) {
+    const paneRect = previewPageRef?.getBoundingClientRect()
+    const wrapper = previewIframeRef?.closest('.preview-iframe-wrapper') as HTMLElement | null
+    const wrapperRect = wrapper?.getBoundingClientRect()
+    const scale = (wrapperRect?.width ?? targetWidth()) / targetWidth()
+    const rect = rawRect ?? { top: 0, left: 0, width: 0, height: 0 }
+    return {
+      scale,
+      top: (wrapperRect?.top ?? 0) - (paneRect?.top ?? 0) + rect.top * scale,
+      left: (wrapperRect?.left ?? 0) - (paneRect?.left ?? 0) + rect.left * scale,
+      width: rect.width * scale,
+      height: rect.height * scale,
+    }
+  }
+
   function openQuickModify(data: {
-    domPickerId: string
+    id: string
     domPickerComponent?: string
     domPickerClass?: string
     elementProps?: string
     tagName?: string
     rawRect?: RawRect | null
   }) {
-    const paneRect = previewPageRef?.getBoundingClientRect()
-    const wrapper = previewIframeRef?.closest('.preview-iframe-wrapper') as HTMLElement | null
-    const wrapperRect = wrapper?.getBoundingClientRect()
-    const scale = (wrapperRect?.width ?? targetWidth()) / targetWidth()
-    const rawRect = data.rawRect ?? { top: 0, left: 0, width: 0, height: 0 }
-
-    const cx = 46
-    const cy = 57
-
     setPropertyEditor('show', false)
     queueMicrotask(() => {
       const compType = data.domPickerComponent || data.tagName || ''
-      console.log("[preview] open property editor:", { elementId: data.domPickerId, componentType: compType, class: data.domPickerClass, props: data.elementProps })
+      console.log("[preview] open property editor:", { elementId: data.id, componentType: compType, class: data.domPickerClass, props: data.elementProps })
+      // 解构出 rect 字段，避免把 scale 误带入 elementRect（该字段只含 top/left/width/height）
+      const { top, left, width, height } = computeElementRect(data.rawRect)
       setPropertyEditor({
         show: true,
-        elementId: data.domPickerId,
+        elementId: data.id,
         componentType: compType,
         currentClass: data.domPickerClass ?? '',
         elementProps: data.elementProps ?? '',
-        clickPoint: { x: cx, y: cy },
-        elementRect: {
-          top: (wrapperRect?.top ?? 0) - (paneRect?.top ?? 0) + rawRect.top * scale,
-          left: (wrapperRect?.left ?? 0) - (paneRect?.left ?? 0) + rawRect.left * scale,
-          width: rawRect.width * scale, height: rawRect.height * scale,
-        },
+        clickPoint: { x: 46, y: 57 },
+        elementRect: { top, left, width, height },
       })
     })
   }
@@ -313,15 +417,33 @@ export function PreviewPage(props: {
     maybeUnfreeze()
   }
 
+  // 点击遮罩关闭两个修改框并解冻 picker，保留编辑模式以便继续选别的元素。
+  // 两个函数都调 maybeUnfreeze，第二次执行时两框均已关闭会触发 unfreezeDomPicker。
+  function closeEditPanels() {
+    closePicker()
+    handlePropertyCancel()
+  }
+
   const handlePickerMessage = (e: MessageEvent) => {
-    if (e.data?.type === "DOM_PICKER_CLOSE_PANELS") {
+    if (e.data?.type === "od:dom-picker-rect-update") {
+      // iframe 内选中元素尺寸变化后回传的新 rect：重算遮罩锚点，使黑色遮罩/蓝框跟随。
+      // 仅当有面板打开且当前启用锚点定位时才更新，COPY 无 rect 路径(hasRect=false)忽略。
+      if (!(propertyEditor.show || pickerVisible()) || !pickerAnchor.hasRect) return
+      setPickerAnchor({ hasRect: true, ...computeElementRect(e.data.rect) })
+      return
+    }
+    if (e.data?.type === "od:dom-picker-close-panels") {
+      if (anno.annotationPopup.show) {
+        anno.handleAnnotationClose()
+        if (!editing()) return
+      }
       if (ctxMenu.show) {
         closeCtxMenu()
         return
       }
       setPropertyEditor('show', false)
       setPickerVisible(false)
-      unfreezeDomPicker()
+      maybeUnfreeze()
       return
     }
 
@@ -331,18 +453,32 @@ export function PreviewPage(props: {
     }
 
     if (e.data?.type === "DOM_PICKER_COPY") {
-      const { domPickerId, tagName } = e.data
-      setPickerDialog({ domPickerId: domPickerId ?? '', tagName: tagName ?? '' })
+      const { id, tagName } = e.data
+      setPickerDialog({ id: id ?? '', tagName: tagName ?? '' })
       setPickerText('')
+      setPickerDrag({ x: 0, y: 0 })
+      // COPY 路径不带 rect，清空锚点使弹窗回退到 CSS 默认的底部居中、不显示遮罩
+      setPickerAnchor({ hasRect: false, scale: 1, top: 0, left: 0, width: 0, height: 0 })
       setPickerVisible(true)
       return
     }
 
-    if (e.data?.type === "DOM_PICKER_QUICK_FIX") {
-      const { domPickerId, domPickerComponent, domPickerClass, elementProps, tagName, rect } = e.data
-      console.log("[preview] DOM_PICKER_QUICK_FIX:", { domPickerId, domPickerComponent, domPickerClass, elementProps, tagName })
+    if (e.data?.type === "od:dom-picker-quick-fix") {
+      const { id, domPickerComponent, domPickerClass, elementProps, tagName, rect } = e.data
+      if (anno.annotationPopup.show && !annotating()) {
+        anno.handleAnnotationClose()
+        if (!editing()) return
+      }
+      if (annotating()) {
+        if (anno.annotationPopup.show) {
+          anno.handleAnnotationClose()
+          return
+        }
+        anno.openAnnotationFromRect(id ?? '', (rect ?? { top: 0, left: 0, width: 0, height: 0 }) as RawRect)
+        return
+      }
       openBothPanels({
-        domPickerId: domPickerId ?? '',
+        id: id ?? '',
         domPickerComponent: domPickerComponent ?? '',
         domPickerClass: domPickerClass ?? '',
         elementProps: elementProps ?? '',
@@ -352,16 +488,17 @@ export function PreviewPage(props: {
       return
     }
 
-    if (e.data?.type !== "DOM_PICKER_CONTEXT_MENU") return
+    if (e.data?.type !== "od:dom-picker-context-menu") return
+    if (annotating()) return
     if (ctxMenu.show) { closeCtxMenu(); return }
-    const { domPickerId, domPickerComponent, domPickerClass, elementProps, tagName, rect, clickX, clickY } = e.data
-    console.log("[preview] DOM_PICKER_CONTEXT_MENU:", { domPickerId, domPickerComponent, domPickerClass, elementProps, tagName })
+    const { id, domPickerComponent, domPickerClass, elementProps, tagName, rect, clickX, clickY } = e.data
+    console.log("[preview] od:dom-picker-context-menu:", { id, domPickerComponent, domPickerClass, elementProps, tagName })
     const pos = iframeToPage(clickX, clickY)
     setCtxMenu({
       show: true,
       x: Math.min(pos.x, window.innerWidth - 180),
       y: Math.min(pos.y, window.innerHeight - 150),
-      domPickerId: domPickerId ?? '', tagName: tagName ?? '',
+      id: id ?? '', tagName: tagName ?? '',
       domPickerComponent: domPickerComponent ?? '', domPickerClass: domPickerClass ?? '', elementProps: elementProps ?? '',
       rawRect: rect ?? null, rawClickX: clickX ?? 0, rawClickY: clickY ?? 0,
     })
@@ -369,22 +506,25 @@ export function PreviewPage(props: {
 
   const handleIframeMessage = (e: MessageEvent) => {
     handlePickerMessage(e)
-    if (e.data?.type === "A2UI_READY") {
+    if (e.data?.type === "od:a2ui-ready") {
+      anno.setIframeReady(true)
       if (props.pendingData) {
-        console.log("[preview] A2UI_READY, re-sending pendingData")
         sendToPreview(props.pendingData)
       }
       if (editing()) {
-        previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: true }, "*")
+        previewIframeRef?.contentWindow?.postMessage({ type: "od:dom-picker-mode", enabled: true }, "*")
         sendDragMode(true, props.pendingData)
       }
     }
-    if (e.data?.type === "DRAG_REORDER" && props.onReorder) {
+    if (e.data?.type === "od:drag-reorder" && props.onReorder) {
       props.onReorder(e.data.elementId, e.data.targetSiblingId, e.data.position)
     }
   }
 
   function onClickOutside(e: MouseEvent) {
+    if (anno.annotationPopup.show && !(e.target as HTMLElement).closest('.annotation-popup') && !(e.target as HTMLElement).closest('.annotation-badge') && !(e.target as HTMLElement).closest('.annotation-highlight')) {
+      anno.handleAnnotationClose()
+    }
     if (ctxMenu.show && !(e.target as HTMLElement).closest('.dom-picker-ctx-menu')) {
       closeCtxMenu()
     }
@@ -392,6 +532,7 @@ export function PreviewPage(props: {
 
   function onKeyDown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
+      if (anno.annotationPopup.show) { anno.handleAnnotationClose(); return }
       if (ctxMenu.show) { closeCtxMenu(); return }
       if (propertyEditor.show) { handlePropertyCancel(); return }
       if (pickerVisible()) { closePicker(); return }
@@ -400,7 +541,7 @@ export function PreviewPage(props: {
 
   function onParentPointerUp(e: PointerEvent) {
     if (!editing() || e.target === previewIframeRef) return
-    previewIframeRef?.contentWindow?.postMessage({ type: "DRAG_CANCEL" }, "*")
+    previewIframeRef?.contentWindow?.postMessage({ type: "od:drag-cancel" }, "*")
   }
 
   window.addEventListener("message", handleIframeMessage)
@@ -423,8 +564,10 @@ export function PreviewPage(props: {
           setCanvasMode(next)
           if (next) {
             setEditing(false)
+            setAnnotating(false)
             sendDragMode(false)
-            previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: false }, "*")
+            previewIframeRef?.contentWindow?.postMessage({ type: "od:dom-picker-mode", enabled: false }, "*")
+            unfreezeDomPicker()
           }
         }}
         onReset={() => canvasRef?.reset()}
@@ -441,16 +584,43 @@ export function PreviewPage(props: {
         onToggleEditing={() => {
           const next = !editing()
           setEditing(next)
-          previewIframeRef?.contentWindow?.postMessage({ type: "DOM_PICKER_TOGGLE", active: next }, "*")
+          previewIframeRef?.contentWindow?.postMessage({ type: "od:dom-picker-mode", enabled: next }, "*")
           if (next) {
+            setAnnotating(false)
+            anno.closeAnnotationPopup()
             setCanvasMode(false)
             sendDragMode(true)
             unfreezeDomPicker()
           } else {
             sendDragMode(false)
+            unfreezeDomPicker()
+            setCtxMenu('show', false)
           }
         }}
         onOptionChange={handleTitleBarOptionChange}
+        annotating={annotating()}
+        onToggleAnnotating={() => {
+          const next = !annotating()
+          setAnnotating(next)
+          if (next) {
+            setEditing(false)
+            setCanvasMode(false)
+            sendDragMode(false)
+            setPropertyEditor('show', false)
+            setPickerVisible(false)
+            setCtxMenu('show', false)
+            previewIframeRef?.contentWindow?.postMessage({ type: "od:dom-picker-mode", enabled: true }, "*")
+            unfreezeDomPicker()
+          } else {
+            previewIframeRef?.contentWindow?.postMessage({ type: "od:dom-picker-mode", enabled: false }, "*")
+            unfreezeDomPicker()
+            anno.closeAnnotationPopup()
+          }
+        }}
+        archiving={props.archiving}
+        onArchiveToggle={props.onArchiveToggle}
+        // 画布编辑模式：开启后允许用户在画布上直接拖拽/缩放元素，关闭其他编辑模式
+        onCanvasEditing={props.onCanvasEditing}
       />
 
       <CanvasView
@@ -458,6 +628,35 @@ export function PreviewPage(props: {
         canvasMode={canvasMode()}
         targetWidth={targetWidth()}
         targetHeight={targetHeight()}
+        overlay={
+          <>
+            <Show when={anno.visibleAnnotationData().length > 0}>
+              <For each={anno.visibleAnnotationData()}>
+                {(item) => (
+                  <div
+                    class="annotation-badge"
+                    style={{
+                      top: item.pos.top - 28 + "px",
+                      left: item.pos.left + item.pos.width - 14 + "px",
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      anno.openAnnotationFor(item.selector)
+                    }}
+                    title={item.selector}
+                  >
+                    <svg viewBox="0 0 24 24" width="28" height="28" class="annotation-badge-icon">
+                      <g transform="rotate(45 12 12)">
+                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" fill="#ffffff" stroke="rgba(0,0,0,0.1)" stroke-width="1.5" stroke-linejoin="round" />
+                      </g>
+                    </svg>
+                    <img src={getAvatarUrl(item.account) || "/AvatarUser.svg"} class="annotation-badge-avatar" />
+                  </div>
+                )}
+              </For>
+            </Show>
+          </>
+        }
       >
         <iframe
           ref={(el) => { previewIframeRef = el }}
@@ -468,6 +667,29 @@ export function PreviewPage(props: {
           style={{ width: "100%", height: "100%", border: "none" }}
         />
       </CanvasView>
+
+      <Show when={(pickerVisible() || propertyEditor.show) && pickerAnchor.hasRect}>
+        {/* 点击捕获层：全屏透明，z-index 49 在遮罩之下、canvas 之上。
+            遮罩的黑色是 box-shadow 画的、不参与命中测试，故用此独立层收点击
+            关闭两个修改框；两个修改框在上且 stopPropagation，不会被误关。 */}
+        <div class="picker-mask-backdrop" onClick={closeEditPanels} />
+        {/* 编辑态黑色遮罩：只要还有一个修改框打开且存在元素锚点就显示（OR 语义），
+            两个框都关闭时由 maybeUnfreeze 重置 hasRect 使本 Show 失效而消失。
+            矩形对齐选中元素（border-box，外框=元素 rect），透明内部露出元素与蓝框；
+            巨大 box-shadow 向外铺半透明黑（被 .preview-container overflow:hidden 裁剪）。
+            border-width 随 canvas scale 变化，与 iframe 内 dom-picker 的 2px 蓝框视觉一致。
+            z-index 50 处于 backdrop(49) 之上、picker(100)/property-editor(199/203) 之下。 */}
+        <div
+          class="picker-mask"
+          style={{
+            left: `${pickerAnchor.left}px`,
+            top: `${pickerAnchor.top}px`,
+            width: `${pickerAnchor.width}px`,
+            height: `${pickerAnchor.height}px`,
+            'border-width': `${2 * pickerAnchor.scale}px`,
+          }}
+        />
+      </Show>
 
       <Show when={ctxMenu.show}>
         <div class="dom-picker-ctx-menu" style={{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }}
@@ -491,15 +713,40 @@ export function PreviewPage(props: {
         onCancel={handlePropertyCancel}
       />
 
+      <Show when={anno.annotationPopup.show && anno.annotationPopup.target}>
+        <AnnotationPopup
+          target={anno.annotationPopup.target!}
+          author={getCommenterInfo().userName}
+          authorAvatar={getCommenterInfo().avatar}
+          annotations={anno.annotations
+            .filter((a) => a.selector === anno.annotationPopup.target!.elementId)
+            .map((a): Annotation => ({
+              id: a.id,
+              elementId: a.selector,
+              author: a.userName || "用户",
+              authorInitial: (a.userName || "用户").charAt(0),
+              avatar: getAvatarUrl(a.account),
+              text: a.note,
+              attachments: a.attachments.map((att) => att.fileName),
+              createdAt: a.time,
+            }))}
+          onSend={anno.handleAnnotationSend}
+          onClose={anno.handleAnnotationClose}
+          onDelete={anno.handleDeleteAnnotation}
+          onEdit={anno.handleEditAnnotation}
+        />
+      </Show>
+
       <Show when={pickerVisible()}>
         <div class="picker-overlay" onClick={closePicker}>
           <div
             class="picker-dialog"
-            style={{ transform: `translate(${pickerDrag.x}px, ${pickerDrag.y}px)` }}
+            // 定位由 pickerDialogStyle 计算（贴元素下方/越界翻转），保留拖拽偏移
+            style={pickerDialogStyle()}
             onClick={(e) => e.stopPropagation()}
           >
             <div class="picker-header" onMouseDown={startPickerDrag}>
-              修改选中区域: {pickerDialog.tagName} ({pickerDialog.domPickerId})
+              修改选中区域
             </div>
             <div class="picker-body">
               <textarea
@@ -507,14 +754,25 @@ export function PreviewPage(props: {
                 onInput={(e) => setPickerText(e.currentTarget.value)}
                 placeholder="描述你想要的修改..."
                 rows={2}
-                class="w-full resize-none rounded-md border border-divider px-3 py-2 text-14-regular text-text-strong outline-none focus:border-primary"
+                class="resize-none rounded-md px-3 py-2 text-14-regular text-text-strong outline-none focus:border-primary"
+                style={{
+                  width: "368px",
+                  height: "110px",
+                  "background-color": "#FFF",
+                  "border-radius": "8px",
+                  "box-sizing": "border-box",
+                  border: "1px solid rgba(0, 0, 0, 0.1)",
+                }}
               />
               <div class="flex justify-end gap-2" style={{"margin-top": "12px"}}>
-                <Button variant="ghost" size="large" onClick={closePicker}>
+                <Button variant="ghost" size="large" onClick={closePicker} style={{ "border-radius": "9999px", "border": "1px solid rgba(0,0,0,0.15)", "box-sizing": "border-box",width:"98px",height:"32px" }}>
                   取消
                 </Button>
-                <Button variant="primary" size="large" onClick={submitPicker} style={{ "background-color": "rgb(10, 89, 247)", color: "white" }}>
-                  确认修改
+                <Button variant="primary" size="large" onClick={appendPickerNext} style={{ "background-color": "rgb(10, 89, 247)", color: "white", "border-radius": "9999px",width:"98px",height:"32px" }}>
+                  下一项
+                </Button>
+                <Button variant="primary" size="large" onClick={submitPicker} style={{ "background-color": "rgb(10, 89, 247)", color: "white", "border-radius": "9999px",width:"98px",height:"32px" }}>
+                  确认
                 </Button>
               </div>
             </div>

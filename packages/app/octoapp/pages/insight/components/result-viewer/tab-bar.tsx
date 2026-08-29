@@ -1,9 +1,10 @@
 import { For, Show } from "solid-js"
 import type { JSX } from "solid-js"
-import { Icon } from "@opencode-ai/ui/icon"
+import { IconNotepad } from "@/pages/_shell/icons"
 import type { ResultTab } from "./tab-store"
 import { IconTabClose } from "../../icons"
 import { IconFolder } from "../../icons/design-files-icons"
+import { TruncatedText } from "./truncated-text"
 
 export function TabBar(props: {
   tabs: ResultTab[]
@@ -30,51 +31,57 @@ export function TabBar(props: {
       <Show when={props.onViewModeChange}>
         <button
           type="button"
-          class="flex items-center gap-[4px] shrink-0 transition-colors px-[12px] py-[6px] cursor-pointer"
-          style={{
-            "border-radius": "16px",
-            background: props.viewMode === "files" ? "var(--octo-surface-selected)" : "transparent",
-            color: props.viewMode === "files" ? "var(--octo-brand)" : "var(--octo-text-secondary)",
-          }}
           onClick={() => props.onViewModeChange?.("files")}
+          class="flex items-center justify-center transition-colors font-medium shrink-0 cursor-pointer"
+          style={{
+            padding: "0px 16px",
+            "border-radius": "999px",
+            "font-size": "14px",
+            "line-height": "22px",
+            gap: "4px",
+            height: "32px",
+            "min-width": "108px",
+            "box-sizing": "border-box",
+            color: props.viewMode === "files" ? "var(--octo-brand)" : "#666",
+            background: props.viewMode === "files" ? "rgba(10, 89, 247, 0.08)" : "rgba(0, 0, 0, 0.05)",
+          }}
         >
-          <IconFolder size={16} />
-          <span class="text-[13px]" style={{ "font-weight": props.viewMode === "files" ? "500" : "400" }}>文件管理</span>
+          <IconFolder
+            size={16}
+            style={{ color: props.viewMode === "files" ? "var(--octo-brand)" : "#666" }}
+          />
+          <span>文件管理</span>
         </button>
+        <Show when={props.tabs.length > 0}>
+          <div class="w-px h-4 shrink-0" style={{ background: "var(--octo-border-divider)", "border-radius": "999px" }} />
+        </Show>
       </Show>
       <For each={props.tabs}>
         {(tab) => {
           const isActive = () => tab.id === props.activeId && props.viewMode !== "files"
           return (
             <div
-              class="flex items-center gap-[4px] shrink-0 transition-colors px-[12px] py-[6px] cursor-pointer"
-              style={{
-                "max-width": "240px",
-                "border-radius": "16px",
-                background: isActive() ? "var(--octo-surface-selected)" : "transparent",
-                color: isActive() ? "var(--octo-brand)" : "var(--octo-text-secondary)",
-              }}
+              class="octo-tab"
+              data-active={isActive() ? "true" : undefined}
               onClick={() => {
                 props.onActivate(tab.id)
                 props.onViewModeChange?.("tabs")
               }}
             >
+              <TruncatedText
+                class="flex-1 min-w-0"
+                textClass="block w-full min-w-0 text-left truncate outline-none"
+                text={tab.title}
+              />
               <button
                 type="button"
-                class="flex-1 min-w-0 text-[13px] text-left truncate transition-colors outline-none"
-                style={{ "font-weight": isActive() ? "500" : "400" }}
-              >
-                {tab.title}
-              </button>
-              <button
-                type="button"
+                class="octo-tab-close"
                 onClick={(e) => {
                   e.stopPropagation()
                   props.onClose(tab.id)
                 }}
-                class="w-[16px] h-[16px] flex items-center justify-center rounded-full flex-shrink-0 transition-colors hover:bg-black/5 outline-none"
               >
-                <IconTabClose size={10} />
+                <IconTabClose size={16} />
               </button>
             </div>
           )
@@ -88,10 +95,10 @@ export function TabBar(props: {
           onClick={() => props.onCollapse?.()}
           title="收起面板"
           aria-label="收起面板"
-          class="shrink-0 w-[28px] h-[28px] flex items-center justify-center rounded-full transition-colors hover:bg-black/5 active:bg-black/10 outline-none"
+          class="shrink-0 w-[28px] h-[28px] flex items-center justify-center rounded-full cursor-pointer transition-colors hover:bg-black/5 active:bg-black/10 outline-none"
           style={{ color: "var(--octo-text-secondary)" }}
         >
-          <Icon name="chevron-right" class="size-4" />
+          <IconNotepad size={16} />
         </button>
       </Show>
     </div>

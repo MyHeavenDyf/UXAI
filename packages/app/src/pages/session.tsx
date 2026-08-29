@@ -1585,6 +1585,14 @@ export default function Page() {
 
   const followupDock = createMemo(() => queuedFollowups().map((item) => ({ id: item.id, text: followupText(item) })))
 
+  const removeFollowupItem = (index: number) => {
+    const item = queuedFollowups()[index]
+    if (!item) return
+    const sid = params.id
+    if (!sid) return
+    setFollowup("items", sid, (items) => (items ?? []).filter((_, i) => i !== index))
+  }
+
   const sendFollowup = (sessionID: string, id: string, opts?: { manual?: boolean }) => {
     if (sync.session.get(sessionID)?.parentID) return Promise.resolve()
     const item = (followup.items[sessionID] ?? []).find((entry) => entry.id === id)
@@ -1917,6 +1925,7 @@ export default function Page() {
                     },
                     onEdit: editFollowup,
                     onEditLoaded: clearFollowupEdit,
+                    onRemove: removeFollowupItem,
                   }
                 : undefined
             }

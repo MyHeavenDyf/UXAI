@@ -1,11 +1,16 @@
 const PROVIDER_ID = /^[a-z0-9][a-z0-9-_]*$/
 const OPENAI_COMPATIBLE = "@ai-sdk/openai-compatible"
+const CUSTOM_PROVIDER_MARKER = "__octo_custom_provider"
+const MODALITY_KEYS = new Set(["input", "output"])
+const MODALITY_VALUES = new Set(["text", "audio", "image", "video", "pdf"])
+type ModalityValue = "text" | "audio" | "image" | "video" | "pdf"
 
 type Translator = (key: string, vars?: Record<string, string | number | boolean>) => string
 
 export type ModelErr = {
   id?: string
   name?: string
+  modalities: ModalityErr[]
 }
 
 export type HeaderErr = {
@@ -13,10 +18,23 @@ export type HeaderErr = {
   value?: string
 }
 
+export type ModalityErr = {
+  key?: string
+  value?: string
+}
+
+export type ModalityRow = {
+  row: string
+  key: string
+  value: string
+  err: ModalityErr
+}
+
 export type ModelRow = {
   row: string
   id: string
   name: string
+  modalities: ModalityRow[]
   err: ModelErr
 }
 
@@ -46,6 +64,15 @@ type ValidateArgs = {
   t: Translator
   disabledProviders: string[]
   existingProviderIDs: Set<string>
+  editingProviderID?: string
+}
+
+const parseModalities = (input: string) => {
+  try {
+    return JSON.parse(input) as unknown
+  } catch {
+    return
+  }
 }
 
 export function validateCustomProvider(input: ValidateArgs) {
@@ -73,7 +100,7 @@ export function validateCustomProvider(input: ValidateArgs) {
   const disabled = input.disabledProviders.includes(providerID)
   const existsError = idError
     ? undefined
-    : input.existingProviderIDs.has(providerID) && !disabled
+    : input.existingProviderIDs.has(providerID) && !disabled && providerID !== input.editingProviderID
       ? input.t("provider.custom.error.providerID.exists")
       : undefined
 
@@ -89,10 +116,58 @@ export function validateCustomProvider(input: ValidateArgs) {
             return undefined
           })()
     const nameError = !m.name.trim() ? input.t("provider.custom.error.required") : undefined
-    return { id: idError, name: nameError }
+    const seenModalities = new Set<string>()
+    const modalities = m.modalities.map((item) => {
+      const key = item.key.trim()
+      const value = item.value.trim()
+      const parsed = parseModalities(value)
+      const keyError = !key
+        ? input.t("provider.custom.error.required")
+        : !MODALITY_KEYS.has(key)
+          ? input.t("provider.custom.error.modalities.key")
+          : seenModalities.has(key)
+            ? input.t("provider.custom.error.duplicate")
+            : (() => {
+                seenModalities.add(key)
+                return undefined
+              })()
+      const valueError = !value
+        ? input.t("provider.custom.error.required")
+        : !Array.isArray(parsed)
+          ? input.t("provider.custom.error.modalities.array")
+          : parsed.length === 0
+            ? input.t("provider.custom.error.modalities.empty")
+            : parsed.some((value) => typeof value !== "string" || !MODALITY_VALUES.has(value))
+              ? input.t("provider.custom.error.modalities.value")
+              : new Set(parsed).size !== parsed.length
+                ? input.t("provider.custom.error.duplicate")
+                : undefined
+      return { key: keyError, value: valueError }
+    })
+    const missingModalities =
+      m.modalities.length > 0 && (!seenModalities.has("input") || !seenModalities.has("output"))
+        ? input.t("provider.custom.error.modalities.required")
+        : undefined
+    if (missingModalities) {
+      modalities[0] = { ...modalities[0], key: missingModalities }
+    }
+    return { id: idError, name: nameError, modalities }
   })
-  const modelsValid = models.every((m) => !m.id && !m.name)
-  const modelConfig = Object.fromEntries(input.form.models.map((m) => [m.id.trim(), { name: m.name.trim() }]))
+  const modelsValid = models.every((m) => !m.id && !m.name && m.modalities.every((item) => !item.key && !item.value))
+  const modelConfig = Object.fromEntries(
+    input.form.models.map((m) => {
+      const modalities = Object.fromEntries(
+        m.modalities.map((item) => [item.key.trim(), parseModalities(item.value.trim())]),
+      ) as { input: ModalityValue[]; output: ModalityValue[] }
+      return [
+        m.id.trim(),
+        {
+          name: m.name.trim(),
+          ...(m.modalities.length > 0 ? { modalities } : {}),
+        },
+      ]
+    }),
+  )
 
   const seenHeaders = new Set<string>()
   const headers = input.form.headers.map((h) => {
@@ -142,6 +217,7 @@ export function validateCustomProvider(input: ValidateArgs) {
         ...(env ? { env: [env] } : {}),
         options: {
           baseURL,
+          [CUSTOM_PROVIDER_MARKER]: true,
           ...(Object.keys(headerConfig).length ? { headers: headerConfig } : {}),
         },
         models: modelConfig,
@@ -154,5 +230,11 @@ let row = 0
 
 const nextRow = () => `row-${row++}`
 
-export const modelRow = (): ModelRow => ({ row: nextRow(), id: "", name: "", err: {} })
+export const modelRow = (): ModelRow => ({ row: nextRow(), id: "", name: "", modalities: [], err: { modalities: [] } })
 export const headerRow = (): HeaderRow => ({ row: nextRow(), key: "", value: "", err: {} })
+export const modalityRow = (key = "", value = ""): ModalityRow => ({
+  row: nextRow(),
+  key,
+  value,
+  err: {},
+})

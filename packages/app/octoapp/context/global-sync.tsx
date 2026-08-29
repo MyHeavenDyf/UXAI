@@ -34,6 +34,9 @@ import { queryOptions, useMutation, useQueries, useQuery, useQueryClient } from 
 import { createRefreshQueue } from "./global-sync/queue"
 import { directoryKey } from "./global-sync/utils"
 
+// jk-j60099994-replace-with-60062650-global-sync-2-start
+// jk-j60099994-replace-with-60062650-global-sync-2-end
+
 type GlobalStore = {
   ready: boolean
   error?: InitError
@@ -72,6 +75,8 @@ function createGlobalSync() {
   const owner = getOwner()
   if (!owner) throw new Error("GlobalSync must be created within owner")
 
+  // jk-j60099994-replace-with-60062650-global-sync-3-start
+  // jk-j60099994-replace-with-60062650-global-sync-3-end
   const sdkCache = new Map<string, OpencodeClient>()
   const booting = new Map<string, Promise<void>>()
   const sessionLoads = new Map<string, Promise<void>>()
@@ -335,6 +340,9 @@ function createGlobalSync() {
     const key = directoryKey(directory)
     const event = e.details
     const recent = bootingRoot || Date.now() - bootedAt < 1500
+
+    // jk-j60099994-replace-with-60062650-global-sync-1-start
+    // jk-j60099994-replace-with-60062650-global-sync-1-end
 
     if (directory === "global") {
       applyGlobalEvent({

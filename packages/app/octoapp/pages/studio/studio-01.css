@@ -99,6 +99,7 @@
 }
 
 .studio-center-title-input {
+  width: 100%;
   border-radius: 6px;
   padding: 0 6px;
 }
@@ -110,9 +111,12 @@
 .studio-center-scroll {
   flex: 1;
   min-height: 0;
-  padding: 36px 28px 22px;
   background: #fff;
   isolation: isolate;
+}
+
+.studio-center-scroll .scroll-view__viewport {
+  padding: 36px 28px 22px;
 }
 
 .studio-workspace {
@@ -121,6 +125,7 @@
   min-height: 0;
   display: flex;
   position: relative;
+  z-index: 1;
   background: #fff;
 }
 
@@ -142,6 +147,7 @@
 }
 
 .studio-composer {
+  position: relative;
   margin: 0 24px;
   min-height: 150px;
   padding: 16px 14px 18px;
@@ -151,6 +157,23 @@
     linear-gradient(var(--octo-surface-page), var(--octo-surface-page)) padding-box,
     linear-gradient(135deg, rgba(246, 97, 23, 0.7) 1%, rgba(95, 45, 255, 0.7) 8%, rgba(61, 93, 255, 0.7) 22%, rgba(104, 138, 255, 0.7) 43%, rgba(28, 171, 111, 0.7) 54%, rgba(61, 93, 255, 0.7) 87%, rgba(206, 7, 232, 0.7) 92%) border-box;
   box-shadow: 0 0 5px rgba(0, 0, 0, 0.15), 0 0 10px rgba(74, 81, 255, 0.3), 0 0 20px rgba(89, 74, 255, 0.2);
+}
+
+.studio-composer.dragging::after {
+  content: "松开以上传图片";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed #5f45ff;
+  border-radius: inherit;
+  color: #4936c6;
+  background: rgba(255, 255, 255, 0.82);
+  font-size: 14px;
+  font-weight: 500;
+  pointer-events: none;
 }
 
 .studio-composer-compliance {
@@ -276,7 +299,7 @@
   gap: 4px;
   overflow: hidden;
   padding: 0;
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid #DFDFDF;
   border-radius: 3px;
   background: #f2f3f5;
   color: rgba(15, 23, 42, 0.62);
@@ -286,10 +309,6 @@
 
 .studio-composer-video-frame-wrap:nth-child(3) .studio-composer-video-frame {
   transform: rotate(4deg);
-}
-
-.studio-composer-video-frame.filled {
-  background: #0f172a;
 }
 
 .studio-composer-video-plus {
@@ -311,21 +330,23 @@
 
 .studio-composer-video-remove {
   position: absolute;
-  top: -7px;
-  right: -7px;
-  width: 18px;
-  height: 18px;
+  top: -2px;
+  right: -2px;
+  width: 12px;
+  height: 12px;
   display: grid;
   place-items: center;
-  border-radius: 999px;
-  background: rgba(8, 12, 20, 0.94);
-  color: #fff;
-  font-size: 15px;
-  line-height: 15px;
+  background: transparent;
   opacity: 0;
   transform: scale(0.9);
   transition: opacity 140ms ease, transform 140ms ease;
   z-index: 2;
+}
+
+.studio-composer-video-remove-icon {
+  width: 12px;
+  height: 12px;
+  display: block;
 }
 
 .studio-composer-video-frame-wrap:hover .studio-composer-video-remove,
@@ -406,7 +427,7 @@
   top: 0;
   width: 52px;
   height: 64px;
-  z-index: calc(10 - var(--ref-index));
+  z-index: calc(var(--ref-index) + 1);
   transform: rotate(var(--ref-rotate));
   transform-origin: center center;
   transition: transform 160ms ease;
@@ -446,7 +467,34 @@
   background: url("/studio/IconAdd.svg") center / 52px 64px no-repeat;
 }
 
-.studio-composer-ref-slot.filled .studio-composer-ref-btn {
+.studio-composer-ref-upload-float {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  z-index: 15;
+}
+
+.studio-composer-ref-upload-float img {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
+.studio-composer-ref-upload-float:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.studio-composer-ref-slot.filled .studio-composer-ref-btn:not(.studio-composer-ref-add) {
   width: 52px;
   height: 64px;
   overflow: hidden;
@@ -469,15 +517,17 @@
   height: 12px;
   display: grid;
   place-items: center;
-  border-radius: 999px;
-  background: rgba(8, 12, 20, 0.94);
-  color: #fff;
-  font-size: 8px;
-  line-height: 8px;
+  background: transparent;
   opacity: 0;
   transform: scale(0.9);
   transition: opacity 140ms ease, transform 140ms ease;
   z-index: 2;
+}
+
+.studio-composer-ref-remove-icon {
+  width: 12px;
+  height: 12px;
+  display: block;
 }
 
 .studio-composer-ref-item:hover .studio-composer-ref-remove,
@@ -494,7 +544,9 @@
 .studio-composer-input {
   width: 100%;
   min-height: 64px;
+  max-height: 180px;
   resize: none;
+  overflow-y: auto;
   border: 0;
   outline: none;
   padding-top: 0;
@@ -570,6 +622,10 @@
   gap: 2px;
 }
 
+.studio-composer-toolbar-item--expanded .studio-composer-tool-btn {
+  max-width: none;
+}
+
 .studio-composer-tool-btn:hover,
 .studio-composer-icon-tool:hover {
   background: #dfdfdf;
@@ -593,4 +649,64 @@
 
 .studio-composer-tool-btn[data-active] .studio-composer-tool-caret {
   transform: rotate(-180deg);
+}
+
+.studio-composer-toolbar-item[data-toolbar-item="videoMode"] {
+  display: none;
+}
+
+@media (max-width: 1227px) {
+  .studio-center {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .studio-center-action {
+    width: 20px;
+    height: 20px;
+  }
+
+  .studio-center-scroll .scroll-view__viewport {
+    padding: 36px 14% 22px;
+  }
+
+  .studio-composer-wrap {
+    padding: 0 14%;
+  }
+
+  .studio-workspace-overlay {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 800px;
+    z-index: 40;
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.12);
+  }
+}
+
+@media (max-width: 999px) {
+  .studio-workspace-overlay {
+    width: 100%;
+  }
+}
+
+@media (max-width: 799px) {
+  .studio-center-scroll .scroll-view__viewport {
+    padding: 36px 6% 22px;
+  }
+
+  .studio-composer-wrap {
+    padding: 0 6%;
+  }
+}
+
+@media (max-width: 699px) {
+  .studio-center-scroll .scroll-view__viewport {
+    padding: 36px 0 22px;
+  }
+
+  .studio-composer-wrap {
+    padding: 0;
+  }
 }

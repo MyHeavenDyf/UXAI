@@ -1,17 +1,23 @@
 import { extractJson } from '../../utils/json-parser'
 import { runChildSession } from '../run-child-session'
 import { logAgentParsed } from '../../utils/debug-log'
+import { INTENT_CONFIRM_FORMAT } from './schema'
+import { agentThrow } from '../../utils/error-msg'
+import { getPagePatternResource } from '../../utils/pattern-resource'
 
 const AGENT_NAME = "proto_intent_confirm"
 
 export type IntentConfirmDimension = {
-  type: "single" | "multiple"
-  options: string[]
+  id: string
+  name: string
+  score: number
+  file?: string
+  preview?: string
+  content?: string
 }
 
 export type IntentConfirmResult = {
-  // 维度名 → 选项配置；空对象表示无需补充
-  options: Record<string, IntentConfirmDimension>
+  results: IntentConfirmDimension[]
   current_step: string
 }
 
@@ -26,6 +32,7 @@ type ProtoIntentConfirmInput = {
 
 export default async function proto_intent_confirm(input: ProtoIntentConfirmInput): Promise<IntentConfirmResult> {
   const { sdk, sync, modelKey, rootSession, userInput, onSessionCreated } = input
+
   const humanMessage = buildHumanMessage(userInput)
 
   const result = await runChildSession({
@@ -37,14 +44,18 @@ export default async function proto_intent_confirm(input: ProtoIntentConfirmInpu
     prompt: humanMessage,
     directory: sdk.directory,
     parentSessionID: rootSession,
+    schema: INTENT_CONFIRM_FORMAT.schema,
   })
-  const json = extractJson(result.text)
+  var json = extractJson(result.text)
+
   if (!json) {
     logAgentParsed(result.childSessionId, { error: "Failed to parse JSON", raw: result.text })
-    throw new Error("----- Intent Confirm did not return valid JSON -----")
+    agentThrow(AGENT_NAME, result.childSessionId, "Intent Confirm did not return valid JSON")
   }
+  // 访问云端向量数据库，补充文档和预览图资源 ----- 此处后续要做一个功能：判断是否在内外网
+  const enriched = await getPagePatternResource(json)
   const returnValue: IntentConfirmResult = {
-    options: json as Record<string, IntentConfirmDimension>,
+    results: (enriched.results ?? []) as IntentConfirmDimension[],
     current_step: "intent_confirm",
   }
   logAgentParsed(result.childSessionId, returnValue)
@@ -55,5 +66,5 @@ function buildHumanMessage(userInput: string): string {
   return `[用户的需求:] ==================================
 ${userInput}
 
-请分析用户需求中尚未明确的维度，输出缺失维度的选项清单。`
+请分析用户需求，匹配合适的Pattern。`
 }

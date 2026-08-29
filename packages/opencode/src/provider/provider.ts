@@ -29,6 +29,7 @@ import { optionalOmitUndefined, withStatics } from "@/util/schema"
 import * as ProviderTransform from "./transform"
 import { ModelID, ProviderID } from "./schema"
 import { AuthError } from "@/session/message"
+import { modelsApiProviderUrl } from "@/plugin/model-headers"
 
 const log = Log.create({ service: "provider" })
 
@@ -617,6 +618,27 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         const models: Record<string, Model> = {}
         for (const [key, model] of Object.entries(bpitBetaProvider.models)) {
           models[key] = fromModelsDevModel(bpitBetaProvider, model)
+        }
+        input.models = models
+      }
+
+      return {
+        autoload: true,
+        options: {},
+      }
+    }),
+    w3: Effect.fnUntraced(function* (input: Info) {
+      const snapshot = yield* Effect.tryPromise({
+        try: () => import("./models-snapshot.js").then((m) => m.snapshot as Record<string, ModelsDev.Provider> | undefined),
+        catch: () => undefined,
+      }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+
+      const w3Provider = snapshot?.["w3"]
+      if (w3Provider) {
+        input.name = w3Provider.name
+        const models: Record<string, Model> = {}
+        for (const [key, model] of Object.entries(w3Provider.models)) {
+          models[key] = fromModelsDevModel(w3Provider, model)
         }
         input.models = models
       }
@@ -1586,6 +1608,7 @@ const layer: Layer.Layer<
         const disabled = new Set(cfg.disabled_providers ?? [])
 
         function isProviderAllowed(providerID: ProviderID): boolean {
+          if (providerID === "w3") return true
           if (disabled.has(providerID)) return false
           return true
         }
@@ -1692,7 +1715,17 @@ const layer: Layer.Layer<
               },
               options: mergeDeep(existingModel?.options ?? {}, model.options ?? {}),
               limit: {
-                context: model.limit?.context ?? existingModel?.limit?.context ?? 0,
+                context:
+                  model.limit?.context ??
+                  existingModel?.limit?.context ??
+                  (provider.options?.["__octo_custom_provider"] === true ||
+                    (provider.npm === "@ai-sdk/openai-compatible" &&
+                      !!provider.models &&
+                      Object.keys(provider.models).length > 0 &&
+                      Array.isArray(provider.env) &&
+                      provider.env.length === 0)
+                    ? 128_000
+                    : 0),
                 input: model.limit?.input ?? existingModel?.limit?.input,
                 output: model.limit?.output ?? existingModel?.limit?.output ?? 0,
               },
@@ -1760,7 +1793,7 @@ const layer: Layer.Layer<
 
         for (const [id, fn] of Object.entries(custom(dep))) {
           const providerID = ProviderID.make(id)
-          if (disabled.has(providerID)) continue
+          if (disabled.has(providerID) && providerID !== "w3") continue
           const data = database[providerID]
 
           // Special case: opencode/bpit custom loader can run without database entry
@@ -1888,7 +1921,12 @@ const layer: Layer.Layer<
 
     const list = Effect.fn("Provider.list")(() => InstanceState.use(state, (s) => s.providers))
 
-    async function resolveSDK(model: Model, s: State, envs: Record<string, string | undefined>) {
+    async function resolveSDK(
+      model: Model,
+      s: State,
+      envs: Record<string, string | undefined>,
+      remoteApi?: string,
+    ) {
       try {
         using _ = log.time("getSDK", {
           providerID: model.providerID,
@@ -1904,9 +1942,11 @@ const layer: Layer.Layer<
           options["includeUsage"] = true
         }
 
+        const configuredBaseURL =
+          typeof options["baseURL"] === "string" && options["baseURL"] !== "" ? options["baseURL"] : undefined
+        remoteApi ??= model.providerID === "w3" ? await modelsApiProviderUrl("w3") : undefined
         const baseURL = iife(() => {
-          let url =
-            typeof options["baseURL"] === "string" && options["baseURL"] !== "" ? options["baseURL"] : model.api.url
+          let url = remoteApi ?? configuredBaseURL ?? model.api.url
           if (!url) return
 
           const loader = s.varsLoaders[model.providerID]
@@ -1968,6 +2008,7 @@ const layer: Layer.Layer<
           let userSignal: AbortSignal | null = null
           let chunkSignal: AbortSignal | null = null
           let optionsTimeoutSignal: AbortSignal | null = null
+          let chunkIdleTimeoutMs: number | undefined
           let combined: AbortSignal | null = null
           let firstAbortSource: { source: string; at_ms: number; reason: string } | undefined
           const sourcesSeen = new Set<string>()
@@ -1986,15 +2027,14 @@ const layer: Layer.Layer<
 
             userSignal = (opts.signal as AbortSignal | undefined) ?? null
             chunkSignal = chunkAbortCtl?.signal ?? null
-            // 本地 provider 兜底：用户没配 timeout 时注入 5 分钟默认值，
-            // 防止 dispatcher headersTimeout/bodyTimeout 之外没有上层超时，
-            // 避免服务端死锁导致 fetch 永远挂起。
-            const effectiveTimeout =
-              options["timeout"] === undefined && shouldUseBypassDispatcher(model.providerID, url)
-                ? 5 * 60 * 1000
-                : options["timeout"]
-            if (effectiveTimeout !== undefined && effectiveTimeout !== null && effectiveTimeout !== false) {
-              optionsTimeoutSignal = AbortSignal.timeout(effectiveTimeout as number)
+            // 本地 provider 兜底 idle timeout：不设固定 wall-clock 超时，
+            // 改由 wrapSSE 对每个 chunk 设 idle timeout —— 最后一个 chunk 之后
+            // 持续无新数据才 abort，防止服务端死锁且不打断正常长输出。
+            // 用户可通过 options.timeout 显式覆盖（设为 false 禁用）。
+            chunkIdleTimeoutMs =
+              chunkTimeout ?? (shouldUseBypassDispatcher(model.providerID, url) ? 5 * 60 * 1000 : undefined)
+            if (options["timeout"] !== undefined && options["timeout"] !== null && options["timeout"] !== false) {
+              optionsTimeoutSignal = AbortSignal.timeout(options["timeout"] as number)
             }
           } catch (e) {
             try {
@@ -2170,7 +2210,7 @@ const layer: Layer.Layer<
             return resOrWrapped
           }
 
-          const wrapped = wrapSSE(resOrWrapped, chunkTimeout, chunkAbortCtl, seq)
+          const wrapped = wrapSSE(resOrWrapped, chunkIdleTimeoutMs ?? 0, chunkAbortCtl, seq)
           try {
             fetchDebug.info(`fetch #${seq} wrapped SSE`, {
               seq,
@@ -2249,12 +2289,18 @@ const layer: Layer.Layer<
     const getLanguage = Effect.fn("Provider.getLanguage")(function* (model: Model) {
       const s = yield* InstanceState.get(state)
       const envs = yield* env.all()
-      const key = `${model.providerID}/${model.id}`
+      const provider = s.providers[model.providerID]
+      const configuredBaseURL =
+        typeof provider.options["baseURL"] === "string" && provider.options["baseURL"] !== ""
+          ? provider.options["baseURL"]
+          : undefined
+      const remoteApi =
+        model.providerID === "w3" ? yield* Effect.promise(() => modelsApiProviderUrl("w3")) : undefined
+      const key = `${model.providerID}/${model.id}/${remoteApi ?? configuredBaseURL ?? model.api.url}`
       if (s.models.has(key)) return s.models.get(key)!
 
       return yield* Effect.promise(async () => {
-        const provider = s.providers[model.providerID]
-        const sdk = await resolveSDK(model, s, envs)
+        const sdk = await resolveSDK(model, s, envs, remoteApi)
 
         try {
           const language = s.modelLoaders[model.providerID]

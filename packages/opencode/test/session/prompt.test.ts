@@ -416,6 +416,58 @@ it.live("prompt emits v2 prompted and synthetic events", () =>
   ),
 )
 
+// SPEC-INS-029：insight 的 @技能走 synthetic 注入（SPEC-INS-023 §2.2 的 3b），不调 skill 工具也不走
+// session.command，服务端因此看不到「技能被激活」。前端在 extra.skills 里声明，事件由服务端在权威侧发。
+// 用 noReply 跑：既不需要模型，也正好锁住「publish 落在 noReply 提前返回之前」这个落点。
+it.live("prompt publishes skill.used from extra.skills (SPEC-INS-029)", () =>
+  provideTmpdirServer(
+    Effect.fnUntraced(function* () {
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const bus = yield* Bus.Service
+      const seen: string[] = []
+      const unsubscribe = yield* bus.subscribeCallback(Skill.SkillUsed, (evt) => {
+        seen.push(evt.properties.skillName)
+      })
+      const chat = yield* sessions.create({ title: "skills" })
+
+      const send = (text: string, extra?: Record<string, unknown>) =>
+        prompt.prompt({
+          sessionID: chat.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text }],
+          ...(extra ? { extra } : {}),
+        })
+
+      // 一轮多技能 → 逐条发，不合并，保序
+      yield* send("with skills", { skills: ["interview-analysis", "persona"] })
+      yield* Effect.sleep("10 millis")
+      expect(seen).toEqual(["interview-analysis", "persona"])
+
+      // 不带 extra → 不发
+      seen.length = 0
+      yield* send("no extra")
+      yield* Effect.sleep("10 millis")
+      expect(seen).toEqual([])
+
+      // 与其他 extra 字段共存 → 只认 skills，不误发
+      yield* send("other extra", { skipPromptRefine: true })
+      yield* Effect.sleep("10 millis")
+      expect(seen).toEqual([])
+
+      // 脏输入 → 静默降级为不发事件，且不能让本次发送失败
+      yield* send("dirty extra", { skills: "not-an-array" })
+      yield* send("dirty elements", { skills: [123, null, ""] })
+      yield* Effect.sleep("10 millis")
+      expect(seen).toEqual([])
+
+      unsubscribe()
+    }),
+    { git: true, config: providerCfg },
+  ),
+)
+
 it.live("static loop returns assistant text through local provider", () =>
   provideTmpdirServer(
     Effect.fnUntraced(function* ({ llm }) {

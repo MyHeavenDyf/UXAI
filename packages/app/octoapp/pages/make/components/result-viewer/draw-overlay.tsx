@@ -1,6 +1,8 @@
 import { createSignal, createEffect, Show, onMount, onCleanup, type JSX } from "solid-js"
 import { getDesktopApi } from "../../lib/electron-api"
 import { tracker } from "@/utils/tracker"
+import { useLocal } from "@/context/local"
+import { showOctoToast } from "../octo-toast"
 
 interface Point { x: number; y: number }
 interface Stroke { points: Point[] }
@@ -13,6 +15,7 @@ export interface AnnotationEventDetail {
   file: File | null
   note: string
   action: 'queue' | 'send'
+  tabContext?: { title: string; filePath?: string }
   ack?: (result: { ok: boolean; message?: string }) => void
 }
 
@@ -21,10 +24,11 @@ interface Props {
   active?: boolean
   onActiveChange?: (active: boolean) => void
   sendDisabled?: boolean
+  tabContext?: { title: string; filePath?: string }
 }
 
-const STROKE_COLOR = '#ff3b30'
-const STROKE_WIDTH = 4
+const STROKE_COLOR = '#0a59f7'
+const STROKE_WIDTH = 2
 
 export function DrawOverlay(props: Props): JSX.Element {
   let wrapRef: HTMLDivElement | undefined
@@ -41,6 +45,10 @@ export function DrawOverlay(props: Props): JSX.Element {
     action: 'queue' | 'send'
     message: string
   } | null>(null)
+  const [isBoxActive, setIsBoxActive] = createSignal(false)
+  const [showEditPopup, setShowEditPopup] = createSignal(false)
+  const [editBoxPos, setEditBoxPos] = createSignal<{ left: number; top: number } | null>(null)
+  const [capturing, setCapturing] = createSignal(false)
   
   let strokesRef: Stroke[] = []
   let undoneStrokesRef: Stroke[] = []
@@ -50,6 +58,9 @@ export function DrawOverlay(props: Props): JSX.Element {
   let composingRef = false
   
   const sending = () => pendingAction() !== null
+
+  const local = useLocal()
+  const currentModel = () => local.model.current()
 
   function redraw() {
     const cvs = canvasRef
@@ -67,7 +78,7 @@ export function DrawOverlay(props: Props): JSX.Element {
     const box = boxDraftRef
       ? normalizedRectFromPoints(boxDraftRef.start, boxDraftRef.current)
       : selectionBoxRef
-    if (box) drawNormalizedBox(ctx, box, cvs.width, cvs.height)
+    if (box) drawNormalizedBox(ctx, box, cvs.width, cvs.height, dpr)
     for (const s of all) {
       const first = s.points[0]
       if (!first) continue
@@ -126,8 +137,12 @@ export function DrawOverlay(props: Props): JSX.Element {
     function onKey(e: KeyboardEvent) {
       // ★ Only handle shortcuts when DrawOverlay is active
       if (!props.active) return
-      
+
       if (e.key === 'Escape') {
+        if (showEditPopup()) {
+          handlePopupCancel()
+          return
+        }
         props.onActiveChange?.(false)
         return
       }
@@ -213,6 +228,7 @@ export function DrawOverlay(props: Props): JSX.Element {
     if (markTool() === 'box') {
       boxDraftRef = { start: point, current: point }
       selectionBoxRef = null
+      setIsBoxActive(true)
       syncHistoryState()
       redraw()
       return
@@ -240,8 +256,23 @@ export function DrawOverlay(props: Props): JSX.Element {
       const next = normalizedRectFromPoints(boxDraftRef.start, boxDraftRef.current)
       boxDraftRef = null
       selectionBoxRef = next.width >= 0.006 && next.height >= 0.006 ? next : null
+      setIsBoxActive(Boolean(selectionBoxRef))
       syncHistoryState()
       redraw()
+      if (selectionBoxRef) {
+        const wrap = wrapRef
+        if (wrap) {
+          const cw = wrap.offsetWidth
+          const ch = wrap.offsetHeight
+          const box = selectionBoxRef
+          const popupLeft = box.x * cw
+          const popupTop = (box.y + box.height) * ch + 16
+          const maxLeft = Math.max(0, cw - 400)
+          const maxTop = Math.max(0, ch - 200)
+          setEditBoxPos({ left: Math.min(popupLeft, maxLeft), top: Math.min(popupTop, maxTop) })
+          setShowEditPopup(true)
+        }
+      }
       return
     }
     if (!drawingRef) return
@@ -269,6 +300,9 @@ export function DrawOverlay(props: Props): JSX.Element {
     drawingRef = null
     selectionBoxRef = null
     boxDraftRef = null
+    setIsBoxActive(false)
+    setShowEditPopup(false)
+    setEditBoxPos(null)
     syncHistoryState()
     redraw()
   }
@@ -278,6 +312,9 @@ export function DrawOverlay(props: Props): JSX.Element {
     if (selectionBoxRef || boxDraftRef) {
       selectionBoxRef = null
       boxDraftRef = null
+      setIsBoxActive(false)
+      setShowEditPopup(false)
+      setEditBoxPos(null)
       syncHistoryState()
       redraw()
       return
@@ -306,6 +343,19 @@ export function DrawOverlay(props: Props): JSX.Element {
     props.onActiveChange?.(false)
   }
 
+  function handlePopupCancel() {
+    setShowEditPopup(false)
+    setEditBoxPos(null)
+    selectionBoxRef = null
+    setNote('')
+    syncHistoryState()
+    redraw()
+  }
+
+  function handlePopupConfirm() {
+    send('send')
+  }
+
   // Clear state when overlay becomes inactive
   createEffect(() => {
     if (props.active) return
@@ -314,6 +364,9 @@ export function DrawOverlay(props: Props): JSX.Element {
     drawingRef = null
     selectionBoxRef = null
     boxDraftRef = null
+    setIsBoxActive(false)
+    setShowEditPopup(false)
+    setEditBoxPos(null)
     setHasInk(false)
     setHasBox(false)
     setUndoCount(0)
@@ -328,7 +381,14 @@ export function DrawOverlay(props: Props): JSX.Element {
   async function requestSnapshot(): Promise<{ dataUrl: string; w: number; h: number } | null> {
     const iframe = snapshotHostIframe()
     if (!iframe) return null
-    const timeouts = [1500, 3000, 6000]
+    
+    const rect = iframe.getBoundingClientRect()
+    if (rect.width > 0 && rect.height > 0) {
+      const nativeSnap = await tryNativeCapture(iframe, rect.width, rect.height)
+      if (nativeSnap) return nativeSnap
+    }
+    
+    const timeouts = [1000, 3000]
     for (const timeout of timeouts) {
       const snapshot = await requestPreviewSnapshot(iframe, timeout)
       if (snapshot) {
@@ -338,11 +398,6 @@ export function DrawOverlay(props: Props): JSX.Element {
         }
         return snapshot
       }
-    }
-    const rect = iframe.getBoundingClientRect()
-    if (rect.width > 0 && rect.height > 0) {
-      const nativeSnap = await tryNativeCapture(iframe, rect.width, rect.height)
-      if (nativeSnap) return nativeSnap
     }
     return null
   }
@@ -462,7 +517,7 @@ export function DrawOverlay(props: Props): JSX.Element {
 
     const sx = snap.w / Math.max(1, rect.width)
     const sy = snap.h / Math.max(1, rect.height)
-    if (selectionBoxRef) drawNormalizedBox(ctx, selectionBoxRef, snap.w, snap.h)
+    if (selectionBoxRef) drawNormalizedBox(ctx, selectionBoxRef, snap.w, snap.h, sx)
 
     ctx.strokeStyle = STROKE_COLOR
     ctx.lineWidth = STROKE_WIDTH * Math.max(sx, sy)
@@ -499,6 +554,11 @@ export function DrawOverlay(props: Props): JSX.Element {
     if (sending() || !canSubmit) return
     if (action === 'send' && props.sendDisabled) return
 
+    if (shouldCapture && !currentModel()?.capabilities?.input?.image) {
+      showOctoToast({ title: "当前模型不支持图像输入", description: "请手动切换到支持多模态的模型", variant: "error" })
+      return
+    }
+
     setCaptureWarning(null)
     setPendingAction(action)
 
@@ -507,9 +567,16 @@ export function DrawOverlay(props: Props): JSX.Element {
       if (shouldCapture) {
         console.log('[Draw] Attempting screenshot...')
         let blob: Blob | null = null
-        const snap = await requestSnapshot()
-        console.log('[Draw] Snapshot result:', snap ? { w: snap.w, h: snap.h } : null)
-        if (snap) blob = await compositeWithBackground(snap)
+        setCapturing(true)
+        try {
+          // 等 Solid 移除 popup DOM,避免 native capture (webContents.capturePage) 把"修改选中区域"对话框截进图里
+          await new Promise<void>((r) => requestAnimationFrame(() => r()))
+          const snap = await requestSnapshot()
+          console.log('[Draw] Snapshot result:', snap ? { w: snap.w, h: snap.h } : null)
+          if (snap) blob = await compositeWithBackground(snap)
+        } finally {
+          setCapturing(false)
+        }
         if (!blob) {
           console.error('[Draw] Screenshot failed')
           setCaptureWarning({
@@ -538,6 +605,7 @@ export function DrawOverlay(props: Props): JSX.Element {
           file,
           note: note().trim(),
           action,
+          tabContext: props.tabContext,
           ack: finish,
         }
 
@@ -593,11 +661,11 @@ export function DrawOverlay(props: Props): JSX.Element {
             width: '100%',
             height: '100%',
             'pointer-events': overlayPointer(),
-            cursor: props.active ? 'crosshair' : 'default',
+            cursor: sending() ? 'wait' : (props.active ? 'crosshair' : 'default'),
           }}
         />
       </Show>
-      <Show when={props.active}>
+      <Show when={props.active && !capturing()}>
         <Show when={captureWarning()}>
           {(warning) => (
             <div
@@ -627,6 +695,7 @@ export function DrawOverlay(props: Props): JSX.Element {
             </div>
           )}
         </Show>
+        <Show when={false}>
         <div
           style={{
             position: 'absolute',
@@ -849,6 +918,116 @@ export function DrawOverlay(props: Props): JSX.Element {
             {pendingAction() === 'send' ? '...' : '→'}
           </button>
         </div>
+        </Show>
+        <Show when={showEditPopup() && editBoxPos()}>
+          {(pos) => (
+            <div
+              style={{
+                position: 'absolute',
+                left: `${pos().left}px`,
+                top: `${pos().top}px`,
+                'border-radius': '12px',
+                padding: '16px',
+                background: '#fff',
+                'box-shadow': '0 4px 12px 0 rgba(0,0,0,0.08)',
+                'z-index': 20,
+                'pointer-events': 'auto',
+              }}
+            >
+              <div style={{
+                'font-size': '14px',
+                'line-height': '22px',
+                color: 'rgba(0,0,0,0.9)',
+                'font-weight': 'bold',
+                'margin-bottom': '12px',
+              }}>
+                修改选中区域
+              </div>
+              <textarea
+                value={note()}
+                onInput={(e) => setNote(e.currentTarget.value)}
+                disabled={sending()}
+                placeholder="描述你的修改内容..."
+                style={{
+                  width: '100%',
+                  'min-width': '368px',
+                  'min-height': '110px',
+                  padding: '8px',
+                  'border-radius': '8px',
+                  border: '1px solid rgba(0,0,0,0.1)',
+                  outline: 'none',
+                  'font-size': '14px',
+                  'line-height': '22px',
+                  color: 'rgba(0,0,0,0.9)',
+                  'box-sizing': 'border-box',
+                  'margin-bottom': '12px',
+                  resize: 'vertical',
+                }}
+                onCompositionStart={() => { composingRef = true }}
+                onCompositionEnd={() => { composingRef = false }}
+                onKeyDown={(e) => {
+                  if (composingRef) return
+                  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                    e.preventDefault()
+                    handlePopupConfirm()
+                  }
+                }}
+              />
+              <div style={{
+                display: 'flex',
+                'justify-content': 'flex-end',
+                gap: '8px',
+              }}>
+                <button
+                  type="button"
+                  onClick={handlePopupCancel}
+                  disabled={sending()}
+                  onMouseEnter={(e) => { if (!sending()) e.currentTarget.style.background = '#dfdfdf' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = '#f3f3f3' }}
+                  onMouseDown={(e) => { if (!sending()) e.currentTarget.style.background = '#dfdfdf' }}
+                  onMouseUp={(e) => { e.currentTarget.style.background = '#dfdfdf' }}
+                  style={{
+                    height: '32px',
+                    padding: '0 16px',
+                    'min-width': '88px',
+                    'border-radius': '999px',
+                    border: 'none',
+                    background: '#f3f3f3',
+                    color: '#191919',
+                    'font-size': '14px',
+                    'line-height': '22px',
+                    cursor: sending() ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePopupConfirm}
+                  disabled={sending() || !canSend()}
+                  onMouseEnter={(e) => { if (!sending() && canSend()) e.currentTarget.style.background = '#0950de' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = '#0a59f7' }}
+                  onMouseDown={(e) => { if (!sending() && canSend()) e.currentTarget.style.background = '#0a55eb' }}
+                  onMouseUp={(e) => { e.currentTarget.style.background = '#0950de' }}
+                  style={{
+                    height: '32px',
+                    padding: '0 16px',
+                    'min-width': '88px',
+                    'border-radius': '999px',
+                    border: 'none',
+                    background: '#0a59f7',
+                    color: '#fff',
+                    'font-size': '14px',
+                    'line-height': '22px',
+                    cursor: sending() || !canSend() ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  确定
+                </button>
+              </div>
+            </div>
+          )}
+        </Show>
       </Show>
     </div>
   )
@@ -867,17 +1046,23 @@ function normalizedRectFromPoints(a: Point, b: Point): NormalizedRect {
   }
 }
 
-function drawNormalizedBox(ctx: CanvasRenderingContext2D, box: NormalizedRect, width: number, height: number) {
+function drawNormalizedBox(ctx: CanvasRenderingContext2D, box: NormalizedRect, width: number, height: number, dpr: number = 1) {
   const left = box.x * width
   const top = box.y * height
   const boxWidth = Math.max(1, box.width * width)
   const boxHeight = Math.max(1, box.height * height)
   ctx.save()
-  ctx.fillStyle = 'rgba(255, 59, 48, 0.10)'
-  ctx.strokeStyle = STROKE_COLOR
-  ctx.lineWidth = Math.max(2, Math.round(Math.min(width, height) * 0.002))
-  ctx.setLineDash([10, 6])
+  // Overlay: dim entire canvas
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.3)'
+  ctx.fillRect(0, 0, width, height)
+  // Clear box area and fill with selection color
+  ctx.clearRect(left, top, boxWidth, boxHeight)
+  ctx.fillStyle = 'rgba(10, 89, 247, 0.1)'
   ctx.fillRect(left, top, boxWidth, boxHeight)
+  // Draw solid border
+  ctx.strokeStyle = STROKE_COLOR
+  ctx.lineWidth = 2 * dpr
+  ctx.setLineDash([])
   ctx.strokeRect(left, top, boxWidth, boxHeight)
   ctx.restore()
 }

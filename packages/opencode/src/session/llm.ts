@@ -46,6 +46,7 @@ export type StreamInput = {
   tools: Record<string, Tool>
   retries?: number
   toolChoice?: "auto" | "required" | "none"
+  compactionAttempted?: boolean
 }
 
 export type StreamRequest = StreamInput & {
@@ -99,7 +100,6 @@ const live: Layer.Layer<
 
       // TODO: move this to a proper hook
       const isOpenaiOauth = item.id === "openai" && info?.type === "oauth"
-
       const system: string[] = []
       system.push(
         [

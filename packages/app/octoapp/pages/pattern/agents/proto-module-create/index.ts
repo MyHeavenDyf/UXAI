@@ -1,6 +1,8 @@
 import { extractJson } from '../../utils/json-parser';
 import { runChildSession } from '../run-child-session';
-import { logAgentParsed } from "../../utils/debug-log"
+import { logAgentParsed } from "../../utils/debug-log";
+import { MODULE_CREATE_FORMAT } from "./schema";
+import { agentThrow } from "../../utils/error-msg";
 
 const AGENT_NAME = "proto_module_create";
 
@@ -42,21 +44,28 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
     elementId,
     layoutPlanner,
     intentDescription,
-    onSessionCreated 
+    onSessionCreated
   } = input
-  // 如果该模块已应用 pattern，跳过 LLM，直接使用 pattern JSON
-  const sectionDetailList = intentDescription?.sectionDetailList ?? []
-  const sectionDetail = sectionDetailList.find((item: any) => item?.id === sectionId)
-  if (sectionDetail?.patternJson) {
-    // intentDescription 来自 SolidJS store，patternJson 是 Proxy，需深拷贝为纯对象
-    const patternJson = JSON.parse(JSON.stringify(sectionDetail.patternJson))
-    const remapped = remapPatternRootId(patternJson, elementId)
-    console.log(`----- 模块 ${sectionId} 使用 Pattern 模板，跳过 LLM -----`)
-    return {
-      ui_json: remapped,
-      section_id: sectionId,
-      element_id: elementId,
-      id_prefix: idPrefix
+
+  // 如果该模块有 patternId，从 extra.patterns 中取预处理的 content，跳过 LLM
+  const sections = intentDescription?.sections ?? []
+  const sectionDetail = sections.find((item: any) => item?.id === sectionId)
+  if (sectionDetail?.patternId) {
+    const patterns = input.extra?.patterns as Array<{ patternId: string; content?: any }> | undefined
+    const matched = patterns?.find(p => p.patternId === sectionDetail.patternId)
+    if (matched?.content) {
+      try {
+        const patternJson = remapPatternRootId(matched.content, elementId)
+        console.log(`----- 模块 ${sectionId} 使用 Pattern 模板，跳过 LLM -----`)
+        return {
+          ui_json: patternJson,
+          section_id: sectionId,
+          element_id: elementId,
+          id_prefix: idPrefix
+        }
+      } catch {
+        console.warn(`----- Pattern JSON 解析失败: ${sectionDetail.patternId} -----`)
+      }
     }
   }
 
@@ -75,13 +84,14 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
     sync,
     onSessionCreated,
     extra: input.extra,
+    schema: MODULE_CREATE_FORMAT.schema,
   })
   console.log("----- 模块渲染Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 a2ui json
   const moduleJson = extractJson(moduleResult.text)
   if (!moduleJson) {
     logAgentParsed(moduleResult.childSessionId, { error: "Failed to parse JSON", raw: moduleResult.text })
-    throw new Error("----- Module JSON did not return valid JSON -----")
+    agentThrow(AGENT_NAME, moduleResult.childSessionId, "Module JSON did not return valid JSON")
   }
   const returnValue = {
     "ui_json": moduleJson,
@@ -97,10 +107,11 @@ export default async function proto_module_create(input: ProtoModuleCreateInput)
 function remapPatternRootId(pattern: any, elementId: string): any {
   const oldRootId = pattern.rootId
   if (!oldRootId || oldRootId === elementId) return pattern
+  const elements = Array.isArray(pattern.elements) ? pattern.elements : []
   return {
     ...pattern,
     rootId: elementId,
-    elements: pattern.elements.map((el: any) =>
+    elements: elements.map((el: any) =>
       el.id === oldRootId ? { ...el, id: elementId } : el
     ),
   }
@@ -123,7 +134,7 @@ function buildHumanMessage(idPrefix: string, sectionId: string, elementId: strin
   let slotElemnetStr = JSON.stringify(slotElement, null, 2);
 
   // 该模块详细意图
-  let sectionDetailList = intentDescription.sectionDetailList ?? [];
+  let sectionDetailList = intentDescription.sections ?? [];
   let sectionDetail = sectionDetailList.find((item: any) => item?.id === sectionId) ?? {};
   let sectionDetailStr = JSON.stringify(sectionDetail, null, 2);
   let humanMessage: string;

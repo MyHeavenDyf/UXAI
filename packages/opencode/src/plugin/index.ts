@@ -19,8 +19,16 @@ import { gitlabAuthPlugin as GitlabAuthPlugin } from "opencode-gitlab-auth"
 import { PoeAuthPlugin } from "opencode-poe-auth"
 import { CloudflareAIGatewayAuthPlugin, CloudflareWorkersAuthPlugin } from "./cloudflare"
 import { AzureAuthPlugin } from "./azure"
+import { ModelHeadersPlugin } from "./model-headers"
+// proto agent 提示词按主题动态覆盖(替代 122f218cb 在 llm.ts 里的硬编码)
+import { ProtoThemePlugin } from "./proto-theme"
 // octo 自有 server 插件:MCP 工具执行前注入精确 S3 URL(见 ../agent/octo-upload-inject.ts)
 import { OctoUploadInjectPlugin } from "../agent/octo-upload-inject"
+// octo 自有 server 插件:insight 会话工作目录对齐 —— 声明层(Working directory)+ 执行层
+// (write/edit/read 相对基准、bash workdir、glob/grep 默认目录)统一到会话 outputs/。
+// 见 ../agent/octo-session-workdir.ts、SPEC-INS-028。
+import { OctoSessionWorkdirPlugin } from "../agent/octo-session-workdir"
+import { OctoTaskSerializePlugin } from "../agent/octo-task-serialize"
 import { Effect, Layer, Context, Stream } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
@@ -66,7 +74,11 @@ const INTERNAL_PLUGINS: PluginInstance[] = [
   CloudflareWorkersAuthPlugin,
   CloudflareAIGatewayAuthPlugin,
   AzureAuthPlugin,
+  ModelHeadersPlugin,
+  ProtoThemePlugin,
   OctoUploadInjectPlugin,
+  OctoSessionWorkdirPlugin,
+  OctoTaskSerializePlugin,
 ]
 
 function isServerPlugin(value: unknown): value is PluginInstance {

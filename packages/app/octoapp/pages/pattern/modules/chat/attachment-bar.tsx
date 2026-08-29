@@ -10,7 +10,7 @@ export type Attachment = {
 }
 
 function getMimeIcon(mime: string): string {
-  if (mime.startsWith("image/")) return "🖼"
+  if (mime.startsWith("image/")) return "📄"
   if (mime === "application/pdf") return "📕"
   if (mime.includes("word") || mime.includes("docx")) return "📝"
   if (mime.includes("excel") || mime.includes("xlsx") || mime.includes("spreadsheet")) return "📊"

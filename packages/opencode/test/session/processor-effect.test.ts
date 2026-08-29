@@ -601,6 +601,176 @@ it.live("session.processor effect tests publish retry status updates", () =>
   ),
 )
 
+it.live("session.processor effect tests estimate context when provider usage is missing", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.text("y".repeat(300), { usage: { input: 0, output: 0 } })
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "compact")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const base = yield* provider.getModel(ref.providerID, ref.modelID)
+        const mdl = { ...base, limit: { context: 100, output: 10 } }
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "x".repeat(80) }],
+          tools: {},
+        })
+
+        expect(value).toBe("compact")
+        expect(handle.message.tokens.input).toBeGreaterThan(0)
+        expect(handle.message.tokens.total).toBeGreaterThanOrEqual(handle.message.tokens.input)
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("session.processor effect tests compact before sending when history exceeds the context budget", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "continue")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const base = yield* provider.getModel(ref.providerID, ref.modelID)
+        const mdl = { ...base, limit: { context: 80, output: 20 } }
+        const handle = yield* processors.create({ assistantMessage: msg, sessionID: chat.id, model: mdl })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [
+            { role: "user", content: "old context" },
+            { role: "assistant", content: "x".repeat(260) },
+            { role: "user", content: "continue" },
+          ],
+          tools: {},
+        })
+
+        expect(value).toBe("compact")
+        expect(yield* llm.calls).toBe(0)
+        expect(handle.message.error).toBeUndefined()
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live(
+  "session.processor effect tests stop before sending when the current request alone exceeds the context budget",
+  () =>
+    provideTmpdirServer(
+      ({ dir, llm }) =>
+        Effect.gen(function* () {
+          const { processors, session, provider } = yield* boot()
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "large request")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const base = yield* provider.getModel(ref.providerID, ref.modelID)
+          const mdl = { ...base, limit: { context: 80, output: 20 } }
+          const handle = yield* processors.create({ assistantMessage: msg, sessionID: chat.id, model: mdl })
+
+          const value = yield* handle.process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "x".repeat(260) }],
+            tools: {},
+          })
+
+          expect(value).toBe("stop")
+          expect(yield* llm.calls).toBe(0)
+          expect(handle.message.error?.name).toBe("ContextOverflowError")
+          expect(JSON.stringify(handle.message.error)).toContain("current request is too large")
+        }),
+      { git: true, config: (url) => providerCfg(url) },
+    ),
+)
+
+it.live(
+  "session.processor effect tests stop instead of compacting repeatedly",
+  () =>
+    provideTmpdirServer(
+      ({ dir, llm }) =>
+        Effect.gen(function* () {
+          const { processors, session, provider } = yield* boot()
+          const chat = yield* session.create({})
+          const parent = yield* user(chat.id, "continue")
+          const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+          const base = yield* provider.getModel(ref.providerID, ref.modelID)
+          const mdl = { ...base, limit: { context: 80, output: 20 } }
+          const handle = yield* processors.create({ assistantMessage: msg, sessionID: chat.id, model: mdl })
+
+          const value = yield* handle.process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [
+              { role: "user", content: "old context" },
+              { role: "assistant", content: "x".repeat(260) },
+              { role: "user", content: "continue" },
+            ],
+            tools: {},
+            compactionAttempted: true,
+          })
+
+          expect(value).toBe("stop")
+          expect(yield* llm.calls).toBe(0)
+          expect(handle.message.error?.name).toBe("ContextOverflowError")
+          expect(JSON.stringify(handle.message.error)).toContain("after one compaction attempt")
+        }),
+      { git: true, config: (url) => providerCfg(url) },
+    ),
+)
+
 it.live("session.processor effect tests compact on structured context overflow", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>

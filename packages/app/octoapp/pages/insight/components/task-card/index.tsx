@@ -137,7 +137,7 @@ function Header(props: {
           type="button"
           onClick={props.onOpenResult}
           class="flex items-center justify-center gap-1.5 h-7 rounded-[6px] text-[13px] font-medium flex-shrink-0 transition-colors"
-          style={{ "min-width": "102px", padding: "0 14px", background: "var(--octo-brand)", color: "#FFFFFF" }}
+          style={{ "min-width": "102px", padding: "0 14px", background: "rgb(10,89,247)", color: "#FFFFFF" }}
         >
           <IconEye size={15} />
           查看结果
@@ -210,8 +210,11 @@ function Body(props: { card: TaskCardEntry }): JSX.Element {
               <IconChevron size={13} open={expanded()} />
             </button>
             <Show when={expanded()}>
+              {/* select-text:外壳整体 select-none(见 pages/layoutnet.tsx),但报错文本是要被复制
+                  出去粘给排查方的,不可选等于逼用户截图。此 pre 是折叠头 button 的兄弟节点、不在任何
+                  可点击区域内,放开无手势冲突。整卡可点的入口卡(output-entry-card)不同类,保持不可选。 */}
               <pre
-                class="mt-1.5 p-2.5 text-[12px] whitespace-pre-wrap break-all"
+                class="mt-1.5 p-2.5 text-[12px] whitespace-pre-wrap break-all select-text"
                 style={{
                   color: "var(--octo-danger)",
                   background: "var(--octo-danger-subtle)",

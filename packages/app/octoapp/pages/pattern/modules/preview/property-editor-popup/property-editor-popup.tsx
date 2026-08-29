@@ -6,9 +6,9 @@ import type { ElementRect, ContainerSize, ModifyElementData } from "./types"
 import {
   TEXT_ELEMENTS, LABEL_MAP, COMPONENT_ENUMS, ENUM_DEFAULTS, COMPONENT_PROPS,
   TW_FONT_SIZES, FW_TO_TW,
-  GRID_POSITIONS,
+  GRID_POSITIONS, BOOL_PROP_KEY_SET,
 } from "./constants"
-import { isTailwindToken, normalizeCssKeys, toHex } from "./utils"
+import { normalizeCssKeys, toHex } from "./utils"
 import { parseClass, type ParsedClassInfo } from "./class-parser"
 import { parseFillsFromRawCls, parseStrokesFromRawCls, parseEffectsFromRawCls } from "./raw-parsers"
 import { ColorPicker, TEXT_COLOR_TOKENS, BG_COLOR_TOKENS } from "./color-picker"
@@ -17,8 +17,8 @@ import { CustomSelect } from "./custom-select"
 import {
   SettingsIcon, FreeformIcon, RowIcon, ColIcon, HAlignIcon, VAlignIcon, BorderRadiusIcon,
   TopLeftBorderRadiusIcon, TopRightBorderRadiusIcon, BottomLeftBorderRadiusIcon, BottomRightBorderRadiusIcon,
-  HorizontalPaddingIcon, VerticalPaddingIcon,
-  LineHeightIcon, LetterSpacingIcon,
+  HorizontalPaddingIcon, VerticalPaddingIcon, PaddingIcon, MarginIcon, OpacityIcon, CornerCurveIcon,
+  LineHeightIcon, LetterSpacingIcon, ImageUploadIcon,
 } from "./icons"
 
 export function PropertyEditorPopup(props: {
@@ -28,6 +28,8 @@ export function PropertyEditorPopup(props: {
   currentClass?: string
   elementProps?: string
   sessionId?: string
+  /** make 侧传入 prototype.html 绝对路径：上传图片写到同级 uploads/，返回相对 URL */
+  htmlFilePath?: string
   elementRect: ElementRect
   clickPoint?: { x: number; y: number }
   containerSize: ContainerSize
@@ -60,6 +62,19 @@ export function PropertyEditorPopup(props: {
   const [editVAlign, setEditVAlign] = createSignal('')
   const [editTextColor, setEditTextColor] = createSignal('')
   const [editBgColor, setEditBgColor] = createSignal('')
+  const [textColorToken, setTextColorToken] = createSignal<string | null>(null)
+  const [bgColorToken, setBgColorToken] = createSignal<string | null>(null)
+
+  function matchTokenHex(hex: string, tokens: typeof TEXT_COLOR_TOKENS): string | null {
+    if (!hex) return null
+    const lower = hex.toLowerCase()
+    for (const t of tokens) {
+      const tokenAlpha = parseFloat(t.opacity) || 100
+      const tokenHex = tokenAlpha >= 100 ? t.color.toLowerCase() : (t.color + Math.round(tokenAlpha * 2.55).toString(16).padStart(2, '0')).toLowerCase()
+      if (tokenHex === lower) return t.name
+    }
+    return null
+  }
 
   const [editPt, setEditPt] = createSignal(0)
   const [editPr, setEditPr] = createSignal(0)
@@ -136,6 +151,33 @@ export function PropertyEditorPopup(props: {
   let effectIdCounter = 0
   let initialEffectsJson = ''
 
+  type MenuNode = {
+    id: number; key: unknown; title: string; icon: string
+    expanded: boolean; selected: boolean
+    raw: Record<string, unknown>
+    children?: MenuNode[]
+  }
+  const [menuTree, setMenuTree] = createStore<MenuNode[]>([])
+  let menuNodeIdCounter = 0
+  const [menuPanelOpen, setMenuPanelOpen] = createSignal(false)
+  let menuPanelRef!: HTMLDivElement
+
+  type TableColumn = {
+    id: number; title: string; dataIndex: string; align: string
+    width: string; minWidth: string; sort: boolean
+    raw: Record<string, unknown>
+  }
+  const [tableColumns, setTableColumns] = createStore<TableColumn[]>([])
+  let tableColIdCounter = 0
+  const [tablePanelOpen, setTablePanelOpen] = createSignal(false)
+  let tablePanelRef!: HTMLDivElement
+
+  type TableDataRow = { id: number; row: Record<string, unknown> }
+  const [tableData, setTableData] = createStore<TableDataRow[]>([])
+  let tableDataIdCounter = 0
+  const [dataPanelOpen, setDataPanelOpen] = createSignal(false)
+  let dataPanelRef!: HTMLDivElement
+
   const SHADOW_TOKEN_MAP: [string, string][] = [
     ["1px 1px 6px 0px rgba(0,0,0,0.08)", "card"],
     ["0px 4px 12px 0px rgba(0,0,0,0.16)", "md"],
@@ -161,18 +203,65 @@ export function PropertyEditorPopup(props: {
   const [rawProps, setRawProps] = createStore<Record<string, string>>({})
   const [propKeys, setPropKeys] = createSignal<string[]>([])
 
+  const dataFields = createMemo(() => {
+    const set: string[] = []
+    const rk = (editProps as Record<string, string>)['rowKey']
+    if (rk) set.push(rk)
+    for (const c of tableColumns) if (c.dataIndex) set.push(c.dataIndex)
+    return [...new Set(set)]
+  })
+
   let initialBgUrl = ''
   let parsedClasses: string[] = []
   let baseCssVars: Record<string, string> = {}
   let preservedCssVars: Record<string, string> = {}
+  let importantSet = new Set<string>()
 
   function getEnumOptions(key: string): { label: string; value: string }[] {
     return COMPONENT_ENUMS[`${props.componentType}.${key}`] || []
   }
 
-  function isBinding(key: string) {
-    return `__bind_${key}` in rawProps
+  function isStateBoundValue(v: unknown): v is { path: string } | { componentId: string } {
+    return v !== null && typeof v === "object" && !Array.isArray(v) && (
+      typeof (v as { path?: unknown }).path === "string" ||
+      typeof (v as { componentId?: unknown }).componentId === "string"
+    )
   }
+
+  function isBinding(key: string) {
+    return `__bind_${key}` in rawProps || isStateBoundValue((rawProps as Record<string, unknown>)[key])
+  }
+
+  type MenuError = { type: 'error' | 'warn'; nodeId?: number; field?: 'title' | 'key'; msg: string }
+
+  function validateMenuTree(): MenuError[] {
+    const errs: MenuError[] = []
+    if (menuTree.length === 0) return [{ type: 'warn', msg: '菜单不能为空' }]
+    const seenKeys = new Map<string, number>()
+    const check = (n: MenuNode, label: string) => {
+      if (!n.title) errs.push({ type: 'error', nodeId: n.id, field: 'title', msg: `${label} 标题不能为空` })
+      if (n.key == null || n.key === '') errs.push({ type: 'error', nodeId: n.id, field: 'key', msg: `${label} key 不能为空` })
+      else seenKeys.set(String(n.key), (seenKeys.get(String(n.key)) ?? 0) + 1)
+    }
+    menuTree.forEach((n, i) => {
+      check(n, `第 ${i + 1} 项`)
+      n.children?.forEach((c, ci) => check(c, `第 ${i + 1} 项的子项 ${ci + 1}`))
+    })
+    for (const [k, c] of seenKeys) if (c > 1) errs.push({ type: 'error', msg: `key '${k}' 重复（${c} 次）` })
+    return errs
+  }
+  const menuErrors = createMemo(() => validateMenuTree())
+
+  type TableError = { type: 'error'; colId: number; field: 'title' | 'dataIndex'; msg: string }
+  function validateTableColumns(): TableError[] {
+    const errs: TableError[] = []
+    tableColumns.forEach((c, i) => {
+      if (!c.title) errs.push({ type: 'error', colId: c.id, field: 'title', msg: `第 ${i + 1} 列标题不能为空` })
+      if (!c.dataIndex) errs.push({ type: 'error', colId: c.id, field: 'dataIndex', msg: `第 ${i + 1} 列字段不能为空` })
+    })
+    return errs
+  }
+  const tableErrors = createMemo(() => validateTableColumns())
 
   function splitCssList(value: string): string[] {
     const parts: string[] = []
@@ -210,51 +299,113 @@ export function PropertyEditorPopup(props: {
     return { right: 5, top: 50 }
   }
 
+  function computeMaxPopupH() {
+    const host = popupRef?.offsetParent as HTMLElement | null
+    const base = host?.clientHeight ?? props.containerSize.height ?? window.innerHeight
+    return Math.max(200, base - initialPos.top - 20)
+  }
+
   function doParseClass(rawCls: string): ParsedClassInfo {
     const result = parseClass(rawCls)
     parsedClasses = result.classes
     return result.info
   }
 
-  function buildClassName() {
-    const parts = parsedClasses.filter(c =>
-      !c.startsWith('text-[') &&
-      !c.match(/^text-\S+$/) &&
-      !c.match(/^font-\S+$/) &&
-      !['text-left', 'text-center', 'text-right', 'text-justify'].includes(c) &&
-      !c.startsWith('p-[') && !c.match(/^p(t|r|b|l)?-\d+$/) &&
-      !c.startsWith('pt-[') && !c.startsWith('pr-[') && !c.startsWith('pb-[') && !c.startsWith('pl-[') &&
-      !c.startsWith('m-[') && !c.match(/^m(t|r|b|l)?-\d+$/) &&
-      !c.startsWith('mt-[') && !c.startsWith('mr-[') && !c.startsWith('mb-[') && !c.startsWith('ml-[') &&
-      !c.startsWith('rounded-[') && !c.match(/^rounded(-\S+)?$/) &&
-      !c.startsWith('rounded-tl-[') && !c.startsWith('rounded-tr-[') &&
-      !c.startsWith('rounded-br-[') && !c.startsWith('rounded-bl-[') &&
-      !c.startsWith('opacity-[') && !c.match(/^opacity-\d+$/) &&
-      !c.startsWith('w-[') && !c.match(/^w-\S+$/) &&
-      !c.startsWith('h-[') && !c.match(/^h-\S+$/) &&
-      !['flex', 'flex-col', 'flex-row'].includes(c) &&
-      !c.startsWith('gap-[') && !c.match(/^gap-\d+$/) &&
-      !c.match(/^justify-\S+$/) && !c.match(/^items-\S+$/) && c !== 'overflow-hidden' && c !== 'border-solid' &&
-      !c.startsWith('border-[') && !c.startsWith('border-t-[') && !c.startsWith('border-r-[') && !c.startsWith('border-b-[') && !c.startsWith('border-l-[') &&
-      !c.match(/^border(-[trbl])?-\d+$/) &&
-      !c.startsWith('bg-[') &&
-      !c.startsWith('shadow-[') && !c.startsWith('blur-[') && !c.startsWith('backdrop-blur-[') &&
-      !c.startsWith('leading-') && !c.startsWith('tracking-') && !c.startsWith('font-')
-    )
-    if (foundFontSize()) {
+  const SNAPSHOT_GROUPS: Record<string, string[]> = {
+    text: ['text'],
+    fontSize: ['fontSize', 'foundFontSize'],
+    fontWeight: ['fontWeight', 'foundFontWeight'],
+    textAlign: ['textAlign'],
+    fontFamily: ['fontFamily'],
+    lineHeight: ['lineHeight'],
+    letterSpacing: ['letterSpacing'],
+    textColor: ['textColor', 'textColorToken'],
+    bgColor: ['bgColor', 'bgColorToken'],
+    vAlign: ['vAlign'],
+    padding: ['pt', 'foundPt', 'pr', 'foundPr', 'pb', 'foundPb', 'pl', 'foundPl', 'paddingMode'],
+    margin: ['mt', 'foundMt', 'mr', 'foundMr', 'mb', 'foundMb', 'ml', 'foundMl', 'marginMode'],
+    radius: ['radius', 'foundRadius', 'radiusTl', 'foundRadiusTl', 'radiusTr', 'foundRadiusTr', 'radiusBr', 'foundRadiusBr', 'radiusBl', 'foundRadiusBl'],
+    width: ['width', 'widthPx', 'foundWidthPx', 'fillWidth', 'hugWidth'],
+    height: ['heightPx', 'foundHeightPx', 'fillHeight', 'hugHeight'],
+    clipContent: ['clipContent'],
+    opacity: ['opacity', 'foundOpacity'],
+    flexDir: ['flexDir', 'flexGap', 'foundFlexGap', 'justify', 'alignItems'],
+    bgImage: ['bgImage', 'bgUrl'],
+    tag: ['tag'],
+    fills: ['fills'],
+    strokes: ['strokes'],
+    effects: ['effects'],
+    componentProps: ['editProps', 'propKeys'],
+  }
+
+  function classifyClassGroup(c: string): string | null {
+    const s = c.startsWith('!') ? c.slice(1) : c
+    if (s === 'text-left' || s === 'text-center' || s === 'text-right' || s === 'text-justify') return 'textAlign'
+    if (s.startsWith('text-[#')) return 'textColor'
+    if (/^text-hui-/.test(s)) return 'textColor'
+    if (s.startsWith('text-[')) return 'fontSize'
+    if (s.startsWith('text-') && TW_FONT_SIZES[s.slice(5)] != null) return 'fontSize'
+    if (/^text-(ellipsis|clip|wrap|nowrap|balance|pretty)$/.test(s)) return null
+    if (s.startsWith('text-')) return 'textColor'
+    if (/^font-(thin|extralight|light|normal|medium|semibold|bold|extrabold|black)$/.test(s)) return 'fontWeight'
+    if (s.startsWith('font-[')) return 'fontFamily'
+    if (s.startsWith('leading-')) return 'lineHeight'
+    if (s.startsWith('tracking-')) return 'letterSpacing'
+    if (/^(p|pt|pr|pb|pl|px|py)-/.test(s)) return 'padding'
+    if (/^(m|mt|mr|mb|ml|mx|my)-/.test(s)) return 'margin'
+    if (s.startsWith('rounded-') || s === 'rounded') return 'radius'
+    if (/^(w|min-w|max-w)-/.test(s)) return 'width'
+    if (/^(h|min-h|max-h)-/.test(s)) return 'height'
+    if (s.startsWith('overflow-')) return 'clipContent'
+    if (s.startsWith('opacity-')) return 'opacity'
+    if (s.startsWith('bg-[url')) return 'bgImage'
+    if (/^bg-(cover|contain|center|no-repeat|repeat|fixed|bottom|top|left|right)$/.test(s)) return 'bgImage'
+    if (s.startsWith('bg-')) return 'bgColor'
+    if (s.startsWith('border-')) return 'strokes'
+    if (s.startsWith('shadow-[')) return 'effects'
+    if (s.startsWith('shadow-') && s !== 'shadow') return 'effects'
+    if (s.startsWith('blur-[') || s.startsWith('backdrop-blur-[')) return 'effects'
+    if (s === 'flex' || s === 'flex-col' || s === 'flex-row' || s.startsWith('gap-') || s.startsWith('justify-') || s.startsWith('items-')) return 'flexDir'
+    return null
+  }
+
+  function computeDirtyGroups(): Set<string> | null {
+    if (!initialized || !initialSnapshotJson) return null
+    let initSnap: Record<string, unknown>
+    try { initSnap = JSON.parse(initialSnapshotJson) as Record<string, unknown> } catch { return null }
+    const cur = autoSnapshot()
+    if (!cur) return null
+    const dirty = new Set<string>()
+    for (const [name, keys] of Object.entries(SNAPSHOT_GROUPS)) {
+      for (const k of keys) {
+        if (JSON.stringify(initSnap[k]) !== JSON.stringify((cur as Record<string, unknown>)[k])) { dirty.add(name); break }
+      }
+    }
+    return dirty
+  }
+
+  function buildClassName(dirtyGroups?: Set<string> | null) {
+    const parts = parsedClasses.filter(c => {
+      const g = classifyClassGroup(c)
+      if (g === null) return true
+      if (!dirtyGroups) return false
+      return !dirtyGroups.has(g)
+    })
+    const isDirty = (g: string) => !dirtyGroups || dirtyGroups.has(g)
+    if (isDirty('fontSize') && foundFontSize()) {
       const twFs = Object.entries(TW_FONT_SIZES).find(([, v]) => v === editFontSize())
       if (twFs) parts.push(`text-${twFs[0]}`)
       else parts.push(`text-[${editFontSize()}px]`)
     }
-    if (foundFontWeight()) {
+    if (isDirty('fontWeight') && foundFontWeight()) {
       const twFw = FW_TO_TW[editFontWeight()]
       if (twFw) parts.push(`font-${twFw}`)
     }
-    if (editFontFamily()) parts.push(`font-${editFontFamily()}`)
-    if (editLineHeight() && editLineHeight() !== 'auto') parts.push(`leading-[${editLineHeight()}]`)
-    if (editLetterSpacing()) parts.push(`tracking-[${editLetterSpacing() / 100}em]`)
-    if (editAlign()) parts.push(`text-${editAlign()}`)
-    if (editVAlign()) parts.push(`items-${editVAlign()}`)
+    if (isDirty('fontFamily') && editFontFamily()) parts.push(`font-${editFontFamily()}`)
+    if (isDirty('lineHeight') && editLineHeight() && editLineHeight() !== 'auto') parts.push(`leading-[${editLineHeight()}]`)
+    if (isDirty('letterSpacing') && editLetterSpacing()) parts.push(`tracking-[${editLetterSpacing() / 100}em]`)
+    if (isDirty('textAlign') && editAlign()) parts.push(`text-${editAlign()}`)
+    if (isDirty('vAlign') && editVAlign()) parts.push(`items-${editVAlign()}`)
 
     const pv = [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64]
     const pushSpacing = (prefix: string, pairs: [Accessor<number>, string][]) => {
@@ -272,83 +423,97 @@ export function PropertyEditorPopup(props: {
         parts.push(pv.includes(v) ? `${p}-${v / 4}` : `${p}-[${v}px]`)
       }
     }
-    pushSpacing('p', [[editPt, 'pt'], [editPr, 'pr'], [editPb, 'pb'], [editPl, 'pl']])
-    pushSpacing('m', [[editMt, 'mt'], [editMr, 'mr'], [editMb, 'mb'], [editMl, 'ml']])
-    if (foundRadiusTl() || foundRadiusTr() || foundRadiusBr() || foundRadiusBl()) {
-      if (foundRadiusTl() && editRadiusTl()) parts.push(`rounded-tl-[${editRadiusTl()}px]`)
-      if (foundRadiusTr() && editRadiusTr()) parts.push(`rounded-tr-[${editRadiusTr()}px]`)
-      if (foundRadiusBr() && editRadiusBr()) parts.push(`rounded-br-[${editRadiusBr()}px]`)
-      if (foundRadiusBl() && editRadiusBl()) parts.push(`rounded-bl-[${editRadiusBl()}px]`)
-    } else if (foundRadius()) {
-      if (editRadius() === 999) parts.push('rounded-full')
-      else if (editRadius() === 0) parts.push('rounded-none')
-      else {
-        const rMap: Record<number, string> = { 2: 'sm', 4: '', 6: 'md', 8: 'lg', 12: 'xl', 16: '2xl', 24: '3xl' }
-        if (rMap[editRadius()] !== undefined) parts.push(`rounded${rMap[editRadius()] ? '-' + rMap[editRadius()] : ''}`)
-        else parts.push(`rounded-[${editRadius()}px]`)
-      }
-    }
-    if (fillWidth()) parts.push('w-full')
-    else if (hugWidth()) parts.push('w-auto')
-    else if (foundWidthPx() && editWidthPx()) parts.push(`w-[${editWidthPx()}px]`)
-    else if (editWidth()) {
-      if (editWidth() === '100%') parts.push('w-full')
-      else if (editWidth() === 'auto') parts.push('w-auto')
-      else parts.push(`w-[${editWidth()}]`)
-    }
-    if (fillHeight()) parts.push('h-full')
-    else if (hugHeight()) parts.push('h-auto')
-    else if (foundHeightPx() && editHeightPx()) parts.push(`h-[${editHeightPx()}px]`)
-    if (clipContent()) parts.push('overflow-hidden')
-    for (const f of fills) {
-      if (!f.visible) continue
-      const alpha = f.opacity / 100
-      parts.push(alpha < 1 ? `bg-[${f.color}/${f.opacity}]` : `bg-[${f.color}]`)
-    }
-    for (const s of strokes) {
-      if (!s.visible) continue
-      if (s.individualOpen) {
-        if (s.foundWidthTop && s.widthTop) parts.push(`border-t-[${s.widthTop}px]`)
-        if (s.foundWidthRight && s.widthRight) parts.push(`border-r-[${s.widthRight}px]`)
-        if (s.foundWidthBottom && s.widthBottom) parts.push(`border-b-[${s.widthBottom}px]`)
-        if (s.foundWidthLeft && s.widthLeft) parts.push(`border-l-[${s.widthLeft}px]`)
-      } else if (s.foundWidth && s.width) {
-        parts.push(`border-[${s.width}px]`)
-      }
-      parts.push(`border-[${s.color}]`)
-      parts.push('border-solid')
-    }
-    for (const e of effects) {
-      if (!e.visible) continue
-      if (e.type === 'drop-shadow') {
-        const token = matchShadowToken(e)
-        if (token) {
-          parts.push(`shadow-${token}`)
-        } else {
-          const r = Math.round(e.opacity * 2.55)
-          const a = r.toString(16).padStart(2, '0')
-          const c = e.color + a
-          const b = e.foundBlur && e.blur ? `${e.blur}px` : '0'
-          const x = e.foundOffsetX ? `${e.offsetX}px` : '0'
-          const y = e.foundOffsetY ? `${e.offsetY}px` : '0'
-          parts.push(`shadow-[${x}_${y}_${b}_${c}]`)
+    if (isDirty('padding')) pushSpacing('p', [[editPt, 'pt'], [editPr, 'pr'], [editPb, 'pb'], [editPl, 'pl']])
+    if (isDirty('margin')) pushSpacing('m', [[editMt, 'mt'], [editMr, 'mr'], [editMb, 'mb'], [editMl, 'ml']])
+    if (isDirty('radius')) {
+      if (foundRadiusTl() || foundRadiusTr() || foundRadiusBr() || foundRadiusBl()) {
+        if (foundRadiusTl() && editRadiusTl()) parts.push(`rounded-tl-[${editRadiusTl()}px]`)
+        if (foundRadiusTr() && editRadiusTr()) parts.push(`rounded-tr-[${editRadiusTr()}px]`)
+        if (foundRadiusBr() && editRadiusBr()) parts.push(`rounded-br-[${editRadiusBr()}px]`)
+        if (foundRadiusBl() && editRadiusBl()) parts.push(`rounded-bl-[${editRadiusBl()}px]`)
+      } else if (foundRadius()) {
+        if (editRadius() === 999) parts.push('rounded-full')
+        else if (editRadius() === 0) parts.push('rounded-none')
+        else {
+          const rMap: Record<number, string> = { 2: 'sm', 4: '', 6: 'md', 8: 'lg', 12: 'xl', 16: '2xl', 24: '3xl' }
+          if (rMap[editRadius()] !== undefined) parts.push(`rounded${rMap[editRadius()] ? '-' + rMap[editRadius()] : ''}`)
+          else parts.push(`rounded-[${editRadius()}px]`)
         }
-      } else if (e.type === 'layer-blur') {
-        if (e.foundLayerBlur && e.layerBlur) parts.push(`blur-[${e.layerBlur}px]`)
-      } else if (e.type === 'background-blur') {
-        if (e.foundBgBlur && e.bgBlur) parts.push(`backdrop-blur-[${e.bgBlur}px]`)
       }
     }
-    if (foundOpacity() && editOpacity() !== 100) parts.push(`opacity-[${editOpacity() / 100}]`)
-    if (editFlexDir() === 'col') parts.push('flex', 'flex-col')
-    else if (editFlexDir() === 'row') parts.push('flex', 'flex-row')
-    const j = editJustify()
-    if (editFlexGap() && j !== 'between' && j !== 'around') {
-      const gv = editFlexGap()
-      parts.push(pv.includes(gv) ? `gap-${gv / 4}` : `gap-[${gv}px]`)
+    if (isDirty('width')) {
+      if (fillWidth()) parts.push('w-full')
+      else if (hugWidth()) parts.push('w-auto')
+      else if (foundWidthPx() && editWidthPx()) parts.push(`w-[${editWidthPx()}px]`)
+      else if (editWidth()) {
+        if (editWidth() === '100%') parts.push('w-full')
+        else if (editWidth() === 'auto') parts.push('w-auto')
+        else parts.push(`w-[${editWidth()}]`)
+      }
     }
-    if (j) parts.push(`justify-${j}`)
-    if (editAlignItems()) parts.push(`items-${editAlignItems()}`)
+    if (isDirty('height')) {
+      if (fillHeight()) parts.push('h-full')
+      else if (hugHeight()) parts.push('h-auto')
+      else if (foundHeightPx() && editHeightPx()) parts.push(`h-[${editHeightPx()}px]`)
+    }
+    if (isDirty('clipContent') && clipContent()) parts.push('overflow-hidden')
+    if (isDirty('fills')) {
+      for (const f of fills) {
+        if (!f.visible) continue
+        const alpha = f.opacity / 100
+        parts.push(alpha < 1 ? `bg-[${f.color}/${f.opacity}]` : `bg-[${f.color}]`)
+      }
+    }
+    if (isDirty('strokes')) {
+      for (const s of strokes) {
+        if (!s.visible) continue
+        if (s.individualOpen) {
+          if (s.foundWidthTop && s.widthTop) parts.push(`border-t-[${s.widthTop}px]`)
+          if (s.foundWidthRight && s.widthRight) parts.push(`border-r-[${s.widthRight}px]`)
+          if (s.foundWidthBottom && s.widthBottom) parts.push(`border-b-[${s.widthBottom}px]`)
+          if (s.foundWidthLeft && s.widthLeft) parts.push(`border-l-[${s.widthLeft}px]`)
+        } else if (s.foundWidth && s.width) {
+          parts.push(`border-[${s.width}px]`)
+        }
+        parts.push(`border-[${s.color}]`)
+        parts.push('border-solid')
+      }
+    }
+    if (isDirty('effects')) {
+      for (const e of effects) {
+        if (!e.visible) continue
+        if (e.type === 'drop-shadow') {
+          const token = matchShadowToken(e)
+          if (token) {
+            parts.push(`shadow-${token}`)
+          } else {
+            const r = Math.round(e.opacity * 2.55)
+            const a = r.toString(16).padStart(2, '0')
+            const c = e.color + a
+            const b = e.foundBlur && e.blur ? `${e.blur}px` : '0'
+            const x = e.foundOffsetX ? `${e.offsetX}px` : '0'
+            const y = e.foundOffsetY ? `${e.offsetY}px` : '0'
+            parts.push(`shadow-[${x}_${y}_${b}_${c}]`)
+          }
+        } else if (e.type === 'layer-blur') {
+          if (e.foundLayerBlur && e.layerBlur) parts.push(`blur-[${e.layerBlur}px]`)
+        } else if (e.type === 'background-blur') {
+          if (e.foundBgBlur && e.bgBlur) parts.push(`backdrop-blur-[${e.bgBlur}px]`)
+        }
+      }
+    }
+    if (isDirty('opacity') && foundOpacity() && editOpacity() !== 100) parts.push(`opacity-[${editOpacity() / 100}]`)
+    if (isDirty('flexDir')) {
+      if (editFlexDir() === 'col') parts.push('flex', 'flex-col')
+      else if (editFlexDir() === 'row') parts.push('flex', 'flex-row')
+      const j = editJustify()
+      if (editFlexGap() && j !== 'between' && j !== 'around') {
+        const gv = editFlexGap()
+        parts.push(pv.includes(gv) ? `gap-${gv / 4}` : `gap-[${gv}px]`)
+      }
+      if (j) parts.push(`justify-${j}`)
+      if (editAlignItems()) parts.push(`items-${editAlignItems()}`)
+    }
     return parts.join(' ')
   }
 
@@ -469,11 +634,23 @@ export function PropertyEditorPopup(props: {
 
     if (v.color) {
       const c = String(v.color)
-      if (c.startsWith('#') || c.startsWith('rgb')) setEditTextColor(toHex(c))
+      if (c.startsWith('#') || c.startsWith('rgb')) {
+        const hex = toHex(c)
+        setEditTextColor(hex)
+        const m = rawCls.match(/\btext-(hui-\S+)\b/)
+        const named = m && TEXT_COLOR_TOKENS.find(t => t.name === m[1]) ? m[1] : null
+        setTextColorToken(named ?? matchTokenHex(hex, TEXT_COLOR_TOKENS))
+      }
     }
     if (v.backgroundColor) {
       const c = String(v.backgroundColor)
-      if (c.startsWith('#') || c.startsWith('rgb')) setEditBgColor(toHex(c))
+      if (c.startsWith('#') || c.startsWith('rgb')) {
+        const hex = toHex(c)
+        setEditBgColor(hex)
+        const m = rawCls.match(/\bbg-(hui-\S+)\b/)
+        const named = m && BG_COLOR_TOKENS.find(t => t.name === m[1]) ? m[1] : null
+        setBgColorToken(named ?? matchTokenHex(hex, BG_COLOR_TOKENS))
+      }
     }
     if (v.backgroundImage) {
       const m = String(v.backgroundImage).match(/url\(['"]?([^'"()]+)['"]?\)/)
@@ -571,7 +748,7 @@ export function PropertyEditorPopup(props: {
       setEffects([...effects, { id: ++effectIdCounter, ...e }])
     }
 
-    setEditText((parsed.value ?? '').toString())
+    setEditText(isStateBoundValue(parsed.value) ? '' : (parsed.value ?? '').toString())
     const bgUrl = v.backgroundImage ? '' : (parsed.backgroundImage || '').toString()
     if (bgUrl) {
       setEditBgUrl(bgUrl === 'none' ? '' : bgUrl)
@@ -602,7 +779,7 @@ export function PropertyEditorPopup(props: {
   function applyParseClassFallback(rawCls: string, parsed: Record<string, unknown>) {
     const clsInfo = doParseClass(rawCls)
 
-    setEditText((parsed.value ?? '').toString())
+    setEditText(isStateBoundValue(parsed.value) ? '' : (parsed.value ?? '').toString())
     setEditFontSize(clsInfo.fontSize); setFoundFontSize(clsInfo.foundFontSize)
     setEditFontWeight(clsInfo.fontWeight); setFoundFontWeight(clsInfo.foundFontWeight)
     setEditAlign(clsInfo.textAlign)
@@ -612,9 +789,27 @@ export function PropertyEditorPopup(props: {
     setEditVAlign(clsInfo.vAlign)
 
     const tcMatch = rawCls.match(/\btext-\[#([a-fA-F0-9]{3,8})\]/)
-    setEditTextColor(tcMatch ? '#' + tcMatch[1] : '')
+    const tcTokenMatch = rawCls.match(/\btext-(hui-\S+)\b/)
+    if (tcTokenMatch) {
+      const token = TEXT_COLOR_TOKENS.find(t => t.name === tcTokenMatch[1])
+      if (token) setEditTextColor(token.color)
+      setTextColorToken(tcTokenMatch[1])
+    } else {
+      const hex = tcMatch ? '#' + tcMatch[1] : ''
+      setEditTextColor(hex)
+      setTextColorToken(matchTokenHex(hex, TEXT_COLOR_TOKENS))
+    }
     const bgcMatch = rawCls.match(/\bbg-\[#([a-fA-F0-9]{3,8})\]/)
-    setEditBgColor(bgcMatch ? '#' + bgcMatch[1] : toHex((parsed.backgroundColor || parsed.background || '').toString()))
+    const bgcTokenMatch = rawCls.match(/\bbg-(hui-\S+)\b/)
+    if (bgcTokenMatch) {
+      const token = BG_COLOR_TOKENS.find(t => t.name === bgcTokenMatch[1])
+      if (token) setEditBgColor(token.color)
+      setBgColorToken(bgcTokenMatch[1])
+    } else {
+      const hex = bgcMatch ? '#' + bgcMatch[1] : toHex((parsed.backgroundColor || parsed.background || '').toString())
+      setEditBgColor(hex)
+      setBgColorToken(matchTokenHex(hex, BG_COLOR_TOKENS))
+    }
 
     const bgUrlMatch = rawCls.match(/\bbg-\[url\(\/history\/([^)]+)\)\]/)
     const bgUrl = bgUrlMatch ? '/history/' + bgUrlMatch[1] : (parsed.backgroundImage || '').toString()
@@ -677,25 +872,94 @@ export function PropertyEditorPopup(props: {
   function syncComponentProps(parsed: Record<string, unknown>) {
     setRawProps(reconcile(parsed as Record<string, string>))
     const defKeys = COMPONENT_PROPS[props.componentType] || []
-    const allKeys = [...new Set([...defKeys, ...Object.keys(parsed)])].filter(k => !k.startsWith('__bind_') && k !== 'inlineCollapsed' && k !== 'preview' && k !== 'url')
+    const allKeys = [...new Set([...defKeys, ...Object.keys(parsed)])].filter(k => {
+      if (k.startsWith('__bind_') || k === 'inlineCollapsed' || k === 'preview' || k === 'url' || k === 'items' || k === 'open' || k === 'footer') return false
+      const v = parsed[k]
+      if (v == null) return true
+      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return true
+      if (isStateBoundValue(v)) return true
+      return false
+    })
     setPropKeys(allKeys)
     for (const k of allKeys) {
-      const raw = (parsed[k] ?? '').toString()
+      const parsedVal = parsed[k]
+      const raw = isStateBoundValue(parsedVal) ? '' : (parsedVal ?? '').toString()
       const opts = getEnumOptions(k)
-      const def = ENUM_DEFAULTS[`${props.componentType}.${k}`] ?? (opts.some(o => o.value === 'default') ? 'default' : '')
+      let def = ENUM_DEFAULTS[`${props.componentType}.${k}`]
+      if (!def && opts.some(o => o.value === 'default')) def = 'default'
+      if (!def && k === 'size' && opts.some(o => o.value === 'medium')) def = 'medium'
+      if (!def) def = opts[0]?.value ?? ''
       setEditProps(k, raw || def)
+    }
+    if (props.componentType === 'Menu') {
+      const itemsVal = parsed.items
+      const openKeysVal = Array.isArray(parsed.openKeys) ? parsed.openKeys as unknown[] : []
+      const selectedKeysVal = Array.isArray(parsed.selectedKeys) ? parsed.selectedKeys as unknown[] : []
+      const hasKey = (arr: unknown[], k: unknown) => arr.some(x => String(x) === String(k))
+      setMenuTree(Array.isArray(itemsVal) ? (itemsVal as unknown[]).map((it) => {
+        const o = it as Record<string, unknown>
+        const node: MenuNode = {
+          id: ++menuNodeIdCounter,
+          key: o?.key,
+          title: String(o?.title ?? ''),
+          icon: String(o?.icon ?? ''),
+          expanded: hasKey(openKeysVal, o?.key),
+          selected: hasKey(selectedKeysVal, o?.key),
+          raw: o,
+        }
+        if (Array.isArray(o?.children)) {
+          node.children = (o.children as unknown[]).map((ch) => {
+            const c = ch as Record<string, unknown>
+            return {
+              id: ++menuNodeIdCounter,
+              key: c?.key,
+              title: String(c?.title ?? ''),
+              icon: String(c?.icon ?? ''),
+              expanded: false,
+              selected: hasKey(selectedKeysVal, c?.key),
+              raw: c,
+            } as MenuNode
+          })
+        }
+        return node
+      }) : [])
+    }
+    if (props.componentType === 'Table') {
+      const colsVal = parsed.columns
+      setTableColumns(Array.isArray(colsVal) ? (colsVal as unknown[]).map((it) => {
+        const c = it as Record<string, unknown>
+        return {
+          id: ++tableColIdCounter,
+          title: String(c?.title ?? ''),
+          dataIndex: String(c?.dataIndex ?? ''),
+          align: String(c?.align ?? ''),
+          width: c?.width == null ? '' : String(c.width),
+          minWidth: c?.minWidth == null ? '' : String(c.minWidth),
+          sort: !!c?.sort,
+          raw: c,
+        } as TableColumn
+      }) : [])
+      const dsVal = parsed.dataSource
+      setTableData(Array.isArray(dsVal) ? (dsVal as unknown[]).map((it) => ({
+        id: ++tableDataIdCounter,
+        row: (it && typeof it === 'object' ? it : {}) as Record<string, unknown>,
+      })) : [])
     }
   }
 
-  let ready = false
+  const [ready, setReady] = createSignal(false)
   let apiCalled = false
   let autoUpdateTimer: ReturnType<typeof setTimeout> | undefined
+  let initialized = false
+  let initialSnapshotJson = ''
 
   function resetEditorSignals() {
     setEditFontSize(14); setFoundFontSize(false)
     setEditFontWeight(400); setFoundFontWeight(false)
     setEditAlign(''); setEditFontFamily(''); setEditLineHeight(''); setEditLetterSpacing(0)
-    setEditVAlign(''); setEditTextColor(''); setEditBgColor('')
+    setEditVAlign('');     setEditTextColor(''); setEditBgColor('')
+    setEditBgUrl('');      initialBgUrl = ''
+    setTextColorToken(null); setBgColorToken(null)
     setEditPt(0); setFoundPt(false); setEditPr(0); setFoundPr(false)
     setEditPb(0); setFoundPb(false); setEditPl(0); setFoundPl(false)
     setEditMt(0); setFoundMt(false); setEditMr(0); setFoundMr(false)
@@ -714,20 +978,31 @@ export function PropertyEditorPopup(props: {
     setFills([])
     setStrokes([])
     setEffects([])
+    setMenuTree([])
+    setTableColumns([])
+    setTableData([])
     preservedCssVars = {}
   }
 
   createEffect(() => {
     if (!props.show) {
-      ready = false
+      setReady(false)
       apiCalled = false
+      initialized = false
+      initialSnapshotJson = ''
       clearTimeout(autoUpdateTimer)
       return
     }
     let parsed: Record<string, unknown> = {}
     try { parsed = JSON.parse(props.elementProps || '{}') } catch { /* ignore */ }
-    const rawCls = (parsed.className as string) || props.currentClass || ''
-    parsedClasses = rawCls.split(/\s+/).filter(c => Boolean(c) && !c.startsWith('el-')).map(c => c.startsWith('!') ? c.slice(1) : c)
+    const parsedClassName = isStateBoundValue(parsed.className) ? '' : (parsed.className as string) || ''
+    const rawCls = parsedClassName || props.currentClass || ''
+    parsedClasses = rawCls.split(/\s+/).filter(c => Boolean(c) && !c.startsWith('el-') && !c.startsWith('!el-')).map(c => c.startsWith('!') ? c.slice(1) : c)
+    importantSet = new Set(
+      rawCls.split(/\s+/)
+        .filter(c => c.startsWith('!') && !c.startsWith('!el-'))
+        .map(c => c.slice(1))
+    )
     const cleanCls = parsedClasses.join(' ')
 
     console.log("[PropertyEditor] open, original className:", rawCls, "domPickerClass:", props.currentClass)
@@ -762,11 +1037,11 @@ export function PropertyEditorPopup(props: {
           }
           if (!editBgColor()) {
             const f = fills.find(x => x.visible)
-            if (f) setEditBgColor(toHex(f.color))
+            if (f) { setEditBgColor(toHex(f.color)); setBgColorToken(matchTokenHex(toHex(f.color), BG_COLOR_TOKENS)) }
           }
           setDragOffset({ x: 0, y: 0 })
           initialEffectsJson = JSON.stringify(effects)
-          ready = true
+          setReady(true)
         })
       } else {
         console.log("[PropertyEditor] fallback: no tailwindToCss api, using parseClass")
@@ -778,7 +1053,7 @@ export function PropertyEditorPopup(props: {
         }
         setDragOffset({ x: 0, y: 0 })
         initialEffectsJson = JSON.stringify(effects)
-        ready = true
+        setReady(true)
       }
     }
   })
@@ -788,14 +1063,14 @@ export function PropertyEditorPopup(props: {
       requestAnimationFrame(() => {
         updateDims()
         setInitialPos(calcInitPos())
-        setMaxPopupH(Math.max(200, props.containerSize.height - initialPos.top - 20))
+        setMaxPopupH(computeMaxPopupH())
       })
     }
   })
 
   createEffect(() => {
     if (!props.show) return
-    const recalc = () => setMaxPopupH(Math.max(200, window.innerHeight - initialPos.top - 20))
+    const recalc = () => setMaxPopupH(computeMaxPopupH())
     recalc()
     window.addEventListener('resize', recalc)
     onCleanup(() => window.removeEventListener('resize', recalc))
@@ -819,6 +1094,33 @@ export function PropertyEditorPopup(props: {
 
   onCleanup(() => clearTimeout(autoUpdateTimer))
 
+  createEffect(() => {
+    if (!menuPanelOpen()) return
+    const handler = (ev: MouseEvent) => {
+      if (menuPanelRef && !menuPanelRef.contains(ev.target as Node)) setMenuPanelOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    onCleanup(() => document.removeEventListener('mousedown', handler))
+  })
+
+  createEffect(() => {
+    if (!tablePanelOpen()) return
+    const handler = (ev: MouseEvent) => {
+      if (tablePanelRef && !tablePanelRef.contains(ev.target as Node)) setTablePanelOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    onCleanup(() => document.removeEventListener('mousedown', handler))
+  })
+
+  createEffect(() => {
+    if (!dataPanelOpen()) return
+    const handler = (ev: MouseEvent) => {
+      if (dataPanelRef && !dataPanelRef.contains(ev.target as Node)) setDataPanelOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    onCleanup(() => document.removeEventListener('mousedown', handler))
+  })
+
   const autoSnapshot = createMemo(() => {
     if (!props.show) return null
     return {
@@ -831,7 +1133,9 @@ export function PropertyEditorPopup(props: {
       letterSpacing: editLetterSpacing(),
       vAlign: editVAlign(),
       textColor: editTextColor(),
+      textColorToken: textColorToken(),
       bgColor: editBgColor(),
+      bgColorToken: bgColorToken(),
       pt: editPt(), foundPt: foundPt(),
       pr: editPr(), foundPr: foundPr(),
       pb: editPb(), foundPb: foundPb(),
@@ -857,20 +1161,32 @@ export function PropertyEditorPopup(props: {
       justify: editJustify(),
       alignItems: editAlignItems(),
       paddingMode: paddingMode(),
+      marginMode: marginMode(),
       bgImage: editBgImage(),
       bgUrl: editBgUrl(),
       tag: editTag(),
       fills: fills.map(f => `${f.id}:${f.color}:${f.opacity}:${f.visible}`),
       strokes: strokes.map(s => `${s.id}:${s.color}:${s.visible}:${s.width}:${s.position}:${s.individualOpen}:${s.widthTop}:${s.widthRight}:${s.widthBottom}:${s.widthLeft}`),
       effects: effects.map(e => `${e.id}:${e.type}:${e.visible}:${e.color}:${e.opacity}:${e.blur}:${e.offsetX}:${e.offsetY}:${e.layerBlur}:${e.bgBlur}`),
+      menuTree: JSON.stringify(menuTree),
+      menuErrCount: menuErrors().filter(e => e.type === 'error').length,
+      tableColumns: JSON.stringify(tableColumns),
+      tableErrCount: tableErrors().length,
+      tableData: JSON.stringify(tableData.map(r => r.row)),
       editProps: JSON.stringify(editProps),
       propKeys: JSON.stringify(propKeys()),
     }
   })
 
   createEffect(() => {
-    autoSnapshot()
-    if (!ready) return
+    const snap = autoSnapshot()
+    if (!ready()) return
+    if (!initialized) {
+      initialized = true
+      initialSnapshotJson = JSON.stringify(snap)
+      return
+    }
+    if (JSON.stringify(snap) === initialSnapshotJson) return
     clearTimeout(autoUpdateTimer)
     autoUpdateTimer = setTimeout(() => handleConfirm(true), 400)
   })
@@ -905,16 +1221,30 @@ export function PropertyEditorPopup(props: {
     inp.addEventListener('change', async () => {
       const f = inp.files?.[0]
       if (!f) return
-      const desktopApi = (window as unknown as { api?: { saveUploadImage?: (buf: ArrayBuffer, sessionId: string) => Promise<string> } }).api
+      const buf = await f.arrayBuffer()
+      const desktopApi = (window as unknown as {
+        api?: {
+          saveUploadImage?: (buf: ArrayBuffer, sessionId: string) => Promise<string>
+          savePrototypeImage?: (buf: ArrayBuffer, dir: string) => Promise<string>
+        }
+      }).api
+      // make 侧：写到 prototype.html 同级 uploads 目录，返回相对 URL（iframe 经 local:// 解析）
+      if (props.htmlFilePath && desktopApi?.savePrototypeImage) {
+        const dir = props.htmlFilePath.replace(/[\\/][^\\/]+$/, '') + '/uploads'
+        const url = await desktopApi.savePrototypeImage(buf, dir)
+        onUrl(url)
+        return
+      }
+      // pattern 侧：写到 uploads 目录，返回 /history/... URL
       if (desktopApi?.saveUploadImage && props.sessionId) {
-        const buf = await f.arrayBuffer()
         const url = await desktopApi.saveUploadImage(buf, props.sessionId)
         onUrl(url)
-      } else {
-        const reader = new FileReader()
-        reader.onload = () => onUrl(reader.result as string)
-        reader.readAsDataURL(f)
+        return
       }
+      // web 回退：base64 data URL
+      const reader = new FileReader()
+      reader.onload = () => onUrl(reader.result as string)
+      reader.readAsDataURL(f)
     })
     document.body.appendChild(inp)
     inp.click()
@@ -927,7 +1257,7 @@ export function PropertyEditorPopup(props: {
 
   function normalizeArbitraryValues(className: string): string {
     return className.split(/\s+/).map(c => {
-      const m = c.match(/^(w|min-w|max-w|h|min-h|max-h|p[trbl]?|m[trbl]?|gap)-\[(\d+)px\]$/)
+      const m = c.match(/^(w|min-w|max-w|h|min-h|max-h|p[trblxy]?|m[trblxy]?|gap)-\[(\d+)px\]$/)
       if (!m) return c
       const px = Number(m[2])
       if (px % 4 !== 0) return c
@@ -935,65 +1265,76 @@ export function PropertyEditorPopup(props: {
     }).join(' ')
   }
 
-  function buildCssObject(): Record<string, string> {
+  function buildCssObject(dirtyGroups?: Set<string> | null): Record<string, string> {
     const css: Record<string, string> = { ...preservedCssVars }
+    const isDirty = (g: string) => !dirtyGroups || dirtyGroups.has(g)
 
-    if (foundFontSize()) css['font-size'] = editFontSize() + 'px'
-    if (foundFontWeight()) css['font-weight'] = String(editFontWeight())
-    if (editFontFamily()) css['font-family'] = editFontFamily()
-    if (editAlign()) css['text-align'] = editAlign()
-    if (editLineHeight() && editLineHeight() !== 'auto') css['line-height'] = editLineHeight()
-    if (editLetterSpacing()) css['letter-spacing'] = (editLetterSpacing() / 100) + 'em'
+    if (isDirty('fontSize') && foundFontSize()) css['font-size'] = editFontSize() + 'px'
+    if (isDirty('fontWeight') && foundFontWeight()) css['font-weight'] = String(editFontWeight())
+    if (isDirty('fontFamily') && editFontFamily()) css['font-family'] = editFontFamily()
+    if (isDirty('textAlign') && editAlign()) css['text-align'] = editAlign()
+    if (isDirty('lineHeight') && editLineHeight() && editLineHeight() !== 'auto') css['line-height'] = editLineHeight()
+    if (isDirty('letterSpacing') && editLetterSpacing()) css['letter-spacing'] = (editLetterSpacing() / 100) + 'em'
 
-    if (editTextColor()) css['color'] = editTextColor()
+    if (isDirty('textColor') && editTextColor()) css['color'] = editTextColor()
 
-    if (editBgUrl()) css['background-image'] = `url(${editBgUrl()})`
+    if (isDirty('bgImage') && editBgUrl()) css['background-image'] = `url(${editBgUrl()})`
 
-    const pt = editPt(), pr = editPr(), pb = editPb(), pl = editPl()
-    const fp = foundPt(), fpr = foundPr(), fpb = foundPb(), fpl = foundPl()
-    if (fp && fpr && fpb && fpl && pt === pr && pt === pb && pt === pl) {
-      css['padding'] = pt + 'px'
-    } else {
-      if (fp) css['padding-top'] = pt + 'px'
-      if (fpr) css['padding-right'] = pr + 'px'
-      if (fpb) css['padding-bottom'] = pb + 'px'
-      if (fpl) css['padding-left'] = pl + 'px'
+    if (isDirty('padding')) {
+      const pt = editPt(), pr = editPr(), pb = editPb(), pl = editPl()
+      const fp = foundPt(), fpr = foundPr(), fpb = foundPb(), fpl = foundPl()
+      if (fp && fpr && fpb && fpl && pt === pr && pt === pb && pt === pl) {
+        css['padding'] = pt + 'px'
+      } else {
+        if (fp) css['padding-top'] = pt + 'px'
+        if (fpr) css['padding-right'] = pr + 'px'
+        if (fpb) css['padding-bottom'] = pb + 'px'
+        if (fpl) css['padding-left'] = pl + 'px'
+      }
     }
 
-    const mt = editMt(), mr = editMr(), mb = editMb(), ml = editMl()
-    const fmt = foundMt(), fmr = foundMr(), fmb = foundMb(), fml = foundMl()
-    if (fmt && fmr && fmb && fml && mt === mr && mt === mb && mt === ml) {
-      css['margin'] = mt + 'px'
-    } else {
-      if (fmt) css['margin-top'] = mt + 'px'
-      if (fmr) css['margin-right'] = mr + 'px'
-      if (fmb) css['margin-bottom'] = mb + 'px'
-      if (fml) css['margin-left'] = ml + 'px'
+    if (isDirty('margin')) {
+      const mt = editMt(), mr = editMr(), mb = editMb(), ml = editMl()
+      const fmt = foundMt(), fmr = foundMr(), fmb = foundMb(), fml = foundMl()
+      if (fmt && fmr && fmb && fml && mt === mr && mt === mb && mt === ml) {
+        css['margin'] = mt + 'px'
+      } else {
+        if (fmt) css['margin-top'] = mt + 'px'
+        if (fmr) css['margin-right'] = mr + 'px'
+        if (fmb) css['margin-bottom'] = mb + 'px'
+        if (fml) css['margin-left'] = ml + 'px'
+      }
     }
 
-    if (foundRadiusTl() || foundRadiusTr() || foundRadiusBr() || foundRadiusBl()) {
-      if (foundRadiusTl()) css['border-top-left-radius'] = editRadiusTl() + 'px'
-      if (foundRadiusTr()) css['border-top-right-radius'] = editRadiusTr() + 'px'
-      if (foundRadiusBr()) css['border-bottom-right-radius'] = editRadiusBr() + 'px'
-      if (foundRadiusBl()) css['border-bottom-left-radius'] = editRadiusBl() + 'px'
-    } else if (foundRadius()) {
-      css['border-radius'] = editRadius() + 'px'
+    if (isDirty('radius')) {
+      if (foundRadiusTl() || foundRadiusTr() || foundRadiusBr() || foundRadiusBl()) {
+        if (foundRadiusTl()) css['border-top-left-radius'] = editRadiusTl() + 'px'
+        if (foundRadiusTr()) css['border-top-right-radius'] = editRadiusTr() + 'px'
+        if (foundRadiusBr()) css['border-bottom-right-radius'] = editRadiusBr() + 'px'
+        if (foundRadiusBl()) css['border-bottom-left-radius'] = editRadiusBl() + 'px'
+      } else if (foundRadius()) {
+        css['border-radius'] = editRadius() + 'px'
+      }
     }
 
-    if (fillWidth()) css['width'] = '100%'
-    else if (hugWidth()) css['width'] = 'auto'
-    else if (foundWidthPx() && editWidthPx()) css['width'] = editWidthPx() + 'px'
-    else if (editWidth()) css['width'] = editWidth()
+    if (isDirty('width')) {
+      if (fillWidth()) css['width'] = '100%'
+      else if (hugWidth()) css['width'] = 'auto'
+      else if (foundWidthPx() && editWidthPx()) css['width'] = editWidthPx() + 'px'
+      else if (editWidth()) css['width'] = editWidth()
+    }
 
-    if (fillHeight()) css['height'] = '100%'
-    else if (hugHeight()) css['height'] = 'auto'
-    else if (foundHeightPx() && editHeightPx()) css['height'] = editHeightPx() + 'px'
+    if (isDirty('height')) {
+      if (fillHeight()) css['height'] = '100%'
+      else if (hugHeight()) css['height'] = 'auto'
+      else if (foundHeightPx() && editHeightPx()) css['height'] = editHeightPx() + 'px'
+    }
 
-    if (clipContent()) css['overflow'] = 'hidden'
+    if (isDirty('clipContent') && clipContent()) css['overflow'] = 'hidden'
 
-    if (foundOpacity() && editOpacity() !== 100) css['opacity'] = String(editOpacity() / 100)
+    if (isDirty('opacity') && foundOpacity() && editOpacity() !== 100) css['opacity'] = String(editOpacity() / 100)
 
-    if (editFlexDir()) {
+    if (isDirty('flexDir') && editFlexDir()) {
       css['display'] = 'flex'
       css['flex-direction'] = editFlexDir() === 'col' ? 'column' : 'row'
       if (editFlexGap() && foundFlexGap() && editJustify() !== 'between' && editJustify() !== 'around') {
@@ -1009,45 +1350,51 @@ export function PropertyEditorPopup(props: {
       }
     }
 
-    for (const f of fills) {
-      if (!f.visible) continue
-      if (f.opacity < 100) {
-        const a = Math.round(f.opacity * 2.55).toString(16).padStart(2, '0')
-        css['background-color'] = f.color + a
-      } else {
-        css['background-color'] = f.color
+    if (isDirty('fills')) {
+      for (const f of fills) {
+        if (!f.visible) continue
+        if (f.opacity < 100) {
+          const a = Math.round(f.opacity * 2.55).toString(16).padStart(2, '0')
+          css['background-color'] = f.color + a
+        } else {
+          css['background-color'] = f.color
+        }
       }
     }
 
-    if (editBgColor()) css['background-color'] = editBgColor()
+    if (isDirty('bgColor') && editBgColor()) css['background-color'] = editBgColor()
 
-    for (const s of strokes) {
-      if (!s.visible) continue
-      css['border-style'] = 'solid'
-      css['border-color'] = s.color
-      if (s.individualOpen) {
-        if (s.foundWidthTop && s.widthTop) css['border-top-width'] = s.widthTop + 'px'
-        if (s.foundWidthRight && s.widthRight) css['border-right-width'] = s.widthRight + 'px'
-        if (s.foundWidthBottom && s.widthBottom) css['border-bottom-width'] = s.widthBottom + 'px'
-        if (s.foundWidthLeft && s.widthLeft) css['border-left-width'] = s.widthLeft + 'px'
-      } else if (s.foundWidth && s.width) {
-        css['border-width'] = s.width + 'px'
+    if (isDirty('strokes')) {
+      for (const s of strokes) {
+        if (!s.visible) continue
+        css['border-style'] = 'solid'
+        css['border-color'] = s.color
+        if (s.individualOpen) {
+          if (s.foundWidthTop && s.widthTop) css['border-top-width'] = s.widthTop + 'px'
+          if (s.foundWidthRight && s.widthRight) css['border-right-width'] = s.widthRight + 'px'
+          if (s.foundWidthBottom && s.widthBottom) css['border-bottom-width'] = s.widthBottom + 'px'
+          if (s.foundWidthLeft && s.widthLeft) css['border-left-width'] = s.widthLeft + 'px'
+        } else if (s.foundWidth && s.width) {
+          css['border-width'] = s.width + 'px'
+        }
       }
     }
 
-    for (const e of effects) {
-      if (!e.visible) continue
-      if (e.type === 'drop-shadow') {
-        const hex = e.color.replace('#', '')
-        const r = parseInt(hex.slice(0, 2), 16)
-        const g = parseInt(hex.slice(2, 4), 16)
-        const b = parseInt(hex.slice(4, 6), 16)
-        const alpha = e.opacity / 100
-        css['box-shadow'] = `${e.offsetX}px ${e.offsetY}px ${e.blur}px rgba(${r},${g},${b},${alpha})`
-      } else if (e.type === 'layer-blur') {
-        if (e.foundLayerBlur && e.layerBlur) css['filter'] = `blur(${e.layerBlur}px)`
-      } else if (e.type === 'background-blur') {
-        if (e.foundBgBlur && e.bgBlur) css['backdrop-filter'] = `blur(${e.bgBlur}px)`
+    if (isDirty('effects')) {
+      for (const e of effects) {
+        if (!e.visible) continue
+        if (e.type === 'drop-shadow') {
+          const hex = e.color.replace('#', '')
+          const r = parseInt(hex.slice(0, 2), 16)
+          const g = parseInt(hex.slice(2, 4), 16)
+          const b = parseInt(hex.slice(4, 6), 16)
+          const alpha = e.opacity / 100
+          css['box-shadow'] = `${e.offsetX}px ${e.offsetY}px ${e.blur}px rgba(${r},${g},${b},${alpha})`
+        } else if (e.type === 'layer-blur') {
+          if (e.foundLayerBlur && e.layerBlur) css['filter'] = `blur(${e.layerBlur}px)`
+        } else if (e.type === 'background-blur') {
+          if (e.foundBgBlur && e.bgBlur) css['backdrop-filter'] = `blur(${e.bgBlur}px)`
+        }
       }
     }
 
@@ -1058,6 +1405,7 @@ export function PropertyEditorPopup(props: {
     logStartSession(`quick-modify-${props.elementId}`, `修改元素 ${props.elementId} [${props.componentType}]`)
     let className = props.currentClass || ''
     if (hasClassEditor()) {
+      const dirtyGroups = computeDirtyGroups()
       const desktopApi = (window as unknown as {
         api?: {
           tailwindToCss?: (className: string) => Promise<Record<string, string>>
@@ -1066,8 +1414,18 @@ export function PropertyEditorPopup(props: {
       }).api
       const api = desktopApi?.cssToTailwind
       if (api) {
-        const currentCss = buildCssObject()
-        const keepParts = parsedClasses.filter(c => !isTailwindToken(c))
+        const currentCss = buildCssObject(dirtyGroups)
+        if (textColorToken()) delete (currentCss as Record<string, string>)['color']
+        if (bgColorToken()) {
+          delete (currentCss as Record<string, string>)['background-color']
+          delete (currentCss as Record<string, string>)['background']
+        }
+        const keepParts = parsedClasses.filter(c => {
+          const g = classifyClassGroup(c)
+          if (g === null) return true
+          if (!dirtyGroups) return false
+          return !dirtyGroups.has(g)
+        })
         const newTailwind = await api(currentCss)
         console.log("[PropertyEditor] full cssToTailwind:", newTailwind)
         logAgentCall('cssToTailwind', props.elementId, currentCss, newTailwind)
@@ -1077,6 +1435,10 @@ export function PropertyEditorPopup(props: {
           c.startsWith('flex-') && !['flex-col', 'flex-row'].includes(c) && !newTailwindSet.has(c)
         ).join(' ')
         className = ((keepParts.join(' ') + ' ' + normalizedTailwind).trim() + ' ' + extraFlex).trim()
+        const colorDirty = !dirtyGroups || dirtyGroups.has('textColor')
+        const bgColorDirty = !dirtyGroups || dirtyGroups.has('bgColor')
+        if (textColorToken() && colorDirty) className = (className + ` text-${textColorToken()}`).trim()
+        if (bgColorToken() && bgColorDirty) className = (className + ` bg-${bgColorToken()}`).trim()
         const effectsUnchanged = JSON.stringify(effects) === initialEffectsJson
         const originalShadowTokens = (props.currentClass || '').split(/\s+/).filter(c =>
           c.startsWith('shadow-') && c !== 'shadow' && !c.startsWith('shadow-[')
@@ -1091,7 +1453,7 @@ export function PropertyEditorPopup(props: {
           }
         }
       } else {
-        className = buildClassName()
+        className = buildClassName(dirtyGroups)
         const effectsUnchanged2 = JSON.stringify(effects) === initialEffectsJson
         const origShadows = (props.currentClass || '').split(/\s+/).filter(c =>
           c.startsWith('shadow-') && c !== 'shadow' && !c.startsWith('shadow-[')
@@ -1102,13 +1464,25 @@ export function PropertyEditorPopup(props: {
         }
         console.log("[PropertyEditor] buildClassName output (no api):", className)
         logAgentCall('buildClassName', props.elementId, props.currentClass || '', className)
-        if (editTextColor()) {
-          className = className.replace(/\btext-\[#[^\]]+\]/g, '').trim()
-          className += ` text-[${editTextColor()}]`
+        const colorDirty = !dirtyGroups || dirtyGroups.has('textColor')
+        const bgColorDirty = !dirtyGroups || dirtyGroups.has('bgColor')
+        if (colorDirty) {
+          if (textColorToken()) {
+            className = className.replace(/\btext-\[#[^\]]+\]/g, '').trim()
+            className += ` text-${textColorToken()}`
+          } else if (editTextColor()) {
+            className = className.replace(/\btext-\[#[^\]]+\]/g, '').trim()
+            className += ` text-[${editTextColor()}]`
+          }
         }
-        if (editBgColor()) {
-          className = className.replace(/\bbg-\[#[^\]]+\]/g, '').trim()
-          className += ` bg-[${editBgColor()}]`
+        if (bgColorDirty) {
+          if (bgColorToken()) {
+            className = className.replace(/\bbg-\[#[^\]]+\]/g, '').trim()
+            className += ` bg-${bgColorToken()}`
+          } else if (editBgColor()) {
+            className = className.replace(/\bbg-\[#[^\]]+\]/g, '').trim()
+            className += ` bg-[${editBgColor()}]`
+          }
         }
         if (initialBgUrl && !editBgUrl() && !editBgImage()) {
           className = className.replace(/\bbg-\[url\([^)]+\)\]/g, '').replace(/\bbg-(cover|contain|center|no-repeat)\b/g, '').trim()
@@ -1116,17 +1490,60 @@ export function PropertyEditorPopup(props: {
       }
     }
 
-    className = className.split(/\s+/).filter(c => !c.startsWith('el-')).map(c =>
-      c.match(/^(w|min-w|max-w|h|min-h|max-h)-/) && !c.startsWith('!') ? '!' + c : c
-    ).join(' ')
+    className = className.split(/\s+/).filter(c => c && !c.startsWith('el-') && !c.startsWith('!el-')).map(c => {
+      const stripped = c.startsWith('!') ? c.slice(1) : c
+      const shouldImportant = importantSet.has(stripped)
+      const hasImportant = c.startsWith('!')
+      return shouldImportant && !hasImportant ? '!' + c : (!shouldImportant && hasImportant ? stripped : c)
+    }).join(' ')
 
-    const componentProps: Record<string, string> = {}
+    const componentProps: Record<string, string | boolean | object> = {}
     if (!isTextElement()) {
       for (const key of propKeys()) {
         if (key === 'className') continue
+        if (isBinding(key)) continue
         const val = (editProps as Record<string, string>)[key]
         const isEnum = getEnumOptions(key).length > 0
-        if (isEnum || val) componentProps[key] = val
+        const hasRaw = (rawProps as Record<string, string>)[key] !== undefined
+        if (isEnum || val || hasRaw) {
+          componentProps[key] = BOOL_PROP_KEY_SET.has(key)
+            ? val === 'true'
+            : val
+        }
+      }
+      if (props.componentType === 'Menu') {
+        if (!isBinding('items') && menuTree.length) {
+          const items = menuTree.map((n) => {
+            const item: Record<string, unknown> = { ...n.raw, title: n.title, key: n.key }
+            item.icon = n.icon
+            if (n.children) item.children = n.children.map((c) => ({ ...c.raw, title: c.title, key: c.key, icon: c.icon }))
+            return item
+          })
+          componentProps['items'] = JSON.parse(JSON.stringify(items))
+        }
+        if (!isBinding('openKeys')) {
+          componentProps['openKeys'] = JSON.parse(JSON.stringify(menuTree.filter(n => n.expanded).map(n => n.key)))
+        }
+        if (!isBinding('selectedKeys')) {
+          const sel = [
+            ...menuTree.filter(n => n.selected).map(n => n.key),
+            ...menuTree.flatMap(n => n.children ?? []).filter(c => c.selected).map(c => c.key),
+          ]
+          componentProps['selectedKeys'] = JSON.parse(JSON.stringify(sel))
+        }
+      }
+      if (props.componentType === 'Table' && !isBinding('columns') && tableColumns.length) {
+        const cols = tableColumns.map((c) => {
+          const col: Record<string, unknown> = { ...c.raw, title: c.title, dataIndex: c.dataIndex, sort: c.sort }
+          col.align = c.align
+          col.width = c.width
+          col.minWidth = c.minWidth
+          return col
+        })
+        componentProps['columns'] = JSON.parse(JSON.stringify(cols))
+      }
+      if (props.componentType === 'Table' && tableData.length) {
+        componentProps['dataSource'] = JSON.parse(JSON.stringify(tableData.map(r => r.row)))
       }
     }
 
@@ -1165,10 +1582,31 @@ export function PropertyEditorPopup(props: {
     if (editText() !== beforeText) changed.push({ prop: 'textContent', before: beforeText, after: editText() })
     for (const key of Object.keys(componentProps)) {
       const bv = (beforeProps[key] ?? '').toString()
-      if (componentProps[key] !== bv) changed.push({ prop: key, before: bv, after: componentProps[key] ?? '' })
+      if (componentProps[key] !== bv) changed.push({ prop: key, before: bv, after: String(componentProps[key] ?? '') })
     }
     logAgentCall('quick-modify', props.elementId, { className, componentProps, textContent: editText(), changed }, confirmData)
     props.onConfirm(confirmData)
+    initialSnapshotJson = JSON.stringify(autoSnapshot())
+  }
+
+  function confirmMenuItems() {
+    if (menuErrors().some(e => e.type === 'error')) return
+    setMenuPanelOpen(false)
+    clearTimeout(autoUpdateTimer)
+    void handleConfirm(true)
+  }
+
+  function confirmTableColumns() {
+    if (tableErrors().length) return
+    setTablePanelOpen(false)
+    clearTimeout(autoUpdateTimer)
+    void handleConfirm(true)
+  }
+
+  function confirmTableData() {
+    setDataPanelOpen(false)
+    clearTimeout(autoUpdateTimer)
+    void handleConfirm(true)
   }
 
   type TrblInput = {
@@ -1228,6 +1666,18 @@ export function PropertyEditorPopup(props: {
 
         <div class="popup-body px-4 pb-2 flex flex-col gap-2">
 
+          <Show when={isTextElement()}>
+            <div class="flex gap-2 mt-2 flex-col">
+              <label class="text-[12px] font-semibold text-slate-500 w-14 shrink-0">文本内容</label>
+              <div class="flex items-center rounded-sm focus-within:border-[#3D99FF] focus-within:ring-1 focus-within:ring-[#3D99FF] h-6 shadow-none bg-[#F4F4F5] w-full min-w-0">
+                <input value={editText()}
+                  onInput={(e) => setEditText(e.currentTarget.value)}
+                  type="text" placeholder="输入文本..."
+                  class="flex-1 min-w-0 bg-transparent outline-none text-[11px] px-2 h-full border-0 shadow-none" />
+              </div>
+            </div>
+          </Show>
+
           <Show when={!isTextElement() && propKeys().filter(k => k !== 'className' || !hasClassEditor()).length > 0}>
             <div class="grid gap-2 py-2 min-w-0">
               <span class="text-[12px] font-semibold text-slate-500">组件属性</span>
@@ -1267,11 +1717,313 @@ export function PropertyEditorPopup(props: {
                   </div>
                 )}
               </For>
+              <Show when={props.componentType === 'Menu' && !isBinding('items')}>
+                <div class="flex items-center gap-2">
+                  <label class="text-[10px] font-medium text-slate-500 w-14 shrink-0">菜单</label>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setMenuPanelOpen(true) }}
+                    class="flex items-center justify-between rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none w-full min-w-0 border border-transparent hover:border-[#3D99FF]">
+                    <span class="text-slate-400">编辑菜单（{menuTree.length} 项）</span>
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l2 2-8 8H4v-2l8-8z" /></svg>
+                  </button>
+                </div>
+              </Show>
+              <Show when={props.componentType === 'Table' && !isBinding('columns')}>
+                <div class="flex items-center gap-2">
+                  <label class="text-[10px] font-medium text-slate-500 w-14 shrink-0">表格</label>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setTablePanelOpen(true) }}
+                    class="flex items-center justify-between rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none w-full min-w-0 border border-transparent hover:border-[#3D99FF]">
+                    <span class="text-slate-400">编辑表格（{tableColumns.length} 列）</span>
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l2 2-8 8H4v-2l8-8z" /></svg>
+                  </button>
+                </div>
+              </Show>
+              <Show when={props.componentType === 'Table'}>
+                <div class="flex items-center gap-2">
+                  <label class="text-[10px] font-medium text-slate-500 w-14 shrink-0">数据</label>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDataPanelOpen(true) }}
+                    class="flex items-center justify-between rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none w-full min-w-0 border border-transparent hover:border-[#3D99FF]">
+                    <span class="text-slate-400">编辑数据（{tableData.length} 行）</span>
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l2 2-8 8H4v-2l8-8z" /></svg>
+                  </button>
+                </div>
+              </Show>
             </div>
           </Show>
 
           <Show when={!isTextElement() && !hasClassEditor() && propKeys().filter(k => k !== 'className').length === 0}>
             <div class="text-[12px] text-slate-400 py-2">该组件暂不支持快速修改</div>
+          </Show>
+
+          <Show when={menuPanelOpen()}>
+            <Portal>
+              <div class="fixed inset-0 z-[400] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.3)" }}
+                onMouseDown={() => setMenuPanelOpen(false)}>
+                <div ref={menuPanelRef} class="flex flex-col gap-2 w-[440px] max-w-[92vw] p-3"
+                  style={{ background: "#fff", border: "1px solid #e2e8f0", "border-radius": "8px", "box-shadow": "0 8px 24px rgba(0,0,0,0.2)" }}
+                  onMouseDown={(e) => e.stopPropagation()}>
+                  <div class="flex items-center justify-between">
+                    <span class="text-[13px] font-semibold text-slate-700">编辑菜单</span>
+                    <button onClick={() => setMenuPanelOpen(false)}
+                      class="text-slate-400 hover:text-slate-600 flex items-center justify-center w-5 h-5">
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                        <line x1="2" y1="2" x2="10" y2="10" /><line x1="10" y1="2" x2="2" y2="10" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="flex flex-col gap-1.5 max-h-[320px] overflow-y-auto">
+                    <For each={menuTree}>
+                      {(n) => {
+                        const i = () => menuTree.findIndex(x => x.id === n.id)
+                        return (
+                          <>
+                            <div class="flex items-center gap-1 w-full min-w-0">
+                              <button onClick={() => setMenuTree(i(), 'expanded', !menuTree[i()].expanded)}
+                                class={n.expanded ? 'prop-chip-active h-6 w-6 p-0 flex items-center justify-center shrink-0' : 'prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0'}
+                                title="展开（openKeys）">
+                                <span class="text-[10px]">展</span>
+                              </button>
+                              <button onClick={() => setMenuTree(i(), 'selected', !menuTree[i()].selected)}
+                                class={n.selected ? 'prop-chip-active h-6 w-6 p-0 flex items-center justify-center shrink-0' : 'prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0'}
+                                title="选中（selectedKeys）">
+                                <span class="text-[10px]">选</span>
+                              </button>
+                              <input value={n.title}
+                                onInput={(e) => setMenuTree(i(), 'title', e.currentTarget.value)}
+                                type="text" placeholder="标题"
+                                class={`flex-1 min-w-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border ${!n.title ? 'border-red-400' : 'border-transparent'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
+                              <input value={n.icon}
+                                onInput={(e) => setMenuTree(i(), 'icon', e.currentTarget.value)}
+                                type="text" placeholder="图标"
+                                class="w-14 shrink-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border border-transparent focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none" />
+                              <button onClick={() => setMenuTree(menuTree.filter(x => x.id !== n.id))}
+                                class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0">
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h10" /></svg>
+                              </button>
+                            </div>
+                            <Show when={n.expanded}>
+                              <div class="flex flex-col gap-1.5 pl-6">
+                                <For each={n.children ?? []}>
+                                  {(c) => {
+                                    const ci = () => (menuTree[i()].children ?? []).findIndex(x => x.id === c.id)
+                                    return (
+                                      <div class="flex items-center gap-1 w-full min-w-0">
+                                        <button onClick={() => setMenuTree(i(), 'children', ci(), 'selected', !(menuTree[i()].children![ci()].selected))}
+                                          class={c.selected ? 'prop-chip-active h-6 w-6 p-0 flex items-center justify-center shrink-0' : 'prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0'}
+                                          title="选中">
+                                          <span class="text-[10px]">选</span>
+                                        </button>
+                                        <input value={c.title}
+                                          onInput={(e) => setMenuTree(i(), 'children', ci(), 'title', e.currentTarget.value)}
+                                          type="text" placeholder="子项标题"
+                                          class={`flex-1 min-w-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border ${!c.title ? 'border-red-400' : 'border-transparent'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
+                                        <input value={c.icon}
+                                          onInput={(e) => setMenuTree(i(), 'children', ci(), 'icon', e.currentTarget.value)}
+                                          type="text" placeholder="图标"
+                                          class="w-14 shrink-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border border-transparent focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none" />
+                                        <button onClick={() => setMenuTree(i(), 'children', (menuTree[i()].children ?? []).filter(x => x.id !== c.id))}
+                                          class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0">
+                                          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h10" /></svg>
+                                        </button>
+                                      </div>
+                                    )
+                                  }}
+                                </For>
+                                <button onClick={() => setMenuTree(i(), 'children', [...(menuTree[i()].children ?? []), { id: ++menuNodeIdCounter, key: `key-${Date.now()}`, title: '子项', icon: '', expanded: false, selected: false, raw: {} } as MenuNode])}
+                                  class="self-start prop-chip h-6 px-2 flex items-center gap-1 text-[11px]">
+                                  <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 8h10" /></svg>
+                                  子项
+                                </button>
+                              </div>
+                            </Show>
+                          </>
+                        )
+                      }}
+                    </For>
+                    <button onClick={() => setMenuTree([...menuTree, { id: ++menuNodeIdCounter, key: `key-${Date.now()}`, title: '新菜单项', icon: '', expanded: false, selected: false, raw: {} } as MenuNode])}
+                      class="self-start prop-chip h-6 px-2 flex items-center gap-1 text-[11px]">
+                      <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 8h10" /></svg>
+                      顶层项
+                    </button>
+                  </div>
+                  <Show when={menuErrors().length > 0}>
+                    <div class="flex flex-col gap-0.5">
+                      <For each={menuErrors()}>
+                        {(er) => (
+                          <span class={er.type === 'error' ? 'text-[11px] text-red-500' : 'text-[11px] text-amber-500'}>{er.msg}</span>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                  <button onClick={confirmMenuItems}
+                    class="h-8 rounded-[6px] bg-[#3D99FF] text-white text-[13px] font-medium hover:bg-[#2b87f0]">
+                    确认修改
+                  </button>
+                </div>
+              </div>
+            </Portal>
+          </Show>
+
+          <Show when={tablePanelOpen()}>
+            <Portal>
+              <div class="fixed inset-0 z-[400] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.3)" }}
+                onMouseDown={() => setTablePanelOpen(false)}>
+                <div ref={tablePanelRef} class="flex flex-col gap-2 w-[480px] max-w-[92vw] p-3"
+                  style={{ background: "#fff", border: "1px solid #e2e8f0", "border-radius": "8px", "box-shadow": "0 8px 24px rgba(0,0,0,0.2)" }}
+                  onMouseDown={(e) => e.stopPropagation()}>
+                  <div class="flex items-center justify-between">
+                    <span class="text-[13px] font-semibold text-slate-700">编辑表格列</span>
+                    <button onClick={() => setTablePanelOpen(false)}
+                      class="text-slate-400 hover:text-slate-600 flex items-center justify-center w-5 h-5">
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                        <line x1="2" y1="2" x2="10" y2="10" /><line x1="10" y1="2" x2="2" y2="10" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="flex flex-col gap-2 max-h-[340px] overflow-y-auto">
+                    <For each={tableColumns}>
+                      {(c) => {
+                        const i = () => tableColumns.findIndex(x => x.id === c.id)
+                        const move = (dir: number) => {
+                          const idx = i(); const j = idx + dir
+                          if (j < 0 || j >= tableColumns.length) return
+                          const arr = tableColumns.slice()
+                          const t = arr[idx]; arr[idx] = arr[j]; arr[j] = t
+                          setTableColumns(arr)
+                        }
+                        return (
+                          <div class="flex flex-col gap-1.5 p-2 rounded-[6px] bg-[#F9FAFB] border border-slate-200">
+                            <div class="flex items-center gap-1 w-full min-w-0">
+                              <button onClick={() => move(-1)} class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0" title="上移">
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3l-5 5h10z" /></svg>
+                              </button>
+                              <button onClick={() => move(1)} class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0" title="下移">
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 13l5-5H3z" /></svg>
+                              </button>
+                              <input value={c.title}
+                                onInput={(e) => setTableColumns(i(), 'title', e.currentTarget.value)}
+                                type="text" placeholder="标题"
+                                class={`flex-1 min-w-0 rounded-sm bg-white h-6 text-[12px] px-2 outline-none border ${!c.title ? 'border-red-400' : 'border-slate-200'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
+                              <input value={c.dataIndex}
+                                onInput={(e) => setTableColumns(i(), 'dataIndex', e.currentTarget.value)}
+                                type="text" placeholder="字段"
+                                class={`w-24 shrink-0 rounded-sm bg-white h-6 text-[12px] px-2 outline-none border ${!c.dataIndex ? 'border-red-400' : 'border-slate-200'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
+                              <button onClick={() => setTableColumns(tableColumns.filter(x => x.id !== c.id))}
+                                class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0">
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h10" /></svg>
+                              </button>
+                            </div>
+                            <div class="flex items-center gap-1 w-full min-w-0">
+                              <CustomSelect
+                                value={c.align}
+                                options={[{ label: '默认', value: '' }, { label: '左', value: 'left' }, { label: '中', value: 'center' }, { label: '右', value: 'right' }]}
+                                onChange={(v) => setTableColumns(i(), 'align', v)}
+                                class="w-20 shrink-0"
+                              />
+                              <input value={c.width}
+                                onInput={(e) => setTableColumns(i(), 'width', e.currentTarget.value)}
+                                type="text" placeholder="宽度"
+                                class="w-20 shrink-0 rounded-sm bg-white h-6 text-[12px] px-2 outline-none border border-slate-200 focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none" />
+                              <input value={c.minWidth}
+                                onInput={(e) => setTableColumns(i(), 'minWidth', e.currentTarget.value)}
+                                type="text" placeholder="最小宽度"
+                                class="w-24 shrink-0 rounded-sm bg-white h-6 text-[12px] px-2 outline-none border border-slate-200 focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none" />
+                              <button onClick={() => setTableColumns(i(), 'sort', !tableColumns[i()].sort)}
+                                class={c.sort ? 'prop-chip-active h-6 px-2 flex items-center gap-1 text-[11px] shrink-0' : 'prop-chip h-6 px-2 flex items-center gap-1 text-[11px] shrink-0'}
+                                title="可排序">
+                                排序
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      }}
+                    </For>
+                    <button onClick={() => setTableColumns([...tableColumns, { id: ++tableColIdCounter, title: '新列', dataIndex: 'field', align: '', width: '', minWidth: '', sort: false, raw: {} } as TableColumn])}
+                      class="self-start prop-chip h-6 px-2 flex items-center gap-1 text-[11px]">
+                      <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 8h10" /></svg>
+                      添加列
+                    </button>
+                  </div>
+                  <Show when={tableErrors().length > 0}>
+                    <div class="flex flex-col gap-0.5">
+                      <For each={tableErrors()}>
+                        {(er) => <span class="text-[11px] text-red-500">{er.msg}</span>}
+                      </For>
+                    </div>
+                  </Show>
+                  <button onClick={confirmTableColumns}
+                    class="h-8 rounded-[6px] bg-[#3D99FF] text-white text-[13px] font-medium hover:bg-[#2b87f0]">
+                    确认修改
+                  </button>
+                </div>
+              </div>
+            </Portal>
+          </Show>
+
+          <Show when={dataPanelOpen()}>
+            <Portal>
+              <div class="fixed inset-0 z-[400] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.3)" }}
+                onMouseDown={() => setDataPanelOpen(false)}>
+                <div ref={dataPanelRef} class="flex flex-col gap-2 w-[560px] max-w-[94vw] p-3"
+                  style={{ background: "#fff", border: "1px solid #e2e8f0", "border-radius": "8px", "box-shadow": "0 8px 24px rgba(0,0,0,0.2)" }}
+                  onMouseDown={(e) => e.stopPropagation()}>
+                  <div class="flex items-center justify-between">
+                    <span class="text-[13px] font-semibold text-slate-700">编辑表格数据</span>
+                    <button onClick={() => setDataPanelOpen(false)}
+                      class="text-slate-400 hover:text-slate-600 flex items-center justify-center w-5 h-5">
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                        <line x1="2" y1="2" x2="10" y2="10" /><line x1="10" y1="2" x2="2" y2="10" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="overflow-x-auto max-h-[360px] overflow-y-auto">
+                    <div class="min-w-max flex flex-col gap-1">
+                      <div class="flex items-center gap-1">
+                        <div class="w-8 shrink-0" />
+                        <For each={dataFields()}>
+                          {(f) => (
+                            <div class="w-28 shrink-0 text-[11px] font-medium text-slate-500 px-1 truncate" title={f}>{f}</div>
+                          )}
+                        </For>
+                      </div>
+                      <For each={tableData}>
+                        {(r) => {
+                          const i = () => tableData.findIndex(x => x.id === r.id)
+                          return (
+                            <div class="flex items-center gap-1">
+                              <button onClick={() => setTableData(tableData.filter(x => x.id !== r.id))}
+                                class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0" title="删除行">
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h10" /></svg>
+                              </button>
+                              <For each={dataFields()}>
+                                {(f) => (
+                                  <input
+                                    value={String(r.row[f] ?? '')}
+                                    onInput={(e) => setTableData(i(), 'row', f, e.currentTarget.value)}
+                                    type="text" placeholder={f}
+                                    class="w-28 shrink-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border border-transparent focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none" />
+                                )}
+                              </For>
+                            </div>
+                          )
+                        }}
+                      </For>
+                    </div>
+                  </div>
+                  <button onClick={() => setTableData([...tableData, { id: ++tableDataIdCounter, row: {} } as TableDataRow])}
+                    class="self-start prop-chip h-6 px-2 flex items-center gap-1 text-[11px]">
+                    <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 8h10" /></svg>
+                    添加行
+                  </button>
+                  <button onClick={confirmTableData}
+                    class="h-8 rounded-[6px] bg-[#3D99FF] text-white text-[13px] font-medium hover:bg-[#2b87f0]">
+                    确认修改
+                  </button>
+                </div>
+              </div>
+            </Portal>
           </Show>
 
           <Show when={hasClassEditor()}>
@@ -1403,7 +2155,7 @@ export function PropertyEditorPopup(props: {
                   <DragInput
                     value={editPt} setValue={(v) => { setEditPt(v); setEditPr(v); setEditPb(v); setEditPl(v) }}
                     setFound={(v) => { setFoundPt(v); setFoundPr(v); setFoundPb(v); setFoundPl(v) }}
-                    found={foundPt} placeholder="-" />
+                    found={foundPt} placeholder="-" icon={PaddingIcon()} />
                 </div>
               </Show>
               <Show when={paddingMode() === 'hv'}>
@@ -1460,7 +2212,7 @@ export function PropertyEditorPopup(props: {
                   <DragInput
                     value={editMt} setValue={(v) => { setEditMt(v); setEditMr(v); setEditMb(v); setEditMl(v) }}
                     setFound={(v) => { setFoundMt(v); setFoundMr(v); setFoundMb(v); setFoundMl(v) }}
-                    found={foundMt} placeholder="-" />
+                    found={foundMt} placeholder="-" icon={MarginIcon()} />
                 </div>
               </Show>
               <Show when={marginMode() === 'hv'}>
@@ -1523,8 +2275,8 @@ export function PropertyEditorPopup(props: {
             <div class="grid gap-2 py-2 border-slate-100 min-w-0 border-t -mx-4 px-4 border-[#e5e7eb]">
               <span class="text-[12px] font-semibold text-slate-500">外观</span>
               <div class="flex items-center gap-1.5 w-full min-w-0">
-                <DragInput value={editOpacity} setValue={setEditOpacity} setFound={setFoundOpacity} found={foundOpacity} placeholder="透明度" max={100} suffix="%"  icon="%"/>
-                <DragInput value={editRadius} setValue={setEditRadius} setFound={setFoundRadius} found={foundRadius} placeholder="圆角" display={cornerOpen() && (foundRadiusTl() || foundRadiusTr() || foundRadiusBr() || foundRadiusBl()) ? 'mixed' : undefined} icon={BorderRadiusIcon()} />
+                <DragInput value={editOpacity} setValue={setEditOpacity} setFound={setFoundOpacity} found={foundOpacity} placeholder="透明度" max={100} icon={OpacityIcon()} suffixIcon="%"/>
+                <DragInput value={editRadius} setValue={setEditRadius} setFound={setFoundRadius} found={foundRadius} placeholder="圆角" display={cornerOpen() && (foundRadiusTl() || foundRadiusTr() || foundRadiusBr() || foundRadiusBl()) ? 'mixed' : undefined} icon={CornerCurveIcon()} suffixIcon={BorderRadiusIcon()} />
                 <button onClick={() => setCornerOpen(!cornerOpen())}
                   class={cornerOpen() ? 'prop-chip-active h-6 w-6 p-0 flex items-center justify-center shrink-0' : 'prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0'}>
                   <span class="text-[10px]">◱</span>
@@ -1544,14 +2296,14 @@ export function PropertyEditorPopup(props: {
 
             <Show when={isTextElement()}>
             <div class="pt-2 border-t -mx-4 px-4 border-[#e5e7eb]">
-              <ColorPicker value={editBgColor()} onChange={setEditBgColor} label="背景色" tokens={BG_COLOR_TOKENS} placeholder="无" />
+               <ColorPicker value={editBgColor()} onChange={setEditBgColor} onTokenChange={setBgColorToken} label="背景色" tokens={BG_COLOR_TOKENS} placeholder="无" />
             </div>
 
             <div class="flex items-center gap-2 pb-2 -mx-4 px-4">
               <label class="text-[12px] font-semibold text-slate-500 w-14 shrink-0">背景图</label>
-              <button onClick={openBgPicker} class="text-xs px-2 py-0.5 rounded-sm border border-[#cbd5e1] text-slate-400 hover:text-slate-600 hover:border-[#94a3b8] hover:bg-[#f1f5f9] whitespace-nowrap flex items-center gap-1 transition-colors">
-                <svg width="16" height="16" viewBox="0 0 1024 1024" fill="currentColor"><path d="M392.32 800.192l242.912-242.944 164.992 164.992 0.032 77.76-407.968 0.192zM224 224l576-0.256 0.192 407.968-142.336-142.336a31.968 31.968 0 0 0-45.248 0L301.76 800.224H224V224z m576.256-64H223.712a63.808 63.808 0 0 0-63.68 63.744v576.512C160 835.424 188.544 864 223.68 864h576.544A63.808 63.808 0 0 0 864 800.256V223.744A63.84 63.84 0 0 0 800.256 160z"/><path d="M416 384a31.68 31.68 0 0 1 32 32 31.68 31.68 0 0 1-32 32 31.68 31.68 0 0 1-32-32c0-17.952 14.048-32 32-32m0 128c52.928 0 96-43.072 96-96s-43.072-96-96-96-96 43.072-96 96 43.072 96 96 96"/></svg>
-                上传
+              <button onClick={openBgPicker} class="flex items-center gap-4 h-6 py-2 px-2 rounded-[4px] bg-[#F4F4F5] text-[10px] text-slate-600 hover:bg-[#E4E4E7] w-full whitespace-nowrap transition-colors">
+                <ImageUploadIcon />
+                <span>上传</span>
               </button>
               <Show when={editBgUrl() && editBgUrl() !== 'none'}>
                 <span class="text-[10px] text-slate-500 truncate flex-1">{editBgUrl()}</span>
@@ -1594,7 +2346,7 @@ export function PropertyEditorPopup(props: {
                 <DragInput value={editFontSize} setValue={setEditFontSize} setFound={() => { }} found={() => true} placeholder="字号" icon={"S"} />
               </div>
 
-              <ColorPicker value={editTextColor()} onChange={setEditTextColor} label="文字色" tokens={TEXT_COLOR_TOKENS} />
+              <ColorPicker value={editTextColor()} onChange={setEditTextColor} onTokenChange={setTextColorToken} label="文字色" tokens={TEXT_COLOR_TOKENS} />
 
               <div class="flex items-center gap-1.5 w-full min-w-0">
                 <div class="flex flex-col gap-0.5 flex-1 min-w-0">

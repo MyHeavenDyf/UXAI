@@ -34,7 +34,7 @@ import {
   pathToLocalUrl,
   type FolderUploadFile,
 } from "../../utils/artifact-file-api"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showOctoToast } from "../../components/octo-toast"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
@@ -46,7 +46,7 @@ import { Breadcrumb } from "./breadcrumb"
 import { DesignFilesToolbar } from "./design-files-toolbar"
 import emptyPng from "../../icons/empty.png"
 import emptyFolderPng from "../../icons/empty_folder.png"
-import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload } from "../../icons/design-files-icons"
+import { IconChevronDown, IconSortArrow, IconTableEllipsis, IconUpload, IconFolder, IconFile, IconRefresh } from "../../icons/design-files-icons"
 import { getFileIcon } from "../../icons/file-type-icons"
 
 const kindToI18nKey = (kind: ArtifactFileKind): string => {
@@ -89,18 +89,64 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const language = useLanguage()
   const fileStore = createArtifactFileStore(props.sessionId)
   const [isDragOver, setIsDragOver] = createSignal(false)
+  const [emptyUploadOpen, setEmptyUploadOpen] = createSignal(false)
   let fileInputRef!: HTMLInputElement
   let folderInputRef!: HTMLInputElement
 
+  const PREVIEW_MIN = 150
+  const LIST_MIN = 390
+  const [previewWidth, setPreviewWidth] = createSignal(360)
+  let rowRef: HTMLDivElement | undefined
+
+  createEffect(() => {
+    if (!rowRef) return
+    const el = rowRef
+    const clamp = () => {
+      const maxW = el.getBoundingClientRect().width - LIST_MIN
+      if (maxW < PREVIEW_MIN) {
+        setPreviewWidth(PREVIEW_MIN)
+      } else {
+        setPreviewWidth((w) => Math.max(PREVIEW_MIN, Math.min(maxW, w)))
+      }
+    }
+    clamp()
+    const ro = new ResizeObserver(clamp)
+    ro.observe(el)
+    onCleanup(() => ro.disconnect())
+  })
+
+  function handlePreviewDividerMouseDown(e: MouseEvent) {
+    e.preventDefault()
+    if (!rowRef) return
+    const rect = rowRef.getBoundingClientRect()
+    const maxW = rect.width - LIST_MIN
+    if (maxW < PREVIEW_MIN) return
+    const overlay = document.createElement("div")
+    overlay.style.cssText = "position:fixed;inset:0;z-index:9999;cursor:col-resize;background:transparent;"
+    document.body.appendChild(overlay)
+    const onMove = (ev: MouseEvent) => {
+      const w = rect.right - ev.clientX
+      setPreviewWidth(Math.max(PREVIEW_MIN, Math.min(maxW, w)))
+    }
+    const onUp = () => {
+      overlay.remove()
+      overlay.removeEventListener("mousemove", onMove)
+      overlay.removeEventListener("mouseup", onUp)
+    }
+    overlay.addEventListener("mousemove", onMove)
+    overlay.addEventListener("mouseup", onUp)
+  }
+
   createEffect(on(
-    [() => props.sessionId, () => fileStore.store.currentPath],
+    [() => props.sessionId, () => fileStore.store.currentPath, () => fileStore.store.currentCategory],
     ([sessionId], prev) => {
       if (prev && prev[0] !== sessionId) {
         batch(() => {
-          fileStore.setCurrentPath("")
+          fileStore.navigateToTopLevel()
           fileStore.clearKindFilter()
           fileStore.setGeneratedFiles([])
           fileStore.setUploadedFiles([])
+          fileStore.setPreviewFile(null)
         })
       }
       void refresh()
@@ -115,13 +161,17 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   ))
 
   const refresh = async () => {
+    const category = fileStore.store.currentCategory
+    const path = fileStore.store.currentPath
+
     fileStore.setLoading(true)
     try {
-      if (fileStore.isTopLevel()) {
+      if (!category) {
         const [genResult, uplResult] = await Promise.all([
           fetchArtifactList(globalSDK.url, sdk.directory, props.sessionId, "generated"),
           fetchArtifactList(globalSDK.url, sdk.directory, props.sessionId, "uploaded"),
         ])
+        if (fileStore.store.currentCategory !== category || fileStore.store.currentPath !== path) return
         fileStore.setGeneratedFiles(genResult.files)
         fileStore.setUploadedFiles(uplResult.files)
       } else {
@@ -129,11 +179,17 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           globalSDK.url,
           sdk.directory,
           props.sessionId,
-          "uploaded",
-          fileStore.store.currentPath,
+          category,
+          path,
         )
-        fileStore.setUploadedFiles(result.files)
-        fileStore.setGeneratedFiles([])
+        if (fileStore.store.currentCategory !== category || fileStore.store.currentPath !== path) return
+        if (category === "generated") {
+          fileStore.setGeneratedFiles(result.files)
+          fileStore.setUploadedFiles([])
+        } else {
+          fileStore.setUploadedFiles(result.files)
+          fileStore.setGeneratedFiles([])
+        }
       }
       fileStore.setError(null)
     } catch (err) {
@@ -183,11 +239,11 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       props.onCloseTabsByPath?.([file.path])
       props.onRemoveAttachmentsByPath?.([file.path])
 
-      showToast({ title: "Deleted", description: file.name })
+      showOctoToast({ title: "Deleted", description: file.name })
       tracker.interaction({ module: "design", name: "files-delete-file" })
       props.onFilesRefresh?.()
     } catch (err) {
-      showToast({ title: "Delete failed", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "Delete failed", description: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -236,11 +292,11 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       props.onCloseTabsByPath?.(paths)
       props.onRemoveAttachmentsByPath?.(paths)
 
-      showToast({ title: "Deleted", description: `${result.deleted} files deleted` })
+      showOctoToast({ title: "Deleted", description: `${result.deleted} files deleted` })
       tracker.interaction({ module: "design", name: "files-batch-delete", extend: JSON.stringify({ count: result.deleted }) })
       props.onFilesRefresh?.()
     } catch (err) {
-      showToast({ title: "Delete failed", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "Delete failed", description: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -258,7 +314,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       URL.revokeObjectURL(url)
       tracker.interaction({ module: "design", name: "files-batch-download", extend: JSON.stringify({ count: files.length }) })
     } catch (err) {
-      showToast({ title: "Download failed", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "Download failed", description: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -275,7 +331,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         })
         if (!filePath) return
         await (window as any).api.writeFileBuffer(filePath, await blob.arrayBuffer())
-        showToast({ title: "下载完成", description: file.name })
+        showOctoToast({ title: "下载完成", description: file.name })
         tracker.interaction({ module: "design", name: "files-download-file" })
         return
       }
@@ -286,10 +342,10 @@ export function DesignFilesPanel(props: Props): JSX.Element {
       a.download = file.name
       a.click()
       URL.revokeObjectURL(url)
-      showToast({ title: "下载完成", description: file.name })
+      showOctoToast({ title: "下载完成", description: file.name })
       tracker.interaction({ module: "design", name: "files-download-file" })
     } catch (err) {
-      showToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -307,7 +363,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const handleOpenInExplorer = (file: ArtifactFile) => {
     const api = (window as any).api
     if (typeof api?.showItemInFolder !== "function") {
-      showToast({ title: "打开失败", description: "当前环境不支持此操作", variant: "error" })
+      showOctoToast({ title: "打开失败", description: "当前环境不支持此操作", variant: "error" })
       return
     }
     api.showItemInFolder(file.path)
@@ -316,6 +372,46 @@ export function DesignFilesPanel(props: Props): JSX.Element {
 
   const handleUpload = async (files: FileList) => {
     const currentPath = fileStore.isTopLevel() ? "" : fileStore.store.currentPath
+    const desktopApi = (window as any).api
+    const baseDir = sdk.directory
+    if (
+      baseDir &&
+      typeof desktopApi?.copyFileToSessionUploads === "function" &&
+      typeof desktopApi?.getPathForFile === "function"
+    ) {
+      let okCount = 0
+      let failedCount = 0
+      for (const file of Array.from(files)) {
+        let srcPath = ""
+        try {
+          srcPath = desktopApi.getPathForFile(file)
+        } catch {
+          srcPath = ""
+        }
+        if (!srcPath) {
+          failedCount++
+          showOctoToast({ title: "Upload failed", description: `无法获取文件路径:${file.name}` })
+          continue
+        }
+        try {
+          await desktopApi.copyFileToSessionUploads(srcPath, baseDir, props.sessionId, currentPath, file.name)
+          okCount++
+          tracker.interaction({ module: "design", name: "files-upload-file", extend: JSON.stringify({ count: 1 }) })
+        } catch (err) {
+          failedCount++
+          showOctoToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
+        }
+      }
+      if (okCount > 0) {
+        showOctoToast({ title: "Uploaded", description: `${okCount} 个文件` })
+      }
+      if (okCount > 0) {
+        await refresh()
+        props.onFilesRefresh?.()
+      }
+      return
+    }
+
     for (const file of Array.from(files)) {
       const reader = new FileReader()
       reader.onload = async (ev) => {
@@ -330,12 +426,12 @@ export function DesignFilesPanel(props: Props): JSX.Element {
             content,
             currentPath,
           )
-          showToast({ title: "Uploaded", description: result.name })
+          showOctoToast({ title: "Uploaded", description: result.name })
           tracker.interaction({ module: "design", name: "files-upload-file", extend: JSON.stringify({ count: 1 }) })
           await refresh()
           props.onFilesRefresh?.()
         } catch (err) {
-          showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
+          showOctoToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
         }
       }
       reader.readAsDataURL(file)
@@ -426,12 +522,12 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         fileEntries,
         currentPath,
       )
-      showToast({ title: "Uploaded folder", description: `${folderName} (${result.fileCount} files)` })
+      showOctoToast({ title: "Uploaded folder", description: `${folderName} (${result.fileCount} files)` })
       tracker.interaction({ module: "design", name: "files-upload-folder", extend: JSON.stringify({ fileCount: result.fileCount }) })
       await refresh()
       props.onFilesRefresh?.()
     } catch (err) {
-      showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -442,6 +538,34 @@ export function DesignFilesPanel(props: Props): JSX.Element {
 
   async function uploadSingleFile(file: File) {
     const currentPath = fileStore.isTopLevel() ? "" : fileStore.store.currentPath
+    const desktopApi = (window as any).api
+    const baseDir = sdk.directory
+    if (
+      baseDir &&
+      typeof desktopApi?.copyFileToSessionUploads === "function" &&
+      typeof desktopApi?.getPathForFile === "function"
+    ) {
+      let srcPath = ""
+      try {
+        srcPath = desktopApi.getPathForFile(file)
+      } catch {
+        srcPath = ""
+      }
+      if (srcPath) {
+        try {
+          await desktopApi.copyFileToSessionUploads(srcPath, baseDir, props.sessionId, currentPath, file.name)
+          showOctoToast({ title: "Uploaded", description: file.name })
+          tracker.interaction({ module: "design", name: "files-upload-file", extend: JSON.stringify({ count: 1 }) })
+          await refresh()
+          props.onFilesRefresh?.()
+          return
+        } catch (err) {
+          showOctoToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
+          return
+        }
+      }
+    }
+
     const base64 = await readFileAsBase64(file)
     try {
       const result = await uploadArtifactFile(
@@ -452,11 +576,11 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         base64,
         currentPath,
       )
-      showToast({ title: "Uploaded", description: result.name })
+      showOctoToast({ title: "Uploaded", description: result.name })
       await refresh()
       props.onFilesRefresh?.()
     } catch (err) {
-      showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -494,7 +618,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     const firstFile = files[0]
     const folderName = firstFile.webkitRelativePath?.split("/")[0]
     if (!folderName) {
-      showToast({ title: "Upload failed", description: "Could not determine folder name" })
+      showOctoToast({ title: "Upload failed", description: "Could not determine folder name" })
       return
     }
 
@@ -523,12 +647,12 @@ export function DesignFilesPanel(props: Props): JSX.Element {
         fileEntries,
         currentPath,
       )
-      showToast({ title: "Uploaded folder", description: `${folderName} (${result.fileCount} files)` })
+      showOctoToast({ title: "Uploaded folder", description: `${folderName} (${result.fileCount} files)` })
       tracker.interaction({ module: "design", name: "files-upload-folder", extend: JSON.stringify({ fileCount: result.fileCount }) })
       await refresh()
       props.onFilesRefresh?.()
     } catch (err) {
-      showToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
+      showOctoToast({ title: "Upload failed", description: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -543,73 +667,83 @@ export function DesignFilesPanel(props: Props): JSX.Element {
   const hasAnyFiles = createMemo(() =>
     fileStore.store.generatedFiles.length > 0 || fileStore.store.uploadedFiles.length > 0)
 
+  const showHeader = createMemo(() => hasAnyFiles() || !fileStore.isTopLevel())
+
   return (
-    <div class="flex h-full overflow-hidden" style={{ background: "var(--octo-surface-page)" }}>
-      <div
-        class="flex flex-col flex-1 min-w-0 overflow-hidden relative"
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
-        <Show when={isDragOver()}>
-          <div
-            class="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none"
-            style={{
-              background: "rgba(194, 214, 255, 0.11)",
-              border: "2px dashed rgba(10, 89, 247, 1)",
-            }}
-          >
-            <img src={emptyFolderPng} style={{ width: "52px", height: "52px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
-            <span
-              class="text-[16px]"
-              style={{ color: "#191919", "line-height": "24px", "margin-top": "12px" }}
+    <div class="flex flex-col h-full overflow-hidden" style={{ background: "var(--octo-surface-page)" }}>
+      <Show when={showHeader()}>
+        <DesignFilesToolbar
+          fileStore={fileStore}
+          onRefresh={refresh}
+          onUploadFile={() => fileInputRef?.click()}
+          onUploadFolder={() => folderInputRef?.click()}
+          onBatchDownload={handleBatchDownload}
+          onBatchDelete={handleBatchDelete}
+        />
+      </Show>
+
+      <div ref={rowRef} class="flex flex-1 min-h-0 overflow-hidden">
+        <div
+          class="flex flex-col flex-1 min-w-0 overflow-hidden relative"
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <Show when={isDragOver()}>
+            <div
+              class="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none"
+              style={{
+                background: "rgba(194, 214, 255, 0.11)",
+                border: "2px dashed rgba(10, 89, 247, 1)",
+              }}
             >
-              释放鼠标上传文件
-            </span>
-          </div>
-        </Show>
-        <input
-          type="file"
-          multiple
-          ref={fileInputRef}
-          onChange={(e) => {
-            if (e.currentTarget.files) {
-              handleUpload(e.currentTarget.files)
-              e.currentTarget.value = ""
-            }
-          }}
-          class="hidden"
-        />
-        <input
-          type="file"
-          ref={folderInputRef}
-          // @ts-ignore - webkitdirectory is non-standard but widely supported
-          webkitdirectory=""
-          onChange={(e) => {
-            if (e.currentTarget.files) {
-              void handleFolderUpload(e.currentTarget.files)
-              e.currentTarget.value = ""
-            }
-          }}
-          class="hidden"
-        />
-
-        <Show when={hasAnyFiles()}>
-          <DesignFilesToolbar
-            fileStore={fileStore}
-            onRefresh={refresh}
-            onUploadFile={() => fileInputRef?.click()}
-            onUploadFolder={() => folderInputRef?.click()}
-            onBatchDownload={handleBatchDownload}
-            onBatchDelete={handleBatchDelete}
+              <img src={emptyFolderPng} style={{ width: "52px", height: "52px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
+              <span
+                class="text-[16px]"
+                style={{ color: "#191919", "line-height": "24px", "margin-top": "12px" }}
+              >
+                释放鼠标上传文件
+              </span>
+            </div>
+          </Show>
+          <input
+            type="file"
+            multiple
+            ref={fileInputRef}
+            onChange={(e) => {
+              if (e.currentTarget.files) {
+                handleUpload(e.currentTarget.files)
+                e.currentTarget.value = ""
+              }
+            }}
+            class="hidden"
           />
-        </Show>
+          <input
+            type="file"
+            ref={folderInputRef}
+            // @ts-ignore - webkitdirectory is non-standard but widely supported
+            webkitdirectory=""
+            onChange={(e) => {
+              if (e.currentTarget.files) {
+                void handleFolderUpload(e.currentTarget.files)
+                e.currentTarget.value = ""
+              }
+            }}
+            class="hidden"
+          />
 
-        <div class="flex-1 min-h-0 flex flex-col">
-          <Show when={hasAnyFiles()}>
+          <div class="flex-1 min-h-0 flex flex-col">
+          <Show when={showHeader()}>
             <Breadcrumb
               currentPath={fileStore.store.currentPath}
-              onNavigate={(path) => fileStore.setCurrentPath(path)}
+              currentCategory={fileStore.store.currentCategory}
+              onNavigate={(path) => {
+                if (path === "") {
+                  fileStore.navigateToTopLevel()
+                } else {
+                  fileStore.setCurrentPath(path)
+                }
+              }}
             />
           </Show>
           <ScrollView class="flex-1 min-h-0" style={{ padding: "0 24px 24px" }}>
@@ -627,49 +761,161 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           </Show>
 
           <Show when={!fileStore.store.loading && fileStore.store.generatedFiles.length === 0 && fileStore.store.uploadedFiles.length === 0 && fileStore.isTopLevel()}>
-            <div class="flex flex-col items-center justify-center h-full text-center px-8">
-              <img src={emptyPng} style={{ width: "150px", height: "150px" }} alt="" draggable={false} />
-              <span
-                class="text-[14px] leading-[22px]"
-                style={{ color: "#666", "margin-bottom": "20px" }}
-              >
-                {language.t("designFiles.emptyHint")}
-              </span>
-              <button
-                type="button"
-                onClick={() => fileInputRef?.click()}
-                class="flex items-center justify-center gap-2 transition-colors"
-                style={{
-                  background: "#0a59F7",
-                  color: "white",
-                  "border-radius": "4px",
-                  height: "32px",
-                  width: "108px",
-                  "font-size": "14px",
-                  "line-height": "22px",
-                }}
-              >
-                <IconUpload size={16} />
-                <span>{language.t("designFiles.uploadFileAction")}</span>
-              </button>
+            <div class="flex flex-col h-full">
+              <div class="flex items-center px-6 pt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    refresh()
+                    tracker.interaction({ module: "design", name: "files-refresh" })
+                  }}
+                  disabled={fileStore.store.loading}
+                  class="flex items-center justify-center p-0 bg-transparent transition-colors cursor-pointer active:text-[#0a59f7]"
+                  title="Refresh"
+                >
+                  <Show when={fileStore.store.loading} fallback={<IconRefresh size={16} />}>
+                    <Spinner class="size-[16px]" />
+                  </Show>
+                </button>
+              </div>
+              <div class="flex flex-col items-center justify-center flex-1 text-center px-8">
+                <img src={emptyPng} style={{ width: "150px", height: "150px" }} alt="" draggable={false} />
+                <span
+                  class="text-[14px] leading-[22px]"
+                  style={{ color: "#666", "margin-bottom": "20px" }}
+                >
+                  暂无文件
+                </span>
+                <span
+                  class="text-[14px] leading-[22px]"
+                  style={{ color: "#191919", "margin-bottom": "20px" }}
+                >
+                  {language.t("designFiles.emptyHint")}
+                </span>
+                <Kobalte open={emptyUploadOpen()} onOpenChange={setEmptyUploadOpen} modal={false} placement="bottom" gutter={4}>
+                <Kobalte.Trigger
+                  as="button"
+                  type="button"
+                  class="flex items-center justify-center gap-2 transition-colors"
+                  style={{
+                    background: "#0a59F7",
+                    color: "white",
+                    "border-radius": "999px",
+                    height: "32px",
+                    width: "108px",
+                    "font-size": "14px",
+                    "line-height": "22px",
+                    cursor: "pointer",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "#0950de") }}
+                  onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "#0a59F7") }}
+                  onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "#0a55eb") }}
+                  onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "#0a55eb") }}
+                >
+                  <IconUpload size={16} />
+                  <span>{language.t("designFiles.uploadFileAction")}</span>
+                </Kobalte.Trigger>
+                <Kobalte.Portal>
+                  <Kobalte.Content
+                    class="z-50 flex flex-col gap-1 bg-surface-raised-stronger-non-alpha rounded-md p-2"
+                    style={{ "box-shadow": "0 4px 12px rgba(0,0,0,0.16)", "min-width": "122px" }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => { folderInputRef?.click(); setEmptyUploadOpen(false) }}
+                      class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                      style={{
+                        height: "36px",
+                        "border-radius": "6px",
+                        "font-size": "14px",
+                        "line-height": "22px",
+                        color: "#191919",
+                      }}
+                    >
+                      <IconFolder size={16} />
+                      <span>{language.t("designFiles.uploadFolder")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { fileInputRef?.click(); setEmptyUploadOpen(false) }}
+                      class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                      style={{
+                        height: "36px",
+                        "border-radius": "6px",
+                        "font-size": "14px",
+                        "line-height": "22px",
+                        color: "#191919",
+                      }}
+                    >
+                      <IconFile size={16} />
+                      <span>{language.t("designFiles.uploadFile")}</span>
+                    </button>
+                  </Kobalte.Content>
+                </Kobalte.Portal>
+              </Kobalte>
+              </div>
             </div>
           </Show>
 
-          <Show when={!fileStore.isTopLevel() && !fileStore.store.loading && fileStore.store.uploadedFiles.length === 0}>
+          <Show when={!fileStore.isTopLevel() && !fileStore.store.loading && fileStore.store.generatedFiles.length === 0 && fileStore.store.uploadedFiles.length === 0}>
             <div class="flex flex-col items-center justify-center h-full gap-3 text-center px-8">
               <span class="text-[12px]" style={{ color: "var(--octo-text-secondary)" }}>暂无文件</span>
-              <button
-                type="button"
-                onClick={() => fileInputRef?.click()}
-                class="flex items-center gap-2 px-4 py-2 rounded-lg text-[14px] font-medium transition-colors"
-                style={{
-                  background: "var(--octo-brand)",
-                  color: "white",
-                }}
-              >
-                <IconUpload size={16} />
-                <span>{language.t("designFiles.uploadFileAction")}</span>
-              </button>
+              <Kobalte open={emptyUploadOpen()} onOpenChange={setEmptyUploadOpen} modal={false} placement="bottom" gutter={4}>
+                <Kobalte.Trigger
+                  as="button"
+                  type="button"
+                  class="flex items-center gap-2 px-4 py-2 text-[14px] font-medium transition-colors"
+                  style={{
+                    background: "var(--octo-brand)",
+                    color: "white",
+                    "border-radius": "999px",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.setProperty("background-color", "#0950de") }}
+                  onMouseLeave={(e) => { e.currentTarget.style.setProperty("background-color", "var(--octo-brand)") }}
+                  onMouseDown={(e) => { e.currentTarget.style.setProperty("background-color", "#0a55eb") }}
+                  onMouseUp={(e) => { e.currentTarget.style.setProperty("background-color", "#0a55eb") }}
+                >
+                  <IconUpload size={16} />
+                  <span>{language.t("designFiles.uploadFileAction")}</span>
+                </Kobalte.Trigger>
+                <Kobalte.Portal>
+                  <Kobalte.Content
+                    class="z-50 flex flex-col gap-1 bg-surface-raised-stronger-non-alpha rounded-md p-2"
+                    style={{ "box-shadow": "0 4px 12px rgba(0,0,0,0.16)", "min-width": "122px" }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => { folderInputRef?.click(); setEmptyUploadOpen(false) }}
+                      class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                      style={{
+                        height: "36px",
+                        "border-radius": "6px",
+                        "font-size": "14px",
+                        "line-height": "22px",
+                        color: "#191919",
+                      }}
+                    >
+                      <IconFolder size={16} />
+                      <span>{language.t("designFiles.uploadFolder")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { fileInputRef?.click(); setEmptyUploadOpen(false) }}
+                      class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                      style={{
+                        height: "36px",
+                        "border-radius": "6px",
+                        "font-size": "14px",
+                        "line-height": "22px",
+                        color: "#191919",
+                      }}
+                    >
+                      <IconFile size={16} />
+                      <span>{language.t("designFiles.uploadFile")}</span>
+                    </button>
+                  </Kobalte.Content>
+                </Kobalte.Portal>
+              </Kobalte>
             </div>
           </Show>
 
@@ -728,9 +974,9 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                         }
                       }}
                       class="flex items-center gap-1 hover:text-text-interactive-base transition-colors"
-                      style={{ color: "rgba(0, 0, 0, 0.9)", "font-weight": "normal" }}
+                      style={{ color: "rgba(0, 0, 0, 0.9)", "font-weight": "normal", "min-width": "0" }}
                     >
-                      {language.t("designFiles.columnModified")}
+                      <span style={{ "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>{language.t("designFiles.columnModified")}</span>
                       <IconSortArrow size={14} dir={fileStore.store.sortDir} active={fileStore.store.sortKey === "mtime"} />
                     </button>
                   </th>
@@ -758,6 +1004,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                       onOpen={handleOpenFile}
                       onDownload={handleDownload}
                       onOpenInExplorer={handleOpenInExplorer}
+                      onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, "generated")}
                       onAddToSession={props.onAddToSession}
                       language={language}
                     />
@@ -780,10 +1027,10 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                       onToggleSelection={(file) => fileStore.toggleFileSelection(file.path)}
                       onPreview={handlePreview}
                       onOpen={handleOpenFile}
-                      onDelete={handleDelete}
+onDelete={handleDelete}
                       onDownload={handleDownload}
                       onOpenInExplorer={handleOpenInExplorer}
-                      onNavigateFolder={(folder) => fileStore.navigateToFolder(folder)}
+                      onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, "uploaded")}
                       onAddToSession={props.onAddToSession}
                       language={language}
                     />
@@ -792,19 +1039,19 @@ export function DesignFilesPanel(props: Props): JSX.Element {
 
                 <Show when={!fileStore.isTopLevel()}>
                   <KindGroupRows
-                    kindGroupEntries={() => fileStore.uploaded.kindGroupEntries()}
-                    modifiedGroups={() => fileStore.uploaded.modifiedGroups()}
-                    visibleModifiedSections={() => fileStore.uploaded.visibleModifiedSections()}
+                    kindGroupEntries={() => fileStore.store.currentCategory === "generated" ? fileStore.generated.kindGroupEntries() : fileStore.uploaded.kindGroupEntries()}
+                    modifiedGroups={() => fileStore.store.currentCategory === "generated" ? fileStore.generated.modifiedGroups() : fileStore.uploaded.modifiedGroups()}
+                    visibleModifiedSections={() => fileStore.store.currentCategory === "generated" ? fileStore.generated.visibleModifiedSections() : fileStore.uploaded.visibleModifiedSections()}
                     groupMode={fileStore.store.groupMode}
                     sectionKey=""
                     selected={fileStore.store.selected}
                     onToggleSelection={(file) => fileStore.toggleFileSelection(file.path)}
                     onPreview={handlePreview}
                     onOpen={handleOpenFile}
-                    onDelete={handleDelete}
+                    onDelete={fileStore.store.currentCategory === "uploaded" ? handleDelete : undefined}
                     onDownload={handleDownload}
                     onOpenInExplorer={handleOpenInExplorer}
-                    onNavigateFolder={(folder) => fileStore.navigateToFolder(folder)}
+                    onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, fileStore.store.currentCategory!)}
                     onAddToSession={props.onAddToSession}
                     language={language}
                   />
@@ -814,20 +1061,29 @@ export function DesignFilesPanel(props: Props): JSX.Element {
           </Show>
           </ScrollView>
         </div>
-      </div>
+        </div>
 
-      <Show when={fileStore.previewFile()}>
-        {(file) => (
-          <PreviewPane
-            file={file()}
-            sdkUrl={globalSDK.url}
-            sdkDirectory={sdk.directory || ""}
-            onClose={() => fileStore.setPreviewFile(null)}
-            onOpen={() => handleOpenFile(file())}
-            onDownload={() => handleDownload(file())}
-          />
-        )}
-      </Show>
+        <Show when={fileStore.previewFile()}>
+          {(file) => (
+            <>
+              <div
+                class="octo-split-handle shrink-0"
+                style={{ width: "8px" }}
+                onMouseDown={handlePreviewDividerMouseDown}
+              />
+              <PreviewPane
+                file={file()}
+                width={previewWidth()}
+                sdkUrl={globalSDK.url}
+                sdkDirectory={sdk.directory || ""}
+                onClose={() => fileStore.setPreviewFile(null)}
+                onOpen={() => handleOpenFile(file())}
+                onDownload={() => handleDownload(file())}
+              />
+            </>
+          )}
+        </Show>
+      </div>
     </div>
   )
 }
@@ -839,18 +1095,20 @@ function SectionRow(props: {
   onToggle: () => void
 }): JSX.Element {
   return (
-    <tr class="df-section-row" style={{ background: "var(--octo-surface-page)", height: "54px" }}>
-      <td colSpan={5} class="px-2 py-1" style={{ "border-bottom": props.collapsed ? "1px solid rgba(0, 0, 0, 0.1)" : "none" }}>
+    <tr class="df-section-row" style={{ background: "var(--octo-surface-page)" }}>
+      <td colSpan={5} class="px-2" style={{ height: "54px", "box-sizing": "border-box", "vertical-align": "middle", "box-shadow": props.collapsed ? "inset 0 -1px 0 rgba(0, 0, 0, 0.1)" : "none" }}>
         <button
           type="button"
           onClick={props.onToggle}
           class="flex items-center gap-2 w-full"
           style={{ color: "rgba(0, 0, 0, 0.9)", "font-size": "14px", "line-height": "22px" }}
         >
-          <IconChevronDown
-            size={16}
-            style={{ transform: props.collapsed ? "rotate(-90deg)" : "none" }}
-          />
+          <span style={{ width: "16px", height: "16px", display: "flex", "align-items": "center", "justify-content": "center", "flex-shrink": "0" }}>
+            <IconChevronDown
+              size={16}
+              style={{ transform: props.collapsed ? "rotate(-90deg)" : "none" }}
+            />
+          </span>
           <span class="font-medium">{props.title}</span>
         </button>
       </td>
@@ -1048,7 +1306,7 @@ function FileRow(props: {
       <td class="px-4 text-[14px] leading-[22px]" style={{ color: "rgba(0, 0, 0, 0.9)", "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>
         {language.t(kindToI18nKey(props.file.kind))}
       </td>
-      <td class="px-4 text-[14px] leading-[22px]" style={{ color: "rgba(0, 0, 0, 0.9)", "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>
+      <td class="px-4 text-[14px] leading-[22px]" style={{ color: "rgba(0, 0, 0, 0.9)", "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>
         {formatTimestamp(props.file.mtime, language.t)}
       </td>
       <td class="w-[60px] px-4" style={{ "vertical-align": "middle", "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}>

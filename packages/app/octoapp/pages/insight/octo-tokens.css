@@ -5,17 +5,17 @@
  */
 :root {
   /* ── Brand ─────────────────────────────── */
-  --octo-brand:        #0067D1;
-  --octo-brand-hover:  #2E86DE;
-  --octo-brand-active: #004EA8;
+  --octo-brand:        #0A59F7;
+  --octo-brand-hover:  #0950DE;
+  --octo-brand-active: #0A55EB;
   --octo-brand-subtle: #EFF6FF;   /* surface.selected */
 
   /* brand alpha 层级 */
-  --octo-brand-a3:  rgba(0, 103, 209, 0.03);
-  --octo-brand-a8:  rgba(0, 103, 209, 0.08);
-  --octo-brand-a20: rgba(0, 103, 209, 0.20);
-  --octo-brand-a25: rgba(0, 103, 209, 0.25);
-  --octo-brand-a40: rgba(0, 103, 209, 0.40);
+  --octo-brand-a3:  rgba(10, 89, 247, 0.03);
+  --octo-brand-a8:  rgba(10, 89, 247, 0.08);
+  --octo-brand-a20: rgba(10, 89, 247, 0.20);
+  --octo-brand-a25: rgba(10, 89, 247, 0.25);
+  --octo-brand-a40: rgba(10, 89, 247, 0.40);
 
   /* ── Text ───────────────────────────────── */
   --octo-text-strong:      #101828;
@@ -69,10 +69,9 @@
 }
 /* 对话内行内代码(特殊标记文字)颜色覆盖：
    上游 markdown.css 用 var(--syntax-string)(opencode 主题解析为绿色 #3d9a57)，
-   insight 改为品牌蓝 rgb(10,89,247)=#0A59F7。不动上游核心，这里按作用域覆盖。
-   注：insight 的 --octo-brand 是 #0067D1，与本值不同，故直接用字面量(与用户气泡 rgba(10,89,247,.08) 一致)。 */
+   insight 改为品牌蓝。不动上游核心，这里按作用域覆盖。 */
 [data-component="session-turn"] [data-component="markdown"] :not(pre) > code {
-  color: rgb(10, 89, 247);
+  color: var(--octo-brand);
 }
 
 /* hr 间距收紧：上游 markdown.css 的 40px 是 2.5rem 原值换算(opencode #20839 只统一了单位，数值未变)，
@@ -120,6 +119,17 @@
   align-items: center !important;
   margin-bottom: 8px !important;
   margin-right: 8px !important;
+}
+
+/* 用户消息里的图片附件由 insight-turn 自己那层统一渲染(48×48 缩略图 + 点击放大),
+   这里压掉上游 Message 的同名渲染,否则同一张图会画两遍。
+   上游只渲染 `attached()` 的 part —— 判据是 url 以 `data:` 开头(ui/components/message-file.ts),
+   insight 自己发的图走 S3(https)命不中,所以这条规则实际只对 **chat 时代内联 base64 的历史图**
+   起作用;两层同时命中正是「迁移过来的对话图片重复显示」的成因。
+   只压 image 这一支:`data-type="file"` 的非图片附件仍由上游渲染 —— chat 数据里没有 insight 的
+   `[附件]` synthetic 清单,压过头会让那些文档附件彻底消失。 */
+[data-component="session-turn"] [data-slot="user-message-attachment"][data-type="image"] {
+  display: none !important;
 }
 
 [data-component="session-turn"] [data-slot="user-message-attachment-file"] {
@@ -177,6 +187,20 @@
   background: rgba(0,0,0,0.05);
 }
 
+/* ── ResultViewer 头部操作栏:窄屏换行 + 收起按钮文字(对齐 make octo-action-bar)──
+   根容器 flex-wrap:wrap + justify-between → 右侧操作组被挤压时整体换行到下一行;
+   容器查询 ≤780px 时隐藏 ActionBtn 文字标签(仅留图标),与 make 的
+   @container octo-action-bar (max-width:780px) { .octo-action-bar-collapsible .octo-action-btn span { display:none } } 同款。 */
+.insight-action-bar {
+  position: relative;
+  z-index: 1;
+  container-type: inline-size;
+  container-name: insight-action-bar;
+}
+@container insight-action-bar (max-width: 780px) {
+  .insight-action-bar .octo-btn-action span { display: none; }
+}
+
 /* 输入框 textarea:可滚动但滚动条透明 */
 .octo-input-scroll {
   scrollbar-width: thin;                       /* Firefox */
@@ -222,8 +246,8 @@
 
 .octo-mcp-chip--active,
 .octo-mcp-chip--active:hover:not(:disabled) {
-  background: var(--octo-brand-a8);
-  color: var(--octo-brand);
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--octo-text-primary);
 }
 .octo-mcp-chip-x {
   font-size: 13px;
@@ -235,39 +259,61 @@
 .octo-mcp-menu {
   position: fixed;
   z-index: 60;
-  min-width: 160px;
+  min-width: 198px;
   max-width: 320px;
   max-height: 280px;
   overflow-y: auto;
-  padding: 6px;
-  border-radius: var(--octo-radius-md, 10px);
-  border: 1px solid var(--octo-border-divider);
+  padding: 8px;
+  border-radius: 6px;
   background: var(--octo-surface-page);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
 }
 .octo-mcp-menu-item {
   display: flex;
   align-items: center;
   width: 100%;
-  padding: 7px 10px;
+  padding: 7px 12px;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--octo-text-primary);
-  font-size: 13px;
+  font-size: 14px;
   font-family: var(--octo-font);
   text-align: left;
   cursor: pointer;
+  height: 36px;
 }
 .octo-mcp-menu-item:hover {
-  background: var(--octo-brand-a8);
-  color: var(--octo-brand);
+  background: rgba(0, 0, 0, 0.1);
+}
+.octo-mcp-menu-item:active {
+  background: rgba(0, 0, 0, 0.15);
 }
 .octo-mcp-menu-item-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ── 输入区阻塞 Dock 滚动条(6px,与 question 选项区同款) ─────────────────── */
+.octo-input-docks {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+.octo-input-docks::-webkit-scrollbar {
+  display: block;
+  width: 6px;
+}
+.octo-input-docks::-webkit-scrollbar-track {
+  background: transparent;
+}
+.octo-input-docks::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.18);
+  border-radius: 999px;
+}
+.octo-input-docks::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.28);
 }
 
 /* ── 队列提示条(spec §3.3.4) ──────────────────────────────── */
@@ -293,6 +339,27 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+/* 队列列表内部单独滚动,滚动条保持原 4px:全局 style/session-queue-banner.css
+   只写了 width:4px 未写 display:block,这里显式补 display:block + 提高特异性
+   (.octo-input-docks .octo-queue-banner-list)确保 4px 在 insight 页可靠生效;
+   透明度统一全仓 0.18(与 .octo-attach-strip 一致)。 */
+.octo-input-docks .octo-queue-banner-list {
+  max-height: calc(12 * (16px + 2px));
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+.octo-input-docks .octo-queue-banner-list::-webkit-scrollbar {
+  display: block;
+  width: 4px;
+}
+.octo-input-docks .octo-queue-banner-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.octo-input-docks .octo-queue-banner-list::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 2px;
 }
 .octo-queue-banner-item {
   display: flex;
@@ -339,7 +406,27 @@
   color: var(--octo-text-primary);
 }
 
-
+/* ── 发送按钮图标 ──────────────────────────────── */
+.octo-split [data-action="prompt-submit"] {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-image: url(/IconSend-blue.svg);
+  background-size: 48.4px auto;
+  background-position: -8px -3.5px;
+  background-repeat: no-repeat;
+  background-color: transparent;
+  border: none;
+}
+.octo-split [data-action="prompt-submit"]:disabled {
+  opacity: 0.6;
+}
+.octo-split [data-action="prompt-submit"][data-icon="stop"] {
+  background-image: url(/pauseIcon.svg);
+}
+.octo-split [data-action="prompt-submit"] [data-slot="icon-svg"] {
+  display: none;
+}
 
 /* ── 防止 opencode 深色主题污染 Insight (FOUC 初屏保护层) ──────────
    主要防护：InsightContent.onMount 注入 html[data-color-scheme="dark"] 全局覆盖，
@@ -358,20 +445,20 @@
   --text-base:                    #6F6F6F;
   --text-weak:                    #8F8F8F;
   --text-weaker:                  #C7C7C7;
-  --text-interactive-base:        #0067D1;
+  --text-interactive-base:        #0A59F7;
   --text-on-critical-base:        #ffffff;
   --text-on-critical-weak:        #dc2626;
   --border-weak-base:             #DBDBDB;
   --border-weaker-base:           #E8E8E8;
   --border-strong-base:           #b0b0b0;
-  --border-interactive-base:      #0067D1;
+  --border-interactive-base:      #0A59F7;
   --border-critical-base:         #dc2626;
   --icon-base:                    #8F8F8F;
   --icon-strong-base:             #171717;
   --icon-weak-base:               #C7C7C7;
   --icon-weak:                    #C7C7C7;
   --icon-weaker:                  #e0e0e0;
-  --icon-interactive-base:        #0067D1;
+  --icon-interactive-base:        #0A59F7;
   --icon-invert-base:             #ffffff;
 }
 
@@ -432,6 +519,90 @@
   color: var(--octo-brand);
 }
 
+/* ── 入口卡落盘三态(uri 产物先出卡、后台下载)──────────────────────────
+   两个状态都只改视觉、不改布局(高度/间距与就绪态一致),避免状态切换时卡片跳动。
+   pending:图标降透明度 + 呼吸,表达"还在准备";不禁用点击(点开后由 tab 内继续等)。
+   failed :描边与副文案转警示色,右侧出「重试」。 */
+.octo-preview-entry--pending {
+  background: linear-gradient(90deg, rgb(248, 249, 251) 0%, rgb(252, 252, 253) 49.85%);
+}
+.octo-preview-entry--pending .octo-preview-entry__icon {
+  animation: octo-entry-breathe 1.6s ease-in-out infinite;
+}
+.octo-preview-entry--pending .octo-preview-entry__title {
+  color: var(--octo-text-secondary);
+}
+@keyframes octo-entry-breathe {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.85; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .octo-preview-entry--pending .octo-preview-entry__icon {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
+.octo-preview-entry--failed {
+  background: linear-gradient(90deg, rgb(255, 248, 248) 0%, rgb(255, 255, 255) 49.85%);
+  border-color: rgba(217, 45, 32, 0.28);
+}
+.octo-preview-entry--failed:hover {
+  border-color: rgba(217, 45, 32, 0.5);
+  background: linear-gradient(90deg, rgb(255, 243, 243) 0%, rgb(255, 250, 250) 49.85%);
+}
+.octo-preview-entry--failed .octo-preview-entry__icon {
+  opacity: 0.5;
+}
+.octo-preview-entry--failed .octo-preview-entry__desc {
+  color: rgb(180, 35, 24);
+}
+.octo-preview-entry--failed .octo-preview-entry__action {
+  color: rgb(180, 35, 24);
+  font-weight: 500;
+}
+
+/* ── 入口卡落盘三态(uri 产物先出卡、后台下载)──────────────────────────
+   pending:降饱和 + 图标呼吸,表达"还在准备",但不禁用点击(点开后 tab 内继续等)。
+   failed :左侧描边转警示色 + 副文案转红,右侧出「重试」。
+   两态都只改视觉,不改布局(高度/间距与就绪态一致),避免卡片在状态切换时跳动。 */
+.octo-preview-entry--pending {
+  background: linear-gradient(90deg, rgb(248, 249, 251) 0%, rgb(252, 252, 253) 49.85%);
+}
+.octo-preview-entry--pending .octo-preview-entry__icon {
+  opacity: 0.45;
+  animation: octo-entry-breathe 1.6s ease-in-out infinite;
+}
+.octo-preview-entry--pending .octo-preview-entry__title {
+  color: var(--octo-text-secondary);
+}
+@keyframes octo-entry-breathe {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.85; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .octo-preview-entry--pending .octo-preview-entry__icon { animation: none; }
+}
+
+.octo-preview-entry--failed {
+  background: linear-gradient(90deg, rgb(255, 248, 248) 0%, rgb(255, 255, 255) 49.85%);
+  border-color: rgba(217, 45, 32, 0.28);
+}
+.octo-preview-entry--failed:hover {
+  border-color: rgba(217, 45, 32, 0.5);
+  background: linear-gradient(90deg, rgb(255, 243, 243) 0%, rgb(255, 250, 250) 49.85%);
+}
+.octo-preview-entry--failed .octo-preview-entry__icon {
+  opacity: 0.5;
+}
+.octo-preview-entry--failed .octo-preview-entry__desc {
+  color: rgb(180, 35, 24);
+}
+.octo-preview-entry--failed .octo-preview-entry__action {
+  color: rgb(180, 35, 24);
+  font-weight: 500;
+}
+
 /* ── 输入胶囊内附件条:单行横向滚动(类 Claude/Gemini)──────────
    不换行、不撑开胶囊;chip 多了横向滚动,下方 textarea 自有纵向滚动。 */
 .octo-attach-strip {
@@ -469,6 +640,43 @@
 }
 .octo-result-tabs-scroll::-webkit-scrollbar-track {
   background: transparent;
+}
+
+.octo-tab {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(44,46,52,0.05);
+  color: rgba(0,0,0,0.6);
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+  transition: background var(--octo-dur-fast) var(--octo-ease),
+              color var(--octo-dur-fast) var(--octo-ease);
+  max-width: 180px;
+  flex: 0 0 auto;
+}
+.octo-tab:hover {
+  background: rgba(44,46,52,0.08);
+}
+.octo-tab[data-active="true"] {
+  background: rgba(10,89,247,0.08);
+  color: var(--octo-brand);
+}
+.octo-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  color: inherit;
+  flex-shrink: 0;
 }
 
 /* ── 用户气泡上方的输入文件卡片(替代暴露 S3 URL,见 file-upload spec)──
@@ -538,16 +746,49 @@
   transform: none;
 }
 
-/* ── Delete Dialog ──────────────────────────
-   左侧栏对话删除确认窗口,与 chat 侧栏(components/sidebar.tsx)完全一致。
-   Dialog 走 Portal 渲染到 document 根,故样式为全局选择器;此处随 insight
-   自带一份,保证不依赖 make/chat 的 octo-tokens.css 已加载(页面自包含)。 */
+/* ── DropdownMenu (标题栏更多操作) ────────── */
 
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-container"] {
+[data-component="dropdown-menu-content"][data-component="dropdown-menu-content"] {
+  background-color: rgba(255, 255, 255, 0.9);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.16);
+  border: none;
+  padding: 8px;
+  min-width: 132px !important;
+  backdrop-filter: blur(16px);
+}
+
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"] {
+  height: 36px;
+  padding: 0 8px 0 12px;
+  font-size: 14px;
+  color: rgba(0,0,0,0.9);
+  line-height: 22px;
+  border-radius: 8px;
+  width: 100%;
+  text-align: left;
+}
+
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"][data-highlighted],
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-item"]:hover {
+  background: #eee;
+}
+
+[data-component="dropdown-menu-content"] [data-slot="dropdown-menu-separator"] {
+  height: 1px;
+  margin: 4px -8px 4px;
+  background: rgba(0, 0, 0, 0.1);
+  border: none;
+}
+
+/* ── Delete File Dialog ──────────────────────
+   文件管理器删除确认窗口。Dialog 走 Portal 渲染到 document 根,故样式为全局选择器。 */
+
+[data-component="dialog"]:has(.delete-file-dialog) [data-slot="dialog-container"] {
   width: 436px;
 }
 
-.delete-dialog[data-slot="dialog-content"] {
+.delete-file-dialog[data-slot="dialog-content"] {
   border-radius: 20px;
   box-shadow: 0 16px 48px 0 rgba(0,0,0,0.16);
   padding: 24px 32px;
@@ -555,45 +796,23 @@
   border: none;
 }
 
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-header"] {
+[data-component="dialog"]:has(.delete-file-dialog) [data-slot="dialog-header"] {
   padding: 0;
   margin-bottom: 8px;
 }
 
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-close-button"] {
+[data-component="dialog"]:has(.delete-file-dialog) [data-slot="dialog-close-button"] {
   display: none;
 }
 
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-title"] {
+[data-component="dialog"]:has(.delete-file-dialog) [data-slot="dialog-title"] {
   font-size: 20px;
   line-height: 22px;
   font-weight: 600;
 }
 
-.delete-dialog[data-slot="dialog-content"] [data-slot="dialog-body"] {
+.delete-file-dialog[data-slot="dialog-content"] [data-slot="dialog-body"] {
   padding: 0;
-}
-
-.delete-dialog-btn {
-  width: 88px !important;
-  height: 32px !important;
-  border-radius: 4px !important;
-  font-size: 14px !important;
-  line-height: 22px !important;
-  padding: 0 !important;
-}
-
-button.delete-dialog-btn {
-  border: 1px solid rgba(201, 201, 201, 1);
-  background: #fff;
-  color: rgb(25, 25, 25);
-  cursor: pointer;
-}
-
-button.delete-dialog-btn-primary {
-  background: #0a59f7;
-  border-color: #0a59f7;
-  color: #fff;
 }
 
 /* ── Markdown 全屏编辑器(Vditor)─────────────────────────────────
@@ -630,6 +849,23 @@ button.delete-dialog-btn-primary {
 .octo-md-editor-host .vditor-toolbar .vditor-tooltipped:active::after,
 .octo-md-editor-host .vditor-toolbar .vditor-tooltipped:active::before {
   display: none !important;
+}
+
+/* Vditor 工具栏按钮 :focus 颜色修正:
+   Vditor 自带 .vditor-toolbar__item .vditor-tooltipped:focus { color: var(--toolbar-icon-hover-color) }
+   与激活态 .vditor-menu--current 同色(#4285f4)。点击「预览」进入预览模式 → 再次点击退出后,
+   Vditor 已移除 --current,但按钮仍处 :focus,颜色维持蓝色 → 视觉上"还是预览模式颜色",需点击
+   别处失焦才恢复。退出预览应即时可见。这里把鼠标点击 focus(:focus 但非 :focus-visible)恢复
+   非激活色;键盘 :focus-visible 保留蓝色作无障碍焦点反馈。
+   :not(.vditor-menu--current) 排除激活态——否则本规则特异性高于 --current,会把进入预览时
+   按钮的激活蓝色也盖掉,导致"预览模式不变蓝"。
+   :not(:hover) 让位给 Vditor 的 :hover 蓝色——退出预览后鼠标仍悬停时按钮保持 hover 高亮蓝,
+   鼠标移开后才恢复非激活灰(本规则此时命中)。
+   --toolbar-icon-color 是 Vditor 自有变量,与激活态 --toolbar-icon-hover-color 配对(已在实例
+   DevTools 确认解析为非激活色 #586069)。若未来 Vditor 升级重命名该变量,color 将静默回退到
+   inherit,届时此处需同步更新。 */
+.octo-md-editor-host .vditor-toolbar__item .vditor-tooltipped:focus:not(:focus-visible):not(.vditor-menu--current):not(:hover) {
+  color: var(--toolbar-icon-color) !important;
 }
 
 /* Vditor 原生「导出」面板:隐藏 PDF 项(其走 window.print() 弹系统打印框,非静默存盘)。

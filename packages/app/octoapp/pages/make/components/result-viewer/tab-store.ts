@@ -1,12 +1,15 @@
 import { createSignal } from "solid-js"
 import type { OutputCard, ArtifactExportKind } from "../insight-turn"
+import { extractSubtypeFromFilename } from "../../utils/subtype-extractor"
 
 export type ResultTab = {
   id: string
   title: string
-  type: "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "deck" | "svg" | "markdown-document" | "code-snippet" | "react-component" | "diagram" | "local-file" | "image" | "video" | "audio" | "pdf" | "text" | "design-plan" 
+  type: "table" | "mindmap" | "markdown" | "file" | "json" | "html" | "deck" | "svg" | "markdown-document" | "code-snippet" | "react-component" | "diagram" | "local-file" | "image" | "video" | "audio" | "pdf" | "text" | "design-plan" | "link"
+  subtype?: string
   content: string
   filePath?: string
+  commentFilePath?: string
   sessionId?: string
   absoluteFilePath?: string
   exports?: ArtifactExportKind[]
@@ -37,8 +40,10 @@ export function createTabStore() {
       id: card.id,
       title: card.title,
       type: card.type,
+      subtype: card.subtype,
       content: card.content,
       filePath: card.filePath,
+      commentFilePath: card.commentFilePath,
       sessionId: card.sessionId,
       exports: card.exports,
       artifactIdentifier: card.artifactIdentifier,
@@ -63,6 +68,7 @@ export function createTabStore() {
       id: params.id,
       title: params.title,
       type: "local-file",
+      subtype: extractSubtypeFromFilename(params.title),
       content: "",
       absoluteFilePath: params.absoluteFilePath,
       createdAt: params.createdAt,
@@ -113,7 +119,34 @@ function renameTabByPath(oldPath: string, newPath: string, newTitle: string) {
     setActiveId(null)
   }
 
-  return { tabs, activeId, activate, openTab, openLocalFileTab, closeTab, updateTabContent, renameTabByPath, reset }
+  function addTabSilently(card: OutputCard) {
+    const existing = tabs().find((t) => t.id === card.id)
+    if (existing) {
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === card.id
+            ? { ...t, content: card.content, title: card.title, artifactIdentifier: card.artifactIdentifier ?? t.artifactIdentifier }
+            : t,
+        ),
+      )
+      return
+    }
+    const tab: ResultTab = {
+      id: card.id,
+      title: card.title,
+      type: card.type,
+      content: card.content,
+      filePath: card.filePath,
+      commentFilePath: card.commentFilePath,
+      sessionId: card.sessionId,
+      exports: card.exports,
+      artifactIdentifier: card.artifactIdentifier,
+      createdAt: card.createdAt,
+    }
+    setTabs((prev) => [...prev, tab])
+  }
+
+  return { tabs, activeId, activate, openTab, openLocalFileTab, closeTab, updateTabContent, addTabSilently, renameTabByPath, reset }
 }
 
 export type TabStore = ReturnType<typeof createTabStore>

@@ -7,10 +7,12 @@ import { File } from "@/file"
 import * as InstanceState from "@/effect/instance-state"
 import path from "path"
 import { injectArtifactBridges } from "./artifact-bridge"
+import { decodeHtmlBytes } from "@opencode-ai/core/bridge-scripts"
 
-const ARTIFACTS_BASE_DIR = ".octo/artifacts/make"
-const UPLOAD_FILES_DIR = "upload-files"
-const ICONPLUS_FILES_DIR = "iconPlus"
+const SESSION_BASE_DIR = ".octo"
+const OUTPUTS_DIR = "outputs"
+const UPLOADS_DIR = "uploads"
+const COMMENTS_DIR = "comments"
 
 function sanitizePath(rawPath: string): string {
   const normalized = rawPath.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
@@ -90,10 +92,42 @@ function crc32(data: Uint8Array): number {
   return (crc ^ 0xFFFFFFFF) >>> 0
 }
 
-function createZipArchive(entries: Array<{ filename: string; content: Uint8Array }>): Uint8Array {
+// UTF-8 语言编码标记(general purpose bit 11):文件名按 UTF-8 编码时必须置位,
+// 否则 Windows 资源管理器会按本地代码页(如 GBK)解读,中文名变乱码。
+const ZIP_FLAG_UTF8 = 0x0800
+
+// 选中文件按 basename 入包,重名会导致解压时互相覆盖(选 14 个只解出 8 个)。
+// 对重名条目补 " (n)" 后缀去重,与操作系统重名策略一致。
+function dedupeZipNames(
+  entries: Array<{ filename: string; content: Uint8Array }>,
+): Array<{ filename: string; content: Uint8Array }> {
+  const used = new Set<string>()
+  return entries.map((entry) => {
+    let name = entry.filename
+    if (used.has(name)) {
+      const dot = name.lastIndexOf(".")
+      const base = dot > 0 ? name.slice(0, dot) : name
+      const ext = dot > 0 ? name.slice(dot) : ""
+      let n = 1
+      do {
+        name = `${base} (${n})${ext}`
+        n++
+      } while (used.has(name))
+    }
+    used.add(name)
+    return { filename: name, content: entry.content }
+  })
+}
+
+export function createZipArchive(rawEntries: Array<{ filename: string; content: Uint8Array }>): Uint8Array {
+  const entries = dedupeZipNames(rawEntries)
   const localFileHeaders: Array<Uint8Array> = []
   const centralDirectory: Array<Uint8Array> = []
   let offset = 0
+
+  // 用固定的合法 DOS 日期时间(2020-01-01 00:00:00),避免 0 值被判为非法日期。
+  const dosDate = ((2020 - 1980) << 9) | (1 << 5) | 1
+  const dosTime = 0
 
   for (const entry of entries) {
     const filenameBytes = new TextEncoder().encode(entry.filename)
@@ -106,14 +140,15 @@ function createZipArchive(entries: Array<{ filename: string; content: Uint8Array
     const view = new DataView(localHeader.buffer)
     view.setUint32(0, 0x04034b50, true)
     view.setUint16(4, 20, true)
-    view.setUint16(6, 0, true)
+    view.setUint16(6, ZIP_FLAG_UTF8, true)
     view.setUint16(8, 0, true)
-    view.setUint16(10, 0, true)
-    view.setUint32(12, crc, true)
-    view.setUint32(16, compressedSize, true)
-    view.setUint32(20, uncompressedSize, true)
-    view.setUint16(24, filenameBytes.length, true)
-    view.setUint16(26, 0, true)
+    view.setUint16(10, dosTime, true)
+    view.setUint16(12, dosDate, true)
+    view.setUint32(14, crc, true)
+    view.setUint32(18, compressedSize, true)
+    view.setUint32(22, uncompressedSize, true)
+    view.setUint16(26, filenameBytes.length, true)
+    view.setUint16(28, 0, true)
     localHeader.set(filenameBytes, 30)
     localFileHeaders.push(localHeader)
     localFileHeaders.push(content)
@@ -124,18 +159,20 @@ function createZipArchive(entries: Array<{ filename: string; content: Uint8Array
     cview.setUint32(0, 0x02014b50, true)
     cview.setUint16(4, 20, true)
     cview.setUint16(6, 20, true)
-    cview.setUint16(8, 0, true)
+    cview.setUint16(8, ZIP_FLAG_UTF8, true)
     cview.setUint16(10, 0, true)
-    cview.setUint16(12, 0, true)
-    cview.setUint32(14, crc, true)
-    cview.setUint32(18, compressedSize, true)
-    cview.setUint32(22, uncompressedSize, true)
-    cview.setUint16(26, filenameBytes.length, true)
-    cview.setUint16(28, 0, true)
+    cview.setUint16(12, dosTime, true)
+    cview.setUint16(14, dosDate, true)
+    cview.setUint32(16, crc, true)
+    cview.setUint32(20, compressedSize, true)
+    cview.setUint32(24, uncompressedSize, true)
+    cview.setUint16(28, filenameBytes.length, true)
     cview.setUint16(30, 0, true)
     cview.setUint16(32, 0, true)
     cview.setUint16(34, 0, true)
-    cview.setUint32(36, offset - localHeader.length - content.length, true)
+    cview.setUint16(36, 0, true)
+    cview.setUint32(38, 0, true)
+    cview.setUint32(42, offset - localHeader.length - content.length, true)
     centralHeader.set(filenameBytes, 46)
     centralDirectory.push(centralHeader)
   }
@@ -166,6 +203,67 @@ function createZipArchive(entries: Array<{ filename: string; content: Uint8Array
   result.set(endRecord, pos)
 
   return result
+}
+
+// 计算一组绝对路径的最长公共父目录。
+// 用于 ZIP 打包时把选中文件按相对路径写入,保留文件夹结构。
+function computeCommonAncestorDir(paths: string[]): string {
+  if (paths.length === 0) return ""
+  if (paths.length === 1) return path.dirname(paths[0])
+  const split = paths.map(p => p.split(path.sep))
+  const first = split[0]
+  let i = 0
+  while (i < first.length) {
+    const seg = first[i]
+    if (!split.every(s => s[i] === seg)) break
+    i++
+  }
+  const result = first.slice(0, i).join(path.sep)
+  return result || path.sep
+}
+
+// 展开选中路径:文件夹递归遍历为文件,读取每个文件内容,并以相对于公共父目录的路径
+// (用正斜杠,符合 ZIP 规范) 作为 ZIP entry 名。这样解压后保留文件夹结构,而非平铺。
+export function expandPathsToZipEntries(files: readonly string[]) {
+  return Effect.gen(function* () {
+    const fs = yield* AppFileSystem.Service
+    const expanded: string[] = []
+    const visited = new Set<string>()
+    const MAX_DEPTH = 20
+
+    const expand = (p: string, depth: number): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        if (depth > MAX_DEPTH) return
+        const real = path.resolve(p)
+        if (visited.has(real)) return
+        visited.add(real)
+        const stat = yield* fs.stat(p).pipe(Effect.catch(() => Effect.succeed(null)))
+        if (!stat) return
+        if (stat.type === "Directory") {
+          const entries = yield* fs.readDirectory(p).pipe(Effect.catch(() => Effect.succeed([])))
+          for (const name of entries) {
+            yield* expand(path.join(p, name), depth + 1)
+          }
+        } else {
+          expanded.push(p)
+        }
+      })
+
+    for (const f of files) {
+      yield* expand(f, 0)
+    }
+
+    const commonDir = computeCommonAncestorDir(expanded)
+    const entries: Array<{ filename: string; content: Uint8Array }> = []
+    for (const absPath of expanded) {
+      const content = yield* fs.readFile(absPath).pipe(
+        Effect.catch(() => Effect.succeed(new Uint8Array())),
+      )
+      const zipName = path.relative(commonDir, absPath).split(path.sep).join("/")
+      entries.push({ filename: zipName, content })
+    }
+    return entries
+  })
 }
 
 export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact", (handlers) =>
@@ -221,36 +319,41 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       const subPath = ctx.query.path ?? ""
       const recursive = ctx.query.recursive ?? false
       const instanceCtx = yield* InstanceState.context
-      const artifactDir = path.join(instanceCtx.directory, ARTIFACTS_BASE_DIR, sessionId)
-      const uploadFilesDir = path.join(artifactDir, UPLOAD_FILES_DIR)
+      const sessionDir = path.join(instanceCtx.directory, SESSION_BASE_DIR, sessionId)
+      const outputsDir = path.join(sessionDir, OUTPUTS_DIR)
+      const uploadsDir = path.join(sessionDir, UPLOADS_DIR)
 
-      yield* fs.ensureDir(uploadFilesDir).pipe(Effect.catch(() => Effect.void))
+      yield* fs.ensureDir(outputsDir).pipe(Effect.catch(() => Effect.void))
+      yield* fs.ensureDir(uploadsDir).pipe(Effect.catch(() => Effect.void))
 
       if (category === "generated") {
-        const exists = yield* fs.exists(artifactDir).pipe(Effect.catch(() => Effect.succeed(false)))
+        const targetDir = subPath ? path.join(outputsDir, sanitizePath(subPath)) : outputsDir
+
+        const exists = yield* fs.exists(targetDir).pipe(Effect.catch(() => Effect.succeed(false)))
         if (!exists) return { files: [] }
 
-        const entries = yield* fs.readDirectory(artifactDir).pipe(Effect.catch(() => Effect.succeed([])))
+        const entries = yield* fs.readDirectory(targetDir).pipe(Effect.catch(() => Effect.succeed([])))
         const files: ArtifactFileInfo[] = []
 
         for (const name of entries) {
-          if (name.startsWith(".") || name === UPLOAD_FILES_DIR || name === ICONPLUS_FILES_DIR) continue
+          if (name.startsWith(".")) continue
 
-          const fullPath = path.join(artifactDir, name)
+          const fullPath = path.join(targetDir, name)
+          const relativePath = subPath ? `${sanitizePath(subPath)}/${name}` : name
           const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
 
           if (!stat) continue
 
           const isFolder = stat.type === "Directory"
           if (recursive && isFolder) {
-            yield* collectFilesRecursive(fullPath, name, sessionId, files)
+            yield* collectFilesRecursive(fullPath, relativePath, sessionId, files)
           } else {
             const sizeNum = isFolder ? 0 : (typeof stat.size === "bigint" ? Number(stat.size) : (stat.size ?? 0))
             const mtimeNum = Option.isSome(stat.mtime) ? stat.mtime.value.getTime() : Date.now()
             files.push({
               name,
               path: fullPath,
-              relativePath: name,
+              relativePath,
               sessionId,
               kind: isFolder ? "folder" : getKind(name),
               isFolder,
@@ -265,7 +368,7 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       }
 
       if (category === "uploaded") {
-        const targetDir = subPath ? path.join(uploadFilesDir, sanitizePath(subPath)) : uploadFilesDir
+        const targetDir = subPath ? path.join(uploadsDir, sanitizePath(subPath)) : uploadsDir
 
         const exists = yield* fs.exists(targetDir).pipe(Effect.catch(() => Effect.succeed(false)))
         if (!exists) return { files: [] }
@@ -273,7 +376,7 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
         const files: ArtifactFileInfo[] = []
 
         if (recursive) {
-          const baseRelativePath = subPath ? `upload-files/${sanitizePath(subPath)}` : "upload-files"
+          const baseRelativePath = subPath ? `uploads/${sanitizePath(subPath)}` : "uploads"
           yield* collectFilesRecursive(targetDir, baseRelativePath, sessionId, files)
         } else {
           const entries = yield* fs.readDirectory(targetDir).pipe(Effect.catch(() => Effect.succeed([])))
@@ -281,7 +384,7 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
             if (name.startsWith(".")) continue
 
             const fullPath = path.join(targetDir, name)
-            const relativePath = subPath ? `upload-files/${sanitizePath(subPath)}/${name}` : `upload-files/${name}`
+            const relativePath = subPath ? `uploads/${sanitizePath(subPath)}/${name}` : `uploads/${name}`
             const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(null)))
 
             if (!stat) continue
@@ -316,6 +419,19 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
         Effect.mapError(() => new HttpApiError.NotFound({})),
       )
       // 增加encoding字段到返回值，前端用此判断返回文件编码
+      // File.read 对二进制文件(office/pdf/video 等)只返回空 content(服务于文本预览,见 File.read);
+      // 下载需原始字节:type==="binary" 回退 fs.readFile + base64,前端据 encoding:"base64" 解码落盘。
+      // 用 type 而非 !content 判断:合法的空文本文件 content 也是 "",不应误判走二进制回退。
+      if (result.type === "binary") {
+        const bytes = yield* fs.readFile(filePath).pipe(
+          Effect.mapError(() => new HttpApiError.NotFound({})),
+        )
+        return {
+          content: Buffer.from(bytes).toString("base64"),
+          mimeType: result.mimeType ?? getMime(filePath),
+          encoding: "base64" as const,
+        }
+      }
       return {
         content: result.content,
         mimeType: result.mimeType ?? getMime(filePath),
@@ -342,14 +458,7 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
         return HttpServerResponse.empty({ status: 200 })
       }
 
-      const fileEntries: Array<{ filename: string; content: Uint8Array }> = []
-      for (const filePath of files) {
-        const content = yield* fs.readFile(filePath).pipe(
-          Effect.catch(() => Effect.succeed(new Uint8Array())),
-        )
-        const filename = path.basename(filePath)
-        fileEntries.push({ filename, content })
-      }
+      const fileEntries = yield* expandPathsToZipEntries(files)
 
       const zipData = createZipArchive(fileEntries)
       const filename = "artifacts-" + new Date().toISOString().slice(0, 10) + ".zip"
@@ -378,19 +487,19 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
     const upload = Effect.fn("ArtifactHttpApi.upload")(function* (ctx: { payload: { sessionId: string; filename: string; content: string; path?: string } }) {
       const body = ctx.payload
       const instanceCtx = yield* InstanceState.context
-      const artifactDir = path.join(instanceCtx.directory, ARTIFACTS_BASE_DIR, body.sessionId)
-      const uploadFilesDir = path.join(artifactDir, UPLOAD_FILES_DIR)
+      const sessionDir = path.join(instanceCtx.directory, SESSION_BASE_DIR, body.sessionId)
+      const uploadsDir = path.join(sessionDir, UPLOADS_DIR)
 
-      yield* fs.ensureDir(uploadFilesDir).pipe(Effect.orDie)
+      yield* fs.ensureDir(uploadsDir).pipe(Effect.orDie)
 
-      let targetDir = uploadFilesDir
+      let targetDir = uploadsDir
       let targetSubPath = ""
       if (body.path && body.path.trim() !== "") {
         targetSubPath = sanitizePath(body.path)
         if (targetSubPath === "") {
           yield* Effect.fail(new HttpApiError.BadRequest({}))
         }
-        targetDir = path.join(uploadFilesDir, targetSubPath)
+        targetDir = path.join(uploadsDir, targetSubPath)
         yield* fs.ensureDir(targetDir).pipe(Effect.orDie)
       }
 
@@ -433,19 +542,19 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
     const uploadFolder = Effect.fn("ArtifactHttpApi.uploadFolder")(function* (ctx: { payload: { sessionId: string; folderName: string; files: readonly { relativePath: string; content: string }[]; path?: string } }) {
       const body = ctx.payload
       const instanceCtx = yield* InstanceState.context
-      const artifactDir = path.join(instanceCtx.directory, ARTIFACTS_BASE_DIR, body.sessionId)
-      const uploadFilesDir = path.join(artifactDir, UPLOAD_FILES_DIR)
+      const sessionDir = path.join(instanceCtx.directory, SESSION_BASE_DIR, body.sessionId)
+      const uploadsDir = path.join(sessionDir, UPLOADS_DIR)
 
-      yield* fs.ensureDir(uploadFilesDir).pipe(Effect.orDie)
+      yield* fs.ensureDir(uploadsDir).pipe(Effect.orDie)
 
-      let targetDir = uploadFilesDir
+      let targetDir = uploadsDir
       let targetSubPath = ""
       if (body.path && body.path.trim() !== "") {
         targetSubPath = sanitizePath(body.path)
         if (targetSubPath === "") {
           yield* Effect.fail(new HttpApiError.BadRequest({}))
         }
-        targetDir = path.join(uploadFilesDir, targetSubPath)
+        targetDir = path.join(uploadsDir, targetSubPath)
         yield* fs.ensureDir(targetDir).pipe(Effect.orDie)
       }
 
@@ -483,12 +592,12 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       const sessionId = ctx.query.sessionId
       const relativePath = ctx.query.path
       const instanceCtx = yield* InstanceState.context
-      const artifactDir = path.join(instanceCtx.directory, ARTIFACTS_BASE_DIR, sessionId)
-      const filePath = path.join(artifactDir, relativePath)
+      const sessionDir = path.join(instanceCtx.directory, SESSION_BASE_DIR, sessionId)
+      const filePath = path.join(sessionDir, relativePath)
 
       const resolvedPath = path.resolve(filePath)
-      const resolvedArtifactDir = path.resolve(artifactDir)
-      if (!resolvedPath.startsWith(resolvedArtifactDir)) {
+      const resolvedSessionDir = path.resolve(sessionDir)
+      if (!resolvedPath.startsWith(resolvedSessionDir)) {
         yield* Effect.fail(new HttpApiError.NotFound({}))
       }
 
@@ -503,11 +612,11 @@ export const artifactHandlers = HttpApiBuilder.group(InstanceHttpApi, "artifact"
       const mimeType = getMime(relativePath)
 
       if (mimeType === "text/html") {
-        const htmlStr = new TextDecoder().decode(content)
+        const htmlStr = decodeHtmlBytes(content)
         const htmlWithBridge = injectArtifactBridges(htmlStr)
         return HttpServerResponse.raw(new TextEncoder().encode(htmlWithBridge), {
           status: 200,
-          contentType: mimeType,
+          contentType: "text/html; charset=utf-8",
         })
       }
 

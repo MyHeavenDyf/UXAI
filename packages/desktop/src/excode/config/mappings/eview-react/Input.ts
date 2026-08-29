@@ -1,86 +1,143 @@
 /**
  * Input → TextField 映射
  *
- * A2UI Input → eview-react TextField 组件。
+ * | A2UI prop | eview-react prop | 处理 |
+ * |-----------|-----------------|------|
+ * | value | value | LiteralValue.useState（受控） |
+ * | placeholder | placeholder | 同名透传 |
+ * | size | — | 丢弃 |
+ * | maxLength | maxLength | 同名透传 |
+ * | prefix | — | 丢弃（eview-react TextField 无 prefix prop，仅支持 suffix） |
+ * | suffix | suffix | resolveIconProp → BuildNode |
+ * | password: true | type: 'password' | boolean → string |
+ * | className | className + inputStyle | 宽度类(w-*)→inputStyle(内联样式)，其余→className |
  *
- * ## 映射规则
- *
- * - value：two-way binding 自动生成 useState
- * - prefix/suffix → resolveIcon 转为 __slotNode 嵌入
- * - password → type='password'
- * - placeholder → 透传
+ * 工厂化：接收目标组件库包名 `pkg`，构建 import 路径，便于多库复用。
  */
-import { resolveBindingValue } from '../../../src/core/stateUtils';
-import { resolveIcon } from './Icon';
 
+import type { MappingDef, TransformContext } from '../../../src/core/component-mapping'
+import type { PropValue } from '../../../src/core/value-types'
+import { Value } from '../../../src/core/value-factory'
+import { splitWidthToStyle } from '../../../src/codegen/split-width-style'
 
-/**
- * 从 DataBinding 或字面量中提取实际值
- *
- * 返回 [actualValue, stateKey | null]
- */
-function resolveValue(rawState: any, prop: any): [any, string | null] {
-  if (prop?.__binding) {
-    const path = prop.accessPath;
-    const value = resolveBindingValue(rawState, prop);
-    return [value, path];
+// ─── icon prop 解析（字面量 / DataBinding） ───
+function resolveIconProp(
+  iconProp: any,
+  ctx: TransformContext,
+): PropValue | null {
+  if (!iconProp) return null
+
+  if (typeof iconProp === 'object' && iconProp.type === 'binding') {
+    return Value.computed({
+      path: iconProp.path,
+      pathType: iconProp.pathType ?? 'absolute',
+      accessPath: iconProp.accessPath,
+      containsJSX: true,
+      transform: (rawValue, cvCtx) => {
+        const rIcon = cvCtx?.resolveIcon ?? ctx.resolveIcon
+        return typeof rawValue === 'string' ? rIcon(rawValue) : null
+      },
+    })
   }
-  return [prop, null];
+
+  if (typeof iconProp === 'string') {
+    return ctx.resolveIcon(iconProp) as any
+  }
+
+  return null
 }
-export default {
-  tag: 'TextField',
-  import: '@nce/eview-react/TextField',
 
-  binding: {
-    value: {
-      changeEvent: 'onChange',
-      valueExtractor: (setter: string) => `(e) => ${setter}(e.target.value)`,
+// ─── Input → TextField 映射定义 ───
+
+export function createInputMapping(pkg: string): MappingDef {
+  return {
+    tag: 'TextField',
+    import: `${pkg}/TextField`,
+
+    transform(node: any, ctx: TransformContext) {
+      const props = node.props || {}
+      const outputProps: Record<string, PropValue> = {}
+
+      // 显性处理每个 A2UI prop：A2UI Input 的 props 是封闭集合
+      // (value/placeholder/size/maxLength/prefix/suffix/password/className)，
+      // 不再做"非 SKIP 即透传"的兜底，避免把目标库不支持的 prop 漏出去。
+
+      // ─── value → value（useState 受控，双形态） ───
+      //   字面量 → Value.literal（初始值 hardcode）
+      //   DataBinding → Value.computed + useState（初始值从 state.js 取，path 直传，无需 resolveValueFromPath）
+      if ('value' in props) {
+        const val = props.value
+        if (val && typeof val === 'object' && val.type === 'binding') {
+          outputProps.value = Value.computed({
+            path: val.path,
+            pathType: val.pathType ?? 'absolute',
+            accessPath: val.accessPath,
+            containsJSX: false,
+            useState: {
+              event: 'onChange',
+              extractor: (setter) => `(val) => ${setter}(val)`,
+            },
+            transform: (rawValue) => rawValue ?? '',
+          })
+        } else {
+          outputProps.value = Value.literal({
+            value: val ?? '',
+            useState: {
+              event: 'onChange',
+              extractor: (setter) => `(val) => ${setter}(val)`,
+            },
+          })
+        }
+      }
+
+      // ─── placeholder（双形态：字面量直传，DataBinding 保持 BindingValue 原样） ───
+      if ('placeholder' in props) {
+        const ph = props.placeholder
+        if (ph && typeof ph === 'object' && ph.type === 'binding') {
+          // 只改名不改值：保持 BindingValue，管线自动 emit 为 state 引用
+          outputProps.placeholder = ph
+        } else if (typeof ph === 'string') {
+          outputProps.placeholder = ph
+        }
+      }
+
+      // ─── size 丢弃 ───
+
+      // ─── maxLength 透传 ───
+      if (props.maxLength !== undefined) {
+        outputProps.maxLength = props.maxLength
+      }
+
+      // ─── prefix/suffix icon ───
+      //   eview-react TextField 无 prefix prop（仅 suffix），A2UI prefix 丢弃。
+      if (props.suffix) {
+        outputProps.suffix = resolveIconProp(props.suffix, ctx)
+      }
+
+      // ─── password → type ───
+      if (props.password === true) {
+        outputProps.type = 'password'
+      }
+
+      // ─── className: 拆分宽度类 → inputStyle（内联样式），其余 → className ───
+      // TextField 的 className 控制外层容器，inputStyle 控制内部 input 元素；
+      // 宽度类（w-47, w-[226px] 等）应作用于 input 元素，故拆到 inputStyle。
+      // 内联 style 优先级高于 CSS class，无需 !important。
+      const { className: remainCn, widthStyle } = splitWidthToStyle(props.className)
+      if (remainCn) {
+        outputProps.className = remainCn
+      }
+      if (widthStyle) {
+        outputProps.inputStyle = widthStyle as any
+      }
+
+      // 不做剩余兜底透传：A2UI Input 的 props 已逐项显性处理，
+      // 避免把目标库不支持的 prop（如 prefix/size）漏传给 TextField。
+
+      return {
+        props: outputProps,
+        children: null,
+      }
     },
-  },
-
-  propsMap: {
-  },
-
-  valueMap: {
-  },
-
-  defaults: {
-  },
-
-  /**
-   * transform — props 转换
-   */
-  transform(node: any, { rawState, iconNameMap }: { rawState?: any; iconNameMap?: Record<string, string> }) {
-    const p = { ...(node.props || {}) };
-    const iconMap = iconNameMap || {};
-
-    const outputProps: Record<string, any> = {};
-
-    // prefix/suffix icon → __slotNode
-    if ('prefix' in p && typeof p.prefix === 'string') {
-      const iconNode = resolveIcon(p.prefix, iconMap);
-      outputProps.prefix = { __slotNode: iconNode };
-    }
-    if ('suffix' in p && typeof p.suffix === 'string') {
-      const iconNode = resolveIcon(p.suffix, iconMap);
-      outputProps.suffix = { __slotNode: iconNode };
-    }
-
-    if (p.className) {
-      outputProps.className = p.className;
-    }
-
-    if (p.password) {
-      outputProps.type = 'password';
-    }
-    if (p.maxLength) {
-      outputProps.maxLength = p.maxLength;
-    }
-    if (p.placeholder) {
-      const [placeholder] = resolveValue(rawState, p.placeholder);
-      outputProps.placeholder = placeholder;
-    }
-
-    return { props: outputProps, children: null };
-  },
-};
+  }
+}

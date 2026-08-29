@@ -60,7 +60,7 @@ export class UploadError extends Error {
   }
 }
 
-function getExt(filename: string): string {
+export function getExt(filename: string): string {
   const dot = filename.lastIndexOf(".")
   // 与 Node path.parse / Python os.path.splitext 一致：开头的点不算扩展名分隔符，
   // 即 ".txt" / ".env" 视为「没有扩展名的隐藏文件」(dot===0)，而非 "txt" 扩展名。
@@ -223,13 +223,38 @@ export function isImageFile(filename: string): boolean {
   return IMAGE_EXT.has(getExt(filename))
 }
 
-// 可被 opencode 直接内联正文的纯文本类(SPEC-INS-015 路由 ①)。这类走 FilePart(file://, text/plain),
-// 组 prompt 时 opencode 自动 Read 内联;office(docx/xlsx)是二进制,走 FilePart 会被 base64,不在此列
-// (② 由模型调 extract_document 读)。
-const TEXT_INLINE_EXT = new Set(["txt", "md"])
+// 可被 opencode 直接内联正文的文件(SPEC-INS-015 路由 ①)。这类走 FilePart(file://, text/plain),
+// 组 prompt 时服务端调 `read` 把正文读进上下文(2000 行 / 50KB 上限,超出附 offset 续读提示)。
+//
+// **判定是反向排除,不是正向白名单**(2026-08-20 修订):上游 read 支持的是「任何非二进制文本」
+// (tool/read.ts isBinaryFile = 二进制扩展名黑名单 + 内容嗅探),不是一份固定清单。此处只排掉
+// **我们有专门通道的**格式,其余一律交给 read 自己判定 —— 这样上传格式放开(如 json / csv)时
+// 无需再同步一次内联清单,判定口径也与 opencode 原生一致。
+//   - office / pdf → `extract_document`(read 对 office 显式拒绝、对 pdf 内容嗅探判二进制)
+//   - 图片        → vision FilePart{url:S3}(路由 ③)
+// 排除集之外的文件若真是二进制(如 `@` 一个 .zip 产物),read 会返回 "Cannot read binary file"
+// 进上下文 —— 响亮失败,模型看得懂,不做客户端预判(嗅探要读文件字节,是服务端的活)。
+/** extract_document 负责的文档类(SPEC-INS-015 路由 ②)。二进制容器,发送前拿不到正文体量。 */
+const EXTRACT_DOC_EXT = new Set(["docx", "xlsx", "pptx", "doc", "xls", "ppt", "pdf"])
+
+const NON_INLINE_EXT = new Set([
+  ...EXTRACT_DOC_EXT,
+  // 图片走 vision(路由 ③)
+  ...IMAGE_EXT,
+])
 
 export function isTextInlineFile(filename: string): boolean {
-  return TEXT_INLINE_EXT.has(getExt(filename))
+  return !NON_INLINE_EXT.has(getExt(filename))
+}
+
+/**
+ * 是否走 `extract_document` 的文档类。与 isTextInlineFile 不是简单互补 —— 图片两边都不算
+ * (它走 vision,既不占内联预算,也不进分治判定的份数)。
+ * 用途:SPEC-INS-032 §2.6 的**份数口径**——这类文件发送前只有二进制大小、拿不到正文字节,
+ * 无法并入 INLINE_BUDGET 的字节预算,故按份数判分治。
+ */
+export function isExtractableDocFile(filename: string): boolean {
+  return EXTRACT_DOC_EXT.has(getExt(filename))
 }
 
 // 按 SPEC-INS-015 §2 拼「附件清单」段落:每行 `- <文件名>: <本地绝对路径>`。
@@ -251,8 +276,76 @@ export function formatUploadsForPrompt(files: Array<{ filename: string; path: st
   return `[附件]\n${lines.join("\n")}`
 }
 
+// SPEC-INS-032 §2.3.2 / §2.4:超内联预算时的体量说明,作为**独立 synthetic 块**发送。
+//
+// 为什么不附在 `[附件]` 块尾:内联判定覆盖 `[附件]` 与 `[引用文件]` **两条**来源(SPEC-INS-023 §7.2
+// 起两者一致),而 formatUploadsForPrompt 在无附件时返回空串——只 `@` 引用大文件的那轮说明就丢了。
+// 独立块两条来源都覆盖,也不必动 `[附件]` 的行格式契约(它有三个消费方)。
+//
+// 文案面向**模型**,只陈述事实 + 给出该做什么,不写 UI 概念;两句话都必须在,缺一句弱模型就会走偏:
+// 少了「正文未进上下文」它会直接凭文件名编;少了「逐份派」它会试图一次读完。
+export const DISPATCH_NOTE_HEADER = "[材料体量]"
+
+export function formatDispatchNote(input: {
+  count: number
+  totalBytes: number
+  docCount: number
+  oversized: Array<{ filename: string; bytes: number }>
+}): string {
+  const kb = (b: number) => `${Math.round(b / 1024)} KB`
+  // 两类材料的说法要分开：文本类给得出确切体量（字节就是进上下文的量），
+  // 文档类只给份数（发送前拿不到正文体量，见 SPEC-INS-032 §2.6）。说不知道的数会把模型带偏。
+  const parts: string[] = []
+  if (input.count > 0) parts.push(`${input.count} 份文本材料（合计约 ${kb(input.totalBytes)}）`)
+  if (input.docCount > 0) parts.push(`${input.docCount} 份文档（docx / pdf / xlsx / pptx）`)
+
+  const paragraphs = [
+    `${DISPATCH_NOTE_HEADER} 本轮共有 ${parts.join("、")}（含 [附件] 与 [引用文件]）。` +
+      `这批材料的正文**未**随本条消息进入你的上下文——你现在只有文件名和路径，材料内容一个字都没有。`,
+    `请**逐份**派 insight_reader 子代理通读：每份材料单独发一个 task，把该文件的绝对路径和这次要提炼什么写进去，` +
+      `**一份回来了再派下一份**，收齐所有结论后再写报告。不要试图自己一次性读完这些材料——那正是会撞上下文上限的做法。`,
+  ]
+  if (input.oversized.length > 0) {
+    const names = input.oversized.map((f) => `「${f.filename}」(${kb(f.bytes)})`).join("、")
+    paragraphs.push(
+      // 只给正面指令：这轮的说明就贴在材料旁边，写「不要让用户拆分文件」反而是把那个词递到它眼前。
+      // 明确的禁止留在常驻提示词里（那是针对已发生过的错误行为的长期约束）。
+      `其中 ${names} 单份就超出了子代理一次能通读的量。**照样派子代理**——` +
+        `子代理调 extract_document 时会拿到一份切段清单，按段分几次派完即可，每段一个 task。`,
+    )
+  }
+  return paragraphs.join("\n")
+}
+
+// SPEC-INS-023 @ 引用清单(`@文件` 引用已存在的会话文件:outputs 产物 + uploads 上传)。
+//
+// 与 `[附件]` **行格式完全一致**(`- <文件名>: <本地绝对路径>`)、同为 synthetic,两点区别:
+//   ① InsightTurn 不按本头渲染文件卡片(气泡里已有 @ 胶囊,再渲染卡片是重复) —— 这也是当初
+//      另起一个头而非复用 `[附件]` 的**唯一**理由(spec §7.2);
+//   ② 正文**未随消息内联**(`[附件]` 的 txt/md 走 FilePart(file://) 由 server 端 read 进上下文,
+//      本清单不走) —— 故本清单里的 txt/md 要读正文仍需 extract_document,与 `[附件]` 的硬规则相反。
+//
+// 但对 server 端 octo-upload-inject 而言两者**完全等价**:都是「本会话可喂 MCP 的文件白名单」。
+// 插件的 MANIFEST_HEADERS 必须同时认这两个头(2026-08-20 内网修复:此前只认 `[附件]`,`@` 来的
+// 产物文件在研究工具轮被判「不在清单」→ 模型自我阻断 / 插件 resolvePath 抛错,两条路都死)。
+// 改格式或增删头需与插件两处同步。
+//
+// 文案只陈述**事实**、不含工具指令:chip turn 会禁用 extract_document(mcp-trigger buildToolGate),
+// 清单里若写死「用 extract_document 读取」会与 chip 模板的「本轮不要读正文」直接冲突。
+// 怎么读由常驻提示词按场景区分(octo_insight.md「怎么读文件」)。
+export const MENTION_BLOCK_HEADER = "[引用文件]"
+
+export function formatMentionedFilesForPrompt(files: Array<{ filename: string; path: string }>): string {
+  if (files.length === 0) return ""
+  const lines = files.map((f) => `- ${f.filename}: ${f.path}`)
+  // 2026-08-20:`@` 的文件与附件走同一条内联路径(isTextInlineFile 判定),故两个清单对模型而言
+  // 行为已经一致 —— 文案不再区分"正文有没有内联"。
+  return `${MENTION_BLOCK_HEADER} 用户本轮 @ 引用了以下已存在的会话文件(与 [附件] 同属本会话可用文件):\n${lines.join("\n")}`
+}
+
 // formatUploadsForPrompt 的逆操作:从 synthetic text part 解析出 { filename, path } 列表,
 // 供 InsightTurn 渲染输入文件卡片。两者共用同一格式,是单一事实源。
+// (`[引用文件]` 块行格式相同,故本函数同样可解析它 —— 首行说明不以 "- " 开头,自然跳过。)
 export function parseUploadedFiles(block: string): Array<{ filename: string; path: string }> {
   const out: Array<{ filename: string; path: string }> = []
   for (const line of block.split("\n")) {

@@ -1,11 +1,13 @@
 import { extractJson } from '../../utils/json-parser'
 import { runChildSession } from '../run-child-session'
 import { logAgentParsed } from '../../utils/debug-log'
+import { agentThrow } from '../../utils/error-msg'
 import {
   readPatternIndex,
   type PatternEntry,
   type PatternMatchItem,
 } from '../../utils/pattern-resource'
+import { PATTERN_PAGE_FORMAT } from './schema'
 
 const AGENT_NAME = "proto_pattern_page"
 
@@ -42,12 +44,13 @@ export default async function proto_pattern_page(input: ProtoPatternPageInput) {
     prompt: humanMessage,
     directory: sdk.directory,
     parentSessionID: rootSession,
+    schema: PATTERN_PAGE_FORMAT.schema,
   })
   // 3. 解析 LLM 返回的匹配结果并加载 pattern 文件内容
   const matchJson = extractJson(result.text)
   if (!matchJson) {
     logAgentParsed(result.childSessionId, { error: "Failed to parse JSON", raw: result.text })
-    throw new Error("----- Pattern Page did not return valid JSON -----")
+    agentThrow(AGENT_NAME, result.childSessionId, "Pattern Page did not return valid JSON")
   }
   const returnValue = await resolveMatches(matchJson, patterns, theme)
   logAgentParsed(result.childSessionId, returnValue)

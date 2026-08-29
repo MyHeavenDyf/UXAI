@@ -2,6 +2,8 @@ import { createSignal, onCleanup, For, Show } from "solid-js"
 import {
   IconActionDownload,
   IconActionShare,
+  IconActionAnnotate,
+  IconActionCanvasEdit,
   IconRefresh,
   IconChevronDown,
   IconCanvasHand,
@@ -28,6 +30,8 @@ interface TitleBarProps {
   onFullscreen: () => void
   onDownload?: () => void
   onShare?: () => void
+  onAnnotate?: () => void
+  onText?: () => void
   versions?: VersionEntry[]
   currentVersionId?: string | null
   onSelectVersion?: (versionId: string) => void
@@ -36,13 +40,19 @@ interface TitleBarProps {
   // 容错升级：将这个属性改成可选属性（加上 ?），防止其他文件调用时不传参数导致崩溃
   editing?: boolean
   onToggleEditing?: () => void
+  annotating?: boolean
+  onToggleAnnotating?: () => void
+  archiving?: boolean
+  onArchiveToggle?: () => void
+  onCanvasEditing?: () => void
 }
 
 export function TitleBar(props: TitleBarProps) {
   // === 下拉菜单数据源控制 ===
   const previewOptions: DropdownItem[] = [
     { label: "实时预览", value: "live" },
-    { label: "Pixso预览", value: "pixso" }
+    { label: "Pixso预览", value: "pixso" },
+    { label: "代码转Pixso(测试)", value: "capture" }
   ]
 
   const deviceOptions: DropdownItem[] = [
@@ -244,6 +254,16 @@ export function TitleBar(props: TitleBarProps) {
             <span>编辑</span>
           </button>
 
+          {/* 按钮：画布编辑 */}
+          {/* <button
+            class="pattern-action-btn"
+            title="画布编辑"
+            onClick={() => props.onCanvasEditing?.()}
+          >
+            <IconActionCanvasEdit size={16} />
+            <span>画布编辑</span>
+          </button> */}
+
           {/* 按钮 4：历史版本 */}
           <div class="dropdown-trigger-container">
             <button class="pattern-action-btn" title="历史版本" onClick={() => { setShowHistory(!showHistory()); setOpenPreview(false); setOpenDesktop(false); setOpenZoom(false) }}>
@@ -296,16 +316,38 @@ export function TitleBar(props: TitleBarProps) {
           <div class="btn-vertical-divider" style={{ height: "10px", margin: "0 8px" }} />
 
           {/* 按钮：分享 */}
-          <button class="pattern-action-btn" title="分享" onClick={() => props.onShare?.()}>
+          {/* <button class="pattern-action-btn" title="分享" onClick={() => props.onShare?.()}>
             <IconActionShare size={16} />
             <span>分享</span>
-          </button>
+          </button> */}
 
           {/* 按钮 6：下载 */}
           <button class="pattern-action-btn" title="下载" onClick={() => props.onDownload?.()}>
             <IconActionDownload size={16} />
             <span>下载</span>
           </button>
+
+          {/* 按钮 7：标注 */}
+          <button
+            class="pattern-action-btn"
+            classList={{ 'edit-active': !!props.annotating }}
+            title="标注"
+            onClick={() => props.onToggleAnnotating?.()}
+          >
+            <IconActionAnnotate size={16} />
+            <span>标注</span>
+          </button>
+
+          {/* 按钮 8：归档 */}
+          {/* <button
+            class="pattern-action-btn"
+            classList={{ 'edit-active': !!props.archiving }}
+            title="归档"
+            onClick={() => props.onArchiveToggle?.()}
+          >
+            <IconActionDownload size={16} />
+            <span>归档</span>
+          </button> */}
         </div>
       </div>
     </div>

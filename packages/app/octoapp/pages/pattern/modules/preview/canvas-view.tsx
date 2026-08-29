@@ -6,7 +6,8 @@ interface CanvasViewProps {
   targetWidth: number
   targetHeight: number
   children: JSX.Element
-  ref?: (api: { reset: () => void; setScale: (scale: number) => void }) => void
+  overlay?: JSX.Element
+  ref?: (api: { reset: () => void; setScale: (scale: number) => void; viewportElement: () => HTMLDivElement | undefined }) => void
 }
 
 export function CanvasView(props: CanvasViewProps) {
@@ -58,7 +59,7 @@ export function CanvasView(props: CanvasViewProps) {
   }
 
   if (props.ref) {
-    props.ref({ reset: resetPosition, setScale })
+    props.ref({ reset: resetPosition, setScale, viewportElement: () => viewportRef })
   }
 
   let resizeObserver: ResizeObserver | undefined
@@ -182,6 +183,7 @@ export function CanvasView(props: CanvasViewProps) {
           }} 
         />
       </div>
+      {props.overlay}
     </div>
   )
 }

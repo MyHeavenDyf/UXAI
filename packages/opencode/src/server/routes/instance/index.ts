@@ -7,6 +7,7 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 import z from "zod"
 import { Format } from "@/format"
 import { ArtifactRoutes } from "./artifact"
+import { CommentRoutes } from "./comment"
 import { TuiRoutes } from "./tui"
 import { Instance } from "@/project/instance"
 import { InstanceRuntime } from "@/project/instance-runtime"
@@ -197,6 +198,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket, opts?: CorsOptions): H
   return app
     .route("/project", ProjectRoutes())
     .route("/artifact", ArtifactRoutes())
+    .route("/comment", CommentRoutes())
     .route("/pty", PtyRoutes(upgrade, opts))
     .route("/config", ConfigRoutes())
     .route("/experimental", ExperimentalRoutes())

@@ -1,0 +1,247 @@
+.ic-card-overlay {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 10;
+}
+
+.ic-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  background: var(--octo-surface-page, #ffffff);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+  border: 1px solid var(--octo-border-default, #e5e7eb);
+  padding: 16px 20px 12px;
+}
+
+.ic-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.ic-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: var(--octo-brand, #3b82f6);
+  color: #fff;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.ic-card-titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.ic-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--octo-text-strong, #101828);
+}
+
+.ic-card-desc {
+  font-size: 12px;
+  color: var(--octo-text-secondary, rgba(0,0,0,0.6));
+  margin-top: 2px;
+}
+
+/* Body */
+.ic-card-body {
+  flex: 1;
+  min-height: 0;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+/* Footer */
+.ic-card-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+  gap: 8px;
+}
+
+.ic-card-next-btn {
+  padding: 5px 16px;
+  border: 1px solid var(--octo-brand, #3b82f6);
+  background: transparent;
+  color: var(--octo-brand, #3b82f6);
+  border-radius: 999px;
+  font-size: 13px;
+  cursor: pointer;
+  opacity: 1;
+  transition: opacity 0.15s ease;
+}
+
+.ic-card-next-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ic-card-submit-btn {
+  padding: 5px 16px;
+  border: none;
+  background: var(--octo-brand, #3b82f6);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ic-card-submit-btn:hover {
+  background: var(--octo-brand-hover, #2563eb);
+}
+
+/* Card grid (patterns & blocks) */
+.ic-card-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px;
+  font-size: 13px;
+  color: var(--octo-text-secondary, rgba(0,0,0,0.6));
+}
+
+.ic-card-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--octo-border-default, #e5e7eb);
+  border-top-color: var(--octo-brand, #3b82f6);
+  border-radius: 50%;
+  animation: ic-card-spin 0.6s linear infinite;
+}
+
+@keyframes ic-card-spin {
+  to { transform: rotate(360deg); }
+}
+
+.ic-card-error {
+  text-align: center;
+  padding: 20px;
+  font-size: 13px;
+  color: #ef4444;
+}
+
+.ic-card-empty {
+  text-align: center;
+  padding: 20px;
+  font-size: 13px;
+  color: var(--octo-text-secondary, rgba(0,0,0,0.6));
+}
+
+.ic-card-block-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.ic-card-block-category {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--octo-text-secondary, rgba(0,0,0,0.6));
+  padding: 2px 0;
+}
+
+.ic-card-block-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  table-layout: fixed;
+}
+
+.ic-card-block-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border: 1px solid var(--octo-border-default, #e5e7eb);
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ic-card-block-card:hover {
+  border-color: var(--octo-brand, #3b82f6);
+}
+
+.ic-card-block-card-on {
+  border-color: var(--octo-brand, #3b82f6);
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.ic-card-block-preview-wrap {
+  position: relative;
+  width: 100%;
+  height: 80px;
+}
+
+.ic-card-block-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-bottom: 1px solid var(--octo-border-default, #e5e7eb);
+}
+
+.ic-card-block-zoom {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.ic-card-block-card:hover .ic-card-block-zoom {
+  opacity: 1;
+}
+
+.ic-card-block-name {
+  font-size: 12px;
+  color: var(--octo-text-strong, #101828);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.ic-card-preview-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  cursor: pointer;
+}
+
+.ic-card-preview-modal-img {
+  max-width: 90%;
+  max-height: 90%;
+  object-fit: contain;
+  border-radius: 8px;
+}

@@ -311,14 +311,30 @@ export const layer: Layer.Layer<
           return input.providerID === ProviderID.opencode || Flag.OPENCODE_ENABLE_EXA
         }
 
-        // 内网知识库工具只给 chat 的 octo_ai,避免泄漏到其他 agent。
+        // 内网知识库工具只给 insight 的 octo_insight(SPEC-INS-030:chat 下线,该能力迁入 insight),
+        // 避免泄漏到 make / studio / pattern。
         if (tool.id === KnowledgeSearchTool.id) {
-          return input.agent.name === "octo_ai"
+          return input.agent.name === "octo_insight"
         }
 
-        // office 文本抽取只给 insight 的 octo_insight(SPEC-INS-015 ②),不泄漏到 make/chat。
-        if (tool.id === ExtractDocumentTool.id) {
-          return input.agent.name === "octo_insight"
+        // office 文本抽取的可见性 **不在这里判**(SPEC-INS-032 §3):原先是
+        // `input.agent.name === "octo_insight"` 硬编码,注册表反过来认识每个 agent 的名字,
+        // 新增 agent 就要回头改这里、第三方 skill 无法自助。已改为 agent 侧声明 ——
+        // defaults 里 `extract_document: "deny"`,需要的 agent(octo_insight / insight_reader /
+        // 第三方自带 agent md)显式 allow;Permission.disabled 既隐藏也阻断,效果等价。
+
+        // insight 只摘除 apply_patch(2026-07-30:edit 放开——供编辑 md 交付物,outputs 重定向插件
+        // 已同步覆盖 edit 的 filePath,见 agent/octo-session-workdir.ts)。编辑类工具的裁剪一律在此、
+        // 不走 agent 权限层:Permission.disabled 把 edit/write/apply_patch 都映射到 "edit" 权限键
+        // (EDIT_TOOLS),在权限层动 edit 会连带隐藏要保留的 write。
+        // apply_patch 仍摘:它是 gpt 系的 edit 变体(下方 usePatch),参数是整段 patchText、无单一
+        // filePath,outputs 插件无法像 write/edit 那样重定向;当前内网 GLM / 外网 Claude 不走它,接
+        // gpt 系时再单独处理。
+        // ⚠️ 这条为什么没跟着 extract_document 一起搬去权限层(SPEC-INS-032 §3.4):
+        // Permission.disabled 把 edit/write/apply_patch 都映射到同一个 "edit" 权限键(EDIT_TOOLS),
+        // 在权限层 deny apply_patch 会连带隐藏要保留的 write。除非上游改这个映射,否则只能留在这里。
+        if (tool.id === ApplyPatchTool.id && input.agent.name === "octo_insight") {
+          return false
         }
 
         const usePatch =

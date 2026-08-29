@@ -8,6 +8,7 @@ import { Config } from "@/config/config"
 import { Agent } from "../../src/agent/agent"
 import { LLM } from "../../src/session/llm"
 import { SessionCompaction } from "../../src/session/compaction"
+import { exceedsContext, preflight } from "../../src/session/overflow"
 import { Token } from "@/util/token"
 import { Instance } from "../../src/project/instance"
 import { WithInstance } from "../../src/project/with-instance"
@@ -301,10 +302,37 @@ function reply(
 ): (input: LLM.StreamInput) => Stream.Stream<LLM.Event, unknown> {
   return (input) => {
     capture?.(input)
+    const summary = `## Goal
+- ${text}
+
+## Constraints & Preferences
+- (none)
+
+## Progress
+### Done
+- ${text}
+
+### In Progress
+- (none)
+
+### Blocked
+- (none)
+
+## Key Decisions
+- (none)
+
+## Next Steps
+- (none)
+
+## Critical Context
+- (none)
+
+## Relevant Files
+- (none)`
     return Stream.make(
       { type: "start" } satisfies LLM.Event,
       { type: "text-start", id: "txt-0" } satisfies LLM.Event,
-      { type: "text-delta", id: "txt-0", delta: text, text } as LLM.Event,
+      { type: "text-delta", id: "txt-0", delta: summary, text: summary } as LLM.Event,
       { type: "text-end", id: "txt-0" } satisfies LLM.Event,
       {
         type: "finish-step",
@@ -389,19 +417,31 @@ function autocontinue(enabled: boolean) {
 
 describe("session.compaction.isOverflow", () => {
   it.live(
-    "returns true when token count exceeds usable context",
+    "returns true when input context reaches 85% of context",
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
         const model = createModel({ context: 100_000, output: 32_000 })
-        const tokens = { input: 75_000, output: 5_000, reasoning: 0, cache: { read: 0, write: 0 } }
+        const tokens = { input: 85_000, output: 5_000, reasoning: 0, cache: { read: 0, write: 0 } }
         expect(yield* compact.isOverflow({ tokens, model })).toBe(true)
       }),
     ),
   )
 
   it.live(
-    "returns false when token count within usable context",
+    "ignores completion tokens when input context is below 85%",
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const compact = yield* SessionCompaction.Service
+        const model = createModel({ context: 100_000, output: 32_000 })
+        const tokens = { input: 80_000, output: 20_000, reasoning: 5_000, cache: { read: 0, write: 0 } }
+        expect(yield* compact.isOverflow({ tokens, model })).toBe(false)
+      }),
+    ),
+  )
+
+  it.live(
+    "returns false when token count is below 85% of context",
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
@@ -413,12 +453,38 @@ describe("session.compaction.isOverflow", () => {
   )
 
   it.live(
+    "triggers from locally estimated usage when provider usage is missing",
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const compact = yield* SessionCompaction.Service
+        const model = createModel({ context: 100_000, output: 32_000 })
+        const usage = SessionNs.getUsage({
+          model,
+          usage: {
+            inputTokens: undefined,
+            outputTokens: undefined,
+            totalTokens: undefined,
+            inputTokenDetails: {
+              noCacheTokens: undefined,
+              cacheReadTokens: undefined,
+              cacheWriteTokens: undefined,
+            },
+            outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
+          },
+          estimated: { input: 85_000, output: 5_000 },
+        })
+        expect(yield* compact.isOverflow({ tokens: usage.tokens, model })).toBe(true)
+      }),
+    ),
+  )
+
+  it.live(
     "includes cache.read in token count",
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
         const model = createModel({ context: 100_000, output: 32_000 })
-        const tokens = { input: 60_000, output: 10_000, reasoning: 0, cache: { read: 10_000, write: 0 } }
+        const tokens = { input: 75_000, output: 10_000, reasoning: 0, cache: { read: 10_000, write: 0 } }
         expect(yield* compact.isOverflow({ tokens, model })).toBe(true)
       }),
     ),
@@ -460,82 +526,44 @@ describe("session.compaction.isOverflow", () => {
     ),
   )
 
-  // ─── Bug reproduction tests ───────────────────────────────────────────
-  // These tests demonstrate that when limit.input is set, isOverflow()
-  // does not subtract any headroom for the next model response. This means
-  // compaction only triggers AFTER we've already consumed the full input
-  // budget, leaving zero room for the next API call's output tokens.
-  //
-  // Compare: without limit.input, usable = context - output (reserves space).
-  // With limit.input, usable = limit.input (reserves nothing).
-  //
-  // Related issues: #10634, #8089, #11086, #12621
-  // Open PRs: #6875, #12924
-
   it.live(
-    "BUG: no headroom when limit.input is set — compaction should trigger near boundary but does not",
+    "uses 85% of limit.input when an input cap is present",
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
-        // Simulate Claude with prompt caching: input limit = 200K, output limit = 32K
         const model = createModel({ context: 200_000, input: 200_000, output: 32_000 })
-
-        // We've used 198K tokens total. Only 2K under the input limit.
-        // On the next turn, the full conversation (198K) becomes input,
-        // plus the model needs room to generate output — this WILL overflow.
-        const tokens = { input: 180_000, output: 15_000, reasoning: 0, cache: { read: 3_000, write: 0 } }
-        // count = 180K + 3K + 15K = 198K
-        // usable = limit.input = 200K (no output subtracted!)
-        // 198K > 200K = false → no compaction triggered
-
-        // WITHOUT limit.input: usable = 200K - 32K = 168K, and 198K > 168K = true ✓
-        // WITH limit.input: usable = 200K, and 198K > 200K = false ✗
-
-        // With 198K used and only 2K headroom, the next turn will overflow.
-        // Compaction MUST trigger here.
+        const tokens = { input: 170_000, output: 10_000, reasoning: 0, cache: { read: 0, write: 0 } }
         expect(yield* compact.isOverflow({ tokens, model })).toBe(true)
       }),
     ),
   )
 
   it.live(
-    "BUG: without limit.input, same token count correctly triggers compaction",
+    "uses 85% of context when no input cap is present",
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
-        // Same model but without limit.input — uses context - output instead
         const model = createModel({ context: 200_000, output: 32_000 })
-
-        // Same token usage as above
-        const tokens = { input: 180_000, output: 15_000, reasoning: 0, cache: { read: 3_000, write: 0 } }
-        // count = 198K
-        // usable = context - output = 200K - 32K = 168K
-        // 198K > 168K = true → compaction correctly triggered
-
-        const result = yield* compact.isOverflow({ tokens, model })
-        expect(result).toBe(true) // ← Correct: headroom is reserved
+        const tokens = { input: 170_000, output: 10_000, reasoning: 0, cache: { read: 0, write: 0 } }
+        expect(yield* compact.isOverflow({ tokens, model })).toBe(true)
       }),
     ),
   )
 
   it.live(
-    "BUG: asymmetry — limit.input model allows 30K more usage before compaction than equivalent model without it",
+    "uses the input cap instead of context as the percentage base",
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
-        // Two models with identical context/output limits, differing only in limit.input
-        const withInputLimit = createModel({ context: 200_000, input: 200_000, output: 32_000 })
-        const withoutInputLimit = createModel({ context: 200_000, output: 32_000 })
-
-        // 170K total tokens — well above context-output (168K) but below input limit (200K)
-        const tokens = { input: 166_000, output: 10_000, reasoning: 0, cache: { read: 5_000, write: 0 } }
+        const withInputLimit = createModel({ context: 400_000, input: 200_000, output: 32_000 })
+        const withoutInputLimit = createModel({ context: 400_000, output: 32_000 })
+        const tokens = { input: 170_000, output: 10_000, reasoning: 0, cache: { read: 0, write: 0 } }
 
         const withLimit = yield* compact.isOverflow({ tokens, model: withInputLimit })
         const withoutLimit = yield* compact.isOverflow({ tokens, model: withoutInputLimit })
 
-        // Both models have identical real capacity — they should agree:
-        expect(withLimit).toBe(true) // should compact (170K leaves no room for 32K output)
-        expect(withoutLimit).toBe(true) // correctly compacts (170K > 168K)
+        expect(withLimit).toBe(true)
+        expect(withoutLimit).toBe(false)
       }),
     ),
   )
@@ -569,6 +597,44 @@ describe("session.compaction.isOverflow", () => {
       },
     ),
   )
+})
+
+describe("session.overflow.preflight", () => {
+  const config = Config.Info.zod.parse({})
+  const model = createModel({ context: 100, output: 20 })
+
+  test("sends requests that fit the context budget", () => {
+    expect(preflight({ cfg: config, model, estimatedInput: 70, unavoidableInput: 20 })).toBe("send")
+  })
+
+  test("compacts when removable history causes overflow", () => {
+    expect(preflight({ cfg: config, model, estimatedInput: 90, unavoidableInput: 20 })).toBe("compact")
+  })
+
+  test("rejects requests whose unavoidable input is too large", () => {
+    expect(preflight({ cfg: config, model, estimatedInput: 90, unavoidableInput: 85 })).toBe("reject")
+  })
+
+  test("rejects instead of compacting repeatedly after one compaction attempt", () => {
+    expect(
+      preflight({ cfg: config, model, estimatedInput: 90, unavoidableInput: 20, compactionAttempted: true }),
+    ).toBe("reject")
+  })
+})
+
+describe("session.overflow.exceedsContext", () => {
+  test("detects the hard context limit without using the 85% compaction threshold", () => {
+    const model = createModel({ context: 100, output: 20 })
+
+    expect(exceedsContext({ model, input: 99 })).toBe(false)
+    expect(exceedsContext({ model, input: 100 })).toBe(true)
+  })
+
+  test("uses the model input limit when present", () => {
+    const model = createModel({ context: 200, input: 100, output: 20 })
+
+    expect(exceedsContext({ model, input: 100 })).toBe(true)
+  })
 })
 
 describe("session.compaction.create", () => {
@@ -800,6 +866,32 @@ describe("session.compaction.prune", () => {
   )
 })
 
+describe("session.compaction.isSuccessful", () => {
+  const message = (input: { finish?: MessageV2.Assistant["finish"]; error?: MessageV2.Assistant["error"] }) =>
+    ({
+      info: {
+        role: "assistant",
+        summary: true,
+        finish: input.finish,
+        error: input.error,
+      },
+      parts: [],
+    }) as unknown as MessageV2.WithParts
+
+  test("only accepts a finished compaction summary without an error", () => {
+    expect(SessionCompaction.isSuccessful(message({ finish: "stop" }))).toBe(true)
+    expect(SessionCompaction.isSuccessful(message({}))).toBe(false)
+    expect(
+      SessionCompaction.isSuccessful(
+        message({
+          finish: "error",
+          error: new MessageV2.AbortedError({ message: "aborted" }).toObject(),
+        }),
+      ),
+    ).toBe(false)
+  })
+})
+
 describe("session.compaction.process", () => {
   test("throws when parent is not a user message", async () => {
     await using tmp = await tmpdir()
@@ -917,6 +1009,31 @@ describe("session.compaction.process", () => {
         }
       },
     })
+  })
+
+  for (const item of [
+    { name: "empty", text: undefined },
+    { name: "incomplete", text: "short summary" },
+  ]) {
+    test(`rejects ${item.name} compaction summaries`, () => {
+      expect(SessionCompaction.validateSummary(item.text).valid).toBe(false)
+    })
+  }
+
+  test("accepts compaction summaries with every required section", () => {
+    expect(
+      SessionCompaction.validateSummary(
+        [
+          "## Goal",
+          "## Constraints & Preferences",
+          "## Progress",
+          "## Key Decisions",
+          "## Next Steps",
+          "## Critical Context",
+          "## Relevant Files",
+        ].join("\n"),
+      ).valid,
+    ).toBe(true)
   })
 
   test("adds synthetic continue prompt when auto is enabled", async () => {
@@ -1311,8 +1428,15 @@ describe("session.compaction.process", () => {
           expect(last?.info.role).toBe("user")
           expect(last?.parts.some((part) => part.type === "file")).toBe(false)
           expect(
-            last?.parts.some((part) => part.type === "text" && part.text.includes("Attached image/png: cat.png")),
+            last?.parts.some(
+              (part) =>
+                part.type === "text" &&
+                part.synthetic &&
+                part.metadata?.compaction_replay === true &&
+                part.text.includes("Attached image/png: cat.png"),
+            ),
           ).toBe(true)
+          expect(last?.parts.filter((part) => part.type === "text").every((part) => part.synthetic)).toBe(true)
         } finally {
           await rt.dispose()
         }
@@ -1705,7 +1829,11 @@ describe("session.compaction.process", () => {
 
           expect(captured).toContain("<previous-summary>")
           expect(captured).toContain("summary one")
-          expect(captured.match(/summary one/g)?.length).toBe(1)
+          // reply(text) puts `${text}` under both `## Goal` and `## Progress → Done`,
+          // so the previous-summary anchor contains it twice. hidden filters the old
+          // compaction message out of history; if that filter breaks, the count jumps
+          // to 4 (2 here + 2 from the leaked old summary message).
+          expect(captured.match(/summary one/g)?.length).toBe(2)
           expect(captured).toContain("## Constraints & Preferences")
           expect(captured).toContain("## Progress")
         } finally {
@@ -1875,9 +2003,91 @@ describe("util.token.estimate", () => {
   test("returns 0 for empty string", () => {
     expect(Token.estimate("")).toBe(0)
   })
+
+  test("does not underestimate CJK text as four characters per token", () => {
+    expect(Token.estimate("这是一个中文上下文压缩测试")).toBe(13)
+  })
+
+  test("estimates structured model messages without counting base64 bytes", () => {
+    const estimated = Token.estimateValue([
+      { role: "system", content: "x".repeat(400) },
+      { role: "user", content: [{ type: "image", data: `data:image/png;base64,${"a".repeat(40_000)}` }] },
+    ])
+    expect(estimated).toBeGreaterThan(1_100)
+    expect(estimated).toBeLessThan(2_000)
+  })
 })
 
 describe("SessionNs.getUsage", () => {
+  test("uses local estimates when provider usage is missing", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const result = SessionNs.getUsage({
+      model,
+      usage: {
+        inputTokens: undefined,
+        outputTokens: undefined,
+        totalTokens: undefined,
+        inputTokenDetails: {
+          noCacheTokens: undefined,
+          cacheReadTokens: undefined,
+          cacheWriteTokens: undefined,
+        },
+        outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
+      },
+      estimated: { input: 75_000, output: 500 },
+    })
+
+    expect(result.tokens.input).toBe(75_000)
+    expect(result.tokens.output).toBe(500)
+    expect(result.tokens.total).toBe(75_500)
+  })
+
+  test("prefers provider usage over local estimates", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const result = SessionNs.getUsage({
+      model,
+      usage: {
+        inputTokens: 1_000,
+        outputTokens: 500,
+        totalTokens: 1_500,
+        inputTokenDetails: {
+          noCacheTokens: undefined,
+          cacheReadTokens: undefined,
+          cacheWriteTokens: undefined,
+        },
+        outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
+      },
+      estimated: { input: 75_000, output: 10_000 },
+    })
+
+    expect(result.tokens.input).toBe(1_000)
+    expect(result.tokens.output).toBe(500)
+    expect(result.tokens.total).toBe(1_500)
+  })
+
+  test("recomputes total when provider returns only partial usage", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const result = SessionNs.getUsage({
+      model,
+      usage: {
+        inputTokens: 0,
+        outputTokens: 500,
+        totalTokens: 500,
+        inputTokenDetails: {
+          noCacheTokens: undefined,
+          cacheReadTokens: undefined,
+          cacheWriteTokens: undefined,
+        },
+        outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
+      },
+      estimated: { input: 75_000, output: 10_000 },
+    })
+
+    expect(result.tokens.input).toBe(75_000)
+    expect(result.tokens.output).toBe(500)
+    expect(result.tokens.total).toBe(75_500)
+  })
+
   test("normalizes standard usage to token format", () => {
     const model = createModel({ context: 100_000, output: 32_000 })
     const result = SessionNs.getUsage({

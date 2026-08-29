@@ -2,6 +2,7 @@ import { createEffect, createSignal, on, onCleanup, onMount, Show, type JSX } fr
 import { Portal } from "solid-js/web"
 
 const CONTROL_HIDE_DELAY_MS = 2500
+const PLAYBACK_CLICK_DELAY_MS = 220
 
 export function formatStudioMediaTime(value: number) {
   if (!Number.isFinite(value)) return "00:00"
@@ -11,15 +12,15 @@ export function formatStudioMediaTime(value: number) {
 
 export function StudioVideoPlayer(props: {
   src: string
-  poster?: string
   class?: string
   mount: () => HTMLElement
 }): JSX.Element {
-  const [playing, setPlaying] = createSignal(false)
+  const [playbackState, setPlaybackState] = createSignal<"idle" | "playing" | "paused" | "ended">("idle")
   const [currentTime, setCurrentTime] = createSignal(0)
   const [duration, setDuration] = createSignal(0)
   const [volume, setVolume] = createSignal(1)
   const [muted, setMuted] = createSignal(false)
+  const [audioPreferenceTouched, setAudioPreferenceTouched] = createSignal(false)
   const [fullscreen, setFullscreen] = createSignal(false)
   const [controlsVisible, setControlsVisible] = createSignal(true)
   const [focused, setFocused] = createSignal(false)
@@ -30,33 +31,37 @@ export function StudioVideoPlayer(props: {
   let videoRef!: HTMLVideoElement
   let positionFrame = 0
   let controlsTimer: ReturnType<typeof setTimeout> | undefined
+  let playbackClickTimer: ReturnType<typeof setTimeout> | undefined
+  const playing = () => playbackState() === "playing"
 
   function updatePosition() {
     cancelAnimationFrame(positionFrame)
     positionFrame = requestAnimationFrame(() => {
-      if (!anchorRef) return
-      const parent = anchorRef.parentElement
-      if (!parent) return
-      const style = getComputedStyle(parent)
-      const availableWidth = Math.max(0, parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight))
-      const availableHeight = Math.max(0, parent.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom))
-      // 父容器尺寸未就绪时跳过，等 ResizeObserver 下次触发
-      if (availableWidth <= 0 || availableHeight <= 0) return
-      // 容器比视频宽 → 高度撑满；容器比视频高 → 宽度撑满
-      const width = availableWidth / availableHeight > mediaRatio()
-        ? availableHeight * mediaRatio()
-        : availableWidth
-      const height = width / mediaRatio()
-      anchorRef.style.width = `${width}px`
-      anchorRef.style.height = `${height}px`
-      const rect = anchorRef.getBoundingClientRect()
-      const mountRect = props.mount().getBoundingClientRect()
-      setPosition({
-        top: rect.top - mountRect.top,
-        left: rect.left - mountRect.left,
-        width: rect.width,
-        height: rect.height,
-        visible: rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth,
+      // 双重 rAF：确保在 layout 完成后再测量，避免拿到 stale 尺寸
+      requestAnimationFrame(() => {
+        if (!anchorRef) return
+        const parent = anchorRef.parentElement
+        if (!parent) return
+        const style = getComputedStyle(parent)
+        const availableWidth = Math.max(0, parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight))
+        const availableHeight = Math.max(0, parent.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom))
+        if (availableWidth <= 0 || availableHeight <= 0) return
+        // 容器比视频宽 → 高度撑满；容器比视频高 → 宽度撑满
+        const width = availableWidth / availableHeight > mediaRatio()
+          ? availableHeight * mediaRatio()
+          : availableWidth
+        const height = width / mediaRatio()
+        anchorRef.style.width = `${width}px`
+        anchorRef.style.height = `${height}px`
+        const rect = anchorRef.getBoundingClientRect()
+        const mountRect = props.mount().getBoundingClientRect()
+        setPosition({
+          top: rect.top - mountRect.top,
+          left: rect.left - mountRect.left,
+          width: rect.width,
+          height: rect.height,
+          visible: rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth,
+        })
       })
     })
   }
@@ -67,6 +72,12 @@ export function StudioVideoPlayer(props: {
     controlsTimer = undefined
   }
 
+  function clearPlaybackClickTimer() {
+    if (!playbackClickTimer) return
+    clearTimeout(playbackClickTimer)
+    playbackClickTimer = undefined
+  }
+
   function scheduleControlsHide() {
     clearControlsTimer()
     setControlsVisible(true)
@@ -74,16 +85,41 @@ export function StudioVideoPlayer(props: {
     controlsTimer = setTimeout(() => setControlsVisible(false), CONTROL_HIDE_DELAY_MS)
   }
 
+  function startPlayback(reportError: boolean) {
+    if (videoRef.ended) {
+      videoRef.currentTime = 0
+      setCurrentTime(0)
+    }
+    setError("")
+    void videoRef.play().catch(() => {
+      if (reportError) setError("视频播放失败，请重试")
+    })
+  }
+
   function togglePlayback() {
     if (!videoRef.paused) {
       videoRef.pause()
       return
     }
-    setError("")
-    void videoRef.play().catch(() => setError("视频播放失败，请重试"))
+    startPlayback(true)
+  }
+
+  function schedulePlaybackToggle() {
+    clearPlaybackClickTimer()
+    playbackClickTimer = setTimeout(() => {
+      playbackClickTimer = undefined
+      togglePlayback()
+    }, PLAYBACK_CLICK_DELAY_MS)
+  }
+
+  function playOnHover() {
+    if (!videoRef.paused || error()) return
+    if (!audioPreferenceTouched()) videoRef.muted = true
+    startPlayback(false)
   }
 
   function toggleMuted() {
+    setAudioPreferenceTouched(true)
     if (videoRef.muted || videoRef.volume === 0) {
       videoRef.muted = false
       videoRef.volume = volume() > 0 ? volume() : 1
@@ -107,19 +143,35 @@ export function StudioVideoPlayer(props: {
   }
 
   onMount(() => {
+    const mountEl = props.mount()
     const observer = new ResizeObserver(updatePosition)
     observer.observe(anchorRef)
-    if (anchorRef.parentElement) observer.observe(anchorRef.parentElement)
-    observer.observe(props.mount())
+    // 向上遍历所有祖先元素，确保详情面板展开/收起等任何布局变化都能触发 resize
+    let el: HTMLElement | null = anchorRef.parentElement
+    while (el) {
+      observer.observe(el)
+      el = el.parentElement
+    }
+    observer.observe(mountEl)
+    // MutationObserver：监听 class/style 变化及元素增删（如详情面板展开/收起），触发位置更新
+    const mutationObserver = new MutationObserver(() => updatePosition())
+    mutationObserver.observe(mountEl, {
+      attributes: true,
+      attributeFilter: ["class", "style"],
+      childList: true,
+      subtree: true,
+    })
     window.addEventListener("resize", updatePosition)
     document.addEventListener("scroll", updatePosition, true)
     updatePosition()
     onCleanup(() => {
       observer.disconnect()
+      mutationObserver.disconnect()
       window.removeEventListener("resize", updatePosition)
       document.removeEventListener("scroll", updatePosition, true)
       cancelAnimationFrame(positionFrame)
       clearControlsTimer()
+      clearPlaybackClickTimer()
     })
   })
 
@@ -129,8 +181,9 @@ export function StudioVideoPlayer(props: {
     on(
       () => props.src,
       () => {
+        clearPlaybackClickTimer()
         exitFullscreen()
-        setPlaying(false)
+        setPlaybackState("idle")
         setCurrentTime(0)
         setDuration(0)
         setError("")
@@ -177,6 +230,7 @@ export function StudioVideoPlayer(props: {
             visibility: position().visible ? "visible" : "hidden",
           }}
           onMouseMove={scheduleControlsHide}
+          onMouseEnter={playOnHover}
           onMouseLeave={() => {
             if (fullscreen() && playing() && !focused()) setControlsVisible(false)
           }}
@@ -193,17 +247,20 @@ export function StudioVideoPlayer(props: {
           <video
             ref={videoRef!}
             src={props.src}
-            poster={props.poster}
             class={`studio-video-player-media ${props.class ?? ""}`}
             playsinline
             preload="auto"
-            onDblClick={toggleFullscreen}
+            onClick={schedulePlaybackToggle}
+            onDblClick={() => {
+              clearPlaybackClickTimer()
+              toggleFullscreen()
+            }}
             onPlay={() => {
-              setPlaying(true)
+              setPlaybackState("playing")
               scheduleControlsHide()
             }}
             onPause={() => {
-              setPlaying(false)
+              setPlaybackState((state) => state === "idle" || state === "ended" ? state : "paused")
               setControlsVisible(true)
               clearControlsTimer()
             }}
@@ -219,13 +276,13 @@ export function StudioVideoPlayer(props: {
               setMuted(event.currentTarget.muted || event.currentTarget.volume === 0)
             }}
             onEnded={() => {
-              setPlaying(false)
+              setPlaybackState("ended")
               setControlsVisible(true)
             }}
             onError={(event) => setError(event.currentTarget.error ? "视频加载失败，请重试或下载后查看" : "视频加载失败")}
           />
 
-          <Show when={!playing() && !error()}>
+          <Show when={playbackState() !== "playing" && !error()}>
             <button type="button" class="studio-video-player-center-play" aria-label="播放" onClick={togglePlayback}>
               <PlayIcon />
             </button>
@@ -293,6 +350,7 @@ export function StudioVideoPlayer(props: {
                 aria-label="音量"
                 style={{ "--studio-video-volume": `${(muted() ? 0 : volume()) * 100}%` }}
                 onInput={(event) => {
+                  setAudioPreferenceTouched(true)
                   videoRef.volume = Number(event.currentTarget.value)
                   videoRef.muted = videoRef.volume === 0
                 }}

@@ -11,7 +11,7 @@
 
 .property-editor-popup {
   position: absolute;
-  z-index: 200;
+  z-index: 203;
   width: 240px;
   max-height: 560px;
   background: #ffffff;
@@ -138,8 +138,13 @@
   padding: 2px 6px;
   border-radius: 6px;
   border: none;
-  background: #F4F4F5;
+  background: #FFFFFF;
   cursor: pointer;
+  color: #2453F5;
+}
+
+.prop-chip-active svg {
+  color: #2453F5;
 }
 
 .prop-chip-active:hover {

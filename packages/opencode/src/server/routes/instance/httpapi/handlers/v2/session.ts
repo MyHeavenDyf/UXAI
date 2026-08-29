@@ -1,6 +1,8 @@
 import { WorkspaceID } from "@/control-plane/schema"
+import { configureModelsApiHeaders } from "@/plugin/model-headers"
 import { SessionV2 } from "@/v2/session"
 import { Effect, Schema } from "effect"
+import { HttpServerRequest } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError, HttpApiSchema } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../../api"
 
@@ -84,6 +86,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "v2.session
       .handle(
         "prompt",
         Effect.fn(function* (ctx) {
+          configureModelsApiHeaders((yield* HttpServerRequest.HttpServerRequest).headers)
           return yield* session.prompt({
             sessionID: ctx.params.sessionID,
             prompt: ctx.payload.prompt,

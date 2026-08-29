@@ -1,7 +1,7 @@
 // SPEC-INS-014 §10.1:文件管理面板的视图状态 store。结构照抄站内 Design 模块
-// (make/utils/artifact-file-store.ts)已验证的分组 / 排序 / 筛选 / 多选 / 文件夹导航 / 预览逻辑——
+// (make/utils/artifact-file-store.ts)已验证的分组 / 排序 / 筛选 / 多选 / 文件夹导航逻辑——
 // 这套逻辑与后端存储形态无关,只把数据源从 Design 的 ArtifactFile 换成 Insight 自己的 InsightFile。
-// 文件夹导航:currentPath 相对 insight/<sessionId>/uploads/ 根;非顶层只列 uploads/<path>/,
+// 文件夹导航:currentPath 相对 .octo/<sessionId>/uploads/ 根;非顶层只列 uploads/<path>/,
 //   不再分"已上传/已生成"两段(generated 产物无子目录,只在顶层并排)。
 
 import { createStore } from "solid-js/store"
@@ -14,36 +14,8 @@ export type ModifiedSection = "today" | "yesterday" | "previous7Days" | "previou
 export type SortKey = "name" | "kind" | "mtime"
 export type SortDir = "asc" | "desc"
 
-const VIEW_STATE_KEY_PREFIX = "octo:insight:file-manager:view-state:v1:"
 const DEFAULT_SORT_KEY: SortKey = "mtime"
 const DEFAULT_SORT_DIR: SortDir = "desc"
-
-interface PersistedViewState {
-  sortKey?: SortKey
-  sortDir?: SortDir
-  kindFilter?: InsightFileKind[]
-  groupMode?: GroupMode
-  collapsedUploaded?: boolean
-  collapsedGenerated?: boolean
-}
-
-function readViewState(sessionId: string): PersistedViewState {
-  try {
-    const raw = localStorage.getItem(VIEW_STATE_KEY_PREFIX + sessionId)
-    if (!raw) return {}
-    const parsed = JSON.parse(raw) as unknown
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {}
-    return parsed as PersistedViewState
-  } catch {
-    return {}
-  }
-}
-
-function writeViewState(sessionId: string, state: PersistedViewState): void {
-  try {
-    localStorage.setItem(VIEW_STATE_KEY_PREFIX + sessionId, JSON.stringify(state))
-  } catch {}
-}
 
 function dateDaysBefore(date: Date, days: number): Date {
   const result = new Date(date)
@@ -161,21 +133,18 @@ function createFileListComputed(
   return { filteredFiles, sortedFiles, kindGroupEntries, modifiedGroups, visibleModifiedSections }
 }
 
-export function createInsightFileStore(sessionId: string) {
-  const saved = readViewState(sessionId)
-  const [previewFile, setPreviewFile] = createSignal<InsightFile | null>(null)
-
+export function createInsightFileStore() {
   const [store, setStore] = createStore<InsightFileStore>({
     currentPath: "",
     uploadedFiles: [],
     generatedFiles: [],
-    collapsedUploaded: saved.collapsedUploaded ?? false,
-    collapsedGenerated: saved.collapsedGenerated ?? false,
+    collapsedUploaded: false,
+    collapsedGenerated: false,
     selected: new Set(),
-    sortKey: saved.sortKey ?? DEFAULT_SORT_KEY,
-    sortDir: saved.sortDir ?? DEFAULT_SORT_DIR,
-    kindFilter: new Set(saved.kindFilter ?? []),
-    groupMode: saved.groupMode ?? "modified",
+    sortKey: DEFAULT_SORT_KEY,
+    sortDir: DEFAULT_SORT_DIR,
+    kindFilter: new Set(),
+    groupMode: "kind",
     loading: false,
     error: null,
   })
@@ -212,32 +181,10 @@ export function createInsightFileStore(sessionId: string) {
   // 改筛选条件后清掉已选(被筛掉的行不该继续算在选中里)
   createEffect(on(() => store.kindFilter, () => setStore("selected", new Set()), { defer: true }))
 
-  // 切换文件夹路径:清选中 + 清预览(旧路径的预览不再适用)。
+  // 切换文件夹路径:清选中(旧路径的选中不再适用)。
   createEffect(on(() => store.currentPath, () => {
     setStore("selected", new Set())
-    setPreviewFile(null)
   }, { defer: true }))
-
-  createEffect(on(
-    [
-      () => store.sortKey,
-      () => store.sortDir,
-      () => store.kindFilter,
-      () => store.groupMode,
-      () => store.collapsedUploaded,
-      () => store.collapsedGenerated,
-    ],
-    () => {
-      writeViewState(sessionId, {
-        sortKey: store.sortKey,
-        sortDir: store.sortDir,
-        kindFilter: Array.from(store.kindFilter),
-        groupMode: store.groupMode,
-        collapsedUploaded: store.collapsedUploaded,
-        collapsedGenerated: store.collapsedGenerated,
-      })
-    },
-  ))
 
   // kind 筛选可选项 + 各类型 count(两段文件合并统计,供工具栏筛选 popover 用)
   const kindCounts = createMemo(() => {
@@ -265,13 +212,6 @@ export function createInsightFileStore(sessionId: string) {
     !allPageSelected() && selectablePageFiles().some((f) => store.selected.has(f.path)),
   )
 
-  // 批量删除只针对"已上传"段(generated 产物不能由用户删);selectedUploadedFiles 给 batch delete 用。
-  const selectedUploadedFiles = createMemo(() =>
-    Array.from(store.selected).filter((path) =>
-      store.uploadedFiles.some((f) => f.path === path),
-    ),
-  )
-
   return {
     store,
     setStore,
@@ -280,11 +220,8 @@ export function createInsightFileStore(sessionId: string) {
     kindCounts,
     availableKinds,
     isTopLevel,
-    previewFile,
-    setPreviewFile,
     allPageSelected,
     somePageSelected,
-    selectedUploadedFiles,
 
     setLoading(loading: boolean) {
       setStore("loading", loading)
@@ -349,7 +286,6 @@ export function createInsightFileStore(sessionId: string) {
       const nextSelected = new Set(store.selected)
       nextSelected.delete(path)
       setStore("selected", nextSelected)
-      if (previewFile()?.path === path) setPreviewFile(null)
     },
     navigateToFolder(folder: InsightFile) {
       if (!folder.isFolder) return

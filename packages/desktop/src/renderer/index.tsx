@@ -194,11 +194,14 @@ const createPlatform = (): Platform => {
       return window.api.checkUpdate()
     },
 
-    updateAndRestart: async () => {
+    updateAndRestart: async (onProgress) => {
       const config = await window.api.getWindowConfig().catch(() => ({ updaterEnabled: false }))
       if (!config.updaterEnabled) return
-      await window.api.installUpdate()
+      const unsubscribe = onProgress ? window.api.onUpdateDownloadProgress(onProgress) : undefined
+      await window.api.installUpdate().finally(() => unsubscribe?.())
     },
+
+    onResume: (callback) => window.api.onResume(callback),
 
     restart: async () => {
       await window.api.killSidecar().catch(() => undefined)
@@ -221,10 +224,7 @@ const createPlatform = (): Platform => {
       }
     },
 
-    fetch: (input, init) => {
-      if (input instanceof Request) return fetch(input)
-      return fetch(input, init)
-    },
+    fetch: (input, init) => fetch(input, init),
 
     getWslEnabled: () => isWslEnabled(),
 

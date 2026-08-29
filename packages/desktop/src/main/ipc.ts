@@ -1,14 +1,17 @@
-import { execFile } from "node:child_process"
+import { execFile, execSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, globSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync, statSync, globSync, createWriteStream } from "node:fs"
 // lstat 用 fs/promises 版(异步,handler 本就 async):避免把 lstatSync 加到上面那条被 jk 标记
 // 包裹的 fs import 行上 —— 内网合并时该行常冲突,曾把我们加的 lstatSync 吃掉致 ReferenceError。
-import { mkdir, readFile, writeFile, lstat, unlink, rm, copyFile, rename } from "node:fs/promises"
+import { mkdir, readFile, writeFile, lstat, stat, unlink, rm, copyFile, rename } from "node:fs/promises"
+import * as http from "node:http"
 import { dirname, extname, join, basename, resolve as resolvePath, sep } from "node:path"
 import { homedir, tmpdir } from "node:os"
-import { pathToFileURL } from "node:url"
+import { pathToFileURL, fileURLToPath } from "node:url"
+import archiver from "archiver"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell, net } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
+import log from "electron-log/main.js"
 
 // jk-j60099994-replace-with-60062650-main-skills-ipc-1-start
 // jk-j60099994-replace-with-60062650-main-skills-ipc-1-end
@@ -35,11 +38,18 @@ import { convertTailwindToCSS } from "./tailwind-to-css"
 import { convertCssToTailwind } from "./tailwind-from-css"
 import { previewDistDir, getUploadsDir, setUploadsDir } from "./preview-server"
 import { pipelineRequest } from "../network/pipelineRequest"
+import { codeToHtml } from "./page-capture"
+import { landingName } from "./landing-name"
+import { toExactArrayBuffer } from "./buffer-slice"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
   return [{ name: "Files", extensions: ext }]
 }
+
+const topixsoDir = app.isPackaged
+  ? join(process.resourcesPath, "topixso")
+  : join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "app", "octoapp", "pages", "make", "utils", "prototype-utils", "topixso")
 
 // 判断图片类型
 function detectImageExt(buf: Buffer): string {
@@ -54,21 +64,14 @@ function detectImageExt(buf: Buffer): string {
 }
 
 // ── SPEC-INS-014 Insight 本地工作目录布局(worktree)共享工具 ────────────────
-// uploads(附件拷贝,v2 由 sources 改名)与 outputs(产物落地)用同一套文件名规则:sanitize + 撞名加后缀。
+// uploads(附件拷贝,v2 由 sources 改名)与 outputs(产物落地)用同一套文件名规则:landingName + 撞名加后缀。
 // v2(会话隔离):outputs 从一开始按 <sessionId> 分桶;uploads 分两段——
-//   预会话落地区 insight/uploads/(扁平,不属于任何会话)→ 发送时 rename 进 insight/<sessionId>/uploads/。
+//   预会话落地区 .octo/tmps/(扁平,不属于任何会话)→ 发送时 rename 进 .octo/<sessionId>/uploads/。
+// (全局约定:所有本地落点收进 .octo 根,不再有 agent 命名层——会话归属哪个 agent 可由 sessionId 反查。)
 // spec docs/specs/infra/insight-worktree-layout.md §2-4。
 
-// 文件名清洗(spec §3.1):保留 字母/数字/中文/-/_/./;空格→_;其他→_;主名截 100;空名兜底 unnamed。
-function sanitizeWorktreeName(raw: string): string {
-  const replaced = raw.replace(/\s+/g, "_").replace(/[^\p{L}\p{N}._-]/gu, "_")
-  const dot = replaced.lastIndexOf(".")
-  if (dot > 0 && dot < replaced.length - 1) {
-    const stem = replaced.slice(0, dot).slice(0, 100)
-    return (stem || "unnamed") + replaced.slice(dot)
-  }
-  return replaced.slice(0, 100) || "unnamed"
-}
+// 文件名规则见 ./landing-name.ts(SPEC-INS-026 §4.1 唯一清洗入口)。旧的 sanitizeWorktreeName
+// (空格/括号→`_`、主名截 100)已废除:那条约束源自「文件名随 basename 进 S3 URL」,而文件名已退出 URL。
 
 // 撞名加后缀(spec §3.3):目标已存在就 `name (2).ext`(操作系统下载器习惯),不覆盖。
 function collisionFreePath(dir: string, filename: string): string {
@@ -95,19 +98,72 @@ function sanitizeSessionSegment(raw: string): string {
   return cleaned || "session"
 }
 
-// write-file 白名单用(v2 会话隔离新增):判断路径是否落在 insight/<sessionId>/{uploads,outputs} 下。
-// sessionId 段可变,不能用固定子串匹配,按路径分段比对——insight 之后第二段必须是 uploads/outputs。
+// uploads 子路径清洗(design-files 面板「上传」):与 handlers/artifact.ts:16 同语义,
+// 拒绝 .. / ~ / 空,去首尾斜杠。渲染端不是安全边界,主进程必须独立校验。
+function sanitizeUploadsSubPath(rawPath: string): string {
+  const normalized = rawPath.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
+  if (normalized.includes("..") || normalized.includes("~") || normalized.length === 0) {
+    return ""
+  }
+  return normalized
+}
+
+// write-file 白名单用(v2 会话隔离新增):判断路径是否落在 .octo/<sessionId>/{uploads,outputs} 下。
+// sessionId 段可变,不能用固定子串匹配,按路径分段比对—— .octo 之后第一段是会话段、第二段必须是
+// uploads/outputs(这样 .octo/<sessionId>/comments/... 等其它命名空间的第二段不是 uploads/outputs,天然不放行)。
 function isInsightSessionWorktreePath(resolved: string): boolean {
   const segs = resolved.split(sep)
-  const i = segs.lastIndexOf("insight")
+  const i = segs.lastIndexOf(".octo")
   return i !== -1 && i + 2 < segs.length && (segs[i + 2] === "uploads" || segs[i + 2] === "outputs")
 }
 
-// 产物落地幂等(spec §2/§4.2):同一张卡(namespace=tab.id)首次 materialize 后记下其
-// outputs 本地路径,本会话内稳定 —— 后续预览/编辑/打开都命中这份(含用户改动),绝不 re-fetch。
-// 用主进程内存表替代旧的 `.octo/downloads/<id>/` 目录分桶,使 outputs 扁平、显性。
-// 跨重启该表清空 → 同名产物会按 §3.3 加后缀新建(少见边界,spec 接受)。
+// 网络错误可读化:fetch 把真实原因(DNS / TLS / 代理 / 连接被拒)藏在 error.cause 链里,
+// IPC 序列化只保留顶层 message("fetch failed")——展开整条 cause 链拼进 message,
+// 让渲染端错误提示与 main.log 都能看到可定位的原因,而不是四个字母查到死。
+function describeNetworkError(err: unknown): string {
+  const parts: string[] = []
+  for (let cur: unknown = err; cur instanceof Error; cur = cur.cause) parts.push(cur.message)
+  return parts.length > 0 ? parts.join(" ← ") : String(err)
+}
+
+// 产物落地幂等(spec §2/§4.2):幂等键 = **资源 URI(namespace)**——同一资源被多张卡引用、
+// 或跨重启重开旧会话再触发 eager 落盘时,都复用首次落地的那一份(含用户改动),绝不 re-fetch/覆盖。
+// **必须按 URI 记身份、不能按文件名**:文件名 ≠ 身份,两个不同 URI 都叫 report.md 不能 alias 成同一份
+// (故撞名仍走 collisionFreePath 各留一份)。
+//
+// 幂等落在**磁盘持久清单** .octo/<sessionId>/outputs/.materialized.json(dotfile,服务端 listFiles 过滤,
+// 不进文件管理;随会话目录生命周期,天然活过重启/重装)——这是修 #90 的关键:旧实现只有下面的进程内
+// Map、跨重启即清空,重开旧会话查不到 → 撞名重落 `xxx (2)`,每装一次多一份。
+// (业界同款:npm cacache / pip / MCP 缓存代理都用「跨重启存活的 逻辑键→已落地条目 清单」。)
+//
+// 下面这张内存 Map 仅作进程内快路径(免每次 materialize 读一次 JSON),键 = `${outputsDir}::${URI}`
+// ——**带 outputsDir 前缀**是必须的:Map 是模块级跨会话共享,只按 URI 记会让同一 URI 在会话 A/B 间串场
+// (B 命中 A 的落点)。带 dir 后它与「本会话持久清单」答案一致,纯缓存、无跨会话 alias。
 const materializedByNamespace = new Map<string, string>()
+
+const MATERIALIZED_MANIFEST = ".materialized.json"
+type MaterializedEntry = { file: string; fetchedAt: number }
+
+// 读某会话 outputs 的持久幂等清单(URI → {落地文件名, 时间})。缺文件/坏 JSON → 空表(退化为重新落盘)。
+function readMaterializedManifest(outputsDir: string): Record<string, MaterializedEntry> {
+  try {
+    const parsed = JSON.parse(readFileSync(join(outputsDir, MATERIALIZED_MANIFEST), "utf-8"))
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, MaterializedEntry>) : {}
+  } catch {
+    return {}
+  }
+}
+
+// 记一条 URI→文件名 到清单(读改写)。失败仅告警:内存 Map 仍在,只是这次跨重启幂等失效,不阻断落盘。
+function recordMaterialized(outputsDir: string, namespace: string, file: string): void {
+  try {
+    const map = readMaterializedManifest(outputsDir)
+    map[namespace] = { file, fetchedAt: Date.now() }
+    writeFileSync(join(outputsDir, MATERIALIZED_MANIFEST), JSON.stringify(map, null, 2), "utf-8")
+  } catch (err) {
+    log.warn("[octo:worktree] materialize-manifest write failed", { outputsDir, err })
+  }
+}
 
 type Deps = {
   killSidecar: () => Promise<void> | void
@@ -131,6 +187,8 @@ type Deps = {
   setBackgroundColor: (color: string) => void
   // jk-j60099994-replace-with-ipc-2-start
   // jk-j60099994-replace-with-ipc-2-end
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-6-start
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-6-end
 }
 
 function addZipComment(zipPath: string, comment: string) {
@@ -215,6 +273,9 @@ export function registerIpcHandlers(deps: Deps) {
     return Object.keys(store.store).length
   })
 
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-7-start
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-7-end
+  
   ipcMain.handle(
     "open-directory-picker",
     async (_event: IpcMainInvokeEvent, opts?: { multiple?: boolean; title?: string; defaultPath?: string }) => {
@@ -272,28 +333,99 @@ export function registerIpcHandlers(deps: Deps) {
     })
   })
 
-  ipcMain.on("show-item-in-folder", (_event: IpcMainEvent, path: string) => {
-    shell.showItemInFolder(path)
-  })
+  // shell.showItemInFolder 返回 void,路径不存在时静默 no-op —— 用户从磁盘改名/移走文件后
+  // 点「打开所在文件夹」会毫无反应。故这里先探路径再定位,把结果回传给渲染端。
+  // 约定为「返回结果对象、永不 throw」(与 open-path 透传 shell.openPath 错误串同源):
+  // 老调用方不 await 也拿不到 rejected promise,不会退化成 unhandled rejection。
+  ipcMain.handle(
+    "show-item-in-folder",
+    async (_event: IpcMainInvokeEvent, path: string): Promise<{ ok: boolean; reason?: "not-found" }> => {
+      try {
+        await lstat(path)
+      } catch {
+        log.warn("[octo:path] show-item-in-folder target missing", { path })
+        return { ok: false, reason: "not-found" }
+      }
+      shell.showItemInFolder(path)
+      return { ok: true }
+    },
+  )
 
   ipcMain.handle("download-resource", async (_event: IpcMainInvokeEvent, url: string, destPath: string) => {
-    const res = await fetch(url)
-    if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
+    // net.fetch 走 Chromium 网络栈(系统代理/PAC、系统证书),与渲染端/浏览器行为一致;
+    // Node/undici fetch 只认启动时的环境变量代理,内网"浏览器可达、直连不通"的机器上必挂。
+    const res = await net.fetch(url).catch((err: unknown) => {
+      const reason = describeNetworkError(err)
+      log.error("[octo:worktree] download-resource failed", { url, reason })
+      throw new Error(`下载失败: ${reason} (${url})`)
+    })
+    if (!res.ok) {
+      log.error("[octo:worktree] download-resource failed", { url, status: res.status, statusText: res.statusText })
+      throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
+    }
     const buf = Buffer.from(await res.arrayBuffer())
     await mkdir(dirname(destPath), { recursive: true })
     await writeFile(destPath, buf)
   })
 
-  // SPEC-INS-014 §4.1:把用户选的源文件**拷贝**进 worktree 预会话落地区(<baseDir>/insight/uploads/)。
+  // office「下载」按钮(§下载走本地拷贝):解析某资源 URI 已落地的本地副本路径,**不拉网络**。
+  // 命中(内存 Map 快路径 / 磁盘持久清单)且文件仍在 → 返回绝对路径;否则返回 null(调用方兜底 web 下载)。
+  // 查找口径与 download-resource-to-temp 一致(键=资源 URI + outputsDir),只是去掉 fetch 分支。
+  ipcMain.handle(
+    "resolve-materialized-path",
+    async (_event: IpcMainInvokeEvent, namespace: string, baseDir?: string, sessionId?: string) => {
+      const persistent = !!(baseDir && baseDir.length > 0 && sessionId && sessionId.length > 0)
+      const dir = persistent
+        ? join(baseDir!, ".octo", sanitizeSessionSegment(sessionId!), "outputs")
+        : join(app.getPath("temp"), "octo")
+      const cacheKey = `${dir}::${namespace}`
+      const cached = materializedByNamespace.get(cacheKey)
+      if (cached && existsSync(cached)) return cached
+      if (persistent) {
+        const entry = readMaterializedManifest(dir)[namespace]
+        if (entry?.file) {
+          const abs = join(dir, entry.file)
+          if (existsSync(abs)) {
+            materializedByNamespace.set(cacheKey, abs) // 回填快路径
+            return abs
+          }
+        }
+      }
+      return null
+    },
+  )
+
+  // office「下载」按钮:把**已落地的本地副本**原样拷到用户选定的目标路径。走 fs.copyFile 磁盘级拷贝
+  // (二进制原样、不读进内存再写),而非 readFileBuffer + writeFileBuffer 的「读+写」。与 download-resource
+  // (走网络拉 S3)互补:调用方优先 resolve-materialized-path + 本拷贝,本地副本不存在时才兜底 download-resource。
+  ipcMain.handle("copy-file-to", async (_event: IpcMainInvokeEvent, srcPath: string, destPath: string) => {
+    await mkdir(dirname(destPath), { recursive: true })
+    await copyFile(srcPath, destPath)
+  })
+
+  // SPEC-INS-014 §4.1:把用户选的源文件**拷贝**进 worktree 预会话落地区(<baseDir>/.octo/tmps/)。
   // 对本地路径而言这不是上传,是磁盘流式拷贝(100MB 也无压力);原样拷贝、绝不转格式。
   // S3 上传是另一件只为 MCP 服务的事(走 lib/upload.ts,发预置时 lazy 触发),与本拷贝解耦。
   // v2:没有 sessionId 时也落这里(§4.1.2 预会话落地区);发送时由 move-pending-upload-to-session 挪进真会话。
   ipcMain.handle(
     "copy-file-to-worktree",
     async (_event: IpcMainInvokeEvent, srcPath: string, baseDir: string, filename: string) => {
-      const dir = join(baseDir, "insight", "uploads")
+      // 布局 SOT = SPEC-INS-014 §2。`.octo`/`tmps` 与渲染端判据
+      // (packages/app/octoapp/pages/insight/utils/worktree-layout.ts)受进程边界隔离、不共享常量;
+      // 改这里的落点必须同步改渲染端 worktree-layout.ts 与 spec §2(v7 曾漏改渲染端 → PR #424)。
+      const dir = join(baseDir, ".octo", "tmps")
       await ensureWorktreeDir(dir)
-      const dest = collisionFreePath(dir, sanitizeWorktreeName(filename))
+      // 拒绝类失败响亮报错(SPEC-INS-026 §4.1):含分隔符 / `..` 的名字不静默改名,直接抛回渲染端提示用户。
+      let safeName: string
+      try {
+        safeName = landingName(filename)
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        log.error("[octo:worktree] upload-name-rejected", { srcPath, filename, reason })
+        console.error("[octo:worktree] upload-name-rejected", { srcPath, filename, reason })
+        throw err
+      }
+      const dest = collisionFreePath(dir, safeName)
       try {
         await copyFile(srcPath, dest)
         console.log("[octo:worktree] upload-copy ok", { srcPath, dest })
@@ -310,13 +442,14 @@ export function registerIpcHandlers(deps: Deps) {
     },
   )
 
-  // SPEC-INS-014 §4.1.2(v2 新增):发送时把预会话落地区(insight/uploads/)里的附件
-  // rename 进真实会话目录(insight/<sessionId>/uploads/)。同一文件系统内的原子操作,
+  // SPEC-INS-014 §4.1.2(v2 新增):发送时把预会话落地区(.octo/tmps/)里的附件
+  // rename 进真实会话目录(.octo/<sessionId>/uploads/)。同一文件系统内的原子操作,
   // 失败(源文件在拷贝完成后被删/移动,极少见)由调用方 catch、不阻断发送。
   ipcMain.handle(
     "move-pending-upload-to-session",
     async (_event: IpcMainInvokeEvent, srcPath: string, baseDir: string, sessionId: string) => {
-      const dir = join(baseDir, "insight", sanitizeSessionSegment(sessionId), "uploads")
+      // 布局 SOT = SPEC-INS-014 §2;`.octo`/`uploads` 落点与渲染端判据须同步(见 copy-file-to-worktree 上方注释)。
+      const dir = join(baseDir, ".octo", sanitizeSessionSegment(sessionId), "uploads")
       await ensureWorktreeDir(dir)
       const dest = collisionFreePath(dir, basename(srcPath))
       try {
@@ -325,6 +458,50 @@ export function registerIpcHandlers(deps: Deps) {
         return dest
       } catch (err) {
         console.error("[octo:worktree] upload-move failed", {
+          srcPath,
+          dest,
+          sessionId,
+          reason: err instanceof Error ? err.message : String(err),
+        })
+        throw err
+      }
+    },
+  )
+
+  // design-files 面板「上传」:把用户选的源文件**直接拷贝**进 <baseDir>/.octo/<sessionId>/uploads/[<subPath>/]。
+  // 桌面端不走 HTTP/base64 —— fs.copyFile 走内核,无内存压力,500MB+ 也无压力(原先 base64+JSON 链路在
+  // 大文件下会让 FileReader 静默返回空 data URL,后端写出 0 字节文件)。
+  // 撞名走 collisionFreePath、名字清洗走 landingName,与 worktree 落地规则一致。
+  ipcMain.handle(
+    "copy-file-to-session-uploads",
+    async (
+      _event: IpcMainInvokeEvent,
+      srcPath: string,
+      baseDir: string,
+      sessionId: string,
+      subPath: string,
+      filename: string,
+    ) => {
+      const uploadsRoot = join(baseDir, ".octo", sanitizeSessionSegment(sessionId), "uploads")
+      const cleanSub = sanitizeUploadsSubPath(subPath)
+      const targetDir = cleanSub ? join(uploadsRoot, cleanSub) : uploadsRoot
+      await ensureWorktreeDir(targetDir)
+
+      let safeName: string
+      try {
+        safeName = landingName(filename)
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        log.error("[octo:worktree] upload-name-rejected", { srcPath, filename, reason })
+        throw err
+      }
+      const dest = collisionFreePath(targetDir, safeName)
+      try {
+        await copyFile(srcPath, dest)
+        console.log("[octo:worktree] upload-copy-to-session ok", { srcPath, dest, sessionId, subPath: cleanSub })
+        return dest
+      } catch (err) {
+        console.error("[octo:worktree] upload-copy-to-session failed", {
           srcPath,
           dest,
           sessionId,
@@ -345,28 +522,74 @@ export function registerIpcHandlers(deps: Deps) {
       baseDir?: string,
       sessionId?: string,
     ) => {
-      const safeName = sanitizeWorktreeName(filename)
-      // 本会话幂等(spec §2/§4.2):同一张卡已落地的本地副本即用户的「工作文件」——直接复用,
-      // 绝不 re-fetch / 覆盖,否则「本地打开/编辑 → 改 → 关闭 → 再打开」会被重新下载的原版盖掉。
-      // 落点改为显性的 insight/<sessionId>/outputs(扁平、撞名加后缀),幂等键由旧的 <id> 目录改为内存表。
-      const known = materializedByNamespace.get(namespace)
-      if (known && existsSync(known)) {
-        console.log("[octo:worktree] result-materialize", { filename: safeName, path: known, sessionId, reused: true })
-        return known
+      // 拒绝类失败响亮报错(SPEC-INS-026 §4.1):含分隔符 / `..` 的名字不静默改名。渲染端按
+      // LANDING_NAME_REJECTED 前缀识别为「重试无用」,toast 提示并保留原链接供手动下载。
+      let safeName: string
+      try {
+        safeName = landingName(filename)
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        log.error("[octo:worktree] materialize-rejected", { url, filename, sessionId, reason })
+        console.error("[octo:worktree] materialize-rejected", { url, filename, sessionId, reason })
+        throw err
       }
-      // baseDir 与 sessionId 都提供时落 <baseDir>/insight/<sessionId>/outputs/(用户可见、可管理、按会话隔离);
+      // baseDir 与 sessionId 都提供时落 <baseDir>/.octo/<sessionId>/outputs/(用户可见、可管理、按会话隔离);
       // 缺一不可时 fallback 走 OS 临时目录(无项目场景 / 无会话 / 纯一次性预览,非持久)。
-      const dir =
-        baseDir && baseDir.length > 0 && sessionId && sessionId.length > 0
-          ? join(baseDir, "insight", sanitizeSessionSegment(sessionId), "outputs")
-          : join(app.getPath("temp"), "octo")
+      const persistent = !!(baseDir && baseDir.length > 0 && sessionId && sessionId.length > 0)
+      const dir = persistent
+        ? join(baseDir!, ".octo", sanitizeSessionSegment(sessionId!), "outputs")
+        : join(app.getPath("temp"), "octo")
+
+      // 内存快路径的键带上 dir(已含 sessionId):Map 是模块级、跨会话共享,只按 URI 记会让「同一 URI 被
+      // 会话 A、B 分别引用」时 B 命中 A 的落点、指向 A 的会话目录。带 dir 前缀后,Map 成为「本会话清单」的
+      // 忠实缓存,与持久清单答案一致(纯提速、无跨会话 alias)。
+      const cacheKey = `${dir}::${namespace}`
+
+      // 幂等 ①:进程内快路径。命中且文件仍在 → 复用,绝不 re-fetch/覆盖。
+      const cached = materializedByNamespace.get(cacheKey)
+      if (cached && existsSync(cached)) {
+        console.log("[octo:worktree] result-materialize", { filename: safeName, path: cached, sessionId, reused: true })
+        return cached
+      }
+
       await ensureWorktreeDir(dir)
+
+      // 幂等 ②:磁盘持久清单(跨重启/重装存活,#90)。同样按 URI 命中、且落地文件仍在 → 复用并回填内存 Map。
+      if (persistent) {
+        const entry = readMaterializedManifest(dir)[namespace]
+        if (entry?.file) {
+          const abs = join(dir, entry.file)
+          if (existsSync(abs)) {
+            materializedByNamespace.set(cacheKey, abs)
+            console.log("[octo:worktree] result-materialize", { filename: safeName, path: abs, sessionId, reused: true })
+            return abs
+          }
+        }
+      }
+
+      // 未命中 → 落盘。撞名仍走 collisionFreePath(两个不同 URI 撞同名各留一份,不 alias),再把 URI→文件名 写回清单。
       const destPath = collisionFreePath(dir, safeName)
-      const res = await fetch(url)
-      if (!res.ok) throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
+      // net.fetch 走 Chromium 网络栈,理由同 download-resource;失败落 main.log(electron-log),
+      // 裸 console.log 进不了 main.log,内网远程排障只有这份文件可看。
+      const res = await net.fetch(url).catch((err: unknown) => {
+        const reason = describeNetworkError(err)
+        log.error("[octo:worktree] result-materialize-failed", { url, filename: safeName, sessionId, reason })
+        throw new Error(`下载失败: ${reason} (${url})`)
+      })
+      if (!res.ok) {
+        log.error("[octo:worktree] result-materialize-failed", {
+          url,
+          filename: safeName,
+          sessionId,
+          status: res.status,
+          statusText: res.statusText,
+        })
+        throw new Error(`下载失败: HTTP ${res.status} ${res.statusText} (${url})`)
+      }
       const buf = Buffer.from(await res.arrayBuffer())
       await writeFile(destPath, buf)
-      materializedByNamespace.set(namespace, destPath)
+      materializedByNamespace.set(cacheKey, destPath)
+      if (persistent) recordMaterialized(dir, namespace, basename(destPath))
       console.log("[octo:worktree] result-materialize", { filename: safeName, path: destPath, sessionId, reused: false })
       return destPath
     },
@@ -397,18 +620,32 @@ export function registerIpcHandlers(deps: Deps) {
     if (!existsSync(filePath)) await writeFile(filePath, buf)
     return `/history/${sessionId}/uploads/${filename}`
   })
+
+  // 把图片写到 prototype.html 同级 uploads 目录，返回相对 URL（uploads/<hash>.<ext>）。
+  // iframe 经 local:// 加载 prototype.html，相对路径自然解析到同目录 uploads/，由 local:// handler 直接读盘服务。
+  ipcMain.handle("save-prototype-image", async (_event: IpcMainInvokeEvent, buffer: ArrayBuffer, dir: string) => {
+    if (!dir) throw new Error("uploads dir not set")
+    await mkdir(dir, { recursive: true })
+    const buf = Buffer.from(buffer)
+    const hash = createHash("sha256").update(buf).digest("hex").slice(0, 16)
+    const ext = detectImageExt(buf)
+    const filename = `${hash}.${ext}`
+    const filePath = join(dir, filename)
+    if (!existsSync(filePath)) await writeFile(filePath, buf)
+    return `uploads/${filename}`
+  })
   
 // insight markdown 编辑器自动保存:把编辑后的文本覆盖写回本地产物文件。
   // 渲染进程不是安全边界 —— 主进程独立校验路径,避免被构造路径越权写系统文件。见 §5 / §7。
   // 两类合法目标:
-  //   ① uri 产物:downloadResourceToTemp 落到 <projectDir>/insight/<sessionId>/outputs/ 或 OS 临时目录(octo/);
+  //   ① uri 产物:downloadResourceToTemp 落到 <projectDir>/.octo/<sessionId>/outputs/ 或 OS 临时目录(octo/);
   //   ② write 工具产物(路径 C):Agent 写到任意位置的文件(如 ~/Downloads/...),不在白名单内。
   // 因编辑器只会覆盖"它正在展示的、已落地的本地文件",白名单外只放行"已存在的普通文件"
   // (拒绝凭空新建任意系统文件;拒绝经符号链接越权)。
   ipcMain.handle("write-file", async (_event: IpcMainInvokeEvent, path: string, content: string) => {
     const resolved = resolvePath(path)
     const tempRoot = resolvePath(join(app.getPath("temp"), "octo"))
-    // SPEC-INS-014 v2:产物/附件落点变成 insight/<sessionId>/{uploads,outputs}(会话段可变,故按
+    // SPEC-INS-014 v2:产物/附件落点变成 .octo/<sessionId>/{uploads,outputs}(会话段可变,故按
     // 分段比对而非固定子串);旧 v1 扁平路径(insight/sources、insight/outputs)不再放行 ——
     // Insight tab 是纯内存 signal、不跨重启持久化,不存在"存活 tab 引用旧路径"的场景。
     const inWorktree = isInsightSessionWorktreePath(resolved)
@@ -430,9 +667,60 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("read-file-buffer", async (_event: IpcMainInvokeEvent, path: string) => {
     try {
       const buf = await readFile(path)
-      return buf.buffer
+      return toExactArrayBuffer(buf)
     } catch {
       return null
+    }
+  })
+
+  // 大文件归档:只 stat 不读盘,返回文件大小供渲染端判定是否走流式 fetch(local://).blob() 路径
+  // (read-file-buffer 整份读,>1.8GiB 越 V8 ArrayBuffer / IPC 结构化克隆 ~2GB 上限,RangeError 静默成 null)。
+  // 非普通文件(目录 / 不存在)返回 null。
+  ipcMain.handle("stat-file", async (_event: IpcMainInvokeEvent, path: string) => {
+    try {
+      const s = await stat(path)
+      if (!s.isFile()) return null
+      return { size: s.size }
+    } catch {
+      return null
+    }
+  })
+
+  ipcMain.handle("list-directory", async (_event: IpcMainInvokeEvent, dirPath: string) => {
+    const results: Array<{ path: string; type: 'file' | 'directory'; size?: number }> = []
+
+    if (!existsSync(dirPath)) return results
+
+    function walk(currentPath: string, basePath: string) {
+      const entries = readdirSync(currentPath, { withFileTypes: true })
+      for (const entry of entries) {
+        const fullPath = join(currentPath, entry.name)
+        const relativePath = fullPath.slice(basePath.length).replace(/^[\/\\]/, '')
+
+        if (entry.isDirectory()) {
+          walk(fullPath, basePath)
+        } else {
+          const stat = statSync(fullPath)
+          results.push({
+            path: relativePath,
+            type: 'file',
+            size: stat.size
+          })
+        }
+      }
+    }
+
+    walk(dirPath, dirPath)
+    return results
+  })
+
+  // 轻量存在性检查：只 stat 不读盘，供打开前预检用（避免为判断"文件在不在"把整份文件读进内存）。
+  // 语义与 read-file-buffer 对齐：仅当目标是一个存在的普通文件时返回 true，其余(不存在/是目录/无权限等)一律 false。
+  ipcMain.handle("file-exists", async (_event: IpcMainInvokeEvent, path: string) => {
+    try {
+      return (await stat(path)).isFile()
+    } catch {
+      return false
     }
   })
 
@@ -442,6 +730,13 @@ export function registerIpcHandlers(deps: Deps) {
     } catch {
       // 文件不存在时忽略，不执行任何代码
     }
+  })
+
+  // 原子重命名：同文件系统内 fs.rename 是原子的，供"写临时文件 → rename 到目标"模式使用，
+  // 避免大文件/JSON 落盘过程中崩溃导致目标文件被截断（如 prototype data.js 本地编辑回写）。
+  // 跨文件系统会失败，调用方应保证 src/dest 同目录。
+  ipcMain.handle("rename-file", async (_event: IpcMainInvokeEvent, srcPath: string, destPath: string) => {
+    await rename(srcPath, destPath)
   })
 
   ipcMain.handle("read-clipboard-image", () => {
@@ -507,6 +802,83 @@ export function registerIpcHandlers(deps: Deps) {
     return join(xdgConfig, "octo")
   }
   const skillsConfigPath = join(getOctoConfigPath(), "skills.json")
+  const skillConfigPath = join(getOctoConfigPath(), "skill_config.json")
+  const assetsConfigPath = join(getOctoConfigPath(), "assets_config.json")
+  const octoSkillDir = join(getOctoConfigPath(), "skill")
+
+  /** 从 ~/.config/octo/skill 目录扫描，重新生成 skill_config.json（panel + agent 结构） */
+  function regenerateSkillConfig() {
+    try {
+      if (!existsSync(octoSkillDir)) return false
+
+      const skillNames = readdirSync(octoSkillDir, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name)
+        .filter((name) => existsSync(join(octoSkillDir, name, "SKILL.md")))
+        .sort()
+
+      const panelSkills = skillNames.map((name, index) => ({
+        label: name,
+        description: name,
+        path: `./skill/${name}/SKILL.md`,
+        id: index + 1,
+        enable: true,
+      }))
+
+      const skillMap: Record<string, { description: string; import: boolean; type: string }> = {}
+      for (const name of skillNames) {
+        skillMap[name] = { description: name, import: true, type: "octo_make" }
+      }
+
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(
+        skillConfigPath,
+        JSON.stringify(
+          {
+            skill: skillMap,
+            panel: { octo_make: panelSkills },
+            agent: { octo_make: skillNames },
+          },
+          null,
+          2,
+        ),
+        "utf-8",
+      )
+      return true
+    } catch (err) {
+      console.error("regenerateSkillConfig failed", err)
+      return false
+    }
+  }
+
+  /** 从 skills.json 同步生成 skill_config.json */
+  function syncSkillConfig() {
+    try {
+      if (!existsSync(skillsConfigPath)) return
+      const raw = JSON.parse(readFileSync(skillsConfigPath, "utf-8"))
+      const skillEntries: Record<string, { description?: string; import?: boolean; type?: string }> = raw.skill ?? {}
+
+      const skillMap: Record<string, { description?: string; import?: boolean; type?: string }> = {}
+      const agentMap: Record<string, string[]> = { octo_insight: [], octo_make: [], octo_studio: [] }
+
+      for (const [name, entry] of Object.entries(skillEntries)) {
+        if (entry.import === false) continue
+        skillMap[name] = { description: entry.description, import: entry.import, type: entry.type }
+        const t = entry.type || "common"
+        if (t === "common") {
+          for (const key of Object.keys(agentMap)) {
+            agentMap[key].push(name)
+          }
+        } else if (t in agentMap) {
+          agentMap[t].push(name)
+        }
+      }
+
+      writeFileSync(skillConfigPath, JSON.stringify({ skill: skillMap, agent: agentMap }, null, 2), "utf-8")
+    } catch (err) {
+      console.error("syncSkillConfig failed", err)
+    }
+  }
 
   // jk-j60099994-replace-with-60062650-main-skills-ipc-3-start
   // jk-j60099994-replace-with-60062650-main-skills-ipc-3-end
@@ -522,15 +894,56 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("set-skills-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
     try {
-      mkdirSync(dirname(skillsConfigPath), { recursive: true })
-      writeFileSync(skillsConfigPath, JSON.stringify(config, null, 2), "utf-8")
+      // 写入 skill_config.json（新格式）
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
     } catch (err) {
       console.error("set-skills-config failed", err)
-      throw new Error(`Failed to save skills config: ${err instanceof Error ? err.message : String(err)}`)
+      throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+
+  ipcMain.handle("get-skill-config", () => {
+    try {
+      if (!existsSync(skillConfigPath)) return {}
+      return JSON.parse(readFileSync(skillConfigPath, "utf-8"))
+    } catch {
+      return {}
+    }
+  })
+
+  ipcMain.handle("set-skill-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
+    try {
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, JSON.stringify(config, null, 2), "utf-8")
+    } catch (err) {
+      console.error("set-skill-config failed", err)
+      throw new Error(`Failed to save skill config: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+
+  ipcMain.handle("get-assets-config", () => {
+    try {
+      if (!existsSync(assetsConfigPath)) return {}
+      return JSON.parse(readFileSync(assetsConfigPath, "utf-8"))
+    } catch {
+      return {}
+    }
+  })
+
+  ipcMain.handle("set-assets-config", (_event: IpcMainInvokeEvent, config: Record<string, unknown>) => {
+    try {
+      mkdirSync(dirname(assetsConfigPath), { recursive: true })
+      writeFileSync(assetsConfigPath, JSON.stringify(config, null, 2), "utf-8")
+    } catch (err) {
+      console.error("set-assets-config failed", err)
+      throw new Error(`Failed to save assets config: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
 
   // jk-j60099994-replace-with-60062650-main-skills-ipc-4-start
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-4-end
+
   ipcMain.handle("get-skill-content", async (_event: IpcMainInvokeEvent, skillName: string) => {
     try {
       const skillDir = join(getOctoConfigPath(), "skill", skillName)
@@ -564,8 +977,8 @@ export function registerIpcHandlers(deps: Deps) {
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
-  // jk-j60099994-replace-with-60062650-main-skills-ipc-4-end
 
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-5-start
   ipcMain.handle("add-skill", async (_event: IpcMainInvokeEvent, sourcePath: string) => {
     try {
       const octoSkillDir = join(getOctoConfigPath(), "skill")
@@ -580,30 +993,22 @@ export function registerIpcHandlers(deps: Deps) {
 
       cpSync(sourcePath, destDir, { recursive: true })
 
-      // Update skills.json with type: "common"
-      const skillMdPath = join(destDir, "SKILL.md")
-      if (!existsSync(skillMdPath)) {
-        return { success: false, error: "所选文件夹中未找到 SKILL.md" }
-      }
-      const config = existsSync(skillsConfigPath)
-        ? JSON.parse(readFileSync(skillsConfigPath, "utf-8"))
-        : {}
-      const content = readFileSync(skillMdPath, "utf-8")
-      const descMatch = content.match(/^---\s*\n.*?description:\s*(.+?)\s*\n.*?---/s)
-      config[skillName] = {
-        // jk-j60099994-replace-with-60062650-main-skills-ipc-5-start
-        // jk-j60099994-replace-with-60062650-main-skills-ipc-5-end
-        description: descMatch ? descMatch[1] : "",
-        import: true,
-        type: "common",
-      }
-      mkdirSync(dirname(skillsConfigPath), { recursive: true })
-      writeFileSync(skillsConfigPath, JSON.stringify(config, null, 2), "utf-8")
+      // 重新生成 skill_config.json（从 ~/.config/octo/skill 目录扫描）
+      regenerateSkillConfig()
 
       return { success: true, skillName }
     } catch (err) {
       console.error("add-skill failed", err)
       return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-5-end
+
+  ipcMain.handle("ensure-skill-config", () => {
+    // 仅确保目录存在，不重新生成。如果文件不存在则创建空
+    if (!existsSync(skillConfigPath)) {
+      mkdirSync(dirname(skillConfigPath), { recursive: true })
+      writeFileSync(skillConfigPath, "{}", "utf-8")
     }
   })
 
@@ -641,6 +1046,54 @@ export function registerIpcHandlers(deps: Deps) {
       const image = await win.webContents.capturePage(rect)
       if (image.isEmpty()) return null
       return image.toDataURL()
+    },
+  )
+
+  // 离屏窗口截图:先把当前页面 JSON 写入 previewdist/data.js 的 window.__A2UI_DATA__,
+  // 让隐藏窗口启动时直接渲染当前页面(顶层窗口走 __A2UI_DATA__ 路径,不走 postMessage),
+  // 截完恢复 data.js。可见界面(含归档弹窗/批注)完全不动,避免遮罩污染与闪烁。
+  ipcMain.handle(
+    "capture-preview-page",
+    async (_event: IpcMainInvokeEvent, opts: { pageJson: unknown; waitForMs?: number }) => {
+      const dataJsPath = join(previewDistDir(), "data.js")
+      let backup = ""
+      try {
+        backup = await readFile(dataJsPath, "utf8").catch(() => "")
+        const pageJsonObj = typeof opts.pageJson === "string" ? JSON.parse(opts.pageJson) : opts.pageJson
+        await writeFile(dataJsPath, `window.__A2UI_DATA__ = ${JSON.stringify(pageJsonObj)};`, "utf8")
+
+        const win = new BrowserWindow({
+          width: 1920,
+          height: 1080,
+          show: false,
+          frame: false,
+          webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+          },
+        })
+        try {
+          await new Promise<void>((resolve) => {
+            let done = false
+            const finish = () => { if (!done) { done = true; resolve() } }
+            win.webContents.once("did-finish-load", finish)
+            win.webContents.once("did-fail-load", finish)
+            win.webContents.loadURL("http://127.0.0.1:51856").then(finish).catch(finish)
+            setTimeout(finish, 15000)
+          })
+          // 等 runtime 渲染(含图标处理,必要时调用方可调大 waitForMs)
+          await new Promise((r) => setTimeout(r, opts.waitForMs ?? 2000))
+          const image = await win.webContents.capturePage({ x: 0, y: 0, width: 1920, height: 1080 })
+          if (image.isEmpty()) return null
+          return image.toDataURL()
+        } finally {
+          if (!win.isDestroyed()) win.destroy()
+        }
+      } finally {
+        // 回退 data.js,不影响可见 iframe 与后续启动
+        await writeFile(dataJsPath, backup, "utf8").catch(() => {})
+      }
     },
   )
 
@@ -728,12 +1181,18 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   // 导出 HUI 代码 - By WangQiang - 该注释请勿删除
-  ipcMain.handle("download-hui-code", (_event: IpcMainInvokeEvent, input: HuiCodeInput[]) => {
-    const options = app.isPackaged
-      ? { templateDir: join(process.resourcesPath, "hui-templates") }
-      : {}
-    return downloadHuiCode(input, options)
-  })
+  // 上层 options 只暴露 targetLib（选目标组件库 eview-react/eview-ui，可选）；
+  // ipc 注入 templateDir（打包态 process.resourcesPath/hui-templates，按 lib 拆子目录由 resolveTemplateDir 拼）；
+  // 二者合并后传给 downloadHuiCode 的 options。
+  ipcMain.handle(
+    "download-hui-code",
+    (_event: IpcMainInvokeEvent, input: HuiCodeInput[], options?: { targetLib?: string }) => {
+      const ipcOptions = app.isPackaged
+        ? { templateDir: join(process.resourcesPath, "hui-templates") }
+        : {}
+      return downloadHuiCode(input, { ...ipcOptions, ...options })
+    },
+  )
 
   // 获取当前预览页面地址的文件路径 - By WangQiang - 该注释请勿删除
   ipcMain.handle("get-preview-dist-dir", () => previewDistDir())
@@ -770,10 +1229,18 @@ export function registerIpcHandlers(deps: Deps) {
         defaultName: string
         files?: { path: string; content: string }[]
         sourceDir?: string
+        /** sourceDir 内容在 zip 内的落点（相对路径，默认 ""＝根，如 "assets"） */
+        destFolder?: string
+        /** 多个源目录各自落到指定 destFolder（sourceDir 的批量版，供多 uploads 目录合并打包） */
+        sourceDirs?: { dir: string; destFolder: string }[]
         comment?: string
       },
     ) => {
-      if (opts.sourceDir && !existsSync(opts.sourceDir)) return null
+      // sourceDir 不存在时：有 files 就跳过 sourceDir 继续打代码；
+      // 既无 files 又无可用 sourceDir/sourceDirs → 无内容，取消。
+      const sourceDirExists = opts.sourceDir ? existsSync(opts.sourceDir) : false
+      const validSourceDirs = (opts.sourceDirs ?? []).filter((s) => existsSync(s.dir))
+      if (!opts.files?.length && !sourceDirExists && validSourceDirs.length === 0) return null
 
       const win = BrowserWindow.fromWebContents(event.sender)
       const dialogOpts = {
@@ -787,43 +1254,44 @@ export function registerIpcHandlers(deps: Deps) {
       if (result.canceled || !result.filePath) return null
 
       const destZip = result.filePath
-      const isDirect = !!opts.sourceDir
-      const workDir = opts.sourceDir ?? join(tmpdir(), `octo-export-${Date.now()}`)
+      // sourceDir 在 zip 内的落点：相对路径，去前导/尾随 /；"" → 打到根（archive.directory 第二参 false）
+      const destFolder = (opts.destFolder ?? "").replace(/^\/+/, "").replace(/\/+$/, "")
 
-      if (!isDirect) {
-        await mkdir(workDir, { recursive: true })
-        for (const file of opts.files ?? []) {
-          const filePath = join(workDir, file.path)
-          await mkdir(dirname(filePath), { recursive: true })
-          await writeFile(filePath, file.content, "utf-8")
-        }
-      }
+      // archiver 合并 files + sourceDir（落到 destFolder）成一个 zip，替换原 powershell/tar + tmp workDir。
+      // 三种输入都支持：仅 files / 仅 sourceDir / files + sourceDir。
+      await new Promise<void>((resolve, reject) => {
+        const output = createWriteStream(destZip)
+        const archive = archiver("zip", { zlib: { level: 9 } })
+        output.on("close", () => resolve())
+        output.on("error", (err) => reject(err))
+        archive.on("error", (err) => reject(err))
+        archive.pipe(output)
 
-      try {
-        await new Promise<void>((resolve, reject) => {
-          if (process.platform === "win32") {
-            execFile(
-              "powershell",
-              [
-                "-NoProfile",
-                "-Command",
-                `Compress-Archive -Path '${workDir}\\*' -DestinationPath '${destZip}' -Force`,
-              ],
-              (err) => (err ? reject(err) : resolve()),
-            )
-          } else {
-            execFile("zip", ["-r", destZip, "."], { cwd: workDir }, (err) =>
-              err ? reject(err) : resolve(),
-            )
+        // ① files：文本文件按 path 写入 zip
+        if (opts.files) {
+          for (const file of opts.files) {
+            archive.append(Buffer.from(file.content, "utf-8"), { name: file.path })
           }
-        })
+        }
 
-        if (opts.comment) addZipComment(destZip, opts.comment)
+        // ② sourceDir：目录内容整体写入 zip 的 destFolder 下（仅当目录存在）
+        //    archive.directory(src, false) → 内容打到根；传字符串 → 打到该子目录
+        if (opts.sourceDir && sourceDirExists) {
+          archive.directory(opts.sourceDir, destFolder || false)
+        }
 
-        return destZip
-      } finally {
-        if (!isDirect) await rm(workDir, { recursive: true, force: true }).catch(() => { })
-      }
+        // ②b sourceDirs：多个源目录各自落到指定 destFolder（供 pattern 侧 + make 侧 uploads 合并打包）
+        for (const s of validSourceDirs) {
+          const df = (s.destFolder ?? "").replace(/^\/+/, "").replace(/\/+$/, "")
+          archive.directory(s.dir, df || false)
+        }
+
+        void archive.finalize()
+      })
+
+      if (opts.comment) addZipComment(destZip, opts.comment)
+
+      return destZip
     },
   )
 
@@ -863,9 +1331,139 @@ export function registerIpcHandlers(deps: Deps) {
       await rm(extractDir, { recursive: true, force: true }).catch(() => { })
     }
   })
+  // 页面资源捕获(CDP):创建隐藏窗口加载指定 URL,拦截全部网络响应,将所有资源(CSS/JS/图片/字体)内联为 data URI,生成单个自包含 HTML 文件。
+  ipcMain.handle(
+    "capture-page",
+    async (
+      _event: IpcMainInvokeEvent,
+      opts: { url: string; theme?: "light" | "dark"; waitForMs?: number },
+    ) => {
+      return codeToHtml(opts)
+    },
+  )
+
   // Pipeline API IPC — renderer 通过 window.api.pipelineRequest 调用, 主进程用 net.fetch 请求真实接口(绕 CORS)
   ipcMain.handle("pipeline-request", (_event: IpcMainInvokeEvent, url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) =>
     pipelineRequest(url, method, uiplusToken, body, headers))
+
+  ipcMain.handle("get-proxy-config", () => {
+    const configFile = join(getOctoConfigPath(), "proxy_config.json")
+    if (!existsSync(configFile)) return null
+
+    try {
+      const config: unknown = JSON.parse(readFileSync(configFile, "utf-8"))
+      if (!config || typeof config !== "object" || !("http_proxy" in config)) return null
+      if (typeof config.http_proxy !== "string") return null
+
+      const proxyUrl = new URL(config.http_proxy)
+      if (!proxyUrl.username || !proxyUrl.password) return null
+
+      return {
+        account: decodeURIComponent(proxyUrl.username),
+        password: decodeURIComponent(proxyUrl.password),
+        proxyHost: proxyUrl.host,
+        proxyOptionId: "proxyOptionId" in config && typeof config.proxyOptionId === "string" ? config.proxyOptionId : undefined,
+        noProxy: "no_proxy" in config && typeof config.no_proxy === "string" ? config.no_proxy : undefined,
+      }
+    } catch (error) {
+      log.warn("[get-proxy-config] 读取代理配置失败", {
+        configFile,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return null
+    }
+  })
+
+  // Proxy 配置: curl 测试代理连通性, 成功后写入 ~/.config/octo/proxy_config.json 并注入环境变量即时生效
+  const PROXY_HOSTS = new Set([
+    "proxy", "proxycn2", "proxyn", "proxyhk", "proxvuk", "proxyus", "proxyus-nrd", "proxyru", "proxybr", "proxybh", "proxyblr", "openproxy", "proxyza", "proxytr", "proxyca", "proxyde", "proxyjp", "proxvse-rd", "proxyde-rd", "proxytr-rd", "proxvus-rd", "proxyru-rd",
+  ])
+
+  ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string, noProxyInput?: string, proxyHostInput?: string, proxyOptionIdInput?: string) => {
+    const proxyHostName = (proxyHostInput?.trim().replace(/^:/, "") || "proxyhk")
+    const proxyHost = PROXY_HOSTS.has(proxyHostName) ? proxyHostName : "proxyhk"
+    const encodedAccount = encodeURIComponent(account)
+    const encodedPwd = encodeURIComponent(password)
+      .replace(/['()!*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
+    const proxyUrl = `http://${encodedAccount}:${encodedPwd}@${proxyHost}.huawei.com:8080`
+    // http_proxy 和 https_proxy 都用同一个 http:// 代理地址
+    const defaultNoProxy = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
+    const noProxy = noProxyInput?.trim() || defaultNoProxy
+    const curlTarget = "https://ifconfig.me/ip"
+
+    log.info("[configure-proxy] 开始配置代理")
+
+    // 先注入环境变量，确保 curl 能走代理
+    const prevEnv: Record<string, string | undefined> = {}
+    for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"]) {
+      prevEnv[key] = process.env[key]
+    }
+    process.env["http_proxy"] = proxyUrl
+    process.env["https_proxy"] = proxyUrl
+    process.env["no_proxy"] = noProxy
+    process.env["HTTP_PROXY"] = proxyUrl
+    process.env["HTTPS_PROXY"] = proxyUrl
+    process.env["NO_PROXY"] = noProxy
+
+    log.info("[configure-proxy] 环境变量已注入")
+
+    try {
+      log.info("[configure-proxy] 执行 curl 测试连通性", { curlTarget, connectTimeout: 15, execTimeout: 20000 })
+
+      // 代理验证：通过代理请求 ifconfig.me/ip，检查返回 IP 以 119. 开头
+      const curlOutput = execSync(`curl -k -sS --connect-timeout 15 "${curlTarget}"`, {
+        timeout: 20000,
+        stdio: "pipe",
+        encoding: "utf-8",
+      }).toString().trim()
+
+      if (!curlOutput.startsWith("119.")) {
+        throw new Error(`代理返回的 IP 不是 119.x.x.x: ${curlOutput}`)
+      }
+
+      log.info("[configure-proxy] 代理验证通过", { ip: curlOutput })
+
+      log.info("[configure-proxy] curl 测试通过, 写入配置文件")
+
+      // 写入 ~/.config/octo/proxy_config.json（独立文件，避免影响 octo.json 的 schema 校验）
+      const configDir = getOctoConfigPath()
+      const configFile = join(configDir, "proxy_config.json")
+      mkdirSync(configDir, { recursive: true })
+
+      writeFileSync(configFile, JSON.stringify({
+        http_proxy: proxyUrl,
+        https_proxy: proxyUrl,
+        no_proxy: noProxy,
+        proxyOptionId: proxyOptionIdInput?.trim() || undefined,
+      }, null, 2), "utf-8")
+      log.info("[configure-proxy] 配置写入成功", { configFile })
+
+      // 保持环境变量注入状态，让 Node.js HTTP 模块即时生效
+      try {
+        ;(http as any).setGlobalProxyFromEnv()
+      } catch (e) {
+        log.warn("[configure-proxy] setGlobalProxyFromEnv 失败", e)
+      }
+
+      return { success: true, curlUrl: curlTarget }
+    } catch (err) {
+      // 失败时恢复之前的环境变量
+      for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"] as const) {
+        const val = prevEnv[key]
+        if (val === undefined) {
+          delete process.env[key]
+        } else {
+          process.env[key] = val
+        }
+      }
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      log.error("[configure-proxy] 配置失败", { error: errorMessage })
+      return { success: false, curlUrl: curlTarget, error: errorMessage }
+    }
+  })
+
+  // 查找topixso文件夹
+  ipcMain.handle("get-topixso-dir", () => topixsoDir)
 }
 
 export function sendSqliteMigrationProgress(win: BrowserWindow, progress: SqliteMigrationProgress) {

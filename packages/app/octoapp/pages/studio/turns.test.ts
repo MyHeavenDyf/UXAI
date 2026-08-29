@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import { isStudioGenerationStatusRegression } from "./studio-shared"
+import { getDefaultDimensions, getModelResolutionKey, isStudioGenerationStatusRegression, studioResultCardStatus } from "./studio-shared"
 import { buildStudioConversationContext, buildStudioTurns } from "./turns"
 import type { StudioGenerationResult } from "./types"
 
@@ -19,6 +19,31 @@ describe("Studio generation status merging", () => {
     expect(isStudioGenerationStatusRegression("running", "queued")).toBe(false)
     expect(isStudioGenerationStatusRegression("running", "failed")).toBe(false)
     expect(isStudioGenerationStatusRegression("running", "succeeded")).toBe(false)
+  })
+})
+
+describe("Studio result-card status", () => {
+  test("keeps a running generation with a legacy transient error in the generating state", () => {
+    expect(studioResultCardStatus({
+      result: { status: "running", images: [], error: "query_task returned status=500" },
+      busy: true,
+      toolRunning: true,
+    })).toBe("running")
+  })
+
+  test("shows an error only after the generation reaches a failure status", () => {
+    expect(studioResultCardStatus({
+      result: { status: "failed", images: [], error: "query_task returned failure" },
+      busy: false,
+      toolRunning: false,
+    })).toBe("failed")
+  })
+})
+
+describe("Studio model resolution mapping", () => {
+  test("recognizes the persisted Seedream display name", () => {
+    expect(getModelResolutionKey("Seedream 5.0 Lite")).toBe("2k")
+    expect(getDefaultDimensions("Seedream 5.0 Lite", "3:4")).toEqual({ width: 1728, height: 2304 })
   })
 })
 
@@ -93,6 +118,7 @@ const runningToolPart = (
   messageID: string,
   tool = "internel_image_generate",
   studio?: Record<string, unknown>,
+  input: Record<string, unknown> = {},
 ) =>
   ({
     id,
@@ -105,7 +131,7 @@ const runningToolPart = (
       status: "running",
       title: "图片生成",
       time: { start: 1 },
-      input: { capability: "image.generate", aspectRatio: "3:4" },
+      input: { capability: "image.generate", aspectRatio: "3:4", ...input },
       metadata: studio ? { studio } : undefined,
     },
   }) as Part
@@ -116,6 +142,7 @@ const erroredToolPart = (
   capability: "image.generate" | "video.generate",
   error = "用户取消生成",
   status: "create_failed" | "failed" = "failed",
+  input: Record<string, unknown> = {},
 ) =>
   ({
     id,
@@ -127,7 +154,7 @@ const erroredToolPart = (
     state: {
       status: "error",
       time: { start: 1, end: 2 },
-      input: { capability, aspectRatio: capability === "video.generate" ? "16:9" : "3:4" },
+      input: { capability, aspectRatio: capability === "video.generate" ? "16:9" : "3:4", ...input },
       error,
       metadata: {
         studio: {
@@ -466,6 +493,8 @@ describe("buildStudioTurns", () => {
             capability: "image.generate",
             prompt: "一只大黄狗",
             displayPrompt: "再次生成",
+            detailPrompt: "一只大黄狗在草地上奔跑",
+            detailTitle: "草地大黄狗",
             refinedPrompt: "一只大黄狗，阳光草地，胶片质感",
             effectivePrompt: "一只大黄狗，阳光草地，胶片质感",
             aspectRatio: "3:4",
@@ -478,6 +507,130 @@ describe("buildStudioTurns", () => {
     expect(turns[0].assistantText).toBe("好的，我会按当前结果的配置重新生成。")
     expect(turns[0].result?.prompt).toBe("一只大黄狗，阳光草地，胶片质感")
     expect(turns[0].result?.displayPrompt).toBe("再次生成")
+    expect(turns[0].result?.detailPrompt).toBe("一只大黄狗在草地上奔跑")
+    expect(turns[0].result?.detailTitle).toBe("草地大黄狗")
+  })
+
+  test("uses the original user bubble as the detail prompt for legacy turns", () => {
+    const user = userMessage("msg_legacy_detail_user")
+    const assistant = assistantMessage("msg_legacy_detail_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_legacy_detail_text", user.id, "雨中的木屋")],
+        [assistant.id]: [completedGenerationToolPart("p_legacy_detail_tool", assistant.id, {
+          capability: "image.generate",
+          prompt: "雨中的木屋",
+          refinedPrompt: "一座坐落在雨幕中的温暖木屋，电影感光影",
+          aspectRatio: "3:4",
+        })],
+      },
+    })
+
+    expect(turns[0].result?.prompt).toBe("一座坐落在雨幕中的温暖木屋，电影感光影")
+    expect(turns[0].result?.detailPrompt).toBe("雨中的木屋")
+  })
+
+  test("preserves an empty detail prompt for frame-based video generation", () => {
+    const user = userMessage("msg_empty_video_detail_user")
+    const assistant = assistantMessage("msg_empty_video_detail_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_empty_video_detail_text", user.id, "根据首尾帧生成自然连贯的视频")],
+        [assistant.id]: [completedGenerationToolPart("p_empty_video_detail_tool", assistant.id, {
+          capability: "video.generate",
+          prompt: "根据首尾帧生成自然连贯的视频",
+          detailPrompt: "",
+          aspectRatio: "16:9",
+        }, {
+          videos: ["https://example.com/frame-video.mp4"],
+        })],
+      },
+    })
+
+    expect(turns[0].userText).toBe("根据首尾帧生成自然连贯的视频")
+    expect(turns[0].result?.prompt).toBe("根据首尾帧生成自然连贯的视频")
+    expect(turns[0].result?.detailPrompt).toBe("")
+  })
+
+  test("preserves an empty detail prompt for regenerated turns", () => {
+    const user = userMessage("msg_empty_regenerate_detail_user")
+    const assistant = assistantMessage("msg_empty_regenerate_detail_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_empty_regenerate_detail_text", user.id, "再次生成")],
+        [assistant.id]: [completedGenerationToolPart("p_empty_regenerate_detail_tool", assistant.id, {
+          capability: "video.generate",
+          prompt: "根据首尾帧生成自然连贯的视频",
+          displayPrompt: "再次生成",
+          detailPrompt: "",
+          aspectRatio: "16:9",
+        }, {
+          videos: ["https://example.com/regenerated-frame-video.mp4"],
+        })],
+      },
+    })
+
+    expect(turns[0].userText).toBe("再次生成")
+    expect(turns[0].result?.displayPrompt).toBe("再次生成")
+    expect(turns[0].result?.detailPrompt).toBe("")
+  })
+
+  test("preserves an empty detail prompt while generation is running or failed", () => {
+    const runningUser = userMessage("msg_empty_running_detail_user", 1)
+    const runningAssistant = assistantMessage("msg_empty_running_detail_assistant", 2)
+    const failedUser = userMessage("msg_empty_failed_detail_user", 3)
+    const failedAssistant = assistantMessage("msg_empty_failed_detail_assistant", 4)
+    const turns = buildStudioTurns({
+      messages: [runningUser, runningAssistant, failedUser, failedAssistant],
+      parts: {
+        [runningUser.id]: [textPart("p_empty_running_detail_text", runningUser.id, "根据首尾帧生成自然连贯的视频")],
+        [runningAssistant.id]: [runningToolPart(
+          "p_empty_running_detail_tool",
+          runningAssistant.id,
+          "internel_image_generate",
+          { generationID: "studio_gen_empty_running", status: "running", progress: 20 },
+          { capability: "video.generate", aspectRatio: "16:9", detailPrompt: "" },
+        )],
+        [failedUser.id]: [textPart("p_empty_failed_detail_text", failedUser.id, "根据首尾帧生成自然连贯的视频")],
+        [failedAssistant.id]: [erroredToolPart(
+          "p_empty_failed_detail_tool",
+          failedAssistant.id,
+          "video.generate",
+          "生成失败",
+          "failed",
+          { detailPrompt: "" },
+        )],
+      },
+    })
+
+    expect(turns[0].result?.status).toBe("running")
+    expect(turns[0].result?.detailPrompt).toBe("")
+    expect(turns[1].result?.status).toBe("failed")
+    expect(turns[1].result?.detailPrompt).toBe("")
+  })
+
+  test("keeps a user-entered prompt that matches the frame-video default text", () => {
+    const user = userMessage("msg_matching_default_detail_user")
+    const assistant = assistantMessage("msg_matching_default_detail_assistant", 2)
+    const turns = buildStudioTurns({
+      messages: [user, assistant],
+      parts: {
+        [user.id]: [textPart("p_matching_default_detail_text", user.id, "根据首尾帧生成自然连贯的视频")],
+        [assistant.id]: [completedGenerationToolPart("p_matching_default_detail_tool", assistant.id, {
+          capability: "video.generate",
+          prompt: "根据首尾帧生成自然连贯的视频",
+          detailPrompt: "根据首尾帧生成自然连贯的视频",
+          aspectRatio: "16:9",
+        }, {
+          videos: ["https://example.com/user-prompt-frame-video.mp4"],
+        })],
+      },
+    })
+
+    expect(turns[0].result?.detailPrompt).toBe("根据首尾帧生成自然连贯的视频")
   })
 
   test("restores create failure separately from generation failure", () => {
@@ -586,6 +739,7 @@ describe("buildStudioTurns", () => {
             sessionID: "ses_1",
             messageID: a1.id,
             type: "tool",
+            callID: "call_p_2",
             tool: "internel_image_generate",
             state: {
               status: "completed",
@@ -649,6 +803,138 @@ describe("buildStudioTurns", () => {
     })
 
     expect(turns[0].result?.images[0]?.url).toBe("https://example.com/final.png")
+  })
+
+  test("extracts input thumbnails from image reference images", () => {
+    const m1 = userMessage("msg_1")
+    const a1 = assistantMessage("msg_2")
+
+    const turns = buildStudioTurns({
+      messages: [m1, a1],
+      parts: {
+        [m1.id]: [textPart("p_1", m1.id, "参考这两张图生成")],
+        [a1.id]: [
+          toolPart(
+            "p_2",
+            a1.id,
+            JSON.stringify({ images: ["https://example.com/final.png"] }),
+            "internel_image_generate",
+            {
+              capability: "image.generate",
+              referenceImages: [
+                "/Users/me/project/.octo/artifacts/make/ses_1/studio-inputs/reference-1.png",
+                "data:image/png;base64,QUJDREVGRw==",
+              ],
+            },
+          ),
+        ],
+      },
+    })
+
+    expect(turns[0].inputImages?.map((image) => image.url)).toEqual([
+      "/Users/me/project/.octo/artifacts/make/ses_1/studio-inputs/reference-1.png",
+      "data:image/png;base64,QUJDREVGRw==",
+    ])
+  })
+
+  test("extracts input thumbnails from video frames and dedupes references", () => {
+    const m1 = userMessage("msg_1")
+    const a1 = assistantMessage("msg_2")
+    const firstFrame = "/Users/me/project/.octo/artifacts/make/ses_1/studio-inputs/first-frame.png"
+    const lastFrame = "/Users/me/project/.octo/artifacts/make/ses_1/studio-inputs/last-frame.png"
+
+    const turns = buildStudioTurns({
+      messages: [m1, a1],
+      parts: {
+        [m1.id]: [textPart("p_1", m1.id, "用首尾帧生成视频")],
+        [a1.id]: [
+          toolPart(
+            "p_2",
+            a1.id,
+            JSON.stringify({ videos: ["https://example.com/final.mp4"] }),
+            "internel_image_generate",
+            {
+              capability: "video.generate",
+              referenceImages: [firstFrame, lastFrame],
+              extra: {
+                firstFrame,
+                lastFrame,
+              },
+            },
+          ),
+        ],
+      },
+    })
+
+    expect(turns[0].inputImages?.map((image) => image.url)).toEqual([firstFrame, lastFrame])
+  })
+
+  test("extracts input thumbnail from edit source image", () => {
+    const m1 = userMessage("msg_1")
+    const a1 = assistantMessage("msg_2")
+
+    const turns = buildStudioTurns({
+      messages: [m1, a1],
+      parts: {
+        [m1.id]: [textPart("p_1", m1.id, "重绘所选区域")],
+        [a1.id]: [
+          toolPart(
+            "p_2",
+            a1.id,
+            JSON.stringify({ images: ["https://example.com/inpaint.png"] }),
+            "internel_image_generate",
+            {
+              capability: "image.inpaint",
+              sourceImage: "/Users/me/project/.octo/artifacts/make/ses_1/studio-inputs/source.png",
+              extra: {
+                compositeImage: "/Users/me/project/.octo/artifacts/make/ses_1/studio-inputs/inpaint-composite.png",
+              },
+            },
+          ),
+        ],
+      },
+    })
+
+    expect(turns[0].inputImages?.map((image) => image.url)).toEqual([
+      "/Users/me/project/.octo/artifacts/make/ses_1/studio-inputs/source.png",
+    ])
+  })
+
+  test("does not extract input thumbnails from provider request only", () => {
+    const m1 = userMessage("msg_1")
+    const a1 = assistantMessage("msg_2")
+
+    const turns = buildStudioTurns({
+      messages: [m1, a1],
+      parts: {
+        [m1.id]: [textPart("p_1", m1.id, "生成一张图")],
+        [a1.id]: [
+          ({
+            id: "p_2",
+            sessionID: "ses_1",
+            messageID: a1.id,
+            type: "tool",
+            tool: "internel_image_generate",
+            state: {
+              status: "completed",
+              title: "图片生成",
+              time: { start: 1, end: 2 },
+              input: { capability: "image.generate" },
+              metadata: {
+                request: {
+                  args: {
+                    image_base64: "data:image/png;base64,QUJDREVGRw==",
+                  },
+                },
+              },
+              output: JSON.stringify({ images: ["https://example.com/final.png"] }),
+            },
+          }) as unknown as Part,
+        ],
+      },
+    })
+
+    expect(turns[0].inputImages).toEqual([])
   })
 
   test("uses tool attachments when present", () => {

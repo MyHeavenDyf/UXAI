@@ -1,6 +1,8 @@
 import { extractJson } from '../../utils/json-parser';
 import { runChildSession } from '../run-child-session';
 import { logAgentParsed } from "../../utils/debug-log"
+import { INTENT_AUDIT_FORMAT } from "./schema"
+import { agentThrow } from "../../utils/error-msg"
 
 const AGENT_NAME = "proto_intent_audit"
 
@@ -37,13 +39,14 @@ export default async function proto_intent_audit(input: ProtoIntentAuditInput) {
     prompt: humanMessage,
     sync,
     onSessionCreated,
+    schema: INTENT_AUDIT_FORMAT.schema,
   })
   console.log("----- 意图诊断Agent运行结束，耗时：", (Date.now() - startTime) / 1000, 's -----');
   // 转换成 audit json
   const intentJson = extractJson(auditResult.text)
   if (!intentJson) {
     logAgentParsed(auditResult.childSessionId, { error: "Failed to parse JSON", raw: auditResult.text })
-    throw new Error("----- Intent Audit did not return valid JSON -----")
+    agentThrow(AGENT_NAME, auditResult.childSessionId, "Intent Audit did not return valid JSON")
   }
   const returnValue = {
     "intent_audit_pass": intentJson.is_pass,

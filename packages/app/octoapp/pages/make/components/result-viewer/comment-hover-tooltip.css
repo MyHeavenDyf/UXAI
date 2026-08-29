@@ -1,0 +1,90 @@
+.comment-hover-tooltip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 320px;
+  min-height: 60px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.16);
+  z-index: 2147483647;
+  overflow: hidden;
+  box-sizing: border-box;
+  visibility: hidden;
+  transform: translate(var(--tooltip-x, 0), var(--tooltip-y, 0));
+}
+
+.comment-hover-tooltip.visible {
+  visibility: visible;
+}
+
+.comment-hover-tooltip.radius-top-left {
+  border-top-left-radius: 0;
+}
+
+.comment-hover-tooltip.radius-top-right {
+  border-top-right-radius: 0;
+}
+
+.comment-hover-tooltip.radius-bottom-left {
+  border-bottom-left-radius: 0;
+}
+
+.comment-hover-tooltip.radius-bottom-right {
+  border-bottom-right-radius: 0;
+}
+
+.comment-hover-tooltip-author {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px 0 16px;
+}
+
+.comment-hover-tooltip-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #e0e0e0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.comment-hover-tooltip-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.comment-hover-tooltip-avatar-default {
+  font-size: 12px;
+  color: #757575;
+  font-weight: 500;
+}
+
+.comment-hover-tooltip-name {
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.9);
+}
+
+.comment-hover-tooltip-time {
+  font-size: 14px;
+  line-height: 22px;
+  color: rgba(0, 0, 0, 0.6);
+  margin-left: auto;
+}
+
+.comment-hover-tooltip-note {
+  padding: 8px 16px 12px 16px;
+  margin-left: 32px;
+  font-size: 14px;
+  line-height: 22px;
+  color: rgba(0, 0, 0, 0.9);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

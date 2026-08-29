@@ -26,10 +26,16 @@ export type DownloadSavePathInfo = {
   path: string | null
   state: "completed" | "cancelled" | "interrupted"
 }
+
 // jk-j60099994-replace-with-60062650-preload-types-1-start
 export type SkillConfigEntry = { description?: string; import?: boolean; type?: string }
 // jk-j60099994-replace-with-60062650-preload-types-1-end
 export type SkillsConfig = Record<string, SkillConfigEntry>
+
+export type SkillConfig = {
+  skill?: Record<string, SkillConfigEntry>
+  agent?: Record<string, string[]>
+}
 
 export type SkillContentResponse =
   | { success: true; name: string; content: string; baseDir: string; files: string }
@@ -80,8 +86,21 @@ export type ElectronAPI = {
   saveFilePicker: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   openLink: (url: string) => void
   openPath: (path: string, app?: string) => Promise<void>
-  showItemInFolder: (path: string) => void
+  /** 在系统文件管理器中定位;文件不存在时返回 { ok: false, reason: "not-found" } 而非 throw */
+  showItemInFolder: (path: string) => Promise<{ ok: boolean; reason?: "not-found" }>
   downloadResource: (url: string, destPath: string) => Promise<void>
+  /** office「下载」:解析资源 URI 已落地的本地副本路径(不拉网络);命中且文件在→绝对路径,否则 null */
+  resolveMaterializedPath: (namespace: string, baseDir?: string, sessionId?: string) => Promise<string | null>
+  /** office「下载」:把本地副本原样拷到用户选定路径(fs.copyFile,走复制不读+写) */
+  copyFileTo: (srcPath: string, destPath: string) => Promise<void>
+  /** design-files 面板「上传」:把本地文件直接 fs.copyFile 进 .octo/<sessionId>/uploads/[subPath/],返回落地绝对路径 */
+  copyFileToSessionUploads: (
+    srcPath: string,
+    baseDir: string,
+    sessionId: string,
+    subPath: string,
+    filename: string,
+  ) => Promise<string>
   downloadResourceToTemp: (
     url: string,
     namespace: string,
@@ -89,9 +108,9 @@ export type ElectronAPI = {
     baseDir?: string,
     sessionId?: string,
   ) => Promise<string>
-  /** SPEC-INS-014 v2(会话隔离):拷贝源文件进 <baseDir>/insight/uploads/(预会话落地区,撞名加后缀);返回落地路径 */
+  /** SPEC-INS-014 v2(会话隔离):拷贝源文件进 <baseDir>/.octo/tmps/(预会话落地区,撞名加后缀);返回落地路径 */
   copyFileToWorktree: (srcPath: string, baseDir: string, filename: string) => Promise<string>
-  /** SPEC-INS-014 §4.1.2(v2 新增):发送时把 insight/uploads/ 里的附件 rename 进 <baseDir>/insight/<sessionId>/uploads/ */
+  /** SPEC-INS-014 §4.1.2(v2 新增):发送时把 .octo/tmps/ 里的附件 rename 进 <baseDir>/.octo/<sessionId>/uploads/ */
   movePendingUploadToSession: (srcPath: string, baseDir: string, sessionId: string) => Promise<string>
   /** Electron 32+ 取拖拽/选取 File 的真实本地路径(File.path 已移除,改用 webUtils.getPathForFile) */
   getPathForFile: (file: File) => string
@@ -109,13 +128,17 @@ export type ElectronAPI = {
   runUpdater: (alertOnFail: boolean) => Promise<void>
   checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
   installUpdate: () => Promise<void>
+  onUpdateDownloadProgress: (callback: (percent: number) => void) => () => void
+  onResume: (callback: () => void) => () => void
   setBackgroundColor: (color: string) => Promise<void>
   // jk-j60099994-replace-with-types-2-start
   // jk-j60099994-replace-with-types-2-end
   getSkillsConfig: () => Promise<SkillsConfig>
   setSkillsConfig: (config: SkillsConfig) => Promise<void>
+  getSkillConfig: () => Promise<SkillConfig>
   getSkillContent: (skillName: string) => Promise<SkillContentResponse>
   addSkill: (sourcePath: string) => Promise<{ success: boolean; skillName?: string; error?: string }>
+  ensureSkillConfig: () => Promise<void>
   openSkillFolder: () => Promise<void>
   // jk-j60099994-replace-with-60062650-preload-types-2-start
   // jk-j60099994-replace-with-60062650-preload-types-2-end
@@ -123,14 +146,23 @@ export type ElectronAPI = {
   writeFileBuffer: (path: string, buffer: ArrayBuffer) => Promise<void>
   /** save image to uploads dir, returns URL path like /history/sessionId/uploads/hash.ext */
   saveUploadImage: (buffer: ArrayBuffer, sessionId: string) => Promise<string>
+  /** save image to <prototypeDir>/uploads, returns relative URL like uploads/hash.ext (iframe via local:// resolves it) */
+  savePrototypeImage: (buffer: ArrayBuffer, dir: string) => Promise<string>
   getUploadsDir: () => Promise<string | null>
   setUploadsDir: (dir: string) => Promise<void>
-  /** insight markdown 编辑器自动保存:覆盖写本地文本文件(主进程校验路径在 insight/<sessionId>/{uploads,outputs}、旧 .octo/downloads 或临时目录下) */
+  /** insight markdown 编辑器自动保存:覆盖写本地文本文件(主进程校验路径在 .octo/<sessionId>/{uploads,outputs}、旧 .octo/downloads 或临时目录下) */
   writeFile: (path: string, content: string) => Promise<void>
   readFileBuffer: (path: string) => Promise<ArrayBuffer | null>
+  /** 大文件归档:只 stat 不读盘,返回文件大小;非普通文件返回 null */
+  statFile: (path: string) => Promise<{ size: number } | null>
+  /** 轻量存在性预检：只 stat 不读盘，仅当路径是存在的普通文件时返回 true(不存在/目录/无权限均为 false) */
+  fileExists: (path: string) => Promise<boolean>
   deleteFile: (path: string) => Promise<void>
+  /** 原子重命名（同文件系统内 fs.rename）。用于"写临时文件 → rename 到目标"原子落盘模式。 */
+  renameFile: (srcPath: string, destPath: string) => Promise<void>
   writeClipboardText: (text: string) => Promise<void>
   capturePreviewRect: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
+  capturePreviewPage: (opts: { pageJson: unknown; waitForMs?: number }) => Promise<string | null>
   tailwindToCss: (className: string) => Promise<Record<string, string>>
   cssToTailwind: (cssObject: Record<string, unknown>) => Promise<string>
   getPreviewDistDir: () => Promise<string>
@@ -139,15 +171,24 @@ export type ElectronAPI = {
   getPatternPreview: (category: string, filename: string, theme?: string) => Promise<string | null>
   getPatternAssets: (category: string, folderName: string, theme?: string) => Promise<{ filename: string; buffer: ArrayBuffer }[]>
   getDesignSystems: () => Promise<string[]>
-  downloadHuiCode: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[]) => Promise<{ files: { path: string; content: string }[] }>
+  downloadHuiCode: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[], options?: { targetLib?: string }) => Promise<{ files: { path: string; content: string }[] }>
   runPixsoBuild: (input: string) => Promise<string>
-  exportZip: (opts: {
-    defaultName: string
-    files?: { path: string; content: string }[]
-    sourceDir?: string
-    comment?: string
-  }) => Promise<string | null>
+  getTopixsoDir: () => Promise<string>
+  exportZip: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; destFolder?: string; sourceDirs?: { dir: string; destFolder: string }[]; comment?: string }) => Promise<string | null>
   importZip: () => Promise<{ name: string; content: string }[] | null>
+  codeToHtml: (opts: { url: string; theme?: "light" | "dark"; waitForMs?: number }) => Promise<{ html: string; resourceCount: number }>
+  listDirectory: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>
   // Pipeline API IPC bridge 类型定义
   pipelineRequest: (url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) => Promise<any>
+  getAssetsConfig: () => Promise<Record<string, unknown>>
+
+  /** 读取已保存的 W3 代理账号、密码和代理节点 */
+  getProxyConfig: () => Promise<{ account: string; password: string; proxyHost?: string; proxyOptionId?: string; noProxy?: string } | null>
+
+  /** 配置 W3 代理: 测试连通性后写入 ~/.config/octo/proxy_config.json */
+  configureProxy: (account: string, password: string, noProxy?: string, proxyHost?: string, proxyOptionId?: string) => Promise<{
+    success: boolean
+    curlUrl: string
+    error?: string
+  }>
 }

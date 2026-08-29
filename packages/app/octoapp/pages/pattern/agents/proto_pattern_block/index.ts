@@ -1,11 +1,12 @@
 import { extractJson } from '../../utils/json-parser'
 import { runChildSession } from '../run-child-session'
 import { logAgentParsed } from '../../utils/debug-log'
+import { agentThrow } from '../../utils/error-msg'
 import {
   readPatternIndex,
-  type PatternEntry,
-  type PatternMatchItem,
+  getBlockPatternResource,
 } from '../../utils/pattern-resource'
+import { PATTERN_BLOCK_FORMAT } from './schema'
 
 const AGENT_NAME = "proto_pattern_block"
 
@@ -21,15 +22,9 @@ type ProtoPatternBlockInput = {
 
 export default async function proto_pattern_block(input: ProtoPatternBlockInput) {
   const { sdk, sync, modelKey, rootSession, userInput, onSessionCreated } = input
-
   const theme = (input.extra?.designSystem as string) || "ICT3.1"
-
-  const patterns = await readPatternIndex("block", theme)
-  if (!patterns || patterns.length === 0) {
-    return { matches: [], current_step: "pattern_block" }
-  }
-
-  const humanMessage = buildHumanMessage(userInput, patterns)
+  const pagePattern = (input.extra?.pagePattern as string) ?? ""
+  const humanMessage = buildHumanMessage(userInput, pagePattern)
   const result = await runChildSession({
     sync,
     modelKey,
@@ -39,49 +34,30 @@ export default async function proto_pattern_block(input: ProtoPatternBlockInput)
     prompt: humanMessage,
     directory: sdk.directory,
     parentSessionID: rootSession,
+    schema: PATTERN_BLOCK_FORMAT.schema,
   })
 
   const matchJson = extractJson(result.text)
   if (!matchJson) {
     logAgentParsed(result.childSessionId, { error: "Failed to parse JSON", raw: result.text })
-    throw new Error("----- Pattern Block did not return valid JSON -----")
+    agentThrow(AGENT_NAME, result.childSessionId, "Pattern Block did not return valid JSON")
   }
-  const returnValue = await resolveMatches(matchJson, patterns, theme)
+  // 拿到 modules[].description 后，去请求向量库获取每个 block 的真实信息（name/category/file/preview/structure）
+  const enrichedJson = await getBlockPatternResource(matchJson)
+  const returnValue = {
+    matches: enrichedJson.results,
+    current_step: "pattern_block" as const,
+  }
   logAgentParsed(result.childSessionId, returnValue)
   return returnValue
 }
 
-function buildHumanMessage(userInput: string, patterns: PatternEntry[]): string {
-  const catalog = patterns.map(p => ({
-    name: p.name,
-    intent: (p as any).intent,
-    function: (p as any).function,
-    layout: (p as any).layout,
-    elements: p.elements,
-  }))
-  return `请判断用户模块描述是否匹配以下某些模块级 Pattern。
+function buildHumanMessage(userInput: string, pagePattern: string): string {
+  return `请结合【1.典型页面规范】与【2.用户业务需求描述】，输出一套完整、精准的 UI 模块描述列表（Module List）。
 
-[用户模块描述:] ==================================
-${userInput}
+【1.典型页面规范】（保底硬性基线 Mandatory Baseline）==================================
+${pagePattern}
 
-[可用 Pattern 目录:] ==================================
-${JSON.stringify(catalog, null, 2)}`
-}
-
-async function resolveMatches(
-  matchJson: any,
-  patterns: PatternEntry[],
-  theme: string,
-): Promise<{ matches: PatternMatchItem[]; current_step: string }> {
-  const items = (matchJson?.matches ?? []) as Array<{ name: string; score: number }>
-  const matches: PatternMatchItem[] = []
-  for (const item of items) {
-    const pattern = patterns.find(p => p.name === item.name)
-    if (!pattern) {
-      console.warn(`----- Pattern Block: LLM 返回的 name "${item.name}" 在目录中未找到 -----`)
-      continue
-    }
-    matches.push({ pattern, score: item.score })
-  }
-  return { matches, current_step: "pattern_block" }
+【2.用户业务需求描述】（业务上下文与增量场景）==================================
+${userInput}`
 }

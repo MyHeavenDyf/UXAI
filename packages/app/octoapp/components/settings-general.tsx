@@ -1,4 +1,4 @@
-import { Component, Show, createMemo, createResource, onMount, type JSX } from "solid-js"
+import { Component, Show, createEffect, createMemo, createResource, createSignal, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -16,6 +16,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useServer } from "@/context/server"
 import { useLayout } from "@/context/layout"
+import { useProjectDir } from "@/hooks/use-project-dir"
 import {
   monoDefault,
   monoFontFamily,
@@ -30,8 +31,11 @@ import {
 } from "@/context/settings"
 import { decode64 } from "@/utils/base64"
 import { playSoundById, SOUND_OPTIONS } from "@/utils/sound"
+import { showFloatingNotice } from "./floating-notice"
 import { Link } from "./link"
 import { SettingsList } from "./settings-list"
+import { useUpdateAvailableDialog } from "./dialog-update-available"
+import { cancelStartupUpdateCheck } from "./update-checker"
 
 let demoSoundState = {
   cleanup: undefined as (() => void) | undefined,
@@ -55,6 +59,42 @@ type ShellSelectOption = {
   value: string
   label: string
 }
+
+type ProxyOption = {
+  id: string
+  group: string
+  label: string
+  host: string
+}
+
+const PROXY_OPTIONS: ProxyOption[] = [
+  { id: "normal", group: "普通", label: "普通", host: "proxy" },
+  { id: "non-rd-cn", group: "非研发", label: "中国", host: "proxycn2" },
+  { id: "non-rd-nanjing", group: "非研发", label: "南京", host: "proxyn" },
+  { id: "non-rd-hk", group: "非研发", label: "香港", host: "proxyhk" },
+  { id: "non-rd-uk", group: "非研发", label: "英国", host: "proxvuk" },
+  { id: "non-rd-us", group: "非研发", label: "美国", host: "proxyus" },
+  { id: "non-rd-us-nrd", group: "非研发", label: "美国", host: "proxyus-nrd" },
+  { id: "non-rd-ru", group: "非研发", label: "俄罗斯", host: "proxyru" },
+  { id: "non-rd-br", group: "非研发", label: "巴西", host: "proxybr" },
+  { id: "non-rd-bh", group: "非研发", label: "巴林", host: "proxybh" },
+  { id: "non-rd-blr", group: "非研发", label: "印度", host: "proxyblr" },
+  { id: "non-rd-open", group: "非研发", label: "开放代理", host: "openproxy" },
+  { id: "non-rd-za", group: "非研发", label: "南非", host: "proxyza" },
+  { id: "non-rd-tr", group: "非研发", label: "土耳其", host: "proxytr" },
+  { id: "non-rd-ca", group: "非研发", label: "加拿大", host: "proxyca" },
+  { id: "non-rd-de", group: "非研发", label: "德国", host: "proxyde" },
+  { id: "rd-jp", group: "研发", label: "日本", host: "proxyjp" },
+  { id: "rd-cn", group: "研发", label: "中国", host: "proxycn2" },
+  { id: "rd-se", group: "研发", label: "瑞典", host: "proxvse-rd" },
+  { id: "rd-de", group: "研发", label: "德国", host: "proxyde-rd" },
+  { id: "rd-tr", group: "研发", label: "土耳其", host: "proxytr-rd" },
+  { id: "rd-us", group: "研发", label: "美国", host: "proxvus-rd" },
+  { id: "rd-open", group: "研发", label: "开放代理", host: "openproxy" },
+  { id: "rd-ru", group: "研发", label: "俄罗斯", host: "proxyru-rd" },
+]
+
+const DEFAULT_PROXY_OPTION = PROXY_OPTIONS.find((option) => option.id === "non-rd-hk")!
 
 // To prevent audio from overlapping/playing very quickly when navigating the settings menus,
 // delay the playback by 100ms during quick selection changes and pause existing sounds.
@@ -83,6 +123,22 @@ const playDemoSound = (id: string | undefined) => {
   }, 100)
 }
 
+const whiteBtn: JSX.CSSProperties = {
+  height: "28px",
+  padding: "0 12px",
+  "background-color": "#fff",
+  border: "1px solid #c9c9c9",
+  "border-radius": "8px",
+  "font-size": "12px",
+  "line-height": "20px",
+  color: "rgba(0,0,0,0.9)",
+  cursor: "pointer",
+  display: "flex",
+  "align-items": "center",
+  "justify-content": "center",
+  gap: "4px",
+}
+
 export const SettingsGeneral: Component = () => {
   const theme = useTheme()
   const language = useLanguage()
@@ -90,13 +146,47 @@ export const SettingsGeneral: Component = () => {
   const platform = usePlatform()
   const params = useParams()
   const settings = useSettings()
+  const server = useServer()
 
   const [store, setStore] = createStore({
     checking: false,
   })
 
+  const [proxyAccount, setProxyAccount] = createSignal("")
+  const [proxyPassword, setProxyPassword] = createSignal("")
+  const [proxyPasswordVisible, setProxyPasswordVisible] = createSignal(false)
+  const [proxyNoProxy, setProxyNoProxy] = createSignal("")
+  const [proxyOption, setProxyOption] = createSignal(DEFAULT_PROXY_OPTION)
+  const [proxyConfiguring, setProxyConfiguring] = createSignal(false)
+  const proxyButtonActive = createMemo(() => !proxyConfiguring() && Boolean(proxyAccount()) && Boolean(proxyPassword()))
+
+  const configureProxy = async () => {
+    const api = (window as any).api
+    if (!api?.configureProxy) {
+      showToast({ title: "当前环境不支持代理配置" })
+      return
+    }
+    setProxyConfiguring(true)
+    try {
+      const result = await api.configureProxy(proxyAccount(), proxyPassword(), proxyNoProxy(), proxyOption().host, proxyOption().id)
+      if (result.success) {
+        showFloatingNotice("success", "配置成功，请重启以完成设置")
+      } else {
+        showToast({ variant: "error", title: "配置值不正确" })
+      }
+    } catch (err) {
+      showToast({ variant: "error", title: "配置值不正确" })
+    } finally {
+      setProxyConfiguring(false)
+    }
+  }
+
   const linux = createMemo(() => platform.platform === "desktop" && platform.os === "linux")
-  const dir = createMemo(() => decode64(params.dir))
+  const dir = createMemo(() => {
+    const fromParams = decode64(params.dir)
+    if (fromParams) return fromParams
+    return server.projects.last() || ""
+  })
   const accepting = createMemo(() => {
     const value = dir()
     if (!value) return false
@@ -122,9 +212,11 @@ export const SettingsGeneral: Component = () => {
     permission.disableAutoAccept(params.id, value)
   }
   const desktop = createMemo(() => platform.platform === "desktop")
+  const showUpdate = useUpdateAvailableDialog()
 
   const check = () => {
     if (!platform.checkUpdate) return
+    cancelStartupUpdateCheck()
     setStore("checking", true)
 
     void platform
@@ -140,33 +232,7 @@ export const SettingsGeneral: Component = () => {
           return
         }
 
-        const actions = platform.updateAndRestart
-          ? [
-              {
-                label: language.t("toast.update.action.installRestart"),
-                onClick: async () => {
-                  await platform.updateAndRestart!()
-                },
-              },
-              {
-                label: language.t("toast.update.action.notYet"),
-                onClick: "dismiss" as const,
-              },
-            ]
-          : [
-              {
-                label: language.t("toast.update.action.notYet"),
-                onClick: "dismiss" as const,
-              },
-            ]
-
-        showToast({
-          persistent: true,
-          icon: "download",
-          title: language.t("toast.update.title"),
-          description: language.t("toast.update.description", { version: result.version ?? "" }),
-          actions,
-        })
+        showUpdate(result.version ?? "")
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err)
@@ -197,6 +263,23 @@ export const SettingsGeneral: Component = () => {
 
   onMount(() => {
     void theme.loadThemes()
+
+    const api = (window as any).api
+    if (!api?.getProxyConfig) return
+
+    void api
+      .getProxyConfig()
+      .then((config: { account: string; password: string; proxyHost?: string; proxyOptionId?: string; noProxy?: string } | null) => {
+        if (!config) return
+        setProxyAccount(config.account)
+        setProxyPassword(config.password)
+        const savedHost = config.proxyHost?.replace(/\.huawei\.com(?::\d+)?$/, "")
+        const savedOption = (config.proxyOptionId ? PROXY_OPTIONS.find((option) => option.id === config.proxyOptionId) : undefined)
+          ?? (savedHost ? PROXY_OPTIONS.find((option) => option.host === savedHost) : undefined)
+        if (savedOption) setProxyOption(savedOption)
+        if (config.noProxy) setProxyNoProxy(config.noProxy)
+      })
+      .catch(() => {})
   })
 
   const autoOption = { id: "auto", value: "", label: language.t("settings.general.row.shell.autoDefault") }
@@ -323,9 +406,17 @@ export const SettingsGeneral: Component = () => {
               <span class="text-13-regular text-text-weak truncate max-w-[200px]" title={currentProjectDir()}>
                 {currentProjectDir() || language.t("settings.general.projectDir.notSet")}
               </span>
-              <Button size="small" variant="secondary" onClick={handlechangeProjectDir}>
+              <button
+                type="button"
+                style={whiteBtn}
+                onClick={handlechangeProjectDir}
+                onMouseEnter={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
+                onMouseLeave={(e) => e.currentTarget.style.setProperty("border-color", "#c9c9c9")}
+                onMouseDown={(e) => e.currentTarget.style.setProperty("border-color", "#0a59f7")}
+                onMouseUp={(e) => e.currentTarget.style.setProperty("border-color", "#191919")}
+              >
                 {language.t("settings.general.projectDir.change")}
-              </Button>
+              </button>
             </div>
           </SettingsRow>
 
@@ -715,6 +806,321 @@ export const SettingsGeneral: Component = () => {
     </div>
   )
 
+  const ProxySection = () => (
+    <div class="flex flex-col gap-1">
+      <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>Proxy</div>
+      <div style={{ display: "flex", "flex-direction": "column", gap: "12px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px" }}>
+        <div class="flex items-center gap-2">
+          <span style={{ "white-space": "nowrap", color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "20px" }}>代理节点:</span>
+          <Select
+            options={PROXY_OPTIONS}
+            current={proxyOption()}
+            value={(option) => option.id}
+            label={(option) => option.label}
+            groupBy={(option) => option.group}
+            onSelect={(option) => option && setProxyOption(option)}
+            variant="secondary"
+            size="small"
+            triggerVariant="settings"
+            triggerStyle={{ "min-width": "180px" }}
+          />
+          <Button
+            size="small"
+            variant="secondary"
+            disabled={!proxyButtonActive()}
+            onClick={configureProxy}
+            style={{
+              width: "88px",
+              "margin-left": "auto",
+              border: proxyButtonActive() ? "1px solid #3D78FB" : "1px solid rgba(201,201,201,1)",
+              "background-color": proxyButtonActive() ? "#3D78FB" : undefined,
+              color: proxyButtonActive() ? "#FFFFFF" : undefined,
+              "font-size": "12px",
+              "line-height": "20px",
+            }}
+          >
+            {proxyConfiguring() ? "配置中..." : "配置"}
+          </Button>
+        </div>
+        <div class="flex items-center gap-2">
+          <span style={{ "white-space": "nowrap", color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "20px" }}>W3账号：</span>
+          <input
+            type="text"
+            value={proxyAccount()}
+            onInput={(e) => setProxyAccount(e.currentTarget.value)}
+            onFocus={(e) => e.currentTarget.style.borderColor = "#0a59f7"}
+            onBlur={(e) => e.currentTarget.style.borderColor = "rgba(201,201,201,1)"}
+            placeholder="请输入账号"
+            spellcheck={false}
+            autocorrect="off"
+            autocomplete="off"
+            autocapitalize="off"
+            style={{
+              "height": "28px",
+              "border": "1px solid rgba(201,201,201,1)",
+              "border-radius": "4px",
+              "padding": "4px 12px",
+              "flex": "1",
+              "outline": "none",
+              "font-size": "12px",
+              "line-height": "20px",
+              background: "#fff",
+            }}
+          />
+        </div>
+        <div class="flex items-center gap-2">
+          <span style={{ "white-space": "nowrap", color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "20px" }}>W3密码：</span>
+          <div style={{ position: "relative", flex: "1" }}>
+            <input
+              type={proxyPasswordVisible() ? "text" : "password"}
+              value={proxyPassword()}
+              onInput={(e) => setProxyPassword(e.currentTarget.value)}
+              onFocus={(e) => e.currentTarget.style.borderColor = "#0a59f7"}
+              onBlur={(e) => e.currentTarget.style.borderColor = "rgba(201,201,201,1)"}
+              placeholder="请输入密码"
+              spellcheck={false}
+              autocorrect="off"
+              autocomplete="off"
+              autocapitalize="off"
+              style={{
+                height: "28px",
+                width: "100%",
+                border: "1px solid rgba(201,201,201,1)",
+                "border-radius": "4px",
+                padding: "4px 36px 4px 12px",
+                outline: "none",
+                "font-size": "12px",
+                "line-height": "20px",
+                background: "#fff",
+              }}
+            />
+            <button
+              type="button"
+              aria-label={proxyPasswordVisible() ? "隐藏密码" : "显示密码"}
+              title={proxyPasswordVisible() ? "隐藏密码" : "显示密码"}
+              onClick={() => setProxyPasswordVisible((visible) => !visible)}
+              style={{
+                position: "absolute",
+                top: "0",
+                right: "0",
+                width: "32px",
+                height: "28px",
+                padding: "0",
+                border: "none",
+                background: "transparent",
+                color: "rgba(0,0,0,0.6)",
+                cursor: "pointer",
+                display: "flex",
+                "align-items": "center",
+                "justify-content": "center",
+              }}
+            >
+              <Show
+                when={proxyPasswordVisible()}
+                fallback={
+                  <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                    <path d="M3 3L17 17" stroke="currentColor" stroke-linecap="round" />
+                    <path d="M8.3 4.9C8.85 4.7 9.42 4.58 10 4.58C14.17 4.58 17.5 10 17.5 10C16.75 11.2 15.82 12.35 14.76 13.28M11.7 15.1C11.15 15.3 10.58 15.42 10 15.42C5.83 15.42 2.5 10 2.5 10C3.25 8.8 4.18 7.65 5.24 6.72" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                }
+              >
+                <Icon name="eye" size="small" />
+              </Show>
+            </button>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span style={{ "white-space": "nowrap", color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "20px" }}>跳过代理:</span>
+          <input
+            type="text"
+            value={proxyNoProxy()}
+            onInput={(e) => setProxyNoProxy(e.currentTarget.value)}
+            onFocus={(e) => e.currentTarget.style.borderColor = "#0a59f7"}
+            onBlur={(e) => e.currentTarget.style.borderColor = "rgba(201,201,201,1)"}
+            placeholder="(可选)"
+            spellcheck={false}
+            autocorrect="off"
+            autocomplete="off"
+            autocapitalize="off"
+            style={{
+              "height": "28px",
+              "border": "1px solid rgba(201,201,201,1)",
+              "border-radius": "4px",
+              "padding": "4px 12px",
+              "flex": "1",
+              "outline": "none",
+              "font-size": "12px",
+              "line-height": "20px",
+              background: "#fff",
+            }}
+          />
+        </div>
+        <div class="flex items-center gap-2">
+          <span aria-hidden="true" style={{ visibility: "hidden", "white-space": "nowrap", "font-size": "12px", "line-height": "20px" }}>W3账号：</span>
+          <label class="flex items-center gap-2" style={{ width: "fit-content", color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "20px", cursor: "pointer" }}>
+            <input
+              type="radio"
+              name="proxy-remember-choice"
+              checked
+              style={{
+                appearance: "none",
+                "-webkit-appearance": "none",
+                width: "12px",
+                height: "12px",
+                margin: "0",
+                border: "3px solid #0a59f7",
+                "border-radius": "50%",
+                "box-sizing": "border-box",
+                "flex-shrink": "0",
+              }}
+            />
+            <span>记住我的选择</span>
+          </label>
+        </div>
+      </div>
+    </div>
+  )
+
+  // ── SPEC-INS-031 Chat 历史会话迁移(临时功能:chat → insight 的一次性搬家)──────────
+  // 迁移只改会话归属(agent / directory / project_id 三列),对话内容一字不动;服务端在迁移
+  // 前会先备份整库并校验,任一步不确定都中止并明确报错。退场时整节连同两个接口一起删。
+  const projectDir = useProjectDir()
+  const [migrateDir, setMigrateDir] = createSignal("")
+  const [migrating, setMigrating] = createSignal(false)
+  // pending = 还没迁的 chat 历史;migratable = 备份里可重迁的(> 0 时按钮变「重新迁移」)。
+  const [migrateCounts, setMigrateCounts] = createSignal({ pending: 0, migratable: 0 })
+
+  // 默认填当前全局选中目录,用户可二次修改(改过之后不被 projectDir 变化覆盖)。
+  createEffect(() => {
+    const dir = projectDir()
+    if (dir && !migrateDir()) setMigrateDir(dir)
+  })
+
+  const loadMigrateCounts = async () => {
+    const dir = migrateDir() || projectDir()
+    if (!dir) return
+    try {
+      const api = globalSdk.client.insight?.chatMigration
+      if (!api) return
+      const result = await api.preview({ body_directory: dir, query_directory: dir })
+      const data = result.data
+      if (!data) return
+      setMigrateCounts({ pending: Number(data.pending) || 0, migratable: Number(data.migratable) || 0 })
+    } catch (err) {
+      // 预览失败只是拿不到条数,不该让设置页报错:按钮仍可点,真正的结论以迁移结果为准。
+      console.warn("[settings:chat-migrate] preview failed", err)
+    }
+  }
+  onMount(() => void loadMigrateCounts())
+
+  const pickMigrateDir = async () => {
+    if (!platform.openDirectoryPickerDialog) return
+    const result = await platform.openDirectoryPickerDialog()
+    if (result && typeof result === "string") setMigrateDir(result)
+  }
+
+  const runChatMigration = async () => {
+    const dir = migrateDir()
+    if (!dir) {
+      showToast({ variant: "error", title: "请先选择目标文件夹" })
+      return
+    }
+    setMigrating(true)
+    try {
+      const api = globalSdk.client.insight?.chatMigration
+      if (!api) {
+        showToast({ variant: "error", title: "当前版本不支持该功能，请更新后重试" })
+        return
+      }
+      const result = await api.run({ body_directory: dir, query_directory: dir })
+      if (!result.data) {
+        const reason = (result.error as { data?: { message?: string } } | undefined)?.data?.message
+        showToast({ variant: "error", title: `迁移失败：${reason ?? "请稍后重试"}` })
+        return
+      }
+      const migrated = Number(result.data.migrated) || 0
+      if (migrated === 0) {
+        showToast({ title: "没有需要迁移的 Chat 历史会话" })
+      } else {
+        const folder = dir.split(/[/\\]/).filter(Boolean).pop() ?? dir
+        // 备份是整库副本、体积等同当前数据库,且不会自动清理 —— 告诉用户它在哪,才谈得上
+        // 「用完自行删除」。放 description 不放 title:路径很长,标题要保持可读。
+        const backupPath = typeof result.data.backupPath === "string" ? result.data.backupPath : ""
+        showToast({
+          variant: "success",
+          title: `已迁移 ${migrated} 条 Chat 历史会话到 ${folder}`,
+          description: backupPath ? `迁移前的数据已备份到 ${backupPath}，确认无误后可自行删除` : undefined,
+        })
+      }
+      await loadMigrateCounts()
+    } catch (err) {
+      showToast({ variant: "error", title: `迁移失败：${err instanceof Error ? err.message : String(err)}` })
+    } finally {
+      setMigrating(false)
+    }
+  }
+
+  const migrateButtonLabel = () => {
+    if (migrating()) return "迁移中..."
+    return migrateCounts().pending === 0 && migrateCounts().migratable > 0 ? "重新迁移" : "开始迁移"
+  }
+
+  const ChatMigrationSection = () => (
+    <div class="flex flex-col gap-1">
+      <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>Chat 历史会话迁移</div>
+      <div style={{ display: "flex", "flex-direction": "column", gap: "12px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px" }}>
+        <span style={{ "font-size": "12px", "line-height": "20px", color: "rgba(0,0,0,0.6)" }}>
+          把 Chat 的历史会话移入所选文件夹，移入后可在Insight会话列表中打开查看。对话内容不会改变。
+        </span>
+        <div class="flex items-center gap-2">
+          <input
+            type="text"
+            value={migrateDir()}
+            readOnly
+            title={migrateDir()}
+            placeholder="请选择目标文件夹"
+            spellcheck={false}
+            style={{
+              "height": "28px",
+              "border": "1px solid rgba(201,201,201,1)",
+              "border-radius": "4px",
+              "padding": "4px 12px",
+              "flex": "1",
+              "min-width": "0",
+              "outline": "none",
+              "font-size": "12px",
+              "line-height": "20px",
+              "text-overflow": "ellipsis",
+            }}
+          />
+          <Button
+            size="small"
+            variant="secondary"
+            disabled={migrating() || !platform.openDirectoryPickerDialog}
+            onClick={pickMigrateDir}
+            style={{ "border": "1px solid rgba(201,201,201,1)", "font-size": "12px", "line-height": "20px" }}
+          >
+            选择…
+          </Button>
+        </div>
+        <Show when={migrateCounts().pending > 0}>
+          <span style={{ "font-size": "12px", "line-height": "20px", color: "rgba(0,0,0,0.6)" }}>
+            待迁移 {migrateCounts().pending} 条
+          </span>
+        </Show>
+        <Button
+          size="small"
+          variant="secondary"
+          disabled={migrating() || !migrateDir()}
+          onClick={runChatMigration}
+          style={{ width: "88px", "border": "1px solid rgba(201,201,201,1)", "font-size": "12px", "line-height": "20px" }}
+        >
+          {migrateButtonLabel()}
+        </Button>
+      </div>
+    </div>
+  )
+
   return (
     <div class="flex flex-col h-full overflow-y-auto no-scrollbar pb-10 sm:pb-10">
       <div class="sticky top-0 z-10" style="background: linear-gradient(to bottom, #fff calc(100% - 12px), transparent);">
@@ -763,6 +1169,10 @@ export const SettingsGeneral: Component = () => {
         <Show when={desktop() && import.meta.env.VITE_OPENCODE_CHANNEL === "beta"}>
           <AdvancedSection />
         </Show>
+
+        <ProxySection />
+
+        <ChatMigrationSection />
       </div>
     </div>
 )

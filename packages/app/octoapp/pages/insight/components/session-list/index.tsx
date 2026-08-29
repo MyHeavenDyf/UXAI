@@ -1,7 +1,7 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { createEffect, createMemo, createResource, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js"
 import type { JSX } from "solid-js"
-import { createStore, reconcile } from "solid-js/store"
+import { createStore, produce, reconcile } from "solid-js/store"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { INSIGHT_AGENT } from "@/constants/agent"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -12,6 +12,8 @@ import { usePermission } from "@/context/permission"
 import { sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
 import { sessionTitle } from "@/utils/session-title"
 import { tracker } from "@/utils/tracker"
+import { pickNextSession } from "@/utils/session-delete"
+import { useSessionDelete } from "@/hooks/use-session-delete"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
@@ -19,6 +21,7 @@ import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
+import { DialogDeleteSession } from "@/components/dialog-delete-session"
 
 /**
  * InsightSessionList —— Insight 会话段(SPEC-INS-010 §11.3 / D11)
@@ -50,11 +53,27 @@ export function InsightSessionList(): JSX.Element {
   const dialog = useDialog()
   const language = useLanguage()
   const layout = useLayout()
+  const removeSession = useSessionDelete()
 
   // 走全栈统一 useProjectDir():路由 :dir → server.projects.last() → globalSync.data.path.home 兜底,
   // 与 _shell/sidebar.tsx / make / studio 完全一致;避免"insight 自读 home 而其他模块走 selection"造成
   // 用户选了项目目录后 insight 仍查 home dir 而看不到自己历史对话的 directory 飘移 bug。
   const projectDir = useProjectDir()
+
+  // 抗抖 dir 解析(照搬旧 _shell/sidebar.tsx 的成熟写法)。projectDir() 依赖的
+  // server.projects.last() 在 bootstrap 完成后响应式链会断,裸依赖它的 resource 若在
+  // bootstrap 窗口内挂载并拉到空,之后不会自动重跑。/insight 靠 session 事件触发 refetch
+  // 兜底而掩盖了;/skills 复用本组件后独立空闲、无事件,就会卡在「暂无对话」。
+  // 两个 effect:① 直接读(有值即锁);② 用可靠的 globalSync.data.ready 做触发,bootstrap
+  // 落定时补读一次 projectDir()。resource 与 limit 重置都改吃 resolvedDir()。
+  const [resolvedDir, setResolvedDir] = createSignal<string>()
+  createEffect(() => { const d = projectDir(); if (d) setResolvedDir(d) })
+  createEffect(() => {
+    if (!globalSync.data.ready) {
+      const d = projectDir()
+      if (d) setResolvedDir(d)
+    }
+  })
 
   // ── 服务端分页(SPEC-INS-013)────────────────────────────────────────────
   // 走 insight 专用端点 /insight/sessions:服务端**先按 agent=octo_insight 过滤再分页**,
@@ -64,10 +83,10 @@ export function InsightSessionList(): JSX.Element {
   const FIRST_PAGE = 100
   const PAGE_STEP = 100
   const [limit, setLimit] = createSignal(FIRST_PAGE)
-  createEffect(on(projectDir, () => setLimit(FIRST_PAGE), { defer: true }))
+  createEffect(on(resolvedDir, () => setLimit(FIRST_PAGE), { defer: true }))
 
   const [sessions, { refetch }] = createResource(
-    () => ({ dir: projectDir(), limit: limit() }),
+    () => ({ dir: resolvedDir() ?? "", limit: limit() }),
     async ({ dir, limit: lim }, info): Promise<{ items: Session[]; total: number }> => {
       if (!dir) return { items: [], total: 0 }
       try {
@@ -164,12 +183,22 @@ export function InsightSessionList(): JSX.Element {
     setRenamingId(sessionId)
   }
 
+  // session.update / session.delete 必须走**带 directory 的 client**:裸 globalSDK.client 不带
+  // x-opencode-directory,请求落到 server 默认目录实例,回来的 session.updated/deleted SSE 也就
+  // 挂在那个目录名下 → globalSync 找不到本目录的 child store,对话区顶部(读 sync.session.get)
+  // 的标题不会跟着变,只有刷新才同步。本列表自己看着"生效"是因为它靠事件触发 refetch 重拉 DB,
+  // 与事件的 directory 无关,掩盖了这个 bug。与 chat / pattern 侧栏的 createClient 用法对齐。
+  function clientFor(sessionId: string) {
+    const directory = sessionList.find((s) => s.id === sessionId)?.directory ?? projectDir()
+    return directory ? globalSDK.createClient({ directory }) : globalSDK.client
+  }
+
   async function handleRenameConfirm(sessionId: string) {
     const next = renameDraft().trim()
     setRenamingId(null)
     if (!next) return
     try {
-      await globalSDK.client.session.update({ sessionID: sessionId, title: next })
+      await clientFor(sessionId).session.update({ sessionID: sessionId, title: next })
       tracker.interaction({ module: "insight", name: "session-rename", extend: JSON.stringify({ entry: "menu" }) })
     } catch (err) {
       console.error("[insight:session-list] rename failed", err)
@@ -177,13 +206,22 @@ export function InsightSessionList(): JSX.Element {
   }
 
   async function handleDelete(sessionId: string) {
-    try {
-      await globalSDK.client.session.delete({ sessionID: sessionId })
-      tracker.interaction({ module: "insight", name: "session-delete", extend: JSON.stringify({ entry: "menu" }) })
-      if (layout.lastSessionPerTab.cowork()?.id === sessionId) layout.lastSessionPerTab.clearCowork()
-      if (activeSessionId() === sessionId) navigate("/insight")
-    } catch (err) {
-      console.error("[insight:session-list] delete failed", err)
+    const nextSession = pickNextSession(sessionList.filter((s) => !s.time?.archived), sessionId)
+
+    const ok = await removeSession(clientFor(sessionId), sessionId)
+    if (!ok) return
+
+    tracker.interaction({ module: "insight", name: "session-delete", extend: JSON.stringify({ entry: "menu" }) })
+    setSessionList(
+      produce((draft) => {
+        const i = draft.findIndex((s) => s.id === sessionId)
+        if (i !== -1) draft.splice(i, 1)
+      }),
+    )
+    if (layout.lastSessionPerTab.cowork()?.id === sessionId) layout.lastSessionPerTab.clearCowork()
+    if (activeSessionId() === sessionId) {
+      navigate(nextSession ? `/insight/${nextSession.id}` : "/insight")
+      void refetch()
     }
   }
 
@@ -193,19 +231,10 @@ export function InsightSessionList(): JSX.Element {
     const session = sessionList.find((s) => s.id === sessionId)
     closeContextMenu()
     dialog.show(() => (
-      <Dialog title="删除会话" fit class="delete-dialog">
-        <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
-          确定删除「{sessionTitle(session?.title) || language.t("command.session.new")}」？
-        </span>
-        <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
-          <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
-            {language.t("common.cancel")}
-          </Button>
-          <Button variant="primary" size="large" class="delete-dialog-btn delete-dialog-btn-primary" onClick={() => { void handleDelete(sessionId).then(() => dialog.close()) }}>
-            {language.t("session.delete.button")}
-          </Button>
-        </div>
-      </Dialog>
+      <DialogDeleteSession
+        name={sessionTitle(session?.title) ?? language.t("command.session.new")}
+        onDelete={() => handleDelete(sessionId)}
+      />
     ))
   }
 

@@ -1,0 +1,40 @@
+.composer-input-wrap {
+  position: relative;
+}
+
+.composer-input-wrap.has-mention-overlay .composer-textarea {
+  color: transparent;
+  caret-color: inherit;
+}
+
+.composer-input-wrap.has-mention-overlay .composer-textarea::selection {
+  background: rgba(0, 0, 0, 0.12);
+  color: transparent;
+}
+
+.composer-input-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  padding: 1rem;
+  z-index: 5;
+}
+
+.composer-input-overlay-inner {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: var(--octo-font);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.composer-inline-mention {
+  display: inline;
+  margin: 0 -1px;
+  padding: 0 1px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.6);
+  font: inherit;
+}

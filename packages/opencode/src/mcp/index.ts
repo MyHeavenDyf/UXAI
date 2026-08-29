@@ -598,8 +598,20 @@ export const layer = Layer.effect(
         if (!listed) return
         if (s.clients[name] !== client || s.status[name]?.status !== "connected") return
 
+        const oldDefs = s.defs[name]
         s.defs[name] = listed
-        log.info("tools list updated", { server: name, newToolCount: listed.length })
+        log.info("tools list updated", {
+          server: name,
+          newToolCount: listed.length,
+          oldToolCount: oldDefs?.length ?? 0,
+          oldTools: (oldDefs ?? []).map((t) => t.name).join(","),
+          newTools: listed.map((t) => t.name).join(","),
+          diff: JSON.stringify({
+            removed: (oldDefs ?? []).filter((t) => !listed.some((n) => n.name === t.name)).map((t) => t.name),
+            added: listed.filter((t) => !(oldDefs ?? []).some((o) => o.name === t.name)).map((t) => t.name),
+          }),
+          source: "ToolListChangedNotification",
+        })
         await bridge.promise(bus.publish(ToolsChanged, { server: name }).pipe(Effect.ignore))
       })
     }
@@ -900,10 +912,10 @@ export const layer = Layer.effect(
 
     const toolsForAgent = Effect.fn("MCP.toolsForAgent")(
       function* (agentMcp: string[] | undefined, customServerNames: string[]) {
-        // 只对当前 agent 相关的 remote server 做 preflight 健康检查，
-        // 避免每次 tools() 都检查所有 remote server 导致频繁握手压垮服务器。
         const preflightBridge = yield* EffectBridge.make()
-        yield* Reconnect.verifyAndReconnectForAgent(preflightBridge, reconnectCtx, agentMcp, customServerNames)
+        // 阻塞等待 agent 相关 MCP 就绪
+        // 只检查和重连 agent.mcp 配置的服务器，其他时刻不主动重连
+        yield* Reconnect.waitForAgentMcpReady(reconnectCtx, preflightBridge, agentMcp, customServerNames)
         // preflight 可能触发重连导致 s.clients 变化，tools() 内部会重新拿 state
         const allTools = yield* tools(true)
         const allToolCount = Object.keys(allTools).length

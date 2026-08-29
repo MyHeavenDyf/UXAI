@@ -1,4 +1,4 @@
-import type { OutputCardType } from "../components/insight-turn"
+import { resolveOutputType, type OutputCardType } from "./output-type"
 
 /**
  * resource_link part 在 MCP 协议中的形态。
@@ -10,8 +10,8 @@ import type { OutputCardType } from "../components/insight-turn"
  * `business_type` 是 octo + UXR 私有扩展字段,标准必填,取值 = 产生该资源的 MCP tool 名。
  * 详见 docs/specs/agents/mcp-contract.md §resource_link 业务类型声明字段 business_type。
  *   - 第一版:"run_usability_analysis" | "run_guide_analysis" | "key_findings" | "mindmap" | "search_reports"
- *   - 客户端路由:`"mindmap"` → 双卡(json + mindmap);其他取值 → 单卡按 mimeType 路由
- *   - 未来加新 tool 时取值自动扩展(无需改类型),客户端按需加渲染分支
+ *   - **客户端不用它做类型路由**(SPEC-INS-026 §8 降级为元数据):类型判定见 linkToOutputType
+ *   - 未来加新 tool 时取值自动扩展(无需改类型)
  * 类型用 string 而不是 enum 联合:与"取值 = tool 名"哲学一致,服务端扩展零客户端类型变更。
  */
 export type ResourceLink = {
@@ -151,29 +151,18 @@ function readPart(part: unknown, branchHits?: { A: number; B: number; C1: number
 }
 
 /**
- * MCP mimeType → OutputCardType 路由。
- */
-export function mimeToOutputType(mimeType: string): OutputCardType {
-  if (mimeType === "text/html") return "html"
-  if (mimeType === "text/markdown") return "markdown"
-  // application/json(泛型,无 business_type 声明)走 json 卡(shiki + 复制)——mimeType 不携带"这是导图"的语义。
-  // 思维导图由 MCP 强契约 business_type:"mindmap" 显式声明(在 linkToOutputType 中先于本函数拦截),
-  // 不靠 application/json 这个泛型 mimeType 嗅探,避免普通 JSON 误进 markmap。见 output-renderers.md §2.5.2。
-  if (mimeType === "application/json") return "json"
-  if (mimeType === "text/csv") return "table"
-  // pdf / office / image / 其他二进制走 file fallback(下载按钮 / openPath)
-  return "file"
-}
-
-/**
- * resource_link → OutputCardType 统一路由(business_type 优先,mimeType 兜底)。
- * `business_type: "mindmap"` → 单张 mindmap 卡(打开后用 预览/代码 切换看 markmap 或原始 JSON,
- * 见 output-renderers.md §1 视图切换);其余按 mimeType 走通用产物路由。
+ * resource_link → OutputCardType。转调 §4.2 的单一入口 `resolveOutputType`:
+ * **扩展名优先、mimeType 只在无扩展名时兜底**——身份是磁盘路径,文件名是身份的一部分。
+ *
+ * `business_type` **不参与判定**(§8):它的定义是「产生该资源的 MCP tool 名」,却被当成了
+ * 「用哪个渲染器」。客户端此前只对 `"mindmap"` 一个值特殊处理,而思维导图是「json 的一种
+ * 内容形态」不是独立类型,已改由渲染层的 `isMindmapJSON` 按内容判定 —— 一份 json 是不是导图,
+ * 看它自己长什么样,不看它从哪个工具来。服务端仍按 mcp-contract.md 必填该字段,只是降级为元数据。
+ *
  * 两条出卡路径(insight-turn 路径 A / index buildOutputCardsFromTask 任务卡)共用本函数,避免漂移。
  */
-export function linkToOutputType(link: { business_type?: string; mimeType: string }): OutputCardType {
-  if (link.business_type === "mindmap") return "mindmap"
-  return mimeToOutputType(link.mimeType)
+export function linkToOutputType(link: { name?: string; mimeType: string }): OutputCardType {
+  return resolveOutputType(link.name ?? "", link.mimeType)
 }
 
 /**

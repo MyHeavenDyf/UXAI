@@ -31,6 +31,11 @@ export type StudioImage = {
   localPath?: string
 }
 
+export type StudioInputImage = {
+  id: string
+  url: string
+}
+
 export type StudioGenerationRequest = {
   capability: StudioCapability
   prompt: string
@@ -52,6 +57,8 @@ export type StudioGenerationResult = {
   capability: StudioCapability
   prompt: string
   displayPrompt?: string
+  detailPrompt?: string
+  detailTitle?: string
   provider: "mock" | "jimeng" | "internel"
   toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
   taskType?: string
@@ -64,7 +71,7 @@ export type StudioGenerationResult = {
   height?: number
   isCustom?: boolean
   videoMode?: "text" | "first_last_frame"
-  duration?: "5" | "10"
+  duration?: string
   videoQualityMode?: "std" | "pro"
   images: StudioImage[]
   progress?: number

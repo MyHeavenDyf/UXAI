@@ -29,6 +29,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import * as Stream from "effect/Stream"
 import { Command } from "../command"
+import { SkillUsed } from "../skill/events"
 import { pathToFileURL, fileURLToPath } from "url"
 import { Config } from "@/config/config"
 import * as BuiltinMCP from "@/config/builtin-mcp"
@@ -62,6 +63,7 @@ import * as DateTime from "effect/DateTime"
 import { eq } from "@/storage/db"
 import * as Database from "@/storage/db"
 import { SessionTable } from "./session.sql"
+import { AUTOMATIC_COMPACTION_ENABLED } from "./overflow"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -227,7 +229,7 @@ export const layer = Layer.effect(
           model: mdl,
           sessionID: input.session.id,
           retries: 2,
-          messages: [{ role: "user", content: "Generate a title for this conversation:\n" }, ...msgs],
+          messages: [{ role: "user", content: "请总结用户需求，生成一个不超过10个字的中文标题：\n" }, ...msgs],
         })
         .pipe(
           Stream.filter((e): e is Extract<LLM.Event, { type: "text-delta" }> => e.type === "text-delta"),
@@ -1332,6 +1334,28 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
       yield* sessions.updateMessage(info)
       for (const part of parts) yield* sessions.updatePart(part)
+
+      // 持久化记录用户通过 @ 或 / 激活的技能（前端注入式）。
+      // 模型主动调用 skill 工具时由 processor.ts 创建 ToolPart，此处不重复处理。
+      for (const skillName of readActivatedSkills(input.extra)) {
+        yield* sessions.updatePart({
+          id: PartID.ascending(),
+          messageID: info.id,
+          sessionID: input.sessionID,
+          type: "tool",
+          tool: "skill",
+          callID: PartID.ascending().toString(),
+          state: {
+            status: "completed",
+            input: { name: skillName },
+            output: "",
+            title: `Loaded skill: ${skillName}`,
+            metadata: { name: skillName, source: "user" },
+            time: { start: Date.now(), end: Date.now() },
+          },
+        } satisfies MessageV2.ToolPart)
+      }
+
       const nextPrompt = parts.reduce(
         (result, part) => {
           if (part.type === "text") {
@@ -1407,6 +1431,21 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         const message = yield* createUserMessage(input)
         yield* sessions.touch(input.sessionID)
 
+        // SPEC-INS-029:前端注入式技能激活的事件上报。insight 的 @技能走 synthetic 注入 SKILL.md
+        // (SPEC-INS-023 §2.2 的 3b),不调 skill 工具也不走 session.command,服务端因此看不到"技能被激活"
+        // —— 两个既有 skill.used 发布点(tool/skill.ts、下方 command 分支)都不触发。故由前端在 extra.skills
+        // 里声明本轮激活了哪些技能,事件仍由服务端在权威侧发出(客户端埋点进不了 SSE 事件流)。
+        // 落在 createUserMessage 之后(消息已落库,监听方可反查)、noReply 提前返回之前(noReply 只是不跑模型,
+        // 技能确实已进上下文)。
+        //
+        // 这段跑在**全模块公共入口**上(chat / make / studio / pattern / insight 的每一次发送都经过),
+        // 故按"旁路观测绝不影响主流程"加双保险:①`readActivatedSkills` 对脏输入静默返回空(见其注释);
+        // ②publish 用 catchDefect 兜底——`GlobalBus.emit` 是同步 EventEmitter,某个 SSE 订阅者抛错会
+        // 顺着栈冒上来变成 defect,不兜就会让一次正常发送失败。上报失败宁可丢事件,不能丢消息。
+        for (const skillName of readActivatedSkills(input.extra)) {
+          yield* bus.publish(SkillUsed, { skillName }).pipe(Effect.catchDefect(() => Effect.void))
+        }
+
         const permissions: Permission.Ruleset = []
         for (const [t, enabled] of Object.entries(input.tools ?? {})) {
           permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
@@ -1473,7 +1512,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             lastAssistant?.finish &&
             !["tool-calls"].includes(lastAssistant.finish) &&
             !hasToolCalls &&
-            lastUser.id < lastAssistant.id
+            lastUser.time.created <= lastAssistant.time.created
           ) {
             yield* slog.info("exiting loop")
             break
@@ -1497,6 +1536,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           }
 
           if (task?.type === "compaction") {
+            if (task.auto && !AUTOMATIC_COMPACTION_ENABLED) continue
             const result = yield* compaction.process({
               messages: msgs,
               parentID: lastUser.id,
@@ -1505,6 +1545,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               overflow: task.overflow,
             })
             if (result === "stop") break
+            if (!task.auto) break
             continue
           }
 
@@ -1525,8 +1566,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           }
 
           if (
+            AUTOMATIC_COMPACTION_ENABLED &&
             lastFinished &&
             lastFinished.summary !== true &&
+            lastFinished.providerID === model.providerID &&
+            lastFinished.modelID === model.id &&
             (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
           ) {
             yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
@@ -1602,7 +1646,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
             if (step > 1 && lastFinished) {
               for (const m of msgs) {
-                if (m.info.role !== "user" || m.info.id <= lastFinished.id) continue
+                if (m.info.role !== "user" || m.info.time.created <= lastFinished.time.created) continue
                 for (const p of m.parts) {
                   if (p.type !== "text" || p.ignored || p.synthetic) continue
                   if (!p.text.trim()) continue
@@ -1640,6 +1684,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               tools: activeTools,
               model,
               toolChoice: format.type === "json_schema" || studioImageGeneration ? "required" : undefined,
+              compactionAttempted:
+                lastUserMsg?.parts.some(
+                  (part) =>
+                    "metadata" in part &&
+                    (part.metadata?.["compaction_continue"] === true || part.metadata?.["compaction_replay"] === true),
+                ) ?? false,
             })
 
             if (structured !== undefined) {
@@ -1663,6 +1713,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
             if (result === "stop") return "break" as const
             if (result === "compact") {
+              if (!AUTOMATIC_COMPACTION_ENABLED) return "break" as const
               yield* compaction.create({
                 sessionID,
                 agent: lastUser.agent,
@@ -1802,6 +1853,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         agent: userAgent,
         parts,
         variant: input.variant,
+        extra: cmd.source === "skill" ? { skills: [input.command] } : undefined,
       })
       yield* bus.publish(Command.Event.Executed, {
         name: input.command,
@@ -1809,6 +1861,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         arguments: input.arguments,
         messageID: result.info.id,
       })
+
+      // 如果该命令是 skill，额外发布 skill.used 事件供前端消费
+      elog.info("skill.used-debug", {
+        command: input.command,
+        source: cmd.source,
+        agent: userAgent,
+        isSubtask,
+      })
+      if (cmd.source === "skill") {
+        yield* bus.publish(SkillUsed, { skillName: input.command })
+        elog.info("skill.used-debug", { action: "PUBLISHED", command: input.command })
+      }
+
       return result
     })
 
@@ -1913,6 +1978,7 @@ export const CommandInput = Schema.Struct({
   parts: Schema.optional(
     Schema.Array(
       Schema.Union([
+        MessageV2.TextPartInput,
         Schema.Struct({
           id: Schema.optional(PartID),
           type: Schema.Literal("file"),
@@ -1926,6 +1992,20 @@ export const CommandInput = Schema.Struct({
   ),
 }).pipe(withStatics((s) => ({ zod: zod(s) })))
 export type CommandInput = Schema.Schema.Type<typeof CommandInput>
+
+/**
+ * SPEC-INS-029:从 `PromptInput.extra` 里读出本轮被前端显式激活的技能名。
+ *
+ * `extra` 是 `Record<string, unknown>`(前端自由透传),故这里必须运行时校验:非数组、元素非字符串、
+ * 空串一律丢弃。**校验失败静默返回空数组、不抛错**——技能事件上报是旁路观测,不该让一次发送失败。
+ *
+ * @internal Exported for testing
+ */
+export function readActivatedSkills(extra: PromptInput["extra"]): string[] {
+  const raw = (extra as Record<string, unknown> | undefined)?.["skills"]
+  if (!Array.isArray(raw)) return []
+  return raw.filter((name): name is string => typeof name === "string" && name.length > 0)
+}
 
 /** @internal Exported for testing */
 export function createStructuredOutputTool(input: {

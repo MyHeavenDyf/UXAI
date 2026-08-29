@@ -2,7 +2,13 @@
 
 import * as Sentry from "@sentry/solid"
 import { render } from "solid-js/web"
-import { AppBaseProviders, AppInterface } from "@/app"
+// 浏览器 / Playwright 与 Electron 渲染进程共用同一个 root(octo.tsx)。
+// 曾经这里指向 octoapp/app.tsx —— 那是 octo.tsx 的一份平行副本,两边路由/壳长期漂移
+// (浏览器缺 ForceLightScheme、Pattern 路由、onboarding,insight 页还多套一层旧侧栏),
+// 导致"在浏览器里验 UI 看到的不是交付形态"。已归一,请不要再新增第二个 root。
+// 平台差异走注入点:router 由调用方传(此处不传 → 默认 history Router;Electron 传 HashRouter),
+// 壳能力走 PlatformProvider。上游那份 root 在 packages/app/src/app.tsx,不受影响。
+import { AppBaseProviders, AppInterface } from "@/octo"
 import { type Platform, PlatformProvider } from "@/context/platform"
 import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"

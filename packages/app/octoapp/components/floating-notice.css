@@ -22,6 +22,7 @@
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.14);
   color: #222;
   animation: floating-notice-enter 180ms ease-out;
+  pointer-events: auto;
 }
 
 .floating-notice-icon {
@@ -54,6 +55,15 @@
   background: #e5484d;
 }
 
+.floating-notice-icon.loading {
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(47, 117, 246, 0.22);
+  border-top-color: #2f75f6;
+  background: transparent;
+  animation: floating-notice-spin 850ms linear infinite;
+}
+
 .floating-notice-message {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -64,6 +74,17 @@
   letter-spacing: 0;
 }
 
+.floating-notice-action {
+  border: 0;
+  padding: 0 0 0 12px;
+  background: transparent;
+  color: #0b63f6;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+  cursor: pointer;
+}
+
 @keyframes floating-notice-enter {
   from {
     opacity: 0;
@@ -72,6 +93,12 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes floating-notice-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
@@ -86,6 +113,11 @@
     width: 14px;
     height: 14px;
     font-size: 10px;
+  }
+
+  .floating-notice-icon.loading {
+    width: 20px;
+    height: 20px;
   }
 
   .floating-notice-message {

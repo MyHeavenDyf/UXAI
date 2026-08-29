@@ -146,12 +146,20 @@ const BUSINESS_TOOLS = new Set([
   "mindmap",
 ])
 
-function isBusinessTool(name: string): boolean {
+export function isBusinessTool(name: string): boolean {
   // opencode MCP 工具名可能带前缀(`mcp:tool` / `clientName_tool`),做包含匹配
   for (const biz of BUSINESS_TOOLS) {
     if (name === biz || name.endsWith(`:${biz}`) || name.endsWith(`_${biz}`)) return true
   }
   return false
+}
+
+/** 从(可能带前缀的)工具名取业务工具裸名(如 `uxr-tool_key_findings` → `key_findings`);非业务工具返回 undefined。 */
+export function businessToolBareName(name: string): string | undefined {
+  for (const biz of BUSINESS_TOOLS) {
+    if (name === biz || name.endsWith(`:${biz}`) || name.endsWith(`_${biz}`)) return biz
+  }
+  return undefined
 }
 
 /** stop_task(终止)是控制工具,其返回的 text 是控制文案,不是任务交付物。命名同样可能带前缀。 */

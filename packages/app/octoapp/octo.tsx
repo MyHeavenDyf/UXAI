@@ -31,58 +31,76 @@ import {
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import { CommandProvider } from "@/context/command"
-import { CommentsProvider } from "@/context/comments"
-import { FileProvider } from "@/context/file"
 import { GlobalSDKProvider } from "@/context/global-sdk"
 import { GlobalSyncProvider } from "@/context/global-sync"
 import { HighlightsProvider } from "@/context/highlights"
 import { LanguageProvider, type Locale, useLanguage } from "@/context/language"
+import { Icon } from "@opencode-ai/ui/icon"
 import { LayoutProvider, useLayout } from "@/context/layout"
 import { ModelsProvider } from "@/context/models"
 import { NotificationProvider } from "@/context/notification"
 import { PermissionProvider } from "@/context/permission"
-import { PromptProvider } from "@/context/prompt"
 import { ServerConnection, ServerProvider, serverName, useServer } from "@/context/server"
 import { SettingsProvider } from "@/context/settings"
-import { TerminalProvider } from "@/context/terminal"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layoutnet"
 import { ErrorPage } from "./pages/error"
 import { OctoSidebar } from "@/pages/_shell/sidebar"
-// DEV-ONLY:insight 组件隔离预览路由(见 pages/insight/__dev/routes.tsx)。仅 DEV 分支调用,生产构建该引用为死代码,整模块摇树掉。
+// DEV-ONLY:insight 组件隔离预览路由(见 pages/insight/__dev/routes.tsx)。
 import { insightDevRoutes } from "@/pages/insight/__dev/routes"
+// 生产构建把 console 对象参数序列化成 JSON 再落盘(insight-debug.log 转发只拿到字符串,
+// 否则全是 "[object Object]");dev 不装,保留 DevTools 对象可展开。见模块头注释。
+import { installConsoleObjectSerializer } from "@/pages/insight/lib/console-serialize"
+if (!import.meta.env.DEV) installConsoleObjectSerializer()
 import { MakeSidebar } from "@/pages/make/sidebar"
 import { PatternSidebar } from "@/pages/pattern/modules/sidebar/sidebar"
+import { InsightSidebar } from "@/pages/insight/sidebar"
+import { InsightQueueRunner } from "@/pages/insight/queue-runner"
+import { ProjectInfo } from "@/components/project-info"
+import { SidebarFooter } from "@/pages/insight/components/sidebar-footer"
+import { MakeLayoutProvider, useMakeLayout } from "@/context/make-layout"
 import { DialogProjectOnboarding } from "@/components/dialog-project-onboarding"
+import { UpdateChecker } from "@/components/update-checker"
+import { WelcomePage } from "@/components/welcome-page"
 import { useCheckServerHealth } from "./utils/server-health"
 import { persisted, Persist } from "@/utils/persist"
+import { disableIframesDuringDrag } from "@/utils/iframe-drag"
 // jk-j60099994-replace-with-octo-1-start
 // jk-j60099994-replace-with-octo-1-end
 
-const ChatPage = lazy(() => import("@/pages/chat"))
+// jk-j60099994-replace-with-60062650-octo-1-start
+// jk-j60099994-replace-with-60062650-octo-1-end
+
 const InsightPage = lazy(() => import("@/pages/insight"))
 const MakePage = lazy(() => import("@/pages/make"))
 const PatternPage = lazy(() => import("@/pages/pattern"))
 const SkillsPage = lazy(() => import("@/pages/skills"))
+const AssetsPage = lazy(() => import("@/pages/assets"))
 const StudioPage = lazy(() => import("@/pages/studio/index"))
-const loadSession = () => import("@/pages/session")
-const Session = lazy(loadSession)
 const Loading = () => <div class="size-full" />
 
-if (typeof location === "object" && /\/session(?:\/|$)/.test(location.pathname)) {
-  void loadSession()
+// ⚠️ DEV-ONLY 守卫必须写在 JSX 之外,不要改回 `{import.meta.env.DEV && insightDevRoutes()}`。
+// 原因:vite-plugin-solid 的 babel 转换排在 vite:define 之前(Vite 插件序里 definePlugin 在
+// normalPlugins 之后),Solid 见到 JSX 里的成员表达式 import.meta.env.DEV 会判定"可能响应式",
+// 额外套一层内嵌 memo,编译成 memo(() => memo(() => false)() && insightDevRoutes())——
+// 内层是运行时调用,Rollup 折不掉,__dev/ 全部预览 chunk 照样进生产包(实测约 78KB)。
+// 提到模块级三元后,esbuild 在 transform 阶段就折成 false,整棵 __dev/ 子树被摇掉(实测 0 字节)。
+// 详见 docs/learning/solid-jsx-blocks-import-meta-env-treeshaking.md。
+const insightDevRoutesOrNone = import.meta.env.DEV ? insightDevRoutes : () => null
+
+// SPEC-INS-030:chat 模块下线(唯一独有能力 knowledge_search 已并入 insight)。
+// 三条旧入口一律改导向 insight,而不是直接删路由 —— 站内还散着不少 `/:dir/chat/:id` 的跳转
+// (通知深链、fork 会话、文件搜索跳转、prompt-input 新建会话…),留重定向让它们优雅落到 insight,
+// 而不是撞 404。会话 id 在 insight 路由下直接可开:chat 历史(agent=octo_ai)已由 SPEC-INS-030 §6
+// 路径 B 纳入 insight 列表与渲染。
+const ChatRedirectRoute = () => {
+  const params = useParams<{ id?: string }>()
+  return <Navigate href={params.id ? `/insight/${params.id}` : "/insight"} />
 }
-
-const SessionRoute = () => (
-  <SessionProviders>
-    <Session />
-  </SessionProviders>
-)
-
-const ChatIndexRoute = () => <Navigate href="chat" />
+const DirectoryIndexRoute = () => <Navigate href="/insight" />
 const SessionRedirectRoute = () => {
   const params = useParams<{ id?: string }>()
-  return <Navigate href={`../chat/${params.id ?? ""}`} />
+  return <Navigate href={params.id ? `/insight/${params.id}` : "/insight"} />
 }
 const CoworkRedirectRoute = () => {
   return <Navigate href="/insight" />
@@ -141,7 +159,7 @@ function OctoSidebarLayout(props: ParentProps) {
     const startW = sidebarWidth()
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
-    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(160, Math.min(360, startW + ev.clientX - startX)))
+    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(200, Math.min(360, startW + ev.clientX - startX)))
     const onUp = () => {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
@@ -153,8 +171,8 @@ function OctoSidebarLayout(props: ParentProps) {
   }
 
   return (
-    <div data-cowork-area="sidebar" class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
-      <OctoSidebar width={sidebarWidth()} />
+    <div data-cowork-area="sidebar" class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative" style={{ "--sidebar-width": `${sidebarWidth()}px` }}>
+      <OctoSidebar />
       <div
         class="absolute top-0 bottom-0 flex items-center justify-center group"
         style={{
@@ -190,72 +208,6 @@ function OctoSidebarLayout(props: ParentProps) {
   )
 }
 
-function MakeSidebarLayout(props: ParentProps) {
-  const layout = useLayout()
-  const [sidebarWidthStore, setSidebarWidthStore] = persisted(
-    Persist.global("make.sidebar.width"),
-    createStore({ width: 296 }),
-  )
-  const sidebarWidth = () => sidebarWidthStore.width
-  const setSidebarWidth = (w: number) => setSidebarWidthStore({ width: w })
-
-  function handleSidebarResize(e: MouseEvent) {
-    e.preventDefault()
-    const startX = e.clientX
-    const startW = sidebarWidth()
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(160, Math.min(360, startW + ev.clientX - startX)))
-    const onUp = () => {
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
-    }
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
-  }
-
-  return (
-    <div data-make-area="sidebar" class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
-      <Show when={!layout.focusMode.get()}>
-        <MakeSidebar width={sidebarWidth()} />
-        <div
-          class="absolute top-0 bottom-0 flex items-center justify-center group"
-          style={{
-            left: `${sidebarWidth() - 10}px`,
-            width: "20px",
-            cursor: "col-resize",
-            "z-index": "10",
-          }}
-          onMouseDown={handleSidebarResize}
-        >
-          <div
-            class="absolute left-[10px] flex items-center justify-center bg-white transition-shadow duration-200"
-            style={{
-              width: "12px",
-              height: "36px",
-              "border-radius": "0 10px 10px 0",
-              "box-shadow": "2px 0 4px rgba(0,0,0,0.04), inset -1px 0 0 rgba(0,0,0,0.02)",
-              border: "1px solid var(--octo-border-divider)",
-              "border-left": "none",
-              display: "none"
-            }}
-          >
-            <div
-              class="w-[2px] h-[14px] rounded-full ml-[2px]"
-              style={{ background: "var(--octo-border-input, #c9c9c9)" }}
-            />
-          </div>
-        </div>
-      </Show>
-      <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
-        {props.children}
-      </div>
-    </div>
-  )
-}
-
 function PatternSidebarLayout(props: ParentProps) {
   const [sidebarWidthStore, setSidebarWidthStore] = persisted(
     Persist.global("pattern.sidebar.width"),
@@ -270,7 +222,7 @@ function PatternSidebarLayout(props: ParentProps) {
     const startW = sidebarWidth()
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
-    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(160, Math.min(360, startW + ev.clientX - startX)))
+    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.max(200, Math.min(360, startW + ev.clientX - startX)))
     const onUp = () => {
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
@@ -319,12 +271,113 @@ function PatternSidebarLayout(props: ParentProps) {
   )
 }
 
-function SkillsSidebarLayout(props: ParentProps) {
+function MakeSidebarLayout(props: ParentProps) {
+  return (
+    <MakeLayoutProvider>
+      <MakeSidebarArea>{props.children}</MakeSidebarArea>
+    </MakeLayoutProvider>
+  )
+}
+
+function MakeSidebarArea(props: ParentProps) {
+  const ml = useMakeLayout()
+  const layout = useLayout()
+  const focusMode = layout.focusMode.get
+
+  function handleResize(e: MouseEvent) {
+    if (ml.leftCollapsed()) return
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = ml.leftW()
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+    // 拖拽期间禁用 iframe 的指针事件(如 /assets 项目资产页的 iframe),
+    // 否则松开鼠标时 mouseup 会被 iframe 吞掉,onUp 不触发,拖拽状态卡死。
+    const restoreIframes = disableIframesDuringDrag()
+    const onMove = (ev: MouseEvent) => ml.setLeftW(startW + ev.clientX - startX)
+    const onUp = () => {
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      restoreIframes()
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+    }
+    document.addEventListener("mousemove", onMove)
+    document.addEventListener("mouseup", onUp)
+  }
+
+  return (
+    <>
+      <style>{`
+        .make-sidebar { transition: transform 200ms ease; will-change: transform; z-index: 12; }
+        .make-sidebar.is-collapsed { position: fixed; top: 48px; bottom: 0; left: 0; height: auto; z-index: 32; transform: translateX(-100%); }
+        body.make-left-drawer-open .make-sidebar.is-collapsed { transform: translateX(0); box-shadow: 11px 0 20px 0 rgba(0,0,0,0.08); }
+        .make-sidebar-overlay { display: none; position: fixed; inset: 0; z-index: 30; }
+        body.make-left-drawer-open .make-sidebar-overlay { display: block; }
+        .make-sidebar-resize { position: absolute; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 10; }
+        .make-right-panel { transition: transform 200ms ease; will-change: transform; }
+        .make-right-panel.is-collapsed { position: fixed; top: 48px; bottom: 0; right: 0; height: auto; width: 650px; max-width: calc(100vw - 24px); z-index: 32; transform: translateX(100%); background: #fff; }
+        body.make-right-drawer-open .make-right-panel.is-collapsed { transform: translateX(0); box-shadow: -11px 0 20px 0 rgba(0,0,0,0.08); }
+        .make-right-overlay { display: none; position: fixed; inset: 0; z-index: 30; }
+        body.make-right-drawer-open .make-right-overlay { display: block; }
+        .make-icon-btn { color: #777; background: transparent; cursor: pointer; }
+        .make-icon-btn [data-component="icon"] { color: #777; transition: color 100ms ease; }
+        .make-icon-btn:hover { color: #0a59f7; }
+        .make-icon-btn:hover [data-component="icon"] { color: #0a59f7; }
+        .make-icon-btn[data-expanded], .make-icon-btn[data-state="open"] { color: #0a59f7; }
+        .make-icon-btn[data-expanded] [data-component="icon"], .make-icon-btn[data-state="open"] [data-component="icon"] { color: #0a59f7; }
+        .make-chat-folded .make-chat-content { max-width: 824px; margin-left: auto; margin-right: auto; }
+        .make-chat-folded .make-composer { max-width: 800px; margin-left: auto; margin-right: auto; }
+      `}</style>
+      <div
+        data-make-area="sidebar"
+        class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative"
+        style={{ "--sidebar-width": `${ml.displayLeftW()}px` }}
+      >
+        <div class="make-sidebar-overlay" onClick={() => ml.toggleLeftDrawer()} />
+        <div
+          class="make-sidebar h-full shrink-0 flex flex-col overflow-hidden"
+          classList={{ "is-collapsed": ml.leftCollapsed() || focusMode() }}
+          style={{ background: "linear-gradient(166deg, #ffffff 0%, #fdfeff 48%, #e9f5ff 99%)" }}
+        >
+          <MakeSidebar />
+        </div>
+        <Show when={!ml.leftCollapsed() && !focusMode()}>
+          <div class="make-sidebar-resize" style={{ left: `${ml.leftW() - 4}px` }} onMouseDown={handleResize} />
+        </Show>
+        <div class="flex flex-col flex-1 min-w-0 overflow-hidden">{props.children}</div>
+      </div>
+    </>
+  )
+}
+
+// insight 侧栏在 /skills 上的复用壳:与 /insight 用同一个自包含的 InsightSidebar
+// (自管宽度/拖拽/持久化 octo:insight:sidebar-width),故此处只摆布局、不重复 resize 逻辑。
+// 见 InsightPage 主体同款结构(pages/insight/index.tsx)。
+// 注意:不加 data-cowork-area——那是旧 _shell/OctoSidebar 的属性,cowork.css 针对它有一坨
+// 样式覆盖(如滚动区 padding 改 8px 16px),套到 InsightSidebar 上会让 /skills 与 /insight
+// 的间距/选中样式不一致(InsightSidebar 自带样式,不吃 cowork.css)。
+function InsightSidebarLayout(props: ParentProps) {
+  return (
+    <div class="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
+      <InsightSidebar top={<ProjectInfo />} bottom={<SidebarFooter />} />
+      <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
+        {props.children}
+      </div>
+    </div>
+  )
+}
+
+// /skills 与 /assets 共用的侧栏分发壳:根据 sidebarSource 选择 make/pattern/insight 侧栏。
+// 两者页面结构一致,仅内容不同,故复用同一布局;命名体现其分发职责而非绑定 skills。
+function SidebarDispatchLayout(props: ParentProps) {
   const layout = useLayout()
   const source = layout.sidebarSource.get()
   return source === "make"
     ? <MakeSidebarLayout>{props.children}</MakeSidebarLayout>
-    : <OctoSidebarLayout>{props.children}</OctoSidebarLayout>
+     : source === "pattern"
+    ? <PatternSidebarLayout>{props.children}</PatternSidebarLayout>
+    : <InsightSidebarLayout>{props.children}</InsightSidebarLayout>
 }
 
 function AppShellProviders(props: ParentProps) {
@@ -347,18 +400,6 @@ function AppShellProviders(props: ParentProps) {
   )
 }
 
-function SessionProviders(props: ParentProps) {
-  return (
-    <TerminalProvider>
-      <FileProvider>
-        <PromptProvider>
-          <CommentsProvider>{props.children}</CommentsProvider>
-        </PromptProvider>
-      </FileProvider>
-    </TerminalProvider>
-  )
-}
-
 function OnboardingLayer() {
   const navigate = useNavigate()
   const server = useServer()
@@ -369,13 +410,24 @@ function OnboardingLayer() {
     return layout.onboarding.show()
   })
 
-  function handleOnboardingSelect(data: { directory: string }) {
+  const [step, setStep] = createSignal<"project" | "welcome">("project")
+
+  function handleProjectSelect() {
+    setStep("welcome")
+  }
+
+  function handleWelcomeComplete() {
     layout.onboarding.hide()
   }
 
   return (
     <Show when={showOnboarding()}>
-      <DialogProjectOnboarding onSelect={handleOnboardingSelect} />
+      <Show when={step() === "project"}>
+        <DialogProjectOnboarding onSelect={handleProjectSelect} />
+      </Show>
+      <Show when={step() === "welcome"}>
+        <WelcomePage onComplete={handleWelcomeComplete} />
+      </Show>
     </Show>
   )
 }
@@ -394,7 +446,23 @@ function FocusModeResetHandler() {
 }
 
 function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
+  return (
+    <SettingsProvider>
+      <PermissionProvider>
+        <LayoutProvider>
+          <RouterInner appChildren={props.appChildren}>
+            {props.children}
+          </RouterInner>
+        </LayoutProvider>
+      </PermissionProvider>
+    </SettingsProvider>
+  )
+}
+
+function RouterInner(props: ParentProps<{ appChildren?: JSX.Element }>) {
   const location = useLocation()
+  const layout = useLayout()
+  const sidebarSource = () => layout.sidebarSource.get()
 
   const isInsightPage = () => {
     const p = location.pathname
@@ -415,42 +483,64 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
     return location.pathname === "/skills"
   }
 
+  const isAssetsPage = () => {
+    return location.pathname === "/assets"
+  }
+
+  // Whether skills is opened from make/pattern context (vs insight/cowork)
+  const skillsFromMake = () => isSkillsPage() && sidebarSource() === "make"
+  const skillsFromPattern = () => isSkillsPage() && sidebarSource() === "pattern"
+
   return (
-    <SettingsProvider>
-      <PermissionProvider>
-        <LayoutProvider>
-          <FocusModeResetHandler />
-          <NotificationProvider>
-            <ModelsProvider>
-              <CommandProvider>
-                <HighlightsProvider>
-                  <Layout>
-                    <OnboardingLayer />
-                    {/* SPEC-INS-010 §11:/insight 由 InsightPage 自带侧栏,不再套 OctoSidebarLayout(否则双侧栏) */}
-                    <Show when={isInsightPage()}>
+    <>
+      <UpdateChecker />
+      <FocusModeResetHandler />
+      <NotificationProvider>
+        <ModelsProvider>
+          <CommandProvider>
+            <HighlightsProvider>
+              <Layout>
+                <OnboardingLayer />
+                {/* SPEC-INS-010 §11:/insight 由 InsightPage 自带侧栏,不再套 OctoSidebarLayout(否则双侧栏) */}
+                <Show when={isInsightPage()}>
+                  {props.children}
+                </Show>
+                {/* Make + skills from make: 共用 MakeSidebarLayout,侧栏不重挂 */}
+                <Show when={isMakePage() || skillsFromMake()}>
+                  <MakeSidebarLayout>
+                    <Show when={isMakePage()} fallback={<SkillsPage />}>
                       {props.children}
                     </Show>
-                    <Show when={isMakePage()}>
-                      <MakeSidebarLayout>{props.children}</MakeSidebarLayout>
-                    </Show>
-                    <Show when={isPatternPage()}>
-                      <PatternSidebarLayout>{props.children}</PatternSidebarLayout>
-                    </Show>
-                    <Show when={isSkillsPage()}>
-                      <SkillsSidebarLayout>{props.children}</SkillsSidebarLayout>
-                    </Show>
-                    <Show when={!isInsightPage() && !isMakePage() && !isPatternPage() && !isSkillsPage()}>
-                      {props.appChildren}
+                  </MakeSidebarLayout>
+                </Show>
+                {/* Pattern + skills from pattern: 共用 PatternSidebarLayout */}
+                <Show when={isPatternPage() || skillsFromPattern()}>
+                  <PatternSidebarLayout>
+                    <Show when={isPatternPage()} fallback={<SkillsPage />}>
                       {props.children}
                     </Show>
-                  </Layout>
-                </HighlightsProvider>
-              </CommandProvider>
-            </ModelsProvider>
-          </NotificationProvider>
-        </LayoutProvider>
-      </PermissionProvider>
-    </SettingsProvider>
+                  </PatternSidebarLayout>
+                </Show>
+                {/* Skills from insight/cowork: InsightSidebarLayout */}
+                <Show when={isSkillsPage() && !skillsFromMake() && !skillsFromPattern()}>
+                  <InsightSidebarLayout>
+                    <SkillsPage />
+                  </InsightSidebarLayout>
+                </Show>
+                {/* Assets (knowledge base): SidebarDispatchLayout 根据 sidebarSource 选择 make/pattern/insight 侧栏 */}
+                <Show when={isAssetsPage()}>
+                  <SidebarDispatchLayout>{props.children}</SidebarDispatchLayout>
+                </Show>
+                <Show when={!isInsightPage() && !isMakePage() && !isPatternPage() && !isSkillsPage() && !isAssetsPage()}>
+                  {props.appChildren}
+                  {props.children}
+                </Show>
+              </Layout>
+            </HighlightsProvider>
+          </CommandProvider>
+        </ModelsProvider>
+      </NotificationProvider>
+    </>
   )
 }
 
@@ -476,9 +566,13 @@ export function AppBaseProviders(props: ParentProps<{ locale?: Locale }>) {
                 <DialogProvider>
                   {/* jk-j60099994-replace-with-octo-2-start */}
                   {/* jk-j60099994-replace-with-octo-2-end */}
+                  {/* jk-j60099994-replace-with-60062650-octo-2-start */}
+                  {/* jk-j60099994-replace-with-60062650-octo-2-end */}
                   <MarkedProvider>
                     <FileComponentProvider component={File}>{props.children}</FileComponentProvider>
                   </MarkedProvider>
+                  {/* jk-j60099994-replace-with-60062650-octo-3-start */}
+                  {/* jk-j60099994-replace-with-60062650-octo-3-end */}
                   {/* jk-j60099994-replace-with-octo-3-start */}
                   {/* jk-j60099994-replace-with-octo-3-end */}
                 </DialogProvider>
@@ -634,21 +728,25 @@ export function AppInterface(props: {
               <GlobalSyncProvider>
                 {/* jk-j60099994-replace-with-octo-4-start */}
                 {/* jk-j60099994-replace-with-octo-4-end */}
+                {/* SPEC-INS-027:insight 排队 drain 运行器。挂在 Router 之外,跨 tab/路由常驻,
+                    使会话后台跑完时排队仍能继续 flush(不随 insight 页面卸载而死)。headless。 */}
+                <InsightQueueRunner />
                 <Dynamic
                   component={props.router ?? Router}
                   root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
                 >
                   <Route path="/" component={() => <Navigate href="/make" />} />
                   <Route path="/cowork" component={() => <Navigate href="/insight" />} />
-                  {/* DEV-ONLY:静态段 /insight/__dev 优先于 :id?,且仅 dev 注册;生产构建里整块为死代码 */}
-                  {import.meta.env.DEV && insightDevRoutes()}
+                  {/* DEV-ONLY:静态段 /insight/__dev 优先于 :id?,且仅 dev 注册(守卫见上方 insightDevRoutesOrNone) */}
+                  {insightDevRoutesOrNone()}
                   <Route path="/insight/:id?" component={InsightPage} />
                   <Route path="/make/:id?" component={MakePage} />
                   <Route path="/pattern/:id?" component={PatternPage} />
                   <Route path="/skills" component={SkillsPage} />
+                  <Route path="/assets" component={AssetsPage} />
                   <Route path="/:dir" component={DirectoryLayout}>
-                    <Route path="/" component={ChatIndexRoute} />
-                    <Route path="/chat/:id?" component={ChatPage} />
+                    <Route path="/" component={DirectoryIndexRoute} />
+                    <Route path="/chat/:id?" component={ChatRedirectRoute} />
                     <Route path="/cowork/:id?" component={CoworkRedirectRoute} />
                     <Route path="/studio/:id?" component={StudioPage} />
                     <Route path="/session/:id?" component={SessionRedirectRoute} />

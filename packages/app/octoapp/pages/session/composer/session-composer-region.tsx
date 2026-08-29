@@ -11,6 +11,7 @@ import { useSessionKey } from "@/pages/session/session-layout"
 import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
 import { SessionQuestionDock } from "@/pages/session/composer/session-question-dock"
 import { SessionFollowupDock } from "@/pages/session/composer/session-followup-dock"
+import { QueueBanner } from "@/components/queue-banner"
 import { SessionRevertDock } from "@/pages/session/composer/session-revert-dock"
 import type { SessionComposerState } from "@/pages/session/composer/session-composer-state"
 import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
@@ -26,6 +27,7 @@ export function SessionComposerRegion(props: {
   onNewSessionWorktreeReset: () => void
   onSubmit: () => void
   onResponseSubmit: () => void
+  disableAtMention?: boolean
   followup?: {
     queue: () => boolean
     items: { id: string; text: string }[]
@@ -33,6 +35,7 @@ export function SessionComposerRegion(props: {
     edit?: { id: string; prompt: FollowupDraft["prompt"]; context: FollowupDraft["context"] }
     onQueue: (draft: FollowupDraft) => void
     onAbort: () => void
+    onRemove: (index: number) => void
     onSend: (id: string) => void
     onEdit: (id: string) => void
     onEditLoaded: () => void
@@ -56,7 +59,7 @@ export function SessionComposerRegion(props: {
   const info = createMemo(() => (route.params.id ? sync.session.get(route.params.id) : undefined))
   const parentID = createMemo(() => info()?.parentID)
   const child = createMemo(() => !!parentID())
-  const showComposer = createMemo(() => !props.state.blocked() || child())
+  const showComposer = createMemo(() => !props.state.blocked() || child() || !!props.state.permissionRequest())
 
   const previewPrompt = () =>
     prompt
@@ -136,7 +139,7 @@ export function SessionComposerRegion(props: {
     >
       <div
         classList={{
-          "w-full px-3 pointer-events-auto": true,
+          "w-full px-6 pointer-events-auto": true,
           "md:max-w-[848px] md:mx-auto 2xl:max-w-[848px]": props.centered,
         }}
       >
@@ -150,12 +153,11 @@ export function SessionComposerRegion(props: {
 
         <Show when={props.state.permissionRequest()} keyed>
           {(request) => (
-            <div>
+            <div style={{ "margin-bottom": "12px" }}>
               <SessionPermissionDock
                 request={request}
                 responding={props.state.permissionResponding()}
                 onDecide={(response) => {
-                  props.onResponseSubmit()
                   props.state.decide(response)
                 }}
               />
@@ -239,11 +241,9 @@ export function SessionComposerRegion(props: {
               }}
             >
               <Show when={props.followup?.items.length}>
-                <SessionFollowupDock
+                <QueueBanner
                   items={props.followup!.items}
-                  sending={props.followup!.sending}
-                  onSend={props.followup!.onSend}
-                  onEdit={props.followup!.onEdit}
+                  onRemove={props.followup!.onRemove}
                 />
               </Show>
               <Show when={bubbleVisible()}>
@@ -268,7 +268,8 @@ export function SessionComposerRegion(props: {
                     onQueue={props.followup?.onQueue}
                     onAbort={props.followup?.onAbort}
                     onSubmit={props.onSubmit}
-                    disabled={props.state.busy()}
+                    disableAtMention={props.disableAtMention}
+                    disabled={!!props.state.permissionRequest()}
                   />
                 }
               >

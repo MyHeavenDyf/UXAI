@@ -13,9 +13,11 @@
 //                         opencode 按 user.tools[key] !== false 过滤本 turn 模型可见工具集
 //                         (packages/opencode/src/session/llm.ts resolveTools,上游原生机制,零服务端改动)。
 //                         非 chip turn:5 个业务工具全 false;chip turn:只放行选中那一个。
+//                         task 一律 false(SPEC-INS-021 §1:内部编排原语,不经用户提示词触发)。
 //   2. buildChipTemplate  chip 注入模板(spec §4):解析模式指令 + 迁入的 MCP 仪式段落(长任务规则 /
-//                         get_task_result 仪式 / 结果回复格式 / 文件引用铁律)。文件以会话 [附件]
-//                         区块为准(不在模板里复述清单,避免两处漂移)。
+//                         get_task_result 仪式 / 结果回复格式 / 文件引用铁律)。文件以会话文件清单
+//                         (`[附件]` + `@` 引用的 `[引用文件]`,两者同等可用)为准
+//                         (不在模板里复述清单,避免两处漂移)。
 //                         作为 synthetic text part 注入(用户不可见、模型可见,与 [附件] 清单同机制)。
 //   3. buildChipDeclaration 机器可读声明段(spec §2.1):独立 synthetic text part,声明目标工具 +
 //                         是否需要大纲字段 + 用户原文;octo-upload-inject 据此对 chip turn 的调用做
@@ -62,13 +64,39 @@ export type McpSelection = {
 export function buildToolGate(selectedTool?: string): Record<string, boolean> {
   const gate: Record<string, boolean> = {}
   for (const tool of MCP_BUSINESS_TOOLS) gate[mcpToolKey(tool)] = tool === selectedTool
+  // task **不再关闭**(SPEC-INS-032 §5 撤销 SPEC-INS-021 §1 的「turn 级默认关」)。
+  // 021 当初关它的两条理由各自已有解:
+  //   · 「弱模型自发起子代理跑偏」→ 候选收敛:agent.ts defaults 里 `task: { insight_reader: "deny" }`
+  //     + octo_insight 显式 allow,模型的 task 描述里只剩 insight_reader 这一个只读文档子代理;
+  //   · 「子会话被点成侧栏没有记录的对话」→ 子代理用独立 agent 名,而侧栏列表按 agent=octo_insight
+  //     过滤(server 的 /insight/sessions),子会话天然不出现;021 的导航拦截仍保留作双保险。
+  // 之所以不做成「只在某些轮次放行」:一次发送 = 一个 turn,模型可以在同一轮里连发 N 次 task,
+  // 但只要它把动作拖到下一轮(先回一句"要我分治吗"),下一轮就会中途失去工具。
+  // (chip turn 仍关,见下。)
   if (selectedTool) {
-    // chip turn 顺手关掉即兴逃生口(2026-07-07 内网验证教训):该 turn 的职责是一次**直接**工具
-    // 调用,task 子代理 / shell 在本 turn 没有正当用途,却是弱模型在 MCP 工具缺失(如内网连接故障)
-    // 时的模拟通道——实测出现过委托 task 子代理、用 shell 裸调 MCP HTTP、进而编造 task_id。
-    // 非 chip turn 不动(task 为后续多文档分治保留)。
+    // chip turn 继续关 task:2026-07-07 内网事故里被观测到的逃生口**就包括"委托 task 子代理"**
+    // (见下方 bash 那条注释)。该轮的职责是一次直接的 MCP 工具调用,分治在这里没有任何用途;
+    // 而多文档分治发生在普通轮次,两者不冲突。SPEC-INS-032 §5 放开的是**普通轮次**的 task。
     gate["task"] = false
+    // chip turn 顺手关掉即兴逃生口(2026-07-07 内网验证教训):该 turn 的职责是一次**直接**工具
+    // 调用,shell / webfetch 在本 turn 没有正当用途,却是弱模型在 MCP 工具缺失(如内网连接故障)
+    // 时的模拟通道——实测出现过委托 task 子代理、用 shell 裸调 MCP HTTP、进而编造 task_id。
+    // (webfetch/websearch 非 chip turn 常驻可用,SPEC-INS-021 §1。)bash 现已在 agent 权限层放开
+    // (供 interview-analysis skill,见 agent.ts octo_insight),故本行是 chip turn 关闭 bash 的**唯一守卫**
+    // (不再是从前那道"已常驻 deny、再关无害"的冗余)——删它会让研究工具那轮重新暴露 shell 逃生口。
     gate["bash"] = false // shell 工具注册键(tool/shell/id.ts ToolID),显示名 Shell,含 pwsh/cmd 变体
+    gate["webfetch"] = false
+    // extract_document 也关(2026-08-19 追加):MCP 业务工具只收**文件名**,octo-upload-inject 在
+    // tool.execute.before 换成 S3 URL,正文由内网服务端自己解析——本地抽出来的正文对这次调用**零贡献**,
+    // 纯粹是上下文负担,且随会话历史累积。实测 chip turn 模型会先抽文档再调 MCP(常驻提示词
+    // "解析材料统一入口 = extract_document" 的引导),一叠逐字稿即撞窗口(SPEC-INS-016 §4.1:
+    // 内联分支 ≤~49KB 是全文回灌,10 份 ≈17 万 token 超 128K)。
+    // 只关 chip turn:MCP 是异步长任务,提交完即结束本轮;后续轮次用户问"稿子里 XX 怎么说的"、
+    // 或走本地线分析时,extract_document 仍是 office 文件的唯一入口,不能全局摘。
+    gate["extract_document"] = false
+    // knowledge_search 同理(SPEC-INS-030 迁入 insight 后新增):内网知识库检索与「这一轮直调所选 MCP 工具」
+    // 无关,却是弱模型在 MCP 工具缺失时的又一个模拟通道(拿知识库片段编一份"解析结果")。
+    gate["knowledge_search"] = false
   }
   return gate
 }
@@ -102,7 +130,7 @@ export function buildChipTemplate(sel: McpSelection, typedText: string): string 
   const outlineRole = sel.preset.outlineRole
 
   const paramLines = [
-    `- download_links(数组):填入所有访谈逐字稿的**文件名**——照抄 [附件] 区块里冒号前那串,一字不差(系统会在执行前把文件名精确替换成真实地址,写错即失败并要求重填)。`,
+    `- download_links(数组):填入所有访谈逐字稿的**文件名**——照抄会话文件清单(\`[附件]\` 与 \`[引用文件]\` 区块)里冒号前那串,一字不差(系统会在执行前把文件名精确替换成真实地址,写错即失败并要求重填)。`,
   ]
   if (outlineRole) {
     paramLines.push(
@@ -123,20 +151,21 @@ export function buildChipTemplate(sel: McpSelection, typedText: string): string 
     `1. 用户选中该工具通常就意味着希望发起解析:材料齐备、且用户本轮没有表达其他明确意图时,**直接调用,不要犹豫、不要反复向用户确认是否解析**。`,
     `2. 用户本轮明显在做别的事(询问概念、闲聊、查询已提交任务的进度/结果等):正常回应即可,**不要调用解析工具**;查询进度走下方查询仪式(get_task_result)。`,
     `3. 已经提交过解析任务后,**不要因为该模式仍在而重复提交**——除非用户明确要求重新解析/再跑一次。`,
-    `4. 当前**没有任何可用附件**(或缺少${outlineRole ? `${outlineRole}/逐字稿` : "逐字稿"}):不要调用工具,直接回复请用户上传所需材料并说明需要什么;材料补齐后再按第 1 条调用。`,
+    `4. 当前**没有任何可用文件**(或缺少${outlineRole ? `${outlineRole}/逐字稿` : "逐字稿"}):不要调用工具,直接回复请用户上传所需材料并说明需要什么;材料补齐后再按第 1 条调用。`,
     ``,
-    `材料 = 会话中**所有** [附件] 区块列出的文件(多轮添加的合起来才是全部可用文件)。`,
+    `材料 = 会话中**所有** \`[附件]\` 与 \`[引用文件]\` 区块列出的文件(前者是用户上传的附件,后者是用户 \`@\` 引用的会话文件——含之前生成的产物;两者对本工具**同等可用**,多轮添加的合起来才是全部可用文件)。`,
     ``,
     `参数填写:`,
     ...paramLines,
     ``,
     `调用纪律(2026-07-07 起,违反即事故):`,
     `- 必须由你**直接**调用该工具。严禁通过 task 子代理、shell/命令行、HTTP 请求等任何其他方式模拟或代替调用(这些途径本轮已被禁用)。`,
+    `- **不要先去读文件正文**。该工具只需要文件名,材料由内网服务端自行解析,你读了正文对这次调用没有任何帮助,只会挤占上下文(\`extract_document\` 本轮已禁用)。需要按文件名分桶时,按文件名判断或问用户,不要靠读内容来判断。`,
     `- 若该工具不在你的可用工具列表里,或调用返回「工具不可用」类错误:如实告知用户「内网 MCP 连接暂不可用,请稍后重试或联系管理员」。用户已经在输入框完成了选择,**不要再让用户去点击任何按钮**,也不要尝试任何替代方案。`,
     `- task_id 只能来自工具的真实返回,**绝不允许编造**;没有成功的工具返回,就没有 task_id、没有"任务已提交"。`,
     `- 消息里的 [MCP声明] 段落是给系统读取的机器内容,不要向用户提及或复述它。`,
     ``,
-    `文件引用铁律:文件参数只能填 [附件] 区块里的文件名,绝不要填写、复述或改写任何 URL/网址/S3 地址;也不要把清单里的本地路径填进去。`,
+    `文件引用铁律:文件参数只能填会话文件清单(\`[附件]\` / \`[引用文件]\`)里的文件名,绝不要填写、复述或改写任何 URL/网址/S3 地址;也不要把清单里的本地路径填进去。`,
     ``,
     `长任务规则:该工具是长任务,调用会在几秒内返回 task_id。拿到 task_id 后立即结束本轮:向用户原样转述工具返回的友好文案,不要再调用任何其他工具——尤其不要紧接着调 get_task_result(刚提交的任务立刻查询只会得到排队状态,浪费 token 且误导用户)。`,
     ``,

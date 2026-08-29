@@ -6,6 +6,7 @@ import z from "zod"
 import { Session } from "@/session/session"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
+import { configureModelsApiHeaders } from "@/plugin/model-headers"
 import { SessionRunState } from "@/session/run-state"
 import { SessionCompaction } from "@/session/compaction"
 import { SessionRevert } from "@/session/revert"
@@ -613,8 +614,7 @@ export const SessionRoutes = lazy(() =>
             },
             auto: body.auto,
           })
-          yield* prompt.loop({ sessionID })
-          return true
+          return SessionCompaction.isSuccessful(yield* prompt.loop({ sessionID }))
         }),
     )
     .get(
@@ -894,6 +894,7 @@ export const SessionRoutes = lazy(() =>
         c.status(200)
         c.header("Content-Type", "application/json")
         return stream(c, async (stream) => {
+          configureModelsApiHeaders(Object.fromEntries(c.req.raw.headers.entries()))
           const sessionID = c.req.valid("param").sessionID
           const body = c.req.valid("json")
           const msg = await runRequest(
@@ -929,6 +930,7 @@ export const SessionRoutes = lazy(() =>
       ),
       validator("json", zodObject(SessionPrompt.PromptInput).omit({ sessionID: true })),
       async (c) => {
+        configureModelsApiHeaders(Object.fromEntries(c.req.raw.headers.entries()))
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
         void runRequest(

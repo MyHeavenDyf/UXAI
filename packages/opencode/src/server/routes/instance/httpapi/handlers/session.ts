@@ -5,6 +5,7 @@ import { Bus } from "@/bus"
 import { Command } from "@/command"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
+import { configureModelsApiHeaders } from "@/plugin/model-headers"
 import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
 import { SessionCompaction } from "@/session/compaction"
@@ -254,14 +255,14 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         },
         auto: ctx.payload.auto ?? false,
       })
-      yield* promptSvc.loop({ sessionID: ctx.params.sessionID })
-      return true
+      return SessionCompaction.isSuccessful(yield* promptSvc.loop({ sessionID: ctx.params.sessionID }))
     })
 
     const prompt = Effect.fn("SessionHttpApi.prompt")(function* (ctx: {
       params: { sessionID: SessionID }
       payload: typeof PromptPayload.Type
     }) {
+      configureModelsApiHeaders((yield* HttpServerRequest.HttpServerRequest).headers)
       const instance = yield* InstanceState.context
       const workspace = yield* InstanceState.workspaceID
       return HttpServerResponse.stream(
@@ -284,6 +285,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID }
       payload: typeof PromptPayload.Type
     }) {
+      configureModelsApiHeaders((yield* HttpServerRequest.HttpServerRequest).headers)
       yield* promptSvc.prompt({ ...ctx.payload, sessionID: ctx.params.sessionID }).pipe(
         Effect.catchCause((cause) =>
           Effect.gen(function* () {

@@ -28,6 +28,16 @@ import type {
   AuthSetErrors,
   AuthSetResponses,
   CommandListResponses,
+  CommentDeleteAttachmentErrors,
+  CommentDeleteAttachmentResponses,
+  CommentDeleteErrors,
+  CommentDeleteResponses,
+  CommentLoadErrors,
+  CommentLoadResponses,
+  CommentSaveErrors,
+  CommentSaveResponses,
+  CommentUploadAttachmentErrors,
+  CommentUploadAttachmentResponses,
   Config as Config3,
   ConfigGetResponses,
   ConfigProvidersResponses,
@@ -64,6 +74,8 @@ import type {
   FindTextResponses,
   FormatterStatusResponses,
   GlobalConfigGetResponses,
+  GlobalConfigReplaceProviderErrors,
+  GlobalConfigReplaceProviderResponses,
   GlobalConfigUpdateErrors,
   GlobalConfigUpdateResponses,
   GlobalDisposeResponses,
@@ -71,6 +83,16 @@ import type {
   GlobalHealthResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
+  InsightChatMigrationPreviewErrors,
+  InsightChatMigrationPreviewResponses,
+  InsightChatMigrationRunErrors,
+  InsightChatMigrationRunResponses,
+  InsightFilesListErrors,
+  InsightFilesListResponses,
+  InsightFilesUploadErrors,
+  InsightFilesUploadFolderErrors,
+  InsightFilesUploadFolderResponses,
+  InsightFilesUploadResponses,
   InsightSessionsListErrors,
   InsightSessionsListResponses,
   InstanceDisposeResponses,
@@ -110,6 +132,7 @@ import type {
   ProjectUpdateResponses,
   Prompt,
   ProviderAuthResponses,
+  ProviderConfig,
   ProviderListResponses,
   ProviderOauthAuthorizeErrors,
   ProviderOauthAuthorizeResponses,
@@ -195,6 +218,8 @@ import type {
   StudioGenerationsRebootResponses,
   StudioPermissionsCheckErrors,
   StudioPermissionsCheckResponses,
+  StudioPromptGenCreateErrors,
+  StudioPromptGenCreateResponses,
   StudioPromptTagsListErrors,
   StudioPromptTagsListResponses,
   SubtaskPartInput,
@@ -532,6 +557,45 @@ export class Config extends HeyApiClient {
       },
     })
   }
+
+  /**
+   * Replace global provider configuration
+   *
+   * Replace one provider configuration without changing other global settings or providers.
+   */
+  public replaceProvider<ThrowOnError extends boolean = false>(
+    parameters: {
+      providerID: string
+      providerConfig?: ProviderConfig
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "providerID" },
+            { key: "providerConfig", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<
+      GlobalConfigReplaceProviderResponses,
+      GlobalConfigReplaceProviderErrors,
+      ThrowOnError
+    >({
+      url: "/global/config/provider/{providerID}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
 }
 
 export class Global extends HeyApiClient {
@@ -637,7 +701,7 @@ export class Artifact extends HeyApiClient {
   /**
    * List artifacts
    *
-   * List artifact files and folders. 'category=generated' returns root files (excluding upload-files); 'category=uploaded' returns files in upload-files directory. Use 'path' to navigate subfolders within the category root.
+   * List artifact files and folders. 'category=generated' returns files in outputs directory; 'category=uploaded' returns files in uploads directory. Use 'path' to navigate subfolders within the category root.
    */
   public list<ThrowOnError extends boolean = false>(
     parameters: {
@@ -973,6 +1037,244 @@ export class Artifact extends HeyApiClient {
       url: "/artifact/serve",
       ...options,
       ...params,
+    })
+  }
+}
+
+export class Comment extends HeyApiClient {
+  /**
+   * Delete comment
+   *
+   * Delete a comment.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      sessionId: string
+      commentFilePath: string
+      commentId: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "sessionId" },
+            { in: "query", key: "commentFilePath" },
+            { in: "query", key: "commentId" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<CommentDeleteResponses, CommentDeleteErrors, ThrowOnError>({
+      url: "/comment/file",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Load comments
+   *
+   * Load all comments for an artifact file.
+   */
+  public load<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      sessionId: string
+      commentFilePath: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "sessionId" },
+            { in: "query", key: "commentFilePath" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<CommentLoadResponses, CommentLoadErrors, ThrowOnError>({
+      url: "/comment/file",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Save comment
+   *
+   * Save or update a comment.
+   */
+  public save<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionId?: string
+      commentFilePath?: string
+      comment?: {
+        id: string
+        filePath: string
+        elementId: string
+        selector: string
+        contentSignature?: string
+        nativeId?: string
+        label: string
+        text: string
+        position: {
+          x: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+          y: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+          w: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+          h: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        }
+        htmlHint: string
+        note: string
+        attachments?: Array<{
+          id: string
+          filename: string
+          mime: string
+          size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+          filePath: string
+          uploadedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        }>
+        createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        commenterAccount?: string
+        commenterName?: string
+        commenterAvatar?: string
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionId" },
+            { in: "body", key: "commentFilePath" },
+            { in: "body", key: "comment" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<CommentSaveResponses, CommentSaveErrors, ThrowOnError>({
+      url: "/comment/file",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Delete comment attachment
+   *
+   * Delete an attachment file from a comment.
+   */
+  public deleteAttachment<ThrowOnError extends boolean = false>(
+    parameters: {
+      attachmentId: string
+      directory?: string
+      workspace?: string
+      sessionId: string
+      commentFilePath: string
+      commentId: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "attachmentId" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "sessionId" },
+            { in: "query", key: "commentFilePath" },
+            { in: "query", key: "commentId" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      CommentDeleteAttachmentResponses,
+      CommentDeleteAttachmentErrors,
+      ThrowOnError
+    >({
+      url: "/comment/file/attachment/{attachmentId}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Upload comment attachment
+   *
+   * Upload an attachment file for a comment (copy from source path).
+   */
+  public uploadAttachment<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionId?: string
+      commentFilePath?: string
+      commentId?: string
+      sourceFilePath?: string
+      filename?: string
+      mime?: string
+      size?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionId" },
+            { in: "body", key: "commentFilePath" },
+            { in: "body", key: "commentId" },
+            { in: "body", key: "sourceFilePath" },
+            { in: "body", key: "filename" },
+            { in: "body", key: "mime" },
+            { in: "body", key: "size" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      CommentUploadAttachmentResponses,
+      CommentUploadAttachmentErrors,
+      ThrowOnError
+    >({
+      url: "/comment/file/attachment",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 }
@@ -3750,6 +4052,9 @@ export class Session2 extends HeyApiClient {
       format?: OutputFormat
       system?: string
       variant?: string
+      extra?: {
+        [key: string]: unknown
+      }
       parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
     },
     options?: Options<never, ThrowOnError>,
@@ -3770,6 +4075,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "format" },
             { in: "body", key: "system" },
             { in: "body", key: "variant" },
+            { in: "body", key: "extra" },
             { in: "body", key: "parts" },
           ],
         },
@@ -4103,6 +4409,9 @@ export class Session2 extends HeyApiClient {
       format?: OutputFormat
       system?: string
       variant?: string
+      extra?: {
+        [key: string]: unknown
+      }
       parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
     },
     options?: Options<never, ThrowOnError>,
@@ -4123,6 +4432,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "format" },
             { in: "body", key: "system" },
             { in: "body", key: "variant" },
+            { in: "body", key: "extra" },
             { in: "body", key: "parts" },
           ],
         },
@@ -4156,14 +4466,17 @@ export class Session2 extends HeyApiClient {
       arguments?: string
       command?: string
       variant?: string
-      parts?: Array<{
-        id?: string
-        type: "file"
-        mime: string
-        filename?: string
-        url: string
-        source?: FilePartSource
-      }>
+      parts?: Array<
+        | TextPartInput
+        | {
+            id?: string
+            type: "file"
+            mime: string
+            filename?: string
+            url: string
+            source?: FilePartSource
+          }
+      >
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -5301,6 +5614,49 @@ export class Permissions extends HeyApiClient {
   }
 }
 
+export class PromptGen extends HeyApiClient {
+  /**
+   * Generate prompt from reference image
+   *
+   * Returns generated prompt text from the internal image prompt generation API.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      base64img?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "base64img" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioPromptGenCreateResponses,
+      StudioPromptGenCreateErrors,
+      ThrowOnError
+    >({
+      url: "/studio/prompt-gen",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Generations extends HeyApiClient {
   /**
    * Create Studio image generation
@@ -5322,8 +5678,16 @@ export class Generations extends HeyApiClient {
         | "image.fusion"
       prompt?: string
       displayPrompt?: string
+      detailPrompt?: string
+      detailTitle?: string
+      initialSessionTitle?: string
+      shouldSetSessionTitle?: boolean
       refinedPrompt?: string
       effectivePrompt?: string
+      promptRefineModels?: Array<{
+        providerID: string
+        modelID: string
+      }>
       styleModel?: string
       aspectRatio?: string
       count?: number
@@ -5347,8 +5711,13 @@ export class Generations extends HeyApiClient {
             { in: "body", key: "capability" },
             { in: "body", key: "prompt" },
             { in: "body", key: "displayPrompt" },
+            { in: "body", key: "detailPrompt" },
+            { in: "body", key: "detailTitle" },
+            { in: "body", key: "initialSessionTitle" },
+            { in: "body", key: "shouldSetSessionTitle" },
             { in: "body", key: "refinedPrompt" },
             { in: "body", key: "effectivePrompt" },
+            { in: "body", key: "promptRefineModels" },
             { in: "body", key: "styleModel" },
             { in: "body", key: "aspectRatio" },
             { in: "body", key: "count" },
@@ -5543,6 +5912,11 @@ export class Studio extends HeyApiClient {
     return (this._permissions ??= new Permissions({ client: this.client }))
   }
 
+  private _promptGen?: PromptGen
+  get promptGen(): PromptGen {
+    return (this._promptGen ??= new PromptGen({ client: this.client }))
+  }
+
   private _generations?: Generations
   get generations(): Generations {
     return (this._generations ??= new Generations({ client: this.client }))
@@ -5590,10 +5964,253 @@ export class Sessions extends HeyApiClient {
   }
 }
 
+export class Files extends HeyApiClient {
+  /**
+   * List insight session files
+   *
+   * List files under <projectDir>/insight/<sessionId>/<category>/ (category: uploads|outputs). SPEC-INS-014 §10. Support optional recursive listing via ?recursive=true.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      sessionId: string
+      category: "uploads" | "outputs"
+      path?: string
+      recursive?: "true" | "false"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "sessionId" },
+            { in: "query", key: "category" },
+            { in: "query", key: "path" },
+            { in: "query", key: "recursive" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<InsightFilesListResponses, InsightFilesListErrors, ThrowOnError>({
+      url: "/insight/files",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Upload insight file
+   *
+   * Upload a base64 file to <projectDir>/insight/<sessionId>/uploads/[path]/. Auto-renames on conflict.
+   */
+  public upload<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionId?: string
+      filename?: string
+      content?: string
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionId" },
+            { in: "body", key: "filename" },
+            { in: "body", key: "content" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<InsightFilesUploadResponses, InsightFilesUploadErrors, ThrowOnError>({
+      url: "/insight/upload",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Upload insight folder
+   *
+   * Upload a folder (preserving structure) to <projectDir>/insight/<sessionId>/uploads/[path]/.
+   */
+  public uploadFolder<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionId?: string
+      folderName?: string
+      files?: Array<{
+        relativePath: string
+        content: string
+      }>
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionId" },
+            { in: "body", key: "folderName" },
+            { in: "body", key: "files" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InsightFilesUploadFolderResponses,
+      InsightFilesUploadFolderErrors,
+      ThrowOnError
+    >({
+      url: "/insight/upload-folder",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class ChatMigration extends HeyApiClient {
+  /**
+   * Preview chat history migration
+   *
+   * Count legacy chat sessions (agent=octo_ai) still pending migration, plus how many can be re-migrated from the backup. SPEC-INS-031. Read-only.
+   */
+  public preview<ThrowOnError extends boolean = false>(
+    parameters?: {
+      query_directory?: string
+      workspace?: string
+      body_directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "query", key: "workspace" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InsightChatMigrationPreviewResponses,
+      InsightChatMigrationPreviewErrors,
+      ThrowOnError
+    >({
+      url: "/insight/chat-migration/preview",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Run chat history migration
+   *
+   * Back up the database (VACUUM INTO), verify it, then move legacy chat sessions into the given directory by updating agent/directory/project_id in one transaction. SPEC-INS-031.
+   */
+  public run<ThrowOnError extends boolean = false>(
+    parameters?: {
+      query_directory?: string
+      workspace?: string
+      body_directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "query", key: "workspace" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InsightChatMigrationRunResponses,
+      InsightChatMigrationRunErrors,
+      ThrowOnError
+    >({
+      url: "/insight/chat-migration/run",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Insight extends HeyApiClient {
   private _sessions?: Sessions
   get sessions(): Sessions {
     return (this._sessions ??= new Sessions({ client: this.client }))
+  }
+
+  private _files?: Files
+  get files(): Files {
+    return (this._files ??= new Files({ client: this.client }))
+  }
+
+  private _chatMigration?: ChatMigration
+  get chatMigration(): ChatMigration {
+    return (this._chatMigration ??= new ChatMigration({ client: this.client }))
   }
 }
 
@@ -5628,6 +6245,11 @@ export class OpencodeClient extends HeyApiClient {
   private _artifact?: Artifact
   get artifact(): Artifact {
     return (this._artifact ??= new Artifact({ client: this.client }))
+  }
+
+  private _comment?: Comment
+  get comment(): Comment {
+    return (this._comment ??= new Comment({ client: this.client }))
   }
 
   private _config?: Config2

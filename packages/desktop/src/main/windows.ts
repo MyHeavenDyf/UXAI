@@ -3,15 +3,23 @@ import { app, BrowserWindow, net, nativeImage, nativeTheme, protocol, shell } fr
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { readFile } from "node:fs/promises"
-import { existsSync } from "node:fs"
+import { createReadStream, existsSync, statSync } from "node:fs"
 import {
   injectSandboxShim,
   injectEditBridgeStyle,
   injectEditBridge,
   injectInspectStyleBridge,
   injectPickerBridge,
+  injectCommentBridge,
+  injectResourceCollectorBridge,
+  injectSnapshotBridge,
+  injectCustomBridge,
+  decodeHtmlBytes,
 } from "@opencode-ai/core/bridge-scripts"
 import { annotateElementsWithIds } from "./bridge-scripts/annotate-node"
+import { extractSubtypeFromFilename } from "@opencode-ai/core/subtype-extractor"
+import { getBridgeConfigForSubtype } from "./bridge-config"
+import { getCustomBridge } from "./custom-bridge-registry"
 import type { TitlebarTheme } from "../preload/types"
 import { isApiPath, mockEnabled, handleMockApi } from "./mock"
 import { insightDebugLog } from "./logging"
@@ -21,6 +29,8 @@ const rendererRoot = join(root, "../renderer")
 const rendererProtocol = "oc"
 const rendererHost = "renderer"
 const clipboardWritePermission = "clipboard-sanitized-write"
+const apiBaseUrl = import.meta.env.VITE_OCTO_BASE_URL || process.env.VITE_OCTO_BASE_URL || "https://octo.hdesign.huawei.com"
+const webRequestAuthUrlPatterns = getWebRequestAuthUrlPatterns()
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -115,10 +125,10 @@ export function createMainWindow() {
     y: state.y,
     width: state.width,
     height: state.height,
-    minWidth: 1024,
+    minWidth: 600,
     minHeight: 576,
     show: false,
-    title: "Octo AI",
+    title: "Octo Agent",
     icon: iconPath(),
     backgroundColor,
     ...(process.platform === "darwin"
@@ -139,6 +149,8 @@ export function createMainWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webviewTag: true,
+      webSecurity: false
     },
   })
 
@@ -154,14 +166,37 @@ export function createMainWindow() {
     return { action: "deny" }
   })
 
-  win.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
-    const { requestHeaders } = details
+  win.webContents.session.webRequest.onBeforeSendHeaders({ urls: webRequestAuthUrlPatterns }, (details, callback) => {
+    const requestHeaders = details.requestHeaders
     upsertKeyValue(requestHeaders, "Access-Control-Allow-Origin", ["*"])
-    callback({ requestHeaders })
+    if (details.webContentsId !== win.webContents.id || !shouldInjectWebRequestAuth(details.resourceType)) {
+      callback({ requestHeaders })
+      return
+    }
+    upsertKeyValue(requestHeaders, "X-OCTO-AGENT", "1")
+    void localStorageAuth(win).then(
+      (auth) => {
+        if (auth.uiplusToken) {
+          upsertKeyValue(requestHeaders, "uiplustoken", auth.uiplusToken)
+        } else {
+          deleteKey(requestHeaders, "uiplustoken")
+        }
+        if (auth.uiplusCookie) {
+          upsertKeyValue(requestHeaders, "Cookie", auth.uiplusCookie)
+        } else {
+          deleteKey(requestHeaders, "Cookie")
+        }
+        callback({ requestHeaders })
+      },
+      () => callback({ requestHeaders }),
+    )
   })
 
   win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-    const { responseHeaders = {} } = details
+    const responseHeaders = details.responseHeaders ?? {}
+    if (details.webContentsId === win.webContents.id && shouldInjectWebRequestAuth(details.resourceType)) {
+      void writeLocalStorageAuth(win, responseAuth(responseHeaders)).then(undefined, () => {})
+    }
     upsertKeyValue(responseHeaders, "Access-Control-Allow-Origin", ["*"])
     upsertKeyValue(responseHeaders, "Access-Control-Allow-Headers", ["*"])
     callback({ responseHeaders })
@@ -218,6 +253,8 @@ export function createLoadingWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webviewTag: true,
+      webSecurity: false
     },
   })
 
@@ -250,8 +287,7 @@ export function registerRendererProtocol() {
         if (mockResponse) return mockResponse
       }
       // baseUrl 从 VITE_OCTO_BASE_URL 读取, 支持内网 beta/prod 不同域名; 原硬编码只指向公网默认域名
-      const baseUrl = import.meta.env.VITE_OCTO_BASE_URL || process.env.VITE_OCTO_BASE_URL || "https://octo.hdesign.huawei.com"
-      const realUrl = `${baseUrl}${url.pathname}${url.search}`
+      const realUrl = `${apiBaseUrl}${url.pathname}${url.search}`
       return net.fetch(realUrl, {
         method: request.method,
         headers: Object.fromEntries(request.headers.entries()),
@@ -266,6 +302,35 @@ export function registerRendererProtocol() {
 
     return net.fetch(pathToFileURL(file).toString())
   })
+}
+
+// 解析 HTTP Range 请求头:支持 "bytes=0-1023"、"bytes=0-"、"bytes=-1023"(后缀)。
+// 返回 null 表示不是合法 Range 请求,调用方按普通 200 处理。
+// 参考 RFC 7233 §2.1。
+function parseRangeHeader(range: string | null, totalSize: number): { start: number; end: number } | null {
+  if (!range || !range.startsWith("bytes=")) return null
+  const spec = range.slice(6).trim()
+  if (!spec) return null
+  const dashIdx = spec.indexOf("-")
+  if (dashIdx === -1) return null
+  const startStr = spec.slice(0, dashIdx)
+  const endStr = spec.slice(dashIdx + 1)
+
+  let start: number
+  let end: number
+  if (startStr === "") {
+    // 后缀范围 "bytes=-N":取最后 N 字节
+    const suffixLen = parseInt(endStr, 10)
+    if (Number.isNaN(suffixLen) || suffixLen <= 0) return null
+    start = Math.max(0, totalSize - suffixLen)
+    end = totalSize - 1
+  } else {
+    start = parseInt(startStr, 10)
+    end = endStr === "" ? totalSize - 1 : parseInt(endStr, 10)
+    if (Number.isNaN(start) || Number.isNaN(end)) return null
+    if (start < 0 || end < 0 || start > end || end >= totalSize) return null
+  }
+  return { start, end }
 }
 
 export function registerLocalProtocol() {
@@ -327,32 +392,105 @@ export function registerLocalProtocol() {
     const mimeType = mimeTypes[ext || ""] || "application/octet-stream"
 
     try {
-      const content = await readFile(absolutePath)
-      
-      // Inject bridge scripts for HTML files
+      // HTML 需读内容做 bridge 注入;其余文件走 net.fetch 流式(pathToFileURL → ReadableStream body),
+      // 避免 readFile 整份读 2.5GB OOM 主进程。渲染端 fetch('local://...').blob() 拿真字节 Blob,
+      // postMessage 结构化克隆只传 blob 引用不拷字节,iframe 拿到 size=2.5GB 的真 File。
       if (mimeType === "text/html" || mimeType === "text/htm") {
-        let htmlStr = new TextDecoder().decode(content)
+        const content = await readFile(absolutePath)
+        let htmlStr = decodeHtmlBytes(content)
+
+        const filename = absolutePath.split(/[/\\]/).pop() || ''
+        const subtype = extractSubtypeFromFilename(filename)
+        const bridgeConfig = getBridgeConfigForSubtype(subtype)
+
+        if (bridgeConfig.injectSandbox) {
+          htmlStr = injectSandboxShim(htmlStr)
+        }
         
-        // Inject bridge scripts in order (same as srcdoc-builder.ts)
-        htmlStr = injectSandboxShim(htmlStr)
-        htmlStr = annotateElementsWithIds(htmlStr)
-        htmlStr = injectEditBridgeStyle(htmlStr)
-        htmlStr = injectEditBridge(htmlStr)
-        htmlStr = injectInspectStyleBridge(htmlStr)
-        htmlStr = injectPickerBridge(htmlStr)
-        
+        if (bridgeConfig.injectAnnotate) {
+          htmlStr = annotateElementsWithIds(htmlStr)
+        }
+
+        if (bridgeConfig.injectPicker) {
+          htmlStr = injectPickerBridge(htmlStr)
+        }
+
+        if (bridgeConfig.injectInspect) {
+          htmlStr = injectInspectStyleBridge(htmlStr)
+        }
+
+        if (bridgeConfig.injectEdit) {
+          htmlStr = injectEditBridgeStyle(htmlStr)
+          htmlStr = injectEditBridge(htmlStr)
+        }
+
+        if (bridgeConfig.injectComment) {
+          htmlStr = injectCommentBridge(htmlStr)
+        }
+
+        if (bridgeConfig.injectSnapshot) {
+          htmlStr = injectSnapshotBridge(htmlStr)
+        }
+
+        if (bridgeConfig.injectResourceCollector) {
+          htmlStr = injectResourceCollectorBridge(htmlStr)
+        }
+
+        for (const bridgeId of bridgeConfig.customBridges) {
+          const customBridge = getCustomBridge(bridgeId)
+          if (customBridge) {
+            htmlStr = injectCustomBridge(htmlStr, customBridge.script, {
+              style: customBridge.style,
+              position: customBridge.position
+            })
+          } else {
+            console.warn(`[LocalProtocol] Custom bridge "${bridgeId}" not found`)
+          }
+        }
+
         return new Response(new TextEncoder().encode(htmlStr), {
           headers: {
-            "Content-Type": mimeType,
+            "Content-Type": "text/html; charset=utf-8",
             "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "no-store",
           },
         })
       }
-      
-      return new Response(content, {
+
+      // 媒体(<video>/<audio>)播放需要 Range 支持:Chromium 媒体管道会发
+      // Range: bytes=start-end,服务器必须返回 206 + Content-Range/Content-Length/Accept-Ranges。
+      // file:// 经 net.fetch 透传不带这些头,mp4/webm/mp3 无法播放(也无法 seek)。
+      // 这里手动解析 Range + createReadStream 读字节范围,大文件不爆内存。
+      const stat = statSync(absolutePath)
+      const range = parseRangeHeader(request.headers.get("Range"), stat.size)
+
+      if (range) {
+        const stream = createReadStream(absolutePath, { start: range.start, end: range.end })
+        return new Response(stream as unknown as BodyInit, {
+          status: 206,
+          headers: {
+            "Content-Type": mimeType,
+            "Content-Length": String(range.end - range.start + 1),
+            "Content-Range": `bytes ${range.start}-${range.end}/${stat.size}`,
+            "Accept-Ranges": "bytes",
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "no-store",
+          },
+        })
+      }
+
+      const upstream = await net.fetch(pathToFileURL(absolutePath).toString())
+      // 不透传 upstream.status:file:// 在某些 opaque 场景返回 status:0,
+      // new Response(body, { status: 0 }) 会抛 TypeError(status 必须 200–599)。
+      // 省略 status(默认 200),与原 readFile 路径行为一致。
+      // 加 Content-Length/Accept-Ranges 让客户端知道可以发 Range 请求(媒体 / 大文件流式)。
+      return new Response(upstream.body, {
         headers: {
           "Content-Type": mimeType,
+          "Content-Length": String(stat.size),
+          "Accept-Ranges": "bytes",
           "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "no-store",
         },
       })
     } catch (err) {
@@ -404,6 +542,93 @@ function wireZoom(win: BrowserWindow) {
   })
 }
 
+function getWebRequestAuthUrlPatterns() {
+  const configured = String(process.env.OCTO_AUTH_INJECT_URLS || import.meta.env.VITE_OCTO_AUTH_INJECT_URLS || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+  if (configured.length > 0) return configured
+  if (!URL.canParse(apiBaseUrl)) return ["http://*/*", "https://*/*"]
+  return [`http://*.${new URL(apiBaseUrl).host.split('.').slice(1).join('.')}/*`, `https://*.${new URL(apiBaseUrl).host.split('.').slice(1).join('.')}/*`]
+}
+
+function shouldInjectWebRequestAuth(resourceType: string) {
+  return resourceType === "xhr" || resourceType === "other" || resourceType === "webSocket"
+}
+
+async function localStorageAuth(win: BrowserWindow) {
+  const value = await win.webContents.executeJavaScript(
+    `({
+      uiplusToken: localStorage.getItem("uiplusToken"),
+      uiplusCookie: localStorage.getItem("uiplusCookie"),
+    })`,
+    true,
+  )
+  if (!isLocalStorageAuth(value)) return { uiplusToken: null, uiplusCookie: null }
+  return {
+    uiplusToken: value.uiplusToken?.trim() || null,
+    uiplusCookie: value.uiplusCookie?.trim() || null,
+  }
+}
+
+function isLocalStorageAuth(value: unknown): value is { uiplusToken?: string | null; uiplusCookie?: string | null } {
+  if (!value || typeof value !== "object") return false
+  const auth = value as Record<string, unknown>
+  return (
+    (typeof auth.uiplusToken === "string" || auth.uiplusToken === null || auth.uiplusToken === undefined) &&
+    (typeof auth.uiplusCookie === "string" || auth.uiplusCookie === null || auth.uiplusCookie === undefined)
+  )
+}
+
+function responseAuth(headers: Record<string, string | string[]>) {
+  return {
+    uiplusToken: firstHeaderValue(headers, "uiplusToken")?.trim() || null,
+    uiplusCookie: cookieHeaderValue(headers, "set-cookie"),
+  }
+}
+
+async function writeLocalStorageAuth(win: BrowserWindow, auth: { uiplusToken: string | null; uiplusCookie: string | null }) {
+  if (!auth.uiplusToken && !auth.uiplusCookie) return
+  await win.webContents.executeJavaScript(
+    `{
+      ${auth.uiplusToken ? `localStorage.setItem("uiplusToken", ${JSON.stringify(auth.uiplusToken)});` : ""}
+      ${(auth.uiplusCookie && auth.uiplusCookie.indexOf("ucd.designcloud") !== -1) ? `localStorage.setItem("uiplusCookie", ${JSON.stringify(auth.uiplusCookie)});` : ""}
+    }`,
+    true,
+  )
+}
+
+function firstHeaderValue(headers: Record<string, string | string[]>, name: string) {
+  return headerValues(headers, name)[0] ?? null
+}
+
+function cookieHeaderValue(headers: Record<string, string | string[]>, name: string) {
+  return headerValues(headers, name)
+    .flatMap((item) => item.split(/,(?=\s*[^;,\s]+=)/))
+    .map((item) => item.split(";")[0]?.trim())
+    .filter((item) => item)
+    .join("; ")
+}
+
+function headerValues(headers: Record<string, string | string[]>, name: string) {
+  const key = Object.keys(headers).find((item) => item.toLowerCase() === name.toLowerCase())
+  if (!key) return []
+  return (Array.isArray(headers[key]) ? headers[key] : [headers[key]])
+    .flatMap((item) => expandHeaderValue(item))
+}
+
+function expandHeaderValue(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) return [value]
+  try {
+    const parsed = JSON.parse(trimmed) as unknown
+    if (!Array.isArray(parsed)) return [value]
+    return parsed.filter((item): item is string => typeof item === "string")
+  } catch {
+    return [value]
+  }
+}
+
 function upsertKeyValue(obj: Record<string, any>, keyToChange: string, value: any) {
   const keyToChangeLower = keyToChange.toLowerCase()
   for (const key of Object.keys(obj)) {
@@ -416,4 +641,11 @@ function upsertKeyValue(obj: Record<string, any>, keyToChange: string, value: an
   }
   // Insert at end instead
   obj[keyToChange] = value
+}
+
+function deleteKey(obj: Record<string, any>, keyToDelete: string) {
+  const keyToDeleteLower = keyToDelete.toLowerCase()
+  Object.keys(obj)
+    .filter((key) => key.toLowerCase() === keyToDeleteLower)
+    .forEach((key) => delete obj[key])
 }

@@ -57,14 +57,20 @@ const api: ElectronAPI = {
   saveFilePicker: (opts) => ipcRenderer.invoke("save-file-picker", opts),
   openLink: (url) => ipcRenderer.send("open-link", url),
   openPath: (path, app) => ipcRenderer.invoke("open-path", path, app),
-  showItemInFolder: (path) => ipcRenderer.send("show-item-in-folder", path),
+  showItemInFolder: (path) => ipcRenderer.invoke("show-item-in-folder", path),
   downloadResource: (url, destPath) => ipcRenderer.invoke("download-resource", url, destPath),
+  // office「下载」按钮:解析资源已落地的本地副本(不拉网络,缺失返回 null)+ 把本地副本拷到用户选定路径(fs.copyFile)。
+  resolveMaterializedPath: (namespace, baseDir, sessionId) =>
+    ipcRenderer.invoke("resolve-materialized-path", namespace, baseDir, sessionId),
+  copyFileTo: (srcPath, destPath) => ipcRenderer.invoke("copy-file-to", srcPath, destPath),
+  copyFileToSessionUploads: (srcPath, baseDir, sessionId, subPath, filename) =>
+    ipcRenderer.invoke("copy-file-to-session-uploads", srcPath, baseDir, sessionId, subPath, filename),
   downloadResourceToTemp: (url, namespace, filename, baseDir, sessionId) =>
     ipcRenderer.invoke("download-resource-to-temp", url, namespace, filename, baseDir, sessionId),
-  // SPEC-INS-014 v2(会话隔离):把源文件拷贝进 <baseDir>/insight/uploads/(预会话落地区,主进程 fs.copyFile);返回落地路径。
+  // SPEC-INS-014 v2(会话隔离):把源文件拷贝进 <baseDir>/.octo/tmps/(预会话落地区,主进程 fs.copyFile);返回落地路径。
   copyFileToWorktree: (srcPath, baseDir, filename) =>
     ipcRenderer.invoke("copy-file-to-worktree", srcPath, baseDir, filename),
-  // SPEC-INS-014 §4.1.2(v2 新增):发送时把 insight/uploads/ 里的附件 rename 进 <baseDir>/insight/<sessionId>/uploads/。
+  // SPEC-INS-014 §4.1.2(v2 新增):发送时把 .octo/tmps/ 里的附件 rename 进 <baseDir>/.octo/<sessionId>/uploads/。
   movePendingUploadToSession: (srcPath, baseDir, sessionId) =>
     ipcRenderer.invoke("move-pending-upload-to-session", srcPath, baseDir, sessionId),
   // Electron 32+ 已移除 File.path —— 用 webUtils.getPathForFile 拿拖拽/选取文件的真实本地路径。
@@ -84,24 +90,40 @@ const api: ElectronAPI = {
   runUpdater: (alertOnFail) => ipcRenderer.invoke("run-updater", alertOnFail),
   checkUpdate: () => ipcRenderer.invoke("check-update"),
   installUpdate: () => ipcRenderer.invoke("install-update"),
+  onUpdateDownloadProgress: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, percent: number) => callback(percent)
+    ipcRenderer.on("update-download-progress", handler)
+    return () => ipcRenderer.removeListener("update-download-progress", handler)
+  },
+  onResume: (callback) => {
+    ipcRenderer.on("power-resume", callback)
+    return () => ipcRenderer.removeListener("power-resume", callback)
+  },
   setBackgroundColor: (color: string) => ipcRenderer.invoke("set-background-color", color),
   getSkillsConfig: () => ipcRenderer.invoke("get-skills-config"),
   setSkillsConfig: (config) => ipcRenderer.invoke("set-skills-config", config),
+  getSkillConfig: () => ipcRenderer.invoke("get-skill-config"),
   // jk-j60099994-replace-with-60062650-preload-index-1-start
-  getSkillContent: (skillName) => ipcRenderer.invoke("get-skill-content", skillName),
   // jk-j60099994-replace-with-60062650-preload-index-1-end
+  getSkillContent: (skillName) => ipcRenderer.invoke("get-skill-content", skillName),
   addSkill: (sourcePath) => ipcRenderer.invoke("add-skill", sourcePath),
+  ensureSkillConfig: () => ipcRenderer.invoke("ensure-skill-config"),
   openSkillFolder: () => ipcRenderer.invoke("open-skill-folder"),
   htmlToPdf: (html) => ipcRenderer.invoke("html-to-pdf", html),
   writeFileBuffer: (path, buffer) => ipcRenderer.invoke("write-file-buffer", path, buffer),
   saveUploadImage: (buffer, sessionId) => ipcRenderer.invoke("save-upload-image", buffer, sessionId),
+  savePrototypeImage: (buffer, dir) => ipcRenderer.invoke("save-prototype-image", buffer, dir),
   getUploadsDir: () => ipcRenderer.invoke("get-uploads-dir"),
   setUploadsDir: (dir) => ipcRenderer.invoke("set-uploads-dir", dir),
   writeFile: (path, content) => ipcRenderer.invoke("write-file", path, content),
   readFileBuffer: (path) => ipcRenderer.invoke("read-file-buffer", path),
+  statFile: (path) => ipcRenderer.invoke("stat-file", path),
+  fileExists: (path) => ipcRenderer.invoke("file-exists", path),
   deleteFile: (path) => ipcRenderer.invoke("delete-file", path),
+  renameFile: (srcPath, destPath) => ipcRenderer.invoke("rename-file", srcPath, destPath),
   writeClipboardText: (text) => ipcRenderer.invoke("write-clipboard-text", text),
   capturePreviewRect: (rect) => ipcRenderer.invoke("capture-preview-rect", rect),
+  capturePreviewPage: (opts) => ipcRenderer.invoke("capture-preview-page", opts),
   tailwindToCss: (className) => ipcRenderer.invoke("tailwind-to-css", className),
   cssToTailwind: (cssObject) => ipcRenderer.invoke("css-to-tailwind", cssObject),
   getPreviewDistDir: () => ipcRenderer.invoke("get-preview-dist-dir"),
@@ -110,14 +132,20 @@ const api: ElectronAPI = {
   getPatternPreview: (category, filename, theme) => ipcRenderer.invoke("get-pattern-preview", category, filename, theme),
   getPatternAssets: (category, folderName, theme) => ipcRenderer.invoke("get-pattern-assets", category, folderName, theme),
   getDesignSystems: () => ipcRenderer.invoke("get-design-systems"),
-  downloadHuiCode: (jsonData) => ipcRenderer.invoke("download-hui-code", jsonData),
+  downloadHuiCode: (jsonData, options?: { targetLib?: string }) => ipcRenderer.invoke("download-hui-code", jsonData, options),
   runPixsoBuild: (input) => ipcRenderer.invoke("run-pixso-build", input),
+  getTopixsoDir: () => ipcRenderer.invoke("get-topixso-dir"),
   exportZip: (opts) => ipcRenderer.invoke("export-zip", opts),
   importZip: () => ipcRenderer.invoke("import-zip"),
+  codeToHtml: (opts) => ipcRenderer.invoke("capture-page", opts),
+  listDirectory: (path) => ipcRenderer.invoke("list-directory", path),
   // Pipeline API IPC bridge — renderer 内网调用时通过此通道请求主进程 net.fetch(绕 CORS)
   pipelineRequest: (url, method, uiplusToken, body, headers) => ipcRenderer.invoke("pipeline-request", url, method, uiplusToken, body, headers),
+  getAssetsConfig: () => ipcRenderer.invoke("get-assets-config"),
   // jk-j60099994-replace-with-index-1-start
   // jk-j60099994-replace-with-index-1-end
+  getProxyConfig: () => ipcRenderer.invoke("get-proxy-config"),
+  configureProxy: (account, password, noProxy, proxyHost, proxyOptionId) => ipcRenderer.invoke("configure-proxy", account, password, noProxy, proxyHost, proxyOptionId),
 }
 
 contextBridge.exposeInMainWorld("api", api)

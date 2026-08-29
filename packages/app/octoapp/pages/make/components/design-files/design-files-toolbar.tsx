@@ -27,6 +27,9 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
   const [filterOpen, setFilterOpen] = createSignal(false)
 
   const hasSelection = createMemo(() => props.fileStore.store.selected.size > 0)
+  const deletableCount = createMemo(() => props.fileStore.selectedUploadedFiles().length)
+  const selectedGeneratedCount = createMemo(() => props.fileStore.store.selected.size - deletableCount())
+  const canDelete = createMemo(() => deletableCount() > 0 && selectedGeneratedCount() === 0)
 
   const filterButtonText = createMemo(() => {
     const filterSize = props.fileStore.store.kindFilter.size
@@ -67,10 +70,10 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
 
   return (
     <div
-      class="flex items-center justify-between px-4 py-2 shrink-0"
+      class="design-files-toolbar flex items-center justify-between flex-wrap px-6 py-3 shrink-0 gap-y-2"
       style={{ "border-bottom": "1px solid rgba(0, 0, 0, 0.1)" }}
     >
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 min-w-0 shrink">
         <button
           type="button"
           onClick={() => {
@@ -78,7 +81,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
             tracker.interaction({ module: "design", name: "files-refresh" })
           }}
           disabled={props.fileStore.store.loading}
-          class="p-1.5 rounded-md hover:bg-surface-base-hover transition-colors"
+          class="flex items-center justify-center p-0 bg-transparent transition-colors cursor-pointer active:text-[#0a59f7]"
           title="Refresh"
         >
           <Show when={props.fileStore.store.loading} fallback={<IconRefresh size={16} />}>
@@ -86,7 +89,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
           </Show>
         </button>
 
-        <div class="shrink-0" style={{ width: "1px", height: "10px", "border-radius": "9px", background: "#c9c9c9", margin: "0 8px" }} />
+        <div class="shrink-0 toolbar-divider" style={{ width: "1px", height: "10px", "border-radius": "9px", background: "#c9c9c9", margin: "0 8px" }} />
 
         <div
           class="flex items-center"
@@ -108,7 +111,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
               props.fileStore.setGroupMode("kind")
               tracker.interaction({ module: "design", name: "files-group-mode", extend: JSON.stringify({ mode: "kind" }) })
             }}
-            class="transition-colors"
+            class="transition-colors toolbar-group-toggle"
             style={{
               "min-width": "88px",
               height: "28px",
@@ -130,7 +133,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
               props.fileStore.setGroupMode("modified")
               tracker.interaction({ module: "design", name: "files-group-mode", extend: JSON.stringify({ mode: "modified" }) })
             }}
-            class="transition-colors"
+            class="transition-colors toolbar-group-toggle"
             style={{
               "min-width": "88px",
               height: "28px",
@@ -148,7 +151,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
           </button>
         </div>
 
-        <div class="shrink-0" style={{ width: "1px", height: "10px", "border-radius": "9px", background: "#c9c9c9", margin: "0 8px" }} />
+        <div class="shrink-0 toolbar-divider" style={{ width: "1px", height: "10px", "border-radius": "9px", background: "#c9c9c9", margin: "0 8px" }} />
 
         <Kobalte open={filterOpen()} onOpenChange={setFilterOpen} modal={false} placement="bottom-start" gutter={4}>
           <Kobalte.Trigger
@@ -158,7 +161,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
             style={{ "font-size": "14px", "line-height": "22px", cursor: "pointer" }}
           >
             <IconFilter size={16} />
-            <span>{filterButtonText()}</span>
+            <span class="toolbar-btn-text">{filterButtonText()}</span>
           </Kobalte.Trigger>
           <Kobalte.Portal>
             <Kobalte.Content
@@ -220,7 +223,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
         </Kobalte>
       </div>
 
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 min-w-0 flex-wrap">
         <Show when={hasSelection()}>
           <button
             type="button"
@@ -229,15 +232,22 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
             style={{ "font-size": "14px", "line-height": "22px" }}
           >
             <IconDownload size={16} />
-            <span>{language.t("designFiles.download")}</span>
+            <span class="toolbar-btn-text">{language.t("designFiles.download")}</span>
           </button>
           <button
             type="button"
-            onClick={props.onBatchDelete}
-            class="flex items-center gap-1 px-2 py-1 rounded transition-colors text-text-diff-delete-base cursor-pointer"
-            style={{ "font-size": "14px", "line-height": "22px" }}
+            onClick={canDelete() ? props.onBatchDelete : undefined}
+            disabled={!canDelete()}
+            class="flex items-center gap-1 px-2 py-1 rounded transition-colors"
+            style={{ 
+              "font-size": "14px", 
+              "line-height": "22px",
+              color: canDelete() ? undefined : "#C9C9C9",
+              cursor: canDelete() ? "pointer" : "not-allowed"
+            }}
+            title={!canDelete() ? "当前仅支持删除上传文件" : undefined}
           >
-            <span>{language.t("designFiles.batchDelete")}</span>
+            <span class="toolbar-btn-text">{language.t("designFiles.batchDelete")}</span>
           </button>
         </Show>
 
@@ -256,7 +266,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
             title={language.t("designFiles.upload")}
           >
             <IconUpload size={16} />
-            <span>{language.t("designFiles.upload")}</span>
+            <span class="toolbar-btn-text">{language.t("designFiles.upload")}</span>
           </Kobalte.Trigger>
           <Kobalte.Portal>
             <Kobalte.Content
@@ -266,7 +276,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
               <button
                 type="button"
                 onClick={() => { props.onUploadFolder(); setUploadOpen(false) }}
-                class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)] cursor-pointer"
                 style={{
                   height: "36px",
                   "border-radius": "6px",
@@ -281,7 +291,7 @@ export function DesignFilesToolbar(props: ToolbarProps): JSX.Element {
               <button
                 type="button"
                 onClick={() => { props.onUploadFile(); setUploadOpen(false) }}
-                class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)]"
+                class="w-full px-2 text-left transition-colors flex items-center gap-1 hover:bg-[rgba(0,0,0,0.1)] active:bg-[rgba(0,0,0,0.15)] cursor-pointer"
                 style={{
                   height: "36px",
                   "border-radius": "6px",

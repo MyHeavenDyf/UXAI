@@ -1,14 +1,15 @@
 import { randomUUID } from "node:crypto"
 import { EventEmitter } from "node:events"
-import { existsSync, mkdirSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
 import * as http from "node:http"
 import { createServer } from "node:net"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { DownloadItem, Event, WebContents } from "electron"
-import { app, BrowserWindow, dialog, session } from "electron"
+import { app, BrowserWindow, dialog, powerMonitor, session } from "electron"
 import pkg from "electron-updater"
+import semver from "semver"
 import {shellPath} from "shell-path"
 
 import contextMenu from "electron-context-menu"
@@ -52,6 +53,8 @@ import { checkAppExists, resolveAppPath, wslPath } from "./apps"
 import { CHANNEL, UPDATER_ENABLED } from "./constants"
 // jk-j60099994-replace-with-index-1-start
 // jk-j60099994-replace-with-index-1-end
+// jk-j60099994-replace-with-60062650-desktop-main-index-3-start
+// jk-j60099994-replace-with-60062650-desktop-main-index-3-end
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
@@ -67,6 +70,13 @@ import {
   type SidecarListener,
 } from "./server"
 import {
+  createAppDataFallbackStorage,
+  persistAppDataFallback,
+  resolveDesktopStorage,
+  shouldRetryWithAppDataFallback,
+  type DesktopStorage,
+} from "./storage"
+import {
   createLoadingWindow,
   createMainWindow,
   registerLocalProtocol,
@@ -74,7 +84,7 @@ import {
   setBackgroundColor,
   setDockIcon,
 } from "./windows"
-import { migrate, migrateAppId, deploySkillsJson, deployBuiltinSkills, deployProtoTools, deployRipgrep } from "./migrate"
+import { migrate, migrateAppId, deploySkillsJson, deployBuiltinSkills, deployProtoTools, deployResourceLibraryScripts, deployRipgrep } from "./migrate"
 
 const initEmitter = new EventEmitter()
 let initStep: InitStep = { phase: "server_waiting" }
@@ -144,6 +154,9 @@ function setupApp() {
 
   preferAppEnv(app.getPath("userData"))
 
+  // macOS shell 探测可能覆盖 proxy 环境变量,补注一次确保 Node.js HTTP agent 读到代理
+  useEnvProxy()
+
   app.on("second-instance", (_event: Event, argv: string[]) => {
     const urls = argv.filter((arg: string) => arg.startsWith("opencode://"))
     if (urls.length) {
@@ -160,6 +173,8 @@ function setupApp() {
   })
 
   app.on("before-quit", () => {
+  // jk-j60099994-replace-with-index-3-start
+  // jk-j60099994-replace-with-index-3-end
     void killSidecar()
   })
 
@@ -175,7 +190,7 @@ function setupApp() {
 
   void app.whenReady().then(async () => {
     await session.defaultSession.setProxy({
-      mode: "direct"
+      mode: "system"
     });
     setupDownloadInterceptor()
     if (!TEST_ONBOARDING) {
@@ -184,6 +199,7 @@ function setupApp() {
       deploySkillsJson()
       deployBuiltinSkills()
       deployProtoTools()
+      await deployResourceLibraryScripts()
       deployRipgrep()
     }
     app.setAsDefaultProtocolClient("opencode")
@@ -192,6 +208,9 @@ function setupApp() {
     setDockIcon()
     startPreviewServer()
     setupAutoUpdater()
+    powerMonitor.on("resume", () => {
+      BrowserWindow.getAllWindows().forEach((win) => win.webContents.send("power-resume"))
+    })
     await initialize()
   })
 }
@@ -210,6 +229,22 @@ function useEnvProxy() {
     ;(http as any).setGlobalProxyFromEnv()
   } catch (error) {
     logger.warn("failed to load proxy environment", error)
+  }
+
+  // 从 ~/.config/octo/proxy_config.json 读取代理配置并注入环境变量
+  try {
+    const configFile = join(homedir(), ".config", "octo", "proxy_config.json")
+    if (existsSync(configFile)) {
+      const config = JSON.parse(readFileSync(configFile, "utf-8"))
+      for (const key of ["http_proxy", "https_proxy", "no_proxy"]) {
+        const value = config[key]
+        if (!value) continue
+        process.env[key] = value
+        process.env[key.toUpperCase()] = value
+      }
+    }
+  } catch (error) {
+    logger.warn("failed to load octo proxy config", error)
   }
 }
 
@@ -232,7 +267,9 @@ function setInitStep(step: InitStep) {
 }
 
 async function initialize() {
-  const needsMigration = !sqliteFileExists()
+  const userDataPath = app.getPath("userData")
+  const initialStorage = resolveDesktopStorage(userDataPath)
+  const needsMigration = !sqliteFileExists(initialStorage)
   let overlay: BrowserWindow | null = null
 
   const port = await getSidecarPort()
@@ -249,24 +286,38 @@ async function initialize() {
       if (mainWindow) sendSqliteMigrationProgress(mainWindow, progress)
     })
 
-    logger.log("spawning sidecar", { url })
-    const { listener, health } = await spawnLocalServer(
-      hostname,
-      port,
-      password,
-      () => {
-        ensureLoopbackNoProxy()
-        useEnvProxy()
-      },
-      {
-        needsMigration,
-        userDataPath: app.getPath("userData"),
-        onSqliteProgress: (progress) => initEmitter.emit("sqlite", progress),
-        onStdout: (message) => logger.log("sidecar stdout", { message }),
-        onStderr: (message) => logger.warn("sidecar stderr", { message }),
-        onExit: (code) => logger.warn("sidecar exited", { code }),
-      },
-    )
+    logger.log("spawning sidecar", { url, storageMode: initialStorage.mode, storageReason: initialStorage.reason })
+    const startSidecar = (storage: DesktopStorage) =>
+      spawnLocalServer(
+        hostname,
+        port,
+        password,
+        () => {
+          ensureLoopbackNoProxy()
+          useEnvProxy()
+        },
+        {
+          needsMigration: !sqliteFileExists(storage),
+          storage,
+          userDataPath,
+          onSqliteProgress: (progress) => initEmitter.emit("sqlite", progress),
+          onStdout: (message) => logger.log("sidecar stdout", { message }),
+          onStderr: (message) => logger.warn("sidecar stderr", { message }),
+          onExit: (code) => logger.warn("sidecar exited", { code }),
+        },
+      )
+
+    const { listener, health } = await startSidecar(initialStorage).catch((error) => {
+      if (!shouldRetryWithAppDataFallback(error, initialStorage)) throw error
+
+      persistAppDataFallback()
+      const fallbackStorage = createAppDataFallbackStorage(userDataPath, serializeError(error).message)
+      logger.warn("retrying sidecar with app data storage", {
+        storageMode: fallbackStorage.mode,
+        storageReason: fallbackStorage.reason,
+      })
+      return startSidecar(fallbackStorage)
+    })
     server = listener
     serverReady.resolve({
       url,
@@ -308,6 +359,10 @@ async function initialize() {
     app.exit(1)
     return
   }
+
+  // jk-j60099994-replace-with-60062650-desktop-main-index-2-start
+  // jk-j60099994-replace-with-60062650-desktop-main-index-2-end
+  
   setInitStep({ phase: "done" })
 
   if (overlay) {
@@ -322,8 +377,7 @@ async function initialize() {
 
   mainWindow = createMainWindow()
   wireMenu()
-  // jk-j60099994-replace-with-index-3-start
-  // jk-j60099994-replace-with-index-3-end
+
 
   overlay?.close()
 }
@@ -379,6 +433,8 @@ registerIpcHandlers({
   setBackgroundColor: (color) => setBackgroundColor(color),
   // jk-j60099994-replace-with-index-2-start
   // jk-j60099994-replace-with-index-2-end
+  // jk-j60099994-replace-with-60062650-desktop-main-index-1-start
+  // jk-j60099994-replace-with-60062650-desktop-main-index-1-end
 })
 
 async function killSidecar() {
@@ -431,12 +487,15 @@ async function getSidecarPort() {
   })
 }
 
-function sqliteFileExists() {
+function sqliteFileExists(storage: DesktopStorage) {
   if (process.env.OCTO_DB === ":memory:") return true
+  if (storage.databasePath === ":memory:") return true
+  return existsSync(storage.databasePath)
+}
 
-  const xdg = process.env.XDG_DATA_HOME
-  const base = xdg && xdg.length > 0 ? xdg : join(homedir(), ".local", "share")
-  return existsSync(join(base, "opencode", "opencode.db"))
+function serializeError(error: unknown) {
+  if (error instanceof Error) return { message: error.message, stack: error.stack }
+  return { message: String(error) }
 }
 
 function setupAutoUpdater() {
@@ -444,9 +503,12 @@ function setupAutoUpdater() {
   autoUpdater.logger = logger
   autoUpdater.channel = "latest"
   autoUpdater.allowPrerelease = false
-  autoUpdater.allowDowngrade = true
+  autoUpdater.allowDowngrade = false
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
+  autoUpdater.on("download-progress", (progress) => {
+    BrowserWindow.getAllWindows().forEach((win) => win.webContents.send("update-download-progress", progress.percent))
+  })
   logger.log("auto updater configured", {
     channel: autoUpdater.channel,
     allowPrerelease: autoUpdater.allowPrerelease,
@@ -455,9 +517,16 @@ function setupAutoUpdater() {
   })
 }
 
+let availableUpdateVersion: string | undefined
 let downloadedUpdateVersion: string | undefined
 
-async function checkUpdate() {
+async function downloadUpdate(version: string) {
+  await autoUpdater.downloadUpdate()
+  logger.log("update download completed", { version })
+  downloadedUpdateVersion = version
+}
+
+async function checkUpdate(download = false) {
   if (!UPDATER_ENABLED) return { updateAvailable: false }
   if (downloadedUpdateVersion) {
     logger.log("returning cached downloaded update", {
@@ -481,16 +550,24 @@ async function checkUpdate() {
       files: updateInfo?.files?.map((file) => file.url) ?? [],
     })
     const version = result?.updateInfo?.version
-    if (result?.isUpdateAvailable === false || !version) {
+    if (
+      result?.isUpdateAvailable === false ||
+      !version ||
+      !semver.valid(version) ||
+      !semver.gt(version, app.getVersion())
+    ) {
       logger.log("no update available", {
-        reason: "provider returned no newer version",
+        reason: "release version is not newer than current version",
+        currentVersion: app.getVersion(),
+        releaseVersion: version ?? null,
       })
       return { updateAvailable: false }
     }
     logger.log("update available", { version })
-    await autoUpdater.downloadUpdate()
-    logger.log("update download completed", { version })
-    downloadedUpdateVersion = version
+    availableUpdateVersion = version
+    if (download) {
+      await downloadUpdate(version)
+    }
     return { updateAvailable: true, version }
   } catch (error) {
     logger.error("update check failed", error)
@@ -499,6 +576,10 @@ async function checkUpdate() {
 }
 
 async function installUpdate() {
+  if (!downloadedUpdateVersion && availableUpdateVersion) {
+    logger.log("downloading update before install", { version: availableUpdateVersion })
+    await downloadUpdate(availableUpdateVersion)
+  }
   if (!downloadedUpdateVersion) {
     logger.log("install update skipped", {
       reason: "no downloaded update ready",
@@ -515,7 +596,7 @@ async function installUpdate() {
 async function checkForUpdates(alertOnFail: boolean) {
   if (!UPDATER_ENABLED) return
   logger.log("checkForUpdates invoked", { alertOnFail })
-  const result = await checkUpdate()
+  const result = await checkUpdate(true)
   if (!result.updateAvailable) {
     if (result.failed) {
       logger.log("no update decision", { reason: "update check failed" })

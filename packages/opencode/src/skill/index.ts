@@ -7,16 +7,17 @@ import { withStatics } from "@/util/schema"
 import { NamedError } from "@opencode-ai/core/util/error"
 import type { Agent } from "@/agent/agent"
 import { Bus } from "@/bus"
-import { BusEvent } from "@/bus/bus-event"
 import { InstanceState } from "@/effect/instance-state"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Global } from "@opencode-ai/core/global"
 import { Permission } from "@/permission"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Config } from "@/config/config"
+import { Ripgrep } from "@/file/ripgrep"
 import { ConfigMarkdown } from "@/config/markdown"
 import { Glob } from "@opencode-ai/core/util/glob"
 import * as Log from "@opencode-ai/core/util/log"
+import * as Stream from "effect/Stream"
 import { Discovery } from "./discovery"
 
 const log = Log.create({ service: "skill" })
@@ -25,6 +26,12 @@ const AGENTS_EXTERNAL_DIR = ".agents"
 const EXTERNAL_SKILL_PATTERN = "skills/**/SKILL.md"
 const OPENCODE_SKILL_PATTERN = "{skill,skills}/**/SKILL.md"
 const SKILL_PATTERN = "**/SKILL.md"
+
+// Agent skill mapping: agents not listed in skill_config.json can inherit skill mappings from another agent.
+// Key: agent name pattern (supports "*" suffix for prefix match, e.g. "proto_*"), Value: target agent name to inherit from.
+const AGENT_SKILL_ALIASES: Record<string, string> = {
+  "proto_*": "octo_make",
+}
 
 export const Info = Schema.Struct({
   name: Schema.String,
@@ -55,6 +62,7 @@ export const NameMismatchError = NamedError.create(
 
 type State = {
   skills: Record<string, Info>
+  skillDirMap: Record<string, string> // skillName -> skillDir
   dirs: Set<string>
 }
 
@@ -62,6 +70,7 @@ type DiscoveryState = {
   matches: string[]
   dirs: string[]
   typeMap: Record<string, string>
+  agentConfig: Record<string, string[]>
 }
 
 type ScanState = {
@@ -73,6 +82,7 @@ export interface Interface {
   readonly get: (name: string) => Effect.Effect<Info | undefined>
   readonly getMany: (names: string[]) => Effect.Effect<Info[]>
   readonly all: () => Effect.Effect<Info[]>
+  readonly files: (info: Info, options?: { signal?: AbortSignal }) => Effect.Effect<string[]>
   readonly dirs: () => Effect.Effect<string[]>
   readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
   readonly refresh: () => Effect.Effect<void>
@@ -118,6 +128,7 @@ const add = Effect.fnUntraced(function* (state: State, match: string, bus: Bus.I
     content: md.content,
     type: typeMap?.[skillDir],
   }
+  state.skillDirMap[parsed.data.name] = skillDir
 })
 
 const scan = Effect.fnUntraced(function* (
@@ -211,33 +222,80 @@ const discoverSkills = Effect.fnUntraced(function* (
     }
   }
 
-  // Filter skills based on ~/.config/octo/skills.json
+  // Filter skills based on ~/.config/octo/skill_config.json, fallback to skills.json
   let matches = Array.from(state.matches)
-  const skillConfigPath = path.join(global.octoConfig, "skills.json")
+  let agentConfig: Record<string, string[]> = {}
+  const skillConfigPath = path.join(global.octoConfig, "skill_config.json")
   const skillConfig = yield* Effect.tryPromise({
     try: () =>
       import("fs/promises").then((fs) =>
-        fs.readFile(skillConfigPath, "utf-8").then((text) => JSON.parse(text) as Record<string, { description?: string; import?: boolean; type?: string }>),
+        fs.readFile(skillConfigPath, "utf-8").then((text) => {
+          const parsed = JSON.parse(text) as {
+            skill?: Record<string, { description?: string; import?: boolean; type?: string }>
+            agent?: Record<string, string[]>
+          }
+          return parsed
+        }),
       ),
     catch: () => null,
   }).pipe(Effect.catch(() => Effect.succeed(null)))
   const typeMap: Record<string, string> = {}
   if (skillConfig && typeof skillConfig === "object") {
-    matches = matches.filter((match) => {
-      const skillDir = path.basename(path.dirname(match))
-      const entry = skillConfig[skillDir]
-      if (entry && typeof entry === "object") {
-        if (entry.type) typeMap[skillDir] = entry.type
-        return entry.import !== false
+    agentConfig = skillConfig.agent ?? {}
+    const skillData = skillConfig.skill
+    if (skillData && typeof skillData === "object") {
+      matches = matches.filter((match) => {
+        const skillDir = path.basename(path.dirname(match))
+        const entry = skillData[skillDir]
+        if (entry && typeof entry === "object") {
+          if (entry.type) typeMap[skillDir] = entry.type
+          return entry.import !== false
+        }
+        return true
+      })
+    }
+  } else {
+    // Fallback: read skills.json for backward compatibility
+    const legacyPath = path.join(global.octoConfig, "skills.json")
+    const legacyConfig = yield* Effect.tryPromise({
+      try: () =>
+        import("fs/promises").then((fs) =>
+          fs.readFile(legacyPath, "utf-8").then((text) => JSON.parse(text) as Record<string, { description?: string; import?: boolean; type?: string }>),
+        ),
+      catch: () => null,
+    }).pipe(Effect.catch(() => Effect.succeed(null)))
+    if (legacyConfig && typeof legacyConfig === "object") {
+      matches = matches.filter((match) => {
+        const skillDir = path.basename(path.dirname(match))
+        const entry = legacyConfig[skillDir]
+        if (entry && typeof entry === "object") {
+          if (entry.type) typeMap[skillDir] = entry.type
+          return entry.import !== false
+        }
+        return true
+      })
+      // Build agentConfig from legacy type field
+      for (const [name, entry] of Object.entries(legacyConfig)) {
+        if (entry.import === false) continue
+        const t = entry.type || "common"
+        if (t === "common") {
+          for (const key of ["octo_insight", "octo_make", "octo_studio"]) {
+            agentConfig[key] = agentConfig[key] ?? []
+            agentConfig[key].push(name)
+          }
+        } else if (["octo_insight", "octo_make", "octo_studio"].includes(t)) {
+          agentConfig[t] = agentConfig[t] ?? []
+          agentConfig[t].push(name)
+        }
       }
-      return true
-    })
+    }
   }
 
   return {
     matches,
     dirs: Array.from(state.dirs),
     typeMap,
+    agentConfig,
   }
 })
 
@@ -260,6 +318,7 @@ export const layer = Layer.effect(
     const bus = yield* Bus.Service
     const fsys = yield* AppFileSystem.Service
     const global = yield* Global.Service
+    const rg = yield* Ripgrep.Service
     const discovered = yield* InstanceState.make(
       Effect.fn("Skill.discovery")(function* (ctx) {
         return yield* discoverSkills(config, discovery, fsys, global, ctx.directory, ctx.worktree)
@@ -267,7 +326,7 @@ export const layer = Layer.effect(
     ).pipe(Effect.orDie)
     const state = yield* InstanceState.make(
       Effect.fn("Skill.state")(function* () {
-        const s: State = { skills: {}, dirs: new Set() }
+        const s: State = { skills: {}, skillDirMap: {}, dirs: new Set() }
         yield* loadSkills(s, yield* InstanceState.get(discovered), bus)
         return s
       }),
@@ -288,31 +347,59 @@ export const layer = Layer.effect(
       return Object.values(s.skills)
     })
 
+    const files = Effect.fn("Skill.files")(function* (info: Info, options?: { signal?: AbortSignal }) {
+      const dir = path.dirname(info.location)
+      const result = yield* rg.files({ cwd: dir, follow: false, hidden: true, signal: options?.signal }).pipe(
+        Stream.filter((file: string) => path.basename(file) !== "SKILL.md"),
+        Stream.map((file: string) => path.resolve(dir, file)),
+        Stream.runCollect,
+        Effect.orDie,
+      )
+      return [...result].toSorted()
+    })
+
     const dirs = Effect.fn("Skill.dirs")(function* () {
       return (yield* InstanceState.get(discovered)).dirs
     })
 
     const available = Effect.fn("Skill.available")(function* (agent?: Agent.Info) {
       const s = yield* InstanceState.get(state)
+      const d = yield* InstanceState.get(discovered)
       const list = Object.values(s.skills).toSorted((a, b) => a.name.localeCompare(b.name))
       if (!agent) return list
+
+      // Resolve agent skill alias: if agent name matches a prefix pattern in AGENT_SKILL_ALIASES,
+      // use the mapped agent's skill config instead.
+      let agentKey = agent.name
+      for (const [pattern, target] of Object.entries(AGENT_SKILL_ALIASES)) {
+        if (pattern.endsWith("*") && agent.name.startsWith(pattern.slice(0, -1))) {
+          agentKey = target
+          break
+        }
+        if (pattern === agent.name) {
+          agentKey = target
+          break
+        }
+      }
+
+      const allowedDirs = d.agentConfig[agentKey] ?? []
+      const allowedSet = new Set(allowedDirs)
       return list.filter((skill) => {
         if (Permission.evaluate("skill", skill.name, agent.permission).action === "deny") return false
-        if (!skill.type) return false
-        if (skill.type === "common") return true
-        return skill.type === agent.name
+        const skillDir = s.skillDirMap[skill.name]
+        return allowedSet.has(skillDir)
       })
     })
 
     const refresh = Effect.fn("Skill.refresh")(function* () {
-      // skills.json / skill 目录是全局配置,所有 directory 的实例共享。
+      // skill_config.json / skill 目录是全局配置,所有 directory 的实例共享。
       // 用 invalidateAll 清掉所有 directory 的缓存,避免单 directory invalidate
       // 让其它 directory 的实例仍读到旧 skill 列表(详见 opencode_modify 记录)。
       yield* InstanceState.invalidateAll(discovered)
       yield* InstanceState.invalidateAll(state)
     })
 
-    return Service.of({ get, getMany, all, dirs, available, refresh })
+    return Service.of({ get, getMany, all, files, dirs, available, refresh })
   }),
 )
 
@@ -322,7 +409,25 @@ export const defaultLayer = layer.pipe(
   Layer.provide(Bus.layer),
   Layer.provide(AppFileSystem.defaultLayer),
   Layer.provide(Global.layer),
+  Layer.provide(Ripgrep.defaultLayer),
 )
+
+export function formatLoaded(info: Info, files: string[]) {
+  const dir = path.dirname(info.location)
+  return [
+    `# Skill: ${info.name}`,
+    "",
+    info.content.trim(),
+    "",
+    `Skill directory (absolute path): ${dir}`,
+    "All listed paths are native absolute filesystem paths. Use them directly as read tool filePath values.",
+    "Do not use relative paths or file:// URLs as read tool filePath values.",
+    "",
+    "<skill_files>",
+    ...files.map((file) => `<file>${file}</file>`),
+    "</skill_files>",
+  ].join("\n")
+}
 
 export function fmt(list: Info[], opts: { verbose: boolean }) {
   if (list.length === 0) return "No skills are currently available."
@@ -350,11 +455,8 @@ export function fmt(list: Info[], opts: { verbose: boolean }) {
   ].join("\n")
 }
 
-export const SkillUsed = BusEvent.define(
-  "skill.used",
-  Schema.Struct({
-    skillName: Schema.String,
-  }),
-)
+import { SkillUsed } from "./events"
+
+export { SkillUsed }
 
 export * as Skill from "."

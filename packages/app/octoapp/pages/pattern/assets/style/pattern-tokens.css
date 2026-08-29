@@ -209,7 +209,7 @@
   padding: 4px 8px;
   background: transparent;
   border: none;
-  border-radius: var(--octo-radius-sm);
+  border-radius: var(--octo-radius-pill);
   color: var(--octo-text-secondary);
   font-size: 14px;
   cursor: pointer;
@@ -390,62 +390,6 @@ button[title="版本历史"] {
   border: none;
 }
 
-/* ── Delete Dialog ────────────────────────── */
-
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-container"] {
-  width: 436px;
-}
-
-.delete-dialog[data-slot="dialog-content"] {
-  border-radius: 20px;
-  box-shadow: 0 16px 48px 0 rgba(0,0,0,0.16);
-  padding: 24px 32px;
-  background: #fff;
-  border: none;
-}
-
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-header"] {
-  padding: 0;
-  margin-bottom: 8px;
-}
-
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-close-button"] {
-  display: none;
-}
-
-[data-component="dialog"]:has(.delete-dialog) [data-slot="dialog-title"] {
-  font-size: 20px;
-  line-height: 22px;
-  font-weight: 600;
-}
-
-.delete-dialog[data-slot="dialog-content"] [data-slot="dialog-body"] {
-  padding: 0;
-}
-
-.delete-dialog-btn {
-  width: 88px !important;
-  height: 32px !important;
-  border-radius: 4px !important;
-  font-size: 14px !important;
-  line-height: 22px !important;
-  padding: 0 !important;
-}
-
-button.delete-dialog-btn {
-  border: 1px solid rgba(201, 201, 201, 1);
-  background: #fff;
-  color: rgb(25, 25, 25);
-  cursor: pointer;
-}
-
-button.delete-dialog-btn-primary {
-  background: #0a59f7;
-  border-color: #0a59f7;
-  color: #fff;
-}
-
-
 /* ── preview ────────────────────────── */
 .preview-action-btn {
   width: 32px;
@@ -495,7 +439,7 @@ button.delete-dialog-btn-primary {
 .change-content {
   position: absolute;
   inset: 0;
-  z-index: 50;
+  z-index: 500;
   background: rgba(249, 250, 251, 0.85);
   display: flex;
   flex-direction: column;

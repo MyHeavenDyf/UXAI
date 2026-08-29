@@ -3,6 +3,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
+import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { createEffect, createMemo, createResource, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js"
 import type { JSX } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
@@ -14,8 +15,9 @@ import { useProjectDir } from "@/hooks/use-project-dir"
 import { DialogSettings } from "@/components/dialog-settings"
 import { sessionTitle } from "@/utils/session-title"
 import { useNotification } from "@/context/notification"
+import { useLayout } from "@/context/layout"
 import { Icon } from "@opencode-ai/ui/icon"
-import { IconSettings } from "@/pages/_shell/icons"
+import { IconSettings, IconSettings1, IconSkill } from "@/pages/_shell/icons"
 import { ProjectInfo } from "@/components/project-info"
 import { importPatternZip } from "../../utils/preview-handler/zip"
 import { getDesktopApi } from "../../utils/desktop-api"
@@ -40,6 +42,8 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
   const globalSync = useGlobalSync()
   const navigate = useNavigate()
   const location = useLocation()
+  const isSkillsPath = () => location.pathname === "/skills" && !settingsActive()
+  const layout = useLayout()
   const dialog = useDialog()
   const notification = useNotification()
 
@@ -47,6 +51,7 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
 
   const [resolvedDir, setResolvedDir] = createSignal<string>()
   const [patternFetchedDir, setPatternFetchedDir] = createSignal<string>()
+  const [settingsActive, setSettingsActive] = createSignal(false)
 
   const isOnboarding = createMemo(() => !resolvedDir())
 
@@ -70,7 +75,7 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
         return [] as Session[]
       }
       const client = globalSDK.createClient({ directory: d })
-      const result = await client.session.list()
+      const result = await client.session.list({ roots: true })
       const data = ((result.data ?? []) as Session[]).sort((a, b) => (b.time.updated ?? 0) - (a.time.updated ?? 0))
       setPatternFetchedDir(d)
       return data.filter(s => s.agent === "proto_triage")
@@ -147,29 +152,10 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
     if (!session) return
     closeContextMenu()
     dialog.show(() => (
-      <Dialog title="删除会话" fit class="delete-dialog">
-        <span class="text-[14px] leading-[22px]" style={{ color: "rgba(0,0,0,0.9)" }}>
-          确定删除"{sessionTitle(session.title) || "无标题"}"？
-        </span>
-        <div class="flex justify-end gap-2" style={{ "margin-top": "12px" }}>
-          <Button
-            variant="ghost"
-            size="large"
-            class="delete-dialog-btn"
-            onClick={() => dialog.close()}
-          >
-            取消
-          </Button>
-          <Button
-            variant="primary"
-            size="large"
-            class="delete-dialog-btn delete-dialog-btn-primary"
-            onClick={() => { void deleteSession(session.id, session.directory).then(() => dialog.close()) }}
-          >
-            删除
-          </Button>
-        </div>
-      </Dialog>
+      <DialogDeleteSession
+        name={sessionTitle(session.title) || "无标题"}
+        onDelete={() => deleteSession(session.id, session.directory)}
+      />
     ))
   }
 
@@ -283,14 +269,14 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
           <div class="flex items-center justify-between gap-2 mb-[8px]">
             <button
               type="button"
-              class="flex items-center gap-2  rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
+              class="flex items-center gap-3  rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
               style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
               onClick={newSession}
             >
               <Icon name="plus" size="normal" class="shrink-0" />
-              <span>新建</span>
+              <span>新建对话</span>
             </button>
-            <button
+            {/* <button
               type="button"
               class="flex items-center gap-2 rounded-lg text-left transition-colors hover:bg-[rgba(25,25,25,0.06)]"
               style={{ height: "36px", padding: "0 12px", color: "#191919", "font-size": "12px", "line-height": "20px" }}
@@ -298,7 +284,7 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
             >
               <Icon name="download" size="normal" class="shrink-0" />
               <span>导入</span>
-            </button>
+            </button> */}
           </div>
         </div>
         <div style={{ height: "1px", background: "rgba(0,0,0,0.1)" }} />
@@ -450,18 +436,52 @@ export function PatternSidebar(props: { width: number }): JSX.Element {
         </div>
       </div>
 
+      <div class="shrink-0 flex flex-col gap-[2px] px-[12px] pt-[12px]">
+        <button
+          type="button"
+          title="技能库"
+          class="w-full relative flex items-center gap-[12px] px-[12px] rounded-[4px] transition-colors text-[12px] leading-[20px]"
+          style={{
+            height: "36px",
+            background: isSkillsPath() ? "rgba(10, 89, 247, 0.08)" : "transparent",
+            color: isSkillsPath() ? "#0A59F7" : "rgba(0,0,0,0.9)",
+            "font-weight": isSkillsPath() ? "500" : "400",
+          }}
+          onClick={() => { layout.sidebarSource.set("pattern"); navigate("/skills") }}
+          onMouseEnter={(e) => { if (!isSkillsPath()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
+          onMouseLeave={(e) => { if (!isSkillsPath()) e.currentTarget.style.background = "transparent" }}
+        >
+          <span class="flex items-center justify-center shrink-0">
+            <IconSkill size={20} />
+          </span>
+          <span class="truncate">技能库</span>
+        </button>
+      </div>
+
       <div class="shrink-0 px-[12px] pb-[24px]">
         <button
           type="button"
           title="设置"
-          class="w-full flex items-center gap-[12px] px-[12px] rounded-[4px] transition-colors"
-          style={{ height: "36px", color: "var(--text-strong)" }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-base-hover)" }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
-          onClick={() => dialog.show(() => <DialogSettings />)}
+          class="w-full relative flex items-center gap-[12px] px-[12px] rounded-[4px] transition-colors text-[12px] leading-[20px]"
+          style={{
+            height: "36px",
+            background: settingsActive() ? "rgba(10, 89, 247, 0.08)" : "transparent",
+            color: settingsActive() ? "#0A59F7" : "rgba(0,0,0,0.9)",
+            "font-weight": settingsActive() ? "500" : "400",
+          }}
+          onMouseEnter={(e) => { if (!settingsActive()) e.currentTarget.style.background = "var(--surface-base-hover)" }}
+          onMouseLeave={(e) => { if (!settingsActive()) e.currentTarget.style.background = "transparent" }}
+          onClick={() => {
+            setSettingsActive(true)
+            dialog.show(() => <DialogSettings />, () => setSettingsActive(false))
+          }}
         >
-          <IconSettings size={16} />
-          <span class="text-[14px] leading-[22px]">设置</span>
+          <span class="flex items-center justify-center shrink-0">
+            <Show when={settingsActive()} fallback={<IconSettings size={20} />}>
+              <IconSettings1 size={20} />
+            </Show>
+          </span>
+          <span class="truncate">设置</span>
         </button>
       </div>
       <Show when={contextMenu.show && contextMenu.session}>

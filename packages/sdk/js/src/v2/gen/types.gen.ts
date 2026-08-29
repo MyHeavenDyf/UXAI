@@ -5,6 +5,7 @@ export type ClientOptions = {
 }
 
 export type Event =
+  | EventSkillUsed
   | EventTuiPromptAppend
   | EventTuiCommandExecute
   | EventTuiToastShow1
@@ -777,6 +778,7 @@ export type GlobalEvent = {
   project?: string
   workspace?: string
   payload:
+    | EventSkillUsed
     | EventTuiPromptAppend
     | EventTuiCommandExecute
     | EventTuiToastShow
@@ -1785,6 +1787,14 @@ export type StudioGenerationError = {
   }
 }
 
+export type ChatMigrationError = {
+  name: "ChatMigrationError"
+  data: {
+    stage: string
+    message: string
+  }
+}
+
 export type SyncEventMessageUpdated = {
   type: "sync"
   name: "message.updated.1"
@@ -2304,6 +2314,14 @@ export type SyncEventSessionNextCompactionEnded = {
     sessionID: string
     text: string
     include?: string
+  }
+}
+
+export type EventSkillUsed = {
+  id: string
+  type: "skill.used"
+  properties: {
+    skillName: string
   }
 }
 
@@ -3454,6 +3472,35 @@ export type GlobalConfigUpdateResponses = {
 
 export type GlobalConfigUpdateResponse = GlobalConfigUpdateResponses[keyof GlobalConfigUpdateResponses]
 
+export type GlobalConfigReplaceProviderData = {
+  body?: ProviderConfig
+  path: {
+    providerID: string
+  }
+  query?: never
+  url: "/global/config/provider/{providerID}"
+}
+
+export type GlobalConfigReplaceProviderErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalConfigReplaceProviderError =
+  GlobalConfigReplaceProviderErrors[keyof GlobalConfigReplaceProviderErrors]
+
+export type GlobalConfigReplaceProviderResponses = {
+  /**
+   * Successfully replaced global provider config
+   */
+  200: Config
+}
+
+export type GlobalConfigReplaceProviderResponse =
+  GlobalConfigReplaceProviderResponses[keyof GlobalConfigReplaceProviderResponses]
+
 export type GlobalDisposeData = {
   body?: never
   path?: never
@@ -3803,6 +3850,250 @@ export type ArtifactServeResponses = {
 }
 
 export type ArtifactServeResponse = ArtifactServeResponses[keyof ArtifactServeResponses]
+
+export type CommentDeleteData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    sessionId: string
+    commentFilePath: string
+    commentId: string
+  }
+  url: "/comment/file"
+}
+
+export type CommentDeleteErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type CommentDeleteError = CommentDeleteErrors[keyof CommentDeleteErrors]
+
+export type CommentDeleteResponses = {
+  /**
+   * Deleted
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type CommentDeleteResponse = CommentDeleteResponses[keyof CommentDeleteResponses]
+
+export type CommentLoadData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    sessionId: string
+    commentFilePath: string
+  }
+  url: "/comment/file"
+}
+
+export type CommentLoadErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type CommentLoadError = CommentLoadErrors[keyof CommentLoadErrors]
+
+export type CommentLoadResponses = {
+  /**
+   * Comments for file
+   */
+  200: {
+    comments: Array<{
+      id: string
+      filePath: string
+      elementId: string
+      selector: string
+      contentSignature?: string
+      nativeId?: string
+      label: string
+      text: string
+      position: {
+        x: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        y: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        w: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        h: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }
+      htmlHint: string
+      note: string
+      attachments?: Array<{
+        id: string
+        filename: string
+        mime: string
+        size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        filePath: string
+        uploadedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }>
+      createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      commenterAccount?: string
+      commenterName?: string
+      commenterAvatar?: string
+    }>
+  }
+}
+
+export type CommentLoadResponse = CommentLoadResponses[keyof CommentLoadResponses]
+
+export type CommentSaveData = {
+  body?: {
+    sessionId: string
+    commentFilePath: string
+    comment: {
+      id: string
+      filePath: string
+      elementId: string
+      selector: string
+      contentSignature?: string
+      nativeId?: string
+      label: string
+      text: string
+      position: {
+        x: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        y: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        w: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        h: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }
+      htmlHint: string
+      note: string
+      attachments?: Array<{
+        id: string
+        filename: string
+        mime: string
+        size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        filePath: string
+        uploadedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }>
+      createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      commenterAccount?: string
+      commenterName?: string
+      commenterAvatar?: string
+    }
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/comment/file"
+}
+
+export type CommentSaveErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type CommentSaveError = CommentSaveErrors[keyof CommentSaveErrors]
+
+export type CommentSaveResponses = {
+  /**
+   * Saved
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type CommentSaveResponse = CommentSaveResponses[keyof CommentSaveResponses]
+
+export type CommentDeleteAttachmentData = {
+  body?: never
+  path: {
+    attachmentId: string
+  }
+  query: {
+    directory?: string
+    workspace?: string
+    sessionId: string
+    commentFilePath: string
+    commentId: string
+  }
+  url: "/comment/file/attachment/{attachmentId}"
+}
+
+export type CommentDeleteAttachmentErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type CommentDeleteAttachmentError = CommentDeleteAttachmentErrors[keyof CommentDeleteAttachmentErrors]
+
+export type CommentDeleteAttachmentResponses = {
+  /**
+   * Deleted
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type CommentDeleteAttachmentResponse = CommentDeleteAttachmentResponses[keyof CommentDeleteAttachmentResponses]
+
+export type CommentUploadAttachmentData = {
+  body?: {
+    sessionId: string
+    commentFilePath: string
+    commentId: string
+    sourceFilePath: string
+    filename: string
+    mime: string
+    size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/comment/file/attachment"
+}
+
+export type CommentUploadAttachmentErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type CommentUploadAttachmentError = CommentUploadAttachmentErrors[keyof CommentUploadAttachmentErrors]
+
+export type CommentUploadAttachmentResponses = {
+  /**
+   * Uploaded
+   */
+  200: {
+    ok: boolean
+    attachment?: {
+      id: string
+      filename: string
+      mime: string
+      size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      filePath: string
+      uploadedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+  }
+}
+
+export type CommentUploadAttachmentResponse = CommentUploadAttachmentResponses[keyof CommentUploadAttachmentResponses]
 
 export type ConfigGetData = {
   body?: never
@@ -5773,6 +6064,9 @@ export type SessionPromptData = {
     format?: OutputFormat
     system?: string
     variant?: string
+    extra?: {
+      [key: string]: unknown
+    }
     parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
   }
   path: {
@@ -6108,6 +6402,9 @@ export type SessionPromptAsyncData = {
     format?: OutputFormat
     system?: string
     variant?: string
+    extra?: {
+      [key: string]: unknown
+    }
     parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
   }
   path: {
@@ -6150,14 +6447,17 @@ export type SessionCommandData = {
     arguments: string
     command: string
     variant?: string
-    parts?: Array<{
-      id?: string
-      type: "file"
-      mime: string
-      filename?: string
-      url: string
-      source?: FilePartSource
-    }>
+    parts?: Array<
+      | TextPartInput
+      | {
+          id?: string
+          type: "file"
+          mime: string
+          filename?: string
+          url: string
+          source?: FilePartSource
+        }
+    >
   }
   path: {
     sessionID: string
@@ -7219,6 +7519,34 @@ export type StudioPermissionsCheckResponses = {
   200: unknown
 }
 
+export type StudioPromptGenCreateData = {
+  body?: {
+    base64img: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/prompt-gen"
+}
+
+export type StudioPromptGenCreateErrors = {
+  /**
+   * StudioGenerationError
+   */
+  400: StudioGenerationError
+}
+
+export type StudioPromptGenCreateError = StudioPromptGenCreateErrors[keyof StudioPromptGenCreateErrors]
+
+export type StudioPromptGenCreateResponses = {
+  /**
+   * Prompt generation result
+   */
+  200: unknown
+}
+
 export type StudioGenerationsCreateData = {
   body?: {
     sessionID?: string
@@ -7232,8 +7560,16 @@ export type StudioGenerationsCreateData = {
       | "image.fusion"
     prompt: string
     displayPrompt?: string
+    detailPrompt?: string
+    detailTitle?: string
+    initialSessionTitle?: string
+    shouldSetSessionTitle?: boolean
     refinedPrompt?: string
     effectivePrompt?: string
+    promptRefineModels?: Array<{
+      providerID: string
+      modelID: string
+    }>
     styleModel?: string
     aspectRatio?: string
     count?: number
@@ -7279,6 +7615,8 @@ export type StudioGenerationsCreateResponses = {
       | "image.fusion"
     prompt: string
     displayPrompt?: string
+    detailPrompt?: string
+    detailTitle?: string
     provider: "jimeng" | "internel"
     toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
     taskType?: string
@@ -7390,6 +7728,8 @@ export type StudioGenerationsCancelResponses = {
       | "image.fusion"
     prompt: string
     displayPrompt?: string
+    detailPrompt?: string
+    detailTitle?: string
     provider: "jimeng" | "internel"
     toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
     taskType?: string
@@ -7464,6 +7804,8 @@ export type StudioGenerationsRebootResponses = {
       | "image.fusion"
     prompt: string
     displayPrompt?: string
+    detailPrompt?: string
+    detailTitle?: string
     provider: "jimeng" | "internel"
     toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
     taskType?: string
@@ -7538,6 +7880,8 @@ export type StudioGenerationsGetResponses = {
       | "image.fusion"
     prompt: string
     displayPrompt?: string
+    detailPrompt?: string
+    detailTitle?: string
     provider: "jimeng" | "internel"
     toolAction?: "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
     taskType?: string
@@ -7605,6 +7949,197 @@ export type InsightSessionsListResponses = {
 }
 
 export type InsightSessionsListResponse = InsightSessionsListResponses[keyof InsightSessionsListResponses]
+
+export type InsightFilesListData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    sessionId: string
+    category: "uploads" | "outputs"
+    path?: string
+    recursive?: "true" | "false"
+  }
+  url: "/insight/files"
+}
+
+export type InsightFilesListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type InsightFilesListError = InsightFilesListErrors[keyof InsightFilesListErrors]
+
+export type InsightFilesListResponses = {
+  /**
+   * Insight session files
+   */
+  200: {
+    files: Array<{
+      name: string
+      path: string
+      size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      mtime: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      isFolder: boolean
+      relativePath: string
+    }>
+  }
+}
+
+export type InsightFilesListResponse = InsightFilesListResponses[keyof InsightFilesListResponses]
+
+export type InsightFilesUploadData = {
+  body?: {
+    sessionId: string
+    filename: string
+    content: string
+    path?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/insight/upload"
+}
+
+export type InsightFilesUploadErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type InsightFilesUploadError = InsightFilesUploadErrors[keyof InsightFilesUploadErrors]
+
+export type InsightFilesUploadResponses = {
+  /**
+   * Uploaded insight file
+   */
+  200: {
+    name: string
+    path: string
+    size: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    mtime: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    isFolder: boolean
+    relativePath: string
+  }
+}
+
+export type InsightFilesUploadResponse = InsightFilesUploadResponses[keyof InsightFilesUploadResponses]
+
+export type InsightFilesUploadFolderData = {
+  body?: {
+    sessionId: string
+    folderName: string
+    files: Array<{
+      relativePath: string
+      content: string
+    }>
+    path?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/insight/upload-folder"
+}
+
+export type InsightFilesUploadFolderErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type InsightFilesUploadFolderError = InsightFilesUploadFolderErrors[keyof InsightFilesUploadFolderErrors]
+
+export type InsightFilesUploadFolderResponses = {
+  /**
+   * Uploaded insight folder
+   */
+  200: {
+    name: string
+    path: string
+    fileCount: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    mtime: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type InsightFilesUploadFolderResponse =
+  InsightFilesUploadFolderResponses[keyof InsightFilesUploadFolderResponses]
+
+export type InsightChatMigrationPreviewData = {
+  body?: {
+    directory: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/insight/chat-migration/preview"
+}
+
+export type InsightChatMigrationPreviewErrors = {
+  /**
+   * ChatMigrationError
+   */
+  400: ChatMigrationError
+}
+
+export type InsightChatMigrationPreviewError =
+  InsightChatMigrationPreviewErrors[keyof InsightChatMigrationPreviewErrors]
+
+export type InsightChatMigrationPreviewResponses = {
+  /**
+   * Chat history migration preview
+   */
+  200: {
+    pending: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    migratable: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type InsightChatMigrationPreviewResponse =
+  InsightChatMigrationPreviewResponses[keyof InsightChatMigrationPreviewResponses]
+
+export type InsightChatMigrationRunData = {
+  body?: {
+    directory: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/insight/chat-migration/run"
+}
+
+export type InsightChatMigrationRunErrors = {
+  /**
+   * ChatMigrationError
+   */
+  400: ChatMigrationError
+}
+
+export type InsightChatMigrationRunError = InsightChatMigrationRunErrors[keyof InsightChatMigrationRunErrors]
+
+export type InsightChatMigrationRunResponses = {
+  /**
+   * Chat history migration result
+   */
+  200: {
+    migrated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    backupPath?: string
+  }
+}
+
+export type InsightChatMigrationRunResponse = InsightChatMigrationRunResponses[keyof InsightChatMigrationRunResponses]
 
 export type PtyConnectData = {
   body?: never

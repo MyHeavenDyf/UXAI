@@ -580,7 +580,7 @@ function makeEditable(el,ev){
     el.removeEventListener('keydown',onKey);
     var v=(el.textContent||'').trim();
     if(commit&&v!==orig.trim()){
-      window.parent.postMessage({type:'od-edit-text-commit',id:el.getAttribute('data-od-id'),value:v},'*');
+      window.parent.postMessage({type:'od-edit-text-commit',id:el.getAttribute('data-od-id'),value:v,before:orig.trim(),target:getManualEditTarget(el)},'*');
     }else if(!commit)el.textContent=orig;
   }
   function onBlur(){
@@ -595,9 +595,63 @@ function makeEditable(el,ev){
   el.addEventListener('keydown',onKey);
 }
 
-function getManualEditTarget(el) {
+function tagLabel(el) {
+  var t = el.tagName ? el.tagName.toLowerCase() : '';
+  var c = el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\\s+/).join('.') : '';
+  return t + c;
+}
+
+function buildSelector(el) {
+  var parts = [];
+  var cur = el;
+  for (var i = 0; i < 5 && cur && cur !== document.body && cur !== document.documentElement; i++) {
+    parts.unshift(tagLabel(cur));
+    cur = cur.parentElement;
+  }
+  return parts.join(' > ');
+}
+
+var annotateNextId = -1;
+// Assign a runtime data-od-id to elements rendered after the static annotation
+// (e.g. React content in .shadcn.html), continuing the el-* counter.
+function ensureAnnotatedId(el) {
   if (!el || !el.getAttribute) return null;
   var id = el.getAttribute('data-od-id');
+  if (id) return id;
+  var tag = el.tagName ? el.tagName.toUpperCase() : '';
+  if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'HEAD') return null;
+  if (annotateNextId < 0) {
+    var els = document.querySelectorAll('[data-od-id]');
+    for (var i = 0; i < els.length; i++) {
+      var attr = els[i].getAttribute('data-od-id');
+      if (attr && attr.indexOf('el-') === 0) {
+        var n = parseInt(attr.substring(3), 10);
+        if (!isNaN(n) && n > annotateNextId) annotateNextId = n;
+      }
+    }
+  }
+  annotateNextId++;
+  id = 'el-' + annotateNextId;
+  el.setAttribute('data-od-id', id);
+  return id;
+}
+
+// Annotate the whole rendered DOM once edit mode is enabled so dynamic elements
+// are selectable and get hover outlines.
+function annotateRendered() {
+  function walk(el) {
+    if (el.nodeType !== 1) return;
+    var tag = el.tagName ? el.tagName.toUpperCase() : '';
+    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'HEAD') return;
+    ensureAnnotatedId(el);
+    for (var i = 0; i < el.children.length; i++) walk(el.children[i]);
+  }
+  walk(document.body);
+}
+
+function getManualEditTarget(el) {
+  if (!el || !el.getAttribute) return null;
+  var id = ensureAnnotatedId(el);
   if (!id) return null;
   
   var tag = el.tagName.toLowerCase();
@@ -664,9 +718,33 @@ function getManualEditTarget(el) {
     fields: fields,
     attributes: attributes,
     styles: styles,
+    selector: buildSelector(el),
+    htmlHint: el.outerHTML.slice(0, Math.min(200, el.outerHTML.indexOf('>') + 1)),
     isLayoutContainer: el.children.length > 0,
     outerHtml: el.outerHTML.slice(0, 500)
   };
+}
+
+function setMixedContainerText(el, newText) {
+  var firstTextNode = null;
+  for (var i = 0; i < el.childNodes.length; i++) {
+    var node = el.childNodes[i];
+    if (node.nodeType === 3 && node.textContent && node.textContent.trim()) {
+      if (!firstTextNode) {
+        firstTextNode = node;
+      } else {
+        if (node.parentNode) node.parentNode.removeChild(node);
+        i--;
+      }
+    }
+  }
+  if (firstTextNode) {
+    firstTextNode.textContent = newText;
+  } else if (el.lastChild && el.lastChild.nodeType === 1) {
+    el.insertBefore(document.createTextNode(newText), null);
+  } else {
+    el.appendChild(document.createTextNode(newText));
+  }
 }
 
 function clearSelectedTarget() {
@@ -691,6 +769,7 @@ window.addEventListener('message',function(ev){
     editEnabled = d.enabled;
     document.documentElement.toggleAttribute('data-od-edit-mode', editEnabled);
     if(editEnabled){
+      annotateRendered();
       document.body.addEventListener('click',handleEditSingleClick,true);
       document.body.addEventListener('dblclick',handleEditDoubleClick,true);
     } else {
@@ -741,7 +820,13 @@ window.addEventListener('message',function(ev){
   
   if(d.type==='od:edit-text'){
     var el=document.querySelector('[data-od-id="'+d.elementId+'"]');
-    if(el)el.textContent=d.value;
+    if(el){
+      if(el.children.length>0){
+        setMixedContainerText(el,d.value);
+      }else{
+        el.textContent=d.value;
+      }
+    }
   }
   if(d.type==='od:edit-attr'){
     var el=document.querySelector('[data-od-id="'+d.elementId+'"]');

@@ -1,0 +1,42 @@
+/**
+ * Step 8: GenerateReport — 把生成汇总写到控制台（不再产出 markdown 文件）
+ *
+ * 调用方不期望产物里夹一份报告 —— outputFiles 应是纯净的代码。
+ * 把 buildStatsFromContext / buildReportMarkdown 留作纯函数，console.log 用。
+ *
+ * ctx.generationReport 不再写入（保留字段仅供向后兼容 / 调试）。
+ */
+
+import { Step } from '../core/step-base'
+import type { PipelineContext } from '../pipeline/pipeline-context'
+import { buildStatsFromContext, buildReportMarkdown } from '../codegen/report-generator'
+
+export class GenerateReport extends Step {
+  async execute(ctx: PipelineContext): Promise<void> {
+    try {
+      const stats = buildStatsFromContext(ctx)
+      const content = buildReportMarkdown(stats)
+
+      // 调日志输出（不再落盘）
+      console.log('\n──────── 生成报告 ────────')
+      console.log(content)
+      console.log('──────── /生成报告 ────────\n')
+
+      // 兼容字段；不参与 outputFiles
+      ctx.generationReport = content
+    } catch (err: any) {
+      console.warn(`  [warn] GenerateReport: 报告生成失败 (${err.message})`)
+      ctx.generationReport = ''
+    }
+
+    // 单页隔离收集的错误汇总输出（per-page step try/catch push 进来的）
+    const errs = ctx.errors ?? []
+    if (errs.length > 0) {
+      console.error('\n──────── 页面处理错误 ────────')
+      for (const e of errs) {
+        console.error(`  [${e.step}] 页 "${e.page}": ${e.message}`)
+      }
+      console.error(`──────── 共 ${errs.length} 个页面处理失败 ────────\n`)
+    }
+  }
+}

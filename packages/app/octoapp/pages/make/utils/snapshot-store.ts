@@ -9,7 +9,7 @@ export interface ArtifactSnapshot {
 }
 
 const STORAGE_PREFIX = "octo:make:snapshots:"
-const MAX_SNAPSHOTS_PER_FILE = 10
+const MAX_SNAPSHOTS_PER_FILE = 5
 
 function getKey(sessionId: string): string {
   return STORAGE_PREFIX + sessionId
@@ -52,24 +52,31 @@ export function createSnapshotStore(sessionId: () => string | undefined) {
     }
     
     const fileKey = tab.filePath || tab.id
-    const fileGroup: ArtifactSnapshot[] = []
-    const otherSnapshots: ArtifactSnapshot[] = []
     
+    const groups = new Map<string, ArtifactSnapshot[]>()
     for (const s of list) {
       const sKey = s.tab.filePath || s.tab.id
-      if (sKey === fileKey) {
-        fileGroup.push(s)
-      } else {
-        otherSnapshots.push(s)
+      const group = groups.get(sKey) || []
+      group.push(s)
+      groups.set(sKey, group)
+    }
+    
+    const currentGroup = groups.get(fileKey) || []
+    currentGroup.unshift(snapshot)
+    if (currentGroup.length > MAX_SNAPSHOTS_PER_FILE) {
+      currentGroup.length = MAX_SNAPSHOTS_PER_FILE
+    }
+    groups.set(fileKey, currentGroup)
+    
+    const newList: ArtifactSnapshot[] = []
+    for (const [, group] of groups) {
+      let trimmed = group
+      if (group.length > MAX_SNAPSHOTS_PER_FILE) {
+        trimmed = group.slice(0, MAX_SNAPSHOTS_PER_FILE)
       }
+      newList.push(...trimmed)
     }
     
-    fileGroup.unshift(snapshot)
-    if (fileGroup.length > MAX_SNAPSHOTS_PER_FILE) {
-      fileGroup.length = MAX_SNAPSHOTS_PER_FILE
-    }
-    
-    const newList = [...fileGroup, ...otherSnapshots]
     writeAll(id, newList)
   }
 

@@ -1,9 +1,11 @@
-// SPEC-INS-014 §10:薄封装,拉取 <projectDir>/insight/<sessionId>/{uploads,outputs}/[/path] 列表。
+// SPEC-INS-014 §10:薄封装,拉取 <projectDir>/.octo/<sessionId>/{uploads,outputs}/[/path] 列表。
 // 服务端实现在类型化 HttpApi 的 insight 分组(packages/opencode/.../httpapi/{groups,handlers}/insight.ts)。
 // content/delete/archive/delete-batch 复用站内 artifact 分组的同款端点(它们按绝对 path 操作,
 // 与存储目录无关,insight 文件同样是 projectDir 下的绝对路径),故此处只封 list/upload/upload-folder。
 
 import { directoryHeader } from "@/utils/headers"
+import { getDesktopApi } from "../lib/electron-api"
+import { extOf, resolveOutputType } from "./output-type"
 
 export type InsightFileCategory = "uploads" | "outputs"
 
@@ -66,28 +68,44 @@ const KIND_PRIORITY: Record<InsightFileKind, number> = {
   other: 11,
 }
 
+// ── kind 派生:**必须**建立在 resolveOutputType 之上 ────────────────────────
+// SPEC-INS-026 §4.2:文件管理的 kind 保留(筛选/分组/图标要比 6 个产物类型更细),但不再
+// 独立按扩展名判 —— 那是系统里的第三套判定,曾让同一文件在「文件管理说是什么」和「打开后
+// 按什么渲染」上给出不同答案(如 .csv:excel vs table vs file)。
+//
+// 现在只做 resolveOutputType 之下的细分,两级都由同一张扩展名表驱动:
+//   file → pdf / word / ppt / excel / video / other(office 类要各自的图标)
+//   code → code / text(代码高亮 vs 纯文本,同样是应用内文本预览)
+//   其余 → 与产物类型同名(html / markdown / json / image)
+
+/** resolveOutputType 判为 `file` 时的细分。查不到的(压缩包/字体/可执行/音频等)落 other。 */
+const FILE_KIND_BY_EXT: Record<string, InsightFileKind> = {
+  pdf: "pdf",
+  doc: "word", docx: "word", odt: "word", pages: "word", rtf: "word",
+  ppt: "ppt", pptx: "ppt", odp: "ppt", key: "ppt",
+  xls: "excel", xlsx: "excel", xlsm: "excel", xlsb: "excel", ods: "excel",
+  csv: "excel", tsv: "excel", numbers: "excel",
+  mp4: "video", mov: "video", avi: "video", mkv: "video", webm: "video",
+  flv: "video", wmv: "video", m4v: "video",
+}
+
+/** resolveOutputType 判为 `code` 时的细分:命中即「代码」,其余(含 txt/log/未知扩展名)算「文本」。 */
 const CODE_EXTS = new Set([
   "js", "ts", "jsx", "tsx", "mjs", "cjs", "py", "java", "go", "rs", "c", "cpp", "cc", "h", "hpp",
   "cs", "rb", "php", "sh", "bash", "zsh", "sql", "yaml", "yml", "toml", "xml", "css", "scss", "vue", "svelte",
 ])
-const TEXT_EXTS = new Set(["txt", "text", "log", "rtf", "csv", "tsv"])
 
-/** 按文件名扩展名派生 InsightFileKind(文件夹由 isFolder 单独判定,不走这里)。 */
+/** 按文件名派生 InsightFileKind(文件夹由 isFolder 单独判定,不走这里)。 */
 export function fileKind(fileName: string): InsightFileKind {
-  const ext = fileName.split(".").pop()?.toLowerCase() ?? ""
-  if (ext === "html" || ext === "htm" || ext === "xhtml") return "html"
-  if (ext === "md" || ext === "markdown" || ext === "mdown" || ext === "mkd") return "markdown"
-  if (ext === "json" || ext === "json5" || ext === "jsonc") return "json"
-  if (["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "tiff", "tif", "ico", "heic", "avif"].includes(ext)) return "image"
-  if (ext === "pdf") return "pdf"
-  if (ext === "doc" || ext === "docx" || ext === "odt" || ext === "pages") return "word"
-  if (ext === "ppt" || ext === "pptx" || ext === "odp" || ext === "key") return "ppt"
-  if (["xls", "xlsx", "xlsm", "xlsb", "ods", "csv", "tsv", "numbers"].includes(ext)) return "excel"
-  if (["mp4", "mov", "avi", "mkv", "webm", "flv", "wmv", "m4v"].includes(ext)) return "video"
-  if (ext === "txt" || ext === "text" || ext === "log") return "text"
-  if (CODE_EXTS.has(ext)) return "code"
-  if (TEXT_EXTS.has(ext)) return "text"
-  return "other"
+  const ext = extOf(fileName)
+  switch (resolveOutputType(fileName)) {
+    case "html": return "html"
+    case "markdown": return "markdown"
+    case "json": return "json"
+    case "image": return "image"
+    case "file": return FILE_KIND_BY_EXT[ext] ?? "other"
+    case "code": return CODE_EXTS.has(ext) ? "code" : "text"
+  }
 }
 
 const MIME_BY_EXT: Record<string, string> = {
@@ -139,10 +157,13 @@ export async function fetchInsightFiles(
   sdkDirectory: string,
   sessionId: string,
   category: InsightFileCategory,
-  subPath?: string,
+  options?: { subPath?: string; recursive?: boolean },
 ): Promise<InsightFileEntry[]> {
+  const subPath = options?.subPath
+  const recursive = options?.recursive
   const params = new URLSearchParams({ sessionId, category })
   if (category === "uploads" && subPath && subPath.trim() !== "") params.set("path", subPath)
+  if (recursive) params.set("recursive", "true")
   const res = await fetch(`${sdkUrl}/insight/files?${params.toString()}`, {
     headers: { ...directoryHeader(sdkDirectory) },
   })
@@ -265,7 +286,8 @@ export function pathToLocalUrl(filePath: string): string {
 
 /** 是否桌面端(electron):有 window.api 即是。预览面板据此决定 HTML 走 local:// 还是 data URL。 */
 export function isElectronDesktop(): boolean {
-  return typeof window !== "undefined" && typeof (window as any).api !== "undefined"
+  // typeof window 的守卫要留在前面短路:getDesktopApi() 直接读 window,SSR 下会 ReferenceError。
+  return typeof window !== "undefined" && getDesktopApi() !== undefined
 }
 
 export function formatFileSize(bytes: number): string {
