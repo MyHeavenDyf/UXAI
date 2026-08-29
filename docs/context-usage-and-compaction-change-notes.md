@@ -128,7 +128,6 @@ export const AUTOMATIC_COMPACTION_ENABLED = false
 - `packages/app/octoapp/pages/make/index.tsx`
 - `packages/app/octoapp/pages/make/octo-tokens.css`
 - `packages/opencode/src/server/routes/instance/session.ts`
-- `packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts`
 - `packages/opencode/src/session/compaction.ts`
 - `packages/opencode/src/session/prompt.ts`
 - `packages/opencode/test/session/compaction.test.ts`
@@ -212,8 +211,6 @@ sdk.client.session.summarize(...)
 
 #### `packages/opencode/src/server/routes/instance/session.ts`
 
-#### `packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts`
-
 当前为了让直调方区分“真正完成”和“用户暂停”，接口返回：
 
 ```ts
@@ -227,7 +224,7 @@ yield* prompt.loop(...)
 return true
 ```
 
-稳定 Hono 和实验 Effect HttpApi 两个实现应同步还原，避免两套后端行为不一致。
+当前桌面端默认使用稳定 Hono 路由。实验性 `packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts` 不纳入本次改动，保持 `dev` 原状。
 
 #### `packages/opencode/src/session/compaction.ts`
 
