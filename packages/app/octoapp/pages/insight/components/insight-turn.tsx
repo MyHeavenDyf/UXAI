@@ -76,23 +76,14 @@ function readSkillUsage(part: unknown): { partId: string; skill: string } | unde
   return typeof name === "string" && name.length > 0 ? { partId: id, skill: name } : undefined
 }
 
-/** 按文件类型聚合计数,用于 artifact-file-write / artifact-file-edit 上报。 */
-function aggregateByFileType(items: Array<{ fileType: string }>): Array<{ type: string; count: number }> {
-  const map: Record<string, number> = {}
-  for (const item of items) map[item.fileType] = (map[item.fileType] ?? 0) + 1
-  return Object.entries(map).map(([type, count]) => ({ type, count }))
-}
-
-/** 按文件类型+工具名聚合计数,用于 artifact-mcp-return 上报(保留每个 type+tool 组合的 tool 字段)。 */
-function aggregateByFileTypeWithTool(items: Array<{ fileType: string; tool: string }>): Array<{ type: string; count: number; tool: string }> {
-  const map: Record<string, { type: string; count: number; tool: string }> = {}
-  for (const item of items) {
-    const key = `${item.fileType}::${item.tool}`
-    const existing = map[key]
-    if (existing) existing.count += 1
-    else map[key] = { type: item.fileType, count: 1, tool: item.tool }
-  }
-  return Object.values(map)
+/** write/edit 产物路径剥掉 projectDir 前缀,取相对路径(SPEC-INS-033 §4.1:file 字段是幂等键组成部分,
+ *  与 artifact-output 的仓库相对路径语义对齐;拿不到 projectDir 时退回原路径)。 */
+function relFromProjectDir(filePath: string, projectDir: string): string {
+  if (!projectDir) return filePath
+  const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "")
+  const file = norm(filePath)
+  const dir = norm(projectDir)
+  return file.toLowerCase().startsWith(dir.toLowerCase() + "/") ? file.slice(dir.length + 1) : filePath
 }
 
 // 路径 B 嗅探规则:html fence 与 mindmap shape JSON 互相独立,允许同时命中。
@@ -473,9 +464,13 @@ export function InsightTurn(props: {
     if (fresh) props.onFilesRefresh?.()
   })
 
-  // 统计产物打点(artifact-file-write / artifact-file-edit):
-  //   - artifact-file-write:write 工具调用产生的文件(含覆盖写),按文件类型聚合上报
-  //   - artifact-file-edit:edit 工具调用产生的文件,按文件类型聚合上报
+  // 统计产物打点(artifact-file-write / artifact-file-edit,per-file 粒度——SPEC-INS-033 §4.1/D2):
+  //   - artifact-file-write:write 工具调用产生的每个文件一条(含覆盖写),extend {messageId, file, type}
+  //   - artifact-file-edit:edit 工具调用产生的每个文件一条,extend 同上
+  //   打点面板按事件行数统计、不解析聚合 count,turn 级聚合会让「1 turn 产 3 文件」面板只显示 1;
+  //   per-file 后行数即文件数,turn 级视图由下游 group by messageId 还原。
+  //   file 为写盘路径剥掉 projectDir 前缀后的相对路径(与 artifact-output 的仓库相对路径语义对齐,
+  //   作下游幂等键 (name, messageId, file) 的组成部分)。
   //
   // ⚠️ 设计决策：故意不检查 showGenerating()（与上方文件管理刷新 effect 不同）
   //
@@ -485,7 +480,7 @@ export function InsightTurn(props: {
   //   3. trackedArtifactKeys 去重 Set 保证即使 effect 多次执行也不重复上报
   //   4. 与文件管理刷新不同：UI 刷新可以延迟（性能优化），数据采集应该及时（准确性优先）
   //
-  // 对比：文件管理刷新 effect（上方 Line 460-473）保留 showGenerating() 守卫，
+  // 对比：文件管理刷新 effect（上方）保留 showGenerating() 守卫，
   //       因为它的目的是避免生成过程中频繁刷新 UI 导致列表闪烁（体验优化）。
   //       而统计打点的核心目标是"不漏报"，时效性更重要。
   //
@@ -496,6 +491,7 @@ export function InsightTurn(props: {
     const parts = turnAssistantParts()
     const writes = findWriteOnlyCards(parts)
     const edits = findEditCards(parts)
+    const dir = eagerProjectDir() ?? ""
 
     if (!artifactFileBaselineTaken) {
       artifactFileBaselineTaken = true
@@ -504,41 +500,33 @@ export function InsightTurn(props: {
       return
     }
 
-    const newWrites: Array<{ fileType: string }> = []
     for (const w of writes) {
       const key = `write:${props.messageID}:${w.filePath}`
       if (trackedArtifactKeys.has(key)) continue
       trackedArtifactKeys.add(key)
-      newWrites.push({ fileType: w.type })
-    }
-    if (newWrites.length > 0) {
       tracker.interaction({
         module: "insight",
         name: "artifact-file-write",
-        extend: JSON.stringify({ files: aggregateByFileType(newWrites) }),
+        extend: JSON.stringify({ messageId: props.messageID, file: relFromProjectDir(w.filePath, dir), type: w.type }),
       })
     }
 
-    const newEdits: Array<{ fileType: string }> = []
     for (const e of edits) {
       const key = `edit:${props.messageID}:${e.filePath}`
       if (trackedArtifactKeys.has(key)) continue
       trackedArtifactKeys.add(key)
-      newEdits.push({ fileType: e.type })
-    }
-    if (newEdits.length > 0) {
       tracker.interaction({
         module: "insight",
         name: "artifact-file-edit",
-        extend: JSON.stringify({ files: aggregateByFileType(newEdits) }),
+        extend: JSON.stringify({ messageId: props.messageID, file: relFromProjectDir(e.filePath, dir), type: e.type }),
       })
     }
   })
 
-  // 统计产物打点(artifact-mcp-return):检测 MCP resource_link 类型的产物文件并上报。
-  // 触发时机:本轮 assistant parts 中出现新的 resource_link(MCP 工具返回文件)。
-  // 上报方式:按文件类型聚合(与 artifact-file-write 对称),每次 effect 触发时把本轮新增的
-  // resource_link 按 type 分组计数后一次上报,包含产生该文件的 MCP 工具名(便于分析哪些工具产出率最高)。
+  // 统计产物打点(artifact-mcp-return,per-file 粒度——SPEC-INS-033 §4.1/D2):检测 MCP resource_link
+  // 类型的产物文件,每个 link 一条,extend {messageId, file: uri, type, tool}(file 即幂等键组成部分)。
+  // 触发时机:本轮 assistant parts 中出现新的 resource_link(MCP 工具返回文件),含产生该文件的
+  // MCP 工具名(便于分析哪些工具产出率最高)。面板按行数统计,行数=返回文件数。
   //
   // ⚠️ 设计决策：故意不检查 showGenerating()（与 artifact-file-write/edit 相同）
   //
@@ -563,29 +551,27 @@ export function InsightTurn(props: {
       return
     }
 
-    const newLinks: Array<{ fileType: string; tool: string }> = []
     for (const link of links) {
       const key = `mcp:${props.messageID}:${link.uri}`
       if (trackedArtifactKeys.has(key)) continue
       trackedArtifactKeys.add(key)
-      newLinks.push({
-        fileType: linkToOutputType(link),
-        tool: link.business_type || "unknown",
-      })
-    }
-
-    if (newLinks.length > 0) {
       tracker.interaction({
         module: "insight",
         name: "artifact-mcp-return",
-        extend: JSON.stringify({ files: aggregateByFileTypeWithTool(newLinks) }),
+        extend: JSON.stringify({
+          messageId: props.messageID,
+          file: link.uri,
+          type: linkToOutputType(link),
+          tool: link.business_type || "unknown",
+        }),
       })
     }
   })
 
-  // 统一产物总量打点(artifact-output,SPEC-INS-033):消费服务端 git snapshot 算好的
-  // UserMessage.summary.diffs,覆盖**所有**文件变更方式(write/edit/MCP/bash/python…),与上面
-  // 三个 tool part 口径事件互补不替代。设计论证在文档仓 spec(§4),此处只记实现要点:
+  // 统一产物总量打点(artifact-output / artifact-output-outside,per-file 粒度——SPEC-INS-033 §4.1/D2):
+  // 消费服务端 git snapshot 算好的 UserMessage.summary.diffs,覆盖**所有**文件变更方式
+  // (write/edit/MCP/bash/python…),与上面三个 tool part 口径事件互补不替代。设计论证在文档仓 spec(§4),
+  // 此处只记实现要点:
   //
   //   - 触发时机:summarize 每个 finish-step 都跑一次并**覆写** diffs(processor.ts),多步 turn 里
   //     diffs 会从「第一步的部分产物」逐步长到全部;「数据到达即上报」会在第一步报出部分 diff 再被
@@ -593,16 +579,20 @@ export function InsightTurn(props: {
   //     + 1500ms debounce(末次 summarize 是 forkIn(scope) 异步,可能晚于 active 翻假才落地;
   //     debounce 期间 diffs 再变则重置定时器,天然取最终值)。
   //   - baseline 快照:与上方三个 effect 同规则——首次观测本 turn 时若 diffs 已存在(历史 turn)
-  //     记为「历史」不上报,否则打开/刷新会话会按 turn 数虚增。trackedArtifactKeys(内存 Set,
+  //     逐文件记为「历史」不上报,否则打开/刷新会话会按 turn 数虚增。trackedArtifactKeys(内存 Set,
   //     刷新即空)只防 memo 重算 / 重挂重复报;「刷新不重报」由 baseline 负责,两层配合。
+  //   - per-file 发射:会话目录内每个文件一条(extend {messageId, file, type, status}),面板按行数
+  //     统计、行数即文件数,turn 级视图由下游 group by messageId 还原;去重键 per-file
+  //     (output:msgid:file),debounce 报完后 summarize 再覆写出新文件可自愈补报。
   //   - 路径分桶:diffFull 跑在整个 projectDir 上,隔离的只是 .octo/<sessionId>/ 子目录;并发会话 /
-  //     Make 模块 / 用户手改都会进 diff。会话目录内的进 files/total/added/modified,其余只计入
-  //     outside(噪声桶,只计数不计类型,不作产物)。
-  //   - 幂等键:extend 带 messageId,下游按 (name, messageId) 去重(at-least-once 标准姿势);
+  //     Make 模块 / 用户手改都会进 diff。会话目录外的变更汇总成 turn 级一条
+  //     artifact-output-outside(只计数,不逐条发、不污染行数=文件数的语义)。
+  //   - 幂等键:extend 带 messageId+file,下游按 (name, messageId, file) 去重(at-least-once 标准姿势);
   //     前端两层去重降级为省流量优化,报重了也不算错。
   let artifactOutputBaselineTaken = false
   let outputDebounceTimer: ReturnType<typeof setTimeout> | undefined
   onCleanup(() => clearTimeout(outputDebounceTimer))
+  const outputKey = (file: string) => `output:${props.messageID}:${file}`
   createEffect(() => {
     const messages = (data.store.message as Record<string, Message[]>)?.[props.sessionID] ?? []
     const userMsg = messages.find((m) => m.id === props.messageID)
@@ -611,47 +601,43 @@ export function InsightTurn(props: {
 
     if (!artifactOutputBaselineTaken) {
       artifactOutputBaselineTaken = true
-      if (diffs?.length) trackedArtifactKeys.add(`output:${props.messageID}`)
+      for (const d of diffs ?? []) trackedArtifactKeys.add(outputKey(d.file))
       return
     }
     if (!diffs?.length) return
     if (showGenerating()) return
-    if (trackedArtifactKeys.has(`output:${props.messageID}`)) return
+    if (!diffs.some((d) => !trackedArtifactKeys.has(outputKey(d.file)))) return
 
     clearTimeout(outputDebounceTimer)
     outputDebounceTimer = setTimeout(() => {
-      const key = `output:${props.messageID}`
-      if (trackedArtifactKeys.has(key)) return
-      trackedArtifactKeys.add(key)
-
-      const files: Array<{ fileType: string }> = []
-      let added = 0
-      let modified = 0
       let outside = 0
+      const newFiles: Array<{ file: string; type: string; status: string }> = []
       for (const d of diffs) {
         if (d.status === "deleted") continue
+        if (trackedArtifactKeys.has(outputKey(d.file))) continue
+        trackedArtifactKeys.add(outputKey(d.file))
         if (!isSessionArtifactPath(d.file, props.sessionID)) {
           outside++
           continue
         }
-        files.push({ fileType: resolveOutputType(d.file) })
-        if (d.status === "added") added++
-        else modified++
+        newFiles.push({ file: d.file, type: resolveOutputType(d.file), status: d.status ?? "modified" })
       }
-      if (files.length === 0 && outside === 0) return
+      if (newFiles.length === 0 && outside === 0) return
 
-      tracker.interaction({
-        module: "insight",
-        name: "artifact-output",
-        extend: JSON.stringify({
-          messageId: props.messageID,
-          files: aggregateByFileType(files),
-          total: files.length,
-          added,
-          modified,
-          outside,
-        }),
-      })
+      for (const f of newFiles) {
+        tracker.interaction({
+          module: "insight",
+          name: "artifact-output",
+          extend: JSON.stringify({ messageId: props.messageID, ...f }),
+        })
+      }
+      if (outside > 0) {
+        tracker.interaction({
+          module: "insight",
+          name: "artifact-output-outside",
+          extend: JSON.stringify({ messageId: props.messageID, outside }),
+        })
+      }
     }, 1500)
   })
 

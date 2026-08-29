@@ -194,17 +194,26 @@ SPEC-INS-014 文件管理器面板的用户操作。删除（单个 / 批量）�
 > 设计论证（背景 / 三方案对比 / 数据源选型 / 触发时机与 debounce / baseline 三层去重 / 路径分桶 /
 > 已知偏差 / 验证用例）全部在**文档仓 spec**：`octo-agent` 仓 `docs/specs/infra/insight-artifact-output-tracking.md`
 > （SPEC-INS-033）。本节只记 name / extend / 落点与映射约定，**不复制论证**（两仓分工见该 spec §0）。
+>
+> **D2 决策（2026-08-29）——per-file 粒度**：打点数据面板按事件行数统计、不解析 extend 里的 count，
+> turn 级聚合会让「1 turn 产 3 个文件」面板只显示 1。故**四条 `artifact-` 事件全部改 per-file**（每文件一条，
+> 行数即文件数，turn 级视图由下游 `group by messageId` 还原）；本批次的 write/edit/mcp 三条同步改。
 
 | name | 功能（统计什么） | 打在哪 | extend |
 |------|-----------------|--------|--------|
-| `artifact-output` | 本 turn 实际产出/修改的文件总量（服务端 git snapshot 的 `UserMessage.summary.diffs` 口径，覆盖**所有**文件变更方式——write / edit / MCP / bash / python，与 `artifact-file-write/edit` / `artifact-mcp-return` **互补不替代**） | `insight-turn.tsx` artifact-output effect（baseline + `showGenerating()` 守卫 + 1500ms debounce） | `{messageId, files: Array<{type: OutputCardType, count: number}>, total, added, modified, outside}` |
+| `artifact-output` | 本 turn 产出/修改的**一个文件**（服务端 git snapshot 的 `UserMessage.summary.diffs` 口径，覆盖**所有**文件变更方式——write / edit / MCP / bash / python，与三条 tool part 口径事件**互补不替代**） | `insight-turn.tsx` artifact-output effect（baseline + `showGenerating()` 守卫 + 1500ms debounce） | `{messageId, file, type, status}` |
+| `artifact-output-outside` | 本 turn 观测到的**会话目录外**变更总量（噪声桶：并发会话 / Make 模块 / 用户手改；turn 级一条，仅 outside>0 时报，不逐条发） | 同上 | `{messageId, outside}` |
+| `artifact-file-write` | write 工具产生的**一个文件**（含覆盖写；批次 3 事件，D2 起改 per-file） | `insight-turn.tsx` artifact-file effect（baseline） | `{messageId, file, type}` |
+| `artifact-file-edit` | edit 工具产生的**一个文件**（批次 3 事件，D2 起改 per-file） | `insight-turn.tsx` artifact-file effect（baseline） | `{messageId, file, type}` |
+| `artifact-mcp-return` | MCP 工具返回的**一个** resource_link 文件（批次 3 事件，D2 起改 per-file） | `insight-turn.tsx` artifact-mcp effect（baseline） | `{messageId, file: uri, type, tool}` |
 
 映射与实现约定（详见 spec §4）：
 
-- `files[].type` 复用 `resolveOutputType`（六值枚举，`.ts` / `.py` 等一律归 `code`），与三个 tool part 口径事件的类型判定一致
-- 只统计 `.octo/<sessionId>/` 会话产物区内的文件（判据 `worktree-layout.ts` 的 `isSessionArtifactPath`，新增、含单测）；目录外的变更只计入 `outside`（噪声桶：并发会话 / Make 模块 / 用户手改，只计数不计类型，不作产物）
-- `extend.messageId` 是**下游幂等键**：分析侧按 `(name, messageId)` 去重（at-least-once 标准姿势），前端 baseline + `trackedArtifactKeys` 两层去重从正确性依赖降级为省流量优化
-- ⚠️ **不要**把「`total` 减三个 tool part 事件 count 之和」当 bash 产出量：两个口径重叠（MCP eager 落盘同样进 diff、与 `artifact-mcp-return` 重复计数）且异步，差值只能当趋势提示，不能作分母
+- `type` 复用 `resolveOutputType`（六值枚举，`.ts` / `.py` 等一律归 `code`），四条事件类型判定一致
+- `file` 即幂等键组成部分：`artifact-output` 用 git diff 路径（相对仓库根，判据 `worktree-layout.ts` 的 `isSessionArtifactPath` 做会话目录分桶）；write/edit 用写盘路径剥 projectDir 前缀的相对路径；mcp 用 resource_link 的 uri
+- **下游幂等键 `(name, messageId, file)`**（outside 事件无 file，按 `(name, messageId)`）：at-least-once 标准姿势，前端 baseline + `trackedArtifactKeys` 两层去重从正确性依赖降级为省流量优化；去重键 per-file（`output:${messageID}:${file}` 等），debounce 报完后 summarize 再覆写出新文件可自愈补报
+- turn 级聚合字段（`total/added/modified`）**不再上报**：行数即 total，`status` 字段 group by 即 added/modified
+- ⚠️ **不要**把「`artifact-output` 行数减三个 tool part 事件行数」当 bash 产出量：两个口径重叠（MCP eager 落盘同样进 diff、与 `artifact-mcp-return` 重复计数）且异步，差值只能当趋势提示，不能作分母
 - 已知偏差（源仓 `.gitignore` 忽略 `.octo/` 时本口径恒 0 / debounce 内切走会话漏报 / 含引号文件名落 `code`）见 spec §5，分析侧必读
 
 ## 五、验证

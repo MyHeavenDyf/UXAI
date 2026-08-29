@@ -116,13 +116,18 @@
 > **write 与 edit 拆分**：`artifact-file-write` 统计 write 工具调用产生的文件（含覆盖写），`artifact-file-edit` 单独统计 edit 工具调用。
 > 两者独立计数，按工具调用类型区分。bash / python 等脚本产物**不在 tool part 口径内**（无法可靠识别），
 > 由 `artifact-output`（服务端 git diff 口径，SPEC-INS-033）兜底覆盖。
+>
+> **per-file 粒度（SPEC-INS-033 D2，2026-08-29）**：面板按事件行数统计、不解析 extend 里的 count，turn 级聚合会让
+> 「1 turn 产 3 个文件」面板只显示 1——故本节事件**每文件一条**，行数即文件数，turn 级视图由下游
+> `group by messageId` 还原；幂等键 `(name, messageId, file)`。
 
 | name | 触发时机 | extend 字段 | 代码位置 |
 |------|----------|------------|----------|
-| artifact-file-write | **write** 工具完成（**含覆盖写**，排除 edit；按文件类型聚合上报） | `files`: `Array<{type: OutputCardType, count: number}>`（例：`[{type:"markdown",count:2}, {type:"html",count:1}]`） | `insight-turn.tsx` 统计产物 effect（artifact-file baseline, findWriteOnlyCards） |
-| artifact-file-edit | **edit** 工具完成（与 write 拆分；按文件类型聚合上报） | `files`: `Array<{type: OutputCardType, count: number}>`（例：`[{type:"markdown",count:1}]`） | `insight-turn.tsx` 统计产物 effect（artifact-file baseline, findEditCards） |
-| artifact-mcp-return | MCP 工具返回 resource_link 类型文件（**产物侧**，按文件类型聚合；每次检测到新增 resource_link 时上报，包含产生该文件的 MCP 工具名） | `files`: `Array<{type: OutputCardType, count: number, tool: string}>`（例：`[{type:"csv",count:1,tool:"key_findings"}, {type:"md",count:1,tool:"mindmap"}]`） | `insight-turn.tsx` 统计产物 effect（artifact-mcp baseline） |
-| artifact-output | 本 turn 实际产出/修改的文件总量（**服务端 git snapshot `UserMessage.summary.diffs` 口径**，覆盖所有文件变更方式含 bash 等脚本产物；只统计 `.octo/<sessionId>/` 会话产物区内，目录外只计入 `outside` 噪声桶；SPEC-INS-033，设计论证在文档仓 spec） | `messageId`（下游幂等键）、`files`: `Array<{type: OutputCardType, count: number}>`、`total`、`added`、`modified`、`outside` | `insight-turn.tsx` artifact-output effect（baseline + `showGenerating()` 守卫 + 1500ms debounce） |
+| artifact-file-write | **write** 工具完成（**含覆盖写**，排除 edit；每文件一条） | `messageId`、`file`(剥 projectDir 前缀的相对路径)、`type`(OutputCardType) | `insight-turn.tsx` 统计产物 effect（artifact-file baseline, findWriteOnlyCards） |
+| artifact-file-edit | **edit** 工具完成（与 write 拆分；每文件一条） | `messageId`、`file`、`type` | `insight-turn.tsx` 统计产物 effect（artifact-file baseline, findEditCards） |
+| artifact-mcp-return | MCP 工具返回 resource_link 类型文件（**产物侧**；每个 link 一条，含产生该文件的 MCP 工具名） | `messageId`、`file`(resource_link 的 uri)、`type`、`tool`(业务工具裸名) | `insight-turn.tsx` 统计产物 effect（artifact-mcp baseline） |
+| artifact-output | 本 turn 产出/修改的**一个文件**（**服务端 git snapshot `UserMessage.summary.diffs` 口径**，覆盖所有文件变更方式含 bash 等脚本产物；只报 `.octo/<sessionId>/` 会话产物区内的文件；SPEC-INS-033，设计论证在文档仓 spec） | `messageId`、`file`(git diff 相对仓库根路径)、`type`、`status`(added/modified) | `insight-turn.tsx` artifact-output effect（baseline + `showGenerating()` 守卫 + 1500ms debounce） |
+| artifact-output-outside | 本 turn 观测到的会话目录外变更总量（噪声桶：并发会话 / Make 模块 / 用户手改；turn 级一条，仅 outside>0 时报，**不计入产物总量**） | `messageId`、`outside`(数量) | `insight-turn.tsx` artifact-output effect（与 artifact-output 同一 debounce 回调） |
 
 ## 十一、@ 引用面板（SPEC-INS-023）
 
