@@ -1766,6 +1766,10 @@ const sessionMessagesLoaded = createMemo(() => {
     const mainSid = params.id
     if (!planSid || !modelKey || !mainSid) return
     if (planButtonDisabled()) return   // 防重复
+    // 立即持久化"已结束"标记 + 设置 planEnded，防止用户在 await 期间切换 session 后切回时 plan 恢复为可交互
+    localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + mainSid, "true")
+    setPlanEndedForSession(mainSid)
+    setPlanEnded(true)
     setOptimisticConfirmed(true)
     setPlanConfirmPending(true)  // 过渡状态：保持 plan 视图显示"正在生成 HTML..."
     const cmd = identifier ? `[confirm-plan ${identifier}]` : `[confirm-plan]`
@@ -1814,11 +1818,7 @@ const sessionMessagesLoaded = createMemo(() => {
     // 清理子 session 状态，保留子 session 的记录（不清理 childSessionIDs）
     localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + mainSid)
     delete _planChildSessionCache[mainSid]
-    // 持久化"已结束"标记，确保切换 session / 重启后 plan 视图只读
-    localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + mainSid, "true")
     const currentPhase = planPhase()
-    setPlanEndedForSession(mainSid)
-    setPlanEnded(true)
     setActivePlanSessionId(null)
     setPlanParentSessionId(null)
     setHasChildPlanSession(false)
