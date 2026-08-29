@@ -2733,11 +2733,17 @@ const sessionMessagesLoaded = createMemo(() => {
         inputText: text.slice(0, 30)
       })
       
-      await sdk.client.session.prompt({
+      // 不 await 整个 stream:session.prompt 是 streaming API,await 在 stream 完成才 resolve。
+      // 若 await,sending 会一直 true 到模型回复结束,输入框被全程禁用。
+      // fire-and-forget + .catch:sendMessage 立即返回,handleSubmit 的 finally 把 sending 重置,
+      // 模型回复期间靠 effectiveBusy() (handleSubmit 入口处 early-return) 防重入。
+      void sdk.client.session.prompt({
         sessionID: sessionId,
         agent: sessionId === activePlanSessionId() ? "octo_make_plan" : "octo_make",
         ...(modelKey ? { model: modelKey } : {}),
         parts,
+      }).catch(err => {
+        console.error("[MakePage] prompt failed", err)
       })
       // 不在此清空附件：session.prompt 是 streaming API，await 在 stream 完成才 resolve。
       // 附件已在 sendMessage 开头（约 2223 行）快照后立即清空，此处再清会误清
@@ -3951,7 +3957,7 @@ if (dsId) {
       })
   }
 
-  const inputDisabled = () => sending() || effectiveBusy() || !activeModelKey() || !!questionRequest() || !!permissionRequest()
+  const inputDisabled = () => sending() || !activeModelKey() || !!questionRequest() || !!permissionRequest()
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
