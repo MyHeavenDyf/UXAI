@@ -42,7 +42,7 @@ interface MentionPopoverProps {
   artifactFiles: { generated: ArtifactFile[]; uploaded: ArtifactFile[] } | null | undefined
   productId?: number
   onDownloadProductAsset?: (file: AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
-  onUpdateMentionPath?: (filename: string, path: string) => void
+  onUpdateMentionPath?: (id: string, path: string) => void
 }
 
 export function MentionPopover(props: MentionPopoverProps): JSX.Element {
@@ -60,7 +60,6 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     loadingFiles: boolean
     selectedFolderId: string | null
   }>>([])
-  const [selectedAssetFiles, setSelectedAssetFiles] = createSignal<AssetFile[]>([])
   const [assetLoading, setAssetLoading] = createSignal(false)
   const [assetError, setAssetError] = createSignal<string | null>(null)
   const [assetPreview, setAssetPreview] = createSignal<AssetFile | null>(null)
@@ -337,27 +336,60 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     }
   }
 
-  // 产品资产文件点击
+  // 产品资产库文件选中态:基于 props.selections (doc 里的 chip),按 id 匹配
+  // chip id = joinUrl(s3BaseUrl, convertHtmlUrl) (唯一标识,下载后不变,即使 path 被改成本地路径)
+  // 参照 addon-menu 的 isAssetFileSelected,用 id 而不是 filename 匹配,避免同名文件误判
+  const isAssetFileSelected = (file: AssetFile) => {
+    const url = joinUrl(file.s3BaseUrl, file.convertHtmlUrl)
+    return props.selections.some(s =>
+      s.type === 'file' && (s as any).id === url
+    )
+  }
+
+  // 在 assetSubStack 里按 URL 查找 AssetFile (用于下载时从 chip id 反查文件元数据)
+  const findAssetFileInStackByUrl = (url: string): AssetFile | undefined => {
+    for (const level of assetSubStack()) {
+      const f = level.files.find(file => joinUrl(file.s3BaseUrl, file.convertHtmlUrl) === url)
+      if (f) return f
+    }
+    return undefined
+  }
+
+  // 产品资产文件点击:chip path = joinUrl(s3BaseUrl, convertHtmlUrl) 作唯一标识
+  // (insertMention 会把 selection.path 存为 chip.attrs.id;sync plugin 提取时 selection.id = chip.attrs.id)
+  // 关闭面板时批量下载,updateMentionPath 把本地路径补到 chip (按 id 匹配)
   const handleProductAssetClick = (file: AssetFile) => {
+    const url = joinUrl(file.s3BaseUrl, file.convertHtmlUrl)
     const selection: MentionSelection = {
       type: 'file',
       filename: file.fileName,
-      path: '',
+      path: url,
     }
-    if (isSelected(selection)) {
+    if (isAssetFileSelected(file)) {
       props.onDeselect(selection)
-      setSelectedAssetFiles(prev => prev.filter(f => f.fileName !== file.fileName))
     } else {
       props.onSelect(selection)
-      setSelectedAssetFiles(prev => [...prev, file])
     }
   }
 
-  // 收集选中的产品资产库文件（从 selectedAssetFiles 中获取）
+  // 收集选中的产品资产库文件:从 props.selections 反查 AssetFile
+  // 跳过 path 不是 URL 的 (即已下载到本地路径的 chip,避免重复下载)
   const collectSelectedAssetFiles = (): AssetFile[] => {
-    return selectedAssetFiles().filter(file => 
-      props.selections.some(s => s.type === 'file' && !s.path && s.filename === file.fileName)
-    )
+    const result: AssetFile[] = []
+    const seen = new Set<string>()
+    for (const sel of props.selections) {
+      if (sel.type !== 'file') continue
+      const id = (sel as any).id as string | undefined
+      const path = (sel as any).path as string
+      if (!id || !path) continue
+      // Skip already-downloaded chips (path is a local filesystem path, not a URL)
+      if (!/^https?:\/\//.test(path)) continue
+      if (seen.has(id)) continue
+      seen.add(id)
+      const found = findAssetFileInStackByUrl(id)
+      if (found) result.push(found)
+    }
+    return result
   }
 
   // 批量下载选中的产品资产库文件
@@ -373,8 +405,9 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         setAssetDownloadCurrent(file.fileName)
         const localPath = await props.onDownloadProductAsset?.(file, () => {}, assetDownloadAbortController.signal)
         if (assetDownloadCancelled()) break
+        // 用 URL (chip id) 调 updateMentionPath,prosemirror 按 node.attrs.id 匹配后把 path 改成本地路径
         if (localPath) {
-          props.onUpdateMentionPath?.(file.fileName, localPath)
+          props.onUpdateMentionPath?.(joinUrl(file.s3BaseUrl, file.convertHtmlUrl), localPath)
         }
       }
       setAssetDownloadOpen(false)
@@ -390,14 +423,13 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     }
   }
 
-  // 关闭下载弹窗
+  // 关闭下载弹窗:移除 path 仍是 URL 的 chip (即本次未下载完成的)
   const closeAssetDownload = () => {
     setAssetDownloadCancelled(true)
     assetDownloadAbortController?.abort()
     setAssetDownloadOpen(false)
-    // 移除 path 为空的 chip
     for (const sel of props.selections) {
-      if (sel.type === 'file' && !sel.path) {
+      if (sel.type === 'file' && /^https?:\/\//.test((sel as any).path || "")) {
         props.onDeselect(sel)
       }
     }
@@ -802,16 +834,11 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                   <Show when={visibleFiles().length > 0}>
                     <For each={visibleFiles()}>
                       {(file) => {
-                        const sel: MentionSelection = {
-                          type: 'file',
-                          filename: file.fileName,
-                          path: '',
-                        }
                         const FileIcon = getFileIcon(inferKindFromUrl(file.convertHtmlUrl), file.fileName)
                         return (
                           <button
                             type="button"
-                            class={`mention-secondary-item mention-secondary-item--asset ${isSelected(sel) ? 'mention-secondary-item--selected' : ''}`}
+                            class={`mention-secondary-item mention-secondary-item--asset ${isAssetFileSelected(file) ? 'mention-secondary-item--selected' : ''}`}
                             onClick={() => handleProductAssetClick(file)}
                             onMouseEnter={(e) => {
                               const itemRect = e.currentTarget.getBoundingClientRect()
@@ -854,8 +881,8 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                             }}
                             onMouseLeave={() => setAssetPreview(null)}
                           >
-                            <div class={`mention-checkbox ${isSelected(sel) ? 'mention-checkbox--checked' : ''}`}>
-                              <Show when={isSelected(sel)}>
+                            <div class={`mention-checkbox ${isAssetFileSelected(file) ? 'mention-checkbox--checked' : ''}`}>
+                              <Show when={isAssetFileSelected(file)}>
                                 <Icon name="check" size="small" style="color: white" />
                               </Show>
                             </div>
