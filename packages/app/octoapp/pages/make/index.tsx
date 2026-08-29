@@ -1981,8 +1981,10 @@ const sessionMessagesLoaded = createMemo(() => {
           clearPlanComposerCapsule()
           // 清除残留的 confirm-plan 显示文本，防止泄漏到新会话
           _confirmPlanDisplayText = undefined
+          setChildSessionIDs(new Set<string>())
+          loadedChildSessions.clear()
           setPlanChildSessionIDs(new Set<string>())
-        setHasChildPlanSession(false)
+          setHasChildPlanSession(false)
           setResultViewMode("files")
           setPlanPhase("strategy")
           setManualStrategyFormData({})
@@ -2019,90 +2021,93 @@ const sessionMessagesLoaded = createMemo(() => {
         setPhase2Pending(false)
         setPlanEnded(false)  // 复位结束状态，新 session 的恢复逻辑会重新设置
       }
-      // 尝试恢复当前主 session 的设计规划子 session
+      // 尝试恢复当前主 session 的设计规划子 session（仅在 session 实际切换时）
       let restoredPlanSid: string | null = null
-      // 从 session 切换缓存中恢复（即时恢复，无需等 Phase 2 异步）
-      if (newSid && _planChildSessionCache[newSid]) {
-        restoredPlanSid = _planChildSessionCache[newSid]
-      }
-      // 第一阶段：从 sync.data.session 同步扫描（同会话内切换生效）
-      // 只恢复非归档的活跃子 session
-      if (allSessions) {
-        for (const s of allSessions) {
-          if ((s as any).parentID === newSid && (s as any).agent === "octo_make_plan" && !(s as any).time?.archived) {
-            loadedChildSessions.add(s.id)
-            setChildSessionIDs((prev) => { const next = new Set(prev); next.add(s.id); return next })
-            sync.session.sync(s.id).catch(() => {})
-            restoredPlanSid = s.id
-            break
+      if (newSid !== prevSid) {
+        // 从 session 切换缓存中恢复（即时恢复，无需等 Phase 2 异步）
+        if (newSid && _planChildSessionCache[newSid]) {
+          restoredPlanSid = _planChildSessionCache[newSid]
+        }
+        // 第一阶段：从 sync.data.session 同步扫描（同会话内切换生效）
+        // 只恢复非归档的活跃子 session
+        if (allSessions) {
+          for (const s of allSessions) {
+            if ((s as any).parentID === newSid && (s as any).agent === "octo_make_plan" && !(s as any).time?.archived) {
+              loadedChildSessions.add(s.id)
+              setChildSessionIDs((prev) => { const next = new Set(prev); next.add(s.id); return next })
+              sync.session.sync(s.id).catch(() => {})
+              restoredPlanSid = s.id
+              break
+            }
           }
         }
-      }
-      if (restoredPlanSid) {
-        // 规划子 session 已被当前恢复流程识别，先恢复为进行中状态；只有明确的结束标记才进入只读状态。
-        setPlanEndedForSession(null)
-        setPlanEnded(false)
-        // 检查是否已被用户退出（持久化标记）
-        const isEnded = !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid)
-        if (isEnded) {
-          // 已退出：只保留历史记录，不恢复为活跃状态
-          if (!loadedChildSessions.has(restoredPlanSid)) {
-            loadedChildSessions.add(restoredPlanSid)
-            setChildSessionIDs((prev) => { const next = new Set(prev); next.add(restoredPlanSid); return next })
-            sync.session.sync(restoredPlanSid).catch(() => {})
+        if (restoredPlanSid) {
+          // 规划子 session 已被当前恢复流程识别，先恢复为进行中状态；只有明确的结束标记才进入只读状态。
+          setPlanEndedForSession(null)
+          setPlanEnded(false)
+          const planSid = restoredPlanSid
+          // 检查是否已被用户退出（持久化标记）
+          const isEnded = !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid)
+          if (isEnded) {
+            // 已退出：只保留历史记录，不恢复为活跃状态
+            if (!loadedChildSessions.has(planSid)) {
+              loadedChildSessions.add(planSid)
+              setChildSessionIDs((prev) => { const next = new Set(prev); next.add(planSid); return next })
+              sync.session.sync(planSid).catch(() => {})
+            }
+            setPlanEndedForSession(newSid)
+            setPlanEnded(true)
+            return
           }
-          setPlanEndedForSession(newSid)
-          setPlanEnded(true)
-          return
-        }
 
-        if (!loadedChildSessions.has(restoredPlanSid)) {
-          loadedChildSessions.add(restoredPlanSid)
-          setChildSessionIDs((prev) => { const next = new Set(prev); next.add(restoredPlanSid); return next })
-          sync.session.sync(restoredPlanSid).catch(() => {})
-        }
-        // 检测子 session 是否已被确认
-        // 已确认的子 session 只保留历史记录，不恢复为活跃状态
-        const childMessages = sync.data.message?.[restoredPlanSid]
-        const childParts = sync.data.part
+          if (!loadedChildSessions.has(planSid)) {
+            loadedChildSessions.add(planSid)
+            setChildSessionIDs((prev) => { const next = new Set(prev); next.add(planSid); return next })
+            sync.session.sync(planSid).catch(() => {})
+          }
+          // 检测子 session 是否已被确认
+          // 已确认的子 session 只保留历史记录，不恢复为活跃状态
+          const childMessages = sync.data.message?.[planSid]
+          const childParts = sync.data.part
 
-        // 扫描 design-plan artifact
-        const planArtifact = scanDesignPlanFromMessages(childMessages, childParts, restoredPlanSid)
-        const planIdent = planArtifact?.artifactIdentifier
+          // 扫描 design-plan artifact
+          const planArtifact = scanDesignPlanFromMessages(childMessages, childParts, planSid)
+          const planIdent = planArtifact?.artifactIdentifier
 
-        // 使用 isPlanConfirmed 检测确认状态（包括 [confirm-plan] 和 text/html artifact）
-        // [confirm-plan] 发送给主 session，需同时检查主 session 消息流
-        let isConfirmed = planIdent ? isPlanConfirmed(childMessages, childParts, planIdent) : false
-        if (!isConfirmed && planIdent && newSid) {
-          isConfirmed = isPlanConfirmed(sync.data.message?.[newSid], sync.data.part, planIdent)
-        }
+          // 使用 isPlanConfirmed 检测确认状态（包括 [confirm-plan] 和 text/html artifact）
+          // [confirm-plan] 发送给主 session，需同时检查主 session 消息流
+          let isConfirmed = planIdent ? isPlanConfirmed(childMessages, childParts, planIdent) : false
+          if (!isConfirmed && planIdent && newSid) {
+            isConfirmed = isPlanConfirmed(sync.data.message?.[newSid], sync.data.part, planIdent)
+          }
 
-        // 检测子 session 消息流中是否已有 design-plan artifact
-        const hasDesignPlan = childMessages?.some((m: any) => {
-          if (m.role !== "assistant") return false
-          const text = (childParts?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
-          return text?.includes('type="text/design-plan"')
-        })
+          // 检测子 session 消息流中是否已有 design-plan artifact
+          const hasDesignPlan = childMessages?.some((m: any) => {
+            if (m.role !== "assistant") return false
+            const text = (childParts?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
+            return text?.includes('type="text/design-plan"')
+          })
 
-        if (isConfirmed) {
-          // 已确认：只保留历史记录，不设为活跃
-          setPlanChildSessionIDs(new Set<string>())
-        setHasChildPlanSession(false)
-          setPlanEndedForSession(newSid)
-          setPlanEnded(true)
-          localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid, "true")
-          // 设置 planPhase 为 generate，以便用户点击 tab 时正确显示第二阶段内容
-          setPlanPhase(hasDesignPlan ? "generate" : "strategy")
-          // 清理 localStorage 缓存
-          localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + newSid)
-          delete _planChildSessionCache[newSid]
-        } else {
-          // 未确认：恢复为活跃状态
-          setActivePlanSessionId(restoredPlanSid)
-          setPlanParentSessionId(newSid)
-          setHasChildPlanSession(true)
-          setResultViewMode("plan")
-          setPlanPhase(hasDesignPlan ? "generate" : "strategy")
+          if (isConfirmed) {
+            // 已确认：只保留历史记录，不设为活跃
+            setPlanChildSessionIDs(new Set<string>())
+            setHasChildPlanSession(false)
+            setPlanEndedForSession(newSid)
+            setPlanEnded(true)
+            localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid, "true")
+            // 设置 planPhase 为 generate，以便用户点击 tab 时正确显示第二阶段内容
+            setPlanPhase(hasDesignPlan ? "generate" : "strategy")
+            // 清理 localStorage 缓存
+            localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + newSid)
+            delete _planChildSessionCache[newSid]
+          } else {
+            // 未确认：恢复为活跃状态
+            setActivePlanSessionId(planSid)
+            setPlanParentSessionId(newSid)
+            setHasChildPlanSession(true)
+            setResultViewMode("plan")
+            setPlanPhase(hasDesignPlan ? "generate" : "strategy")
+          }
         }
       }
       setMentionState(null)
@@ -2774,9 +2779,11 @@ const sessionMessagesLoaded = createMemo(() => {
     proseMirrorRef1?.clear()
     proseMirrorRef2?.clear()
     // 新建 session 时立即清除规划子 session 状态，防止旧 plan 会话的 SID 泄漏到新会话
-    if (!params.id && activePlanSessionId()) {
+    if (!params.id) {
       setActivePlanSessionId(null)
       setPlanParentSessionId(null)
+      setChildSessionIDs(new Set<string>())
+      loadedChildSessions.clear()
     }
     const planSid = activePlanSessionId() && planParentSessionId() === params.id ? activePlanSessionId() : null
     const submitSessionId = planSid || params.id
