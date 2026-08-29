@@ -1,13 +1,87 @@
-import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, getGeneration, rebootGeneration } from "@/studio/studio-service"
+import {
+  cancelGeneration,
+  createEditorEntry,
+  createGeneration,
+  createPromptGen,
+  createStyleDescriptionGenStream,
+  getGeneration,
+  rebootGeneration,
+  type StudioStyleDescriptionGenStreamEvent,
+} from "@/studio/studio-service"
 import * as InstanceState from "@/effect/instance-state"
-import { Instance } from "@/project/instance"
+import { Instance, type InstanceContext } from "@/project/instance"
 import { checkStudioPermission, fetchPromptTags } from "@/tool/internel_image_generate"
-import { Effect } from "effect"
-import { HttpServerRequest } from "effect/unstable/http"
-import { HttpApiBuilder } from "effect/unstable/httpapi"
+import { Effect, Queue, Schema } from "effect"
+import * as Stream from "effect/Stream"
+import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
+import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
+import * as Sse from "effect/unstable/encoding/Sse"
 import { InstanceHttpApi } from "../api"
-import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioPermissionPayload, StudioPromptGenPayload } from "../groups/studio"
+import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioPermissionPayload, StudioPromptGenPayload, StudioStyleDescriptionGenPayload } from "../groups/studio"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
+
+function styleDescriptionEventData(data: StudioStyleDescriptionGenStreamEvent): Sse.Event {
+  return {
+    _tag: "Event",
+    event: "message",
+    id: undefined,
+    data: JSON.stringify(data),
+  }
+}
+
+function styleDescriptionStreamError(error: unknown): StudioStyleDescriptionGenStreamEvent {
+  return {
+    type: "error",
+    content: error instanceof Error ? error.message : String(error),
+  }
+}
+
+function styleDescriptionResponse(
+  payload: typeof StudioStyleDescriptionGenPayload.Type,
+  instance: InstanceContext,
+) {
+  return HttpServerResponse.stream(
+    Stream.callback<StudioStyleDescriptionGenStreamEvent>((queue) =>
+      Effect.acquireRelease(
+        Effect.sync(() => {
+          const controller = new AbortController()
+          void Instance.restore(instance, () =>
+            createStyleDescriptionGenStream({
+              style_keywords: payload.style_keywords,
+              style_images: payload.style_images.map((image) => ({ url: image.url })),
+              style_dimensions: [...payload.style_dimensions],
+            }, {
+              signal: controller.signal,
+              onEvent: (event) => {
+                Queue.offerUnsafe(queue, event)
+              },
+            }),
+          )
+            .catch((error) => {
+              if (!controller.signal.aborted) Queue.offerUnsafe(queue, styleDescriptionStreamError(error))
+            })
+            .finally(() => {
+              Effect.runSync(Queue.shutdown(queue))
+            })
+          return controller
+        }),
+        (controller) => Effect.sync(() => controller.abort()),
+      ),
+    ).pipe(
+      Stream.map(styleDescriptionEventData),
+      Stream.pipeThroughChannel(Sse.encode()),
+      Stream.encodeText,
+    ),
+    {
+      contentType: "text/event-stream",
+      headers: {
+        "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
+        "X-Content-Type-Options": "nosniff",
+      },
+    },
+  )
+}
 
 export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (handlers) =>
   Effect.gen(function* () {
@@ -141,10 +215,26 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       })
     })
 
+    const styleDescriptionGen = Effect.fn("StudioHttpApi.createStyleDescriptionGen")(function* (ctx: {
+      request: HttpServerRequest.HttpServerRequest
+    }) {
+      const instance = yield* InstanceState.context
+      const body = yield* Effect.orDie(ctx.request.text)
+      const json = yield* Effect.try({
+        try: () => JSON.parse(body) as unknown,
+        catch: () => new HttpApiError.BadRequest({}),
+      })
+      const payload = yield* Schema.decodeUnknownEffect(StudioStyleDescriptionGenPayload)(json).pipe(
+        Effect.mapError(() => new HttpApiError.BadRequest({})),
+      )
+      return styleDescriptionResponse(payload, instance)
+    })
+
     return handlers
       .handle("createGeneration", create)
       .handle("createEditorEntry", createEntry)
       .handle("createPromptGen", promptGen)
+      .handleRaw("createStyleDescriptionGen", styleDescriptionGen)
       .handle("getGeneration", get)
       .handle("cancelGeneration", cancel)
       .handle("rebootGeneration", reboot)

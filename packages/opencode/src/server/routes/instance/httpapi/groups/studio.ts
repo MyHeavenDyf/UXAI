@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
+import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import { Authorization } from "../middleware/authorization"
 import { InstanceContextMiddleware } from "../middleware/instance-context"
 import { WorkspaceRoutingMiddleware } from "../middleware/workspace-routing"
@@ -25,6 +25,7 @@ export const StudioPaths = {
   editorEntries: `${root}/editor-entries`,
   promptTags: `${root}/prompt-tags`,
   promptGen: `${root}/prompt-gen`,
+  styleDescriptionGen: `${root}/style-description-gen`,
   permission: `${root}/permissions/check`,
 } as const
 
@@ -34,6 +35,29 @@ export const StudioPermissionPayload = Schema.Struct({
 
 export const StudioPromptGenPayload = Schema.Struct({
   base64img: Schema.String,
+})
+
+const StudioStyleDimensionId = Schema.Literals([
+  "tonal",
+  "composition",
+  "volume",
+  "surface",
+  "color",
+  "linework",
+  "shape_structure",
+  "role_design",
+  "lettering",
+  "post_processing",
+])
+
+export const StudioStyleDescriptionGenPayload = Schema.Struct({
+  style_keywords: Schema.String,
+  style_images: Schema.Array(
+    Schema.Struct({
+      url: Schema.String,
+    }),
+  ),
+  style_dimensions: Schema.Array(StudioStyleDimensionId),
 })
 
 export const StudioGenerationPayload = Schema.Struct({
@@ -179,6 +203,17 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.prompt-gen.create",
             summary: "Generate prompt from reference image",
             description: "Returns generated prompt text from the internal image prompt generation API.",
+          }),
+        ),
+        HttpApiEndpoint.post("createStyleDescriptionGen", StudioPaths.styleDescriptionGen, {
+          payload: StudioStyleDescriptionGenPayload,
+          success: Schema.String.pipe(HttpApiSchema.asText({ contentType: "text/event-stream" })),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.style-description-gen.create",
+            summary: "Generate style description",
+            description: "Streams style description fields from the internal Studio style template API.",
           }),
         ),
         HttpApiEndpoint.post("createGeneration", StudioPaths.generations, {
