@@ -42,6 +42,7 @@ export type SkillContentResponse =
   | { success: false; error: string }
 
 export type ElectronAPI = {
+  arch: string
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>
   awaitInitialization: (onStep: (step: InitStep) => void) => Promise<ServerReadyData>

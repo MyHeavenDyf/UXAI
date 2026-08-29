@@ -35,7 +35,7 @@ import { playSoundById, SOUND_OPTIONS } from "@/utils/sound"
 import { showFloatingNotice } from "./floating-notice"
 import { Link } from "./link"
 import { SettingsList } from "./settings-list"
-import { DialogUpdateAvailable, MAC_UPDATE_DOWNLOAD_URL } from "./dialog-update-available"
+import { DialogUpdateAvailable } from "./dialog-update-available"
 
 let demoSoundState = {
   cleanup: undefined as (() => void) | undefined,
@@ -237,7 +237,14 @@ export const SettingsGeneral: Component = () => {
             version={result.version ?? ""}
             onUpgrade={(onProgress) => {
               if (platform.os === "macos") {
-                platform.openLink(MAC_UPDATE_DOWNLOAD_URL)
+                const arch = platform.arch
+                if (arch !== "x64" && arch !== "arm64") {
+                  showToast({ title: "暂不支持当前 Mac 架构", description: arch ?? "未知架构" })
+                  return
+                }
+                platform.openLink(
+                  `https://octo-beta.hdesign.huawei.com/design/agentdesktop/mac-${arch}/prod/octo-desktop-mac-${arch}.dmg`,
+                )
                 return
               }
               return platform.updateAndRestart?.(onProgress)

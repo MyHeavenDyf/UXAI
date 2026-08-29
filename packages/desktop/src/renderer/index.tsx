@@ -130,6 +130,7 @@ const createPlatform = (): Platform => {
   return {
     platform: "desktop",
     os,
+    arch: window.api.arch,
     version: pkg.version,
 
     async openDirectoryPickerDialog(opts) {

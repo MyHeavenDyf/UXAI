@@ -16,6 +16,9 @@ export type Platform = {
   /** Desktop OS (Tauri only) */
   os?: "macos" | "windows" | "linux"
 
+  /** Desktop CPU architecture */
+  arch?: string
+
   /** App version */
   version?: string
 

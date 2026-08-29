@@ -158,7 +158,6 @@ export default defineConfig(({ mode, command }) => {
         "import.meta.env.VITE_OCTO_BASE_URL": JSON.stringify(env.VITE_OCTO_BASE_URL ?? ""),
         "import.meta.env.VITE_OCTO_MODELS_API_SOURCE": JSON.stringify(env.VITE_OCTO_MODELS_API_SOURCE ?? ""),
         "import.meta.env.VITE_OCTO_MODELS_API_URL": JSON.stringify(env.VITE_OCTO_MODELS_API_URL ?? ""),
-        "import.meta.env.VITE_OCTO_MAC_DOWNLOAD_URL": JSON.stringify(env.VITE_OCTO_MAC_DOWNLOAD_URL ?? ""),
         // jk-j60099994-replace-with-electron-vite-config-2-start
         // jk-j60099994-replace-with-electron-vite-config-2-end
         // jk-j60099994-replace-with-60062650-electron-vite-config-1-start
