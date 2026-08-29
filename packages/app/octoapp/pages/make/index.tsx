@@ -1089,8 +1089,8 @@ const sessionMessagesLoaded = createMemo(() => {
   const [slashState, setSlashState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [slashIndex, setSlashIndex] = createSignal(0)
   let textareaRef!: HTMLTextAreaElement
-  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (filename: string, path: string) => void; isAlive: () => boolean; replaceDoc: (json: any) => void } | undefined
-  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (filename: string, path: string) => void; isAlive: () => boolean; replaceDoc: (json: any) => void } | undefined
+  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (id: string, path: string) => void; isAlive: () => boolean; replaceDoc: (json: any) => void } | undefined
+  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (id: string, path: string) => void; isAlive: () => boolean; replaceDoc: (json: any) => void } | undefined
 
   // ── Mention (@) Popover State ──
   const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
@@ -2171,7 +2171,7 @@ const sessionMessagesLoaded = createMemo(() => {
             const newPath = [uploadsDir, candidate].join(sep)
             await api.renameFile!(p, newPath)
             const ref = proseMirrorRef1 ?? proseMirrorRef2
-            ref?.updateMentionPath?.(sel.name, newPath)
+            ref?.updateMentionPath?.(sel.id ?? sel.name, newPath)
             sel.path = newPath
           } catch (err) {
             console.warn("[octo:make] upload-move failed, keep tmps path", { name: sel.name, path: p, err })
@@ -2802,8 +2802,8 @@ if (dsId) {
     getAliveEditor()?.removeMention(selection)
   }
 
-  function handleAddonUpdateMentionPath(filename: string, path: string) {
-    getAliveEditor()?.updateMentionPath(filename, path)
+  function handleAddonUpdateMentionPath(id: string, path: string) {
+    getAliveEditor()?.updateMentionPath(id, path)
   }
 
   /** Pick a Design Files file and add as attachment */

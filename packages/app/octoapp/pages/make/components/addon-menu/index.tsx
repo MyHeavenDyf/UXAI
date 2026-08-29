@@ -156,12 +156,12 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
   }
 
   // 产品资源库文件选中态:基于 props.selections(doc 里的 chip),按 filename 匹配
-  // 产品资源库文件选中态:基于 props.selections(doc 里的 chip),按 path 匹配
-  // path = joinUrl(s3BaseUrl, convertHtmlUrl)(唯一标识,下载后会被 updateMentionPath 改成本地路径)
+  // 产品资源库文件选中态:基于 props.selections(doc 里的 chip),按 id 匹配
+  // chip id = joinUrl(s3BaseUrl, convertHtmlUrl)(唯一标识,下载后不变,即使 path 被改成本地路径)
   const isAssetFileSelected = (file: AssetFile) => {
     const url = joinUrl(file.s3BaseUrl, file.convertHtmlUrl)
     return props.selections.some(s =>
-      s.type === 'file' && s.path === url
+      s.type === 'file' && (s as any).id === url
     )
   }
 
@@ -247,7 +247,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
         if (assetDownloadCancelled()) break
         // Fill chip path with the local saved path
         if (localPath) {
-          props.onUpdateMentionPath?.(file.fileName, localPath)
+          props.onUpdateMentionPath?.(joinUrl(file.s3BaseUrl, file.convertHtmlUrl), localPath)
         }
       }
       setAssetDownloadOpen(false)
@@ -263,20 +263,22 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     }
   }
 
-  // Collect all AssetFile objects currently selected (chip path is the asset URL = not yet downloaded).
-  // After download, updateMentionPath changes path to local path, so those chips are skipped here.
+  // Collect all AssetFile objects currently selected (chip id is the asset URL = not yet downloaded).
+  // After download, path changes to local path, but id stays the same — we still need to skip downloaded ones.
+  // Detect "not yet downloaded" by path being a URL (http://...) rather than a local filesystem path.
   const collectSelectedAssetFiles = (): AssetFile[] => {
     const result: AssetFile[] = []
     const seen = new Set<string>()
     for (const sel of props.selections) {
       if (sel.type !== 'file') continue
+      const id = (sel as any).id as string | undefined
       const path = (sel as any).path as string
-      if (!path) continue
-      // Only chips whose path is still the asset URL (not yet downloaded → local path)
+      if (!id || !path) continue
+      // Skip already-downloaded chips (path is a local filesystem path, not a URL)
       if (!/^https?:\/\//.test(path)) continue
-      if (seen.has(path)) continue
-      seen.add(path)
-      const found = findAssetFileInStackByUrl(path)
+      if (seen.has(id)) continue
+      seen.add(id)
+      const found = findAssetFileInStackByUrl(id)
       if (found) result.push(found)
     }
     return result
