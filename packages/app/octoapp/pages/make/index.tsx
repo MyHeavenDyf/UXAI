@@ -1972,7 +1972,7 @@ const sessionMessagesLoaded = createMemo(() => {
     () => [params.id, sync.data.session] as const,
     ([newSid, allSessions], prev) => {
       const prevSid = prev?.[0] ?? null
-      const preservingPlanNavigation = sendingNavigation && !!newSid
+      const preservingPlanNavigation = !!newSid
       // 导航到 /make（无 session）时清除规划状态,防止泄漏到新会话
       if (!newSid) {
         if (prevSid) {
