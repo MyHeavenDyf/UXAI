@@ -1890,6 +1890,9 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 用户确认进入规划 → 创建已有主 session 的规划子 session */
+  // 跟踪 handleEnterPlan 是否正在进行中，防止 sync.data.session 更新触发 effect 错误清除状态
+  let _enteringPlan = false
+
   async function handleEnterPlan() {
     const sid = params.id
     const modelKey = activeModelKey()
@@ -1923,6 +1926,7 @@ const sessionMessagesLoaded = createMemo(() => {
       if (!childSession) throw new Error("Failed to create plan session")
 
       await sync.session.sync(childSession.id)
+      _enteringPlan = true
       setChildSessionIDs((prev) => {
         const next = new Set(prev)
         next.add(childSession.id)
@@ -1937,6 +1941,7 @@ const sessionMessagesLoaded = createMemo(() => {
       localStorage.setItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + sid, childSession.id)
       _planChildSessionCache[sid] = childSession.id
       setPlanParentSessionId(sid)
+      _enteringPlan = false
       savePlanSkillHandoff(sid, childSession.id, skills.map((skill) => ({ name: skill.name, label: skill.label })))
 
       setResultViewMode("plan")
@@ -1972,7 +1977,6 @@ const sessionMessagesLoaded = createMemo(() => {
     () => [params.id, sync.data.session] as const,
     ([newSid, allSessions], prev) => {
       const prevSid = prev?.[0] ?? null
-      const preservingPlanNavigation = !!newSid
       // 导航到 /make（无 session）时清除规划状态,防止泄漏到新会话
       if (!newSid) {
         if (prevSid) {
@@ -1998,7 +2002,7 @@ const sessionMessagesLoaded = createMemo(() => {
       // 仅在 session 实际切换时清理规划状态,避免 handleEnterPlan 等操作
       // 触发 sync.data.session 更新后重新进入此 effect 时错误地清除状态。
       tabStore.reset()
-      if (newSid !== prevSid && !preservingPlanNavigation) {
+      if (newSid !== prevSid && !_enteringPlan) {
         // 缓存前一个 session 的规划子 session，切回时立即恢复
         if (prevSid && activePlanSessionId()) {
           _planChildSessionCache[prevSid] = activePlanSessionId()!
@@ -2818,6 +2822,7 @@ const sessionMessagesLoaded = createMemo(() => {
           if (!childSession) throw new Error("Failed to create plan session")
 
           loadedChildSessions.add(childSession.id)
+          _enteringPlan = true
           setChildSessionIDs((prev) => {
             const next = new Set(prev)
             next.add(childSession.id)
@@ -2841,6 +2846,7 @@ const sessionMessagesLoaded = createMemo(() => {
           setPlanPhase("strategy")
           setUserChangedPhase(false)
           setManualStrategyFormData({})
+          _enteringPlan = false
 
           local.session.promote(sdk.directory, session.id)
           await sync.session.sync(childSession.id)
