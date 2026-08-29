@@ -171,7 +171,6 @@ export const ProseMirrorEditor = (props: Props) => {
           "Mod-shift-z": redo,
           "Enter": (state, dispatch, view) => {
             if (props.disabled) return false
-            if (props.busy) return true
             
             // If mention popover is open, don't send message
             const mentionTrigger = mentionTriggerKey.getState(state)
