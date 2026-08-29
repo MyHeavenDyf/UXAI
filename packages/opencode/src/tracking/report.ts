@@ -1,13 +1,18 @@
 import { Effect } from "effect"
 import type { Snapshot } from "@/snapshot"
+import type { MessageV2 } from "@/session/message-v2"
 import { SessionExtras } from "@/session/extras"
 
-// 服务端打点上报(SPEC-INS-033 D3)——统一产物统计 artifact-output / artifact-output-outside 的
+// 服务端产物打点(SPEC-INS-033 D3/D4)——artifact-output-write / -edit / -mcp / -outside 的
 // 服务端发射器。设计论证在 octo-agent 文档仓 spec §6;此处只记实现要点:
 //
 //   - 为何在服务端:产物是**系统事实**(谁在哪个 turn 写了哪个文件),业界在产生它的进程上报。
 //     前端 effect 版的三层补丁(baseline / showGenerating 守卫 / debounce)全部源于把触发器挂在
 //     UI 组件生命周期上——切走会话即漏报;服务端在 summarize 之后发,组件在不在都照发。
+//   - 事件族(D4):按归因结果分派到 write/edit/mcp 三个事件名(分析侧按行即得来源,不解析 extend);
+//     事件名只是分派结果,归因本身两层——先 tool part 精确匹配,匹配不上按 git status 兜底
+//     (added→write / modified→edit,覆盖 bash/powershell 等脚本通道:diff 有、tool part 没有)。
+//     原 artifact-file-write/edit/mcp-return 三条前端事件已删,被本族完全替代。
 //   - 协议:复刻前端 tracker(octoapp/utils/tracker.ts)的 /record/logger/interaction 契约,
 //     端点无鉴权(裸 JSON POST),字段同构;browserName 固定 "server" 供分析侧区分来源。
 //   - at-least-once:summarize 每个 finish-step 都跑,同一 turn 会发多轮;下游按
@@ -15,7 +20,9 @@ import { SessionExtras } from "@/session/extras"
 //     不承担正确性(进程重启即空,漏发由下一个 finish-step / 下一个 turn 的窗口补上)。
 //   - base URL:OCTO_REPORT_BASE_URL(经 desktop createSidecarEnv 从 VITE_OCTO_REPORT_BASE_URL
 //     桥接注入,同 OCTO_KB_BASE_URL 模式)。未配置(典型外网调试)→ mock 日志
-//     [octo:tracker-server],外网验证流程与前端 tracker-mock 对齐。
+//     [octo:tracker-server],且 account 缺失时用占位 "mock" 继续发(只打日志不真发,
+//     不进真实数据管道——外网验证流程与前端 tracker-mock 对齐)。真实上报模式 account
+//     缺失仍整批跳过(空 account 的行无法归属用户,只会制造脏数据)。
 //
 // 只服务 octo_insight 会话(summary.ts 挂钩处按 agent 守卫),make / studio 不报。
 
@@ -108,76 +115,14 @@ export function sendOne(input: { account: string; name: string; extend: Record<s
   })
 }
 
-/** diff 路径是否属于本会话产物区 `.octo/<sessionId>/`(SPEC-INS-014 §2)。镜像前端
- *  worktree-layout.ts isSessionArtifactPath(该判据的渲染端副本已随事件迁服务端删除):
+/** diff 路径是否属于本会话产物区 `.octo/<sessionId>/`(SPEC-INS-014 §2)。镜像原前端
+ *  worktree-layout.ts 判据(前端副本已随事件迁服务端删除):
  *  git diff 路径相对仓库根、projectDir 可能是仓库子目录,故按「最后一个 .octo 段的
  *  下一段是否等于本 sessionId」判,不能 startsWith(".octo/")。 */
 export function isSessionArtifactPath(filePath: string, sessionId: string): boolean {
   const segs = filePath.split(/[\\/]/)
   const i = segs.lastIndexOf(".octo")
   return i !== -1 && segs[i + 1] === sessionId
-}
-
-// 已发键 `messageID:file`(省流量层,见文件头)。跨 turn 场景:同一文件在后续 turn 再被改,
-// messageID 不同 → 键不同 → 照发,不受影响。
-const sentKeys = new Set<string>()
-
-/** summarize 挂钩入口:把一个 turn 的 FileDiff[] 分桶后 per-file 发送。
- *  - 会话目录内、非 deleted:每文件一条 artifact-output {sessionId, messageId, file, type, status}
- *  - 会话目录外:汇总一条 artifact-output-outside {sessionId, messageId, outside}(噪声桶,只计数)
- *  - account 取不到(登录态丢失 / 服务重启后 extra 空):整批跳过——发空 account 的行
- *    在分析侧无法归属用户,只会制造脏数据。
- *  - 类型判定 outputTypeOf 是 output-type 六值枚举的服务端镜像(markdown/html/json/code/file/image);
- *    .ts/.py/.txt 等一律归 code,与前端口径一致。 */
-export function reportDiffs(input: {
-  sessionID: string
-  messageID: string
-  diffs: Snapshot.FileDiff[]
-}): Effect.Effect<void> {
-  const account = SessionExtras.readExtraString(input.sessionID, "account")
-  if (!account) {
-    console.warn("[octo:tracker-server] account missing, skip artifact-output", {
-      sessionID: input.sessionID,
-      messageID: input.messageID,
-    })
-    return Effect.void
-  }
-
-  let outside = 0
-  const effects: Effect.Effect<void>[] = []
-  for (const d of input.diffs) {
-    if (d.status === "deleted") continue
-    const key = `${input.messageID}:${d.file}`
-    if (sentKeys.has(key)) continue
-    sentKeys.add(key)
-    if (!isSessionArtifactPath(d.file, input.sessionID)) {
-      outside++
-      continue
-    }
-    effects.push(
-      sendOne({
-        account,
-        name: "artifact-output",
-        extend: {
-          sessionID: input.sessionID,
-          messageId: input.messageID,
-          file: d.file,
-          type: outputTypeOf(d.file),
-          status: d.status ?? "modified",
-        },
-      }),
-    )
-  }
-  if (outside > 0) {
-    effects.push(
-      sendOne({
-        account,
-        name: "artifact-output-outside",
-        extend: { sessionID: input.sessionID, messageId: input.messageID, outside },
-      }),
-    )
-  }
-  return Effect.all(effects, { concurrency: 4 }).pipe(Effect.asVoid)
 }
 
 /** 文件类型判定(SPEC-INS-026 §4.2 六值枚举的服务端镜像)。与前端口径一致:
@@ -198,6 +143,195 @@ export function outputTypeOf(filename: string): string {
     return "code"
   }
   return "file"
+}
+
+// ── 归因(D4):tool part 精确 → resource_link basename → git status 兜底 ──────────────────
+//
+// 事件名即归因结果(分析侧按行即得来源):
+//   artifact-output-write:write 工具(含覆盖写,工具优先于 status)或脚本新建(status=added)
+//   artifact-output-edit :edit 工具或脚本修改(status=modified)
+//   artifact-output-mcp  :MCP resource_link 落盘文件(带 tool = business_type 业务工具名)
+// 兜底归因覆盖 bash/powershell/python 等脚本通道:diff 里有、tool part 里没有的文件,
+// 按 git status 的 added/modified 语义天然分到 write/edit——git 权威判定,不嗅探命令文本。
+
+type Attribution = { event: "write" | "edit" | "mcp"; tool?: string }
+
+/** 工具 bare 名(write/edit 可能带 MCP 前缀如 `clientName_write`)。 */
+function bareToolName(tool: unknown): string {
+  if (typeof tool !== "string") return ""
+  return tool.includes(":") ? (tool.split(":").pop() ?? "") : tool
+}
+
+/** 是否「写盘类」工具(write/edit 及带前缀变体)——归因只关心它们;read/bash 等工具
+ *  的 part 虽然也可能带 metadata.filepath,但与产物落点无关,先过滤掉。 */
+function isFileWriteToolName(bare: string): boolean {
+  return bare === "write" || bare === "edit" || bare.endsWith("_write") || bare.endsWith("_edit")
+}
+
+/** 工具 part 的落点路径(completed 态):优先 state.metadata.filepath(服务端写盘的权威
+ *  绝对路径,write/edit 均返回),兜底 state.input.filePath。仅写盘类工具。 */
+function readToolPartPath(part: Record<string, unknown>): { tool: string; path: string } | undefined {
+  if (part.type !== "tool") return undefined
+  const bare = bareToolName(part.tool)
+  if (!isFileWriteToolName(bare)) return undefined
+  const state = part.state as Record<string, unknown> | undefined
+  if (state?.status !== "completed") return undefined
+  const fromMeta = (state.metadata as Record<string, unknown> | undefined)?.filepath
+  if (typeof fromMeta === "string" && fromMeta.length > 0) return { tool: bare, path: fromMeta }
+  const input = state.input as Record<string, unknown> | undefined
+  const fromInput = input?.filePath ?? input?.path ?? input?.file_path
+  return typeof fromInput === "string" && fromInput.length > 0 ? { tool: bare, path: fromInput } : undefined
+}
+
+/** 路径后缀匹配:tool part 是绝对路径(含 .octo/<sessionId>/ 前缀),diff file 是仓库相对路径
+ *  (也含 .octo/<sessionId>/ 前缀)——统一分隔符 + 大小写不敏感比较「后段是否相等」。 */
+function pathSuffixMatch(toolPath: string, diffFile: string): boolean {
+  const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+/g, "/").toLowerCase()
+  const a = norm(toolPath)
+  const b = norm(diffFile)
+  return a === b || a.endsWith("/" + b) || b.endsWith("/" + a)
+}
+
+/** 从 resource_link part 提取 {name, business_type}(形态镜像前端 findResourceLinks:
+ *  独立 part type=resource_link 主路径 + tool part metadata.content[] 兜底)。 */
+function collectResourceLinks(parts: unknown[]): Array<{ name: string; tool: string }> {
+  const out: Array<{ name: string; tool: string }> = []
+  for (const part of parts) {
+    if (!part || typeof part !== "object") continue
+    const p = part as Record<string, unknown>
+    if (p.type === "resource_link" && typeof p.name === "string") {
+      out.push({ name: p.name, tool: readBusinessType(p) })
+      continue
+    }
+    const state = p.state as Record<string, unknown> | undefined
+    const meta = state?.metadata as Record<string, unknown> | undefined
+    const contents = meta?.content
+    if (Array.isArray(contents)) {
+      for (const item of contents) {
+        if (!item || typeof item !== "object") continue
+        const c = item as Record<string, unknown>
+        if (c.type === "resource_link" && typeof c.name === "string") out.push({ name: c.name, tool: readBusinessType(c) })
+      }
+    }
+  }
+  return out
+}
+
+function readBusinessType(obj: Record<string, unknown>): string {
+  const v = obj.business_type
+  return typeof v === "string" && v.length > 0 ? v : "unknown"
+}
+
+/** resource_link 文件名匹配:eager 落盘用 link.name(markdown 补 .md、撞名加 `-N` 后缀,
+ *  均为 best-effort 前缀关系),用「裸名相同 + 可选 -N 后缀 + 相同扩展名」匹配。 */
+export function linkNameMatch(linkName: string, diffFile: string): boolean {
+  const base = (diffFile.replace(/\\/g, "/").split("/").pop() ?? "").toLowerCase()
+  if (!base) return false
+  const name = linkName.toLowerCase()
+  if (base === name) return true
+  // markdown 补扩展名:link 名「报告」→ 落盘「报告.md」
+  if (base === name + ".md") return true
+  // 撞名加后缀:「报告.md」→「报告-1.md」;配合补扩展名:「报告」→「报告-1.md」
+  const stem = name.replace(/\.md$/, "")
+  return new RegExp(`^${stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(-\\d+)?\\.(md|[a-z0-9]+)$`).test(base)
+}
+
+/** 三层归因(纯函数,单测覆盖):对一条 diff 返回它该走的事件。
+ *  优先级:write/edit 工具 part 精确匹配 > resource_link basename > status 兜底。 */
+export function attributeDiff(
+  diff: Pick<Snapshot.FileDiff, "file" | "status">,
+  toolParts: Array<{ tool: string; path: string }>,
+  resourceLinks: Array<{ name: string; tool: string }>,
+): Attribution {
+  for (const t of toolParts) {
+    if (!pathSuffixMatch(t.path, diff.file)) continue
+    if (t.tool === "write" || t.tool.endsWith("_write")) return { event: "write" }
+    return { event: "edit" }
+  }
+  for (const link of resourceLinks) {
+    if (linkNameMatch(link.name, diff.file)) return { event: "mcp", tool: link.tool }
+  }
+  return { event: diff.status === "added" ? "write" : "edit" }
+}
+
+/** 从 turn messages(含 parts)提取归因原料(仅 assistant 消息:user 的附件 part 与归因无关)。 */
+export function collectAttributionSources(messages: MessageV2.WithParts[]): {
+  toolParts: Array<{ tool: string; path: string }>
+  resourceLinks: Array<{ name: string; tool: string }>
+} {
+  const toolParts: Array<{ tool: string; path: string }> = []
+  const assistantParts: unknown[] = []
+  for (const m of messages) {
+    if (m.info.role !== "assistant") continue
+    assistantParts.push(...(m.parts as unknown[]))
+  }
+  for (const part of assistantParts) {
+    if (!part || typeof part !== "object") continue
+    const hit = readToolPartPath(part as Record<string, unknown>)
+    if (hit) toolParts.push(hit)
+  }
+  return { toolParts, resourceLinks: collectResourceLinks(assistantParts) }
+}
+
+// 已发键 `messageID:file`(省流量层,见文件头)。跨 turn 场景:同一文件在后续 turn 再被改,
+// messageID 不同 → 键不同 → 照发,不受影响。
+const sentKeys = new Set<string>()
+
+/** summarize 挂钩入口:把一个 turn 的 FileDiff[] 归因后 per-file 发送。
+ *  - 会话目录内、非 deleted:按归因分派到 artifact-output-write / -edit / -mcp
+ *  - 会话目录外:汇总一条 artifact-output-outside(噪声桶,只计数)
+ *  - account:真实上报模式取不到(登录态丢失/服务重启后 extra 空)整批跳过;mock 模式
+ *    (未配 base URL,外网验证)用占位 "mock" 继续发(只打日志,不进真实管道)。 */
+export function reportDiffs(input: {
+  sessionID: string
+  messageID: string
+  diffs: Snapshot.FileDiff[]
+  messages: MessageV2.WithParts[]
+}): Effect.Effect<void> {
+  const mockMode = !reportBaseUrl()
+  const account = SessionExtras.readExtraString(input.sessionID, "account")
+  if (!account && !mockMode) {
+    console.warn("[octo:tracker-server] account missing, skip artifact-output", {
+      sessionID: input.sessionID,
+      messageID: input.messageID,
+    })
+    return Effect.void
+  }
+  const effectiveAccount = account ?? "mock"
+
+  const { toolParts, resourceLinks } = collectAttributionSources(input.messages)
+  let outside = 0
+  const effects: Effect.Effect<void>[] = []
+  for (const d of input.diffs) {
+    if (d.status === "deleted") continue
+    const key = `${input.messageID}:${d.file}`
+    if (sentKeys.has(key)) continue
+    sentKeys.add(key)
+    if (!isSessionArtifactPath(d.file, input.sessionID)) {
+      outside++
+      continue
+    }
+    const attr = attributeDiff(d, toolParts, resourceLinks)
+    const extend: Record<string, unknown> = {
+      sessionID: input.sessionID,
+      messageId: input.messageID,
+      file: d.file,
+      type: outputTypeOf(d.file),
+      status: d.status ?? "modified",
+    }
+    if (attr.tool) extend.tool = attr.tool
+    effects.push(sendOne({ account: effectiveAccount, name: `artifact-output-${attr.event}`, extend }))
+  }
+  if (outside > 0) {
+    effects.push(
+      sendOne({
+        account: effectiveAccount,
+        name: "artifact-output-outside",
+        extend: { sessionID: input.sessionID, messageId: input.messageID, outside },
+      }),
+    )
+  }
+  return Effect.all(effects, { concurrency: 4 }).pipe(Effect.asVoid)
 }
 
 export * as Tracking from "./report"

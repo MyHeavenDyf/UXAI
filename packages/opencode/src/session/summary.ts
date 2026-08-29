@@ -136,15 +136,18 @@ export const layer = Layer.effect(
       target.info.summary = { ...target.info.summary, diffs: msgDiffs }
       yield* sessions.updateMessage(target.info)
 
-      // 服务端产物打点(SPEC-INS-033 D3):msgDiffs 落库后 per-file 发送 artifact-output。
-      // 只报 octo_insight(summarize 对所有 agent 都跑,不守卫会把 make / studio 混进 module:insight);
-      // fork 异步、不阻塞 turn;at-least-once(每 finish-step 一轮),下游按 (name,messageId,file)
-      // 幂等去重。account 取不到时 reportDiffs 内部整批跳过(见该文件头)。
+      // 服务端产物打点(SPEC-INS-033 D3/D4):msgDiffs 落库后归因分派 per-file 发送
+      // (artifact-output-write/edit/mcp,tool part 匹配优先、git status 兜底覆盖 bash 等脚本通道;
+      // 归因原料就是本 turn 的 messages+parts,数据现成)。只报 octo_insight(summarize 对所有
+      // agent 都跑,不守卫会把 make / studio 混进 module:insight);fork 异步、不阻塞 turn;
+      // at-least-once(每 finish-step 一轮),下游按 (name,messageId,file) 幂等去重。
+      // account:真实上报模式取不到整批跳过,mock 模式(外网验证)用占位继续(见 report.ts)。
       if (target.info.agent === "octo_insight" && msgDiffs.length > 0) {
         yield* Tracking.reportDiffs({
           sessionID: input.sessionID,
           messageID: input.messageID,
           diffs: msgDiffs,
+          messages,
         }).pipe(Effect.forkIn(scope))
       }
     })

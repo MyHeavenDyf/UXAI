@@ -189,39 +189,32 @@ SPEC-INS-014 文件管理器面板的用户操作。删除（单个 / 批量）�
 - `mention-open` 一次 `@` 输入过程只打一次,连续输入 `@abc` 的每次 keystroke 不重复打。判据是编辑器内的 `openReported` 标记,**以 `@` 触发文本消失(选中成胶囊 / 删掉 / 敲空格)为重置点**,不是以面板的显示状态为准——点面板外关闭时文本里的 `@query` 还在,若按显示状态重置,继续输入会被判成「重新打开」虚增 open 数。
 - `mention-select` 的 `type` 二分(skill/file)供分析侧切「技能引用 vs 文件引用」占比。**注意**:@技能走 synthetic 注入(3b,不调 skill 工具),故 §九 `server-skill-used` **不覆盖** @技能;`mention-select{type:skill}` 是 @技能 唯一的用户侧口径。
 
-### 批次 6 — 统一产物总量（`artifact-output`，服务端 git diff 口径，SPEC-INS-033）
+### 批次 6 — 统一产物统计（`artifact-output-*`，服务端 git diff 口径，SPEC-INS-033）
 
-> 设计论证（背景 / 三方案对比 / 数据源选型 / 已知偏差 / 验证用例）全部在**文档仓 spec**：`octo-agent` 仓
-> `docs/specs/infra/insight-artifact-output-tracking.md`（SPEC-INS-033）。本节只记 name / extend / 落点与映射约定，
+> 设计论证（背景 / 三方案对比 / 三层归因 / 已知偏差 / 验证用例）全部在**文档仓 spec**：`octo-agent` 仓
+> `docs/specs/infra/insight-artifact-output-tracking.md`（SPEC-INS-033）。本节只记 name / extend / 落点，
 > **不复制论证**（两仓分工见该 spec §0）。
 >
-> **D2 决策（2026-08-29）——per-file 粒度**：打点数据面板按事件行数统计、不解析 extend 里的 count，
-> turn 级聚合会让「1 turn 产 3 个文件」面板只显示 1。故**四条 `artifact-` 事件全部 per-file**（每文件一条，
-> 行数即文件数，turn 级视图由下游 `group by messageId` 还原）。
->
-> **D3 决策（2026-08-29）——artifact-output 迁服务端**：产物是系统事实，在产生它的进程（opencode
-> summarize 落库 `summary.diffs` 之后）直接发送，不受前端组件生命周期影响（前端 effect 版切走会话即漏报，
-> baseline/守卫/debounce 三层补丁全部随迁移退役）。发射器 `packages/opencode/src/tracking/report.ts`，
-> 复刻前端 tracker 协议（`/record/logger/interaction`，`browserName:"server"` 区分来源），base URL 走
-> `OCTO_REPORT_BASE_URL`（desktop createSidecarEnv 桥接，未配置时 mock 日志）。write/edit/mcp 三条
-> tool part 口径事件**仍在前端 effect**（批次 3，未迁）。
+> **D3+D4（2026-08-29）——事件族收敛、全迁服务端**：产物是系统事实，在产生它的进程（opencode
+> `summarize` 落库 `summary.diffs` 之后）直接发送，不受前端组件生命周期影响（切走会话 / 关窗照样上报）。
+> **四条事件、事件名即归因结果**（分析侧按行即得来源，不解析 extend）；原 `artifact-file-write/edit/mcp-return`
+> 三条前端事件与原单一 `artifact-output` 均已删除。三层归因：write/edit 工具 part 精确匹配 >
+> resource_link basename > **git status 兜底**（bash/powershell 脚本新建→write、修改→edit，git 判定权威）。
 
 | name | 功能（统计什么） | 打在哪 | extend |
 |------|-----------------|--------|--------|
-| `artifact-output` | 本 turn 产出/修改的**一个文件**（服务端 git snapshot 的 `UserMessage.summary.diffs` 口径，覆盖**所有**文件变更方式——write / edit / MCP / bash / python，与三条 tool part 口径事件**互补不替代**） | **服务端**：`packages/opencode/src/session/summary.ts` summarize 挂钩 → `src/tracking/report.ts`（每 finish-step at-least-once） | `{sessionId, messageId, file, type, status}` |
-| `artifact-output-outside` | 本 turn 观测到的**会话目录外**变更总量（噪声桶：并发会话 / Make 模块 / 用户手改；turn 级一条，仅 outside>0 时报，不逐条发） | 同上 | `{sessionId, messageId, outside}` |
-| `artifact-file-write` | write 工具产生的**一个文件**（含覆盖写；批次 3 事件，D2 起改 per-file） | `insight-turn.tsx` artifact-file effect（baseline） | `{messageId, file, type}` |
-| `artifact-file-edit` | edit 工具产生的**一个文件**（批次 3 事件，D2 起改 per-file） | `insight-turn.tsx` artifact-file effect（baseline） | `{messageId, file, type}` |
-| `artifact-mcp-return` | MCP 工具返回的**一个** resource_link 文件（批次 3 事件，D2 起改 per-file） | `insight-turn.tsx` artifact-mcp effect（baseline） | `{messageId, file: uri, type, tool}` |
+| `artifact-output-write` | 本 turn **新建**的一个产物文件（write 工具含覆盖写，或 bash 等脚本经 git status=added 兜底归因） | **服务端**：`packages/opencode/src/session/summary.ts` summarize 挂钩 → `src/tracking/report.ts`（每 finish-step at-least-once） | `{sessionId, messageId, file, type, status}` |
+| `artifact-output-edit` | 本 turn **修改**的一个产物文件（edit 工具，或 bash 等脚本经 git status=modified 兜底归因） | 同上 | `{sessionId, messageId, file, type, status}` |
+| `artifact-output-mcp` | MCP 工具返回并落盘的**一个**文件（resource_link basename 匹配，best-effort） | 同上 | `{sessionId, messageId, file, type, status, tool}`（tool=业务工具名） |
+| `artifact-output-outside` | 本 turn 观测到的**会话目录外**变更总量（噪声桶：并发会话 / Make 模块 / 用户手改；turn 级一条，仅 outside>0 时报，不计入产物总量） | 同上 | `{sessionId, messageId, outside}` |
 
 映射与实现约定（详见 spec §4）：
 
-- `type` 复用 `resolveOutputType` 六值枚举（服务端为 `tracking/report.ts` 的 `outputTypeOf` 镜像，单测对齐口径）；`.ts` / `.py` 等一律归 `code`
-- `file` 即幂等键组成部分：`artifact-output` 用 git diff 路径（相对仓库根，服务端 `isSessionArtifactPath` 做会话目录分桶）；write/edit 用写盘路径剥 projectDir 前缀的相对路径；mcp 用 resource_link 的 uri
-- **下游幂等键 `(name, messageId, file)`**（服务端事件 extend 另带 `sessionId`）：at-least-once 标准姿势——服务端每 finish-step 发一轮，下游按幂等键去重取最新 status；`account` 取不到（未登录态）时服务端整批跳过（空 account 的行无法归属用户）
+- `type` 复用 SPEC-INS-026 §4.2 六值枚举（服务端 `outputTypeOf` 镜像，单测对齐口径）；`.ts` / `.py` 等一律归 `code`
+- `file` 即幂等键组成部分：git diff 路径（相对仓库根），服务端 `isSessionArtifactPath` 做会话目录分桶
+- **下游幂等键 `(name, messageId, file)`**：at-least-once 标准姿势——服务端每 finish-step 发一轮，下游去重取最新 status；account 在真实上报模式取不到时整批跳过（空 account 无法归属用户），mock 模式（外网验证，未配 `OCTO_REPORT_BASE_URL`）占位 `"mock"` 继续发
 - turn 级聚合字段（`total/added/modified`）**不上报**：行数即 total，`status` 字段 group by 即 added/modified
-- ⚠️ **不要**把「`artifact-output` 行数减三个 tool part 事件行数」当 bash 产出量：两个口径重叠（MCP eager 落盘同样进 diff、与 `artifact-mcp-return` 重复计数）且异步，差值只能当趋势提示，不能作分母
-- 已知偏差（源仓 `.gitignore` 忽略 `.octo/` 时本口径恒 0 / 服务端重启后首 turn 拿不到 account 会跳过 / 含引号文件名落 `code`）见 spec §5，分析侧必读
+- 已知偏差（源仓 `.gitignore` 忽略 `.octo/` 时恒 0 / 归因兜底两处低频误标 / 服务端重启后首 turn 拿不到 account）见 spec §5，分析侧必读
 
 ## 五、验证
 
