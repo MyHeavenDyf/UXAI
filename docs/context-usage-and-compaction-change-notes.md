@@ -128,6 +128,7 @@ export const AUTOMATIC_COMPACTION_ENABLED = false
 - `packages/app/octoapp/pages/make/index.tsx`
 - `packages/app/octoapp/pages/make/octo-tokens.css`
 - `packages/opencode/src/server/routes/instance/session.ts`
+- `packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts`
 - `packages/opencode/src/session/compaction.ts`
 - `packages/opencode/src/session/prompt.ts`
 - `packages/opencode/test/session/compaction.test.ts`
@@ -211,6 +212,8 @@ sdk.client.session.summarize(...)
 
 #### `packages/opencode/src/server/routes/instance/session.ts`
 
+#### `packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts`
+
 当前为了让直调方区分“真正完成”和“用户暂停”，接口返回：
 
 ```ts
@@ -224,7 +227,7 @@ yield* prompt.loop(...)
 return true
 ```
 
-当前桌面端默认使用稳定 Hono 路由。实验性 `packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts` 不纳入本次改动，保持 `dev` 原状。
+稳定 Hono 和 Effect HttpApi 两个实现应同步还原。虽然 Effect HttpApi 仍以实验性目录命名，但 `dev`、`beta` 和 `local` 渠道默认启用它；缺少这一修改会导致暂停压缩后接口固定返回 `true`，前端误报“压缩完成”。
 
 #### `packages/opencode/src/session/compaction.ts`
 
