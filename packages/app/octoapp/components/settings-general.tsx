@@ -243,7 +243,7 @@ export const SettingsGeneral: Component = () => {
                   return
                 }
                 platform.openLink(
-                  `https://octo-beta.hdesign.huawei.com/design/agentdesktop/mac-${arch}/prod/octo-desktop-mac-${arch}.dmg`,
+                  `https://octo.hdesign.huawei.com/design/agentdesktop/mac-${arch}/prod/octo-desktop-mac-${arch}.dmg`,
                 )
                 return
               }
