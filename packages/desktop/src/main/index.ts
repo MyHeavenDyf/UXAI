@@ -513,7 +513,7 @@ function setupAutoUpdater() {
 
 let downloadedUpdateVersion: string | undefined
 
-async function checkUpdate() {
+async function checkUpdate(download = process.platform !== "darwin") {
   if (!UPDATER_ENABLED) return { updateAvailable: false }
   if (downloadedUpdateVersion) {
     logger.log("returning cached downloaded update", {
@@ -551,9 +551,11 @@ async function checkUpdate() {
       return { updateAvailable: false }
     }
     logger.log("update available", { version })
-    await autoUpdater.downloadUpdate()
-    logger.log("update download completed", { version })
-    downloadedUpdateVersion = version
+    if (download) {
+      await autoUpdater.downloadUpdate()
+      logger.log("update download completed", { version })
+      downloadedUpdateVersion = version
+    }
     return { updateAvailable: true, version }
   } catch (error) {
     logger.error("update check failed", error)
@@ -578,7 +580,7 @@ async function installUpdate() {
 async function checkForUpdates(alertOnFail: boolean) {
   if (!UPDATER_ENABLED) return
   logger.log("checkForUpdates invoked", { alertOnFail })
-  const result = await checkUpdate()
+  const result = await checkUpdate(true)
   if (!result.updateAvailable) {
     if (result.failed) {
       logger.log("no update decision", { reason: "update check failed" })

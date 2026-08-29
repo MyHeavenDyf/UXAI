@@ -8,6 +8,7 @@ import { TextField } from "@opencode-ai/ui/text-field"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
 import { showToast } from "@opencode-ai/ui/toast"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useParams } from "@solidjs/router"
 import { useLanguage } from "@/context/language"
 import { usePermission } from "@/context/permission"
@@ -34,6 +35,7 @@ import { playSoundById, SOUND_OPTIONS } from "@/utils/sound"
 import { showFloatingNotice } from "./floating-notice"
 import { Link } from "./link"
 import { SettingsList } from "./settings-list"
+import { DialogUpdateAvailable, MAC_UPDATE_DOWNLOAD_URL } from "./dialog-update-available"
 
 let demoSoundState = {
   cleanup: undefined as (() => void) | undefined,
@@ -210,6 +212,7 @@ export const SettingsGeneral: Component = () => {
     permission.disableAutoAccept(params.id, value)
   }
   const desktop = createMemo(() => platform.platform === "desktop")
+  const dialog = useDialog()
 
   const check = () => {
     if (!platform.checkUpdate) return
@@ -228,33 +231,19 @@ export const SettingsGeneral: Component = () => {
           return
         }
 
-        const actions = platform.updateAndRestart
-          ? [
-              {
-                label: language.t("toast.update.action.installRestart"),
-                onClick: async () => {
-                  await platform.updateAndRestart!()
-                },
-              },
-              {
-                label: language.t("toast.update.action.notYet"),
-                onClick: "dismiss" as const,
-              },
-            ]
-          : [
-              {
-                label: language.t("toast.update.action.notYet"),
-                onClick: "dismiss" as const,
-              },
-            ]
-
-        showToast({
-          persistent: true,
-          icon: "download",
-          title: language.t("toast.update.title"),
-          description: language.t("toast.update.description", { version: result.version ?? "" }),
-          actions,
-        })
+        dialog.show(() => (
+          <DialogUpdateAvailable
+            os={platform.os === "macos" ? "macos" : "windows"}
+            version={result.version ?? ""}
+            onUpgrade={() => {
+              if (platform.os === "macos") {
+                platform.openLink(MAC_UPDATE_DOWNLOAD_URL)
+                return
+              }
+              return platform.updateAndRestart?.()
+            }}
+          />
+        ))
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err)
