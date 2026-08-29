@@ -34,7 +34,7 @@
 |---|---|---|---|---|
 | `message-send` | 用户向 AI 发送一条消息（含「点胶囊→发送」漏斗：`presetId` 标明文本来自哪个预置） | 输入框「发送」按钮 / 输入框按 Enter → `handleSubmit` 通过校验受理后 | `{trigger, source, attachmentCount, textLength, presetId?, presetEdited?}` | ✅ |
 | `message-send-blocked` | 用户想发送但因未选模型被拦截（弹 toast） | 同发送入口，但走 `handleSubmit` 未选模型分支 | `{reason: "no_model"}` | ✅ |
-| `preset-click` | 用户点预置提示词胶囊，把提示词填进输入框 | 欢迎页 / 对话页的预置提示词胶囊 → `handlePresetClick` | `{presetId, source}` | ✅ |
+| ~~`preset-click`~~ | 用户点预置提示词胶囊，把提示词填进输入框 | 欢迎页 / 对话页的预置提示词胶囊 → `handlePresetClick` | `{presetId, source}` | 已废弃（SPEC-INS-017 常驻工具 chip 改造删除胶囊，改 `mcp-chip-*` 族，见批次 3 ① 与 `tracking.md` 已废弃节） |
 | `message-abort` | AI 生成中用户点击停止 | 输入框「发送 / 停止」按钮的停止态 → `handleAbort` | — | ✅ |
 | `attachment-add` | 用户添加附件（逐个文件计一次） | 附件按钮选文件（file input）/ 拖拽文件进对话区 → `addAttachments` | `{method, fileType, fileSize}` | ✅ |
 | `attachment-upload-result` | 附件上传的成败结果（结果型，非直接点击） | 上传请求 promise 落定 → `doUpload` 的 then / catch | `{success, errorCode?}` | ✅ |
@@ -188,6 +188,24 @@ SPEC-INS-014 文件管理器面板的用户操作。删除（单个 / 批量）�
 - `mention-` 前缀,与 `mcp-chip-` 平级(都是「输入框内的引用 / 挂载」交互族),但 mention 是 @ 唤起的即选即插,无常驻态,故只有 open/select 两态,不设 clear(取消勾选是低频微操,不打)。
 - `mention-open` 一次 `@` 输入过程只打一次,连续输入 `@abc` 的每次 keystroke 不重复打。判据是编辑器内的 `openReported` 标记,**以 `@` 触发文本消失(选中成胶囊 / 删掉 / 敲空格)为重置点**,不是以面板的显示状态为准——点面板外关闭时文本里的 `@query` 还在,若按显示状态重置,继续输入会被判成「重新打开」虚增 open 数。
 - `mention-select` 的 `type` 二分(skill/file)供分析侧切「技能引用 vs 文件引用」占比。**注意**:@技能走 synthetic 注入(3b,不调 skill 工具),故 §九 `server-skill-used` **不覆盖** @技能;`mention-select{type:skill}` 是 @技能 唯一的用户侧口径。
+
+### 批次 6 — 统一产物总量（`artifact-output`，服务端 git diff 口径，SPEC-INS-033）
+
+> 设计论证（背景 / 三方案对比 / 数据源选型 / 触发时机与 debounce / baseline 三层去重 / 路径分桶 /
+> 已知偏差 / 验证用例）全部在**文档仓 spec**：`octo-agent` 仓 `docs/specs/infra/insight-artifact-output-tracking.md`
+> （SPEC-INS-033）。本节只记 name / extend / 落点与映射约定，**不复制论证**（两仓分工见该 spec §0）。
+
+| name | 功能（统计什么） | 打在哪 | extend |
+|------|-----------------|--------|--------|
+| `artifact-output` | 本 turn 实际产出/修改的文件总量（服务端 git snapshot 的 `UserMessage.summary.diffs` 口径，覆盖**所有**文件变更方式——write / edit / MCP / bash / python，与 `artifact-file-write/edit` / `artifact-mcp-return` **互补不替代**） | `insight-turn.tsx` artifact-output effect（baseline + `showGenerating()` 守卫 + 1500ms debounce） | `{messageId, files: Array<{type: OutputCardType, count: number}>, total, added, modified, outside}` |
+
+映射与实现约定（详见 spec §4）：
+
+- `files[].type` 复用 `resolveOutputType`（六值枚举，`.ts` / `.py` 等一律归 `code`），与三个 tool part 口径事件的类型判定一致
+- 只统计 `.octo/<sessionId>/` 会话产物区内的文件（判据 `worktree-layout.ts` 的 `isSessionArtifactPath`，新增、含单测）；目录外的变更只计入 `outside`（噪声桶：并发会话 / Make 模块 / 用户手改，只计数不计类型，不作产物）
+- `extend.messageId` 是**下游幂等键**：分析侧按 `(name, messageId)` 去重（at-least-once 标准姿势），前端 baseline + `trackedArtifactKeys` 两层去重从正确性依赖降级为省流量优化
+- ⚠️ **不要**把「`total` 减三个 tool part 事件 count 之和」当 bash 产出量：两个口径重叠（MCP eager 落盘同样进 diff、与 `artifact-mcp-return` 重复计数）且异步，差值只能当趋势提示，不能作分母
+- 已知偏差（源仓 `.gitignore` 忽略 `.octo/` 时本口径恒 0 / debounce 内切走会话漏报 / 含引号文件名落 `code`）见 spec §5，分析侧必读
 
 ## 五、验证
 

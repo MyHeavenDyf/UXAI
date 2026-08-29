@@ -114,13 +114,15 @@
 > 也可能一次调用产出多个文件（server-mcp-used 1 次 but artifact-mcp-return 多个 type）。
 >
 > **write 与 edit 拆分**：`artifact-file-write` 统计 write 工具调用产生的文件（含覆盖写），`artifact-file-edit` 单独统计 edit 工具调用。
-> 两者独立计数，按工具调用类型区分。bash 脚本副作用产生的文件不在此列（无法可靠识别，见方案 A）。
+> 两者独立计数，按工具调用类型区分。bash / python 等脚本产物**不在 tool part 口径内**（无法可靠识别），
+> 由 `artifact-output`（服务端 git diff 口径，SPEC-INS-033）兜底覆盖。
 
 | name | 触发时机 | extend 字段 | 代码位置 |
 |------|----------|------------|----------|
 | artifact-file-write | **write** 工具完成（**含覆盖写**，排除 edit；按文件类型聚合上报） | `files`: `Array<{type: OutputCardType, count: number}>`（例：`[{type:"markdown",count:2}, {type:"html",count:1}]`） | `insight-turn.tsx` 统计产物 effect（artifact-file baseline, findWriteOnlyCards） |
 | artifact-file-edit | **edit** 工具完成（与 write 拆分；按文件类型聚合上报） | `files`: `Array<{type: OutputCardType, count: number}>`（例：`[{type:"markdown",count:1}]`） | `insight-turn.tsx` 统计产物 effect（artifact-file baseline, findEditCards） |
 | artifact-mcp-return | MCP 工具返回 resource_link 类型文件（**产物侧**，按文件类型聚合；每次检测到新增 resource_link 时上报，包含产生该文件的 MCP 工具名） | `files`: `Array<{type: OutputCardType, count: number, tool: string}>`（例：`[{type:"csv",count:1,tool:"key_findings"}, {type:"md",count:1,tool:"mindmap"}]`） | `insight-turn.tsx` 统计产物 effect（artifact-mcp baseline） |
+| artifact-output | 本 turn 实际产出/修改的文件总量（**服务端 git snapshot `UserMessage.summary.diffs` 口径**，覆盖所有文件变更方式含 bash 等脚本产物；只统计 `.octo/<sessionId>/` 会话产物区内，目录外只计入 `outside` 噪声桶；SPEC-INS-033，设计论证在文档仓 spec） | `messageId`（下游幂等键）、`files`: `Array<{type: OutputCardType, count: number}>`、`total`、`added`、`modified`、`outside` | `insight-turn.tsx` artifact-output effect（baseline + `showGenerating()` 守卫 + 1500ms debounce） |
 
 ## 十一、@ 引用面板（SPEC-INS-023）
 

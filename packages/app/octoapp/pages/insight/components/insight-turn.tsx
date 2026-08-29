@@ -1,10 +1,10 @@
-import type { AssistantMessage, Message } from "@opencode-ai/sdk/v2/client"
+import type { AssistantMessage, Message, UserMessage } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { useData, useI18n, I18nProvider, type UiI18n } from "@opencode-ai/ui/context"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
-import { createEffect, createMemo, For, Show } from "solid-js"
+import { createEffect, createMemo, For, onCleanup, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { useProjectDir } from "@/hooks/use-project-dir"
 import { materializeUriCardToOutputs } from "../utils/local-resource"
@@ -14,13 +14,14 @@ import { scanFencedHtml, type HtmlFenceBlock } from "../utils/detect"
 import { isMindmapJSON } from "../utils/mindmap-adapter"
 import { findResourceLinks, linkToOutputType, type ResourceLink } from "../utils/resource-link"
 import { findWriteCards, findWriteOnlyCards, findEditCards, basename } from "../utils/write-output"
+import { isSessionArtifactPath } from "../utils/worktree-layout"
 import { readTaskInfo, businessToolBareName, type TaskCardEntry, type TaskInfo } from "../utils/task-detect"
 import { TaskCardView } from "./task-card"
 import { KnowledgeReferences, readKnowledgeSources } from "./knowledge-references"
 import { parseUploadedFiles } from "../lib/upload"
 import { fileTypeIconUrl } from "../icons/illustrations"
 import { tracker } from "@/utils/tracker"
-import type { OutputCardType } from "../utils/output-type"
+import { resolveOutputType, type OutputCardType } from "../utils/output-type"
 
 // OutputCardType 的定义已收进 utils/output-type.ts(SPEC-INS-026 §4.2:类型与判定同源)。
 export type { OutputCardType } from "../utils/output-type"
@@ -580,6 +581,78 @@ export function InsightTurn(props: {
         extend: JSON.stringify({ files: aggregateByFileTypeWithTool(newLinks) }),
       })
     }
+  })
+
+  // 统一产物总量打点(artifact-output,SPEC-INS-033):消费服务端 git snapshot 算好的
+  // UserMessage.summary.diffs,覆盖**所有**文件变更方式(write/edit/MCP/bash/python…),与上面
+  // 三个 tool part 口径事件互补不替代。设计论证在文档仓 spec(§4),此处只记实现要点:
+  //
+  //   - 触发时机:summarize 每个 finish-step 都跑一次并**覆写** diffs(processor.ts),多步 turn 里
+  //     diffs 会从「第一步的部分产物」逐步长到全部;「数据到达即上报」会在第一步报出部分 diff 再被
+  //     messageID 去重永久锁死,后续交付物全丢 → 必须 showGenerating() 守卫(等 turn 不再活跃)
+  //     + 1500ms debounce(末次 summarize 是 forkIn(scope) 异步,可能晚于 active 翻假才落地;
+  //     debounce 期间 diffs 再变则重置定时器,天然取最终值)。
+  //   - baseline 快照:与上方三个 effect 同规则——首次观测本 turn 时若 diffs 已存在(历史 turn)
+  //     记为「历史」不上报,否则打开/刷新会话会按 turn 数虚增。trackedArtifactKeys(内存 Set,
+  //     刷新即空)只防 memo 重算 / 重挂重复报;「刷新不重报」由 baseline 负责,两层配合。
+  //   - 路径分桶:diffFull 跑在整个 projectDir 上,隔离的只是 .octo/<sessionId>/ 子目录;并发会话 /
+  //     Make 模块 / 用户手改都会进 diff。会话目录内的进 files/total/added/modified,其余只计入
+  //     outside(噪声桶,只计数不计类型,不作产物)。
+  //   - 幂等键:extend 带 messageId,下游按 (name, messageId) 去重(at-least-once 标准姿势);
+  //     前端两层去重降级为省流量优化,报重了也不算错。
+  let artifactOutputBaselineTaken = false
+  let outputDebounceTimer: ReturnType<typeof setTimeout> | undefined
+  onCleanup(() => clearTimeout(outputDebounceTimer))
+  createEffect(() => {
+    const messages = (data.store.message as Record<string, Message[]>)?.[props.sessionID] ?? []
+    const userMsg = messages.find((m) => m.id === props.messageID)
+    if (!userMsg || userMsg.role !== "user") return
+    const diffs = (userMsg as UserMessage).summary?.diffs
+
+    if (!artifactOutputBaselineTaken) {
+      artifactOutputBaselineTaken = true
+      if (diffs?.length) trackedArtifactKeys.add(`output:${props.messageID}`)
+      return
+    }
+    if (!diffs?.length) return
+    if (showGenerating()) return
+    if (trackedArtifactKeys.has(`output:${props.messageID}`)) return
+
+    clearTimeout(outputDebounceTimer)
+    outputDebounceTimer = setTimeout(() => {
+      const key = `output:${props.messageID}`
+      if (trackedArtifactKeys.has(key)) return
+      trackedArtifactKeys.add(key)
+
+      const files: Array<{ fileType: string }> = []
+      let added = 0
+      let modified = 0
+      let outside = 0
+      for (const d of diffs) {
+        if (d.status === "deleted") continue
+        if (!isSessionArtifactPath(d.file, props.sessionID)) {
+          outside++
+          continue
+        }
+        files.push({ fileType: resolveOutputType(d.file) })
+        if (d.status === "added") added++
+        else modified++
+      }
+      if (files.length === 0 && outside === 0) return
+
+      tracker.interaction({
+        module: "insight",
+        name: "artifact-output",
+        extend: JSON.stringify({
+          messageId: props.messageID,
+          files: aggregateByFileType(files),
+          total: files.length,
+          added,
+          modified,
+          outside,
+        }),
+      })
+    }, 1500)
   })
 
   // 「服务端真实使用」打点(与常规用户操作打点区分,统一 server- 前缀,清单见 docs/tracking.md):

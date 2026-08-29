@@ -124,7 +124,13 @@ export const layer = Layer.effect(
       )
       const target = messages.find((m) => m.info.id === input.messageID)
       if (!target || target.info.role !== "user") return
-      const msgDiffs = yield* computeDiff({ messages })
+      // 含 " / \ 的文件名会被 git 带引号转义,unquote 后再写入 message,否则消费侧(前端
+      // resolveOutputType)拿到 `xxx.md"` 匹配不上扩展名表(与下方 diff() 的读时归一化同款;
+      // 非 ASCII 文件名不受影响,diffFull 的 quote 配置带 core.quotepath=false)。
+      const msgDiffs = (yield* computeDiff({ messages })).map((item) => {
+        const file = unquoteGitPath(item.file)
+        return file === item.file ? item : { ...item, file }
+      })
       target.info.summary = { ...target.info.summary, diffs: msgDiffs }
       yield* sessions.updateMessage(target.info)
     })
