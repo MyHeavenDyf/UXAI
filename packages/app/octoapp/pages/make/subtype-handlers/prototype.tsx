@@ -209,13 +209,14 @@ export default {
     const tabId = ctx.tab.id
     setActiveSessionId(tabId)
     const session = getSessionById(tabId) ?? createSession(tabId, ctx)
+    session.ctx = ctx
     const previewData = await loadA2uiData(session, ctx)
     if (!previewData) {
       ctx.showOctoToast({ title: "无法读取画布数据" })
       return true
     }
 
-    const sessionId = ctx.tab.sessionId ?? ""
+    const sessionId = ctx.sessionId ?? ctx.tab.sessionId ?? ""
 
     // jk-j60099994-replace-with-wx372822-pattern-topixso-2-start
     // jk-j60099994-replace-with-wx372822-pattern-topixso-2-end
