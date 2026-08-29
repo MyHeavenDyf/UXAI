@@ -2837,7 +2837,6 @@ const sessionMessagesLoaded = createMemo(() => {
 
           local.session.promote(sdk.directory, session.id)
           await sync.session.sync(childSession.id)
-          sendingNavigation = true
           navigate(`/make/${session.id}`)
           await sdk.client.session.prompt({
             sessionID: childSession.id,
