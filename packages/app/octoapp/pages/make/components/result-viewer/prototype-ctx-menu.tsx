@@ -6,7 +6,7 @@ import { showOctoToast } from "../octo-toast"
 import { getDesktopApi } from "../../lib/electron-api"
 import { TaskStore } from "@/context/task"
 import { tracker } from "@/utils/tracker"
-import { onPrototypeCtxMenu, onPrototypeClosePanels, sendToPrototypeIframe, getSession, loadA2uiData, type PrototypeCtxMenuData } from "../../utils/prototype-utils"
+import { onPrototypeCtxMenu, onPrototypeClosePanels, sendToPrototypeIframe, getSession, loadA2uiData, closePrototypePanels, type PrototypeCtxMenuData } from "../../utils/prototype-utils"
 
 const MENU_WIDTH = 160
 const MENU_HEIGHT = 108
@@ -255,6 +255,7 @@ export function PrototypeCtxMenu(): JSX.Element {
   const handleDownload = async () => {
     const elementId = menu()?.id ?? ""
     close()
+    closePrototypePanels()
 
     const session = getSession()
     if (!session?.ctx) {
