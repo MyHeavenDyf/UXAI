@@ -2,7 +2,7 @@
  * 3D 属性编辑弹窗（阶段3）
  *
  * 点选物体后弹出，编辑该物体的 Transform / 材质 / 几何参数，
- * 每次改动即时 onPatch({objects:{upsert:[workDef]}}) → SCENE_PATCH 增量更新（不重建、不闪烁）。
+ * 每次改动即时 onPatch({objects:{upsert:[workDef]}}) → applyEdit → SCENE_EDIT_OBJECT 直改运行时 Object3D（即时生效，不重建）。
  *
  * UI 风格 100% 对齐 Pattern 的 property-editor-popup（复用其 PropertyEditorPopup.css 的
  * .property-editor-popup / .popup-header / .popup-body 类，浅色主题）。
@@ -31,6 +31,103 @@ const GEO_PARAMS: Record<string, { name: string; step?: number; min?: number; in
   torus: [{ name: "innerRadius", step: 0.1, min: 0 }, { name: "outerRadius", step: 0.1, min: 0.01 }],
   circle: [{ name: "radius", step: 0.1, min: 0.01 }, { name: "segments", step: 1, int: true, min: 3 }],
   ring: [{ name: "innerRadius", step: 0.1, min: 0 }, { name: "outerRadius", step: 0.1, min: 0.01 }],
+}
+
+/** 材质属性定义：按归一 type 分组的可编辑属性（驱动弹窗动态渲染） */
+type PropKind = "color" | "slider" | "number" | "bool" | "select"
+interface PropDef {
+  key: string
+  label: string
+  kind: PropKind
+  min?: number
+  max?: number
+  step?: number
+  int?: boolean
+  options?: { v: number; t: string }[]
+}
+
+/** 所有材质通用（THREE.Material 基类属性） */
+const COMMON_PROPS: PropDef[] = [
+  { key: "transparent", label: "透明", kind: "bool" },
+  { key: "opacity", label: "不透明", kind: "slider", min: 0, max: 1, step: 0.02 },
+  {
+    key: "side",
+    label: "面",
+    kind: "select",
+    options: [{ v: 0, t: "前面" }, { v: 1, t: "后面" }, { v: 2, t: "双面" }],
+  },
+  { key: "depthTest", label: "深度测试", kind: "bool" },
+  { key: "depthWrite", label: "深度写入", kind: "bool" },
+  {
+    key: "blending",
+    label: "混合",
+    kind: "select",
+    options: [{ v: 0, t: "正常" }, { v: 1, t: "相减" }, { v: 2, t: "相加" }, { v: 4, t: "相乘" }],
+  },
+  { key: "fog", label: "雾", kind: "bool" },
+  { key: "toneMapped", label: "色调映射", kind: "bool" },
+]
+
+/** standard/physical 共用的基础属性 */
+const STANDARD_PROPS: PropDef[] = [
+  { key: "color", label: "颜色", kind: "color" },
+  { key: "emissive", label: "自发光", kind: "color" },
+  { key: "emissiveIntensity", label: "发光强", kind: "slider", min: 0, max: 5, step: 0.05 },
+  { key: "roughness", label: "粗糙", kind: "slider", min: 0, max: 1, step: 0.02 },
+  { key: "metalness", label: "金属", kind: "slider", min: 0, max: 1, step: 0.02 },
+  { key: "wireframe", label: "线框", kind: "bool" },
+  { key: "flatShading", label: "平面着色", kind: "bool" },
+]
+
+/** 按归一 type 的专属属性（key 须与 snapshotMaterial 归一结果一致） */
+const MATERIAL_PROPS: Record<string, PropDef[]> = {
+  basic: [
+    { key: "color", label: "颜色", kind: "color" },
+    { key: "wireframe", label: "线框", kind: "bool" },
+  ],
+  lambert: [
+    { key: "color", label: "颜色", kind: "color" },
+    { key: "emissive", label: "自发光", kind: "color" },
+    { key: "emissiveIntensity", label: "发光强", kind: "slider", min: 0, max: 5, step: 0.05 },
+    { key: "wireframe", label: "线框", kind: "bool" },
+    { key: "flatShading", label: "平面着色", kind: "bool" },
+  ],
+  phong: [
+    { key: "color", label: "颜色", kind: "color" },
+    { key: "emissive", label: "自发光", kind: "color" },
+    { key: "emissiveIntensity", label: "发光强", kind: "slider", min: 0, max: 5, step: 0.05 },
+    { key: "specular", label: "高光色", kind: "color" },
+    { key: "shininess", label: "高光强", kind: "number", min: 0, step: 1 },
+    { key: "wireframe", label: "线框", kind: "bool" },
+    { key: "flatShading", label: "平面着色", kind: "bool" },
+  ],
+  standard: STANDARD_PROPS,
+  physical: [
+    ...STANDARD_PROPS,
+    { key: "transmission", label: "透射", kind: "slider", min: 0, max: 1, step: 0.02 },
+    { key: "ior", label: "折射率", kind: "number", min: 1, max: 2.333, step: 0.01 },
+    { key: "thickness", label: "厚度", kind: "number", min: 0, step: 0.1 },
+    { key: "clearcoat", label: "清漆", kind: "slider", min: 0, max: 1, step: 0.02 },
+    { key: "clearcoatRoughness", label: "清漆粗糙", kind: "slider", min: 0, max: 1, step: 0.02 },
+    { key: "sheen", label: "绒感", kind: "slider", min: 0, max: 1, step: 0.02 },
+    { key: "sheenColor", label: "绒感色", kind: "color" },
+    { key: "sheenRoughness", label: "绒感粗糙", kind: "slider", min: 0, max: 1, step: 0.02 },
+    { key: "iridescence", label: "虹彩", kind: "slider", min: 0, max: 1, step: 0.02 },
+    { key: "iridescenceIOR", label: "虹彩折射", kind: "number", min: 1, max: 2.333, step: 0.01 },
+    { key: "anisotropy", label: "各向异性", kind: "slider", min: 0, max: 1, step: 0.02 },
+    { key: "anisotropyRotation", label: "各向旋转", kind: "slider", min: 0, max: 6.28, step: 0.05 },
+  ],
+  toon: [
+    { key: "color", label: "颜色", kind: "color" },
+    { key: "emissive", label: "自发光", kind: "color" },
+    { key: "emissiveIntensity", label: "发光强", kind: "slider", min: 0, max: 5, step: 0.05 },
+    { key: "wireframe", label: "线框", kind: "bool" },
+  ],
+  points: [
+    { key: "color", label: "颜色", kind: "color" },
+    { key: "size", label: "大小", kind: "number", min: 0, step: 0.1 },
+    { key: "sizeAttenuation", label: "距离衰减", kind: "bool" },
+  ],
 }
 
 function clone<T>(x: T): T {
@@ -171,7 +268,7 @@ export function PropertyEditor3DPopup(props: PropertyEditor3DPopupProps): JSX.El
     })
   }
 
-  function setMat<K extends keyof SceneConfigMaterial>(field: K, value: SceneConfigMaterial[K]): void {
+  function setMat(field: string, value: unknown): void {
     mutate((d) => {
       if (!d.material) d.material = { type: "standard" }
       d.material = { ...d.material, [field]: value }
@@ -196,6 +293,10 @@ export function PropertyEditor3DPopup(props: PropertyEditor3DPopupProps): JSX.El
   const geoType = () => d().geometry?.type ?? ""
   const geoParamDefs = () => GEO_PARAMS[geoType()] ?? []
   const isMesh = () => d().type === "mesh"
+  /** 材质归一 type（snapshotMaterial 归一；顶层 def 为配置别名，同 key 空间）。空串=未知 */
+  const matType = () => d().material?.type ?? ""
+  /** COMMON 基类属性 + 该类型专属属性（未知 type 仅 COMMON） */
+  const matProps = () => [...COMMON_PROPS, ...(MATERIAL_PROPS[matType()] ?? [])]
 
   return (
     <div
@@ -228,42 +329,116 @@ export function PropertyEditor3DPopup(props: PropertyEditor3DPopupProps): JSX.El
           <Vec3Row label="缩放" values={[vec("scale", 0), vec("scale", 1), vec("scale", 2)]} step={0.1} onChange={(i, v) => setVec("scale", i, v)} />
         </Section>
 
-        {/* 材质（仅 mesh 且有 material） */}
+        {/* 材质（仅 mesh 且有 material；按归一 type 动态显属性） */}
         <Show when={isMesh() && d().material}>
           <Section title="材质 Material">
-            <div class="flex items-center gap-2">
-              <span class="text-[11px] text-slate-500 w-10 shrink-0">颜色</span>
-              <input
-                type="color"
-                value={normalizeHex(d().material!.color)}
-                onInput={(e) => setMat("color", e.currentTarget.value)}
-                class="h-6 w-8 rounded border border-slate-200 bg-transparent cursor-pointer shrink-0"
-              />
-              <input
-                type="text"
-                value={d().material!.color ?? "#ffffff"}
-                onInput={(e) => setMat("color", e.currentTarget.value)}
-                class="property-input flex-1 min-w-0 h-6"
-              />
-            </div>
-            <SliderRow label="粗糙" value={d().material!.roughness ?? 0.5} min={0} max={1} step={0.02} onChange={(v) => setMat("roughness", v)} />
-            <SliderRow label="金属" value={d().material!.metalness ?? 0} min={0} max={1} step={0.02} onChange={(v) => setMat("metalness", v)} />
-            <div class="flex items-center gap-2">
-              <label class="flex items-center gap-1 text-[11px] text-slate-600 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={!!d().material!.transparent}
-                  onChange={(e) => setTransparent(e.currentTarget.checked)}
-                  class="accent-[#3D99FF]"
-                />
-                透明
-              </label>
-              <Show when={!!d().material!.transparent}>
-                <div class="flex-1">
-                  <SliderRow label="不透明" value={d().material!.opacity ?? 1} min={0} max={1} step={0.02} onChange={(v) => setMat("opacity", v)} />
-                </div>
-              </Show>
-            </div>
+            <For each={matProps()}>
+              {(p) => {
+                const val = () => d().material![p.key]
+                if (p.kind === "color") {
+                  return (
+                    <div class="flex items-center gap-2">
+                      <span class="text-[11px] text-slate-500 w-10 shrink-0">{p.label}</span>
+                      <input
+                        type="color"
+                        value={normalizeHex(val() as string | undefined)}
+                        onInput={(e) => setMat(p.key, e.currentTarget.value)}
+                        class="h-6 w-8 rounded border border-slate-200 bg-transparent cursor-pointer shrink-0"
+                      />
+                      <input
+                        type="text"
+                        value={(val() as string | undefined) ?? "#ffffff"}
+                        onInput={(e) => setMat(p.key, e.currentTarget.value)}
+                        class="property-input flex-1 min-w-0 h-6"
+                      />
+                    </div>
+                  )
+                }
+                if (p.kind === "slider") {
+                  const row = (
+                    <SliderRow
+                      label={p.label}
+                      value={(val() as number | undefined) ?? (p.key === "opacity" ? 1 : 0)}
+                      min={p.min ?? 0}
+                      max={p.max ?? 1}
+                      step={p.step ?? 0.02}
+                      onChange={(v) => setMat(p.key, v)}
+                    />
+                  )
+                  // opacity 仅在 transparent 开启时显（three 需 transparent=true 才认 opacity<1）
+                  if (p.key === "opacity") {
+                    return <Show when={!!d().material!.transparent}>{row}</Show>
+                  }
+                  return row
+                }
+                if (p.kind === "number") {
+                  return (
+                    <div class="flex items-center gap-2">
+                      <span class="text-[11px] text-slate-500 w-10 shrink-0">{p.label}</span>
+                      <div class="flex-1 min-w-0">
+                        <NumberField
+                          value={(val() as number | undefined) ?? 0}
+                          step={p.step}
+                          min={p.min}
+                          max={p.max}
+                          int={p.int}
+                          onChange={(v) => setMat(p.key, v)}
+                        />
+                      </div>
+                    </div>
+                  )
+                }
+                if (p.kind === "bool") {
+                  // transparent 特判：联动 opacity（开时给 0.7 默认）
+                  if (p.key === "transparent") {
+                    return (
+                      <div class="flex items-center gap-2">
+                        <label class="flex items-center gap-1 text-[11px] text-slate-600 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={!!val()}
+                            onChange={(e) => setTransparent(e.currentTarget.checked)}
+                            class="accent-[#3D99FF]"
+                          />
+                          {p.label}
+                        </label>
+                      </div>
+                    )
+                  }
+                  return (
+                    <div class="flex items-center gap-2">
+                      <label class="flex items-center gap-1 text-[11px] text-slate-600 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!val()}
+                          onChange={(e) => setMat(p.key, e.currentTarget.checked)}
+                          class="accent-[#3D99FF]"
+                        />
+                        {p.label}
+                      </label>
+                    </div>
+                  )
+                }
+                // select（side/blending 等）
+                return (
+                  <div class="flex items-center gap-2">
+                    <span class="text-[11px] text-slate-500 w-10 shrink-0">{p.label}</span>
+                    <select
+                      value={String(val() ?? 0)}
+                      onChange={(e) => setMat(p.key, Number(e.currentTarget.value))}
+                      class="property-input flex-1 min-w-0 h-6"
+                    >
+                      <For each={p.options ?? []}>
+                        {(o) => <option value={String(o.v)}>{o.t}</option>}
+                      </For>
+                    </select>
+                  </div>
+                )
+              }}
+            </For>
+            <Show when={!MATERIAL_PROPS[matType()]}>
+              <div class="text-[11px] text-slate-400">该材质类型（{matType() || "未知"}）不支持细项属性编辑</div>
+            </Show>
           </Section>
         </Show>
 

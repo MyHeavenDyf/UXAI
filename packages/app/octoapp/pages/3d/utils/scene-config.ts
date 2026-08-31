@@ -18,10 +18,36 @@ export interface SceneConfigGeometry {
 export interface SceneConfigMaterial {
   type: string
   color?: string
+  emissive?: string
+  emissiveIntensity?: number
   roughness?: number
   metalness?: number
   transparent?: boolean
   opacity?: number
+  side?: number
+  depthTest?: boolean
+  depthWrite?: boolean
+  blending?: number
+  fog?: boolean
+  toneMapped?: boolean
+  wireframe?: boolean
+  flatShading?: boolean
+  specular?: string
+  shininess?: number
+  sheen?: number
+  sheenColor?: string
+  sheenRoughness?: number
+  transmission?: number
+  ior?: number
+  thickness?: number
+  clearcoat?: number
+  clearcoatRoughness?: number
+  iridescence?: number
+  iridescenceIOR?: number
+  anisotropy?: number
+  anisotropyRotation?: number
+  size?: number
+  sizeAttenuation?: boolean
   [key: string]: unknown
 }
 export interface SceneConfigObject3D {
@@ -74,8 +100,8 @@ export interface SceneConfig {
 }
 
 /**
- * 物体级增量补丁（镜像 3d-templete 的 SceneUpdatePatch；octoapp 不跨工程 import）。
- * SCENE_PATCH 用：选中物改属性后，只 upsert 该物体，不重发整场景，避免闪烁。
+ * 属性弹窗编辑契约：弹窗改动产出 {objects:{upsert:[def]}}，preview applyEdit 据此
+ * 走 SCENE_EDIT_OBJECT 直改运行时 Object3D（即时生效，A 阶段不落盘 live-data）。
  */
 export interface ScenePatch {
   objects?: {
@@ -84,6 +110,16 @@ export interface ScenePatch {
     /** 按 id 删除 */
     remove?: string[]
   }
+}
+
+/**
+ * 编辑态单物体改动累加项（镜像 3d-templete OverrideSpec，rotation 为弧度）。
+ * applyEdit 从 popup（度）转弧度写入 transform.rotation；patchHandlerOverride 原样落盘 SUB_OVERRIDES。
+ */
+export type EditDeltaEntry = {
+  material?: SceneConfigMaterial
+  /** rotation 存弧度（Three 原生；applyEdit 从 popup 度转弧度写入，patchHandlerOverride 原样落盘 SUB_OVERRIDES） */
+  transform?: { position?: number[]; rotation?: number[]; scale?: number[] }
 }
 
 /**

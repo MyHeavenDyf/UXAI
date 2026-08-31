@@ -51,9 +51,75 @@ import { toOptions } from '../base/options'
 ## 树原生规则（极易出错，务必遵守）
 1. **manager 只对根节点（parentId=null）按 type 分发**；子节点由父 handler 通过 `ctx.getChildren(rootId)` 递归建。
 2. **根节点盖戳**：manager 在 create 成功后自动盖 `userData.__id`（node.id）/ `__componentType`（type）/ `__logicalRoot=true`（根=用户视角的「一个整体」，whole 粒度选中）。handler 无需手动盖根的这三个戳。
-3. **子对象盖戳**：handler 自建的子 mesh/group 须手动盖 `userData.__id`（子节点 id）+ `__componentType`（type），**不盖 `__logicalRoot`**（子=part，非整体）。仅当子对象需要被选中/编辑时才盖；纯装饰子对象可不盖（仍能渲染）。
+3. **子对象盖戳**（part 粒度选中的前提，务必盖）：handler 自建的子 mesh/group 须手动盖 `userData.__id` + `userData.__componentType`，**不盖 `__logicalRoot`**（子=part）。
+   - **循环生成的同质子物体**（机柜/树/灯/桌椅阵列）**每实例必盖 __id**，命名 `${node.id}-${子类型}-${索引}`（如 `compute-grid-1-rack-0`），索引 0 起。**严禁硬编码前缀**（如 `cmp-cab-`、`net-cab-`），必须 `${node.id}-` 起头——host 编辑态落盘靠 __id 反推定位 handler 代码，硬编码前缀反推不出 → 改动无法落盘。不盖 → part 粒度 picker 沿父子链找不到子 __id 回落父 group → 只能整体选、选不中单个。
+   - 纯装饰辅助子对象（不可见/不可选）可不盖。示例（机柜 3×3 阵列，每实例材质独立 + override 查表）：
+     ```ts
+     let i = 0
+     for (const dx of [-6, 0, 6]) {
+       for (const dz of [-5.5, 0, 5.5]) {
+         // 每实例 new 材质，勿共享同一 Material 实例（见规则 6）
+         const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x2b2f33, roughness: 0.7 }))
+         m.position.set(dx, 1.3, dz)
+         // 语义 __id：${node.id}- 起头，禁硬编码前缀（host 落盘靠它反推定位）
+         const cid = `${node.id}-rack-${i++}`
+         m.userData.__id = cid
+         m.userData.__componentType = node.type
+         m.castShadow = true
+         m.receiveShadow = true
+         // 查 SUB_OVERRIDES 盖 per-instance 改动（规则 6）
+         applyOverride(m, cid)
+         group.add(m)
+       }
+     }
+     ```
 4. **update 全量不 diff**：整棵子树的新 node 全量推给 handler.update，handler 重建子树或就地改；引擎契约支持整体重建。
 5. **delete 资源语义**：handler 自建的非共享几何/材质 → delete 返回 false（走默认 disposeObject 清理）；共享资源（MaterialManager 材质 / AssetCache 克隆模型 / 卡片订阅 / 交互订阅）→ delete 返回 true（跳过默认 dispose，手动取消订阅）。
+6. **override Map + 每实例材质独立**（编辑态 per-instance 改动落盘的前提，务必做）：
+   - **每实例材质独立**：循环同质子物**严禁共享同一 Material 实例**（共享则改一个全变）。字面量每实例 `new THREE.MeshStandardMaterial({...})` 或 `baseMat.clone()`；GLB 用 `ctx.loadModel(src, { clone: { shareMaterial: false } })`（引擎能力已就绪，默认共享须显式关；`obj.clone()` 是浅克隆、材质仍共享，不够）。
+   - **override Map 骨架**：handler 顶部声明空骨架，用户编辑态改过的 per-instance 材质/transform 由 host patch 进这里（**不放 live-data**，代码即终态、导出无烘焙）：
+     ```ts
+     import { applyOverride, type OverrideSpec } from '../base/override'  // 公共 apply 工具（cast/transform/Array 守卫已封装，勿自写 applyOverride 函数体）
+     // per-instance 改动落盘处：编辑态 host patch 进这里（JSON 兼容格式，双引号 key、color "#rrggbb" 字符串、无注释、无 trailing comma）；初始空 {}
+     const SUB_OVERRIDES: Record<string, OverrideSpec> = {}
+     // create 循环建子物后查表 apply（命中才盖，per-instance 改动盖默认值，不命中保持默认）：
+     applyOverride(SUB_OVERRIDES, m, cid)
+     ```
+   - **每个 __id 子物必调 applyOverride（关键，极易漏）**：凡设了 `userData.__id` 的子物——**循环实例**（机柜阵列/桌腿）**和**单个/组件型子物（Wall/floor/ceiling 等通过 `createComponentObject` 创建的）——在其被 `group.add(obj)` 之前**都必须调** `applyOverride(SUB_OVERRIDES, obj, cid)`。**漏调 = 静默 no-op**：host 把用户改动写进 `SUB_OVERRIDES[__id]`，但运行时 handler 从不读它 → 改动零视觉效果、无报错可追（用户「改墙颜色没反应」即此：room.ts 主墙设了 __id 却漏 applyOverride）。单组件型子物示例（组件返回的 Object3D 同样要盖 __id + applyOverride，勿漏）：
+     ```ts
+     // 组件型子物（createComponentObject 返回）——与循环实例一样须 __id + applyOverride
+     const wall = createComponentObject('Wall', { walls: [...], material: new THREE.MeshStandardMaterial({ color: 0xf0e6d2 }) })
+     if (wall) {
+       const wallId = `${node.id}-walls`
+       wall.userData.__id = wallId
+       wall.userData.__componentType = node.type
+       applyOverride(SUB_OVERRIDES, wall, wallId)  // ← 必调！漏则改墙色 patch 静默无反应
+       group.add(wall)
+     }
+     ```
+   - **JSON 兼容格式（关键）**：SUB_OVERRIDES 的内容**必须是合法 JSON**——双引号 key、color 用 `"#rrggbb"` 字符串（非 `0xff0000`）、无注释、无 trailing comma。host 的 patch 工具用 `JSON.parse`/`JSON.stringify` 读写此项，不合规 → 落盘失败。初始空 `{}`，由 host patch 增项；**严禁在 SUB_OVERRIDES 内放注释**（注释放声明上方）。
+   - **__id 必须语义命名**（规则 3）：override Map 的 key = 子实例 __id。host 靠 __id 反推定位，硬编码前缀 / 引擎兜底 `part-N` 格式反推不出 → 无法落盘。故循环必盖语义 __id（`${node.id}-` 起头）。
+   - **GLB 物体改色走 edit_code 加 paint(traverse)，不走 SUB_OVERRIDES**（关键）：`ctx.loadModel` 加载的 GLB，材质在内部子 mesh，运行时 `applyOverride` 只取顶层 `m.material`（GLB 是 Group 无 material → 跳过 = no-op），故 set_instance 对 GLB 材质改不动。用户改 GLB 物体色时，triage 走 edit_code 加 paint(traverse) 函数定义 + 创建点加调用（replace 可插入多行代码），**不**把 GLB 材质当字面量改、**不**走 SUB_OVERRIDES。codegen 生成 handler 时仍照规则 6 加 SUB_OVERRIDES 骨架 + applyOverride（供原生 Mesh 子物 per-instance 改色用），但 GLB 改色由 edit_code 改代码实现，二者并存不冲突。
+7. **SUB_SKIP 删除集合骨架**（循环单实例 skip_instance 删除落盘的前提，务必做；单部件删走 edit_code）：
+   - **骨架**：handler 顶部声明空数组（与 SUB_OVERRIDES 并列，JSON 兼容）：
+     ```ts
+     // 要删的子实例 __id 集合：host patch 进这里（JSON 兼容，双引号字符串元素、无注释、无 trailing comma）；初始空 []
+     const SUB_SKIP: string[] = []
+     ```
+   - **循环创建点必检查**：**循环生成同质子物**的创建处（机柜阵列/桌腿阵列等 `for` 循环内），在 cid 赋值后、新建子物前加 `if (SUB_SKIP.includes(cid)) continue`。host 把要删的循环实例 cid（如 `rack-3`）加进 SUB_SKIP → 运行时循环跳过该实例 = 删除。**单/组件型子物（Wall/floor/ceiling 等 `createComponentObject` 创建的）不需加此检查**——单部件删除走 edit_code 删 `group.add(<obj>);` 行（不 add = 不显示 = 删），不依赖 SUB_SKIP（单/组件创建点加 SUB_SKIP 检查也是静默 no-op，故删单部件一律走 edit_code）。
+   - **索引稳定（关键）**：循环 `i++` **留在 cid 赋值内**，`if (SUB_SKIP.includes(cid)) continue` 在 cid 赋值**之后**（i 已自增）、新建之前。跳过的索引**不重编号**——删 `rack-3` 后 `rack-4` 仍是 `rack-4`（不降为 `rack-3`），否则 __id 漂移 → 后续「删第5个」命中错物体。
+   - **JSON 兼容**：SUB_SKIP 内容须合法 JSON 数组（双引号字符串元素、无注释、无 trailing comma）。host 用 `JSON.parse`/`JSON.stringify` 读写，不合规 → 落盘失败。初始空 `[]`，由 host patch 增项；**严禁在 SUB_SKIP 内放注释**。
+   - 无此骨架 → host 删循环单实例 op 无法 data-patch → fallback codegen 升级（首次升级后新 handler 含骨架，后续删循环单实例都是 data-patch）。
+8. **SUB_ADD 追加集合骨架**（Phase C add_instance 加同质子物落盘的前提，务必做）：
+   - **骨架**：handler 顶部声明空数组（与 SUB_OVERRIDES/SUB_SKIP 并列，JSON 兼容）：
+     ```ts
+     // 要加的同质子实例集合：host patch 进这里（JSON 兼容，双引号 key、color "#rrggbb" 字符串、无注释、无 trailing comma）；初始空 []
+     const SUB_ADD: Array<{ cid: string; position: number[]; rotation?: number[]; material?: Record<string, unknown> }> = []
+     ```
+   - **主循环后置遍历**（关键）：在主创建循环**结束后**（return group 前）加 `for (const add of SUB_ADD) { ... }`，循环体**照主循环单实例的创建方式**（同款几何 + 每实例 new 独立材质，勿共享）建一个子物：设 `userData.__id = add.cid` + `userData.__componentType = node.type`、`position.fromArray(add.position)`、`add.rotation` 存在则 `rotation.fromArray(add.rotation)`、**调 `applyOverride(SUB_OVERRIDES, obj, add.cid)`**（让 add 的 material 也走 override Map，与主循环实例统一）、`group.add(obj)`。host 把要加的 `{cid,position,rotation?,material?}` 加进 SUB_ADD → 运行时主循环后补创建 = 加子物。
+   - **cid 语义命名**：add 的 cid 须 `${node.id}-` 起头（同规则 3，host 反查 type 靠前缀）；cid 是**新实例**不取自候选清单（区别于 set_instance/skip_instance 的 __id）。
+   - **JSON 兼容**：SUB_ADD 内容须合法 JSON 数组（双引号 key、color "#rrggbb" 字符串、无注释、无 trailing comma）。host 用 `JSON.parse`/`JSON.stringify` 读写，不合规 → 落盘失败。初始空 `[]`，由 host patch 增项；**严禁在 SUB_ADD 内放注释**。
+   - 无此骨架 → host 加子物 op 无法 data-patch → fallback codegen 升级（首次升级后新 handler 含骨架，后续加都是 data-patch）。
 
 ## import 路径（从 `handlers/<type>/<type>.ts` 出发）
 ```ts

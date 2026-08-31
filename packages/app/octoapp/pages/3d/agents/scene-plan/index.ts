@@ -39,11 +39,13 @@ export type ScenePlanInput = SceneCreateInput & {
   isModify: boolean
   /** 当前已有 type 清单（modify 时供 plan 知道哪些可继承，勿重复规划） */
   currentTypes?: string[]
+  /** 可用资产清单（workspace assetCatalog.ts 源码，注入 [可用资产清单] 让 plan 选 asset:<id>） */
+  assetCatalog?: string
 }
 
 export default async function scene_3d_plan(input: ScenePlanInput): Promise<PlanResult> {
-  const { sdk, sync, modelKey, rootSession, onSessionCreated, userInput, types, isModify, currentTypes } = input
-  const humanMessage = buildHumanMessage(userInput, types, isModify, currentTypes)
+  const { sdk, sync, modelKey, rootSession, onSessionCreated, userInput, types, isModify, currentTypes, assetCatalog } = input
+  const humanMessage = buildHumanMessage(userInput, types, isModify, currentTypes, assetCatalog)
   console.log("----- 3D 场景规划Agent开始执行 ----- ")
   const startTime = Date.now()
   const planRes = await runChildSession({
@@ -62,6 +64,9 @@ export default async function scene_3d_plan(input: ScenePlanInput): Promise<Plan
   console.log("----- 3D 场景规划Agent运行结束，耗时：", (Date.now() - startTime) / 1000, "s -----")
   const planJson = extractJson(planRes.text)
   if (!planJson) {
+    console.error(`[scene_3d_plan] extractJson 失败。text.length=${planRes.text.length}`)
+    console.error(`[scene_3d_plan] 输出前 2000 字符:\n`, planRes.text.slice(0, 2000))
+    console.error(`[scene_3d_plan] 输出后 2000 字符（看有无截断 / reasoning / 非 JSON）:\n`, planRes.text.slice(-2000))
     logAgentParsed(planRes.childSessionId, { error: "Failed to parse JSON", raw: planRes.text })
     agentThrow(AGENT_NAME, planRes.childSessionId, "Scene Plan did not return valid JSON")
   }
@@ -83,7 +88,13 @@ export default async function scene_3d_plan(input: ScenePlanInput): Promise<Plan
   return returnValue
 }
 
-function buildHumanMessage(userInput: string, types: TriageTypes, isModify: boolean, currentTypes?: string[]): string {
+function buildHumanMessage(
+  userInput: string,
+  types: TriageTypes,
+  isModify: boolean,
+  currentTypes?: string[],
+  assetCatalog?: string,
+): string {
   const lines = [
     `[用户请求]: ${userInput}`,
     ``,
@@ -94,6 +105,15 @@ function buildHumanMessage(userInput: string, types: TriageTypes, isModify: bool
   ]
   if (isModify && currentTypes && currentTypes.length > 0) {
     lines.push(`[当前场景已有 type（未列入 plan 的将原样继承，勿重复规划）]: ${JSON.stringify(currentTypes)}`, ``)
+  }
+  if (assetCatalog) {
+    lines.push(
+      `[可用资产清单]（下方 assetCatalog.ts 源码；model 路线 resources 用 asset:<id>，id 取自清单真实条目，勿臆造）:`,
+      "```ts",
+      assetCatalog,
+      "```",
+      ``,
+    )
   }
   lines.push(`请输出场景规划 JSON：types 含 create+modify 全部 type 的选型 + camera/lights/scene。`)
   return lines.join("\n")

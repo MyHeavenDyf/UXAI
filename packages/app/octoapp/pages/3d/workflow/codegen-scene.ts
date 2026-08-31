@@ -16,8 +16,11 @@ import scene_3d_triage from "../agents/scene-triage"
 import scene_3d_plan, { type PlanResult } from "../agents/scene-plan"
 import scene_3d_codegen from "../agents/scene-codegen"
 import { parseCodeFiles, extractSceneData, type CodeFile } from "../utils/parse-code-files"
-import { loadCurrentSceneState } from "../utils/version-history"
+import { loadCurrentSceneState, readCodeDirFiles } from "../utils/version-history"
 import { getDesktopApi } from "../utils/desktop-api"
+import { workspaceDir, materialize } from "../utils/workspace"
+import { extractPatchCandidates, looksLikeScalarChange, type PatchCandidate } from "./patch-resolver"
+import { patchScene, type PatchOp } from "./patch-scene"
 import type { SceneCreateInput } from "./create-scene"
 import type { GateFinding } from "../utils/scene-gate"
 
@@ -28,30 +31,45 @@ export type CodegenSceneInput = SceneCreateInput & {
   hasScene: boolean
   /** 场景历史目录（sceneHistoryDir()），供读当前状态 + codeDir */
   sceneDir: string
-  /** codegen 产物回调 → onCodeVersionReady（物化 + 预览） */
+  /** sdk 根目录（workspace 路径基准 = {sdkDir}/.octo/design-3d/workspace），供读 assetCatalog */
+  sdkDir: string
+  /** codegen 产物回调 → onCodeVersionReady（物化 + 预览，全量 switchVersion 路径） */
   onCodeReady: (files: CodeFile[], sceneData: Record<string, unknown> | null, summary: string) => Promise<void>
+  /** patch 产物回调 → materializePatch（轻量物化，overlay 子集不重启 dev；patch 路径用） */
+  onMaterialize: (files: CodeFile[], summary: string, sceneData: Record<string, unknown> | null) => Promise<void>
   /** 上一轮 9a 门控失败清单（来自 handleRetry 喂回），注入 codegen 让其照着修 */
   priorGateFindings?: GateFinding[]
 }
 
 export interface CodegenSceneResult {
-  routing: "create" | "modify" | "chat"
+  routing: "create" | "modify" | "patch" | "chat"
   reply?: string
   summary?: string
   plan?: PlanResult
+  /** triage 输出的 patchOps（routing=patch 时；供 host 跳过 9a 门控等） */
+  patchOps?: PatchOp[]
   /** codegen 产出的分组 sceneData（供 host 跑 9a 完整性门控） */
   sceneData?: Record<string, unknown> | null
   error?: string
 }
 
 export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSceneResult> {
-  const { sdk, sync, modelKey, rootSession, userInput, onSessionCreated, fileParts, hasScene, sceneDir, onCodeReady, priorGateFindings } =
+  const { sdk, sync, modelKey, rootSession, userInput, onSessionCreated, fileParts, hasScene, sceneDir, sdkDir, onCodeReady, onMaterialize, priorGateFindings } =
     input
 
   // 1. 取当前场景 type 清单（modify 时供 triage 判哪些 type 可改 / 继承）
   const currentTypes = hasScene ? await loadCurrentTypes(sceneDir, rootSession) : []
 
-  // 2. triage：判 routing + types
+  // 1.5. 抽 patch 候选 __id 清单（hasScene 时；注入 triage 供受限选择，防臆造 __id）
+  //      子物体 __id 不在 live-data、在 handler 源码；正则确定性抽所有完全字面量 cid。
+  const patchCandidates = hasScene ? await loadPatchCandidates(sceneDir, rootSession) : []
+
+  // 1.7. 读当前 handler 源码（hasScene 时；注入 triage 供 edit_code 出 verbatim search 串，防臆造匹配不上
+  //      → fallback modify 丢物体）。modify/patch-fallback 路径复用此 currentCode（不二次读 codeDir）。
+  const currentCode = hasScene ? await loadCurrentCode(sceneDir, rootSession) : null
+  const currentHandlers = currentCode?.currentHandlers ?? ""
+
+  // 2. triage：判 routing + types + patchOps
   console.log("[codegen_scene] ① triage 分诊中…")
   const triage = await scene_3d_triage({
     sdk,
@@ -66,16 +84,84 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
     lastSceneObjects: [],
     currentTypes,
     hasScene,
+    patchCandidates,
+    currentHandlers,
   })
   if (triage.routing === "chat") {
     return { routing: "chat", reply: triage.reply }
   }
 
-  const isModify = triage.routing === "modify"
+  // 2.5. patch 短路：基于原场景局部改材质/transform，不进 plan/codegen（不重生成、不丢物体）。
+  //      1B：只要 triage 吐了 patchOps（哪怕 routing=modify 也吐了——prompt 要求标量改动必出 patchOps）
+  //      → 优先 patchScene（host 决定，不依赖 triage routing 判断的可靠性）。
+  //      校验失败（__id 不在候选 / handler 无骨架）→ 不物化，fallback 进下面 plan/codegen。
+  //      1C 兜底：triage 把标量改动误判 modify（没吐 patchOps）但请求像标量改动 + 有候选
+  //      → 约束再问 triage force-patch（从候选选 __id 出 patchOps）；再问仍无 patchOps / patch 失败 → 落 plan/codegen。
+  const patchSummary = userInput.trim().slice(0, 60) || "patch"
+  if (triage.patchOps.length > 0) {
+    console.log(
+      `[codegen_scene] ① patch 短路（${triage.patchOps.length} ops，routing=${triage.routing}，不进 plan/codegen）…`,
+    )
+    const patchRes = await patchScene({
+      sceneDir,
+      sid: rootSession,
+      patchOps: triage.patchOps,
+      summaryHint: userInput,
+      onMaterialize,
+    })
+    if (patchRes.ok) {
+      return { routing: "patch", summary: patchSummary, patchOps: triage.patchOps }
+    }
+    console.warn(`[codegen_scene] patch 失败，fallback 进 plan/codegen：${patchRes.error}`, patchRes.skipped)
+    // 落到下面 plan/codegen（isModify=true，用 triage.types.modify 作 fallback hint）
+  } else if (patchCandidates.length > 0 && looksLikeScalarChange(userInput)) {
+    console.log(
+      `[codegen_scene] ① patch 兜底再问（triage routing=${triage.routing} 未吐 patchOps，请求疑似标量改动，force-patch）…`,
+    )
+    const reTriage = await scene_3d_triage({
+      sdk,
+      sync,
+      modelKey,
+      rootSession,
+      userInput,
+      onSessionCreated,
+      fileParts,
+      lastIntent: null,
+      lastPlanner: null,
+      lastSceneObjects: [],
+      currentTypes,
+      hasScene,
+      patchCandidates,
+      currentHandlers,
+      forcePatch: true,
+    })
+    if (reTriage.patchOps.length > 0) {
+      const patchRes = await patchScene({
+        sceneDir,
+        sid: rootSession,
+        patchOps: reTriage.patchOps,
+        summaryHint: userInput,
+        onMaterialize,
+      })
+      if (patchRes.ok) {
+        return { routing: "patch", summary: patchSummary, patchOps: reTriage.patchOps }
+      }
+      console.warn(`[codegen_scene] 兜底再问 patch 失败，fallback plan/codegen：${patchRes.error}`, patchRes.skipped)
+    } else if (reTriage.routing === "chat") {
+      // 兜底再问判为闲聊（极少见）：透传，不进 codegen
+      return { routing: "chat", reply: reTriage.reply }
+    }
+  }
+
+  // patch 失败 fallback 时也走 modify 路径（codegen 注入 [CURRENT_HANDLERS] 保留未受影响 type）
+  const isModify = triage.routing === "modify" || triage.routing === "patch"
   // attachment_description 注入用户输入（供 plan / codegen 参考）
   const effectiveUserInput = triage.attachment_description
     ? `[参考内容]: ${triage.attachment_description}\n[用户需求]: ${userInput}`
     : userInput
+
+  // 2.5. 读 workspace 资产清单（注入 plan 的 [可用资产清单]，让 LLM 选 asset:<id>，如机房选 asset:rack）
+  const assetCatalog = await loadAssetCatalog(sdkDir)
 
   // 3. plan：选型 + 选资源 + camera/lights/scene
   console.log("[codegen_scene] ② plan 选型中…")
@@ -90,13 +176,13 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
     types: triage.types,
     isModify,
     currentTypes,
+    assetCatalog,
   })
 
   // 4. codegen：写 handler .ts + 全量 index + 全量 live-data
   //    modify 时从 codeDir 读当前 handler 源码 + live-data 注入 [CURRENT_HANDLERS]/[CURRENT_LIVE_DATA]（create 时不走此路）
-  const { currentHandlers, currentLiveData } = isModify
-    ? await loadCurrentCode(sceneDir, rootSession)
-    : { currentHandlers: "", currentLiveData: "" }
+  // 复用 1.7 读的 currentCode（modify/patch-fallback 路径；patch 成功短路不至此，currentCode 非空）
+  const currentLiveData = isModify && currentCode ? currentCode.currentLiveData : ""
 
   console.log("[codegen_scene] ③ codegen 生成代码中…")
   const codegenRes = await scene_3d_codegen({
@@ -144,9 +230,42 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
     return { routing: triage.routing, error: "LLM 未输出 live-data.json 或不可解析" }
   }
 
-  // 7. 物化 + 预览（onCodeVersionReady：workspace.switchVersion + wsNonce++ + 回填 pendingPreviewData）
+  // 6c. modify 时 host 端 merge 保全量：LLM 常只输出受影响 type handler + index + live-data，
+  //     漏未受影响 type 的 handler .ts（但 index.ts 全量注册它们）→ switchVersion materialize 重建
+  //     workspace 清空 + overlay 只铺 LLM 输出 → 缺 floor/walls/ceiling.ts → vite import 崩
+  //     （[[3d-gate-handler-mismatch]]）。补回 LLM 没输出的上一轮 handler 文件（以 LLM 输出为准，
+  //     只补缺失不覆盖 LLM 重写的；多余 handler 文件 index 不 import 则不加载，无害）。read+merge
+  //     保全量同 patch 路线（readCodeDirFiles 全量 → patch → 重组全量）模式，确定性不靠 LLM。
+  if (isModify && currentCode?.currentFiles && currentCode.currentFiles.length > 0) {
+    const llmPaths = new Set(files.map((f) => f.path.replace(/\\/g, "/")))
+    let added = 0
+    for (const f of currentCode.currentFiles) {
+      const p = f.path.replace(/\\/g, "/")
+      if (!llmPaths.has(p)) {
+        files.push(f)
+        added += 1
+      }
+    }
+    if (added > 0) {
+      console.log(
+        `[codegen_scene] ⑥ merge 补回 ${added} 个未受影响 type handler（LLM 漏输出，host 保全量防 vite import 崩）`,
+      )
+    }
+  }
+
+  // 7. 物化 + 预览
   const summary = plan.scene_description?.slice(0, 80) || userInput.slice(0, 80)
-  await onCodeReady(files, sceneData, summary)
+  // modify 走轻量物化（materializePatch：只 overlay 变动文件，不 materialize 重建 workspace 清空，
+  //   保留上一轮未受影响 type handler——「只改变动的地方其他不变」，非全清空重写；也避开 switchVersion
+  //   的 stopDev+materialize+startDev 慢路径/240s 卡顿，见 [[3d-commit-hang-startdev]]）。
+  //   冷启动（dev 没跑）时 materializePatch 内部降级 onCodeVersionReady（switchVersion materialize 重建），
+  //   此时 6c merge 补的全量 files 防缺文件（也保版本恢复时 codeDir 归档全量）。
+  //   create 仍走 onCodeVersionReady（需 materialize 建模板基底 buildings/roads/water/example/model + startDev）。
+  if (isModify) {
+    await onMaterialize(files, summary, sceneData)
+  } else {
+    await onCodeReady(files, sceneData, summary)
+  }
   return { routing: triage.routing, summary, plan, sceneData }
 }
 
@@ -163,6 +282,24 @@ async function loadCurrentTypes(sceneDir: string, sid: string): Promise<string[]
 }
 
 /**
+ * 抽 patch 候选 __id 清单（hasScene 时；注入 triage 供受限选择 __id，防臆造）。
+ * 读 codeDir 全量 + mergedSceneConfig → extractPatchCandidates 正则抽所有完全字面量 cid。
+ * 无 codeDir / 非 Electron / 读失败 → 返 []（triage 无候选 → routing=patch 会 fallback modify）。
+ */
+async function loadPatchCandidates(sceneDir: string, sid: string): Promise<PatchCandidate[]> {
+  try {
+    const state = await loadCurrentSceneState(sceneDir, sid)
+    if (!state?.codeDir || !state.mergedSceneConfig) return []
+    const files = await readCodeDirFiles(state.codeDir)
+    if (!files) return []
+    return extractPatchCandidates(files, state.mergedSceneConfig)
+  } catch (e) {
+    console.warn("[codegen_scene] loadPatchCandidates 失败", e)
+    return []
+  }
+}
+
+/**
  * modify 时从当前版本 codeDir 读全部 handler .ts 源码 + live-data，
  * 注入 codegen 的 [CURRENT_HANDLERS] / [CURRENT_LIVE_DATA]（供保留未受影响 type）。
  * - currentLiveData：优先取 state.mergedSceneConfig（内存状态，落盘时 = sceneData）。
@@ -172,7 +309,7 @@ async function loadCurrentTypes(sceneDir: string, sid: string): Promise<string[]
 async function loadCurrentCode(
   sceneDir: string,
   sid: string,
-): Promise<{ currentHandlers: string; currentLiveData: string }> {
+): Promise<{ currentHandlers: string; currentLiveData: string; currentFiles: CodeFile[] }> {
   const state = await loadCurrentSceneState(sceneDir, sid)
   // live-data：优先从内存状态取（onCodeVersionReady 落盘时 mergedSceneConfig = sceneData）
   const currentLiveData = state?.mergedSceneConfig ? JSON.stringify(state.mergedSceneConfig, null, 2) : ""
@@ -183,7 +320,7 @@ async function loadCurrentCode(
     if (!codeDir) {
       console.warn("[codegen_scene] loadCurrentCode: 无 codeDir，modify 无法注入旧 handler（旧版本或落盘失败）")
     }
-    return { currentHandlers: "", currentLiveData }
+    return { currentHandlers: "", currentLiveData, currentFiles: [] }
   }
   try {
     const entries = await api.listDirectory(codeDir)
@@ -192,14 +329,45 @@ async function loadCurrentCode(
       .map((e) => ({ path: e.path.replace(/\\/g, "/") }))
       .sort((a, b) => a.path.localeCompare(b.path))
     const blocks: string[] = []
+    const currentFiles: CodeFile[] = []
     for (const f of tsFiles) {
       const buf = await api.readFileBuffer(`${codeDir}/${f.path}`)
       if (!buf) continue
-      blocks.push(`## file: ${f.path}\n${new TextDecoder().decode(buf)}`)
+      const content = new TextDecoder().decode(buf)
+      blocks.push(`## file: ${f.path}\n${content}`)
+      currentFiles.push({ path: f.path, content })
     }
-    return { currentHandlers: blocks.join("\n\n"), currentLiveData }
+    return { currentHandlers: blocks.join("\n\n"), currentLiveData, currentFiles }
   } catch (e) {
     console.warn("[codegen_scene] loadCurrentCode: 读 codeDir 失败", e)
-    return { currentHandlers: "", currentLiveData }
+    return { currentHandlers: "", currentLiveData, currentFiles: [] }
+  }
+}
+
+/**
+ * 读 workspace 的 assetCatalog.ts（纯数据资产目录）注入 plan prompt 的 [可用资产清单]。
+ * 整文件源码注入（不解析）——assetCatalog.ts 是纯数据 .ts（无 ?url/无注释模板），LLM 读
+ * 源码即知可用 asset:<id> + 名称 + tags + 描述，机房场景便能自动选 asset:rack。
+ *
+ * - workspace 未物化（首次生成边界）：readFileBuffer 返 null → materialize 后重读（此时 dev
+ *   未跑，安全；materialize 仅在 workspace 缺失时触发，不与 switchVersion 抢占）。
+ * - 非 Electron / 读失败 / materialize 抛错 → 返 ""（plan 仍可跑，仅无清单，LLM 走 hunyuan/原生）。
+ */
+async function loadAssetCatalog(sdkDir: string): Promise<string> {
+  try {
+    if (!sdkDir) return ""
+    const api = getDesktopApi()
+    if (!api?.readFileBuffer) return ""
+    const catalogPath = `${workspaceDir(sdkDir)}/assetsLibrary/assetCatalog.ts`
+    let buf = await api.readFileBuffer(catalogPath)
+    if (!buf) {
+      // workspace 未物化（首次生成）→ 物化后重读；materialize 非 Electron 会抛错，外层 catch 吞
+      await materialize(sdkDir)
+      buf = await api.readFileBuffer(catalogPath)
+    }
+    return buf ? new TextDecoder().decode(buf) : ""
+  } catch (e) {
+    console.warn("[codegen_scene] loadAssetCatalog: 读 workspace assetCatalog 失败", e)
+    return ""
   }
 }

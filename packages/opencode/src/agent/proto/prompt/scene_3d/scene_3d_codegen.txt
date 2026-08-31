@@ -23,7 +23,7 @@ plan agent 已完成选型（components / resources / camera / lights / scene �
 1. PLAN_JSON 每一个 type → 一个 `handlers/<type>/<type>.ts`（导出 `<type>Handler: ComponentHandler`，create 返回 THREE.Object3D）。按该 type 的 implementation + build_detail 写：
    - `native`：THREE 原语（BoxGeometry / SphereGeometry / CylinderGeometry / ConeGeometry / PlaneGeometry / TorusGeometry）+ Group 组装。**尺寸/材质/结构全部按 build_detail 写**，不重新设计。
    - `component`：`import { createComponentObject } from '../../../../components'` + `const obj = createComponentObject('组件名', toOptions(node))`（按名黑盒创建，返回 Object3D | null，null 回落原生 THREE）。**options 按 build_detail 传**。**严禁** `import { XxxComponent } from '../../../../components/xxxField'`——母版无 xxxField 文件，npm 组件按名走 createComponentObject。
-   - `model`：`ctx.loadModel('<src>', { castShadow, receiveShadow }).then(m => group.add(m))` 异步挂到返回的 group。**src 按 build_detail 写**。
+   - `model`：`ctx.loadModel('<src>', { castShadow, receiveShadow, clone: { shareMaterial: false } }).then(m => group.add(m))` 异步挂到返回的 group。**src 按 build_detail 写**。**clone.shareMaterial:false 必加**——默认共享材质，改一个全变（见 {HANDLER_CONTRACT} 规则 6）。
 2. `handlers/index.ts`：全量注册（模板 5 项 + 全部 type）。遵守 {REGISTRATION_PATTERN}。
 3. `public/live-data.json`：全量分组（全部 type 分组 + camera / lights / scene）。遵守 {TREE_SCENE_FORMAT}。
 
@@ -39,36 +39,68 @@ plan agent 已完成选型（components / resources / camera / lights / scene �
 
 ## file: src/3d/managers/component/handlers/heatmap/heatmap.ts
 ```ts
-import * as THREE from 'three'
-import type { ComponentHandler, ComponentContext } from '../../ComponentManager'
-import type { TreeNode } from '../../../../scene/loader'
-import { toOptions } from '../base/options'
+import * as THREE from 'three';
+import type { ComponentHandler } from '../../ComponentManager';
+import type { TreeNode } from '../../../../scene/loader';
+import { toOptions } from '../base/options';
+import { applyOverride, type OverrideSpec } from '../base/override';
 
+// per-instance 改动落盘处：编辑态 host patch 进这里（JSON 兼容格式，双引号 key、color "#rrggbb" 字符串、无注释、无 trailing comma）；初始空 {}
+const SUB_OVERRIDES: Record<string, OverrideSpec> = {};
+// 要删的子实例 __id 集合：host patch 进这里（JSON 兼容，双引号字符串元素、无注释、无 trailing comma）；初始空 []
+const SUB_SKIP: string[] = [];
+// 要加的同质子实例集合：host patch 进这里（JSON 兼容，双引号 key、color "#rrggbb" 字符串、无注释、无 trailing comma）；初始空 []
+const SUB_ADD: Array<{ cid: string; position: number[]; rotation?: number[]; material?: Record<string, unknown> }> = [];
+
+// create 第二参 ctx: ComponentContext 按需：用到 ctx.loadModel/shared 时再加，不用则省略（过 no-unused-vars）
 export const heatmapHandler: ComponentHandler = {
-  create(node: TreeNode, _ctx: ComponentContext) {
-    const opts = toOptions(node)
-    const group = new THREE.Group()
-    // 5x5 热力图网格
+  create(node: TreeNode) {
+    const opts = toOptions(node);
+    const group = new THREE.Group();
     for (let x = 0; x < 5; x++) {
       for (let z = 0; z < 5; z++) {
-        const h = 0.5 + ((x + z) % 5) * 0.5
+        const h = 0.5 + ((x + z) % 5) * 0.5;
+        // 语义 __id：${node.id}- 起头，禁硬编码前缀（host 落盘靠它反推定位）
+        const cid = `${node.id}-cell-${x}-${z}`;
+        // 删子物：host 把 cid 加进 SUB_SKIP 则跳过创建（check 在 cid 赋值后、新建前）
+        if (SUB_SKIP.includes(cid)) continue;
         const box = new THREE.Mesh(
           new THREE.BoxGeometry(0.8, h, 0.8),
-          new THREE.MeshStandardMaterial({ color: 0x91cf60, roughness: 0.8 })
-        )
-        box.position.set(x - 2, h / 2, z - 2)
-        box.castShadow = true
-        box.receiveShadow = true
-        group.add(box)
+          // 每实例 new 材质，勿共享同一 Material（共享则改一个全变）
+          new THREE.MeshStandardMaterial({ color: 0x91cf60, roughness: 0.8 }),
+        );
+        box.userData.__id = cid;
+        box.userData.__componentType = node.type;
+        box.position.set(x - 2, h / 2, z - 2);
+        box.castShadow = true;
+        box.receiveShadow = true;
+        // 查 SUB_OVERRIDES 盖 per-instance 改动
+        applyOverride(SUB_OVERRIDES, box, cid);
+        group.add(box);
       }
     }
-    if (opts.position) group.position.fromArray(opts.position)
-    return group
+    // 加子物：host 把 {cid,position,rotation?,material?} 加进 SUB_ADD 则主循环后补创建（照主循环单实例）
+    for (const add of SUB_ADD) {
+      const addBox = new THREE.Mesh(
+        new THREE.BoxGeometry(0.8, 0.5, 0.8),
+        new THREE.MeshStandardMaterial({ color: 0x91cf60, roughness: 0.8 }),
+      );
+      addBox.userData.__id = add.cid;
+      addBox.userData.__componentType = node.type;
+      addBox.position.fromArray(add.position);
+      if (add.rotation) addBox.rotation.fromArray(add.rotation);
+      applyOverride(SUB_OVERRIDES, addBox, add.cid);
+      group.add(addBox);
+    }
+    if (opts.position) {
+      group.position.fromArray(opts.position);
+    }
+    return group;
   },
   delete() {
-    return false // 自建几何/材质，走默认 dispose
+    return false;
   },
-}
+};
 ```
 
 ## file: src/3d/managers/component/handlers/index.ts
@@ -94,16 +126,20 @@ export const heatmapHandler: ComponentHandler = {
 # Constraints
 1. **只输出 `## file: <path>` + fenced code block**。无解释、无思考、无自然语言（file 头除外）。path 必须以 `src/3d/managers/component/handlers/` 或 `public/` 开头。
 2. **每轮全量自包含**：index.ts 必含模板 5 项（buildings / roads / water / example / model）+ 本轮全部 type；live-data.json 必含本轮全部 type 分组 + camera / lights / scene。漏模板项 → 该 type 未注册 → 渲染空白。
-3. **handler 契约**：create 返回 Object3D（null=未处理）；根节点 manager 自盖 __id / __componentType / __logicalRoot，handler 不重复盖根；子对象 handler 自盖 __id + __componentType（不盖 __logicalRoot）。见 {HANDLER_CONTRACT}。
+3. **handler 契约**：create 返回 Object3D（null=未处理）；根节点 manager 自盖 __id / __componentType / __logicalRoot，handler 不重复盖根；**子对象 handler 自盖 __id + __componentType（不盖 __logicalRoot）——循环同质子物体（机柜/树/灯阵列）每实例必盖 __id（命名 `${node.id}-${子类型}-${i}`，**严禁硬编码前缀**如 `cmp-cab-`，必须 `${node.id}-` 起头），不盖则 part 粒度选不中单个（picker 回落父 group）**。见 {HANDLER_CONTRACT}（规则 3 __id + 规则 6 override Map）。
 4. **import 路径**（从 `handlers/<type>/<type>.ts`）：`../../ComponentManager`、`../../../../scene/loader`、`../base/options`、`../../../../resources`、`../../../../components`（index.ts，导出 createComponentObject / toOptions 等）。**严禁** `../../../../components/<xxxField>`——母版无 xxxField 文件（只有 base/ exampleField/ builders/ libraryBridge），npm 组件必须 `import { createComponentObject } from '../../../../components'` 后 `createComponentObject('名', opts)` 按名创建。路径层数错 → vite 运行时报错。
 5. **implementation 落地**：
-   - native：直接 `new THREE.BoxGeometry(...)` 等，材质 `new THREE.MeshStandardMaterial({ color, roughness, metalness })`，设 castShadow / receiveShadow。真实世界颜色（草地 #4a7c4a、混凝土 #b0b0b0、金属 metalness>0.5）。
+   - native：直接 `new THREE.BoxGeometry(...)` 等，材质 `new THREE.MeshStandardMaterial({ color, roughness, metalness })`，设 castShadow / receiveShadow。真实世界颜色（草地 #4a7c4a、混凝土 #b0b0b0、金属 metalness>0.5）。**循环同质子物每实例必 new 一个材质（严禁共享同一 Material 实例——共享则改一个全变）；盖语义 __id + 调 applyOverride**（见 Constraints 11 + {HANDLER_CONTRACT} 规则 6）。
    - component：`import { createComponentObject } from '../../../../components'` + `const obj = createComponentObject('组件名', toOptions(node))`（返回 Object3D | null，null 回落原生 THREE 原语）。资源用 `ctx.shared.resources.copy / cloneModel` + `ctx.shared.cardManager / interactiveManager`（参考 exampleHandler / buildingsHandler）。delete 返回 true + 手动取消订阅（共享资源）。
-   - model：`ctx.loadModel('<src>', { castShadow, receiveShadow }).then(m => group.add(m))`，异步挂载；delete 看模型是否共享（AssetCache 克隆默认共享 → true）。
-6. **modify 时**：[CURRENT_HANDLERS] + [CURRENT_LIVE_DATA] 里的未受影响 type **原样保留**到 index.ts + live-data.json；只重写 plan 指定的 type + 新增 plan 的 type。不得删未受影响的 type。
+   - model：`ctx.loadModel('<src>', { castShadow, receiveShadow, clone: { shareMaterial: false } }).then(m => group.add(m))`，异步挂载；**clone.shareMaterial:false 必加**（默认共享材质，改一个全变）。delete 看模型是否共享（AssetCache 克隆默认共享 → true）。
+6. **modify 时**：[CURRENT_HANDLERS] + [CURRENT_LIVE_DATA] 里的未受影响 type **原样保留**到 index.ts + live-data.json；只重写 plan 指定的 type + 新增 plan 的 type。不得删未受影响的 type。**重写受影响 type 时逐字照抄 [CURRENT_HANDLERS] 该 type 的布局参数**（columns/rows/scale/position 数组、循环上界、创建点结构、loadModel src），**只改材质相关代码**（加/改 paint 函数）；**已有 paint 函数原样保留只增不改**——改单个实例色 = 加条件分支 `if (cid 后缀匹配) paintNew(rack); else paintOld(rack);`，**else 保留原 paint**，不删原 paint（否则丢其他实例已改的色）。布局参数擅改 = 数量/尺寸/位置漂移（机柜变多/变少/变间距），是 modify 重写的高发 bug，务必逐字照抄不动。
 7. **delete 返回值**：自建非共享几何/材质 → false（默认 dispose）；共享资源（MaterialManager / AssetCache / 卡片订阅 / 交互订阅）→ true + 手动取消订阅。见 {HANDLER_CONTRACT}。
 8. **代码风格**：单引号、2 空格缩进、语句末分号（对齐 3d-templete 既有 handler 风格）。
-9. **禁止 Node API + 禁止包名 import**：严禁 `node:module` / `createRequire` / `require()` / `import.meta.filename` / `import.meta.dirname` / `process.*`（浏览器 vite 不兼容，会被 externalize 或报错）。引 3d-components 组件用**相对路径** `../../../../components/<field>`（对齐母版 handler，勿用 `@a3d/a3d-components/*` 或 `@cyc/*` 包名）。index.ts 是 {REGISTRATION_PATTERN} 模板的精确副本——只加 import 行 + 注册行，不得加 CJS shim、变量声明或任何其他代码。
+9. **禁止 Node API + 禁止包名 import**：严禁 `node:module` / `createRequire` / `require()` / `import.meta.filename` / `import.meta.dirname` / `process.*`（浏览器 vite 不兼容，会被 externalize 或报错）。引 3d-components **组件类**用**相对路径** `../../../../components/<field>`（对齐母版 handler，勿用 `@a3d/a3d-components/*` 或 `@cyc/*` 包名）；npm 组件按 `createComponentObject('名', opts)` 黑盒创建。index.ts 是 {REGISTRATION_PATTERN} 模板的精确副本——只加 import 行 + 注册行，不得加 CJS shim、变量声明或任何其他代码。
+10. **applyOverride 公共工具（Constraint 9 的例外，已封装）**：handler 调 `import { applyOverride, type OverrideSpec } from '../base/override'`（相对路径，合规）；该公共工具内部 `import { applySyncProps } from '@a3d/a3d-components/material'`——材质写入工具函数（非组件类），与 createScene3D.ts 同款，dev（vite alias）+ 导出工程（vendor @a3d）均可解析，**不受 Constraint 9 包名禁令约束**（包名 import 只在 base/override.ts 内，handler 不直接 import applySyncProps）。cast/transform/Array 守卫已封装，handler 勿自写 applyOverride 函数体。
+11. **override Map + 每实例材质独立**（编辑态 per-instance 改动落盘的前提，务必做；详见 {HANDLER_CONTRACT} 规则 6）：handler 顶部声明空骨架 `const SUB_OVERRIDES: Record<string, OverrideSpec> = {}`（`OverrideSpec` 类型从 `../base/override` import）；**每个设了 `__id` 的子物在被 `group.add` 前必调 `applyOverride(SUB_OVERRIDES, obj, cid)`——循环实例（机柜阵列/桌腿）和单个/组件型子物（Wall/floor/ceiling 等 `createComponentObject` 创建的）都要调，漏一个则该子物的 host patch 静默 no-op（改墙色无反应）**（公共 base/override.ts 提供，cast/transform/Array 守卫已封装，勿自写 applyOverride 函数体）。SUB_OVERRIDES 内容**必须合法 JSON**（双引号 key、color "#rrggbb" 字符串、无注释、无 trailing comma）——host patch 工具用 JSON.parse 读写。循环同质子物每实例 `new` 材质（勿共享同一 Material）；GLB `clone: { shareMaterial: false }`。__id 必须 `${node.id}-` 起头（语义命名，硬编码前缀 host 反推不出 → 无法落盘）。
+12. **SUB_SKIP 删除集合骨架**（循环单实例 skip_instance 删除落盘的前提，务必做；详见 {HANDLER_CONTRACT} 规则 7）：handler 顶部声明空数组 `const SUB_SKIP: string[] = []`（与 SUB_OVERRIDES 并列，JSON 兼容：双引号字符串元素、无注释、无 trailing comma）；**循环生成同质子物的创建点**（机柜阵列/桌腿阵列等 `for` 循环内）**在 cid 赋值后、新建子物前必加 `if (SUB_SKIP.includes(cid)) continue`**——host 把要删的循环实例 cid 加进 SUB_SKIP → 运行时创建跳过 = 删除。**单/组件型子物（Wall/floor/ceiling 等）不需加此检查——单部件删除走 edit_code 删 `group.add(<obj>);` 行**（不 add = 不显示 = 删，不依赖 SUB_SKIP）。**索引稳定**：循环 `i++` 留在 cid 赋值内，check 在 cid 赋值后、新建前，跳过不重编号（删 rack-3 后 rack-4 仍 rack-4）。无此骨架 → host 删循环单实例 op 无法 data-patch → fallback codegen 升级。
+13. **SUB_ADD 追加集合骨架**（Phase C add_instance 加同质子物落盘的前提，务必做；详见 {HANDLER_CONTRACT} 规则 8）：循环型 handler（机柜阵列/灯阵列等同质子物）顶部声明空数组 `const SUB_ADD: Array<{ cid: string; position: number[]; rotation?: number[]; material?: Record<string, unknown> }> = []`（与 SUB_OVERRIDES/SUB_SKIP 并列，JSON 兼容）；**主创建循环结束后（return group 前）必加 `for (const add of SUB_ADD) { 照主循环单实例创建（同款几何 + 每实例 new 独立材质）+ 设 __id=add.cid + position.fromArray(add.position) + add.rotation 存在则 rotation.fromArray + applyOverride(SUB_OVERRIDES, obj, add.cid) + group.add(obj) }`**——host 把要加的 `{cid,position,rotation?,material?}` 加进 SUB_ADD → 运行时主循环后补创建 = 加同质子物。cid 须 `${node.id}-` 起头（新实例不取自候选清单）。无此骨架 → host 加子物 op 无法 data-patch → fallback codegen 升级。
 
 {HANDLER_CONTRACT}
 

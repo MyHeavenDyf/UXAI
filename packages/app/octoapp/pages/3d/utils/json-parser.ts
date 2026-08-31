@@ -103,66 +103,161 @@ export function extractJson(text: string) {
   }
 }
 
+/** 同步 store 类型：message 数组 + part 数组（按 messageId 索引）。 */
+type SyncStore = {
+  data: {
+    message: Record<string, Array<Record<string, unknown>>>
+    part: Record<string, Array<Record<string, unknown>>>
+  }
+}
+
 /**
- * 监听 sync store 中的消息状态，当指定 session 出现新的已完成 assistant 消息时返回其文本。
- * 替代原先每 2 秒 REST 轮询的方案，零延迟、零额外网络请求。
+ * 空闲超时默认值：持续该毫秒数无新输出 → 判流式中断（stall）。
  *
- * @param sync       前端同步 store（含 data.message / data.part）
- * @param sessionId  目标 session ID
- * @param knownIds   调用 promptAsync 之前已存在的消息 ID 集合，用于区分新消息
+ * 用 idle（空闲）而非墙钟（总时长）：glm5.2 正常 codegen 可跑十几分钟但在持续吐 token，
+ * 墙钟会误杀；idle 只在「长时间零增长」时才判死——既抓 stall（含 deepseek-flash 中途停顿、
+ * 流连接挂起不结束），又不杀慢但正常的生成。3min 给慢模型/网络抖动留足余量。
  */
-export function getResultFromMessages(
-  sync: {
-    data: {
-      message: Record<string, Array<Record<string, unknown>>>
-      part: Record<string, Array<Record<string, unknown>>>
-    }
-  },
+const DEFAULT_IDLE_TIMEOUT_MS = 3 * 60 * 1000
+
+interface WaitStrategy {
+  /** 从全部 messages 里挑出本次要等待的新目标消息（strict=最新一条；loose=全部新消息）。 */
+  pickNew(messages: Array<Record<string, unknown>>, knownIds: Set<string>): Array<Record<string, unknown>>
+  /** 目标消息是否都已完成（time.completed 是数字）。未完成=还在生成，继续等。 */
+  isComplete(targets: Array<Record<string, unknown>>): boolean
+  /** 收集目标消息的文本（strict=最新 msg 的 text；loose=全部 msg 的 text+reasoning）。作进度签名 + 最终结果。 */
+  collect(targets: Array<Record<string, unknown>>, sync: SyncStore): string
+}
+
+/**
+ * 反应式等待 + 空闲超时兜底。核心：模型流式中途停顿（time.completed 永不写、part 不再增长）
+ * 时，纯反应式 await 会永久挂起（spinner 永转、checkpoint 永卡 stage=codegen）。idle 定时器
+ * 每 5s 巡检，持续 idleMs 无新输出 → reject 超时错误，让上层走 error 分支（失败卡片 + 可重试）。
+ */
+function waitForResult(
+  sync: SyncStore,
   sessionId: string,
   knownIds: Set<string>,
+  strategy: WaitStrategy,
+  idleMs: number,
 ): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     let disposed = false
+    let lastProgressAt = Date.now()
+    let lastLen = -1
+    let disposeRoot: (() => void) | null = null
+    let poll: ReturnType<typeof setInterval> | undefined
+    const cleanup = () => {
+      if (disposed) return
+      disposed = true
+      if (poll) clearInterval(poll)
+      if (disposeRoot) disposeRoot()
+    }
+    poll = setInterval(() => {
+      if (disposed) return
+      if (Date.now() - lastProgressAt > idleMs) {
+        cleanup()
+        reject(new Error(`模型响应空闲超时（${Math.round(idleMs / 1000)}s 无新输出，疑似流式中断，可重试）`))
+      }
+    }, 5_000)
     createRoot((dispose) => {
+      disposeRoot = dispose
       createEffect(() => {
         if (disposed) {
           dispose()
           return
         }
         const messages = (sync.data.message[sessionId] ?? []) as Array<Record<string, unknown>>
-        // 从末尾找最新的、不在 knownIds 中的 assistant 消息
-        let target: Record<string, unknown> | undefined
-        for (let i = messages.length - 1; i >= 0; i--) {
-          const m = messages[i]
-          if (m.role === "assistant" && !knownIds.has(m.id as string)) {
-            target = m
-            break
+        const targets = strategy.pickNew(messages, knownIds)
+        if (targets.length === 0) return
+        // 进度续命：收集当前文本，长度变化（part 内容增长）→ 重置空闲计时，防误杀慢但正常的生成
+        const text = strategy.collect(targets, sync)
+        if (text.length !== lastLen) {
+          lastLen = text.length
+          lastProgressAt = Date.now()
+        }
+        if (!strategy.isComplete(targets)) return
+        // 用户取消生成 → 抛中止信号
+        for (const m of targets) {
+          const msgError = m.error as { name?: string } | undefined
+          if (msgError?.name === "MessageAbortedError") {
+            cleanup()
+            reject(new Error("aborted"))
+            return
           }
         }
-        if (!target) return
-        const time = target.time as { created: number; completed?: number } | undefined
-        if (!time || typeof time.completed !== "number") return
-
-        // 用户取消生成时不解析文本，直接抛中止信号
-        const msgError = target.error as { name?: string } | undefined
-        if (msgError?.name === "MessageAbortedError") {
-          disposed = true
-          dispose()
-          reject(new Error("aborted"))
-          return
-        }
-
-        // 收集所有文本 parts
-        const parts = (sync.data.part[target.id as string] ?? []) as Array<Record<string, unknown>>
-        const texts: string[] = []
-        for (const p of parts) {
-          if (p.type === "text" && p.text) texts.push(p.text as string)
-        }
-        dispose()
-        resolve(texts.join("\n"))
+        cleanup()
+        resolve(text)
       })
     })
   })
+}
+
+/** strict 策略：只等最新一条新 assistant 消息的 text（为 JSON 设计：triage/plan 的 final JSON 在最新 msg）。 */
+const strictStrategy: WaitStrategy = {
+  pickNew(messages, knownIds) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m.role === "assistant" && !knownIds.has(m.id as string)) return [m]
+    }
+    return []
+  },
+  isComplete(targets) {
+    const t = targets[0]?.time as { completed?: number } | undefined
+    return typeof t?.completed === "number"
+  },
+  collect(targets, sync) {
+    const parts = (sync.data.part[targets[0]?.id as string] ?? []) as Array<Record<string, unknown>>
+    const texts: string[] = []
+    for (const p of parts) {
+      if (p.type === "text" && p.text) texts.push(p.text as string)
+    }
+    return texts.join("\n")
+  },
+}
+
+/** loose 策略：等所有新 assistant 消息的 text + reasoning（codegen 代码块可能分多条 msg / 落在 reasoning part）。 */
+const looseStrategy: WaitStrategy = {
+  pickNew(messages, knownIds) {
+    return messages.filter((m) => m.role === "assistant" && !knownIds.has(m.id as string))
+  },
+  isComplete(targets) {
+    return targets.every((m) => {
+      const t = m.time as { completed?: number } | undefined
+      return typeof t?.completed === "number"
+    })
+  },
+  collect(targets, sync) {
+    const texts: string[] = []
+    for (const m of targets) {
+      const parts = (sync.data.part[m.id as string] ?? []) as Array<Record<string, unknown>>
+      for (const p of parts) {
+        if (p.type === "text" && p.text) texts.push(p.text as string)
+        if (p.type === "reasoning" && p.text) texts.push(p.text as string)
+      }
+    }
+    return texts.join("\n")
+  },
+}
+
+/**
+ * 监听 sync store 中的消息状态，当指定 session 出现新的已完成 assistant 消息时返回其文本。
+ * 替代原先每 2 秒 REST 轮询的方案，零延迟、零额外网络请求。
+ *
+ * 空闲超时：持续 idleMs 无新输出 → reject（模型 stall 时不再永久挂起）。
+ *
+ * @param sync       前端同步 store（含 data.message / data.part）
+ * @param sessionId  目标 session ID
+ * @param knownIds   调用 promptAsync 之前已存在的消息 ID 集合，用于区分新消息
+ * @param opts       idleTimeoutMs：空闲超时毫秒（默认 3min）
+ */
+export function getResultFromMessages(
+  sync: SyncStore,
+  sessionId: string,
+  knownIds: Set<string>,
+  opts?: { idleTimeoutMs?: number },
+): Promise<string> {
+  return waitForResult(sync, sessionId, knownIds, strictStrategy, opts?.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS)
 }
 
 /**
@@ -171,58 +266,17 @@ export function getResultFromMessages(
  * 代码可能落在 text 或 reasoning part——这里全收集，交 parseCodeFiles 用正则提取。
  * 与 getResultFromMessages（为 JSON 设计：取最新一条 assistant 的 text）的区别：
  * ① 遍历所有新 assistant 消息；② 收集 reasoning part；③ 等所有新消息完成。
+ *
+ * 空闲超时：持续 idleMs 无新输出 → reject（模型 stall 时不再永久挂起，spinner 不再永转、
+ * checkpoint 不再永卡 stage=codegen）。
+ *
+ * @param opts       idleTimeoutMs：空闲超时毫秒（默认 3min）
  */
 export function getResultFromMessagesLoose(
-  sync: {
-    data: {
-      message: Record<string, Array<Record<string, unknown>>>
-      part: Record<string, Array<Record<string, unknown>>>
-    }
-  },
+  sync: SyncStore,
   sessionId: string,
   knownIds: Set<string>,
+  opts?: { idleTimeoutMs?: number },
 ): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    let disposed = false
-    createRoot((dispose) => {
-      createEffect(() => {
-        if (disposed) {
-          dispose()
-          return
-        }
-        const messages = (sync.data.message[sessionId] ?? []) as Array<Record<string, unknown>>
-        const newMsgs = messages.filter((m) => m.role === "assistant" && !knownIds.has(m.id as string))
-        if (newMsgs.length === 0) return
-        // 等所有新 assistant 消息完成（未完成=还在生成，继续等）
-        if (
-          !newMsgs.every((m) => {
-            const t = m.time as { completed?: number } | undefined
-            return typeof t?.completed === "number"
-          })
-        )
-          return
-        // 中止检测
-        for (const m of newMsgs) {
-          const msgError = m.error as { name?: string } | undefined
-          if (msgError?.name === "MessageAbortedError") {
-            disposed = true
-            dispose()
-            reject(new Error("aborted"))
-            return
-          }
-        }
-        // 收集所有新 assistant 消息的 text + reasoning part（codegen 代码块可能在任一）
-        const texts: string[] = []
-        for (const m of newMsgs) {
-          const parts = (sync.data.part[m.id as string] ?? []) as Array<Record<string, unknown>>
-          for (const p of parts) {
-            if (p.type === "text" && p.text) texts.push(p.text as string)
-            if (p.type === "reasoning" && p.text) texts.push(p.text as string)
-          }
-        }
-        dispose()
-        resolve(texts.join("\n"))
-      })
-    })
-  })
+  return waitForResult(sync, sessionId, knownIds, looseStrategy, opts?.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS)
 }

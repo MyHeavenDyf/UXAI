@@ -7,6 +7,7 @@ import { mkdir, readFile, writeFile, lstat, stat, unlink, rm, copyFile, rename, 
 import { dirname, extname, join, basename, resolve as resolvePath, sep } from "node:path"
 import { homedir, tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
+import { createConnection } from "node:net"
 import archiver from "archiver"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell, net } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
@@ -351,10 +352,37 @@ export function registerIpcHandlers(deps: Deps) {
       workspaceDev = child
       let buf = ""
       const readyRe = /http:\/\/127\.0\.0\.1:(\d+)/
+      // 端口探测兜底：连上 127.0.0.1:port 即 vite 在 listening（确定性 ready 信号，不依赖 stdout 文本格式）。
+      // vite 实际 serve 但 stdout 文本信号漏匹配（输出 localhost 而非 127.0.0.1、ready 措辞变化、ANSI 残留、
+      // buf 截断、bun 行缓冲）时，端口探测几百 ms 内确认 → resolve，不再空等 240s（首次 create 卡「正在执行中」根因）。
+      const probePort = (p: number): Promise<boolean> =>
+        new Promise((r) => {
+          const socket = createConnection({ host: "127.0.0.1", port: p }, () => {
+            socket.end()
+            r(true)
+          })
+          socket.setTimeout(800)
+          socket.on("error", () => r(false))
+          socket.on("timeout", () => {
+            socket.destroy()
+            r(false)
+          })
+        })
       return await new Promise<{ ok: true; url: string } | { ok: false; error: string }>(
         (resolve, reject) => {
           let settled = false
           let timer: ReturnType<typeof setTimeout>
+          let probeTimer: ReturnType<typeof setInterval> | undefined
+          // 成功路径：stdout 正则（快速，用其捕获端口）或端口探测（兜底，用 args.port）任一先到即 resolve。
+          const finish = (url: string) => {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            if (probeTimer) clearInterval(probeTimer)
+            child.stdout?.removeListener("data", onOut)
+            child.stderr?.removeListener("data", onOut)
+            resolve({ ok: true as const, url })
+          }
           const onOut = (chunk: Buffer) => {
             const s = chunk.toString()
             buf = (buf + s).slice(-2048)
@@ -362,13 +390,9 @@ export function registerIpcHandlers(deps: Deps) {
             const clean = buf.replace(/\x1b\[[0-9;]*m/g, "")
             const m = clean.match(readyRe)
             // 双重保险：url 正则命中用其端口；否则命中 "ready in Nms" 也算 ready，端口用已知 args.port。
-            if (!settled && (m || /ready in \d+\s*ms/i.test(clean))) {
-              settled = true
-              clearTimeout(timer)
-              child.stdout?.removeListener("data", onOut)
-              child.stderr?.removeListener("data", onOut)
+            if (m || /ready in \d+\s*ms/i.test(clean)) {
               const port = m ? m[1] : String(args.port)
-              resolve({ ok: true as const, url: `http://127.0.0.1:${port}/embed` })
+              finish(`http://127.0.0.1:${port}/embed`)
             }
           }
           child.stdout?.on("data", onOut)
@@ -377,6 +401,7 @@ export function registerIpcHandlers(deps: Deps) {
             if (!settled) {
               settled = true
               clearTimeout(timer)
+              if (probeTimer) clearInterval(probeTimer)
               reject(new Error(`vite 退出(code ${code}) ${buf}`))
             } else if (workspaceDev === child) {
               workspaceDev = null
@@ -386,12 +411,20 @@ export function registerIpcHandlers(deps: Deps) {
             if (!settled) {
               settled = true
               clearTimeout(timer)
+              if (probeTimer) clearInterval(probeTimer)
               reject(new Error(`vite 启动失败(${runtimePath}): ${e.message}`))
             }
           })
+          // 端口探测兜底：每 600ms 探一次，vite 端口可连即 ready（spawn 后立即开始；vite bind 端口前的探测 connect refused 不 finish，继续探）。
+          probeTimer = setInterval(() => {
+            void probePort(args.port).then((ok) => {
+              if (ok) finish(`http://127.0.0.1:${args.port}/embed`)
+            })
+          }, 600)
           timer = setTimeout(() => {
             if (!settled) {
               settled = true
+              if (probeTimer) clearInterval(probeTimer)
               void killWorkspaceDev()
               reject(new Error(`vite 启动超时(240s) ${buf}`))
             }

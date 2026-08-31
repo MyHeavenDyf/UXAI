@@ -96,3 +96,46 @@ export async function switchVersion(sdkDir: string, codeDir: string | null): Pro
   return run
 }
 
+/**
+ * workspace 所有权跟踪 —— 单例 workspace 的并发互踩防护。
+ *
+ * workspace 全局唯一、同 app 多会话共享：一个会话 switchVersion（stopDev→materialize→startDev）
+ * 会把另一会话刚 ready 的 vite 杀掉 → 另一会话预览白屏/错乱，且无任何提示。
+ * acquireWorkspace 显式标记当前 owner：接管方 toast 提醒；被接管方据 workspaceOwner !== sid
+ * 显示「被另一会话接管 [恢复]」横幅 + 一键重新 acquire+switchVersion 恢复。
+ *
+ * 仅同 app 多会话生效（模块级状态共享）；跨 tab/进程需文件锁，另做。
+ * 非强制锁（不阻塞接管 —— 仍 last-writer-wins），只把「静默互踩」变「显式 + 可恢复」。
+ */
+let ownerSid: string | null = null
+const ownerListeners = new Set<(sid: string | null) => void>()
+
+/** 标记 sid 为当前 workspace owner。返回是否接管了另一会话（+ 前任 owner）。 */
+export function acquireWorkspace(sid: string): { tookOver: boolean; prevOwner: string | null } {
+  const prev = ownerSid
+  ownerSid = sid
+  for (const l of ownerListeners) l(sid)
+  return { tookOver: prev !== null && prev !== sid, prevOwner: prev }
+}
+
+/** 释放所有权（sid 须是当前 owner 才生效；会话切走 / 卸载时调，避免锁残留）。 */
+export function releaseWorkspace(sid: string): void {
+  if (ownerSid === sid) {
+    ownerSid = null
+    for (const l of ownerListeners) l(null)
+  }
+}
+
+/** 当前 workspace owner 会话 id（无则 null）。 */
+export function workspaceOwner(): string | null {
+  return ownerSid
+}
+
+/** 订阅 owner 变化（同 app 所有会话共享；用于被接管方实时显示横幅）。返回取消订阅。 */
+export function onWorkspaceOwnerChange(fn: (sid: string | null) => void): () => void {
+  ownerListeners.add(fn)
+  return () => {
+    ownerListeners.delete(fn)
+  }
+}
+

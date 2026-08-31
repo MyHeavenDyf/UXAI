@@ -12,6 +12,7 @@
 import { getDesktopApi } from "./desktop-api"
 import { mergeSceneObjects, type SceneModuleResult, type ScenePlanner } from "../agents/merge"
 import { detectSceneConfig } from "./scene-config"
+import type { CodeFile } from "./parse-code-files"
 
 /** 一次生成/修改的完整场景状态 */
 export type SceneSessionState = {
@@ -51,6 +52,30 @@ function versionFilePath(dir: string, sessionId: string, filename: string) {
 /** 版本代码归档目录：{historyDir}/{sessionId}/{versionId}/code（codeDir 维度，Step 6） */
 export function codeDirPath(dir: string, sessionId: string, versionId: string) {
   return `${dir}/${sessionId}/${versionId}/code`
+}
+
+/**
+ * 读 codeDir 全量文件（.ts + .json），返回 CodeFile[]（path 正斜杠归一）。
+ * 供 patch-scene / commit-edits 等 host 端 read+merge 范式复用：
+ * 读旧全量 → 只 patch 受影响 handler → 重组全量传 onMaterialize（不靠 LLM 重输出全量）。
+ * 读失败 / 非桌面端 → null。
+ */
+export async function readCodeDirFiles(codeDir: string): Promise<CodeFile[] | null> {
+  const api = getDesktopApi()
+  if (!api?.listDirectory || !api?.readFileBuffer) return null
+  try {
+    const entries = await api.listDirectory(codeDir)
+    const files: CodeFile[] = []
+    for (const e of entries) {
+      if (e.type !== "file") continue
+      const buf = await api.readFileBuffer(`${codeDir}/${e.path}`)
+      if (!buf) continue
+      files.push({ path: e.path.replace(/\\/g, "/"), content: new TextDecoder().decode(buf) })
+    }
+    return files
+  } catch {
+    return null
+  }
 }
 
 function sanitizeFilename(summary: string): string {

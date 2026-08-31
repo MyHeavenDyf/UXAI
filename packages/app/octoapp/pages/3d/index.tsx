@@ -24,7 +24,7 @@ import { showToast, Toast } from "@opencode-ai/ui/toast"
 import { exportZip } from "./utils/preview-handler/zip"
 import { exportProject } from "./utils/preview-handler/export-project"
 import { getDesktopApi } from "./utils/desktop-api"
-import { createEffect, createMemo, createResource, createSignal, on, onMount, Show, type JSX } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { useNavigate, useParams } from "@solidjs/router"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
@@ -52,7 +52,6 @@ import {
   type SceneSessionState,
 } from "./utils/version-history"
 import * as workspace from "./utils/workspace"
-import { getMockCodegen } from "./utils/mock-codegen"
 import {
   saveCheckpoint,
   saveSceneReviewCheckpoint,
@@ -71,7 +70,7 @@ import { runSceneGate, type GateFinding, type ConsoleEntry } from "./utils/scene
 import type { PlanResult } from "./agents/scene-plan"
 import { autoRenameSession } from "./utils/rename"
 import { groupRounds } from "./utils/round-messages"
-import type { SceneConfig, SceneConfigObject3D, ScenePatch } from "./utils/scene-config"
+import type { SceneConfig } from "./utils/scene-config"
 import type { ScenePlanner, SceneModuleResult } from "./agents/merge"
 import { PreviewPage3D, type PreviewPageAPI } from "./modules/preview/index"
 import { SceneWireframeReview, type SceneWireframeReviewResult } from "./modules/preview/SceneWireframeReview"
@@ -91,7 +90,7 @@ const AGENT_NAME = "scene_3d_triage"
 const PREVIEW_SRC = import.meta.env.VITE_3D_PREVIEW_URL ?? "http://127.0.0.1:5173/embed"
 
 /** 空场景占位：会话无已保存场景（生成未完成/失败，或历史记录缺失）时显示，避免空白无 iframe 的困惑。 */
-function SceneEmptyState(props: { error?: ProtoError; onWorkspaceDev?: () => void }) {
+function SceneEmptyState(props: { error?: ProtoError }) {
   return (
     <div class="relative h-full w-full overflow-hidden bg-[#1a1a2e] flex flex-col items-center justify-center text-center px-6">
       <div class="text-white/50 text-base">此会话暂无 3D 场景</div>
@@ -100,15 +99,6 @@ function SceneEmptyState(props: { error?: ProtoError; onWorkspaceDev?: () => voi
           ? `上次生成失败：${props.error.agentLabel ? props.error.agentLabel + " — " : ""}${props.error.title}。可在左侧重新输入需求生成。`
           : "场景生成未完成或未保存。可在左侧输入需求重新生成。"}
       </div>
-      <Show when={import.meta.env.DEV && props.onWorkspaceDev}>
-        <button
-          type="button"
-          class="mt-4 rounded-md border border-white/20 px-3 py-1.5 text-sm text-white/80 hover:bg-white/10"
-          onClick={() => props.onWorkspaceDev?.()}
-        >
-          启动工作空间（mock 验证）
-        </button>
-      </Show>
     </div>
   )
 }
@@ -216,11 +206,32 @@ function Scene3DContent() {
   // ── 3D workspace（Step 6）── 全局唯一 workspace dev server 活动标志 + iframe 强制重载 nonce
   const [workspaceActive, setWorkspaceActive] = createSignal(false)
   const [wsNonce, setWsNonce] = createSignal(0)
+  /** materializePatch 的 wsNonce 兜底定时器：vite 未 full-reload 时硬重载 iframe（SCENE_READY 到达即 clearTimeout） */
+  let patchReloadTimer: number | undefined
   // workspace 活动时预览指向 51857（workspace 副本 dev server），否则回退母版 5173（PREVIEW_SRC）。
   // wsNonce bump → previewSrc 字符串变 → iframe src 重设 → 强制重载（避免切版本时旧 bundle）。
   const previewSrc = createMemo(() =>
     workspaceActive() ? `http://127.0.0.1:${workspace.WORKSPACE_PORT}/embed?ws=${wsNonce()}` : PREVIEW_SRC,
   )
+
+  // ── workspace 所有权（单例 workspace 并发互踩防护）──
+  // 全局唯一 workspace 跨同 app 所有会话共享：一会话 switchVersion 会杀掉另一会话刚 ready 的 vite。
+  // acquireWorkspace 显式标记 owner：接管方 toast 提醒；被接管方据 owner!==sid 显示「被接管」横幅。
+  const [workspaceOwnerSid, setWorkspaceOwnerSid] = createSignal<string | null>(null)
+  // owner=null（无人持有）或 owner=当前会话 → 视为「我方持有预览」；否则预览被另一会话接管。
+  const isWorkspaceOwner = createMemo(() => {
+    const owner = workspaceOwnerSid()
+    return owner === null || owner === params.id
+  })
+  onMount(() => {
+    // 初始化为当前 owner（可能已被别的会话持有）+ 订阅后续变化（被接管方实时更新横幅）
+    setWorkspaceOwnerSid(workspace.workspaceOwner())
+    workspace.onWorkspaceOwnerChange(setWorkspaceOwnerSid)
+  })
+  // 组件卸载：若当前 owner 是本会话则释放，避免锁残留挡其他会话
+  onCleanup(() => {
+    if (params.id) workspace.releaseWorkspace(params.id)
+  })
 
   const needsConfirm = createMemo(() => {
     const id = params.id
@@ -271,66 +282,6 @@ function Scene3DContent() {
     sessionMap.set(setPendingPreviewData, sid, data)
     previewApi.sendToPreview(data)
     sessionMap.set(setHasPreviewContent, sid, data !== null)
-  }
-
-  // ── 手动编辑（属性编辑器）回写 authoritative state + 防抖持久化 ──────────────
-  // 否则：iframe/local objectsById 有改动，但 lastSceneObjects/磁盘仍是编辑前 →
-  //   ① 下次 agent modify 从编辑前 lastSceneObjects 重生成 → "挪动后被复位"；
-  //   ② 切走切回/新会话从磁盘读回编辑前 → "编辑的东西恢复到编辑前"。
-  // 注意：不动 pendingPreviewData —— 它是 PreviewPage3D 的 prop，变化会触发重建 objectsById 并
-  //       关掉属性弹窗（index.tsx PreviewPage3D 内 effect），导致编辑中弹窗闪退。
-  let patchPersistTimer: ReturnType<typeof setTimeout> | null = null
-
-  function applyPatchToObjects(objects: SceneConfigObject3D[], patch: ScenePatch): SceneConfigObject3D[] {
-    const byId = new Map<string, SceneConfigObject3D>()
-    for (const o of objects) if (o.id) byId.set(o.id, o)
-    for (const o of patch.objects?.upsert ?? []) if (o.id) byId.set(o.id, o)
-    for (const id of patch.objects?.remove ?? []) byId.delete(id)
-    return [...byId.values()]
-  }
-
-  function flushPatchPersist(sid: string): void {
-    patchPersistTimer = null
-    if (params.id !== sid) return
-    const dir = sceneHistoryDir()
-    if (!dir) return
-    const objects = (lastSceneObjects()[sid] ?? []) as unknown as SceneConfigObject3D[]
-    const planner = lastPlanner()[sid] as ScenePlanner | null | undefined
-    const cfg: SceneConfig = {
-      version: "1.0",
-      angleUnit: "deg",
-      scene: (planner as any)?.scene ?? { background: "#1a1a2e" },
-      camera: (planner as any)?.camera ?? {
-        type: "perspective",
-        position: [10, 8, 12],
-        lookAt: [0, 0, 0],
-        perspective: { fov: 50, near: 0.1, far: 1000 },
-      },
-      lights: (planner as any)?.lights ?? [{ type: "ambient", intensity: 0.6 }],
-      objects,
-    }
-    void updateSceneVersion(dir, sid, {
-      lastSceneObjects: objects as unknown as SceneModuleResult[],
-      mergedSceneConfig: cfg as unknown as Record<string, unknown>,
-    })
-  }
-
-  function handleScenePatch(patch: ScenePatch): void {
-    const sid = params.id
-    if (!sid) return
-    // 内存 authoritative state 立即更新：下次 agent run 基于编辑后状态（防"复位"）。
-    const prevObjects = (lastSceneObjects()[sid] ?? []) as unknown as SceneConfigObject3D[]
-    sessionMap.set(setLastSceneObjects, sid, applyPatchToObjects(prevObjects, patch) as unknown as SceneModuleResult[])
-    // 防抖落盘：属性编辑器拖拽时每 mousemove 一个 patch，避免每帧写盘。
-    if (patchPersistTimer) clearTimeout(patchPersistTimer)
-    patchPersistTimer = setTimeout(() => flushPatchPersist(sid), 800)
-  }
-
-  function clearPatchPersistTimer(): void {
-    if (patchPersistTimer) {
-      clearTimeout(patchPersistTimer)
-      patchPersistTimer = null
-    }
   }
 
   // session 切换：清理 → 重置 → 异步加载 → 恢复
@@ -421,6 +372,7 @@ function Scene3DContent() {
               }
               // Step 6：当前版本带 code 维度 → 恢复 workspace（re-materialize + 铺 code delta + 启 dev）
               if (state.codeDir) {
+                acquireWorkspaceWithToast(id)
                 void workspace
                   .switchVersion(sdk.directory, state.codeDir)
                   .then(() => {
@@ -887,10 +839,12 @@ function Scene3DContent() {
         ...intentCtx,
         hasScene,
         sceneDir: sceneHistoryDir(),
+        sdkDir: sdk.directory,
         priorGateFindings,
         onCodeReady: async (files, sceneData, summary) => {
           await onCodeVersionReady(files, summary, sceneData)
         },
+        onMaterialize: materializePatch,
       })
       if (params.id !== sid) return
       if (sid) sessionMap.set(setIsModifying, sid, false)
@@ -903,6 +857,9 @@ function Scene3DContent() {
         if (errDir) void saveProtoError(errDir, sid, { title: codegenResult.error!, agentLabel: "3D 代码生成" })
       } else if (codegenResult.routing === "chat" && codegenResult.reply) {
         showToast({ title: codegenResult.reply })
+      } else if (codegenResult.routing === "patch") {
+        // patch 已在 codegen_scene 内轻量物化（无 plan / 无 9a 门控）
+        showToast({ title: codegenResult.summary ?? "已应用 patch" })
       } else if (codegenResult.plan) {
         await runGateAndPersist(sid, codegenResult.plan, codegenResult.sceneData ?? null)
       }
@@ -923,9 +880,6 @@ function Scene3DContent() {
   async function handleSubmit() {
     const text = prompt().trim()
     if (!text || sending() || !activeModelKey()) return
-    // agent run 前清掉待落盘的编辑防抖：编辑已在 lastSceneObjects（内存）即时生效，
-    // agent 会读到编辑后状态；此处只需避免残留定时器把编辑前状态写进 agent 新增的版本。
-    clearPatchPersistTimer()
     console.log("[Scene3D] 开始生成场景:", text)
     const submitSessionId = params.id
     setPrompt("")
@@ -1013,9 +967,11 @@ function Scene3DContent() {
         ...intentCtx,
         hasScene,
         sceneDir: sceneHistoryDir(),
+        sdkDir: sdk.directory,
         onCodeReady: async (files, sceneData, summary) => {
           await onCodeVersionReady(files, summary, sceneData)
         },
+        onMaterialize: materializePatch,
       })
       if (params.id !== sid) return
       if (sid) sessionMap.set(setIsModifying, sid, false)
@@ -1030,6 +986,9 @@ function Scene3DContent() {
         if (errDir) void saveProtoError(errDir, sid!, { title: codegenResult.error!, agentLabel: "3D 代码生成" })
       } else if (codegenResult.routing === "chat" && codegenResult.reply) {
         showToast({ title: codegenResult.reply })
+      } else if (codegenResult.routing === "patch") {
+        // patch 已在 codegen_scene 内轻量物化（无 plan / 无 9a 门控）
+        showToast({ title: codegenResult.summary ?? "已应用 patch" })
       } else if (codegenResult.plan) {
         // 9a 门控：codegen 成功物化预览后跑确定性门控（完整性 + vue-tsc + 运行时 console）
         await runGateAndPersist(sid!, codegenResult.plan, codegenResult.sceneData ?? null)
@@ -1358,6 +1317,7 @@ function Scene3DContent() {
       // Step 6：版本带 code 维度 → workspace re-materialize + 铺 code delta + 重启 dev → bump nonce 强制 iframe 重载
       if (result.codeDir) {
         try {
+          acquireWorkspaceWithToast(sid)
           await workspace.switchVersion(sdk.directory, result.codeDir)
           if (params.id !== sid) return
           setWorkspaceActive(true)
@@ -1373,7 +1333,6 @@ function Scene3DContent() {
    * 归档一个带 code 维度的版本 + 切 workspace 到该版本 + bump nonce 重载 iframe 预览。
    * - codegen 路径传 sceneData（分组 TreeScene）：先回填 pendingPreviewData（供 SCENE_READY 重发）+
    *   mergedSceneConfig（供版本恢复）+ lastSceneObjects 哨兵（供下次 modify 判定），再 wsNonce++。
-   * - Step 6 验证桩（handleWorkspaceDev）不传 sceneData：行为不变。
    */
   async function onCodeVersionReady(
     codeFiles: { path: string; content: string }[],
@@ -1403,6 +1362,11 @@ function Scene3DContent() {
       sessionMap.set(setPendingPreviewData, sid, sceneData as unknown as SceneConfig)
       sessionMap.set(setHasPreviewContent, sid, true)
     }
+    // 哨兵同步到内存 signal：handleSubmit 读 lastSceneObjects()[sid].length 判 hasScene，
+    // 仅写 sessionState（持久化）不 set signal → 同会话连续提交 hasScene 恒 false → 永远 create 重建（用户「无论输入什么都重建」即此）。
+    if (state.lastSceneObjects.length > 0) {
+      sessionMap.set(setLastSceneObjects, sid, state.lastSceneObjects)
+    }
     const vid = await appendSceneVersion(dir, sid, state, summary, codeFiles)
     console.log(
       `[onCodeVersionReady] appendSceneVersion vid=${vid} codeFiles=${codeFiles?.length ?? 0}个 codeDir=${codeDirPath(dir, sid, vid)}`,
@@ -1414,6 +1378,7 @@ function Scene3DContent() {
       sessionMap.set(setCurrentVersionId, sid, current)
     }
     // workspace re-materialize + 铺该版本 code delta + 启 dev（await ready 后再 bump nonce，否则 iframe 加载死链）
+    acquireWorkspaceWithToast(sid)
     const devUrl = await workspace.switchVersion(sdk.directory, codeDirPath(dir, sid, vid))
     console.log(
       `[onCodeVersionReady] switchVersion ok devUrl=${devUrl} pendingData keys=${sceneData ? Object.keys(sceneData).join(",") : "无"} → 即将 workspaceActive+wsNonce++ 触发 iframe 重载`,
@@ -1424,18 +1389,112 @@ function Scene3DContent() {
   }
 
   /**
-   * 验证按钮（片A）：mock 一份 codegen 产物（heatmap handler + 全量 index + 分组 live-data），
-   * 走 onCodeVersionReady → workspace 物化 + 51857 dev + iframe 重载 + SCENE_UPDATE 推分组 → 渲染。
-   * 片C 起 LLM 真实生成流替换此 mock。
+   * 轻量物化（patch 路径 + 编辑态提交共用）：避开 switchVersion 的 materialize+startDev（240s startDev 卡顿源）。
+   *
+   * - 归档全量 codeFiles（appendSceneVersion，否则版本不可恢复）+ 刷新版本菜单
+   * - workspaceActive：overlayVersionCode 只铺改动 handler（workspace 已有上一轮全量，不 materialize 不重启 dev）
+   *   → vite chokidar fire → full-reload iframe → SCENE_READY 重发 pendingData → handler.create 读新 SUB_OVERRIDES
+   * - 500ms 未收到 SCENE_READY（vite 没触发 full-reload / HMR 未重置 lastRenderedJson）→ wsNonce++ 兜底硬重载
+   *   （硬导航使 Embed.vue 重挂、lastRenderedJson 重置 → 即使 pendingData 同也重跑，绕过 renderScene 去重）
+   * - !workspaceActive（dev 没跑 / 冷启动 / 异常）→ 降级委托 onCodeVersionReady（switchVersion 全路径，可接受慢）
    */
-  async function handleWorkspaceDev(): Promise<void> {
+  async function materializePatch(
+    codeFiles: { path: string; content: string }[],
+    summary: string,
+    sceneData?: Record<string, unknown> | null,
+  ): Promise<void> {
     const sid = params.id
     if (!sid) return
+    const dir = sceneHistoryDir()
+    if (!dir) return
+    const cur = await loadCurrentSceneState(dir, sid)
+    const base = cur ?? { lastIntent: null, lastPlanner: null, lastSceneObjects: [] }
+    const state: SceneSessionState = sceneData
+      ? {
+          ...base,
+          mergedSceneConfig: sceneData,
+          // 哨兵：让下次 handleSubmit 走 modify 路径（lastSceneObjects().length > 0）
+          lastSceneObjects:
+            base.lastSceneObjects.length > 0
+              ? base.lastSceneObjects
+              : [{ scene_objects: [], section_id: "__codegen", element_id: "__codegen", id_prefix: "__codegen" }],
+        }
+      : base
+    if (sceneData) {
+      // 先于重载：iframe 重载后 SCENE_READY 重发，pendingData 须已就位
+      sessionMap.set(setPendingPreviewData, sid, sceneData as unknown as SceneConfig)
+      sessionMap.set(setHasPreviewContent, sid, true)
+    }
+    // 哨兵同步到内存 signal（同 onCodeVersionReady）：patch 后下次提交须 hasScene=true 才走 patch/modify 而非 create。
+    if (state.lastSceneObjects.length > 0) {
+      sessionMap.set(setLastSceneObjects, sid, state.lastSceneObjects)
+    }
+    const vid = await appendSceneVersion(dir, sid, state, summary, codeFiles)
+    const { versions: versionEntries, current } = await listSceneVersions(dir, sid)
+    if (params.id === sid) {
+      sessionMap.set(setVersions, sid, versionEntries)
+      sessionMap.set(setCurrentVersionId, sid, current)
+    }
+    // 冷启动 / dev 没跑 → 降级全量 switchVersion（materialize + overlay + startDev）
+    if (!workspaceActive()) {
+      await onCodeVersionReady(codeFiles, summary, sceneData ?? null)
+      return
+    }
+    // 轻量：只 overlay 改动文件（不 materialize、不重启 dev → 不卡 startDev）
+    // 仍要 acquire：overlay 改 workspace 代码，若别会话正持有 dev，会与其 overlay 互踩
+    acquireWorkspaceWithToast(sid)
+    await workspace.overlayVersionCode(sdk.directory, codeDirPath(dir, sid, vid))
+    // 500ms 兜底：vite 未 full-reload（SCENE_READY 未到）→ wsNonce++ 硬重载（重挂 Embed、重置 lastRenderedJson）
+    window.clearTimeout(patchReloadTimer)
+    patchReloadTimer = window.setTimeout(() => {
+      console.log("[materializePatch] 500ms 无 SCENE_READY，wsNonce++ 兜底硬重载")
+      setWsNonce((n) => n + 1)
+    }, 500)
+  }
+
+  /**
+   * 接管 workspace 所有权（每次 switchVersion/overlay 前 call）。
+   * tookOver=true（从另一会话手里抢过来）→ toast 提醒「已接管，另一会话预览将失效」。
+   * 非强制锁（不阻塞接管，仍 last-writer-wins），只把静默互踩变显式 + 可恢复。
+   */
+  function acquireWorkspaceWithToast(sid: string): void {
+    const { tookOver, prevOwner } = workspace.acquireWorkspace(sid)
+    if (tookOver) {
+      showToast({
+        title: "已接管 3D 预览",
+        description: `另一会话${prevOwner ? "（" + prevOwner.slice(-6) + "）" : ""}的预览将失效，切回该会话可恢复`,
+      })
+    }
+  }
+
+  /**
+   * 被接管方「在此会话恢复」：重新 acquire（抢回所有权）+ switchVersion 到当前版本 codeDir
+   * （重启被另一会话杀掉的 vite）+ wsNonce++ 重载 iframe + 重推场景数据。
+   */
+  async function handleRestoreWorkspace(): Promise<void> {
+    const sid = params.id
+    if (!sid) return
+    const dir = sceneHistoryDir()
+    acquireWorkspaceWithToast(sid)
     try {
-      const { files, sceneData, summary } = getMockCodegen()
-      await onCodeVersionReady(files, summary, sceneData)
+      const state = dir ? await loadCurrentSceneState(dir, sid) : null
+      if (state?.mergedSceneConfig) {
+        sessionMap.set(setPendingPreviewData, sid, state.mergedSceneConfig as unknown as SceneConfig)
+        sessionMap.set(setHasPreviewContent, sid, true)
+      }
+      if (state?.codeDir) {
+        await workspace.switchVersion(sdk.directory, state.codeDir)
+        if (params.id !== sid) return
+        setWorkspaceActive(true)
+        setWsNonce((n) => n + 1)
+        if (state.mergedSceneConfig) sendToPreview(state.mergedSceneConfig as unknown as SceneConfig)
+      } else {
+        await workspace.stopDev()
+        if (params.id === sid) setWorkspaceActive(false)
+      }
     } catch (err) {
-      showToast({ title: "工作空间启动失败", description: err instanceof Error ? err.message : String(err) })
+      console.log("[3d] handleRestoreWorkspace 失败:", err instanceof Error ? err.message : String(err))
+      showToast({ title: "恢复预览失败", description: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -1561,27 +1620,74 @@ function Scene3DContent() {
                     <Show
                       when={!!hasPreviewContent()[params.id!]}
                       fallback={
-                        <SceneEmptyState error={sessionErrors()[params.id!]} onWorkspaceDev={handleWorkspaceDev} />
+                        <SceneEmptyState error={sessionErrors()[params.id!]} />
                       }
                     >
-                      <PreviewPage3D
-                        api={previewApi}
-                        pendingData={pendingPreviewData()[params.id!] ?? null}
-                        previewSrc={previewSrc()}
-                        onReady={() => {
-                          setEmbedReady(true)
-                          sceneReadyResolver?.()
-                        }}
-                        onConsoleError={(entry) => setConsoleBuffer((prev) => [...prev, entry])}
-                        onPatch={handleScenePatch}
-                        versions={versions()[params.id!] ?? []}
-                        currentVersionId={currentVersionId()[params.id!] ?? null}
-                        onSelectVersion={handleSelectVersion}
-                        onPreview={handleLivePreview}
-                        onShare={handleShare}
-                        onDownload={handleDownload}
-                        onWorkspaceDev={handleWorkspaceDev}
-                      />
+                      <div style={{ position: "relative", width: "100%", height: "100%" }}>
+                        <PreviewPage3D
+                          api={previewApi}
+                          pendingData={pendingPreviewData()[params.id!] ?? null}
+                          previewSrc={previewSrc()}
+                          sceneDir={sceneHistoryDir()}
+                          sessionId={params.id!}
+                          onCodeVersionReady={onCodeVersionReady}
+                          onMaterializePatch={materializePatch}
+                          onReady={() => {
+                            setEmbedReady(true)
+                            sceneReadyResolver?.()
+                            // materializePatch 的 vite full-reload 已到达 → 取消 wsNonce 兜底定时器
+                            window.clearTimeout(patchReloadTimer)
+                          }}
+                          onConsoleError={(entry) => setConsoleBuffer((prev) => [...prev, entry])}
+                          versions={versions()[params.id!] ?? []}
+                          currentVersionId={currentVersionId()[params.id!] ?? null}
+                          onSelectVersion={handleSelectVersion}
+                          onPreview={handleLivePreview}
+                          onShare={handleShare}
+                          onDownload={handleDownload}
+                        />
+                        {/* 被另一会话接管：workspace 全局唯一，对方切换 dev server 致本会话预览失效 */}
+                        <Show when={!isWorkspaceOwner()}>
+                          <div
+                            style={{
+                              position: "absolute",
+                              inset: 0,
+                              "z-index": 50,
+                              "pointer-events": "none",
+                              display: "flex",
+                              "align-items": "center",
+                              "justify-content": "center",
+                              background: "rgba(26, 26, 46, 0.72)",
+                              "backdrop-filter": "blur(2px)",
+                            }}
+                          >
+                            <div style={{ "pointer-events": "auto", "text-align": "center", color: "#fff", "max-width": "340px", padding: "0 16px" }}>
+                              <div style={{ "font-size": "14px", "font-weight": 600, "margin-bottom": "4px" }}>
+                                3D 预览被另一会话接管
+                              </div>
+                              <div style={{ "font-size": "12px", opacity: 0.7, "margin-bottom": "12px", "line-height": "1.5" }}>
+                                workspace 全局唯一，另一会话切换了 dev server，本会话预览已失效。切回该会话或点此恢复。
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => void handleRestoreWorkspace()}
+                                style={{
+                                  "pointer-events": "auto",
+                                  padding: "6px 14px",
+                                  "font-size": "13px",
+                                  border: "1px solid rgba(255,255,255,0.4)",
+                                  "border-radius": "6px",
+                                  background: "rgba(255,255,255,0.12)",
+                                  color: "#fff",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                在此会话恢复
+                              </button>
+                            </div>
+                          </div>
+                        </Show>
+                      </div>
                     </Show>
                   }
                 >

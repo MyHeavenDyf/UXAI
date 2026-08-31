@@ -94,12 +94,15 @@
 |---|---|---|---|
 | 父→子 | `SCENE_UPDATE` | `{ payload: SceneConfig \| null }` | 推送/清空场景 JSON（对齐 `A2UI_UPDATE`） |
 | 父→子 | `SCENE_PICK_MODE` | `{ enabled: boolean }` | 开/关编辑态选中（对齐 `DOM_PICKER_TOGGLE`） |
+| 父→子 | `SCENE_PICK_GRANULARITY` | `{ mode: 'whole'\|'part' }` | 选中粒度：整体 / 部件（3D 专属） |
 | 父→子 | `SCENE_FLY_TO` | `{ targetId: string }` | 聚焦到某物体（3D 专属） |
 | 父→子 | `SCENE_THEME` | `{ mode: 'light'\|'dark' }` | 切主题（对齐 `TOGGLE_THEME`） |
-| 父→子 | `SCENE_PATCH` | `SceneUpdatePatch` | 增量 upsert/remove（复用 3d-templete sceneUpdate） |
+| 父→子 | `SCENE_RESET_CAMERA` | `{}` | 复位相机到初始视角（3D 专属） |
+| 父→子 | `SCENE_EDIT_OBJECT` | `{ id, material?, transform? }` | 运行时直改 Object3D 材质/transform（即时生效，A 阶段不落盘 live-data） |
 | 子→父 | `SCENE_READY` | — | 握手，父收到重发 pendingData（对齐 `A2UI_READY`） |
-| 子→父 | `SCENE_PICK` | `{ id, name, component, props }` | 选中物体回传（对齐 `DOM_PICKER_QUICK_FIX`） |
+| 子→父 | `SCENE_PICK` | `{ id, name, component, props, isMesh, material }` | 选中物体回传（含 mesh 标记 + 材质全字段快照 + 归一 type[standard/basic/physical/phong/lambert/toon/points/undefined]，对齐 `DOM_PICKER_QUICK_FIX`） |
 | 子→父 | `SCENE_ERROR` | `{ message }` | 解析/加载错误 |
+| 子→父 | `SCENE_CONSOLE_ERROR` | `{ level, message, stack? }` | 运行时错误转发（9a 门控捕获 + 持久显示，不走消失 toast） |
 
 > 2D 的 `DOM_PICKER_*`/`DRAG_*` 系列是 DOM 专属，3D 不移植；其语义由 `SCENE_PICK_MODE`+`SCENE_PICK` 承接。
 
@@ -332,7 +335,7 @@ src/3d/
   index.ts                 ★ 导出 ScenePicker/ModelLoader/bridge 相关类型
   createScene3D.ts         ★ Scene3DOptions 加 interactive；Handle 加 pick?/flyTo?/setTheme?（仅 interactive=true 挂载）
   utils/liveDataLoader.ts  ★ 扩展：① resolver 链 ② model/css2d/css3d/sprite 分支 ③ userData.__id 写入
-  utils/sceneUpdate.ts     （复用，SCENE_PATCH 用它）
+  scene/objects.ts         （handle.update 增量更新：buildNodeIndex + patchObject + updateTreeScene，独立 live-data 轮询复用）
   bridge/                  ★ postMessage-host.ts（收 SCENE_*，回 SCENE_READY/PICK/ERROR）
   interaction/             ★ picker.ts（ScenePicker）
   library/                 ★ library-bridge.ts（@cyc/3d-components name→工厂）
@@ -460,7 +463,7 @@ export function bindPostMessageHost(handle: Scene3DHandle, picker: ScenePicker) 
     } else if (type === 'SCENE_PICK_MODE') { payload.enabled ? picker.enable() : picker.disable() }
     else if (type === 'SCENE_FLY_TO') { handle.flyTo?.(payload.targetId) }
     else if (type === 'SCENE_THEME') { handle.setTheme?.(payload.mode) }
-    else if (type === 'SCENE_PATCH') { handle.update(payload) }
+    else if (type === 'SCENE_EDIT_OBJECT') { handle.editObject?.(payload) }
   })
 }
 ```
@@ -515,10 +518,10 @@ export function bindPostMessageHost(handle: Scene3DHandle, picker: ScenePicker) 
 - ScenePicker 编辑态选中 → SCENE_PICK → 属性编辑弹窗（3D 版）。✅
 - 3d-components 发布（补类型 + publishConfig）。✅ publishConfig 已加；build 验证通过（ESM+CJS+.d.ts 正常产出）；InstancedMesh2 仍 @ts-nocheck（21 文件 vendored BVH 子系统，按"务实"决策保留）。
 - previewdist3d 部署。⏸ 推迟（本次不做，dev 走 vite 5173；后续单独一轮）。
-- 验证：选中物体改属性 → 增量 SCENE_PATCH → 场景更新；打包后离线渲染。✅ 代码层验证（octoapp tsgo 过、3d-templete 我的文件 vue-tsc 过 + vite build 过、3d-components build 过）；运行时端到端待手动跑 dev server 点选验证。
+- 验证：选中物体改属性 → SCENE_EDIT_OBJECT 直改运行时 Object3D（即时生效，A 阶段不落盘）；打包后离线渲染。✅ 代码层验证（octoapp tsgo 过、3d-templete 我的文件 vue-tsc 过 + vite build 过、3d-components build 过）；运行时端到端待手动跑 dev server 点选验证。
 - 落地细节：
   - 3d-templete：`interaction/picker.ts`（ScenePicker：BoxHelper 高亮 + >5px 拖拽阈值与 OrbitControls 共存 + 沿父子链 userData.__id 解析）；`createScene3D` Handle 增 picker/flyTo/setTheme（仅 interactive）；`liveDataLoader.createLiveObject3D` 末尾统一写 `userData.__id`（设计文档早写但此前未落地，阶段3 补）；`embed.vue` 4 个回调接 picker/handle；`index.ts` 导出 ScenePicker/PickInfo。
-  - octoapp：`modules/preview/property-editor-popup/`（3D 版弹窗：Transform + 完整材质 + 几何参数，本地 NumberField 不跨页 import pattern）；`modules/preview/index.tsx`（PreviewPage3D 自包含：编辑态按钮 + SCENE_PICK→弹窗 + sendPatch/sendPickMode/sendFlyTo + 本地 objectsById 同步）；`utils/scene-config.ts` 增 ScenePatch 类型。
+  - octoapp：`modules/preview/property-editor-popup/`（3D 版弹窗：Transform + 材质[按归一 type 的属性 registry 驱动：COMMON 基类属性 + 各材质类型专属属性，复用 3d-components applySyncProps 单一写入源] + 几何参数，本地 NumberField 不跨页 import pattern）；`modules/preview/index.tsx`（PreviewPage3D 自包含：编辑态按钮 + SCENE_PICK→弹窗 + sendEditObject/sendPickMode/sendFlyTo + 本地 objectsById 同步）；`utils/scene-config.ts` 增 ScenePatch 类型（弹窗→applyEdit 契约，非 SCENE_PATCH 协议）。
 - ⚠️ 已知遗留（非本次引入）：3d-templete `npm run build`（vue-tsc）因 3d-components 源码的未用变量 lint（BaseGroup/BitmapText/Html/Outlines/Wireframe/HeatMesh，TS 验证为死代码）失败——仅影响 previewdist3d 生产构建路径（已推迟），运行时 `vite dev` 不受影响。previewdist3d 落地时一并清理这些 lint（或在 3d-components tsconfig 加 noUnusedLocals 统一治理）。
 
 **阶段4：修复 modify 流物体异常（加物体丢 / 删不掉 / 手动编辑复位）** ✅ 代码落地 + typecheck 过（2026-07-16）；运行时验证待手动跑
@@ -526,12 +529,12 @@ export function bindPostMessageHost(handle: Scene3DHandle, picker: ScenePicker) 
 - 根因 A（加物体丢 + 删不掉，汇聚到 modify 分区 merge 语义）：
   - `scene_3d_planner_modify` 的 LLM 会重新生成 element_id（不可控，prompt L45 要求保持但无效）。漂移后 `merge.ts` 的 `resolveZoneOp` 沿旧物体 parentId 链走到旧分区根（parentId:null）返回 undefined → none 分区旧物被整体丢弃（"加物体丢原有"）。
   - `scene_3d_module_modify` 契约是**返回分区完整物体清单**（prompt "输出完整的该分区全部物体...数量自检原有数+1"）。故 module 输出 = 分区最终态，merge 必须用它**整体替换**该分区旧物。但原实现是 UNION（保留 modify 旧物 + module 覆盖同 id）→ 被删的物体从旧集复活（"删不掉"）、改名物体重复。
-- 根因 B（手动编辑复位）：属性编辑器 `sendPatch` 只 post 给 iframe + 更新 PreviewPage3D 本地 objectsById，**不回写 lastSceneObjects/磁盘** → 下次 agent 从编辑前 lastSceneObjects 重生成（复位）、切走切回从磁盘读编辑前（恢复编辑前）。
+- 根因 B（手动编辑不落盘）：属性编辑器走 `SCENE_EDIT_OBJECT` 直改运行时 Object3D（即时生效），**不回写 lastSceneObjects/磁盘** → 重渲染/切走切回从原始数据恢复（编辑丢失）。A 阶段已知限制；B 阶段补 live-data overrides 落盘（未做）。
 - 修复：
   1. **element_id 重映射**（`pages/3d/workflow/modify-scene-ai.ts`）：planner_modify 后用 section_id（稳定主键）建 `eidRemap`（旧→新 element_id），把旧物体 parentId 改写到新 id 再传 merge；id 稳定时 no-op。
   2. **modify 分区 merge = REPLACE**（`pages/3d/agents/merge.ts`）：keptOld 只保留 operation==="none" 的分区；modify/create 分区旧物丢弃，由 module 输出整体替换。**推翻早先"modify 也保留旧物"——那是错的（删不掉/重复）**。
   3. **findPrevModuleObjects 收集整棵子树**（`modify-scene-ai.ts`）：递归收分区全部后代给 module_modify（它要逐个保留未改动后代），否则 REPLACE 整代丢失嵌套物体。
-  4. **手动编辑回写 + 防抖落盘**（`modules/preview/index.tsx` 加 onPatch 回调 + `pages/3d/index.tsx` handleScenePatch）：patch 即时更新 lastSceneObjects（内存，agent 立即读到）+ 800ms 防抖 `updateSceneVersion` 落盘。**坑**：不能更新 pendingPreviewData（变化触发重建 objectsById effect 关属性弹窗）。agent run 前 `clearPatchPersistTimer`。
+  4. **手动编辑落盘（已撤）**：阶段4 曾加 onPatch→`handleScenePatch` 回写 lastSceneObjects + 800ms 防抖 `updateSceneVersion` 落盘（agent run 前 `clearPatchPersistTimer`）。**后评估发现其输入 SCENE_PATCH（iframe 侧 `buildNodeIndex` 因 `objects` 非数组被跳过、`patchObject` 只 transform）是从未生效的死代码**，整条 persist 链随 SCENE_PATCH 一并删除。现属性编辑走 SCENE_EDIT_OBJECT 运行时直改（A 阶段即时生效、不落盘；重渲染/切走切回丢失，B 阶段补 overrides 落盘未做）。
   5. **诊断日志**：merge 打印 `old/shell/keptOld/module/merged/valid`；漂移 warn eidRemap；快照加 `extra:{eidRemap, slots}`。
 - 验证：`packages/app` `bun run typecheck` exit 0。运行时验证待手动：①加球→加树→加长桌 sendToPreview 单调增（已验 20→21→27→34）；②删单棵树 merge log merged 下降；③挪树→删另一棵树，被挪树位置保留；④挪球→切走切回在新位置。详情见 memory/3d-modify-objects-lost.md。
 - 设计要点：modify 流正确性的关键在读懂 module_modify 契约（完整分区 → REPLACE）。修复做在编排层（modify-scene-ai.ts 持有新旧 planner）+ merge 语义层，不依赖 LLM 行为可控。section_id 是比 element_id 更安全的基础假设。REPLACE 依赖 module_modify 严守"输出完整分区"（prompt 已强制）。
