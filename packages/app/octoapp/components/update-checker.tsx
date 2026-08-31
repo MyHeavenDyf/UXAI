@@ -38,7 +38,7 @@ export function UpdateChecker() {
 
       localStorage.setItem(PROMPTED_VERSION_KEY, result.version ?? "")
       localStorage.setItem(PROMPTED_AT_KEY, String(Date.now()))
-      showUpdate(result.version ?? "")
+      showUpdate(result.version ?? "", result.releaseNotes)
     }
 
     const startup = setTimeout(() => void check(), STARTUP_DELAY)

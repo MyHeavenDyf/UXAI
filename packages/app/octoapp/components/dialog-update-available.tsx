@@ -2,6 +2,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { usePlatform } from "@/context/platform"
 import { createSignal } from "solid-js"
+import { UpdateDescription } from "./update-description"
 
 const MAC_DOWNLOAD_PAGE_URL = "https://octo.hdesign.huawei.com/design/agentdesktop/mac-download.html"
 
@@ -9,11 +10,12 @@ export function useUpdateAvailableDialog() {
   const dialog = useDialog()
   const platform = usePlatform()
 
-  return (version: string) =>
+  return (version: string, releaseNotes?: string) =>
     dialog.show(() => (
       <DialogUpdateAvailable
         os={platform.os === "macos" ? "macos" : "windows"}
         version={version}
+        releaseNotes={releaseNotes}
         onUpgrade={(onProgress) => {
           if (platform.os === "macos") {
             platform.openLink(MAC_DOWNLOAD_PAGE_URL)
@@ -28,6 +30,7 @@ export function useUpdateAvailableDialog() {
 export function DialogUpdateAvailable(props: {
   os: "windows" | "macos"
   version: string
+  releaseNotes?: string
   onUpgrade: (onProgress: (percent: number) => void) => void | Promise<void>
 }) {
   const dialog = useDialog()
@@ -63,7 +66,7 @@ export function DialogUpdateAvailable(props: {
 
       <section class="octo-update-dialog-content">
         <h2>检测到更新</h2>
-        <div class="octo-update-dialog-description-spacer" aria-hidden="true" />
+        <UpdateDescription version={props.version} releaseNotes={props.releaseNotes} />
         {downloading() && (
           <div class="octo-update-dialog-progress">
             <div>
@@ -182,9 +185,6 @@ export function DialogUpdateAvailable(props: {
           font-size: 16px;
           line-height: 24px;
           font-weight: 700;
-        }
-        .octo-update-dialog-description-spacer {
-          height: 75px;
         }
         .octo-update-dialog-actions {
           display: flex;
