@@ -215,7 +215,7 @@ export default {
       return true
     }
 
-    const sessionId = ctx.tab.sessionId ?? ""
+    const sessionId = ctx.sessionId ?? ""
 
     // jk-j60099994-replace-with-wx372822-pattern-topixso-2-start
     // jk-j60099994-replace-with-wx372822-pattern-topixso-2-end

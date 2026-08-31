@@ -880,6 +880,7 @@ const sessionMessagesLoaded = createMemo(() => {
   // ── PatternPage 模式状态（子 session 模式，类 plan 流程） ───
   const PATTERN_SUB_CHILD_LS = "ict_pattern_child:"
   const PATTERN_SUB_ENDED_LS = "ict_pattern_ended:"
+  const PATTERN_SUB_USER_INPUT_LS = "ict_pattern_user_input:"
   const [activePatternSessionId, setActivePatternSessionId] = createSignal<string | null>(null)
   const [patternSubParentSessionId, setPatternSubParentSessionId] = createSignal<string | null>(null)
   const [patternSubPhase, setPatternSubPhase] = createSignal<"match" | "module">("match")
@@ -1107,7 +1108,15 @@ const sessionMessagesLoaded = createMemo(() => {
     return !!planSid && sync.data.session_status[planSid]?.type === "busy"
   })
 
-  const effectiveBusy = createMemo(() => isBusy() || childBusy() || patternBlockMatching())
+  // pattern 子 session 是否正在工作（agent 处理 [模块匹配] 请求期间）
+  // 切换 session 后 patternBlockMatching 本地信号会被清零，
+  // 但 agent 可能仍在运行，用 session_status 派生真实忙碌状态
+  const patternChildBusy = createMemo(() => {
+    const sid = activePatternSessionId()
+    return !!sid && sync.data.session_status[sid]?.type === "busy"
+  })
+
+  const effectiveBusy = createMemo(() => isBusy() || childBusy() || patternBlockMatching() || patternChildBusy())
 
   // ── 会话进度条动画状态 ────────────────────────────────────
   const [timeoutDone, setTimeoutDone] = createSignal(true)
@@ -1713,6 +1722,20 @@ const sessionMessagesLoaded = createMemo(() => {
     const sid = activePatternSessionId(); if (!sid || patternSubPhase() === "module") return null
     return moduleListScanned()
   }, (ml) => { if (ml) setPatternSubPhase("module") }, { defer: true }))
+  // [模块匹配] 已发送但 agent 未响应时，也恢复到 module 阶段
+  // 覆盖场景：用户点"跳过"/"下一步"进入 Phase 2 后切换 session 或刷新页面，
+  // agent 仍在处理中（无 <module-list> 输出），用 user 消息中的 [模块匹配] 标记恢复阶段
+  createEffect(on(() => {
+    const sid = activePatternSessionId()
+    if (!sid || patternSubPhase() === "module") return false
+    const msgs = sync.data.message?.[sid]
+    if (!msgs) return false
+    return msgs.some((m: any) => {
+      if (m.role !== "user") return false
+      const text = (sync.data.part?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
+      return text?.includes("[模块匹配]")
+    })
+  }, (hasPrompt) => { if (hasPrompt) setPatternSubPhase("module") }, { defer: true }))
   // <pattern-match> 扫描到后 enrich file/preview
   createEffect(on(() => patternSubMatchScanned(), async (scanned, prev) => {
     if (!scanned || scanned === prev) return
@@ -1906,6 +1929,7 @@ const sessionMessagesLoaded = createMemo(() => {
       const rawText = lastUserMsg ? (sync.data.part[lastUserMsg.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n") : ""
       const userInput = rawText.replace(/^[\s\S]*?---\n/, "").trim()
       setPatternUserInput(userInput)
+      if (userInput) localStorage.setItem(PATTERN_SUB_USER_INPUT_LS + sid, userInput)
 
       const result = await sdk.client.session.create({ directory: dir, parentID: sid, agent: "ict_pattern" })
       const childSession = result.data as Session | undefined
@@ -1997,7 +2021,10 @@ const sessionMessagesLoaded = createMemo(() => {
     setOptimisticPatternIntent(false)
     setPatternPageCapsule(false)
     setResultViewMode("files")
-    if (mainSid) localStorage.setItem(PATTERN_SUB_ENDED_LS + mainSid, "true")
+    if (mainSid) {
+      localStorage.setItem(PATTERN_SUB_ENDED_LS + mainSid, "true")
+      localStorage.removeItem(PATTERN_SUB_USER_INPUT_LS + mainSid)
+    }
   }
 
   /** 用户点击 [退出] → 中止子 session + 退出 */
@@ -2016,7 +2043,10 @@ const sessionMessagesLoaded = createMemo(() => {
     setPatternEnded(true)
     setShowPatternPageConfirm(false)
     const sid = params.id
-    if (sid) localStorage.setItem(PATTERN_SUB_ENDED_LS + sid, "true")
+    if (sid) {
+      localStorage.setItem(PATTERN_SUB_ENDED_LS + sid, "true")
+      localStorage.removeItem(PATTERN_SUB_USER_INPUT_LS + sid)
+    }
   }
 
   // ── 设计规划阶段引导 ─────────────────────────────
@@ -2188,6 +2218,10 @@ const sessionMessagesLoaded = createMemo(() => {
         if (prevSid && activePatternSessionId()) {
           _patternSubChildCache[prevSid] = activePatternSessionId()!
           localStorage.setItem(PATTERN_SUB_CHILD_LS + prevSid, activePatternSessionId()!)
+          // 缓存用户输入，切回时恢复 patternPage 匹配弹窗所需的状态
+          const cachedInput = patternUserInput()
+          if (cachedInput) localStorage.setItem(PATTERN_SUB_USER_INPUT_LS + prevSid, cachedInput)
+          else localStorage.removeItem(PATTERN_SUB_USER_INPUT_LS + prevSid)
         }
         // 清理前一个 session 的子 session 记录
         setChildSessionIDs(new Set<string>())
@@ -2317,18 +2351,43 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       }
       if (restoredPatternSubSid) {
-        if (localStorage.getItem(PATTERN_SUB_ENDED_LS + newSid)) {
+        // 检查是否已被用户退出（持久化标记）
+        const isPatternEnded = !!localStorage.getItem(PATTERN_SUB_ENDED_LS + newSid)
+        if (isPatternEnded) {
+          // 已退出：只保留历史记录，不恢复为活跃状态（仍同步子 session 消息供查看）
+          if (!loadedChildSessions.has(restoredPatternSubSid)) {
+            loadedChildSessions.add(restoredPatternSubSid)
+            setChildSessionIDs((prev) => { const n = new Set(prev); n.add(restoredPatternSubSid); return n })
+            sync.session.sync(restoredPatternSubSid).catch(() => {})
+          }
           setPatternEnded(true)
         } else {
+          // 确保子 session 消息已同步（类似 plan 模式恢复逻辑），
+          // 这样 patternSubMatchScanned / moduleListScanned memo 才能重新计算，
+          // 进而触发 enrich effect 恢复页面匹配弹窗 / 模块匹配弹窗数据
+          if (!loadedChildSessions.has(restoredPatternSubSid)) {
+            loadedChildSessions.add(restoredPatternSubSid)
+            setChildSessionIDs((prev) => { const n = new Set(prev); n.add(restoredPatternSubSid); return n })
+            sync.session.sync(restoredPatternSubSid).catch(() => {})
+          }
           setActivePatternSessionId(restoredPatternSubSid)
           setPatternSubParentSessionId(newSid)
+          // 恢复用户输入（handleMatchPattern Phase 2 拼装所需）
+          setPatternUserInput(localStorage.getItem(PATTERN_SUB_USER_INPUT_LS + newSid) ?? "")
           const subMsgs = sync.data.message?.[restoredPatternSubSid]
           const hasModuleList = subMsgs?.some((m: any) => {
             if (m.role !== "assistant") return false
             const text = (sync.data.part?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
             return text?.includes("<module-list>")
           })
-          setPatternSubPhase(hasModuleList ? "module" : "match")
+          // agent 未响应 <module-list> 时，检查用户是否已发过 [模块匹配] 请求
+          // 如果已发送（用户点"跳过"/"下一步"进入 Phase 2），也应恢复到 module 阶段
+          const hasModuleMatchPrompt = subMsgs?.some((m: any) => {
+            if (m.role !== "user") return false
+            const text = (sync.data.part?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
+            return text?.includes("[模块匹配]")
+          })
+          setPatternSubPhase(hasModuleList || hasModuleMatchPrompt ? "module" : "match")
         }
       }
 
@@ -2368,6 +2427,7 @@ const sessionMessagesLoaded = createMemo(() => {
           sync.session.sync(childId).catch(() => {})
           setActivePatternSessionId(childId)
           setPatternSubParentSessionId(newSid)
+          setPatternUserInput(localStorage.getItem(PATTERN_SUB_USER_INPUT_LS + newSid) ?? "")
         }).catch(() => {})
       }
       return
@@ -3016,7 +3076,10 @@ const sessionMessagesLoaded = createMemo(() => {
     const patternSubSid = activePatternSessionId() && patternSubParentSessionId() === params.id ? activePatternSessionId() : null
     const submitSessionId = planSid || patternSubSid || params.id
     // patternPage 模式：记录用户输入用于后续 Phase 2 拼装
-    if (patternSubSid) setPatternUserInput(text)
+    if (patternSubSid) {
+      setPatternUserInput(text)
+      if (params.id) localStorage.setItem(PATTERN_SUB_USER_INPUT_LS + params.id, text)
+    }
     try {
       let sid = submitSessionId
       if (!sid) {
@@ -3098,6 +3161,7 @@ const sessionMessagesLoaded = createMemo(() => {
             setPatternSubParentSessionId(session.id)
             localStorage.setItem(PATTERN_SUB_CHILD_LS + session.id, patternChildSession.id)
             _patternSubChildCache[session.id] = patternChildSession.id
+            if (userInput2) localStorage.setItem(PATTERN_SUB_USER_INPUT_LS + session.id, userInput2)
             setPatternSubPhase("match")
             setPatternMatches(null)
             await sync.session.sync(patternChildSession.id)
@@ -4432,7 +4496,7 @@ if (dsId) {
                           sessionId={params.id ?? ""}
                           result={patternMatches()!}
                           blockMatches={patternBlockMatches()}
-                          blockMatching={patternBlockMatching()}
+                          blockMatching={patternBlockMatching() || patternChildBusy()}
                           blockMatchError={patternBlockMatchError()}
                           initialStep={patternSubPhase() === "module" ? "blocks" : "patterns"}
                           onMatchPattern={handleMatchPattern}
@@ -4441,8 +4505,8 @@ if (dsId) {
                       </div>
                     </Show>
 
-                   <div
-                     class="rounded-[24px] flex flex-col transition-all duration-300 relative group"
+                    <div
+                      class="rounded-[24px] flex flex-col transition-all duration-300 relative group"
                     style={{
                       border: "1px solid transparent",
                       background: `
@@ -4754,7 +4818,7 @@ onPreview={(url) => {
                         sessionId={params.id ?? ""}
                         result={patternMatches()!}
                         blockMatches={patternBlockMatches()}
-                        blockMatching={patternBlockMatching()}
+                        blockMatching={patternBlockMatching() || patternChildBusy()}
                         blockMatchError={patternBlockMatchError()}
                         initialStep={patternSubPhase() === "module" ? "blocks" : "patterns"}
                         onMatchPattern={handleMatchPattern}

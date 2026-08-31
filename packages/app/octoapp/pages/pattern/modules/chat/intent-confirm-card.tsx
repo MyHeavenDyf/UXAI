@@ -49,6 +49,12 @@ export function IntentConfirmCard(props: {
     setStep("blocks")
   }
 
+  // 「重试」：用当前选中的 page pattern 重新请求模块匹配数据（不读 md，由父级 handleMatchPattern 读取）
+  function handleRetryBlockMatch() {
+    const found = props.result.results.find(r => r.id === selectedPatternId()) ?? null
+    props.onMatchPattern(found)
+  }
+
   function toggleBlock(category: string, id: string) {
     setSelectedBlocks(prev => {
       const next = { ...prev }
@@ -202,7 +208,7 @@ export function IntentConfirmCard(props: {
           <button class="ic-card-next-btn" onClick={() => setStep("patterns")} disabled={props.blockMatching}>
             上一步
           </button>
-          <button class="ic-card-next-btn" onClick={() => props.onMatchPattern(null)} disabled={props.blockMatching}>
+          <button class="ic-card-next-btn" onClick={handleRetryBlockMatch} disabled={props.blockMatching}>
             重试
           </button>
           <Show when={!props.blockMatching}>
