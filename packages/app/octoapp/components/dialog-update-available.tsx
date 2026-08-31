@@ -55,13 +55,10 @@ export function DialogUpdateAvailable(props: {
   return (
     <Dialog fit class="octo-update-dialog">
       <section class="octo-update-dialog-hero">
+        <img src="/update-dialog-hero.png" alt="Octo Agent" />
         <button type="button" class="octo-update-dialog-close" aria-label="关闭" onClick={() => dialog.close()}>
           ×
         </button>
-        <div class="octo-update-dialog-brand">
-          <img src="/OctoLogo.svg" alt="" />
-          <span>Octo Agent</span>
-        </div>
       </section>
 
       <section class="octo-update-dialog-content">
@@ -103,34 +100,13 @@ export function DialogUpdateAvailable(props: {
           position: relative;
           height: 240px;
           flex: none;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background:
-            radial-gradient(circle at 30% 28%, rgba(151, 239, 255, 0.95), transparent 29%),
-            radial-gradient(circle at 75% 58%, rgba(19, 153, 255, 0.9), transparent 34%),
-            linear-gradient(125deg, #78d8f5 0%, #e3ecff 43%, #39b8ed 72%, #0989d5 100%);
           overflow: hidden;
         }
-        .octo-update-dialog-hero::before,
-        .octo-update-dialog-hero::after {
-          content: "";
-          position: absolute;
-          width: 420px;
-          height: 100px;
-          border-radius: 50%;
-          filter: blur(18px);
-          transform: rotate(-24deg);
-        }
-        .octo-update-dialog-hero::before {
-          top: 26px;
-          left: -76px;
-          background: rgba(255, 255, 255, 0.48);
-        }
-        .octo-update-dialog-hero::after {
-          right: -90px;
-          bottom: 10px;
-          background: rgba(0, 119, 222, 0.32);
+        .octo-update-dialog-hero > img {
+          display: block;
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
         }
         .octo-update-dialog-close {
           position: absolute;
@@ -151,29 +127,6 @@ export function DialogUpdateAvailable(props: {
         }
         .octo-update-dialog-close:hover {
           background: rgba(255, 255, 255, 0.35);
-        }
-        .octo-update-dialog-brand {
-          position: relative;
-          z-index: 1;
-          width: 206px;
-          height: 62px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 12px;
-          border: 1px solid rgba(255, 255, 255, 0.9);
-          border-radius: 999px;
-          background: linear-gradient(105deg, rgba(255, 255, 255, 0.28), rgba(111, 214, 255, 0.64));
-          box-shadow: inset 0 0 18px rgba(255, 255, 255, 0.45), 0 8px 24px rgba(28, 119, 205, 0.18);
-          backdrop-filter: blur(8px);
-          color: #fff;
-          font-size: 22px;
-          line-height: 28px;
-          font-weight: 600;
-        }
-        .octo-update-dialog-brand img {
-          width: 26px;
-          height: 24px;
         }
         .octo-update-dialog-content {
           box-sizing: border-box;
