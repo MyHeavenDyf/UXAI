@@ -26,14 +26,13 @@ function isStateBound(v: unknown): v is { path: string } {
   return v !== null && typeof v === "object" && !Array.isArray(v) && typeof (v as { path?: unknown }).path === "string"
 }
 
-/** 递归遍历 props/children 结构，收集所有 state 绑定路径（循环模板内相对路径 → 取 loopPath） */
+/** 递归遍历 props/children 结构，收集所有 state 绑定路径（循环模板内相对路径由平铺的单项数据解析，不收集数组路径） */
 function collectPaths(v: unknown, paths: Set<string>, loopPath?: string) {
   if (isStateBound(v)) {
     if (loopPath && !v.path.startsWith("/")) {
-      paths.add(loopPath)
-    } else {
-      paths.add(v.path)
+      return
     }
+    paths.add(v.path)
     return
   }
   if (v !== null && typeof v === "object") {
