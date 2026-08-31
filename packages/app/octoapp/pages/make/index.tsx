@@ -1995,22 +1995,12 @@ const sessionMessagesLoaded = createMemo(() => {
         const sep = folderProjDir.includes("\\") ? "\\" : "/"
         const outputsDir = [folderProjDir, ".octo", mainSid, "outputs"].join(sep)
         const encoder = new TextEncoder()
-        // 保存每个 block 的 content（data.json）
-        for (const block of blocksToSend) {
-          if (!block.content) continue
-          try {
-            const filePath = [outputsDir, "pattern.json"].join(sep)
-            const buffer = encoder.encode(JSON.stringify(block.content, null, 2)).buffer as ArrayBuffer
-            await api.writeFileBuffer(filePath, buffer)
-          } catch (err) { console.error("[MakePage] write block json failed:", block.id, err) }
-        }
-        // 保存完整的 pattern 数据（仅 blocks）
         const payload = JSON.stringify({ blocks: blocksToSend }, null, 2)
         try {
-          const dataPath = [outputsDir, `${mainSid}.json`].join(sep)
+          const filePath = [outputsDir, "pattern.json"].join(sep)
           const buffer = encoder.encode(payload).buffer as ArrayBuffer
-          await api.writeFileBuffer(dataPath, buffer)
-        } catch (err) { console.error("[MakePage] write pattern-data.json failed:", err) }
+          await api.writeFileBuffer(filePath, buffer)
+        } catch (err) { console.error("[MakePage] write pattern.json failed:", err) }
       }
     }
     // 完全退出 patternPage 模式
