@@ -73,7 +73,7 @@ type ComponentChildren = string[] | TemplateChildren
 
 interface Action {
     name: string;
-    context: DynamicValue
+    context: Record<string, DynamicValue | null>;
 }
 
 interface A2UIComponentProps<T extends AnyComponentNode<any>> {

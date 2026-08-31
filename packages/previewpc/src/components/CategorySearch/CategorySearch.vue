@@ -42,7 +42,7 @@ const categoryOptions = computed(() => {
 
 // --- Category state ---
 const initCategory = computed(() => resolveValue(properties.category as any))
-const categoryValue = ref(initCategory.value)
+const categoryValue = ref<any>(initCategory.value)
 watch(() => initCategory.value, (nv) => {
   categoryValue.value = nv
 })
@@ -118,8 +118,8 @@ function onSearch() {
   })
 }
 
-function onKeydown(e: KeyboardEvent) {
-  if (e.key === "Enter") {
+function onKeydown(e: KeyboardEvent | Event) {
+  if ((e as KeyboardEvent).key === "Enter") {
     onSearch()
   }
 }

@@ -43,7 +43,7 @@ const categoryOptions = computed(() => {
 
 // --- Category state ---
 const initCategory = computed(() => resolveValue(properties.category as any))
-const categoryValue = ref(initCategory.value)
+const categoryValue = ref<any>(initCategory.value)
 watch(() => initCategory.value, (nv) => {
   categoryValue.value = nv
 })
