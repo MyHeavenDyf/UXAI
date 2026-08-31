@@ -155,7 +155,8 @@ export const ProseMirrorEditor = (props: Props) => {
   onMount(() => {
     if (!containerRef) return
 
-    const initialDoc = props.initialDocJSON
+    const hasValidInitial = props.initialDocJSON?.content?.length > 0
+    const initialDoc = hasValidInitial
       ? docFromJSON(props.initialDocJSON)
       : editorSchema.nodes.doc.create({ content: [{ type: "paragraph" }] })
 
@@ -170,7 +171,6 @@ export const ProseMirrorEditor = (props: Props) => {
           "Mod-shift-z": redo,
           "Enter": (state, dispatch, view) => {
             if (props.disabled) return false
-            if (props.busy) return true
             
             // If mention popover is open, don't send message
             const mentionTrigger = mentionTriggerKey.getState(state)
@@ -336,8 +336,14 @@ export const ProseMirrorEditor = (props: Props) => {
         replaceDoc: (json: any) => {
           const v = view()
           if (!v || !v.state || !v.dom?.isConnected) return
-          const newDoc = docFromJSON(json)
+          const valid = json?.content?.length > 0
+          const newDoc = valid
+            ? docFromJSON(json)
+            : editorSchema.nodes.doc.create({ content: [{ type: "paragraph" }] })
           const tr = v.state.tr.replaceWith(0, v.state.doc.content.size, newDoc.content)
+          // replaceWith 整体替换时,原 selection 落在被替换区间内会被映射成覆盖新内容的非折叠范围,
+          // 表现为切换 session 后编辑器"全选"了所有内容。显式收敛到段首折叠态。
+          tr.setSelection(TextSelection.atStart(tr.doc))
           v.dispatch(tr)
         },
       })

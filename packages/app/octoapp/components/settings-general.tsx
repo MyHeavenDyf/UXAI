@@ -34,6 +34,8 @@ import { playSoundById, SOUND_OPTIONS } from "@/utils/sound"
 import { showFloatingNotice } from "./floating-notice"
 import { Link } from "./link"
 import { SettingsList } from "./settings-list"
+import { useUpdateAvailableDialog } from "./dialog-update-available"
+import { cancelStartupUpdateCheck } from "./update-checker"
 
 let demoSoundState = {
   cleanup: undefined as (() => void) | undefined,
@@ -210,9 +212,11 @@ export const SettingsGeneral: Component = () => {
     permission.disableAutoAccept(params.id, value)
   }
   const desktop = createMemo(() => platform.platform === "desktop")
+  const showUpdate = useUpdateAvailableDialog()
 
   const check = () => {
     if (!platform.checkUpdate) return
+    cancelStartupUpdateCheck()
     setStore("checking", true)
 
     void platform
@@ -228,33 +232,7 @@ export const SettingsGeneral: Component = () => {
           return
         }
 
-        const actions = platform.updateAndRestart
-          ? [
-              {
-                label: language.t("toast.update.action.installRestart"),
-                onClick: async () => {
-                  await platform.updateAndRestart!()
-                },
-              },
-              {
-                label: language.t("toast.update.action.notYet"),
-                onClick: "dismiss" as const,
-              },
-            ]
-          : [
-              {
-                label: language.t("toast.update.action.notYet"),
-                onClick: "dismiss" as const,
-              },
-            ]
-
-        showToast({
-          persistent: true,
-          icon: "download",
-          title: language.t("toast.update.title"),
-          description: language.t("toast.update.description", { version: result.version ?? "" }),
-          actions,
-        })
+        showUpdate(result.version ?? "")
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err)
