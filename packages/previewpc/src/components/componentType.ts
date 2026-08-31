@@ -557,6 +557,52 @@ interface ResolvedLink {
 
 
 
+interface ResolvedHexField {
+  value: DynamicString;
+  placeholder?: DynamicString;
+  disabled?: DynamicBoolean;
+  className?: string;
+}
+interface HexFieldNode extends AnyComponentNode<ResolvedHexField> {
+  type: "HexField";
+}
+
+interface ResolvedIpInput {
+  value: DynamicString;
+  type?: "v4" | "v6" | "mac";
+  disabled?: DynamicBoolean;
+  delimiter?: string;
+  className?: string;
+}
+interface IpInputNode extends AnyComponentNode<ResolvedIpInput> {
+  type: "IpInput";
+}
+
+interface ResolvedCategorySearch {
+  value: DynamicString;
+  categoryOptions?: any[] | DataBinding;
+  category?: any;
+  popItems?: any[] | DataBinding;
+  placeholder?: DynamicString;
+  className?: string;
+}
+interface CategorySearchNode extends AnyComponentNode<ResolvedCategorySearch> {
+  type: "CategorySearch";
+}
+
+interface ResolvedCategoryInput {
+  value: DynamicString;
+  categoryOptions?: any[] | DataBinding;
+  category?: any;
+  placeholder?: DynamicString;
+  disabled?: DynamicBoolean;
+  inputPosition?: "left" | "right";
+  className?: string;
+}
+interface CategoryInputNode extends AnyComponentNode<ResolvedCategoryInput> {
+  type: "CategoryInput";
+}
+
 interface StreamNode extends AnyComponentNode<AnyComponentNode> {
   type: 'Stream',
   isCommon: boolean;
@@ -606,5 +652,9 @@ export type {
   StreamNode,
   LinkNode,
   ModalNode,
-  DrawerNode
+  DrawerNode,
+  HexFieldNode,
+  IpInputNode,
+  CategoryInputNode,
+  CategorySearchNode
 }

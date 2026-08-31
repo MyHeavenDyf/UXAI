@@ -33,6 +33,8 @@ import A2UiTree from "./Tree/Tree.vue"
 import A2UiCarousel from "./Carousel/Carousel.vue"
 import A2UiModal from "./Modal/Modal.vue"
 import A2UiDrawer from "./Drawer/Drawer.vue"
+import A2UiCategoryInput from "./CategoryInput/CategoryInput.vue"
+import A2UiCategorySearch from "./CategorySearch/CategorySearch.vue"
 
 // import A2UiImage from "./Image/Image.vue"
 
@@ -60,6 +62,8 @@ import A2UiBarLineChart from "./BarLineChart/BarLineChart.vue"
 
 import PatGauge from "../customComponents/PatGauge/PatGauge.vue"
 import PatStackedBar from "../customComponents/PatStackedBar/PatStackedBar.vue"
+import HexField from "../customComponents/HexField/HexField.vue"
+import IpInput from "../customComponents/IpInput/IpInput.vue"
 
 import { ComponentRegistry } from "../renderer"
 
@@ -97,6 +101,8 @@ const catelog = {
   Carousel: A2UiCarousel,
   Modal: A2UiModal,
   Drawer: A2UiDrawer,
+  CategoryInput: A2UiCategoryInput,
+  CategorySearch: A2UiCategorySearch,
 
   // Image: A2UiImage,
   Stream: A2UiStream,
@@ -121,6 +127,8 @@ const catelog = {
   BarLineChart: A2UiBarLineChart,
   PatGauge: PatGauge,
   PatStackedBar: PatStackedBar,
+  HexField: HexField,
+  IpInput: IpInput,
 }
 
 function initDefaultCatlog() {

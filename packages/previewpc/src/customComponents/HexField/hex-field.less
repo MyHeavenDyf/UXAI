@@ -1,0 +1,48 @@
+
+.hex-field {
+  @radius: var(--el-border-radius-base, 4px);
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+
+  &__input {
+    width: 100%;
+    height: var(--el-input-height, 32px);
+    padding: 1px 12px;
+    border: 1px solid var(--el-border-color);
+    border-radius: @radius;
+    background-color: var(--el-input-bg-color, var(--el-fill-color-blank));
+    color: var(--el-input-text-color, var(--el-text-color-primary));
+    font-size: var(--el-font-size-base, 14px);
+    font-family: var(--el-font-family);
+    line-height: var(--el-input-inner-height, 30px);
+    outline: none;
+    transition: border-color 0.2s;
+    caret-color: var(--brand-50);
+
+    &::placeholder {
+      color: var(--el-text-color-placeholder, var(--el-text-color-secondary));
+    }
+
+    &:hover {
+      border-color: var(--el-input-hover-border-color, var(--el-border-color-hover));
+    }
+
+    &:focus {
+      border-color: var(--el-input-focus-border-color, var(--brand-50));
+    }
+  }
+
+  &--disabled &__input {
+    background-color: var(--el-disabled-bg-color);
+    color: var(--el-disabled-text-color);
+    cursor: not-allowed;
+    border-color: var(--el-border-color-light);
+  }
+}
+
+.theme-dark .hex-field__input {
+  --el-input-bg-color: transparent;
+  --el-input-focus-border-color: var(--brand-40);
+  background-color: transparent;
+}

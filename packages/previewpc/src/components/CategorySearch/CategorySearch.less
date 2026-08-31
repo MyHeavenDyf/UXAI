@@ -1,0 +1,121 @@
+
+.category-search {
+  @radius: var(--el-border-radius-base, 4px);
+  @border-default: 0 0 0 1px var(--el-border-color) inset;
+  @border-hover: 0 0 0 1px var(--el-input-hover-border-color, var(--el-border-color-hover)) inset;
+  @border-focus: 0 0 0 1px var(--el-input-focus-border-color, var(--brand-50)) inset;
+  @border-disabled: 0 0 0 1px var(--el-disabled-border-color, var(--el-border-color-lighter)) inset;
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  border-radius: @radius;
+  background-color: var(--el-input-bg-color, var(--el-fill-color-blank));
+  overflow: visible;
+
+  // Select (left side)
+  &__select {
+    width: 100px;
+    flex-shrink: 0;
+    margin-right: -1px;
+
+    .el-select__wrapper {
+      background-color: transparent !important;
+      box-shadow: @border-default !important;
+      border: none !important;
+      border-radius: @radius 0 0 @radius !important;
+    }
+
+    .el-select__wrapper.is-hovering:not(.is-focused) {
+      box-shadow: @border-hover !important;
+      z-index: 1;
+    }
+
+    .el-select__wrapper.is-focused {
+      box-shadow: @border-focus !important;
+      z-index: 1;
+    }
+  }
+
+  // Input wrapper (for dropdown positioning)
+  &__input-wrap {
+    flex: 1;
+    min-width: 0;
+    position: relative;
+  }
+
+  // Input (right side, with search icon)
+  &__input .el-input__wrapper {
+    background-color: transparent !important;
+    box-shadow: @border-default !important;
+    border-radius: 0 @radius @radius 0 !important;
+  }
+
+  &__input:hover .el-input__wrapper {
+    box-shadow: @border-hover !important;
+    z-index: 1;
+  }
+
+  &__input .el-input__wrapper.is-focus {
+    box-shadow: @border-focus !important;
+    z-index: 1;
+  }
+
+  // Search icon
+  &__icon {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    color: var(--el-text-color-secondary);
+
+    &:hover {
+      color: var(--el-input-focus-border-color, var(--brand-50));
+    }
+  }
+
+  // Suggestion dropdown
+  &__dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 4px;
+    background-color: var(--el-bg-color-overlay);
+    border: 1px solid var(--el-border-color-light);
+    border-radius: var(--el-border-radius-base, 4px);
+    box-shadow: var(--el-box-shadow-light);
+    z-index: 2000;
+    max-height: 274px;
+    overflow-y: auto;
+    padding: 6px 0;
+  }
+
+  &__dropdown-item {
+    padding: 0 12px;
+    height: 34px;
+    line-height: 34px;
+    font-size: var(--el-font-size-base, 14px);
+    color: var(--el-text-color-regular);
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    &:hover {
+      background-color: var(--el-fill-color-light);
+      color: var(--el-color-primary);
+    }
+  }
+
+  &__dropdown-empty {
+    padding: 10px 0;
+    text-align: center;
+    color: var(--el-text-color-secondary);
+    font-size: var(--el-font-size-base, 14px);
+  }
+}
+
+.theme-dark .category-search {
+  --el-input-bg-color: transparent;
+  --el-input-focus-border-color: var(--brand-40);
+  background-color: transparent;
+}
