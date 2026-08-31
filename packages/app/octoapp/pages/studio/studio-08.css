@@ -794,6 +794,7 @@
   height: 76px;
   flex: 0 0 76px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   border-top: 1px solid #e4e4e7;
@@ -805,6 +806,22 @@
   align-items: center;
   justify-content: center;
   gap: 16px;
+}
+
+.studio-template-creator-footer-message {
+  margin-top: 6px;
+  color: #747476;
+  font-size: 13px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.studio-template-creator-footer-message.success {
+  color: #17a34a;
+}
+
+.studio-template-creator-footer-message.error {
+  color: #e5484d;
 }
 
 .studio-template-creator-prev,

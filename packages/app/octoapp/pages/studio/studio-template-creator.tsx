@@ -41,6 +41,35 @@ type TemplateCreatorSelectOption<T extends string> = {
   value: T
   label: string
 }
+type StudioTemplateStyleDescription = {
+  overview: string
+} & Partial<Record<StudioStyleDimensionId, string>>
+
+type StudioTemplatePublishBaseInput = {
+  allowed_user_id: string | null
+  creator_user_id?: string
+  example_images: TemplateUploadImage[]
+  permission_type: TemplateVisibility
+  prompt_setting: PromptSetting
+  reference_image_count: 0 | ReferenceCount
+  reference_image_setting: ReferenceMode
+  template_type: TemplateCreatorCategory
+  title: string
+  usage_instructions: string
+}
+
+export type StudioTemplatePublishInput =
+  | (StudioTemplatePublishBaseInput & {
+    template_type: "extract_style"
+    style_description: StudioTemplateStyleDescription
+    style_images: TemplateUploadImage[]
+    style_keywords: string
+  })
+  | (StudioTemplatePublishBaseInput & {
+    template_type: "preset_recipe"
+    fixed_reference_images: TemplateUploadImage[]
+    play_description: string
+  })
 
 const ACCEPTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"])
 const ACCEPTED_IMAGE_EXTENSIONS = /\.(png|jpe?g|webp)$/i
@@ -1000,6 +1029,8 @@ function TemplateCreatorFooter(props: {
   currentStep: TemplateCreatorStep
   canNext: boolean
   primaryLabel: string
+  message: string
+  messageTone: "default" | "success" | "error"
   onPrev: () => void
   onNext: () => void
 }): JSX.Element {
@@ -1015,6 +1046,11 @@ function TemplateCreatorFooter(props: {
           {props.primaryLabel}
         </button>
       </div>
+      <Show when={props.message}>
+        <div class="studio-template-creator-footer-message" classList={{ success: props.messageTone === "success", error: props.messageTone === "error" }}>
+          {props.message}
+        </div>
+      </Show>
     </div>
   )
 }
@@ -1024,6 +1060,7 @@ export function StudioTemplateCreator(props: {
     input: StudioStyleDescriptionGenerateInput,
     handlers: StudioStyleDescriptionGenerateHandlers,
   ) => Promise<void>
+  onPublishTemplate?: (input: StudioTemplatePublishInput) => Promise<void>
 }): JSX.Element {
   const [currentStep, setCurrentStep] = createSignal<TemplateCreatorStep>("make")
   const [title, setTitle] = createSignal("")
@@ -1038,6 +1075,9 @@ export function StudioTemplateCreator(props: {
   const [styleDescriptionStreamPhase, setStyleDescriptionStreamPhase] = createSignal<StyleDescriptionStreamPhase>("idle")
   const [styleDescriptionThinking, setStyleDescriptionThinking] = createSignal("")
   const [styleDescriptionStreamStarted, setStyleDescriptionStreamStarted] = createSignal(false)
+  const [templatePublishing, setTemplatePublishing] = createSignal(false)
+  const [templatePublishMessage, setTemplatePublishMessage] = createSignal("")
+  const [templatePublishMessageTone, setTemplatePublishMessageTone] = createSignal<"default" | "success" | "error">("default")
   const [recipeDescription, setRecipeDescription] = createSignal("")
   const [recipeImages, setRecipeImages] = createSignal<TemplateUploadImage[]>([])
   const [sizeByUrl, setSizeByUrl] = createSignal<Record<string, number>>({})
@@ -1093,9 +1133,9 @@ export function StudioTemplateCreator(props: {
   const canNext = createMemo(() => {
     if (currentStep() === "make") return canMakeNext()
     if (currentStep() === "publish") return canPublishNext()
-    return canPublish()
+    return canMakeNext() && canPublishNext() && canPublish() && Boolean(props.onPublishTemplate) && !templatePublishing()
   })
-  const primaryLabel = createMemo(() => (currentStep() === "examples" ? "发布" : "下一步"))
+  const primaryLabel = createMemo(() => (currentStep() === "examples" && templatePublishing() ? "发布中..." : currentStep() === "examples" ? "发布" : "下一步"))
   let styleDescriptionGenerateController: AbortController | undefined
 
   onCleanup(() => {
@@ -1111,6 +1151,41 @@ export function StudioTemplateCreator(props: {
   const updateStyleDescriptionDetail = (id: StudioStyleDimensionId, value: string) => {
     setStyleDescriptionDetails((current) => ({ ...current, [id]: value }))
   }
+  const styleDescriptionPayload = (): StudioTemplateStyleDescription => ({
+    overview: styleDescriptionOverview().trim(),
+    ...Object.fromEntries(
+      selectedDimensions().map((id) => [
+        id,
+        (styleDescriptionDetails()[id] ?? "").trim(),
+      ]),
+    ),
+  })
+  const templatePublishBaseInput = (): StudioTemplatePublishBaseInput => ({
+    allowed_user_id: visibility() === "specified_users" ? specifiedUsers().trim() : null,
+    example_images: exampleImages(),
+    permission_type: visibility(),
+    prompt_setting: promptSetting(),
+    reference_image_count: referenceMode() === "not_supported" ? 0 : referenceCount(),
+    reference_image_setting: referenceMode(),
+    template_type: category(),
+    title: title().trim(),
+    usage_instructions: usageDescription().trim(),
+  })
+  const templatePublishInput = (): StudioTemplatePublishInput =>
+    category() === "extract_style"
+      ? {
+        ...templatePublishBaseInput(),
+        template_type: "extract_style",
+        style_description: styleDescriptionPayload(),
+        style_images: styleImages(),
+        style_keywords: styleKeywords(),
+      }
+      : {
+        ...templatePublishBaseInput(),
+        template_type: "preset_recipe",
+        fixed_reference_images: recipeImages(),
+        play_description: recipeDescription().trim(),
+      }
   const startStyleDescriptionStream = () => {
     if (styleDescriptionStreamStarted()) {
       setStyleDescriptionStreamPhase("extracting")
@@ -1188,6 +1263,22 @@ export function StudioTemplateCreator(props: {
       if (!controller.signal.aborted) setStyleDescriptionGenerating(false)
     }
   }
+  const publishCurrentTemplate = async () => {
+    if (!props.onPublishTemplate || templatePublishing() || !canMakeNext() || !canPublishNext() || !canPublish()) return
+    setTemplatePublishing(true)
+    setTemplatePublishMessage("")
+    setTemplatePublishMessageTone("default")
+    try {
+      await props.onPublishTemplate(templatePublishInput())
+      setTemplatePublishMessage("模板发布成功")
+      setTemplatePublishMessageTone("success")
+    } catch (error) {
+      setTemplatePublishMessage(error instanceof Error ? error.message : String(error))
+      setTemplatePublishMessageTone("error")
+    } finally {
+      setTemplatePublishing(false)
+    }
+  }
   const goPrev = () => {
     setCurrentStep((step) => {
       if (step === "examples") return "publish"
@@ -1197,6 +1288,10 @@ export function StudioTemplateCreator(props: {
   }
   const goNext = () => {
     if (!canNext()) return
+    if (currentStep() === "examples") {
+      void publishCurrentTemplate()
+      return
+    }
     setCurrentStep((step) => {
       if (step === "make") return "publish"
       if (step === "publish") return "examples"
@@ -1286,7 +1381,15 @@ export function StudioTemplateCreator(props: {
           </Show>
         </div>
       </div>
-      <TemplateCreatorFooter currentStep={currentStep()} canNext={canNext()} primaryLabel={primaryLabel()} onPrev={goPrev} onNext={goNext} />
+      <TemplateCreatorFooter
+        currentStep={currentStep()}
+        canNext={canNext()}
+        primaryLabel={primaryLabel()}
+        message={templatePublishMessage()}
+        messageTone={templatePublishMessageTone()}
+        onPrev={goPrev}
+        onNext={goNext}
+      />
     </div>
   )
 }

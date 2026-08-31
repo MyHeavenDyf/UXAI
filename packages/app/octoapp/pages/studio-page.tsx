@@ -73,6 +73,7 @@ import type {
   StudioStyleDescriptionGenerateHandlers,
   StudioStyleDescriptionGenerateInput,
   StudioStyleDescriptionStreamEvent,
+  StudioTemplatePublishInput,
 } from "./studio/studio-template-creator"
 import { STUDIO_FILTER_STATE_KEY_PREFIX } from "./studio/studio-file-manager"
 import type { MaterialWordBook } from "./studio/MaterialMenu"
@@ -2720,6 +2721,32 @@ export default function StudioPage() {
     await readStudioStyleDescriptionStream(response.body, handlers)
   }
 
+  async function publishStudioTemplate(input: StudioTemplatePublishInput) {
+    const current = server.current
+    if (!current) throw new Error("No active server.")
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      ...directoryHeader(projectDir()),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const response = await fetch(new URL("/studio/template-publish", current.http.url), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        ...input,
+        creator_user_id: input.creator_user_id || uiplusUserAccount(),
+      }),
+    })
+    const bodyText = await response.text()
+    if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
+    if (bodyText.trim()) JSON.parse(bodyText) as unknown
+  }
+
   async function handleReversePrompt() {
     const asset = assets()[0]
     if (!asset) {
@@ -4208,6 +4235,7 @@ if (!headerTitle.pendingRename) return
               canvasView={canvasView()}
               templateCreatorTabOpen={templateCreatorTabOpen()}
               onGenerateStyleDescription={generateStyleDescription}
+              onPublishTemplate={publishStudioTemplate}
               onTemplateCreatorClick={openTemplateCreator}
               onTemplateCreatorClose={closeTemplateCreator}
             >

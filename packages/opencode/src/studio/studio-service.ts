@@ -10,8 +10,10 @@ import {
 } from "@/tool/internel_image_generate"
 import {
   generateStyleDescriptionStream,
+  publishInternalStyleTemplate,
   type StyleDescriptionGenRequest,
   type StyleDescriptionGenStreamEvent,
+  type StyleTemplatePublishRequest,
 } from "@/tool/internel_style_template"
 import z from "zod"
 import * as Database from "@/storage/db"
@@ -118,6 +120,7 @@ export type StudioPromptGenRequest = {
 
 export type StudioStyleDescriptionGenRequest = StyleDescriptionGenRequest
 export type StudioStyleDescriptionGenStreamEvent = StyleDescriptionGenStreamEvent
+export type StudioTemplatePublishRequest = StyleTemplatePublishRequest
 
 export type StudioGenerationResult = {
   id: string
@@ -169,6 +172,10 @@ export async function createStyleDescriptionGenStream(
   },
 ) {
   await generateStyleDescriptionStream(input, handlers)
+}
+
+export async function publishTemplate(input: StudioTemplatePublishRequest): Promise<unknown> {
+  return publishInternalStyleTemplate(input)
 }
 
 export type StudioGenerationAccepted = Pick<

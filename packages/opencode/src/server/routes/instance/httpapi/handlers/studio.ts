@@ -5,6 +5,7 @@ import {
   createPromptGen,
   createStyleDescriptionGenStream,
   getGeneration,
+  publishTemplate,
   rebootGeneration,
   type StudioStyleDescriptionGenStreamEvent,
 } from "@/studio/studio-service"
@@ -17,7 +18,7 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import * as Sse from "effect/unstable/encoding/Sse"
 import { InstanceHttpApi } from "../api"
-import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioPermissionPayload, StudioPromptGenPayload, StudioStyleDescriptionGenPayload } from "../groups/studio"
+import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioPermissionPayload, StudioPromptGenPayload, StudioStyleDescriptionGenPayload, StudioTemplatePublishPayload } from "../groups/studio"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
 
 function styleDescriptionEventData(data: StudioStyleDescriptionGenStreamEvent): Sse.Event {
@@ -230,11 +231,28 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       return styleDescriptionResponse(payload, instance)
     })
 
+    const publish = Effect.fn("StudioHttpApi.publishTemplate")(function* (ctx: {
+      payload: typeof StudioTemplatePublishPayload.Type
+    }) {
+      const instance = yield* InstanceState.context
+      return yield* Effect.tryPromise({
+        try: () => Instance.restore(instance, () => publishTemplate(ctx.payload)),
+        catch: (error) =>
+          new ApiStudioGenerationError({
+            name: "StudioGenerationError",
+            data: {
+              message: error instanceof Error ? error.message : String(error),
+            },
+          }),
+      })
+    })
+
     return handlers
       .handle("createGeneration", create)
       .handle("createEditorEntry", createEntry)
       .handle("createPromptGen", promptGen)
       .handleRaw("createStyleDescriptionGen", styleDescriptionGen)
+      .handle("publishTemplate", publish)
       .handle("getGeneration", get)
       .handle("cancelGeneration", cancel)
       .handle("rebootGeneration", reboot)

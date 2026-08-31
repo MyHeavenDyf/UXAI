@@ -26,6 +26,7 @@ export const StudioPaths = {
   promptTags: `${root}/prompt-tags`,
   promptGen: `${root}/prompt-gen`,
   styleDescriptionGen: `${root}/style-description-gen`,
+  templatePublish: `${root}/template-publish`,
   permission: `${root}/permissions/check`,
 } as const
 
@@ -59,6 +60,56 @@ export const StudioStyleDescriptionGenPayload = Schema.Struct({
   ),
   style_dimensions: Schema.Array(StudioStyleDimensionId),
 })
+
+const StudioTemplateImagePayload = Schema.Struct({
+  url: Schema.String,
+})
+
+const StudioStyleDescriptionPayload = Schema.Struct({
+  overview: Schema.String,
+  tonal: Schema.optional(Schema.String),
+  composition: Schema.optional(Schema.String),
+  volume: Schema.optional(Schema.String),
+  surface: Schema.optional(Schema.String),
+  color: Schema.optional(Schema.String),
+  linework: Schema.optional(Schema.String),
+  shape_structure: Schema.optional(Schema.String),
+  role_design: Schema.optional(Schema.String),
+  lettering: Schema.optional(Schema.String),
+  post_processing: Schema.optional(Schema.String),
+})
+
+const StudioTemplatePublishBaseFields = {
+  allowed_user_id: Schema.NullOr(Schema.String),
+  creator_user_id: Schema.String,
+  example_images: Schema.Array(StudioTemplateImagePayload),
+  permission_type: Schema.Union([Schema.Literal("all_users"), Schema.Literal("specified_users")]),
+  prompt_setting: Schema.Union([Schema.Literal("required"), Schema.Literal("optional"), Schema.Literal("not_supported")]),
+  reference_image_count: Schema.Union([Schema.Literal(0), Schema.Literal(1), Schema.Literal(2), Schema.Literal(3)]),
+  reference_image_setting: Schema.Union([Schema.Literal("fixed"), Schema.Literal("optional"), Schema.Literal("not_supported")]),
+  title: Schema.String,
+  usage_instructions: Schema.String,
+}
+
+const StudioStyleTemplatePublishPayload = Schema.Struct({
+  ...StudioTemplatePublishBaseFields,
+  template_type: Schema.Literal("extract_style"),
+  style_description: StudioStyleDescriptionPayload,
+  style_images: Schema.Array(StudioTemplateImagePayload),
+  style_keywords: Schema.String,
+})
+
+const StudioRecipeTemplatePublishPayload = Schema.Struct({
+  ...StudioTemplatePublishBaseFields,
+  template_type: Schema.Literal("preset_recipe"),
+  fixed_reference_images: Schema.Array(StudioTemplateImagePayload),
+  play_description: Schema.String,
+})
+
+export const StudioTemplatePublishPayload = Schema.Union([
+  StudioStyleTemplatePublishPayload,
+  StudioRecipeTemplatePublishPayload,
+])
 
 export const StudioGenerationPayload = Schema.Struct({
   sessionID: Schema.optional(Schema.String),
@@ -214,6 +265,17 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.style-description-gen.create",
             summary: "Generate style description",
             description: "Streams style description fields from the internal Studio style template API.",
+          }),
+        ),
+        HttpApiEndpoint.post("publishTemplate", StudioPaths.templatePublish, {
+          payload: StudioTemplatePublishPayload,
+          success: described(Schema.Unknown, "Studio template publish result"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.template-publish.create",
+            summary: "Publish Studio template",
+            description: "Publishes a Studio style template or preset recipe using the internal Studio style template API.",
           }),
         ),
         HttpApiEndpoint.post("createGeneration", StudioPaths.generations, {
