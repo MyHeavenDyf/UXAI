@@ -251,6 +251,26 @@ export function installDomPicker(options = {}) {
   const handleClick = async (event) => {
     if (disabled) return
     if (frozen) {
+      if (activeElement && event.target instanceof Element && activeElement.contains(event.target)) {
+        const rect = activeElement.getBoundingClientRect()
+        window.parent.postMessage(
+          {
+            type: 'od:dom-picker-quick-fix',
+            id: activeLocation,
+            domPickerComponent: activeElement.getAttribute(PICKER_COMPONENT_ATTR) || '',
+            domPickerClass: activeElement.getAttribute('class') || '',
+            elementProps: activeElement.getAttribute('data-element-props') || '',
+            tagName: activeElement.tagName.toLowerCase(),
+            rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+            clickX: event.clientX,
+            clickY: event.clientY,
+          },
+          '*',
+        )
+        event.preventDefault()
+        event.stopPropagation()
+        return
+      }
       window.parent.postMessage({ type: 'od:dom-picker-close-panels' }, '*')
       event.preventDefault()
       event.stopPropagation()
@@ -356,19 +376,6 @@ export function installDomPicker(options = {}) {
     observeActiveElement(resolved.element)
     applyActiveMarker()
     updateOverlay(overlay, activeElement)
-    const rect = resolved.element.getBoundingClientRect()
-    window.parent.postMessage(
-      {
-        type: 'od:dom-picker-quick-fix',
-        id: resolved.location,
-        domPickerComponent: resolved.element.getAttribute(PICKER_COMPONENT_ATTR) || '',
-        domPickerClass: resolved.element.getAttribute('class') || '',
-        elementProps: resolved.element.getAttribute('data-element-props') || '',
-        tagName: resolved.element.tagName.toLowerCase(),
-        rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
-      },
-      '*',
-    )
     console.log(`[${logPrefix}] select parent:`, resolved.location, resolved.element)
   }
 
