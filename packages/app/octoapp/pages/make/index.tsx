@@ -868,12 +868,21 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 跨 session 切换缓存: { mainSessionId: childSessionId }，切回时立即恢复 */
   const _planChildSessionCache: Record<string, string> = {}
 
-  /** 设计规划是否已结束（退出或确认），用于控制 plan 视图只读模式 */
-  // 从 localStorage 同步初始化，确保页面刷新/路由切换后立即生效
-  const [planEnded, setPlanEnded] = createSignal(!!(params.id && localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + params.id)))
+  /** 设计规划是否已结束（退出或确认），per-session 隔离，用于控制 plan 视图只读模式 */
+  const [planEndedMap, setPlanEndedMap] = createSignal<Record<string, boolean>>(
+    params.id ? { [params.id]: !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + params.id) } : {},
+  )
+  const currentSessionPlanEnded = createMemo(() => {
+    const sid = params.id
+    return sid ? !!planEndedMap()[sid] : false
+  })
 
-  /** 两步走工作流：当前阶段 */
-  const [planPhase, setPlanPhase] = createSignal<"strategy" | "generate">("strategy")
+  /** 两步走工作流：当前阶段，per-session 隔离 */
+  const [planPhaseMap, setPlanPhaseMap] = createSignal<Record<string, "strategy" | "generate">>({})
+  const currentSessionPlanPhase = createMemo(() => {
+    const sid = params.id
+    return sid ? (planPhaseMap()[sid] ?? "strategy") : "strategy"
+  })
 
   // 用于跟踪用户是否手动切换了 phase，防止 effect 自动切回
   const [userChangedPhase, setUserChangedPhase] = createSignal(false)
@@ -1708,7 +1717,7 @@ const sessionMessagesLoaded = createMemo(() => {
       if (!planSid) return null
       // 如果用户手动切换了 phase，不自动切换
       if (userChangedPhase()) return null
-      const currentPhase = planPhase()
+      const currentPhase = currentSessionPlanPhase()
       // 如果已经是 generate 阶段，不需要再检测
       if (currentPhase === "generate") return null
       const msgs = sync.data.message?.[planSid]
@@ -1724,7 +1733,7 @@ const sessionMessagesLoaded = createMemo(() => {
       return null
     },
     (phase) => {
-      if (phase === "generate") setPlanPhase("generate")
+      if (phase === "generate") setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "generate" }))
     },
     { defer: true }
   ))
@@ -1740,10 +1749,10 @@ const sessionMessagesLoaded = createMemo(() => {
     sendMessage(planSid, prompt, key).catch((err) => {
       console.error("[MakePage] generate strategy failed", err)
       setIsGenerating(false)  // 失败时恢复
-      setPlanPhase("strategy")  // 失败时回滚到策略准备阶段
+      setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))  // 失败时回滚到策略准备阶段
     })
     setUserChangedPhase(false)  // 重置手动切换标记
-    setPlanPhase("generate")
+    setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "generate" }))
   }
 
   /** 用户点击 [上一步] / [返回策略准备] → 返回策略准备阶段 */
@@ -1751,7 +1760,7 @@ const sessionMessagesLoaded = createMemo(() => {
     const planSid = activePlanForCurrentSession()
     const key = activeModelKey()
     setUserChangedPhase(true)  // 标记用户手动切换
-    setPlanPhase("strategy")
+    setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))
     setIsGenerating(false)  // 复位生成状态，让按钮可点击、表单可填写
     // 通知子 agent 回到策略准备阶段，让后续对话上下文正确
     if (planSid && key) {
@@ -1769,7 +1778,7 @@ const sessionMessagesLoaded = createMemo(() => {
     // 立即持久化"已结束"标记 + 设置 planEnded，防止用户在 await 期间切换 session 后切回时 plan 恢复为可交互
     localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + mainSid, "true")
     setPlanEndedForSession(mainSid)
-    setPlanEnded(true)
+    setPlanEndedMap(prev => ({ ...prev, [mainSid]: true }))
     setOptimisticConfirmed(true)
     setPlanConfirmPending(true)  // 过渡状态：保持 plan 视图显示"正在生成 HTML..."
     const cmd = identifier ? `[confirm-plan ${identifier}]` : `[confirm-plan]`
@@ -1818,12 +1827,12 @@ const sessionMessagesLoaded = createMemo(() => {
     // 清理子 session 状态，保留子 session 的记录（不清理 childSessionIDs）
     localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + mainSid)
     delete _planChildSessionCache[mainSid]
-    const currentPhase = planPhase()
+    const currentPhase = currentSessionPlanPhase()
     setActivePlanSessionId(null)
     setPlanParentSessionId(null)
     setHasChildPlanSession(false)
     setManualStrategyFormData({})
-    setPlanPhase(currentPhase)
+    setPlanPhaseMap(prev => ({ ...prev, [mainSid]: currentPhase }))
     // 不切视图：保持 plan 模式，让用户看到按钮已禁用的状态
     // 等到主 agent 进入 busy 状态后再自动切回 files 视图
   }
@@ -1847,12 +1856,12 @@ const sessionMessagesLoaded = createMemo(() => {
     setHasChildPlanSession(false)
     setManualStrategyFormData({})
     setResultViewMode("files")
-    setPlanPhase("strategy")
+    setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))
     setSending(false)
     _confirmPlanDisplayText = undefined
     // 提前退出规划时保留 Skill 暂存，只有确认成功后才清理。
     // 这样重新进入规划时可继续将当前方案与原 Skill 一起交接。
-    setPlanEnded(true)
+    setPlanEndedMap(prev => ({ ...prev, [params.id!]: true }))
     const mainSid = params.id
     if (mainSid) {
       localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + mainSid, "true")
@@ -1904,7 +1913,7 @@ const sessionMessagesLoaded = createMemo(() => {
     const composerText = editor?.getText?.() ?? ""
 
     setOptimisticIntentResolved(true)
-    setPlanEnded(false)
+    setPlanEndedMap(prev => ({ ...prev, [sid]: false }))
     localStorage.removeItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid)
 
     try {
@@ -1945,7 +1954,7 @@ const sessionMessagesLoaded = createMemo(() => {
       savePlanSkillHandoff(sid, childSession.id, skills.map((skill) => ({ name: skill.name, label: skill.label })))
 
       setResultViewMode("plan")
-      setPlanPhase("strategy")
+      setPlanPhaseMap(prev => ({ ...prev, [sid]: "strategy" }))
       setUserChangedPhase(false)
       setManualStrategyFormData({})
       sync.session.sync(childSession.id).catch((err: any) => console.warn("[MakePage] sync child session failed", err))
@@ -1990,7 +1999,7 @@ const sessionMessagesLoaded = createMemo(() => {
           setPlanChildSessionIDs(new Set<string>())
           setHasChildPlanSession(false)
           setResultViewMode("files")
-          setPlanPhase("strategy")
+          if (prevSid) setPlanPhaseMap(prev => ({ ...prev, [prevSid]: "strategy" }))
           setManualStrategyFormData({})
           setPhase2Pending(false)
         }
@@ -2019,11 +2028,11 @@ const sessionMessagesLoaded = createMemo(() => {
         setPlanChildSessionIDs(new Set<string>())
         setHasChildPlanSession(false)
         setResultViewMode("files")
-        setPlanPhase("strategy")
+        setPlanPhaseMap(prev => ({ ...prev, [newSid!]: "strategy" }))
         setUserChangedPhase(false)  // 重置手动切换标记
         setManualStrategyFormData({})
         setPhase2Pending(false)
-        setPlanEnded(false)  // 复位结束状态，新 session 的恢复逻辑会重新设置
+        setPlanEndedMap(prev => ({ ...prev, [newSid!]: false }))  // 复位结束状态，新 session 的恢复逻辑会重新设置
       }
       // 尝试恢复当前主 session 的设计规划子 session（仅在 session 实际切换时）
       let restoredPlanSid: string | null = null
@@ -2048,7 +2057,7 @@ const sessionMessagesLoaded = createMemo(() => {
         if (restoredPlanSid) {
           // 规划子 session 已被当前恢复流程识别，先恢复为进行中状态；只有明确的结束标记才进入只读状态。
           setPlanEndedForSession(null)
-          setPlanEnded(false)
+          setPlanEndedMap(prev => ({ ...prev, [newSid!]: false }))
           const planSid = restoredPlanSid
           // 检查是否已被用户退出（持久化标记）
           const isEnded = !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid)
@@ -2060,7 +2069,7 @@ const sessionMessagesLoaded = createMemo(() => {
               sync.session.sync(planSid).catch(() => {})
             }
             setPlanEndedForSession(newSid)
-            setPlanEnded(true)
+            setPlanEndedMap(prev => ({ ...prev, [newSid!]: true }))
             return
           }
 
@@ -2097,10 +2106,10 @@ const sessionMessagesLoaded = createMemo(() => {
             setPlanChildSessionIDs(new Set<string>())
             setHasChildPlanSession(false)
             setPlanEndedForSession(newSid)
-            setPlanEnded(true)
+            setPlanEndedMap(prev => ({ ...prev, [newSid!]: true }))
             localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid, "true")
             // 设置 planPhase 为 generate，以便用户点击 tab 时正确显示第二阶段内容
-            setPlanPhase(hasDesignPlan ? "generate" : "strategy")
+            setPlanPhaseMap(prev => ({ ...prev, [newSid!]: hasDesignPlan ? "generate" : "strategy" }))
             // 清理 localStorage 缓存
             localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + newSid)
             delete _planChildSessionCache[newSid]
@@ -2110,7 +2119,7 @@ const sessionMessagesLoaded = createMemo(() => {
             setPlanParentSessionId(newSid)
             setHasChildPlanSession(true)
             setResultViewMode("plan")
-            setPlanPhase(hasDesignPlan ? "generate" : "strategy")
+            setPlanPhaseMap(prev => ({ ...prev, [newSid!]: hasDesignPlan ? "generate" : "strategy" }))
           }
         }
       }
@@ -2137,14 +2146,14 @@ const sessionMessagesLoaded = createMemo(() => {
           const isEnded = !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid)
           if (isEnded) {
             setPlanEndedForSession(newSid)
-            setPlanEnded(true)
+            setPlanEndedMap(prev => ({ ...prev, [newSid!]: true }))
             return
           }
           setActivePlanSessionId(childId)
           setPlanParentSessionId(newSid)
           setHasChildPlanSession(true)
           setResultViewMode("plan")
-          setPlanPhase("strategy")
+          setPlanPhaseMap(prev => ({ ...prev, [newSid!]: "strategy" }))
         }).finally(() => {
           if (params.id === newSid) setPhase2Pending(false)
         })
@@ -2195,7 +2204,7 @@ const sessionMessagesLoaded = createMemo(() => {
           setPlanEndedForSession(mainSid)
           clearPlanComposerCapsule()
           if (activePlanSessionId() === childId) {
-            setPlanEnded(true)
+            setPlanEndedMap(prev => ({ ...prev, [mainSid!]: true }))
             setActivePlanSessionId(null)
             setPlanParentSessionId(null)
           }
@@ -2218,7 +2227,7 @@ const sessionMessagesLoaded = createMemo(() => {
         }
         setPlanConfirmPending(false)
         setPlanEndedForSession(mainSid ?? null)
-        setPlanEnded(true)
+        setPlanEndedMap(prev => ({ ...prev, [mainSid!]: true }))
         setActivePlanSessionId(null)
         setPlanParentSessionId(null)
         setPlanChildSessionIDs(new Set<string>())
@@ -2246,7 +2255,7 @@ const sessionMessagesLoaded = createMemo(() => {
         if (!card) {
           // 无有效 plan，安全复位
           setIsGenerating(false)
-          setPlanPhase("strategy")
+          setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))
           setUserChangedPhase(true)
         }
       }
@@ -2843,14 +2852,14 @@ const sessionMessagesLoaded = createMemo(() => {
           setActivePlanSessionId(childSession.id)
           setPlanParentSessionId(session.id)
           setPlanEndedForSession(null)
-          setPlanEnded(false)
+          setPlanEndedMap(prev => ({ ...prev, [session.id]: false }))
           localStorage.removeItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + session.id)
           setPlanChildSessionIDs((prev) => { const next = new Set(prev); next.add(childSession.id); return next })
           localStorage.setItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + session.id, childSession.id)
           _planChildSessionCache[session.id] = childSession.id
           savePlanSkillHandoff(session.id, childSession.id, skills)
           setResultViewMode("plan")
-          setPlanPhase("strategy")
+          setPlanPhaseMap(prev => ({ ...prev, [session.id]: "strategy" }))
           setUserChangedPhase(false)
           setManualStrategyFormData({})
           _enteringPlan = false
@@ -4749,7 +4758,7 @@ onPreview={(url) => {
                   void historyController.onFileRefresh(tabStore.tabs())
                 }}
                 planCard={planCard()}
-                planPhase={planPhase()}
+                planPhase={currentSessionPlanPhase()}
                 strategyFormData={strategyFormData()}
                 onStrategyFieldChange={(field, value) => {
                   setManualStrategyFormData((prev) => ({ ...prev, [field]: value }))
@@ -4761,7 +4770,7 @@ onPreview={(url) => {
                 childPlanConfirmed={childPlanConfirmed()}
                 childSessionStatus={sync.data.session_status[activePlanForCurrentSession() ?? ""]}
                 childBusy={childBusy()}
-                planEnded={planEnded()}
+                planEnded={currentSessionPlanEnded()}
                 planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
               />
             </div>
