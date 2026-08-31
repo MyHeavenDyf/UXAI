@@ -536,7 +536,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
               }}
             >
               <span class="addon-menu-item-icon"><DesignStrategyIcon /></span>
-              <span class="addon-menu-item-text">进入patternPage模式</span>
+              <span class="addon-menu-item-text">进入Pattern模式</span>
             </button>
 
             {/* 接收设计资产链接URL — 暂时隐藏 */}

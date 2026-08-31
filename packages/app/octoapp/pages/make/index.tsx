@@ -1999,7 +1999,7 @@ const sessionMessagesLoaded = createMemo(() => {
         for (const block of blocksToSend) {
           if (!block.content) continue
           try {
-            const filePath = [outputsDir, `${block.id}.json`].join(sep)
+            const filePath = [outputsDir, "pattern.json"].join(sep)
             const buffer = encoder.encode(JSON.stringify(block.content, null, 2)).buffer as ArrayBuffer
             await api.writeFileBuffer(filePath, buffer)
           } catch (err) { console.error("[MakePage] write block json failed:", block.id, err) }

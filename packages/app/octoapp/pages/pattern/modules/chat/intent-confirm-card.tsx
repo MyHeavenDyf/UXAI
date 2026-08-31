@@ -213,7 +213,7 @@ export function IntentConfirmCard(props: {
           </button>
           <Show when={!props.blockMatching}>
             <button class="ic-card-submit-btn" onClick={handleConfirm}>
-              {props.blockMatchError || props.blockMatches.length === 0 ? "跳过" : "下一步"}
+              {props.blockMatchError || props.blockMatches.length === 0 ? "跳过" : "保存到本地"}
             </button>
           </Show>
         </div>
