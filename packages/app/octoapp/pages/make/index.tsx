@@ -4476,19 +4476,6 @@ if (dsId) {
                       )}
                     </Show>
 
-                    {/* Pattern 等待用户输入 / 匹配中 - empty state */}
-                    <Show when={activePatternSessionId() && !patternEnded() && !patternMatches()}>
-                      <div class="pt-3">
-                        <div class="w-full rounded-[12px] flex items-center gap-2 px-4 py-3" style={{ background: "rgba(74,81,255,0.06)", border: "1px solid rgba(74,81,255,0.15)" }}>
-                          <Show when={patternUserInput()} fallback={<span style={{ "font-size": "13px", color: "var(--octo-text-secondary)" }}>PatternPage 模式 · 请输入页面需求后提交</span>}>
-                            <span class="i-svg-spinners-clock size-4 shrink-0" />
-                            <span style={{ "font-size": "13px", color: "var(--octo-text-secondary)" }}>{patternSubEnriching() ? "正在加载预览..." : "Pattern 正在匹配..."}</span>
-                          </Show>
-                          <button onClick={handleEndPatternPage} class="shrink-0 ml-auto transition-colors cursor-pointer" style={{ "font-size": "14px", color: "#0a59f7", background: "transparent", border: "none" }}>{patternUserInput() ? "取消" : "退出"}</button>
-                        </div>
-                      </div>
-                    </Show>
-
                     {/* IntentConfirmCard (prototype 弹窗) — 跨 match + module 两阶段 - empty state */}
                     <Show when={patternMatches() && !patternEnded()}>
                       <div class="ic-card-overlay">
@@ -4798,17 +4785,6 @@ onPreview={(url) => {
                       onEnter={() => { setShowPlanConfirm(false); void handleEnterPlan() }}
                       onSkip={() => setShowPlanConfirm(false)}
                     />
-                  </Show>
-
-                  {/* Pattern 等待用户输入 / 匹配中 */}
-                  <Show when={activePatternSessionId() && !patternEnded() && !patternMatches()}>
-                    <div class="w-full rounded-[12px] flex items-center gap-2 px-4 py-3 mb-2" style={{ background: "rgba(74,81,255,0.06)", border: "1px solid rgba(74,81,255,0.15)" }}>
-                      <Show when={patternUserInput()} fallback={<span style={{ "font-size": "13px", color: "var(--octo-text-secondary)" }}>PatternPage 模式 · 请输入页面需求后提交</span>}>
-                        <span class="i-svg-spinners-clock size-4 shrink-0" />
-                        <span style={{ "font-size": "13px", color: "var(--octo-text-secondary)" }}>{patternSubEnriching() ? "正在加载预览..." : "Pattern 正在匹配..."}</span>
-                      </Show>
-                      <button onClick={handleEndPatternPage} class="shrink-0 ml-auto transition-colors cursor-pointer" style={{ "font-size": "14px", color: "#0a59f7", background: "transparent", border: "none" }}>{patternUserInput() ? "取消" : "退出"}</button>
-                    </div>
                   </Show>
 
                   {/* IntentConfirmCard (prototype 弹窗) — 跨 match + module 两阶段 */}
