@@ -4,6 +4,7 @@ import type { ArtifactFile } from "../../utils/artifact-file-api"
 import { fetchArtifactContent, getArtifactServeUrl, pathToLocalUrl, isElectronDesktop, formatFileSize, formatTimeAgo } from "../../utils/artifact-file-api"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
+import { highlightCode, getLanguageFromFilename } from "../../utils/code-highlight"
 
 interface Props {
   file: ArtifactFile
@@ -182,13 +183,13 @@ export function PreviewPane(props: Props): JSX.Element {
 
             <Match when={isCode()}>
               <pre
-                class="text-[11px] font-mono whitespace-pre-wrap p-3 rounded overflow-auto max-h-full"
+                class="text-[11px] font-mono whitespace-pre-wrap p-3 rounded overflow-auto max-h-full m-0"
                 style={{
                   background: "var(--octo-surface-base)",
                   color: "var(--octo-text-primary)",
                 }}
               >
-                {content()?.content ?? ""}
+                <code innerHTML={highlightCode(content()?.content ?? "", getLanguageFromFilename(props.file.name))} />
               </pre>
             </Match>
           </Switch>
