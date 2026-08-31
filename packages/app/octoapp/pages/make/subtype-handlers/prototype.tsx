@@ -1,7 +1,6 @@
 import type { SubtypeHandler, SubtypeHandlerContext } from './types'
 import type { JSX } from 'solid-js'
 import { createSignal } from 'solid-js'
-import JSZip from "jszip"
 import {
   setActiveSessionId,
   getSessionById,
@@ -281,7 +280,6 @@ export default {
 
   /**
    * 归档钩子：构建等价于"下载"按钮产物的代码包 zip，塞进归档 zip 的 src/。
-   * 用 JSZip 在内存构建，避免 exportZip 弹保存对话框打断归档流程。
    * 失败时返回 null，归档主流程会 toast "代码包生成失败，已跳过 src/"。
    */
   async buildArchiveSrc(ctx) {
@@ -293,10 +291,7 @@ export default {
       const desktopApi = ctx.getDesktopApi()
       const { files, uploadsDir, makeUploadsDir } = result
 
-      const zip = new JSZip()
-      for (const f of files) {
-        zip.file(f.path, f.content)
-      }
+      const out: { path: string; content: string | Uint8Array }[] = files.map(f => ({ path: f.path, content: f.content }))
 
       // 打包 pattern 侧 + make 侧 uploads 资源到 public/assets
       // codegen 已把 /uploads/... 和 uploads/... 改写为 /assets/...，故都落到 public/assets/
@@ -314,7 +309,7 @@ export default {
             for (const absPath of allFiles) {
               const rel = absPath.slice(dir.length).replace(/^[\\/]+/, '')
               const buffer = await desktopApi.readFileBuffer(absPath)
-              if (buffer) zip.file(`public/assets/${rel}`, new Uint8Array(buffer))
+              if (buffer) out.push({ path: `public/assets/${rel}`, content: new Uint8Array(buffer) })
             }
           } catch (err) {
             console.warn('[Archive] Failed to bundle uploads:', err)
@@ -322,8 +317,7 @@ export default {
         }
       }
 
-      const blob = await zip.generateAsync({ type: "blob" })
-      return { blob, fileName: 'code-export.zip' }
+      return { files: out }
     } catch (err) {
       console.warn('[Archive] buildArchiveSrc failed:', err)
       return null
