@@ -215,6 +215,7 @@ function MakeContent() {
   }
 
   const dialogPop = useDialogIframe()
+  const SPEC_SELECTOR_VISIBLE = false
   const [selectedSpecDisplay, setSelectedSpecDisplay] = createSignal<string | null>(null)
   const [selectedSpecName, setSelectedSpecName] = createSignal<string | null>(null)
 
@@ -222,6 +223,7 @@ function MakeContent() {
 
   // 获取存量配置并设置状态
   function fetchAndSetConfig() {
+    if (!SPEC_SELECTOR_VISIBLE) return
     const api = getDesktopApi()
     if (!api?.getAssetsConfig) return
     api.getAssetsConfig()
@@ -2780,7 +2782,7 @@ const sessionMessagesLoaded = createMemo(() => {
     // 注入 specSelector 的 skill
     const specName = selectedSpecName()
     const specDisplay = selectedSpecDisplay()
-    if (specName && specDisplay) {
+    if (SPEC_SELECTOR_VISIBLE && specName && specDisplay) {
       text = `@${specName} ` + text
       mentions = [{ type: 'skill', name: specName, label: specDisplay, id: specName, path: "" }, ...mentions]
     }
@@ -2885,7 +2887,7 @@ const sessionMessagesLoaded = createMemo(() => {
         await movePendingUploadsToSession(session.id)
 
       // 如果用户没有手动选择 spec，检查是否有存量配置
-      if (!selectedSpecDisplay()) {
+      if (SPEC_SELECTOR_VISIBLE && !selectedSpecDisplay()) {
         const api = getDesktopApi()
         if (api?.getAssetsConfig) {
           try {

@@ -882,9 +882,6 @@ function handleEditDoubleClick(ev){
 
 export const EDIT_BRIDGE_STYLE = `<style data-od-edit-bridge-style>
 html[data-od-edit-mode] body * { cursor: pointer !important; }
-html[data-od-edit-mode] [data-od-id],
-html[data-od-edit-mode] [data-od-runtime-id],
-html[data-od-edit-mode] [data-od-source-path] { outline: 1px dashed rgba(37, 99, 235, 0.35); outline-offset: 3px; }
 html[data-od-edit-mode] [data-od-id]:hover,
 html[data-od-edit-mode] [data-od-runtime-id]:hover,
 html[data-od-edit-mode] [data-od-source-path]:hover { outline: 2px solid #2563eb; }
