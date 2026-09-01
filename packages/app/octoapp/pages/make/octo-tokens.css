@@ -788,3 +788,48 @@ button[title="版本历史"] {
   cursor: not-allowed;
   opacity: 0.6;
 }
+
+.make-context-limit-warning {
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 326px;
+  height: 90px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: #fee7e8;
+  color: #191919;
+  font-family: "HarmonyOS Sans SC 2025", "HarmonyOS Sans SC", sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+}
+
+.make-context-limit-warning svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  margin-top: 4px;
+  color: #e02128;
+}
+
+.make-context-limit-warning p {
+  width: 272px;
+  margin: 0;
+}
+
+.make-context-limit-warning button {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0a59f7;
+  font: inherit;
+  cursor: pointer;
+}
+
+.make-context-limit-warning button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
