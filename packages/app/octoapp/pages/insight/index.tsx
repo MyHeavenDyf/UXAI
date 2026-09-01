@@ -149,8 +149,7 @@ const MAX_ATTACHMENTS = 10
 const UPLOAD_ACCEPT = ALLOWED_EXT.map((e) => `.${e}`).join(",")
 
 // 添加附件按钮的 tooltip 提示:支持的文件类型 + 大小 + 数量上限(均从常量派生)。
-// 图片另有 5MB 专用上限(base64 落库/传输,防巨型字符串),一并提示。
-const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)}MB（图片 ≤ 5MB），最多 ${MAX_ATTACHMENTS} 个`
+const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)}MB，最多 ${MAX_ATTACHMENTS} 个`
 
 // 刷新保路由:打包态 Electron 走 file://(dev 的 electron reload 同样不走 SPA 兜底),整页
 // 重载会丢失 /insight/:id 路由、回退到首页。这里把"当前所在对话"持久化,boot 落在无 id 的
@@ -1790,32 +1789,51 @@ function InsightContent() {
   // 原样不转格式,预会话落地区),拿到本地绝对路径写进附件(SPEC-INS-015:非图片供 [附件] 清单/
   // 插件按需上传 S3;图片发送时产 FilePart{url:file://},服务端读盘转 base64)。
   //   - 成功:status=done + path(磁盘来源走拷贝;剪贴板内存 blob 走 writeFileToWorktree 字节写入)
-  //   - 真失败(拷贝/写入抛错):status=error + retriable,chip 显示重试
-  //   - 降级(无 projectDir / 非桌面 / preload 未暴露写入 IPC):
-  //     非图片 → done 但无 path,不报错(不破坏 __dev),该文件不进清单、MCP 不可用;
-  //     图片   → 标 error(无 path = 发送必静默丢,响亮失败让用户重选)
+  //   - 真失败(拷贝/写入抛错):status=error + retriable(瞬态错误,重试有意义),打点 success:false
+  //   - 降级(无 projectDir / 非桌面 / preload 未暴露写入 IPC)——环境性条件,重试必然同错:
+  //     非图片 → done 但无 path,不报错(不破坏 __dev),该文件不进清单、MCP 不可用,打点 localized:false;
+  //     图片   → 标 error + retriable:false(无 path = 发送必静默丢,响亮失败;引导改走文件选择器),
+  //              打点 success:false + reason 对齐 UI(2026-09 修复:此前报 success:true 与 error chip 矛盾)
   async function doImport(id: string, rawFile: File, filename: string) {
+    const kind = isImageFile(filename) ? ("image" as const) : ("file" as const)
     try {
       const dest = await copySourceToWorktree(filename, rawFile)
-      tracker.interaction({
-        module: "insight",
-        name: "attachment-import-result",
-        extend: JSON.stringify({ success: true, localized: !!dest, kind: isImageFile(filename) ? "image" : "file" }),
-      })
       if (!dest) {
-        console.warn("[octo:upload] imported without local path (degraded: no projectDir / non-desktop / blob)", {
+        console.warn("[octo:upload] imported without local path (degraded: no projectDir / non-desktop / old preload)", {
           id, filename,
         })
         if (isImageFile(filename)) {
+          tracker.interaction({
+            module: "insight",
+            name: "attachment-import-result",
+            extend: JSON.stringify({ success: false, kind, reason: "no-local-path" }),
+          })
           setAttachments((prev) =>
             prev.map((a) =>
               a.id === id
-                ? { ...a, status: "error", error: "无法获取图片本地路径，请从文件选择器重新选择", retriable: true }
+                ? {
+                    ...a,
+                    status: "error",
+                    error: "当前环境无法导入该图片，请从文件选择器选择文件",
+                    retriable: false,
+                  }
                 : a,
             ),
           )
           return
         }
+        // 非图片降级:done 但无 path(UI 与打点口径一致——导入"成功"但未本地化)
+        tracker.interaction({
+          module: "insight",
+          name: "attachment-import-result",
+          extend: JSON.stringify({ success: true, localized: false, kind }),
+        })
+      } else {
+        tracker.interaction({
+          module: "insight",
+          name: "attachment-import-result",
+          extend: JSON.stringify({ success: true, localized: true, kind }),
+        })
       }
       // 展示名/清单名对齐磁盘落地名(sanitize + 撞名后缀以磁盘为准)。三名不一致时,模型可能从
       // extract_document 的路径里抄到磁盘 basename,而插件键表里只有清单名 → 不替换、裸文件名直通 MCP。
@@ -1833,7 +1851,7 @@ function InsightContent() {
       tracker.interaction({
         module: "insight",
         name: "attachment-import-result",
-        extend: JSON.stringify({ success: false, kind: isImageFile(filename) ? "image" : "file" }),
+        extend: JSON.stringify({ success: false, kind, reason: "write-failed" }),
       })
       // 已发起过导入(rawFile 在 filesById):标 retriable=true → chip 显示重试
       setAttachments((prev) =>

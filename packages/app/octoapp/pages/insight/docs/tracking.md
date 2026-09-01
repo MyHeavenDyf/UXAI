@@ -52,7 +52,7 @@
 | name | 触发时机 | extend 字段 | 代码位置 |
 |------|----------|------------|----------|
 | attachment-add | 添加附件（逐个文件，含 picker / 拖拽 / 粘贴） | `method`(picker/drop/paste)、`fileType`、`fileSize` | `index.tsx` `addAttachments` |
-| attachment-import-result | 附件（图片与非图片）导入 worktree 的成败（结果型） | `success`(bool)、`localized`(成功时，是否拿到本地绝对路径)、`kind`("image"/"file") | `index.tsx` `doImport` then/catch |
+| attachment-import-result | 附件（图片与非图片）导入 worktree 的成败（结果型） | `success`(bool)、`localized`(成功时，是否拿到本地绝对路径)、`kind`("image"/"file")、`reason`(失败时:"no-local-path"=环境性降级 / "write-failed"=写入抛错) | `index.tsx` `doImport` |
 | attachment-remove | 移除一个附件 | `stage`(uploaded=已传完 / pending=上传中或失败) | `index.tsx` `removeAttachment` |
 | attachment-retry | 重试导入失败的附件 | — | `index.tsx` `retryUpload` |
 | extract-failure | `extract_document` 本地解析失败（按原因分布，结果型，turn effect 扫 tool parts 派生） | `reason`(error/empty-text) | `index.tsx` turn effect |

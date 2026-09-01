@@ -16,13 +16,7 @@ const UPLOAD_ENDPOINT = import.meta.env.VITE_OCTO_UPLOAD_ENDPOINT ?? ""
 const LOG = "[octo:upload]"
 
 export const MAX_UPLOAD_SIZE = 100 * 1024 * 1024 // Insight 当前 100MB；其他 agent 可自定
-
-/**
- * 图片专用上限（小于总上限）：图片走 base64 落库 / SSE 回传 / 每轮随上下文重发（膨胀 ~33%），
- * 一张大图就是一条巨型字符串，5MB 已覆盖常规截图与照片，超限直接在客户端拒绝。
- */
-export const IMAGE_MAX_SIZE = 5 * 1024 * 1024
-// 入口白名单以「解析/消费能力」为源头（支持格式 SOT 见 SPEC-INS-016 §3.1）：
+ // 入口白名单以「解析/消费能力」为源头（支持格式 SOT 见 SPEC-INS-016 §3.1）：
 // - txt/md → FilePart 内联（路由 ①）；docx/xlsx/pdf/pptx → extract_document 本地抽取（②）+ MCP
 //   按需上传（④）。服务端白名单现为 txt/md/docx/xlsx/pdf（见 file-upload spec），pptx 已请协作
 //   团队跟进；跟进前 pptx 走 ② 正常、走 ④ 会 415 回灌。
@@ -102,14 +96,6 @@ export function validateFile(file: File): UploadError | null {
   const ext = getExt(file.name)
   if (!ALLOWED_EXT.includes(ext as (typeof ALLOWED_EXT)[number])) {
     return new UploadError("EXT_NOT_ALLOWED", `不支持的格式 .${ext || "(无扩展名)"}`)
-  }
-  // 图片专用小上限（见 IMAGE_MAX_SIZE 注释）：必须放在扩展名白名单之后，
-  // 让非白名单扩展名拿到更精准的 EXT_NOT_ALLOWED 文案。
-  if (IMAGE_EXT.has(ext) && file.size > IMAGE_MAX_SIZE) {
-    return new UploadError(
-      "FILE_TOO_LARGE",
-      `图片超过 ${Math.round(IMAGE_MAX_SIZE / 1024 / 1024)}MB 上限，请压缩后重新上传`,
-    )
   }
   return null
 }
