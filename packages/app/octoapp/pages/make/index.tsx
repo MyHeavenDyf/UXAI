@@ -881,6 +881,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const PATTERN_SUB_CHILD_LS = "ict_pattern_child:"
   const PATTERN_SUB_ENDED_LS = "ict_pattern_ended:"
   const PATTERN_SUB_USER_INPUT_LS = "ict_pattern_user_input:"
+  const PATTERN_SUB_STEP_LS = "ict_pattern_step:"
   const [activePatternSessionId, setActivePatternSessionId] = createSignal<string | null>(null)
   const [patternSubParentSessionId, setPatternSubParentSessionId] = createSignal<string | null>(null)
   const [patternSubPhase, setPatternSubPhase] = createSignal<"match" | "module">("match")
@@ -1941,6 +1942,7 @@ const sessionMessagesLoaded = createMemo(() => {
       _patternSubChildCache[sid] = childSession.id
       setPatternSubParentSessionId(sid)
       setPatternSubPhase("match")
+      localStorage.setItem(PATTERN_SUB_STEP_LS + sid, "patterns")
       setPatternMatches(null)
       setPatternBlockMatches([])
       setPatternBlockMatching(false)
@@ -2016,6 +2018,7 @@ const sessionMessagesLoaded = createMemo(() => {
     if (mainSid) {
       localStorage.setItem(PATTERN_SUB_ENDED_LS + mainSid, "true")
       localStorage.removeItem(PATTERN_SUB_USER_INPUT_LS + mainSid)
+      localStorage.removeItem(PATTERN_SUB_STEP_LS + mainSid)
     }
   }
 
@@ -2038,6 +2041,7 @@ const sessionMessagesLoaded = createMemo(() => {
     if (sid) {
       localStorage.setItem(PATTERN_SUB_ENDED_LS + sid, "true")
       localStorage.removeItem(PATTERN_SUB_USER_INPUT_LS + sid)
+      localStorage.removeItem(PATTERN_SUB_STEP_LS + sid)
     }
   }
 
@@ -2167,8 +2171,8 @@ const sessionMessagesLoaded = createMemo(() => {
           // 清理 patternPage 状态
           setActivePatternSessionId(null)
           setPatternSubParentSessionId(null)
-          setPatternSubPhase("match")
-          setPatternMatches(null)
+            setPatternSubPhase("match")
+            setPatternMatches(null)
           setPatternBlockMatches([])
           setPatternBlockMatching(false)
           setPatternBlockMatchError(false)
@@ -3155,6 +3159,7 @@ const sessionMessagesLoaded = createMemo(() => {
             _patternSubChildCache[session.id] = patternChildSession.id
             if (userInput2) localStorage.setItem(PATTERN_SUB_USER_INPUT_LS + session.id, userInput2)
             setPatternSubPhase("match")
+            localStorage.setItem(PATTERN_SUB_STEP_LS + session.id, "patterns")
             setPatternMatches(null)
             await sync.session.sync(patternChildSession.id)
           }
@@ -4477,9 +4482,10 @@ if (dsId) {
                           blockMatches={patternBlockMatches()}
                           blockMatching={patternBlockMatching() || patternChildBusy()}
                           blockMatchError={patternBlockMatchError()}
-                          initialStep={patternSubPhase() === "module" ? "blocks" : "patterns"}
+                          initialStep={(localStorage.getItem(PATTERN_SUB_STEP_LS + (params.id ?? "")) as "patterns" | "blocks" | null) ?? (patternSubPhase() === "module" ? "blocks" : "patterns")}
                           onMatchPattern={handleMatchPattern}
                           onConfirm={handleConfirmPatternPage}
+                          onStepChange={(step) => { const sid = params.id; if (sid) localStorage.setItem(PATTERN_SUB_STEP_LS + sid, step) }}
                         />
                       </div>
                     </Show>
@@ -4788,9 +4794,10 @@ onPreview={(url) => {
                         blockMatches={patternBlockMatches()}
                         blockMatching={patternBlockMatching() || patternChildBusy()}
                         blockMatchError={patternBlockMatchError()}
-                        initialStep={patternSubPhase() === "module" ? "blocks" : "patterns"}
+                        initialStep={(localStorage.getItem(PATTERN_SUB_STEP_LS + (params.id ?? "")) as "patterns" | "blocks" | null) ?? (patternSubPhase() === "module" ? "blocks" : "patterns")}
                         onMatchPattern={handleMatchPattern}
                         onConfirm={handleConfirmPatternPage}
+                        onStepChange={(step) => { const sid = params.id; if (sid) localStorage.setItem(PATTERN_SUB_STEP_LS + sid, step) }}
                       />
                     </div>
                   </Show>

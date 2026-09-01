@@ -16,6 +16,7 @@ export function IntentConfirmCard(props: {
   initialStep?: "patterns" | "blocks"
   onMatchPattern: (selectedItem: IntentConfirmDimension | null) => void
   onConfirm: (answers: IntentConfirmAnswers, enrichedInput: string, selectedBlocks: BlockModuleItem[]) => void
+  onStepChange?: (step: "patterns" | "blocks") => void
 }): JSX.Element {
   // 匹配到的 page pattern 列表
   const hasResults = createMemo(() => props.result.results.length > 0)
@@ -46,6 +47,7 @@ export function IntentConfirmCard(props: {
       }
     }
     props.onMatchPattern(selected)
+    props.onStepChange?.("blocks")
     setStep("blocks")
   }
 
@@ -205,7 +207,7 @@ export function IntentConfirmCard(props: {
         </div>
 
         <div class="ic-card-foot">
-          <button class="ic-card-next-btn" onClick={() => setStep("patterns")} disabled={props.blockMatching}>
+          <button class="ic-card-next-btn" onClick={() => { props.onStepChange?.("patterns"); setStep("patterns") }} disabled={props.blockMatching}>
             上一步
           </button>
           <button class="ic-card-next-btn" onClick={handleRetryBlockMatch} disabled={props.blockMatching}>
