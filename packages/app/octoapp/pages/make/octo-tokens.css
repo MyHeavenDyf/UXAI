@@ -691,6 +691,7 @@ button[title="版本历史"] {
 .make-context-warning-wrap {
   display: flex;
   justify-content: center;
+  width: 100%;
   padding-bottom: 16px;
 }
 
@@ -700,8 +701,8 @@ button[title="版本历史"] {
   flex: none;
   flex-direction: column;
   gap: 16px;
-  width: 326px;
-  height: 206px;
+  width: 100%;
+  min-height: 206px;
   padding: 20px 24px 24px;
   border-radius: 12px;
   background: #fff;
@@ -732,7 +733,7 @@ button[title="版本历史"] {
 }
 
 .make-context-warning-copy {
-  height: 66px;
+  min-height: 66px;
   margin: 0;
   font-size: 14px;
   font-weight: 400;
@@ -781,8 +782,8 @@ button[title="版本历史"] {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  width: 326px;
-  height: 90px;
+  width: 100%;
+  min-height: 90px;
   padding: 12px 16px;
   border-radius: 8px;
   background: #fee7e8;
@@ -802,7 +803,8 @@ button[title="版本历史"] {
 }
 
 .make-context-limit-warning p {
-  width: 272px;
+  min-width: 0;
+  flex: 1;
   margin: 0;
 }
 
