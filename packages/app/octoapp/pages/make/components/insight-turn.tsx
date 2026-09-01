@@ -74,6 +74,33 @@ export function MakeErrorNotice(props: { title?: JSX.Element; children?: JSX.Ele
   )
 }
 
+export function ContextOverflowNotice(props: {
+  tokens: number
+  limit: number
+  locale: string
+  class?: string
+  disabled?: boolean
+  onCompact?: () => void
+}) {
+  return (
+    <MakeErrorNotice class={props.class}>
+      当前对话 Session 上下文已超过100% ({props.tokens.toLocaleString(props.locale)} / {props.limit.toLocaleString(props.locale)})。
+      <br />
+      请进行
+      <button
+        type="button"
+        class="border-0 bg-transparent p-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+        style={{ color: "#0a59f7", font: "inherit" }}
+        disabled={props.disabled}
+        onClick={props.onCompact}
+      >
+        上下文压缩
+      </button>
+      ，或新建对话。
+    </MakeErrorNotice>
+  )
+}
+
 // 跟踪已 autoSave 的 artifact（避免重复调用）
 const autoSavedArtifacts = new Set<string>()
 
@@ -633,6 +660,11 @@ export function InsightTurn(props: {
   onFilesRefresh?: () => void
   skillToolCalls?: ToolCallInfo[]
   skillConfig?: import("./skill-config-types").SkillConfig
+  contextTokens?: number
+  contextLimit?: number
+  contextLocale?: string
+  contextCompactionDisabled?: boolean
+  onCompactContext?: () => void
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
@@ -1504,20 +1536,36 @@ const stateStatus = state.status as string | undefined
 
       {/* 错误提示 */}
       <Show when={assistantError()}>
-        <MakeErrorNotice
-          class="mx-3"
-          title={
-            assistantError()!.name === "ProviderAuthError"
-              ? "认证失败"
-              : assistantError()!.name === "ContextOverflowError"
-                ? "当前对话上下文已达上限"
-                : "生成出错"
+        <Show
+          when={assistantError()!.name === "ContextOverflowError" && props.contextLimit}
+          fallback={
+            <MakeErrorNotice
+              class="mx-3"
+              title={
+                assistantError()!.name === "ProviderAuthError"
+                  ? "认证失败"
+                  : assistantError()!.name === "ContextOverflowError"
+                    ? "当前对话上下文已达上限"
+                    : "生成出错"
+              }
+            >
+              <Show when={assistantError()!.message}>
+                <div style={{ "user-select": "text" }}>{assistantError()!.message}</div>
+              </Show>
+            </MakeErrorNotice>
           }
         >
-          <Show when={assistantError()!.message}>
-            <div style={{ "user-select": "text" }}>{assistantError()!.message}</div>
-          </Show>
-        </MakeErrorNotice>
+          {(limit) => (
+            <ContextOverflowNotice
+              class="mx-3"
+              tokens={props.contextTokens ?? limit()}
+              limit={limit()}
+              locale={props.contextLocale ?? "zh-CN"}
+              disabled={props.contextCompactionDisabled}
+              onCompact={props.onCompactContext}
+            />
+          )}
+        </Show>
       </Show>
 
       {/* 输出卡片（生成完成后，支持多个） */}
