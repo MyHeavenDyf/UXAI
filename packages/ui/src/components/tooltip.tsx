@@ -1,5 +1,5 @@
 import { Tooltip as KobalteTooltip } from "@kobalte/core/tooltip"
-import { createEffect, Match, onCleanup, splitProps, Switch, type JSX } from "solid-js"
+import { createEffect, Match, onCleanup, Show, splitProps, Switch, type JSX } from "solid-js"
 import type { ComponentProps } from "solid-js"
 import { createStore } from "solid-js/store"
 
@@ -10,6 +10,8 @@ export interface TooltipProps extends ComponentProps<typeof KobalteTooltip> {
   contentStyle?: JSX.CSSProperties
   inactive?: boolean
   forceOpen?: boolean
+  arrow?: boolean
+  interactive?: boolean
 }
 
 export interface TooltipKeybindProps extends Omit<TooltipProps, "value"> {
@@ -46,6 +48,8 @@ export function Tooltip(props: TooltipProps) {
     "contentStyle",
     "inactive",
     "forceOpen",
+    "arrow",
+    "interactive",
     "ignoreSafeArea",
     "value",
   ])
@@ -110,8 +114,8 @@ export function Tooltip(props: TooltipProps) {
         <KobalteTooltip
           gutter={4}
           {...others}
-          closeDelay={0}
-          ignoreSafeArea={local.ignoreSafeArea ?? true}
+          closeDelay={local.interactive ? 150 : 0}
+          ignoreSafeArea={local.ignoreSafeArea ?? !local.interactive}
           open={local.forceOpen || state.open}
           onOpenChange={(open) => {
             if (local.forceOpen) return
@@ -130,7 +134,7 @@ export function Tooltip(props: TooltipProps) {
               arm()
             }}
             onPointerEnter={() => { preventClear = false }}
-            onPointerLeave={leave}
+            onPointerLeave={local.interactive ? undefined : leave}
             onFocusOut={() => requestAnimationFrame(() => drop())}
           >
             {local.children}
@@ -140,6 +144,7 @@ export function Tooltip(props: TooltipProps) {
               data-component="tooltip"
               data-placement={props.placement}
               data-force-open={local.forceOpen}
+              data-interactive={local.interactive}
               class={local.contentClass}
               style={local.contentStyle}
               onPointerDownOutside={(e) => {
@@ -147,7 +152,9 @@ export function Tooltip(props: TooltipProps) {
               }}
             >
               {local.value}
-              {/* <KobalteTooltip.Arrow data-slot="tooltip-arrow" /> */}
+              <Show when={local.arrow}>
+                <KobalteTooltip.Arrow data-slot="tooltip-arrow" size={18} />
+              </Show>
             </KobalteTooltip.Content>
           </KobalteTooltip.Portal>
         </KobalteTooltip>

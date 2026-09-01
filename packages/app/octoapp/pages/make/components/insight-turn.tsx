@@ -45,6 +45,62 @@ function renderMentionText(text: string): JSX.Element {
   )
 }
 
+export function MakeErrorNotice(props: { title?: JSX.Element; children?: JSX.Element; class?: string }) {
+  return (
+    <div
+      role="alert"
+      class={`px-4 py-3 ${props.class ?? ""}`}
+      style={{
+        "border-radius": "8px",
+        background: "rgba(254, 231, 232, 1)",
+        color: "#191919",
+        "font-size": "14px",
+        "line-height": "22px",
+      }}
+    >
+      <div class="flex items-start gap-2">
+        <svg viewBox="0 0 14 14" width="14" height="14" fill="none" class="mt-1 shrink-0" aria-hidden="true">
+          <path d="M5.79 2.1a1.4 1.4 0 0 1 2.42 0l4.24 7.35a1.4 1.4 0 0 1-1.21 2.1H2.76a1.4 1.4 0 0 1-1.21-2.1L5.79 2.1Z" fill="#E02128" />
+          <path d="M7 4.3v3.15M7 9.38v.17" stroke="white" stroke-width="1.05" stroke-linecap="round" />
+        </svg>
+        <div class="min-w-0 flex-1">
+          <Show when={props.title}>
+            <div class="font-medium">{props.title}</div>
+          </Show>
+          {props.children}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function ContextOverflowNotice(props: {
+  tokens: number
+  limit: number
+  locale: string
+  class?: string
+  disabled?: boolean
+  onCompact?: () => void
+}) {
+  return (
+    <MakeErrorNotice class={props.class}>
+      当前对话 Session 上下文已超过100% ({props.tokens.toLocaleString(props.locale)} / {props.limit.toLocaleString(props.locale)})。
+      <br />
+      请进行
+      <button
+        type="button"
+        class="border-0 bg-transparent p-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+        style={{ color: "#0a59f7", font: "inherit" }}
+        disabled={props.disabled}
+        onClick={props.onCompact}
+      >
+        上下文压缩
+      </button>
+      ，或新建对话。
+    </MakeErrorNotice>
+  )
+}
+
 // 跟踪已 autoSave 的 artifact（避免重复调用）
 const autoSavedArtifacts = new Set<string>()
 
@@ -604,6 +660,11 @@ export function InsightTurn(props: {
   onFilesRefresh?: () => void
   skillToolCalls?: ToolCallInfo[]
   skillConfig?: import("./skill-config-types").SkillConfig
+  contextTokens?: number
+  contextLimit?: number
+  contextLocale?: string
+  contextCompactionDisabled?: boolean
+  onCompactContext?: () => void
 }): JSX.Element {
   const data = useData()
   const i18n = useI18n()
@@ -1475,29 +1536,36 @@ const stateStatus = state.status as string | undefined
 
       {/* 错误提示 */}
       <Show when={assistantError()}>
-        <div
-          class="mx-3 px-4 py-3 text-xs leading-relaxed"
-          style={{
-            "border-radius": "8px",
-            background: "rgba(254, 231, 232, 1)",
-            color: "#191919",
-          }}
+        <Show
+          when={assistantError()!.name === "ContextOverflowError" && props.contextLimit}
+          fallback={
+            <MakeErrorNotice
+              class="mx-3"
+              title={
+                assistantError()!.name === "ProviderAuthError"
+                  ? "认证失败"
+                  : assistantError()!.name === "ContextOverflowError"
+                    ? "当前对话上下文已达上限"
+                    : "生成出错"
+              }
+            >
+              <Show when={assistantError()!.message}>
+                <div style={{ "user-select": "text" }}>{assistantError()!.message}</div>
+              </Show>
+            </MakeErrorNotice>
+          }
         >
-          <div class="flex items-center gap-2 mb-1 font-size-[14px]">
-            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 14 14" width="14.000000" height="14.000000" fill="none">
-              <rect id="高危_面性_镂空" width="14.000000" height="14.000000" x="0.000000" y="0.000000"/>
-              <path id="path" d="M0.319885 10.3644L5.32281 1.69897C5.42523 1.52173 5.5484 1.36713 5.69232 1.23517C5.80209 1.13458 5.92392 1.04714 6.0578 0.972961C6.19095 0.899151 6.3288 0.842205 6.47137 0.802124C6.64093 0.754517 6.81708 0.730713 6.99994 0.730713C7.33673 0.730713 7.65082 0.811462 7.9422 0.972961C8.25165 1.14453 8.49664 1.38654 8.67706 1.69897L13.68 10.3644C13.8604 10.6768 13.9474 11.01 13.9413 11.3638C13.9355 11.6969 13.8483 12.0093 13.68 12.3009C13.5117 12.5925 13.2846 12.8242 12.9991 12.9957C12.8679 13.0746 12.7313 13.1364 12.5893 13.1812C12.4031 13.2398 12.2076 13.2692 12.0029 13.2692L1.99701 13.2692C1.79233 13.2692 1.59695 13.2398 1.41083 13.1812C1.26898 13.1365 1.13199 13.0745 1.00079 12.9957C0.715271 12.8242 0.48822 12.5925 0.319885 12.3009C0.15155 12.0093 0.0643921 11.6969 0.0586548 11.3638C0.0524292 11.01 0.139465 10.6768 0.319885 10.3644ZM6.99994 3.80017C7.27997 3.80017 7.49994 4.02014 7.49994 4.30017L7.49994 8.38342C7.49994 8.66342 7.27997 8.88342 6.99994 8.88342C6.71991 8.88342 6.49994 8.66342 6.49994 8.38342L6.49994 4.30017C6.49994 4.02014 6.71991 3.80017 6.99994 3.80017ZM6.41656 10.0461C6.41656 9.72397 6.6778 9.46277 6.99994 9.46277C7.32208 9.46277 7.58331 9.72397 7.58331 10.0461C7.58331 10.3683 7.32208 10.6295 6.99994 10.6295C6.6778 10.6295 6.41656 10.3683 6.41656 10.0461Z" fill="rgb(224,33,40)" fill-rule="evenodd"/>
-            </svg>
-            {assistantError()!.name === "ProviderAuthError"
-              ? "认证失败"
-              : assistantError()!.name === "ContextOverflowError"
-                ? "当前对话上下文已达上限"
-                : "生成出错"}
-          </div>
-          <Show when={assistantError()!.message}>
-            <div style={{ "user-select": "text",  "padding-left": "22px"}}>{assistantError()!.message}</div>
-          </Show>
-        </div>
+          {(limit) => (
+            <ContextOverflowNotice
+              class="mx-3"
+              tokens={props.contextTokens ?? limit()}
+              limit={limit()}
+              locale={props.contextLocale ?? "zh-CN"}
+              disabled={props.contextCompactionDisabled}
+              onCompact={props.onCompactContext}
+            />
+          )}
+        </Show>
       </Show>
 
       {/* 输出卡片（生成完成后，支持多个） */}

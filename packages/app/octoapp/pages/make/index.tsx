@@ -69,7 +69,7 @@ import { DialogPreviewUnavailable } from "./components/dialog-preview-unavailabl
 import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
 import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, UploadError } from "../insight/lib/upload"
-import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
+import { ContextOverflowNotice, InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
 import { type ToolCallInfo, toolFamily } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
@@ -83,7 +83,12 @@ import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
 import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
-import { ProgressCircle } from "@opencode-ai/ui/progress-circle"
+import { ContextUsageCircle } from "@/components/context-usage-circle"
+import {
+  ContextUsageWarning,
+  isContextAtLimit,
+  shouldShowContextWarning,
+} from "@/components/context-usage-warning"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
@@ -1074,6 +1079,14 @@ const sessionMessagesLoaded = createMemo(() => {
     const limit = contextLimit()
     return limit ? Math.round((contextTokens() / limit) * 100) : 0
   })
+  const [ignoredContextWarningSession, setIgnoredContextWarningSession] = createSignal<string>()
+  const contextSendBlocked = createMemo(() => isContextAtLimit(contextTokens(), contextLimit(), params.id))
+
+  createEffect(() => {
+    if (contextUsage() >= 80) return
+    if (ignoredContextWarningSession() !== params.id) return
+    setIgnoredContextWarningSession(undefined)
+  })
 
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
@@ -1089,6 +1102,11 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const effectiveBusy = createMemo(() => isBusy() || childBusy())
+  const contextWarningVisible = createMemo(
+    () =>
+      !contextSendBlocked() &&
+      shouldShowContextWarning(contextUsage(), params.id, ignoredContextWarningSession(), effectiveBusy()),
+  )
   const [contextCompacting, setContextCompacting] = createSignal(false)
   const contextCompactionDisabled = createMemo(() => effectiveBusy() || contextCompacting())
 
@@ -2777,6 +2795,15 @@ const sessionMessagesLoaded = createMemo(() => {
       mentions = proseMirrorRef1?.getMentions?.() || []
     }
     
+    if (contextSendBlocked()) {
+      showOctoToast({
+        title: "上下文已达到上限",
+        description: "请先压缩上下文，或新建对话。",
+        variant: "error",
+      })
+      return
+    }
+
     // 注入 specSelector 的 skill
     const specName = selectedSpecName()
     const specDisplay = selectedSpecDisplay()
@@ -4057,22 +4084,38 @@ if (dsId) {
                   </Show>
                   <Show when={!titleState.editing && params.id}>
                     <Tooltip
-                      placement="bottom"
+                      placement="top"
                       gutter={8}
+                      arrow
+                      interactive
                       contentClass="make-token-tooltip"
                       value={
-                        <div class="flex flex-col">
-                          <span>
-                            当前session已使用： {contextTokens().toLocaleString(language.intl())} /{" "}
-                            {contextLimit()?.toLocaleString(language.intl()) ?? "--"} 个token
-                          </span>
-                          <span>
-                            {contextCompacting()
-                              ? "正在压缩上下文…"
-                              : effectiveBusy()
-                                ? "对话进行中，暂不可压缩"
-                                : "点击压缩上下文"}
-                          </span>
+                        <div class="make-token-tooltip-copy">
+                          <p>
+                            当前对话 Session 上下文
+                            {contextSendBlocked()
+                              ? "已超过100%"
+                              : contextUsage() >= 80
+                                ? "已超过80%"
+                                : `已使用${contextUsage()}%`}{" "}
+                            (
+                            <span classList={{ "is-critical": contextUsage() >= 80 }}>
+                              {contextTokens().toLocaleString(language.intl())}
+                            </span>{" "}
+                            / {contextLimit()?.toLocaleString(language.intl()) ?? "--"})，
+                          </p>
+                          <p>
+                            建议点击“
+                            <button
+                              type="button"
+                              class="make-token-tooltip-action"
+                              disabled={contextCompactionDisabled()}
+                              onClick={confirmCompactContext}
+                            >
+                              上下文压缩
+                            </button>
+                            ”以继续对话。
+                          </p>
                         </div>
                       }
                     >
@@ -4084,7 +4127,6 @@ if (dsId) {
                           "cursor-not-allowed": contextCompactionDisabled(),
                         }}
                         style={{
-                          "--border-active": "var(--octo-brand)",
                           "--border-weak-base": "rgba(0,0,0,0.1)",
                           background: "transparent",
                           border: "none",
@@ -4094,7 +4136,7 @@ if (dsId) {
                         onClick={confirmCompactContext}
                         aria-label={`上下文已使用 ${contextUsage()}%，点击压缩上下文`}
                       >
-                        <ProgressCircle size={16} strokeWidth={2} percentage={contextUsage()} />
+                        <ContextUsageCircle percentage={contextUsage()} />
                       </button>
                     </Tooltip>
                   </Show>
@@ -4338,8 +4380,14 @@ onPreview={(url) => {
                          icon={effectiveBusy() ? "stop" : "arrow-up"}
                          class="size-8 flex-shrink-0"
                          onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
-                         disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
-                         aria-label={effectiveBusy() ? "停止生成" : undefined}
+                         disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled() || contextSendBlocked())}
+                         aria-label={
+                           effectiveBusy()
+                             ? "停止生成"
+                             : contextSendBlocked()
+                               ? "上下文已达到上限，请先压缩上下文"
+                               : undefined
+                         }
 />
                     </div>
                    </div>
@@ -4407,6 +4455,11 @@ onPreview={(url) => {
                         }}
                         skillToolCalls={skillToolCalls()}
                         skillConfig={skillConfig()}
+                        contextTokens={contextTokens()}
+                        contextLimit={contextLimit()}
+                        contextLocale={language.intl()}
+                        contextCompactionDisabled={contextCompactionDisabled()}
+                        onCompactContext={confirmCompactContext}
                       />
                     </Show>
                     <For each={userMessages().slice(1)}>
@@ -4435,6 +4488,11 @@ onPreview={(url) => {
                             }}
                             skillToolCalls={skillToolCalls()}
                             skillConfig={skillConfig()}
+                            contextTokens={contextTokens()}
+                            contextLimit={contextLimit()}
+                            contextLocale={language.intl()}
+                            contextCompactionDisabled={contextCompactionDisabled()}
+                            onCompactContext={confirmCompactContext}
                           />
                         )
                       }}
@@ -4452,6 +4510,37 @@ onPreview={(url) => {
 
               {/* 输入区 */}
               <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
+
+                  <Show when={contextSendBlocked() && contextLimit()}>
+                    {(limit) => (
+                      <div class="make-context-warning-wrap">
+                        <ContextOverflowNotice
+                          class="w-full"
+                          tokens={contextTokens()}
+                          limit={limit()}
+                          locale={language.intl()}
+                          disabled={contextCompactionDisabled()}
+                          onCompact={confirmCompactContext}
+                        />
+                      </div>
+                    )}
+                  </Show>
+
+                  <Show when={contextWarningVisible() && contextLimit()}>
+                    {(limit) => (
+                      <div class="make-context-warning-wrap">
+                        <ContextUsageWarning
+                          tokens={contextTokens()}
+                          limit={limit()}
+                          locale={language.intl()}
+                          disabled={contextCompactionDisabled()}
+                          compacting={contextCompacting()}
+                          onIgnore={() => setIgnoredContextWarningSession(params.id)}
+                          onCompact={confirmCompactContext}
+                        />
+                      </div>
+                    )}
+                  </Show>
 
                   {/* Plan entry banner - AddonMenu 进入设计策略模式时的确认弹窗 */}
                   <Show when={showPlanConfirm() && !optimisticIntentResolved()}>
@@ -4650,8 +4739,14 @@ onPreview={(url) => {
                        variant="primary"
                        class="size-8 flex-shrink-0"
                        onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
-                       disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
-                       aria-label={effectiveBusy() ? "停止生成" : undefined}
+                       disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled() || contextSendBlocked())}
+                       aria-label={
+                         effectiveBusy()
+                           ? "停止生成"
+                           : contextSendBlocked()
+                             ? "上下文已达到上限，请先压缩上下文"
+                             : undefined
+                       }
                      />
                   </div>
                 </div>
