@@ -683,9 +683,19 @@ button[title="版本历史"] {
   color: #e02128;
 }
 
-.make-token-tooltip-copy strong {
+.make-token-tooltip-action {
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: #0a59f7;
+  cursor: pointer;
+  font: inherit;
   font-weight: 500;
+}
+
+.make-token-tooltip-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .make-context-warning-wrap {

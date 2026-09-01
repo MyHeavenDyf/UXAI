@@ -11,6 +11,7 @@ export interface TooltipProps extends ComponentProps<typeof KobalteTooltip> {
   inactive?: boolean
   forceOpen?: boolean
   arrow?: boolean
+  interactive?: boolean
 }
 
 export interface TooltipKeybindProps extends Omit<TooltipProps, "value"> {
@@ -48,6 +49,7 @@ export function Tooltip(props: TooltipProps) {
     "inactive",
     "forceOpen",
     "arrow",
+    "interactive",
     "ignoreSafeArea",
     "value",
   ])
@@ -112,8 +114,8 @@ export function Tooltip(props: TooltipProps) {
         <KobalteTooltip
           gutter={4}
           {...others}
-          closeDelay={0}
-          ignoreSafeArea={local.ignoreSafeArea ?? true}
+          closeDelay={local.interactive ? 150 : 0}
+          ignoreSafeArea={local.ignoreSafeArea ?? !local.interactive}
           open={local.forceOpen || state.open}
           onOpenChange={(open) => {
             if (local.forceOpen) return
@@ -132,7 +134,7 @@ export function Tooltip(props: TooltipProps) {
               arm()
             }}
             onPointerEnter={() => { preventClear = false }}
-            onPointerLeave={leave}
+            onPointerLeave={local.interactive ? undefined : leave}
             onFocusOut={() => requestAnimationFrame(() => drop())}
           >
             {local.children}
@@ -142,6 +144,7 @@ export function Tooltip(props: TooltipProps) {
               data-component="tooltip"
               data-placement={props.placement}
               data-force-open={local.forceOpen}
+              data-interactive={local.interactive}
               class={local.contentClass}
               style={local.contentStyle}
               onPointerDownOutside={(e) => {

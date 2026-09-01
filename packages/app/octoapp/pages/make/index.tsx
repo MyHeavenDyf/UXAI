@@ -4087,6 +4087,7 @@ if (dsId) {
                       placement="top"
                       gutter={8}
                       arrow
+                      interactive
                       contentClass="make-token-tooltip"
                       value={
                         <div class="make-token-tooltip-copy">
@@ -4104,7 +4105,16 @@ if (dsId) {
                             / {contextLimit()?.toLocaleString(language.intl()) ?? "--"})，
                           </p>
                           <p>
-                            建议点击“<strong>上下文压缩</strong>”以继续对话。
+                            建议点击“
+                            <button
+                              type="button"
+                              class="make-token-tooltip-action"
+                              disabled={contextCompactionDisabled()}
+                              onClick={confirmCompactContext}
+                            >
+                              上下文压缩
+                            </button>
+                            ”以继续对话。
                           </p>
                         </div>
                       }
