@@ -8,7 +8,7 @@ import { Config } from "@/config/config"
 import { Agent } from "../../src/agent/agent"
 import { LLM } from "../../src/session/llm"
 import { SessionCompaction } from "../../src/session/compaction"
-import { exceedsContext, preflight } from "../../src/session/overflow"
+import { exceedsContext, exceedsSafeContext, preflight } from "../../src/session/overflow"
 import { Token } from "@/util/token"
 import { Instance } from "../../src/project/instance"
 import { WithInstance } from "../../src/project/with-instance"
@@ -634,6 +634,21 @@ describe("session.overflow.exceedsContext", () => {
     const model = createModel({ context: 200, input: 100, output: 20 })
 
     expect(exceedsContext({ model, input: 100 })).toBe(true)
+  })
+})
+
+describe("session.overflow.exceedsSafeContext", () => {
+  test("reserves ten percent for tokenizer estimation differences", () => {
+    const model = createModel({ context: 100, output: 20 })
+
+    expect(exceedsSafeContext({ model, input: 89 })).toBe(false)
+    expect(exceedsSafeContext({ model, input: 90 })).toBe(true)
+  })
+
+  test("uses the model input limit when present", () => {
+    const model = createModel({ context: 200, input: 100, output: 20 })
+
+    expect(exceedsSafeContext({ model, input: 90 })).toBe(true)
   })
 })
 

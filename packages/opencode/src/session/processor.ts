@@ -11,8 +11,8 @@ import { LLM } from "./llm"
 import { MessageV2 } from "./message-v2"
 import {
   AUTOMATIC_COMPACTION_ENABLED,
-  CONTEXT_OVERFLOW_MESSAGE,
-  exceedsContext,
+  REQUEST_TOO_LARGE_MESSAGE,
+  exceedsSafeContext,
   isOverflow,
   preflight,
   usable,
@@ -85,6 +85,7 @@ interface ProcessorContext extends Input {
   reasoningMap: Record<string, MessageV2.ReasoningPart>
   estimatedInputTokens: number
   estimatedOutputChars: number
+  userMessageID: MessageV2.User["id"] | undefined
 }
 
 type StreamEvent = Event
@@ -137,6 +138,7 @@ export const layer: Layer.Layer<
         reasoningMap: {},
         estimatedInputTokens: 0,
         estimatedOutputChars: 0,
+        userMessageID: undefined,
       }
       let aborted = false
       const slog = log.clone().tag("session.id", input.sessionID).tag("messageID", input.assistantMessage.id)
@@ -146,6 +148,29 @@ export const layer: Layer.Layer<
           providerID: input.model.providerID,
           aborted,
         })
+
+      const excludeRejectedUserInput = Effect.fn("SessionProcessor.excludeRejectedUserInput")(function* (
+        messageID: MessageV2.User["id"],
+      ) {
+        const rejected = (yield* session.messages({ sessionID: ctx.sessionID })).find(
+          (message) => message.info.id === messageID,
+        )
+        yield* Effect.forEach(
+          rejected?.parts ?? [],
+          (part) => {
+            if (part.type === "text") return session.updatePart({ ...part, ignored: true })
+            if (part.type === "file") {
+              return session.removePart({
+                sessionID: part.sessionID,
+                messageID: part.messageID,
+                partID: part.id,
+              })
+            }
+            return Effect.void
+          },
+          { concurrency: "unbounded" },
+        )
+      })
 
       const settleToolCall = Effect.fn("SessionProcessor.settleToolCall")(function* (toolCallID: string) {
         const done = ctx.toolcalls[toolCallID]?.done
@@ -477,10 +502,6 @@ export const layer: Layer.Layer<
             })
             const contextTokens = usage.tokens.input + usage.tokens.cache.read + usage.tokens.cache.write
             const contextLimit = ctx.model.limit.input ?? ctx.model.limit.context
-            const contextExceeded =
-              !AUTOMATIC_COMPACTION_ENABLED &&
-              !ctx.assistantMessage.summary &&
-              exceedsContext({ model: ctx.model, input: contextTokens })
             slog.info("context usage", {
               providerID: ctx.model.providerID,
               modelID: ctx.model.id,
@@ -501,14 +522,9 @@ export const layer: Layer.Layer<
                 timestamp: DateTime.makeUnsafe(Date.now()),
               })
             }
-            ctx.assistantMessage.finish = contextExceeded ? "error" : value.finishReason
+            ctx.assistantMessage.finish = value.finishReason
             ctx.assistantMessage.cost += usage.cost
             ctx.assistantMessage.tokens = usage.tokens
-            if (contextExceeded) {
-              ctx.assistantMessage.error = new MessageV2.ContextOverflowError({
-                message: CONTEXT_OVERFLOW_MESSAGE,
-              }).toObject()
-            }
             yield* session.updatePart({
               id: PartID.ascending(),
               reason: value.finishReason,
@@ -520,12 +536,6 @@ export const layer: Layer.Layer<
               cost: usage.cost,
             })
             yield* session.updateMessage(ctx.assistantMessage)
-            if (contextExceeded) {
-              yield* bus.publish(Session.Event.Error, {
-                sessionID: ctx.sessionID,
-                error: ctx.assistantMessage.error!,
-              })
-            }
             if (ctx.snapshot) {
               const patch = yield* snapshot.patch(ctx.snapshot)
               if (patch.files.length) {
@@ -699,9 +709,10 @@ export const layer: Layer.Layer<
             return
           }
           ctx.assistantMessage.error = new MessageV2.ContextOverflowError({
-            message: CONTEXT_OVERFLOW_MESSAGE,
+            message: REQUEST_TOO_LARGE_MESSAGE,
           }).toObject()
           ctx.assistantMessage.finish = "error"
+          if (ctx.userMessageID) yield* excludeRejectedUserInput(ctx.userMessageID)
           yield* bus.publish(Session.Event.Error, {
             sessionID: ctx.sessionID,
             error: ctx.assistantMessage.error,
@@ -731,6 +742,7 @@ export const layer: Layer.Layer<
       const process = Effect.fn("SessionProcessor.process")(function* (streamInput: LLM.StreamInput) {
         slog.info("process")
         ctx.needsCompaction = false
+        ctx.userMessageID = streamInput.user.id
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
         ctx.estimatedInputTokens = Token.estimateValue([streamInput.system, streamInput.messages, streamInput.tools])
         ctx.estimatedOutputChars = 0
@@ -741,7 +753,7 @@ export const layer: Layer.Layer<
         const preflightResult = ctx.assistantMessage.summary
           ? "send"
           : !AUTOMATIC_COMPACTION_ENABLED
-            ? exceedsContext({ model: ctx.model, input: ctx.estimatedInputTokens })
+            ? exceedsSafeContext({ model: ctx.model, input: ctx.estimatedInputTokens })
               ? "reject"
               : "send"
             : preflight({
@@ -765,12 +777,13 @@ export const layer: Layer.Layer<
               if (preflightResult === "reject") {
                 ctx.assistantMessage.error = new MessageV2.ContextOverflowError({
                   message: !AUTOMATIC_COMPACTION_ENABLED
-                    ? CONTEXT_OVERFLOW_MESSAGE
+                    ? REQUEST_TOO_LARGE_MESSAGE
                     : streamInput.compactionAttempted
                       ? `The conversation is still too large for this model after one compaction attempt. Estimated ${ctx.estimatedInputTokens} input tokens with ${available} usable tokens. Start a new session or reduce the attached content and try again.`
                       : `The current request is too large to fit this model even after compacting conversation history. Estimated ${unavoidableInputTokens} input tokens with ${available} usable tokens. Reduce or split the attached files and try again.`,
                 }).toObject()
                 ctx.assistantMessage.finish = "error"
+                yield* excludeRejectedUserInput(streamInput.user.id)
                 yield* session.updateMessage(ctx.assistantMessage)
                 yield* bus.publish(Session.Event.Error, {
                   sessionID: ctx.sessionID,

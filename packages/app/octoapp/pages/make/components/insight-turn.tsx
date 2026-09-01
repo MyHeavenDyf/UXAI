@@ -1510,7 +1510,7 @@ const stateStatus = state.status as string | undefined
             assistantError()!.name === "ProviderAuthError"
               ? "认证失败"
               : assistantError()!.name === "ContextOverflowError"
-                ? "当前对话上下文已达上限"
+                ? "本次发送内容过多"
                 : "生成出错"
           }
         >
