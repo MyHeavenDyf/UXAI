@@ -54,7 +54,25 @@ export type StudioPendingResult = StudioGenerationResult & {
 export type StudioHDMode = "restoration_8k" | "restoration" | "super_resolution"
 export type StudioInpaintMode = "qwen_image_edit" | "erase"
 export type StudioVideoDuration = string
-export type StudioVideoQualityMode = "std" | "pro"
+export type StudioVideoQualityMode = "480" | "720" | "1080" | "4k"
+export const STUDIO_VIDEO_RESOLUTION: Record<StudioVideoQualityMode, string> = {
+  "480": "480p",
+  "720": "720p",
+  "1080": "1080p",
+  "4k": "4k",
+}
+export const STUDIO_VIDEO_MODE: Record<StudioVideoQualityMode, "std" | "pro"> = {
+  "480": "std",
+  "720": "pro",
+  "1080": "pro",
+  "4k": "pro",
+}
+export const STUDIO_VIDEO_RESOLUTION_KEY: Record<string, StudioVideoQualityMode> = {
+  "480p": "480",
+  "720p": "720",
+  "1080p": "1080",
+  "4k": "4k",
+}
 export type StudioVideoFrameSlot = "first" | "last"
 export type StudioVideoMode = "all-reference" | "first-last-frame" | "ultra-long"
 
@@ -64,7 +82,7 @@ export const STUDIO_HD_MODES = [
   { label: "2k性能", value: "super_resolution" },
 ] satisfies { label: string; value: StudioHDMode }[]
 
-export const STUDIO_VIDEO_ASPECT_RATIOS = ["1:1", "9:16", "16:9"] as const
+export const STUDIO_VIDEO_ASPECT_RATIOS = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const
 
 export const STUDIO_VIDEO_MODES = [
   { label: "全能参考", value: "all-reference" },
