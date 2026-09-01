@@ -1970,7 +1970,17 @@ const sessionMessagesLoaded = createMemo(() => {
     let pageSpecMd = ""
     if (selectedItem?.file) {
       const mdResult = await readPagePatternMd(selectedItem.file)
-      if (mdResult.success && mdResult.content) pageSpecMd = mdResult.content
+      if (mdResult.success && mdResult.content) {
+        // 输入完整数据
+        const sepIdx = mdResult.content.indexOf('\n---\n');
+        if(sepIdx === -1) {
+          pageSpecMd = mdResult.content
+        } else {
+          const firstPart = mdResult.content.slice(0, sepIdx + 5);
+          const rest = mdResult.content.slice(sepIdx + 5);
+          pageSpecMd = firstPart + rest.replaceAll('\n---\n', '')
+        }
+      } 
     }
     const ui = patternUserInput() || selectedItem?.name || ""
     const prompt = `[模块匹配]\n\nPattern: ${selectedItem?.name ?? ""} (ID: ${selectedItem?.id ?? ""})\n\n【1.典型页面规范】\n${pageSpecMd || "（未获取到页面规范，请基于 Pattern 名称自行推演）"}\n\n【2.用户业务需求描述】\n${ui}`
@@ -2171,8 +2181,8 @@ const sessionMessagesLoaded = createMemo(() => {
           // 清理 patternPage 状态
           setActivePatternSessionId(null)
           setPatternSubParentSessionId(null)
-            setPatternSubPhase("match")
-            setPatternMatches(null)
+          setPatternSubPhase("match")
+          setPatternMatches(null)
           setPatternBlockMatches([])
           setPatternBlockMatching(false)
           setPatternBlockMatchError(false)
@@ -3159,7 +3169,6 @@ const sessionMessagesLoaded = createMemo(() => {
             _patternSubChildCache[session.id] = patternChildSession.id
             if (userInput2) localStorage.setItem(PATTERN_SUB_USER_INPUT_LS + session.id, userInput2)
             setPatternSubPhase("match")
-            localStorage.setItem(PATTERN_SUB_STEP_LS + session.id, "patterns")
             setPatternMatches(null)
             await sync.session.sync(patternChildSession.id)
           }
