@@ -7,7 +7,7 @@ type PickerPaths = string | string[] | null
 type OpenDirectoryPickerOptions = { title?: string; multiple?: boolean; defaultPath?: string }
 type OpenFilePickerOptions = { title?: string; multiple?: boolean; accept?: string[]; extensions?: string[] }
 type SaveFilePickerOptions = { title?: string; defaultPath?: string }
-type UpdateInfo = { updateAvailable: boolean; version?: string }
+type UpdateInfo = { updateAvailable: boolean; version?: string; releaseNotes?: string }
 
 export type Platform = {
   /** Platform discriminator */

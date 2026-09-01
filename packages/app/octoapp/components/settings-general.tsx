@@ -232,7 +232,7 @@ export const SettingsGeneral: Component = () => {
           return
         }
 
-        showUpdate(result.version ?? "")
+        showUpdate(result.version ?? "", result.releaseNotes)
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err)
