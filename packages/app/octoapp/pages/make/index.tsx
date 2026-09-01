@@ -83,7 +83,7 @@ import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
 import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
-import { ProgressCircle } from "@opencode-ai/ui/progress-circle"
+import { ContextUsageCircle } from "@/components/context-usage-circle"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
@@ -4084,7 +4084,6 @@ if (dsId) {
                           "cursor-not-allowed": contextCompactionDisabled(),
                         }}
                         style={{
-                          "--border-active": "var(--octo-brand)",
                           "--border-weak-base": "rgba(0,0,0,0.1)",
                           background: "transparent",
                           border: "none",
@@ -4094,7 +4093,7 @@ if (dsId) {
                         onClick={confirmCompactContext}
                         aria-label={`上下文已使用 ${contextUsage()}%，点击压缩上下文`}
                       >
-                        <ProgressCircle size={16} strokeWidth={2} percentage={contextUsage()} />
+                        <ContextUsageCircle percentage={contextUsage()} />
                       </button>
                     </Tooltip>
                   </Show>
