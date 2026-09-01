@@ -84,7 +84,6 @@ import { TemplatePicker } from "./components/template-picker"
 import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { ContextUsageCircle } from "@/components/context-usage-circle"
-import { exceedsSafeRequestLimit } from "@/components/context-request-limit"
 import {
   ContextUsageWarning,
   isContextAtLimit,
@@ -2798,22 +2797,6 @@ const sessionMessagesLoaded = createMemo(() => {
       showOctoToast({
         title: "上下文已达到上限",
         description: "请先压缩上下文，或新建对话。",
-        variant: "error",
-      })
-      return
-    }
-
-    if (
-      exceedsSafeRequestLimit({
-        contextTokens: contextTokens(),
-        limit: contextLimit(),
-        text,
-        attachments: attachments(),
-      })
-    ) {
-      showOctoToast({
-        title: "本次发送内容过多",
-        description: "当前对话加上所选文本文件将超过模型可安全处理的范围，请减少或拆分文件后重试。",
         variant: "error",
       })
       return
