@@ -277,10 +277,11 @@ export async function getBlockContent(inputData: { results?: BlockModuleItem[] }
       try {
         const parsed = await fetchZipContents(item.file)
         const replacements: Record<string, string> = {}
-        for (const a of parsed.assets) {
-          const url = await saveUploadImage(a.buffer, sessionId)
-          if (url) replacements[a.filename] = url
-        }
+        // 暂时不处理资源
+        // for (const a of parsed.assets) {
+        //   const url = await saveUploadImage(a.buffer, sessionId)
+        //   if (url) replacements[a.filename] = url
+        // }
         const content = replacePatternAssetPaths(parsed.dataJson, replacements)
         return { ...item, content }
       } catch {

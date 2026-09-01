@@ -1995,7 +1995,9 @@ const sessionMessagesLoaded = createMemo(() => {
         const sep = folderProjDir.includes("\\") ? "\\" : "/"
         const outputsDir = [folderProjDir, ".octo", mainSid, "outputs"].join(sep)
         const encoder = new TextEncoder()
-        const payload = JSON.stringify({ blocks: blocksToSend }, null, 2)
+        const payload = JSON.stringify({
+          blocks: blocksToSend.map(({ id: _id, file: _file, preview: _preview, ...rest }) => rest),
+        }, null, 2)
         try {
           const filePath = [outputsDir, "pattern.json"].join(sep)
           const buffer = encoder.encode(payload).buffer as ArrayBuffer
