@@ -86,11 +86,11 @@ import { Spinner } from "@opencode-ai/ui/spinner"
 import { ContextUsageCircle } from "@/components/context-usage-circle"
 import {
   ContextUsageLimitWarning,
-  ContextUsageWarning,
   isContextAtLimit,
   shouldShowContextWarning,
 } from "@/components/context-usage-warning"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { showToast, toaster } from "@opencode-ai/ui/toast"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
 import { loadDesignSystem } from "./utils/design-system-loader"
@@ -1090,6 +1090,38 @@ const sessionMessagesLoaded = createMemo(() => {
     if (contextUsage() >= 80) return
     if (ignoredContextWarningSession() !== params.id) return
     setIgnoredContextWarningSession(undefined)
+  })
+
+  let contextWarningToastID = -1
+  let contextWarningToastSession: string | undefined
+  createEffect(() => {
+    const sessionID = contextWarningVisible() ? params.id : undefined
+    if (sessionID === contextWarningToastSession) return
+    if (contextWarningToastID >= 0) toaster.dismiss(contextWarningToastID)
+    contextWarningToastID = -1
+    contextWarningToastSession = sessionID
+    if (!sessionID) return
+    const limit = contextLimit()
+    if (!limit) return
+    contextWarningToastID = showToast({
+      title: "上下文超出提示",
+      description: `当前对话 Session 上下文已超过80% (${contextTokens().toLocaleString(language.intl())} / ${limit.toLocaleString(language.intl())})，建议点击“上下文压缩”以继续对话。`,
+      icon: "warning",
+      persistent: true,
+      actions: [
+        {
+          label: "忽略",
+          onClick: () => setIgnoredContextWarningSession(sessionID),
+        },
+        {
+          label: "上下文压缩",
+          onClick: confirmCompactContext,
+        },
+      ],
+    })
+  })
+  onCleanup(() => {
+    if (contextWarningToastID >= 0) toaster.dismiss(contextWarningToastID)
   })
 
   const sessionStatus = createMemo((): SessionStatus => {
@@ -4498,22 +4530,6 @@ onPreview={(url) => {
                           limit={limit()}
                           locale={language.intl()}
                           disabled={contextCompactionDisabled()}
-                          onCompact={confirmCompactContext}
-                        />
-                      </div>
-                    )}
-                  </Show>
-
-                  <Show when={contextWarningVisible() && contextLimit()}>
-                    {(limit) => (
-                      <div class="make-context-warning-wrap">
-                        <ContextUsageWarning
-                          tokens={contextTokens()}
-                          limit={limit()}
-                          locale={language.intl()}
-                          disabled={contextCompactionDisabled()}
-                          compacting={contextCompacting()}
-                          onIgnore={() => setIgnoredContextWarningSession(params.id)}
                           onCompact={confirmCompactContext}
                         />
                       </div>
