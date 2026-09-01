@@ -318,7 +318,7 @@ it.live("session.processor effect tests preserve text start time", () =>
   ),
 )
 
-it.live("session.processor effect tests keep a successful response when reported usage reaches the limit", () =>
+it.live("session.processor effect tests stop after token overflow requests compaction", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
       Effect.gen(function* () {
@@ -356,8 +356,7 @@ it.live("session.processor effect tests keep a successful response when reported
 
         const parts = MessageV2.parts(msg.id)
 
-        expect(value).toBe("continue")
-        expect(handle.message.error).toBeUndefined()
+        expect(value).toBe("compact")
         expect(parts.some((part) => part.type === "text" && part.text === "after")).toBe(true)
         expect(parts.some((part) => part.type === "step-finish")).toBe(true)
       }),
@@ -696,23 +695,6 @@ it.live(
           const { processors, session, provider } = yield* boot()
           const chat = yield* session.create({})
           const parent = yield* user(chat.id, "large request")
-          yield* session.updatePart({
-            id: PartID.ascending(),
-            messageID: parent.id,
-            sessionID: chat.id,
-            type: "text",
-            text: "x".repeat(400),
-            synthetic: true,
-          })
-          yield* session.updatePart({
-            id: PartID.ascending(),
-            messageID: parent.id,
-            sessionID: chat.id,
-            type: "file",
-            mime: "text/plain",
-            filename: "large.txt",
-            url: "data:text/plain;base64,eA==",
-          })
           const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
           const base = yield* provider.getModel(ref.providerID, ref.modelID)
           const mdl = { ...base, limit: { context: 80, output: 20 } }
@@ -731,19 +713,14 @@ it.live(
             model: mdl,
             agent: agent(),
             system: [],
-            messages: [{ role: "user", content: "x".repeat(400) }],
+            messages: [{ role: "user", content: "x".repeat(260) }],
             tools: {},
           })
 
           expect(value).toBe("stop")
           expect(yield* llm.calls).toBe(0)
           expect(handle.message.error?.name).toBe("ContextOverflowError")
-          expect(JSON.stringify(handle.message.error)).toContain("本次发送的内容过多")
-          const rejected = (yield* session.messages({ sessionID: chat.id })).find(
-            (message) => message.info.id === parent.id,
-          )
-          expect(rejected?.parts.filter((part) => part.type === "text").every((part) => part.ignored)).toBe(true)
-          expect(rejected?.parts.some((part) => part.type === "file")).toBe(false)
+          expect(JSON.stringify(handle.message.error)).toContain("current request is too large")
         }),
       { git: true, config: (url) => providerCfg(url) },
     ),

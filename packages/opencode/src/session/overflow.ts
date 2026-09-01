@@ -3,22 +3,15 @@ import type { Provider } from "@/provider/provider"
 import type { MessageV2 } from "./message-v2"
 
 const COMPACTION_THRESHOLD = 0.85
-const REQUEST_SAFETY_THRESHOLD = 0.9
 
 // Keep automatic compaction available for a future rollout, but leave it disabled for now.
 export const AUTOMATIC_COMPACTION_ENABLED = false
-export const REQUEST_TOO_LARGE_MESSAGE = "本次发送的内容过多，已超过模型可安全处理的范围。请减少或拆分文件后重试。"
+export const CONTEXT_OVERFLOW_MESSAGE = "系统的单次处理能力已满。请点击“新建对话”重置上下文。"
 
 export function exceedsContext(input: { model: Provider.Model; input: number }) {
   const limit = input.model.limit.input ?? input.model.limit.context
   if (limit === 0) return false
   return input.input >= limit
-}
-
-export function exceedsSafeContext(input: { model: Provider.Model; input: number }) {
-  const limit = input.model.limit.input ?? input.model.limit.context
-  if (limit === 0) return false
-  return input.input >= Math.floor(limit * REQUEST_SAFETY_THRESHOLD)
 }
 
 export function usable(input: { cfg: Config.Info; model: Provider.Model }) {
