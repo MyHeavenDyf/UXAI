@@ -1,5 +1,5 @@
 import { Tooltip as KobalteTooltip } from "@kobalte/core/tooltip"
-import { createEffect, Match, onCleanup, splitProps, Switch, type JSX } from "solid-js"
+import { createEffect, Match, onCleanup, Show, splitProps, Switch, type JSX } from "solid-js"
 import type { ComponentProps } from "solid-js"
 import { createStore } from "solid-js/store"
 
@@ -10,6 +10,7 @@ export interface TooltipProps extends ComponentProps<typeof KobalteTooltip> {
   contentStyle?: JSX.CSSProperties
   inactive?: boolean
   forceOpen?: boolean
+  arrow?: boolean
 }
 
 export interface TooltipKeybindProps extends Omit<TooltipProps, "value"> {
@@ -46,6 +47,7 @@ export function Tooltip(props: TooltipProps) {
     "contentStyle",
     "inactive",
     "forceOpen",
+    "arrow",
     "ignoreSafeArea",
     "value",
   ])
@@ -147,7 +149,9 @@ export function Tooltip(props: TooltipProps) {
               }}
             >
               {local.value}
-              {/* <KobalteTooltip.Arrow data-slot="tooltip-arrow" /> */}
+              <Show when={local.arrow}>
+                <KobalteTooltip.Arrow data-slot="tooltip-arrow" size={18} />
+              </Show>
             </KobalteTooltip.Content>
           </KobalteTooltip.Portal>
         </KobalteTooltip>

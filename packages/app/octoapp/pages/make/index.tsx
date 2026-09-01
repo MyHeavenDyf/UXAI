@@ -4085,6 +4085,7 @@ if (dsId) {
                     <Tooltip
                       placement="top"
                       gutter={8}
+                      arrow
                       contentClass="make-token-tooltip"
                       value={
                         <div class="make-token-tooltip-copy">

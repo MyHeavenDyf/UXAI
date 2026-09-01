@@ -675,19 +675,6 @@ button[title="版本历史"] {
   white-space: nowrap;
 }
 
-.make-token-tooltip::after {
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  width: 0;
-  height: 0;
-  border-top: 8px solid #fff;
-  border-right: 9px solid transparent;
-  border-left: 9px solid transparent;
-  content: "";
-  transform: translateX(-50%);
-}
-
 .make-token-tooltip-copy p {
   margin: 0;
 }
