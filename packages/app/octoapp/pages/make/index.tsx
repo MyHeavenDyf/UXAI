@@ -1081,9 +1081,6 @@ const sessionMessagesLoaded = createMemo(() => {
   })
   const [ignoredContextWarningSession, setIgnoredContextWarningSession] = createSignal<string>()
   const contextSendBlocked = createMemo(() => isContextAtLimit(contextTokens(), contextLimit(), params.id))
-  const contextWarningVisible = createMemo(
-    () => !contextSendBlocked() && shouldShowContextWarning(contextUsage(), params.id, ignoredContextWarningSession()),
-  )
 
   createEffect(() => {
     if (contextUsage() >= 80) return
@@ -1105,6 +1102,11 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const effectiveBusy = createMemo(() => isBusy() || childBusy())
+  const contextWarningVisible = createMemo(
+    () =>
+      !contextSendBlocked() &&
+      shouldShowContextWarning(contextUsage(), params.id, ignoredContextWarningSession(), effectiveBusy()),
+  )
   const [contextCompacting, setContextCompacting] = createSignal(false)
   const contextCompactionDisabled = createMemo(() => effectiveBusy() || contextCompacting())
 

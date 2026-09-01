@@ -13,6 +13,11 @@ describe("shouldShowContextWarning", () => {
     expect(shouldShowContextWarning(80, "session-1", "session-1")).toBe(false)
     expect(shouldShowContextWarning(80, "session-2", "session-1")).toBe(true)
   })
+
+  test("waits until the conversation finishes", () => {
+    expect(shouldShowContextWarning(80, "session-1", undefined, true)).toBe(false)
+    expect(shouldShowContextWarning(80, "session-1", undefined, false)).toBe(true)
+  })
 })
 
 describe("isContextAtLimit", () => {

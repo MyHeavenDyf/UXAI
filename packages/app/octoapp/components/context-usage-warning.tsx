@@ -1,5 +1,5 @@
-export function shouldShowContextWarning(usage: number, sessionID?: string, ignoredSessionID?: string) {
-  return !!sessionID && usage >= 80 && ignoredSessionID !== sessionID
+export function shouldShowContextWarning(usage: number, sessionID?: string, ignoredSessionID?: string, busy = false) {
+  return !busy && !!sessionID && usage >= 80 && ignoredSessionID !== sessionID
 }
 
 export function isContextAtLimit(tokens: number, limit?: number, sessionID?: string) {
