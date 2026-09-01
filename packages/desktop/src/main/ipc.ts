@@ -442,6 +442,41 @@ export function registerIpcHandlers(deps: Deps) {
     },
   )
 
+  // SPEC-INS-014 §4.1 的字节版兄弟:同落点 <baseDir>/.octo/tmps/、同 landingName 清洗、同
+  // collisionFreePath 撞名规则,唯一区别是源从「磁盘路径 copyFile」换成「渲染进程传来的
+  // ArrayBuffer 直接 writeFile」——服务剪贴板粘贴的内存 blob(截图/复制的文件),它们
+  // getPathForFile 拿不到源路径(2026-09 insight 图片去 S3 后必须有本地路径,见
+  // octoapp/pages/insight/index.tsx copySourceToWorktree)。布局 SOT 仍是 SPEC-INS-014 §2,
+  // 改落点需同步渲染端 worktree-layout.ts 与 copy-file-to-worktree(见其上方注释)。
+  ipcMain.handle(
+    "write-file-to-worktree",
+    async (_event: IpcMainInvokeEvent, buffer: ArrayBuffer, baseDir: string, filename: string) => {
+      const dir = join(baseDir, ".octo", "tmps")
+      await ensureWorktreeDir(dir)
+      let safeName: string
+      try {
+        safeName = landingName(filename)
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        log.error("[octo:worktree] write-name-rejected", { filename, reason })
+        console.error("[octo:worktree] write-name-rejected", { filename, reason })
+        throw err
+      }
+      const dest = collisionFreePath(dir, safeName)
+      try {
+        await writeFile(dest, Buffer.from(buffer))
+        console.log("[octo:worktree] write-blob ok", { dest, bytes: buffer.byteLength })
+        return dest
+      } catch (err) {
+        console.error("[octo:worktree] write-blob failed", {
+          dest,
+          reason: err instanceof Error ? err.message : String(err),
+        })
+        throw err
+      }
+    },
+  )
+
   // SPEC-INS-014 §4.1.2(v2 新增):发送时把预会话落地区(.octo/tmps/)里的附件
   // rename 进真实会话目录(.octo/<sessionId>/uploads/)。同一文件系统内的原子操作,
   // 失败(源文件在拷贝完成后被删/移动,极少见)由调用方 catch、不阻断发送。

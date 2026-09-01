@@ -1789,11 +1789,11 @@ function InsightContent() {
   // 把源文件(图片与非图片同链路)导入 worktree 的 .octo/tmps/(SPEC-INS-014 §4.1 磁盘流式拷贝,
   // 原样不转格式,预会话落地区),拿到本地绝对路径写进附件(SPEC-INS-015:非图片供 [附件] 清单/
   // 插件按需上传 S3;图片发送时产 FilePart{url:file://},服务端读盘转 base64)。
-  //   - 成功:status=done + path
-  //   - 真失败(copyFileToWorktree 抛错):status=error + retriable,chip 显示重试
-  //   - 降级(无 projectDir / 非桌面 / 拿不到真实路径,如剪贴板内存 blob):
+  //   - 成功:status=done + path(磁盘来源走拷贝;剪贴板内存 blob 走 writeFileToWorktree 字节写入)
+  //   - 真失败(拷贝/写入抛错):status=error + retriable,chip 显示重试
+  //   - 降级(无 projectDir / 非桌面 / preload 未暴露写入 IPC):
   //     非图片 → done 但无 path,不报错(不破坏 __dev),该文件不进清单、MCP 不可用;
-  //     图片   → 标 error(2026-09:无 path = 发送必静默丢,响亮失败让用户重选)
+  //     图片   → 标 error(无 path = 发送必静默丢,响亮失败让用户重选)
   async function doImport(id: string, rawFile: File, filename: string) {
     try {
       const dest = await copySourceToWorktree(filename, rawFile)
@@ -1844,21 +1844,30 @@ function InsightContent() {
 
   // 把源文件拷贝进 worktree 的 .octo/tmps/(预会话落地区,磁盘流式拷贝,原样不转格式),返回本地绝对路径。
   // 不需要 sessionId——选中时可能还没有真实会话(欢迎页);发送时统一由 doSendPrompt rename 进真会话目录(§4.1.2)。
-  //   - 无 projectDir / 非桌面端(无 getPathForFile / copyFileToWorktree)/ 拿不到真实路径 → 返回 null(降级)
-  //   - copyFileToWorktree 抛错(真失败)→ 向上抛,由 doImport 转成可重试错误
+  //   - 磁盘来源(选择器/拖拽):getPathForFile 拿源路径 → copyFileToWorktree 流式拷贝
+  //   - 剪贴板内存 blob(截图/粘贴的文件):getPathForFile 返回空 → 字节经 writeFileToWorktree
+  //     IPC 写进同一落点(2026-09 图片去 S3 后必须有本地路径;此前 S3 链路只发 blob 字节,不需要路径)
+  //   - 无 projectDir / 非桌面端 / preload 未暴露两个 IPC → 返回 null(降级)
+  //   - 真失败(拷贝/写入抛错)→ 上抛,由 doImport 转成可重试错误
   async function copySourceToWorktree(filename: string, srcFile: File): Promise<string | null> {
     const api = getDesktopApi()
     const baseDir = projectDir()
-    if (!baseDir || typeof api?.getPathForFile !== "function" || typeof api?.copyFileToWorktree !== "function") return null
+    if (!baseDir) return null
     let srcPath = ""
     try {
-      srcPath = api.getPathForFile(srcFile)
+      srcPath = api?.getPathForFile?.(srcFile) ?? ""
     } catch {
-      // 取不到真实路径(如剪贴板内存 blob,无落盘来源)→ 降级
+      // 取不到真实路径(如剪贴板内存 blob,无落盘来源)→ 走下方字节写入兜底
     }
-    if (!srcPath) return null
-    // copyFileToWorktree 返回落地后的本地绝对路径(撞名已加后缀);抛错则上抛
-    return api.copyFileToWorktree(srcPath, baseDir, filename)
+    if (srcPath) {
+      if (typeof api?.copyFileToWorktree !== "function") return null
+      // copyFileToWorktree 返回落地后的本地绝对路径(撞名已加后缀);抛错则上抛
+      return api.copyFileToWorktree(srcPath, baseDir, filename)
+    }
+    // 内存 blob:file.arrayBuffer() 读字节(渲染进程本就持有该 blob),writeFileToWorktree
+    // 落地/清洗/撞名与 copyFileToWorktree 同一套主进程规则,返回落地绝对路径;抛错则上抛。
+    if (typeof api?.writeFileToWorktree !== "function") return null
+    return api.writeFileToWorktree(await srcFile.arrayBuffer(), baseDir, filename)
   }
 
   function removeAttachment(id: string) {
