@@ -58,7 +58,7 @@ import {
 } from "./store/mcp-trigger"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
 import { NewSessionView } from "@/components/session"
-import { uploadFile, validateFile, formatUploadsForPrompt, formatMentionedFilesForPrompt, formatDispatchNote, parseUploadedFiles, isImageFile, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE, MENTION_BLOCK_HEADER } from "./lib/upload"
+import { validateFile, formatUploadsForPrompt, formatMentionedFilesForPrompt, formatDispatchNote, parseUploadedFiles, isImageFile, ALLOWED_EXT, MAX_UPLOAD_SIZE, MENTION_BLOCK_HEADER } from "./lib/upload"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { getDesktopApi } from "./lib/electron-api"
 import { copyLastError, recordError, setBeaconContext } from "./lib/error-beacon"
@@ -149,7 +149,8 @@ const MAX_ATTACHMENTS = 10
 const UPLOAD_ACCEPT = ALLOWED_EXT.map((e) => `.${e}`).join(",")
 
 // 添加附件按钮的 tooltip 提示:支持的文件类型 + 大小 + 数量上限(均从常量派生)。
-const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)}MB，最多 ${MAX_ATTACHMENTS} 个`
+// 图片另有 5MB 专用上限(base64 落库/传输,防巨型字符串),一并提示。
+const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)}MB（图片 ≤ 5MB），最多 ${MAX_ATTACHMENTS} 个`
 
 // 刷新保路由:打包态 Electron 走 file://(dev 的 electron reload 同样不走 SPA 兜底),整页
 // 重载会丢失 /insight/:id 路由、回退到首页。这里把"当前所在对话"持久化,boot 落在无 id 的
@@ -908,8 +909,9 @@ function InsightContent() {
   }
 
   // SPEC-INS-014 §10.1:文件管理面板操作回调(对齐 Design)。
-  /** 添加至会话区:作为已就绪附件加入输入区。图片走 ③ S3 上传(拿 url),非图片带 path 进 [附件] 清单。 */
-  async function addInsightFileToSession(file: InsightFile) {
+  /** 添加至会话区:作为已就绪附件加入输入区。图片与非图片同链路(2026-09 去 S3):已落盘、有 path
+   *  → done;发送时图片产 FilePart{url:file://…}(服务端读盘转 base64)、非图片进 [附件] 清单。 */
+  function addInsightFileToSession(file: InsightFile) {
     if (attachments().some((a) => a.path === file.path)) {
       showToast({ title: "已添加", description: file.name })
       return
@@ -919,33 +921,7 @@ function InsightContent() {
       return
     }
     const id = crypto.randomUUID()
-    // 图片必须走 ③ vision FilePart{url:S3}:发送时 imageFiles 过滤要求 url,而文件管理里的图片只有本地 path。
-    // 先读盘 → 构造 File → 复用输入框选图那条 doImageUpload 链路(含 uploading 态 / 失败重试 / S3 上传拿 url)。
-    // 不这么做,图片会同时漏出 imageFiles(无 url)和 localFiles(isImageFile 被排除)两个分流 → 静默丢失。
-    if (file.kind === "image") {
-      const api = getDesktopApi()
-      const buffer = typeof api?.readFileBuffer === "function" ? await api.readFileBuffer(file.path) : null
-      if (!buffer) {
-        console.warn("[octo:upload] add-to-session read image failed", { path: file.path })
-        showToast({ title: "添加失败", description: "无法读取图片文件，请重试", variant: "error" })
-        return
-      }
-      const imgFile = new File([buffer], file.name, { type: file.mime || "image/png" })
-      filesById.set(id, imgFile) // 重试用(retryUpload 从 filesById 取原 File 重传)
-      setAttachments((prev) => [...prev, {
-        id,
-        filename: file.name,
-        mime: file.mime || "image/png",
-        size: file.size,
-        status: "uploading",
-        path: file.path, // 供去重(a.path === file.path)与删文件后按路径清附件;imageFiles 分流只认 url
-        // 图片给 local:// 缩略图(附件条 FileTypeIcon 有 previewUrl 时渲染缩略图)。
-        previewUrl: pathToLocalUrl(file.path),
-      }])
-      void doImageUpload(id, imgFile) // 成功 → done + url;失败 → error + 可重试
-      return
-    }
-    // 非图片(已落盘):直接作为已就绪附件进 [附件] 清单(给 ②extract_document 拿路径 / ④MCP 引用)。
+    // 图片给 local:// 缩略图(附件条 FileTypeIcon 有 previewUrl 时渲染缩略图);非图片走类型图标。
     setAttachments((prev) => [...prev, {
       id,
       filename: file.name,
@@ -953,6 +929,7 @@ function InsightContent() {
       size: file.size,
       status: "done",
       path: file.path,
+      ...(file.kind === "image" ? { previewUrl: pathToLocalUrl(file.path) } : {}),
     }])
     showToast({ title: "已添加附件", description: file.name, variant: "success", duration: 2000 })
   }
@@ -1162,20 +1139,21 @@ function InsightContent() {
     // 非图片(已导入 worktree、有本地 path):进 [附件] 清单(给 ②extract_document 拿路径 / ④MCP 引用)。
     // 降级场景(无 projectDir/非桌面)拿不到 path → 不进清单(本地读 + MCP 都用不了)。
     const localFiles = done.filter((a) => !isImageFile(a.filename) && a.path)
-    // 图片(已 change 即传拿到 S3 url):走 ③ vision FilePart{url},不进 [附件] 清单。
-    const imageFiles = done.filter((a) => isImageFile(a.filename) && a.url)
+    // 图片(已导入 worktree 拿到本地 path):走 ③ vision FilePart{url:file://…}(2026-09 去 S3),
+    // 不进 [附件] 清单。服务端 prompt.ts resolvePart 读盘转 base64 落库,历史轮用持久化的 data: URL。
+    const imageFiles = done.filter((a) => isImageFile(a.filename) && a.path)
 
     // SPEC-INS-014 §4.1.2(v2 新增):发送前把还落在预会话落地区(.octo/tmps/)的附件
     // rename 进真实会话目录(.octo/<sessionId>/uploads/)——此时 sessionId 已经 resolve。
-    // rename 是本地文件系统原子操作,失败(源文件在拷贝完成后被删/移动,极少见)不阻断发送,
-    // 该附件在 [附件] 清单里退化为指向预会话区的旧路径,仍可读。
+    // 图片与非图片同链路落 tmps(2026-09 起),一样要搬。rename 是本地文件系统原子操作,
+    // 失败(源文件在拷贝完成后被删/移动,极少见)不阻断发送,该附件退化为指向预会话区的旧路径,仍可读。
     const movedPaths = new Map<string, string>()
     {
       const api = getDesktopApi()
       const baseDir = projectDir()
       if (baseDir && typeof api?.movePendingUploadToSession === "function") {
         await Promise.all(
-          localFiles
+          done
             .filter((a) => a.path && isPendingUploadPath(a.path))
             .map(async (a) => {
               try {
@@ -1197,7 +1175,8 @@ function InsightContent() {
     // gate 在「有无本地附件」而非「movedPaths 是否非空」:刷新只依赖可靠事实(有附件),不耦合到
     // 搬迁判据(isPendingUploadPath)是否为真——判据一旦再脱节(如 v7 那次),附件进不去已是 bug,
     // 不该连带把可见性刷新也一起哑掉、放大故障。刷新幂等且廉价(纯文本发送 localFiles 为空、不触发)。
-    if (localFiles.length > 0) setFilesRefreshKey(k => k + 1)
+    // 图片 2026-09 起也落 uploads 目录,同样触发刷新。
+    if (localFiles.length > 0 || imageFiles.length > 0) setFilesRefreshKey(k => k + 1)
 
     // [附件] 清单:独立 synthetic text part(server toModelMessages 不过滤 → 模型可见;上游气泡不渲染
     // synthetic;InsightTurn 解析渲染成文件卡片)。清单只给文件名+本地路径,**不触发上传**。
@@ -1325,12 +1304,12 @@ function InsightContent() {
     // (同一文件既在本轮附件里、又被 `@` 引用时,由 decideInlineStrategy 按 path 去重,只内联一次)
     // SPEC-INS-032:inlineDecision 在上方算好(uploadBlock 之后需要它组 dispatchNote),此处传入
     // 复用同一份判定,避免「说明说没内联、实际却内联了」这种两套判定漂移。
-    const { parts, imageParts } = assembleInsightParts({
+    const { parts } = assembleInsightParts({
       text,
       syntheticTexts,
       textInlineFiles: inlineFiles,
       inlineDecision,
-      imageFiles: imageFiles.map((a) => ({ filename: a.filename, mime: a.mime, url: a.url! })),
+      imageFiles: imageFiles.map((a) => ({ filename: a.filename, mime: a.mime, path: resolvedPath(a) })),
     })
     const messageID = Identifier.ascending("message")
     const agent = INSIGHT_AGENT
@@ -1384,19 +1363,9 @@ function InsightContent() {
         synthetic: true,
       } as Part)
     }
-    // 图片 FilePart 也写入 optimistic → 缩略图乐观即显(InsightTurn 从图片 part 渲染);
-    // server 回传同构,替换后无闪烁。txt/md FilePart 不入(InsightTurn 不从 part 渲染它们,由 [附件] 卡片覆盖)。
-    for (const p of imageParts) {
-      optimisticParts.push({
-        id: Identifier.ascending("part"),
-        sessionID: sessionId,
-        messageID,
-        type: "file",
-        mime: p.mime,
-        url: p.url,
-        filename: p.filename,
-      } as Part)
-    }
+    // 图片 FilePart **不**镜像进 optimistic(2026-09 去 S3):server 落库后是 data: URL,与本地
+    // file:// 形态不同,insight-turn 按 url 去重会失效 → 同一张图画两遍。缩略图由 server part
+    // 事件(SSE)到达后渲染(本地 sidecar,延迟 <1s);txt/md FilePart 本就不镜像(由 [附件] 卡片覆盖)。
 
     console.log("[octo:prompt] send", {
       source: opts.source,
@@ -1410,7 +1379,7 @@ function InsightContent() {
       textLen: text.length,
       attachmentsCount: done.length,
       localFiles: localFiles.map((a) => ({ name: a.filename, path: resolvedPath(a) })),
-      images: imageFiles.map((a) => ({ name: a.filename, url: a.url })),
+      images: imageFiles.map((a) => ({ name: a.filename, path: resolvedPath(a) })),
     })
     // 完整 text 单独 dump(不截断),便于内网把怪 case 粘到外网定位
     console.log("[octo:prompt] send-full", {
@@ -1721,8 +1690,9 @@ function InsightContent() {
           mime: im.mime ?? "image/png",
           size: 0,
           status: "done" as const,
-          url: im.url,
-          previewUrl: im.url,
+          path: im.path,
+          // 还原后的缩略图走 local://(文件仍在会话 uploads 目录);原 S3 url 链路已移除。
+          previewUrl: pathToLocalUrl(im.path),
         })),
       ]
       setAttachments(restored)
@@ -1776,8 +1746,10 @@ function InsightContent() {
       // 合同 v2 保证（uuid key + 下载走自有域名，见 file-upload.md 顶部提案）。
       const file = rawFile
       const id = crypto.randomUUID()
-      const mime = file.type || "application/octet-stream"
       const ext = file.name.includes(".") ? file.name.split(".").pop()!.toLowerCase() : ""
+      // 图片 mime 兜底 image/png:粘贴/某些拖拽源 file.type 可能为空,octet-stream 会让服务端
+      // 落成非图片 data URL,多模态链路认不出(build-prompt-parts 的 image/png 兜底只救缺省不救错值)。
+      const mime = file.type || (isImageFile(file.name) ? "image/png" : "application/octet-stream")
       tracker.interaction({
         module: "insight",
         name: "attachment-add",
@@ -1796,73 +1768,54 @@ function InsightContent() {
         continue
       }
       // SPEC-INS-015 路由分流(spec docs/specs/infra/insight-file-passing.md):
-      //   图片(③)→ change 即传 S3 + 本地 objectURL 缩略图;非图片 → 导入 worktree(本地路径,供 ②/④)。
+      //   图片(③)与非图片同链路导入 worktree 拿本地 path(2026-09 去 S3)——图片不再 change 即传,
+      //   发送时产出 vision FilePart{url:file://…},服务端读盘转 base64。区别只在图片给即时
+      //   objectURL 缩略图(附件条 FileTypeIcon 有 previewUrl 时渲染)。
+      // filesById 存原始 rawFile:导入靠它取真实本地路径,重试复用。展示名走 filename。
       const image = isImageFile(file.name)
-      if (image) {
-        // filesById 存原 file(重传用);objectURL 本地秒显缩略图。
-        filesById.set(id, file)
-        const previewUrl = URL.createObjectURL(file)
-        setAttachments((prev) => [
-          ...prev,
-          { id, filename: file.name, mime, size: file.size, status: "uploading", previewUrl },
-        ])
-        void doImageUpload(id, file)
-      } else {
-        // filesById 存原始 rawFile:导入靠它取真实本地路径,重试复用。展示名走 filename。
-        filesById.set(id, rawFile)
-        setAttachments((prev) => [
-          ...prev,
-          { id, filename: file.name, mime, size: file.size, status: "uploading" },
-        ])
-        // 非图片不 eager 上传:只拷进 .octo/tmps(预会话落地区本地副本,SPEC-INS-014 §4.1.2)。
-        // done 带 path,发送时进 [附件] 清单 + rename 进 .octo/<sessionId>/uploads(见 doSendPrompt);
-        // 插件在模型调 MCP 时才按需上传(④)。
-        void doImport(id, rawFile, file.name)
-      }
+      filesById.set(id, rawFile)
+      const previewUrl = image ? URL.createObjectURL(rawFile) : undefined
+      setAttachments((prev) => [
+        ...prev,
+        { id, filename: file.name, mime, size: file.size, status: "uploading", previewUrl },
+      ])
+      // 不 eager 上传:只拷进 .octo/tmps(预会话落地区本地副本,SPEC-INS-014 §4.1.2)。
+      // done 带 path,发送时非图片进 [附件] 清单、图片产 FilePart{url:file://},
+      // 都 rename 进 .octo/<sessionId>/uploads(见 doSendPrompt);插件在模型调 MCP 时才按需上传(④)。
+      void doImport(id, rawFile, file.name)
     }
   }
 
-  // ③ 图片:change 即传 S3。成功 → done + url(发送时产出 vision FilePart{url});失败 → retriable。
-  // 不拷进 uploads、不进 [附件] 清单——图片只供模型"看",不参与本地读 / MCP。
-  async function doImageUpload(id: string, file: File) {
-    try {
-      const result = await uploadFile(file)
-      tracker.interaction({ module: "insight", name: "attachment-upload-result", extend: JSON.stringify({ success: true, kind: "image" }) })
-      setAttachments((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, status: "done", url: result.url, error: undefined } : a)),
-      )
-    } catch (err) {
-      const message = err instanceof UploadError ? err.message : err instanceof Error ? err.message : "上传失败"
-      console.error("[octo:upload] image-upload failed", { id, filename: file.name, err })
-      tracker.interaction({
-        module: "insight",
-        name: "attachment-upload-result",
-        extend: JSON.stringify({ success: false, kind: "image", errorCode: err instanceof UploadError ? err.code : "UNKNOWN" }),
-      })
-      setAttachments((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, status: "error", error: message, retriable: true } : a)),
-      )
-    }
-  }
-
-  // 把源文件导入 worktree 的 .octo/tmps/(SPEC-INS-014 §4.1 磁盘流式拷贝,原样不转格式,预会话落地区),
-  // 拿到本地绝对路径写进附件(SPEC-INS-015:供 [本地文件] 注入块,插件按需上传 S3)。
+  // 把源文件(图片与非图片同链路)导入 worktree 的 .octo/tmps/(SPEC-INS-014 §4.1 磁盘流式拷贝,
+  // 原样不转格式,预会话落地区),拿到本地绝对路径写进附件(SPEC-INS-015:非图片供 [附件] 清单/
+  // 插件按需上传 S3;图片发送时产 FilePart{url:file://},服务端读盘转 base64)。
   //   - 成功:status=done + path
   //   - 真失败(copyFileToWorktree 抛错):status=error + retriable,chip 显示重试
-  //   - 降级(无 projectDir / 非桌面 / 拿不到真实路径,如剪贴板内存 blob):status=done 但**无 path**,
-  //     不报错(不破坏 __dev),该文件不进注入块、MCP 不可用
+  //   - 降级(无 projectDir / 非桌面 / 拿不到真实路径,如剪贴板内存 blob):
+  //     非图片 → done 但无 path,不报错(不破坏 __dev),该文件不进清单、MCP 不可用;
+  //     图片   → 标 error(2026-09:无 path = 发送必静默丢,响亮失败让用户重选)
   async function doImport(id: string, rawFile: File, filename: string) {
     try {
       const dest = await copySourceToWorktree(filename, rawFile)
       tracker.interaction({
         module: "insight",
         name: "attachment-import-result",
-        extend: JSON.stringify({ success: true, localized: !!dest }),
+        extend: JSON.stringify({ success: true, localized: !!dest, kind: isImageFile(filename) ? "image" : "file" }),
       })
       if (!dest) {
         console.warn("[octo:upload] imported without local path (degraded: no projectDir / non-desktop / blob)", {
           id, filename,
         })
+        if (isImageFile(filename)) {
+          setAttachments((prev) =>
+            prev.map((a) =>
+              a.id === id
+                ? { ...a, status: "error", error: "无法获取图片本地路径，请从文件选择器重新选择", retriable: true }
+                : a,
+            ),
+          )
+          return
+        }
       }
       // 展示名/清单名对齐磁盘落地名(sanitize + 撞名后缀以磁盘为准)。三名不一致时,模型可能从
       // extract_document 的路径里抄到磁盘 basename,而插件键表里只有清单名 → 不替换、裸文件名直通 MCP。
@@ -1880,7 +1833,7 @@ function InsightContent() {
       tracker.interaction({
         module: "insight",
         name: "attachment-import-result",
-        extend: JSON.stringify({ success: false }),
+        extend: JSON.stringify({ success: false, kind: isImageFile(filename) ? "image" : "file" }),
       })
       // 已发起过导入(rawFile 在 filesById):标 retriable=true → chip 显示重试
       setAttachments((prev) =>
@@ -1933,14 +1886,9 @@ function InsightContent() {
     setAttachments((prev) =>
       prev.map((a) => (a.id === id ? { ...a, status: "uploading", error: undefined, retriable: undefined } : a)),
     )
-    // 按文件类型走对应重试:图片重传 S3,非图片重新导入 worktree。
-    if (isImageFile(att.filename)) {
-      console.log("[octo:upload] retry image-upload", { id, filename: att.filename })
-      void doImageUpload(id, file)
-    } else {
-      console.log("[octo:upload] retry import", { id, filename: att.filename })
-      void doImport(id, file, att.filename)
-    }
+    // 图片与非图片同链路:重新导入 worktree(2026-09 起图片不再有独立的 S3 重传路径)。
+    console.log("[octo:upload] retry import", { id, filename: att.filename })
+    void doImport(id, file, att.filename)
   }
 
   function handleFileInputChange(e: Event) {

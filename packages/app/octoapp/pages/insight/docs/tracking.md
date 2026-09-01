@@ -47,15 +47,14 @@
 
 ## 五、附件 / 文档抽取
 
-> 图片走 S3 上传（`attachment-upload-result`）；非图片附件走本地导入 worktree（`attachment-import-result`），两者分别打点。
+> 2026-09 起图片与非图片同链路本地导入 worktree（去 S3），统一打 `attachment-import-result`（`kind` 区分图片/文件）；`attachment-upload-result` 已随 S3 图片链路移除。
 
 | name | 触发时机 | extend 字段 | 代码位置 |
 |------|----------|------------|----------|
 | attachment-add | 添加附件（逐个文件，含 picker / 拖拽 / 粘贴） | `method`(picker/drop/paste)、`fileType`、`fileSize` | `index.tsx` `addAttachments` |
-| attachment-upload-result | **图片** S3 上传 promise 落定（成功 / 失败） | `success`(bool)、`kind`("image")、`errorCode`(失败时) | `index.tsx` `doImageUpload` |
-| attachment-import-result | **非图片**附件导入 worktree 的成败（结果型） | `success`(bool)、`localized`(成功时，是否拿到本地绝对路径) | `index.tsx` `doImport` then/catch |
+| attachment-import-result | 附件（图片与非图片）导入 worktree 的成败（结果型） | `success`(bool)、`localized`(成功时，是否拿到本地绝对路径)、`kind`("image"/"file") | `index.tsx` `doImport` then/catch |
 | attachment-remove | 移除一个附件 | `stage`(uploaded=已传完 / pending=上传中或失败) | `index.tsx` `removeAttachment` |
-| attachment-retry | 重试上传失败的附件 | — | `index.tsx` `retryUpload` |
+| attachment-retry | 重试导入失败的附件 | — | `index.tsx` `retryUpload` |
 | extract-failure | `extract_document` 本地解析失败（按原因分布，结果型，turn effect 扫 tool parts 派生） | `reason`(error/empty-text) | `index.tsx` turn effect |
 
 ## 六、任务卡片

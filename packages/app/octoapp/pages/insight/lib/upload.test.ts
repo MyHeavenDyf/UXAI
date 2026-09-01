@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { DISPATCH_NOTE_HEADER, formatDispatchNote, isExtractableDocFile, isTextInlineFile } from "./upload"
+import {
+  DISPATCH_NOTE_HEADER,
+  formatDispatchNote,
+  IMAGE_MAX_SIZE,
+  isExtractableDocFile,
+  isTextInlineFile,
+  validateFile,
+} from "./upload"
 
 /**
  * SPEC-INS-032 §2.6：分治判定的两套口径在**文案**上也要分开说。
@@ -69,5 +76,31 @@ describe("文件分类谓词", () => {
       expect(isTextInlineFile(name)).toBe(true)
       expect(isExtractableDocFile(name)).toBe(false)
     }
+  })
+})
+
+// 2026-09:图片走 base64 落库/传输(膨胀 ~33%),设 5MB 专用上限在客户端直接拒绝,
+// 防巨型字符串拖垮渲染进程与 SSE。非图片仍走 100MB 总上限。
+describe("validateFile 图片专用上限", () => {
+  const imageFile = (bytes: number) => new File([new Uint8Array(bytes)], "图.png", { type: "image/png" })
+  const docFile = (bytes: number) => new File([new Uint8Array(bytes)], "材料.xlsx", { type: "application/vnd.ms-excel" })
+
+  test("图片恰好在 5MB 内 → 通过（边界取闭区间）", () => {
+    expect(validateFile(imageFile(IMAGE_MAX_SIZE))).toBeNull()
+  })
+
+  test("图片超 5MB → 拒绝并给图片专用文案", () => {
+    const err = validateFile(imageFile(IMAGE_MAX_SIZE + 1))
+    expect(err?.code).toBe("FILE_TOO_LARGE")
+    expect(err?.message).toContain("图片")
+  })
+
+  test("非图片不受 5MB 限制（仍走 100MB 总上限）", () => {
+    expect(validateFile(docFile(IMAGE_MAX_SIZE + 1))).toBeNull()
+  })
+
+  test("非白名单扩展名优先报格式错误（即便同时超图片上限）", () => {
+    const err = validateFile(new File([new Uint8Array(IMAGE_MAX_SIZE + 1)], "x.zip"))
+    expect(err?.code).toBe("EXT_NOT_ALLOWED")
   })
 })
