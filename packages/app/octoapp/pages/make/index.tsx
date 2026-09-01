@@ -69,7 +69,7 @@ import { DialogPreviewUnavailable } from "./components/dialog-preview-unavailabl
 import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
 import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, UploadError } from "../insight/lib/upload"
-import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
+import { InsightTurn, MakeErrorNotice, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
 import { type ToolCallInfo, toolFamily } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
@@ -85,7 +85,6 @@ import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { ContextUsageCircle } from "@/components/context-usage-circle"
 import {
-  ContextUsageLimitWarning,
   ContextUsageWarning,
   isContextAtLimit,
   shouldShowContextWarning,
@@ -4493,13 +4492,22 @@ onPreview={(url) => {
                   <Show when={contextSendBlocked() && contextLimit()}>
                     {(limit) => (
                       <div class="make-context-warning-wrap">
-                        <ContextUsageLimitWarning
-                          tokens={contextTokens()}
-                          limit={limit()}
-                          locale={language.intl()}
-                          disabled={contextCompactionDisabled()}
-                          onCompact={confirmCompactContext}
-                        />
+                        <MakeErrorNotice class="w-full">
+                          当前对话 Session 上下文已超过100% ({contextTokens().toLocaleString(language.intl())} /{" "}
+                          {limit().toLocaleString(language.intl())})。
+                          <br />
+                          请进行
+                          <button
+                            type="button"
+                            class="border-0 bg-transparent p-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                            style={{ color: "#0a59f7", font: "inherit" }}
+                            disabled={contextCompactionDisabled()}
+                            onClick={confirmCompactContext}
+                          >
+                            上下文压缩
+                          </button>
+                          ，或新建对话。
+                        </MakeErrorNotice>
                       </div>
                     )}
                   </Show>
