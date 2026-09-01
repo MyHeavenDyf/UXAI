@@ -245,3 +245,48 @@ export function createArtifactParser() {
 
   return { feed, flush }
 }
+
+/**
+ * Strip custom tag pairs (e.g. <pattern-match>...</pattern-match>) from text.
+ *
+ * Handles both complete and partial (streaming) tags:
+ *   - Complete: `<tag>content</tag>` → entire pair removed
+ *   - Partial:   `<tag>partial content` (no closing tag yet) → opening tag
+ *     and everything after it are held back (not emitted), same as
+ *     createArtifactParser's intentional skip-flush behavior.
+ *
+ * @param text      Input text (typically already processed by createArtifactParser)
+ * @param tagNames  Tag names to strip, e.g. ["pattern-match", "module-list"]
+ */
+export function stripCustomTags(text: string, tagNames: string[]): string {
+  let result = text
+  for (const tag of tagNames) {
+    const openRe = new RegExp(`<${tag}\\b[^>]*>`, "gi")
+    let pos = 0
+    let lastIndex = 0
+    let output = ""
+
+    while (pos < result.length) {
+      openRe.lastIndex = pos
+      const m = openRe.exec(result)
+      if (!m) {
+        output += result.slice(lastIndex)
+        break
+      }
+      // Emit text before the opening tag
+      output += result.slice(lastIndex, m.index)
+      const afterOpen = m.index + m[0].length
+      const closeTag = `</${tag}>`
+      const closeIdx = result.toLowerCase().indexOf(closeTag.toLowerCase(), afterOpen)
+      if (closeIdx === -1) {
+        // Partial tag (streaming) — hold back opening tag + content
+        break
+      }
+      // Complete tag pair — skip entirely
+      lastIndex = closeIdx + closeTag.length
+      pos = lastIndex
+    }
+    result = output
+  }
+  return result
+}
