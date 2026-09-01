@@ -53,7 +53,10 @@ export type Platform = {
   checkUpdate?(): Promise<UpdateInfo>
 
   /** Install the downloaded update using the platform restart flow */
-  updateAndRestart?(): Promise<void>
+  updateAndRestart?(onProgress?: (percent: number) => void): Promise<void>
+
+  /** Subscribe to desktop resume events */
+  onResume?(callback: () => void): () => void
 
   /** Fetch override */
   fetch?: typeof fetch

@@ -1,7 +1,7 @@
 import "./octo-tokens.css"
 import "./components/slash-popover.css"
 import { type MentionSelection } from "./components/mention-popover"
-import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, type MentionAttrs } from "./components/prosemirror-editor"
+import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
 import { encodeAssetUrl, joinUrl } from "./components/addon-menu/asset-library"
 import { showOctoToast } from "./components/octo-toast"
@@ -25,6 +25,7 @@ import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Dialog } from "@opencode-ai/ui/dialog"
+import { Button } from "@opencode-ai/ui/button"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useCommand } from "@/context/command"
@@ -139,7 +140,6 @@ export default function MakePage() {
 }
 
 let lastMakeDir: string | undefined
-const DEFAULT_CUSTOM_CONTEXT_LIMIT = 128_000
 
 function MakeContent() {
   const params = useParams<{ id?: string }>()
@@ -502,16 +502,19 @@ const sessionMessagesLoaded = createMemo(() => {
         setComposing(false)
         setDeltaLog([])
 
-        if (sendingNavigation) {
-          sendingNavigation = false
-        } else {
-          setAttachments([])
-        }
+        // 附件清空不在此处理：此处依赖函数每次求值都返回新数组引用,Sync store 任何
+        // 更新（如模型回复完成追加 message）都会触发本 effect,会误清"回复期间添加的
+        // 附件"。附件清空职责移到下方监听 params.id 切换的独立 effect。
 
         requestAnimationFrame(() => autoScroll.forceScrollToBottom())
       },
     ),
   )
+
+  // session 切换时清空附件（发送消息清空由 sendMessage 自身负责,见 2223 行）
+  createEffect(on(() => params.id, () => {
+    setAttachments([])
+  }, { defer: true }))
 
   // app 长时间放置后重新激活时,SSE 可能已断开 + 鉴权过期 + DNS 不可达(ERR_NAME_NOT_RESOLVED),
   // 此时 sync.session.sync 的请求可能失败被 .catch 吞掉,sync.data.message[id] 仍是 undefined,
@@ -865,12 +868,21 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 跨 session 切换缓存: { mainSessionId: childSessionId }，切回时立即恢复 */
   const _planChildSessionCache: Record<string, string> = {}
 
-  /** 设计规划是否已结束（退出或确认），用于控制 plan 视图只读模式 */
-  // 从 localStorage 同步初始化，确保页面刷新/路由切换后立即生效
-  const [planEnded, setPlanEnded] = createSignal(false)
+  /** 设计规划是否已结束（退出或确认），per-session 隔离，用于控制 plan 视图只读模式 */
+  const [planEndedMap, setPlanEndedMap] = createSignal<Record<string, boolean>>(
+    params.id ? { [params.id]: !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + params.id) } : {},
+  )
+  const currentSessionPlanEnded = createMemo(() => {
+    const sid = params.id
+    return sid ? !!planEndedMap()[sid] : false
+  })
 
-  /** 两步走工作流：当前阶段 */
-  const [planPhase, setPlanPhase] = createSignal<"strategy" | "generate">("strategy")
+  /** 两步走工作流：当前阶段，per-session 隔离 */
+  const [planPhaseMap, setPlanPhaseMap] = createSignal<Record<string, "strategy" | "generate">>({})
+  const currentSessionPlanPhase = createMemo(() => {
+    const sid = params.id
+    return sid ? (planPhaseMap()[sid] ?? "strategy") : "strategy"
+  })
 
   // 用于跟踪用户是否手动切换了 phase，防止 effect 自动切回
   const [userChangedPhase, setUserChangedPhase] = createSignal(false)
@@ -1013,10 +1025,14 @@ const sessionMessagesLoaded = createMemo(() => {
   const userMessages = createMemo((): Message[] => {
     const sid = params.id
     if (!sid) return []
-    const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter((m) => m.role === "user")
+    const visible = (message: Message) => {
+      const parts = sync.data.part[message.id] ?? []
+      return message.role === "user" && parts.length > 0 && !parts.some((part) => part.type === "compaction")
+    }
+    const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter(visible)
     const allMsgs: Message[] = [...mainMsgs]
     for (const childId of childSessionIDs()) {
-      const childMsgs = ((sync.data.message?.[childId] ?? []) as Message[]).filter((m) => m.role === "user")
+      const childMsgs = ((sync.data.message?.[childId] ?? []) as Message[]).filter(visible)
       allMsgs.push(...childMsgs)
     }
     return sortMessages(allMsgs)
@@ -1044,13 +1060,19 @@ const sessionMessagesLoaded = createMemo(() => {
     () => getSessionContextMetrics(params.id ? (sync.data.message[params.id] ?? []) : [], providers.all()).context,
   )
   const contextLimit = createMemo(() => {
-    if (contextMetrics()?.limit) return contextMetrics()!.limit!
+    if (currentModel()?.limit.input) return currentModel()!.limit.input!
     if (currentModel()?.limit.context) return currentModel()!.limit.context
-    return DEFAULT_CUSTOM_CONTEXT_LIMIT
+    if (contextMetrics()?.limit) return contextMetrics()!.limit!
+  })
+  const contextTokens = createMemo(() => {
+    const context = contextMetrics()
+    if (!context) return 0
+    if (context.message.summary) return context.output
+    return context.total
   })
   const contextUsage = createMemo(() => {
-    if (contextMetrics()?.usage !== null && contextMetrics()?.usage !== undefined) return contextMetrics()!.usage!
-    return contextLimit() ? Math.round(((contextMetrics()?.total ?? 0) / contextLimit()) * 100) : 0
+    const limit = contextLimit()
+    return limit ? Math.round((contextTokens() / limit) * 100) : 0
   })
 
   const sessionStatus = createMemo((): SessionStatus => {
@@ -1067,6 +1089,65 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const effectiveBusy = createMemo(() => isBusy() || childBusy())
+  const [contextCompacting, setContextCompacting] = createSignal(false)
+  const contextCompactionDisabled = createMemo(() => effectiveBusy() || contextCompacting())
+
+  async function compactContext() {
+    const sessionID = params.id
+    const model = currentModel()
+    if (!sessionID || !model || contextCompactionDisabled()) return
+
+    setContextCompacting(true)
+    try {
+      const result = await sdk.client.session.summarize({
+        sessionID,
+        providerID: model.provider.id,
+        modelID: model.id,
+      })
+      if (result.error) throw result.error
+      sync.set("session_status", sessionID, { type: "idle" })
+      if (result.data !== true) return
+      showOctoToast({ title: "上下文压缩完成" })
+    } catch (error) {
+      console.error("[MakePage] context compaction failed", error)
+      showOctoToast({
+        title: "上下文压缩失败",
+        description: error instanceof Error ? error.message : "请稍后重试",
+        variant: "error",
+      })
+    } finally {
+      setContextCompacting(false)
+    }
+  }
+
+  function confirmCompactContext() {
+    if (contextCompactionDisabled()) return
+    dialog.show(() => (
+      <Dialog title="压缩上下文" fit class="delete-dialog">
+        <div class="flex flex-col gap-4">
+          <span class="text-14-regular text-text-strong">
+            当前上下文将压缩为摘要，以释放更多上下文空间。是否继续？
+          </span>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              size="large"
+              class="delete-dialog-btn delete-dialog-btn-primary"
+              onClick={() => {
+                dialog.close()
+                void compactContext()
+              }}
+            >
+              确认压缩
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    ))
+  }
 
   // ── 会话进度条动画状态 ────────────────────────────────────
   const [timeoutDone, setTimeoutDone] = createSignal(true)
@@ -1194,15 +1275,14 @@ const sessionMessagesLoaded = createMemo(() => {
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const filesById = new Map<string, File>()
   const maxAttachments = () => attachments().length >= 5
-  let sendingNavigation = false
   const [isDragOver, setIsDragOver] = createSignal(false)
 
   // ── Slash Command Popover State ──
   const [slashState, setSlashState] = createSignal<{ query: string; cursor: number } | null>(null)
   const [slashIndex, setSlashIndex] = createSignal(0)
   let textareaRef!: HTMLTextAreaElement
-  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (filename: string, path: string) => void; isAlive: () => boolean } | undefined
-  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (filename: string, path: string) => void; isAlive: () => boolean } | undefined
+  let proseMirrorRef1: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (id: string, path: string) => void; isAlive: () => boolean; replaceDoc: (json: any) => void } | undefined
+  let proseMirrorRef2: { getText: () => string; getMentions: () => MentionAttrs[]; clear: () => void; insertText: (text: string) => void; replaceSlashCommand: (text: string) => void; insertMention: (selection: MentionSelection) => void; removeMention: (selection: MentionSelection) => void; updateMentionPath: (id: string, path: string) => void; isAlive: () => boolean; replaceDoc: (json: any) => void } | undefined
 
   // ── Mention (@) Popover State ──
   const [mentionState, setMentionState] = createSignal<{ query: string; cursor: number } | null>(null)
@@ -1419,34 +1499,43 @@ const sessionMessagesLoaded = createMemo(() => {
       .catch((err) => console.warn("[MakePage] failed to ensure outputs dir", err))
   }))
 
-  // 保存 prompt 到 localStorage
-  function savePromptToStorage(sessionId: string | undefined, text: string) {
-    if (!sessionId) return
-    const key = PROMPT_KEY_PREFIX + sessionId
-    if (text.trim()) localStorage.setItem(key, text)
-    else localStorage.removeItem(key)
+  // 保存/加载 prompt 为 ProseMirror doc JSON（含 mention chip 完整 attrs）
+  // 新建对话（无 sid）用固定 __draft__ key 持久化草稿
+  function loadDocJSONFromStorage(sessionId: string | undefined): any {
+    const key = PROMPT_KEY_PREFIX + (sessionId ?? "__draft__")
+    const raw = localStorage.getItem(key)
+    if (!raw) return undefined
+    if (raw.startsWith("{")) {
+      try { return JSON.parse(raw).doc } catch { return undefined }
+    }
+    // 旧字符串格式迁移
+    return docJSONFromPlainText(raw)
   }
-  // 加载 prompt from localStorage
-  function loadPromptFromStorage(sessionId: string | undefined): string {
-    if (!sessionId) return ""
-    return localStorage.getItem(PROMPT_KEY_PREFIX + sessionId) ?? ""
+  function saveDocJSONToStorage(sessionId: string | undefined, docJSON: any) {
+    const key = PROMPT_KEY_PREFIX + (sessionId ?? "__draft__")
+    if (docJSON?.content?.length) {
+      localStorage.setItem(key, JSON.stringify({ v: 2, doc: docJSON }))
+    } else {
+      localStorage.removeItem(key)
+    }
   }
 
-  // 追踪当前 session ID 用于保存 prompt
+  // promptDoc: ProseMirror doc JSON，权威源（持久化用）
+  const [promptDoc, setPromptDoc] = createSignal<any>(loadDocJSONFromStorage(params.id))
   let currentSessionIdForPrompt: string | undefined = params.id
-  // prompt 变化时立即保存到当前 session
-  createEffect(on(prompt, (text) => {
-    savePromptToStorage(currentSessionIdForPrompt, text)
+  // doc 变化时立即保存到当前 session
+  createEffect(on(promptDoc, (json) => {
+    saveDocJSONToStorage(currentSessionIdForPrompt, json)
   }, { defer: true }))
-  // 切换 session 时：更新追踪 ID 并加载新 prompt
+  // 切换 session：加载新 doc + 让 editor 重建
   createEffect(on(() => params.id, (newId) => {
     currentSessionIdForPrompt = newId
-    setPrompt(loadPromptFromStorage(newId))
-    setMentionSelections([])
+    const json = loadDocJSONFromStorage(newId)
+    setPromptDoc(json)
     requestAnimationFrame(() => {
-      const ref = proseMirrorRef1 ?? proseMirrorRef2
-      if (ref?.isAlive()) {
-        ref.clear()
+      const ref = proseMirrorRef1?.isAlive() ? proseMirrorRef1 : (proseMirrorRef2?.isAlive() ? proseMirrorRef2 : undefined)
+      if (ref) {
+        ref.replaceDoc(json ?? { type: "doc", content: [{ type: "paragraph" }] })
       }
     })
   }, { defer: true }))
@@ -1628,7 +1717,7 @@ const sessionMessagesLoaded = createMemo(() => {
       if (!planSid) return null
       // 如果用户手动切换了 phase，不自动切换
       if (userChangedPhase()) return null
-      const currentPhase = planPhase()
+      const currentPhase = currentSessionPlanPhase()
       // 如果已经是 generate 阶段，不需要再检测
       if (currentPhase === "generate") return null
       const msgs = sync.data.message?.[planSid]
@@ -1644,7 +1733,7 @@ const sessionMessagesLoaded = createMemo(() => {
       return null
     },
     (phase) => {
-      if (phase === "generate") setPlanPhase("generate")
+      if (phase === "generate") setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "generate" }))
     },
     { defer: true }
   ))
@@ -1660,10 +1749,10 @@ const sessionMessagesLoaded = createMemo(() => {
     sendMessage(planSid, prompt, key).catch((err) => {
       console.error("[MakePage] generate strategy failed", err)
       setIsGenerating(false)  // 失败时恢复
-      setPlanPhase("strategy")  // 失败时回滚到策略准备阶段
+      setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))  // 失败时回滚到策略准备阶段
     })
     setUserChangedPhase(false)  // 重置手动切换标记
-    setPlanPhase("generate")
+    setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "generate" }))
   }
 
   /** 用户点击 [上一步] / [返回策略准备] → 返回策略准备阶段 */
@@ -1671,7 +1760,7 @@ const sessionMessagesLoaded = createMemo(() => {
     const planSid = activePlanForCurrentSession()
     const key = activeModelKey()
     setUserChangedPhase(true)  // 标记用户手动切换
-    setPlanPhase("strategy")
+    setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))
     setIsGenerating(false)  // 复位生成状态，让按钮可点击、表单可填写
     // 通知子 agent 回到策略准备阶段，让后续对话上下文正确
     if (planSid && key) {
@@ -1686,6 +1775,10 @@ const sessionMessagesLoaded = createMemo(() => {
     const mainSid = params.id
     if (!planSid || !modelKey || !mainSid) return
     if (planButtonDisabled()) return   // 防重复
+    // 立即持久化"已结束"标记 + 设置 planEnded，防止用户在 await 期间切换 session 后切回时 plan 恢复为可交互
+    localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + mainSid, "true")
+    setPlanEndedForSession(mainSid)
+    setPlanEndedMap(prev => ({ ...prev, [mainSid]: true }))
     setOptimisticConfirmed(true)
     setPlanConfirmPending(true)  // 过渡状态：保持 plan 视图显示"正在生成 HTML..."
     const cmd = identifier ? `[confirm-plan ${identifier}]` : `[confirm-plan]`
@@ -1734,16 +1827,12 @@ const sessionMessagesLoaded = createMemo(() => {
     // 清理子 session 状态，保留子 session 的记录（不清理 childSessionIDs）
     localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + mainSid)
     delete _planChildSessionCache[mainSid]
-    // 持久化"已结束"标记，确保切换 session / 重启后 plan 视图只读
-    localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + mainSid, "true")
-    const currentPhase = planPhase()
-    setPlanEndedForSession(mainSid)
-    setPlanEnded(true)
+    const currentPhase = currentSessionPlanPhase()
     setActivePlanSessionId(null)
     setPlanParentSessionId(null)
     setHasChildPlanSession(false)
     setManualStrategyFormData({})
-    setPlanPhase(currentPhase)
+    setPlanPhaseMap(prev => ({ ...prev, [mainSid]: currentPhase }))
     // 不切视图：保持 plan 模式，让用户看到按钮已禁用的状态
     // 等到主 agent 进入 busy 状态后再自动切回 files 视图
   }
@@ -1767,11 +1856,12 @@ const sessionMessagesLoaded = createMemo(() => {
     setHasChildPlanSession(false)
     setManualStrategyFormData({})
     setResultViewMode("files")
-    setPlanPhase("strategy")
+    setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))
     setSending(false)
+    _confirmPlanDisplayText = undefined
     // 提前退出规划时保留 Skill 暂存，只有确认成功后才清理。
     // 这样重新进入规划时可继续将当前方案与原 Skill 一起交接。
-    setPlanEnded(true)
+    setPlanEndedMap(prev => ({ ...prev, [params.id!]: true }))
     const mainSid = params.id
     if (mainSid) {
       localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + mainSid, "true")
@@ -1809,6 +1899,9 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 用户确认进入规划 → 创建已有主 session 的规划子 session */
+  // 跟踪 handleEnterPlan 是否正在进行中，防止 sync.data.session 更新触发 effect 错误清除状态
+  let _enteringPlan = false
+
   async function handleEnterPlan() {
     const sid = params.id
     const modelKey = activeModelKey()
@@ -1820,7 +1913,7 @@ const sessionMessagesLoaded = createMemo(() => {
     const composerText = editor?.getText?.() ?? ""
 
     setOptimisticIntentResolved(true)
-    setPlanEnded(false)
+    setPlanEndedMap(prev => ({ ...prev, [sid]: false }))
     localStorage.removeItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid)
 
     try {
@@ -1842,6 +1935,7 @@ const sessionMessagesLoaded = createMemo(() => {
       if (!childSession) throw new Error("Failed to create plan session")
 
       await sync.session.sync(childSession.id)
+      _enteringPlan = true
       setChildSessionIDs((prev) => {
         const next = new Set(prev)
         next.add(childSession.id)
@@ -1856,10 +1950,11 @@ const sessionMessagesLoaded = createMemo(() => {
       localStorage.setItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + sid, childSession.id)
       _planChildSessionCache[sid] = childSession.id
       setPlanParentSessionId(sid)
+      _enteringPlan = false
       savePlanSkillHandoff(sid, childSession.id, skills.map((skill) => ({ name: skill.name, label: skill.label })))
 
       setResultViewMode("plan")
-      setPlanPhase("strategy")
+      setPlanPhaseMap(prev => ({ ...prev, [sid]: "strategy" }))
       setUserChangedPhase(false)
       setManualStrategyFormData({})
       sync.session.sync(childSession.id).catch((err: any) => console.warn("[MakePage] sync child session failed", err))
@@ -1891,17 +1986,20 @@ const sessionMessagesLoaded = createMemo(() => {
     () => [params.id, sync.data.session] as const,
     ([newSid, allSessions], prev) => {
       const prevSid = prev?.[0] ?? null
-      const preservingPlanNavigation = sendingNavigation && !!newSid
       // 导航到 /make（无 session）时清除规划状态,防止泄漏到新会话
       if (!newSid) {
         if (prevSid) {
           setActivePlanSessionId(null)
           setPlanParentSessionId(null)
           clearPlanComposerCapsule()
+          // 清除残留的 confirm-plan 显示文本，防止泄漏到新会话
+          _confirmPlanDisplayText = undefined
+          setChildSessionIDs(new Set<string>())
+          loadedChildSessions.clear()
           setPlanChildSessionIDs(new Set<string>())
-        setHasChildPlanSession(false)
+          setHasChildPlanSession(false)
           setResultViewMode("files")
-          setPlanPhase("strategy")
+          if (prevSid) setPlanPhaseMap(prev => ({ ...prev, [prevSid]: "strategy" }))
           setManualStrategyFormData({})
           setPhase2Pending(false)
         }
@@ -1913,7 +2011,7 @@ const sessionMessagesLoaded = createMemo(() => {
       // 仅在 session 实际切换时清理规划状态,避免 handleEnterPlan 等操作
       // 触发 sync.data.session 更新后重新进入此 effect 时错误地清除状态。
       tabStore.reset()
-      if (newSid !== prevSid && !preservingPlanNavigation) {
+      if (newSid !== prevSid && !_enteringPlan) {
         // 缓存前一个 session 的规划子 session，切回时立即恢复
         if (prevSid && activePlanSessionId()) {
           _planChildSessionCache[prevSid] = activePlanSessionId()!
@@ -1925,95 +2023,104 @@ const sessionMessagesLoaded = createMemo(() => {
         setActivePlanSessionId(null)
         setPlanParentSessionId(null)
         clearPlanComposerCapsule()
+        // 清除残留的 confirm-plan 显示文本，防止泄漏到新会话
+        _confirmPlanDisplayText = undefined
         setPlanChildSessionIDs(new Set<string>())
         setHasChildPlanSession(false)
         setResultViewMode("files")
-        setPlanPhase("strategy")
+        setPlanPhaseMap(prev => ({ ...prev, [newSid!]: "strategy" }))
         setUserChangedPhase(false)  // 重置手动切换标记
         setManualStrategyFormData({})
         setPhase2Pending(false)
-        setPlanEnded(false)  // 复位结束状态，新 session 的恢复逻辑会重新设置
+        setPlanEndedMap(prev => ({ ...prev, [newSid!]: false }))  // 复位结束状态，新 session 的恢复逻辑会重新设置
       }
-      // 尝试恢复当前主 session 的设计规划子 session
+      // 尝试恢复当前主 session 的设计规划子 session（仅在 session 实际切换时）
       let restoredPlanSid: string | null = null
-      // 从 session 切换缓存中恢复（即时恢复，无需等 Phase 2 异步）
-      if (newSid && _planChildSessionCache[newSid]) {
-        restoredPlanSid = _planChildSessionCache[newSid]
-      }
-      // 第一阶段：从 sync.data.session 同步扫描（同会话内切换生效）
-      // 只恢复非归档的活跃子 session
-      if (allSessions) {
-        for (const s of allSessions) {
-          if ((s as any).parentID === newSid && (s as any).agent === "octo_make_plan" && !(s as any).time?.archived) {
-            loadedChildSessions.add(s.id)
-            setChildSessionIDs((prev) => { const next = new Set(prev); next.add(s.id); return next })
-            sync.session.sync(s.id).catch(() => {})
-            restoredPlanSid = s.id
-            break
+      if (newSid !== prevSid) {
+        // 从 session 切换缓存中恢复（即时恢复，无需等 Phase 2 异步）
+        if (newSid && _planChildSessionCache[newSid]) {
+          restoredPlanSid = _planChildSessionCache[newSid]
+        }
+        // 第一阶段：从 sync.data.session 同步扫描（同会话内切换生效）
+        // 只恢复非归档的活跃子 session
+        if (allSessions) {
+          for (const s of allSessions) {
+            if ((s as any).parentID === newSid && (s as any).agent === "octo_make_plan" && !(s as any).time?.archived) {
+              loadedChildSessions.add(s.id)
+              setChildSessionIDs((prev) => { const next = new Set(prev); next.add(s.id); return next })
+              sync.session.sync(s.id).catch(() => {})
+              restoredPlanSid = s.id
+              break
+            }
           }
         }
-      }
-      if (restoredPlanSid) {
-        // 规划子 session 已被当前恢复流程识别，先恢复为进行中状态；只有明确的结束标记才进入只读状态。
-        setPlanEndedForSession(null)
-        setPlanEnded(false)
-        // 检查是否已被用户退出（持久化标记）
-        const isEnded = !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid)
-        if (isEnded) {
-          // 已退出：只保留历史记录，不恢复为活跃状态
-          if (!loadedChildSessions.has(restoredPlanSid)) {
-            loadedChildSessions.add(restoredPlanSid)
-            setChildSessionIDs((prev) => { const next = new Set(prev); next.add(restoredPlanSid); return next })
-            sync.session.sync(restoredPlanSid).catch(() => {})
+        if (restoredPlanSid) {
+          // 规划子 session 已被当前恢复流程识别，先恢复为进行中状态；只有明确的结束标记才进入只读状态。
+          setPlanEndedForSession(null)
+          setPlanEndedMap(prev => ({ ...prev, [newSid!]: false }))
+          const planSid = restoredPlanSid
+          // 检查是否已被用户退出（持久化标记）
+          const isEnded = !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid)
+          if (isEnded) {
+            // 已退出：只保留历史记录，不恢复为活跃状态
+            if (!loadedChildSessions.has(planSid)) {
+              loadedChildSessions.add(planSid)
+              setChildSessionIDs((prev) => { const next = new Set(prev); next.add(planSid); return next })
+              sync.session.sync(planSid).catch(() => {})
+            }
+            setPlanEndedForSession(newSid)
+            setPlanEndedMap(prev => ({ ...prev, [newSid!]: true }))
+            return
           }
-          setPlanEndedForSession(newSid)
-          setPlanEnded(true)
-          return
-        }
 
-        if (!loadedChildSessions.has(restoredPlanSid)) {
-          loadedChildSessions.add(restoredPlanSid)
-          setChildSessionIDs((prev) => { const next = new Set(prev); next.add(restoredPlanSid); return next })
-          sync.session.sync(restoredPlanSid).catch(() => {})
-        }
-        // 检测子 session 是否已被确认
-        // 已确认的子 session 只保留历史记录，不恢复为活跃状态
-        const childMessages = sync.data.message?.[restoredPlanSid]
-        const childParts = sync.data.part
+          if (!loadedChildSessions.has(planSid)) {
+            loadedChildSessions.add(planSid)
+            setChildSessionIDs((prev) => { const next = new Set(prev); next.add(planSid); return next })
+            sync.session.sync(planSid).catch(() => {})
+          }
+          // 检测子 session 是否已被确认
+          // 已确认的子 session 只保留历史记录，不恢复为活跃状态
+          const childMessages = sync.data.message?.[planSid]
+          const childParts = sync.data.part
 
-        // 扫描 design-plan artifact
-        const planArtifact = scanDesignPlanFromMessages(childMessages, childParts, restoredPlanSid)
-        const planIdent = planArtifact?.artifactIdentifier
+          // 扫描 design-plan artifact
+          const planArtifact = scanDesignPlanFromMessages(childMessages, childParts, planSid)
+          const planIdent = planArtifact?.artifactIdentifier
 
-        // 使用 isPlanConfirmed 检测确认状态（包括 [confirm-plan] 和 text/html artifact）
-        const isConfirmed = planIdent ? isPlanConfirmed(childMessages, childParts, planIdent) : false
+          // 使用 isPlanConfirmed 检测确认状态（包括 [confirm-plan] 和 text/html artifact）
+          // [confirm-plan] 发送给主 session，需同时检查主 session 消息流
+          let isConfirmed = planIdent ? isPlanConfirmed(childMessages, childParts, planIdent) : false
+          if (!isConfirmed && planIdent && newSid) {
+            isConfirmed = isPlanConfirmed(sync.data.message?.[newSid], sync.data.part, planIdent)
+          }
 
-        // 检测子 session 消息流中是否已有 design-plan artifact
-        const hasDesignPlan = childMessages?.some((m: any) => {
-          if (m.role !== "assistant") return false
-          const text = (childParts?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
-          return text?.includes('type="text/design-plan"')
-        })
+          // 检测子 session 消息流中是否已有 design-plan artifact
+          const hasDesignPlan = childMessages?.some((m: any) => {
+            if (m.role !== "assistant") return false
+            const text = (childParts?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
+            return text?.includes('type="text/design-plan"')
+          })
 
-        if (isConfirmed) {
-          // 已确认：只保留历史记录，不设为活跃
-          setPlanChildSessionIDs(new Set<string>())
-        setHasChildPlanSession(false)
-          setPlanEndedForSession(newSid)
-          setPlanEnded(true)
-          localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid, "true")
-          // 设置 planPhase 为 generate，以便用户点击 tab 时正确显示第二阶段内容
-          setPlanPhase(hasDesignPlan ? "generate" : "strategy")
-          // 清理 localStorage 缓存
-          localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + newSid)
-          delete _planChildSessionCache[newSid]
-        } else {
-          // 未确认：恢复为活跃状态
-          setActivePlanSessionId(restoredPlanSid)
-          setPlanParentSessionId(newSid)
-          setHasChildPlanSession(true)
-          setResultViewMode("plan")
-          setPlanPhase(hasDesignPlan ? "generate" : "strategy")
+          if (isConfirmed) {
+            // 已确认：只保留历史记录，不设为活跃
+            setPlanChildSessionIDs(new Set<string>())
+            setHasChildPlanSession(false)
+            setPlanEndedForSession(newSid)
+            setPlanEndedMap(prev => ({ ...prev, [newSid!]: true }))
+            localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid, "true")
+            // 设置 planPhase 为 generate，以便用户点击 tab 时正确显示第二阶段内容
+            setPlanPhaseMap(prev => ({ ...prev, [newSid!]: hasDesignPlan ? "generate" : "strategy" }))
+            // 清理 localStorage 缓存
+            localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + newSid)
+            delete _planChildSessionCache[newSid]
+          } else {
+            // 未确认：恢复为活跃状态
+            setActivePlanSessionId(planSid)
+            setPlanParentSessionId(newSid)
+            setHasChildPlanSession(true)
+            setResultViewMode("plan")
+            setPlanPhaseMap(prev => ({ ...prev, [newSid!]: hasDesignPlan ? "generate" : "strategy" }))
+          }
         }
       }
       setMentionState(null)
@@ -2035,11 +2142,18 @@ const sessionMessagesLoaded = createMemo(() => {
         setPhase2Pending(true)
         detectChildPlanSession(newSid).then((childId) => {
           if (params.id !== newSid || !childId) return
+          // 检查是否已被用户确认结束（持久化标记），防止策略执行后切回时内容仍可交互
+          const isEnded = !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid)
+          if (isEnded) {
+            setPlanEndedForSession(newSid)
+            setPlanEndedMap(prev => ({ ...prev, [newSid!]: true }))
+            return
+          }
           setActivePlanSessionId(childId)
           setPlanParentSessionId(newSid)
           setHasChildPlanSession(true)
           setResultViewMode("plan")
-          setPlanPhase("strategy")
+          setPlanPhaseMap(prev => ({ ...prev, [newSid!]: "strategy" }))
         }).finally(() => {
           if (params.id === newSid) setPhase2Pending(false)
         })
@@ -2090,7 +2204,7 @@ const sessionMessagesLoaded = createMemo(() => {
           setPlanEndedForSession(mainSid)
           clearPlanComposerCapsule()
           if (activePlanSessionId() === childId) {
-            setPlanEnded(true)
+            setPlanEndedMap(prev => ({ ...prev, [mainSid!]: true }))
             setActivePlanSessionId(null)
             setPlanParentSessionId(null)
           }
@@ -2113,7 +2227,7 @@ const sessionMessagesLoaded = createMemo(() => {
         }
         setPlanConfirmPending(false)
         setPlanEndedForSession(mainSid ?? null)
-        setPlanEnded(true)
+        setPlanEndedMap(prev => ({ ...prev, [mainSid!]: true }))
         setActivePlanSessionId(null)
         setPlanParentSessionId(null)
         setPlanChildSessionIDs(new Set<string>())
@@ -2141,7 +2255,7 @@ const sessionMessagesLoaded = createMemo(() => {
         if (!card) {
           // 无有效 plan，安全复位
           setIsGenerating(false)
-          setPlanPhase("strategy")
+          setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))
           setUserChangedPhase(true)
         }
       }
@@ -2294,7 +2408,7 @@ const sessionMessagesLoaded = createMemo(() => {
             const newPath = [uploadsDir, candidate].join(sep)
             await api.renameFile!(p, newPath)
             const ref = proseMirrorRef1 ?? proseMirrorRef2
-            ref?.updateMentionPath?.(sel.name, newPath)
+            ref?.updateMentionPath?.(sel.id ?? sel.name, newPath)
             sel.path = newPath
           } catch (err) {
             console.warn("[octo:make] upload-move failed, keep tmps path", { name: sel.name, path: p, err })
@@ -2628,17 +2742,24 @@ const sessionMessagesLoaded = createMemo(() => {
         inputText: text.slice(0, 30)
       })
       
-      await sdk.client.session.prompt({
+      // 不 await 整个 stream:session.prompt 是 streaming API,await 在 stream 完成才 resolve。
+      // 若 await,sending 会一直 true 到模型回复结束,输入框被全程禁用。
+      // fire-and-forget + .catch:sendMessage 立即返回,handleSubmit 的 finally 把 sending 重置,
+      // 模型回复期间靠 effectiveBusy() (handleSubmit 入口处 early-return) 防重入。
+      void sdk.client.session.prompt({
         sessionID: sessionId,
         agent: sessionId === activePlanSessionId() ? "octo_make_plan" : "octo_make",
         ...(modelKey ? { model: modelKey } : {}),
         parts,
+      }).catch(err => {
+        console.error("[MakePage] prompt failed", err)
       })
-      setAttachments([])
+      // 不在此清空附件：session.prompt 是 streaming API，await 在 stream 完成才 resolve。
+      // 附件已在 sendMessage 开头（约 2223 行）快照后立即清空，此处再清会误清
+      // "streaming 期间用户添加的新附件"。失败时也保留附件便于用户重试。
       requestAnimationFrame(() => autoScroll.forceScrollToBottom())
     } catch (err) {
       console.error("[MakePage] prompt failed", err)
-      setAttachments([])
     }
   }
 
@@ -2683,6 +2804,13 @@ const sessionMessagesLoaded = createMemo(() => {
     if (shouldStartInitialPlan) clearPlanComposerCapsule()
     proseMirrorRef1?.clear()
     proseMirrorRef2?.clear()
+    // 新建 session 时立即清除规划子 session 状态，防止旧 plan 会话的 SID 泄漏到新会话
+    if (!params.id) {
+      setActivePlanSessionId(null)
+      setPlanParentSessionId(null)
+      setChildSessionIDs(new Set<string>())
+      loadedChildSessions.clear()
+    }
     const planSid = activePlanSessionId() && planParentSessionId() === params.id ? activePlanSessionId() : null
     const submitSessionId = planSid || params.id
     try {
@@ -2716,6 +2844,7 @@ const sessionMessagesLoaded = createMemo(() => {
           if (!childSession) throw new Error("Failed to create plan session")
 
           loadedChildSessions.add(childSession.id)
+          _enteringPlan = true
           setChildSessionIDs((prev) => {
             const next = new Set(prev)
             next.add(childSession.id)
@@ -2729,20 +2858,20 @@ const sessionMessagesLoaded = createMemo(() => {
           setActivePlanSessionId(childSession.id)
           setPlanParentSessionId(session.id)
           setPlanEndedForSession(null)
-          setPlanEnded(false)
+          setPlanEndedMap(prev => ({ ...prev, [session.id]: false }))
           localStorage.removeItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + session.id)
           setPlanChildSessionIDs((prev) => { const next = new Set(prev); next.add(childSession.id); return next })
           localStorage.setItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + session.id, childSession.id)
           _planChildSessionCache[session.id] = childSession.id
           savePlanSkillHandoff(session.id, childSession.id, skills)
           setResultViewMode("plan")
-          setPlanPhase("strategy")
+          setPlanPhaseMap(prev => ({ ...prev, [session.id]: "strategy" }))
           setUserChangedPhase(false)
           setManualStrategyFormData({})
+          _enteringPlan = false
 
           local.session.promote(sdk.directory, session.id)
           await sync.session.sync(childSession.id)
-          sendingNavigation = true
           navigate(`/make/${session.id}`)
           await sdk.client.session.prompt({
             sessionID: childSession.id,
@@ -2791,7 +2920,6 @@ const sessionMessagesLoaded = createMemo(() => {
 if (dsId) {
           localStorage.setItem(DS_KEY_PREFIX + session.id, dsId)
         }
-        sendingNavigation = true
         navigate(`/make/${session.id}`)
         sid = session.id
       }
@@ -2986,8 +3114,8 @@ if (dsId) {
     getAliveEditor()?.removeMention(selection)
   }
 
-  function handleAddonUpdateMentionPath(filename: string, path: string) {
-    getAliveEditor()?.updateMentionPath(filename, path)
+  function handleAddonUpdateMentionPath(id: string, path: string) {
+    getAliveEditor()?.updateMentionPath(id, path)
   }
 
   /** Pick a Design Files file and add as attachment */
@@ -3838,7 +3966,7 @@ if (dsId) {
       })
   }
 
-  const inputDisabled = () => sending() || effectiveBusy() || !activeModelKey() || !!questionRequest() || !!permissionRequest()
+  const inputDisabled = () => sending() || !activeModelKey() || !!questionRequest() || !!permissionRequest()
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
@@ -3929,26 +4057,45 @@ if (dsId) {
                   </Show>
                   <Show when={!titleState.editing && params.id}>
                     <Tooltip
-                      placement="top"
+                      placement="bottom"
                       gutter={8}
                       contentClass="make-token-tooltip"
                       value={
-                        <span>
-                          当前session已使用： {(contextMetrics()?.total ?? 0).toLocaleString(language.intl())} /{" "}
-                          {contextLimit() ? contextLimit().toLocaleString(language.intl()) : "--"} 个token
-                        </span>
+                        <div class="flex flex-col">
+                          <span>
+                            当前session已使用： {contextTokens().toLocaleString(language.intl())} /{" "}
+                            {contextLimit()?.toLocaleString(language.intl()) ?? "--"} 个token
+                          </span>
+                          <span>
+                            {contextCompacting()
+                              ? "正在压缩上下文…"
+                              : effectiveBusy()
+                                ? "对话进行中，暂不可压缩"
+                                : "点击压缩上下文"}
+                          </span>
+                        </div>
                       }
                     >
-                      <div
+                      <button
+                        type="button"
                         class="shrink-0 flex items-center justify-center"
+                        classList={{
+                          "cursor-pointer": !contextCompactionDisabled(),
+                          "cursor-not-allowed": contextCompactionDisabled(),
+                        }}
                         style={{
                           "--border-active": "var(--octo-brand)",
                           "--border-weak-base": "rgba(0,0,0,0.1)",
+                          background: "transparent",
+                          border: "none",
+                          padding: "0",
                         }}
-                        aria-label={`Token ${contextUsage()}%`}
+                        disabled={contextCompactionDisabled()}
+                        onClick={confirmCompactContext}
+                        aria-label={`上下文已使用 ${contextUsage()}%，点击压缩上下文`}
                       >
                         <ProgressCircle size={16} strokeWidth={2} percentage={contextUsage()} />
-                      </div>
+                      </button>
                     </Tooltip>
                   </Show>
                 </div>
@@ -4106,7 +4253,8 @@ if (dsId) {
                         busy={effectiveBusy()}
                         autofocus
                         onTriggerMention={loadSkillConfig}
-                        onContentChange={setPrompt}
+                        onContentChange={(json, text) => { setPromptDoc(json); setPrompt(text) }}
+                        initialDocJSON={promptDoc()}
                         onSubmit={() => void handleSubmit()}
                         onPaste={handlePaste}
                         onSlashTrigger={(query) => {
@@ -4417,7 +4565,8 @@ onPreview={(url) => {
                        busy={effectiveBusy()}
                        autofocus
                        onTriggerMention={loadSkillConfig}
-                      onContentChange={setPrompt}
+                      onContentChange={(json, text) => { setPromptDoc(json); setPrompt(text) }}
+                      initialDocJSON={promptDoc()}
                       onSubmit={() => void handleSubmit()}
                       onPaste={handlePaste}
  onSlashTrigger={(query) => {
@@ -4615,7 +4764,7 @@ onPreview={(url) => {
                   void historyController.onFileRefresh(tabStore.tabs())
                 }}
                 planCard={planCard()}
-                planPhase={planPhase()}
+                planPhase={currentSessionPlanPhase()}
                 strategyFormData={strategyFormData()}
                 onStrategyFieldChange={(field, value) => {
                   setManualStrategyFormData((prev) => ({ ...prev, [field]: value }))
@@ -4627,7 +4776,7 @@ onPreview={(url) => {
                 childPlanConfirmed={childPlanConfirmed()}
                 childSessionStatus={sync.data.session_status[activePlanForCurrentSession() ?? ""]}
                 childBusy={childBusy()}
-                planEnded={planEnded()}
+                planEnded={currentSessionPlanEnded()}
                 planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
               />
             </div>

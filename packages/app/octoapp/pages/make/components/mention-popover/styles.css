@@ -366,6 +366,90 @@
   object-fit: scale-down;
 }
 
+/* Design file hover preview popup — 参照 addon-menu-asset-preview,用 Portal + position:fixed */
+.mention-design-preview {
+  position: fixed;
+  width: 256px;
+  height: 330px;
+  padding: 8px;
+  box-sizing: border-box;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0px 16px 48px 0px rgba(0, 0, 0, 0.16);
+  z-index: 1010;
+  display: flex;
+  flex-direction: column;
+}
+
+.mention-design-preview-name {
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  text-align: left;
+  color: rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mention-design-preview-size {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.6);
+  margin: 8px 0;
+}
+
+.mention-design-preview-stage {
+  margin-top: 8px;
+  width: 100%;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.mention-design-preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: scale-down;
+}
+
+/* HTML preview: iframe 1920x1080 scaled to fit, vertically centered in stage */
+.mention-design-preview-html {
+  position: relative;
+  width: 240px;
+  height: 135px; /* 240 * 1080/1920 = 135 (scaled iframe height) */
+  flex-shrink: 0;
+}
+
+.mention-design-preview-html iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1920px;
+  height: 1080px;
+  border: 0;
+  transform: scale(0.125);
+  transform-origin: top left;
+}
+
+.mention-design-preview-unsupported {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.mention-design-preview-unsupported-text {
+  font-size: 14px;
+  color: #777777;
+  margin-top: 20px;
+}
+
 /* Download overlay */
 .mention-download-overlay {
   position: fixed;

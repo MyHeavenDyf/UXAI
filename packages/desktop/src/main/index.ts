@@ -7,7 +7,7 @@ import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { DownloadItem, Event, WebContents } from "electron"
-import { app, BrowserWindow, dialog, session } from "electron"
+import { app, BrowserWindow, dialog, powerMonitor, session } from "electron"
 import pkg from "electron-updater"
 import semver from "semver"
 import {shellPath} from "shell-path"
@@ -58,6 +58,7 @@ import { CHANNEL, UPDATER_ENABLED } from "./constants"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
+import { normalizeReleaseNotes } from "./normalize-release-notes"
 import { createMenu } from "./menu"
 import { setUploadsDir, startPreviewServer } from "./preview-server"
 import {
@@ -208,6 +209,9 @@ function setupApp() {
     setDockIcon()
     startPreviewServer()
     setupAutoUpdater()
+    powerMonitor.on("resume", () => {
+      BrowserWindow.getAllWindows().forEach((win) => win.webContents.send("power-resume"))
+    })
     await initialize()
   })
 }
@@ -503,6 +507,9 @@ function setupAutoUpdater() {
   autoUpdater.allowDowngrade = false
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
+  autoUpdater.on("download-progress", (progress) => {
+    BrowserWindow.getAllWindows().forEach((win) => win.webContents.send("update-download-progress", progress.percent))
+  })
   logger.log("auto updater configured", {
     channel: autoUpdater.channel,
     allowPrerelease: autoUpdater.allowPrerelease,
@@ -511,15 +518,23 @@ function setupAutoUpdater() {
   })
 }
 
+let availableUpdateVersion: string | undefined
+let availableUpdateReleaseNotes: string | undefined
 let downloadedUpdateVersion: string | undefined
 
-async function checkUpdate() {
+async function downloadUpdate(version: string) {
+  await autoUpdater.downloadUpdate()
+  logger.log("update download completed", { version })
+  downloadedUpdateVersion = version
+}
+
+async function checkUpdate(download = false) {
   if (!UPDATER_ENABLED) return { updateAvailable: false }
   if (downloadedUpdateVersion) {
     logger.log("returning cached downloaded update", {
       version: downloadedUpdateVersion,
     })
-    return { updateAvailable: true, version: downloadedUpdateVersion }
+    return { updateAvailable: true, version: downloadedUpdateVersion, releaseNotes: availableUpdateReleaseNotes }
   }
   logger.log("checking for updates", {
     currentVersion: app.getVersion(),
@@ -530,10 +545,12 @@ async function checkUpdate() {
   try {
     const result = await autoUpdater.checkForUpdates()
     const updateInfo = result?.updateInfo
+    const releaseNotes = normalizeReleaseNotes(updateInfo?.releaseNotes)
     logger.log("update metadata fetched", {
       releaseVersion: updateInfo?.version ?? null,
       releaseDate: updateInfo?.releaseDate ?? null,
       releaseName: updateInfo?.releaseName ?? null,
+      releaseNotes: releaseNotes ?? null,
       files: updateInfo?.files?.map((file) => file.url) ?? [],
     })
     const version = result?.updateInfo?.version
@@ -551,10 +568,12 @@ async function checkUpdate() {
       return { updateAvailable: false }
     }
     logger.log("update available", { version })
-    await autoUpdater.downloadUpdate()
-    logger.log("update download completed", { version })
-    downloadedUpdateVersion = version
-    return { updateAvailable: true, version }
+    availableUpdateVersion = version
+    availableUpdateReleaseNotes = releaseNotes
+    if (download) {
+      await downloadUpdate(version)
+    }
+    return { updateAvailable: true, version, releaseNotes }
   } catch (error) {
     logger.error("update check failed", error)
     return { updateAvailable: false, failed: true }
@@ -562,6 +581,10 @@ async function checkUpdate() {
 }
 
 async function installUpdate() {
+  if (!downloadedUpdateVersion && availableUpdateVersion) {
+    logger.log("downloading update before install", { version: availableUpdateVersion })
+    await downloadUpdate(availableUpdateVersion)
+  }
   if (!downloadedUpdateVersion) {
     logger.log("install update skipped", {
       reason: "no downloaded update ready",
@@ -578,7 +601,7 @@ async function installUpdate() {
 async function checkForUpdates(alertOnFail: boolean) {
   if (!UPDATER_ENABLED) return
   logger.log("checkForUpdates invoked", { alertOnFail })
-  const result = await checkUpdate()
+  const result = await checkUpdate(true)
   if (!result.updateAvailable) {
     if (result.failed) {
       logger.log("no update decision", { reason: "update check failed" })

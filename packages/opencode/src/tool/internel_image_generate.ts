@@ -36,7 +36,7 @@ type InternalImageEndpointPreset = {
 }
 type InternalTaskType = "txt2img" | "img2img"
 type InternalToolAction = "generate_image" | "generate_video" | "super_resolution" | "cutout" | "inpainting" | "outpainting"
-type StudioAspectRatio = "1:1" | "2:3" | "3:4" | "9:16" | "3:2" | "4:3" | "16:9"
+type StudioAspectRatio = "1:1" | "2:3" | "3:4" | "9:16" | "3:2" | "4:3" | "16:9" | "21:9"
 type InternalStyleConfig = {
   taskType: string
   tagName: string
@@ -1169,7 +1169,7 @@ function getStudioAspectRatio(input: ImageGenerateInput): StudioAspectRatio | un
     input.aspectRatio ??
     (typeof settings.aspectRatio === "string" ? settings.aspectRatio : undefined) ??
     input.prompt.match(/画幅比例：([0-9]+:[0-9]+)/)?.[1]
-  if (["1:1", "2:3", "3:4", "9:16", "3:2", "4:3", "16:9"].includes(value ?? "")) return value as StudioAspectRatio
+  if (["1:1", "2:3", "3:4", "9:16", "3:2", "4:3", "16:9", "21:9"].includes(value ?? "")) return value as StudioAspectRatio
   return undefined
 }
 
@@ -1404,9 +1404,15 @@ function getVideoMode(input: ImageGenerateInput) {
   return value === "pro" ? "pro" : "std"
 }
 
+function getVideoResolution(input: ImageGenerateInput) {
+  const value = extraString(input, "resolution")
+  if (value === "480p" || value === "720p" || value === "1080p" || value === "4k") return value
+  return "480p"
+}
+
 function getVideoAspectRatio(input: ImageGenerateInput) {
   const aspectRatio = getStudioAspectRatio(input)
-  if (aspectRatio === "1:1" || aspectRatio === "9:16" || aspectRatio === "16:9") return aspectRatio
+  if (aspectRatio === "1:1" || aspectRatio === "9:16" || aspectRatio === "16:9" || aspectRatio === "21:9" || aspectRatio === "4:3" || aspectRatio === "3:4") return aspectRatio
   return "16:9"
 }
 
@@ -1432,6 +1438,7 @@ async function buildVideoRequestBody(input: ImageGenerateInput, context: Interna
     duration: getVideoDuration(input),
     count: getStudioCount(input),
     mode: getVideoMode(input),
+    resolution: getVideoResolution(input),
   }
   if (extraString(input, "videoMode") === "first_last_frame" && !frames.firstFrame) {
     throw new Error("Image-to-video generation requires a first frame.")

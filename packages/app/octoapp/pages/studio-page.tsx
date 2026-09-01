@@ -102,6 +102,9 @@ import {
   type StudioVideoDuration,
   type StudioVideoFrameSlot,
   type StudioVideoMode,
+  STUDIO_VIDEO_RESOLUTION,
+  STUDIO_VIDEO_RESOLUTION_KEY,
+  STUDIO_VIDEO_MODE,
   type StudioVideoQualityMode,
 } from "./studio/studio-shared"
 import { createStudioSessionData } from "./studio/studio-session-data"
@@ -340,7 +343,7 @@ export default function StudioPage() {
   let reversePromptRunning = false
   let reversePromptController: AbortController | undefined
   const [videoDuration, setVideoDuration] = createSignal<StudioVideoDuration>("5")
-  const [videoQualityMode, setVideoQualityMode] = createSignal<StudioVideoQualityMode>("std")
+  const [videoQualityMode, setVideoQualityMode] = createSignal<StudioVideoQualityMode>("480")
   const [videoMode, setVideoMode] = createSignal<StudioVideoMode>("all-reference")
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
@@ -1493,7 +1496,7 @@ export default function StudioPage() {
   const hasInvalidVideoFrames = createMemo(() => Boolean(videoFrames.last && !videoFrames.first))
   const videoQualityLocked = createMemo(() => Boolean(videoFrames.first && videoFrames.last))
   createEffect(() => {
-    if (videoQualityLocked()) setVideoQualityMode("pro")
+    if (videoQualityLocked()) setVideoQualityMode("720")
   })
   const canSubmit = createMemo(() =>
     SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
@@ -2343,8 +2346,9 @@ export default function StudioPage() {
     return value as StudioVideoDuration
   }
 
-  function videoQualityModeValue(value: unknown) {
-    return value === "pro" ? "pro" : value === "std" ? "std" : undefined
+  function videoResolutionValue(value: unknown) {
+    if (typeof value !== "string") return undefined
+    return STUDIO_VIDEO_RESOLUTION_KEY[value]
   }
 
   function dataUrlFromBase64(value?: string) {
@@ -2413,7 +2417,7 @@ export default function StudioPage() {
         width: result.width,
         height: result.height,
         videoDuration: videoDurationValue(recordValue(extra, "duration")) ?? result.duration,
-        videoQualityMode: videoQualityModeValue(recordValue(extra, "mode")) ?? result.videoQualityMode,
+        videoQualityMode: videoResolutionValue(recordValue(extra, "resolution")) ?? result.videoQualityMode,
         useRestoredInputs: true,
       }
     }
@@ -2478,7 +2482,7 @@ export default function StudioPage() {
       referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
       videoFrames: restoredVideoFrames(result),
       videoDuration: videoDurationValue(recordValue(extra, "duration")) ?? result.duration,
-      videoQualityMode: videoQualityModeValue(recordValue(extra, "mode")) ?? result.videoQualityMode,
+      videoQualityMode: videoResolutionValue(recordValue(extra, "resolution")) ?? result.videoQualityMode,
     }
   }
 
@@ -3133,7 +3137,8 @@ export default function StudioPage() {
         ? {
           videoMode: nextHasVideoFrames ? "first_last_frame" : "text",
           duration: nextVideoDuration,
-          mode: nextVideoQualityMode,
+          mode: STUDIO_VIDEO_MODE[nextVideoQualityMode],
+          resolution: STUDIO_VIDEO_RESOLUTION[nextVideoQualityMode],
           firstFrame: nextVideoFrames.first,
           lastFrame: nextVideoFrames.first ? nextVideoFrames.last : undefined,
         }
