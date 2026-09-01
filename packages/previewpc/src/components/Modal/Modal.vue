@@ -94,3 +94,22 @@ function handleClose() {
     </template>
   </ElDialog>
 </template>
+<style lang="less">
+.el-dialog{
+  --el-dialog-border-radius: var(--radius-lg, 8px);
+  padding:24px;
+}
+.el-dialog__headerbtn {
+  top: 20px;
+  right: 20px;
+  width: 24px;
+  height: 24px;
+}
+.el-icon.el-dialog__close {
+  font-size: 23px;
+}
+.el-dialog__title {
+  font-size:20px;
+  line-height: 28px;
+}
+</style>

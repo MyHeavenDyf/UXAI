@@ -1,0 +1,112 @@
+@radius: var(--el-border-radius-base, 4px);
+@border-default: 0 0 0 1px var(--el-border-color) inset;
+@border-hover: 0 0 0 1px var(--el-input-hover-border-color, var(--el-border-color-hover)) inset;
+@border-focus: 0 0 0 1px var(--el-input-focus-border-color, var(--brand-50)) inset;
+@border-disabled: 0 0 0 1px var(--el-disabled-border-color, var(--el-border-color-lighter)) inset;
+
+.category-input {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  border-radius: @radius;
+  background-color: var(--el-input-bg-color, var(--el-fill-color-blank));
+  overflow: hidden;
+
+  // Input
+  &__input .el-input__wrapper {
+    background-color: transparent !important;
+    box-shadow: @border-default !important;
+    border-radius: 0 !important;
+  }
+
+  &__input:hover .el-input__wrapper {
+    box-shadow: @border-hover !important;
+    z-index: 1;
+  }
+
+  &__input .el-input__wrapper.is-focus {
+    box-shadow: @border-focus !important;
+    z-index: 1;
+  }
+
+  // Select
+  &__select {
+    width: 100px;
+    flex-shrink: 0;
+
+    .el-select__wrapper {
+      background-color: transparent !important;
+      box-shadow: @border-default !important;
+      border: none !important;
+      border-radius: 0 !important;
+    }
+
+    .el-select__wrapper.is-hovering:not(.is-focused) {
+      box-shadow: @border-hover !important;
+      z-index: 1;
+    }
+
+    .el-select__wrapper.is-focused {
+      box-shadow: @border-focus !important;
+      z-index: 1;
+    }
+  }
+
+  // Junction: overlap box-shadows by -1px
+  &--right &__select {
+    margin-left: -1px;
+  }
+
+  &--left &__select {
+    margin-right: -1px;
+  }
+
+  // Border-radius on outer edges
+  &--right &__input .el-input__wrapper {
+    border-radius: @radius 0 0 @radius !important;
+  }
+
+  &--right &__select .el-select__wrapper {
+    border-radius: 0 @radius @radius 0 !important;
+  }
+
+  &--left &__select .el-select__wrapper {
+    border-radius: @radius 0 0 @radius !important;
+  }
+
+  &--left &__input .el-input__wrapper {
+    border-radius: 0 @radius @radius 0 !important;
+  }
+
+  // Disabled
+  &--disabled {
+    background-color: var(--el-disabled-bg-color, var(--el-fill-color-light));
+    cursor: not-allowed;
+  }
+
+  &--disabled &__input .el-input__wrapper,
+  &--disabled &__input:hover .el-input__wrapper {
+    box-shadow: @border-disabled !important;
+    color: var(--el-text-color-disabled);
+  }
+
+  &--disabled &__select .el-select__wrapper,
+  &--disabled &__select .el-select__wrapper.is-hovering:not(.is-focused) {
+    box-shadow: @border-disabled !important;
+    background-color: transparent !important;
+    color: var(--el-text-color-disabled);
+  }
+
+  &--disabled &__select,
+  &--disabled &__input {
+    --el-disabled-bg-color: transparent;
+    --el-select-disabled-color: var(--el-text-color-disabled);
+    --el-select-disabled-border: var(--el-disabled-border-color, var(--el-border-color-lighter));
+  }
+}
+
+.theme-dark .category-input {
+  --el-input-bg-color: transparent;
+  --el-input-focus-border-color: var(--brand-40);
+  background-color: transparent;
+}

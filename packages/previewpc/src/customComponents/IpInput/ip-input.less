@@ -1,0 +1,100 @@
+
+.ip-input {
+  @radius: var(--el-border-radius-base, 4px);
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  border: 1px solid var(--el-border-color);
+  border-radius: @radius;
+  background-color: var(--el-input-bg-color, var(--el-fill-color-blank));
+  transition: border-color 0.2s;
+  overflow: hidden;
+
+  &:hover {
+    border-color: var(--el-input-hover-border-color, var(--el-border-color-hover));
+  }
+
+  &:focus-within {
+    border-color: var(--el-input-focus-border-color, var(--brand-50));
+  }
+
+  &__segment {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: var(--el-input-inner-height, 30px);
+    padding: 1px 8px;
+    text-align: center;
+    background-color: transparent;
+    color: var(--el-input-text-color, var(--el-text-color-primary));
+    font-size: var(--el-font-size-base, 14px);
+    font-family: var(--el-font-family);
+    line-height: var(--el-input-inner-height, 30px);
+    outline: none;
+    caret-color: var(--brand-50);
+  }
+
+  &__delimiter {
+    height: var(--el-input-inner-height, 30px);
+    line-height: var(--el-input-inner-height, 30px);
+    width: 12px;
+    flex-shrink: 0;
+    text-align: center;
+    color: var(--el-text-color-secondary);
+    font-size: var(--el-font-size-base, 14px);
+    user-select: none;
+  }
+
+  // v4 dot: render as CSS circle
+  &--v4 &__delimiter {
+    position: relative;
+    font-size: 0;
+
+    &::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background-color: var(--el-text-color-secondary);
+    }
+  }
+
+  // Disabled
+  &--disabled {
+    background-color: var(--el-disabled-bg-color);
+    border-color: var(--el-border-color-light);
+    cursor: not-allowed;
+
+    & &__segment {
+      color: var(--el-disabled-text-color);
+      cursor: not-allowed;
+    }
+
+    & &__delimiter {
+      color: var(--el-disabled-text-color);
+    }
+
+    &&--v4 &__delimiter::after {
+      background-color: var(--el-disabled-text-color);
+    }
+  }
+
+  // Type-specific segment widths
+  &--v4 &__segment,
+  &--v6 &__segment {
+    max-width: 80px;
+  }
+
+  &--mac &__segment {
+    max-width: 48px;
+  }
+}
+
+.theme-dark .ip-input {
+  --el-input-bg-color: transparent;
+  --el-input-focus-border-color: var(--brand-40);
+  background-color: transparent;
+}
