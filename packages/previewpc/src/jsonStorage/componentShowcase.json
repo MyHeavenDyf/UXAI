@@ -440,7 +440,9 @@
       }
     ],
     "paginationCurrent": 3,
-    "paginationTotal": 85
+    "paginationTotal": 85,
+    "modalBasicOpen": false,
+    "modalFooterOpen": false
   },
   "rootId": "pageRoot",
   "elements": [
@@ -6036,7 +6038,8 @@
       },
       "children": [
         "sectionResponseTitle",
-        "progressCard"
+        "progressCard",
+        "modalCard"
       ]
     },
     {
@@ -7022,6 +7025,256 @@
             "icon": "help-circle"
           }
         ]
+      }
+    },
+    {
+      "id": "modalCard",
+      "component": "div",
+      "props": {
+        "className": "bg-surface-container-highest rounded-xl shadow-sm p-6 flex flex-col gap-5"
+      },
+      "children": [
+        "modalCardTitle",
+        "modalRowBasic",
+        "modalRowCustomFooter",
+        "modalBasic",
+        "modalCustomFooter"
+      ]
+    },
+    {
+      "id": "modalCardTitle",
+      "component": "span",
+      "props": {
+        "value": "Modal 对话框",
+        "className": "text-lg font-semibold text-on-surface"
+      }
+    },
+    {
+      "id": "modalRowBasic",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "modalRowBasicLabel",
+        "modalRowBasicContent"
+      ]
+    },
+    {
+      "id": "modalRowBasicLabel",
+      "component": "span",
+      "props": {
+        "value": "基础对话框",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "modalRowBasicContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "modalOpenBasicBtn"
+      ]
+    },
+    {
+      "id": "modalOpenBasicBtn",
+      "component": "Button",
+      "props": {
+        "value": "打开对话框",
+        "color": "primary",
+        "icon": "external-link",
+        "iconPlacement": "start",
+        "onClick": {
+          "action": "setState",
+          "args": {
+            "path": "modalBasicOpen",
+            "value": true
+          }
+        }
+      }
+    },
+    {
+      "id": "modalRowCustomFooter",
+      "component": "div",
+      "props": {
+        "className": "flex flex-col gap-2"
+      },
+      "children": [
+        "modalRowCustomFooterLabel",
+        "modalRowCustomFooterContent"
+      ]
+    },
+    {
+      "id": "modalRowCustomFooterLabel",
+      "component": "span",
+      "props": {
+        "value": "自定义底部按钮",
+        "className": "text-sm text-on-surface-variant"
+      }
+    },
+    {
+      "id": "modalRowCustomFooterContent",
+      "component": "div",
+      "props": {
+        "className": "flex items-center gap-3 flex-wrap"
+      },
+      "children": [
+        "modalOpenFooterBtn"
+      ]
+    },
+    {
+      "id": "modalOpenFooterBtn",
+      "component": "Button",
+      "props": {
+        "value": "打开自定义底部",
+        "color": "primary",
+        "icon": "external-link",
+        "iconPlacement": "start",
+        "onClick": {
+          "action": "setState",
+          "args": {
+            "path": "modalFooterOpen",
+            "value": true
+          }
+        }
+      }
+    },
+    {
+      "id": "modalBasic",
+      "component": "Modal",
+      "props": {
+        "open": { "path": "modalBasicOpen" },
+        "title": "基础对话框",
+        "width": 480,
+        "mask": true,
+        "onClose": {
+          "action": "setState",
+          "args": {
+            "path": "modalBasicOpen",
+            "value": false
+          }
+        },
+        "children": [{ "componentId": "modalBasicContent" }],
+        "footer": { "componentId": "modalBasicFooter" }
+      }
+    },
+    {
+      "id": "modalBasicContent",
+      "component": "span",
+      "props": {
+        "value": "这是一个基础对话框示例。点击遮罩层或右上角关闭按钮、按 ESC 键均可关闭对话框。",
+        "className": "text-sm text-on-surface-variant leading-relaxed block"
+      }
+    },
+    {
+      "id": "modalBasicFooter",
+      "component": "div",
+      "props": {
+        "className": "flex justify-end gap-3"
+      },
+      "children": [
+        "modalBasicFooterCancel",
+        "modalBasicFooterOk"
+      ]
+    },
+    {
+      "id": "modalBasicFooterCancel",
+      "component": "Button",
+      "props": {
+        "value": "取消",
+        "onClick": {
+          "action": "setState",
+          "args": {
+            "path": "modalBasicOpen",
+            "value": false
+          }
+        }
+      }
+    },
+    {
+      "id": "modalBasicFooterOk",
+      "component": "Button",
+      "props": {
+        "value": "确定",
+        "color": "primary",
+        "onClick": {
+          "action": "setState",
+          "args": {
+            "path": "modalBasicOpen",
+            "value": false
+          }
+        }
+      }
+    },
+    {
+      "id": "modalCustomFooter",
+      "component": "Modal",
+      "props": {
+        "open": { "path": "modalFooterOpen" },
+        "title": "自定义底部按钮",
+        "width": 520,
+        "mask": true,
+        "onClose": {
+          "action": "setState",
+          "args": {
+            "path": "modalFooterOpen",
+            "value": false
+          }
+        },
+        "children": [{ "componentId": "modalCustomFooterContent" }],
+        "footer": { "componentId": "modalCustomFooterNode" }
+      }
+    },
+    {
+      "id": "modalCustomFooterContent",
+      "component": "span",
+      "props": {
+        "value": "该对话框演示了自定义底部按钮区域，底部包含“取消”与“确认”两个按钮，分别用于关闭对话框与提交操作。对话框内容可以放置任意子组件。",
+        "className": "text-sm text-on-surface-variant leading-relaxed block"
+      }
+    },
+    {
+      "id": "modalCustomFooterNode",
+      "component": "div",
+      "props": {
+        "className": "flex justify-end gap-3"
+      },
+      "children": [
+        "modalCustomFooterCancel",
+        "modalCustomFooterOk"
+      ]
+    },
+    {
+      "id": "modalCustomFooterCancel",
+      "component": "Button",
+      "props": {
+        "value": "取消",
+        "onClick": {
+          "action": "setState",
+          "args": {
+            "path": "modalFooterOpen",
+            "value": false
+          }
+        }
+      }
+    },
+    {
+      "id": "modalCustomFooterOk",
+      "component": "Button",
+      "props": {
+        "value": "确认",
+        "color": "primary",
+        "icon": "check",
+        "iconPlacement": "start",
+        "onClick": {
+          "action": "setState",
+          "args": {
+            "path": "modalFooterOpen",
+            "value": false
+          }
+        }
       }
     }
   ]
