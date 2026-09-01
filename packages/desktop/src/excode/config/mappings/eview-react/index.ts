@@ -13,6 +13,7 @@ import { createBadgeMapping } from './Badge'
 import { createBreadcrumbMapping } from './Breadcrumb'
 import { createButtonMapping } from './Button'
 import { createCarouselMapping } from './Carousel'
+import { createCategoryInputMapping } from './CategoryInput'
 import { createCheckboxMapping } from './Checkbox'
 import { createCheckboxGroupMapping } from './CheckboxGroup'
 import { createCollapseMapping } from './Collapse'
@@ -27,6 +28,7 @@ import { createInputNumberMapping } from './InputNumber'
 import { createMenuMapping } from './Menu'
 import { createModalMapping } from './Modal'
 import { createPaginationMapping } from './Pagination'
+import { createPopoverMapping } from './Popover'
 import { createProgressMapping } from './Progress'
 import { createRadioGroupMapping } from './RadioGroup'
 import { createRateMapping } from './Rate'
@@ -45,6 +47,9 @@ import { createTimelineMapping } from './Timeline'
 import { createTreeMapping } from './Tree'
 import { createChartMapping } from './Chart'
 import { ALL_CHART_NAMES } from '../../chartDefaults'
+import { createCategorySearchMapping } from './CategorySearch'
+import { createHexFieldMapping } from './HexField'
+import { createIpInputMapping } from './IpInput'
 
 /** 目标组件库包名（本地常量，传给各工厂） */
 const pkg = '@nce/eview-react'
@@ -63,6 +68,7 @@ export default {
   Breadcrumb: createBreadcrumbMapping(pkg),
   Button: createButtonMapping(pkg),
   Carousel: createCarouselMapping(pkg),
+  CategoryInput: createCategoryInputMapping(pkg),
   Checkbox: createCheckboxMapping(pkg),
   CheckboxGroup: createCheckboxGroupMapping(pkg),
   Collapse: createCollapseMapping(pkg),
@@ -77,6 +83,7 @@ export default {
   Menu: createMenuMapping(pkg),
   Modal: createModalMapping(pkg),
   Pagination: createPaginationMapping(pkg),
+  Popover: createPopoverMapping(pkg),
   Progress: createProgressMapping(pkg),
   RadioGroup: createRadioGroupMapping(pkg),
   Rate: createRateMapping(pkg),
@@ -93,6 +100,9 @@ export default {
   TimePicker: createTimePickerMapping(pkg),
   Timeline: createTimelineMapping(pkg),
   Tree: createTreeMapping(pkg),
+  CategorySearch: createCategorySearchMapping(pkg),
+  HexField: createHexFieldMapping(pkg),
+  IPInput: createIpInputMapping(pkg),
   // 图表组件（ALL_CHART_NAMES 全集统一映射到 Chart，含 14 有默认 + 4 无默认）
   ...chartMappings(pkg),
 }

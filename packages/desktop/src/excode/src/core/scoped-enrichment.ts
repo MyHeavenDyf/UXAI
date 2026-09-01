@@ -21,6 +21,7 @@ import type {
   BindingValue,
   RenderFnValue,
   RenderFnParam,
+  OverrideStore,
 } from './value-types'
 import { Value } from './value-factory'
 import type {
@@ -139,6 +140,11 @@ export interface ScopedCV {
    * 空 = CV 直接在数据源项上（如 row.title）；['actions'] = CV 在 row.actions[i] 上。
    */
   loopChain: string[]
+  /**
+   * 持有该 CV 的所属节点（component/html）。override 旁路据此把 tag/import 应用到对的节点。
+   * TextNode 的 value CV 不带 ownerNode（文本节点无 tag/import，override 无意义）。
+   */
+  ownerNode?: BuildNode
 }
 
 /**
@@ -153,13 +159,13 @@ export function collectRelativeCVsDeep(body: RegularNode[]): ScopedCV[] {
   const out: ScopedCV[] = []
   const walk = (n: any, chain: string[]): void => {
     if (!n) return
-    // ComponentNode / HtmlNode 的 props（当前层 CV）
+    // ComponentNode / HtmlNode 的 props（当前层 CV）——ownerNode 记为 n
     for (const v of Object.values(n.props ?? {})) {
       if (v && typeof v === 'object' && (v as any).type === 'computed' && (v as any).pathType === 'relative') {
-        out.push({ cv: v as ComputedValue, loopChain: chain })
+        out.push({ cv: v as ComputedValue, loopChain: chain, ownerNode: n })
       }
     }
-    // TextNode 的 value 也可能是 ComputedValue
+    // TextNode 的 value 也可能是 ComputedValue——无 ownerNode（文本节点无 tag/import）
     if (n.kind === 'text') {
       const v = n.value
       if (v && typeof v === 'object' && (v as any).type === 'computed' && (v as any).pathType === 'relative') {
@@ -191,13 +197,55 @@ export function collectRelativeCVsDeep(body: RegularNode[]): ScopedCV[] {
 // ─── 嵌套 enrichment 辅助（内联；core 层不反向依赖 codegen/stateBuilder） ───
 
 
+// ─── override 应用（共享：state-builder 调用点 1 + applyScopedCV 调用点 2 共用） ───
+
+/**
+ * 把 OverrideStore 应用到所属节点：tag/import 改写 + props 删除/改名。
+ * 应用顺序：tag/import → deleteProps → renameProps（delete 先于 rename，避免改名后被误删）。
+ * opt-in：未提供的字段不碰；node/override 缺省则 no-op。
+ */
+export function applyOverrideToNode(node: BuildNode | undefined, override: OverrideStore | undefined): void {
+  if (!node || !override) return
+  if (override.tag) (node as any).tag = override.tag
+  if (override.import) (node as any).import = override.import
+  const props = (node as any).props
+  if (props && typeof props === 'object') {
+    if (Array.isArray(override.deleteProps)) {
+      for (const k of override.deleteProps) delete props[k]
+    }
+    if (override.renameProps) {
+      for (const [oldKey, newKey] of Object.entries(override.renameProps)) {
+        if (oldKey in props) {
+          props[newKey] = props[oldKey]
+          delete props[oldKey]
+        }
+      }
+    }
+  }
+}
+
 /**
  * 沿 loopChain 逐层 map 进嵌套循环数据数组，最里层应用 cv：
  *   loopChain 空 → obj[cv.accessPath] = cv.transform(obj[cv.path])
  *   loopChain=['actions', ...] → 对 obj.actions 每项递归（剥一层）
  *   （如 row.actions[i].icon = resolveIcon(row.actions[i].icon)）
+ *
+ * override 旁路（调用点 2：相对路径 CV）：传 ownerNode + overrideStore 时，
+ * 在 leaf 把 cvCtx.override seed 为该 per-CV store（save/restore 隔离外层 CV 的 override，
+ * 如 dataset 外层 CV 在调用点 1 的 override），跑完 transform 回读（兼容「原地改写」与
+ * 「整体赋值」两种写法），把 tag/import/renameProps/deleteProps 累积进 store，
+ * 由 applyOverrideToNode 应用到 ownerNode。per-item idempotent，
+ * uniform 数据 → uniform override。不传 ownerNode/store（如 enrichScopedData 的内联 CV）
+ * 则维持原行为，无 override。
  */
-export function applyScopedCV(obj: any, loopChain: string[], cv: ComputedValue, cvCtx?: any): void {
+export function applyScopedCV(
+  obj: any,
+  loopChain: string[],
+  cv: ComputedValue,
+  cvCtx?: any,
+  ownerNode?: BuildNode,
+  overrideStore?: OverrideStore,
+): void {
   if (obj == null || typeof obj !== 'object') return
   // 更新 currentItem 为当前 obj（transform 内 resolveValueFromPath(relative) 从此项解析）
   if (cvCtx) cvCtx.currentItem = obj
@@ -205,7 +253,24 @@ export function applyScopedCV(obj: any, loopChain: string[], cv: ComputedValue, 
     try {
       const rawValue = resolveBySegments(obj, pathToSegments(cv.path))
       const writeKey = pathToJsAccess(cv.accessPath ?? cv.path)
-      setNested(obj, writeKey, cv.transform(rawValue, cvCtx))
+      // override 旁路：save/restore cvCtx.override，隔离外层 CV
+      const prevOverride = cvCtx?.override
+      if (cvCtx && overrideStore) cvCtx.override = overrideStore
+      const result = cv.transform(rawValue, cvCtx)
+      if (cvCtx && overrideStore) {
+        // read-back：transform 可能「整体赋值」（cvCtx.override 指向新对象）或「原地改写」（store 本体）
+        const written = cvCtx.override
+        if (written && written !== overrideStore) {
+          if (written.tag) overrideStore.tag = written.tag
+          if (written.import) overrideStore.import = written.import
+          if (written.renameProps) overrideStore.renameProps = written.renameProps
+          if (written.deleteProps) overrideStore.deleteProps = written.deleteProps
+        }
+        cvCtx.override = prevOverride
+      }
+      setNested(obj, writeKey, result)
+      // 应用到所属节点（per-item idempotent；uniform 数据 → uniform override）
+      if (ownerNode && overrideStore) applyOverrideToNode(ownerNode, overrideStore)
     } catch {
       // skip 单个 CV 失败不影响其余
     }
@@ -214,7 +279,7 @@ export function applyScopedCV(obj: any, loopChain: string[], cv: ComputedValue, 
   const arr = resolveBySegments(obj, pathToSegments(loopChain[0]))
   if (Array.isArray(arr)) {
     const rest = loopChain.slice(1)
-    for (const sub of arr) applyScopedCV(sub, rest, cv, cvCtx)
+    for (const sub of arr) applyScopedCV(sub, rest, cv, cvCtx, ownerNode, overrideStore)
   }
 }
 
