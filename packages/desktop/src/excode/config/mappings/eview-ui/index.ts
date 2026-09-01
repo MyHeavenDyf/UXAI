@@ -5,7 +5,7 @@
  * **特例复用** eview-react 工厂（换 pkg/iconPkg），分四类：
  *   1. 工厂复用 pkg=@cloudsop/eview-ui（eview-ui 包自带、且**不涉及 icon 属性**的组件）
  *   2. 工厂复用 sharedPkg=@/shared（eview-ui 无、且不涉及 icon：Badge/Divider/Chart）
- *   3. bespoke（eview-ui 与 eview-react 的 API 差异，独立 default-export MappingDef：DatePicker/Rate/Switch→Toggle/TextArea/Button/Steps/Progress/Dropdown/Tag/TimePicker）
+ *   3. bespoke（eview-ui 与 eview-react 的 API 差异，独立 default-export MappingDef：DatePicker/Rate/Switch→Toggle/TextArea/Button/Steps/Progress/Dropdown/Tag/TimePicker/Popover）
  *   4. 本地工厂副本（与 eview-react 有 API 差异、不再复用 eview-react 工厂）：
  *      a. **涉及 icon 属性**的组件（Input/Menu/TabItem/Timeline/Tree）——
  *         eview-ui 的 icon 相关属性只接 URL、不接 React DOM，与 eview-react 差异显著。
@@ -29,6 +29,8 @@ import { createBadgeMapping } from '../eview-react/Badge'
 import { createBreadcrumbMapping } from '../eview-react/Breadcrumb'
 import Button from './Button'
 import { createCarouselMapping } from '../eview-react/Carousel'
+import { createCategoryInputMapping } from '../eview-react/CategoryInput'
+import { createCategorySearchMapping } from '../eview-react/CategorySearch'
 import { createChartMapping } from '../eview-react/Chart'
 import { ALL_CHART_NAMES } from '../../chartDefaults'
 import { createCheckboxMapping } from '../eview-react/Checkbox'
@@ -39,12 +41,15 @@ import { createDividerMapping } from '../eview-react/Divider'
 import { createDrawerMapping } from './Drawer'
 import DatePicker from './DatePicker'
 import Dropdown from './Dropdown'
+import { createHexFieldMapping } from '../eview-react/HexField'
 import { createIconMapping } from '../eview-react/Icon'
 import { createInputMapping } from './Input'
 import { createInputNumberMapping } from '../eview-react/InputNumber'
+import { createIpInputMapping } from '../eview-react/IpInput'
 import { createMenuMapping } from './Menu'
 import { createModalMapping } from '../eview-react/Modal'
 import { createPaginationMapping } from '../eview-react/Pagination'
+import Popover from './Popover'
 import Progress from './Progress'
 import { createRadioGroupMapping } from '../eview-react/RadioGroup'
 import Rate from './Rate'
@@ -79,6 +84,7 @@ export default {
   Breadcrumb: createBreadcrumbMapping(pkg),
   Button,
   Carousel: createCarouselMapping(pkg),
+  CategoryInput: createCategoryInputMapping(pkg),
   Chart: createChartMapping(sharedPkg),
   Checkbox: createCheckboxMapping(pkg),
   CheckboxGroup: createCheckboxGroupMapping(pkg),
@@ -94,6 +100,7 @@ export default {
   Menu: createMenuMapping(pkg),
   Modal: createModalMapping(pkg),
   Pagination: createPaginationMapping(pkg),
+  Popover,
   Progress,
   RadioGroup: createRadioGroupMapping(pkg),
   Rate,
@@ -110,5 +117,8 @@ export default {
   TimePicker,
   Timeline: createTimelineMapping(pkg),
   Tree: createTreeMapping(pkg),
+  CategorySearch: createCategorySearchMapping(pkg),
+  HexField: createHexFieldMapping(pkg),
+  IpInput: createIpInputMapping(pkg),
   ...chartMappings(sharedPkg),
 }
