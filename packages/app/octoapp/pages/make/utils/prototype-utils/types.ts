@@ -33,7 +33,7 @@ export type PrototypeQuickFixData = {
   currentClass: string
   elementProps: string
   elementRect: { top: number; left: number; width: number; height: number }
-  /** prototype.html 绝对路径，供属性编辑器把上传图片写到同级 assets/ */
+  /** prototype.html 绝对路径，供属性编辑器把上传图片写到同级 uploads/ */
   filePath?: string
 }
 
@@ -41,7 +41,7 @@ export type PrototypeModifyData = {
   elementId: string
   className: string
   textContent: string
-  componentProps: Record<string, string | boolean>
+  componentProps: Record<string, string | boolean | object>
   tag?: string
   keepOpen?: boolean
   saveToHistory?: boolean

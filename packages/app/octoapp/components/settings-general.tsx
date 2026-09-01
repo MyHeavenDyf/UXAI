@@ -31,8 +31,10 @@ import {
 } from "@/context/settings"
 import { decode64 } from "@/utils/base64"
 import { playSoundById, SOUND_OPTIONS } from "@/utils/sound"
+import { showFloatingNotice } from "./floating-notice"
 import { Link } from "./link"
 import { SettingsList } from "./settings-list"
+import { useUpdateAvailableDialog } from "./dialog-update-available"
 
 let demoSoundState = {
   cleanup: undefined as (() => void) | undefined,
@@ -56,6 +58,42 @@ type ShellSelectOption = {
   value: string
   label: string
 }
+
+type ProxyOption = {
+  id: string
+  group: string
+  label: string
+  host: string
+}
+
+const PROXY_OPTIONS: ProxyOption[] = [
+  { id: "normal", group: "普通", label: "普通", host: "proxy" },
+  { id: "non-rd-cn", group: "非研发", label: "中国", host: "proxycn2" },
+  { id: "non-rd-nanjing", group: "非研发", label: "南京", host: "proxyn" },
+  { id: "non-rd-hk", group: "非研发", label: "香港", host: "proxyhk" },
+  { id: "non-rd-uk", group: "非研发", label: "英国", host: "proxvuk" },
+  { id: "non-rd-us", group: "非研发", label: "美国", host: "proxyus" },
+  { id: "non-rd-us-nrd", group: "非研发", label: "美国", host: "proxyus-nrd" },
+  { id: "non-rd-ru", group: "非研发", label: "俄罗斯", host: "proxyru" },
+  { id: "non-rd-br", group: "非研发", label: "巴西", host: "proxybr" },
+  { id: "non-rd-bh", group: "非研发", label: "巴林", host: "proxybh" },
+  { id: "non-rd-blr", group: "非研发", label: "印度", host: "proxyblr" },
+  { id: "non-rd-open", group: "非研发", label: "开放代理", host: "openproxy" },
+  { id: "non-rd-za", group: "非研发", label: "南非", host: "proxyza" },
+  { id: "non-rd-tr", group: "非研发", label: "土耳其", host: "proxytr" },
+  { id: "non-rd-ca", group: "非研发", label: "加拿大", host: "proxyca" },
+  { id: "non-rd-de", group: "非研发", label: "德国", host: "proxyde" },
+  { id: "rd-jp", group: "研发", label: "日本", host: "proxyjp" },
+  { id: "rd-cn", group: "研发", label: "中国", host: "proxycn2" },
+  { id: "rd-se", group: "研发", label: "瑞典", host: "proxvse-rd" },
+  { id: "rd-de", group: "研发", label: "德国", host: "proxyde-rd" },
+  { id: "rd-tr", group: "研发", label: "土耳其", host: "proxytr-rd" },
+  { id: "rd-us", group: "研发", label: "美国", host: "proxvus-rd" },
+  { id: "rd-open", group: "研发", label: "开放代理", host: "openproxy" },
+  { id: "rd-ru", group: "研发", label: "俄罗斯", host: "proxyru-rd" },
+]
+
+const DEFAULT_PROXY_OPTION = PROXY_OPTIONS.find((option) => option.id === "non-rd-hk")!
 
 // To prevent audio from overlapping/playing very quickly when navigating the settings menus,
 // delay the playback by 100ms during quick selection changes and pause existing sounds.
@@ -115,7 +153,11 @@ export const SettingsGeneral: Component = () => {
 
   const [proxyAccount, setProxyAccount] = createSignal("")
   const [proxyPassword, setProxyPassword] = createSignal("")
+  const [proxyPasswordVisible, setProxyPasswordVisible] = createSignal(false)
+  const [proxyNoProxy, setProxyNoProxy] = createSignal("")
+  const [proxyOption, setProxyOption] = createSignal(DEFAULT_PROXY_OPTION)
   const [proxyConfiguring, setProxyConfiguring] = createSignal(false)
+  const proxyButtonActive = createMemo(() => !proxyConfiguring() && Boolean(proxyAccount()) && Boolean(proxyPassword()))
 
   const configureProxy = async () => {
     const api = (window as any).api
@@ -125,9 +167,9 @@ export const SettingsGeneral: Component = () => {
     }
     setProxyConfiguring(true)
     try {
-      const result = await api.configureProxy(proxyAccount(), proxyPassword())
+      const result = await api.configureProxy(proxyAccount(), proxyPassword(), proxyNoProxy(), proxyOption().host, proxyOption().id)
       if (result.success) {
-        showToast({ variant: "success", title: "已配置成功，如不生效请重启应用" })
+        showFloatingNotice("success", "配置成功，请重启以完成设置")
       } else {
         showToast({ variant: "error", title: "配置值不正确" })
       }
@@ -169,6 +211,7 @@ export const SettingsGeneral: Component = () => {
     permission.disableAutoAccept(params.id, value)
   }
   const desktop = createMemo(() => platform.platform === "desktop")
+  const showUpdate = useUpdateAvailableDialog()
 
   const check = () => {
     if (!platform.checkUpdate) return
@@ -187,33 +230,7 @@ export const SettingsGeneral: Component = () => {
           return
         }
 
-        const actions = platform.updateAndRestart
-          ? [
-              {
-                label: language.t("toast.update.action.installRestart"),
-                onClick: async () => {
-                  await platform.updateAndRestart!()
-                },
-              },
-              {
-                label: language.t("toast.update.action.notYet"),
-                onClick: "dismiss" as const,
-              },
-            ]
-          : [
-              {
-                label: language.t("toast.update.action.notYet"),
-                onClick: "dismiss" as const,
-              },
-            ]
-
-        showToast({
-          persistent: true,
-          icon: "download",
-          title: language.t("toast.update.title"),
-          description: language.t("toast.update.description", { version: result.version ?? "" }),
-          actions,
-        })
+        showUpdate(result.version ?? "")
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err)
@@ -244,6 +261,23 @@ export const SettingsGeneral: Component = () => {
 
   onMount(() => {
     void theme.loadThemes()
+
+    const api = (window as any).api
+    if (!api?.getProxyConfig) return
+
+    void api
+      .getProxyConfig()
+      .then((config: { account: string; password: string; proxyHost?: string; proxyOptionId?: string; noProxy?: string } | null) => {
+        if (!config) return
+        setProxyAccount(config.account)
+        setProxyPassword(config.password)
+        const savedHost = config.proxyHost?.replace(/\.huawei\.com(?::\d+)?$/, "")
+        const savedOption = (config.proxyOptionId ? PROXY_OPTIONS.find((option) => option.id === config.proxyOptionId) : undefined)
+          ?? (savedHost ? PROXY_OPTIONS.find((option) => option.host === savedHost) : undefined)
+        if (savedOption) setProxyOption(savedOption)
+        if (config.noProxy) setProxyNoProxy(config.noProxy)
+      })
+      .catch(() => {})
   })
 
   const autoOption = { id: "auto", value: "", label: language.t("settings.general.row.shell.autoDefault") }
@@ -775,7 +809,39 @@ export const SettingsGeneral: Component = () => {
       <div style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>Proxy</div>
       <div style={{ display: "flex", "flex-direction": "column", gap: "12px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px" }}>
         <div class="flex items-center gap-2">
-          <span style={{ "white-space": "nowrap", color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "20px" }}>登录:</span>
+          <span style={{ "white-space": "nowrap", color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "20px" }}>代理节点:</span>
+          <Select
+            options={PROXY_OPTIONS}
+            current={proxyOption()}
+            value={(option) => option.id}
+            label={(option) => option.label}
+            groupBy={(option) => option.group}
+            onSelect={(option) => option && setProxyOption(option)}
+            variant="secondary"
+            size="small"
+            triggerVariant="settings"
+            triggerStyle={{ "min-width": "180px" }}
+          />
+          <Button
+            size="small"
+            variant="secondary"
+            disabled={!proxyButtonActive()}
+            onClick={configureProxy}
+            style={{
+              width: "88px",
+              "margin-left": "auto",
+              border: proxyButtonActive() ? "1px solid #3D78FB" : "1px solid rgba(201,201,201,1)",
+              "background-color": proxyButtonActive() ? "#3D78FB" : undefined,
+              color: proxyButtonActive() ? "#FFFFFF" : undefined,
+              "font-size": "12px",
+              "line-height": "20px",
+            }}
+          >
+            {proxyConfiguring() ? "配置中..." : "配置"}
+          </Button>
+        </div>
+        <div class="flex items-center gap-2">
+          <span style={{ "white-space": "nowrap", color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "20px" }}>W3账号：</span>
           <input
             type="text"
             value={proxyAccount()}
@@ -795,19 +861,81 @@ export const SettingsGeneral: Component = () => {
               "flex": "1",
               "outline": "none",
               "font-size": "12px",
-              "line-height": "20px"
+              "line-height": "20px",
+              background: "#fff",
             }}
           />
         </div>
         <div class="flex items-center gap-2">
-          <span style={{ "white-space": "nowrap", color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "20px" }}>密码:</span>
+          <span style={{ "white-space": "nowrap", color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "20px" }}>W3密码：</span>
+          <div style={{ position: "relative", flex: "1" }}>
+            <input
+              type={proxyPasswordVisible() ? "text" : "password"}
+              value={proxyPassword()}
+              onInput={(e) => setProxyPassword(e.currentTarget.value)}
+              onFocus={(e) => e.currentTarget.style.borderColor = "#0a59f7"}
+              onBlur={(e) => e.currentTarget.style.borderColor = "rgba(201,201,201,1)"}
+              placeholder="请输入密码"
+              spellcheck={false}
+              autocorrect="off"
+              autocomplete="off"
+              autocapitalize="off"
+              style={{
+                height: "28px",
+                width: "100%",
+                border: "1px solid rgba(201,201,201,1)",
+                "border-radius": "4px",
+                padding: "4px 36px 4px 12px",
+                outline: "none",
+                "font-size": "12px",
+                "line-height": "20px",
+                background: "#fff",
+              }}
+            />
+            <button
+              type="button"
+              aria-label={proxyPasswordVisible() ? "隐藏密码" : "显示密码"}
+              title={proxyPasswordVisible() ? "隐藏密码" : "显示密码"}
+              onClick={() => setProxyPasswordVisible((visible) => !visible)}
+              style={{
+                position: "absolute",
+                top: "0",
+                right: "0",
+                width: "32px",
+                height: "28px",
+                padding: "0",
+                border: "none",
+                background: "transparent",
+                color: "rgba(0,0,0,0.6)",
+                cursor: "pointer",
+                display: "flex",
+                "align-items": "center",
+                "justify-content": "center",
+              }}
+            >
+              <Show
+                when={proxyPasswordVisible()}
+                fallback={
+                  <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                    <path d="M3 3L17 17" stroke="currentColor" stroke-linecap="round" />
+                    <path d="M8.3 4.9C8.85 4.7 9.42 4.58 10 4.58C14.17 4.58 17.5 10 17.5 10C16.75 11.2 15.82 12.35 14.76 13.28M11.7 15.1C11.15 15.3 10.58 15.42 10 15.42C5.83 15.42 2.5 10 2.5 10C3.25 8.8 4.18 7.65 5.24 6.72" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                }
+              >
+                <Icon name="eye" size="small" />
+              </Show>
+            </button>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span style={{ "white-space": "nowrap", color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "20px" }}>跳过代理:</span>
           <input
-            type="password"
-            value={proxyPassword()}
-            onInput={(e) => setProxyPassword(e.currentTarget.value)}
+            type="text"
+            value={proxyNoProxy()}
+            onInput={(e) => setProxyNoProxy(e.currentTarget.value)}
             onFocus={(e) => e.currentTarget.style.borderColor = "#0a59f7"}
             onBlur={(e) => e.currentTarget.style.borderColor = "rgba(201,201,201,1)"}
-            placeholder="请输入密码"
+            placeholder="(可选)"
             spellcheck={false}
             autocorrect="off"
             autocomplete="off"
@@ -820,19 +948,33 @@ export const SettingsGeneral: Component = () => {
               "flex": "1",
               "outline": "none",
               "font-size": "12px",
-              "line-height": "20px"
+              "line-height": "20px",
+              background: "#fff",
             }}
           />
         </div>
-        <Button
-          size="small"
-          variant="secondary"
-          disabled={proxyConfiguring() || !proxyAccount() || !proxyPassword()}
-          onClick={configureProxy}
-          style={{ width: "88px", "border": "1px solid rgba(201,201,201,1)", "font-size": "12px", "line-height": "20px" }}
-        >
-          {proxyConfiguring() ? "配置中..." : "配置"}
-        </Button>
+        <div class="flex items-center gap-2">
+          <span aria-hidden="true" style={{ visibility: "hidden", "white-space": "nowrap", "font-size": "12px", "line-height": "20px" }}>W3账号：</span>
+          <label class="flex items-center gap-2" style={{ width: "fit-content", color: "rgba(0,0,0,0.6)", "font-size": "12px", "line-height": "20px", cursor: "pointer" }}>
+            <input
+              type="radio"
+              name="proxy-remember-choice"
+              checked
+              style={{
+                appearance: "none",
+                "-webkit-appearance": "none",
+                width: "12px",
+                height: "12px",
+                margin: "0",
+                border: "3px solid #0a59f7",
+                "border-radius": "50%",
+                "box-sizing": "border-box",
+                "flex-shrink": "0",
+              }}
+            />
+            <span>记住我的选择</span>
+          </label>
+        </div>
       </div>
     </div>
   )

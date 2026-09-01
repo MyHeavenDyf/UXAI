@@ -11,6 +11,7 @@
  * | columns（字面量数组） | columns | 每列从 cells 生成 `render` fn + A2UI 列定义（title/width/align/sort...）→ 字面量数组，propRoute module-top |
  * | columns（DataBinding） | columns | **ComputedValue**（containsJSX:true）逐项 zip：state 列元数据 + 编译期 render fn，产物形态同字面量 |
  * | colDef.sort | col.allowSort | sort===true→true；否则显性 false（避免 eview-react 默认开排序） |
+ * | colDef.filters | col.filter.component | `filter:{ component: <TableFilter data={filters} onFilter={(value)=>{}}/> }`（`@/shared` 共享组件，data 透传、onFilter 占位空函数，见 AGENTS §6.11） |
  * | rowKey | rowKey | 透传 |
  * | pagination: true/false | enablePagination + recordCount | false→enablePagination:false；其他（含缺省）→true + recordCount=dataset.length |
  * | rowSelection.type: checkbox | checkType: multi + enableCheckBox: true | 值映射 |
@@ -40,6 +41,7 @@ import type { MappingDef, TransformContext } from '../../../src/core/component-m
 import type { LoopNode, RegularNode } from '../../../src/core/node-types'
 import type { PropValue, BindingValue } from '../../../src/core/value-types'
 import { Value } from '../../../src/core/value-factory'
+import { Node } from '../../../src/core/node-factory'
 import { enrichScopedData, buildRenderFn } from '../../../src/core/scoped-enrichment'
 import { stateRef, computedJsxConstName } from '../../../src/core/access-path'
 
@@ -150,8 +152,19 @@ export function createTableMapping(pkg: string): MappingDef {
         if (cd.minWidth !== undefined) col.width = cd.minWidth
         if (cd.className) col.className = cd.className
         if (cd.fixed === 'start') col.freezeCol = true
-        // filters 透传（A2UI 与 eview-react 结构一致：[{ text, value }]）
-        if (cd.filters) col.filters = cd.filters
+        // filters → 自定义筛选组件（@/shared/TableFilter）：data 透传、onFilter 占位空函数
+        if (cd.filters) {
+          col.filter = {
+            component: Node.component({
+              tag: 'TableFilter',
+              import: '@/shared/TableFilter',
+              props: {
+                data: cd.filters,
+                onFilter: Value.rawExpr({ value: '(value) => {}' }),
+              },
+            }),
+          }
+        }
         return col
       }
 

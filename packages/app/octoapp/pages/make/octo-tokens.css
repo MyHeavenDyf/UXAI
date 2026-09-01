@@ -658,4 +658,25 @@ button[title="版本历史"] {
   background: rgba(0, 0, 0, 0.06);
 }
 
+.make-token-tooltip {
+  max-width: none;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 4px;
+  background: #505050;
+  color: #fff;
+  white-space: nowrap;
+}
 
+.make-token-tooltip::after {
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-bottom: 5px solid #505050;
+  border-right: 5px solid transparent;
+  border-left: 5px solid transparent;
+  content: "";
+  transform: translateX(-50%);
+}

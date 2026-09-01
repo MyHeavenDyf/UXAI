@@ -5,7 +5,6 @@
   --octo-border-default: #E5E7EB;
   position: fixed;
   width: 200px;
-  height: 248px;
   background: var(--octo-surface-page);
   border: 1px solid var(--octo-border-default);
   border-radius: 12px;
@@ -75,7 +74,8 @@
 }
 
 .addon-menu-item-text {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   font-size: 14px;
   line-height: 22px;
   color: inherit;
@@ -129,16 +129,23 @@
   overflow-y: auto;
 }
 
-.addon-menu-tertiary-content::-webkit-scrollbar {
+.addon-menu-tertiary-content::-webkit-scrollbar,
+.addon-menu-secondary::-webkit-scrollbar,
+.addon-menu-asset-root::-webkit-scrollbar {
   width: 4px;
+  display: block;
 }
 
-.addon-menu-tertiary-content::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 2px;
+.addon-menu-tertiary-content::-webkit-scrollbar-thumb,
+.addon-menu-secondary::-webkit-scrollbar-thumb,
+.addon-menu-asset-root::-webkit-scrollbar-thumb {
+  background-color: #dbdbdb;
+  border-radius: 9999px;
 }
 
-.addon-menu-tertiary-content::-webkit-scrollbar-track {
+.addon-menu-tertiary-content::-webkit-scrollbar-track,
+.addon-menu-secondary::-webkit-scrollbar-track,
+.addon-menu-asset-root::-webkit-scrollbar-track {
   background: transparent;
 }
 
@@ -158,6 +165,7 @@
   transition: background-color 150ms ease;
   flex-shrink: 0;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 .addon-menu-tertiary-item:not(.addon-menu-tertiary-item--selected):hover {
@@ -175,7 +183,8 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 200px;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .addon-menu-files-header {
@@ -219,6 +228,126 @@
   color: #777777;
 }
 
+/* 产品资源库:多级文件夹层叠面板 */
+.addon-menu-secondary--assets {
+  /* Container is .addon-menu-secondary (position: absolute; left: 100%).
+     Subsequent levels inside use absolute positioning relative to this container. */
+}
+
+.addon-menu-asset-root {
+  /* Root level: plain flex column inside the secondary panel, no border/shadow/padding.
+     The outer .addon-menu-secondary--assets provides the panel chrome. */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 产品资源库文件 hover 预览弹窗 */
+.addon-menu-asset-preview {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 256px;
+  height: 330px;
+  padding: 8px;
+  box-sizing: border-box;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0px 16px 48px 0px rgba(0, 0, 0, 0.16);
+  z-index: 1010;
+  display: flex;
+  flex-direction: column;
+}
+
+.addon-menu-asset-preview-name {
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  text-align: left;
+  color: rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.addon-menu-asset-preview-size {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.6);
+  margin: 8px 0;
+}
+
+.addon-menu-asset-preview-stage {
+  margin-top: 8px;
+  width: 100%;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.addon-menu-asset-preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: scale-down;
+}
+
+.addon-menu-asset-preview-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+/* HTML preview: iframe 1920x1080 scaled to fit, vertically centered in stage */
+.addon-menu-asset-preview-html {
+  position: relative;
+  width: 240px;
+  height: 135px; /* 240 * 1080/1920 = 135 (scaled iframe height) */
+  flex-shrink: 0;
+}
+
+.addon-menu-asset-preview-html iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1920px;
+  height: 1080px;
+  border: 0;
+  transform: scale(0.125);
+  transform-origin: top left;
+}
+
+.addon-menu-asset-preview-unsupported {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.addon-menu-asset-preview-unsupported-text {
+  font-size: 14px;
+  color: #777777;
+  margin-top: 20px;
+}
+
+.octo-spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid rgba(0, 0, 0, 0.1);
+  border-top-color: #0a59f7;
+  border-radius: 50%;
+  animation: octo-spinner-rotate 0.8s linear infinite;
+}
+
+@keyframes octo-spinner-rotate {
+  to { transform: rotate(360deg); }
+}
+
 /* URL Dialog */
 .addon-menu-url-overlay {
   position: fixed;
@@ -243,6 +372,10 @@
   padding: 20px 24px 24px;
   box-sizing: border-box;
   position: relative;
+}
+
+.addon-menu-url-dialog--b {
+  height: auto;
 }
 
 .addon-menu-url-header {
@@ -379,33 +512,35 @@
   left: 50%;
   width: 6px;
   height: 6px;
-  margin: -3px 0 0 -3px;
   border-radius: 50%;
   background: #d8d8d8;
+  /* Center the dot on spinner center, then rotate+translate to place on 24px-radius orbit.
+     transform-origin must be the dot's own center (6x6 center) so rotation pivots correctly. */
   transform-origin: center;
 }
 
-.addon-menu-spinner-dot:nth-child(1) { transform: rotate(0deg)   translateY(-24px); }
-.addon-menu-spinner-dot:nth-child(2) { transform: rotate(45deg)  translateY(-24px); }
-.addon-menu-spinner-dot:nth-child(3) { transform: rotate(90deg)  translateY(-24px); }
-.addon-menu-spinner-dot:nth-child(4) { transform: rotate(135deg) translateY(-24px); }
-.addon-menu-spinner-dot:nth-child(5) { transform: rotate(180deg) translateY(-24px); }
-.addon-menu-spinner-dot:nth-child(6) { transform: rotate(225deg) translateY(-24px); }
-.addon-menu-spinner-dot:nth-child(7) { transform: rotate(270deg) translateY(-24px); }
-.addon-menu-spinner-dot:nth-child(8) { transform: rotate(315deg) translateY(-24px); }
+.addon-menu-spinner-dot:nth-child(1) { transform: translate(-50%, -50%) rotate(0deg)   translateY(-24px); }
+.addon-menu-spinner-dot:nth-child(2) { transform: translate(-50%, -50%) rotate(45deg)  translateY(-24px); }
+.addon-menu-spinner-dot:nth-child(3) { transform: translate(-50%, -50%) rotate(90deg)  translateY(-24px); }
+.addon-menu-spinner-dot:nth-child(4) { transform: translate(-50%, -50%) rotate(135deg) translateY(-24px); }
+.addon-menu-spinner-dot:nth-child(5) { transform: translate(-50%, -50%) rotate(180deg) translateY(-24px); }
+.addon-menu-spinner-dot:nth-child(6) { transform: translate(-50%, -50%) rotate(225deg) translateY(-24px); }
+.addon-menu-spinner-dot:nth-child(7) { transform: translate(-50%, -50%) rotate(270deg) translateY(-24px); }
+.addon-menu-spinner-dot:nth-child(8) { transform: translate(-50%, -50%) rotate(315deg) translateY(-24px); }
 
 .addon-menu-spinner-arc {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 24px;
-  height: 24px;
-  margin: -12px 0 0 -12px;
+  width: 54px;
+  height: 54px;
   border-radius: 50%;
-  background: conic-gradient(from 0deg, #0a59f7 0deg 15deg, transparent 15deg 360deg);
-  -webkit-mask: radial-gradient(circle, transparent 9px, #000 9px);
-  mask: radial-gradient(circle, transparent 9px, #000 9px);
-  transform: translate(-50%, -50%);
+  /* 45° blue arc (1/8 of circle) starting at 12 o'clock */
+  background: conic-gradient(from 0deg, #0a59f7 0deg 45deg, transparent 45deg 360deg);
+  /* Keep only a 6px-wide ring on the 24px-radius orbit (inner 21px, outer 27px) */
+  -webkit-mask: radial-gradient(circle, transparent 21px, #000 21px, #000 27px, transparent 27px);
+  mask: radial-gradient(circle, transparent 21px, #000 21px, #000 27px, transparent 27px);
+  transform-origin: center;
   animation: addon-menu-spinner-rotate 1s linear infinite;
 }
 

@@ -3,7 +3,7 @@ import { getSession } from "./session"
 import { commitA2ui } from "./a2ui"
 
 /** 按原值类型把 string/boolean 转成 boolean/number，避免把 "true" 字符串塞进布尔/数字字段 */
-function coercePropValue(prev: unknown, val: string | boolean): string | boolean | number {
+function coercePropValue(prev: unknown, val: string | boolean | object): string | boolean | number | object {
   if (typeof prev === "boolean" && typeof val === "string") return val === "true"
   if (typeof prev === "number") {
     const n = Number(val)
@@ -142,9 +142,9 @@ export function applyPrototypeModify(data: PrototypeModifyData) {
   el.props = el.props || {}
 
   const bindings: { path: string; value: string | boolean }[] = []
-  const applyProp = (key: string, prev: unknown, value: string | boolean) => {
+  const applyProp = (key: string, prev: unknown, value: string | boolean | object) => {
     if (isStateBound(prev)) {
-      if (value !== "[object Object]") bindings.push({ path: prev.path, value })
+      if (value !== "[object Object]") bindings.push({ path: prev.path, value: value as string | boolean })
       return
     }
     el.props![key] = coercePropValue(prev, value)

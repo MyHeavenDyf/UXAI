@@ -152,3 +152,39 @@ describe("[引用文件] 清单(@ 引用的会话文件)同样是 MCP 白名单"
     )
   })
 })
+
+// SPEC-INS-032 §5.3:两套「异步结果」共用 `task_id` 这个参数名,弱模型必然会混——
+// 原生 task 派子代理返回的是 `ses_` 开头的**会话 id**(且它是同步的,结论已在 <task_result> 里),
+// MCP get_task_result 认的是业务长任务的哈希任务号。内网实测:子代理被限流打断后,父代理拿着
+// 会话 id 去 get_task_result 得到 not_found,于是判定"子代理失败"退回自己逐份读,分治整个白做。
+describe("子代理会话 id 被当成 MCP 任务号(响亮失败并指回正确路径)", () => {
+  const call = (tool: string, args: unknown) => ({ tool, sessionID: "ses_test", callID: "call_x" })
+
+  test("get_task_result 收到 ses_ 开头的 task_id → 抛错,且文案指向 task(task_id=…) 续跑", async () => {
+    const hook = await beforeHook([userMessage([MANIFEST])])
+    const output = { args: { task_id: "ses_fbf3aae07ffegA1v2hbFeKik5R" } }
+    await expect(hook(call("uxr-tool_get_task_result", output.args), output)).rejects.toThrow(/子代理的会话 id/)
+    // 关键:错误里必须给出可执行的下一步,否则模型只会换个姿势继续乱试
+    await expect(hook(call("uxr-tool_get_task_result", output.args), output)).rejects.toThrow(/task_id 设为/)
+  })
+
+  test("stop_task 同样拦(它也只认业务任务号)", async () => {
+    const hook = await beforeHook([userMessage([MANIFEST])])
+    const output = { args: { task_id: "ses_abc123" } }
+    await expect(hook(call("uxr-tool_stop_task", output.args), output)).rejects.toThrow(/子代理的会话 id/)
+  })
+
+  test("正常的业务任务号原样放行(不是 ses_ 前缀就不管)", async () => {
+    const hook = await beforeHook([userMessage([MANIFEST])])
+    const output = { args: { task_id: "9f2c1ab4d7e" } }
+    await hook(call("uxr-tool_get_task_result", output.args), output)
+    expect(output.args).toEqual({ task_id: "9f2c1ab4d7e" })
+  })
+
+  test("本地 task 工具自己传 ses_ 开头的 task_id(续跑)不受影响", async () => {
+    const hook = await beforeHook([userMessage([MANIFEST])])
+    const output = { args: { task_id: "ses_abc123", subagent_type: "insight_reader" } }
+    await hook(call("task", output.args), output)
+    expect(output.args).toEqual({ task_id: "ses_abc123", subagent_type: "insight_reader" })
+  })
+})

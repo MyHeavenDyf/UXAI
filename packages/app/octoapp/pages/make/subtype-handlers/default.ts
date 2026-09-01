@@ -1,8 +1,9 @@
 import type { SubtypeHandler, SubtypeHandlerContext, CanvasEditResult } from './types'
 import type { ResultTab } from '../components/result-viewer/tab-store'
-import { showToast } from '@opencode-ai/ui/toast'
+import { showOctoToast } from '../components/octo-toast'
 import { getDesktopApi } from '../lib/electron-api'
 import { relativePathToId, resolveRelativePath, getExt } from '../utils/history-store'
+import JSZip from 'jszip'
 
 /**
  * 默认 SubtypeHandler 实现
@@ -41,7 +42,7 @@ async function downloadBlob(content: string | Uint8Array, filename: string, mime
     if (!chosen) return
     const buffer = await blob.arrayBuffer()
     await api.writeFileBuffer(chosen, buffer)
-    showToast({ title: "已下载" })
+    showOctoToast({ title: "已下载" })
     return
   }
 
@@ -53,7 +54,7 @@ async function downloadBlob(content: string | Uint8Array, filename: string, mime
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
-  showToast({ title: "已下载" })
+  showOctoToast({ title: "已下载" })
 }
 
 function markdownTableToCSV(md: string): string {
@@ -189,14 +190,14 @@ const defaultHandler: SubtypeHandler = {
    * @example
    * // 自定义下载：导出到 Figma
    * async handleDownload(ctx) {
-   *   const { tab, showToast } = ctx
-   *   showToast({ title: "正在导出到 Figma..." })
+   *   const { tab, showOctoToast } = ctx
+   *   showOctoToast({ title: "正在导出到 Figma..." })
    *   await exportToFigma(tab)
    *   return true  // 阻止默认下载
    * }
    */
   async handleDownload(ctx) {
-    const { tab, showToast, extractCodeBlock, getDesktopApi, observedUrlsGetter } = ctx
+    const { tab, showOctoToast, extractCodeBlock, getDesktopApi, observedUrlsGetter } = ctx
     
     // 导入依赖（在函数内部导入，避免循环依赖）
     const { createHtmlAssetsZip } = await import('../utils/html-assets-zip')
@@ -219,7 +220,7 @@ const defaultHandler: SubtypeHandler = {
         const zipBytes = new Uint8Array(await zipBlob.arrayBuffer())
         await downloadBlob(zipBytes, zipName, "application/zip")
       } catch (err) {
-        showToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
+        showOctoToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
       }
       return true
     }
@@ -240,12 +241,12 @@ const defaultHandler: SubtypeHandler = {
       
       const buffer = await api.readFileBuffer(tab.filePath)
       if (!buffer) {
-        showToast({ title: "读取文件失败", variant: "error" })
+        showOctoToast({ title: "读取文件失败", variant: "error" })
         return true
       }
       
       await api.writeFileBuffer(chosen, buffer)
-      showToast({ title: "已保存" })
+      showOctoToast({ title: "已保存" })
       return true
     }
     
@@ -257,11 +258,11 @@ const defaultHandler: SubtypeHandler = {
   },
   
   async handleCanvasEdit(ctx): Promise<CanvasEditResult> {
-    const { tab, showToast, getDesktopApi, sessionId, sdkDirectory, observedUrlsGetter } = ctx
+    const { tab, showOctoToast, getDesktopApi, sessionId, sdkDirectory, observedUrlsGetter } = ctx
     
     const isLoggedIn = !!localStorage.getItem('uiplusToken')
     if (!isLoggedIn) {
-      showToast({ title: "请先登录" })
+      showOctoToast({ title: "请先登录" })
       return { handled: true }
     }
 
@@ -272,7 +273,7 @@ const defaultHandler: SubtypeHandler = {
       handled: true,
       options: {
         getZip: async () => {
-          showToast({ title: "生成ZIP文件..." })
+          showOctoToast({ title: "生成ZIP文件..." })
           return await createC2DZip({
             htmlContent,
             htmlFilePath: tab.filePath || "",
@@ -286,7 +287,7 @@ const defaultHandler: SubtypeHandler = {
           const sid = sessionId
           
           if (!baseDir || !sid || !api?.writeFileBuffer) {
-            showToast({ title: "无法保存文件", variant: "error" })
+            showOctoToast({ title: "无法保存文件", variant: "error" })
             return
           }
           
@@ -295,6 +296,33 @@ const defaultHandler: SubtypeHandler = {
           const baseName = lastDotIndex > 0 ? data.filename.slice(0, lastDotIndex) : data.filename
           const ext = lastDotIndex >= 0 ? data.filename.slice(lastDotIndex) : ''
           
+          // ZIP file: extract to folder
+          if (ext.toLowerCase() === '.zip' && api.listDirectory) {
+            let folderName = baseName
+            let folderPath = `${uploadsDir}/${folderName}`
+            
+            let counter = 0
+            while (await folderExists(folderPath, api)) {
+              counter++
+              folderName = `${baseName} (${counter})`
+              folderPath = `${uploadsDir}/${folderName}`
+            }
+            
+            const buffer = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
+            const zip = await JSZip.loadAsync(buffer)
+            
+            for (const [relativePath, file] of Object.entries(zip.files)) {
+              if (!file.dir) {
+                const content = await file.async('uint8array')
+                await api.writeFileBuffer(`${folderPath}/${relativePath}`, content.buffer as ArrayBuffer)
+              }
+            }
+            
+            showOctoToast({ title: "已保存", description: folderName })
+            return
+          }
+          
+          // Non-ZIP file: save directly
           let finalFilename = data.filename
           
           if (api.fileExists) {
@@ -307,7 +335,7 @@ const defaultHandler: SubtypeHandler = {
           
           const buffer = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
           await api.writeFileBuffer(`${uploadsDir}/${finalFilename}`, buffer.buffer)
-          showToast({ title: "已保存", description: finalFilename })
+          showOctoToast({ title: "已保存", description: finalFilename })
         },
         config: {
           designName: tab.title,
@@ -326,7 +354,7 @@ const defaultHandler: SubtypeHandler = {
    * @example
    * // 自定义标注：使用自定义标注面板
    * async handleComment(ctx) {
-   *   const { tab, showToast } = ctx
+   *   const { tab, showOctoToast } = ctx
    *   // 打开自定义标注面板
    *   await openCustomCommentPanel(tab)
    *   return true  // 阻止默认标注 UI
@@ -346,9 +374,9 @@ const defaultHandler: SubtypeHandler = {
    * @example
    * // 自定义归档：上传到云存储
    * async handleArchive(ctx) {
-   *   const { tab, showToast } = ctx
+   *   const { tab, showOctoToast } = ctx
    *   await uploadToCloud(tab)
-   *   showToast({ title: "已归档到云端" })
+   *   showOctoToast({ title: "已归档到云端" })
    *   return true
    * }
    */
@@ -369,7 +397,7 @@ const defaultHandler: SubtypeHandler = {
    *   if (feature === 'archive') {
    *     const isLoggedIn = checkLogin()
    *     if (!isLoggedIn) {
-   *       ctx.showToast({ title: "请先登录" })
+   *       ctx.showOctoToast({ title: "请先登录" })
    *       return false
    *     }
    *   }
@@ -480,3 +508,11 @@ const defaultHandler: SubtypeHandler = {
 }
 
 export default defaultHandler satisfies SubtypeHandler
+
+async function folderExists(path: string, api: ReturnType<typeof getDesktopApi>): Promise<boolean> {
+  if (!api?.listDirectory) return false
+  const parent = path.replace(/[/\\][^/\\]+$/, '')
+  const items = await api.listDirectory(parent)
+  if (!items) return false
+  return items.some(item => item.path === path && item.type === 'directory')
+}

@@ -93,6 +93,7 @@ import {
   type StudioPendingResult,
   type StudioVideoDuration,
   type StudioVideoFrameSlot,
+  type StudioVideoMode,
   type StudioVideoQualityMode,
 } from "./studio/studio-shared"
 import { createStudioSessionData } from "./studio/studio-session-data"
@@ -276,6 +277,7 @@ export default function StudioPage() {
   let reversePromptController: AbortController | undefined
   const [videoDuration, setVideoDuration] = createSignal<StudioVideoDuration>("5")
   const [videoQualityMode, setVideoQualityMode] = createSignal<StudioVideoQualityMode>("std")
+  const [videoMode, setVideoMode] = createSignal<StudioVideoMode>("all-reference")
   const [status, setStatus] = createSignal<StudioGenerationStatus>("idle")
   const [pendingResult, setPendingResult] = createSignal<StudioPendingResult>()
   const [cancellingGenerationIDs, setCancellingGenerationIDs] = createSignal<ReadonlySet<string>>(new Set())
@@ -2225,7 +2227,10 @@ export default function StudioPage() {
   }
 
   function videoDurationValue(value: unknown) {
-    return value === "10" ? "10" : value === "5" ? "5" : undefined
+    if (typeof value !== "string") return undefined
+    const n = Number(value)
+    if (!Number.isInteger(n) || n < 0 || n > 15) return undefined
+    return value as StudioVideoDuration
   }
 
   function videoQualityModeValue(value: unknown) {
@@ -3700,6 +3705,7 @@ export default function StudioPage() {
                   videoDuration={videoDuration()}
                   videoQualityMode={videoQualityMode()}
                   videoQualityLocked={videoQualityLocked()}
+                  videoMode={videoMode()}
                   status={effectiveStatus()}
                   busy={isBusy()}
                   openMenu={openMenu()}
@@ -3715,6 +3721,7 @@ export default function StudioPage() {
                   onIsCustom={setIsCustomStore}
                   onVideoDuration={setVideoDuration}
                   onVideoQualityMode={setVideoQualityMode}
+                  onVideoMode={setVideoMode}
                   onOpenMenu={setOpenMenu}
                   onCancel={handleCancelGeneration}
                   onSubmit={handleSubmit}
@@ -3907,6 +3914,7 @@ if (!headerTitle.pendingRename) return
             videoDuration={videoDuration()}
             videoQualityMode={videoQualityMode()}
             videoQualityLocked={videoQualityLocked()}
+            videoMode={videoMode()}
             status={effectiveStatus()}
             busy={isBusy()}
             openMenu={openMenu()}
@@ -3922,6 +3930,7 @@ if (!headerTitle.pendingRename) return
             onIsCustom={setIsCustomStore}
             onVideoDuration={setVideoDuration}
             onVideoQualityMode={setVideoQualityMode}
+            onVideoMode={setVideoMode}
             onOpenMenu={setOpenMenu}
             onCancel={handleCancelGeneration}
             onSubmit={handleSubmit}

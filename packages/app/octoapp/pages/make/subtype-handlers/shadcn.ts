@@ -1,7 +1,8 @@
 import type { SubtypeHandler, LocalEditChange, LocalEditSavePayload, CanvasEditResult } from './types'
-import type { ManualEditTarget, ManualEditStyles } from '../edit-mode/source-patches'
+import type { ManualEditTarget, ManualEditStyles, ManualEditCssKey } from '../edit-mode/source-patches'
 import { registerCustomBridge } from '../utils/custom-bridge-registry'
 import { sendTextToAgent } from '../utils/agent-events'
+import JSZip from 'jszip'
 
 registerCustomBridge('shadcn-component-editor', {
   script: `
@@ -73,9 +74,12 @@ export function buildLocalEditPayload(
   if (pendingStyle?.styles) {
     const styleChanges: Array<{ prop: string; before: string; after: string }> = []
     for (const [prop, value] of Object.entries(pendingStyle.styles)) {
-      const before = initialStyles?.[prop as keyof ManualEditStyles] ?? ''
-      if (before !== value) {
-        styleChanges.push({ prop, before, after: value })
+      // effects 是结构化数组(非 CSS 属性),不参与 style diff 记录
+      if (prop === 'effects') continue
+      const before = (initialStyles?.[prop as ManualEditCssKey] as string | undefined) ?? ''
+      const after = value as string
+      if (before !== after) {
+        styleChanges.push({ prop, before, after })
       }
     }
     if (styleChanges.length > 0) changes.push({ kind: 'styles', changes: styleChanges })
@@ -106,7 +110,7 @@ export default {
   name: 'shadcn',
   
   async handleLocalEditSave(ctx) {
-    const { tab, edit, showToast } = ctx
+    const { tab, edit, showOctoToast } = ctx
     const target = edit.target
 
     const filePath = tab.filePath || tab.absoluteFilePath
@@ -141,19 +145,19 @@ export default {
 
     const result = await sendTextToAgent(lines.join('\n'), { source: 'local-edit' })
     if (result.ok) {
-      showToast({ title: '已提交修改请求' })
+      showOctoToast({ title: '已提交修改请求' })
     } else {
-      showToast({ title: '提交失败', description: result.message ?? '请重试' })
+      showOctoToast({ title: '提交失败', description: result.message ?? '请重试' })
     }
     return result.ok
   },
 
   async handleCanvasEdit(ctx) {
-    const { tab, showToast, getDesktopApi, sessionId, sdkDirectory } = ctx
+    const { tab, showOctoToast, getDesktopApi, sessionId, sdkDirectory } = ctx
     const filePath = tab.filePath || tab.absoluteFilePath
     
     if (!filePath) {
-      showToast({ title: "无法获取文件路径" })
+      showOctoToast({ title: "无法获取文件路径" })
       return { handled: true }
     }
 
@@ -167,13 +171,13 @@ export default {
 
     const api = getDesktopApi()
     if (!api?.readFileBuffer) {
-      showToast({ title: "不支持本地文件读取" })
+      showOctoToast({ title: "不支持本地文件读取" })
       return { handled: true }
     }
 
     const buffer = await api.readFileBuffer(zipPath)
     if (!buffer) {
-      showToast({ title: "ZIP文件不存在", description: zipPath })
+      showOctoToast({ title: "ZIP文件不存在", description: zipPath })
       return { handled: true }
     }
 
@@ -189,7 +193,7 @@ export default {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-      showToast({ title: "下载完成" })
+      showOctoToast({ title: "下载完成" })
       return { handled: true }
     }
 
@@ -202,7 +206,7 @@ export default {
           const sid = sessionId
           
           if (!baseDir || !sid || !api?.writeFileBuffer) {
-            showToast({ title: "无法保存文件", variant: "error" })
+            showOctoToast({ title: "无法保存文件", variant: "error" })
             return
           }
           
@@ -211,6 +215,33 @@ export default {
           const baseName = lastDotIndex > 0 ? data.filename.slice(0, lastDotIndex) : data.filename
           const ext = lastDotIndex >= 0 ? data.filename.slice(lastDotIndex) : ''
           
+          // ZIP file: extract to folder
+          if (ext.toLowerCase() === '.zip' && api.listDirectory) {
+            let folderName = baseName
+            let folderPath = `${uploadsDir}/${folderName}`
+            
+            let counter = 0
+            while (await folderExists(folderPath, api)) {
+              counter++
+              folderName = `${baseName} (${counter})`
+              folderPath = `${uploadsDir}/${folderName}`
+            }
+            
+            const buffer = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
+            const zip = await JSZip.loadAsync(buffer)
+            
+            for (const [relativePath, file] of Object.entries(zip.files)) {
+              if (!file.dir) {
+                const content = await file.async('uint8array')
+                await api.writeFileBuffer(`${folderPath}/${relativePath}`, content.buffer as ArrayBuffer)
+              }
+            }
+            
+            showOctoToast({ title: "已保存", description: folderName })
+            return
+          }
+          
+          // Non-ZIP file: save directly
           let finalFilename = data.filename
           
           if (api.fileExists) {
@@ -223,7 +254,7 @@ export default {
           
           const buf = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0))
           await api.writeFileBuffer(`${uploadsDir}/${finalFilename}`, buf.buffer)
-          showToast({ title: "已保存", description: finalFilename })
+          showOctoToast({ title: "已保存", description: finalFilename })
         },
         config: {
           designName: tab.title,
@@ -233,3 +264,11 @@ export default {
     }
   },
 } satisfies SubtypeHandler
+
+async function folderExists(path: string, api: ReturnType<typeof import('../lib/electron-api').getDesktopApi>): Promise<boolean> {
+  if (!api?.listDirectory) return false
+  const parent = path.replace(/[/\\][^/\\]+$/, '')
+  const items = await api.listDirectory(parent)
+  if (!items) return false
+  return items.some(item => item.path === path && item.type === 'directory')
+}

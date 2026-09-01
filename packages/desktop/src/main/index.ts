@@ -7,7 +7,7 @@ import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { getCACertificates, setDefaultCACertificates } from "node:tls"
 import type { DownloadItem, Event, WebContents } from "electron"
-import { app, BrowserWindow, dialog, session } from "electron"
+import { app, BrowserWindow, dialog, powerMonitor, session } from "electron"
 import pkg from "electron-updater"
 import semver from "semver"
 import {shellPath} from "shell-path"
@@ -53,6 +53,8 @@ import { checkAppExists, resolveAppPath, wslPath } from "./apps"
 import { CHANNEL, UPDATER_ENABLED } from "./constants"
 // jk-j60099994-replace-with-index-1-start
 // jk-j60099994-replace-with-index-1-end
+// jk-j60099994-replace-with-60062650-desktop-main-index-3-start
+// jk-j60099994-replace-with-60062650-desktop-main-index-3-end
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
@@ -206,6 +208,9 @@ function setupApp() {
     setDockIcon()
     startPreviewServer()
     setupAutoUpdater()
+    powerMonitor.on("resume", () => {
+      BrowserWindow.getAllWindows().forEach((win) => win.webContents.send("power-resume"))
+    })
     await initialize()
   })
 }
@@ -354,6 +359,10 @@ async function initialize() {
     app.exit(1)
     return
   }
+
+  // jk-j60099994-replace-with-60062650-desktop-main-index-2-start
+  // jk-j60099994-replace-with-60062650-desktop-main-index-2-end
+  
   setInitStep({ phase: "done" })
 
   if (overlay) {
@@ -497,6 +506,9 @@ function setupAutoUpdater() {
   autoUpdater.allowDowngrade = false
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
+  autoUpdater.on("download-progress", (progress) => {
+    BrowserWindow.getAllWindows().forEach((win) => win.webContents.send("update-download-progress", progress.percent))
+  })
   logger.log("auto updater configured", {
     channel: autoUpdater.channel,
     allowPrerelease: autoUpdater.allowPrerelease,
@@ -505,9 +517,16 @@ function setupAutoUpdater() {
   })
 }
 
+let availableUpdateVersion: string | undefined
 let downloadedUpdateVersion: string | undefined
 
-async function checkUpdate() {
+async function downloadUpdate(version: string) {
+  await autoUpdater.downloadUpdate()
+  logger.log("update download completed", { version })
+  downloadedUpdateVersion = version
+}
+
+async function checkUpdate(download = false) {
   if (!UPDATER_ENABLED) return { updateAvailable: false }
   if (downloadedUpdateVersion) {
     logger.log("returning cached downloaded update", {
@@ -545,9 +564,10 @@ async function checkUpdate() {
       return { updateAvailable: false }
     }
     logger.log("update available", { version })
-    await autoUpdater.downloadUpdate()
-    logger.log("update download completed", { version })
-    downloadedUpdateVersion = version
+    availableUpdateVersion = version
+    if (download) {
+      await downloadUpdate(version)
+    }
     return { updateAvailable: true, version }
   } catch (error) {
     logger.error("update check failed", error)
@@ -556,6 +576,10 @@ async function checkUpdate() {
 }
 
 async function installUpdate() {
+  if (!downloadedUpdateVersion && availableUpdateVersion) {
+    logger.log("downloading update before install", { version: availableUpdateVersion })
+    await downloadUpdate(availableUpdateVersion)
+  }
   if (!downloadedUpdateVersion) {
     logger.log("install update skipped", {
       reason: "no downloaded update ready",
@@ -572,7 +596,7 @@ async function installUpdate() {
 async function checkForUpdates(alertOnFail: boolean) {
   if (!UPDATER_ENABLED) return
   logger.log("checkForUpdates invoked", { alertOnFail })
-  const result = await checkUpdate()
+  const result = await checkUpdate(true)
   if (!result.updateAvailable) {
     if (result.failed) {
       logger.log("no update decision", { reason: "update check failed" })

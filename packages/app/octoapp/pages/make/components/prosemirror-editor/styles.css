@@ -1,3 +1,40 @@
+.make-plan-capsule-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 0;
+}
+
+.make-plan-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(10, 89, 247, 0.08);
+  color: #0A59F7;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.make-plan-capsule:hover {
+  background: rgba(10, 89, 247, 0.14);
+}
+
+.make-plan-capsule-icon {
+  font-size: 13px;
+}
+
+.make-plan-capsule-close {
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.7;
+}
+
 .pm-editor-wrapper {
   position: relative;
   width: 100%;

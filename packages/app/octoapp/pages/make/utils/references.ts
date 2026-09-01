@@ -8,6 +8,8 @@
  * 配合网络信号（resource-tracker.ts）取并集后过滤同目录文件。
  */
 
+import { localUrlToPath } from "./resource-tracker"
+
 export type ContentType = "html" | "css" | "js"
 
 const REF_ATTR_REGEX = /(?:href|src|poster|data|formaction|xlink:href)\s*=\s*["']([^"']+)["']/gi
@@ -15,6 +17,9 @@ const SRCSET_REGEX = /srcset\s*=\s*["']([^"']+)["']/gi
 const URL_FUNC_REGEX = /url\(\s*["']?([^"')]+)["']?\s*\)/gi
 const CSS_IMPORT_REGEX = /@import\s+(?:url\(\s*)?["']([^"']+)["']\s*\)?\s*;?/gi
 const JS_IMPORT_REGEX = /import\s*\(\s*["']([^"']+)["']\s*\)/gi
+// Vite/打包器标准模式:new URL("./assets/foo.png", import.meta.url)
+// 第二参数必须是 import.meta.url,否则解析基准不同(浏览器用文档 base),不能按 JS 文件目录解析
+const JS_NEW_URL_REGEX = /new\s+URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)/gi
 const SOURCEMAP_REGEX = /\/\/#\s*sourceMappingURL=(\S+)/gi
 
 function isRelativeRef(ref: string): boolean {
@@ -22,6 +27,8 @@ function isRelativeRef(ref: string): boolean {
   const trimmed = ref.trim()
   if (!trimmed) return false
 
+  // local:// 是本项目自定义协议,放行后由 normalizeRef 转回绝对路径
+  if (trimmed.startsWith("local://")) return true
   if (trimmed.startsWith("//")) return false        // 协议相对 //cdn.x.com
   if (trimmed.startsWith("#")) return false         // 锚点
   if (trimmed.startsWith("/")) return false         // 绝对路径 /foo
@@ -39,7 +46,15 @@ function isRelativeRef(ref: string): boolean {
 }
 
 function normalizeRef(ref: string): string {
-  let r = ref.trim()
+  const raw = ref.trim()
+  // local:// URL: 转回绝对文件路径(剥 query/hash、URI 解码、Windows 盘符规范化)
+  // 反向操作为 pathToLocalUrl（artifact-file-api.ts）
+  if (raw.startsWith("local://")) {
+    const abs = localUrlToPath(raw)
+    return abs || raw
+  }
+
+  let r = raw
   const qIdx = r.indexOf("?")
   if (qIdx >= 0) r = r.slice(0, qIdx)
   const hIdx = r.indexOf("#")
@@ -87,6 +102,7 @@ export function extractReferences(content: string, type: ContentType): string[] 
     collectAllMatches(URL_FUNC_REGEX)
     collectAllMatches(CSS_IMPORT_REGEX)
     collectAllMatches(JS_IMPORT_REGEX)
+    collectAllMatches(JS_NEW_URL_REGEX)
     collectAllMatches(SOURCEMAP_REGEX)
   } else if (type === "css") {
     collectAllMatches(URL_FUNC_REGEX)
@@ -94,11 +110,13 @@ export function extractReferences(content: string, type: ContentType): string[] 
   } else {
     // js
     collectAllMatches(JS_IMPORT_REGEX)
+    collectAllMatches(JS_NEW_URL_REGEX)
     collectAllMatches(URL_FUNC_REGEX)
     collectAllMatches(SOURCEMAP_REGEX)
   }
 
-  const normalized = refs.map(normalizeRef).filter(isRelativeRef)
+  // 先 filter 后 map：isRelativeRef 需要看到原始 local:// 前缀（normalizeRef 会把它转成 C:/...，转完会被 scheme 正则误判拒绝）
+  const normalized = refs.filter(isRelativeRef).map(normalizeRef)
   return unique(normalized)
 }
 

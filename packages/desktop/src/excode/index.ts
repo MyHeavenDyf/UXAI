@@ -5,16 +5,6 @@
  * 调用方式与原有 api/index.ts 一致。
  */
 
-import { createRequire } from "node:module"
-
-// ESM 环境中 require 不是全局变量。
-// annotate-node.ts 使用 require("jsdom") 加载 CJS 模块，
-// dev 模式下 esbuild 可能不会自动生成 require polyfill。
-// 在此主动安装，确保 require 全局可用。
-if (typeof globalThis.require === 'undefined') {
-  globalThis.require = createRequire(import.meta.url)
-}
-
 import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
@@ -31,8 +21,9 @@ import { FileGenerator } from './src/steps/file-generator'
 import { GenerateRoutes } from './src/steps/generate-routes'
 import { WriteOutput } from './src/steps/write-output'
 import { GenerateReport } from './src/steps/generate-report'
+import { GenerateThemeConfig } from './src/steps/generate-theme-config'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const __excodeDir = path.dirname(fileURLToPath(import.meta.url))
 
 /**
  * 单页输入（标准形态）。
@@ -55,6 +46,8 @@ export interface HuiCodeOptions {
   /** 模板目录（绝对路径直接用，相对路径相对 api/ 解析）；默认 ./templates。
    *  Electron 打包时传 process.resourcesPath/hui-templates（绝对）。 */
   templateDir?: string
+  /** 主题，取值 'light' | 'dark'，默认 'light'；写入生成的 src/theme/config.ts */
+  theme?: 'light' | 'dark'
 }
 
 export interface OutputFile {
@@ -77,17 +70,20 @@ const config: {
   css: boolean
   /** 是否在产物 JSX 标签上输出 id 属性 */
   id: boolean
+  /** 主题（light/dark），默认 light；来自 options.theme，写入生成的 src/theme/config.ts */
+  theme: string
 } = {
   templateDir: './templates',
   targetLib: 'eview-react',
   css: true,
   id: false,
+  theme: 'light',
 }
 
 /**
  * 解析模板目录（与旧 excode 用法一致）：
- *   - options.templateDir 提供 → 绝对路径直接用，相对路径相对 __dirname 解析
- *   - 未提供 → 默认 './templates'（相对 __dirname）
+ *   - options.templateDir 提供 → 绝对路径直接用，相对路径相对 __excodeDir 解析
+ *   - 未提供 → 默认 './templates'（相对 __excodeDir）
  *   - 解析后目录不存在 → 回退到 monorepo 源路径 '../../src/excode/templates'
  *   - 末尾拼接 targetLib 子目录（templates 按库名拆分：templates/{lib}/）
  *
@@ -97,11 +93,11 @@ const config: {
 function resolveTemplateDir(dir?: string, targetLib?: string): string {
   const lib = targetLib || 'eview-react'
   const base = dir && dir.trim() ? dir : './templates'
-  const resolved = path.isAbsolute(base) ? base : path.resolve(__dirname, base)
+  const resolved = path.isAbsolute(base) ? base : path.resolve(__excodeDir, base)
   const libDir = path.join(resolved, lib)
   if (fs.existsSync(libDir)) return libDir
   // electron-vite 构建后 ./templates 不会自动复制到 out/main/，回退到 monorepo 源路径。
-  const fallback = path.resolve(__dirname, '../../src/excode/templates')
+  const fallback = path.resolve(__excodeDir, '../../src/excode/templates')
   const fallbackLib = path.join(fallback, lib)
   if (fs.existsSync(fallbackLib)) return fallbackLib
   return libDir
@@ -118,6 +114,7 @@ const DEFAULT_STEPS = [
   'FileGenerator',
   'GenerateRoutes',
   'GenerateReport',
+  'GenerateThemeConfig',
   'WriteOutput',
 ]
 
@@ -128,6 +125,7 @@ const STEP_MAP: Record<string, any> = {
   FileGenerator,
   GenerateRoutes,
   GenerateReport,
+  GenerateThemeConfig,
   WriteOutput,
 }
 

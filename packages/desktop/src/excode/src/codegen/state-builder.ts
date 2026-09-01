@@ -155,8 +155,10 @@ export function sharedKeyOfPath(path: string): string {
 function generateSharedStateFileContent(sharedKeys: Set<string>): string {
   const keys = [...sharedKeys].sort()
   const initLines = keys.map(k => `  ${k}: initialState.${k},`).join('\n')
-  return `import { useSyncExternalStore } from 'react'
-import { initialState } from './state'
+  let importStr = "import { useSyncExternalStore } from 'react' \n"
+  importStr += "import { initialState } from './state'"
+  return `
+${importStr}
 
 function createSharedStore(init: Record<string, any>) {
   let state = init

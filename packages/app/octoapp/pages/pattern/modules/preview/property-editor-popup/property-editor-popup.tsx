@@ -28,7 +28,7 @@ export function PropertyEditorPopup(props: {
   currentClass?: string
   elementProps?: string
   sessionId?: string
-  /** make 侧传入 prototype.html 绝对路径：上传图片写到同级 assets/，返回相对 URL */
+  /** make 侧传入 prototype.html 绝对路径：上传图片写到同级 uploads/，返回相对 URL */
   htmlFilePath?: string
   elementRect: ElementRect
   clickPoint?: { x: number; y: number }
@@ -151,6 +151,33 @@ export function PropertyEditorPopup(props: {
   let effectIdCounter = 0
   let initialEffectsJson = ''
 
+  type MenuNode = {
+    id: number; key: unknown; title: string; icon: string
+    expanded: boolean; selected: boolean
+    raw: Record<string, unknown>
+    children?: MenuNode[]
+  }
+  const [menuTree, setMenuTree] = createStore<MenuNode[]>([])
+  let menuNodeIdCounter = 0
+  const [menuPanelOpen, setMenuPanelOpen] = createSignal(false)
+  let menuPanelRef!: HTMLDivElement
+
+  type TableColumn = {
+    id: number; title: string; dataIndex: string; align: string
+    width: string; minWidth: string; sort: boolean
+    raw: Record<string, unknown>
+  }
+  const [tableColumns, setTableColumns] = createStore<TableColumn[]>([])
+  let tableColIdCounter = 0
+  const [tablePanelOpen, setTablePanelOpen] = createSignal(false)
+  let tablePanelRef!: HTMLDivElement
+
+  type TableDataRow = { id: number; row: Record<string, unknown> }
+  const [tableData, setTableData] = createStore<TableDataRow[]>([])
+  let tableDataIdCounter = 0
+  const [dataPanelOpen, setDataPanelOpen] = createSignal(false)
+  let dataPanelRef!: HTMLDivElement
+
   const SHADOW_TOKEN_MAP: [string, string][] = [
     ["1px 1px 6px 0px rgba(0,0,0,0.08)", "card"],
     ["0px 4px 12px 0px rgba(0,0,0,0.16)", "md"],
@@ -176,6 +203,14 @@ export function PropertyEditorPopup(props: {
   const [rawProps, setRawProps] = createStore<Record<string, string>>({})
   const [propKeys, setPropKeys] = createSignal<string[]>([])
 
+  const dataFields = createMemo(() => {
+    const set: string[] = []
+    const rk = (editProps as Record<string, string>)['rowKey']
+    if (rk) set.push(rk)
+    for (const c of tableColumns) if (c.dataIndex) set.push(c.dataIndex)
+    return [...new Set(set)]
+  })
+
   let initialBgUrl = ''
   let parsedClasses: string[] = []
   let baseCssVars: Record<string, string> = {}
@@ -186,13 +221,47 @@ export function PropertyEditorPopup(props: {
     return COMPONENT_ENUMS[`${props.componentType}.${key}`] || []
   }
 
-  function isStateBoundValue(v: unknown): v is { path: string } {
-    return v !== null && typeof v === "object" && !Array.isArray(v) && typeof (v as { path?: unknown }).path === "string"
+  function isStateBoundValue(v: unknown): v is { path: string } | { componentId: string } {
+    return v !== null && typeof v === "object" && !Array.isArray(v) && (
+      typeof (v as { path?: unknown }).path === "string" ||
+      typeof (v as { componentId?: unknown }).componentId === "string"
+    )
   }
 
   function isBinding(key: string) {
     return `__bind_${key}` in rawProps || isStateBoundValue((rawProps as Record<string, unknown>)[key])
   }
+
+  type MenuError = { type: 'error' | 'warn'; nodeId?: number; field?: 'title' | 'key'; msg: string }
+
+  function validateMenuTree(): MenuError[] {
+    const errs: MenuError[] = []
+    if (menuTree.length === 0) return [{ type: 'warn', msg: '菜单不能为空' }]
+    const seenKeys = new Map<string, number>()
+    const check = (n: MenuNode, label: string) => {
+      if (!n.title) errs.push({ type: 'error', nodeId: n.id, field: 'title', msg: `${label} 标题不能为空` })
+      if (n.key == null || n.key === '') errs.push({ type: 'error', nodeId: n.id, field: 'key', msg: `${label} key 不能为空` })
+      else seenKeys.set(String(n.key), (seenKeys.get(String(n.key)) ?? 0) + 1)
+    }
+    menuTree.forEach((n, i) => {
+      check(n, `第 ${i + 1} 项`)
+      n.children?.forEach((c, ci) => check(c, `第 ${i + 1} 项的子项 ${ci + 1}`))
+    })
+    for (const [k, c] of seenKeys) if (c > 1) errs.push({ type: 'error', msg: `key '${k}' 重复（${c} 次）` })
+    return errs
+  }
+  const menuErrors = createMemo(() => validateMenuTree())
+
+  type TableError = { type: 'error'; colId: number; field: 'title' | 'dataIndex'; msg: string }
+  function validateTableColumns(): TableError[] {
+    const errs: TableError[] = []
+    tableColumns.forEach((c, i) => {
+      if (!c.title) errs.push({ type: 'error', colId: c.id, field: 'title', msg: `第 ${i + 1} 列标题不能为空` })
+      if (!c.dataIndex) errs.push({ type: 'error', colId: c.id, field: 'dataIndex', msg: `第 ${i + 1} 列字段不能为空` })
+    })
+    return errs
+  }
+  const tableErrors = createMemo(() => validateTableColumns())
 
   function splitCssList(value: string): string[] {
     const parts: string[] = []
@@ -803,7 +872,14 @@ export function PropertyEditorPopup(props: {
   function syncComponentProps(parsed: Record<string, unknown>) {
     setRawProps(reconcile(parsed as Record<string, string>))
     const defKeys = COMPONENT_PROPS[props.componentType] || []
-    const allKeys = [...new Set([...defKeys, ...Object.keys(parsed)])].filter(k => !k.startsWith('__bind_') && k !== 'inlineCollapsed' && k !== 'preview' && k !== 'url')
+    const allKeys = [...new Set([...defKeys, ...Object.keys(parsed)])].filter(k => {
+      if (k.startsWith('__bind_') || k === 'inlineCollapsed' || k === 'preview' || k === 'url' || k === 'items' || k === 'open' || k === 'footer') return false
+      const v = parsed[k]
+      if (v == null) return true
+      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return true
+      if (isStateBoundValue(v)) return true
+      return false
+    })
     setPropKeys(allKeys)
     for (const k of allKeys) {
       const parsedVal = parsed[k]
@@ -814,6 +890,60 @@ export function PropertyEditorPopup(props: {
       if (!def && k === 'size' && opts.some(o => o.value === 'medium')) def = 'medium'
       if (!def) def = opts[0]?.value ?? ''
       setEditProps(k, raw || def)
+    }
+    if (props.componentType === 'Menu') {
+      const itemsVal = parsed.items
+      const openKeysVal = Array.isArray(parsed.openKeys) ? parsed.openKeys as unknown[] : []
+      const selectedKeysVal = Array.isArray(parsed.selectedKeys) ? parsed.selectedKeys as unknown[] : []
+      const hasKey = (arr: unknown[], k: unknown) => arr.some(x => String(x) === String(k))
+      setMenuTree(Array.isArray(itemsVal) ? (itemsVal as unknown[]).map((it) => {
+        const o = it as Record<string, unknown>
+        const node: MenuNode = {
+          id: ++menuNodeIdCounter,
+          key: o?.key,
+          title: String(o?.title ?? ''),
+          icon: String(o?.icon ?? ''),
+          expanded: hasKey(openKeysVal, o?.key),
+          selected: hasKey(selectedKeysVal, o?.key),
+          raw: o,
+        }
+        if (Array.isArray(o?.children)) {
+          node.children = (o.children as unknown[]).map((ch) => {
+            const c = ch as Record<string, unknown>
+            return {
+              id: ++menuNodeIdCounter,
+              key: c?.key,
+              title: String(c?.title ?? ''),
+              icon: String(c?.icon ?? ''),
+              expanded: false,
+              selected: hasKey(selectedKeysVal, c?.key),
+              raw: c,
+            } as MenuNode
+          })
+        }
+        return node
+      }) : [])
+    }
+    if (props.componentType === 'Table') {
+      const colsVal = parsed.columns
+      setTableColumns(Array.isArray(colsVal) ? (colsVal as unknown[]).map((it) => {
+        const c = it as Record<string, unknown>
+        return {
+          id: ++tableColIdCounter,
+          title: String(c?.title ?? ''),
+          dataIndex: String(c?.dataIndex ?? ''),
+          align: String(c?.align ?? ''),
+          width: c?.width == null ? '' : String(c.width),
+          minWidth: c?.minWidth == null ? '' : String(c.minWidth),
+          sort: !!c?.sort,
+          raw: c,
+        } as TableColumn
+      }) : [])
+      const dsVal = parsed.dataSource
+      setTableData(Array.isArray(dsVal) ? (dsVal as unknown[]).map((it) => ({
+        id: ++tableDataIdCounter,
+        row: (it && typeof it === 'object' ? it : {}) as Record<string, unknown>,
+      })) : [])
     }
   }
 
@@ -848,6 +978,9 @@ export function PropertyEditorPopup(props: {
     setFills([])
     setStrokes([])
     setEffects([])
+    setMenuTree([])
+    setTableColumns([])
+    setTableData([])
     preservedCssVars = {}
   }
 
@@ -961,6 +1094,33 @@ export function PropertyEditorPopup(props: {
 
   onCleanup(() => clearTimeout(autoUpdateTimer))
 
+  createEffect(() => {
+    if (!menuPanelOpen()) return
+    const handler = (ev: MouseEvent) => {
+      if (menuPanelRef && !menuPanelRef.contains(ev.target as Node)) setMenuPanelOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    onCleanup(() => document.removeEventListener('mousedown', handler))
+  })
+
+  createEffect(() => {
+    if (!tablePanelOpen()) return
+    const handler = (ev: MouseEvent) => {
+      if (tablePanelRef && !tablePanelRef.contains(ev.target as Node)) setTablePanelOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    onCleanup(() => document.removeEventListener('mousedown', handler))
+  })
+
+  createEffect(() => {
+    if (!dataPanelOpen()) return
+    const handler = (ev: MouseEvent) => {
+      if (dataPanelRef && !dataPanelRef.contains(ev.target as Node)) setDataPanelOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    onCleanup(() => document.removeEventListener('mousedown', handler))
+  })
+
   const autoSnapshot = createMemo(() => {
     if (!props.show) return null
     return {
@@ -1008,6 +1168,11 @@ export function PropertyEditorPopup(props: {
       fills: fills.map(f => `${f.id}:${f.color}:${f.opacity}:${f.visible}`),
       strokes: strokes.map(s => `${s.id}:${s.color}:${s.visible}:${s.width}:${s.position}:${s.individualOpen}:${s.widthTop}:${s.widthRight}:${s.widthBottom}:${s.widthLeft}`),
       effects: effects.map(e => `${e.id}:${e.type}:${e.visible}:${e.color}:${e.opacity}:${e.blur}:${e.offsetX}:${e.offsetY}:${e.layerBlur}:${e.bgBlur}`),
+      menuTree: JSON.stringify(menuTree),
+      menuErrCount: menuErrors().filter(e => e.type === 'error').length,
+      tableColumns: JSON.stringify(tableColumns),
+      tableErrCount: tableErrors().length,
+      tableData: JSON.stringify(tableData.map(r => r.row)),
       editProps: JSON.stringify(editProps),
       propKeys: JSON.stringify(propKeys()),
     }
@@ -1063,9 +1228,9 @@ export function PropertyEditorPopup(props: {
           savePrototypeImage?: (buf: ArrayBuffer, dir: string) => Promise<string>
         }
       }).api
-      // make 侧：写到 prototype.html 同级 assets 目录，返回相对 URL（iframe 经 local:// 解析）
+      // make 侧：写到 prototype.html 同级 uploads 目录，返回相对 URL（iframe 经 local:// 解析）
       if (props.htmlFilePath && desktopApi?.savePrototypeImage) {
-        const dir = props.htmlFilePath.replace(/[\\/][^\\/]+$/, '') + '/assets'
+        const dir = props.htmlFilePath.replace(/[\\/][^\\/]+$/, '') + '/uploads'
         const url = await desktopApi.savePrototypeImage(buf, dir)
         onUrl(url)
         return
@@ -1332,7 +1497,7 @@ export function PropertyEditorPopup(props: {
       return shouldImportant && !hasImportant ? '!' + c : (!shouldImportant && hasImportant ? stripped : c)
     }).join(' ')
 
-    const componentProps: Record<string, string | boolean> = {}
+    const componentProps: Record<string, string | boolean | object> = {}
     if (!isTextElement()) {
       for (const key of propKeys()) {
         if (key === 'className') continue
@@ -1345,6 +1510,40 @@ export function PropertyEditorPopup(props: {
             ? val === 'true'
             : val
         }
+      }
+      if (props.componentType === 'Menu') {
+        if (!isBinding('items') && menuTree.length) {
+          const items = menuTree.map((n) => {
+            const item: Record<string, unknown> = { ...n.raw, title: n.title, key: n.key }
+            item.icon = n.icon
+            if (n.children) item.children = n.children.map((c) => ({ ...c.raw, title: c.title, key: c.key, icon: c.icon }))
+            return item
+          })
+          componentProps['items'] = JSON.parse(JSON.stringify(items))
+        }
+        if (!isBinding('openKeys')) {
+          componentProps['openKeys'] = JSON.parse(JSON.stringify(menuTree.filter(n => n.expanded).map(n => n.key)))
+        }
+        if (!isBinding('selectedKeys')) {
+          const sel = [
+            ...menuTree.filter(n => n.selected).map(n => n.key),
+            ...menuTree.flatMap(n => n.children ?? []).filter(c => c.selected).map(c => c.key),
+          ]
+          componentProps['selectedKeys'] = JSON.parse(JSON.stringify(sel))
+        }
+      }
+      if (props.componentType === 'Table' && !isBinding('columns') && tableColumns.length) {
+        const cols = tableColumns.map((c) => {
+          const col: Record<string, unknown> = { ...c.raw, title: c.title, dataIndex: c.dataIndex, sort: c.sort }
+          col.align = c.align
+          col.width = c.width
+          col.minWidth = c.minWidth
+          return col
+        })
+        componentProps['columns'] = JSON.parse(JSON.stringify(cols))
+      }
+      if (props.componentType === 'Table' && tableData.length) {
+        componentProps['dataSource'] = JSON.parse(JSON.stringify(tableData.map(r => r.row)))
       }
     }
 
@@ -1387,6 +1586,27 @@ export function PropertyEditorPopup(props: {
     }
     logAgentCall('quick-modify', props.elementId, { className, componentProps, textContent: editText(), changed }, confirmData)
     props.onConfirm(confirmData)
+    initialSnapshotJson = JSON.stringify(autoSnapshot())
+  }
+
+  function confirmMenuItems() {
+    if (menuErrors().some(e => e.type === 'error')) return
+    setMenuPanelOpen(false)
+    clearTimeout(autoUpdateTimer)
+    void handleConfirm(true)
+  }
+
+  function confirmTableColumns() {
+    if (tableErrors().length) return
+    setTablePanelOpen(false)
+    clearTimeout(autoUpdateTimer)
+    void handleConfirm(true)
+  }
+
+  function confirmTableData() {
+    setDataPanelOpen(false)
+    clearTimeout(autoUpdateTimer)
+    void handleConfirm(true)
   }
 
   type TrblInput = {
@@ -1497,11 +1717,313 @@ export function PropertyEditorPopup(props: {
                   </div>
                 )}
               </For>
+              <Show when={props.componentType === 'Menu' && !isBinding('items')}>
+                <div class="flex items-center gap-2">
+                  <label class="text-[10px] font-medium text-slate-500 w-14 shrink-0">菜单</label>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setMenuPanelOpen(true) }}
+                    class="flex items-center justify-between rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none w-full min-w-0 border border-transparent hover:border-[#3D99FF]">
+                    <span class="text-slate-400">编辑菜单（{menuTree.length} 项）</span>
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l2 2-8 8H4v-2l8-8z" /></svg>
+                  </button>
+                </div>
+              </Show>
+              <Show when={props.componentType === 'Table' && !isBinding('columns')}>
+                <div class="flex items-center gap-2">
+                  <label class="text-[10px] font-medium text-slate-500 w-14 shrink-0">表格</label>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setTablePanelOpen(true) }}
+                    class="flex items-center justify-between rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none w-full min-w-0 border border-transparent hover:border-[#3D99FF]">
+                    <span class="text-slate-400">编辑表格（{tableColumns.length} 列）</span>
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l2 2-8 8H4v-2l8-8z" /></svg>
+                  </button>
+                </div>
+              </Show>
+              <Show when={props.componentType === 'Table'}>
+                <div class="flex items-center gap-2">
+                  <label class="text-[10px] font-medium text-slate-500 w-14 shrink-0">数据</label>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDataPanelOpen(true) }}
+                    class="flex items-center justify-between rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none w-full min-w-0 border border-transparent hover:border-[#3D99FF]">
+                    <span class="text-slate-400">编辑数据（{tableData.length} 行）</span>
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l2 2-8 8H4v-2l8-8z" /></svg>
+                  </button>
+                </div>
+              </Show>
             </div>
           </Show>
 
           <Show when={!isTextElement() && !hasClassEditor() && propKeys().filter(k => k !== 'className').length === 0}>
             <div class="text-[12px] text-slate-400 py-2">该组件暂不支持快速修改</div>
+          </Show>
+
+          <Show when={menuPanelOpen()}>
+            <Portal>
+              <div class="fixed inset-0 z-[400] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.3)" }}
+                onMouseDown={() => setMenuPanelOpen(false)}>
+                <div ref={menuPanelRef} class="flex flex-col gap-2 w-[440px] max-w-[92vw] p-3"
+                  style={{ background: "#fff", border: "1px solid #e2e8f0", "border-radius": "8px", "box-shadow": "0 8px 24px rgba(0,0,0,0.2)" }}
+                  onMouseDown={(e) => e.stopPropagation()}>
+                  <div class="flex items-center justify-between">
+                    <span class="text-[13px] font-semibold text-slate-700">编辑菜单</span>
+                    <button onClick={() => setMenuPanelOpen(false)}
+                      class="text-slate-400 hover:text-slate-600 flex items-center justify-center w-5 h-5">
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                        <line x1="2" y1="2" x2="10" y2="10" /><line x1="10" y1="2" x2="2" y2="10" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="flex flex-col gap-1.5 max-h-[320px] overflow-y-auto">
+                    <For each={menuTree}>
+                      {(n) => {
+                        const i = () => menuTree.findIndex(x => x.id === n.id)
+                        return (
+                          <>
+                            <div class="flex items-center gap-1 w-full min-w-0">
+                              <button onClick={() => setMenuTree(i(), 'expanded', !menuTree[i()].expanded)}
+                                class={n.expanded ? 'prop-chip-active h-6 w-6 p-0 flex items-center justify-center shrink-0' : 'prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0'}
+                                title="展开（openKeys）">
+                                <span class="text-[10px]">展</span>
+                              </button>
+                              <button onClick={() => setMenuTree(i(), 'selected', !menuTree[i()].selected)}
+                                class={n.selected ? 'prop-chip-active h-6 w-6 p-0 flex items-center justify-center shrink-0' : 'prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0'}
+                                title="选中（selectedKeys）">
+                                <span class="text-[10px]">选</span>
+                              </button>
+                              <input value={n.title}
+                                onInput={(e) => setMenuTree(i(), 'title', e.currentTarget.value)}
+                                type="text" placeholder="标题"
+                                class={`flex-1 min-w-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border ${!n.title ? 'border-red-400' : 'border-transparent'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
+                              <input value={n.icon}
+                                onInput={(e) => setMenuTree(i(), 'icon', e.currentTarget.value)}
+                                type="text" placeholder="图标"
+                                class="w-14 shrink-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border border-transparent focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none" />
+                              <button onClick={() => setMenuTree(menuTree.filter(x => x.id !== n.id))}
+                                class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0">
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h10" /></svg>
+                              </button>
+                            </div>
+                            <Show when={n.expanded}>
+                              <div class="flex flex-col gap-1.5 pl-6">
+                                <For each={n.children ?? []}>
+                                  {(c) => {
+                                    const ci = () => (menuTree[i()].children ?? []).findIndex(x => x.id === c.id)
+                                    return (
+                                      <div class="flex items-center gap-1 w-full min-w-0">
+                                        <button onClick={() => setMenuTree(i(), 'children', ci(), 'selected', !(menuTree[i()].children![ci()].selected))}
+                                          class={c.selected ? 'prop-chip-active h-6 w-6 p-0 flex items-center justify-center shrink-0' : 'prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0'}
+                                          title="选中">
+                                          <span class="text-[10px]">选</span>
+                                        </button>
+                                        <input value={c.title}
+                                          onInput={(e) => setMenuTree(i(), 'children', ci(), 'title', e.currentTarget.value)}
+                                          type="text" placeholder="子项标题"
+                                          class={`flex-1 min-w-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border ${!c.title ? 'border-red-400' : 'border-transparent'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
+                                        <input value={c.icon}
+                                          onInput={(e) => setMenuTree(i(), 'children', ci(), 'icon', e.currentTarget.value)}
+                                          type="text" placeholder="图标"
+                                          class="w-14 shrink-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border border-transparent focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none" />
+                                        <button onClick={() => setMenuTree(i(), 'children', (menuTree[i()].children ?? []).filter(x => x.id !== c.id))}
+                                          class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0">
+                                          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h10" /></svg>
+                                        </button>
+                                      </div>
+                                    )
+                                  }}
+                                </For>
+                                <button onClick={() => setMenuTree(i(), 'children', [...(menuTree[i()].children ?? []), { id: ++menuNodeIdCounter, key: `key-${Date.now()}`, title: '子项', icon: '', expanded: false, selected: false, raw: {} } as MenuNode])}
+                                  class="self-start prop-chip h-6 px-2 flex items-center gap-1 text-[11px]">
+                                  <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 8h10" /></svg>
+                                  子项
+                                </button>
+                              </div>
+                            </Show>
+                          </>
+                        )
+                      }}
+                    </For>
+                    <button onClick={() => setMenuTree([...menuTree, { id: ++menuNodeIdCounter, key: `key-${Date.now()}`, title: '新菜单项', icon: '', expanded: false, selected: false, raw: {} } as MenuNode])}
+                      class="self-start prop-chip h-6 px-2 flex items-center gap-1 text-[11px]">
+                      <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 8h10" /></svg>
+                      顶层项
+                    </button>
+                  </div>
+                  <Show when={menuErrors().length > 0}>
+                    <div class="flex flex-col gap-0.5">
+                      <For each={menuErrors()}>
+                        {(er) => (
+                          <span class={er.type === 'error' ? 'text-[11px] text-red-500' : 'text-[11px] text-amber-500'}>{er.msg}</span>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                  <button onClick={confirmMenuItems}
+                    class="h-8 rounded-[6px] bg-[#3D99FF] text-white text-[13px] font-medium hover:bg-[#2b87f0]">
+                    确认修改
+                  </button>
+                </div>
+              </div>
+            </Portal>
+          </Show>
+
+          <Show when={tablePanelOpen()}>
+            <Portal>
+              <div class="fixed inset-0 z-[400] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.3)" }}
+                onMouseDown={() => setTablePanelOpen(false)}>
+                <div ref={tablePanelRef} class="flex flex-col gap-2 w-[480px] max-w-[92vw] p-3"
+                  style={{ background: "#fff", border: "1px solid #e2e8f0", "border-radius": "8px", "box-shadow": "0 8px 24px rgba(0,0,0,0.2)" }}
+                  onMouseDown={(e) => e.stopPropagation()}>
+                  <div class="flex items-center justify-between">
+                    <span class="text-[13px] font-semibold text-slate-700">编辑表格列</span>
+                    <button onClick={() => setTablePanelOpen(false)}
+                      class="text-slate-400 hover:text-slate-600 flex items-center justify-center w-5 h-5">
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                        <line x1="2" y1="2" x2="10" y2="10" /><line x1="10" y1="2" x2="2" y2="10" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="flex flex-col gap-2 max-h-[340px] overflow-y-auto">
+                    <For each={tableColumns}>
+                      {(c) => {
+                        const i = () => tableColumns.findIndex(x => x.id === c.id)
+                        const move = (dir: number) => {
+                          const idx = i(); const j = idx + dir
+                          if (j < 0 || j >= tableColumns.length) return
+                          const arr = tableColumns.slice()
+                          const t = arr[idx]; arr[idx] = arr[j]; arr[j] = t
+                          setTableColumns(arr)
+                        }
+                        return (
+                          <div class="flex flex-col gap-1.5 p-2 rounded-[6px] bg-[#F9FAFB] border border-slate-200">
+                            <div class="flex items-center gap-1 w-full min-w-0">
+                              <button onClick={() => move(-1)} class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0" title="上移">
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3l-5 5h10z" /></svg>
+                              </button>
+                              <button onClick={() => move(1)} class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0" title="下移">
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 13l5-5H3z" /></svg>
+                              </button>
+                              <input value={c.title}
+                                onInput={(e) => setTableColumns(i(), 'title', e.currentTarget.value)}
+                                type="text" placeholder="标题"
+                                class={`flex-1 min-w-0 rounded-sm bg-white h-6 text-[12px] px-2 outline-none border ${!c.title ? 'border-red-400' : 'border-slate-200'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
+                              <input value={c.dataIndex}
+                                onInput={(e) => setTableColumns(i(), 'dataIndex', e.currentTarget.value)}
+                                type="text" placeholder="字段"
+                                class={`w-24 shrink-0 rounded-sm bg-white h-6 text-[12px] px-2 outline-none border ${!c.dataIndex ? 'border-red-400' : 'border-slate-200'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
+                              <button onClick={() => setTableColumns(tableColumns.filter(x => x.id !== c.id))}
+                                class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0">
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h10" /></svg>
+                              </button>
+                            </div>
+                            <div class="flex items-center gap-1 w-full min-w-0">
+                              <CustomSelect
+                                value={c.align}
+                                options={[{ label: '默认', value: '' }, { label: '左', value: 'left' }, { label: '中', value: 'center' }, { label: '右', value: 'right' }]}
+                                onChange={(v) => setTableColumns(i(), 'align', v)}
+                                class="w-20 shrink-0"
+                              />
+                              <input value={c.width}
+                                onInput={(e) => setTableColumns(i(), 'width', e.currentTarget.value)}
+                                type="text" placeholder="宽度"
+                                class="w-20 shrink-0 rounded-sm bg-white h-6 text-[12px] px-2 outline-none border border-slate-200 focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none" />
+                              <input value={c.minWidth}
+                                onInput={(e) => setTableColumns(i(), 'minWidth', e.currentTarget.value)}
+                                type="text" placeholder="最小宽度"
+                                class="w-24 shrink-0 rounded-sm bg-white h-6 text-[12px] px-2 outline-none border border-slate-200 focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none" />
+                              <button onClick={() => setTableColumns(i(), 'sort', !tableColumns[i()].sort)}
+                                class={c.sort ? 'prop-chip-active h-6 px-2 flex items-center gap-1 text-[11px] shrink-0' : 'prop-chip h-6 px-2 flex items-center gap-1 text-[11px] shrink-0'}
+                                title="可排序">
+                                排序
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      }}
+                    </For>
+                    <button onClick={() => setTableColumns([...tableColumns, { id: ++tableColIdCounter, title: '新列', dataIndex: 'field', align: '', width: '', minWidth: '', sort: false, raw: {} } as TableColumn])}
+                      class="self-start prop-chip h-6 px-2 flex items-center gap-1 text-[11px]">
+                      <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 8h10" /></svg>
+                      添加列
+                    </button>
+                  </div>
+                  <Show when={tableErrors().length > 0}>
+                    <div class="flex flex-col gap-0.5">
+                      <For each={tableErrors()}>
+                        {(er) => <span class="text-[11px] text-red-500">{er.msg}</span>}
+                      </For>
+                    </div>
+                  </Show>
+                  <button onClick={confirmTableColumns}
+                    class="h-8 rounded-[6px] bg-[#3D99FF] text-white text-[13px] font-medium hover:bg-[#2b87f0]">
+                    确认修改
+                  </button>
+                </div>
+              </div>
+            </Portal>
+          </Show>
+
+          <Show when={dataPanelOpen()}>
+            <Portal>
+              <div class="fixed inset-0 z-[400] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.3)" }}
+                onMouseDown={() => setDataPanelOpen(false)}>
+                <div ref={dataPanelRef} class="flex flex-col gap-2 w-[560px] max-w-[94vw] p-3"
+                  style={{ background: "#fff", border: "1px solid #e2e8f0", "border-radius": "8px", "box-shadow": "0 8px 24px rgba(0,0,0,0.2)" }}
+                  onMouseDown={(e) => e.stopPropagation()}>
+                  <div class="flex items-center justify-between">
+                    <span class="text-[13px] font-semibold text-slate-700">编辑表格数据</span>
+                    <button onClick={() => setDataPanelOpen(false)}
+                      class="text-slate-400 hover:text-slate-600 flex items-center justify-center w-5 h-5">
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                        <line x1="2" y1="2" x2="10" y2="10" /><line x1="10" y1="2" x2="2" y2="10" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="overflow-x-auto max-h-[360px] overflow-y-auto">
+                    <div class="min-w-max flex flex-col gap-1">
+                      <div class="flex items-center gap-1">
+                        <div class="w-8 shrink-0" />
+                        <For each={dataFields()}>
+                          {(f) => (
+                            <div class="w-28 shrink-0 text-[11px] font-medium text-slate-500 px-1 truncate" title={f}>{f}</div>
+                          )}
+                        </For>
+                      </div>
+                      <For each={tableData}>
+                        {(r) => {
+                          const i = () => tableData.findIndex(x => x.id === r.id)
+                          return (
+                            <div class="flex items-center gap-1">
+                              <button onClick={() => setTableData(tableData.filter(x => x.id !== r.id))}
+                                class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0" title="删除行">
+                                <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h10" /></svg>
+                              </button>
+                              <For each={dataFields()}>
+                                {(f) => (
+                                  <input
+                                    value={String(r.row[f] ?? '')}
+                                    onInput={(e) => setTableData(i(), 'row', f, e.currentTarget.value)}
+                                    type="text" placeholder={f}
+                                    class="w-28 shrink-0 rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none border border-transparent focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none" />
+                                )}
+                              </For>
+                            </div>
+                          )
+                        }}
+                      </For>
+                    </div>
+                  </div>
+                  <button onClick={() => setTableData([...tableData, { id: ++tableDataIdCounter, row: {} } as TableDataRow])}
+                    class="self-start prop-chip h-6 px-2 flex items-center gap-1 text-[11px]">
+                    <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 8h10" /></svg>
+                    添加行
+                  </button>
+                  <button onClick={confirmTableData}
+                    class="h-8 rounded-[6px] bg-[#3D99FF] text-white text-[13px] font-medium hover:bg-[#2b87f0]">
+                    确认修改
+                  </button>
+                </div>
+              </div>
+            </Portal>
           </Show>
 
           <Show when={hasClassEditor()}>

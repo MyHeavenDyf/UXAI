@@ -266,3 +266,276 @@
   font-size: 14px;
   color: #777777;
 }
+
+/* Product Assets Styles */
+
+/* Loading state */
+.mention-loading-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: #777;
+  font-size: 14px;
+}
+
+/* Error state */
+.mention-error-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: #DC2626;
+  font-size: 14px;
+}
+
+/* Asset folder item */
+.mention-asset-folder {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 40px;
+  padding: 9px 8px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.9);
+  cursor: pointer;
+  gap: 8px;
+  text-align: left;
+}
+
+.mention-asset-folder:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.mention-asset-folder--selected {
+  background: rgba(10, 89, 247, 0.1);
+}
+
+.mention-asset-folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Asset file item */
+.mention-secondary-item--asset {
+  height: 40px;
+}
+
+/* Asset preview popup */
+.mention-asset-preview {
+  position: fixed;
+  width: 256px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
+  padding: 8px;
+  z-index: 1010;
+}
+
+.mention-asset-preview-header {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+  color: rgba(0, 0, 0, 0.9);
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mention-asset-preview-image {
+  width: 240px;
+  height: 240px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.mention-asset-preview-image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: scale-down;
+}
+
+/* Design file hover preview popup — 参照 addon-menu-asset-preview,用 Portal + position:fixed */
+.mention-design-preview {
+  position: fixed;
+  width: 256px;
+  height: 330px;
+  padding: 8px;
+  box-sizing: border-box;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0px 16px 48px 0px rgba(0, 0, 0, 0.16);
+  z-index: 1010;
+  display: flex;
+  flex-direction: column;
+}
+
+.mention-design-preview-name {
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  text-align: left;
+  color: rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mention-design-preview-size {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.6);
+  margin: 8px 0;
+}
+
+.mention-design-preview-stage {
+  margin-top: 8px;
+  width: 100%;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.mention-design-preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: scale-down;
+}
+
+/* HTML preview: iframe 1920x1080 scaled to fit, vertically centered in stage */
+.mention-design-preview-html {
+  position: relative;
+  width: 240px;
+  height: 135px; /* 240 * 1080/1920 = 135 (scaled iframe height) */
+  flex-shrink: 0;
+}
+
+.mention-design-preview-html iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1920px;
+  height: 1080px;
+  border: 0;
+  transform: scale(0.125);
+  transform-origin: top left;
+}
+
+.mention-design-preview-unsupported {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.mention-design-preview-unsupported-text {
+  font-size: 14px;
+  color: #777777;
+  margin-top: 20px;
+}
+
+/* Download overlay */
+.mention-download-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.mention-download-dialog {
+  width: 468px;
+  background: white;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.mention-download-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.mention-download-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.9);
+}
+
+.mention-download-close {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.mention-download-close:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.mention-download-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 0;
+}
+
+.mention-download-text {
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.6);
+  margin-bottom: 8px;
+}
+
+.mention-download-current {
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.9);
+}
+
+/* Product Assets Root Level */
+.mention-asset-root {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Product Assets Level */
+.mention-asset-level {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  box-sizing: border-box;
+  background: var(--octo-surface-page);
+  border: 1px solid var(--octo-border-default);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.16);
+  z-index: 102;
+}

@@ -40,10 +40,10 @@ export type DesktopApi = {
   /** 导出 HUI 代码（经 IPC 调主进程 downloadHuiCode） */
   downloadHuiCode?: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[], options?: { targetLib?: string }) => Promise<{ files: { path: string; content: string }[] }>
   /** 导出 ZIP 压缩包 */
-  exportZip?: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; destFolder?: string; comment?: string }) => Promise<string | null>
+  exportZip?: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; destFolder?: string; sourceDirs?: { dir: string; destFolder: string }[]; comment?: string }) => Promise<string | null>
   /** 获取上传资源根目录 */
   getUploadsDir?: () => Promise<string | null>
-  /** 把图片写到 prototype.html 同级 assets 目录，返回相对 URL（assets/<hash>.<ext>，iframe 经 local:// 解析） */
+  /** 把图片写到 prototype.html 同级 uploads 目录，返回相对 URL（uploads/<hash>.<ext>，iframe 经 local:// 解析） */
   savePrototypeImage?: (buffer: ArrayBuffer, dir: string) => Promise<string>
 }
 

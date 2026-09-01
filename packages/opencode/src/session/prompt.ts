@@ -63,6 +63,7 @@ import * as DateTime from "effect/DateTime"
 import { eq } from "@/storage/db"
 import * as Database from "@/storage/db"
 import { SessionTable } from "./session.sql"
+import { AUTOMATIC_COMPACTION_ENABLED } from "./overflow"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -228,7 +229,7 @@ export const layer = Layer.effect(
           model: mdl,
           sessionID: input.session.id,
           retries: 2,
-          messages: [{ role: "user", content: "Generate a title for this conversation:\n" }, ...msgs],
+          messages: [{ role: "user", content: "请总结用户需求，生成一个不超过10个字的中文标题：\n" }, ...msgs],
         })
         .pipe(
           Stream.filter((e): e is Extract<LLM.Event, { type: "text-delta" }> => e.type === "text-delta"),
@@ -1535,6 +1536,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           }
 
           if (task?.type === "compaction") {
+            if (task.auto && !AUTOMATIC_COMPACTION_ENABLED) continue
             const result = yield* compaction.process({
               messages: msgs,
               parentID: lastUser.id,
@@ -1543,6 +1545,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               overflow: task.overflow,
             })
             if (result === "stop") break
+            if (!task.auto) break
             continue
           }
 
@@ -1563,8 +1566,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           }
 
           if (
+            AUTOMATIC_COMPACTION_ENABLED &&
             lastFinished &&
             lastFinished.summary !== true &&
+            lastFinished.providerID === model.providerID &&
+            lastFinished.modelID === model.id &&
             (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
           ) {
             yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
@@ -1678,6 +1684,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               tools: activeTools,
               model,
               toolChoice: format.type === "json_schema" || studioImageGeneration ? "required" : undefined,
+              compactionAttempted:
+                lastUserMsg?.parts.some(
+                  (part) =>
+                    "metadata" in part &&
+                    (part.metadata?.["compaction_continue"] === true || part.metadata?.["compaction_replay"] === true),
+                ) ?? false,
             })
 
             if (structured !== undefined) {
@@ -1701,6 +1713,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
             if (result === "stop") return "break" as const
             if (result === "compact") {
+              if (!AUTOMATIC_COMPACTION_ENABLED) return "break" as const
               yield* compaction.create({
                 sessionID,
                 agent: lastUser.agent,

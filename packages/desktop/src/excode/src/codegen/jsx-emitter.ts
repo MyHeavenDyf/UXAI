@@ -259,13 +259,12 @@ function emitProps(props: Record<string, PropValue> | undefined, opts: Required<
       if (cn) parts.push(cn)
       continue
     }
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      const v = value as any
-      if (v.type === 'slotNode') {
-        // Slot 作为子节点写入，不渲染为 prop
-        continue
-      }
-    }
+    // slotNode / BuildNode / 字面量对象等：一律交 emitValue 渲染为 prop 值。
+    // slotNode 在 prop 值位置 = 「子树作 prop 值」（如 eview-ui Dropdown overlay={<Menu>...}）：
+    // emitValue 对 slotNode 走 emitNode（完整 emit 含 LoopNode children），stateBuilder 的
+    // consumeValue 对 slotNode 走 walk（收集子树 binding/computed/LoopNode）。四端基础设施已就绪。
+    // （既有映射若需把 slotNode 转成 children，应在 transform 里 ctx.resolveNode 消费掉、
+    //   不留进 outputProps——留给 emitProps 的兜底渲染只是防「静默丢失」。）
     parts.push(`${key}={${emitValue(value, opts)}}`)
   }
   return parts.join(' ')
@@ -512,13 +511,23 @@ function emitLoop(loop: LoopNode, opts: Required<EmitOptions>): string {
     // ⚠️ 暂只支持单 JSX 元素 body：A2UI 循环模板 body 约定单根（一个组件/元素）。
     // 正则 ^< 只匹配 bodyJsx 开头的 <Tag：text-leading body（首节点文本）不注入 key；
     // multi-element body（多元素）只首个注入。这两类场景输入数据不出现，暂不处理。
-    const withKey = bodyJsx.replace(/^<([A-Za-z][A-Za-z0-9.]*)/, '<$1 key={idx}')
+    //
+    // 若首元素已自带 key prop（如 eview-ui Dropdown overlay 的 Menu.Item 模板，
+    // key={key} 来自相对绑定，既是 React list key 又是 Menu.Item 语义 value），
+    // 则跳过 key={idx} 注入、map 回调用 (item) 签名（无 idx），避免覆盖/冲突。
+    const firstBody = bodies[0] as any
+    const hasOwnKey =
+      firstBody && typeof firstBody === 'object' && firstBody.props && 'key' in firstBody.props
+    const withKey = hasOwnKey
+      ? bodyJsx
+      : bodyJsx.replace(/^<([A-Za-z][A-Za-z0-9.]*)/, '<$1 key={idx}')
+    const mapSig = hasOwnKey ? `(${paramName})` : `(${paramName}, idx)`
 
     if (fields.size > 0) {
       const sortedFields = [...fields].sort().join(', ')
-      return `{(${dataVar} || []).map((${paramName}, idx) => {\n  const { ${sortedFields} } = ${paramName};\n  return (\n${indent(withKey, 4)}\n  );\n})}`
+      return `{(${dataVar} || []).map(${mapSig} => {\n  const { ${sortedFields} } = ${paramName};\n  return (\n${indent(withKey, 4)}\n  );\n})}`
     }
-    return `{(${dataVar} || []).map((${paramName}, idx) => ${withKey})}`
+    return `{(${dataVar} || []).map(${mapSig} => ${withKey})}`
   }
 
   const templateName = loop.template.componentName ?? 'LoopTemplate'

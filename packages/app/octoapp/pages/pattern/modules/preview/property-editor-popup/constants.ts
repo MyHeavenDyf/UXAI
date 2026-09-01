@@ -19,6 +19,12 @@ export const LABEL_MAP: Record<string, string> = {
   checkedChildren: '选中文本', unCheckedChildren: '未选文本',
   strokeColor: '描边颜色', picker: '选择器', format: '格式',
   prefix: '前缀图标', suffix: '后缀图标', placement: '位置',
+  content: '内容', title: '标题',
+  items: '菜单项', openKeys: '展开项', selectedKeys: '选中项',
+  columns: '列定义', dataIndex: '字段', align: '对齐', pagination: '分页',
+  width: '宽度', minWidth: '最小宽度', sort: '排序',
+  dataSource: '数据',
+  mask: '遮罩',
 }
 
 type EnumOption = { label: string; value: string }
@@ -247,6 +253,12 @@ export const COMPONENT_ENUMS: Record<string, EnumOption[]> = {
     { label: '左上', value: 'topLeft' },
     { label: '右上', value: 'topRight' },
   ],
+  'Drawer.placement': [
+    { label: '右侧', value: 'right' },
+    { label: '左侧', value: 'left' },
+    { label: '上方', value: 'top' },
+    { label: '下方', value: 'bottom' },
+  ],
   'Menu.mode': [
     { label: '竖直', value: 'vertical' },
     { label: '水平', value: 'horizontal' },
@@ -294,7 +306,7 @@ const BOOL_TRUE_FIRST = { label: '是', value: 'true' }
 
 const BOOL_PAIR = [BOOL_FALSE_FIRST, BOOL_TRUE_FIRST]
 
-const BOOLEAN_KEYS = ['disabled', 'readonly', 'required', 'closable', 'dot', 'showZero', 'checked'] as const
+const BOOLEAN_KEYS = ['disabled', 'readonly', 'required', 'closable', 'dot', 'showZero', 'checked', 'pagination', 'mask'] as const
 
 const BOOL_PROP_COMPONENTS: Record<string, string[]> = {
   Input: ['disabled', 'readonly'],
@@ -308,6 +320,10 @@ const BOOL_PROP_COMPONENTS: Record<string, string[]> = {
   Badge: ['dot', 'showZero'],
   Checkbox: ['checked', 'disabled'],
   Radio: ['checked', 'disabled'],
+  Rate: ['disabled'],
+  Table: ['pagination'],
+  Modal: ['mask'],
+  Drawer: ['mask'],
 }
 
 for (const [component, keys] of Object.entries(BOOL_PROP_COMPONENTS)) {
@@ -325,6 +341,10 @@ export const ENUM_DEFAULTS: Record<string, string> = {
   'Button.iconPlacement': 'start',
   'Tabs.types': 'line',
   'Icon.shape': 'outline',
+  'Table.pagination': 'true',
+  'Modal.mask': 'true',
+  'Drawer.mask': 'true',
+  'Drawer.placement': 'right',
 }
 
 export const COMPONENT_PROPS: Record<string, string[]> = {
@@ -333,20 +353,20 @@ export const COMPONENT_PROPS: Record<string, string[]> = {
   Image: ['url', 'alt', 'preview', 'className'],
   img: ['url', 'alt', 'preview', 'className'],
   Tabs: ['activeKey', 'types', 'tabPlacement', 'size', 'className'],
-  Table: ['rowKey', 'rowClassName', 'className'],
+  Table: ['rowKey', 'rowClassName', 'pagination', 'className'],
   Badge: ['color', 'status', 'showZero', 'dot', 'className'],
   Carousel: ['dotPlacement', 'className'],
   Collapse: ['expandIcon', 'expandIconPlacement', 'size', 'className'],
-  Divider: ['orientation', 'size', 'titlePlacement', 'variant', 'className'],
+  Divider: ['orientation', 'size', 'titlePlacement', 'variant', 'value', 'className'],
   Segmented: ['orientation', 'size', 'className'],
-  Tag: ['color', 'size', 'variant', 'closable', 'closeIcon', 'className'],
+  Tag: ['color', 'size', 'variant', 'closable', 'value', 'icon', 'className'],
   Timeline: ['mode', 'orientation', 'variant', 'className'],
-  TimelineItem: ['placement', 'className'],
+  TimelineItem: ['placement', 'content', 'title', 'icon', 'color', 'className'],
   DatePicker: ['picker', 'size', 'format', 'disabled', 'className'],
   Input: ['size', 'prefix', 'suffix', 'disabled', 'readonly', 'className', 'placeholder'],
   InputNumber: ['size', 'disabled', 'className'],
   RadioGroup: ['orientation', 'optionType', 'size', 'className'],
-  Rate: ['size', 'className'],
+  Rate: ['size', 'disabled', 'className'],
   Select: ['size', 'mode', 'disabled', 'className'],
   Slider: ['orientation', 'className'],
   Switch: ['size', 'checkedChildren', 'unCheckedChildren', 'disabled', 'className'],
@@ -356,8 +376,10 @@ export const COMPONENT_PROPS: Record<string, string[]> = {
   Menu: ['mode', 'className'],
   Steps: ['types', 'variant', 'orientation', 'status', 'size', 'className'],
   Progress: ['status', 'strokeColor', 'size', 'className'],
-  Checkbox: ['checked', 'disabled', 'className'],
+  Checkbox: ['checked', 'disabled', 'label', 'className'],
   Radio: ['checked', 'disabled', 'className'],
+  Modal: ['title', 'mask', 'width', 'className'],
+  Drawer: ['title', 'placement', 'mask', 'width', 'className'],
 }
 
 export const TW_FONT_SIZES: Record<string, number> = {

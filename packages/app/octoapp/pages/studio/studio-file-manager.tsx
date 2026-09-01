@@ -257,6 +257,43 @@ function groupMediaByDate(media: FileManagerMedia[]): DateGroup[] {
     }))
 }
 
+function FileManagerVideoMedia(props: { item: FileManagerMedia }) {
+  const [actualDuration, setActualDuration] = createSignal<number | undefined>(undefined)
+  const badgeDuration = () => {
+    const actual = actualDuration()
+    if (actual !== undefined && Number.isFinite(actual) && actual > 0) return String(Math.floor(actual))
+    return props.item.duration
+  }
+  return (
+    <div class="studio-file-manager-media-video-wrapper">
+      <video
+        src={props.item.url}
+        muted
+        playsinline
+        preload="metadata"
+        class="studio-file-manager-media-image"
+        onError={(e) => {
+          const el = e.currentTarget as HTMLVideoElement
+          el.style.display = "none"
+        }}
+        onLoadedMetadata={(e) => {
+          const d = e.currentTarget.duration
+          setActualDuration(Number.isFinite(d) && d > 0 ? d : undefined)
+        }}
+      />
+      <span class="studio-file-manager-media-video-badge">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <rect x="0.5" y="2.5" width="9" height="9" rx="1.5" stroke="white" stroke-width="1" fill="none" />
+          <path d="M13 4.5L13 9.5Q13 10.5 12.5 10.4L10 8.5L10 5.5L12.5 3.6Q13 3.5 13 4.5Z" stroke="white" stroke-width="1" fill="none" stroke-linejoin="round" />
+        </svg>
+        <Show when={badgeDuration()}>
+          <span class="studio-file-manager-media-video-badge-text">{badgeDuration()}s</span>
+        </Show>
+      </span>
+    </div>
+  )
+}
+
 export function StudioFileManager(props: {
   onClose?: () => void
   studioCenterWidth?: number
@@ -712,28 +749,7 @@ export function StudioFileManager(props: {
                               }}
                             />
                           }>
-                            <div class="studio-file-manager-media-video-wrapper">
-                              <video
-                                src={item.url}
-                                muted
-                                playsinline
-                                preload="metadata"
-                                class="studio-file-manager-media-image"
-                                onError={(e) => {
-                                  const el = e.currentTarget as HTMLVideoElement
-                                  el.style.display = "none"
-                                }}
-                              />
-                              <span class="studio-file-manager-media-video-badge">
-                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                                  <rect x="0.5" y="2.5" width="9" height="9" rx="1.5" stroke="white" stroke-width="1" fill="none" />
-                                  <path d="M13 4.5L13 9.5Q13 10.5 12.5 10.4L10 8.5L10 5.5L12.5 3.6Q13 3.5 13 4.5Z" stroke="white" stroke-width="1" fill="none" stroke-linejoin="round" />
-                                </svg>
-                                <Show when={item.duration}>
-                                  <span class="studio-file-manager-media-video-badge-text">{item.duration}s</span>
-                                </Show>
-                              </span>
-                            </div>
+                            <FileManagerVideoMedia item={item} />
                           </Show>
                         </div>
                       )}

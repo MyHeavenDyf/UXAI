@@ -3,9 +3,9 @@ import { Identifier } from "@/utils/id"
 import type { useGlobalSDK } from "@/context/global-sdk"
 import { buildChipDeclaration, buildChipTemplate, buildToolGate } from "../store/mcp-trigger"
 import { getDesktopApi } from "../lib/electron-api"
-import { formatUploadsForPrompt, formatMentionedFilesForPrompt, isImageFile } from "../lib/upload"
+import { formatUploadsForPrompt, formatMentionedFilesForPrompt, formatDispatchNote, isImageFile } from "../lib/upload"
 import { isPendingUploadPath } from "./worktree-layout"
-import { assembleInsightParts } from "./build-prompt-parts"
+import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_LIMIT } from "./build-prompt-parts"
 import { currentAccount } from "./account"
 import type { Attachment } from "../components/attachment-bar"
 import type { QueuedSend } from "./send-queue"
@@ -25,7 +25,7 @@ export async function snapshotAttachmentsForQueue(
   done: Attachment[],
   sid: string | undefined,
   baseDir: string | undefined,
-): Promise<{ uploads: Array<{ filename: string; path: string }>; images: Array<{ filename: string; url: string; mime?: string }> }> {
+): Promise<{ uploads: Array<{ filename: string; path: string; bytes?: number }>; images: Array<{ filename: string; url: string; mime?: string }> }> {
   const localFiles = done.filter((a) => !isImageFile(a.filename) && a.path)
   const imageFiles = done.filter((a) => isImageFile(a.filename) && a.url)
 
@@ -48,7 +48,7 @@ export async function snapshotAttachmentsForQueue(
   }
 
   return {
-    uploads: localFiles.map((a) => ({ filename: a.filename, path: movedPaths.get(a.id) ?? a.path! })),
+    uploads: localFiles.map((a) => ({ filename: a.filename, path: movedPaths.get(a.id) ?? a.path!, bytes: a.size })),
     images: imageFiles.map((a) => ({ filename: a.filename, url: a.url!, mime: a.mime })),
   }
 }
@@ -110,12 +110,65 @@ export async function sendQueuedItem(globalSDK: GlobalSDK, sessionID: string, it
     syntheticTexts.push(formatMentionedFilesForPrompt(item.files))
   }
 
+  // SPEC-INS-032 §2.3：与 doSendPrompt 同一套内联分层判定（防两套漂移）。
+  // uploads 的 bytes 入队时已快照；`@` 引用的会话文件没有，drain 时用 readFileBuffer 补。
+  const mentionFiles = item.files ?? []
+  const mentionBytes = new Map<string, number>()
+  if (mentionFiles.length > 0) {
+    const api = getDesktopApi()
+    await Promise.all(
+      mentionFiles.map(async (f) => {
+        try {
+          const buf = await api?.readFileBuffer?.(f.path)
+          if (buf) mentionBytes.set(f.path, buf.byteLength)
+        } catch (err) {
+          console.warn("[octo:attach] drain mention file size unavailable", { path: f.path, err })
+        }
+      }),
+    )
+  }
+  const inlineFiles = [
+    ...(item.uploads ?? []),
+    ...mentionFiles.map((f) => ({ ...f, bytes: mentionBytes.get(f.path) })),
+  ]
+  const inlineDecision = decideInlineStrategy(inlineFiles)
+  if (inlineDecision.mode === "dispatch") {
+    console.log("[octo:attach] 内联预算超限,转子代理分治", {
+      count: inlineDecision.files.length,
+      totalBytes: inlineDecision.totalBytes,
+      budget: INLINE_BUDGET,
+      docCount: inlineDecision.docs.length,
+      reasons: inlineDecision.reasons,
+      oversized: inlineDecision.oversized.map((f) => f.filename),
+      largeDocs: inlineDecision.largeDocs.map((f) => f.filename),
+      unknownCount: inlineDecision.unknownCount,
+    })
+    // 说明块排末尾，与 doSendPrompt 的 syntheticTexts 顺序一致
+    syntheticTexts.push(
+      formatDispatchNote({
+        count: inlineDecision.files.length,
+        totalBytes: inlineDecision.totalBytes,
+        docCount: inlineDecision.docs.length,
+        oversized: inlineDecision.oversized,
+      }),
+    )
+  }
+  if (inlineDecision.oversized.length > 0) {
+    // SPEC-INS-032 §2.4 v3：单份超上界**不再拦截**，改由 extract_document 返回切段清单、
+    // 子代理按段读（本地兜住，不让用户去拆文件）。这里只留观测。
+    console.log("[octo:attach] 单份超出单次通读量,将走切段", {
+      files: inlineDecision.oversized.map((f) => ({ filename: f.filename, bytes: f.bytes })),
+      limit: SINGLE_DOC_LIMIT,
+    })
+  }
+
   const { parts } = assembleInsightParts({
     text: item.text,
     syntheticTexts,
     // `@` 引用的文件与附件走同一条内联路径（与 doSendPrompt 一致，SPEC-INS-023 §7.2 2026-08-20 修订）；
-    // 非文本类与重复 path 由 assembleInsightParts 内部处理。
-    textInlineFiles: [...(item.uploads ?? []), ...(item.files ?? [])],
+    // 非文本类与重复 path 由 decideInlineStrategy 内部处理。
+    textInlineFiles: inlineFiles,
+    inlineDecision,
     imageFiles: item.images ?? [],
   })
 

@@ -1,7 +1,7 @@
 import { createSignal, onCleanup, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { Portal } from "solid-js/web"
-import { showToast } from "@opencode-ai/ui/toast"
+import { showOctoToast } from "../octo-toast"
 import { onPrototypeCtxMenu, onPrototypeClosePanels, sendToPrototypeIframe, type PrototypeCtxMenuData } from "../../utils/prototype-utils"
 
 const MENU_WIDTH = 160
@@ -35,7 +35,7 @@ export function PrototypeCtxMenu(): JSX.Element {
   const handleCopyName = () => {
     const id = menu()?.id ?? ""
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(id).then(() => showToast({ title: "已复制" })).catch(() => {})
+      navigator.clipboard.writeText(id).then(() => showOctoToast({ title: "已复制" })).catch(() => {})
     }
     close()
   }

@@ -1,27 +1,41 @@
 /**
- * eview-ui Steps 映射（bespoke）
+ * Steps → Wizards 映射（eview-ui bespoke）
  *
- * 与 eview-react Steps 的差异：eview-ui Steps **不支持** `direction` prop，
- * 故 A2UI 的 `orientation` 在 eview-ui 下**丢弃**（eview-react 是改名透传 `orientation→direction`）。
- * current→currentStep、children→data（吞噬为 WizardData[]）、className 等其余逻辑与 eview-react 一致。
+ * A2UI Steps → eview-ui Wizards 组件。
  *
  * ## Props 对照
  *
- * | A2UI prop | eview-ui prop | 处理方式 |
- * |-----------|--------------|---------|
+ * | A2UI prop | eview-ui Wizards prop | 处理方式 |
+ * |-----------|---------------------|---------|
  * | current（字面量/DataBinding） | currentStep | 改名透传 |
- * | orientation | — | **丢弃**（eview-ui 无 direction） |
- * | types / variant / status / size | — | 丢弃 |
+ * | orientation | orientation | 同名透传（eview-ui Wizards 支持 orientation；eview-react 是改名 direction） |
+ * | size | size | 同名透传（eview-ui Wizards 支持 size；eview-react 丢弃） |
+ * | types / variant / status | — | 丢弃（Wizards 无对应属性） |
  * | className | className | 透传 |
  * | children（StepItem 列表） | data | **吞噬 children** → 转为 WizardData[] |
+ *
+ * ## data 字段映射（StepItem props → WizardData）
+ *
+ * | A2UI StepItem prop | Wizards data 字段 | 处理方式 |
+ * |--------------------|------------------|---------|
+ * | title | text | 改名 |
+ * | content | description | 改名 |
+ * | icon | customIcon | 占位 URL（写死，eview-ui Wizards data 只接 icon URL 字符串） |
+ * | status | status | 同名 |
+ *
+ * ## 与 eview-react 差异
+ *
+ * - **tag/import**：eview-react `Steps` → eview-ui `Wizards`
+ * - **orientation**：eview-react 改名 `direction`；eview-ui Wizards 直接支持 `orientation`（同名透传）
+ * - **size**：eview-react 丢弃；eview-ui Wizards 支持 `size`（同名透传）
+ * - **icon data 字段名**：eview-react 用 `iconUrl`；eview-ui Wizards 用 `customIcon`（本地 icon URL 路径）
+ * - **icon 内容**：eview-ui 一律用统一占位 URL（写死），不调 resolveIcon
  *
  * ## 特殊逻辑
  *
  * - 同 Table 的"吞噬 children → data prop"模式
  * - children 有静态数组和 LoopNode 两种形态
- * - 每个 StepItem 的 props → WizardData 映射：
- *   title → text, content → description, icon → iconUrl, status → status
- * - icon 一律用统一占位 URL（写死），不调 resolveIcon——eview-ui 的 icon 相关属性只接 URL
+ * - icon 一律用统一占位 URL（写死），不调 resolveIcon——eview-ui Wizards 的 icon 相关属性只接 URL
  *
  * 这是 eview-ui 专属 bespoke 映射（非工厂、非复用 eview-react）。import 硬编码 @cloudsop/eview-ui。
  */
@@ -38,7 +52,6 @@ interface StepFieldMap {
   descField: string | null; descValue: string | null; descIsSlot: boolean
   statusField: string | null; statusValue: string | null
   iconField: string | null; iconValue: string | null
-  hasJSX: boolean
 }
 
 function extractFieldMap(stepItem: any): StepFieldMap {
@@ -48,7 +61,6 @@ function extractFieldMap(stepItem: any): StepFieldMap {
     descField: null, descValue: null, descIsSlot: false,
     statusField: null, statusValue: null,
     iconField: null, iconValue: null,
-    hasJSX: false,
   }
 
   if (p.title) {
@@ -67,7 +79,6 @@ function extractFieldMap(stepItem: any): StepFieldMap {
   if (p.icon) {
     if (p.icon.type === 'binding') { m.iconField = p.icon.path }
     else if (typeof p.icon === 'string') { m.iconValue = p.icon }
-    // hasJSX 不再置 true（icon 占位字符串，无 JSX → data containsJSX:false）
   }
 
   return m
@@ -85,8 +96,8 @@ function buildDataItem(
   // description
   if (f.descField) dataItem.description = item[f.descField] ?? ''
   else if (f.descValue !== null) dataItem.description = f.descValue
-  // icon → 占位 URL（写死，不管字面量还是 DataBinding）
-  if (f.iconField || f.iconValue) dataItem.iconUrl = PLACEHOLDER_ICON_URL
+  // icon → customIcon 占位 URL（写死，不管字面量还是 DataBinding）
+  if (f.iconField || f.iconValue) dataItem.customIcon = PLACEHOLDER_ICON_URL
   // status
   if (f.statusField) dataItem.status = item[f.statusField]
   else if (f.statusValue !== null) dataItem.status = f.statusValue
@@ -95,8 +106,8 @@ function buildDataItem(
 }
 
 const StepsMapping: MappingDef = {
-  tag: 'Steps',
-  import: '@cloudsop/eview-ui/Steps',
+  tag: 'Wizards',
+  import: '@cloudsop/eview-ui/Wizards',
 
   transform(node: any, ctx: TransformContext) {
     const props = node.props || {}
@@ -108,7 +119,15 @@ const StepsMapping: MappingDef = {
       const cur = props.current
       outputProps.currentStep = (cur?.type === 'binding') ? cur : (cur as PropValue)
     }
-    // orientation — 丢弃（eview-ui Steps 无 direction）
+    // orientation — 同名透传（eview-ui Wizards 支持 orientation；eview-react 是改名 direction）
+    if (props.orientation !== undefined) {
+      outputProps.orientation = props.orientation as PropValue
+    }
+    // size — 同名透传（eview-ui Wizards 支持 size；eview-react 丢弃）
+    if (props.size !== undefined) {
+      outputProps.size = props.size as PropValue
+    }
+    // types / variant / status — 丢弃（Wizards 无对应属性）
     if (props.className) outputProps.className = props.className as PropValue
 
     // ─── children → data ───
@@ -139,8 +158,8 @@ const StepsMapping: MappingDef = {
         }
 
         if (f.iconValue || f.iconField) {
-          // icon → 占位 URL（写死，eview-ui icon 只接 URL）
-          item.iconUrl = PLACEHOLDER_ICON_URL
+          // icon → customIcon 占位 URL（写死，eview-ui Wizards data 只接 icon URL）
+          item.customIcon = PLACEHOLDER_ICON_URL
         }
 
         if (f.statusValue) item.status = f.statusValue

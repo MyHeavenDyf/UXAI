@@ -24,7 +24,7 @@ type TabType = "chat" | "make" | "cowork" | "studio" | "pattern"
 const TAB_ITEMS: { key: TabType; label: string }[] = [
   { key: "cowork", label: "Insight" },
   { key: "make", label: "Design" },
-  { key: "pattern", label: "Prototype" },
+  // { key: "pattern", label: "Prototype" },
   { key: "studio", label: "Studio" },
 ]
 
@@ -99,6 +99,10 @@ export function TitlebarSimple() {
     if (path === "/" || path === "/make" || path.startsWith("/make/")) return "make"
     if (path === "/pattern" || path.startsWith("/pattern/")) return "pattern"
     if (path === "/skills") {
+      const source = layout.sidebarSource.get()
+      return source === "make" ? "make" : source === "pattern" ? "pattern" : "cowork"
+    }
+    if (path === "/assets") {
       const source = layout.sidebarSource.get()
       return source === "make" ? "make" : source === "pattern" ? "pattern" : "cowork"
     }

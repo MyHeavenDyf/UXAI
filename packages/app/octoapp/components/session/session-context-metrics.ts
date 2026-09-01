@@ -10,6 +10,7 @@ type Model = {
   name?: string
   limit: {
     context: number
+    input?: number
   }
 }
 
@@ -35,7 +36,7 @@ type Metrics = {
 }
 
 const tokenTotal = (msg: AssistantMessage) => {
-  return msg.tokens.input + msg.tokens.output + msg.tokens.reasoning + msg.tokens.cache.read + msg.tokens.cache.write
+  return msg.tokens.input + msg.tokens.cache.read + msg.tokens.cache.write
 }
 
 const lastAssistantWithTokens = (messages: Message[]) => {
@@ -54,7 +55,7 @@ const build = (messages: Message[] = [], providers: Provider[] = []): Metrics =>
 
   const provider = providers.find((item) => item.id === message.providerID)
   const model = provider?.models[message.modelID]
-  const limit = model?.limit.context
+  const limit = model?.limit.input ?? model?.limit.context
   const total = tokenTotal(message)
 
   return {

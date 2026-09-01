@@ -1394,7 +1394,9 @@ function extraString(input: ImageGenerateInput, key: string) {
 
 function getVideoDuration(input: ImageGenerateInput) {
   const value = extraString(input, "duration")
-  return value === "10" ? "10" : "5"
+  if (value === undefined) return "5"
+  const n = Number(value)
+  return Number.isInteger(n) && n >= 4 && n <= 15 ? value : "5"
 }
 
 function getVideoMode(input: ImageGenerateInput) {
@@ -1739,6 +1741,7 @@ export async function queryInternalGeneration(task: ImageGenerationTask): Promis
     capability: task.capability,
     toolAction: task.toolAction,
     taskId: task.taskId,
+    duration: task.input ? getVideoDuration(task.input) : undefined,
     status,
     rawStatus: getTaskStatus(queryJson),
     progress: getTaskProgress(queryJson),
@@ -1845,6 +1848,7 @@ export const InternelImageGenerateTool = Tool.define<
             toolAction: result.toolAction,
             taskId: result.taskId,
             model: result.model,
+            duration: result.duration,
             aspectRatio: params.aspectRatio,
             width: params.extra && typeof params.extra.width === "number" ? params.extra.width : undefined,
             height: params.extra && typeof params.extra.height === "number" ? params.extra.height : undefined,

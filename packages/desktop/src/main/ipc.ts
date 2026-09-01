@@ -273,6 +273,9 @@ export function registerIpcHandlers(deps: Deps) {
     return Object.keys(store.store).length
   })
 
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-7-start
+  // jk-j60099994-replace-with-60062650-main-skills-ipc-7-end
+  
   ipcMain.handle(
     "open-directory-picker",
     async (_event: IpcMainInvokeEvent, opts?: { multiple?: boolean; title?: string; defaultPath?: string }) => {
@@ -618,10 +621,10 @@ export function registerIpcHandlers(deps: Deps) {
     return `/history/${sessionId}/uploads/${filename}`
   })
 
-  // 把图片写到 prototype.html 同级 assets 目录，返回相对 URL（assets/<hash>.<ext>）。
-  // iframe 经 local:// 加载 prototype.html，相对路径自然解析到同目录 assets/，由 local:// handler 直接读盘服务。
+  // 把图片写到 prototype.html 同级 uploads 目录，返回相对 URL（uploads/<hash>.<ext>）。
+  // iframe 经 local:// 加载 prototype.html，相对路径自然解析到同目录 uploads/，由 local:// handler 直接读盘服务。
   ipcMain.handle("save-prototype-image", async (_event: IpcMainInvokeEvent, buffer: ArrayBuffer, dir: string) => {
-    if (!dir) throw new Error("assets dir not set")
+    if (!dir) throw new Error("uploads dir not set")
     await mkdir(dir, { recursive: true })
     const buf = Buffer.from(buffer)
     const hash = createHash("sha256").update(buf).digest("hex").slice(0, 16)
@@ -629,7 +632,7 @@ export function registerIpcHandlers(deps: Deps) {
     const filename = `${hash}.${ext}`
     const filePath = join(dir, filename)
     if (!existsSync(filePath)) await writeFile(filePath, buf)
-    return `assets/${filename}`
+    return `uploads/${filename}`
   })
   
 // insight markdown 编辑器自动保存:把编辑后的文本覆盖写回本地产物文件。
@@ -1228,13 +1231,16 @@ export function registerIpcHandlers(deps: Deps) {
         sourceDir?: string
         /** sourceDir 内容在 zip 内的落点（相对路径，默认 ""＝根，如 "assets"） */
         destFolder?: string
+        /** 多个源目录各自落到指定 destFolder（sourceDir 的批量版，供多 uploads 目录合并打包） */
+        sourceDirs?: { dir: string; destFolder: string }[]
         comment?: string
       },
     ) => {
       // sourceDir 不存在时：有 files 就跳过 sourceDir 继续打代码；
-      // 既无 files 又无可用 sourceDir → 无内容，取消。
+      // 既无 files 又无可用 sourceDir/sourceDirs → 无内容，取消。
       const sourceDirExists = opts.sourceDir ? existsSync(opts.sourceDir) : false
-      if (!opts.files?.length && !sourceDirExists) return null
+      const validSourceDirs = (opts.sourceDirs ?? []).filter((s) => existsSync(s.dir))
+      if (!opts.files?.length && !sourceDirExists && validSourceDirs.length === 0) return null
 
       const win = BrowserWindow.fromWebContents(event.sender)
       const dialogOpts = {
@@ -1272,6 +1278,12 @@ export function registerIpcHandlers(deps: Deps) {
         //    archive.directory(src, false) → 内容打到根；传字符串 → 打到该子目录
         if (opts.sourceDir && sourceDirExists) {
           archive.directory(opts.sourceDir, destFolder || false)
+        }
+
+        // ②b sourceDirs：多个源目录各自落到指定 destFolder（供 pattern 侧 + make 侧 uploads 合并打包）
+        for (const s of validSourceDirs) {
+          const df = (s.destFolder ?? "").replace(/^\/+/, "").replace(/\/+$/, "")
+          archive.directory(s.dir, df || false)
         }
 
         void archive.finalize()
@@ -1334,13 +1346,49 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("pipeline-request", (_event: IpcMainInvokeEvent, url: string, method: string, uiplusToken: string, body?: any, headers?: Record<string, string>) =>
     pipelineRequest(url, method, uiplusToken, body, headers))
 
+  ipcMain.handle("get-proxy-config", () => {
+    const configFile = join(getOctoConfigPath(), "proxy_config.json")
+    if (!existsSync(configFile)) return null
+
+    try {
+      const config: unknown = JSON.parse(readFileSync(configFile, "utf-8"))
+      if (!config || typeof config !== "object" || !("http_proxy" in config)) return null
+      if (typeof config.http_proxy !== "string") return null
+
+      const proxyUrl = new URL(config.http_proxy)
+      if (!proxyUrl.username || !proxyUrl.password) return null
+
+      return {
+        account: decodeURIComponent(proxyUrl.username),
+        password: decodeURIComponent(proxyUrl.password),
+        proxyHost: proxyUrl.host,
+        proxyOptionId: "proxyOptionId" in config && typeof config.proxyOptionId === "string" ? config.proxyOptionId : undefined,
+        noProxy: "no_proxy" in config && typeof config.no_proxy === "string" ? config.no_proxy : undefined,
+      }
+    } catch (error) {
+      log.warn("[get-proxy-config] 读取代理配置失败", {
+        configFile,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return null
+    }
+  })
+
   // Proxy 配置: curl 测试代理连通性, 成功后写入 ~/.config/octo/proxy_config.json 并注入环境变量即时生效
-  ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string) => {
+  const PROXY_HOSTS = new Set([
+    "proxy", "proxycn2", "proxyn", "proxyhk", "proxvuk", "proxyus", "proxyus-nrd", "proxyru", "proxybr", "proxybh", "proxyblr", "openproxy", "proxyza", "proxytr", "proxyca", "proxyde", "proxyjp", "proxvse-rd", "proxyde-rd", "proxytr-rd", "proxvus-rd", "proxyru-rd",
+  ])
+
+  ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string, noProxyInput?: string, proxyHostInput?: string, proxyOptionIdInput?: string) => {
+    const proxyHostName = (proxyHostInput?.trim().replace(/^:/, "") || "proxyhk")
+    const proxyHost = PROXY_HOSTS.has(proxyHostName) ? proxyHostName : "proxyhk"
+    const encodedAccount = encodeURIComponent(account)
     const encodedPwd = encodeURIComponent(password)
       .replace(/['()!*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
-    const proxyUrl = `http://${account}:${encodedPwd}@proxyhk.huawei.com:8080`
+    const proxyUrl = `http://${encodedAccount}:${encodedPwd}@${proxyHost}.huawei.com:8080`
     // http_proxy 和 https_proxy 都用同一个 http:// 代理地址
-    const noProxy = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
+    const defaultNoProxy = "localhost,127.0.0.1,.local,.huawei.com,.inhuawei.com"
+    const noProxy = noProxyInput?.trim() || defaultNoProxy
     const curlTarget = "https://ifconfig.me/ip"
 
     log.info("[configure-proxy] 开始配置代理")
@@ -1386,6 +1434,7 @@ export function registerIpcHandlers(deps: Deps) {
         http_proxy: proxyUrl,
         https_proxy: proxyUrl,
         no_proxy: noProxy,
+        proxyOptionId: proxyOptionIdInput?.trim() || undefined,
       }, null, 2), "utf-8")
       log.info("[configure-proxy] 配置写入成功", { configFile })
 

@@ -8,7 +8,7 @@ import { Config } from "@/config/config"
 import { Agent } from "../../src/agent/agent"
 import { LLM } from "../../src/session/llm"
 import { SessionCompaction } from "../../src/session/compaction"
-import { preflight } from "../../src/session/overflow"
+import { exceedsContext, preflight } from "../../src/session/overflow"
 import { Token } from "@/util/token"
 import { Instance } from "../../src/project/instance"
 import { WithInstance } from "../../src/project/with-instance"
@@ -417,19 +417,31 @@ function autocontinue(enabled: boolean) {
 
 describe("session.compaction.isOverflow", () => {
   it.live(
-    "returns true when token count exceeds usable context",
+    "returns true when input context reaches 85% of context",
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
         const model = createModel({ context: 100_000, output: 32_000 })
-        const tokens = { input: 75_000, output: 5_000, reasoning: 0, cache: { read: 0, write: 0 } }
+        const tokens = { input: 85_000, output: 5_000, reasoning: 0, cache: { read: 0, write: 0 } }
         expect(yield* compact.isOverflow({ tokens, model })).toBe(true)
       }),
     ),
   )
 
   it.live(
-    "returns false when token count within usable context",
+    "ignores completion tokens when input context is below 85%",
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const compact = yield* SessionCompaction.Service
+        const model = createModel({ context: 100_000, output: 32_000 })
+        const tokens = { input: 80_000, output: 20_000, reasoning: 5_000, cache: { read: 0, write: 0 } }
+        expect(yield* compact.isOverflow({ tokens, model })).toBe(false)
+      }),
+    ),
+  )
+
+  it.live(
+    "returns false when token count is below 85% of context",
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
@@ -459,7 +471,7 @@ describe("session.compaction.isOverflow", () => {
             },
             outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
           },
-          estimated: { input: 75_000, output: 5_000 },
+          estimated: { input: 85_000, output: 5_000 },
         })
         expect(yield* compact.isOverflow({ tokens: usage.tokens, model })).toBe(true)
       }),
@@ -472,7 +484,7 @@ describe("session.compaction.isOverflow", () => {
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
         const model = createModel({ context: 100_000, output: 32_000 })
-        const tokens = { input: 60_000, output: 10_000, reasoning: 0, cache: { read: 10_000, write: 0 } }
+        const tokens = { input: 75_000, output: 10_000, reasoning: 0, cache: { read: 10_000, write: 0 } }
         expect(yield* compact.isOverflow({ tokens, model })).toBe(true)
       }),
     ),
@@ -514,82 +526,44 @@ describe("session.compaction.isOverflow", () => {
     ),
   )
 
-  // ─── Bug reproduction tests ───────────────────────────────────────────
-  // These tests demonstrate that when limit.input is set, isOverflow()
-  // does not subtract any headroom for the next model response. This means
-  // compaction only triggers AFTER we've already consumed the full input
-  // budget, leaving zero room for the next API call's output tokens.
-  //
-  // Compare: without limit.input, usable = context - output (reserves space).
-  // With limit.input, usable = limit.input (reserves nothing).
-  //
-  // Related issues: #10634, #8089, #11086, #12621
-  // Open PRs: #6875, #12924
-
   it.live(
-    "BUG: no headroom when limit.input is set — compaction should trigger near boundary but does not",
+    "uses 85% of limit.input when an input cap is present",
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
-        // Simulate Claude with prompt caching: input limit = 200K, output limit = 32K
         const model = createModel({ context: 200_000, input: 200_000, output: 32_000 })
-
-        // We've used 198K tokens total. Only 2K under the input limit.
-        // On the next turn, the full conversation (198K) becomes input,
-        // plus the model needs room to generate output — this WILL overflow.
-        const tokens = { input: 180_000, output: 15_000, reasoning: 0, cache: { read: 3_000, write: 0 } }
-        // count = 180K + 3K + 15K = 198K
-        // usable = limit.input = 200K (no output subtracted!)
-        // 198K > 200K = false → no compaction triggered
-
-        // WITHOUT limit.input: usable = 200K - 32K = 168K, and 198K > 168K = true ✓
-        // WITH limit.input: usable = 200K, and 198K > 200K = false ✗
-
-        // With 198K used and only 2K headroom, the next turn will overflow.
-        // Compaction MUST trigger here.
+        const tokens = { input: 170_000, output: 10_000, reasoning: 0, cache: { read: 0, write: 0 } }
         expect(yield* compact.isOverflow({ tokens, model })).toBe(true)
       }),
     ),
   )
 
   it.live(
-    "BUG: without limit.input, same token count correctly triggers compaction",
+    "uses 85% of context when no input cap is present",
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
-        // Same model but without limit.input — uses context - output instead
         const model = createModel({ context: 200_000, output: 32_000 })
-
-        // Same token usage as above
-        const tokens = { input: 180_000, output: 15_000, reasoning: 0, cache: { read: 3_000, write: 0 } }
-        // count = 198K
-        // usable = context - output = 200K - 32K = 168K
-        // 198K > 168K = true → compaction correctly triggered
-
-        const result = yield* compact.isOverflow({ tokens, model })
-        expect(result).toBe(true) // ← Correct: headroom is reserved
+        const tokens = { input: 170_000, output: 10_000, reasoning: 0, cache: { read: 0, write: 0 } }
+        expect(yield* compact.isOverflow({ tokens, model })).toBe(true)
       }),
     ),
   )
 
   it.live(
-    "BUG: asymmetry — limit.input model allows 30K more usage before compaction than equivalent model without it",
+    "uses the input cap instead of context as the percentage base",
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
-        // Two models with identical context/output limits, differing only in limit.input
-        const withInputLimit = createModel({ context: 200_000, input: 200_000, output: 32_000 })
-        const withoutInputLimit = createModel({ context: 200_000, output: 32_000 })
-
-        // 170K total tokens — well above context-output (168K) but below input limit (200K)
-        const tokens = { input: 166_000, output: 10_000, reasoning: 0, cache: { read: 5_000, write: 0 } }
+        const withInputLimit = createModel({ context: 400_000, input: 200_000, output: 32_000 })
+        const withoutInputLimit = createModel({ context: 400_000, output: 32_000 })
+        const tokens = { input: 170_000, output: 10_000, reasoning: 0, cache: { read: 0, write: 0 } }
 
         const withLimit = yield* compact.isOverflow({ tokens, model: withInputLimit })
         const withoutLimit = yield* compact.isOverflow({ tokens, model: withoutInputLimit })
 
-        // Both models have identical real capacity — they should agree:
-        expect(withLimit).toBe(true) // should compact (170K leaves no room for 32K output)
-        expect(withoutLimit).toBe(true) // correctly compacts (170K > 168K)
+        expect(withLimit).toBe(true)
+        expect(withoutLimit).toBe(false)
       }),
     ),
   )
@@ -638,7 +612,28 @@ describe("session.overflow.preflight", () => {
   })
 
   test("rejects requests whose unavoidable input is too large", () => {
-    expect(preflight({ cfg: config, model, estimatedInput: 90, unavoidableInput: 80 })).toBe("reject")
+    expect(preflight({ cfg: config, model, estimatedInput: 90, unavoidableInput: 85 })).toBe("reject")
+  })
+
+  test("rejects instead of compacting repeatedly after one compaction attempt", () => {
+    expect(
+      preflight({ cfg: config, model, estimatedInput: 90, unavoidableInput: 20, compactionAttempted: true }),
+    ).toBe("reject")
+  })
+})
+
+describe("session.overflow.exceedsContext", () => {
+  test("detects the hard context limit without using the 85% compaction threshold", () => {
+    const model = createModel({ context: 100, output: 20 })
+
+    expect(exceedsContext({ model, input: 99 })).toBe(false)
+    expect(exceedsContext({ model, input: 100 })).toBe(true)
+  })
+
+  test("uses the model input limit when present", () => {
+    const model = createModel({ context: 200, input: 100, output: 20 })
+
+    expect(exceedsContext({ model, input: 100 })).toBe(true)
   })
 })
 
@@ -869,6 +864,32 @@ describe("session.compaction.prune", () => {
       }),
     ),
   )
+})
+
+describe("session.compaction.isSuccessful", () => {
+  const message = (input: { finish?: MessageV2.Assistant["finish"]; error?: MessageV2.Assistant["error"] }) =>
+    ({
+      info: {
+        role: "assistant",
+        summary: true,
+        finish: input.finish,
+        error: input.error,
+      },
+      parts: [],
+    }) as unknown as MessageV2.WithParts
+
+  test("only accepts a finished compaction summary without an error", () => {
+    expect(SessionCompaction.isSuccessful(message({ finish: "stop" }))).toBe(true)
+    expect(SessionCompaction.isSuccessful(message({}))).toBe(false)
+    expect(
+      SessionCompaction.isSuccessful(
+        message({
+          finish: "error",
+          error: new MessageV2.AbortedError({ message: "aborted" }).toObject(),
+        }),
+      ),
+    ).toBe(false)
+  })
 })
 
 describe("session.compaction.process", () => {
