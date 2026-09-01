@@ -694,7 +694,10 @@ function getManualEditTarget(el) {
     'padding','paddingTop','paddingRight','paddingBottom','paddingLeft',
     'margin','marginTop','marginRight','marginBottom','marginLeft',
     'border','borderTopWidth','borderRightWidth','borderBottomWidth','borderLeftWidth',
-    'borderStyle','borderColor','borderRadius'
+    'borderStyle','borderColor','borderRadius',
+    'boxShadow','filter','backdropFilter','backgroundImage','overflow',
+    'borderTopLeftRadius','borderTopRightRadius','borderBottomRightRadius','borderBottomLeftRadius',
+    'verticalAlign'
   ];
   styleProps.forEach(function(p) {
     styles[p] = computed[p] || '';

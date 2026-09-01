@@ -1998,6 +1998,10 @@ const sessionMessagesLoaded = createMemo(() => {
       // 仅在 session 实际切换时清理规划状态,避免 handleEnterPlan 等操作
       // 触发 sync.data.session 更新后重新进入此 effect 时错误地清除状态。
       tabStore.reset()
+      // tabStore 已清空,viewMode 必须同步重置,否则停留在 "tabs" 会显示
+      // 空 ResultViewer("对话产出将在这里展示")。后续 plan 恢复逻辑会在
+      // 需要时重新设为 "plan"。
+      setResultViewMode("files")
       if (newSid !== prevSid && !preservingPlanNavigation) {
         // 缓存前一个 session 的规划子 session，切回时立即恢复
         if (prevSid && activePlanSessionId()) {
