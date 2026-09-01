@@ -68,6 +68,7 @@ import { StudioCutoutEditor, StudioHDEditor } from "./studio/studio-editors-basi
 import { StudioInpaintEditor } from "./studio/studio-inpaint-editor"
 import { StudioOutpaintEditor } from "./studio/studio-outpaint-editor"
 import { StudioVideoRiskDialog } from "./studio/studio-video-risk-dialog"
+import type { StudioStyleTemplateListInput, StudioStyleTemplateListResult } from "./studio/studio-style-template-menu"
 import type {
   StudioCanvasView,
   StudioStyleDescriptionGenerateHandlers,
@@ -2745,6 +2746,34 @@ export default function StudioPage() {
     const bodyText = await response.text()
     if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
     if (bodyText.trim()) JSON.parse(bodyText) as unknown
+    showFloatingNotice("success", "图片模版创建成功")
+    closeTemplateCreator()
+  }
+
+  async function listStudioStyleTemplates(input: StudioStyleTemplateListInput): Promise<StudioStyleTemplateListResult> {
+    const current = server.current
+    if (!current) throw new Error("No active server.")
+    const url = new URL("/studio/template-list", current.http.url)
+    url.searchParams.set("user_id", uiplusUserAccount() ?? "")
+    url.searchParams.set("only_public", String(input.only_public))
+    url.searchParams.set("page", String(input.page))
+    url.searchParams.set("page_size", String(input.page_size))
+    const headers: Record<string, string> = {
+      ...directoryHeader(projectDir()),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const response = await fetch(url, {
+      method: "GET",
+      headers,
+    })
+    const bodyText = await response.text()
+    if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
+    return JSON.parse(bodyText) as StudioStyleTemplateListResult
   }
 
   async function handleReversePrompt() {
@@ -3888,6 +3917,7 @@ export default function StudioPage() {
                   onVideoMode={setVideoMode}
                   onOpenMenu={setOpenMenu}
                   onCreateTemplate={openTemplateCreator}
+                  onListStyleTemplates={listStudioStyleTemplates}
                   onCancel={handleCancelGeneration}
                   onSubmit={handleSubmit}
                   onKeyDown={handleKeyDown}
@@ -4098,6 +4128,7 @@ if (!headerTitle.pendingRename) return
             onVideoMode={setVideoMode}
             onOpenMenu={setOpenMenu}
             onCreateTemplate={openTemplateCreator}
+            onListStyleTemplates={listStudioStyleTemplates}
             onCancel={handleCancelGeneration}
             onSubmit={handleSubmit}
             onKeyDown={handleKeyDown}

@@ -3,7 +3,7 @@ import { describeRoute, resolver, validator } from "hono-openapi"
 import { streamSSE } from "hono/streaming"
 import z from "zod"
 import { lazy } from "@/util/lazy"
-import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, createStyleDescriptionGenStream, getGeneration, publishTemplate, rebootGeneration } from "@/studio/studio-service"
+import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, createStyleDescriptionGenStream, getGeneration, listTemplates, publishTemplate, rebootGeneration } from "@/studio/studio-service"
 import { checkStudioPermission, fetchPromptTags } from "@/tool/internel_image_generate"
 import { errors } from "../../error"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
@@ -80,6 +80,13 @@ const StudioTemplatePublishInput = z.discriminatedUnion("template_type", [
   StudioStyleTemplatePublishInput,
   StudioRecipeTemplatePublishInput,
 ])
+
+const StudioTemplateListQuery = z.object({
+  user_id: z.string(),
+  only_public: z.coerce.number().int().pipe(z.union([z.literal(0), z.literal(1)])),
+  page: z.coerce.number().int().min(1),
+  page_size: z.coerce.number().int().pipe(z.literal(20)),
+})
 
 const StudioGenerationInput = z.object({
   sessionID: z.string().optional(),
@@ -245,6 +252,23 @@ export const StudioRoutes = lazy(() =>
       }),
       validator("json", StudioTemplatePublishInput),
       async (c) => c.json(await publishTemplate(c.req.valid("json"))),
+    )
+    .get(
+      "/template-list",
+      describeRoute({
+        summary: "List Studio templates",
+        description: "Returns paged Studio style templates from the internal Studio style template API.",
+        operationId: "studio.template-list.list",
+        responses: {
+          200: {
+            description: "Studio template list result",
+            content: { "application/json": { schema: resolver(z.unknown()) } },
+          },
+          ...errors(400, 502),
+        },
+      }),
+      validator("query", StudioTemplateListQuery),
+      async (c) => c.json(await listTemplates(c.req.valid("query"))),
     )
     .post(
       "/editor-entries",

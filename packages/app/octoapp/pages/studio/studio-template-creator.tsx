@@ -1270,8 +1270,6 @@ export function StudioTemplateCreator(props: {
     setTemplatePublishMessageTone("default")
     try {
       await props.onPublishTemplate(templatePublishInput())
-      setTemplatePublishMessage("模板发布成功")
-      setTemplatePublishMessageTone("success")
     } catch (error) {
       setTemplatePublishMessage(error instanceof Error ? error.message : String(error))
       setTemplatePublishMessageTone("error")

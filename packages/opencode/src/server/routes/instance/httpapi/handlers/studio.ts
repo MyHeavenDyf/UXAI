@@ -5,6 +5,7 @@ import {
   createPromptGen,
   createStyleDescriptionGenStream,
   getGeneration,
+  listTemplates,
   publishTemplate,
   rebootGeneration,
   type StudioStyleDescriptionGenStreamEvent,
@@ -18,7 +19,7 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError } from "effect/unstable/httpapi"
 import * as Sse from "effect/unstable/encoding/Sse"
 import { InstanceHttpApi } from "../api"
-import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioPermissionPayload, StudioPromptGenPayload, StudioStyleDescriptionGenPayload, StudioTemplatePublishPayload } from "../groups/studio"
+import { ApiStudioGenerationError, StudioEditorEntryPayload, StudioGenerationPayload, StudioPermissionPayload, StudioPromptGenPayload, StudioStyleDescriptionGenPayload, StudioTemplateListQuery, StudioTemplatePublishPayload } from "../groups/studio"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
 
 function styleDescriptionEventData(data: StudioStyleDescriptionGenStreamEvent): Sse.Event {
@@ -247,12 +248,37 @@ export const studioHandlers = HttpApiBuilder.group(InstanceHttpApi, "studio", (h
       })
     })
 
+    const list = Effect.fn("StudioHttpApi.listTemplates")(function* (ctx: {
+      query: typeof StudioTemplateListQuery.Type
+    }) {
+      const instance = yield* InstanceState.context
+      return yield* Effect.tryPromise({
+        try: () =>
+          Instance.restore(instance, () =>
+            listTemplates({
+              user_id: ctx.query.user_id,
+              only_public: ctx.query.only_public === 1 ? 1 : 0,
+              page: ctx.query.page,
+              page_size: 20,
+            }),
+          ),
+        catch: (error) =>
+          new ApiStudioGenerationError({
+            name: "StudioGenerationError",
+            data: {
+              message: error instanceof Error ? error.message : String(error),
+            },
+          }),
+      })
+    })
+
     return handlers
       .handle("createGeneration", create)
       .handle("createEditorEntry", createEntry)
       .handle("createPromptGen", promptGen)
       .handleRaw("createStyleDescriptionGen", styleDescriptionGen)
       .handle("publishTemplate", publish)
+      .handle("listTemplates", list)
       .handle("getGeneration", get)
       .handle("cancelGeneration", cancel)
       .handle("rebootGeneration", reboot)

@@ -4,7 +4,7 @@ import { usePlatform } from "@/context/platform"
 import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, styleModelLabel } from "./data"
 import { getDefaultDimensions, getModelResolutionKey, STUDIO_VIDEO_ASPECT_RATIOS, STUDIO_VIDEO_MODES, SUPPORTED_STUDIO_CAPABILITIES, workspaceModeForCapability, type StudioVideoDuration, type StudioVideoFrameSlot, type StudioVideoMode, type StudioVideoQualityMode } from "./studio-shared"
 import { MaterialMenu, type MaterialWordBook } from "./MaterialMenu"
-import { StudioStyleTemplateMenu } from "./studio-style-template-menu"
+import { StudioStyleTemplateMenu, type StudioStyleTemplateListInput, type StudioStyleTemplateListResult } from "./studio-style-template-menu"
 import type { StudioAsset, StudioAspectRatio, StudioCapability, StudioGenerationStatus } from "./types"
 import { StudioVideoRiskContent } from "./studio-video-risk-dialog"
 
@@ -61,6 +61,7 @@ export function StudioComposer(props: {
   onVideoMode: (value: StudioVideoMode) => void
   onOpenMenu: (value: StudioComposerMenu) => void
   onCreateTemplate?: () => void
+  onListStyleTemplates?: (input: StudioStyleTemplateListInput) => Promise<StudioStyleTemplateListResult>
   onReversePrompt?: () => void
   onCancel?: () => void
   onSubmit: () => void
@@ -895,6 +896,7 @@ export function StudioComposer(props: {
                   props.onOpenMenu(null)
                   props.onCreateTemplate?.()
                 }}
+                onListTemplates={props.onListStyleTemplates}
               />
             </div>
           </Show>

@@ -10,33 +10,40 @@
 }
 
 .studio-style-template-header {
-  height: 64px;
-  flex: 0 0 64px;
+  height: 60px;
+  flex: 0 0 60px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 0 20px;
+  padding: 16px 16px 0;
 }
 
 .studio-style-template-tabs {
-  height: 36px;
+  box-sizing: border-box;
+  width: 150px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
-  padding: 3px;
-  border-radius: 8px;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 4px;
   background: #f3f3f3;
 }
 
 .studio-style-template-tab {
-  height: 30px;
-  padding: 0 14px;
+  box-sizing: border-box;
+  width: 72px;
+  height: 24px;
+  padding: 0 12px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   background: transparent;
-  color: #858587;
-  font-size: 14px;
-  line-height: 20px;
+  color: #777;
+  font-family: HarmonyHeiTi, "HarmonyOS Sans SC", "PingFang SC", sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 12px;
   white-space: nowrap;
   cursor: pointer;
 }
@@ -44,40 +51,42 @@
 .studio-style-template-tab.active {
   background: #fff;
   color: #191919;
-  font-weight: 500;
+  font-weight: 400;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .studio-style-template-create {
-  height: 32px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   padding: 0;
   border: 0;
   background: transparent;
   color: #191919;
-  font-size: 14px;
-  line-height: 20px;
+  font-family: HarmonyHeiTi, "HarmonyOS Sans SC", "PingFang SC", sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 12px;
   white-space: nowrap;
   cursor: pointer;
 }
 
 .studio-style-template-create-plus {
   position: relative;
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
 }
 
 .studio-style-template-create-plus::before,
 .studio-style-template-create-plus::after {
   content: "";
   position: absolute;
-  top: 7px;
-  left: 1px;
-  width: 14px;
-  height: 1.5px;
+  top: 5.5px;
+  left: 0;
+  width: 12px;
+  height: 1px;
   border-radius: 1px;
   background: currentColor;
 }
@@ -89,6 +98,100 @@
 .studio-style-template-content {
   flex: 1;
   min-height: 0;
+  overflow-y: auto;
+  padding: 24px 16px 16px;
+}
+
+.studio-style-template-list {
+  display: grid;
+  grid-template-columns: repeat(3, 120px);
+  gap: 8px;
+  width: 376px;
+}
+
+.studio-style-template-card {
+  width: 120px;
+  height: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.studio-style-template-card-cover {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  flex: 0 0 120px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #f3f3f3;
+}
+
+.studio-style-template-card-cover-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.studio-style-template-card-type {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  box-sizing: border-box;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: rgba(25, 25, 25, 0.8);
+  color: #fff;
+  font-family: HarmonyHeiTi, "HarmonyOS Sans SC", "PingFang SC", sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 12px;
+}
+
+.studio-style-template-card-type-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+}
+
+.studio-style-template-card-title {
+  width: 120px;
+  height: 12px;
+  overflow: hidden;
+  color: #191919;
+  font-family: HarmonyHeiTi, "HarmonyOS Sans SC", "PingFang SC", sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-style-template-state {
+  height: 100%;
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #858587;
+  font-size: 12px;
+}
+
+.studio-style-template-loading-more {
+  padding: 12px 0 0;
+  color: #858587;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.studio-style-template-loading-more.error {
+  color: #e5484d;
 }
 
 .studio-template-creator {
