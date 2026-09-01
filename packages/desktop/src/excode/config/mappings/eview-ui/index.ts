@@ -119,6 +119,6 @@ export default {
   Tree: createTreeMapping(pkg),
   CategorySearch: createCategorySearchMapping(pkg),
   HexField: createHexFieldMapping(pkg),
-  IPInput: createIpInputMapping(pkg),
+  IpInput: createIpInputMapping(pkg),
   ...chartMappings(sharedPkg),
 }

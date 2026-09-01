@@ -102,7 +102,7 @@ export default {
   Tree: createTreeMapping(pkg),
   CategorySearch: createCategorySearchMapping(pkg),
   HexField: createHexFieldMapping(pkg),
-  IPInput: createIpInputMapping(pkg),
+  IpInput: createIpInputMapping(pkg),
   // 图表组件（ALL_CHART_NAMES 全集统一映射到 Chart，含 14 有默认 + 4 无默认）
   ...chartMappings(pkg),
 }
