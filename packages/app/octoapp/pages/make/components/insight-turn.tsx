@@ -1092,14 +1092,29 @@ const stateStatus = state.status as string | undefined
       .reverse()
       .find((p) => p.type === "text") as { type: "text"; text?: string } | undefined
     if (!textPart?.text) return ""
+    // pattern 模式结构化标签 <pattern-match> / <module-list> 的 JSON 由
+    // pattern-sub-scanner 解析用于 IntentConfirmCard，不应作为 prose 显示。
+    // agent 仅输出标签时，输出一段引导文字，类似进入策略模式时的文字回复。
+    const raw = textPart.text
+    const hasPatternMatch = /<pattern-match>[\s\S]*?<\/pattern-match>/i.test(raw)
+    const hasModuleList = /<module-list>[\s\S]*?<\/module-list>/i.test(raw)
+    const cleaned = raw
+      .replace(/<pattern-match>[\s\S]*?<\/pattern-match>/gi, "")
+      .replace(/<module-list>[\s\S]*?<\/module-list>/gi, "")
+      .replace(/<pattern-match>[\s\S]*$/gi, "")
+      .replace(/<module-list>[\s\S]*$/gi, "")
     const parser = createArtifactParser()
     let prose = ""
-    for (const ev of parser.feed(textPart.text)) {
+    for (const ev of parser.feed(cleaned)) {
       if (ev.type === "text") prose += ev.delta
     }
     // Intentionally skip flush() — partial <artifact prefixes held in the buffer
     // should NOT be emitted as visible text (prevents flicker/duplication).
-    return prose.trim()
+    prose = prose.trim()
+    if (prose) return prose
+    if (hasModuleList) return "已结合页面规范与业务需求生成模块列表，请在下方选择需要使用的模块模板。"
+    if (hasPatternMatch) return "已根据你的需求匹配到候选页面布局，请在下方选择最合适的典型页面模板。"
+    return ""
   })
 
   // ── NEW: prose segments (split on <question-form> blocks) ──
