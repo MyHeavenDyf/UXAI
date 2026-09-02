@@ -15,6 +15,7 @@ import { Env } from "../../src/env"
 import { Effect } from "effect"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { makeRuntime } from "../../src/effect/run-service"
+import { configureModelsApi } from "@/plugin/model-headers"
 
 const env = makeRuntime(Env.Service, Env.defaultLayer)
 const set = (k: string, v: string) => env.runSync((svc) => svc.set(k, v))
@@ -2033,6 +2034,64 @@ test("models.dev normalization fills required response fields", () => {
   expect(model.capabilities.attachment).toBe(false)
   expect(model.capabilities.toolcall).toBe(true)
   expect(model.release_date).toBe("")
+})
+
+test("HTTP models catalog replaces the bundled model list", async () => {
+  const state = { modelID: "remote-only" }
+  using server = Bun.serve({
+    port: 0,
+    fetch: () =>
+      Response.json({
+        w3: {
+          id: "w3",
+          name: "Remote W3",
+          env: ["W3_KEY"],
+          npm: "@ai-sdk/openai-compatible",
+          api: "https://example.com/v1",
+          models: {
+            [state.modelID]: {
+              id: state.modelID,
+              name: "Remote Only",
+              release_date: "2026-09-01",
+              attachment: false,
+              reasoning: false,
+              isExternal: true,
+              temperature: true,
+              tool_call: true,
+              headers: { "x-model": "remote" },
+              options: { priority: "high" },
+              limit: { context: 128_000, output: 16_000 },
+            },
+          },
+        },
+      }),
+  })
+  using _reset = { [Symbol.dispose]: () => configureModelsApi({ source: "local" }) }
+  configureModelsApi({ source: "local" })
+  await using tmp = await tmpdir()
+
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      expect((await list())[ProviderID.make("w3")].models["remote-only"]).toBeUndefined()
+      configureModelsApi({ source: "http", url: `${server.url}api.json` })
+      await run((provider) => provider.refresh())
+      const providers = await list()
+      expect(providers[ProviderID.make("w3")].name).toBe("Remote W3")
+      const model = providers[ProviderID.make("w3")].models["remote-only"]
+      expect(model.isExternal).toBe(true)
+      expect(model.api.url).toBe("https://example.com/v1")
+      expect(model.headers["x-model"]).toBe("remote")
+      expect(model.options.priority).toBe("high")
+      expect(providers[ProviderID.make("w3")].models["GLM-V5-WB"]).toBeUndefined()
+
+      state.modelID = "remote-next"
+      await run((provider) => provider.refresh(true))
+      const refreshed = await list()
+      expect(refreshed[ProviderID.make("w3")].models["remote-only"]).toBeUndefined()
+      expect(refreshed[ProviderID.make("w3")].models["remote-next"]).toBeDefined()
+    },
+  })
 })
 
 test("model variants are generated for reasoning models", async () => {

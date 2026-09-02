@@ -33,6 +33,7 @@ export const ProviderRoutes = lazy(() =>
         jsonRequest("ProviderRoutes.list", c, function* () {
           configureModelsApiHeaders(Object.fromEntries(c.req.raw.headers.entries()))
           const svc = yield* Provider.Service
+          yield* svc.refresh(true)
           const connected = yield* svc.list()
           const hasAuth = (p: Provider.Info) =>
             p.id === "w3" ||

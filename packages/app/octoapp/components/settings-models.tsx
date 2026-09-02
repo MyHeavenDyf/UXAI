@@ -98,17 +98,21 @@ export const SettingsModels: Component = () => {
 
       <div class="flex flex-col gap-8">
         <Show
-          when={models.remote.api() !== undefined}
+          when={!models.remote.loading()}
           fallback={
             <ListLoadingState label={`${language.t("common.loading")}${language.t("common.loading.ellipsis")}`} />
           }
         >
           <Show
-            when={list.flat().length > 0}
-            fallback={<ListEmptyState message={language.t("dialog.model.empty")} filter={list.filter()} />}
+            when={!models.remote.error()}
+            fallback={<ListEmptyState message={language.t("common.requestFailed")} filter="" />}
           >
-            <For each={list.grouped.latest}>
-              {(group) => (
+            <Show
+              when={list.flat().length > 0}
+              fallback={<ListEmptyState message={language.t("dialog.model.empty")} filter={list.filter()} />}
+            >
+              <For each={list.grouped.latest}>
+                {(group) => (
                   <div class="flex flex-col gap-1">
                     <div style={{ display: "flex", "align-items": "center", gap: "12px", "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)", "font-weight": "bold", padding: "12px 0" }}>
                       <ProviderIcon id={group.category} class="size-5 shrink-0 icon-strong-base" />
@@ -143,8 +147,9 @@ export const SettingsModels: Component = () => {
                     </For>
                   </SettingsList>
                 </div>
-              )}
-            </For>
+                )}
+              </For>
+            </Show>
           </Show>
         </Show>
       </div>

@@ -72,7 +72,10 @@ export const Model = Schema.Struct({
       ),
     }),
   ),
-  status: Schema.optional(Schema.Literals(["alpha", "beta", "deprecated"])),
+  status: Schema.optional(Schema.Literals(["alpha", "beta", "deprecated", "active"])),
+  headers: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  options: Schema.optional(Schema.Record(Schema.String, Schema.MutableJson)),
+  variants: Schema.optional(Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.MutableJson))),
   provider: Schema.optional(
     Schema.Struct({ npm: Schema.optional(Schema.String), api: Schema.optional(Schema.String) }),
   ),

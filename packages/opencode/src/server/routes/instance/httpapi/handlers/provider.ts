@@ -14,6 +14,7 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
 
     const list = Effect.fn("ProviderHttpApi.list")(function* () {
       configureModelsApiHeaders((yield* HttpServerRequest.HttpServerRequest).headers)
+      yield* provider.refresh(true)
       const connected = yield* provider.list()
       const hasAuth = (p: Provider.Info) =>
         p.id === "w3" ||

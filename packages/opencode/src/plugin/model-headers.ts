@@ -1,9 +1,13 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
+import { Schema } from "effect"
+import * as ModelsDev from "@/provider/models"
 
 const CACHE_DURATION = 60_000
 let modelsApi: { source: "http" | "local"; url?: string; w3Api?: string; token?: string } | undefined
-let cache: { api: Record<string, unknown>; expires: number } | undefined
-let loading: Promise<Record<string, unknown> | undefined> | undefined
+let cache: { api: Record<string, ModelsDev.Provider>; expires: number } | undefined
+let loading: Promise<Record<string, ModelsDev.Provider> | undefined> | undefined
+
+const decodeCatalog = Schema.decodeUnknownSync(Schema.Record(Schema.String, ModelsDev.Provider))
 
 export function configureModelsApi(input: { source?: string; url?: string; w3Api?: string; token?: string }) {
   const source = input.source === "local" ? "local" : "http"
@@ -76,36 +80,52 @@ function apiModels(value: unknown): Record<string, unknown> {
   )
   if (Object.keys(direct).length > 0) return direct
 
-  return ["content", "data", "provider", "providers", "result"]
-    .map((key) => apiModels(input[key]))
-    .find((providers) => Object.keys(providers).length > 0) ?? {}
+  return (
+    ["content", "data", "provider", "providers", "result"]
+      .map((key) => apiModels(input[key]))
+      .find((providers) => Object.keys(providers).length > 0) ?? {}
+  )
 }
 
-async function loadApi() {
+function catalog(value: unknown) {
+  try {
+    return Object.fromEntries(Object.values(decodeCatalog(apiModels(value))).map((provider) => [provider.id, provider]))
+  } catch {
+    return
+  }
+}
+
+async function loadApi(force = false) {
   if (!modelsApi || modelsApi.source !== "http" || !modelsApi.url) return
-  if (cache && cache.expires > Date.now()) return cache.api
+  if (!force && cache && cache.expires > Date.now()) return cache.api
   if (loading) return loading
 
   loading = fetch(modelsApi.url, {
     headers: modelsApi.token ? { uiplustoken: modelsApi.token } : {},
   })
-    .then(async (response) => (response.ok ? apiModels(await response.json()) : undefined))
+    .then(async (response) => (response.ok ? catalog(await response.json()) : undefined))
     .catch(() => undefined)
     .finally(() => {
       loading = undefined
     })
   const api = await loading
   if (api) cache = { api, expires: Date.now() + CACHE_DURATION }
-  return api
+  return api ?? cache?.api
+}
+
+export function modelsApiSource() {
+  return modelsApi?.source ?? "local"
+}
+
+export async function modelsApiCatalog(force = false) {
+  return loadApi(force)
 }
 
 export async function modelsApiProviderUrl(providerID: string) {
-  if (providerID === "w3" && modelsApi?.w3Api) return modelsApi.w3Api
   const api = await loadApi()
   const provider = api?.[providerID]
-  if (!isRecord(provider)) return
-  if (typeof provider.api !== "string") return
-  return provider.api.trim() || undefined
+  if (isRecord(provider) && typeof provider.api === "string") return provider.api.trim() || undefined
+  if (providerID === "w3") return modelsApi?.w3Api
 }
 
 function findApiModel(api: Record<string, unknown>, providerID: string, modelID: string, apiID: string) {

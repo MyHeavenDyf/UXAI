@@ -29,7 +29,7 @@ import { optionalOmitUndefined, withStatics } from "@/util/schema"
 import * as ProviderTransform from "./transform"
 import { ModelID, ProviderID } from "./schema"
 import { AuthError } from "@/session/message"
-import { modelsApiProviderUrl } from "@/plugin/model-headers"
+import { modelsApiCatalog, modelsApiProviderUrl, modelsApiSource } from "@/plugin/model-headers"
 
 const log = Log.create({ service: "provider" })
 
@@ -1410,6 +1410,7 @@ export function defaultModelIDs<T extends { models: Record<string, { id: string 
 
 export interface Interface {
   readonly list: () => Effect.Effect<Record<ProviderID, Info>>
+  readonly refresh: (force?: boolean) => Effect.Effect<void>
   readonly getProvider: (providerID: ProviderID) => Effect.Effect<Info>
   readonly getModel: (providerID: ProviderID, modelID: ModelID) => Effect.Effect<Model>
   readonly getLanguage: (model: Model) => Effect.Effect<LanguageModelV3>
@@ -1466,8 +1467,8 @@ function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model
       npm: model.provider?.npm ?? provider.npm ?? "@ai-sdk/openai-compatible",
     },
     status: model.status ?? "active",
-    headers: {},
-    options: {},
+    headers: model.headers ?? {},
+    options: model.options ?? {},
     cost: cost(model.cost),
     limit: {
       context: model.limit.context,
@@ -1501,7 +1502,10 @@ function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model
 
   return {
     ...base,
-    variants: mapValues(ProviderTransform.variants(base), (v) => v),
+    variants: mergeDeep(
+      mapValues(ProviderTransform.variants(base), (v) => v),
+      model.variants ?? {},
+    ),
   }
 }
 
@@ -1552,13 +1556,26 @@ const layer: Layer.Layer<
     const env = yield* Env.Service
     const plugin = yield* Plugin.Service
     const modelsDevSvc = yield* ModelsDev.Service
+    let loadedModelsSource: "http" | "local" | undefined
+    let loadedRemoteCatalog: Record<string, ModelsDev.Provider> | undefined
 
     const state = yield* InstanceState.make<State>(() =>
       Effect.gen(function* () {
         using _ = log.time("state")
         const bridge = yield* EffectBridge.make()
         const cfg = yield* config.get()
-        const modelsDev = yield* modelsDevSvc.get()
+        const remoteModels = modelsApiSource() === "http"
+        loadedModelsSource = remoteModels ? "http" : "local"
+        const modelsDev = remoteModels
+          ? yield* Effect.promise(() => modelsApiCatalog()).pipe(
+              Effect.flatMap((catalog) =>
+                catalog
+                  ? Effect.succeed(catalog)
+                  : Effect.die(new Error("Remote models API is unavailable and no cached catalog exists")),
+              ),
+            )
+          : yield* modelsDevSvc.get()
+        if (remoteModels) loadedRemoteCatalog = modelsDev
         const database = mapValues(modelsDev, fromModelsDevProvider)
 
         const providers: Record<ProviderID, Info> = {} as Record<ProviderID, Info>
@@ -1616,6 +1633,7 @@ const layer: Layer.Layer<
         }
 
         for (const hook of plugins) {
+          if (remoteModels) continue
           const p = hook.provider
           const models = p?.models
           if (!p || !models) continue
@@ -1645,6 +1663,16 @@ const layer: Layer.Layer<
         // extend database from config
         for (const [providerID, provider] of configProviders) {
           const existing = database[providerID]
+          if (remoteModels) {
+            if (!existing) continue
+            database[providerID] = {
+              ...existing,
+              env: provider.env ?? existing.env,
+              options: mergeDeep(existing.options, provider.options ?? {}),
+              source: "config",
+            }
+            continue
+          }
           const parsed: Info = {
             id: ProviderID.make(providerID),
             name: provider.name ?? existing?.name ?? providerID,
@@ -1797,6 +1825,7 @@ const layer: Layer.Layer<
           const providerID = ProviderID.make(id)
           if (disabled.has(providerID) && providerID !== "w3") continue
           const data = database[providerID]
+          if (remoteModels && !data) continue
 
           // Special case: opencode/bpit custom loader can run without database entry
           // because it self-constructs all model data
@@ -1813,7 +1842,14 @@ const layer: Layer.Layer<
             models: {},
           }
 
+          const authoritative = remoteModels
+            ? { name: providerData.name, models: providerData.models }
+            : undefined
           const result = yield* fn(providerData as Info)
+          if (authoritative) {
+            providerData.name = authoritative.name
+            providerData.models = authoritative.models
+          }
           if (result && (result.autoload || providers[providerID])) {
             if (result.getModel) modelLoaders[providerID] = result.getModel
             if (result.vars) varsLoaders[providerID] = result.vars
@@ -1829,13 +1865,13 @@ const layer: Layer.Layer<
           const providerID = ProviderID.make(id)
           const partial: Partial<Info> = { source: "config" }
           if (provider.env) partial.env = provider.env
-          if (provider.name) partial.name = provider.name
+          if (!remoteModels && provider.name) partial.name = provider.name
           if (provider.options) partial.options = provider.options
           mergeProvider(providerID, partial)
         }
 
         const gitlab = ProviderID.make("gitlab")
-        if (discoveryLoaders[gitlab] && providers[gitlab] && isProviderAllowed(gitlab)) {
+        if (!remoteModels && discoveryLoaders[gitlab] && providers[gitlab] && isProviderAllowed(gitlab)) {
           yield* Effect.promise(async () => {
             try {
               const discovered = await discoveryLoaders[gitlab]()
@@ -1869,8 +1905,9 @@ const layer: Layer.Layer<
             if (model.status === "alpha" && !Flag.OPENCODE_ENABLE_EXPERIMENTAL_MODELS) delete provider.models[modelID]
             if (model.status === "deprecated") delete provider.models[modelID]
             if (
-              (configProvider?.blacklist && configProvider.blacklist.includes(modelID)) ||
-              (configProvider?.whitelist && !configProvider.whitelist.includes(modelID))
+              !remoteModels &&
+              ((configProvider?.blacklist && configProvider.blacklist.includes(modelID)) ||
+                (configProvider?.whitelist && !configProvider.whitelist.includes(modelID)))
             )
               delete provider.models[modelID]
 
@@ -1879,7 +1916,7 @@ const layer: Layer.Layer<
             }
 
             const configVariants = configProvider?.models?.[modelID]?.variants
-            if (configVariants && model.variants) {
+            if (!remoteModels && configVariants && model.variants) {
               const merged = mergeDeep(model.variants, configVariants)
               model.variants = mapValues(
                 pickBy(merged, (v) => !v.disabled),
@@ -1923,6 +1960,17 @@ const layer: Layer.Layer<
 
     const list = Effect.fn("Provider.list")(() => InstanceState.use(state, (s) => s.providers))
 
+    const refresh = Effect.fn("Provider.refresh")(function* (force = false) {
+      if (modelsApiSource() !== "http") {
+        if (loadedModelsSource === "local") return
+        yield* InstanceState.invalidate(state)
+        return
+      }
+      const catalog = yield* Effect.promise(() => modelsApiCatalog(force))
+      if (loadedModelsSource === "http" && catalog === loadedRemoteCatalog) return
+      yield* InstanceState.invalidate(state)
+    })
+
     async function resolveSDK(
       model: Model,
       s: State,
@@ -1945,8 +1993,13 @@ const layer: Layer.Layer<
         }
 
         const configuredBaseURL =
-          typeof options["baseURL"] === "string" && options["baseURL"] !== "" ? options["baseURL"] : undefined
-        remoteApi ??= model.providerID === "w3" ? await modelsApiProviderUrl("w3") : undefined
+          modelsApiSource() === "http"
+            ? undefined
+            : typeof options["baseURL"] === "string" && options["baseURL"] !== ""
+              ? options["baseURL"]
+              : undefined
+        remoteApi ??=
+          modelsApiSource() === "http" && !model.api.url ? await modelsApiProviderUrl(model.providerID) : undefined
         const baseURL = iife(() => {
           let url = remoteApi ?? configuredBaseURL ?? model.api.url
           if (!url) return
@@ -2293,11 +2346,15 @@ const layer: Layer.Layer<
       const envs = yield* env.all()
       const provider = s.providers[model.providerID]
       const configuredBaseURL =
-        typeof provider.options["baseURL"] === "string" && provider.options["baseURL"] !== ""
-          ? provider.options["baseURL"]
-          : undefined
+        modelsApiSource() === "http"
+          ? undefined
+          : typeof provider.options["baseURL"] === "string" && provider.options["baseURL"] !== ""
+            ? provider.options["baseURL"]
+            : undefined
       const remoteApi =
-        model.providerID === "w3" ? yield* Effect.promise(() => modelsApiProviderUrl("w3")) : undefined
+        modelsApiSource() === "http" && !model.api.url
+          ? yield* Effect.promise(() => modelsApiProviderUrl(model.providerID))
+          : undefined
       const key = `${model.providerID}/${model.id}/${remoteApi ?? configuredBaseURL ?? model.api.url}`
       if (s.models.has(key)) return s.models.get(key)!
 
@@ -2429,7 +2486,7 @@ const layer: Layer.Layer<
       }
     })
 
-    return Service.of({ list, getProvider, getModel, getLanguage, closest, getSmallModel, defaultModel })
+    return Service.of({ list, refresh, getProvider, getModel, getLanguage, closest, getSmallModel, defaultModel })
   }),
 )
 

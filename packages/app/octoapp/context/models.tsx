@@ -1,18 +1,11 @@
-import { createMemo, createResource, createSignal, onCleanup } from "solid-js"
+import { createMemo, createResource, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { DateTime } from "luxon"
 import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } from "remeda"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useProviders } from "@/hooks/use-providers"
 import { useGlobalSDK } from "@/context/global-sdk"
-import {
-  fetchModelsApi,
-  modelsApiListForProviders,
-  modelsApiSource,
-  modelsLocalListForProviders,
-  refreshModelsApi as requestModelsApiRefresh,
-  registerModelsApiRefresh,
-} from "@/network/models-api"
+import { modelsApiSource, modelsLocalListForProviders } from "@/network/models-api"
 import { Persist, persisted } from "@/utils/persist"
 
 export type ModelKey = { providerID: string; modelID: string }
@@ -37,9 +30,10 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     const providers = useProviders()
     const globalSDK = useGlobalSDK()
     const loadApiModels = async () => {
-      const models = await fetchModelsApi()
-      await globalSDK.client.provider.list()
-      return models
+      const result = await globalSDK.client.provider.list()
+      if (result.error) throw result.error
+      if (!result.data) throw new Error("Provider list response is empty")
+      return result.data
     }
     const [apiModels, { mutate: setApiModels }] = createResource(loadApiModels)
     const [refreshing, setRefreshing] = createSignal(false)
@@ -50,19 +44,13 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       setRefreshing(true)
       setRefreshError(undefined)
       try {
-        await requestModelsApiRefresh()
+        setApiModels(await loadApiModels())
       } catch (error) {
         setRefreshError(error)
       } finally {
         setRefreshing(false)
       }
     }
-    onCleanup(
-      registerModelsApiRefresh(async (models) => {
-        await globalSDK.client.provider.list()
-        setApiModels(models)
-      }),
-    )
 
     const [store, setStore, _, ready] = persisted(
       Persist.global("model", ["model.v1"]),
@@ -77,21 +65,8 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       if (modelsApiSource() === "local") return modelsLocalListForProviders(providers.connected())
       const api = apiModels()
       if (!api) return []
-      const remoteProviderIDs = new Set(
-        Object.entries(api).map(([key, provider]) =>
-          typeof provider?.id === "string" && provider.id ? provider.id : key,
-        ),
-      )
-      const connected = providers.connected()
-      return uniqueBy(
-        [
-          ...modelsApiListForProviders(api, connected),
-          ...modelsLocalListForProviders(
-            connected.filter((provider) => provider.source === "config" && !remoteProviderIDs.has(provider.id)),
-          ),
-        ],
-        (model) => modelKey({ providerID: model.provider.id, modelID: model.id }),
-      )
+      const connected = new Set(providers.connected().map((provider) => provider.id))
+      return modelsLocalListForProviders(api.all.filter((provider) => connected.has(provider.id)))
     })
 
     const release = createMemo(
