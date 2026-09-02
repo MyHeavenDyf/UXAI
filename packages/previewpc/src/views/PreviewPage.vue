@@ -3,7 +3,7 @@ import A2UIRenderer from "../renderer/render/Renderer.vue";
 import { provideA2UI } from "../renderer/render/Provider";
 import { ref, onMounted, onUnmounted } from "vue";
 
-const { createSurface, updateSurface } = provideA2UI();
+const { createSurface, updateSurface, store } = provideA2UI();
 
 const currentContent = ref<any>(null);
 const surfaceId = "preview-surface";
@@ -29,6 +29,14 @@ function handleMessage(event: MessageEvent) {
     } else if (event.data.payload) {
       applyA2UIJson(event.data.payload)
     }
+  }
+  // 父侧进入编辑态时请求当前 surface 运行时 state（包含用户在非编辑态的交互态，
+  // 如已打开的 Modal/Drawer、已切换的 Tab），用于合并进父侧 doc.state，避免首次
+  // applyPrototypeModify 触发的 od:a2ui-update 用磁盘旧 state 覆盖 iframe 内存态。
+  if (event.data?.type === "od:a2ui-state-request") {
+    const surface = store.getSurface(surfaceId) as any
+    const state = surface?.dataModel?.getData?.() ?? null
+    window.parent.postMessage({ type: "od:a2ui-state-snapshot", state }, "*")
   }
 }
 

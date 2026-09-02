@@ -99,7 +99,10 @@ export function useA2UIComponent<T extends AnyComponentNode<any>>(
         const bindingPath = raw && typeof raw === 'object' && !Array.isArray(raw) && 'path' in (raw as Record<string, unknown>)
             ? (raw as { path: string }).path
             : undefined
-        if (bindingPath) context.setData(surfaceId, bindingPath, value)
+        if (bindingPath) {
+            context.setData(surfaceId, bindingPath, value)
+            context.store.notify(surfaceId)
+        }
         if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
             const msg: { type: string; elementId: unknown; propName: string; value: DataValue; path?: string } = {
                 type: 'A2UI_STATE_CHANGE',
@@ -115,6 +118,14 @@ export function useA2UIComponent<T extends AnyComponentNode<any>>(
     const setState = (path: string, value: DataValue) => {
         context.setData(surfaceId, path, value)
         context.store.notify(surfaceId)
+        if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
+            window.parent.postMessage({
+                type: 'A2UI_STATE_CHANGE',
+                propName: path,
+                value,
+                path,
+            }, '*')
+        }
     }
 
     return {

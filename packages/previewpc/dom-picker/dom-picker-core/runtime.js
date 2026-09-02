@@ -190,6 +190,48 @@ export function installDomPicker(options = {}) {
     })
   }
 
+  // 选中元素后等入场/位移动画结束再回传一次最终 rect。ResizeObserver 只覆盖尺寸变化，
+  // transform 位移不触发它；这里用 transitionend/animationend 精确捕获动画结束，配合
+  // 400ms 兜底（无动画 / JS 动画 / 事件被 preventDefault 的边界）。postRectUpdate 内部
+  // rAF 合并，多次触发安全。若动画 > 400ms，transitionend 仍会在动画结束时触发再发一次最终 rect。
+  let stableRectEl = null
+  let stableRectHandler = null
+  let stableRectTimer = null
+
+  const cleanupStableRectReport = () => {
+    if (stableRectTimer) { clearTimeout(stableRectTimer); stableRectTimer = null }
+    if (stableRectEl && stableRectHandler) {
+      stableRectEl.removeEventListener('transitionend', stableRectHandler, true)
+      stableRectEl.removeEventListener('animationend', stableRectHandler, true)
+    }
+    stableRectEl = null
+    stableRectHandler = null
+  }
+
+  const scheduleStableRectReport = () => {
+    cleanupStableRectReport()
+    const el = activeElement
+    if (!el) return
+    stableRectEl = el
+    const onStable = () => {
+      el.removeEventListener('transitionend', onStable, true)
+      el.removeEventListener('animationend', onStable, true)
+      if (stableRectTimer) { clearTimeout(stableRectTimer); stableRectTimer = null }
+      stableRectEl = null
+      stableRectHandler = null
+      postRectUpdate()
+    }
+    stableRectHandler = onStable
+    el.addEventListener('transitionend', onStable, true)
+    el.addEventListener('animationend', onStable, true)
+    // 兜底：transitionend/animationend 可能不触发，延时 400ms 发一次 rect。
+    // 不在此移除监听——若动画 > 400ms，transitionend 仍会在结束时触发发最终 rect。
+    stableRectTimer = setTimeout(() => {
+      postRectUpdate()
+      stableRectTimer = null
+    }, 400)
+  }
+
   const observeActiveElement = (element) => {
     if (!resizeObserver) return
     resizeObserver.disconnect()
@@ -309,6 +351,7 @@ export function installDomPicker(options = {}) {
       '*',
     )
     console.log(`[${logPrefix}] selected:`, location, element)
+    scheduleStableRectReport()
   }
 
   const handleContextMenu = (event) => {
@@ -349,6 +392,7 @@ export function installDomPicker(options = {}) {
       '*',
     )
     console.log(`[${logPrefix}] context menu:`, resolvedTarget.location, resolvedTarget.element)
+    scheduleStableRectReport()
   }
 
   const handleScrollOrResize = () => {
@@ -377,6 +421,7 @@ export function installDomPicker(options = {}) {
     applyActiveMarker()
     updateOverlay(overlay, activeElement)
     console.log(`[${logPrefix}] select parent:`, resolved.location, resolved.element)
+    scheduleStableRectReport()
   }
 
   window.addEventListener('message', (event) => {
@@ -387,6 +432,7 @@ export function installDomPicker(options = {}) {
       applyActiveMarker()
       updateOverlay(overlay, null)
       if (resizeObserver) resizeObserver.disconnect()
+      cleanupStableRectReport()
     }
     if (event.data.type === 'od:dom-picker-mode') {
       disabled = !event.data.enabled
