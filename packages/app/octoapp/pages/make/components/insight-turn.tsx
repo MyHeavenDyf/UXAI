@@ -689,6 +689,22 @@ export function InsightTurn(props: {
     return result
   })
 
+  // 手动 /compact 压缩 turn:用户消息带 compaction part(后端手动路径附带 synthetic text part 回显输入)。
+  // 自动压缩消息无 text part,不会进入 userMessages,不会渲染到这里。
+  const isCompactionTurn = createMemo(() => {
+    const parts = partStore?.[props.messageID] ?? []
+    return parts.some((p) => p.type === "compaction")
+  })
+
+  // 压缩完成 = 摘要 assistant 消息(summary: true)已 finish 且无 error,与标准 session-turn 判定一致
+  const compacted = createMemo(() =>
+    isCompactionTurn() && assistantMsgs().some((m) => m.summary === true && !!m.finish && !m.error),
+  )
+
+  const compactionFailed = createMemo(() =>
+    isCompactionTurn() && !compacted() && assistantMsgs().some((m) => !!m.error),
+  )
+
   const isAborted = createMemo(() => {
     for (const msg of assistantMsgs()) {
       const err = (msg as Record<string, unknown>).error as Record<string, unknown> | undefined
@@ -1267,6 +1283,41 @@ const stateStatus = state.status as string | undefined
         </div>
       </Show>
 
+      {/* 手动 /compact 压缩 turn:只显示压缩状态,不渲染正常 assistant 内容 */}
+      <Show when={isCompactionTurn()}>
+        <Show when={!compacted() && !compactionFailed()}>
+          <div
+            class="mx-3 px-4 py-2 flex items-center gap-2"
+            style={{
+              "border-radius": "var(--octo-radius-md)",
+              border: "1px solid rgba(200, 200, 200, 0.2)",
+              background: "rgba(200, 200, 200, 0.05)",
+            }}
+          >
+            <span class="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#3b82f6" }} />
+            <span class="text-sm" style={{ color: "#6e737a" }}>正在压缩上下文…</span>
+          </div>
+        </Show>
+        <Show when={compacted()}>
+          <div data-slot="session-turn-compaction">
+            <MessageDivider label={i18n.t("ui.messagePart.compaction")} />
+          </div>
+        </Show>
+        <Show when={compactionFailed()}>
+          <div
+            class="mx-3 px-4 py-2 text-sm"
+            style={{
+              "border-radius": "var(--octo-radius-md)",
+              background: "rgba(254, 231, 232, 1)",
+              color: "#191919",
+            }}
+          >
+            上下文压缩失败
+          </div>
+        </Show>
+      </Show>
+
+      <Show when={!isCompactionTurn()}>
       {/* 思考过程 */}
       <Show when={reasoningTexts().length > 0}>
         <Show when={showGenerating()} fallback={
@@ -1639,6 +1690,7 @@ const stateStatus = state.status as string | undefined
             </div>
           )
         })()}
+      </Show>
       </Show>
     </div>
   )

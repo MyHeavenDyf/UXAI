@@ -1027,7 +1027,13 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!sid) return []
     const visible = (message: Message) => {
       const parts = sync.data.part[message.id] ?? []
-      return message.role === "user" && parts.length > 0 && !parts.some((part) => part.type === "compaction")
+      if (message.role !== "user" || parts.length === 0) return false
+      // 手动 /compact 压缩消息带 synthetic text part(用户输入回显),需要显示;
+      // 自动压缩(仅 compaction part,无 text part)保持隐藏。
+      if (parts.some((part) => part.type === "compaction")) {
+        return parts.some((part) => part.type === "text")
+      }
+      return true
     }
     const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter(visible)
     const allMsgs: Message[] = [...mainMsgs]
@@ -2599,7 +2605,7 @@ const sessionMessagesLoaded = createMemo(() => {
           }
           
           try {
-            await sdk.client.session.command({
+            const result = await sdk.client.session.command({
               sessionID: sessionId,
               command: seg.cmd,
               arguments: seg.args,
@@ -2607,8 +2613,29 @@ const sessionMessagesLoaded = createMemo(() => {
               model: modelStr,
               parts: cmdParts.length > 0 ? cmdParts : undefined,
             })
+            // /compact、/summarize 的响应是摘要 assistant 消息,成功判定与后端 isSuccessful 一致
+            if (seg.cmd === "compact" || seg.cmd === "summarize") {
+              const info = result.data?.info
+              if (info && info.summary === true && info.finish && !info.error) {
+                showOctoToast({ title: "上下文压缩完成" })
+              } else {
+                const err = (info?.error ?? result.error) as { data?: { message?: string }; message?: string } | undefined
+                showOctoToast({
+                  title: "上下文压缩失败",
+                  description: err?.data?.message ?? err?.message ?? "请稍后重试",
+                  variant: "error",
+                })
+              }
+            }
           } catch (err) {
             console.error(`[MakePage] command /${seg.cmd} failed`, err)
+            if (seg.cmd === "compact" || seg.cmd === "summarize") {
+              showOctoToast({
+                title: "上下文压缩失败",
+                description: err instanceof Error ? err.message : "请稍后重试",
+                variant: "error",
+              })
+            }
           }
         }
 
