@@ -178,7 +178,6 @@ export default function StudioPage() {
   const models = useModels()
   const dialog = useDialog()
   const removeSession = useSessionDelete()
-  let studioPermissionChecked = false
   let studioPageRef!: HTMLDivElement
 
   onMount(() => { tracker.page({ module: "studio", name: "studio-page" }) })
@@ -192,6 +191,53 @@ export default function StudioPage() {
   })
 
   const projectDir = useProjectDir({ mode: "config" })
+  const [canGenerateVideo, setCanGenerateVideo] = createSignal(false)
+  const [canUseSeedream, setCanUseSeedream] = createSignal(false)
+  const [studioPermissionReady, setStudioPermissionReady] = createSignal(false)
+  let studioPermissionChecked = false
+
+  function requestStudioPermission() {
+    const current = server.current
+    if (!current || studioPermissionChecked) return
+    studioPermissionChecked = true
+    const headers: Record<string, string> = {
+      accept: "application/json",
+      "content-type": "application/json",
+      ...directoryHeader(projectDir() || decode64(params.dir) || ""),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    void fetch(new URL("/studio/permissions/check", current.http.url), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ uid: uiplusUserAccount() }),
+    })
+      .then(async (response) => {
+        const bodyText = await response.text()
+        if (!response.ok) throw new Error(`check_permission failed: ${response.status} ${bodyText}`)
+        const result = JSON.parse(bodyText) as { code?: number; resp_code?: number; data?: unknown }
+        const permissionData = Array.isArray(result.data) ? result.data : []
+        const permissionOk = result.code === 200 || result.resp_code === 200
+        setCanGenerateVideo(permissionOk && permissionData[0] === true)
+        setCanUseSeedream(permissionOk && permissionData[1] === true)
+        setStudioPermissionReady(true)
+      })
+      .catch((error) => {
+        setCanGenerateVideo(false)
+        setCanUseSeedream(false)
+        setStudioPermissionReady(true)
+        console.error("[StudioPage] permission check failed", error)
+      })
+  }
+
+  // Start permission resolution before project bootstrap, history, and thumbnail requests.
+  requestStudioPermission()
+  createEffect(requestStudioPermission)
+
   const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: true })
 
   const isValidStudioSession = (sessionId: string | undefined): boolean => {
@@ -309,9 +355,6 @@ export default function StudioPage() {
   const [workspaceUploadRequested, setWorkspaceUploadRequested] = createSignal(false)
   const [pendingEditorEntries, setPendingEditorEntries] = createSignal<StudioTurnData[]>([])
   const [openMenu, setOpenMenu] = createSignal<"capability" | "style" | "settings" | "material" | null>(null)
-  const [canGenerateVideo, setCanGenerateVideo] = createSignal(false)
-  const [canUseSeedream, setCanUseSeedream] = createSignal(false)
-  const [studioPermissionReady, setStudioPermissionReady] = createSignal(false)
   const [videoRiskDialogOpen, setVideoRiskDialogOpen] = createSignal(false)
   const [videoRiskConfirmedSessionID, setVideoRiskConfirmedSessionID] = createSignal<string>()
   onCleanup(() => reversePromptController?.abort())
@@ -342,43 +385,6 @@ export default function StudioPage() {
       throw new Error("Unexpected get_prompt_tags response shape")
     },
   )
-  createEffect(() => {
-    const current = server.current
-    if (!current || studioPermissionChecked) return
-    studioPermissionChecked = true
-    const headers: Record<string, string> = {
-      accept: "application/json",
-      "content-type": "application/json",
-      ...directoryHeader(projectDir()),
-    }
-    if (current.http.password) {
-      headers.Authorization = `Basic ${authTokenFromCredentials({
-        username: current.http.username,
-        password: current.http.password,
-      })}`
-    }
-    void fetch(new URL("/studio/permissions/check", current.http.url), {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ uid: uiplusUserAccount() }),
-    })
-      .then(async (response) => {
-        const bodyText = await response.text()
-        if (!response.ok) throw new Error(`check_permission failed: ${response.status} ${bodyText}`)
-        const result = JSON.parse(bodyText) as { code?: number; resp_code?: number; data?: unknown }
-        const permissionData = Array.isArray(result.data) ? result.data : []
-        const permissionOk = result.code === 200 || result.resp_code === 200
-        setCanGenerateVideo(permissionOk && permissionData[0] === true)
-        setCanUseSeedream(permissionOk && permissionData[1] === true)
-        setStudioPermissionReady(true)
-      })
-      .catch((error) => {
-        setCanGenerateVideo(false)
-        setCanUseSeedream(false)
-        setStudioPermissionReady(true)
-        console.error("[StudioPage] permission check failed", error)
-      })
-  })
   createEffect(() => {
     if (!studioPermissionReady()) return
     if (canUseSeedream() || !styleModelRequiresSeedreamPermission(styleModel())) return
