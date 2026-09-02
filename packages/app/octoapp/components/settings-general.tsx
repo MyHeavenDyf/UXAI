@@ -171,7 +171,7 @@ export const SettingsGeneral: Component = () => {
       if (result.success) {
         showFloatingNotice("success", "配置成功，请重启以完成设置")
       } else {
-        showToast({ variant: "error", title: "配置值不正确" })
+        showToast({ variant: "error", title: "代理配置失败", description: result.error })
       }
     } catch (err) {
       showToast({ variant: "error", title: "配置值不正确" })
