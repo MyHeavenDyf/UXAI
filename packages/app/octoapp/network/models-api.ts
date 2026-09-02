@@ -6,6 +6,7 @@ type ApiModel = {
   id?: string
   name?: string
   family?: string
+  isExternal?: boolean
   release_date?: string
   headers?: Record<string, string>
   capabilities?: Model["capabilities"]
