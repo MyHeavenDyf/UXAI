@@ -192,6 +192,9 @@ export default {
     }
     const siblingMap = buildSiblingMap(await loadA2uiData(session, ctx))
     ctx.postMessageToIframe?.({ type: "od:drag-mode", enabled: true, siblingMap })
+    // 进入编辑态后请 iframe 把当前 surface 运行时 state 回传合并进 doc.state，
+    // 避免首次 applyPrototypeModify 用磁盘旧 state 覆盖 iframe 内存态（modal 关闭等）。
+    ctx.postMessageToIframe?.({ type: "od:a2ui-state-request" })
     return false
   },
 

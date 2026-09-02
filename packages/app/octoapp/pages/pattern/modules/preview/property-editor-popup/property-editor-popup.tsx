@@ -384,6 +384,53 @@ export function PropertyEditorPopup(props: {
     return dirty
   }
 
+  // 取消"填充/适应 宽高"勾选，分两种情况：
+  // 1) 该勾选是用户本次会话点选的（打开时未勾选）→ 恢复整组到打开时状态（originalSnapshot），
+  //    找回被互斥清掉的另一半及原 px/百分比值。
+  // 2) 该勾选打开时就存在（元素原始 class 本来就有 w-full/h-auto 等）→ 恢复是原地踏步，
+  //    用户的意图是"移除这个宽/高约束"，此时清空整组而非恢复，否则 signal 不变、不触发提交，
+  //    checkbox 与 signal 脱钩，元素样式也回不去。
+  // 提交交给 autoSave effect 的 300ms 防抖：恢复后快照与最近提交基线不同会自动提交；
+  // 相同则说明 doc 未被改过（如 300ms 内快速勾选又取消），无需提交。旧实现的强制
+  // handleConfirm 会与 effect 补排的定时器产生一次空 dirty 的重复提交，已移除。
+  function revertGroup(group: 'width' | 'height', box: 'fill' | 'hug') {
+    // originalSnapshot 尚未生成（tailwindToCss IPC 还在途，autoSave effect 未初始化）时，
+    // 恢复语义不可用（原始值还没解析出来）。此时直接清空整组：signal 与 DOM checkbox
+    // 保持一致，初始化完成时 applyCssVariables 会按原始 class 重设这些 signal（与面板
+    // "初始化前的编辑被覆盖"的既有行为一致）。若在此 early return，DOM 已取消勾选而
+    // signal 不变，二者脱钩，之后的 setFillWidth(true)（值未变）也不会把 DOM 拉回。
+    let initSnap: Record<string, unknown> | null = null
+    if (originalSnapshotJson) {
+      try { initSnap = JSON.parse(originalSnapshotJson) as Record<string, unknown> } catch { initSnap = null }
+    }
+    if (group === 'width') {
+      const origFill = initSnap ? Boolean(initSnap.fillWidth) : false
+      const origHug = initSnap ? Boolean(initSnap.hugWidth) : false
+      if (box === 'fill' ? origFill : origHug) {
+        setEditWidth(''); setEditWidthPx(0); setFoundWidthPx(false)
+        setFillWidth(false); setHugWidth(false)
+      } else {
+        setEditWidth(String(initSnap?.width ?? ''))
+        setEditWidthPx(Number(initSnap?.widthPx ?? 0))
+        setFoundWidthPx(Boolean(initSnap?.foundWidthPx))
+        setFillWidth(origFill)
+        setHugWidth(origHug)
+      }
+    } else {
+      const origFill = initSnap ? Boolean(initSnap.fillHeight) : false
+      const origHug = initSnap ? Boolean(initSnap.hugHeight) : false
+      if (box === 'fill' ? origFill : origHug) {
+        setEditHeightPx(0); setFoundHeightPx(false)
+        setFillHeight(false); setHugHeight(false)
+      } else {
+        setEditHeightPx(Number(initSnap?.heightPx ?? 0))
+        setFoundHeightPx(Boolean(initSnap?.foundHeightPx))
+        setFillHeight(origFill)
+        setHugHeight(origHug)
+      }
+    }
+  }
+
   function buildClassName(dirtyGroups?: Set<string> | null) {
     const parts = parsedClasses.filter(c => {
       const g = classifyClassGroup(c)
@@ -951,7 +998,10 @@ export function PropertyEditorPopup(props: {
   let apiCalled = false
   let autoUpdateTimer: ReturnType<typeof setTimeout> | undefined
   let initialized = false
+  /** 最近一次提交时的快照（脏组检测基线，每次 handleConfirm 后推进） */
   let initialSnapshotJson = ''
+  /** 打开面板那一刻的快照（永不推进），revertGroup 取消勾选时恢复到它 */
+  let originalSnapshotJson = ''
 
   function resetEditorSignals() {
     setEditFontSize(14); setFoundFontSize(false)
@@ -990,6 +1040,7 @@ export function PropertyEditorPopup(props: {
       apiCalled = false
       initialized = false
       initialSnapshotJson = ''
+      originalSnapshotJson = ''
       clearTimeout(autoUpdateTimer)
       return
     }
@@ -1183,12 +1234,22 @@ export function PropertyEditorPopup(props: {
     if (!ready()) return
     if (!initialized) {
       initialized = true
-      initialSnapshotJson = JSON.stringify(snap)
+      originalSnapshotJson = JSON.stringify(snap)
+      initialSnapshotJson = originalSnapshotJson
       return
     }
-    if (JSON.stringify(snap) === initialSnapshotJson) return
+    // 先清掉上一次排程的提交：快速勾选又取消（<300ms）时快照回到基线，
+    // 之前排程的提交不应再触发。
     clearTimeout(autoUpdateTimer)
-    autoUpdateTimer = setTimeout(() => handleConfirm(true), 400)
+    if (JSON.stringify(snap) === initialSnapshotJson) return
+    // 300ms 防抖：拖拽实时预览用（mousemove 高频需合并）。键盘输入由 DragInput 的
+    // onBlur/Enter 触发 setValue，这里同样 300ms 防抖合并连续多字段编辑。
+    autoUpdateTimer = setTimeout(() => {
+      // 触发时二次校验：等待期间快照可能已回到基线（如取消勾选恢复原值），
+      // 此时无需（也不应）再提交。
+      if (JSON.stringify(autoSnapshot()) === initialSnapshotJson) return
+      handleConfirm(true)
+    }, 300)
   })
 
   function updateDims() {
@@ -1403,6 +1464,10 @@ export function PropertyEditorPopup(props: {
 
   async function handleConfirm(skipChangeCheck?: boolean) {
     logStartSession(`quick-modify-${props.elementId}`, `修改元素 ${props.elementId} [${props.componentType}]`)
+    // 提交时刻的快照：css 部分在 await 前读取，基线必须推进到"本次实际提交的状态"。
+    // 若用 await 之后的快照推进（旧实现），用户在 IPC await 窗口内的编辑会被吞进基线，
+    // autoSave effect 排程的定时器触发时发现 snapshot === baseline 而跳过，编辑丢失。
+    const snapAtSubmit = JSON.stringify(autoSnapshot())
     let className = props.currentClass || ''
     if (hasClassEditor()) {
       const dirtyGroups = computeDirtyGroups()
@@ -1586,7 +1651,7 @@ export function PropertyEditorPopup(props: {
     }
     logAgentCall('quick-modify', props.elementId, { className, componentProps, textContent: editText(), changed }, confirmData)
     props.onConfirm(confirmData)
-    initialSnapshotJson = JSON.stringify(autoSnapshot())
+    initialSnapshotJson = snapAtSubmit
   }
 
   function confirmMenuItems() {
@@ -1616,6 +1681,8 @@ export function PropertyEditorPopup(props: {
     found: Accessor<boolean>
     placeholder: string
     icon?: string | JSX.Element
+    /** 透传给 DragInput 的 min；不传则走默认 0（padding/圆角/描边）。margin 需要负值时传负数。 */
+    min?: number
   }
 
   function renderTrblGrid(
@@ -1623,8 +1690,8 @@ export function PropertyEditorPopup(props: {
   ) {
     const row = (a: TrblInput, b: TrblInput) => (
       <div class="flex items-center gap-1.5 w-full min-w-0">
-        <DragInput value={a.value} setValue={a.setValue} setFound={a.setFound} found={a.found} placeholder={a.placeholder} icon={a.icon} />
-        <DragInput value={b.value} setValue={b.setValue} setFound={b.setFound} found={b.found} placeholder={b.placeholder} icon={b.icon} />
+        <DragInput value={a.value} setValue={a.setValue} setFound={a.setFound} found={a.found} placeholder={a.placeholder} icon={a.icon} min={a.min} />
+        <DragInput value={b.value} setValue={b.setValue} setFound={b.setFound} found={b.found} placeholder={b.placeholder} icon={b.icon} min={b.min} />
         {hasSpacer ? <div class="w-6 shrink-0" /> : null}
       </div>
     )
@@ -2212,7 +2279,7 @@ export function PropertyEditorPopup(props: {
                   <DragInput
                     value={editMt} setValue={(v) => { setEditMt(v); setEditMr(v); setEditMb(v); setEditMl(v) }}
                     setFound={(v) => { setFoundMt(v); setFoundMr(v); setFoundMb(v); setFoundMl(v) }}
-                    found={foundMt} placeholder="-" icon={MarginIcon()} />
+                    found={foundMt} placeholder="-" icon={MarginIcon()} min={-9999} />
                 </div>
               </Show>
               <Show when={marginMode() === 'hv'}>
@@ -2220,19 +2287,19 @@ export function PropertyEditorPopup(props: {
                   <DragInput
                     value={editMr} setValue={(v) => { setEditMr(v); setEditMl(v) }}
                     setFound={(v) => { setFoundMr(v); setFoundMl(v) }}
-                    found={foundMr} placeholder="水平" icon={HorizontalPaddingIcon()} />
+                    found={foundMr} placeholder="水平" icon={HorizontalPaddingIcon()} min={-9999} />
                   <DragInput
                     value={editMt} setValue={(v) => { setEditMt(v); setEditMb(v) }}
                     setFound={(v) => { setFoundMt(v); setFoundMb(v) }}
-                    found={foundMt} placeholder="垂直" icon={VerticalPaddingIcon()} />
+                    found={foundMt} placeholder="垂直" icon={VerticalPaddingIcon()} min={-9999} />
                 </div>
               </Show>
               <Show when={marginMode() === 'trbl'}>
                 {renderTrblGrid(
-                  { value: editMt, setValue: setEditMt, setFound: setFoundMt, found: foundMt, placeholder: "上", icon: "↑" },
-                  { value: editMr, setValue: setEditMr, setFound: setFoundMr, found: foundMr, placeholder: "右", icon: "→" },
-                  { value: editMb, setValue: setEditMb, setFound: setFoundMb, found: foundMb, placeholder: "下", icon: "↓" },
-                  { value: editMl, setValue: setEditMl, setFound: setFoundMl, found: foundMl, placeholder: "左", icon: "←" },
+                  { value: editMt, setValue: setEditMt, setFound: setFoundMt, found: foundMt, placeholder: "上", icon: "↑", min: -9999 },
+                  { value: editMr, setValue: setEditMr, setFound: setFoundMr, found: foundMr, placeholder: "右", icon: "→", min: -9999 },
+                  { value: editMb, setValue: setEditMb, setFound: setFoundMb, found: foundMb, placeholder: "下", icon: "↓", min: -9999 },
+                  { value: editMl, setValue: setEditMl, setFound: setFoundMl, found: foundMl, placeholder: "左", icon: "←", min: -9999 },
                 )}
               </Show>
             </div>
@@ -2249,19 +2316,19 @@ export function PropertyEditorPopup(props: {
               </div>
               <div class="grid grid-cols-2 gap-x-2 gap-y-1">
                 <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={fillWidth()} onChange={(e) => { setFillWidth(e.currentTarget.checked); if (e.currentTarget.checked) setHugWidth(false) }} />
+                  <input type="checkbox" checked={fillWidth()} onChange={(e) => { if (e.currentTarget.checked) { setFillWidth(true); setHugWidth(false) } else revertGroup('width', 'fill') }} />
                   <span class="text-[10px] text-slate-500">填充宽度</span>
                 </label>
                 <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={fillHeight()} onChange={(e) => { setFillHeight(e.currentTarget.checked); if (e.currentTarget.checked) setHugHeight(false) }} />
+                  <input type="checkbox" checked={fillHeight()} onChange={(e) => { if (e.currentTarget.checked) { setFillHeight(true); setHugHeight(false) } else revertGroup('height', 'fill') }} />
                   <span class="text-[10px] text-slate-500">填充高度</span>
                 </label>
                 <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={hugWidth()} onChange={(e) => { setHugWidth(e.currentTarget.checked); if (e.currentTarget.checked) setFillWidth(false) }} />
+                  <input type="checkbox" checked={hugWidth()} onChange={(e) => { if (e.currentTarget.checked) { setHugWidth(true); setFillWidth(false) } else revertGroup('width', 'hug') }} />
                   <span class="text-[10px] text-slate-500">适应宽度</span>
                 </label>
                 <label class="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={hugHeight()} onChange={(e) => { setHugHeight(e.currentTarget.checked); if (e.currentTarget.checked) setFillHeight(false) }} />
+                  <input type="checkbox" checked={hugHeight()} onChange={(e) => { if (e.currentTarget.checked) { setHugHeight(true); setFillHeight(false) } else revertGroup('height', 'hug') }} />
                   <span class="text-[10px] text-slate-500">适应高度</span>
                 </label>
                 <label class="flex items-center gap-1 cursor-pointer col-span-2">

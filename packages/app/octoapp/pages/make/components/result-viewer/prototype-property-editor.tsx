@@ -7,6 +7,7 @@ import "@/pages/pattern/assets/style/preview/PropertyEditorPopup.css"
 import {
   onPrototypeQuickFix,
   onPrototypeClosePanels,
+  onPrototypeRectUpdate,
   closePrototypePanels,
   applyPrototypeModify,
   dispatchPrototypePickerSubmit,
@@ -34,8 +35,17 @@ export function PrototypePropertyEditor(): JSX.Element {
     setPickerDrag({ x: 0, y: 0 })
     setPickerVisible(true)
   })
+  // 选中元素在编辑过程中尺寸/位置变化（如改 className/文本导致换行/宽度变化）时，
+  // iframe ResizeObserver 会经 message-handler 派发 prototype:rect-update。这里按
+  // elementId 匹配当前选中的元素，更新 elementRect，让 mask 蓝框和编辑器弹窗跟随。
+  const unsubRectUpdate = onPrototypeRectUpdate((d) => {
+    const cur = data()
+    if (cur && cur.elementId === d.elementId) {
+      setData({ ...cur, elementRect: d.elementRect })
+    }
+  })
   const unsubClose = onPrototypeClosePanels(() => { closeUi(); closePicker() })
-  onCleanup(() => { unsubQuickFix(); unsubClose() })
+  onCleanup(() => { unsubQuickFix(); unsubRectUpdate(); unsubClose() })
 
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") closeAll()
