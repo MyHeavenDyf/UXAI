@@ -2045,7 +2045,7 @@ test("HTTP models catalog replaces the bundled model list", async () => {
         w3: {
           id: "w3",
           name: "Remote W3",
-          env: ["W3_KEY"],
+          env: ["REMOTE_ONLY_KEY"],
           npm: "@ai-sdk/openai-compatible",
           api: "https://example.com/v1",
           models: {
@@ -2078,12 +2078,20 @@ test("HTTP models catalog replaces the bundled model list", async () => {
       await run((provider) => provider.refresh())
       const providers = await list()
       expect(providers[ProviderID.make("w3")].name).toBe("Remote W3")
+      expect(providers[ProviderID.make("w3")].env).toEqual(["W3_KEY"])
       const model = providers[ProviderID.make("w3")].models["remote-only"]
       expect(model.isExternal).toBe(true)
       expect(model.api.url).toBe("https://example.com/v1")
       expect(model.headers["x-model"]).toBe("remote")
       expect(model.options.priority).toBe("high")
       expect(providers[ProviderID.make("w3")].models["GLM-V5-WB"]).toBeUndefined()
+      expect(
+        Provider.isConnected({
+          ...providers[ProviderID.make("w3")],
+          id: ProviderID.make("remote-custom"),
+          source: "custom",
+        }),
+      ).toBe(true)
 
       state.modelID = "remote-next"
       await run((provider) => provider.refresh(true))

@@ -1432,6 +1432,17 @@ interface State {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Provider") {}
 
+export function isConnected(provider: Info) {
+  return (
+    provider.id === "w3" ||
+    Boolean(provider.key) ||
+    provider.source === "env" ||
+    provider.source === "api" ||
+    provider.source === "custom" ||
+    Boolean(provider.options.apiKey)
+  )
+}
+
 function cost(c: ModelsDev.Model["cost"]): Model["cost"] {
   const result: Model["cost"] = {
     input: c?.input ?? 0,
@@ -1566,15 +1577,21 @@ const layer: Layer.Layer<
         const cfg = yield* config.get()
         const remoteModels = modelsApiSource() === "http"
         loadedModelsSource = remoteModels ? "http" : "local"
+        const bundledModels = yield* modelsDevSvc.get()
         const modelsDev = remoteModels
           ? yield* Effect.promise(() => modelsApiCatalog()).pipe(
               Effect.flatMap((catalog) =>
                 catalog
-                  ? Effect.succeed(catalog)
+                  ? Effect.succeed(
+                      mapValues(catalog, (provider) => ({
+                        ...provider,
+                        env: bundledModels[provider.id]?.env ?? provider.env,
+                      })),
+                    )
                   : Effect.die(new Error("Remote models API is unavailable and no cached catalog exists")),
               ),
             )
-          : yield* modelsDevSvc.get()
+          : bundledModels
         if (remoteModels) loadedRemoteCatalog = modelsDev
         const database = mapValues(modelsDev, fromModelsDevProvider)
 
@@ -1863,7 +1880,7 @@ const layer: Layer.Layer<
         // load config - re-apply with updated data
         for (const [id, provider] of configProviders) {
           const providerID = ProviderID.make(id)
-          const partial: Partial<Info> = { source: "config" }
+          const partial: Partial<Info> = providers[providerID] ? {} : { source: "config" }
           if (provider.env) partial.env = provider.env
           if (!remoteModels && provider.name) partial.name = provider.name
           if (provider.options) partial.options = provider.options
