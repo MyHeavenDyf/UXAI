@@ -68,7 +68,9 @@ import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { DialogPreviewUnavailable } from "./components/dialog-preview-unavailable"
 import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
-import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, UploadError } from "../insight/lib/upload"
+import { validateFile, formatUploadsForPrompt, isImageFile, imageMimeFor, UploadError } from "../insight/lib/upload"
+import { importFileToWorktree } from "../insight/utils/worktree-import"
+import { encodeFilePath } from "@/context/file/path"
 import { ContextOverflowNotice, InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
 import { type ToolCallInfo, toolFamily } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
@@ -112,6 +114,9 @@ import { extractSubtypeFromFilename } from "./utils/subtype-extractor"
 import { type VersionEntry } from "./utils/history-store"
 import { createHistoryController } from "./subtype-handlers/history-controller"
 import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
+
+// 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限
+const MAKE_IMAGE_MAX = 10 * 1024 * 1024
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
@@ -586,25 +591,18 @@ const sessionMessagesLoaded = createMemo(() => {
               mime: 'image/png',
               size: file.size,
               status: 'uploading',
-              source: 'external',
+              source: 'pending',
               previewUrl
             }])
 
-            try {
-              const result = await uploadFile(file)
-              setAttachments(prev => prev.map(a =>
-                a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
-              ))
-              await sendMessage(sessionId, messageText, modelKey)
-              setAttachments([])
-              setPrompt("")
-            } catch (err) {
-              const message = err instanceof UploadError ? err.message : '上传失败'
-              setAttachments(prev => prev.map(a =>
-                a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
-              ))
+            const ok = await doImageImport(id, file, file.name)
+            if (!ok) {
               setPrompt(messageText)
+              return
             }
+            await sendMessage(sessionId, messageText, modelKey)
+            setAttachments([])
+            setPrompt("")
           } else {
             await new Promise(resolve => setTimeout(resolve, 100))
             const att = attachments().find(a => a.id === filesById.keys().next().value)
@@ -621,29 +619,18 @@ const sessionMessagesLoaded = createMemo(() => {
           const id = crypto.randomUUID()
           const previewUrl = URL.createObjectURL(file)
           filesById.set(id, file)
-          
+
           setAttachments(prev => [...prev, {
             id,
             filename: file.name,
             mime: 'image/png',
             size: file.size,
             status: 'uploading',
-            source: 'external',
+            source: 'pending',
             previewUrl
           }])
-          
-          uploadFile(file)
-            .then(result => {
-              setAttachments(prev => prev.map(a => 
-                a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
-              ))
-            })
-            .catch(err => {
-              const message = err instanceof UploadError ? err.message : '上传失败'
-              setAttachments(prev => prev.map(a =>
-                a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
-              ))
-            })
+
+          void doImageImport(id, file, file.name)
         }
         
         if (messageText) {
@@ -2470,18 +2457,39 @@ const sessionMessagesLoaded = createMemo(() => {
       setMentionSelections([])
       
       const done = attachments().filter(a => a.status === "done")
-      
-      // 本地文件 → [附件] 清单
-      const localFiles = done.filter(a => a.source === "local" && a.path)
-      const localManifest = localFiles.map(a => ({ filename: a.filename, path: a.path! }))
-      
-      // 外部文件 → FilePart
-      const externalFiles = done.filter(a => a.source === "external")
-      const fileParts: FilePartInput[] = externalFiles.map(a => ({
+
+      // 附件从 tmps 搬进 session/uploads（原子 rename IPC，与 insight 一致）
+      const movedPaths = new Map<string, string>()
+      {
+        const api = getDesktopApi()
+        const baseDir = projectDir()
+        if (baseDir && typeof api?.movePendingUploadToSession === "function" && sessionId) {
+          const pendingFiles = done.filter(a => a.source === 'pending' && a.path)
+          await Promise.all(pendingFiles.map(async a => {
+            try {
+              const newPath = await api.movePendingUploadToSession!(a.path!, baseDir, sessionId)
+              movedPaths.set(a.id, newPath)
+            } catch (err) {
+              console.warn("[octo:make] upload-move failed, keep pending path", { id: a.id, path: a.path, err })
+            }
+          }))
+          if (movedPaths.size > 0) {
+            setAttachments(prev => prev.map(x => movedPaths.has(x.id) ? { ...x, path: movedPaths.get(x.id)!, source: 'local' as const } : x))
+          }
+        }
+      }
+      const resolvedPath = (a: Attachment) => movedPaths.get(a.id) ?? a.path!
+
+      // 非图片（有 path）→ [附件] 清单；图片（有 path）→ vision FilePart{url:file://…}
+      const localFiles = done.filter(a => !isImageFile(a.filename) && a.path)
+      const localManifest = localFiles.map(a => ({ filename: a.filename, path: resolvedPath(a) }))
+
+      const imageFiles = done.filter(a => isImageFile(a.filename) && a.path)
+      const fileParts: FilePartInput[] = imageFiles.map(a => ({
         type: "file",
-        mime: a.mime,
+        mime: a.mime || imageMimeFor(a.filename, "image/png"),
         filename: a.filename,
-        url: a.url ?? a.dataUrl!,
+        url: `file://${encodeFilePath(resolvedPath(a))}`,
       }))
 
       // 附件已快照到 fileParts/localManifest，立即清空 UI；
@@ -3270,27 +3278,53 @@ if (dsId) {
     const id = crypto.randomUUID()
     const previewUrl = URL.createObjectURL(file)
     filesById.set(id, file)
-    
+
+    const imageErr = file.size > MAKE_IMAGE_MAX
+      ? `图片超过 ${Math.round(MAKE_IMAGE_MAX / 1024 / 1024)}MB 上限，请压缩后重新上传`
+      : null
+    const validationErr = validateFile(file) ?? (imageErr ? new UploadError("FILE_TOO_LARGE", imageErr) : null)
+    if (validationErr) {
+      setAttachments(prev => [...prev, {
+        id, filename: file.name,
+        mime: file.type || imageMimeFor(file.name),
+        size: file.size, status: 'error', source: 'pending',
+        error: validationErr.message, retriable: false,
+      }])
+      return
+    }
+
     setAttachments(prev => [...prev, {
-      id,
-      filename: file.name,
-      mime: file.type || 'image/png',
-      size: file.size,
-      status: 'uploading',
-      source: 'external',
-      previewUrl
+      id, filename: file.name,
+      mime: file.type || imageMimeFor(file.name),
+      size: file.size, status: 'uploading', source: 'pending', previewUrl,
     }])
-    
+
+    void doImageImport(id, file, file.name)
+  }
+
+  async function doImageImport(id: string, rawFile: File, filename: string): Promise<boolean> {
     try {
-      const result = await uploadFile(file)
-      setAttachments(prev => prev.map(a => 
-        a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
-      ))
-    } catch (err) {
-      const message = err instanceof UploadError ? err.message : '上传失败'
+      const dest = await importFileToWorktree(
+        { filename, file: rawFile },
+        { baseDir: projectDir(), api: getDesktopApi() },
+      )
+      if (!dest) {
+        setAttachments(prev => prev.map(a =>
+          a.id === id ? { ...a, status: 'error', error: '当前环境无法导入该图片，请从文件选择器选择文件', retriable: false } : a
+        ))
+        return false
+      }
+      const landedName = dest.split(/[\\/]/).pop()
       setAttachments(prev => prev.map(a =>
-        a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
+        a.id === id ? { ...a, status: 'done', source: 'pending', path: dest, filename: landedName || a.filename, error: undefined } : a
       ))
+      return true
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '导入失败'
+      setAttachments(prev => prev.map(a =>
+        a.id === id ? { ...a, status: 'error', error: message, retriable: true } : a
+      ))
+      return false
     }
   }
 
@@ -3549,23 +3583,12 @@ if (dsId) {
     const file = filesById.get(id)
     const att = attachments().find(a => a.id === id)
     if (!file || !att) return
-    
-    setAttachments(prev => prev.map(a => 
+
+    setAttachments(prev => prev.map(a =>
       a.id === id ? { ...a, status: 'uploading' as const, error: undefined } : a
     ))
-    
-    uploadFile(file)
-      .then(result => {
-        setAttachments(prev => prev.map(a => 
-          a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
-        ))
-      })
-      .catch(err => {
-        const message = err instanceof UploadError ? err.message : '上传失败'
-        setAttachments(prev => prev.map(a =>
-          a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
-        ))
-      })
+
+    void doImageImport(id, file, att.filename)
   }
 
   function removeAttachment(id: string) {
@@ -3624,26 +3647,29 @@ if (dsId) {
   async function movePendingUploadsToSession(sessionId: string) {
     const projectDirValue = projectDir()
     if (!projectDirValue) return
-    
+
     const api = getDesktopApi()
-    if (!api?.readFileBuffer || !api?.writeFileBuffer) return
-    
+    if (!api?.movePendingUploadToSession && !api?.readFileBuffer) return
+
     const pendingAttachments = attachments().filter(a => a.source === 'pending' && a.path)
-    
+
     for (const att of pendingAttachments) {
       try {
-        const sep = projectDirValue.includes("\\") ? "\\" : "/"
-        
-        const tempPath = att.path!
-        const buffer = await api.readFileBuffer(tempPath)
-        if (!buffer) continue
-        
-        const finalPath = [projectDirValue, ".octo", sessionId, "uploads", att.filename].join(sep)
-        await api.writeFileBuffer(finalPath, buffer)
-        
-        setAttachments(prev => prev.map(a => 
-          a.id === att.id ? { ...a, path: finalPath, source: 'local' as const } : a
-        ))
+        let newPath: string | null = null
+        if (api.movePendingUploadToSession) {
+          newPath = await api.movePendingUploadToSession(att.path!, projectDirValue, sessionId)
+        } else if (api.readFileBuffer && api.writeFileBuffer) {
+          const buffer = await api.readFileBuffer(att.path!)
+          if (!buffer) continue
+          const sep = projectDirValue.includes("\\") ? "\\" : "/"
+          newPath = [projectDirValue, ".octo", sessionId, "uploads", att.filename].join(sep)
+          await api.writeFileBuffer(newPath, buffer)
+        }
+        if (newPath) {
+          setAttachments(prev => prev.map(a =>
+            a.id === att.id ? { ...a, path: newPath, source: 'local' as const } : a
+          ))
+        }
       } catch (err) {
         console.error(`[movePendingUploadsToSession] Failed to move ${att.filename}:`, err)
       }
