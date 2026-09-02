@@ -82,7 +82,9 @@ export const PAGE_RESOURCE_URL = "https://octo.hdesign.huawei.com/lib-resource-s
 
 export async function getResourceDetail(type = "file", dataId: string) {
   const url = `${PAGE_RESOURCE_URL}/api/vector/detail?type=${type}&data_id=${dataId}`
-  const response = await fetch(url)
+  const response = await fetch(url, {
+    headers: { "Content-Type": "application/json", "octo-vs-token": "octo_vs_55a6894bfa8aa976620e3fed6c61ff16" }
+  });
   if (!response.ok) {
     return { success: false, error: `HTTP error! status: ${response.status}` }
   }
