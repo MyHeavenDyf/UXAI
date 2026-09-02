@@ -34,7 +34,8 @@ import { LocalProvider, useLocal } from "@/context/local"
 import { useTabModel } from "@/hooks/use-tab-model"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { useLanguage } from "@/context/language"
-import { ModelSelectorPopover } from "@/components/dialog-select-model"
+import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } from "@/components/dialog-select-model"
+import { MakeModelRiskDialog } from "@/pages/make/make-model-risk-dialog"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { ConversationHeader } from "./components/conversation-header"
 import { InsightSidebar, initialSidebarWidth } from "./sidebar"
@@ -2395,20 +2396,17 @@ function InsightContent() {
                         </Tooltip>
 
                         <ModelSelectorPopover
-                          model={local.model}
+                          model={local.model} riskDialog={MakeModelRiskDialog}
                           triggerAs="button"
                           triggerProps={{
-                            class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
+                            class: `${MODEL_TRIGGER_BASE_CLASS} max-w-[200px]`,
                             "data-action": "prompt-model",
                           }}
                           onClose={() => focusComposer()}
                         >
                           {/* 不渲染 ProviderIcon:内网自部署的 provider id 不在 ui sprite 内会落到
                               synthetic 占位图标,跟 UXAI chat 一致(屏蔽 icon 只显示模型名)。 */}
-                          <span class="truncate">
-                            {local.model.current()?.name ?? "选择模型"}
-                          </span>
-                          <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
+                          <ModelTriggerLabel model={local.model} />
                         </ModelSelectorPopover>
 
                         {/* 「研究工具」MCP 显式入口(SPEC-INS-017 §1,设计稿:位于模型选择器右侧) */}
@@ -2635,20 +2633,17 @@ function InsightContent() {
                     </Tooltip>
 
                     <ModelSelectorPopover
-                      model={local.model}
+                      model={local.model} riskDialog={MakeModelRiskDialog}
                       triggerAs="button"
                       triggerProps={{
-                        class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
+                        class: `${MODEL_TRIGGER_BASE_CLASS} max-w-[200px]`,
                         "data-action": "prompt-model",
                       }}
                       onClose={() => focusComposer()}
                     >
                       {/* 不渲染 ProviderIcon:内网自部署的 provider id 不在 ui sprite 内会落到
                           synthetic 占位图标,跟 UXAI chat 一致(屏蔽 icon 只显示模型名)。 */}
-                      <span class="truncate">
-                        {local.model.current()?.name ?? "选择模型"}
-                      </span>
-                      <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
+                      <ModelTriggerLabel model={local.model} />
                     </ModelSelectorPopover>
 
                     {/* 「研究工具」MCP 显式入口(SPEC-INS-017 §1,设计稿:位于模型选择器右侧) */}
