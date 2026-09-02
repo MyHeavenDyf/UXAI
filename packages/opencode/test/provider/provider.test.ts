@@ -2011,6 +2011,7 @@ test("models.dev normalization fills required response fields", () => {
         id: "gpt-5.4",
         name: "GPT-5.4",
         family: "gpt",
+        isExternal: true,
         cost: {
           input: 2.5,
           output: 15,
@@ -2026,6 +2027,7 @@ test("models.dev normalization fills required response fields", () => {
 
   const model = Provider.fromModelsDevProvider(provider).models["gpt-5.4"]
   expect(model.api.url).toBe("")
+  expect(model.isExternal).toBe(true)
   expect(model.capabilities.temperature).toBe(false)
   expect(model.capabilities.reasoning).toBe(false)
   expect(model.capabilities.attachment).toBe(false)

@@ -64,6 +64,7 @@ const ModelList: Component<{
         </Tooltip>
       )}
       onSelect={(x) => {
+        console.log("[model-select-src] onSelect", x?.id, "isExternal=", x?.isExternal)
         model.set(x ? { modelID: x.id, providerID: x.provider.id } : undefined, {
           recent: true,
         })

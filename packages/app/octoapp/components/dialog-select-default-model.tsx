@@ -80,6 +80,7 @@ export const DialogSelectDefaultModel: Component<{
         {(i) => (
           <div class="w-full flex items-center text-13-regular">
             <span class="truncate">{i.name}</span>
+            {i.isExternal ? <span class="ml-[6px] shrink-0 w-[40px] h-[20px] inline-flex items-center justify-center rounded-[2px] bg-[#fef5e8] text-[12px] text-[#191919]">{language.t("model.tag.external")}</span> : null}
           </div>
         )}
       </List>

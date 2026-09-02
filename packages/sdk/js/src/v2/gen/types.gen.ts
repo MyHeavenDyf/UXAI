@@ -1261,6 +1261,7 @@ export type Model = {
   }
   name: string
   family?: string
+  isExternal?: boolean
   capabilities: {
     temperature: boolean
     reasoning: boolean

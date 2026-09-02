@@ -789,8 +789,8 @@ function StyleInspector(props: {
           <ColorPicker label="Fill" value={props.styles.backgroundColor} tokens={HUI_COLOR_TOKENS} onChange={(v) => u('backgroundColor', v)} />
           <div class="cc-stroke-row">
             <DragInput
-              value={() => parseFloat(props.styles.opacity) || 0}
-              setValue={(v) => u('opacity', String(v))}
+              value={() => Math.round((parseFloat(props.styles.opacity) || 0) * 100)}
+              setValue={(v) => u('opacity', String(Math.round(v) / 100))}
               setFound={() => {}}
               found={() => true}
               placeholder="透明度"
@@ -932,7 +932,13 @@ function StyleInspector(props: {
               <span class="cc-typ-sublabel">行高</span>
               <DragInput
                 value={() => parseFloat(props.styles.lineHeight) || 0}
-                setValue={(v) => u('lineHeight', String(v))}
+                setValue={(v) => {
+                  // line-height 无单位是合法写法(=字号倍数);原值无单位则保持倍数语义,
+                  // 有单位(px/em)或 normal/空 则写 px。重开面板后值来自 computed 恒为 px。
+                  const raw = props.styles.lineHeight.trim()
+                  const unitless = /^\d+(\.\d+)?$/.test(raw)
+                  u('lineHeight', unitless ? String(v) : `${v}px`)
+                }}
                 setFound={() => {}}
                 found={() => true}
                 placeholder="auto"
@@ -998,6 +1004,17 @@ function QuadModeSection(props: {
   onChange: (side: 't' | 'r' | 'b' | 'l', value: string) => void
 }) {
   const [mode, setMode] = createSignal<'all' | 'hv' | 'trbl'>('all')
+  const [modeOpen, setModeOpen] = createSignal(false)
+  let modeAreaRef: HTMLDivElement | undefined
+
+  createEffect(() => {
+    if (!modeOpen()) return
+    const handler = (e: MouseEvent) => {
+      if (modeAreaRef && !modeAreaRef.contains(e.target as Node)) setModeOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    onCleanup(() => document.removeEventListener('mousedown', handler))
+  })
 
   const allVal = () => parseFloat(props.values.t) || 0
   const hVal = () => parseFloat(props.values.r) || 0
@@ -1014,28 +1031,23 @@ function QuadModeSection(props: {
   const Icon = props.base === 'padding' ? PaddingIcon : MarginIcon
 
   const modeActions = (
-    <div class="cc-quad-mode">
+    <div class="cc-quad-mode" ref={modeAreaRef}>
       <button
         type="button"
-        class={mode() === 'all' ? 'prop-chip-active cc-quad-mode-btn' : 'prop-chip cc-quad-mode-btn'}
-        onClick={() => setMode('all')}
-        title="四周"
-        aria-label="四周"
-      >四周</button>
-      <button
-        type="button"
-        class={mode() === 'hv' ? 'prop-chip-active cc-quad-mode-btn' : 'prop-chip cc-quad-mode-btn'}
-        onClick={() => setMode('hv')}
-        title="水平/垂直"
-        aria-label="水平/垂直"
-      >HV</button>
-      <button
-        type="button"
-        class={mode() === 'trbl' ? 'prop-chip-active cc-quad-mode-btn' : 'prop-chip cc-quad-mode-btn'}
-        onClick={() => setMode('trbl')}
-        title="上/右/下/左"
-        aria-label="上/右/下/左"
-      >⊣</button>
+        class="prop-chip cc-quad-mode-btn"
+        onClick={() => setModeOpen(!modeOpen())}
+        title="模式"
+        aria-label="切换模式"
+      >
+        <span class="cc-quad-mode-icon"><SettingsIcon /></span>
+      </button>
+      <Show when={modeOpen()}>
+        <div class="cc-quad-mode-dropdown" onClick={(e) => e.stopPropagation()}>
+          <button onClick={() => { setMode('all'); setModeOpen(false) }}>四周</button>
+          <button onClick={() => { setMode('hv'); setModeOpen(false) }}>水平/垂直</button>
+          <button onClick={() => { setMode('trbl'); setModeOpen(false) }}>上/右/下/左</button>
+        </div>
+      </Show>
     </div>
   )
 

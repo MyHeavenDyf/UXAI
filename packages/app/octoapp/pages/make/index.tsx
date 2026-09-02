@@ -68,8 +68,10 @@ import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { DialogPreviewUnavailable } from "./components/dialog-preview-unavailable"
 import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
-import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, UploadError } from "../insight/lib/upload"
-import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
+import { validateFile, formatUploadsForPrompt, isImageFile, imageMimeFor, UploadError } from "../insight/lib/upload"
+import { importFileToWorktree } from "../insight/utils/worktree-import"
+import { encodeFilePath } from "@/context/file/path"
+import { ContextOverflowNotice, InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
 import { type ToolCallInfo, toolFamily } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
@@ -83,7 +85,12 @@ import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
 import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
-import { ProgressCircle } from "@opencode-ai/ui/progress-circle"
+import { ContextUsageCircle } from "@/components/context-usage-circle"
+import {
+  ContextUsageWarning,
+  isContextAtLimit,
+  shouldShowContextWarning,
+} from "@/components/context-usage-warning"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
@@ -91,7 +98,8 @@ import { loadDesignSystem } from "./utils/design-system-loader"
 import { loadCrafts } from "./utils/craft-loader"
 import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
-import { ModelSelectorPopover } from "@/components/dialog-select-model"
+import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } from "@/components/dialog-select-model"
+import { MakeModelRiskDialog } from "./make-model-risk-dialog"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 import { SEND_TEXT_EVENT, type SendTextEventDetail } from "./utils/agent-events"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
@@ -106,6 +114,9 @@ import { extractSubtypeFromFilename } from "./utils/subtype-extractor"
 import { type VersionEntry } from "./utils/history-store"
 import { createHistoryController } from "./subtype-handlers/history-controller"
 import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
+
+// 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限
+const MAKE_IMAGE_MAX = 10 * 1024 * 1024
 
 export default function MakePage() {
   const projectDir = useProjectDir({ mode: "project" })
@@ -215,6 +226,7 @@ function MakeContent() {
   }
 
   const dialogPop = useDialogIframe()
+  const SPEC_SELECTOR_VISIBLE = false
   const [selectedSpecDisplay, setSelectedSpecDisplay] = createSignal<string | null>(null)
   const [selectedSpecName, setSelectedSpecName] = createSignal<string | null>(null)
 
@@ -222,6 +234,7 @@ function MakeContent() {
 
   // 获取存量配置并设置状态
   function fetchAndSetConfig() {
+    if (!SPEC_SELECTOR_VISIBLE) return
     const api = getDesktopApi()
     if (!api?.getAssetsConfig) return
     api.getAssetsConfig()
@@ -578,25 +591,18 @@ const sessionMessagesLoaded = createMemo(() => {
               mime: 'image/png',
               size: file.size,
               status: 'uploading',
-              source: 'external',
+              source: 'pending',
               previewUrl
             }])
 
-            try {
-              const result = await uploadFile(file)
-              setAttachments(prev => prev.map(a =>
-                a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
-              ))
-              await sendMessage(sessionId, messageText, modelKey)
-              setAttachments([])
-              setPrompt("")
-            } catch (err) {
-              const message = err instanceof UploadError ? err.message : '上传失败'
-              setAttachments(prev => prev.map(a =>
-                a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
-              ))
+            const ok = await doImageImport(id, file, file.name)
+            if (!ok) {
               setPrompt(messageText)
+              return
             }
+            await sendMessage(sessionId, messageText, modelKey)
+            setAttachments([])
+            setPrompt("")
           } else {
             await new Promise(resolve => setTimeout(resolve, 100))
             const att = attachments().find(a => a.id === filesById.keys().next().value)
@@ -613,29 +619,18 @@ const sessionMessagesLoaded = createMemo(() => {
           const id = crypto.randomUUID()
           const previewUrl = URL.createObjectURL(file)
           filesById.set(id, file)
-          
+
           setAttachments(prev => [...prev, {
             id,
             filename: file.name,
             mime: 'image/png',
             size: file.size,
             status: 'uploading',
-            source: 'external',
+            source: 'pending',
             previewUrl
           }])
-          
-          uploadFile(file)
-            .then(result => {
-              setAttachments(prev => prev.map(a => 
-                a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
-              ))
-            })
-            .catch(err => {
-              const message = err instanceof UploadError ? err.message : '上传失败'
-              setAttachments(prev => prev.map(a =>
-                a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
-              ))
-            })
+
+          void doImageImport(id, file, file.name)
         }
         
         if (messageText) {
@@ -868,12 +863,21 @@ const sessionMessagesLoaded = createMemo(() => {
   /** 跨 session 切换缓存: { mainSessionId: childSessionId }，切回时立即恢复 */
   const _planChildSessionCache: Record<string, string> = {}
 
-  /** 设计规划是否已结束（退出或确认），用于控制 plan 视图只读模式 */
-  // 从 localStorage 同步初始化，确保页面刷新/路由切换后立即生效
-  const [planEnded, setPlanEnded] = createSignal(!!(params.id && localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + params.id)))
+  /** 设计规划是否已结束（退出或确认），per-session 隔离，用于控制 plan 视图只读模式 */
+  const [planEndedMap, setPlanEndedMap] = createSignal<Record<string, boolean>>(
+    params.id ? { [params.id]: !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + params.id) } : {},
+  )
+  const currentSessionPlanEnded = createMemo(() => {
+    const sid = params.id
+    return sid ? !!planEndedMap()[sid] : false
+  })
 
-  /** 两步走工作流：当前阶段 */
-  const [planPhase, setPlanPhase] = createSignal<"strategy" | "generate">("strategy")
+  /** 两步走工作流：当前阶段，per-session 隔离 */
+  const [planPhaseMap, setPlanPhaseMap] = createSignal<Record<string, "strategy" | "generate">>({})
+  const currentSessionPlanPhase = createMemo(() => {
+    const sid = params.id
+    return sid ? (planPhaseMap()[sid] ?? "strategy") : "strategy"
+  })
 
   // 用于跟踪用户是否手动切换了 phase，防止 effect 自动切回
   const [userChangedPhase, setUserChangedPhase] = createSignal(false)
@@ -1018,7 +1022,13 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!sid) return []
     const visible = (message: Message) => {
       const parts = sync.data.part[message.id] ?? []
-      return message.role === "user" && parts.length > 0 && !parts.some((part) => part.type === "compaction")
+      if (message.role !== "user" || parts.length === 0) return false
+      // 手动 /compact 压缩消息带 synthetic text part(用户输入回显),需要显示;
+      // 自动压缩(仅 compaction part,无 text part)保持隐藏。
+      if (parts.some((part) => part.type === "compaction")) {
+        return parts.some((part) => part.type === "text")
+      }
+      return true
     }
     const mainMsgs = ((sync.data.message?.[sid] ?? []) as Message[]).filter(visible)
     const allMsgs: Message[] = [...mainMsgs]
@@ -1065,6 +1075,14 @@ const sessionMessagesLoaded = createMemo(() => {
     const limit = contextLimit()
     return limit ? Math.round((contextTokens() / limit) * 100) : 0
   })
+  const [ignoredContextWarningSession, setIgnoredContextWarningSession] = createSignal<string>()
+  const contextSendBlocked = createMemo(() => isContextAtLimit(contextTokens(), contextLimit(), params.id))
+
+  createEffect(() => {
+    if (contextUsage() >= 80) return
+    if (ignoredContextWarningSession() !== params.id) return
+    setIgnoredContextWarningSession(undefined)
+  })
 
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
@@ -1080,6 +1098,11 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const effectiveBusy = createMemo(() => isBusy() || childBusy())
+  const contextWarningVisible = createMemo(
+    () =>
+      !contextSendBlocked() &&
+      shouldShowContextWarning(contextUsage(), params.id, ignoredContextWarningSession(), effectiveBusy()),
+  )
   const [contextCompacting, setContextCompacting] = createSignal(false)
   const contextCompactionDisabled = createMemo(() => effectiveBusy() || contextCompacting())
 
@@ -1708,7 +1731,7 @@ const sessionMessagesLoaded = createMemo(() => {
       if (!planSid) return null
       // 如果用户手动切换了 phase，不自动切换
       if (userChangedPhase()) return null
-      const currentPhase = planPhase()
+      const currentPhase = currentSessionPlanPhase()
       // 如果已经是 generate 阶段，不需要再检测
       if (currentPhase === "generate") return null
       const msgs = sync.data.message?.[planSid]
@@ -1724,7 +1747,7 @@ const sessionMessagesLoaded = createMemo(() => {
       return null
     },
     (phase) => {
-      if (phase === "generate") setPlanPhase("generate")
+      if (phase === "generate") setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "generate" }))
     },
     { defer: true }
   ))
@@ -1740,10 +1763,10 @@ const sessionMessagesLoaded = createMemo(() => {
     sendMessage(planSid, prompt, key).catch((err) => {
       console.error("[MakePage] generate strategy failed", err)
       setIsGenerating(false)  // 失败时恢复
-      setPlanPhase("strategy")  // 失败时回滚到策略准备阶段
+      setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))  // 失败时回滚到策略准备阶段
     })
     setUserChangedPhase(false)  // 重置手动切换标记
-    setPlanPhase("generate")
+    setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "generate" }))
   }
 
   /** 用户点击 [上一步] / [返回策略准备] → 返回策略准备阶段 */
@@ -1751,7 +1774,7 @@ const sessionMessagesLoaded = createMemo(() => {
     const planSid = activePlanForCurrentSession()
     const key = activeModelKey()
     setUserChangedPhase(true)  // 标记用户手动切换
-    setPlanPhase("strategy")
+    setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))
     setIsGenerating(false)  // 复位生成状态，让按钮可点击、表单可填写
     // 通知子 agent 回到策略准备阶段，让后续对话上下文正确
     if (planSid && key) {
@@ -1766,6 +1789,10 @@ const sessionMessagesLoaded = createMemo(() => {
     const mainSid = params.id
     if (!planSid || !modelKey || !mainSid) return
     if (planButtonDisabled()) return   // 防重复
+    // 立即持久化"已结束"标记 + 设置 planEnded，防止用户在 await 期间切换 session 后切回时 plan 恢复为可交互
+    localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + mainSid, "true")
+    setPlanEndedForSession(mainSid)
+    setPlanEndedMap(prev => ({ ...prev, [mainSid]: true }))
     setOptimisticConfirmed(true)
     setPlanConfirmPending(true)  // 过渡状态：保持 plan 视图显示"正在生成 HTML..."
     const cmd = identifier ? `[confirm-plan ${identifier}]` : `[confirm-plan]`
@@ -1814,16 +1841,12 @@ const sessionMessagesLoaded = createMemo(() => {
     // 清理子 session 状态，保留子 session 的记录（不清理 childSessionIDs）
     localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + mainSid)
     delete _planChildSessionCache[mainSid]
-    // 持久化"已结束"标记，确保切换 session / 重启后 plan 视图只读
-    localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + mainSid, "true")
-    const currentPhase = planPhase()
-    setPlanEndedForSession(mainSid)
-    setPlanEnded(true)
+    const currentPhase = currentSessionPlanPhase()
     setActivePlanSessionId(null)
     setPlanParentSessionId(null)
     setHasChildPlanSession(false)
     setManualStrategyFormData({})
-    setPlanPhase(currentPhase)
+    setPlanPhaseMap(prev => ({ ...prev, [mainSid]: currentPhase }))
     // 不切视图：保持 plan 模式，让用户看到按钮已禁用的状态
     // 等到主 agent 进入 busy 状态后再自动切回 files 视图
   }
@@ -1847,12 +1870,12 @@ const sessionMessagesLoaded = createMemo(() => {
     setHasChildPlanSession(false)
     setManualStrategyFormData({})
     setResultViewMode("files")
-    setPlanPhase("strategy")
+    setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))
     setSending(false)
     _confirmPlanDisplayText = undefined
     // 提前退出规划时保留 Skill 暂存，只有确认成功后才清理。
     // 这样重新进入规划时可继续将当前方案与原 Skill 一起交接。
-    setPlanEnded(true)
+    setPlanEndedMap(prev => ({ ...prev, [params.id!]: true }))
     const mainSid = params.id
     if (mainSid) {
       localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + mainSid, "true")
@@ -1890,6 +1913,9 @@ const sessionMessagesLoaded = createMemo(() => {
   }
 
   /** 用户确认进入规划 → 创建已有主 session 的规划子 session */
+  // 跟踪 handleEnterPlan 是否正在进行中，防止 sync.data.session 更新触发 effect 错误清除状态
+  let _enteringPlan = false
+
   async function handleEnterPlan() {
     const sid = params.id
     const modelKey = activeModelKey()
@@ -1901,7 +1927,7 @@ const sessionMessagesLoaded = createMemo(() => {
     const composerText = editor?.getText?.() ?? ""
 
     setOptimisticIntentResolved(true)
-    setPlanEnded(false)
+    setPlanEndedMap(prev => ({ ...prev, [sid]: false }))
     localStorage.removeItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + sid)
 
     try {
@@ -1923,6 +1949,7 @@ const sessionMessagesLoaded = createMemo(() => {
       if (!childSession) throw new Error("Failed to create plan session")
 
       await sync.session.sync(childSession.id)
+      _enteringPlan = true
       setChildSessionIDs((prev) => {
         const next = new Set(prev)
         next.add(childSession.id)
@@ -1937,10 +1964,11 @@ const sessionMessagesLoaded = createMemo(() => {
       localStorage.setItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + sid, childSession.id)
       _planChildSessionCache[sid] = childSession.id
       setPlanParentSessionId(sid)
+      _enteringPlan = false
       savePlanSkillHandoff(sid, childSession.id, skills.map((skill) => ({ name: skill.name, label: skill.label })))
 
       setResultViewMode("plan")
-      setPlanPhase("strategy")
+      setPlanPhaseMap(prev => ({ ...prev, [sid]: "strategy" }))
       setUserChangedPhase(false)
       setManualStrategyFormData({})
       sync.session.sync(childSession.id).catch((err: any) => console.warn("[MakePage] sync child session failed", err))
@@ -1972,7 +2000,6 @@ const sessionMessagesLoaded = createMemo(() => {
     () => [params.id, sync.data.session] as const,
     ([newSid, allSessions], prev) => {
       const prevSid = prev?.[0] ?? null
-      const preservingPlanNavigation = !!newSid
       // 导航到 /make（无 session）时清除规划状态,防止泄漏到新会话
       if (!newSid) {
         if (prevSid) {
@@ -1986,7 +2013,7 @@ const sessionMessagesLoaded = createMemo(() => {
           setPlanChildSessionIDs(new Set<string>())
           setHasChildPlanSession(false)
           setResultViewMode("files")
-          setPlanPhase("strategy")
+          if (prevSid) setPlanPhaseMap(prev => ({ ...prev, [prevSid]: "strategy" }))
           setManualStrategyFormData({})
           setPhase2Pending(false)
         }
@@ -1998,11 +2025,7 @@ const sessionMessagesLoaded = createMemo(() => {
       // 仅在 session 实际切换时清理规划状态,避免 handleEnterPlan 等操作
       // 触发 sync.data.session 更新后重新进入此 effect 时错误地清除状态。
       tabStore.reset()
-      // tabStore 已清空,viewMode 必须同步重置,否则停留在 "tabs" 会显示
-      // 空 ResultViewer("对话产出将在这里展示")。后续 plan 恢复逻辑会在
-      // 需要时重新设为 "plan"。
-      setResultViewMode("files")
-      if (newSid !== prevSid && !preservingPlanNavigation) {
+      if (newSid !== prevSid && !_enteringPlan) {
         // 缓存前一个 session 的规划子 session，切回时立即恢复
         if (prevSid && activePlanSessionId()) {
           _planChildSessionCache[prevSid] = activePlanSessionId()!
@@ -2019,11 +2042,11 @@ const sessionMessagesLoaded = createMemo(() => {
         setPlanChildSessionIDs(new Set<string>())
         setHasChildPlanSession(false)
         setResultViewMode("files")
-        setPlanPhase("strategy")
+        setPlanPhaseMap(prev => ({ ...prev, [newSid!]: "strategy" }))
         setUserChangedPhase(false)  // 重置手动切换标记
         setManualStrategyFormData({})
         setPhase2Pending(false)
-        setPlanEnded(false)  // 复位结束状态，新 session 的恢复逻辑会重新设置
+        setPlanEndedMap(prev => ({ ...prev, [newSid!]: false }))  // 复位结束状态，新 session 的恢复逻辑会重新设置
       }
       // 尝试恢复当前主 session 的设计规划子 session（仅在 session 实际切换时）
       let restoredPlanSid: string | null = null
@@ -2048,7 +2071,7 @@ const sessionMessagesLoaded = createMemo(() => {
         if (restoredPlanSid) {
           // 规划子 session 已被当前恢复流程识别，先恢复为进行中状态；只有明确的结束标记才进入只读状态。
           setPlanEndedForSession(null)
-          setPlanEnded(false)
+          setPlanEndedMap(prev => ({ ...prev, [newSid!]: false }))
           const planSid = restoredPlanSid
           // 检查是否已被用户退出（持久化标记）
           const isEnded = !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid)
@@ -2060,7 +2083,7 @@ const sessionMessagesLoaded = createMemo(() => {
               sync.session.sync(planSid).catch(() => {})
             }
             setPlanEndedForSession(newSid)
-            setPlanEnded(true)
+            setPlanEndedMap(prev => ({ ...prev, [newSid!]: true }))
             return
           }
 
@@ -2097,10 +2120,10 @@ const sessionMessagesLoaded = createMemo(() => {
             setPlanChildSessionIDs(new Set<string>())
             setHasChildPlanSession(false)
             setPlanEndedForSession(newSid)
-            setPlanEnded(true)
+            setPlanEndedMap(prev => ({ ...prev, [newSid!]: true }))
             localStorage.setItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid, "true")
             // 设置 planPhase 为 generate，以便用户点击 tab 时正确显示第二阶段内容
-            setPlanPhase(hasDesignPlan ? "generate" : "strategy")
+            setPlanPhaseMap(prev => ({ ...prev, [newSid!]: hasDesignPlan ? "generate" : "strategy" }))
             // 清理 localStorage 缓存
             localStorage.removeItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + newSid)
             delete _planChildSessionCache[newSid]
@@ -2110,7 +2133,7 @@ const sessionMessagesLoaded = createMemo(() => {
             setPlanParentSessionId(newSid)
             setHasChildPlanSession(true)
             setResultViewMode("plan")
-            setPlanPhase(hasDesignPlan ? "generate" : "strategy")
+            setPlanPhaseMap(prev => ({ ...prev, [newSid!]: hasDesignPlan ? "generate" : "strategy" }))
           }
         }
       }
@@ -2133,11 +2156,18 @@ const sessionMessagesLoaded = createMemo(() => {
         setPhase2Pending(true)
         detectChildPlanSession(newSid).then((childId) => {
           if (params.id !== newSid || !childId) return
+          // 检查是否已被用户确认结束（持久化标记），防止策略执行后切回时内容仍可交互
+          const isEnded = !!localStorage.getItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + newSid)
+          if (isEnded) {
+            setPlanEndedForSession(newSid)
+            setPlanEndedMap(prev => ({ ...prev, [newSid!]: true }))
+            return
+          }
           setActivePlanSessionId(childId)
           setPlanParentSessionId(newSid)
           setHasChildPlanSession(true)
           setResultViewMode("plan")
-          setPlanPhase("strategy")
+          setPlanPhaseMap(prev => ({ ...prev, [newSid!]: "strategy" }))
         }).finally(() => {
           if (params.id === newSid) setPhase2Pending(false)
         })
@@ -2188,7 +2218,7 @@ const sessionMessagesLoaded = createMemo(() => {
           setPlanEndedForSession(mainSid)
           clearPlanComposerCapsule()
           if (activePlanSessionId() === childId) {
-            setPlanEnded(true)
+            setPlanEndedMap(prev => ({ ...prev, [mainSid!]: true }))
             setActivePlanSessionId(null)
             setPlanParentSessionId(null)
           }
@@ -2211,7 +2241,7 @@ const sessionMessagesLoaded = createMemo(() => {
         }
         setPlanConfirmPending(false)
         setPlanEndedForSession(mainSid ?? null)
-        setPlanEnded(true)
+        setPlanEndedMap(prev => ({ ...prev, [mainSid!]: true }))
         setActivePlanSessionId(null)
         setPlanParentSessionId(null)
         setPlanChildSessionIDs(new Set<string>())
@@ -2239,7 +2269,7 @@ const sessionMessagesLoaded = createMemo(() => {
         if (!card) {
           // 无有效 plan，安全复位
           setIsGenerating(false)
-          setPlanPhase("strategy")
+          setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))
           setUserChangedPhase(true)
         }
       }
@@ -2427,18 +2457,39 @@ const sessionMessagesLoaded = createMemo(() => {
       setMentionSelections([])
       
       const done = attachments().filter(a => a.status === "done")
-      
-      // 本地文件 → [附件] 清单
-      const localFiles = done.filter(a => a.source === "local" && a.path)
-      const localManifest = localFiles.map(a => ({ filename: a.filename, path: a.path! }))
-      
-      // 外部文件 → FilePart
-      const externalFiles = done.filter(a => a.source === "external")
-      const fileParts: FilePartInput[] = externalFiles.map(a => ({
+
+      // 附件从 tmps 搬进 session/uploads（原子 rename IPC，与 insight 一致）
+      const movedPaths = new Map<string, string>()
+      {
+        const api = getDesktopApi()
+        const baseDir = projectDir()
+        if (baseDir && typeof api?.movePendingUploadToSession === "function" && sessionId) {
+          const pendingFiles = done.filter(a => a.source === 'pending' && a.path)
+          await Promise.all(pendingFiles.map(async a => {
+            try {
+              const newPath = await api.movePendingUploadToSession!(a.path!, baseDir, sessionId)
+              movedPaths.set(a.id, newPath)
+            } catch (err) {
+              console.warn("[octo:make] upload-move failed, keep pending path", { id: a.id, path: a.path, err })
+            }
+          }))
+          if (movedPaths.size > 0) {
+            setAttachments(prev => prev.map(x => movedPaths.has(x.id) ? { ...x, path: movedPaths.get(x.id)!, source: 'local' as const } : x))
+          }
+        }
+      }
+      const resolvedPath = (a: Attachment) => movedPaths.get(a.id) ?? a.path!
+
+      // 非图片（有 path）→ [附件] 清单；图片（有 path）→ vision FilePart{url:file://…}
+      const localFiles = done.filter(a => !isImageFile(a.filename) && a.path)
+      const localManifest = localFiles.map(a => ({ filename: a.filename, path: resolvedPath(a) }))
+
+      const imageFiles = done.filter(a => isImageFile(a.filename) && a.path)
+      const fileParts: FilePartInput[] = imageFiles.map(a => ({
         type: "file",
-        mime: a.mime,
+        mime: a.mime || imageMimeFor(a.filename, "image/png"),
         filename: a.filename,
-        url: a.url ?? a.dataUrl!,
+        url: `file://${encodeFilePath(resolvedPath(a))}`,
       }))
 
       // 附件已快照到 fileParts/localManifest，立即清空 UI；
@@ -2583,7 +2634,7 @@ const sessionMessagesLoaded = createMemo(() => {
           }
           
           try {
-            await sdk.client.session.command({
+            const result = await sdk.client.session.command({
               sessionID: sessionId,
               command: seg.cmd,
               arguments: seg.args,
@@ -2591,8 +2642,29 @@ const sessionMessagesLoaded = createMemo(() => {
               model: modelStr,
               parts: cmdParts.length > 0 ? cmdParts : undefined,
             })
+            // /compact、/summarize 的响应是摘要 assistant 消息,成功判定与后端 isSuccessful 一致
+            if (seg.cmd === "compact" || seg.cmd === "summarize") {
+              const info = result.data?.info
+              if (info && info.summary === true && info.finish && !info.error) {
+                showOctoToast({ title: "上下文压缩完成" })
+              } else {
+                const err = (info?.error ?? result.error) as { data?: { message?: string }; message?: string } | undefined
+                showOctoToast({
+                  title: "上下文压缩失败",
+                  description: err?.data?.message ?? err?.message ?? "请稍后重试",
+                  variant: "error",
+                })
+              }
+            }
           } catch (err) {
             console.error(`[MakePage] command /${seg.cmd} failed`, err)
+            if (seg.cmd === "compact" || seg.cmd === "summarize") {
+              showOctoToast({
+                title: "上下文压缩失败",
+                description: err instanceof Error ? err.message : "请稍后重试",
+                variant: "error",
+              })
+            }
           }
         }
 
@@ -2761,10 +2833,19 @@ const sessionMessagesLoaded = createMemo(() => {
       mentions = proseMirrorRef1?.getMentions?.() || []
     }
     
+    if (contextSendBlocked()) {
+      showOctoToast({
+        title: "上下文已达到上限",
+        description: "请先压缩上下文，或新建对话。",
+        variant: "error",
+      })
+      return
+    }
+
     // 注入 specSelector 的 skill
     const specName = selectedSpecName()
     const specDisplay = selectedSpecDisplay()
-    if (specName && specDisplay) {
+    if (SPEC_SELECTOR_VISIBLE && specName && specDisplay) {
       text = `@${specName} ` + text
       mentions = [{ type: 'skill', name: specName, label: specDisplay, id: specName, path: "" }, ...mentions]
     }
@@ -2828,6 +2909,7 @@ const sessionMessagesLoaded = createMemo(() => {
           if (!childSession) throw new Error("Failed to create plan session")
 
           loadedChildSessions.add(childSession.id)
+          _enteringPlan = true
           setChildSessionIDs((prev) => {
             const next = new Set(prev)
             next.add(childSession.id)
@@ -2841,16 +2923,17 @@ const sessionMessagesLoaded = createMemo(() => {
           setActivePlanSessionId(childSession.id)
           setPlanParentSessionId(session.id)
           setPlanEndedForSession(null)
-          setPlanEnded(false)
+          setPlanEndedMap(prev => ({ ...prev, [session.id]: false }))
           localStorage.removeItem(PLAN_ENDED_LOCALSTORAGE_PREFIX + session.id)
           setPlanChildSessionIDs((prev) => { const next = new Set(prev); next.add(childSession.id); return next })
           localStorage.setItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + session.id, childSession.id)
           _planChildSessionCache[session.id] = childSession.id
           savePlanSkillHandoff(session.id, childSession.id, skills)
           setResultViewMode("plan")
-          setPlanPhase("strategy")
+          setPlanPhaseMap(prev => ({ ...prev, [session.id]: "strategy" }))
           setUserChangedPhase(false)
           setManualStrategyFormData({})
+          _enteringPlan = false
 
           local.session.promote(sdk.directory, session.id)
           await sync.session.sync(childSession.id)
@@ -2867,7 +2950,7 @@ const sessionMessagesLoaded = createMemo(() => {
         await movePendingUploadsToSession(session.id)
 
       // 如果用户没有手动选择 spec，检查是否有存量配置
-      if (!selectedSpecDisplay()) {
+      if (SPEC_SELECTOR_VISIBLE && !selectedSpecDisplay()) {
         const api = getDesktopApi()
         if (api?.getAssetsConfig) {
           try {
@@ -3195,27 +3278,53 @@ if (dsId) {
     const id = crypto.randomUUID()
     const previewUrl = URL.createObjectURL(file)
     filesById.set(id, file)
-    
+
+    const imageErr = file.size > MAKE_IMAGE_MAX
+      ? `图片超过 ${Math.round(MAKE_IMAGE_MAX / 1024 / 1024)}MB 上限，请压缩后重新上传`
+      : null
+    const validationErr = validateFile(file) ?? (imageErr ? new UploadError("FILE_TOO_LARGE", imageErr) : null)
+    if (validationErr) {
+      setAttachments(prev => [...prev, {
+        id, filename: file.name,
+        mime: file.type || imageMimeFor(file.name),
+        size: file.size, status: 'error', source: 'pending',
+        error: validationErr.message, retriable: false,
+      }])
+      return
+    }
+
     setAttachments(prev => [...prev, {
-      id,
-      filename: file.name,
-      mime: file.type || 'image/png',
-      size: file.size,
-      status: 'uploading',
-      source: 'external',
-      previewUrl
+      id, filename: file.name,
+      mime: file.type || imageMimeFor(file.name),
+      size: file.size, status: 'uploading', source: 'pending', previewUrl,
     }])
-    
+
+    void doImageImport(id, file, file.name)
+  }
+
+  async function doImageImport(id: string, rawFile: File, filename: string): Promise<boolean> {
     try {
-      const result = await uploadFile(file)
-      setAttachments(prev => prev.map(a => 
-        a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
-      ))
-    } catch (err) {
-      const message = err instanceof UploadError ? err.message : '上传失败'
+      const dest = await importFileToWorktree(
+        { filename, file: rawFile },
+        { baseDir: projectDir(), api: getDesktopApi() },
+      )
+      if (!dest) {
+        setAttachments(prev => prev.map(a =>
+          a.id === id ? { ...a, status: 'error', error: '当前环境无法导入该图片，请从文件选择器选择文件', retriable: false } : a
+        ))
+        return false
+      }
+      const landedName = dest.split(/[\\/]/).pop()
       setAttachments(prev => prev.map(a =>
-        a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
+        a.id === id ? { ...a, status: 'done', source: 'pending', path: dest, filename: landedName || a.filename, error: undefined } : a
       ))
+      return true
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '导入失败'
+      setAttachments(prev => prev.map(a =>
+        a.id === id ? { ...a, status: 'error', error: message, retriable: true } : a
+      ))
+      return false
     }
   }
 
@@ -3474,23 +3583,12 @@ if (dsId) {
     const file = filesById.get(id)
     const att = attachments().find(a => a.id === id)
     if (!file || !att) return
-    
-    setAttachments(prev => prev.map(a => 
+
+    setAttachments(prev => prev.map(a =>
       a.id === id ? { ...a, status: 'uploading' as const, error: undefined } : a
     ))
-    
-    uploadFile(file)
-      .then(result => {
-        setAttachments(prev => prev.map(a => 
-          a.id === id ? { ...a, status: 'done' as const, url: result.url } : a
-        ))
-      })
-      .catch(err => {
-        const message = err instanceof UploadError ? err.message : '上传失败'
-        setAttachments(prev => prev.map(a =>
-          a.id === id ? { ...a, status: 'error' as const, error: message, retriable: true } : a
-        ))
-      })
+
+    void doImageImport(id, file, att.filename)
   }
 
   function removeAttachment(id: string) {
@@ -3549,26 +3647,29 @@ if (dsId) {
   async function movePendingUploadsToSession(sessionId: string) {
     const projectDirValue = projectDir()
     if (!projectDirValue) return
-    
+
     const api = getDesktopApi()
-    if (!api?.readFileBuffer || !api?.writeFileBuffer) return
-    
+    if (!api?.movePendingUploadToSession && !api?.readFileBuffer) return
+
     const pendingAttachments = attachments().filter(a => a.source === 'pending' && a.path)
-    
+
     for (const att of pendingAttachments) {
       try {
-        const sep = projectDirValue.includes("\\") ? "\\" : "/"
-        
-        const tempPath = att.path!
-        const buffer = await api.readFileBuffer(tempPath)
-        if (!buffer) continue
-        
-        const finalPath = [projectDirValue, ".octo", sessionId, "uploads", att.filename].join(sep)
-        await api.writeFileBuffer(finalPath, buffer)
-        
-        setAttachments(prev => prev.map(a => 
-          a.id === att.id ? { ...a, path: finalPath, source: 'local' as const } : a
-        ))
+        let newPath: string | null = null
+        if (api.movePendingUploadToSession) {
+          newPath = await api.movePendingUploadToSession(att.path!, projectDirValue, sessionId)
+        } else if (api.readFileBuffer && api.writeFileBuffer) {
+          const buffer = await api.readFileBuffer(att.path!)
+          if (!buffer) continue
+          const sep = projectDirValue.includes("\\") ? "\\" : "/"
+          newPath = [projectDirValue, ".octo", sessionId, "uploads", att.filename].join(sep)
+          await api.writeFileBuffer(newPath, buffer)
+        }
+        if (newPath) {
+          setAttachments(prev => prev.map(a =>
+            a.id === att.id ? { ...a, path: newPath, source: 'local' as const } : a
+          ))
+        }
       } catch (err) {
         console.error(`[movePendingUploadsToSession] Failed to move ${att.filename}:`, err)
       }
@@ -4039,22 +4140,38 @@ if (dsId) {
                   </Show>
                   <Show when={!titleState.editing && params.id}>
                     <Tooltip
-                      placement="bottom"
+                      placement="top"
                       gutter={8}
+                      arrow
+                      interactive
                       contentClass="make-token-tooltip"
                       value={
-                        <div class="flex flex-col">
-                          <span>
-                            当前session已使用： {contextTokens().toLocaleString(language.intl())} /{" "}
-                            {contextLimit()?.toLocaleString(language.intl()) ?? "--"} 个token
-                          </span>
-                          <span>
-                            {contextCompacting()
-                              ? "正在压缩上下文…"
-                              : effectiveBusy()
-                                ? "对话进行中，暂不可压缩"
-                                : "点击压缩上下文"}
-                          </span>
+                        <div class="make-token-tooltip-copy">
+                          <p>
+                            当前对话 Session 上下文
+                            {contextSendBlocked()
+                              ? "已超过100%"
+                              : contextUsage() >= 80
+                                ? "已超过80%"
+                                : `已使用${contextUsage()}%`}{" "}
+                            (
+                            <span classList={{ "is-critical": contextUsage() >= 80 }}>
+                              {contextTokens().toLocaleString(language.intl())}
+                            </span>{" "}
+                            / {contextLimit()?.toLocaleString(language.intl()) ?? "--"})，
+                          </p>
+                          <p>
+                            建议点击“
+                            <button
+                              type="button"
+                              class="make-token-tooltip-action"
+                              disabled={contextCompactionDisabled()}
+                              onClick={confirmCompactContext}
+                            >
+                              上下文压缩
+                            </button>
+                            ”以继续对话。
+                          </p>
                         </div>
                       }
                     >
@@ -4066,7 +4183,6 @@ if (dsId) {
                           "cursor-not-allowed": contextCompactionDisabled(),
                         }}
                         style={{
-                          "--border-active": "var(--octo-brand)",
                           "--border-weak-base": "rgba(0,0,0,0.1)",
                           background: "transparent",
                           border: "none",
@@ -4076,7 +4192,7 @@ if (dsId) {
                         onClick={confirmCompactContext}
                         aria-label={`上下文已使用 ${contextUsage()}%，点击压缩上下文`}
                       >
-                        <ProgressCircle size={16} strokeWidth={2} percentage={contextUsage()} />
+                        <ContextUsageCircle percentage={contextUsage()} />
                       </button>
                     </Tooltip>
                   </Show>
@@ -4294,34 +4410,39 @@ onPreview={(url) => {
                         />
 <ModelSelectorPopover
                            model={local.model}
+                           riskDialog={MakeModelRiskDialog}
                            triggerAs="button"
                            triggerProps={{
-                              class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none",
+                              class: `${MODEL_TRIGGER_BASE_CLASS} overflow-hidden focus-visible:outline-none`,
                               "data-action": "prompt-model",
                             }}
                            onClose={(cause) => {
-                             if (cause === "select") {
-                               const m = currentModel()
-                               if (m) {
-                                 tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
-                               }
-                             }
-                           }}
+                              if (cause === "select") {
+                                const m = currentModel()
+                                if (m) {
+                                  console.log("[design] select model", m.id, m.provider.id)
+                                  tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
+                                }
+                              }
+                            }}
                          >
-                          <span class="truncate">
-                            {currentModel()?.name ?? "选择模型"}
-                          </span>
-                          <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
-                        </ModelSelectorPopover>
-                      </div>
-<IconButton
-                         data-action="prompt-submit"
-                         type="submit"
-                         icon={effectiveBusy() ? "stop" : "arrow-up"}
+                          <ModelTriggerLabel model={local.model} />
+                         </ModelSelectorPopover>
+                       </div>
+ <IconButton
+                          data-action="prompt-submit"
+                          type="submit"
+                          icon={effectiveBusy() ? "stop" : "arrow-up"}
                          class="size-8 flex-shrink-0"
                          onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
-                         disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
-                         aria-label={effectiveBusy() ? "停止生成" : undefined}
+                         disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled() || contextSendBlocked())}
+                         aria-label={
+                           effectiveBusy()
+                             ? "停止生成"
+                             : contextSendBlocked()
+                               ? "上下文已达到上限，请先压缩上下文"
+                               : undefined
+                         }
 />
                     </div>
                    </div>
@@ -4389,6 +4510,11 @@ onPreview={(url) => {
                         }}
                         skillToolCalls={skillToolCalls()}
                         skillConfig={skillConfig()}
+                        contextTokens={contextTokens()}
+                        contextLimit={contextLimit()}
+                        contextLocale={language.intl()}
+                        contextCompactionDisabled={contextCompactionDisabled()}
+                        onCompactContext={confirmCompactContext}
                       />
                     </Show>
                     <For each={userMessages().slice(1)}>
@@ -4417,6 +4543,11 @@ onPreview={(url) => {
                             }}
                             skillToolCalls={skillToolCalls()}
                             skillConfig={skillConfig()}
+                            contextTokens={contextTokens()}
+                            contextLimit={contextLimit()}
+                            contextLocale={language.intl()}
+                            contextCompactionDisabled={contextCompactionDisabled()}
+                            onCompactContext={confirmCompactContext}
                           />
                         )
                       }}
@@ -4434,6 +4565,37 @@ onPreview={(url) => {
 
               {/* 输入区 */}
               <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
+
+                  <Show when={contextSendBlocked() && contextLimit()}>
+                    {(limit) => (
+                      <div class="make-context-warning-wrap">
+                        <ContextOverflowNotice
+                          class="w-full"
+                          tokens={contextTokens()}
+                          limit={limit()}
+                          locale={language.intl()}
+                          disabled={contextCompactionDisabled()}
+                          onCompact={confirmCompactContext}
+                        />
+                      </div>
+                    )}
+                  </Show>
+
+                  <Show when={contextWarningVisible() && contextLimit()}>
+                    {(limit) => (
+                      <div class="make-context-warning-wrap">
+                        <ContextUsageWarning
+                          tokens={contextTokens()}
+                          limit={limit()}
+                          locale={language.intl()}
+                          disabled={contextCompactionDisabled()}
+                          compacting={contextCompacting()}
+                          onIgnore={() => setIgnoredContextWarningSession(params.id)}
+                          onCompact={confirmCompactContext}
+                        />
+                      </div>
+                    )}
+                  </Show>
 
                   {/* Plan entry banner - AddonMenu 进入设计策略模式时的确认弹窗 */}
                   <Show when={showPlanConfirm() && !optimisticIntentResolved()}>
@@ -4605,24 +4767,23 @@ onPreview={(url) => {
                       />
 <ModelSelectorPopover
                          model={local.model}
+                         riskDialog={MakeModelRiskDialog}
                          triggerAs="button"
                          triggerProps={{
-                           class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
+                           class: `${MODEL_TRIGGER_BASE_CLASS} overflow-hidden`,
                            "data-action": "prompt-model",
                          }}
                          onClose={(cause) => {
-                           if (cause === "select") {
-                             const m = currentModel()
-                             if (m) {
-                               tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
-                             }
-                           }
-                         }}
+                            if (cause === "select") {
+                              const m = currentModel()
+                              if (m) {
+                                console.log("[design] select model", m.id, m.provider.id)
+                                tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
+                              }
+                            }
+                          }}
                        >
-                        <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
-                          {currentModel()?.name ?? "选择模型"}
-                        </span>
-                        <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
+                        <ModelTriggerLabel model={local.model} nameStyle="color: rgba(0, 0, 0, 0.9)" />
                       </ModelSelectorPopover>
                     </div>
 <IconButton
@@ -4632,8 +4793,14 @@ onPreview={(url) => {
                        variant="primary"
                        class="size-8 flex-shrink-0"
                        onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
-                       disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
-                       aria-label={effectiveBusy() ? "停止生成" : undefined}
+                       disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled() || contextSendBlocked())}
+                       aria-label={
+                         effectiveBusy()
+                           ? "停止生成"
+                           : contextSendBlocked()
+                             ? "上下文已达到上限，请先压缩上下文"
+                             : undefined
+                       }
                      />
                   </div>
                 </div>
@@ -4746,7 +4913,7 @@ onPreview={(url) => {
                   void historyController.onFileRefresh(tabStore.tabs())
                 }}
                 planCard={planCard()}
-                planPhase={planPhase()}
+                planPhase={currentSessionPlanPhase()}
                 strategyFormData={strategyFormData()}
                 onStrategyFieldChange={(field, value) => {
                   setManualStrategyFormData((prev) => ({ ...prev, [field]: value }))
@@ -4758,7 +4925,7 @@ onPreview={(url) => {
                 childPlanConfirmed={childPlanConfirmed()}
                 childSessionStatus={sync.data.session_status[activePlanForCurrentSession() ?? ""]}
                 childBusy={childBusy()}
-                planEnded={planEnded()}
+                planEnded={currentSessionPlanEnded()}
                 planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
               />
             </div>
