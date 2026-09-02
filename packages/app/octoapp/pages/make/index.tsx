@@ -97,7 +97,8 @@ import { loadDesignSystem } from "./utils/design-system-loader"
 import { loadCrafts } from "./utils/craft-loader"
 import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
-import { ModelSelectorPopover } from "@/components/dialog-select-model"
+import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } from "@/components/dialog-select-model"
+import { MakeModelRiskDialog } from "./make-model-risk-dialog"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 import { SEND_TEXT_EVENT, type SendTextEventDetail } from "./utils/agent-events"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
@@ -2359,7 +2360,6 @@ const sessionMessagesLoaded = createMemo(() => {
         setUserChangedPhase(false)  // 重置手动切换标记
         setManualStrategyFormData({})
         setPhase2Pending(false)
-        setPlanEndedMap(prev => ({ ...prev, [newSid!]: false })) // 复位结束状态，新 session 的恢复逻辑会重新设置
         // 清理 patternPage 状态
         setActivePatternSessionId(null)
         setPatternSubParentSessionId(null)
@@ -2372,6 +2372,7 @@ const sessionMessagesLoaded = createMemo(() => {
         setPatternEnded(false)
         setShowPatternPageConfirm(false)
         setPatternPageCapsule(false)
+        setPlanEndedMap(prev => ({ ...prev, [newSid!]: false }))  // 复位结束状态，新 session 的恢复逻辑会重新设置
       }
       // 尝试恢复当前主 session 的设计规划子 session（仅在 session 实际切换时）
       let restoredPlanSid: string | null = null
@@ -4853,30 +4854,29 @@ onPreview={(url) => {
                         />
 <ModelSelectorPopover
                            model={local.model}
+                           riskDialog={MakeModelRiskDialog}
                            triggerAs="button"
                            triggerProps={{
-                              class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none",
+                              class: `${MODEL_TRIGGER_BASE_CLASS} overflow-hidden focus-visible:outline-none`,
                               "data-action": "prompt-model",
                             }}
                            onClose={(cause) => {
-                             if (cause === "select") {
-                               const m = currentModel()
-                               if (m) {
-                                 tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
-                               }
-                             }
-                           }}
+                              if (cause === "select") {
+                                const m = currentModel()
+                                if (m) {
+                                  console.log("[design] select model", m.id, m.provider.id)
+                                  tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
+                                }
+                              }
+                            }}
                          >
-                          <span class="truncate">
-                            {currentModel()?.name ?? "选择模型"}
-                          </span>
-                          <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
-                        </ModelSelectorPopover>
-                      </div>
-<IconButton
-                         data-action="prompt-submit"
-                         type="submit"
-                         icon={effectiveBusy() ? "stop" : "arrow-up"}
+                          <ModelTriggerLabel model={local.model} />
+                         </ModelSelectorPopover>
+                       </div>
+ <IconButton
+                          data-action="prompt-submit"
+                          type="submit"
+                          icon={effectiveBusy() ? "stop" : "arrow-up"}
                          class="size-8 flex-shrink-0"
                          onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
                          disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled() || contextSendBlocked())}
@@ -5009,6 +5009,37 @@ onPreview={(url) => {
 
               {/* 输入区 */}
               <div class="shrink-0 relative" style={{ padding: "24px", background: "#fff" }}>
+
+                  <Show when={contextSendBlocked() && contextLimit()}>
+                    {(limit) => (
+                      <div class="make-context-warning-wrap">
+                        <ContextOverflowNotice
+                          class="w-full"
+                          tokens={contextTokens()}
+                          limit={limit()}
+                          locale={language.intl()}
+                          disabled={contextCompactionDisabled()}
+                          onCompact={confirmCompactContext}
+                        />
+                      </div>
+                    )}
+                  </Show>
+
+                  <Show when={contextWarningVisible() && contextLimit()}>
+                    {(limit) => (
+                      <div class="make-context-warning-wrap">
+                        <ContextUsageWarning
+                          tokens={contextTokens()}
+                          limit={limit()}
+                          locale={language.intl()}
+                          disabled={contextCompactionDisabled()}
+                          compacting={contextCompacting()}
+                          onIgnore={() => setIgnoredContextWarningSession(params.id)}
+                          onCompact={confirmCompactContext}
+                        />
+                      </div>
+                    )}
+                  </Show>
 
                   <Show when={contextSendBlocked() && contextLimit()}>
                     {(limit) => (
@@ -5231,24 +5262,23 @@ onPreview={(url) => {
                       />
 <ModelSelectorPopover
                          model={local.model}
+                         riskDialog={MakeModelRiskDialog}
                          triggerAs="button"
                          triggerProps={{
-                           class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
+                           class: `${MODEL_TRIGGER_BASE_CLASS} overflow-hidden`,
                            "data-action": "prompt-model",
                          }}
                          onClose={(cause) => {
-                           if (cause === "select") {
-                             const m = currentModel()
-                             if (m) {
-                               tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
-                             }
-                           }
-                         }}
+                            if (cause === "select") {
+                              const m = currentModel()
+                              if (m) {
+                                console.log("[design] select model", m.id, m.provider.id)
+                                tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
+                              }
+                            }
+                          }}
                        >
-                        <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
-                          {currentModel()?.name ?? "选择模型"}
-                        </span>
-                        <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
+                        <ModelTriggerLabel model={local.model} nameStyle="color: rgba(0, 0, 0, 0.9)" />
                       </ModelSelectorPopover>
                     </div>
 <IconButton
