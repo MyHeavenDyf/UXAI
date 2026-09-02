@@ -315,6 +315,13 @@ async function consumeForDebug(stream: ReadableStream<Uint8Array>, seq: number, 
 // 解决方案：针对本地 provider 强制使用无代理 dispatcher，禁用所有 timeout，绕过系统代理。
 //
 // 可通过环境变量关闭：OPENCODE_DISABLE_BYPASS_DISPATCHER=1
+
+// 本地 provider 总墙钟（请求总时长上限）。原 5min 误杀 3D plan/codegen 长生成
+// （GLM-V5_1 实测 300s 时仍在持续吐字、已收 696KB/3237 chunk 被墙钟掐断）。
+// 调大到 10min：给长生成足够时间。不会放任真死锁——chunkTimeout（默认 90s，
+// 无新 SSE chunk 即 abort）才是死锁防线，模型只要还在吐字就不会被误杀。
+const LOCAL_PROVIDER_TIMEOUT_MS = 10 * 60 * 1000
+
 const LOCAL_PROVIDER_IDS = new Set(["opencode", "bpit", "bpit-beta"])
 const LOCAL_PROVIDER_HOST_PATTERNS = [
   /\.huawei\.com$/i,
@@ -334,9 +341,11 @@ async function getBypassDispatcher(): Promise<any | null> {
   try {
     const mod = await import("undici")
     _bypassDispatcher = new mod.Agent({
-      // 5 分钟兜底：覆盖 6 秒问题（远高于），同时防止服务端死锁导致 fetch 假死
-      headersTimeout: 5 * 60 * 1000,
-      bodyTimeout: 5 * 60 * 1000,
+      // 本地 provider 总墙钟：覆盖 6 秒问题（远高于），同时防止服务端死锁导致 fetch 假死。
+      // 与 LOCAL_PROVIDER_TIMEOUT_MS 一致——dispatcher 层和 fetch options 层同值，
+      // 真死锁由 chunkTimeout（90s 无新 chunk）兜底，总墙钟只管请求总时长。
+      headersTimeout: LOCAL_PROVIDER_TIMEOUT_MS,
+      bodyTimeout: LOCAL_PROVIDER_TIMEOUT_MS,
       // 连接建立仍给 30s 兜底
       connectTimeout: 30_000,
       // 短 keepalive，避免连接池里的陈旧连接被服务端 RST
@@ -2022,12 +2031,12 @@ const layer: Layer.Layer<
 
             userSignal = (opts.signal as AbortSignal | undefined) ?? null
             chunkSignal = chunkAbortCtl?.signal ?? null
-            // 本地 provider 兜底：用户没配 timeout 时注入 5 分钟默认值，
+            // 本地 provider 兜底：用户没配 timeout 时注入默认总墙钟，
             // 防止 dispatcher headersTimeout/bodyTimeout 之外没有上层超时，
-            // 避免服务端死锁导致 fetch 永远挂起。
+            // 避免服务端死锁导致 fetch 永远挂起。真死锁由 chunkTimeout（90s 无新 chunk）兜底。
             const effectiveTimeout =
               options["timeout"] === undefined && shouldUseBypassDispatcher(model.providerID, url)
-                ? 5 * 60 * 1000
+                ? LOCAL_PROVIDER_TIMEOUT_MS
                 : options["timeout"]
             if (effectiveTimeout !== undefined && effectiveTimeout !== null && effectiveTimeout !== false) {
               optionsTimeoutSignal = AbortSignal.timeout(effectiveTimeout as number)

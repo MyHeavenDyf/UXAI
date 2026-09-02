@@ -158,7 +158,7 @@
   - 灯变暗/背景变回/镜头变远 → G2（modify 物化后 host 未 merge 回原 live-data 场景级保留键）。
   - 其他 type 物体全丢 + vite 报 TS2307 → D3（host 端 loadCurrentCode + step 6c merge 漏补）。
   - 历史实证 diff：v7→v8 `forklift.ts` 丢 `ctx.loadModel`（G1）；`live-data.json` camera `[0,18,32]→[14,10,16]` + lights 改 + 加 hemisphere（G2）。
-- **2026-08-31 实证（ses_fa99ddcf3ffe04dScVEH4uqakO，drift 表见 §十四 P0.1）**：**G1 ✅** 叉车仍 hunyuan GLB（forklift.ts:123 `ctx.loadModel` 保留，未退化）；**D3 ✅** 其他 type 不丢；**G2 ❌ 确认失败**——v9→v10 加小车 bg `#808080→#b8c4cc`、env `0.15→0.7`、cam `[26,18,-24]→[10,7,13]`、lights `0.12/0.1/0.15→0.55/0.4/1.1` 全漂移；v10→v11 加第二叉车 forklift transform 丢失（`[5,0,0]·1.57·1.2→[0,0,0]·无·无`）。**✅ G2 修法已落地（2026-09-01，6d 步骤：modify 时 host 端 merge camera/lights/scene 保留键回 sceneData + live-data.json 两处，完整覆盖非字段级 merge；UXAI tsgo EXIT=0 + oxlint 0 error，e2e 待跑本步 G2 三层判定）**。注：v10→v11 forklift transform 丢失属 G1/handler 重写范畴（6d 只治 env 三键不治 transform，transform 保真靠 G1 codegen prompt 约束照抄 + 6c handler merge）。
+- **2026-08-31 实证（ses_fa99ddcf3ffe04dScVEH4uqakO，drift 表见 §十四 P0.1）**：**G1 ✅** 叉车仍 hunyuan GLB（forklift.ts:123 `ctx.loadModel` 保留，未退化）；**D3 ✅** 其他 type 不丢；**G2 ❌ 确认失败**——v9→v10 加小车 bg `#808080→#b8c4cc`、env `0.15→0.7`、cam `[26,18,-24]→[10,7,13]`、lights `0.12/0.1/0.15→0.55/0.4/1.1` 全漂移；v10→v11 加第二叉车 forklift transform 丢失（`[5,0,0]·1.57·1.2→[0,0,0]·无·无`）。**✅ G2 已修+e2e验证通过（2026-09-02，TC-11：6d 步骤 modify 时 host 端 merge camera/lights/scene 保留键回 sceneData + live-data.json 两处，加小车后 bg/env/cam/lights 不漂移；D3✅ G1✅ G2✅ 三层全过）**。注：v10→v11 forklift transform 丢失属 G1/handler 重写范畴（6d 只治 env 三键不治 transform，transform 保真靠 G1 codegen prompt 约束照抄 + 6c handler merge）。
 
 ---
 
@@ -239,6 +239,52 @@
 
 ---
 
+## Phase 9 — 组件消费统一（P1.5，barrel import + 直接 new，独立新会话）
+
+> 前置：P1.5 U1~U12 已落地（3d-components gen 去 CREATABLE_DOMAINS + 文档页补 tag / 3d-templete 删 libraryBridge 工厂 + barrel 全域导出 / UXAI prompt 改写 + formatCatalog 加 extends），**opencode 已重启**（docCache 进程级缓存）。矩阵版对应 §十五 TC-H。本组验证「新组件零适配 + 全类型组件可用」。
+
+### TC-24 库组件直接 new（单 options Object3D）
+- **起始状态**：P1.5 后新会话（不依赖前序场景）。
+- **指令**：「生成一个带围墙的庭院，墙用 Wall 组件」（或任意明确点名 Wall/Grid/Rack 的场景）。
+- **预期**：生成 handler 源码为 `import { Wall } from '../../../../components'` + `const wall = new Wall({...})` 形态（**非** `createComponentObject`）；场景渲染正常；循环子物仍盖 `__id` + `applyOverride`（HANDLER_CONTRACT 契约不破）。
+- **验证点**：U8 prompt 改写生效 + U3 barrel re-export 生效。
+- **失败排查**：
+  - vite import 错 → barrel 未全域导出 / 路径层数错（Constraint 4）。
+  - 生成的 handler 仍写 createComponentObject → prompt 5 处没改全（U8），查行 10/25/130/133/138。
+  - 渲染空 → handler create 返回根未 group.add（extends 判挂载没吃到，查 U10 formatCatalog extends 行）。
+
+### TC-24a 位置参数组件（InstancedMesh2）
+- **指令**：「生成一片 6 万棵树的森林」（触发 InstancedMesh2 选型，≥5万阈值见 [[3d-instanced-mesh2-threshold]]）。
+- **预期**：handler 照 catalog constructor 签名直接 `new InstancedMesh2(geometry, material, params)`（**无 POSITIONAL_CTORS 适配表**，工厂已删）；实例渲染正常、性能可接受。
+- **验证点**：方案核心——签名即适配器。
+- **失败排查**：`material is mandatory` 类构造错 = codegen 没照 constructor 字段抄签名（查 U8 prompt 是否强调照 catalog 签名）。
+
+### TC-24b 非 Object3D 组件（HeatMap 纹理 / MeshReflectorMaterial 材质）
+- **指令**：「生成一个机房，地面铺设备热力图」；再试「地板加镜面反射」。
+- **预期**：plan 阶段 catalog 可见这两类（U2 补 import tag 后进 components.json + U10 extends 行让 plan 知道非 Object3D）；handler `import { HeatMap } from '../../../../components'` + `new HeatMap(opts)` + `.setData(...)` + `material.map = heatMap.texture`（照 examples 多步用法）；或 `mesh.material = new MeshReflectorMaterial(...)`。
+- **验证点**：非 Object3D 组件**首次**对 LLM 可用且用法正确（此前 catalog 只进 11 个 core Object3D）。
+- **失败排查**：plan 选不出/不认识 → components.json 未含（gen 没重跑 / 文档页没补 tag / opencode 没重启，三查）；用法错（如把 HeatMap 当 Object3D add）→ formatCatalog 缺 extends 行（U10）。
+
+### TC-24c IUpdatable traverse 探测
+- **指令**：生成含动画/自更新组件的场景（如 Html 或任何带 `update()` 的组件）。
+- **预期**：`setupUpdatables` traverse 探测 `typeof obj.update === 'function'` 收进渲染循环（U7，不再依赖工厂 `__updatable` 标记）；动画/自更新持续运行不静止。
+- **验证点**：直接 new 的 IUpdatable 组件也自动被收集。
+
+### TC-25 存量版本回切不崩（U12）
+- **操作**：P1.5 落地前已有历史版本的会话，版本来回切。
+- **预期**：旧 handler 无工厂调用则照常渲染；若存量有 `createComponentObject` 调用（U12 扫描应提前发现）则按评估的迁移/过渡方案兜底，回切不白屏不 import 崩。
+- **验证点**：删工厂无存量破坏。
+- **失败排查**：白屏 + vite 报 import 错 → 存量 handler 有工厂调用且无过渡（回到 U12 评估）。
+
+### TC-26 NL patch 兼容（new 形态 handler）
+- **起始状态**：TC-24 生成的场景。
+- **指令**：「把墙改成蓝色」；「删掉第一段墙」。
+- **预期**：edit_code 改 color 字面量 / 删 group.add 行照常生效（host `ensureApplyOverride` 手术匹配 `objVar.userData.__id` **变量赋值形态**，与创建方式无关——`const wall = new Wall(...)` 照常命中）。
+- **验证点**：host 业务逻辑零改动判断成立（P1.5 定案依据）。
+- **失败排查**：静默 no-op → 查 patch-handler ensureApplyOverride 是否仍命中变量赋值形态（理论上 new 形态同样命中，若失配说明手术匹配面比评估窄）。
+
+---
+
 ## 执行记录表
 
 | 步 | 指令摘要 | 通过? | 对应 todo | 备注 |
@@ -255,7 +301,7 @@
 | TC-08 | 集装箱变红 | ✅ | P0-7/P0.1-3 | ✅已修+e2e验证通过(2026-09-01)：根因=RE_LOOP_TMPL `(\w+)` 认不出 `xi++`→box 候选全失配→降级 modify；修=正则+resolveCounterLoopCount+triage 语义映射+同义词兜底；TC-B4b 走 set_instance 改 box-0 不降级 modify 场景级不漂移 |
 | TC-09 | 加一列货架 | ✅ | P0-8 | v7 add_instance，场景级不变；集装箱在 racks handler 内部 box 循环（非独立 type） |
 | TC-10 | 整体前移 | ✅ | P0-9 | v9 set_type_transform 生效、从 v7 分支；原闪很多次（P0.1-1 ✅已修+e2e验证 2026-09-01，现只闪 1 次） |
-| TC-11 | 加小车(D3/G1/G2) | ✅✅⏳修后待跑 | P0-11+P1-G1+P1-G2 | v10：D3 ✅ 不丢 type / G1 ✅ 叉车仍 hunyuan GLB / G2 ❌ 场景级全漂移 → **✅已修(2026-09-01,6d 步骤 modify 时 merge camera/lights/scene 保留键)** |
+| TC-11 | 加小车(D3/G1/G2) | ✅✅✅ | P0-11+P1-G1+P1-G2 | v10 原实证 D3 ✅ 不丢 type / G1 ✅ 叉车仍 hunyuan GLB / G2 ❌ 场景级全漂移 → **✅已修+e2e验证通过(2026-09-02,6d 步骤 modify 时 merge camera/lights/scene 保留键回 sceneData+live-data.json,加小车后 bg/env/cam/lights 不漂移)** |
 | TC-12a | 墙色提交 | ⬜ | P0-12 | 未直接测；walls 单 material count=1，预期应过 |
 | TC-12b | roof truss-top 改色 | ✅ | P0-12 | 实证 SUB_OVERRIDES 语义 cid 活项（#4d98f5 落盘） |
 | TC-12c | lights part-43 改色 | ✅ | P0.1-5 | 实证**改错部件+全变**（杆非罩，makeLamp 字面量各 1 次→patchHandlerMaterialColor 取首匹配=杆 count=1 成功）；真根因=组内子 mesh 无语义 __id+applyOverride；**修法已落地 A+B + e2e 验证通过 2026-08-31**（host 多异色 skip + codegen prompt 补子 mesh __id 规则；重生场景选灯罩改色提交→单灯罩变、不串不全变） |
@@ -267,5 +313,8 @@
 | TC-17 | workspace 互踩 | ⬜ | — | 未测 |
 | TC-18~21 | 9a 门控 | ⬜⬜⬜⬜ | P0-13~16 | 未测 |
 | TC-22~23 | 性能 | ⬜⬜ | — | 未测 |
+| TC-24~24c | 组件直接 new | ⬜⬜⬜⬜ | P1.5 U2~U10 | 未测（P1.5 未落地） |
+| TC-25 | 存量回切 | ⬜ | P1.5 U12 | 未测（P1.5 未落地） |
+| TC-26 | NL patch 兼容 | ⬜ | P1.5 | 未测（P1.5 未落地） |
 
-> **2026-08-31 首跑小结**（跑的是 §十五 矩阵版，本线性表按 session 映射回填）：通过 7（TC-01/02/03/04/09 + TC-12b/14a）⚠️ 部分 4（TC-06/07/10 闪 + TC-11 G2）❌ 失败 3（~~TC-08 集装箱重写~~ ✅已修+e2e验证 2026-09-01 / ~~TC-12c 灯改色~~ ✅已修+验证 2026-08-31 / ~~TC-14b 整体 transform~~ ✅已修+验证 2026-08-31）。根因全取证见 §十四 P0.1。修复优先级：~~P0.1-4（group 根死项）~~ ✅ → ~~P0.1-5（多同色改色）~~ ✅已修+e2e验证 → ~~**P0.2 stop 无响应**（TC-01b 新增，abortWait 强制 reject）~~ ✅已修+e2e验证 2026-08-31 → ~~**P0.1-2（切历史）**~~ ✅已修+e2e验证 2026-08-31（TC-05b）→ ~~**P0.1-1（闪烁根治）**~~ ✅已修+e2e验证 2026-09-01（单一重载源，TC-06/10/14a 各只闪 1 次）→ ~~**P0.1-3（非一等实例）**~~ ✅已修+e2e验证通过 2026-09-01（正则 `(\w+)`→`(\w+\+*\??)` 认 xi++ + resolveCounterLoopCount 嵌套 for-of 上界 + triage 语义映射 集装箱=box + searchHandlerForSynonymCid 同义词兜底；TC-B4b 走 set_instance 改 box-0 不降级 modify 场景级不漂移）。**P0.1 全系修完+e2e验证通过**。~~下一步 P1-G2（modify 场景级 merge，TC-11 锚点）~~ → **✅ P1-G2 修法已落地 2026-09-01**（6d 步骤：modify 时 host 端 merge camera/lights/scene 保留键回 sceneData + live-data.json 两处，完整覆盖非字段级 merge；镜像 6c handler merge 范式；UXAI tsgo EXIT=0 + oxlint 0 error，e2e 待跑 TC-11 G2 三层判定）。
+> **2026-08-31 首跑小结**（跑的是 §十五 矩阵版，本线性表按 session 映射回填）：通过 7（TC-01/02/03/04/09 + TC-12b/14a）⚠️ 部分 4（~~TC-06/07/10 闪~~ ✅已修+e2e验证 2026-09-01 / ~~TC-11 G2~~ ✅已修+e2e验证 2026-09-02）❌ 失败 3（~~TC-08 集装箱重写~~ ✅已修+e2e验证 2026-09-01 / ~~TC-12c 灯改色~~ ✅已修+验证 2026-08-31 / ~~TC-14b 整体 transform~~ ✅已修+验证 2026-08-31）。根因全取证见 §十四 P0.1。修复优先级：~~P0.1-4（group 根死项）~~ ✅ → ~~P0.1-5（多同色改色）~~ ✅已修+e2e验证 → ~~**P0.2 stop 无响应**（TC-01b 新增，abortWait 强制 reject）~~ ✅已修+e2e验证 2026-08-31 → ~~**P0.1-2（切历史）**~~ ✅已修+e2e验证 2026-08-31（TC-05b）→ ~~**P0.1-1（闪烁根治）**~~ ✅已修+e2e验证 2026-09-01（单一重载源，TC-06/10/14a 各只闪 1 次）→ ~~**P0.1-3（非一等实例）**~~ ✅已修+e2e验证通过 2026-09-01（正则 `(\w+)`→`(\w+\+*\??)` 认 xi++ + resolveCounterLoopCount 嵌套 for-of 上界 + triage 语义映射 集装箱=box + searchHandlerForSynonymCid 同义词兜底；TC-B4b 走 set_instance 改 box-0 不降级 modify 场景级不漂移）。**P0.1 全系修完+e2e验证通过**。~~P1-G2（modify 场景级 merge，TC-11 锚点）~~ → **✅ P1-G2 已修+e2e验证通过 2026-09-02**（6d 步骤：modify 时 host 端 merge camera/lights/scene 保留键回 sceneData + live-data.json 两处，完整覆盖非字段级 merge；镜像 6c handler merge 范式；TC-11 加小车后 bg/env/cam/lights 不漂移）。**P0+P1 全系修完+e2e验证通过**。下一步 P1.5 组件消费统一（barrel import + 直接 new，U1~U13 落地后跑 Phase 9 TC-24 组）→ P2 Phase R（代码结构重构）。

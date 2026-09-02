@@ -208,15 +208,30 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
     priorGateFindings,
   })
 
-  // 5. codegen 失败（API 错误 / 限流 / 超上下文 / LLM 未产文本）→ 透传 error 给 host，
-  //    由 handleSubmit 写进 sessionErrors → GenerationCard 持久显示失败卡片（不靠会消失的 toast）。
-  if (codegenRes.error) {
-    console.error("[codegen_scene] ③ codegen 失败:", codegenRes.error)
-    return { routing: triage.routing, error: codegenRes.error }
-  }
-  // 6. 解析 Markdown → files + sceneData
+  // 5+6. 先解析 Markdown → files + sceneData，再判 codegen 失败（API 错误 / 限流 / 超上下文 /
+  //       墙钟掐断）——P1.4③ 部分输出抢救需要 parse 结果才能判可恢复性。失败且不可抢救 →
+  //       透传 error 给 host，由 handleSubmit 写进 sessionErrors → GenerationCard 持久显示
+  //       失败卡片（不靠会消失的 toast）。
   const files = parseCodeFiles(codegenRes.text)
   const sceneData = extractSceneData(files)
+  if (codegenRes.error) {
+    // 部分输出抢救：墙钟掐断时已收代码块仍可物化。modify 靠 6c host merge 补全 LLM 漏输出
+    // 的 handler；create 无上一轮可 merge，要求 plan.types 全部有 handler 文件
+    // （缺 = index.ts 注册不存在的文件 → vite import 崩，[[3d-gate-handler-mismatch]]）。
+    // live-data.json 截断（sceneData null）不可抢救——它是 SCENE_UPDATE payload 必需。
+    const recoverable =
+      files.length > 0 &&
+      sceneData !== null &&
+      (isModify ? (currentCode?.currentFiles?.length ?? 0) > 0 : hasAllTypeHandlers(files, plan.types))
+    if (recoverable) {
+      console.warn(
+        `[codegen_scene] ③ codegen 报错（${codegenRes.error}）但部分输出可抢救：${files.length} 个文件 → 继续物化（modify 靠 6c merge / create 已核 handler 齐全）`,
+      )
+    } else {
+      console.error("[codegen_scene] ③ codegen 失败:", codegenRes.error)
+      return { routing: triage.routing, error: codegenRes.error }
+    }
+  }
   console.log(
     `[codegen_scene] parseCodeFiles 解析到 ${files.length} 个文件:`,
     files.map((f) => f.path),
@@ -318,6 +333,17 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
     await onCodeReady(files, sceneData, summary)
   }
   return { routing: triage.routing, summary, plan, sceneData }
+}
+
+/** create 路径部分输出抢救门槛：plan.types 每个 type 都有对应 handler 文件（缺 = index.ts 注册不存在的文件 → vite import 崩）。 */
+function hasAllTypeHandlers(files: CodeFile[], types: PlanResult["types"]): boolean {
+  const got = new Set(files.map((f) => f.path.replace(/\\/g, "/").split("/").pop()?.replace(/\.ts$/, "") ?? ""))
+  const missing = types.filter((t) => !got.has(t.type))
+  if (missing.length > 0) {
+    console.warn(`[codegen_scene] 部分输出缺 handler 文件: ${missing.map((t) => t.type).join(",")} → create 放弃抢救`)
+    return false
+  }
+  return true
 }
 
 /** 从当前 SceneSessionState.mergedSceneConfig 取 type 清单（剔除保留 key） */

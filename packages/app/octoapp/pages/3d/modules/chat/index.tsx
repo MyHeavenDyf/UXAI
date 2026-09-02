@@ -46,11 +46,22 @@ function RoundCard(props: {
   pauseMs: number
   pauseStartedAt?: number
   onRetry?: () => void
+  elapsedText?: string
+  blockTime?: number
+  onAbort?: () => void
+  /** 总墙钟超时（15min 仍生成中）→ 三按钮卡片（继续等待/中止/重试） */
+  timeoutExceeded?: boolean
+  onDismissTimeout?: () => void
+  onRetryTimeout?: () => void
 }): JSX.Element {
   const isLatest = () => props.roundIndex === props.totalRounds - 1
   const generating = () => isLatest() && props.pipelineBusy && !props.needsConfirm
   const done = () => !isLatest() || (!props.pipelineBusy && !props.needsConfirm)
   const cancelled = () => !props.error && done() && (props.cancelled || (isLatest() && props.endTime === undefined))
+  // 阻塞渐进式阈值（3D 适配：codegen 慢，120s 灰/300s 橙+中止，make 是 60/180）
+  const blockWarn = () => (props.blockTime ?? 0) >= 120
+  const blockDanger = () => (props.blockTime ?? 0) >= 300
+  const formatBlockTime = (s: number) => (s >= 60 ? `${Math.floor(s / 60)}分${s % 60}秒` : `${s}秒`)
   return (
     <>
       <GenerationCard
@@ -65,6 +76,62 @@ function RoundCard(props: {
         confirmText={props.confirmText}
         onRetry={props.onRetry}
       />
+      {/* 执行计时 —— 仅最新轮生成中显示（镜像 make insight-turn.tsx:1366） */}
+      <Show when={generating() && props.elapsedText}>
+        <div class="mx-3 mb-3">
+          <span class="text-xs tabular-nums" style={{ color: "#6e737a" }}>
+            已执行 {props.elapsedText}
+          </span>
+        </div>
+      </Show>
+      {/* 阻塞渐进式提示 —— 120s 灰/300s 橙+中止按钮（镜像 make :1375-1404，阈值适配 3D） */}
+      <Show when={generating() && blockWarn()}>
+        <div
+          class="mx-3 mb-3 p-3 flex items-center justify-between"
+          style={{
+            "border-radius": "var(--octo-radius-md)",
+            border: blockDanger() ? "1px solid rgba(255, 177, 46, 0.3)" : "1px solid rgba(200, 200, 200, 0.2)",
+            background: blockDanger() ? "rgba(255, 177, 46, 0.08)" : "rgba(200, 200, 200, 0.05)",
+          }}
+        >
+          <span class="text-sm" style={{ color: blockDanger() ? "#b34700" : "#6e737a" }}>
+            {blockDanger()
+              ? `模型超过 ${formatBlockTime(props.blockTime!)} 没有响应，建议中止后重试`
+              : "模型响应较慢，请耐心等待…"}
+          </span>
+          <Show when={blockDanger() && props.onAbort}>
+            <Button variant="secondary" size="small" onClick={() => props.onAbort!()} class="text-sm">
+              中止生成
+            </Button>
+          </Show>
+        </div>
+      </Show>
+      {/* 总墙钟超时卡片（P1.2）—— 15min 仍在生成：不自动 halt，三按钮交用户定（对齐 make 用户主权） */}
+      <Show when={generating() && props.timeoutExceeded}>
+        <div
+          class="mx-3 mb-3 p-3 flex flex-col gap-2"
+          style={{
+            "border-radius": "var(--octo-radius-md)",
+            border: "1px solid rgba(255, 177, 46, 0.3)",
+            background: "rgba(255, 177, 46, 0.08)",
+          }}
+        >
+          <span class="text-sm" style={{ color: "#b34700" }}>
+            生成已超过 15 分钟仍未完成，模型可能异常缓慢。可以继续等待（部分输出会被自动抢救），或中止后重试。
+          </span>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" size="small" onClick={() => props.onDismissTimeout?.()} class="text-sm">
+              继续等待
+            </Button>
+            <Button variant="secondary" size="small" onClick={() => props.onAbort?.()} class="text-sm">
+              中止
+            </Button>
+            <Button variant="secondary" size="small" onClick={() => props.onRetryTimeout?.()} class="text-sm">
+              重试
+            </Button>
+          </div>
+        </div>
+      </Show>
       <Show when={done() || generating() || props.needsConfirm}>
         <TurnDuration startTime={props.startTime} endTime={props.endTime} active={generating()} pauseMs={props.pauseMs} pauseStartedAt={props.pauseStartedAt} />
       </Show>
@@ -103,6 +170,16 @@ export function ChatPanel(props: {
   onDrop: (e: DragEvent) => void
   /** 主流程是否正在生成 */
   pipelineBusy: boolean
+  /** 执行计时文本「X分Y秒」 */
+  elapsedText?: string
+  /** 阻塞秒数（>0 表示模型无 delta 超过 3s） */
+  blockTime?: number
+  /** 中止生成 */
+  onAbort?: () => void
+  /** 总墙钟超时（15min 仍生成中）→ 三按钮卡片（继续等待/中止/重试） */
+  timeoutExceeded?: boolean
+  onDismissTimeout?: () => void
+  onRetryTimeout?: () => void
   /** 按轮分组的消息 */
   roundMessages: Round[]
   needsConfirm: boolean
@@ -358,6 +435,12 @@ export function ChatPanel(props: {
                           pauseMs={props.pauseMs}
                           pauseStartedAt={props.pauseStartedAt}
                           onRetry={props.onRetry}
+                          elapsedText={props.elapsedText}
+                          blockTime={props.blockTime}
+                          onAbort={props.onAbort}
+                          timeoutExceeded={props.timeoutExceeded}
+                          onDismissTimeout={props.onDismissTimeout}
+                          onRetryTimeout={props.onRetryTimeout}
                         />
                       </>
                     )}

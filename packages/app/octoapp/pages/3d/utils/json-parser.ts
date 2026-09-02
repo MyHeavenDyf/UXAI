@@ -1,5 +1,95 @@
 import { createRoot, createEffect } from "solid-js"
 
+// 🛠️ 修复器实现（模块级）：extractJson 与截断抢救 extractJsonFromTruncated 共用。
+// 均为「字符串感知」——只动字符串外的 token，字符串内部文字原样保留。
+
+/** 匹配 ` : " [内容] " , ` 锁定 value 内部，把内部未转义裸双引号替换为中文双引号。 */
+function repairInvalidQuotesImpl(jsonStr: string) {
+  return jsonStr.replace(/(:\s*")([\s\S]*?)("\s*[,}])/g, (match, p1, p2, p3) => {
+    const repairedP2 = p2.replace(/"/g, "“")
+    return p1 + repairedP2 + p3
+  })
+}
+
+/** 字符串外 0xXXXX 十六进制字面量转十进制（JSON 不支持十六进制）。 */
+function repairHexNumbersImpl(jsonStr: string) {
+  let out = ""
+  let i = 0
+  let inStr = false
+  while (i < jsonStr.length) {
+    const ch = jsonStr[i]
+    if (inStr) {
+      out += ch
+      if (ch === "\\") {
+        out += jsonStr[i + 1] ?? ""
+        i += 2
+        continue
+      }
+      if (ch === '"') inStr = false
+      i++
+      continue
+    }
+    if (ch === '"') {
+      inStr = true
+      out += ch
+      i++
+      continue
+    }
+    // 字符串外检测 0x[0-9a-fA-F]+
+    if (ch === "0" && (jsonStr[i + 1] === "x" || jsonStr[i + 1] === "X")) {
+      let j = i + 2
+      while (j < jsonStr.length && /[0-9a-fA-F]/.test(jsonStr[j])) j++
+      if (j > i + 2) {
+        out += String(parseInt(jsonStr.slice(i, j), 16))
+        i = j
+        continue
+      }
+    }
+    out += ch
+    i++
+  }
+  return out
+}
+
+/** 字符串外裸标识符（变量名/NaN/Infinity/undefined）替换为 null，保留 true/false/null。 */
+function repairBareTokensImpl(jsonStr: string) {
+  let out = ""
+  let i = 0
+  let inStr = false
+  while (i < jsonStr.length) {
+    const ch = jsonStr[i]
+    if (inStr) {
+      out += ch
+      if (ch === "\\") {
+        out += jsonStr[i + 1] ?? ""
+        i += 2
+        continue
+      }
+      if (ch === '"') inStr = false
+      i++
+      continue
+    }
+    if (ch === '"') {
+      inStr = true
+      out += ch
+      i++
+      continue
+    }
+    // 字符串外检测标识符 [A-Za-z_$][A-Za-z0-9_$]*
+    if (/[A-Za-z_$]/.test(ch)) {
+      let j = i + 1
+      while (j < jsonStr.length && /[A-Za-z0-9_$]/.test(jsonStr[j])) j++
+      const word = jsonStr.slice(i, j)
+      out += word === "true" || word === "false" || word === "null" ? word : "null"
+      i = j
+      continue
+    }
+    out += ch
+    i++
+  }
+  return out
+}
+
 // 从 AI 返回的字符串中提取 JSON
 export function extractJson(text: string) {
   // ==========================================
@@ -35,13 +125,7 @@ export function extractJson(text: string) {
   // ==========================================
   // 它的原理是匹配 ` : " [内容] " , ` 或 ` : " [内容] " } `
   // 从而精准锁定 Value 内部。然后将内部未转义的双引号替换为中文双引号
-  const repairInvalidQuotes = (jsonStr: string) => {
-    return jsonStr.replace(/(:\s*")([\s\S]*?)("\s*[,}])/g, (match, p1, p2, p3) => {
-      // 将值内部那些由于大模型粗心导致的裸双引号，替换为中文双引号
-      const repairedP2 = p2.replace(/"/g, "“")
-      return p1 + repairedP2 + p3
-    })
-  }
+  const repairInvalidQuotes = (jsonStr: string) => repairInvalidQuotesImpl(jsonStr)
 
   // ==========================================
   // 🛠️ 核心补丁：十六进制字面量修复器
@@ -49,44 +133,7 @@ export function extractJson(text: string) {
   // LLM 偶把 0xbfd8ff / 0x888888 当作 JSON 数值（如 lights 的 skyColor/groundColor），
   // 但 JSON 不支持十六进制字面量 → JSON.parse 整体失败。扫描「字符串外」的 0x[0-9a-fA-F]+
   // 转十进制；字符串内部的 0x（如 build_detail 里描述用的颜色字面量）原样保留，不破坏语义。
-  const repairHexNumbers = (jsonStr: string) => {
-    let out = ""
-    let i = 0
-    let inStr = false
-    while (i < jsonStr.length) {
-      const ch = jsonStr[i]
-      if (inStr) {
-        out += ch
-        if (ch === "\\") {
-          out += jsonStr[i + 1] ?? ""
-          i += 2
-          continue
-        }
-        if (ch === '"') inStr = false
-        i++
-        continue
-      }
-      if (ch === '"') {
-        inStr = true
-        out += ch
-        i++
-        continue
-      }
-      // 字符串外检测 0x[0-9a-fA-F]+
-      if (ch === "0" && (jsonStr[i + 1] === "x" || jsonStr[i + 1] === "X")) {
-        let j = i + 2
-        while (j < jsonStr.length && /[0-9a-fA-F]/.test(jsonStr[j])) j++
-        if (j > i + 2) {
-          out += String(parseInt(jsonStr.slice(i, j), 16))
-          i = j
-          continue
-        }
-      }
-      out += ch
-      i++
-    }
-    return out
-  }
+  const repairHexNumbers = (jsonStr: string) => repairHexNumbersImpl(jsonStr)
 
   // 思维链/前导 reasoning 清理后，统一修复字符串外的十六进制字面量
   cleanText = repairHexNumbers(cleanText)
@@ -98,44 +145,7 @@ export function extractJson(text: string) {
   // 或 NaN / Infinity / undefined 这类 JSON 不支持的字面量 → JSON.parse 整体失败。
   // 扫描「字符串外」的标识符 token，除 true/false/null（JSON 合法）外一律替换为 null。
   // 字符串内部的标识符（如 build_detail 描述里的文字）原样保留。
-  const repairBareTokens = (jsonStr: string) => {
-    let out = ""
-    let i = 0
-    let inStr = false
-    while (i < jsonStr.length) {
-      const ch = jsonStr[i]
-      if (inStr) {
-        out += ch
-        if (ch === "\\") {
-          out += jsonStr[i + 1] ?? ""
-          i += 2
-          continue
-        }
-        if (ch === '"') inStr = false
-        i++
-        continue
-      }
-      if (ch === '"') {
-        inStr = true
-        out += ch
-        i++
-        continue
-      }
-      // 字符串外检测标识符 [A-Za-z_$][A-Za-z0-9_$]*
-      if (/[A-Za-z_$]/.test(ch)) {
-        let j = i + 1
-        while (j < jsonStr.length && /[A-Za-z0-9_$]/.test(jsonStr[j])) j++
-        const word = jsonStr.slice(i, j)
-        // true/false/null 是 JSON 合法字面量，原样保留；其余裸标识符替换为 null
-        out += word === "true" || word === "false" || word === "null" ? word : "null"
-        i = j
-        continue
-      }
-      out += ch
-      i++
-    }
-    return out
-  }
+  const repairBareTokens = (jsonStr: string) => repairBareTokensImpl(jsonStr)
 
   cleanText = repairBareTokens(cleanText)
 
@@ -195,6 +205,77 @@ export function extractJson(text: string) {
       }
     }
 
+    return null
+  }
+}
+
+/**
+ * 截断 JSON 抢救（P1.4② 部分输出解析）：墙钟超时掐断流式输出时，已收部分常是
+ * 高质量但缺闭合括号的 JSON（实证 696KB/3237 chunk）。extractJson 全分支都要求
+ * 完整闭合 → 截断必败。此处语法级修复：先走原 extractJson（完整则直用），
+ * 失败则逐字符扫描记录「安全截断点」（字符串外的值边界），回退到末尾安全点、
+ * 补齐未闭合括号再 parse。只保证语法可解析，语义完整性由调用方验证
+ * （如 plan 抢救须验证 types 覆盖 triage 清单，残缺 types 会物化出丢物体的场景）。
+ */
+export function extractJsonFromTruncated(text: string): Record<string, unknown> | null {
+  if (!text || typeof text !== "string") return null
+  // 剥前导文字（reasoning/说明），从第一个 { 开始，先过字符串外修复器（hex/裸标识符）
+  const start = text.indexOf("{")
+  if (start === -1) return null
+  let s = repairBareTokensImpl(repairHexNumbersImpl(text.slice(start)))
+  const stack: string[] = []
+  let inStr = false
+  let safeEnd = -1 // 最后一个「字符串外且值边界后」的安全截断点
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]
+    if (inStr) {
+      if (ch === "\\") i++ // 跳过转义对
+      else if (ch === '"') inStr = false
+      continue
+    }
+    if (ch === '"') {
+      inStr = true
+      continue
+    }
+    if (ch === "{" || ch === "[") stack.push(ch === "{" ? "}" : "]")
+    else if (ch === "}" || ch === "]") stack.pop()
+    else if (ch === ",") safeEnd = i // 逗号=一个完整 value 刚结束
+  }
+  // 完整（栈空且字符串闭合）→ 才走 extractJson（含 markdown 块/think 剥离全功能）。
+  // 顺序不能反：截断文本里内层对象常是完整的，extractJson 的绝地求生分支会返回
+  // 内层片段（丢最外层壳，如只返回 types[0] 而丢 scene_description），语义灾难。
+  if (stack.length === 0 && !inStr) {
+    const direct = extractJson(text)
+    if (direct && typeof direct === "object" && !Array.isArray(direct)) return direct
+    return null
+  }
+
+  // 截断在字符串中间（inStr）或值不完整：回退到最后安全点，丢掉不完整尾部
+  if (safeEnd > 0) s = s.slice(0, safeEnd)
+  // 去掉尾部残留逗号
+  s = s.replace(/,\s*$/, "")
+  // 补齐未闭合括号（重新扫描补，因为截断后栈状态已变）
+  const st2: string[] = []
+  let in2 = false
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]
+    if (in2) {
+      if (ch === "\\") i++
+      else if (ch === '"') in2 = false
+      continue
+    }
+    if (ch === '"') in2 = true
+    else if (ch === "{" || ch === "[") st2.push(ch === "{" ? "}" : "]")
+    else if (ch === "}" || ch === "]") st2.pop()
+  }
+  // in2=true 说明 safeEnd 落在字符串内部（不可能：safeEnd 是字符串外逗号），防御性放弃
+  if (in2) return null
+  s += st2.reverse().join("")
+
+  try {
+    const parsed = JSON.parse(s)
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null
+  } catch {
     return null
   }
 }

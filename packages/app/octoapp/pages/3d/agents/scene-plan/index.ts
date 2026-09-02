@@ -4,7 +4,7 @@
  * （native / component / model + 依赖组件 / 资源）+ 定 camera / lights / scene。
  * 产物（plan JSON）注入 codegen agent 的 [PLAN_JSON]。schema 约束输出结构。
  */
-import { extractJson } from "../../utils/json-parser"
+import { extractJson, extractJsonFromTruncated } from "../../utils/json-parser"
 import { runChildSession } from "../run-child-session"
 import { logAgentParsed } from "../../utils/debug-log"
 import { SCENE_PLAN_FORMAT } from "./schema"
@@ -65,6 +65,19 @@ export default async function scene_3d_plan(input: ScenePlanInput): Promise<Plan
   // 先透传 LLM 返回的错误（idle 超时 / APIError / 限流 / 超上下文），
   // 否则拿空 text 跑 extractJson → 报"did not return valid JSON"掩盖真实原因。
   if (planRes.error) {
+    // P1.4① 部分输出抢救：墙钟超时/流中断时已收部分常是高质量截断 JSON（实证 696KB/3237
+    // chunk 仍在吐字）。语法级截断修复 + 语义完整性验证（types 必须完整覆盖 triage 的
+    // create+modify 清单——残缺 types 会物化出丢物体的场景）。完整则继续流水线并留痕，
+    // 否则照旧抛错让用户经失败卡片决定重试（不自动重试，对齐 make 用户主权）。
+    const recovered = extractJsonFromTruncated(planRes.text)
+    if (recovered && isPlanTypesComplete(recovered, types)) {
+      console.warn(
+        `[scene_3d_plan] LLM 报错（${planRes.error}）但部分输出抢救成功：types 完整覆盖 triage 清单，继续流水线`,
+      )
+      const planValue = assemblePlan(recovered)
+      logAgentParsed(planRes.childSessionId, { ...planValue, recoveredFromError: planRes.error })
+      return planValue
+    }
     logAgentParsed(planRes.childSessionId, { error: planRes.error })
     agentThrow(AGENT_NAME, planRes.childSessionId, planRes.error)
   }
@@ -76,7 +89,32 @@ export default async function scene_3d_plan(input: ScenePlanInput): Promise<Plan
     logAgentParsed(planRes.childSessionId, { error: "Failed to parse JSON", raw: planRes.text })
     agentThrow(AGENT_NAME, planRes.childSessionId, "Scene Plan did not return valid JSON")
   }
-  const returnValue: PlanResult = {
+  const returnValue = assemblePlan(planJson)
+  logAgentParsed(planRes.childSessionId, returnValue)
+  return returnValue
+}
+
+/** planJson.types 是否完整覆盖 triage 的 create+modify 清单（抢救的语义完整性门槛）。 */
+function isPlanTypesComplete(planJson: Record<string, unknown>, types: TriageTypes): boolean {
+  const required = [...types.create, ...types.modify].filter((t) => t && t.trim())
+  if (required.length === 0) return true
+  const got = new Set(
+    Array.isArray(planJson.types)
+      ? planJson.types
+          .filter((t): t is Record<string, unknown> => typeof t === "object" && t !== null)
+          .map((t) => (typeof t.type === "string" ? t.type : ""))
+      : [],
+  )
+  const missing = required.filter((t) => !got.has(t))
+  if (missing.length > 0) {
+    console.warn(`[scene_3d_plan] 部分输出 types 不完整，缺: ${missing.join(",")} → 放弃抢救`)
+    return false
+  }
+  return true
+}
+
+function assemblePlan(planJson: Record<string, unknown>): PlanResult {
+  return {
     scene_description: (planJson.scene_description as string) ?? "",
     types: ((planJson.types as PlanType[]) ?? []).map((t) => ({
       type: t.type ?? "",
@@ -90,8 +128,6 @@ export default async function scene_3d_plan(input: ScenePlanInput): Promise<Plan
     lights: Array.isArray(planJson.lights) ? planJson.lights : [],
     scene: (planJson.scene as Record<string, unknown>) ?? {},
   }
-  logAgentParsed(planRes.childSessionId, returnValue)
-  return returnValue
 }
 
 function buildHumanMessage(

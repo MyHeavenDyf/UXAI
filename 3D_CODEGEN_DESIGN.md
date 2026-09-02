@@ -204,7 +204,7 @@ Step 9 拆 **9a（确定性结构健全性门控，零模型依赖）** + **9b�
 
 ### 2. 模板母版来源
 
-- **dev**：从 `D:\cyc\project\octo\3d-templete`（`template-base` 分支）拷。母版只含框架（manager/handler 骨架 + 库 + 预置 handler），不含任何 LLM 生成产物。
+- **dev**：从与 UXAI 同级父目录下的 `3d-templete`（`template-base` 分支）拷（三仓库同级约定，见 3D_PACKAGE.md）。母版只含框架（manager/handler 骨架 + 库 + 预置 handler），不含任何 LLM 生成产物。
 - **生产**：3d-templete 打进 app 资源，从 app 资源解压拷。
 - 拷贝时 **node_modules 软链**到母版（不重复装依赖；src/config/public 实拷，体积小）。
 
@@ -634,7 +634,7 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 
 ## 十四、待办清单（P0→P5，完成一项打勾）
 
-> 机制：完成一项告知 Claude，他把 `- [ ]` 改 `- [x]`。来源 §九/§十/§13.14 + memory + 实证 `ses_faa391560ffea3`。最后更新 2026-08-31。
+> 机制：完成一项告知 Claude，他把 `- [ ]` 改 `- [x]`。来源 §九/§十/§13.14 + memory + 实证 `ses_faa391560ffea3`。最后更新 2026-09-02（+P1.5）。
 
 ### P0 — e2e 验证（2026-08-31 首跑 §十五，结果已标注）
 - [x] 1. M-3① 灯调亮→set_light（不闪不丢编辑态）✅
@@ -657,7 +657,7 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 ### P1 — modify 保真修复（用户当前痛点，不依赖大重构）
 > 实证 `ses_faa391560ffea3` v7→v8「加小车」：① forklift.ts 整个被重写，丢原 `ctx.loadModel('hunyuan:叉车')` 退化成原生简陋体；② live-data 全量重生，camera position/lights intensity/background 被 LLM 顺手改（加小车不该动相机灯光）。其他 8 个 type handler 未变（D3 merge 正常）。
 - [x] G1. modify 重写 handler 保真：codegen prompt 约束——原 handler 的 `ctx.loadModel`/资源调用必须 verbatim 照抄不丢（`[CURRENT_HANDLERS]` 注入已有，补 prompt 规则 + codegen Constraint）。仓库 opencode。✅ 首跑：叉车未退化仍 hunyuan GLB
-- [x] G2. modify live-data 场景级 merge：modify 物化后 host 端把原 live-data 的 `camera`/`lights`/`scene` 保留键 merge 回 LLM 重写的 live-data（仿 D3 merge handler，merge 场景级保留键）。加小车不该动相机灯光。仓库 UXAI（`codegen-scene.ts` materializePatch）。**✅ 修法已落地（2026-09-01，e2e 待跑 TC-11/TC-C3）**：6d 步骤——modify 时 `isModify && sceneData && currentCode?.currentLiveData` 条件下，解析 `currentLiveData`（= 上一轮 `JSON.stringify(mergedSceneConfig)`）取 `camera`/`lights`/`scene` 三保留键（三键都存在才覆盖，旧版本边界跳过不崩），**完整覆盖**回 `sceneData`（SCENE_UPDATE payload）+ `live-data.json` 文件内容（overlay/版本恢复重读）两处。完整覆盖非字段级 merge——modify 语义=改物体不动 env，LLM 改的场景级值全是误改整体替换（字段级会残留误改）；合法 env 改动走 patch 路径 set_* op（M-3①）不经 codegen modify。镜像 6c handler merge 范式。校验：UXAI tsgo EXIT=0 + oxlint 0 error。前实证失败：drift 表 v9→v10 加小车 bg/env/cam/lights 全漂移（#808080→#b8c4cc、0.15→0.7、[26,18,-24]→[10,7,13]、0.12/0.1/0.15→0.55/0.4/1.1）；v10→v11 forklift transform 丢失（[5,0,0]·1.57·1.2→[0,0,0]·无·无，此为 G1/handler 重写非 G2，6d 不治 transform 只治 env 三键）。
+- [x] G2. modify live-data 场景级 merge：modify 物化后 host 端把原 live-data 的 `camera`/`lights`/`scene` 保留键 merge 回 LLM 重写的 live-data（仿 D3 merge handler，merge 场景级保留键）。加小车不该动相机灯光。仓库 UXAI（`codegen-scene.ts` materializePatch）。**✅ 已修+e2e验证通过（2026-09-02，TC-11 G2 三层判定）**：6d 步骤——modify 时 `isModify && sceneData && currentCode?.currentLiveData` 条件下，解析 `currentLiveData`（= 上一轮 `JSON.stringify(mergedSceneConfig)`）取 `camera`/`lights`/`scene` 三保留键（三键都存在才覆盖，旧版本边界跳过不崩），**完整覆盖**回 `sceneData`（SCENE_UPDATE payload）+ `live-data.json` 文件内容（overlay/版本恢复重读）两处。完整覆盖非字段级 merge——modify 语义=改物体不动 env，LLM 改的场景级值全是误改整体替换（字段级会残留误改）；合法 env 改动走 patch 路径 set_* op（M-3①）不经 codegen modify。镜像 6c handler merge 范式。校验：UXAI tsgo EXIT=0 + oxlint 0 error。**✅ e2e 验证通过（2026-09-02，TC-11：加小车后 bg/env/cam/lights 不漂移，原物体全在 D3✅，叉车仍 hunyuan GLB G1✅）**。注：forklift transform 丢失属 G1/handler 重写范畴（6d 只治 env 三键不治 transform，transform 保真靠 G1 codegen prompt 约束照抄 + 6c handler merge）。
 
 ### P0.1 — 实测发现的新问题（2026-08-31 首跑 §十五，ses_fa99ddcf3ffe04dScVEH4uqakO 已取证）
 > 用户跑 §十五 矩阵版反馈；已读 session 全 16 版本 `mergedSceneConfig` drift 表 + handler 源码坐实根因。证据见本节。
@@ -665,6 +665,26 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 > **修复优先级（推荐序，编号保持稳定因 memory 引用）**：① ~~**P0.1-4** group 根 transform 死项~~ ✅已修+e2e验证(2026-08-31) → ② ~~**P0.1-5** 多同色 mesh 改色~~ ✅已修+e2e验证(2026-08-31,A+B:host 多异色 skip+codegen prompt 补子 mesh __id,TC-12c 单灯罩变色不串不全变) → ③ ~~**P0.1-2** 切历史时序~~ ✅已修+e2e验证(2026-08-31,ipc.ts spawn 前端口预检+孤儿 vite netstat 强杀,TC-05b 多切历史立即生效无需手刷) → ④ ~~**P0.1-1** 闪烁根治 Fix B~~ ✅已修+e2e验证(2026-09-01,单一重载源:template viteWorkspace.config hotUpdate 过滤+_octo/touch 失效端点+materializePatch touch→wsNonce++ 立即单次,删 2000ms 兜底定时器,TC-06/10/14a 各只闪 1 次) → ⑤ ~~**P0.1-3** 非一等实例改色（最难，架构/prompt 层，靠 prompt 兜底）~~ ✅已修+e2e验证通过(2026-09-01,三方案:正则修 `(\w+)`→`(\w+\+*\??)` 认 xi+++resolveCounterLoopCount 嵌套for-of上界+triage 语义映射 集装箱=box+searchHandlerForSynonymCid 同义词兜底;node 实证 box=288/upright=27/beam=72 候选抽出,TC-B4b 走 set_instance 改 box-0 不降级 modify 场景级不漂移)。**P0.1 全系修完+e2e验证通过**。
 >
 > **P0.2 — stop 按钮毫无响应 + codegen 卡 22min（2026-08-31，ses_fa8ed02f9ffeT6H139u8E68zrt 22min 实证）✅ 已修+e2e验证(2026-08-31,TC-01b 生成中点停止 5s 内停)**：根因=① `halt()` 的 `session.abort` 不给在途消息写 `time.completed` → `isBusy()` 恒真 spinner 永转 + `waitForResult` 的 `MessageAbortedError` 检测被 `isComplete` 门控挡死 → `await getResultFromMessagesLoose` 永挂；② idle 超时只抓零增长不抓 runaway 巨输出（模型 leaked reasoning 违反 Constraints 1 持续吐 token 续命）。修=两层（json-parser abort 检测提前到 isComplete 前 + 模块级 `waitAborts` 注册表导出 `abortWait`，`halt()` 调之强制 reject 不依赖 provider）+ index.tsx `halt()` 调 `abortWait`。oxlint 0 new + tsgo 0。**不治 runaway（墙钟/prompt 推后，用户选「只修 abort」）**。详见 [[3d-codegen-stall-timeout]]。
+>
+> **P0.3 — spinner 卡住（场景已渲染仍显示「正在生成」）+ 停止按钮无反应（2026-09-02，ses_fa055feafffefTSoZp7StDyk2v 实证）✅ 已修+e2e验证(2026-09-02,刷新后 spinner 消失)**：根因=前端 SSE 偶发漏推 `session.status(idle)` 事件 → `sync.data.session_status[sid]` 卡在 `busy` → `isBusy()` 第一关 `sessionStatus().type !== "idle"` 恒 true → spinner 永转（场景已渲染但 spinner 转了 10+ 分钟到用户手动 abort）；`halt()` 清了 `isGenerating` 等但**没清 `session_status` store** → 停止按钮看似无反应。**DB 实证**：root + 4 child session 的最后 assistant 消息 `time.completed` 全是 number（finish=stop），server 端正常 `exiting loop` + `session.idle publishing`——纯前端 SSE 漏收。**根因不依赖复现**（偶发，但 DB+日志双重取证坐实）。修=两处（index.tsx）：① `isBusy` 消息层兜底——root 有 assistant 且 `time.completed=number` + 所有 child 最后 assistant completed（或有 user 无 assistant=刚发未回判在途）→ 即使 `session_status` 卡 busy 也降级判 idle（消息层全完成=SSE 漏推 idle，spinner 不该转）；消息层有在途→busy（status 这时也应 busy，双保险）。② `halt()` 乐观清 `sync.set("session_status", sid/childID, {type:"idle"})` 不依赖 SSE 推送。校验：UXAI tsgo EXIT=0 + oxlint 0 error。**注**：参考 make 页面（:693 isBusy 纯 status 依赖不遍历 child）——make 单流+abort 后 SSE 正常推 idle 故不卡；3D 多 child 流水线+SSE 漏推已实证，故 isBusy 不能照搬 make 的纯 status 依赖，须消息层兜底。P1.1/P1.2（执行计时器+阻塞检测+总超时，照搬 make :711-758）待做。
+>
+> **P1.1 — 执行计时器 + 阻塞检测渐进式提示（照搬 make :711-758 + :1375-1404）✅ 修法已落地(2026-09-02，e2e 待跑)**：make 有「已执行 X分Y秒」(`elapsedText`，isBusy 时找 pending assistant 按 `time.created` 计时) +「已阻塞 N 秒」(`blockTime`，`lastDeltaTime` 由 SSE `message.part.delta`/`reasoning.delta`/`part.updated` 续命，`blockTimer` 每秒查 `>3000ms` → 显示)。**make 是渐进式**（insight-turn.tsx:1375-1404）：60s 灰提示「模型响应较慢，请耐心等待...」→ 180s 橙警告「模型超过 X 没有响应，建议重新请求」+「中止对话」按钮——把决定权给用户，不自动 halt。3D **已落地**：index.tsx 新增 `elapsedText`（pipelineBusy 时找 root+child 里最后一个未完成 assistant 计时，比 make 多扫 child）+ `blockTime`（SSE delta 续命，3D index.tsx 新增 `sdk.event.listen` 监听三类 delta 事件，root+child 都续命）+ RoundCard（chat/index.tsx）渲染「已执行 X分Y秒」+ 渐进式阻塞提示（**阈值适配 3D：120s 灰「响应较慢请耐心」/300s 橙「建议中止后重试」+「中止生成」按钮**，make 60/180 对单流合理但 3D codegen 十几分钟常态不能 60s 就提示）。**不照搬**：make 的 `isBusy` 纯 status 依赖（见 P0.3 注）+ make halt 极简（3D 需 `abortWait` 治永挂）。校验：UXAI tsgo EXIT=0 + oxlint 新增 0 warning。
+>
+> **P1.2+P1.4 — 超时落失败卡片 + 用户手动决定 + 部分输出抢救（对齐 make 用户主权哲学，make 无自动 halt）✅ 修法已落地(2026-09-02，e2e 待跑)**：**make 哲学=用户决定何时停**（180s 警告+中止按钮，不自动 halt）。原 P1.2「15min 自动 halt」违反此哲学（机器替用户决定）。**修正：超时不停生成，升格成卡片**——15min 无完成 → RoundCard 弹橙卡片「生成已超过 15 分钟仍未完成…可以继续等待（部分输出会被自动抢救），或中止后重试」+**三按钮**：「继续等待」（dismiss，模型可能快吐完了，用户自己判断；elapsed 回落=新阶段/新轮自动重置 dismiss）、「中止」（=halt，P0.3 已修乐观清 status+abortWait）、「重试」（halt+handleRetry 检查点断点续传；halt 触发的 reject 在 workflow 顶层 catch 全被 `err.message==="aborted"` 静默 return，无新旧竞争）。**用户定调不自动重试**（6 次重试全 300s 超时印证——同模型同 prompt 重试无效，自动重试=烧 30min 白等）。**部分输出抢救（不是重试，是不浪费已有输出）**，三层：
+> 1. **`extractJsonFromTruncated`**（json-parser.ts，语法级）：先过 hex/裸标识符修复器 → 逐字符扫描记栈/字符串态/最后安全截断点（字符串外值边界逗号）→ 截断则回退安全点丢残尾 + 补齐未闭合括号再 parse。**完整性先扫 direct 后用**——顺序不能反：截断文本里内层对象常完整，extractJson 绝地求生分支会返回内层片段（丢最外层壳）语义灾难。8 用例行为验证过（完整直用/字符串中截/对象中截/逗号尾/hex+截/无{/多层/转义引号；字符串中截保最大已收内容——safeEnd 取最后安全逗号，截断处之前的完整字段全保留）。
+> 2. **scene-plan error 分支**（scene-plan/index.ts）：`planRes.error` 时先 `extractJsonFromTruncated(planRes.text)`，**语义门槛=isPlanTypesComplete（recovered.types 必须完整覆盖 triage 的 create+modify 清单**——残缺 types 会物化丢物体场景；env 三键缺失不挡：modify 靠 6d merge 覆盖回旧值，create 兜底空值 codegen 自定）；过门槛 → console.warn 留痕 + `recoveredFromError` 记 logAgentParsed + 继续流水线；不过 → 照旧 agentThrow。组装逻辑提成 `assemblePlan` 复用。
+> 3. **codegen-scene error 分支**（codegen-scene.ts）：重排为先 parseCodeFiles+extractSceneData 再判 error（抢救需 parse 结果判可恢复性）。`codegenRes.error` 且可抢救 → warn 留痕继续物化：**modify**（有 currentFiles）靠 6c host merge 补全 LLM 漏输出 handler；**create** 无上一轮可 merge，门槛=hasAllTypeHandlers（plan.types 每个 type 都有 handler 文件，缺=index.ts 注册不存在的文件→vite import 崩 [[3d-gate-handler-mismatch]]）。live-data.json 截断（sceneData null）不可抢救（SCENE_UPDATE payload 必需）。**砍掉原 P1.4 瞬态自动重试**（`withModuleRetry` 不用于 plan/codegen）。
+> 校验：UXAI tsgo EXIT=0 + oxlint 0 error / 新增 warning 0。
+>
+> **P1.3 — 墙钟可调（治 #3/#7 模型慢，[[3d-model-failure-variants]]，**首选治本、必做**）✅ 修法已落地(2026-09-02，e2e 待跑)**：300s 墙钟代码定位+日志实证已查清（2026-09-02）——[provider.ts:2028-2031](packages/opencode/src/provider/provider.ts#L2028-L2031) `effectiveTimeout` + [provider.ts:337-339](packages/opencode/src/provider/provider.ts#L337-L339) bypassDispatcher `headersTimeout`/`bodyTimeout`，两处硬编码 `5*60*1000`。另一台机器（D:\octo）日志实证：providerID=octo-ai、baseURL=octoai-llm.ucd.huawei.com 命中 bypass、未配 timeout → 吃 5min；**实际模型 GLM-V5_1**（非 v4-pro），plan fetch #5 在 300s 超时时已收 **3237 chunk/696KB 仍在持续输出**（chunk 间隔未超 90s）→ **#3/#7 同类：模型正常吐字但太慢 5min 不够吐完**（原"reasoning 占满"归因作废）。6 次重试全 300s 超时 → 非瞬态，重试无效，印证不自动重试。用户**不换模型**。**项目最终打包 exe/dmg 分发，不能改用户配置**（`opencode.json` env 化不够——用户不会设环境变量）→ **必须代码层调大默认值**。
+>
+> **关键洞察——两类超时职责分离**：`5*60*1000` 原目的是"防服务端死锁导致 fetch 永挂"（代码注释 :2025-2027），5min 对防死锁够用但误杀长生成。但调大总墙钟**不会放任死锁**——因为 `chunkTimeout`（默认 90s，[provider.ts:1986-1989](packages/opencode/src/provider/provider.ts#L1986-L1989)）才是真正的死锁防线（90s 没来任何 chunk=确实挂了），它不受总墙钟影响、独立掐流。所以总墙钟调大到 600s/900s **安全**——模型只要还在吐字（chunk 间隔<90s）就不会被误杀，真 stall 会被 chunkTimeout 90s 兜底。这俩目的不冲突，各管各的维度。
+>
+> **修法 ✅ 已落地(2026-09-02，e2e 待跑)**：① [provider.ts](packages/opencode/src/provider/provider.ts) 新增模块级常量 `LOCAL_PROVIDER_TIMEOUT_MS = 10 * 60 * 1000`（原两处散落的 `5*60*1000` 统一提为常量）；② `effectiveTimeout` 兜底分支 + bypassDispatcher `headersTimeout`/`bodyTimeout` 三处都引用该常量（5min→10min）；③ `chunkTimeout` 90s **保持不动**（死锁防线，调大反而放任 stall）。**不**加环境变量（用户不会设）。**#3/#7 调大墙钟直接有效**（持续输出给够时间能吐完）。校验：opencode tsgo EXIT=0 + oxlint 0 error（27 warning 全预存 as SDK 断言）。
+>
+> **P1.4 已合并进 P1.2+P1.4（见上）**——原独立 P1.4 的失败卡片+手动重试+部分输出解析整合进「超时落失败卡片+用户手动决定」，避免 P1.2（超时）和 P1.4（失败卡片）两个独立条目割裂。失败卡片是统一出口：超时/4xx/乱码/部分解析救不回 都落同一张。
+>
+> **单流评估（2026-09-02，否决）**：用户问"3D 能不能也做成单流"。否决——① 三阶段间夹 host 端确定性处理（triage 路由分流/plan 5-type schema 提取/codegen 注入），单流插不进；② 单流=800s+ 巨型调用必撞任何墙钟（多流至少给每阶段独立时间预算，plan 挂了 codegen 不陪葬）；③ 多流不稳短板（SSE 漏推 idle）已被 P0.3 消息层兜底覆盖，不必为它做架构大改。
 >
 > **场景级 drift 表（G2 锚点 + M-3① 验证）**——每版只列变动字段（camera/lights/scene/forklift transform）：
 >
@@ -696,6 +716,33 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 - [x] 3. **set_instance 回归** ❌→已取证→**✅ 修法已落地+e2e验证通过（2026-09-01，三方案，TC-B4b）**。「第一个集装箱变红」整场景重写。**真实根因（2026-09-01 源码实证，第三次修正，前两次均误）**：用户说的「集装箱」= racks handler 里的货物箱 `box`（v7 racks.ts:72-99 有 box 循环，cid `${node.id}-box-${xi++}`，**v7 有集装箱非漏画**；box 从 v6 起就在 racks handler 内部，非独立 type）。但候选抽取器 `RE_LOOP_TMPL`（patch-resolver.ts:98）捕获组 2 是 `(\w+)`，`xi++` 的 `++` 不是 `\w` → **正则失配 → box 候选一个都没抽出来**（node 实证：原正则抽 0 个；失配的不只 box，upright `ui++`/beam `bi++` 全失配）→ triage 看候选清单无 box → set_instance 无候选 → 降级 modify 全量重写 → 场景级漂移。**修法（三方案，patch-resolver.ts + patch-scene.ts + scene_3d_triage.txt）**：① **正则修复**（根因）—— `RE_LOOP_TMPL` `(\w+)`→`(\w+\+*\??)` 认 `xi++` + `loopVar=m[2].replace(/\+\+$/,"")` 去后缀 + 新增 `resolveCounterLoopCount` 反推嵌套 for-of + 外部计数器上界（`let xi=0`→N 层 `for(const x of arr)`→最内层 `count=2+Math.floor(Math.random()*2)`→乘积×count 上界；node 实证 box=288/upright=27/beam=72）+ `estimateLoopBound`；② **triage 语义映射**（prompt）—— 新增「用户词→候选 suffix 语义映射」小节（集装箱/cargo/crate→box，立柱→upright，横梁→beam，第N个→-(N-1)）+ few-shot「把第一个集装箱变红」→ set_instance `__id=racks-1-box-0`；③ **同义词兜底**（防线）—— `searchHandlerForSynonymCid`（patch-resolver.ts 末尾）扫 handler 源码找同义词 cid（container→box），patch-scene.ts set_instance/skip_instance 校验 `__id` 不在候选清单时先调之映射到真实候选，找不到才 skip 降级 modify。**保守多抽候选无害**（triage 按语义只选 box-0；set_instance 写入不存在的 __id=SUB_OVERRIDES 死项 applyOverride no-op 不崩）。校验：UXAI tsgo EXIT=0 + oxlint 0 error；node 实证正则抽 3 个 + count 推断正确。**✅ e2e 验证通过（2026-09-01，TC-B4b：走 set_instance 改 box-0 不降级 modify，场景级不漂移，只第一个 box 变红）**。见 [[3d-patch-silent-noop]]。
 - [x] 4. **批量 transform 落盘不生效** ❌→已取证→✅**修法已落地（2026-08-31）**：**根因修正（非 part-N，是 group 根 cid 死项）**。forklift.ts 源码实证：`create` 返回 `group` 根，但**只在 `spawnForklift` 内对实例 cid `${node.id}-forklift-${i}` 调 `applyOverride`（:137），从不对 group 根调 `applyOverride(SUB_OVERRIDES, group, node.id)`**。末版 SUB_OVERRIDES 实证两 key：`"wh-forklift-1"`（group 根,transform [2.8,0.2,0]）= **死项**（无 applyOverride 调用点）→ 整体编辑未生效；`"wh-forklift-1-forklift-0"`（实例,[4,0,-1]）= **活项**（spawnForklift:137 命中）→ 单个编辑生效。与用户「整体不生效/单个生效」完全吻合。**修法（commit-edits.ts）**：group 根（`__id === node.id`，整体选中）transform 不再写 SUB_OVERRIDES 死项，改写 live-data `node.params`（position/rotation/scale）——同 set_type_transform 语义，handler 重读 `opts.position` 生效。merged 就地改经 `onCodeVersionReady(files, summary, merged)` 落盘 + reload。实例 transform 仍走 SUB_OVERRIDES（活项）不变，零回归。oxlint 0 error + tsgo EXIT=0。**✅ e2e 验证通过（2026-08-31，TC-D5b/TC-14b：整体编辑叉车位置提交生效，切走切回保留）**。
 - [x] 5. **lights part-N 改色改错部件+全变** ❌→已取证→**根因二修（2026-08-31）**：原记「同色重复 15 次→count>1→failed」**不实**。pendant_lights.ts 源码实证：`makeLamp()` 是**函数**，三颜色字面量各只 1 次（`0x41b6f1` 杆 :20 / `0x37474f` 罩 :28 / `0xfffbe8` 泡 :36），循环调 15 次是运行时复用非源码重复。`patchHandlerMaterialColor`（patch-handler.ts:545）取**首个** `color:0x` 匹配=杆 `0x41b6f1`，count=1→**成功**→改错部件（杆非罩）+15 根杆全变。**真根因=组内子 mesh（rod/shade/bulb）无语义 `__id`+`applyOverride`**（只灯组 Group 盖 cid+applyOverride :58/60，Group 无 material→SUB_OVERRIDES no-op；子 mesh 无 cid→picker 返回兜底 part-N→commit 无法定位具体子部件，只能取首匹配=错）。另 PointLight `new THREE.PointLight(0xffe3ae,35,30,2)` 无 `color:0x` 前缀，正则不认（part-45+ 子分支，同 GLB paint 思路改构造首参）。roof truss-top 走语义 cid+单 material→SUB_OVERRIDES 生效故 OK。**修=组内每个有独立材质的子 mesh 盖语义 `__id`（`${cid}-rod/shade/bulb`）+ applyOverride**（codegen prompt 规则 132「循环同质子物」补「组件 Group 内独立材质子 mesh 亦须盖 cid+applyOverride」）→ picker 返回语义 cid → commit SUB_OVERRIDES 单子 mesh 生效，UXAI host 零改动（同 GLB 纯 prompt 路子）。**✅ 修法已落地（2026-08-31，A+B）**：A=`patch-handler.ts` patchHandlerMaterialColor 多异色（distinct>1）时 skip 防改错部件+全变（host 护现有 handler）；B=HANDLER_CONTRACT 规则 3 + codegen Constraints 3 补「组件 Group 内独立材质子 mesh 亦须盖语义 `__id`（`${cid}-<部件>`）+ applyOverride，工厂函数接收 cid 传内部子 mesh」（prompt，新生成 picker 返回语义 cid→SUB_OVERRIDES 单子 mesh 生效，host 零改动）。oxlint 0 new warning + tsgo EXIT=0。e2e 待跑 TC-12c。
+
+### P1.5 — 组件消费统一重构（barrel import + 直接 new，删 libraryBridge 工厂，2026-09-02 定案）
+
+> **背景与定案**：3d-components 组件接入「LLM 知道」与「运行时会造」两半割裂——createComponentObject 只认单 options Object3D（位置参数要 POSITIONAL_CTORS 手工表、材质/纹理类造不出），catalog 只进 11 个 core 组件。定案**一套**：所有组件 = `import { 类名 } from '../../../../components'` + 直接 `new`，catalog 三字段（constructor=怎么 new / extends=挂哪 / examples=多步用法）即完整用法说明书，**新组件零适配代码**（写文档页 + import tag + 跑 gen 即全链路生效，见 [[3d-new-component-onboarding]]）。工厂四价值均被直接 new 击破：名字错=vite 编译错（强于运行时 null 回落）；适配表只因工厂 `(name, options)` 单 bag 入口才需要；`__updatable` 改 traverse 探测；编译错好于 try/catch 静默。
+>
+> **可行性已验证（2026-09-02）**：registry 全仓零真实消费方（buildings.ts 一处调用 + barrel 导出 + 注释，无 JSON loader 接线）；host 侧 ensureApplyOverride 手术匹配 `objVar.userData.__id` **变量赋值形态**不匹配组件调用形态（`const wall = new Wall(...)` 照常命中）、isFallbackPartId 匹配 part-N 命名、`__componentName` UXAI 零读取——**host 业务逻辑零改动**，UXAI 只改 prompt 文本 + 注入格式。
+
+**前置（3d-components 仓）**
+- [ ] U1. gen 脚本删 `CREATABLE_DOMAINS`（有 import tag 即进 catalog）
+- [ ] U2. HeatMap / MeshReflectorMaterial 文档页补 import tag + 重跑 gen（catalog 覆盖全部公开组件）
+
+**3d-templete（5 处）**
+- [ ] U3. components/index.ts 全域 re-export（`export * from '@a3d/a3d-components/{core,heat,material}'`，17 名零冲突已核）
+- [ ] U4. libraryBridge.ts 整删（registry / createComponentObject / POSITIONAL_CTORS / initLibraryBridge）
+- [ ] U5. 3d/index.ts:70 删 bridge re-export 行
+- [ ] U6. buildings.ts `createComponentObject('Wall')` → `new Wall({ path })`
+- [ ] U7. createScene3D.ts setupUpdatables 改 traverse 探测 `typeof obj.update === 'function'`（直接 new 的 IUpdatable 组件如 Html 也自动进渲染循环）
+
+**UXAI（3 文件，零逻辑代码）**
+- [ ] U8. scene_3d_codegen.txt 5 处（行 10/25/130/133/138）「黑盒按名创建」→「import 类 + new，照 catalog constructor/extends/examples」
+- [ ] U9. HANDLER_CONTRACT.txt 4 处（行 89/91-92/110/133）示例与规则的工厂调用改 new 形态
+- [ ] U10. 3d_components_docs.ts formatCatalog **加 extends 行**（LLM 靠它判挂载方式：Mesh/Group→group.add、Material→mesh.material=，现精简目录无此字段）+ formatDoc import 行改 barrel 实际写法（现显示 `@a3d/a3d-components/core` 与 handler 写法不符有误导）；agent.ts:639 注释顺手
+
+**风险验证**
+- [ ] U11. vue-tsc：`export *` 拉 @a3d 类型进检查面（@types/three 双版本已知坑，M-1a 曾遇）冒错 → barrel 改显式列名导出（17 名）
+- [ ] U12. 存量版本 handler 扫描：版本目录有无 createComponentObject 调用（有→旧版回切 vite 崩，需评估存量迁移/过渡保留）
+- [ ] U13. e2e：TC-24 组（3D_E2E_TESTCASES.md Phase 9 / §十五 TC-H）
 
 ### P2 — Phase R 代码结构重构（e2e 绿后，纯结构，S/L 前提，§13.14）
 - [ ] R1-R7 拆 7 个 app 级单例 Manager（renderer/scene/environment/camera/light/controls/renderLoop）
@@ -766,7 +813,7 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 ### TC-C modify 保真（对应 P0-11 + P1-G1/G2；历史 v8「加小车丢叉车」实证 ses_faa391560ffea3 v7→v8）
 - **TC-C1 D3 文件层不丢→P0-11** 指令「加一辆小型手推平板小车，与叉车并排」→ 地面/墙/天花板/货架/叉车**全在**（不只新增小车）；vite console 无 TS2307/404。防 [[3d-gate-handler-mismatch]]
 - **TC-C2 G1 handler 内部保真→P1-G1** 同上 → 原叉车仍 hunyuan GLB（`ctx.loadModel('hunyuan:叉车')` 调用保留），**不退化成简陋 BoxGeometry**；新小车按指令渲染。历史 v8 退化=失败
-- **TC-C3 G2 场景级不漂移→P1-G2** 同上 → camera position/lights intensity/scene background **不变**（加小车不该动相机灯光）。**2026-08-31 实证失败（未修符合预期）**：drift 表 v9→v10 加小车 bg `#808080→#b8c4cc`、env `0.15→0.7`、cam `[26,18,-24]→[10,7,13]`、lights `0.12/0.1/0.15→0.55/0.4/1.1` **全漂移**；v10→v11 加第二叉车 forklift transform 丢失（`[5,0,0]·1.57·1.2→[0,0,0]·无·无`）。**✅ G2 修法已落地（2026-09-01，6d 步骤：modify 时 host 端 merge camera/lights/scene 保留键回 sceneData + live-data.json，e2e 待跑）**。
+- **TC-C3 G2 场景级不漂移→P1-G2** 同上 → camera position/lights intensity/scene background **不变**（加小车不该动相机灯光）。**2026-08-31 实证失败（未修符合预期）**：drift 表 v9→v10 加小车 bg `#808080→#b8c4cc`、env `0.15→0.7`、cam `[26,18,-24]→[10,7,13]`、lights `0.12/0.1/0.15→0.55/0.4/1.1` **全漂移**；v10→v11 加第二叉车 forklift transform 丢失（`[5,0,0]·1.57·1.2→[0,0,0]·无·无`）。**✅ G2 已修+e2e验证通过（2026-09-02，TC-11：6d 步骤 modify 时 host 端 merge camera/lights/scene 保留键回 sceneData + live-data.json，加小车后 bg/env/cam/lights 不漂移）**。
 
 ### TC-D 编辑态落盘（对应 P0-10/12；历史「提交后变回去」；**寻址矩阵决定每例预期**）
 > **关键**：编辑态改色/transform 是否落盘，取决于 picker 返回的 `__id` 是**语义 cid**（活项）还是 **part-N 兜底**（多同色→edit_code count>1→failed；Group/GLB 根→material no-op）。下拆 5 子例。
@@ -794,3 +841,11 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 ### TC-G 性能（可选）
 - **TC-G1 plan 加速** 机房场景 plan 静态注入 ~7s（历史 11:35→7s）。[[3d-codegen-plan]] Step8①
 - **TC-G2 不 stall** codegen 3min idle 超时兜底→失败卡片可重试。[[3d-codegen-stall-timeout]]
+
+### TC-H 组件消费统一（对应 P1.5 U13，barrel import + 直接 new；线性版 Phase 9 = TC-24 组）
+- **TC-H1 单 options 组件直接 new** 生成含 Wall/Grid/Rack 场景 → handler 为 `import { Wall } from '../../../../components'` + `new Wall({...})` 形态（非 createComponentObject）、渲染正常、循环子物 __id/applyOverride 契约不破（U3/U6/U8）
+- **TC-H2 位置参数组件** 「6 万实例森林/人群」触发 InstancedMesh2 → 照 catalog constructor 签名 `new InstancedMesh2(geo, mat, params)` 直接写（POSITIONAL_CTORS 已删、无适配表）（U4/U8）
+- **TC-H3 非 Object3D 组件** 「热力图铺地面」（HeatMap：new + `.setData()` + `.texture` 接 material.map）/「地面镜面反射」（MeshReflectorMaterial：`mesh.material =`）→ plan catalog 可见（U1/U2/U10 extends 行）+ handler 照 examples 多步用法
+- **TC-H4 IUpdatable traverse 探测** 动画/自更新组件（Html 等）进渲染循环持续动（U7，不再依赖工厂 __updatable 标记）
+- **TC-H5 存量版本回切** P1.5 前生成的历史版本来回切不崩（U12 扫描兜底）
+- **TC-H6 NL patch 兼容** new 形态 handler 上「墙改蓝」（edit_code color 字面量）/「删第一段墙」（edit_code 删 group.add 行）照常生效——host 手术匹配变量赋值形态与创建方式无关（host 零改动判断）

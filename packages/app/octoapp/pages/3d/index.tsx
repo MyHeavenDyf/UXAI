@@ -179,8 +179,13 @@ function Scene3DContent() {
   // 9a 门控：iframe 运行时错误 buffer（gate 期间收集，供 runSceneGate 读）+ 上轮 findings（喂回重试）
   const [consoleBuffer, setConsoleBuffer] = createSignal<ConsoleEntry[]>([])
   const [lastGateFindings, setLastGateFindings] = createSignal<Record<string, GateFinding[]>>({})
-  /** SCENE_READY resolver：gate 的 awaitSceneSettled 安装、onReady 触发 resolve（非 gate 期为 null） */
+  /** SCENE_READY resolver：gate 的 awaitSceneSettled 安装、onReady 触发 resolve（非 gate 期为 null）。
+   *  竞态防护：wsNonce++ 触发 iframe 重载 → iframe 发 SCENE_READY → onReady 调 resolver，
+   *  但 runGateAndPersist 还没调 awaitSceneSettled 装 resolver（它在 onCodeVersionReady await 返回后才调）
+   *  → resolver 为 null，SCENE_READY 被丢 → 15s 超时（场景仍渲染，因 pendingData 重发不依赖 resolver）。
+   *  sceneReadyPending 暂存「已到未消费」标志，resolver 安装时先查之立即 resolve。每次 wsNonce++ 前重置避免跨轮 stale。 */
   let sceneReadyResolver: (() => void) | null = null
+  let sceneReadyPending = false
   const [pauseMs, setPauseMs] = createSignal<Record<string, number>>({})
   const [pauseStart, setPauseStart] = createSignal<Record<string, number | undefined>>({})
 
@@ -458,26 +463,136 @@ function Scene3DContent() {
   })
 
   const isBusy = createMemo(() => {
-    if (sessionStatus().type !== "idle") return true
     const id = params.id
     if (!id) return false
     const rootMsgs = (sync.data.message[id] ?? []) as Message[]
     const lastRootAssistant = rootMsgs.findLast((m) => m.role === "assistant")
-    if (!!lastRootAssistant && typeof lastRootAssistant.time.completed !== "number") return true
+    const hasRootUser = rootMsgs.some((m) => m.role === "user")
+    // 空会话（无 user 无 assistant）→ 不算在途，直接 idle（否则新开会话 inputDisabled 恒真）
+    if (!hasRootUser && !lastRootAssistant) return false
+    // 消息层判完成：root 须有 assistant 且 completed（无 assistant=刚提交还没回，不降级）
+    const rootDone = !!lastRootAssistant && typeof lastRootAssistant.time.completed === "number"
+    // 检查每个 child：最后 assistant completed（或有 user 无 assistant=刚发未回，判在途）
+    let childrenDone = true
     for (const childID of childSessionIDs()) {
       const childMsgs = (sync.data.message[childID] ?? []) as Message[]
       const lastChildAssistant = childMsgs.findLast((m) => m.role === "assistant")
-      if (!!lastChildAssistant && typeof lastChildAssistant.time.completed !== "number") return true
+      if (lastChildAssistant && typeof lastChildAssistant.time.completed !== "number") {
+        childrenDone = false
+        break
+      }
       const hasUser = childMsgs.some((m) => m.role === "user")
-      if (hasUser && !lastChildAssistant) return true
+      if (hasUser && !lastChildAssistant) {
+        childrenDone = false
+        break
+      }
     }
-    return false
+    // 消息层全完成（root 有 assistant 且 completed + 所有 child 完成）→ 判 idle，即使
+    // session_status 卡 busy 也降级：SSE 漏推 session.status(idle) 时 store 卡 busy，
+    // 但消息层全 completed=number 说明 LLM 已结束，spinner 不该再转。停止按钮无反应根因同此。
+    if (rootDone && childrenDone) return false
+    // 消息层有在途 → busy（status 这时也应为 busy，双保险）
+    if (sessionStatus().type !== "idle") return true
+    // status=idle 但消息层未完成（极少见：status 先到 idle 但消息 updated 晚到）→ 仍判 busy
+    return true
   })
 
   const pipelineBusy = createMemo(() => isBusy() || sending())
   const hasContent = () => !!(params.id && userMessages().length > 0)
   const sessionMessagesLoaded = () => !params.id || sessionSynced()
   const autoScroll = createAutoScroll({ working: isBusy })
+
+  // ── 执行计时器 + 阻塞检测（照搬 make :711-758，阈值适配 3D codegen 慢）────
+  // 3D plan/codegen 跑十几分钟常态，make 的 60/180s 阈值对单流生成合理但对 3D 太激进，
+  // 调高为 120s 灰提示/300s 橙警告+中止按钮。
+  const [elapsedText, setElapsedText] = createSignal("")
+  const [elapsedSecs, setElapsedSecs] = createSignal(0)
+  let elapsedTimer: ReturnType<typeof setInterval> | undefined
+  createEffect(() => {
+    if (pipelineBusy()) {
+      const id = params.id
+      if (id) {
+        // 找 root + child 里最后一个未完成的 assistant（pipeline 在途的那一个）
+        const candidates = [...(sync.data.message?.[id] ?? [])]
+        for (const childID of childSessionIDs()) {
+          candidates.push(...(sync.data.message?.[childID] ?? []))
+        }
+        const pending = [...candidates].reverse().find((m) => m.role === "assistant" && typeof m.time.completed !== "number")
+        if (pending) {
+          const start = pending.time.created
+          const fmt = () => {
+            const secs = Math.max(0, Math.round((Date.now() - start) / 1000))
+            setElapsedSecs(secs)
+            const m = Math.floor(secs / 60)
+            const s = secs % 60
+            setElapsedText(m > 0 ? `${m}分${s}秒` : `${s}秒`)
+          }
+          fmt()
+          elapsedTimer = setInterval(fmt, 1000)
+        }
+      }
+    } else {
+      if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = undefined }
+      setElapsedText("")
+      setElapsedSecs(0)
+    }
+    onCleanup(() => { if (elapsedTimer) clearInterval(elapsedTimer) })
+  })
+
+  // ── 总墙钟兜底（P1.2）─────────────────────────────────────────
+  // provider 层墙钟 10min（P1.3）之上，前端 15min 再兜一道：到点弹卡片让用户三选一
+  // （继续等待/中止/重试），不自动 halt 不自动重试——模型可能只是极慢但正常在跑
+  // （GLM-V5_1 实证 300s 仍在持续吐字），是否放弃由用户定（对齐 make 用户主权哲学）。
+  const TOTAL_TIMEOUT_SEC = 15 * 60
+  const [timeoutDismissed, setTimeoutDismissed] = createSignal(false)
+  const timeoutExceeded = createMemo(() => pipelineBusy() && !timeoutDismissed() && elapsedSecs() >= TOTAL_TIMEOUT_SEC)
+  // elapsed 回落（pipeline 结束/进入新阶段换 pending 目标）→ 重置 dismissed，下次超时再次提醒
+  createEffect(() => {
+    if (elapsedSecs() > 0 && elapsedSecs() < TOTAL_TIMEOUT_SEC) setTimeoutDismissed(false)
+  })
+
+  // 阻塞检测：lastDeltaTime 由 SSE delta 续命，blockTimer 每秒查 >阈值 → 渐进式提示
+  const [lastDeltaTime, setLastDeltaTime] = createSignal(Date.now())
+  const [blockTime, setBlockTime] = createSignal(0)
+  let blockTimer: ReturnType<typeof setInterval> | undefined
+  createEffect(() => {
+    if (pipelineBusy()) {
+      setLastDeltaTime(Date.now())
+      blockTimer = setInterval(() => {
+        const blockedMs = Date.now() - lastDeltaTime()
+        if (blockedMs > 3000) {
+          setBlockTime(Math.floor(blockedMs / 1000))
+        }
+      }, 1000)
+    } else {
+      if (blockTimer) { clearInterval(blockTimer); blockTimer = undefined }
+      setLastDeltaTime(Date.now())
+      setBlockTime(0)
+    }
+    onCleanup(() => { if (blockTimer) clearInterval(blockTimer) })
+  })
+
+  // SSE delta 续命 lastDeltaTime（照搬 make :478-534）——3D 多 child，root+child 的 delta 都续命
+  createEffect(() => {
+    const sid = params.id
+    if (!sid) return
+    const children = childSessionIDs()
+    const unsub = sdk.event.listen((evt) => {
+      const e = evt.details
+      const props = e.properties as Record<string, unknown> | undefined
+      const eventSessionID = typeof props?.sessionID === "string" ? props.sessionID : undefined
+      if (eventSessionID && eventSessionID !== sid && !children.includes(eventSessionID)) return
+      if (
+        e.type === "message.part.delta" ||
+        e.type === "session.next.reasoning.delta" ||
+        e.type === "message.part.updated"
+      ) {
+        setLastDeltaTime(Date.now())
+        setBlockTime(0)
+      }
+    })
+    onCleanup(() => unsub())
+  })
 
   async function handleWorkflowError(err: unknown, sessionId: string, label: string) {
     console.error(`[Scene3D] ${label} failed`, err)
@@ -756,6 +871,13 @@ function Scene3DContent() {
   /** 等 iframe SCENE_READY + 1s settle（捕获异步模型加载错），15s 超时 → scene-not-ready */
   function awaitSceneSettled(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
+      // 竞态：SCENE_READY 已在 iframe 重载后早到（resolver 未装），暂存标志立即放行
+      if (sceneReadyPending) {
+        sceneReadyPending = false
+        // settle 1s 再放行，捕获异步模型加载 console 错（与正常路径一致）
+        setTimeout(() => resolve(), 1000)
+        return
+      }
       const timer = setTimeout(() => {
         sceneReadyResolver = null
         reject(new Error("场景就绪超时（15s 未收到 SCENE_READY）"))
@@ -1194,6 +1316,13 @@ function Scene3DContent() {
       next.delete(sid)
       return next
     })
+    // 乐观清 session_status store：abort 不保证立即推 session.status(idle)（某些 provider
+    // 的 session.abort 不给在途消息写 completed → isBusy 消息层兜底失效），store 卡 busy
+    // → isBusy() 恒真 → spinner 永转 + 停止按钮看似无反应。此处直接乐观置 idle，不依赖 SSE。
+    sync.set("session_status", sid, { type: "idle" })
+    for (const childID of childSessionIDs()) {
+      sync.set("session_status", childID, { type: "idle" })
+    }
     // 清理该 session 的 workflow 状态
     sessionMap.set(setIsGenerating, sid, false)
     sessionMap.set(setIsGeneratingReview, sid, false)
@@ -1390,6 +1519,7 @@ function Scene3DContent() {
     )
     if (params.id !== sid) return
     setWorkspaceActive(true)
+    sceneReadyPending = false // 重置竞态暂存，防上一轮 stale 误触发
     setWsNonce((n) => n + 1)
   }
 
@@ -1456,9 +1586,11 @@ function Scene3DContent() {
     } catch (e) {
       console.warn("[materializePatch] touch 失败，降级 switchVersion 重启 dev", e)
       await workspace.switchVersion(sdk.directory, codeDirPath(dir, sid, vid))
+      sceneReadyPending = false // 重置竞态暂存，防上一轮 stale 误触发
       setWsNonce((n) => n + 1)
       return
     }
+    sceneReadyPending = false // 重置竞态暂存，防上一轮 stale 误触发
     setWsNonce((n) => n + 1)
   }
 
@@ -1661,6 +1793,15 @@ function Scene3DContent() {
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             pipelineBusy={pipelineBusy()}
+            elapsedText={elapsedText()}
+            blockTime={blockTime()}
+            onAbort={halt}
+            timeoutExceeded={timeoutExceeded()}
+            onDismissTimeout={() => setTimeoutDismissed(true)}
+            onRetryTimeout={() => {
+              halt()
+              void handleRetry()
+            }}
             roundMessages={roundMessages()}
             needsConfirm={needsConfirm()}
             confirmText={confirmText()}
@@ -1706,7 +1847,14 @@ function Scene3DContent() {
                           onMaterializePatch={materializePatch}
                           onReady={() => {
                             setEmbedReady(true)
-                            sceneReadyResolver?.()
+                            // resolver 已装（runGateAndPersist 在跑）→ 直接 resolve；
+                            // 未装（SCENE_READY 早到，onCodeVersionReady 的 wsNonce++ 触发重载快于
+                            // 后续 runGateAndPersist 装 resolver）→ 暂存 pending，awaitSceneSettled 装好时立即放行
+                            if (sceneReadyResolver) {
+                              sceneReadyResolver()
+                            } else {
+                              sceneReadyPending = true
+                            }
                           }}
                           onConsoleError={(entry) => setConsoleBuffer((prev) => [...prev, entry])}
                           versions={versions()[params.id!] ?? []}

@@ -199,7 +199,11 @@ export function InsightTurn(props: {
   const assistantGenerating = createMemo(() => {
     const msgs = allAssistantMsgs()
     if (msgs.length === 0) return props.pipelineBusy
-    return msgs.some((m) => typeof m.time.completed !== "number")
+    // 该 session 自己的 assistant 有未完成 → 在生成。
+    // 该 session 的 assistant 都完成了，但 pipeline 整体仍在跑（后续 codegen 等阶段）→
+    // 仍算 generating（不显示「完成」badge），避免 plan 完成后 codegen 还在跑却显示「生成完成」。
+    // pipeline 真正结束（pipelineBusy=false）时各 session 才各自按自身完成态显示「完成」。
+    return msgs.some((m) => typeof m.time.completed !== "number") || props.pipelineBusy
   })
 
   // 对齐 make：生成中自动展开思考链、完成自动折叠（用户可手动再展开）。
