@@ -7,7 +7,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { createEffect, createMemo, createResource, createSignal, on, Show, For, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { IconCardTable, IconCardMindmap, IconCardJson, IconCardFile, IconCardMarkdown, IconCardHtml, IconCardDeck, IconCardSvg, IconCardReact, IconCardDiagram } from "../icons"
-import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml, stripCustomTags } from "../utils/artifact-parser"
+import { createArtifactParser, isTruncatedHtml, repairTruncatedHtml } from "../utils/artifact-parser"
 import { splitOnQuestionForms, type FormSegment, type QuestionForm } from "../utils/question-form"
 import { QuickBriefFormView } from "./quick-brief-form"
 import './quick-brief-form.css'
@@ -1008,7 +1008,7 @@ const stateStatus = state.status as string | undefined
     return tasks
   })
 
-  // ── NEW: prose text (stripped of artifacts + pattern custom tags, using parser for partial-tag safety) ──
+  // ── NEW: prose text (stripped of artifacts, using parser for partial-tag safety) ──
   const proseText = createMemo(() => {
     const parts = assistantParts()
     const textPart = [...parts]
@@ -1022,9 +1022,7 @@ const stateStatus = state.status as string | undefined
     }
     // Intentionally skip flush() — partial <artifact prefixes held in the buffer
     // should NOT be emitted as visible text (prevents flicker/duplication).
-    // Strip ict_pattern agent's custom tags (<pattern-match>, <module-list>)
-    // same as artifact parser strips <artifact>, including partial (streaming) tags.
-    return stripCustomTags(prose, ["pattern-match", "module-list"]).trim()
+    return prose.trim()
   })
 
   // ── NEW: prose segments (split on <question-form> blocks) ──
