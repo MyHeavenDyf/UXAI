@@ -456,16 +456,33 @@ interface DropdownItem {
   label: string;
   key: string | number;
   icon?: string;
+  children?: DropdownItem[];
 }
 interface ResolvedDropdown {
   children: AnyComponentNode[];
   menu: DropdownItem[] | DataBinding;
-  placement?: "bottom" | "bottomLeft" | "bottomRight" | "top" | "topLeft" | "topRight";
-  trigger?: "click" | "hover" | "contextMenu";
+  placement?: "top" | "left" | "right" | "bottom"
+    | "topLeft" | "topRight" | "bottomLeft" | "bottomRight"
+    | "leftTop" | "leftBottom" | "rightTop" | "rightBottom";
+  trigger?: ("click" | "hover" | "contextMenu")[];
   className?: string;
 }
 interface DropdownNode extends AnyComponentNode<ResolvedDropdown> {
   type: "Dropdown";
+}
+
+interface ResolvedPopover {
+  content: string | AnyComponentNode;
+  title?: DynamicString;
+  placement?: "top" | "left" | "right" | "bottom"
+    | "topLeft" | "topRight" | "bottomLeft" | "bottomRight"
+    | "leftTop" | "leftBottom" | "rightTop" | "rightBottom";
+  trigger?: ("click" | "hover" | "contextMenu")[];
+  className?: string;
+  children?: AnyComponentNode[];
+}
+interface PopoverNode extends AnyComponentNode<ResolvedPopover> {
+  type: "Popover";
 }
 
 interface ResolvedCarousel {
@@ -645,6 +662,8 @@ export type {
   RateNode,
   BreadcrumbNode,
   DropdownNode,
+  DropdownItem,
+  PopoverNode,
 
   CarouselNode,
   TreeNodeNode,

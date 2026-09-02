@@ -27,6 +27,7 @@ import A2UiBadge from "./Badge/Badge.vue"
 import A2UiRate from "./Rate/Rate.vue"
 import A2UiBreadcrumb from "./Breadcrumb/Breadcrumb.vue"
 import A2UiDropdown from "./Dropdown/Dropdown.vue"
+import A2UiPopover from "./Popover/Popover.vue"
 import A2UiMenu from "./Menu/Menu.vue"
 import A2UiSegmented from "./Segmented/Segmented.vue"
 import A2UiTree from "./Tree/Tree.vue"
@@ -94,6 +95,7 @@ const catelog = {
   Rate: A2UiRate,
   Breadcrumb: A2UiBreadcrumb,
   Dropdown: A2UiDropdown,
+  Popover: A2UiPopover,
   Menu: A2UiMenu,
   Segmented: A2UiSegmented,
   Steps: A2UiSteps,

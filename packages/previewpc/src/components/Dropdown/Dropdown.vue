@@ -1,29 +1,33 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, useAttrs, watch } from "vue"
-import type { Component } from "vue"
-import { ElDropdown, ElDropdownMenu, ElDropdownItem } from "element-plus"
-import type { DropdownNode } from "../types"
+import { computed, onMounted, ref, useAttrs } from "vue"
+import { ElDropdown } from "element-plus"
+import type { DropdownItem, DropdownNode } from "../types"
 import { useA2UIComponent, type A2UIComponentProps } from "../../renderer"
 
 import ComponentNode from "../../renderer/render/ComponentNode.vue"
-import { getIconComponentRef } from "../Icon/IconBase"
-import { svgCacheVersion } from "../../composables/useIconProvider"
-import { useTheme } from "../../composables/useTheme"
+import DropdownMenuList from "./DropdownMenuList.vue"
 
-const triggerEnum = {
+// schema 的 trigger 为数组，ElDropdown 的 trigger 只接受单个值
+const triggerEnum: Record<string, "hover" | "click" | "contextmenu"> = {
   click: "click",
   hover: "hover",
   contextMenu: "contextmenu",
 }
 
 const placementEnum = {
-  bottom: "bottom",
-  bottomLeft: "bottom-start",
-  bottomRight: "bottom-end",
   top: "top",
   topLeft: "top-start",
   topRight: "top-end",
-}
+  bottom: "bottom",
+  bottomLeft: "bottom-start",
+  bottomRight: "bottom-end",
+  left: "left",
+  leftTop: "left-start",
+  leftBottom: "left-end",
+  right: "right",
+  rightTop: "right-start",
+  rightBottom: "right-end",
+} as const
 
 const props = defineProps<A2UIComponentProps<DropdownNode>>()
 const { properties } = props.node
@@ -51,50 +55,31 @@ const id = computed(() => props.node.id)
 const className = computed(() => properties.className)
 
 const trigger = computed(() => {
-  return properties.trigger ? triggerEnum[properties.trigger as keyof typeof triggerEnum] as any : "hover"
+  const arr = properties.trigger
+  if (Array.isArray(arr) && arr.length) {
+    return triggerEnum[arr[0]] ?? "hover"
+  }
+  return "hover"
 })
 const placement = computed(() => {
-  return properties.placement ? placementEnum[properties.placement as keyof typeof placementEnum] as any : "bottom"
+  return properties.placement ? placementEnum[properties.placement] ?? "bottom" : "bottom"
 })
 
 const children = computed(() => properties.children)
-const items = computed(() => {
-  const children = Array.isArray(properties.menu)
-    ? properties.menu
-    : (resolveValue(properties.menu) as []) || []
-
-  if (!children.length) return []
-  return children.map((item: any) => {
-    const { label, icon, key } = item
+const items = computed<DropdownItem[]>(() => {
+  const raw = properties.menu
+  const resolved = Array.isArray(raw) ? raw : resolveValue(raw)
+  if (!Array.isArray(resolved) || !resolved.length) return []
+  return resolved.map((item: any) => {
+    const { label, icon, key, children } = item
     return {
       key,
       icon: resolveValue(icon) as string,
       label: resolveValue(label),
-    }
+      children: Array.isArray(children) && children.length ? children : undefined,
+    } as DropdownItem
   })
 })
-
-// ---- 图标解析（同步，追踪 svgCacheVersion 以响应 SVG 到达） ----
-const { isDark } = useTheme()
-const resolvedDropdownIcons = ref<Record<string | number, { component: Component | null; props: Record<string, any> } | null>>({})
-
-watch(
-  [items, svgCacheVersion, isDark],
-  ([newItems]) => {
-    const map: Record<string | number, any> = {}
-    for (const item of (newItems as any[])) {
-      if (item.icon) {
-        map[item.key] = getIconComponentRef(item.icon, { 
-          size: 14, 
-          shape: 'lined',
-          color: isDark.value ? '#FFFFFF' : '#191919'
-        })
-      }
-    }
-    resolvedDropdownIcons.value = map
-  },
-  { immediate: true, deep: true },
-)
 </script>
 
 <template>
@@ -114,17 +99,7 @@ watch(
     </div>
 
     <template #dropdown>
-      <ElDropdownMenu>
-        <ElDropdownItem v-for="item in items" :key="item.key">
-          <component
-            v-if="item.icon && resolvedDropdownIcons[item.key]"
-            class="mr-1"
-            :is="resolvedDropdownIcons[item.key]?.component"
-            v-bind="resolvedDropdownIcons[item.key]?.props ?? {}"
-          />
-          {{ item.label }}
-        </ElDropdownItem>
-      </ElDropdownMenu>
+      <DropdownMenuList :items="items" :surface-id="surfaceId" />
     </template>
   </ElDropdown>
 </template>
