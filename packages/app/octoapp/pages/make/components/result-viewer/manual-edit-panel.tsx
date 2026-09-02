@@ -789,8 +789,8 @@ function StyleInspector(props: {
           <ColorPicker label="Fill" value={props.styles.backgroundColor} tokens={HUI_COLOR_TOKENS} onChange={(v) => u('backgroundColor', v)} />
           <div class="cc-stroke-row">
             <DragInput
-              value={() => parseFloat(props.styles.opacity) || 0}
-              setValue={(v) => u('opacity', String(v))}
+              value={() => Math.round((parseFloat(props.styles.opacity) || 0) * 100)}
+              setValue={(v) => u('opacity', String(Math.round(v) / 100))}
               setFound={() => {}}
               found={() => true}
               placeholder="透明度"
@@ -932,7 +932,13 @@ function StyleInspector(props: {
               <span class="cc-typ-sublabel">行高</span>
               <DragInput
                 value={() => parseFloat(props.styles.lineHeight) || 0}
-                setValue={(v) => u('lineHeight', String(v))}
+                setValue={(v) => {
+                  // line-height 无单位是合法写法(=字号倍数);原值无单位则保持倍数语义,
+                  // 有单位(px/em)或 normal/空 则写 px。重开面板后值来自 computed 恒为 px。
+                  const raw = props.styles.lineHeight.trim()
+                  const unitless = /^\d+(\.\d+)?$/.test(raw)
+                  u('lineHeight', unitless ? String(v) : `${v}px`)
+                }}
                 setFound={() => {}}
                 found={() => true}
                 placeholder="auto"
