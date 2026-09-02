@@ -1,5 +1,5 @@
 import { TW_FONT_SIZES, TW_FONT_WEIGHTS } from "./constants"
-import { _px, _pxGap } from "./utils"
+import { _px, _pxGap, stripImportant } from "./utils"
 
 export interface ParsedClassInfo {
   fontSize: number
@@ -57,7 +57,7 @@ export interface ParsedClassInfo {
 }
 
 export function parseClass(cls: string): { classes: string[]; info: ParsedClassInfo } {
-  const classes = cls.split(/\s+/).filter(Boolean).map(c => c.startsWith('!') ? c.slice(1) : c)
+  const classes = cls.split(/\s+/).filter(Boolean).map(stripImportant)
   let fs = 14, fw = 400, ta = '', pt = 0, pr = 0, pb = 0, pl = 0
   let fFS = false, fFW = false
   let mt = 0, mr = 0, mb = 0, ml = 0, br = 0, w = '', wp = 0, hp = 0, op = 100

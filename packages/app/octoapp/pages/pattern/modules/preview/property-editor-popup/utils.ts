@@ -44,3 +44,13 @@ export function toHex(color: string): string {
   if (!m) return color
   return '#' + [Number(m[1]), Number(m[2]), Number(m[3])].map(n => n.toString(16).padStart(2, '0')).join('')
 }
+
+export function stripImportant(cls: string): string {
+  if (cls.length > 1 && cls.startsWith('!')) return cls.slice(1)
+  if (cls.length > 1 && cls.endsWith('!')) return cls.slice(0, -1)
+  return cls
+}
+
+export function hasImportant(cls: string): boolean {
+  return cls.length > 1 && (cls.startsWith('!') || cls.endsWith('!'))
+}

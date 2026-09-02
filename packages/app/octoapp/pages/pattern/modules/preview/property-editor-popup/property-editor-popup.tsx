@@ -8,7 +8,7 @@ import {
   TW_FONT_SIZES, FW_TO_TW,
   GRID_POSITIONS, BOOL_PROP_KEY_SET,
 } from "./constants"
-import { normalizeCssKeys, toHex } from "./utils"
+import { normalizeCssKeys, toHex, stripImportant, hasImportant } from "./utils"
 import { parseClass, type ParsedClassInfo } from "./class-parser"
 import { parseFillsFromRawCls, parseStrokesFromRawCls, parseEffectsFromRawCls } from "./raw-parsers"
 import { ColorPicker, TEXT_COLOR_TOKENS, BG_COLOR_TOKENS } from "./color-picker"
@@ -339,7 +339,7 @@ export function PropertyEditorPopup(props: {
   }
 
   function classifyClassGroup(c: string): string | null {
-    const s = c.startsWith('!') ? c.slice(1) : c
+    const s = stripImportant(c)
     if (s === 'text-left' || s === 'text-center' || s === 'text-right' || s === 'text-justify') return 'textAlign'
     if (s.startsWith('text-[#')) return 'textColor'
     if (/^text-hui-/.test(s)) return 'textColor'
@@ -1048,11 +1048,10 @@ export function PropertyEditorPopup(props: {
     try { parsed = JSON.parse(props.elementProps || '{}') } catch { /* ignore */ }
     const parsedClassName = isStateBoundValue(parsed.className) ? '' : (parsed.className as string) || ''
     const rawCls = parsedClassName || props.currentClass || ''
-    parsedClasses = rawCls.split(/\s+/).filter(c => Boolean(c) && !c.startsWith('el-') && !c.startsWith('!el-')).map(c => c.startsWith('!') ? c.slice(1) : c)
+    const allClasses = rawCls.split(/\s+/).filter(Boolean)
+    parsedClasses = allClasses.filter(c => !stripImportant(c).startsWith('el-')).map(stripImportant)
     importantSet = new Set(
-      rawCls.split(/\s+/)
-        .filter(c => c.startsWith('!') && !c.startsWith('!el-'))
-        .map(c => c.slice(1))
+      allClasses.filter(c => hasImportant(c) && !stripImportant(c).startsWith('el-')).map(stripImportant)
     )
     const cleanCls = parsedClasses.join(' ')
 
@@ -1555,11 +1554,13 @@ export function PropertyEditorPopup(props: {
       }
     }
 
-    className = className.split(/\s+/).filter(c => c && !c.startsWith('el-') && !c.startsWith('!el-')).map(c => {
-      const stripped = c.startsWith('!') ? c.slice(1) : c
+    className = className.split(/\s+/).filter(c => c && !stripImportant(c).startsWith('el-')).map(c => {
+      const stripped = stripImportant(c)
       const shouldImportant = importantSet.has(stripped)
-      const hasImportant = c.startsWith('!')
-      return shouldImportant && !hasImportant ? '!' + c : (!shouldImportant && hasImportant ? stripped : c)
+      const isImportant = hasImportant(c)
+      if (shouldImportant && !isImportant) return c + '!'
+      if (!shouldImportant && isImportant) return stripped
+      return c
     }).join(' ')
 
     const componentProps: Record<string, string | boolean | object> = {}
