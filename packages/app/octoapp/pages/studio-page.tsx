@@ -68,7 +68,8 @@ import { StudioCutoutEditor, StudioHDEditor } from "./studio/studio-editors-basi
 import { StudioInpaintEditor } from "./studio/studio-inpaint-editor"
 import { StudioOutpaintEditor } from "./studio/studio-outpaint-editor"
 import { StudioVideoRiskDialog } from "./studio/studio-video-risk-dialog"
-import type { StudioStyleTemplateListInput, StudioStyleTemplateListResult } from "./studio/studio-style-template-menu"
+import type { StudioStyleTemplateListInput, StudioStyleTemplateListItem, StudioStyleTemplateListResult } from "./studio/studio-style-template-menu"
+import { styleTemplateFinalPrompt, styleTemplatePromptPayload, styleTemplateTargetModel } from "./studio/studio-style-template-utils"
 import type {
   StudioCanvasView,
   StudioStyleDescriptionGenerateHandlers,
@@ -379,6 +380,9 @@ export default function StudioPage() {
   const [workspaceUploadRequested, setWorkspaceUploadRequested] = createSignal(false)
   const [pendingEditorEntries, setPendingEditorEntries] = createSignal<StudioTurnData[]>([])
   const [openMenu, setOpenMenu] = createSignal<StudioComposerMenu>(null)
+  const [selectedStyleTemplate, setSelectedStyleTemplate] = createSignal<StudioStyleTemplateListItem>()
+  const [recipeMainPrompt, setRecipeMainPrompt] = createSignal("")
+  const [recipeExtraPrompt, setRecipeExtraPrompt] = createSignal("")
   const [canGenerateVideo, setCanGenerateVideo] = createSignal(false)
   const [canUseSeedream, setCanUseSeedream] = createSignal(false)
   const [studioPermissionReady, setStudioPermissionReady] = createSignal(false)
@@ -1030,7 +1034,14 @@ export default function StudioPage() {
     // 服务端 turn 尚未带回本次 generation ID 时才按内容兜底；历史中相同 prompt 的任务不能被误认作当前任务。
     if (!turn || turn.createdAt < pending.createdAt) return false
     if (!pending.displayPrompt) return turn?.result?.prompt === pending.prompt
-    if (pending.displayPrompt !== STUDIO_REGENERATE_DISPLAY_PROMPT) return false
+    if (pending.displayPrompt !== STUDIO_REGENERATE_DISPLAY_PROMPT) {
+      return Boolean(
+        turn?.result &&
+          (turn.userText === pending.displayPrompt || turn.result.displayPrompt === pending.displayPrompt) &&
+          turn.result.prompt === pending.prompt &&
+          turn.result.capability === pending.capability,
+      )
+    }
     return Boolean(
       turn?.result &&
         (turn.userText === STUDIO_REGENERATE_DISPLAY_PROMPT || turn.result.displayPrompt === STUDIO_REGENERATE_DISPLAY_PROMPT) &&
@@ -1498,6 +1509,26 @@ export default function StudioPage() {
   createEffect(() => {
     if (videoQualityLocked()) setVideoQualityMode("720")
   })
+  const effectiveMaxReferenceImages = createMemo(() => {
+    const template = selectedStyleTemplate()
+    if (!template || capability() !== "image.generate") return maxReferenceImages()
+    if (template.reference_image_setting === "not_supported") return 0
+    return Math.min(maxReferenceImages(), template.reference_image_count)
+  })
+  const templateUserPrompt = createMemo(() => {
+    const template = selectedStyleTemplate()
+    if (!template) return prompt().trim()
+    if (template.prompt_setting === "not_supported") return ""
+    if (template.template_type === "preset_recipe") return `${recipeMainPrompt()}${recipeExtraPrompt()}`.trim()
+    return prompt().trim()
+  })
+  const styleTemplateSubmitError = createMemo(() => {
+    const template = selectedStyleTemplate()
+    if (!template || capability() !== "image.generate") return
+    if (template.prompt_setting === "required" && !templateUserPrompt()) return "请输入提示词。"
+    if (template.reference_image_setting === "fixed" && assets().length !== template.reference_image_count) return `请上传 ${template.reference_image_count} 张参考图。`
+    if (template.reference_image_setting === "optional" && assets().length > template.reference_image_count) return `最多上传 ${template.reference_image_count} 张参考图。`
+  })
   const canSubmit = createMemo(() =>
     SUPPORTED_STUDIO_CAPABILITIES.has(capability()) &&
     !isActionBusy() &&
@@ -1506,7 +1537,9 @@ export default function StudioPage() {
     (
       capability() === "video.generate"
         ? !hasInvalidVideoFrames() && (prompt().trim().length > 0 || hasVideoFrames())
-        : prompt().trim().length > 0
+        : selectedStyleTemplate() && capability() === "image.generate"
+          ? !styleTemplateSubmitError()
+          : prompt().trim().length > 0
     ),
   )
   const isEditingWorkspaceMode = createMemo(() => mode() !== "preview")
@@ -1888,7 +1921,15 @@ export default function StudioPage() {
     })
   }
 
-  function selectStyleModel(value: string) {
+  function selectStyleModel(value: string, options?: { preserveStyleTemplate?: boolean }) {
+    const nextStyleModelID = styleModelId(value)
+    const shouldClearStyleTemplate = Boolean(
+      selectedStyleTemplate() &&
+        !options?.preserveStyleTemplate &&
+        value !== styleModel() &&
+        nextStyleModelID !== "seedream-5-lite" &&
+        nextStyleModelID !== "qwen",
+    )
     // 切换 Seedream 与其他模型时清空自定义尺寸（校验规则不同）
     const prevIsSeedream = styleModelRequiresSeedreamPermission(styleModel())
     const nextIsSeedream = styleModelRequiresSeedreamPermission(value)
@@ -1907,11 +1948,59 @@ export default function StudioPage() {
       }
     }
     setStyleModel(value)
-    setAssets((items) => items.slice(0, referenceImageLimit(value)))
+    if (shouldClearStyleTemplate) {
+      setSelectedStyleTemplate(undefined)
+      setPrompt("")
+      setRecipeMainPrompt("")
+      setRecipeExtraPrompt("")
+    }
+    const template = shouldClearStyleTemplate ? undefined : selectedStyleTemplate()
+    setAssets((items) => shouldClearStyleTemplate ? [] : items.slice(0, template && template.reference_image_setting !== "not_supported" ? Math.min(referenceImageLimit(value), template.reference_image_count) : template ? 0 : referenceImageLimit(value)))
+  }
+
+  function applyStyleTemplate(template: StudioStyleTemplateListItem) {
+    const targetModel = styleTemplateTargetModel(canUseSeedream(), styleModel())
+    batch(() => {
+      setSelectedStyleTemplate(template)
+      setCapability("image.generate")
+      setRecipeMainPrompt("")
+      setRecipeExtraPrompt("")
+      if (template.template_type === "preset_recipe" || template.prompt_setting === "not_supported") setPrompt("")
+      if (styleModel() !== targetModel) selectStyleModel(targetModel, { preserveStyleTemplate: true })
+      setAssets((items) => items.slice(0, template.reference_image_setting === "not_supported" ? 0 : Math.min(referenceImageLimit(targetModel), template.reference_image_count)))
+    })
+  }
+
+  function clearStyleTemplate() {
+    batch(() => {
+      setSelectedStyleTemplate(undefined)
+      setRecipeMainPrompt("")
+      setRecipeExtraPrompt("")
+    })
+  }
+
+  function templateReferenceUploadDisabled() {
+    return capability() === "image.generate" && selectedStyleTemplate()?.reference_image_setting === "not_supported"
+  }
+
+  function showUnsupportedTemplateReferenceNotice() {
+    showFloatingNotice("info", "该风格模版不支持上传参考图")
+  }
+
+  function pickReferenceFile() {
+    if (templateReferenceUploadDisabled()) {
+      showUnsupportedTemplateReferenceNotice()
+      return
+    }
+    fileInputRef.click()
   }
 
   async function addReferenceAsset(asset: StudioAsset) {
-    const limit = maxReferenceImages()
+    if (templateReferenceUploadDisabled()) {
+      showUnsupportedTemplateReferenceNotice()
+      return
+    }
+    const limit = effectiveMaxReferenceImages()
     if (limit !== 1 && assets().length >= limit) {
       showFloatingNotice("info", `上传失败：最多上传 ${limit} 张参考图。`)
       return
@@ -1959,9 +2048,13 @@ export default function StudioPage() {
   }
 
   function addAssets(files: File[]) {
+    if (templateReferenceUploadDisabled()) {
+      showUnsupportedTemplateReferenceNotice()
+      return
+    }
     const imageFiles = files.filter((item) => item.type.startsWith("image/"))
     if (!imageFiles.length) return
-    const limit = maxReferenceImages()
+    const limit = effectiveMaxReferenceImages()
     const selectedFiles = limit === 1 ? imageFiles.slice(0, 1) : imageFiles.slice(0, Math.max(limit - assets().length, 0))
     if (!selectedFiles.length) {
       showFloatingNotice("info", `上传失败：最多上传 ${limit} 张参考图。`)
@@ -2323,6 +2416,7 @@ export default function StudioPage() {
     if (input.capability === "image.outpaint") return "好的，我将扩展当前图片。"
     if (input.capability === "video.generate") return "好的，我将为您生成一段视频。"
     if (input.sourceImage) return "好的，我会基于当前画面继续创作。"
+    if (input.capability === "image.generate") return "好的，我将为您生成图片。"
     return `好的，我将为您生成${capabilityLabel(input.capability)}。`
   }
 
@@ -3300,6 +3394,45 @@ export default function StudioPage() {
     }
   }
 
+  function runStyleTemplateGeneration(template: StudioStyleTemplateListItem) {
+    const error = styleTemplateSubmitError()
+    if (error) {
+      showFloatingNotice("info", error)
+      return
+    }
+    const templateInput = {
+      custom: prompt().trim(),
+      extraPrompt: recipeExtraPrompt().trim(),
+      mainPrompt: recipeMainPrompt().trim(),
+    }
+    const finalPrompt = styleTemplateFinalPrompt(template, templateInput).trim()
+    if (!finalPrompt) return
+    const displayPrompt = template.template_type === "preset_recipe"
+      ? `${templateInput.mainPrompt}${templateInput.extraPrompt}`.trim() || template.title
+      : templateInput.custom || template.title
+    void runGeneration({
+      capability: "image.generate",
+      prompt: finalPrompt,
+      displayPrompt,
+      detailPrompt: displayPrompt,
+      detailTitle: buildStudioDisplayPrompt(displayPrompt),
+      refinedPrompt: finalPrompt,
+      effectivePrompt: finalPrompt,
+      styleModel: styleTemplateTargetModel(canUseSeedream(), styleModel()),
+      extra: {
+        skipPromptRefine: true,
+        template: {
+          id: template.idx,
+          prompt: styleTemplatePromptPayload(template, templateInput),
+        },
+      },
+    })
+    if (template.template_type === "preset_recipe") {
+      setRecipeMainPrompt("")
+      setRecipeExtraPrompt("")
+    }
+  }
+
   // 文件管理详情页触发生成后：
   // - 成功：退出文件管理视图 + 创建 tab 并选中（与点击 studio-result-thumb 逻辑完全一致）
   // - 失败/取消：回到文件管理网格视图
@@ -3462,6 +3595,11 @@ export default function StudioPage() {
 
   function handleSubmit() {
     if (!SUPPORTED_STUDIO_CAPABILITIES.has(capability())) return
+    const template = selectedStyleTemplate()
+    if (template && capability() === "image.generate") {
+      runStyleTemplateGeneration(template)
+      return
+    }
     if (capability() === "image.upscale") {
       setMode("hd")
       return
@@ -3892,7 +4030,7 @@ export default function StudioPage() {
                   canGenerateVideo={canGenerateVideo()}
                   canUseSeedream={canUseSeedream()}
                   styleModel={styleModel()}
-                  maxReferenceImages={maxReferenceImages()}
+                  maxReferenceImages={effectiveMaxReferenceImages()}
                   aspectRatio={aspectRatio()}
                   count={count()}
                   customWidth={customWidth()}
@@ -3908,6 +4046,9 @@ export default function StudioPage() {
                   busy={isBusy()}
                   openMenu={openMenu()}
                   canSubmit={canSubmit()}
+                  selectedStyleTemplate={selectedStyleTemplate()}
+                  recipeMainPrompt={recipeMainPrompt()}
+                  recipeExtraPrompt={recipeExtraPrompt()}
                   wordBook={wordBook}
                   onPrompt={setPrompt}
                   onCapability={selectStudioCapability}
@@ -3923,10 +4064,15 @@ export default function StudioPage() {
                   onOpenMenu={setOpenMenu}
                   onCreateTemplate={openTemplateCreator}
                   onListStyleTemplates={listStudioStyleTemplates}
+                  onSelectStyleTemplate={applyStyleTemplate}
+                  onClearStyleTemplate={clearStyleTemplate}
+                  onRecipeMainPrompt={setRecipeMainPrompt}
+                  onRecipeExtraPrompt={setRecipeExtraPrompt}
+                  onUnsupportedReferenceUpload={showUnsupportedTemplateReferenceNotice}
                   onCancel={handleCancelGeneration}
                   onSubmit={handleSubmit}
                   onKeyDown={handleKeyDown}
-                  onPickFile={() => fileInputRef.click()}
+                  onPickFile={pickReferenceFile}
                   onPickVideoFrame={(slot) => {
                     pendingVideoFrameSlot = slot
                     videoFrameInputRef.click()
@@ -4103,7 +4249,7 @@ if (!headerTitle.pendingRename) return
             canGenerateVideo={canGenerateVideo()}
             canUseSeedream={canUseSeedream()}
             styleModel={styleModel()}
-            maxReferenceImages={maxReferenceImages()}
+            maxReferenceImages={effectiveMaxReferenceImages()}
             aspectRatio={aspectRatio()}
             count={count()}
             customWidth={customWidth()}
@@ -4119,6 +4265,9 @@ if (!headerTitle.pendingRename) return
             busy={isBusy()}
             openMenu={openMenu()}
             canSubmit={canSubmit()}
+            selectedStyleTemplate={selectedStyleTemplate()}
+            recipeMainPrompt={recipeMainPrompt()}
+            recipeExtraPrompt={recipeExtraPrompt()}
             wordBook={wordBook}
             onPrompt={setPrompt}
             onCapability={selectStudioCapability}
@@ -4134,10 +4283,15 @@ if (!headerTitle.pendingRename) return
             onOpenMenu={setOpenMenu}
             onCreateTemplate={openTemplateCreator}
             onListStyleTemplates={listStudioStyleTemplates}
+            onSelectStyleTemplate={applyStyleTemplate}
+            onClearStyleTemplate={clearStyleTemplate}
+            onRecipeMainPrompt={setRecipeMainPrompt}
+            onRecipeExtraPrompt={setRecipeExtraPrompt}
+            onUnsupportedReferenceUpload={showUnsupportedTemplateReferenceNotice}
             onCancel={handleCancelGeneration}
             onSubmit={handleSubmit}
             onKeyDown={handleKeyDown}
-            onPickFile={() => fileInputRef.click()}
+            onPickFile={pickReferenceFile}
             onPickVideoFrame={(slot) => {
               pendingVideoFrameSlot = slot
               videoFrameInputRef.click()

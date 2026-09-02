@@ -26,6 +26,7 @@ function templateTypeLabel(item: StudioStyleTemplateListItem) {
 export function StudioStyleTemplateMenu(props: {
   onCreateTemplate: () => void
   onListTemplates?: (input: StudioStyleTemplateListInput) => Promise<StudioStyleTemplateListResult>
+  onSelectTemplate?: (item: StudioStyleTemplateListItem) => void
 }): JSX.Element {
   const [section, setSection] = createSignal<StyleTemplateSection>("creative-square")
   const [items, setItems] = createSignal<StudioStyleTemplateListItem[]>([])
@@ -130,7 +131,11 @@ export function StudioStyleTemplateMenu(props: {
           <div class="studio-style-template-list">
             <For each={items()}>
               {(item) => (
-                <div class="studio-style-template-card">
+                <button
+                  type="button"
+                  class="studio-style-template-card"
+                  onClick={() => props.onSelectTemplate?.(item)}
+                >
                   <div class="studio-style-template-card-cover">
                     <Show when={item.example_images[0]?.url}>
                       {(cover) => (
@@ -147,7 +152,7 @@ export function StudioStyleTemplateMenu(props: {
                     </div>
                   </div>
                   <div class="studio-style-template-card-title" title={item.title}>{item.title}</div>
-                </div>
+                </button>
               )}
             </For>
           </div>

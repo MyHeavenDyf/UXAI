@@ -410,7 +410,7 @@ function promptRefineFallback(input: StudioGenerationRequest, previous?: StudioG
         : input.sourceImage
           ? "好的，我会基于当前画面继续创作。"
           : "好的，我会根据你的描述创作画面。"
-      : buildAssistantText(input),
+      : buildSubmittingAssistantText(input),
     refinedPrompt: effectivePrompt,
     effectivePrompt,
     detailTitle: resolveDetailTitle(input),

@@ -1233,6 +1233,7 @@ export function getInternalTargetSize(styleModel?: string, aspectRatio?: StudioA
 }
 
 function buildPrompt(input: ImageGenerateInput) {
+  if (buildTemplateArgs(input)) return input.prompt
   const conversationContext =
     input.extra && typeof input.extra.conversationContext === "string" && input.extra.conversationContext.trim().length > 0
       ? input.extra.conversationContext.trim()
@@ -1247,6 +1248,18 @@ function buildPrompt(input: ImageGenerateInput) {
   ]
     .filter((item): item is string => Boolean(item))
     .join("\n")
+}
+
+function buildTemplateArgs(input: ImageGenerateInput) {
+  const template = input.extra?.template
+  if (!template || typeof template !== "object" || Array.isArray(template)) return
+  const record = template as JsonRecord
+  if (typeof record.id !== "string" && typeof record.id !== "number") return
+  if (!record.prompt || typeof record.prompt !== "object" || Array.isArray(record.prompt)) return
+  return {
+    id: record.id,
+    prompt: record.prompt as JsonRecord,
+  }
 }
 
 export function getTaskType(input: { generationMode: InternalTaskType; taskType?: string }) {
@@ -1322,6 +1335,7 @@ async function getSourceImageDataUrl(input: ImageGenerateInput) {
 }
 
 async function buildTextToImageRequestBody(input: ImageGenerateInput, context: InternalRequestContext) {
+  const template = buildTemplateArgs(input)
   const refImgList = (await Promise.all(
     (input.referenceImages ?? []).map((item) => resolveImageInputDataUrl(item).catch(() => undefined)),
   ))
@@ -1347,6 +1361,7 @@ async function buildTextToImageRequestBody(input: ImageGenerateInput, context: I
       ref_img_list: refImgList,
       customer_prompt: input.prompt,
       prompt: buildPrompt(input),
+      ...(template ? { template } : {}),
     },
   }
 }

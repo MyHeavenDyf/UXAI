@@ -115,6 +115,16 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+}
+
+.studio-style-template-card:hover .studio-style-template-card-title {
+  color: #1263ff;
 }
 
 .studio-style-template-card-cover {
@@ -192,6 +202,143 @@
 
 .studio-style-template-loading-more.error {
   color: #e5484d;
+}
+
+.studio-composer-template-applied {
+  box-sizing: border-box;
+  height: 32px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 10px 5px 12px;
+  border-radius: 999px;
+  background: rgba(44, 46, 52, 0.05);
+  color: #191919;
+  font-size: 12px;
+  line-height: 20px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.studio-composer-toolbar-more-template-applied {
+  width: 100%;
+  padding: 2px 0;
+}
+
+.studio-composer-toolbar-more-template-applied .studio-composer-template-applied {
+  width: 100%;
+  justify-content: center;
+}
+
+.studio-composer-template-applied:hover,
+.studio-composer-template-applied.active {
+  background: rgba(44, 46, 52, 0.1);
+}
+
+.studio-composer-template-applied.disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.studio-composer-template-applied-icon,
+.studio-composer-template-applied-clear {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 16px 16px;
+}
+
+.studio-composer-template-applied-icon {
+  background-image: url("/studio/studio_template_brush.svg");
+}
+
+.studio-composer-template-applied-label {
+  white-space: nowrap;
+}
+
+.studio-composer-template-applied-clear {
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background-color: transparent;
+  background-image: url("/studio/studio_template_close.svg");
+  cursor: pointer;
+}
+
+.studio-composer-template-applied-clear:hover {
+  background-color: rgba(44, 46, 52, 0.08);
+}
+
+.studio-composer-template-applied-clear:disabled {
+  cursor: not-allowed;
+}
+
+.studio-composer-template-prompt-disabled {
+  width: 100%;
+  min-height: 64px;
+  color: rgba(15, 23, 42, 0.45);
+  font-size: 14px;
+  line-height: 22px;
+  white-space: pre-wrap;
+}
+
+.studio-composer-recipe-input {
+  width: 100%;
+  min-height: 64px;
+  display: block;
+  color: #191919;
+  font-size: 14px;
+  line-height: 24px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: text;
+}
+
+.studio-composer-recipe-main,
+.studio-composer-recipe-extra {
+  box-sizing: border-box;
+  display: inline-block;
+  max-width: 100%;
+  min-height: 24px;
+  vertical-align: top;
+  border: 0;
+  outline: none;
+  font-size: 14px;
+  line-height: 24px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+
+.studio-composer-recipe-main {
+  min-width: 172px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(44, 46, 52, 0.05);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.studio-composer-recipe-extra {
+  min-width: 112px;
+  padding: 2px 0;
+  background: transparent;
+}
+
+.studio-composer-recipe-main:empty::before,
+.studio-composer-recipe-extra:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(15, 23, 42, 0.45);
+  pointer-events: none;
+}
+
+.studio-composer-ref-btn.disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .studio-template-creator {

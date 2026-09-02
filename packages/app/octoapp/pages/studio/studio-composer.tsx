@@ -5,7 +5,8 @@ import { usePlatform } from "@/context/platform"
 import { STUDIO_ASPECT_RATIOS, STUDIO_CAPABILITIES, STUDIO_STYLE_MODELS, capabilityLabel, styleModelId, styleModelLabel } from "./data"
 import { getDefaultDimensions, getModelResolutionKey, STUDIO_VIDEO_ASPECT_RATIOS, STUDIO_VIDEO_MODES, SUPPORTED_STUDIO_CAPABILITIES, workspaceModeForCapability, type StudioVideoDuration, type StudioVideoFrameSlot, type StudioVideoMode, type StudioVideoQualityMode } from "./studio-shared"
 import { MaterialMenu, type MaterialWordBook } from "./MaterialMenu"
-import { StudioStyleTemplateMenu, type StudioStyleTemplateListInput, type StudioStyleTemplateListResult } from "./studio-style-template-menu"
+import { StudioStyleTemplateMenu, type StudioStyleTemplateListInput, type StudioStyleTemplateListItem, type StudioStyleTemplateListResult } from "./studio-style-template-menu"
+import { splitStyleTemplatePlayDescription } from "./studio-style-template-utils"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import type { StudioAsset, StudioAspectRatio, StudioCapability, StudioGenerationStatus } from "./types"
 import { StudioVideoRiskContent } from "./studio-video-risk-dialog"
@@ -49,6 +50,9 @@ export function StudioComposer(props: {
   busy: boolean
   openMenu: StudioComposerMenu
   canSubmit: boolean
+  selectedStyleTemplate?: StudioStyleTemplateListItem
+  recipeMainPrompt: string
+  recipeExtraPrompt: string
   wordBook?: Resource<MaterialWordBook[]>
   onPrompt: (value: string) => void
   onCapability: (value: StudioCapability) => void
@@ -64,6 +68,11 @@ export function StudioComposer(props: {
   onOpenMenu: (value: StudioComposerMenu) => void
   onCreateTemplate?: () => void
   onListStyleTemplates?: (input: StudioStyleTemplateListInput) => Promise<StudioStyleTemplateListResult>
+  onSelectStyleTemplate?: (item: StudioStyleTemplateListItem) => void
+  onClearStyleTemplate?: () => void
+  onRecipeMainPrompt: (value: string) => void
+  onRecipeExtraPrompt: (value: string) => void
+  onUnsupportedReferenceUpload?: () => void
   onReversePrompt?: () => void
   onCancel?: () => void
   onSubmit: () => void
@@ -80,6 +89,8 @@ export function StudioComposer(props: {
 }): JSX.Element {
   const platform = usePlatform()
   let inputRef!: HTMLDivElement
+  let recipeMainRef!: HTMLSpanElement
+  let recipeExtraRef!: HTMLSpanElement
   let pointerDownOpenMenu: typeof props.openMenu = null
   let referenceHoverFrame: number | undefined
   let dragDepth = 0
@@ -92,11 +103,19 @@ export function StudioComposer(props: {
   const [refPreview, setRefPreview] = createSignal<{ src: string; name: string; left: number; top: number } | null>(null)
   const referenceAssets = createMemo(() => props.assets.slice(0, props.maxReferenceImages))
   const referenceAsset = createMemo(() => referenceAssets()[0])
-  const canAddReferenceAsset = createMemo(() => referenceAssets().length < props.maxReferenceImages)
   const isImageGeneration = createMemo(() => props.capability === "image.generate")
   const isVideoGeneration = createMemo(() => props.capability === "video.generate")
+  const isTemplateReferenceDisabled = createMemo(() => isImageGeneration() && props.selectedStyleTemplate?.reference_image_setting === "not_supported")
+  const canAddReferenceAsset = createMemo(() => !isTemplateReferenceDisabled() && props.maxReferenceImages > 0 && referenceAssets().length < props.maxReferenceImages)
   const isSeedreamModel = createMemo(() => styleModelId(props.styleModel) === "seedream-5-lite")
   const isEditingCapability = createMemo(() => Boolean(workspaceModeForCapability(props.capability)))
+  const isRecipeTemplate = createMemo(() => props.selectedStyleTemplate?.template_type === "preset_recipe")
+  const isTemplatePromptDisabled = createMemo(() => isImageGeneration() && props.selectedStyleTemplate?.prompt_setting === "not_supported")
+  const recipeTemplateParts = createMemo(() => (
+    props.selectedStyleTemplate?.template_type === "preset_recipe"
+      ? splitStyleTemplatePlayDescription(props.selectedStyleTemplate.play_description ?? "")
+      : undefined
+  ))
   const isImeComposing = (event: KeyboardEvent) => event.isComposing || composing() || event.keyCode === 229
   const isBusy = createMemo(() => props.busy || props.status === "queued" || props.status === "running" || props.status === "submitting")
   onCleanup(() => {
@@ -411,7 +430,7 @@ export function StudioComposer(props: {
   }
 
   onMount(() => {
-    if (inputRef && props.prompt) inputRef.innerText = props.prompt
+    if (inputRef && props.prompt && !isTemplatePromptDisabled() && !isRecipeTemplate()) inputRef.innerText = props.prompt
     requestAnimationFrame(() => {
       checkToolbarOverflow()
       resizeInput()
@@ -437,11 +456,23 @@ export function StudioComposer(props: {
 
   createEffect(() => {
     const prompt = props.prompt
-    if (!inputRef) return
+    if (!inputRef || isTemplatePromptDisabled() || isRecipeTemplate()) return
     if (prompt !== inputRef.innerText.replace(/\u200B/g, "")) {
       inputRef.innerText = prompt
       queueMicrotask(resizeInput)
     }
+  })
+
+  createEffect(() => {
+    if (!recipeMainRef) return
+    const value = props.recipeMainPrompt
+    if (recipeMainRef.innerText.replace(/\u200B/g, "") !== value) recipeMainRef.innerText = value
+  })
+
+  createEffect(() => {
+    if (!recipeExtraRef) return
+    const value = props.recipeExtraPrompt
+    if (recipeExtraRef.innerText.replace(/\u200B/g, "") !== value) recipeExtraRef.innerText = value
   })
 
   // Close more menu on outside click
@@ -675,7 +706,13 @@ export function StudioComposer(props: {
     if (text) document.execCommand("insertText", false, text)
   }
 
-  const canDropImages = () => isImageGeneration() || isVideoGeneration()
+  function handleTextOnlyPaste(event: ClipboardEvent) {
+    event.preventDefault()
+    const text = event.clipboardData?.getData("text/plain") ?? ""
+    if (text) document.execCommand("insertText", false, text)
+  }
+
+  const canDropImages = () => isVideoGeneration() || (isImageGeneration() && !isTemplateReferenceDisabled())
   const isImageUrl = (value: string) => /^data:image\//i.test(value) || /^https?:\/\//i.test(value) || value.startsWith("/")
   const imageFiles = (dataTransfer: DataTransfer) => Array.from(dataTransfer.files).filter((file) => file.type.startsWith("image/"))
   const draggedImageUrl = (dataTransfer: DataTransfer) => {
@@ -727,6 +764,14 @@ export function StudioComposer(props: {
 
   function referenceAssetRotation(index: number) {
     return [-7.8, 4.1, -3.6][index] ?? 0
+  }
+
+  function pickReferenceFile() {
+    if (isTemplateReferenceDisabled()) {
+      props.onUnsupportedReferenceUpload?.()
+      return
+    }
+    props.onPickFile()
   }
 
   const handleDocumentPointerDown = (event: PointerEvent) => {
@@ -786,8 +831,9 @@ export function StudioComposer(props: {
                 fallback={
                   <button
                     type="button"
-                    onClick={props.onPickFile}
+                    onClick={pickReferenceFile}
                     class="studio-composer-ref-btn"
+                    classList={{ disabled: isTemplateReferenceDisabled() }}
                     title="上传参考图"
                   />
                 }
@@ -831,7 +877,7 @@ export function StudioComposer(props: {
                   <Show when={referenceExpanded() && canAddReferenceAsset()}>
                     <button
                       type="button"
-                      onClick={props.onPickFile}
+                      onClick={pickReferenceFile}
                       class="studio-composer-ref-btn studio-composer-ref-add"
                       title="继续上传参考图"
                     />
@@ -842,7 +888,7 @@ export function StudioComposer(props: {
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation()
-                      props.onPickFile()
+                      pickReferenceFile()
                     }}
                     class="studio-composer-ref-upload-float"
                     aria-label="继续上传参考图"
@@ -855,43 +901,95 @@ export function StudioComposer(props: {
             </div>
           </Show>
           <div class="studio-composer-input-wrap">
-            <div
-              ref={inputRef}
-              class="studio-composer-input"
-              contenteditable={!isEditingCapability()}
-              data-placeholder={isVideoGeneration() ? undefined : isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : isSeedreamModel() ? "上传参考图、输入文字或@主体，描述你想生成的图片。" : "上传参考图、输入文字，描述你想生成的图片。"}
-              onInput={() => {
-                const text = inputRef.innerText.replace(/\u200B/g, "")
-                if (text.trim() === "") inputRef.innerHTML = ""
-                props.onPrompt(text)
-                resizeInput()
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && isImeComposing(event)) return
-                if (event.key === "Backspace" && !isImeComposing(event) && deleteMentionBeforeCaret()) {
-                  event.preventDefault()
-                  const text = inputRef.innerText.replace(/\u200B/g, "")
-                  if (text.trim() === "") inputRef.innerHTML = ""
-                  props.onPrompt(text)
-                  resizeInput()
-                  return
+            <Show
+              when={!isTemplatePromptDisabled()}
+              fallback={<div class="studio-composer-template-prompt-disabled">此图片模板不支持输入提示词</div>}
+            >
+              <Show
+                when={isRecipeTemplate()}
+                fallback={
+                  <div
+                    ref={inputRef}
+                    class="studio-composer-input"
+                    contenteditable={!isEditingCapability()}
+                    data-placeholder={isVideoGeneration() ? undefined : isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : isSeedreamModel() ? "上传参考图、输入文字或@主体，描述你想生成的图片。" : "上传参考图、输入文字，描述你想生成的图片。"}
+                    onInput={() => {
+                      const text = inputRef.innerText.replace(/\u200B/g, "")
+                      if (text.trim() === "") inputRef.innerHTML = ""
+                      props.onPrompt(text)
+                      resizeInput()
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && isImeComposing(event)) return
+                      if (event.key === "Backspace" && !isImeComposing(event) && deleteMentionBeforeCaret()) {
+                        event.preventDefault()
+                        const text = inputRef.innerText.replace(/\u200B/g, "")
+                        if (text.trim() === "") inputRef.innerHTML = ""
+                        props.onPrompt(text)
+                        resizeInput()
+                        return
+                      }
+                      if (event.key === "@" && !isImeComposing(event) && isImageGeneration() && isSeedreamModel()) {
+                        atTriggeredByTyping = true
+                        props.onOpenMenu(null)
+                        setVideoModeOpen(false)
+                        setAtMenuOpen(true)
+                      }
+                      props.onKeyDown(event)
+                    }}
+                    onCompositionStart={() => setComposing(true)}
+                    onCompositionEnd={() => {
+                      setComposing(false)
+                      props.onPrompt(inputRef.innerText.replace(/\u200B/g, ""))
+                    }}
+                    onBlur={() => setComposing(false)}
+                    onPaste={handlePaste}
+                  />
                 }
-                if (event.key === "@" && !isImeComposing(event) && isImageGeneration() && isSeedreamModel()) {
-                  atTriggeredByTyping = true
-                  props.onOpenMenu(null)
-                  setVideoModeOpen(false)
-                  setAtMenuOpen(true)
-                }
-                props.onKeyDown(event)
-              }}
-              onCompositionStart={() => setComposing(true)}
-              onCompositionEnd={() => {
-                setComposing(false)
-                props.onPrompt(inputRef.innerText.replace(/\u200B/g, ""))
-              }}
-              onBlur={() => setComposing(false)}
-              onPaste={handlePaste}
-            />
+              >
+                <div
+                  class="studio-composer-recipe-input"
+                  onMouseDown={(event) => {
+                    if (event.target !== event.currentTarget) return
+                    event.preventDefault()
+                    recipeMainRef?.focus()
+                  }}
+                >
+                  <span
+                    ref={recipeMainRef}
+                    class="studio-composer-recipe-main"
+                    contenteditable
+                    tabIndex={0}
+                    role="textbox"
+                    aria-label="模板主体提示词"
+                    data-placeholder={recipeTemplateParts()?.placeholder}
+                    onInput={(event) => {
+                      const text = event.currentTarget.innerText.replace(/\u200B/g, "")
+                      if (text.trim() === "") event.currentTarget.textContent = ""
+                      props.onRecipeMainPrompt(text)
+                    }}
+                    onKeyDown={props.onKeyDown}
+                    onPaste={handleTextOnlyPaste}
+                  />
+                  <span
+                    ref={recipeExtraRef}
+                    class="studio-composer-recipe-extra"
+                    contenteditable
+                    tabIndex={0}
+                    role="textbox"
+                    aria-label="模板补充提示词"
+                    data-placeholder="可选输入补充提示词"
+                    onInput={(event) => {
+                      const text = event.currentTarget.innerText.replace(/\u200B/g, "")
+                      if (text.trim() === "") event.currentTarget.textContent = ""
+                      props.onRecipeExtraPrompt(text)
+                    }}
+                    onKeyDown={props.onKeyDown}
+                    onPaste={handleTextOnlyPaste}
+                  />
+                </div>
+              </Show>
+            </Show>
             <Show when={isVideoGeneration() && !props.prompt}>
               <div class="studio-composer-video-placeholder" onClick={() => inputRef.focus()}>
                 请描述你想生成的视频内容，或使用反推描述图片，也可查看
@@ -949,13 +1047,26 @@ export function StudioComposer(props: {
               </Show>
               <Show when={!toolbarOverflow().includes("style-template")}>
                 <div class="relative studio-composer-toolbar-item" ref={(el) => buttonRefs.set("style-template", el)} data-toolbar-item="style-template">
-                  <ToolButton
-                    label="风格模板"
-                    active={props.openMenu === "style-template"}
-                    disabled={isBusy()}
-                    onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
-                    onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style-template" ? null : "style-template")}
-                  />
+                  <Show
+                    when={props.selectedStyleTemplate}
+                    fallback={
+                      <ToolButton
+                        label="风格模板"
+                        active={props.openMenu === "style-template"}
+                        disabled={isBusy()}
+                        onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                        onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style-template" ? null : "style-template")}
+                      />
+                    }
+                  >
+                    <SelectedTemplateButton
+                      active={props.openMenu === "style-template"}
+                      disabled={isBusy()}
+                      onPointerDown={() => { pointerDownOpenMenu = props.openMenu }}
+                      onClick={() => props.onOpenMenu(pointerDownOpenMenu === "style-template" ? null : "style-template")}
+                      onClear={props.onClearStyleTemplate}
+                    />
+                  </Show>
                 </div>
               </Show>
               <Show when={isSeedreamModel() && !toolbarOverflow().includes("at")}>
@@ -1051,16 +1162,30 @@ export function StudioComposer(props: {
                     </button>
                   </Show>
                   <Show when={toolbarOverflow().includes("style-template")}>
-                    <button
-                      type="button"
-                      class="studio-composer-toolbar-more-item"
-                      classList={{ active: props.openMenu === "style-template" }}
-                      onClick={() => props.onOpenMenu("style-template")}
+                    <Show
+                      when={props.selectedStyleTemplate}
+                      fallback={
+                        <button
+                          type="button"
+                          class="studio-composer-toolbar-more-item"
+                          classList={{ active: props.openMenu === "style-template" }}
+                          onClick={() => props.onOpenMenu("style-template")}
+                        >
+                          <span class="studio-composer-toolbar-more-item-icon" aria-hidden="true" />
+                          <span>风格模板</span>
+                          <svg class="studio-composer-toolbar-more-item-arrow" viewBox="0 0 6 11" width="5.74" height="10.6"><path d="M0.5 0.5l5 5-5 5" fill="none" stroke="rgba(0,0,0,0.9)" stroke-width="1"/></svg>
+                        </button>
+                      }
                     >
-                      <span class="studio-composer-toolbar-more-item-icon" aria-hidden="true" />
-                      <span>风格模板</span>
-                      <svg class="studio-composer-toolbar-more-item-arrow" viewBox="0 0 6 11" width="5.74" height="10.6"><path d="M0.5 0.5l5 5-5 5" fill="none" stroke="rgba(0,0,0,0.9)" stroke-width="1"/></svg>
-                    </button>
+                      <div class="studio-composer-toolbar-more-template-applied">
+                        <SelectedTemplateButton
+                          active={props.openMenu === "style-template"}
+                          disabled={isBusy()}
+                          onClick={() => props.onOpenMenu("style-template")}
+                          onClear={props.onClearStyleTemplate}
+                        />
+                      </div>
+                    </Show>
                   </Show>
                   <Show when={isSeedreamModel() && toolbarOverflow().includes("at")}>
                     <button
@@ -1148,6 +1273,10 @@ export function StudioComposer(props: {
                   props.onCreateTemplate?.()
                 }}
                 onListTemplates={props.onListStyleTemplates}
+                onSelectTemplate={(item) => {
+                  props.onOpenMenu(null)
+                  props.onSelectStyleTemplate?.(item)
+                }}
               />
             </div>
           </Show>
@@ -1254,6 +1383,39 @@ function ToolButton(props: { label: string; active?: boolean; disabled?: boolean
       <span class="studio-composer-tool-label">{props.label}</span>
       <span class="studio-composer-tool-caret" />
     </button>
+  )
+}
+
+function SelectedTemplateButton(props: { active?: boolean; disabled?: boolean; onClick: () => void; onPointerDown?: () => void; onClear?: () => void }): JSX.Element {
+  return (
+    <div
+      role="button"
+      tabIndex={props.disabled ? undefined : 0}
+      onPointerDown={props.onPointerDown}
+      onClick={() => { if (!props.disabled) props.onClick() }}
+      onKeyDown={(event) => {
+        if (props.disabled || event.key !== "Enter" && event.key !== " ") return
+        event.preventDefault()
+        props.onClick()
+      }}
+      class="studio-composer-template-applied"
+      classList={{ active: props.active, disabled: props.disabled }}
+      aria-disabled={props.disabled ? "true" : undefined}
+    >
+      <span class="studio-composer-template-applied-label">模版应用中</span>
+      <span class="studio-composer-template-applied-icon" aria-hidden="true" />
+      <button
+        type="button"
+        class="studio-composer-template-applied-clear"
+        disabled={props.disabled}
+        aria-label="取消应用模板"
+        title="取消应用模板"
+        onClick={(event) => {
+          event.stopPropagation()
+          props.onClear?.()
+        }}
+      />
+    </div>
   )
 }
 
