@@ -98,6 +98,8 @@ import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
 import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } from "@/components/dialog-select-model"
 import { MakeModelRiskDialog } from "./make-model-risk-dialog"
+import { ComplianceNotice } from "@/components/compliance-notice"
+import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 import { SEND_TEXT_EVENT, type SendTextEventDetail } from "./utils/agent-events"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
@@ -3689,11 +3691,14 @@ if (dsId) {
     setIsDragOver(false)
   }
 
+  const { request, gate } = useUploadRiskGate()
+
   function handleDrop(e: DragEvent) {
     e.preventDefault()
     setIsDragOver(false)
     const files = Array.from(e.dataTransfer?.files ?? [])
-    if (files.length > 0) handleAddFiles(files, "drop")
+    if (files.length === 0) return
+    request(() => handleAddFiles(files, "drop"))
   }
 
   /** 打开结果到 ResultViewer（优先恢复 localStorage 编辑版本） */
@@ -4420,6 +4425,9 @@ onPreview={(url) => {
 />
                     </div>
                    </div>
+                   <Show when={local.model.current()?.isExternal}>
+                     <ComplianceNotice />
+                   </Show>
                  </div>
                </div>
              </Show>
@@ -4778,6 +4786,9 @@ onPreview={(url) => {
                      />
                   </div>
                 </div>
+                <Show when={local.model.current()?.isExternal}>
+                  <ComplianceNotice />
+                </Show>
               </div>
             </Show>
 
@@ -4931,6 +4942,8 @@ onPreview={(url) => {
         </div>
         </Show>
       </div>
+
+      {gate}
     </DataProvider>
   )
 }
