@@ -30,7 +30,7 @@ export type DesktopApi = {
   downloadHuiCode?: (input: { planner: Record<string, unknown>; mergedA2UI: Record<string, unknown> }[]) => Promise<{ files: { path: string; content: string }[] }>
   tailwindToCss?: (className: string) => Promise<Record<string, string>>
   // 3D workspace（Step 6）— 仅 Electron 暴露，非 Electron 环境为 undefined
-  get3dSrcDirs?: () => Promise<{ templateDir: string; componentsDir: string } | null>
+  get3dSrcDirs?: () => Promise<{ templateDir: string; componentsDir: string; error?: string } | null>
   materializeWorkspace?: (templateDir: string, workspaceDir: string, componentsSrcDir: string) => Promise<{ ok: true }>
   overlayWorkspaceFiles?: (workspaceDir: string, files: { path: string; content: string }[]) => Promise<{ ok: true }>
   startWorkspaceDev?: (workspaceDir: string, port: number) => Promise<{ ok: true; url: string } | { ok: false; error: string }>

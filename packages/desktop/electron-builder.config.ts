@@ -94,15 +94,24 @@ const getBase = (): Configuration => ({
   mac: {
     category: "public.app-category.developer-tools",
     icon: `resources/icons/icon.icns`,
-    hardenedRuntime: true,
-    gatekeeperAssess: false,
-    entitlements: "resources/entitlements.plist",
-    entitlementsInherit: "resources/entitlements.plist",
-    notarize: true,
+    // CI（有 Apple 开发者证书 + APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD 公证凭据）走真签名+公证。
+    // 本地任何 Mac 全关：notarize:true 在无公证凭据时 electron-builder 硬错误出不了 dmg；
+    // identity 不设且本机无证书时 dmg 签名也会失败。本地 dmg 未签名——首次打开需右键→打开
+    // 绕 Gatekeeper，或 xattr -dr com.apple.quarantine '<App>'（与 win 本地 signAndEditExecutable
+    // 同款 CI/本地分叉模式）。
+    ...(process.env.GITHUB_ACTIONS === "true"
+      ? {
+          hardenedRuntime: true,
+          gatekeeperAssess: false,
+          entitlements: "resources/entitlements.plist",
+          entitlementsInherit: "resources/entitlements.plist",
+          notarize: true,
+        }
+      : { identity: null, hardenedRuntime: false, notarize: false }),
     target: ["dmg", "zip"],
   },
   dmg: {
-    sign: true,
+    ...(process.env.GITHUB_ACTIONS === "true" ? { sign: true } : { sign: false }),
   },
   protocols: {
     name: "Octo Agent",

@@ -17,7 +17,7 @@
 - `context/layout.tsx` 的 `lastSessionPerTab` 无 `3d` 槽位。
 - package.json 不含 three —— 约束保持。
 
-### 3d-templete（Vue3 SPA，`D:/cyc/project/octo/3d-templete/`）
+### 3d-templete（Vue3 SPA，与 UXAI 同级父目录下的 `3d-templete/`）
 - Vite 8，`private:true`，依赖仅 axios/three@^0.185/vue/vue-router，**未引入 3d-components**。
 - 渲染引擎在 `src/3d/`，主入口 `createScene3D(canvas,data,opts)`（`src/3d/createScene3D.ts:117`），返回 `Scene3DHandle`。
 - 正统 Schema = `LiveDataConfig`（`src/3d/utils/liveDataLoader.ts:54-150`），示例 `public/live-data.json`（3044行城市/操场场景）。
@@ -451,7 +451,7 @@ window.addEventListener('message', handle)
 | `src/3d/loaders/ModelLoader.ts` | 新增 | provider 抽象 + `loadModel` 路由（asset/http/hunyuan） |
 | `src/3d/loaders/hunyuan-provider.ts` | 新增 | 混元 provider：归一化 key + cache + inFlight 防重复 + clone 复用 + 落盘（§1.5）；`callHunyuanGenerate` 本次 throw 走回落 |
 
-关键代码片段（postMessage host，[src/3d/bridge/postMessage-host.ts](D:/cyc/project/octo/3d-templete/src/3d/bridge/postMessage-host.ts)）：
+关键代码片段（postMessage host，3d-templete 的 `src/3d/bridge/postMessage-host.ts`）：
 ```ts
 export function bindPostMessageHost(handle: Scene3DHandle, picker: ScenePicker) {
   window.parent.postMessage({ type: 'SCENE_READY' }, '*')   // 握手

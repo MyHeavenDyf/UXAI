@@ -33,7 +33,7 @@
   "dependencies": {
     "yauzl": "3.4.0",
     "@opencode-ai/core": "workspace:*",
-    "@a3d/a3d-components": "file:../../../../3d-components",
+    "@a3d/a3d-components": "file:../../../3d-components",
     "archiver": "^5.3.2",
     "drizzle-orm": "catalog:",
     "effect": "catalog:",

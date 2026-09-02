@@ -30,12 +30,11 @@ export function workspaceDir(sdkDir: string): string {
  * - dev：IPC 返 null → 走 VITE_3D_* env/默认路径（现有行为，零回归）。
  */
 export async function resolve3dSrcDirs(): Promise<{ templateDir: string; componentsDir: string }> {
-  const packaged = (await getDesktopApi()?.get3dSrcDirs?.()) ?? null
-  if (packaged) return packaged
-  return {
-    templateDir: import.meta.env.VITE_3D_TEMPLATE_SRC ?? "D:/cyc/project/octo/3d-templete",
-    componentsDir: import.meta.env.VITE_3D_COMPONENTS_SRC ?? "D:/cyc/project/octo/3d-components",
-  }
+  const res = (await getDesktopApi()?.get3dSrcDirs?.()) ?? null
+  if (res && res.templateDir && res.componentsDir) return res
+  // IPC 不可用 或 返回空路径（3d 仓库未找到）
+  const hint = res?.error ?? "3D 源路径不可用：需在 Electron 环境运行，且 3d-templete/3d-components 已就位"
+  throw new Error(hint)
 }
 
 /**

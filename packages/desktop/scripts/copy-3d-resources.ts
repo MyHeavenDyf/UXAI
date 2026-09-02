@@ -8,12 +8,19 @@
 // - 3d-components 必须有 fresh dist（导出工程 vendor 用，stale dist 会炸 export named X）
 // - dist 缺失 / 源缺失 → 硬失败，避免静默打出坏 3D 的包（OCTO_SKIP_3D=1 可显式跳过）
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 
 const skip = process.env.OCTO_SKIP_3D === "1"
 
-const templateSrc = process.env.TEMPLATE_3D_SRC ?? "D:/cyc/project/octo/3d-templete"
-const componentsSrc = process.env.COMPONENTS_3D_SRC ?? "D:/cyc/project/octo/3d-components"
+// 约定：UXAI / 3d-templete / 3d-components 三个仓库 clone 到同一父目录下（同级兄弟）。
+//   <parent>/UXAI/packages/desktop  ← 脚本 cwd（prebuild 从这跑）
+//   <parent>/3d-templete
+//   <parent>/3d-components
+// 故从 cwd 往上三层 = <parent>，再进 3d-templete / 3d-components。
+// env 可覆盖（TEMPLATE_3D_SRC / COMPONENTS_3D_SRC）；找不到硬失败报清晰错误。
+const parentDir = resolve(process.cwd(), "../../..")
+const templateSrc = process.env.TEMPLATE_3D_SRC ?? join(parentDir, "3d-templete")
+const componentsSrc = process.env.COMPONENTS_3D_SRC ?? join(parentDir, "3d-components")
 
 const distDir = ".3d-dist"
 const tplDist = join(distDir, "template")
@@ -106,13 +113,20 @@ if (process.env.OCTO_3D_ALLOW_STALE_DIST !== "1") {
     )
 }
 
+// bun 二进制文件名按平台定（win: bun.exe / mac·linux: bun）。staging 拷进 bin/ 供打包版
+// workspace vite 运行时；IPC resolveDevRuntime 从 resources/bin 按同名解析。
+const bunBinName = process.platform === "win32" ? "bun.exe" : "bun"
 const bunCandidates = [
   process.env.OCTO_3D_BUN_SRC,
-  process.env.APPDATA ? join(process.env.APPDATA, "npm", "node_modules", "bun", "bin", "bun.exe") : null,
-  process.env.USERPROFILE ? join(process.env.USERPROFILE, ".bun", "bin", "bun.exe") : null,
+  process.env.APPDATA ? join(process.env.APPDATA, "npm", "node_modules", "bun", "bin", bunBinName) : null,
+  process.env.USERPROFILE ? join(process.env.USERPROFILE, ".bun", "bin", bunBinName) : null,
+  process.env.HOME ? join(process.env.HOME, ".bun", "bin", bunBinName) : null,
+  // mac：homebrew 装的 bun（Apple Silicon / Intel 路径各一）
+  process.platform === "darwin" ? "/opt/homebrew/bin/bun" : null,
+  process.platform === "darwin" ? "/usr/local/bin/bun" : null,
 ].filter((p): p is string => !!p)
 const bunSrc = bunCandidates.find((p) => existsSync(p))
-if (!bunSrc) fail(`找不到 bun.exe（打包版 workspace vite 的运行时；可设 OCTO_3D_BUN_SRC 指向绝对路径）`)
+if (!bunSrc) fail(`找不到 ${bunBinName}（打包版 workspace vite 的运行时；可设 OCTO_3D_BUN_SRC 指向绝对路径）`)
 
 console.log(`[copy-3d-resources] 模板   ${templateSrc}`)
 console.log(`[copy-3d-resources] 组件库 ${componentsSrc}`)
@@ -145,11 +159,11 @@ for (const entry of ["src", "dist", "package.json"]) {
   cpSync(join(componentsSrc, entry), join(compDist, entry), { recursive: true, dereference: true })
 }
 
-// ── bun.exe ──
+// ── bun 二进制 ──
 mkdirSync(binDist, { recursive: true })
-cpSync(bunSrc, join(binDist, "bun.exe"))
+cpSync(bunSrc, join(binDist, bunBinName))
 
 console.log(
   `[copy-3d-resources] staging 完成: template=${dirSizeMb(tplDist)}MB node_modules=${dirSizeMb(nmDst)}MB ` +
-    `components=${dirSizeMb(compDist)}MB bun=${Math.round(statSync(join(binDist, "bun.exe")).size / 1024 / 1024)}MB → ${distDir}/`,
+    `components=${dirSizeMb(compDist)}MB bun=${Math.round(statSync(join(binDist, bunBinName)).size / 1024 / 1024)}MB → ${distDir}/`,
 )

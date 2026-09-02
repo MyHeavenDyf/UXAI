@@ -78,7 +78,7 @@
     "zod-to-json-schema": "3.24.5"
   },
   "dependencies": {
-    "@a3d/a3d-components": "file:../../../../3d-components",
+    "@a3d/a3d-components": "file:../../../3d-components",
     "@actions/core": "1.11.1",
     "@actions/github": "6.0.1",
     "@agentclientprotocol/sdk": "0.21.0",

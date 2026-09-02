@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, readdirSync
 import { mkdir, readFile, writeFile, lstat, stat, unlink, rm, copyFile, rename, symlink } from "node:fs/promises"
 import { dirname, extname, join, basename, resolve as resolvePath, sep } from "node:path"
 import { homedir, tmpdir } from "node:os"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { createConnection } from "node:net"
 import archiver from "archiver"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell, net } from "electron"
@@ -210,16 +210,21 @@ async function killWorkspaceDev(): Promise<void> {
 // 解析 dev server 运行时（bun）的绝对路径。
 // Windows 上 spawn("bun") 无 PATHEXT 解析会 ENOENT；npm 全局装的 bun 是 .cmd shim（又需 shell）。
 // 直接定位 bun.exe spawn 最稳。可用 OCTO_3D_DEV_RUNTIME env 显式覆盖（绝对路径）。
+// mac/linux 上 bun 无 .exe 后缀，文件名按平台定。
 function resolveDevRuntime(): string | null {
   const override = process.env.OCTO_3D_DEV_RUNTIME
   if (override) return override
+  const bunBinName = process.platform === "win32" ? "bun.exe" : "bun"
   const candidates = [
     // 打包版内置 bun（extraResources .3d-dist/bin → resources/bin，与 rg 同款模式）；
     // dev 下该路径不存在自然落空，不影响开发机解析。
-    join(process.resourcesPath, "bin", "bun.exe"),
-    process.env.APPDATA ? join(process.env.APPDATA, "npm", "node_modules", "bun", "bin", "bun.exe") : null,
-    process.env.USERPROFILE ? join(process.env.USERPROFILE, ".bun", "bin", "bun.exe") : null,
-    process.env.HOME ? join(process.env.HOME, ".bun", "bin", "bun") : null,
+    join(process.resourcesPath, "bin", bunBinName),
+    process.env.APPDATA ? join(process.env.APPDATA, "npm", "node_modules", "bun", "bin", bunBinName) : null,
+    process.env.USERPROFILE ? join(process.env.USERPROFILE, ".bun", "bin", bunBinName) : null,
+    process.env.HOME ? join(process.env.HOME, ".bun", "bin", bunBinName) : null,
+    // mac dev：homebrew 装的 bun（Apple Silicon / Intel 路径各一）
+    process.platform === "darwin" ? "/opt/homebrew/bin/bun" : null,
+    process.platform === "darwin" ? "/usr/local/bin/bun" : null,
   ].filter((p): p is string => p !== null)
   for (const c of candidates) {
     if (existsSync(c)) return c
@@ -299,19 +304,26 @@ export function registerIpcHandlers(deps: Deps) {
 
   // ===== 3D workspace：模板副本物化 + dev server 生命周期（Step 6）=====
 
-  // get-3d-src-dirs：打包版的 3D 源路径解析（模板快照/组件库在 resources/3d/ 下）。
-  // dev 返 null → 渲染端走 VITE_3D_* 烘焙 env/默认路径（现有行为零回归）；
-  // 渲染端 materialize/导出/实时预览都以此为准（IPC 结果优先于烘焙 env，否则 exe 里开发机路径会赢）。
-  // 逃生口：装好的 exe 设 OCTO_3D_TEMPLATE_SRC/OCTO_3D_COMPONENTS_SRC 进程 env → 直接吃活母版
-  // （改 template 免重打包验证，仅本机调试用；目标用户机器不设走 resources 快照）。
+  // get-3d-src-dirs：3D 源路径解析（dev + 打包统一走 IPC，渲染端不再依赖烘焙 env）。
+  // 约定：UXAI / 3d-templete / 3d-components 三个仓库 clone 到同一父目录下（同级兄弟）。
+  //   dev：app.getAppPath() = packages/desktop 绝对路径，往上三层 = 共同父目录，进 3d-templete / 3d-components。
+  //   打包：resources/3d/ 快照。
+  //   env OCTO_3D_TEMPLATE_SRC/COMPONENTS_3D_SRC 优先（逃生口：改 template 免重打包验证）。
+  // 3d 仓库是独立 git 仓库，别人 clone 位置不固定——遵循「三仓库同级」约定即可，代码不写死绝对路径。
   ipcMain.handle("get-3d-src-dirs", () => {
-    if (!app.isPackaged) return null
     if (process.env.OCTO_3D_TEMPLATE_SRC && process.env.OCTO_3D_COMPONENTS_SRC) {
       return { templateDir: process.env.OCTO_3D_TEMPLATE_SRC, componentsDir: process.env.OCTO_3D_COMPONENTS_SRC }
     }
+    if (app.isPackaged) {
+      return {
+        templateDir: join(process.resourcesPath, "3d", "template"),
+        componentsDir: join(process.resourcesPath, "3d", "3d-components"),
+      }
+    }
+    const parentDir = resolvePath(app.getAppPath(), "../../..")
     return {
-      templateDir: join(process.resourcesPath, "3d", "template"),
-      componentsDir: join(process.resourcesPath, "3d", "3d-components"),
+      templateDir: join(parentDir, "3d-templete"),
+      componentsDir: join(parentDir, "3d-components"),
     }
   })
 
