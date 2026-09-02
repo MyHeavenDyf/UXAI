@@ -703,8 +703,10 @@ const sessionMessagesLoaded = createMemo(() => {
         setBlockTime(0)
         
         // 记录首次回复时间（只记录第一次）
+        // fallback 到 sid (params.id)：plan 子 session 的事件 eventSessionID=planSid，
+        // 但 timing 存在 params.id 下，需要 fallback 才能命中
         const targetSessionID = eventSessionID ?? sid
-        const timing = messageTimingMap.get(targetSessionID)
+        const timing = messageTimingMap.get(targetSessionID) ?? messageTimingMap.get(sid)
         if (timing && !timing.firstTokenTime) {
           timing.firstTokenTime = Date.now()
         }
@@ -1810,6 +1812,11 @@ const sessionMessagesLoaded = createMemo(() => {
         const model = `${modelKey.providerID}/${modelKey.modelID}`
         const skillPrompt = `${message}\n\n用户选择的 Skill：\n${handoff.skills.map((skill) => `/${skill.name}`).join("\n")}\n\n请执行并应用上述 Skill，同时严格遵循已确认的设计方案。`
         for (const skill of handoff.skills) {
+          // 记录发送开始时间（每次 skill 命令前重新设置，支持多 skill 逐条追踪）
+          messageTimingMap.set(mainSid, {
+            startTime: Date.now(),
+            inputText: cmd.slice(0, 30)
+          })
           await sdk.client.session.command({
             sessionID: mainSid,
             command: skill.name,
@@ -2608,7 +2615,7 @@ const sessionMessagesLoaded = createMemo(() => {
         const manifestPart = localManifest.length > 0 
           ? { type: "text" as const, text: formatUploadsForPrompt(localManifest), synthetic: true as const }
           : null
-        
+
         for (const seg of cmdSegments) {
           if (!seg.cmd) continue
 
@@ -2633,6 +2640,14 @@ const sessionMessagesLoaded = createMemo(() => {
             isFirstSkillCommand = false
           }
           
+          // 记录发送开始时间（每次命令前重新设置，支持多 skill chip 逐条追踪）
+          // 使用 params.id ?? sessionId 作为 key：plan 子 session 时 params.id 是父 session，
+          // 与 busy→idle 读取端一致
+          messageTimingMap.set(params.id ?? sessionId, {
+            startTime: Date.now(),
+            inputText: (fullDisplayText || text).slice(0, 30)
+          })
+
           try {
             const result = await sdk.client.session.command({
               sessionID: sessionId,
@@ -2793,7 +2808,9 @@ const sessionMessagesLoaded = createMemo(() => {
       parts.push(...fileParts)
       
       // 记录发送开始时间
-      messageTimingMap.set(sessionId, {
+      // 使用 params.id ?? sessionId 作为 key：plan 子 session 时 params.id 是父 session，
+      // 与 busy→idle 读取端一致
+      messageTimingMap.set(params.id ?? sessionId, {
         startTime: Date.now(),
         inputText: text.slice(0, 30)
       })
