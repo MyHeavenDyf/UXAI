@@ -2125,19 +2125,13 @@ const sessionMessagesLoaded = createMemo(() => {
         } catch (err) { console.error("[MakePage] write pattern.json failed:", err) }
       }
     }
-    // 完全退出 patternPage 模式
-    setPatternEnded(true)
-    setActivePatternSessionId(null)
-    setPatternSubParentSessionId(null)
+    // 关闭匹配弹窗，但保持 pattern 模式：用户可继续在输入框输入需求，
+    // 后续消息仍路由到 ict_pattern agent，直到点击 banner 退出按钮才退出
+    setPatternMatches(null)
+    setPatternBlockMatches([])
+    setPatternBlockMatching(false)
     setPatternSubPhase("match")
     setOptimisticPatternIntent(false)
-    setPatternPageCapsule(false)
-    setResultViewMode("files")
-    if (mainSid) {
-      localStorage.setItem(PATTERN_SUB_ENDED_LS + mainSid, "true")
-      localStorage.removeItem(PATTERN_SUB_USER_INPUT_LS + mainSid)
-      localStorage.removeItem(PATTERN_SUB_STEP_LS + mainSid)
-    }
   }
 
   /** 用户点击 [退出] → 中止子 session + 退出 */
@@ -4934,6 +4928,29 @@ onPreview={(url) => {
                         </button>
                       </div>
                     </Show>
+
+                    {/* Pattern 匹配模式 banner — 退出按钮才退出 pattern 模式 */}
+                    <Show when={activePatternSessionId() && !patternEnded()}>
+                      <div
+                        class="flex items-center justify-between mx-3"
+                        style={{
+                          height: "48px",
+                          padding: "0 16px",
+                          "border-radius": "12px",
+                          border: "1px solid rgba(0,0,0,0.1)",
+                          background: "linear-gradient(90deg, rgb(245, 248, 255), rgb(255, 255, 255) 50%)",
+                        }}
+                      >
+                        <div class="flex items-center gap-[8px]">
+                          <span style={{ "font-size": "16px" }}>✦</span>
+                          <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0,0,0,0.9)" }}>Pattern 匹配模式</span>
+                        </div>
+                        <button type="button" onClick={handleEndPatternPage} class="shrink-0 transition-colors cursor-pointer" style={{ "font-size": "14px", "line-height": "22px", color: "#0a59f7", background: "transparent", border: "none" }}>
+                          退出
+                        </button>
+                      </div>
+                    </Show>
+
                     <Show when={userMessages().length > 0}>
                       <InsightTurn
                         sessionID={userMessages()[0].sessionID || params.id!}
