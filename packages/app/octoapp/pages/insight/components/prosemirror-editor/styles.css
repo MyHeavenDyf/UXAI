@@ -66,8 +66,8 @@
   padding: 3px 8px;
   font-size: 12px;
   border-radius: 999px;
-  background: rgba(10, 89, 247, 0.08);
-  color: #0A59F7;
+  background: var(--octo-brand-a8);
+  color: var(--octo-brand);
   cursor: pointer;
 }
 
