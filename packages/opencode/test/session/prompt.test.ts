@@ -230,6 +230,18 @@ const cfg = {
           cost: { input: 0, output: 0 },
           options: {},
         },
+        "test-model-2": {
+          id: "test-model-2",
+          name: "Test Model 2",
+          attachment: false,
+          reasoning: false,
+          temperature: false,
+          tool_call: true,
+          release_date: "2025-01-01",
+          limit: { context: 100000, output: 10000 },
+          cost: { input: 0, output: 0 },
+          options: {},
+        },
       },
       options: {
         apiKey: "test-key",
@@ -2109,6 +2121,262 @@ it.live(
           }
         }),
       { git: true },
+    ),
+  30_000,
+)
+
+// /compact 与 /summarize 通过 session.command 拦截,不注册到 Command.Service。
+// compactCommand 会创建 compaction 用户消息并 loop 执行真实摘要(auto=false 手动压缩)。
+const compactionSummary = [
+  "## Goal",
+  "- build feature",
+  "",
+  "## Constraints & Preferences",
+  "- (none)",
+  "",
+  "## Progress",
+  "### Done",
+  "- step one",
+  "",
+  "### In Progress",
+  "- (none)",
+  "",
+  "### Blocked",
+  "- (none)",
+  "",
+  "## Key Decisions",
+  "- (none)",
+  "",
+  "## Next Steps",
+  "- (none)",
+  "",
+  "## Critical Context",
+  "- (none)",
+  "",
+  "## Relevant Files",
+  "- (none)",
+].join("\n")
+
+function compactedPart(msgs: MessageV2.WithParts[]) {
+  return msgs.flatMap((m) => m.parts).find((p): p is MessageV2.CompactionPart => p.type === "compaction")
+}
+
+function compactedTextPart(msgs: MessageV2.WithParts[]) {
+  const part = compactedPart(msgs)
+  if (!part) return undefined
+  const parent = msgs.find((m) => m.info.role === "user" && m.parts.includes(part))
+  return parent?.parts.find((p): p is MessageV2.TextPart => p.type === "text")
+}
+
+function summaryMsg(msgs: MessageV2.WithParts[]) {
+  return msgs.find((m) => m.info.role === "assistant" && m.info.summary)
+}
+
+it.live(
+  "compact command creates compaction message and returns summary assistant",
+  () =>
+    provideTmpdirServer(
+      ({ llm }) =>
+        Effect.gen(function* () {
+          const prompt = yield* SessionPrompt.Service
+          const sessions = yield* Session.Service
+          const chat = yield* sessions.create({
+            title: "Pinned",
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          })
+          yield* prompt.prompt({
+            sessionID: chat.id,
+            agent: "build",
+            noReply: true,
+            parts: [{ type: "text", text: "hello" }],
+          })
+          yield* llm.text(compactionSummary)
+
+          const result = yield* prompt.command({
+            sessionID: chat.id,
+            command: "compact",
+            arguments: "",
+          })
+
+          expect(result.info.role).toBe("assistant")
+          if (result.info.role === "assistant") expect(result.info.summary).toBe(true)
+
+          const msgs = yield* sessions.messages({ sessionID: chat.id })
+          const part = compactedPart(msgs)
+          expect(part).toBeDefined()
+          if (part) expect(part.auto).toBe(false)
+          const text = compactedTextPart(msgs)
+          expect(text?.text).toBe("/compact")
+          expect(text?.synthetic).toBe(true)
+          const summary = summaryMsg(msgs)
+          expect(summary).toBeDefined()
+          if (summary && summary.info.role === "assistant") {
+            expect(summary.info.finish).toBeTruthy()
+            expect(summary.info.error).toBeUndefined()
+          }
+        }),
+      { git: true, config: providerCfg },
+    ),
+  30_000,
+)
+
+it.live(
+  "compact command with arguments echoes them in the compaction text part",
+  () =>
+    provideTmpdirServer(
+      ({ llm }) =>
+        Effect.gen(function* () {
+          const prompt = yield* SessionPrompt.Service
+          const sessions = yield* Session.Service
+          const chat = yield* sessions.create({})
+          yield* seed(chat.id, { finish: "stop" })
+          yield* llm.text(compactionSummary)
+
+          const result = yield* prompt.command({
+            sessionID: chat.id,
+            command: "compact",
+            arguments: "keep api details",
+          })
+
+          expect(result.info.role).toBe("assistant")
+          const msgs = yield* sessions.messages({ sessionID: chat.id })
+          expect(compactedTextPart(msgs)?.text).toBe("/compact keep api details")
+        }),
+      { git: true, config: providerCfg },
+    ),
+  30_000,
+)
+
+it.live(
+  "summarize alias triggers the same compaction flow",
+  () =>
+    provideTmpdirServer(
+      ({ llm }) =>
+        Effect.gen(function* () {
+          const prompt = yield* SessionPrompt.Service
+          const sessions = yield* Session.Service
+          const chat = yield* sessions.create({
+            title: "Pinned",
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          })
+          yield* prompt.prompt({
+            sessionID: chat.id,
+            agent: "build",
+            noReply: true,
+            parts: [{ type: "text", text: "hello" }],
+          })
+          yield* llm.text(compactionSummary)
+
+          const result = yield* prompt.command({
+            sessionID: chat.id,
+            command: "summarize",
+            arguments: "",
+          })
+
+          expect(result.info.role).toBe("assistant")
+          if (result.info.role === "assistant") expect(result.info.summary).toBe(true)
+          const msgs = yield* sessions.messages({ sessionID: chat.id })
+          expect(compactedPart(msgs)).toBeDefined()
+          expect(compactedTextPart(msgs)?.text).toBe("/summarize")
+        }),
+      { git: true, config: providerCfg },
+    ),
+  30_000,
+)
+
+it.live(
+  "compact command uses provided model for compaction message",
+  () =>
+    provideTmpdirServer(
+      ({ llm }) =>
+        Effect.gen(function* () {
+          const prompt = yield* SessionPrompt.Service
+          const sessions = yield* Session.Service
+          const chat = yield* sessions.create({})
+          yield* seed(chat.id, { finish: "stop" })
+          yield* llm.text(compactionSummary)
+
+          const result = yield* prompt.command({
+            sessionID: chat.id,
+            command: "compact",
+            arguments: "",
+            model: "test/test-model-2",
+          })
+
+          expect(result.info.role).toBe("assistant")
+          const msgs = yield* sessions.messages({ sessionID: chat.id })
+          const part = compactedPart(msgs)
+          const parent = msgs.find((m) => m.info.role === "user" && m.parts.includes(part!))
+          expect(parent?.info.role).toBe("user")
+          if (parent?.info.role === "user") {
+            expect(parent.info.model.providerID).toBe(ProviderID.make("test"))
+            expect(parent.info.model.modelID).toBe(ModelID.make("test-model-2"))
+          }
+        }),
+      { git: true, config: providerCfg },
+    ),
+  30_000,
+)
+
+it.live(
+  "compact command without model falls back to last model",
+  () =>
+    provideTmpdirServer(
+      ({ llm }) =>
+        Effect.gen(function* () {
+          const prompt = yield* SessionPrompt.Service
+          const sessions = yield* Session.Service
+          const chat = yield* sessions.create({})
+          yield* seed(chat.id, { finish: "stop" })
+          yield* llm.text(compactionSummary)
+
+          const result = yield* prompt.command({
+            sessionID: chat.id,
+            command: "compact",
+            arguments: "",
+          })
+
+          expect(result.info.role).toBe("assistant")
+          const msgs = yield* sessions.messages({ sessionID: chat.id })
+          const part = compactedPart(msgs)
+          const parent = msgs.find((m) => m.info.role === "user" && m.parts.includes(part!))
+          expect(parent?.info.role).toBe("user")
+          if (parent?.info.role === "user") {
+            expect(parent.info.model.providerID).toBe(ProviderID.make("test"))
+            expect(parent.info.model.modelID).toBe(ModelID.make("test-model"))
+          }
+        }),
+      { git: true, config: providerCfg },
+    ),
+  30_000,
+)
+
+it.live(
+  "regular command still resolves through Command.Service",
+  () =>
+    provideTmpdirServer(
+      ({ llm }) =>
+        Effect.gen(function* () {
+          const prompt = yield* SessionPrompt.Service
+          const sessions = yield* Session.Service
+          const chat = yield* sessions.create({
+            title: "Pinned",
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          })
+          yield* llm.text("init done")
+
+          const result = yield* prompt.command({
+            sessionID: chat.id,
+            command: "init",
+            arguments: "",
+          })
+
+          expect(result.info.role).toBe("assistant")
+          const msgs = yield* sessions.messages({ sessionID: chat.id })
+          expect(compactedPart(msgs)).toBeUndefined()
+          expect(summaryMsg(msgs)).toBeUndefined()
+        }),
+      { git: true, config: providerCfg },
     ),
   30_000,
 )
