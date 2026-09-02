@@ -1,10 +1,9 @@
 // 上传服务客户端 + 附件清单格式：spec 见 docs/specs/infra/insight-file-passing.md、file-upload.md
 //
-// SPEC-INS-015 路由后,前端的 uploadFile 只服务 **③ 图片**（change 即传 S3 → vision FilePart{url}）：
-//   - 图片必然要上传(模型无法理解本地路径的图),故选/粘当下就传,与"是否调 MCP"无关。
-//   - 非图片文件(④ 喂 MCP)的 S3 上传**不在前端**——下沉到 server 端 octo-upload-inject 插件,
-//     模型真调 MCP 工具时才按需上传(见 insight-file-passing.md §3)。
-// 本文件保留:客户端校验 + 图片 uploadFile + [附件] 清单 format/parse。
+// 2026-09 起 insight 图片改走本地路径（去 S3）：选/粘当下与 Excel 同链路导入 worktree，
+// 发送时产出 vision FilePart{url:file://…}，server 端 prompt.ts resolvePart 读盘转 base64 落库。
+// 非图片文件(④ 喂 MCP)的 S3 上传本就不在前端——server 端 octo-upload-inject 插件按需上传。
+// 本文件的 uploadFile **只服务 make 页**（仍走 S3）；insight 侧只用客户端校验 + 分类谓词 + [附件] 清单 format/parse。
 //
 // 设计要点：
 // - form 里只发 file 一个字段，不组 S3 路径（路径策略是服务端的事）
@@ -17,7 +16,7 @@ const UPLOAD_ENDPOINT = import.meta.env.VITE_OCTO_UPLOAD_ENDPOINT ?? ""
 const LOG = "[octo:upload]"
 
 export const MAX_UPLOAD_SIZE = 100 * 1024 * 1024 // Insight 当前 100MB；其他 agent 可自定
-// 入口白名单以「解析/消费能力」为源头（支持格式 SOT 见 SPEC-INS-016 §3.1）：
+ // 入口白名单以「解析/消费能力」为源头（支持格式 SOT 见 SPEC-INS-016 §3.1）：
 // - txt/md → FilePart 内联（路由 ①）；docx/xlsx/pdf/pptx → extract_document 本地抽取（②）+ MCP
 //   按需上传（④）。服务端白名单现为 txt/md/docx/xlsx/pdf（见 file-upload spec），pptx 已请协作
 //   团队跟进；跟进前 pptx 走 ② 正常、走 ④ 会 415 回灌。
@@ -215,12 +214,29 @@ export async function uploadFile(file: File): Promise<UploadResult> {
   return body.content
 }
 
-// 图片扩展名(ALLOWED_EXT 的子集)。SPEC-INS-015 路由 ③:图片走 vision FilePart{url:S3},
-// 与非图片文件(进 [附件] 清单 + 本地读 / MCP)分流。前端按文件名判定走哪条。
+// 图片扩展名(ALLOWED_EXT 的子集)。SPEC-INS-015 路由 ③(2026-09 起):图片与非图片同链路导入
+// worktree 拿本地 path,发送时产出 vision FilePart{url:file://…},server 端读盘转 base64。
+// 前端按文件名判定走哪条(图片不进 [附件] 清单、不占内联预算)。
 const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp"])
 
 export function isImageFile(filename: string): boolean {
   return IMAGE_EXT.has(getExt(filename))
+}
+
+// 图片扩展名 → mime 映射:粘贴/部分拖拽源的 File.type 为空时,按**扩展名**兜底精确 mime,
+// 不能笼统给 image/png——jpg/gif/webp 被错标成 png 会落库 `data:image/png;base64,<jpeg 字节>`,
+// media_type 与实际字节不符,provider 侧可能解析失败或拒绝(P2 修复,2026-09)。
+export const IMAGE_MIME: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+}
+
+/** 图片文件名 → 精确 mime;非图片扩展名返回 fallback(默认 octet-stream)。 */
+export function imageMimeFor(filename: string, fallback = "application/octet-stream"): string {
+  return IMAGE_MIME[getExt(filename)] ?? fallback
 }
 
 // 可被 opencode 直接内联正文的文件(SPEC-INS-015 路由 ①)。这类走 FilePart(file://, text/plain),
@@ -231,7 +247,7 @@ export function isImageFile(filename: string): boolean {
 // **我们有专门通道的**格式,其余一律交给 read 自己判定 —— 这样上传格式放开(如 json / csv)时
 // 无需再同步一次内联清单,判定口径也与 opencode 原生一致。
 //   - office / pdf → `extract_document`(read 对 office 显式拒绝、对 pdf 内容嗅探判二进制)
-//   - 图片        → vision FilePart{url:S3}(路由 ③)
+//   - 图片        → vision FilePart{url:file://…}(路由 ③,server 端读盘转 base64)
 // 排除集之外的文件若真是二进制(如 `@` 一个 .zip 产物),read 会返回 "Cannot read binary file"
 // 进上下文 —— 响亮失败,模型看得懂,不做客户端预判(嗅探要读文件字节,是服务端的活)。
 /** extract_document 负责的文档类(SPEC-INS-015 路由 ②)。二进制容器,发送前拿不到正文体量。 */
@@ -269,7 +285,7 @@ export function isExtractableDocFile(filename: string): boolean {
 //   - 喂 MCP(④):模型被 prompt 约束「文件参数只填文件名」,server 端 octo-upload-inject 插件在工具
 //     执行前按文件名找到本地路径、**按需**上传 S3、把文件名换成精确 URL。模型全程不接触 URL。
 //   格式契约与该插件 parseManifest 同源,改格式需两处同步。
-// 注:图片不进本清单(走 ③ FilePart{url})。
+// 注:图片不进本清单(走 ③ FilePart{url:file://…},由非图片的 isImageFile 过滤天然保证)。
 export function formatUploadsForPrompt(files: Array<{ filename: string; path: string }>): string {
   if (files.length === 0) return ""
   const lines = files.map((f) => `- ${f.filename}: ${f.path}`)
