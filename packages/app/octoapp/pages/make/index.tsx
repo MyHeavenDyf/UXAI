@@ -3184,6 +3184,7 @@ const sessionMessagesLoaded = createMemo(() => {
         parts,
       }).catch(err => {
         console.error("[MakePage] prompt failed", err)
+        showOctoToast({ title: "发送失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
       })
       // 不在此清空附件：session.prompt 是 streaming API，await 在 stream 完成才 resolve。
       // 附件已在 sendMessage 开头（约 2223 行）快照后立即清空，此处再清会误清
@@ -3191,6 +3192,7 @@ const sessionMessagesLoaded = createMemo(() => {
       requestAnimationFrame(() => autoScroll.forceScrollToBottom())
     } catch (err) {
       console.error("[MakePage] prompt failed", err)
+      showOctoToast({ title: "发送失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
     }
   }
 
@@ -3426,6 +3428,7 @@ if (dsId) {
       }
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
+      showOctoToast({ title: "发送失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
     } finally {
       // 重置 sending：如果是主 session 或 plan 子 session 且未切换，则允许重置
       if (!submitSessionId || params.id === submitSessionId || (planSid && activePlanSessionId() === planSid) || (patternSubSid && activePatternSessionId() === patternSubSid)) {
