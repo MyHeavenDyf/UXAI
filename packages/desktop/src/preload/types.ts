@@ -126,8 +126,10 @@ export type ElectronAPI = {
   setTitlebarOverlayHidden: (hidden: boolean) => Promise<void>
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void>
-  checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
+  checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string; releaseNotes?: string }>
   installUpdate: () => Promise<void>
+  onUpdateDownloadProgress: (callback: (percent: number) => void) => () => void
+  onResume: (callback: () => void) => () => void
   setBackgroundColor: (color: string) => Promise<void>
   // jk-j60099994-replace-with-types-2-start
   // jk-j60099994-replace-with-types-2-end

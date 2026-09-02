@@ -5,7 +5,7 @@ import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, Studi
 import type { StudioTurnData } from "./turns"
 
 const PORTRAIT_RATIOS: StudioAspectRatio[] = ["2:3", "3:4", "9:16"]
-const LANDSCAPE_RATIOS: StudioAspectRatio[] = ["16:9", "3:2", "4:3"]
+const LANDSCAPE_RATIOS: StudioAspectRatio[] = ["16:9", "3:2", "4:3", "21:9"]
 
 type StudioResultCardProps = {
   turn: StudioTurnData

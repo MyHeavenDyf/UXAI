@@ -659,25 +659,130 @@ button[title="版本历史"] {
 }
 
 .make-token-tooltip {
-  max-width: none;
-  padding: 8px 12px;
+  box-sizing: border-box;
+  width: 381px;
+  max-width: calc(100vw - 24px);
+  padding: 4px 8px;
   border: 0;
   border-radius: 4px;
-  background: #505050;
-  color: #fff;
+  background: #fff;
+  color: #191919;
+  box-shadow: 0 2px 24px rgba(0, 0, 0, 0.12);
+  font-family: "HarmonyOS Sans SC 2025", "HarmonyOS Sans SC", sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
   white-space: nowrap;
 }
 
-.make-token-tooltip::after {
-  position: absolute;
-  bottom: -5px;
-  left: 50%;
-  width: 0;
-  height: 0;
-  border-top: 5px solid #505050;
-  border-right: 5px solid transparent;
-  border-left: 5px solid transparent;
-  content: "";
-  transform: translateX(-50%);
+.make-token-tooltip-copy p {
+  margin: 0;
 }
 
+.make-token-tooltip-copy .is-critical {
+  color: #e02128;
+}
+
+.make-token-tooltip-action {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0a59f7;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 500;
+}
+
+.make-token-tooltip-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.make-context-warning-wrap {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  padding-bottom: 16px;
+}
+
+.make-context-warning {
+  box-sizing: border-box;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  min-height: 206px;
+  padding: 20px 24px 24px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
+  color: #191919;
+  font-family: "HarmonyOS Sans SC 2025", "HarmonyOS Sans SC", sans-serif;
+}
+
+.make-context-warning-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+}
+
+.make-context-warning-title svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: #e02128;
+}
+
+.make-context-warning-title h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+}
+
+.make-context-warning-copy {
+  min-height: 66px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+}
+
+.make-context-warning-actions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 8px;
+  height: 40px;
+  padding-top: 8px;
+}
+
+.make-context-warning-actions button {
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+  cursor: pointer;
+}
+
+.make-context-warning-ignore {
+  width: 88px;
+  background: rgba(0, 0, 0, 0.05);
+  color: #191919;
+}
+
+.make-context-warning-compact {
+  width: 102px;
+  background: #0a59f7;
+  color: #fff;
+}
+
+.make-context-warning-compact:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}

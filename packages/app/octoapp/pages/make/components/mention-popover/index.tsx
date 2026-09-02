@@ -3,7 +3,7 @@ import { Portal } from "solid-js/web"
 import { Icon } from "@opencode-ai/ui/icon"
 import type { PanelSkill, SkillConfigEntry } from "../skill-config-types"
 import { lookupDisplayName } from "../skill-config-types"
-import type { ArtifactFile } from "../../utils/artifact-file-api"
+import { pathToLocalUrl, formatFileSize, type ArtifactFile } from "../../utils/artifact-file-api"
 import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "./icons"
 import { ProductAssetIcon } from "../addon-menu/icons"
 import { getFileIcon } from "../../icons/file-type-icons"
@@ -22,7 +22,7 @@ export type MentionTab = 'skills' | 'product-assets' | 'files'
 
 export type MentionSelection =
   | { type: 'skill'; name: string; label: string }
-  | { type: 'file'; filename: string; path: string }
+  | { type: 'file'; filename: string; path: string; id?: string }
   | { type: 'product-asset'; filename: string; path: string; s3BaseUrl: string; convertHtmlUrl: string; snapshot: string }
 
 interface MentionPopoverProps {
@@ -42,7 +42,7 @@ interface MentionPopoverProps {
   artifactFiles: { generated: ArtifactFile[]; uploaded: ArtifactFile[] } | null | undefined
   productId?: number
   onDownloadProductAsset?: (file: AssetFile, onProgress: (pct: number) => void, signal?: AbortSignal) => Promise<string>
-  onUpdateMentionPath?: (filename: string, path: string) => void
+  onUpdateMentionPath?: (id: string, path: string) => void
 }
 
 export function MentionPopover(props: MentionPopoverProps): JSX.Element {
@@ -60,7 +60,6 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     loadingFiles: boolean
     selectedFolderId: string | null
   }>>([])
-  const [selectedAssetFiles, setSelectedAssetFiles] = createSignal<AssetFile[]>([])
   const [assetLoading, setAssetLoading] = createSignal(false)
   const [assetError, setAssetError] = createSignal<string | null>(null)
   const [assetPreview, setAssetPreview] = createSignal<AssetFile | null>(null)
@@ -71,7 +70,61 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   const [assetDownloadOpen, setAssetDownloadOpen] = createSignal(false)
   const [assetDownloadCancelled, setAssetDownloadCancelled] = createSignal(false)
   const [assetDownloadCurrent, setAssetDownloadCurrent] = createSignal<string>("")
-  
+
+  // 设计文件项 hover 预览(图片用 img,html 用 iframe,其它显示"暂不支持预览")
+  // 参照 addon-menu 的 designFilePreview 实现,但用 Portal + position:fixed (与现有 asset preview 一致)
+  const [designFilePreview, setDesignFilePreview] = createSignal<ArtifactFile | null>(null)
+  const [designPreviewLeft, setDesignPreviewLeft] = createSignal<number>(0)
+  const [designPreviewBottom, setDesignPreviewBottom] = createSignal<number | null>(null)
+  const [designPreviewTop, setDesignPreviewTop] = createSignal<number | null>(null)
+  let designPreviewTimer: ReturnType<typeof setTimeout> | undefined
+
+  const designPreviewKind = (file: ArtifactFile): "image" | "html" | "unsupported" => {
+    if (file.kind === "svg" || file.kind === "image") return "image"
+    if (file.kind === "html") return "html"
+    return "unsupported"
+  }
+
+  const handleDesignFileMouseEnter = (e: MouseEvent, file: ArtifactFile) => {
+    if (designPreviewTimer) { clearTimeout(designPreviewTimer); designPreviewTimer = undefined }
+    const target = e.currentTarget as HTMLElement
+    const itemRect = target.getBoundingClientRect()
+    setDesignFilePreview(file)
+
+    const previewWidth = 256
+    const defaultLeft = itemRect.right + 12
+    const rightEdge = defaultLeft + previewWidth
+    let left: number
+    if (rightEdge > window.innerWidth - 16) {
+      left = itemRect.left - previewWidth - 12
+      if (left < 16) {
+        left = 16
+      }
+    } else {
+      left = defaultLeft
+    }
+    setDesignPreviewLeft(left)
+
+    const previewHeight = 330
+    const bottom = window.innerHeight - itemRect.bottom
+    const popupTopInViewport = itemRect.bottom - previewHeight
+    let top: number | null = null
+    if (popupTopInViewport < 16) {
+      top = itemRect.top
+    }
+    setDesignPreviewBottom(top ? null : bottom)
+    setDesignPreviewTop(top)
+  }
+
+  const handleDesignFileMouseLeave = () => {
+    // 延迟 100ms 关闭,让用户能从文件项移动到预览弹窗上 (iframe 内容可交互/滚动)
+    designPreviewTimer = setTimeout(() => {
+      setDesignFilePreview(null)
+      setDesignPreviewBottom(null)
+      setDesignPreviewTop(null)
+    }, 100)
+  }
+
   let containerRef: HTMLDivElement | undefined
   let assetSecondaryRef: HTMLDivElement | undefined
 
@@ -283,27 +336,60 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     }
   }
 
-  // 产品资产文件点击
+  // 产品资产库文件选中态:基于 props.selections (doc 里的 chip),按 id 匹配
+  // chip id = joinUrl(s3BaseUrl, convertHtmlUrl) (唯一标识,下载后不变,即使 path 被改成本地路径)
+  // 参照 addon-menu 的 isAssetFileSelected,用 id 而不是 filename 匹配,避免同名文件误判
+  const isAssetFileSelected = (file: AssetFile) => {
+    const url = joinUrl(file.s3BaseUrl, file.convertHtmlUrl)
+    return props.selections.some(s =>
+      s.type === 'file' && (s as any).id === url
+    )
+  }
+
+  // 在 assetSubStack 里按 URL 查找 AssetFile (用于下载时从 chip id 反查文件元数据)
+  const findAssetFileInStackByUrl = (url: string): AssetFile | undefined => {
+    for (const level of assetSubStack()) {
+      const f = level.files.find(file => joinUrl(file.s3BaseUrl, file.convertHtmlUrl) === url)
+      if (f) return f
+    }
+    return undefined
+  }
+
+  // 产品资产文件点击:chip path = joinUrl(s3BaseUrl, convertHtmlUrl) 作唯一标识
+  // (insertMention 会把 selection.path 存为 chip.attrs.id;sync plugin 提取时 selection.id = chip.attrs.id)
+  // 关闭面板时批量下载,updateMentionPath 把本地路径补到 chip (按 id 匹配)
   const handleProductAssetClick = (file: AssetFile) => {
+    const url = joinUrl(file.s3BaseUrl, file.convertHtmlUrl)
     const selection: MentionSelection = {
       type: 'file',
       filename: file.fileName,
-      path: '',
+      path: url,
     }
-    if (isSelected(selection)) {
+    if (isAssetFileSelected(file)) {
       props.onDeselect(selection)
-      setSelectedAssetFiles(prev => prev.filter(f => f.fileName !== file.fileName))
     } else {
       props.onSelect(selection)
-      setSelectedAssetFiles(prev => [...prev, file])
     }
   }
 
-  // 收集选中的产品资产库文件（从 selectedAssetFiles 中获取）
+  // 收集选中的产品资产库文件:从 props.selections 反查 AssetFile
+  // 跳过 path 不是 URL 的 (即已下载到本地路径的 chip,避免重复下载)
   const collectSelectedAssetFiles = (): AssetFile[] => {
-    return selectedAssetFiles().filter(file => 
-      props.selections.some(s => s.type === 'file' && !s.path && s.filename === file.fileName)
-    )
+    const result: AssetFile[] = []
+    const seen = new Set<string>()
+    for (const sel of props.selections) {
+      if (sel.type !== 'file') continue
+      const id = (sel as any).id as string | undefined
+      const path = (sel as any).path as string
+      if (!id || !path) continue
+      // Skip already-downloaded chips (path is a local filesystem path, not a URL)
+      if (!/^https?:\/\//.test(path)) continue
+      if (seen.has(id)) continue
+      seen.add(id)
+      const found = findAssetFileInStackByUrl(id)
+      if (found) result.push(found)
+    }
+    return result
   }
 
   // 批量下载选中的产品资产库文件
@@ -319,8 +405,9 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         setAssetDownloadCurrent(file.fileName)
         const localPath = await props.onDownloadProductAsset?.(file, () => {}, assetDownloadAbortController.signal)
         if (assetDownloadCancelled()) break
+        // 用 URL (chip id) 调 updateMentionPath,prosemirror 按 node.attrs.id 匹配后把 path 改成本地路径
         if (localPath) {
-          props.onUpdateMentionPath?.(file.fileName, localPath)
+          props.onUpdateMentionPath?.(joinUrl(file.s3BaseUrl, file.convertHtmlUrl), localPath)
         }
       }
       setAssetDownloadOpen(false)
@@ -336,14 +423,13 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     }
   }
 
-  // 关闭下载弹窗
+  // 关闭下载弹窗:移除 path 仍是 URL 的 chip (即本次未下载完成的)
   const closeAssetDownload = () => {
     setAssetDownloadCancelled(true)
     assetDownloadAbortController?.abort()
     setAssetDownloadOpen(false)
-    // 移除 path 为空的 chip
     for (const sel of props.selections) {
-      if (sel.type === 'file' && !sel.path) {
+      if (sel.type === 'file' && /^https?:\/\//.test((sel as any).path || "")) {
         props.onDeselect(sel)
       }
     }
@@ -660,6 +746,8 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                         type="button"
                         class={`mention-secondary-item ${isSelected(sel) ? 'mention-secondary-item--selected' : ''}`}
                         onClick={() => handleFileClick(file)}
+                        onMouseEnter={(e) => handleDesignFileMouseEnter(e, file)}
+                        onMouseLeave={handleDesignFileMouseLeave}
                       >
                         <div class={`mention-checkbox ${isSelected(sel) ? 'mention-checkbox--checked' : ''}`}>
                           <Show when={isSelected(sel)}>
@@ -685,6 +773,8 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                         type="button"
                         class={`mention-secondary-item ${isSelected(sel) ? 'mention-secondary-item--selected' : ''}`}
                         onClick={() => handleFileClick(file)}
+                        onMouseEnter={(e) => handleDesignFileMouseEnter(e, file)}
+                        onMouseLeave={handleDesignFileMouseLeave}
                       >
                         <div class={`mention-checkbox ${isSelected(sel) ? 'mention-checkbox--checked' : ''}`}>
                           <Show when={isSelected(sel)}>
@@ -720,9 +810,9 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                     left: levelIndex() === 0 ? undefined : `${levelIndex() * 252}px`,
                     top: levelIndex() === 0 ? undefined : 0,
                     width: levelIndex() === 0 ? undefined : '248px',
-                    'max-height': levelIndex() === 0 ? undefined : '420px',
-                    'overflow-y': levelIndex() === 0 ? undefined : 'auto',
-                    'overflow-x': levelIndex() === 0 ? undefined : 'hidden',
+                    'max-height': '420px',
+                    'overflow-y': 'auto',
+                    'overflow-x': 'hidden',
                   }}
                 >
                   {/* 子文件夹列表 */}
@@ -744,16 +834,11 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                   <Show when={visibleFiles().length > 0}>
                     <For each={visibleFiles()}>
                       {(file) => {
-                        const sel: MentionSelection = {
-                          type: 'file',
-                          filename: file.fileName,
-                          path: '',
-                        }
                         const FileIcon = getFileIcon(inferKindFromUrl(file.convertHtmlUrl), file.fileName)
                         return (
                           <button
                             type="button"
-                            class={`mention-secondary-item mention-secondary-item--asset ${isSelected(sel) ? 'mention-secondary-item--selected' : ''}`}
+                            class={`mention-secondary-item mention-secondary-item--asset ${isAssetFileSelected(file) ? 'mention-secondary-item--selected' : ''}`}
                             onClick={() => handleProductAssetClick(file)}
                             onMouseEnter={(e) => {
                               const itemRect = e.currentTarget.getBoundingClientRect()
@@ -796,8 +881,8 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
                             }}
                             onMouseLeave={() => setAssetPreview(null)}
                           >
-                            <div class={`mention-checkbox ${isSelected(sel) ? 'mention-checkbox--checked' : ''}`}>
-                              <Show when={isSelected(sel)}>
+                            <div class={`mention-checkbox ${isAssetFileSelected(file) ? 'mention-checkbox--checked' : ''}`}>
+                              <Show when={isAssetFileSelected(file)}>
                                 <Icon name="check" size="small" style="color: white" />
                               </Show>
                             </div>
@@ -833,7 +918,7 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
     {/* hover 预览弹窗 */}
     <Portal>
       <Show when={assetPreview()}>
-        <div 
+        <div
           class="mention-asset-preview"
           style={{
             position: 'fixed',
@@ -852,13 +937,64 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         >
           <div class="mention-asset-preview-header">{assetPreview()!.fileName}</div>
           <div class="mention-asset-preview-image">
-            <img 
-              src={joinUrl(assetPreview()!.s3BaseUrl, assetPreview()!.snapshot)} 
+            <img
+              src={joinUrl(assetPreview()!.s3BaseUrl, assetPreview()!.snapshot)}
               alt={assetPreview()!.fileName}
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = 'none'
               }}
             />
+          </div>
+        </div>
+      </Show>
+    </Portal>
+
+    {/* 设计文件 hover 预览弹窗 — 图片用 img,html 用 iframe(居中),其它显示"暂不支持预览" */}
+    <Portal>
+      <Show when={designFilePreview()}>
+        <div
+          class="mention-design-preview"
+          style={{
+            position: 'fixed',
+            left: `${designPreviewLeft()}px`,
+            bottom: designPreviewBottom() !== null ? `${designPreviewBottom()}px` : undefined,
+            top: designPreviewTop() !== null ? `${designPreviewTop()}px` : undefined,
+          }}
+          onMouseEnter={() => {
+            // 用户移到弹窗上:取消关闭定时器,让 iframe 内容可交互/滚动
+            if (designPreviewTimer) { clearTimeout(designPreviewTimer); designPreviewTimer = undefined }
+          }}
+          onMouseLeave={() => {
+            setDesignFilePreview(null)
+            setDesignPreviewBottom(null)
+            setDesignPreviewTop(null)
+          }}
+        >
+          <div class="mention-design-preview-name">{designFilePreview()!.name}</div>
+          <div class="mention-design-preview-size">文件大小: {formatFileSize(designFilePreview()!.size)}</div>
+          <div class="mention-design-preview-stage">
+            <Show when={designPreviewKind(designFilePreview()!) === "image"}>
+              <img
+                src={pathToLocalUrl(designFilePreview()!.path)}
+                alt=""
+                class="mention-design-preview-img"
+                draggable={false}
+              />
+            </Show>
+            <Show when={designPreviewKind(designFilePreview()!) === "html"}>
+              <div class="mention-design-preview-html">
+                <iframe
+                  src={pathToLocalUrl(designFilePreview()!.path)}
+                  sandbox="allow-scripts"
+                />
+              </div>
+            </Show>
+            <Show when={designPreviewKind(designFilePreview()!) === "unsupported"}>
+              <div class="mention-design-preview-unsupported">
+                <img src={emptyPng} style={{ width: "80px", height: "80px", "user-select": "none", "-webkit-user-drag": "none" }} alt="" draggable={false} />
+                <span class="mention-design-preview-unsupported-text">当前文件格式暂不支持预览</span>
+              </div>
+            </Show>
           </div>
         </div>
       </Show>

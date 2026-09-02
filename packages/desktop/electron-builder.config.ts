@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
+import { releaseNotes } from "./scripts/release-notes"
 
 const execFileAsync = promisify(execFile)
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
@@ -28,6 +29,7 @@ const getBase = (): Configuration => ({
     output: "dist",
     buildResources: "resources",
   },
+  releaseInfo: { releaseNotes },
   files: ["out/**/*", "resources/**/*"],
   extraResources: [
     {

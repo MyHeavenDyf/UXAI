@@ -26,7 +26,7 @@ interface EditorRef {
   replaceSlashCommand: (text: string) => void
   insertMention: (selection: MentionSelection) => void
   removeMention: (selection: MentionSelection) => void
-  updateMentionPath: (filename: string, path: string) => void
+  updateMentionPath: (id: string, path: string) => void
   isAlive: () => boolean
   replaceDoc: (json: any) => void
 }
@@ -90,7 +90,7 @@ export const ProseMirrorEditor = (props: Props) => {
       if (m.type === "skill") {
         return { type: "skill", name: m.name, label: m.label }
       } else {
-        return { type: "file", filename: m.name, path: m.path || "" }
+        return { type: "file", filename: m.name, path: m.path || "", id: m.id ?? undefined }
       }
     })
     props.setMentionSelections(selections)
@@ -155,7 +155,8 @@ export const ProseMirrorEditor = (props: Props) => {
   onMount(() => {
     if (!containerRef) return
 
-    const initialDoc = props.initialDocJSON
+    const hasValidInitial = props.initialDocJSON?.content?.length > 0
+    const initialDoc = hasValidInitial
       ? docFromJSON(props.initialDocJSON)
       : editorSchema.nodes.doc.create({ content: [{ type: "paragraph" }] })
 
@@ -170,7 +171,6 @@ export const ProseMirrorEditor = (props: Props) => {
           "Mod-shift-z": redo,
           "Enter": (state, dispatch, view) => {
             if (props.disabled) return false
-            if (props.busy) return true
             
             // If mention popover is open, don't send message
             const mentionTrigger = mentionTriggerKey.getState(state)
@@ -288,7 +288,7 @@ export const ProseMirrorEditor = (props: Props) => {
           if (!v || !v.dom?.isConnected) return
           const attrs = selection.type === "skill"
             ? { id: selection.name, name: selection.name, type: "skill" as const, label: selection.label, path: "" }
-            : { id: selection.filename, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
+            : { id: selection.path, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
           const node = editorSchema.nodes.mention.create(attrs)
           const { from, to } = v.state.selection
           const tr = v.state.tr.replaceWith(from, to, node)
@@ -300,11 +300,17 @@ export const ProseMirrorEditor = (props: Props) => {
         removeMention: (selection: MentionSelection) => {
           const v = view()
           if (!v || !v.dom?.isConnected) return
-          const name = selection.type === "skill" ? selection.name : selection.filename
+          // For skills, match by name; for files, match by id (= path, unique per chip)
+          const matchId = selection.type === "skill" ? selection.name : selection.path
+          const matchName = selection.type === "skill" ? selection.name : selection.filename
           let lastPos = -1
           v.state.doc.descendants((node, pos) => {
-            if (node.type.name === "mention" && node.attrs.name === name) {
-              lastPos = pos
+            if (node.type.name !== "mention") return
+            // Files have id = path (unique), so match by id first; skills match by name
+            if (selection.type === "file") {
+              if (node.attrs.id === matchId) lastPos = pos
+            } else {
+              if (node.attrs.name === matchName) lastPos = pos
             }
           })
           if (lastPos === -1) return
@@ -312,12 +318,12 @@ export const ProseMirrorEditor = (props: Props) => {
           const tr = v.state.tr.delete(lastPos, lastPos + size)
           v.dispatch(tr)
         },
-        updateMentionPath: (filename: string, path: string) => {
+        updateMentionPath: (id: string, path: string) => {
           const v = view()
           if (!v || !v.dom?.isConnected) return
           const tr = v.state.tr
           v.state.doc.descendants((node, pos) => {
-            if (node.type.name === "mention" && node.attrs.name === filename && node.attrs.path !== path) {
+            if (node.type.name === "mention" && node.attrs.id === id && node.attrs.path !== path) {
               tr.setNodeMarkup(pos, undefined, { ...node.attrs, path })
             }
           })
@@ -330,8 +336,14 @@ export const ProseMirrorEditor = (props: Props) => {
         replaceDoc: (json: any) => {
           const v = view()
           if (!v || !v.state || !v.dom?.isConnected) return
-          const newDoc = docFromJSON(json)
+          const valid = json?.content?.length > 0
+          const newDoc = valid
+            ? docFromJSON(json)
+            : editorSchema.nodes.doc.create({ content: [{ type: "paragraph" }] })
           const tr = v.state.tr.replaceWith(0, v.state.doc.content.size, newDoc.content)
+          // replaceWith 整体替换时,原 selection 落在被替换区间内会被映射成覆盖新内容的非折叠范围,
+          // 表现为切换 session 后编辑器"全选"了所有内容。显式收敛到段首折叠态。
+          tr.setSelection(TextSelection.atStart(tr.doc))
           v.dispatch(tr)
         },
       })
