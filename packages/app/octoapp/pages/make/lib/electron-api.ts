@@ -27,6 +27,12 @@ export type DesktopApi = {
   fileExists?: (path: string) => Promise<boolean>
   capturePreviewRect?: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
   getPathForFile?: (file: File) => string
+  /** 拷贝源文件进 <baseDir>/.octo/tmps/（预会话落地区，撞名加后缀）；返回落地路径 */
+  copyFileToWorktree?: (srcPath: string, baseDir: string, filename: string) => Promise<string>
+  /** copyFileToWorktree 的字节版：剪贴板内存 blob 无源路径，把字节写进同一落点；返回落地路径 */
+  writeFileToWorktree?: (buffer: ArrayBuffer, baseDir: string, filename: string) => Promise<string>
+  /** 发送时把 .octo/tmps/ 里的附件 rename 进 <baseDir>/.octo/<sessionId>/uploads/ */
+  movePendingUploadToSession?: (srcPath: string, baseDir: string, sessionId: string) => Promise<string>
   openLink?: (url: string) => void
   // jk-j60099994-replace-with-60062650-octoapp-make-electron-api-1-start
   // jk-j60099994-replace-with-60062650-octoapp-make-electron-api-1-end
