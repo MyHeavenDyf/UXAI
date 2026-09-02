@@ -459,7 +459,8 @@ export const ProseMirrorEditor = (props: Props) => {
     if (selection.type === "skill") {
       attrs = { id: selection.name, name: selection.name, type: "skill" as const, label: selection.label, path: "" }
     } else {
-      attrs = { id: selection.filename, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
+      const id = selection.path || selection.filename
+      attrs = { id, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
     }
 
     const node = editorSchema.nodes.mention.create(attrs)
