@@ -23,6 +23,22 @@ export function workspaceDir(sdkDir: string): string {
 }
 
 /**
+ * 3D 源路径运行时解析（打包版支持）：
+ * - 打包版：get3dSrcDirs IPC 返回 resources/3d/ 下的模板快照+组件库路径（主进程 app.isPackaged 判定）。
+ *   IPC 结果必须优先于烘焙 env —— exe 里 import.meta.env.VITE_3D_* 是构建期烘焙的开发机路径，
+ *   在目标机器上不存在。
+ * - dev：IPC 返 null → 走 VITE_3D_* env/默认路径（现有行为，零回归）。
+ */
+export async function resolve3dSrcDirs(): Promise<{ templateDir: string; componentsDir: string }> {
+  const packaged = (await getDesktopApi()?.get3dSrcDirs?.()) ?? null
+  if (packaged) return packaged
+  return {
+    templateDir: import.meta.env.VITE_3D_TEMPLATE_SRC ?? "D:/cyc/project/octo/3d-templete",
+    componentsDir: import.meta.env.VITE_3D_COMPONENTS_SRC ?? "D:/cyc/project/octo/3d-components",
+  }
+}
+
+/**
  * 物化 workspace：拷模板母版（排除 node_modules/dist/.git/.husky）→ workspace，
  * node_modules 用 Windows junction 软链，重写 vite.config.ts 别名到 3d-components 源码绝对路径。
  * 全量覆盖（主进程先 rm 再 cp），保证切版本无脏文件残留。
@@ -30,10 +46,8 @@ export function workspaceDir(sdkDir: string): string {
 export async function materialize(sdkDir: string): Promise<{ ok: true }> {
   const materializeWorkspace = getDesktopApi()?.materializeWorkspace
   if (!materializeWorkspace) throw new Error("workspace IPC 不可用（非 Electron 环境）")
-  const templateDir = import.meta.env.VITE_3D_TEMPLATE_SRC ?? "D:/cyc/project/octo/3d-templete"
-  const componentsSrc =
-    (import.meta.env.VITE_3D_COMPONENTS_SRC ?? "D:/cyc/project/octo/3d-components") + "/src"
-  return materializeWorkspace(templateDir, workspaceDir(sdkDir), componentsSrc)
+  const dirs = await resolve3dSrcDirs()
+  return materializeWorkspace(dirs.templateDir, workspaceDir(sdkDir), dirs.componentsDir + "/src")
 }
 
 /**
@@ -72,6 +86,25 @@ export async function stopDev(): Promise<void> {
   const stopWorkspaceDev = getDesktopApi()?.stopWorkspaceDev
   if (!stopWorkspaceDev) return
   await stopWorkspaceDev()
+}
+
+/**
+ * 通知 workspace dev 失效全部模块缓存（viteWorkspace.config 的 /_octo/touch 端点）。
+ * overlay 落盘后、reload 前调用：iframe 下次请求必拿新 transform，不赌 chokidar 事件时序
+ * （reload 早于 vite 失效 → etag 命中缓存旧代码）。失败（dev 没跑 / 旧 workspace 无端点）抛错，调用方降级。
+ */
+export async function touchWorkspaceDev(): Promise<void> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 2000)
+  try {
+    const res = await fetch(`http://127.0.0.1:${WORKSPACE_PORT}/_octo/touch`, {
+      method: "POST",
+      signal: controller.signal,
+    })
+    if (!res.ok) throw new Error(`/_octo/touch ${res.status}`)
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 /**

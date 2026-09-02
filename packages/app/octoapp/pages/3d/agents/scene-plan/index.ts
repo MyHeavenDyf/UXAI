@@ -62,6 +62,12 @@ export default async function scene_3d_plan(input: ScenePlanInput): Promise<Plan
     fileParts: input.fileParts,
   })
   console.log("----- 3D 场景规划Agent运行结束，耗时：", (Date.now() - startTime) / 1000, "s -----")
+  // 先透传 LLM 返回的错误（idle 超时 / APIError / 限流 / 超上下文），
+  // 否则拿空 text 跑 extractJson → 报"did not return valid JSON"掩盖真实原因。
+  if (planRes.error) {
+    logAgentParsed(planRes.childSessionId, { error: planRes.error })
+    agentThrow(AGENT_NAME, planRes.childSessionId, planRes.error)
+  }
   const planJson = extractJson(planRes.text)
   if (!planJson) {
     console.error(`[scene_3d_plan] extractJson 失败。text.length=${planRes.text.length}`)

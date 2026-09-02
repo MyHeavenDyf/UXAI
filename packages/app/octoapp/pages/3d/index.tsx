@@ -24,6 +24,7 @@ import { showToast, Toast } from "@opencode-ai/ui/toast"
 import { exportZip } from "./utils/preview-handler/zip"
 import { exportProject } from "./utils/preview-handler/export-project"
 import { getDesktopApi } from "./utils/desktop-api"
+import { abortWait } from "./utils/json-parser"
 import { createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { useNavigate, useParams } from "@solidjs/router"
 import { SDKProvider, useSDK } from "@/context/sdk"
@@ -206,8 +207,6 @@ function Scene3DContent() {
   // ── 3D workspace（Step 6）── 全局唯一 workspace dev server 活动标志 + iframe 强制重载 nonce
   const [workspaceActive, setWorkspaceActive] = createSignal(false)
   const [wsNonce, setWsNonce] = createSignal(0)
-  /** materializePatch 的 wsNonce 兜底定时器：vite 未 full-reload 时硬重载 iframe（SCENE_READY 到达即 clearTimeout） */
-  let patchReloadTimer: number | undefined
   // workspace 活动时预览指向 51857（workspace 副本 dev server），否则回退母版 5173（PREVIEW_SRC）。
   // wsNonce bump → previewSrc 字符串变 → iframe src 重设 → 强制重载（避免切版本时旧 bundle）。
   const previewSrc = createMemo(() =>
@@ -845,6 +844,7 @@ function Scene3DContent() {
           await onCodeVersionReady(files, summary, sceneData)
         },
         onMaterialize: materializePatch,
+        onEnvMaterialize: materializeEnvPatch,
       })
       if (params.id !== sid) return
       if (sid) sessionMap.set(setIsModifying, sid, false)
@@ -972,6 +972,7 @@ function Scene3DContent() {
           await onCodeVersionReady(files, summary, sceneData)
         },
         onMaterialize: materializePatch,
+        onEnvMaterialize: materializeEnvPatch,
       })
       if (params.id !== sid) return
       if (sid) sessionMap.set(setIsModifying, sid, false)
@@ -1182,7 +1183,11 @@ function Scene3DContent() {
     // abort 所有正在运行的子 session
     for (const childID of childSessionIDs()) {
       void sdk.client.session.abort({ sessionID: childID }).catch(() => {})
+      // host 端强制解除在途 getResultFromMessagesLoose 的 await：不依赖 provider 是否真停流
+      // （某些 provider 的 session.abort 不给在途消息写 error/completed → 反应式 await 永挂 → 停止按钮毫无反应）
+      abortWait(childID)
     }
+    abortWait(sid)
     setSendingSids((prev) => {
       if (!prev.has(sid)) return prev
       const next = new Set(prev)
@@ -1392,10 +1397,10 @@ function Scene3DContent() {
    * 轻量物化（patch 路径 + 编辑态提交共用）：避开 switchVersion 的 materialize+startDev（240s startDev 卡顿源）。
    *
    * - 归档全量 codeFiles（appendSceneVersion，否则版本不可恢复）+ 刷新版本菜单
-   * - workspaceActive：overlayVersionCode 只铺改动 handler（workspace 已有上一轮全量，不 materialize 不重启 dev）
-   *   → vite chokidar fire → full-reload iframe → SCENE_READY 重发 pendingData → handler.create 读新 SUB_OVERRIDES
-   * - 500ms 未收到 SCENE_READY（vite 没触发 full-reload / HMR 未重置 lastRenderedJson）→ wsNonce++ 兜底硬重载
-   *   （硬导航使 Embed.vue 重挂、lastRenderedJson 重置 → 即使 pendingData 同也重跑，绕过 renderScene 去重）
+   * - workspaceActive：overlayVersionCode 只铺改动 handler → touch（vite 立即失效模块缓存）→ wsNonce++
+   *   reload 一次，宿主是唯一重载源。workspace 专用 vite 配置（viteWorkspace.config.ts）的 hotUpdate
+   *   过滤插件已掐掉 vite 自身对文件变更的 HMR/full-reload 推送，不再竞跑叠加（原「闪 5-6 次」根因，P0.1-1）
+   * - touch 失败（dev 崩 / 旧 workspace 无端点）→ 降级 switchVersion 重启 dev（不重复 appendSceneVersion）
    * - !workspaceActive（dev 没跑 / 冷启动 / 异常）→ 降级委托 onCodeVersionReady（switchVersion 全路径，可接受慢）
    */
   async function materializePatch(
@@ -1444,12 +1449,72 @@ function Scene3DContent() {
     // 仍要 acquire：overlay 改 workspace 代码，若别会话正持有 dev，会与其 overlay 互踩
     acquireWorkspaceWithToast(sid)
     await workspace.overlayVersionCode(sdk.directory, codeDirPath(dir, sid, vid))
-    // 500ms 兜底：vite 未 full-reload（SCENE_READY 未到）→ wsNonce++ 硬重载（重挂 Embed、重置 lastRenderedJson）
-    window.clearTimeout(patchReloadTimer)
-    patchReloadTimer = window.setTimeout(() => {
-      console.log("[materializePatch] 500ms 无 SCENE_READY，wsNonce++ 兜底硬重载")
+    // P0.1-1 单一重载源：touch 让 vite 立即失效模块缓存（不赌 chokidar 事件时序），随后宿主 reload 一次。
+    // touch 失败（dev 崩 / 旧 workspace 无该端点）→ 降级 switchVersion 重启 dev（开头已 appendSceneVersion，不重复归档）。
+    try {
+      await workspace.touchWorkspaceDev()
+    } catch (e) {
+      console.warn("[materializePatch] touch 失败，降级 switchVersion 重启 dev", e)
+      await workspace.switchVersion(sdk.directory, codeDirPath(dir, sid, vid))
       setWsNonce((n) => n + 1)
-    }, 500)
+      return
+    }
+    setWsNonce((n) => n + 1)
+  }
+
+  /**
+   * 场景级轻量物化（M-3 ①，纯场景级 patch 用）：落盘 live-data（camera/lights/scene）+ post SCENE_PATCH_ENV
+   * 让 iframe 运行时 mutate，不 overlay handler / 不 reload / 不 dispose（灯调亮不闪不丢编辑态）。
+   *
+   * - 落盘同 materializePatch（appendSceneVersion + setPendingPreviewData + 版本菜单 + 哨兵），供切走切回恢复
+   * - dev 跑着（iframe 已渲染，handle 存在）→ post SCENE_PATCH_ENV → onPatchEnv → handle.updateEnvironment mutate
+   * - 冷启动 / dev 没跑（handle 不存在）→ 降级 sendToPreview 全量 SCENE_UPDATE（重建，冷启动本无场景可丢）
+   */
+  async function materializeEnvPatch(
+    codeFiles: { path: string; content: string }[],
+    summary: string,
+    sceneData?: Record<string, unknown> | null,
+  ): Promise<void> {
+    const sid = params.id
+    if (!sid) return
+    const dir = sceneHistoryDir()
+    if (!dir) return
+    const cur = await loadCurrentSceneState(dir, sid)
+    const base = cur ?? { lastIntent: null, lastPlanner: null, lastSceneObjects: [] }
+    const state: SceneSessionState = sceneData
+      ? {
+          ...base,
+          mergedSceneConfig: sceneData,
+          lastSceneObjects:
+            base.lastSceneObjects.length > 0
+              ? base.lastSceneObjects
+              : [{ scene_objects: [], section_id: "__codegen", element_id: "__codegen", id_prefix: "__codegen" }],
+        }
+      : base
+    if (sceneData) {
+      sessionMap.set(setPendingPreviewData, sid, sceneData as unknown as SceneConfig)
+      sessionMap.set(setHasPreviewContent, sid, true)
+    }
+    if (state.lastSceneObjects.length > 0) {
+      sessionMap.set(setLastSceneObjects, sid, state.lastSceneObjects)
+    }
+    const vid = await appendSceneVersion(dir, sid, state, summary, codeFiles)
+    const { versions: versionEntries, current } = await listSceneVersions(dir, sid)
+    if (params.id === sid) {
+      sessionMap.set(setVersions, sid, versionEntries)
+      sessionMap.set(setCurrentVersionId, sid, current)
+    }
+    if (!sceneData) return
+    // dev 跑着 → SCENE_PATCH_ENV 增量 mutate；冷启动 → 降级 SCENE_UPDATE 全量重建（落盘已兜底，重建读新 live-data）
+    if (workspaceActive()) {
+      previewApi.sendPatchEnv?.({
+        camera: sceneData.camera,
+        lights: sceneData.lights,
+        scene: sceneData.scene,
+      })
+    } else {
+      sendToPreview(sceneData as unknown as SceneConfig)
+    }
   }
 
   /**
@@ -1508,7 +1573,7 @@ function Scene3DContent() {
   }
 
   /** 预览：另开独立窗口显示当前场景（运行态，无编辑栏） */
-  function handleLivePreview(): void {
+  async function handleLivePreview(): Promise<void> {
     const sid = params.id
     if (!sid) return
     const data = pendingPreviewData()[sid]
@@ -1521,15 +1586,27 @@ function Scene3DContent() {
       showToast({ title: "当前环境不支持实时预览" })
       return
     }
-    // 写场景 JSON 到 3d-templete 的 public/live-data.json（vite dev server 5173 自动 serve），
-    // 然后用 ?fetch=live-data.json 让 Scene3D.vue 的 loadLiveDataConfig 读取（与 pattern 实时预览协议一致）。
-    const templateSrc = import.meta.env.VITE_3D_TEMPLATE_SRC ?? "D:/cyc/project/octo/3d-templete"
     const jsonStr = JSON.stringify(data, null, 2)
     const encoder = new TextEncoder()
+    // workspace 活动（生成/切版本后常态）：写 workspace 的 public/live-data.json，
+    // workspace vite 自己 serve 它 → 开 51857 运行态路由。dev/打包通用（打包版没有模板 5173）。
+    if (workspaceActive()) {
+      try {
+        await desktopApi.writeFileBuffer(
+          `${workspace.workspaceDir(sdk.directory)}/public/live-data.json`,
+          encoder.encode(jsonStr).buffer as ArrayBuffer,
+        )
+        window.open(`http://127.0.0.1:${workspace.WORKSPACE_PORT}/?fetch=live-data.json`)
+      } catch {
+        showToast({ title: "写入预览文件失败" })
+      }
+      return
+    }
+    // dev 遗留路径（workspace 未活动）：写模板母版 public/，靠 3d-templete 自己的 vite 5173 serve。
+    const dirs = await workspace.resolve3dSrcDirs()
     desktopApi
-      .writeFileBuffer(`${templateSrc}/public/live-data.json`, encoder.encode(jsonStr).buffer as ArrayBuffer)
+      .writeFileBuffer(`${dirs.templateDir}/public/live-data.json`, encoder.encode(jsonStr).buffer as ArrayBuffer)
       .then(() => {
-        // 3d-templete 运行态 URL（不带 /embed），?fetch= 指向 public/live-data.json
         const baseUrl = import.meta.env.VITE_3D_BASE ?? "http://127.0.0.1:5173"
         window.open(`${baseUrl}/?fetch=live-data.json`)
       })
@@ -1547,17 +1624,12 @@ function Scene3DContent() {
       showToast({ title: "暂无可导出的场景数据" })
       return
     }
-    const templateSrc = import.meta.env.VITE_3D_TEMPLATE_SRC ?? "D:/cyc/project/octo/3d-templete"
-    const componentsSrc = import.meta.env.VITE_3D_COMPONENTS_SRC ?? "D:/cyc/project/octo/3d-components"
-    if (!templateSrc || !componentsSrc) {
-      showToast({ title: "未配置工程源码路径（VITE_3D_TEMPLATE_SRC / VITE_3D_COMPONENTS_SRC）" })
-      return
-    }
+    const dirs = await workspace.resolve3dSrcDirs()
     const sceneState = await loadCurrentSceneState(sceneHistoryDir(), sid)
     const title = sessionInfo()?.title ?? `3d-scene-${sid}`
     await exportProject({
-      templateSrc,
-      componentsSrc,
+      templateSrc: dirs.templateDir,
+      componentsSrc: dirs.componentsDir,
       sceneConfig: data,
       codeDir: sceneState?.codeDir,
       defaultName: title,
@@ -1635,8 +1707,6 @@ function Scene3DContent() {
                           onReady={() => {
                             setEmbedReady(true)
                             sceneReadyResolver?.()
-                            // materializePatch 的 vite full-reload 已到达 → 取消 wsNonce 兜底定时器
-                            window.clearTimeout(patchReloadTimer)
                           }}
                           onConsoleError={(entry) => setConsoleBuffer((prev) => [...prev, entry])}
                           versions={versions()[params.id!] ?? []}

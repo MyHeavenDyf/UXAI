@@ -120,6 +120,64 @@ function isDesign3dPath(resolved: string, sub?: "history"): boolean {
 // 3D workspace dev server 子进程句柄（全局唯一一个 workspace = 一个 dev server）。
 let workspaceDev: ChildProcess | null = null
 
+/** TCP 端口探测：能连上（有进程在 listening）→ true；refused/超时 → false。localhost refused 秒回，开销 ~ms。 */
+function probePort(p: number): Promise<boolean> {
+  return new Promise((r) => {
+    const socket = createConnection({ host: "127.0.0.1", port: p }, () => {
+      socket.end()
+      r(true)
+    })
+    socket.setTimeout(800)
+    socket.on("error", () => r(false))
+    socket.on("timeout", () => {
+      socket.destroy()
+      r(false)
+    })
+  })
+}
+
+/** 等端口释放（listening 消失）：每 200ms 探一次，上限 maxMs。返回是否确认已释放。 */
+async function waitForPortFree(p: number, maxMs: number): Promise<boolean> {
+  const deadline = Date.now() + maxMs
+  for (;;) {
+    if (!(await probePort(p))) return true
+    if (Date.now() > deadline) return false
+    await new Promise((r) => setTimeout(r, 200))
+  }
+}
+
+/**
+ * 强杀占用端口的孤儿进程（仅 Windows）：netstat 找 LISTENING 该端口的 PID → taskkill /T /F。
+ * 51857 是 workspace dev 专属端口，占着它的只可能是残留 vite（上次崩溃 / 主进程重启漏杀，
+ * 不在 workspaceDev 句柄里，killWorkspaceDev 够不着）。netstat 解析失败（权限/格式变化）
+ * → 静默放弃，交给后续 strictPort 报错兜底（可见失败优于静默 stale）。
+ */
+async function killPortOccupant(p: number): Promise<void> {
+  if (process.platform !== "win32") return
+  try {
+    const { stdout } = await new Promise<{ stdout: string }>((resolve, reject) => {
+      execFile("netstat", ["-ano", "-p", "TCP"], { maxBuffer: 8 * 1024 * 1024 }, (err, out) => {
+        if (err) reject(err)
+        else resolve({ stdout: out ?? "" })
+      })
+    })
+    const re = new RegExp(`:${p}\\s`, "i")
+    const pids = new Set<string>()
+    for (const line of stdout.split("\n")) {
+      if (!re.test(line) || !/LISTENING/i.test(line)) continue
+      const pid = line.trim().split(/\s+/).pop()
+      if (pid && /^\d+$/.test(pid)) pids.add(pid)
+    }
+    for (const pid of pids) {
+      await new Promise<void>((resolve) => {
+        execFile("taskkill", ["/pid", pid, "/T", "/F"], () => resolve())
+      })
+    }
+  } catch {
+    // 放弃孤儿清理
+  }
+}
+
 // 停掉 workspace dev server 并等其真正退出。Windows 上 child.kill 杀不掉 vite 的 esbuild/rollup
 // 子进程，用 taskkill /T /F 连子进程一起杀；且必须等进程退出 + 句柄释放后再 resolve，否则后续
 // rm(workspaceDir) 撞 EBUSY（taskkill 异步、句柄释放有滞后）。不 removeAllListeners('exit')：
@@ -156,6 +214,9 @@ function resolveDevRuntime(): string | null {
   const override = process.env.OCTO_3D_DEV_RUNTIME
   if (override) return override
   const candidates = [
+    // 打包版内置 bun（extraResources .3d-dist/bin → resources/bin，与 rg 同款模式）；
+    // dev 下该路径不存在自然落空，不影响开发机解析。
+    join(process.resourcesPath, "bin", "bun.exe"),
     process.env.APPDATA ? join(process.env.APPDATA, "npm", "node_modules", "bun", "bin", "bun.exe") : null,
     process.env.USERPROFILE ? join(process.env.USERPROFILE, ".bun", "bin", "bun.exe") : null,
     process.env.HOME ? join(process.env.HOME, ".bun", "bin", "bun") : null,
@@ -238,6 +299,23 @@ export function registerIpcHandlers(deps: Deps) {
 
   // ===== 3D workspace：模板副本物化 + dev server 生命周期（Step 6）=====
 
+  // get-3d-src-dirs：打包版的 3D 源路径解析（模板快照/组件库在 resources/3d/ 下）。
+  // dev 返 null → 渲染端走 VITE_3D_* 烘焙 env/默认路径（现有行为零回归）；
+  // 渲染端 materialize/导出/实时预览都以此为准（IPC 结果优先于烘焙 env，否则 exe 里开发机路径会赢）。
+  // 逃生口：装好的 exe 设 OCTO_3D_TEMPLATE_SRC/OCTO_3D_COMPONENTS_SRC 进程 env → 直接吃活母版
+  // （改 template 免重打包验证，仅本机调试用；目标用户机器不设走 resources 快照）。
+  ipcMain.handle("get-3d-src-dirs", () => {
+    if (!app.isPackaged) return null
+    if (process.env.OCTO_3D_TEMPLATE_SRC && process.env.OCTO_3D_COMPONENTS_SRC) {
+      return { templateDir: process.env.OCTO_3D_TEMPLATE_SRC, componentsDir: process.env.OCTO_3D_COMPONENTS_SRC }
+    }
+    return {
+      templateDir: join(process.resourcesPath, "3d", "template"),
+      componentsDir: join(process.resourcesPath, "3d", "3d-components"),
+    }
+  })
+
+
   // materialize-workspace：拷模板母版 → workspace（排除 node_modules/dist/.git/.husky），
   // node_modules 用 Windows junction 软链（免管理员），重写 vite.config.ts 别名到 3d-components 源码绝对路径
   // （拷后 __dirname 变了，原 resolve(__dirname,'../3d-components/src') 别名会失效致 vite 挂）。
@@ -290,9 +368,13 @@ export function registerIpcHandlers(deps: Deps) {
         // 注意：split 串结尾停在 'src'（不含其后的 '/' 与闭引号 '），故 join 串也以 'src' 结尾、
         // 不带闭引号 —— 原始闭引号在剩余片段 '/<suffix>')' 里保留并提供闭合；
         // 若 join 串多带一个 ' → src' 提前闭合 → rolldown 解析报错。
+        // 路径必须正斜杠化：Windows 路径反斜杠在 JS 字符串字面量里是转义前缀（\U \c 等吞掉反斜杠），
+        // 进 vite.config.ts 后 path.resolve 收到残缺路径 → resolve 失败 vite 退出 code 1。
+        // 正斜杠在 Windows 上 path.resolve/vite/Node 全兼容。dev 模式 env 传 D:/... 天然正斜杠不踩。
+        const posixSrc = args.componentsSrcDir.replace(/\\/g, "/")
         const rewritten = orig
           .split("resolve(__dirname, '../3d-components/src")
-          .join(`resolve('${args.componentsSrcDir}`)
+          .join(`resolve('${posixSrc}`)
         await writeFile(viteConfigPath, rewritten, "utf-8")
       }
       return { ok: true as const }
@@ -330,6 +412,16 @@ export function registerIpcHandlers(deps: Deps) {
       const viteJs = join(workspaceDir, "node_modules/vite/bin/vite.js")
       if (!existsSync(viteJs)) return { ok: false as const, error: `vite 未找到: ${viteJs}` }
       await killWorkspaceDev()
+      // 端口预检（P0.1-2 切历史时序根因修）：确保端口上没有任何残留 listener 再 spawn。
+      // 残留来源：①刚 taskkill 的老 vite listening socket 短暂滞留；②孤儿 vite（主进程重启/崩溃后残留进程，
+      // 不在 workspaceDev 句柄里，上面 killWorkspaceDev 够不着）。不预检的后果：新 vite --strictPort 绑定
+      // 失败退出，而 startDev 的 probePort 探到残留老 vite → 假 ready → wsNonce++ 重载 iframe 拿到旧
+      // module graph 的 stale bundle（切历史有时不生效、要手动刷新才生效）。清不掉就照常 spawn，
+      // strictPort 报错（可见失败优于静默 stale）。
+      if (!(await waitForPortFree(args.port, 1200))) {
+        await killPortOccupant(args.port)
+        await waitForPortFree(args.port, 3000)
+      }
       const runtimePath = resolveDevRuntime()
       if (!runtimePath) {
         return {
@@ -338,9 +430,15 @@ export function registerIpcHandlers(deps: Deps) {
             "找不到 bun 运行时（未在 npm 全局 / ~/.bun 找到 bun.exe；可设 OCTO_3D_DEV_RUNTIME 指向 bun.exe 绝对路径）",
         }
       }
+      // workspace 专用配置（P0.1-1 闪烁根治）：viteWorkspace.config.ts（suppressHotUpdate 掐 vite 自身
+      // HMR/full-reload 推送 + /_octo/touch 失效端点）。旧 workspace 无该文件（模板更新早于本次 materialize）
+      // → 回退默认 vite.config.ts 现行为，下次 materialize 自动带上自愈。
+      const cfgArgs = existsSync(join(workspaceDir, "viteWorkspace.config.ts"))
+        ? ["--config", "viteWorkspace.config.ts"]
+        : []
       const child = spawn(
         runtimePath,
-        [viteJs, "--port", String(args.port), "--host", "127.0.0.1", "--strictPort"],
+        [viteJs, "--port", String(args.port), "--host", "127.0.0.1", "--strictPort", ...cfgArgs],
         {
           cwd: workspaceDir,
           windowsHide: true,
@@ -352,22 +450,10 @@ export function registerIpcHandlers(deps: Deps) {
       workspaceDev = child
       let buf = ""
       const readyRe = /http:\/\/127\.0\.0\.1:(\d+)/
-      // 端口探测兜底：连上 127.0.0.1:port 即 vite 在 listening（确定性 ready 信号，不依赖 stdout 文本格式）。
-      // vite 实际 serve 但 stdout 文本信号漏匹配（输出 localhost 而非 127.0.0.1、ready 措辞变化、ANSI 残留、
-      // buf 截断、bun 行缓冲）时，端口探测几百 ms 内确认 → resolve，不再空等 240s（首次 create 卡「正在执行中」根因）。
-      const probePort = (p: number): Promise<boolean> =>
-        new Promise((r) => {
-          const socket = createConnection({ host: "127.0.0.1", port: p }, () => {
-            socket.end()
-            r(true)
-          })
-          socket.setTimeout(800)
-          socket.on("error", () => r(false))
-          socket.on("timeout", () => {
-            socket.destroy()
-            r(false)
-          })
-        })
+      // 端口探测兜底（probePort 已提为模块级函数，killPortOccupant/waitForPortFree 共用）：
+      // 连上 127.0.0.1:port 即 vite 在 listening（确定性 ready 信号，不依赖 stdout 文本格式）。
+      // vite 实际 serve 但 stdout 信号漏匹配时几百 ms 内确认 → resolve，不再空等 240s（首次 create 卡「正在执行中」根因）。
+      // 端口预检（上方 waitForPortFree）保证此刻端口上只可能是新 spawn 的 vite，不会误连残留老 vite。
       return await new Promise<{ ok: true; url: string } | { ok: false; error: string }>(
         (resolve, reject) => {
           let settled = false

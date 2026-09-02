@@ -181,15 +181,24 @@ function extractMessageError(sync: any, sessionId: string, knownIds: Set<string>
   }
   const msgError = target?.error as Record<string, unknown> | undefined
   if (!msgError) return undefined
-  const name = msgError.name as string | undefined
-  const msg = msgError.message as string | undefined
-  const statusCode = msgError.statusCode as number | undefined
-  const isRetryable = msgError.isRetryable as boolean | undefined
+  // 后端 toObject() 返回 { name, data: { message, statusCode, isRetryable, responseBody, ... } }，
+  // 字段嵌在 data 里；兼容直接平铺的旧形态。
+  const inner = (msgError.data as Record<string, unknown> | undefined) ?? msgError
+  const name = (inner.name as string | undefined) ?? (msgError.name as string | undefined)
+  const msg = inner.message as string | undefined
+  const statusCode = inner.statusCode as number | undefined
+  const isRetryable = inner.isRetryable as boolean | undefined
+  const responseBody = inner.responseBody as string | undefined
   const parts: string[] = []
   if (name) parts.push(`[${name}]`)
   if (msg) parts.push(msg)
   if (statusCode) parts.push(`(HTTP ${statusCode})`)
   if (isRetryable !== undefined) parts.push(isRetryable ? "可重试" : "不可重试")
+  if (responseBody) {
+    // responseBody 常是 JSON 串或 HTML/网关错误页，截断到 300 字避免日志爆炸
+    const snippet = responseBody.length > 300 ? responseBody.slice(0, 300) + "…(truncated)" : responseBody
+    parts.push(`body: ${snippet}`)
+  }
   return parts.join(" ") || undefined
 }
 

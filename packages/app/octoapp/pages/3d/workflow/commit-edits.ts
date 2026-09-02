@@ -91,6 +91,15 @@ export async function commitEdits(input: CommitEditsInput): Promise<CommitEditsR
 
   // 4. 对每个受影响 type 的 handler 源码 patch
   for (const [type, entries] of byType) {
+    // 该 type 的顶层节点行（__id === node.id = group 根整体；__id startsWith node.id- = 子实例）。
+    // P0.1-4：group 根 transform 走 live-data params（set_type_transform 语义），不走 SUB_OVERRIDES——
+    // handler 只对子实例 cid 调 applyOverride（forklift.ts:137 spawnForklift 内），从不对 group 根调 →
+    // SUB_OVERRIDES[group 根]=死项（实证「整体编辑叉车位置未生效，单个生效」）。group 根 transform 本就
+    // 来自 live-data params（opts.position/fromArray），改 params → handler 重读生效（同 set_type_transform 已验证）。
+    const rawRows = merged[type]
+    const typeRows: Array<{ id?: string; params?: Record<string, unknown> }> = Array.isArray(rawRows)
+      ? rawRows
+      : []
     const handlerPath = handlerFilePathForType(type)
     const target = files.find(
       (f) => f.path === handlerPath || f.path.replace(/\\/g, "/").endsWith(handlerPath),
@@ -104,6 +113,18 @@ export async function commitEdits(input: CommitEditsInput): Promise<CommitEditsR
     let src = target.content
     for (const { __id, entry } of entries) {
       try {
+        // P0.1-4：group 根（__id === node.id，整体选中）transform → live-data params（绕过 SUB_OVERRIDES 死项）。
+        // 该项 continue 不进 skipped，committedCount=delta.size-skipped.length 自然计为成功。
+        if (entry.transform) {
+          const rootNode = typeRows.find((n) => n.id === __id)
+          if (rootNode) {
+            if (!rootNode.params) rootNode.params = {}
+            if (entry.transform.position) rootNode.params.position = entry.transform.position
+            if (entry.transform.rotation) rootNode.params.rotation = entry.transform.rotation
+            if (entry.transform.scale) rootNode.params.scale = entry.transform.scale
+            continue // merged 已就地改，onCodeVersionReady(files, summary, merged) 落盘 + reload handler 读新 params
+          }
+        }
         // 兜底 part-N __id（组件型 Group 内部子 mesh，如 Wall/GLB）：SUB_OVERRIDES+applyOverride 对黑盒
         // Group 走不通（key 错位 + Group 无 material + part __id 由 manager 在 create 后盖、applyOverride 在
         // create 内调时序错位）→ 材质改色走 edit_code 改 handler 的 color 字面量（重建时组件用新色，确定性持久）。

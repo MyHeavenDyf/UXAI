@@ -37,7 +37,7 @@ import {
   handlerFilePathForType,
   ensureApplyOverride,
 } from "../utils/patch-handler"
-import { extractPatchCandidates } from "./patch-resolver"
+import { extractPatchCandidates, searchHandlerForSynonymCid } from "./patch-resolver"
 import type { CodeFile } from "../utils/parse-code-files"
 
 /** transform 字段（rotation 存弧度，Three 原生，applyOverride / live-data params 直接用） */
@@ -98,6 +98,26 @@ export interface EditCodeOp {
   edits: { search: string; replace: string }[]
 }
 
+/** 场景级 op（M-3 ①）：改 live-data 顶层保留键 lights/camera/scene，运行时 mutate 不重建物体树。
+ *  不经 handler 源码、不抽 patch 候选、不校验候选（直读 live-data 保留键，区别于部件级五 op）。 */
+export interface SetLightOp {
+  op: "set_light"
+  /** lights 数组索引（0=第一盏灯；lights 无 id 字段，按顺序定位） */
+  index: number
+  /** 要改的字段：intensity/color/skyColor/groundColor/position/target/castShadow 等 */
+  fields: Record<string, unknown>
+}
+export interface SetCameraOp {
+  op: "set_camera"
+  /** 要改的字段：position/lookAt/perspective.fov/type（type 变 perspective↔orthographic 才重建） */
+  fields: Record<string, unknown>
+}
+export interface SetSceneOp {
+  op: "set_scene"
+  /** 要改的字段：background/fog/environment.intensity（直接 mutate scene 属性，不重建物体树） */
+  fields: Record<string, unknown>
+}
+
 // Phase D 余：remove_type
 export type PatchOp =
   | SetInstanceOp
@@ -105,6 +125,9 @@ export type PatchOp =
   | SkipInstanceOp
   | AddInstanceOp
   | EditCodeOp
+  | SetLightOp
+  | SetCameraOp
+  | SetSceneOp
 
 export interface PatchSceneInput {
   /** 场景历史目录（sceneHistoryDir()） */
@@ -117,6 +140,13 @@ export interface PatchSceneInput {
   summaryHint?: string
   /** 轻量物化回调（index.tsx materializePatch：archive+overlay，不调 switchVersion） */
   onMaterialize: (
+    files: CodeFile[],
+    summary: string,
+    sceneData: Record<string, unknown> | null,
+  ) => Promise<void>
+  /** 场景级物化回调（M-3 ①，纯场景级 op 用）：落盘 live-data + post SCENE_PATCH_ENV 增量 mutate，
+   *  不 overlay handler / 不 reload / 不 dispose（区别于 onMaterialize 的 overlay+reload 重建）。 */
+  onEnvMaterialize?: (
     files: CodeFile[],
     summary: string,
     sceneData: Record<string, unknown> | null,
@@ -179,8 +209,45 @@ function applyTypeTransform(
   return true
 }
 
+/** 场景级 op 判定（M-3 ①）：set_light/set_camera/set_scene 作用 live-data 顶层保留键，
+ *  不进 handler 源码 patch、不抽候选、不校验候选（直读 live-data，区别于部件级五 op）。 */
+function isSceneLevelOp(op: PatchOp): op is SetLightOp | SetCameraOp | SetSceneOp {
+  return op.op === "set_light" || op.op === "set_camera" || op.op === "set_scene"
+}
+
+/**
+ * 把场景级 op merge 进 scene 对象的顶层保留键（lights[index]/camera/scene）。
+ * 用于 set_light/set_camera/set_scene：改 live-data 保留键 → 运行时 mutate 不重建物体树。
+ * lights 按 index 定位（数组无 id）；camera/scene 是对象直接 merge。原地 mutate。
+ * @returns true=应用成功；false=目标不存在（index 越界 / camera·scene 缺失）→ 调用方判 skipped。
+ */
+function applySceneLevel(
+  sceneObj: Record<string, unknown>,
+  op: SetLightOp | SetCameraOp | SetSceneOp,
+): boolean {
+  if (op.op === "set_light") {
+    const lights = sceneObj.lights
+    if (!Array.isArray(lights) || op.index < 0 || op.index >= lights.length) return false
+    const light = lights[op.index]
+    if (!light || typeof light !== "object") return false
+    Object.assign(light as Record<string, unknown>, op.fields)
+    return true
+  }
+  if (op.op === "set_camera") {
+    const camera = sceneObj.camera
+    if (!camera || typeof camera !== "object") return false
+    Object.assign(camera as Record<string, unknown>, op.fields)
+    return true
+  }
+  // set_scene
+  const scene = sceneObj.scene
+  if (!scene || typeof scene !== "object") return false
+  Object.assign(scene as Record<string, unknown>, op.fields)
+  return true
+}
+
 export async function patchScene(input: PatchSceneInput): Promise<PatchSceneResult> {
-  const { sceneDir, sid, patchOps, onMaterialize, summaryHint } = input
+  const { sceneDir, sid, patchOps, onMaterialize, onEnvMaterialize, summaryHint } = input
   const skipped: { __id: string; reason: string }[] = []
 
   if (patchOps.length === 0) {
@@ -220,6 +287,7 @@ export async function patchScene(input: PatchSceneInput): Promise<PatchSceneResu
     material?: Record<string, unknown>
   }[] = []
   const editCodeOps: { type: string; edits: { search: string; replace: string }[] }[] = []
+  const sceneLevelOps: (SetLightOp | SetCameraOp | SetSceneOp)[] = []
   for (const op of patchOps) {
     if (op.op === "set_instance") {
       if (!op.material && !op.transform) {
@@ -227,8 +295,16 @@ export async function patchScene(input: PatchSceneInput): Promise<PatchSceneResu
         continue
       }
       if (!candIds.has(op.__id)) {
-        skipped.push({ __id: op.__id, reason: `__id 不在候选清单（命名漂移 / 循环 cid / 非语义 cid），需 fallback modify` })
-        continue
+        // 方案 C 兜底：triage 按用户词臆造的 __id（如「集装箱」→container-0）不在候选清单，
+        // 扫 handler 源码找同义词 cid（container→box）映射到真实候选；找到则修正 __id 继续应用，否则 skip 降级 modify
+        const syn = searchHandlerForSynonymCid(op.__id, candidates, files)
+        if (!syn) {
+          skipped.push({ __id: op.__id, reason: `__id 不在候选清单（命名漂移 / 循环 cid / 非语义 cid），需 fallback modify` })
+          continue
+        }
+        op.__id = syn.__id
+        candIds.add(syn.__id)
+        candById.set(syn.__id, syn)
       }
       if (!resolveTypeId(merged, op.__id)) {
         skipped.push({ __id: op.__id, reason: "无法反推所属 type" })
@@ -256,8 +332,15 @@ export async function patchScene(input: PatchSceneInput): Promise<PatchSceneResu
     } else if (op.op === "skip_instance") {
       // 删子实例：__id 须在候选清单（同 set_instance；循环 cid 不在清单 = 删不了，走 modify）+ 能反推 type
       if (!candIds.has(op.__id)) {
-        skipped.push({ __id: op.__id, reason: `__id 不在候选清单（命名漂移 / 循环 cid / 非语义 cid），需 fallback modify` })
-        continue
+        // 方案 C 兜底：同 set_instance，扫 handler 源码找同义词 cid 映射到真实候选
+        const syn = searchHandlerForSynonymCid(op.__id, candidates, files)
+        if (!syn) {
+          skipped.push({ __id: op.__id, reason: `__id 不在候选清单（命名漂移 / 循环 cid / 非语义 cid），需 fallback modify` })
+          continue
+        }
+        op.__id = syn.__id
+        candIds.add(syn.__id)
+        candById.set(syn.__id, syn)
       }
       const type = resolveTypeId(merged, op.__id)
       if (!type) {
@@ -302,8 +385,34 @@ export async function patchScene(input: PatchSceneInput): Promise<PatchSceneResu
         continue
       }
       editCodeOps.push({ type: op.type, edits: op.edits })
+    } else if (isSceneLevelOp(op)) {
+      // 场景级 op（M-3 ①）：set_light/set_camera/set_scene 直读 live-data 保留键，
+      // 不抽候选、不校验候选、不碰 handler 源码。校验 = 目标存在（index 不越界 / camera·scene 键在）+ fields 非空。
+      if (op.op === "set_light") {
+        const lightArr = merged.lights
+        if (!Array.isArray(lightArr) || op.index < 0 || op.index >= lightArr.length) {
+          skipped.push({ __id: `light-${op.index}`, reason: `lights 索引 ${op.index} 越界（当前 ${Array.isArray(lightArr) ? lightArr.length : 0} 盏）` })
+          continue
+        }
+      } else if (op.op === "set_camera") {
+        if (!merged.camera || typeof merged.camera !== "object") {
+          skipped.push({ __id: "camera", reason: "live-data 无 camera 保留键" })
+          continue
+        }
+      } else {
+        // set_scene
+        if (!merged.scene || typeof merged.scene !== "object") {
+          skipped.push({ __id: "scene", reason: "live-data 无 scene 保留键" })
+          continue
+        }
+      }
+      if (!op.fields || typeof op.fields !== "object") {
+        skipped.push({ __id: op.op, reason: `${op.op} 须含 fields（至少 1 个要改的字段）` })
+        continue
+      }
+      sceneLevelOps.push(op)
     } else {
-      // op 在此为 never（PatchOp 五分支已穷尽）；防御性兜底：若联合扩展未接线则落地坏 op 便于排查
+      // op 在此为 never（PatchOp 八分支已穷尽）；防御性兜底：若联合扩展未接线则落地坏 op 便于排查
       skipped.push({ __id: "", reason: `未知 op 类型：${JSON.stringify(op)}` })
     }
   }
@@ -318,19 +427,20 @@ export async function patchScene(input: PatchSceneInput): Promise<PatchSceneResu
     }
   }
 
-  // 4. 应用 set_type_transform → 改 live-data 节点 params（整物 transform，不改 handler 代码）
-  //    hasTypeOps 时 deepClone merged（防 mutate 原引用）+ 解析 live-data.json 文件，
-  //    把 transform 同步进 clone（供 SCENE_UPDATE 下发）与 live-data（供 vite reload 重读）。
+  // 4. 应用 set_type_transform + 场景级 op → 改 live-data（节点 params / 顶层保留键，不改 handler 代码）
+  //    hasTypeOps || hasSceneLevel 时 deepClone merged（防 mutate 原引用）+ 解析 live-data.json，
+  //    把改动同步进 clone（供 SCENE_UPDATE/SCENE_PATCH_ENV 下发）与 live-data（供 vite reload 重读 / 落盘）。
   const hasTypeOps = typeOps.length > 0
-  const mergedClone: Record<string, unknown> = hasTypeOps
+  const hasSceneLevel = sceneLevelOps.length > 0
+  const mergedClone: Record<string, unknown> = hasTypeOps || hasSceneLevel
     ? JSON.parse(JSON.stringify(merged))
     : merged
   let liveDataFile: CodeFile | undefined
   let liveData: Record<string, unknown> | null = null
-  if (hasTypeOps) {
+  if (hasTypeOps || hasSceneLevel) {
     liveDataFile = files.find((f) => f.path.replace(/\\/g, "/").endsWith("live-data.json"))
     if (!liveDataFile) {
-      return { ok: false, appliedCount: 0, skipped, fallbackTypes: [], error: "set_type_transform 需改 live-data.json，但 codeDir 未找到该文件" }
+      return { ok: false, appliedCount: 0, skipped, fallbackTypes: [], error: "set_type_transform/场景级 patch 需改 live-data.json，但 codeDir 未找到该文件" }
     }
     let parsed: unknown
     try {
@@ -339,12 +449,16 @@ export async function patchScene(input: PatchSceneInput): Promise<PatchSceneResu
       return { ok: false, appliedCount: 0, skipped, fallbackTypes: [], error: `live-data.json 解析失败：${e instanceof Error ? e.message : String(e)}` }
     }
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { ok: false, appliedCount: 0, skipped, fallbackTypes: [], error: "live-data.json 非 JSON 对象（无法应用 set_type_transform）" }
+      return { ok: false, appliedCount: 0, skipped, fallbackTypes: [], error: "live-data.json 非 JSON 对象（无法应用 patch）" }
     }
     liveData = parsed as Record<string, unknown>
     for (const op of typeOps) {
       applyTypeTransform(mergedClone, op.type, op.nodeId, op.transform)
       applyTypeTransform(liveData, op.type, op.nodeId, op.transform)
+    }
+    for (const op of sceneLevelOps) {
+      applySceneLevel(mergedClone, op)
+      applySceneLevel(liveData, op)
     }
   }
 
@@ -498,13 +612,22 @@ export async function patchScene(input: PatchSceneInput): Promise<PatchSceneResu
     }
   }
 
-  // 6. 落盘 live-data 改动（set_type_transform）+ 重组全量 codeFiles → 轻量物化
+  // 6. 落盘 live-data 改动（场景级 / set_type_transform）+ 物化
   //    summary 优先用用户原话（summaryHint），让版本历史可辨（非「patch N 项」）；缺省回退通用
   if (liveDataFile && liveData) liveDataFile.content = JSON.stringify(liveData, null, 2)
   const appliedCount = patchOps.length - skipped.length
   const summary = summaryHint && summaryHint.trim() ? summaryHint.trim().slice(0, 60) : `patch ${appliedCount} 项`
-  // sceneData：set_type_transform 改了 live-data → 用 mergedClone（含新 transform）；否则用原 merged
-  await onMaterialize(files, summary, mergedClone)
+  // 纯场景级（无部件级 op）→ onEnvMaterialize：落盘 live-data + post SCENE_PATCH_ENV 增量 mutate，
+  //   不 overlay handler / 不 reload / 不 dispose（M-3 ① 核心：灯调亮不闪不丢编辑态）。
+  //   混合 / 纯部件级 → onMaterialize：overlay handler + reload 重建，场景级改动随 live-data 重读自然生效。
+  const hasComponentOps =
+    instanceOps.length > 0 || hasTypeOps || skipOps.length > 0 || addOps.length > 0 || editCodeOps.length > 0
+  if (hasSceneLevel && !hasComponentOps && onEnvMaterialize) {
+    await onEnvMaterialize(files, summary, mergedClone)
+  } else {
+    // sceneData：改了 live-data → 用 mergedClone（含新值）；否则用原 merged
+    await onMaterialize(files, summary, mergedClone)
+  }
 
   return { ok: true, appliedCount, skipped, fallbackTypes: [] }
 }

@@ -533,7 +533,7 @@ export const isFallbackPartId = (__id: string): boolean => /-part-\d+$/.test(__i
  * 走不通（key 错位 + Group 无 material + part __id 时序在后），改 color 字面量 = 重建时组件用新色，确定性持久。
  *
  * 取源码首个 `color:\s*0x[hex]` 串（verbatim，含原空格）作 search、同串仅换 hex 作 replace（保空格格式），
- * 调 applySearchReplace 唯一匹配校验。多 material 同色（count>1）或无 color 字面量 → failed（调用方跳过/降级）。
+ * 调 applySearchReplace 唯一匹配校验。**多部件异色（杆/罩/泡…，distinct>1）→ skip 防改错部件+全变**；单色但同色多份（count>1）或无 color 字面量 → failed（调用方跳过/降级）。
  *
  * 局限：仅改 color 字面量；roughness/metalness 等非 color 材质字段对组件型 Group 暂不落盘（SUB_OVERRIDES 对
  * Group no-op，edit_code 改多字段字面量脆弱，后续按需扩展）。单 material handler（墙/地板/天花板）可靠。
@@ -542,12 +542,28 @@ export const patchHandlerMaterialColor = (
   source: string,
   newColorHex: string,
 ): { source: string; failed?: { reason: string } } => {
-  const re = /color:\s*0x[0-9a-fA-F]+/i
-  const m = re.exec(source)
-  if (!m) {
+  // 收集全部 `color: 0xHEX` 字面量（gi 全量）。多部件异色 handler（杆/罩/泡各一色）取首匹配会改错部件+全变，
+  // 故先数不同色值：>1 种 → 无法定位具体子部件 → skip（防静默改错部件+全变），须组件 Group 内子 mesh 盖语义
+  // __id + applyOverride 走 SUB_OVERRIDES 单实例改色（P0.1-5 B 路线 codegen prompt 补规则保障）。
+  const matches = source.match(/color:\s*0x[0-9a-fA-F]+/gi)
+  if (!matches || matches.length === 0) {
     return { source, failed: { reason: "edit_code 改色：handler 源码未找到 `color: 0x` 材质字面量（该 type 可能非材质驱动或字面量格式异常）" } }
   }
-  const search = m[0]
+  const distinct = new Set<string>()
+  for (const s of matches) {
+    const h = /0x[0-9a-fA-F]+/i.exec(s)
+    if (h) distinct.add(h[0].toLowerCase())
+  }
+  if (distinct.size > 1) {
+    return {
+      source,
+      failed: {
+        reason: `edit_code 改色：handler 有 ${distinct.size} 种不同 color 字面量（多部件异色，如杆/罩/泡），patchHandlerMaterialColor 无法定位具体子部件（取首匹配=改错部件+全变）；须组件 Group 内子 mesh 盖语义 __id+applyOverride 走 SUB_OVERRIDES 单实例改色`,
+      },
+    }
+  }
+  // 单色（或同色多份）：取首匹配 verbatim 作 search、同串仅换 hex 作 replace（保空格），唯一性校验。
+  const search = matches[0]
   const replace = search.replace(/0x[0-9a-fA-F]+/i, newColorHex)
   const res = applySearchReplace(source, [{ search, replace }])
   if (res.failed) {

@@ -14,7 +14,7 @@ const schema = {
     patchOps: {
       type: "array",
       description:
-        "routing=patch 时输出；基于原场景的局部增删查改 ops。set_instance 改子实例材质/transform；set_type_transform 改顶层 type 整体的 transform（整物移动/旋转/缩放）。",
+        "routing=patch 时输出；基于原场景的局部增删查改 ops。set_instance 改子实例材质/transform；set_type_transform 改顶层 type 整体的 transform（整物移动/旋转/缩放）；set_light/set_camera/set_scene 场景级增量（灯/相机/背景，运行时 mutate 不重建物体树，M-3 ①）。",
       items: {
         oneOf: [
           {
@@ -156,6 +156,71 @@ const schema = {
               },
             },
             required: ["op", "type", "edits"],
+            additionalProperties: false,
+          },
+          {
+            type: "object",
+            description:
+              "场景级改灯光（M-3 ①）：按 lights 数组索引改一盏灯的字段（intensity/color/position 等），运行时 mutate 不重建物体树。用于「灯调亮/调暗/换灯色/移灯位」。index 按 lights 数组顺序（0=第一盏），取自 [当前场景 lights]。",
+            properties: {
+              op: { type: "string", enum: ["set_light"] },
+              index: { type: "integer", description: "lights 数组索引（0=第一盏灯）；按 [当前场景 lights] 顺序", minimum: 0 },
+              fields: {
+                type: "object",
+                description: "要改的灯字段：intensity(数字)/color(#rrggbb)/skyColor/groundColor/position[x,y,z]/target/castShadow(布尔)",
+                properties: {
+                  intensity: { type: "number" },
+                  color: { type: "string" },
+                  skyColor: { type: "string" },
+                  groundColor: { type: "string" },
+                  position: { type: "array", items: { type: "number" } },
+                  target: { type: "array", items: { type: "number" } },
+                  castShadow: { type: "boolean" },
+                },
+                additionalProperties: true,
+              },
+            },
+            required: ["op", "index", "fields"],
+            additionalProperties: false,
+          },
+          {
+            type: "object",
+            description:
+              "场景级改相机（M-3 ①）：改相机字段（position/lookAt/fov/type），运行时 mutate 不重建物体树（type 变 perspective↔orthographic 才重建相机）。用于「相机拉近/拉远/换视角」。fields 取自 [当前场景 camera]。",
+            properties: {
+              op: { type: "string", enum: ["set_camera"] },
+              fields: {
+                type: "object",
+                description: "要改的相机字段：position[x,y,z]/lookAt[x,y,z]/perspective.fov/type(perspective|orthographic)",
+                properties: {
+                  type: { type: "string", enum: ["perspective", "orthographic"] },
+                  position: { type: "array", items: { type: "number" } },
+                  lookAt: { type: "array", items: { type: "number" } },
+                },
+                additionalProperties: true,
+              },
+            },
+            required: ["op", "fields"],
+            additionalProperties: false,
+          },
+          {
+            type: "object",
+            description:
+              "场景级改场景环境（M-3 ①）：改背景色/雾/环境光强度，运行时 mutate scene 属性不重建物体树。用于「换背景色/调雾/环境光调亮」。",
+            properties: {
+              op: { type: "string", enum: ["set_scene"] },
+              fields: {
+                type: "object",
+                description: "要改的场景字段：background(#rrggbb)/fog{type,color,near,far}/environment{intensity}",
+                properties: {
+                  background: { type: "string" },
+                  fog: { type: "object", additionalProperties: true },
+                  environment: { type: "object", additionalProperties: true },
+                },
+                additionalProperties: true,
+              },
+            },
+            required: ["op", "fields"],
             additionalProperties: false,
           },
         ],

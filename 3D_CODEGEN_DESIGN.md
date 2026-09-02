@@ -476,10 +476,69 @@ const SUB_OVERRIDES: Record<string, { transform?: { position?: number[]; rotatio
 | M-1a ✅ | per-instance **材质** 落盘闭环：codegen 契约（SUB_OVERRIDES 骨架 + 每实例材质独立 + `__id` 语义严守 + applyOverride 查表）+ `patch-handler.ts`（JSON.parse 定位 override Map 字面量、字段级 merge 材质，零 LLM）+ `commit-edits.ts`（反查 __id→type + 重组 codeFiles → onCodeVersionReady 物化重生成）+ 编辑态 editDelta 累加器 + 提交按钮（显式触发，避免每次退出重启 dev） | opencode + UXAI | 编辑态改子实例材质 → 即时生效（C 层）→ 提交 → dev 重生成 → 切走切回/导出改动还在 |
 | M-1b ✅ | transform 落盘（override Map 加 transform 项）+ SCENE_PICK transform 快照（SelectionService snapshotTransform）；批量改公共材质字面量由 §13 Phase E `edit_code` 覆盖（改循环内 `color` 字面量=批量），原 M-1b 批量字面量项并入 edit_code | UXAI + opencode | 拖拽子实例 → 提交 → 切走切回 transform 还在 |
 | M-2 ✅ | 对话链：triage 产 patchOps + patchScene 确定性 dispatcher（§13 NL patch 路径已落地，Phase A-E：edit_code / set_instance / set_type_transform / skip_instance / add_instance）+ modify host 侧 merge 保全量（6c，D3）+ hasScene 门控 | UXAI + opencode | "墙改红"/"第3机柜红"/"加机柜"/"删天花板"不再整场景漂移；未受影响 type 原封不动 |
-| M-3 | 场景级更新引擎路径（lights/camera 运行时 mutate 盖 `__id`）+ scoped codegen（拓扑/行为/新 type 只动受影响 type） | 3d-templete + UXAI + opencode | 灯光/背景/相机增量改不重建；拓扑改只动受影响 type |
+| M-3 ①✅ | 场景级更新引擎路径（lights/camera/scene 运行时 mutate 盖 `__id`，走 onEnvMaterialize 不 reload/dispose）+ scoped codegen（②③推后，D3 merge 已兜底不丢 type） | 3d-templete + UXAI + opencode | 灯光/背景/相机增量改不重建；拓扑改只动受影响 type。延伸扩充（Renderer/Controls 数据驱动 + 灯增删/类型 + 代码结构重构）见 §13.14 |
 | M-4 | 数据驱动 handler 杠杆：codegen prompt 让数量/尺寸/结构进 params + `update()` 重读 + dataSchema；现有 handler 渐进迁移 | opencode + 3d-templete | "2层变3层"/"旗杆变高"从 B 层 scoped codegen 降到 A 层 params patch |
 
 **优先级**：M-1 止血（用户当前痛点：编辑态改动不落盘）→ M-2 对话 modify 不漂移 → M-3 场景级 + scoped codegen → M-4 数据驱动降本。M-1 可独立交付。
+
+### 14. M-3 ① 延伸：场景级数据驱动扩充 + 代码结构重构（Phase R / S / L）
+
+**背景**：M-3 ① 场景级更新引擎已落地（set_light/set_camera/set_scene 走 onEnvMaterialize 增量 mutate，不 reload/dispose）。本节拆解两项延伸：① 代码结构重构（templete 分文件 + app 级单例 Manager，清晰化）② 场景级数据驱动扩充（Renderer/OrbitControls 入 live-data + 灯增删/类型补全）。说「继续 Phase R/S/L 第 N 步」恢复。
+
+**关键澄清——「固定 lighthandler」≠「灯走代码生成」**：
+- **固定 LightManager**（templete 预置一个文件、读 live-data `lights[]` 建灯/mutate、LLM **不生成它**）= **数据驱动的引擎层封装**，✅ 推荐。灯本质是标量参数（intensity/color/position），无创建逻辑，固定封装 + 数据驱动即时 mutate 是甜区；与 rack.ts 等 handler 统一"Manager"概念，但数据来自 live-data 保留键。
+- **灯走 codegen**（LLM 每次生成灯 handler 代码）= ❌ 不推荐。改亮度要走 edit_code→onMaterialize→vite reload→Embed dispose/recreate，引入 M-3 ① 刚消灭的不确定性 + 丢编辑态；灯非物体树，塞 ComponentManager 物体体系语义错位。
+- 灯何时该 codegen：有逻辑时（舞台灯光编程 / 动画序列 / 条件联动开关）——本项目当前无此诉求，走固定 LightManager。
+
+#### Phase R — 代码结构重构（纯结构，不改行为，风险低可独立交付）
+
+现状两个揉团：`App3D`（renderer/scene/camera/循环/resize/dispose 全揉，316 行）+ `environment.ts`（背景/雾/PMREM/灯/相机全揉）。拆成 **app 级单例 Manager** 各管一域：
+
+| Manager | 职责（从哪拆） |
+|---|---|
+| `RendererManager` | WebGLRenderer 创建 + 属性 mutate（toneMapping/exposure/outputColorSpace/shadowMap.*）+ resize 绘图缓冲 + dispose ← App3D:100-111 |
+| `SceneManager` | THREE.Scene 持有 + background/fog mutate + 子节点 clear/add/remove ← App3D:113-124 + environment 背景/雾段 |
+| `EnvironmentManager` | PMREM + environment texture/intensity/rotation ← environment.ts applyPMREM |
+| `CameraManager` | 相机持有 + setCamera + mutate position/lookAt/fov（type 变重建）+ resize aspect 重算 ← App3D:126-142 + environment buildCamera |
+| `LightManager` | lights[] 创建（type 分发 ambient/hemi/dir/point/spot/rectarea）+ 按 `__id=light-${i}` mutate + add/remove diff ← environment createLiveLight/mutateLight |
+| `ControlsManager` | OrbitControls + target/damping/limits/autoRotate mutate + 每帧 update ← createScene3D:402/413 |
+| `RenderLoop` | RAF + updateCallbacks + render + postRender + dispose ← App3D:267-290 |
+
+- `App3D` 瘦身为编排（持 7 Manager + start/stop + dispose 转发）；`updateEnvironment`(M-3①) 拆成各 `Manager.update(env.xxx)` 分发。
+- **单例边界：app 级，非全局**——一个 Scene3DHandle 持一组 Manager，`switchVersion` 整组 dispose + 重建，不跨场景共享（避免 workspace 互踩，见 [[3d-workspace-ownership]]）。
+- 重构原则：行为不变，现有场景渲染/e2e 不回归；每抽一个 Manager 跑一次现有场景验证。
+
+#### Phase S — 场景级数据驱动扩充（Renderer/OrbitControls 入 live-data，M-3① 延伸）
+
+现状 Renderer（App3D:108-111 硬编码 shadowMap.type=PCF/toneMapping=ACES）与 OrbitControls（createOrbitControls 只 6 字段默认）**零数据驱动，不在 live-data**。补：
+
+- **运行时可改 → 数据驱动**：renderer 的 `toneMapping`/`toneMappingExposure`/`outputColorSpace`/`shadowMap.{enabled,type,bias,normalBias}`/`pixelRatio`；controls 的 `target`/`enableDamping`/`dampingFactor`/`minDistance`/`maxDistance`/`minPolarAngle`/`maxPolarAngle`/`autoRotate`/`autoRotateSpeed`/`rotateSpeed`/`zoomSpeed`。这些是实例属性，运行时赋值即时生效，不重建 renderer/controls。
+- **构造期 only → 不放**（改它=重建 renderer=整场景重建，不如重生成）：`antialias`/`precision`/`logarithmicDepthBuffer`/`powerPreference`（WebGLRenderer 构造参数）。
+- **输入设备映射 → 不放**（非视觉参数，避免 live-data 噪音）：`mouseButtons`/`touches`/`keys`。
+- 落地：`TreeScene` 加 `renderer?`/`controls?` 顶层保留键（loader.ts + scene-config.ts 镜像）；`RendererManager.update`/`ControlsManager.update` 实现 mutate；patch-scene 加 `set_renderer`/`set_controls` op + schema oneOf；triage 触发词（色调映射/曝光/阴影类型/相机阻尼/自动旋转）+ 字段规则 + few-shot；`currentSceneEnv` 扩注入 renderer/controls；`materializeEnvPatch` 扩（走 onEnvMaterialize 不 reload）。
+
+#### Phase L — 灯增删 + 类型补全（M-3① 补全）
+
+现状 `LiveDataLight.type` 仅 ambient/hemisphere/directional 3 种；`set_light{index,fields}` 只改单盏，无增删 op。补：
+
+- `LiveDataLight.type` 扩 `point`/`spot`/`rectarea` + 字段（`distance`/`decay`/`penumbra`/`angle`/`width`/`height`/`shadow.radius`/`shadow.normalBias`）—— loader.ts + scene-config.ts 镜像。
+- `LightManager.createLiveLight` 加 point/spot/rectarea 分支；`mutateLight` 扩 decay/penumbra/angle 等。
+- `set_light` 补 add/remove 语义（index 越界 → push 新灯；或加 `add_light`/`remove_light` op）。引擎层 `updateEnvironment` 已支持 lights 数组 diff（新 index→add、旧 index 不在新集→remove），数据层 op 须跟上。
+- triage few-shot 加灯类型/增删触发词（「加一盏点光源」「删第二盏灯」「聚光灯角度调小」）。
+
+#### 落地阶段表
+
+| 阶段 | 任务 | 仓库 | 验证 |
+|---|---|---|---|
+| R1-R7 | 拆 7 Manager（renderer/scene/environment/camera/light/controls/renderLoop）从 App3D + environment.ts | 3d-templete | 纯重构行为不变，现有场景渲染一致 |
+| R8-R9 | App3D 瘦身编排 + createScene3D 用 Manager + updateEnvironment 拆分发 | 3d-templete | M-3① 灯/相机/背景 mutate 不回归 |
+| S1-S2 | live-data renderer/controls 保留键 + RendererManager.update + ControlsManager.update | 3d-templete + UXAI | toneMapping/exposure/target 改即时生效不 reload |
+| S3-S6 | set_renderer/set_controls op + schema + triage prompt + materializeEnvPatch | UXAI + opencode | 「色调映射换 AgX」「相机阻尼」patch 不 reload |
+| L1-L4 | light type 扩 + createLiveLight 分支 + set_light add/remove + triage few-shot | 3d-templete + UXAI + opencode | 加一盏点灯/删灯/改 spotlight angle patch |
+
+**优先级建议**：R 先（结构清晰是 S/L 的前提，纯重构风险低可独立交付）→ L（M-3① 直接补全，复用已落地引擎）→ S（新保留键工作量最大）。R/L/S 可交错，但 R8（编排改 Manager）须在 R1-R7 后。
+
+**诚实边界（不数据驱动）**：构造期 only 参数（改即重建 renderer，走重生成）；输入设备映射（默认即可）；有逻辑的灯 / 后处理 Pass（bloom/SSAO/EffectComposer）/ 自定义 ShaderMaterial / 非 OrbitControls 特殊相机控制器 → 走 codegen（§13 B 层 scoped codegen）。
 
 ### 13. NL patch 路径（对话增删查改确定性执行，M-2 落地版）
 
@@ -572,3 +631,166 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 5. **Phase D3 scoped-merge 硬化** — ✅ 已修（2026-08-29，D3）：codegen modify 物化前 host 端 `loadCurrentCode` 读全量 + step 6c 补回 LLM 漏输出的未受影响 type handler（floor/walls/ceiling.ts），不靠 LLM 输出全量防 vite import 崩（见 [[3d-gate-handler-mismatch]]）。patch 失败仍降级 regen，但降级路径不再丢 type。
 
 **硬上限（做多少阶段都到不了 100%）**：① LLM 判定层（triage 仍可能选错 op / __id / type，有 schema 校验挡臆造 + `forcePatch` 兜底再问，但语义匹配错时仍 fallback）；② 结构性操作（新主题 / 贴图 / 新物体类型）本就该 codegen 重建，不属 patch。
+
+## 十四、待办清单（P0→P5，完成一项打勾）
+
+> 机制：完成一项告知 Claude，他把 `- [ ]` 改 `- [x]`。来源 §九/§十/§13.14 + memory + 实证 `ses_faa391560ffea3`。最后更新 2026-08-31。
+
+### P0 — e2e 验证（2026-08-31 首跑 §十五，结果已标注）
+- [x] 1. M-3① 灯调亮→set_light（不闪不丢编辑态）✅
+- [x] 2. M-3① 换背景→set_scene ✅
+- [x] 3. M-3① 相机拉近→set_camera ✅
+- [x] 4. M-3① 提交落盘→切走切回在 ✅
+- [x] 5. M-3① 回归：墙变红仍 edit_code / 加货架仍 add_instance ✅（墙红 edit_code 走通）
+- [x] 6. §13 patch：删天花板/墙/一排→edit_code ✅ 功能生效（但闪 5-6 次，见 P0.1-1）
+- [x] 7. §13 patch：第3货架红→set_instance(gap①) ✅已修+e2e验证(2026-09-01) 「第一个集装箱变红」→RE_LOOP_TMPL `(\w+)` 认不出 `xi++`→box/upright/beam 候选全失配→降级 modify；修=正则+resolveCounterLoopCount+语义映射+同义词兜底，TC-B4b 走 set_instance 改 box-0 不降级（见 P0.1-3）
+- [x] 8. §13 patch：加货架→add_instance ✅
+- [x] 9. §13 patch：整体前移→set_type_transform ✅ 功能生效（但闪很多次，见 P0.1-1）
+- [ ] 10. §13 GLB改色（edit_code paint traverse）⬜ 未明确测
+- [x] 11. §13 D3 gate merge（modify 不丢 type）✅ 加小车后其他物体没丢
+- [ ] 12. §13 edit 墙色提交回退（M-1a）⚠️ 部分：roof truss-top 色生效 / lights part-43 色不生效（见 P0.1-5）
+- [ ] 13. Step 9a 门控：完整性缺 type 失败 ⬜ 未测
+- [ ] 14. Step 9a 门控：tsc 错失败 ⬜ 未测
+- [ ] 15. Step 9a 门控：console 错失败 ⬜ 未测
+- [ ] 16. Step 9a 门控：全过+重试喂回 ⬜ 未测
+
+### P1 — modify 保真修复（用户当前痛点，不依赖大重构）
+> 实证 `ses_faa391560ffea3` v7→v8「加小车」：① forklift.ts 整个被重写，丢原 `ctx.loadModel('hunyuan:叉车')` 退化成原生简陋体；② live-data 全量重生，camera position/lights intensity/background 被 LLM 顺手改（加小车不该动相机灯光）。其他 8 个 type handler 未变（D3 merge 正常）。
+- [x] G1. modify 重写 handler 保真：codegen prompt 约束——原 handler 的 `ctx.loadModel`/资源调用必须 verbatim 照抄不丢（`[CURRENT_HANDLERS]` 注入已有，补 prompt 规则 + codegen Constraint）。仓库 opencode。✅ 首跑：叉车未退化仍 hunyuan GLB
+- [x] G2. modify live-data 场景级 merge：modify 物化后 host 端把原 live-data 的 `camera`/`lights`/`scene` 保留键 merge 回 LLM 重写的 live-data（仿 D3 merge handler，merge 场景级保留键）。加小车不该动相机灯光。仓库 UXAI（`codegen-scene.ts` materializePatch）。**✅ 修法已落地（2026-09-01，e2e 待跑 TC-11/TC-C3）**：6d 步骤——modify 时 `isModify && sceneData && currentCode?.currentLiveData` 条件下，解析 `currentLiveData`（= 上一轮 `JSON.stringify(mergedSceneConfig)`）取 `camera`/`lights`/`scene` 三保留键（三键都存在才覆盖，旧版本边界跳过不崩），**完整覆盖**回 `sceneData`（SCENE_UPDATE payload）+ `live-data.json` 文件内容（overlay/版本恢复重读）两处。完整覆盖非字段级 merge——modify 语义=改物体不动 env，LLM 改的场景级值全是误改整体替换（字段级会残留误改）；合法 env 改动走 patch 路径 set_* op（M-3①）不经 codegen modify。镜像 6c handler merge 范式。校验：UXAI tsgo EXIT=0 + oxlint 0 error。前实证失败：drift 表 v9→v10 加小车 bg/env/cam/lights 全漂移（#808080→#b8c4cc、0.15→0.7、[26,18,-24]→[10,7,13]、0.12/0.1/0.15→0.55/0.4/1.1）；v10→v11 forklift transform 丢失（[5,0,0]·1.57·1.2→[0,0,0]·无·无，此为 G1/handler 重写非 G2，6d 不治 transform 只治 env 三键）。
+
+### P0.1 — 实测发现的新问题（2026-08-31 首跑 §十五，ses_fa99ddcf3ffe04dScVEH4uqakO 已取证）
+> 用户跑 §十五 矩阵版反馈；已读 session 全 16 版本 `mergedSceneConfig` drift 表 + handler 源码坐实根因。证据见本节。
+>
+> **修复优先级（推荐序，编号保持稳定因 memory 引用）**：① ~~**P0.1-4** group 根 transform 死项~~ ✅已修+e2e验证(2026-08-31) → ② ~~**P0.1-5** 多同色 mesh 改色~~ ✅已修+e2e验证(2026-08-31,A+B:host 多异色 skip+codegen prompt 补子 mesh __id,TC-12c 单灯罩变色不串不全变) → ③ ~~**P0.1-2** 切历史时序~~ ✅已修+e2e验证(2026-08-31,ipc.ts spawn 前端口预检+孤儿 vite netstat 强杀,TC-05b 多切历史立即生效无需手刷) → ④ ~~**P0.1-1** 闪烁根治 Fix B~~ ✅已修+e2e验证(2026-09-01,单一重载源:template viteWorkspace.config hotUpdate 过滤+_octo/touch 失效端点+materializePatch touch→wsNonce++ 立即单次,删 2000ms 兜底定时器,TC-06/10/14a 各只闪 1 次) → ⑤ ~~**P0.1-3** 非一等实例改色（最难，架构/prompt 层，靠 prompt 兜底）~~ ✅已修+e2e验证通过(2026-09-01,三方案:正则修 `(\w+)`→`(\w+\+*\??)` 认 xi+++resolveCounterLoopCount 嵌套for-of上界+triage 语义映射 集装箱=box+searchHandlerForSynonymCid 同义词兜底;node 实证 box=288/upright=27/beam=72 候选抽出,TC-B4b 走 set_instance 改 box-0 不降级 modify 场景级不漂移)。**P0.1 全系修完+e2e验证通过**。
+>
+> **P0.2 — stop 按钮毫无响应 + codegen 卡 22min（2026-08-31，ses_fa8ed02f9ffeT6H139u8E68zrt 22min 实证）✅ 已修+e2e验证(2026-08-31,TC-01b 生成中点停止 5s 内停)**：根因=① `halt()` 的 `session.abort` 不给在途消息写 `time.completed` → `isBusy()` 恒真 spinner 永转 + `waitForResult` 的 `MessageAbortedError` 检测被 `isComplete` 门控挡死 → `await getResultFromMessagesLoose` 永挂；② idle 超时只抓零增长不抓 runaway 巨输出（模型 leaked reasoning 违反 Constraints 1 持续吐 token 续命）。修=两层（json-parser abort 检测提前到 isComplete 前 + 模块级 `waitAborts` 注册表导出 `abortWait`，`halt()` 调之强制 reject 不依赖 provider）+ index.tsx `halt()` 调 `abortWait`。oxlint 0 new + tsgo 0。**不治 runaway（墙钟/prompt 推后，用户选「只修 abort」）**。详见 [[3d-codegen-stall-timeout]]。
+>
+> **场景级 drift 表（G2 锚点 + M-3① 验证）**——每版只列变动字段（camera/lights/scene/forklift transform）：
+>
+> | 版 | 意图 | bg | env | cam(pos) | lights(amb/hemi/dir) | forklift pos·rot·scale | 结论 |
+> |---|---|---|---|---|---|---|---|
+> | v1 | 仓库 | #c9ced2 | 0.5 | [9,3.5,-6.5] | 0.5/0.4/1.1 | [5,0,0]·1.57·1.2 | 基线 |
+> | v2 | 删天花板 | — | — | — | — | — | edit_code ✅ 场景级不变 |
+> | v3 | 灯调暗(夜晚) | #0a1220 | 0.15 | — | 0.12/0.1/0.15 | — | set_light ✅(灯+bg+env 一起变,cam/物不变) |
+> | v4 | 背景灰 | #808080 | — | — | —(留 v3) | — | set_scene ✅(留 v3 灯) |
+> | v5 | 镜头远 | — | — | [26,18,-24] | — | — | set_camera ✅(留 v3灯+v4bg) |
+> | v6 | 墙透明 | — | — | — | — | — | edit_code ✅ 场景级不变 |
+> | v7 | 加货架集装箱 | — | — | — | — | — | ✅ racks.ts 加 `rowZs=[-5,5,8]` 一排 + box 循环（cid `${node.id}-box-${xi++}` 在 racks 内部，非独立 type）—— **v7 有集装箱**（前次记「漏画」误，源码 racks.ts:72-99 有 box）|
+> | **v8** | **集装箱变红** | **#d3d8de** | **0.6** | **[14,9,15]** | **0.5/0.35/1.1** | [5,0,0]·1.57·1.2 | **❌ modify 全量重写!场景级 reset 近默认**(P0.1-3 ✅已修：根因=RE_LOOP_TMPL `(\w+)` 认不出 `xi++`→box 候选全失配→set_instance 无候选→降级 modify) |
+> | v9 | 货架前移2m | #808080 | 0.15 | [26,18,-24] | 0.12/0.1/0.15 | [5,0,0]·1.57·1.2 | set_type_transform ✅(从 v7 分支,场景级回 v5-v7) |
+> | **v10** | **加小车** | **#b8c4cc** | **0.7** | **[10,7,13]** | **0.55/0.4/1.1** | [5,0,0]·1.57·1.2 | **❌ modify!场景级全漂移**(G2)+hand_cart |
+> | **v11** | **加第二叉车** | #d8dee6 | 0.8 | [14,9,18] | 0.5/0.4/1.2 | **[0,0,0]·无·无** | **❌ modify!forklift transform 丢失**(G2变体) |
+> | v12-16 | 编辑1项×5 | — | — | — | — | [0,0,0]·无·无 | 编辑态场景级冻结(对),但 forklift transform 全程 [0,0,0]=未落盘(P0.1-4) |
+>
+> **M-3① PASS 确认**：v3/v4/v5 set_light/set_scene/set_camera 增量叠加、不 reload 不丢物体（forklift 全程 [5,0,0]·1.57·1.2）。**edit_code/add_instance/set_type_transform PASS**：v2/v6/v7/v9 场景级纹丝不动。**G1 PASS 确认**：forklift.ts 末版:123 + v8:85 均保留 `ctx.loadModel('hunyuan:…')`，未退化原生 BoxGeometry。
+
+- [x] 1. **闪烁未根治** ✅已修+e2e验证(2026-09-01,Fix B 单一重载源,TC-06/10/14a 各只闪 1 次)——删天花板闪 5-6 次 / 移动货架闪很多次 / 单叉车 transform 闪很多次才渲染。500ms→2000ms 止血不够（多文件 overlay→vite 多次 reload + 兜底叠加）。**根因三源**：① vite 自身 full-reload × N（多文件 overlay→chokidar 事件分散→每次变更都推 full-reload 与宿主 wsNonce 竞跑叠加）；② 兜底定时器 wsNonce++ 再叠一重；③ 冷路径 vite-client reconnect reload + 宿主 wsNonce++ 双重。**根治 = 宿主成为唯一重载源**（vite 8.1.0 dist 源码验证后落地，跨仓四处）：
+  - **`3d-templete/viteWorkspace.config.ts`（新文件，camelCase）**：mergeConfig 基于根 vite.config（workspace 副本中被 materialize 重写过的 alias 自动生效），双插件——`octo-suppress-hot-update`：`hotUpdate(){return []}` 掐断 vite 对文件变更的一切 HMR/full-reload 推送（源码实证：失效 moduleGraph.onFileChange 在钩子前**无条件**跑，插件置空 modules 后 hmr() 的 `!options.modules.length` guard 直接 return，不进 updateModules、不发 full-reload；`needFullReload = modules.length===0` 在 updateModules 内但 guard 先 return 到不了）+ `octo-touch-endpoint`：`POST /_octo/touch`→各环境 `moduleGraph.invalidateAll()`（宿主 overlay 后确定性失效，不赌 chokidar 事件时序——reload 早于失效会拿 etag 缓存旧 transform）。eslint 按仓库惯例 globalIgnores 排除（同 vite.config.ts）；类型由 tsconfig.node.json include 该文件把关。
+  - **ipc.ts start-workspace-dev**：spawn args 加 `--config viteWorkspace.config.ts`（existsSync 条件；旧 workspace 无该文件回退现行为，下次 materialize 自动带上自愈）。
+  - **workspace.ts**：`touchWorkspaceDev()`——fetch POST /_octo/touch（2s AbortController），失败抛错由调用方降级。
+  - **index.tsx materializePatch**：overlay→touch→**wsNonce++ 立即单次 reload**（替代原 vite 自推 reload+2000ms 兜底竞跑）；touch 失败（dev 崩/旧 workspace 无端点）→降级 switchVersion 重启 dev（不重复 appendSceneVersion）；删 patchReloadTimer（声明/2000ms 定时器块/onReady clearTimeout 三处）。onReady 保留 setEmbedReady+sceneReadyResolver。
+  - **推翻原方案**：`server.watch.ignored` 连失效一起禁→reload 拿 stale transform（P0.1-2 同类坑）；`hmr:false` 在 vite 8 仅 2 处 guard（config 兼容层+SSR runner）不影响 hotUpdate 链，语义不可靠不采。
+  - 校验：UXAI tsgo EXIT=0 + oxlint 0 error；desktop tsgo EXIT=0；3d-templete eslint 0 error + vue-tsc **0 新错误**（--force 基线对比：251 预存全为 3d-components/@types/three 双版本边界，与本次无关；基线 diff 唯一差异来自我 stash 时顺带摘掉的 M-3 未提交改动）。**已知残留**：冷路径 switchVersion 的 vite-client reconnect reload 仍可能与宿主 wsNonce++ 叠加（0-1 次额外 flash，预存、次要；e2e 验证未见明显额外 flash，接受）。见 [[3d-preview-flash-reload]]。
+- [x] 2. **切历史时序** ✅修法已落地(2026-08-31)：有时生效有时不生效，要手动刷新才生效。drift 表实证 v9 从 v7 分支（非线性接 v8）= 用户切历史后分支操作。**根因坐实（代码级，非猜想）**：`start-workspace-dev` 的 probePort 探测分不清连上的是新 vite 还是残留 listener——残留两来源：①刚 taskkill 的老 vite listening socket 滞留（killWorkspaceDev 只等 exit 事件+150ms 不验端口释放）；②孤儿 vite（主进程重启/崩溃后残留进程不在 workspaceDev 句柄里，killWorkspaceDev `if(!child) return` 够不着）。后果链：新 vite `--strictPort` 绑定失败退出 + probe 探到残留老 vite → **假 ready** → wsNonce++ 重载 iframe → 老 vite 旧 module graph 的 **stale bundle**（materialize rm+cpSync 批量写 chokidar 漏事件）→ 切历史不生效；几秒后 chokidar 补上事件，手刷就「生效」。vite auto-reload 竞跑也由此解释（老 vite 活着才有 watcher 竞争）。**修**（packages/desktop/src/main/ipc.ts，单点）：spawn 前端口预检 `waitForPortFree(port,1200)`（每 200ms probe，refused=释放）→ 仍被占则 `killPortOccupant`（netstat -ano 找 LISTENING 该端口 PID → taskkill /T /F 强杀孤儿，51857 专属端口只可能是残留 vite）→ 再等 3s；清不掉照常 spawn 由 strictPort 报错（可见失败优于静默 stale）。probePort 提为模块级共用。此后 probe 只可能探到新 vite，假 ready 窗口关闭。tsgo EXIT=0 + oxlint 0 error（9 warning 全预存）。**✅ e2e 验证通过（2026-08-31，TC-05b：重启 desktop 后多切历史版本来回切，每次立即生效无需手刷）**。
+- [x] 3. **set_instance 回归** ❌→已取证→**✅ 修法已落地+e2e验证通过（2026-09-01，三方案，TC-B4b）**。「第一个集装箱变红」整场景重写。**真实根因（2026-09-01 源码实证，第三次修正，前两次均误）**：用户说的「集装箱」= racks handler 里的货物箱 `box`（v7 racks.ts:72-99 有 box 循环，cid `${node.id}-box-${xi++}`，**v7 有集装箱非漏画**；box 从 v6 起就在 racks handler 内部，非独立 type）。但候选抽取器 `RE_LOOP_TMPL`（patch-resolver.ts:98）捕获组 2 是 `(\w+)`，`xi++` 的 `++` 不是 `\w` → **正则失配 → box 候选一个都没抽出来**（node 实证：原正则抽 0 个；失配的不只 box，upright `ui++`/beam `bi++` 全失配）→ triage 看候选清单无 box → set_instance 无候选 → 降级 modify 全量重写 → 场景级漂移。**修法（三方案，patch-resolver.ts + patch-scene.ts + scene_3d_triage.txt）**：① **正则修复**（根因）—— `RE_LOOP_TMPL` `(\w+)`→`(\w+\+*\??)` 认 `xi++` + `loopVar=m[2].replace(/\+\+$/,"")` 去后缀 + 新增 `resolveCounterLoopCount` 反推嵌套 for-of + 外部计数器上界（`let xi=0`→N 层 `for(const x of arr)`→最内层 `count=2+Math.floor(Math.random()*2)`→乘积×count 上界；node 实证 box=288/upright=27/beam=72）+ `estimateLoopBound`；② **triage 语义映射**（prompt）—— 新增「用户词→候选 suffix 语义映射」小节（集装箱/cargo/crate→box，立柱→upright，横梁→beam，第N个→-(N-1)）+ few-shot「把第一个集装箱变红」→ set_instance `__id=racks-1-box-0`；③ **同义词兜底**（防线）—— `searchHandlerForSynonymCid`（patch-resolver.ts 末尾）扫 handler 源码找同义词 cid（container→box），patch-scene.ts set_instance/skip_instance 校验 `__id` 不在候选清单时先调之映射到真实候选，找不到才 skip 降级 modify。**保守多抽候选无害**（triage 按语义只选 box-0；set_instance 写入不存在的 __id=SUB_OVERRIDES 死项 applyOverride no-op 不崩）。校验：UXAI tsgo EXIT=0 + oxlint 0 error；node 实证正则抽 3 个 + count 推断正确。**✅ e2e 验证通过（2026-09-01，TC-B4b：走 set_instance 改 box-0 不降级 modify，场景级不漂移，只第一个 box 变红）**。见 [[3d-patch-silent-noop]]。
+- [x] 4. **批量 transform 落盘不生效** ❌→已取证→✅**修法已落地（2026-08-31）**：**根因修正（非 part-N，是 group 根 cid 死项）**。forklift.ts 源码实证：`create` 返回 `group` 根，但**只在 `spawnForklift` 内对实例 cid `${node.id}-forklift-${i}` 调 `applyOverride`（:137），从不对 group 根调 `applyOverride(SUB_OVERRIDES, group, node.id)`**。末版 SUB_OVERRIDES 实证两 key：`"wh-forklift-1"`（group 根,transform [2.8,0.2,0]）= **死项**（无 applyOverride 调用点）→ 整体编辑未生效；`"wh-forklift-1-forklift-0"`（实例,[4,0,-1]）= **活项**（spawnForklift:137 命中）→ 单个编辑生效。与用户「整体不生效/单个生效」完全吻合。**修法（commit-edits.ts）**：group 根（`__id === node.id`，整体选中）transform 不再写 SUB_OVERRIDES 死项，改写 live-data `node.params`（position/rotation/scale）——同 set_type_transform 语义，handler 重读 `opts.position` 生效。merged 就地改经 `onCodeVersionReady(files, summary, merged)` 落盘 + reload。实例 transform 仍走 SUB_OVERRIDES（活项）不变，零回归。oxlint 0 error + tsgo EXIT=0。**✅ e2e 验证通过（2026-08-31，TC-D5b/TC-14b：整体编辑叉车位置提交生效，切走切回保留）**。
+- [x] 5. **lights part-N 改色改错部件+全变** ❌→已取证→**根因二修（2026-08-31）**：原记「同色重复 15 次→count>1→failed」**不实**。pendant_lights.ts 源码实证：`makeLamp()` 是**函数**，三颜色字面量各只 1 次（`0x41b6f1` 杆 :20 / `0x37474f` 罩 :28 / `0xfffbe8` 泡 :36），循环调 15 次是运行时复用非源码重复。`patchHandlerMaterialColor`（patch-handler.ts:545）取**首个** `color:0x` 匹配=杆 `0x41b6f1`，count=1→**成功**→改错部件（杆非罩）+15 根杆全变。**真根因=组内子 mesh（rod/shade/bulb）无语义 `__id`+`applyOverride`**（只灯组 Group 盖 cid+applyOverride :58/60，Group 无 material→SUB_OVERRIDES no-op；子 mesh 无 cid→picker 返回兜底 part-N→commit 无法定位具体子部件，只能取首匹配=错）。另 PointLight `new THREE.PointLight(0xffe3ae,35,30,2)` 无 `color:0x` 前缀，正则不认（part-45+ 子分支，同 GLB paint 思路改构造首参）。roof truss-top 走语义 cid+单 material→SUB_OVERRIDES 生效故 OK。**修=组内每个有独立材质的子 mesh 盖语义 `__id`（`${cid}-rod/shade/bulb`）+ applyOverride**（codegen prompt 规则 132「循环同质子物」补「组件 Group 内独立材质子 mesh 亦须盖 cid+applyOverride」）→ picker 返回语义 cid → commit SUB_OVERRIDES 单子 mesh 生效，UXAI host 零改动（同 GLB 纯 prompt 路子）。**✅ 修法已落地（2026-08-31，A+B）**：A=`patch-handler.ts` patchHandlerMaterialColor 多异色（distinct>1）时 skip 防改错部件+全变（host 护现有 handler）；B=HANDLER_CONTRACT 规则 3 + codegen Constraints 3 补「组件 Group 内独立材质子 mesh 亦须盖语义 `__id`（`${cid}-<部件>`）+ applyOverride，工厂函数接收 cid 传内部子 mesh」（prompt，新生成 picker 返回语义 cid→SUB_OVERRIDES 单子 mesh 生效，host 零改动）。oxlint 0 new warning + tsgo EXIT=0。e2e 待跑 TC-12c。
+
+### P2 — Phase R 代码结构重构（e2e 绿后，纯结构，S/L 前提，§13.14）
+- [ ] R1-R7 拆 7 个 app 级单例 Manager（renderer/scene/environment/camera/light/controls/renderLoop）
+- [ ] R8-R9 App3D 瘦身+createScene3D 编排+updateEnvironment 拆分发
+
+### P3 — Phase L 灯增删+类型补全（M-3① 补全，§13.14）
+- [ ] L1 light type 扩 point/spot/rectarea+字段
+- [ ] L2 createLiveLight 分支+mutateLight 扩
+- [ ] L3 set_light add/remove 语义
+- [ ] L4 triage few-shot
+
+### P4 — Phase S Renderer/Controls 数据驱动 + remove_type（§13.14）
+- [ ] S1-S6 renderer/controls 入 live-data+set_renderer/set_controls op
+- [ ] D1 remove_type op（§13.13 Phase D）
+
+### P5 — 推后/暂缓/待外部
+- [ ] Step8②③ 合并 triage+plan/流式
+- [ ] M-4 数据驱动 handler（数量/尺寸进 params，**根治 modify 保真 G1/G2 + 加删实例丢物体**，大工程）
+- [ ] 9b VLM 审美评审
+- [ ] 混元真实密钥验证
+- [ ] 孤儿 8-agent 清理
+
+### 贯穿
+- [ ] 三仓改动 commit（e2e 绿后，dev_cyc1）
+
+### 不数据驱动边界（设计决策，非待办）
+- 构造期 only 参数（antialias/precision）→ 重生成
+- 输入映射（mouseButtons/touches/keys）→ 默认
+- 有逻辑的灯/后处理 Pass/ShaderMaterial → codegen（§13 B 层）
+
+## 十五、e2e 测试用例（结合 ses_faa391560ffea3 历史 + memory bug 防回归）
+
+> 执行前置：三仓 dev 跑着（octoapp + 3d-templete workspace dev + opencode dev），新建 3D 会话。
+> 每个用例标「对应 §十四 P0-N」交叉引用 todo，通过后回 §十四打勾。
+> 判定原则：**功能性预期 + 历史 bug 防回归验证点** 双列；失败按 [[memory]] 记的根因对照排查。
+> **2026-08-31 取证（session ses_fa99ddcf3ffe04dScVEH4uqakO）**：读全 16 版 `mergedSceneConfig` drift 表（见 §十四 P0.1）+ 6 个 handler 源码，得出**实例寻址矩阵**——决定每个 TC 该有的精确预期与寻址路径：
+>
+> | handler | 循环 cid | 每 mesh `__id`+`applyOverride` | material 重复度 | edit_code `patchHandlerMaterialColor` | SUB_OVERRIDES(语义 cid) | 测试结论 |
+> |---|---|---|---|---|---|---|
+> | racks | ✅ upright/beam/box | ✅ | 多同色(橙×54/蓝/随机) | count>1→failed | ✅活项(单 Mesh) | 单个改色**须 SUB_OVERRIDES 语义 cid**；edit_code 全变；无「货架」级 cid 只有部件级 |
+> | walls | 1 个 perimeter | ✅(Group) | **单** 0xd2d5d9 | count=1 ✅能改 | Group 无 material→material no-op | 改色走 part-N→edit_code 应过；语义 cid material 死 |
+> | steel_roof | ✅ column/truss/purlin | ✅ | 多同色 0x5f6e80 | count>1→failed | ✅活项(单 Mesh) | truss-top 改色**走 SUB_OVERRIDES 语义 cid ✅实证**；edit_code 会 failed |
+> | pendant_lights | ✅ lamp-0..14 | ✅(lamp Group) | 多同色(杆×15/罩×15) | count>1→failed | lamp Group 无 material→no-op | part-43 改色**全失败❌实证**(P0.1-5 待修)；transform 语义 cid 活 |
+> | forklift | ✅ forklift-0/1 | ✅(GLB m) | GLB 内部子 mesh | GLB 不 traverse→failed | transform 实例活项✅/group 根死项❌P0.1-4✅已修+验证 | 单实例 transform ✅实证；整体(group 根)✅ P0.1-4 已修+e2e验证 2026-08-31；GLB 改色须 edit_code+paint |
+>
+> **矩阵读法**：`edit_code patchHandlerMaterialColor` 只认单 material handler（count=1）；多同色 handler 改色须走 `SUB_OVERRIDES` 语义 cid（picker 须返回语义 cid 非 part-N）或 edit_code 改循环字面量（全变）。Group/GLB 根无 material → 语义 cid material 也不生效（须 edit_code+paint traverse）。
+
+### TC-0 首次生成（冷启动基线）
+- **指令**：「一个带地面标线、四面墙体（大门+窗户）、钢结构屋顶、两排重型货架与货物箱、叉车和工业吊灯照明的室内仓库」（历史首版 v1）
+- **预期**：渲染完整仓库（地面/墙/屋顶/货架/货物/叉车/吊灯全在）；版本菜单有 v1
+- **防回归**：[[3d-first-create-blank-race]] 首次不空白/不只背景；[[3d-scene-not-persisted]] 切走切回在；[[3d-commit-hang-startdev]] 不卡「执行中」；[[3d-codegen-stall-timeout]] 不 stall
+
+### TC-A 场景级增量（M-3 ①，对应 P0-1~4；历史 v2/v3/v9/v10「灯调亮/背景换灰/镜头拉远拉近」）
+- **TC-A1 灯调亮→set_light** 指令「把灯调亮」→ 灯变亮、**物体不闪/不丢/不丢编辑态**（增量 mutate 非 reload）。P0-1；防 [[3d-preview-flash-reload]] 不疯狂闪
+- **TC-A2 换背景→set_scene** 指令「背景换成灰色」→ 背景灰、物体不动。P0-2
+- **TC-A3 相机拉近→set_camera** 指令「把镜头拉近」→ 视角近、物体不动、OrbitControls target 同步。P0-3
+- **TC-A4 场景级落盘** A1-A3 后切走切回 → 灯亮/背景灰/相机近都在。P0-4；防 [[3d-scene-not-persisted]]
+
+### TC-B §13 patch CRUD（对应 P0-6~9；历史 v4/v6/v7「不要天花板/墙改红/加一列货架」）
+- **TC-B1 删天花板→edit_code** 指令「不要天花板」→ 天花板消失、其他全在。P0-6；防 [[3d-patch-silent-noop]]（删单部件走 edit_code 删 group.add 行，非 skip_instance=静默 no-op）
+- **TC-B2 墙改红→edit_code** 指令「墙改为红色」→ 墙红、其他不变。P0-6；防 [[3d-modify-incomplete-objects]] 不丢其他物体
+- **TC-B3 加一列货架→add_instance** 指令「再加一列货架」→ 新增一列、原货架不丢。P0-8；防 [[3d-modify-objects-lost]] 加物不丢原有
+- **TC-B4 set_instance 单实例改色（gap① 循环 cid）** — 拆 2 子例（**寻址矩阵决定预期**）：
+  - **TC-B4a 第3根立柱红** 指令「把第3根货架立柱变红」→ 仅 `wh-racks-1-upright-2` 红、其他不变。**须走 SUB_OVERRIDES 语义 cid**（racks 多同色橙×54，edit_code patchHandlerMaterialColor 会 count>1→failed）。P0-7；验 gap① 循环 cid 抽取（RE_LOOP_TMPL 枚举 upright-0..N 进候选）。
+  - **TC-B4b 集装箱变红→✅ P0.1-3 已修+e2e验证通过（2026-09-01，TC-B4b）** 指令「把第一个集装箱变红」→ **走 set_instance 改 `racks-1-box-0` 不降级 modify**（只第一个 box 变红，场景级不漂移）。**根因（2026-09-01 第三次修正，源码实证）**：集装箱=racks handler 内部 box（cid `${node.id}-box-${xi++}`，v7 有非漏画），但 `RE_LOOP_TMPL` 正则 `(\w+)` 认不出 `xi++` → box 候选全失配（upright `ui++`/beam `bi++` 同失配）→ triage 无 box 候选 → set_instance 无候选 → 降级 modify 全量重写 + 场景级漂移。**修法**：正则 `(\w+)`→`(\w+\+*\??)` + `resolveCounterLoopCount` 嵌套 for-of 上界（box=288 候选）+ triage 语义映射（集装箱=box）+ `searchHandlerForSynonymCid` 同义词兜底。**✅ e2e 验证通过**（前两次根因「漏画集装箱」「bake 进 racks」均误，已纠正）。
+- **TC-B5 整体前移→set_type_transform** 指令「把所有货架往前移2米」→ 全前移、不丢。P0-9
+
+### TC-C modify 保真（对应 P0-11 + P1-G1/G2；历史 v8「加小车丢叉车」实证 ses_faa391560ffea3 v7→v8）
+- **TC-C1 D3 文件层不丢→P0-11** 指令「加一辆小型手推平板小车，与叉车并排」→ 地面/墙/天花板/货架/叉车**全在**（不只新增小车）；vite console 无 TS2307/404。防 [[3d-gate-handler-mismatch]]
+- **TC-C2 G1 handler 内部保真→P1-G1** 同上 → 原叉车仍 hunyuan GLB（`ctx.loadModel('hunyuan:叉车')` 调用保留），**不退化成简陋 BoxGeometry**；新小车按指令渲染。历史 v8 退化=失败
+- **TC-C3 G2 场景级不漂移→P1-G2** 同上 → camera position/lights intensity/scene background **不变**（加小车不该动相机灯光）。**2026-08-31 实证失败（未修符合预期）**：drift 表 v9→v10 加小车 bg `#808080→#b8c4cc`、env `0.15→0.7`、cam `[26,18,-24]→[10,7,13]`、lights `0.12/0.1/0.15→0.55/0.4/1.1` **全漂移**；v10→v11 加第二叉车 forklift transform 丢失（`[5,0,0]·1.57·1.2→[0,0,0]·无·无`）。**✅ G2 修法已落地（2026-09-01，6d 步骤：modify 时 host 端 merge camera/lights/scene 保留键回 sceneData + live-data.json，e2e 待跑）**。
+
+### TC-D 编辑态落盘（对应 P0-10/12；历史「提交后变回去」；**寻址矩阵决定每例预期**）
+> **关键**：编辑态改色/transform 是否落盘，取决于 picker 返回的 `__id` 是**语义 cid**（活项）还是 **part-N 兜底**（多同色→edit_code count>1→failed；Group/GLB 根→material no-op）。下拆 5 子例。
+- **TC-D1 墙色提交（part-N→edit_code，单 material）→P0-12** 进编辑态→点墙子 mesh（part-N）→改红→提交 → 墙仍红不回退。walls handler 单 material `0xd2d5d9`（count=1）→ `patchHandlerMaterialColor` 应命中。P0-12；防 [[3d-edit-submit-color-revert]]；不卡「提交中」[[3d-commit-hang-startdev]]
+- **TC-D2 roof truss-top 改色（语义 cid→SUB_OVERRIDES，活项）→P0-12** 编辑态→选 `wh-roof-1-truss-2-top`（语义 cid）→改色→提交 → 生效。**2026-08-31 实证 ✅**（steel_roof.ts SUB_OVERRIDES 落 `#4d98f5`，单 Mesh applyOverride material 命中）。多同色 0x5f6e80 走 edit_code 会 count>1→failed，故此例**必须语义 cid**。
+- **TC-D3 lights part-43 改色（part-N，改错部件+全变）→P0.1-5 待修** 编辑态→选 `wh-lights-1-part-43`（第15盏 shade，part-N）→改色→提交 → ❌ **改错部件+全变**（杆变色非罩，15 杆全变）。**根因（2026-08-31 二修）**：makeLamp() 函数体每颜色字面量各 1 次，patchHandlerMaterialColor 取首匹配=杆 0x41b6f1，count=1 成功→改错部件+全变（非 count>1 failed）。真根因=组内子 mesh 无语义 __id+applyOverride→picker part-N→commit 无法定位子部件只能取首匹配。**修=组内子 mesh 盖语义 __id（`${cid}-rod/shade/bulb`）+applyOverride**（codegen prompt 补规则）→picker 语义 cid→SUB_OVERRIDES 单子 mesh 生效，host 零改动。**✅ 修法已落地（A+B，2026-08-31）**：A patch-handler 多异色 skip（host 护现有）+ B HANDLER_CONTRACT 规则 3/codegen Constraints 3 补子 mesh __id 规则（prompt 根治新生成）；oxlint 0 new + tsgo 0；e2e 待跑。**修前作 P0.1-5 回归锚点**。
+- **TC-D4 GLB 叉车改色→P0-10** 编辑态→选叉车（hunyuan GLB，材质在内部子 mesh）→改色→提交 → 叉车变色（edit_code 加 paint traverse 函数）、布局不丢。P0-10；防 [[3d-patch-silent-noop]] GLB 改色（applyOverride 不 traverse GLB Group）
+- **TC-D5 transform 落盘（拆单实例/整体）→P0.1-4** — **2026-08-31 实证拆 2 路径**：
+  - **TC-D5a 单实例 transform ✅** 编辑态→选单台叉车 `wh-forklift-1-forklift-0`（实例 cid）→拖动→提交 → 落盘生效（spawnForklift:137 applyOverride 命中活项）。
+  - **TC-D5b 整体 transform ✅ e2e 验证通过（P0.1-4，2026-08-31）** 编辑态→选整台叉车 group 根 `wh-forklift-1`→拖动→提交 → **✅ 验证生效**（提交后叉车移到新位置，切走切回保留）。根因（已修）：forklift.ts 只在 spawnForklift 内对实例 cid 调 applyOverride，**从不对 group 根调**→SUB_OVERRIDES[group 根]死项。**修法（commit-edits.ts）**：group 根（`__id===node.id`）transform 改写 live-data `node.params`（同 set_type_transform），不走 SUB_OVERRIDES 死项；merged 经 onCodeVersionReady 落盘 + reload，handler 重读 opts.position 生效。oxlint 0 + tsgo 0。
+
+### TC-E 9a 门控（对应 P0-13~16）
+- **TC-E1 缺 type 失败→P0-13** 构造 modify 漏一个 type handler（index.ts import 缺文件）→ 门控完整性失败、不物化、失败卡片可重试
+- **TC-E2 tsc 错失败→P0-14** handler 有 TS 类型错 → tsc 检查失败、不物化
+- **TC-E3 console 错失败→P0-15** handler 运行时抛错 → runtime console 错捕获（SCENE_CONSOLE_ERROR）、失败卡片
+- **TC-E4 重试喂回→P0-16** 先失败→修正→重试 → 成功
+
+### TC-F 历史 bug 回归
+- **TC-F1 改名重复** modify 改物体名不重复。防 [[3d-modify-objects-lost]]
+- **TC-F2 删不掉** 删物体真删。防 [[3d-modify-objects-lost]]
+- **TC-F3 无论输入都重建** patch 后再 patch 走 patch 非 create（hasScene 门控同步）。防 [[3d-patch-silent-noop]]
+- **TC-F4 workspace 互踩** 双会话切版本 → 被接管横幅+一键恢复。防 [[3d-workspace-ownership]]
+- **TC-F5 不疯狂闪** modify 后右侧预览不疯狂闪。防 [[3d-preview-flash-reload]]（500ms→2000ms 止血）
+
+### TC-G 性能（可选）
+- **TC-G1 plan 加速** 机房场景 plan 静态注入 ~7s（历史 11:35→7s）。[[3d-codegen-plan]] Step8①
+- **TC-G2 不 stall** codegen 3min idle 超时兜底→失败卡片可重试。[[3d-codegen-stall-timeout]]

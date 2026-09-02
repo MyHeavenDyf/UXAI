@@ -62,6 +62,34 @@ const getBase = (): Configuration => ({
       to: "hui-templates",
       filter: ["**/*"],
     },
+    // 3D 打包资源（asar 外）：模板母版快照（含剪过的 node_modules，workspace materialize 拷贝源 +
+    // junction 目标）、3d-components src/dist（workspace vite alias + 导出工程 vendor）、bun.exe
+    // （workspace vite 运行时，resolveDevRuntime 从 resources/bin 解析）。
+    // 注意 1：staging 在 .3d-dist/（包外目录）而非 resources/ 下 —— files 含 resources/** 会把资源
+    // 双份收进 asar（250MB 级），故走独立 staging + extraResources。
+    // 注意 2：node_modules 必须走独立 entry（from 根下直接叫 node_modules 的目录会被 electron-builder
+    // createFilter 硬编码丢弃，filter.js: relative === "node_modules" → false，写什么 filter 都没用）——
+    // staging 改名 template-node-modules/ 再映射回 3d/template/node_modules。
+    {
+      from: ".3d-dist/template",
+      to: "3d/template",
+      filter: ["**/*"],
+    },
+    {
+      from: ".3d-dist/template-node-modules",
+      to: "3d/template/node_modules",
+      filter: ["**/*"],
+    },
+    {
+      from: ".3d-dist/3d-components",
+      to: "3d/3d-components",
+      filter: ["**/*"],
+    },
+    {
+      from: ".3d-dist/bin",
+      to: "bin",
+      filter: ["**/*"],
+    },
   ],
   mac: {
     category: "public.app-category.developer-tools",
@@ -82,9 +110,17 @@ const getBase = (): Configuration => ({
   },
   win: {
     icon: `resources/icons/icon.ico`,
-    signtoolOptions: {
-      sign: signWindows,
-    },
+    // 本地 signAndEditExecutable:false 关掉 rcedit+签名全链：win32 上改主 exe 图标/版本信息靠
+    // rcedit，经 app-builder Go 二进制执行，它会下载 winCodeSign 包取 rcedit.exe，该 7z 含 darwin
+    // 符号链接，在无开发者模式/管理员权限的 Windows 上 7z 解压必失败 → 本地出不了安装包（2026-09-01
+    // 实证 4 轮全败 EB_EXIT=1，与签名/证书无关，是 rcedit 工具链下载炸的）。toolsets.winCodeSign 在
+    // win32 无效（JS getRceditBundle 只在 Linux/wine 路径读，win32 走 Go 二进制不读）。关掉后主 exe
+    // 保留 Electron 默认图标，但 NSIS 安装包图标仍由 nsis.installerIcon 独立应用、不受影响，功能无损。
+    // CI 在 GH Actions runner（开发者模式已启用）上跑不踩此坑，照常默认 + signWindows 真签名。
+    // 想恢复主 exe 自定义图标：Windows 设置开「开发者模式」后即可去掉此 false。
+    ...(process.env.GITHUB_ACTIONS === "true"
+      ? { signtoolOptions: { sign: signWindows } }
+      : { signAndEditExecutable: false }),
     target: ["nsis"],
     verifyUpdateCodeSignature: false,
   },

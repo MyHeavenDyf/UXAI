@@ -37,6 +37,8 @@ export type CodegenSceneInput = SceneCreateInput & {
   onCodeReady: (files: CodeFile[], sceneData: Record<string, unknown> | null, summary: string) => Promise<void>
   /** patch 产物回调 → materializePatch（轻量物化，overlay 子集不重启 dev；patch 路径用） */
   onMaterialize: (files: CodeFile[], summary: string, sceneData: Record<string, unknown> | null) => Promise<void>
+  /** 场景级 patch 产物回调 → materializeEnvPatch（落盘 live-data + post SCENE_PATCH_ENV，不 reload 不 dispose；M-3 ① 纯场景级 op 用） */
+  onEnvMaterialize?: (files: CodeFile[], summary: string, sceneData: Record<string, unknown> | null) => Promise<void>
   /** 上一轮 9a 门控失败清单（来自 handleRetry 喂回），注入 codegen 让其照着修 */
   priorGateFindings?: GateFinding[]
 }
@@ -54,7 +56,7 @@ export interface CodegenSceneResult {
 }
 
 export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSceneResult> {
-  const { sdk, sync, modelKey, rootSession, userInput, onSessionCreated, fileParts, hasScene, sceneDir, sdkDir, onCodeReady, onMaterialize, priorGateFindings } =
+  const { sdk, sync, modelKey, rootSession, userInput, onSessionCreated, fileParts, hasScene, sceneDir, sdkDir, onCodeReady, onMaterialize, onEnvMaterialize, priorGateFindings } =
     input
 
   // 1. 取当前场景 type 清单（modify 时供 triage 判哪些 type 可改 / 继承）
@@ -68,6 +70,8 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
   //      → fallback modify 丢物体）。modify/patch-fallback 路径复用此 currentCode（不二次读 codeDir）。
   const currentCode = hasScene ? await loadCurrentCode(sceneDir, rootSession) : null
   const currentHandlers = currentCode?.currentHandlers ?? ""
+  // 1.8. 取当前场景级配置（camera/lights/scene；注入 triage 供 set_light/set_camera/set_scene 改值参照，M-3 ①）
+  const currentSceneEnv = hasScene ? await loadCurrentSceneEnv(sceneDir, rootSession) : undefined
 
   // 2. triage：判 routing + types + patchOps
   console.log("[codegen_scene] ① triage 分诊中…")
@@ -86,6 +90,7 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
     hasScene,
     patchCandidates,
     currentHandlers,
+    currentSceneEnv,
   })
   if (triage.routing === "chat") {
     return { routing: "chat", reply: triage.reply }
@@ -108,6 +113,7 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
       patchOps: triage.patchOps,
       summaryHint: userInput,
       onMaterialize,
+      onEnvMaterialize,
     })
     if (patchRes.ok) {
       return { routing: "patch", summary: patchSummary, patchOps: triage.patchOps }
@@ -133,6 +139,7 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
       hasScene,
       patchCandidates,
       currentHandlers,
+      currentSceneEnv,
       forcePatch: true,
     })
     if (reTriage.patchOps.length > 0) {
@@ -142,6 +149,7 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
         patchOps: reTriage.patchOps,
         summaryHint: userInput,
         onMaterialize,
+        onEnvMaterialize,
       })
       if (patchRes.ok) {
         return { routing: "patch", summary: patchSummary, patchOps: reTriage.patchOps }
@@ -248,8 +256,51 @@ export async function codegen_scene(input: CodegenSceneInput): Promise<CodegenSc
     }
     if (added > 0) {
       console.log(
-        `[codegen_scene] ⑥ merge 补回 ${added} 个未受影响 type handler（LLM 漏输出，host 保全量防 vite import 崩）`,
+        `[codegen_scene] ⑥c merge 补回 ${added} 个未受影响 type handler（LLM 漏输出，host 保全量防 vite import 崩）`,
       )
+    }
+  }
+
+  // 6d. modify 时 host 端 merge 场景级保留键（camera/lights/scene，G2 修复）
+  //     LLM 重写 live-data 时常顺手改 camera/lights/scene（加小车不该动相机灯光 → 场景级漂移）。
+  //     modify 语义=改物体不动场景级 env；合法 env 改动走 patch 路径 set_light/set_camera/set_scene op（M-3①），
+  //     不经 codegen modify。故 modify 物化前把上一轮 mergedSceneConfig 的三保留键完整覆盖回 LLM 输出
+  //     —— sceneData（SCENE_UPDATE payload，iframe 消费）+ live-data.json 文件（overlay/版本恢复重读）两处都改。
+  //     完整覆盖非字段级 merge：LLM 改的场景级值全是误改，整体用旧值替换（字段级 merge 会残留误改）。
+  //     镜像 6c handler merge 范式（host 端确定性 merge，不靠 LLM 自觉），同 [[3d-gate-handler-mismatch]] 思路。
+  if (isModify && sceneData && currentCode?.currentLiveData) {
+    let prevMerged: Record<string, unknown> | null = null
+    try {
+      const parsed = JSON.parse(currentCode.currentLiveData)
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        prevMerged = parsed as Record<string, unknown>
+      }
+    } catch {
+      // currentLiveData 不可解析（旧版本边界）→ 跳过 merge 不崩
+    }
+    if (prevMerged) {
+      const envKeys = ["camera", "lights", "scene"] as const
+      const allPresent = envKeys.every((k) => prevMerged![k] !== undefined)
+      if (allPresent) {
+        // 覆盖回 sceneData（SCENE_UPDATE payload）
+        for (const k of envKeys) sceneData[k] = prevMerged[k]
+        // 同步覆盖回 live-data.json 文件内容（overlay/版本恢复路径）
+        const ldFile = files.find(
+          (f) => f.path === "public/live-data.json" || f.path.replace(/\\/g, "/").endsWith("/live-data.json"),
+        )
+        if (ldFile) {
+          try {
+            const ldParsed = JSON.parse(ldFile.content) as Record<string, unknown>
+            for (const k of envKeys) ldParsed[k] = prevMerged[k]
+            ldFile.content = JSON.stringify(ldParsed, null, 2)
+          } catch {
+            // live-data.json 文件不可解析（LLM 输出异常）→ sceneData 已改，文件留 LLM 原值（reload 时 iframe 仍优先 SCENE_UPDATE）
+          }
+        }
+        console.log(
+          `[codegen_scene] ⑥d merge 场景级保留键 camera/lights/scene（modify 不该改 env，覆盖回上一轮值防漂移）`,
+        )
+      }
     }
   }
 
@@ -296,6 +347,27 @@ async function loadPatchCandidates(sceneDir: string, sid: string): Promise<Patch
   } catch (e) {
     console.warn("[codegen_scene] loadPatchCandidates 失败", e)
     return []
+  }
+}
+
+/**
+ * 取当前场景级配置（camera/lights/scene 顶层保留键，M-3 ①）。注入 triage 的 [当前场景 camera/lights/scene]，
+ * 供 set_light 的 index 按 lights 顺序、set_camera/set_scene 的 fields 参照当前值改（如「灯再亮一点」= 当前 +0.5）。
+ * 无 mergedSceneConfig / 读失败 → 返 undefined（triage 无场景级参照，改值靠目标值推断，不崩）。
+ */
+async function loadCurrentSceneEnv(
+  sceneDir: string,
+  sid: string,
+): Promise<{ camera?: unknown; lights?: unknown; scene?: unknown } | undefined> {
+  try {
+    const state = await loadCurrentSceneState(sceneDir, sid)
+    const merged = state?.mergedSceneConfig
+    if (!merged || typeof merged !== "object") return undefined
+    const m = merged as Record<string, unknown>
+    return { camera: m.camera, lights: m.lights, scene: m.scene }
+  } catch (e) {
+    console.warn("[codegen_scene] loadCurrentSceneEnv 失败", e)
+    return undefined
   }
 }
 

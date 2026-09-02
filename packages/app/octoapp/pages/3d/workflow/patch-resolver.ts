@@ -95,7 +95,9 @@ export function extractPatchCandidates(
   const RE_TMPL = /\$\{node\.id\}-([A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)`/g
   // gap① 循环 cid 模板：${node.id}-<suffix>-${<loopVar>}` —— suffix 后跟 -${loopVar} = 循环实例 cid
   // 捕获组 1 = suffix，捕获组 2 = loopVar（循环变量名，供 resolveLoopCount 反推上界）
-  const RE_LOOP_TMPL = /\$\{node\.id\}-([A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)-\$\{(\w+)\}`/g
+  // loopVar 形态：纯变量名 `i` / 后缀自增 `xi++`（++ 非 \w，须显式认 \+\+）。实测 racks.ts 全用 `${xi++}`，
+  // 原 `(\w+)` 对 xi++ 失配 → box/upright/beam 候选全抽不出（P0.1-3 根因）。
+  const RE_LOOP_TMPL = /\$\{node\.id\}-([A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)-\$\{(\w+\+*\??)\}`/g
   // gap① 前置：const 命名纯数字数组 → name + 元素数（for (i<ARR.length) 循环上界反推 count 用）
   const RE_NUM_ARR = /const\s+(\w+)\s*(?::\s*[^=]+?)?\s*=\s*\[([^\]]+)\]/g
   // 字符串字面量："nodeId-suffix" / '...' / `...`（已展开）
@@ -155,7 +157,8 @@ export function extractPatchCandidates(
       RE_LOOP_TMPL.lastIndex = 0
       while ((m = RE_LOOP_TMPL.exec(line)) !== null) {
         const suffix = m[1]
-        const loopVar = m[2]
+        // loopVar 形态可能是 `xi++`（后缀自增），去 ++ 得纯变量名供 resolveLoopCount 反推
+        const loopVar = m[2].replace(/\+\+$/, "")
         const count = resolveLoopCount(src, loopVar, arrLens)
         if (count > 0) {
           for (const n of typeNodes) {
@@ -222,7 +225,69 @@ function resolveLoopCount(
     const len = arrLens.get(mArr[1])
     return typeof len === "number" ? len : 0
   }
-  return 0
+  // (c) 外部计数器 + 嵌套 for-of：let <v>=0 在 for-of 外、<v>++ 在 cid 模板行（racks.ts 形态：
+  // let xi=0; for(of rowZs) for(of bayX) for(of levels){const count=...; for(let k=0;k<count;k++) cid=${xi++}}
+  // 现有 (a)(b) 只认 for(let i=0;i<N;i++) 单循环；此分支反推嵌套 for-of 数组长度的乘积 × 最内层 count 上界。
+  return resolveCounterLoopCount(src, loopVar, arrLens)
+}
+
+/**
+ * gap① 补充：嵌套 for-of + 外部计数器形态的循环上界反推（racks.ts 的 box/upright/beam 均此形态）。
+ *
+ * 形态：`let <counter>=0` 声明 → N 层 `for (const x of <arr>)` → 最内层 `for(let k=0;k<count;k++)` →
+ * cid 模板 `${node.id}-<suffix>-${<counter>++}`。上界 = 各 for-of 数组长度（arrLens 查）乘积 × 最内层 count 上界。
+ *
+ * 保守上界策略：Math.floor(Math.random()*M)+K 取 M+K；未知数组长度按 1（不阻断）。多抽无害——triage 按语义
+ * 只选存在的实例，set_instance 写入不存在的 __id = SUB_OVERRIDES 死项 applyOverride no-op 不崩。
+ */
+function resolveCounterLoopCount(
+  src: string,
+  loopVar: string,
+  arrLens: Map<string, number>,
+): number {
+  // 找 `let <loopVar> = 0` 声明位置
+  const declRe = new RegExp(`(?:let|var)\\s+${loopVar}\\s*=\\s*-?\\d+`)
+  const declM = declRe.exec(src)
+  if (!declM) return 0
+  // 找 `${<loopVar>++}` 在 cid 模板（反引号闭合）
+  const incrRe = new RegExp(`\\$\\{node\\.id\\}-[A-Za-z0-9-]+-\\$\\{${loopVar}\\+\\+\}`)
+  const incrM = incrRe.exec(src.slice(declM.index))
+  if (!incrM) return 0
+  const region = src.slice(declM.index, declM.index + incrM.index + incrM[0].length)
+  // 提取 region 内所有 for-of 数组名
+  const forOfRe = /for\s*\(\s*const\s+\w+\s+of\s+(\w+)\s*\)/g
+  let product = 1
+  let fm: RegExpExecArray | null
+  while ((fm = forOfRe.exec(region)) !== null) {
+    const len = arrLens.get(fm[1])
+    if (typeof len === "number" && len > 0) product *= len
+  }
+  if (product <= 1) return 0
+  // 最内层 count 上界
+  return product * estimateLoopBound(region)
+}
+
+/** 估算最内层 `const count = <expr>; for (let k=0; k<count; k++)` 的 count 上界。 */
+function estimateLoopBound(region: string): number {
+  const declM = /const\s+count\s*=\s*([^;]+);/.exec(region)
+  if (!declM) return 1
+  const expr = declM[1].trim()
+  // 纯数字
+  const n = Number(expr)
+  if (Number.isFinite(n) && n > 0) return n
+  // `K + Math.floor(Math.random() * M)` → 上界 K+M
+  const rm = /(\d+)\s*\+\s*Math\.floor\s*\(\s*Math\.random\s*\(\s*\)\s*\*\s*(\d+)\s*\)/.exec(expr)
+  if (rm) {
+    const max = Number(rm[1]) + Number(rm[2])
+    return Number.isFinite(max) && max > 0 ? max : 1
+  }
+  // `Math.floor(Math.random() * M) + K` → 上界 M+K
+  const rm2 = /Math\.floor\s*\(\s*Math\.random\s*\(\s*\)\s*\*\s*(\d+)\s*\)\s*\+\s*(\d+)/.exec(expr)
+  if (rm2) {
+    const max = Number(rm2[1]) + Number(rm2[2])
+    return Number.isFinite(max) && max > 0 ? max : 1
+  }
+  return 1
 }
 
 /**
@@ -239,4 +304,58 @@ const SCALAR_RE =
 
 export function looksLikeScalarChange(userInput: string): boolean {
   return SCALAR_RE.test(userInput)
+}
+
+// ── 方案 C：降级前源码搜索兜底（set_instance __id 不在候选清单时的同义词映射）──
+// 场景：triage 按用户词臆造了 __id（如「集装箱」→ container-0），但 handler 实际 cid suffix 是 box。
+// 方案 0 修好后 box 候选已在清单里，triage 应直接选 box-0；此函数只在边缘 case（非标准 cid / triage 臆造）时兜底。
+/** cid suffix → 用户同义词（box 也可能叫 container/cargo/crate）。 */
+const SUFFIX_SYNONYMS: Record<string, string[]> = {
+  box: ["container", "cargo", "crate", "case", "carton"],
+  rack: ["shelf", "stand", "unit", "frame"],
+  upright: ["post", "pillar", "column", "leg"],
+  beam: ["bar", "support", "cross"],
+}
+
+/**
+ * set_instance/skip_instance 的 __id 不在候选清单时，扫 handler 源码找同义词 cid 兜底。
+ *
+ * __id 形如 `<nodeId>-<suffix>-<index>`（如 wh-racks-1-container-0），suffix 是用户词（container）。
+ * 查 SUFFIX_SYNONYMS 反查真实 suffix（container → box）→ 先从已抽出候选里找 box-0（方案 0 修好后命中）→
+ * 找不到则扫 handler 源码确认 box 模板存在 → 返回修正后的 box-0 候选；都不行返 null（降级 modify）。
+ */
+export function searchHandlerForSynonymCid(
+  __id: string,
+  candidates: PatchCandidate[],
+  files: CodeFile[],
+): PatchCandidate | null {
+  // 拆 __id = <nodeId>-<suffix>-<index>：index 取最后一段，suffix 取倒数第二段，nodeId 取剩余前缀
+  const parts = __id.split("-")
+  if (parts.length < 3) return null
+  const idx = Number(parts[parts.length - 1])
+  if (!Number.isFinite(idx) || idx < 0) return null
+  const userInputSuffix = parts[parts.length - 2]
+  const nodeId = parts.slice(0, -2).join("-")
+  // 反查同义词：userInputSuffix（container）→ 真实 suffix（box）
+  let realSuffix: string | null = null
+  for (const [real, syns] of Object.entries(SUFFIX_SYNONYMS)) {
+    if (real === userInputSuffix || syns.includes(userInputSuffix)) {
+      realSuffix = real
+      break
+    }
+  }
+  if (!realSuffix) return null
+  // 先看候选清单里有没有已抽出的 realSuffix-index 候选（方案 0 修好后正常情况这里就命中）
+  const realId = `${nodeId}-${realSuffix}-${idx}`
+  const existing = candidates.find((c) => c.__id === realId)
+  if (existing) return existing
+  // 候选清单没有 → 扫 handler 源码确认 realSuffix 模板存在（防臆造）
+  const re = new RegExp(`\\$\\{node\\.id\\}-${realSuffix}-\\$\\{`)
+  for (const f of files) {
+    if (!f.path.endsWith(".ts")) continue
+    if (re.test(f.content)) {
+      return { __id: realId, label: `${realSuffix}-${idx}`, type: "", nodeId }
+    }
+  }
+  return null
 }

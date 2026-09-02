@@ -53,6 +53,7 @@ import { toOptions } from '../base/options'
 2. **根节点盖戳**：manager 在 create 成功后自动盖 `userData.__id`（node.id）/ `__componentType`（type）/ `__logicalRoot=true`（根=用户视角的「一个整体」，whole 粒度选中）。handler 无需手动盖根的这三个戳。
 3. **子对象盖戳**（part 粒度选中的前提，务必盖）：handler 自建的子 mesh/group 须手动盖 `userData.__id` + `userData.__componentType`，**不盖 `__logicalRoot`**（子=part）。
    - **循环生成的同质子物体**（机柜/树/灯/桌椅阵列）**每实例必盖 __id**，命名 `${node.id}-${子类型}-${索引}`（如 `compute-grid-1-rack-0`），索引 0 起。**严禁硬编码前缀**（如 `cmp-cab-`、`net-cab-`），必须 `${node.id}-` 起头——host 编辑态落盘靠 __id 反推定位 handler 代码，硬编码前缀反推不出 → 改动无法落盘。不盖 → part 粒度 picker 沿父子链找不到子 __id 回落父 group → 只能整体选、选不中单个。
+   - **组件型 Group 内独立材质子 mesh 亦须盖 __id + applyOverride**（part 粒度选中子部件的前提）：若一个子物本身是含多个独立材质子 mesh 的 Group（如吊灯 = 杆 rod + 罩 shade + 泡 bulb，各 `new THREE.MeshStandardMaterial({ color: ... })`），**每个子 mesh 须盖语义 `__id`（`${cid}-<部件名>`，如 `${cid}-shade`）+ 在 `group.add` 前调 `applyOverride(SUB_OVERRIDES, mesh, ${cid}-<部件名>)`**——否则编辑态选单个子部件改色时 picker 回落兜底 `part-N`，host commit 无法定位具体部件（取首匹配 = 改错部件 + 全变）。工厂函数（如 `makeLamp(cid)`）须接收 cid 参数传给内部子 mesh；主循环与 SUB_ADD 补创建点调用都传 cid。
    - 纯装饰辅助子对象（不可见/不可选）可不盖。示例（机柜 3×3 阵列，每实例材质独立 + override 查表）：
      ```ts
      let i = 0

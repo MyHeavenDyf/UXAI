@@ -27,6 +27,8 @@ export type PreviewPageAPI = {
   sendResetCamera?: () => void
   /** 切主题（SCENE_THEME） */
   sendTheme?: (mode: "light" | "dark") => void
+  /** 场景级增量更新（SCENE_PATCH_ENV，M-3 ①）：mutate 灯/相机/背景·雾，不 reload 不 dispose */
+  sendPatchEnv?: (env: { camera?: unknown; lights?: unknown; scene?: unknown }) => void
 }
 
 export function PreviewPage3D(props: {
@@ -146,6 +148,10 @@ export function PreviewPage3D(props: {
   function sendTheme(mode: "light" | "dark"): void {
     post({ type: "SCENE_THEME", mode })
   }
+  /** 场景级增量（M-3 ①）：post SCENE_PATCH_ENV → iframe onPatchEnv → handle.updateEnvironment 运行时 mutate（不重建物体树） */
+  function sendPatchEnv(env: { camera?: unknown; lights?: unknown; scene?: unknown }): void {
+    post({ type: "SCENE_PATCH_ENV", camera: env.camera, lights: env.lights, scene: env.scene })
+  }
 
   // 注入 api（父组件通过 props.api 调用）
   if (props.api) {
@@ -154,6 +160,7 @@ export function PreviewPage3D(props: {
     props.api.sendFlyTo = sendFlyTo
     props.api.sendResetCamera = sendResetCamera
     props.api.sendTheme = sendTheme
+    props.api.sendPatchEnv = sendPatchEnv
   }
 
   // pendingData 变化（新生成/切会话/恢复）→ 重建本地物体表 + 关弹窗

@@ -166,6 +166,7 @@ export type ElectronAPI = {
   codeToHtml: (opts: { url: string; theme?: "light" | "dark"; waitForMs?: number }) => Promise<{ html: string; resourceCount: number }>
   listDirectory: (path: string) => Promise<Array<{ path: string; type: 'file' | 'directory'; size?: number }>>
   // 3D workspace（Step 6）：物化模板副本→workspace、铺版本 code delta、启停 vite dev server、删版本 codeDir
+  get3dSrcDirs: () => Promise<{ templateDir: string; componentsDir: string } | null>
   materializeWorkspace: (templateDir: string, workspaceDir: string, componentsSrcDir: string) => Promise<{ ok: true }>
   overlayWorkspaceFiles: (workspaceDir: string, files: { path: string; content: string }[]) => Promise<{ ok: true }>
   startWorkspaceDev: (workspaceDir: string, port: number) => Promise<{ ok: true; url: string } | { ok: false; error: string }>

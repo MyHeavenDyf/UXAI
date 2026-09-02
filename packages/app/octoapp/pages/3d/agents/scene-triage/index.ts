@@ -3,7 +3,7 @@ import { runChildSession } from "../run-child-session"
 import { logAgentParsed } from "../../utils/debug-log"
 import { SCENE_TRIAGE_FORMAT } from "./schema"
 import { agentThrow } from "../../utils/error-msg"
-import type { PatchOp, TransformFields, SetInstanceOp, SetTypeTransformOp, SkipInstanceOp, AddInstanceOp, EditCodeOp } from "../../workflow/patch-scene"
+import type { PatchOp, TransformFields, SetInstanceOp, SetTypeTransformOp, SkipInstanceOp, AddInstanceOp, EditCodeOp, SetLightOp, SetCameraOp, SetSceneOp } from "../../workflow/patch-scene"
 import type { PatchCandidate } from "../../workflow/patch-resolver"
 
 const AGENT_NAME = "scene_3d_triage"
@@ -30,6 +30,9 @@ export type TriageInputContext = {
    *  verbatim 含缩进、须在源码中唯一匹配，防臆造 search 匹配不上 → fallback modify 丢物体）。
    *  本地 dev 工具，token 成本可接受；改材质标量/transform/删部件等用不到源码的 op 无须看。 */
   currentHandlers?: string
+  /** 当前场景级配置（hasScene 时 host 从 mergedSceneConfig 取 camera/lights/scene 注入；
+   *  set_light 的 index 按 lights 数组顺序、set_camera/set_scene 的 fields 参照当前值改）。无场景时不传。 */
+  currentSceneEnv?: { camera?: unknown; lights?: unknown; scene?: unknown }
   /**
    * 兜底再问模式：host 检测到 triage 把标量改动误判 modify（没吐 patchOps）且候选非空时，
    * 置 true 再问一次 —— 强制 routing=patch 并从候选清单选 __id 出 patchOps；
@@ -93,6 +96,12 @@ export default async function scene_3d_triage(ctx: TriageInputContext): Promise<
     fileParts: ctx.fileParts,
   })
   console.log("----- 3D 场景分诊Agent运行结束，耗时：", (Date.now() - startTime) / 1000, "s -----")
+  // 先透传 LLM 返回的错误（idle 超时 / APIError / 限流 / 超上下文），
+  // 否则拿空 text 跑 extractJson → 报"did not return valid JSON"掩盖真实原因。
+  if (triageRes.error) {
+    logAgentParsed(triageRes.childSessionId, { error: triageRes.error })
+    agentThrow(AGENT_NAME, triageRes.childSessionId, triageRes.error)
+  }
   const triageJson = extractJson(triageRes.text)
   if (!triageJson) {
     logAgentParsed(triageRes.childSessionId, { error: "Failed to parse JSON", raw: triageRes.text })
@@ -188,6 +197,18 @@ function parsePatchOps(v: unknown): PatchOp[] {
       if (edits.length === 0) continue
       const op: EditCodeOp = { op: "edit_code", type: r.type, edits }
       out.push(op)
+    } else if (r.op === "set_light") {
+      // 场景级改灯（M-3 ①）：index 按 lights 数组顺序，fields 含 intensity/color/position 等
+      if (typeof r.index !== "number" || !r.fields || typeof r.fields !== "object") continue
+      out.push({ op: "set_light", index: r.index, fields: r.fields as Record<string, unknown> } as SetLightOp)
+    } else if (r.op === "set_camera") {
+      // 场景级改相机（M-3 ①）：fields 含 position/lookAt/fov/type
+      if (!r.fields || typeof r.fields !== "object") continue
+      out.push({ op: "set_camera", fields: r.fields as Record<string, unknown> } as SetCameraOp)
+    } else if (r.op === "set_scene") {
+      // 场景级改环境（M-3 ①）：fields 含 background/fog/environment
+      if (!r.fields || typeof r.fields !== "object") continue
+      out.push({ op: "set_scene", fields: r.fields as Record<string, unknown> } as SetSceneOp)
     }
   }
   return out
@@ -227,6 +248,11 @@ function buildHumanMessage(ctx: TriageInputContext): string {
     lines.push(``)
     lines.push(`[当前 handler 源码]（edit_code 的 search 串须从此处照搬，verbatim 含缩进、须在源码中唯一匹配；改材质标量/transform/删部件等用不到源码的 op 无须看）:`)
     lines.push(ctx.currentHandlers)
+  }
+  if (ctx.currentSceneEnv) {
+    lines.push(``)
+    lines.push(`[当前场景 camera/lights/scene]（set_light 的 index 按 lights 数组顺序；set_camera/set_scene 的 fields 参照当前值改，如「灯再亮一点」= 当前 intensity +0.5）:`)
+    lines.push(JSON.stringify(ctx.currentSceneEnv))
   }
   return lines.join("\n")
 }

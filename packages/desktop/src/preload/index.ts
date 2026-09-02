@@ -122,6 +122,7 @@ const api: ElectronAPI = {
   codeToHtml: (opts) => ipcRenderer.invoke("capture-page", opts),
   listDirectory: (path) => ipcRenderer.invoke("list-directory", path),
   // 3D workspace（Step 6）：模板副本物化 + dev server 生命周期 + 版本 codeDir 增量铺/删
+  get3dSrcDirs: () => ipcRenderer.invoke("get-3d-src-dirs"),
   materializeWorkspace: (templateDir, workspaceDir, componentsSrcDir) =>
     ipcRenderer.invoke("materialize-workspace", { templateDir, workspaceDir, componentsSrcDir }),
   overlayWorkspaceFiles: (workspaceDir, files) =>
