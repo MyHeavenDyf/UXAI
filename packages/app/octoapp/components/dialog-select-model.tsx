@@ -1,11 +1,12 @@
 import { Popover as Kobalte } from "@kobalte/core/popover"
-import { Component, ComponentProps, createMemo, JSX, ValidComponent } from "solid-js"
+import { Component, ComponentProps, createMemo, JSX, Show, ValidComponent } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { popularProviders } from "@/hooks/use-providers"
 import { Button } from "@opencode-ai/ui/button"
 import { IconButton } from "@opencode-ai/ui/icon-button"
+import { Tag } from "@opencode-ai/ui/tag"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { List } from "@opencode-ai/ui/list"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
@@ -70,8 +71,11 @@ const ModelList: Component<{
       }}
     >
       {(i) => (
-        <div class="w-full flex items-center text-13-regular">
+        <div class="w-full flex items-center gap-2 text-13-regular">
           <span class="truncate">{i.name}</span>
+          <Show when={i.isExternal}>
+            <Tag>{language.t("model.tag.external")}</Tag>
+          </Show>
         </div>
       )}
     </List>
