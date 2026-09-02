@@ -36,6 +36,8 @@ import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { useLanguage } from "@/context/language"
 import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } from "@/components/dialog-select-model"
 import { MakeModelRiskDialog } from "@/pages/make/make-model-risk-dialog"
+import { ComplianceNotice } from "@/components/compliance-notice"
+import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { ConversationHeader } from "./components/conversation-header"
 import { InsightSidebar, initialSidebarWidth } from "./sidebar"
@@ -1958,8 +1960,10 @@ function InsightContent() {
     e.preventDefault()
     setIsDragOver(false)
     if (!isExternalFileDrag(e)) return
+    // 同步取出 File 对象引用(drop 结束后 DataTransfer 会被清空);File 对象本身仍有效。
     const files = Array.from(e.dataTransfer?.files ?? [])
-    if (files.length > 0) addAttachments(files, "drop")
+    if (files.length === 0) return
+    request(() => addAttachments(files, "drop"))
   }
 
   // 粘贴文件(与 chat 一致):截获剪贴板里的文件本体走附件上传,格式是否支持交给
@@ -2208,6 +2212,12 @@ function InsightContent() {
     return attachments().some((a) => a.status === "uploading")
   }
 
+  const { request, gate } = useUploadRiskGate()
+  function requestAttachmentUpload() {
+    if (maxAttachments()) return
+    request(() => fileInputRef.click())
+  }
+
   // ResultViewer 渲染在两处复用:常态 inline(不传 onCollapse,TabBar 无收起按钮;收起由会话 header「文件管理」按钮触发)与窄屏抽屉(收起按钮=关抽屉)。
   // 二者按宽度互斥挂载(抽屉仅在 rightCollapsed 时可开,此时 inline 的 panelInline 恒为 false)。
   const renderResultViewer = (onCollapse?: () => void) => (
@@ -2365,7 +2375,7 @@ function InsightContent() {
                         >
                           <button
                             type="button"
-                            onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                            onClick={requestAttachmentUpload}
                             disabled={maxAttachments()}
                             class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
                             aria-label="添加附件"
@@ -2419,6 +2429,9 @@ function InsightContent() {
                         />
                       </div>
                     </div>
+                    <Show when={local.model.current()?.isExternal}>
+                      <ComplianceNotice />
+                    </Show>
                   </div>
                 </div>
                 </Show>
@@ -2602,7 +2615,7 @@ function InsightContent() {
                     >
                       <button
                         type="button"
-                        onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                        onClick={requestAttachmentUpload}
                         disabled={maxAttachments()}
                         class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
                         aria-label="添加附件"
@@ -2656,6 +2669,9 @@ function InsightContent() {
                     />
                   </div>
                 </div>
+                <Show when={local.model.current()?.isExternal}>
+                  <ComplianceNotice />
+                </Show>
               </div>
             </Show>
 
@@ -2700,6 +2716,8 @@ function InsightContent() {
           </div>
         </Show>
       </div>
+
+      {gate}
     </DataProvider>
   )
 }
