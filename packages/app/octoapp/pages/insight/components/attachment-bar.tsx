@@ -10,16 +10,15 @@ export type Attachment = {
   mime: string
   size: number
   status: AttachmentStatus
-  // 非图片(SPEC-INS-015 ②④)：status=done 且成功导入 worktree 时,本地 .octo/tmps(预会话)
-  // 或 .octo/<sessionId>/uploads(发送后)绝对路径(进 [附件] 清单,插件按需上传 S3)。
-  // 降级(无 projectDir/非桌面)→ done 但无 path,不进清单。
+  // status=done 且成功导入 worktree 时的本地绝对路径:.octo/tmps(预会话)或
+  // .octo/<sessionId>/uploads(发送后)。非图片进 [附件] 清单(插件按需上传 S3);
+  // 图片发送时产 FilePart{url:file://…}(服务端读盘转 base64,2026-09 去 S3)。
+  // 非图片降级(无 projectDir/非桌面)→ done 但无 path,不进清单;图片无 path 已在导入时标 error。
   path?: string
-  // 图片(③)：status=done 时的 S3 url(发送时产出 vision FilePart{url})。
-  url?: string
-  // 图片(③)：本地 objectURL,选/粘当下即渲染缩略图,不等上传(URL.createObjectURL)。
+  // 图片:本地 objectURL(选择/粘贴当下即渲染缩略图)或 local:// URL(文件管理面板添加时)。
   previewUrl?: string
   error?: string // status=error 时有
-  // 是否可重传：仅"通过校验、真正发起过导入/上传"的失败 chip 可重传(filesById 里有原 File)。
+  // 是否可重传：仅"通过校验、真正发起过导入"的失败 chip 可重传(filesById 里有原 File)。
   // 客户端校验失败(扩展名/大小/空文件)的 chip 重试同文件必然同错,不提供重试,只能删除重选。
   retriable?: boolean
 }

@@ -59,6 +59,7 @@ import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigratio
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { proxyConfigFile, readProxyConfig, maskProxyUrl } from "./proxy-config"
+import { normalizeReleaseNotes } from "./normalize-release-notes"
 import { createMenu } from "./menu"
 import { setUploadsDir, startPreviewServer } from "./preview-server"
 import {
@@ -521,6 +522,7 @@ function setupAutoUpdater() {
 }
 
 let availableUpdateVersion: string | undefined
+let availableUpdateReleaseNotes: string | undefined
 let downloadedUpdateVersion: string | undefined
 
 async function downloadUpdate(version: string) {
@@ -535,7 +537,7 @@ async function checkUpdate(download = false) {
     logger.log("returning cached downloaded update", {
       version: downloadedUpdateVersion,
     })
-    return { updateAvailable: true, version: downloadedUpdateVersion }
+    return { updateAvailable: true, version: downloadedUpdateVersion, releaseNotes: availableUpdateReleaseNotes }
   }
   logger.log("checking for updates", {
     currentVersion: app.getVersion(),
@@ -546,10 +548,12 @@ async function checkUpdate(download = false) {
   try {
     const result = await autoUpdater.checkForUpdates()
     const updateInfo = result?.updateInfo
+    const releaseNotes = normalizeReleaseNotes(updateInfo?.releaseNotes)
     logger.log("update metadata fetched", {
       releaseVersion: updateInfo?.version ?? null,
       releaseDate: updateInfo?.releaseDate ?? null,
       releaseName: updateInfo?.releaseName ?? null,
+      releaseNotes: releaseNotes ?? null,
       files: updateInfo?.files?.map((file) => file.url) ?? [],
     })
     const version = result?.updateInfo?.version
@@ -568,10 +572,11 @@ async function checkUpdate(download = false) {
     }
     logger.log("update available", { version })
     availableUpdateVersion = version
+    availableUpdateReleaseNotes = releaseNotes
     if (download) {
       await downloadUpdate(version)
     }
-    return { updateAvailable: true, version }
+    return { updateAvailable: true, version, releaseNotes }
   } catch (error) {
     logger.error("update check failed", error)
     return { updateAvailable: false, failed: true }

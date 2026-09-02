@@ -70,6 +70,10 @@ const api: ElectronAPI = {
   // SPEC-INS-014 v2(会话隔离):把源文件拷贝进 <baseDir>/.octo/tmps/(预会话落地区,主进程 fs.copyFile);返回落地路径。
   copyFileToWorktree: (srcPath, baseDir, filename) =>
     ipcRenderer.invoke("copy-file-to-worktree", srcPath, baseDir, filename),
+  // copyFileToWorktree 的字节版:剪贴板粘贴的内存 blob(截图等)拿不到源路径,把字节直接写进
+  // 同一落点,落地/清洗/撞名规则与 copy-file-to-worktree 同一套;返回落地绝对路径。
+  writeFileToWorktree: (buffer, baseDir, filename) =>
+    ipcRenderer.invoke("write-file-to-worktree", buffer, baseDir, filename),
   // SPEC-INS-014 §4.1.2(v2 新增):发送时把 .octo/tmps/ 里的附件 rename 进 <baseDir>/.octo/<sessionId>/uploads/。
   movePendingUploadToSession: (srcPath, baseDir, sessionId) =>
     ipcRenderer.invoke("move-pending-upload-to-session", srcPath, baseDir, sessionId),

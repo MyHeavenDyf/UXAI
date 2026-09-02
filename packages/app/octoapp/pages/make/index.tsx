@@ -69,7 +69,7 @@ import { DialogPreviewUnavailable } from "./components/dialog-preview-unavailabl
 import { directoryHeader } from "@/utils/headers"
 import { AttachmentBar, type Attachment, type AttachmentStatus, type AttachmentSource } from "./components/attachment-bar"
 import { uploadFile, validateFile, formatUploadsForPrompt, isImageFile, UploadError } from "../insight/lib/upload"
-import { InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
+import { ContextOverflowNotice, InsightTurn, type OutputCard, type OutputCardType, type DeltaLogEntry } from "./components/insight-turn"
 import { type ToolCallInfo, toolFamily } from "./components/tool-call-card"
 import { MakeQuestionDock } from "./components/make-question-dock"
 import { sessionQuestionRequest, sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
@@ -83,7 +83,12 @@ import { DesignSystemPicker } from "./components/design-system-picker"
 import { TemplatePicker } from "./components/template-picker"
 import { NewSessionView } from "@/components/session"
 import { Spinner } from "@opencode-ai/ui/spinner"
-import { ProgressCircle } from "@opencode-ai/ui/progress-circle"
+import { ContextUsageCircle } from "@/components/context-usage-circle"
+import {
+  ContextUsageWarning,
+  isContextAtLimit,
+  shouldShowContextWarning,
+} from "@/components/context-usage-warning"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
@@ -91,7 +96,8 @@ import { loadDesignSystem } from "./utils/design-system-loader"
 import { loadCrafts } from "./utils/craft-loader"
 import { createSnapshotStore } from "./utils/snapshot-store"
 import { VersionPanel } from "./components/result-viewer/version-panel"
-import { ModelSelectorPopover } from "@/components/dialog-select-model"
+import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } from "@/components/dialog-select-model"
+import { MakeModelRiskDialog } from "./make-model-risk-dialog"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 import { SEND_TEXT_EVENT, type SendTextEventDetail } from "./utils/agent-events"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
@@ -215,6 +221,7 @@ function MakeContent() {
   }
 
   const dialogPop = useDialogIframe()
+  const SPEC_SELECTOR_VISIBLE = false
   const [selectedSpecDisplay, setSelectedSpecDisplay] = createSignal<string | null>(null)
   const [selectedSpecName, setSelectedSpecName] = createSignal<string | null>(null)
 
@@ -222,6 +229,7 @@ function MakeContent() {
 
   // 获取存量配置并设置状态
   function fetchAndSetConfig() {
+    if (!SPEC_SELECTOR_VISIBLE) return
     const api = getDesktopApi()
     if (!api?.getAssetsConfig) return
     api.getAssetsConfig()
@@ -1080,6 +1088,14 @@ const sessionMessagesLoaded = createMemo(() => {
     const limit = contextLimit()
     return limit ? Math.round((contextTokens() / limit) * 100) : 0
   })
+  const [ignoredContextWarningSession, setIgnoredContextWarningSession] = createSignal<string>()
+  const contextSendBlocked = createMemo(() => isContextAtLimit(contextTokens(), contextLimit(), params.id))
+
+  createEffect(() => {
+    if (contextUsage() >= 80) return
+    if (ignoredContextWarningSession() !== params.id) return
+    setIgnoredContextWarningSession(undefined)
+  })
 
   const sessionStatus = createMemo((): SessionStatus => {
     const id = params.id
@@ -1095,6 +1111,11 @@ const sessionMessagesLoaded = createMemo(() => {
   })
 
   const effectiveBusy = createMemo(() => isBusy() || childBusy())
+  const contextWarningVisible = createMemo(
+    () =>
+      !contextSendBlocked() &&
+      shouldShowContextWarning(contextUsage(), params.id, ignoredContextWarningSession(), effectiveBusy()),
+  )
   const [contextCompacting, setContextCompacting] = createSignal(false)
   const contextCompactionDisabled = createMemo(() => effectiveBusy() || contextCompacting())
 
@@ -2769,11 +2790,17 @@ const sessionMessagesLoaded = createMemo(() => {
         inputText: text.slice(0, 30)
       })
       
-      await sdk.client.session.prompt({
+      // 不 await 整个 stream:session.prompt 是 streaming API,await 在 stream 完成才 resolve。
+      // 若 await,sending 会一直 true 到模型回复结束,输入框被全程禁用。
+      // fire-and-forget + .catch:sendMessage 立即返回,handleSubmit 的 finally 把 sending 重置,
+      // 模型回复期间靠 effectiveBusy() (handleSubmit 入口处 early-return) 防重入。
+      void sdk.client.session.prompt({
         sessionID: sessionId,
         agent: sessionId === activePlanSessionId() ? "octo_make_plan" : "octo_make",
         ...(modelKey ? { model: modelKey } : {}),
         parts,
+      }).catch(err => {
+        console.error("[MakePage] prompt failed", err)
       })
       // 不在此清空附件：session.prompt 是 streaming API，await 在 stream 完成才 resolve。
       // 附件已在 sendMessage 开头（约 2223 行）快照后立即清空，此处再清会误清
@@ -2798,10 +2825,19 @@ const sessionMessagesLoaded = createMemo(() => {
       mentions = proseMirrorRef1?.getMentions?.() || []
     }
     
+    if (contextSendBlocked()) {
+      showOctoToast({
+        title: "上下文已达到上限",
+        description: "请先压缩上下文，或新建对话。",
+        variant: "error",
+      })
+      return
+    }
+
     // 注入 specSelector 的 skill
     const specName = selectedSpecName()
     const specDisplay = selectedSpecDisplay()
-    if (specName && specDisplay) {
+    if (SPEC_SELECTOR_VISIBLE && specName && specDisplay) {
       text = `@${specName} ` + text
       mentions = [{ type: 'skill', name: specName, label: specDisplay, id: specName, path: "" }, ...mentions]
     }
@@ -2906,7 +2942,7 @@ const sessionMessagesLoaded = createMemo(() => {
         await movePendingUploadsToSession(session.id)
 
       // 如果用户没有手动选择 spec，检查是否有存量配置
-      if (!selectedSpecDisplay()) {
+      if (SPEC_SELECTOR_VISIBLE && !selectedSpecDisplay()) {
         const api = getDesktopApi()
         if (api?.getAssetsConfig) {
           try {
@@ -3987,7 +4023,7 @@ if (dsId) {
       })
   }
 
-  const inputDisabled = () => sending() || effectiveBusy() || !activeModelKey() || !!questionRequest() || !!permissionRequest()
+  const inputDisabled = () => sending() || !activeModelKey() || !!questionRequest() || !!permissionRequest()
 
   return (
     <DataProvider data={sync.data} directory={sdk.directory || ""}>
@@ -4078,22 +4114,38 @@ if (dsId) {
                   </Show>
                   <Show when={!titleState.editing && params.id}>
                     <Tooltip
-                      placement="bottom"
+                      placement="top"
                       gutter={8}
+                      arrow
+                      interactive
                       contentClass="make-token-tooltip"
                       value={
-                        <div class="flex flex-col">
-                          <span>
-                            当前session已使用： {contextTokens().toLocaleString(language.intl())} /{" "}
-                            {contextLimit()?.toLocaleString(language.intl()) ?? "--"} 个token
-                          </span>
-                          <span>
-                            {contextCompacting()
-                              ? "正在压缩上下文…"
-                              : effectiveBusy()
-                                ? "对话进行中，暂不可压缩"
-                                : "点击压缩上下文"}
-                          </span>
+                        <div class="make-token-tooltip-copy">
+                          <p>
+                            当前对话 Session 上下文
+                            {contextSendBlocked()
+                              ? "已超过100%"
+                              : contextUsage() >= 80
+                                ? "已超过80%"
+                                : `已使用${contextUsage()}%`}{" "}
+                            (
+                            <span classList={{ "is-critical": contextUsage() >= 80 }}>
+                              {contextTokens().toLocaleString(language.intl())}
+                            </span>{" "}
+                            / {contextLimit()?.toLocaleString(language.intl()) ?? "--"})，
+                          </p>
+                          <p>
+                            建议点击“
+                            <button
+                              type="button"
+                              class="make-token-tooltip-action"
+                              disabled={contextCompactionDisabled()}
+                              onClick={confirmCompactContext}
+                            >
+                              上下文压缩
+                            </button>
+                            ”以继续对话。
+                          </p>
                         </div>
                       }
                     >
@@ -4105,7 +4157,6 @@ if (dsId) {
                           "cursor-not-allowed": contextCompactionDisabled(),
                         }}
                         style={{
-                          "--border-active": "var(--octo-brand)",
                           "--border-weak-base": "rgba(0,0,0,0.1)",
                           background: "transparent",
                           border: "none",
@@ -4115,7 +4166,7 @@ if (dsId) {
                         onClick={confirmCompactContext}
                         aria-label={`上下文已使用 ${contextUsage()}%，点击压缩上下文`}
                       >
-                        <ProgressCircle size={16} strokeWidth={2} percentage={contextUsage()} />
+                        <ContextUsageCircle percentage={contextUsage()} />
                       </button>
                     </Tooltip>
                   </Show>
@@ -4333,34 +4384,39 @@ onPreview={(url) => {
                         />
 <ModelSelectorPopover
                            model={local.model}
+                           riskDialog={MakeModelRiskDialog}
                            triggerAs="button"
                            triggerProps={{
-                              class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden focus-visible:outline-none",
+                              class: `${MODEL_TRIGGER_BASE_CLASS} overflow-hidden focus-visible:outline-none`,
                               "data-action": "prompt-model",
                             }}
                            onClose={(cause) => {
-                             if (cause === "select") {
-                               const m = currentModel()
-                               if (m) {
-                                 tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
-                               }
-                             }
-                           }}
+                              if (cause === "select") {
+                                const m = currentModel()
+                                if (m) {
+                                  console.log("[design] select model", m.id, m.provider.id)
+                                  tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
+                                }
+                              }
+                            }}
                          >
-                          <span class="truncate">
-                            {currentModel()?.name ?? "选择模型"}
-                          </span>
-                          <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
-                        </ModelSelectorPopover>
-                      </div>
-<IconButton
-                         data-action="prompt-submit"
-                         type="submit"
-                         icon={effectiveBusy() ? "stop" : "arrow-up"}
+                          <ModelTriggerLabel model={local.model} />
+                         </ModelSelectorPopover>
+                       </div>
+ <IconButton
+                          data-action="prompt-submit"
+                          type="submit"
+                          icon={effectiveBusy() ? "stop" : "arrow-up"}
                          class="size-8 flex-shrink-0"
                          onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
-                         disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
-                         aria-label={effectiveBusy() ? "停止生成" : undefined}
+                         disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled() || contextSendBlocked())}
+                         aria-label={
+                           effectiveBusy()
+                             ? "停止生成"
+                             : contextSendBlocked()
+                               ? "上下文已达到上限，请先压缩上下文"
+                               : undefined
+                         }
 />
                     </div>
                    </div>
@@ -4428,6 +4484,11 @@ onPreview={(url) => {
                         }}
                         skillToolCalls={skillToolCalls()}
                         skillConfig={skillConfig()}
+                        contextTokens={contextTokens()}
+                        contextLimit={contextLimit()}
+                        contextLocale={language.intl()}
+                        contextCompactionDisabled={contextCompactionDisabled()}
+                        onCompactContext={confirmCompactContext}
                       />
                     </Show>
                     <For each={userMessages().slice(1)}>
@@ -4456,6 +4517,11 @@ onPreview={(url) => {
                             }}
                             skillToolCalls={skillToolCalls()}
                             skillConfig={skillConfig()}
+                            contextTokens={contextTokens()}
+                            contextLimit={contextLimit()}
+                            contextLocale={language.intl()}
+                            contextCompactionDisabled={contextCompactionDisabled()}
+                            onCompactContext={confirmCompactContext}
                           />
                         )
                       }}
@@ -4473,6 +4539,37 @@ onPreview={(url) => {
 
               {/* 输入区 */}
               <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
+
+                  <Show when={contextSendBlocked() && contextLimit()}>
+                    {(limit) => (
+                      <div class="make-context-warning-wrap">
+                        <ContextOverflowNotice
+                          class="w-full"
+                          tokens={contextTokens()}
+                          limit={limit()}
+                          locale={language.intl()}
+                          disabled={contextCompactionDisabled()}
+                          onCompact={confirmCompactContext}
+                        />
+                      </div>
+                    )}
+                  </Show>
+
+                  <Show when={contextWarningVisible() && contextLimit()}>
+                    {(limit) => (
+                      <div class="make-context-warning-wrap">
+                        <ContextUsageWarning
+                          tokens={contextTokens()}
+                          limit={limit()}
+                          locale={language.intl()}
+                          disabled={contextCompactionDisabled()}
+                          compacting={contextCompacting()}
+                          onIgnore={() => setIgnoredContextWarningSession(params.id)}
+                          onCompact={confirmCompactContext}
+                        />
+                      </div>
+                    )}
+                  </Show>
 
                   {/* Plan entry banner - AddonMenu 进入设计策略模式时的确认弹窗 */}
                   <Show when={showPlanConfirm() && !optimisticIntentResolved()}>
@@ -4644,24 +4741,23 @@ onPreview={(url) => {
                       />
 <ModelSelectorPopover
                          model={local.model}
+                         riskDialog={MakeModelRiskDialog}
                          triggerAs="button"
                          triggerProps={{
-                           class: "flex items-center gap-1.5 min-w-0 bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group overflow-hidden",
+                           class: `${MODEL_TRIGGER_BASE_CLASS} overflow-hidden`,
                            "data-action": "prompt-model",
                          }}
                          onClose={(cause) => {
-                           if (cause === "select") {
-                             const m = currentModel()
-                             if (m) {
-                               tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
-                             }
-                           }
-                         }}
+                            if (cause === "select") {
+                              const m = currentModel()
+                              if (m) {
+                                console.log("[design] select model", m.id, m.provider.id)
+                                tracker.interaction({ module: "design", name: "select-model", extend: JSON.stringify({ modelId: m.id, provider: m.provider.id }) })
+                              }
+                            }
+                          }}
                        >
-                        <span class="truncate" style="color: rgba(0, 0, 0, 0.9)">
-                          {currentModel()?.name ?? "选择模型"}
-                        </span>
-                        <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
+                        <ModelTriggerLabel model={local.model} nameStyle="color: rgba(0, 0, 0, 0.9)" />
                       </ModelSelectorPopover>
                     </div>
 <IconButton
@@ -4671,8 +4767,14 @@ onPreview={(url) => {
                        variant="primary"
                        class="size-8 flex-shrink-0"
                        onClick={effectiveBusy() ? () => void halt() : () => void handleSubmit()}
-                       disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled())}
-                       aria-label={effectiveBusy() ? "停止生成" : undefined}
+                       disabled={!effectiveBusy() && (!prompt().trim() || inputDisabled() || contextSendBlocked())}
+                       aria-label={
+                         effectiveBusy()
+                           ? "停止生成"
+                           : contextSendBlocked()
+                             ? "上下文已达到上限，请先压缩上下文"
+                             : undefined
+                       }
                      />
                   </div>
                 </div>

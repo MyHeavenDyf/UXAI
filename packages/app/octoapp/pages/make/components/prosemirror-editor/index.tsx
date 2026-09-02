@@ -171,7 +171,6 @@ export const ProseMirrorEditor = (props: Props) => {
           "Mod-shift-z": redo,
           "Enter": (state, dispatch, view) => {
             if (props.disabled) return false
-            if (props.busy) return true
             
             // If mention popover is open, don't send message
             const mentionTrigger = mentionTriggerKey.getState(state)
@@ -460,7 +459,8 @@ export const ProseMirrorEditor = (props: Props) => {
     if (selection.type === "skill") {
       attrs = { id: selection.name, name: selection.name, type: "skill" as const, label: selection.label, path: "" }
     } else {
-      attrs = { id: selection.filename, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
+      const id = selection.path || selection.filename
+      attrs = { id, name: selection.filename, type: "file" as const, label: selection.filename, path: selection.path }
     }
 
     const node = editorSchema.nodes.mention.create(attrs)

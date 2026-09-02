@@ -8,6 +8,11 @@ const CHECK_INTERVAL = 4 * 60 * 60 * 1000
 const PROMPT_INTERVAL = 24 * 60 * 60 * 1000
 const PROMPTED_VERSION_KEY = "octo.update.prompted-version"
 const PROMPTED_AT_KEY = "octo.update.prompted-at"
+const manualChecks = new EventTarget()
+
+export function cancelStartupUpdateCheck() {
+  manualChecks.dispatchEvent(new Event("check"))
+}
 
 export function UpdateChecker() {
   const platform = usePlatform()
@@ -33,17 +38,20 @@ export function UpdateChecker() {
 
       localStorage.setItem(PROMPTED_VERSION_KEY, result.version ?? "")
       localStorage.setItem(PROMPTED_AT_KEY, String(Date.now()))
-      showUpdate(result.version ?? "")
+      showUpdate(result.version ?? "", result.releaseNotes)
     }
 
     const startup = setTimeout(() => void check(), STARTUP_DELAY)
     const interval = setInterval(() => void check(), CHECK_INTERVAL)
     const unsubscribe = platform.onResume?.(() => void check())
+    const cancelStartup = () => clearTimeout(startup)
+    manualChecks.addEventListener("check", cancelStartup)
 
     onCleanup(() => {
       clearTimeout(startup)
       clearInterval(interval)
       unsubscribe?.()
+      manualChecks.removeEventListener("check", cancelStartup)
     })
   })
 
