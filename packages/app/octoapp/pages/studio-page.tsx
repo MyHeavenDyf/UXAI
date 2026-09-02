@@ -194,7 +194,12 @@ export default function StudioPage() {
   const [canGenerateVideo, setCanGenerateVideo] = createSignal(false)
   const [canUseSeedream, setCanUseSeedream] = createSignal(false)
   const [studioPermissionReady, setStudioPermissionReady] = createSignal(false)
+  const [studioPermissionPriorityExpired, setStudioPermissionPriorityExpired] = createSignal(false)
+  const [studioDataLoadingReady, setStudioDataLoadingReady] = createSignal(false)
   let studioPermissionChecked = false
+
+  const studioPermissionPriorityTimer = window.setTimeout(() => setStudioPermissionPriorityExpired(true), 500)
+  onCleanup(() => window.clearTimeout(studioPermissionPriorityTimer))
 
   function requestStudioPermission() {
     const current = server.current
@@ -222,14 +227,20 @@ export default function StudioPage() {
         const result = JSON.parse(bodyText) as { code?: number; resp_code?: number; data?: unknown }
         const permissionData = Array.isArray(result.data) ? result.data : []
         const permissionOk = result.code === 200 || result.resp_code === 200
-        setCanGenerateVideo(permissionOk && permissionData[0] === true)
-        setCanUseSeedream(permissionOk && permissionData[1] === true)
-        setStudioPermissionReady(true)
+        window.clearTimeout(studioPermissionPriorityTimer)
+        batch(() => {
+          setCanGenerateVideo(permissionOk && permissionData[0] === true)
+          setCanUseSeedream(permissionOk && permissionData[1] === true)
+          setStudioPermissionReady(true)
+        })
       })
       .catch((error) => {
-        setCanGenerateVideo(false)
-        setCanUseSeedream(false)
-        setStudioPermissionReady(true)
+        window.clearTimeout(studioPermissionPriorityTimer)
+        batch(() => {
+          setCanGenerateVideo(false)
+          setCanUseSeedream(false)
+          setStudioPermissionReady(true)
+        })
         console.error("[StudioPage] permission check failed", error)
       })
   }
@@ -238,7 +249,16 @@ export default function StudioPage() {
   requestStudioPermission()
   createEffect(requestStudioPermission)
 
-  const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: true })
+  const [syncStore, setSyncStore] = globalSync.child(projectDir(), { bootstrap: false })
+  createEffect(() => {
+    if (studioDataLoadingReady()) return
+    if (!studioPermissionReady() && !studioPermissionPriorityExpired()) return
+    const timer = window.setTimeout(() => {
+      setStudioDataLoadingReady(true)
+      globalSync.child(projectDir(), { bootstrap: true })
+    }, 0)
+    onCleanup(() => window.clearTimeout(timer))
+  })
 
   const isValidStudioSession = (sessionId: string | undefined): boolean => {
     if (!sessionId) return false
@@ -416,7 +436,7 @@ export default function StudioPage() {
   )
   const [studioCenterWidth, setStudioCenterWidth] = createSignal(studioCenterStore.width)
   const { dataStore, loadSessionMessages, sessionStatus } = createStudioSessionData({
-    sessionID: () => params.id,
+    sessionID: () => studioDataLoadingReady() ? params.id : undefined,
     globalSDK,
   })
   const studioThumbnails = createSessionThumbnailStore({
@@ -3672,17 +3692,19 @@ export default function StudioPage() {
             </div>
           }
         >
-          <StudioHistory
-            directory={projectDir()}
-            routeSlug={routeSlug()}
-            activeSessionID={params.id}
-            onNewConversation={startNewStudioConversation}
-            toggleDrawer={showToggleDrawer() ? toggleStudioLeft : undefined}
-            thumbnails={studioThumbnails.thumbnails}
-            thumbnailsLoading={studioThumbnails.loading()}
-            thumbnailVersion={studioThumbnails.version()}
-            onLoadThumbnails={(sessions) => studioThumbnails.loadThumbnails(sessions)}
-          />
+          <Show when={studioDataLoadingReady()}>
+            <StudioHistory
+              directory={projectDir()}
+              routeSlug={routeSlug()}
+              activeSessionID={params.id}
+              onNewConversation={startNewStudioConversation}
+              toggleDrawer={showToggleDrawer() ? toggleStudioLeft : undefined}
+              thumbnails={studioThumbnails.thumbnails}
+              thumbnailsLoading={studioThumbnails.loading()}
+              thumbnailVersion={studioThumbnails.version()}
+              onLoadThumbnails={(sessions) => studioThumbnails.loadThumbnails(sessions)}
+            />
+          </Show>
         </Show>
       </aside>
       <div
@@ -4229,19 +4251,21 @@ if (!headerTitle.pendingRename) return
             overflow: "hidden",
           }}
         >
-          <StudioHistory
-            directory={projectDir()}
-            routeSlug={routeSlug()}
-            activeSessionID={params.id}
-            onNewConversation={() => {
-              setStudioLeftOverlayOpen(false)
-              startNewStudioConversation()
-            }}
-            thumbnails={studioThumbnails.thumbnails}
-            thumbnailsLoading={studioThumbnails.loading()}
-            thumbnailVersion={studioThumbnails.version()}
-            onLoadThumbnails={(sessions) => studioThumbnails.loadThumbnails(sessions)}
-          />
+          <Show when={studioDataLoadingReady()}>
+            <StudioHistory
+              directory={projectDir()}
+              routeSlug={routeSlug()}
+              activeSessionID={params.id}
+              onNewConversation={() => {
+                setStudioLeftOverlayOpen(false)
+                startNewStudioConversation()
+              }}
+              thumbnails={studioThumbnails.thumbnails}
+              thumbnailsLoading={studioThumbnails.loading()}
+              thumbnailVersion={studioThumbnails.version()}
+              onLoadThumbnails={(sessions) => studioThumbnails.loadThumbnails(sessions)}
+            />
+          </Show>
         </aside>
       </Show>
     </div>
