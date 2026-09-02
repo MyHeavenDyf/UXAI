@@ -14,18 +14,16 @@ export class SurfaceStore {
         this.setSurfSurface(id, json)
     }
 
-    addImportantToClasses(classNameStr: string) {
+addImportantToClasses(classNameStr: string) {
         if (!classNameStr) return ''
         return classNameStr
         .trim()
         .split(/\s+/)
         .map((cls: string) => {
-            if (cls.includes('!')) return cls
-            if (cls.includes(':')) {
-            const lastColonIndex = cls.lastIndexOf(':')
-            return cls.substring(0, lastColonIndex + 1) + '!' + cls.substring(lastColonIndex + 1)
-            }
-            return '!' + cls
+            if (cls.endsWith('!')) return cls
+            const normalized = cls.replace(/^!/, '').replace(/:!/, ':')
+            if (/^(group|peer)(\/|$)/.test(normalized)) return normalized
+            return normalized + '!'
         })
         .join(' ')
     }
