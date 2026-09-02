@@ -94,20 +94,23 @@ describe("assembleInsightParts", () => {
     expect(parts.filter((p) => p.type === "file").map((p) => p.filename)).toEqual(["a.md", "b.md"])
   })
 
-  test("图片 → vision file part{url:file://…}，mime 缺省 image/png；imageParts 单独返回", () => {
+  test("图片 → vision file part{url:file://…}，mime 缺省按扩展名查表；imageParts 单独返回", () => {
     const { parts, imageParts } = assembleInsightParts({
       text: "hi",
       imageFiles: [
         { filename: "c.png", path: "/p/c.png", mime: "image/png" },
         { filename: "d.jpg", path: "/p/d.jpg" },
+        { filename: "e.gif", path: "/p/e.gif" },
       ],
     })
     expect(imageParts).toEqual([
       { type: "file", mime: "image/png", url: "file:///p/c.png", filename: "c.png" },
-      { type: "file", mime: "image/png", url: "file:///p/d.jpg", filename: "d.jpg" },
+      // mime 缺省按扩展名精确兜底(jpg→jpeg),不能笼统给 image/png(否则 media_type 与字节不符)
+      { type: "file", mime: "image/jpeg", url: "file:///p/d.jpg", filename: "d.jpg" },
+      { type: "file", mime: "image/gif", url: "file:///p/e.gif", filename: "e.gif" },
     ])
     // parts 尾部即 imageParts
-    expect(parts.slice(-2)).toEqual(imageParts)
+    expect(parts.slice(-3)).toEqual(imageParts)
   })
 
   // 2026-09 去 S3:图片本地路径的编码与 txt/md 内联同款 encodeFilePath,

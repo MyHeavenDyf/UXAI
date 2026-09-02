@@ -1,6 +1,6 @@
 import type { TextPartInput, FilePartInput } from "@opencode-ai/sdk/v2/client"
 import { encodeFilePath } from "../../../context/file/path"
-import { isExtractableDocFile, isTextInlineFile } from "../lib/upload"
+import { imageMimeFor, isExtractableDocFile, isTextInlineFile } from "../lib/upload"
 
 /**
  * insight prompt parts 组装骨架（SPEC-INS-027 / SPEC-INS-032 v2）
@@ -221,9 +221,11 @@ export function assembleInsightParts(input: AssembleInsightPartsInput): Assemble
   // ③ 图片 → vision FilePart{url:file://…}（2026-09 去 S3：与非图片同链路导入 worktree 拿本地 path；
   // server 端 prompt.ts resolvePart 的 file: case 读盘转 base64 落库，历史轮用持久化的 data: URL）。
   // 非多模态由 opencode stripMedia 换占位。编码与 ① txt/md 内联同款 encodeFilePath，Windows 路径同链路验证过。
+  // mime 缺省兜底按扩展名查表(imageMimeFor):笼统给 image/png 会把 jpg/gif/webp 错标成 png,
+  // 落库 media_type 与字节不符。
   const imageParts: FilePartInput[] = (input.imageFiles ?? []).map((a) => ({
     type: "file" as const,
-    mime: a.mime || "image/png",
+    mime: a.mime || imageMimeFor(a.filename, "image/png"),
     url: `file://${encodeFilePath(a.path)}`,
     filename: a.filename,
   }))

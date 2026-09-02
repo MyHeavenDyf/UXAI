@@ -223,6 +223,22 @@ export function isImageFile(filename: string): boolean {
   return IMAGE_EXT.has(getExt(filename))
 }
 
+// 图片扩展名 → mime 映射:粘贴/部分拖拽源的 File.type 为空时,按**扩展名**兜底精确 mime,
+// 不能笼统给 image/png——jpg/gif/webp 被错标成 png 会落库 `data:image/png;base64,<jpeg 字节>`,
+// media_type 与实际字节不符,provider 侧可能解析失败或拒绝(P2 修复,2026-09)。
+export const IMAGE_MIME: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+}
+
+/** 图片文件名 → 精确 mime;非图片扩展名返回 fallback(默认 octet-stream)。 */
+export function imageMimeFor(filename: string, fallback = "application/octet-stream"): string {
+  return IMAGE_MIME[getExt(filename)] ?? fallback
+}
+
 // 可被 opencode 直接内联正文的文件(SPEC-INS-015 路由 ①)。这类走 FilePart(file://, text/plain),
 // 组 prompt 时服务端调 `read` 把正文读进上下文(2000 行 / 50KB 上限,超出附 offset 续读提示)。
 //

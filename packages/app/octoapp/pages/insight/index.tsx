@@ -58,7 +58,8 @@ import {
 } from "./store/mcp-trigger"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
 import { NewSessionView } from "@/components/session"
-import { validateFile, formatUploadsForPrompt, formatMentionedFilesForPrompt, formatDispatchNote, parseUploadedFiles, isImageFile, ALLOWED_EXT, MAX_UPLOAD_SIZE, MENTION_BLOCK_HEADER } from "./lib/upload"
+import { validateFile, formatUploadsForPrompt, formatMentionedFilesForPrompt, formatDispatchNote, parseUploadedFiles, isImageFile, imageMimeFor, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE, MENTION_BLOCK_HEADER } from "./lib/upload"
+import { importFileToWorktree } from "./utils/worktree-import"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { getDesktopApi } from "./lib/electron-api"
 import { copyLastError, recordError, setBeaconContext } from "./lib/error-beacon"
@@ -144,12 +145,17 @@ export default function InsightPage() {
 // 单轮对话最多上传文件数(超出提示分多轮处理)
 const MAX_ATTACHMENTS = 10
 
+// insight 图片专用上限(评审 P1,2026-09):图片走 base64 落库+每轮重发(膨胀 ~33%),且多数
+// provider 单图 base64 有 ~5MB 量级硬上限,超限发送必失败且消息已落库。只拦 insight 本页
+// (make 页走 S3 无此约束,共用 validateFile 会波及,故加在调用点)。
+const INSIGHT_IMAGE_MAX = 5 * 1024 * 1024
+
 // 文件选择器 accept:从 ALLOWED_EXT 派生(与 validateFile 同一事实源)。
 // 仅是原生弹窗的预过滤提示,不做强制——拖拽绕过它,校验仍以 validateFile 为准。
 const UPLOAD_ACCEPT = ALLOWED_EXT.map((e) => `.${e}`).join(",")
 
 // 添加附件按钮的 tooltip 提示:支持的文件类型 + 大小 + 数量上限(均从常量派生)。
-const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)}MB，最多 ${MAX_ATTACHMENTS} 个`
+const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)}MB（图片 ≤ ${Math.round(INSIGHT_IMAGE_MAX / 1024 / 1024)}MB），最多 ${MAX_ATTACHMENTS} 个`
 
 // 刷新保路由:打包态 Electron 走 file://(dev 的 electron reload 同样不走 SPA 兜底),整页
 // 重载会丢失 /insight/:id 路由、回退到首页。这里把"当前所在对话"持久化,boot 落在无 id 的
@@ -919,12 +925,22 @@ function InsightContent() {
       showToast({ title: "附件数量已达上限", description: `最多 ${MAX_ATTACHMENTS} 个附件` })
       return
     }
+    // 图片专用上限(评审 P1):与 addAttachments 入口同一约束——超限图发送必失败且消息已落库,
+    // 不放进附件栏诱导一次注定失败的发送。
+    if (file.kind === "image" && file.size > INSIGHT_IMAGE_MAX) {
+      showToast({
+        title: "图片过大",
+        description: `图片超过 ${Math.round(INSIGHT_IMAGE_MAX / 1024 / 1024)}MB 上限，无法作为附件发送`,
+        variant: "error",
+      })
+      return
+    }
     const id = crypto.randomUUID()
     // 图片给 local:// 缩略图(附件条 FileTypeIcon 有 previewUrl 时渲染缩略图);非图片走类型图标。
     setAttachments((prev) => [...prev, {
       id,
       filename: file.name,
-      mime: file.mime || "application/octet-stream",
+      mime: file.mime || imageMimeFor(file.name),
       size: file.size,
       status: "done",
       path: file.path,
@@ -1686,7 +1702,7 @@ function InsightContent() {
         ...(item.images ?? []).map((im) => ({
           id: crypto.randomUUID(),
           filename: im.filename,
-          mime: im.mime ?? "image/png",
+          mime: im.mime ?? imageMimeFor(im.filename),
           size: 0,
           status: "done" as const,
           path: im.path,
@@ -1746,15 +1762,23 @@ function InsightContent() {
       const file = rawFile
       const id = crypto.randomUUID()
       const ext = file.name.includes(".") ? file.name.split(".").pop()!.toLowerCase() : ""
-      // 图片 mime 兜底 image/png:粘贴/某些拖拽源 file.type 可能为空,octet-stream 会让服务端
-      // 落成非图片 data URL,多模态链路认不出(build-prompt-parts 的 image/png 兜底只救缺省不救错值)。
-      const mime = file.type || (isImageFile(file.name) ? "image/png" : "application/octet-stream")
+      // mime 兜底按**扩展名**查表(imageMimeFor,评审 P2 修复):粘贴/某些拖拽源 file.type 为空,
+      // 笼统给 image/png 会把 jpg/gif/webp 错标成 png,落库 media_type 与实际字节不符。
+      const mime = file.type || imageMimeFor(file.name)
       tracker.interaction({
         module: "insight",
         name: "attachment-add",
         extend: JSON.stringify({ method, fileType: ext, fileSize: file.size }),
       })
-      const validationErr = validateFile(file)
+      // insight 图片专用上限(评审 P1):新链路图片走 base64 落库+每轮重发(膨胀 ~33%),且多数
+      // provider 单图 base64 有 ~5MB 量级硬上限——超限图发送必失败且消息已落库,之后每轮重发
+      // 都撞墙。**只拦 insight**:加在调用点而非共用的 validateFile(make 页走 S3,无此约束,
+      // 共用会被波及)。超限与其他客户端校验失败同款 error chip(retriable:false,重试同错)。
+      const insightImageErr =
+        isImageFile(file.name) && file.size > INSIGHT_IMAGE_MAX
+          ? `图片超过 ${Math.round(INSIGHT_IMAGE_MAX / 1024 / 1024)}MB 上限，请压缩后重新上传`
+          : null
+      const validationErr = validateFile(file) ?? (insightImageErr ? new UploadError("FILE_TOO_LARGE", insightImageErr) : null)
       if (validationErr) {
         // 客户端校验失败:不存 File,标 retriable=false → chip 不显示重试,只能删除重选
         console.warn("[octo:upload] client-validate rejected", {
@@ -1860,32 +1884,12 @@ function InsightContent() {
     }
   }
 
-  // 把源文件拷贝进 worktree 的 .octo/tmps/(预会话落地区,磁盘流式拷贝,原样不转格式),返回本地绝对路径。
-  // 不需要 sessionId——选中时可能还没有真实会话(欢迎页);发送时统一由 doSendPrompt rename 进真会话目录(§4.1.2)。
-  //   - 磁盘来源(选择器/拖拽):getPathForFile 拿源路径 → copyFileToWorktree 流式拷贝
-  //   - 剪贴板内存 blob(截图/粘贴的文件):getPathForFile 返回空 → 字节经 writeFileToWorktree
-  //     IPC 写进同一落点(2026-09 图片去 S3 后必须有本地路径;此前 S3 链路只发 blob 字节,不需要路径)
-  //   - 无 projectDir / 非桌面端 / preload 未暴露两个 IPC → 返回 null(降级)
-  //   - 真失败(拷贝/写入抛错)→ 上抛,由 doImport 转成可重试错误
+  // 把源文件拷贝进 worktree 的 .octo/tmps/(预会话落地区),返回本地绝对路径。不需要 sessionId
+  // (选中时可能还没有真实会话,发送时统一由 doSendPrompt rename 进真会话目录 §4.1.2)。
+  // 实现在 utils/worktree-import.ts(注入依赖的纯函数,四分支有单测覆盖,评审 P2-2);
+  // 本函数只是注入 getDesktopApi()/projectDir() 的薄壳。
   async function copySourceToWorktree(filename: string, srcFile: File): Promise<string | null> {
-    const api = getDesktopApi()
-    const baseDir = projectDir()
-    if (!baseDir) return null
-    let srcPath = ""
-    try {
-      srcPath = api?.getPathForFile?.(srcFile) ?? ""
-    } catch {
-      // 取不到真实路径(如剪贴板内存 blob,无落盘来源)→ 走下方字节写入兜底
-    }
-    if (srcPath) {
-      if (typeof api?.copyFileToWorktree !== "function") return null
-      // copyFileToWorktree 返回落地后的本地绝对路径(撞名已加后缀);抛错则上抛
-      return api.copyFileToWorktree(srcPath, baseDir, filename)
-    }
-    // 内存 blob:file.arrayBuffer() 读字节(渲染进程本就持有该 blob),writeFileToWorktree
-    // 落地/清洗/撞名与 copyFileToWorktree 同一套主进程规则,返回落地绝对路径;抛错则上抛。
-    if (typeof api?.writeFileToWorktree !== "function") return null
-    return api.writeFileToWorktree(await srcFile.arrayBuffer(), baseDir, filename)
+    return importFileToWorktree({ filename, file: srcFile }, { baseDir: projectDir(), api: getDesktopApi() })
   }
 
   function removeAttachment(id: string) {
