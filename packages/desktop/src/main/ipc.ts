@@ -32,6 +32,7 @@ import type {
   WslConfig,
 } from "../preload/types"
 import { getStore } from "./store"
+import { proxyConfigFile, maskProxyUrl } from "./proxy-config"
 import { setTitlebar, setTitlebarOverlayHidden, updateTitlebar } from "./windows"
 import { downloadHuiCode, type HuiCodeInput } from "../excode/index"
 import { convertTailwindToCSS } from "./tailwind-to-css"
@@ -1382,7 +1383,7 @@ export function registerIpcHandlers(deps: Deps) {
     pipelineRequest(url, method, uiplusToken, body, headers))
 
   ipcMain.handle("get-proxy-config", () => {
-    const configFile = join(getOctoConfigPath(), "proxy_config.json")
+    const configFile = proxyConfigFile()
     if (!existsSync(configFile)) return null
 
     try {
@@ -1409,10 +1410,37 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
-  // Proxy 配置: curl 测试代理连通性, 成功后写入 ~/.config/octo/proxy_config.json 并注入环境变量即时生效
+  // Proxy 配置: 验证代理连通性后写入 ~/.config/octo/proxy_config.json 并注入环境变量即时生效
   const PROXY_HOSTS = new Set([
     "proxy", "proxycn2", "proxyn", "proxyhk", "proxvuk", "proxyus", "proxyus-nrd", "proxyru", "proxybr", "proxybh", "proxyblr", "openproxy", "proxyza", "proxytr", "proxyca", "proxyde", "proxyjp", "proxvse-rd", "proxyde-rd", "proxytr-rd", "proxvus-rd", "proxyru-rd",
   ])
+
+  // 配置失败时的 curl 对照诊断：区分「代理本身不通」和「Node 证书校验失败(代理 MITM)」。
+  // 调用时 env 仍指向待验证的新代理，curl 能真实走新代理。
+  const collectProxyDiagnostics = (target: string): string => {
+    const probe = (insecure: boolean) => {
+      try {
+        return execSync(`curl ${insecure ? "-k " : ""}-sS --connect-timeout 10 "${target}"`, {
+          timeout: 15000,
+          stdio: "pipe",
+          encoding: "utf-8",
+        })
+          .toString()
+          .trim()
+          .slice(0, 120)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message.split("\n")[0] : String(e)
+        return `<失败: ${msg}>`
+      }
+    }
+    const strict = probe(false)
+    const insecure = probe(true)
+    let hint = ""
+    if (strict.startsWith("<失败") && !insecure.startsWith("<失败")) {
+      hint = "；提示: 严格证书校验失败而跳过证书成功，通常是代理对 HTTPS 做了证书替换(MITM)，需在系统钥匙串安装代理的根证书"
+    }
+    return `curl 对照诊断 — 严格证书: ${strict || "<空响应>"} | 跳过证书(-k): ${insecure || "<空响应>"}${hint}`
+  }
 
   ipcMain.handle("configure-proxy", async (_event: IpcMainInvokeEvent, account: string, password: string, noProxyInput?: string, proxyHostInput?: string, proxyOptionIdInput?: string) => {
     const proxyHostName = (proxyHostInput?.trim().replace(/^:/, "") || "proxyhk")
@@ -1426,9 +1454,9 @@ export function registerIpcHandlers(deps: Deps) {
     const noProxy = noProxyInput?.trim() || defaultNoProxy
     const curlTarget = "https://ifconfig.me/ip"
 
-    log.info("[configure-proxy] 开始配置代理")
+    log.info("[configure-proxy] 开始配置代理", { proxyHost, proxy: maskProxyUrl(proxyUrl), noProxy })
 
-    // 先注入环境变量，确保 curl 能走代理
+    // 先注入环境变量
     const prevEnv: Record<string, string | undefined> = {}
     for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"]) {
       prevEnv[key] = process.env[key]
@@ -1442,28 +1470,35 @@ export function registerIpcHandlers(deps: Deps) {
 
     log.info("[configure-proxy] 环境变量已注入")
 
+    // setGlobalProxyFromEnv 返回 restore 函数，验证失败时用于还原全局 dispatcher
+    let restoreDispatcher: unknown
     try {
-      log.info("[configure-proxy] 执行 curl 测试连通性", { curlTarget, connectTimeout: 15, execTimeout: 20000 })
-
-      // 代理验证：通过代理请求 ifconfig.me/ip，检查返回 IP 以 119. 开头
-      const curlOutput = execSync(`curl -k -sS --connect-timeout 15 "${curlTarget}"`, {
-        timeout: 20000,
-        stdio: "pipe",
-        encoding: "utf-8",
-      }).toString().trim()
-
-      if (!curlOutput.startsWith("119.")) {
-        throw new Error(`代理返回的 IP 不是 119.x.x.x: ${curlOutput}`)
+      // 与 webfetch 同栈验证：主进程 Node fetch(undici 全局 dispatcher) + setGlobalProxyFromEnv，
+      // 证书正常校验。旧实现用 curl -k 会跳过证书校验——代理对 HTTPS 做证书替换(MITM)时
+      // 验证通过但 sidecar 里 webfetch 实际失败。
+      try {
+        restoreDispatcher = (http as any).setGlobalProxyFromEnv()
+      } catch (e) {
+        throw new Error(`setGlobalProxyFromEnv 调用失败: ${e instanceof Error ? e.message : String(e)}`)
       }
 
-      log.info("[configure-proxy] 代理验证通过", { ip: curlOutput })
+      log.info("[configure-proxy] 执行 Node fetch 验证(与 webfetch 同栈)", { curlTarget, timeout: 20000 })
 
-      log.info("[configure-proxy] curl 测试通过, 写入配置文件")
+      const res = await fetch(curlTarget, { signal: AbortSignal.timeout(20000) })
+      const verifyOutput = (await res.text()).trim()
 
-      // 写入 ~/.config/octo/proxy_config.json（独立文件，避免影响 octo.json 的 schema 校验）
-      const configDir = getOctoConfigPath()
-      const configFile = join(configDir, "proxy_config.json")
-      mkdirSync(configDir, { recursive: true })
+      if (!verifyOutput.startsWith("119.")) {
+        throw new Error(`代理返回的 IP 不是 119.x.x.x: ${verifyOutput.slice(0, 100)}`)
+      }
+
+      log.info("[configure-proxy] 代理验证通过", { ip: verifyOutput })
+
+      log.info("[configure-proxy] 验证通过, 写入配置文件")
+
+      // 写入 ~/.config/octo/proxy_config.json（独立文件，避免影响 octo.json 的 schema 校验；
+      // 路径必须与 proxy-config.ts 统一，不跟随 XDG_CONFIG_HOME）
+      const configFile = proxyConfigFile()
+      mkdirSync(dirname(configFile), { recursive: true })
 
       writeFileSync(configFile, JSON.stringify({
         http_proxy: proxyUrl,
@@ -1473,15 +1508,15 @@ export function registerIpcHandlers(deps: Deps) {
       }, null, 2), "utf-8")
       log.info("[configure-proxy] 配置写入成功", { configFile })
 
-      // 保持环境变量注入状态，让 Node.js HTTP 模块即时生效
-      try {
-        ;(http as any).setGlobalProxyFromEnv()
-      } catch (e) {
-        log.warn("[configure-proxy] setGlobalProxyFromEnv 失败", e)
-      }
+      // 保持环境变量注入状态，让 Node.js HTTP 模块即时生效（dispatcher 已在验证前设置）
 
       return { success: true, curlUrl: curlTarget }
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err)
+
+      // curl 对照诊断要趁 env 还指向新代理时执行
+      const diagnostics = collectProxyDiagnostics(curlTarget)
+
       // 失败时恢复之前的环境变量
       for (const key of ["http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"] as const) {
         const val = prevEnv[key]
@@ -1491,9 +1526,13 @@ export function registerIpcHandlers(deps: Deps) {
           process.env[key] = val
         }
       }
-      const errorMessage = err instanceof Error ? err.message : String(err)
-      log.error("[configure-proxy] 配置失败", { error: errorMessage })
-      return { success: false, curlUrl: curlTarget, error: errorMessage }
+      if (typeof restoreDispatcher === "function") {
+        try {
+          ;(restoreDispatcher as () => void)()
+        } catch {}
+      }
+      log.error("[configure-proxy] 配置失败", { error: errorMessage, diagnostics })
+      return { success: false, curlUrl: curlTarget, error: diagnostics ? `${errorMessage}\n${diagnostics}` : errorMessage }
     }
   })
 
