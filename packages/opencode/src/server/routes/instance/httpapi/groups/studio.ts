@@ -28,6 +28,7 @@ export const StudioPaths = {
   styleDescriptionGen: `${root}/style-description-gen`,
   templatePublish: `${root}/template-publish`,
   templateList: `${root}/template-list`,
+  templateDetail: `${root}/template-detail/:templateID`,
   permission: `${root}/permissions/check`,
 } as const
 
@@ -117,6 +118,10 @@ export const StudioTemplateListQuery = Schema.Struct({
   only_public: Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(1)),
   page: Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
   page_size: Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(20), Schema.isLessThanOrEqualTo(20)),
+})
+
+export const StudioTemplateDetailQuery = Schema.Struct({
+  user_id: Schema.String,
 })
 
 export const StudioGenerationPayload = Schema.Struct({
@@ -295,6 +300,18 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.template-list.list",
             summary: "List Studio templates",
             description: "Returns paged Studio style templates from the internal Studio style template API.",
+          }),
+        ),
+        HttpApiEndpoint.get("getTemplateDetail", StudioPaths.templateDetail, {
+          params: { templateID: Schema.String },
+          query: StudioTemplateDetailQuery,
+          success: described(Schema.Unknown, "Studio template detail result"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.template-detail.get",
+            summary: "Get Studio template detail",
+            description: "Returns a Studio template by id from the internal Studio style template API.",
           }),
         ),
         HttpApiEndpoint.post("createGeneration", StudioPaths.generations, {

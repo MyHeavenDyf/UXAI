@@ -7547,6 +7547,188 @@ export type StudioPromptGenCreateResponses = {
   200: unknown
 }
 
+export type StudioStyleDescriptionGenCreateData = {
+  body?: {
+    style_keywords: string
+    style_images: Array<{
+      url: string
+    }>
+    style_dimensions: Array<
+      | "tonal"
+      | "composition"
+      | "volume"
+      | "surface"
+      | "color"
+      | "linework"
+      | "shape_structure"
+      | "role_design"
+      | "lettering"
+      | "post_processing"
+    >
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/style-description-gen"
+}
+
+export type StudioStyleDescriptionGenCreateErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioStyleDescriptionGenCreateError =
+  StudioStyleDescriptionGenCreateErrors[keyof StudioStyleDescriptionGenCreateErrors]
+
+export type StudioStyleDescriptionGenCreateResponses = {
+  /**
+   * Success
+   */
+  200: string
+}
+
+export type StudioStyleDescriptionGenCreateResponse =
+  StudioStyleDescriptionGenCreateResponses[keyof StudioStyleDescriptionGenCreateResponses]
+
+export type StudioTemplatePublishCreateData = {
+  body?:
+    | {
+        allowed_user_id: string
+        creator_user_id: string
+        example_images: Array<{
+          url: string
+        }>
+        permission_type: "all_users" | "specified_users"
+        prompt_setting: "required" | "optional" | "not_supported"
+        reference_image_count: 0 | 1 | 2 | 3
+        reference_image_setting: "fixed" | "optional" | "not_supported"
+        title: string
+        usage_instructions: string
+        template_type: "extract_style"
+        style_description: {
+          overview: string
+          tonal?: string
+          composition?: string
+          volume?: string
+          surface?: string
+          color?: string
+          linework?: string
+          shape_structure?: string
+          role_design?: string
+          lettering?: string
+          post_processing?: string
+        }
+        style_images: Array<{
+          url: string
+        }>
+        style_keywords: string
+      }
+    | {
+        allowed_user_id: string
+        creator_user_id: string
+        example_images: Array<{
+          url: string
+        }>
+        permission_type: "all_users" | "specified_users"
+        prompt_setting: "required" | "optional" | "not_supported"
+        reference_image_count: 0 | 1 | 2 | 3
+        reference_image_setting: "fixed" | "optional" | "not_supported"
+        title: string
+        usage_instructions: string
+        template_type: "preset_recipe"
+        fixed_reference_images: Array<{
+          url: string
+        }>
+        play_description: string
+      }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/template-publish"
+}
+
+export type StudioTemplatePublishCreateErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioTemplatePublishCreateError =
+  StudioTemplatePublishCreateErrors[keyof StudioTemplatePublishCreateErrors]
+
+export type StudioTemplatePublishCreateResponses = {
+  /**
+   * Studio template publish result
+   */
+  200: unknown
+}
+
+export type StudioTemplateListListData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    user_id: string
+    only_public: string
+    page: string
+    page_size: string
+  }
+  url: "/studio/template-list"
+}
+
+export type StudioTemplateListListErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioTemplateListListError = StudioTemplateListListErrors[keyof StudioTemplateListListErrors]
+
+export type StudioTemplateListListResponses = {
+  /**
+   * Studio template list result
+   */
+  200: unknown
+}
+
+export type StudioTemplateDetailGetData = {
+  body?: never
+  path: {
+    templateID: string
+  }
+  query: {
+    directory?: string
+    workspace?: string
+    user_id: string
+  }
+  url: "/studio/template-detail/{templateID}"
+}
+
+export type StudioTemplateDetailGetErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioTemplateDetailGetError = StudioTemplateDetailGetErrors[keyof StudioTemplateDetailGetErrors]
+
+export type StudioTemplateDetailGetResponses = {
+  /**
+   * Studio template detail result
+   */
+  200: unknown
+}
+
 export type StudioGenerationsCreateData = {
   body?: {
     sessionID?: string
@@ -7625,7 +7807,7 @@ export type StudioGenerationsCreateResponses = {
     model: string
     aspectRatio: string
     videoMode?: "text" | "first_last_frame"
-    duration?: "5" | "10"
+    duration?: string
     videoQualityMode?: "std" | "pro"
     images: Array<{
       id: string
@@ -7738,7 +7920,7 @@ export type StudioGenerationsCancelResponses = {
     model: string
     aspectRatio: string
     videoMode?: "text" | "first_last_frame"
-    duration?: "5" | "10"
+    duration?: string
     videoQualityMode?: "std" | "pro"
     images: Array<{
       id: string
@@ -7814,7 +7996,7 @@ export type StudioGenerationsRebootResponses = {
     model: string
     aspectRatio: string
     videoMode?: "text" | "first_last_frame"
-    duration?: "5" | "10"
+    duration?: string
     videoQualityMode?: "std" | "pro"
     images: Array<{
       id: string
@@ -7890,7 +8072,7 @@ export type StudioGenerationsGetResponses = {
     model: string
     aspectRatio: string
     videoMode?: "text" | "first_last_frame"
-    duration?: "5" | "10"
+    duration?: string
     videoQualityMode?: "std" | "pro"
     images: Array<{
       id: string

@@ -222,6 +222,14 @@ import type {
   StudioPromptGenCreateResponses,
   StudioPromptTagsListErrors,
   StudioPromptTagsListResponses,
+  StudioStyleDescriptionGenCreateErrors,
+  StudioStyleDescriptionGenCreateResponses,
+  StudioTemplateDetailGetErrors,
+  StudioTemplateDetailGetResponses,
+  StudioTemplateListListErrors,
+  StudioTemplateListListResponses,
+  StudioTemplatePublishCreateErrors,
+  StudioTemplatePublishCreateResponses,
   SubtaskPartInput,
   SyncHistoryListErrors,
   SyncHistoryListResponses,
@@ -5657,6 +5665,242 @@ export class PromptGen extends HeyApiClient {
   }
 }
 
+export class StyleDescriptionGen extends HeyApiClient {
+  /**
+   * Generate style description
+   *
+   * Streams style description fields from the internal Studio style template API.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      style_keywords?: string
+      style_images?: Array<{
+        url: string
+      }>
+      style_dimensions?: Array<
+        | "tonal"
+        | "composition"
+        | "volume"
+        | "surface"
+        | "color"
+        | "linework"
+        | "shape_structure"
+        | "role_design"
+        | "lettering"
+        | "post_processing"
+      >
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "style_keywords" },
+            { in: "body", key: "style_images" },
+            { in: "body", key: "style_dimensions" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).sse.post<
+      StudioStyleDescriptionGenCreateResponses,
+      StudioStyleDescriptionGenCreateErrors,
+      ThrowOnError
+    >({
+      url: "/studio/style-description-gen",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class TemplatePublish extends HeyApiClient {
+  /**
+   * Publish Studio template
+   *
+   * Publishes a Studio style template or preset recipe using the internal Studio style template API.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      body?:
+        | {
+            allowed_user_id: string
+            creator_user_id: string
+            example_images: Array<{
+              url: string
+            }>
+            permission_type: "all_users" | "specified_users"
+            prompt_setting: "required" | "optional" | "not_supported"
+            reference_image_count: 0 | 1 | 2 | 3
+            reference_image_setting: "fixed" | "optional" | "not_supported"
+            title: string
+            usage_instructions: string
+            template_type: "extract_style"
+            style_description: {
+              overview: string
+              tonal?: string
+              composition?: string
+              volume?: string
+              surface?: string
+              color?: string
+              linework?: string
+              shape_structure?: string
+              role_design?: string
+              lettering?: string
+              post_processing?: string
+            }
+            style_images: Array<{
+              url: string
+            }>
+            style_keywords: string
+          }
+        | {
+            allowed_user_id: string
+            creator_user_id: string
+            example_images: Array<{
+              url: string
+            }>
+            permission_type: "all_users" | "specified_users"
+            prompt_setting: "required" | "optional" | "not_supported"
+            reference_image_count: 0 | 1 | 2 | 3
+            reference_image_setting: "fixed" | "optional" | "not_supported"
+            title: string
+            usage_instructions: string
+            template_type: "preset_recipe"
+            fixed_reference_images: Array<{
+              url: string
+            }>
+            play_description: string
+          }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "body", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioTemplatePublishCreateResponses,
+      StudioTemplatePublishCreateErrors,
+      ThrowOnError
+    >({
+      url: "/studio/template-publish",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class TemplateList extends HeyApiClient {
+  /**
+   * List Studio templates
+   *
+   * Returns paged Studio style templates from the internal Studio style template API.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      user_id: string
+      only_public: string
+      page: string
+      page_size: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "user_id" },
+            { in: "query", key: "only_public" },
+            { in: "query", key: "page" },
+            { in: "query", key: "page_size" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      StudioTemplateListListResponses,
+      StudioTemplateListListErrors,
+      ThrowOnError
+    >({
+      url: "/studio/template-list",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class TemplateDetail extends HeyApiClient {
+  /**
+   * Get Studio template detail
+   *
+   * Returns a Studio template by id from the internal Studio style template API.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      templateID: string
+      directory?: string
+      workspace?: string
+      user_id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "templateID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "user_id" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      StudioTemplateDetailGetResponses,
+      StudioTemplateDetailGetErrors,
+      ThrowOnError
+    >({
+      url: "/studio/template-detail/{templateID}",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Generations extends HeyApiClient {
   /**
    * Create Studio image generation
@@ -5915,6 +6159,26 @@ export class Studio extends HeyApiClient {
   private _promptGen?: PromptGen
   get promptGen(): PromptGen {
     return (this._promptGen ??= new PromptGen({ client: this.client }))
+  }
+
+  private _styleDescriptionGen?: StyleDescriptionGen
+  get styleDescriptionGen(): StyleDescriptionGen {
+    return (this._styleDescriptionGen ??= new StyleDescriptionGen({ client: this.client }))
+  }
+
+  private _templatePublish?: TemplatePublish
+  get templatePublish(): TemplatePublish {
+    return (this._templatePublish ??= new TemplatePublish({ client: this.client }))
+  }
+
+  private _templateList?: TemplateList
+  get templateList(): TemplateList {
+    return (this._templateList ??= new TemplateList({ client: this.client }))
+  }
+
+  private _templateDetail?: TemplateDetail
+  get templateDetail(): TemplateDetail {
+    return (this._templateDetail ??= new TemplateDetail({ client: this.client }))
   }
 
   private _generations?: Generations

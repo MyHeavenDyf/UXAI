@@ -10,11 +10,14 @@ import {
 } from "@/tool/internel_image_generate"
 import {
   generateStyleDescriptionStream,
+  getInternalStyleTemplate,
   listInternalStyleTemplates,
   publishInternalStyleTemplate,
   type StyleDescriptionGenRequest,
   type StyleDescriptionGenStreamEvent,
+  type StyleTemplateDetailRequest,
   type StyleTemplateListRequest,
+  type StyleTemplateListItem,
   type StyleTemplateListResult,
   type StyleTemplatePublishRequest,
 } from "@/tool/internel_style_template"
@@ -125,6 +128,8 @@ export type StudioStyleDescriptionGenRequest = StyleDescriptionGenRequest
 export type StudioStyleDescriptionGenStreamEvent = StyleDescriptionGenStreamEvent
 export type StudioTemplatePublishRequest = StyleTemplatePublishRequest
 export type StudioTemplateListRequest = StyleTemplateListRequest
+export type StudioTemplateDetailRequest = StyleTemplateDetailRequest
+export type StudioTemplateListItem = StyleTemplateListItem
 export type StudioTemplateListResult = StyleTemplateListResult
 
 export type StudioGenerationResult = {
@@ -185,6 +190,10 @@ export async function publishTemplate(input: StudioTemplatePublishRequest): Prom
 
 export async function listTemplates(input: StudioTemplateListRequest): Promise<StudioTemplateListResult> {
   return listInternalStyleTemplates(input)
+}
+
+export async function getTemplateDetail(input: StudioTemplateDetailRequest): Promise<StudioTemplateListItem> {
+  return getInternalStyleTemplate(input)
 }
 
 export type StudioGenerationAccepted = Pick<

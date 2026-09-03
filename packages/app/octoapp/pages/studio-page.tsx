@@ -2462,6 +2462,24 @@ export default function StudioPage() {
     return value as Record<string, unknown>
   }
 
+  function templateUsageRecord(result: StudioGenerationResult) {
+    const value = recordValue(inputExtraRecord(result), "template")
+    if (!value || typeof value !== "object" || Array.isArray(value)) return
+    return value as Record<string, unknown>
+  }
+
+  function templateUsageID(result: StudioGenerationResult) {
+    const value = recordValue(templateUsageRecord(result), "id")
+    if (typeof value === "string" && value.trim()) return value.trim()
+    if (typeof value === "number") return String(value)
+  }
+
+  function templateUsagePromptRecord(result: StudioGenerationResult) {
+    const value = recordValue(templateUsageRecord(result), "prompt")
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+    return value as Record<string, unknown>
+  }
+
   function taskRequestRecord(result: StudioGenerationResult) {
     const value = recordValue(recordValue(result.request, "task"), "request")
     if (!value || typeof value !== "object" || Array.isArray(value)) return
@@ -2635,11 +2653,82 @@ export default function StudioPage() {
     return { first, last }
   }
 
+  function templateReferenceRestoreLimit(template: StudioStyleTemplateListItem, targetModel: string) {
+    if (template.reference_image_setting === "not_supported") return 0
+    return Math.min(referenceImageLimit(targetModel), template.reference_image_count)
+  }
+
+  async function editTemplateGenerationDraft(
+    result: StudioGenerationResult,
+    draft: ReturnType<typeof restoreGenerationEditDraft>,
+    templateID: string,
+  ) {
+    const template = await getStudioStyleTemplate(templateID).catch((error) => {
+      console.warn("[StudioPage] restore template generation draft failed", error)
+      showFloatingNotice("info", "模板不存在或已不可用，无法重新编辑该模板任务。")
+      return undefined
+    })
+    if (!template) return
+
+    const targetModel = styleTemplateTargetModel(canUseSeedream(), draft.styleModel ?? styleModel())
+    const templatePrompt = templateUsagePromptRecord(result)
+    const restoredAssets = await restoredImageAssets(
+      draft.referenceImages,
+      templateReferenceRestoreLimit(template, targetModel),
+    )
+
+    batch(() => {
+      setOpenMenu(null)
+      setMode("preview")
+      setStudioWorkspaceOverlayOpen(false)
+      setCapability("image.generate")
+      setSelectedStyleTemplate(template)
+      setStyleModel(targetModel)
+      setAspectRatio(draft.aspectRatio)
+      if (draft.count) setCount(draft.count)
+      if (draft.width) setCustomWidth(draft.width)
+      if (draft.height) setCustomHeight(draft.height)
+      setIsCustomStore(Boolean(draft.width && draft.height))
+      clearVideoFrames()
+      setAssets(restoredAssets)
+      if (template.prompt_setting === "not_supported") {
+        setPrompt("")
+        setRecipeMainPrompt("")
+        setRecipeExtraPrompt("")
+      } else if (template.template_type === "preset_recipe") {
+        setPrompt("")
+        setRecipeMainPrompt(stringValue(templatePrompt, "mainPrompt") ?? "")
+        setRecipeExtraPrompt(stringValue(templatePrompt, "extraPrompt") ?? "")
+      } else {
+        setPrompt(stringValue(templatePrompt, "custom") ?? "")
+        setRecipeMainPrompt("")
+        setRecipeExtraPrompt("")
+      }
+    })
+    tracker.interaction({
+      module: "studio",
+      name: "edit-generation-template-draft",
+      extend: JSON.stringify({
+        templateID,
+        templateType: template.template_type,
+        aspectRatio: result.aspectRatio,
+        count: result.images.length,
+        hasReferenceImage: draft.referenceImages.length > 0,
+      }),
+    })
+    showEditDraftSyncedToast()
+  }
+
   async function editGenerationDraft(result: StudioGenerationResult) {
     if (isActionBusy()) return
     if (result.capability !== "image.generate" && result.capability !== "video.generate") return
     const draft = restoreGenerationEditDraft(result)
     if (!canEditGenerationDraft(draft)) return
+    const templateID = result.capability === "image.generate" ? templateUsageID(result) : undefined
+    if (templateID) {
+      await editTemplateGenerationDraft(result, draft, templateID)
+      return
+    }
     batch(() => {
       setOpenMenu(null)
       setMode("preview")
@@ -2872,6 +2961,29 @@ export default function StudioPage() {
     const bodyText = await response.text()
     if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
     return JSON.parse(bodyText) as StudioStyleTemplateListResult
+  }
+
+  async function getStudioStyleTemplate(templateID: string): Promise<StudioStyleTemplateListItem> {
+    const current = server.current
+    if (!current) throw new Error("No active server.")
+    const url = new URL(`/studio/template-detail/${encodeURIComponent(templateID)}`, current.http.url)
+    url.searchParams.set("user_id", uiplusUserAccount() ?? "")
+    const headers: Record<string, string> = {
+      ...directoryHeader(projectDir()),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const response = await fetch(url, {
+      method: "GET",
+      headers,
+    })
+    const bodyText = await response.text()
+    if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
+    return JSON.parse(bodyText) as StudioStyleTemplateListItem
   }
 
   async function handleReversePrompt() {

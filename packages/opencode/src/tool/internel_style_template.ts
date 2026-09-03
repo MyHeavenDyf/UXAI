@@ -10,24 +10,28 @@ type InternalStyleTemplateEndpointPreset = {
   styleDescriptionGenUrl: string
   styleTemplatePublishUrl: string
   styleTemplateListUrl: string
+  styleTemplateDetailUrl: string
 }
 
 const LOCAL_STYLE_TEMPLATE_ENDPOINTS = {
   styleDescriptionGenUrl: "http://localhost:3000/style_description_gen",
   styleTemplatePublishUrl: "http://localhost:3000/image_template",
   styleTemplateListUrl: "http://localhost:3000/image_template",
+  styleTemplateDetailUrl: "http://localhost:3000/image_template",
 } satisfies InternalStyleTemplateEndpointPreset
 
 const BETA_STYLE_TEMPLATE_ENDPOINTS = {
   styleDescriptionGenUrl: "https://octoai-api-test.ucd.huawei.com/nexo-api-test/pixso/aiImageGeneration/image_template/style_description",
   styleTemplatePublishUrl: "https://octoai-api-test.ucd.huawei.com/nexo-api-test/pixso/aiImageGeneration/image_template",
   styleTemplateListUrl: "https://octoai-api-test.ucd.huawei.com/nexo-api-test/pixso/aiImageGeneration/image_template",
+  styleTemplateDetailUrl: "https://octoai-api-test.ucd.huawei.com/nexo-api-test/pixso/aiImageGeneration/image_template",
 } satisfies InternalStyleTemplateEndpointPreset
 
 const PROD_STYLE_TEMPLATE_ENDPOINTS = {
   styleDescriptionGenUrl: "https://octoai-api.ucd.huawei.com/nexo-api/pixso/aiImageGeneration/image_template/style_description",
   styleTemplatePublishUrl: "https://octoai-api.ucd.huawei.com/nexo-api/pixso/aiImageGeneration/image_template",
   styleTemplateListUrl: "https://octoai-api.ucd.huawei.com/nexo-api/pixso/aiImageGeneration/image_template",
+  styleTemplateDetailUrl: "https://octoai-api.ucd.huawei.com/nexo-api/pixso/aiImageGeneration/image_template",
 } satisfies InternalStyleTemplateEndpointPreset
 
 const DEFAULT_USER_IDX = ""
@@ -102,6 +106,11 @@ export type StyleTemplateListRequest = {
   page_size: 20
 }
 
+export type StyleTemplateDetailRequest = {
+  template_id: string
+  user_id: string
+}
+
 export type StyleTemplateListItem = StyleTemplatePublishRequest & {
   idx: string
 }
@@ -124,6 +133,7 @@ function internalStyleTemplateEndpoints() {
 const DEFAULT_STYLE_DESCRIPTION_GEN = internalStyleTemplateEndpoints().styleDescriptionGenUrl
 const DEFAULT_STYLE_TEMPLATE_PUBLISH = internalStyleTemplateEndpoints().styleTemplatePublishUrl
 const DEFAULT_STYLE_TEMPLATE_LIST = internalStyleTemplateEndpoints().styleTemplateListUrl
+const DEFAULT_STYLE_TEMPLATE_DETAIL = internalStyleTemplateEndpoints().styleTemplateDetailUrl
 
 function env(name: string) {
   return process.env[name]
@@ -339,6 +349,14 @@ function styleTemplateListUrl(input: StyleTemplateListRequest) {
   return url
 }
 
+function styleTemplateDetailUrl(input: StyleTemplateDetailRequest) {
+  const endpoint = env("IMAGE_STYLE_TEMPLATE_DETAIL_URL") ?? DEFAULT_STYLE_TEMPLATE_DETAIL
+  if (!endpoint || endpoint === "xx") throw new Error("style_template_detail url is not configured.")
+  const url = new URL(`${endpoint.replace(/\/$/, "")}/${encodeURIComponent(input.template_id)}`)
+  url.searchParams.set("user_id", input.user_id || env("IMAGE_USER_IDX") || DEFAULT_USER_IDX)
+  return url
+}
+
 function parseStyleTemplateListResult(response: StyleTemplateBusinessResponse): StyleTemplateListResult {
   const result = response.result
   if (!result || typeof result !== "object") throw new Error("style_template_list returned invalid result.")
@@ -349,6 +367,12 @@ function parseStyleTemplateListResult(response: StyleTemplateBusinessResponse): 
     data: data as StyleTemplateListItem[],
     total,
   }
+}
+
+function parseStyleTemplateDetailResult(response: StyleTemplateBusinessResponse): StyleTemplateListItem {
+  const result = response.result
+  if (!result || typeof result !== "object" || !("idx" in result)) throw new Error(`style_template_detail returned invalid result:\n${JSON.stringify(result, null, 2)}`)
+  return result as StyleTemplateListItem
 }
 
 export async function listInternalStyleTemplates(input: StyleTemplateListRequest): Promise<StyleTemplateListResult> {
@@ -383,4 +407,38 @@ export async function listInternalStyleTemplates(input: StyleTemplateListRequest
   }
   if (!text.trim()) throw new Error("style_template_list returned empty response.")
   return parseStyleTemplateListResult(parseBusinessResponse(text, "style_template_list"))
+}
+
+export async function getInternalStyleTemplate(input: StyleTemplateDetailRequest): Promise<StyleTemplateListItem> {
+  const url = styleTemplateDetailUrl(input)
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS)
+  const response = await fetch(url, {
+    method: "GET",
+    headers: internalStyleTemplateHeaders(),
+    signal: controller.signal,
+  }).catch((error) => {
+    throw new Error(
+      [
+        "style_template_detail network failed.",
+        `url=${url.href}`,
+        `error=${describeError(error)}`,
+      ].join("\n"),
+    )
+  }).finally(() => clearTimeout(timeout))
+
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(
+      [
+        "style_template_detail failed.",
+        `status=${response.status}`,
+        `statusText=${response.statusText}`,
+        `body=${text}`,
+      ].join("\n"),
+    )
+  }
+  if (!text.trim()) throw new Error("style_template_detail returned empty response.")
+  return parseStyleTemplateDetailResult(parseBusinessResponse(text, "style_template_detail"))
 }

@@ -3,7 +3,7 @@ import { describeRoute, resolver, validator } from "hono-openapi"
 import { streamSSE } from "hono/streaming"
 import z from "zod"
 import { lazy } from "@/util/lazy"
-import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, createStyleDescriptionGenStream, getGeneration, listTemplates, publishTemplate, rebootGeneration } from "@/studio/studio-service"
+import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, createStyleDescriptionGenStream, getGeneration, getTemplateDetail, listTemplates, publishTemplate, rebootGeneration } from "@/studio/studio-service"
 import { checkStudioPermission, fetchPromptTags } from "@/tool/internel_image_generate"
 import { errors } from "../../error"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
@@ -86,6 +86,10 @@ const StudioTemplateListQuery = z.object({
   only_public: z.coerce.number().int().pipe(z.union([z.literal(0), z.literal(1)])),
   page: z.coerce.number().int().min(1),
   page_size: z.coerce.number().int().pipe(z.literal(20)),
+})
+
+const StudioTemplateDetailQuery = z.object({
+  user_id: z.string(),
 })
 
 const StudioGenerationInput = z.object({
@@ -269,6 +273,27 @@ export const StudioRoutes = lazy(() =>
       }),
       validator("query", StudioTemplateListQuery),
       async (c) => c.json(await listTemplates(c.req.valid("query"))),
+    )
+    .get(
+      "/template-detail/:templateID",
+      describeRoute({
+        summary: "Get Studio template detail",
+        description: "Returns a Studio template by id from the internal Studio style template API.",
+        operationId: "studio.template-detail.get",
+        responses: {
+          200: {
+            description: "Studio template detail result",
+            content: { "application/json": { schema: resolver(z.unknown()) } },
+          },
+          ...errors(400, 502),
+        },
+      }),
+      validator("query", StudioTemplateDetailQuery),
+      async (c) =>
+        c.json(await getTemplateDetail({
+          template_id: c.req.param("templateID"),
+          user_id: c.req.valid("query").user_id,
+        })),
     )
     .post(
       "/editor-entries",
