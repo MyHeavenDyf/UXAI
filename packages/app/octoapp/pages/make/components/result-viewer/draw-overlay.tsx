@@ -407,12 +407,10 @@ export function DrawOverlay(props: Props): JSX.Element {
     if (!api?.capturePreviewRect) return null
     const rect = iframe.getBoundingClientRect()
     if (rect.width <= 0 || rect.height <= 0) return null
-    console.log('[Draw] Trying native capture...')
     try {
       const dataUrl = await api.capturePreviewRect({ x: rect.x, y: rect.y, width: rect.width, height: rect.height })
       if (dataUrl) {
         const dpr = window.devicePixelRatio || 1
-        console.log('[Draw] Native capture success')
         return { dataUrl, w: Math.floor(rect.width * dpr), h: Math.floor(rect.height * dpr) }
       }
     } catch (err) {
@@ -427,7 +425,6 @@ export function DrawOverlay(props: Props): JSX.Element {
   ): Promise<{ dataUrl: string; w: number; h: number } | null> {
     const id = `snapshot-${Date.now()}-${Math.random().toString(36).slice(2)}`
     
-    console.log('[Draw] Requesting snapshot from iframe')
     iframe.contentWindow?.postMessage({ type: 'od:snapshot', id }, '*')
 
     return new Promise((resolve) => {
@@ -445,14 +442,6 @@ export function DrawOverlay(props: Props): JSX.Element {
         const d = e.data
         
         if (d?.type === 'od:snapshot:result' && d?.id === id) {
-          console.log('[Draw] Received snapshot result:', {
-            hasError: !!d?.error,
-            error: d?.error,
-            hasDataUrl: !!d?.dataUrl,
-            fallback: !!d?.fallback,
-            w: d?.w,
-            h: d?.h
-          })
           
           if (settled) return
           
@@ -465,17 +454,14 @@ export function DrawOverlay(props: Props): JSX.Element {
           }
           
           if (d?.fallback && d?.w && d?.h) {
-            console.log('[Draw] Snapshot fallback: drawing only')
             settled = true
             clearTimeout(timer)
             resolve({ dataUrl: '', w: d.w, h: d.h })
           } else if (d?.dataUrl && d?.w && d?.h) {
-            console.log('[Draw] Snapshot success')
             settled = true
             clearTimeout(timer)
             resolve({ dataUrl: d.dataUrl, w: d.w, h: d.h })
           } else {
-            console.error('[Draw] Snapshot missing dataUrl or dimensions')
             settled = true
             clearTimeout(timer)
             resolve(null)
@@ -500,7 +486,6 @@ export function DrawOverlay(props: Props): JSX.Element {
 
     // Fill with white background if no snapshot (fallback mode)
     if (!snap.dataUrl) {
-      console.log('[Draw] No background snapshot, using white background')
       ctx.fillStyle = 'white'
       ctx.fillRect(0, 0, snap.w, snap.h)
     } else {
@@ -543,14 +528,6 @@ export function DrawOverlay(props: Props): JSX.Element {
     const shouldCapture = hasInk() || hasBox()
     const canSubmit = shouldCapture || Boolean(note().trim())
     
-    console.log('[Draw] send:', {
-      action,
-      shouldCapture,
-      hasInk: hasInk(),
-      hasBox: hasBox(),
-      noteLength: note().trim().length
-    })
-    
     if (sending() || !canSubmit) return
     if (action === 'send' && props.sendDisabled) return
 
@@ -565,7 +542,6 @@ export function DrawOverlay(props: Props): JSX.Element {
     try {
       let file: File | null = null
       if (shouldCapture) {
-        console.log('[Draw] Attempting screenshot...')
         let blob: Blob | null = null
         setCapturing(true)
         try {
@@ -573,7 +549,6 @@ export function DrawOverlay(props: Props): JSX.Element {
           // 双次 rAF: 第一次在下一次 paint 前触发,浏览器完成 paint 后 popup DOM 已消失;第二次 rAF 时合成器持有无 popup 的新帧。
           await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
           const snap = await requestSnapshot()
-          console.log('[Draw] Snapshot result:', snap ? { w: snap.w, h: snap.h } : null)
           if (snap) blob = await compositeWithBackground(snap)
         } finally {
           setCapturing(false)
@@ -587,7 +562,7 @@ export function DrawOverlay(props: Props): JSX.Element {
           return
         }
         const ts = new Date().toISOString().replace(/[:.]/g, '-')
-        file = new File([blob], `drawing-${ts}.png`, { type: 'image/png' })
+        file = new File([blob], `.drawing-${ts}.png`, { type: 'image/png' })
       }
 
       const result = await new Promise<{ ok: boolean; message?: string }>((resolve) => {
