@@ -60,6 +60,10 @@ export default async function scene_3d_plan(input: ScenePlanInput): Promise<Plan
     onSessionCreated,
     extra: input.extra,
     fileParts: input.fileParts,
+    // P6-2：plan output 才 2.6K-5.3K tokens，reasoning 模型思考期间零增长，
+    // 180s idle 太宽——SSE 漏推 message.completed 时多等 180s+30s grace 才 resync。
+    // 缩到 60s：stall gap 277/427s→~90s。thinking 期间零增长误判风险靠 partial 抢救兜底。
+    idleTimeoutMs: 60_000,
   })
   console.log("----- 3D 场景规划Agent运行结束，耗时：", (Date.now() - startTime) / 1000, "s -----")
   // 先透传 LLM 返回的错误（idle 超时 / APIError / 限流 / 超上下文），

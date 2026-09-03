@@ -20,6 +20,8 @@ export type RunChildSessionInput = {
   onSessionCreated?: (childSessionID: string) => void
   schema?: Record<string, unknown>
   fileParts?: { type: "file"; mime: string; filename: string; url: string }[]
+  /** 空闲超时毫秒（默认 180s）。plan 阶段传 60s 缩 SSE 漏推 stall gap（P6-2）。 */
+  idleTimeoutMs?: number
 }
 
 export async function runChildSession(
@@ -39,6 +41,7 @@ export async function runChildSession(
     aborted, // 是否需要立即停止，暂未用，全部停止另外写了一个方法
     schema, // JSON Schema 校验模型输出
     fileParts, // 文件附件
+    idleTimeoutMs, // 空闲超时（P6-2：plan 传更短值缩 stall gap）
   } = input
 
   const tagError = (err: unknown, sessionId: string) => {
@@ -79,6 +82,7 @@ export async function runChildSession(
       parentSessionID,
       promptText,
       schema,
+      idleTimeoutMs,
       tagError,
     })
   } catch (err) {
@@ -111,6 +115,7 @@ async function processAgentResult(params: {
   childSessionID: string
   parentSessionID: string
   schema?: Record<string, unknown>
+  idleTimeoutMs?: number
   tagError: (err: unknown, sessionId: string) => void
 }): Promise<{ text: string; childSessionId: string; error?: string }> {
   const {
@@ -126,6 +131,7 @@ async function processAgentResult(params: {
     childSessionID,
     parentSessionID,
     schema,
+    idleTimeoutMs,
     tagError,
   } = params
 
@@ -150,7 +156,7 @@ async function processAgentResult(params: {
     // reasoning 模型（GLM/DeepSeek）常把 JSON / 代码块落在 reasoning part，
     // 严格版（只取最新一条 text part）会取空 → "模型未返回有效内容"。
     // extractJson（plan/triage JSON）/ parseCodeFiles（codegen 代码块）从拼接文本提取。
-    const result = await getResultFromMessagesLoose(sync, childSessionID, knownIds)
+    const result = await getResultFromMessagesLoose(sync, childSessionID, knownIds, { idleTimeoutMs })
     const sessionId = isRoot ? parentSessionID : childSessionID
     // 先透传 LLM 返回的错误（API 失败/限流/超上下文），避免被「模型未返回有效内容」掩盖真实原因
     const messageError = extractMessageError(sync, childSessionID, knownIds)

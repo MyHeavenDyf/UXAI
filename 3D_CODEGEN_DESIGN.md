@@ -876,7 +876,7 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 - [ ] 混元真实密钥验证
 - [ ] 孤儿 8-agent 清理
 
-### P6 — 性能优化（缓做，2026-09-03 定案，用户说「后续再做」）
+### P6 — 性能优化（2026-09-03 定案；P6-2/P6-3 已落地，P6-1/P6-4/P6-5 后续再做）
 
 > **实测数据**（6 session DB 取证，2026-09-03）：
 >
@@ -903,19 +903,18 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
   - 风险：index.ts 合并竞态（已有 D3 merge 兜底）；modify 场景 type 间依赖（rack 依赖 room 尺寸→需 plan JSON 作为共享 context 注入每路）；prompt cache 命中率取决于 system+模板是否一致
   - 关联：与 P5 Step8②③（triage+plan 合并）正交，可叠加
 
-- [ ] **P6-2. SSE stall 缩短 plan 阶段 idle 超时**（投入小，收益中）
+- [x] **P6-2. SSE stall 缩短 plan 阶段 idle 超时** ✅ 已落地（2026-09-03）
   - 现状：plan output 才 2.6K-5.3K tokens，但 idle 超时统一 3min（180s）+ 30s grace = 210s 才 resync；两个 session 各浪费 277s/427s
   - 方案：plan 阶段 idle 超时降到 60s（plan output 小，60s 无增长≈stalled）；codegen 阶段保持 180s（output 大，流式间隔长）
   - 预期：stall gap 从 277s/427s → ~90s（60s idle + 30s grace）
-  - 风险：plan reasoning 思考期（无 output 增长）可能 >60s → 误判 stalled；需测 reasoning 模型 thinking→output 间隔
-  - 关联：P0.7 Fix C 的 idle 超时是统一值，需按阶段参数化
+  - 落地：`runChildSession` 加 `idleTimeoutMs` 参数透传 → `getResultFromMessagesLoose`（函数签名早有 `opts.idleTimeoutMs`，此前调用链没打通）；`scene-plan/index.ts` 传 `60_000`；triage/codegen 不传用默认 180s
+  - 风险：plan reasoning 思考期（无 output 增长）可能 >60s → 误判 stalled；靠 partial 抢救兜底（plan 已有 extractJsonFromTruncated + isPlanTypesComplete 守卫）；✅ e2e 已验证（2026-09-03，plan 正常完成未误杀）
 
-- [ ] **P6-3. codegen prompt 模板瘦身**（投入小，收益中）
-  - 现状：codegen 模板 19K chars（含 Constraint 1-12 + few-shot + 契约规则），部分与 plan 模板重复
-  - 方案：审计 scene_3d_codegen.txt，删与 plan 重复的约束（plan 已确保的不再 codegen 重复）、合并冗余 few-shot、精简契约规则表述
-  - 预期：19K → ~12K，input 总量 47K → ~40K，output 不变但 TTFT 降低
-  - 风险：删约束可能致 codegen 质量回退（布局丢/契约违反）；需逐条评估哪些是 plan 已保证的
-  - 关联：Step8① plan 静态注入后部分 plan 约束已由 plan 输出保证，codegen 重复约束可删
+- [x] **P6-3. codegen prompt 模板瘦身** ✅ 已落地（2026-09-03）
+  - 现状：codegen 模板 19K chars（含 Constraint 1-13 + few-shot + 契约规则），Constraints 11-13 与 {HANDLER_CONTRACT} 规则 6-8 大量重复
+  - 方案：大示例砍到骨架（保留三骨架声明+关键行，注释标规则号）；Constraints 11-13 合并为 Constraint 9 引用契约；Constraints 3/4/5 精简为引用规则号+一句话；Role/Objective/Process 合并
+  - 落地：19133 → 12987 chars（砍 32%）；约束要点全保留（引用 {HANDLER_CONTRACT} 规则号而非重复详述）；input 总量 47K → ~41K
+  - 风险：约束以引用形式存在而非全文展开，LLM 需读 {HANDLER_CONTRACT} 才获全貌——但 codegen 模板底本就注入了完整 {HANDLER_CONTRACT}（15K），引用不丢信息；✅ e2e 已验证（2026-09-03，handler 三骨架/__id/applyOverride/布局均正常无回退）
 
 - [ ] **P6-4. triage→plan 合并（Step8②）**（投入中，收益小）
   - 现状：triage 12-39s（快）+ plan 144-296s，串行
