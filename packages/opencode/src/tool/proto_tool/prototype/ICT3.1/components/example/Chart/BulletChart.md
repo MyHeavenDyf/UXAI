@@ -1,8 +1,8 @@
-# BulletChart | 子弹图
+# BulletChart | 子弹图 示例
 
 The chart already includes a legend and does not require an additional one.
 
-### Example: Basic Bullet Chart
+## Example: Basic Bullet Chart
 - Data uses ranges, measures, and target values for comparison
 - `yAxisTitle` is the Y-axis visible label (required)
 
@@ -27,6 +27,6 @@ The chart already includes a legend and does not require an additional one.
 }
 ```
 
-### Optional Props (add to `option`)
+## Optional Props (add to `option`)
 - `"direction": "horizontal"` — horizontal bullet orientation
 - `"color": ["#2070F3", "#63b430"]` — custom bullet colors

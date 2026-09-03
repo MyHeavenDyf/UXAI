@@ -1,8 +1,8 @@
-# BarLineChart | 折柱混合图
+# BarLineChart | 折柱混合图 示例
 
 The chart already includes a legend and does not require an additional one.
 
-### Example: BarLineChart
+## Example: BarLineChart
 - Use `xAxis.data` to specify the field name for X-axis dimension
 - `yAxis` is the Y-axis (required)
 
@@ -52,5 +52,5 @@ The chart already includes a legend and does not require an additional one.
 }
 ```
 
-### Optional Props (add to `option`)
+## Optional Props (add to `option`)
 - `"markLine": { "top": 38, topUse: ['Domestic'] }` — threshold reference line

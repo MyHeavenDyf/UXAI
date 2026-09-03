@@ -1,5 +1,6 @@
 import "./octo-tokens.css"
 import "./components/slash-popover.css"
+import "../pattern/assets/style/chat/intent-confirm-card.css"
 import { type MentionSelection } from "./components/mention-popover"
 import { ProseMirrorEditor, getDocTextWithMentions, extractMentionsFromDoc, docJSONFromPlainText, type MentionAttrs } from "./components/prosemirror-editor"
 import { AddonMenu } from "./components/addon-menu"
@@ -116,6 +117,10 @@ import { extractSubtypeFromFilename } from "./utils/subtype-extractor"
 import { type VersionEntry } from "./utils/history-store"
 import { createHistoryController } from "./subtype-handlers/history-controller"
 import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
+import { IntentConfirmCard, type IntentConfirmAnswers } from "../pattern/modules/chat/intent-confirm-card"
+import { type IntentConfirmResult } from "../pattern/agents/proto-intent-confirm"
+import { type BlockModuleItem, getPagePatternResource, readPagePatternMd, getBlockPatternResource, getBlockContent } from "../pattern/utils/pattern-resource"
+import { scanPatternMatchFromMessages, scanModuleListFromMessages, isPatternSubConfirmed, type ModuleListResult } from "./utils/pattern-sub-scanner"
 
 // 图片走 base64 落库+每轮重发（膨胀 ~33%），且多数 provider 单图 base64 有硬上限
 const MAKE_IMAGE_MAX = 10 * 1024 * 1024
@@ -883,6 +888,28 @@ const sessionMessagesLoaded = createMemo(() => {
     return sid ? (planPhaseMap()[sid] ?? "strategy") : "strategy"
   })
 
+  // ── PatternPage 模式状态（子 session 模式，类 plan 流程） ───
+  const PATTERN_SUB_CHILD_LS = "ict_pattern_child:"
+  const PATTERN_SUB_ENDED_LS = "ict_pattern_ended:"
+  const PATTERN_SUB_USER_INPUT_LS = "ict_pattern_user_input:"
+  const PATTERN_SUB_STEP_LS = "ict_pattern_step:"
+  const [activePatternSessionId, setActivePatternSessionId] = createSignal<string | null>(null)
+  const [patternSubParentSessionId, setPatternSubParentSessionId] = createSignal<string | null>(null)
+  const [patternSubPhase, setPatternSubPhase] = createSignal<"match" | "module">("match")
+  const _patternSubChildCache: Record<string, string> = {}
+  const [showPatternPageConfirm, setShowPatternPageConfirm] = createSignal(false)
+  const [patternMatches, setPatternMatches] = createSignal<IntentConfirmResult | null>(null)
+  const [patternSubEnriching, setPatternSubEnriching] = createSignal(false)
+  const [patternBlockMatches, setPatternBlockMatches] = createSignal<BlockModuleItem[]>([])
+  const [patternBlockMatching, setPatternBlockMatching] = createSignal(false)
+  const [patternBlockMatchError, setPatternBlockMatchError] = createSignal(false)
+  const [patternUserInput, setPatternUserInput] = createSignal("")
+  const [optimisticPatternIntent, setOptimisticPatternIntent] = createSignal(false)
+  const [patternEnded, setPatternEnded] = createSignal(false)
+  /** 输入框中的 PatternPage 胶囊状态，用户提交后才创建子 session */
+  const [patternPageCapsule, setPatternPageCapsule] = createSignal(false)
+  const patternPageCapsuleActive = () => patternPageCapsule() && !activePatternSessionId() && !patternEnded()
+
   // 用于跟踪用户是否手动切换了 phase，防止 effect 自动切回
   const [userChangedPhase, setUserChangedPhase] = createSignal(false)
 
@@ -964,6 +991,22 @@ const sessionMessagesLoaded = createMemo(() => {
     } catch {
       // 静默失败
     }
+    return null
+  }
+
+  async function detectChildPatternSubSession(sid: string): Promise<string | null> {
+    if (!sdk.directory) return null
+    try {
+      const res = await sdk.client.session.list({ directory: sdk.directory })
+      const sessions = (res.data ?? []).filter((s: any) => !!s?.id)
+      const child = sessions.find((s: any) => s.parentID === sid && s.agent === "ict_pattern" && !s.time?.archived)
+      if (child) {
+        loadedChildSessions.add(child.id)
+        setChildSessionIDs((prev) => { const n = new Set(prev); n.add(child.id); return n })
+        await sync.session.sync(child.id)
+        return child.id
+      }
+    } catch { /* 静默失败 */ }
     return null
   }
 
@@ -1101,7 +1144,15 @@ const sessionMessagesLoaded = createMemo(() => {
     return !!planSid && sync.data.session_status[planSid]?.type === "busy"
   })
 
-  const effectiveBusy = createMemo(() => isBusy() || childBusy())
+  // pattern 子 session 是否正在工作（agent 处理 [模块匹配] 请求期间）
+  // 切换 session 后 patternBlockMatching 本地信号会被清零，
+  // 但 agent 可能仍在运行，用 session_status 派生真实忙碌状态
+  const patternChildBusy = createMemo(() => {
+    const sid = activePatternSessionId()
+    return !!sid && sync.data.session_status[sid]?.type === "busy"
+  })
+
+  const effectiveBusy = createMemo(() => isBusy() || childBusy() || patternBlockMatching() || patternChildBusy())
   const contextWarningVisible = createMemo(
     () =>
       !contextSendBlocked() &&
@@ -1767,6 +1818,58 @@ const sessionMessagesLoaded = createMemo(() => {
     { defer: true }
   ))
 
+  // ── ict_pattern 子 session memos + effects ──────────────
+  const patternSubMatchScanned = createMemo(() => {
+    const sid = activePatternSessionId(); if (!sid) return null
+    return scanPatternMatchFromMessages(sync.data.message?.[sid], sync.data.part)
+  })
+  const moduleListScanned = createMemo(() => {
+    const sid = activePatternSessionId(); if (!sid) return null
+    return scanModuleListFromMessages(sync.data.message?.[sid], sync.data.part)
+  })
+  // <module-list> 出现时自动切到 module 阶段
+  createEffect(on(() => {
+    const sid = activePatternSessionId(); if (!sid || patternSubPhase() === "module") return null
+    return moduleListScanned()
+  }, (ml) => { if (ml) setPatternSubPhase("module") }, { defer: true }))
+  // [模块匹配] 已发送但 agent 未响应时，也恢复到 module 阶段
+  // 覆盖场景：用户点"跳过"/"下一步"进入 Phase 2 后切换 session 或刷新页面，
+  // agent 仍在处理中（无 <module-list> 输出），用 user 消息中的 [模块匹配] 标记恢复阶段
+  createEffect(on(() => {
+    const sid = activePatternSessionId()
+    if (!sid || patternSubPhase() === "module") return false
+    const msgs = sync.data.message?.[sid]
+    if (!msgs) return false
+    return msgs.some((m: any) => {
+      if (m.role !== "user") return false
+      const text = (sync.data.part?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
+      return text?.includes("[模块匹配]")
+    })
+  }, (hasPrompt) => { if (hasPrompt) setPatternSubPhase("module") }, { defer: true }))
+  // <pattern-match> 扫描到后 enrich file/preview
+  createEffect(on(() => patternSubMatchScanned(), async (scanned, prev) => {
+    if (!scanned || scanned === prev) return
+    if (scanned.results.length === 0) { setPatternMatches(null); return }
+    setPatternSubEnriching(true)
+    try {
+      const enriched = await getPagePatternResource({ results: scanned.results })
+      setPatternMatches({ results: enriched.results as any, current_step: "intent_confirm" })
+    } catch (err) { console.error("[MakePage] enrich pattern match failed", err); setPatternMatches({ results: scanned.results as any, current_step: "intent_confirm" }) }
+    finally { setPatternSubEnriching(false) }
+  }, { defer: true }))
+  // <module-list> 扫描到后调 getBlockPatternResource 搜索向量库补全预览图
+  createEffect(on(() => moduleListScanned(), async (ml, prev) => {
+    if (!ml || ml === prev) return
+    setPatternBlockMatching(true)
+    setPatternBlockMatchError(false)
+    setPatternBlockMatches([])
+    try {
+      const result = await getBlockPatternResource({ modules: ml.modules })
+      setPatternBlockMatches(result.results ?? [])
+    } catch (err) { console.error("[MakePage] block pattern resource failed", err); setPatternBlockMatchError(true) }
+    finally { setPatternBlockMatching(false) }
+  }, { defer: true }))
+
   /** 用户点击 [策略生成] → 把表单数据发给子 agent，切换到第二阶段 */
   function handleGenerateStrategy() {
     const planSid = activePlanForCurrentSession()
@@ -1906,6 +2009,161 @@ const sessionMessagesLoaded = createMemo(() => {
     // end 不关闭规划通道，后续仍可再次触发设计规划
   }
 
+  // ── PatternPage 模式（子 session 模式，agent = ict_pattern） ──
+  // AddonMenu → 直接创建 ict_pattern 子 session（无确认弹窗）
+  // Phase 1 (match): ict_pattern 输出 <pattern-match> → enrich → IntentConfirmCard Step 1
+  // Phase 2 (module): 前端发 [模块匹配] + 页面规范 → ict_pattern 输出 <module-list> → getBlockPatternResource → IntentConfirmCard Step 2
+  // 确认 → [confirm-pattern-page] + 模块列表 + block 内容发给主 agent
+
+  /** AddonMenu「进入patternPage模式」→ 显示输入框胶囊，用户提交后才创建子 session */
+  function handleOpenPatternPageConfirm() {
+    if (activePatternSessionId() || patternPageCapsule()) return
+    setPatternEnded(false)
+    setPatternPageCapsule(true)
+    requestAnimationFrame(() => textareaRef?.focus())
+  }
+
+  function handleCancelPatternPageComposer() {
+    setPatternPageCapsule(false)
+    setOptimisticPatternIntent(false)
+  }
+
+  /** 用户点击 [进入] → 创建 ict_pattern 子 session */
+  async function handleEnterPatternPage() {
+    const sid = params.id
+    const modelKey = activeModelKey()
+    if (!sid || !modelKey) return
+    if (optimisticPatternIntent()) return
+    setOptimisticPatternIntent(true)
+    setPatternEnded(false)
+    if (sid) localStorage.removeItem(PATTERN_SUB_ENDED_LS + sid)
+    try {
+      const dir = sdk.directory
+      if (!dir) throw new Error("No directory")
+      const userMsgs = userMessages()
+      const lastUserMsg = userMsgs[userMsgs.length - 1]
+      const rawText = lastUserMsg ? (sync.data.part[lastUserMsg.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n") : ""
+      const userInput = rawText.replace(/^[\s\S]*?---\n/, "").trim()
+      setPatternUserInput(userInput)
+      if (userInput) localStorage.setItem(PATTERN_SUB_USER_INPUT_LS + sid, userInput)
+
+      const result = await sdk.client.session.create({ directory: dir, parentID: sid, agent: "ict_pattern" })
+      const childSession = result.data as Session | undefined
+      if (!childSession) throw new Error("Failed to create ict_pattern session")
+      loadedChildSessions.add(childSession.id)
+      setChildSessionIDs((prev) => { const n = new Set(prev); n.add(childSession.id); return n })
+      setActivePatternSessionId(childSession.id)
+      localStorage.setItem(PATTERN_SUB_CHILD_LS + sid, childSession.id)
+      _patternSubChildCache[sid] = childSession.id
+      setPatternSubParentSessionId(sid)
+      setPatternSubPhase("match")
+      localStorage.setItem(PATTERN_SUB_STEP_LS + sid, "patterns")
+      setPatternMatches(null)
+      setPatternBlockMatches([])
+      setPatternBlockMatching(false)
+      sync.session.sync(childSession.id).catch((err: any) => console.warn("[MakePage] sync ict_pattern child failed", err))
+
+      // 有输入直接发，无输入等用户提交
+      if (userInput) {
+        sdk.client.session.prompt({ sessionID: childSession.id, agent: "ict_pattern", model: modelKey, parts: [{ type: "text", text: userInput }] })
+          .catch((err: any) => { console.error("[MakePage] prompt ict_pattern failed", err); setOptimisticPatternIntent(false) })
+      } else {
+        requestAnimationFrame(() => textareaRef?.focus())
+      }
+    } catch (err) { console.error("[MakePage] enter ict_pattern failed", err); setOptimisticPatternIntent(false) }
+  }
+
+  /** IntentConfirmCard onMatchPattern：用户选定 Pattern → 拉页面规范 MD → 发 [模块匹配] */
+  async function handleMatchPattern(selectedItem: any) {
+    const subSid = activePatternSessionId()
+    const mk = activeModelKey()
+    if (!subSid || !mk) return
+    setPatternSubPhase("module")
+    setPatternBlockMatching(true)
+    setPatternBlockMatchError(false)
+    setPatternBlockMatches([])
+    let pageSpecMd = ""
+    if (selectedItem?.file) {
+      const mdResult = await readPagePatternMd(selectedItem.file)
+      if (mdResult.success && mdResult.content) {
+        // 输入完整数据
+        const sepIdx = mdResult.content.indexOf('\n---\n');
+        if(sepIdx === -1) {
+          pageSpecMd = mdResult.content
+        } else {
+          const firstPart = mdResult.content.slice(0, sepIdx + 5);
+          const rest = mdResult.content.slice(sepIdx + 5);
+          pageSpecMd = firstPart + rest.replaceAll('\n---\n', '')
+        }
+      } 
+    }
+    const ui = patternUserInput() || selectedItem?.name || ""
+    const prompt = `[模块匹配]\n\nPattern: ${selectedItem?.name ?? ""} (ID: ${selectedItem?.id ?? ""})\n\n【1.典型页面规范】\n${pageSpecMd || "（未获取到页面规范，请基于 Pattern 名称自行推演）"}\n\n【2.用户业务需求描述】\n${ui}`
+    sendMessage(subSid, prompt, mk).catch((err) => { console.error("[MakePage] select pattern sub failed", err); setPatternBlockMatching(false); setPatternSubPhase("match") })
+  }
+
+  /** IntentConfirmCard onConfirm：用户选定 block → 下载 content → 保存 pattern 数据到 outputs（不生成 HTML） */
+  async function handleConfirmPatternPage(_answers?: IntentConfirmAnswers, _enrichedInput?: string, selectedBlocks?: BlockModuleItem[]) {
+    const mainSid = patternSubParentSessionId() ?? params.id
+    // 立即关闭弹框
+    setPatternMatches(null)
+    setPatternBlockMatches([])
+    setPatternBlockMatching(false)
+    if (!mainSid) return
+    let blocksToSend: BlockModuleItem[] = []
+    if (selectedBlocks && selectedBlocks.length > 0) {
+      try { blocksToSend = (await getBlockContent({ results: selectedBlocks }, mainSid)).results } catch (err) { console.error("[MakePage] getBlockContent failed", err) }
+    }
+    // 保存 pattern 数据到 session 的 outputs 目录（不生成 HTML，不调用 agent）
+    const folderProjDir = projectDir()
+    if (folderProjDir) {
+      const api = getDesktopApi()
+      if (api?.writeFileBuffer) {
+        const sep = folderProjDir.includes("\\") ? "\\" : "/"
+        const outputsDir = [folderProjDir, ".octo", mainSid, "outputs"].join(sep)
+        const encoder = new TextEncoder()
+        const payload = JSON.stringify({
+          blocks: blocksToSend.map(({ id: _id, file: _file, preview: _preview, ...rest }) => rest),
+        }, null, 2)
+        try {
+          const filePath = [outputsDir, "pattern.json"].join(sep)
+          const buffer = encoder.encode(payload).buffer as ArrayBuffer
+          await api.writeFileBuffer(filePath, buffer)
+        } catch (err) { console.error("[MakePage] write pattern.json failed:", err) }
+      }
+    }
+    // 关闭匹配弹窗，但保持 pattern 模式：用户可继续在输入框输入需求，
+    // 后续消息仍路由到 ict_pattern agent，直到点击 banner 退出按钮才退出
+    setPatternMatches(null)
+    setPatternBlockMatches([])
+    setPatternBlockMatching(false)
+    setPatternSubPhase("match")
+    setOptimisticPatternIntent(false)
+  }
+
+  /** 用户点击 [退出] → 中止子 session + 退出 */
+  function handleEndPatternPage() {
+    const subSid = activePatternSessionId()
+    if (subSid) sdk.client.session.abort({ sessionID: subSid }).catch(() => {})
+    setActivePatternSessionId(null)
+    setPatternSubParentSessionId(null)
+    setPatternSubPhase("match")
+    setOptimisticPatternIntent(false)
+    setPatternMatches(null)
+    setPatternBlockMatches([])
+    setPatternBlockMatching(false)
+    setPatternBlockMatchError(false)
+    setPatternSubEnriching(false)
+    setPatternEnded(true)
+    setShowPatternPageConfirm(false)
+    const sid = params.id
+    if (sid) {
+      localStorage.setItem(PATTERN_SUB_ENDED_LS + sid, "true")
+      localStorage.removeItem(PATTERN_SUB_USER_INPUT_LS + sid)
+      localStorage.removeItem(PATTERN_SUB_STEP_LS + sid)
+    }
+  }
+
   // ── 设计规划阶段引导 ─────────────────────────────
   // 进入设计规划：用户点击 AddonMenu「进入设计规划」→ 弹出确认弹窗 → 确认后创建子 session
 
@@ -1917,6 +2175,7 @@ const sessionMessagesLoaded = createMemo(() => {
   const [showPlanConfirm, setShowPlanConfirm] = createSignal(false)
   createEffect(on(() => params.id, () => {
     setOptimisticIntentResolved(false)
+    setOptimisticPatternIntent(false)
     if (params.id) clearPlanComposerCapsule()
   }, { defer: true }))
 
@@ -2036,6 +2295,19 @@ const sessionMessagesLoaded = createMemo(() => {
           if (prevSid) setPlanPhaseMap(prev => ({ ...prev, [prevSid]: "strategy" }))
           setManualStrategyFormData({})
           setPhase2Pending(false)
+          // 清理 patternPage 状态
+          setActivePatternSessionId(null)
+          setPatternSubParentSessionId(null)
+          setPatternSubPhase("match")
+          setPatternMatches(null)
+          setPatternBlockMatches([])
+          setPatternBlockMatching(false)
+          setPatternBlockMatchError(false)
+          setPatternSubEnriching(false)
+          setPatternEnded(false)
+          setPatternPageCapsule(false)
+          setOptimisticPatternIntent(false)
+          setShowPatternPageConfirm(false)
         }
         return
       }
@@ -2045,11 +2317,34 @@ const sessionMessagesLoaded = createMemo(() => {
       // 仅在 session 实际切换时清理规划状态,避免 handleEnterPlan 等操作
       // 触发 sync.data.session 更新后重新进入此 effect 时错误地清除状态。
       tabStore.reset()
+      // preservingPlanNavigation 时也要清理 patternPage 状态（新建 session 场景）
+      if (newSid !== prevSid && _enteringPlan) {
+        setPatternEnded(false)
+        setPatternPageCapsule(false)
+        setOptimisticPatternIntent(false)
+        setActivePatternSessionId(null)
+        setPatternSubParentSessionId(null)
+        setPatternSubPhase("match")
+        setPatternMatches(null)
+        setPatternBlockMatches([])
+        setPatternBlockMatching(false)
+        setPatternBlockMatchError(false)
+        setPatternSubEnriching(false)
+      }
       if (newSid !== prevSid && !_enteringPlan) {
         // 缓存前一个 session 的规划子 session，切回时立即恢复
         if (prevSid && activePlanSessionId()) {
           _planChildSessionCache[prevSid] = activePlanSessionId()!
           localStorage.setItem(PLAN_CHILD_LOCALSTORAGE_PREFIX + prevSid, activePlanSessionId()!)
+        }
+        // 缓存前一个 session 的 patternPage 子 session，切回时立即恢复
+        if (prevSid && activePatternSessionId()) {
+          _patternSubChildCache[prevSid] = activePatternSessionId()!
+          localStorage.setItem(PATTERN_SUB_CHILD_LS + prevSid, activePatternSessionId()!)
+          // 缓存用户输入，切回时恢复 patternPage 匹配弹窗所需的状态
+          const cachedInput = patternUserInput()
+          if (cachedInput) localStorage.setItem(PATTERN_SUB_USER_INPUT_LS + prevSid, cachedInput)
+          else localStorage.removeItem(PATTERN_SUB_USER_INPUT_LS + prevSid)
         }
         // 清理前一个 session 的子 session 记录
         setChildSessionIDs(new Set<string>())
@@ -2066,6 +2361,18 @@ const sessionMessagesLoaded = createMemo(() => {
         setUserChangedPhase(false)  // 重置手动切换标记
         setManualStrategyFormData({})
         setPhase2Pending(false)
+        // 清理 patternPage 状态
+        setActivePatternSessionId(null)
+        setPatternSubParentSessionId(null)
+        setPatternSubPhase("match")
+        setPatternMatches(null)
+        setPatternBlockMatches([])
+        setPatternBlockMatching(false)
+        setPatternBlockMatchError(false)
+        setPatternSubEnriching(false)
+        setPatternEnded(false)
+        setShowPatternPageConfirm(false)
+        setPatternPageCapsule(false)
         setPlanEndedMap(prev => ({ ...prev, [newSid!]: false }))  // 复位结束状态，新 session 的恢复逻辑会重新设置
       }
       // 尝试恢复当前主 session 的设计规划子 session（仅在 session 实际切换时）
@@ -2160,6 +2467,62 @@ const sessionMessagesLoaded = createMemo(() => {
       setMentionState(null)
       setSlashState(null)
 
+      // ── ict_pattern 子 session 恢复 ──────────────────
+      let restoredPatternSubSid: string | null = null
+      if (newSid && _patternSubChildCache[newSid]) restoredPatternSubSid = _patternSubChildCache[newSid]
+      // 从 sync.data.session 同步扫描
+      if (allSessions) {
+        for (const s of allSessions) {
+          if ((s as any).parentID === newSid && (s as any).agent === "ict_pattern" && !(s as any).time?.archived) {
+            loadedChildSessions.add((s as any).id)
+            setChildSessionIDs((prev) => { const n = new Set(prev); n.add((s as any).id); return n })
+            sync.session.sync((s as any).id).catch(() => {})
+            restoredPatternSubSid = (s as any).id
+            break
+          }
+        }
+      }
+      if (restoredPatternSubSid) {
+        // 检查是否已被用户退出（持久化标记）
+        const isPatternEnded = !!localStorage.getItem(PATTERN_SUB_ENDED_LS + newSid)
+        if (isPatternEnded) {
+          // 已退出：只保留历史记录，不恢复为活跃状态（仍同步子 session 消息供查看）
+          if (!loadedChildSessions.has(restoredPatternSubSid)) {
+            loadedChildSessions.add(restoredPatternSubSid)
+            setChildSessionIDs((prev) => { const n = new Set(prev); n.add(restoredPatternSubSid); return n })
+            sync.session.sync(restoredPatternSubSid).catch(() => {})
+          }
+          setPatternEnded(true)
+        } else {
+          // 确保子 session 消息已同步（类似 plan 模式恢复逻辑），
+          // 这样 patternSubMatchScanned / moduleListScanned memo 才能重新计算，
+          // 进而触发 enrich effect 恢复页面匹配弹窗 / 模块匹配弹窗数据
+          if (!loadedChildSessions.has(restoredPatternSubSid)) {
+            loadedChildSessions.add(restoredPatternSubSid)
+            setChildSessionIDs((prev) => { const n = new Set(prev); n.add(restoredPatternSubSid); return n })
+            sync.session.sync(restoredPatternSubSid).catch(() => {})
+          }
+          setActivePatternSessionId(restoredPatternSubSid)
+          setPatternSubParentSessionId(newSid)
+          // 恢复用户输入（handleMatchPattern Phase 2 拼装所需）
+          setPatternUserInput(localStorage.getItem(PATTERN_SUB_USER_INPUT_LS + newSid) ?? "")
+          const subMsgs = sync.data.message?.[restoredPatternSubSid]
+          const hasModuleList = subMsgs?.some((m: any) => {
+            if (m.role !== "assistant") return false
+            const text = (sync.data.part?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
+            return text?.includes("<module-list>")
+          })
+          // agent 未响应 <module-list> 时，检查用户是否已发过 [模块匹配] 请求
+          // 如果已发送（用户点"跳过"/"下一步"进入 Phase 2），也应恢复到 module 阶段
+          const hasModuleMatchPrompt = subMsgs?.some((m: any) => {
+            if (m.role !== "user") return false
+            const text = (sync.data.part?.[m.id] ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n")
+            return text?.includes("[模块匹配]")
+          })
+          setPatternSubPhase(hasModuleList || hasModuleMatchPrompt ? "module" : "match")
+        }
+      }
+
       // 第一阶段：主 session 数据同步完成后，通过 API 发现并同步全部子 session。
       // sync.data.session 只包含根 session，不能用它发现子 session。
       const capturedSid = newSid
@@ -2191,6 +2554,20 @@ const sessionMessagesLoaded = createMemo(() => {
         }).finally(() => {
           if (params.id === newSid) setPhase2Pending(false)
         })
+      }
+
+      // ict_pattern 子 session 异步恢复（跨重启 fallback）
+      if (!restoredPatternSubSid) {
+        detectChildPatternSubSession(newSid).then((childId) => {
+          if (!childId || activePatternSessionId() || params.id !== newSid) return
+          if (localStorage.getItem(PATTERN_SUB_ENDED_LS + newSid)) { setPatternEnded(true); return }
+          loadedChildSessions.add(childId)
+          setChildSessionIDs((prev) => { const n = new Set(prev); n.add(childId); return n })
+          sync.session.sync(childId).catch(() => {})
+          setActivePatternSessionId(childId)
+          setPatternSubParentSessionId(newSid)
+          setPatternUserInput(localStorage.getItem(PATTERN_SUB_USER_INPUT_LS + newSid) ?? "")
+        }).catch(() => {})
       }
       return
 
@@ -2809,11 +3186,12 @@ const sessionMessagesLoaded = createMemo(() => {
       // 模型回复期间靠 effectiveBusy() (handleSubmit 入口处 early-return) 防重入。
       void sdk.client.session.prompt({
         sessionID: sessionId,
-        agent: sessionId === activePlanSessionId() ? "octo_make_plan" : "octo_make",
+        agent: sessionId === activePlanSessionId() ? "octo_make_plan" : sessionId === activePatternSessionId() ? "ict_pattern" : "octo_make",
         ...(modelKey ? { model: modelKey } : {}),
         parts,
       }).catch(err => {
         console.error("[MakePage] prompt failed", err)
+        showOctoToast({ title: "发送失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
       })
       // 不在此清空附件：session.prompt 是 streaming API，await 在 stream 完成才 resolve。
       // 附件已在 sendMessage 开头（约 2223 行）快照后立即清空，此处再清会误清
@@ -2821,6 +3199,7 @@ const sessionMessagesLoaded = createMemo(() => {
       requestAnimationFrame(() => autoScroll.forceScrollToBottom())
     } catch (err) {
       console.error("[MakePage] prompt failed", err)
+      showOctoToast({ title: "发送失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
     }
   }
 
@@ -2869,9 +3248,12 @@ const sessionMessagesLoaded = createMemo(() => {
     if (!text.trim()) return
 
     const shouldStartInitialPlan = !params.id && planComposerActive()
+    const shouldStartPatternPage = patternPageCapsuleActive()
     setSending(true)
     setPrompt("")
     if (shouldStartInitialPlan) clearPlanComposerCapsule()
+    if (shouldStartPatternPage) setPatternPageCapsule(false)
+    setPatternUserInput(text.replace(/^[\s\S]*?---\n/, "").trim())
     proseMirrorRef1?.clear()
     proseMirrorRef2?.clear()
     // 新建 session 时立即清除规划子 session 状态，防止旧 plan 会话的 SID 泄漏到新会话
@@ -2882,7 +3264,13 @@ const sessionMessagesLoaded = createMemo(() => {
       loadedChildSessions.clear()
     }
     const planSid = activePlanSessionId() && planParentSessionId() === params.id ? activePlanSessionId() : null
-    const submitSessionId = planSid || params.id
+    const patternSubSid = activePatternSessionId() && patternSubParentSessionId() === params.id ? activePatternSessionId() : null
+    const submitSessionId = planSid || patternSubSid || params.id
+    // patternPage 模式：记录用户输入用于后续 Phase 2 拼装
+    if (patternSubSid) {
+      setPatternUserInput(text)
+      if (params.id) localStorage.setItem(PATTERN_SUB_USER_INPUT_LS + params.id, text)
+    }
     try {
       let sid = submitSessionId
       if (!sid) {
@@ -2952,6 +3340,35 @@ const sessionMessagesLoaded = createMemo(() => {
           return
         }
 
+        // 无 session + PatternPage 胶囊：创建主 session + ict_pattern 子 session
+        if (shouldStartPatternPage) {
+          const dir2 = sdk.directory
+          const userInput2 = text.replace(/^[\s\S]*?---\n/, "").trim()
+          const patternChild = await sdk.client.session.create({ directory: dir2, parentID: session.id, agent: "ict_pattern" })
+          const patternChildSession = patternChild.data as Session | undefined
+          if (patternChildSession) {
+            loadedChildSessions.add(patternChildSession.id)
+            setChildSessionIDs((prev) => { const n = new Set(prev); n.add(patternChildSession.id); return n })
+            setActivePatternSessionId(patternChildSession.id)
+            setPatternSubParentSessionId(session.id)
+            localStorage.setItem(PATTERN_SUB_CHILD_LS + session.id, patternChildSession.id)
+            _patternSubChildCache[session.id] = patternChildSession.id
+            if (userInput2) localStorage.setItem(PATTERN_SUB_USER_INPUT_LS + session.id, userInput2)
+            setPatternSubPhase("match")
+            setPatternMatches(null)
+            await sync.session.sync(patternChildSession.id)
+          }
+          local.session.promote(sdk.directory, session.id)
+          navigate(`/make/${session.id}`)
+          if (patternChildSession && userInput2) {
+            await sdk.client.session.prompt({
+              sessionID: patternChildSession.id, agent: "ict_pattern", model: capturedModelKey,
+              parts: [{ type: "text", text: userInput2 }],
+            })
+          }
+          return
+        }
+
         await movePendingUploadsToSession(session.id)
 
       // 如果用户没有手动选择 spec，检查是否有存量配置
@@ -2994,12 +3411,34 @@ if (dsId) {
         sid = session.id
       }
       autoScroll.forceScrollToBottom()
-      await sendMessage(sid, text, capturedModelKey, mentions)
+      // 有 session + PatternPage 胶囊：创建 ict_pattern 子 session，消息发给子 session
+      if (shouldStartPatternPage && sid && !shouldStartInitialPlan) {
+        const dir2 = sdk.directory
+        if (dir2) {
+          const patternChild = await sdk.client.session.create({ directory: dir2, parentID: sid, agent: "ict_pattern" })
+          const patternChildSession = patternChild.data as Session | undefined
+          if (patternChildSession) {
+            loadedChildSessions.add(patternChildSession.id)
+            setChildSessionIDs((prev) => { const n = new Set(prev); n.add(patternChildSession.id); return n })
+            setActivePatternSessionId(patternChildSession.id)
+            setPatternSubParentSessionId(sid)
+            localStorage.setItem(PATTERN_SUB_CHILD_LS + sid, patternChildSession.id)
+            _patternSubChildCache[sid] = patternChildSession.id
+            setPatternSubPhase("match")
+            setPatternMatches(null)
+            sync.session.sync(patternChildSession.id).catch(() => {})
+            await sendMessage(patternChildSession.id, text, capturedModelKey, mentions)
+          }
+        }
+      } else {
+        await sendMessage(sid, text, capturedModelKey, mentions)
+      }
     } catch (err) {
       console.error("[MakePage] handleSubmit failed", err)
+      showOctoToast({ title: "发送失败", description: err instanceof Error ? err.message : String(err), variant: "error" })
     } finally {
       // 重置 sending：如果是主 session 或 plan 子 session 且未切换，则允许重置
-      if (!submitSessionId || params.id === submitSessionId || (planSid && activePlanSessionId() === planSid)) {
+      if (!submitSessionId || params.id === submitSessionId || (planSid && activePlanSessionId() === planSid) || (patternSubSid && activePatternSessionId() === patternSubSid)) {
         setSending(false)
       }
     }
@@ -4283,8 +4722,25 @@ if (dsId) {
                       )}
                     </Show>
 
-                   <div
-                     class="rounded-[24px] flex flex-col transition-all duration-300 relative group"
+                    {/* IntentConfirmCard (prototype 弹窗) — 跨 match + module 两阶段 - empty state */}
+                    <Show when={patternMatches() && !patternEnded()}>
+                      <div class="ic-card-overlay">
+                        <IntentConfirmCard
+                          sessionId={params.id ?? ""}
+                          result={patternMatches()!}
+                          blockMatches={patternBlockMatches()}
+                          blockMatching={patternBlockMatching() || patternChildBusy()}
+                          blockMatchError={patternBlockMatchError()}
+                          initialStep={(localStorage.getItem(PATTERN_SUB_STEP_LS + (params.id ?? "")) as "patterns" | "blocks" | null) ?? (patternSubPhase() === "module" ? "blocks" : "patterns")}
+                          onMatchPattern={handleMatchPattern}
+                          onConfirm={handleConfirmPatternPage}
+                          onStepChange={(step) => { const sid = params.id; if (sid) localStorage.setItem(PATTERN_SUB_STEP_LS + sid, step) }}
+                        />
+                      </div>
+                    </Show>
+
+                    <div
+                      class="rounded-[24px] flex flex-col transition-all duration-300 relative group"
                     style={{
                       border: "1px solid transparent",
                       background: `
@@ -4306,6 +4762,15 @@ if (dsId) {
                         <button type="button" class="make-plan-capsule" onClick={handleCancelPlanComposer}>
                           <span class="make-plan-capsule-icon">✦</span>
                           <span>设计策略模式</span>
+                          <span class="make-plan-capsule-close">×</span>
+                        </button>
+                      </div>
+                    </Show>
+                    <Show when={patternPageCapsuleActive()}>
+                      <div class="make-plan-capsule-row">
+                        <button type="button" class="make-plan-capsule" onClick={handleCancelPatternPageComposer}>
+                          <span class="make-plan-capsule-icon">✦</span>
+                          <span>PatternPage 模式</span>
                           <span class="make-plan-capsule-close">×</span>
                         </button>
                       </div>
@@ -4413,6 +4878,8 @@ onPreview={(url) => {
                           productId={projectSelection()?.product?.id}
                           onEnterDesignStrategy={handleOpenPlanConfirm}
                           planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
+                          onEnterPatternPage={handleOpenPatternPageConfirm}
+                          patternPageActive={params.id ? (activePatternSessionId() !== null && !patternEnded()) : patternPageCapsuleActive()}
                           onOpen={loadSkillConfig}
                           disabled={maxAttachments()}
                         />
@@ -4498,6 +4965,29 @@ onPreview={(url) => {
                         </button>
                       </div>
                     </Show>
+
+                    {/* Pattern 匹配模式 banner — 退出按钮才退出 pattern 模式 */}
+                    <Show when={activePatternSessionId() && !patternEnded()}>
+                      <div
+                        class="flex items-center justify-between mx-3"
+                        style={{
+                          height: "48px",
+                          padding: "0 16px",
+                          "border-radius": "12px",
+                          border: "1px solid rgba(0,0,0,0.1)",
+                          background: "linear-gradient(90deg, rgb(245, 248, 255), rgb(255, 255, 255) 50%)",
+                        }}
+                      >
+                        <div class="flex items-center gap-[8px]">
+                          <span style={{ "font-size": "16px" }}>✦</span>
+                          <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0,0,0,0.9)" }}>Pattern 匹配模式</span>
+                        </div>
+                        <button type="button" onClick={handleEndPatternPage} class="shrink-0 transition-colors cursor-pointer" style={{ "font-size": "14px", "line-height": "22px", color: "#0a59f7", background: "transparent", border: "none" }}>
+                          退出
+                        </button>
+                      </div>
+                    </Show>
+
                     <Show when={userMessages().length > 0}>
                       <InsightTurn
                         sessionID={userMessages()[0].sessionID || params.id!}
@@ -4575,7 +5065,37 @@ onPreview={(url) => {
               </div>
 
               {/* 输入区 */}
-              <div class="shrink-0" style={{ padding: "24px", background: "#fff" }}>
+              <div class="shrink-0 relative" style={{ padding: "24px", background: "#fff" }}>
+
+                  <Show when={contextSendBlocked() && contextLimit()}>
+                    {(limit) => (
+                      <div class="make-context-warning-wrap">
+                        <ContextOverflowNotice
+                          class="w-full"
+                          tokens={contextTokens()}
+                          limit={limit()}
+                          locale={language.intl()}
+                          disabled={contextCompactionDisabled()}
+                          onCompact={confirmCompactContext}
+                        />
+                      </div>
+                    )}
+                  </Show>
+
+                  <Show when={contextWarningVisible() && contextLimit()}>
+                    {(limit) => (
+                      <div class="make-context-warning-wrap">
+                        <ContextUsageWarning
+                          tokens={contextTokens()}
+                          limit={limit()}
+                          locale={language.intl()}
+                          disabled={contextCompactionDisabled()}
+                          onIgnore={() => setIgnoredContextWarningSession(params.id)}
+                          onCompact={confirmCompactContext}
+                        />
+                      </div>
+                    )}
+                  </Show>
 
                   <Show when={contextSendBlocked() && contextLimit()}>
                     {(limit) => (
@@ -4614,6 +5134,24 @@ onPreview={(url) => {
                       onSkip={() => setShowPlanConfirm(false)}
                     />
                   </Show>
+
+                  {/* IntentConfirmCard (prototype 弹窗) — 跨 match + module 两阶段 */}
+                  <Show when={patternMatches() && !patternEnded()}>
+                    <div class="ic-card-overlay">
+                      <IntentConfirmCard
+                        sessionId={params.id ?? ""}
+                        result={patternMatches()!}
+                        blockMatches={patternBlockMatches()}
+                        blockMatching={patternBlockMatching() || patternChildBusy()}
+                        blockMatchError={patternBlockMatchError()}
+                        initialStep={(localStorage.getItem(PATTERN_SUB_STEP_LS + (params.id ?? "")) as "patterns" | "blocks" | null) ?? (patternSubPhase() === "module" ? "blocks" : "patterns")}
+                        onMatchPattern={handleMatchPattern}
+                        onConfirm={handleConfirmPatternPage}
+                        onStepChange={(step) => { const sid = params.id; if (sid) localStorage.setItem(PATTERN_SUB_STEP_LS + sid, step) }}
+                      />
+                    </div>
+                  </Show>
+
                   {/* Permission dock - 权限授权 UI */}
                   <Show when={permissionRequest()} keyed>
                     {(request) => (
@@ -4772,6 +5310,8 @@ onPreview={(url) => {
                         productId={projectSelection()?.product?.id}
                         onEnterDesignStrategy={handleOpenPlanConfirm}
                         planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
+                        onEnterPatternPage={handleOpenPatternPageConfirm}
+                        patternPageActive={params.id ? (activePatternSessionId() !== null && !patternEnded()) : patternPageCapsuleActive()}
                         onOpen={loadSkillConfig}
                         disabled={maxAttachments()}
                       />

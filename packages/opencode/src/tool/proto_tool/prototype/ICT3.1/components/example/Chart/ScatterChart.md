@@ -1,8 +1,8 @@
-# ScatterChart | 散点图
+# ScatterChart | 散点图 示例
 
 The chart already includes a legend and does not require an additional one.
 
-### Example: Basic Scatter Chart
+## Example: Basic Scatter Chart
 - Data uses series name as key with arrays of point objects (`xAxis`, `yAxis`)
 - `yAxisTitle` is the Y-axis visible label (required)
 
@@ -35,6 +35,6 @@ The chart already includes a legend and does not require an additional one.
 }
 ```
 
-### Optional Props (add to `option`)
+## Optional Props (add to `option`)
 - `"color": ["#2070F3", "#63b430"]` — custom scatter colors
 - `"markPoint": { "data": [{ "type": "max", "name": "Max" }] }` — mark specific data points

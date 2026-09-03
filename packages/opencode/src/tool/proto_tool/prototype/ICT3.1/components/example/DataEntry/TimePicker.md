@@ -1,6 +1,6 @@
-# TimePicker | 时间选择器
+# TimePicker | 时间选择器 示例
 
-### Example: Basic TimePicker
+## Example: Basic TimePicker
 
 ```json
 {
@@ -13,7 +13,7 @@
 }
 ```
 
-### Example: TimePicker with range (true)
+## Example: TimePicker with range (true)
 
 ```json
 {
@@ -28,7 +28,7 @@
 
 ```
 
-### Example: TimePicker with size 
+## Example: TimePicker with size 
 
 ```json
 {
@@ -42,7 +42,7 @@
 }
 ```
 
-### Example: TimePicker with format
+## Example: TimePicker with format
 
 ```json
 {

@@ -1,8 +1,8 @@
-# RadarChart | 雷达图
+# RadarChart | 雷达图 示例
 
 The chart already includes a legend and does not require an additional one.
 
-### Example: Basic Radar Chart
+## Example: Basic Radar Chart
 - Use `data` prop with series name as key and dimension-value pairs as value
 - Use `radarMax` to set the maximum value for the outermost circle
 
@@ -26,7 +26,7 @@ The chart already includes a legend and does not require an additional one.
 }
 ```
 
-### Optional Props (add to `option`)
+## Optional Props (add to `option`)
 - `"area": { "show": false }` — control radar area fill (default true)
 - `"color": ["#2db8ca"]` — custom radar color
 - `"markLine": 81` — threshold circle line
