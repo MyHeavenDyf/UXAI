@@ -116,6 +116,12 @@ export interface InlineDecision {
   unknownCount: number
 }
 
+function inlinePathKey(path: string) {
+  return /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\")
+    ? path.replace(/\//g, "\\").toLowerCase()
+    : path
+}
+
 /**
  * SPEC-INS-032 §2.3.2：**发送前**按总字节确定性分层，不交给模型判断。
  *
@@ -130,18 +136,19 @@ export function decideInlineStrategy(input?: InlineFileInput[]): InlineDecision 
 
   for (const f of input ?? []) {
     // 同一文件既是本轮附件、又被 `@` 引用时只算一次（与下方组装的去重口径一致）
-    if (seenPaths.has(f.path)) continue
+    const key = inlinePathKey(f.path)
+    if (seenPaths.has(key)) continue
 
     // 文档类（office / pdf）走**份数**口径：发送前只有二进制大小、拿不到正文体量，不并入字节预算。
     if (isExtractableDocFile(f.filename)) {
-      seenPaths.add(f.path)
+      seenPaths.add(key)
       docs.push({ filename: f.filename, path: f.path, bytes: f.bytes ?? 0 })
       continue
     }
     // 图片走 vision，两个口径都不参与
     if (!isTextInlineFile(f.filename)) continue
 
-    seenPaths.add(f.path)
+    seenPaths.add(key)
     if (f.bytes == null) unknownCount++
     files.push({ filename: f.filename, path: f.path, bytes: f.bytes ?? 0 })
   }

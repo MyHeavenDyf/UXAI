@@ -77,6 +77,7 @@ import { assembleInsightParts, decideInlineStrategy, INLINE_BUDGET, SINGLE_DOC_L
 import { currentAccount } from "./utils/account"
 import { snapshotAttachmentsForQueue } from "./utils/queue-drain"
 import { splitMentions, queuedMentions } from "./utils/mention"
+import { formatPromptLocalDocuments, resolvePromptLocalDocuments } from "./utils/prompt-local-files"
 import { showToast } from "@opencode-ai/ui/toast"
 import { resolveOutputType } from "./utils/output-type"
 import { isPendingUploadPath } from "./utils/worktree-layout"
@@ -1202,8 +1203,8 @@ function InsightContent() {
       localFiles.map((a) => ({ filename: a.filename, path: resolvedPath(a) })),
     )
 
-    // SPEC-INS-032 §2.3:内联分层判定 —— 本轮可内联文本材料的**总字节**超预算就整批不内联,
-    // 改由父代理逐份派 insight_reader 子代理通读。判定在**发送前确定性完成**,不交给模型判断。
+    // SPEC-INS-032 §2.3:内联分层判定 —— 附件、@引用和正文里已确认存在的本地文件一起判定；
+    // 文本材料总字节超预算或 office/pdf 达到份数阈值时，改由父代理逐份派 insight_reader 通读。
     // 字节数:附件直接用 Attachment.size;`@` 引用的会话文件没有 size 字段,用 readFileBuffer 补
     // (读失败按未知计 → 计 0 字节,该文件本就内联不进上下文,不该因此把整批拖进分治)。
     const mentionFiles = opts.mentions?.files ?? []
@@ -1221,9 +1222,11 @@ function InsightContent() {
         }),
       )
     }
+    const promptLocalDocuments = await resolvePromptLocalDocuments(text, getDesktopApi())
     const inlineFiles = [
       ...localFiles.map((a) => ({ filename: a.filename, path: resolvedPath(a), bytes: a.size })),
       ...mentionFiles.map((f) => ({ ...f, bytes: mentionBytes.get(f.path) })),
+      ...promptLocalDocuments,
     ]
     const inlineDecision = decideInlineStrategy(inlineFiles)
     if (inlineDecision.mode === "dispatch") {
@@ -1305,12 +1308,14 @@ function InsightContent() {
     if (opts.mentions?.files.length) {
       mentionBlocks.push(formatMentionedFilesForPrompt(opts.mentions.files))
     }
+    const promptLocalDocumentBlock =
+      inlineDecision.mode === "dispatch" ? formatPromptLocalDocuments(promptLocalDocuments) : ""
     // SPEC-INS-027:组 parts 走公共骨架 assembleInsightParts(与排队 drain sendQueuedItem 共用,防两套漂移)。
     // uploadBlock / chipTemplate / chipDeclaration / mentionBlocks 仍在上方各自算好(optimistic 镜像与日志继续引用),
     // 此处只按既定顺序组装 + 映射可内联文件·图片 FilePart。顺序:cleanText → [附件] → chip → @技能/@文件 → 内联文件 → 图片。
-    // dispatchNote(SPEC-INS-032)排在**末尾**:它说的是「本轮共 N 份材料(含 [附件] 与 [引用文件])」,
-    // 两个清单都出现过之后再给这段总述才对得上;drain 路径同样放末尾(那边是 push 式构建),防两套漂移。
-    const syntheticTexts = [uploadBlock, chipTemplate, chipDeclaration, ...mentionBlocks, dispatchNote].filter(
+    // dispatchNote(SPEC-INS-032)排在**末尾**:附件/@引用/正文路径清单都出现后再给总述；
+    // drain 路径同样放末尾(那边是 push 式构建),防两套漂移。
+    const syntheticTexts = [uploadBlock, chipTemplate, chipDeclaration, ...mentionBlocks, promptLocalDocumentBlock, dispatchNote].filter(
       (t): t is string => !!t,
     )
     // 2026-08-20:`@` 引用的文件与附件走**同一条**内联路径(SPEC-INS-023 §7.2 修订)——用户 `@` 一个

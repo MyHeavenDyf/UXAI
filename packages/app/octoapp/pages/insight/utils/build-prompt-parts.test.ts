@@ -246,6 +246,14 @@ describe("decideInlineStrategy", () => {
     expect(d.totalBytes).toBe(1000)
   })
 
+  test("Windows 同一路径忽略大小写与斜杠差异去重", () => {
+    const d = decideInlineStrategy([
+      { filename: "a.docx", path: "D:\\Materials\\A.docx", bytes: 1000 },
+      { filename: "a.docx", path: "d:/materials/a.docx", bytes: 1000 },
+    ])
+    expect(d.docs).toHaveLength(1)
+  })
+
   test("单份超 SINGLE_DOC_LIMIT → 进 oversized，且整批必然 dispatch", () => {
     const d = decideInlineStrategy([f("huge.md", SINGLE_DOC_LIMIT + 1), f("a.md", 10)])
     expect(d.mode).toBe("dispatch")

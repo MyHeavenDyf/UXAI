@@ -251,10 +251,15 @@ export function imageMimeFor(filename: string, fallback = "application/octet-str
 // 排除集之外的文件若真是二进制(如 `@` 一个 .zip 产物),read 会返回 "Cannot read binary file"
 // 进上下文 —— 响亮失败,模型看得懂,不做客户端预判(嗅探要读文件字节,是服务端的活)。
 /** extract_document 负责的文档类(SPEC-INS-015 路由 ②)。二进制容器,发送前拿不到正文体量。 */
-const EXTRACT_DOC_EXT = new Set(["docx", "xlsx", "pptx", "doc", "xls", "ppt", "pdf"])
+export const EXTRACT_DOC_EXTENSIONS = ["docx", "xlsx", "pptx", "pdf"] as const
+const EXTRACT_DOC_EXT = new Set<string>(EXTRACT_DOC_EXTENSIONS)
+// 旧版 Office 二进制格式当前不在 extract_document 能力面内。仍要阻止它们被当成
+// text/plain 内联，但不能计入「可抽取文档」的份数，否则会先触发分治、再在子代理中必然读取失败。
+const UNSUPPORTED_LEGACY_OFFICE_EXT = new Set(["doc", "xls", "ppt"])
 
 const NON_INLINE_EXT = new Set([
   ...EXTRACT_DOC_EXT,
+  ...UNSUPPORTED_LEGACY_OFFICE_EXT,
   // 图片走 vision(路由 ③)
   ...IMAGE_EXT,
 ])
@@ -316,7 +321,7 @@ export function formatDispatchNote(input: {
   if (input.docCount > 0) parts.push(`${input.docCount} 份文档（docx / pdf / xlsx / pptx）`)
 
   const paragraphs = [
-    `${DISPATCH_NOTE_HEADER} 本轮共有 ${parts.join("、")}（含 [附件] 与 [引用文件]）。` +
+    `${DISPATCH_NOTE_HEADER} 本轮共有 ${parts.join("、")}（已按本地路径去重）。` +
       `这批材料的正文**未**随本条消息进入你的上下文——你现在只有文件名和路径，材料内容一个字都没有。`,
     `请**逐份**派 insight_reader 子代理通读：每份材料单独发一个 task，把该文件的绝对路径和这次要提炼什么写进去，` +
       `**一份回来了再派下一份**，收齐所有结论后再写报告。不要试图自己一次性读完这些材料——那正是会撞上下文上限的做法。`,
