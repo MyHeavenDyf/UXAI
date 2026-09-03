@@ -569,8 +569,9 @@ export function DrawOverlay(props: Props): JSX.Element {
         let blob: Blob | null = null
         setCapturing(true)
         try {
-          // 等 Solid 移除 popup DOM,避免 native capture (webContents.capturePage) 把"修改选中区域"对话框截进图里
-          await new Promise<void>((r) => requestAnimationFrame(() => r()))
+          // 等 Solid 移除 popup DOM 并完成 paint,避免 native capture (webContents.capturePage) 把"修改选中区域"对话框截进图里。
+          // 双次 rAF: 第一次在下一次 paint 前触发,浏览器完成 paint 后 popup DOM 已消失;第二次 rAF 时合成器持有无 popup 的新帧。
+          await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
           const snap = await requestSnapshot()
           console.log('[Draw] Snapshot result:', snap ? { w: snap.w, h: snap.h } : null)
           if (snap) blob = await compositeWithBackground(snap)
