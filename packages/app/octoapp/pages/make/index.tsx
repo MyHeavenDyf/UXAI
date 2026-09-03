@@ -3517,14 +3517,22 @@ if (dsId) {
   }
 
   /**
-   * Download a product-asset-library file (s3BaseUrl + convertHtmlUrl) into the
-   * current session's uploads directory (or tmps if no session yet), with simple
-   * numeric suffix for rename collisions. Returns the local destination path.
-   * Does NOT add as attachment — only downloads. The chip insertion is handled
+   * Download a product-asset-library file via its versionInfo download path
+   * (baseUrl + '/main' + versionInfo[0].filePath + '/' + versionInfo[0].fileName)
+   * into the current session's uploads directory (or tmps if no session yet).
+   * ZIP files are extracted into the uploads dir and the archive deleted;
+   * the returned path is the extracted folder in that case.
+   * Does NOT add as attachment — only downloads. Chip insertion is handled
    * separately by AddonMenu via insertMention.
    */
   async function downloadProductAsset(
-    file: { fileName: string; snapshot: string; s3BaseUrl: string; convertHtmlUrl: string },
+    file: {
+      fileName: string
+      snapshot: string
+      s3BaseUrl: string
+      convertHtmlUrl: string
+      versionInfo?: { filePath: string; fileName: string; fileSize: number }[] | null
+    },
     onProgress: (pct: number) => void,
     signal?: AbortSignal,
   ): Promise<string> {
@@ -3534,11 +3542,13 @@ if (dsId) {
     const api = getDesktopApi()
     if (!api?.writeFileBuffer) throw new Error("不支持文件操作")
 
-    // Build full URL + local filename (encode non-ASCII path segments for fetch)
-    const fileUrl = encodeAssetUrl(joinUrl(file.s3BaseUrl, file.convertHtmlUrl))
-    const ext = extractExtension(file.convertHtmlUrl)
-    const baseName = file.fileName
-    const filename = ext ? `${baseName}.${ext}` : baseName
+    const version = file.versionInfo?.[0]
+    if (!version) throw new Error("缺少版本信息,无法下载")
+
+    // Download URL: baseUrl + '/main' + filePath + '/' + fileName (spec line 63)
+    const baseUrl = import.meta.env.VITE_OCTO_BASE_URL || ""
+    const remotePath = `/main${version.filePath}/${version.fileName}`
+    const fileUrl = encodeAssetUrl(joinUrl(baseUrl, remotePath))
 
     onProgress(0)
     const response = await fetch(fileUrl, { signal })
@@ -3547,29 +3557,62 @@ if (dsId) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
     const buffer = await blob.arrayBuffer()
 
-    // Resolve unique path (simple suffix on collision)
     const sep = projectDirValue.includes("\\") ? "\\" : "/"
     const dir = sid
       ? [projectDirValue, ".octo", sid, "uploads"].join(sep)
       : [projectDirValue, ".octo", "tmps", "make", "uploads"].join(sep)
-    const finalName = await resolveUniqueFilename(dir, filename)
-    const destPath = [dir, finalName].join(sep)
 
+    const isZip = version.fileName.toLowerCase().endsWith(".zip")
+
+    if (isZip) {
+      // Extract into uploads/<folderName> (dedup with (N) suffix), then the archive is not kept
+      const JSZip = (await import("jszip")).default
+      const zip = await JSZip.loadAsync(buffer)
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+      const dot = version.fileName.lastIndexOf(".")
+      const baseName = dot > 0 ? version.fileName.slice(0, dot) : version.fileName
+      let folderName = baseName
+      let counter = 1
+      while (await folderExistsInDir(dir, folderName, api)) {
+        folderName = `${baseName} (${counter})`
+        counter++
+      }
+      const folderPath = [dir, folderName].join(sep)
+
+      for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
+        if (zipEntry.dir) continue
+        const normalized = relativePath.replace(/\//g, sep)
+        const content = await zipEntry.async("uint8array")
+        await api.writeFileBuffer([folderPath, normalized].join(sep), content.buffer as ArrayBuffer)
+      }
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+      onProgress(100)
+      setFilesRefreshKey(k => k + 1)
+      return folderPath
+    }
+
+    // Non-ZIP: save the file directly with dedup
+    const finalName = await resolveUniqueFilename(dir, version.fileName)
+    const destPath = [dir, finalName].join(sep)
     await api.writeFileBuffer(destPath, buffer)
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
     onProgress(100)
-    // Refresh file management panel so the downloaded file appears in the uploaded list
     setFilesRefreshKey(k => k + 1)
     return destPath
   }
 
-  function extractExtension(urlPath: string): string {
-    const clean = urlPath.split("?")[0].split("#")[0]
-    const basename = clean.split("/").pop() || ""
-    const dot = basename.lastIndexOf(".")
-    if (dot <= 0 || dot === basename.length - 1) return ""
-    return basename.slice(dot + 1)
+  async function folderExistsInDir(dir: string, folderName: string, api: ReturnType<typeof getDesktopApi>): Promise<boolean> {
+    if (!api?.listDirectory) return false
+    const sep = dir.includes("\\") ? "\\" : "/"
+    try {
+      const entries = await api.listDirectory(dir)
+      return entries.some(e => e.type === "directory" && e.path === [dir, folderName].join(sep))
+    } catch {
+      return false
+    }
   }
 
   async function resolveUniqueFilename(dir: string, filename: string): Promise<string> {
