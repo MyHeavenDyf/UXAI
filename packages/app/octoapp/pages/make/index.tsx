@@ -2452,7 +2452,8 @@ const sessionMessagesLoaded = createMemo(() => {
             displayText = displayText.replace(`@${sel.name}`, () => `@${sel.label}`)
           }
         } else {
-          processedText = processedText.replace(`@${sel.name}`, ` 读取${sel.path} 这个文件 `)
+          const noun = sel.type === "folder" ? "这个文件夹" : "这个文件"
+          processedText = processedText.replace(`@${sel.name}`, ` 读取${sel.path} ${noun} `)
         }
       }
       // Clean up extra spaces and strip zero-width space (​) used as chip boundary marker
@@ -3565,18 +3566,18 @@ if (dsId) {
     const isZip = version.fileName.toLowerCase().endsWith(".zip")
 
     if (isZip) {
-      // Extract into uploads/<folderName> (dedup with (N) suffix), then the archive is not kept
+      // Extract into uploads/<file.fileName> (dedup with (N) suffix via dirExists); archive not kept
       const JSZip = (await import("jszip")).default
       const zip = await JSZip.loadAsync(buffer)
       if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
-      const dot = version.fileName.lastIndexOf(".")
-      const baseName = dot > 0 ? version.fileName.slice(0, dot) : version.fileName
-      let folderName = baseName
+      let folderName = file.fileName
       let counter = 1
-      while (await folderExistsInDir(dir, folderName, api)) {
-        folderName = `${baseName} (${counter})`
-        counter++
+      if (api.dirExists) {
+        while (await api.dirExists([dir, folderName].join(sep))) {
+          folderName = `${file.fileName} (${counter})`
+          counter++
+        }
       }
       const folderPath = [dir, folderName].join(sep)
 
@@ -3593,8 +3594,10 @@ if (dsId) {
       return folderPath
     }
 
-    // Non-ZIP: save the file directly with dedup
-    const finalName = await resolveUniqueFilename(dir, version.fileName)
+    // Non-ZIP: save as file.fileName + extension from version.fileName, with dedup
+    const dot = version.fileName.lastIndexOf(".")
+    const ext = dot > 0 ? version.fileName.slice(dot) : ""
+    const finalName = await resolveUniqueFilename(dir, `${file.fileName}${ext}`)
     const destPath = [dir, finalName].join(sep)
     await api.writeFileBuffer(destPath, buffer)
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
@@ -3602,17 +3605,6 @@ if (dsId) {
     onProgress(100)
     setFilesRefreshKey(k => k + 1)
     return destPath
-  }
-
-  async function folderExistsInDir(dir: string, folderName: string, api: ReturnType<typeof getDesktopApi>): Promise<boolean> {
-    if (!api?.listDirectory) return false
-    const sep = dir.includes("\\") ? "\\" : "/"
-    try {
-      const entries = await api.listDirectory(dir)
-      return entries.some(e => e.type === "directory" && e.path === [dir, folderName].join(sep))
-    } catch {
-      return false
-    }
   }
 
   async function resolveUniqueFilename(dir: string, filename: string): Promise<string> {

@@ -22,7 +22,7 @@ export type MentionTab = 'skills' | 'product-assets' | 'files'
 
 export type MentionSelection =
   | { type: 'skill'; name: string; label: string }
-  | { type: 'file'; filename: string; path: string; id?: string }
+  | { type: 'file'; filename: string; path: string; id?: string; isFolder?: boolean }
   | { type: 'product-asset'; filename: string; path: string; s3BaseUrl: string; convertHtmlUrl: string; snapshot: string }
 
 interface MentionPopoverProps {

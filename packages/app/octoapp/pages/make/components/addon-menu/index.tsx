@@ -219,12 +219,15 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
 
   // 产品资源库文件点击:只插入 chip(path = assetFileId(file) 作唯一标识,
   // 关闭面板时批量下载,updateMentionPath 把本地路径补到 chip),不立即下载
+  // zip 资产下载后解压为文件夹,chip 标记 isFolder,发送时文案用"这个文件夹"
   const handleAssetFileClick = (file: AssetFile) => {
     const id = assetFileId(file)
+    const isZip = (file.versionInfo?.[0]?.fileName ?? "").toLowerCase().endsWith(".zip")
     const selection: MentionSelection = {
       type: 'file',
       filename: file.fileName,
       path: id,
+      isFolder: isZip || undefined,
     }
     if (isAssetFileSelected(file)) {
       props.onDeselect(selection)
