@@ -92,15 +92,30 @@ export async function fetchRemoteModelCatalog(input: {
   headers?: Record<string, string>
   signal?: AbortSignal
 }) {
+  console.log("[models-api] outgoing request", {
+    url: input.url,
+    headerNames: Object.keys(input.headers ?? {}),
+    hasUiplusToken: Boolean(input.headers?.uiplustoken),
+  })
   const response = await fetch(input.url, {
     headers: input.headers,
     signal: input.signal,
     cache: "no-store",
   })
+  const raw = await response.text()
+  console.log("[models-api] remote response", {
+    url: input.url,
+    status: response.status,
+    contentType: response.headers.get("content-type"),
+    body: raw,
+  })
   if (!response.ok) throw new Error(`Failed to fetch remote model catalog: ${response.status}`)
-  const result = Object.fromEntries(
-    Object.values(decodeCatalog(apiModels(await response.json()))).map((provider) => [provider.id, provider]),
-  )
+  const models = apiModels(parseJson(raw))
+  console.log("[models-api] parsed providers", {
+    providerIDs: Object.keys(models),
+    models,
+  })
+  const result = Object.fromEntries(Object.values(decodeCatalog(models)).map((provider) => [provider.id, provider]))
   if (Object.keys(result).length === 0) throw new Error("Remote model catalog is empty")
   return result
 }

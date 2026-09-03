@@ -31,7 +31,13 @@ export const ProviderRoutes = lazy(() =>
       }),
       async (c) =>
         jsonRequest("ProviderRoutes.list", c, function* () {
-          configureModelsApiHeaders(Object.fromEntries(c.req.raw.headers.entries()))
+          const requestHeaders = Object.fromEntries(c.req.raw.headers.entries())
+          console.log("[provider.list] incoming models headers", {
+            modelsApiUrl: requestHeaders["x-opencode-models-api-url"],
+            hasUiplusToken: Boolean(requestHeaders.uiplustoken),
+            headerNames: Object.keys(requestHeaders),
+          })
+          configureModelsApiHeaders(requestHeaders)
           const svc = yield* Provider.Service
           yield* svc.refresh(true)
           const connected = yield* svc.list()
