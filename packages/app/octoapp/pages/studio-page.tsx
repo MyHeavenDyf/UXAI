@@ -76,6 +76,8 @@ import type {
   StudioStyleDescriptionGenerateInput,
   StudioStyleDescriptionStreamEvent,
   StudioTemplatePublishInput,
+  StudioTemplateUserSearchInput,
+  StudioTemplateVisibleUser,
 } from "./studio/studio-template-creator"
 import { STUDIO_FILTER_STATE_KEY_PREFIX } from "./studio/studio-file-manager"
 import type { MaterialWordBook } from "./studio/MaterialMenu"
@@ -2429,6 +2431,12 @@ export default function StudioPage() {
     setPendingEditorEntries([])
     setMode("preview")
     setCapability("image.generate")
+    setSelectedStyleTemplate(undefined)
+    setRecipeMainPrompt("")
+    setRecipeExtraPrompt("")
+    setPrompt("")
+    setAssets([])
+    clearVideoFrames()
     navigate(`/${routeSlug()}/studio?hint=${Date.now()}`)
   }
 
@@ -3053,6 +3061,33 @@ export default function StudioPage() {
     const bodyText = await response.text()
     if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
     return JSON.parse(bodyText) as StudioStyleTemplateListItem
+  }
+
+  async function searchStudioTemplateUsers(input: StudioTemplateUserSearchInput): Promise<StudioTemplateVisibleUser[]> {
+    if (!input.query.trim()) return []
+    const current = server.current
+    if (!current) throw new Error("No active server.")
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      ...directoryHeader(projectDir()),
+    }
+    if (current.http.password) {
+      headers.Authorization = `Basic ${authTokenFromCredentials({
+        username: current.http.username,
+        password: current.http.password,
+      })}`
+    }
+    const response = await fetch(new URL("/studio/template-user-search", current.http.url), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        query: input.query.trim(),
+        size: input.size,
+      }),
+    })
+    const bodyText = await response.text()
+    if (!response.ok) throw new Error(formatStudioGenerationError(response, bodyText))
+    return JSON.parse(bodyText) as StudioTemplateVisibleUser[]
   }
 
   async function handleReversePrompt() {
@@ -4614,6 +4649,7 @@ if (!headerTitle.pendingRename) return
               templateCreatorTabOpen={templateCreatorTabOpen()}
               onGenerateStyleDescription={generateStyleDescription}
               onPublishTemplate={publishStudioTemplate}
+              onSearchTemplateUsers={searchStudioTemplateUsers}
               onTemplateCreatorClick={openTemplateCreator}
               onTemplateCreatorClose={closeTemplateCreator}
             >

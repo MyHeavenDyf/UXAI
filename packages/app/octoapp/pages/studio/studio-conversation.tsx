@@ -15,6 +15,8 @@ import {
   type StudioStyleDescriptionGenerateHandlers,
   type StudioStyleDescriptionGenerateInput,
   type StudioTemplatePublishInput,
+  type StudioTemplateUserSearchInput,
+  type StudioTemplateVisibleUser,
 } from "./studio-template-creator"
 import { FloatingNotice } from "@/components/floating-notice"
 import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, StudioImage } from "./types"
@@ -279,6 +281,7 @@ export function StudioResultCanvas(props: {
     handlers: StudioStyleDescriptionGenerateHandlers,
   ) => Promise<void>
   onPublishTemplate?: (input: StudioTemplatePublishInput) => Promise<void>
+  onSearchTemplateUsers?: (input: StudioTemplateUserSearchInput) => Promise<StudioTemplateVisibleUser[]>
   onTemplateCreatorClick: () => void
   onTemplateCreatorClose: () => void
   children?: JSX.Element
@@ -640,7 +643,11 @@ export function StudioResultCanvas(props: {
               </Show>
                 </>
               }>
-                <StudioTemplateCreator onGenerateStyleDescription={props.onGenerateStyleDescription} onPublishTemplate={props.onPublishTemplate} />
+                <StudioTemplateCreator
+                  onGenerateStyleDescription={props.onGenerateStyleDescription}
+                  onPublishTemplate={props.onPublishTemplate}
+                  onSearchUsers={props.onSearchTemplateUsers}
+                />
               </Show>
             </div>
           </>

@@ -735,22 +735,163 @@
   margin-top: 14px;
 }
 
-.studio-template-creator-user-input {
+.studio-template-creator-user-select {
+  position: relative;
+  width: 100%;
+}
+
+.studio-template-creator-user-select-control {
   box-sizing: border-box;
   width: 100%;
-  height: 52px;
-  padding: 0 16px;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
   border: 0;
   border-radius: 6px;
   outline: none;
   background: #f3f3f3;
   color: #191919;
+  cursor: text;
+}
+
+.studio-template-creator-user-select-control:focus-within {
+  box-shadow: 0 0 0 1px #1263ff inset;
+}
+
+.studio-template-creator-user-tag {
+  max-width: 100%;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 10px;
+  border-radius: 6px;
+  background: #e8f0ff;
+  color: #1263ff;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.studio-template-creator-user-tag-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-template-creator-user-tag-remove {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.studio-template-creator-user-tag-remove::before,
+.studio-template-creator-user-tag-remove::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  left: 3px;
+  width: 8px;
+  height: 1.5px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.studio-template-creator-user-tag-remove::before {
+  transform: rotate(45deg);
+}
+
+.studio-template-creator-user-tag-remove::after {
+  transform: rotate(-45deg);
+}
+
+.studio-template-creator-user-search-input {
+  min-width: 180px;
+  flex: 1;
+  height: 32px;
+  padding: 0 4px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #191919;
   font-size: 16px;
   line-height: 24px;
 }
 
-.studio-template-creator-user-input::placeholder {
+.studio-template-creator-user-search-input::placeholder {
   color: #b6b6b8;
+}
+
+.studio-template-creator-user-dropdown {
+  position: absolute;
+  z-index: 90;
+  top: calc(100% + 8px);
+  left: 0;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 4px;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+
+.studio-template-creator-user-option {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.studio-template-creator-user-option:hover {
+  background: #f3f3f3;
+}
+
+.studio-template-creator-user-option-title {
+  max-width: 100%;
+  overflow: hidden;
+  color: #191919;
+  font-size: 14px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-template-creator-user-option-subtitle {
+  max-width: 100%;
+  overflow: hidden;
+  color: #747476;
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-template-creator-user-empty {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  color: #858587;
+  font-size: 14px;
+  line-height: 20px;
 }
 
 .studio-template-creator-examples-placeholder {

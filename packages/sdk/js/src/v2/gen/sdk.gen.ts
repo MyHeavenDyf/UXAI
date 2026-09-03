@@ -230,6 +230,8 @@ import type {
   StudioTemplateListListResponses,
   StudioTemplatePublishCreateErrors,
   StudioTemplatePublishCreateResponses,
+  StudioTemplateUserSearchCreateErrors,
+  StudioTemplateUserSearchCreateResponses,
   SubtaskPartInput,
   SyncHistoryListErrors,
   SyncHistoryListResponses,
@@ -5737,7 +5739,7 @@ export class TemplatePublish extends HeyApiClient {
       workspace?: string
       body?:
         | {
-            allowed_user_id: string
+            allowed_user_ids: string
             creator_user_id: string
             example_images: Array<{
               url: string
@@ -5768,7 +5770,7 @@ export class TemplatePublish extends HeyApiClient {
             style_keywords: string
           }
         | {
-            allowed_user_id: string
+            allowed_user_ids: string
             creator_user_id: string
             example_images: Array<{
               url: string
@@ -5897,6 +5899,51 @@ export class TemplateDetail extends HeyApiClient {
       url: "/studio/template-detail/{templateID}",
       ...options,
       ...params,
+    })
+  }
+}
+
+export class TemplateUserSearch extends HeyApiClient {
+  /**
+   * Search Studio template visible users
+   *
+   * Searches users for Studio template permission settings.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      query?: string
+      size?: 3
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "query" },
+            { in: "body", key: "size" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      StudioTemplateUserSearchCreateResponses,
+      StudioTemplateUserSearchCreateErrors,
+      ThrowOnError
+    >({
+      url: "/studio/template-user-search",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 }
@@ -6179,6 +6226,11 @@ export class Studio extends HeyApiClient {
   private _templateDetail?: TemplateDetail
   get templateDetail(): TemplateDetail {
     return (this._templateDetail ??= new TemplateDetail({ client: this.client }))
+  }
+
+  private _templateUserSearch?: TemplateUserSearch
+  get templateUserSearch(): TemplateUserSearch {
+    return (this._templateUserSearch ??= new TemplateUserSearch({ client: this.client }))
   }
 
   private _generations?: Generations

@@ -29,6 +29,7 @@ export const StudioPaths = {
   templatePublish: `${root}/template-publish`,
   templateList: `${root}/template-list`,
   templateDetail: `${root}/template-detail/:templateID`,
+  templateUserSearch: `${root}/template-user-search`,
   permission: `${root}/permissions/check`,
 } as const
 
@@ -82,7 +83,7 @@ const StudioStyleDescriptionPayload = Schema.Struct({
 })
 
 const StudioTemplatePublishBaseFields = {
-  allowed_user_id: Schema.NullOr(Schema.String),
+  allowed_user_ids: Schema.NullOr(Schema.String),
   creator_user_id: Schema.String,
   example_images: Schema.Array(StudioTemplateImagePayload),
   permission_type: Schema.Union([Schema.Literal("all_users"), Schema.Literal("specified_users")]),
@@ -122,6 +123,11 @@ export const StudioTemplateListQuery = Schema.Struct({
 
 export const StudioTemplateDetailQuery = Schema.Struct({
   user_id: Schema.String,
+})
+
+export const StudioTemplateUserSearchPayload = Schema.Struct({
+  query: Schema.String,
+  size: Schema.Literal(3),
 })
 
 export const StudioGenerationPayload = Schema.Struct({
@@ -312,6 +318,17 @@ export const StudioApi = HttpApi.make("studio")
             identifier: "studio.template-detail.get",
             summary: "Get Studio template detail",
             description: "Returns a Studio template by id from the internal Studio style template API.",
+          }),
+        ),
+        HttpApiEndpoint.post("searchTemplateUsers", StudioPaths.templateUserSearch, {
+          payload: StudioTemplateUserSearchPayload,
+          success: described(Schema.Unknown, "Studio template user search result"),
+          error: [HttpApiError.BadRequest, ApiStudioGenerationError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "studio.template-user-search.create",
+            summary: "Search Studio template visible users",
+            description: "Searches users for Studio template permission settings.",
           }),
         ),
         HttpApiEndpoint.post("createGeneration", StudioPaths.generations, {

@@ -534,14 +534,14 @@ export function StudioComposer(props: {
   })
 
   createEffect(() => {
-    if (!recipeMainRef) return
     const value = props.recipeMainPrompt
+    if (!recipeMainRef) return
     if (recipeMainRef.innerText.replace(/\u200B/g, "") !== value) recipeMainRef.innerText = value
   })
 
   createEffect(() => {
-    if (!recipeExtraRef) return
     const value = props.recipeExtraPrompt
+    if (!recipeExtraRef) return
     if (recipeExtraRef.innerText.replace(/\u200B/g, "") !== value) recipeExtraRef.innerText = value
   })
 

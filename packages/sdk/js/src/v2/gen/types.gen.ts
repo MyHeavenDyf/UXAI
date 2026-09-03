@@ -7598,7 +7598,7 @@ export type StudioStyleDescriptionGenCreateResponse =
 export type StudioTemplatePublishCreateData = {
   body?:
     | {
-        allowed_user_id: string
+        allowed_user_ids: string
         creator_user_id: string
         example_images: Array<{
           url: string
@@ -7629,7 +7629,7 @@ export type StudioTemplatePublishCreateData = {
         style_keywords: string
       }
     | {
-        allowed_user_id: string
+        allowed_user_ids: string
         creator_user_id: string
         example_images: Array<{
           url: string
@@ -7726,6 +7726,36 @@ export type StudioTemplateDetailGetError = StudioTemplateDetailGetErrors[keyof S
 export type StudioTemplateDetailGetResponses = {
   /**
    * Studio template detail result
+   */
+  200: unknown
+}
+
+export type StudioTemplateUserSearchCreateData = {
+  body?: {
+    query: string
+    size: 3
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/studio/template-user-search"
+}
+
+export type StudioTemplateUserSearchCreateErrors = {
+  /**
+   * BadRequest | StudioGenerationError
+   */
+  400: BadRequestError | StudioGenerationError
+}
+
+export type StudioTemplateUserSearchCreateError =
+  StudioTemplateUserSearchCreateErrors[keyof StudioTemplateUserSearchCreateErrors]
+
+export type StudioTemplateUserSearchCreateResponses = {
+  /**
+   * Studio template user search result
    */
   200: unknown
 }

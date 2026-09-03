@@ -11,6 +11,7 @@ type InternalStyleTemplateEndpointPreset = {
   styleTemplatePublishUrl: string
   styleTemplateListUrl: string
   styleTemplateDetailUrl: string
+  styleTemplateUserSearchUrl: string
 }
 
 const LOCAL_STYLE_TEMPLATE_ENDPOINTS = {
@@ -18,6 +19,7 @@ const LOCAL_STYLE_TEMPLATE_ENDPOINTS = {
   styleTemplatePublishUrl: "http://localhost:3000/image_template",
   styleTemplateListUrl: "http://localhost:3000/image_template",
   styleTemplateDetailUrl: "http://localhost:3000/image_template",
+  styleTemplateUserSearchUrl: "http://localhost:3000/users/search",
 } satisfies InternalStyleTemplateEndpointPreset
 
 const BETA_STYLE_TEMPLATE_ENDPOINTS = {
@@ -25,6 +27,7 @@ const BETA_STYLE_TEMPLATE_ENDPOINTS = {
   styleTemplatePublishUrl: "https://octoai-api-test.ucd.huawei.com/nexo-api-test/pixso/aiImageGeneration/image_template",
   styleTemplateListUrl: "https://octoai-api-test.ucd.huawei.com/nexo-api-test/pixso/aiImageGeneration/image_template",
   styleTemplateDetailUrl: "https://octoai-api-test.ucd.huawei.com/nexo-api-test/pixso/aiImageGeneration/image_template",
+  styleTemplateUserSearchUrl: "https://octoai-api-test.ucd.huawei.com/nexo-api-test/pixso/userServer/users/search",
 } satisfies InternalStyleTemplateEndpointPreset
 
 const PROD_STYLE_TEMPLATE_ENDPOINTS = {
@@ -32,6 +35,7 @@ const PROD_STYLE_TEMPLATE_ENDPOINTS = {
   styleTemplatePublishUrl: "https://octoai-api.ucd.huawei.com/nexo-api/pixso/aiImageGeneration/image_template",
   styleTemplateListUrl: "https://octoai-api.ucd.huawei.com/nexo-api/pixso/aiImageGeneration/image_template",
   styleTemplateDetailUrl: "https://octoai-api.ucd.huawei.com/nexo-api/pixso/aiImageGeneration/image_template",
+  styleTemplateUserSearchUrl: "https://octoai-api.ucd.huawei.com/nexo-api/pixso/userServer/users/search",
 } satisfies InternalStyleTemplateEndpointPreset
 
 const DEFAULT_USER_IDX = ""
@@ -70,7 +74,7 @@ type TemplateUploadImage = {
 }
 
 type StyleTemplatePublishBaseRequest = {
-  allowed_user_id: string | null
+  allowed_user_ids: string | null
   creator_user_id: string
   example_images: ReadonlyArray<TemplateUploadImage>
   permission_type: "all_users" | "specified_users"
@@ -120,6 +124,24 @@ export type StyleTemplateListResult = {
   total: number
 }
 
+export type StyleTemplateUserSearchRequest = {
+  query: string
+  size: 3
+}
+
+export type StyleTemplateUserSearchItem = {
+  user_id: string
+  person_notes_cn?: string
+  account: string
+  dept1?: string
+}
+
+type StyleTemplateUserSearchBusinessResponse = {
+  code?: number
+  data?: unknown
+  message?: string
+}
+
 function octoChannel() {
   return (import.meta as ImportMetaWithEnv).env?.OCTO_CHANNEL ?? process.env.OCTO_CHANNEL ?? "prod"
 }
@@ -134,6 +156,7 @@ const DEFAULT_STYLE_DESCRIPTION_GEN = internalStyleTemplateEndpoints().styleDesc
 const DEFAULT_STYLE_TEMPLATE_PUBLISH = internalStyleTemplateEndpoints().styleTemplatePublishUrl
 const DEFAULT_STYLE_TEMPLATE_LIST = internalStyleTemplateEndpoints().styleTemplateListUrl
 const DEFAULT_STYLE_TEMPLATE_DETAIL = internalStyleTemplateEndpoints().styleTemplateDetailUrl
+const DEFAULT_STYLE_TEMPLATE_USER_SEARCH = internalStyleTemplateEndpoints().styleTemplateUserSearchUrl
 
 function env(name: string) {
   return process.env[name]
@@ -187,6 +210,19 @@ function parseBusinessResponse(text: string, action: string): StyleTemplateBusin
       `${action} returned business failure.`,
       `resp_code=${json.resp_code ?? ""}`,
       `resp_msg=${json.resp_msg ?? ""}`,
+      `body=${JSON.stringify(json, null, 2)}`,
+    ].join("\n"),
+  )
+}
+
+function parseUserSearchBusinessResponse(text: string): StyleTemplateUserSearchBusinessResponse {
+  const json = parseJson(text) as StyleTemplateUserSearchBusinessResponse
+  if (json.code === 200) return json
+  throw new Error(
+    [
+      "style_template_user_search returned business failure.",
+      `code=${json.code ?? ""}`,
+      `message=${json.message ?? ""}`,
       `body=${JSON.stringify(json, null, 2)}`,
     ].join("\n"),
   )
@@ -357,6 +393,12 @@ function styleTemplateDetailUrl(input: StyleTemplateDetailRequest) {
   return url
 }
 
+function styleTemplateUserSearchUrl() {
+  const endpoint = env("IMAGE_STYLE_TEMPLATE_USER_SEARCH_URL") ?? DEFAULT_STYLE_TEMPLATE_USER_SEARCH
+  if (!endpoint || endpoint === "xx") throw new Error("style_template_user_search url is not configured.")
+  return endpoint
+}
+
 function parseStyleTemplateListResult(response: StyleTemplateBusinessResponse): StyleTemplateListResult {
   const result = response.result
   if (!result || typeof result !== "object") throw new Error("style_template_list returned invalid result.")
@@ -373,6 +415,22 @@ function parseStyleTemplateDetailResult(response: StyleTemplateBusinessResponse)
   const result = response.result
   if (!result || typeof result !== "object" || !("idx" in result)) throw new Error(`style_template_detail returned invalid result:\n${JSON.stringify(result, null, 2)}`)
   return result as StyleTemplateListItem
+}
+
+function parseStyleTemplateUserSearchResult(response: StyleTemplateUserSearchBusinessResponse): StyleTemplateUserSearchItem[] {
+  if (!Array.isArray(response.data)) throw new Error(`style_template_user_search returned invalid result:\n${JSON.stringify(response, null, 2)}`)
+  return response.data.filter((item): item is StyleTemplateUserSearchItem =>
+    Boolean(
+      item &&
+        typeof item === "object" &&
+        "user_id" in item &&
+        typeof item.user_id === "string" &&
+        item.user_id.trim() &&
+        "account" in item &&
+        typeof item.account === "string" &&
+        item.account.trim(),
+    )
+  )
 }
 
 export async function listInternalStyleTemplates(input: StyleTemplateListRequest): Promise<StyleTemplateListResult> {
@@ -441,4 +499,44 @@ export async function getInternalStyleTemplate(input: StyleTemplateDetailRequest
   }
   if (!text.trim()) throw new Error("style_template_detail returned empty response.")
   return parseStyleTemplateDetailResult(parseBusinessResponse(text, "style_template_detail"))
+}
+
+export async function searchInternalStyleTemplateUsers(input: StyleTemplateUserSearchRequest): Promise<StyleTemplateUserSearchItem[]> {
+  const query = input.query.trim()
+  if (!query) return []
+  const url = styleTemplateUserSearchUrl()
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS)
+  const response = await fetch(url, {
+    method: METHOD,
+    headers: internalStyleTemplateHeaders(),
+    body: JSON.stringify({
+      query,
+      size: input.size,
+    }),
+    signal: controller.signal,
+  }).catch((error) => {
+    throw new Error(
+      [
+        "style_template_user_search network failed.",
+        `url=${url}`,
+        `error=${describeError(error)}`,
+      ].join("\n"),
+    )
+  }).finally(() => clearTimeout(timeout))
+
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(
+      [
+        "style_template_user_search failed.",
+        `status=${response.status}`,
+        `statusText=${response.statusText}`,
+        `body=${text}`,
+      ].join("\n"),
+    )
+  }
+  if (!text.trim()) throw new Error("style_template_user_search returned empty response.")
+  return parseStyleTemplateUserSearchResult(parseUserSearchBusinessResponse(text))
 }

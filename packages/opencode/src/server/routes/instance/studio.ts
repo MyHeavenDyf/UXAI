@@ -3,7 +3,7 @@ import { describeRoute, resolver, validator } from "hono-openapi"
 import { streamSSE } from "hono/streaming"
 import z from "zod"
 import { lazy } from "@/util/lazy"
-import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, createStyleDescriptionGenStream, getGeneration, getTemplateDetail, listTemplates, publishTemplate, rebootGeneration } from "@/studio/studio-service"
+import { cancelGeneration, createEditorEntry, createGeneration, createPromptGen, createStyleDescriptionGenStream, getGeneration, getTemplateDetail, listTemplates, publishTemplate, rebootGeneration, searchTemplateUsers } from "@/studio/studio-service"
 import { checkStudioPermission, fetchPromptTags } from "@/tool/internel_image_generate"
 import { errors } from "../../error"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
@@ -40,7 +40,7 @@ const StudioTemplateImageInput = z.object({
 })
 
 const StudioTemplatePublishBaseInput = z.object({
-  allowed_user_id: z.string().nullable(),
+  allowed_user_ids: z.string().nullable(),
   creator_user_id: z.string(),
   example_images: z.array(StudioTemplateImageInput).min(1).max(20),
   permission_type: z.enum(["all_users", "specified_users"]),
@@ -90,6 +90,11 @@ const StudioTemplateListQuery = z.object({
 
 const StudioTemplateDetailQuery = z.object({
   user_id: z.string(),
+})
+
+const StudioTemplateUserSearchInput = z.object({
+  query: z.string(),
+  size: z.literal(3),
 })
 
 const StudioGenerationInput = z.object({
@@ -294,6 +299,23 @@ export const StudioRoutes = lazy(() =>
           template_id: c.req.param("templateID"),
           user_id: c.req.valid("query").user_id,
         })),
+    )
+    .post(
+      "/template-user-search",
+      describeRoute({
+        summary: "Search Studio template visible users",
+        description: "Searches users for Studio template permission settings.",
+        operationId: "studio.template-user-search.create",
+        responses: {
+          200: {
+            description: "Studio template user search result",
+            content: { "application/json": { schema: resolver(z.unknown()) } },
+          },
+          ...errors(400, 502),
+        },
+      }),
+      validator("json", StudioTemplateUserSearchInput),
+      async (c) => c.json(await searchTemplateUsers(c.req.valid("json"))),
     )
     .post(
       "/editor-entries",

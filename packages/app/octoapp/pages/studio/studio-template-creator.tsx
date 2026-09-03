@@ -28,6 +28,16 @@ export type StudioStyleDescriptionGenerateHandlers = {
   onEvent: (event: StudioStyleDescriptionStreamEvent) => void
   signal?: AbortSignal
 }
+export type StudioTemplateVisibleUser = {
+  user_id: string
+  person_notes_cn?: string
+  account: string
+  dept1?: string
+}
+export type StudioTemplateUserSearchInput = {
+  query: string
+  size: 3
+}
 
 type TemplateCreatorCategory = "extract_style" | "preset_recipe"
 type TemplateCreatorStep = "make" | "publish" | "examples"
@@ -46,7 +56,7 @@ type StudioTemplateStyleDescription = {
 } & Partial<Record<StudioStyleDimensionId, string>>
 
 type StudioTemplatePublishBaseInput = {
-  allowed_user_id: string | null
+  allowed_user_ids: string | null
   creator_user_id?: string
   example_images: TemplateUploadImage[]
   permission_type: TemplateVisibility
@@ -391,6 +401,146 @@ function TemplateCreatorSelect<T extends string>(props: {
               </button>
             )}
           </For>
+        </div>
+      </Show>
+    </div>
+  )
+}
+
+function templateVisibleUserLabel(user: StudioTemplateVisibleUser) {
+  return user.person_notes_cn?.trim() || user.account
+}
+
+function TemplateVisibleUserSelect(props: {
+  value: StudioTemplateVisibleUser[]
+  onChange: (value: StudioTemplateVisibleUser[]) => void
+  onSearchUsers?: (input: StudioTemplateUserSearchInput) => Promise<StudioTemplateVisibleUser[]>
+}): JSX.Element {
+  let rootRef!: HTMLDivElement
+  const [query, setQuery] = createSignal("")
+  const [options, setOptions] = createSignal<StudioTemplateVisibleUser[]>([])
+  const [loading, setLoading] = createSignal(false)
+  const [open, setOpen] = createSignal(false)
+  const [error, setError] = createSignal("")
+  const selectedIDs = createMemo(() => new Set(props.value.map((item) => item.user_id)))
+  const visibleOptions = createMemo(() => options().filter((item) => !selectedIDs().has(item.user_id)))
+  let searchSeq = 0
+
+  const closeOnOutsidePointer = (event: PointerEvent) => {
+    if (!rootRef?.contains(event.target as Node)) setOpen(false)
+  }
+
+  onMount(() => document.addEventListener("pointerdown", closeOnOutsidePointer))
+  onCleanup(() => document.removeEventListener("pointerdown", closeOnOutsidePointer))
+
+  createEffect(() => {
+    const keyword = query().trim()
+    const search = props.onSearchUsers
+    setError("")
+    if (!keyword || !search) {
+      searchSeq += 1
+      setOptions([])
+      setLoading(false)
+      setOpen(false)
+      return
+    }
+    const seq = ++searchSeq
+    setLoading(true)
+    setOpen(true)
+    const timer = setTimeout(() => {
+      search({ query: keyword, size: 3 })
+        .then((result) => {
+          if (seq !== searchSeq) return
+          setOptions(result)
+          setError("")
+          setOpen(true)
+        })
+        .catch((searchError) => {
+          if (seq !== searchSeq) return
+          setOptions([])
+          setError(searchError instanceof Error ? searchError.message : String(searchError))
+          setOpen(true)
+        })
+        .finally(() => {
+          if (seq === searchSeq) setLoading(false)
+        })
+    }, 300)
+    onCleanup(() => clearTimeout(timer))
+  })
+
+  const selectUser = (user: StudioTemplateVisibleUser) => {
+    if (props.value.some((item) => item.user_id === user.user_id)) return
+    props.onChange([...props.value, user])
+    setQuery("")
+    setOptions([])
+    setOpen(false)
+  }
+
+  return (
+    <div ref={rootRef!} class="studio-template-creator-user-select">
+      <div
+        class="studio-template-creator-user-select-control"
+        onClick={() => rootRef.querySelector<HTMLInputElement>(".studio-template-creator-user-search-input")?.focus()}
+      >
+        <For each={props.value}>
+          {(user) => (
+            <span class="studio-template-creator-user-tag">
+              <span class="studio-template-creator-user-tag-label">{templateVisibleUserLabel(user)}</span>
+              <button
+                type="button"
+                class="studio-template-creator-user-tag-remove"
+                aria-label={`移除${templateVisibleUserLabel(user)}`}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  props.onChange(props.value.filter((item) => item.user_id !== user.user_id))
+                }}
+              />
+            </span>
+          )}
+        </For>
+        <input
+          class="studio-template-creator-user-search-input"
+          value={query()}
+          placeholder={props.value.length > 0 ? "继续搜索用户" : "请输入8位工号或姓名全拼"}
+          onInput={(event) => setQuery(event.currentTarget.value)}
+          onFocus={() => {
+            if (query().trim()) setOpen(true)
+          }}
+        />
+      </div>
+      <Show when={open()}>
+        <div class="studio-template-creator-user-dropdown" role="listbox" aria-label="指定可见用户搜索结果">
+          <Show
+            when={!loading()}
+            fallback={<div class="studio-template-creator-user-empty">搜索中...</div>}
+          >
+            <Show
+              when={!error()}
+              fallback={<div class="studio-template-creator-user-empty">搜索失败，请重试</div>}
+            >
+              <Show
+                when={visibleOptions().length > 0}
+                fallback={<div class="studio-template-creator-user-empty">暂无匹配用户</div>}
+              >
+                <For each={visibleOptions()}>
+                  {(user) => (
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={false}
+                      class="studio-template-creator-user-option"
+                      onClick={() => selectUser(user)}
+                    >
+                      <span class="studio-template-creator-user-option-title">{templateVisibleUserLabel(user)}</span>
+                      <Show when={user.dept1}>
+                        <span class="studio-template-creator-user-option-subtitle">{user.dept1}</span>
+                      </Show>
+                    </button>
+                  )}
+                </For>
+              </Show>
+            </Show>
+          </Show>
         </div>
       </Show>
     </div>
@@ -893,9 +1043,10 @@ function ReferenceSettingFields(props: {
 
 function VisibilitySettingFields(props: {
   visibility: TemplateVisibility
-  specifiedUsers: string
+  specifiedUsers: StudioTemplateVisibleUser[]
   onVisibility: (value: TemplateVisibility) => void
-  onSpecifiedUsers: (value: string) => void
+  onSpecifiedUsers: (value: StudioTemplateVisibleUser[]) => void
+  onSearchUsers?: (input: StudioTemplateUserSearchInput) => Promise<StudioTemplateVisibleUser[]>
 }): JSX.Element {
   return (
     <TemplateCreatorField title="权限设置" required>
@@ -925,11 +1076,10 @@ function VisibilitySettingFields(props: {
       <Show when={props.visibility === "specified_users"}>
         <div class="studio-template-creator-user-field">
           <div class="studio-template-creator-setting-label">指定可见用户</div>
-          <input
-            class="studio-template-creator-user-input"
+          <TemplateVisibleUserSelect
             value={props.specifiedUsers}
-            placeholder="请输入8位工号或姓名全拼，以“，”号间隔"
-            onInput={(event) => props.onSpecifiedUsers(event.currentTarget.value)}
+            onChange={props.onSpecifiedUsers}
+            onSearchUsers={props.onSearchUsers}
           />
         </div>
       </Show>
@@ -944,14 +1094,15 @@ function PublishTemplateForm(props: {
   referenceMode: ReferenceMode
   referenceCount: ReferenceCount
   visibility: TemplateVisibility
-  specifiedUsers: string
+  specifiedUsers: StudioTemplateVisibleUser[]
   onTitle: (value: string) => void
   onUsageDescription: (value: string) => void
   onPromptSetting: (value: PromptSetting) => void
   onReferenceMode: (value: ReferenceMode) => void
   onReferenceCount: (value: ReferenceCount) => void
   onVisibility: (value: TemplateVisibility) => void
-  onSpecifiedUsers: (value: string) => void
+  onSpecifiedUsers: (value: StudioTemplateVisibleUser[]) => void
+  onSearchUsers?: (input: StudioTemplateUserSearchInput) => Promise<StudioTemplateVisibleUser[]>
 }): JSX.Element {
   return (
     <>
@@ -986,6 +1137,7 @@ function PublishTemplateForm(props: {
         specifiedUsers={props.specifiedUsers}
         onVisibility={props.onVisibility}
         onSpecifiedUsers={props.onSpecifiedUsers}
+        onSearchUsers={props.onSearchUsers}
       />
     </>
   )
@@ -1061,6 +1213,7 @@ export function StudioTemplateCreator(props: {
     handlers: StudioStyleDescriptionGenerateHandlers,
   ) => Promise<void>
   onPublishTemplate?: (input: StudioTemplatePublishInput) => Promise<void>
+  onSearchUsers?: (input: StudioTemplateUserSearchInput) => Promise<StudioTemplateVisibleUser[]>
 }): JSX.Element {
   const [currentStep, setCurrentStep] = createSignal<TemplateCreatorStep>("make")
   const [title, setTitle] = createSignal("")
@@ -1088,7 +1241,7 @@ export function StudioTemplateCreator(props: {
   const [referenceMode, setReferenceMode] = createSignal<ReferenceMode>("fixed")
   const [referenceCount, setReferenceCount] = createSignal<ReferenceCount>(1)
   const [visibility, setVisibility] = createSignal<TemplateVisibility>("all_users")
-  const [specifiedUsers, setSpecifiedUsers] = createSignal("")
+  const [specifiedUsers, setSpecifiedUsers] = createSignal<StudioTemplateVisibleUser[]>([])
   const [exampleImages, setExampleImages] = createSignal<TemplateUploadImage[]>([])
   const [exampleUploadMessage, setExampleUploadMessage] = createSignal("")
   const styleDescriptionTotalCount = createMemo(() =>
@@ -1122,7 +1275,7 @@ export function StudioTemplateCreator(props: {
     Boolean(referenceMode()) &&
     (referenceMode() === "not_supported" || [1, 2, 3].includes(referenceCount())) &&
     Boolean(visibility()) &&
-    (visibility() === "all_users" || specifiedUsers().trim().length > 0),
+    (visibility() === "all_users" || specifiedUsers().length > 0),
   )
   const canPublish = createMemo(
     () =>
@@ -1161,7 +1314,7 @@ export function StudioTemplateCreator(props: {
     ),
   })
   const templatePublishBaseInput = (): StudioTemplatePublishBaseInput => ({
-    allowed_user_id: visibility() === "specified_users" ? specifiedUsers().trim() : null,
+    allowed_user_ids: visibility() === "specified_users" ? specifiedUsers().map((item) => item.account).join(",") : null,
     example_images: exampleImages(),
     permission_type: visibility(),
     prompt_setting: promptSetting(),
@@ -1337,6 +1490,7 @@ export function StudioTemplateCreator(props: {
                   onReferenceCount={setReferenceCount}
                   onVisibility={setVisibility}
                   onSpecifiedUsers={setSpecifiedUsers}
+                  onSearchUsers={props.onSearchUsers}
                 />
               </Show>
             }

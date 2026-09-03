@@ -13,6 +13,7 @@ import {
   getInternalStyleTemplate,
   listInternalStyleTemplates,
   publishInternalStyleTemplate,
+  searchInternalStyleTemplateUsers,
   type StyleDescriptionGenRequest,
   type StyleDescriptionGenStreamEvent,
   type StyleTemplateDetailRequest,
@@ -20,6 +21,8 @@ import {
   type StyleTemplateListItem,
   type StyleTemplateListResult,
   type StyleTemplatePublishRequest,
+  type StyleTemplateUserSearchItem,
+  type StyleTemplateUserSearchRequest,
 } from "@/tool/internel_style_template"
 import z from "zod"
 import * as Database from "@/storage/db"
@@ -131,6 +134,8 @@ export type StudioTemplateListRequest = StyleTemplateListRequest
 export type StudioTemplateDetailRequest = StyleTemplateDetailRequest
 export type StudioTemplateListItem = StyleTemplateListItem
 export type StudioTemplateListResult = StyleTemplateListResult
+export type StudioTemplateUserSearchItem = StyleTemplateUserSearchItem
+export type StudioTemplateUserSearchRequest = StyleTemplateUserSearchRequest
 
 export type StudioGenerationResult = {
   id: string
@@ -194,6 +199,10 @@ export async function listTemplates(input: StudioTemplateListRequest): Promise<S
 
 export async function getTemplateDetail(input: StudioTemplateDetailRequest): Promise<StudioTemplateListItem> {
   return getInternalStyleTemplate(input)
+}
+
+export async function searchTemplateUsers(input: StudioTemplateUserSearchRequest): Promise<StudioTemplateUserSearchItem[]> {
+  return searchInternalStyleTemplateUsers(input)
 }
 
 export type StudioGenerationAccepted = Pick<
