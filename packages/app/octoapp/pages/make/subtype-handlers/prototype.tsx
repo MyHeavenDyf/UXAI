@@ -15,6 +15,7 @@ import { showPromiseToast } from "../components/octo-toast"
 import proto_replanner from "../../pattern/agents/proto-replanner"
 import { relativePathToId, resolveRelativePath, getExt } from "../utils/history-store"
 import type { DesktopApi } from "../lib/electron-api"
+import { joinPath } from "../utils/references"
 
 let downloading = false
 
@@ -101,23 +102,17 @@ async function buildPrototypeCodeFiles(
   return { files, uploadsDir, makeUploadsDir, planner }
 }
 
-/** 递归列出目录下所有文件（绝对路径） */
+/** 列出目录下所有文件（绝对路径）。
+ *  list-directory IPC 已递归 walk，返回的 path 是相对 dir 的相对路径，这里拼回绝对。 */
 async function listAllFiles(
   api: DesktopApi,
   dir: string,
 ): Promise<string[]> {
   if (!api.listDirectory) return []
   const entries = await api.listDirectory(dir)
-  const out: string[] = []
-  for (const e of entries) {
-    if (e.type === 'file') {
-      out.push(e.path)
-    } else if (e.type === 'directory') {
-      const nested = await listAllFiles(api, e.path)
-      out.push(...nested)
-    }
-  }
-  return out
+  return entries
+    .filter(e => e.type === 'file')
+    .map(e => joinPath(dir, e.path.replace(/\\/g, '/')))
 }
 
 const [isDarkTheme, setDarkTheme] = createSignal(false)
