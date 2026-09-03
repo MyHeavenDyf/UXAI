@@ -5,7 +5,9 @@ import {
   dirname,
   basename,
   joinPath,
+  relativeTo,
 } from "./references"
+import type { DesktopApi } from "../lib/electron-api"
 import { observedUrlsToAbsPaths } from "./resource-tracker"
 import { readHtmlFromDisk } from "./html-assets-zip"
 
@@ -80,6 +82,10 @@ export interface CreateArchiveZipOptions {
   observedUrls?: string[]
   /** 归档时塞进 src/ 的文件列表；为空则 src/ 留空 */
   srcFiles?: { path: string; content: string | Uint8Array }[] | null
+  /** 额外整体打包进 preview/ 的本地目录（绝对路径，递归列出）。
+   *  用于绕过静态解析局限（如打包器转换 new URL 形式、运行时动态注入 css），
+   *  把 HTML 引用但 regex 抓不到的本地资源目录（如 prototype 的 assets symlink）一并带走。 */
+  previewExtraDirs?: string[]
 }
 
 export function transformCommentsForArchive(comments: FileComment[]): ArchiveComment[] {
@@ -154,6 +160,18 @@ async function blobToUint8Array(blob: Blob): Promise<Uint8Array> {
   return new Uint8Array(buffer)
 }
 
+/** 列出目录下所有文件（绝对路径）。
+ *  list-directory IPC 已递归 walk，返回的 path 是相对 dir 的相对路径，这里拼回绝对。 */
+async function listDirFiles(
+  listDirectory: NonNullable<DesktopApi["listDirectory"]>,
+  dir: string,
+): Promise<string[]> {
+  const entries = await listDirectory(dir)
+  return entries
+    .filter(e => e.type === "file")
+    .map(e => joinPath(dir, e.path.replace(/\\/g, "/")))
+}
+
 export async function createArchiveZip(options: CreateArchiveZipOptions): Promise<Blob> {
   const zip = new JSZip()
 
@@ -220,6 +238,26 @@ export async function createArchiveZip(options: CreateArchiveZipOptions): Promis
         }
       } catch (err) {
         console.warn(`[Archive] Failed to read referenced file:`, relPath, err)
+      }
+    }
+  }
+
+  // 额外本地目录整体打包进 preview/（绕过静态解析局限，如 prototype 的 assets symlink）
+  if (options.previewExtraDirs?.length && api?.listDirectory && api?.readFileBuffer && options.htmlFilePath) {
+    const htmlDir = dirname(options.htmlFilePath).replace(/\\/g, "/")
+    for (const dir of options.previewExtraDirs) {
+      const dirNorm = dir.replace(/\\/g, "/")
+      const destPrefix = relativeTo(htmlDir, dirNorm) || basename(dirNorm)
+      try {
+        const allFiles = await listDirFiles(api.listDirectory, dirNorm)
+        for (const absPath of allFiles) {
+          const absNorm = absPath.replace(/\\/g, "/")
+          const rel = absNorm.slice(dirNorm.length).replace(/^[\\/]+/, "")
+          const buffer = await api.readFileBuffer(absPath)
+          if (buffer) zip.file(`preview/${destPrefix}/${rel}`, new Uint8Array(buffer))
+        }
+      } catch (err) {
+        console.warn(`[Archive] previewExtraDir failed:`, dir, err)
       }
     }
   }

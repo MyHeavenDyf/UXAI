@@ -49,6 +49,10 @@ export type DesktopApi = {
   exportZip?: (opts: { defaultName: string; files?: { path: string; content: string }[]; sourceDir?: string; destFolder?: string; sourceDirs?: { dir: string; destFolder: string }[]; comment?: string }) => Promise<string | null>
   /** 获取上传资源根目录 */
   getUploadsDir?: () => Promise<string | null>
+  /** 获取 previewdist 目录（A2UI 运行时：HTML/JS/CSS/字体）。
+   *  开发态为 packages/previewdist，安装态为 resources/previewdist。
+   *  prototype 归档用此拿真实路径列 assets 子目录，避免 symlink 导致 listDirectory 不跟随。 */
+  getPreviewDistDir?: () => Promise<string>
   /** 把图片写到 prototype.html 同级 uploads 目录，返回相对 URL（uploads/<hash>.<ext>，iframe 经 local:// 解析） */
   savePrototypeImage?: (buffer: ArrayBuffer, dir: string) => Promise<string>
 }
