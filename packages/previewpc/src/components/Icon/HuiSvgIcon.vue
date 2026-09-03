@@ -22,8 +22,9 @@ const normalizedSvg = computed(() => {
   return svg
 })
 
+// 无 size 时默认 16px，避免数据上没有 className 宽高时图标尺寸异常
 const computedStyle = computed(() => {
-  const sizeVal = props.size ? `${props.size}px` : '100%'
+  const sizeVal = props.size ? `${props.size}px` : '16px'
   const style: Record<string, string> = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: sizeVal, height: sizeVal }
 
   if (props.iconColor?.[0]) style.color = props.iconColor[0]
