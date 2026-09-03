@@ -1366,6 +1366,7 @@ const sessionMessagesLoaded = createMemo(() => {
   // ── Skills Config (from skill_config.json) ──
   const [skillConfig, setSkillConfig] = createSignal<SkillConfig>({})
   const [skillsLoading, setSkillsLoading] = createSignal(false)
+  const [skillsLoaded, setSkillsLoaded] = createSignal(false)
   const [skillToolCalls, setSkillToolCalls] = createSignal<ToolCallInfo[]>([])
   const [pendingSkill, setPendingSkill] = createSignal<{ name: string; content: string } | null>(null)
 
@@ -1395,12 +1396,13 @@ const sessionMessagesLoaded = createMemo(() => {
       console.error("[MakePage] Failed to load skill config:", err)
     } finally {
       setSkillsLoading(false)
+      setSkillsLoaded(true)
     }
   }
   
   // 组件挂载时预加载 skill 配置
   createEffect(() => {
-    if (params.id && !skillConfig().skill) {
+    if (params.id && !skillsLoaded()) {
       loadSkillConfig()
     }
   })
