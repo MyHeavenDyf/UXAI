@@ -13,6 +13,7 @@ import {
   fetchAssetFiles,
   joinUrl,
   inferKindFromUrl,
+  assetFileId,
   type AssetFolder,
   type AssetFile,
 } from "../addon-menu/asset-library"
@@ -337,33 +338,36 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
   }
 
   // 产品资产库文件选中态:基于 props.selections (doc 里的 chip),按 id 匹配
-  // chip id = joinUrl(s3BaseUrl, convertHtmlUrl) (唯一标识,下载后不变,即使 path 被改成本地路径)
+  // chip id = assetFileId(file) (唯一标识,下载后不变,即使 path 被改成本地路径)
   // 参照 addon-menu 的 isAssetFileSelected,用 id 而不是 filename 匹配,避免同名文件误判
   const isAssetFileSelected = (file: AssetFile) => {
-    const url = joinUrl(file.s3BaseUrl, file.convertHtmlUrl)
+    const id = assetFileId(file)
     return props.selections.some(s =>
-      s.type === 'file' && (s as any).id === url
+      s.type === 'file' && (s as any).id === id
     )
   }
 
-  // 在 assetSubStack 里按 URL 查找 AssetFile (用于下载时从 chip id 反查文件元数据)
+  // 在 assetSubStack 里按 id 查找 AssetFile (用于下载时从 chip id 反查文件元数据)
   const findAssetFileInStackByUrl = (url: string): AssetFile | undefined => {
     for (const level of assetSubStack()) {
-      const f = level.files.find(file => joinUrl(file.s3BaseUrl, file.convertHtmlUrl) === url)
+      const f = level.files.find(file => assetFileId(file) === url)
       if (f) return f
     }
     return undefined
   }
 
-  // 产品资产文件点击:chip path = joinUrl(s3BaseUrl, convertHtmlUrl) 作唯一标识
+  // 产品资产文件点击:chip path = assetFileId(file) 作唯一标识
   // (insertMention 会把 selection.path 存为 chip.attrs.id;sync plugin 提取时 selection.id = chip.attrs.id)
+  // zip 资产下载后解压为文件夹,chip 标记 isFolder,发送时文案用"这个文件夹"
   // 关闭面板时批量下载,updateMentionPath 把本地路径补到 chip (按 id 匹配)
   const handleProductAssetClick = (file: AssetFile) => {
-    const url = joinUrl(file.s3BaseUrl, file.convertHtmlUrl)
+    const id = assetFileId(file)
+    const isZip = (file.versionInfo?.[0]?.fileName ?? "").toLowerCase().endsWith(".zip")
     const selection: MentionSelection = {
       type: 'file',
       filename: file.fileName,
-      path: url,
+      path: id,
+      isFolder: isZip || undefined,
     }
     if (isAssetFileSelected(file)) {
       props.onDeselect(selection)
@@ -405,9 +409,9 @@ export function MentionPopover(props: MentionPopoverProps): JSX.Element {
         setAssetDownloadCurrent(file.fileName)
         const localPath = await props.onDownloadProductAsset?.(file, () => {}, assetDownloadAbortController.signal)
         if (assetDownloadCancelled()) break
-        // 用 URL (chip id) 调 updateMentionPath,prosemirror 按 node.attrs.id 匹配后把 path 改成本地路径
+        // 用 chip id (assetFileId) 调 updateMentionPath,prosemirror 按 node.attrs.id 匹配后把 path 改成本地路径
         if (localPath) {
-          props.onUpdateMentionPath?.(joinUrl(file.s3BaseUrl, file.convertHtmlUrl), localPath)
+          props.onUpdateMentionPath?.(assetFileId(file), localPath)
         }
       }
       setAssetDownloadOpen(false)
