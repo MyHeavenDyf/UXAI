@@ -1,23 +1,27 @@
 /**
- * scene-gate —— 9a 确定性结构健全性门控（零模型依赖）
+ * scene-gate —— 9a 运行时门控（零模型依赖）
  *
- * codegen→物化→预览之后跑两类确定性检查（聚焦「渲染出来没有」）：
- *   1. 完整性：plan.types vs sceneData 的分组 key / 数量（纯函数，立即）——「少了哪类物体」
- *   2. 运行时：等 iframe SCENE_READY settle 后读 console buffer（SCENE_ERROR /
- *      SCENE_CONSOLE_ERROR）——「为什么渲染不出来 / 哪步崩了」
+ * codegen→物化→预览之后跑一类确定性检查：
+ *   运行时：等 iframe 渲染 settle（固定延迟）后读 console buffer（SCENE_ERROR /
+ *   SCENE_CONSOLE_ERROR）——「为什么渲染不出来 / 哪步崩了」
  * 失败汇总 GateResult.findings，由 host 写进 sessionErrors + saveProtoError → GenerationCard
  * 持久显示（**不走消失 toast**），并把 findings 喂回下一轮 codegen（priorGateFindings →
  * `## 上一轮门控失败清单`，让 codegen 照着修）。
  *
- * 不做：tsc 编译检查（类型不干净≠渲染阻断，LLM 高频踩 noUnusedLocals/noImplicitAny，
- *   噪音淹没真问题，已下线）、dump-graph / 结构核对（地下/重叠，需几何回传，本轮定不做）、
- *   自动循环（session 竞态风险，见 3d-first-create-blank-race，留后续）。
+ * P0.10（2026-09-03）：删 awaitSceneSettled（SCENE_READY 握手 15s 超时）——握手与 resolver
+ *   时序竞态致误报「场景未就绪」。改固定延迟 settleMs 等 console buffer 收集，失败靠
+ *   SCENE_ERROR/SCENE_CONSOLE_ERROR 确定性事件判断。
+ *
+ * P0.4 回退（2026-09-03）：删 checkCompleteness——plan.types vs live-data 分组是冗余检查
+ *   （warn 不挡、plan 与 live-data 同一 LLM 产少漏）。门控只留 checkRuntime（唯一能抓
+ *   运行时错的层——语法检查 transpileModule 抓不到语义错如 continue outside loop，
+ *   只有跑到 iframe 才暴露）。simple & accurate.
  */
 import type { PlanResult } from "../agents/scene-plan"
 
 /** 单条门控发现 */
 export interface GateFinding {
-  check: "completeness" | "runtime"
+  check: "runtime"
   level: "error" | "warn"
   code: string
   message: string
@@ -40,60 +44,10 @@ export interface GateResult {
 export interface RunSceneGateInput {
   plan: PlanResult
   sceneData: Record<string, unknown> | null
-  /** 等 iframe SCENE_READY + settle；超时 reject。host 侧实现 */
-  awaitSceneSettled: () => Promise<void>
+  /** 等 iframe 渲染 + console buffer 收集的固定延迟（ms，默认 3000）。不靠 SCENE_READY 握手。 */
+  settleMs?: number
   /** 读 gate 期间收集的 console buffer（host 侧 signal 快照） */
   readConsoleBuffer: () => ConsoleEntry[]
-}
-
-/** 与 codegen-scene.ts 一致的保留 key（不作为 type 分组） */
-const RESERVED_TYPES = new Set(["version", "scene", "camera", "lights", "remove"])
-
-/**
- * 完整性核对：plan.types vs sceneData 分组 key。
- * - sceneData null → no-live-data（error，等于没产物）
- * - plan 规划的 type 在 live-data 缺失 / 空数组 → warn（partial 仍可渲染，但提醒）
- */
-export function checkCompleteness(
-  plan: PlanResult,
-  sceneData: Record<string, unknown> | null,
-): GateFinding[] {
-  if (!sceneData) {
-    return [
-      {
-        check: "completeness",
-        level: "error",
-        code: "no-live-data",
-        message: "LLM 未输出 live-data.json 或不可解析",
-      },
-    ]
-  }
-  const findings: GateFinding[] = []
-  const plannedTypes: string[] = Array.isArray(plan.types)
-    ? plan.types.map((t) => t.type).filter((t) => t)
-    : []
-  const present = Object.keys(sceneData).filter((k) => !RESERVED_TYPES.has(k))
-  for (const t of plannedTypes) {
-    if (!present.includes(t)) {
-      findings.push({
-        check: "completeness",
-        level: "warn",
-        code: "missing-type",
-        message: `plan 规划的 type「${t}」在 live-data 中缺失`,
-      })
-      continue
-    }
-    const v = sceneData[t]
-    if (!Array.isArray(v) || v.length === 0) {
-      findings.push({
-        check: "completeness",
-        level: "warn",
-        code: "empty-type",
-        message: `type「${t}」在 live-data 中为空数组`,
-      })
-    }
-  }
-  return findings
 }
 
 /** 运行时核对：console buffer → findings */
@@ -127,39 +81,15 @@ function checkRuntime(entries: ConsoleEntry[]): GateFinding[] {
 }
 
 /**
- * 跑 9a 两检查。完整性立即；然后等 iframe SCENE_READY settle + 读 console buffer。
+ * 跑运行时检查。等 iframe 渲染 settle（固定延迟）+ 读 console buffer。
  *
- * settle 超时不直接报：先读 buffer——若 buffer 有 runtime error/fatal（渲染崩了），
- * 那就是根因（scene-not-ready 只是它的连锁，不重复报，让用户直接看到「为什么崩」）；
- * 若 buffer 干净才报 scene-not-ready（dev 未起 / iframe 空，真「没就绪」）。
+ * 运行时错（SCENE_ERROR/SCENE_CONSOLE_ERROR）是确定性事件——有就是渲染崩了/哪步错了，
+ * 喂回 codegen 自愈；没有就通过。
  */
 export async function runSceneGate(input: RunSceneGateInput): Promise<GateResult> {
   const findings: GateFinding[] = []
-
-  // 1. 完整性（立即）
-  findings.push(...checkCompleteness(input.plan, input.sceneData))
-
-  // 2. 运行时：settle + 读 buffer
-  const settleErr = await input
-    .awaitSceneSettled()
-    .then(() => null)
-    .catch((e: unknown) => e)
-  const runtimeFindings = checkRuntime(input.readConsoleBuffer())
-  findings.push(...runtimeFindings)
-
-  const hasRuntimeError = runtimeFindings.some((f) => f.level === "error")
-  if (settleErr && !hasRuntimeError) {
-    // buffer 干净却没就绪 → dev 未起 / iframe 空（非渲染崩，是没起来）
-    findings.push({
-      check: "runtime",
-      level: "error",
-      code: "scene-not-ready",
-      message: `场景未就绪且无运行时报错（dev 可能未起 / iframe 空）：${
-        settleErr instanceof Error ? settleErr.message : String(settleErr)
-      }`,
-    })
-  }
-
+  await new Promise((r) => setTimeout(r, input.settleMs ?? 3000))
+  findings.push(...checkRuntime(input.readConsoleBuffer()))
   return { passed: !findings.some((f) => f.level === "error"), findings }
 }
 
@@ -168,7 +98,7 @@ export function formatGateFindingsForCodegen(findings: GateFinding[]): string {
   const errs = findings.filter((f) => f.level === "error")
   const warns = findings.filter((f) => f.level === "warn")
   if (errs.length === 0 && warns.length === 0) return ""
-  const lines: string[] = ["## 上一轮门控失败清单", "上一轮生成的代码未通过确定性门控，请按下列问题修复：", ""]
+  const lines: string[] = ["## 上一轮门控失败清单", "上一轮生成的代码未通过运行时门控，请按下列问题修复：", ""]
   for (const f of errs) {
     lines.push(`- [${f.check}/${f.code}] ${f.message}`)
   }
@@ -178,6 +108,6 @@ export function formatGateFindingsForCodegen(findings: GateFinding[]): string {
       lines.push(`- [${f.check}/${f.code}] ${f.message}`)
     }
   }
-  lines.push("", "要求：修完后确保 live-data 含全部 plan 规划的 type 且非空、iframe 运行时无 console error。")
+  lines.push("", "要求：修完后确保 iframe 运行时无 console error。")
   return lines.join("\n")
 }

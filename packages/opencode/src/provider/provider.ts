@@ -1989,13 +1989,16 @@ const layer: Layer.Layer<
         if (existing) return existing
 
         const customFetch = options["fetch"]
-        // 默认 90s 无新 chunk 即 abort：远程 provider（GLM/DeepSeek）不走 bypass 兜底，
+        // 默认 180s 无新 chunk 即 abort：远程 provider（GLM/DeepSeek）不走 bypass 兜底，
         // 而调用方从没传 chunkTimeout → wrapSSE 的间隔超时是死代码 → SSE 静默断时无限假死。
         // 注入默认值让其生效；正常长生成持续来 token 会 reset timer，不会误杀。
+        // 180s（非 90s）：差模型（reasoning 模型 GLM/DeepSeek）在「思考→输出代码」切换时
+        // 可能 90s+ 不出 token（非死锁，是正常推理停顿，338.9s codegen 实证误杀）。
+        // 真死锁时多等 90s 才发现，但有 P1.1 渐进提示（120s 灰/300s 橙）+ P1.2 15min 超时卡片兜底。
         const chunkTimeout =
           typeof options["chunkTimeout"] === "number" && options["chunkTimeout"] > 0
             ? options["chunkTimeout"]
-            : 90_000
+            : 180_000
         delete options["chunkTimeout"]
 
         options["fetch"] = async (input: any, init?: BunFetchRequestInit) => {

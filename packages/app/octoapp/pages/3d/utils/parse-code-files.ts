@@ -17,6 +17,8 @@
  * 鲁棒：缺 `## file:` 头 / fence 不配对 → 该块跳过，不抛（空数组时调用方 toast 提示，不崩）。
  */
 
+import { extractJsonFromTruncated } from "./json-parser"
+
 export type CodeFile = { path: string; content: string }
 
 /** `## file: <path>` 行头（multiline，迭代取所有 header 的位置） */
@@ -82,6 +84,13 @@ export function extractSceneData(files: CodeFile[]): Record<string, unknown> | n
   try {
     return JSON.parse(f.content) as Record<string, unknown>
   } catch {
-    return null
+    // 截断抢救：复杂场景（如上海城市）LLM 输出撑满 max_tokens，live-data.json 截在中间。
+    // extractJsonFromTruncated 逐字符扫描安全截断点 + 补齐未闭合括号，恢复可解析的部分。
+    // 可能丢末尾几个 scene_objects（部分物体缺），但远好于整个场景失败。
+    const recovered = extractJsonFromTruncated(f.content)
+    if (recovered) {
+      console.warn("[extractSceneData] live-data.json JSON.parse 失败，截断抢救成功（可能丢末尾部分物体）")
+    }
+    return recovered
   }
 }

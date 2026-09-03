@@ -86,7 +86,15 @@ export async function runChildSession(
     const message = err instanceof Error ? err.message : String(err)
     console.error(`[runChildSession] ${agent} 执行失败:`, message)
     if (message === "aborted") throw err
-    return { text: "", childSessionId: parentSessionID, error: message }
+    // idle 超时误判时已收的部分输出挂在 err.partial（SSE 漏推 message.completed，实证
+    // ses_f9ad2e96：server 已产完整 plan，渲染层漏收 → 假超时）。透传给上层做截断抢救，
+    // 不整段丢弃（丢弃 → 抢救拿空输入必败 → 假失败卡片）。
+    const partial = (err as { partial?: string }).partial
+    return {
+      text: typeof partial === "string" && partial.length > 0 ? partial : "",
+      childSessionId: parentSessionID,
+      error: message,
+    }
   }
 }
 

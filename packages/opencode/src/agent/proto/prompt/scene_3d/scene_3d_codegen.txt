@@ -14,6 +14,9 @@ plan agent 已完成选型（components / resources / camera / lights / scene �
 - `[USER_REQUEST]`：用户的原始场景请求（中文）。
 - `[CURRENT_HANDLERS]`（仅 modify 时出现）：当前全部 handler 源码 + 当前 index.ts（供你保留未受影响的 type）。
 - `[CURRENT_LIVE_DATA]`（仅 modify 时出现）：当前 live-data.json（供你保留未受影响 type 的分组数据）。
+- `## 上一轮代码错误清单`（仅语法自愈重试时出现）：TS 编译器抓到的语法错（`file:line:col: reason (code N)`）。**这是上一轮你写的代码的真实编译错误，逐条按 file:line:col 定位修复**。语法错误是确定性的（`wheel.rotation. =` 缺属性名、括号不配对、`continue` 在循环外等），照报错位置改即能过——不要换方案重写，只修错。
+- `## 上一轮问题：public/live-data.json 未输出或不可解析`（仅截断自愈重试时出现）：上一轮输出超长被截断，部分 handler .ts 已产出（系统直接复用）但 live-data.json 没输出或被截断。本轮只输出「## 本轮输出范围」列出的文件，live-data.json 必须完整收尾（全部 type 分组 + camera / lights / scene）。
+- `## 本轮输出范围（只改有错的文件）`（仅自愈重试时出现）：上一轮其余文件已由系统校验通过并直接复用，本轮**只需重新输出该节列出的文件**，不要重复输出未列出的文件（仅当修复必须连带改动其他文件时才可一并输出）。
 
 # Objective
 把 PLAN_JSON 的每个 type 实现成一个 ComponentHandler，并产出全量 index.ts + 全量 live-data.json。

@@ -646,13 +646,13 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 - [x] 7. §13 patch：第3货架红→set_instance(gap①) ✅已修+e2e验证(2026-09-01) 「第一个集装箱变红」→RE_LOOP_TMPL `(\w+)` 认不出 `xi++`→box/upright/beam 候选全失配→降级 modify；修=正则+resolveCounterLoopCount+语义映射+同义词兜底，TC-B4b 走 set_instance 改 box-0 不降级（见 P0.1-3）
 - [x] 8. §13 patch：加货架→add_instance ✅
 - [x] 9. §13 patch：整体前移→set_type_transform ✅ 功能生效（但闪很多次，见 P0.1-1）
-- [ ] 10. §13 GLB改色（edit_code paint traverse）⬜ 未明确测
+- [ ] 10. §13 GLB改色（edit_code paint traverse）⬜ 未明确测（用户未报问题，低优先）
 - [x] 11. §13 D3 gate merge（modify 不丢 type）✅ 加小车后其他物体没丢
-- [ ] 12. §13 edit 墙色提交回退（M-1a）⚠️ 部分：roof truss-top 色生效 / lights part-43 色不生效（见 P0.1-5）
-- [ ] 13. Step 9a 门控：完整性缺 type 失败 ⬜ 未测
-- [ ] 14. Step 9a 门控：tsc 错失败 ⬜ 未测
-- [ ] 15. Step 9a 门控：console 错失败 ⬜ 未测
-- [ ] 16. Step 9a 门控：全过+重试喂回 ⬜ 未测
+- [ ] 12. §13 edit 墙色提交回退（M-1a）⚠️ 部分：roof truss-top 色生效 / lights part-43 色不生效（见 P0.1-5，低优先）
+- [x] 13. ~~Step 9a 门控：完整性缺 type 失败~~ ✅ 作废（P0.4 回退删 checkCompleteness，冗余检查）
+- [x] 14. ~~Step 9a 门控：tsc 错失败~~ ✅ 作废（tsc 已下线，噪音淹没）
+- [x] 15. Step 9a 门控：console 错失败 ✅ 已验证（2026-09-03，checkRuntime 抓 SCENE_CONSOLE_ERROR 自愈正常）
+- [x] 16. Step 9a 门控：全过+重试喂回 ✅ 已验证（2026-09-03，门控 PASS + 运行时错喂回 codegen 自愈）
 
 ### P1 — modify 保真修复（用户当前痛点，不依赖大重构）
 > 实证 `ses_faa391560ffea3` v7→v8「加小车」：① forklift.ts 整个被重写，丢原 `ctx.loadModel('hunyuan:叉车')` 退化成原生简陋体；② live-data 全量重生，camera position/lights intensity/background 被 LLM 顺手改（加小车不该动相机灯光）。其他 8 个 type handler 未变（D3 merge 正常）。
@@ -668,19 +668,19 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 >
 > **P0.3 — spinner 卡住（场景已渲染仍显示「正在生成」）+ 停止按钮无反应（2026-09-02，ses_fa055feafffefTSoZp7StDyk2v 实证）✅ 已修+e2e验证(2026-09-02,刷新后 spinner 消失)**：根因=前端 SSE 偶发漏推 `session.status(idle)` 事件 → `sync.data.session_status[sid]` 卡在 `busy` → `isBusy()` 第一关 `sessionStatus().type !== "idle"` 恒 true → spinner 永转（场景已渲染但 spinner 转了 10+ 分钟到用户手动 abort）；`halt()` 清了 `isGenerating` 等但**没清 `session_status` store** → 停止按钮看似无反应。**DB 实证**：root + 4 child session 的最后 assistant 消息 `time.completed` 全是 number（finish=stop），server 端正常 `exiting loop` + `session.idle publishing`——纯前端 SSE 漏收。**根因不依赖复现**（偶发，但 DB+日志双重取证坐实）。修=两处（index.tsx）：① `isBusy` 消息层兜底——root 有 assistant 且 `time.completed=number` + 所有 child 最后 assistant completed（或有 user 无 assistant=刚发未回判在途）→ 即使 `session_status` 卡 busy 也降级判 idle（消息层全完成=SSE 漏推 idle，spinner 不该转）；消息层有在途→busy（status 这时也应 busy，双保险）。② `halt()` 乐观清 `sync.set("session_status", sid/childID, {type:"idle"})` 不依赖 SSE 推送。校验：UXAI tsgo EXIT=0 + oxlint 0 error。**注**：参考 make 页面（:693 isBusy 纯 status 依赖不遍历 child）——make 单流+abort 后 SSE 正常推 idle 故不卡；3D 多 child 流水线+SSE 漏推已实证，故 isBusy 不能照搬 make 的纯 status 依赖，须消息层兜底。P1.1/P1.2（执行计时器+阻塞检测+总超时，照搬 make :711-758）待做。
 >
-> **P1.1 — 执行计时器 + 阻塞检测渐进式提示（照搬 make :711-758 + :1375-1404）✅ 修法已落地(2026-09-02，e2e 待跑)**：make 有「已执行 X分Y秒」(`elapsedText`，isBusy 时找 pending assistant 按 `time.created` 计时) +「已阻塞 N 秒」(`blockTime`，`lastDeltaTime` 由 SSE `message.part.delta`/`reasoning.delta`/`part.updated` 续命，`blockTimer` 每秒查 `>3000ms` → 显示)。**make 是渐进式**（insight-turn.tsx:1375-1404）：60s 灰提示「模型响应较慢，请耐心等待...」→ 180s 橙警告「模型超过 X 没有响应，建议重新请求」+「中止对话」按钮——把决定权给用户，不自动 halt。3D **已落地**：index.tsx 新增 `elapsedText`（pipelineBusy 时找 root+child 里最后一个未完成 assistant 计时，比 make 多扫 child）+ `blockTime`（SSE delta 续命，3D index.tsx 新增 `sdk.event.listen` 监听三类 delta 事件，root+child 都续命）+ RoundCard（chat/index.tsx）渲染「已执行 X分Y秒」+ 渐进式阻塞提示（**阈值适配 3D：120s 灰「响应较慢请耐心」/300s 橙「建议中止后重试」+「中止生成」按钮**，make 60/180 对单流合理但 3D codegen 十几分钟常态不能 60s 就提示）。**不照搬**：make 的 `isBusy` 纯 status 依赖（见 P0.3 注）+ make halt 极简（3D 需 `abortWait` 治永挂）。校验：UXAI tsgo EXIT=0 + oxlint 新增 0 warning。
+> **P1.1 — 执行计时器 + 阻塞检测渐进式提示（照搬 make :711-758 + :1375-1404）✅ 修法已落地+e2e已验证(2026-09-03)**：make 有「已执行 X分Y秒」(`elapsedText`，isBusy 时找 pending assistant 按 `time.created` 计时) +「已阻塞 N 秒」(`blockTime`，`lastDeltaTime` 由 SSE `message.part.delta`/`reasoning.delta`/`part.updated` 续命，`blockTimer` 每秒查 `>3000ms` → 显示)。**make 是渐进式**（insight-turn.tsx:1375-1404）：60s 灰提示「模型响应较慢，请耐心等待...」→ 180s 橙警告「模型超过 X 没有响应，建议重新请求」+「中止对话」按钮——把决定权给用户，不自动 halt。3D **已落地**：index.tsx 新增 `elapsedText`（pipelineBusy 时找 root+child 里最后一个未完成 assistant 计时，比 make 多扫 child）+ `blockTime`（SSE delta 续命，3D index.tsx 新增 `sdk.event.listen` 监听三类 delta 事件，root+child 都续命）+ RoundCard（chat/index.tsx）渲染「已执行 X分Y秒」+ 渐进式阻塞提示（**阈值适配 3D：120s 灰「响应较慢请耐心」/300s 橙「建议中止后重试」+「中止生成」按钮**，make 60/180 对单流合理但 3D codegen 十几分钟常态不能 60s 就提示）。**不照搬**：make 的 `isBusy` 纯 status 依赖（见 P0.3 注）+ make halt 极简（3D 需 `abortWait` 治永挂）。校验：UXAI tsgo EXIT=0 + oxlint 新增 0 warning。
 >
-> **P1.2+P1.4 — 超时落失败卡片 + 用户手动决定 + 部分输出抢救（对齐 make 用户主权哲学，make 无自动 halt）✅ 修法已落地(2026-09-02，e2e 待跑)**：**make 哲学=用户决定何时停**（180s 警告+中止按钮，不自动 halt）。原 P1.2「15min 自动 halt」违反此哲学（机器替用户决定）。**修正：超时不停生成，升格成卡片**——15min 无完成 → RoundCard 弹橙卡片「生成已超过 15 分钟仍未完成…可以继续等待（部分输出会被自动抢救），或中止后重试」+**三按钮**：「继续等待」（dismiss，模型可能快吐完了，用户自己判断；elapsed 回落=新阶段/新轮自动重置 dismiss）、「中止」（=halt，P0.3 已修乐观清 status+abortWait）、「重试」（halt+handleRetry 检查点断点续传；halt 触发的 reject 在 workflow 顶层 catch 全被 `err.message==="aborted"` 静默 return，无新旧竞争）。**用户定调不自动重试**（6 次重试全 300s 超时印证——同模型同 prompt 重试无效，自动重试=烧 30min 白等）。**部分输出抢救（不是重试，是不浪费已有输出）**，三层：
+> **P1.2+P1.4 — 超时落失败卡片 + 用户手动决定 + 部分输出抢救（对齐 make 用户主权哲学，make 无自动 halt）✅ 修法已落地+e2e已验证(2026-09-03)**：**make 哲学=用户决定何时停**（180s 警告+中止按钮，不自动 halt）。原 P1.2「15min 自动 halt」违反此哲学（机器替用户决定）。**修正：超时不停生成，升格成卡片**——15min 无完成 → RoundCard 弹橙卡片「生成已超过 15 分钟仍未完成…可以继续等待（部分输出会被自动抢救），或中止后重试」+**三按钮**：「继续等待」（dismiss，模型可能快吐完了，用户自己判断；elapsed 回落=新阶段/新轮自动重置 dismiss）、「中止」（=halt，P0.3 已修乐观清 status+abortWait）、「重试」（halt+handleRetry 检查点断点续传；halt 触发的 reject 在 workflow 顶层 catch 全被 `err.message==="aborted"` 静默 return，无新旧竞争）。**用户定调不自动重试**（6 次重试全 300s 超时印证——同模型同 prompt 重试无效，自动重试=烧 30min 白等）。**部分输出抢救（不是重试，是不浪费已有输出）**，三层：
 > 1. **`extractJsonFromTruncated`**（json-parser.ts，语法级）：先过 hex/裸标识符修复器 → 逐字符扫描记栈/字符串态/最后安全截断点（字符串外值边界逗号）→ 截断则回退安全点丢残尾 + 补齐未闭合括号再 parse。**完整性先扫 direct 后用**——顺序不能反：截断文本里内层对象常完整，extractJson 绝地求生分支会返回内层片段（丢最外层壳）语义灾难。8 用例行为验证过（完整直用/字符串中截/对象中截/逗号尾/hex+截/无{/多层/转义引号；字符串中截保最大已收内容——safeEnd 取最后安全逗号，截断处之前的完整字段全保留）。
 > 2. **scene-plan error 分支**（scene-plan/index.ts）：`planRes.error` 时先 `extractJsonFromTruncated(planRes.text)`，**语义门槛=isPlanTypesComplete（recovered.types 必须完整覆盖 triage 的 create+modify 清单**——残缺 types 会物化丢物体场景；env 三键缺失不挡：modify 靠 6d merge 覆盖回旧值，create 兜底空值 codegen 自定）；过门槛 → console.warn 留痕 + `recoveredFromError` 记 logAgentParsed + 继续流水线；不过 → 照旧 agentThrow。组装逻辑提成 `assemblePlan` 复用。
 > 3. **codegen-scene error 分支**（codegen-scene.ts）：重排为先 parseCodeFiles+extractSceneData 再判 error（抢救需 parse 结果判可恢复性）。`codegenRes.error` 且可抢救 → warn 留痕继续物化：**modify**（有 currentFiles）靠 6c host merge 补全 LLM 漏输出 handler；**create** 无上一轮可 merge，门槛=hasAllTypeHandlers（plan.types 每个 type 都有 handler 文件，缺=index.ts 注册不存在的文件→vite import 崩 [[3d-gate-handler-mismatch]]）。live-data.json 截断（sceneData null）不可抢救（SCENE_UPDATE payload 必需）。**砍掉原 P1.4 瞬态自动重试**（`withModuleRetry` 不用于 plan/codegen）。
 > 校验：UXAI tsgo EXIT=0 + oxlint 0 error / 新增 warning 0。
 >
-> **P1.3 — 墙钟可调（治 #3/#7 模型慢，[[3d-model-failure-variants]]，**首选治本、必做**）✅ 修法已落地(2026-09-02，e2e 待跑)**：300s 墙钟代码定位+日志实证已查清（2026-09-02）——[provider.ts:2028-2031](packages/opencode/src/provider/provider.ts#L2028-L2031) `effectiveTimeout` + [provider.ts:337-339](packages/opencode/src/provider/provider.ts#L337-L339) bypassDispatcher `headersTimeout`/`bodyTimeout`，两处硬编码 `5*60*1000`。另一台机器（D:\octo）日志实证：providerID=octo-ai、baseURL=octoai-llm.ucd.huawei.com 命中 bypass、未配 timeout → 吃 5min；**实际模型 GLM-V5_1**（非 v4-pro），plan fetch #5 在 300s 超时时已收 **3237 chunk/696KB 仍在持续输出**（chunk 间隔未超 90s）→ **#3/#7 同类：模型正常吐字但太慢 5min 不够吐完**（原"reasoning 占满"归因作废）。6 次重试全 300s 超时 → 非瞬态，重试无效，印证不自动重试。用户**不换模型**。**项目最终打包 exe/dmg 分发，不能改用户配置**（`opencode.json` env 化不够——用户不会设环境变量）→ **必须代码层调大默认值**。
+> **P1.3 — 墙钟可调（治 #3/#7 模型慢，[[3d-model-failure-variants]]，**首选治本、必做**）✅ 修法已落地+e2e已验证(2026-09-03)**：300s 墙钟代码定位+日志实证已查清（2026-09-02）——[provider.ts:2028-2031](packages/opencode/src/provider/provider.ts#L2028-L2031) `effectiveTimeout` + [provider.ts:337-339](packages/opencode/src/provider/provider.ts#L337-L339) bypassDispatcher `headersTimeout`/`bodyTimeout`，两处硬编码 `5*60*1000`。另一台机器（D:\octo）日志实证：providerID=octo-ai、baseURL=octoai-llm.ucd.huawei.com 命中 bypass、未配 timeout → 吃 5min；**实际模型 GLM-V5_1**（非 v4-pro），plan fetch #5 在 300s 超时时已收 **3237 chunk/696KB 仍在持续输出**（chunk 间隔未超 90s）→ **#3/#7 同类：模型正常吐字但太慢 5min 不够吐完**（原"reasoning 占满"归因作废）。6 次重试全 300s 超时 → 非瞬态，重试无效，印证不自动重试。用户**不换模型**。**项目最终打包 exe/dmg 分发，不能改用户配置**（`opencode.json` env 化不够——用户不会设环境变量）→ **必须代码层调大默认值**。
 >
 > **关键洞察——两类超时职责分离**：`5*60*1000` 原目的是"防服务端死锁导致 fetch 永挂"（代码注释 :2025-2027），5min 对防死锁够用但误杀长生成。但调大总墙钟**不会放任死锁**——因为 `chunkTimeout`（默认 90s，[provider.ts:1986-1989](packages/opencode/src/provider/provider.ts#L1986-L1989)）才是真正的死锁防线（90s 没来任何 chunk=确实挂了），它不受总墙钟影响、独立掐流。所以总墙钟调大到 600s/900s **安全**——模型只要还在吐字（chunk 间隔<90s）就不会被误杀，真 stall 会被 chunkTimeout 90s 兜底。这俩目的不冲突，各管各的维度。
 >
-> **修法 ✅ 已落地(2026-09-02，e2e 待跑)**：① [provider.ts](packages/opencode/src/provider/provider.ts) 新增模块级常量 `LOCAL_PROVIDER_TIMEOUT_MS = 10 * 60 * 1000`（原两处散落的 `5*60*1000` 统一提为常量）；② `effectiveTimeout` 兜底分支 + bypassDispatcher `headersTimeout`/`bodyTimeout` 三处都引用该常量（5min→10min）；③ `chunkTimeout` 90s **保持不动**（死锁防线，调大反而放任 stall）。**不**加环境变量（用户不会设）。**#3/#7 调大墙钟直接有效**（持续输出给够时间能吐完）。校验：opencode tsgo EXIT=0 + oxlint 0 error（27 warning 全预存 as SDK 断言）。
+> **修法 ✅ 已落地+e2e已验证(2026-09-03)**：① [provider.ts](packages/opencode/src/provider/provider.ts) 新增模块级常量 `LOCAL_PROVIDER_TIMEOUT_MS = 10 * 60 * 1000`（原两处散落的 `5*60*1000` 统一提为常量）；② `effectiveTimeout` 兜底分支 + bypassDispatcher `headersTimeout`/`bodyTimeout` 三处都引用该常量（5min→10min）；③ `chunkTimeout` 90s **保持不动**（死锁防线，调大反而放任 stall）。**不**加环境变量（用户不会设）。**#3/#7 调大墙钟直接有效**（持续输出给够时间能吐完）。校验：opencode tsgo EXIT=0 + oxlint 0 error（27 warning 全预存 as SDK 断言）。
 >
 > **P1.4 已合并进 P1.2+P1.4（见上）**——原独立 P1.4 的失败卡片+手动重试+部分输出解析整合进「超时落失败卡片+用户手动决定」，避免 P1.2（超时）和 P1.4（失败卡片）两个独立条目割裂。失败卡片是统一出口：超时/4xx/乱码/部分解析救不回 都落同一张。
 >
@@ -716,6 +716,117 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 - [x] 3. **set_instance 回归** ❌→已取证→**✅ 修法已落地+e2e验证通过（2026-09-01，三方案，TC-B4b）**。「第一个集装箱变红」整场景重写。**真实根因（2026-09-01 源码实证，第三次修正，前两次均误）**：用户说的「集装箱」= racks handler 里的货物箱 `box`（v7 racks.ts:72-99 有 box 循环，cid `${node.id}-box-${xi++}`，**v7 有集装箱非漏画**；box 从 v6 起就在 racks handler 内部，非独立 type）。但候选抽取器 `RE_LOOP_TMPL`（patch-resolver.ts:98）捕获组 2 是 `(\w+)`，`xi++` 的 `++` 不是 `\w` → **正则失配 → box 候选一个都没抽出来**（node 实证：原正则抽 0 个；失配的不只 box，upright `ui++`/beam `bi++` 全失配）→ triage 看候选清单无 box → set_instance 无候选 → 降级 modify 全量重写 → 场景级漂移。**修法（三方案，patch-resolver.ts + patch-scene.ts + scene_3d_triage.txt）**：① **正则修复**（根因）—— `RE_LOOP_TMPL` `(\w+)`→`(\w+\+*\??)` 认 `xi++` + `loopVar=m[2].replace(/\+\+$/,"")` 去后缀 + 新增 `resolveCounterLoopCount` 反推嵌套 for-of + 外部计数器上界（`let xi=0`→N 层 `for(const x of arr)`→最内层 `count=2+Math.floor(Math.random()*2)`→乘积×count 上界；node 实证 box=288/upright=27/beam=72）+ `estimateLoopBound`；② **triage 语义映射**（prompt）—— 新增「用户词→候选 suffix 语义映射」小节（集装箱/cargo/crate→box，立柱→upright，横梁→beam，第N个→-(N-1)）+ few-shot「把第一个集装箱变红」→ set_instance `__id=racks-1-box-0`；③ **同义词兜底**（防线）—— `searchHandlerForSynonymCid`（patch-resolver.ts 末尾）扫 handler 源码找同义词 cid（container→box），patch-scene.ts set_instance/skip_instance 校验 `__id` 不在候选清单时先调之映射到真实候选，找不到才 skip 降级 modify。**保守多抽候选无害**（triage 按语义只选 box-0；set_instance 写入不存在的 __id=SUB_OVERRIDES 死项 applyOverride no-op 不崩）。校验：UXAI tsgo EXIT=0 + oxlint 0 error；node 实证正则抽 3 个 + count 推断正确。**✅ e2e 验证通过（2026-09-01，TC-B4b：走 set_instance 改 box-0 不降级 modify，场景级不漂移，只第一个 box 变红）**。见 [[3d-patch-silent-noop]]。
 - [x] 4. **批量 transform 落盘不生效** ❌→已取证→✅**修法已落地（2026-08-31）**：**根因修正（非 part-N，是 group 根 cid 死项）**。forklift.ts 源码实证：`create` 返回 `group` 根，但**只在 `spawnForklift` 内对实例 cid `${node.id}-forklift-${i}` 调 `applyOverride`（:137），从不对 group 根调 `applyOverride(SUB_OVERRIDES, group, node.id)`**。末版 SUB_OVERRIDES 实证两 key：`"wh-forklift-1"`（group 根,transform [2.8,0.2,0]）= **死项**（无 applyOverride 调用点）→ 整体编辑未生效；`"wh-forklift-1-forklift-0"`（实例,[4,0,-1]）= **活项**（spawnForklift:137 命中）→ 单个编辑生效。与用户「整体不生效/单个生效」完全吻合。**修法（commit-edits.ts）**：group 根（`__id === node.id`，整体选中）transform 不再写 SUB_OVERRIDES 死项，改写 live-data `node.params`（position/rotation/scale）——同 set_type_transform 语义，handler 重读 `opts.position` 生效。merged 就地改经 `onCodeVersionReady(files, summary, merged)` 落盘 + reload。实例 transform 仍走 SUB_OVERRIDES（活项）不变，零回归。oxlint 0 error + tsgo EXIT=0。**✅ e2e 验证通过（2026-08-31，TC-D5b/TC-14b：整体编辑叉车位置提交生效，切走切回保留）**。
 - [x] 5. **lights part-N 改色改错部件+全变** ❌→已取证→**根因二修（2026-08-31）**：原记「同色重复 15 次→count>1→failed」**不实**。pendant_lights.ts 源码实证：`makeLamp()` 是**函数**，三颜色字面量各只 1 次（`0x41b6f1` 杆 :20 / `0x37474f` 罩 :28 / `0xfffbe8` 泡 :36），循环调 15 次是运行时复用非源码重复。`patchHandlerMaterialColor`（patch-handler.ts:545）取**首个** `color:0x` 匹配=杆 `0x41b6f1`，count=1→**成功**→改错部件（杆非罩）+15 根杆全变。**真根因=组内子 mesh（rod/shade/bulb）无语义 `__id`+`applyOverride`**（只灯组 Group 盖 cid+applyOverride :58/60，Group 无 material→SUB_OVERRIDES no-op；子 mesh 无 cid→picker 返回兜底 part-N→commit 无法定位具体子部件，只能取首匹配=错）。另 PointLight `new THREE.PointLight(0xffe3ae,35,30,2)` 无 `color:0x` 前缀，正则不认（part-45+ 子分支，同 GLB paint 思路改构造首参）。roof truss-top 走语义 cid+单 material→SUB_OVERRIDES 生效故 OK。**修=组内每个有独立材质的子 mesh 盖语义 `__id`（`${cid}-rod/shade/bulb`）+ applyOverride**（codegen prompt 规则 132「循环同质子物」补「组件 Group 内独立材质子 mesh 亦须盖 cid+applyOverride」）→ picker 返回语义 cid → commit SUB_OVERRIDES 单子 mesh 生效，UXAI host 零改动（同 GLB 纯 prompt 路子）。**✅ 修法已落地（2026-08-31，A+B）**：A=`patch-handler.ts` patchHandlerMaterialColor 多异色（distinct>1）时 skip 防改错部件+全变（host 护现有 handler）；B=HANDLER_CONTRACT 规则 3 + codegen Constraints 3 补「组件 Group 内独立材质子 mesh 亦须盖语义 `__id`（`${cid}-<部件>`）+ applyOverride，工厂函数接收 cid 传内部子 mesh」（prompt，新生成 picker 返回语义 cid→SUB_OVERRIDES 单子 mesh 生效，host 零改动）。oxlint 0 new warning + tsgo EXIT=0。e2e 待跑 TC-12c。
+
+### P0.4 — codegen 语法错自愈（parse 检查 + 自动重试喂回，2026-09-03 定案）
+
+> **背景**：LLM 写 TS handler 频出语法错（`ses_f9e9d7b7` vehicles.ts:139 `wheel.rotation. = Math.PI/2` PARSE_ERROR；`facilities.ts:240` `continue` outside loop→运行时 SyntaxError；用户试 9 次全失败）。痛点=**语法错到 vite transform 阶段才爆**（materialize→startDev→iframe 加载→15s 超时报「场景未就绪」而非真因），用户看不到根因、手动重试 9 次全错。
+>
+> **方案定案（两层，code-first 不走 JSON 数据路线）**：
+> 1. **物化前静态 parse 检查**（`checkHandlerSyntax`，`parse-check.ts`）：LLM 输出 → parseCodeFiles → **onCodeReady/onMaterialize 物化之前**，对每个 `.ts` 文件跑 `ts.transpileModule`（reportDiagnostics:true）抓 Error 级 diagnostic。语法错 → **立即拦截不进 materialize→startDev→15s 慢链**，~10ms/文件（vs 物化+等 iframe 15s）。复用已有 `typescript` 依赖（app catalog: 已有，`import ts from "typescript"`），不引新依赖。**只抓语法错（code 1xxx PARSE_ERROR）**，不抓语义错（`continue` outside loop 是语义错 code 1107，transpileModule 不做完整语义分析；这类走 Layer 2 运行时门控兜底）。
+> 2. **自动重试+错误喂回**（`codegen_scene` 循环，最多 3 次）：parse 失败 / 9a 门控失败 → 把具体错误（`file:line:reason`，从 diagnostic 拼）格式化进 `## 上一轮代码错误清单`（复用 `priorGateFindings` 机制但加 parse findings 类型）→ 自动重跑 codegen（同 session，不要求用户点重试）。修好→正常物化渲染；3 次仍错→落失败卡片（带完整错误供用户判断）。**用户定调覆盖「不自动重试」**：此前 P1.2 定调「不自动重试」（同模型同 prompt 重试无效）针对的是**墙钟超时/限流**类瞬态错（重试=烧 30min 白等）；但**语法错是确定性的**——喂回具体 `file:line:reason` 让 LLM 照着修是有效的（类比人调试：报错指到行 LLM 能改对），跟 Claude 写代码很少语法错同理（Claude 自带思维链纠错）。两类重试职责分离：墙钟超时不自动重试（P1.2 不变），语法错自动重试喂回（本节新增）。
+>
+> **为什么 transpileModule 够用**：vite transform 报的就是 PARSE_ERROR（`[plugin:vite:oxc] Transform failed ... [PARSE_ERROR]`），transpileModule 精准抓这类。语义错（continue outside loop）vite transform 不报（语法合法），到浏览器运行时才报 SyntaxError→走 SCENE_CONSOLE_ERROR（index.html inline script 已修）→ Layer 2 运行时门控兜底+自动重试。两类错各有抓法不遗漏。
+>
+> **为什么不用 createProgram/getPreEmitDiagnostics**：抓得全（语义也抓）但**噪音淹没**——handler import `three`/`@a3d/a3d-components`，createProgram 无类型解析环境会喷 `Cannot find module 'three'`（code 2792）几十条淹没真问题。transpileModule 不做类型解析只做语法转换，干净抓语法错。
+>
+> **P0.4 升级回退（2026-09-03，createProgram → transpileModule）**：曾尝试 createProgram 替 transpileModule 抓语义错（continue outside loop code 1107 频发），两次出事——① ts.sys 在 Electron renderer（nodeIntegration:false）不可用崩；② noLib 无标准库致 2xxx 假阳性（2339 `.includes` / 2488 `[Symbol.iterator]`）误报合法代码 → LLM 改 3 次改不掉放弃。黑名单追不完噪音 code，白名单（只留 1xxx）虽对但复杂。**用户定调回退 transpileModule**：为一个"快一点"的优化（省 3s + 行号精确）引入两个 bug 不值得。门控兜底够用（P0.10 后 settleMs 3s 不慢）。**分工定案**：transpileModule 抓语法错（快、0 误报、稳定）+ 门控 checkRuntime 抓运行时错（唯一能抓语义错的层）。两层各管一类不重叠。**P1.6（workspace tsgo --noEmit 补静默错）随此降级为可选**——noLib 假阳性证明在 renderer 无标准库环境下抓语义错不可靠，静默 typo（`mesh.positon.x`）靠 vite transform 兜底边缘足够。
+
+- [x] P0.4-1. ✅ `parse-check.ts` 新建（2026-09-03）：`checkHandlerSyntax(files)` 对每个 `.ts` 跑 `ts.transpileModule`（isolatedModules+reportDiagnostics）抓 Error 级 diagnostic，返回 `{file,line,column,code,message}[]`；`formatSyntaxErrorsForCodegen` 拼 `## 上一轮代码错误清单`。bun 实测：ses_f9e9d7b7 的 `wheel.rotation. =` → `vehicles.ts:8:23 code=1003 Identifier expected` 精准命中；正常 handler 0 误报；`continue` outside loop 0（语义错走门控，符合设计分工）
+- [x] P0.4-2. ✅ `codegen-scene.ts` 物化前（6c/6d merge 前）调 `checkHandlerSyntax`；有错不物化直接喂回。UXAI tsgo EXIT=0 + oxlint 0 error
+- [x] P0.4-3. ✅ 自愈循环（2026-09-03，**语法+门控统一单循环**）：`codegen_scene` 把 4~7 步包进 `for attempt 1..3`——语法错（6a，物化前 ~10ms 拦截）或门控运行时错（新 `gateRunner` 回调，物化后跑）→ 喂回 `scene_3d_codegen` 重跑（**只重跑 codegen 步，triage/plan 不重跑**）；3 次仍错→返回 error 落失败卡片。`gateRunner` 由 host 提供（`codegenGateRunner` 闭包 awaitSceneSettled+consoleBuffer 跑 runSceneGate），门控从 index.tsx 后置移进循环；index.tsx `runGateAndPersist` 拆成 `codegenGateRunner`（执行）+ `persistGateOutcome`（落盘：PASS 清错误+检查点 / FAIL 卡片+stash findings 供手动重试兜底）。**重试边界**：`runtime-error`/`scene-build-error` 才重试（代码问题可自愈）；`scene-not-ready`（dev 未起/iframe 空基建问题）不重试；墙钟超时/API 错不重试（P1.2 不变）；语法自愈成功后 `priorSyntaxErrors=undefined` 防陈旧清单带进 gate 重试轮
+- [x] P0.4-4. ✅ `scene-codegen/index.ts` 加 `priorSyntaxErrors?: SyntaxError[]` 参数，`buildHumanMessage` 拼 `## 上一轮代码错误清单` 段（在 `[CURRENT_*]` 后、门控清单前）
+- [x] P0.4-5. ✅ `scene_3d_codegen.txt` Provided Context 补 `## 上一轮代码错误清单` 条目：按 file:line:col 定位修、只修错不换方案
+- [x] P0.4-6. e2e：TC-27~31 ✅ 已验证（2026-09-03，createProgram 升级经实测误报回退 transpileModule，门控兜底自愈链路正常）
+
+### P0.5 — scoped 自愈重试（只重输出出错文件，好文件 host 复用，2026-09-03 落地）
+
+> **背景**：P0.4 自愈循环重试轮让 LLM「重新输出全部文件」——重试输出 token 不随出错文件数收敛（1 个文件错也全量重写 5 个），墙钟浪费 + 全量重写有引入新错风险。对标 opencode：其 edit 工具天然 scoped（逐文件改、LSP 诊断逐文件回喂），修错只碰坏文件。定案：重试轮 host 注入 `## 本轮输出范围（只改有错的文件）`，LLM 只重输出出错文件；未出错文件 host 端 overlay 复用上一轮（`overlayCodeFiles` 按路径覆盖 merge）。**LLM 忽略范围全量输出也兼容**——overlay 按新输出覆盖同路径，结果一致，正确性不依赖 LLM 听话。
+
+- [x] P0.5-1. ✅ `codegen-scene.ts`：循环加 `prevRoundFiles`（上一轮产物，重试点更新）+ `retryScopeFiles`（本轮范围）；parse 后 ⑥0 overlay merge（`overlayCodeFiles`：上一轮为基底、新输出按路径覆盖；live-data.json 未重输出沿用上一轮，`sceneData` 从 merged files 抽取不误报）。范围计算：语法错轮 `computeSyntaxScope`（出错文件名去重；全部 .ts 都错→无收益返 undefined 走全量）；门控轮 `extractGateScope`（从 findings message 抽 `.ts:行:列` 文件名，vite URL/栈两种实证形态 bun 验证通过；抽不到→全量）。正则 `([\w./\\-]+\.ts)\b` 取 basename
+- [x] P0.5-2. ✅ `scene-codegen/index.ts` 加 `retryScopeFiles?: string[]`，`buildHumanMessage` 拼 `## 本轮输出范围` 段（置于错误清单/门控清单之后，明确「只需重输出列出文件，连带改动可一并输出」）
+- [x] P0.5-3. ✅ `parse-check.ts` 错误清单尾行改「输出范围以『## 本轮输出范围』为准，无该节则全部文件」（消除与 scoped 指令的冲突）；`scene_3d_codegen.txt` 补 `## 本轮输出范围` 条目。UXAI tsgo EXIT=0 + oxlint 0 error
+- [x] P0.5-4. e2e：TC-28 补 scoped 断言 ✅ 已验证（2026-09-03）
+
+### P1.6 — Layer 1.5 语义检查（workspace 内 tsgo --noEmit，**降级为可选**——P0.4 升级 createProgram 已覆盖高频语义错）
+
+> **背景（2026-09-03 对标 opencode 评估定档）**：opencode 写后 LSP 诊断有全项目类型环境（node_modules/@types 齐全），抓**语义错**（TS2307 缺文件/未定义名/typo 属性）；我们 transpileModule 只抓语法、门控只抓会 crash 的运行时错——**静默错**（`mesh.positon.x = 5` typo 不 throw、逻辑错但能渲染）是两层盲区。物化后 workspace 内有 node_modules/@types/three，跑 `tsgo --noEmit`（原生快，非老 tsc 慢）可补此盲区。代价：每次生成 +几秒。**待 P0.4/P0.5 e2e 后按实际静默错发生率决定是否落地**。
+>
+> **P0.4 升级影响（2026-09-03）**：createProgram（noLib + 噪音过滤）已在物化前抓到 continue/break/return/await outside + 类型赋值错（1107/1108/1375/2322）——这些是 LLM 高频语义错。P1.6 剩余价值仅限 noLib 抓不到的「静默 typo」（`mesh.positon.x`，合法但拼错属性名，需完整类型环境才能抓），属边缘场景。**降级为可选**，按 e2e 实际静默错发生率决定。
+
+- [ ] P1.6-1. ~~物化后跑 `tsgo --noEmit`~~ **降级可选**——P0.4 createProgram 已覆盖高频语义错，剩余静默 typo 边缘
+- [ ] P1.6-2. 评估：e2e 观察静默 typo 发生率，低则不做（+几秒/次的常驻成本不值）
+
+### P0.6 — plan JSON 碎片静默空 plan（ses_f9ae615e 实证，2026-09-03 已修）
+
+> **现象**：e2e 跑「房间」场景报 `extractSceneData 返回 null：LLM 未产 live-data.json`。取证（opencode-local.db）：plan 子会话产出**完全合法**的 7852 字符 plan JSON，但喂给 codegen 的 `[PLAN_JSON]` 是空默认 `{scene_description:"",types:[],...}`。
+>
+> **根因链**：runChildSession 统一宽松提取（reasoning+text 拼接，为 GLM/DeepSeek 把 JSON 落 reasoning 设计）→ 35KB reasoning 散文里的引号把 `repairBareTokens/repairHexNumbers` 的字符串状态机**搞反**（全文扫描从散文开头起）→ 真 JSON 字符串内 `preset/studio/environment` 被洗成 `null` → JSON 损坏 → extractJson 绝地求生从后往前找到「碰巧合法」的内层碎片 `{"null":{"null":{"null":0.6}}}`（原 scene.environment）返回 → `assemblePlan(碎片)` 缺全部顶层 keys **静默产空 plan**（无报错）→ codegen 拿空 plan 自行发挥（handler 路径漂移 `src/3d/managers/...`）→ 无 live-data.json。bun 复现：拼接输入→碎片，纯 text 输入→完整 plan。
+
+- [x] P0.6-1. ✅ `json-parser.ts` 修复器作用域改「JSON 候选片段」：删全文 repairHex/repairBare，fence 分支与绝地求生分支对片段（fence 内容 / substring 从 `{` 边界起）跑 `repairCandidate`——片段内状态机正确，散文引号不再干扰。治本惠及 triage/plan 所有 extractJson 调用方
+- [x] P0.6-2. ✅ `scene-plan/index.ts` 碎片守卫：extractJson 成功后复用 `isPlanTypesComplete`（types 必须覆盖 triage 清单），碎片→显式报错（失败卡片可重试），不再静默空 plan 进 codegen
+- [x] P0.6-3. ✅ 回归验证：DB 真实数据（拼接输入返回完整 plan types>0）+ 6 组老用例（fence hex/裸标识符/字符串内 hex 保留/恶性双引号/截断抢救两路径）9/9 pass；tsgo EXIT=0 + oxlint 0 error
+- [x] P0.6-4. e2e：重跑同「房间」prompt 应完整走通（plan→codegen→渲染） ✅ 已验证（2026-09-03）
+
+### P0.7 — SSE 漏推 message.completed 三连锁（ses_f9ad2e96 实证，2026-09-03 已修）
+
+> **现象**：模型 20 分无响应；点「中止生成 / 停止生成」全部无效；出假失败卡片。取证（opencode-local.db + debug-log 快照）：plan 子会话 **server 侧 02:54:30 正常完成**（text 6327 + reasoning 34KB，codegen 子会话从未创建），但渲染层 store 漏收 `message.completed`（SSE 偶发丢事件，第二例：第一例是 session.status idle）。
+>
+> **三连锁根因**：① 零增长的假 stall → 3min idle 超时误判（02:59:21）→ `runChildSession` catch 把**已完整收到**的 6327 字符 plan 整段丢弃（`return {text:""}`）→ P1.4① 截断抢救拿空输入必败 → 假失败卡片；② `isBusy` 消息层兜底（全部 completed 才 idle）因 completed 本身漏收永远凑不齐 → 恒 busy → 15min/20min 卡片齐出；③ `halt()` 只清 session_status/workflow 标志，**不补 message.completed** → isBusy 仍 busy → 「停止按钮毫无反应」。
+>
+> **修（三处）**：
+> 1. **Fix A（partial 透传）**：`json-parser.ts waitForResult` 记录 `lastText`，idle reject 时挂 `err.partial`；`run-child-session.ts` catch 透传 `partial` 作 text（aborted 重抛不变）→ idle 误判时上层截断抢救拿得到已收输出。
+> 2. **Fix B（halt 补 completed）**：`index.tsx halt()` 加 `sync.set(produce(...))`——对 sid+children 的未完成 assistant 消息乐观写 `time.completed = now`（abort 已杀流，标记诚实）→ isBusy 立即降级，停止立即生效。
+> 3. **Fix C（idle 触发 resync 自愈）**：`waitForResult` idle 到点不直接判死——先 `sync.session.sync(sessionId, {force:true})` 强制重拉一次消息（context/sync.tsx :430，REST 重拉+reconcile 不依赖 SSE），completed 到位则 reactive effect 自然 resolve（**零误报自愈**，漏推场景用户无感）；重置 lastProgressAt 给 30s 宽限（RESYNC_GRACE_MS），期间真有新输出则回正常空闲周期；宽限后仍零增长才 reject（挂 partial）。真 stall 代价 3min→3.5min。
+
+- [x] P0.7-1. ✅ Fix A：partial 透传（json-parser.ts rejectIdle 挂 err.partial + run-child-session.ts catch 返回 partial 作 text）
+- [x] P0.7-2. ✅ Fix B：halt() 乐观补写未完成 assistant 消息 time.completed（produce 就地改，message-timeline 同款模式）
+- [x] P0.7-3. ✅ Fix C：idle 触发一次性 force resync + 30s 宽限（宽限从 resync 起算，触发时重置 lastProgressAt 否则下个 tick 立刻判死）；tsgo EXIT=0 + oxlint 0 error（新增代码零警告）
+- [x] P0.7-4. e2e：正常生成期间点「停止生成」spinner 立即停（Fix B）；观察 SSE 漏推复现场景（偶发）应自动续走不弹失败卡片（Fix C） ✅ 已验证（2026-09-03）
+
+### P0.8 — live-data.json 缺失接进 scoped 自愈（ses_f9a31aa61 实证，2026-09-03 已修）
+
+> **现象**：17 分钟跑完 14 个 handler 后报 `extractSceneData 返回 null：LLM 未产 live-data.json 或不可解析`，失败卡片（无重试发生）。取证（DB）：`finish="length"`——reasoning 烧 43K + 正文 20K 打满 output 上限，正文在最后一个 handler（plants.ts）**中途截断**（`leaf.position.set(Math.cos(ang)*rad, 1.0+(i/` 断在表达式里），live-data.json / index.ts 排队尾没轮到。消息 server 侧正常 completed（finish=length 是正常结束）→ host 正常收到输出 → parse 出 14 文件 → 6b 查 live-data 缺失。
+>
+> **根因**：旧 6b「灾难性短路」直接 return，**位于 P0.4/P0.5 自愈循环的覆盖范围之外**——语法检查（6a）在后根本没跑到，P0.5 scoped 重试更没机会接手。LLM 已写好的 13 个好 handler 全部浪费，用户点重试 = 全部重来 17 分钟 + 再撞一次上限。
+>
+> **修**：6b 改 scoped 自愈轮（复用 P0.5 机制）：`prevRoundFiles = 全部已解析文件` + `retryScopeFiles = [public/live-data.json, handlers/index.ts（缺时）, ...截断文件]`（截断检测 = checkHandlerSyntax 语法错铁证，实证 plants.ts:79 code=1109/1005 精确命中断点）+ 新反馈 `liveDataMissing` 拼 `## 上一轮问题` 段（prompt .txt 同步加 Provided Context 条目）+ 截断文件语法错清单一并喂回。重输出预算只需零头（live-data ~几 KB + index ~1KB + plants 尾巴），不再撞 64K 上限；LLM 不听 scope 全量输出也兼容（overlay 按路径覆盖，结果一致）。
+>
+> **为什么 retry 不会丢一致性**：live-data.json 是数据源（position/params 驱动渲染），handler 读 node 参数；round-2 live-data 与 round-1 handler 同出 [PLAN_JSON]，字段级兼容。
+
+- [x] P0.8-1. ✅ `codegen-scene.ts` 6b：短路改 scoped 自愈轮（attempt<MAX 时 prevRoundFiles+buildLiveDataScope+liveDataMissing+截断语法错喂回，continue；耗尽才报错）
+- [x] P0.8-2. ✅ `scene-codegen/index.ts`：`liveDataMissing` 输入 + buildHumanMessage 拼 `## 上一轮问题：public/live-data.json 未输出或不可解析` 段
+- [x] P0.8-3. ✅ `scene_3d_codegen.txt`：Provided Context 加截断自愈条目（改 prompt 须重启 opencode 生效）
+- [x] P0.8-4. ✅ bun 真实数据验证：14 文件 parse → plants.ts:79 两语法错精确命中截断点 → scope=[live-data.json, index.ts, plants.ts]；tsgo EXIT=0 + oxlint 0 error
+- [x] P0.8-5. e2e：重跑同「房间」prompt，预期 17min 首轮若再截断 → console `⑥b live-data.json 未输出 → scoped 自愈` → 1-2 分钟补齐 → 渲染成功 ✅ 已验证（2026-09-03）
+
+### P0.9 — codegen 卡片不显示（切走再切回才出现，ses_f9a1462a1 实证，2026-09-03 已修）
+
+> **根因**：plan 完成（message.completed）后到 codegen child 创建之间常有数分钟空窗（plan 的 `getResultFromMessagesLoose` 因 SSE 漏推 message.completed 卡住，idle 3min 超时 + resync 自愈后才返回——P0.7 Fix C 的正常行为但带来副作用）。此窗口内若用户切走又切回，`createEffect(on params.id)` 跑 `setChildSessionIDs([])` 重置 + 异步 `discoverChildSessions`（REST list + REPLACE 语义 `setChildSessionIDs(childIDs)`）。若 codegen child 在 REST 响应后才创建，其 `onSessionCreated` guard `if (params.id !== sid) return` 可能因切走期间 `params.id` 变化而漏过 → codegen child 不进 `childSessionIDs()` → isBusy 遍历 `childSessionIDs()` 视其 vacuously done → pipelineBusy 假降级 → plan 卡片显示「完成」badge + codegen 卡片根本不渲染（roundMessages 不含该 child）。切走再切回触发 discoverChildSessions 重跑（这次 REST 含 codegen child）→ 卡片出现 = 用户报告的「切走再切回才看到」。
+>
+> **修法（3 处，index.tsx）**：
+> 1. `discoverChildSessions` 的 `setChildSessionIDs(childIDs)` REPLACE 改 merge（保留 `prev` 已 live append 的 child，补 REST 发现的，去重）——防 REST 滞后响应覆盖 live 注册的 codegen child
+> 2. 5 处 `onSessionCreated` 的 `setChildSessionIDs((prev) => [...prev, childID])` 全部加 dedup `prev.includes(childID) ? prev : [...]`——防重复 append + 防与 discover 的 merge 冲突
+> 3. `handleSubmit` 在 `codegen_scene` 调用前补 `void discoverChildSessions(sid!)` 兜底——plan 返回后确保已创建的 child（plan child）全注册，不依赖 onSessionCreated 的 guard 时序
+>
+> tsgo EXIT=0 + oxlint 0 error（新增代码零警告）。pattern 版同款 bug 潜在但未改（make 流程时序不同未暴露，留待观察）。
+
+- [x] P0.9-1. ✅ discoverChildSessions REPLACE → merge（去重，不覆盖 live append）
+- [x] P0.9-2. ✅ 5 处 onSessionCreated append 加 dedup（`prev.includes(childID) ? prev : [...]`）
+- [x] P0.9-3. ✅ handleSubmit codegen_scene 调用前补 `void discoverChildSessions(sid!)` 兜底
+- [x] P0.9-4. e2e：跑一个慢场景（让 plan→codegen 之间有空窗），期间切走再切回 → codegen 卡片应立即出现 ✅ 已验证（2026-09-03）
+
+### P0.10 — 砍 SCENE_READY 握手 + scene-not-ready 门控（方向 A 治本，ses_f9a1462a1/ses_f99eec1c 实证，2026-09-03 已修）
+
+> **根因**：两个 session codegen 都成功完整（仓库 9154 tokens、园区 44137 tokens，live-data.json 正确收尾），但 9a 门控报「场景未就绪且无运行时报错：场景就绪超时（15s 未收到 SCENE_READY）」且不重试。根因=gate 用 `awaitSceneSettled`（15s SCENE_READY 握手超时）判 iframe 就绪，但 SCENE_READY 与 resolver 安装存在时序竞态（SCENE_READY 早到 → resolver 未装 → sceneReadyPending 暂存，但 wsNonce++ 前被重置 → 丢失 → 15s 超时误报）。园区 case 场景**首次已渲染**（SCENE_READY 到了、画面出来了）仍报超时——证明握手不可靠。对比 make：make 完全没有 workspace/dev server/SCENE_READY 握手/9a 门控这层（直接 postMessage 推 JSON 到静态 iframe），3D 因跑 vite dev server 才引入握手，但握手信号不可靠，一直在缝补竞态（sceneReadyPending 暂存、reset 时序等）。
+>
+> **决策（用户定方向 A）**：砍掉不可靠的 SCENE_READY 握手 + scene-not-ready 误报。`runSceneGate` 改固定延迟 `settleMs`（3s）等 iframe 渲染 + console buffer 收集，失败靠 `SCENE_ERROR`/`SCENE_CONSOLE_ERROR` 确定性事件判断，不靠超时猜。保留 checkCompleteness（plan.types vs live-data）+ checkRuntime（console buffer → runtime-error/scene-build-error）+ 运行时错自愈重试。
+>
+> **改动（3 文件）**：scene-gate.ts（runSceneGate 砍 awaitSceneSettled → `await delay(settleMs)` + 删 scene-not-ready finding + RunSceneGateInput 类型 `awaitSceneSettled` → `settleMs?`）/ index.tsx（删 awaitSceneSettled 函数 + sceneReadyResolver/sceneReadyPending 变量 + onCodeVersionReady/materializePatch 3 处 pending 重置 + onReady 回调精简到只 setEmbedReady；codegenGateRunner 改传 settleMs:3000）/ codegen-scene.ts（注释更新，retryable 逻辑不变——仍只 runtime-error/scene-build-error 重试）。tsgo EXIT=0 + oxlint 0 error。
+
+- [x] P0.10-1. ✅ scene-gate.ts runSceneGate 砍 awaitSceneSettled → 固定延迟 settleMs + 直接读 buffer；删 scene-not-ready finding
+- [x] P0.10-2. ✅ index.tsx 删 awaitSceneSettled/sceneReadyResolver/sceneReadyPending + codegenGateRunner 改传 settleMs + onReady 精简
+- [x] P0.10-3. ✅ codegen-scene.ts 注释更新（retryable 逻辑不变）
+- [x] P0.10-4. e2e：生成场景不报 scene-not-ready；切走切回不报；运行时错/语法错自愈回归（TC-32~34） ✅ 已验证（2026-09-03）
 
 ### P1.5 — 组件消费统一重构（barrel import + 直接 new，删 libraryBridge 工厂，2026-09-02 定案）
 
@@ -764,6 +875,61 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 - [ ] 9b VLM 审美评审
 - [ ] 混元真实密钥验证
 - [ ] 孤儿 8-agent 清理
+
+### P6 — 性能优化（缓做，2026-09-03 定案，用户说「后续再做」）
+
+> **实测数据**（6 session DB 取证，2026-09-03）：
+>
+> | session | triage | plan | codegen | plan→codegen gap | 总计 |
+> |---|---|---|---|---|---|
+> | f99afce4 | 12s | 235s | 299s | 0 | ~9min |
+> | f99bb4d3 | 15s | 296s | 414s | 0 | ~12min |
+> | f99eec1c | 24s | 144s | 250s | **277s** | ~12min |
+> | f9a1462a | 16s | 233s | 435s | **427s** | ~18min |
+> | f9a31aa6 | 20s | 222s | 793s | 0 | ~17min |
+>
+> **瓶颈定位**：
+> - **codegen 最慢**（250-793s）：input ~47K tokens（prompt 模板 19K + PLAN_JSON 10.7K + system/context ~17K），output 9K-20K tokens
+> - **plan 慢**（144-296s）：output 才 2.6K-5.3K tokens，reasoning 模型思考时间长
+> - **SSE stall gap 偶发巨大**（277s/427s）：provider 漏推 message.completed → waitForResult 卡 idle 3min + 30s grace 才 resync（P0.7 Fix C 副作用）
+> - **三阶段严格串行**：triage→plan→codegen 无并行/流式衔接
+
+**优化方向（按投入产出比排序）**：
+
+- [ ] **P6-1. codegen 并行 per-type 拆分**（投入大，收益最大）
+  - 现状：codegen 一次 LLM 调用输出全部 type handler（room/walls/racks/floor/ceiling…），串行生成 9K-20K tokens
+  - 方案：plan 完成后按 type 拆成 N 个并行 child session（每 type 一个），各只生成自己的 handler（~1-2K output），host 合并 index.ts
+  - 预期：7min → ~2min（N 路并行，单路 output 小，prompt 共享模板可 prompt cache）
+  - 风险：index.ts 合并竞态（已有 D3 merge 兜底）；modify 场景 type 间依赖（rack 依赖 room 尺寸→需 plan JSON 作为共享 context 注入每路）；prompt cache 命中率取决于 system+模板是否一致
+  - 关联：与 P5 Step8②③（triage+plan 合并）正交，可叠加
+
+- [ ] **P6-2. SSE stall 缩短 plan 阶段 idle 超时**（投入小，收益中）
+  - 现状：plan output 才 2.6K-5.3K tokens，但 idle 超时统一 3min（180s）+ 30s grace = 210s 才 resync；两个 session 各浪费 277s/427s
+  - 方案：plan 阶段 idle 超时降到 60s（plan output 小，60s 无增长≈stalled）；codegen 阶段保持 180s（output 大，流式间隔长）
+  - 预期：stall gap 从 277s/427s → ~90s（60s idle + 30s grace）
+  - 风险：plan reasoning 思考期（无 output 增长）可能 >60s → 误判 stalled；需测 reasoning 模型 thinking→output 间隔
+  - 关联：P0.7 Fix C 的 idle 超时是统一值，需按阶段参数化
+
+- [ ] **P6-3. codegen prompt 模板瘦身**（投入小，收益中）
+  - 现状：codegen 模板 19K chars（含 Constraint 1-12 + few-shot + 契约规则），部分与 plan 模板重复
+  - 方案：审计 scene_3d_codegen.txt，删与 plan 重复的约束（plan 已确保的不再 codegen 重复）、合并冗余 few-shot、精简契约规则表述
+  - 预期：19K → ~12K，input 总量 47K → ~40K，output 不变但 TTFT 降低
+  - 风险：删约束可能致 codegen 质量回退（布局丢/契约违反）；需逐条评估哪些是 plan 已保证的
+  - 关联：Step8① plan 静态注入后部分 plan 约束已由 plan 输出保证，codegen 重复约束可删
+
+- [ ] **P6-4. triage→plan 合并（Step8②）**（投入中，收益小）
+  - 现状：triage 12-39s（快）+ plan 144-296s，串行
+  - 方案：triage 合入 plan（plan 直接读 intent + scene context 分流 create/modify，不单独跑 triage）
+  - 预期：省 triage 12-39s + 一次 session 创建开销
+  - 风险：triage 逻辑（routing 分流）混入 plan 致 plan prompt 膨胀；modify 场景 triage 分流复杂
+  - 关联：P5 已列 Step8②③
+
+- [ ] **P6-5. plan→codegen 流式衔接**（投入大，收益中）
+  - 现状：plan 完整返回后才启动 codegen（getResultFromMessagesLoose 等 plan finish）
+  - 方案：plan 流式输出 PLAN_JSON，host 解析到 types[] 后立即启动 codegen（不等 plan finish）
+  - 预期：省 plan→codegen 衔接延迟（0-427s gap）；plan 尾部 reasoning 与 codegen 前期并行
+  - 风险：plan 输出未完整时 types[] 可能变（plan 可能后补 type）；需 plan 输出格式保证 types[] 在开头；流式 JSON 解析复杂
+  - 关联：P5 Step8③
 
 ### 贯穿
 - [ ] 三仓改动 commit（e2e 绿后，dev_cyc1）
@@ -849,3 +1015,10 @@ data-overlay（SUB_OVERRIDES/SUB_SKIP/SUB_ADD + set_type_transform）只动**实
 - **TC-H4 IUpdatable traverse 探测** 动画/自更新组件（Html 等）进渲染循环持续动（U7，不再依赖工厂 __updatable 标记）
 - **TC-H5 存量版本回切** P1.5 前生成的历史版本来回切不崩（U12 扫描兜底）
 - **TC-H6 NL patch 兼容** new 形态 handler 上「墙改蓝」（edit_code color 字面量）/「删第一段墙」（edit_code 删 group.add 行）照常生效——host 手术匹配变量赋值形态与创建方式无关（host 零改动判断）
+
+### TC-I codegen 语法错自愈（对应 P0.4，parse 检查 + 自动重试；独立不依赖主线）
+- **TC-I1 语法错 parse 拦截** 构造让 LLM 输出含 `wheel.rotation. = Math.PI/2`（PARSE_ERROR）→ 物化前 `checkHandlerSyntax` 抓到、**不进 materialize/startDev**（不触发 15s 超时）、自动重试喂回错误清单。P0.4-1/2
+- **TC-I2 自动重试自愈** TC-I1 触发后自动重跑 codegen（不要求用户点重试）→ LLM 照 `file:line:reason` 修对 → 正常物化渲染。P0.4-3；验「不需要手动重试 9 次」
+- **TC-I3 运行时错自愈（continue outside loop）** 构造 `continue` outside loop（语法合法 transpile 过、运行时 SyntaxError）→ SCENE_CONSOLE_ERROR 捕获（index.html inline script）→ 门控 runtime error → 自动重试喂回 → 修对。P0.4-3；验语义错走 Layer 2 不漏
+- **TC-I4 三次仍错落卡片** 构造持续语法错（同 session 重跑 3 次都错）→ 3 次后落失败卡片（带完整错误清单供用户判断，非「场景未就绪」误导）。P0.4-3
+- **TC-I5 正常代码不受影响** 正常生成场景 → parse 检查 0 error → 直接物化渲染（不重试不卡）。P0.4-1；验无误拦截

@@ -121,33 +121,12 @@ export function extractJson(text: string) {
   }
 
   // ==========================================
-  // 🛠️ 核心补丁：局部破坏性双引号修复器
-  // ==========================================
-  // 它的原理是匹配 ` : " [内容] " , ` 或 ` : " [内容] " } `
-  // 从而精准锁定 Value 内部。然后将内部未转义的双引号替换为中文双引号
-  const repairInvalidQuotes = (jsonStr: string) => repairInvalidQuotesImpl(jsonStr)
-
-  // ==========================================
-  // 🛠️ 核心补丁：十六进制字面量修复器
-  // ==========================================
-  // LLM 偶把 0xbfd8ff / 0x888888 当作 JSON 数值（如 lights 的 skyColor/groundColor），
-  // 但 JSON 不支持十六进制字面量 → JSON.parse 整体失败。扫描「字符串外」的 0x[0-9a-fA-F]+
-  // 转十进制；字符串内部的 0x（如 build_detail 里描述用的颜色字面量）原样保留，不破坏语义。
-  const repairHexNumbers = (jsonStr: string) => repairHexNumbersImpl(jsonStr)
-
-  // 思维链/前导 reasoning 清理后，统一修复字符串外的十六进制字面量
-  cleanText = repairHexNumbers(cleanText)
-
-  // ==========================================
-  // 🛠️ 核心补丁：裸标识符修复器
-  // ==========================================
-  // LLM 偶把变量名/思考残留词当 JSON 值写进数组或对象（如 "lookAt": [0,  inertia, 0]），
-  // 或 NaN / Infinity / undefined 这类 JSON 不支持的字面量 → JSON.parse 整体失败。
-  // 扫描「字符串外」的标识符 token，除 true/false/null（JSON 合法）外一律替换为 null。
-  // 字符串内部的标识符（如 build_detail 描述里的文字）原样保留。
-  const repairBareTokens = (jsonStr: string) => repairBareTokensImpl(jsonStr)
-
-  cleanText = repairBareTokens(cleanText)
+  // 🛠️ 修复器作用域（关键）：只作用于「JSON 候选片段」，不从含散文的全文开头扫描。
+  // loose 拼接（reasoning+text）时 reasoning 散文里的引号会把修复器的字符串状态机搞反，
+  // 错位后把真 JSON 字符串内的标识符洗成 null → JSON 损坏 → 绝地求生返回「碰巧合法」的
+  // 内层碎片（实证 ses_f9ae615e：35KB reasoning + 合法 plan JSON → 返回 {"null":{"null":{"null":0.6}}}）。
+  // 候选片段（fence 内容 / 绝地求生的 substring）从 `{`/`[` 等 JSON 边界开始，片段内状态机正确。
+  const repairCandidate = (s: string) => repairBareTokensImpl(repairHexNumbersImpl(s))
 
   // ==========================================
   // 3. 优先匹配 Markdown 代码块
@@ -162,8 +141,8 @@ export function extractJson(text: string) {
       // 尝试直接正常解析
       return JSON.parse(raw)
     } catch (primaryErr) {
-      // 💥 第一次抢救：如果是常规匹配成功但解析报错，极大概率是内部双引号冲突，尝试修复它
-      const repairedRaw = repairInvalidQuotes(raw)
+      // 💥 第一次抢救：hex/裸标识符修复（片段内）+ 内部双引号冲突修复
+      const repairedRaw = repairInvalidQuotesImpl(repairCandidate(raw))
       return JSON.parse(repairedRaw)
     }
   } catch (err) {
@@ -192,8 +171,8 @@ export function extractJson(text: string) {
           const parsed = JSON.parse(rawjson)
           if (parsed && typeof parsed === "object") return parsed
         } catch {
-          // 💥 第二次抢救：如果截取片段无法解析，强行洗一遍内部的恶性双引号再试
-          const repairedRawJson = repairInvalidQuotes(rawjson)
+          // 💥 第二次抢救：hex/裸标识符修复（substring 从 JSON 边界起，状态机正确）+ 恶性双引号清洗
+          const repairedRawJson = repairInvalidQuotesImpl(repairCandidate(rawjson))
           const parsed = JSON.parse(repairedRawJson)
           if (parsed && typeof parsed === "object") {
             return parsed // 🎉 成功强行抢救！
@@ -286,6 +265,10 @@ type SyncStore = {
     message: Record<string, Array<Record<string, unknown>>>
     part: Record<string, Array<Record<string, unknown>>>
   }
+  /** 强制重拉该 session 的消息（context/sync.tsx 的 session.sync）；可选——未接时跳过 resync 自愈 */
+  session?: {
+    sync?: (sessionID: string, opts?: { force?: boolean }) => Promise<unknown>
+  }
 }
 
 /**
@@ -296,6 +279,9 @@ type SyncStore = {
  * 流连接挂起不结束），又不杀慢但正常的生成。3min 给慢模型/网络抖动留足余量。
  */
 const DEFAULT_IDLE_TIMEOUT_MS = 3 * 60 * 1000
+
+/** idle 触发后 resync 自愈的宽限窗口：force 重拉若带回 completed，reactive effect 会先 resolve。 */
+const RESYNC_GRACE_MS = 30 * 1000
 
 interface WaitStrategy {
   /** 从全部 messages 里挑出本次要等待的新目标消息（strict=最新一条；loose=全部新消息）。 */
@@ -338,6 +324,8 @@ function waitForResult(
     let disposed = false
     let lastProgressAt = Date.now()
     let lastLen = -1
+    let lastText = ""
+    let resyncAt = 0
     let disposeRoot: (() => void) | null = null
     let poll: ReturnType<typeof setInterval> | undefined
     const cleanup = () => {
@@ -346,6 +334,16 @@ function waitForResult(
       waitAborts.delete(sessionId)
       if (poll) clearInterval(poll)
       if (disposeRoot) disposeRoot()
+    }
+    // 已收部分输出挂到 err.partial：idle 误判（SSE 漏推 message.completed，实证 ses_f9ad2e96
+    // server 已完成 6327 字符 plan）时上层拿 partial 走截断抢救，不再整段丢弃（丢弃 → 抢救
+    // 拿空输入必败 → 假失败卡片）。
+    const rejectIdle = () => {
+      const err = new Error(
+        `模型响应空闲超时（${Math.round(idleMs / 1000)}s 无新输出，疑似流式中断，可重试）`,
+      ) as Error & { partial?: string }
+      err.partial = lastText
+      reject(err)
     }
     // 注册 host 端强制中止入口：halt() 调 abortWait(sessionId) → 立即 reject("aborted")，
     // 不依赖 provider 是否真停流（某些 provider 的 session.abort 不给在途消息写 error/completed，
@@ -356,9 +354,30 @@ function waitForResult(
     })
     poll = setInterval(() => {
       if (disposed) return
+      if (resyncAt > 0) {
+        // resync 宽限期：force 重拉带回 completed → reactive effect 已 resolve；期间真有新输出
+        // 会把 resyncAt 归零回正常空闲周期；宽限过后仍零增长才判死。
+        if (Date.now() - lastProgressAt > RESYNC_GRACE_MS) {
+          cleanup()
+          rejectIdle()
+        }
+        return
+      }
       if (Date.now() - lastProgressAt > idleMs) {
+        // SSE 漏推自愈：渲染层漏收 message.completed 时 server 侧其实已完成，表现为零增长的
+        // 假 stall。先 force 重拉一次消息——completed 到位则 reactive effect 自然 resolve（零
+        // 误报）；真 stall 才在宽限后判死（多等 30s 换掉一次假失败，值得）。
+        if (sync.session?.sync) {
+          resyncAt = Date.now()
+          lastProgressAt = resyncAt // 宽限从 resync 起算：此刻 lastProgressAt 已超 idleMs，不重置则下个 tick 立刻判死
+          console.warn(
+            `[waitForResult] 空闲 ${Math.round(idleMs / 1000)}s，强制 resync 一次自愈（SSE 漏推 message.completed 兜底）`,
+          )
+          void sync.session.sync(sessionId, { force: true }).catch(() => {})
+          return
+        }
         cleanup()
-        reject(new Error(`模型响应空闲超时（${Math.round(idleMs / 1000)}s 无新输出，疑似流式中断，可重试）`))
+        rejectIdle()
       }
     }, 5_000)
     createRoot((dispose) => {
@@ -384,9 +403,11 @@ function waitForResult(
         }
         // 进度续命：收集当前文本，长度变化（part 内容增长）→ 重置空闲计时，防误杀慢但正常的生成
         const text = strategy.collect(targets, sync)
+        lastText = text
         if (text.length !== lastLen) {
           lastLen = text.length
           lastProgressAt = Date.now()
+          resyncAt = 0 // resync 宽限期间真有新输出 → 非漏推场景，回正常空闲周期
         }
         if (!strategy.isComplete(targets)) return
         cleanup()

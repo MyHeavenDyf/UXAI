@@ -236,14 +236,18 @@ export function InsightTurn(props: {
     return null
   })
 
-  // 兜底：3D 分步用户消息（分诊/规划/生成）也显示，配合 ExpandableBubble 收起展开
-  const showUserInput = createMemo(() => userText().length > 0)
+  // 3D triage 用户消息前缀是 [用户请求]:（make 是 [用户修改请求]:）。
+  // 对齐 make 行为：有此前缀就显示用户输入气泡（创建+修改流都显示），提取干净用户原文。
+  // 但 plan 消息也以 [用户请求]: 开头（后面跟 [分诊 type 清单]），只显示一次——排除 plan。
+  const showUserInput = createMemo(() =>
+    userText().startsWith("[用户请求]:") && !userText().includes("[分诊 type 清单]"),
+  )
 
   // 用户输入卡片展示的精简文本：从完整 prompt 中提取用户实际输入部分
   const userInputDisplay = createMemo(() => {
     const text = userText()
-    // 修改/分诊: "[用户修改请求]: {用户输入}\n\n[当前..." 或 "[用户修改请求]: ===\n{用户输入}\n\n[JSON..."
-    const m = text.match(/^\[用户修改请求\]:\s*(?:=+\s*\n)?([\s\S]*?)\n+\[/)
+    // "[用户请求]: {用户输入}\n\n[当前..." → 提取 {用户输入}
+    const m = text.match(/^\[用户请求\]:\s*([\s\S]*?)\n+\[/)
     return m?.[1]?.trim() ?? text
   })
 

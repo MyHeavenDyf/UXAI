@@ -89,6 +89,18 @@ export default async function scene_3d_plan(input: ScenePlanInput): Promise<Plan
     logAgentParsed(planRes.childSessionId, { error: "Failed to parse JSON", raw: planRes.text })
     agentThrow(AGENT_NAME, planRes.childSessionId, "Scene Plan did not return valid JSON")
   }
+  // 碎片守卫：extractJson 的绝地求生可能返回「碰巧合法」的内层碎片（loose 拼接的 reasoning
+  // 散文引号干扰修复器状态机，实证 ses_f9ae615e 拿到 scene.environment 碎片）。碎片缺顶层
+  // keys → assemblePlan 静默产空 plan 进 codegen（空 plan 让 LLM 自行发挥，handler 路径漂移
+  // 且无 live-data）。复用抢救门槛：types 必须覆盖 triage 清单，否则按解析失败显式报错。
+  if (!isPlanTypesComplete(planJson, types)) {
+    console.error(
+      `[scene_3d_plan] extractJson 返回碎片（顶层 keys=[${Object.keys(planJson).slice(0, 5).join(",")}]，types 未覆盖 triage 清单）`,
+    )
+    console.error(`[scene_3d_plan] 输出前 2000 字符:\n`, planRes.text.slice(0, 2000))
+    logAgentParsed(planRes.childSessionId, { error: "JSON fragment: types incomplete", raw: planRes.text })
+    agentThrow(AGENT_NAME, planRes.childSessionId, "Scene Plan 解析得到不完整 JSON（types 未覆盖分诊 type 清单），请重试")
+  }
   const returnValue = assemblePlan(planJson)
   logAgentParsed(planRes.childSessionId, returnValue)
   return returnValue
