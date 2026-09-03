@@ -1,11 +1,11 @@
-import { For, Show, onCleanup, type JSX } from "solid-js"
+import { createSignal, createEffect, For, Show, onCleanup, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
 import { createStore } from "solid-js/store"
 import { LUCIDE_ICONS } from "./lucide-icons"
 import { CustomSelect } from "./custom-select"
-import { ColorPicker, TEXT_COLOR_TOKENS } from "./color-picker"
 import noDataEmptySvg from "../../../assets/images/noDataEmpty.svg?url"
 import deleteSvg from "../../../assets/images/delete.svg?url"
+import { iconColors, iconCssColor } from "./icon-colors"
 
 const PANEL_W = 380
 const PANEL_H = 682
@@ -61,6 +61,72 @@ function EmptyState(props: { text: string }) {
   )
 }
 
+/** 图标颜色筛选：色板圆点(18px) + 名称，选项取自 iconColors */
+function IconColorSelect(props: { value: string; onChange: (key: string) => void }) {
+  const [open, setOpen] = createSignal(false)
+  const [pos, setPos] = createSignal({ x: 0, y: 0, w: 0 })
+  let btnRef!: HTMLButtonElement
+  let listRef!: HTMLDivElement
+  createEffect(() => {
+    if (!open()) return
+    const handler = (e: MouseEvent) => {
+      if (listRef && !listRef.contains(e.target as Node) && !btnRef.contains(e.target as Node)) setOpen(false)
+    }
+    const onScroll = (e: Event) => {
+      const t = e.target as Node
+      if (listRef && (t === listRef || listRef.contains(t))) return
+      setOpen(false)
+    }
+    if (btnRef) {
+      const r = btnRef.getBoundingClientRect()
+      setPos({ x: r.left, y: r.bottom + 4, w: r.width })
+      requestAnimationFrame(() => {
+        if (!listRef) return
+        const lr = listRef.getBoundingClientRect()
+        if (!lr.height) return
+        const fitsDown = r.bottom + 4 + lr.height <= window.innerHeight
+        const ay = fitsDown ? r.bottom + 4 : Math.max(4, r.top - 4 - lr.height)
+        setPos({ x: r.left, y: ay, w: r.width })
+      })
+    }
+    document.addEventListener('mousedown', handler)
+    window.addEventListener('scroll', onScroll, true)
+    onCleanup(() => {
+      document.removeEventListener('mousedown', handler)
+      window.removeEventListener('scroll', onScroll, true)
+    })
+  })
+  const swatch = (k: string) => iconCssColor(k)
+  return (
+    <div class="relative flex-1">
+      <button ref={btnRef} type="button" onClick={() => setOpen(!open())}
+        class="flex h-9 w-full items-center gap-1 rounded-[36px] border border-transparent bg-[#F2F3F5] px-2 text-left text-[12px] text-[#333333] outline-none">
+        <span class="h-[18px] w-[18px] shrink-0 rounded-full" style={{ background: swatch(props.value) }} />
+        <span class="flex-1 truncate" style={{ color: '#191919' }}>{props.value}</span>
+        <svg class="ml-1 h-3 w-3 shrink-0 text-slate-400" viewBox="0 0 8 5" fill="none"><path d="M1 1L4 4L7 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </button>
+      <Show when={open()}>
+        <Portal mount={document.body}>
+          <div ref={listRef} data-custom-select-list class="icon-picker-scroll fixed z-[2147483646] max-h-[260px] overflow-y-auto rounded-lg border border-[#e5e7eb] py-1"
+            style={{ left: pos().x + 'px', top: pos().y + 'px', 'min-width': pos().w + 'px', background: '#fff', 'box-shadow': '0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -2px rgba(0,0,0,0.04)' }}
+            onClick={() => setOpen(false)}>
+            <For each={Object.keys(iconColors)}>
+              {(k) => (
+                <div onClick={() => props.onChange(k)}
+                  class="flex cursor-pointer items-center gap-1 whitespace-nowrap bg-white px-[10px] py-[6px] text-[11px] text-slate-700 hover:bg-[#f3f4f6]"
+                  classList={{ 'bg-[#E6F2FD] font-medium text-primary': k === props.value }}>
+                  <span class="h-[18px] w-[18px] shrink-0 rounded-full" style={{ background: swatch(k) }} />
+                  <span style={{ color: '#191919' }}>{k}</span>
+                </div>
+              )}
+            </For>
+          </div>
+        </Portal>
+      </Show>
+    </div>
+  )
+}
+
 /** 图标选择弹窗：筛选/搜索 + 五个来源 tab + 图标网格（60px，一行五个）+ 底部线性/尺寸筛选与确认取消按钮 */
 export function IconPickerPopup(props: {
   current: string
@@ -77,7 +143,8 @@ export function IconPickerPopup(props: {
     tab: 'basic',
     shape: 'outline',
     iconSize: '24',
-    iconColor: '#191919',
+    iconColorKey: 'default',
+    iconColor: iconCssColor('default'),
     customIcons: [] as string[],
     selected: props.current,
     tip: null as { name: string; x: number; y: number } | null,
@@ -101,7 +168,7 @@ export function IconPickerPopup(props: {
     const t = e.target as Node
     if (popupRef?.contains(t)) return
     if (props.anchor?.contains(t)) return
-    if ((t as HTMLElement).closest?.('[data-custom-select-list], [data-color-picker-panel]')) return
+    if ((t as HTMLElement).closest?.('[data-custom-select-list]')) return
     props.onClose()
   }
   window.addEventListener('mousedown', onOutside)
@@ -117,23 +184,25 @@ export function IconPickerPopup(props: {
     })
   }
 
-  /** 渲染 24px 网格图标预览（容器 60px 高，居中展示）；底部筛选仅作用于当前选中的图标 */
+  /** 渲染 24px 网格图标预览（容器 60px 高，居中展示）；底部筛选仅作用于当前选中的图标；颜色经 style 传入以支持 CSS 变量 */
   const GridIcon = (svg: string, s: string = 'outline', c: string = '#191919') => {
+    const ABS = 'position:absolute;inset:0;margin:auto;'
     const strokeEl = (w: number, style?: string) => (
-      <svg width={w} height={w} viewBox="0 0 24 24" fill="none" stroke={c} stroke-width="2"
-        stroke-linecap="round" stroke-linejoin="round" innerHTML={svg} style={style} />
+      <svg width={w} height={w} viewBox="0 0 24 24" fill="none" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" innerHTML={svg} style={`stroke:${c};${style ?? ''}`} />
     )
     const fillEl = (w: number, fill: string, fillOpacity: number | undefined, style?: string) => (
-      <svg width={w} height={w} viewBox="0 0 24 24" fill={fill} fill-opacity={fillOpacity} stroke="none" innerHTML={svg} style={style} />
+      <svg width={w} height={w} viewBox="0 0 24 24" stroke="none" innerHTML={svg}
+        style={`fill:${fill};fill-opacity:${fillOpacity ?? 1};${style ?? ''}`} />
     )
     if (s === 'filled') return fillEl(24, c, undefined)
     if (s === 'outline-two-tone' || s === 'filled-two-tone') {
       return (
         <span class="relative inline-flex h-[24px] w-[24px]">
           {s === 'outline-two-tone'
-            ? strokeEl(24, 'position:absolute;inset:0;margin:auto')
-            : fillEl(24, c, undefined, 'position:absolute;inset:0;margin:auto')}
-          {fillEl(17, ACCENT, 0.85, 'position:absolute;inset:0;margin:auto')}
+            ? strokeEl(24, ABS)
+            : fillEl(24, c, undefined, ABS)}
+          {fillEl(17, ACCENT, 0.85, ABS)}
         </span>
       )
     }
@@ -328,8 +397,9 @@ export function IconPickerPopup(props: {
               <CustomSelect value={state.iconSize} options={SIZE_OPTIONS} onChange={v => setState('iconSize', v)}
                 class="[&>button]:h-9 [&>button]:rounded-[36px] [&>button]:text-[12px]" />
             </div>
-            <div class="min-w-0 flex-1 [&>div>button]:h-9 [&>div>button]:rounded-[36px] [&>div>button]:bg-[#F2F3F5] [&>div>button]:text-[12px]">
-              <ColorPicker value={state.iconColor} onChange={v => setState('iconColor', v)} label="颜色" tokens={TEXT_COLOR_TOKENS} />
+            <div class="min-w-0 flex-1">
+              <IconColorSelect value={state.iconColorKey}
+                onChange={v => { setState('iconColorKey', v); setState('iconColor', iconCssColor(v)) }} />
             </div>
           </div>
           <div class="mt-4 flex items-center justify-end gap-2">
