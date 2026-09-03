@@ -2410,6 +2410,10 @@ const sessionMessagesLoaded = createMemo(() => {
       // For file chips whose path is in tmps (new-conversation pending downloads), rename the
       // local file into the session's uploads directory and update the chip path before processing.
       const selections = mentions ?? []
+      // 设计规划模式:目标会话是规划子会话。skill 不在规划会话执行(octo_make_plan 已禁用 skill),
+      // 暂存进 handoff,等 [confirm-plan] 确认后在主会话(octo_make)统一执行。
+      const inPlanSession = sessionId === activePlanSessionId()
+      const planSkillStash: Array<{ name: string; label: string }> = []
       const baseDir = projectDir()
       const api = getDesktopApi()
       if (baseDir && api?.renameFile && api?.fileExists && sessionId) {
@@ -2449,7 +2453,11 @@ const sessionMessagesLoaded = createMemo(() => {
 
       for (const sel of selections) {
         if (sel.type === 'skill') {
-          processedText = processedText.replace(`@${sel.name}`, ` /${sel.name} `)
+          if (inPlanSession) {
+            planSkillStash.push({ name: sel.name, label: sel.label })
+          } else {
+            processedText = processedText.replace(`@${sel.name}`, ` /${sel.name} `)
+          }
           // chip 在输入框里渲染成 displayName,但 getText 返回的是 @skillName(getDocTextWithMentions 用 attrs.name)。
           // 这里把 displayText 里的 @skillName 同步替换成 @displayName,聊天记录里显示的就跟输入框一致。
           if (sel.label && sel.label !== sel.name) {
@@ -2564,6 +2572,13 @@ const sessionMessagesLoaded = createMemo(() => {
           }
         }
         if (matched) {
+          // 规划模式:手输 /skill 也不在规划子会话执行,与 @ 路径一样暂存 handoff,文本走 prompt 兜底
+          if (inPlanSession && matched.source === "skill") {
+            console.log("[MakePage] slash-detect skill skipped in plan session:", { cmdName: matched.name, args })
+            planSkillStash.push({ name: matched.name, label: matched.name })
+            if (!hasCommand) cmdSegments.push({ cmd: "", args: trimmed })
+            continue
+          }
           console.log("[MakePage] slash-detect matched command:", {
             cmdName: matched.name,
             source: matched.source,
@@ -2584,6 +2599,17 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       }
       console.log("[MakePage] slash-detect result:", { hasCommand, cmdSegments })
+
+      // 规划模式:@选择 或 手输 /skill 的技能都不进规划子会话,统一暂存 handoff
+      // (与初始页进入规划时的 savePlanSkillHandoff 同源),由 handleConfirmPlan
+      // 在确认方案后发到主会话(octo_make)执行
+      if (inPlanSession && planSkillStash.length > 0 && params.id) {
+        const existing = readPlanSkillHandoff(params.id)
+        const merged = [...(existing?.skills ?? []), ...planSkillStash].filter(
+          (s, i, arr) => arr.findIndex((x) => x.name === s.name) === i,
+        )
+        savePlanSkillHandoff(params.id, sessionId, merged)
+      }
 
       if (hasCommand) {
         const modelStr = `${modelKey.providerID}/${modelKey.modelID}`
@@ -2884,9 +2910,9 @@ const sessionMessagesLoaded = createMemo(() => {
           const skills = mentions
             .filter((mention) => mention.type === "skill")
             .map((skill) => ({ name: skill.name, label: skill.label }))
-          const userInput = text.replace(/^[\\s\\S]*?---\\n/, "").trim()
+          const userInput = text.replace(/^[\s\S]*?---\n/, "").trim()
           const initialPrompt = userInput
-            ? `请分析以下用户需求，提取有用信息填写到策略表单字段中：\\n\\n${userInput}`
+            ? `请分析以下用户需求，提取有用信息填写到策略表单字段中：\n\n${userInput}`
             : "请分析当前会话上下文，提取有用信息填写到策略表单字段中。"
 
           await movePendingUploadsToSession(session.id)
