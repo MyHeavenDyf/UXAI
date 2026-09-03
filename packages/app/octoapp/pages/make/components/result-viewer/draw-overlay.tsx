@@ -517,7 +517,7 @@ export function DrawOverlay(props: Props): JSX.Element {
 
     const sx = snap.w / Math.max(1, rect.width)
     const sy = snap.h / Math.max(1, rect.height)
-    if (selectionBoxRef) drawNormalizedBox(ctx, selectionBoxRef, snap.w, snap.h, sx)
+    if (selectionBoxRef) drawNormalizedBox(ctx, selectionBoxRef, snap.w, snap.h, sx, true)
 
     ctx.strokeStyle = STROKE_COLOR
     ctx.lineWidth = STROKE_WIDTH * Math.max(sx, sy)
@@ -569,8 +569,9 @@ export function DrawOverlay(props: Props): JSX.Element {
         let blob: Blob | null = null
         setCapturing(true)
         try {
-          // 等 Solid 移除 popup DOM,避免 native capture (webContents.capturePage) 把"修改选中区域"对话框截进图里
-          await new Promise<void>((r) => requestAnimationFrame(() => r()))
+          // 等 Solid 移除 popup DOM 并完成 paint,避免 native capture (webContents.capturePage) 把"修改选中区域"对话框截进图里。
+          // 双次 rAF: 第一次在下一次 paint 前触发,浏览器完成 paint 后 popup DOM 已消失;第二次 rAF 时合成器持有无 popup 的新帧。
+          await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
           const snap = await requestSnapshot()
           console.log('[Draw] Snapshot result:', snap ? { w: snap.w, h: snap.h } : null)
           if (snap) blob = await compositeWithBackground(snap)
@@ -1046,17 +1047,26 @@ function normalizedRectFromPoints(a: Point, b: Point): NormalizedRect {
   }
 }
 
-function drawNormalizedBox(ctx: CanvasRenderingContext2D, box: NormalizedRect, width: number, height: number, dpr: number = 1) {
+function drawNormalizedBox(ctx: CanvasRenderingContext2D, box: NormalizedRect, width: number, height: number, dpr: number = 1, composite: boolean = false) {
   const left = box.x * width
   const top = box.y * height
   const boxWidth = Math.max(1, box.width * width)
   const boxHeight = Math.max(1, box.height * height)
   ctx.save()
-  // Overlay: dim entire canvas
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.3)'
-  ctx.fillRect(0, 0, width, height)
-  // Clear box area and fill with selection color
-  ctx.clearRect(left, top, boxWidth, boxHeight)
+  if (composite) {
+    // Composite mode: dim outside the box only, preserve the page content inside.
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)'
+    ctx.fillRect(0, 0, width, top)                    // top strip
+    ctx.fillRect(0, top + boxHeight, width, height - (top + boxHeight))  // bottom strip
+    ctx.fillRect(0, top, left, boxHeight)             // left strip
+    ctx.fillRect(left + boxWidth, top, width - (left + boxWidth), boxHeight)  // right strip
+  } else {
+    // Overlay mode: dim entire canvas then cut a hole to reveal iframe behind.
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)'
+    ctx.fillRect(0, 0, width, height)
+    ctx.clearRect(left, top, boxWidth, boxHeight)
+  }
+  // Fill box area with selection color
   ctx.fillStyle = 'rgba(10, 89, 247, 0.1)'
   ctx.fillRect(left, top, boxWidth, boxHeight)
   // Draw solid border
