@@ -255,7 +255,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         },
         auto: ctx.payload.auto ?? false,
       })
-      return SessionCompaction.isSuccessful(yield* promptSvc.loop({ sessionID: ctx.params.sessionID }))
+      yield* promptSvc.loop({ sessionID: ctx.params.sessionID })
+      return true
     })
 
     const prompt = Effect.fn("SessionHttpApi.prompt")(function* (ctx: {

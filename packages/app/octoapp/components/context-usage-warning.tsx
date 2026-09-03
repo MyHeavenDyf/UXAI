@@ -11,7 +11,6 @@ export function ContextUsageWarning(props: {
   limit: number
   locale: string
   disabled: boolean
-  compacting: boolean
   onIgnore: () => void
   onCompact: () => void
 }) {
@@ -38,7 +37,7 @@ export function ContextUsageWarning(props: {
           disabled={props.disabled}
           onClick={props.onCompact}
         >
-          {props.compacting ? "压缩中…" : "上下文压缩"}
+          上下文压缩
         </button>
       </div>
     </section>
