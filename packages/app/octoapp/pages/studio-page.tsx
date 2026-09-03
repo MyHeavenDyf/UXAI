@@ -312,7 +312,7 @@ export default function StudioPage() {
   const [pendingEditorEntries, setPendingEditorEntries] = createSignal<StudioTurnData[]>([])
   const [openMenu, setOpenMenu] = createSignal<"capability" | "style" | "settings" | "material" | null>(null)
   const [canGenerateVideo, setCanGenerateVideo] = createSignal(false)
-  const [canUseSeedream, setCanUseSeedream] = createSignal(false)
+  const [canUseSeedream, setCanUseSeedream] = createSignal(true)
   const [studioPermissionReady, setStudioPermissionReady] = createSignal(false)
   const [videoRiskDialogOpen, setVideoRiskDialogOpen] = createSignal(false)
   const [videoRiskConfirmedSessionID, setVideoRiskConfirmedSessionID] = createSignal<string>()
@@ -1737,9 +1737,22 @@ export default function StudioPage() {
     const mime = mimeFromDataUrl(dataUrl)
     return {
       id: crypto.randomUUID(),
-      name: `reference-image.${studioImageExtension(mime)}`,
+      name: imageUrlFilename(url) ?? `reference-image.${studioImageExtension(mime)}`,
       mime,
       dataUrl,
+    }
+  }
+
+  function imageUrlFilename(url: string): string | undefined {
+    if (url.startsWith("data:")) return
+    try {
+      const parsed = new URL(url)
+      const pathParam = parsed.searchParams.get("path")
+      const segments = (pathParam ?? parsed.pathname).split(/[/\\]/).filter(Boolean)
+      const filename = segments.pop()
+      return filename && /\.[a-zA-Z0-9]+$/.test(filename) ? filename : undefined
+    } catch {
+      return
     }
   }
 
@@ -2435,6 +2448,7 @@ export default function StudioPage() {
       width: result.width,
       height: result.height,
       referenceImages: stringArrayValue(recordValue(input, "referenceImages")),
+      referenceImageNames: stringArrayValue(recordValue(extra, "referenceImageNames")),
       videoFrames: restoredVideoFrames(result),
       videoDuration: videoDurationValue(recordValue(extra, "duration")) ?? result.duration,
       videoQualityMode: videoResolutionValue(recordValue(extra, "resolution")) ?? result.videoQualityMode,
@@ -2471,9 +2485,9 @@ export default function StudioPage() {
     }
   }
 
-  async function restoredImageAssets(referenceImages: string[], limit: number) {
+  async function restoredImageAssets(referenceImages: string[], names: string[], limit: number) {
     return (await Promise.all(referenceImages.slice(0, limit).map((referenceImage, index) =>
-      studioAssetFromImageUrl(referenceImage, `reference-${index + 1}.png`).catch((error) => {
+      studioAssetFromImageUrl(referenceImage, names[index] ?? `reference-${index + 1}.png`).catch((error) => {
         console.warn("[StudioPage] restore edit draft reference image failed", error)
         return undefined
       })
@@ -2526,7 +2540,7 @@ export default function StudioPage() {
     if (draft.capability === "image.generate") {
       if (draft.styleModel) setStyleModel(draft.styleModel)
       clearVideoFrames()
-      setAssets(await restoredImageAssets(draft.referenceImages, referenceImageLimit(draft.styleModel ?? styleModel())))
+      setAssets(await restoredImageAssets(draft.referenceImages, draft.referenceImageNames, referenceImageLimit(draft.styleModel ?? styleModel())))
       if (Object.keys(draft.mentionImages).length) seedreamInputApi.restore(buildMentionHtml(draft.prompt, draft.mentionImages))
       showEditDraftSyncedToast()
       return
@@ -3010,6 +3024,9 @@ export default function StudioPage() {
       ...(overrides?.extra ?? {}),
       ...(studioContext ? { studioContext } : {}),
       ...(Object.keys(mentionImages).length ? { mentionImages } : {}),
+      ...(nextCapability === "image.generate" && referenceImages.length && !overrides?.referenceImages
+        ? { referenceImageNames: assets().map((a) => a.name) }
+        : {}),
       ...(nextCapability === "video.generate"
         ? {
           videoMode: nextHasVideoFrames ? "first_last_frame" : "text",

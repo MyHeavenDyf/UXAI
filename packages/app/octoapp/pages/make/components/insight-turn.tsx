@@ -15,6 +15,7 @@ import './insight-turn-meta.css'
 import { autoSaveArtifact } from "../utils/artifact-auto-save"
 import { parseUploadedFiles } from "../../insight/lib/upload"
 import { ExpandableBubble } from "@/components/expandable-bubble"
+import { shouldShowTurnError } from "@/components/context-usage-warning"
 
 import { ToolCallGroupCard, type ToolCallInfo } from "./tool-call-card"
 import { FileOpsSummary } from "./file-ops-summary"
@@ -664,6 +665,7 @@ export function InsightTurn(props: {
   contextLimit?: number
   contextLocale?: string
   contextCompactionDisabled?: boolean
+  contextLimitVisible?: boolean
   onCompactContext?: () => void
 }): JSX.Element {
   const data = useData()
@@ -785,6 +787,7 @@ export function InsightTurn(props: {
       const err = (msg as Record<string, unknown>).error as Record<string, unknown> | undefined
       if (!err) continue
       if (err.name === "MessageAbortedError") continue
+      if (!shouldShowTurnError(err.name as string, props.contextLimitVisible)) continue
       const data = err.data as Record<string, unknown> | undefined
       const message = typeof data?.message === "string" ? data.message : typeof err.message === "string" ? err.message as string : ""
       return { name: err.name as string, message }

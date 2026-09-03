@@ -25,6 +25,8 @@ export type DesktopApi = {
   copyFileTo?: (srcPath: string, destPath: string) => Promise<void>
   deleteFile?: (path: string) => Promise<void>
   fileExists?: (path: string) => Promise<boolean>
+  /** 目录存在性预检:仅当路径是存在的目录时返回 true(与 fileExists 对称) */
+  dirExists?: (path: string) => Promise<boolean>
   capturePreviewRect?: (rect: { x: number; y: number; width: number; height: number }) => Promise<string | null>
   getPathForFile?: (file: File) => string
   /** 拷贝源文件进 <baseDir>/.octo/tmps/（预会话落地区，撞名加后缀）；返回落地路径 */

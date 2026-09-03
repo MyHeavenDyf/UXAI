@@ -1430,6 +1430,7 @@ const sessionMessagesLoaded = createMemo(() => {
   // ── Skills Config (from skill_config.json) ──
   const [skillConfig, setSkillConfig] = createSignal<SkillConfig>({})
   const [skillsLoading, setSkillsLoading] = createSignal(false)
+  const [skillsLoaded, setSkillsLoaded] = createSignal(false)
   const [skillToolCalls, setSkillToolCalls] = createSignal<ToolCallInfo[]>([])
   const [pendingSkill, setPendingSkill] = createSignal<{ name: string; content: string } | null>(null)
 
@@ -1459,12 +1460,13 @@ const sessionMessagesLoaded = createMemo(() => {
       console.error("[MakePage] Failed to load skill config:", err)
     } finally {
       setSkillsLoading(false)
+      setSkillsLoaded(true)
     }
   }
   
   // 组件挂载时预加载 skill 配置
   createEffect(() => {
-    if (params.id && !skillConfig().skill) {
+    if (params.id && !skillsLoaded()) {
       loadSkillConfig()
     }
   })
@@ -2794,6 +2796,10 @@ const sessionMessagesLoaded = createMemo(() => {
       // For file chips whose path is in tmps (new-conversation pending downloads), rename the
       // local file into the session's uploads directory and update the chip path before processing.
       const selections = mentions ?? []
+      // 设计规划模式:目标会话是规划子会话。skill 不在规划会话执行(octo_make_plan 已禁用 skill),
+      // 暂存进 handoff,等 [confirm-plan] 确认后在主会话(octo_make)统一执行。
+      const inPlanSession = sessionId === activePlanSessionId()
+      const planSkillStash: Array<{ name: string; label: string }> = []
       const baseDir = projectDir()
       const api = getDesktopApi()
       if (baseDir && api?.renameFile && api?.fileExists && sessionId) {
@@ -2833,14 +2839,19 @@ const sessionMessagesLoaded = createMemo(() => {
 
       for (const sel of selections) {
         if (sel.type === 'skill') {
-          processedText = processedText.replace(`@${sel.name}`, ` /${sel.name} `)
+          if (inPlanSession) {
+            planSkillStash.push({ name: sel.name, label: sel.label })
+          } else {
+            processedText = processedText.replace(`@${sel.name}`, ` /${sel.name} `)
+          }
           // chip 在输入框里渲染成 displayName,但 getText 返回的是 @skillName(getDocTextWithMentions 用 attrs.name)。
           // 这里把 displayText 里的 @skillName 同步替换成 @displayName,聊天记录里显示的就跟输入框一致。
           if (sel.label && sel.label !== sel.name) {
             displayText = displayText.replace(`@${sel.name}`, () => `@${sel.label}`)
           }
         } else {
-          processedText = processedText.replace(`@${sel.name}`, ` 读取${sel.path} 这个文件 `)
+          const noun = sel.type === "folder" ? "这个文件夹" : "这个文件"
+          processedText = processedText.replace(`@${sel.name}`, ` 读取${sel.path} ${noun} `)
         }
       }
       // Clean up extra spaces and strip zero-width space (​) used as chip boundary marker
@@ -2969,6 +2980,13 @@ const sessionMessagesLoaded = createMemo(() => {
           }
         }
         if (matched) {
+          // 规划模式:手输 /skill 也不在规划子会话执行,与 @ 路径一样暂存 handoff,文本走 prompt 兜底
+          if (inPlanSession && matched.source === "skill") {
+            console.log("[MakePage] slash-detect skill skipped in plan session:", { cmdName: matched.name, args })
+            planSkillStash.push({ name: matched.name, label: matched.name })
+            if (!hasCommand) cmdSegments.push({ cmd: "", args: trimmed })
+            continue
+          }
           console.log("[MakePage] slash-detect matched command:", {
             cmdName: matched.name,
             source: matched.source,
@@ -2989,6 +3007,17 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       }
       console.log("[MakePage] slash-detect result:", { hasCommand, cmdSegments })
+
+      // 规划模式:@选择 或 手输 /skill 的技能都不进规划子会话,统一暂存 handoff
+      // (与初始页进入规划时的 savePlanSkillHandoff 同源),由 handleConfirmPlan
+      // 在确认方案后发到主会话(octo_make)执行
+      if (inPlanSession && planSkillStash.length > 0 && params.id) {
+        const existing = readPlanSkillHandoff(params.id)
+        const merged = [...(existing?.skills ?? []), ...planSkillStash].filter(
+          (s, i, arr) => arr.findIndex((x) => x.name === s.name) === i,
+        )
+        savePlanSkillHandoff(params.id, sessionId, merged)
+      }
 
       if (hasCommand) {
         const modelStr = `${modelKey.providerID}/${modelKey.modelID}`
@@ -3285,9 +3314,9 @@ const sessionMessagesLoaded = createMemo(() => {
           const skills = mentions
             .filter((mention) => mention.type === "skill")
             .map((skill) => ({ name: skill.name, label: skill.label }))
-          const userInput = text.replace(/^[\\s\\S]*?---\\n/, "").trim()
+          const userInput = text.replace(/^[\s\S]*?---\n/, "").trim()
           const initialPrompt = userInput
-            ? `请分析以下用户需求，提取有用信息填写到策略表单字段中：\\n\\n${userInput}`
+            ? `请分析以下用户需求，提取有用信息填写到策略表单字段中：\n\n${userInput}`
             : "请分析当前会话上下文，提取有用信息填写到策略表单字段中。"
 
           await movePendingUploadsToSession(session.id)
@@ -3942,14 +3971,22 @@ if (dsId) {
   }
 
   /**
-   * Download a product-asset-library file (s3BaseUrl + convertHtmlUrl) into the
-   * current session's uploads directory (or tmps if no session yet), with simple
-   * numeric suffix for rename collisions. Returns the local destination path.
-   * Does NOT add as attachment — only downloads. The chip insertion is handled
+   * Download a product-asset-library file via its versionInfo download path
+   * (baseUrl + '/main' + versionInfo[0].filePath + '/' + versionInfo[0].fileName)
+   * into the current session's uploads directory (or tmps if no session yet).
+   * ZIP files are extracted into the uploads dir and the archive deleted;
+   * the returned path is the extracted folder in that case.
+   * Does NOT add as attachment — only downloads. Chip insertion is handled
    * separately by AddonMenu via insertMention.
    */
   async function downloadProductAsset(
-    file: { fileName: string; snapshot: string; s3BaseUrl: string; convertHtmlUrl: string },
+    file: {
+      fileName: string
+      snapshot: string
+      s3BaseUrl: string
+      convertHtmlUrl: string
+      versionInfo?: { filePath: string; fileName: string; fileSize: number }[] | null
+    },
     onProgress: (pct: number) => void,
     signal?: AbortSignal,
   ): Promise<string> {
@@ -3959,11 +3996,13 @@ if (dsId) {
     const api = getDesktopApi()
     if (!api?.writeFileBuffer) throw new Error("不支持文件操作")
 
-    // Build full URL + local filename (encode non-ASCII path segments for fetch)
-    const fileUrl = encodeAssetUrl(joinUrl(file.s3BaseUrl, file.convertHtmlUrl))
-    const ext = extractExtension(file.convertHtmlUrl)
-    const baseName = file.fileName
-    const filename = ext ? `${baseName}.${ext}` : baseName
+    const version = file.versionInfo?.[0]
+    if (!version) throw new Error("缺少版本信息,无法下载")
+
+    // Download URL: baseUrl + '/main' + filePath + '/' + fileName (spec line 63)
+    const baseUrl = import.meta.env.VITE_OCTO_BASE_URL || ""
+    const remotePath = `/main${version.filePath}/${version.fileName}`
+    const fileUrl = encodeAssetUrl(joinUrl(baseUrl, remotePath))
 
     onProgress(0)
     const response = await fetch(fileUrl, { signal })
@@ -3972,29 +4011,53 @@ if (dsId) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
     const buffer = await blob.arrayBuffer()
 
-    // Resolve unique path (simple suffix on collision)
     const sep = projectDirValue.includes("\\") ? "\\" : "/"
     const dir = sid
       ? [projectDirValue, ".octo", sid, "uploads"].join(sep)
       : [projectDirValue, ".octo", "tmps", "make", "uploads"].join(sep)
-    const finalName = await resolveUniqueFilename(dir, filename)
-    const destPath = [dir, finalName].join(sep)
 
+    const isZip = version.fileName.toLowerCase().endsWith(".zip")
+
+    if (isZip) {
+      // Extract into uploads/<file.fileName> (dedup with (N) suffix via dirExists); archive not kept
+      const JSZip = (await import("jszip")).default
+      const zip = await JSZip.loadAsync(buffer)
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+      let folderName = file.fileName
+      let counter = 1
+      if (api.dirExists) {
+        while (await api.dirExists([dir, folderName].join(sep))) {
+          folderName = `${file.fileName} (${counter})`
+          counter++
+        }
+      }
+      const folderPath = [dir, folderName].join(sep)
+
+      for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
+        if (zipEntry.dir) continue
+        const normalized = relativePath.replace(/\//g, sep)
+        const content = await zipEntry.async("uint8array")
+        await api.writeFileBuffer([folderPath, normalized].join(sep), content.buffer as ArrayBuffer)
+      }
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+      onProgress(100)
+      setFilesRefreshKey(k => k + 1)
+      return folderPath
+    }
+
+    // Non-ZIP: save as file.fileName + extension from version.fileName, with dedup
+    const dot = version.fileName.lastIndexOf(".")
+    const ext = dot > 0 ? version.fileName.slice(dot) : ""
+    const finalName = await resolveUniqueFilename(dir, `${file.fileName}${ext}`)
+    const destPath = [dir, finalName].join(sep)
     await api.writeFileBuffer(destPath, buffer)
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
     onProgress(100)
-    // Refresh file management panel so the downloaded file appears in the uploaded list
     setFilesRefreshKey(k => k + 1)
     return destPath
-  }
-
-  function extractExtension(urlPath: string): string {
-    const clean = urlPath.split("?")[0].split("#")[0]
-    const basename = clean.split("/").pop() || ""
-    const dot = basename.lastIndexOf(".")
-    if (dot <= 0 || dot === basename.length - 1) return ""
-    return basename.slice(dot + 1)
   }
 
   async function resolveUniqueFilename(dir: string, filename: string): Promise<string> {
@@ -5015,6 +5078,7 @@ onPreview={(url) => {
                         contextLimit={contextLimit()}
                         contextLocale={language.intl()}
                         contextCompactionDisabled={contextCompactionDisabled()}
+                        contextLimitVisible={contextSendBlocked()}
                         onCompactContext={confirmCompactContext}
                       />
                     </Show>
@@ -5048,6 +5112,7 @@ onPreview={(url) => {
                             contextLimit={contextLimit()}
                             contextLocale={language.intl()}
                             contextCompactionDisabled={contextCompactionDisabled()}
+                            contextLimitVisible={contextSendBlocked()}
                             onCompactContext={confirmCompactContext}
                           />
                         )

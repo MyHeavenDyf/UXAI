@@ -788,7 +788,7 @@ export const layer: Layer.Layer<
 
             yield* stream.pipe(
               Stream.tap((event) => handleEvent(event)),
-              Stream.takeUntil(() => ctx.needsCompaction),
+              Stream.takeUntil(() => ctx.needsCompaction || !!ctx.assistantMessage.error),
               Stream.runDrain,
             )
           }).pipe(
