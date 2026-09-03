@@ -43,7 +43,8 @@ export interface AssetNode {
  * Infer an ArtifactFileKind from the convertHtmlUrl extension so product-asset
  * files can reuse getFileIcon (which needs a kind).
  */
-export function inferKindFromUrl(url: string): ArtifactFileKind {
+export function inferKindFromUrl(url: string | null | undefined): ArtifactFileKind {
+  if (!url) return "binary"
   const clean = url.split("?")[0].split("#")[0]
   const ext = clean.slice(clean.lastIndexOf(".") + 1).toLowerCase()
   switch (ext) {
@@ -153,6 +154,17 @@ export function joinUrl(base: string, path: string): string {
     return base + path
   }
   return base + "/" + path
+}
+
+/**
+ * Unique id for an asset file chip: joinUrl(s3BaseUrl, convertHtmlUrl).
+ * Falls back to appending fileName when convertHtmlUrl is empty/null,
+ * so files sharing the same s3BaseUrl still get distinct ids.
+ */
+export function assetFileId(file: AssetFile): string {
+  const base = joinUrl(file.s3BaseUrl || "", file.convertHtmlUrl || "")
+  if (file.convertHtmlUrl) return base
+  return joinUrl(base, file.fileName)
 }
 
 async function getJson(url: string): Promise<any> {
