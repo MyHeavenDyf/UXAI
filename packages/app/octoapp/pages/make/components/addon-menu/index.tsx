@@ -12,7 +12,7 @@ import { PlatformSkillIcon, CustomSkillIcon, DesignAssetIcon } from "../mention-
 import { getFileIcon } from "../../icons/file-type-icons"
 import emptyPng from "../../icons/empty.png"
 import { DesignStrategyIcon, LinkUrlIcon, AttachmentIcon, ProductAssetIcon, FolderIcon, SkillsIcon, AssetsIcon, DesignFilesIcon } from "./icons"
-import { fetchTeamTree, fetchAssetFiles, encodeAssetUrl, joinUrl, inferKindFromUrl, type AssetFolder, type AssetFile, type AssetNode } from "./asset-library"
+import { fetchTeamTree, fetchAssetFiles, encodeAssetUrl, joinUrl, inferKindFromUrl, assetFileId, type AssetFolder, type AssetFile, type AssetNode } from "./asset-library"
 import type { MentionSelection } from "../mention-popover"
 import "./styles.css"
 
@@ -160,13 +160,12 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     )
   }
 
-  // 产品资源库文件选中态:基于 props.selections(doc 里的 chip),按 filename 匹配
   // 产品资源库文件选中态:基于 props.selections(doc 里的 chip),按 id 匹配
-  // chip id = joinUrl(s3BaseUrl, convertHtmlUrl)(唯一标识,下载后不变,即使 path 被改成本地路径)
+  // chip id = assetFileId(file)(唯一标识,下载后不变,即使 path 被改成本地路径)
   const isAssetFileSelected = (file: AssetFile) => {
-    const url = joinUrl(file.s3BaseUrl, file.convertHtmlUrl)
+    const id = assetFileId(file)
     return props.selections.some(s =>
-      s.type === 'file' && (s as any).id === url
+      s.type === 'file' && (s as any).id === id
     )
   }
 
@@ -223,14 +222,17 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
     }
   }
 
-  // 产品资源库文件点击:只插入 chip(path = joinUrl(s3BaseUrl, convertHtmlUrl) 作唯一标识,
+  // 产品资源库文件点击:只插入 chip(path = assetFileId(file) 作唯一标识,
   // 关闭面板时批量下载,updateMentionPath 把本地路径补到 chip),不立即下载
+  // zip 资产下载后解压为文件夹,chip 标记 isFolder,发送时文案用"这个文件夹"
   const handleAssetFileClick = (file: AssetFile) => {
-    const url = joinUrl(file.s3BaseUrl, file.convertHtmlUrl)
+    const id = assetFileId(file)
+    const isZip = (file.versionInfo?.[0]?.fileName ?? "").toLowerCase().endsWith(".zip")
     const selection: MentionSelection = {
       type: 'file',
       filename: file.fileName,
-      path: url,
+      path: id,
+      isFolder: isZip || undefined,
     }
     if (isAssetFileSelected(file)) {
       props.onDeselect(selection)
@@ -252,7 +254,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
         if (assetDownloadCancelled()) break
         // Fill chip path with the local saved path
         if (localPath) {
-          props.onUpdateMentionPath?.(joinUrl(file.s3BaseUrl, file.convertHtmlUrl), localPath)
+          props.onUpdateMentionPath?.(assetFileId(file), localPath)
         }
       }
       setAssetDownloadOpen(false)
@@ -291,7 +293,7 @@ export function AddonMenu(props: AddonMenuProps): JSX.Element {
 
   const findAssetFileInStackByUrl = (url: string): AssetFile | undefined => {
     for (const level of assetStack()) {
-      const f = level.files.find(file => joinUrl(file.s3BaseUrl, file.convertHtmlUrl) === url)
+      const f = level.files.find(file => assetFileId(file) === url)
       if (f) return f
     }
     return undefined
