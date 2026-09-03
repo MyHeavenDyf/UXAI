@@ -6,7 +6,7 @@ import type { ElementRect, ContainerSize, ModifyElementData } from "./types"
 import {
   TEXT_ELEMENTS, LABEL_MAP, COMPONENT_ENUMS, ENUM_DEFAULTS, COMPONENT_PROPS,
   TW_FONT_SIZES, FW_TO_TW,
-  GRID_POSITIONS, BOOL_PROP_KEY_SET, ICON_PICKER_PROP_KEYS,
+  GRID_POSITIONS, BOOL_PROP_KEY_SET,
 } from "./constants"
 import { normalizeCssKeys, toHex, stripImportant, hasImportant, renameRowField } from "./utils"
 import { parseClass, type ParsedClassInfo } from "./class-parser"
@@ -14,7 +14,6 @@ import { parseFillsFromRawCls, parseStrokesFromRawCls, parseEffectsFromRawCls, m
 import { ColorPicker, TEXT_COLOR_TOKENS, BG_COLOR_TOKENS } from "./color-picker"
 import { DragInput } from "./drag-input"
 import { CustomSelect } from "./custom-select"
-import { IconPickerPopup } from "./icon-picker-popup"
 import {
   SettingsIcon, FreeformIcon, RowIcon, ColIcon, HAlignIcon, VAlignIcon, BorderRadiusIcon,
   TopLeftBorderRadiusIcon, TopRightBorderRadiusIcon, BottomLeftBorderRadiusIcon, BottomRightBorderRadiusIcon,
@@ -110,9 +109,6 @@ export function PropertyEditorPopup(props: {
   const [editOpacity, setEditOpacity] = createSignal(100)
   const [foundOpacity, setFoundOpacity] = createSignal(false)
   const [cornerOpen, setCornerOpen] = createSignal(false)
-  const [iconPickerOpen, setIconPickerOpen] = createSignal(false)
-  const [iconPickerKey, setIconPickerKey] = createSignal<string>()
-  const [iconPickerAnchor, setIconPickerAnchor] = createSignal<HTMLElement>()
   const [editRadiusTl, setEditRadiusTl] = createSignal(0)
   const [editRadiusTr, setEditRadiusTr] = createSignal(0)
   const [editRadiusBr, setEditRadiusBr] = createSignal(0)
@@ -1802,16 +1798,7 @@ export function PropertyEditorPopup(props: {
                       fallback={
                         <div class="flex items-center gap-1 flex-1 min-w-0">
                           <input value={(editProps as Record<string, string>)[key] ?? ''}
-                            readOnly={ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`)}
-                            classList={{ 'cursor-pointer': ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`) }}
                             onInput={(e) => updateEditProp(key, e.currentTarget.value)}
-                            onClick={(e) => {
-                              if (!ICON_PICKER_PROP_KEYS.has(`${props.componentType}.${key}`)) return
-                              e.stopPropagation()
-                              setIconPickerKey(key)
-                              setIconPickerAnchor(e.currentTarget)
-                              setIconPickerOpen(true)
-                            }}
                             type="text" placeholder={key}
                   class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none w-full focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] border border-transparent shadow-none min-w-0" />
                           <Show when={key === 'src'}>
@@ -2686,15 +2673,6 @@ export function PropertyEditorPopup(props: {
               </For>
             </div>
             </Show>
-          </Show>
-
-          <Show when={iconPickerOpen() && iconPickerKey()}>
-            <IconPickerPopup
-              current={(editProps as Record<string, string>)[iconPickerKey()!] ?? ''}
-              anchor={iconPickerAnchor()}
-              onPick={(name) => updateEditProp(iconPickerKey()!, name)}
-              onClose={() => setIconPickerOpen(false)}
-            />
           </Show>
 
         </div>
