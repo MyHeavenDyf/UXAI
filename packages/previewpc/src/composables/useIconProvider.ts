@@ -81,7 +81,7 @@ export function requestIconInfo(name: string): void {
   triedIconInfoNames.add(name)
 
   const keyword = encodeURIComponent(name)
-  const apiUrl = `${ICON_API_URL}?keyword=${keyword}&topK=2&source_id=6${getBusinessDataParam()}`
+  const apiUrl = `${ICON_API_URL}?keyword=${keyword}&topK=2&source_id=6&tags=基础图标${getBusinessDataParam()}`
 
   fetch(apiUrl)
     .then(resp => {
