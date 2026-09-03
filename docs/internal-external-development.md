@@ -46,13 +46,7 @@
 
 ### 3.1 配置来源
 
-外网和内网当前都要求通过 HTTP 获取模型配置：
-
-```env
-VITE_OCTO_MODELS_API_SOURCE=http
-```
-
-内外网应分别使用各自环境中可访问的 `VITE_OCTO_MODELS_API_URL`：
+外网和内网都只通过 HTTP 获取模型配置，不再支持本地快照。内外网应分别使用各自环境中可访问的 `VITE_OCTO_MODELS_API_URL`：
 
 ```text
 外网环境 → 外网可访问的模型配置 HTTP 地址
@@ -79,29 +73,29 @@ W3 对话模型的 API 地址应来自 `VITE_OCTO_MODELS_API_URL` 返回数据�
 ```text
 VITE_OCTO_MODELS_API_URL
   → 请求 api.json
-  → 读取 w3.api
-  → 将 w3.api 传给 OpenCode 服务端
+  → 将模型配置地址传给 OpenCode 服务端
+  → 服务端读取 w3.api
   → 服务端使用该地址创建 W3 SDK
   → 向该 HTTP 地址发送对话请求
 ```
 
-在 `VITE_OCTO_MODELS_API_SOURCE=http` 时，不应因为远端配置传递失败而静默使用本地快照中的 `w3.api`，否则会掩盖真实配置问题。
+远端配置请求失败时直接报错，不使用本地文件、磁盘缓存或上一次请求结果兜底。
 
 ## 4. 已确认的内网现象
 
 - 内网环境可以正常请求 `VITE_OCTO_MODELS_API_URL`。
 - 内网可以看到该 URL 返回的数据，数据内容正常。
-- 内网环境配置的 `VITE_OCTO_MODELS_API_SOURCE` 是 `http`。
-- 曾出现修改本地快照中的 `w3.api` 后，对话模型 API 地址随之变化的现象。
-- 上述现象说明 HTTP 配置虽然已在前端成功获取，但 `w3.api` 在部分调用链路中没有传递到服务端，随后使用了本地快照兜底。
+- 内网请求远端模型配置时需要在请求头中携带登录 Token。
+- 外网当前没有登录功能，因此公共代码只提供可选请求头入口，不主动读取 Token。
 
 ## 5. 已处理的相关调用链路
 
 目前围绕 W3 HTTP API 来源做过以下处理：
 
-- 前端从远端模型配置中提取 `w3.api`。
-- 前端通过 `x-opencode-w3-api` 请求头将地址传给服务端。
-- 服务端优先使用传入的远端 W3 API 地址。
+- 前端通过 `x-opencode-models-api-url` 将远端模型配置地址传给服务端。
+- 服务端通过 `fetchRemoteModelCatalog({ url, headers })` 请求并校验远端目录。
+- 内网可通过该方法的 `headers` 参数注入 `uiplustoken`。
+- 服务端使用远端目录中的 W3 API 地址。
 - W3 模型缓存键包含实际 API 地址，地址变化后不继续复用旧 SDK 实例。
 - Hono Session 路由会读取模型配置请求头。
 - Effect HttpAPI 的普通 `prompt`、`promptAsync` 和 V2 `prompt` 也会读取模型配置请求头。
@@ -111,7 +105,6 @@ VITE_OCTO_MODELS_API_URL
 前端当前允许 `localStorage` 覆盖构建时环境变量：
 
 ```text
-opencode.modelsApiSource
 opencode.modelsApiUrl
 ```
 
@@ -119,7 +112,7 @@ opencode.modelsApiUrl
 
 ```text
 localStorage
-→ VITE_OCTO_MODELS_API_SOURCE / VITE_OCTO_MODELS_API_URL
+→ VITE_OCTO_MODELS_API_URL
 → 默认值
 ```
 
@@ -133,11 +126,10 @@ localStorage
 - [ ] `packages` 文件合并时的覆盖顺序和冲突处理规则。
 - [ ] 哪些环境文件不应参与 `packages` 合并。
 - [ ] 内网专属修改如何在外网重新实现和追踪。
-- [ ] HTTP 模式请求失败时是否应禁止快照兜底并直接报错。
 - [ ] 内外网版本号、提交号或构建产物的对应关系。
 
 ## 8. 变更记录
 
-| 日期 | 记录 |
-| --- | --- |
+| 日期       | 记录                                                                                 |
+| ---------- | ------------------------------------------------------------------------------------ |
 | 2026-07-13 | 创建文档，记录内外网边界、`packages` 合并方式、HTTP 模型配置要求和 W3 API 调用链路。 |

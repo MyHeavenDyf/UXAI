@@ -29,7 +29,7 @@ import { optionalOmitUndefined, withStatics } from "@/util/schema"
 import * as ProviderTransform from "./transform"
 import { ModelID, ProviderID } from "./schema"
 import { AuthError } from "@/session/message"
-import { modelsApiProviderUrl } from "@/plugin/model-headers"
+import { modelsApiCatalog, modelsApiProviderUrl } from "@/plugin/model-headers"
 
 const log = Log.create({ service: "provider" })
 
@@ -123,8 +123,7 @@ const SENSITIVE_HEADER_KEYS = new Set([
 function sanitizeHeaders(input: Headers | Record<string, string> | undefined | null): Record<string, string> {
   if (!input) return {}
   const out: Record<string, string> = {}
-  const entries: Iterable<[string, string]> =
-    input instanceof Headers ? input.entries() : Object.entries(input)
+  const entries: Iterable<[string, string]> = input instanceof Headers ? input.entries() : Object.entries(input)
   for (const [k, v] of entries) {
     if (SENSITIVE_HEADER_KEYS.has(k.toLowerCase())) {
       const s = String(v)
@@ -316,12 +315,7 @@ async function consumeForDebug(stream: ReadableStream<Uint8Array>, seq: number, 
 //
 // 可通过环境变量关闭：OPENCODE_DISABLE_BYPASS_DISPATCHER=1
 const LOCAL_PROVIDER_IDS = new Set(["opencode", "bpit", "bpit-beta"])
-const LOCAL_PROVIDER_HOST_PATTERNS = [
-  /\.huawei\.com$/i,
-  /^localhost$/i,
-  /^127\.0\.0\.\d+$/,
-  /^::1$/,
-]
+const LOCAL_PROVIDER_HOST_PATTERNS = [/\.huawei\.com$/i, /^localhost$/i, /^127\.0\.0\.\d+$/, /^::1$/]
 
 let _bypassDispatcher: any = null
 let _bypassDispatcherInited = false
@@ -507,147 +501,10 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
           },
         },
       }),
-    opencode: Effect.fnUntraced(function* (input: Info) {
-      const env = yield* dep.env()
-      const hasKey = iife(() => {
-        if (input.env.some((item) => env[item])) return true
-        return false
-      })
-      const ok =
-        hasKey ||
-        Boolean(yield* dep.auth(input.id)) ||
-        Boolean((yield* dep.config()).provider?.["opencode"]?.options?.apiKey)
-
-      input.name = "Octo AI"
-
-      // ===== 原硬编码方式（已注释，保留供参考） =====
-      // const createModel = (id: string, name: string): Model => ({
-      //   id: ModelID.make(id),
-      //   providerID: ProviderID.make("opencode"),
-      //   name,
-      //   family: undefined,
-      //   api: {
-      //     id,
-      //     url: "http://octoai-llm.ucd.huawei.com/v1",
-      //     npm: "@ai-sdk/openai-compatible",
-      //   },
-      //   status: "active",
-      //   headers: {},
-      //   options: {},
-      //   cost: {
-      //     input: 0,
-      //     output: 0,
-      //     cache: { read: 0, write: 0 },
-      //   },
-      //   limit: {
-      //     context: 128000,
-      //     output: 4096,
-      //   },
-      //   capabilities: {
-      //     temperature: true,
-      //     reasoning: false,
-      //     attachment: true,
-      //     toolcall: true,
-      //     input: { text: true, audio: false, image: true, video: false, pdf: true },
-      //     output: { text: true, audio: false, image: false, video: false, pdf: false },
-      //     interleaved: false,
-      //   },
-      //   release_date: "",
-      //   variants: {},
-      // })
-      // input.models = {
-      //   "GLM-5": createModel("GLM-5", "GLM-5"),
-      //   "MiniMax-M2.5": createModel("MiniMax-M2.5", "MiniMax M2.5"),
-      //   "MiniMax-M2.5-W8A8": createModel("MiniMax-M2.5-W8A8", "MiniMax M2.5 W8A8"),
-      //   "Qwen3.5-27B-Claude-4.6": createModel("Qwen3.5-27B-Claude-4.6", "Qwen3.5 27B Claude 4.6"),
-      // }
-      // =====
-
-      // 新方式：从构建时快照（源自 api.json）读取模型定义
-      const snapshot = yield* Effect.tryPromise({
-        try: () => import("./models-snapshot.js").then((m) => m.snapshot as Record<string, ModelsDev.Provider> | undefined),
-        catch: () => undefined,
-      }).pipe(Effect.catch(() => Effect.succeed(undefined)))
-
-      const opencodeProvider = snapshot?.["opencode"]
-      if (opencodeProvider) {
-        const models: Record<string, Model> = {}
-        for (const [key, model] of Object.entries(opencodeProvider.models)) {
-          models[key] = fromModelsDevModel(opencodeProvider, model)
-        }
-        input.models = models
-      }
-
-      return {
-        autoload: true,
-        options: {},
-      }
-    }),
-    bpit: Effect.fnUntraced(function* (input: Info) {
-      input.name = "BPIT"
-
-      const snapshot = yield* Effect.tryPromise({
-        try: () => import("./models-snapshot.js").then((m) => m.snapshot as Record<string, ModelsDev.Provider> | undefined),
-        catch: () => undefined,
-      }).pipe(Effect.catch(() => Effect.succeed(undefined)))
-
-      const bpitProvider = snapshot?.["bpit"]
-      if (bpitProvider) {
-        const models: Record<string, Model> = {}
-        for (const [key, model] of Object.entries(bpitProvider.models)) {
-          models[key] = fromModelsDevModel(bpitProvider, model)
-        }
-        input.models = models
-      }
-
-      return {
-        autoload: true,
-        options: {},
-      }
-    }),
-    "bpit-beta": Effect.fnUntraced(function* (input: Info) {
-      input.name = "BPIT Beta"
-
-      const snapshot = yield* Effect.tryPromise({
-        try: () => import("./models-snapshot.js").then((m) => m.snapshot as Record<string, ModelsDev.Provider> | undefined),
-        catch: () => undefined,
-      }).pipe(Effect.catch(() => Effect.succeed(undefined)))
-
-      const bpitBetaProvider = snapshot?.["bpit-beta"]
-      if (bpitBetaProvider) {
-        const models: Record<string, Model> = {}
-        for (const [key, model] of Object.entries(bpitBetaProvider.models)) {
-          models[key] = fromModelsDevModel(bpitBetaProvider, model)
-        }
-        input.models = models
-      }
-
-      return {
-        autoload: true,
-        options: {},
-      }
-    }),
-    w3: Effect.fnUntraced(function* (input: Info) {
-      const snapshot = yield* Effect.tryPromise({
-        try: () => import("./models-snapshot.js").then((m) => m.snapshot as Record<string, ModelsDev.Provider> | undefined),
-        catch: () => undefined,
-      }).pipe(Effect.catch(() => Effect.succeed(undefined)))
-
-      const w3Provider = snapshot?.["w3"]
-      if (w3Provider) {
-        input.name = w3Provider.name
-        const models: Record<string, Model> = {}
-        for (const [key, model] of Object.entries(w3Provider.models)) {
-          models[key] = fromModelsDevModel(w3Provider, model)
-        }
-        input.models = models
-      }
-
-      return {
-        autoload: true,
-        options: {},
-      }
-    }),
+    opencode: () => Effect.succeed({ autoload: true, options: {} }),
+    bpit: () => Effect.succeed({ autoload: true, options: {} }),
+    "bpit-beta": () => Effect.succeed({ autoload: true, options: {} }),
+    w3: () => Effect.succeed({ autoload: true, options: {} }),
     openai: () =>
       Effect.succeed({
         autoload: false,
@@ -1410,6 +1267,7 @@ export function defaultModelIDs<T extends { models: Record<string, { id: string 
 
 export interface Interface {
   readonly list: () => Effect.Effect<Record<ProviderID, Info>>
+  readonly refresh: (force?: boolean) => Effect.Effect<void>
   readonly getProvider: (providerID: ProviderID) => Effect.Effect<Info>
   readonly getModel: (providerID: ProviderID, modelID: ModelID) => Effect.Effect<Model>
   readonly getLanguage: (model: Model) => Effect.Effect<LanguageModelV3>
@@ -1430,6 +1288,17 @@ interface State {
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Provider") {}
+
+export function isConnected(provider: Info) {
+  return (
+    provider.id === "w3" ||
+    Boolean(provider.key) ||
+    provider.source === "env" ||
+    provider.source === "api" ||
+    provider.source === "custom" ||
+    Boolean(provider.options.apiKey)
+  )
+}
 
 function cost(c: ModelsDev.Model["cost"]): Model["cost"] {
   const result: Model["cost"] = {
@@ -1466,8 +1335,8 @@ function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model
       npm: model.provider?.npm ?? provider.npm ?? "@ai-sdk/openai-compatible",
     },
     status: model.status ?? "active",
-    headers: {},
-    options: {},
+    headers: model.headers ?? {},
+    options: model.options ?? {},
     cost: cost(model.cost),
     limit: {
       context: model.limit.context,
@@ -1501,7 +1370,10 @@ function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model
 
   return {
     ...base,
-    variants: mapValues(ProviderTransform.variants(base), (v) => v),
+    variants: mergeDeep(
+      mapValues(ProviderTransform.variants(base), (v) => v),
+      model.variants ?? {},
+    ),
   }
 }
 
@@ -1542,7 +1414,7 @@ export function fromModelsDevProvider(provider: ModelsDev.Provider): Info {
 const layer: Layer.Layer<
   Service,
   never,
-  Config.Service | Auth.Service | Plugin.Service | AppFileSystem.Service | Env.Service | ModelsDev.Service
+  Config.Service | Auth.Service | Plugin.Service | AppFileSystem.Service | Env.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -1551,14 +1423,12 @@ const layer: Layer.Layer<
     const auth = yield* Auth.Service
     const env = yield* Env.Service
     const plugin = yield* Plugin.Service
-    const modelsDevSvc = yield* ModelsDev.Service
-
     const state = yield* InstanceState.make<State>(() =>
       Effect.gen(function* () {
         using _ = log.time("state")
         const bridge = yield* EffectBridge.make()
         const cfg = yield* config.get()
-        const modelsDev = yield* modelsDevSvc.get()
+        const modelsDev = yield* Effect.promise(modelsApiCatalog)
         const database = mapValues(modelsDev, fromModelsDevProvider)
 
         const providers: Record<ProviderID, Info> = {} as Record<ProviderID, Info>
@@ -1594,12 +1464,21 @@ const layer: Layer.Layer<
           // (custom loader self-constructs model data)
           if (!match && providerID !== "opencode" && providerID !== "bpit" && providerID !== "bpit-beta") return
           // @ts-expect-error
-          providers[providerID] = mergeDeep(match ?? {
-            id: providerID,
-            name: providerID === "opencode" ? "Octo AI" : providerID === "bpit-beta" ? "BPIT Beta" : "BPIT",
-            env: [providerID === "opencode" ? "OPENCODE_API_KEY" : providerID === "bpit-beta" ? "BPIT_BETA_API_KEY" : "BPIT_API_KEY"],
-            models: {},
-          }, provider)
+          providers[providerID] = mergeDeep(
+            match ?? {
+              id: providerID,
+              name: providerID === "opencode" ? "Octo AI" : providerID === "bpit-beta" ? "BPIT Beta" : "BPIT",
+              env: [
+                providerID === "opencode"
+                  ? "OPENCODE_API_KEY"
+                  : providerID === "bpit-beta"
+                    ? "BPIT_BETA_API_KEY"
+                    : "BPIT_API_KEY",
+              ],
+              models: {},
+            },
+            provider,
+          )
         }
 
         // load plugins first so config() hook runs before reading cfg.provider
@@ -1721,11 +1600,11 @@ const layer: Layer.Layer<
                   model.limit?.context ??
                   existingModel?.limit?.context ??
                   (provider.options?.["__octo_custom_provider"] === true ||
-                    (provider.npm === "@ai-sdk/openai-compatible" &&
-                      !!provider.models &&
-                      Object.keys(provider.models).length > 0 &&
-                      Array.isArray(provider.env) &&
-                      provider.env.length === 0)
+                  (provider.npm === "@ai-sdk/openai-compatible" &&
+                    !!provider.models &&
+                    Object.keys(provider.models).length > 0 &&
+                    Array.isArray(provider.env) &&
+                    provider.env.length === 0)
                     ? 128_000
                     : 0),
                 input: model.limit?.input ?? existingModel?.limit?.input,
@@ -1809,7 +1688,13 @@ const layer: Layer.Layer<
           const providerData = data ?? {
             id: providerID,
             name: providerID === "opencode" ? "Octo AI" : providerID === "bpit-beta" ? "BPIT Beta" : "BPIT",
-            env: [providerID === "opencode" ? "OPENCODE_API_KEY" : providerID === "bpit-beta" ? "BPIT_BETA_API_KEY" : "BPIT_API_KEY"],
+            env: [
+              providerID === "opencode"
+                ? "OPENCODE_API_KEY"
+                : providerID === "bpit-beta"
+                  ? "BPIT_BETA_API_KEY"
+                  : "BPIT_API_KEY",
+            ],
             models: {},
           }
 
@@ -1923,12 +1808,11 @@ const layer: Layer.Layer<
 
     const list = Effect.fn("Provider.list")(() => InstanceState.use(state, (s) => s.providers))
 
-    async function resolveSDK(
-      model: Model,
-      s: State,
-      envs: Record<string, string | undefined>,
-      remoteApi?: string,
-    ) {
+    const refresh = Effect.fn("Provider.refresh")(function* (_force = false) {
+      yield* InstanceState.invalidate(state)
+    })
+
+    async function resolveSDK(model: Model, s: State, envs: Record<string, string | undefined>, remoteApi?: string) {
       try {
         using _ = log.time("getSDK", {
           providerID: model.providerID,
@@ -1946,7 +1830,8 @@ const layer: Layer.Layer<
 
         const configuredBaseURL =
           typeof options["baseURL"] === "string" && options["baseURL"] !== "" ? options["baseURL"] : undefined
-        remoteApi ??= model.providerID === "w3" ? await modelsApiProviderUrl("w3") : undefined
+        remoteApi ??=
+          model.providerID === "w3" || !model.api.url ? await modelsApiProviderUrl(model.providerID) : undefined
         const baseURL = iife(() => {
           let url = remoteApi ?? configuredBaseURL ?? model.api.url
           if (!url) return
@@ -2024,7 +1909,7 @@ const layer: Layer.Layer<
           }
           try {
             callerStack = (new Error().stack ?? "").slice(0, 2000)
-            url = typeof input === "string" ? input : input?.url ?? String(input)
+            url = typeof input === "string" ? input : (input?.url ?? String(input))
             method = opts.method ?? (typeof input === "object" && input?.method) ?? "GET"
 
             userSignal = (opts.signal as AbortSignal | undefined) ?? null
@@ -2271,6 +2156,7 @@ const layer: Layer.Layer<
     )
 
     const getModel = Effect.fn("Provider.getModel")(function* (providerID: ProviderID, modelID: ModelID) {
+      yield* InstanceState.invalidate(state)
       const s = yield* InstanceState.get(state)
       const provider = s.providers[providerID]
       if (!provider) {
@@ -2297,8 +2183,10 @@ const layer: Layer.Layer<
           ? provider.options["baseURL"]
           : undefined
       const remoteApi =
-        model.providerID === "w3" ? yield* Effect.promise(() => modelsApiProviderUrl("w3")) : undefined
-      const key = `${model.providerID}/${model.id}/${remoteApi ?? configuredBaseURL ?? model.api.url}`
+        model.providerID === "w3" || !model.api.url
+          ? yield* Effect.promise(() => modelsApiProviderUrl(model.providerID))
+          : undefined
+      const key = `${model.providerID}/${model.id}/${model.api.npm}/${remoteApi ?? configuredBaseURL ?? model.api.url}`
       if (s.models.has(key)) return s.models.get(key)!
 
       return yield* Effect.promise(async () => {
@@ -2429,7 +2317,7 @@ const layer: Layer.Layer<
       }
     })
 
-    return Service.of({ list, getProvider, getModel, getLanguage, closest, getSmallModel, defaultModel })
+    return Service.of({ list, refresh, getProvider, getModel, getLanguage, closest, getSmallModel, defaultModel })
   }),
 )
 
@@ -2440,7 +2328,6 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Config.defaultLayer),
     Layer.provide(Auth.defaultLayer),
     Layer.provide(Plugin.defaultLayer),
-    Layer.provide(ModelsDev.defaultLayer),
   ),
 )
 

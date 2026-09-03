@@ -88,7 +88,7 @@
 | 现象 | 可能根因 |
 | --- | --- |
 | step 6 的 hasAuth 输出 `optionsApiKey: false` 但 `key: false` | 配置写入丢失或被覆盖，看 step 2 的 patch 是否包含 apiKey |
-| step 7 的 `modelsCount: 0` 且 id 出现在 `state:deleted-providers` | L1508-1511 把它删了，需要检查 models-snapshot 加载是否成功 |
+| step 7 的 `modelsCount: 0` 且 id 出现在 `state:deleted-providers` | 远端模型目录未返回该 provider，检查远端请求和响应内容 |
 | step 3 的 dispose 完成时间 > step 5 的 provider 查询时间 | race condition，dispose 还没完前端就查询了 |
 | step 8 里 `XDG_CONFIG_HOME` / `XDG_DATA_HOME` 与 `userDataPath` 不一致 | 路径分裂，配置写到 A、读取从 B |
 | step 8 里 `-il timed out` 警告 | Mac 上 zsh 启动脚本太慢导致 shell env 加载失败 |

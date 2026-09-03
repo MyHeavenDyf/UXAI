@@ -90,6 +90,12 @@ describe("formatServerError", () => {
     expect(formatServerError("Failed to connect to server", language.t)).toBe("Failed to connect to server")
   })
 
+  test("returns messages from asynchronous session errors", () => {
+    expect(
+      formatServerError({ name: "UnknownError", data: { message: "Model not found: w3/remote" } }, language.t),
+    ).toBe("Model not found: w3/remote")
+  })
+
   test("uses translated unknown fallback", () => {
     expect(formatServerError(0, language.t)).toBe("Erro desconhecido")
   })

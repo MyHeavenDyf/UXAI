@@ -373,6 +373,16 @@ function createGlobalSync() {
 
     const existing = children.children[key]
     if (!existing) return
+    if (event.type === "session.error") {
+      showToast({
+        title: language.t("notification.session.error.title"),
+        description: formatServerError(
+          event.properties.error,
+          language.t,
+          language.t("notification.session.error.fallbackDescription"),
+        ),
+      })
+    }
     children.mark(key)
     const [store, setStore] = existing
     applyDirectoryEvent({

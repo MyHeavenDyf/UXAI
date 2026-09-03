@@ -33,13 +33,9 @@ export const ProviderRoutes = lazy(() =>
         jsonRequest("ProviderRoutes.list", c, function* () {
           configureModelsApiHeaders(Object.fromEntries(c.req.raw.headers.entries()))
           const svc = yield* Provider.Service
+          yield* svc.refresh(true)
           const connected = yield* svc.list()
-          const hasAuth = (p: Provider.Info) =>
-            p.id === "w3" ||
-            Boolean(p.key) ||
-            p.source === "env" ||
-            p.source === "api" ||
-            Boolean((p.options as Record<string, unknown>)?.apiKey)
+          const hasAuth = Provider.isConnected
           // 诊断日志: opencode/bpit/bpit-beta 的 hasAuth 各分支分解
           for (const p of Object.values(connected)) {
             if (p.id === "opencode" || p.id === "bpit" || p.id === "bpit-beta") {

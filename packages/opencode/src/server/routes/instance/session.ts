@@ -21,6 +21,7 @@ import { Command } from "@/command"
 import * as Log from "@opencode-ai/core/util/log"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
+import { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { errors } from "../../error"
 import { lazy } from "@/util/lazy"
@@ -75,7 +76,10 @@ export const SessionRoutes = lazy(() =>
             .meta({ description: "Filter sessions updated on or after this timestamp (milliseconds since epoch)" }),
           search: z.string().optional().meta({ description: "Filter sessions by title (case-insensitive)" }),
           limit: z.coerce.number().optional().meta({ description: "Maximum number of sessions to return" }),
-          category: z.string().optional().meta({ description: "Filter sessions by category (dev/design/prototype/analysis/creative/planning)" }),
+          category: z
+            .string()
+            .optional()
+            .meta({ description: "Filter sessions by category (dev/design/prototype/analysis/creative/planning)" }),
         }),
       ),
       async (c) => {
@@ -901,9 +905,13 @@ export const SessionRoutes = lazy(() =>
           const msg = await runRequest(
             "SessionRoutes.prompt",
             c,
-            SessionPrompt.Service.use((svc) =>
-              svc.prompt({ ...body, sessionID } as unknown as SessionPrompt.PromptInput),
-            ),
+            Effect.gen(function* () {
+              yield* (yield* Provider.Service).refresh()
+              return yield* (yield* SessionPrompt.Service).prompt({
+                ...body,
+                sessionID,
+              } as unknown as SessionPrompt.PromptInput)
+            }),
           )
           void stream.write(JSON.stringify(msg))
         })
@@ -937,9 +945,13 @@ export const SessionRoutes = lazy(() =>
         void runRequest(
           "SessionRoutes.prompt_async",
           c,
-          SessionPrompt.Service.use((svc) =>
-            svc.prompt({ ...body, sessionID } as unknown as SessionPrompt.PromptInput),
-          ),
+          Effect.gen(function* () {
+            yield* (yield* Provider.Service).refresh()
+            return yield* (yield* SessionPrompt.Service).prompt({
+              ...body,
+              sessionID,
+            } as unknown as SessionPrompt.PromptInput)
+          }),
         ).catch((err) => {
           log.error("prompt_async failed", { sessionID, error: err })
           void Bus.publish(Session.Event.Error, {

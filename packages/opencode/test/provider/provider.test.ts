@@ -15,6 +15,7 @@ import { Env } from "../../src/env"
 import { Effect } from "effect"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { makeRuntime } from "../../src/effect/run-service"
+import { configureModelsApi } from "@/plugin/model-headers"
 
 const env = makeRuntime(Env.Service, Env.defaultLayer)
 const set = (k: string, v: string) => env.runSync((svc) => svc.set(k, v))
@@ -2033,6 +2034,76 @@ test("models.dev normalization fills required response fields", () => {
   expect(model.capabilities.attachment).toBe(false)
   expect(model.capabilities.toolcall).toBe(true)
   expect(model.release_date).toBe("")
+})
+
+test("HTTP models catalog refreshes built-in models without fallback", async () => {
+  const state = { modelID: "remote-only", available: true }
+  using server = Bun.serve({
+    port: 0,
+    fetch: () =>
+      state.available
+        ? Response.json({
+            w3: {
+              id: "w3",
+              name: "Remote W3",
+              env: ["REMOTE_ONLY_KEY"],
+              npm: "@ai-sdk/openai-compatible",
+              api: "https://example.com/v1",
+              models: {
+                [state.modelID]: {
+                  id: state.modelID,
+                  name: "Remote Only",
+                  release_date: "2026-09-01",
+                  attachment: false,
+                  reasoning: false,
+                  isExternal: true,
+                  temperature: true,
+                  tool_call: true,
+                  headers: { "x-model": "remote" },
+                  options: { priority: "high" },
+                  limit: { context: 128_000, output: 16_000 },
+                },
+              },
+            },
+          })
+        : new Response(undefined, { status: 503 }),
+  })
+  using _reset = {
+    [Symbol.dispose]: () => configureModelsApi({ url: process.env["OPENCODE_MODELS_URL"] }),
+  }
+  configureModelsApi({ url: `${server.url}api.json` })
+  await using tmp = await tmpdir()
+
+  await WithInstance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const providers = await list()
+      expect(providers[ProviderID.make("w3")].name).toBe("Remote W3")
+      expect(providers[ProviderID.make("w3")].env).toEqual(["REMOTE_ONLY_KEY"])
+      const model = providers[ProviderID.make("w3")].models["remote-only"]
+      expect(model.isExternal).toBe(true)
+      expect(model.api.url).toBe("https://example.com/v1")
+      expect(model.headers["x-model"]).toBe("remote")
+      expect(model.options.priority).toBe("high")
+      expect(
+        Provider.isConnected({
+          ...providers[ProviderID.make("w3")],
+          id: ProviderID.make("remote-custom"),
+          source: "custom",
+        }),
+      ).toBe(true)
+
+      state.modelID = "remote-next"
+      await run((provider) => provider.refresh(true))
+      const refreshed = await list()
+      expect(refreshed[ProviderID.make("w3")].models["remote-only"]).toBeUndefined()
+      expect(refreshed[ProviderID.make("w3")].models["remote-next"]).toBeDefined()
+
+      state.available = false
+      await run((provider) => provider.refresh(true))
+      expect(list()).rejects.toThrow("503")
+    },
+  })
 })
 
 test("model variants are generated for reasoning models", async () => {

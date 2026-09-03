@@ -33,7 +33,12 @@ process.env["XDG_DATA_HOME"] = path.join(dir, "share")
 process.env["XDG_CACHE_HOME"] = path.join(dir, "cache")
 process.env["XDG_CONFIG_HOME"] = path.join(dir, "config")
 process.env["XDG_STATE_HOME"] = path.join(dir, "state")
-process.env["OPENCODE_MODELS_PATH"] = path.join(import.meta.dir, "tool", "fixtures", "models-api.json")
+const modelsServer = Bun.serve({
+  port: 0,
+  fetch: () => new Response(Bun.file(path.join(import.meta.dir, "tool", "fixtures", "models-api.json"))),
+})
+afterAll(() => modelsServer.stop(true))
+process.env["OPENCODE_MODELS_URL"] = modelsServer.url.toString()
 process.env["OPENCODE_EXPERIMENTAL_EVENT_SYSTEM"] = "true"
 
 // Set test home directory to isolate tests from user's actual home directory

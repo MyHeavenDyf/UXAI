@@ -6,6 +6,7 @@ import { Command } from "@/command"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
 import { configureModelsApiHeaders } from "@/plugin/model-headers"
+import { Provider } from "@/provider/provider"
 import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
 import { SessionCompaction } from "@/session/compaction"
@@ -53,6 +54,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const runState = yield* SessionRunState.Service
     const agentSvc = yield* Agent.Service
     const permissionSvc = yield* Permission.Service
+    const providerSvc = yield* Provider.Service
     const statusSvc = yield* SessionStatus.Service
     const todoSvc = yield* Todo.Service
     const summary = yield* SessionSummary.Service
@@ -264,6 +266,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof PromptPayload.Type
     }) {
       configureModelsApiHeaders((yield* HttpServerRequest.HttpServerRequest).headers)
+      yield* providerSvc.refresh()
       const instance = yield* InstanceState.context
       const workspace = yield* InstanceState.workspaceID
       return HttpServerResponse.stream(
@@ -287,6 +290,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof PromptPayload.Type
     }) {
       configureModelsApiHeaders((yield* HttpServerRequest.HttpServerRequest).headers)
+      yield* providerSvc.refresh()
       yield* promptSvc.prompt({ ...ctx.payload, sessionID: ctx.params.sessionID }).pipe(
         Effect.catchCause((cause) =>
           Effect.gen(function* () {

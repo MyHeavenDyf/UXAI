@@ -28,6 +28,12 @@ function tr(translator: Translator | undefined, key: string, text: string, vars?
 export function formatServerError(error: unknown, translate?: Translator, fallback?: string) {
   if (isConfigInvalidErrorLike(error)) return parseReadableConfigInvalidError(error, translate)
   if (isProviderModelNotFoundErrorLike(error)) return parseReadableProviderModelNotFoundError(error, translate)
+  if (typeof error === "object" && error !== null && "data" in error) {
+    const data = error.data
+    if (typeof data === "object" && data !== null && "message" in data && typeof data.message === "string") {
+      return data.message
+    }
+  }
   if (error instanceof Error && error.message) return error.message
   if (typeof error === "string" && error) return error
   if (fallback) return fallback
