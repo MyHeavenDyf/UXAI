@@ -1158,35 +1158,46 @@ const sessionMessagesLoaded = createMemo(() => {
       !contextSendBlocked() &&
       shouldShowContextWarning(contextUsage(), params.id, ignoredContextWarningSession(), effectiveBusy()),
   )
-  const [contextCompacting, setContextCompacting] = createSignal(false)
-  const contextCompactionDisabled = createMemo(() => effectiveBusy() || contextCompacting())
+  const contextCompactionDisabled = effectiveBusy
 
-  async function compactContext() {
-    const sessionID = params.id
-    const model = currentModel()
-    if (!sessionID || !model || contextCompactionDisabled()) return
-
-    setContextCompacting(true)
+  async function executeSessionCommand(input: Parameters<typeof sdk.client.session.command>[0]) {
     try {
-      const result = await sdk.client.session.summarize({
-        sessionID,
-        providerID: model.provider.id,
-        modelID: model.id,
+      const result = await sdk.client.session.command(input)
+      if (input.command !== "compact" && input.command !== "summarize") return
+
+      const info = result.data?.info
+      if (info && info.summary === true && info.finish && !info.error) {
+        showOctoToast({ title: "上下文压缩完成" })
+        return
+      }
+      const error = (info?.error ?? result.error) as { data?: { message?: string }; message?: string } | undefined
+      showOctoToast({
+        title: "上下文压缩失败",
+        description: error?.data?.message ?? error?.message ?? "请稍后重试",
+        variant: "error",
       })
-      if (result.error) throw result.error
-      sync.set("session_status", sessionID, { type: "idle" })
-      if (result.data !== true) return
-      showOctoToast({ title: "上下文压缩完成" })
     } catch (error) {
-      console.error("[MakePage] context compaction failed", error)
+      console.error(`[MakePage] command /${input.command} failed`, error)
+      if (input.command !== "compact" && input.command !== "summarize") return
       showOctoToast({
         title: "上下文压缩失败",
         description: error instanceof Error ? error.message : "请稍后重试",
         variant: "error",
       })
-    } finally {
-      setContextCompacting(false)
     }
+  }
+
+  function compactContext() {
+    const sessionID = params.id
+    const model = currentModel()
+    if (!sessionID || !model || contextCompactionDisabled()) return
+    return executeSessionCommand({
+      sessionID,
+      command: "compact",
+      arguments: "",
+      agent: "octo_make",
+      model: `${model.provider.id}/${model.id}`,
+    })
   }
 
   function confirmCompactContext() {
@@ -3027,39 +3038,14 @@ const sessionMessagesLoaded = createMemo(() => {
             inputText: (fullDisplayText || text).slice(0, 30)
           })
 
-          try {
-            const result = await sdk.client.session.command({
-              sessionID: sessionId,
-              command: seg.cmd,
-              arguments: seg.args,
-              agent: sessionId === activePlanSessionId() ? "octo_make_plan" : sessionId === activePatternSessionId() ? "ict_pattern" : "octo_make",
-              model: modelStr,
-              parts: cmdParts.length > 0 ? cmdParts : undefined,
-            })
-            // /compact、/summarize 的响应是摘要 assistant 消息,成功判定与后端 isSuccessful 一致
-            if (seg.cmd === "compact" || seg.cmd === "summarize") {
-              const info = result.data?.info
-              if (info && info.summary === true && info.finish && !info.error) {
-                showOctoToast({ title: "上下文压缩完成" })
-              } else {
-                const err = (info?.error ?? result.error) as { data?: { message?: string }; message?: string } | undefined
-                showOctoToast({
-                  title: "上下文压缩失败",
-                  description: err?.data?.message ?? err?.message ?? "请稍后重试",
-                  variant: "error",
-                })
-              }
-            }
-          } catch (err) {
-            console.error(`[MakePage] command /${seg.cmd} failed`, err)
-            if (seg.cmd === "compact" || seg.cmd === "summarize") {
-              showOctoToast({
-                title: "上下文压缩失败",
-                description: err instanceof Error ? err.message : "请稍后重试",
-                variant: "error",
-              })
-            }
-          }
+          await executeSessionCommand({
+            sessionID: sessionId,
+            command: seg.cmd,
+            arguments: seg.args,
+            agent: sessionId === activePlanSessionId() ? "octo_make_plan" : "octo_make",
+            model: modelStr,
+            parts: cmdParts.length > 0 ? cmdParts : undefined,
+          })
         }
 
         setAttachments([])
@@ -5104,7 +5090,6 @@ onPreview={(url) => {
                           limit={limit()}
                           locale={language.intl()}
                           disabled={contextCompactionDisabled()}
-                          compacting={contextCompacting()}
                           onIgnore={() => setIgnoredContextWarningSession(params.id)}
                           onCompact={confirmCompactContext}
                         />
@@ -5135,7 +5120,6 @@ onPreview={(url) => {
                           limit={limit()}
                           locale={language.intl()}
                           disabled={contextCompactionDisabled()}
-                          compacting={contextCompacting()}
                           onIgnore={() => setIgnoredContextWarningSession(params.id)}
                           onCompact={confirmCompactContext}
                         />
