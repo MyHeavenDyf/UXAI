@@ -45,9 +45,27 @@ export class ComponentModel {
             resolvedProperties[key] = this.resolvePropertyValue(value);
         }
         this.props = resolvedProperties
+        // className 统一加 !important（覆盖字符串与已解析的路径绑定值）
+        if (typeof this.props.className === "string") {
+            this.props.className = this.addImportantToClasses(this.props.className)
+        }
         if (children) {
             this.children = this.resolveChildren(children)
         }
+    }
+
+    private addImportantToClasses(classNameStr: string): string {
+        if (!classNameStr) return ""
+        return classNameStr
+            .trim()
+            .split(/\s+/)
+            .map((cls: string) => {
+                if (cls.endsWith("!")) return cls
+                const normalized = cls.replace(/^!/, "").replace(/:!/, ":")
+                if (/^(group|peer)(\/|$)/.test(normalized)) return normalized
+                return normalized + "!"
+            })
+            .join(" ")
     }
 
     resolvePropertyValue(
