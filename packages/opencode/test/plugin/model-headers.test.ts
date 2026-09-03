@@ -72,3 +72,27 @@ test("HTTP models catalog forwards optional request headers", async () => {
 
   expect(received.uiplustoken).toBe("internal-token")
 })
+
+test("HTTP models catalog accepts provider models arrays", async () => {
+  using server = Bun.serve({
+    port: 0,
+    fetch: () =>
+      Response.json({
+        content: {
+          opencode: {
+            ...response.alias,
+            id: "opencode",
+            models: Object.values(response.alias.models),
+          },
+        },
+        success: true,
+        errorCode: 200,
+        errorMessage: null,
+      }),
+  })
+  configureModelsApi({ url: `${server.url}api.json` })
+
+  const catalog = await modelsApiCatalog()
+
+  expect(catalog.opencode.models["remote-only"].name).toBe("Remote Only")
+})

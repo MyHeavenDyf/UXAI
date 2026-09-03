@@ -60,7 +60,24 @@ function apiModels(value: unknown): Record<string, unknown> {
   const input = parseJson(value)
   if (!isRecord(input)) return {}
   const direct = Object.fromEntries(
-    Object.entries(input).filter(([, provider]) => isRecord(provider) && isRecord(provider.models)),
+    Object.entries(input).flatMap(([key, provider]) => {
+      if (!isRecord(provider)) return []
+      if (isRecord(provider.models)) return [[key, provider]]
+      if (!Array.isArray(provider.models)) return []
+      return [
+        [
+          key,
+          {
+            ...provider,
+            models: Object.fromEntries(
+              provider.models.flatMap((model) =>
+                isRecord(model) && typeof model.id === "string" ? [[model.id, model]] : [],
+              ),
+            ),
+          },
+        ],
+      ]
+    }),
   )
   if (Object.keys(direct).length > 0) return direct
   return (
