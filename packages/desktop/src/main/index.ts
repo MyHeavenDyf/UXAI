@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { EventEmitter } from "node:events"
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, rmSync } from "node:fs"
 import * as http from "node:http"
 import { createServer } from "node:net"
 import { homedir, tmpdir } from "node:os"
@@ -58,6 +58,7 @@ import { CHANNEL, UPDATER_ENABLED } from "./constants"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
+import { proxyConfigFile, readProxyConfig, maskProxyUrl } from "./proxy-config"
 import { normalizeReleaseNotes } from "./normalize-release-notes"
 import { createMenu } from "./menu"
 import { setUploadsDir, startPreviewServer } from "./preview-server"
@@ -225,27 +226,29 @@ function useSystemCertificates() {
 }
 
 function useEnvProxy() {
+  // 先注入 ~/.config/octo/proxy_config.json 的代理，再 setGlobalProxyFromEnv()：
+  // 后者读取调用时刻的 env，顺序反了首次调用就是 no-op（旧实现依赖 setupApp 补调第二次）
+  const config = readProxyConfig()
+  if (config) {
+    for (const key of ["http_proxy", "https_proxy", "no_proxy"] as const) {
+      const value = config[key]
+      if (!value) continue
+      process.env[key] = value
+      process.env[key.toUpperCase()] = value
+    }
+    logger.log("octo proxy config loaded", {
+      file: proxyConfigFile(),
+      http_proxy: maskProxyUrl(config.http_proxy),
+      https_proxy: maskProxyUrl(config.https_proxy),
+      no_proxy: config.no_proxy,
+    })
+  }
+
   try {
-    // Electron 41.2 runs Node 24.14.1; latest @types/node@24 is 24.12.2.
+    // Electron 42 runs Node 24.15.0 (Electron 41.2 为 24.14.1，均含该 API)。
     ;(http as any).setGlobalProxyFromEnv()
   } catch (error) {
     logger.warn("failed to load proxy environment", error)
-  }
-
-  // 从 ~/.config/octo/proxy_config.json 读取代理配置并注入环境变量
-  try {
-    const configFile = join(homedir(), ".config", "octo", "proxy_config.json")
-    if (existsSync(configFile)) {
-      const config = JSON.parse(readFileSync(configFile, "utf-8"))
-      for (const key of ["http_proxy", "https_proxy", "no_proxy"]) {
-        const value = config[key]
-        if (!value) continue
-        process.env[key] = value
-        process.env[key.toUpperCase()] = value
-      }
-    }
-  } catch (error) {
-    logger.warn("failed to load octo proxy config", error)
   }
 }
 

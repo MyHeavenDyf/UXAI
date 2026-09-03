@@ -535,6 +535,7 @@
   position: absolute;
   bottom: 100%;
   height: 0;
+  z-index: 42;
 }
 
 .studio-image-settings-menu {
@@ -1350,7 +1351,7 @@
 
 .studio-user-bubble {
   width: fit-content;
-  max-width: 374px;
+  max-width: 450px;
   min-width: 0;
   min-height: 46px;
   display: flex;
@@ -1365,6 +1366,34 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.studio-user-bubble-mention {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  margin: 0 2px;
+  height: 22px;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 4px;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+
+.studio-user-bubble-mention img {
+  width: 16px;
+  height: 16px;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+.studio-user-bubble-mention-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
+  min-width: 0;
 }
 
 .studio-assistant-copy {
