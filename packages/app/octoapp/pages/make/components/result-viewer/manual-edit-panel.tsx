@@ -1,7 +1,22 @@
 import { createSignal, createEffect, Show, For, onCleanup } from 'solid-js'
+import type { JSX } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import type { ManualEditTarget, ManualEditStyles, ManualEditPatch } from '../../edit-mode/source-patches'
-import { emptyManualEditStyles } from '../../edit-mode/source-patches'
+import { emptyManualEditStyles, serializeEffects, parseEffects, type EffectEntry } from '../../edit-mode/source-patches'
+import { ColorPicker } from '../../../pattern/modules/preview/property-editor-popup/color-picker'
+import { HUI_COLOR_TOKENS } from '../../../pattern/modules/preview/property-editor-popup/hui-color-tokens'
+import { DragInput } from '../../../pattern/modules/preview/property-editor-popup/drag-input'
+import { CustomSelect } from '../../../pattern/modules/preview/property-editor-popup/custom-select'
+import {
+  FreeformIcon, RowIcon, ColIcon,
+  HAlignIcon, VAlignIcon,
+  PaddingIcon, MarginIcon, HorizontalPaddingIcon, VerticalPaddingIcon,
+  OpacityIcon, CornerCurveIcon, BorderRadiusIcon,
+  TopLeftBorderRadiusIcon, TopRightBorderRadiusIcon, BottomLeftBorderRadiusIcon, BottomRightBorderRadiusIcon,
+  LineHeightIcon, LetterSpacingIcon,
+  SettingsIcon,
+} from '../../../pattern/modules/preview/property-editor-popup/icons'
+import '../../../pattern/assets/style/preview/PropertyEditorPopup.css'
 import './manual-edit-panel.css'
 
 export interface ManualEditDraft {
@@ -23,25 +38,19 @@ export function emptyManualEditDraft(source = ''): ManualEditDraft {
   }
 }
 
-const EDITOR_SWATCH_COLORS = [
-  '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e',
-  '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1',
-  '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e', '#000000',
-  '#6b7280', '#9ca3af', '#d1d5db', '#e5e7eb', '#f3f4f6', '#ffffff',
-]
-
-const WEIGHT_OPTS = ['100', '200', '300', '400', '500', '600', '700', '800', '900']
-const ALIGN_OPTS = ['left', 'center', 'right', 'justify']
-const DIRECTION_OPTS = ['row', 'row-reverse', 'column', 'column-reverse']
-const JUSTIFY_OPTS = ['flex-start', 'center', 'flex-end', 'space-between', 'space-around']
-const ITEMS_OPTS = ['flex-start', 'center', 'flex-end', 'stretch', 'baseline']
 const BORDER_STYLE_OPTS = ['solid', 'dashed', 'dotted', 'none']
 
-const FONT_OPTS = [
-  { label: 'System', value: 'system-ui, -apple-system, sans-serif' },
-  { label: 'Serif', value: 'serif' },
-  { label: 'Mono', value: 'monospace' },
-  { label: 'Sans', value: 'sans-serif' },
+// 布局 9 宫格:justify × align,CSS 值。顺序:左上→中上→右上→中左→正中→中右→左下→中下→右下。
+const LAYOUT_GRID = [
+  { label: '左上', justify: 'flex-start', align: 'flex-start' },
+  { label: '中上', justify: 'center', align: 'flex-start' },
+  { label: '右上', justify: 'flex-end', align: 'flex-start' },
+  { label: '中左', justify: 'flex-start', align: 'center' },
+  { label: '正中', justify: 'center', align: 'center' },
+  { label: '中右', justify: 'flex-end', align: 'center' },
+  { label: '左下', justify: 'flex-start', align: 'flex-end' },
+  { label: '中下', justify: 'center', align: 'flex-end' },
+  { label: '右下', justify: 'flex-end', align: 'flex-end' },
 ]
 
 export function ManualEditPanel(props: {
@@ -64,6 +73,7 @@ export function ManualEditPanel(props: {
   const [confirmDelete, setConfirmDelete] = createSignal(false)
   const [uploadingImage, setUploadingImage] = createSignal(false)
   let fileInputRef: HTMLInputElement | undefined
+  let bgFileInputRef: HTMLInputElement | undefined
   let panelRef: HTMLElement | undefined
 
   const updatePanelMaxHeight = () => {
@@ -162,6 +172,25 @@ export function ManualEditPanel(props: {
     props.onStyleChange?.(props.selectedTarget.id, { [key]: value }, `Style: ${props.selectedTarget.label}`)
   }
 
+  // effects 是数组字段,需同时序列化为 boxShadow/filter/backdropFilter 字符串;一次性发送 4 个字段。
+  const changeEffects = (next: EffectEntry[]) => {
+    const serialized = serializeEffects(next)
+    const nextStyles: ManualEditStyles = {
+      ...props.draft.styles,
+      effects: next,
+      boxShadow: serialized.boxShadow,
+      filter: serialized.filter,
+      backdropFilter: serialized.backdropFilter,
+    }
+    props.onDraftChange({ ...props.draft, styles: nextStyles })
+    if (!props.selectedTarget) return
+    props.onStyleChange?.(
+      props.selectedTarget.id,
+      { effects: next, boxShadow: serialized.boxShadow, filter: serialized.filter, backdropFilter: serialized.backdropFilter },
+      `Effects: ${props.selectedTarget.label}`,
+    )
+  }
+
   const handleImagePick = async (e: Event) => {
     const file = (e.currentTarget as HTMLInputElement).files?.[0]
     if (!file || !props.onPickImage) return
@@ -180,6 +209,28 @@ export function ManualEditPanel(props: {
     } finally {
       setUploadingImage(false)
     }
+  }
+
+  // 背景图:复用 onPickImage 拿 dataURL,作为 backgroundImage inline style 写入(不是 src 属性)。
+  const handleBgImagePick = async (e: Event) => {
+    const file = (e.currentTarget as HTMLInputElement).files?.[0]
+    if (!file || !props.onPickImage) return
+    (e.currentTarget as HTMLInputElement).value = ''
+    setUploadingImage(true)
+    try {
+      const dataUrl = await props.onPickImage(file)
+      if (dataUrl && props.selectedTarget) {
+        changeTargetStyle('backgroundImage', `url("${dataUrl}")`)
+      } else {
+        props.onError('Failed to upload background image')
+      }
+    } finally {
+      setUploadingImage(false)
+    }
+  }
+
+  const handleBgImageClear = () => {
+    changeTargetStyle('backgroundImage', '')
   }
 
   const handleDelete = () => {
@@ -220,8 +271,15 @@ export function ManualEditPanel(props: {
     >
       <section class="manual-edit-modal cc-panel octo-thin-scroll">
         <div class="manual-edit-titlebar" onPointerDown={startPanelDrag}>
-          <span title={panelTitle()}>{panelTitle()}</span>
-          
+          <Show when={props.selectedTarget} fallback={<span title={panelTitle()}>{panelTitle()}</span>}>
+            <span class="manual-edit-titlebar-kind" title={panelTitle()}>
+              {props.selectedTarget!.kind}
+            </span>
+            <span class="manual-edit-titlebar-id" title={props.selectedTarget!.id}>
+              {props.selectedTarget!.id}
+            </span>
+          </Show>
+          <span class="manual-edit-titlebar-spacer" />
           <Show when={props.onExit}>
             <button
               type="button"
@@ -278,6 +336,7 @@ export function ManualEditPanel(props: {
               styles={props.draft.styles}
               layoutEnabled={props.selectedTarget!.isLayoutContainer}
               onChange={changeTargetStyle}
+              onEffectsChange={changeEffects}
             />
           </Show>
 
@@ -299,6 +358,46 @@ export function ManualEditPanel(props: {
                   accept="image/*"
                   style={{ display: 'none' }}
                   onChange={handleImagePick}
+                />
+              </div>
+            </div>
+          </Show>
+
+          <Show when={props.selectedTarget?.kind === 'container' && props.onPickImage}>
+            <div class="cc-section">
+              <header class="cc-section-head">背景图</header>
+              <div class="cc-section-body">
+                <div class="cc-bgimage-row">
+                  <div
+                    class="cc-bgimage-preview"
+                    style={{ background: props.draft.styles.backgroundImage ? `center / cover no-repeat ${props.draft.styles.backgroundImage}` : undefined }}
+                  />
+                  <div class="cc-bgimage-actions">
+                    <button
+                      type="button"
+                      class="cc-action-btn"
+                      disabled={uploadingImage()}
+                      onClick={() => bgFileInputRef?.click()}
+                    >
+                      {uploadingImage() ? 'Uploading...' : 'Upload'}
+                    </button>
+                    <Show when={props.draft.styles.backgroundImage}>
+                      <button
+                        type="button"
+                        class="cc-action-btn"
+                        onClick={handleBgImageClear}
+                      >
+                        Clear
+                      </button>
+                    </Show>
+                  </div>
+                </div>
+                <input
+                  ref={bgFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={handleBgImagePick}
                 />
               </div>
             </div>
@@ -380,629 +479,605 @@ export function ManualEditPanel(props: {
   )
 }
 
+function EffectsSection(props: {
+  effects: EffectEntry[]
+  onChange: (next: EffectEntry[]) => void
+}) {
+  const update = (id: string, patch: Partial<EffectEntry>) => {
+    props.onChange(props.effects.map(e => e.id === id ? { ...e, ...patch } : e))
+  }
+  const addEffect = () => {
+    const next: EffectEntry = {
+      id: `effect-${Date.now()}-${props.effects.length}`,
+      type: 'drop-shadow',
+      visible: true,
+      expanded: true,
+      color: '#000000',
+      opacity: 100,
+      blur: 0,
+      offsetX: 2,
+      offsetY: 2,
+      layerBlur: 0,
+      bgBlur: 0,
+      foundBlur: false,
+      foundOffsetX: true,
+      foundOffsetY: true,
+      foundLayerBlur: false,
+      foundBgBlur: false,
+    }
+    props.onChange([...props.effects, next])
+  }
+  const removeEffect = (id: string) => {
+    props.onChange(props.effects.filter(e => e.id !== id))
+  }
+
+  return (
+    <Section title="效果">
+      <div class="cc-effects-row">
+        <div class="cc-effects-head">
+          <span>效果</span>
+          <button type="button" class="prop-chip cc-effect-add" onClick={addEffect} title="添加" aria-label="添加">
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v10M3 8h10" /></svg>
+          </button>
+        </div>
+        <For each={props.effects}>
+          {(e) => (
+            <div class="cc-effect-card">
+              <div class="cc-effect-row">
+                <CustomSelect
+                  value={e.type}
+                  options={[
+                    { label: '阴影', value: 'drop-shadow' },
+                    { label: '模糊', value: 'layer-blur' },
+                    { label: '背景模糊', value: 'background-blur' },
+                  ]}
+                  onChange={(v) => update(e.id, { type: v as EffectEntry['type'] })}
+                />
+                <button
+                  type="button"
+                  class="prop-chip cc-effect-toggle"
+                  onClick={() => update(e.id, { visible: !e.visible })}
+                  title={e.visible ? '隐藏' : '显示'}
+                  aria-label={e.visible ? '隐藏' : '显示'}
+                >
+                  <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    {e.visible
+                      ? <><path d="M2 8s2-5 6-5 6 5 6 5-2 5-6 5-6-5-6-5z" /><circle cx="8" cy="8" r="2" /></>
+                      : <><path d="M1 1l14 14M4 4c-1.3.8-2.5 2-3 4 0 0 2 5 6 5 1.5 0 2.8-.5 3.8-1.2M14 12c1.3-.8 2.5-2 3-4 0 0-2-5-6-5-1.5 0-2.8.5-3.8 1.2" /></>}
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="prop-chip cc-effect-remove"
+                  onClick={() => removeEffect(e.id)}
+                  title="删除"
+                  aria-label="删除"
+                >
+                  <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h10" /></svg>
+                </button>
+              </div>
+              <Show when={e.expanded && e.type === 'drop-shadow'}>
+                <div class="cc-effect-row">
+                  <ColorPicker label="Color" value={e.color} tokens={HUI_COLOR_TOKENS} onChange={(v) => update(e.id, { color: v })} />
+                </div>
+                <div class="cc-effect-row">
+                  <DragInput value={() => e.opacity} setValue={(v) => update(e.id, { opacity: Math.max(0, Math.min(100, v)) })} setFound={() => {}} found={() => true} placeholder="100%" max={100} suffix="%" />
+                </div>
+                <div class="cc-effect-row">
+                  <DragInput value={() => e.blur} setValue={(v) => update(e.id, { blur: v, foundBlur: true })} setFound={() => {}} found={() => e.foundBlur} placeholder="模糊值" />
+                </div>
+                <div class="cc-effect-row">
+                  <DragInput value={() => e.offsetX} setValue={(v) => update(e.id, { offsetX: v, foundOffsetX: true })} setFound={() => {}} found={() => e.foundOffsetX} placeholder="X" />
+                  <DragInput value={() => e.offsetY} setValue={(v) => update(e.id, { offsetY: v, foundOffsetY: true })} setFound={() => {}} found={() => e.foundOffsetY} placeholder="Y" />
+                </div>
+              </Show>
+              <Show when={e.expanded && e.type === 'layer-blur'}>
+                <div class="cc-effect-row">
+                  <DragInput value={() => e.layerBlur} setValue={(v) => update(e.id, { layerBlur: v, foundLayerBlur: true })} setFound={() => {}} found={() => e.foundLayerBlur} placeholder="模糊值" />
+                </div>
+              </Show>
+              <Show when={e.expanded && e.type === 'background-blur'}>
+                <div class="cc-effect-row">
+                  <DragInput value={() => e.bgBlur} setValue={(v) => update(e.id, { bgBlur: v, foundBgBlur: true })} setFound={() => {}} found={() => e.foundBgBlur} placeholder="模糊值" />
+                </div>
+              </Show>
+              <button
+                type="button"
+                class="prop-chip cc-effect-expand-toggle"
+                onClick={() => update(e.id, { expanded: !e.expanded })}
+              >
+                {e.expanded ? '收起' : '展开'}
+              </button>
+            </div>
+          )}
+        </For>
+      </div>
+    </Section>
+  )
+}
+
 function StyleInspector(props: {
   targetKind: ManualEditTarget['kind']
   styles: ManualEditStyles
   layoutEnabled: boolean
   onChange: (key: keyof ManualEditStyles, value: string) => void
+  onEffectsChange: (next: EffectEntry[]) => void
 }) {
   const u = (key: keyof ManualEditStyles, value: string) => props.onChange(key, value)
+  const [borderIndividualOpen, setBorderIndividualOpen] = createSignal(false)
+  const [cornerOpen, setCornerOpen] = createSignal(false)
+
+  const setBorderWidthAll = (v: number) => {
+    u('borderTopWidth', `${v}px`)
+    u('borderRightWidth', `${v}px`)
+    u('borderBottomWidth', `${v}px`)
+    u('borderLeftWidth', `${v}px`)
+  }
 
   return (
     <div class="cc-inspector">
-      <Show when={props.targetKind === 'text' || props.targetKind === 'link' || props.targetKind === 'token' || props.targetKind === 'mixed'}>
-        <Section title="TYPOGRAPHY">
-          <FontRow value={props.styles.fontFamily} onChange={(v) => u('fontFamily', v)} />
-          <UnitRow label="Size" value={props.styles.fontSize} onChange={(v) => u('fontSize', v)} unit="px" autoUnit />
-          <DropdownRow label="Weight" value={props.styles.fontWeight} onChange={(v) => u('fontWeight', v)} options={WEIGHT_OPTS} />
-          <ColorRow label="Color" value={props.styles.color} onChange={(v) => u('color', v)} />
-          <DropdownRow label="Align" value={props.styles.textAlign} onChange={(v) => u('textAlign', v)} options={ALIGN_OPTS} />
-          <UnitRow label="Line" value={props.styles.lineHeight} onChange={(v) => u('lineHeight', v)} unit="px" autoUnit />
-          <UnitRow label="Tracking" value={props.styles.letterSpacing} onChange={(v) => u('letterSpacing', v)} unit="px" autoUnit />
-        </Section>
-      </Show>
-
-      <Show when={props.targetKind !== 'text' && props.targetKind !== 'link' && props.targetKind !== 'token' && props.targetKind !== 'mixed'}>
-        <Section title="SIZE">
-          <SizePairRow
-            width={props.styles.width}
-            height={props.styles.height}
-            onWidthChange={(v) => u('width', v)}
-            onHeightChange={(v) => u('height', v)}
-          />
-        </Section>
-      </Show>
-
       <Show when={props.layoutEnabled}>
-        <Section title="LAYOUT">
-          <UnitRow label="Gap" value={props.styles.gap} onChange={(v) => u('gap', v)} unit="px" autoUnit />
-          <DropdownRow label="Direction" value={props.styles.flexDirection} onChange={(v) => u('flexDirection', v)} options={DIRECTION_OPTS} />
-          <DropdownRow label="Justify" value={props.styles.justifyContent} onChange={(v) => u('justifyContent', v)} options={JUSTIFY_OPTS} />
-          <DropdownRow label="Align" value={props.styles.alignItems} onChange={(v) => u('alignItems', v)} options={ITEMS_OPTS} />
+        <Section title="布局">
+          <div class="cc-layout-direction">
+            <button
+              type="button"
+              onClick={() => u('flexDirection', '')}
+              class={!props.styles.flexDirection ? 'prop-chip-active cc-layout-dir-btn' : 'prop-chip cc-layout-dir-btn'}
+              title="自由布局"
+              aria-label="自由布局"
+            >
+              <FreeformIcon />
+            </button>
+            <button
+              type="button"
+              onClick={() => u('flexDirection', 'row')}
+              class={props.styles.flexDirection === 'row' || props.styles.flexDirection === 'row-reverse' ? 'prop-chip-active cc-layout-dir-btn' : 'prop-chip cc-layout-dir-btn'}
+              title="行布局"
+              aria-label="行布局"
+            >
+              <RowIcon />
+            </button>
+            <button
+              type="button"
+              onClick={() => u('flexDirection', 'column')}
+              class={props.styles.flexDirection === 'column' || props.styles.flexDirection === 'column-reverse' ? 'prop-chip-active cc-layout-dir-btn' : 'prop-chip cc-layout-dir-btn'}
+              title="列布局"
+              aria-label="列布局"
+            >
+              <ColIcon />
+            </button>
+          </div>
+          <Show when={!!props.styles.flexDirection}>
+            <div class="cc-layout-grid-wrap">
+              <div class="cc-layout-grid">
+                <For each={LAYOUT_GRID}>
+                  {(p) => {
+                    const selected = () => props.styles.justifyContent === p.justify && props.styles.alignItems === p.align
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => { u('justifyContent', p.justify); u('alignItems', p.align) }}
+                        class={selected() ? 'cc-layout-cell cc-layout-cell-active' : 'cc-layout-cell'}
+                        title={p.label}
+                        aria-label={p.label}
+                      >
+                        <div class={selected() ? 'cc-layout-dot cc-layout-dot-active' : 'cc-layout-dot'} />
+                      </button>
+                    )
+                  }}
+                </For>
+              </div>
+              <div class="cc-layout-gap-col">
+                <DragInput
+                  value={() => parseFloat(props.styles.gap) || 0}
+                  setValue={(v) => u('gap', `${v}px`)}
+                  setFound={() => {}}
+                  found={() => true}
+                  placeholder="间距"
+                />
+                <label class="cc-layout-radio">
+                  <input
+                    type="radio"
+                    name="layout-justify-mode"
+                    checked={props.styles.justifyContent === 'space-between'}
+                    onChange={() => u('justifyContent', 'space-between')}
+                  />
+                  <span>两端对齐</span>
+                </label>
+                <label class="cc-layout-radio">
+                  <input
+                    type="radio"
+                    name="layout-justify-mode"
+                    checked={props.styles.justifyContent === 'space-around'}
+                    onChange={() => u('justifyContent', 'space-around')}
+                  />
+                  <span>环绕分布</span>
+                </label>
+              </div>
+            </div>
+          </Show>
         </Section>
       </Show>
 
       <Show when={props.targetKind === 'container' || props.targetKind === 'image' || props.targetKind === 'token'}>
-        <Section title="BOX">
-          <ColorRow label="Fill" value={props.styles.backgroundColor} onChange={(v) => u('backgroundColor', v)} />
-          <UnitRow label="Opacity" value={props.styles.opacity} onChange={(v) => u('opacity', v)} unit="" />
-
-          <QuadRow label="Padding" values={{
+        <QuadModeSection
+          title="内边距"
+          base="padding"
+          values={{
             t: props.styles.paddingTop, r: props.styles.paddingRight, b: props.styles.paddingBottom, l: props.styles.paddingLeft,
-          }} onChange={(side, value) => u(sideToProp('padding', side), value)} />
+          }}
+          onChange={(side, value) => u(sideToProp('padding', side), value)}
+        />
 
-          <QuadRow label="Margin" values={{
+        <QuadModeSection
+          title="外边距"
+          base="margin"
+          values={{
             t: props.styles.marginTop, r: props.styles.marginRight, b: props.styles.marginBottom, l: props.styles.marginLeft,
-          }} onChange={(side, value) => u(sideToProp('margin', side), value)} />
+          }}
+          onChange={(side, value) => u(sideToProp('margin', side), value)}
+        />
+      </Show>
 
-          <QuadRow label="Border" values={{
-            t: props.styles.borderTopWidth, r: props.styles.borderRightWidth, b: props.styles.borderBottomWidth, l: props.styles.borderLeftWidth,
-          }} onChange={(side, value) => u(`border${sideUpper(side)}Width` as keyof ManualEditStyles, value)} />
+      <Show when={props.targetKind !== 'text' && props.targetKind !== 'link' && props.targetKind !== 'token' && props.targetKind !== 'mixed'}>
+        <Section title="宽高">
+          <div class="cc-size-row">
+            <DragInput
+              value={() => parseFloat(props.styles.width) || 0}
+              setValue={(v) => u('width', `${v}px`)}
+              setFound={() => {}}
+              found={() => true}
+              placeholder="宽"
+              icon="W"
+            />
+            <DragInput
+              value={() => parseFloat(props.styles.height) || 0}
+              setValue={(v) => u('height', `${v}px`)}
+              setFound={() => {}}
+              found={() => true}
+              placeholder="高"
+              icon="H"
+            />
+          </div>
+          <div class="cc-size-checkboxes">
+            <label class="cc-size-checkbox">
+              <input
+                type="checkbox"
+                checked={props.styles.width === '100%'}
+                onChange={(e) => u('width', e.currentTarget.checked ? '100%' : '')}
+              />
+              <span>填充宽度</span>
+            </label>
+            <label class="cc-size-checkbox">
+              <input
+                type="checkbox"
+                checked={props.styles.height === '100%'}
+                onChange={(e) => u('height', e.currentTarget.checked ? '100%' : '')}
+              />
+              <span>填充高度</span>
+            </label>
+            <label class="cc-size-checkbox">
+              <input
+                type="checkbox"
+                checked={props.styles.width === 'fit-content' || props.styles.width === 'max-content' || props.styles.width === 'auto'}
+                onChange={(e) => u('width', e.currentTarget.checked ? 'fit-content' : '')}
+              />
+              <span>适应宽度</span>
+            </label>
+            <label class="cc-size-checkbox">
+              <input
+                type="checkbox"
+                checked={props.styles.height === 'fit-content' || props.styles.height === 'max-content' || props.styles.height === 'auto'}
+                onChange={(e) => u('height', e.currentTarget.checked ? 'fit-content' : '')}
+              />
+              <span>适应高度</span>
+            </label>
+            <label class="cc-size-checkbox cc-size-clip">
+              <input
+                type="checkbox"
+                checked={props.styles.overflow === 'hidden'}
+                onChange={(e) => u('overflow', e.currentTarget.checked ? 'hidden' : '')}
+              />
+              <span>裁剪内容</span>
+            </label>
+          </div>
+        </Section>
+      </Show>
 
-          <DropdownRow label="Style" value={props.styles.borderStyle} onChange={(v) => u('borderStyle', v)} options={BORDER_STYLE_OPTS} />
-          <ColorRow label="Color" value={props.styles.borderColor} onChange={(v) => u('borderColor', v)} />
-          <UnitRow label="Radius" value={props.styles.borderRadius} onChange={(v) => u('borderRadius', v)} unit="px" autoUnit />
+      <Show when={props.targetKind === 'container' || props.targetKind === 'image' || props.targetKind === 'token'}>
+        <Section title="外观">
+          <ColorPicker label="Fill" value={props.styles.backgroundColor} tokens={HUI_COLOR_TOKENS} onChange={(v) => u('backgroundColor', v)} />
+          <div class="cc-stroke-row">
+            <DragInput
+              value={() => Math.round((parseFloat(props.styles.opacity) || 0) * 100)}
+              setValue={(v) => u('opacity', String(Math.round(v) / 100))}
+              setFound={() => {}}
+              found={() => true}
+              placeholder="透明度"
+              max={100}
+              icon={<OpacityIcon />}
+              suffixIcon="%"
+            />
+            <DragInput
+              value={() => parseFloat(props.styles.borderRadius) || 0}
+              setValue={(v) => {
+                // 改 unified radius 时清空 4 个 longhand,让 shorthand 生效;
+                // 否则 expandRadiusShorthand 会用旧 longhand 值覆盖用户的新 shorthand 意图。
+                u('borderRadius', `${v}px`)
+                u('borderTopLeftRadius', '')
+                u('borderTopRightRadius', '')
+                u('borderBottomRightRadius', '')
+                u('borderBottomLeftRadius', '')
+              }}
+              setFound={() => {}}
+              found={() => true}
+              placeholder="圆角"
+              icon={<CornerCurveIcon />}
+              suffixIcon={<BorderRadiusIcon />}
+              display={cornerOpen() && (props.styles.borderTopLeftRadius || props.styles.borderTopRightRadius || props.styles.borderBottomRightRadius || props.styles.borderBottomLeftRadius) ? 'mixed' : undefined}
+            />
+            <button
+              type="button"
+              class={cornerOpen() ? 'prop-chip-active cc-stroke-expand' : 'prop-chip cc-stroke-expand'}
+              onClick={() => setCornerOpen(!cornerOpen())}
+              title="四角独立"
+              aria-label="四角独立"
+            >
+              <span style={{ "font-size": "10px" }}>◱</span>
+            </button>
+          </div>
+          <Show when={cornerOpen()}>
+            <div class="cc-stroke-trbl">
+              <DragInput value={() => parseFloat(props.styles.borderTopLeftRadius) || 0} setValue={(v) => u('borderTopLeftRadius', `${v}px`)} setFound={() => {}} found={() => true} placeholder="左上" icon={<TopLeftBorderRadiusIcon />} />
+              <DragInput value={() => parseFloat(props.styles.borderTopRightRadius) || 0} setValue={(v) => u('borderTopRightRadius', `${v}px`)} setFound={() => {}} found={() => true} placeholder="右上" icon={<TopRightBorderRadiusIcon />} />
+              <DragInput value={() => parseFloat(props.styles.borderBottomLeftRadius) || 0} setValue={(v) => u('borderBottomLeftRadius', `${v}px`)} setFound={() => {}} found={() => true} placeholder="左下" icon={<BottomLeftBorderRadiusIcon />} />
+              <DragInput value={() => parseFloat(props.styles.borderBottomRightRadius) || 0} setValue={(v) => u('borderBottomRightRadius', `${v}px`)} setFound={() => {}} found={() => true} placeholder="右下" icon={<BottomRightBorderRadiusIcon />} />
+            </div>
+          </Show>
+        </Section>
+
+        <Section title="描边">
+          <ColorPicker label="Color" value={props.styles.borderColor} tokens={HUI_COLOR_TOKENS} onChange={(v) => u('borderColor', v)} />
+          <div class="cc-stroke-row">
+            <DragInput
+              value={() => parseFloat(props.styles.borderTopWidth) || 0}
+              setValue={(v) => {
+                if (!borderIndividualOpen()) setBorderWidthAll(v)
+                else u('borderTopWidth', `${v}px`)
+              }}
+              setFound={() => {}}
+              found={() => true}
+              placeholder="宽度"
+            />
+            <button
+              type="button"
+              class={borderIndividualOpen() ? 'prop-chip-active cc-stroke-expand' : 'prop-chip cc-stroke-expand'}
+              onClick={() => setBorderIndividualOpen(!borderIndividualOpen())}
+              title="四角独立"
+              aria-label="四角独立"
+            >
+              <span style={{ "font-size": "10px" }}>◱</span>
+            </button>
+            <CustomSelect
+              value={props.styles.borderStyle || 'none'}
+              options={[
+                { label: '实线', value: 'solid' },
+                { label: '虚线', value: 'dashed' },
+                { label: '点线', value: 'dotted' },
+                { label: '无', value: 'none' },
+              ]}
+              onChange={(v) => u('borderStyle', v)}
+            />
+          </div>
+          <Show when={borderIndividualOpen()}>
+            <div class="cc-stroke-trbl">
+              <DragInput value={() => parseFloat(props.styles.borderTopWidth) || 0} setValue={(v) => u('borderTopWidth', `${v}px`)} setFound={() => {}} found={() => true} placeholder="上" />
+              <DragInput value={() => parseFloat(props.styles.borderRightWidth) || 0} setValue={(v) => u('borderRightWidth', `${v}px`)} setFound={() => {}} found={() => true} placeholder="右" />
+              <DragInput value={() => parseFloat(props.styles.borderBottomWidth) || 0} setValue={(v) => u('borderBottomWidth', `${v}px`)} setFound={() => {}} found={() => true} placeholder="下" />
+              <DragInput value={() => parseFloat(props.styles.borderLeftWidth) || 0} setValue={(v) => u('borderLeftWidth', `${v}px`)} setFound={() => {}} found={() => true} placeholder="左" />
+            </div>
+          </Show>
+        </Section>
+
+        <EffectsSection effects={props.styles.effects ?? []} onChange={props.onEffectsChange} />
+      </Show>
+
+      <Show when={props.targetKind === 'text' || props.targetKind === 'link' || props.targetKind === 'token' || props.targetKind === 'mixed'}>
+        <Section title="文字">
+          <div class="cc-typ-row">
+            <span class="cc-typ-label">字体</span>
+            <CustomSelect
+              value={props.styles.fontFamily}
+              options={[
+                { label: 'Default', value: '' },
+                { label: 'Sans', value: 'sans-serif' },
+                { label: 'Serif', value: 'serif' },
+                { label: 'Mono', value: 'monospace' },
+              ]}
+              onChange={(v) => u('fontFamily', v)}
+            />
+          </div>
+          <div class="cc-typ-row">
+            <span class="cc-typ-label">字重</span>
+            <CustomSelect
+              value={props.styles.fontWeight}
+              options={[
+                { label: 'Thin', value: '100' },
+                { label: 'Extra Light', value: '200' },
+                { label: 'Light', value: '300' },
+                { label: 'Regular', value: '400' },
+                { label: 'Medium', value: '500' },
+                { label: 'Semi Bold', value: '600' },
+                { label: 'Bold', value: '700' },
+                { label: 'Extra Bold', value: '800' },
+                { label: 'Black', value: '900' },
+              ]}
+              onChange={(v) => u('fontWeight', v)}
+            />
+          </div>
+          <div class="cc-typ-row">
+            <span class="cc-typ-label">字号</span>
+            <DragInput
+              value={() => parseFloat(props.styles.fontSize) || 0}
+              setValue={(v) => u('fontSize', `${v}px`)}
+              setFound={() => {}}
+              found={() => true}
+              placeholder="字号"
+              icon="S"
+            />
+          </div>
+          <ColorPicker label="文字色" value={props.styles.color} tokens={HUI_COLOR_TOKENS} onChange={(v) => u('color', v)} />
+          <div class="cc-typ-pair">
+            <div class="cc-typ-pair-cell">
+              <span class="cc-typ-sublabel">行高</span>
+              <DragInput
+                value={() => parseFloat(props.styles.lineHeight) || 0}
+                setValue={(v) => {
+                  // line-height 无单位是合法写法(=字号倍数);原值无单位则保持倍数语义,
+                  // 有单位(px/em)或 normal/空 则写 px。重开面板后值来自 computed 恒为 px。
+                  const raw = props.styles.lineHeight.trim()
+                  const unitless = /^\d+(\.\d+)?$/.test(raw)
+                  u('lineHeight', unitless ? String(v) : `${v}px`)
+                }}
+                setFound={() => {}}
+                found={() => true}
+                placeholder="auto"
+                icon={<LineHeightIcon />}
+                flex1={false}
+              />
+            </div>
+            <div class="cc-typ-pair-cell">
+              <span class="cc-typ-sublabel">字间距</span>
+              <DragInput
+                value={() => parseFloat(props.styles.letterSpacing) || 0}
+                setValue={(v) => u('letterSpacing', `${v}px`)}
+                setFound={() => {}}
+                found={() => true}
+                placeholder="0"
+                icon={<LetterSpacingIcon />}
+                flex1={false}
+              />
+            </div>
+          </div>
+          <div class="cc-typ-align-row">
+            <div class="cc-typ-align-cell">
+              <span class="cc-typ-sublabel">水平对齐</span>
+              <div class="cc-typ-align-group">
+                <button type="button" onClick={() => u('textAlign', props.styles.textAlign === 'left' ? '' : 'left')} class={props.styles.textAlign === 'left' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="左对齐" aria-label="左对齐"><HAlignIcon value="left" /></button>
+                <button type="button" onClick={() => u('textAlign', props.styles.textAlign === 'center' ? '' : 'center')} class={props.styles.textAlign === 'center' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="居中" aria-label="居中"><HAlignIcon value="center" /></button>
+                <button type="button" onClick={() => u('textAlign', props.styles.textAlign === 'right' ? '' : 'right')} class={props.styles.textAlign === 'right' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="右对齐" aria-label="右对齐"><HAlignIcon value="right" /></button>
+                <button type="button" onClick={() => u('textAlign', props.styles.textAlign === 'justify' ? '' : 'justify')} class={props.styles.textAlign === 'justify' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="两端对齐" aria-label="两端对齐"><HAlignIcon value="justify" /></button>
+              </div>
+            </div>
+            <div class="cc-typ-align-cell">
+              <span class="cc-typ-sublabel">垂直对齐</span>
+              <div class="cc-typ-align-group">
+                <button type="button" onClick={() => u('verticalAlign', props.styles.verticalAlign === 'top' ? '' : 'top')} class={props.styles.verticalAlign === 'top' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="顶部对齐" aria-label="顶部对齐"><VAlignIcon value="start" /></button>
+                <button type="button" onClick={() => u('verticalAlign', props.styles.verticalAlign === 'middle' ? '' : 'middle')} class={props.styles.verticalAlign === 'middle' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="居中" aria-label="居中"><VAlignIcon value="center" /></button>
+                <button type="button" onClick={() => u('verticalAlign', props.styles.verticalAlign === 'bottom' ? '' : 'bottom')} class={props.styles.verticalAlign === 'bottom' ? 'prop-chip-active cc-typ-align-btn' : 'prop-chip cc-typ-align-btn'} title="底部对齐" aria-label="底部对齐"><VAlignIcon value="end" /></button>
+              </div>
+            </div>
+          </div>
         </Section>
       </Show>
     </div>
   )
 }
 
-function Section(props: { title: string; children: any }) {
+function Section(props: { title: string; actions?: JSX.Element; children: any }) {
   return (
     <section class="cc-section">
-      <header class="cc-section-head">{props.title}</header>
+      <header class="cc-section-head">
+        <span class="cc-section-title">{props.title}</span>
+        <Show when={props.actions}>{props.actions}</Show>
+      </header>
       <div class="cc-section-body">{props.children}</div>
     </section>
   )
 }
 
-function PairRow(props: { children: any }) {
-  return <div class="cc-pair">{props.children}</div>
-}
-
-function SizePairRow(props: {
-  width: string
-  height: string
-  onWidthChange: (v: string) => void
-  onHeightChange: (v: string) => void
-}) {
-  const autoUnit = (raw: string) => {
-    const trimmed = raw.trim()
-    if (trimmed && /^-?\d+(\.\d+)?$/.test(trimmed)) return `${trimmed}px`
-    return raw
-  }
-
-  const display = (value: string) => {
-    const match = value.trim().match(/^(-?\d+(?:\.\d+)?)px$/i)
-    return match?.[1] ?? value
-  }
-
-  return (
-    <div class="cc-size-pair">
-      <span class="cc-size-cell">
-        <span class="cc-size-label">W</span>
-        <input
-          value={display(props.width)}
-          onInput={(e) => props.onWidthChange(autoUnit(e.currentTarget.value))}
-          onBlur={(e) => props.onWidthChange(autoUnit(e.currentTarget.value))}
-          placeholder="0"
-        />
-        <Show when={!isKeyword(display(props.width))}><em class="cc-unit">px</em></Show>
-      </span>
-      <span class="cc-size-cell">
-        <span class="cc-size-label">H</span>
-        <input
-          value={display(props.height)}
-          onInput={(e) => props.onHeightChange(autoUnit(e.currentTarget.value))}
-          onBlur={(e) => props.onHeightChange(autoUnit(e.currentTarget.value))}
-          placeholder="0"
-        />
-        <Show when={!isKeyword(display(props.height))}><em class="cc-unit">px</em></Show>
-      </span>
-    </div>
-  )
-}
-
-function UnitRow(props: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  unit: string
-  autoUnit?: boolean
-}) {
-  const display = () => stripPxUnit(props.value)
-
-  const valueFromDisplay = (raw: string) => {
-    const trimmed = raw.trim()
-    if (/^-?\d+(\.\d+)?px$/i.test(trimmed)) return trimmed.toLowerCase()
-    if (props.autoUnit && trimmed && isNumericInput(trimmed)) return `${trimmed}px`
-    return raw
-  }
-
-  return (
-    <div class="cc-row">
-      <span class="cc-label">{props.label}</span>
-      <span class="cc-input-cell">
-        <input
-          value={display()}
-          onInput={(e) => props.onChange(valueFromDisplay(e.currentTarget.value))}
-          onBlur={(e) => {
-            const next = valueFromDisplay(e.currentTarget.value)
-            if (next !== props.value) props.onChange(next)
-          }}
-          placeholder="0"
-        />
-        <Show when={props.unit && !isKeyword(display())}><em class="cc-unit">{props.unit}</em></Show>
-      </span>
-    </div>
-  )
-}
-
-function DropdownRow(props: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  options: string[]
-}) {
-  const [open, setOpen] = createSignal(false)
-  const [popupPos, setPopupPos] = createSignal({ top: 0, left: 0, width: 120 })
-  let triggerRef: HTMLButtonElement | undefined
-  let dropdownRef: HTMLDivElement | undefined
-
-  const displayText = () => props.value || "请选择"
-
-  const handleSelect = (option: string) => {
-    props.onChange(option)
-    setOpen(false)
-  }
-
-  const updatePosition = () => {
-    if (!triggerRef) return
-    const rect = triggerRef.getBoundingClientRect()
-    setPopupPos({
-      top: rect.bottom + 4,
-      left: rect.left,
-      width: rect.width
-    })
-  }
-
-  const handleClickOutside = (e: MouseEvent) => {
-    if (!open()) return
-    const target = e.target as HTMLElement
-    if (triggerRef && !triggerRef.contains(target) && dropdownRef && !dropdownRef.contains(target)) {
-      setOpen(false)
-    }
-  }
-
-  const handleWindowBlur = () => {
-    if (open()) {
-      setOpen(false)
-    }
-  }
-
-  const handleScroll = () => {
-    if (open()) {
-      updatePosition()
-    }
-  }
-
-  const handleResize = () => {
-    if (open()) {
-      updatePosition()
-    }
-  }
-
-  createEffect(() => {
-    if (open()) {
-      updatePosition()
-      document.addEventListener("click", handleClickOutside)
-      document.addEventListener("scroll", handleScroll, true)
-      window.addEventListener("resize", handleResize)
-      window.addEventListener("blur", handleWindowBlur)
-    } else {
-      document.removeEventListener("click", handleClickOutside)
-      document.removeEventListener("scroll", handleScroll, true)
-      window.removeEventListener("resize", handleResize)
-      window.removeEventListener("blur", handleWindowBlur)
-    }
-    onCleanup(() => {
-      document.removeEventListener("click", handleClickOutside)
-      document.removeEventListener("scroll", handleScroll, true)
-      window.removeEventListener("resize", handleResize)
-      window.removeEventListener("blur", handleWindowBlur)
-    })
-  })
-
-  const popupStyle = () => ({
-    position: "fixed" as const,
-    top: `${popupPos().top}px`,
-    left: `${popupPos().left}px`,
-    "min-width": `${popupPos().width}px`,
-    "z-index": 10001
-  })
-
-  return (
-    <label class="cc-row">
-      <span class="cc-label">{props.label}</span>
-      <span class="cc-value cc-select">
-        <button
-          ref={triggerRef}
-          type="button"
-          class="cc-select-trigger"
-          classList={{ "cc-select-trigger-active": open() }}
-          onClick={() => setOpen(!open())}
-        >
-          <span class="cc-select-trigger-text">{displayText()}</span>
-          <span class="cc-select-trigger-icon" style={{ transform: open() ? "rotate(180deg)" : "none" }}>
-            <svg viewBox="0 0 20 20" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="currentColor" fill-opacity="0.6"/>
-            </svg>
-          </span>
-        </button>
-        <Show when={open()}>
-          <Portal mount={document.body}>
-            <div ref={dropdownRef} class="cc-select-popup" style={popupStyle()}>
-              <div class="cc-select-list">
-                <For each={props.options}>
-                  {(opt) => (
-                    <div
-                      class="cc-select-item"
-                      classList={{ "cc-select-item-selected": props.value === opt }}
-                      onClick={() => handleSelect(opt)}
-                    >
-                      {opt}
-                    </div>
-                  )}
-                </For>
-              </div>
-            </div>
-          </Portal>
-        </Show>
-      </span>
-    </label>
-  )
-}
-
-function FontRow(props: { value: string; onChange: (v: string) => void }) {
-  const [open, setOpen] = createSignal(false)
-  const [popupPos, setPopupPos] = createSignal({ top: 0, left: 0, width: 120 })
-  let triggerRef: HTMLButtonElement | undefined
-  let dropdownRef: HTMLDivElement | undefined
-
-  const normalizedValue = () => normalizeFontFamilyForSelect(props.value)
-  const customValue = () => normalizedValue() === props.value ? props.value : ''
-  const displayText = () => {
-    const normalized = normalizedValue()
-    const opt = FONT_OPTS.find(o => o.value === normalized)
-    return opt?.label || fontFamilyLabel(normalized) || "请选择"
-  }
-
-  const options = () => {
-    const opts = [...FONT_OPTS]
-    if (customValue() && !FONT_OPTS.some(o => o.value === customValue())) {
-      opts.unshift({ label: fontFamilyLabel(customValue()), value: customValue() })
-    }
-    return opts
-  }
-
-  const handleSelect = (option: { label: string; value: string }) => {
-    props.onChange(option.value)
-    setOpen(false)
-  }
-
-  const updatePosition = () => {
-    if (!triggerRef) return
-    const rect = triggerRef.getBoundingClientRect()
-    setPopupPos({
-      top: rect.bottom + 4,
-      left: rect.left,
-      width: rect.width
-    })
-  }
-
-  const handleClickOutside = (e: MouseEvent) => {
-    if (!open()) return
-    const target = e.target as HTMLElement
-    if (triggerRef && !triggerRef.contains(target) && dropdownRef && !dropdownRef.contains(target)) {
-      setOpen(false)
-    }
-  }
-
-  const handleScroll = () => {
-    if (open()) {
-      updatePosition()
-    }
-  }
-
-  const handleResize = () => {
-    if (open()) {
-      updatePosition()
-    }
-  }
-
-  createEffect(() => {
-    if (open()) {
-      updatePosition()
-      document.addEventListener("click", handleClickOutside)
-      document.addEventListener("scroll", handleScroll, true)
-      window.addEventListener("resize", handleResize)
-    } else {
-      document.removeEventListener("click", handleClickOutside)
-      document.removeEventListener("scroll", handleScroll, true)
-      window.removeEventListener("resize", handleResize)
-    }
-    onCleanup(() => {
-      document.removeEventListener("click", handleClickOutside)
-      document.removeEventListener("scroll", handleScroll, true)
-      window.removeEventListener("resize", handleResize)
-    })
-  })
-
-  const popupStyle = () => ({
-    position: "fixed" as const,
-    top: `${popupPos().top}px`,
-    left: `${popupPos().left}px`,
-    "min-width": `${popupPos().width}px`,
-    "z-index": 10001
-  })
-
-  return (
-    <label class="cc-row">
-      <span class="cc-label">Font</span>
-      <span class="cc-value cc-select">
-        <button
-          ref={triggerRef}
-          type="button"
-          class="cc-select-trigger"
-          classList={{ "cc-select-trigger-active": open() }}
-          onClick={() => setOpen(!open())}
-        >
-          <span class="cc-select-trigger-text">{displayText()}</span>
-          <span class="cc-select-trigger-icon" style={{ transform: open() ? "rotate(180deg)" : "none" }}>
-            <svg viewBox="0 0 20 20" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="currentColor" fill-opacity="0.6"/>
-            </svg>
-          </span>
-        </button>
-        <Show when={open()}>
-          <Portal mount={document.body}>
-            <div ref={dropdownRef} class="cc-select-popup" style={popupStyle()}>
-              <div class="cc-select-list">
-                <For each={options()}>
-                  {(opt) => (
-                    <div
-                      class="cc-select-item"
-                      classList={{ "cc-select-item-selected": normalizedValue() === opt.value }}
-                      onClick={() => handleSelect(opt)}
-                    >
-                      {opt.label}
-                    </div>
-                  )}
-                </For>
-              </div>
-            </div>
-          </Portal>
-        </Show>
-      </span>
-    </label>
-  )
-}
-
-function normalizeFontFamilyForSelect(value: string): string {
-  const trimmed = value.trim()
-  if (!trimmed) return ''
-  const direct = FONT_OPTS.find(o => o.value === trimmed)
-  if (direct) return direct.value
-  const families = parseFontFamilies(trimmed)
-  const primaryFamily = families[0]
-  const match = FONT_OPTS.find(o => {
-    if (!o.value) return false
-    const optionFamilies = parseFontFamilies(o.value)
-    return optionFamilies[0] === primaryFamily
-  })
-  return match?.value ?? trimmed
-}
-
-function fontFamilyLabel(value: string): string {
-  return parseFontFamilies(value)[0] ?? value
-}
-
-function parseFontFamilies(value: string): string[] {
-  return value
-    .split(',')
-    .map(f => f.trim().replace(/^['"]|['"]$/g, '').toLowerCase())
-    .filter(Boolean)
-}
-
-function ColorRow(props: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  compact?: boolean
-}) {
-  const [open, setOpen] = createSignal(false)
-  let containerRef: HTMLDivElement | undefined
-  let popoverRef: HTMLDivElement | undefined
-  let swatchRef: HTMLButtonElement | undefined
-  let inputRef: HTMLInputElement | undefined
-
-  const isInsidePopover = (target: HTMLElement) => {
-    return popoverRef && popoverRef.contains(target)
-  }
-
-  const isTriggerElement = (target: HTMLElement) => {
-    return swatchRef?.contains(target) || inputRef?.contains(target)
-  }
-
-  const handleClickOutside = (e: MouseEvent) => {
-    if (!open()) return
-    const target = e.target as HTMLElement
-    if (!isTriggerElement(target) && !isInsidePopover(target)) {
-      setOpen(false)
-    }
-  }
-
-  const handleWindowBlur = () => {
-    if (open()) {
-      setOpen(false)
-    }
-  }
-
-  createEffect(() => {
-    if (open()) {
-      setTimeout(() => {
-        document.addEventListener("click", handleClickOutside)
-      }, 0)
-      window.addEventListener("blur", handleWindowBlur)
-    } else {
-      document.removeEventListener("click", handleClickOutside)
-      window.removeEventListener("blur", handleWindowBlur)
-    }
-    onCleanup(() => {
-      document.removeEventListener("click", handleClickOutside)
-      window.removeEventListener("blur", handleWindowBlur)
-    })
-  })
-
-  const handleSwatchClick = (e: MouseEvent) => {
-    e.stopPropagation()
-    setOpen(!open())
-  }
-
-  const handleInputFocus = (e: FocusEvent) => {
-    e.stopPropagation()
-    setOpen(true)
-  }
-
-  return (
-    <div ref={containerRef} class={`cc-row cc-color ${props.compact ? 'cc-color-compact' : ''}`}>
-      <Show when={!props.compact}><span class="cc-label">{props.label}</span></Show>
-      <span class="cc-input-cell" style={{ gap: '16px' }}>
-        <button
-          ref={swatchRef}
-          type="button"
-          class="cc-swatch"
-          style={{ background: props.value || 'transparent' }}
-          onClick={handleSwatchClick}
-        />
-        <input
-          ref={inputRef}
-          value={props.value}
-          placeholder="(transparent)"
-          onChange={(e) => props.onChange(e.currentTarget.value)}
-          onFocus={handleInputFocus}
-          onBlur={(e) => {
-            if (!e.currentTarget.value && !open()) {
-              props.onChange('')
-            }
-          }}
-        />
-        <Show when={open()}>
-          <div ref={popoverRef} class="cc-color-popover" onClick={(e) => e.stopPropagation()}>
-            <div class="cc-color-grid">
-              <For each={EDITOR_SWATCH_COLORS}>{(hex) =>
-                <button
-                  type="button"
-                  class="cc-color-tile"
-                  style={{ background: hex }}
-                  onClick={(e) => { e.stopPropagation(); props.onChange(hex); setOpen(false) }}
-                />
-              }</For>
-            </div>
-            <input
-              type="color"
-              class="cc-color-native"
-              value={(() => {
-                const normalized = normalizeColorForPicker(props.value)
-                if (!normalized) return "#ffffff"
-                if (normalized.startsWith("rgba")) {
-                  const m = normalized.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/)
-                  if (!m) return "#ffffff"
-                  const r = parseInt(m[1]).toString(16).padStart(2, "0")
-                  const g = parseInt(m[2]).toString(16).padStart(2, "0")
-                  const b = parseInt(m[3]).toString(16).padStart(2, "0")
-                  return `#${r}${g}${b}`
-                }
-                return normalized
-              })()}
-              onChange={(e) => props.onChange(e.currentTarget.value)}
-            />
-          </div>
-        </Show>
-      </span>
-    </div>
-  )
-}
-
-function QuadRow(props: {
-  label: string
+// 内边距/外边距 section:支持四周/水平垂直/上右下左 3 种模式切换 + DragInput 图标。
+function QuadModeSection(props: {
+  title: string
+  base: 'padding' | 'margin'
   values: { t: string; r: string; b: string; l: string }
   onChange: (side: 't' | 'r' | 'b' | 'l', value: string) => void
 }) {
-  const [open, setOpen] = createSignal(true)
-  const allEqualValue = () => {
-    const v = props.values.t
-    return v === props.values.r && v === props.values.b && v === props.values.l ? v : null
-  }
+  const [mode, setMode] = createSignal<'all' | 'hv' | 'trbl'>('all')
+  const [modeOpen, setModeOpen] = createSignal(false)
+  let modeAreaRef: HTMLDivElement | undefined
 
-  return (
-    <div class="cc-quad">
-      <button type="button" class="cc-quad-head" onClick={() => setOpen(!open())}>
-        <span>{props.label}</span>
-        <Show when={!open() && allEqualValue() !== null} fallback={<span class="cc-chevron-small" style={{ transform: open() ? "rotate(180deg)" : "none" }}><svg viewBox="0 0 20 20" width="12" height="12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M10.0001 13.0418C10.2556 13.0418 10.4751 12.9474 10.6584 12.7585L15.4418 8.04183C15.5584 7.91961 15.6168 7.77238 15.6168 7.60016C15.6168 7.42794 15.5584 7.27516 15.4418 7.14183C15.3195 7.01961 15.1723 6.9585 15.0001 6.9585C14.8279 6.9585 14.6751 7.01961 14.5418 7.14183L10.0001 11.6585L5.44176 7.14183C5.31953 7.01961 5.17231 6.9585 5.00009 6.9585C4.82787 6.9585 4.68064 7.01961 4.55842 7.14183C4.44176 7.27516 4.38342 7.42794 4.38342 7.60016C4.38342 7.77238 4.44176 7.91961 4.55842 8.04183L9.34176 12.7585C9.52509 12.9474 9.74453 13.0418 10.0001 13.0418Z" fill="currentColor" fill-opacity="0.6"/></svg></span>}>
-          <em>{allEqualValue() || '0 px'}</em>
-        </Show>
+  createEffect(() => {
+    if (!modeOpen()) return
+    const handler = (e: MouseEvent) => {
+      if (modeAreaRef && !modeAreaRef.contains(e.target as Node)) setModeOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    onCleanup(() => document.removeEventListener('mousedown', handler))
+  })
+
+  const allVal = () => parseFloat(props.values.t) || 0
+  const hVal = () => parseFloat(props.values.r) || 0
+  const vVal = () => parseFloat(props.values.t) || 0
+  const setAll = (v: number) => {
+    props.onChange('t', `${v}px`); props.onChange('r', `${v}px`)
+    props.onChange('b', `${v}px`); props.onChange('l', `${v}px`)
+  }
+  const setH = (v: number) => { props.onChange('r', `${v}px`); props.onChange('l', `${v}px`) }
+  const setV = (v: number) => { props.onChange('t', `${v}px`); props.onChange('b', `${v}px`) }
+  const side = (s: 't' | 'r' | 'b' | 'l') => () => parseFloat(props.values[s]) || 0
+  const setSide = (s: 't' | 'r' | 'b' | 'l') => (v: number) => props.onChange(s, `${v}px`)
+
+  const Icon = props.base === 'padding' ? PaddingIcon : MarginIcon
+
+  const modeActions = (
+    <div class="cc-quad-mode" ref={modeAreaRef}>
+      <button
+        type="button"
+        class="prop-chip cc-quad-mode-btn"
+        onClick={() => setModeOpen(!modeOpen())}
+        title="模式"
+        aria-label="切换模式"
+      >
+        <span class="cc-quad-mode-icon"><SettingsIcon /></span>
       </button>
-      <Show when={open()}>
-        <div class="cc-quad-grid">
-          <QuadCell axis="T" value={props.values.t} onChange={(v) => props.onChange('t', v)} />
-          <QuadCell axis="R" value={props.values.r} onChange={(v) => props.onChange('r', v)} />
-          <QuadCell axis="B" value={props.values.b} onChange={(v) => props.onChange('b', v)} />
-          <QuadCell axis="L" value={props.values.l} onChange={(v) => props.onChange('l', v)} />
+      <Show when={modeOpen()}>
+        <div class="cc-quad-mode-dropdown" onClick={(e) => e.stopPropagation()}>
+          <button onClick={() => { setMode('all'); setModeOpen(false) }}>四周</button>
+          <button onClick={() => { setMode('hv'); setModeOpen(false) }}>水平/垂直</button>
+          <button onClick={() => { setMode('trbl'); setModeOpen(false) }}>上/右/下/左</button>
         </div>
       </Show>
     </div>
   )
-}
-
-function QuadCell(props: { axis: string; value: string; onChange: (v: string) => void }) {
-  const display = () => stripPxUnit(props.value)
-
-  const handleChange = (e: Event) => {
-    const raw = (e.currentTarget as HTMLInputElement).value.trim()
-    if (raw === '') props.onChange('')
-    else if (isNumericInput(raw)) props.onChange(`${raw}px`)
-    else if (/^-?\d+(\.\d+)?px$/i.test(raw)) props.onChange(raw.toLowerCase())
-    else props.onChange((e.currentTarget as HTMLInputElement).value)
-  }
-
-  const handleBlur = (e: Event) => {
-    const v = (e.currentTarget as HTMLInputElement).value.trim()
-    const next = v && isNumericInput(v) ? `${v}px` : (e.currentTarget as HTMLInputElement).value
-    if (next !== props.value) props.onChange(next)
-  }
 
   return (
-    <span class="cc-quad-cell">
-      <em class="cc-quad-axis">{props.axis}</em>
-      <input value={display()} placeholder="0" onChange={handleChange} onBlur={handleBlur} />
-      <Show when={!isKeyword(display())}><em class="cc-quad-unit">px</em></Show>
-    </span>
+    <Section title={props.title} actions={modeActions}>
+      <Show when={mode() === 'all'}>
+        <div class="cc-quad-row">
+          <DragInput value={allVal} setValue={setAll} setFound={() => {}} found={() => true} placeholder="-" icon={<Icon />} />
+        </div>
+      </Show>
+      <Show when={mode() === 'hv'}>
+        <div class="cc-quad-row">
+          <DragInput value={hVal} setValue={setH} setFound={() => {}} found={() => true} placeholder="水平" icon={<HorizontalPaddingIcon />} />
+          <DragInput value={vVal} setValue={setV} setFound={() => {}} found={() => true} placeholder="垂直" icon={<VerticalPaddingIcon />} />
+        </div>
+      </Show>
+      <Show when={mode() === 'trbl'}>
+        <div class="cc-quad-trbl">
+          <DragInput value={side('t')} setValue={setSide('t')} setFound={() => {}} found={() => true} placeholder="上" icon="↑" />
+          <DragInput value={side('r')} setValue={setSide('r')} setFound={() => {}} found={() => true} placeholder="右" icon="→" />
+          <DragInput value={side('b')} setValue={setSide('b')} setFound={() => {}} found={() => true} placeholder="下" icon="↓" />
+          <DragInput value={side('l')} setValue={setSide('l')} setFound={() => {}} found={() => true} placeholder="左" icon="←" />
+        </div>
+      </Show>
+    </Section>
   )
 }
 
-function stripPxUnit(value: string): string {
-  const match = value.trim().match(/^(-?\d+(?:\.\d+)?)px$/i)
-  return match?.[1] ?? value
-}
-
-function isNumericInput(value: string): boolean {
-  return /^-?\d+(\.\d+)?$/.test(value.trim())
-}
-
-function isKeyword(value: string): boolean {
-  return /^(normal|auto|inherit|initial|unset|none)$/i.test(value.trim())
+function PairRow(props: { children: any }) {
+  return <div class="cc-pair">{props.children}</div>
 }
 
 function sideToProp(base: 'padding' | 'margin', side: 't' | 'r' | 'b' | 'l'): keyof ManualEditStyles {
@@ -1011,37 +1086,6 @@ function sideToProp(base: 'padding' | 'margin', side: 't' | 'r' | 'b' | 'l'): ke
 
 function sideUpper(side: 't' | 'r' | 'b' | 'l'): 'Top' | 'Right' | 'Bottom' | 'Left' {
   return side === 't' ? 'Top' : side === 'r' ? 'Right' : side === 'b' ? 'Bottom' : 'Left'
-}
-
-function normalizeColorForPicker(value: string): string {
-  const trimmed = value.trim()
-  
-  if (trimmed === "transparent" || trimmed === "rgba(0, 0, 0, 0)") {
-    return ""
-  }
-  
-  if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(trimmed)) {
-    if (trimmed.length === 4) {
-      const r = trimmed[1]!, g = trimmed[2]!, b = trimmed[3]!
-      return `#${r}${r}${g}${g}${b}${b}`.toLowerCase()
-    }
-    return trimmed.toLowerCase()
-  }
-  
-  const match = trimmed.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\)/i)
-  if (match) {
-    const alpha = match[4] ? parseFloat(match[4]) : 1
-    if (alpha === 0) return ""
-    
-    if (alpha < 1) {
-      return trimmed
-    }
-    
-    const toHex = (n: string) => Math.max(0, Math.min(255, Number(n))).toString(16).padStart(2, '0')
-    return `#${toHex(match[1]!)}${toHex(match[2]!)}${toHex(match[3]!)}`
-  }
-  
-  return ''
 }
 
 function readableContentName(value: string | undefined): string {

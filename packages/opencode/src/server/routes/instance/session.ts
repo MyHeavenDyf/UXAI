@@ -615,7 +615,8 @@ export const SessionRoutes = lazy(() =>
             },
             auto: body.auto,
           })
-          return SessionCompaction.isSuccessful(yield* prompt.loop({ sessionID }))
+          yield* prompt.loop({ sessionID })
+          return true
         }),
     )
     .get(

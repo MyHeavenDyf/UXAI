@@ -110,6 +110,8 @@ export type ElectronAPI = {
   ) => Promise<string>
   /** SPEC-INS-014 v2(会话隔离):拷贝源文件进 <baseDir>/.octo/tmps/(预会话落地区,撞名加后缀);返回落地路径 */
   copyFileToWorktree: (srcPath: string, baseDir: string, filename: string) => Promise<string>
+  /** copyFileToWorktree 的字节版:剪贴板内存 blob(截图等)无源路径,把字节写进同一落点;返回落地路径 */
+  writeFileToWorktree: (buffer: ArrayBuffer, baseDir: string, filename: string) => Promise<string>
   /** SPEC-INS-014 §4.1.2(v2 新增):发送时把 .octo/tmps/ 里的附件 rename 进 <baseDir>/.octo/<sessionId>/uploads/ */
   movePendingUploadToSession: (srcPath: string, baseDir: string, sessionId: string) => Promise<string>
   /** Electron 32+ 取拖拽/选取 File 的真实本地路径(File.path 已移除,改用 webUtils.getPathForFile) */
@@ -126,8 +128,10 @@ export type ElectronAPI = {
   setTitlebarOverlayHidden: (hidden: boolean) => Promise<void>
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void>
-  checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
+  checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string; releaseNotes?: string }>
   installUpdate: () => Promise<void>
+  onUpdateDownloadProgress: (callback: (percent: number) => void) => () => void
+  onResume: (callback: () => void) => () => void
   setBackgroundColor: (color: string) => Promise<void>
   // jk-j60099994-replace-with-types-2-start
   // jk-j60099994-replace-with-types-2-end

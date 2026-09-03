@@ -18,6 +18,7 @@ import {
   bootstrapDirectory,
   bootstrapGlobal,
   clearProviderRev,
+  isBootstrapRecent,
   loadGlobalConfigQuery,
   loadPathQuery,
   loadProvidersQuery,
@@ -58,6 +59,7 @@ export const mcpQueryKey = (directory: string) => [directory, "mcp"] as const
 export const loadMcpQuery = (directory: string, sdk: OpencodeClient) =>
   queryOptions({
     queryKey: mcpQueryKey(directory),
+    staleTime: 1000,
     queryFn: () => sdk.mcp.status().then((r) => r.data ?? {}),
   })
 
@@ -66,6 +68,7 @@ export const lspQueryKey = (directory: string) => [directory, "lsp"] as const
 export const loadLspQuery = (directory: string, sdk: OpencodeClient) =>
   queryOptions({
     queryKey: lspQueryKey(directory),
+    staleTime: 1000,
     queryFn: () => sdk.lsp.status().then((r) => r.data ?? []),
   })
 
@@ -142,16 +145,21 @@ function createGlobalSync() {
   const bootstrap = useQuery(() => ({
     queryKey: ["bootstrap"],
     queryFn: async () => {
-      await bootstrapGlobal({
-        globalSDK: globalSDK.client,
-        requestFailedTitle: language.t("common.requestFailed"),
-        translate: language.t,
-        formatMoreCount: (count) => language.t("common.moreCountSuffix", { count }),
-        setGlobalStore: setBootStore,
-        queryClient,
-      })
-      bootedAt = Date.now()
-      return bootedAt
+      bootingRoot = true
+      try {
+        await bootstrapGlobal({
+          globalSDK: globalSDK.client,
+          requestFailedTitle: language.t("common.requestFailed"),
+          translate: language.t,
+          formatMoreCount: (count) => language.t("common.moreCountSuffix", { count }),
+          setGlobalStore: setBootStore,
+          queryClient,
+        })
+        bootedAt = Date.now()
+        return bootedAt
+      } finally {
+        bootingRoot = false
+      }
     },
   }))
 
@@ -339,7 +347,7 @@ function createGlobalSync() {
     const directory = e.name
     const key = directoryKey(directory)
     const event = e.details
-    const recent = bootingRoot || Date.now() - bootedAt < 1500
+    const recent = isBootstrapRecent({ booting: bootingRoot, bootedAt })
 
     // jk-j60099994-replace-with-60062650-global-sync-1-start
     // jk-j60099994-replace-with-60062650-global-sync-1-end

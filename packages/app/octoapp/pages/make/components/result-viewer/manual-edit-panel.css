@@ -46,13 +46,36 @@
   padding: 12px 16px;
   position: relative;
   font-weight: 500;
-  font-size: 16px;
+  font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   gap: 8px;
   user-select: none;
   flex-shrink: 0;
+}
+
+.manual-edit-titlebar-kind {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2937;
+  text-transform: capitalize;
+  flex-shrink: 0;
+}
+
+.manual-edit-titlebar-id {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-left: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.manual-edit-titlebar-spacer {
+  flex: 1;
 }
 
 .manual-edit-titlebar::after {
@@ -134,10 +157,8 @@
 .cc-section-head {
   font-size: 12px;
   line-height: 20px;
-  color: #191919;
+  font-weight: 600;
   margin-bottom: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
 .cc-section-body {
@@ -148,17 +169,19 @@
 
 .cc-action-btn {
   width: 100%;
-  padding: 8px 12px;
-  font-size: 13px;
-  border: 1px solid var(--octo-border-default, #e5e7eb);
-  background: var(--octo-surface-page, #ffffff);
-  border-radius: 6px;
+  padding: 2px 8px;
+  height: 24px;
+  font-size: 10px;
+  border: none;
+  background: #f4f4f5;
+  border-radius: 4px;
   cursor: pointer;
-  color: var(--octo-text-primary, #111827);
+  white-space: nowrap;
+  transition: background-color 0.15s ease;
 }
 
 .cc-action-btn:hover {
-  background: var(--octo-surface-hover, #f3f4f6);
+  background: #e4e4e7;
 }
 
 .cc-action-btn:disabled {
@@ -282,11 +305,10 @@
 }
 
 .cc-label {
-  font-size: 12px;
+  font-size: 10px;
   line-height: 20px;
   min-width: 70px;
   max-width: 70px;
-  color: #777;
   font-weight: 500;
 }
 
@@ -297,49 +319,6 @@
   align-items: center;
   gap: 8px;
   height: 32px;
-}
-
-.cc-color {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.cc-swatch {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  border: 1px solid var(--octo-border-default, #e5e7eb);
-  border-radius: 2.68px;
-  cursor: pointer;
-  padding: 2px;
-  background: var(--octo-surface-page, #ffffff);
-}
-
-.cc-swatch:hover {
-  border-color: var(--octo-accent, #2563eb);
-}
-
-.cc-color-native {
-  width: 88px;
-  padding: 0;
-  cursor: pointer;
-  border: 1px solid var(--octo-border-default, #e5e7eb);
-  border-radius: 4px;
-}
-
-.cc-color-native::-webkit-color-swatch-wrapper {
-  padding: 0;
-}
-
-.cc-color-native::-webkit-color-swatch {
-  border: none;
-  border-radius: 3px;
-}
-
-.cc-color-native::-moz-color-swatch {
-  border: none;
-  border-radius: 3px;
 }
 
 input[type="text"].cc-value {
@@ -467,39 +446,40 @@ input[type="number"].cc-value:focus {
 
 /* TEXT Section textarea and input */
 .cc-textarea {
-  width: calc(100% - 24px);
+  width: 100%;
   min-height: 60px;
-  padding: 8px 10px;
-  font-size: 12px;
-  border: 1px solid var(--octo-border-default, #e5e7eb);
+  padding: 4px 8px;
+  font-size: 11px;
+  border: 1px solid transparent;
   border-radius: 4px;
   font-family: inherit;
-  background: var(--octo-surface-page, #ffffff);
-  color: var(--octo-text-primary, #111827);
+  background: #f4f4f5;
   resize: vertical;
   line-height: 1.4;
-  margin: 8px 0;
+  margin: 0;
+  box-sizing: border-box;
 }
 
 .cc-textarea:focus {
   outline: none;
-  border-color: var(--octo-accent, #2563eb);
+  border-color: #3d99ff;
 }
 
 .cc-input-url {
   width: 100%;
-  padding: 6px 10px;
+  padding: 0 8px;
+  height: 24px;
   font-size: 12px;
-  border: 1px solid var(--octo-border-default, #e5e7eb);
+  border: 1px solid transparent;
   border-radius: 4px;
-  background: var(--octo-surface-page, #ffffff);
-  color: var(--octo-text-primary, #111827);
+  background: #f4f4f5;
   margin: 0;
+  box-sizing: border-box;
 }
 
 .cc-input-url:focus {
   outline: none;
-  border-color: var(--octo-accent, #2563eb);
+  border-color: #3d99ff;
 }
 
 .cc-select {
@@ -882,44 +862,422 @@ input[type="number"].cc-value:focus {
   background: #0a55eb;
 }
 
-
-.cc-color-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 100;
-  background: var(--octo-surface-page, #ffffff);
-  border: 1px solid var(--octo-border-default, #e5e7eb);
+/* === 布局 section === */
+.cc-layout-direction {
+  display: flex;
+  gap: 1px;
+  background: #e4e4e7;
   border-radius: 6px;
-  padding: 8px;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+  padding: 1px;
+}
+
+.cc-layout-dir-btn {
+  flex: 1;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.cc-layout-grid-wrap {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.cc-layout-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 1px;
+  background: #f4f4f5;
+  border-radius: 6px;
+  padding: 2px;
+  width: 96px;
+  height: 96px;
+  flex-shrink: 0;
+}
+
+.cc-layout-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0;
+}
+
+.cc-layout-cell:hover {
+  background: #e4e4e7;
+}
+
+.cc-layout-dot {
+  width: 4px;
+  height: 4px;
+  background: currentColor;
+  border-radius: 1px;
+  opacity: 0.4;
+}
+
+.cc-layout-dot-active {
+  width: 8px;
+  height: 8px;
+  background: #3d99ff;
+  border-radius: 2px;
+  opacity: 1;
+}
+
+.cc-layout-gap-col {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  width: min(168px, calc(100vw - 32px));
-  max-width: calc(100vw - 32px);
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
 }
 
-.cc-color-compact .cc-color-popover {
-  left: auto;
-  right: 0;
-}
-
-.cc-color-grid {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 4px;
-}
-
-.cc-color-tile {
-  width: 100%;
-  aspect-ratio: 1;
-  border-radius: 4px;
-  padding: 0;
-  border: 1px solid rgba(0, 0, 0, 0.1);
+.cc-layout-radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
   cursor: pointer;
 }
 
-.cc-color-compact .cc-swatch {
-  margin-left: auto;
+.cc-layout-radio input[type="radio"] {
+  margin: 0;
 }
+
+/* === Section head + actions === */
+.cc-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* 本应用 Tailwind 主题 --color-*: initial 清空了默认调色板,prototype 弹窗里的
+   text-slate-* 类全部无效、实际渲染为继承的深色文字;此处不设 color 以保持一致。 */
+.cc-section-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* === QuadModeSection (内边距/外边距) === */
+.cc-quad-mode {
+  position: relative;
+  display: flex;
+}
+
+.cc-quad-mode-btn {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cc-quad-mode-icon {
+  width: 12px;
+  height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cc-quad-mode-dropdown {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 4px;
+  z-index: 301;
+  width: 100px;
+  padding: 4px 0;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.cc-quad-mode-dropdown > button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+}
+
+.cc-quad-mode-dropdown > button:hover {
+  background: #f4f4f5;
+}
+
+.cc-quad-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.cc-quad-row > * {
+  min-width: 0;
+  flex: 1;
+}
+
+.cc-quad-trbl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  width: 100%;
+}
+
+/* === 宽高 section === */
+.cc-size-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.cc-size-row > * {
+  min-width: 0;
+  flex: 1;
+}
+
+.cc-size-checkboxes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 8px;
+  margin-top: 4px;
+}
+
+.cc-size-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.cc-size-checkbox input[type="checkbox"] {
+  margin: 0;
+}
+
+.cc-size-clip {
+  grid-column: span 2;
+}
+
+/* === 文字 section === */
+.cc-typ-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.cc-typ-label {
+  font-size: 10px;
+  width: 32px;
+  flex-shrink: 0;
+}
+
+.cc-typ-row > :last-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.cc-typ-pair {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+
+.cc-typ-pair-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.cc-typ-sublabel {
+  font-size: 10px;
+}
+
+.cc-typ-align-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.cc-typ-align-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.cc-typ-align-cell:first-child {
+  flex: 4;
+}
+
+.cc-typ-align-cell:last-child {
+  flex: 3;
+}
+
+.cc-typ-align-group {
+  display: flex;
+  gap: 1px;
+  background: #e4e4e7;
+  border-radius: 6px;
+  padding: 1px;
+}
+
+.cc-typ-align-btn {
+  height: 20px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 5px;
+  padding: 0;
+}
+
+
+.cc-stroke-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.cc-stroke-expand {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cc-stroke-trbl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+/* === Effects section === */
+.cc-effects-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.cc-effects-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cc-effect-add {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cc-effect-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--octo-border-default, #e5e7eb);
+  border-radius: 6px;
+  background: var(--octo-surface-hover, #f5f5f5);
+}
+
+.cc-effect-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.cc-effect-row > * {
+  min-width: 0;
+}
+
+.cc-effect-toggle,
+.cc-effect-remove,
+.cc-effect-expand-toggle {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cc-effect-expand-toggle {
+  width: auto;
+  padding: 0 8px;
+  font-size: 11px;
+  align-self: flex-start;
+}
+
+
+/* === 背景图 section === */
+.cc-bgimage-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.cc-bgimage-preview {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--octo-border-default, #e5e7eb);
+  border-radius: 4px;
+  background-size: cover;
+  background-position: center;
+  background-color: var(--octo-surface-hover, #f5f5f5);
+  flex-shrink: 0;
+}
+
+.cc-bgimage-actions {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+
+

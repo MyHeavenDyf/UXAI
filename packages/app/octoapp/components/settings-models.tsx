@@ -4,7 +4,6 @@ import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Switch } from "@opencode-ai/ui/switch"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { Tag } from "@opencode-ai/ui/tag"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { createMemo, type Component, For, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
@@ -126,9 +125,7 @@ export const SettingsModels: Component = () => {
                           <div style={{ display: "flex", "flex-wrap": "wrap", "align-items": "center", "justify-content": "space-between", gap: "4px", padding: "12px 16px", background: "rgba(0, 0, 0, 0.03)", "border-radius": "8px" }}>
                             <div style={{ "min-width": 0, display: "flex", "align-items": "center", gap: "8px" }}>
                               <span style={{ "font-size": "14px", "line-height": "22px", color: "rgba(0, 0, 0, 0.9)" }}>{item.name}</span>
-                              <Show when={item.isExternal}>
-                                <Tag>{language.t("model.tag.external")}</Tag>
-                              </Show>
+                              {item.isExternal ? <span class="shrink-0 w-[40px] h-[20px] inline-flex items-center justify-center rounded-[2px] bg-[#fef5e8] text-[12px] text-[#191919]">{language.t("model.tag.external")}</span> : null}
                             </div>
                             <div style={{ "flex-shrink": 0 }}>
                               <Switch
