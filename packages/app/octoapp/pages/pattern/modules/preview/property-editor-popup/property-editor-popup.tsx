@@ -8,9 +8,9 @@ import {
   TW_FONT_SIZES, FW_TO_TW,
   GRID_POSITIONS, BOOL_PROP_KEY_SET,
 } from "./constants"
-import { normalizeCssKeys, toHex, stripImportant, hasImportant } from "./utils"
+import { normalizeCssKeys, toHex, stripImportant, hasImportant, renameRowField } from "./utils"
 import { parseClass, type ParsedClassInfo } from "./class-parser"
-import { parseFillsFromRawCls, parseStrokesFromRawCls, parseEffectsFromRawCls } from "./raw-parsers"
+import { parseFillsFromRawCls, parseStrokesFromRawCls, parseEffectsFromRawCls, matchShadowToken, effectsSignature } from "./raw-parsers"
 import { ColorPicker, TEXT_COLOR_TOKENS, BG_COLOR_TOKENS } from "./color-picker"
 import { DragInput } from "./drag-input"
 import { CustomSelect } from "./custom-select"
@@ -178,30 +178,15 @@ export function PropertyEditorPopup(props: {
   const [dataPanelOpen, setDataPanelOpen] = createSignal(false)
   let dataPanelRef!: HTMLDivElement
 
-  const SHADOW_TOKEN_MAP: [string, string][] = [
-    ["1px 1px 6px 0px rgba(0,0,0,0.08)", "card"],
-    ["0px 4px 12px 0px rgba(0,0,0,0.16)", "md"],
-    ["0px 8px 24px 0px rgba(0,0,0,0.16)", "popover"],
-    ["0px 16px 48px 0px rgba(0,0,0,0.16)", "modal"],
-  ]
-
-  function matchShadowToken(effect: typeof effects[number]): string | null {
-    if (effect.type !== 'drop-shadow') return null
-    const hex = effect.color.replace('#', '')
-    const r = parseInt(hex.slice(0, 2), 16)
-    const g = parseInt(hex.slice(2, 4), 16)
-    const b = parseInt(hex.slice(4, 6), 16)
-    const alpha = effect.opacity / 100
-    const cssVal = `${effect.offsetX}px ${effect.offsetY}px ${effect.blur}px 0px rgba(${r},${g},${b},${alpha})`
-    for (const [val, token] of SHADOW_TOKEN_MAP) {
-      if (val === cssVal) return token
-    }
-    return null
-  }
-
   const [editProps, setEditProps] = createStore<Record<string, string>>({})
   const [rawProps, setRawProps] = createStore<Record<string, string>>({})
+  const [dirtyPropKeys, setDirtyPropKeys] = createStore<Record<string, boolean>>({})
   const [propKeys, setPropKeys] = createSignal<string[]>([])
+
+  function updateEditProp(key: string, val: string) {
+    setEditProps(key, val)
+    setDirtyPropKeys(key, true)
+  }
 
   const dataFields = createMemo(() => {
     const set: string[] = []
@@ -450,7 +435,7 @@ export function PropertyEditorPopup(props: {
     }
     if (isDirty('fontFamily') && editFontFamily()) parts.push(`font-${editFontFamily()}`)
     if (isDirty('lineHeight') && editLineHeight() && editLineHeight() !== 'auto') parts.push(`leading-[${editLineHeight()}]`)
-    if (isDirty('letterSpacing') && editLetterSpacing()) parts.push(`tracking-[${editLetterSpacing() / 100}em]`)
+    if (isDirty('letterSpacing') && editLetterSpacing()) parts.push(`tracking-[${editLetterSpacing()}px]`)
     if (isDirty('textAlign') && editAlign()) parts.push(`text-${editAlign()}`)
     if (isDirty('vAlign') && editVAlign()) parts.push(`items-${editVAlign()}`)
 
@@ -577,11 +562,11 @@ export function PropertyEditorPopup(props: {
     if (v.fontWeight) { setEditFontWeight(px(v.fontWeight)); setFoundFontWeight(true) }
     if (v.fontFamily) setEditFontFamily(v.fontFamily)
     if (v.textAlign) setEditAlign(v.textAlign)
-    if (v.lineHeight) setEditLineHeight(v.lineHeight)
+    if (v.lineHeight) setEditLineHeight(v.lineHeight === 'normal' ? 'auto' : v.lineHeight)
     if (v.letterSpacing) {
       const ls = String(v.letterSpacing)
       const n = parseFloat(ls)
-      if (!isNaN(n)) setEditLetterSpacing(ls.endsWith('em') ? Math.round(n * 100) : n)
+      if (!isNaN(n)) setEditLetterSpacing(ls.endsWith('em') || ls.endsWith('rem') ? Math.round(n * 16 * 100) / 100 : n)
     }
 
     if (v.padding) {
@@ -998,6 +983,11 @@ export function PropertyEditorPopup(props: {
   let apiCalled = false
   let autoUpdateTimer: ReturnType<typeof setTimeout> | undefined
   let initialized = false
+  let confirmInFlight = false
+  let confirmAgain = false
+  let editGeneration = 0
+  let initializedForElement = ''
+  let lastSubmittedClassName = ''
   /** 最近一次提交时的快照（脏组检测基线，每次 handleConfirm 后推进） */
   let initialSnapshotJson = ''
   /** 打开面板那一刻的快照（永不推进），revertGroup 取消勾选时恢复到它 */
@@ -1031,6 +1021,7 @@ export function PropertyEditorPopup(props: {
     setMenuTree([])
     setTableColumns([])
     setTableData([])
+    setDirtyPropKeys(reconcile({}))
     preservedCssVars = {}
   }
 
@@ -1039,11 +1030,16 @@ export function PropertyEditorPopup(props: {
       setReady(false)
       apiCalled = false
       initialized = false
+      confirmInFlight = false
+      confirmAgain = false
+      initializedForElement = ''
+      lastSubmittedClassName = ''
       initialSnapshotJson = ''
       originalSnapshotJson = ''
       clearTimeout(autoUpdateTimer)
       return
     }
+    const eid = props.elementId
     let parsed: Record<string, unknown> = {}
     try { parsed = JSON.parse(props.elementProps || '{}') } catch { /* ignore */ }
     const parsedClassName = isStateBoundValue(parsed.className) ? '' : (parsed.className as string) || ''
@@ -1059,8 +1055,10 @@ export function PropertyEditorPopup(props: {
 
     logStartSession(`quick-modify-${props.elementId}`, `修改元素 ${props.elementId} [${props.componentType}]`)
 
-    if (!apiCalled) {
+    if (!apiCalled || initializedForElement !== eid) {
       apiCalled = true
+      initializedForElement = eid
+      editGeneration++
       resetEditorSignals()
       setInitialPos('right', 5)
       setInitialPos('top', 50)
@@ -1090,7 +1088,7 @@ export function PropertyEditorPopup(props: {
             if (f) { setEditBgColor(toHex(f.color)); setBgColorToken(matchTokenHex(toHex(f.color), BG_COLOR_TOKENS)) }
           }
           setDragOffset({ x: 0, y: 0 })
-          initialEffectsJson = JSON.stringify(effects)
+          initialEffectsJson = effectsSignature(effects)
           setReady(true)
         })
       } else {
@@ -1102,7 +1100,7 @@ export function PropertyEditorPopup(props: {
           if (f) setEditBgColor(f.color)
         }
         setDragOffset({ x: 0, y: 0 })
-        initialEffectsJson = JSON.stringify(effects)
+        initialEffectsJson = effectsSignature(effects)
         setReady(true)
       }
     }
@@ -1217,7 +1215,7 @@ export function PropertyEditorPopup(props: {
       tag: editTag(),
       fills: fills.map(f => `${f.id}:${f.color}:${f.opacity}:${f.visible}`),
       strokes: strokes.map(s => `${s.id}:${s.color}:${s.visible}:${s.width}:${s.position}:${s.individualOpen}:${s.widthTop}:${s.widthRight}:${s.widthBottom}:${s.widthLeft}`),
-      effects: effects.map(e => `${e.id}:${e.type}:${e.visible}:${e.color}:${e.opacity}:${e.blur}:${e.offsetX}:${e.offsetY}:${e.layerBlur}:${e.bgBlur}`),
+      effects: effectsSignature(effects),
       menuTree: JSON.stringify(menuTree),
       menuErrCount: menuErrors().filter(e => e.type === 'error').length,
       tableColumns: JSON.stringify(tableColumns),
@@ -1334,7 +1332,7 @@ export function PropertyEditorPopup(props: {
     if (isDirty('fontFamily') && editFontFamily()) css['font-family'] = editFontFamily()
     if (isDirty('textAlign') && editAlign()) css['text-align'] = editAlign()
     if (isDirty('lineHeight') && editLineHeight() && editLineHeight() !== 'auto') css['line-height'] = editLineHeight()
-    if (isDirty('letterSpacing') && editLetterSpacing()) css['letter-spacing'] = (editLetterSpacing() / 100) + 'em'
+    if (isDirty('letterSpacing') && editLetterSpacing()) css['letter-spacing'] = editLetterSpacing() + 'px'
 
     if (isDirty('textColor') && editTextColor()) css['color'] = editTextColor()
 
@@ -1462,6 +1460,14 @@ export function PropertyEditorPopup(props: {
   }
 
   async function handleConfirm(skipChangeCheck?: boolean) {
+    if (confirmInFlight) { confirmAgain = true; return }
+    confirmInFlight = true
+    const gen = ++editGeneration
+    if (lastSubmittedClassName) {
+      const allClasses = lastSubmittedClassName.split(/\s+/).filter(Boolean)
+      parsedClasses = allClasses.filter(c => !stripImportant(c).startsWith('el-')).map(stripImportant)
+      importantSet = new Set(allClasses.filter(c => hasImportant(c) && !stripImportant(c).startsWith('el-')).map(stripImportant))
+    }
     logStartSession(`quick-modify-${props.elementId}`, `修改元素 ${props.elementId} [${props.componentType}]`)
     // 提交时刻的快照：css 部分在 await 前读取，基线必须推进到"本次实际提交的状态"。
     // 若用 await 之后的快照推进（旧实现），用户在 IPC await 窗口内的编辑会被吞进基线，
@@ -1503,8 +1509,8 @@ export function PropertyEditorPopup(props: {
         const bgColorDirty = !dirtyGroups || dirtyGroups.has('bgColor')
         if (textColorToken() && colorDirty) className = (className + ` text-${textColorToken()}`).trim()
         if (bgColorToken() && bgColorDirty) className = (className + ` bg-${bgColorToken()}`).trim()
-        const effectsUnchanged = JSON.stringify(effects) === initialEffectsJson
-        const originalShadowTokens = (props.currentClass || '').split(/\s+/).filter(c =>
+        const effectsUnchanged = effectsSignature(effects) === initialEffectsJson
+        const originalShadowTokens = parsedClasses.filter(c =>
           c.startsWith('shadow-') && c !== 'shadow' && !c.startsWith('shadow-[')
         )
         if (effectsUnchanged && originalShadowTokens.length > 0) {
@@ -1518,8 +1524,8 @@ export function PropertyEditorPopup(props: {
         }
       } else {
         className = buildClassName(dirtyGroups)
-        const effectsUnchanged2 = JSON.stringify(effects) === initialEffectsJson
-        const origShadows = (props.currentClass || '').split(/\s+/).filter(c =>
+        const effectsUnchanged2 = effectsSignature(effects) === initialEffectsJson
+        const origShadows = parsedClasses.filter(c =>
           c.startsWith('shadow-') && c !== 'shadow' && !c.startsWith('shadow-[')
         )
         if (effectsUnchanged2 && origShadows.length > 0) {
@@ -1554,6 +1560,7 @@ export function PropertyEditorPopup(props: {
       }
     }
 
+    className = [...new Set(className.split(/\s+/).filter(Boolean))].join(' ')
     className = className.split(/\s+/).filter(c => c && !stripImportant(c).startsWith('el-')).map(c => {
       const stripped = stripImportant(c)
       const shouldImportant = importantSet.has(stripped)
@@ -1569,9 +1576,9 @@ export function PropertyEditorPopup(props: {
         if (key === 'className') continue
         if (isBinding(key)) continue
         const val = (editProps as Record<string, string>)[key]
-        const isEnum = getEnumOptions(key).length > 0
-        const hasRaw = (rawProps as Record<string, string>)[key] !== undefined
-        if (isEnum || val || hasRaw) {
+        const rawVal = (rawProps as Record<string, string>)[key]
+        const hasRaw = rawVal !== undefined
+        if (dirtyPropKeys[key] || (hasRaw && val !== String(rawVal ?? ''))) {
           componentProps[key] = BOOL_PROP_KEY_SET.has(key)
             ? val === 'true'
             : val
@@ -1651,8 +1658,24 @@ export function PropertyEditorPopup(props: {
       if (componentProps[key] !== bv) changed.push({ prop: key, before: bv, after: String(componentProps[key] ?? '') })
     }
     logAgentCall('quick-modify', props.elementId, { className, componentProps, textContent: editText(), changed }, confirmData)
-    props.onConfirm(confirmData)
-    initialSnapshotJson = snapAtSubmit
+    if (gen === editGeneration) {
+      props.onConfirm(confirmData)
+      initialSnapshotJson = snapAtSubmit
+      lastSubmittedClassName = className
+      const allClasses = className.split(/\s+/).filter(Boolean)
+      parsedClasses = allClasses.filter(c => !stripImportant(c).startsWith('el-')).map(stripImportant)
+      importantSet = new Set(
+        allClasses.filter(c => hasImportant(c) && !stripImportant(c).startsWith('el-')).map(stripImportant)
+      )
+      initialEffectsJson = effectsSignature(effects)
+      initialBgUrl = editBgUrl()
+    }
+    confirmInFlight = false
+    if (confirmAgain && gen === editGeneration) {
+      confirmAgain = false
+      const cur = autoSnapshot()
+      if (cur && JSON.stringify(cur) !== initialSnapshotJson) void handleConfirm(true)
+    }
   }
 
   function confirmMenuItems() {
@@ -1673,6 +1696,18 @@ export function PropertyEditorPopup(props: {
     setDataPanelOpen(false)
     clearTimeout(autoUpdateTimer)
     void handleConfirm(true)
+  }
+
+  // 关闭面板：若 300ms 防抖窗内仍有未提交的改动，立即 flush，
+  // 再调 onCancel。handleConfirm 在 props.show 仍为 true 时同步执行
+  // （捕获快照 + computeDirtyGroups），await 部分异步完成时 signals 仍有效。
+  function closePopup() {
+    clearTimeout(autoUpdateTimer)
+    if (initialized && initialSnapshotJson) {
+      const snap = autoSnapshot()
+      if (snap && JSON.stringify(snap) !== initialSnapshotJson) void handleConfirm(true)
+    }
+    props.onCancel()
   }
 
   type TrblInput = {
@@ -1708,7 +1743,7 @@ export function PropertyEditorPopup(props: {
     <Show when={props.show}>
       <div
         class="property-editor-overlay"
-        onClick={() => props.onCancel()}
+        onClick={closePopup}
         onContextMenu={(e) => e.preventDefault()}
       />
       <div
@@ -1721,7 +1756,7 @@ export function PropertyEditorPopup(props: {
           <span class="text-xs text-slate-400 ml-2 truncate">{props.elementId}</span>
           <button
             type="button"
-            onClick={() => props.onCancel()}
+            onClick={closePopup}
             class="ml-auto flex items-center justify-center w-5 h-5 rounded-sm text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex-shrink-0"
             id="popup-header-close-btn"
           >
@@ -1763,11 +1798,11 @@ export function PropertyEditorPopup(props: {
                       fallback={
                         <div class="flex items-center gap-1 flex-1 min-w-0">
                           <input value={(editProps as Record<string, string>)[key] ?? ''}
-                            onInput={(e) => setEditProps(key, e.currentTarget.value)}
+                            onInput={(e) => updateEditProp(key, e.currentTarget.value)}
                             type="text" placeholder={key}
                   class="flex items-center rounded-sm bg-[#F4F4F5] h-6 text-[12px] px-2 outline-none w-full focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] border border-transparent shadow-none min-w-0" />
                           <Show when={key === 'src'}>
-                            <button onClick={() => pickAndUploadImage((url) => setEditProps('src', url))}
+                            <button onClick={() => pickAndUploadImage((url) => updateEditProp('src', url))}
                               class="prop-chip h-6 w-6 p-0 flex items-center justify-center shrink-0">
                               <svg width="16" height="16" viewBox="0 0 1024 1024" fill="currentColor"><path d="M392.32 800.192l242.912-242.944 164.992 164.992 0.032 77.76-407.968 0.192zM224 224l576-0.256 0.192 407.968-142.336-142.336a31.968 31.968 0 0 0-45.248 0L301.76 800.224H224V224z m576.256-64H223.712a63.808 63.808 0 0 0-63.68 63.744v576.512C160 835.424 188.544 864 223.68 864h576.544A63.808 63.808 0 0 0 864 800.256V223.744A63.84 63.84 0 0 0 800.256 160z"/><path d="M416 384a31.68 31.68 0 0 1 32 32 31.68 31.68 0 0 1-32 32 31.68 31.68 0 0 1-32-32c0-17.952 14.048-32 32-32m0 128c52.928 0 96-43.072 96-96s-43.072-96-96-96-96 43.072-96 96 43.072 96 96 96"/></svg>
                             </button>
@@ -1778,7 +1813,7 @@ export function PropertyEditorPopup(props: {
                       <CustomSelect
                         value={(editProps as Record<string, string>)[key] ?? ''}
                         options={getEnumOptions(key)}
-                        onChange={(v) => setEditProps(key, v)}
+                        onChange={(v) => updateEditProp(key, v)}
                         class="flex-1 min-w-0"
                       />
                     </Show>
@@ -1975,7 +2010,17 @@ export function PropertyEditorPopup(props: {
                                 type="text" placeholder="标题"
                                 class={`flex-1 min-w-0 rounded-sm bg-white h-6 text-[12px] px-2 outline-none border ${!c.title ? 'border-red-400' : 'border-slate-200'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
                               <input value={c.dataIndex}
-                                onInput={(e) => setTableColumns(i(), 'dataIndex', e.currentTarget.value)}
+                                onInput={(e) => {
+                                  const idx = i()
+                                  const oldField = tableColumns[idx].dataIndex
+                                  const newField = e.currentTarget.value
+                                  setTableColumns(idx, 'dataIndex', newField)
+                                  if (oldField && oldField !== newField && newField) {
+                                    setTableData(tableData.map(r =>
+                                      oldField in r.row ? { ...r, row: renameRowField([r.row], oldField, newField)[0] } : r
+                                    ))
+                                  }
+                                }}
                                 type="text" placeholder="字段"
                                 class={`w-24 shrink-0 rounded-sm bg-white h-6 text-[12px] px-2 outline-none border ${!c.dataIndex ? 'border-red-400' : 'border-slate-200'} focus:border-[#3D99FF] focus:ring-1 focus:ring-[#3D99FF] shadow-none`} />
                               <button onClick={() => setTableColumns(tableColumns.filter(x => x.id !== c.id))}
@@ -2406,12 +2451,12 @@ export function PropertyEditorPopup(props: {
                     { label: 'Extra Bold', value: '800' },
                     { label: 'Black', value: '900' },
                   ]}
-                  onChange={(v) => setEditFontWeight(Number(v))}
+                  onChange={(v) => { setEditFontWeight(Number(v)); setFoundFontWeight(true) }}
                 />
               </div>
               <div class="flex items-center gap-1.5 w-full min-w-0">
                 <span class="text-[10px] text-slate-400 w-8 shrink-0">字号</span>
-                <DragInput value={editFontSize} setValue={setEditFontSize} setFound={() => { }} found={() => true} placeholder="字号" icon={"S"} />
+                <DragInput value={editFontSize} setValue={setEditFontSize} setFound={setFoundFontSize} found={foundFontSize} placeholder="字号" icon={"S"} />
               </div>
 
               <ColorPicker value={editTextColor()} onChange={setEditTextColor} onTokenChange={setTextColorToken} label="文字色" tokens={TEXT_COLOR_TOKENS} />
@@ -2419,7 +2464,7 @@ export function PropertyEditorPopup(props: {
               <div class="flex items-center gap-1.5 w-full min-w-0">
                 <div class="flex flex-col gap-0.5 flex-1 min-w-0">
                   <span class="text-[10px] text-slate-400">行高</span>
-                  <DragInput value={() => editLineHeight() === 'auto' ? 0 : Number(editLineHeight()) || 0} setValue={(v) => setEditLineHeight(String(v))} setFound={() => { }} found={() => editLineHeight() !== '' && editLineHeight() !== 'auto'} placeholder="auto" flex1={false} icon={LineHeightIcon()} />
+                  <DragInput value={() => editLineHeight() === 'auto' ? 0 : parseFloat(editLineHeight()) || 0} setValue={(v) => { const suf = (editLineHeight().match(/(px|rem|em)$/) ?? [])[1] ?? ''; setEditLineHeight(v + suf) }} setFound={() => { }} found={() => editLineHeight() !== '' && editLineHeight() !== 'auto'} placeholder="auto" flex1={false} icon={LineHeightIcon()} />
                 </div>
                 <div class="flex flex-col gap-0.5 flex-1 min-w-0">
                   <span class="text-[10px] text-slate-400">字间距</span>

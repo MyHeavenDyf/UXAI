@@ -54,6 +54,7 @@ export function DragInput(props: {
       <span onMouseDown={(e) => {
         e.preventDefault()
         e.stopPropagation()
+        if (inputEl) inputEl.blur()
         const sc = isV ? e.clientY : e.clientX
         const sv = props.value()
         const overlay = document.createElement('div')

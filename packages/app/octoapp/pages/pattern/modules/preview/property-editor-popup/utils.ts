@@ -54,3 +54,12 @@ export function stripImportant(cls: string): string {
 export function hasImportant(cls: string): boolean {
   return cls.length > 1 && (cls.startsWith('!') || cls.endsWith('!'))
 }
+
+export function renameRowField(rows: Record<string, unknown>[], oldField: string, newField: string): Record<string, unknown>[] {
+  return rows.map(r => {
+    if (!(oldField in r)) return r
+    const next: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(r)) next[k === oldField ? newField : k] = v
+    return next
+  })
+}
