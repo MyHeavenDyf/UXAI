@@ -354,7 +354,6 @@ export function ColorPicker(props: {
         <Portal>
           <div
             ref={(el) => { popupRef = el }}
-            data-color-picker-panel
             class="fixed z-[302] w-[260px] rounded-md bg-white py-1 shadow-[0_8px_24px_rgba(0,0,0,0.18)]"
             style={{ left: popupPos().x + 'px', top: popupPos().y + 'px', background: '#ffffff' }}
           >
