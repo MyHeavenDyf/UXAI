@@ -1,6 +1,7 @@
 import type { AssistantMessage, Message } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
+import { MessageDivider } from "@opencode-ai/ui/message-part"
 import { useData, useI18n, I18nProvider, type UiI18n } from "@opencode-ai/ui/context"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
@@ -121,6 +122,53 @@ function withInsightToolTitles(outer: UiI18n): UiI18n {
   }
 }
 
+function InsightCompactionTurn(props: { sessionID: string; messageID: string }) {
+  const data = useData()
+  const parts = createMemo(
+    () => (data.store.part as Record<string, Array<{ type: string; text?: string }>>)?.[props.messageID] ?? [],
+  )
+  const messages = createMemo(() =>
+    ((data.store.message as Record<string, Message[]>)?.[props.sessionID] ?? []).filter(
+      (message): message is AssistantMessage => message.role === "assistant" && message.parentID === props.messageID,
+    ),
+  )
+  const text = createMemo(() => parts().find((part) => part.type === "text")?.text?.trim() || "/compact")
+  const compacted = createMemo(() => messages().some((message) => message.summary && message.finish && !message.error))
+  const aborted = createMemo(() => messages().some((message) => message.error?.name === "MessageAbortedError"))
+  const failed = createMemo(() => messages().some((message) => message.error && message.error.name !== "MessageAbortedError"))
+
+  return (
+    <>
+      <div class="flex justify-end px-3 mb-3">
+        <div
+          class="break-words"
+          style={{
+            background: "var(--octo-brand-a8)", padding: "12px 16px", "border-radius": "16px 16px 2px 16px",
+            color: "#191919", "font-size": "14px", "line-height": "22px", "white-space": "pre-wrap", "max-width": "85%",
+          }}
+        >
+          {text()}
+        </div>
+      </div>
+      <Show when={!compacted() && !aborted() && !failed()}>
+        <div class="mx-3 px-4 py-2 flex items-center gap-2 insight-compaction-status">
+          <span class="w-1.5 h-1.5 rounded-full animate-pulse" />
+          <span>正在压缩上下文…</span>
+        </div>
+      </Show>
+      <Show when={compacted()}>
+        <div data-slot="session-turn-compaction"><MessageDivider label="会话已压缩" /></div>
+      </Show>
+      <Show when={aborted()}>
+        <div class="mx-3 px-4 py-2 insight-compaction-status">上下文压缩已停止</div>
+      </Show>
+      <Show when={failed()}>
+        <div class="mx-3 px-4 py-2 insight-compaction-status insight-compaction-status-error">上下文压缩失败</div>
+      </Show>
+    </>
+  )
+}
+
 
 export function InsightTurn(props: {
   sessionID: string
@@ -187,6 +235,7 @@ export function InsightTurn(props: {
         Array<{ type: string; text?: string; synthetic?: boolean; mime?: string; url?: string; filename?: string }>
       >)?.[props.messageID] ?? [],
   )
+  const isCompactionTurn = createMemo(() => turnParts().some((part) => part.type === "compaction"))
 
   // 非图片附件(SPEC-INS-015 ②④):从 synthetic [附件] 清单解析(filename + 本地路径),只取 filename 渲染文件卡片。
   // 必须按 "[附件]" 头定位:chip turn(SPEC-INS-017)还有 [MCP触发指令] / [MCP声明] 两个 synthetic part,
@@ -645,6 +694,7 @@ export function InsightTurn(props: {
 
   return (
     <div class="flex flex-col mb-4">
+      <Show when={isCompactionTurn()} fallback={<>
       {/* 用户附件(贴合用户气泡上方,右对齐)——非图片走文件卡片,图片走缩略图,替代在气泡里暴露裸路径/URL */}
       <Show when={inputAttachments().length > 0 || inputImages().length > 0}>
         <div class="octo-input-attachments">
@@ -728,6 +778,9 @@ export function InsightTurn(props: {
             />
           )}
         </For>
+      </Show>
+      </>}>
+        <InsightCompactionTurn sessionID={props.sessionID} messageID={props.messageID} />
       </Show>
     </div>
   )

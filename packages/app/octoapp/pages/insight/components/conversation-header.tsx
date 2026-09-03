@@ -7,6 +7,7 @@ import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useSync } from "@/context/sync"
@@ -19,6 +20,7 @@ import { useSessionDelete } from "@/hooks/use-session-delete"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
+import { ContextUsageCircle } from "@/components/context-usage-circle"
 
 /**
  * ConversationHeader —— Insight 对话面板顶部的会话标题栏
@@ -32,7 +34,20 @@ import { DialogDeleteSession } from "@/components/dialog-delete-session"
  * 视觉走 insight 的 --octo token，保持页面自包含。
  */
 
-export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelToggle?: JSX.Element } = {}) {
+export function ConversationHeader(
+  props: {
+    sidebarToggle?: JSX.Element
+    panelToggle?: JSX.Element
+    context?: {
+      tokens: number
+      limit?: number
+      usage: number
+      blocked: boolean
+      disabled: boolean
+      onCompact: () => void
+    }
+  } = {},
+) {
   const params = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const sync = useSync()
@@ -175,6 +190,46 @@ export function ConversationHeader(props: { sidebarToggle?: JSX.Element; panelTo
                 }}
                 onBlur={() => void saveTitleEditor()}
               />
+            </Show>
+            <Show when={!title.editing && props.context}>
+              {(context) => (
+                <Tooltip
+                  placement="top"
+                  gutter={8}
+                  arrow
+                  interactive
+                  contentClass="insight-token-tooltip"
+                  value={
+                    <div class="insight-token-tooltip-copy">
+                      <p>
+                        当前对话 Session 上下文
+                        {context().blocked
+                          ? "已超过100%"
+                          : context().usage >= 80
+                            ? "已超过80%"
+                            : `已使用${context().usage}%`}{" "}
+                        (<span classList={{ "is-critical": context().usage >= 80 }}>{context().tokens.toLocaleString(language.intl())}</span>{" "}
+                        / {context().limit?.toLocaleString(language.intl()) ?? "--"})，
+                      </p>
+                      <p>
+                        建议点击“<button type="button" class="insight-token-tooltip-action" disabled={context().disabled} onClick={context().onCompact}>上下文压缩</button>”以继续对话。
+                      </p>
+                    </div>
+                  }
+                >
+                  <button
+                    type="button"
+                    class="shrink-0 flex items-center justify-center"
+                    classList={{ "cursor-pointer": !context().disabled, "cursor-not-allowed": context().disabled }}
+                    style={{ background: "transparent", border: "none", padding: "0" }}
+                    disabled={context().disabled}
+                    onClick={context().onCompact}
+                    aria-label={`上下文已使用 ${context().usage}%，点击压缩上下文`}
+                  >
+                    <ContextUsageCircle percentage={context().usage} />
+                  </button>
+                </Tooltip>
+              )}
             </Show>
           </div>
 

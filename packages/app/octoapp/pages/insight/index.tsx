@@ -28,12 +28,16 @@ import { same } from "@/utils/same"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconNotepad } from "@/pages/_shell/icons"
 import { IconButton } from "@opencode-ai/ui/icon-button"
+import { Dialog } from "@opencode-ai/ui/dialog"
+import { Button } from "@opencode-ai/ui/button"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { resolveThemeVariant, themeToCss } from "@opencode-ai/ui/theme"
 import { LocalProvider, useLocal } from "@/context/local"
 import { useTabModel } from "@/hooks/use-tab-model"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { useLanguage } from "@/context/language"
+import { useProviders } from "@/hooks/use-providers"
 import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } from "@/components/dialog-select-model"
 import { MakeModelRiskDialog } from "@/pages/make/make-model-risk-dialog"
 import { ComplianceNotice } from "@/components/compliance-notice"
@@ -85,9 +89,28 @@ import { mimeForName, pathToLocalUrl, fetchInsightFiles } from "./utils/insight-
 import { type MentionSelection, type MentionSkill } from "./components/mention-popover"
 import { ProseMirrorEditor, type InsightEditorRef, type MentionAttrs } from "./components/prosemirror-editor"
 import { loadSkillsFromPanel } from "@/utils/skill-config"
+import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
+import { isContextAtLimit, shouldShowContextWarning } from "@/components/context-usage-warning"
+import { InsightContextOverflowNotice, InsightContextUsageWarning } from "./components/context-usage-notice"
 
 // 稳定空数组:作为 userMessages memo 的初值与无 id 时的返回,配合 equals:same 避免每帧吐新空数组
 const EMPTY_MESSAGES: Message[] = []
+
+function contextCommandErrorMessage(error: unknown) {
+  if (!error || typeof error !== "object") return
+  const data = Reflect.get(error, "data")
+  if (data && typeof data === "object") {
+    const message = Reflect.get(data, "message")
+    if (typeof message === "string") return message
+  }
+  const message = Reflect.get(error, "message")
+  if (typeof message === "string") return message
+}
+
+function contextCommandName(text: string) {
+  if (text === "/compact") return "compact" as const
+  if (text === "/summarize") return "summarize" as const
+}
 
 /**
  * InsightPage —— 用研 agent 页面
@@ -217,6 +240,8 @@ function InsightContent() {
   const local = useLocal()
   useTabModel("insight")
   const language = useLanguage()
+  const providers = useProviders()
+  const dialog = useDialog()
   const themeCtx = useTheme()
   const globalSDK = useGlobalSDK()
   const layout = useLayout()
@@ -347,7 +372,13 @@ function InsightContent() {
     (): Message[] => {
       const id = params.id
       if (!id) return EMPTY_MESSAGES
-      const msgs = ((sync.data.message[id] ?? []) as Message[]).filter((m) => m.role === "user")
+      const msgs = ((sync.data.message[id] ?? []) as Message[]).filter((message) => {
+        if (message.role !== "user") return false
+        const parts = sync.data.part[message.id] ?? []
+        if (!parts.some((part) => part.type === "compaction")) return true
+        // 手动 /compact 带 synthetic text，用于在对话流中回显；内部自动压缩没有 text，保持隐藏。
+        return parts.some((part) => part.type === "text")
+      })
       // 按 time.created 排序（以 id 作 tiebreaker），避免依赖 sync.data.message 底层数组顺序。
       // Binary.search 用字符串 ID 比较插入位置，旧 session 的 48-bit ID 溢出后 hex 前缀顺序
       // 错乱（'0' < 'f'），新消息被插入到数组开头，导致 lastUserMessage 取错、消息显示在顶部。
@@ -518,6 +549,91 @@ function InsightContent() {
     const t = sessionStatus().type
     return t === "busy" || t === "retry"
   })
+
+  const contextMetrics = createMemo(() => {
+    const messages = params.id ? [...(sync.data.message[params.id] ?? [])] : []
+    messages.sort((a, b) => a.time.created - b.time.created || a.id.localeCompare(b.id))
+    return getSessionContextMetrics(messages, providers.all()).context
+  })
+  const contextLimit = createMemo(() =>
+    [
+      local.model.current()?.limit.input,
+      local.model.current()?.limit.context,
+      contextMetrics()?.model?.limit.input,
+      contextMetrics()?.model?.limit.context,
+      contextMetrics()?.limit,
+    ].find((limit) => typeof limit === "number" && limit > 0),
+  )
+  const contextTokens = createMemo(() => {
+    const context = contextMetrics()
+    if (!context) return 0
+    if (context.message.summary) return context.output
+    return context.total
+  })
+  const contextUsage = createMemo(() => {
+    const limit = contextLimit()
+    return limit ? Math.round((contextTokens() / limit) * 100) : 0
+  })
+  const contextSendBlocked = createMemo(() => isContextAtLimit(contextTokens(), contextLimit(), params.id))
+  const [ignoredContextWarningSession, setIgnoredContextWarningSession] = createSignal<string>()
+  const [contextCommandPending, setContextCommandPending] = createSignal(false)
+  const contextCompactionDisabled = createMemo(() => isWorking() || contextCommandPending() || !local.model.current())
+  const contextWarningVisible = createMemo(
+    () => !contextSendBlocked() && shouldShowContextWarning(contextUsage(), params.id, ignoredContextWarningSession(), isWorking()),
+  )
+
+  createEffect(() => {
+    const ignored = ignoredContextWarningSession()
+    if (!ignored) return
+    if (ignored === params.id && contextUsage() >= 80) return
+    setIgnoredContextWarningSession(undefined)
+  })
+
+  async function compactContext(command: "compact" | "summarize" = "compact") {
+    const sessionID = params.id
+    const model = local.model.current()
+    if (!sessionID || !model || contextCompactionDisabled()) return
+
+    setContextCommandPending(true)
+    try {
+      const result = await sdk.client.session.command({
+        sessionID,
+        command,
+        arguments: "",
+        agent: INSIGHT_AGENT,
+        model: `${model.provider.id}/${model.id}`,
+      })
+      const info = result.data?.info
+      if (info && info.summary === true && info.finish && !info.error) {
+        showToast({ title: "上下文压缩完成", variant: "success", duration: 2000 })
+        return
+      }
+      showToast({ title: "上下文压缩失败", description: contextCommandErrorMessage(info?.error ?? result.error) ?? "请稍后重试", variant: "error" })
+    } catch (error) {
+      console.error(`[InsightPage] command /${command} failed`, error)
+      showToast({ title: "上下文压缩失败", description: error instanceof Error ? error.message : "请稍后重试", variant: "error" })
+    } finally {
+      setContextCommandPending(false)
+    }
+  }
+
+  function confirmCompactContext() {
+    if (contextCompactionDisabled()) return
+    dialog.show(() => (
+      <Dialog title="压缩上下文" fit class="delete-dialog">
+        <div class="flex flex-col gap-4">
+          <span class="text-14-regular text-text-strong">当前上下文将压缩为摘要，以释放更多上下文空间。是否继续？</span>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" size="large" class="delete-dialog-btn" onClick={() => dialog.close()}>取消</Button>
+            <Button variant="primary" size="large" class="delete-dialog-btn delete-dialog-btn-primary" onClick={() => {
+              dialog.close()
+              void compactContext()
+            }}>确认压缩</Button>
+          </div>
+        </div>
+      </Dialog>
+    ))
+  }
 
   // busy → idle 时:把刚结束的最新 assistant 消息原始内容完整 dump 到 console。
   // 内网无法抓 SSE network 时,把这条 console 粘到外网即可定位"LLM 究竟返回了什么"。
@@ -1583,6 +1699,26 @@ function InsightContent() {
     // @引用会把 @名 留在 text 里,故有引用时 text 必非空,无需额外豁免。
     if (!text || hasUploadingAttachments()) return
 
+    const contextCommand = contextCommandName(text)
+    if (contextCommand) {
+      if (!params.id) {
+        showToast({ title: "当前没有可压缩的对话" })
+        return
+      }
+      if (contextCompactionDisabled()) {
+        showToast({ title: "暂时无法压缩", description: isWorking() ? "请等待当前回复结束后再试。" : "请先选择模型。" })
+        return
+      }
+      clearComposers()
+      await compactContext(contextCommand)
+      return
+    }
+
+    if (contextSendBlocked()) {
+      showToast({ title: "当前对话上下文已达上限", description: "请先进行上下文压缩，或新建对话。", variant: "error" })
+      return
+    }
+
     // 未选模型时提示并中止,与 chat 一致(prompt-input/submit.ts handleSubmit);输入内容保留不清空
     if (!local.model.current()) {
       tracker.interaction({
@@ -1735,7 +1871,7 @@ function InsightContent() {
   const stopping = createMemo(() => isWorking() && !prompt().trim() && !hasUploadingAttachments())
 
   // 发送键禁用:空输入或附件上传中(chip 选中不豁免——空输入一律不可发送,与业界一致)
-  const sendDisabled = createMemo(() => !stopping() && (!prompt().trim() || hasUploadingAttachments()))
+  const sendDisabled = createMemo(() => !stopping() && (contextSendBlocked() || !prompt().trim() || hasUploadingAttachments()))
 
   // 注:方案 B 换 ProseMirror 后,输入法合成、Enter 发送、退格删胶囊、@ 面板开关均由编辑器内部处理
   // (Enter keymap → onSubmit;atomKeymap 退格删原子节点;mention-trigger 插件管面板);此处不再需要 textarea 版键盘/合成逻辑。
@@ -2440,6 +2576,14 @@ function InsightContent() {
               {/* 对话面板顶部标题栏（会话标题 + 改名 + 删除） */}
               {/* 收起态唤回浮标：放进 header 行内，与三点菜单同行，避免绝对定位遮挡三点按钮 */}
               <ConversationHeader
+                context={{
+                  tokens: contextTokens(),
+                  limit: contextLimit(),
+                  usage: contextUsage(),
+                  blocked: contextSendBlocked(),
+                  disabled: contextCompactionDisabled(),
+                  onCompact: confirmCompactContext,
+                }}
                 sidebarToggle={sidebarCollapsed() ? (
                   <button
                     type="button"
@@ -2512,6 +2656,35 @@ function InsightContent() {
 
               {/* 输入区(居中 reading-width,与消息列表对齐) */}
               <div class="flex flex-col min-h-0 p-4 w-full mx-auto" style={{ "max-width": "800px" }}>
+                <Show when={contextSendBlocked() && contextLimit()}>
+                  {(limit) => (
+                    <div class="insight-context-notice-wrap">
+                      <InsightContextOverflowNotice
+                        tokens={contextTokens()}
+                        limit={limit()}
+                        locale={language.intl()}
+                        disabled={contextCompactionDisabled()}
+                        onCompact={confirmCompactContext}
+                      />
+                    </div>
+                  )}
+                </Show>
+
+                <Show when={contextWarningVisible() && contextLimit()}>
+                  {(limit) => (
+                    <div class="insight-context-notice-wrap">
+                      <InsightContextUsageWarning
+                        tokens={contextTokens()}
+                        limit={limit()}
+                        locale={language.intl()}
+                        disabled={contextCompactionDisabled()}
+                        onIgnore={() => setIgnoredContextWarningSession(params.id)}
+                        onCompact={confirmCompactContext}
+                      />
+                    </div>
+                  )}
+                </Show>
+
                 {/* 阻塞 Dock(权限 + 答题)与队列条同处一个可滚动区(6px 细滚动条):
                     question 工具与队列同时出现、总高溢出时由此区吸收,不再挤压下方 composer
                     输入框(shrink-0 始终完整可见)。 */}
