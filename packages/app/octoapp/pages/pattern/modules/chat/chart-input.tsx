@@ -3,6 +3,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { DesignSystemPicker } from "./design-system-picker"
 import { useLocal } from "@/context/local"
+import { useLanguage } from "@/context/language"
 import type { JSX } from "solid-js"
 import "../../assets/style/chat/chart_input.css"
 import { tracker } from "@/utils/tracker"
@@ -52,6 +53,7 @@ export type ChartInputProps = {
 }
 
 export function ChartInput(props: ChartInputProps): JSX.Element {
+  const language = useLanguage()
   let fileInputRef!: HTMLInputElement
   return (
     <div
@@ -110,6 +112,9 @@ export function ChartInput(props: ChartInputProps): JSX.Element {
             <span class="truncate">
               {props.model.current()?.name ?? "选择模型"}
             </span>
+            {props.model.current()?.isExternal ? (
+              <span class="shrink-0 text-gray-500">{language.t("model.tag.external")}</span>
+            ) : null}
             <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
           </ModelSelectorPopover>
         </div>

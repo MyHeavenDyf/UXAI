@@ -1,6 +1,6 @@
 import type { TextPartInput, FilePartInput } from "@opencode-ai/sdk/v2/client"
 import { encodeFilePath } from "../../../context/file/path"
-import { isExtractableDocFile, isTextInlineFile } from "../lib/upload"
+import { imageMimeFor, isExtractableDocFile, isTextInlineFile } from "../lib/upload"
 
 /**
  * insight prompt parts 组装骨架（SPEC-INS-027 / SPEC-INS-032 v2）
@@ -178,8 +178,9 @@ export interface AssembleInsightPartsInput {
   /** 可内联文件（本地 path；附件栏文件 + `@` 引用的会话文件合并后传入）→ FilePart(file://, text/plain)，
    *  opencode 组 prompt 时自动 Read 内联正文。非文本类由 isTextInlineFile 反向排除，重复 path 只取一次 */
   textInlineFiles?: InlineFileInput[]
-  /** 图片（S3 url）→ vision FilePart{url}，交多模态模型看 */
-  imageFiles?: Array<{ filename: string; mime?: string; url: string }>
+  /** 图片（本地 path）→ vision FilePart{url:file://…}，server 端 resolvePart 读盘转 base64 落库；
+   *  非多模态由 opencode stripMedia 换占位 */
+  imageFiles?: Array<{ filename: string; mime?: string; path: string }>
   /** decideInlineStrategy 的结果。不传则内部按同一批文件现算（两个调用方都会传，留默认是为了单测好写） */
   inlineDecision?: InlineDecision
 }
@@ -187,7 +188,8 @@ export interface AssembleInsightPartsInput {
 export interface AssembledInsightParts {
   /** 发送用完整 parts */
   parts: Array<TextPartInput | FilePartInput>
-  /** 图片 FilePart（供调用方做 optimistic 镜像，避免重复映射） */
+  /** 图片 FilePart（已含 file:// url；调用方不再做 optimistic 镜像——server 落库后是 data: URL，
+   *  形态不同会导致 insight-turn 按 url 去重失效而画两张图） */
   imageParts: FilePartInput[]
   /** 本轮的内联判定（调用方据此打点 / 提示，与实际产出的 FilePart 严格一致） */
   inlineDecision: InlineDecision
@@ -216,11 +218,15 @@ export function assembleInsightParts(input: AssembleInsightPartsInput): Assemble
     }
   }
 
-  // ③ 图片 → vision FilePart{url:S3}（非多模态由 opencode stripMedia 换占位）
+  // ③ 图片 → vision FilePart{url:file://…}（2026-09 去 S3：与非图片同链路导入 worktree 拿本地 path；
+  // server 端 prompt.ts resolvePart 的 file: case 读盘转 base64 落库，历史轮用持久化的 data: URL）。
+  // 非多模态由 opencode stripMedia 换占位。编码与 ① txt/md 内联同款 encodeFilePath，Windows 路径同链路验证过。
+  // mime 缺省兜底按扩展名查表(imageMimeFor):笼统给 image/png 会把 jpg/gif/webp 错标成 png,
+  // 落库 media_type 与字节不符。
   const imageParts: FilePartInput[] = (input.imageFiles ?? []).map((a) => ({
     type: "file" as const,
-    mime: a.mime || "image/png",
-    url: a.url,
+    mime: a.mime || imageMimeFor(a.filename, "image/png"),
+    url: `file://${encodeFilePath(a.path)}`,
     filename: a.filename,
   }))
   parts.push(...imageParts)

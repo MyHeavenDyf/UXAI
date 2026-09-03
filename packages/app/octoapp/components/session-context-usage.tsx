@@ -1,7 +1,7 @@
 import { Match, Show, Switch, createMemo } from "solid-js"
 import { Tooltip, type TooltipProps } from "@opencode-ai/ui/tooltip"
-import { ProgressCircle } from "@opencode-ai/ui/progress-circle"
 import { Button } from "@opencode-ai/ui/button"
+import { ContextUsageCircle } from "@/components/context-usage-circle"
 
 import { useFile } from "@/context/file"
 import { useLayout } from "@/context/layout"
@@ -73,9 +73,7 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
   }
 
   const circle = () => (
-    <div class="flex items-center justify-center">
-      <ProgressCircle size={16} strokeWidth={2} percentage={context()?.usage ?? 0} />
-    </div>
+    <ContextUsageCircle percentage={context()?.usage} />
   )
 
   const tooltipValue = () => (

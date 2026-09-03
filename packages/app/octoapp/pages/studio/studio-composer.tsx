@@ -86,6 +86,7 @@ export function StudioComposer(props: {
   onRemoveVideoFrame: (slot: StudioVideoFrameSlot) => void
   onSwapVideoFrames: () => void
   onToolClick?: () => void
+  inputApi?: { serialize: () => string; serializeText: () => string; serializeMentionImages: () => Record<string, string>; restore: (html: string) => void }
 }): JSX.Element {
   const platform = usePlatform()
   let inputRef!: HTMLDivElement
@@ -142,6 +143,21 @@ export function StudioComposer(props: {
     inputRef.style.height = "auto"
     inputRef.style.height = `${Math.min(inputRef.scrollHeight, 180)}px`
   }
+  const attachMentionHover = (chip: HTMLElement, asset: StudioAsset) => {
+    const img = chip.querySelector("img")
+    if (!img) return
+    const name = asset.name.replace(/\.[^.]+$/, "")
+    chip.addEventListener("mouseenter", () => {
+      const rect = img.getBoundingClientRect()
+      const size = 140
+      let left = rect.left + rect.width / 2 - size / 2
+      let top = rect.top - size - 8
+      left = Math.max(8, Math.min(left, window.innerWidth - size - 8))
+      if (top < 8) top = 8
+      setRefPreview({ src: asset.dataUrl, name, left, top })
+    })
+    chip.addEventListener("mouseleave", () => setRefPreview(null))
+  }
   const insertMention = (asset: StudioAsset) => {
     if (!inputRef) return
     inputRef.focus()
@@ -177,16 +193,7 @@ export function StudioComposer(props: {
     label.className = "studio-composer-at-chip-name"
     label.textContent = name
     chip.appendChild(label)
-    chip.addEventListener("mouseenter", () => {
-      const rect = img.getBoundingClientRect()
-      const size = 140
-      let left = rect.left + rect.width / 2 - size / 2
-      let top = rect.top - size - 8
-      left = Math.max(8, Math.min(left, window.innerWidth - size - 8))
-      if (top < 8) top = 8
-      setRefPreview({ src: asset.dataUrl, name, left, top })
-    })
-    chip.addEventListener("mouseleave", () => setRefPreview(null))
+    attachMentionHover(chip, asset)
     range.insertNode(chip)
     const tail = document.createTextNode("\u200B")
     chip.after(tail)
@@ -431,6 +438,50 @@ export function StudioComposer(props: {
 
   onMount(() => {
     if (inputRef && props.prompt && !isTemplatePromptDisabled() && !isRecipeTemplate()) inputRef.innerText = props.prompt
+    if (props.inputApi) {
+      props.inputApi.serialize = () => inputRef?.innerHTML ?? ""
+      props.inputApi.serializeText = () => {
+        if (!inputRef) return ""
+        let result = ""
+        const walk = (node: Node) => {
+          if (node.nodeType === Node.TEXT_NODE) result += node.textContent ?? ""
+          else if (node.nodeType === Node.ELEMENT_NODE) {
+            const el = node as HTMLElement
+            if (el.classList.contains("studio-composer-at-chip")) {
+              result += "@" + (el.getAttribute("data-mention") ?? "")
+              return
+            }
+            if (el.tagName === "BR") result += "\n"
+            Array.from(el.childNodes).forEach(walk)
+          }
+        }
+        Array.from(inputRef.childNodes).forEach(walk)
+        return result
+      }
+      props.inputApi.serializeMentionImages = () => {
+        if (!inputRef) return {}
+        const map: Record<string, string> = {}
+        for (const chip of inputRef.querySelectorAll<HTMLElement>(".studio-composer-at-chip")) {
+          const name = chip.getAttribute("data-mention") ?? ""
+          const img = chip.querySelector("img")
+          if (name && img) map[name] = img.src
+        }
+        return map
+      }
+      props.inputApi.restore = (html) => {
+        if (!inputRef) return
+        inputRef.innerHTML = html
+        const byName = new Map(referenceAssets().map((a) => [a.name.replace(/\.[^.]+$/, ""), a]))
+        for (const chip of inputRef.querySelectorAll<HTMLElement>(".studio-composer-at-chip")) {
+          const asset = byName.get(chip.getAttribute("data-mention") ?? "")
+          if (asset) attachMentionHover(chip, asset)
+        }
+        const text = inputRef.innerText.replace(/\u200B/g, "")
+        if (text.trim() === "") inputRef.innerHTML = ""
+        props.onPrompt(text)
+        queueMicrotask(resizeInput)
+      }
+    }
     requestAnimationFrame(() => {
       checkToolbarOverflow()
       resizeInput()
@@ -458,9 +509,28 @@ export function StudioComposer(props: {
     const prompt = props.prompt
     if (!inputRef || isTemplatePromptDisabled() || isRecipeTemplate()) return
     if (prompt !== inputRef.innerText.replace(/\u200B/g, "")) {
-      inputRef.innerText = prompt
+      if (prompt === "") inputRef.innerHTML = ""
+      else inputRef.innerText = prompt
       queueMicrotask(resizeInput)
     }
+  })
+  createEffect(() => {
+    const assets = referenceAssets()
+    if (!inputRef) return
+    const validNames = new Set(assets.map((a) => a.name.replace(/\.[^.]+$/, "")))
+    let changed = false
+    for (const chip of inputRef.querySelectorAll<HTMLElement>(".studio-composer-at-chip")) {
+      if (validNames.has(chip.getAttribute("data-mention") ?? "")) continue
+      const next = chip.nextSibling
+      if (next && next.nodeType === Node.TEXT_NODE && (next.textContent ?? "")[0] === "\u200B") next.remove()
+      chip.remove()
+      changed = true
+    }
+    if (!changed) return
+    const text = inputRef.innerText.replace(/\u200B/g, "")
+    if (text.trim() === "") inputRef.innerHTML = ""
+    props.onPrompt(text)
+    resizeInput()
   })
 
   createEffect(() => {
@@ -908,43 +978,50 @@ export function StudioComposer(props: {
               <Show
                 when={isRecipeTemplate()}
                 fallback={
-                  <div
-                    ref={inputRef}
-                    class="studio-composer-input"
-                    contenteditable={!isEditingCapability()}
-                    data-placeholder={isVideoGeneration() ? undefined : isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : isSeedreamModel() ? "上传参考图、输入文字或@主体，描述你想生成的图片。" : "上传参考图、输入文字，描述你想生成的图片。"}
-                    onInput={() => {
-                      const text = inputRef.innerText.replace(/\u200B/g, "")
-                      if (text.trim() === "") inputRef.innerHTML = ""
-                      props.onPrompt(text)
-                      resizeInput()
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && isImeComposing(event)) return
-                      if (event.key === "Backspace" && !isImeComposing(event) && deleteMentionBeforeCaret()) {
-                        event.preventDefault()
+                  <>
+                    <div
+                      ref={inputRef}
+                      class="studio-composer-input"
+                      contenteditable={!isEditingCapability()}
+                      data-placeholder={isVideoGeneration() ? undefined : isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : isSeedreamModel() ? "上传参考图、输入文字或@主体，描述你想生成的图片。" : "上传参考图、输入文字，描述你想生成的图片。"}
+                      onInput={() => {
                         const text = inputRef.innerText.replace(/\u200B/g, "")
                         if (text.trim() === "") inputRef.innerHTML = ""
                         props.onPrompt(text)
                         resizeInput()
-                        return
-                      }
-                      if (event.key === "@" && !isImeComposing(event) && isImageGeneration() && isSeedreamModel()) {
-                        atTriggeredByTyping = true
-                        props.onOpenMenu(null)
-                        setVideoModeOpen(false)
-                        setAtMenuOpen(true)
-                      }
-                      props.onKeyDown(event)
-                    }}
-                    onCompositionStart={() => setComposing(true)}
-                    onCompositionEnd={() => {
-                      setComposing(false)
-                      props.onPrompt(inputRef.innerText.replace(/\u200B/g, ""))
-                    }}
-                    onBlur={() => setComposing(false)}
-                    onPaste={handlePaste}
-                  />
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && isImeComposing(event)) return
+                        if (event.key === "Backspace" && !isImeComposing(event) && deleteMentionBeforeCaret()) {
+                          event.preventDefault()
+                          const text = inputRef.innerText.replace(/\u200B/g, "")
+                          if (text.trim() === "") inputRef.innerHTML = ""
+                          props.onPrompt(text)
+                          resizeInput()
+                          return
+                        }
+                        if (event.key === "@" && !isImeComposing(event) && isImageGeneration() && isSeedreamModel()) {
+                          atTriggeredByTyping = true
+                          props.onOpenMenu(null)
+                          setVideoModeOpen(false)
+                          setAtMenuOpen(true)
+                        }
+                        props.onKeyDown(event)
+                      }}
+                      onCompositionStart={() => setComposing(true)}
+                      onCompositionEnd={() => {
+                        setComposing(false)
+                        props.onPrompt(inputRef.innerText.replace(/\u200B/g, ""))
+                      }}
+                      onBlur={() => setComposing(false)}
+                      onPaste={handlePaste}
+                    />
+                    <Show when={!isVideoGeneration() && !props.prompt}>
+                      <div class="studio-composer-input-placeholder">
+                        {isEditingCapability() ? "请前往编辑区，在右侧进行编辑" : isSeedreamModel() ? "上传参考图、输入文字或@主体，描述你想生成的图片。" : "上传参考图、输入文字，描述你想生成的图片。"}
+                      </div>
+                    </Show>
+                  </>
                 }
               >
                 <div

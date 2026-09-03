@@ -34,7 +34,10 @@ import { LocalProvider, useLocal } from "@/context/local"
 import { useTabModel } from "@/hooks/use-tab-model"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { useLanguage } from "@/context/language"
-import { ModelSelectorPopover } from "@/components/dialog-select-model"
+import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } from "@/components/dialog-select-model"
+import { MakeModelRiskDialog } from "@/pages/make/make-model-risk-dialog"
+import { ComplianceNotice } from "@/components/compliance-notice"
+import { useUploadRiskGate } from "@/components/upload-risk-gate"
 import { AttachmentBar, type Attachment } from "./components/attachment-bar"
 import { ConversationHeader } from "./components/conversation-header"
 import { InsightSidebar, initialSidebarWidth } from "./sidebar"
@@ -58,7 +61,8 @@ import {
 } from "./store/mcp-trigger"
 import { IllustrationInsightEmpty, IconSendBlue, IconStopBlue } from "./icons/illustrations"
 import { NewSessionView } from "@/components/session"
-import { uploadFile, validateFile, formatUploadsForPrompt, formatMentionedFilesForPrompt, formatDispatchNote, parseUploadedFiles, isImageFile, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE, MENTION_BLOCK_HEADER } from "./lib/upload"
+import { validateFile, formatUploadsForPrompt, formatMentionedFilesForPrompt, formatDispatchNote, parseUploadedFiles, isImageFile, imageMimeFor, UploadError, ALLOWED_EXT, MAX_UPLOAD_SIZE, MENTION_BLOCK_HEADER } from "./lib/upload"
+import { importFileToWorktree } from "./utils/worktree-import"
 import { installInsightDebug, type SendRecord } from "./lib/debug-observer"
 import { getDesktopApi } from "./lib/electron-api"
 import { copyLastError, recordError, setBeaconContext } from "./lib/error-beacon"
@@ -144,12 +148,17 @@ export default function InsightPage() {
 // 单轮对话最多上传文件数(超出提示分多轮处理)
 const MAX_ATTACHMENTS = 10
 
+// insight 图片专用上限(评审 P1,2026-09):图片走 base64 落库+每轮重发(膨胀 ~33%),且多数
+// provider 单图 base64 有 ~5MB 量级硬上限,超限发送必失败且消息已落库。只拦 insight 本页
+// (make 页走 S3 无此约束,共用 validateFile 会波及,故加在调用点)。
+const INSIGHT_IMAGE_MAX = 5 * 1024 * 1024
+
 // 文件选择器 accept:从 ALLOWED_EXT 派生(与 validateFile 同一事实源)。
 // 仅是原生弹窗的预过滤提示,不做强制——拖拽绕过它,校验仍以 validateFile 为准。
 const UPLOAD_ACCEPT = ALLOWED_EXT.map((e) => `.${e}`).join(",")
 
 // 添加附件按钮的 tooltip 提示:支持的文件类型 + 大小 + 数量上限(均从常量派生)。
-const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)}MB，最多 ${MAX_ATTACHMENTS} 个`
+const UPLOAD_HINT = `支持 ${ALLOWED_EXT.join("、")}，单个 ≤ ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)}MB（图片 ≤ ${Math.round(INSIGHT_IMAGE_MAX / 1024 / 1024)}MB），最多 ${MAX_ATTACHMENTS} 个`
 
 // 刷新保路由:打包态 Electron 走 file://(dev 的 electron reload 同样不走 SPA 兜底),整页
 // 重载会丢失 /insight/:id 路由、回退到首页。这里把"当前所在对话"持久化,boot 落在无 id 的
@@ -908,8 +917,9 @@ function InsightContent() {
   }
 
   // SPEC-INS-014 §10.1:文件管理面板操作回调(对齐 Design)。
-  /** 添加至会话区:作为已就绪附件加入输入区。图片走 ③ S3 上传(拿 url),非图片带 path 进 [附件] 清单。 */
-  async function addInsightFileToSession(file: InsightFile) {
+  /** 添加至会话区:作为已就绪附件加入输入区。图片与非图片同链路(2026-09 去 S3):已落盘、有 path
+   *  → done;发送时图片产 FilePart{url:file://…}(服务端读盘转 base64)、非图片进 [附件] 清单。 */
+  function addInsightFileToSession(file: InsightFile) {
     if (attachments().some((a) => a.path === file.path)) {
       showToast({ title: "已添加", description: file.name })
       return
@@ -918,41 +928,26 @@ function InsightContent() {
       showToast({ title: "附件数量已达上限", description: `最多 ${MAX_ATTACHMENTS} 个附件` })
       return
     }
-    const id = crypto.randomUUID()
-    // 图片必须走 ③ vision FilePart{url:S3}:发送时 imageFiles 过滤要求 url,而文件管理里的图片只有本地 path。
-    // 先读盘 → 构造 File → 复用输入框选图那条 doImageUpload 链路(含 uploading 态 / 失败重试 / S3 上传拿 url)。
-    // 不这么做,图片会同时漏出 imageFiles(无 url)和 localFiles(isImageFile 被排除)两个分流 → 静默丢失。
-    if (file.kind === "image") {
-      const api = getDesktopApi()
-      const buffer = typeof api?.readFileBuffer === "function" ? await api.readFileBuffer(file.path) : null
-      if (!buffer) {
-        console.warn("[octo:upload] add-to-session read image failed", { path: file.path })
-        showToast({ title: "添加失败", description: "无法读取图片文件，请重试", variant: "error" })
-        return
-      }
-      const imgFile = new File([buffer], file.name, { type: file.mime || "image/png" })
-      filesById.set(id, imgFile) // 重试用(retryUpload 从 filesById 取原 File 重传)
-      setAttachments((prev) => [...prev, {
-        id,
-        filename: file.name,
-        mime: file.mime || "image/png",
-        size: file.size,
-        status: "uploading",
-        path: file.path, // 供去重(a.path === file.path)与删文件后按路径清附件;imageFiles 分流只认 url
-        // 图片给 local:// 缩略图(附件条 FileTypeIcon 有 previewUrl 时渲染缩略图)。
-        previewUrl: pathToLocalUrl(file.path),
-      }])
-      void doImageUpload(id, imgFile) // 成功 → done + url;失败 → error + 可重试
+    // 图片专用上限(评审 P1):与 addAttachments 入口同一约束——超限图发送必失败且消息已落库,
+    // 不放进附件栏诱导一次注定失败的发送。
+    if (file.kind === "image" && file.size > INSIGHT_IMAGE_MAX) {
+      showToast({
+        title: "图片过大",
+        description: `图片超过 ${Math.round(INSIGHT_IMAGE_MAX / 1024 / 1024)}MB 上限，无法作为附件发送`,
+        variant: "error",
+      })
       return
     }
-    // 非图片(已落盘):直接作为已就绪附件进 [附件] 清单(给 ②extract_document 拿路径 / ④MCP 引用)。
+    const id = crypto.randomUUID()
+    // 图片给 local:// 缩略图(附件条 FileTypeIcon 有 previewUrl 时渲染缩略图);非图片走类型图标。
     setAttachments((prev) => [...prev, {
       id,
       filename: file.name,
-      mime: file.mime || "application/octet-stream",
+      mime: file.mime || imageMimeFor(file.name),
       size: file.size,
       status: "done",
       path: file.path,
+      ...(file.kind === "image" ? { previewUrl: pathToLocalUrl(file.path) } : {}),
     }])
     showToast({ title: "已添加附件", description: file.name, variant: "success", duration: 2000 })
   }
@@ -1162,20 +1157,21 @@ function InsightContent() {
     // 非图片(已导入 worktree、有本地 path):进 [附件] 清单(给 ②extract_document 拿路径 / ④MCP 引用)。
     // 降级场景(无 projectDir/非桌面)拿不到 path → 不进清单(本地读 + MCP 都用不了)。
     const localFiles = done.filter((a) => !isImageFile(a.filename) && a.path)
-    // 图片(已 change 即传拿到 S3 url):走 ③ vision FilePart{url},不进 [附件] 清单。
-    const imageFiles = done.filter((a) => isImageFile(a.filename) && a.url)
+    // 图片(已导入 worktree 拿到本地 path):走 ③ vision FilePart{url:file://…}(2026-09 去 S3),
+    // 不进 [附件] 清单。服务端 prompt.ts resolvePart 读盘转 base64 落库,历史轮用持久化的 data: URL。
+    const imageFiles = done.filter((a) => isImageFile(a.filename) && a.path)
 
     // SPEC-INS-014 §4.1.2(v2 新增):发送前把还落在预会话落地区(.octo/tmps/)的附件
     // rename 进真实会话目录(.octo/<sessionId>/uploads/)——此时 sessionId 已经 resolve。
-    // rename 是本地文件系统原子操作,失败(源文件在拷贝完成后被删/移动,极少见)不阻断发送,
-    // 该附件在 [附件] 清单里退化为指向预会话区的旧路径,仍可读。
+    // 图片与非图片同链路落 tmps(2026-09 起),一样要搬。rename 是本地文件系统原子操作,
+    // 失败(源文件在拷贝完成后被删/移动,极少见)不阻断发送,该附件退化为指向预会话区的旧路径,仍可读。
     const movedPaths = new Map<string, string>()
     {
       const api = getDesktopApi()
       const baseDir = projectDir()
       if (baseDir && typeof api?.movePendingUploadToSession === "function") {
         await Promise.all(
-          localFiles
+          done
             .filter((a) => a.path && isPendingUploadPath(a.path))
             .map(async (a) => {
               try {
@@ -1197,7 +1193,8 @@ function InsightContent() {
     // gate 在「有无本地附件」而非「movedPaths 是否非空」:刷新只依赖可靠事实(有附件),不耦合到
     // 搬迁判据(isPendingUploadPath)是否为真——判据一旦再脱节(如 v7 那次),附件进不去已是 bug,
     // 不该连带把可见性刷新也一起哑掉、放大故障。刷新幂等且廉价(纯文本发送 localFiles 为空、不触发)。
-    if (localFiles.length > 0) setFilesRefreshKey(k => k + 1)
+    // 图片 2026-09 起也落 uploads 目录,同样触发刷新。
+    if (localFiles.length > 0 || imageFiles.length > 0) setFilesRefreshKey(k => k + 1)
 
     // [附件] 清单:独立 synthetic text part(server toModelMessages 不过滤 → 模型可见;上游气泡不渲染
     // synthetic;InsightTurn 解析渲染成文件卡片)。清单只给文件名+本地路径,**不触发上传**。
@@ -1325,12 +1322,12 @@ function InsightContent() {
     // (同一文件既在本轮附件里、又被 `@` 引用时,由 decideInlineStrategy 按 path 去重,只内联一次)
     // SPEC-INS-032:inlineDecision 在上方算好(uploadBlock 之后需要它组 dispatchNote),此处传入
     // 复用同一份判定,避免「说明说没内联、实际却内联了」这种两套判定漂移。
-    const { parts, imageParts } = assembleInsightParts({
+    const { parts } = assembleInsightParts({
       text,
       syntheticTexts,
       textInlineFiles: inlineFiles,
       inlineDecision,
-      imageFiles: imageFiles.map((a) => ({ filename: a.filename, mime: a.mime, url: a.url! })),
+      imageFiles: imageFiles.map((a) => ({ filename: a.filename, mime: a.mime, path: resolvedPath(a) })),
     })
     const messageID = Identifier.ascending("message")
     const agent = INSIGHT_AGENT
@@ -1384,19 +1381,9 @@ function InsightContent() {
         synthetic: true,
       } as Part)
     }
-    // 图片 FilePart 也写入 optimistic → 缩略图乐观即显(InsightTurn 从图片 part 渲染);
-    // server 回传同构,替换后无闪烁。txt/md FilePart 不入(InsightTurn 不从 part 渲染它们,由 [附件] 卡片覆盖)。
-    for (const p of imageParts) {
-      optimisticParts.push({
-        id: Identifier.ascending("part"),
-        sessionID: sessionId,
-        messageID,
-        type: "file",
-        mime: p.mime,
-        url: p.url,
-        filename: p.filename,
-      } as Part)
-    }
+    // 图片 FilePart **不**镜像进 optimistic(2026-09 去 S3):server 落库后是 data: URL,与本地
+    // file:// 形态不同,insight-turn 按 url 去重会失效 → 同一张图画两遍。缩略图由 server part
+    // 事件(SSE)到达后渲染(本地 sidecar,延迟 <1s);txt/md FilePart 本就不镜像(由 [附件] 卡片覆盖)。
 
     console.log("[octo:prompt] send", {
       source: opts.source,
@@ -1410,7 +1397,7 @@ function InsightContent() {
       textLen: text.length,
       attachmentsCount: done.length,
       localFiles: localFiles.map((a) => ({ name: a.filename, path: resolvedPath(a) })),
-      images: imageFiles.map((a) => ({ name: a.filename, url: a.url })),
+      images: imageFiles.map((a) => ({ name: a.filename, path: resolvedPath(a) })),
     })
     // 完整 text 单独 dump(不截断),便于内网把怪 case 粘到外网定位
     console.log("[octo:prompt] send-full", {
@@ -1718,11 +1705,12 @@ function InsightContent() {
         ...(item.images ?? []).map((im) => ({
           id: crypto.randomUUID(),
           filename: im.filename,
-          mime: im.mime ?? "image/png",
+          mime: im.mime ?? imageMimeFor(im.filename),
           size: 0,
           status: "done" as const,
-          url: im.url,
-          previewUrl: im.url,
+          path: im.path,
+          // 还原后的缩略图走 local://(文件仍在会话 uploads 目录);原 S3 url 链路已移除。
+          previewUrl: pathToLocalUrl(im.path),
         })),
       ]
       setAttachments(restored)
@@ -1776,14 +1764,24 @@ function InsightContent() {
       // 合同 v2 保证（uuid key + 下载走自有域名，见 file-upload.md 顶部提案）。
       const file = rawFile
       const id = crypto.randomUUID()
-      const mime = file.type || "application/octet-stream"
       const ext = file.name.includes(".") ? file.name.split(".").pop()!.toLowerCase() : ""
+      // mime 兜底按**扩展名**查表(imageMimeFor,评审 P2 修复):粘贴/某些拖拽源 file.type 为空,
+      // 笼统给 image/png 会把 jpg/gif/webp 错标成 png,落库 media_type 与实际字节不符。
+      const mime = file.type || imageMimeFor(file.name)
       tracker.interaction({
         module: "insight",
         name: "attachment-add",
         extend: JSON.stringify({ method, fileType: ext, fileSize: file.size }),
       })
-      const validationErr = validateFile(file)
+      // insight 图片专用上限(评审 P1):新链路图片走 base64 落库+每轮重发(膨胀 ~33%),且多数
+      // provider 单图 base64 有 ~5MB 量级硬上限——超限图发送必失败且消息已落库,之后每轮重发
+      // 都撞墙。**只拦 insight**:加在调用点而非共用的 validateFile(make 页走 S3,无此约束,
+      // 共用会被波及)。超限与其他客户端校验失败同款 error chip(retriable:false,重试同错)。
+      const insightImageErr =
+        isImageFile(file.name) && file.size > INSIGHT_IMAGE_MAX
+          ? `图片超过 ${Math.round(INSIGHT_IMAGE_MAX / 1024 / 1024)}MB 上限，请压缩后重新上传`
+          : null
+      const validationErr = validateFile(file) ?? (insightImageErr ? new UploadError("FILE_TOO_LARGE", insightImageErr) : null)
       if (validationErr) {
         // 客户端校验失败:不存 File,标 retriable=false → chip 不显示重试,只能删除重选
         console.warn("[octo:upload] client-validate rejected", {
@@ -1796,72 +1794,72 @@ function InsightContent() {
         continue
       }
       // SPEC-INS-015 路由分流(spec docs/specs/infra/insight-file-passing.md):
-      //   图片(③)→ change 即传 S3 + 本地 objectURL 缩略图;非图片 → 导入 worktree(本地路径,供 ②/④)。
+      //   图片(③)与非图片同链路导入 worktree 拿本地 path(2026-09 去 S3)——图片不再 change 即传,
+      //   发送时产出 vision FilePart{url:file://…},服务端读盘转 base64。区别只在图片给即时
+      //   objectURL 缩略图(附件条 FileTypeIcon 有 previewUrl 时渲染)。
+      // filesById 存原始 rawFile:导入靠它取真实本地路径,重试复用。展示名走 filename。
       const image = isImageFile(file.name)
-      if (image) {
-        // filesById 存原 file(重传用);objectURL 本地秒显缩略图。
-        filesById.set(id, file)
-        const previewUrl = URL.createObjectURL(file)
-        setAttachments((prev) => [
-          ...prev,
-          { id, filename: file.name, mime, size: file.size, status: "uploading", previewUrl },
-        ])
-        void doImageUpload(id, file)
-      } else {
-        // filesById 存原始 rawFile:导入靠它取真实本地路径,重试复用。展示名走 filename。
-        filesById.set(id, rawFile)
-        setAttachments((prev) => [
-          ...prev,
-          { id, filename: file.name, mime, size: file.size, status: "uploading" },
-        ])
-        // 非图片不 eager 上传:只拷进 .octo/tmps(预会话落地区本地副本,SPEC-INS-014 §4.1.2)。
-        // done 带 path,发送时进 [附件] 清单 + rename 进 .octo/<sessionId>/uploads(见 doSendPrompt);
-        // 插件在模型调 MCP 时才按需上传(④)。
-        void doImport(id, rawFile, file.name)
-      }
+      filesById.set(id, rawFile)
+      const previewUrl = image ? URL.createObjectURL(rawFile) : undefined
+      setAttachments((prev) => [
+        ...prev,
+        { id, filename: file.name, mime, size: file.size, status: "uploading", previewUrl },
+      ])
+      // 不 eager 上传:只拷进 .octo/tmps(预会话落地区本地副本,SPEC-INS-014 §4.1.2)。
+      // done 带 path,发送时非图片进 [附件] 清单、图片产 FilePart{url:file://},
+      // 都 rename 进 .octo/<sessionId>/uploads(见 doSendPrompt);插件在模型调 MCP 时才按需上传(④)。
+      void doImport(id, rawFile, file.name)
     }
   }
 
-  // ③ 图片:change 即传 S3。成功 → done + url(发送时产出 vision FilePart{url});失败 → retriable。
-  // 不拷进 uploads、不进 [附件] 清单——图片只供模型"看",不参与本地读 / MCP。
-  async function doImageUpload(id: string, file: File) {
-    try {
-      const result = await uploadFile(file)
-      tracker.interaction({ module: "insight", name: "attachment-upload-result", extend: JSON.stringify({ success: true, kind: "image" }) })
-      setAttachments((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, status: "done", url: result.url, error: undefined } : a)),
-      )
-    } catch (err) {
-      const message = err instanceof UploadError ? err.message : err instanceof Error ? err.message : "上传失败"
-      console.error("[octo:upload] image-upload failed", { id, filename: file.name, err })
-      tracker.interaction({
-        module: "insight",
-        name: "attachment-upload-result",
-        extend: JSON.stringify({ success: false, kind: "image", errorCode: err instanceof UploadError ? err.code : "UNKNOWN" }),
-      })
-      setAttachments((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, status: "error", error: message, retriable: true } : a)),
-      )
-    }
-  }
-
-  // 把源文件导入 worktree 的 .octo/tmps/(SPEC-INS-014 §4.1 磁盘流式拷贝,原样不转格式,预会话落地区),
-  // 拿到本地绝对路径写进附件(SPEC-INS-015:供 [本地文件] 注入块,插件按需上传 S3)。
-  //   - 成功:status=done + path
-  //   - 真失败(copyFileToWorktree 抛错):status=error + retriable,chip 显示重试
-  //   - 降级(无 projectDir / 非桌面 / 拿不到真实路径,如剪贴板内存 blob):status=done 但**无 path**,
-  //     不报错(不破坏 __dev),该文件不进注入块、MCP 不可用
+  // 把源文件(图片与非图片同链路)导入 worktree 的 .octo/tmps/(SPEC-INS-014 §4.1 磁盘流式拷贝,
+  // 原样不转格式,预会话落地区),拿到本地绝对路径写进附件(SPEC-INS-015:非图片供 [附件] 清单/
+  // 插件按需上传 S3;图片发送时产 FilePart{url:file://},服务端读盘转 base64)。
+  //   - 成功:status=done + path(磁盘来源走拷贝;剪贴板内存 blob 走 writeFileToWorktree 字节写入)
+  //   - 真失败(拷贝/写入抛错):status=error + retriable(瞬态错误,重试有意义),打点 success:false
+  //   - 降级(无 projectDir / 非桌面 / preload 未暴露写入 IPC)——环境性条件,重试必然同错:
+  //     非图片 → done 但无 path,不报错(不破坏 __dev),该文件不进清单、MCP 不可用,打点 localized:false;
+  //     图片   → 标 error + retriable:false(无 path = 发送必静默丢,响亮失败;引导改走文件选择器),
+  //              打点 success:false + reason 对齐 UI(2026-09 修复:此前报 success:true 与 error chip 矛盾)
   async function doImport(id: string, rawFile: File, filename: string) {
+    const kind = isImageFile(filename) ? ("image" as const) : ("file" as const)
     try {
       const dest = await copySourceToWorktree(filename, rawFile)
-      tracker.interaction({
-        module: "insight",
-        name: "attachment-import-result",
-        extend: JSON.stringify({ success: true, localized: !!dest }),
-      })
       if (!dest) {
-        console.warn("[octo:upload] imported without local path (degraded: no projectDir / non-desktop / blob)", {
+        console.warn("[octo:upload] imported without local path (degraded: no projectDir / non-desktop / old preload)", {
           id, filename,
+        })
+        if (isImageFile(filename)) {
+          tracker.interaction({
+            module: "insight",
+            name: "attachment-import-result",
+            extend: JSON.stringify({ success: false, kind, reason: "no-local-path" }),
+          })
+          setAttachments((prev) =>
+            prev.map((a) =>
+              a.id === id
+                ? {
+                    ...a,
+                    status: "error",
+                    error: "当前环境无法导入该图片，请从文件选择器选择文件",
+                    retriable: false,
+                  }
+                : a,
+            ),
+          )
+          return
+        }
+        // 非图片降级:done 但无 path(UI 与打点口径一致——导入"成功"但未本地化)
+        tracker.interaction({
+          module: "insight",
+          name: "attachment-import-result",
+          extend: JSON.stringify({ success: true, localized: false, kind }),
+        })
+      } else {
+        tracker.interaction({
+          module: "insight",
+          name: "attachment-import-result",
+          extend: JSON.stringify({ success: true, localized: true, kind }),
         })
       }
       // 展示名/清单名对齐磁盘落地名(sanitize + 撞名后缀以磁盘为准)。三名不一致时,模型可能从
@@ -1880,7 +1878,7 @@ function InsightContent() {
       tracker.interaction({
         module: "insight",
         name: "attachment-import-result",
-        extend: JSON.stringify({ success: false }),
+        extend: JSON.stringify({ success: false, kind, reason: "write-failed" }),
       })
       // 已发起过导入(rawFile 在 filesById):标 retriable=true → chip 显示重试
       setAttachments((prev) =>
@@ -1889,23 +1887,12 @@ function InsightContent() {
     }
   }
 
-  // 把源文件拷贝进 worktree 的 .octo/tmps/(预会话落地区,磁盘流式拷贝,原样不转格式),返回本地绝对路径。
-  // 不需要 sessionId——选中时可能还没有真实会话(欢迎页);发送时统一由 doSendPrompt rename 进真会话目录(§4.1.2)。
-  //   - 无 projectDir / 非桌面端(无 getPathForFile / copyFileToWorktree)/ 拿不到真实路径 → 返回 null(降级)
-  //   - copyFileToWorktree 抛错(真失败)→ 向上抛,由 doImport 转成可重试错误
+  // 把源文件拷贝进 worktree 的 .octo/tmps/(预会话落地区),返回本地绝对路径。不需要 sessionId
+  // (选中时可能还没有真实会话,发送时统一由 doSendPrompt rename 进真会话目录 §4.1.2)。
+  // 实现在 utils/worktree-import.ts(注入依赖的纯函数,四分支有单测覆盖,评审 P2-2);
+  // 本函数只是注入 getDesktopApi()/projectDir() 的薄壳。
   async function copySourceToWorktree(filename: string, srcFile: File): Promise<string | null> {
-    const api = getDesktopApi()
-    const baseDir = projectDir()
-    if (!baseDir || typeof api?.getPathForFile !== "function" || typeof api?.copyFileToWorktree !== "function") return null
-    let srcPath = ""
-    try {
-      srcPath = api.getPathForFile(srcFile)
-    } catch {
-      // 取不到真实路径(如剪贴板内存 blob,无落盘来源)→ 降级
-    }
-    if (!srcPath) return null
-    // copyFileToWorktree 返回落地后的本地绝对路径(撞名已加后缀);抛错则上抛
-    return api.copyFileToWorktree(srcPath, baseDir, filename)
+    return importFileToWorktree({ filename, file: srcFile }, { baseDir: projectDir(), api: getDesktopApi() })
   }
 
   function removeAttachment(id: string) {
@@ -1933,14 +1920,9 @@ function InsightContent() {
     setAttachments((prev) =>
       prev.map((a) => (a.id === id ? { ...a, status: "uploading", error: undefined, retriable: undefined } : a)),
     )
-    // 按文件类型走对应重试:图片重传 S3,非图片重新导入 worktree。
-    if (isImageFile(att.filename)) {
-      console.log("[octo:upload] retry image-upload", { id, filename: att.filename })
-      void doImageUpload(id, file)
-    } else {
-      console.log("[octo:upload] retry import", { id, filename: att.filename })
-      void doImport(id, file, att.filename)
-    }
+    // 图片与非图片同链路:重新导入 worktree(2026-09 起图片不再有独立的 S3 重传路径)。
+    console.log("[octo:upload] retry import", { id, filename: att.filename })
+    void doImport(id, file, att.filename)
   }
 
   function handleFileInputChange(e: Event) {
@@ -1978,8 +1960,10 @@ function InsightContent() {
     e.preventDefault()
     setIsDragOver(false)
     if (!isExternalFileDrag(e)) return
+    // 同步取出 File 对象引用(drop 结束后 DataTransfer 会被清空);File 对象本身仍有效。
     const files = Array.from(e.dataTransfer?.files ?? [])
-    if (files.length > 0) addAttachments(files, "drop")
+    if (files.length === 0) return
+    request(() => addAttachments(files, "drop"))
   }
 
   // 粘贴文件(与 chat 一致):截获剪贴板里的文件本体走附件上传,格式是否支持交给
@@ -2228,6 +2212,12 @@ function InsightContent() {
     return attachments().some((a) => a.status === "uploading")
   }
 
+  const { request, gate } = useUploadRiskGate()
+  function requestAttachmentUpload() {
+    if (maxAttachments()) return
+    request(() => fileInputRef.click())
+  }
+
   // ResultViewer 渲染在两处复用:常态 inline(不传 onCollapse,TabBar 无收起按钮;收起由会话 header「文件管理」按钮触发)与窄屏抽屉(收起按钮=关抽屉)。
   // 二者按宽度互斥挂载(抽屉仅在 rightCollapsed 时可开,此时 inline 的 panelInline 恒为 false)。
   const renderResultViewer = (onCollapse?: () => void) => (
@@ -2385,7 +2375,7 @@ function InsightContent() {
                         >
                           <button
                             type="button"
-                            onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                            onClick={requestAttachmentUpload}
                             disabled={maxAttachments()}
                             class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
                             aria-label="添加附件"
@@ -2395,20 +2385,17 @@ function InsightContent() {
                         </Tooltip>
 
                         <ModelSelectorPopover
-                          model={local.model}
+                          model={local.model} riskDialog={MakeModelRiskDialog}
                           triggerAs="button"
                           triggerProps={{
-                            class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
+                            class: `${MODEL_TRIGGER_BASE_CLASS} max-w-[200px]`,
                             "data-action": "prompt-model",
                           }}
                           onClose={() => focusComposer()}
                         >
                           {/* 不渲染 ProviderIcon:内网自部署的 provider id 不在 ui sprite 内会落到
                               synthetic 占位图标,跟 UXAI chat 一致(屏蔽 icon 只显示模型名)。 */}
-                          <span class="truncate">
-                            {local.model.current()?.name ?? "选择模型"}
-                          </span>
-                          <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
+                          <ModelTriggerLabel model={local.model} />
                         </ModelSelectorPopover>
 
                         {/* 「研究工具」MCP 显式入口(SPEC-INS-017 §1,设计稿:位于模型选择器右侧) */}
@@ -2442,6 +2429,9 @@ function InsightContent() {
                         />
                       </div>
                     </div>
+                    <Show when={local.model.current()?.isExternal}>
+                      <ComplianceNotice />
+                    </Show>
                   </div>
                 </div>
                 </Show>
@@ -2625,7 +2615,7 @@ function InsightContent() {
                     >
                       <button
                         type="button"
-                        onClick={() => { if (!maxAttachments()) fileInputRef.click() }}
+                        onClick={requestAttachmentUpload}
                         disabled={maxAttachments()}
                         class="flex flex-shrink-0 items-center justify-center size-8 rounded-full transition-colors hover:bg-black/5 active:bg-black/10 text-gray-800 hover:text-black disabled:text-gray-400"
                         aria-label="添加附件"
@@ -2635,20 +2625,17 @@ function InsightContent() {
                     </Tooltip>
 
                     <ModelSelectorPopover
-                      model={local.model}
+                      model={local.model} riskDialog={MakeModelRiskDialog}
                       triggerAs="button"
                       triggerProps={{
-                        class: "flex items-center gap-1.5 min-w-0 max-w-[200px] bg-[#f3f3f3] hover:bg-[#e8e8e8] active:bg-[#dedede] transition-colors px-3 py-1.5 rounded-full text-[13px] text-gray-800 font-medium group",
+                        class: `${MODEL_TRIGGER_BASE_CLASS} max-w-[200px]`,
                         "data-action": "prompt-model",
                       }}
                       onClose={() => focusComposer()}
                     >
                       {/* 不渲染 ProviderIcon:内网自部署的 provider id 不在 ui sprite 内会落到
                           synthetic 占位图标,跟 UXAI chat 一致(屏蔽 icon 只显示模型名)。 */}
-                      <span class="truncate">
-                        {local.model.current()?.name ?? "选择模型"}
-                      </span>
-                      <Icon name="chevron-down" class="size-3.5 shrink-0 transition-transform duration-150 group-aria-[expanded=true]:-rotate-180" style="color: #000" />
+                      <ModelTriggerLabel model={local.model} />
                     </ModelSelectorPopover>
 
                     {/* 「研究工具」MCP 显式入口(SPEC-INS-017 §1,设计稿:位于模型选择器右侧) */}
@@ -2682,6 +2669,9 @@ function InsightContent() {
                     />
                   </div>
                 </div>
+                <Show when={local.model.current()?.isExternal}>
+                  <ComplianceNotice />
+                </Show>
               </div>
             </Show>
 
@@ -2726,6 +2716,8 @@ function InsightContent() {
           </div>
         </Show>
       </div>
+
+      {gate}
     </DataProvider>
   )
 }

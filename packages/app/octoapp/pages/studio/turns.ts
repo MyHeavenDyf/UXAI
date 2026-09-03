@@ -15,6 +15,7 @@ export type StudioTurnData = {
   toolName?: string
   toolRunning?: boolean
   inputImages?: StudioInputImage[]
+  mentionImages?: Record<string, string>
   result?: StudioGenerationResult
   createdAt: number
   isLatest: boolean
@@ -218,6 +219,12 @@ function recordField(record: Record<string, unknown> | undefined, key: string) {
 function stringArrayField(value: unknown) {
   if (!Array.isArray(value)) return []
   return value.filter((item): item is string => typeof item === "string" && item.length > 0)
+}
+
+function stringRecordField(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  const entries = Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === "string")
+  return entries.length ? Object.fromEntries(entries) : undefined
 }
 
 function inputImageRef(value: unknown) {
@@ -456,6 +463,7 @@ function buildResult(input: {
     return "1:1" // neutral fallback for edits (most preserve the input aspect ratio)
   })()
   const extra = recordField(inputRecord, "extra")
+  const mentionImages = stringRecordField(extra?.mentionImages)
   const size = recordField(inputRecord, "target_size")
   const width = size ? numberField(size, "width") : numberField(inputRecord, "width") ?? numberField(extra, "width")
   const height = size ? numberField(size, "height") : numberField(inputRecord, "height") ?? numberField(extra, "height")
@@ -487,6 +495,7 @@ function buildResult(input: {
     userText: displayPrompt || extractUserDemand(input.userText),
     assistantText: input.assistantText,
     inputImages,
+    mentionImages,
     toolTitle: media.length > 0
       ? capability === "video.generate" ? "视频生成完成" : "图片生成完成"
       : running

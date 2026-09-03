@@ -13,6 +13,7 @@ import { MCP } from "../mcp"
 import { Skill } from "../skill"
 import PROMPT_INITIALIZE from "./template/initialize.txt"
 import PROMPT_REVIEW from "./template/review.txt"
+import PROMPT_COMPACT from "./template/compact.txt"
 
 type State = {
   commands: Record<string, Info>
@@ -60,6 +61,7 @@ export function hints(template: string) {
 export const Default = {
   INIT: "init",
   REVIEW: "review",
+  COMPACT: "compact",
 } as const
 
 export interface Interface {
@@ -157,6 +159,28 @@ export const layer = Layer.effect(
         },
         hints: [],
       })
+
+      // compact/summarize 是 SessionPrompt.command 里的拦截命令(见 prompt.ts compactCommand),
+      // 不走模板执行;注册 stub 只为让 command.list() → 前端 sync.data.command 能命中多斜杠检测,
+      // 使 /compact、/summarize 在 GET /command 与 /make 等输入框中可被识别为命令而发送。
+      commands[Default.COMPACT] = {
+        name: Default.COMPACT,
+        description: "summarize and compact the current session",
+        source: "command",
+        get template() {
+          return PROMPT_COMPACT
+        },
+        hints: [],
+      }
+      commands["summarize"] = {
+        name: "summarize",
+        description: "alias of /compact, summarize and compact the current session",
+        source: "command",
+        get template() {
+          return PROMPT_COMPACT
+        },
+        hints: [],
+      }
 
       for (const item of yield* skill.all()) {
         if (!commands[item.name]) {

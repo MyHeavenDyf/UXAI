@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/node-sqlite/driver"
 import * as http from "node:http"
 import * as tls from "node:tls"
+import { readProxyConfig, maskProxyUrl } from "./proxy-config"
 
 type NodeHttpWithEnvProxy = typeof http & {
   setGlobalProxyFromEnv: () => void
@@ -60,6 +61,7 @@ parentPort.on("message", (event) => {
 async function start(command: StartCommand) {
   try {
     prepareSidecarEnv(command.password, command.userDataPath, command.storage)
+    ensureProxyFromConfig()
     ensureLoopbackNoProxy()
     useSystemCertificates()
     const { Database, JsonMigration, Log, Server } = await import("virtual:opencode-server")
@@ -145,11 +147,43 @@ function useSystemCertificates() {
   }
 }
 
+// 兜底：主进程 env 传递链断裂时（如 macOS shell 探测覆盖、fork 快照时序），
+// sidecar 自己从 ~/.config/octo/proxy_config.json 补齐缺失的代理变量。
+// 只补缺失项，不覆盖已有值；须在 ensureLoopbackNoProxy 之前执行，让 loopback 合并进 no_proxy。
+function ensureProxyFromConfig() {
+  const config = readProxyConfig()
+  if (!config) {
+    console.log("[sidecar:proxy] no proxy_config.json, env proxy:", maskProxyUrl(process.env.http_proxy ?? process.env.HTTP_PROXY) ?? "<unset>")
+    return
+  }
+  for (const key of ["http_proxy", "https_proxy", "no_proxy"] as const) {
+    const value = config[key]
+    if (!value) continue
+    if (!process.env[key] && !process.env[key.toUpperCase()]) {
+      process.env[key] = value
+      process.env[key.toUpperCase()] = value
+    }
+  }
+  console.log("[sidecar:proxy] proxy env ready", {
+    fromConfig: {
+      http_proxy: maskProxyUrl(config.http_proxy),
+      https_proxy: maskProxyUrl(config.https_proxy),
+      no_proxy: config.no_proxy,
+    },
+    effectiveHttpProxy: maskProxyUrl(process.env.http_proxy ?? process.env.HTTP_PROXY) ?? "<unset>",
+    effectiveNoProxy: process.env.no_proxy ?? process.env.NO_PROXY ?? "<unset>",
+  })
+}
+
 function useEnvProxy() {
   try {
     ;(http as NodeHttpWithEnvProxy).setGlobalProxyFromEnv()
+    console.log(
+      "[sidecar:proxy] setGlobalProxyFromEnv OK, proxy:",
+      maskProxyUrl(process.env.http_proxy ?? process.env.HTTP_PROXY) ?? "<unset>",
+    )
   } catch (error) {
-    console.warn("failed to load proxy environment", error)
+    console.warn("[sidecar:proxy] failed to load proxy environment", error)
   }
 }
 

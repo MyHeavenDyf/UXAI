@@ -22,9 +22,43 @@ import type { StudioCapability, StudioGenerationResult, StudioGenerationStatus, 
 const INPUT_IMAGE_PREVIEW_SIZE = 125
 const INPUT_IMAGE_PREVIEW_GAP = 10
 
+function StudioUserBubbleText(props: { text: string; mentionImages: Record<string, string> }) {
+  const segments = createMemo(() => {
+    const text = props.text
+    const result: { mention?: string; text?: string }[] = []
+    const regex = /@[^@\u200B]*\u200B/g
+    let last = 0
+    let m: RegExpExecArray | null
+    while ((m = regex.exec(text)) !== null) {
+      if (m.index > last) result.push({ text: text.slice(last, m.index).replace(/\u200B/g, "") })
+      result.push({ mention: m[0].slice(1, -1) })
+      last = m.index + m[0].length
+    }
+    if (last < text.length) result.push({ text: text.slice(last).replace(/\u200B/g, "") })
+    return result
+  })
+  return (
+    <span>
+      <For each={segments()}>
+        {(seg) =>
+          seg.mention !== undefined
+            ? <span class="studio-user-bubble-mention">
+                <Show when={props.mentionImages[seg.mention]}>
+                  {(src) => <img src={src()} alt={seg.mention} />}
+                </Show>
+                <span class="studio-user-bubble-mention-name">{seg.mention}</span>
+              </span>
+            : <span>{seg.text}</span>
+        }
+      </For>
+    </span>
+  )
+}
+
 export function StudioConversation(props: {
   result?: StudioGenerationResult
   turns: StudioTurnData[]
+  mentionImages: Record<string, string>
   sdkUrl: string
   directory: string
   busy: boolean
@@ -98,7 +132,7 @@ export function StudioConversation(props: {
                 </div>
               </Show>
               <div class="studio-user-bubble">
-                {turn.userText || props.result?.prompt?.split("\n")[0] || "Octo Studio"}
+                <StudioUserBubbleText text={turn.userText || props.result?.prompt?.split("\n")[0] || "Octo Studio"} mentionImages={turn.mentionImages ?? props.mentionImages} />
               </div>
               <Show when={turn.editCapability} fallback={
                 <Show when={sanitizeStudioAssistantText(turn.assistantText)}>

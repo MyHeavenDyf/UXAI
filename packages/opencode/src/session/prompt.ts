@@ -1746,8 +1746,38 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       },
     )
 
+    // /make 等客户端走 session.command,无法直接调 session.summarize(TUI/ACP 是特判直接调)。
+    // 这里在 commands.get 之前拦截 compact/summarize,按 summarize 路由同样的逻辑触发会话压缩:
+    // 清理待撤销消息、解析 model、创建压缩用户消息,再 loop 执行真实摘要。
+    const compactCommand = Effect.fn("SessionPrompt.compactCommand")(function* (input: CommandInput) {
+      const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+      yield* revert.cleanup(session)
+      const msgs = yield* sessions.messages({ sessionID: input.sessionID })
+      const defaultAgent = yield* agents.defaultAgent()
+      const currentAgent = msgs.findLast((m) => m.info.role === "user")?.info.agent ?? defaultAgent
+
+      const model = input.model
+        ? Provider.parseModel(input.model)
+        : yield* lastModel(input.sessionID)
+
+      const trimmedArgs = input.arguments.trim()
+      const displayText = trimmedArgs ? `/${input.command} ${trimmedArgs}` : `/${input.command}`
+
+      yield* compaction.create({
+        sessionID: input.sessionID,
+        agent: currentAgent,
+        model,
+        auto: false,
+        message: displayText,
+      })
+      return yield* loop({ sessionID: input.sessionID })
+    })
+
     const command = Effect.fn("SessionPrompt.command")(function* (input: CommandInput) {
       yield* elog.info("command", { sessionID: input.sessionID, command: input.command, agent: input.agent })
+      if (input.command === "compact" || input.command === "summarize") {
+        return yield* compactCommand(input)
+      }
       const cmd = yield* commands.get(input.command)
       if (!cmd) {
         const available = (yield* commands.list()).map((c) => c.name)

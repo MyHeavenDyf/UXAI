@@ -18,6 +18,14 @@ import JSZip from 'jszip'
  * - void: 已处理（等同于 true）
  */
 
+/** 用户取消系统保存对话框时抛出，由调用方 catch 后静默移除任务项 */
+export class DownloadCancelledError extends Error {
+  constructor() {
+    super("download cancelled")
+    this.name = "DownloadCancelledError"
+  }
+}
+
 // ============ 辅助函数 ============
 
 function sanitizeFilename(name: string): string {
@@ -32,18 +40,18 @@ function stripExtension(title: string, ext: string): string {
   return title
 }
 
-async function downloadBlob(content: string | Uint8Array, filename: string, mimeType: string) {
+async function downloadBlob(content: string | Uint8Array, filename: string, mimeType: string): Promise<boolean> {
   const blobPart: BlobPart = typeof content === "string" ? content : new Uint8Array(content.buffer as ArrayBuffer, content.byteOffset, content.byteLength)
   const blob = new Blob([blobPart], { type: mimeType })
   const api = getDesktopApi()
 
   if (api?.saveFilePicker && api?.writeFileBuffer) {
     const chosen = await api.saveFilePicker({ defaultPath: sanitizeFilename(filename) })
-    if (!chosen) return
+    if (!chosen) return false
     const buffer = await blob.arrayBuffer()
     await api.writeFileBuffer(chosen, buffer)
     showOctoToast({ title: "已下载" })
-    return
+    return true
   }
 
   const url = URL.createObjectURL(blob)
@@ -55,6 +63,7 @@ async function downloadBlob(content: string | Uint8Array, filename: string, mime
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
   showOctoToast({ title: "已下载" })
+  return true
 }
 
 function markdownTableToCSV(md: string): string {
@@ -218,8 +227,9 @@ const defaultHandler: SubtypeHandler = {
         
         const zipName = `${stripExtension(tab.title, "zip")}.zip`
         const zipBytes = new Uint8Array(await zipBlob.arrayBuffer())
-        await downloadBlob(zipBytes, zipName, "application/zip")
+        if (!(await downloadBlob(zipBytes, zipName, "application/zip"))) throw new DownloadCancelledError()
       } catch (err) {
+        if (err instanceof DownloadCancelledError) throw err
         showOctoToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
       }
       return true
@@ -237,7 +247,7 @@ const defaultHandler: SubtypeHandler = {
     
     if (tab.filePath && supportedTypes.includes(tab.type) && api?.saveFilePicker && api?.readFileBuffer && api?.writeFileBuffer) {
       const chosen = await api.saveFilePicker({ defaultPath: tab.title })
-      if (!chosen) return true
+      if (!chosen) throw new DownloadCancelledError()
       
       const buffer = await api.readFileBuffer(tab.filePath)
       if (!buffer) {
@@ -253,7 +263,7 @@ const defaultHandler: SubtypeHandler = {
     // 默认下载
     const info = getDownloadInfo(tab)
     const content = extractDownloadContent(tab)
-    await downloadBlob(content, info.filename, info.mime)
+    if (!(await downloadBlob(content, info.filename, info.mime))) throw new DownloadCancelledError()
     return true
   },
   
