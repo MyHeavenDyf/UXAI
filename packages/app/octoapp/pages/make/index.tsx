@@ -102,6 +102,7 @@ import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } fro
 import { MakeModelRiskDialog } from "./make-model-risk-dialog"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 import { SEND_TEXT_EVENT, type SendTextEventDetail } from "./utils/agent-events"
+import { processMentions } from "./utils/mention-processor"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
@@ -665,7 +666,7 @@ const sessionMessagesLoaded = createMemo(() => {
       }
 
       try {
-        await sendMessage(sessionId, detail.text, modelKey)
+        await sendMessage(sessionId, detail.text, modelKey, detail.mentions)
         tracker.interaction({
           module: 'design',
           name: 'send-text-event',
@@ -1591,6 +1592,10 @@ const sessionMessagesLoaded = createMemo(() => {
   const [currentVersionId, setCurrentVersionId] = createSignal<string | null>(null)
   const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files" | "plan">("files")
 
+  createEffect(on(() => resultViewMode(), (mode) => {
+    if (mode !== "tabs") layout.focusMode.set(false)
+  }, { defer: true }))
+
   const historyController = createHistoryController({
     setVersionList: (updater) => setVersionList(updater),
     setCurrentVersionId: (updater) => setCurrentVersionId(updater),
@@ -2439,26 +2444,7 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       }
 
-      // Process mention selections: replace chip text with model format
-      let processedText = text
-      let displayText = text
-
-      for (const sel of selections) {
-        if (sel.type === 'skill') {
-          processedText = processedText.replace(`@${sel.name}`, ` /${sel.name} `)
-          // chip 在输入框里渲染成 displayName,但 getText 返回的是 @skillName(getDocTextWithMentions 用 attrs.name)。
-          // 这里把 displayText 里的 @skillName 同步替换成 @displayName,聊天记录里显示的就跟输入框一致。
-          if (sel.label && sel.label !== sel.name) {
-            displayText = displayText.replace(`@${sel.name}`, () => `@${sel.label}`)
-          }
-        } else {
-          const noun = sel.type === "folder" ? "这个文件夹" : "这个文件"
-          processedText = processedText.replace(`@${sel.name}`, ` 读取${sel.path} ${noun} `)
-        }
-      }
-      // Clean up extra spaces and strip zero-width space (​) used as chip boundary marker
-      // (see getDocTextWithMentions in schema.ts — chip 前后插入 ​ 作为边界,送给模型前要剥离)
-      processedText = processedText.replace(/​/g, '').replace(/  +/g, ' ').trim()
+      const { processed: processedText, display: displayText } = processMentions(text, selections)
       
       console.log("[sendMessage] displayText:", displayText)
       console.log("[sendMessage] processedText:", processedText)
@@ -4981,6 +4967,12 @@ onPreview={(url) => {
                 childBusy={childBusy()}
                 planEnded={currentSessionPlanEnded()}
                 planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
+                disabled={effectiveBusy()}
+                skillConfig={skillConfig() ?? {}}
+                artifactFiles={artifactFilesMirror()}
+                productId={projectSelection()?.product?.id}
+                onDownloadProductAsset={downloadProductAsset}
+                onUpdateMentionPath={handleAddonUpdateMentionPath}
               />
             </div>
             <Show when={showVersionPanel()}>

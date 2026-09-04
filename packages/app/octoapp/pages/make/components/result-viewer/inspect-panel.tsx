@@ -1,4 +1,4 @@
-import { createSignal, createEffect, Show, type JSX } from "solid-js"
+import { createSignal, createEffect, onCleanup, Show, type JSX } from "solid-js"
 import type { InspectTarget } from "./html-renderer"
 
 export function InspectPanel(props: {
@@ -12,12 +12,38 @@ export function InspectPanel(props: {
   onFloatingPositionChange?: (position: { left: number; top: number }) => void
 }): JSX.Element {
   const [draft, setDraft] = createSignal<Record<string, string>>({})
+  let panelRef: HTMLElement | undefined
 
   createEffect(() => {
     if (props.target) setDraft({})
   })
 
   const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
+
+  const clampPosition = () => {
+    if (!panelRef || !props.floatingStyle || !props.onFloatingPositionChange) return
+    const parent = panelRef.parentElement
+    if (!parent) return
+    const parentRect = parent.getBoundingClientRect()
+    const panelRect = panelRef.getBoundingClientRect()
+    const pad = 8
+    const maxLeft = Math.max(pad, parentRect.width - panelRect.width - pad)
+    const maxTop = Math.max(pad, parentRect.height - panelRect.height - pad)
+    const clampedLeft = clamp(props.floatingStyle.left, pad, maxLeft)
+    const clampedTop = clamp(props.floatingStyle.top, pad, maxTop)
+    if (clampedLeft !== props.floatingStyle.left || clampedTop !== props.floatingStyle.top) {
+      props.onFloatingPositionChange({ left: clampedLeft, top: clampedTop })
+    }
+  }
+
+  createEffect(() => {
+    if (!props.floatingStyle || !panelRef) return
+    const parent = panelRef.parentElement
+    if (!parent) return
+    const observer = new ResizeObserver(() => clampPosition())
+    observer.observe(parent)
+    onCleanup(() => observer.disconnect())
+  })
 
   const startPanelDrag = (event: PointerEvent) => {
     if (!props.onFloatingPositionChange) return
@@ -117,7 +143,8 @@ export function InspectPanel(props: {
   const radiusNum = () => pxToNumber(radius())
 
   return (
-    <aside 
+    <aside
+      ref={panelRef}
       class={`inspect-panel${props.floatingStyle ? ' inspect-panel-floating' : ''}`}
       style={props.floatingStyle ? { 
         left: `${props.floatingStyle.left}px`, 

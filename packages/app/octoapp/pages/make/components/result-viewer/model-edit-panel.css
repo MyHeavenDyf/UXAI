@@ -1,0 +1,39 @@
+.model-edit-group {
+  border-top: 1px solid #e5e7eb;
+  padding: 12px 0;
+}
+
+.model-edit-group:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.model-edit-group-title {
+  font-weight: 600;
+  font-size: 12px;
+  color: black;
+  margin-bottom: 8px;
+}
+
+.model-edit-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.model-edit-group-body .cc-row,
+.model-edit-group-body .cc-typ-row,
+.model-edit-group-body .cc-typ-pair,
+.model-edit-group-body .cc-typ-align-row,
+.model-edit-group-body .cc-size-row,
+.model-edit-group-body .cc-size-checkboxes,
+.model-edit-group-body .cc-layout-direction,
+.model-edit-group-body .cc-layout-grid-wrap,
+.model-edit-group-body .cc-quad-row,
+.model-edit-group-body .cc-quad-trbl,
+.model-edit-group-body .cc-stroke-row,
+.model-edit-group-body .cc-stroke-trbl,
+.model-edit-group-body .cc-textarea,
+.model-edit-group-body .cc-input-url {
+  width: 100%;
+}
