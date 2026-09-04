@@ -961,7 +961,7 @@ const sessionMessagesLoaded = createMemo(() => {
       const res = await sdk.client.session.list({ directory: sdk.directory })
       if (params.id !== sid) return null
       const sessions = (res.data ?? []).filter((s: any) => !!s?.id)
-      const children = sessions.filter((s: any) => s.parentID === sid && !s.time?.archived)
+      const children = sessions.filter((s: any) => s.parentID === sid && !s.time?.archived && (s.agent === "octo_make_plan" || s.agent === "ict_pattern"))
       const planChild = children.find((s: any) => s.agent === "octo_make_plan")
 
       for (const child of children) {
@@ -1037,7 +1037,12 @@ const sessionMessagesLoaded = createMemo(() => {
     try {
       const res = await sdk.client.session.list({ directory: sdk.directory })
       if (params.id !== sid) return
-      const children = (res.data ?? []).filter((s: any) => s.parentID === sid && !s.time?.archived)
+      // 只发现需要在消息流中展示的子 session（octo_make_plan / ict_pattern），
+      // 跳过临时 agent（如 proto_replanner）创建的子 session，避免归档后残留干扰对话
+      const VISIBLE_CHILD_AGENTS = new Set(["octo_make_plan", "ict_pattern"])
+      const children = (res.data ?? []).filter((s: any) =>
+        s.parentID === sid && !s.time?.archived && VISIBLE_CHILD_AGENTS.has(s.agent),
+      )
       const discovered = new Set<string>()
       const discoveredPlans = new Set<string>()
       for (const child of children) {

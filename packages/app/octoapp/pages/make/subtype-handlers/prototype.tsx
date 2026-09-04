@@ -79,7 +79,12 @@ async function buildPrototypeCodeFiles(
       })
       planner = result as unknown as Record<string, unknown>
     } finally {
-      if (replannerSessionId) await ctx.sdk!.client.session.delete({ sessionID: replannerSessionId }).catch(() => {})
+      // 归档（而非 delete）临时子 session：session.list 默认排除 archived，
+      // discoverChildSessions 不会发现它；即使归档失败，Fix（agent 过滤）也会跳过 proto_replanner
+      if (replannerSessionId) await ctx.sdk!.client.session.update({
+        sessionID: replannerSessionId,
+        body: { time: { archived: Date.now() } },
+      } as any).catch(() => {})
     }
   }
 
