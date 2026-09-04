@@ -2932,74 +2932,92 @@ const sessionMessagesLoaded = createMemo(() => {
       }
 
       // ── Multi-slash-command detection ──
-      // Scan all tokens in processedText for /cmd patterns, match against sync.data.command,
-      // execute each via session.command(). Each command gets the text between itself
-      // and the next /cmd as its arguments. Commands are self-contained (no follow-up prompt).
+      // Scan all tokens in processedText for /cmd patterns, match against sync.data.command.
+      // If skills are matched, extract the entire remaining prompt (excluding all /cmd patterns)
+      // and supply it as arguments to each skill command.
       console.log("[MakePage] slash-detect input:", {
         processedText,
         cmdCount: sync.data?.command?.length ?? 0,
         cmdNames: sync.data?.command?.map((c) => `${c.name}(${c.source})`) ?? [],
       })
-      const segments = processedText.split(/(?=\/\S)/)
-      const cmdSegments: { cmd: string; args: string }[] = []
-      let hasCommand = false
+
       // 命令名可能含空格 (chip 名带空格时,如 skillName="my skill"),
-      // 不能用 \S+ 切边界 (会在第一个空格处停)。
       // 按名字长度降序排,优先匹配最长命令,避免 "foo" 抢前缀于 "foo bar"。
       const sortedCommands = [...sync.data.command].sort((a, b) => b.name.length - a.name.length)
-      for (const seg of segments) {
-        const trimmed = seg.trim()
-        if (!trimmed) continue
-        if (!trimmed.startsWith('/')) {
-          // Non-command segment: only keep if no commands found (for prompt fallback)
-          if (!hasCommand) {
-            cmdSegments.push({ cmd: "", args: trimmed })
-          }
-          continue
-        }
-        // 尝试匹配 sync.data.command 里的命令名 (支持含空格的命令名)
-        let matched: typeof sortedCommands[number] | undefined
-        let args = ''
-        for (const c of sortedCommands) {
-          const fullCmd = `/${c.name}`
-          if (trimmed.startsWith(fullCmd)) {
-            // 边界检查:命令名后必须是空白或字符串结束,避免 "foo" 错配到 "foobar"
-            const nextChar = trimmed[fullCmd.length]
-            if (nextChar === undefined || /\s/.test(nextChar)) {
-              matched = c
-              args = trimmed.slice(fullCmd.length).trim()
-              break
+
+      // 扫描 processedText 中所有合法命令的起始与结束位置
+      interface CommandMatch {
+        cmd: typeof sortedCommands[number]
+        start: number
+        end: number
+      }
+
+      const matches: CommandMatch[] = []
+      for (let i = 0; i < processedText.length; i++) {
+        if (processedText[i] === '/') {
+          // 边界检查：必须是字符串开头或者前一个字符是空白字符，避免误判 URL 路径等
+          if (i === 0 || /\s/.test(processedText[i - 1])) {
+            let matched: typeof sortedCommands[number] | undefined
+            let matchedLen = 0
+            for (const c of sortedCommands) {
+              const fullCmd = `/${c.name}`
+              if (processedText.startsWith(fullCmd, i)) {
+                const nextChar = processedText[i + fullCmd.length]
+                if (nextChar === undefined || /\s/.test(nextChar)) {
+                  matched = c
+                  matchedLen = fullCmd.length
+                  break
+                }
+              }
+            }
+            if (matched) {
+              matches.push({ cmd: matched, start: i, end: i + matchedLen })
+              i += matchedLen - 1
             }
           }
         }
-        if (matched) {
-          // 规划模式:手输 /skill 也不在规划子会话执行,与 @ 路径一样暂存 handoff,文本走 prompt 兜底
-          if (inPlanSession && matched.source === "skill") {
-            console.log("[MakePage] slash-detect skill skipped in plan session:", { cmdName: matched.name, args })
-            planSkillStash.push({ name: matched.name, label: matched.name })
-            if (!hasCommand) cmdSegments.push({ cmd: "", args: trimmed })
-            continue
-          }
-          console.log("[MakePage] slash-detect matched command:", {
-            cmdName: matched.name,
-            source: matched.source,
-            args,
-          })
-          cmdSegments.push({ cmd: matched.name, args })
-          hasCommand = true
+      }
+
+      // 提取“除了所有识别到的命令以外的全部完整提示词”作为参数
+      let cleanPrompt = ""
+      let lastIndex = 0
+      for (const m of matches) {
+        cleanPrompt += processedText.slice(lastIndex, m.start)
+        let nextIndex = m.end
+        // 如果命令后紧跟空格，跳过一个空格，避免残留多余空格
+        if (processedText[nextIndex] === ' ') {
+          nextIndex++
+        }
+        lastIndex = nextIndex
+      }
+      cleanPrompt += processedText.slice(lastIndex)
+      cleanPrompt = cleanPrompt.replace(/​/g, '').replace(/  +/g, ' ').trim()
+
+      const cmdSegments: { cmd: string; args: string }[] = []
+      let hasCommand = false
+
+      for (const m of matches) {
+        // 规划模式:手输 /skill 也不在规划子会话执行,与 @ 路径一样暂存 handoff,文本走 prompt 兜底
+        if (inPlanSession && m.cmd.source === "skill") {
+          console.log("[MakePage] slash-detect skill skipped in plan session:", { cmdName: m.cmd.name, args: cleanPrompt })
+          planSkillStash.push({ name: m.cmd.name, label: m.cmd.name })
           continue
         }
-        // /cmd 存在但不在 sync.data.command 中 → 会落入 prompt 纯文本，不触发 skill.used
-        console.log("[MakePage] slash-detect NOT in sync.data.command:", {
-          trimmed,
-          fallbackToPrompt: !hasCommand,
+        console.log("[MakePage] slash-detect matched command:", {
+          cmdName: m.cmd.name,
+          source: m.cmd.source,
+          args: cleanPrompt,
         })
-        // Non-command segment: only keep if no commands found (for prompt fallback)
-        if (!hasCommand) {
-          cmdSegments.push({ cmd: "", args: trimmed })
-        }
+        cmdSegments.push({ cmd: m.cmd.name, args: cleanPrompt })
+        hasCommand = true
       }
-      console.log("[MakePage] slash-detect result:", { hasCommand, cmdSegments })
+
+      // 如果有识别到命令但在规划模式下全部被拦截（或没有可执行命令），则将 processedText 规整为 cleanPrompt 走 prompt 兜底
+      if (matches.length > 0 && !hasCommand) {
+        processedText = cleanPrompt
+      }
+
+      console.log("[MakePage] slash-detect result:", { hasCommand, cmdSegments, cleanPrompt })
 
       // 规划模式:@选择 或 手输 /skill 的技能都不进规划子会话,统一暂存 handoff
       // (与初始页进入规划时的 savePlanSkillHandoff 同源),由 handleConfirmPlan
