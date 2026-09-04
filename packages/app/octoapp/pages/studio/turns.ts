@@ -1,6 +1,6 @@
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import type { StudioAspectRatio, StudioCapability, StudioGenerationResult, StudioInputImage } from "./types"
-import { getDefaultDimensions } from "./studio-shared"
+import { getDefaultDimensions, STUDIO_VIDEO_RESOLUTION_KEY, type StudioVideoQualityMode } from "./studio-shared"
 
 const SKIP_PART_TYPES = new Set(["patch", "step-start", "step-finish"])
 
@@ -194,6 +194,15 @@ function parseToolOutput(output?: string) {
   } catch {
     return {}
   }
+}
+
+const VALID_VIDEO_QUALITY_MODES = new Set<string>(["480", "720", "1080", "4k"])
+
+function resolveVideoQualityMode(output: Record<string, unknown> | undefined, extra: Record<string, unknown> | undefined): StudioVideoQualityMode | undefined {
+  const fromOutput = stringField(output, "videoQualityMode")
+  if (fromOutput && VALID_VIDEO_QUALITY_MODES.has(fromOutput)) return fromOutput as StudioVideoQualityMode
+  const fromExtra = STUDIO_VIDEO_RESOLUTION_KEY[stringField(extra, "resolution") ?? ""]
+  return fromExtra
 }
 
 function stringField(record: Record<string, unknown> | undefined, key: string) {
@@ -529,9 +538,9 @@ function buildResult(input: {
           width,
           height,
           isCustom: isCustom || undefined,
-          videoMode: stringField(output, "videoMode") as StudioGenerationResult["videoMode"],
-          duration: stringField(output, "duration") as StudioGenerationResult["duration"],
-          videoQualityMode: stringField(output, "videoQualityMode") as StudioGenerationResult["videoQualityMode"],
+          videoMode: (stringField(output, "videoMode") ?? stringField(extra, "videoMode")) as StudioGenerationResult["videoMode"],
+          duration: (stringField(output, "duration") ?? stringField(extra, "duration")) as StudioGenerationResult["duration"],
+          videoQualityMode: resolveVideoQualityMode(output, extra),
           images: media.map((item, index) => ({
             id: `studio_img_${completed?.id ?? input.messageID}_${index}`,
             kind: item.kind,

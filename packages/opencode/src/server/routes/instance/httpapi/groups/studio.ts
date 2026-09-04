@@ -131,7 +131,7 @@ const StudioGenerationResult = Schema.Struct({
   aspectRatio: Schema.String,
   videoMode: Schema.optional(Schema.Union([Schema.Literal("text"), Schema.Literal("first_last_frame")])),
   duration: Schema.optional(Schema.String),
-  videoQualityMode: Schema.optional(Schema.Union([Schema.Literal("std"), Schema.Literal("pro")])),
+  videoQualityMode: Schema.optional(Schema.Union([Schema.Literal("480"), Schema.Literal("720"), Schema.Literal("1080"), Schema.Literal("4k")])),
   images: Schema.Array(StudioGenerationImage),
   progress: Schema.Number,
   order: Schema.optional(Schema.Number),
