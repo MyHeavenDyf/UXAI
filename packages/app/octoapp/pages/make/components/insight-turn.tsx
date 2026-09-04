@@ -766,6 +766,12 @@ export function InsightTurn(props: {
     isCompactionTurn() && !compacted() && assistantMsgs().some((m) => !!m.error),
   )
 
+  // 兜底:压缩 turn 不再活跃(已不是最新 turn 或 session 已 idle)但既未成功也无 error 标记
+  // —— 典型场景是模型超时/中断导致 processor 未产出 summary 消息,assistantMsgs 为空。
+  const compactionStalled = createMemo(() =>
+    isCompactionTurn() && !compacted() && !compactionFailed() && (!isLatestTurn() || !props.active),
+  )
+
   const isAborted = createMemo(() => {
     for (const msg of assistantMsgs()) {
       const err = (msg as Record<string, unknown>).error as Record<string, unknown> | undefined
@@ -1346,7 +1352,7 @@ const stateStatus = state.status as string | undefined
 
       {/* 手动 /compact 压缩 turn:只显示压缩状态,不渲染正常 assistant 内容 */}
       <Show when={isCompactionTurn()}>
-        <Show when={!compacted() && !compactionFailed()}>
+        <Show when={!compacted() && !compactionFailed() && !compactionStalled()}>
           <div
             class="mx-3 px-4 py-2 flex items-center gap-2"
             style={{
@@ -1374,6 +1380,19 @@ const stateStatus = state.status as string | undefined
             }}
           >
             上下文压缩失败
+          </div>
+        </Show>
+        <Show when={compactionStalled()}>
+          <div
+            class="mx-3 px-4 py-2 text-sm"
+            style={{
+              "border-radius": "var(--octo-radius-md)",
+              border: "1px solid rgba(234, 179, 8, 0.3)",
+              background: "rgba(255, 247, 224, 1)",
+              color: "#7a4f00",
+            }}
+          >
+            上下文压缩未完成（可能已超时或中断）
           </div>
         </Show>
       </Show>
