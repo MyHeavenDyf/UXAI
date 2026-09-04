@@ -1,0 +1,67 @@
+{
+  "name": "IpInput",
+  "type": "object",
+  "$defs": {
+    "DataBinding": {
+      "type": "object",
+      "description": "JSON Pointer state reference",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A JSON Pointer path to a value in the state",
+          "examples": [
+            "/users",
+            "/form/ipAddress",
+            "ipAddress",
+            "macAddress"
+          ]
+        }
+      }
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique ID for cross-referencing."
+    },
+    "component": {
+      "type": "string",
+      "const": "IpInput"
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "oneOf": [
+            { "type": "string" },
+            { "$ref": "#/$defs/DataBinding" }
+          ],
+          "description": "Current value of the IpInput."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["v4", "v6", "mac"],
+          "description": "IP address type. 'v4' for IPv4, 'v6' for IPv6, 'mac' for MAC address.",
+          "default": "v4"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "delimiter": {
+          "type": "string",
+          "description": "Delimiter between segments. Default is '.' for IPv4, ':' for IPv6, '-' for MAC."
+        },
+        "className": {
+          "type": "string",
+          "description": "Tailwind CSS classes for the component."
+        }
+      },
+      "required": ["value"]
+    }
+  },
+  "required": ["id", "component", "props"]
+}
