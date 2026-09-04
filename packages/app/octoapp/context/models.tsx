@@ -3,7 +3,6 @@ import { createStore } from "solid-js/store"
 import { DateTime } from "luxon"
 import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } from "remeda"
 import { createSimpleContext } from "@opencode-ai/ui/context"
-import { useProviders } from "@/hooks/use-providers"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { Persist, persisted } from "@/utils/persist"
 
@@ -26,7 +25,6 @@ function modelKey(model: ModelKey) {
 export const { use: useModels, provider: ModelsProvider } = createSimpleContext({
   name: "Models",
   init: () => {
-    const providers = useProviders()
     const globalSDK = useGlobalSDK()
     const loadApiModels = async () => {
       const result = await globalSDK.client.provider.list()
@@ -63,7 +61,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     const available = createMemo(() => {
       const api = apiModels()
       if (!api) return []
-      const connected = new Set(providers.connected().map((provider) => provider.id))
+      const connected = new Set(api.connected)
       return api.all
         .filter((provider) => connected.has(provider.id))
         .flatMap((provider) => Object.values(provider.models).map((model) => ({ ...model, provider })))
