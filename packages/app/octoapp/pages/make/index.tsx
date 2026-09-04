@@ -5154,36 +5154,6 @@ onPreview={(url) => {
                     )}
                   </Show>
 
-                  <Show when={contextSendBlocked() && contextLimit()}>
-                    {(limit) => (
-                      <div class="make-context-warning-wrap">
-                        <ContextOverflowNotice
-                          class="w-full"
-                          tokens={contextTokens()}
-                          limit={limit()}
-                          locale={language.intl()}
-                          disabled={contextCompactionDisabled()}
-                          onCompact={confirmCompactContext}
-                        />
-                      </div>
-                    )}
-                  </Show>
-
-                  <Show when={contextWarningVisible() && contextLimit()}>
-                    {(limit) => (
-                      <div class="make-context-warning-wrap">
-                        <ContextUsageWarning
-                          tokens={contextTokens()}
-                          limit={limit()}
-                          locale={language.intl()}
-                          disabled={contextCompactionDisabled()}
-                          onIgnore={() => setIgnoredContextWarningSession(params.id)}
-                          onCompact={confirmCompactContext}
-                        />
-                      </div>
-                    )}
-                  </Show>
-
                   {/* Plan entry banner - AddonMenu 进入设计策略模式时的确认弹窗 */}
                   <Show when={showPlanConfirm() && !optimisticIntentResolved()}>
                     <PlanEntryBanner
