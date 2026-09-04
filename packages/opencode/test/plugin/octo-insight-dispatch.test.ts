@@ -6,6 +6,7 @@ import {
   decideInsightDispatch,
   extractInsightPromptLocalFiles,
   OctoInsightDispatchPlugin,
+  shouldDeferInsightLocalTextReads,
 } from "../../src/agent/octo-insight-dispatch"
 
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), "octo-insight-dispatch-"))
@@ -52,6 +53,24 @@ describe("Insight chat.message 分治守卫", () => {
     ).toEqual(["a.docx", "b.txt", "c.md"])
   })
 
+  test("直接路径不会在目录名或文件名中间的扩展名处截断", () => {
+    expect(
+      extractInsightPromptLocalFiles("D:\\research.md\\final.docx D:\\reports\\survey.md.backup.docx").map(
+        (file) => file.path,
+      ),
+    ).toEqual(["D:\\research.md\\final.docx", "D:\\reports\\survey.md.backup.docx"])
+  })
+
+  test("路径后还有扩展名文案时，以 stat 选择最长的真实候选", async () => {
+    const file = "D:\\reports\\survey.txt"
+    const decision = await decideInsightDispatch(
+      [{ type: "text", text: `${file} 输出为 report.md` }],
+      async (candidate) => (candidate === file ? { size: 33 * 1024, isFile: true } : undefined),
+    )
+    expect(decision.directFiles).toEqual([{ filename: "survey.txt", path: file }])
+    expect(decision.mode).toBe("dispatch")
+  })
+
   test("三份文档命中 doc-count", async () => {
     const decision = await decideInsightDispatch([{ type: "text", text: manifest(), synthetic: true }])
     expect(decision.mode).toBe("dispatch")
@@ -77,6 +96,19 @@ describe("Insight chat.message 分治守卫", () => {
     expect(decision.mode).toBe("dispatch")
     expect(decision.reasons).toContain("text-budget")
     expect(decision.directFiles[0]?.path).toBe(LARGE_TEXT.replace(/\\/g, "/"))
+  })
+
+  test("大文本 FilePart 在 resolvePart 前即命中分治，阻止父上下文展开正文", async () => {
+    expect(
+      await shouldDeferInsightLocalTextReads([
+        {
+          type: "file",
+          mime: "text/plain",
+          filename: "large.txt",
+          url: `file://${LARGE_TEXT.replace(/\\/g, "/")}`,
+        },
+      ]),
+    ).toBe(true)
   })
 
   test("前端未注入时，服务端会追加材料体量块", async () => {

@@ -64,6 +64,7 @@ import { eq } from "@/storage/db"
 import * as Database from "@/storage/db"
 import { SessionTable } from "./session.sql"
 import { AUTOMATIC_COMPACTION_ENABLED } from "./overflow"
+import { shouldDeferInsightLocalTextReads } from "@/agent/octo-insight-dispatch"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -1026,10 +1027,21 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         id: part.id ? PartID.make(part.id) : PartID.ascending(),
       })
 
+      // Insight 的 chat.message 分治插件在 resolvePart 之后执行；如果等到该钩子才判定，
+      // text/plain FilePart 已经被 Read 展开进父上下文。这里仅对包含本地文本 FilePart 的
+      // 普通 Insight 轮次前置判定，命中分治后保留原 FilePart 供插件取路径，但跳过正文展开。
+      const deferInsightLocalTextReads =
+        info.agent === "octo_insight" &&
+        info.tools?.task !== false &&
+        (yield* Effect.promise(() => shouldDeferInsightLocalTextReads(input.parts)))
+
       const resolvePart: (part: PromptInput["parts"][number]) => Effect.Effect<Draft<MessageV2.Part>[]> = Effect.fn(
         "SessionPrompt.resolveUserPart",
       )(function* (part) {
         if (part.type === "file") {
+          if (deferInsightLocalTextReads && part.mime === "text/plain" && part.url.startsWith("file:")) {
+            return [{ ...part, messageID: info.id, sessionID: input.sessionID }]
+          }
           if (part.source?.type === "resource") {
             const { clientName, uri } = part.source
             log.info("mcp resource", { clientName, uri, mime: part.mime })

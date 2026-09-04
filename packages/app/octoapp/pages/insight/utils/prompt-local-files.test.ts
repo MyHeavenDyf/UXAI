@@ -29,6 +29,23 @@ describe("prompt 正文中的本地文档路径", () => {
     ).toEqual([{ filename: paths[2].split("\\").pop()!, path: paths[2] }])
   })
 
+  test("目录名或文件名中间含受支持扩展名时不截断", () => {
+    const nested = "D:\\research.md\\final.docx"
+    const dotted = "D:\\reports\\survey.md.backup.docx"
+    expect(extractPromptLocalDocuments(`${nested} ${dotted}`)).toEqual([
+      { filename: "final.docx", path: nested },
+      { filename: "survey.md.backup.docx", path: dotted },
+    ])
+  })
+
+  test("路径后还有扩展名文案时，以 stat 选择最长的真实候选", async () => {
+    const path = "D:\\reports\\survey.docx"
+    const files = await resolvePromptLocalDocuments(`${path} 输出为 report.md`, {
+      statFile: async (candidate) => (candidate === path ? { size: 1024 } : null),
+    })
+    expect(files).toEqual([{ filename: "survey.docx", path, bytes: 1024 }])
+  })
+
   test("只把 stat 确认存在的普通文件送入分治判定，三份 Office 命中 doc-count", async () => {
     const files = await resolvePromptLocalDocuments(paths.join("、"), {
       statFile: async (path) => (path === paths[1] ? null : { size: 1024 }),

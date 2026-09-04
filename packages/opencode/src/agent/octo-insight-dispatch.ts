@@ -19,7 +19,7 @@ const DOC_SINGLE_BYTES = 2 * 1024 * 1024
 // 必须与 extract_document.SUPPORTED 对齐。txt/md 是文本体量口径，不是文档份数口径。
 const EXTRACT_DOC_EXT = new Set(["docx", "xlsx", "pptx", "pdf"])
 const DIRECT_PATH_EXTENSIONS = [...EXTRACT_DOC_EXT, "txt", "md"].sort((a, b) => b.length - a.length)
-const DIRECT_PATH_END = new RegExp(`\\.(?:${DIRECT_PATH_EXTENSIONS.join("|")})(?![A-Za-z0-9])`, "i")
+const DIRECT_PATH_END = new RegExp(`\\.(?:${DIRECT_PATH_EXTENSIONS.join("|")})(?![A-Za-z0-9])`, "gi")
 const NON_INLINE_EXT = new Set([
   ...EXTRACT_DOC_EXT,
   // 旧版 Office 是二进制，不能当 text/plain；但 extract_document 也不支持，不计入可派发文档。
@@ -35,7 +35,14 @@ const NON_INLINE_EXT = new Set([
 
 type Candidate = { filename: string; path: string }
 type SizedCandidate = Candidate & { bytes: number }
-type DispatchPart = { type: string; text?: string; synthetic?: boolean; url?: string; filename?: string }
+type DispatchPart = {
+  type: string
+  text?: string
+  synthetic?: boolean
+  url?: string
+  filename?: string
+  mime?: string
+}
 
 export type InsightDispatchDecision = {
   mode: "inline" | "dispatch"
@@ -79,31 +86,34 @@ function localFilePart(part: DispatchPart): Candidate[] {
   return path ? [{ filename: part.filename || path.split(/[\\/]/).pop()!, path }] : []
 }
 
-/** 只解析用户原文里的 Windows 绝对路径；是否真实存在由下一步 stat 确认。 */
-export function extractInsightPromptLocalFiles(text: string): Candidate[] {
+function promptLocalFileCandidates(text: string): Candidate[][] {
   const starts = Array.from(
     text.matchAll(/(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\[^\\/\r\n]+[\\/])/g),
     (match) => match.index,
   )
-  const seen = new Set<string>()
 
   return starts.flatMap((start, index) => {
     const nextStart = starts[index + 1] ?? text.length
-    const newline = text.slice(start, nextStart).search(/[\r\n]/)
-    const segment = text.slice(start, newline < 0 ? nextStart : start + newline)
-    const end = DIRECT_PATH_END.exec(segment)
-    if (end?.index == null) return []
-
-    const path = segment.slice(0, end.index + end[0].length)
-    const key = pathKey(path)
-    if (seen.has(key)) return []
-    seen.add(key)
-    return [{ filename: path.split(/[\\/]/).pop()!, path }]
+    const rawSegment = text.slice(start, nextStart)
+    const boundary = rawSegment.search(/[\r\n]|\bhttps?:\/\//i)
+    const segment = rawSegment.slice(0, boundary < 0 ? rawSegment.length : boundary)
+    const candidates = Array.from(segment.matchAll(DIRECT_PATH_END), (match) => {
+      const path = segment.slice(0, match.index + match[0].length)
+      return { filename: path.split(/[\\/]/).pop()!, path }
+    }).reverse()
+    return candidates.length > 0 ? [candidates] : []
   })
 }
 
+/** 只解析用户原文里的 Windows 绝对路径；存在多个扩展名片段时返回最长候选。 */
+export function extractInsightPromptLocalFiles(text: string): Candidate[] {
+  return promptLocalFileCandidates(text)
+    .map((candidates) => candidates[0]!)
+    .filter((file, index, all) => all.findIndex((other) => pathKey(other.path) === pathKey(file.path)) === index)
+}
+
 export async function decideInsightDispatch(
-  parts: DispatchPart[],
+  parts: readonly DispatchPart[],
   probe: (path: string) => Promise<{ size: number; isFile: boolean } | undefined> = async (path) =>
     stat(path)
       .then((value) => ({ size: value.size, isFile: value.isFile() }))
@@ -114,24 +124,30 @@ export async function decideInsightDispatch(
     if (!MANIFEST_HEADERS.some((header) => part.text!.startsWith(header))) return []
     return parseManifest(part.text)
   })
-  const directFiles = parts.flatMap((part) => {
+  const directGroups = parts.flatMap((part) => {
     if (part.type !== "text" || part.synthetic || typeof part.text !== "string") return []
-    return extractInsightPromptLocalFiles(part.text)
+    return promptLocalFileCandidates(part.text)
   })
   // chat.message 位于 file:// 解析之后；上游会保留原 FilePart，因此 API/其他本地客户端
   // 即使没有 [附件] 清单，服务端也能从 file:// 找回真实路径并补做体量判定。
   const localPartFiles = parts.flatMap(localFilePart)
-  const candidates = [...manifestFiles, ...directFiles, ...localPartFiles].filter(
+  const candidates = [...manifestFiles, ...directGroups.flat(), ...localPartFiles].filter(
     (file, index, all) => all.findIndex((other) => pathKey(other.path) === pathKey(file.path)) === index,
   )
-  const sized = (
+  const probed = new Map(
     await Promise.all(
       candidates.map(async (file) => {
         const found = await probe(file.path)
-        return found?.isFile ? { ...file, bytes: found.size } : undefined
+        return [pathKey(file.path), found?.isFile ? { ...file, bytes: found.size } : undefined] as const
       }),
-    )
-  ).filter((file): file is SizedCandidate => !!file)
+    ),
+  )
+  const directFiles = directGroups
+    .flatMap((candidates) => candidates.find((file) => !!probed.get(pathKey(file.path))) ?? [])
+    .filter((file, index, all) => all.findIndex((other) => pathKey(other.path) === pathKey(file.path)) === index)
+  const sized = [...manifestFiles, ...directFiles, ...localPartFiles]
+    .flatMap((file) => probed.get(pathKey(file.path)) ?? [])
+    .filter((file, index, all) => all.findIndex((other) => pathKey(other.path) === pathKey(file.path)) === index)
   const docs = sized.filter((file) => EXTRACT_DOC_EXT.has(ext(file.filename)))
   const files = sized.filter((file) => !NON_INLINE_EXT.has(ext(file.filename)))
   const oversized = files.filter((file) => file.bytes > SINGLE_DOC_LIMIT)
@@ -150,8 +166,16 @@ export async function decideInsightDispatch(
     totalBytes,
     directFiles: [...directFiles, ...localPartFiles]
       .filter((file, index, all) => all.findIndex((other) => pathKey(other.path) === pathKey(file.path)) === index)
-      .filter((file) => sized.some((candidate) => pathKey(candidate.path) === pathKey(file.path))),
+      .filter((file) => probed.get(pathKey(file.path))),
   }
+}
+
+/** resolvePart 前置判定：命中分治时跳过本地 text/plain FilePart 的正文展开。 */
+export async function shouldDeferInsightLocalTextReads(parts: readonly DispatchPart[]) {
+  if (!parts.some((part) => part.type === "file" && part.mime === "text/plain" && part.url?.startsWith("file:"))) {
+    return false
+  }
+  return (await decideInsightDispatch(parts)).mode === "dispatch"
 }
 
 function formatDispatchNote(decision: InsightDispatchDecision) {
@@ -193,9 +217,7 @@ export const OctoInsightDispatchPlugin: Plugin = async () => ({
     if (output.message.tools?.task === false) return
     // 前端第一层已经命中时保持幂等，不再 stat，也不追加第二份说明。
     if (
-      output.parts.some(
-        (part) => part.type === "text" && part.synthetic && part.text.startsWith(DISPATCH_NOTE_HEADER),
-      )
+      output.parts.some((part) => part.type === "text" && part.synthetic && part.text.startsWith(DISPATCH_NOTE_HEADER))
     )
       return
 
