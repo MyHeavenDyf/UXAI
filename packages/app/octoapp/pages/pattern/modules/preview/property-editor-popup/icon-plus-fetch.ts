@@ -4,8 +4,9 @@
  * 接口流程（见 D:\60096960\icon-plus.md）：
  *   1. getConfig   取尺寸/风格/颜色等配置（兼作 online 探测）
  *   2. tags        取标签列表（用于弹窗 TABS）
- *   3. getIconInfo 按关键词搜索图标（topK=25、source_id=6、type=icon、tags；支持逗号分隔批量）
- *   4. getIcon     按图标 url 批量取 svg 文本（size/style/color/fileType/url）
+ *   3. groups      取分组树（用于弹窗分类筛选 IconCategorySelect）
+ *   4. getIconInfo 按关键词搜索图标（topK=25、source_id=6、type=icon、tags、group_id；支持逗号分隔批量）
+ *   5. getIcon     按图标 url 批量取 svg 文本（size/style/color/fileType/url）
  *
  * 基址复用 lib-resource-service 域名，请求风格对齐 pattern-resource.ts（原生 fetch，{success,data} 信封）。
  * size/style 由弹窗直传 API 值；color 经 mapColorToId 解析为 config.colors 的 id（后端要 id）。
@@ -46,6 +47,23 @@ export type IconPlusConfig = {
   [key: string]: unknown
 }
 
+/** groups 分组树节点（后端响应含 parent_id/level/real_path 等多余字段，用索引签名吸收） */
+export type IconGroupNode = {
+  id: number
+  name: string
+  resource_count?: number
+  children?: IconGroupNode[]
+  [key: string]: unknown
+}
+
+/** groups 响应外层 */
+export type IconGroupsResult = {
+  resource_type: number
+  resource_type_name: string
+  source_id: number
+  items: IconGroupNode[]
+}
+
 /** getIconInfo 返回的单个图标信息 */
 export type IconInfo = {
   icon_id: string
@@ -76,6 +94,8 @@ export type IconSearchParams = {
   source_id?: number
   type?: string
   tags: string
+  /** 分类树选中节点 id（来自 IconCategorySelect），全部分类时不传 */
+  group_id?: number
 }
 
 /** getIcon 请求参数 */
@@ -131,15 +151,32 @@ export async function fetchIconTags(
   return { success: true, data: r.data?.items ?? [] }
 }
 
-/** 3. 根据关键词搜索图标信息，拍平成 一维 IconInfo[] */
+/** 3. 获取分组树（用于弹窗分类筛选；exclude_default=true 剔除默认分组壳） */
+export async function fetchIconGroups(
+  sourceId: number = SOURCE_ID,
+  type: string = ICON_TYPE,
+): Promise<Result<IconGroupNode[]>> {
+  const r = await getRequest<IconGroupsResult>(
+    `${ICON_PLUS_BASE}/lib-resource-service/api/groups${buildQuery({ exclude_default: true, type, source_id: sourceId })}`,
+  )
+  if (!r.success) return r
+  return { success: true, data: r.data?.items ?? [] }
+}
+
+/** 4. 根据关键词搜索图标信息，拍平成 一维 IconInfo[] */
 export async function fetchIconInfo(params: IconSearchParams): Promise<Result<IconInfo[]>> {
-  const q = buildQuery({
+  const query: Record<string, unknown> = {
     keyword: params.keyword,
     topK: params.topK ?? TOP_K,
     source_id: params.source_id ?? SOURCE_ID,
     type: params.type ?? ICON_TYPE,
     tags: params.tags,
-  })
+  }
+  // group_id 仅在存在时才加入查询参数（全部分类不传）
+  if (params.group_id !== undefined && params.group_id !== null) {
+    query.group_id = params.group_id
+  }
+  const q = buildQuery(query)
   const r = await getRequest<IconInfoGroup[]>(
     `${ICON_PLUS_BASE}/assetRepository/iconPlus/getIconInfo${q}`,
   )
@@ -148,7 +185,7 @@ export async function fetchIconInfo(params: IconSearchParams): Promise<Result<Ic
   return { success: true, data: icons }
 }
 
-/** 4. 根据 url 批量获取图标内容，按输入 url 索引回填（批量返回假定顺序与输入一致，联调校准） */
+/** 5. 根据 url 批量获取图标内容，按输入 url 索引回填（批量返回假定顺序与输入一致，联调校准） */
 export async function fetchIconContent(params: IconContentParams): Promise<Result<Record<string, string>>> {
   const urls = params.urls
   if (!urls.length) return { success: true, data: {} }
@@ -209,6 +246,10 @@ export function createIconPlusStore() {
     config: null as IconPlusConfig | null,
     tags: [] as string[],
     tabs: [] as TabItem[],
+    /** 分组树（IconCategorySelect 数据源；接口未返回前为空，组件回退硬编码兜底） */
+    groups: [] as IconGroupNode[],
+    /** 分类树选中节点 id（null=全部分类，不发 group_id） */
+    groupId: null as number | null,
     /** getConfig 是否联通：false 时弹窗回退 lucide，store 内所有请求方法跳过 */
     online: false,
     status: "idle" as "idle" | "loading" | "ready" | "error",
@@ -245,6 +286,8 @@ export function createIconPlusStore() {
         setState("activeTab", first?.value ?? "自定义")
       }
     }
+    const groups = await fetchIconGroups()
+    if (groups.success) setState("groups", groups.data)
     setState("status", "ready")
     // 预载 25 个图标（关键词为空走预设）
     void search()
@@ -270,7 +313,7 @@ export function createIconPlusStore() {
     const topK = typed ? TOP_K : 1 // 预设 25 个关键词各取 1 个 = 25 个；单个关键词取 25 个
     setState("searching", true)
     setState("error", null)
-    const res = await fetchIconInfo({ keyword, tags: state.activeTab, topK })
+    const res = await fetchIconInfo({ keyword, tags: state.activeTab, topK, group_id: state.groupId ?? undefined })
     if (!res.success) {
       setState("icons", [])
       setState("searching", false)
@@ -338,6 +381,11 @@ export function createIconPlusStore() {
     setState("activeTab", v)
     scheduleSearch(true)
   }
+  /** 分类树选择变更：null=全部分类（不发 group_id），否则按节点 id 过滤 */
+  function setGroupId(v: number | null) {
+    setState("groupId", v)
+    scheduleSearch(true)
+  }
   function setShape(v: string) {
     setState("shape", v)
     void refreshSvgs()
@@ -367,6 +415,7 @@ export function createIconPlusStore() {
     refreshSvgs,
     setKeyword,
     setTab,
+    setGroupId,
     setShape,
     setSize,
     setColor,

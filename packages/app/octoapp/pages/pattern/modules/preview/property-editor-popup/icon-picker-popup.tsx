@@ -319,7 +319,12 @@ export function IconPickerPopup(props: {
         <div class="mt-4 flex shrink-0 items-center gap-2 px-4">
           <div class="w-[109px] shrink-0">
             <IconCategorySelect value={state.category} label={state.categoryName}
-              onChange={(id, name) => { setState('category', id); setState('categoryName', name) }} />
+              tree={iconStore.state.groups}
+              onChange={(id, name) => {
+                setState('category', id)
+                setState('categoryName', name)
+                iconStore.setGroupId(id === 'all' ? null : id)
+              }} />
           </div>
           <input value={iconStore.state.keyword} onInput={(e) => iconStore.setKeyword(e.currentTarget.value)}
             type="search" placeholder="请搜索..."
