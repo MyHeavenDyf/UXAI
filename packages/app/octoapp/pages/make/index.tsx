@@ -2136,7 +2136,10 @@ const sessionMessagesLoaded = createMemo(() => {
         } catch (err) { console.error("[MakePage] write pattern.json failed:", err) }
       }
     }
-    // 保存完成后结束 pattern 模式流程并退出
+    // 保存完成后刷新右侧文件管理页面，显示新生成的 pattern.json
+    setFilesRefreshKey(k => k + 1)
+    void historyController.onFileRefresh(tabStore.tabs())
+    // 结束 pattern 模式流程并退出
     handleEndPatternPage()
   }
 
