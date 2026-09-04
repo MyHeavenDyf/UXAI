@@ -461,9 +461,11 @@ function createGlobalSync() {
     peek: children.peek,
     // bootstrap,
     updateConfig: updateConfigMutation.mutateAsync,
-    invalidateProviders: () => {
-      queryClient.invalidateQueries({ queryKey: ["config"] })
-      queryClient.invalidateQueries({ queryKey: [null, "providers"] })
+    invalidateProviders: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["config"] }),
+        queryClient.invalidateQueries({ predicate: (query) => query.queryKey[1] === "providers" }),
+      ])
     },
     project: projectApi,
     todo: {

@@ -53,8 +53,9 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       try {
         const result = await loadApiModels()
         setApiModels(result)
-        globalSync.invalidateProviders()
+        await globalSync.invalidateProviders()
         console.log("[models] refreshed provider catalog", {
+          connected: result.connected,
           providers: result.all.map((provider) => ({
             id: provider.id,
             models: Object.keys(provider.models),
