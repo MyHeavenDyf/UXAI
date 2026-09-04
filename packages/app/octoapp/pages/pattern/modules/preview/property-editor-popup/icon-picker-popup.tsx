@@ -5,6 +5,7 @@ import { LUCIDE_ICONS } from "./lucide-icons"
 import { CustomSelect } from "./custom-select"
 import { createIconPlusStore } from "./icon-plus-fetch"
 import { iconColors, iconCssColor } from "./icon-colors"
+import { IconCategorySelect } from "./icon-category-select"
 import noDataEmptySvg from "../../../assets/images/noDataEmpty.svg?url"
 import deleteSvg from "../../../assets/images/delete.svg?url"
 
@@ -30,14 +31,6 @@ const CATEGORY_MATCHERS: Record<string, RegExp> = {
   media: /^(image|video|music|play|pause|camera|film|mic|file|folder|archive|inbox|paperclip|aperture|qr|barcode)/,
   comm: /^(mail|phone|message|bell|megaphone|at-sign|rss|wifi|bluetooth|shield|lock|key|bug|terminal|code|braces|git|globe|map-pin)/,
 }
-
-const CATEGORY_OPTIONS = [
-  { label: '全部分类', value: 'all' },
-  { label: '方向', value: 'direction' },
-  { label: '操作', value: 'action' },
-  { label: '媒体文件', value: 'media' },
-  { label: '通信安全', value: 'comm' },
-]
 
 /** 底部风格筛选：value（中文标签）即 getIcon 的 style 入参 */
 const SHAPE_OPTIONS = [
@@ -165,7 +158,8 @@ export function IconPickerPopup(props: {
   onConfirm?: () => void
 }): JSX.Element {
   const [state, setState] = createStore({
-    category: 'all',
+    category: 'all' as number | 'all',
+    categoryName: '全部分类',
     iconColorKey: 'default',
     customIcons: [] as string[],
     selected: props.current,
@@ -205,7 +199,7 @@ export function IconPickerPopup(props: {
   /** offline 兜底：本地 lucide 过滤（关键词读 store、分类读本地 state） */
   const filtered = () => {
     const kw = iconStore.state.keyword.trim().toLowerCase()
-    const matcher = state.category === 'all' ? null : CATEGORY_MATCHERS[state.category]
+    const matcher = state.category === 'all' ? null : CATEGORY_MATCHERS[String(state.category)]
     return LUCIDE_ICONS.filter(i => {
       if (matcher && !matcher.test(i.name)) return false
       if (kw && !i.name.includes(kw)) return false
@@ -324,8 +318,8 @@ export function IconPickerPopup(props: {
         {/* 筛选框(109) + 搜索框(231)：高36 背景#F2F3F5 */}
         <div class="mt-4 flex shrink-0 items-center gap-2 px-4">
           <div class="w-[109px] shrink-0">
-            <CustomSelect value={state.category} options={CATEGORY_OPTIONS} onChange={v => setState('category', v)}
-              class="[&>button]:h-9 [&>button]:rounded-[36px] [&>button]:bg-[#F2F3F5] [&>button]:text-[12px] [&>button]:text-[#333333] [&>button]:border-transparent" />
+            <IconCategorySelect value={state.category} label={state.categoryName}
+              onChange={(id, name) => { setState('category', id); setState('categoryName', name) }} />
           </div>
           <input value={iconStore.state.keyword} onInput={(e) => iconStore.setKeyword(e.currentTarget.value)}
             type="search" placeholder="请搜索..."
