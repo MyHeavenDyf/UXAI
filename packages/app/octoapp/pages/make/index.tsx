@@ -961,7 +961,7 @@ const sessionMessagesLoaded = createMemo(() => {
       const res = await sdk.client.session.list({ directory: sdk.directory })
       if (params.id !== sid) return null
       const sessions = (res.data ?? []).filter((s: any) => !!s?.id)
-      const children = sessions.filter((s: any) => s.parentID === sid && !s.time?.archived)
+      const children = sessions.filter((s: any) => s.parentID === sid && !s.time?.archived && (s.agent === "octo_make_plan" || s.agent === "ict_pattern"))
       const planChild = children.find((s: any) => s.agent === "octo_make_plan")
 
       for (const child of children) {
@@ -1037,7 +1037,12 @@ const sessionMessagesLoaded = createMemo(() => {
     try {
       const res = await sdk.client.session.list({ directory: sdk.directory })
       if (params.id !== sid) return
-      const children = (res.data ?? []).filter((s: any) => s.parentID === sid && !s.time?.archived)
+      // 只发现需要在消息流中展示的子 session（octo_make_plan / ict_pattern），
+      // 跳过临时 agent（如 proto_replanner）创建的子 session，避免归档后残留干扰对话
+      const VISIBLE_CHILD_AGENTS = new Set(["octo_make_plan", "ict_pattern"])
+      const children = (res.data ?? []).filter((s: any) =>
+        s.parentID === sid && !s.time?.archived && VISIBLE_CHILD_AGENTS.has(s.agent),
+      )
       const discovered = new Set<string>()
       const discoveredPlans = new Set<string>()
       for (const child of children) {
@@ -2108,7 +2113,7 @@ const sessionMessagesLoaded = createMemo(() => {
     setPatternMatches(null)
     setPatternBlockMatches([])
     setPatternBlockMatching(false)
-    if (!mainSid) return
+    if (!mainSid) { handleEndPatternPage(); return }
     let blocksToSend: BlockModuleItem[] = []
     if (selectedBlocks && selectedBlocks.length > 0) {
       try { blocksToSend = (await getBlockContent({ results: selectedBlocks }, mainSid)).results } catch (err) { console.error("[MakePage] getBlockContent failed", err) }
@@ -2131,13 +2136,11 @@ const sessionMessagesLoaded = createMemo(() => {
         } catch (err) { console.error("[MakePage] write pattern.json failed:", err) }
       }
     }
-    // 关闭匹配弹窗，但保持 pattern 模式：用户可继续在输入框输入需求，
-    // 后续消息仍路由到 ict_pattern agent，直到点击 banner 退出按钮才退出
-    setPatternMatches(null)
-    setPatternBlockMatches([])
-    setPatternBlockMatching(false)
-    setPatternSubPhase("match")
-    setOptimisticPatternIntent(false)
+    // 保存完成后刷新右侧文件管理页面，显示新生成的 pattern.json
+    setFilesRefreshKey(k => k + 1)
+    void historyController.onFileRefresh(tabStore.tabs())
+    // 结束 pattern 模式流程并退出
+    handleEndPatternPage()
   }
 
   /** 用户点击 [退出] → 中止子 session + 退出 */

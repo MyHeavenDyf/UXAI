@@ -29,6 +29,17 @@ export const LABEL_MAP: Record<string, string> = {
 
 type EnumOption = { label: string; value: string }
 
+/** 使用图标选择弹窗的组件属性（格式：组件类型.属性名） */
+export const ICON_PICKER_PROP_KEYS = new Set([
+  'Icon.name',
+  'Button.icon',
+  'Tag.icon',
+  'TimelineItem.icon',
+  'Collapse.expandIcon',
+  'Input.prefix',
+  'Input.suffix',
+])
+
 export const COMPONENT_ENUMS: Record<string, EnumOption[]> = {
   'Button.color': [
     { label: '默认', value: 'default' },
