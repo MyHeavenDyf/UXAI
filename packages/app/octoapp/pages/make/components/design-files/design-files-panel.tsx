@@ -318,6 +318,21 @@ export function DesignFilesPanel(props: Props): JSX.Element {
     }
   }
 
+  async function handleFolderDownload(file: ArtifactFile) {
+    try {
+      const blob = await archiveArtifacts(globalSDK.url, sdk.directory, [file.path])
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${file.name}.zip`
+      a.click()
+      URL.revokeObjectURL(url)
+      tracker.interaction({ module: "design", name: "files-download-folder" })
+    } catch (err) {
+      showOctoToast({ title: "下载失败", description: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
   async function handleDownload(file: ArtifactFile) {
     try {
       const content = await fetchArtifactContent(globalSDK.url, sdk.directory, file.path)
@@ -1003,6 +1018,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                       onPreview={handlePreview}
                       onOpen={handleOpenFile}
                       onDownload={handleDownload}
+                      onFolderDownload={handleFolderDownload}
                       onOpenInExplorer={handleOpenInExplorer}
                       onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, "generated")}
                       onAddToSession={props.onAddToSession}
@@ -1029,6 +1045,7 @@ export function DesignFilesPanel(props: Props): JSX.Element {
                       onOpen={handleOpenFile}
 onDelete={handleDelete}
                       onDownload={handleDownload}
+                      onFolderDownload={handleFolderDownload}
                       onOpenInExplorer={handleOpenInExplorer}
                       onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, "uploaded")}
                       onAddToSession={props.onAddToSession}
@@ -1050,6 +1067,7 @@ onDelete={handleDelete}
                     onOpen={handleOpenFile}
                     onDelete={fileStore.store.currentCategory === "uploaded" ? handleDelete : undefined}
                     onDownload={handleDownload}
+                    onFolderDownload={handleFolderDownload}
                     onOpenInExplorer={handleOpenInExplorer}
                     onNavigateFolder={(folder) => fileStore.navigateToFolder(folder, fileStore.store.currentCategory!)}
                     onAddToSession={props.onAddToSession}
@@ -1128,6 +1146,7 @@ function KindGroupRows(props: {
   onOpen: (file: ArtifactFile) => void
   onDelete?: (file: ArtifactFile) => void
   onDownload?: (file: ArtifactFile) => void
+  onFolderDownload?: (file: ArtifactFile) => void
   onOpenInExplorer: (file: ArtifactFile) => void
   onNavigateFolder?: (folder: ArtifactFile) => void
   onAddToSession?: (file: ArtifactFile) => void
@@ -1164,7 +1183,7 @@ function KindGroupRows(props: {
                       onPreview={() => props.onPreview(file)}
                       onOpen={() => props.onOpen(file)}
                       onDelete={props.onDelete ? () => props.onDelete!(file) : undefined}
-                      onDownload={file.isFolder ? undefined : () => props.onDownload?.(file)}
+                      onDownload={file.isFolder ? (props.onFolderDownload ? () => props.onFolderDownload!(file) : undefined) : () => props.onDownload?.(file)}
                       onOpenInExplorer={() => props.onOpenInExplorer(file)}
                       onNavigateFolder={props.onNavigateFolder && file.isFolder ? () => props.onNavigateFolder!(file) : undefined}
                       onAddToSession={props.onAddToSession && !file.isFolder ? () => props.onAddToSession!(file) : undefined}
@@ -1201,7 +1220,7 @@ function KindGroupRows(props: {
                       onPreview={() => props.onPreview(file)}
                       onOpen={() => props.onOpen(file)}
                       onDelete={props.onDelete ? () => props.onDelete!(file) : undefined}
-                      onDownload={file.isFolder ? undefined : () => props.onDownload?.(file)}
+                      onDownload={file.isFolder ? (props.onFolderDownload ? () => props.onFolderDownload!(file) : undefined) : () => props.onDownload?.(file)}
                       onOpenInExplorer={() => props.onOpenInExplorer(file)}
                       onNavigateFolder={props.onNavigateFolder && file.isFolder ? () => props.onNavigateFolder!(file) : undefined}
                       onAddToSession={props.onAddToSession && !file.isFolder ? () => props.onAddToSession!(file) : undefined}

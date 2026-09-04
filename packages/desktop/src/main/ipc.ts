@@ -759,6 +759,15 @@ export function registerIpcHandlers(deps: Deps) {
     }
   })
 
+  // 目录存在性检查:仅当目标是一个存在的目录时返回 true(与 file-exists 对称)
+  ipcMain.handle("dir-exists", async (_event: IpcMainInvokeEvent, path: string) => {
+    try {
+      return (await stat(path)).isDirectory()
+    } catch {
+      return false
+    }
+  })
+
   ipcMain.handle("delete-file", async (_event: IpcMainInvokeEvent, path: string) => {
     try {
       await unlink(path)

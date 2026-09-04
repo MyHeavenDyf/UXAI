@@ -102,6 +102,7 @@ import { MODEL_TRIGGER_BASE_CLASS, ModelSelectorPopover, ModelTriggerLabel } fro
 import { MakeModelRiskDialog } from "./make-model-risk-dialog"
 import { ANNOTATION_EVENT, type AnnotationEventDetail } from "./components/result-viewer/draw-overlay"
 import { SEND_TEXT_EVENT, type SendTextEventDetail } from "./utils/agent-events"
+import { processMentions } from "./utils/mention-processor"
 import { autoSaveArtifact, inferArtifactFilePath } from "./utils/artifact-auto-save"
 import { getFileIcon as getFileKindIcon } from "./icons/file-type-icons"
 import { persistTabChanges, tabToOutputCard } from "./utils/tab-persistence"
@@ -665,7 +666,7 @@ const sessionMessagesLoaded = createMemo(() => {
       }
 
       try {
-        await sendMessage(sessionId, detail.text, modelKey)
+        await sendMessage(sessionId, detail.text, modelKey, detail.mentions)
         tracker.interaction({
           module: 'design',
           name: 'send-text-event',
@@ -703,8 +704,10 @@ const sessionMessagesLoaded = createMemo(() => {
         setBlockTime(0)
         
         // 记录首次回复时间（只记录第一次）
+        // fallback 到 sid (params.id)：plan 子 session 的事件 eventSessionID=planSid，
+        // 但 timing 存在 params.id 下，需要 fallback 才能命中
         const targetSessionID = eventSessionID ?? sid
-        const timing = messageTimingMap.get(targetSessionID)
+        const timing = messageTimingMap.get(targetSessionID) ?? messageTimingMap.get(sid)
         if (timing && !timing.firstTokenTime) {
           timing.firstTokenTime = Date.now()
         }
@@ -1364,6 +1367,7 @@ const sessionMessagesLoaded = createMemo(() => {
   // ── Skills Config (from skill_config.json) ──
   const [skillConfig, setSkillConfig] = createSignal<SkillConfig>({})
   const [skillsLoading, setSkillsLoading] = createSignal(false)
+  const [skillsLoaded, setSkillsLoaded] = createSignal(false)
   const [skillToolCalls, setSkillToolCalls] = createSignal<ToolCallInfo[]>([])
   const [pendingSkill, setPendingSkill] = createSignal<{ name: string; content: string } | null>(null)
 
@@ -1393,12 +1397,13 @@ const sessionMessagesLoaded = createMemo(() => {
       console.error("[MakePage] Failed to load skill config:", err)
     } finally {
       setSkillsLoading(false)
+      setSkillsLoaded(true)
     }
   }
   
   // 组件挂载时预加载 skill 配置
   createEffect(() => {
-    if (params.id && !skillConfig().skill) {
+    if (params.id && !skillsLoaded()) {
       loadSkillConfig()
     }
   })
@@ -1586,6 +1591,10 @@ const sessionMessagesLoaded = createMemo(() => {
   const [versionList, setVersionList] = createSignal<VersionEntry[]>([])
   const [currentVersionId, setCurrentVersionId] = createSignal<string | null>(null)
   const [resultViewMode, setResultViewMode] = createSignal<"tabs" | "files" | "plan">("files")
+
+  createEffect(on(() => resultViewMode(), (mode) => {
+    if (mode !== "tabs") layout.focusMode.set(false)
+  }, { defer: true }))
 
   const historyController = createHistoryController({
     setVersionList: (updater) => setVersionList(updater),
@@ -1810,6 +1819,11 @@ const sessionMessagesLoaded = createMemo(() => {
         const model = `${modelKey.providerID}/${modelKey.modelID}`
         const skillPrompt = `${message}\n\n用户选择的 Skill：\n${handoff.skills.map((skill) => `/${skill.name}`).join("\n")}\n\n请执行并应用上述 Skill，同时严格遵循已确认的设计方案。`
         for (const skill of handoff.skills) {
+          // 记录发送开始时间（每次 skill 命令前重新设置，支持多 skill 逐条追踪）
+          messageTimingMap.set(mainSid, {
+            startTime: Date.now(),
+            inputText: cmd.slice(0, 30)
+          })
           await sdk.client.session.command({
             sessionID: mainSid,
             command: skill.name,
@@ -2430,25 +2444,7 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       }
 
-      // Process mention selections: replace chip text with model format
-      let processedText = text
-      let displayText = text
-
-      for (const sel of selections) {
-        if (sel.type === 'skill') {
-          processedText = processedText.replace(`@${sel.name}`, ` /${sel.name} `)
-          // chip 在输入框里渲染成 displayName,但 getText 返回的是 @skillName(getDocTextWithMentions 用 attrs.name)。
-          // 这里把 displayText 里的 @skillName 同步替换成 @displayName,聊天记录里显示的就跟输入框一致。
-          if (sel.label && sel.label !== sel.name) {
-            displayText = displayText.replace(`@${sel.name}`, () => `@${sel.label}`)
-          }
-        } else {
-          processedText = processedText.replace(`@${sel.name}`, ` 读取${sel.path} 这个文件 `)
-        }
-      }
-      // Clean up extra spaces and strip zero-width space (​) used as chip boundary marker
-      // (see getDocTextWithMentions in schema.ts — chip 前后插入 ​ 作为边界,送给模型前要剥离)
-      processedText = processedText.replace(/​/g, '').replace(/  +/g, ' ').trim()
+      const { processed: processedText, display: displayText } = processMentions(text, selections)
       
       console.log("[sendMessage] displayText:", displayText)
       console.log("[sendMessage] processedText:", processedText)
@@ -2608,7 +2604,7 @@ const sessionMessagesLoaded = createMemo(() => {
         const manifestPart = localManifest.length > 0 
           ? { type: "text" as const, text: formatUploadsForPrompt(localManifest), synthetic: true as const }
           : null
-        
+
         for (const seg of cmdSegments) {
           if (!seg.cmd) continue
 
@@ -2633,6 +2629,14 @@ const sessionMessagesLoaded = createMemo(() => {
             isFirstSkillCommand = false
           }
           
+          // 记录发送开始时间（每次命令前重新设置，支持多 skill chip 逐条追踪）
+          // 使用 params.id ?? sessionId 作为 key：plan 子 session 时 params.id 是父 session，
+          // 与 busy→idle 读取端一致
+          messageTimingMap.set(params.id ?? sessionId, {
+            startTime: Date.now(),
+            inputText: (fullDisplayText || text).slice(0, 30)
+          })
+
           try {
             const result = await sdk.client.session.command({
               sessionID: sessionId,
@@ -2793,7 +2797,9 @@ const sessionMessagesLoaded = createMemo(() => {
       parts.push(...fileParts)
       
       // 记录发送开始时间
-      messageTimingMap.set(sessionId, {
+      // 使用 params.id ?? sessionId 作为 key：plan 子 session 时 params.id 是父 session，
+      // 与 busy→idle 读取端一致
+      messageTimingMap.set(params.id ?? sessionId, {
         startTime: Date.now(),
         inputText: text.slice(0, 30)
       })
@@ -3498,14 +3504,22 @@ if (dsId) {
   }
 
   /**
-   * Download a product-asset-library file (s3BaseUrl + convertHtmlUrl) into the
-   * current session's uploads directory (or tmps if no session yet), with simple
-   * numeric suffix for rename collisions. Returns the local destination path.
-   * Does NOT add as attachment — only downloads. The chip insertion is handled
+   * Download a product-asset-library file via its versionInfo download path
+   * (baseUrl + '/main' + versionInfo[0].filePath + '/' + versionInfo[0].fileName)
+   * into the current session's uploads directory (or tmps if no session yet).
+   * ZIP files are extracted into the uploads dir and the archive deleted;
+   * the returned path is the extracted folder in that case.
+   * Does NOT add as attachment — only downloads. Chip insertion is handled
    * separately by AddonMenu via insertMention.
    */
   async function downloadProductAsset(
-    file: { fileName: string; snapshot: string; s3BaseUrl: string; convertHtmlUrl: string },
+    file: {
+      fileName: string
+      snapshot: string
+      s3BaseUrl: string
+      convertHtmlUrl: string
+      versionInfo?: { filePath: string; fileName: string; fileSize: number }[] | null
+    },
     onProgress: (pct: number) => void,
     signal?: AbortSignal,
   ): Promise<string> {
@@ -3515,11 +3529,13 @@ if (dsId) {
     const api = getDesktopApi()
     if (!api?.writeFileBuffer) throw new Error("不支持文件操作")
 
-    // Build full URL + local filename (encode non-ASCII path segments for fetch)
-    const fileUrl = encodeAssetUrl(joinUrl(file.s3BaseUrl, file.convertHtmlUrl))
-    const ext = extractExtension(file.convertHtmlUrl)
-    const baseName = file.fileName
-    const filename = ext ? `${baseName}.${ext}` : baseName
+    const version = file.versionInfo?.[0]
+    if (!version) throw new Error("缺少版本信息,无法下载")
+
+    // Download URL: baseUrl + '/main' + filePath + '/' + fileName (spec line 63)
+    const baseUrl = import.meta.env.VITE_OCTO_BASE_URL || ""
+    const remotePath = `/main${version.filePath}/${version.fileName}`
+    const fileUrl = encodeAssetUrl(joinUrl(baseUrl, remotePath))
 
     onProgress(0)
     const response = await fetch(fileUrl, { signal })
@@ -3528,29 +3544,53 @@ if (dsId) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
     const buffer = await blob.arrayBuffer()
 
-    // Resolve unique path (simple suffix on collision)
     const sep = projectDirValue.includes("\\") ? "\\" : "/"
     const dir = sid
       ? [projectDirValue, ".octo", sid, "uploads"].join(sep)
       : [projectDirValue, ".octo", "tmps", "make", "uploads"].join(sep)
-    const finalName = await resolveUniqueFilename(dir, filename)
-    const destPath = [dir, finalName].join(sep)
 
+    const isZip = version.fileName.toLowerCase().endsWith(".zip")
+
+    if (isZip) {
+      // Extract into uploads/<file.fileName> (dedup with (N) suffix via dirExists); archive not kept
+      const JSZip = (await import("jszip")).default
+      const zip = await JSZip.loadAsync(buffer)
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+      let folderName = file.fileName
+      let counter = 1
+      if (api.dirExists) {
+        while (await api.dirExists([dir, folderName].join(sep))) {
+          folderName = `${file.fileName} (${counter})`
+          counter++
+        }
+      }
+      const folderPath = [dir, folderName].join(sep)
+
+      for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
+        if (zipEntry.dir) continue
+        const normalized = relativePath.replace(/\//g, sep)
+        const content = await zipEntry.async("uint8array")
+        await api.writeFileBuffer([folderPath, normalized].join(sep), content.buffer as ArrayBuffer)
+      }
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+      onProgress(100)
+      setFilesRefreshKey(k => k + 1)
+      return folderPath
+    }
+
+    // Non-ZIP: save as file.fileName + extension from version.fileName, with dedup
+    const dot = version.fileName.lastIndexOf(".")
+    const ext = dot > 0 ? version.fileName.slice(dot) : ""
+    const finalName = await resolveUniqueFilename(dir, `${file.fileName}${ext}`)
+    const destPath = [dir, finalName].join(sep)
     await api.writeFileBuffer(destPath, buffer)
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
 
     onProgress(100)
-    // Refresh file management panel so the downloaded file appears in the uploaded list
     setFilesRefreshKey(k => k + 1)
     return destPath
-  }
-
-  function extractExtension(urlPath: string): string {
-    const clean = urlPath.split("?")[0].split("#")[0]
-    const basename = clean.split("/").pop() || ""
-    const dot = basename.lastIndexOf(".")
-    if (dot <= 0 || dot === basename.length - 1) return ""
-    return basename.slice(dot + 1)
   }
 
   async function resolveUniqueFilename(dir: string, filename: string): Promise<string> {
@@ -4927,6 +4967,12 @@ onPreview={(url) => {
                 childBusy={childBusy()}
                 planEnded={currentSessionPlanEnded()}
                 planActive={params.id ? activePlanForCurrentSession() !== null : planComposerActive()}
+                disabled={effectiveBusy()}
+                skillConfig={skillConfig() ?? {}}
+                artifactFiles={artifactFilesMirror()}
+                productId={projectSelection()?.product?.id}
+                onDownloadProductAsset={downloadProductAsset}
+                onUpdateMentionPath={handleAddonUpdateMentionPath}
               />
             </div>
             <Show when={showVersionPanel()}>

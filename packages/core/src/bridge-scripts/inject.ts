@@ -11,6 +11,7 @@ import {
 } from "./constants"
 import { COMMENT_BRIDGE_SCRIPT, COMMENT_OUTLINE_CSS, injectCommentBridge as injectCommentBridgeImpl } from "./comment"
 import { RESOURCE_COLLECTOR_BRIDGE_SCRIPT } from "./resource-collector"
+import { MODEL_EDIT_BRIDGE_SCRIPT } from "./model-edit-bridge"
 
 export function injectSandboxShim(doc: string): string {
   if (/<head[^>]*>/i.test(doc)) {
@@ -92,6 +93,13 @@ export function injectResourceCollectorBridge(doc: string): string {
     return doc.replace("</body>", RESOURCE_COLLECTOR_BRIDGE_SCRIPT + "</body>")
   }
   return doc + RESOURCE_COLLECTOR_BRIDGE_SCRIPT
+}
+
+export function injectModelEditBridge(doc: string): string {
+  if (doc.includes("</body>")) {
+    return doc.replace("</body>", MODEL_EDIT_BRIDGE_SCRIPT + "</body>")
+  }
+  return doc + MODEL_EDIT_BRIDGE_SCRIPT
 }
 
 export function injectCustomBridge(
