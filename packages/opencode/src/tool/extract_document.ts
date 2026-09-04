@@ -5,6 +5,7 @@ import * as Tool from "./tool"
 import * as Truncate from "./truncate"
 import { InstanceState } from "@/effect/instance-state"
 import { Session } from "@/session/session"
+import SPREADSHEETS_SKILL_RAW from "@/agent/skills/octo_insight/spreadsheets/SKILL.md"
 
 // extract_document —— 把本地文档(docx/xlsx/pdf/pptx/txt/md)抽取成文本,供 insight 本地模型直接读。
 // SPEC-INS-015 文件传参路由 ②(office → 模型读)+ SPEC-INS-021 §3(txt/md 直读,解析源统一入口):
@@ -35,7 +36,16 @@ export const Parameters = Schema.Struct({
 const SUPPORTED = ["docx", "xlsx", "pdf", "pptx", "txt", "md"] as const
 type Supported = (typeof SUPPORTED)[number]
 
-type ExtractDetail = { pages?: number; sheets?: number; slides?: number; fallback?: boolean }
+const XLSX_SKILL_AGENTS = new Set(["octo_insight", "insight_reader"])
+const SPREADSHEETS_SKILL = SPREADSHEETS_SKILL_RAW.replace(/^---\s*\r?\n[\s\S]*?\r?\n---\s*\r?\n/, "").trim()
+
+type ExtractDetail = {
+  pages?: number
+  sheets?: number
+  slides?: number
+  fallback?: boolean
+  worksheetRows?: Array<{ name: string; nonEmptyRows: number }>
+}
 
 type ExtractMetadata = {
   path: string
@@ -55,6 +65,27 @@ type ExtractMetadata = {
   pages?: number
   sheets?: number
   slides?: number
+  worksheetRows?: Array<{ name: string; nonEmptyRows: number }>
+}
+
+function xlsxGuidance(format: string, detail: ExtractDetail, agent: string) {
+  if (format !== "xlsx") return ""
+  const rows = detail.worksheetRows ?? []
+  const summary = [
+    "工作表行数（解析器按源工作簿统计，Markdown 自动折行不会增加行数）：",
+    ...rows.map((sheet) => `- ${sheet.name}: ${sheet.nonEmptyRows} 个非空行（包含可能存在的表头）`),
+    "回答数据行数时，先判断每张工作表的第一行是否为表头；若是，每张表分别减 1。",
+  ].join("\n")
+  if (!XLSX_SKILL_AGENTS.has(agent)) return summary
+  return [
+    summary,
+    "",
+    '<skill_content name="spreadsheets" auto_injected="true">',
+    "# Skill: spreadsheets",
+    "",
+    SPREADSHEETS_SKILL,
+    "</skill_content>",
+  ].join("\n")
 }
 
 /** 解析件目录名(SPEC-INS-014 布局下 uploads/ outputs/ 的兄弟;不进文件管理)。 */
@@ -250,6 +281,7 @@ async function extractXlsx(buf: Buffer) {
   const workbook = new ExcelJS.Workbook()
   await workbook.xlsx.load(buf as unknown as ArrayBuffer)
   const parts: string[] = []
+  const worksheetRows: Array<{ name: string; nonEmptyRows: number }> = []
   for (const sheet of workbook.worksheets) {
     const rows: string[] = []
     sheet.eachRow({ includeEmpty: false }, (row) => {
@@ -258,9 +290,16 @@ async function extractXlsx(buf: Buffer) {
       row.eachCell({ includeEmpty: true }, (cell) => cells.push(cell.text ?? ""))
       rows.push(cells.join("\t").trimEnd())
     })
-    parts.push(`# 工作表:${sheet.name}\n${rows.join("\n")}`)
+    parts.push(`# 工作表:${sheet.name}\n<!-- non_empty_rows: ${rows.length} -->\n${rows.join("\n")}`)
+    worksheetRows.push({ name: sheet.name, nonEmptyRows: rows.length })
   }
-  return { text: parts.join("\n\n"), detail: { sheets: workbook.worksheets.length } }
+  return {
+    text: parts.join("\n\n"),
+    detail: {
+      sheets: workbook.worksheets.length,
+      worksheetRows,
+    },
+  }
 }
 
 // pptx 抽取 = zip + slide XML 直取 <a:t> 文本节点(officeparser / python-pptx / unstructured 同一套业界做法)。
@@ -398,6 +437,7 @@ export const ExtractDocumentTool = Tool.define(
           // 会分叉——那是比截断更难查的 bug。(折行只插换行,不影响非空白字符数。)
           const text = wrapLongLines(result.text)
           const { chars, tokenEstimate } = measure(text)
+          const guidance = xlsxGuidance(format, result.detail, ctx.agent)
 
           if (chars === 0) {
             console.log("[octo:extract] ok", { path, format, chars, tokenEstimate, ms: Date.now() - started })
@@ -449,9 +489,12 @@ export const ExtractDocumentTool = Tool.define(
           // 一行一记录,几千行的表格可能字节还没超、行数已经爆了。Math.max 兜住用户把 config
           // 里的 tool_output 设得比首部预算还小的情况(算出负阈值会让一切都走落盘)。
           const limits = yield* truncate.limits()
+          const guidanceLines = guidance === "" ? 0 : guidance.split("\n").length
+          const guidanceBytes = Buffer.byteLength(guidance, "utf-8")
           const fits =
-            text.split("\n").length <= Math.max(1, limits.maxLines - HEADER_BUDGET_LINES) &&
-            Buffer.byteLength(text, "utf-8") <= Math.max(1, limits.maxBytes - HEADER_BUDGET_BYTES)
+            text.split("\n").length <= Math.max(1, limits.maxLines - HEADER_BUDGET_LINES - guidanceLines) &&
+            Buffer.byteLength(text, "utf-8") <=
+              Math.max(1, limits.maxBytes - HEADER_BUDGET_BYTES - guidanceBytes)
           // 落盘失败时无论多大都只能内联(退回 v1 行为,交给通用 Truncate 兜底)。
           const inlined = savedPath === undefined || fits
 
@@ -489,7 +532,11 @@ export const ExtractDocumentTool = Tool.define(
             const saved = savedPath
               ? `全文已保存到:${savedPath}`
               : `注意:全文未能保存到本地,本次仅返回以下正文。`
-            return { title, output: `${measured}${saved}${degraded}\n---\n${text}`, metadata }
+            return {
+              title,
+              output: [measured + saved + degraded, guidance, "---", text].filter(Boolean).join("\n"),
+              metadata,
+            }
           }
 
           // 超出单次通读量时给出**确定性的切段清单**(SPEC-INS-032 §2.4 v3)。
@@ -514,6 +561,7 @@ export const ExtractDocumentTool = Tool.define(
             title,
             output: [
               measured + degraded,
+              guidance,
               `正文过长,未直接返回;全文已保存到:${savedPath}`,
               `需要定位具体内容,用 grep 搜关键词;需要通读,用 read 按 offset/limit 分段读(单次上限 2000 行 / 50KB)。`,
               segmentNote,

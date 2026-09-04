@@ -841,6 +841,7 @@ export function registerIpcHandlers(deps: Deps) {
   const skillConfigPath = join(getOctoConfigPath(), "skill_config.json")
   const assetsConfigPath = join(getOctoConfigPath(), "assets_config.json")
   const octoSkillDir = join(getOctoConfigPath(), "skill")
+  const internalSkills = new Set(["spreadsheets"])
 
   /** 从 ~/.config/octo/skill 目录扫描，重新生成 skill_config.json（panel + agent 结构） */
   function regenerateSkillConfig() {
@@ -851,6 +852,7 @@ export function registerIpcHandlers(deps: Deps) {
         .filter((d) => d.isDirectory())
         .map((d) => d.name)
         .filter((name) => existsSync(join(octoSkillDir, name, "SKILL.md")))
+        .filter((name) => !internalSkills.has(name))
         .sort()
 
       const panelSkills = skillNames.map((name, index) => ({

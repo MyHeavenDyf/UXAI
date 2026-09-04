@@ -50,6 +50,12 @@ const runIn = Effect.fn("ExtractDocumentTest.runIn")(function* (dir: string, fil
   return yield* provideInstance(dir)(tool.execute({ path: file }, ctx))
 })
 
+const runAs = Effect.fn("ExtractDocumentTest.runAs")(function* (dir: string, file: string, agent: string) {
+  const info = yield* ExtractDocumentTool
+  const tool = yield* info.init()
+  return yield* provideInstance(dir)(tool.execute({ path: file }, { ...ctx, agent }))
+})
+
 const run = Effect.fn("ExtractDocumentTest.run")(function* (file: string) {
   const dir = yield* tmpdirScoped()
   return yield* runIn(dir, file)
@@ -166,7 +172,70 @@ describe("extract_document", () => {
       expect(result.output).toContain("# 工作表:访谈记录")
       expect(result.output).toContain("问题\tseverity")
       expect(result.output).toContain("搜索入口太深\t3")
+      expect(result.output).toContain("<!-- non_empty_rows: 2 -->")
+      expect(result.output).toContain("访谈记录: 2 个非空行（包含可能存在的表头）")
       expect(result.metadata.sheets).toBe(1)
+      expect(result.metadata.worksheetRows).toEqual([{ name: "访谈记录", nonEmptyRows: 2 }])
+    }),
+  )
+
+  it.live("xlsx: Insight 和只读子代理自动注入 spreadsheets 技能", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const file = path.join(FIXTURES, "sample.xlsx")
+      const insight = yield* runAs(dir, file, "octo_insight")
+      const reader = yield* runAs(dir, file, "insight_reader")
+      const unrelated = yield* runAs(dir, file, "build")
+
+      for (const result of [insight, reader]) {
+        expect(result.output).toContain('<skill_content name="spreadsheets" auto_injected="true">')
+        expect(result.output).toContain("Never count physical lines in the extracted Markdown or TSV")
+        expect(result.output).toContain("even when the user only asks to read or summarize the workbook")
+      }
+      expect(unrelated.output).not.toContain('<skill_content name="spreadsheets"')
+      expect(unrelated.output).toContain("访谈记录: 2 个非空行（包含可能存在的表头）")
+    }),
+  )
+
+  it.live("xlsx: 自动注入内容计入内联阈值，避免工具结果被二次截断", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const file = path.join(dir, "near-limit.xlsx")
+      const { default: ExcelJS } = yield* Effect.promise(() => import("exceljs"))
+      const workbook = new ExcelJS.Workbook()
+      const sheet = workbook.addWorksheet("长内容")
+      sheet.addRow(["说明"])
+      sheet.addRow(["长内容。".repeat(Math.ceil((46 * 1024) / Buffer.byteLength("长内容。", "utf8")))])
+      yield* Effect.promise(() => workbook.xlsx.writeFile(file))
+
+      const result = yield* runAs(dir, file, "octo_insight")
+
+      expect(result.metadata.inlined).toBe(false)
+      expect((result.metadata as Record<string, unknown>).truncated).toBe(false)
+      expect(result.output).toContain('<skill_content name="spreadsheets" auto_injected="true">')
+      expect(result.output).toContain("正文过长,未直接返回")
+    }),
+  )
+
+  it.live("xlsx: 长行软折行不改变工作表的权威行数", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const file = path.join(dir, "long-row.xlsx")
+      const { default: ExcelJS } = yield* Effect.promise(() => import("exceljs"))
+      const workbook = new ExcelJS.Workbook()
+      const sheet = workbook.addWorksheet("任务单")
+      sheet.addRow(["事项", "说明"])
+      sheet.addRow(["第一项", "长内容。".repeat(180)])
+      sheet.addRow(["第二项", "完成"])
+      yield* Effect.promise(() => workbook.xlsx.writeFile(file))
+
+      const result = yield* runIn(dir, file)
+      const saved = result.metadata.savedPath as string
+      const extracted = yield* Effect.promise(() => fs.readFile(saved, "utf8"))
+
+      expect(extracted).toContain("<!-- non_empty_rows: 3 -->")
+      expect(result.metadata.worksheetRows).toEqual([{ name: "任务单", nonEmptyRows: 3 }])
+      expect(extracted.split("\n").filter((line) => line.includes("长内容。")).length).toBeGreaterThan(1)
     }),
   )
 

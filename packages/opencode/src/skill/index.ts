@@ -33,6 +33,12 @@ const AGENT_SKILL_ALIASES: Record<string, string> = {
   "proto_*": "octo_make",
 }
 
+// 随安装包提供、但不进入 /skills 用户开关页的内部技能。
+// spreadsheets 只服务 Insight 对表格附件的结构化读取，避免解析件软折行被当成额外记录。
+const INTERNAL_AGENT_SKILLS: Record<string, string[]> = {
+  octo_insight: ["spreadsheets"],
+}
+
 export const Info = Schema.Struct({
   name: Schema.String,
   description: Schema.String,
@@ -382,8 +388,7 @@ export const layer = Layer.effect(
         }
       }
 
-      const allowedDirs = d.agentConfig[agentKey] ?? []
-      const allowedSet = new Set(allowedDirs)
+      const allowedSet = new Set([...(d.agentConfig[agentKey] ?? []), ...(INTERNAL_AGENT_SKILLS[agentKey] ?? [])])
       return list.filter((skill) => {
         if (Permission.evaluate("skill", skill.name, agent.permission).action === "deny") return false
         const skillDir = s.skillDirMap[skill.name]

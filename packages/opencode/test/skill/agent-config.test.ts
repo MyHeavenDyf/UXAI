@@ -98,6 +98,37 @@ description: ${s.desc}
 }
 
 describe("skill agentConfig with skill_config.json", () => {
+  test("internal spreadsheets skill is available only to octo_insight without skills page config", async () => {
+    const { ctx, cleanup } = await setupTest([
+      { dirName: "spreadsheets", name: "spreadsheets", desc: "Spreadsheet analysis skill" },
+    ])
+
+    await fs.writeFile(
+      path.join(octoConfigDir, "skill_config.json"),
+      JSON.stringify({ skill: {}, agent: { octo_insight: [], octo_make: [], octo_studio: [] } }, null, 2),
+    )
+
+    const runtime = ManagedRuntime.make(
+      Layer.mergeAll(Skill.defaultLayer, CrossSpawnSpawner.defaultLayer, noopBootstrap),
+    )
+
+    try {
+      await runtime.runPromise(
+        Effect.gen(function* () {
+          const skill = yield* Skill.Service
+          expect((yield* skill.available(makeAgent("octo_insight"))).map((item) => item.name)).toContain(
+            "spreadsheets",
+          )
+          expect((yield* skill.available(makeAgent("octo_make"))).map((item) => item.name)).not.toContain(
+            "spreadsheets",
+          )
+        }).pipe(Effect.provideService(InstanceRef, ctx)),
+      )
+    } finally {
+      await cleanup()
+    }
+  })
+
   test("available() filters skills by agentConfig from skill_config.json", async () => {
     const { ctx, cleanup } = await setupTest([
       { dirName: "html-proto", name: "html-proto", desc: "HTML prototyping skill" },

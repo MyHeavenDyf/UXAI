@@ -75,9 +75,7 @@ if (fs.existsSync(skillsDir)) {
     const skillSourceDir = path.dirname(path.join(skillsDir, relPath))
     const skillName = path.basename(skillSourceDir)
     const destDir = path.join(distSkillDir, skillName)
-    if (!fs.existsSync(destDir)) {
-      fs.cpSync(skillSourceDir, destDir, { recursive: true })
-    }
+    fs.cpSync(skillSourceDir, destDir, { recursive: true, force: true })
   }
   console.log(`Copied built-in skills to ${distSkillDir}`)
 }

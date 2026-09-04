@@ -199,8 +199,10 @@ export function deployBuiltinSkills() {
     for (const skillDir of readdirSync(builtinSource, { withFileTypes: true })) {
       if (!skillDir.isDirectory()) continue
       const dest = join(octoSkillDir, skillDir.name)
-      if (!existsSync(dest)) {
-        cpSync(join(builtinSource, skillDir.name), dest, { recursive: true })
+      // spreadsheets 是 Insight 的内部运行时规则，不是用户维护的 /skills 配置；升级后必须刷新，
+      // 否则安装包已有新规则、~/.config/octo/skill 仍会永久停留在旧版本。
+      if (!existsSync(dest) || skillDir.name === "spreadsheets") {
+        cpSync(join(builtinSource, skillDir.name), dest, { recursive: true, force: true })
         log.log("builtin skills deployment: copied", skillDir.name, "to", dest)
       }
     }
