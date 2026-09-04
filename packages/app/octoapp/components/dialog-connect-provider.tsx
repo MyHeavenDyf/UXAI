@@ -16,6 +16,7 @@ import { Link } from "@/components/link"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { useModels } from "@/context/models"
 import { useProviders } from "@/hooks/use-providers"
 import { useQueryClient } from "@tanstack/solid-query"
 
@@ -25,6 +26,7 @@ export function DialogConnectProvider(props: { provider: string }) {
   const globalSDK = useGlobalSDK()
   const queryClient = useQueryClient()
   const language = useLanguage()
+  const models = useModels()
   const providers = useProviders()
 
   const alive = { value: true }
@@ -348,16 +350,16 @@ export function DialogConnectProvider(props: { provider: string }) {
       // opencode: updateConfig 后端已自动 dispose + SSE 重加载
       // 只需刷新前端缓存，不需要再次 dispose
       console.log("[octo:connect] opencode branch: skip dispose (backend auto)", { t: Date.now() })
-      globalSync.invalidateProviders()
-      queryClient.invalidateQueries({ predicate: (query) => query.queryKey[1] === "providers" })
     } else {
       // 其他 provider: auth.set 后需后端重初始化才能读取新 key
       console.log("[octo:connect] non-opencode: calling global.dispose", { t: Date.now() })
       await globalSDK.client.global.dispose()
       console.log("[octo:connect] global.dispose done", { t: Date.now() })
-      globalSync.invalidateProviders()
-      queryClient.invalidateQueries({ predicate: (query) => query.queryKey[1] === "providers" })
     }
+
+    globalSync.invalidateProviders()
+    await queryClient.invalidateQueries({ predicate: (query) => query.queryKey[1] === "providers" })
+    await models.remote.refresh()
 
     showToast({
       variant: "success",
