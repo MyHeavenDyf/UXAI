@@ -1777,8 +1777,6 @@ const sessionMessagesLoaded = createMemo(() => {
 
   // 确认后等待主 agent 响应的过渡状态
   const [planConfirmPending, setPlanConfirmPending] = createSignal(false)
-  // confirm-plan 发送时的界面显示文本（仅显示指令，不显示方案内容）
-  let _confirmPlanDisplayText: string | undefined
 
   // Phase 2 异步检测子 session 期间阻止 banner 闪现（跨重启恢复时的过渡状态）
   const [phase2Pending, setPhase2Pending] = createSignal(false)
@@ -1950,7 +1948,7 @@ const sessionMessagesLoaded = createMemo(() => {
         }
       } else {
         // 无 Skill 时走普通 prompt；避免确认消息被 command 分支误拆。
-        _confirmPlanDisplayText = cmd
+        // displayText 已写入 part metadata，渲染端从同步回来的 part 读取。
         await sdk.client.session.prompt({
           sessionID: mainSid,
           agent: "octo_make",
@@ -2002,7 +2000,6 @@ const sessionMessagesLoaded = createMemo(() => {
     setResultViewMode("files")
     setPlanPhaseMap(prev => ({ ...prev, [params.id!]: "strategy" }))
     setSending(false)
-    _confirmPlanDisplayText = undefined
     // 提前退出规划时保留 Skill 暂存，只有确认成功后才清理。
     // 这样重新进入规划时可继续将当前方案与原 Skill 一起交接。
     setPlanEndedMap(prev => ({ ...prev, [params.id!]: true }))
@@ -2287,8 +2284,6 @@ const sessionMessagesLoaded = createMemo(() => {
           setActivePlanSessionId(null)
           setPlanParentSessionId(null)
           clearPlanComposerCapsule()
-          // 清除残留的 confirm-plan 显示文本，防止泄漏到新会话
-          _confirmPlanDisplayText = undefined
           setChildSessionIDs(new Set<string>())
           loadedChildSessions.clear()
           setPlanChildSessionIDs(new Set<string>())
@@ -2354,8 +2349,6 @@ const sessionMessagesLoaded = createMemo(() => {
         setActivePlanSessionId(null)
         setPlanParentSessionId(null)
         clearPlanComposerCapsule()
-        // 清除残留的 confirm-plan 显示文本，防止泄漏到新会话
-        _confirmPlanDisplayText = undefined
         setPlanChildSessionIDs(new Set<string>())
         setHasChildPlanSession(false)
         setResultViewMode("files")
@@ -3084,8 +3077,7 @@ const sessionMessagesLoaded = createMemo(() => {
 
       // Store display text for rendering (user's visible text with @mentions)
       const hasMentions = selections.length > 0
-      const userDisplayText = _confirmPlanDisplayText ?? (hasMentions ? displayText : undefined)
-      _confirmPlanDisplayText = undefined
+      const userDisplayText = hasMentions ? displayText : undefined
 
       let promptText = processedText
 
@@ -5131,36 +5123,6 @@ onPreview={(url) => {
 
               {/* 输入区 */}
               <div class="shrink-0 relative" style={{ padding: "24px", background: "#fff" }}>
-
-                  <Show when={contextSendBlocked() && contextLimit()}>
-                    {(limit) => (
-                      <div class="make-context-warning-wrap">
-                        <ContextOverflowNotice
-                          class="w-full"
-                          tokens={contextTokens()}
-                          limit={limit()}
-                          locale={language.intl()}
-                          disabled={contextCompactionDisabled()}
-                          onCompact={confirmCompactContext}
-                        />
-                      </div>
-                    )}
-                  </Show>
-
-                  <Show when={contextWarningVisible() && contextLimit()}>
-                    {(limit) => (
-                      <div class="make-context-warning-wrap">
-                        <ContextUsageWarning
-                          tokens={contextTokens()}
-                          limit={limit()}
-                          locale={language.intl()}
-                          disabled={contextCompactionDisabled()}
-                          onIgnore={() => setIgnoredContextWarningSession(params.id)}
-                          onCompact={confirmCompactContext}
-                        />
-                      </div>
-                    )}
-                  </Show>
 
                   <Show when={contextSendBlocked() && contextLimit()}>
                     {(limit) => (

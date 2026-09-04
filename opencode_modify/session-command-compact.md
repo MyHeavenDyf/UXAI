@@ -199,6 +199,14 @@ synthetic 的选择依据：make 页 `userText()` 取第一个 text part（不�
 - `bun run --cwd packages/opencode typecheck`、`bun run --cwd packages/app typecheck` 均通过。
 - `bun run --cwd packages/opencode test test/session/prompt.test.ts` compact 相关 6 用例全过（新增 "compact command with arguments echoes them in the compaction text part"，并在既有用例中断言 text part 内容 `/compact`、`/summarize` 及 `synthetic: true`）。
 
+## 追加：/compact 超时/中断兜底（2026-09-04）
+
+实测发现：模型超时/中断时 processor 可能未产出 summary 消息就抛出错误，`assistantMsgs()` 为空 → `compacted()` 与 `compactionFailed()` 都为 false → pill 永远卡在"正在压缩上下文…"。
+
+新增 `compactionStalled` memo（`!compacted && !compactionFailed && (!isLatestTurn() || !props.active)`）：当压缩 turn 已不活跃（后续有新 user message、或 session 已 idle）但既未成功也无 error 标记时，兜底显示黄色"上下文压缩未完成（可能已超时或中断）"提示块。
+
+优先级链（互斥）：compacted → compactionFailed → compactionStalled → pill。
+
 ## 本次涉及文件
 
 - `packages/opencode/src/session/compaction.ts`（Interface + create() 加 message 参数、synthetic text part）
