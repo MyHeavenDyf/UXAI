@@ -45,9 +45,12 @@ console.log(`Loaded ${migrations.length} migrations`)
 
 // Generate skills.json from built-in skills
 const skillsDir = path.join(dir, "src", "agent", "skills")
+const INTERNAL_SKILL_DIRS = new Set(["spreadsheets"])
 const skillEntries: Record<string, { description: string; import: boolean; type: string }> = {}
 if (fs.existsSync(skillsDir)) {
-  const skillFiles = fs.globSync("**/SKILL.md", { cwd: skillsDir })
+  const skillFiles = fs
+    .globSync("**/SKILL.md", { cwd: skillsDir })
+    .filter((relPath) => !INTERNAL_SKILL_DIRS.has(path.basename(path.dirname(relPath))))
   for (const relPath of skillFiles) {
     const fullPath = path.join(skillsDir, relPath)
     const content = fs.readFileSync(fullPath, "utf-8")
@@ -69,8 +72,11 @@ console.log(`Generated skills.json with ${Object.keys(skillEntries).length} skil
 // Copy built-in skills to dist/node/skill/ (flattened structure)
 const distSkillDir = path.join(dir, "dist", "node", "skill")
 fs.mkdirSync(distSkillDir, { recursive: true })
+INTERNAL_SKILL_DIRS.forEach((skillDir) => fs.rmSync(path.join(distSkillDir, skillDir), { recursive: true, force: true }))
 if (fs.existsSync(skillsDir)) {
-  const skillFiles = fs.globSync("**/SKILL.md", { cwd: skillsDir })
+  const skillFiles = fs
+    .globSync("**/SKILL.md", { cwd: skillsDir })
+    .filter((relPath) => !INTERNAL_SKILL_DIRS.has(path.basename(path.dirname(relPath))))
   for (const relPath of skillFiles) {
     const skillSourceDir = path.dirname(path.join(skillsDir, relPath))
     const skillName = path.basename(skillSourceDir)

@@ -288,7 +288,8 @@ async function extractXlsx(buf: Buffer) {
       const cells: string[] = []
       // cell.text 已把公式结果 / 日期 / 富文本统一成显示文本;TSV 一行一记录。
       row.eachCell({ includeEmpty: true }, (cell) => cells.push(cell.text ?? ""))
-      rows.push(cells.join("\t").trimEnd())
+      // ExcelJS 仍会枚举空字符串、结果为 "" 的公式行；只统计实际显示了内容的行。
+      if (cells.some((cell) => cell.trim() !== "")) rows.push(cells.join("\t").trimEnd())
     })
     parts.push(`# 工作表:${sheet.name}\n<!-- non_empty_rows: ${rows.length} -->\n${rows.join("\n")}`)
     worksheetRows.push({ name: sheet.name, nonEmptyRows: rows.length })

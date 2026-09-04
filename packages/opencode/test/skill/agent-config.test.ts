@@ -98,7 +98,7 @@ description: ${s.desc}
 }
 
 describe("skill agentConfig with skill_config.json", () => {
-  test("internal spreadsheets skill is available only to octo_insight without skills page config", async () => {
+  test("project spreadsheets directory does not bypass agentConfig", async () => {
     const { ctx, cleanup } = await setupTest([
       { dirName: "spreadsheets", name: "spreadsheets", desc: "Spreadsheet analysis skill" },
     ])
@@ -116,7 +116,7 @@ describe("skill agentConfig with skill_config.json", () => {
       await runtime.runPromise(
         Effect.gen(function* () {
           const skill = yield* Skill.Service
-          expect((yield* skill.available(makeAgent("octo_insight"))).map((item) => item.name)).toContain(
+          expect((yield* skill.available(makeAgent("octo_insight"))).map((item) => item.name)).not.toContain(
             "spreadsheets",
           )
           expect((yield* skill.available(makeAgent("octo_make"))).map((item) => item.name)).not.toContain(

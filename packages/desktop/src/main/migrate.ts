@@ -198,11 +198,12 @@ export function deployBuiltinSkills() {
     mkdirSync(octoSkillDir, { recursive: true })
     for (const skillDir of readdirSync(builtinSource, { withFileTypes: true })) {
       if (!skillDir.isDirectory()) continue
+      // spreadsheets 由 extract_document 静态嵌入，不部署到用户维护的 skill 目录。
+      // 同名目录可能是用户自定义技能，必须完整保留。
+      if (skillDir.name === "spreadsheets") continue
       const dest = join(octoSkillDir, skillDir.name)
-      // spreadsheets 是 Insight 的内部运行时规则，不是用户维护的 /skills 配置；升级后必须刷新，
-      // 否则安装包已有新规则、~/.config/octo/skill 仍会永久停留在旧版本。
-      if (!existsSync(dest) || skillDir.name === "spreadsheets") {
-        cpSync(join(builtinSource, skillDir.name), dest, { recursive: true, force: true })
+      if (!existsSync(dest)) {
+        cpSync(join(builtinSource, skillDir.name), dest, { recursive: true })
         log.log("builtin skills deployment: copied", skillDir.name, "to", dest)
       }
     }

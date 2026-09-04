@@ -239,6 +239,26 @@ describe("extract_document", () => {
     }),
   )
 
+  it.live("xlsx: 空字符串和显示为空的公式不计入非空行", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const file = path.join(dir, "display-empty-rows.xlsx")
+      const { default: ExcelJS } = yield* Effect.promise(() => import("exceljs"))
+      const workbook = new ExcelJS.Workbook()
+      const sheet = workbook.addWorksheet("记录")
+      sheet.addRow(["名称"])
+      sheet.addRow([""])
+      sheet.addRow([{ formula: "A99", result: "" }])
+      sheet.addRow(["有效记录"])
+      yield* Effect.promise(() => workbook.xlsx.writeFile(file))
+
+      const result = yield* runIn(dir, file)
+
+      expect(result.output).toContain("<!-- non_empty_rows: 2 -->")
+      expect(result.metadata.worksheetRows).toEqual([{ name: "记录", nonEmptyRows: 2 }])
+    }),
+  )
+
   it.live("pptx: 按页分节,含备注与 XML 实体解码", () =>
     Effect.gen(function* () {
       const result = yield* run(path.join(FIXTURES, "sample.pptx"))
