@@ -4,6 +4,7 @@ import { DateTime } from "luxon"
 import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } from "remeda"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { useGlobalSync } from "@/context/global-sync"
 import { Persist, persisted } from "@/utils/persist"
 
 export type ModelKey = { providerID: string; modelID: string }
@@ -26,13 +27,14 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
   name: "Models",
   init: () => {
     const globalSDK = useGlobalSDK()
+    const globalSync = useGlobalSync()
     const loadApiModels = async () => {
       const result = await globalSDK.client.provider.list()
       if (result.error) throw result.error
       if (!result.data) throw new Error("Provider list response is empty")
       return result.data
     }
-    const [apiModels, { mutate: setApiModels }] = createResource(loadApiModels)
+    const [apiModels, { refetch: refetchApiModels }] = createResource(loadApiModels)
     const [refreshing, setRefreshing] = createSignal(false)
     const [refreshError, setRefreshError] = createSignal<unknown>()
 
@@ -41,7 +43,14 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       setRefreshing(true)
       setRefreshError(undefined)
       try {
-        setApiModels(await loadApiModels())
+        const result = await refetchApiModels()
+        globalSync.invalidateProviders()
+        console.log("[models] refreshed provider catalog", {
+          providers: result?.all.map((provider) => ({
+            id: provider.id,
+            models: Object.keys(provider.models),
+          })),
+        })
       } catch (error) {
         setRefreshError(error)
       } finally {
